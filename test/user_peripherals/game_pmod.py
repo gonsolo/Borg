@@ -36,7 +36,7 @@ async def send_game_data(dut, game_word):
 async def test_project(dut):
     dut._log.info("Start")
     
-    clock = Clock(dut.clk, 15.624, units="ns")
+    clock = Clock(dut.clk, 15.624, unit="ns")
     cocotb.start_soon(clock.start())
 
     tqv = TinyQV(dut, PERIPHERAL_NUM)
