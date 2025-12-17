@@ -732,7 +732,24 @@ module tinyQV_peripherals #(parameter CLOCK_MHZ=64) (
         .data_ready(data_ready_from_user_peri[16])
     );
 
-    tqvp_toivoh_pwl_synth i_user_peri33 (
+//    tqvp_toivoh_pwl_synth i_user_peri33 (
+//        .clk(clk),
+//        .rst_n(rst_n),
+//
+//        .ui_in(ui_in),
+//        .uo_out(uo_out_from_user_peri[17]),
+//
+//        .address(addr_in[5:0]),
+//        .data_in(data_in),
+//
+//        .data_write_n(data_write_n    | {2{~peri_user[17]}}),
+//        .data_read_n(data_read_n_peri | {2{~peri_user[17]}}),
+//
+//        .data_out(data_from_user_peri[17]),
+//        .data_ready(data_ready_from_user_peri[17])
+//    );
+
+    tqvp_full_empty i_user_peri33 (
         .clk(clk),
         .rst_n(rst_n),
 

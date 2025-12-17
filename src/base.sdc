@@ -31,4 +31,4 @@ set_output_delay -clock [get_clocks $::env(CLOCK_PORT)] -min 1 {uo_out}
 set_output_delay -clock [get_clocks $::env(CLOCK_PORT)] -max 1 {uo_out}
 
 # User peripheral SDC files
-read_sdc src/user_peripherals/pwl_synth/pwl_synth.sdc
+#read_sdc src/user_peripherals/pwl_synth/pwl_synth.sdc

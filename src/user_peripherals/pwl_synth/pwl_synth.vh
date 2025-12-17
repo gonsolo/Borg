@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Toivo Henningsson
  * SPDX-License-Identifier: Apache-2.0
  */
-
+/*
 `define USE_NEW_REGMAP
 `ifdef USE_NEW_REGMAP
 `define USE_NEW_REGMAP_B // only takes effect if USE_NEW_REGMAP is enabled
@@ -256,3 +256,4 @@
 `else
 `define INTERFACE_REGISTER_SHIFT 0
 `endif
+*/
