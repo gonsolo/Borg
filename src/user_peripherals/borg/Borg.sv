@@ -43,213 +43,57 @@
     `define INIT_RANDOM_PROLOG_
   `endif // RANDOMIZE
 `endif // not def INIT_RANDOM_PROLOG_
-module Borg(	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-  input         clock,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-                reset,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-  input  [7:0]  io_ui_in,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:10:16
-  output [7:0]  io_uo_out,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:10:16
-  input  [5:0]  io_address,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:10:16
-  input  [31:0] io_data_in,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:10:16
-  input  [1:0]  io_data_write_n,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:10:16
-                io_data_read_n,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:10:16
-  output [31:0] io_data_out,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:10:16
-  output        io_data_ready,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:10:16
-                io_user_interrupt	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:10:16
+module Borg(	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+  input         clock,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+                reset,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+  input  [5:0]  io_address,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:7:16
+  input  [31:0] io_data_in,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:7:16
+  input  [1:0]  io_data_write_n,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:7:16
+                io_data_read_n,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:7:16
+  output [31:0] io_data_out,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:7:16
+  output        io_data_ready,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:7:16
+  input  [7:0]  io_ui_in,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:7:16
+  output [7:0]  io_uo_out,	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:7:16
+  output        io_user_interrupt	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:7:16
 );
 
-  wire [32:0] _float_adder_io_out;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:43:29
-  reg  [31:0] operand_A_bits;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:22:33
-  reg  [31:0] operand_B_bits;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:23:33
-  wire        recFN_A_rawIn_isZeroExpIn = operand_A_bits[30:23] == 8'h0;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:22:33, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromFN.scala:45:19, :48:30
-  wire [4:0]  recFN_A_rawIn_normDist =
-    operand_A_bits[22]
-      ? 5'h0
-      : operand_A_bits[21]
-          ? 5'h1
-          : operand_A_bits[20]
-              ? 5'h2
-              : operand_A_bits[19]
-                  ? 5'h3
-                  : operand_A_bits[18]
-                      ? 5'h4
-                      : operand_A_bits[17]
-                          ? 5'h5
-                          : operand_A_bits[16]
-                              ? 5'h6
-                              : operand_A_bits[15]
-                                  ? 5'h7
-                                  : operand_A_bits[14]
-                                      ? 5'h8
-                                      : operand_A_bits[13]
-                                          ? 5'h9
-                                          : operand_A_bits[12]
-                                              ? 5'hA
-                                              : operand_A_bits[11]
-                                                  ? 5'hB
-                                                  : operand_A_bits[10]
-                                                      ? 5'hC
-                                                      : operand_A_bits[9]
-                                                          ? 5'hD
-                                                          : operand_A_bits[8]
-                                                              ? 5'hE
-                                                              : operand_A_bits[7]
-                                                                  ? 5'hF
-                                                                  : operand_A_bits[6]
-                                                                      ? 5'h10
-                                                                      : operand_A_bits[5]
-                                                                          ? 5'h11
-                                                                          : operand_A_bits[4]
-                                                                              ? 5'h12
-                                                                              : operand_A_bits[3]
-                                                                                  ? 5'h13
-                                                                                  : operand_A_bits[2]
-                                                                                      ? 5'h14
-                                                                                      : operand_A_bits[1]
-                                                                                          ? 5'h15
-                                                                                          : 5'h16;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:22:33, home/gonsolo/work/borg_peripheral/borg/src/primitives.scala:91:52, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromFN.scala:46:21, src/main/scala/chisel3/util/Mux.scala:58:84
-  wire [53:0] _recFN_A_rawIn_subnormFract_T =
-    {31'h0, operand_A_bits[22:0]} << recFN_A_rawIn_normDist;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:22:33, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromFN.scala:46:21, :52:33, src/main/scala/chisel3/util/Mux.scala:58:84
-  wire [8:0]  _recFN_A_rawIn_adjustedExp_T_4 =
-    (recFN_A_rawIn_isZeroExpIn
-       ? {4'hF, ~recFN_A_rawIn_normDist}
-       : {1'h0, operand_A_bits[30:23]})
-    + {7'h20, recFN_A_rawIn_isZeroExpIn ? 2'h2 : 2'h1};	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7, :22:33, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromFN.scala:45:19, :48:30, :54:10, :55:18, :57:9, :58:14, src/main/scala/chisel3/util/Mux.scala:58:84
-  wire [2:0]  _recFN_A_T_1 =
-    recFN_A_rawIn_isZeroExpIn & ~(|(operand_A_bits[22:0]))
-      ? 3'h0
-      : _recFN_A_rawIn_adjustedExp_T_4[8:6];	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:22:33, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromFN.scala:46:21, :48:30, :49:34, :57:9, :60:30, home/gonsolo/work/borg_peripheral/borg/src/recFNFromFN.scala:48:{15,50}
-  wire        recFN_B_rawIn_isZeroExpIn = operand_B_bits[30:23] == 8'h0;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:23:33, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromFN.scala:45:19, :48:30
-  wire [4:0]  recFN_B_rawIn_normDist =
-    operand_B_bits[22]
-      ? 5'h0
-      : operand_B_bits[21]
-          ? 5'h1
-          : operand_B_bits[20]
-              ? 5'h2
-              : operand_B_bits[19]
-                  ? 5'h3
-                  : operand_B_bits[18]
-                      ? 5'h4
-                      : operand_B_bits[17]
-                          ? 5'h5
-                          : operand_B_bits[16]
-                              ? 5'h6
-                              : operand_B_bits[15]
-                                  ? 5'h7
-                                  : operand_B_bits[14]
-                                      ? 5'h8
-                                      : operand_B_bits[13]
-                                          ? 5'h9
-                                          : operand_B_bits[12]
-                                              ? 5'hA
-                                              : operand_B_bits[11]
-                                                  ? 5'hB
-                                                  : operand_B_bits[10]
-                                                      ? 5'hC
-                                                      : operand_B_bits[9]
-                                                          ? 5'hD
-                                                          : operand_B_bits[8]
-                                                              ? 5'hE
-                                                              : operand_B_bits[7]
-                                                                  ? 5'hF
-                                                                  : operand_B_bits[6]
-                                                                      ? 5'h10
-                                                                      : operand_B_bits[5]
-                                                                          ? 5'h11
-                                                                          : operand_B_bits[4]
-                                                                              ? 5'h12
-                                                                              : operand_B_bits[3]
-                                                                                  ? 5'h13
-                                                                                  : operand_B_bits[2]
-                                                                                      ? 5'h14
-                                                                                      : operand_B_bits[1]
-                                                                                          ? 5'h15
-                                                                                          : 5'h16;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:23:33, home/gonsolo/work/borg_peripheral/borg/src/primitives.scala:91:52, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromFN.scala:46:21, src/main/scala/chisel3/util/Mux.scala:58:84
-  wire [53:0] _recFN_B_rawIn_subnormFract_T =
-    {31'h0, operand_B_bits[22:0]} << recFN_B_rawIn_normDist;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:23:33, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromFN.scala:46:21, :52:33, src/main/scala/chisel3/util/Mux.scala:58:84
-  wire [8:0]  _recFN_B_rawIn_adjustedExp_T_4 =
-    (recFN_B_rawIn_isZeroExpIn
-       ? {4'hF, ~recFN_B_rawIn_normDist}
-       : {1'h0, operand_B_bits[30:23]})
-    + {7'h20, recFN_B_rawIn_isZeroExpIn ? 2'h2 : 2'h1};	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7, :23:33, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromFN.scala:45:19, :48:30, :54:10, :55:18, :57:9, :58:14, src/main/scala/chisel3/util/Mux.scala:58:84
-  wire [2:0]  _recFN_B_T_1 =
-    recFN_B_rawIn_isZeroExpIn & ~(|(operand_B_bits[22:0]))
-      ? 3'h0
-      : _recFN_B_rawIn_adjustedExp_T_4[8:6];	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:23:33, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromFN.scala:46:21, :48:30, :49:34, :57:9, :60:30, home/gonsolo/work/borg_peripheral/borg/src/recFNFromFN.scala:48:{15,50}
-  wire        result_bits_rawIn_isInf =
-    (&(_float_adder_io_out[31:30])) & ~(_float_adder_io_out[29]);	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:43:29, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromRecFN.scala:51:21, :53:{28,53}, :56:41, :57:{33,36}
-  wire        result_bits_isSubnormal =
-    $signed({1'h0, _float_adder_io_out[31:23]}) < 10'sh82;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7, :43:29, home/gonsolo/work/borg_peripheral/borg/src/fNFromRecFN.scala:51:38, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromRecFN.scala:51:21, :60:27
-  wire [23:0] _result_bits_denormFract_T_1 =
-    {1'h0, |(_float_adder_io_out[31:29]), _float_adder_io_out[22:1]} >> 5'h1
-    - _float_adder_io_out[27:23];	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7, :43:29, home/gonsolo/work/borg_peripheral/borg/src/fNFromRecFN.scala:52:{35,47}, :53:{38,42}, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromRecFN.scala:51:21, :52:{28,53}
-  wire        is_write = io_data_write_n == 2'h2;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7, :29:36
-  always @(posedge clock) begin	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-    if (reset) begin	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-      operand_A_bits <= 32'h0;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:22:33
-      operand_B_bits <= 32'h0;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:22:33, :23:33
-    end
-    else begin	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-      if (is_write & ~(|io_address))	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:22:33, :29:36, :31:21, :32:{26,38}, :33:28
-        operand_A_bits <= io_data_in;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:22:33
-      if (is_write & (|io_address) & io_address == 6'h4)	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:23:33, :29:36, :31:21, :32:{26,38}, :35:{31,43}
-        operand_B_bits <= io_data_in;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:23:33
-    end
+  reg  [31:0] reg_value;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:21:28
+  wire        is_writing = io_data_write_n == 2'h2;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7, :24:38
+  reg  [31:0] result_to_read;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:34:33
+  reg         read_ready;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:37:29
+  always @(posedge clock) begin	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+    if (reset)	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+      reg_value <= 32'h0;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:21:28
+    else if (is_writing & io_address == 6'h0)	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:24:38, :28:{21,35}
+      reg_value <= io_data_in;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:21:28
+    result_to_read <= reg_value + 32'h1;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:21:28, :34:{33,44}
+    read_ready <= io_data_read_n == 2'h2;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7, :25:37, :37:29
   end // always @(posedge)
-  `ifdef ENABLE_INITIAL_REG_	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-    `ifdef FIRRTL_BEFORE_INITIAL	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-      `FIRRTL_BEFORE_INITIAL	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
+  `ifdef ENABLE_INITIAL_REG_	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+    `ifdef FIRRTL_BEFORE_INITIAL	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+      `FIRRTL_BEFORE_INITIAL	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
     `endif // FIRRTL_BEFORE_INITIAL
-    logic [31:0] _RANDOM[0:1];	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-    initial begin	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-      `ifdef INIT_RANDOM_PROLOG_	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-        `INIT_RANDOM_PROLOG_	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
+    logic [31:0] _RANDOM[0:2];	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+    initial begin	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+      `ifdef INIT_RANDOM_PROLOG_	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+        `INIT_RANDOM_PROLOG_	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
       `endif // INIT_RANDOM_PROLOG_
-      `ifdef RANDOMIZE_REG_INIT	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-        for (logic [1:0] i = 2'h0; i < 2'h2; i += 2'h1) begin
-          _RANDOM[i[0]] = `RANDOM;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-        end	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-        operand_A_bits = _RANDOM[1'h0];	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7, :22:33
-        operand_B_bits = _RANDOM[1'h1];	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7, :23:33
+      `ifdef RANDOMIZE_REG_INIT	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+        for (logic [1:0] i = 2'h0; i < 2'h3; i += 2'h1) begin
+          _RANDOM[i] = `RANDOM;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+        end	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+        reg_value = _RANDOM[2'h0];	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7, :21:28
+        result_to_read = _RANDOM[2'h1];	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7, :34:33
+        read_ready = _RANDOM[2'h2][0];	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7, :37:29
       `endif // RANDOMIZE_REG_INIT
     end // initial
-    `ifdef FIRRTL_AFTER_INITIAL	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-      `FIRRTL_AFTER_INITIAL	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
+    `ifdef FIRRTL_AFTER_INITIAL	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
+      `FIRRTL_AFTER_INITIAL	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7
     `endif // FIRRTL_AFTER_INITIAL
   `endif // ENABLE_INITIAL_REG_
-  AddRecFN float_adder (	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:43:29
-    .io_a
-      ({operand_A_bits[31],
-        _recFN_A_T_1[2:1],
-        _recFN_A_T_1[0] | (&(_recFN_A_rawIn_adjustedExp_T_4[8:7]))
-          & (|(operand_A_bits[22:0])),
-        _recFN_A_rawIn_adjustedExp_T_4[5:0],
-        recFN_A_rawIn_isZeroExpIn
-          ? {_recFN_A_rawIn_subnormFract_T[21:0], 1'h0}
-          : operand_A_bits[22:0]}),	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7, :22:33, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromFN.scala:44:18, :46:21, :48:30, :49:34, :52:{33,46,64}, :57:9, :61:{32,57}, :64:28, :70:33, home/gonsolo/work/borg_peripheral/borg/src/recFNFromFN.scala:48:{15,76}, :50:{23,41}
-    .io_b
-      ({operand_B_bits[31],
-        _recFN_B_T_1[2:1],
-        _recFN_B_T_1[0] | (&(_recFN_B_rawIn_adjustedExp_T_4[8:7]))
-          & (|(operand_B_bits[22:0])),
-        _recFN_B_rawIn_adjustedExp_T_4[5:0],
-        recFN_B_rawIn_isZeroExpIn
-          ? {_recFN_B_rawIn_subnormFract_T[21:0], 1'h0}
-          : operand_B_bits[22:0]}),	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7, :23:33, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromFN.scala:44:18, :46:21, :48:30, :49:34, :52:{33,46,64}, :57:9, :61:{32,57}, :64:28, :70:33, home/gonsolo/work/borg_peripheral/borg/src/recFNFromFN.scala:48:{15,76}, :50:{23,41}
-    .io_out (_float_adder_io_out)
-  );	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:43:29
-  assign io_uo_out = 8'h0;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-  assign io_data_out =
-    io_address == 6'h8
-      ? {_float_adder_io_out[32],
-         (result_bits_isSubnormal ? 8'h0 : _float_adder_io_out[30:23] + 8'h7F)
-           | {8{(&(_float_adder_io_out[31:30])) & _float_adder_io_out[29]
-                  | result_bits_rawIn_isInf}},
-         result_bits_isSubnormal
-           ? _result_bits_denormFract_T_1[22:0]
-           : result_bits_rawIn_isInf ? 23'h0 : _float_adder_io_out[22:0]}
-      : io_address == 6'h4 ? operand_B_bits : (|io_address) ? 32'h0 : operand_A_bits;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7, :22:33, :23:33, :32:26, :35:31, :43:29, :54:53, home/gonsolo/work/borg_peripheral/borg/src/fNFromRecFN.scala:51:38, :53:{42,60}, :56:16, :58:{27,45}, :60:{15,21,44}, :62:16, :64:20, :66:12, home/gonsolo/work/borg_peripheral/borg/src/rawFloatFromRecFN.scala:51:21, :53:{28,53}, :56:{33,41}, :57:33, :59:25, :61:49
-  assign io_data_ready = 1'h1;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
-  assign io_user_interrupt = 1'h0;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:9:7
+  assign io_data_out = result_to_read;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7, :34:33
+  assign io_data_ready = is_writing | read_ready;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7, :24:38, :37:29, :38:33
+  assign io_uo_out = 8'h0;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7, :43:15
+  assign io_user_interrupt = 1'h0;	// home/gonsolo/work/borg_peripheral/borg/src/Borg.scala:6:7, :28:35
 endmodule
 

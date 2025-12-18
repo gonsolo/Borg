@@ -870,7 +870,7 @@ module tinyQV_peripherals #(parameter CLOCK_MHZ=64) (
 
     Borg i_user_peri39 (
         .clock(clk),
-        .reset(rst_n),
+        .reset(!rst_n),
 
         .io_ui_in(ui_in),
         .io_uo_out(uo_out_from_user_peri[23]),
