@@ -1,5 +1,7 @@
 all:
-	# First, generate all SystemVerilog files from the submodule.
+	# Run tests in peripheral
+	make -C borg_peripheral borg_test tt_test
+	# Generate all SystemVerilog files from the submodule.
 	make -C borg_peripheral generate_verilog
-	# Then test it.
+	# Run tests here
 	make -C test -B borg.test
