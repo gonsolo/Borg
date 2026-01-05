@@ -8,3 +8,7 @@ The Makefile does the following:
 2. Generate all SystemVerilog files from the submodule.
 3. Run tests in this small SOC.
 	
+# Steps to run
+
+1. Clone with ```git clone --recurse-submodules  https://github.com/gonsolo/borg_tinyqv.git```
+2. ```make```
