@@ -1,7 +1,9 @@
-all:
-	# Run tests in peripheral
+all: peripheral_test tt_test
+peripheral_test:
 	make -C borg_peripheral borg_test tt_test
-	# Generate all SystemVerilog files from the submodule.
+generate_verilog:
 	make -C borg_peripheral generate_verilog
-	# Run tests here
+tt_test: generate_verilog
 	make -C test -B borg.test
+tt_docs:
+	./tt/tt_tool.py --create-pdf
