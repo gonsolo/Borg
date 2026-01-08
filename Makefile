@@ -1,3 +1,5 @@
+TT_TOOL := ./tt/tt_tool.py
+
 all: peripheral_test tt_test
 peripheral_test:
 	make -C borg_peripheral borg_test tt_test
@@ -6,4 +8,8 @@ generate_verilog:
 tt_test: generate_verilog
 	make -C test -B borg.test
 tt_docs:
-	./tt/tt_tool.py --create-pdf
+	$(TT_TOOL) --create-pdf
+tt_gds:
+	$(TT_TOOL) --create-user-config --ihp
+	$(TT_TOOL) --harden --ihp
+

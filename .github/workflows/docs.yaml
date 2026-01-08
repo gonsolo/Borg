@@ -1,6 +1,8 @@
 name: docs
 
-on: [push, workflow_dispatch, pull_request]
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   docs:
@@ -23,8 +25,4 @@ jobs:
           path: ${{ github.workspace }}/docs/user_peripherals/index_list.json  # Path and name of the file to be uploaded
 
       - name: Build docs
-        uses: TinyTapeout/tt-gds-action/docs@ttsky25a
-        with:
-          tools-ref: ttsky25a
-
-
+        uses: TinyTapeout/tt-gds-action/docs@ttihp26a

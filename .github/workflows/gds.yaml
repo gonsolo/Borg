@@ -1,6 +1,8 @@
 name: gds
 
-on: [push, workflow_dispatch]
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   gds:
@@ -12,20 +14,17 @@ jobs:
           submodules: recursive
 
       - name: Build GDS
-        uses: TinyTapeout/tt-gds-action@ttsky25a
+        uses: TinyTapeout/tt-gds-action@ttihp26a
         with:
-          pdk: sky130
-          tools-ref: ttsky25a
+          pdk: ihp-sg13g2
+          librelane-version: 3.0.0.dev44
 
   precheck:
     needs: gds
     runs-on: ubuntu-24.04
     steps:
       - name: Run Tiny Tapeout Precheck
-        uses: TinyTapeout/tt-gds-action/precheck@ttsky25a
-        with:
-          pdk: sky130
-          tools-ref: ttsky25a
+        uses: TinyTapeout/tt-gds-action/precheck@ttihp26a
 
   gl_test:
     needs: gds
@@ -81,19 +80,13 @@ jobs:
           submodules: recursive
 
       - name: GL test
-        uses: MichaelBell/tt-gds-action/gl_test@ttsky25a
-        with:
-          pdk: sky130
-          make-targets: ${{ matrix.target }}
+        uses: TinyTapeout/tt-gds-action/gl_test@ttihp26a
 
   viewer:
-    if: github.event_name != 'pull_request'
     needs: gds
     runs-on: ubuntu-24.04
     permissions:
-      pages: write      # to deploy to Pages
-      id-token: write   # to verify the deployment originates from an appropriate source
+      pages: write # to deploy to Pages
+      id-token: write # to verify the deployment originates from an appropriate source
     steps:
-      - uses: TinyTapeout/tt-gds-action/viewer@ttsky25a
-        with:
-          pdk: sky130
+      - uses: TinyTapeout/tt-gds-action/viewer@ttihp26a

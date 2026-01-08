@@ -20,7 +20,6 @@ test/user_peripherals/npu/assets/*ubyte.gz
 *.log
 *.uf2
 gds_render_preview*
-tt/
 tinyqv.json
 !fpga/pico-ice/micropython/hello.bin
 !fpga/pico-ice/micropython/tqv-micropython.bin
