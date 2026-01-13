@@ -67,6 +67,22 @@ jobs:
         shell: bash
         run: pip install -r test/requirements.txt
 
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Install Mill
+        run: |
+          curl -L https://repo1.maven.org/maven2/com/lihaoyi/mill-dist/1.0.6/mill-dist-1.0.6-mill.sh -o mill
+          chmod +x mill
+          mv mill /usr/local/bin
+
+      - name: Generate SystemVerilog
+        shell: bash
+        run: make generate_verilog
+
       - name: Run tests
         run: |
           cd test
