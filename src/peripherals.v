@@ -314,7 +314,7 @@ module tinyQV_peripherals #(parameter CLOCK_MHZ=64) (
         .user_interrupt(user_interrupts[7])
     );
 
-    tqvp_prism i_prism08 (
+    tqvp_full_empty i_prism08 (
         .clk(clk),
         .rst_n(rst_n),
 
