@@ -1,3 +1,5 @@
+![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
+
 # Borg TinyQV - Floating point addition and multiplication
 
 This is a small project testing floating point addition and multiplication
