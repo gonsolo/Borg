@@ -1,7 +1,8 @@
 {
   inputs = {
     #nixpkgs.url = "github:NixOS/nixpkgs/240062ab";
-    nixpkgs.url = "github:gonsolo/nixpkgs/librelane";
+    #nixpkgs.url = "github:gonsolo/nixpkgs/librelane";
+    nixpkgs.url = "github:gonsolo/nixpkgs/riscv-model+librelane";
     alejandra.url = "github:kamadorueda/alejandra/4.0.0";
   };
 
@@ -23,8 +24,9 @@
       p.mistune
       p.pip
       p.pyaml
-      p.requests
       p.pytest
+      p.requests
+      p.riscv-model
 
       pkgs.python3Packages.gdstk
     ]);
