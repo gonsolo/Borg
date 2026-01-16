@@ -12,4 +12,6 @@ tt_docs:
 tt_gds:
 	$(TT_TOOL) --create-user-config --ihp
 	$(TT_TOOL) --harden --ihp
+nix:
+	nix develop --command make peripheral_test
 
