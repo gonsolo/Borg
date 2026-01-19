@@ -13,46 +13,25 @@
 
   "//": "PL_TARGET_DENSITY_PCT - You can increase this if Global Placement fails with error GPL-0302.",
   "//": "Users have reported that values up to 80 worked well for them.",
-  "PL_TARGET_DENSITY_PCT": 64.1,
+  "PL_TARGET_DENSITY_PCT": 60,
 
   "//": "CLOCK_PERIOD - Increase this in case you are getting setup time violations.",
   "//": "The value is in nanoseconds, so 20ns == 50MHz.",
-  "CLOCK_PERIOD": 14.8,
+  "CLOCK_PERIOD": 20,
 
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
-  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.15,
-  "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.1,
-
-  "//": "Setup slack margin",
-  "PL_RESIZER_SETUP_SLACK_MARGIN": 0.17,
-  "GRT_RESIZER_SETUP_SLACK_MARGIN": 0.12,
+  "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
+  "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
 
   "//": "RUN_LINTER, LINTER_INCLUDE_PDK_MODELS - Disabling the linter is not recommended!",
   "RUN_LINTER": 1,
   "LINTER_INCLUDE_PDK_MODELS": 1,
 
-  "//": "Synth strategy",
-  "SYNTH_STRATEGY": "AREA 0",
-
-  "//": "Clock gating",
-  "USE_LIGHTER": 0,
-
-  "//": "SDC Customizations",
-  "FALLBACK_SDC_FILE": "src/base.sdc",
-
-  "//": "Routing tweaks",
-  "DESIGN_REPAIR_MAX_SLEW_PCT": 25,
-  "RUN_HEURISTIC_DIODE_INSERTION": 1,
-  "RUN_ANTENNA_REPAIR": 1,
-  "HEURISTIC_ANTENNA_THRESHOLD": 200,
-  "GRT_ANTENNA_ITERS": 5,
-  "GRT_ANTENNA_MARGIN": 20,
-
   "//": "If you need a custom clock configuration, read the following documentation first:",
   "//": "https://tinytapeout.com/faq/#how-can-i-map-an-additional-external-clock-to-one-of-the-gpios",
   "CLOCK_PORT": "clk",
 
-  "//": "Configuration docs: https://openlane.readthedocs.io/en/latest/reference/configuration.html",
+  "//": "Configuration docs: https://librelane.readthedocs.io/en/latest/reference/configuration.html",
 
   "//": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
   "//": "!!! DO NOT CHANGE ANYTHING BELOW THIS POINT !!!",
@@ -84,9 +63,8 @@
   "//": "Clock",
   "RUN_CTS": 1,
 
-  "//": "Don't use power rings or met5 layer",
+  "//": "Don't generate power rings",
   "FP_PDN_MULTILAYER": 0,
-  "RT_MAX_LAYER": "met4",
 
   "//": "MAGIC_DEF_LABELS may cause issues with LVS",
   "MAGIC_DEF_LABELS": 0,
