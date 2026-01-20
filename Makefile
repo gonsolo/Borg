@@ -17,3 +17,5 @@ nix:
 #	nix develop --command make tt_test
 	nix develop --command make tt_gds
 
+core: generate_verilog
+	make -C test -B core PROG=hello
