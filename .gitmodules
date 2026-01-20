@@ -1,0 +1,9 @@
+[submodule "src/tinyQV"]
+	path = src/tinyQV
+	url = https://github.com/MichaelBell/tinyQV.git
+[submodule "borg_peripheral"]
+	path = borg_peripheral
+	url = git@github.com:gonsolo/borg_peripheral.git
+[submodule "tt"]
+	path = tt
+	url = https://github.com/TinyTapeout/tt-support-tools
