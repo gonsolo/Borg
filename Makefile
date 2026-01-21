@@ -15,8 +15,8 @@ tt_gds:
 nix:
 #	nix develop --ignore-environment --command make peripheral_test
 #	nix develop --ignore-environment --command make tt_test
-	nix develop --ignore-environment --command make tt_docs
-#	nix develop --command make tt_gds
+#	nix develop --ignore-environment --command make tt_docs
+	nix develop --ignore-environment --command make tt_gds
 
 core: generate_verilog
 	make -C test -B core PROG=hello
