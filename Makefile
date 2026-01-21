@@ -18,5 +18,11 @@ nix:
 #	nix develop --ignore-environment --command make tt_docs
 	nix develop --ignore-environment --command make tt_gds
 
+print_stats:
+	./tt/tt_tool.py --print-stats
+
 core: generate_verilog
 	make -C test -B core PROG=hello
+
+.PHONY: all peripheral_test generate_verilog tt_test tt_docs tt_gds nix print_stats core
+
