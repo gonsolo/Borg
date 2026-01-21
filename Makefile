@@ -14,7 +14,8 @@ tt_gds:
 	$(TT_TOOL) --harden --ihp
 nix:
 #	nix develop --ignore-environment --command make peripheral_test
-	nix develop --ignore-environment --command make tt_test
+#	nix develop --ignore-environment --command make tt_test
+	nix develop --ignore-environment --command make tt_docs
 #	nix develop --command make tt_gds
 
 core: generate_verilog
