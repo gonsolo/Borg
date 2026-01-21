@@ -13,16 +13,14 @@ PROG ?= hello
 PROG_FILE ?= $(PROG).hex
 
 # --- 1. AUTOMATIC SOURCE EXTRACTION ---
-# We only include RTL sources if we are NOT doing a Gate-Level simulation.
-# This prevents the "module already declared" error in Icarus Verilog.
+# Only extract RTL from info.yaml if we are NOT in Gate-Level mode.
+# This prevents the "tt_um_tt_tinyQV already declared" error.
 ifneq ($(GATES),yes)
-    # Extracts the source file list from info.yaml to keep things in sync
     YAML_SOURCES = $(shell sed -n '/source_files:/,/pinout:/p' ../info.yaml | grep '\- "' | sed 's/.*"\(.*\)".*/\1/')
     VERILOG_SOURCES += $(addprefix $(SRC_DIR)/,$(YAML_SOURCES))
 endif
 
 # --- 2. TARGET SPECIFIC CONFIGURATION ---
-# We swap the Testbench and Python module based on what we are testing
 ifeq ($(MAKECMDGOALS),core)
     # Core tests: Use QSPI testbench and flash models
     VERILOG_SOURCES += $(PWD)/sim_qspi.v $(PWD)/tb_qspi.v
@@ -33,7 +31,6 @@ else
     # Peripheral tests: Use the standard TinyTapeout testbench
     VERILOG_SOURCES += $(PWD)/tb.v
     TOPLEVEL = tb
-    # Default if no specific module is provided via %.test
     COCOTB_TEST_MODULES ?= test
 endif
 
@@ -41,7 +38,7 @@ endif
 COMPILE_ARGS += -I$(SRC_DIR) -DSIM
 export PYTHONPATH := $(PWD):$(PYTHONPATH)
 
-# Icarus Verilog specific flags (SystemVerilog support)
+# Icarus Verilog specific flags
 ifeq ($(SIM), icarus)
     COMPILE_ARGS += -g2012
 endif
@@ -53,15 +50,19 @@ ifneq ($(GATES),yes)
 else
     # Gate level simulation (IHP PDK)
     SIM_BUILD = sim_build/gl
-    # -DFUNCTIONAL bypasses timing checks that Icarus doesn't support
-    # -DGL_TEST allows the testbench to handle power pins if necessary
+
+    # GL_TEST: Used in tb.v for logic/power wiring
+    # FUNCTIONAL: Required for IHP models to bypass unsupported timing syntax in Icarus
     COMPILE_ARGS += -DGL_TEST -DFUNCTIONAL
+
+    # Note: We do NOT add -DUSE_POWER_PINS here because the error log showed
+    # the netlist module ports do not include VPWR/VGND.
 
     # Include IHP SG13G2 Library Models
     VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13g2/libs.ref/sg13g2_io/verilog/sg13g2_io.v
     VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13g2/libs.ref/sg13g2_stdcell/verilog/sg13g2_stdcell.v
 
-    # Include the synthesized netlist (this replaces the RTL files)
+    # Include the synthesized netlist
     VERILOG_SOURCES += $(PWD)/gate_level_netlist.v
 endif
 
@@ -78,9 +79,7 @@ core:
 %.test:
 	MODULE=user_peripherals.$*.test $(MAKE)
 
-# Debug target to check if YAML sources are being picked up correctly
+# Debug target to verify source lists
 debug_sources:
-	@echo "Detected Source Files from info.yaml:"
-	@echo "$(YAML_SOURCES)"
-	@echo "Final VERILOG_SOURCES list:"
-	@echo "$(VERILOG_SOURCES)"
+	@echo "Detected Source Files from info.yaml: $(YAML_SOURCES)"
+	@echo "Final VERILOG_SOURCES list: $(VERILOG_SOURCES)"
