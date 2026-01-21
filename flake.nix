@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/5d78ec6766f99525b239b5c005972044aa4dae34";
+    nixpkgs.url = "github:NixOS/nixpkgs/8836687c0514974a6f40521fe8e33dae84b981cc";
     alejandra.url = "github:kamadorueda/alejandra/4.0.0";
   };
 
@@ -14,17 +14,18 @@
 
     pythonEnv = pkgs.python313.withPackages (p: [
       p.cairosvg
-      p.cocotb
       p.chevron
+      p.cocotb
+      p.gdstk
       p.gitpython
       p.klayout
       p.matplotlib
       p.mistune
       p.pip
       p.pyaml
-      p.requests
       p.pytest
-      p.gdstk
+      p.requests
+      p.riscv-model
     ]);
   in {
     devShells.${system}.default = pkgs.mkShell {
