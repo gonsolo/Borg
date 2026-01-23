@@ -1,6 +1,6 @@
 TT_TOOL := ./tt/tt_tool.py
 
-all: peripheral_test tt_test tt_docs
+all: peripheral_test tt_test tt_docs tt_gds
 peripheral_test:
 	make -C borg_peripheral borg_test tt_test
 generate_verilog:
