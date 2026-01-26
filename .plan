@@ -1,0 +1,28 @@
+Task 1: Basic FPU on software simulator
+
+The heart of a GPU is a shader processor that processes different kinds of instructions, computational, data access and flow control. Start with the simplest and most common ones: floating-point arithmetic.
+Milestone 	Amount
+1a. Get floating-point multiplication and addition running on a simulator.
+1b. Add cocotb tests for the FPU unit and integrate it into TinyQV, a small RISC-V processor written for Tinytapeout.
+
+Task 2: Basic FPU on FPGA
+
+Get the FPU running on a FPGA. This way it can be tested under a full Linux environment.
+Milestone 	Amount
+2a. Adapt TinyQV's fpga environment to include the FPU.
+2b. Write some small compiler or adapt an existing one to compile a small shader to the instruction set supported by the FPU. At this point it hasn't been decided which compiler to use, if any, candidates are LLVM or the Mesa compiler.
+
+Task 3: Vulkan test suite
+Milestone 	Amount
+3a. Select one of the the Vulkan compute tests from the official test suite. Adapt the Mesa driver to compile it. Write tests to simulate it.
+3b. Run the Vulkan compute test on the FPGA.
+
+Task 4: Rinse and repeat
+Milestone 	Amount
+4a. The full Vulkan Conformance Test Suite (CTS) consists of millions of tests. Expand the number of tests of the Vulkan Compute subsuite that are run successfully.
+4b. Add more Vulkan Compute tests like vertex shaders.
+
+Task 5: Send to Tinytapeout.com to get silicon
+Milestone 	Amount
+5a. On March 23th 2026, the TTIHP26a shuttle for TinyTapeout is scheduled. Prepare and submit it.
+5b. On September 9th 2026, the chips are expected. Receive them and test them.
