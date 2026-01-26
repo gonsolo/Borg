@@ -22,6 +22,7 @@ class BorgDriver:
         self.ADDR_ADD = 8
         self.ADDR_MUL = 12
         self.ADDR_C = 16
+        self.ADDR_INSTR = 60  # NEW: Must match Borg.scala (6-bit addr space)
 
     def float_to_bits(self, f):
         return struct.unpack("<I", struct.pack("<f", np.float32(f)))[0]
@@ -39,6 +40,10 @@ class BorgDriver:
             addr = self.ADDR_C
         await self.tqv.write_word_reg(addr, self.float_to_bits(val))
 
+    async def write_instr(self, instr_bits):
+        """NEW: Writes raw control bits to the instruction register"""
+        await self.tqv.write_word_reg(self.ADDR_INSTR, instr_bits)
+
     async def read_float(self, addr):
         """Reads a 32-bit value from the bus and converts to float"""
         bits = await self.tqv.read_word_reg(addr)
@@ -49,6 +54,7 @@ class BorgDriver:
 
 def load_test_data():
     curr_dir = os.path.dirname(os.path.abspath(__file__))
+    # Path stays the same, pointing to the borg_peripheral shared data
     json_path = os.path.join(
         curr_dir, "..", "..", "..", "borg_peripheral", "data", "test_cases.json"
     )
@@ -64,15 +70,20 @@ async def run_math_test(dut, driver, a, b, epsilon):
     """
     a_32, b_32 = np.float32(a), np.float32(b)
     
-    # 1. Load Operands
+    # 1. Load Operands into RF(0) and RF(1)
     await driver.write_reg(0, a_32)
     await driver.write_reg(1, b_32)
 
-    # 2. Read back results
+    # 2. DISPATCH: Program rs1=0 and rs2=1
+    # Bits 19:15 = rs1, Bits 24:20 = rs2
+    fadd_instr = (1 << 20) | (0 << 15)
+    await driver.write_instr(fadd_instr)
+
+    # 3. Read back results (Hardware math is now combinational)
     add_res = await driver.read_float(driver.ADDR_ADD)
     mul_res = await driver.read_float(driver.ADDR_MUL)
 
-    # 3. Assertions
+    # 4. Assertions
     expected_sum = a_32 + b_32
     expected_mul = a_32 * b_32
     
@@ -81,13 +92,13 @@ async def run_math_test(dut, driver, a, b, epsilon):
     assert abs(mul_res - expected_mul) < epsilon, \
         f"Mul failed: {a_32} * {b_32} = {mul_res} (Exp: {expected_mul})"
 
-    dut._log.info(f"Verified: {a_32} and {b_32} (Add: {add_res}, Mul: {mul_res})")
+    dut._log.info(f"Verified: {a_32:8.2f} & {b_32:8.2f} -> Add: {add_res:8.2f}, Mul: {mul_res:8.2f}")
 
 PERIPHERAL_NUM = 39
 
 @cocotb.test()
 async def test_borg_vulkan_style_math(dut):
-    dut._log.info("Starting Modular Borg Test in TinyQV Integration")
+    dut._log.info("Starting Modular Programmable Borg Test in TinyQV Integration")
 
     test_data = load_test_data()
     clock = Clock(dut.clk, 100, unit="ns")
