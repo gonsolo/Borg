@@ -1,9 +1,9 @@
-Task 1: Basic FPU on software simulator
+Task 1: Basic FPU on software simulator: DONE
 
 The heart of a GPU is a shader processor that processes different kinds of instructions, computational, data access and flow control. Start with the simplest and most common ones: floating-point arithmetic.
 Milestone 	Amount
-1a. Get floating-point multiplication and addition running on a simulator.
-1b. Add cocotb tests for the FPU unit and integrate it into TinyQV, a small RISC-V processor written for Tinytapeout.
+1a. Get floating-point multiplication and addition running on a simulator. DONE
+1b. Add cocotb tests for the FPU unit and integrate it into TinyQV, a small RISC-V processor written for Tinytapeout. DONE
 
 Task 2: Basic FPU on FPGA
 
