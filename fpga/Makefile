@@ -29,6 +29,15 @@ resource_check: yosys.log
 		printf "SB_DFF* (Registers): \t%d \t%.0f%%\n", sum, percent \
 	}'
 
+borg.asc: borg.json
+	nextpnr-ice40 --up5k \
+	              --package sg48 \
+	              --json borg.json \
+	              --pcf pico_ice.pcf \
+	              --asc borg.asc \
+	              --opt-timing \
+	              --freq 64
+
 clean:
 	rm -f borg.json yosys.log
 .PHONY: clean resource_check
