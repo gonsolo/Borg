@@ -21,7 +21,7 @@ borg.asc: borg.json
 
 # 2. Synthesis depends on the actual source files
 borg.json: $(SRC_FILES)
-	yosys -p "read -sv $(SRC_FILES) ; synth_ice40 -abc9 -device u -top tinyQV_top -json borg.json" \
+	yosys -p "read -sv $(SRC_FILES) ; synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json" \
 	-DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
 
 # 3. Resource check depends on the log produced by synthesis
