@@ -15,6 +15,9 @@ SRC_FILES = pico_ice.v \
 MAX_LUTS = 5280
 MAX_DFFS = 5280
 
+run: borg.bin
+	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('hello.bin')"
+
 borg.bin: borg.asc
 	icepack $< $@
 
@@ -43,5 +46,5 @@ resource_check: yosys.log
 clean:
 	rm -f borg.json borg.asc yosys.log
 
-.PHONY: clean resource_check
+.PHONY: clean resource_check run
 
