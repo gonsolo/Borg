@@ -1,6 +1,10 @@
 BORG_DIR = ../src/user_peripherals/borg
 TINYQV_DIR = ../src/tinyQV/cpu
 
+# Hardware limits for the Lattice iCE40UP5K (pico-ice)
+MAX_LUTS = 5280
+MAX_DFFS = 5280
+
 FILES = pico_ice.v \
     ../src/peripherals.v \
     ../src/peri_*.v \
@@ -10,12 +14,17 @@ FILES = pico_ice.v \
     ../src/tinyQV/peri/uart/uart_tx.v \
     ../src/user_peripherals/uart/*.v
 
+borg.asc: borg.json
+	nextpnr-ice40 --up5k \
+	              --package sg48 \
+	              --json borg.json \
+	              --pcf pico_ice.pcf \
+	              --asc borg.asc \
+	              --opt-timing \
+	              --freq 64
+
 borg.json:
 	yosys -p "read -sv $(FILES) ; synth_ice40 -abc9 -device u -top tinyQV_top -json borg.json" -DICE40 -DPURE_RTL -DSYNTH_FPGA  > yosys.log
-
-# Hardware limits for the Lattice iCE40UP5K (pico-ice)
-MAX_LUTS = 5280
-MAX_DFFS = 5280
 
 resource_check: yosys.log
 	@# Process LUTs: $1 is the count in the yosys log
@@ -28,15 +37,6 @@ resource_check: yosys.log
 		percent=(sum/max)*100; \
 		printf "SB_DFF* (Registers): \t%d \t%.0f%%\n", sum, percent \
 	}'
-
-borg.asc: borg.json
-	nextpnr-ice40 --up5k \
-	              --package sg48 \
-	              --json borg.json \
-	              --pcf pico_ice.pcf \
-	              --asc borg.asc \
-	              --opt-timing \
-	              --freq 64
 
 clean:
 	rm -f borg.json yosys.log
