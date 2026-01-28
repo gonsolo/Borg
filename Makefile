@@ -9,8 +9,9 @@ tt_test: generate_verilog
 	make -C test -B borg.test
 tt_docs:
 	$(TT_TOOL) --create-pdf
-tt_gds:
+tt_user_config:
 	$(TT_TOOL) --create-user-config --ihp
+tt_gds: tt_user_config
 	$(TT_TOOL) --harden --ihp
 nix:
 #	nix develop --ignore-environment --command make peripheral_test

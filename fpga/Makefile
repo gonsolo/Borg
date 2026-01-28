@@ -15,16 +15,15 @@ SRC_FILES = pico_ice.v \
 MAX_LUTS = 5280
 MAX_DFFS = 5280
 
-# 1. Place and Route depends on the Synthesis output
 borg.asc: borg.json
-	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --opt-timing --freq 64
+	@echo "--- Running in Fast Mode ---"
+	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --placer heap &> nextpnr.log
+# slow	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --opt-timing --freq 64
 
-# 2. Synthesis depends on the actual source files
 borg.json: $(SRC_FILES)
 	yosys -p "read -sv $(SRC_FILES) ; synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json" \
 	-DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
 
-# 3. Resource check depends on the log produced by synthesis
 resource_check: yosys.log
 	@# Process LUTs: $1 is the count in the yosys log
 	@grep "SB_LUT4" yosys.log | tail -n1 | awk -v max=$(MAX_LUTS) '{ \
