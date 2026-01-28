@@ -1,4 +1,5 @@
-borg.json
-yosys.log
 borg.asc
+borg.bin
+borg.json
 nextpnr.log
+yosys.log

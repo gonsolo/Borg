@@ -15,6 +15,9 @@ SRC_FILES = pico_ice.v \
 MAX_LUTS = 5280
 MAX_DFFS = 5280
 
+borg.bin: borg.asc
+	icepack $< $@
+
 borg.asc: borg.json
 	@echo "--- Running in Fast Mode ---"
 	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --placer heap &> nextpnr.log
