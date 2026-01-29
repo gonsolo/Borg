@@ -10,14 +10,11 @@ tt_test: generate_verilog
 tt_docs:
 	$(TT_TOOL) --create-pdf
 tt_user_config:
-	$(TT_TOOL) --create-user-config --ihp
+	$(TT_TOOL) --create-user-config --ihp --no-docker
 tt_gds: tt_user_config
-	$(TT_TOOL) --harden --ihp
+	$(TT_TOOL) --harden --ihp --no-docker
 nix:
-#	nix develop --ignore-environment --command make peripheral_test
-#	nix develop --ignore-environment --command make tt_test
-#	nix develop --ignore-environment --command make tt_docs
-	nix develop --ignore-environment --command make tt_gds
+	nix develop --ignore-environment --command make all
 
 print_stats:
 	./tt/tt_tool.py --print-stats

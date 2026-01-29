@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/8836687c0514974a6f40521fe8e33dae84b981cc";
+    nixpkgs.url = "github:NixOS/nixpkgs";
     alejandra.url = "github:kamadorueda/alejandra/4.0.0";
   };
 
@@ -82,9 +82,6 @@
 
         # Ensure our shim is at the front of the PATH
         export PATH="$HOME/bin:$PATH"
-
-        #sed -i 's/--dockerized//g' tt/project.py
-        #sed -i 's/--docker-no-tty//g' tt/project.py
       '';
     };
 
