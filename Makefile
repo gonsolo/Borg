@@ -5,8 +5,10 @@ peripheral_test:
 	make -C borg_peripheral borg_test tt_test
 generate_verilog:
 	make -C borg_peripheral generate_verilog
-tt_test: generate_verilog
+tt_test: generate_verilog tt_core_test
 	make -C test -B borg.test
+tt_core_test: generate_verilog
+	make -C test -B core # PROG=hello
 tt_docs:
 	$(TT_TOOL) --create-pdf
 tt_user_config:
@@ -18,9 +20,6 @@ nix:
 
 print_stats:
 	./tt/tt_tool.py --print-stats
-
-core: generate_verilog
-	make -C test -B core PROG=hello
 
 .PHONY: all peripheral_test generate_verilog tt_test tt_docs tt_gds nix print_stats core
 
