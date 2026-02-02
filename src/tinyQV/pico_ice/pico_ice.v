@@ -38,27 +38,27 @@ module tinyQV_top (
     wire       uio_out7;
     
     SB_IO #(
-//		.PIN_TYPE(6'b 1101_00),  // Registered in, out and oe
-		.PIN_TYPE(6'b 1010_01),
-		.PULLUP(1'b 0)
+//        .PIN_TYPE(6'b 1101_00),  // Registered in, out and oe
+        .PIN_TYPE(6'b 1010_01),
+        .PULLUP(1'b 0)
     ) qspi_data [3:0] (
-		.PACKAGE_PIN(sd),
+        .PACKAGE_PIN(sd),
         .OUTPUT_CLK(clk),
         .INPUT_CLK(clk),
-		.OUTPUT_ENABLE(qspi_data_oe),
-		.D_OUT_0(qspi_data_out),
-		.D_IN_0(qspi_data_in)
-	);
+        .OUTPUT_ENABLE(qspi_data_oe),
+        .D_OUT_0(qspi_data_out),
+        .D_IN_0(qspi_data_in)
+    );
     SB_IO #(
-//		.PIN_TYPE(6'b 1001_01),  // Registered out only
-		.PIN_TYPE(6'b 1010_01),
-		.PULLUP(1'b 0)
+//        .PIN_TYPE(6'b 1001_01),  // Registered out only
+        .PIN_TYPE(6'b 1010_01),
+        .PULLUP(1'b 0)
     ) qspi_pins [3:0] (
-		.PACKAGE_PIN({flash_cs, sck, ram_a_cs, ram_b_cs}),
+        .PACKAGE_PIN({flash_cs, sck, ram_a_cs, ram_b_cs}),
         .OUTPUT_CLK(clk),
-		.OUTPUT_ENABLE({4{rst_n}}),
-		.D_OUT_0({qspi_flash_select, qspi_clk_out, qspi_ram_a_select, uio_out7})
-	);
+        .OUTPUT_ENABLE({4{rst_n}}),
+        .D_OUT_0({qspi_flash_select, qspi_clk_out, qspi_ram_a_select, uio_out7})
+    );
 
     wire [27:0] addr;
     wire  [1:0] write_n;
@@ -73,20 +73,20 @@ module tinyQV_top (
     wire        data_ready;
     reg [31:0] data_from_read;
 
-    wire       debug_instr_complete;
-    wire       debug_instr_ready;
-    wire       debug_instr_valid;
-    wire       debug_fetch_restart;
-    wire       debug_data_ready;
-    wire       debug_interrupt_pending;
-    wire       debug_branch;
-    wire       debug_early_branch;
-    wire       debug_ret;
-    wire       debug_reg_wen;
-    wire       debug_counter_0;
-    wire       debug_data_continue;
-    wire       debug_stall_txn;
-    wire       debug_stop_txn;
+    wire        debug_instr_complete;
+    wire        debug_instr_ready;
+    wire        debug_instr_valid;
+    wire        debug_fetch_restart;
+    wire        debug_data_ready;
+    wire        debug_interrupt_pending;
+    wire        debug_branch;
+    wire        debug_early_branch;
+    wire        debug_ret;
+    wire        debug_reg_wen;
+    wire        debug_counter_0;
+    wire        debug_data_continue;
+    wire        debug_stall_txn;
+    wire        debug_stop_txn;
     wire [3:0] debug_rd;
 
     tinyQV i_tinyqv(
@@ -131,18 +131,17 @@ module tinyQV_top (
     );
 
     // Peripheral IOs on ui_in and uo_out
-    wire       spi_miso  = ui_in[2];
-    wire       uart_rxd  = ui_in[7];
+    wire        spi_miso  = ui_in[2];
+    wire        uart_rxd  = ui_in[7];
 
-    wire       spi_cs;
-    wire       spi_sck;
-    wire       spi_mosi;
-    wire       spi_dc;
-    wire       uart_txd;
-    wire       uart_rts;
-    wire       debug_uart_txd;
-    wire       debug_signal;
-    wire       pwm_out;
+    wire        spi_cs;
+    wire        spi_sck;
+    wire        spi_mosi;
+    wire        spi_dc;
+    wire        uart_txd;
+    wire        uart_rts;
+    wire        debug_uart_txd;
+    wire        debug_signal;
     reg  [9:0] gpio_out_sel;
     reg  [7:0] gpio_out;
 
@@ -157,9 +156,8 @@ module tinyQV_top (
     assign uo_out[5] = gpio_out_sel[5] ? gpio_out[5] : 
                        debug_register_data ? debug_rd_r[3] : spi_sck;
     assign uo_out[6] = gpio_out_sel[6] ? gpio_out[6] : debug_uart_txd;
-    assign uo_out[7] = gpio_out_sel[8] ? pwm_out :
-                       gpio_out_sel[7] ? gpio_out[7] : debug_signal;
-    assign uio_out7 = gpio_out_sel[9] ? pwm_out : qspi_ram_b_select;
+    assign uo_out[7] = gpio_out_sel[7] ? gpio_out[7] : debug_signal;
+    assign uio_out7 = qspi_ram_b_select;
 
     // Address to peripheral map
     localparam PERI_NONE = 4'hF;
@@ -172,7 +170,6 @@ module tinyQV_top (
     localparam PERI_DEBUG_UART_STATUS = 4'h7;
     localparam PERI_SPI = 4'h8;
     localparam PERI_SPI_STATUS = 4'h9;
-    localparam PERI_PWM = 4'hA;
     localparam PERI_DEBUG = 4'hC;
 
     reg [3:0] connect_peripheral;
@@ -310,16 +307,6 @@ module tinyQV_top (
         .read_latency_in(data_to_write[2])
     );
 
-    pwm_ctrl i_pwm(
-        .clk(clk),
-        .rstn(rst_reg_n),
-
-        .pwm(pwm_out),
-
-        .level(data_to_write[7:0]),
-        .set_level(connect_peripheral == PERI_PWM && write_n != 2'b11)
-    );    
-
     // Debug
     reg debug_register_data;
     always @(posedge clk) begin
@@ -334,28 +321,6 @@ module tinyQV_top (
         debug_rd_r <= debug_rd;
     end
 
-/*
-    reg [15:0] debug_signals;
-    always @(*) begin
-        debug_signals  = {debug_instr_complete,
-                          debug_instr_ready,
-                          debug_instr_valid,
-                          debug_fetch_restart,
-                          read_n != 2'b11,
-                          write_n != 2'b11,
-                          debug_data_ready,
-                          debug_interrupt_pending,
-                          debug_branch,
-                          debug_early_branch,
-                          debug_ret,
-                          debug_reg_wen,
-                          debug_counter_0,
-                          debug_data_continue,
-                          debug_stall_txn,
-                          debug_stop_txn};
-    end
-    assign debug_signal = debug_signals[ui_in[6:3]];
-*/
     assign debug_signal = 1'b0;
 
 endmodule

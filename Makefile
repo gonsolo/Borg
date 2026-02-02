@@ -16,8 +16,7 @@ tt_user_config:
 tt_gds: tt_user_config
 	$(TT_TOOL) --harden --ihp --no-docker
 nix:
-#	nix develop --ignore-environment --command make all
-	nix develop --ignore-environment --command make tt_gds
+	nix develop --ignore-environment --command make all
 
 print_stats:
 	./tt/tt_tool.py --print-stats
