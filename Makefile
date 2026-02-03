@@ -20,6 +20,8 @@ nix:
 
 print_stats:
 	./tt/tt_tool.py --print-stats
+format:
+	verible-verilog-format --inplace src/peripherals.v
 
-.PHONY: all peripheral_test generate_verilog tt_test tt_docs tt_gds nix print_stats core
+.PHONY: all peripheral_test format generate_verilog tt_test tt_docs tt_gds nix print_stats core
 

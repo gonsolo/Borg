@@ -19,7 +19,7 @@ module tinyQV_top (
         output [7:0] uo_out
 
 );
-    localparam CLOCK_MHZ = 14;
+    localparam CLOCK_MHZ = 4;
 
     // Address to peripheral map
     localparam PERI_NONE = 4'h0;

@@ -1,7 +1,6 @@
 BORG_DIR = ../src/user_peripherals/borg
 TINYQV_DIR = ../src/tinyQV/cpu
 
-# Use $(wildcard) so Make can track individual file changes
 SRC_FILES = pico_ice.v \
             ../src/peripherals.v \
             $(wildcard ../src/peri_*.v) \
@@ -15,19 +14,17 @@ SRC_FILES = pico_ice.v \
 MAX_LUTS = 5280
 MAX_DFFS = 5280
 
+run: burn
+	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('hello.bin')"
+
 burn: borg.bin
 	mpremote mount . + run micropython/fpga_flash_prog.py
-
-#run: borg.bin
-#	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('hello.bin')"
 
 borg.bin: borg.asc
 	icepack $< $@
 
 borg.asc: borg.json
-	@echo "--- Running in Fast Mode ---"
-	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --placer heap &> nextpnr.log
-# slow	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --opt-timing --freq 64
+	./nextpnr.sh -r --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --opt-timing --freq 4 &> nextpnr.log
 
 borg.json: $(SRC_FILES)
 	yosys -p "read -sv $(SRC_FILES) ; synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json" \
