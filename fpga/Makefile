@@ -15,11 +15,11 @@ SRC_FILES = pico_ice.v \
 MAX_LUTS = 5280
 MAX_DFFS = 5280
 
+run:
+	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('hello.bin')"
+
 burn: borg.bin
 	mpremote mount . + run micropython/fpga_flash_prog.py
-
-#run: borg.bin
-#	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('hello.bin')"
 
 borg.bin: borg.asc
 	icepack $< $@
