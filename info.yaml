@@ -1,6 +1,6 @@
 # Tiny Tapeout project information
 project:
-  title:        "Borg - Floating point addition and multiplication"
+  title:        "Borg - Floating point addition"
   author:       "Andreas Wendleder"
   discord:      "gonsolo"
   description:  "A Risc-V SoC with a floating point peripheral"
