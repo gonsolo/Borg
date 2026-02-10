@@ -47,6 +47,7 @@ class BorgDriver:
 
     async def read_result(self):
         """Reads the unified 32-bit result and converts to float"""
+        # Note: TinyQV read_word_reg polls data_ready, handling our 4-cycle pipeline
         bits = await self.tqv.read_word_reg(self.ADDR_RESULT)
         return self.bits_to_float(bits)
 
@@ -56,6 +57,7 @@ class BorgDriver:
 
 def load_test_data():
     curr_dir = os.path.dirname(os.path.abspath(__file__))
+    # Adjust path to find the test vectors in the shared data directory
     json_path = os.path.join(
         curr_dir, "..", "..", "..", "borg_peripheral", "data", "test_cases.json"
     )
@@ -67,7 +69,7 @@ def load_test_data():
 
 async def run_math_test(dut, driver, a, b, epsilon):
     """
-    Executes a single math test case with dual-dispatch.
+    Executes a single math test case (Addition only).
     """
     a_32, b_32 = np.float32(a), np.float32(b)
 
@@ -78,26 +80,19 @@ async def run_math_test(dut, driver, a, b, epsilon):
     # 2. DISPATCH ADD: funct7=0x00, rs2=1, rs1=0
     instr_add = (0x00 << 25) | (1 << 20) | (0 << 15)
     await driver.write_instr(instr_add)
+    
+    # 3. Collect Result (wait handled by driver)
     add_res = await driver.read_result()
-
-    # 3. DISPATCH MUL: funct7=0x08, rs2=1, rs1=0
-    instr_mul = (0x08 << 25) | (1 << 20) | (0 << 15)
-    await driver.write_instr(instr_mul)
-    mul_res = await driver.read_result()
 
     # 4. Assertions
     expected_sum = a_32 + b_32
-    expected_mul = a_32 * b_32
 
     assert (
         abs(add_res - expected_sum) < epsilon
-    ), f"Add failed: {a_32} + {b_32} = {add_res}"
-    assert (
-        abs(mul_res - expected_mul) < epsilon
-    ), f"Mul failed: {a_32} * {b_32} = {mul_res}"
+    ), f"Add failed: {a_32} + {b_32} = {add_res} (Exp: {expected_sum})"
 
     dut._log.info(
-        f"Verified: {a_32:8.2f} & {b_32:8.2f} -> Add: {add_res:8.2f}, Mul: {mul_res:8.2f}"
+        f"Verified: {a_32:8.2f} + {b_32:8.2f} -> Result: {add_res:8.2f}"
     )
 
 
@@ -106,7 +101,7 @@ PERIPHERAL_NUM = 39
 
 @cocotb.test()
 async def test_borg_vulkan_style_math(dut):
-    dut._log.info("Starting Single-Port Borg Test in TinyQV Integration")
+    dut._log.info("Starting Adder-Only Borg Test in TinyQV Integration")
 
     test_data = load_test_data()
     clock = Clock(dut.clk, 100, unit="ns")
@@ -119,9 +114,9 @@ async def test_borg_vulkan_style_math(dut):
     for a, b in test_data["pairs"]:
         await run_math_test(dut, driver, a, b, test_data["epsilon"])
 
-    # Final sanity check on Register A
+    # Final sanity check on Register A to ensure no bus collisions
     read_bits_a = await tqv.read_word_reg(driver.ADDR_A)
     last_val_a = np.float32(test_data["pairs"][-1][0])
     assert read_bits_a == driver.float_to_bits(last_val_a), "Operand A corrupted!"
 
-    dut._log.info("Borg Single-Port Integration Test Passed!")
+    dut._log.info("Borg Adder-Only Integration Test Passed!")

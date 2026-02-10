@@ -8,7 +8,7 @@ project:
   clock_hz:     64000000       # Clock frequency in Hz (or 0 if not applicable)
 
   # How many tiles your design occupies? A single tile is about 167x108 uM.
-  tiles: "6x2"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
+  tiles: "4x2"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
 
   top_module:  "tt_um_tt_tinyQV"
 
@@ -21,9 +21,6 @@ project:
     - "user_peripherals/spi.v"
     - "user_peripherals/borg/AddRawFN.sv"
     - "user_peripherals/borg/AddRecFN.sv"
-    - "user_peripherals/borg/MulFullRawFN.sv"
-    - "user_peripherals/borg/MulRawFN.sv"
-    - "user_peripherals/borg/MulRecFN.sv"
     - "user_peripherals/borg/Borg.sv"
     - "user_peripherals/borg/RoundAnyRawFNToRecFN_ie8_is26_oe8_os24.sv"
     - "user_peripherals/borg/RoundRawFNToRecFN_e8_s24.sv"
