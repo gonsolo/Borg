@@ -27,7 +27,7 @@ jobs:
 
       - name: Generate SystemVerilog
         shell: bash
-        run: make generate_verilog
+        run: make arch_generate_verilog
 
       - name: Build docs
         uses: TinyTapeout/tt-gds-action/docs@ttihp26a

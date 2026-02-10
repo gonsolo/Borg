@@ -37,7 +37,7 @@ jobs:
 
       - name: Generate SystemVerilog
         shell: bash
-        run: make generate_verilog
+        run: make arch_generate_verilog
 
       - name: Run tests
         run: |
