@@ -20,13 +20,13 @@ The prototype based on Firesim can be found in the
 
 ## Borg TinyQV
 
-This is a tiny floating point peripheral within the TinyQV SOC.
+This is a tiny floating point peripheral within the [TinyQV](https://github.com/MichaelBell/tinyQV) SOC.
 
 ## Prerequisites
 
-* Nix
-* Git
-* Make
+* [Nix](https://nixos.org)
+* [Git](https://git-scm.com)
+* [Make](https://www.gnu.org/software/make)
 
 ## Task 1: Basic FPU on software simulator
 
