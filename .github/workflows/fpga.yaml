@@ -33,3 +33,5 @@ jobs:
 
       - name: FPGA bitstream for TT ASIC Sim (ICE40UP5K)
         uses: TinyTapeout/tt-gds-action/fpga/ice40up5k@ttihp26a
+        env:
+          TT_FPGA_FREQ: 4
