@@ -15,5 +15,21 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Install Mill
+        run: |
+          curl -L https://repo1.maven.org/maven2/com/lihaoyi/mill-dist/1.0.6/mill-dist-1.0.6-mill.sh -o mill
+          chmod +x mill
+          mv mill /usr/local/bin
+
+      - name: Generate SystemVerilog
+        shell: bash
+        run: make arch_generate_verilog
+
       - name: FPGA bitstream for TT ASIC Sim (ICE40UP5K)
         uses: TinyTapeout/tt-gds-action/fpga/ice40up5k@ttihp26a
