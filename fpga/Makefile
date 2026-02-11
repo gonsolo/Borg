@@ -15,6 +15,9 @@ SRC_FILES = pico_ice.v \
 MAX_LUTS = 5280
 MAX_DFFS = 5280
 
+# To see something you have to connect to the debug probe in second terminal:
+# tio -b 115200 /dev/ttyACM1
+# And you have to burn first, of course
 run:
 	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('hello.bin')"
 
@@ -26,8 +29,7 @@ borg.bin: borg.asc
 
 borg.asc: borg.json
 	@echo "--- Running in Fast Mode ---"
-	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --placer heap &> nextpnr.log
-# slow	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --opt-timing --freq 64
+	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --opt-timing --freq 4
 
 borg.json: $(SRC_FILES)
 	yosys -p "read -sv $(SRC_FILES) ; synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json" \
@@ -45,9 +47,8 @@ resource_check: yosys.log
 	        printf "SB_DFF* (Registers): \t%d \t%.0f%%\n", sum, percent \
 	}'
 
-
 clean:
-	rm -f borg.json borg.asc yosys.log
+	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log
 
 .PHONY: clean resource_check run
 
