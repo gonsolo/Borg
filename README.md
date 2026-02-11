@@ -4,8 +4,9 @@
 
 ## Foundational workflow for an open-source GPU
 
-The Borg (Bring your Own Graphics) project aims to establish the complete foundational workflow
-for an open-source GPU using entirely free and open Electronic Design Automation (EDA) tools.
+The Borg (scrambled acronym for **B**ring yer **O**wn **GR**aphics) project aims to establish
+the complete foundational workflow for an open-source GPU using entirely free and open
+Electronic Design Automation (EDA) tools.
 Recognizing that full GPU development is highly complex, the initiative capitalizes on recent
 advances in low-cost chip manufacturing to make individual tape-outs feasible for small teams.
 The initial, focused objective is to successfully design, verify, and manufacture a tiny
