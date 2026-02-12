@@ -1,0 +1,75 @@
+MEMORY
+{
+    rom(rx)   : ORIGIN = 0x0,       LENGTH = 0x1000000
+    ram_a(rw) : ORIGIN = 0x1000000, LENGTH = 0x0800000
+    ram_b(rw) : ORIGIN = 0x1800000, LENGTH = 0x0800000
+}
+SECTIONS
+{
+    .boot : { *(.boot) 
+        KEEP (*(.boot)) 
+    } > rom
+    .vectors 0xc0 : {
+        KEEP (*(.vectors))
+    } > rom
+    .srodata : { *(.srodata*) } > rom
+    .early_text : { *(.early_text*) } > rom
+    .text : { *(.text*) } > rom
+    .rodata : { *(.rodata*) } > rom
+
+    .peri : {
+        . = ALIGN(4);
+        __peri_data_start__ = .;
+        *(.peri_data*)
+        . = ALIGN(4);
+        __peri_data_end__ = .;
+        *(.peri_bss*)
+    } > ram_a AT> rom
+    __peri_lma = LOADADDR(.peri);
+
+    /* Used for interrupt context */
+    .scratch 0x1000200 : {
+        . += 0x30;
+    } > ram_a
+
+    .data : { 
+        __data_start_unaligned__ = .;
+        . = ALIGN(16);
+        __data_start__ = .;
+        *(.sdata*) *(.data*) 
+        . = ALIGN(16);
+        __data_end__ = .;
+    } > ram_a AT> rom
+    __data_lma = LOADADDR(.data) + __data_start__ - __data_start_unaligned__;
+
+    .bss (NOLOAD): { 
+        . = ALIGN(16);
+        __bss_start__ = .;
+        *(.sbss*) *(.bss*)
+        . = ALIGN(16);
+        __bss_end__ = .;
+    } > ram_a
+
+    .uninitialized_data (NOLOAD): {
+        . = ALIGN(16);
+        *(.uninitialized_data*)
+
+        /* Interrupt stack */
+        . = ALIGN(16);
+        . += 0x1000;
+        __interrupt_stack_top = .;
+    } > ram_a
+
+    .heap (NOLOAD):
+    {
+        . = ALIGN(4);
+        __HeapStart = .;
+        KEEP(*(.heap*))
+        __HeapLimit = .;
+    } > ram_b
+
+    __global_pointer$ = 0x1000400;
+    __StackTop = ORIGIN(ram_a) + LENGTH(ram_a);
+    __StackLimit = __StackTop - 0x1000;
+    ASSERT(__StackLimit >= __interrupt_stack_top, "region RAM overflowed")
+}

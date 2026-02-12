@@ -16,10 +16,14 @@ MAX_LUTS = 5280
 MAX_DFFS = 5280
 
 # To see something you have to connect to the debug probe in second terminal:
-# tio -b 115200 /dev/ttyACM1
+# tio /dev/ttyACM1
 # And you have to burn first, of course
 run:
-	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('hello.bin')"
+	#mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('hello.bin')"
+	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('gonzo.bin')"
+
+reset:
+	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.run(query=False, stop=False)"
 
 burn: borg.bin
 	mpremote mount . + run micropython/fpga_flash_prog.py
