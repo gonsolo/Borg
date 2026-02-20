@@ -6,6 +6,7 @@
 int a = 3;
 
 int main() {
+  printf("Hello, Gonzo!\n");
   printf("Hello, world!\n");
   printf("Hello %d\n", a);
   a = mul32x16(12, a);
