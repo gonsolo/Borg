@@ -1,5 +1,5 @@
 PROJECT_NAME ?= gonzo
-PROJECT_SOURCES ?= main.c
+PROJECT_SOURCES ?= gonzo.c
 
 RISCV_TOOLCHAIN ?= ./toolchain/tinyQV
 CC = $(RISCV_TOOLCHAIN)/bin/riscv32-unknown-elf-gcc
@@ -11,6 +11,7 @@ OBJCOPY = $(RISCV_TOOLCHAIN)/bin/riscv32-unknown-elf-objcopy
 TINYQV_SDK ?= tinyQV-sdk
 
 all: $(PROJECT_NAME).bin $(PROJECT_NAME).hex
+	cp $(PROJECT_NAME).bin ../micropython/
 
 clean:
 	cd $(dir $(PROJECT_NAME)) && rm *.o *.elf *.bin *.hex
