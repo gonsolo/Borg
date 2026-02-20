@@ -19,6 +19,7 @@ MAX_DFFS = 5280
 # tio /dev/ttyACM1
 # And you have to burn first, of course
 run:
+	make -C hello
 	#mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('hello.bin')"
 	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('gonzo.bin')"
 

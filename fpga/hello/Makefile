@@ -10,16 +10,21 @@ OBJCOPY = $(RISCV_TOOLCHAIN)/bin/riscv32-unknown-elf-objcopy
 
 TINYQV_SDK ?= tinyQV-sdk
 
-all: $(PROJECT_NAME).bin $(PROJECT_NAME).hex
+TEST_JSON = ../../borg_peripheral/data/test_cases.json
+
+all: test_data.h $(PROJECT_NAME).bin $(PROJECT_NAME).hex
 	cp $(PROJECT_NAME).bin ../micropython/
 
+test_data.h: $(TEST_JSON) convert_test_data.py
+	python3 convert_test_data.py
+
 clean:
-	cd $(dir $(PROJECT_NAME)) && rm *.o *.elf *.bin *.hex
+	cd $(dir $(PROJECT_NAME)) && rm *.o *.elf *.bin *.hex test_data.h
 
 $(RISCV_TOOLCHAIN):
 	make -C toolchain
 
-%.o: %.c
+%.o: %.c test_data.h
 	$(CC) -O2 -I$(TINYQV_SDK) -march=rv32ec_zcb -mabi=ilp32e -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -c $< -o $@
 
 %.o: %.s
