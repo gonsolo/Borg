@@ -41,15 +41,19 @@
         pkgs.gnumake
         pkgs.gnused
         pkgs.iverilog
+        pkgs.icestorm
         pkgs.jdk25
         pkgs.klayout
         pkgs.librelane
         pkgs.magic-vlsi
         pkgs.mill
+        pkgs.mpremote
         pkgs.netgen-vlsi
+        pkgs.nextpnr
         pkgs.openroad
         pkgs.pandoc
         pkgs.pkg-config
+        pkgs.tio
         pkgs.typst
         pkgs.verilator
         pkgs.which
