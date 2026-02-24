@@ -1,4 +1,5 @@
-PROJECT_NAME ?= gonzo
+NIX             := nix develop --ignore-environment --command
+PROJECT_NAME 	?= gonzo
 PROJECT_SOURCES ?= gonzo.c
 
 RISCV_TOOLCHAIN ?= ./toolchain/tinyQV
@@ -16,7 +17,7 @@ all: test_data.h $(PROJECT_NAME).bin $(PROJECT_NAME).hex
 	cp $(PROJECT_NAME).bin ../micropython/
 
 test_data.h: $(TEST_JSON) convert_test_data.py
-	python3 convert_test_data.py
+	$(NIX) python convert_test_data.py
 
 clean:
 	cd $(dir $(PROJECT_NAME)) && rm *.o *.elf *.bin *.hex test_data.h
