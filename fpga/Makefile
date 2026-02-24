@@ -34,7 +34,7 @@ borg.bin: borg.asc
 	$(NIX) icepack $< $@
 
 borg.asc: borg.json
-	$(NIX) nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --opt-timing --freq 4
+	$(NIX) nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --freq 4
 
 borg.json: $(SRC_FILES)
 	$(NIX) yosys -p "read -sv $(SRC_FILES) ; synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json" \

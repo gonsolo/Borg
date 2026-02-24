@@ -19,11 +19,9 @@ class BorgDriver:
     def __init__(self, dut, tqv):
         self.dut = dut
         self.tqv = tqv
-        self.ADDR_A = 0
-        self.ADDR_B = 4
-        self.ADDR_RESULT = 8  # Unified result port
-        self.ADDR_C = 16
-        self.ADDR_INSTR = 60
+        self.ADDR_STATUS = 16
+        self.ADDR_IMEM = 32
+        self.ADDR_CONTROL = 60
 
     def float_to_bits(self, f):
         return struct.unpack("<I", struct.pack("<f", np.float32(f)))[0]
@@ -32,23 +30,34 @@ class BorgDriver:
         return struct.unpack("<f", struct.pack("<I", b & 0xFFFFFFFF))[0]
 
     async def write_reg(self, reg_idx, val):
-        """Writes a float to Register File index (mapping to 0, 4, or 16)"""
-        if reg_idx == 0:
-            addr = self.ADDR_A
-        elif reg_idx == 1:
-            addr = self.ADDR_B
-        else:
-            addr = self.ADDR_C
+        """Writes a float to Register File index (0-3)"""
+        addr = reg_idx * 4
         await self.tqv.write_word_reg(addr, self.float_to_bits(val))
 
-    async def write_instr(self, instr_bits):
-        """Writes raw control bits to the instruction register"""
-        await self.tqv.write_word_reg(self.ADDR_INSTR, instr_bits)
+    async def write_imem(self, idx, instr_bits):
+        """Writes instruction bits to instruction memory (0-7)"""
+        addr = self.ADDR_IMEM + (idx * 4)
+        await self.tqv.write_word_reg(addr, instr_bits)
 
-    async def read_result(self):
-        """Reads the unified 32-bit result and converts to float"""
-        # Note: TinyQV read_word_reg polls data_ready, handling our 4-cycle pipeline
-        bits = await self.tqv.read_word_reg(self.ADDR_RESULT)
+    async def start_execution(self, reset_pc=False):
+        """Triggers execution via the control register"""
+        val = 1
+        if reset_pc:
+            val |= 2
+        await self.tqv.write_word_reg(self.ADDR_CONTROL, val)
+
+    async def wait_for_halt(self):
+        """Polls the status register for the Halted bit (bit 1)"""
+        while True:
+            status = await self.tqv.read_word_reg(self.ADDR_STATUS)
+            if status & 2:
+                break
+            await cocotb.triggers.Timer(100, units="ns")
+
+    async def read_register(self, reg_idx):
+        """Reads a float from Register File index (0-3)"""
+        addr = reg_idx * 4
+        bits = await self.tqv.read_word_reg(addr)
         return self.bits_to_float(bits)
 
     async def reset(self):
@@ -69,22 +78,33 @@ def load_test_data():
 
 async def run_math_test(dut, driver, a, b, epsilon):
     """
-    Executes a single math test case (Addition only).
+    Executes a single shader-based math test case (Addition only).
     """
     a_32, b_32 = np.float32(a), np.float32(b)
 
-    # 1. Load Operands
+    # 1. Reset PC and stop execution
+    await driver.start_execution(reset_pc=True)
+
+    # 2. Load Operands into regs 0 and 1
     await driver.write_reg(0, a_32)
     await driver.write_reg(1, b_32)
 
-    # 2. DISPATCH ADD: funct7=0x00, rs2=1, rs1=0
-    instr_add = (0x00 << 25) | (1 << 20) | (0 << 15)
-    await driver.write_instr(instr_add)
-    
-    # 3. Collect Result (wait handled by driver)
-    add_res = await driver.read_result()
+    # 3. Setup Shader: imem(0) = ADD, imem(1) = HALT
+    # funct7=0x00 (Add), rs2=1, rs1=0, rd=2
+    instr_add = (0x00 << 25) | (1 << 20) | (0 << 15) | (2 << 7)
+    await driver.write_imem(0, instr_add)
+    await driver.write_imem(1, 0)
 
-    # 4. Assertions
+    # 4. Start execution
+    await driver.start_execution()
+
+    # 5. Wait for Halted status
+    await driver.wait_for_halt()
+
+    # 6. Read Result from register 2
+    add_res = await driver.read_register(2)
+
+    # 7. Assertions
     expected_sum = a_32 + b_32
 
     assert (
@@ -92,7 +112,7 @@ async def run_math_test(dut, driver, a, b, epsilon):
     ), f"Add failed: {a_32} + {b_32} = {add_res} (Exp: {expected_sum})"
 
     dut._log.info(
-        f"Verified: {a_32:8.2f} + {b_32:8.2f} -> Result: {add_res:8.2f}"
+        f"Verified Shader: {a_32:8.2f} + {b_32:8.2f} -> Result: {add_res:8.2f}"
     )
 
 
@@ -101,7 +121,7 @@ PERIPHERAL_NUM = 39
 
 @cocotb.test()
 async def test_borg_vulkan_style_math(dut):
-    dut._log.info("Starting Adder-Only Borg Test in TinyQV Integration")
+    dut._log.info("Starting Programmable Borg Shading Processor Integration Test")
 
     test_data = load_test_data()
     clock = Clock(dut.clk, 100, unit="ns")
@@ -114,9 +134,9 @@ async def test_borg_vulkan_style_math(dut):
     for a, b in test_data["pairs"]:
         await run_math_test(dut, driver, a, b, test_data["epsilon"])
 
-    # Final sanity check on Register A to ensure no bus collisions
-    read_bits_a = await tqv.read_word_reg(driver.ADDR_A)
-    last_val_a = np.float32(test_data["pairs"][-1][0])
-    assert read_bits_a == driver.float_to_bits(last_val_a), "Operand A corrupted!"
+    # Final sanity check on Register 0 to ensure stability
+    read_bits_0 = await tqv.read_word_reg(0)
+    last_val_0 = np.float32(test_data["pairs"][-1][0])
+    assert read_bits_0 == driver.float_to_bits(last_val_0), "Register 0 corrupted!"
 
-    dut._log.info("Borg Adder-Only Integration Test Passed!")
+    dut._log.info("Borg Shading Processor Integration Test Passed!")
