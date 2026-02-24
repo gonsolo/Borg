@@ -22,6 +22,8 @@ project:
     - "user_peripherals/borg/AddRawFN.sv"
     - "user_peripherals/borg/AddRecFN.sv"
     - "user_peripherals/borg/Borg.sv"
+    - "user_peripherals/borg/instructionMemory_8x32.sv"
+    - "user_peripherals/borg/registerFile_4x32.sv"
     - "user_peripherals/borg/RoundAnyRawFNToRecFN_ie8_is26_oe8_os24.sv"
     - "user_peripherals/borg/RoundRawFNToRecFN_e8_s24.sv"
     - "tinyQV/cpu/tinyqv.v"

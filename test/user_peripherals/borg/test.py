@@ -52,7 +52,7 @@ class BorgDriver:
             status = await self.tqv.read_word_reg(self.ADDR_STATUS)
             if status & 2:
                 break
-            await cocotb.triggers.Timer(100, units="ns")
+            await cocotb.triggers.Timer(100, unit="ns")
 
     async def read_register(self, reg_idx):
         """Reads a float from Register File index (0-3)"""
