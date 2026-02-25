@@ -33,7 +33,7 @@ nix_peripheral_test:
 	$(NIX_PERIPHERAL_TEST)
 arch_generate_verilog:
 	$(ARCH_GENERATE_VERILOG)
-nix_generate_verilog:
+nix_generate_verilog: src/peripherals.v
 	$(NIX_GENERATE_VERILOG)
 arch_tt_test: arch_generate_verilog
 	$(MAKE_TEST) borg.test

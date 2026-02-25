@@ -43,7 +43,7 @@ class Borg extends BlackBox {
   val io = IO(new BorgIO)
 }
 
-class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
+class tinyQV_peripherals_core(val CLOCK_MHZ: Int = 64) extends RawModule {
   val clk = IO(Input(Clock()))
   val rst_n = IO(Input(Bool()))
 
@@ -196,13 +196,55 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
 }
 
 object Main extends App {
-  ChiselStage.emitSystemVerilogFile(
-    new tinyQV_peripherals,
-    Array("--target-dir", "src"),
-    Array(
-      "--lowering-options=disallowLocalVariables",
-      "--disable-all-randomization",
-      "--strip-debug-info"
-    )
+  val targetDir = "src"
+  val coreEmitted = ChiselStage.emitSystemVerilog(
+    gen = new tinyQV_peripherals_core(CLOCK_MHZ = 64),
+    firtoolOpts = Array("--lowering-options=disallowLocalVariables", "--disable-all-randomization", "--strip-debug-info")
   )
+  
+  val wrapper = """
+module tinyQV_peripherals #(parameter CLOCK_MHZ=64) (
+  input         clk,
+  input         rst_n,
+  input  [7:0]  ui_in,
+  input  [7:0]  ui_in_raw,
+  output [7:0]  uo_out,
+  output        audio,
+  output        audio_select,
+  input  [10:0] addr_in,
+  input  [31:0] data_in,
+  input  [1:0]  data_write_n,
+  input  [1:0]  data_read_n,
+  output [31:0] data_out,
+  output        data_ready,
+  input         data_read_complete,
+  output [15:2] user_interrupts
+);
+  tinyQV_peripherals_core core (
+    .clk(clk),
+    .rst_n(rst_n),
+    .ui_in(ui_in),
+    .ui_in_raw(ui_in_raw),
+    .uo_out(uo_out),
+    .audio(audio),
+    .audio_select(audio_select),
+    .addr_in(addr_in),
+    .data_in(data_in),
+    .data_write_n(data_write_n),
+    .data_read_n(data_read_n),
+    .data_out(data_out),
+    .data_ready(data_ready),
+    .data_read_complete(data_read_complete),
+    .user_interrupts(user_interrupts)
+  );
+endmodule
+"""
+  
+  val filteredCore = coreEmitted.split("\n").filterNot(line => 
+    line.contains("layers-tinyQV_peripherals_core-Verification") || line.trim.startsWith("`ifndef") || line.trim.startsWith("`define") || line.trim.startsWith("`include") || line.trim.startsWith("`endif")
+  ).mkString("\n")
+
+  val fullVerilog = wrapper + "\n" + filteredCore
+  import java.nio.file.{Files, Paths}
+  Files.write(Paths.get(targetDir, "peripherals.v"), fullVerilog.getBytes)
 }
