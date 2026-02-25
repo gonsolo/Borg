@@ -1,0 +1,37 @@
+//| mill-version: 1.1.2
+
+// SPDX-FileCopyrightText: © 2025-2026 Andreas Wendleder
+// SPDX-License-Identifier: CERN-OHL-S-2.0
+
+import mill._
+import mill.scalalib._
+import mill.api.BuildCtx
+
+trait BorgModule extends ScalaModule {
+  def scalaVersion = "2.13.18"
+  def chiselVersion = "7.9.0"
+
+  override def mvnDeps = Task {
+    super.mvnDeps() ++ Seq(
+      mvn"org.chipsalliance::chisel:$chiselVersion"
+    )
+  }
+
+  override def scalacPluginMvnDeps = Task {
+    super.scalacPluginMvnDeps() ++ Seq(
+      mvn"org.chipsalliance:::chisel-plugin:$chiselVersion"
+    )
+  }
+
+  override def scalacOptions = Task {
+    super.scalacOptions() ++ Seq(
+      "-feature",
+      "-language:reflectiveCalls",
+      "-deprecation",
+      "-Xcheckinit",
+      "-Xsource:3"
+    )
+  }
+}
+
+object borg extends BorgModule

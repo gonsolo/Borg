@@ -17,7 +17,8 @@ project:
   # Don't forget to also update `PROJECT_SOURCES` in test/Makefile.
   source_files:
     - "project.v"
-    - "peripherals.v"
+    #- "peripherals.v"
+    - "tinyQV_peripherals.sv"
     - "user_peripherals/spi.v"
     - "user_peripherals/borg/AddRawFN.sv"
     - "user_peripherals/borg/AddRecFN.sv"

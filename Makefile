@@ -24,6 +24,9 @@ help:
 	@echo "  nix_print_stats: 	Print statistics about tile usage."
 	@echo "commands (arch): The same without nix"
 
+src/peripherals.v: borg/src/Peripherals.scala
+	mill borg.runMain borg.Main
+
 arch_peripheral_test:
 	$(ARCH_PERIPHERAL_TEST)
 nix_peripheral_test:
