@@ -29,6 +29,7 @@ class BorgIO extends Bundle {
   */
 class Borg extends Module {
   val io = IO(new BorgIO)
+  dontTouch(io)
 
   // --- Storage ---
   // registerFile: 4 general-purpose 32-bit registers for floating-point data

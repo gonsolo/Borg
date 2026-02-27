@@ -26,24 +26,7 @@ class tqvp_uart_wrapper(val CLOCK_MHZ: Int = 64) extends BlackBox(Map("CLOCK_MHZ
   val io = IO(new TqvpUartWrapperIO)
 }
 
-class BorgIO extends Bundle {
-  val clock = Input(Clock())
-  val reset = Input(Bool())
-  val io_ui_in = Input(UInt(8.W))
-  val io_uo_out = Output(UInt(8.W))
-  val io_address = Input(UInt(6.W))
-  val io_data_in = Input(UInt(32.W))
-  val io_data_write_n = Input(UInt(2.W))
-  val io_data_read_n = Input(UInt(2.W))
-  val io_data_out = Output(UInt(32.W))
-  val io_data_ready = Output(Bool())
-}
-
-class Borg extends BlackBox {
-  val io = IO(new BorgIO)
-}
-
-class tinyQV_peripherals_core(val CLOCK_MHZ: Int = 64) extends RawModule {
+class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
   val clk = IO(Input(Clock()))
   val rst_n = IO(Input(Bool()))
 
@@ -155,17 +138,15 @@ class tinyQV_peripherals_core(val CLOCK_MHZ: Int = 64) extends RawModule {
     }
 
     val i_user_peri39 = Module(new Borg())
-    i_user_peri39.io.clock := clk
-    i_user_peri39.io.reset := !rst_n
-    i_user_peri39.io.io_ui_in := ui_in
-    i_user_peri39.io.io_address := addr_in(5, 0)
-    i_user_peri39.io.io_data_in := data_in
-    i_user_peri39.io.io_data_write_n := data_write_n | Fill(2, ~peri_user(PERI_BORG))
-    i_user_peri39.io.io_data_read_n := data_read_n_peri | Fill(2, ~peri_user(PERI_BORG))
+    i_user_peri39.io.ui_in := ui_in
+    i_user_peri39.io.address := addr_in(5, 0)
+    i_user_peri39.io.data_in := data_in
+    i_user_peri39.io.data_write_n := data_write_n | Fill(2, ~peri_user(PERI_BORG))
+    i_user_peri39.io.data_read_n := data_read_n_peri | Fill(2, ~peri_user(PERI_BORG))
 
-    val data_from_borg = i_user_peri39.io.io_data_out
-    val data_ready_borg = i_user_peri39.io.io_data_ready
-    val uo_out_borg = i_user_peri39.io.io_uo_out
+    val data_from_borg = i_user_peri39.io.data_out
+    val data_ready_borg = i_user_peri39.io.data_ready
+    val uo_out_borg = i_user_peri39.io.uo_out
 
     when(peri_user(PERI_BORG)) {
       data_from_peri := data_from_borg
@@ -195,56 +176,4 @@ class tinyQV_peripherals_core(val CLOCK_MHZ: Int = 64) extends RawModule {
   }
 }
 
-object PeripheralsMain extends App {
-  val targetDir = "src"
-  val coreEmitted = ChiselStage.emitSystemVerilog(
-    gen = new tinyQV_peripherals_core(CLOCK_MHZ = 64),
-    firtoolOpts = Array("--lowering-options=disallowLocalVariables", "--disable-all-randomization", "--strip-debug-info")
-  )
-  
-  val wrapper = """
-module tinyQV_peripherals #(parameter CLOCK_MHZ=64) (
-  input         clk,
-  input         rst_n,
-  input  [7:0]  ui_in,
-  input  [7:0]  ui_in_raw,
-  output [7:0]  uo_out,
-  output        audio,
-  output        audio_select,
-  input  [10:0] addr_in,
-  input  [31:0] data_in,
-  input  [1:0]  data_write_n,
-  input  [1:0]  data_read_n,
-  output [31:0] data_out,
-  output        data_ready,
-  input         data_read_complete,
-  output [15:2] user_interrupts
-);
-  tinyQV_peripherals_core core (
-    .clk(clk),
-    .rst_n(rst_n),
-    .ui_in(ui_in),
-    .ui_in_raw(ui_in_raw),
-    .uo_out(uo_out),
-    .audio(audio),
-    .audio_select(audio_select),
-    .addr_in(addr_in),
-    .data_in(data_in),
-    .data_write_n(data_write_n),
-    .data_read_n(data_read_n),
-    .data_out(data_out),
-    .data_ready(data_ready),
-    .data_read_complete(data_read_complete),
-    .user_interrupts(user_interrupts)
-  );
-endmodule
-"""
-  
-  val filteredCore = coreEmitted.split("\n").filterNot(line => 
-    line.contains("layers-tinyQV_peripherals_core-Verification") || line.trim.startsWith("`ifndef") || line.trim.startsWith("`define") || line.trim.startsWith("`include") || line.trim.startsWith("`endif")
-  ).mkString("\n")
 
-  val fullVerilog = wrapper + "\n" + filteredCore
-  import java.nio.file.{Files, Paths}
-  Files.write(Paths.get(targetDir, "peripherals.v"), fullVerilog.getBytes)
-}

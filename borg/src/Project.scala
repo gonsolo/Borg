@@ -53,28 +53,7 @@ class tinyQV extends BlackBox {
   val io = IO(new tinyQVIO)
 }
 
-class tinyQV_peripherals_ext_IO extends Bundle {
-  val clk = Input(Clock())
-  val rst_n = Input(Bool())
-  val ui_in = Input(UInt(8.W))
-  val ui_in_raw = Input(UInt(8.W))
-  val uo_out = Output(UInt(8.W))
-  val audio = Output(Bool())
-  val audio_select = Output(Bool())
-  val addr_in = Input(UInt(11.W))
-  val data_in = Input(UInt(32.W))
-  val data_write_n = Input(UInt(2.W))
-  val data_read_n = Input(UInt(2.W))
-  val data_out = Output(UInt(32.W))
-  val data_ready = Output(Bool())
-  val data_read_complete = Input(Bool())
-  val user_interrupts = Output(UInt(14.W))
-}
 
-class tinyQV_peripherals_ext(val CLOCK_MHZ: Int = 64) extends BlackBox(Map("CLOCK_MHZ" -> IntParam(CLOCK_MHZ))) {
-  override val desiredName = "tinyQV_peripherals"
-  val io = IO(new tinyQV_peripherals_ext_IO)
-}
 
 class uart_tx_IO extends Bundle {
   val clk = Input(Clock())
@@ -89,7 +68,7 @@ class uart_tx(val CLK_HZ: Int = 64000000, val BIT_RATE: Int = 4000000) extends B
   val io = IO(new uart_tx_IO)
 }
 
-class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 64) extends RawModule {
+class tt_um_tt_tinyQV extends RawModule {
   val ui_in = IO(Input(UInt(8.W)))
   val uo_out = IO(Output(UInt(8.W)))
   val uio_in = IO(Input(UInt(8.W)))
@@ -117,8 +96,8 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 64) extends RawModule {
   val qspi_data_in = Cat(uio_in(5, 4), uio_in(2, 1))
 
   val i_tinyqv = Module(new tinyQV)
-  val i_peripherals = Module(new tinyQV_peripherals_ext(CLOCK_MHZ))
-  val i_debug_uart_tx = Module(new uart_tx(CLOCK_MHZ * 1000000, 4000000))
+  val i_peripherals = Module(new tinyQV_peripherals)
+  val i_debug_uart_tx = Module(new uart_tx(64000000, 4000000))
 
   i_tinyqv.io.clk := clk
   i_tinyqv.io.rstn := rst_reg_n
@@ -131,8 +110,8 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 64) extends RawModule {
   val qspi_ram_a_select = i_tinyqv.io.spi_ram_a_select
   val qspi_ram_b_select = i_tinyqv.io.spi_ram_b_select
 
-  val audio = i_peripherals.io.audio
-  val audio_select = i_peripherals.io.audio_select
+  val audio = i_peripherals.audio
+  val audio_select = i_peripherals.audio_select
 
   uio_out := Cat(Mux(audio_select, audio, qspi_ram_b_select), qspi_ram_a_select, qspi_data_out(3, 2), qspi_clk_out, qspi_data_out(1, 0), qspi_flash_select)
   uio_oe := Mux(rst_n, Cat(3.U(2.W), qspi_data_oe(3, 2), 1.U(1.W), qspi_data_oe(1, 0), 1.U(1.W)), 0.U(8.W))
@@ -149,10 +128,10 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 64) extends RawModule {
   i_tinyqv.io.data_ready := data_ready
   i_tinyqv.io.data_in := data_from_read
 
-  val peri_out = i_peripherals.io.uo_out
-  val peri_data_out = i_peripherals.io.data_out
-  val peri_data_ready = i_peripherals.io.data_ready
-  val peri_interrupts = i_peripherals.io.user_interrupts
+  val peri_out = i_peripherals.uo_out
+  val peri_data_out = i_peripherals.data_out
+  val peri_data_ready = i_peripherals.data_ready
+  val peri_interrupts = i_peripherals.user_interrupts
 
   // Peripherals get synchronized ui_in.
   val ui_in_sync0 = withClockAndReset(clk, false.B) { RegNext(ui_in) }
@@ -164,15 +143,15 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 64) extends RawModule {
   val time_pulse = Wire(Bool())
   i_tinyqv.io.time_pulse := time_pulse
 
-  i_peripherals.io.clk := clk
-  i_peripherals.io.rst_n := rst_reg_n
-  i_peripherals.io.ui_in := ui_in_sync
-  i_peripherals.io.ui_in_raw := ui_in
-  i_peripherals.io.addr_in := addr(10, 0)
-  i_peripherals.io.data_in := data_to_write
-  i_peripherals.io.data_write_n := write_n
-  i_peripherals.io.data_read_n := read_n
-  i_peripherals.io.data_read_complete := read_complete
+  i_peripherals.clk := clk
+  i_peripherals.rst_n := rst_reg_n
+  i_peripherals.ui_in := ui_in_sync
+  i_peripherals.ui_in_raw := ui_in
+  i_peripherals.addr_in := addr(10, 0)
+  i_peripherals.data_in := data_to_write
+  i_peripherals.data_write_n := write_n
+  i_peripherals.data_read_n := read_n
+  i_peripherals.data_read_complete := read_complete
 
   val connect_peripheral = WireDefault(PERI_NONE)
 
@@ -183,7 +162,7 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 64) extends RawModule {
   }
 
   val gpio_out_sel = withClockAndReset(clk, !rst_reg_n) { RegInit(Cat(!ui_in(0), 0.U(1.W))) }
-  val time_limit = withClockAndReset(clk, !rst_reg_n) { RegInit(((CLOCK_MHZ / 4) - 1).U(5.W)) }
+  val time_limit = withClockAndReset(clk, !rst_reg_n) { RegInit(((64 / 4) - 1).U(5.W)) }
 
   withClockAndReset(clk, false.B) {
     when(write_n =/= 3.U(2.W)) {
@@ -272,18 +251,4 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 64) extends RawModule {
   val unused = ena | uio_in(7, 6).orR | uio_in(3) | uio_in(0) | read_complete | false.B
 }
 
-object ProjectMain extends App {
-  val targetDir = "src"
-  val verilog = ChiselStage.emitSystemVerilog(
-    gen = new tt_um_tt_tinyQV(CLOCK_MHZ = 64),
-    firtoolOpts = Array("--lowering-options=disallowLocalVariables", "--disable-all-randomization", "--strip-debug-info")
-  )
-  
-  val filteredVerilog = verilog.split("\n").filterNot(line => 
-    line.contains("layers-tt_um_tt_tinyQV-Verification") || line.trim.startsWith("`ifndef") || line.trim.startsWith("`define") || line.trim.startsWith("`include") || line.trim.startsWith("`endif") || line.trim.startsWith("`ifdef") || line.trim.startsWith("`else")
-  ).mkString("\n")
 
-  val finalVerilog = "/*\n * Copyright (c) 2024 Michael Bell\n * SPDX-License-Identifier: Apache-2.0\n */\n\n`default_nettype none\n\n" + filteredVerilog
-
-  Files.write(Paths.get(targetDir, "project.v"), finalVerilog.getBytes)
-}

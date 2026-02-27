@@ -2,14 +2,14 @@ SIM ?= icarus
 FST ?= -fst
 TOPLEVEL_LANG ?= verilog
 
-SRC_DIR = $(PWD)/../src
-
-YAML_SOURCES = AddRawFN.sv AddRecFN.sv Borg.sv RoundAnyRawFNToRecFN_ie8_is26_oe8_os24.sv RoundRawFNToRecFN_e8_s24.sv instructionMemory_4x32.sv registerFile_4x32.sv tt_wrapper.v test_harness/falling_edge_detector.sv test_harness/rising_edge_detector.sv test_harness/reclocking.sv test_harness/spi_reg.sv test_harness/synchronizer.sv
+SRC_DIR = $(PWD)/../../src
 
 ifneq ($(GATES),yes)
 
 SIM_BUILD = sim_build/rtl
-VERILOG_SOURCES += $(addprefix $(SRC_DIR)/, $(YAML_SOURCES))
+VERILOG_BORG_SOURCES += $(addprefix $(SRC_DIR)/user_peripherals/borg/, AddRawFN.sv AddRecFN.sv Borg.sv RoundAnyRawFNToRecFN_ie8_is26_oe8_os24.sv RoundRawFNToRecFN_e8_s24.sv instructionMemory_4x32.sv registerFile_4x32.sv)
+VERILOG_HARNESS_SOURCES += $(PWD)/../src/tt_wrapper.v $(addprefix $(PWD)/../src/test_harness/, falling_edge_detector.sv rising_edge_detector.sv reclocking.sv spi_reg.sv synchronizer.sv)
+VERILOG_SOURCES += $(VERILOG_BORG_SOURCES) $(VERILOG_HARNESS_SOURCES)
 
 else
 
@@ -22,7 +22,7 @@ VERILOG_SOURCES += $(PWD)/gate_level_netlist.v
 
 endif
 
-COMPILE_ARGS += -I$(SRC_DIR) -I$(SRC_DIR)/test_harness
+COMPILE_ARGS += -I$(SRC_DIR)/user_peripherals/borg -I$(PWD)/../src/test_harness -I$(PWD)/../src
 
 VERILOG_SOURCES += $(PWD)/tb.v
 TOPLEVEL = tb

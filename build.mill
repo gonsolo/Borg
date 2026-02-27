@@ -32,6 +32,23 @@ trait BorgModule extends ScalaModule {
       "-Xsource:3"
     )
   }
+
+  object test extends ScalaTests with TestModule.Utest {
+
+    override def forkEnv = Task {
+      super.forkEnv() ++ Map(
+        "PROJECT_ROOT" -> BuildCtx.workspaceRoot.toString()
+      )
+    }
+
+    override def mvnDeps = Task {
+      super.mvnDeps() ++ Seq(
+        mvn"com.lihaoyi::utest:0.9.5",
+        mvn"com.lihaoyi::upickle:4.4.2",
+        mvn"com.lihaoyi::os-lib:0.11.6"
+      )
+    }
+  }
 }
 
 object borg extends BorgModule
