@@ -1,6 +1,7 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs";
+    nixpkgs.url = "github:gonsolo/nixpkgs/openroad";
+    #nixpkgs.url = "github:NixOS/nixpkgs";
     alejandra.url = "github:kamadorueda/alejandra/4.0.0";
   };
 
@@ -14,17 +15,18 @@
 
     pythonEnv = pkgs.python313.withPackages (p: [
       p.cairosvg
-      p.cocotb
       p.chevron
+      p.cocotb
+      p.gdstk
       p.gitpython
       p.klayout
       p.matplotlib
       p.mistune
       p.pip
       p.pyaml
-      p.requests
       p.pytest
-      p.gdstk
+      p.requests
+      p.riscv-model
     ]);
   in {
     devShells.${system}.default = pkgs.mkShell {
@@ -40,15 +42,19 @@
         pkgs.gnumake
         pkgs.gnused
         pkgs.iverilog
+        pkgs.icestorm
         pkgs.jdk25
         pkgs.klayout
         pkgs.librelane
         pkgs.magic-vlsi
         pkgs.mill
+        pkgs.mpremote
         pkgs.netgen-vlsi
+        pkgs.nextpnr
         pkgs.openroad
         pkgs.pandoc
         pkgs.pkg-config
+        pkgs.tio
         pkgs.typst
         pkgs.verilator
         pkgs.which
@@ -57,7 +63,7 @@
       ];
 
       shellHook = ''
-        export GONSOLO_PROJECT="borg_peripheral"
+        export GONSOLO_PROJECT="borg_tinyqv"
 
         # PURE MODE COMPATIBILITY:
         # 1. Mill/Java require a HOME to write lockfiles and caches.
