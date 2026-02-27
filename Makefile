@@ -22,7 +22,7 @@ help:
 	@echo -e "  print_stats:\t\tPrint statistics about tile usage."
 
 src/peripherals.v: borg/src/Peripherals.scala
-	mill borg.runMain borg.Main
+	mill borg.runMain borg.PeripheralsMain
 
 src/project.v: borg/src/Project.scala
 	mill borg.runMain borg.ProjectMain

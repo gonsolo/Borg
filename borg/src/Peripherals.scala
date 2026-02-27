@@ -195,7 +195,7 @@ class tinyQV_peripherals_core(val CLOCK_MHZ: Int = 64) extends RawModule {
   }
 }
 
-object Main extends App {
+object PeripheralsMain extends App {
   val targetDir = "src"
   val coreEmitted = ChiselStage.emitSystemVerilog(
     gen = new tinyQV_peripherals_core(CLOCK_MHZ = 64),
