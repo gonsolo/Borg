@@ -45,7 +45,7 @@ nix_tt_core_test: nix_generate_verilog
 	$(NIX) $(MAKE_TEST) core
 arch_tt_docs:
 	$(TT_TOOL) --create-pdf
-nix_tt_docs:
+nix_tt_docs: nix_generate_verilog
 	$(NIX) $(TT_TOOL) --create-pdf
 arch_tt_user_config:
 	$(TT_TOOL) --create-user-config --ihp --no-docker
