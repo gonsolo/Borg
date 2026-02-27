@@ -4,15 +4,11 @@ TOPLEVEL_LANG ?= verilog
 
 SRC_DIR = $(PWD)/../src
 
-#YAML_SOURCES = $(shell sed -n '/source_files:/,/pinout:/p' ../info.yaml | grep '\- "' | sed 's/.*"\(.*\)".*/\1/')
 YAML_SOURCES = AddRawFN.sv AddRecFN.sv Borg.sv RoundAnyRawFNToRecFN_ie8_is26_oe8_os24.sv RoundRawFNToRecFN_e8_s24.sv instructionMemory_4x32.sv registerFile_4x32.sv tt_wrapper.v test_harness/falling_edge_detector.sv test_harness/rising_edge_detector.sv test_harness/reclocking.sv test_harness/spi_reg.sv test_harness/synchronizer.sv
 
 ifneq ($(GATES),yes)
 
-# RTL Simulation:
 SIM_BUILD = sim_build/rtl
-# Wir nehmen NUR die Dateien aus der info.yaml. 
-# Da tt_wrapper.v dort drin steht, brauchen wir keine ADDITIONAL_SOURCES für den Wrapper mehr.
 VERILOG_SOURCES += $(addprefix $(SRC_DIR)/, $(YAML_SOURCES))
 
 else
