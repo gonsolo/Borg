@@ -1,1 +1,1 @@
-../../../borg_peripheral/src/tt_wrapper.v
+../../../peripheral/src/tt_wrapper.v

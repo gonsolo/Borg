@@ -1,1 +1,1 @@
-../../../borg_peripheral/src/AddRawFN.sv
+../../../peripheral/src/AddRawFN.sv

@@ -1,1 +1,1 @@
-../../../borg_peripheral/src/AddRecFN.sv
+../../../peripheral/src/AddRecFN.sv

@@ -1,1 +1,1 @@
-../../../borg_peripheral/src/instructionMemory_4x32.sv
+../../../peripheral/src/instructionMemory_4x32.sv

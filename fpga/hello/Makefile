@@ -11,7 +11,7 @@ OBJCOPY = $(RISCV_TOOLCHAIN)/bin/riscv32-unknown-elf-objcopy
 
 TINYQV_SDK ?= tinyQV-sdk
 
-TEST_JSON = ../../borg_peripheral/data/test_cases.json
+TEST_JSON = ../../peripheral/data/test_cases.json
 
 all: test_data.h $(PROJECT_NAME).bin $(PROJECT_NAME).hex
 	cp $(PROJECT_NAME).bin ../micropython/

@@ -1,1 +1,1 @@
-../../../borg_peripheral/src/Borg.sv
+../../../peripheral/src/Borg.sv

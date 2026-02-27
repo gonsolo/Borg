@@ -1,1 +1,1 @@
-../../../borg_peripheral/src/RoundRawFNToRecFN_e8_s24.sv
+../../../peripheral/src/RoundRawFNToRecFN_e8_s24.sv

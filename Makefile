@@ -1,6 +1,6 @@
 NIX                   := nix develop --ignore-environment --command
 TT_TOOL               := ./tt/tt_tool.py
-MAKE_PERIPHERAL       := make -C borg_peripheral
+MAKE_PERIPHERAL       := make -C peripheral
 MAKE_TEST             := make -C test -B
 ARCH_PERIPHERAL_TEST  := $(MAKE_PERIPHERAL) arch_borg_test arch_tt_test
 NIX_PERIPHERAL_TEST   := $(MAKE_PERIPHERAL) nix_borg_test nix_tt_test

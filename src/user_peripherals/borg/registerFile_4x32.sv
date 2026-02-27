@@ -1,1 +1,1 @@
-../../../borg_peripheral/src/registerFile_4x32.sv
+../../../peripheral/src/registerFile_4x32.sv
