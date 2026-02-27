@@ -20,7 +20,7 @@ def bits_to_float(b):
 
 def load_test_data():
     curr_dir = os.path.dirname(os.path.abspath(__file__))
-    json_path = os.path.join(curr_dir, "..", "data", "test_cases.json")
+    json_path = os.path.join(curr_dir, "..", "..", "data", "test_cases.json")
     with open(json_path, "r") as f:
         return json.load(f)
 

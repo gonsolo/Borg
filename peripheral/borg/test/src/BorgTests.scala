@@ -99,7 +99,7 @@ object BorgTests extends TestSuite {
       // Load data from JSON
       val projectRoot =
         sys.env.get("PROJECT_ROOT").map(os.Path(_)).getOrElse(os.pwd)
-      val jsonFile = projectRoot / "data" / "test_cases.json"
+      val jsonFile = projectRoot / ".." / "data" / "test_cases.json"
       val data = ujson.read(os.read(jsonFile))
 
       val epsilon = data("epsilon").num.toFloat

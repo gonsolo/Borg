@@ -1,6 +1,6 @@
 import json
 
-with open('../../peripheral/data/test_cases.json', 'r') as f:
+with open('../../data/test_cases.json', 'r') as f:
     data = json.load(f)
 
 with open('test_data.h', 'w') as f:

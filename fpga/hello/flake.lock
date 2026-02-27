@@ -77,16 +77,16 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1771894193,
-        "narHash": "sha256-CUZNnyMf7BB8iDVVDf0VIS2ziXm+8pDVF5Z2vyTmqFQ=",
+        "lastModified": 1772194555,
+        "narHash": "sha256-tzFTaC+dIRHPVaZrtaClzve9jkC+S05he6XBJg+iFL4=",
         "owner": "gonsolo",
         "repo": "nixpkgs",
-        "rev": "77ff30cf8bd90b25666e46226eeb70597b3d88e0",
+        "rev": "d3426f0fc83a1347b9ddd0522695e7eab0136dab",
         "type": "github"
       },
       "original": {
         "owner": "gonsolo",
-        "ref": "trellis",
+        "ref": "openroad",
         "repo": "nixpkgs",
         "type": "github"
       }
