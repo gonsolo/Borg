@@ -27,13 +27,16 @@ help:
 src/peripherals.v: borg/src/Peripherals.scala
 	mill borg.runMain borg.Main
 
+src/project.v: borg/src/Project.scala
+	mill borg.runMain borg.ProjectMain
+
 arch_peripheral_test:
 	$(ARCH_PERIPHERAL_TEST)
 nix_peripheral_test:
 	$(NIX_PERIPHERAL_TEST)
 arch_generate_verilog:
 	$(ARCH_GENERATE_VERILOG)
-nix_generate_verilog: src/peripherals.v
+nix_generate_verilog: src/peripherals.v src/project.v
 	$(NIX_GENERATE_VERILOG)
 arch_tt_test: arch_generate_verilog
 	$(MAKE_TEST) borg.test
