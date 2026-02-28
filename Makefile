@@ -12,6 +12,7 @@ help:
 	@echo -e "$(BOLD)  gds:\t\t\tGenerate the GDS II file for Tinytapeout.$(NC)"
 	@echo -e "  generate_verilog:\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel:\t\tRun Chisel hardware tests."
+	@echo -e "  test-tinyqv:\t\tRun TinyQV Chisel tests."
 	@echo -e "  test-fpu:\t\tRun FPU peripheral tests (cocotb)."
 	@echo -e "  test-cpu:\t\tRun CPU core tests (cocotb)."
 	@echo -e "  test-system:\t\tRun SoC integration tests (cocotb)."
@@ -38,6 +39,9 @@ test-cpu: generate_verilog
 test-chisel:
 	$(NIX) $(MILL) borg.test
 
+test-tinyqv:
+	$(NIX) $(MILL) tinyqv.test
+
 datasheet.pdf: generate_verilog
 	$(NIX) $(TT_TOOL) --create-pdf
 user_config: generate_verilog
@@ -49,4 +53,4 @@ print_stats:
 
 .PHONY: all generate_verilog print_stats \
 	gds user_config \
-	test-fpu test-system test-cpu test-chisel
+	test-fpu test-system test-cpu test-chisel test-tinyqv
