@@ -125,14 +125,14 @@ module tinyqv_core #(
   wire cy_out, cmp_out;
 
   tinyqv_alu i_alu (
-      alu_op_in,
-      alu_a_in,
-      alu_b_in,
-      cy_in,
-      cmp_in,
-      alu_out,
-      cy_out,
-      cmp_out
+      .op(alu_op_in),
+      .a(alu_a_in),
+      .b(alu_b_in),
+      .cy_in(cy_in),
+      .cmp_in(cmp_in),
+      .d(alu_out),
+      .cy_out(cy_out),
+      .cmp_res(cmp_out)
   );
 
   always @(posedge clk) begin
@@ -152,11 +152,11 @@ module tinyqv_core #(
 
   wire [3:0] shift_out;
   tinyqv_shifter i_shift (
-      alu_op[3:2],
-      counter,
-      tmp_data,
-      shift_amt,
-      shift_out
+      .op(alu_op[3:2]),
+      .counter(counter),
+      .a(tmp_data),
+      .b(shift_amt),
+      .d(shift_out)
   );
 
 
