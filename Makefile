@@ -24,6 +24,7 @@ generate_verilog:
 
 # New Test Targets
 test-fpu: generate_verilog
+	$(NIX) $(MILL) harness.runMain harness.Main
 	$(NIX) make -C test/peripheral
 
 test-system: generate_verilog

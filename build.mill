@@ -52,3 +52,6 @@ trait BorgModule extends ScalaModule {
 }
 
 object borg extends BorgModule
+object harness extends BorgModule {
+  override def moduleDeps = Seq(borg)
+}
