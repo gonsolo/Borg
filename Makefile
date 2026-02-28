@@ -19,8 +19,10 @@ help:
 	@echo -e "  user_config:\t\tGenerate user config for tapeout."
 	@echo -e "  print_stats:\t\tPrint statistics about tile usage."
 
+# Generate Verilog Artifacts
 generate_verilog:
 	$(NIX) $(MILL) borg.runMain borg.Main
+	$(NIX) $(MILL) tinyqv.runMain tinyqv.Main
 
 # New Test Targets
 test-fpu: generate_verilog

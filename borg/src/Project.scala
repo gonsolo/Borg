@@ -9,8 +9,6 @@ import _root_.circt.stage.ChiselStage
 import java.nio.file.{Files, Paths}
 
 class tinyQVIO extends Bundle {
-  val clk = Input(Clock())
-  val rstn = Input(Bool())
 
   val data_addr = Output(UInt(28.W))
   val data_write_n = Output(UInt(2.W))
@@ -49,8 +47,10 @@ class tinyQVIO extends Bundle {
   val debug_rd = Output(UInt(4.W))
 }
 
-class tinyQV extends BlackBox {
-  val io = IO(new tinyQVIO)
+class tinyQV extends ExtModule {
+  val clk = IO(Input(Clock()))
+  val rstn = IO(Input(Bool()))
+  val io = FlatIO(new tinyQVIO)
 }
 
 
@@ -64,7 +64,10 @@ class uart_tx_IO extends Bundle {
   val uart_tx_busy = Output(Bool())
 }
 
-class uart_tx(val CLK_HZ: Int = 64000000, val BIT_RATE: Int = 4000000) extends BlackBox(Map("CLK_HZ" -> IntParam(CLK_HZ), "BIT_RATE" -> IntParam(BIT_RATE))) {
+class uart_tx(val BIT_RATE: Int = 4000000, val CLK_HZ: Int = 64000000) extends BlackBox(Map(
+  "BIT_RATE" -> IntParam(BIT_RATE),
+  "CLK_HZ" -> IntParam(CLK_HZ)
+)) {
   val io = IO(new uart_tx_IO)
 }
 
@@ -97,10 +100,10 @@ class tt_um_tt_tinyQV extends RawModule {
 
   val i_tinyqv = Module(new tinyQV)
   val i_peripherals = Module(new tinyQV_peripherals)
-  val i_debug_uart_tx = Module(new uart_tx(64000000, 4000000))
+  val i_debug_uart_tx = Module(new uart_tx())
 
-  i_tinyqv.io.clk := clk
-  i_tinyqv.io.rstn := rst_reg_n
+  i_tinyqv.clk := clk
+  i_tinyqv.rstn := rst_reg_n
   i_tinyqv.io.spi_data_in := qspi_data_in
 
   val qspi_data_out = i_tinyqv.io.spi_data_out

@@ -1,14 +1,13 @@
 NIX             := nix develop --ignore-environment --command
 BORG_DIR 	:= ../src/user_peripherals/borg
-TINYQV_DIR 	:= ../src/tinyQV/cpu
+TINYQV_DIR 	:= ../out/tinyqv/verilog
 
 SRC_FILES = pico_ice.v \
             ../src/peripherals.v \
             $(wildcard ../src/peri_*.v) \
             ../src/user_peripherals/spi.v \
             $(wildcard $(BORG_DIR)/*.sv) \
-            $(wildcard $(TINYQV_DIR)/*.v) \
-            ../src/tinyQV/peri/uart/uart_tx.v \
+            $(wildcard $(TINYQV_DIR)/*.sv) \
             $(wildcard ../src/user_peripherals/uart/*.v)
 
 # Hardware limits
