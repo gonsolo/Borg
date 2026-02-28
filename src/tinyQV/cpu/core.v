@@ -89,21 +89,18 @@ module tinyqv_core #(
 
   reg [31:0] tmp_data;
 
-  tinyqv_registers #(
-      .REG_ADDR_BITS(REG_ADDR_BITS),
-      .NUM_REGS(NUM_REGS)
-  ) i_registers (
-      clk,
-      rstn,
-      wr_en,
-      counter,
-      rs1,
-      rs2,
-      rd,
-      data_rs1,
-      data_rs2,
-      data_rd,
-      return_addr
+  tinyqv_registers i_registers (
+      .clk(clk),
+      .rstn(rstn),
+      .wr_en(wr_en),
+      .counter(counter),
+      .rs1(rs1),
+      .rs2(rs2),
+      .rd(rd),
+      .data_rs1(data_rs1),
+      .data_rs2(data_rs2),
+      .data_rd(data_rd),
+      .return_addr(return_addr)
   );
 
 

@@ -33,7 +33,7 @@ project:
     - "tinyQV/cpu/mem_ctrl.v"
     - "tinyQV/cpu/qspi_ctrl.v"
     - "tinyQV/cpu/time.v"
-    - "tinyQV/cpu/register.v"
+    - "../out/tinyqv/verilog/tinyqv_registers.sv"
     - "tinyQV/cpu/tinyqv.v"
     - "tinyQV/cpu/qspi_flash.v"
     - "../out/tinyqv/verilog/tinyqv_counter.v"
