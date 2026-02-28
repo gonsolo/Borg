@@ -1,0 +1,8 @@
+package build.harness
+import mill._, scalalib._
+import build.BorgModule
+import build.borg
+
+object `package` extends BorgModule {
+  def moduleDeps = Seq(borg)
+}
