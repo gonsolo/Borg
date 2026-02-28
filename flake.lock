@@ -77,16 +77,15 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1772194555,
-        "narHash": "sha256-tzFTaC+dIRHPVaZrtaClzve9jkC+S05he6XBJg+iFL4=",
-        "owner": "gonsolo",
+        "lastModified": 1772229070,
+        "narHash": "sha256-4r9Q4t74NUdLVDRhCDNwrfC8T/M7nF5ktepkYtg0jHY=",
+        "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "d3426f0fc83a1347b9ddd0522695e7eab0136dab",
+        "rev": "3b1e870bb99aa3c67e8787cb3f7eced5191bf2f5",
         "type": "github"
       },
       "original": {
-        "owner": "gonsolo",
-        "ref": "openroad",
+        "owner": "NixOS",
         "repo": "nixpkgs",
         "type": "github"
       }
