@@ -35,7 +35,7 @@ else
 endif
 
 # --- 3. COMPILATION ARGUMENTS ---
-COMPILE_ARGS += -I$(SRC_DIR) -DSIM
+COMPILE_ARGS += -I$(SRC_DIR) -I$(PWD)/../../out/borg/verilog -DSIM
 export PYTHONPATH := $(PWD):../../:$(PYTHONPATH)
 
 # Icarus Verilog specific flags
