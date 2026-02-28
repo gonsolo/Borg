@@ -30,23 +30,23 @@ This is a tiny floating point peripheral within the [TinyQV](https://github.com/
 
 ### Task 1: Basic FPU on software simulator
 
-#### Milestone 1a: Get floating-point multiplication and addition running on a simulator.
+#### Milestone 1a: Get floating-point multiplication and addition running on a simulator
 
 * ```git clone --recurse-submodules git@github.com:gonsolo/borg_tinyqv.git```
 * ```cd borg_tinyqv```
-* ```make nix_peripheral_test```
+* ```make test-fpu```
 
 This runs tests of the Borg peripheral at the Scala/Chisel and cocotb levels.
 
-#### Milestone 1b: Add cocotb tests for the FPU unit and integrate it into TinyQV, a small RISC-V processor written for Tinytapeout.
+#### Milestone 1b: Add cocotb tests for the FPU unit and integrate it into TinyQV, a small RISC-V processor written for Tinytapeout
 
-* ```make nix_tt_test```
+* ```make test-system```
 
 This runs tests of the actual SOC at the cocotb level.
 
 ### Task 2: Basic FPU on FPGA
 
-#### Milestone 2a: Adapt TinyQV's fpga environment to include the FPU (nearly done).
+#### Milestone 2a: Adapt TinyQV's fpga environment to include the FPU (nearly done)
 
 * ```cd fpga```
 * ```make burn```
@@ -61,7 +61,7 @@ This runs tests of the actual SOC at the cocotb level.
 
 ### Task 5: Tiny Tapeout (Partially done)
 
-#### Milestone 5a: On March 23th 2026, the TTIHP26a shuttle for TinyTapeout is scheduled. Prepare and submit it.
+#### Milestone 5a: On March 23th 2026, the TTIHP26a shuttle for TinyTapeout is scheduled. Prepare and submit it
 
 [Submitted](https://app.tinytapeout.com/projects/3645).
 

@@ -1,0 +1,15 @@
+<testsuites name="results">
+  <testsuite name="all" package="all">
+    <property name="random_seed" value="1772274758" />
+    <testcase name="test_start" classname="test" file="/home/gonsolo/work/Borg/test/test.py" lineno="1" time="14.76175594329834" sim_time_ns="1254505.644" ratio_time="84983.49714076736" />
+    <testcase name="test_timer" classname="test" file="/home/gonsolo/work/Borg/test/test.py" lineno="1" time="0.27956676483154297" sim_time_ns="23303.195999999996" ratio_time="83354.67205496217" />
+    <testcase name="test_time_limit" classname="test" file="/home/gonsolo/work/Borg/test/test.py" lineno="1" time="0.28917956352233887" sim_time_ns="24521.868000000017" ratio_time="84798.06699101586" />
+    <testcase name="test_csr" classname="test" file="/home/gonsolo/work/Borg/test/test.py" lineno="1" time="0.04797053337097168" sim_time_ns="4195.043999999994" ratio_time="87450.43478166815" />
+    <testcase name="test_debug_reg" classname="test" file="/home/gonsolo/work/Borg/test/test.py" lineno="1" time="0.08558106422424316" sim_time_ns="6569.891999999993" ratio_time="76768.05680734795" />
+    <testcase name="test_load_bug" classname="test" file="/home/gonsolo/work/Borg/test/test.py" lineno="1" time="0.11140203475952148" sim_time_ns="9132.22800000012" ratio_time="81975.4147194299" />
+    <testcase name="test_load_throughput" classname="test" file="/home/gonsolo/work/Borg/test/test.py" lineno="1" time="0.5361685752868652" sim_time_ns="47317.283999999985" ratio_time="88250.75952033166" />
+    <testcase name="test_multistore_interrupt" classname="test" file="/home/gonsolo/work/Borg/test/test.py" lineno="1" time="2.650489568710327" sim_time_ns="232117.956" ratio_time="87575.50255628576" />
+    <testcase name="test_random_alu" classname="test" file="/home/gonsolo/work/Borg/test/test.py" lineno="1" time="1.630049467086792" sim_time_ns="106579.11599999992" ratio_time="65383.97646942399" />
+    <testcase name="test_random" classname="test" file="/home/gonsolo/work/Borg/test/test.py" lineno="1" time="23.874833822250366" sim_time_ns="78393.41999999993" ratio_time="3283.5168857569374" />
+  </testsuite>
+</testsuites>

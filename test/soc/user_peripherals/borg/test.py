@@ -68,7 +68,7 @@ def load_test_data():
     curr_dir = os.path.dirname(os.path.abspath(__file__))
     # Adjust path to find the test vectors in the shared data directory
     json_path = os.path.join(
-        curr_dir, "..", "..", "..", "data", "test_cases.json"
+        curr_dir, "..", "..", "..", "..", "data", "test_cases.json"
     )
     if not os.path.exists(json_path):
         raise FileNotFoundError(f"Shared test vectors not found at: {json_path}")

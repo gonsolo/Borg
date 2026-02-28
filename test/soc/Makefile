@@ -6,7 +6,7 @@
 SIM ?= icarus
 FST ?= -fst
 TOPLEVEL_LANG ?= verilog
-SRC_DIR = $(PWD)/../src
+SRC_DIR = $(PWD)/../../src
 
 # Program defaults (for core tests)
 PROG ?= hello
@@ -16,7 +16,7 @@ PROG_FILE ?= $(PROG).hex
 # Only extract RTL from info.yaml if we are NOT in Gate-Level mode.
 # This prevents the "tt_um_tt_tinyQV already declared" error.
 ifneq ($(GATES),yes)
-    YAML_SOURCES = $(shell sed -n '/source_files:/,/pinout:/p' ../info.yaml | grep '\- "' | sed 's/.*"\(.*\)".*/\1/')
+    YAML_SOURCES = $(shell sed -n '/source_files:/,/pinout:/p' ../../info.yaml | grep '\- "' | sed 's/.*"\(.*\)".*/\1/')
     VERILOG_SOURCES += $(addprefix $(SRC_DIR)/,$(YAML_SOURCES))
 endif
 
@@ -36,7 +36,7 @@ endif
 
 # --- 3. COMPILATION ARGUMENTS ---
 COMPILE_ARGS += -I$(SRC_DIR) -DSIM
-export PYTHONPATH := $(PWD):$(PYTHONPATH)
+export PYTHONPATH := $(PWD):../../:$(PYTHONPATH)
 
 # Icarus Verilog specific flags
 ifeq ($(SIM), icarus)
