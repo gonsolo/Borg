@@ -24,7 +24,7 @@ generate_verilog:
 
 # New Test Targets
 test-fpu: 
-	make -C peripheral nix_tt_test
+	$(NIX) make -C test/peripheral
 
 test-system: generate_verilog
 	$(NIX) $(MAKE_TEST) borg.test

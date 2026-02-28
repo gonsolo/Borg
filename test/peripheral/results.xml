@@ -1,6 +1,0 @@
-<testsuites name="results">
-  <testsuite name="all" package="all">
-    <property name="random_seed" value="1772274738" />
-    <testcase name="test_borg_vulkan_style_math" classname="test" file="/home/gonsolo/work/Borg/peripheral/test/test.py" lineno="1" time="1.2502446174621582" sim_time_ns="1265700.0" ratio_time="1012361.8868835559" />
-  </testsuite>
-</testsuites>
