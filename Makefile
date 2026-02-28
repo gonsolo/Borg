@@ -15,7 +15,7 @@ help:
 	@echo -e "  test-system:\t\tRun SoC integration tests (cocotb)."
 	@echo -e "  test-cpu:\t\tRun CPU core tests (cocotb)."
 	@echo -e "  test-chisel:\t\tRun Chisel hardware tests."
-	@echo -e "  tt_docs:\t\tGenerate docs for Tinytapeout."
+	@echo -e "  datasheet.pdf:\tGenerate datasheet for Tinytapeout."
 	@echo -e "  tt_user_config:\tGenerate user config for tapeout."
 	@echo -e "  print_stats:\t\tPrint statistics about tile usage."
 
@@ -35,7 +35,7 @@ test-cpu: generate_verilog
 test-chisel:
 	$(NIX) $(MILL) borg.test
 
-tt_docs: generate_verilog
+datasheet.pdf: generate_verilog
 	$(NIX) $(TT_TOOL) --create-pdf
 tt_user_config:
 	$(NIX) $(TT_TOOL) --create-user-config --ihp --no-docker
@@ -44,7 +44,6 @@ tt_gds: tt_user_config
 print_stats:
 	$(NIX) ./tt/tt_tool.py --print-stats
 
-.PHONY: all \
-	generate_verilog print_stats tt_docs \
+.PHONY: all generate_verilog print_stats \
 	tt_gds tt_user_config \
 	test-fpu test-system test-cpu test-chisel
