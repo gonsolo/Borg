@@ -14,7 +14,7 @@ help:
 	@echo -e "  generate_verilog:\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel:\t\tRun Chisel hardware tests."
 	@echo -e "  test-tinyqv:\t\tRun TinyQV Chisel tests."
-	@echo -e "  test-fpu:\t\tRun FPU peripheral tests (cocotb)."
+	@echo -e "  test-borg:\t\tRun peripheral tests (cocotb)."
 	@echo -e "  test-cpu:\t\tRun CPU core tests (cocotb)."
 	@echo -e "  test-system:\t\tRun SoC integration tests (cocotb)."
 	@echo -e "  datasheet.pdf:\tGenerate datasheet for Tinytapeout."
@@ -25,7 +25,7 @@ generate_verilog:
 	$(NIX) $(MILL) borg.runMain borg.Main
 	$(NIX) $(MILL) tinyqv.runMain tinyqv.Main
 
-test-fpu: generate_verilog
+test-borg: generate_verilog
 	$(NIX) $(MILL) harness.runMain harness.Main
 	$(NIX) $(TEST_PERIPHERAL)
 
@@ -52,4 +52,4 @@ print_stats:
 
 .PHONY: all generate_verilog print_stats \
 	gds user_config \
-	test-fpu test-system test-cpu test-chisel test-tinyqv
+	test-borg test-system test-cpu test-chisel test-tinyqv
