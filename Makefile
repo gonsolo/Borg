@@ -1,6 +1,7 @@
 NIX                   	:= nix develop --ignore-environment --command
 TT_TOOL               	:= ./tt/tt_tool.py
-MAKE_TEST             	:= make -C test/soc -B
+TEST_SOC             	:= make -C test/soc -B
+TEST_PERIPHERAL        	:= make -C test/peripheral -B
 MILL               	:= mill --no-server
 
 BOLD := \033[1m
@@ -20,21 +21,19 @@ help:
 	@echo -e "  user_config:\t\tGenerate user config for tapeout."
 	@echo -e "  print_stats:\t\tPrint statistics about tile usage."
 
-# Generate Verilog Artifacts
 generate_verilog:
 	$(NIX) $(MILL) borg.runMain borg.Main
 	$(NIX) $(MILL) tinyqv.runMain tinyqv.Main
 
-# New Test Targets
 test-fpu: generate_verilog
 	$(NIX) $(MILL) harness.runMain harness.Main
-	$(NIX) make -C test/peripheral
+	$(NIX) $(TEST_PERIPHERAL)
 
 test-system: generate_verilog
-	$(NIX) $(MAKE_TEST) borg.test
+	$(NIX) $(TEST_SOC) borg.test
 
 test-cpu: generate_verilog
-	$(NIX) $(MAKE_TEST) core
+	$(NIX) $(TEST_SOC) core
 
 test-chisel:
 	$(NIX) $(MILL) borg.test
