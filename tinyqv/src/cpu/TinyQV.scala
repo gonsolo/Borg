@@ -44,11 +44,6 @@ class TinyQVCpuIO extends Bundle {
   val debug_rd = Output(UInt(4.W))
 }
 
-class TinyQVCpuBlackBox extends BlackBox {
-  val io = IO(new TinyQVCpuIO)
-  override def desiredName = "tinyqv_cpu"
-}
-
 class TinyQVMemCtrlIO extends Bundle {
   val clk = Input(Clock())
   val rstn = Input(Bool())
@@ -82,7 +77,6 @@ class TinyQVMemCtrlIO extends Bundle {
   val debug_stall_txn = Output(Bool())
   val debug_stop_txn = Output(Bool())
 }
-
 
 class TinyQV extends RawModule {
   override val desiredName = "tinyQV"
