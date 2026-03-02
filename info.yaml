@@ -29,7 +29,7 @@ project:
     - "../out/tinyqv/verilog/tinyqv_alu.sv"
     - "../out/tinyqv/verilog/tinyqv_shifter.sv"
     - "tinyQV/cpu/core.v"
-    - "tinyQV/cpu/cpu.v"
+    - "../out/tinyqv/verilog/tinyqv_cpu.sv"
     - "../out/tinyqv/verilog/tinyqv_decoder.sv"
     - "../out/tinyqv/verilog/tinyqv_mem_ctrl.sv"
     - "../out/tinyqv/verilog/qspi_controller.sv"

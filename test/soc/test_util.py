@@ -26,6 +26,9 @@ async def reset(dut, latency=1, ui_in=0x80):
   dut.rst_n.value = 1
   await ClockCycles(dut.clk, 1)
   assert dut.uio_oe.value == 0b11001001
+  dut._log.info(f"DEBUG: qspi_flash_select = {dut.qspi_flash_select.value}")
+  dut._log.info(f"DEBUG: uio_out = {dut.uio_out.value}")
+  dut._log.info(f"DEBUG: uio_oe = {dut.uio_oe.value}")
 
 select = None
 

@@ -20,32 +20,29 @@ class TinyQVCounter(val outputWidth: Int = 4) extends RawModule {
 
   withClockAndReset(clk, !rstn) {
     // 32-bit shift register broken into 8x 4-bit chunks
-    val register = RegInit(VecInit(Seq.fill(8)(0.U(4.W))))
+    val registers = RegInit(VecInit(Seq.fill(8)(0.U(4.W))))
     val cy = RegInit(false.B)
 
     val increment_result = WireDefault(0.U(5.W))
+    val carryIn = Mux(counter === 0.U, add, cy)
+    
     when (set) {
       increment_result := Cat(0.U(1.W), data_in)
     } .otherwise {
-      val carryIn = Mux(counter === 0.U, add, cy)
-      increment_result := Cat(0.U(1.W), register(1)) + carryIn
+      increment_result := Cat(0.U(1.W), registers(0)) + carryIn
     }
 
     // Shift logic matching Verilog
-    register(0) := increment_result(3, 0)
-    register(7) := register(0)
-    register(6) := register(7)
-    register(5) := register(6)
-    register(4) := register(5)
-    register(3) := register(4)
-    register(2) := register(3)
-    register(1) := register(2)
+    for (i <- 0 until 7) {
+      registers(i) := registers(i+1)
+    }
+    registers(7) := increment_result(3, 0)
 
     cy := increment_result(4)
 
     // data output logic: assign data = register[3 + OUTPUT_WIDTH:4]
-    val flatReg = Cat(register.reverse) // register(7), register(6), ... register(0)
-    data := flatReg(3 + outputWidth, 4)
+    val flatReg = Cat(registers.reverse) 
+    data := flatReg(outputWidth - 1, 0)
     cy_out := increment_result(4)
   }
 }

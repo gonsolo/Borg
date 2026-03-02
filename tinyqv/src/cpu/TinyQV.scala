@@ -128,13 +128,14 @@ class TinyQV extends RawModule {
   val debug_rd = IO(Output(UInt(4.W)))
 
   // Internal wiring
-  val rst_reg_n = withClock(clk) { RegNext(rstn) }
+  val rst_reg_n = withClockAndReset(clk, !rstn) { RegNext(true.B, false.B) }
 
-  val cpu = Module(new TinyQVCpuBlackBox())
+  val cpu = Module(new TinyQVCpu(16, 4))
   val mem = Module(new TinyQVMemCtrl())
 
   cpu.io.clk := clk
   cpu.io.rstn := rst_reg_n
+  cpu.io.interrupt_req := interrupt_req
   mem.io.clk := clk
   mem.io.rstn := rstn
 
