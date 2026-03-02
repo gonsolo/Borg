@@ -36,7 +36,7 @@ project:
     - "../out/tinyqv/verilog/tinyQV_time.sv"
     - "../out/tinyqv/verilog/tinyqv_registers.sv"
     - "tinyQV/cpu/tinyqv.v"
-    - "tinyQV/cpu/qspi_flash.v"
+    - "../out/tinyqv/verilog/qspi_flash_controller.sv"
     - "../out/tinyqv/verilog/tinyqv_counter.v"
     - "../out/tinyqv/verilog/tinyqv_counter_4.sv"
     - "../out/tinyqv/verilog/tinyqv_counter_5.sv"
