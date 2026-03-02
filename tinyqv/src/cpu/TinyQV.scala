@@ -83,10 +83,6 @@ class TinyQVMemCtrlIO extends Bundle {
   val debug_stop_txn = Output(Bool())
 }
 
-class TinyQVMemCtrlBlackBox extends BlackBox {
-  val io = IO(new TinyQVMemCtrlIO)
-  override def desiredName = "tinyqv_mem_ctrl"
-}
 
 class TinyQV extends RawModule {
   override val desiredName = "tinyQV"
@@ -135,7 +131,7 @@ class TinyQV extends RawModule {
   val rst_reg_n = withClock(clk) { RegNext(rstn) }
 
   val cpu = Module(new TinyQVCpuBlackBox())
-  val mem = Module(new TinyQVMemCtrlBlackBox())
+  val mem = Module(new TinyQVMemCtrl())
 
   cpu.io.clk := clk
   cpu.io.rstn := rst_reg_n

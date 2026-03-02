@@ -4,7 +4,7 @@
 package tinyqv
 
 import circt.stage.ChiselStage
-import tinyqv.cpu.{TinyQVCounter, TinyQVRegisters, TinyQVAlu, TinyQVShifter, TinyQVTime, TinyQVQspiFlash, TinyQV, LatchRegN, LatchRegP, LatchReg32N, LatchReg32P}
+import tinyqv.cpu.{TinyQVCounter, TinyQVRegisters, TinyQVAlu, TinyQVShifter, TinyQVTime, TinyQVQspiFlash, TinyQV, LatchRegN, LatchRegP, LatchReg32N, LatchReg32P, TinyQVMemCtrl}
 import java.io.PrintWriter
 import java.io.File
 
@@ -29,6 +29,7 @@ object Main extends App {
   ChiselStage.emitSystemVerilogFile(new LatchRegP(8), argsArray, firtoolOptsArray)
   ChiselStage.emitSystemVerilogFile(new LatchReg32N(), argsArray, firtoolOptsArray)
   ChiselStage.emitSystemVerilogFile(new LatchReg32P(), argsArray, firtoolOptsArray)
+  ChiselStage.emitSystemVerilogFile(new TinyQVMemCtrl(), argsArray, firtoolOptsArray)
 
   // Write a wrapper for tinyqv_counter that selects the correct version based on OUTPUT_WIDTH
   val wrapper = """
