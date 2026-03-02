@@ -6,6 +6,9 @@ package tinyqv.cpu
 import chisel3._
 import chisel3.util._
 
+// Use the same IO Bundle as defined in TinyQV.scala
+// If they are in the same package, they are visible.
+
 class QspiControllerIO extends Bundle {
   val clk = Input(Clock())
   val rstn = Input(Bool())
@@ -30,11 +33,6 @@ class QspiControllerIO extends Bundle {
   val data_req = Output(Bool())
   val data_ready = Output(Bool())
   val busy = Output(Bool())
-}
-
-class QspiControllerBlackBox extends BlackBox {
-  val io = IO(new QspiControllerIO)
-  override def desiredName = "qspi_controller"
 }
 
 class TinyQVMemCtrl extends RawModule {
@@ -144,8 +142,8 @@ class TinyQVMemCtrl extends RawModule {
       }
     }
 
-    // BlackBox instantiation
-    val q_ctrl = Module(new QspiControllerBlackBox())
+    // QspiController instantiation
+    val q_ctrl = Module(new QspiController())
     q_ctrl.io.clk := io.clk
     q_ctrl.io.rstn := io.rstn
     q_ctrl.io.spi_data_in := io.spi_data_in
