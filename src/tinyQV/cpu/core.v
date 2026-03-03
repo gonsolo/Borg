@@ -76,8 +76,6 @@ module tinyqv_core #(
       .io_imm_lo(imm_lo),
       .io_is_interrupt(is_interrupt),
       .io_pc(pc),
-      .io_data_rs1(data_rs1),
-      .io_data_rs2(data_rs2),
       .io_imm(imm),
       .io_is_auipc(is_auipc),
       .io_is_jal(is_jal),
@@ -85,6 +83,13 @@ module tinyqv_core #(
       .io_is_alu_imm(is_alu_imm),
       .io_is_alu_reg(is_alu_reg),
       .io_is_branch(is_branch),
+      .io_rs1(rs1),
+      .io_rs2(rs2),
+      .io_rd(rd),
+      .io_next_pc(next_pc),
+      .io_csr_read(csr_read),
+      .io_shift_out(shift_out),
+      .io_return_addr(return_addr),
       .io_counter(counter),
       .io_cy(cy),
       .io_cmp(cmp),
@@ -96,9 +101,14 @@ module tinyqv_core #(
       .io_is_store(is_store),
       .io_is_load(is_load),
       .io_load_data_ready(load_data_ready),
+      .io_data_in(data_in),
       .io_alu_out(alu_out),
       .io_mstatus_mte(mstatus_mte),
       .io_mepc(mepc),
+      .io_data_rs1(data_rs1),
+      .io_data_rs2(data_rs2),
+      .io_debug_reg_wen(wr_en),
+      .io_debug_rd(data_rd),
       .io_is_shift(is_shift),
       .io_is_czero(is_czero),
       .io_is_priv(is_priv),
@@ -140,24 +150,10 @@ module tinyqv_core #(
 
   wire [3:0] data_rs1;
   wire [3:0] data_rs2;
-  reg [3:0] data_rd;
-  reg wr_en;
+  wire [3:0] data_rd;
+  wire wr_en;
 
-  // tmp_data moved to snippet
-
-  tinyqv_registers i_registers (
-      .clk(clk),
-      .rstn(rstn),
-      .wr_en(wr_en),
-      .counter(counter),
-      .rs1(rs1),
-      .rs2(rs2),
-      .rd(rd),
-      .data_rs1(data_rs1),
-      .data_rs2(data_rs2),
-      .data_rd(data_rd),
-      .return_addr(return_addr)
-  );
+  // Registers and writeback moved to snippet
 
 
   ///////// ALU /////////
@@ -203,51 +199,7 @@ module tinyqv_core #(
   );
 
 
-  ///////// Writeback /////////
-
-  reg load_top_bit_next;
-  reg load_top_bit;
-  always @(*) begin
-    load_top_bit_next = (counter == 0) ? 0 : load_top_bit;
-    if (is_load && load_data_ready &&
-            ((mem_op == 3'b001 && counter == 3) || 
-             (mem_op == 3'b000 && counter == 1)))
-        begin
-      load_top_bit_next = data_in[3];
-    end
-  end
-
-  always @(posedge clk) load_top_bit <= load_top_bit_next;
-
-  always @(*) begin
-    wr_en   = 0;
-    data_rd = 0;
-    if (is_alu_imm || is_alu_reg || is_auipc) begin
-      wr_en = 1;
-      if (is_czero) begin
-        if (cycle == 1) data_rd = tmp_data[3:0];
-      end else if (is_slt && cycle == 1 && counter == 0) data_rd = {3'b000, cmp};
-      else if (is_shift && cycle == 1) data_rd = shift_out;
-      else data_rd = alu_out;
-
-    end else if (is_load && load_data_ready) begin
-      wr_en = 1;
-      if ((mem_op[1:0] == 2'b00 && counter > 1) || (mem_op[1:0] == 2'b01 && counter > 3))
-        data_rd = {4{load_top_bit}};
-      else data_rd = data_in;
-
-    end else if (is_lui) begin
-      wr_en   = 1;
-      data_rd = imm;
-    end else if (is_jal || is_jalr) begin
-      wr_en   = 1;
-      data_rd = next_pc;
-    end else if (is_csr) begin
-      // CSR read
-      wr_en   = 1;
-      data_rd = csr_read;
-    end
-  end
+  // Writeback moved to snippet
 
 
   ///////// Branching /////////

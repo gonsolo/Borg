@@ -64,15 +64,13 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends ExtModule(Map(
   val io = FlatIO(new TinyQVCoreIO(regAddrBits))
 }
 
-class TinyQVCoreSnippetIO extends Bundle {
+class TinyQVCoreSnippetIO(regAddrBits: Int) extends Bundle {
   val alu_op = Input(UInt(4.W))
   val is_system = Input(Bool())
   val imm_lo = Input(UInt(12.W))
   val is_interrupt = Input(Bool())
 
   val pc = Input(UInt(4.W))
-  val data_rs1 = Input(UInt(4.W))
-  val data_rs2 = Input(UInt(4.W))
   val imm = Input(UInt(4.W))
   val is_auipc = Input(Bool())
   val is_jal = Input(Bool())
@@ -80,6 +78,12 @@ class TinyQVCoreSnippetIO extends Bundle {
   val is_alu_imm = Input(Bool())
   val is_alu_reg = Input(Bool())
   val is_branch = Input(Bool())
+  val rs1 = Input(UInt(regAddrBits.W))
+  val rs2 = Input(UInt(regAddrBits.W))
+  val rd = Input(UInt(regAddrBits.W))
+  val next_pc = Input(UInt(4.W))
+  val csr_read = Input(UInt(4.W))
+  val shift_out = Input(UInt(4.W))
   val counter = Input(UInt(3.W))
   val cy = Input(Bool())
   val cmp = Input(Bool())
@@ -93,6 +97,7 @@ class TinyQVCoreSnippetIO extends Bundle {
   val is_store = Input(Bool())
   val is_load = Input(Bool())
   val load_data_ready = Input(Bool())
+  val data_in = Input(UInt(4.W))
   val alu_out = Input(UInt(4.W))
   val mstatus_mte = Input(Bool())
   val mepc = Input(UInt(24.W))
@@ -116,6 +121,12 @@ class TinyQVCoreSnippetIO extends Bundle {
   val cy_in = Output(Bool())
   val cmp_in = Output(Bool())
 
+  val return_addr = Output(UInt(23.W))
+  val data_rs1 = Output(UInt(4.W))
+  val data_rs2 = Output(UInt(4.W))
+  val debug_reg_wen = Output(Bool())
+  val debug_rd = Output(UInt(4.W))
+
   // Batch 4 outputs
   val take_branch = Output(Bool())
   val branch = Output(Bool())
@@ -128,8 +139,8 @@ class TinyQVCoreSnippetIO extends Bundle {
   val tmp_data_out = Output(UInt(32.W))
 }
 
-class TinyQVCoreSnippet extends Module {
-  val io = IO(new TinyQVCoreSnippetIO)
+class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
+  val io = IO(new TinyQVCoreSnippetIO(regAddrBits))
 
   io.is_shift := io.alu_op(1, 0) === "b01".U
   io.is_czero := io.alu_op(3, 1) === "b111".U
@@ -147,25 +158,87 @@ class TinyQVCoreSnippet extends Module {
   io.is_slt := io.alu_op(3, 1) === "b001".U
   io.alu_cycles := io.is_slt || io.is_shift
 
-  io.alu_op_in := Mux(io.is_czero, "b0100".U, io.alu_op)
-  io.alu_a_in := Mux(io.is_czero, 0.U, Mux(io.is_auipc || io.is_jal, io.pc, io.data_rs1))
-  io.alu_b_in := Mux(io.is_alu_reg || io.is_branch, io.data_rs2, io.imm)
-
-  io.cy_in := Mux(io.counter === 0.U, io.alu_op_in(1) || io.alu_op_in(3), io.cy)
-  io.cmp_in := Mux(io.counter === 0.U, 1.B, io.cmp)
-
-  // Batch 4 registers
+  // Batch Registers
   val cycle = RegInit(0.U(2.W))
   val load_done = RegInit(false.B)
   val tmp_data = RegInit(0.U(32.W))
+  val load_top_bit = RegInit(false.B)
 
   io.cycle_out := cycle
   io.load_done_out := load_done
 
+  // Registers Module
+  val registers = Module(new TinyQVRegisters(numRegs, regAddrBits))
+  registers.clk := clock
+  registers.rstn := !reset.asBool
+  registers.counter := io.counter
+  registers.rs1 := io.rs1
+  registers.rs2 := io.rs2
+  registers.rd := io.rd
+  val data_rs1 = registers.data_rs1
+  val data_rs2 = registers.data_rs2
+  io.data_rs1 := data_rs1
+  io.data_rs2 := data_rs2
+  io.return_addr := registers.return_addr
+
+  // ALU Input selection (moved data_rs1/data_rs2 usage to local wires)
+  io.alu_op_in := Mux(io.is_czero, "b0100".U, io.alu_op)
+  io.alu_a_in := Mux(io.is_czero, 0.U, Mux(io.is_auipc || io.is_jal, io.pc, data_rs1))
+  io.alu_b_in := Mux(io.is_alu_reg || io.is_branch, data_rs2, io.imm)
+
+  io.cy_in := Mux(io.counter === 0.U, io.alu_op_in(1) || io.alu_op_in(3), io.cy)
+  io.cmp_in := Mux(io.counter === 0.U, 1.B, io.cmp)
+
+  // load_top_bit logic
+  val load_top_bit_next = Wire(Bool())
+  load_top_bit_next := Mux(io.counter === 0.U, false.B, load_top_bit)
+  when(io.is_load && io.load_data_ready &&
+       ((io.mem_op === 1.U && io.counter === 3.U) ||
+        (io.mem_op === 0.U && io.counter === 1.U))) {
+    load_top_bit_next := io.data_in(3)
+  }
+  load_top_bit := load_top_bit_next
+
+  // Selection logic for data_rd
+  val wr_en = WireDefault(false.B)
+  val data_rd = WireDefault(0.U(4.W))
+
+  when(io.is_alu_imm || io.is_alu_reg || io.is_auipc) {
+    wr_en := true.B
+    when(io.is_czero) {
+      when(cycle === 1.U) { data_rd := tmp_data(3, 0) }
+    }.elsewhen(io.is_slt && cycle === 1.U && io.counter === 0.U) {
+      data_rd := io.cmp.asUInt // This is the old cmp which will be registers soon but for now it's okay
+    }.elsewhen(io.is_shift && cycle === 1.U) {
+      data_rd := io.shift_out
+    }.otherwise {
+      data_rd := io.alu_out
+    }
+  }.elsewhen(io.is_load && io.load_data_ready) {
+    wr_en := true.B
+    when((io.mem_op(1, 0) === 0.U && io.counter > 1.U) || (io.mem_op(1, 0) === 1.U && io.counter > 3.U)) {
+      data_rd := Fill(4, load_top_bit)
+    }.otherwise {
+      data_rd := io.data_in
+    }
+  }.elsewhen(io.is_lui) {
+    wr_en := true.B
+    data_rd := io.imm
+  }.elsewhen(io.is_jal || io.is_jalr) {
+    wr_en := true.B
+    data_rd := io.next_pc
+  }.elsewhen(io.is_csr) {
+    wr_en := true.B
+    data_rd := io.csr_read
+  }
+
+  registers.wr_en := wr_en
+  registers.data_rd := data_rd
+  io.debug_reg_wen := wr_en
+  io.debug_rd := data_rd
+
   // Cycle management
   when(io.last_count) {
-    // Note: io.instr_complete depends on cycle, but cycle is a Reg, 
-    // so this is a non-blocking assignment equivalent.
     when(io.instr_complete) {
       cycle := 0.U
     }.elsewhen(cycle =/= 3.U) {
@@ -186,11 +259,11 @@ class TinyQVCoreSnippet extends Module {
   when(io.is_exception) {
     tmp_data_in := Mux(io.counter === 0.U, Cat(io.is_interrupt, io.is_trap && io.mstatus_mte, 0.U(2.W)), 0.U)
   }.elsewhen(io.is_shift || io.is_czero) {
-    tmp_data_in := io.data_rs1
+    tmp_data_in := data_rs1
   }.elsewhen(cycle === 0.U) {
     tmp_data_in := io.alu_out
   }.otherwise {
-    tmp_data_in := io.data_rs2
+    tmp_data_in := data_rs2
   }
 
   when(cycle === 1.U && io.is_shift) {
@@ -205,7 +278,7 @@ class TinyQVCoreSnippet extends Module {
 
   // data_out (nibble for active store)
   val data_out_val = Wire(UInt(4.W))
-  data_out_val := io.data_rs2
+  data_out_val := data_rs2
   when((io.mem_op(1, 0) === 0.U && io.counter > 1.U) || (io.mem_op(1, 0) === 1.U && io.counter > 3.U)) {
     data_out_val := 0.U
   }
