@@ -89,7 +89,6 @@ module tinyqv_core #(
       .io_rs2(rs2),
       .io_rd(rd),
       .io_next_pc(next_pc),
-      .io_csr_read(csr_read),
       .io_return_addr(return_addr),
       .io_counter(counter),
       .io_last_count(last_count),
@@ -132,7 +131,10 @@ module tinyqv_core #(
       .io_mip(mip),
       .io_mie(mie),
       .io_mcause_we(mcause_we),
-      .io_mcause_next(mcause_next)
+      .io_mcause_next(mcause_next),
+      .io_mstatus_mie(mstatus_mie),
+      .io_mstatus_mpie(mstatus_mpie),
+      .io_mcause(mcause)
   );
 
   reg [23:0] mepc;
@@ -141,8 +143,6 @@ module tinyqv_core #(
                     //               double fault while interrupts are disabled.
   reg mstatus_mie;  // Interrupt enable
   reg mstatus_mpie;  // Prior interrupt enable (whether interrupts were enabled on entry to trap)
-
-  reg [3:0] csr_read;
 
   ///////// Register file /////////
 
@@ -275,57 +275,7 @@ module tinyqv_core #(
 
   ///////// CSRs /////////    
 
-  always @(*) begin
-    case (imm_lo)
-      // mstatus
-      12'h300:
-      csr_read = (counter == 0) ? {mstatus_mie, mstatus_mte, 2'b00} :
-                                (counter == 1) ? {mstatus_mpie, 3'b000} :
-                                                 4'b0000;
 
-      // misa
-      12'h301:
-      csr_read = (counter == 0 || counter == 7) ? 4'b0100 :  // C, 32
-      (counter == 1) ? 4'b0001 :  // E
-      4'b0000;
-
-      // mie
-      12'h304:
-      csr_read = (counter == 1) ? {mie[16], 3'b000} :
-                                (counter == 4) ? mie[3:0] :
-                                (counter == 5) ? mie[7:4] :
-                                (counter == 6) ? mie[11:8] :
-                                (counter == 7) ? mie[15:12] : 4'b0000;
-
-      // mepc
-      12'h341: csr_read = (counter <= 5) ? mepc[3:0] : 4'b0000;
-
-      // mcause
-      12'h342:
-      csr_read = (counter == 0) ? mcause[3:0] :
-                                (counter == 1) ? {3'b000, mcause[4]} :
-                                (counter == 7) ? {mcause[5], 3'b000} :
-                                                 4'b0000;
-
-      // mip
-      12'h344:
-      csr_read = (counter == 1) ? {mip[16], 3'b000} :
-                                (counter == 4) ? mip[3:0] :
-                                (counter == 5) ? mip[7:4] :
-                                (counter == 6) ? mip[11:8] :
-                                (counter == 7) ? mip[15:12] : 4'b0000;
-
-      // Cycle and instruction counters
-      12'hC00: csr_read = cycle_count;
-
-      // Time based on cycle
-      12'hC01: csr_read = time_count;
-
-      // mimpid (3)
-      12'hF13: csr_read = (counter == 0) ? 4'b0011 : 4'b0000;
-      default: csr_read = 4'b0000;
-    endcase
-  end
 
 
   ////////// Debug //////////
