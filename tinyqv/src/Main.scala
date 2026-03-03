@@ -35,6 +35,7 @@ object Main extends App {
   ChiselStage.emitSystemVerilogFile(new TinyQVMemCtrl(), argsArray, firtoolOptsArray)
   ChiselStage.emitSystemVerilogFile(new TinyQVDecode(4), argsArray, firtoolOptsArray)
   ChiselStage.emitSystemVerilogFile(new QspiController(), argsArray, firtoolOptsArray)
+  ChiselStage.emitSystemVerilogFile(new tinyqv.peri.uart.UartRx(), argsArray, firtoolOptsArray)
 
   // Write a wrapper for tinyqv_counter that selects the correct version based on OUTPUT_WIDTH
   val wrapper = """
