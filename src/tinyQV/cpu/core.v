@@ -128,8 +128,11 @@ module tinyqv_core #(
       .io_tmp_data_out(tmp_data),
       .io_cycle_count_out(cycle_count),
       .io_time_count_out(time_count),
-      .io_mip(mip),
-      .io_mie(mie),
+      .io_interrupt_req(interrupt_req),
+      .io_timer_interrupt(timer_interrupt),
+      .io_is_double_fault(is_double_fault),
+      .io_mip_out(mip),
+      .io_mie_out(mie),
       .io_mcause_we(mcause_we),
       .io_mcause_next(mcause_next),
       .io_mstatus_mie(mstatus_mie),
@@ -158,9 +161,8 @@ module tinyqv_core #(
 
   ///////// Traps and interrupts /////////    
 
-  reg [17:16] mip_reg;
-  wire [16:0] mip = {timer_interrupt, interrupt_req[15:2], mip_reg};
-  reg [16:0] mie;
+  wire [16:0] mip;
+  wire [16:0] mie;
 
   reg [5:0] mcause;
   always @(posedge clk) begin
@@ -224,51 +226,7 @@ module tinyqv_core #(
     end
   end
 
-  // Interrupts 1 and 0 trigger on rising edge
-  reg [1:0] last_interrupt_req;
-
-  always @(posedge clk) begin
-    if (!rstn || is_double_fault) begin
-      mie <= 0;
-      mip_reg <= 0;
-    end else if (counter == 1) begin
-      if (imm_lo == 12'h304) begin
-        if (is_csr_write) mie[16] <= data_rs1[3];
-        else if (is_csr_set) mie[16] <= mie[16] | data_rs1[3];
-        else if (is_csr_clear) mie[16] <= mie[16] & ~data_rs1[3];
-      end
-    end else if (counter == 4) begin
-      if (imm_lo == 12'h304) begin
-        if (is_csr_write) mie[3:0] <= data_rs1;
-        else if (is_csr_set) mie[3:0] <= mie[3:0] | data_rs1;
-        else if (is_csr_clear) mie[3:0] <= mie[3:0] & ~data_rs1;
-      end else if (imm_lo == 12'h344) begin
-        if (is_csr_write) mip_reg <= data_rs1[1:0];
-        else if (is_csr_set) mip_reg <= mip_reg | data_rs1[1:0];
-        else if (is_csr_clear) mip_reg <= mip_reg & ~data_rs1[1:0];
-      end
-    end else if (counter == 5) begin
-      last_interrupt_req <= interrupt_req[1:0];
-      mip_reg <= mip_reg | (interrupt_req[1:0] & ~last_interrupt_req);
-      if (imm_lo == 12'h304) begin
-        if (is_csr_write) mie[7:4] <= data_rs1;
-        else if (is_csr_set) mie[7:4] <= mie[7:4] | data_rs1;
-        else if (is_csr_clear) mie[7:4] <= mie[7:4] & ~data_rs1;
-      end
-    end else if (counter == 6) begin
-      if (imm_lo == 12'h304) begin
-        if (is_csr_write) mie[11:8] <= data_rs1;
-        else if (is_csr_set) mie[11:8] <= mie[11:8] | data_rs1;
-        else if (is_csr_clear) mie[11:8] <= mie[11:8] & ~data_rs1;
-      end
-    end else if (counter == 7) begin
-      if (imm_lo == 12'h304) begin
-        if (is_csr_write) mie[15:12] <= data_rs1;
-        else if (is_csr_set) mie[15:12] <= mie[15:12] | data_rs1;
-        else if (is_csr_clear) mie[15:12] <= mie[15:12] & ~data_rs1;
-      end
-    end
-  end
+  // The CSR operations for mie and mip are now generated inside TinyQVCoreSnippet
 
   assign interrupt_pending = mstatus_mie && |(mip & mie);
 

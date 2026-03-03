@@ -97,8 +97,9 @@ class TinyQVCoreSnippetIO(regAddrBits: Int) extends Bundle {
   val mstatus_mie = Input(Bool())
   val mstatus_mpie = Input(Bool())
   val mepc = Input(UInt(24.W))
-  val mip = Input(UInt(17.W))
-  val mie = Input(UInt(17.W))
+  val interrupt_req = Input(UInt(16.W))
+  val timer_interrupt = Input(Bool())
+  val is_double_fault = Input(Bool())
   val mcause = Input(UInt(6.W))
 
   val is_shift = Output(Bool())
@@ -135,6 +136,8 @@ class TinyQVCoreSnippetIO(regAddrBits: Int) extends Bundle {
   val time_count_out = Output(UInt(4.W))
   val mcause_we = Output(Bool())
   val mcause_next = Output(UInt(6.W))
+  val mip_out = Output(UInt(17.W))
+  val mie_out = Output(UInt(17.W))
 }
 
 class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
@@ -362,13 +365,73 @@ class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module 
   io.cycle_count_out := cycle_count_out_val
   io.time_count_out := time_count_out_val
 
+  // Interrupt registers from core.v
+  val mie_16 = RegInit(false.B)
+  val mie_15_12 = RegInit(0.U(4.W))
+  val mie_11_8 = RegInit(0.U(4.W))
+  val mie_7_4 = RegInit(0.U(4.W))
+  val mie_3_0 = RegInit(0.U(4.W))
+
+  val mip_reg = RegInit(0.U(2.W))
+  val last_interrupt_req = RegInit(0.U(2.W))
+
+  when (io.is_double_fault) {
+    mie_16 := false.B
+    mie_15_12 := 0.U
+    mie_11_8 := 0.U
+    mie_7_4 := 0.U
+    mie_3_0 := 0.U
+    mip_reg := 0.U
+  } .elsewhen (io.counter === 1.U) {
+    when (io.imm_lo === "h304".U) {
+      when (io.is_csr_write) { mie_16 := data_rs1(3) }
+      .elsewhen (io.is_csr_set) { mie_16 := mie_16 | data_rs1(3) }
+      .elsewhen (io.is_csr_clear) { mie_16 := mie_16 & ~data_rs1(3) }
+    }
+  } .elsewhen (io.counter === 4.U) {
+    when (io.imm_lo === "h304".U) {
+      when (io.is_csr_write) { mie_3_0 := data_rs1 }
+      .elsewhen (io.is_csr_set) { mie_3_0 := mie_3_0 | data_rs1 }
+      .elsewhen (io.is_csr_clear) { mie_3_0 := mie_3_0 & ~data_rs1 }
+    } .elsewhen (io.imm_lo === "h344".U) {
+      when (io.is_csr_write) { mip_reg := data_rs1(1, 0) }
+      .elsewhen (io.is_csr_set) { mip_reg := mip_reg | data_rs1(1, 0) }
+      .elsewhen (io.is_csr_clear) { mip_reg := mip_reg & ~data_rs1(1, 0) }
+    }
+  } .elsewhen (io.counter === 5.U) {
+    last_interrupt_req := io.interrupt_req(1, 0)
+    mip_reg := mip_reg | (io.interrupt_req(1, 0) & ~last_interrupt_req)
+    when (io.imm_lo === "h304".U) {
+      when (io.is_csr_write) { mie_7_4 := data_rs1 }
+      .elsewhen (io.is_csr_set) { mie_7_4 := mie_7_4 | data_rs1 }
+      .elsewhen (io.is_csr_clear) { mie_7_4 := mie_7_4 & ~data_rs1 }
+    }
+  } .elsewhen (io.counter === 6.U) {
+    when (io.imm_lo === "h304".U) {
+      when (io.is_csr_write) { mie_11_8 := data_rs1 }
+      .elsewhen (io.is_csr_set) { mie_11_8 := mie_11_8 | data_rs1 }
+      .elsewhen (io.is_csr_clear) { mie_11_8 := mie_11_8 & ~data_rs1 }
+    }
+  } .elsewhen (io.counter === 7.U) {
+    when (io.imm_lo === "h304".U) {
+      when (io.is_csr_write) { mie_15_12 := data_rs1 }
+      .elsewhen (io.is_csr_set) { mie_15_12 := mie_15_12 | data_rs1 }
+      .elsewhen (io.is_csr_clear) { mie_15_12 := mie_15_12 & ~data_rs1 }
+    }
+  }
+
+  val mie = Cat(mie_16, mie_15_12, mie_11_8, mie_7_4, mie_3_0)
+  val mip = Cat(io.timer_interrupt, io.interrupt_req(15, 2), mip_reg)
+  io.mie_out := mie
+  io.mip_out := mip
+
   io.mcause_we := false.B
   io.mcause_next := 16.U
 
   when(io.counter === 0.U) {
     when(io.is_interrupt) {
       io.mcause_we := true.B
-      val masked_mip = io.mip & io.mie
+      val masked_mip = mip & mie
       when(masked_mip(16)) {
         io.mcause_next := Cat(1.U(1.W), 7.U(5.W))
       }.otherwise {
@@ -390,11 +453,11 @@ class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module 
                   Mux(io.counter === 1.U, "b0001".U, 0.U))
     }
     is("h304".U) { // mie
-      csr_read := Mux(io.counter === 1.U, Cat(io.mie(16), 0.U(3.W)),
-                  Mux(io.counter === 4.U, io.mie(3, 0),
-                  Mux(io.counter === 5.U, io.mie(7, 4),
-                  Mux(io.counter === 6.U, io.mie(11, 8),
-                  Mux(io.counter === 7.U, io.mie(15, 12), 0.U)))))
+      csr_read := Mux(io.counter === 1.U, Cat(mie(16), 0.U(3.W)),
+                  Mux(io.counter === 4.U, mie(3, 0),
+                  Mux(io.counter === 5.U, mie(7, 4),
+                  Mux(io.counter === 6.U, mie(11, 8),
+                  Mux(io.counter === 7.U, mie(15, 12), 0.U)))))
     }
     is("h341".U) { // mepc
       csr_read := Mux(io.counter <= 5.U, io.mepc(3, 0), 0.U)
@@ -405,11 +468,11 @@ class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module 
                   Mux(io.counter === 7.U, Cat(io.mcause(5), 0.U(3.W)), 0.U)))
     }
     is("h344".U) { // mip
-      csr_read := Mux(io.counter === 1.U, Cat(io.mip(16), 0.U(3.W)),
-                  Mux(io.counter === 4.U, io.mip(3, 0),
-                  Mux(io.counter === 5.U, io.mip(7, 4),
-                  Mux(io.counter === 6.U, io.mip(11, 8),
-                  Mux(io.counter === 7.U, io.mip(15, 12), 0.U)))))
+      csr_read := Mux(io.counter === 1.U, Cat(mip(16), 0.U(3.W)),
+                  Mux(io.counter === 4.U, mip(3, 0),
+                  Mux(io.counter === 5.U, mip(7, 4),
+                  Mux(io.counter === 6.U, mip(11, 8),
+                  Mux(io.counter === 7.U, mip(15, 12), 0.U)))))
     }
     is("hC00".U) { // cycle_count
       csr_read := cycle_count_out_val
