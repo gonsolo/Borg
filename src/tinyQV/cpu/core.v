@@ -39,10 +39,10 @@ module tinyqv_core #(
     input [3:0] data_in,
     input load_data_ready,
 
-    output reg [3:0] data_out,  // Data for the active store instruction
+    output [3:0] data_out,  // Data for the active store instruction
     output [27:0] addr_out,
     output address_ready,  // The addr_out holds the address for the active load/store instruction
-    output reg instr_complete,  // The current instruction will complete this clock, so the instruction may be updated.
+    output instr_complete,  // The current instruction will complete this clock, so the instruction may be updated.
     // If no new instruction is available all a NOOP should be issued, which will complete in 1 cycle.
     output branch,  // addr_out holds the address to branch to
 
@@ -58,9 +58,15 @@ module tinyqv_core #(
 
   // Forward declarations
   wire last_count = (counter == 7);
-  reg [1:0] cycle;
+  wire [1:0] cycle;
+  wire load_done;
+  wire [31:0] tmp_data;
 
   wire is_shift, is_czero, is_priv, is_trap, is_exception, is_mret;
+  wire is_csr, is_csr_write, is_csr_set, is_csr_clear;
+  wire is_slt, alu_cycles, cy_in, cmp_in;
+  wire [3:0] alu_op_in, alu_a_in, alu_b_in;
+  wire take_branch;
 
   TinyQVCoreSnippet i_snippet (
       .clock(clk),
@@ -69,12 +75,56 @@ module tinyqv_core #(
       .io_is_system(is_system),
       .io_imm_lo(imm_lo),
       .io_is_interrupt(is_interrupt),
+      .io_pc(pc),
+      .io_data_rs1(data_rs1),
+      .io_data_rs2(data_rs2),
+      .io_imm(imm),
+      .io_is_auipc(is_auipc),
+      .io_is_jal(is_jal),
+      .io_is_jalr(is_jalr),
+      .io_is_alu_imm(is_alu_imm),
+      .io_is_alu_reg(is_alu_reg),
+      .io_is_branch(is_branch),
+      .io_counter(counter),
+      .io_cy(cy),
+      .io_cmp(cmp),
+      .io_last_count(last_count),
+      .io_cmp_out(cmp_out),
+      .io_mem_op(mem_op),
+      .io_is_lui(is_lui),
+      .io_is_stall(is_stall),
+      .io_is_store(is_store),
+      .io_is_load(is_load),
+      .io_load_data_ready(load_data_ready),
+      .io_alu_out(alu_out),
+      .io_mstatus_mte(mstatus_mte),
+      .io_mepc(mepc),
       .io_is_shift(is_shift),
       .io_is_czero(is_czero),
       .io_is_priv(is_priv),
       .io_is_trap(is_trap),
       .io_is_exception(is_exception),
-      .io_is_mret(is_mret)
+      .io_is_mret(is_mret),
+      .io_is_csr(is_csr),
+      .io_is_csr_write(is_csr_write),
+      .io_is_csr_set(is_csr_set),
+      .io_is_csr_clear(is_csr_clear),
+      .io_is_slt(is_slt),
+      .io_alu_cycles(alu_cycles),
+      .io_alu_op_in(alu_op_in),
+      .io_alu_a_in(alu_a_in),
+      .io_alu_b_in(alu_b_in),
+      .io_cy_in(cy_in),
+      .io_cmp_in(cmp_in),
+      .io_take_branch(take_branch),
+      .io_branch(branch),
+      .io_instr_complete(instr_complete),
+      .io_address_ready(address_ready),
+      .io_cycle_out(cycle),
+      .io_load_done_out(load_done),
+      .io_addr_out(addr_out),
+      .io_data_out(data_out),
+      .io_tmp_data_out(tmp_data)
   );
 
   reg [23:0] mepc;
@@ -84,11 +134,7 @@ module tinyqv_core #(
   reg mstatus_mie;  // Interrupt enable
   reg mstatus_mpie;  // Prior interrupt enable (whether interrupts were enabled on entry to trap)
 
-  wire is_csr = is_system && alu_op[1:0] != 2'b00;
   reg [3:0] csr_read;
-  wire is_csr_write = is_csr && alu_op[1:0] == 2'b01;
-  wire is_csr_set = is_csr && alu_op[1:0] == 2'b10;
-  wire is_csr_clear = is_csr && alu_op[1:0] == 2'b11;
 
   ///////// Register file /////////
 
@@ -97,7 +143,7 @@ module tinyqv_core #(
   reg [3:0] data_rd;
   reg wr_en;
 
-  reg [31:0] tmp_data;
+  // tmp_data moved to snippet
 
   tinyqv_registers i_registers (
       .clk(clk),
@@ -116,22 +162,9 @@ module tinyqv_core #(
 
   ///////// ALU /////////
 
-  wire is_slt = alu_op[3:1] == 3'b001;
-
-  reg [0:0] alu_cycles;
-  always @(*) begin
-    if (is_slt || is_shift) alu_cycles = 1;
-    else alu_cycles = 0;
-  end
-
   reg cy;
   reg cmp;
-  wire [3:0] alu_op_in = is_czero ? 4'b0100 : alu_op;
-  wire [3:0] alu_a_in = is_czero ? 4'b0000 : (is_auipc || is_jal) ? pc : data_rs1;
-  wire [3:0] alu_b_in = (is_alu_reg || is_branch) ? data_rs2 : imm;
   wire [3:0] alu_out;
-  wire cy_in = (counter == 0) ? (alu_op_in[1] || alu_op_in[3]) : cy;
-  wire cmp_in = (counter == 0) ? 1'b1 : cmp;
   wire cy_out, cmp_out;
 
   tinyqv_alu i_alu (
@@ -219,70 +252,8 @@ module tinyqv_core #(
 
   ///////// Branching /////////
 
-  wire take_branch = last_count && (cmp_out ^ mem_op[0]);
-  assign branch = last_count && ((is_jal || is_jalr || is_trap || is_interrupt || is_mret) || (is_branch && take_branch));
 
-
-  ///////// Cycle management /////////
-
-  always @(posedge clk) begin
-    if (!rstn) cycle <= 0;
-    else if (last_count) begin
-      if (instr_complete) cycle <= 0;
-      else if (cycle != 2'b11) cycle <= cycle + 1;
-    end
-  end
-
-  reg load_done;
-  always @(*) begin
-    instr_complete = 0;
-    if (last_count) begin
-      if (is_auipc || is_lui || is_jal || is_jalr || is_system || is_stall || is_exception || is_branch)
-        instr_complete = 1;
-      else if (is_store)
-        if (tmp_data[31:30] == 2'b11)
-          instr_complete = cycle[0];  // Writes to system addresses take 2 cycles
-        else instr_complete = 1;
-      else if (is_czero) instr_complete = cycle[0] || (cmp_out ^ alu_op[0]);
-      else if (is_alu_imm || is_alu_reg) instr_complete = cycle[0:0] == alu_cycles;
-      else if (load_done && is_load) instr_complete = 1;
-    end
-  end
-
-  always @(posedge clk) begin
-    if (counter == 0) load_done <= load_data_ready && (cycle != 0);
-  end
-
-  assign address_ready = last_count && (cycle == 0) && (is_load || is_store);
-
-
-  ///////// Working temporary data /////////
-
-  reg [3:0] tmp_data_in;
-  reg tmp_data_shift;
-
-  always @(*) begin
-    tmp_data_shift = 1;
-    if (is_exception)
-      tmp_data_in = (counter == 0) ? {is_interrupt, is_trap && mstatus_mte, 2'b00} : 4'b0000;
-    else if (is_shift || is_czero) tmp_data_in = data_rs1;
-    else if (cycle == 0) tmp_data_in = alu_out;
-    else tmp_data_in = data_rs2;
-
-    if (cycle == 1 && is_shift) tmp_data_shift = 0;
-  end
-
-  always @(posedge clk) begin
-    if (tmp_data_shift) tmp_data <= {tmp_data_in, tmp_data[31:4]};
-  end
-
-  assign addr_out = is_mret ? {4'b0000, mepc} : tmp_data[31:4];
-
-  always @(*) begin
-    data_out = data_rs2;
-    if ((mem_op[1:0] == 2'b00 && counter > 1) || (mem_op[1:0] == 2'b01 && counter > 3))
-      data_out = 0;
-  end
+  // Cycle management, load_done, and tmp_data logic moved to snippet
 
 
   ///////// Counters /////////

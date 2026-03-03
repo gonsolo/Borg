@@ -70,12 +70,62 @@ class TinyQVCoreSnippetIO extends Bundle {
   val imm_lo = Input(UInt(12.W))
   val is_interrupt = Input(Bool())
 
+  val pc = Input(UInt(4.W))
+  val data_rs1 = Input(UInt(4.W))
+  val data_rs2 = Input(UInt(4.W))
+  val imm = Input(UInt(4.W))
+  val is_auipc = Input(Bool())
+  val is_jal = Input(Bool())
+  val is_jalr = Input(Bool())
+  val is_alu_imm = Input(Bool())
+  val is_alu_reg = Input(Bool())
+  val is_branch = Input(Bool())
+  val counter = Input(UInt(3.W))
+  val cy = Input(Bool())
+  val cmp = Input(Bool())
+
+  // Batch 4 inputs
+  val last_count = Input(Bool())
+  val cmp_out = Input(Bool())
+  val mem_op = Input(UInt(3.W))
+  val is_lui = Input(Bool())
+  val is_stall = Input(Bool())
+  val is_store = Input(Bool())
+  val is_load = Input(Bool())
+  val load_data_ready = Input(Bool())
+  val alu_out = Input(UInt(4.W))
+  val mstatus_mte = Input(Bool())
+  val mepc = Input(UInt(24.W))
+
   val is_shift = Output(Bool())
   val is_czero = Output(Bool())
   val is_priv = Output(Bool())
   val is_trap = Output(Bool())
   val is_exception = Output(Bool())
   val is_mret = Output(Bool())
+
+  val is_csr = Output(Bool())
+  val is_csr_write = Output(Bool())
+  val is_csr_set = Output(Bool())
+  val is_csr_clear = Output(Bool())
+  val is_slt = Output(Bool())
+  val alu_cycles = Output(Bool())
+  val alu_op_in = Output(UInt(4.W))
+  val alu_a_in = Output(UInt(4.W))
+  val alu_b_in = Output(UInt(4.W))
+  val cy_in = Output(Bool())
+  val cmp_in = Output(Bool())
+
+  // Batch 4 outputs
+  val take_branch = Output(Bool())
+  val branch = Output(Bool())
+  val instr_complete = Output(Bool())
+  val address_ready = Output(Bool())
+  val cycle_out = Output(UInt(2.W))
+  val load_done_out = Output(Bool())
+  val addr_out = Output(UInt(28.W))
+  val data_out = Output(UInt(4.W))
+  val tmp_data_out = Output(UInt(32.W))
 }
 
 class TinyQVCoreSnippet extends Module {
@@ -88,4 +138,100 @@ class TinyQVCoreSnippet extends Module {
   io.is_trap := io.is_priv && (io.imm_lo(9, 8) === "b00".U)
   io.is_exception := io.is_trap || io.is_interrupt
   io.is_mret := io.is_priv && (io.imm_lo(9, 8) === "b11".U)
+
+  io.is_csr := io.is_system && io.alu_op(1, 0) =/= "b00".U
+  io.is_csr_write := io.is_csr && io.alu_op(1, 0) === "b01".U
+  io.is_csr_set := io.is_csr && io.alu_op(1, 0) === "b10".U
+  io.is_csr_clear := io.is_csr && io.alu_op(1, 0) === "b11".U
+
+  io.is_slt := io.alu_op(3, 1) === "b001".U
+  io.alu_cycles := io.is_slt || io.is_shift
+
+  io.alu_op_in := Mux(io.is_czero, "b0100".U, io.alu_op)
+  io.alu_a_in := Mux(io.is_czero, 0.U, Mux(io.is_auipc || io.is_jal, io.pc, io.data_rs1))
+  io.alu_b_in := Mux(io.is_alu_reg || io.is_branch, io.data_rs2, io.imm)
+
+  io.cy_in := Mux(io.counter === 0.U, io.alu_op_in(1) || io.alu_op_in(3), io.cy)
+  io.cmp_in := Mux(io.counter === 0.U, 1.B, io.cmp)
+
+  // Batch 4 registers
+  val cycle = RegInit(0.U(2.W))
+  val load_done = RegInit(false.B)
+  val tmp_data = RegInit(0.U(32.W))
+
+  io.cycle_out := cycle
+  io.load_done_out := load_done
+
+  // Cycle management
+  when(io.last_count) {
+    // Note: io.instr_complete depends on cycle, but cycle is a Reg, 
+    // so this is a non-blocking assignment equivalent.
+    when(io.instr_complete) {
+      cycle := 0.U
+    }.elsewhen(cycle =/= 3.U) {
+      cycle := cycle + 1.U
+    }
+  }
+
+  // load_done
+  when(io.counter === 0.U) {
+    load_done := io.load_data_ready && (cycle =/= 0.U)
+  }
+
+  // Working temporary data
+  val tmp_data_in = Wire(UInt(4.W))
+  val tmp_data_shift = WireDefault(true.B)
+
+  tmp_data_in := 0.U
+  when(io.is_exception) {
+    tmp_data_in := Mux(io.counter === 0.U, Cat(io.is_interrupt, io.is_trap && io.mstatus_mte, 0.U(2.W)), 0.U)
+  }.elsewhen(io.is_shift || io.is_czero) {
+    tmp_data_in := io.data_rs1
+  }.elsewhen(cycle === 0.U) {
+    tmp_data_in := io.alu_out
+  }.otherwise {
+    tmp_data_in := io.data_rs2
+  }
+
+  when(cycle === 1.U && io.is_shift) {
+    tmp_data_shift := false.B
+  }
+
+  when(tmp_data_shift) {
+    tmp_data := Cat(tmp_data_in, tmp_data(31, 4))
+  }
+
+  io.addr_out := Mux(io.is_mret, Cat(0.U(4.W), io.mepc), tmp_data(31, 4))
+
+  // data_out (nibble for active store)
+  val data_out_val = Wire(UInt(4.W))
+  data_out_val := io.data_rs2
+  when((io.mem_op(1, 0) === 0.U && io.counter > 1.U) || (io.mem_op(1, 0) === 1.U && io.counter > 3.U)) {
+    data_out_val := 0.U
+  }
+  io.data_out := data_out_val
+  io.tmp_data_out := tmp_data
+
+  // Batch 3 logic (updated to use internal state)
+  io.take_branch := io.last_count && (io.cmp_out ^ io.mem_op(0))
+  io.branch := io.last_count && ((io.is_jal || io.is_jalr || io.is_trap || io.is_interrupt || io.is_mret) || (io.is_branch && io.take_branch))
+
+  val instr_complete_store = Mux(tmp_data(31, 30) === 3.U, cycle(0), 1.B)
+  
+  io.instr_complete := false.B
+  when(io.last_count) {
+    when(io.is_auipc || io.is_lui || io.is_jal || io.is_jalr || io.is_system || io.is_stall || io.is_exception || io.is_branch) {
+      io.instr_complete := true.B
+    }.elsewhen(io.is_store) {
+      io.instr_complete := instr_complete_store
+    }.elsewhen(io.is_czero) {
+      io.instr_complete := cycle(0) || (io.cmp_out ^ io.alu_op(0))
+    }.elsewhen(io.is_alu_imm || io.is_alu_reg) {
+      io.instr_complete := cycle === io.alu_cycles.asUInt
+    }.elsewhen(load_done && io.is_load) {
+      io.instr_complete := true.B
+    }
+  }
+
+  io.address_ready := io.last_count && (cycle === 0.U) && (io.is_load || io.is_store)
 }
