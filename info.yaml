@@ -43,7 +43,7 @@ project:
     - "../out/tinyqv/verilog/tinyqv_counter_5.sv"
     - "../out/tinyqv/verilog/tinyqv_counter_7.sv"
     - "../out/tinyqv/verilog/uart_rx.sv"
-    - "tinyQV/peri/uart/uart_tx.v"
+    - "../out/tinyqv/verilog/uart_tx.sv"
     - "user_peripherals/uart/peri_uart.v"
     - "user_peripherals/uart/uart_rx.v"
     - "user_peripherals/uart/uart_tx.v"

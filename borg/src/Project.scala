@@ -55,20 +55,14 @@ class tinyQV extends ExtModule {
 
 
 
-class uart_tx_IO extends Bundle {
-  val clk = Input(Clock())
-  val resetn = Input(Bool())
-  val uart_txd = Output(Bool())
-  val uart_tx_en = Input(Bool())
-  val uart_tx_data = Input(UInt(8.W))
-  val uart_tx_busy = Output(Bool())
-}
-
-class uart_tx(val BIT_RATE: Int = 4000000, val CLK_HZ: Int = 64000000) extends BlackBox(Map(
-  "BIT_RATE" -> IntParam(BIT_RATE),
-  "CLK_HZ" -> IntParam(CLK_HZ)
-)) {
-  val io = IO(new uart_tx_IO)
+class uart_tx extends ExtModule {
+  val clock = IO(Input(Clock()))
+  val reset = IO(Input(Bool()))
+  val io_uart_txd = IO(Output(Bool()))
+  val io_uart_tx_en = IO(Input(Bool()))
+  val io_uart_tx_data = IO(Input(UInt(8.W)))
+  val io_baud_divider = IO(Input(UInt(13.W)))
+  val io_uart_tx_busy = IO(Output(Bool()))
 }
 
 class tt_um_tt_tinyQV extends RawModule {
@@ -178,8 +172,8 @@ class tt_um_tt_tinyQV extends RawModule {
     }
   }
 
-  val debug_uart_tx_busy = i_debug_uart_tx.io.uart_tx_busy
-  
+  val debug_uart_tx_busy = i_debug_uart_tx.io_uart_tx_busy
+
   data_from_read := "hFFFFFFFF".U(32.W)
   switch(connect_peripheral) {
     is(PERI_ID) { data_from_read := 0x41.U(32.W) }
@@ -193,11 +187,12 @@ class tt_um_tt_tinyQV extends RawModule {
 
   val debug_uart_tx_start = (write_n =/= 3.U(2.W)) && (connect_peripheral === PERI_DEBUG_UART)
 
-  i_debug_uart_tx.io.clk := clk
-  i_debug_uart_tx.io.resetn := rst_reg_n
-  val debug_uart_txd = i_debug_uart_tx.io.uart_txd
-  i_debug_uart_tx.io.uart_tx_en := debug_uart_tx_start
-  i_debug_uart_tx.io.uart_tx_data := data_to_write(7, 0)
+  i_debug_uart_tx.clock := clk
+  i_debug_uart_tx.reset := !rst_reg_n
+  val debug_uart_txd = i_debug_uart_tx.io_uart_txd
+  i_debug_uart_tx.io_uart_tx_en := debug_uart_tx_start
+  i_debug_uart_tx.io_uart_tx_data := data_to_write(7, 0)
+  i_debug_uart_tx.io_baud_divider := 15.U(13.W)
 
   val time_count = withClockAndReset(clk, !rst_reg_n) { RegInit(0.U(7.W)) }
   withClockAndReset(clk, false.B) {

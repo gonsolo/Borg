@@ -8,26 +8,23 @@ package tinyqv.peri.uart
 import chisel3._
 import chisel3.util._
 
-class UartRxIO(payloadBits: Int) extends Bundle {
+class UartRxIO(payloadBits: Int, countRegLen: Int) extends Bundle {
   val uart_rxd = Input(Bool())
   val uart_rts = Output(Bool())
   val uart_rx_read = Input(Bool())
   val uart_rx_valid = Output(Bool())
   val uart_rx_data = Output(UInt(payloadBits.W))
+  val baud_divider = Input(UInt(countRegLen.W))
 }
 
 class UartRx(
-  val bitRate: Int = 9600,
-  val clkHz: Int = 50000000,
+  val countRegLen: Int = 13,
   val payloadBits: Int = 8,
   val stopBits: Int = 1
 ) extends Module {
   override val desiredName = "uart_rx"
 
-  val io = IO(new UartRxIO(payloadBits))
-
-  val cyclesPerBit = (clkHz - 1) / bitRate
-  val countRegLen = log2Ceil(cyclesPerBit) + 1
+  val io = IO(new UartRxIO(payloadBits, countRegLen))
 
   val FSM_IDLE = 0.U(4.W)
   val FSM_START = 1.U(4.W)
@@ -41,8 +38,8 @@ class UartRx(
   val recieved_data = Reg(UInt(payloadBits.W))
   val uart_rts_reg = RegInit(true.B)
 
-  val next_bit = cycle_counter === cyclesPerBit.U(countRegLen.W)
-  val mid_bit = cycle_counter === (cyclesPerBit / 2).U(countRegLen.W)
+  val next_bit = cycle_counter >= io.baud_divider
+  val mid_bit = cycle_counter === (io.baud_divider >> 1.U)
 
   val next_fsm_state = WireDefault(fsm_state)
 
@@ -78,7 +75,7 @@ class UartRx(
 
   fsm_state := next_fsm_state
 
-  uart_rts_reg := fsm_state > FSM_START
+  uart_rts_reg := fsm_state > FSM_START && !io.uart_rx_read
 
   io.uart_rx_valid := fsm_state === FSM_READY
   io.uart_rx_data := recieved_data
