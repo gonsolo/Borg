@@ -64,8 +64,7 @@ module tinyqv_core #(
 
   wire is_shift, is_czero, is_priv, is_trap, is_exception, is_mret;
   wire is_csr, is_csr_write, is_csr_set, is_csr_clear;
-  wire is_slt, alu_cycles, cy_in, cmp_in;
-  wire [3:0] alu_op_in, alu_a_in, alu_b_in;
+  wire is_slt, alu_cycles;
   wire take_branch;
 
   TinyQVCoreSnippet i_snippet (
@@ -91,10 +90,7 @@ module tinyqv_core #(
       .io_shift_out(shift_out),
       .io_return_addr(return_addr),
       .io_counter(counter),
-      .io_cy(cy),
-      .io_cmp(cmp),
       .io_last_count(last_count),
-      .io_cmp_out(cmp_out),
       .io_mem_op(mem_op),
       .io_is_lui(is_lui),
       .io_is_stall(is_stall),
@@ -102,7 +98,6 @@ module tinyqv_core #(
       .io_is_load(is_load),
       .io_load_data_ready(load_data_ready),
       .io_data_in(data_in),
-      .io_alu_out(alu_out),
       .io_mstatus_mte(mstatus_mte),
       .io_mepc(mepc),
       .io_data_rs1(data_rs1),
@@ -121,11 +116,6 @@ module tinyqv_core #(
       .io_is_csr_clear(is_csr_clear),
       .io_is_slt(is_slt),
       .io_alu_cycles(alu_cycles),
-      .io_alu_op_in(alu_op_in),
-      .io_alu_a_in(alu_a_in),
-      .io_alu_b_in(alu_b_in),
-      .io_cy_in(cy_in),
-      .io_cmp_in(cmp_in),
       .io_take_branch(take_branch),
       .io_branch(branch),
       .io_instr_complete(instr_complete),
@@ -155,29 +145,6 @@ module tinyqv_core #(
 
   // Registers and writeback moved to snippet
 
-
-  ///////// ALU /////////
-
-  reg cy;
-  reg cmp;
-  wire [3:0] alu_out;
-  wire cy_out, cmp_out;
-
-  tinyqv_alu i_alu (
-      .op(alu_op_in),
-      .a(alu_a_in),
-      .b(alu_b_in),
-      .cy_in(cy_in),
-      .cmp_in(cmp_in),
-      .d(alu_out),
-      .cy_out(cy_out),
-      .cmp_res(cmp_out)
-  );
-
-  always @(posedge clk) begin
-    cy  <= cy_out;
-    cmp <= cmp_out;
-  end
 
   ///////// Shifter /////////
 

@@ -85,12 +85,9 @@ class TinyQVCoreSnippetIO(regAddrBits: Int) extends Bundle {
   val csr_read = Input(UInt(4.W))
   val shift_out = Input(UInt(4.W))
   val counter = Input(UInt(3.W))
-  val cy = Input(Bool())
-  val cmp = Input(Bool())
 
   // Batch 4 inputs
   val last_count = Input(Bool())
-  val cmp_out = Input(Bool())
   val mem_op = Input(UInt(3.W))
   val is_lui = Input(Bool())
   val is_stall = Input(Bool())
@@ -98,7 +95,6 @@ class TinyQVCoreSnippetIO(regAddrBits: Int) extends Bundle {
   val is_load = Input(Bool())
   val load_data_ready = Input(Bool())
   val data_in = Input(UInt(4.W))
-  val alu_out = Input(UInt(4.W))
   val mstatus_mte = Input(Bool())
   val mepc = Input(UInt(24.W))
 
@@ -115,11 +111,6 @@ class TinyQVCoreSnippetIO(regAddrBits: Int) extends Bundle {
   val is_csr_clear = Output(Bool())
   val is_slt = Output(Bool())
   val alu_cycles = Output(Bool())
-  val alu_op_in = Output(UInt(4.W))
-  val alu_a_in = Output(UInt(4.W))
-  val alu_b_in = Output(UInt(4.W))
-  val cy_in = Output(Bool())
-  val cmp_in = Output(Bool())
 
   val return_addr = Output(UInt(23.W))
   val data_rs1 = Output(UInt(4.W))
@@ -181,13 +172,26 @@ class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module 
   io.data_rs2 := data_rs2
   io.return_addr := registers.return_addr
 
-  // ALU Input selection (moved data_rs1/data_rs2 usage to local wires)
-  io.alu_op_in := Mux(io.is_czero, "b0100".U, io.alu_op)
-  io.alu_a_in := Mux(io.is_czero, 0.U, Mux(io.is_auipc || io.is_jal, io.pc, data_rs1))
-  io.alu_b_in := Mux(io.is_alu_reg || io.is_branch, data_rs2, io.imm)
+  // Alu instance and state
+  val cy = RegInit(false.B)
+  val cmp = RegInit(false.B)
+  val alu = Module(new TinyQVAlu())
+  
+  val alu_op_in = Mux(io.is_czero, "b0100".U, io.alu_op)
+  val alu_a_in = Mux(io.is_czero, 0.U, Mux(io.is_auipc || io.is_jal, io.pc, data_rs1))
+  val alu_b_in = Mux(io.is_alu_reg || io.is_branch, data_rs2, io.imm)
 
-  io.cy_in := Mux(io.counter === 0.U, io.alu_op_in(1) || io.alu_op_in(3), io.cy)
-  io.cmp_in := Mux(io.counter === 0.U, 1.B, io.cmp)
+  alu.op := alu_op_in
+  alu.a := alu_a_in
+  alu.b := alu_b_in
+  alu.cy_in := Mux(io.counter === 0.U, alu_op_in(1) || alu_op_in(3), cy)
+  alu.cmp_in := Mux(io.counter === 0.U, 1.B, cmp)
+
+  val alu_out = alu.d
+  val cmp_out = alu.cmp_res
+
+  cy := alu.cy_out
+  cmp := cmp_out
 
   // load_top_bit logic
   val load_top_bit_next = Wire(Bool())
@@ -208,11 +212,11 @@ class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module 
     when(io.is_czero) {
       when(cycle === 1.U) { data_rd := tmp_data(3, 0) }
     }.elsewhen(io.is_slt && cycle === 1.U && io.counter === 0.U) {
-      data_rd := io.cmp.asUInt // This is the old cmp which will be registers soon but for now it's okay
+      data_rd := cmp.asUInt
     }.elsewhen(io.is_shift && cycle === 1.U) {
       data_rd := io.shift_out
     }.otherwise {
-      data_rd := io.alu_out
+      data_rd := alu_out
     }
   }.elsewhen(io.is_load && io.load_data_ready) {
     wr_en := true.B
@@ -261,7 +265,7 @@ class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module 
   }.elsewhen(io.is_shift || io.is_czero) {
     tmp_data_in := data_rs1
   }.elsewhen(cycle === 0.U) {
-    tmp_data_in := io.alu_out
+    tmp_data_in := alu_out
   }.otherwise {
     tmp_data_in := data_rs2
   }
@@ -286,7 +290,7 @@ class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module 
   io.tmp_data_out := tmp_data
 
   // Batch 3 logic (updated to use internal state)
-  io.take_branch := io.last_count && (io.cmp_out ^ io.mem_op(0))
+  io.take_branch := io.last_count && (cmp_out ^ io.mem_op(0))
   io.branch := io.last_count && ((io.is_jal || io.is_jalr || io.is_trap || io.is_interrupt || io.is_mret) || (io.is_branch && io.take_branch))
 
   val instr_complete_store = Mux(tmp_data(31, 30) === 3.U, cycle(0), 1.B)
@@ -298,7 +302,7 @@ class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module 
     }.elsewhen(io.is_store) {
       io.instr_complete := instr_complete_store
     }.elsewhen(io.is_czero) {
-      io.instr_complete := cycle(0) || (io.cmp_out ^ io.alu_op(0))
+      io.instr_complete := cycle(0) || (cmp_out ^ io.alu_op(0))
     }.elsewhen(io.is_alu_imm || io.is_alu_reg) {
       io.instr_complete := cycle === io.alu_cycles.asUInt
     }.elsewhen(load_done && io.is_load) {
