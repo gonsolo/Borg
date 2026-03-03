@@ -96,6 +96,8 @@ class TinyQVCoreSnippetIO(regAddrBits: Int) extends Bundle {
   val data_in = Input(UInt(4.W))
   val mstatus_mte = Input(Bool())
   val mepc = Input(UInt(24.W))
+  val mip = Input(UInt(17.W))
+  val mie = Input(UInt(17.W))
 
   val is_shift = Output(Bool())
   val is_czero = Output(Bool())
@@ -129,6 +131,8 @@ class TinyQVCoreSnippetIO(regAddrBits: Int) extends Bundle {
   val tmp_data_out = Output(UInt(32.W))
   val cycle_count_out = Output(UInt(4.W))
   val time_count_out = Output(UInt(4.W))
+  val mcause_we = Output(Bool())
+  val mcause_next = Output(UInt(6.W))
 }
 
 class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
@@ -351,4 +355,22 @@ class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module 
   // time_count = (counter == 7) ? {time_hi, cycle_count_wide[3]} : cycle_count_wide[6:3]
   io.cycle_count_out := cycle_count_wide(3, 0)
   io.time_count_out := Mux(io.counter === 7.U, Cat(time_hi, cycle_count_wide(3)), cycle_count_wide(6, 3))
+
+  io.mcause_we := false.B
+  io.mcause_next := 16.U
+
+  when(io.counter === 0.U) {
+    when(io.is_interrupt) {
+      io.mcause_we := true.B
+      val masked_mip = io.mip & io.mie
+      when(masked_mip(16)) {
+        io.mcause_next := Cat(1.U(1.W), 7.U(5.W))
+      }.otherwise {
+        io.mcause_next := Cat(1.U(1.W), 16.U(5.W) + PriorityEncoder(masked_mip(15, 0)))
+      }
+    }.elsewhen(io.is_trap) {
+      io.mcause_we := true.B
+      io.mcause_next := Mux(io.imm === 0.U, 11.U, Mux(io.imm === 1.U, 3.U, 2.U))
+    }
+  }
 }

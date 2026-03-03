@@ -67,6 +67,9 @@ module tinyqv_core #(
   wire is_slt, alu_cycles;
   wire take_branch;
 
+  wire mcause_we;
+  wire [5:0] mcause_next;
+
   TinyQVCoreSnippet i_snippet (
       .clock(clk),
       .reset(!rstn),
@@ -125,7 +128,11 @@ module tinyqv_core #(
       .io_data_out(data_out),
       .io_tmp_data_out(tmp_data),
       .io_cycle_count_out(cycle_count),
-      .io_time_count_out(time_count)
+      .io_time_count_out(time_count),
+      .io_mip(mip),
+      .io_mie(mie),
+      .io_mcause_we(mcause_we),
+      .io_mcause_next(mcause_next)
   );
 
   reg [23:0] mepc;
@@ -158,35 +165,7 @@ module tinyqv_core #(
   reg [5:0] mcause;
   always @(posedge clk) begin
     if (!rstn) mcause <= 0;
-    else if (counter == 0) begin
-      if (is_interrupt) begin
-        mcause[5] <= 1;
-        casez (mip[16:0] & mie[16:0])
-          17'b1????????????????: mcause[4:0] <= 5'h07;
-          17'b0???????????????1: mcause[4:0] <= 5'h10;
-          17'b0??????????????10: mcause[4:0] <= 5'h11;
-          17'b0?????????????100: mcause[4:0] <= 5'h12;
-          17'b0????????????1000: mcause[4:0] <= 5'h13;
-          17'b0???????????10000: mcause[4:0] <= 5'h14;
-          17'b0??????????100000: mcause[4:0] <= 5'h15;
-          17'b0?????????1000000: mcause[4:0] <= 5'h16;
-          17'b0????????10000000: mcause[4:0] <= 5'h17;
-          17'b0???????100000000: mcause[4:0] <= 5'h18;
-          17'b0??????1000000000: mcause[4:0] <= 5'h19;
-          17'b0?????10000000000: mcause[4:0] <= 5'h1a;
-          17'b0????100000000000: mcause[4:0] <= 5'h1b;
-          17'b0???1000000000000: mcause[4:0] <= 5'h1c;
-          17'b0??10000000000000: mcause[4:0] <= 5'h1d;
-          17'b0?100000000000000: mcause[4:0] <= 5'h1e;
-          17'b01000000000000000: mcause[4:0] <= 5'h1f;
-          default: mcause[4:0] <= 5'h10;  // Shouldn't be possible
-        endcase
-      end else if (is_trap) begin
-        if (imm == 4'b0000) mcause <= 6'd11;  // ECALL
-        else if (imm == 4'b0001) mcause <= 6'd3;  // EBREAK
-        else mcause <= 6'd2;  // Illegal instruction
-      end
-    end
+    else if (mcause_we) mcause <= mcause_next;
   end
 
   // mstatus_mte is cleared while handling a trap, so need to latch double fault on counter==0.
