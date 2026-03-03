@@ -83,7 +83,6 @@ class TinyQVCoreSnippetIO(regAddrBits: Int) extends Bundle {
   val rd = Input(UInt(regAddrBits.W))
   val next_pc = Input(UInt(4.W))
   val csr_read = Input(UInt(4.W))
-  val shift_out = Input(UInt(4.W))
   val counter = Input(UInt(3.W))
 
   // Batch 4 inputs
@@ -193,6 +192,23 @@ class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module 
   cy := alu.cy_out
   cmp := cmp_out
 
+  // Shifter instance and state
+  val shift_amt = Reg(UInt(5.W))
+  when(cycle === 0.U) {
+    when(io.counter === 0.U) {
+      shift_amt := Cat(shift_amt(4), Mux(io.is_alu_imm, io.imm, data_rs2))
+    }.elsewhen(io.counter === 1.U) {
+      shift_amt := Cat(Mux(io.is_alu_imm, io.imm(0), data_rs2(0)), shift_amt(3, 0))
+    }
+  }
+
+  val shifter = Module(new TinyQVShifter())
+  shifter.op := io.alu_op(3, 2)
+  shifter.counter := io.counter
+  shifter.a := tmp_data
+  shifter.b := shift_amt
+  val shift_out = shifter.d
+
   // load_top_bit logic
   val load_top_bit_next = Wire(Bool())
   load_top_bit_next := Mux(io.counter === 0.U, false.B, load_top_bit)
@@ -214,7 +230,7 @@ class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module 
     }.elsewhen(io.is_slt && cycle === 1.U && io.counter === 0.U) {
       data_rd := cmp.asUInt
     }.elsewhen(io.is_shift && cycle === 1.U) {
-      data_rd := io.shift_out
+      data_rd := shift_out
     }.otherwise {
       data_rd := alu_out
     }

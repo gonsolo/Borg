@@ -87,7 +87,6 @@ module tinyqv_core #(
       .io_rd(rd),
       .io_next_pc(next_pc),
       .io_csr_read(csr_read),
-      .io_shift_out(shift_out),
       .io_return_addr(return_addr),
       .io_counter(counter),
       .io_last_count(last_count),
@@ -144,26 +143,6 @@ module tinyqv_core #(
   wire wr_en;
 
   // Registers and writeback moved to snippet
-
-
-  ///////// Shifter /////////
-
-  reg [4:0] shift_amt;
-  always @(posedge clk) begin
-    if (cycle == 0) begin
-      if (counter == 0) shift_amt[3:0] <= is_alu_imm ? imm : data_rs2;
-      else if (counter == 1) shift_amt[4] <= is_alu_imm ? imm[0] : data_rs2[0];
-    end
-  end
-
-  wire [3:0] shift_out;
-  tinyqv_shifter i_shift (
-      .op(alu_op[3:2]),
-      .counter(counter),
-      .a(tmp_data),
-      .b(shift_amt),
-      .d(shift_out)
-  );
 
 
   // Writeback moved to snippet
