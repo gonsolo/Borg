@@ -127,6 +127,8 @@ class TinyQVCoreSnippetIO(regAddrBits: Int) extends Bundle {
   val addr_out = Output(UInt(28.W))
   val data_out = Output(UInt(4.W))
   val tmp_data_out = Output(UInt(32.W))
+  val cycle_count_out = Output(UInt(4.W))
+  val time_count_out = Output(UInt(4.W))
 }
 
 class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
@@ -327,4 +329,26 @@ class TinyQVCoreSnippet(numRegs: Int = 16, regAddrBits: Int = 4) extends Module 
   }
 
   io.address_ready := io.last_count && (cycle === 0.U) && (io.is_load || io.is_store)
+
+  // Counters
+  val cycle_counter = Module(new TinyQVCounter(7))
+  cycle_counter.clk := clock
+  cycle_counter.rstn := !reset.asBool
+  cycle_counter.add := 1.B
+  cycle_counter.counter := io.counter
+  cycle_counter.set := 0.B
+  cycle_counter.data_in := 0.U
+  
+  val cycle_count_wide = cycle_counter.data // 7 bits
+  val cycle_cy = cycle_counter.cy_out
+
+  val time_hi = RegInit(0.U(3.W))
+  when(io.counter === 7.U && cycle_cy) {
+    time_hi := time_hi + 1.U
+  }
+
+  // cycle_count = cycle_count_wide[3:0]
+  // time_count = (counter == 7) ? {time_hi, cycle_count_wide[3]} : cycle_count_wide[6:3]
+  io.cycle_count_out := cycle_count_wide(3, 0)
+  io.time_count_out := Mux(io.counter === 7.U, Cat(time_hi, cycle_count_wide(3)), cycle_count_wide(6, 3))
 }

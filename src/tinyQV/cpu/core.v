@@ -123,7 +123,9 @@ module tinyqv_core #(
       .io_load_done_out(load_done),
       .io_addr_out(addr_out),
       .io_data_out(data_out),
-      .io_tmp_data_out(tmp_data)
+      .io_tmp_data_out(tmp_data),
+      .io_cycle_count_out(cycle_count),
+      .io_time_count_out(time_count)
   );
 
   reg [23:0] mepc;
@@ -142,52 +144,18 @@ module tinyqv_core #(
   wire [3:0] data_rd;
   wire wr_en;
 
-  // Registers and writeback moved to snippet
 
-
-  // Writeback moved to snippet
-
-
-  ///////// Branching /////////
-
-
-  // Cycle management, load_done, and tmp_data logic moved to snippet
-
-
-  ///////// Counters /////////
-
-  wire [6:0] cycle_count_wide;
-  wire cycle_cy;
-  tinyqv_counter #(
-      .OUTPUT_WIDTH(7)
-  ) i_cycles (
-      .clk(clk),
-      .rstn(rstn),
-      .add(1'b1),
-      .counter(counter),
-      .set(1'b0),
-      .data_in(4'b0),
-      .data(cycle_count_wide),
-      .cy_out(cycle_cy)
-  );
-
-  reg [2:0] time_hi;
-  always @(posedge clk) begin
-    if (!rstn) time_hi <= 0;
-    else if (counter == 7 && cycle_cy) time_hi <= time_hi + 3'b001;
-  end
-
-  wire [  3:0] cycle_count = cycle_count_wide[3:0];
-  wire [  3:0] time_count = (counter == 7) ? {time_hi, cycle_count_wide[3]} : cycle_count_wide[6:3];
+  wire [3:0] cycle_count;
+  wire [3:0] time_count;
 
 
   ///////// Traps and interrupts /////////    
 
-  reg  [17:16] mip_reg;
-  wire [ 16:0] mip = {timer_interrupt, interrupt_req[15:2], mip_reg};
-  reg  [ 16:0] mie;
+  reg [17:16] mip_reg;
+  wire [16:0] mip = {timer_interrupt, interrupt_req[15:2], mip_reg};
+  reg [16:0] mie;
 
-  reg  [  5:0] mcause;
+  reg [5:0] mcause;
   always @(posedge clk) begin
     if (!rstn) mcause <= 0;
     else if (counter == 0) begin
