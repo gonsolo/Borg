@@ -63,3 +63,29 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends ExtModule(Map(
   
   val io = FlatIO(new TinyQVCoreIO(regAddrBits))
 }
+
+class TinyQVCoreSnippetIO extends Bundle {
+  val alu_op = Input(UInt(4.W))
+  val is_system = Input(Bool())
+  val imm_lo = Input(UInt(12.W))
+  val is_interrupt = Input(Bool())
+
+  val is_shift = Output(Bool())
+  val is_czero = Output(Bool())
+  val is_priv = Output(Bool())
+  val is_trap = Output(Bool())
+  val is_exception = Output(Bool())
+  val is_mret = Output(Bool())
+}
+
+class TinyQVCoreSnippet extends Module {
+  val io = IO(new TinyQVCoreSnippetIO)
+
+  io.is_shift := io.alu_op(1, 0) === "b01".U
+  io.is_czero := io.alu_op(3, 1) === "b111".U
+
+  io.is_priv := io.is_system && (io.alu_op(2, 0) === "b000".U)
+  io.is_trap := io.is_priv && (io.imm_lo(9, 8) === "b00".U)
+  io.is_exception := io.is_trap || io.is_interrupt
+  io.is_mret := io.is_priv && (io.imm_lo(9, 8) === "b11".U)
+}

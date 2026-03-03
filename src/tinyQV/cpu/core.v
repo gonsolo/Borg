@@ -60,13 +60,23 @@ module tinyqv_core #(
   wire last_count = (counter == 7);
   reg [1:0] cycle;
 
-  wire is_shift = alu_op[1:0] == 2'b01;
-  wire is_czero = alu_op[3:1] == 3'b111;
+  wire is_shift, is_czero, is_priv, is_trap, is_exception, is_mret;
 
-  wire is_priv = is_system && (alu_op[2:0] == 3'b000);
-  wire is_trap = is_priv && (imm_lo[9:8] == 2'b00);
-  wire is_exception = is_trap || is_interrupt;
-  wire is_mret = is_priv && (imm_lo[9:8] == 2'b11);
+  TinyQVCoreSnippet i_snippet (
+      .clock(clk),
+      .reset(!rstn),
+      .io_alu_op(alu_op),
+      .io_is_system(is_system),
+      .io_imm_lo(imm_lo),
+      .io_is_interrupt(is_interrupt),
+      .io_is_shift(is_shift),
+      .io_is_czero(is_czero),
+      .io_is_priv(is_priv),
+      .io_is_trap(is_trap),
+      .io_is_exception(is_exception),
+      .io_is_mret(is_mret)
+  );
+
   reg [23:0] mepc;
 
   reg mstatus_mte;  // Trap enable - this is non-standard, but allows trapping without
