@@ -4,7 +4,7 @@
 package tinyqv
 
 import circt.stage.ChiselStage
-import tinyqv.cpu.{TinyQVCpu, TinyQVCore, TinyQVCoreSnippet, TinyQVCounter, TinyQVRegisters, TinyQVAlu, TinyQVShifter, TinyQVTime, TinyQVQspiFlash, TinyQV, LatchRegN, LatchRegP, LatchReg32N, LatchReg32P, TinyQVMemCtrl, TinyQVDecode, QspiController}
+import tinyqv.cpu.{TinyQVCpu, TinyQVCore, TinyQVCounter, TinyQVRegisters, TinyQVAlu, TinyQVShifter, TinyQVTime, TinyQVQspiFlash, TinyQV, LatchRegN, LatchRegP, LatchReg32N, LatchReg32P, TinyQVMemCtrl, TinyQVDecode, QspiController}
 import java.io.PrintWriter
 import java.io.File
 
@@ -24,7 +24,7 @@ object Main extends App {
   ChiselStage.emitSystemVerilogFile(new TinyQVShifter(), argsArray, firtoolOptsArray)
 
   ChiselStage.emitSystemVerilogFile(new TinyQVCpu(16, 4), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new TinyQVCoreSnippet(), argsArray, firtoolOptsArray)
+  ChiselStage.emitSystemVerilogFile(new TinyQVCore(), argsArray, firtoolOptsArray)
   ChiselStage.emitSystemVerilogFile(new TinyQVTime(), argsArray, firtoolOptsArray)
   ChiselStage.emitSystemVerilogFile(new TinyQVQspiFlash(2, 24), argsArray, firtoolOptsArray)
   ChiselStage.emitSystemVerilogFile(new TinyQV(), argsArray, firtoolOptsArray)

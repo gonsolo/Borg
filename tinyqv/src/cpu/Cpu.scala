@@ -70,8 +70,6 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends RawModule {
 
     // Core Instantiation
     val core = Module(new TinyQVCore(numRegs, regAddrBits))
-    core.io.clk := io.clk
-    core.io.rstn := io.rstn
     val counter_hi = RegInit(0.U(3.W))
     val counter = Cat(counter_hi, 0.U(2.W))
     

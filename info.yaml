@@ -28,8 +28,8 @@ project:
     - "../out/borg/verilog/RoundRawFNToRecFN_e8_s24.sv"
     - "../out/tinyqv/verilog/tinyqv_alu.sv"
     - "../out/tinyqv/verilog/tinyqv_shifter.sv"
-    - "tinyQV/cpu/core.v"
-    - "../out/tinyqv/verilog/TinyQVCoreSnippet.sv"
+
+    - "../out/tinyqv/verilog/tinyqv_core.sv"
     - "../out/tinyqv/verilog/tinyqv_cpu.sv"
     - "../out/tinyqv/verilog/tinyqv_decoder.sv"
     - "../out/tinyqv/verilog/tinyqv_mem_ctrl.sv"
