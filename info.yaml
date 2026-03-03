@@ -18,7 +18,6 @@ project:
   source_files:
     - "../out/borg/verilog/tt_um_tt_tinyQV.sv"
     - "../out/borg/verilog/tinyQV_peripherals.sv"
-    - "user_peripherals/spi.v"
     - "../out/borg/verilog/AddRawFN.sv"
     - "../out/borg/verilog/AddRecFN.sv"
     - "../out/borg/verilog/Borg.sv"
@@ -28,7 +27,6 @@ project:
     - "../out/borg/verilog/RoundRawFNToRecFN_e8_s24.sv"
     - "../out/tinyqv/verilog/tinyqv_alu.sv"
     - "../out/tinyqv/verilog/tinyqv_shifter.sv"
-
     - "../out/tinyqv/verilog/tinyqv_core.sv"
     - "../out/tinyqv/verilog/tinyqv_cpu.sv"
     - "../out/tinyqv/verilog/tinyqv_decoder.sv"
@@ -44,6 +42,7 @@ project:
     - "../out/tinyqv/verilog/tinyqv_counter_7.sv"
     - "../out/tinyqv/verilog/uart_rx.sv"
     - "../out/tinyqv/verilog/uart_tx.sv"
+    - "user_peripherals/spi.v"
     - "user_peripherals/uart/peri_uart.v"
     - "user_peripherals/uart/uart_rx.v"
     - "user_peripherals/uart/uart_tx.v"
