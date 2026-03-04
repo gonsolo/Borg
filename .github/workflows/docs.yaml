@@ -21,7 +21,7 @@ jobs:
 
       - name: Install Mill
         run: |
-          curl -L https://repo1.maven.org/maven2/com/lihaoyi/mill-dist/1.0.6/mill-dist-1.0.6-mill.sh -o mill
+          curl -L https://repo1.maven.org/maven2/com/lihaoyi/mill-dist/1.1.2/mill-dist-1.1.2-mill.sh -o mill
           chmod +x mill
           mv mill /usr/local/bin
 
