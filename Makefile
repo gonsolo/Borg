@@ -50,10 +50,17 @@ test-cpu:
 test-chisel:
 	$(RUN) "$(MILL) borg.test"
 
+# Extract Verilog sources from info.yaml for linting
+# We select lines after 'source_files:' but before 'pinout:'
+YAML_SOURCES = $(shell sed -n '/source_files:/,/pinout:/p' info.yaml | grep '\- "' | sed 's/.*"\(.*\)".*/\1/' | sed 's|^\.\./||')
+
+lint: generate_verilog
+	$(RUN) "verilator --lint-only -Wall -Iout/tinyqv/verilog -Iout/borg/verilog --top-module tt_um_tt_tinyQV lint.vlt $(YAML_SOURCES)"
+
 test-tinyqv:
 	$(RUN) "$(MILL) tinyqv.test"
 
-test-all: test-chisel test-tinyqv test-cpu test-borg test-system
+test-all: lint test-chisel test-tinyqv test-cpu test-borg test-system
 
 datasheet.pdf: generate_verilog
 	$(RUN) "$(TT_TOOL) --create-pdf"
@@ -64,5 +71,5 @@ gds: user_config
 print_stats:
 	$(RUN) "./tt/tt_tool.py --print-stats"
 
-.PHONY: all generate_verilog print_stats gds user_config \
+.PHONY: all generate_verilog print_stats gds user_config lint \
 	test-all test-borg test-system test-cpu test-chisel test-tinyqv

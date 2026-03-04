@@ -225,7 +225,7 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 4) extends RawModule {
   val debug_signal = debug_signals(ui_in(6, 3))
 
   // Avoid warnings on unused inputs
-  val unused = ena | uio_in(7, 6).orR | uio_in(3) | uio_in(0) | read_complete | false.B
+  val unused = ena ^ uio_in(7) ^ uio_in(6) ^ uio_in(3) ^ uio_in(0) ^ read_complete
 
   uo_out := Cat(
     Mux(gpio_out_sel(1), peri_out(7), debug_signal),
@@ -235,7 +235,7 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 4) extends RawModule {
     Mux(debug_register_data, debug_rd_r(1), peri_out(3)),
     Mux(debug_register_data, debug_rd_r(0), peri_out(2)),
     peri_out(1),
-    peri_out(0) ^ (unused & false.B)
+    peri_out(0) ^ unused ^ unused
   )
 }
 
