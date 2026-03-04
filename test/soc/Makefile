@@ -63,13 +63,23 @@ else
     VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13g2/libs.ref/sg13g2_stdcell/verilog/sg13g2_stdcell.v
 
     # Include the synthesized netlist
-    VERILOG_SOURCES += $(PWD)/gate_level_netlist.v
+    # The GL test action puts it in the parent directory (test/)
+    ifneq ($(wildcard $(PWD)/gate_level_netlist.v),)
+        VERILOG_SOURCES += $(PWD)/gate_level_netlist.v
+    else
+        VERILOG_SOURCES += $(PWD)/../gate_level_netlist.v
+    endif
 endif
 
 # --- 5. COCOTB MAKE RULES ---
 include $(shell cocotb-config --makefiles)/Makefile.sim
 
 # --- 6. HELPER TARGETS ---
+
+# Add a hook to ensure results.xml is in the parent dir for GL actions
+all:
+	$(MAKE) run
+	@if [ "$(GATES)" = "yes" ]; then ln -sf soc/results.xml ../results.xml; fi
 
 # Target to run core tests: make core PROG=hello
 core:
