@@ -56,6 +56,10 @@ else
     COMPILE_ARGS += -DGL_TEST -DFUNCTIONAL
 
     # Check for PDK libraries
+    # Auto-detect PDK_ROOT from .nix-home if not set (for local pdk-ciel installations)
+    ifeq ($(PDK_ROOT),)
+        PDK_ROOT := $(firstword $(wildcard $(HOME)/.ciel/ciel/ihp-sg13g2/versions/*/))
+    endif
     IHP_IO_LIB = $(PDK_ROOT)/ihp-sg13g2/libs.ref/sg13g2_io/verilog/sg13g2_io.v
     IHP_STD_LIB = $(PDK_ROOT)/ihp-sg13g2/libs.ref/sg13g2_stdcell/verilog/sg13g2_stdcell.v
 
