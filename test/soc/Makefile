@@ -55,12 +55,17 @@ else
     # FUNCTIONAL: Required for IHP models to bypass unsupported timing syntax in Icarus
     COMPILE_ARGS += -DGL_TEST -DFUNCTIONAL
 
-    # Note: We do NOT add -DUSE_POWER_PINS here because the error log showed
-    # the netlist module ports do not include VPWR/VGND.
+    # Check for PDK libraries
+    IHP_IO_LIB = $(PDK_ROOT)/ihp-sg13g2/libs.ref/sg13g2_io/verilog/sg13g2_io.v
+    IHP_STD_LIB = $(PDK_ROOT)/ihp-sg13g2/libs.ref/sg13g2_stdcell/verilog/sg13g2_stdcell.v
+
+    ifeq ($(wildcard $(IHP_IO_LIB)),)
+        $(error GL Simulation error: PDK_ROOT must be set and point to a valid IHP-SG13G2 PDK installation. File missing: $(IHP_IO_LIB))
+    endif
 
     # Include IHP SG13G2 Library Models
-    VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13g2/libs.ref/sg13g2_io/verilog/sg13g2_io.v
-    VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13g2/libs.ref/sg13g2_stdcell/verilog/sg13g2_stdcell.v
+    VERILOG_SOURCES += $(IHP_IO_LIB)
+    VERILOG_SOURCES += $(IHP_STD_LIB)
 
     # Include the synthesized netlist
     # The GL test action puts it in the parent directory (test/)
