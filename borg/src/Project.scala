@@ -57,7 +57,7 @@ class tinyQV extends ExtModule {
 
 // Removed uart_tx ExtModule; now using tinyqv.peri.uart.UartTx
 
-class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 64) extends RawModule {
+class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 4) extends RawModule {
   val ui_in = IO(Input(UInt(8.W)))
   val uo_out = IO(Output(UInt(8.W)))
   val uio_in = IO(Input(UInt(8.W)))
