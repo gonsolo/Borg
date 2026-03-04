@@ -43,7 +43,6 @@ project:
     - "../out/borg/verilog/tqvp_uart_wrapper.sv"
     - "../out/borg/verilog/uart_rx.sv"
     - "../out/borg/verilog/uart_tx.sv"
-    - "user_peripherals/spi.v"
 
 # The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
 pinout:
