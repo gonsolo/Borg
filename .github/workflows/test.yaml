@@ -17,8 +17,7 @@ jobs:
 
       - name: Run tests
         run: |
-          nix develop --ignore-environment --command make test-system
-          # The above command includes generate_verilog
+          make test-system
 
       - name: Test Summary
         uses: test-summary/action@v2.3
