@@ -3,12 +3,18 @@ BORG_DIR 	:= ../src/user_peripherals/borg
 TINYQV_DIR 	:= ../out/tinyqv/verilog
 
 SRC_FILES = pico_ice.v \
-            ../src/peripherals.v \
-            $(wildcard ../src/peri_*.v) \
-            ../src/user_peripherals/spi.v \
-            $(wildcard $(BORG_DIR)/*.sv) \
-            $(wildcard $(TINYQV_DIR)/*.sv) \
-            $(wildcard ../src/user_peripherals/uart/*.v)
+	    $(wildcard ../out/borg/verilog/*.sv) \
+	    $(wildcard ../out/tinyqv/verilog/*.sv) \
+
+            #../src/peripherals.v
+            #$(wildcard ../src/peri_*.v)
+            #../src/user_peripherals/spi.v
+            #$(wildcard $(BORG_DIR)/*.sv)
+            #$(wildcard $(TINYQV_DIR)/*.sv)
+            #$(wildcard ../src/user_peripherals/uart/*.v)
+
+#ls:
+#	echo $(SRC_FILES)
 
 # Hardware limits
 MAX_LUTS = 5280

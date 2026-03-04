@@ -7,24 +7,11 @@ import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
 
-class TqvpUartWrapperIO extends Bundle {
-  val clk = Input(Clock())
-  val rst_n = Input(Bool())
-  val ui_in = Input(UInt(8.W))
-  val uo_out = Output(UInt(8.W))
-  val address = Input(UInt(6.W))
-  val data_in = Input(UInt(32.W))
-  val data_write_n = Input(UInt(2.W))
-  val data_read_n = Input(UInt(2.W))
-  val data_out = Output(UInt(32.W))
-  val data_ready = Output(Bool())
-  val user_interrupt = Output(UInt(2.W))
-}
-import chisel3.experimental.IntParam
+// import chisel3.experimental.IntParam
 
-class tqvp_uart_wrapper(val CLOCK_MHZ: Int = 64) extends BlackBox(Map("CLOCK_MHZ" -> IntParam(CLOCK_MHZ))) {
-  val io = IO(new TqvpUartWrapperIO)
-}
+// class tqvp_uart_wrapper(val CLOCK_MHZ: Int = 64) extends BlackBox(Map("CLOCK_MHZ" -> IntParam(CLOCK_MHZ))) {
+//   val io = IO(new TqvpUartWrapperIO)
+// }
 
 class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
   val clk = IO(Input(Clock()))
@@ -119,9 +106,8 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
       }
     }
 
-    val i_uart = Module(new tqvp_uart_wrapper(CLOCK_MHZ))
-    i_uart.io.clk := clk
-    i_uart.io.rst_n := rst_n
+    val i_uart = Module(new tinyqv.peri.uart.PeriUart(CLOCK_MHZ))
+    // clk and rst_n are implicit in Chisel modules
     i_uart.io.ui_in := ui_in
     i_uart.io.address := addr_in(5, 0)
     i_uart.io.data_in := data_in

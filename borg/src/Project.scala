@@ -55,15 +55,7 @@ class tinyQV extends ExtModule {
 
 
 
-class uart_tx extends ExtModule {
-  val clock = IO(Input(Clock()))
-  val reset = IO(Input(Bool()))
-  val io_uart_txd = IO(Output(Bool()))
-  val io_uart_tx_en = IO(Input(Bool()))
-  val io_uart_tx_data = IO(Input(UInt(8.W)))
-  val io_baud_divider = IO(Input(UInt(13.W)))
-  val io_uart_tx_busy = IO(Output(Bool()))
-}
+// Removed uart_tx ExtModule; now using tinyqv.peri.uart.UartTx
 
 class tt_um_tt_tinyQV extends RawModule {
   val ui_in = IO(Input(UInt(8.W)))
@@ -94,7 +86,9 @@ class tt_um_tt_tinyQV extends RawModule {
 
   val i_tinyqv = Module(new tinyQV)
   val i_peripherals = Module(new tinyQV_peripherals)
-  val i_debug_uart_tx = Module(new uart_tx())
+  val i_debug_uart_tx = withClockAndReset(clk, !rst_reg_n) {
+    Module(new tinyqv.peri.uart.UartTx(13))
+  }
 
   i_tinyqv.clk := clk
   i_tinyqv.rstn := rst_reg_n
@@ -172,7 +166,7 @@ class tt_um_tt_tinyQV extends RawModule {
     }
   }
 
-  val debug_uart_tx_busy = i_debug_uart_tx.io_uart_tx_busy
+  val debug_uart_tx_busy = i_debug_uart_tx.io.uart_tx_busy
 
   data_from_read := "hFFFFFFFF".U(32.W)
   switch(connect_peripheral) {
@@ -187,12 +181,12 @@ class tt_um_tt_tinyQV extends RawModule {
 
   val debug_uart_tx_start = (write_n =/= 3.U(2.W)) && (connect_peripheral === PERI_DEBUG_UART)
 
-  i_debug_uart_tx.clock := clk
-  i_debug_uart_tx.reset := !rst_reg_n
-  val debug_uart_txd = i_debug_uart_tx.io_uart_txd
-  i_debug_uart_tx.io_uart_tx_en := debug_uart_tx_start
-  i_debug_uart_tx.io_uart_tx_data := data_to_write(7, 0)
-  i_debug_uart_tx.io_baud_divider := 15.U(13.W)
+  // i_debug_uart_tx.clock := clk
+  // i_debug_uart_tx.reset := !rst_reg_n
+  val debug_uart_txd = i_debug_uart_tx.io.uart_txd
+  i_debug_uart_tx.io.uart_tx_en := debug_uart_tx_start
+  i_debug_uart_tx.io.uart_tx_data := data_to_write(7, 0)
+  i_debug_uart_tx.io.baud_divider := 15.U(13.W)
 
   val time_count = withClockAndReset(clk, !rst_reg_n) { RegInit(0.U(7.W)) }
   withClockAndReset(clk, false.B) {

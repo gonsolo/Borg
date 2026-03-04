@@ -35,8 +35,7 @@ object Main extends App {
   ChiselStage.emitSystemVerilogFile(new TinyQVMemCtrl(), argsArray, firtoolOptsArray)
   ChiselStage.emitSystemVerilogFile(new TinyQVDecode(4), argsArray, firtoolOptsArray)
   ChiselStage.emitSystemVerilogFile(new QspiController(), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new tinyqv.peri.uart.UartRx(), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new tinyqv.peri.uart.UartTx(), argsArray, firtoolOptsArray)
+  // Removed explicit emit of UartRx and UartTx as they are now emitted through PeriUart
 
   // Write a wrapper for tinyqv_counter that selects the correct version based on OUTPUT_WIDTH
   val wrapper = """

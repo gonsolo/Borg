@@ -2,4 +2,6 @@ package build.borg
 import mill._, scalalib._
 import build.BorgModule
 
-object `package` extends BorgModule
+object `package` extends BorgModule {
+  override def moduleDeps = Seq(build.tinyqv)
+}

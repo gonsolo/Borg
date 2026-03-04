@@ -177,7 +177,8 @@ module tinyQV_top (
     assign uo_out[6] = gpio_out_sel[6] ? peri_out[6] : debug_uart_txd;
     assign uo_out[7] = gpio_out_sel[7] ? peri_out[7] : debug_signal;
 
-    tinyQV_peripherals #(.CLOCK_MHZ(CLOCK_MHZ)) i_peripherals (
+    //tinyQV_peripherals #(.CLOCK_MHZ(CLOCK_MHZ)) i_peripherals (
+    tinyQV_peripherals i_peripherals (
         .clk(clk),
         .rst_n(rst_reg_n),
 
@@ -229,13 +230,14 @@ module tinyQV_top (
         end
     end
 
-    uart_tx #(.CLK_HZ(CLOCK_MHZ*1_000_000), .BIT_RATE(1_000_000)) i_debug_uart_tx(
-        .clk(clk),
-        .resetn(rst_reg_n),
-        .uart_txd(debug_uart_txd),
-        .uart_tx_en(debug_uart_tx_start),
-        .uart_tx_data(data_to_write[7:0]),
-        .uart_tx_busy(debug_uart_tx_busy) 
+    //uart_tx #(.CLK_HZ(CLOCK_MHZ*1_000_000), .BIT_RATE(1_000_000)) i_debug_uart_tx(
+    uart_tx i_debug_uart_tx(
+        .clock(clk),
+        .reset(~rst_reg_n),
+        .io_uart_txd(debug_uart_txd),
+        .io_uart_tx_en(debug_uart_tx_start),
+        .io_uart_tx_data(data_to_write[7:0]),
+        .io_uart_tx_busy(debug_uart_tx_busy) 
     );
 
     reg [5:0] time_count;
