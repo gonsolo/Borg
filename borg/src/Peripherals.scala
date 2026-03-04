@@ -18,11 +18,7 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
   val rst_n = IO(Input(Bool()))
 
   val ui_in = IO(Input(UInt(8.W)))
-  val ui_in_raw = IO(Input(UInt(8.W)))
   val uo_out = IO(Output(UInt(8.W)))
-
-  val audio = IO(Output(Bool()))
-  val audio_select = IO(Output(Bool()))
 
   val addr_in = IO(Input(UInt(11.W)))
   val data_in = IO(Input(UInt(32.W)))
@@ -124,7 +120,6 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
     }
 
     val i_user_peri39 = Module(new Borg())
-    i_user_peri39.io.ui_in := ui_in
     i_user_peri39.io.address := addr_in(5, 0)
     i_user_peri39.io.data_in := data_in
     i_user_peri39.io.data_write_n := data_write_n | Fill(2, ~peri_user(PERI_BORG))
@@ -155,10 +150,8 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
     for (i <- 0 until 14) { interrupts(i) := false.B }
     interrupts(0) := i_uart.io.user_interrupt(0)
     interrupts(1) := i_uart.io.user_interrupt(1)
+    interrupts(2) := i_user_peri39.io.user_interrupt
     user_interrupts := interrupts.asUInt
-
-    audio := false.B
-    audio_select := false.B
   }
 }
 

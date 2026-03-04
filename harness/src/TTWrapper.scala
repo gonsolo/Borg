@@ -23,11 +23,7 @@ class TTWrapper extends RawModule {
 
   // Chisel's implicit clock and reset boundary
   withClockAndReset(clk, !rst_n.asBool) {
-    // 1. Synchronize ui_in
-    val ui_in_sync = Module(new Synchronizer(stages = 2, width = 8))
-    ui_in_sync.io.data_in := ui_in
-    
-    // SPI pins
+    // 1. SPI pins
     val spi_cs_n = uio_in(4)
     val spi_clk = uio_in(5)
     val spi_mosi = uio_in(6)
@@ -52,7 +48,6 @@ class TTWrapper extends RawModule {
     spiReg.io.spi_cs_n := spi_cs_n_sync.io.data_out
     
     // Connect SPI Reg to Borg
-    borgPeri.io.ui_in := ui_in_sync.io.data_out
     uo_out := borgPeri.io.uo_out
     
     borgPeri.io.address := spiReg.io.reg_addr

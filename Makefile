@@ -1,4 +1,10 @@
-NIX                   	:= nix develop --ignore-environment --command
+NIX                     := nix develop --ignore-environment --command bash -c
+ifeq ($(IN_NIX_SHELL),)
+    RUN = $(NIX)
+else
+    RUN = bash -c
+endif
+
 TT_TOOL               	:= ./tt/tt_tool.py
 TEST_SOC             	:= make -C test/soc -B
 TEST_PERIPHERAL        	:= make -C test/peripheral -B
@@ -17,39 +23,46 @@ help:
 	@echo -e "  test-borg:\t\tRun peripheral tests (cocotb)."
 	@echo -e "  test-cpu:\t\tRun CPU core tests (cocotb)."
 	@echo -e "  test-system:\t\tRun SoC integration tests (cocotb)."
+	@echo -e "  test-all:\t\tRun all tests."
 	@echo -e "  datasheet.pdf:\tGenerate datasheet for Tinytapeout."
 	@echo -e "  user_config:\t\tGenerate user config for tapeout."
 	@echo -e "  print_stats:\t\tPrint statistics about tile usage."
 
+CLOCK_MHZ ?= 4
+
 generate_verilog:
-	$(NIX) $(MILL) borg.runMain borg.Main
-	$(NIX) $(MILL) tinyqv.runMain tinyqv.Main
+	$(RUN) "export CLOCK_MHZ=$(CLOCK_MHZ); $(MILL) borg.runMain borg.Main"
+	$(RUN) "$(MILL) tinyqv.runMain tinyqv.Main"
 
-test-borg: generate_verilog
-	$(NIX) $(MILL) harness.runMain harness.Main
-	$(NIX) $(TEST_PERIPHERAL)
+test-borg:
+	CLOCK_MHZ=64 $(MAKE) generate_verilog
+	$(RUN) "$(MILL) harness.runMain harness.Main"
+	$(RUN) "$(TEST_PERIPHERAL)"
 
-test-system: generate_verilog
-	$(NIX) $(TEST_SOC) borg.test
+test-system:
+	CLOCK_MHZ=64 $(MAKE) generate_verilog
+	$(RUN) "$(TEST_SOC) borg.test"
 
-test-cpu: generate_verilog
-	$(NIX) $(TEST_SOC) core
+test-cpu:
+	CLOCK_MHZ=64 $(MAKE) generate_verilog
+	$(RUN) "$(TEST_SOC) core"
 
 test-chisel:
-	$(NIX) $(MILL) borg.test
+	$(RUN) "$(MILL) borg.test"
 
 test-tinyqv:
-	$(NIX) $(MILL) tinyqv.test
+	$(RUN) "$(MILL) tinyqv.test"
+
+test-all: test-chisel test-tinyqv test-cpu test-borg test-system
 
 datasheet.pdf: generate_verilog
-	$(NIX) $(TT_TOOL) --create-pdf
+	$(RUN) "$(TT_TOOL) --create-pdf"
 user_config: generate_verilog
-	$(NIX) $(TT_TOOL) --create-user-config --ihp --no-docker
+	$(RUN) "$(TT_TOOL) --create-user-config --ihp --no-docker"
 gds: user_config
-	$(NIX) $(TT_TOOL) --harden --ihp --no-docker
+	$(RUN) "$(TT_TOOL) --harden --ihp --no-docker"
 print_stats:
-	$(NIX) ./tt/tt_tool.py --print-stats
+	$(RUN) "./tt/tt_tool.py --print-stats"
 
-.PHONY: all generate_verilog print_stats \
-	gds user_config \
-	test-borg test-system test-cpu test-chisel test-tinyqv
+.PHONY: all generate_verilog print_stats gds user_config \
+	test-all test-borg test-system test-cpu test-chisel test-tinyqv

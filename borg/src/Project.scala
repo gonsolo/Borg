@@ -101,10 +101,7 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 4) extends RawModule {
   val qspi_ram_a_select = i_tinyqv.io.spi_ram_a_select
   val qspi_ram_b_select = i_tinyqv.io.spi_ram_b_select
 
-  val audio = i_peripherals.audio
-  val audio_select = i_peripherals.audio_select
-
-  uio_out := Cat(Mux(audio_select, audio, qspi_ram_b_select), qspi_ram_a_select, qspi_data_out(3, 2), qspi_clk_out, qspi_data_out(1, 0), qspi_flash_select)
+  uio_out := Cat(qspi_ram_b_select, qspi_ram_a_select, qspi_data_out(3, 2), qspi_clk_out, qspi_data_out(1, 0), qspi_flash_select)
   uio_oe := Mux(rst_n, Cat(3.U(2.W), qspi_data_oe(3, 2), 1.U(1.W), qspi_data_oe(1, 0), 1.U(1.W)), 0.U(8.W))
 
   val addr = i_tinyqv.io.data_addr
@@ -137,7 +134,6 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 4) extends RawModule {
   i_peripherals.clk := clk
   i_peripherals.rst_n := rst_reg_n
   i_peripherals.ui_in := ui_in_sync
-  i_peripherals.ui_in_raw := ui_in
   i_peripherals.addr_in := addr(10, 0)
   i_peripherals.data_in := data_to_write
   i_peripherals.data_write_n := write_n
@@ -186,7 +182,7 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 4) extends RawModule {
   val debug_uart_txd = i_debug_uart_tx.io.uart_txd
   i_debug_uart_tx.io.uart_tx_en := debug_uart_tx_start
   i_debug_uart_tx.io.uart_tx_data := data_to_write(7, 0)
-  i_debug_uart_tx.io.baud_divider := (CLOCK_MHZ * 4 - 1).U(13.W)
+  i_debug_uart_tx.io.baud_divider := (CLOCK_MHZ / 4 - 1).U(13.W)
 
   val time_count = withClockAndReset(clk, !rst_reg_n) { RegInit(0.U(7.W)) }
   withClockAndReset(clk, false.B) {
@@ -228,6 +224,9 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 4) extends RawModule {
   
   val debug_signal = debug_signals(ui_in(6, 3))
 
+  // Avoid warnings on unused inputs
+  val unused = ena | uio_in(7, 6).orR | uio_in(3) | uio_in(0) | read_complete | false.B
+
   uo_out := Cat(
     Mux(gpio_out_sel(1), peri_out(7), debug_signal),
     Mux(gpio_out_sel(0), peri_out(6), debug_uart_txd),
@@ -236,11 +235,8 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 4) extends RawModule {
     Mux(debug_register_data, debug_rd_r(1), peri_out(3)),
     Mux(debug_register_data, debug_rd_r(0), peri_out(2)),
     peri_out(1),
-    peri_out(0)
+    peri_out(0) ^ (unused & false.B)
   )
-
-  // Avoid warnings on unused inputs
-  val unused = ena | uio_in(7, 6).orR | uio_in(3) | uio_in(0) | read_complete | false.B
 }
 
 

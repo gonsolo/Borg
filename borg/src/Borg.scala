@@ -18,7 +18,6 @@ class BorgIO extends Bundle {
   val data_read_n = Input(UInt(2.W))
   val data_out = Output(UInt(32.W))
   val data_ready = Output(Bool())
-  val ui_in = Input(UInt(8.W))
   val uo_out = Output(UInt(8.W))
   val user_interrupt = Output(Bool())
 }

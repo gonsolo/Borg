@@ -7,7 +7,7 @@ import chisel3.RawModule
 import circt.stage.ChiselStage
 
 object Main extends App {
-  val clockMhz = 4
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "4").toInt
   println(s"Generating Verilog with CLOCK_MHZ = $clockMhz")
 
   new java.io.File("out/borg/verilog").mkdirs()
