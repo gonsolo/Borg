@@ -76,14 +76,12 @@ include $(shell cocotb-config --makefiles)/Makefile.sim
 
 # --- 6. HELPER TARGETS ---
 
-# Add a hook to ensure results.xml is in the parent dir for GL actions
-all:
-	$(MAKE) run
-	@if [ "$(GATES)" = "yes" ]; then ln -sf soc/results.xml ../results.xml; fi
-
-# Target to run core tests: make core PROG=hello
-core:
+# Explicit targets for SoC integration
+rtl:
 	$(MAKE)
+
+core:
+	$(MAKE) MAKECMDGOALS=core
 
 # Target to run specific peripheral tests: make borg.test
 %.test:

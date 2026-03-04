@@ -42,10 +42,11 @@ test-borg:
 
 test-soc-rtl:
 	CLOCK_MHZ=64 $(MAKE) generate_verilog
-	$(RUN) "$(TEST_SOC) borg.test"
+	$(RUN) "$(TEST_SOC) rtl"
 
 test-soc-gl:
 	$(RUN) "$(TEST_SOC) GATES=yes"
+	@ln -sf soc/results.xml test/results.xml
 
 test-cpu:
 	CLOCK_MHZ=64 $(MAKE) generate_verilog
