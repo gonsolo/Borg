@@ -13,20 +13,13 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 25
+      - name: Install Nix
+        uses: determinate-systems/nix-installer-action@v16
 
-      - name: Install Mill
-        run: |
-          curl -L https://repo1.maven.org/maven2/com/lihaoyi/mill-dist/1.1.2/mill-dist-1.1.2-mill.sh -o mill
-          chmod +x mill
-          mv mill /usr/local/bin
+      - name: Magic Nix Cache
+        uses: determinate-systems/magic-nix-cache-action@v8
 
       - name: Generate SystemVerilog
-        shell: bash
         run: make generate_verilog
 
       - name: Build docs
