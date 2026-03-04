@@ -57,7 +57,7 @@ class tinyQV extends ExtModule {
 
 // Removed uart_tx ExtModule; now using tinyqv.peri.uart.UartTx
 
-class tt_um_tt_tinyQV extends RawModule {
+class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 64) extends RawModule {
   val ui_in = IO(Input(UInt(8.W)))
   val uo_out = IO(Output(UInt(8.W)))
   val uio_in = IO(Input(UInt(8.W)))
@@ -85,7 +85,7 @@ class tt_um_tt_tinyQV extends RawModule {
   val qspi_data_in = Cat(uio_in(5, 4), uio_in(2, 1))
 
   val i_tinyqv = Module(new tinyQV)
-  val i_peripherals = Module(new tinyQV_peripherals)
+  val i_peripherals = Module(new tinyQV_peripherals(CLOCK_MHZ))
   val i_debug_uart_tx = withClockAndReset(clk, !rst_reg_n) {
     Module(new tinyqv.peri.uart.UartTx(13))
   }
@@ -153,7 +153,7 @@ class tt_um_tt_tinyQV extends RawModule {
   }
 
   val gpio_out_sel = withClockAndReset(clk, !rst_reg_n) { RegInit(Cat(!ui_in(0), 0.U(1.W))) }
-  val time_limit = withClockAndReset(clk, !rst_reg_n) { RegInit(((64 / 4) - 1).U(5.W)) }
+  val time_limit = withClockAndReset(clk, !rst_reg_n) { RegInit(((CLOCK_MHZ / 4) - 1).U(5.W)) }
 
   withClockAndReset(clk, false.B) {
     when(write_n =/= 3.U(2.W)) {
@@ -186,7 +186,7 @@ class tt_um_tt_tinyQV extends RawModule {
   val debug_uart_txd = i_debug_uart_tx.io.uart_txd
   i_debug_uart_tx.io.uart_tx_en := debug_uart_tx_start
   i_debug_uart_tx.io.uart_tx_data := data_to_write(7, 0)
-  i_debug_uart_tx.io.baud_divider := 15.U(13.W)
+  i_debug_uart_tx.io.baud_divider := (CLOCK_MHZ * 4 - 1).U(13.W)
 
   val time_count = withClockAndReset(clk, !rst_reg_n) { RegInit(0.U(7.W)) }
   withClockAndReset(clk, false.B) {
