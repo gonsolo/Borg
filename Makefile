@@ -16,18 +16,18 @@ NC   := \033[0m
 all: help
 help:
 	@echo "commands: "
-	@echo -e "$(BOLD)  gds:\t\t\tGenerate the GDS II file for Tinytapeout.$(NC)"
-	@echo -e "  generate_verilog:\tGenerate Verilog from Chisel source."
-	@echo -e "  test-chisel:\t\tRun Chisel hardware tests."
-	@echo -e "  test-tinyqv:\t\tRun TinyQV Chisel tests."
-	@echo -e "  test-borg:\t\tRun peripheral tests (cocotb)."
-	@echo -e "  test-cpu:\t\tRun CPU core tests (cocotb)."
-	@echo -e "  test-soc-rtl:\t\tRun SoC integration tests (cocotb)."
-	@echo -e "  test-soc-gl:\t\tRun Gate-Level simulations (cocotb)."
-	@echo -e "  test-all:\t\tRun all tests."
-	@echo -e "  datasheet.pdf:\tGenerate datasheet for Tinytapeout."
-	@echo -e "  user_config:\t\tGenerate user config for tapeout."
-	@echo -e "  print_stats:\t\tPrint statistics about tile usage."
+	@echo -e "$(BOLD)  gds:\t\t\t\tGenerate the GDS II file for Tinytapeout.$(NC)"
+	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
+	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
+	@echo -e "  test-chisel-tinyqv:\t\tRun TinyQV tests (Chisel)."
+	@echo -e "  test-cocotb-peripheral-rtl:\tRun peripheral tests (cocotb)."
+	@echo -e "  test-cocotb-soc-core-rtl:\tRun CPU core tests (cocotb)."
+	@echo -e "  test-cocotb-soc-rtl:\t\tRun SoC rtl tests (cocotb)."
+	@echo -e "  test-cocotb-soc-gl:\t\tRun Gate-Level simulations (cocotb)."
+	@echo -e "  test-all:\t\t\tRun all tests."
+	@echo -e "  datasheet.pdf:\t\tGenerate datasheet for Tinytapeout."
+	@echo -e "  user_config:\t\t\tGenerate user config for tapeout."
+	@echo -e "  print_stats:\t\t\tPrint statistics about tile usage."
 
 CLOCK_MHZ ?= 4
 
@@ -35,24 +35,24 @@ generate_verilog:
 	$(RUN) "export CLOCK_MHZ=$(CLOCK_MHZ); $(MILL) borg.runMain borg.Main"
 	$(RUN) "$(MILL) tinyqv.runMain tinyqv.Main"
 
-test-borg:
+test-cocotb-peripheral-rtl:
 	CLOCK_MHZ=64 $(MAKE) generate_verilog
 	$(RUN) "$(MILL) harness.runMain harness.Main"
 	$(RUN) "$(TEST_PERIPHERAL)"
 
-test-soc-rtl:
+test-cocotb-soc-rtl:
 	CLOCK_MHZ=64 $(MAKE) generate_verilog
 	$(RUN) "$(TEST_SOC) rtl"
 
-test-soc-gl:
+test-cocotb-soc-gl:
 	$(RUN) "$(TEST_SOC) GATES=yes"
 	@ln -sf soc/results.xml test/results.xml
 
-test-cpu:
+test-cocotb-soc-core-rtl:
 	CLOCK_MHZ=64 $(MAKE) generate_verilog
 	$(RUN) "$(TEST_SOC) core"
 
-test-chisel:
+test-chisel-borg:
 	$(RUN) "$(MILL) borg.test"
 
 # Extract Verilog sources from info.yaml for linting
@@ -62,10 +62,10 @@ YAML_SOURCES = $(shell sed -n '/source_files:/,/pinout:/p' info.yaml | grep '\- 
 lint: generate_verilog
 	$(RUN) "verilator --lint-only -Wall -Iout/tinyqv/verilog -Iout/borg/verilog --top-module tt_um_tt_tinyQV lint.vlt $(YAML_SOURCES)"
 
-test-tinyqv:
+test-chisel-tinyqv:
 	$(RUN) "$(MILL) tinyqv.test"
 
-test-all: lint test-chisel test-tinyqv test-cpu test-borg test-soc-rtl
+test-all: lint test-chisel-borg test-chisel-tinyqv test-cocotb-soc-core-rtl test-cocotb-peripheral-rtl test-cocotb-soc-rtl
 
 datasheet.pdf: generate_verilog
 	$(RUN) "$(TT_TOOL) --create-pdf"
@@ -77,4 +77,4 @@ print_stats:
 	$(RUN) "./tt/tt_tool.py --print-stats"
 
 .PHONY: all generate_verilog help print_stats gds user_config lint \
-	test-all test-borg test-soc-rtl test-soc-gl test-cpu test-chisel test-tinyqv
+	test-all test-cocotb-peripheral-rtl test-cocotb-soc-rtl test-cocotb-soc-gl test-cocotb-soc-core-rtl test-chisel-borg test-chisel-tinyqv

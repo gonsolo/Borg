@@ -16,13 +16,13 @@ To run the RTL simulation:
 make -B
 ```
 
-To run gatelevel simulation, first harden your project and copy `../runs/wokwi/results/final/verilog/gl/{your_module_name}.v` to `gate_level_netlist.v`.
-
-Then run:
+To run gatelevel simulation:
 
 ```sh
 make -B GATES=yes
 ```
+
+This simulation automatically detects the IHP PDK and the gate-level netlist in standard local output directories (like `runs/wokwi` or `tt_submission`).
 
 If you wish to save the waveform in VCD format instead of FST format, edit tb.v to use `$dumpfile("tb.vcd");` and then run:
 

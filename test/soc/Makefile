@@ -71,13 +71,19 @@ else
     VERILOG_SOURCES += $(IHP_IO_LIB)
     VERILOG_SOURCES += $(IHP_STD_LIB)
 
-    # Include the synthesized netlist
-    # The GL test action puts it in the parent directory (test/)
-    ifneq ($(wildcard $(PWD)/gate_level_netlist.v),)
-        VERILOG_SOURCES += $(PWD)/gate_level_netlist.v
-    else
-        VERILOG_SOURCES += $(PWD)/../gate_level_netlist.v
+    # Search for the gate-level netlist in multiple possible locations
+    GL_NETLIST = $(firstword $(wildcard \
+        $(CURDIR)/gate_level_netlist.v \
+        $(CURDIR)/../gate_level_netlist.v \
+        $(CURDIR)/../../runs/wokwi/final/nl/*.v \
+        $(CURDIR)/../../tt_submission/*.v \
+    ))
+
+    ifeq ($(GL_NETLIST),)
+        $(error GL Simulation error: Gate-level netlist not found. Run 'make gds' first or provide 'gate_level_netlist.v' in $(CURDIR)/..)
     endif
+
+    VERILOG_SOURCES += $(GL_NETLIST)
 endif
 
 # --- 5. COCOTB MAKE RULES ---
