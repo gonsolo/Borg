@@ -236,9 +236,6 @@ async def test_time_limit(dut):
     await ClockCycles(dut.clk, 1)
     await start_read(dut, 0)
 
-    # The hardware defaults time limit to (CLOCK_MHZ / 4) - 1
-    expected_default_limit = (CLOCK_MHZ // 4) - 1
-
     # Read time limit register (packed format: {25'b0, time_limit[4:0], 2'b11})
     await send_instr(dut, InstructionLW(x1, tp, 0x2C).encode())
     raw_readback = await read_reg(dut, x1)
@@ -279,7 +276,7 @@ async def test_time_limit(dut):
 
     # Set divider to a higher value, time should advance more slowly
     # e.g for 12MHz, default time_limit is 2, slow could be 5
-    slow_time_limit = (expected_default_limit + 1) * 2 - 1
+    slow_time_limit = (actual_time_limit + 1) * 2 - 1
     await send_instr(dut, InstructionADDI(x1, x0, slow_time_limit << 2).encode())
     await send_instr(dut, InstructionSW(tp, x1, 0x2C).encode())
 
