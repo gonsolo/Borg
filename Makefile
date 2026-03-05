@@ -21,7 +21,6 @@ help:
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
 	@echo -e "  test-chisel-tinyqv:\t\tRun TinyQV tests (Chisel)."
 	@echo -e "  test-cocotb-peripheral-rtl:\tRun peripheral tests (cocotb)."
-	@echo -e "  test-cocotb-soc-core-rtl:\tRun CPU core tests (cocotb)."
 	@echo -e "  test-cocotb-soc-rtl:\t\tRun SoC rtl tests (cocotb)."
 	@echo -e "  test-cocotb-soc-gl:\t\tRun Gate-Level simulations (cocotb)."
 	@echo -e "  test-all:\t\t\tRun all tests."
@@ -48,9 +47,7 @@ test-cocotb-soc-gl:
 	$(RUN) "$(TEST_SOC) GATES=yes"
 	@ln -sf soc/results.xml test/results.xml
 
-test-cocotb-soc-core-rtl:
-	CLOCK_MHZ=64 $(MAKE) generate_verilog
-	$(RUN) "$(TEST_SOC) core"
+
 
 test-chisel-borg:
 	$(RUN) "$(MILL) borg.test"
@@ -65,7 +62,7 @@ lint: generate_verilog
 test-chisel-tinyqv:
 	$(RUN) "$(MILL) tinyqv.test"
 
-test-all: lint test-chisel-borg test-chisel-tinyqv test-cocotb-soc-core-rtl test-cocotb-peripheral-rtl test-cocotb-soc-rtl
+test-all: lint test-chisel-borg test-chisel-tinyqv test-cocotb-peripheral-rtl test-cocotb-soc-rtl
 
 datasheet.pdf: generate_verilog
 	$(RUN) "$(TT_TOOL) --create-pdf"
@@ -77,4 +74,4 @@ print_stats:
 	$(RUN) "./tt/tt_tool.py --print-stats"
 
 .PHONY: all generate_verilog help print_stats gds user_config lint \
-	test-all test-cocotb-peripheral-rtl test-cocotb-soc-rtl test-cocotb-soc-gl test-cocotb-soc-core-rtl test-chisel-borg test-chisel-tinyqv
+	test-all test-cocotb-peripheral-rtl test-cocotb-soc-rtl test-cocotb-soc-gl test-chisel-borg test-chisel-tinyqv

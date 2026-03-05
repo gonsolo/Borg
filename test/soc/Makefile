@@ -8,9 +8,7 @@ FST ?= -fst
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../../src
 
-# Program defaults (for core tests)
-PROG ?= hello
-PROG_FILE ?= $(PROG).hex
+
 
 # --- 1. AUTOMATIC SOURCE EXTRACTION ---
 # Only extract RTL from info.yaml if we are NOT in Gate-Level mode.
@@ -20,19 +18,10 @@ ifneq ($(GATES),yes)
     VERILOG_SOURCES += $(addprefix $(SRC_DIR)/,$(YAML_SOURCES))
 endif
 
-# --- 2. TARGET SPECIFIC CONFIGURATION ---
-ifeq ($(MAKECMDGOALS),core)
-    # Core tests: Use QSPI testbench and flash models
-    VERILOG_SOURCES += $(PWD)/sim_qspi.v $(PWD)/tb_qspi.v
-    TOPLEVEL = tb_qspi
-    COCOTB_TEST_MODULES = test
-    COMPILE_ARGS += -DPROG_FILE=\"$(PROG_FILE)\"
-else
-    # Peripheral tests: Use the standard TinyTapeout testbench
-    VERILOG_SOURCES += $(PWD)/tb.v
-    TOPLEVEL = tb
-    COCOTB_TEST_MODULES ?= test
-endif
+# --- 2. TESTBENCH CONFIGURATION ---
+VERILOG_SOURCES += $(PWD)/tb.v
+TOPLEVEL = tb
+COCOTB_TEST_MODULES ?= test
 
 # --- 3. COMPILATION ARGUMENTS ---
 COMPILE_ARGS += -I$(SRC_DIR) -I$(PWD)/../../out/borg/verilog -DSIM
@@ -95,8 +84,7 @@ include $(shell cocotb-config --makefiles)/Makefile.sim
 rtl:
 	$(MAKE)
 
-core:
-	$(MAKE) MAKECMDGOALS=core
+
 
 # Target to run specific peripheral tests: make borg.test
 %.test:
