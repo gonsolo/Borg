@@ -14,3 +14,4 @@ test/gate_level_netlist.v
 .nix-home/
 datasheet.pdf
 /out
+.direnv

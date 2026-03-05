@@ -1,11 +1,39 @@
 import random
+import os # Added by the change
 
 import cocotb
 from cocotb.triggers import ClockCycles, Timer
+from cocotb.utils import get_sim_time
 
 from riscvmodel.insn import *
+from riscvmodel.regnames import x0, x1, gp, tp, a0
+from riscvmodel import csrnames # Added by the change
 
-from riscvmodel.regnames import x0, gp, tp, a0
+CLOCK_MHZ = int(os.environ.get("CLOCK_MHZ", "12")) # Added by the change
+print(f"DEBUG: CLOCK_MHZ (util) = {CLOCK_MHZ}")
+def calculate_bit_time(clock_mhz):
+    """
+    Calculates the UART bit time in nanoseconds for a 1 MBaud rate.
+    
+    Args:
+        clock_mhz (int): System clock frequency (e.g., 12 or 64).
+        
+    Returns:
+        float: The duration of one UART bit in nanoseconds (ns).
+    """
+    # 1. Hardware Divider: How many clock cycles the UART waits per bit
+    # For 1 MBaud, the UART waits clock_mhz cycles.
+    cycles_per_bit = clock_mhz
+    
+    # 2. Clock Period: Cocotb requires clock period to be divisible by 2.
+    clock_period_ps = int(1000000.0 / clock_mhz)
+    if clock_period_ps % 2 != 0:
+        clock_period_ps += 1
+
+    # 3. Timing: Total clock cycles * duration per cycle / conversion to ns
+    bit_time_ns = (cycles_per_bit * clock_period_ps) / 1000.0
+    
+    return bit_time_ns
 
 
 async def reset(dut, latency=1, ui_in=0x80):
@@ -237,13 +265,16 @@ async def read_byte(dut, reg, expected_val):
   await send_instr(dut, InstructionSW(tp, reg, 0x18).encode())
 
   await start_nops(dut)
-  for i in range(80):
-      if dut.debug_uart_tx.value == 0:
-          break
-      else:
-          await Timer(5, "ns")
-  assert dut.debug_uart_tx.value == 0
-  bit_time = 250
+  # Wait for start bit.
+  # timeout = 100us (plenty for 12MHz)
+  timeout_ns = 100000
+  start_sim_time = get_sim_time("ns")
+  while dut.debug_uart_tx.value == 1:
+      await Timer(5, "ns")
+      if get_sim_time("ns") - start_sim_time > timeout_ns:
+          dut._log.error(f"Timeout waiting for UART start bit. debug_uart_tx={dut.debug_uart_tx.value}, uo_out={dut.uo_out.value}")
+          assert False, "Timeout waiting for UART start bit"
+  bit_time = calculate_bit_time(CLOCK_MHZ)
   await Timer(bit_time / 2, "ns")
   assert dut.debug_uart_tx.value == 0
   for i in range(8):

@@ -182,7 +182,7 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 4) extends RawModule {
   val debug_uart_txd = i_debug_uart_tx.io.uart_txd
   i_debug_uart_tx.io.uart_tx_en := debug_uart_tx_start
   i_debug_uart_tx.io.uart_tx_data := data_to_write(7, 0)
-  i_debug_uart_tx.io.baud_divider := (CLOCK_MHZ / 4 - 1).U(13.W)
+  i_debug_uart_tx.io.baud_divider := (CLOCK_MHZ - 1).U(13.W)
 
   val time_count = withClockAndReset(clk, !rst_reg_n) { RegInit(0.U(7.W)) }
   withClockAndReset(clk, false.B) {

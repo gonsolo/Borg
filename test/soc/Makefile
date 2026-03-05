@@ -42,7 +42,7 @@ else
 
     # GL_TEST: Used in tb.v for logic/power wiring
     # FUNCTIONAL: Required for IHP models to bypass unsupported timing syntax in Icarus
-    COMPILE_ARGS += -DGL_TEST -DFUNCTIONAL
+    COMPILE_ARGS += -DGL_TEST -gspecify -DFUNCTIONAL
 
     # Check for PDK libraries
     # Auto-detect PDK_ROOT from .nix-home if not set (for local pdk-ciel installations)
@@ -56,20 +56,18 @@ else
         $(error GL Simulation error: PDK_ROOT must be set and point to a valid IHP-SG13G2 PDK installation. File missing: $(IHP_IO_LIB))
     endif
 
-    # Include IHP SG13G2 Library Models
+    # Include IHP SG13G2 IO Library
     VERILOG_SOURCES += $(IHP_IO_LIB)
-    VERILOG_SOURCES += $(IHP_STD_LIB)
+    
+    # Patched Standard Cell Library (removes delayed_* signals that break Icarus)
+    #PATCHED_STD_LIB = sim_build/gl/patched_stdcell.v
+    #VERILOG_SOURCES += $(PATCHED_STD_LIB)
 
-    # Search for the gate-level netlist in multiple possible locations
-    GL_NETLIST = $(firstword $(wildcard \
-        $(CURDIR)/gate_level_netlist.v \
-        $(CURDIR)/../gate_level_netlist.v \
-        $(CURDIR)/../../runs/wokwi/final/nl/*.v \
-        $(CURDIR)/../../tt_submission/*.v \
-    ))
+    # Gate-level netlist location
+    GL_NETLIST = $(CURDIR)/../../runs/wokwi/final/nl/tt_um_tt_tinyQV.nl.v
 
-    ifeq ($(GL_NETLIST),)
-        $(error GL Simulation error: Gate-level netlist not found. Run 'make gds' first or provide 'gate_level_netlist.v' in $(CURDIR)/..)
+    ifeq ($(wildcard $(GL_NETLIST)),)
+        $(error Gate-level netlist not found at $(GL_NETLIST). Please run 'make gds' first to generate it.)
     endif
 
     VERILOG_SOURCES += $(GL_NETLIST)
@@ -77,6 +75,14 @@ endif
 
 # --- 5. COCOTB MAKE RULES ---
 include $(shell cocotb-config --makefiles)/Makefile.sim
+
+# Rule to aggressively patch out delayed_ signals from IHP stdcells for Icarus compatibility
+$(PATCHED_STD_LIB): $(IHP_STD_LIB)
+	@mkdir -p $(dir $@)
+	sed 's/delayed_//g' $< > $@
+
+# Ensure patched lib is built before simulation
+sim_build/gl/sim.vvp: $(PATCHED_STD_LIB)
 
 # --- 6. HELPER TARGETS ---
 

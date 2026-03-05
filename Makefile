@@ -29,23 +29,20 @@ help:
 	@echo -e "  user_config:\t\t\tGenerate user config for tapeout."
 	@echo -e "  print_stats:\t\t\tPrint statistics about tile usage."
 
-CLOCK_MHZ ?= 4
+export CLOCK_MHZ = 12
 
 generate_verilog:
-	$(RUN) "export CLOCK_MHZ=$(CLOCK_MHZ); $(MILL) borg.runMain borg.Main"
+	$(RUN) "$(MILL) borg.runMain borg.Main"
 	$(RUN) "$(MILL) tinyqv.runMain tinyqv.Main"
 
-test-cocotb-peripheral-rtl:
-	CLOCK_MHZ=64 $(MAKE) generate_verilog
+test-cocotb-peripheral-rtl: generate_verilog
 	$(RUN) "$(MILL) harness.runMain harness.Main"
 	$(RUN) "$(TEST_PERIPHERAL)"
 
-test-cocotb-soc-core-rtl:
-	CLOCK_MHZ=64 $(MAKE) generate_verilog
+test-cocotb-soc-core-rtl: generate_verilog
 	$(RUN) "$(TEST_SOC) core"
 
-test-cocotb-soc-borg-rtl:
-	CLOCK_MHZ=64 $(MAKE) generate_verilog
+test-cocotb-soc-borg-rtl: generate_verilog
 	$(RUN) "$(TEST_SOC) borg"
 
 test-cocotb-soc-gl:
