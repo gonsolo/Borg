@@ -15,7 +15,7 @@ object Main extends App {
   ChiselStage.emitSystemVerilogFile(
     gen = new tt_um_tt_tinyQV(clockMhz),
     args = Array("--target-dir", "out/borg/verilog"),
-    firtoolOpts = Array("--split-verilog", "--lowering-options=disallowLocalVariables", "--disable-all-randomization", "--strip-debug-info")
+    firtoolOpts = Array("--split-verilog", "--lowering-options=disallowLocalVariables,noAlwaysComb", "--disable-all-randomization", "--strip-debug-info")
   )
 
   ChiselStage.emitSystemVerilogFile(

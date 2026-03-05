@@ -14,7 +14,7 @@ object Main extends App {
   new File(outDir).mkdirs()
 
   val argsArray = Array("--target-dir", outDir)
-  val firtoolOptsArray = Array("--split-verilog", "--lowering-options=disallowLocalVariables,disallowPackedArrays", "--disable-all-randomization", "--strip-debug-info")
+  val firtoolOptsArray = Array("--split-verilog", "--lowering-options=disallowLocalVariables,disallowPackedArrays,noAlwaysComb", "--disable-all-randomization", "--strip-debug-info")
 
   ChiselStage.emitSystemVerilogFile(new TinyQVCounter(4), argsArray, firtoolOptsArray)
   ChiselStage.emitSystemVerilogFile(new TinyQVCounter(5), argsArray, firtoolOptsArray)
