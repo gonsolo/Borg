@@ -239,40 +239,58 @@ async def test_time_limit(dut):
     # The hardware defaults time limit to (CLOCK_MHZ / 4) - 1
     expected_default_limit = (CLOCK_MHZ // 4) - 1
 
-    # Read time limit
+    # Read time limit register (packed format: {25'b0, time_limit[4:0], 2'b11})
     await send_instr(dut, InstructionLW(x1, tp, 0x2C).encode())
-    # Note: 0x3F in code might just be hardcoded reset value. Let's read it to see
-    actual_limit = await read_reg(dut, x1)
+    raw_readback = await read_reg(dut, x1)
+    actual_time_limit = (raw_readback >> 2) & 0x1F  # Extract time_limit from packed format
     
     # Set divider to roughly half the default, time should advance faster
-    # e.g for 12MHz, default is 2, half is 1
-    half_limit = max(0, actual_limit // 2)
-    await send_instr(dut, InstructionADDI(x1, x0, half_limit).encode())
+    # e.g for 12MHz, default time_limit is 2, half is 1
+    fast_time_limit = max(0, actual_time_limit // 2)
+    await send_instr(dut, InstructionADDI(x1, x0, fast_time_limit << 2).encode())
     await send_instr(dut, InstructionSW(tp, x1, 0x2C).encode())
 
-    # Read time
+    # Wait for the 7-bit time_count (0-127) to wrap and stabilize on the new
+    # threshold.  When time_limit is decreased, time_count may have already
+    # passed Cat(new_limit, 2'h3) and must count through all 128 values before
+    # the new divider rate kicks in.
+    await start_nops(dut)
+    await ClockCycles(dut.clk, 130)
+    await stop_nops()
+
+    # Read time — record sim time right after the LW that samples mtime,
+    # BEFORE read_reg (which takes variable SPI cycles and skews elapsed_us).
     await send_instr(dut, InstructionLW(x1, x0, -0x100).encode())
+    start_time_ns = get_sim_time("ns")
     start_time = await read_reg(dut, x1)
 
     await start_nops(dut)
     await Timer(5, "us")
     await stop_nops()
 
-    # Read time
+    # Read time — same pattern: get_sim_time right after LW, before read_reg
     await send_instr(dut, InstructionLW(x1, x0, -0x100).encode())
-    # Expected ticks in 5us = 5,000,000 ps // (CLOCK_PERIOD_PS * (half_limit + 1) * 4)
-    expected_ticks_fast = 5000000 // (CLOCK_PERIOD_PS * (half_limit + 1) * 4)
+    end_time_ns = get_sim_time("ns")
     time_advanced = await read_reg(dut, x1) - start_time
+    elapsed_us = (end_time_ns - start_time_ns) / 1000.0
+    # Expected ticks using actual elapsed time and the fast divider
+    expected_ticks_fast = int(round(elapsed_us * 1_000_000 / (CLOCK_PERIOD_PS * (fast_time_limit + 1) * 4)))
     assert (expected_ticks_fast - 3) <= time_advanced <= (expected_ticks_fast + 3), f"Expected approx {expected_ticks_fast} ticks, got {time_advanced}"
 
     # Set divider to a higher value, time should advance more slowly
-    # e.g for 12MHz, default is 2, slow could be 5
-    slow_limit = (expected_default_limit + 1) * 2 - 1
-    await send_instr(dut, InstructionADDI(x1, x0, slow_limit).encode())
+    # e.g for 12MHz, default time_limit is 2, slow could be 5
+    slow_time_limit = (expected_default_limit + 1) * 2 - 1
+    await send_instr(dut, InstructionADDI(x1, x0, slow_time_limit << 2).encode())
     await send_instr(dut, InstructionSW(tp, x1, 0x2C).encode())
+
+    # Same stabilization wait for the slow divider
+    await start_nops(dut)
+    await ClockCycles(dut.clk, 130)
+    await stop_nops()
 
     # Read time
     await send_instr(dut, InstructionLW(x1, x0, -0x100).encode())
+    start_time_ns = get_sim_time("ns")
     start_time = await read_reg(dut, x1)
 
     await start_nops(dut)
@@ -281,8 +299,11 @@ async def test_time_limit(dut):
 
     # Read time
     await send_instr(dut, InstructionLW(x1, x0, -0x100).encode())
-    expected_ticks_slow = 9000000 // (CLOCK_PERIOD_PS * (slow_limit + 1) * 4)
+    end_time_ns = get_sim_time("ns")
     time_advanced_slow = await read_reg(dut, x1) - start_time
+    elapsed_us_slow = (end_time_ns - start_time_ns) / 1000.0
+    # Expected ticks using actual elapsed time and the slow divider
+    expected_ticks_slow = int(round(elapsed_us_slow * 1_000_000 / (CLOCK_PERIOD_PS * (slow_time_limit + 1) * 4)))
     assert (expected_ticks_slow - 3) <= time_advanced_slow <= (expected_ticks_slow + 3), f"Expected approx {expected_ticks_slow} ticks, got {time_advanced_slow}"
 
 
