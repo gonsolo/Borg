@@ -32,8 +32,8 @@ help:
 export CLOCK_MHZ = 12
 
 generate_verilog:
-	$(RUN) "$(MILL) borg.runMain borg.Main"
-	$(RUN) "$(MILL) tinyqv.runMain tinyqv.Main"
+	$(RUN) "CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) borg.runMain borg.Main"
+	$(RUN) "CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) tinyqv.runMain tinyqv.Main"
 
 test-cocotb-peripheral-rtl: generate_verilog
 	$(RUN) "$(MILL) harness.runMain harness.Main"

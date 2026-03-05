@@ -36,6 +36,23 @@ def calculate_bit_time(clock_mhz):
     return bit_time_ns
 
 
+def calculate_expected_timer_ticks(clock_mhz, clock_period_ps, duration_us=5):
+    """
+    Calculates expected timer ticks for a given duration.
+    Matches the hardware logic: ticks = duration / (cycles_per_tick * clock_period)
+    """
+    # hardware limit: increments every (limit_val + 1) * 4 cycles
+    limit_val = (clock_mhz // 4) - 1
+    cycles_per_tick = (limit_val + 1) * 4
+    
+    # Convert duration from us to ps for high-precision math
+    duration_ps = duration_us * 1_000_000
+    
+    # Calculate and round to nearest integer
+    expected_float = duration_ps / (float(clock_period_ps) * cycles_per_tick)
+    return int(round(expected_float))
+
+
 async def reset(dut, latency=1, ui_in=0x80):
   # Reset
   dut._log.info(f"Reset, latency {latency}")

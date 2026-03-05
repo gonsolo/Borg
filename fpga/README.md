@@ -12,10 +12,10 @@
 
 The clock has to be set in four places, otherwise only garbage will be seen in tio:
 
-* ```set_frequency clk 4``` in pico_ice.pcf.
-* ```--freq 4``` in the Makefile when running nextpnr-ice40.
-* ```localparam CLOCK_MHZ = 4;``` in pico_ice.v .
+* ```set_frequency clk 12``` in pico_ice.pcf.
+* ```--freq 12``` in the Makefile when running nextpnr-ice40.
+* ```localparam CLOCK_MHZ = 12;``` in pico_ice.v .
 
 Not strictly necessary:
 
-* ```env: TT_FPGA_FREQ: 4``` in ../.github/workflows/fpga.yaml.
+* ```env: TT_FPGA_FREQ: 12``` in ../.github/workflows/fpga.yaml.
