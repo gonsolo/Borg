@@ -23,7 +23,7 @@ help:
 	@echo -e "  test-cocotb-peripheral-rtl:\tRun peripheral tests (cocotb)."
 	@echo -e "  test-cocotb-soc-core-rtl:\tRun CPU core tests (cocotb)."
 	@echo -e "  test-cocotb-soc-borg-rtl:\tRun Borg peripheral tests (cocotb)."
-	@echo -e "  test-cocotb-soc-gl:\t\tRun Gate-Level simulations (cocotb)."
+	@echo -e "  test-cocotb-soc-core-gl:\t\tRun Gate-Level simulations (cocotb)."
 	@echo -e "  test-all:\t\t\tRun all tests."
 	@echo -e "  datasheet.pdf:\t\tGenerate datasheet for Tinytapeout."
 	@echo -e "  user_config:\t\t\tGenerate user config for tapeout."
@@ -45,8 +45,8 @@ test-cocotb-soc-core-rtl: generate_verilog
 test-cocotb-soc-borg-rtl: generate_verilog
 	$(RUN) "$(TEST_SOC) borg"
 
-test-cocotb-soc-gl:
-	$(RUN) "$(TEST_SOC) GATES=yes"
+test-cocotb-soc-core-gl:
+	$(RUN) "$(TEST_SOC) core GATES=yes"
 	@ln -sf soc/results.xml test/results.xml
 
 
@@ -76,4 +76,4 @@ print_stats:
 	$(RUN) "./tt/tt_tool.py --print-stats"
 
 .PHONY: all generate_verilog help print_stats gds user_config lint \
-	test-all test-cocotb-peripheral-rtl test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl test-cocotb-soc-gl test-chisel-borg test-chisel-tinyqv
+	test-all test-cocotb-peripheral-rtl test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl test-cocotb-soc-core-gl test-chisel-borg test-chisel-tinyqv

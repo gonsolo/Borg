@@ -58,10 +58,11 @@ else
 
     # Include IHP SG13G2 IO Library
     VERILOG_SOURCES += $(IHP_IO_LIB)
+    # VERILOG_SOURCES += $(IHP_STD_LIB)
     
     # Patched Standard Cell Library (removes delayed_* signals that break Icarus)
-    #PATCHED_STD_LIB = sim_build/gl/patched_stdcell.v
-    #VERILOG_SOURCES += $(PATCHED_STD_LIB)
+    PATCHED_STD_LIB = sim_build/gl/patched_stdcell.v
+    VERILOG_SOURCES += $(PATCHED_STD_LIB)
 
     # Gate-level netlist location
     GL_NETLIST = $(CURDIR)/../../runs/wokwi/final/nl/tt_um_tt_tinyQV.nl.v
@@ -79,7 +80,7 @@ include $(shell cocotb-config --makefiles)/Makefile.sim
 # Rule to aggressively patch out delayed_ signals from IHP stdcells for Icarus compatibility
 $(PATCHED_STD_LIB): $(IHP_STD_LIB)
 	@mkdir -p $(dir $@)
-	sed 's/delayed_//g' $< > $@
+	python3 $(PWD)/patch_stdcell.py $< $@
 
 # Ensure patched lib is built before simulation
 sim_build/gl/sim.vvp: $(PATCHED_STD_LIB)
