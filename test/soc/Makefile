@@ -81,8 +81,11 @@ include $(shell cocotb-config --makefiles)/Makefile.sim
 # --- 6. HELPER TARGETS ---
 
 # Explicit targets for SoC integration
-rtl:
+core:
 	$(MAKE)
+
+borg:
+	COCOTB_TEST_MODULES=user_peripherals.borg.test $(MAKE)
 
 
 
