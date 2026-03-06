@@ -6,17 +6,26 @@ package borg
 import chisel3.*
 import chisel3.util.*
 
+sealed abstract class FloatConfig(val exp: Int, val sig: Int) {
+  def totalBits: Int = 1 + exp + (sig - 1)
+}
+
+object FloatConfig {
+  case object FP16 extends FloatConfig(5, 11)
+  case object FP32 extends FloatConfig(8, 24)
+}
+
 /** BorgIO defines the interface for the shading processor. It uses
   * memory-mapped I/O for register and instruction memory access.
   */
-class BorgIO extends Bundle {
+class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
   val address = Input(
     UInt(6.W)
   ) // 64-word address space (byte-addressed internally by shifting)
-  val data_in = Input(UInt(32.W))
+  val data_in = Input(UInt(config.totalBits.W))
   val data_write_n = Input(UInt(2.W)) // 0b10 for write
   val data_read_n = Input(UInt(2.W))
-  val data_out = Output(UInt(32.W))
+  val data_out = Output(UInt(config.totalBits.W))
   val data_ready = Output(Bool())
   val uo_out = Output(UInt(8.W))
   val user_interrupt = Output(Bool())
@@ -26,16 +35,16 @@ class BorgIO extends Bundle {
   * counter. It executes floating-point addition instructions in a 4-cycle
   * pipeline.
   */
-class Borg extends Module {
-  val io = IO(new BorgIO)
+class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
+  val io = IO(new BorgIO(config))
   dontTouch(io)
 
   // --- Storage ---
-  // registerFile: 4 general-purpose 32-bit registers for floating-point data
-  val registerFile = SyncReadMem(4, UInt(32.W))
+  // registerFile: 4 general-purpose registers for floating-point data
+  val registerFile = SyncReadMem(4, UInt(config.totalBits.W))
 
   // instructionMemory: 4 words of instruction memory to store the shader program
-  val instructionMemory = SyncReadMem(4, UInt(32.W))
+  val instructionMemory = SyncReadMem(4, UInt(config.totalBits.W))
 
   // programCounter: Points to the current instruction in instructionMemory
   val programCounter = RegInit(0.U(3.W))
@@ -106,9 +115,9 @@ class Borg extends Module {
   val mmio_reg_data = Mux(mmio_reg_en_del, mmio_reg_data_in, 0.U)
 
   // --- ALU: Floating Point Adder ---
-  val recA = recFNFromFN(8, 24, recA_raw)
-  val recB = recFNFromFN(8, 24, recB_raw)
-  val f_add = Module(new AddRecFN(8, 24))
+  val recA = recFNFromFN(config.exp, config.sig, recA_raw)
+  val recB = recFNFromFN(config.exp, config.sig, recB_raw)
+  val f_add = Module(new AddRecFN(config.exp, config.sig))
   f_add.io.subOp := false.B
   f_add.io.a := recA
   f_add.io.b := recB
@@ -121,7 +130,7 @@ class Borg extends Module {
   val reg_w_en = mmio_reg_write || pipe_reg_write
   val reg_w_addr = Mux(pipe_reg_write, rd_idx, io.address(3, 2))
   val reg_w_data =
-    Mux(pipe_reg_write, fNFromRecFN(8, 24, f_add.io.out), io.data_in)
+    Mux(pipe_reg_write, fNFromRecFN(config.exp, config.sig, f_add.io.out), io.data_in)
 
   when(reg_w_en) {
     registerFile.write(reg_w_addr, reg_w_data)
@@ -136,7 +145,7 @@ class Borg extends Module {
   val read_addr_del = RegInit(0.U(6.W))
   read_addr_del := io.address
 
-  val status_reg = Cat(0.U(30.W), !running, 0.U(1.W))
+  val status_reg = Cat(0.U((config.totalBits - 2).W), !running, 0.U(1.W))
 
   io.data_out := MuxLookup(read_addr_del, 0.U)(
     Seq(
