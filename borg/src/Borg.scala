@@ -91,9 +91,9 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   }
 
   // --- Instruction Pre-Fetch ---
-  val rs1_idx = fetchedInstruction(19, 15)(1, 0)
-  val rs2_idx = fetchedInstruction(24, 20)(1, 0)
-  val rd_idx = fetchedInstruction(11, 7)(1, 0)
+  val rs1_idx = if (config.totalBits >= 20) fetchedInstruction(19, 15)(1, 0) else fetchedInstruction(7, 5)(1, 0)
+  val rs2_idx = if (config.totalBits >= 25) fetchedInstruction(24, 20)(1, 0) else fetchedInstruction(10, 8)(1, 0)
+  val rd_idx = if (config.totalBits >= 12) fetchedInstruction(11, 7)(1, 0) else fetchedInstruction(4, 2)(1, 0)
 
   // --- Register File State Access ---
   // Port A: Pipeline RS1 (Word index 0-3)

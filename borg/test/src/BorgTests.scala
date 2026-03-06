@@ -11,12 +11,34 @@ import os._
 
 object BorgTests extends TestSuite {
 
-  def floatToBits(f: Float): BigInt = {
-    BigInt(java.lang.Float.floatToRawIntBits(f)) & 0xffffffffL
+  def floatToBits(f: Float, config: FloatConfig): BigInt = {
+    if (config == FloatConfig.FP32) {
+      BigInt(java.lang.Float.floatToRawIntBits(f)) & 0xffffffffL
+    } else {
+      // Simple FP16 conversion for testing (rounding to zero/nearest not strict here, just enough for basic tests)
+      val bits = java.lang.Float.floatToRawIntBits(f)
+      val sign = (bits >>> 31) << 15
+      var exp = ((bits >>> 23) & 0xff) - 127 + 15
+      var sig = (bits >>> 13) & 0x3ff
+      if (exp <= 0) { exp = 0; sig = 0 }
+      else if (exp >= 31) { exp = 31; sig = 0x3ff }
+      BigInt(sign | (exp << 10) | sig)
+    }
   }
 
-  def bitsToFloat(b: BigInt): Float = {
-    java.lang.Float.intBitsToFloat(b.toInt)
+  def bitsToFloat(b: BigInt, config: FloatConfig): Float = {
+    if (config == FloatConfig.FP32) {
+      java.lang.Float.intBitsToFloat(b.toInt)
+    } else {
+      val bits = b.toInt
+      val sign = (bits >>> 15) << 31
+      var exp = ((bits >>> 10) & 0x1f)
+      var sig = (bits & 0x3ff) << 13
+      if (exp == 0) { /* subnormal or zero */ }
+      else if (exp == 31) { exp = 255 }
+      else { exp = exp - 15 + 127 }
+      java.lang.Float.intBitsToFloat(sign | (exp << 23) | sig)
+    }
   }
 
   def writeAddr(borg: Borg, addr: Int, bits: BigInt): Unit = {
@@ -29,23 +51,30 @@ object BorgTests extends TestSuite {
     borg.clock.step(1)
   }
 
-  def readAddr(borg: Borg, addr: Int): Float = {
+  def readAddr(borg: Borg, addr: Int, config: FloatConfig): Float = {
     borg.io.address.poke(addr.U)
     borg.io.data_read_n.poke(2.U)
     borg.io.data_write_n.poke(3.U)
     borg.clock.step(1)
-    val res = bitsToFloat(borg.io.data_out.peek().litValue)
+    val res = bitsToFloat(borg.io.data_out.peek().litValue, config)
     borg.io.data_read_n.poke(3.U)
     res
   }
 
-  def runBasicMathTest(borg: Borg, a: Float, b: Float, epsilon: Float): Unit = {
+  def isClose(actual: Float, expected: Float, config: FloatConfig): Boolean = {
+    // Use a relative epsilon based on the config's precision
+    val relEps = if (config == FloatConfig.FP16) 1e-3f else 1e-6f
+    val tolerance = math.max(relEps * math.abs(expected), relEps)
+    math.abs(actual - expected) < tolerance
+  }
+
+  def runBasicMathTest(borg: Borg, config: FloatConfig, a: Float, b: Float): Unit = {
     // 1. Reset PC and stop execution
     writeAddr(borg, 60, 2) // Bit 1 = Reset PC
 
     // 2. Load operands into registers 0 and 1
-    writeAddr(borg, 0, floatToBits(a))
-    writeAddr(borg, 4, floatToBits(b))
+    writeAddr(borg, 0, floatToBits(a, config))
+    writeAddr(borg, 4, floatToBits(b, config))
 
     // 3. Setup Addition Instruction in imem(0)
     // opcode/funct7 = 0x00 (Add), rs1 = reg0, rs2 = reg1, rd = reg2
@@ -54,7 +83,11 @@ object BorgTests extends TestSuite {
     val rd = 2
     val rs1 = 0
     val rs2 = 1
-    val add_instr = (0x00 << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7)
+    val add_instr = if (config.totalBits >= 32) {
+      (0x00 << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7)
+    } else {
+      (rs2 << 8) | (rs1 << 5) | (rd << 2)
+    }
     writeAddr(borg, 32, BigInt(add_instr)) // imem(0)
 
     // Halt instruction (zero) in imem(1)
@@ -75,15 +108,15 @@ object BorgTests extends TestSuite {
     borg.io.data_read_n.poke(3.U)
 
     // 6. Read result from rf(2) (addr 8)
-    val addActual = readAddr(borg, 8)
+    val addActual = readAddr(borg, 8, config)
     val expectedSum = a + b
 
-    val r0_val = readAddr(borg, 0)
-    val r1_val = readAddr(borg, 4)
-    val r2_val = readAddr(borg, 8)
-    val r3_val = readAddr(borg, 12)
+    val r0_val = readAddr(borg, 0, config)
+    val r1_val = readAddr(borg, 4, config)
+    val r2_val = readAddr(borg, 8, config)
+    val r3_val = readAddr(borg, 12, config)
     println(
-      f"Debug Registers -> rf0: $r0_val%8.2f, rf1: $r1_val%8.2f, rf2: $r2_val%8.2f, rf3: $r3_val%8.2f"
+      f"Debug Registers [${config.getClass.getSimpleName.replace("$", "")}] -> rf0: $r0_val%8.2f, rf1: $r1_val%8.2f, rf2: $r2_val%8.2f, rf3: $r3_val%8.2f"
     )
 
     // 7. Report results to console
@@ -91,27 +124,32 @@ object BorgTests extends TestSuite {
       f"Check: $a%8.2f + $b%8.2f -> Actual: $addActual%8.2f (Exp: $expectedSum%8.2f)"
     )
 
-    utest.assert(math.abs(addActual - expectedSum) < epsilon)
+    utest.assert(isClose(addActual, expectedSum, config))
   }
 
   val tests = Tests {
-    utest.test("programmable_operand_batch_test") {
-      // Load data from JSON
-      val projectRoot =
-        sys.env.get("PROJECT_ROOT").map(os.Path(_)).getOrElse(os.pwd)
-      val jsonFile = projectRoot / "data" / "test_cases.json"
-      val data = ujson.read(os.read(jsonFile))
+    val projectRoot = sys.env.get("PROJECT_ROOT").map(os.Path(_)).getOrElse(os.pwd)
+    val jsonFile = projectRoot / "data" / "test_cases.json"
+    val data = ujson.read(os.read(jsonFile))
+    val pairs = data("pairs").arr.map(p => (p(0).num.toFloat, p(1).num.toFloat))
 
-      val epsilon = data("epsilon").num.toFloat
-      val pairs =
-        data("pairs").arr.map(p => (p(0).num.toFloat, p(1).num.toFloat))
-
-      simulate(new Borg) { borg =>
-        println("\n--- Starting Programmable Adder Batch ---")
+    utest.test("fp32_batch_test") {
+      simulate(new Borg(FloatConfig.FP32)) { borg =>
+        println("\n--- Starting FP32 Adder Batch ---")
         pairs.foreach { case (a, b) =>
-          runBasicMathTest(borg, a, b, epsilon)
+          runBasicMathTest(borg, FloatConfig.FP32, a, b)
         }
-        println("--- All Tests Passed ---\n")
+        println("--- FP32 Tests Passed ---\n")
+      }
+    }
+
+    utest.test("fp16_batch_test") {
+      simulate(new Borg(FloatConfig.FP16)) { borg =>
+        println("\n--- Starting FP16 Adder Batch ---")
+        pairs.foreach { case (a, b) =>
+          runBasicMathTest(borg, FloatConfig.FP16, a, b)
+        }
+        println("--- FP16 Tests Passed ---\n")
       }
     }
   }
