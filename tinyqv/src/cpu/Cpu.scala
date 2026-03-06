@@ -44,7 +44,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends RawModule {
     val mem_op_increment_reg_de = decoder.mem_op_increment_reg
 
     // Pipeline Registers
-    val imm = Reg(UInt(32.W))
+    val imm = RegInit(0.U(32.W))
     val is_load = RegInit(false.B)
     val is_alu_imm = RegInit(false.B)
     val is_auipc = RegInit(false.B)
@@ -57,13 +57,13 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends RawModule {
     val is_system = RegInit(false.B)
     val instr_len = RegInit(2.U(2.W))
     val alu_op = RegInit(0.U(4.W))
-    val mem_op = Reg(UInt(3.W))
-    val rs1 = Reg(UInt(4.W))
-    val rs2 = Reg(UInt(4.W))
-    val rd = Reg(UInt(4.W))
+    val mem_op = RegInit(0.U(3.W))
+    val rs1 = RegInit(0.U(4.W))
+    val rs2 = RegInit(0.U(4.W))
+    val rd = RegInit(0.U(4.W))
     val additional_mem_ops = RegInit(0.U(3.W))
     val addr_offset = RegInit(0.U(2.W))
-    val mem_op_increment_reg = Reg(Bool())
+    val mem_op_increment_reg = RegInit(false.B)
 
     val interrupt_core = RegInit(false.B)
     val instr_valid = RegInit(false.B)
@@ -100,7 +100,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends RawModule {
     core.io.rd := rd
     core.io.interrupt_req := io.interrupt_req
     
-    val pc = Reg(UInt(32.W))
+    val pc = RegInit(0.U(32.W))
     core.io.pc := MuxLookup(counter_hi, 0.U(4.W))( (0 until 8).map(i => i.U -> pc(i*4+3, i*4)) )
     
     val next_pc_for_core = Wire(UInt(32.W))

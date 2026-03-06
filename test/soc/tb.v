@@ -22,7 +22,7 @@ module tb ();
   assign {uio_in[5:4], uio_in[2:1]} = rst_n ? qspi_data_in : {1'b0, latency_cfg};
 
   wire [3:0] qspi_data_out = {uio_out[5:4], uio_out[2:1]};
-  wire [3:0] qspi_data_oe  = {uio_oe[5:4],  uio_oe[2:1]};
+  wire [3:0] qspi_data_oe = {uio_oe[5:4], uio_oe[2:1]};
   wire qspi_clk_out = uio_out[3];
   wire qspi_flash_select = uio_out[0];
   wire qspi_ram_a_select = uio_out[6];
@@ -60,14 +60,14 @@ module tb ();
       .VGND(VGND),
 `endif
 
-      .ui_in   (ui_in),    // Dedicated inputs
-      .uo_out  (uo_out),   // Dedicated outputs
-      .uio_in  (uio_in),   // IOs: Input path
-      .uio_out (uio_out),  // IOs: Output path
-      .uio_oe  (uio_oe),   // IOs: Enable path (active high: 0=input, 1=output)
-      .ena     (ena),      // enable - goes high when design is selected
-      .clk     (clk),      // clock
-      .rst_n   (rst_n)     // not reset
+      .ui_in  (ui_in),    // Dedicated inputs
+      .uo_out (uo_out),   // Dedicated outputs
+      .uio_in (uio_in),   // IOs: Input path
+      .uio_out(uio_out),  // IOs: Output path
+      .uio_oe (uio_oe),   // IOs: Enable path (active high: 0=input, 1=output)
+      .ena    (ena),      // enable - goes high when design is selected
+      .clk    (clk),      // clock
+      .rst_n  (rst_n)     // not reset
   );
 
 `ifdef GL_TEST
@@ -78,5 +78,10 @@ module tb ();
   //   force user_project.VGND = 1'b0;
   // end
 `endif
+
+  initial begin
+    $dumpfile("sim_build/gl/tb.vcd");
+    $dumpvars(0, tb);
+  end
 
 endmodule

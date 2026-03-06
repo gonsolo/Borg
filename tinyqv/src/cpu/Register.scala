@@ -25,7 +25,7 @@ class TinyQVRegisters(val numRegs: Int = 16, val regAddrBits: Int = 4) extends R
     // Registers 1 to numRegs-1. x0 is hardcoded 0.
     // We create numRegs registers, though x0, x3 (gp), and x4 (tp) won't be used as storage registers
     // for reg_access, but we keep them to match the array structure and potentially return_addr.
-    val registers = Reg(Vec(numRegs, UInt(32.W)))
+    val registers = RegInit(VecInit(Seq.fill(numRegs)(0.U(32.W))))
 
     val reg_access = Wire(Vec(1 << regAddrBits, UInt(4.W)))
 

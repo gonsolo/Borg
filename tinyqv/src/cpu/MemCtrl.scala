@@ -45,7 +45,7 @@ class TinyQVMemCtrl extends RawModule {
     val started = RegInit(false.B)
     val stopped = RegInit(false.B)
     val qspi_write_done = RegInit(false.B)
-    val qspi_data_buf = Reg(Vec(4, UInt(8.W)))
+    val qspi_data_buf = RegInit(VecInit(Seq.fill(4)(0.U(8.W))))
     val qspi_data_byte_idx = RegInit(0.U(2.W))
     val data_txn_len = RegInit(3.U(2.W))
     val continue_txn = RegInit(false.B)

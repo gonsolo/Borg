@@ -113,7 +113,7 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
   cmp := cmp_out
 
   // Shifter instance and state
-  val shift_amt = Reg(UInt(5.W))
+  val shift_amt = RegInit(0.U(5.W))
   when(cycle === 0.U) {
     when(io.counter === 0.U) {
       shift_amt := Cat(shift_amt(4), Mux(io.is_alu_imm, io.imm, data_rs2))
