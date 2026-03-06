@@ -1,12 +1,19 @@
-# Redirect Makefile for TinyTapeout compatibility
-# Forwards all targets to the soc/ directory
+# ./test/Makefile
 
-# Default target
+# Standard-Ziel
 all:
-	$(MAKE) -C soc all
+	$(MAKE) -C soc all GATES=$(GATES)
+	@$(MAKE) move_artifacts
 
-# Forward any other target (e.g., clean, core, borg.test)
+# Forwarding für alle anderen Ziele (clean, core, etc.)
 %:
-	$(MAKE) -C soc $@
+	$(MAKE) -C soc $@ GATES=$(GATES)
+	@$(MAKE) move_artifacts
 
-.PHONY: all
+# Hilfsziel zum Verschieben der Ergebnisse in den Test-Ordner
+move_artifacts:
+	@if [ -f soc/results.xml ]; then mv soc/results.xml .; fi
+	@if [ -f soc/tb.vcd ]; then mv soc/tb.vcd .; fi
+	@if [ -f soc/tb.fst ]; then mv soc/tb.fst .; fi
+
+.PHONY: all move_artifacts
