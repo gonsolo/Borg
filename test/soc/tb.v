@@ -80,7 +80,7 @@ module tb ();
 `endif
 
   initial begin
-    $dumpfile("sim_build/gl/tb.vcd");
+    $dumpfile("tb.vcd");
     $dumpvars(0, tb);
   end
 
