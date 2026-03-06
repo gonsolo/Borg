@@ -11,13 +11,13 @@ clean:
 	rm -f *.o *.a fatfs/*.o sdcard/*.o
 
 %.o: %.c 
-	$(CC) -O2 -march=rv32ec_zicsr_zcb_zicond -mabi=ilp32e -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -I$(PWD) -c $< -o $@
+	$(CC) -O2 -march=rv32ec_zicsr_zcb_zicond -mabi=ilp32e -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -I$(CURDIR) -c $< -o $@
 
 %.o: %.s
 	$(AS) -march=rv32ec_zicsr_zcb_zicond -mabi=ilp32e $< -o $@
 
 uart_sim.o: uart.c
-	$(CC) -DTINYQV_SIM -O2 -march=rv32ec_zcb_zicond -mabi=ilp32e -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -I$(PWD) -c $< -o $@
+	$(CC) -DTINYQV_SIM -O2 -march=rv32ec_zcb_zicond -mabi=ilp32e -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -I$(CURDIR) -c $< -o $@
 
 uart_buf_sim.o: uart_buf.s
 	$(AS) --defsym TINYQV_SIM=1 -march=rv32ec_zicsr_zcb_zicond -mabi=ilp32e $< -o $@

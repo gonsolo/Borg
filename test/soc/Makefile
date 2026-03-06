@@ -6,7 +6,7 @@
 SIM ?= icarus
 FST ?= -fst
 TOPLEVEL_LANG ?= verilog
-SRC_DIR = $(PWD)/../../src
+SRC_DIR = $(CURDIR)/../../src
 
 # --- 1. AUTOMATIC SOURCE EXTRACTION ---
 ifneq ($(GATES),yes)
@@ -15,13 +15,13 @@ ifneq ($(GATES),yes)
 endif
 
 # --- 2. TESTBENCH CONFIGURATION ---
-VERILOG_SOURCES += $(PWD)/tb.v
+VERILOG_SOURCES += $(CURDIR)/tb.v
 TOPLEVEL = tb
 COCOTB_TEST_MODULES ?= test,user_peripherals.borg.test
 
 # --- 3. COMPILATION ARGUMENTS ---
-COMPILE_ARGS += -I$(SRC_DIR) -I$(PWD)/../../out/borg/verilog -DSIM
-export PYTHONPATH := $(PWD):../../:$(PYTHONPATH)
+COMPILE_ARGS += -I$(SRC_DIR) -I$(CURDIR)/../../out/borg/verilog -DSIM
+export PYTHONPATH := $(CURDIR):../../:$(PYTHONPATH)
 
 # Icarus Verilog specific flags
 ifeq ($(SIM), icarus)
@@ -58,7 +58,7 @@ else
 
     # --- CI-AWARE NETLIST DETECTION ---
     # The GH Action copies the netlist to ../gate_level_netlist.v
-    CI_NETLIST = $(PWD)/../gate_level_netlist.v
+    CI_NETLIST = $(CURDIR)/../gate_level_netlist.v
     LOCAL_NETLIST = $(CURDIR)/../../runs/wokwi/final/nl/tt_um_tt_tinyQV.nl.v
 
     ifneq ($(wildcard $(CI_NETLIST)),)
@@ -80,7 +80,7 @@ include $(shell cocotb-config --makefiles)/Makefile.sim
 # Rule to patch stdcells
 $(PATCHED_STD_LIB): $(IHP_STD_LIB)
 	@mkdir -p $(dir $@)
-	python3 $(PWD)/patch_stdcell.py $< $@
+	python3 $(CURDIR)/patch_stdcell.py $< $@
 
 # Ensure patched lib is built before simulation
 sim_build/gl/sim.vvp: $(PATCHED_STD_LIB)
