@@ -7,12 +7,6 @@ import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
 
-// import chisel3.experimental.IntParam
-
-// class tqvp_uart_wrapper(val CLOCK_MHZ: Int = 64) extends BlackBox(Map("CLOCK_MHZ" -> IntParam(CLOCK_MHZ))) {
-//   val io = IO(new TqvpUartWrapperIO)
-// }
-
 class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
   val clk = IO(Input(Clock()))
   val rst_n = IO(Input(Bool()))
@@ -114,13 +108,13 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
       data_ready_from_peri := data_ready_uart
     }
 
-    val borg = Module(new Borg())
+    val borg = Module(new Borg(FloatConfig.FP16))
     borg.io.address := addr_in(5, 0)
-    borg.io.data_in := data_in
+    borg.io.data_in := data_in(15, 0)
     borg.io.data_write_n := data_write_n | Fill(2, !is_borg)
     borg.io.data_read_n := data_read_n_peri | Fill(2, !is_borg)
 
-    val data_from_borg = borg.io.data_out
+    val data_from_borg = Cat(0.U(16.W), borg.io.data_out)
     val data_ready_borg = borg.io.data_ready
     val uo_out_borg = borg.io.uo_out
 

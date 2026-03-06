@@ -41,6 +41,7 @@ class TinyQV:
     # value is the value to be written, in the range 0-255
     # If sync is false this function will return before the store is completed.
     async def write_reg(self, reg, value, sync=True):
+        value = int(value)
         await test_util.stop_nops()
         await test_util.send_instr(self.dut, InstructionADDI(a1, x0, value).encode())
         await test_util.send_instr(self.dut, InstructionSB(tp, a1, self.base_address + reg).encode())
@@ -79,6 +80,7 @@ class TinyQV:
     # value is the value to be written, in the range 0-65535
     # If sync is false this function will return before the store is completed.
     async def write_hword_reg(self, reg, value, sync=True):
+        value = int(value)
         await test_util.stop_nops()
         # Prepare value for LUI + ADDI
         value_upper = (value + 0x800) >> 12
@@ -111,6 +113,7 @@ class TinyQV:
     # value is the value to be written
     # If sync is false this function will return before the store is completed.
     async def write_word_reg(self, reg, value, sync=True):
+        value = int(value)
         await test_util.stop_nops()
 
         # Prepare value for LUI + ADDI

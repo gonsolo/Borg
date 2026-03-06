@@ -16,24 +16,35 @@ class BorgDriver:
     Mirroring the Scala BorgDriver to maintain cross-environment consistency.
     """
 
-    def __init__(self, dut, tqv):
+    def __init__(self, dut, tqv, is_fp16=True):
         self.dut = dut
         self.tqv = tqv
+        self.is_fp16 = is_fp16
         self.ADDR_STATUS = 16
         self.ADDR_IMEM = 32
         self.ADDR_CONTROL = 60
 
-    def is_close(self, actual, expected, is_fp16=False):
+    def is_close(self, actual, expected):
         # Use a relative epsilon based on the config's precision
-        rel_eps = 1e-3 if is_fp16 else 1e-6
+        rel_eps = 1e-3 if self.is_fp16 else 1e-6
         tolerance = max(rel_eps * abs(expected), rel_eps)
         return abs(actual - expected) < tolerance
 
     def float_to_bits(self, f):
-        return struct.unpack("<I", struct.pack("<f", np.float32(f)))[0]
+        if self.is_fp16:
+            # IEEE 754 Half-precision (16-bit)
+            return np.array([f], dtype=np.float16).view(np.uint16)[0]
+        else:
+            # IEEE 754 Single-precision (32-bit)
+            return struct.unpack("<I", struct.pack("<f", np.float32(f)))[0]
 
     def bits_to_float(self, b):
-        return struct.unpack("<f", struct.pack("<I", b & 0xFFFFFFFF))[0]
+        if self.is_fp16:
+            # Mask to 16 bits as hardware zero-extends in Peripherals.scala
+            b16 = b & 0xFFFF
+            return np.array([b16], dtype=np.uint16).view(np.float16)[0]
+        else:
+            return struct.unpack("<f", struct.pack("<I", b & 0xFFFFFFFF))[0]
 
     async def write_reg(self, reg_idx, val):
         """Writes a float to Register File index (0-3)"""
@@ -111,7 +122,11 @@ async def run_math_test(dut, driver, a, b):
     add_res = await driver.read_register(2)
 
     # 7. Assertions
-    expected_sum = a_32 + b_32
+    # Use appropriate precision for expected value calculation
+    if driver.is_fp16:
+        expected_sum = np.float16(np.float16(a) + np.float16(b))
+    else:
+        expected_sum = np.float32(a_32 + b_32)
 
     assert driver.is_close(
         add_res, expected_sum
@@ -126,8 +141,8 @@ PERIPHERAL_NUM = 3
 
 
 @cocotb.test()
-async def test_borg_vulkan_style_math(dut):
-    dut._log.info("Starting Programmable Borg Shading Processor Integration Test")
+async def test_borg_shader_math_batch(dut):
+    dut._log.info("Starting Borg Shader Math Batch Integration Test")
 
     test_data = load_test_data()
     clock = Clock(dut.clk, 100, unit="ns")
