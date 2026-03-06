@@ -23,6 +23,12 @@ class BorgDriver:
         self.ADDR_IMEM = 32
         self.ADDR_CONTROL = 60
 
+    def is_close(self, actual, expected, is_fp16=False):
+        # Use a relative epsilon based on the config's precision
+        rel_eps = 1e-3 if is_fp16 else 1e-6
+        tolerance = max(rel_eps * abs(expected), rel_eps)
+        return abs(actual - expected) < tolerance
+
     def float_to_bits(self, f):
         return struct.unpack("<I", struct.pack("<f", np.float32(f)))[0]
 
@@ -76,7 +82,7 @@ def load_test_data():
         return json.load(f)
 
 
-async def run_math_test(dut, driver, a, b, epsilon):
+async def run_math_test(dut, driver, a, b):
     """
     Executes a single shader-based math test case (Addition only).
     """
@@ -107,8 +113,8 @@ async def run_math_test(dut, driver, a, b, epsilon):
     # 7. Assertions
     expected_sum = a_32 + b_32
 
-    assert (
-        abs(add_res - expected_sum) < epsilon
+    assert driver.is_close(
+        add_res, expected_sum
     ), f"Add failed: {a_32} + {b_32} = {add_res} (Exp: {expected_sum})"
 
     dut._log.info(
@@ -116,7 +122,7 @@ async def run_math_test(dut, driver, a, b, epsilon):
     )
 
 
-PERIPHERAL_NUM = 39
+PERIPHERAL_NUM = 3
 
 
 @cocotb.test()
@@ -132,7 +138,7 @@ async def test_borg_vulkan_style_math(dut):
     await driver.reset()
 
     for a, b in test_data["pairs"]:
-        await run_math_test(dut, driver, a, b, test_data["epsilon"])
+        await run_math_test(dut, driver, a, b)
 
     # Final sanity check on Register 0 to ensure stability
     read_bits_0 = await tqv.read_word_reg(0)

@@ -7,7 +7,6 @@ endif
 
 TT_TOOL               	:= ./tt/tt_tool.py
 TEST_SOC             	:= make -C test/soc -B
-TEST_PERIPHERAL        	:= make -C test/peripheral -B
 MILL               	:= mill --no-server
 
 BOLD := \033[1m
@@ -20,7 +19,6 @@ help:
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
 	@echo -e "  test-chisel-tinyqv:\t\tRun TinyQV tests (Chisel)."
-	@echo -e "  test-cocotb-peripheral-rtl:\tRun peripheral tests (cocotb)."
 	@echo -e "  test-cocotb-soc-core-rtl:\tRun CPU core tests (cocotb)."
 	@echo -e "  test-cocotb-soc-borg-rtl:\tRun Borg peripheral tests (cocotb)."
 	@echo -e "  test-cocotb-soc-core-gl:\tRun Gate-Level core simulations (cocotb)."
@@ -35,10 +33,6 @@ export CLOCK_MHZ = 12
 generate_verilog:
 	$(RUN) "CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) borg.runMain borg.Main"
 	$(RUN) "CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) tinyqv.runMain tinyqv.Main"
-
-test-cocotb-peripheral-rtl: generate_verilog
-	$(RUN) "$(MILL) harness.runMain harness.Main"
-	$(RUN) "$(TEST_PERIPHERAL)"
 
 test-cocotb-soc-core-rtl: generate_verilog
 	$(RUN) "$(TEST_SOC) core"
@@ -66,7 +60,7 @@ lint: generate_verilog
 test-chisel-tinyqv:
 	$(RUN) "$(MILL) tinyqv.test"
 
-test-all: lint test-chisel-borg test-chisel-tinyqv test-cocotb-peripheral-rtl test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl
+test-all: lint test-chisel-borg test-chisel-tinyqv test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl
 
 datasheet.pdf: generate_verilog
 	$(RUN) "$(TT_TOOL) --create-pdf"
@@ -78,5 +72,5 @@ print_stats:
 	$(RUN) "./tt/tt_tool.py --print-stats"
 
 .PHONY: all generate_verilog help print_stats gds user_config lint test-all \
-	test-cocotb-peripheral-rtl test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
+	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-tinyqv

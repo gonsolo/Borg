@@ -59,19 +59,14 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
     data_ready := data_ready_r || (data_write_n =/= 3.U(2.W))
 
     // --- Address Decoding ---
-    val PERI_GPIO = 1
-    val PERI_UART = 2
-    val PERI_BORG = 23
+    val PERI_GPIO = 1.U
+    val PERI_UART = 2.U
+    val PERI_BORG = 3.U
 
-    val peri_user = WireDefault(0.U(24.W))
-    when(addr_in(10) === 1.U || addr_in(9) === 1.U) {
-      when(addr_in(10, 9) === 3.U || addr_in(10, 6) === 23.U) {
-        peri_user := (1L << PERI_BORG).U
-      }
-    } .otherwise {
-      val shiftAmt = addr_in(9, 6)
-      peri_user := 1.U << shiftAmt
-    }
+    val peri_sel = addr_in(10, 6)
+    val is_gpio = peri_sel === PERI_GPIO
+    val is_uart = peri_sel === PERI_UART
+    val is_borg = peri_sel === PERI_BORG
 
     // --- GPIO & Pin Muxing (Flattened for Synthesis) ---
     val gpio_out = RegInit(0.U(8.W))
@@ -80,7 +75,7 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
       2.U(6.W), 2.U(6.W), 1.U(6.W), 1.U(6.W), 1.U(6.W), 1.U(6.W), 1.U(6.W), 1.U(6.W)
     ))
 
-    when(peri_user(PERI_GPIO)) {
+    when(is_gpio) {
       when(addr_in(5, 0) === 0.U && data_write_n =/= 3.U) {
         gpio_out := data_in(7, 0)
       }
@@ -92,7 +87,7 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
 
     // Bus Mux
     data_ready_from_peri := true.B
-    when(peri_user(PERI_GPIO)) {
+    when(is_gpio) {
       when(addr_in(5, 0) === 0.U) {
         data_from_peri := Cat(0.U(24.W), gpio_out)
       } .elsewhen(addr_in(5, 0) === 4.U) {
@@ -107,39 +102,39 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
     i_uart.io.ui_in := ui_in
     i_uart.io.address := addr_in(5, 0)
     i_uart.io.data_in := data_in
-    i_uart.io.data_write_n := data_write_n | Fill(2, ~peri_user(PERI_UART))
-    i_uart.io.data_read_n := data_read_n_peri | Fill(2, ~peri_user(PERI_UART))
+    i_uart.io.data_write_n := data_write_n | Fill(2, !is_uart)
+    i_uart.io.data_read_n := data_read_n_peri | Fill(2, !is_uart)
     
     val data_from_uart = i_uart.io.data_out
     val data_ready_uart = i_uart.io.data_ready
     val uo_out_uart = i_uart.io.uo_out
 
-    when(peri_user(PERI_UART)) {
+    when(is_uart) {
       data_from_peri := data_from_uart
       data_ready_from_peri := data_ready_uart
     }
 
-    val i_user_peri39 = Module(new Borg())
-    i_user_peri39.io.address := addr_in(5, 0)
-    i_user_peri39.io.data_in := data_in
-    i_user_peri39.io.data_write_n := data_write_n | Fill(2, ~peri_user(PERI_BORG))
-    i_user_peri39.io.data_read_n := data_read_n_peri | Fill(2, ~peri_user(PERI_BORG))
+    val borg = Module(new Borg())
+    borg.io.address := addr_in(5, 0)
+    borg.io.data_in := data_in
+    borg.io.data_write_n := data_write_n | Fill(2, !is_borg)
+    borg.io.data_read_n := data_read_n_peri | Fill(2, !is_borg)
 
-    val data_from_borg = i_user_peri39.io.data_out
-    val data_ready_borg = i_user_peri39.io.data_ready
-    val uo_out_borg = i_user_peri39.io.uo_out
+    val data_from_borg = borg.io.data_out
+    val data_ready_borg = borg.io.data_ready
+    val uo_out_borg = borg.io.uo_out
 
-    when(peri_user(PERI_BORG)) {
+    when(is_borg) {
       data_from_peri := data_from_borg
       data_ready_from_peri := data_ready_borg
     }
 
     val uo_out_muxed = Wire(Vec(8, Bool()))
     for (k <- 0 until 8) {
-      when(func_sel(k) === 23.U) {
-        uo_out_muxed(k) := uo_out_borg(k)
-      } .elsewhen(func_sel(k) === 2.U) {
+      when(func_sel(k) === PERI_UART) {
         uo_out_muxed(k) := uo_out_uart(k)
+      } .elsewhen(func_sel(k) === PERI_BORG) {
+        uo_out_muxed(k) := uo_out_borg(k)
       } .otherwise {
         uo_out_muxed(k) := gpio_out(k)
       }
@@ -150,7 +145,7 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
     for (i <- 0 until 14) { interrupts(i) := false.B }
     interrupts(0) := i_uart.io.user_interrupt(0)
     interrupts(1) := i_uart.io.user_interrupt(1)
-    interrupts(2) := i_user_peri39.io.user_interrupt
+    interrupts(2) := borg.io.user_interrupt
     user_interrupts := interrupts.asUInt
   }
 }
