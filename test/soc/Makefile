@@ -19,6 +19,8 @@ VERILOG_SOURCES += $(CURDIR)/tb.v
 TOPLEVEL = tb
 COCOTB_TEST_MODULES ?= test,user_peripherals.borg.test
 
+all: sim
+
 # --- 3. COMPILATION ARGUMENTS ---
 COMPILE_ARGS += -I$(SRC_DIR) -I$(CURDIR)/../../out/borg/verilog -DSIM
 export PYTHONPATH := $(CURDIR):../../:$(PYTHONPATH)
