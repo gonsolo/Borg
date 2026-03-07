@@ -22,6 +22,7 @@
       p.klayout
       p.matplotlib
       p.mistune
+      p.numpy
       p.pip
       p.pyaml
       p.pytest

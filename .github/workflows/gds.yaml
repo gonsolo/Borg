@@ -41,6 +41,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install Python dependencies
+        run: pip install -r test/soc/requirements.txt
+
       - name: GL test
         uses: TinyTapeout/tt-gds-action/gl_test@ttihp26a
 
