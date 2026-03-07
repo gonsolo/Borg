@@ -1,5 +1,6 @@
 // Copyright Michael Bell 2023-2024
-// CERN-OHL-S-2.0
+// Conversion to Chisel Copyright © 2026 Andreas Wendleder
+// SPDX-License-Identifier: Apache-2.0
 
 package tinyqv.cpu
 

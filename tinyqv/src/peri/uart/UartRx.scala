@@ -1,7 +1,8 @@
 // Copyright (c) 2021 Ben Marshall
 // Changes Copyright (c) 2023 Michael Bell
 // Changes Copyright (c) 2024 Michael Bell
-// MIT License
+// Conversion to Chisel Copyright © 2026 Andreas Wendleder
+// SPDX-License-Identifier: MIT
 
 package tinyqv.peri.uart
 

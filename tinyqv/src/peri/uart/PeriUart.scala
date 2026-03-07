@@ -1,3 +1,7 @@
+// Copyright (c) 2025 Michael Bell
+// Conversion to Chisel Copyright © 2026 Andreas Wendleder
+// SPDX-License-Identifier: Apache-2.0
+
 package tinyqv.peri.uart
 
 import chisel3._
