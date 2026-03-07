@@ -17,7 +17,7 @@ endif
 # --- 2. TESTBENCH CONFIGURATION ---
 VERILOG_SOURCES += $(CURDIR)/tb.v
 TOPLEVEL = tb
-COCOTB_TEST_MODULES ?= test,user_peripherals.borg.test
+MODULE ?= test,user_peripherals.borg.test
 
 all: sim
 
@@ -98,7 +98,7 @@ core:
 
 # Run the borg specific test
 borg:
-	COCOTB_TEST_MODULES=user_peripherals.borg.test $(MAKE) sim
+	MODULE=user_peripherals.borg.test $(MAKE) sim
 
 # Clean up build artifacts
 clean::
