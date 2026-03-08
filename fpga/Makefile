@@ -27,6 +27,7 @@ help:
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
 	@echo -e "  tio:\t\t\tConnect to the serial console."
 	@echo -e "  reset:\t\tReset the CPU."
+	@echo -e "  borg.json:\t\tRun synthesis."
 	@echo -e "  borg.asc:\t\tRun Place & Route (pnr)."
 	@echo -e "  borg.bin:\t\tGenerate the FPGA bitstream."
 	@echo -e "  resource_check:\tCheck LUT and DFF usage coefficients."

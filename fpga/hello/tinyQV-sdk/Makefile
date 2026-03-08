@@ -10,23 +10,26 @@ all: tinyQV.a tinyQV-sim.a start.o
 clean:
 	rm -f *.o *.a fatfs/*.o sdcard/*.o
 
-%.o: %.c 
+$(RISCV_TOOLCHAIN):
+	$(MAKE) -C ../toolchain
+
+%.o: %.c $(RISCV_TOOLCHAIN)
 	$(CC) -O2 -march=rv32ec_zicsr_zcb_zicond -mabi=ilp32e -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -I$(CURDIR) -c $< -o $@
 
-%.o: %.s
+%.o: %.s $(RISCV_TOOLCHAIN)
 	$(AS) -march=rv32ec_zicsr_zcb_zicond -mabi=ilp32e $< -o $@
 
-uart_sim.o: uart.c
+uart_sim.o: uart.c $(RISCV_TOOLCHAIN)
 	$(CC) -DTINYQV_SIM -O2 -march=rv32ec_zcb_zicond -mabi=ilp32e -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -I$(CURDIR) -c $< -o $@
 
-uart_buf_sim.o: uart_buf.s
+uart_buf_sim.o: uart_buf.s $(RISCV_TOOLCHAIN)
 	$(AS) --defsym TINYQV_SIM=1 -march=rv32ec_zicsr_zcb_zicond -mabi=ilp32e $< -o $@
 
-tinyQV.a: uart.o uart_buf.o mul.o isqrt.o peripheral.o runtime.o spi.o timer.o
-	$(AR) rcs $@ $^
+tinyQV.a: uart.o uart_buf.o mul.o isqrt.o peripheral.o runtime.o spi.o timer.o $(RISCV_TOOLCHAIN)
+	$(AR) rcs $@ $(filter-out $(RISCV_TOOLCHAIN), $^)
 
-tinyQV-sim.a: uart_sim.o uart_buf_sim.o mul.o isqrt.o peripheral.o runtime.o spi.o timer.o
-	$(AR) rcs $@ $^
+tinyQV-sim.a: uart_sim.o uart_buf_sim.o mul.o isqrt.o peripheral.o runtime.o spi.o timer.o $(RISCV_TOOLCHAIN)
+	$(AR) rcs $@ $(filter-out $(RISCV_TOOLCHAIN), $^)
 
-tinyQV-sd.a: sdcard/sdcard.o fatfs/ff.o fatfs/ffsystem.o fatfs/ffunicode.o
-	$(AR) rcs $@ $^
+tinyQV-sd.a: sdcard/sdcard.o fatfs/ff.o fatfs/ffsystem.o fatfs/ffunicode.o $(RISCV_TOOLCHAIN)
+	$(AR) rcs $@ $(filter-out $(RISCV_TOOLCHAIN), $^)
