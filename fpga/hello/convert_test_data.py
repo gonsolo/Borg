@@ -27,12 +27,31 @@ with open('test_data.h', 'w') as f:
         f.write(f"    {{ {float_to_hex16(a16)}, {float_to_hex16(b16)}, {float_to_hex16(expected)} }},\n")
     f.write("};\n\n")
 
-    # Pre-computed description strings for each test
-    f.write("// Pre-computed FP16 descriptions (a_str, b_str, expected_str)\n")
-    f.write("static char *test_desc[NUM_TESTS][3] = {\n")
+    # Pre-computed description strings as static char arrays in .data (RAM)
+    # Each is a fixed-size char array to avoid pointer indirection
+    max_len = 0
+    descs = []
     for a, b in data['pairs']:
         a16 = np.float16(a)
         b16 = np.float16(b)
         expected = np.float16(a16 + b16)
-        f.write(f'    {{ "{fp16_to_str(a)}", "{fp16_to_str(b)}", "{fp16_to_str(float(a16)+float(b16))}" }},\n')
+        sa = fp16_to_str(a)
+        sb = fp16_to_str(b)
+        se = fp16_to_str(float(a16) + float(b16))
+        descs.append((sa, sb, se))
+        max_len = max(max_len, len(sa), len(sb), len(se))
+
+    max_len += 1  # null terminator
+    f.write(f"// Pre-computed FP16 descriptions, {max_len} chars each\n")
+    f.write(f"static char test_desc_a[NUM_TESTS][{max_len}] = {{\n")
+    for sa, sb, se in descs:
+        f.write(f'    "{sa}",\n')
+    f.write("};\n")
+    f.write(f"static char test_desc_b[NUM_TESTS][{max_len}] = {{\n")
+    for sa, sb, se in descs:
+        f.write(f'    "{sb}",\n')
+    f.write("};\n")
+    f.write(f"static char test_desc_e[NUM_TESTS][{max_len}] = {{\n")
+    for sa, sb, se in descs:
+        f.write(f'    "{se}",\n')
     f.write("};\n")
