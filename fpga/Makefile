@@ -26,10 +26,11 @@ help:
 	@echo -e "$(BOLD)  run:\t\t\tCompile C code and execute on FPGA.$(NC)"
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
 	@echo -e "  tio:\t\t\tConnect to the serial console."
-	@echo -e "  reset:\t\t\tReset the CPU."
+	@echo -e "  reset:\t\tReset the CPU."
+	@echo -e "  borg.asc:\t\tRun Place & Route (pnr)."
 	@echo -e "  borg.bin:\t\tGenerate the FPGA bitstream."
-	@echo -e "  resource_check:\t\tCheck LUT and DFF usage coefficients."
-	@echo -e "  clean:\t\t\tRemove build artifacts."
+	@echo -e "  resource_check:\tCheck LUT and DFF usage coefficients."
+	@echo -e "  clean:\t\tRemove build artifacts."
 
 # And you have to burn first, of course
 run:
