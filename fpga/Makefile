@@ -13,12 +13,23 @@ SRC_FILES = pico_ice.v \
             #$(wildcard $(TINYQV_DIR)/*.sv)
             #$(wildcard ../src/user_peripherals/uart/*.v)
 
-#ls:
-#	echo $(SRC_FILES)
-
 # Hardware limits
 MAX_LUTS = 5280
 MAX_DFFS = 5280
+
+BOLD := \033[1m
+NC   := \033[0m
+
+all: help
+help:
+	@echo "commands: "
+	@echo -e "$(BOLD)  run:\t\t\tCompile C code and execute on FPGA.$(NC)"
+	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
+	@echo -e "  tio:\t\t\tConnect to the serial console."
+	@echo -e "  reset:\t\t\tReset the CPU."
+	@echo -e "  borg.bin:\t\tGenerate the FPGA bitstream."
+	@echo -e "  resource_check:\t\tCheck LUT and DFF usage coefficients."
+	@echo -e "  clean:\t\t\tRemove build artifacts."
 
 # And you have to burn first, of course
 run:
@@ -60,5 +71,5 @@ resource_check: yosys.log
 clean:
 	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log
 
-.PHONY: burn clean reset resource_check run tio
+.PHONY: all help burn clean reset resource_check run tio
 
