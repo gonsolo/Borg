@@ -12,18 +12,28 @@
 #define NANOPRINTF_IMPLEMENTATION
 #include "nanoprintf.h"
 
-static void uart_putc2(int c, void *) {
+#define UART_TX 0x08000080
+#define UART_STATUS 0x08000084
+
+void uart_putc_polling(int c) {
+  while (*(volatile uint32_t *)UART_STATUS & 1)
+    ;
+  *(volatile uint32_t *)UART_TX = c;
+}
+
+
+static void uart_putc_polling2(int c, void *ctx) {
   if (c == '\n')
-    uart_putc('\r');
-  uart_putc(c);
+    uart_putc_polling('\r');
+  uart_putc_polling(c);
 }
 
 void uart_puts(const char *c) {
   while (*c) {
-    uart_putc(*c++);
+    uart_putc_polling(*c++);
   }
-  uart_putc('\r');
-  uart_putc('\n');
+  uart_putc_polling('\r');
+  uart_putc_polling('\n');
 }
 
 void uart_put_buffer(const char *c, int len) {
@@ -42,10 +52,24 @@ void debug_uart_put_buffer(const char *c, int len) {
   }
 }
 
+static void debug_uart_putc2(int c, void *ctx) {
+  if (c == '\n')
+    debug_uart_putc('\r');
+  debug_uart_putc(c);
+}
+
 int uart_printf(const char *fmt, ...) {
   va_list val;
   va_start(val, fmt);
-  int const rv = npf_vpprintf(&uart_putc2, NULL, fmt, val);
+  int const rv = npf_vpprintf(&uart_putc_polling2, NULL, fmt, val);
+  va_end(val);
+  return rv;
+}
+
+int debug_uart_printf(const char *fmt, ...) {
+  va_list val;
+  va_start(val, fmt);
+  int const rv = npf_vpprintf(&debug_uart_putc2, NULL, fmt, val);
   va_end(val);
   return rv;
 }

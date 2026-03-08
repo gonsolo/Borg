@@ -19,7 +19,7 @@ module tinyQV_top (
     output [7:0] uo_out
 
 );
-  localparam CLOCK_MHZ = 12;
+  localparam CLOCK_MHZ = 4;
 
   // Address to peripheral map
   localparam PERI_NONE = 4'h0;
@@ -219,7 +219,7 @@ module tinyQV_top (
   // GPIO Out
   always @(posedge clk) begin
     if (!rst_reg_n) begin
-      gpio_out_sel <= {!ui_in[0], 1'b0};
+      gpio_out_sel <= 2'b00;
     end
     if (write_n != 2'b11) begin
       if (connect_peripheral == PERI_GPIO_OUT_SEL) gpio_out_sel <= data_to_write[7:6];
@@ -234,7 +234,7 @@ module tinyQV_top (
       .io_uart_tx_en(debug_uart_tx_start),
       .io_uart_tx_data(data_to_write[7:0]),
       .io_uart_tx_busy(debug_uart_tx_busy),
-      .io_baud_divider(13'd34)  // 4MHz / 115200 = 34
+      .io_baud_divider((CLOCK_MHZ * 1000000) / 115200)
   );
 
   reg [5:0] time_count;

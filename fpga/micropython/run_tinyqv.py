@@ -6,6 +6,8 @@ from machine import UART, Pin, PWM, SPI
 
 import flash_prog
 
+_clk = None  # Global to keep PWM clock alive
+
 @rp2.asm_pio(autopush=True, push_thresh=8, in_shiftdir=rp2.PIO.SHIFT_LEFT,
              autopull=True, pull_thresh=8, out_shiftdir=rp2.PIO.SHIFT_RIGHT,
              out_init=(rp2.PIO.IN_HIGH, rp2.PIO.OUT_HIGH, rp2.PIO.OUT_HIGH, rp2.PIO.IN_HIGH,
@@ -203,7 +205,8 @@ def run(query=True, stop=True):
 
     #uart = UART(0, baudrate=115200, tx=Pin(0), rx=Pin(1))
     time.sleep(0.001)
-    clk = PWM(Pin(24), freq=4_000_000, duty_u16=32768)
+    global _clk
+    _clk = PWM(Pin(24), freq=4_000_000, duty_u16=32768)
 
     # Wait for DMA to complete
     while rx_dma.active():
@@ -218,7 +221,8 @@ def run(query=True, stop=True):
     if query:
         input("Stop? ")
 
-    del clk
+    _clk.deinit()
+    _clk = None
     Pin(12, Pin.IN, pull=Pin.PULL_DOWN)
     Pin(24, Pin.IN, pull=Pin.PULL_DOWN)
 
@@ -251,3 +255,8 @@ def run(query=True, stop=True):
 def execute(filename):
     flash_prog.program(filename)
     run(query=False, stop=False)
+    # Keep clock alive indefinitely so FPGA program keeps running
+    while True:
+        time.sleep(1)
+
+

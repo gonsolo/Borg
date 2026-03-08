@@ -1,138 +1,133 @@
 #include "test_data.h"
-#include <csr.h>
-#include <uart.h>
-#define printf uart_printf
 
-// Override libgcc's __mulsi3 which uses the removed 'mul16' hardware
-// instruction
-unsigned int __mulsi3(unsigned int a, unsigned int b) {
-  unsigned int res = 0;
-  while (a != 0) {
-    if (a & 1)
-      res += b;
-    a >>= 1;
-    b <<= 1;
-  }
-  return res;
-}
+#define UART_TX      0x08000080
+#define UART_STATUS  0x08000084
+#define UART_BAUD    0x08000088
 
-// Read cycle is already inline defined by csr.h
-
-// --- BORG HARDWARE DEFINITIONS ---
-// Peripheral 23 base address: 0x08000000 (User Window) + 0x5C0 (Offset)
-#define BORG_ADDR_BASE 0x080005C0
-#define BORG_ADDR_REGS (BORG_ADDR_BASE + 0)
-#define BORG_ADDR_STATUS (BORG_ADDR_BASE + 16)
-#define BORG_ADDR_IMEM (BORG_ADDR_BASE + 32)
+#define BORG_ADDR_BASE    0x080005C0
+#define BORG_ADDR_REGS    (BORG_ADDR_BASE + 0)
+#define BORG_ADDR_STATUS  (BORG_ADDR_BASE + 16)
 #define BORG_ADDR_CONTROL (BORG_ADDR_BASE + 60)
+#define BORG_ADDR_IMEM    (BORG_ADDR_BASE + 32)
 
-// Macros to perform the actual memory access
 #define REG_WRITE(addr, val) (*(volatile unsigned int *)(addr) = (val))
 #define REG_READ(addr) (*(volatile unsigned int *)(addr))
 
-typedef union {
-  float f;
-  unsigned int i;
-} float_bits;
-
-int run_test_case(float a, float b) {
-  float_bits fa, fb, fres;
-  fa.f = a;
-  fb.f = b;
-
-  // 1. Reset PC and stop execution
-  uart_printf("  [Debug] Resetting PC...\n");
-  REG_WRITE(BORG_ADDR_CONTROL, 2); // Bit 1 = Reset PC
-  for (volatile int i = 0; i < 100; i++)
-    ; // Small delay
-
-  // 2. Load operands into registers
-  uart_printf("  [Debug] Loading Operands...\n");
-  REG_WRITE(BORG_ADDR_REGS + 0, fa.i); // r0 = a
-  REG_WRITE(BORG_ADDR_REGS + 4, fb.i); // r1 = b
-
-  // 3. Load shader program into IMEM (ADD r2, r0, r1)
-  uart_printf("  [Debug] Loading Program...\n");
-  // rs1 = 0 (bits 19:15), rs2 = 1 (bits 24:20), rd = 2 (bits 11:7)
-  // Float Add opcode (R-type format): opcode=0x53, funct3=0, funct7=0
-  // instr = (rs2 << 20) | (rs1 << 15) | (0 << 12) | (rd << 7) | 0x53
-  // instr = (1 << 20) | (0 << 15) | (2 << 7) | 0x53 = 0x00100153
-  unsigned int instr_fadd = 0x00100153;
-  unsigned int instr_halt = 0x00000000; // ALL ZEROS (Implicit Halt)
-  REG_WRITE(BORG_ADDR_IMEM + 0, instr_fadd);
-  REG_WRITE(BORG_ADDR_IMEM + 4, instr_halt);
-
-  // 4. Start execution
-  uart_printf("  [Debug] Starting Execution...\n");
-  REG_WRITE(BORG_ADDR_CONTROL, 1); // Bit 0 = Start
-
-  // 5. Wait for Halt with timeout
-  uart_printf("  [Debug] Polling for Halt...\n");
-  int timeout = 100000;
-  while (!(REG_READ(BORG_ADDR_STATUS) & 2) && timeout > 0) {
-    timeout--;
-  }
-
-  if (timeout <= 0) {
-    uart_printf("  [Error] Hardware Hang! Timeout waiting for execution to "
-                "halt.\n");
-    return 0; // Fail
-  }
-
-  // 6. Stop execution
-  uart_printf("  [Debug] Halting manually...\n");
-  REG_WRITE(BORG_ADDR_CONTROL, 0);
-
-  // 7. Read result
-  uart_printf("  [Debug] Reading result...\n");
-  fres.i = REG_READ(BORG_ADDR_REGS + 8); // Read r2
-
-  float expected = a + b;
-  float diff = fres.f - expected;
-  if (diff < 0)
-    diff = -diff;
-
-  // 8. Formatting for UART output
-  int aw = (int)a, af = (int)(a * 100.0f) % 100;
-  int bw = (int)b, bf = (int)(b * 100.0f) % 100;
-  int rw = (int)fres.f, rf = (int)(fres.f * 100.0f) % 100;
-  int ew = (int)expected, ef = (int)(expected * 100.0f) % 100;
-
-  if (af < 0)
-    af = -af;
-  if (bf < 0)
-    bf = -bf;
-  if (rf < 0)
-    rf = -rf;
-  if (ef < 0)
-    ef = -ef;
-
-  uart_printf(
-      "Shader: %4d.%02d + %4d.%02d -> Actual: %4d.%02d (Exp: %4d.%02d)\n", aw,
-      af, bw, bf, rw, rf, ew, ef);
-
-  return (diff < 0.0001f);
+void gonzo_putc(int c) {
+  while (REG_READ(UART_STATUS) & 1) ;
+  REG_WRITE(UART_TX, c);
 }
 
-int main() {
-  printf("--- Starting Programmable Adder Batch ---\n");
+// All strings in .data (RAM) to avoid flash data reads
+static char str_banner[] = "--- Borg FP16 Test ---\r\n";
+static char str_plus[]   = " + ";
+static char str_eq[]     = " = ";
+static char str_pass[]   = " [PASS]\r\n";
+static char str_fail[]   = " [FAIL]\r\n";
+static char str_ok[]     = "\r\nAll Passed!\r\n";
+static char str_bad[]    = "\r\nFAILED\r\n";
 
-  int all_passed = 1;
-  for (int i = 0; i < NUM_TESTS; i++) {
-    if (!run_test_case(test_pairs[i][0], test_pairs[i][1])) {
-      all_passed = 0;
+// All helpers as macros - function calls produce broken codegen on this target
+#define gonzo_puts(s) do { char *_p = (s); while (*_p) gonzo_putc(*_p++); } while(0)
+
+#define print_nib(n) do { unsigned int _n = (n) & 0xF; gonzo_putc(_n < 10 ? '0' + _n : 'A' + _n - 10); } while(0)
+
+#define print_hex16(v) do { unsigned int _v = (v); print_nib(_v >> 12); print_nib(_v >> 8); print_nib(_v >> 4); print_nib(_v); } while(0)
+
+int main() {
+  // Debug: mark entry into main
+  gonzo_putc('1');
+
+  for (volatile int i = 0; i < 10000; i++) ;
+
+  // Debug: delay done
+  gonzo_putc('2');
+
+  REG_WRITE(UART_BAUD, 34);
+
+  // Debug: baud set
+  gonzo_putc('3');
+
+  gonzo_puts(str_banner);
+
+  // Debug: banner done
+  gonzo_putc('4');
+
+  int passed = 0;
+  for (int t = 0; t < NUM_TESTS; t++) {
+    // Debug: test start
+    gonzo_putc('A' + t);
+
+    unsigned int a = test_pairs_i[t][0];
+    unsigned int b = test_pairs_i[t][1];
+    unsigned int exp = test_pairs_i[t][2];
+
+    // Debug: loaded data
+    gonzo_putc('a');
+
+    REG_WRITE(BORG_ADDR_REGS + 0, a);
+    REG_WRITE(BORG_ADDR_REGS + 4, b);
+
+    // Debug: regs written
+    gonzo_putc('b');
+
+    REG_WRITE(BORG_ADDR_IMEM + 0, 0x0100);
+    REG_WRITE(BORG_ADDR_IMEM + 4, 0x0000);
+
+    // Debug: imem written
+    gonzo_putc('c');
+
+    REG_WRITE(BORG_ADDR_CONTROL, 2);
+    REG_WRITE(BORG_ADDR_CONTROL, 1);
+
+    // Debug: started
+    gonzo_putc('d');
+
+    int timeout = 100000;
+    while (!(REG_READ(BORG_ADDR_STATUS) & 2) && timeout > 0) {
+      timeout--;
+    }
+
+    // Debug: halt or timeout
+    gonzo_putc('e');
+
+    unsigned int res = REG_READ(BORG_ADDR_REGS + 8) & 0xFFFF;
+
+    // Debug: result read
+    gonzo_putc('f');
+
+    gonzo_putc('g');
+    print_hex16(a);
+    gonzo_putc('h');
+    gonzo_puts(str_plus);
+    gonzo_putc('i');
+    print_hex16(b);
+    gonzo_putc('j');
+    gonzo_puts(str_eq);
+    gonzo_putc('k');
+    print_hex16(res);
+    gonzo_putc('l');
+
+    if (res == (exp & 0xFFFF)) {
+      gonzo_puts(str_pass);
+      passed++;
+    } else {
+      gonzo_puts(str_fail);
     }
   }
 
-  if (all_passed) {
-    printf("--- All Tests Passed ---\n");
-    printf("%d, \033[32mSUCCESS\033[0m] TinyQV Borg Test Finished\n",
-           read_cycle());
+  // Debug: all tests done
+  gonzo_putc('Z');
+
+  if (passed == NUM_TESTS) {
+    gonzo_puts(str_ok);
   } else {
-    printf("--- TESTS FAILED ---\n");
-    printf("%d, \033[31mFAILURE\033[0m] TinyQV Borg Test Finished\n",
-           read_cycle());
+    gonzo_puts(str_bad);
   }
 
+  while(1) {
+    gonzo_putc('.');
+    for (volatile int i = 0; i < 500000; i++) ;
+  }
   return 0;
 }

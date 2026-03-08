@@ -20,14 +20,16 @@ _start:
     li tp, 0x8000000    # a different Risc-V core, but do no harm on TinyQV
     la sp, __StackTop
     jal __runtime_init
-    li a1, 0x40000      # Enable UART receive interupt
-    csrs mie, a1
+    # li a1, 0x8          # TEMP: Disable global interrupts for diagnostics
+    # csrs mstatus, a1
+    # li a1, 0x4          # Enable UART receive interupt
+    # csrs mie, a1
     call main
     j .
 
 # The trap handler should probably do something more useful.
 _trap_handler:
-    mret
+    j _trap_handler
 
 _isr_timer:
     full_isr_entry
