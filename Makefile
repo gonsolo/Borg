@@ -22,7 +22,7 @@ help:
 	@echo -e "  user_config:\t\t\tGenerate user config for tapeout."
 	@echo -e "  print_stats:\t\t\tPrint statistics about tile usage."
 
-export CLOCK_MHZ = 12
+export CLOCK_MHZ = 4
 
 generate_verilog:
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) borg.runMain borg.Main

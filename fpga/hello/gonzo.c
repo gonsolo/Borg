@@ -18,95 +18,73 @@ void gonzo_putc(int c) {
   REG_WRITE(UART_TX, c);
 }
 
-// All strings in .data (RAM) to avoid flash data reads
-static char str_banner[] = "--- Borg FP16 Test ---\r\n";
+// All helpers as macros — nested function calls corrupt state on TinyQV.
+// Only gonzo_putc() works as a real function.
+#define gonzo_puts(s) do { char *_p = (s); while (*_p) gonzo_putc(*_p++); } while(0)
+
+#define print_nib(n) do { \
+  unsigned int _n = (n) & 0xF; \
+  gonzo_putc(_n < 10 ? '0' + _n : 'A' + _n - 10); \
+} while(0)
+
+#define print_hex16(v) do { \
+  unsigned int _v = (v); \
+  print_nib(_v >> 12); print_nib(_v >> 8); \
+  print_nib(_v >> 4);  print_nib(_v); \
+} while(0)
+
+static char str_banner[] = "--- Borg FP16 Addition Test ---\r\n";
 static char str_plus[]   = " + ";
 static char str_eq[]     = " = ";
+static char str_exp[]    = " exp ";
 static char str_pass[]   = " [PASS]\r\n";
 static char str_fail[]   = " [FAIL]\r\n";
 static char str_ok[]     = "\r\nAll Passed!\r\n";
 static char str_bad[]    = "\r\nFAILED\r\n";
-
-// All helpers as macros - function calls produce broken codegen on this target
-#define gonzo_puts(s) do { char *_p = (s); while (*_p) gonzo_putc(*_p++); } while(0)
-
-#define print_nib(n) do { unsigned int _n = (n) & 0xF; gonzo_putc(_n < 10 ? '0' + _n : 'A' + _n - 10); } while(0)
-
-#define print_hex16(v) do { unsigned int _v = (v); print_nib(_v >> 12); print_nib(_v >> 8); print_nib(_v >> 4); print_nib(_v); } while(0)
+static char str_lparen[] = " (";
+static char str_rparen[] = ")";
 
 int main() {
-  // Debug: mark entry into main
-  gonzo_putc('1');
-
   for (volatile int i = 0; i < 10000; i++) ;
-
-  // Debug: delay done
-  gonzo_putc('2');
-
   REG_WRITE(UART_BAUD, 34);
-
-  // Debug: baud set
-  gonzo_putc('3');
 
   gonzo_puts(str_banner);
 
-  // Debug: banner done
-  gonzo_putc('4');
-
   int passed = 0;
   for (int t = 0; t < NUM_TESTS; t++) {
-    // Debug: test start
-    gonzo_putc('A' + t);
-
     unsigned int a = test_pairs_i[t][0];
     unsigned int b = test_pairs_i[t][1];
     unsigned int exp = test_pairs_i[t][2];
 
-    // Debug: loaded data
-    gonzo_putc('a');
-
     REG_WRITE(BORG_ADDR_REGS + 0, a);
     REG_WRITE(BORG_ADDR_REGS + 4, b);
-
-    // Debug: regs written
-    gonzo_putc('b');
-
     REG_WRITE(BORG_ADDR_IMEM + 0, 0x0100);
     REG_WRITE(BORG_ADDR_IMEM + 4, 0x0000);
-
-    // Debug: imem written
-    gonzo_putc('c');
-
     REG_WRITE(BORG_ADDR_CONTROL, 2);
     REG_WRITE(BORG_ADDR_CONTROL, 1);
-
-    // Debug: started
-    gonzo_putc('d');
 
     int timeout = 100000;
     while (!(REG_READ(BORG_ADDR_STATUS) & 2) && timeout > 0) {
       timeout--;
     }
 
-    // Debug: halt or timeout
-    gonzo_putc('e');
-
     unsigned int res = REG_READ(BORG_ADDR_REGS + 8) & 0xFFFF;
 
-    // Debug: result read
-    gonzo_putc('f');
-
-    gonzo_putc('g');
-    print_hex16(a);
-    gonzo_putc('h');
+    // Print: 666.5 + 666.5 = 1333.0 (6135+6135=6535 exp 6535) [PASS]
+    gonzo_puts(test_desc[t][0]);
     gonzo_puts(str_plus);
-    gonzo_putc('i');
-    print_hex16(b);
-    gonzo_putc('j');
+    gonzo_puts(test_desc[t][1]);
     gonzo_puts(str_eq);
-    gonzo_putc('k');
+    gonzo_puts(test_desc[t][2]);
+    gonzo_puts(str_lparen);
+    print_hex16(a);
+    gonzo_putc('+');
+    print_hex16(b);
+    gonzo_putc('=');
     print_hex16(res);
-    gonzo_putc('l');
+    gonzo_puts(str_exp);
+    print_hex16(exp);
+    gonzo_puts(str_rparen);
 
     if (res == (exp & 0xFFFF)) {
       gonzo_puts(str_pass);
@@ -115,9 +93,6 @@ int main() {
       gonzo_puts(str_fail);
     }
   }
-
-  // Debug: all tests done
-  gonzo_putc('Z');
 
   if (passed == NUM_TESTS) {
     gonzo_puts(str_ok);

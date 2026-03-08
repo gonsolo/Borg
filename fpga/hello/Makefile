@@ -29,7 +29,7 @@ $(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s $(RISCV_TOOLCHAIN)
 	$(MAKE) -C $(TINYQV_SDK) $(notdir $@)
 
 %.o: %.c test_data.h $(RISCV_TOOLCHAIN)
-	$(CC) -O2 -I$(TINYQV_SDK) -march=rv32ec_zicsr_zcb -mabi=ilp32e -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -c $< -o $@
+	$(CC) -O2 -I$(TINYQV_SDK) -march=rv32ec_zicsr -mabi=ilp32e -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -c $< -o $@
 
 %.o: %.s $(RISCV_TOOLCHAIN)
 	$(AS) -march=rv32ec_zicsr_zcb_zicond -mabi=ilp32e -I$(TINYQV_SDK) $< -o $@
