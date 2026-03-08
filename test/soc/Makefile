@@ -17,7 +17,7 @@ endif
 # --- 2. TESTBENCH CONFIGURATION ---
 VERILOG_SOURCES += $(CURDIR)/tb.v
 TOPLEVEL = tb
-MODULE ?= test,user_peripherals.borg.test
+MODULE ?= test
 
 all: sim
 
