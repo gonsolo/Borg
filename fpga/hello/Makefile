@@ -1,4 +1,4 @@
-NIX             := nix develop --ignore-environment --command
+# Environment setup (handled by direnv)
 PROJECT_NAME 	?= gonzo
 PROJECT_SOURCES ?= gonzo.c
 
@@ -17,7 +17,7 @@ all: test_data.h $(PROJECT_NAME).bin $(PROJECT_NAME).hex
 	cp $(PROJECT_NAME).bin ../micropython/
 
 test_data.h: $(TEST_JSON) convert_test_data.py
-	$(NIX) python convert_test_data.py
+	python convert_test_data.py
 
 clean:
 	cd $(dir $(PROJECT_NAME)) && rm *.o *.elf *.bin *.hex test_data.h

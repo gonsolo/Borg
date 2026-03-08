@@ -1,4 +1,4 @@
-NIX             := nix develop --ignore-environment --command
+# Environment setup (handled by direnv)
 BORG_DIR 	:= ../src/user_peripherals/borg
 TINYQV_DIR 	:= ../out/tinyqv/verilog
 
@@ -27,22 +27,22 @@ run:
 
 # To see something when running you have to connect to the debug probe in second terminal
 tio:
-	$(NIX) tio /dev/ttyACM1
+	tio /dev/ttyACM1
 
 reset:
-	$(NIX) mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.run(query=False, stop=False)"
+	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.run(query=False, stop=False)"
 
 burn: borg.bin
-	$(NIX) mpremote mount . + run micropython/fpga_flash_prog.py
+	mpremote mount . + run micropython/fpga_flash_prog.py
 
 borg.bin: borg.asc
-	$(NIX) icepack $< $@
+	icepack $< $@
 
 borg.asc: borg.json
-	$(NIX) nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --freq 4
+	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --freq 4
 
 borg.json: $(SRC_FILES)
-	$(NIX) yosys -p "read -sv $(SRC_FILES) ; synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json" \
+	yosys -p "read -sv $(SRC_FILES) ; synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json" \
 	-DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
 
 resource_check: yosys.log

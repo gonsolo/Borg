@@ -17,7 +17,7 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@main
 
       - name: Generate SystemVerilog
-        run: make generate_verilog
+        run: nix develop --command make generate_verilog
 
       - name: Build GDS
         uses: TinyTapeout/tt-gds-action@ttihp26a

@@ -1,10 +1,4 @@
-NIX                     := nix develop --ignore-environment --command bash -c
-ifeq ($(IN_NIX_SHELL),)
-    RUN = $(NIX)
-else
-    RUN = bash -c
-endif
-
+# Environment setup (handled by direnv)
 TT_TOOL               	:= ./tt/tt_tool.py
 TEST_SOC             	:= make -C test/soc -B
 MILL               	:= mill --no-server
@@ -31,45 +25,45 @@ help:
 export CLOCK_MHZ = 12
 
 generate_verilog:
-	$(RUN) "CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) borg.runMain borg.Main"
-	$(RUN) "CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) tinyqv.runMain tinyqv.Main"
+	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) borg.runMain borg.Main
+	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) tinyqv.runMain tinyqv.Main
 
 test-cocotb-soc-core-rtl: generate_verilog
-	$(RUN) "$(TEST_SOC) core"
+	$(TEST_SOC) core
 
 test-cocotb-soc-borg-rtl: generate_verilog
-	$(RUN) "$(TEST_SOC) borg"
+	$(TEST_SOC) borg
 
 test-cocotb-soc-core-gl:
-	$(RUN) "$(TEST_SOC) core GATES=yes"
+	$(TEST_SOC) core GATES=yes
 	@ln -sf soc/results.xml test/results.xml
 
 test-cocotb-soc-borg-gl:
-	$(RUN) "$(TEST_SOC) borg GATES=yes"
+	$(TEST_SOC) borg GATES=yes
 
 test-chisel-borg:
-	$(RUN) "$(MILL) borg.test"
+	$(MILL) borg.test
 
 # Extract Verilog sources from info.yaml for linting
 # We select lines after 'source_files:' but before 'pinout:'
 YAML_SOURCES = $(shell sed -n '/source_files:/,/pinout:/p' info.yaml | grep '\- "' | sed 's/.*"\(.*\)".*/\1/' | sed 's|^\.\./||')
 
 lint: generate_verilog
-	$(RUN) "verilator --lint-only -Wall -Iout/tinyqv/verilog -Iout/borg/verilog --top-module tt_um_tt_tinyQV lint.vlt $(YAML_SOURCES)"
+	verilator --lint-only -Wall -Iout/tinyqv/verilog -Iout/borg/verilog --top-module tt_um_tt_tinyQV lint.vlt $(YAML_SOURCES)
 
 test-chisel-tinyqv:
-	$(RUN) "$(MILL) tinyqv.test"
+	$(MILL) tinyqv.test
 
 test-all: lint test-chisel-borg test-chisel-tinyqv test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl
 
 datasheet.pdf: generate_verilog
-	$(RUN) "$(TT_TOOL) --create-pdf"
+	$(TT_TOOL) --create-pdf
 user_config: generate_verilog
-	$(RUN) "$(TT_TOOL) --create-user-config --ihp --no-docker"
+	$(TT_TOOL) --create-user-config --ihp --no-docker
 gds: user_config
-	$(RUN) "$(TT_TOOL) --harden --ihp --no-docker"
+	$(TT_TOOL) --harden --ihp --no-docker
 print_stats:
-	$(RUN) "./tt/tt_tool.py --print-stats"
+	./tt/tt_tool.py --print-stats
 
 .PHONY: all generate_verilog help print_stats gds user_config lint test-all \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
