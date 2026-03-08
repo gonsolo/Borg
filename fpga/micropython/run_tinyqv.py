@@ -255,8 +255,8 @@ def run(query=True, stop=True):
 def execute(filename):
     flash_prog.program(filename)
     run(query=False, stop=False)
-    # Keep clock alive indefinitely so FPGA program keeps running
-    while True:
-        time.sleep(1)
+    # Keep clock alive long enough for FPGA program to complete
+    time.sleep(2)
+
 
 
