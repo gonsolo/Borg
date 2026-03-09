@@ -11,11 +11,12 @@ import os._
 
 object BorgTests extends TestSuite {
 
+  // --- Float conversion helpers ---
+
   def floatToBits(f: Float, config: FloatConfig): BigInt = {
     if (config == FloatConfig.FP32) {
       BigInt(java.lang.Float.floatToRawIntBits(f)) & 0xffffffffL
     } else {
-      // Simple FP16 conversion for testing (rounding to zero/nearest not strict here, just enough for basic tests)
       val bits = java.lang.Float.floatToRawIntBits(f)
       val sign = (bits >>> 31) << 15
       var exp = ((bits >>> 23) & 0xff) - 127 + 15
@@ -41,6 +42,14 @@ object BorgTests extends TestSuite {
     }
   }
 
+  def isClose(actual: Float, expected: Float, config: FloatConfig): Boolean = {
+    val relEps = if (config == FloatConfig.FP16) 1e-3f else 1e-6f
+    val tolerance = math.max(relEps * math.abs(expected), relEps)
+    math.abs(actual - expected) < tolerance
+  }
+
+  // --- Low-level bus helpers ---
+
   def writeAddr(borg: Borg, addr: Int, bits: BigInt): Unit = {
     borg.io.address.poke(addr.U)
     borg.io.data_in.poke(bits.U)
@@ -61,163 +70,102 @@ object BorgTests extends TestSuite {
     res
   }
 
-  def isClose(actual: Float, expected: Float, config: FloatConfig): Boolean = {
-    // Use a relative epsilon based on the config's precision
-    val relEps = if (config == FloatConfig.FP16) 1e-3f else 1e-6f
-    val tolerance = math.max(relEps * math.abs(expected), relEps)
-    math.abs(actual - expected) < tolerance
+  // --- Instruction encoding ---
+
+  sealed trait Op
+  case object ADD extends Op
+  case object MUL extends Op
+  case class FMA(rs3: Int) extends Op
+
+  def encodeInstruction(config: FloatConfig, op: Op, rs1: Int, rs2: Int, rd: Int): BigInt = {
+    if (config.totalBits >= 32) op match {
+      case ADD     => BigInt((0x00 << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7))
+      case MUL     => BigInt((0x4  << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7))
+      case FMA(r3) => BigInt((r3  << 27) | (rs2 << 20) | (rs1 << 15) | (rd << 7) | (1 << 2))
+    } else op match {
+      case ADD     => BigInt((rs2 << 8) | (rs1 << 5) | (rd << 2))
+      case MUL     => BigInt((1 << 13) | (rs2 << 8) | (rs1 << 5) | (rd << 2))
+      case FMA(r3) => BigInt((2 << 13) | (r3 << 11) | (rs2 << 8) | (rs1 << 5) | (rd << 2))
+    }
   }
 
-  def runBasicMathTest(borg: Borg, config: FloatConfig, a: Float, b: Float): Unit = {
-    // 1. Reset PC and stop execution
-    writeAddr(borg, 60, 2) // Bit 1 = Reset PC
+  // --- Execution helpers ---
 
-    // 2. Load operands into registers 0 and 1
+  def resetAndWait(borg: Borg): Unit = writeAddr(borg, 60, 2)
+
+  def startAndWaitForHalt(borg: Borg): Unit = {
+    writeAddr(borg, 60, 1)
+    var status: BigInt = 0
+    do {
+      borg.io.address.poke(16.U)
+      borg.io.data_read_n.poke(2.U)
+      borg.io.data_write_n.poke(3.U)
+      borg.clock.step(1)
+      status = borg.io.data_out.peek().litValue
+    } while ((status & 2) == 0)
+    borg.io.data_read_n.poke(3.U)
+  }
+
+  def assertResult(actual: Float, expected: Float, config: FloatConfig, label: String): Unit = {
+    println(f"Check: $label -> Actual: $actual%8.2f (Exp: $expected%8.2f)")
+    if (expected.isInfinite || expected.isNaN) {
+      utest.assert(actual.isInfinite || actual.isNaN)
+    } else {
+      utest.assert(isClose(actual, expected, config))
+    }
+  }
+
+  // --- Test runners ---
+
+  def runTest(borg: Borg, config: FloatConfig, op: Op, a: Float, b: Float, c: Float = 0f): Unit = {
+    resetAndWait(borg)
+
+    // Load operands
     writeAddr(borg, 0, floatToBits(a, config))
     writeAddr(borg, 4, floatToBits(b, config))
-
-    // 3. Setup Addition Instruction in imem(0)
-    // opcode/funct7 = 0x00 (Add), rs1 = reg0, rs2 = reg1, rd = reg2
-    // RISC-V like format: funct7(7) | rs2(5) | rs1(5) | funct3(3) | rd(5) | opcode(7)
-    // We only use funct7, rs2, rs1, rd.
-    val rd = 2
-    val rs1 = 0
-    val rs2 = 1
-    val add_instr = if (config.totalBits >= 32) {
-      (0x00 << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7)
-    } else {
-      (rs2 << 8) | (rs1 << 5) | (rd << 2)
+    val (instr, rdAddr, expected, label) = op match {
+      case ADD =>
+        (encodeInstruction(config, ADD, rs1 = 0, rs2 = 1, rd = 2),
+          8, a + b, f"$a%8.2f + $b%8.2f")
+      case MUL =>
+        (encodeInstruction(config, MUL, rs1 = 0, rs2 = 1, rd = 2),
+          8, a * b, f"$a%8.2f * $b%8.2f")
+      case fma @ FMA(_) =>
+        writeAddr(borg, 12, floatToBits(c, config))
+        (encodeInstruction(config, FMA(rs3 = 3), rs1 = 0, rs2 = 1, rd = 2),
+          8, a * b + c, f"$a%8.2f * $b%8.2f + $c%8.2f")
     }
-    writeAddr(borg, 32, BigInt(add_instr)) // imem(0)
 
-    // Halt instruction (zero) in imem(1)
+    // Write instruction and halt
+    writeAddr(borg, 32, instr)
     writeAddr(borg, 36, 0)
 
-    // 4. Start execution
-    writeAddr(borg, 60, 1) // Bit 0 = Start
-
-    // 5. Wait for Halted bit (status address 16, bit 1)
-    var status: BigInt = 0
-    do {
-      borg.io.address.poke(16.U)
-      borg.io.data_read_n.poke(2.U)
-      borg.io.data_write_n.poke(3.U)
-      borg.clock.step(1)
-      status = borg.io.data_out.peek().litValue
-    } while ((status & 2) == 0)
-    borg.io.data_read_n.poke(3.U)
-
-    // 6. Read result from rf(2) (addr 8)
-    val addActual = readAddr(borg, 8, config)
-    val expectedSum = a + b
-
-    val r0_val = readAddr(borg, 0, config)
-    val r1_val = readAddr(borg, 4, config)
-    val r2_val = readAddr(borg, 8, config)
-    val r3_val = readAddr(borg, 12, config)
-    println(
-      f"Debug Registers [${config.getClass.getSimpleName.replace("$", "")}] -> rf0: $r0_val%8.2f, rf1: $r1_val%8.2f, rf2: $r2_val%8.2f, rf3: $r3_val%8.2f"
-    )
-
-    // 7. Report results to console
-    println(
-      f"Check: $a%8.2f + $b%8.2f -> Actual: $addActual%8.2f (Exp: $expectedSum%8.2f)"
-    )
-
-    utest.assert(isClose(addActual, expectedSum, config))
+    startAndWaitForHalt(borg)
+    assertResult(readAddr(borg, rdAddr, config), expected, config, label)
   }
 
-  def runMulTest(borg: Borg, config: FloatConfig, a: Float, b: Float): Unit = {
-    // 1. Reset PC and stop execution
-    writeAddr(borg, 60, 2)
+  // --- Test suites ---
 
-    // 2. Load operands into registers 0 and 1
-    writeAddr(borg, 0, floatToBits(a, config))
-    writeAddr(borg, 4, floatToBits(b, config))
+  val FP16_MAX = 65504f
 
-    // 3. Setup MUL Instruction in imem(0)
-    val rd = 2; val rs1 = 0; val rs2 = 1
-    val mul_instr = if (config.totalBits >= 32) {
-      // funct7[28:25]=0x4 (MUL)
-      (0x4 << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7)
-    } else {
-      // bits[15:13]=001 (MUL)
-      (1 << 13) | (rs2 << 8) | (rs1 << 5) | (rd << 2)
-    }
-    writeAddr(borg, 32, BigInt(mul_instr))
-    writeAddr(borg, 36, 0) // halt
-
-    // 4. Start and wait
-    writeAddr(borg, 60, 1)
-    var status: BigInt = 0
-    do {
-      borg.io.address.poke(16.U)
-      borg.io.data_read_n.poke(2.U)
-      borg.io.data_write_n.poke(3.U)
-      borg.clock.step(1)
-      status = borg.io.data_out.peek().litValue
-    } while ((status & 2) == 0)
-    borg.io.data_read_n.poke(3.U)
-
-    // 5. Check result
-    val actual = readAddr(borg, 8, config)
-    val expected = a * b
-    println(f"Check: $a%8.2f * $b%8.2f -> Actual: $actual%8.2f (Exp: $expected%8.2f)")
-    // For FP16, products may overflow to Infinity — that's correct hardware behavior
-    if (expected.isInfinite || expected.isNaN) {
-      utest.assert(actual.isInfinite || actual.isNaN)
-    } else {
-      utest.assert(isClose(actual, expected, config))
-    }
-  }
-
-  def runFmaTest(borg: Borg, config: FloatConfig, a: Float, b: Float, c: Float): Unit = {
-    // 1. Reset PC and stop execution
-    writeAddr(borg, 60, 2)
-
-    // 2. Load operands: a→reg0, b→reg1, c→reg3
-    writeAddr(borg, 0, floatToBits(a, config))
-    writeAddr(borg, 4, floatToBits(b, config))
-    writeAddr(borg, 12, floatToBits(c, config))
-
-    // 3. Setup FMA Instruction: rd = reg2, rs1 = reg0, rs2 = reg1, rs3 = reg3
-    val rd = 2; val rs1 = 0; val rs2 = 1; val rs3 = 3
-    val fma_instr = if (config.totalBits >= 32) {
-      // bit 2 = FMA flag, rs3 in [31:27]
-      (rs3 << 27) | (rs2 << 20) | (rs1 << 15) | (rd << 7) | (1 << 2)
-    } else {
-      // bits[15:13]=010 (FMA), bits[12:11]=rs3
-      (2 << 13) | (rs3 << 11) | (rs2 << 8) | (rs1 << 5) | (rd << 2)
-    }
-    writeAddr(borg, 32, BigInt(fma_instr))
-    writeAddr(borg, 36, 0) // halt
-
-    // 4. Start and wait
-    writeAddr(borg, 60, 1)
-    var status: BigInt = 0
-    do {
-      borg.io.address.poke(16.U)
-      borg.io.data_read_n.poke(2.U)
-      borg.io.data_write_n.poke(3.U)
-      borg.clock.step(1)
-      status = borg.io.data_out.peek().litValue
-    } while ((status & 2) == 0)
-    borg.io.data_read_n.poke(3.U)
-
-    // 5. Check result from reg2
-    val r0 = readAddr(borg, 0, config)
-    val r1 = readAddr(borg, 4, config)
-    val r2 = readAddr(borg, 8, config)
-    val r3 = readAddr(borg, 12, config)
-    println(f"  Regs: rf0=$r0%8.2f rf1=$r1%8.2f rf2=$r2%8.2f rf3=$r3%8.2f")
-
-    val actual = r2
-    val expected = a * b + c
-    println(f"Check: $a%8.2f * $b%8.2f + $c%8.2f -> Actual: $actual%8.2f (Exp: $expected%8.2f)")
-    if (expected.isInfinite || expected.isNaN) {
-      utest.assert(actual.isInfinite || actual.isNaN)
-    } else {
-      utest.assert(isClose(actual, expected, config))
+  def runBatch(config: FloatConfig, op: Op, pairs: Seq[(Float, Float)]): Unit = {
+    val tag = s"${config.getClass.getSimpleName.replace("$", "")} ${op.getClass.getSimpleName.replace("$", "")}"
+    simulate(new Borg(config)) { borg =>
+      println(s"\n--- Starting $tag Batch ---")
+      pairs.foreach { case (a, b) =>
+        op match {
+          case ADD => runTest(borg, config, ADD, a, b)
+          case MUL =>
+            if (config != FloatConfig.FP16 || math.abs(a * b) <= FP16_MAX)
+              runTest(borg, config, MUL, a, b)
+          case FMA(_) =>
+            Seq(1.0f, -0.5f).foreach { c =>
+              if (config != FloatConfig.FP16 || math.abs(a * b + c) <= FP16_MAX)
+                runTest(borg, config, FMA(3), a, b, c)
+            }
+        }
+      }
+      println(s"--- $tag Tests Passed ---\n")
     }
   }
 
@@ -225,75 +173,13 @@ object BorgTests extends TestSuite {
     val projectRoot = sys.env.get("PROJECT_ROOT").map(os.Path(_)).getOrElse(os.pwd)
     val jsonFile = projectRoot / "data" / "test_cases.json"
     val data = ujson.read(os.read(jsonFile))
-    val pairs = data("pairs").arr.map(p => (p(0).num.toFloat, p(1).num.toFloat))
+    val pairs = data("pairs").arr.map(p => (p(0).num.toFloat, p(1).num.toFloat)).toSeq
 
-    utest.test("fp32_batch_test") {
-      simulate(new Borg(FloatConfig.FP32)) { borg =>
-        println("\n--- Starting FP32 Adder Batch ---")
-        pairs.foreach { case (a, b) =>
-          runBasicMathTest(borg, FloatConfig.FP32, a, b)
-        }
-        println("--- FP32 Tests Passed ---\n")
-      }
-    }
-
-    utest.test("fp16_batch_test") {
-      simulate(new Borg(FloatConfig.FP16)) { borg =>
-        println("\n--- Starting FP16 Adder Batch ---")
-        pairs.foreach { case (a, b) =>
-          runBasicMathTest(borg, FloatConfig.FP16, a, b)
-        }
-        println("--- FP16 Tests Passed ---\n")
-      }
-    }
-
-    utest.test("fp32_mul_test") {
-      simulate(new Borg(FloatConfig.FP32)) { borg =>
-        println("\n--- Starting FP32 MUL Batch ---")
-        pairs.foreach { case (a, b) =>
-          runMulTest(borg, FloatConfig.FP32, a, b)
-        }
-        println("--- FP32 MUL Tests Passed ---\n")
-      }
-    }
-
-    utest.test("fp16_mul_test") {
-      simulate(new Borg(FloatConfig.FP16)) { borg =>
-        println("\n--- Starting FP16 MUL Batch ---")
-        pairs.foreach { case (a, b) =>
-          // Skip cases that overflow FP16 range (max ~65504)
-          if (math.abs(a * b) <= 65504f) {
-            runMulTest(borg, FloatConfig.FP16, a, b)
-          }
-        }
-        println("--- FP16 MUL Tests Passed ---\n")
-      }
-    }
-
-    utest.test("fp32_fma_test") {
-      simulate(new Borg(FloatConfig.FP32)) { borg =>
-        println("\n--- Starting FP32 FMA Batch ---")
-        pairs.foreach { case (a, b) =>
-          runFmaTest(borg, FloatConfig.FP32, a, b, 1.0f)
-          runFmaTest(borg, FloatConfig.FP32, a, b, -0.5f)
-        }
-        println("--- FP32 FMA Tests Passed ---\n")
-      }
-    }
-
-    utest.test("fp16_fma_test") {
-      simulate(new Borg(FloatConfig.FP16)) { borg =>
-        println("\n--- Starting FP16 FMA Batch ---")
-        pairs.foreach { case (a, b) =>
-          // Skip cases that overflow FP16 range
-          Seq(1.0f, -0.5f).foreach { c =>
-            if (math.abs(a * b + c) <= 65504f) {
-              runFmaTest(borg, FloatConfig.FP16, a, b, c)
-            }
-          }
-        }
-        println("--- FP16 FMA Tests Passed ---\n")
-      }
-    }
+    utest.test("fp32_add_test")  { runBatch(FloatConfig.FP32, ADD, pairs) }
+    utest.test("fp16_add_test")  { runBatch(FloatConfig.FP16, ADD, pairs) }
+    utest.test("fp32_mul_test")  { runBatch(FloatConfig.FP32, MUL, pairs) }
+    utest.test("fp16_mul_test")  { runBatch(FloatConfig.FP16, MUL, pairs) }
+    utest.test("fp32_fma_test")  { runBatch(FloatConfig.FP32, FMA(3), pairs) }
+    utest.test("fp16_fma_test")  { runBatch(FloatConfig.FP16, FMA(3), pairs) }
   }
 }
