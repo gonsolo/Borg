@@ -4,7 +4,7 @@ import rp2
 import machine
 from machine import UART, Pin, PWM, SPI
 
-import flash_prog
+import program_firmware
 
 _clk = None  # Global to keep PWM clock alive
 
@@ -253,7 +253,7 @@ def run(query=True, stop=True):
         print()
 
 def execute(filename):
-    flash_prog.program(filename)
+    program_firmware.program(filename)
     run(query=False, stop=False)
     # Keep clock alive long enough for FPGA program to complete
     time.sleep(2)

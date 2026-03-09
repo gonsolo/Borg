@@ -35,19 +35,19 @@ help:
 
 # And you have to burn first, of course
 run:
-	make -C hello
-	cd hello && python convert_test_data.py --reference
-	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('gonzo.bin')"
+	make -C firmware
+	cd firmware && python convert_test_data.py --reference
+	mpremote mount . + exec "import sys; sys.path.append('host'); import run_tinyqv; run_tinyqv.execute('firmware/borg_test.bin')"
 
 # To see something when running you have to connect to the debug probe in second terminal
 tio:
 	tio /dev/ttyACM1
 
 reset:
-	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.run(query=False, stop=False)"
+	mpremote mount . + exec "import sys; sys.path.append('host'); import run_tinyqv; run_tinyqv.run(query=False, stop=False)"
 
 burn: borg.bin
-	mpremote mount . + run micropython/fpga_flash_prog.py
+	mpremote mount . + run host/program_bitstream.py
 
 borg.bin: borg.asc
 	icepack $< $@
@@ -73,6 +73,8 @@ resource_check: yosys.log
 
 clean:
 	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log
+	$(MAKE) -C firmware clean
+	$(MAKE) -C sdk clean
 
 .PHONY: all help burn clean reset resource_check run tio
 
