@@ -6,13 +6,6 @@ SRC_FILES = pico_ice.v \
 	    $(wildcard ../out/borg/verilog/*.sv) \
 	    $(wildcard ../out/tinyqv/verilog/*.sv) \
 
-            #../src/peripherals.v
-            #$(wildcard ../src/peri_*.v)
-            #../src/user_peripherals/spi.v
-            #$(wildcard $(BORG_DIR)/*.sv)
-            #$(wildcard $(TINYQV_DIR)/*.sv)
-            #$(wildcard ../src/user_peripherals/uart/*.v)
-
 # Hardware limits
 MAX_LUTS = 5280
 MAX_DFFS = 5280
@@ -23,7 +16,8 @@ NC   := \033[0m
 all: help
 help:
 	@echo "commands: "
-	@echo -e "$(BOLD)  run:\t\t\tCompile C code and execute on FPGA.$(NC)"
+	@echo -e "$(BOLD)  run_borg_addition:\t\tCompile and run borg_test on FPGA.$(NC)"
+	@echo -e "$(BOLD)  run_borg_rotation:\tCompile and run borg_rotate on FPGA.$(NC)"
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
 	@echo -e "  tio:\t\t\tConnect to the serial console."
 	@echo -e "  reset:\t\tReset the CPU."
@@ -34,10 +28,14 @@ help:
 	@echo -e "  clean:\t\tRemove build artifacts."
 
 # And you have to burn first, of course
-run:
+run_borg_addition:
 	make -C firmware
 	cd firmware && python convert_test_data.py --reference
 	mpremote mount . + exec "import sys; sys.path.append('host'); import run_tinyqv; run_tinyqv.execute('firmware/borg_test.bin')"
+
+run_borg_rotation:
+	make -C firmware rotate
+	mpremote mount . + exec "import sys; sys.path.append('host'); import run_tinyqv; run_tinyqv.execute('firmware/borg_rotate.bin')"
 
 # To see something when running you have to connect to the debug probe in second terminal
 tio:
@@ -76,5 +74,5 @@ clean:
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
 
-.PHONY: all help burn clean reset resource_check run tio
+.PHONY: all help burn clean reset resource_check run_borg_addition run_borg_rotation tio
 

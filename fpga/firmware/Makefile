@@ -15,6 +15,10 @@ TEST_JSON = ../../data/test_cases.json
 
 all: test_data.h $(PROJECT_NAME).bin $(PROJECT_NAME).hex
 
+# Build the rotation test: make rotate
+rotate:
+	$(MAKE) PROJECT_NAME=borg_rotate PROJECT_SOURCES="borg_rotate.c ../sdk/borg_math.c"
+
 test_data.h: $(TEST_JSON) convert_test_data.py
 	python convert_test_data.py
 

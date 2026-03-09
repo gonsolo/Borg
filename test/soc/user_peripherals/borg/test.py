@@ -22,7 +22,7 @@ class BorgDriver:
         self.dut = dut
         self.tqv = tqv
         self.is_fp16 = is_fp16
-        self.ADDR_STATUS = 16
+        self.ADDR_STATUS = 60
         self.ADDR_IMEM = 32
         self.ADDR_CONTROL = 60
 
@@ -58,6 +58,11 @@ class BorgDriver:
         if self.is_fp16:
             return (2 << 13) | (rs3 << 11) | (rs2 << 8) | (rs1 << 5) | (rd << 2)
         return (rs3 << 27) | (rs2 << 20) | (rs1 << 15) | (rd << 7) | (1 << 2)
+
+    def encode_fneg(self, rs1=0, rd=1):
+        if self.is_fp16:
+            return (3 << 13) | (rs1 << 5) | (rd << 2)
+        return (0x6 << 25) | (rs1 << 15) | (rd << 7)
 
     async def write_reg(self, reg_idx, val):
         await self.tqv.write_word_reg(reg_idx * 4, self.float_to_bits(val))
@@ -112,6 +117,8 @@ def compute_expected(driver, op, a, b, c=0.0):
             return float(np.float16(a16 + b16))
         elif op == "mul":
             return float(np.float16(a16 * b16))
+        elif op == "fneg":
+            return float(-a16)
         else:
             return float(np.float16(a16 * b16 + c16))
     else:
@@ -120,6 +127,8 @@ def compute_expected(driver, op, a, b, c=0.0):
             return float(np.float32(a32 + b32))
         elif op == "mul":
             return float(np.float32(a32 * b32))
+        elif op == "fneg":
+            return float(-a32)
         else:
             return float(np.float32(a32 * b32 + c32))
 
@@ -134,12 +143,16 @@ async def run_op_test(dut, driver, op, a, b, c=0.0):
         operands = [(0, a), (1, b)]
         instr = driver.encode_mul()
         label = f"{a:8.2f} * {b:8.2f}"
+    elif op == "fneg":
+        operands = [(0, a)]
+        instr = driver.encode_fneg()
+        label = f"fneg({a:8.2f})"
     else:
         operands = [(0, a), (1, b), (3, c)]
         instr = driver.encode_fma()
         label = f"{a:8.2f} * {b:8.2f} + {c:8.2f}"
 
-    result = await driver.run_program(operands, instr)
+    result = await driver.run_program(operands, instr, rd_idx=1 if op == "fneg" else 2)
     expected = compute_expected(driver, op, a, b, c)
 
     assert driver.is_close(
@@ -165,7 +178,10 @@ async def test_borg_shader_math_batch(dut):
     driver = BorgDriver(dut, tqv)
     await driver.reset()
 
-    for op in ["add", "mul", "fma"]:
+    for op in ["add", "mul", "fneg", "fma"]:
+        # FNEG only supported in FP32; FP16 host negates values
+        if op == "fneg" and driver.is_fp16:
+            continue
         dut._log.info(f"--- {op.upper()} ---")
         for a, b in test_data["pairs"]:
             if op == "fma":
@@ -179,3 +195,86 @@ async def test_borg_shader_math_batch(dut):
                 await run_op_test(dut, driver, op, a, b)
 
     dut._log.info("Borg ADD/MUL/FMA Integration Test Passed!")
+
+
+@cocotb.test()
+async def test_borg_rotation_shader(dut):
+    """Test the 4-instruction rotation shader (mirrors borg_rotate.c exactly)."""
+    dut._log.info("Starting Borg Rotation Shader Test")
+
+    clock = Clock(dut.clk, 100, unit="ns")
+    cocotb.start_soon(clock.start())
+
+    tqv = TinyQV(dut, PERIPHERAL_NUM)
+    driver = BorgDriver(dut, tqv)
+    await driver.reset()
+
+    # Load shader program into IMEM (same as borg_rotate.c):
+    #   fmul  r0, r2, r3       // cos*x → r0
+    #   fmadd r0, r4, r6, r0   // -sin*y + cos*x → r0 (rx)
+    #   fmul  r1, r5, r3       // sin*x → r1
+    #   fmadd r1, r2, r6, r1   // cos*y + sin*x → r1 (ry)
+    #   halt
+    instr_fmul_cx  = driver.encode_mul(rs1=2, rs2=3, rd=0)
+    instr_fmadd_rx = driver.encode_fma(rs1=4, rs2=6, rs3=0, rd=0)
+    instr_fmul_sx  = driver.encode_mul(rs1=5, rs2=3, rd=1)
+    instr_fmadd_ry = driver.encode_fma(rs1=2, rs2=6, rs3=1, rd=1)
+
+    dut._log.info(f"  IMEM[0] fmul  r0,r2,r3:     0x{instr_fmul_cx:04X}")
+    dut._log.info(f"  IMEM[1] fmadd r0,r4,r6,r0:  0x{instr_fmadd_rx:04X}")
+    dut._log.info(f"  IMEM[2] fmul  r1,r5,r3:     0x{instr_fmul_sx:04X}")
+    dut._log.info(f"  IMEM[3] fmadd r1,r2,r6,r1:  0x{instr_fmadd_ry:04X}")
+
+    # Test case: angle=0, vertex=(1.0, 0.0)
+    # cos=1.0, sin=0.0, -sin=-0.0
+    # Expected: rx=1.0, ry=0.0
+    test_cases = [
+        {
+            "label": "angle=0, v=(1,0)",
+            "cos": 0x3C00, "x": 0x3C00, "nsin": 0x8000, "sin": 0x0000, "y": 0x0000,
+            "exp_rx": 1.0, "exp_ry": 0.0,
+        },
+        {
+            "label": "angle=pi/4, v=(1,1)",
+            "cos": 0x39A8, "x": 0x3C00, "nsin": 0xB9A8, "sin": 0x39A8, "y": 0x3C00,
+            "exp_rx": 0.0, "exp_ry": 1.414,
+        },
+    ]
+
+    for tc in test_cases:
+        dut._log.info(f"  Test: {tc['label']}")
+
+        # Reset PC and load IMEM
+        await driver.start_execution(reset_pc=True)
+        await driver.write_imem(0, instr_fmul_cx)
+        await driver.write_imem(1, instr_fmadd_rx)
+        await driver.write_imem(2, instr_fmul_sx)
+        await driver.write_imem(3, instr_fmadd_ry)
+        await driver.write_imem(4, 0)  # halt
+
+        # Load registers (raw FP16 bits)
+        await tqv.write_word_reg(2 * 4, tc["cos"])    # r2 = cos
+        await tqv.write_word_reg(3 * 4, tc["x"])      # r3 = x
+        await tqv.write_word_reg(4 * 4, tc["nsin"])   # r4 = -sin
+        await tqv.write_word_reg(5 * 4, tc["sin"])    # r5 = sin
+        await tqv.write_word_reg(6 * 4, tc["y"])      # r6 = y
+
+        # Reset PC and start execution
+        await driver.start_execution(reset_pc=True)
+        await driver.start_execution()
+        await driver.wait_for_halt()
+
+        # Read back registers 0-6 for debugging (r7 is unused and may be uninitialized)
+        for r in range(7):
+            bits = await tqv.read_word_reg(r * 4)
+            fval = driver.bits_to_float(bits)
+            dut._log.info(f"    r{r} = 0x{bits:04X} ({float(fval):.4f})")
+
+        rx = driver.bits_to_float(await tqv.read_word_reg(0 * 4))
+        ry = driver.bits_to_float(await tqv.read_word_reg(1 * 4))
+        dut._log.info(f"  Result: rx={float(rx):.4f} (exp {tc['exp_rx']:.4f}), ry={float(ry):.4f} (exp {tc['exp_ry']:.4f})")
+
+        assert driver.is_close(float(rx), tc["exp_rx"]), f"rx mismatch: got {float(rx)}, expected {tc['exp_rx']}"
+        assert driver.is_close(float(ry), tc["exp_ry"]), f"ry mismatch: got {float(ry)}, expected {tc['exp_ry']}"
+
+    dut._log.info("Borg Rotation Shader Test Passed!")

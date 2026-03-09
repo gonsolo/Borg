@@ -1,5 +1,5 @@
-/borg_test.bin
-/borg_test.elf
-/borg_test.hex
+/*.bin
+/*.elf
+/*.hex
 *.o
 test_data.h
