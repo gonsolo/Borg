@@ -36,6 +36,7 @@ help:
 # And you have to burn first, of course
 run:
 	make -C hello
+	cd hello && python convert_test_data.py --reference
 	mpremote mount micropython + exec "import run_tinyqv ; run_tinyqv.execute('gonzo.bin')"
 
 # To see something when running you have to connect to the debug probe in second terminal

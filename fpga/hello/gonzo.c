@@ -22,11 +22,21 @@ void gonzo_putc(int c) {
 // Only gonzo_putc() works as a real function.
 #define gonzo_puts(s) do { char *_p = (s); while (*_p) gonzo_putc(*_p++); } while(0)
 
-
+// Print a 16-bit value as 0xHHHH
+static char hex_chars[] = "0123456789abcdef";
+#define print_hex16(v) do { \
+    unsigned int _v = (v); \
+    gonzo_putc('0'); gonzo_putc('x'); \
+    gonzo_putc(hex_chars[(_v >> 12) & 0xF]); \
+    gonzo_putc(hex_chars[(_v >> 8) & 0xF]); \
+    gonzo_putc(hex_chars[(_v >> 4) & 0xF]); \
+    gonzo_putc(hex_chars[_v & 0xF]); \
+  } while(0)
 
 static char str_banner[] = "--- Borg FP16 Addition Test ---\r\n";
 static char str_plus[]   = " + ";
 static char str_eq[]     = " = ";
+static char str_exp[]    = " exp ";
 static char str_pass[]   = " [PASS]\r\n";
 static char str_fail[]   = " [FAIL]\r\n";
 static char str_ok[]     = "\r\nAll Passed!\r\n";
@@ -58,12 +68,14 @@ int main() {
 
     unsigned int res = REG_READ(BORG_ADDR_REGS + 8) & 0xFFFF;
 
-    // Print: 666.5 + 666.5 = 1333.0 [PASS]
-    gonzo_puts(test_desc_a[t]);
+    // Print: 0xAAAA + 0xBBBB = 0xCCCC exp 0xDDDD [PASS/FAIL]
+    print_hex16(a);
     gonzo_puts(str_plus);
-    gonzo_puts(test_desc_b[t]);
+    print_hex16(b);
     gonzo_puts(str_eq);
-    gonzo_puts(test_desc_e[t]);
+    print_hex16(res);
+    gonzo_puts(str_exp);
+    print_hex16(exp);
 
     if (res == (exp & 0xFFFF)) {
       gonzo_puts(str_pass);
