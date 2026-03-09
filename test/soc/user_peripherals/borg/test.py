@@ -140,6 +140,90 @@ async def run_math_test(dut, driver, a, b):
 PERIPHERAL_NUM = 3
 
 
+async def run_mul_test(dut, driver, a, b):
+    """
+    Executes a single shader-based MUL test case.
+    """
+    a_32, b_32 = np.float32(a), np.float32(b)
+
+    await driver.start_execution(reset_pc=True)
+
+    await driver.write_reg(0, a_32)
+    await driver.write_reg(1, b_32)
+
+    # FP16: bits[15:13]=001 (MUL), rs2=1, rs1=0, rd=2
+    rs1, rs2, rd = 0, 1, 2
+    if driver.is_fp16:
+        instr_mul = (1 << 13) | (rs2 << 8) | (rs1 << 5) | (rd << 2)
+    else:
+        instr_mul = (0x4 << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7)
+
+    await driver.write_imem(0, instr_mul)
+    await driver.write_imem(1, 0)
+
+    await driver.start_execution()
+    await driver.wait_for_halt()
+
+    mul_res = await driver.read_register(2)
+
+    if driver.is_fp16:
+        expected = float(np.float16(np.float16(a) * np.float16(b)))
+    else:
+        expected = float(np.float32(a_32 * b_32))
+
+    assert driver.is_close(
+        mul_res, expected
+    ), f"Mul failed: {a_32} * {b_32} = {mul_res} (Exp: {expected})"
+
+    dut._log.info(
+        f"Verified MUL: {a_32:8.2f} * {b_32:8.2f} -> Result: {mul_res:8.2f}"
+    )
+
+
+async def run_fma_test(dut, driver, a, b, c):
+    """
+    Executes a single shader-based FMA test case (a * b + c).
+    """
+    a_32, b_32, c_32 = np.float32(a), np.float32(b), np.float32(c)
+
+    await driver.start_execution(reset_pc=True)
+
+    # a→reg0, b→reg1, c→reg3
+    await driver.write_reg(0, a_32)
+    await driver.write_reg(1, b_32)
+    await driver.write_reg(3, c_32)
+
+    # rd=2, rs1=0, rs2=1, rs3=3
+    rs1, rs2, rs3, rd = 0, 1, 3, 2
+    if driver.is_fp16:
+        # bits[15:13]=010 (FMA), bits[12:11]=rs3
+        instr_fma = (2 << 13) | (rs3 << 11) | (rs2 << 8) | (rs1 << 5) | (rd << 2)
+    else:
+        # bit 2 = FMA flag, rs3 in [31:27]
+        instr_fma = (rs3 << 27) | (rs2 << 20) | (rs1 << 15) | (rd << 7) | (1 << 2)
+
+    await driver.write_imem(0, instr_fma)
+    await driver.write_imem(1, 0)
+
+    await driver.start_execution()
+    await driver.wait_for_halt()
+
+    fma_res = await driver.read_register(2)
+
+    if driver.is_fp16:
+        expected = float(np.float16(np.float16(a) * np.float16(b) + np.float16(c)))
+    else:
+        expected = float(np.float32(a_32 * b_32 + c_32))
+
+    assert driver.is_close(
+        fma_res, expected
+    ), f"FMA failed: {a_32} * {b_32} + {c_32} = {fma_res} (Exp: {expected})"
+
+    dut._log.info(
+        f"Verified FMA: {a_32:8.2f} * {b_32:8.2f} + {c_32:8.2f} -> Result: {fma_res:8.2f}"
+    )
+
+
 @cocotb.test()
 async def test_borg_shader_math_batch(dut):
     dut._log.info("Starting Borg Shader Math Batch Integration Test")
@@ -152,12 +236,24 @@ async def test_borg_shader_math_batch(dut):
     driver = BorgDriver(dut, tqv)
     await driver.reset()
 
+    # --- ADD tests ---
+    dut._log.info("--- ADD ---")
     for a, b in test_data["pairs"]:
         await run_math_test(dut, driver, a, b)
 
-    # Final sanity check on Register 0 to ensure stability
-    read_bits_0 = await tqv.read_word_reg(0)
-    last_val_0 = np.float32(test_data["pairs"][-1][0])
-    assert read_bits_0 == driver.float_to_bits(last_val_0), "Register 0 corrupted!"
+    # --- MUL tests ---
+    dut._log.info("--- MUL ---")
+    for a, b in test_data["pairs"]:
+        if driver.is_fp16 and abs(a * b) > 65504:
+            continue
+        await run_mul_test(dut, driver, a, b)
 
-    dut._log.info("Borg Shading Processor Integration Test Passed!")
+    # --- FMA tests ---
+    dut._log.info("--- FMA ---")
+    for a, b in test_data["pairs"]:
+        for c in [1.0, -0.5]:
+            if driver.is_fp16 and abs(a * b + c) > 65504:
+                continue
+            await run_fma_test(dut, driver, a, b, c)
+
+    dut._log.info("Borg ADD/MUL/FMA Integration Test Passed!")

@@ -90,10 +90,23 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     }
   }
 
-  // --- Instruction Pre-Fetch ---
+  // --- Instruction Decoding ---
   val rs1_idx = if (config.totalBits >= 20) fetchedInstruction(19, 15)(1, 0) else fetchedInstruction(7, 5)(1, 0)
   val rs2_idx = if (config.totalBits >= 25) fetchedInstruction(24, 20)(1, 0) else fetchedInstruction(10, 8)(1, 0)
   val rd_idx = if (config.totalBits >= 12) fetchedInstruction(11, 7)(1, 0) else fetchedInstruction(4, 2)(1, 0)
+
+  // Operation type: ADD, MUL, FMA
+  // FP32: bit 2 = FMA flag; funct7[28:25] = 0x0→ADD, 0x4→MUL (when not FMA); rs3 in [31:27]
+  // FP16: bits[15:13] = 000→ADD, 001→MUL, 010→FMA; rs3 in [12:11]
+  val is_fma = if (config.totalBits >= 32) fetchedInstruction(2) else fetchedInstruction(15, 13) === 2.U
+  val is_mul = if (config.totalBits >= 32) {
+    !fetchedInstruction(2) && fetchedInstruction(28, 25) === 0x4.U
+  } else {
+    fetchedInstruction(15, 13) === 1.U
+  }
+
+  // rs3 index for FMA (third source register)
+  val rs3_idx = if (config.totalBits >= 32) fetchedInstruction(31, 27)(1, 0) else fetchedInstruction(12, 11)
 
   // --- Register File State Access ---
   // Port A: Pipeline RS1 (Word index 0-3)
@@ -108,27 +121,44 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val recB_raw_in = registerFile.read(rs2_idx, rs2_en)
   val recB_raw = Mux(rs2_en_del, recB_raw_in, 0.U)
 
-  // Port C: MMIO Register Access
+  // Port C: MMIO Register Access / RS3 for FMA
+  // During execution, this port reads rs3; when idle, it serves MMIO reads/writes.
   val mmio_reg_en = !running && !is_busy && (is_reading || is_writing)
+  val rs3_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
+  val portC_addr = Mux(running || is_busy, rs3_idx, io.address(3, 2))
+  val portC_en = mmio_reg_en || rs3_en
   val mmio_reg_en_del = RegNext(mmio_reg_en && is_reading, false.B)
-  val mmio_reg_data_in = registerFile.read(io.address(3, 2), mmio_reg_en)
-  val mmio_reg_data = Mux(mmio_reg_en_del, mmio_reg_data_in, 0.U)
+  val rs3_en_del = RegNext(rs3_en, false.B)
+  val portC_data_in = registerFile.read(portC_addr, portC_en)
+  val mmio_reg_data = Mux(mmio_reg_en_del, portC_data_in, 0.U)
+  val recC_raw = Mux(rs3_en_del, portC_data_in, 0.U)
 
-  // --- ALU: Floating Point FMA used as Adder (1.0 * a + b) ---
+  // --- ALU: Floating Point FMA ---
   val recA = recFNFromFN(config.exp, config.sig, recA_raw)
   val recB = recFNFromFN(config.exp, config.sig, recB_raw)
+  val recC = recFNFromFN(config.exp, config.sig, recC_raw)
 
-  // IEEE 754 representation of 1.0: exponent = bias, significand = 0
+  // Constants for operation muxing
   val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
   val recOne = recFNFromFN(config.exp, config.sig, one_fn)
+  val recZero = recFNFromFN(config.exp, config.sig, 0.U(config.totalBits.W))
 
-  val f_add = Module(new MulAddRecFN(config.exp, config.sig))
-  f_add.io.op := 0.U             // 0 = multiply-add (a * b + c)
-  f_add.io.a := recOne            // 1.0
-  f_add.io.b := recA              // operand 1
-  f_add.io.c := recB              // operand 2
-  f_add.io.roundingMode := 0.U
-  f_add.io.detectTininess := 1.U
+  // Latch op type when execution starts, hold through the 4-cycle pipeline
+  val is_mul_reg = RegInit(false.B)
+  val is_fma_reg = RegInit(false.B)
+  when(running && !is_busy && fetchedInstruction =/= 0.U) {
+    is_mul_reg := is_mul
+    is_fma_reg := is_fma
+  }
+
+  val fma = Module(new MulAddRecFN(config.exp, config.sig))
+  fma.io.op := 0.U
+  // ADD: 1.0 * rs1 + rs2   MUL: rs1 * rs2 + 0.0   FMA: rs1 * rs2 + rs3
+  fma.io.a := Mux(is_mul_reg || is_fma_reg, recA, recOne)
+  fma.io.b := Mux(is_mul_reg || is_fma_reg, recB, recA)
+  fma.io.c := Mux(is_fma_reg, recC, Mux(is_mul_reg, recZero, recB))
+  fma.io.roundingMode := 0.U
+  fma.io.detectTininess := 1.U
 
   // Write-back: At busy_counter 1 (Cycle 4 of 4)
   val mmio_reg_write = is_writing && io.address < 16.U
@@ -136,7 +166,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val reg_w_en = mmio_reg_write || pipe_reg_write
   val reg_w_addr = Mux(pipe_reg_write, rd_idx, io.address(3, 2))
   val reg_w_data =
-    Mux(pipe_reg_write, fNFromRecFN(config.exp, config.sig, f_add.io.out), io.data_in)
+    Mux(pipe_reg_write, fNFromRecFN(config.exp, config.sig, fma.io.out), io.data_in)
 
   when(reg_w_en) {
     registerFile.write(reg_w_addr, reg_w_data)
