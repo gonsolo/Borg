@@ -70,7 +70,8 @@ async def test_start(dut):
     # UART peripheral defaults to baud divider = (CLOCK_MHZ * 1000000) // 115200
     # Bit time in nanoseconds = (Baud Divider * CLOCK_PERIOD_PS) / 1000
     baud_divider = (CLOCK_MHZ * 1000000) // 115200
-    bit_time = (baud_divider * CLOCK_PERIOD_PS) / 1000.0
+    # Hardware counts 0..baud_divider (baud_divider+1 cycles per bit)
+    bit_time = ((baud_divider + 1) * CLOCK_PERIOD_PS) / 1000.0
     await Timer(bit_time / 2, "ns")
     assert dut.uart_tx.value == 0
     for i in range(8):
@@ -243,7 +244,7 @@ async def test_time_limit(dut):
     
     # Set divider to roughly half the default, time should advance faster
     # e.g for 12MHz, default time_limit is 2, half is 1
-    fast_time_limit = max(0, actual_time_limit // 2)
+    fast_time_limit = max(1, actual_time_limit // 2)  # min 1: nibble-serial counter needs 8 cycles
     await send_instr(dut, InstructionADDI(x1, x0, fast_time_limit << 2).encode())
     await send_instr(dut, InstructionSW(tp, x1, 0x2C).encode())
 
@@ -492,6 +493,12 @@ async def test_multistore_interrupt(dut):
     await send_instr(dut, InstructionSW(tp, x0, 0x80).encode())
     await send_instr(dut, InstructionLUI(a0, 0x80).encode())
     await send_instr(dut, InstructionCSRRW(x0, a0, csrnames.mie).encode())
+
+    # Disable global interrupts so the UART-done interrupt stays pending
+    # without firing mid-store.  At 4MHz the TX finishes during the loop.
+    # mstatus.MIE is bit 3 → clear with value 8.
+    await send_instr(dut, InstructionADDI(a1, x0, 8).encode())
+    await send_instr(dut, InstructionCSRRC(x0, a1, csrnames.mstatus).encode())
 
     await send_instr(dut, InstructionADDI(a1, x0, 0x10).encode())
     await send_instr(dut, InstructionADDI(a2, x0, 0x11).encode())

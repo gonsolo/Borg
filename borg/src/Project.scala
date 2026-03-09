@@ -54,9 +54,6 @@ class tinyQV extends ExtModule {
 }
 
 
-
-// Removed uart_tx ExtModule; now using tinyqv.peri.uart.UartTx
-
 class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 4) extends RawModule {
   val ui_in = IO(Input(UInt(8.W)))
   val uo_out = IO(Output(UInt(8.W)))
@@ -149,7 +146,9 @@ class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 4) extends RawModule {
   }
 
   val gpio_out_sel = withClockAndReset(clk, !rst_reg_n) { RegInit(Cat(!ui_in(0), 0.U(1.W))) }
-  val time_limit = withClockAndReset(clk, !rst_reg_n) { RegInit(((CLOCK_MHZ / 4) - 1).U(5.W)) }
+  // Minimum time_limit is 1: the nibble-serial mtime counter needs 8 cycles per
+  // increment, so the pulse period must be >= 8 cycles = (limit+1)*4 >= 8.
+  val time_limit = withClockAndReset(clk, !rst_reg_n) { RegInit(Math.max((CLOCK_MHZ / 4) - 1, 1).U(5.W)) }
 
   withClockAndReset(clk, false.B) {
     when(write_n =/= 3.U(2.W)) {

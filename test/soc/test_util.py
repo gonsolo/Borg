@@ -42,7 +42,7 @@ def calculate_expected_timer_ticks(clock_mhz, clock_period_ps, duration_us=5):
     Matches the hardware logic: ticks = duration / (cycles_per_tick * clock_period)
     """
     # hardware limit: increments every (limit_val + 1) * 4 cycles
-    limit_val = (clock_mhz // 4) - 1
+    limit_val = max((clock_mhz // 4) - 1, 1)  # min 1: nibble-serial counter needs 8 cycles
     cycles_per_tick = (limit_val + 1) * 4
     
     # Convert duration from us to ps for high-precision math
