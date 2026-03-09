@@ -114,13 +114,19 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val mmio_reg_data_in = registerFile.read(io.address(3, 2), mmio_reg_en)
   val mmio_reg_data = Mux(mmio_reg_en_del, mmio_reg_data_in, 0.U)
 
-  // --- ALU: Floating Point Adder ---
+  // --- ALU: Floating Point FMA used as Adder (1.0 * a + b) ---
   val recA = recFNFromFN(config.exp, config.sig, recA_raw)
   val recB = recFNFromFN(config.exp, config.sig, recB_raw)
-  val f_add = Module(new AddRecFN(config.exp, config.sig))
-  f_add.io.subOp := false.B
-  f_add.io.a := recA
-  f_add.io.b := recB
+
+  // IEEE 754 representation of 1.0: exponent = bias, significand = 0
+  val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
+  val recOne = recFNFromFN(config.exp, config.sig, one_fn)
+
+  val f_add = Module(new MulAddRecFN(config.exp, config.sig))
+  f_add.io.op := 0.U             // 0 = multiply-add (a * b + c)
+  f_add.io.a := recOne            // 1.0
+  f_add.io.b := recA              // operand 1
+  f_add.io.c := recB              // operand 2
   f_add.io.roundingMode := 0.U
   f_add.io.detectTininess := 1.U
 

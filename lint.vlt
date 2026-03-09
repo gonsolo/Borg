@@ -1,7 +1,6 @@
 `verilator_config
 
-lint_off -rule UNUSEDSIGNAL -file "*AddRawFN.sv"
-lint_off -rule UNUSEDSIGNAL -file "*AddRecFN.sv"
+lint_off -rule UNUSEDSIGNAL -file "*MulAddRecFN*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*RoundAnyRawFNToRecFN*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*RoundRawFNToRecFN*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*Borg.sv"
