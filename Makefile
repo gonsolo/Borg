@@ -12,7 +12,7 @@ help:
 	@echo -e "$(BOLD)  gds:\t\t\t\tGenerate the GDS II file for Tinytapeout.$(NC)"
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
-	@echo -e "  test-chisel-tinyqv:\t\tRun TinyQV tests (Chisel)."
+	@echo -e "  test-chisel-core:\t\tRun TinyQV tests (Chisel)."
 	@echo -e "  test-cocotb-soc-core-rtl:\tRun CPU core tests (cocotb)."
 	@echo -e "  test-cocotb-soc-borg-rtl:\tRun Borg peripheral tests (cocotb)."
 	@echo -e "  test-cocotb-soc-core-gl:\tRun Gate-Level core simulations (cocotb)."
@@ -51,10 +51,10 @@ YAML_SOURCES = $(shell sed -n '/source_files:/,/pinout:/p' info.yaml | grep '\- 
 lint: generate_verilog
 	verilator --lint-only -Wall -Iout/tinyqv/verilog -Iout/borg/verilog --top-module tt_um_tt_tinyQV lint.vlt $(YAML_SOURCES)
 
-test-chisel-tinyqv:
+test-chisel-core:
 	$(MILL) tinyqv.test
 
-test-all: lint test-chisel-borg test-chisel-tinyqv test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl
+test-all: lint test-chisel-borg test-chisel-core test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl
 
 datasheet.pdf: generate_verilog
 	$(TT_TOOL) --create-pdf
@@ -67,4 +67,4 @@ print_stats:
 
 .PHONY: all generate_verilog help print_stats gds user_config lint test-all \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
-	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-tinyqv
+	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core
