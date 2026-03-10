@@ -19,6 +19,10 @@ all: test_data.h $(PROJECT_NAME).bin $(PROJECT_NAME).hex
 rotate:
 	$(MAKE) PROJECT_NAME=borg_rotate PROJECT_SOURCES="borg_rotate.c ../sdk/borg_math.c"
 
+# Build the PSRAM round-trip test: make psram
+psram:
+	$(MAKE) PROJECT_NAME=borg_psram PROJECT_SOURCES="borg_psram.c ../sdk/borg_math.c"
+
 test_data.h: $(TEST_JSON) convert_test_data.py
 	python convert_test_data.py
 

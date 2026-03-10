@@ -18,6 +18,7 @@ help:
 	@echo "commands: "
 	@echo -e "$(BOLD)  run_borg_addition:\tCompile and run borg_addition on FPGA.$(NC)"
 	@echo -e "$(BOLD)  run_borg_rotation:\tCompile and run borg_rotate on FPGA.$(NC)"
+	@echo -e "$(BOLD)  run_borg_psram:\tPSRAM round-trip rotation test on FPGA.$(NC)"
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
 	@echo -e "  tio:\t\t\tConnect to the serial console."
 	@echo -e "  reset:\t\tReset the CPU."
@@ -36,6 +37,10 @@ run_borg_addition:
 run_borg_rotation:
 	make -C firmware rotate
 	mpremote mount . + exec "import sys; sys.path.append('host'); import run_tinyqv; run_tinyqv.execute('firmware/borg_rotate.bin')"
+
+run_borg_psram:
+	make -C firmware psram
+	mpremote mount . + exec "import sys; sys.path.append('host'); import run_borg_psram"
 
 # To see something when running you have to connect to the debug probe in second terminal
 tio:
@@ -74,5 +79,5 @@ clean:
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
 
-.PHONY: all help burn clean reset resource_check run_borg_addition run_borg_rotation tio
+.PHONY: all help burn clean reset resource_check run_borg_addition run_borg_rotation run_borg_psram tio
 
