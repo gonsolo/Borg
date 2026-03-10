@@ -46,12 +46,13 @@ This runs tests of the actual SOC at the cocotb level.
 
 ### Task 2: Basic FPU on FPGA
 
-#### Milestone 2a: Adapt TinyQV's fpga environment to include the FPU (nearly done)
+#### Milestone 2a: Adapt TinyQV's fpga environment to include the FPU
 
-* ```cd fpga```
-* ```make burn```
-* In another terminal: ```tio -b 115200 /dev/ttyACM1```
-* ```make run```
+Changed to: Run vertex shader on FPGA, triangle rendering on RP2040.
+
+# ```Install direnv and cd Borg```: With installed direnv, entering the Borg directory sets everyting up.
+* ```cd fpga; make burn``` to create bitstream for FPGA and upload it.
+* ```(In fpga) make run_shader_test``` to run triangle rendering on RP2040 with vertex shader on FPGA.
 
 #### Milestone 2b: Compiler (TODO)
 
