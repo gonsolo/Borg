@@ -67,21 +67,28 @@ async def test_start(dut):
 
     await start_nops(dut)
     
-    # UART peripheral defaults to baud divider = (CLOCK_MHZ * 1000000) // 115200
-    # Bit time in nanoseconds = (Baud Divider * CLOCK_PERIOD_PS) / 1000
+    # Compute bit time in integer picoseconds to avoid FP precision errors
     baud_divider = (CLOCK_MHZ * 1000000) // 115200
     # Hardware counts 0..baud_divider (baud_divider+1 cycles per bit)
-    bit_time = ((baud_divider + 1) * CLOCK_PERIOD_PS) / 1000.0
-    # Sample mid-bit: wait 1.5 bit times from write to sample first bit
-    # In GL, UART output has extra propagation delay so we sample slightly later
-    await Timer(bit_time * 1.5, "ns")
+    bit_time_ps = (baud_divider + 1) * CLOCK_PERIOD_PS  # exact integer
+
+    # Wait for start bit edge (robust to GL propagation delay)
+    timeout_ns = 100000
+    start_sim_time = get_sim_time("ns")
+    while dut.uart_tx.value == 1:
+        await Timer(5, "ns")
+        if get_sim_time("ns") - start_sim_time > timeout_ns:
+            assert False, "Timeout waiting for UART TX start bit"
+
+    # Sample mid-bit: wait 1.5 bit times from start bit edge
+    await Timer(bit_time_ps * 3 // 2, "ps")
     assert dut.uart_tx.value == (uart_byte & 1)
     uart_byte >>= 1
     for i in range(7):
-        await Timer(bit_time, "ns")
+        await Timer(bit_time_ps, "ps")
         assert dut.uart_tx.value == (uart_byte & 1)
         uart_byte >>= 1
-    await Timer(bit_time, "ns")
+    await Timer(bit_time_ps, "ps")
     assert dut.uart_tx.value == 1
 
     # Test UART RX
@@ -91,27 +98,27 @@ async def test_start(dut):
         uart_rx_byte = random.randint(0, 255)
         val = uart_rx_byte
         dut.uart_rx.value = 0
-        await Timer(bit_time, "ns")
+        await Timer(bit_time_ps, "ps")
         for i in range(8):
             dut.uart_rx.value = val & 1
-            await Timer(bit_time, "ns")
+            await Timer(bit_time_ps, "ps")
             assert dut.uart_rts.value == 0
             val >>= 1
         dut.uart_rx.value = 1
-        await Timer(bit_time, "ns")
+        await Timer(bit_time_ps, "ps")
         assert dut.uart_rts.value == 0
 
         uart_rx_byte2 = random.randint(0, 255)
         val = uart_rx_byte2
         dut.uart_rx.value = 0
-        await Timer(bit_time, "ns")
+        await Timer(bit_time_ps, "ps")
         for i in range(8):
             dut.uart_rx.value = val & 1
-            await Timer(bit_time, "ns")
+            await Timer(bit_time_ps, "ps")
             assert dut.uart_rts.value == 1
             val >>= 1
         dut.uart_rx.value = 1
-        await Timer(bit_time, "ns")
+        await Timer(bit_time_ps, "ps")
         assert dut.uart_rts.value == 1
 
         await stop_nops()
