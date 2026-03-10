@@ -35,6 +35,7 @@ def fp16_to_float(bits):
         val = (1.0 + frac / 1024.0) * (2 ** (exp - 15))
     return -val if sign else val
 
+# This PIO program handles high-speed timing to transfer data from the workstation into the PSRAM on the PMOD.
 @rp2.asm_pio(autopush=True, push_thresh=8, in_shiftdir=rp2.PIO.SHIFT_LEFT,
              autopull=True, pull_thresh=8, out_shiftdir=rp2.PIO.SHIFT_RIGHT,
              out_init=(rp2.PIO.IN_HIGH, rp2.PIO.OUT_HIGH, rp2.PIO.OUT_HIGH, rp2.PIO.IN_HIGH,
@@ -56,6 +57,7 @@ def qspi_write():
     out(pins, 8).side(1)
     out(pindirs, 8).side(1)
 
+# This function formats the Quad-SPI write protocol (command and address) and feeds it to the PIO hardware engine.
 def qpi_write(sm, addr, data_bytes):
     # Setup the PIO state machine for a Write (0x02) in QPI mode
     num_bytes = len(data_bytes)
@@ -94,6 +96,7 @@ def qpi_write_word(sm, addr, value):
 # PSRAM input/output address: 0x01001000 CPU = 0x001000 SPI
 PSRAM_IO_SPI_ADDR = 0x001000
 
+# This PIO program handles high-speed timing to read data from the PSRAM back to the workstation.
 @rp2.asm_pio(autopush=True, push_thresh=8, in_shiftdir=rp2.PIO.SHIFT_LEFT,
              autopull=True, pull_thresh=8, out_shiftdir=rp2.PIO.SHIFT_RIGHT,
              out_init=(rp2.PIO.IN_HIGH, rp2.PIO.OUT_HIGH, rp2.PIO.OUT_HIGH, rp2.PIO.IN_HIGH,
@@ -116,6 +119,7 @@ def qspi_read():
     out(pins, 8).side(1)
     out(pindirs, 8).side(1)
 
+# This function formats the Quad-SPI read protocol (command and address) and collects data from the PIO hardware engine.
 def qpi_read(sm, addr, num_bytes):
     # Setup the PIO state machine for a Fast Read (0x0B) in QPI mode
     buf = bytearray(num_bytes * 2 + 4)
