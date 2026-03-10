@@ -1,9 +1,9 @@
 # Tiny Tapeout project information
 project:
-  title:        "Borg - Floating point addition"
+  title:        "Borg - Vertex shader"
   author:       "Andreas Wendleder"
   discord:      "gonsolo"
-  description:  "A Risc-V SoC with a floating point peripheral"
+  description:  "A Risc-V SoC with a vertex shading engine"
   language:     "Chisel"
   clock_hz:     64000000       # Clock frequency in Hz (or 0 if not applicable)
 

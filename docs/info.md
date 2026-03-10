@@ -9,12 +9,15 @@ You can also include images in this folder and reference them in the markdown. E
 
 ## How it works
 
-It works like x.
+Borg renders a 10 frame animation of a rotating white triangle on black background.
+The framebuffer and main code runs on the Raspberry but the vertex shader is run on the Borg
+hardware on the FPGA or ASIC.
 
 ## How to test
 
-It is tested with x.
+in ./fpga: ```make run_shader_test```
 
 ## External hardware
 
-List external hardware used in your project (e.g. PMOD, LED display, etc), if any
+You have to have the QSPI PMOD from the Tinytapeout store.
+For running on the FPGA a pico-ice and a Raspberry Debug probe is used.
