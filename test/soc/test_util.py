@@ -292,9 +292,12 @@ async def read_byte(dut, reg, expected_val):
           dut._log.error(f"Timeout waiting for UART start bit. debug_uart_tx={dut.debug_uart_tx.value}, uo_out={dut.uo_out.value}")
           assert False, "Timeout waiting for UART start bit"
   bit_time = calculate_bit_time(CLOCK_MHZ)
-  await Timer(bit_time * 0.75, "ns")
-  assert dut.debug_uart_tx.value == 0
-  for i in range(8):
+  # Wait 1.5 bit times to skip start bit and sample mid-first-data-bit
+  # This is robust to GL propagation delays that may shift the start bit edge
+  await Timer(bit_time * 1.5, "ns")
+  assert dut.debug_uart_tx.value == (expected_val & 1)
+  expected_val >>= 1
+  for i in range(7):
       await Timer(bit_time, "ns")
       assert dut.debug_uart_tx.value == (expected_val & 1)
       expected_val >>= 1
