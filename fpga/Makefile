@@ -79,7 +79,7 @@ resource_check: yosys.log
 	}'
 
 clean:
-	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log
+	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm triangle_animation.mp4
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
 
