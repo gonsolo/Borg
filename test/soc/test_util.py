@@ -9,7 +9,7 @@ from riscvmodel.insn import *
 from riscvmodel.regnames import x0, x1, gp, tp, a0
 from riscvmodel import csrnames # Added by the change
 
-CLOCK_MHZ = int(os.environ.get("CLOCK_MHZ", "12")) # Added by the change
+CLOCK_MHZ = int(os.environ.get("CLOCK_MHZ", "4")) # Added by the change
 print(f"DEBUG: CLOCK_MHZ (util) = {CLOCK_MHZ}")
 def calculate_bit_time(clock_mhz):
     """

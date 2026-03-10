@@ -29,7 +29,7 @@ from test_util import (
     calculate_expected_timer_ticks,
 )
 
-CLOCK_MHZ = int(os.environ.get("CLOCK_MHZ", "12"))
+CLOCK_MHZ = int(os.environ.get("CLOCK_MHZ", "4"))
 print(f"DEBUG: CLOCK_MHZ = {CLOCK_MHZ}")
 # Cocotb requires clock period to be divisible by 2.
 # 1000000.0 ps / 12 MHz = 83333.333... ps

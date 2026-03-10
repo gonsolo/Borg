@@ -43,6 +43,8 @@ jobs:
 
       - name: GL test
         uses: TinyTapeout/tt-gds-action/gl_test@ttihp26a
+        env:
+          CLOCK_MHZ: 4
 
   viewer:
     needs: gds
