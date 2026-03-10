@@ -31,7 +31,45 @@ jobs:
         shell: bash
         run: make generate_verilog
 
-      - name: FPGA bitstream for TT ASIC Sim (ICE40UP5K)
-        uses: TinyTapeout/tt-gds-action/fpga/ice40up5k@ttihp26a
+      - name: Checkout tt-support-tools
+        uses: actions/checkout@v4
+        with:
+          repository: TinyTapeout/tt-support-tools
+          path: tt
+          ref: main
+
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r tt/requirements.txt
+          pip install -r test/requirements.txt
+
+      - name: Create user config
+        run: python tt/tt_tool.py --create-user-config
+
+      - name: Install oss-cad-suite
+        uses: YosysHQ/setup-oss-cad-suite@v3
+        with:
+          python-override: true
+
+      - name: Create FPGA bitstream
         env:
           TT_FPGA_FREQ: 4
+        run: python tt/tt_fpga.py harden
+
+      - name: Upload bitstream
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fpga_bitstream
+          path: |
+            build/*
+            docs/*
+            src/*
+            info.yaml
+            LICENSE
