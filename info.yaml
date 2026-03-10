@@ -1,11 +1,10 @@
-# Tiny Tapeout project information
 project:
   title:        "Borg - Vertex shader"
   author:       "Andreas Wendleder"
   discord:      "gonsolo"
   description:  "A Risc-V SoC with a vertex shading engine"
   language:     "Chisel"
-  clock_hz:     64000000       # Clock frequency in Hz (or 0 if not applicable)
+  clock_hz:     0
 
   # How many tiles your design occupies? A single tile is about 167x108 uM.
   tiles: "4x2"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
