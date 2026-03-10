@@ -1,7 +1,8 @@
-# Environment setup (handled by direnv)
-TT_TOOL               	:= ./tt/tt_tool.py
-TEST_SOC             	:= make -C test/soc -B
-MILL               	:= mill --no-server
+TT_TOOL   := ./tt/tt_tool.py
+TEST_SOC  := make -C test/soc -B
+MILL_JOBS := $(if $(CI),1,4)
+MILL_OPTS := $(if $(CI),--no-server,) -j $(MILL_JOBS)
+MILL      := mill $(MILL_OPTS)
 
 BOLD := \033[1m
 NC   := \033[0m
@@ -54,7 +55,10 @@ lint: generate_verilog
 test-chisel-core:
 	$(MILL) tinyqv.test
 
-test-all: lint test-chisel-borg test-chisel-core test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl
+test-all: lint
+	$(MILL) borg.test tinyqv.test
+	$(TEST_SOC) core
+	$(TEST_SOC) borg
 
 datasheet.pdf: generate_verilog
 	$(TT_TOOL) --create-pdf

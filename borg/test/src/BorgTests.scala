@@ -154,27 +154,26 @@ object BorgTests extends TestSuite {
 
   val FP16_MAX = 65504f
 
-  def runBatch(config: FloatConfig, op: Op, pairs: Seq[(Float, Float)]): Unit = {
+  // Runs a batch of op/pairs on an already-open borg simulator instance
+  def runBatch(borg: Borg, config: FloatConfig, op: Op, pairs: Seq[(Float, Float)]): Unit = {
     val tag = s"${config.getClass.getSimpleName.replace("$", "")} ${op.getClass.getSimpleName.replace("$", "")}"
-    simulate(new Borg(config)) { borg =>
-      println(s"\n--- Starting $tag Batch ---")
-      pairs.foreach { case (a, b) =>
-        op match {
-          case FNEG =>
-            runTest(borg, config, FNEG, a, 0f)
-          case ADD => runTest(borg, config, ADD, a, b)
-          case MUL =>
-            if (config != FloatConfig.FP16 || math.abs(a * b) <= FP16_MAX)
-              runTest(borg, config, MUL, a, b)
-          case FMA(_) =>
-            Seq(1.0f, -0.5f).foreach { c =>
-              if (config != FloatConfig.FP16 || math.abs(a * b + c) <= FP16_MAX)
-                runTest(borg, config, FMA(3), a, b, c)
-            }
-        }
+    println(s"\n--- Starting $tag Batch ---")
+    pairs.foreach { case (a, b) =>
+      op match {
+        case FNEG =>
+          runTest(borg, config, FNEG, a, 0f)
+        case ADD => runTest(borg, config, ADD, a, b)
+        case MUL =>
+          if (config != FloatConfig.FP16 || math.abs(a * b) <= FP16_MAX)
+            runTest(borg, config, MUL, a, b)
+        case FMA(_) =>
+          Seq(1.0f, -0.5f).foreach { c =>
+            if (config != FloatConfig.FP16 || math.abs(a * b + c) <= FP16_MAX)
+              runTest(borg, config, FMA(3), a, b, c)
+          }
       }
-      println(s"--- $tag Tests Passed ---\n")
     }
+    println(s"--- $tag Tests Passed ---\n")
   }
 
   val tests = Tests {
@@ -183,22 +182,17 @@ object BorgTests extends TestSuite {
     val data = ujson.read(os.read(jsonFile))
     val pairs = data("pairs").arr.map(p => (p(0).num.toFloat, p(1).num.toFloat)).toSeq
 
-    utest.test("fp32_add_test")  { runBatch(FloatConfig.FP32, ADD, pairs) }
-    utest.test("fp16_add_test")  { runBatch(FloatConfig.FP16, ADD, pairs) }
-    utest.test("fp32_mul_test")  { runBatch(FloatConfig.FP32, MUL, pairs) }
-    utest.test("fp16_mul_test")  { runBatch(FloatConfig.FP16, MUL, pairs) }
-    utest.test("fp32_fma_test")  { runBatch(FloatConfig.FP32, FMA(3), pairs) }
-    utest.test("fp16_fma_test")  { runBatch(FloatConfig.FP16, FMA(3), pairs) }
-
-    utest.test("fp32_fneg_test") { runBatch(FloatConfig.FP32, FNEG, pairs) }
-    // FP16 FNEG: host negates values (XOR sign bit) before loading into Borg registers
-
-    // Phase 1 test: verify high registers (4-7) work
-    utest.test("fp32_high_reg_test") {
+    // All FP32 tests share one simulate() call — one Chisel compile
+    utest.test("fp32_tests") {
       simulate(new Borg(FloatConfig.FP32)) { borg =>
+        runBatch(borg, FloatConfig.FP32, ADD, pairs)
+        runBatch(borg, FloatConfig.FP32, MUL, pairs)
+        runBatch(borg, FloatConfig.FP32, FMA(3), pairs)
+        runBatch(borg, FloatConfig.FP32, FNEG, pairs)
+
+        // Phase 1 test: verify high registers (4-7) work
         println("\n--- Testing registers 4-7 ---")
         resetAndWait(borg)
-        // Load into registers 4 and 5
         writeAddr(borg, 16, floatToBits(3.0f, FloatConfig.FP32))  // reg4
         writeAddr(borg, 20, floatToBits(7.0f, FloatConfig.FP32))  // reg5
         // ADD: rd=6, rs1=4, rs2=5 → reg6 = 3.0 + 7.0 = 10.0
@@ -212,19 +206,17 @@ object BorgTests extends TestSuite {
       }
     }
 
-    // FP16 rotation shader test — mirrors borg_rotate.c exactly
-    utest.test("fp16_rotation_shader_test") {
+    // All FP16 tests share one simulate() call — one Chisel compile
+    utest.test("fp16_tests") {
       val config = FloatConfig.FP16
       simulate(new Borg(config)) { borg =>
+        runBatch(borg, config, ADD, pairs)
+        runBatch(borg, config, MUL, pairs)
+        runBatch(borg, config, FMA(3), pairs)
+        // FP16 FNEG: host negates values (XOR sign bit) before loading into Borg registers
+
+        // Rotation shader test — mirrors borg_rotate.c exactly
         println("\n--- FP16 Rotation Shader Test ---")
-
-        // Load shader program into IMEM (same as borg_rotate.c)
-        // fmul  r0, r2, r3       // cos*x → r0
-        // fmadd r0, r4, r6, r0   // -sin*y + cos*x → r0 (rx)
-        // fmul  r1, r5, r3       // sin*x → r1
-        // fmadd r1, r2, r6, r1   // cos*y + sin*x → r1 (ry)
-        // halt
-
         val instrFmulCX  = encodeInstruction(config, MUL, rs1 = 2, rs2 = 3, rd = 0)
         val instrFmaddRX = encodeInstruction(config, FMA(0), rs1 = 4, rs2 = 6, rd = 0)
         val instrFmulSX  = encodeInstruction(config, MUL, rs1 = 5, rs2 = 3, rd = 1)
@@ -235,38 +227,26 @@ object BorgTests extends TestSuite {
         println(f"  IMEM[2] fmul  r1,r5,r3:     0x${instrFmulSX}%04X")
         println(f"  IMEM[3] fmadd r1,r2,r6,r1:  0x${instrFmaddRY}%04X")
 
-        // Test case: angle=0, vertex=(1.0, 0.0)
-        // sin=0, cos=1.0, -sin=-0.0
-        // Expected: rx=1.0, ry=0.0
         case class RotTest(label: String, cos: BigInt, x: BigInt, nsin: BigInt, sin: BigInt, y: BigInt, expRx: Float, expRy: Float)
         val rotTests = Seq(
           RotTest("angle=0, v=(1,0)",    0x3C00, 0x3C00, 0x8000, 0x0000, 0x0000, 1.0f, 0.0f),
           RotTest("angle=pi/4, v=(1,1)", 0x39A8, 0x3C00, 0xB9A8, 0x39A8, 0x3C00, 0.0f, 1.414f),
         )
-
         for (rt <- rotTests) {
           println(f"\n  Test: ${rt.label}")
           resetAndWait(borg)
-
-          // Load IMEM
           writeAddr(borg, 32, instrFmulCX)
           writeAddr(borg, 36, instrFmaddRX)
           writeAddr(borg, 40, instrFmulSX)
           writeAddr(borg, 44, instrFmaddRY)
           writeAddr(borg, 48, 0)  // halt
-
-          // Load registers
           writeAddr(borg, 8,  rt.cos)   // r2 = cos
           writeAddr(borg, 12, rt.x)     // r3 = x
           writeAddr(borg, 16, rt.nsin)  // r4 = -sin
           writeAddr(borg, 20, rt.sin)   // r5 = sin
           writeAddr(borg, 24, rt.y)     // r6 = y
-
-          // Reset PC and start
           resetAndWait(borg)
           startAndWaitForHalt(borg)
-
-          // Read back ALL registers
           for (r <- 0 until 8) {
             val addr = r * 4
             val bits = {
@@ -280,37 +260,23 @@ object BorgTests extends TestSuite {
             }
             println(f"    r$r = 0x${bits}%04X (${bitsToFloat(bits, config)}%.4f)")
           }
-
           val rx = readAddr(borg, 0, config)
           val ry = readAddr(borg, 4, config)
           println(f"  Result: rx=$rx%.4f (exp ${rt.expRx}%.4f), ry=$ry%.4f (exp ${rt.expRy}%.4f)")
         }
         println("\n--- FP16 Rotation Shader Test Done ---\n")
-      }
-    }
 
-    // Minimal test: single FMUL + halt, dump ALL registers to find corruption
-    utest.test("fp16_single_mul_regdump") {
-      val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+        // Minimal test: single FMUL + halt, dump ALL registers
         println("\n--- FP16 Single MUL Register Dump ---")
         resetAndWait(borg)
-
-        // Load r2=2.0 (0x4000), r3=3.0 (0x4200)
         writeAddr(borg, 8,  0x4000)  // r2 = 2.0
         writeAddr(borg, 12, 0x4200)  // r3 = 3.0
-
-        // Single instruction: fmul r0, r2, r3 → r0 = 6.0
-        val instr = encodeInstruction(config, MUL, rs1 = 2, rs2 = 3, rd = 0)
-        writeAddr(borg, 32, instr)   // imem[0]
-        writeAddr(borg, 36, 0)       // halt
-
-        println(f"  Instruction: fmul r0, r2, r3 = 0x${instr}%04X")
-
+        val singleInstr = encodeInstruction(config, MUL, rs1 = 2, rs2 = 3, rd = 0)
+        writeAddr(borg, 32, singleInstr)
+        writeAddr(borg, 36, 0)
+        println(f"  Instruction: fmul r0, r2, r3 = 0x${singleInstr}%04X")
         resetAndWait(borg)
         startAndWaitForHalt(borg)
-
-        // Read ALL registers
         println("  After execution:")
         for (r <- 0 until 8) {
           val bits = {
