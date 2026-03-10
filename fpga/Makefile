@@ -41,6 +41,10 @@ run_borg_rotation:
 run_shader_test:
 	make -C firmware psram
 	mpremote mount . + exec "import sys; sys.path.append('host'); import run_shader_test"
+	ffmpeg -y -framerate 2 -i triangle_%02d.ppm -vf "scale=256:256:flags=neighbor" -c:v libx264 -pix_fmt yuv420p triangle_animation.mp4
+
+watch:
+	vlc --fullscreen --loop triangle_animation.mp4
 
 # To see something when running you have to connect to the debug probe in second terminal
 tio:
@@ -79,5 +83,5 @@ clean:
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
 
-.PHONY: all help burn clean reset resource_check run_borg_addition run_borg_rotation run_shader_test tio
+.PHONY: all help burn clean reset resource_check run_borg_addition run_borg_rotation run_shader_test watch tio
 

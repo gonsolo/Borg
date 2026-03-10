@@ -343,4 +343,207 @@ def run():
 
     sm.active(0)
 
+    # --- Triangle rotation demo ---
+    render_frames()
+
+
+# --- Triangle rasterization helpers ---
+
+import math
+
+def float_to_fp16(f):
+    """Convert Python float to FP16 bits."""
+    if f == 0.0:
+        return 0x0000
+    sign = 0
+    if f < 0:
+        sign = 1
+        f = -f
+    if f >= 65504.0:
+        return (sign << 15) | 0x7C00
+    if f < 2.0**-24:
+        return sign << 15
+    if f < 2.0**-14:
+        return (sign << 15) | int(f / 2.0**-14 * 1024 + 0.5)
+    exp = 0
+    tmp = f
+    while tmp >= 2.0:
+        tmp /= 2.0
+        exp += 1
+    while tmp < 1.0:
+        tmp *= 2.0
+        exp -= 1
+    frac_bits = int((tmp - 1.0) * 1024 + 0.5)
+    biased = exp + 15
+    if frac_bits >= 1024:
+        frac_bits = 0
+        biased += 1
+    if biased >= 31:
+        return (sign << 15) | 0x7C00
+    return (sign << 15) | (biased << 10) | frac_bits
+
+
+def edge_fn(ax, ay, bx, by, px, py):
+    """Signed area for point-in-triangle test."""
+    return (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+
+
+def write_ppm(filename, fb, w, h):
+    """Write a PPM P3 image."""
+    with open(filename, 'w') as f:
+        f.write("P3\n%d %d\n255\n" % (w, h))
+        for y in range(h):
+            for x in range(w):
+                if fb[y * w + x]:
+                    f.write("255 255 255 ")
+                else:
+                    f.write("0 0 0 ")
+            f.write("\n")
+
+
+def render_frames():
+    """Render 10 frames of a rotating triangle using Borg hardware."""
+    print("\n--- Rendering 10 triangle frames ---")
+
+    WIDTH = HEIGHT = 16
+    # Triangle vertices centered at origin, scaled to 60% of half-width
+    s = WIDTH * 0.3
+    tri = [(0.0, -s), (-s, s), (s, s)]
+
+    for frame in range(10):
+        angle = frame * 36.0 * 3.14159265 / 180.0
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+
+        cos_fp = float_to_fp16(cos_a)
+        nsin_fp = float_to_fp16(-sin_a)
+        sin_fp = float_to_fp16(sin_a)
+
+        # --- Write 3 vertices to PSRAM ---
+        run_tinyqv.setup_ram()
+        sm_w = rp2.StateMachine(0, qspi_write, 16_000_000,
+                                out_base=Pin(0), sideset_base=Pin(2))
+        sm_w.active(1)
+
+        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR, 3)  # N_TESTS = 3
+        for vi, (vx, vy) in enumerate(tri):
+            base = PSRAM_IO_SPI_ADDR + (1 + vi * 5) * 4
+            qpi_write_word(sm_w, base + 0,  cos_fp)
+            qpi_write_word(sm_w, base + 4,  float_to_fp16(vx))
+            qpi_write_word(sm_w, base + 8,  nsin_fp)
+            qpi_write_word(sm_w, base + 12, sin_fp)
+            qpi_write_word(sm_w, base + 16, float_to_fp16(vy))
+
+        sm_w.active(0)
+        del sm_w
+
+        # --- Boot FPGA ---
+        ice_creset_b = machine.Pin(27, machine.Pin.OUT)
+        ice_done = machine.Pin(26, machine.Pin.IN)
+        time.sleep_us(10)
+        ice_creset_b.value(1)
+
+        while ice_done.value() == 0:
+            time.sleep(0.001)
+
+        rst_n = Pin(12, Pin.OUT)
+        clk = Pin(24, Pin.OUT)
+        clk.off()
+        rst_n.on()
+        time.sleep(0.001)
+        rst_n.off()
+
+        clk.on()
+        time.sleep(0.001)
+        clk.off()
+        time.sleep(0.001)
+
+        flash_sel = Pin(1, Pin.OUT)
+        qspi_sd0 = Pin(3, Pin.OUT)
+        qspi_sd1 = Pin(0, Pin.OUT)
+        qspi_sd2 = Pin(5, Pin.OUT)
+        ram_a_sel = Pin(4, Pin.OUT)
+        ram_b_sel = Pin(6, Pin.OUT)
+
+        flash_sel.on()
+        ram_a_sel.on()
+        ram_b_sel.on()
+        qspi_sd0.on()
+        qspi_sd1.off()
+        qspi_sd2.off()
+
+        for i in range(10):
+            clk.off()
+            time.sleep(0.001)
+            clk.on()
+            time.sleep(0.001)
+
+        Pin(1, Pin.IN, pull=Pin.PULL_UP)
+        Pin(2, Pin.IN, pull=Pin.PULL_DOWN)
+        Pin(3, Pin.IN, pull=None)
+        Pin(0, Pin.IN, pull=None)
+        Pin(4, Pin.IN, pull=Pin.PULL_UP)
+        Pin(5, Pin.IN, pull=None)
+        Pin(6, Pin.IN, pull=Pin.PULL_UP)
+        Pin(7, Pin.IN, pull=None)
+
+        rst_n.on()
+        time.sleep(0.001)
+        clk.off()
+
+        _clk = machine.PWM(Pin(24), freq=4_000_000, duty_u16=32768)
+        time.sleep(1)
+
+        # --- Stop and reset FPGA ---
+        _clk.deinit()
+        Pin(24, Pin.IN, pull=Pin.PULL_DOWN)
+        rst_n = Pin(12, Pin.OUT)
+        rst_n.off()
+        time.sleep(0.001)
+        ice_creset_b.value(0)
+        time.sleep(0.01)
+        for p in [0, 1, 2, 3, 4, 5, 6, 7]:
+            Pin(p, Pin.IN, pull=None)
+        Pin(12, Pin.IN, pull=Pin.PULL_DOWN)
+
+        run_tinyqv.setup_ram()
+
+        # --- Read 3 rotated vertices ---
+        sm_r = rp2.StateMachine(0, qspi_read, 16_000_000,
+                                in_base=Pin(0), out_base=Pin(0),
+                                sideset_base=Pin(2))
+        sm_r.active(1)
+
+        out_base = PSRAM_IO_SPI_ADDR + 128
+        rotated = []
+        for vi in range(3):
+            rx = fp16_to_float(qpi_read_word(sm_r, out_base + vi * 8) & 0xFFFF)
+            ry = fp16_to_float(qpi_read_word(sm_r, out_base + vi * 8 + 4) & 0xFFFF)
+            rotated.append((rx + WIDTH / 2, ry + HEIGHT / 2))  # translate to center
+
+        sm_r.active(0)
+        del sm_r
+
+        # --- Rasterize ---
+        fb = bytearray(WIDTH * HEIGHT)
+        v0, v1, v2 = rotated
+        for py in range(HEIGHT):
+            for px in range(WIDTH):
+                cx, cy = px + 0.5, py + 0.5
+                e0 = edge_fn(v0[0], v0[1], v1[0], v1[1], cx, cy)
+                e1 = edge_fn(v1[0], v1[1], v2[0], v2[1], cx, cy)
+                e2 = edge_fn(v2[0], v2[1], v0[0], v0[1], cx, cy)
+                if (e0 >= 0 and e1 >= 0 and e2 >= 0) or \
+                   (e0 <= 0 and e1 <= 0 and e2 <= 0):
+                    fb[py * WIDTH + px] = 1
+
+        # --- Write PPM ---
+        fname = "/remote/triangle_%02d.ppm" % frame
+        write_ppm(fname, fb, WIDTH, HEIGHT)
+        print("Frame %02d (%.0f deg): %s" % (frame, frame * 36.0, fname))
+
+    print("All frames rendered.")
+
+
 run()
+
