@@ -5,12 +5,12 @@ MILL_OPTS := $(if $(CI),--no-server,) -j $(MILL_JOBS)
 MILL      := mill $(MILL_OPTS)
 
 BOLD := \033[1m
-NC   := \033[0m
+RESET   := \033[0m
 
 all: help
 help:
 	@echo "commands: "
-	@echo -e "$(BOLD)  gds:\t\t\t\tGenerate the GDS II file for Tinytapeout.$(NC)"
+	@echo -e "$(BOLD)  gds:\t\t\t\tGenerate the GDS II file for Tinytapeout.$(RESET)"
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
 	@echo -e "  test-chisel-core:\t\tRun TinyQV tests (Chisel)."

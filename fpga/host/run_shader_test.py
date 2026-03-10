@@ -283,10 +283,25 @@ def run():
     _clk = machine.PWM(Pin(24), freq=4_000_000, duty_u16=32768)
 
     time.sleep(1)
-    # Stop clock
+    # Stop clock and assert FPGA reset to release the QSPI bus
     _clk.deinit()
     Pin(24, Pin.IN, pull=Pin.PULL_DOWN)
+    rst_n = Pin(12, Pin.OUT)
+    rst_n.off()
+    time.sleep(0.001)
+
+    # Put the FPGA into reset (tri-state its outputs)
+    ice_creset_b = machine.Pin(27, machine.Pin.OUT)
+    ice_creset_b.value(0)
+    time.sleep(0.01)
+
+    # Release all QSPI pins before re-initializing PSRAM
+    for p in [0, 1, 2, 3, 4, 5, 6, 7]:
+        Pin(p, Pin.IN, pull=None)
     Pin(12, Pin.IN, pull=Pin.PULL_DOWN)
+
+    # Re-initialize PSRAM into QPI mode so PIO reads work reliably
+    run_tinyqv.setup_ram()
 
     # Initialize PIO for QPI reads
     sm = rp2.StateMachine(0, qspi_read, 16_000_000, in_base=Pin(0), out_base=Pin(0), sideset_base=Pin(2))
