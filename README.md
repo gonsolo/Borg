@@ -38,7 +38,7 @@ This is a tiny floating point peripheral within the [TinyQV](https://github.com/
 
 This runs tests of the Borg peripheral at the Scala/Chisel and cocotb levels.
 
-#### Milestone 1b: Add cocotb tests for the FPU unit and integrate it into TinyQV, a small RISC-V processor written for Tinytapeout
+#### Milestone 1b: Add cocotb tests for the FPU unit and integrate it into TinyQV, a small RISC-V processor written for Tiny Tapeout
 
 * ```make test-system```
 
@@ -46,11 +46,11 @@ This runs tests of the actual SOC at the cocotb level.
 
 ### Task 2: Basic FPU on FPGA
 
-#### Milestone 2a: Adapt TinyQV's fpga environment to include the FPU
+#### Milestone 2a: Adapt TinyQV's FPGA environment to include the FPU
 
 Changed to: Run vertex shader on FPGA, triangle rendering on RP2040.
 
-# ```Install direnv and cd Borg```: With installed direnv, entering the Borg directory sets everyting up.
+# ```Install direnv and cd Borg```: With installed direnv, entering the Borg directory sets everything up.
 * ```cd fpga; make burn``` to create bitstream for FPGA and upload it.
 * ```(In fpga) make run_shader_test``` to run triangle rendering on RP2040 with vertex shader on FPGA.
 
@@ -62,7 +62,7 @@ Changed to: Run vertex shader on FPGA, triangle rendering on RP2040.
 
 ### Task 5: Tiny Tapeout (Partially done)
 
-#### Milestone 5a: On March 23th 2026, the TTIHP26a shuttle for TinyTapeout is scheduled. Prepare and submit it
+#### Milestone 5a: On March 23th 2026, the TTIHP26a shuttle for Tiny Tapeout is scheduled. Prepare and submit it
 
 [Submitted](https://app.tinytapeout.com/projects/3645).
 
