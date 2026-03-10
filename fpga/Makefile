@@ -16,7 +16,7 @@ NC   := \033[0m
 all: help
 help:
 	@echo "commands: "
-	@echo -e "$(BOLD)  run_borg_addition:\t\tCompile and run borg_test on FPGA.$(NC)"
+	@echo -e "$(BOLD)  run_borg_addition:\tCompile and run borg_addition on FPGA.$(NC)"
 	@echo -e "$(BOLD)  run_borg_rotation:\tCompile and run borg_rotate on FPGA.$(NC)"
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
 	@echo -e "  tio:\t\t\tConnect to the serial console."
