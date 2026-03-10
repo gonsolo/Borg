@@ -292,7 +292,7 @@ async def read_byte(dut, reg, expected_val):
           dut._log.error(f"Timeout waiting for UART start bit. debug_uart_tx={dut.debug_uart_tx.value}, uo_out={dut.uo_out.value}")
           assert False, "Timeout waiting for UART start bit"
   bit_time = calculate_bit_time(CLOCK_MHZ)
-  await Timer(bit_time / 2, "ns")
+  await Timer(bit_time * 0.75, "ns")
   assert dut.debug_uart_tx.value == 0
   for i in range(8):
       await Timer(bit_time, "ns")

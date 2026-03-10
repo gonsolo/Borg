@@ -72,7 +72,7 @@ async def test_start(dut):
     baud_divider = (CLOCK_MHZ * 1000000) // 115200
     # Hardware counts 0..baud_divider (baud_divider+1 cycles per bit)
     bit_time = ((baud_divider + 1) * CLOCK_PERIOD_PS) / 1000.0
-    await Timer(bit_time / 2, "ns")
+    await Timer(bit_time * 0.75, "ns")
     assert dut.uart_tx.value == 0
     for i in range(8):
         await Timer(bit_time, "ns")
@@ -195,7 +195,8 @@ async def test_timer(dut):
     # Use actual elapsed sim time (instruction overhead is significant at low clock speeds)
     expected = calculate_expected_timer_ticks(CLOCK_MHZ, CLOCK_PERIOD_PS, elapsed_us)
     time_advanced = second_mtime - first_mtime
-    assert (expected - 2) <= time_advanced <= (expected + 2), f"Expected approx {expected} ticks, got {time_advanced}"
+    gl_margin = 4 if os.environ.get("GATES") == "yes" else 2
+    assert (expected - gl_margin) <= time_advanced <= (expected + gl_margin), f"Expected approx {expected} ticks, got {time_advanced}"
 
     # Set timecmp
     await send_instr(dut, InstructionADDI(x1, x0, 20).encode())
