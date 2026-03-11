@@ -52,7 +52,7 @@ Changed to: Run vertex shader on FPGA, triangle rendering on RP2040.
 
 Prerequisites: You have to have a pico-ice FPGA and a Raspberry PI debug probe.
 
-# ```Install direnv and cd Borg```: With installed direnv, entering the Borg directory sets everything up.
+* ```Install direnv and cd Borg```: With installed direnv, entering the Borg directory sets everything up.
 * ```cd fpga; make burn``` to create bitstream for FPGA and upload it.
 * ```(In fpga) make run_shader_test``` to run triangle rendering on RP2040 with vertex shader on FPGA.
 
