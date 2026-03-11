@@ -16,6 +16,7 @@ class BorgBackend:
         self.host_pre = []           # Host code before Borg execution
         self.host_post = []          # Host code after Borg execution
         self.constants = {}          # f_zero -> 0.0, f_one -> 1.0
+        self.borg_defines = []       # (io_type, name, preg) from @borg annotations
 
     def alloc_reg(self, vreg):
         """Allocate a physical Borg register (0-7) for a virtual register."""
@@ -42,6 +43,7 @@ class BorgBackend:
 
         # First pass: identify which virtual registers are used in fmul/fmadd
         borg_vregs = set()
+        fmadd_accumulators = []  # rs3 in fmadd: only 2-bit field, must be r0-r3
         for line in lines:
             if line.startswith("#") or not line:
                 continue
@@ -56,9 +58,16 @@ class BorgBackend:
             elif op == "fmadd.s":
                 rd, a, b, c = tokens[1], tokens[2], tokens[3], tokens[4]
                 borg_vregs.update([rd, a, b, c])
+                # rs3 (accumulator) has only 2 bits — must be allocated to r0-r3
+                if c not in fmadd_accumulators:
+                    fmadd_accumulators.append(c)
 
-        # Allocate Borg physical registers for borg_vregs
-        # Use a deterministic order based on first appearance
+        # Allocate fmadd accumulators FIRST to guarantee they get r0-r3
+        for vreg in fmadd_accumulators:
+            if vreg not in self.vreg_to_preg:
+                self.alloc_reg(vreg)
+
+        # Allocate remaining Borg physical registers in order of first appearance
         for line in lines:
             if line.startswith("#") or not line:
                 continue
@@ -73,6 +82,16 @@ class BorgBackend:
         # Second pass: classify and lower
         in_borg_section = False
         for line in lines:
+            # Parse @borg annotations before skipping comments
+            if line.startswith("# @borg "):
+                parts = line.split()
+                # parts = ["#", "@borg", "input"/"output", "name", "vreg"]
+                if len(parts) == 5:
+                    io_type, name, vreg = parts[2], parts[3], parts[4]
+                    if vreg in self.vreg_to_preg:
+                        preg = self.vreg_to_preg[vreg]
+                        self.borg_defines.append((io_type, name.upper(), preg))
+                continue
             if line.startswith("#") or not line:
                 continue
             comment = ""
@@ -183,7 +202,15 @@ class BorgBackend:
         lines.append("};")
         lines.append("")
 
-        # Host driver function
+        # Register defines for firmware integration
+        if self.borg_defines:
+            lines.append("// Register assignments")
+            for io_type, name, preg in self.borg_defines:
+                lines.append(f"#define BORG_REG_{name}  {preg}")
+            lines.append("")
+
+        # Host driver function (guarded for firmware compatibility)
+        lines.append("#ifdef BORG_HOST_DRIVER")
         lines.append("static inline void borg_run_vertex_shader(")
         lines.append("    uint16_t angle, uint16_t x, uint16_t y,")
         lines.append("    uint16_t *rx_out, uint16_t *ry_out)")
@@ -204,6 +231,7 @@ class BorgBackend:
             lines.append(line)
 
         lines.append("}")
+        lines.append("#endif // BORG_HOST_DRIVER")
         return "\n".join(lines)
 
 

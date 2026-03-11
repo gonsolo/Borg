@@ -6,6 +6,7 @@
 // writes results to PSRAM for the host to read.
 
 #include "borg_math.h"
+#include "compiler/vert.borg.h"
 
 // --- Hardware addresses ---
 #define UART_TX      (*(volatile uint32_t *)0x08000080)
@@ -23,11 +24,6 @@
 // Output area at +128 bytes to avoid overlapping input data
 #define PSRAM_RESULT(n) (*(volatile uint32_t *)(0x01001000 + 128 + (n)*4))
 
-// FP16 encoded shader instructions
-#define INSTR_FMUL_CX    0x2340
-#define INSTR_FMADD_RX   0x4680
-#define INSTR_FMUL_SX    0x23A4
-#define INSTR_FMADD_RY   0x4E44
 
 #define DONE_MARKER 0xDEAD
 
@@ -54,13 +50,10 @@ int main() {
 
     puts_uart("PSRAM OUT test v2\r\n");
 
-    // Load shader
+    // Load shader from compiled header
     BORG_CONTROL = 2;
-    BORG_IMEM(0) = INSTR_FMUL_CX;
-    BORG_IMEM(1) = INSTR_FMADD_RX;
-    BORG_IMEM(2) = INSTR_FMUL_SX;
-    BORG_IMEM(3) = INSTR_FMADD_RY;
-    BORG_IMEM(4) = 0x0000;
+    for (int i = 0; i <= BORG_PROGRAM_LEN; i++)
+        BORG_IMEM(i) = borg_program[i];
 
     // Read number of test cases from PSRAM input area
     uint32_t n_tests = PSRAM_OUT(0);
@@ -74,19 +67,19 @@ int main() {
         uint16_t sin_val  = PSRAM_OUT(base + 3);
         uint16_t y_val    = PSRAM_OUT(base + 4);
 
-        BORG_REG(2) = cos_val;
-        BORG_REG(3) = x_val;
-        BORG_REG(4) = nsin_val;
-        BORG_REG(5) = sin_val;
-        BORG_REG(6) = y_val;
+        BORG_REG(BORG_REG_COS)  = cos_val;
+        BORG_REG(BORG_REG_X)    = x_val;
+        BORG_REG(BORG_REG_NSIN) = nsin_val;
+        BORG_REG(BORG_REG_SIN)  = sin_val;
+        BORG_REG(BORG_REG_Y)    = y_val;
 
         BORG_CONTROL = 2;
         BORG_CONTROL = 1;
 
         while (!(BORG_STATUS & 2)) ;
 
-        uint16_t rx = BORG_REG(0) & 0xFFFF;
-        uint16_t ry = BORG_REG(1) & 0xFFFF;
+        uint16_t rx = BORG_REG(BORG_REG_RX) & 0xFFFF;
+        uint16_t ry = BORG_REG(BORG_REG_RY) & 0xFFFF;
 
         // Print via UART
         puts_uart("T"); putc_uart('0' + t);

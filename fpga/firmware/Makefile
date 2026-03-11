@@ -35,6 +35,11 @@ $(RISCV_TOOLCHAIN):
 $(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s $(RISCV_TOOLCHAIN)
 	$(MAKE) -C $(TINYQV_SDK) $(notdir $@)
 
+borg_psram.o: compiler/vert.borg.h
+
+compiler/vert.borg.h:
+	$(MAKE) -C compiler vert.borg.h
+
 %.o: %.c test_data.h $(RISCV_TOOLCHAIN)
 	$(CC) -O2 -I$(TINYQV_SDK) -march=rv32ec_zicsr -mabi=ilp32e -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -c $< -o $@
 

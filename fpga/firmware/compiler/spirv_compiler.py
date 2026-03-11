@@ -20,6 +20,8 @@ class TinySpirvCompiler:
         self.constants = {}
         self.composites = {}
         self.local_vars = {} # Tracks SSA pointers like %s, %c, %rot
+        self.borg_io = []    # List of (type, name, reg) for @borg annotations
+        self.vreg_roles = {} # spirv_id -> role name for semantic tracking
 
     def get_reg(self, spirv_id):
         # 1. Constants
@@ -121,13 +123,25 @@ class TinySpirvCompiler:
                             y_reg = self.get_reg(y_id) # Safe creation!
                             self.emit(f"flw {y_reg}, {ptr[1]+4}({ptr[0]})", "Load inPos.y")
                             self.composites[res_id] = [x_id, y_id]
+                            self.borg_io.append(("input", "x", dest))
+                            self.borg_io.append(("input", "y", y_reg))
 
             elif opcode == "OpExtInst":
                 op = args[2].lower()
-                self.emit(f"f{op}.s {self.get_reg(res_id)}, {self.get_reg(args[3])}")
+                reg = self.get_reg(res_id)
+                self.emit(f"f{op}.s {reg}, {self.get_reg(args[3])}")
+                if op == "sin":
+                    self.vreg_roles[res_id] = "sin"
+                    self.borg_io.append(("input", "sin", reg))
+                elif op == "cos":
+                    self.vreg_roles[res_id] = "cos"
+                    self.borg_io.append(("input", "cos", reg))
 
             elif opcode == "OpFNegate":
-                self.emit(f"fneg.s {self.get_reg(res_id)}, {self.get_reg(args[1])}")
+                reg = self.get_reg(res_id)
+                self.emit(f"fneg.s {reg}, {self.get_reg(args[1])}")
+                if self.vreg_roles.get(args[1]) == "sin":
+                    self.borg_io.append(("input", "nsin", reg))
 
             elif opcode == "OpCompositeExtract":
                 flat = self.resolve_flat(args[1])
@@ -146,6 +160,8 @@ class TinySpirvCompiler:
                     # Store to logical coordinates
                     self.composites[res_id] = [res_id+"_x", res_id+"_y", "float_0", "float_1"]
                     self.reg_map[res_id+"_x"], self.reg_map[res_id+"_y"] = "f30", "f31"
+                    self.borg_io.append(("output", "rx", "f30"))
+                    self.borg_io.append(("output", "ry", "f31"))
 
             elif opcode == "OpStore":
                 ptr_id, val_id = args[0], args[1]
@@ -164,6 +180,12 @@ class TinySpirvCompiler:
                     self.local_vars[ptr_id] = val_id
 
             elif opcode == "OpReturn": self.emit("ret")
+
+        # Emit Borg register annotations
+        if self.borg_io:
+            self.asm.append("")
+            for io_type, name, reg in self.borg_io:
+                self.asm.append(f"# @borg {io_type} {name} {reg}")
 
         return "\n".join(self.asm)
 
