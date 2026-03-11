@@ -1,3 +1,5 @@
+all: vert.borg.h frag.borg.h
+
 vert.borg.h: vert.s
 	python borg_backend.py vert.s vert.borg.h
 vert.s: vert.spvasm

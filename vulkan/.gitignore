@@ -1,4 +1,9 @@
 vert.spv
 vert.spvasm
 vert.s
+vert.borg.h
+frag.spv
+frag.spvasm
+frag.s
+frag.borg.h
 __pycache__/
