@@ -19,7 +19,7 @@ help:
 	@echo -e "$(BOLD)  run_shader_test:\tPSRAM round-trip rotation test on FPGA.$(RESET)"
 	@echo -e "    triangle_ppms:\tGenerate all 10 PPM frames."
 	@echo -e "    triangle_ppm:\tGenerate a single PPM frame (FRAME=N)."
-	@echo -e "    triangle_animation.mp4:\tEncode PPMs to video."
+	@echo -e "    animation.webp:\tEncode PPMs to animated WebP."
 	@echo -e "  run_borg_addition:\tCompile and run borg_addition on FPGA."
 	@echo -e "  run_borg_rotation:\tCompile and run borg_rotate on FPGA."
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
@@ -43,7 +43,7 @@ run_borg_rotation:
 
 FRAME ?= 0
 
-run_shader_test: triangle_animation.mp4
+run_shader_test: animation.webp
 
 firmware/borg_psram.bin:
 	$(MAKE) -C firmware psram
@@ -54,11 +54,11 @@ triangle_ppms: firmware/borg_psram.bin
 triangle_ppm: firmware/borg_psram.bin
 	mpremote mount . + exec "import sys; sys.path.append('host'); import run_shader_test; run_shader_test.run_single_frame($(FRAME))"
 
-triangle_animation.mp4: triangle_ppms
-	ffmpeg -y -framerate 2 -i triangle_%02d.ppm -vf "scale=256:256:flags=neighbor" -c:v libx264 -pix_fmt yuv420p triangle_animation.mp4
+animation.webp: triangle_ppms
+	magick triangle_*.ppm -delay 10 -loop 0 animation.webp
 
 watch:
-	vlc --loop triangle_animation.mp4
+	loupe animation.webp
 
 # To see something when running you have to connect to the debug probe in second terminal
 tio:
@@ -93,7 +93,7 @@ resource_check: yosys.log
 	}'
 
 clean:
-	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm triangle_animation.mp4
+	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm animation.webp
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
 
