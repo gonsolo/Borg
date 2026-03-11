@@ -1,4 +1,4 @@
-all: vert.borg.h frag.borg.h
+all: vert.borg.h frag.borg.h rasterize.borg.h
 
 vert.borg.h: vert.s
 	python borg_backend.py vert.s vert.borg.h
@@ -18,6 +18,9 @@ frag.spvasm: frag.spv
 frag.spv: shader.frag
 	glslangValidator -V shader.frag -o frag.spv
 
+rasterize.borg.h: rasterize.s
+	python borg_backend.py rasterize.s rasterize.borg.h
+
 clean:
-	rm -f vert.s vert.spvasm vert.spv vert.borg.h frag.s frag.spvasm frag.spv frag.borg.h
+	rm -f vert.s vert.spvasm vert.spv vert.borg.h frag.s frag.spvasm frag.spv frag.borg.h rasterize.borg.h
 .PHONY: clean

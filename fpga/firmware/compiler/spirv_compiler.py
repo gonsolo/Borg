@@ -111,6 +111,9 @@ class TinySpirvCompiler:
                     self.reg_map[res_id] = self.get_reg(src_val)
                     if src_val in self.composites:
                         self.composites[res_id] = self.composites[src_val]
+                    # Propagate semantic roles through load
+                    if src_val in self.vreg_roles:
+                        self.vreg_roles[res_id] = self.vreg_roles[src_val]
                 else:
                     dest = self.get_reg(res_id)
                     ptr = self.ptr_map.get(ptr_id)
