@@ -193,9 +193,13 @@ class BorgBackend:
             lines.append(f"//   r{preg} = {vreg}")
         lines.append("")
 
+        # Use shader name as prefix to avoid symbol conflicts
+        prefix = shader_name.upper()
+        var_prefix = shader_name
+
         # IMEM program
-        lines.append(f"#define BORG_PROGRAM_LEN {len(self.borg_instrs)}")
-        lines.append("static const uint16_t borg_program[] = {")
+        lines.append(f"#define {prefix}_BORG_PROGRAM_LEN {len(self.borg_instrs)}")
+        lines.append(f"static const uint32_t {var_prefix}_borg_program[] = {{")
         for enc, comment in self.borg_instrs:
             lines.append(f"    0x{enc:04X},  // {comment}")
         lines.append("    0x0000,  // halt")
@@ -206,7 +210,7 @@ class BorgBackend:
         if self.borg_defines:
             lines.append("// Register assignments")
             for io_type, name, preg in self.borg_defines:
-                lines.append(f"#define BORG_REG_{name}  {preg}")
+                lines.append(f"#define {prefix}_BORG_REG_{name}  {preg}")
             lines.append("")
 
         # Host driver function (guarded for firmware compatibility)

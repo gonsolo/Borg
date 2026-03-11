@@ -17,6 +17,60 @@ static inline uint16_t fp16_neg(uint16_t x) {
     return x ^ 0x8000;
 }
 
+// Convert FP16 to a signed fixed-point Q16 (for add/sub)
+static inline int32_t fp16_to_fixed(uint16_t f) {
+    uint16_t sign = (f >> 15) & 1;
+    int16_t  exp  = ((f >> 10) & 0x1F) - 15;
+    uint32_t mant = (f & 0x3FF) | 0x400;  // implicit 1.mantissa
+    if ((f & 0x7FFF) == 0) return 0;
+    // Shift mantissa to Q16: mant is Q10, so shift by (exp + 6)
+    int32_t val;
+    int shift = exp + 6;
+    if (shift >= 0) val = mant << shift;
+    else            val = mant >> (-shift);
+    return sign ? -val : val;
+}
+
+// Convert signed fixed-point Q16 back to FP16
+static inline uint16_t fixed_to_fp16(int32_t v) {
+    if (v == 0) return 0;
+    uint16_t sign = 0;
+    uint32_t uv;
+    if (v < 0) { 
+        sign = 0x8000; 
+        uv = (uint32_t)(-v); 
+    } else {
+        uv = (uint32_t)v;
+    }
+    
+    // Manual CLZ (Count Leading Zeros) for 32-bit
+    uint32_t x = uv;
+    int n = 32;
+    uint32_t y;
+    
+    y = x >> 16; if (y != 0) { n -= 16; x = y; }
+    y = x >>  8; if (y != 0) { n -=  8; x = y; }
+    y = x >>  4; if (y != 0) { n -=  4; x = y; }
+    y = x >>  2; if (y != 0) { n -=  2; x = y; }
+    y = x >>  1; if (y != 0) { n -=  2; } else { n -= x; }
+    
+    int top = 31 - n;
+    int16_t exp = top - 1;
+    if (exp < 1) return sign; // underflow to 0
+    if (exp > 30) return sign | 0x7C00; // overflow to infinity
+    
+    int shift = top - 10;
+    uint16_t mant;
+    if (shift >= 0) mant = (uv >> shift) & 0x3FF;
+    else            mant = (uv << (-shift)) & 0x3FF;
+    return sign | ((uint16_t)exp << 10) | mant;
+}
+
+// FP16 subtraction: a - b
+static inline uint16_t fp16_sub(uint16_t a, uint16_t b) {
+    return fixed_to_fp16(fp16_to_fixed(a) - fp16_to_fixed(b));
+}
+
 // FP16 constants
 #define FP16_ZERO     0x0000
 #define FP16_ONE      0x3C00

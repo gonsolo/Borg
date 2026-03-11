@@ -424,14 +424,14 @@ def render_frame(frame):
                             out_base=Pin(0), sideset_base=Pin(2))
     sm_w.active(1)
 
-    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR, 3)  # N_TESTS = 3
+    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR, float_to_fp16(angle))
     for vi, (vx, vy) in enumerate(TRI):
-        base = PSRAM_IO_SPI_ADDR + (1 + vi * 5) * 4
-        qpi_write_word(sm_w, base + 0,  cos_fp)
-        qpi_write_word(sm_w, base + 4,  float_to_fp16(vx))
-        qpi_write_word(sm_w, base + 8,  nsin_fp)
-        qpi_write_word(sm_w, base + 12, sin_fp)
-        qpi_write_word(sm_w, base + 16, float_to_fp16(vy))
+        base = PSRAM_IO_SPI_ADDR + (1 + vi * 2) * 4
+        qpi_write_word(sm_w, base + 0, float_to_fp16(vx))
+        qpi_write_word(sm_w, base + 4, float_to_fp16(vy))
+
+    for i in range(32, 288):
+        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + i * 4, 0)
 
     sm_w.active(0)
     del sm_w
@@ -491,7 +491,7 @@ def render_frame(frame):
     clk.off()
 
     _clk = machine.PWM(Pin(24), freq=4_000_000, duty_u16=32768)
-    time.sleep(1)
+    time.sleep(2)
 
     # --- Stop and reset FPGA ---
     _clk.deinit()
@@ -514,27 +514,20 @@ def render_frame(frame):
     sm_r.active(1)
 
     out_base = PSRAM_IO_SPI_ADDR + 128
-    rotated = []
-    for vi in range(3):
-        rx = fp16_to_float(qpi_read_word(sm_r, out_base + vi * 8) & 0xFFFF)
-        ry = fp16_to_float(qpi_read_word(sm_r, out_base + vi * 8 + 4) & 0xFFFF)
-        rotated.append((rx + WIDTH / 2, ry + HEIGHT / 2))  # translate to center
+    
+    # Read DONE marker
+    done = qpi_read_word(sm_r, out_base + 288 * 4)
+    print("Done marker: 0x%04X" % done)
+
+    # --- Read hardware rasterizer framebuffer ---
+    fb = bytearray(WIDTH * HEIGHT)
+    for py in range(HEIGHT):
+        for px in range(WIDTH):
+            val = qpi_read_word(sm_r, out_base + (32 + py * WIDTH + px) * 4) & 0xFF
+            fb[py * WIDTH + px] = val
 
     sm_r.active(0)
     del sm_r
-
-    # --- Rasterize ---
-    fb = bytearray(WIDTH * HEIGHT)
-    v0, v1, v2 = rotated
-    for py in range(HEIGHT):
-        for px in range(WIDTH):
-            cx, cy = px + 0.5, py + 0.5
-            e0 = edge_fn(v0[0], v0[1], v1[0], v1[1], cx, cy)
-            e1 = edge_fn(v1[0], v1[1], v2[0], v2[1], cx, cy)
-            e2 = edge_fn(v2[0], v2[1], v0[0], v0[1], cx, cy)
-            if (e0 >= 0 and e1 >= 0 and e2 >= 0) or \
-               (e0 <= 0 and e1 <= 0 and e2 <= 0):
-                fb[py * WIDTH + px] = 1
 
     # --- Write PPM ---
     fname = "/remote/triangle_%02d.ppm" % frame
@@ -550,9 +543,8 @@ def render_frames():
     print("All frames rendered.")
 
 
-def run_single_frame(frame=0):
-    """Entry point for rendering a single frame."""
-    # Reuse the initial setup from run(), then render one frame
+def run_animation():
+    """Entry point for rendering all 10 frames."""
     machine.freq(112_000_000)
 
     for i in range(30):
@@ -564,9 +556,11 @@ def run_single_frame(frame=0):
 
     run_tinyqv.program_firmware.program('firmware/borg_psram.bin')
     run_tinyqv.setup_flash()
-    run_tinyqv.setup_ram()
 
-    render_frame(frame)
+    print("\n--- Rendering 10 triangle frames ---")
+    for frame in range(10):
+        run_tinyqv.setup_ram()
+        render_frame(frame)
+    print("All frames rendered.")
 
-
-run()
+run_animation()
