@@ -17,6 +17,9 @@ all: help
 help:
 	@echo "commands: "
 	@echo -e "$(BOLD)  run_shader_test:\tPSRAM round-trip rotation test on FPGA.$(RESET)"
+	@echo -e "    triangle_ppms:\tGenerate all 10 PPM frames."
+	@echo -e "    triangle_ppm:\tGenerate a single PPM frame (FRAME=N)."
+	@echo -e "    triangle_animation.mp4:\tEncode PPMs to video."
 	@echo -e "  run_borg_addition:\tCompile and run borg_addition on FPGA."
 	@echo -e "  run_borg_rotation:\tCompile and run borg_rotate on FPGA."
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
