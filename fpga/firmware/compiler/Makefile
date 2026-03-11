@@ -19,5 +19,5 @@ frag.spv: shader.frag
 	glslangValidator -V shader.frag -o frag.spv
 
 clean:
-	rm -f vert.spvasm vert.spv vert.borg.h frag.s frag.spvasm frag.spv frag.borg.h
+	rm -f vert.s vert.spvasm vert.spv vert.borg.h frag.s frag.spvasm frag.spv frag.borg.h
 .PHONY: clean
