@@ -106,24 +106,27 @@ int main() {
     puts_uart("Borg debug pipeline v1\r\n");
 
     // --- Read input ---
-    uint16_t angle = PSRAM_IN(0);
+    // Host pre-computes cos/sin/nsin and writes them to PSRAM
+    uint16_t cos_val  = PSRAM_IN(0);
     uint16_t vx[3], vy[3];
     for (int v = 0; v < 3; v++) {
         vx[v] = PSRAM_IN(1 + v * 2);
         vy[v] = PSRAM_IN(2 + v * 2);
     }
+    uint16_t sin_val  = PSRAM_IN(7);
+    uint16_t nsin_val = PSRAM_IN(8);
 
     // Clear the DONE marker from previous runs so host doesn't read stale data
     PSRAM_OUT(FB_OFFSET + FB_WIDTH * FB_HEIGHT) = 0;
 
-    puts_uart("angle="); print_hex16(angle); puts_uart("\r\n");
+    puts_uart("cos="); print_hex16(cos_val); puts_uart("\r\n");
 
     // Write raw inputs to PSRAM output for host verification
     // Output layout: [0..6] = raw inputs (angle, vx0,vy0, vx1,vy1, vx2,vy2)
     // [7..9] = sin, cos, nsin
     // [10..15] = rotated vertices (rx0,ry0, rx1,ry1, rx2,ry2), etc.
     // Write raw inputs to PSRAM output for host verification
-    PSRAM_OUT(0) = angle;
+    PSRAM_OUT(0) = cos_val;
     for (int v = 0; v < 3; v++) {
         PSRAM_OUT(1 + v * 2) = vx[v];
         PSRAM_OUT(2 + v * 2) = vy[v];
@@ -139,11 +142,7 @@ int main() {
     BORG_IMEM(4) = 0x0000;  // halt
     puts_uart("B\r\n");
 
-    uint16_t sin_val = fp16_sin(angle);
-    uint16_t cos_val = fp16_cos(angle);
-    uint16_t nsin_val = fp16_neg(sin_val);
-    puts_uart("C\r\n");
-
+    // sin/cos/nsin already read from PSRAM above
     PSRAM_OUT(7) = sin_val;
     PSRAM_OUT(8) = cos_val;
     PSRAM_OUT(9) = nsin_val;

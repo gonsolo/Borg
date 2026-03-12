@@ -424,11 +424,13 @@ def render_frame(frame):
                             out_base=Pin(0), sideset_base=Pin(2))
     sm_w.active(1)
 
-    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR, float_to_fp16(angle))
+    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR, cos_fp)
     for vi, (vx, vy) in enumerate(TRI):
         base = PSRAM_IO_SPI_ADDR + (1 + vi * 2) * 4
         qpi_write_word(sm_w, base + 0, float_to_fp16(vx))
         qpi_write_word(sm_w, base + 4, float_to_fp16(vy))
+    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 7 * 4, sin_fp)
+    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 8 * 4, nsin_fp)
 
     for i in range(32, 288):
         qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + i * 4, 0)
