@@ -387,15 +387,44 @@ def edge_fn(ax, ay, bx, by, px, py):
     """Signed area for point-in-triangle test."""
     return (bx - ax) * (py - ay) - (by - ay) * (px - ax)
 
+# Vertex colors for barycentric interpolation (grayscale)
+VTX_COLORS = [0.3, 0.5, 1.0]
 
-def write_ppm(filename, fb, w, h):
-    """Write a PPM P3 image. fb values are FP16 grayscale intensities."""
+
+def write_ppm(filename, fb, w, h, sx=None, sy=None):
+    """Write a PPM P3 image with barycentric color interpolation.
+    If sx/sy (screen-space vertices) are provided, interpolate vertex colors.
+    Otherwise treat fb values as FP16 grayscale."""
+    printed_debug = False
     with open(filename, 'w') as f:
         f.write("P3\n%d %d\n255\n" % (w, h))
         for y in range(h):
             for x in range(w):
                 val = fb[y * w + x]
-                if val:
+                if val and sx is not None:
+                    # Barycentric interpolation using edge functions
+                    px, py_ = x + 0.5, y + 0.5
+                    e0 = edge_fn(sx[0], sy[0], sx[1], sy[1], px, py_)
+                    e1 = edge_fn(sx[1], sy[1], sx[2], sy[2], px, py_)
+                    e2 = edge_fn(sx[2], sy[2], sx[0], sy[0], px, py_)
+                    total = e0 + e1 + e2
+
+                    if not printed_debug and filename.endswith("triangle_00.ppm"):
+                        print(f"DEBUG: sx={sx}, sy={sy}, px={px}, py={py_}")
+                        print(f"DEBUG: e0={e0}, e1={e1}, e2={e2}, total={total}")
+                        printed_debug = True
+
+                    if abs(total) > 1e-6:
+                        w0 = e1 / total  # weight for v0
+                        w1 = e2 / total  # weight for v1
+                        w2 = e0 / total  # weight for v2
+                        intensity = w0 * VTX_COLORS[0] + w1 * VTX_COLORS[1] + w2 * VTX_COLORS[2]
+                        intensity = max(0.0, min(1.0, intensity))
+                    else:
+                        intensity = 0.5
+                    c = int(intensity * 255 + 0.5)
+                    f.write("%d %d %d " % (c, c, c))
+                elif val:
                     intensity = fp16_to_float(val)
                     c = max(0, min(255, int(intensity * 255 + 0.5)))
                     f.write("%d %d %d " % (c, c, c))
@@ -531,12 +560,21 @@ def render_frame(frame):
             val = qpi_read_word(sm_r, out_base + (32 + py * WIDTH + px) * 4) & 0xFFFF
             fb[py * WIDTH + px] = val
 
+    # --- Read screen-space vertices for barycentric interpolation ---
+    sx_verts = [0.0] * 3
+    sy_verts = [0.0] * 3
+    for v in range(3):
+        sx_bits = qpi_read_word(sm_r, out_base + (16 + v * 2) * 4) & 0xFFFF
+        sy_bits = qpi_read_word(sm_r, out_base + (16 + v * 2 + 1) * 4) & 0xFFFF
+        sx_verts[v] = fp16_to_float(sx_bits)
+        sy_verts[v] = fp16_to_float(sy_bits)
+
     sm_r.active(0)
     del sm_r
 
-    # --- Write PPM ---
+    # --- Write PPM with barycentric color interpolation ---
     fname = "/remote/triangle_%02d.ppm" % frame
-    write_ppm(fname, fb, WIDTH, HEIGHT)
+    write_ppm(fname, fb, WIDTH, HEIGHT, sx_verts, sy_verts)
     print("Frame %02d (%.0f deg): %s" % (frame, frame * 36.0, fname))
 
 

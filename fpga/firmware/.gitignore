@@ -3,3 +3,4 @@
 /*.hex
 *.o
 test_data.h
+borg_psram
