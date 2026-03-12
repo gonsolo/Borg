@@ -57,8 +57,10 @@ triangle_ppm: firmware/borg_psram.bin
 animation.webp: triangle_ppms
 	magick triangle_*.ppm -delay 10 -loop 0 animation.webp
 
-watch:
+watch_animation:
 	loupe animation.webp
+watch_ppm:
+	loupe triangle_0*.ppm
 
 # To see something when running you have to connect to the debug probe in second terminal
 tio:
@@ -97,5 +99,5 @@ clean:
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
 
-.PHONY: all help burn clean reset resource_check run_borg_addition run_borg_rotation run_shader_test firmware/borg_psram.bin triangle_ppms triangle_ppm watch tio
+.PHONY: all help burn clean reset resource_check run_borg_addition run_borg_rotation run_shader_test firmware/borg_psram.bin triangle_ppms triangle_ppm watch_animation watch_ppm tio
 
