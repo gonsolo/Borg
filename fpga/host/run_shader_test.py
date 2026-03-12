@@ -389,13 +389,16 @@ def edge_fn(ax, ay, bx, by, px, py):
 
 
 def write_ppm(filename, fb, w, h):
-    """Write a PPM P3 image."""
+    """Write a PPM P3 image. fb values are FP16 grayscale intensities."""
     with open(filename, 'w') as f:
         f.write("P3\n%d %d\n255\n" % (w, h))
         for y in range(h):
             for x in range(w):
-                if fb[y * w + x]:
-                    f.write("255 255 255 ")
+                val = fb[y * w + x]
+                if val:
+                    intensity = fp16_to_float(val)
+                    c = max(0, min(255, int(intensity * 255 + 0.5)))
+                    f.write("%d %d %d " % (c, c, c))
                 else:
                     f.write("0 0 0 ")
             f.write("\n")
@@ -521,11 +524,11 @@ def render_frame(frame):
     done = qpi_read_word(sm_r, out_base + 288 * 4)
     print("Done marker: 0x%04X" % done)
 
-    # --- Read hardware rasterizer framebuffer ---
-    fb = bytearray(WIDTH * HEIGHT)
+    # --- Read hardware rasterizer framebuffer (FP16 grayscale values) ---
+    fb = [0] * (WIDTH * HEIGHT)
     for py in range(HEIGHT):
         for px in range(WIDTH):
-            val = qpi_read_word(sm_r, out_base + (32 + py * WIDTH + px) * 4) & 0xFF
+            val = qpi_read_word(sm_r, out_base + (32 + py * WIDTH + px) * 4) & 0xFFFF
             fb[py * WIDTH + px] = val
 
     sm_r.active(0)

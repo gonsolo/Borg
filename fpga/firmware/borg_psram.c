@@ -269,8 +269,8 @@ int main() {
                 }
             }
 
-            // Python expects 32-bit word strides per pixel for reading
-            PSRAM_OUT(FB_OFFSET + py * FB_WIDTH + px) = inside ? 1 : 0;
+            // Fragment shader: output FP16 white (frag.s is a passthrough)
+            PSRAM_OUT(FB_OFFSET + py * FB_WIDTH + px) = inside ? 0x3C00 : 0;
         }
     }
 
