@@ -7,7 +7,7 @@ RESET   := \033[0m
 all: help
 help:
 	@echo "commands: "
-	@echo -e "$(BOLD)  triangle_ppm:\tRender a single triangle frame.$(RESET)"
+	@echo -e "$(BOLD)  triangle_ppm:\t\tRender a single triangle frame.$(RESET)"
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
 	@echo -e "  tio:\t\t\tConnect to the serial console."
 	@echo -e "  reset:\t\tReset the CPU."
