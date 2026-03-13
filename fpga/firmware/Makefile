@@ -1,4 +1,3 @@
-# Environment setup (handled by direnv)
 PROJECT_NAME 	?= borg_test
 PROJECT_SOURCES ?= borg_test.c
 
@@ -15,11 +14,6 @@ TEST_JSON = ../../data/test_cases.json
 
 all: test_data.h $(PROJECT_NAME).bin $(PROJECT_NAME).hex
 
-# Build the rotation test: make rotate
-rotate:
-	$(MAKE) PROJECT_NAME=borg_rotate PROJECT_SOURCES="borg_rotate.c ../sdk/borg_math.c"
-
-# Build the PSRAM round-trip test: make psram
 psram:
 	$(MAKE) PROJECT_NAME=borg_psram PROJECT_SOURCES="borg_psram.c ../sdk/borg_math.c"
 
@@ -27,7 +21,8 @@ test_data.h: $(TEST_JSON) convert_test_data.py
 	python convert_test_data.py
 
 clean:
-	cd $(dir $(PROJECT_NAME)) && rm -f *.o *.elf *.bin *.hex test_data.h
+	cd $(dir $(PROJECT_NAME)) && rm -f *.o *.elf *.bin *.hex test_data.h borg_psram borg_psram.asm
+	make -C compiler clean
 
 $(RISCV_TOOLCHAIN):
 	$(MAKE) -C ../toolchain
