@@ -80,5 +80,6 @@ clean:
 	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
+	$(MAKE) -C host clean
 
 .PHONY: all help burn clean reset resource_check firmware/borg_psram.bin triangle_ppm tio
