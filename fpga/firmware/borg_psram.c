@@ -1,8 +1,5 @@
 // SPDX-FileCopyrightText: © 2025-2026 Andreas Wendleder
-// SPDX-License-Identifier: CERN-OHL-S-2.0
-
-// Borg GPU firmware: vertex shader + rasterizer.
-// Writes framebuffer to PSRAM for host readback.
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "borg_math.h"
 #include "compiler/vert.borg.h"

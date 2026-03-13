@@ -1,14 +1,5 @@
-# Environment setup (handled by direnv)
-BORG_DIR 	:= ../src/user_peripherals/borg
-TINYQV_DIR 	:= ../out/tinyqv/verilog
-
-SRC_FILES = pico_ice.v \
-	    $(wildcard ../out/borg/verilog/*.sv) \
-	    $(wildcard ../out/tinyqv/verilog/*.sv) \
-
-# Hardware limits
-MAX_LUTS = 5280
-MAX_DFFS = 5280
+# SPDX-FileCopyrightText: © 2025-2026 Andreas Wendleder
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 BOLD := \033[1m
 RESET   := \033[0m
@@ -17,8 +8,6 @@ all: help
 help:
 	@echo "commands: "
 	@echo -e "$(BOLD)  triangle_ppm:\tRender a single triangle frame.$(RESET)"
-	@echo -e "    triangle_ppms:\tRender all 10 PPM frames."
-	@echo -e "    animation.webp:\tEncode PPMs to animated WebP."
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
 	@echo -e "  tio:\t\t\tConnect to the serial console."
 	@echo -e "  reset:\t\tReset the CPU."
@@ -28,42 +17,37 @@ help:
 	@echo -e "  resource_check:\tCheck LUT and DFF usage coefficients."
 	@echo -e "  clean:\t\tRemove build artifacts."
 
-firmware/borg_psram.bin:
-	$(MAKE) -C firmware psram
 
-triangle_ppm: firmware/borg_psram.bin
-	mpremote mount . + exec "import sys; sys.path.append('host'); import run_shader_test; run_shader_test.run_single_frame(0)" | tee /tmp/mpremote_output.txt
+######### Build hardware ###########################################################################
 
-triangle_ppms: firmware/borg_psram.bin
-	mpremote mount . + exec "import sys; sys.path.append('host'); import run_shader_test; run_shader_test.render_frames()" | tee /tmp/mpremote_output.txt
+SRC_FILES = pico_ice.v \
+	    $(wildcard ../out/borg/verilog/*.sv) \
+	    $(wildcard ../out/tinyqv/verilog/*.sv) \
 
-animation.webp: triangle_ppms
-	magick triangle_*.ppm -delay 10 -loop 0 animation.webp
+# Hardware limits
+MAX_LUTS = 5280
+MAX_DFFS = 5280
 
-watch_animation:
-	loupe animation.webp
-watch_ppm:
-	loupe triangle_0*.ppm
+YOSYS_SCRIPT = read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tinyQV_top \
+	       -json borg.json
+# Build netlist
+borg.json: $(SRC_FILES)
+	yosys -p "$(YOSYS_SCRIPT)" -DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
 
-tio:
-	tio /dev/ttyACM1 | tee /tmp/tio_output.txt
+# Place and Route (P&R)
+borg.asc: borg.json
+	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc \
+		--freq 4
 
-reset:
-	mpremote mount . + exec "import sys; sys.path.append('host'); import run_tinyqv; run_tinyqv.run(query=False, stop=False)"
-
-burn: borg.bin
-	mpremote mount . + run host/program_bitstream.py
-
+# Generate FPGA bitstream
 borg.bin: borg.asc
 	icepack $< $@
 
-borg.asc: borg.json
-	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc --freq 4
+# Burn to FPGA
+burn: borg.bin
+	mpremote mount . + run host/program_bitstream.py
 
-borg.json: $(SRC_FILES)
-	yosys -p "read -sv $(SRC_FILES) ; synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json" \
-	-DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
-
+# Print used FPGA resources (after borg.json has been generated)
 resource_check: yosys.log
 	@grep "SB_LUT4" yosys.log | tail -n1 | awk -v max=$(MAX_LUTS) '{ \
 	        percent=($$1/max)*100; \
@@ -74,9 +58,27 @@ resource_check: yosys.log
 	        printf "SB_DFF* (Registers): \t%d \t%.0f%%\n", sum, percent \
 	}'
 
+######### Build software and run ###################################################################
+
+# Generate firmware
+firmware/borg_psram.bin:
+	$(MAKE) -C firmware psram
+
+# Run shading test
+triangle_ppm: firmware/borg_psram.bin
+	mpremote mount . + exec "import sys; sys.path.append('host'); import run_shader_test; run_shader_test.run_single_frame(0)" | tee /tmp/mpremote_output.txt
+
+# Catch debug output (preferably in a second shell)
+tio:
+	tio /dev/ttyACM1 | tee /tmp/tio_output.txt
+
+# Reset FPGA
+reset:
+	mpremote mount . + exec "import sys; sys.path.append('host'); import run_tinyqv; run_tinyqv.run(query=False, stop=False)"
+
 clean:
-	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm animation.webp
+	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
 
-.PHONY: all help burn clean reset resource_check firmware/borg_psram.bin triangle_ppms triangle_ppm watch_animation watch_ppm tio
+.PHONY: all help burn clean reset resource_check firmware/borg_psram.bin triangle_ppm tio
