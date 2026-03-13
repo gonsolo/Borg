@@ -4,3 +4,4 @@
 *.o
 test_data.h
 borg_psram
+borg_psram.asm

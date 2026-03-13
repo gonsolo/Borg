@@ -16,12 +16,9 @@ RESET   := \033[0m
 all: help
 help:
 	@echo "commands: "
-	@echo -e "$(BOLD)  run_shader_test:\tPSRAM round-trip rotation test on FPGA.$(RESET)"
-	@echo -e "    triangle_ppms:\tGenerate all 10 PPM frames."
-	@echo -e "    triangle_ppm:\tGenerate a single PPM frame (FRAME=N)."
+	@echo -e "$(BOLD)  triangle_ppm:\tRender a single triangle frame.$(RESET)"
+	@echo -e "    triangle_ppms:\tRender all 10 PPM frames."
 	@echo -e "    animation.webp:\tEncode PPMs to animated WebP."
-	@echo -e "  run_borg_addition:\tCompile and run borg_addition on FPGA."
-	@echo -e "  run_borg_rotation:\tCompile and run borg_rotate on FPGA."
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
 	@echo -e "  tio:\t\t\tConnect to the serial console."
 	@echo -e "  reset:\t\tReset the CPU."
@@ -31,28 +28,14 @@ help:
 	@echo -e "  resource_check:\tCheck LUT and DFF usage coefficients."
 	@echo -e "  clean:\t\tRemove build artifacts."
 
-# And you have to burn first, of course
-run_borg_addition:
-	make -C firmware
-	cd firmware && python convert_test_data.py --reference
-	mpremote mount . + exec "import sys; sys.path.append('host'); import run_tinyqv; run_tinyqv.execute('firmware/borg_test.bin')"
-
-run_borg_rotation:
-	make -C firmware rotate
-	mpremote mount . + exec "import sys; sys.path.append('host'); import run_tinyqv; run_tinyqv.execute('firmware/borg_rotate.bin')"
-
-FRAME ?= 0
-
-run_shader_test: animation.webp
-
 firmware/borg_psram.bin:
 	$(MAKE) -C firmware psram
 
-triangle_ppms: firmware/borg_psram.bin
-	mpremote mount . + exec "import sys; sys.path.append('host'); import run_shader_test"
-
 triangle_ppm: firmware/borg_psram.bin
-	mpremote mount . + exec "import sys; sys.path.append('host'); import run_shader_test; run_shader_test.run_single_frame($(FRAME))"
+	mpremote mount . + exec "import sys; sys.path.append('host'); import run_shader_test; run_shader_test.run_single_frame(0)" | tee /tmp/mpremote_output.txt
+
+triangle_ppms: firmware/borg_psram.bin
+	mpremote mount . + exec "import sys; sys.path.append('host'); import run_shader_test; run_shader_test.render_frames()" | tee /tmp/mpremote_output.txt
 
 animation.webp: triangle_ppms
 	magick triangle_*.ppm -delay 10 -loop 0 animation.webp
@@ -62,9 +45,8 @@ watch_animation:
 watch_ppm:
 	loupe triangle_0*.ppm
 
-# To see something when running you have to connect to the debug probe in second terminal
 tio:
-	tio /dev/ttyACM1
+	tio /dev/ttyACM1 | tee /tmp/tio_output.txt
 
 reset:
 	mpremote mount . + exec "import sys; sys.path.append('host'); import run_tinyqv; run_tinyqv.run(query=False, stop=False)"
@@ -83,12 +65,10 @@ borg.json: $(SRC_FILES)
 	-DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
 
 resource_check: yosys.log
-	@# Process LUTs: $1 is the count in the yosys log
 	@grep "SB_LUT4" yosys.log | tail -n1 | awk -v max=$(MAX_LUTS) '{ \
 	        percent=($$1/max)*100; \
 	        printf "SB_LUT4 (Logic): \t%d \t%.0f%%\n", $$1, percent \
 	}'
-	@# Process DFFs: $$$$2 is needed to pass literal $2 to awk for the count column
 	@grep "SB_DFF" yosys.log | awk -v max=$(MAX_DFFS) '{sum+=$$$$2;} END { \
 	        percent=(sum/max)*100; \
 	        printf "SB_DFF* (Registers): \t%d \t%.0f%%\n", sum, percent \
@@ -99,5 +79,4 @@ clean:
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
 
-.PHONY: all help burn clean reset resource_check run_borg_addition run_borg_rotation run_shader_test firmware/borg_psram.bin triangle_ppms triangle_ppm watch_animation watch_ppm tio
-
+.PHONY: all help burn clean reset resource_check firmware/borg_psram.bin triangle_ppms triangle_ppm watch_animation watch_ppm tio

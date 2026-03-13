@@ -71,6 +71,35 @@ static inline uint16_t fp16_sub(uint16_t a, uint16_t b) {
     return fixed_to_fp16(fp16_to_fixed(a) - fp16_to_fixed(b));
 }
 
+// FP16 addition: a + b
+static inline uint16_t fp16_add(uint16_t a, uint16_t b) {
+    return fixed_to_fp16(fp16_to_fixed(a) + fp16_to_fixed(b));
+}
+
+// FP16 reciprocal: 1.0 / x (software, no fdiv needed)
+static inline uint16_t fp16_recip(uint16_t x) {
+    int32_t fx = fp16_to_fixed(x);
+    if (fx == 0) return 0x7C00; // +inf
+    // We want (1.0 in Q16) / fx = 65536 / fx
+    // But fp16_to_fixed returns value*65536 for Q16,
+    // so fx already is value*65536... not quite.
+    // fp16_to_fixed shifts mantissa by (exp+6), giving value*1024 roughly.
+    // Let's just do: result = 1.0/value via scaling.
+    // fp16_to_fixed(0x3C00) = (1024+0) << (0+6) = 1024*64 = 65536
+    // So fp16_to_fixed gives value * 65536 (Q16 format).
+    // recip = 1.0 / value. In Q16: recip_q16 = 65536 / value = 65536 * 65536 / fx
+    // But that overflows 32-bit. Use 64-bit or reduce precision.
+    int32_t sign = 1;
+    if (fx < 0) { sign = -1; fx = -fx; }
+    // result_q16 = (1<<32) / fx, but that needs 64-bit
+    // Alternatively: result = (1<<30) / fx, then shift right by 14 to get Q16
+    // (1<<30)/fx gives result in Q(30-16)=Q14, we need Q16, so shift left 2
+    int32_t result = ((int32_t)1 << 30) / fx;
+    result <<= 2; // now Q16
+    if (sign < 0) result = -result;
+    return fixed_to_fp16(result);
+}
+
 // FP16 constants
 #define FP16_ZERO     0x0000
 #define FP16_ONE      0x3C00
