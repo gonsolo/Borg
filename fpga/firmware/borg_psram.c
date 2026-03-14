@@ -106,15 +106,18 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 #define BORG_FP16_SUB(a, b) borg_fp16_add((a), (b) ^ 0x8000)
 #define BORG_FP16_NEG(x) ((x) ^ 0x8000)
 
-// Raw register-level FP16 sub: assumes ADD shader already loaded in IMEM
+// FP16 sub via Borg registers (no function call overhead).
+// Requires ADD shader (fadd r0,r1,r2 + halt) pre-loaded in IMEM.
+// Used by COMPUTE_PIXEL_DELTAS; shader is loaded by RASTERIZE_PIXEL.
 #define BORG_FP16_SUB_RAW(a, b) ( \
     BORG_REG(1) = (a),            \
     BORG_REG(2) = (b) ^ 0x8000,   \
     borg_run(),                    \
     BORG_REG(0) & 0xFFFF)
 
-// Run rasterize shader for one edge: returns edge value
-// Assumes fmul/fmadd/halt shader already loaded in IMEM
+// Evaluate edge function for one edge (no function call overhead).
+// Requires rasterize shader (fmul/fmadd/halt) pre-loaded in IMEM.
+// Used by TEST_EDGES; shader is loaded by RASTERIZE_PIXEL.
 #define BORG_EDGE_TEST(dx_e, neg_dy_e, dpx_e, dpy_e) (         \
     BORG_REG(RASTERIZE_BORG_REG_DX) = (dx_e),                  \
     BORG_REG(RASTERIZE_BORG_REG_NEG_DY) = (neg_dy_e),          \
@@ -123,16 +126,16 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
     borg_run(),                                                 \
     BORG_REG(RASTERIZE_BORG_REG_EDGE) & 0xFFFF)
 
-// Compute pixel-to-vertex distances for all 3 edges
-// Assumes ADD shader already loaded in IMEM
+// Compute pixel-to-vertex distances for all 3 edges.
+// Caller must load ADD shader into IMEM first (done by RASTERIZE_PIXEL).
 #define COMPUTE_PIXEL_DELTAS(pcx, pcy, sx, sy, dpx, dpy) \
   do { for (int e = 0; e < 3; e++) {                     \
     dpx[e] = BORG_FP16_SUB_RAW(pcx, sx[e]);              \
     dpy[e] = BORG_FP16_SUB_RAW(pcy, sy[e]);              \
   } } while (0)
 
-// Test all 3 edges and set 'inside' flag
-// Assumes rasterize shader already loaded in IMEM
+// Test all 3 edges and set 'inside' flag.
+// Caller must load rasterize shader into IMEM first (done by RASTERIZE_PIXEL).
 #define TEST_EDGES(dx, neg_dy, dpx, dpy, inside)                        \
   do { inside = 1;                                                      \
     for (int e = 0; e < 3; e++) {                                       \
@@ -141,16 +144,19 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
     }                                                                   \
   } while (0)
 
-// Rasterize one pixel: compute deltas, test edges, write fragment
+// Rasterize one pixel: two-phase Borg execution.
+// Phase 1: Load ADD shader, compute pixel-vertex distances via COMPUTE_PIXEL_DELTAS.
+// Phase 2: Load rasterize shader, evaluate edge functions via TEST_EDGES.
+// Shaders are loaded once per phase, then reused across 3 edges.
 #define RASTERIZE_PIXEL(pcx, pcy, sx, sy, dx, neg_dy, py, px)   \
   do {                                                          \
-    BORG_IMEM(0) = 0x0220;                                      \
-    BORG_IMEM(1) = 0x0000;                                      \
+    BORG_IMEM(0) = 0x0220; /* fadd r0, r1, r2 */               \
+    BORG_IMEM(1) = 0x0000; /* halt */                           \
     uint16_t dpx_arr[3], dpy_arr[3];                            \
     COMPUTE_PIXEL_DELTAS(pcx, pcy, sx, sy, dpx_arr, dpy_arr);   \
-    BORG_IMEM(0) = 0x2420;                                      \
-    BORG_IMEM(1) = 0x4340;                                      \
-    BORG_IMEM(2) = 0x0000;                                      \
+    BORG_IMEM(0) = 0x2420; /* fmul r0, r1, r4 */                \
+    BORG_IMEM(1) = 0x4340; /* fmadd r0, r2, r3, r0 */           \
+    BORG_IMEM(2) = 0x0000; /* halt */                           \
     int inside;                                                 \
     TEST_EDGES(dx, neg_dy, dpx_arr, dpy_arr, inside);           \
     PSRAM_OUT(FB_OFFSET + (py) * FB_WIDTH + (px)) = inside ? 0x3C00 : 0; \
