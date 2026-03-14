@@ -574,7 +574,7 @@ def render_frame(frame):
 
     # --- Write PPM with barycentric color interpolation ---
     fname = "/remote/triangle_%02d.ppm" % frame
-    write_ppm(fname, fb, WIDTH, HEIGHT, sx_verts, sy_verts)
+    write_ppm(fname, fb, WIDTH, HEIGHT)
     print("Frame %02d (%.0f deg): %s" % (frame, frame * 36.0, fname))
 
 
