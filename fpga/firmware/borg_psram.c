@@ -103,6 +103,13 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 #define BORG_FP16_SUB(a, b) borg_fp16_add((a), (b) ^ 0x8000)
 #define BORG_FP16_NEG(x) ((x) ^ 0x8000)
 
+// Raw register-level FP16 sub: assumes ADD shader already loaded in IMEM
+#define BORG_FP16_SUB_RAW(a, b) ( \
+    BORG_REG(1) = (a),            \
+    BORG_REG(2) = (b) ^ 0x8000,   \
+    borg_run(),                    \
+    BORG_REG(0) & 0xFFFF)
+
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
 typedef struct {
@@ -282,17 +289,8 @@ int main() {
 
       uint16_t dpx_arr[3], dpy_arr[3];
       for (int e = 0; e < 3; e++) {
-        // dpx = pcx - ax = pcx + (-ax)
-        BORG_REG(1) = pcx;
-        BORG_REG(2) = sx[e] ^ 0x8000;
-        borg_run();
-        dpx_arr[e] = BORG_REG(0) & 0xFFFF;
-
-        // dpy = pcy - ay = pcy + (-ay)
-        BORG_REG(1) = pcy;
-        BORG_REG(2) = sy[e] ^ 0x8000;
-        borg_run();
-        dpy_arr[e] = BORG_REG(0) & 0xFFFF;
+        dpx_arr[e] = BORG_FP16_SUB_RAW(pcx, sx[e]);
+        dpy_arr[e] = BORG_FP16_SUB_RAW(pcy, sy[e]);
       }
 
       // Phase 2: Run rasterize shader for all 3 edges
