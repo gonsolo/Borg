@@ -99,10 +99,9 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
   return BORG_REG(0) & 0xFFFF;
 }
 
-// Use Borg hardware for FP16 sub: result = a - b = a + (-b)
-static uint16_t borg_fp16_sub(uint16_t a, uint16_t b) {
-  return borg_fp16_add(a, b ^ 0x8000);
-}
+// Macro versions to guarantee no function call overhead on RV32E
+#define BORG_FP16_SUB(a, b) borg_fp16_add((a), (b) ^ 0x8000)
+#define BORG_FP16_NEG(x) ((x) ^ 0x8000)
 
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
@@ -216,19 +215,28 @@ static void screen_space_translate(const uint16_t *rx, const uint16_t *ry,
   }
 }
 
-#define COMPUTE_EDGE_VECTORS(sx, sy, dx, neg_dy) do { \
-    dx[0] = borg_fp16_sub(sx[1], sx[0]);  neg_dy[0] = fp16_neg(borg_fp16_sub(sy[1], sy[0])); \
-    dx[1] = borg_fp16_sub(sx[2], sx[1]);  neg_dy[1] = fp16_neg(borg_fp16_sub(sy[2], sy[1])); \
-    dx[2] = borg_fp16_sub(sx[0], sx[2]);  neg_dy[2] = fp16_neg(borg_fp16_sub(sy[0], sy[2])); \
-    for (int e = 0; e < 3; e++) { \
-      PSRAM_OUT(22 + e * 2 + 0) = dx[e]; \
-      PSRAM_OUT(22 + e * 2 + 1) = neg_dy[e]; \
-      puts_uart("E"); putc_uart('0' + e); \
-      puts_uart(" dx="); print_hex16(dx[e]); \
-      puts_uart(" ndy="); print_hex16(neg_dy[e]); puts_uart("\r\n"); \
-    } \
-    puts_uart("F\r\n"); \
-  } while(0)
+
+#define COMPUTE_EDGE_VECTORS(sx, sy, dx, neg_dy)                               \
+  do {                                                                         \
+    dx[0] = BORG_FP16_SUB(sx[1], sx[0]);                                       \
+    neg_dy[0] = BORG_FP16_NEG(BORG_FP16_SUB(sy[1], sy[0]));                   \
+    dx[1] = BORG_FP16_SUB(sx[2], sx[1]);                                       \
+    neg_dy[1] = BORG_FP16_NEG(BORG_FP16_SUB(sy[2], sy[1]));                   \
+    dx[2] = BORG_FP16_SUB(sx[0], sx[2]);                                       \
+    neg_dy[2] = BORG_FP16_NEG(BORG_FP16_SUB(sy[0], sy[2]));                   \
+    for (int e = 0; e < 3; e++) {                                              \
+      PSRAM_OUT(22 + e * 2 + 0) = dx[e];                                       \
+      PSRAM_OUT(22 + e * 2 + 1) = neg_dy[e];                                   \
+      puts_uart("E");                                                          \
+      putc_uart('0' + e);                                                      \
+      puts_uart(" dx=");                                                       \
+      print_hex16(dx[e]);                                                      \
+      puts_uart(" ndy=");                                                      \
+      print_hex16(neg_dy[e]);                                                  \
+      puts_uart("\r\n");                                                       \
+    }                                                                          \
+    puts_uart("F\r\n");                                                        \
+  } while (0)
 
 int main() {
   for (volatile int i = 0; i < 10000; i++)
@@ -237,21 +245,22 @@ int main() {
 
   puts_uart("Borg debug pipeline v1\r\n");
 
-  // --- Read input ---
+  // Read input
   PipelineInput in;
   read_input(&in);
 
-  // --- Stage 1: Vertex shader ---
+  // Vertex shader
   VertexOutput vout;
   run_vertex_shader(&in, &vout);
 
-  // --- Screen-space translation: add 8.0 ---
+  // Screen-space translation: add 8.0
   uint16_t sx[3], sy[3];
   screen_space_translate(vout.rx, vout.ry, sx, sy);
 
-  // --- Stage 2: Rasterizer ---
   uint16_t dx[3], neg_dy[3];
   COMPUTE_EDGE_VECTORS(sx, sy, dx, neg_dy);
+
+  // Precomputed FP16 pixel center coordinates: 0.5, 1.5, ..., 15.5
   // (avoids any CPU-side fp16 conversion which crashes TinyQV)
   static const uint16_t pc_lut[16] = {
       0x3800, 0x3E00, 0x4100, 0x4300, // 0.5, 1.5, 2.5, 3.5
@@ -260,7 +269,7 @@ int main() {
       0x4A40, 0x4AC0, 0x4B40, 0x4BC0  // 12.5, 13.5, 14.5, 15.5
   };
 
-  // --- Full framebuffer rasterization ---
+  // Rasterize framebuffer
   for (int py = 0; py < FB_HEIGHT; py++) {
     uint16_t pcy = pc_lut[py];
 
@@ -268,7 +277,6 @@ int main() {
       uint16_t pcx = pc_lut[px];
 
       // Phase 1: Compute all dpx/dpy using ADD shader (sub = add negated)
-      // Load ADD shader once for this pixel
       BORG_IMEM(0) = 0x0220; // fadd r0, r1, r2
       BORG_IMEM(1) = 0x0000; // halt
 
