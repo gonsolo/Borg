@@ -181,6 +181,20 @@ static void run_vertex_shader(const PipelineInput *in, VertexOutput *out) {
     puts_uart("D\r\n");
 }
 
+static void screen_space_translate(const uint16_t *rx, const uint16_t *ry, uint16_t *sx, uint16_t *sy) {
+    puts_uart("E\r\n");
+    for (int v = 0; v < 3; v++) {
+        sx[v] = borg_fp16_add(rx[v], FP16_EIGHT);
+        sy[v] = borg_fp16_add(ry[v], FP16_EIGHT);
+        PSRAM_OUT(16 + v * 2 + 0) = sx[v];
+        PSRAM_OUT(16 + v * 2 + 1) = sy[v];
+
+        puts_uart("S"); putc_uart('0' + v);
+        puts_uart(" sx="); print_hex16(sx[v]);
+        puts_uart(" sy="); print_hex16(sy[v]); puts_uart("\r\n");
+    }
+}
+
 int main() {
     for (volatile int i = 0; i < 10000; i++) ;
     UART_BAUD = 34;
@@ -197,17 +211,7 @@ int main() {
 
     // --- Screen-space translation: add 8.0 ---
     uint16_t sx[3], sy[3];
-    puts_uart("E\r\n");
-    for (int v = 0; v < 3; v++) {
-        sx[v] = borg_fp16_add(vout.rx[v], FP16_EIGHT);
-        sy[v] = borg_fp16_add(vout.ry[v], FP16_EIGHT);
-        PSRAM_OUT(16 + v * 2 + 0) = sx[v];
-        PSRAM_OUT(16 + v * 2 + 1) = sy[v];
-
-        puts_uart("S"); putc_uart('0' + v);
-        puts_uart(" sx="); print_hex16(sx[v]);
-        puts_uart(" sy="); print_hex16(sy[v]); puts_uart("\r\n");
-    }
+    screen_space_translate(vout.rx, vout.ry, sx, sy);
 
     // --- Stage 2: Rasterizer ---
     // Precompute edge vectors using Borg ADD shader (sub = add with negated b)
