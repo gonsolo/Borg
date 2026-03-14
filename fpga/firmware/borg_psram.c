@@ -229,8 +229,6 @@ int main() {
     }
     puts_uart("F\r\n");
 
-    uint16_t ax_arr[3] = { sx[0], sx[1], sx[2] };
-    uint16_t ay_arr[3] = { sy[0], sy[1], sy[2] };
 
     // Precomputed FP16 pixel center coordinates: 0.5, 1.5, ..., 15.5
     // (avoids any CPU-side fp16 conversion which crashes TinyQV)
@@ -257,13 +255,13 @@ int main() {
             for (int e = 0; e < 3; e++) {
                 // dpx = pcx - ax = pcx + (-ax)
                 BORG_REG(1) = pcx;
-                BORG_REG(2) = ax_arr[e] ^ 0x8000;
+                BORG_REG(2) = sx[e] ^ 0x8000;
                 borg_run();
                 dpx_arr[e] = BORG_REG(0) & 0xFFFF;
 
                 // dpy = pcy - ay = pcy + (-ay)
                 BORG_REG(1) = pcy;
-                BORG_REG(2) = ay_arr[e] ^ 0x8000;
+                BORG_REG(2) = sy[e] ^ 0x8000;
                 borg_run();
                 dpy_arr[e] = BORG_REG(0) & 0xFFFF;
             }
