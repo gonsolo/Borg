@@ -12,6 +12,9 @@
 #define UART_TX (*(volatile uint32_t *)0x08000080)
 #define UART_STATUS (*(volatile uint32_t *)0x08000084)
 #define UART_BAUD (*(volatile uint32_t *)0x08000088)
+#define STARTUP_DELAY() do { \
+    for (volatile int i = 0; i < 10000; i++) ; \
+  } while (0)
 
 #define BORG_BASE 0x080000C0
 #define BORG_REG(n) (*(volatile uint32_t *)(BORG_BASE + (n) * 4))
@@ -308,8 +311,7 @@ static const uint16_t pc_lut[16] = {
 };
 
 int main() {
-  for (volatile int i = 0; i < 10000; i++)
-    ;
+  STARTUP_DELAY();
   UART_BAUD = 34;
 
   puts_uart("Borg debug pipeline v1\r\n");
