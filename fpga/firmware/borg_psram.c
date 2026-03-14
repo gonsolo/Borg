@@ -128,6 +128,16 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
     dpy[e] = BORG_FP16_SUB_RAW(pcy, sy[e]);              \
   } } while (0)
 
+// Test all 3 edges and set 'inside' flag
+// Assumes rasterize shader already loaded in IMEM
+#define TEST_EDGES(dx, neg_dy, dpx, dpy, inside)                        \
+  do { inside = 1;                                                      \
+    for (int e = 0; e < 3; e++) {                                       \
+      uint16_t edge = BORG_EDGE_TEST(dx[e], neg_dy[e], dpx[e], dpy[e]); \
+      if (fp16_ge_zero(edge) && edge != 0) { inside = 0; break; }       \
+    }                                                                   \
+  } while (0)
+
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
 typedef struct {
@@ -314,15 +324,8 @@ int main() {
       BORG_IMEM(1) = 0x4340; // fmadd r0, r2, r3, r0  (neg_dy * dpx + dx * dpy)
       BORG_IMEM(2) = 0x0000; // halt
 
-      int inside = 1;
-      for (int e = 0; e < 3; e++) {
-        uint16_t edge = BORG_EDGE_TEST(dx[e], neg_dy[e], dpx_arr[e], dpy_arr[e]);
-        // CW winding: inside when edge <= 0 (negative)
-        if (fp16_ge_zero(edge) && edge != 0) {
-          inside = 0;
-          break;
-        }
-      }
+      int inside;
+      TEST_EDGES(dx, neg_dy, dpx_arr, dpy_arr, inside);
 
       // Fragment shader: output FP16 white (frag.s is a passthrough)
       PSRAM_OUT(FB_OFFSET + py * FB_WIDTH + px) = inside ? 0x3C00 : 0;
