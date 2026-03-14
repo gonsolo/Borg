@@ -120,6 +120,14 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
     borg_run(),                                                 \
     BORG_REG(RASTERIZE_BORG_REG_EDGE) & 0xFFFF)
 
+// Compute pixel-to-vertex distances for all 3 edges
+// Assumes ADD shader already loaded in IMEM
+#define COMPUTE_PIXEL_DELTAS(pcx, pcy, sx, sy, dpx, dpy) \
+  do { for (int e = 0; e < 3; e++) {                     \
+    dpx[e] = BORG_FP16_SUB_RAW(pcx, sx[e]);              \
+    dpy[e] = BORG_FP16_SUB_RAW(pcy, sy[e]);              \
+  } } while (0)
+
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
 typedef struct {
@@ -298,10 +306,7 @@ int main() {
       BORG_IMEM(1) = 0x0000; // halt
 
       uint16_t dpx_arr[3], dpy_arr[3];
-      for (int e = 0; e < 3; e++) {
-        dpx_arr[e] = BORG_FP16_SUB_RAW(pcx, sx[e]);
-        dpy_arr[e] = BORG_FP16_SUB_RAW(pcy, sy[e]);
-      }
+      COMPUTE_PIXEL_DELTAS(pcx, pcy, sx, sy, dpx_arr, dpy_arr);
 
       // Phase 2: Run rasterize shader for all 3 edges
       // edge = dx * dpy + neg_dy * dpx
