@@ -99,6 +99,43 @@ static inline int fp16_ge_zero(uint16_t v) {
     return (v & 0x8000) == 0;
 }
 
+typedef struct {
+    uint16_t cos_val, sin_val, nsin_val;
+    uint16_t vx[3], vy[3];
+} PipelineInput;
+
+static PipelineInput read_input(void) {
+    PipelineInput in;
+
+    // Host pre-computes cos/sin/nsin and writes them to PSRAM
+    in.cos_val  = PSRAM_IN(0);
+    for (int v = 0; v < 3; v++) {
+        in.vx[v] = PSRAM_IN(1 + v * 2);
+        in.vy[v] = PSRAM_IN(2 + v * 2);
+    }
+    in.sin_val  = PSRAM_IN(7);
+    in.nsin_val = PSRAM_IN(8);
+
+    // Clear the DONE marker from previous runs so host doesn't read stale data
+    PSRAM_OUT(FB_OFFSET + FB_WIDTH * FB_HEIGHT) = 0;
+
+    puts_uart("cos="); print_hex16(in.cos_val); puts_uart("\r\n");
+
+    // Write raw inputs to PSRAM output for host verification
+    // Output layout: [0..6] = raw inputs (angle, vx0,vy0, vx1,vy1, vx2,vy2)
+    // [7..9] = sin, cos, nsin
+    // [10..15] = rotated vertices (rx0,ry0, rx1,ry1, rx2,ry2), etc.
+    // Write raw inputs to PSRAM output for host verification
+    PSRAM_OUT(0) = in.cos_val;
+    for (int v = 0; v < 3; v++) {
+        PSRAM_OUT(1 + v * 2) = in.vx[v];
+        PSRAM_OUT(2 + v * 2) = in.vy[v];
+    }
+    puts_uart("A\r\n");
+
+    return in;
+}
+
 int main() {
     for (volatile int i = 0; i < 10000; i++) ;
     UART_BAUD = 34;
@@ -106,32 +143,7 @@ int main() {
     puts_uart("Borg debug pipeline v1\r\n");
 
     // --- Read input ---
-    // Host pre-computes cos/sin/nsin and writes them to PSRAM
-    uint16_t cos_val  = PSRAM_IN(0);
-    uint16_t vx[3], vy[3];
-    for (int v = 0; v < 3; v++) {
-        vx[v] = PSRAM_IN(1 + v * 2);
-        vy[v] = PSRAM_IN(2 + v * 2);
-    }
-    uint16_t sin_val  = PSRAM_IN(7);
-    uint16_t nsin_val = PSRAM_IN(8);
-
-    // Clear the DONE marker from previous runs so host doesn't read stale data
-    PSRAM_OUT(FB_OFFSET + FB_WIDTH * FB_HEIGHT) = 0;
-
-    puts_uart("cos="); print_hex16(cos_val); puts_uart("\r\n");
-
-    // Write raw inputs to PSRAM output for host verification
-    // Output layout: [0..6] = raw inputs (angle, vx0,vy0, vx1,vy1, vx2,vy2)
-    // [7..9] = sin, cos, nsin
-    // [10..15] = rotated vertices (rx0,ry0, rx1,ry1, rx2,ry2), etc.
-    // Write raw inputs to PSRAM output for host verification
-    PSRAM_OUT(0) = cos_val;
-    for (int v = 0; v < 3; v++) {
-        PSRAM_OUT(1 + v * 2) = vx[v];
-        PSRAM_OUT(2 + v * 2) = vy[v];
-    }
-    puts_uart("A\r\n");
+    PipelineInput in = read_input();
 
     // --- Stage 1: Vertex shader ---
     // Registers/IMEM can be safely written while BORG is halted
@@ -143,21 +155,21 @@ int main() {
     puts_uart("B\r\n");
 
     // sin/cos/nsin already read from PSRAM above
-    PSRAM_OUT(7) = sin_val;
-    PSRAM_OUT(8) = cos_val;
-    PSRAM_OUT(9) = nsin_val;
+    PSRAM_OUT(7) = in.sin_val;
+    PSRAM_OUT(8) = in.cos_val;
+    PSRAM_OUT(9) = in.nsin_val;
 
-    puts_uart("sin="); print_hex16(sin_val);
-    puts_uart(" cos="); print_hex16(cos_val); puts_uart("\r\n");
+    puts_uart("sin="); print_hex16(in.sin_val);
+    puts_uart(" cos="); print_hex16(in.cos_val); puts_uart("\r\n");
 
     uint16_t rx[3], ry[3];
     for (int v = 0; v < 3; v++) {
         BORG_CONTROL = 2;  // Reset PC before writing registers
-        BORG_REG(VERT_BORG_REG_COS)  = cos_val;
-        BORG_REG(VERT_BORG_REG_X)    = vx[v];
-        BORG_REG(VERT_BORG_REG_NSIN) = nsin_val;
-        BORG_REG(VERT_BORG_REG_SIN)  = sin_val;
-        BORG_REG(VERT_BORG_REG_Y)    = vy[v];
+        BORG_REG(VERT_BORG_REG_COS)  = in.cos_val;
+        BORG_REG(VERT_BORG_REG_X)    = in.vx[v];
+        BORG_REG(VERT_BORG_REG_NSIN) = in.nsin_val;
+        BORG_REG(VERT_BORG_REG_SIN)  = in.sin_val;
+        BORG_REG(VERT_BORG_REG_Y)    = in.vy[v];
 
         borg_run();  // Start only, no reset
 
