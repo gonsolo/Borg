@@ -140,7 +140,7 @@ object BorgTests extends TestSuite {
         (encodeInstruction(config, FNEG, rs1 = 0, rs2 = 0, rd = 2),
           8, -a, f"fneg($a%8.2f)")
       case FSTEP =>
-        val expected = if (a <= 0f) 1.0f else 0.0f
+        val expected = if (a <= 0f) 0.0f else 1.0f
         (encodeInstruction(config, FSTEP, rs1 = 0, rs2 = 0, rd = 2),
           8, expected, f"fstep($a%8.2f)")
       case fma: FMA =>
@@ -224,15 +224,15 @@ object BorgTests extends TestSuite {
         runBatch(borg, config, FMA(3), pairs)
         // FP16 FNEG: host negates values (XOR sign bit) before loading into Borg registers
 
-        // FP16 FSTEP tests
+        // FP16 FSTEP tests (inverted: <=0 -> 0.0, >0 -> 1.0)
         println("\n--- FP16 FSTEP Tests ---")
-        // Negative -> 1.0
+        // Negative -> 0.0
         runTest(borg, config, FSTEP, -2.0f, 0f)
         runTest(borg, config, FSTEP, -0.5f, 0f)
-        // Positive -> 0.0
+        // Positive -> 1.0
         runTest(borg, config, FSTEP, 1.0f, 0f)
         runTest(borg, config, FSTEP, 0.001f, 0f)
-        // Zero -> 1.0 (zero is <= 0)
+        // Zero -> 0.0 (zero is <= 0)
         runTest(borg, config, FSTEP, 0.0f, 0f)
         println("--- FP16 FSTEP Tests Passed ---\n")
 

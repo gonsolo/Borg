@@ -100,7 +100,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     when(fetchedInstruction === 0.U) {
       running := false.B
     }.otherwise {
-      busy_counter := Mux(is_fstep, 1.U, 4.U)
+      busy_counter := 4.U
     }
   }.elsewhen(is_busy) {
     busy_counter := busy_counter - 1.U
@@ -185,9 +185,10 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val reg_w_en = mmio_reg_write || pipe_reg_write
   val reg_w_addr = Mux(pipe_reg_write, rd_idx, io.address(4, 2))
 
-  // FSTEP: output 1.0 if rs1 <= 0 (sign bit set OR value is zero), else 0.0
+  // FSTEP: output 0.0 if rs1 <= 0, else 1.0 (sign-preserving step function)
+  // Compatible with existing C edge test: positive+nonzero = outside
   val fstep_is_negative_or_zero = recA_raw(config.totalBits - 1) || (recA_raw === 0.U)
-  val fstep_result = Mux(fstep_is_negative_or_zero, one_fn, 0.U(config.totalBits.W))
+  val fstep_result = Mux(fstep_is_negative_or_zero, 0.U(config.totalBits.W), one_fn)
 
   val fma_result = fNFromRecFN(config.exp, config.sig, fma.io.out)
   val reg_w_data =

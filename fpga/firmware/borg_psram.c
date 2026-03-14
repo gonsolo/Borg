@@ -114,7 +114,8 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 #define BORG_LOAD_RASTERIZE_SHADER() do { \
     BORG_IMEM(0) = 0x2420; /* fmul r0, r1, r4 */       \
     BORG_IMEM(1) = 0x4340; /* fmadd r0, r2, r3, r0 */   \
-    BORG_IMEM(2) = 0x0000; /* halt */                   \
+    BORG_IMEM(2) = 0x8000; /* fstep r0, r0 */            \
+    BORG_IMEM(3) = 0x0000; /* halt */                    \
   } while (0)
 
 // FP16 sub via Borg registers (no function call overhead).

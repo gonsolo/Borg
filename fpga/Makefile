@@ -24,6 +24,12 @@ SRC_FILES = pico_ice.v \
 	    $(wildcard ../out/borg/verilog/*.sv) \
 	    $(wildcard ../out/tinyqv/verilog/*.sv) \
 
+CHISEL_SRCS = $(wildcard ../borg/src/*.scala) $(wildcard ../tinyqv/src/*.scala)
+
+# Regenerate Verilog from Chisel when sources change
+../out/borg/verilog/Borg.sv: $(CHISEL_SRCS)
+	cd .. && mill borg.run
+
 # Hardware limits
 MAX_LUTS = 5280
 MAX_DFFS = 5280
@@ -31,7 +37,7 @@ MAX_DFFS = 5280
 YOSYS_SCRIPT = read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tinyQV_top \
 	       -json borg.json
 # Build netlist
-borg.json: $(SRC_FILES)
+borg.json: $(SRC_FILES) ../out/borg/verilog/Borg.sv
 	yosys -p "$(YOSYS_SCRIPT)" -DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
 
 # Place and Route (P&R)
