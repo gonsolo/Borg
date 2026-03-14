@@ -60,6 +60,8 @@
         pkgs.verilator
         pkgs.which
         pkgs.yosys
+        pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
+        pkgs.pkgsCross.riscv32-embedded.buildPackages.binutils
         pythonEnv
       ];
 

@@ -9,7 +9,7 @@ SECTIONS
     .boot : { *(.boot) 
         KEEP (*(.boot)) 
     } > rom
-    .vectors 0xc0 : {
+    .vectors 0x200 : {
         KEEP (*(.vectors))
     } > rom
     .srodata : { *(.srodata*) } > rom

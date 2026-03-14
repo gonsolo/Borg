@@ -22,24 +22,13 @@ extern uint32_t __peri_lma;
 //int __errno;
 
 void __attribute__((section(".early_text"))) __runtime_init(void) {
-    for (uint32_t* ptr = &__bss_start__; ptr < &__bss_end__; ) //*ptr++ = 0;
-        asm("sw4n x0, (%[p])\n\t"
-            "addi %[p], %[p], 16\n\t" :
-            [p] "+r" (ptr));
+    for (uint32_t* ptr = &__bss_start__; ptr < &__bss_end__; ) *ptr++ = 0;
     
     uint32_t* load_ptr = &__peri_lma;
     for (uint32_t* ptr = &__peri_data_start__; ptr < &__peri_data_end__; ) *ptr++ = *load_ptr++;
 
     load_ptr = &__data_lma;
-    for (uint32_t* ptr = &__data_start__; ptr < &__data_end__; ) //*ptr++ = *load_ptr++;
-        asm("lw4 a0, (%[lp])\n\t"
-            "sw4 a0, (%[p])\n\t"
-            "addi %[lp], %[lp], 16\n\t"
-            "addi %[p], %[p], 16\n\t" :
-            [p] "+r" (ptr), [lp] "+r" (load_ptr) :
-            :
-            "a0", "a1", "a2", "a3"
-            );
+    for (uint32_t* ptr = &__data_start__; ptr < &__data_end__; ) *ptr++ = *load_ptr++;
 }
 
 void *_sbrk(int incr) {

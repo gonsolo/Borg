@@ -12,7 +12,9 @@
 .globl isr_uart_writable  # Note no stack, and only use a0, a1 and s1
 isr_uart_writable:
     # Load read and write pointers.  If equal, nothing more to send
-    lw2 s1, uart_tx_write_ptr
+    la s1, uart_tx_write_ptr
+    lw a0, 4(s1)          # read_ptr -> a0 (rd+1)
+    lw s1, 0(s1)          # write_ptr -> s1 (rd)
     beq a0, s1, 1f
 
     # Send the byte to the UART
@@ -47,7 +49,9 @@ uart_putc:
     csrrc a3, mstatus, a3
 
     # Load the pointers and store the byte
-    lw2 a1, uart_tx_write_ptr
+    la a1, uart_tx_write_ptr
+    lw a2, 4(a1)          # read_ptr -> a2 (rd+1)
+    lw a1, 0(a1)          # write_ptr -> a1 (rd)
     sb a0, (a1)
 
     # Increment the write pointer
@@ -85,7 +89,9 @@ uart_putc:
 isr_uart_byte_available:
     # Increment the write pointer and check it didn't catch the
     # read pointer
-    lw2 s1, uart_rx_write_ptr
+    la s1, uart_rx_write_ptr
+    lw a0, 4(s1)          # read_ptr -> a0 (rd+1)
+    lw s1, 0(s1)          # write_ptr -> s1 (rd)
     la a1, uart_rx_buffer + UART_RX_BUF_SIZE
     addi s1, s1, 1
     beq s1, a1, 1f
@@ -130,7 +136,9 @@ uart_getc:
     csrrc a4, mstatus, a4
 
     # Load pointers, check if any data is available
-    lw2 a2, uart_rx_write_ptr
+    la a2, uart_rx_write_ptr
+    lw a3, 4(a2)          # read_ptr -> a3 (rd+1)
+    lw a2, 0(a2)          # write_ptr -> a2 (rd)
     beq a2, a3, 1f
 
     lbu a0, (a3)
@@ -148,7 +156,9 @@ uart_getc:
 
 .globl uart_is_char_available
 uart_is_char_available:
-    lw2 a2, uart_rx_write_ptr
+    la a2, uart_rx_write_ptr
+    lw a3, 4(a2)          # read_ptr -> a3 (rd+1)
+    lw a2, 0(a2)          # write_ptr -> a2 (rd)
     beq a2, a3, 1f
     li a0, 0
     ret

@@ -11,7 +11,7 @@ _boot:
     slli s1, a0, 2
     li a1, 28
     beq s1, a1, _isr_timer
-    addi a1, s1, 0x80
+    addi a1, s1, 0x1C0
     lw a1, (a1)
     jr a1
 
@@ -57,14 +57,14 @@ tqv_user_interrupt12_raw:
 tqv_user_interrupt13_raw:
 tqv_user_interrupt14_raw:
 tqv_user_interrupt15_raw:
-    addi a1, s1, 0xb0
+    addi a1, s1, 0x1F0
     full_isr_entry
     lw a1, (a1)
     jalr ra, (a1)
     isr_exit
 
 .section .vectors,"a"
-    .word isr_in0    # 0xc0-0xfc is vectors for the raw interrupts
+    .word isr_in0    # 0x200-0x23c is vectors for the raw interrupts
     .word isr_in1
     .word isr_uart_byte_available
     .word isr_uart_writable
@@ -80,7 +80,7 @@ tqv_user_interrupt15_raw:
     .word tqv_user_interrupt13_raw
     .word tqv_user_interrupt14_raw
     .word tqv_user_interrupt15_raw
-    .word tqv_user_interrupt04     # 0x100-0x12c is vectors for the custom interrupts (with full context saved)
+    .word tqv_user_interrupt04     # 0x240-0x26c is vectors for the custom interrupts (with full context saved)
     .word tqv_user_interrupt05
     .word tqv_user_interrupt06
     .word tqv_user_interrupt07

@@ -114,15 +114,6 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
     }
 
     mem_op := instr(14, 12)
-    when((is_load || is_store) && instr(13, 12) === 3.U) {
-      mem_op := 2.U(3.W)
-      additional_mem_ops := Cat(0.U(1.W), instr(14), 1.U(1.W))
-    }
-    when(is_store && instr(14, 12) === 6.U) {
-      mem_op := 2.U(3.W)
-      additional_mem_ops := Cat(0.U(1.W), instr(14), 1.U(1.W))
-      mem_op_increment_reg := false.B
-    }
 
     rs1 := instr(15 + regAddrBits - 1, 15)
     rs2 := instr(20 + regAddrBits - 1, 20)
@@ -170,14 +161,7 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
         rs1 := Cat(true.B, instr(9, 7))
         rs2 := Cat(true.B, instr(4, 2))
       }
-      is("b00111".U) { // SCXT
-        is_store := true.B
-        mem_op := 2.U
-        imm := cScxtImm
-        rs1 := 3.U // gp
-        rs2 := Cat(instr(5), 1.U(3.W))
-        additional_mem_ops := instr(4, 2)
-      }
+      // b00111 was SCXT (removed custom TinyQV instruction)
       is("b01000".U) { // ADDI
         is_alu_imm := true.B
         imm := cAluImm
@@ -265,14 +249,7 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
         rd := instr(10, 7)
         alu_op := 1.U
       }
-      is("b10001".U) { // LCXT
-        is_load := true.B
-        mem_op := 2.U
-        imm := cAddi16SpImm
-        rs1 := 3.U // gp
-        rd := Cat(instr(10), 1.U(3.W))
-        additional_mem_ops := instr(9, 7)
-      }
+      // b10001 was LCXT (removed custom TinyQV instruction)
       is("b10010".U) { // LWSP
         is_load := true.B
         mem_op := 2.U
@@ -280,13 +257,7 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
         rs1 := 2.U
         rd := instr(10, 7)
       }
-      is("b10011".U) { // LWTP
-        is_load := true.B
-        mem_op := 2.U
-        imm := cLwspImm
-        rs1 := 4.U
-        rd := instr(10, 7)
-      }
+      // b10011 was LWTP (removed - conflicts with c.flwsp encoding)
       is("b10100".U) {
         when(instr(6, 2) === 0.U) {
           when(instr(11, 7) === 0.U) { // EBREAK
@@ -313,13 +284,7 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
         rs1 := 2.U
         rs2 := instr(5, 2)
       }
-      is("b10111".U) { // SWTP
-        is_store := true.B
-        mem_op := 2.U
-        imm := cSwspImm
-        rs1 := 4.U
-        rs2 := instr(5, 2)
-      }
+      // b10111 was SWTP (removed - conflicts with c.fswsp encoding)
     }
   }
 

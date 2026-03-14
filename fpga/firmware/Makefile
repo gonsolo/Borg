@@ -1,12 +1,13 @@
 PROJECT_NAME 	?= borg_test
 PROJECT_SOURCES ?= borg_test.c
 
-RISCV_TOOLCHAIN ?= ../toolchain/tinyQV
-CC = $(RISCV_TOOLCHAIN)/bin/riscv32-unknown-elf-gcc
-AS = $(RISCV_TOOLCHAIN)/bin/riscv32-unknown-elf-as
-AR = $(RISCV_TOOLCHAIN)/bin/riscv32-unknown-elf-ar
-LD = $(RISCV_TOOLCHAIN)/bin/riscv32-unknown-elf-ld
-OBJCOPY = $(RISCV_TOOLCHAIN)/bin/riscv32-unknown-elf-objcopy
+CC = riscv32-none-elf-gcc
+ARCH = rv32ec_zicsr
+ABI = ilp32e
+AS = riscv32-none-elf-as
+AR = riscv32-none-elf-ar
+LD = riscv32-none-elf-ld
+OBJCOPY = riscv32-none-elf-objcopy
 
 TINYQV_SDK ?= ../sdk
 
@@ -24,10 +25,7 @@ clean:
 	cd $(dir $(PROJECT_NAME)) && rm -f *.o *.elf *.bin *.hex test_data.h borg_psram borg_psram.asm
 	make -C compiler clean
 
-$(RISCV_TOOLCHAIN):
-	$(MAKE) -C ../toolchain
-
-$(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s $(RISCV_TOOLCHAIN)
+$(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s
 	$(MAKE) -C $(TINYQV_SDK) $(notdir $@)
 
 borg_psram.o: compiler/vert.borg.h compiler/rasterize.borg.h
@@ -38,18 +36,18 @@ compiler/vert.borg.h:
 compiler/rasterize.borg.h:
 	$(MAKE) -C compiler rasterize.borg.h
 
-%.o: %.c test_data.h $(RISCV_TOOLCHAIN)
-	$(CC) -O2 -I$(TINYQV_SDK) -march=rv32ec_zicsr -mabi=ilp32e -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -c $< -o $@
+%.o: %.c test_data.h
+	$(CC) -O2 -I$(TINYQV_SDK) -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -c $< -o $@
 
-%.o: %.s $(RISCV_TOOLCHAIN)
-	$(AS) -march=rv32ec_zicsr_zcb_zicond -mabi=ilp32e -I$(TINYQV_SDK) $< -o $@
+%.o: %.s
+	$(AS) -march=$(ARCH) -mabi=$(ABI) -I$(TINYQV_SDK) $< -o $@
 
 .PHONY: $(TINYQV_SDK)/tinyQV.a
-$(TINYQV_SDK)/tinyQV.a: $(RISCV_TOOLCHAIN)
+$(TINYQV_SDK)/tinyQV.a:
 	$(MAKE) -C $(TINYQV_SDK)
 
-$(PROJECT_NAME).elf: $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/tinyQV.a $(RISCV_TOOLCHAIN)
-	$(LD) $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/tinyQV.a $(RISCV_TOOLCHAIN)/riscv32-unknown-elf/lib/libc.a $(RISCV_TOOLCHAIN)/lib/gcc/riscv32-unknown-elf/*/libgcc.a -T $(TINYQV_SDK)/memmap --gc-sections -o $@
+$(PROJECT_NAME).elf: $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/tinyQV.a
+	$(CC) -march=$(ARCH) -mabi=$(ABI) -nostartfiles -nostdlib -Wl,--gc-sections -T $(TINYQV_SDK)/memmap $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/tinyQV.a -lc -o $@
 
 $(PROJECT_NAME).bin: $(PROJECT_NAME).elf
 	$(OBJCOPY) $< -O binary $@
