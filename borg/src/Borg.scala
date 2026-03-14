@@ -72,9 +72,9 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val rs2_idx = if (config.totalBits >= 25) fetchedInstruction(24, 20)(2, 0) else fetchedInstruction(10, 8)
   val rd_idx = if (config.totalBits >= 32) fetchedInstruction(11, 7)(2, 0) else fetchedInstruction(4, 2)
 
-  // Operation type: ADD, MUL, FMA, FNEG
-  // FP32: bit 2 = FMA flag; funct7[28:25] = 0x0→ADD, 0x4→MUL, 0x6→FNEG (when not FMA)
-  // FP16: bits[15:13] = 000→ADD, 001→MUL, 010→FMA, 011→FNEG
+  // Operation type: ADD, MUL, FMA, FNEG, FSTEP
+  // FP32: bit 2 = FMA flag; funct7[28:25] = 0x0→ADD, 0x4→MUL, 0x6→FNEG, 0x8→FSTEP (when not FMA)
+  // FP16: bits[15:13] = 000→ADD, 001→MUL, 010→FMA, 011→FNEG, 100→FSTEP
   val is_fma = if (config.totalBits >= 32) fetchedInstruction(2) else fetchedInstruction(15, 13) === 2.U
   val is_mul = if (config.totalBits >= 32) {
     !fetchedInstruction(2) && fetchedInstruction(28, 25) === 0x4.U
@@ -86,6 +86,11 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   } else {
     fetchedInstruction(15, 13) === 3.U
   }
+  val is_fstep = if (config.totalBits >= 32) {
+    !fetchedInstruction(2) && fetchedInstruction(28, 25) === 0x8.U
+  } else {
+    fetchedInstruction(15, 13) === 4.U
+  }
 
   // rs3 index for FMA (third source register)
   val rs3_idx = if (config.totalBits >= 32) fetchedInstruction(31, 27)(2, 0) else fetchedInstruction(12, 11)
@@ -95,7 +100,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     when(fetchedInstruction === 0.U) {
       running := false.B
     }.otherwise {
-      busy_counter := 4.U
+      busy_counter := Mux(is_fstep, 1.U, 4.U)
     }
   }.elsewhen(is_busy) {
     busy_counter := busy_counter - 1.U
@@ -153,10 +158,12 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val is_mul_reg = RegInit(false.B)
   val is_fma_reg = RegInit(false.B)
   val is_fneg_reg = RegInit(false.B)
+  val is_fstep_reg = RegInit(false.B)
   when(running && !is_busy && fetchedInstruction =/= 0.U) {
     is_mul_reg := is_mul
     is_fma_reg := is_fma
     is_fneg_reg := is_fneg
+    is_fstep_reg := is_fstep
   }
 
   val fma = Module(new MulAddRecFN(config.exp, config.sig))
@@ -177,8 +184,14 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val pipe_reg_write = running && is_busy && busy_counter === 1.U
   val reg_w_en = mmio_reg_write || pipe_reg_write
   val reg_w_addr = Mux(pipe_reg_write, rd_idx, io.address(4, 2))
+
+  // FSTEP: output 1.0 if rs1 <= 0 (sign bit set OR value is zero), else 0.0
+  val fstep_is_negative_or_zero = recA_raw(config.totalBits - 1) || (recA_raw === 0.U)
+  val fstep_result = Mux(fstep_is_negative_or_zero, one_fn, 0.U(config.totalBits.W))
+
+  val fma_result = fNFromRecFN(config.exp, config.sig, fma.io.out)
   val reg_w_data =
-    Mux(pipe_reg_write, fNFromRecFN(config.exp, config.sig, fma.io.out), io.data_in)
+    Mux(pipe_reg_write, Mux(is_fstep_reg, fstep_result, fma_result), io.data_in)
 
   when(reg_w_en) {
     registerFile.write(reg_w_addr, reg_w_data)
