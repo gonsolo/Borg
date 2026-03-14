@@ -153,6 +153,16 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
     PSRAM_OUT(FB_OFFSET + (py) * FB_WIDTH + (px)) = inside ? 0x3C00 : 0; \
   } while (0)
 
+// Rasterize entire framebuffer
+#define RASTERIZE_FRAMEBUFFER(pc_lut, sx, sy, dx, neg_dy)            \
+  do { for (int py = 0; py < FB_HEIGHT; py++) {                      \
+    uint16_t pcy = pc_lut[py];                                       \
+    for (int px = 0; px < FB_WIDTH; px++) {                          \
+      uint16_t pcx = pc_lut[px];                                     \
+      RASTERIZE_PIXEL(pcx, pcy, sx, sy, dx, neg_dy, py, px);        \
+    }                                                                \
+  } } while (0)
+
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
 typedef struct {
@@ -320,15 +330,7 @@ int main() {
   };
 
   // Rasterize framebuffer
-  for (int py = 0; py < FB_HEIGHT; py++) {
-    uint16_t pcy = pc_lut[py];
-
-    for (int px = 0; px < FB_WIDTH; px++) {
-      uint16_t pcx = pc_lut[px];
-
-      RASTERIZE_PIXEL(pcx, pcy, sx, sy, dx, neg_dy, py, px);
-    }
-  }
+  RASTERIZE_FRAMEBUFFER(pc_lut, sx, sy, dx, neg_dy);
 
   // Done
   PSRAM_OUT(FB_OFFSET + FB_WIDTH * FB_HEIGHT) = 0xDEAD;
