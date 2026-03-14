@@ -298,6 +298,15 @@ static void screen_space_translate(const uint16_t *rx, const uint16_t *ry,
     puts_uart("F\r\n");                                                        \
   } while (0)
 
+// Precomputed FP16 pixel center coordinates: 0.5, 1.5, ..., 15.5
+// (avoids any CPU-side fp16 conversion which crashes TinyQV)
+static const uint16_t pc_lut[16] = {
+    0x3800, 0x3E00, 0x4100, 0x4300, // 0.5, 1.5, 2.5, 3.5
+    0x4480, 0x4580, 0x4680, 0x4780, // 4.5, 5.5, 6.5, 7.5
+    0x4840, 0x48C0, 0x4940, 0x49C0, // 8.5, 9.5, 10.5, 11.5
+    0x4A40, 0x4AC0, 0x4B40, 0x4BC0  // 12.5, 13.5, 14.5, 15.5
+};
+
 int main() {
   for (volatile int i = 0; i < 10000; i++)
     ;
@@ -319,15 +328,6 @@ int main() {
 
   uint16_t dx[3], neg_dy[3];
   COMPUTE_EDGE_VECTORS(sx, sy, dx, neg_dy);
-
-  // Precomputed FP16 pixel center coordinates: 0.5, 1.5, ..., 15.5
-  // (avoids any CPU-side fp16 conversion which crashes TinyQV)
-  static const uint16_t pc_lut[16] = {
-      0x3800, 0x3E00, 0x4100, 0x4300, // 0.5, 1.5, 2.5, 3.5
-      0x4480, 0x4580, 0x4680, 0x4780, // 4.5, 5.5, 6.5, 7.5
-      0x4840, 0x48C0, 0x4940, 0x49C0, // 8.5, 9.5, 10.5, 11.5
-      0x4A40, 0x4AC0, 0x4B40, 0x4BC0  // 12.5, 13.5, 14.5, 15.5
-  };
 
   // Rasterize framebuffer
   RASTERIZE_FRAMEBUFFER(pc_lut, sx, sy, dx, neg_dy);
