@@ -110,6 +110,16 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
     borg_run(),                    \
     BORG_REG(0) & 0xFFFF)
 
+// Run rasterize shader for one edge: returns edge value
+// Assumes fmul/fmadd/halt shader already loaded in IMEM
+#define BORG_EDGE_TEST(dx_e, neg_dy_e, dpx_e, dpy_e) (         \
+    BORG_REG(RASTERIZE_BORG_REG_DX) = (dx_e),                  \
+    BORG_REG(RASTERIZE_BORG_REG_NEG_DY) = (neg_dy_e),          \
+    BORG_REG(RASTERIZE_BORG_REG_DPX) = (dpx_e),                \
+    BORG_REG(RASTERIZE_BORG_REG_DPY) = (dpy_e),                \
+    borg_run(),                                                 \
+    BORG_REG(RASTERIZE_BORG_REG_EDGE) & 0xFFFF)
+
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
 typedef struct {
@@ -301,14 +311,7 @@ int main() {
 
       int inside = 1;
       for (int e = 0; e < 3; e++) {
-        BORG_REG(RASTERIZE_BORG_REG_DX) = dx[e];
-        BORG_REG(RASTERIZE_BORG_REG_NEG_DY) = neg_dy[e];
-        BORG_REG(RASTERIZE_BORG_REG_DPX) = dpx_arr[e];
-        BORG_REG(RASTERIZE_BORG_REG_DPY) = dpy_arr[e];
-
-        borg_run();
-
-        uint16_t edge = BORG_REG(RASTERIZE_BORG_REG_EDGE) & 0xFFFF;
+        uint16_t edge = BORG_EDGE_TEST(dx[e], neg_dy[e], dpx_arr[e], dpy_arr[e]);
         // CW winding: inside when edge <= 0 (negative)
         if (fp16_ge_zero(edge) && edge != 0) {
           inside = 0;
