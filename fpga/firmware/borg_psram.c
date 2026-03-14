@@ -138,6 +138,21 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
     }                                                                   \
   } while (0)
 
+// Rasterize one pixel: compute deltas, test edges, write fragment
+#define RASTERIZE_PIXEL(pcx, pcy, sx, sy, dx, neg_dy, py, px)   \
+  do {                                                          \
+    BORG_IMEM(0) = 0x0220;                                      \
+    BORG_IMEM(1) = 0x0000;                                      \
+    uint16_t dpx_arr[3], dpy_arr[3];                            \
+    COMPUTE_PIXEL_DELTAS(pcx, pcy, sx, sy, dpx_arr, dpy_arr);   \
+    BORG_IMEM(0) = 0x2420;                                      \
+    BORG_IMEM(1) = 0x4340;                                      \
+    BORG_IMEM(2) = 0x0000;                                      \
+    int inside;                                                 \
+    TEST_EDGES(dx, neg_dy, dpx_arr, dpy_arr, inside);           \
+    PSRAM_OUT(FB_OFFSET + (py) * FB_WIDTH + (px)) = inside ? 0x3C00 : 0; \
+  } while (0)
+
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
 typedef struct {
@@ -311,24 +326,7 @@ int main() {
     for (int px = 0; px < FB_WIDTH; px++) {
       uint16_t pcx = pc_lut[px];
 
-      // Phase 1: Compute all dpx/dpy using ADD shader (sub = add negated)
-      BORG_IMEM(0) = 0x0220; // fadd r0, r1, r2
-      BORG_IMEM(1) = 0x0000; // halt
-
-      uint16_t dpx_arr[3], dpy_arr[3];
-      COMPUTE_PIXEL_DELTAS(pcx, pcy, sx, sy, dpx_arr, dpy_arr);
-
-      // Phase 2: Run rasterize shader for all 3 edges
-      // edge = dx * dpy + neg_dy * dpx
-      BORG_IMEM(0) = 0x2420; // fmul r0, r1, r4  (dx * dpy)
-      BORG_IMEM(1) = 0x4340; // fmadd r0, r2, r3, r0  (neg_dy * dpx + dx * dpy)
-      BORG_IMEM(2) = 0x0000; // halt
-
-      int inside;
-      TEST_EDGES(dx, neg_dy, dpx_arr, dpy_arr, inside);
-
-      // Fragment shader: output FP16 white (frag.s is a passthrough)
-      PSRAM_OUT(FB_OFFSET + py * FB_WIDTH + px) = inside ? 0x3C00 : 0;
+      RASTERIZE_PIXEL(pcx, pcy, sx, sy, dx, neg_dy, py, px);
     }
   }
 
