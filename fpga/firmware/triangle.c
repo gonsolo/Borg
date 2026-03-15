@@ -120,14 +120,14 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
     BORG_IMEM(3) = 0x0000; /* halt */                    \
   } while (0)
 
-// FP16 sub via Borg registers (no function call overhead).
+// FP16 sub via Borg registers.
 // Requires ADD shader (fadd r0,r1,r2 + halt) pre-loaded in IMEM.
-// Used by COMPUTE_PIXEL_DELTAS; shader is loaded by RASTERIZE_PIXEL.
-#define BORG_FP16_SUB_RAW(a, b) ( \
-    BORG_REG(1) = (a),            \
-    BORG_REG(2) = (b) ^ 0x8000,   \
-    borg_run(),                    \
-    BORG_REG(0) & 0xFFFF)
+static uint16_t borg_fp16_sub_raw(uint16_t a, uint16_t b) {
+  BORG_REG(1) = a;
+  BORG_REG(2) = b ^ 0x8000;
+  borg_run();
+  return BORG_REG(0) & 0xFFFF;
+}
 
 // Cross product shader (like RASTERIZE but without fstep — returns raw signed value)
 #define BORG_LOAD_CROSS_SHADER() do {     \
@@ -185,8 +185,8 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 #define COMPUTE_PIXEL_DELTAS(pcx, pcy, sx, sy, dpx, dpy) \
   do { BORG_LOAD_ADD_SHADER();                            \
     for (int e = 0; e < 3; e++) {                         \
-    dpx[e] = BORG_FP16_SUB_RAW(pcx, sx[e]);              \
-    dpy[e] = BORG_FP16_SUB_RAW(pcy, sy[e]);              \
+    dpx[e] = borg_fp16_sub_raw(pcx, sx[e]);              \
+    dpy[e] = borg_fp16_sub_raw(pcy, sy[e]);              \
   } } while (0)
 
 // Test all 3 edges and set 'inside' flag.
