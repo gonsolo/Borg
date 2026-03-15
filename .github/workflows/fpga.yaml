@@ -29,7 +29,7 @@ jobs:
           ref: main
 
       - name: Create user config
-        run: nix develop --command python tt/tt_tool.py --create-user-config
+        run: nix develop --command bash -c "pip install -r tt/requirements.txt && python tt/tt_tool.py --create-user-config"
 
       - name: Create FPGA bitstream
         env:
