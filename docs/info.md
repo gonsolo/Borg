@@ -15,7 +15,7 @@ hardware on the FPGA or ASIC.
 
 ## How to test
 
-in ./fpga: ```make run_shader_test```
+in ./fpga: ```make triangle```
 
 ## External hardware
 

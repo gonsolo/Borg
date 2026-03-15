@@ -7,7 +7,7 @@ RESET   := \033[0m
 all: help
 help:
 	@echo "commands: "
-	@echo -e "$(BOLD)  triangle_ppm:\t\tRender a single triangle frame.$(RESET)"
+	@echo -e "$(BOLD)  triangle:\t\tRender a single triangle frame.$(RESET)"
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
 	@echo -e "  tio:\t\t\tConnect to the serial console."
 	@echo -e "  reset:\t\tReset the CPU."
@@ -67,12 +67,12 @@ resource_check: yosys.log
 ######### Build software and run ###################################################################
 
 # Generate firmware
-firmware/borg_psram.bin:
+firmware/triangle.bin:
 	$(MAKE) -C firmware psram
 
 # Run shading test
-triangle_ppm: firmware/borg_psram.bin
-	mpremote mount . + exec "import sys; sys.path.append('host'); import run_shader_test; run_shader_test.run_single_frame(0)" | tee /tmp/mpremote_output.txt
+triangle: firmware/triangle.bin
+	mpremote mount . + exec "import sys; sys.path.append('host'); import triangle; triangle.run_single_frame(0)" | tee /tmp/mpremote_output.txt
 
 # Catch debug output (preferably in a second shell)
 tio:
@@ -86,6 +86,5 @@ clean:
 	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
-	$(MAKE) -C host clean
 
-.PHONY: all help burn clean reset resource_check firmware/borg_psram.bin triangle_ppm tio
+.PHONY: all help burn clean reset resource_check firmware/triangle.bin triangle tio

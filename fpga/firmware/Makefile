@@ -16,19 +16,19 @@ TEST_JSON = ../../data/test_cases.json
 all: test_data.h $(PROJECT_NAME).bin $(PROJECT_NAME).hex
 
 psram:
-	$(MAKE) PROJECT_NAME=borg_psram PROJECT_SOURCES="borg_psram.c ../sdk/borg_math.c"
+	$(MAKE) PROJECT_NAME=triangle PROJECT_SOURCES="triangle.c ../sdk/borg_math.c"
 
 test_data.h: $(TEST_JSON) convert_test_data.py
 	python convert_test_data.py
 
 clean:
-	cd $(dir $(PROJECT_NAME)) && rm -f *.o *.elf *.bin *.hex test_data.h borg_psram borg_psram.asm
+	cd $(dir $(PROJECT_NAME)) && rm -f *.o *.elf *.bin *.hex test_data.h triangle triangle.asm
 	make -C compiler clean
 
 $(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s
 	$(MAKE) -C $(TINYQV_SDK) $(notdir $@)
 
-borg_psram.o: compiler/vert.borg.h compiler/rasterize.borg.h
+triangle.o: compiler/vert.borg.h compiler/rasterize.borg.h
 
 compiler/vert.borg.h:
 	$(MAKE) -C compiler vert.borg.h

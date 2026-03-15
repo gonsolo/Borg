@@ -194,7 +194,7 @@ def run():
     ice_creset_b = machine.Pin(27, machine.Pin.OUT)
     ice_creset_b.value(0)
     
-    run_tinyqv.program_firmware.program('firmware/borg_psram.bin')
+    run_tinyqv.program_firmware.program('firmware/triangle.bin')
     run_tinyqv.setup_flash()
 
     run_tinyqv.setup_ram()
@@ -614,7 +614,7 @@ def run_animation():
     ice_creset_b = machine.Pin(27, machine.Pin.OUT)
     ice_creset_b.value(0)
 
-    run_tinyqv.program_firmware.program('firmware/borg_psram.bin')
+    run_tinyqv.program_firmware.program('firmware/triangle.bin')
     run_tinyqv.setup_flash()
 
     print("\n--- Rendering 10 triangle frames ---")
@@ -624,7 +624,7 @@ def run_animation():
     print("All frames rendered.")
 
 def run_single_frame(frame=0):
-    """Render a single frame (called by 'make triangle_ppm')."""
+    """Render a single frame (called by 'make triangle')."""
     machine.freq(112_000_000)
 
     for i in range(30):
@@ -634,7 +634,7 @@ def run_single_frame(frame=0):
     ice_creset_b = machine.Pin(27, machine.Pin.OUT)
     ice_creset_b.value(0)
 
-    run_tinyqv.program_firmware.program('firmware/borg_psram.bin')
+    run_tinyqv.program_firmware.program('firmware/triangle.bin')
     run_tinyqv.setup_flash()
 
     print("\n--- Rendering triangle frame %d ---" % frame)
