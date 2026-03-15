@@ -408,16 +408,13 @@ async def test_load_bug(dut):
     input_byte = 0b01101000
     dut.ui_in.value = input_byte
 
-    def encode_clwsp(reg, base_reg, imm):
+    def encode_clwsp(reg, imm):
         scrambled = (
             ((imm << (12 - 5)) & 0b1000000000000)
             | ((imm << (4 - 2)) & 0b0000001110000)
             | ((imm >> (6 - 2)) & 0b0000000001100)
         )
-        if base_reg == 2:
-            return 0x4002 | scrambled | (reg << 7)
-        else:
-            return 0x6002 | scrambled | (reg << 7)
+        return 0x4002 | scrambled | (reg << 7)
 
     # Should start reading flash after 1 cycle
     await ClockCycles(dut.clk, 1)
@@ -426,8 +423,9 @@ async def test_load_bug(dut):
     await send_instr(dut, InstructionADDI(a0, x0, 0x001).encode())
     await send_instr(dut, InstructionBEQ(a0, x0, 270).encode())
 
-    await send_instr(dut, encode_clwsp(a3, tp, 0x44))
-    await send_instr(dut, encode_clwsp(a2, sp, 12))
+    # Use standard LW for tp-based load (LWTP was removed)
+    await send_instr(dut, InstructionLW(a3, tp, 0x44).encode())
+    await send_instr(dut, encode_clwsp(a2, 12))
     await expect_load(dut, 0x1001000 + 12, 0x123)
     await read_byte(dut, a3, input_byte)
     await read_byte(dut, a2, 0x123)
@@ -446,25 +444,13 @@ async def test_load_throughput(dut):
     input_byte = 0b01101000
     dut.ui_in.value = input_byte
 
-    def encode_clwsp(reg, base_reg, imm):
+    def encode_clwsp(reg, imm):
         scrambled = (
             ((imm << (12 - 5)) & 0b1000000000000)
             | ((imm << (4 - 2)) & 0b0000001110000)
             | ((imm >> (6 - 2)) & 0b0000000001100)
         )
-        if base_reg == 2:
-            return 0x4002 | scrambled | (reg << 7)
-        else:
-            return 0x6002 | scrambled | (reg << 7)
-
-    def encode_cswsp(base_reg, reg, imm):
-        scrambled = ((imm << (9 - 2)) & 0b1111000000000) | (
-            (imm << (7 - 6)) & 0b0000110000000
-        )
-        if base_reg == 2:
-            return 0xC002 | scrambled | (reg << 2)
-        else:
-            return 0xE002 | scrambled | (reg << 2)
+        return 0x4002 | scrambled | (reg << 7)
 
     # Should start reading flash after 1 cycle
     await ClockCycles(dut.clk, 1)
@@ -474,8 +460,9 @@ async def test_load_throughput(dut):
     await send_instr(dut, InstructionBEQ(a0, x0, 270).encode())
 
     for i in range(32):
-        await send_instr(dut, encode_clwsp(a2, sp, i * 4))
-        await send_instr(dut, encode_cswsp(tp, a2, 0x3C0))
+        await send_instr(dut, encode_clwsp(a2, i * 4))
+        # Use standard SW for tp-based store (SWTP was removed)
+        await send_instr(dut, InstructionSW(tp, a2, 0x3C0).encode())
         await expect_load(dut, 0x1001000 + i * 4, i)
 
 
@@ -491,10 +478,6 @@ async def test_multistore_interrupt(dut):
 
     input_byte = 0b01101000
     dut.ui_in.value = input_byte
-
-    def encode_sw4(base_reg, reg, imm):
-        instr = InstructionSW(base_reg, reg, imm).encode()
-        return instr | (7 << 12)
 
     # Should start reading flash after 1 cycle
     await ClockCycles(dut.clk, 1)
@@ -516,9 +499,10 @@ async def test_multistore_interrupt(dut):
     await send_instr(dut, InstructionADDI(a3, x0, 0x12).encode())
     await send_instr(dut, InstructionADDI(a4, x0, 0x13).encode())
 
+    # Use individual SW instructions (SW4 multi-word store was removed)
     for i in range(100):
-        await send_instr(dut, encode_sw4(gp, a1, i * 16))
-        await expect_store(dut, 0x1000400 + i * 16, 16)
+        await send_instr(dut, InstructionSW(gp, a1, i * 16).encode())
+        await expect_store(dut, 0x1000400 + i * 16, 4)
 
     # Interrupt should be pending
     await send_instr(dut, InstructionCSRRS(a0, x0, csrnames.mip).encode())
