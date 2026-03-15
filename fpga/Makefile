@@ -66,12 +66,9 @@ resource_check: yosys.log
 
 ######### Build software and run ###################################################################
 
-# Generate firmware
-firmware/triangle.bin:
-	$(MAKE) -C firmware psram
-
-# Run shading test
-triangle: firmware/triangle.bin
+# Build firmware and run triangle rendering
+triangle:
+	$(MAKE) -C firmware triangle
 	mpremote mount . + exec "import sys; sys.path.append('host'); import triangle; triangle.run_single_frame(0)" | tee /tmp/mpremote_output.txt
 
 # Catch debug output (preferably in a second shell)
@@ -87,4 +84,4 @@ clean:
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
 
-.PHONY: all help burn clean reset resource_check firmware/triangle.bin triangle tio
+.PHONY: all help burn clean reset resource_check triangle tio

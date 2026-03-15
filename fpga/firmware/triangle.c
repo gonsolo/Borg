@@ -53,24 +53,20 @@ void putc_uart(int c) {
     ;
   UART_TX = c;
 }
-#define puts_uart(s)                                                           \
-  do {                                                                         \
-    char *_p = (s);                                                            \
-    while (*_p)                                                                \
-      putc_uart(*_p++);                                                        \
-  } while (0)
+static void puts_uart(const char *s) {
+  while (*s)
+    putc_uart(*s++);
+}
 
 static char hex_chars[] = "0123456789abcdef";
-#define print_hex16(v)                                                         \
-  do {                                                                         \
-    unsigned int _v = (v);                                                     \
-    putc_uart('0');                                                            \
-    putc_uart('x');                                                            \
-    putc_uart(hex_chars[(_v >> 12) & 0xF]);                                    \
-    putc_uart(hex_chars[(_v >> 8) & 0xF]);                                     \
-    putc_uart(hex_chars[(_v >> 4) & 0xF]);                                     \
-    putc_uart(hex_chars[_v & 0xF]);                                            \
-  } while (0)
+static void print_hex16(unsigned int v) {
+  putc_uart('0');
+  putc_uart('x');
+  putc_uart(hex_chars[(v >> 12) & 0xF]);
+  putc_uart(hex_chars[(v >> 8) & 0xF]);
+  putc_uart(hex_chars[(v >> 4) & 0xF]);
+  putc_uart(hex_chars[v & 0xF]);
+}
 
 static void borg_run(void) {
   // Reset PC to 0
@@ -106,19 +102,12 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 #define BORG_FP16_SUB(a, b) borg_fp16_add((a), (b) ^ 0x8000)
 #define BORG_FP16_NEG(x) ((x) ^ 0x8000)
 
-// Load Borg shader programs into IMEM
-#define BORG_LOAD_ADD_SHADER() do {      \
-    BORG_IMEM(0) = 0x0210;              \
-    BORG_IMEM(1) = 0x0000;              \
-    BORG_IMEM(2) = 0x0000;              \
-    BORG_IMEM(3) = 0x0000;              \
-  } while (0)
-#define BORG_LOAD_RASTERIZE_SHADER() do { \
-    BORG_IMEM(0) = 0x4410; /* fmul r0, r1, r4 */       \
-    BORG_IMEM(1) = 0x8320; /* fmadd r0, r2, r3, r0 */   \
-    BORG_IMEM(2) = 0xD000; /* fstep r0, r0 */            \
-    BORG_IMEM(3) = 0x0000; /* halt */                    \
-  } while (0)
+static void borg_load_add_shader(void) {
+  BORG_IMEM(0) = 0x0210;
+  BORG_IMEM(1) = 0x0000;
+  BORG_IMEM(2) = 0x0000;
+  BORG_IMEM(3) = 0x0000;
+}
 
 // FP16 sub via Borg registers.
 // Requires ADD shader (fadd r0,r1,r2 + halt) pre-loaded in IMEM.
@@ -129,95 +118,61 @@ static uint16_t borg_fp16_sub_raw(uint16_t a, uint16_t b) {
   return BORG_REG(0) & 0xFFFF;
 }
 
-// Cross product shader (like RASTERIZE but without fstep — returns raw signed value)
-#define BORG_LOAD_CROSS_SHADER() do {     \
-    BORG_IMEM(0) = 0x4410;               \
-    BORG_IMEM(1) = 0x8320;               \
-    BORG_IMEM(2) = 0x0000;               \
-    BORG_IMEM(3) = 0x0000;               \
-  } while (0)
-#define BORG_LOAD_MUL_SHADER() do {       \
-    BORG_IMEM(0) = 0x4210;               \
-    BORG_IMEM(1) = 0x0000;               \
-    BORG_IMEM(2) = 0x0000;               \
-    BORG_IMEM(3) = 0x0000;               \
-  } while (0)
-#define BORG_LOAD_FMA_SHADER() do {       \
-    BORG_IMEM(0) = 0xB210;               \
-    BORG_IMEM(1) = 0x0000;               \
-    BORG_IMEM(2) = 0x0000;               \
-    BORG_IMEM(3) = 0x0000;               \
-  } while (0)
+// Cross product shader (fmul/fmadd without fstep — returns raw signed value)
+static void borg_load_cross_shader(void) {
+  BORG_IMEM(0) = 0x4410;
+  BORG_IMEM(1) = 0x8320;
+  BORG_IMEM(2) = 0x0000;
+  BORG_IMEM(3) = 0x0000;
+}
 
-#define BORG_CROSS(dx_e, neg_dy_e, dpx_e, dpy_e) ( \
-    BORG_REG(1) = (dx_e),                           \
-    BORG_REG(2) = (neg_dy_e),                        \
-    BORG_REG(3) = (dpx_e),                           \
-    BORG_REG(4) = (dpy_e),                           \
-    borg_run(),                                       \
-    BORG_REG(0) & 0xFFFF)
+static void borg_load_mul_shader(void) {
+  BORG_IMEM(0) = 0x4210;
+  BORG_IMEM(1) = 0x0000;
+  BORG_IMEM(2) = 0x0000;
+  BORG_IMEM(3) = 0x0000;
+}
 
-#define BORG_FP16_MUL_RAW(a, b) ( \
-    BORG_REG(1) = (a),            \
-    BORG_REG(2) = (b),            \
-    borg_run(),                    \
-    BORG_REG(0) & 0xFFFF)
+static void borg_load_fma_shader(void) {
+  BORG_IMEM(0) = 0xB210;
+  BORG_IMEM(1) = 0x0000;
+  BORG_IMEM(2) = 0x0000;
+  BORG_IMEM(3) = 0x0000;
+}
 
-#define BORG_FP16_FMA_RAW(a, b, c) ( \
-    BORG_REG(1) = (a),              \
-    BORG_REG(2) = (b),              \
-    BORG_REG(3) = (c),              \
-    borg_run(),                      \
-    BORG_REG(0) & 0xFFFF)
+static uint16_t borg_cross(uint16_t dx_e, uint16_t neg_dy_e, uint16_t dpx_e, uint16_t dpy_e) {
+  BORG_REG(1) = dx_e;
+  BORG_REG(2) = neg_dy_e;
+  BORG_REG(3) = dpx_e;
+  BORG_REG(4) = dpy_e;
+  borg_run();
+  return BORG_REG(0) & 0xFFFF;
+}
 
-// Evaluate edge function for one edge (no function call overhead).
-// Requires rasterize shader (fmul/fmadd/halt) pre-loaded in IMEM.
-// Used by TEST_EDGES; shader is loaded by RASTERIZE_PIXEL.
-#define BORG_EDGE_TEST(dx_e, neg_dy_e, dpx_e, dpy_e) (         \
-    BORG_REG(RASTERIZE_BORG_REG_DX) = (dx_e),                  \
-    BORG_REG(RASTERIZE_BORG_REG_NEG_DY) = (neg_dy_e),          \
-    BORG_REG(RASTERIZE_BORG_REG_DPX) = (dpx_e),                \
-    BORG_REG(RASTERIZE_BORG_REG_DPY) = (dpy_e),                \
-    borg_run(),                                                 \
-    BORG_REG(RASTERIZE_BORG_REG_EDGE) & 0xFFFF)
+static uint16_t borg_fp16_mul_raw(uint16_t a, uint16_t b) {
+  BORG_REG(1) = a;
+  BORG_REG(2) = b;
+  borg_run();
+  return BORG_REG(0) & 0xFFFF;
+}
 
-// Compute pixel-to-vertex distances for all 3 edges.
-#define COMPUTE_PIXEL_DELTAS(pcx, pcy, sx, sy, dpx, dpy) \
-  do { BORG_LOAD_ADD_SHADER();                            \
-    for (int e = 0; e < 3; e++) {                         \
-    dpx[e] = borg_fp16_sub_raw(pcx, sx[e]);              \
-    dpy[e] = borg_fp16_sub_raw(pcy, sy[e]);              \
-  } } while (0)
+static uint16_t borg_fp16_fma_raw(uint16_t a, uint16_t b, uint16_t c) {
+  BORG_REG(1) = a;
+  BORG_REG(2) = b;
+  BORG_REG(3) = c;
+  borg_run();
+  return BORG_REG(0) & 0xFFFF;
+}
 
-// Test all 3 edges and set 'inside' flag.
-#define TEST_EDGES(dx, neg_dy, dpx, dpy, inside)                        \
-  do { BORG_LOAD_RASTERIZE_SHADER();                                    \
-    inside = 1;                                                         \
-    for (int e = 0; e < 3; e++) {                                       \
-      uint16_t edge = BORG_EDGE_TEST(dx[e], neg_dy[e], dpx[e], dpy[e]); \
-      if (fp16_ge_zero(edge) && edge != 0) { inside = 0; break; }       \
-    }                                                                   \
-  } while (0)
-
-// Rasterize one pixel: compute deltas, test edges, write fragment.
-#define RASTERIZE_PIXEL(pcx, pcy, sx, sy, dx, neg_dy, py, px)   \
-  do {                                                          \
-    uint16_t dpx_arr[3], dpy_arr[3];                            \
-    COMPUTE_PIXEL_DELTAS(pcx, pcy, sx, sy, dpx_arr, dpy_arr);   \
-    int inside;                                                 \
-    TEST_EDGES(dx, neg_dy, dpx_arr, dpy_arr, inside);           \
-    PSRAM_OUT(FB_OFFSET + (py) * FB_WIDTH + (px)) = inside ? 0x3C00 : 0; \
-  } while (0)
-
-// Rasterize entire framebuffer
-#define RASTERIZE_FRAMEBUFFER(pc_lut, sx, sy, dx, neg_dy)            \
-  do { for (int py = 0; py < FB_HEIGHT; py++) {                      \
-    uint16_t pcy = pc_lut[py];                                       \
-    for (int px = 0; px < FB_WIDTH; px++) {                          \
-      uint16_t pcx = pc_lut[px];                                     \
-      RASTERIZE_PIXEL(pcx, pcy, sx, sy, dx, neg_dy, py, px);        \
-    }                                                                \
-  } } while (0)
+static void compute_pixel_deltas(uint16_t pcx, uint16_t pcy,
+                                  const uint16_t *sx, const uint16_t *sy,
+                                  uint16_t *dpx, uint16_t *dpy) {
+  borg_load_add_shader();
+  for (int e = 0; e < 3; e++) {
+    dpx[e] = borg_fp16_sub_raw(pcx, sx[e]);
+    dpy[e] = borg_fp16_sub_raw(pcy, sy[e]);
+  }
+}
 
 
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
@@ -333,27 +288,27 @@ static void screen_space_translate(const uint16_t *rx, const uint16_t *ry,
 }
 
 
-#define COMPUTE_EDGE_VECTORS(sx, sy, dx, neg_dy)                               \
-  do {                                                                         \
-    dx[0] = BORG_FP16_SUB(sx[1], sx[0]);                                       \
-    neg_dy[0] = BORG_FP16_NEG(BORG_FP16_SUB(sy[1], sy[0]));                   \
-    dx[1] = BORG_FP16_SUB(sx[2], sx[1]);                                       \
-    neg_dy[1] = BORG_FP16_NEG(BORG_FP16_SUB(sy[2], sy[1]));                   \
-    dx[2] = BORG_FP16_SUB(sx[0], sx[2]);                                       \
-    neg_dy[2] = BORG_FP16_NEG(BORG_FP16_SUB(sy[0], sy[2]));                   \
-    for (int e = 0; e < 3; e++) {                                              \
-      PSRAM_OUT(22 + e * 2 + 0) = dx[e];                                       \
-      PSRAM_OUT(22 + e * 2 + 1) = neg_dy[e];                                   \
-      puts_uart("E");                                                          \
-      putc_uart('0' + e);                                                      \
-      puts_uart(" dx=");                                                       \
-      print_hex16(dx[e]);                                                      \
-      puts_uart(" ndy=");                                                      \
-      print_hex16(neg_dy[e]);                                                  \
-      puts_uart("\r\n");                                                       \
-    }                                                                          \
-    puts_uart("F\r\n");                                                        \
-  } while (0)
+static void compute_edge_vectors(const uint16_t *sx, const uint16_t *sy,
+                                  uint16_t *dx, uint16_t *neg_dy) {
+  dx[0] = BORG_FP16_SUB(sx[1], sx[0]);
+  neg_dy[0] = BORG_FP16_NEG(BORG_FP16_SUB(sy[1], sy[0]));
+  dx[1] = BORG_FP16_SUB(sx[2], sx[1]);
+  neg_dy[1] = BORG_FP16_NEG(BORG_FP16_SUB(sy[2], sy[1]));
+  dx[2] = BORG_FP16_SUB(sx[0], sx[2]);
+  neg_dy[2] = BORG_FP16_NEG(BORG_FP16_SUB(sy[0], sy[2]));
+  for (int e = 0; e < 3; e++) {
+    PSRAM_OUT(22 + e * 2 + 0) = dx[e];
+    PSRAM_OUT(22 + e * 2 + 1) = neg_dy[e];
+    puts_uart("E");
+    putc_uart('0' + e);
+    puts_uart(" dx=");
+    print_hex16(dx[e]);
+    puts_uart(" ndy=");
+    print_hex16(neg_dy[e]);
+    puts_uart("\r\n");
+  }
+  puts_uart("F\r\n");
+}
 
 // Precomputed FP16 pixel center coordinates: 0.5, 1.5, ..., 15.5
 // (avoids any CPU-side fp16 conversion which crashes TinyQV)
@@ -371,24 +326,24 @@ static uint16_t __attribute__((noinline)) borg_bary_color(
     uint16_t *dpx, uint16_t *dpy,
     uint16_t inv_area, uint16_t *colors) {
   // Compute raw edge values with CROSS shader
-  BORG_LOAD_CROSS_SHADER();
-  uint16_t e0 = BORG_CROSS(dx[0], neg_dy[0], dpx[0], dpy[0]);
-  uint16_t e1 = BORG_CROSS(dx[1], neg_dy[1], dpx[1], dpy[1]);
-  uint16_t e2 = BORG_CROSS(dx[2], neg_dy[2], dpx[2], dpy[2]);
+  borg_load_cross_shader();
+  uint16_t e0 = borg_cross(dx[0], neg_dy[0], dpx[0], dpy[0]);
+  uint16_t e1 = borg_cross(dx[1], neg_dy[1], dpx[1], dpy[1]);
+  uint16_t e2 = borg_cross(dx[2], neg_dy[2], dpx[2], dpy[2]);
   // Inside test: all edges must be negative or zero (sign bit set or zero)
   if ((fp16_ge_zero(e0) && e0 != 0) ||
       (fp16_ge_zero(e1) && e1 != 0) ||
       (fp16_ge_zero(e2) && e2 != 0))
     return 0;
   // Weights: wi = ei * inv_area
-  BORG_LOAD_MUL_SHADER();
-  uint16_t w0 = BORG_FP16_MUL_RAW(e0, inv_area);
-  uint16_t w1 = BORG_FP16_MUL_RAW(e1, inv_area);
-  uint16_t w2 = BORG_FP16_MUL_RAW(e2, inv_area);
-  uint16_t acc = BORG_FP16_MUL_RAW(w0, colors[0]);
-  BORG_LOAD_FMA_SHADER();
-  acc = BORG_FP16_FMA_RAW(w1, colors[1], acc);
-  return BORG_FP16_FMA_RAW(w2, colors[2], acc);
+  borg_load_mul_shader();
+  uint16_t w0 = borg_fp16_mul_raw(e0, inv_area);
+  uint16_t w1 = borg_fp16_mul_raw(e1, inv_area);
+  uint16_t w2 = borg_fp16_mul_raw(e2, inv_area);
+  uint16_t acc = borg_fp16_mul_raw(w0, colors[0]);
+  borg_load_fma_shader();
+  acc = borg_fp16_fma_raw(w1, colors[1], acc);
+  return borg_fp16_fma_raw(w2, colors[2], acc);
 }
 
 int main() {
@@ -410,7 +365,7 @@ int main() {
   screen_space_translate(vout.rx, vout.ry, sx, sy);
 
   uint16_t dx[3], neg_dy[3];
-  COMPUTE_EDGE_VECTORS(sx, sy, dx, neg_dy);
+  compute_edge_vectors(sx, sy, dx, neg_dy);
 
   // Read inv_area from PSRAM (computed by host Python script)
   uint16_t inv_area = PSRAM_IN(9) & 0xFFFF;
@@ -422,7 +377,7 @@ int main() {
     for (int px = 0; px < FB_WIDTH; px++) {
       uint16_t pcx = pc_lut[px];
       uint16_t dpx_arr[3], dpy_arr[3];
-      COMPUTE_PIXEL_DELTAS(pcx, pcy, sx, sy, dpx_arr, dpy_arr);
+      compute_pixel_deltas(pcx, pcy, sx, sy, dpx_arr, dpy_arr);
       uint16_t c = borg_bary_color(dx, neg_dy, dpx_arr, dpy_arr, inv_area, colors);
       PSRAM_OUT(FB_OFFSET + py * FB_WIDTH + px) = c;
     }
