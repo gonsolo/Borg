@@ -118,48 +118,34 @@ static uint16_t borg_fp16_sub_raw(uint16_t a, uint16_t b) {
   return BORG_REG(0) & 0xFFFF;
 }
 
-// Cross product shader (fmul/fmadd without fstep — returns raw signed value)
-static void borg_load_cross_shader(void) {
+// Rasterize shader: edge function evaluation (fmul + fmadd, no fstep)
+static void borg_load_rasterize_shader(void) {
   BORG_IMEM(0) = 0x4410;
   BORG_IMEM(1) = 0x8320;
   BORG_IMEM(2) = 0x0000;
   BORG_IMEM(3) = 0x0000;
 }
 
-static void borg_load_mul_shader(void) {
-  BORG_IMEM(0) = 0x4210;
-  BORG_IMEM(1) = 0x0000;
-  BORG_IMEM(2) = 0x0000;
-  BORG_IMEM(3) = 0x0000;
+// Fragment shader: barycentric weight computation + color interpolation.
+// Uses r8-r10 (pipeline-only) for intermediate weights.
+// Inputs: r0=e0, r1=e1, r2=e2 (edge values), r3=inv_area,
+//         r4=c0, r5=c1, r6=c2 (vertex colors)
+// Output: r0 = interpolated color
+static void borg_load_frag_shader(void) {
+  BORG_IMEM(0) = 0x4308;  // fmul r8, r0, r3      (w0 = e0 * inv_area)
+  BORG_IMEM(1) = 0x4319;  // fmul r9, r1, r3      (w1 = e1 * inv_area)
+  BORG_IMEM(2) = 0x432A;  // fmul r10, r2, r3     (w2 = e2 * inv_area)
+  BORG_IMEM(3) = 0x4480;  // fmul r0, r8, r4      (acc = w0 * c0)
+  BORG_IMEM(4) = 0x8590;  // fmadd r0, r9, r5, r0 (acc += w1 * c1)
+  BORG_IMEM(5) = 0x86A0;  // fmadd r0, r10, r6, r0 (result = acc + w2 * c2)
+  BORG_IMEM(6) = 0x0000;  // halt
 }
 
-static void borg_load_fma_shader(void) {
-  BORG_IMEM(0) = 0xB210;
-  BORG_IMEM(1) = 0x0000;
-  BORG_IMEM(2) = 0x0000;
-  BORG_IMEM(3) = 0x0000;
-}
-
-static uint16_t borg_cross(uint16_t dx_e, uint16_t neg_dy_e, uint16_t dpx_e, uint16_t dpy_e) {
+static uint16_t borg_rasterize_edge(uint16_t dx_e, uint16_t neg_dy_e, uint16_t dpx_e, uint16_t dpy_e) {
   BORG_REG(1) = dx_e;
   BORG_REG(2) = neg_dy_e;
   BORG_REG(3) = dpx_e;
   BORG_REG(4) = dpy_e;
-  borg_run();
-  return BORG_REG(0) & 0xFFFF;
-}
-
-static uint16_t borg_fp16_mul_raw(uint16_t a, uint16_t b) {
-  BORG_REG(1) = a;
-  BORG_REG(2) = b;
-  borg_run();
-  return BORG_REG(0) & 0xFFFF;
-}
-
-static uint16_t borg_fp16_fma_raw(uint16_t a, uint16_t b, uint16_t c) {
-  BORG_REG(1) = a;
-  BORG_REG(2) = b;
-  BORG_REG(3) = c;
   borg_run();
   return BORG_REG(0) & 0xFFFF;
 }
@@ -325,25 +311,27 @@ static uint16_t __attribute__((noinline)) borg_bary_color(
     uint16_t *dx, uint16_t *neg_dy,
     uint16_t *dpx, uint16_t *dpy,
     uint16_t inv_area, uint16_t *colors) {
-  // Compute raw edge values with CROSS shader
-  borg_load_cross_shader();
-  uint16_t e0 = borg_cross(dx[0], neg_dy[0], dpx[0], dpy[0]);
-  uint16_t e1 = borg_cross(dx[1], neg_dy[1], dpx[1], dpy[1]);
-  uint16_t e2 = borg_cross(dx[2], neg_dy[2], dpx[2], dpy[2]);
+  // Rasterize shader: compute edge values
+  borg_load_rasterize_shader();
+  uint16_t e0 = borg_rasterize_edge(dx[0], neg_dy[0], dpx[0], dpy[0]);
+  uint16_t e1 = borg_rasterize_edge(dx[1], neg_dy[1], dpx[1], dpy[1]);
+  uint16_t e2 = borg_rasterize_edge(dx[2], neg_dy[2], dpx[2], dpy[2]);
   // Inside test: all edges must be negative or zero (sign bit set or zero)
   if ((fp16_ge_zero(e0) && e0 != 0) ||
       (fp16_ge_zero(e1) && e1 != 0) ||
       (fp16_ge_zero(e2) && e2 != 0))
     return 0;
-  // Weights: wi = ei * inv_area
-  borg_load_mul_shader();
-  uint16_t w0 = borg_fp16_mul_raw(e0, inv_area);
-  uint16_t w1 = borg_fp16_mul_raw(e1, inv_area);
-  uint16_t w2 = borg_fp16_mul_raw(e2, inv_area);
-  uint16_t acc = borg_fp16_mul_raw(w0, colors[0]);
-  borg_load_fma_shader();
-  acc = borg_fp16_fma_raw(w1, colors[1], acc);
-  return borg_fp16_fma_raw(w2, colors[2], acc);
+  // Fragment shader: weights + color interpolation in one pass
+  borg_load_frag_shader();
+  BORG_REG(0) = e0;
+  BORG_REG(1) = e1;
+  BORG_REG(2) = e2;
+  BORG_REG(3) = inv_area;
+  BORG_REG(4) = colors[0];
+  BORG_REG(5) = colors[1];
+  BORG_REG(6) = colors[2];
+  borg_run();
+  return BORG_REG(0) & 0xFFFF;
 }
 
 int main() {
