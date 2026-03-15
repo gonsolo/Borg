@@ -19,23 +19,23 @@ class BorgBackend:
         self.borg_defines = []       # (io_type, name, preg) from @borg annotations
 
     def alloc_reg(self, vreg):
-        """Allocate a physical Borg register (0-7) for a virtual register."""
+        """Allocate a physical Borg register (0-15) for a virtual register."""
         if vreg in self.vreg_to_preg:
             return self.vreg_to_preg[vreg]
-        if self.next_preg >= 8:
-            raise RuntimeError(f"Out of Borg registers (max 8), trying to alloc for {vreg}")
+        if self.next_preg >= 16:
+            raise RuntimeError(f"Out of Borg registers (max 16), trying to alloc for {vreg}")
         preg = self.next_preg
         self.vreg_to_preg[vreg] = preg
         self.next_preg += 1
         return preg
 
     def encode_fp16_fmul(self, rd, rs1, rs2):
-        """Encode FP16 fmul: bits[15:13]=001, rs2[10:8], rs1[7:5], rd[4:2]"""
-        return (1 << 13) | (rs2 << 8) | (rs1 << 5) | (rd << 2)
+        """Encode FP16 fmul: [15:14]=01, [11:8]=rs2, [7:4]=rs1, [3:0]=rd"""
+        return (1 << 14) | (rs2 << 8) | (rs1 << 4) | rd
 
     def encode_fp16_fmadd(self, rd, rs1, rs2, rs3):
-        """Encode FP16 fmadd: bits[15:13]=010, rs3[12:11], rs2[10:8], rs1[7:5], rd[4:2]"""
-        return (2 << 13) | (rs3 << 11) | (rs2 << 8) | (rs1 << 5) | (rd << 2)
+        """Encode FP16 fmadd: [15:14]=10, [13:12]=rs3, [11:8]=rs2, [7:4]=rs1, [3:0]=rd"""
+        return (2 << 14) | (rs3 << 12) | (rs2 << 8) | (rs1 << 4) | rd
 
     def lower(self, asm_text):
         """Parse pseudo-assembly and split into host/Borg operations."""

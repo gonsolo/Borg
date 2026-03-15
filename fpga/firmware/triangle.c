@@ -102,6 +102,13 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 #define BORG_FP16_SUB(a, b) borg_fp16_add((a), (b) ^ 0x8000)
 #define BORG_FP16_NEG(x) ((x) ^ 0x8000)
 
+// Vertex shader: load compiled program from generated header
+static void borg_load_vert_shader(void) {
+  for (int i = 0; i < VERT_BORG_PROGRAM_LEN; i++)
+    BORG_IMEM(i) = vert_borg_program[i];
+  BORG_IMEM(VERT_BORG_PROGRAM_LEN) = 0x0000; // halt
+}
+
 static void borg_load_add_shader(void) {
   BORG_IMEM(0) = 0x0210;
   BORG_IMEM(1) = 0x0000;
@@ -205,12 +212,7 @@ static void read_input(PipelineInput *in) {
 
 static void run_vertex_shader(const PipelineInput *in, VertexOutput *out) {
 
-  // Registers/IMEM can be safely written while BORG is halted
-  BORG_IMEM(0) = 0x4530; // fmul r0, r3, r5  (c*x)
-  BORG_IMEM(1) = 0x8640; // fmadd r0, r4, r6, r0  (rx = -s*y + c*x)
-  BORG_IMEM(2) = 0x4521; // fmul r1, r2, r5  (s*x)
-  BORG_IMEM(3) = 0x9631; // fmadd r1, r3, r6, r1  (ry = c*y + s*x)
-  BORG_IMEM(4) = 0x0000; // halt
+  borg_load_vert_shader();
   puts_uart("B\r\n");
 
   // sin/cos/nsin already read from PSRAM above
