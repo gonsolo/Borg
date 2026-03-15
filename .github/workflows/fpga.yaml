@@ -18,6 +18,9 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
 
+      - name: Generate SystemVerilog
+        run: nix develop --command make generate_verilog
+
       - name: Checkout tt-support-tools
         uses: actions/checkout@v4
         with:
@@ -31,7 +34,7 @@ jobs:
       - name: Create FPGA bitstream
         env:
           TT_FPGA_FREQ: 4
-        run: nix develop --command bash -c "make generate_verilog && python tt/tt_fpga.py harden"
+        run: nix develop --command python tt/tt_fpga.py harden
 
       - name: Upload bitstream
         if: always()
