@@ -29,7 +29,7 @@ jobs:
           ref: main
 
       - name: Install tt-support-tools dependencies
-        run: nix develop --command pip install --no-deps configupdater python-frontmatter
+        run: nix develop --command pip install --user --no-deps configupdater python-frontmatter
 
       - name: Create user config
         run: nix develop --command python tt/tt_tool.py --create-user-config
