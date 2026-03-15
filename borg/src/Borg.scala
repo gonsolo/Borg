@@ -40,8 +40,9 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   dontTouch(io)
 
   // --- Storage ---
-  // registerFile: 8 general-purpose registers for floating-point data
-  val registerFile = SyncReadMem(8, UInt(config.totalBits.W))
+  // registerFile: 16 general-purpose registers for floating-point data
+  // r0-r7 are MMIO-accessible, r8-r15 are pipeline-only
+  val registerFile = SyncReadMem(16, UInt(config.totalBits.W))
 
   // instructionMemory: 8 words of instruction memory to store the shader program
   val instructionMemory = SyncReadMem(8, UInt(config.totalBits.W))
@@ -66,34 +67,37 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     Mux(is_busy && busy_counter === 1.U, programCounter + 1.U, programCounter)
   val fetchedInstruction = instructionMemory.read(nextPC)
 
-  // --- Instruction Decoding (3-bit register indices for 8 registers) ---
-  // Must come before fetch/execute logic since is_fneg is used for busy_counter
-  val rs1_idx = if (config.totalBits >= 20) fetchedInstruction(19, 15)(2, 0) else fetchedInstruction(7, 5)
-  val rs2_idx = if (config.totalBits >= 25) fetchedInstruction(24, 20)(2, 0) else fetchedInstruction(10, 8)
-  val rd_idx = if (config.totalBits >= 32) fetchedInstruction(11, 7)(2, 0) else fetchedInstruction(4, 2)
+  // --- Instruction Decoding ---
+  // FP32: 3-bit indices extracted from RISC-V positions (r0-r7 only)
+  // FP16: 4-bit indices for 16 registers
+  //   [15:14]=op [13:12]=rs3/ext [11:8]=rs2 [7:4]=rs1 [3:0]=rd
+  val rs1_idx = if (config.totalBits >= 20) fetchedInstruction(19, 15)(2, 0) else fetchedInstruction(7, 4)
+  val rs2_idx = if (config.totalBits >= 25) fetchedInstruction(24, 20)(2, 0) else fetchedInstruction(11, 8)
+  val rd_idx = if (config.totalBits >= 32) fetchedInstruction(11, 7)(2, 0) else fetchedInstruction(3, 0)
 
   // Operation type: ADD, MUL, FMA, FNEG, FSTEP
   // FP32: bit 2 = FMA flag; funct7[28:25] = 0x0→ADD, 0x4→MUL, 0x6→FNEG, 0x8→FSTEP (when not FMA)
-  // FP16: bits[15:13] = 000→ADD, 001→MUL, 010→FMA, 011→FNEG, 100→FSTEP
-  val is_fma = if (config.totalBits >= 32) fetchedInstruction(2) else fetchedInstruction(15, 13) === 2.U
+  // FP16: bits[15:14] = 00→ADD, 01→MUL, 10→FMA, 11→extended
+  //       For extended (11): bits[13:12] = 00→FNEG, 01→FSTEP
+  val is_fma = if (config.totalBits >= 32) fetchedInstruction(2) else fetchedInstruction(15, 14) === 2.U
   val is_mul = if (config.totalBits >= 32) {
     !fetchedInstruction(2) && fetchedInstruction(28, 25) === 0x4.U
   } else {
-    fetchedInstruction(15, 13) === 1.U
+    fetchedInstruction(15, 14) === 1.U
   }
   val is_fneg = if (config.totalBits >= 32) {
     !fetchedInstruction(2) && fetchedInstruction(28, 25) === 0x6.U
   } else {
-    fetchedInstruction(15, 13) === 3.U
+    fetchedInstruction(15, 14) === 3.U && fetchedInstruction(13, 12) === 0.U
   }
   val is_fstep = if (config.totalBits >= 32) {
     !fetchedInstruction(2) && fetchedInstruction(28, 25) === 0x8.U
   } else {
-    fetchedInstruction(15, 13) === 4.U
+    fetchedInstruction(15, 14) === 3.U && fetchedInstruction(13, 12) === 1.U
   }
 
-  // rs3 index for FMA (third source register)
-  val rs3_idx = if (config.totalBits >= 32) fetchedInstruction(31, 27)(2, 0) else fetchedInstruction(12, 11)
+  // rs3 index for FMA (third source register, 2-bit for FP16 → r0-r3 only)
+  val rs3_idx = if (config.totalBits >= 32) fetchedInstruction(31, 27)(2, 0) else fetchedInstruction(13, 12)
 
   // --- Fetch & Execute Logic ---
   when(running && !is_busy) {

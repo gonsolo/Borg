@@ -94,7 +94,7 @@ static void borg_run(void) {
 // Use Borg hardware for FP16 add: result = a + b
 static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
   // Load 1-instruction ADD shader: fadd r0, r1, r2
-  BORG_IMEM(0) = 0x0220; // fadd r0, r1, r2
+  BORG_IMEM(0) = 0x0210; // fadd r0, r1, r2
   BORG_IMEM(1) = 0x0000; // halt
   BORG_REG(1) = a;
   BORG_REG(2) = b;
@@ -108,15 +108,15 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 
 // Load Borg shader programs into IMEM
 #define BORG_LOAD_ADD_SHADER() do {      \
-    BORG_IMEM(0) = 0x0220;              \
+    BORG_IMEM(0) = 0x0210;              \
     BORG_IMEM(1) = 0x0000;              \
     BORG_IMEM(2) = 0x0000;              \
     BORG_IMEM(3) = 0x0000;              \
   } while (0)
 #define BORG_LOAD_RASTERIZE_SHADER() do { \
-    BORG_IMEM(0) = 0x2420; /* fmul r0, r1, r4 */       \
-    BORG_IMEM(1) = 0x4340; /* fmadd r0, r2, r3, r0 */   \
-    BORG_IMEM(2) = 0x8000; /* fstep r0, r0 */            \
+    BORG_IMEM(0) = 0x4410; /* fmul r0, r1, r4 */       \
+    BORG_IMEM(1) = 0x8320; /* fmadd r0, r2, r3, r0 */   \
+    BORG_IMEM(2) = 0xD000; /* fstep r0, r0 */            \
     BORG_IMEM(3) = 0x0000; /* halt */                    \
   } while (0)
 
@@ -131,19 +131,19 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 
 // Cross product shader (like RASTERIZE but without fstep — returns raw signed value)
 #define BORG_LOAD_CROSS_SHADER() do {     \
-    BORG_IMEM(0) = 0x2420;               \
-    BORG_IMEM(1) = 0x4340;               \
+    BORG_IMEM(0) = 0x4410;               \
+    BORG_IMEM(1) = 0x8320;               \
     BORG_IMEM(2) = 0x0000;               \
     BORG_IMEM(3) = 0x0000;               \
   } while (0)
 #define BORG_LOAD_MUL_SHADER() do {       \
-    BORG_IMEM(0) = 0x2220;               \
+    BORG_IMEM(0) = 0x4210;               \
     BORG_IMEM(1) = 0x0000;               \
     BORG_IMEM(2) = 0x0000;               \
     BORG_IMEM(3) = 0x0000;               \
   } while (0)
 #define BORG_LOAD_FMA_SHADER() do {       \
-    BORG_IMEM(0) = 0x5A20;               \
+    BORG_IMEM(0) = 0xB210;               \
     BORG_IMEM(1) = 0x0000;               \
     BORG_IMEM(2) = 0x0000;               \
     BORG_IMEM(3) = 0x0000;               \
@@ -265,10 +265,10 @@ static void read_input(PipelineInput *in) {
 static void run_vertex_shader(const PipelineInput *in, VertexOutput *out) {
 
   // Registers/IMEM can be safely written while BORG is halted
-  BORG_IMEM(0) = 0x2560; // fmul r0, r3, r5  (c*x)
-  BORG_IMEM(1) = 0x4680; // fmadd r0, r4, r6, r0  (rx = -s*y + c*x)
-  BORG_IMEM(2) = 0x2544; // fmul r1, r2, r5  (s*x)
-  BORG_IMEM(3) = 0x4E64; // fmadd r1, r3, r6, r1  (ry = c*y + s*x)
+  BORG_IMEM(0) = 0x4530; // fmul r0, r3, r5  (c*x)
+  BORG_IMEM(1) = 0x8640; // fmadd r0, r4, r6, r0  (rx = -s*y + c*x)
+  BORG_IMEM(2) = 0x4521; // fmul r1, r2, r5  (s*x)
+  BORG_IMEM(3) = 0x9631; // fmadd r1, r3, r6, r1  (ry = c*y + s*x)
   BORG_IMEM(4) = 0x0000; // halt
   puts_uart("B\r\n");
 

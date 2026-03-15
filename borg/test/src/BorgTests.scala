@@ -87,11 +87,11 @@ object BorgTests extends TestSuite {
       case FNEG    => BigInt((0x6  << 25) | (rs1 << 15) | (rd << 7))
       case FSTEP   => BigInt((0x8  << 25) | (rs1 << 15) | (rd << 7))
     } else op match {
-      case ADD     => BigInt((rs2 << 8) | (rs1 << 5) | (rd << 2))
-      case MUL     => BigInt((1 << 13) | (rs2 << 8) | (rs1 << 5) | (rd << 2))
-      case FMA(r3) => BigInt((2 << 13) | (r3 << 11) | (rs2 << 8) | (rs1 << 5) | (rd << 2))
-      case FNEG    => BigInt((3 << 13) | (rs1 << 5) | (rd << 2))
-      case FSTEP   => BigInt((4 << 13) | (rs1 << 5) | (rd << 2))
+      case ADD     => BigInt((rs2 << 8) | (rs1 << 4) | rd)
+      case MUL     => BigInt((1 << 14) | (rs2 << 8) | (rs1 << 4) | rd)
+      case FMA(r3) => BigInt((2 << 14) | (r3 << 12) | (rs2 << 8) | (rs1 << 4) | rd)
+      case FNEG    => BigInt((3 << 14) | (rs1 << 4) | rd)
+      case FSTEP   => BigInt((3 << 14) | (1 << 12) | (rs1 << 4) | rd)
     }
   }
 
