@@ -19,7 +19,7 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@main
 
       - name: Create FPGA bitstream
-        run: nix develop --command make -C fpga borg.bin
+        run: nix develop --command bash -c "make generate_verilog && make -C fpga borg.bin"
 
       - name: Upload bitstream
         if: always()
