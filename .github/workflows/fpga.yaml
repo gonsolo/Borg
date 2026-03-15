@@ -18,35 +18,12 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
 
-      - name: Generate SystemVerilog
-        run: nix develop --command make generate_verilog
-
-      - name: Checkout tt-support-tools
-        uses: actions/checkout@v4
-        with:
-          repository: TinyTapeout/tt-support-tools
-          path: tt
-          ref: main
-
-      - name: Install tt-support-tools dependencies
-        run: nix develop --command pip install --user --no-deps configupdater python-frontmatter
-
-      - name: Create user config
-        run: nix develop --command python tt/tt_tool.py --create-user-config
-
       - name: Create FPGA bitstream
-        env:
-          TT_FPGA_FREQ: 4
-        run: nix develop --command python tt/tt_fpga.py harden
+        run: nix develop --command make -C fpga borg.bin
 
       - name: Upload bitstream
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: fpga_bitstream
-          path: |
-            build/*
-            docs/*
-            src/*
-            info.yaml
-            LICENSE
+          path: fpga/borg.bin
