@@ -15,21 +15,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 25
-
-      - name: Install Mill
-        run: |
-          curl -L https://repo1.maven.org/maven2/com/lihaoyi/mill-dist/1.0.6/mill-dist-1.0.6-mill.sh -o mill
-          chmod +x mill
-          mv mill /usr/local/bin
-
-      - name: Generate SystemVerilog
-        shell: bash
-        run: make generate_verilog
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
 
       - name: Checkout tt-support-tools
         uses: actions/checkout@v4
@@ -38,30 +25,13 @@ jobs:
           path: tt
           ref: main
 
-      - name: Setup python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          pip install -r tt/requirements.txt
-          pip install -r test/requirements.txt
-
       - name: Create user config
-        run: python tt/tt_tool.py --create-user-config
-
-      - name: Install oss-cad-suite
-        uses: YosysHQ/setup-oss-cad-suite@v3
-        with:
-          python-override: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        run: nix develop --command python tt/tt_tool.py --create-user-config
 
       - name: Create FPGA bitstream
         env:
           TT_FPGA_FREQ: 4
-        run: python tt/tt_fpga.py harden
+        run: nix develop --command bash -c "make generate_verilog && python tt/tt_fpga.py harden"
 
       - name: Upload bitstream
         if: always()
