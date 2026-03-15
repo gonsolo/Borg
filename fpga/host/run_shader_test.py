@@ -464,6 +464,23 @@ def render_frame(frame):
     qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 7 * 4, sin_fp)
     qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 8 * 4, nsin_fp)
 
+    # Compute inv_area for barycentric interpolation
+    sx_list, sy_list = [], []
+    for vx, vy in TRI:
+        rx = cos_a * vx - sin_a * vy
+        ry = sin_a * vx + cos_a * vy
+        sx_list.append(rx + 8.0)
+        sy_list.append(ry + 8.0)
+    cx, cy = sum(sx_list) / 3.0, sum(sy_list) / 3.0
+    e0 = edge_fn(sx_list[0], sy_list[0], sx_list[1], sy_list[1], cx, cy)
+    e1 = edge_fn(sx_list[1], sy_list[1], sx_list[2], sy_list[2], cx, cy)
+    e2 = edge_fn(sx_list[2], sy_list[2], sx_list[0], sy_list[0], cx, cy)
+    total_area = e0 + e1 + e2
+    inv_area_val = 1.0 / total_area if abs(total_area) > 1e-10 else 0.0
+    inv_area_fp = float_to_fp16(inv_area_val)
+    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 9 * 4, inv_area_fp)
+    print(f"inv_area={inv_area_val:.6f} fp16=0x{inv_area_fp:04X} total={total_area:.4f}")
+
     for i in range(32, 288):
         qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + i * 4, 0)
 
@@ -525,7 +542,7 @@ def render_frame(frame):
     clk.off()
 
     _clk = machine.PWM(Pin(24), freq=4_000_000, duty_u16=32768)
-    time.sleep(2)
+    time.sleep(5)
 
     # --- Stop and reset FPGA ---
     _clk.deinit()

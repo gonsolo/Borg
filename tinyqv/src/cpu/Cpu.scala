@@ -101,7 +101,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends RawModule {
     core.io.rd := rd
     core.io.interrupt_req := io.interrupt_req
     
-    val pc = RegInit(0.U(32.W))
+    val pc = Wire(UInt(32.W))
     core.io.pc := MuxLookup(counter_hi, 0.U(4.W))( (0 until 8).map(i => i.U -> pc(i*4+3, i*4)) )
     
     val next_pc_for_core = Wire(UInt(32.W))
@@ -326,5 +326,8 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends RawModule {
     io.debug_reg_wen := core.io.debug_reg_wen
     io.debug_counter_0 := counter_hi === 0.U
     io.debug_rd := core.io.debug_rd
+    io.debug_pc := pc
+    io.debug_imm := imm
+    io.debug_counter_hi := counter_hi
   }
 }

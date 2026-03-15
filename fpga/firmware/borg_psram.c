@@ -108,8 +108,10 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 
 // Load Borg shader programs into IMEM
 #define BORG_LOAD_ADD_SHADER() do {      \
-    BORG_IMEM(0) = 0x0220; /* fadd r0, r1, r2 */ \
-    BORG_IMEM(1) = 0x0000; /* halt */    \
+    BORG_IMEM(0) = 0x0220;              \
+    BORG_IMEM(1) = 0x0000;              \
+    BORG_IMEM(2) = 0x0000;              \
+    BORG_IMEM(3) = 0x0000;              \
   } while (0)
 #define BORG_LOAD_RASTERIZE_SHADER() do { \
     BORG_IMEM(0) = 0x2420; /* fmul r0, r1, r4 */       \
@@ -125,6 +127,47 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
     BORG_REG(1) = (a),            \
     BORG_REG(2) = (b) ^ 0x8000,   \
     borg_run(),                    \
+    BORG_REG(0) & 0xFFFF)
+
+// Cross product shader (like RASTERIZE but without fstep — returns raw signed value)
+#define BORG_LOAD_CROSS_SHADER() do {     \
+    BORG_IMEM(0) = 0x2420;               \
+    BORG_IMEM(1) = 0x4340;               \
+    BORG_IMEM(2) = 0x0000;               \
+    BORG_IMEM(3) = 0x0000;               \
+  } while (0)
+#define BORG_LOAD_MUL_SHADER() do {       \
+    BORG_IMEM(0) = 0x2220;               \
+    BORG_IMEM(1) = 0x0000;               \
+    BORG_IMEM(2) = 0x0000;               \
+    BORG_IMEM(3) = 0x0000;               \
+  } while (0)
+#define BORG_LOAD_FMA_SHADER() do {       \
+    BORG_IMEM(0) = 0x5A20;               \
+    BORG_IMEM(1) = 0x0000;               \
+    BORG_IMEM(2) = 0x0000;               \
+    BORG_IMEM(3) = 0x0000;               \
+  } while (0)
+
+#define BORG_CROSS(dx_e, neg_dy_e, dpx_e, dpy_e) ( \
+    BORG_REG(1) = (dx_e),                           \
+    BORG_REG(2) = (neg_dy_e),                        \
+    BORG_REG(3) = (dpx_e),                           \
+    BORG_REG(4) = (dpy_e),                           \
+    borg_run(),                                       \
+    BORG_REG(0) & 0xFFFF)
+
+#define BORG_FP16_MUL_RAW(a, b) ( \
+    BORG_REG(1) = (a),            \
+    BORG_REG(2) = (b),            \
+    borg_run(),                    \
+    BORG_REG(0) & 0xFFFF)
+
+#define BORG_FP16_FMA_RAW(a, b, c) ( \
+    BORG_REG(1) = (a),              \
+    BORG_REG(2) = (b),              \
+    BORG_REG(3) = (c),              \
+    borg_run(),                      \
     BORG_REG(0) & 0xFFFF)
 
 // Evaluate edge function for one edge (no function call overhead).
@@ -175,6 +218,7 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
       RASTERIZE_PIXEL(pcx, pcy, sx, sy, dx, neg_dy, py, px);        \
     }                                                                \
   } } while (0)
+
 
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
@@ -320,6 +364,33 @@ static const uint16_t pc_lut[16] = {
     0x4A40, 0x4AC0, 0x4B40, 0x4BC0  // 12.5, 13.5, 14.5, 15.5
 };
 
+// Barycentric interpolation for one pixel (noinline to keep main small)
+// Returns 0 for outside pixels, interpolated color for inside pixels.
+static uint16_t __attribute__((noinline)) borg_bary_color(
+    uint16_t *dx, uint16_t *neg_dy,
+    uint16_t *dpx, uint16_t *dpy,
+    uint16_t inv_area, uint16_t *colors) {
+  // Compute raw edge values with CROSS shader
+  BORG_LOAD_CROSS_SHADER();
+  uint16_t e0 = BORG_CROSS(dx[0], neg_dy[0], dpx[0], dpy[0]);
+  uint16_t e1 = BORG_CROSS(dx[1], neg_dy[1], dpx[1], dpy[1]);
+  uint16_t e2 = BORG_CROSS(dx[2], neg_dy[2], dpx[2], dpy[2]);
+  // Inside test: all edges must be negative or zero (sign bit set or zero)
+  if ((fp16_ge_zero(e0) && e0 != 0) ||
+      (fp16_ge_zero(e1) && e1 != 0) ||
+      (fp16_ge_zero(e2) && e2 != 0))
+    return 0;
+  // Weights: wi = ei * inv_area
+  BORG_LOAD_MUL_SHADER();
+  uint16_t w0 = BORG_FP16_MUL_RAW(e0, inv_area);
+  uint16_t w1 = BORG_FP16_MUL_RAW(e1, inv_area);
+  uint16_t w2 = BORG_FP16_MUL_RAW(e2, inv_area);
+  uint16_t acc = BORG_FP16_MUL_RAW(w0, colors[0]);
+  BORG_LOAD_FMA_SHADER();
+  acc = BORG_FP16_FMA_RAW(w1, colors[1], acc);
+  return BORG_FP16_FMA_RAW(w2, colors[2], acc);
+}
+
 int main() {
   STARTUP_DELAY();
   UART_BAUD = 34;
@@ -341,8 +412,21 @@ int main() {
   uint16_t dx[3], neg_dy[3];
   COMPUTE_EDGE_VECTORS(sx, sy, dx, neg_dy);
 
-  // Rasterize framebuffer
-  RASTERIZE_FRAMEBUFFER(pc_lut, sx, sy, dx, neg_dy);
+  // Read inv_area from PSRAM (computed by host Python script)
+  uint16_t inv_area = PSRAM_IN(9) & 0xFFFF;
+  uint16_t colors[3] = { FP16_ONE, FP16_HALF, 0 };
+
+  // Nested loop (for disassembly comparison - this hangs on TinyQV)
+  for (int py = 0; py < FB_HEIGHT; py++) {
+    uint16_t pcy = pc_lut[py];
+    for (int px = 0; px < FB_WIDTH; px++) {
+      uint16_t pcx = pc_lut[px];
+      uint16_t dpx_arr[3], dpy_arr[3];
+      COMPUTE_PIXEL_DELTAS(pcx, pcy, sx, sy, dpx_arr, dpy_arr);
+      uint16_t c = borg_bary_color(dx, neg_dy, dpx_arr, dpy_arr, inv_area, colors);
+      PSRAM_OUT(FB_OFFSET + py * FB_WIDTH + px) = c;
+    }
+  }
 
   // Done
   PSRAM_OUT(FB_OFFSET + FB_WIDTH * FB_HEIGHT) = 0xDEAD;

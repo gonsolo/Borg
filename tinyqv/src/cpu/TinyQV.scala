@@ -43,6 +43,9 @@ class TinyQVCpuIO extends Bundle {
   val debug_reg_wen = Output(Bool())
   val debug_counter_0 = Output(Bool())
   val debug_rd = Output(UInt(4.W))
+  val debug_pc = Output(UInt(32.W))
+  val debug_imm = Output(UInt(32.W))
+  val debug_counter_hi = Output(UInt(3.W))
 }
 
 class TinyQVMemCtrlIO extends Bundle {
