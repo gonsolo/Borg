@@ -33,8 +33,8 @@
     fsw f4, 0(a4)            # Store edge result
     ret
 
-# @borg input dx f0
-# @borg input neg_dy f1
-# @borg input dpx f2
-# @borg input dpy f3
+# @borg attribute dx f0
+# @borg attribute neg_dy f1
+# @borg attribute dpx f2
+# @borg attribute dpy f3
 # @borg output edge f4

@@ -30,11 +30,13 @@ $(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s
 
 triangle.o: compiler/vert.borg.h compiler/rasterize.borg.h
 
-compiler/vert.borg.h:
+compiler/vert.borg.h: FORCE
 	$(MAKE) -C compiler vert.borg.h
 
-compiler/rasterize.borg.h:
+compiler/rasterize.borg.h: FORCE
 	$(MAKE) -C compiler rasterize.borg.h
+
+FORCE:
 
 %.o: %.c test_data.h
 	$(CC) -O2 -I$(TINYQV_SDK) -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -c $< -o $@

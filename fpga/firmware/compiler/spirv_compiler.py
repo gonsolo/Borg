@@ -75,21 +75,29 @@ class TinySpirvCompiler:
 
             if opcode == "OpName": 
                 self.id_to_name[t[1]] = t[2].strip('"')
-            elif opcode == "OpConstant": 
-                self.constants[res_id] = t[-1]
+            elif opcode == "OpConstant":
+                # Extract value from raw line (regex \w+ misses negative signs)
+                val_match = re.search(r'OpConstant\s+\S+\s+(-?[\d.]+)', line)
+                self.constants[res_id] = val_match.group(1) if val_match else t[-1]
             elif opcode == "OpVariable":
                 name = self.id_to_name.get(res_id, "unknown")
                 if name in self.name_to_base:
                     self.ptr_map[res_id] = (self.name_to_base[name], 0)
                 elif res_id == "%_": # Explicit gl_Position catch
                     self.ptr_map[res_id] = ("a4", 0)
-            elif opcode == "OpCompositeConstruct":
+            elif opcode in ("OpCompositeConstruct", "OpConstantComposite"):
                 self.composites[res_id] = [a for a in args[1:] if a.startswith('%')]
 
         # --- PASS 2: Code Generation ---
         self.asm.append(f"# Compiled from {filename}\n# a0=pc, a1=inPos, a2=inColor, a3=fragColor, a4=gl_Pos")
         self.emit("li.s f_zero, 0.0")
         self.emit("li.s f_one, 1.0")
+        # Emit li.s for all other float constants (e.g. -2.0 from translations)
+        for cid, cval in self.constants.items():
+            # Skip integer constants and well-known float constants
+            if cid.startswith("%float") and cid not in ("%float_0", "%float_1"):
+                reg = self.get_reg(cid)
+                self.emit(f"li.s {reg}, {cval}")
 
         for line in raw:
             t = re.findall(r'%\w+|Op\w+|"(?:[^"\\]|\\.)*"|\w+', line)
@@ -126,8 +134,8 @@ class TinySpirvCompiler:
                             y_reg = self.get_reg(y_id) # Safe creation!
                             self.emit(f"flw {y_reg}, {ptr[1]+4}({ptr[0]})", "Load inPos.y")
                             self.composites[res_id] = [x_id, y_id]
-                            self.borg_io.append(("input", "x", dest))
-                            self.borg_io.append(("input", "y", y_reg))
+                            self.borg_io.append(("attribute", "x", dest))
+                            self.borg_io.append(("attribute", "y", y_reg))
 
             elif opcode == "OpExtInst":
                 op = args[2].lower()
@@ -135,16 +143,41 @@ class TinySpirvCompiler:
                 self.emit(f"f{op}.s {reg}, {self.get_reg(args[3])}")
                 if op == "sin":
                     self.vreg_roles[res_id] = "sin"
-                    self.borg_io.append(("input", "sin", reg))
+                    self.borg_io.append(("uniform", "sin", reg))
                 elif op == "cos":
                     self.vreg_roles[res_id] = "cos"
-                    self.borg_io.append(("input", "cos", reg))
+                    self.borg_io.append(("uniform", "cos", reg))
 
             elif opcode == "OpFNegate":
                 reg = self.get_reg(res_id)
                 self.emit(f"fneg.s {reg}, {self.get_reg(args[1])}")
                 if self.vreg_roles.get(args[1]) == "sin":
-                    self.borg_io.append(("input", "nsin", reg))
+                    self.borg_io.append(("uniform", "nsin", reg))
+
+            elif opcode == "OpFAdd":
+                # Check if operands are composites (vec2/vec3/vec4)
+                flat_a = self.resolve_flat(args[1])
+                flat_b = self.resolve_flat(args[2])
+                if len(flat_a) > 1 and len(flat_b) == len(flat_a):
+                    # Component-wise vec add — write back to source regs to stay MMIO-accessible
+                    # Skip no-op adds (adding f_zero / 0.0)
+                    comp_ids = []
+                    for i in range(len(flat_a)):
+                        comp_id = f"{res_id}_c{i}"
+                        if flat_b[i] == "f_zero":
+                            # Adding 0.0 is a no-op — just alias the source register
+                            self.reg_map[comp_id] = flat_a[i]
+                        else:
+                            self.reg_map[comp_id] = flat_a[i]  # reuse source register
+                            self.emit(f"fadd.s {flat_a[i]}, {flat_a[i]}, {flat_b[i]}", f"translate [{i}]")
+                        comp_ids.append(comp_id)
+                    self.composites[res_id] = comp_ids
+                else:
+                    # Scalar add
+                    reg = self.get_reg(res_id)
+                    ra = flat_a[0]
+                    rb = flat_b[0]
+                    self.emit(f"fadd.s {reg}, {ra}, {rb}", f"{reg} = {ra} + {rb}")
 
             elif opcode == "OpCompositeExtract":
                 flat = self.resolve_flat(args[1])
@@ -160,11 +193,9 @@ class TinySpirvCompiler:
                     self.emit(f"fmul.s f31, {m[1]}, {v[0]}", "s*x")
                     self.emit(f"fmadd.s f31, {m[3]}, {v[1]}, f31", "ry = c*y + s*x")
                     
-                    # Store to logical coordinates
-                    self.composites[res_id] = [res_id+"_x", res_id+"_y", "float_0", "float_1"]
+                    # Store as vec2 result (vec4 wrapping happens in OpCompositeConstruct)
+                    self.composites[res_id] = [res_id+"_x", res_id+"_y"]
                     self.reg_map[res_id+"_x"], self.reg_map[res_id+"_y"] = "f30", "f31"
-                    self.borg_io.append(("output", "rx", "f30"))
-                    self.borg_io.append(("output", "ry", "f31"))
 
             elif opcode == "OpStore":
                 ptr_id, val_id = args[0], args[1]
@@ -178,6 +209,10 @@ class TinySpirvCompiler:
                         flat_vals = self.resolve_flat(val_id)
                         for i, r in enumerate(flat_vals):
                             self.emit(f"fsw {r}, {offset + (i*4)}({base_reg})", f"Store {r}")
+                        # Track outputs for gl_Position (a4)
+                        if base_reg == "a4" and len(flat_vals) >= 2:
+                            self.borg_io.append(("output", "rx", flat_vals[0]))
+                            self.borg_io.append(("output", "ry", flat_vals[1]))
                 else:
                     # Virtual store for local variables (%s, %c, etc.)
                     self.local_vars[ptr_id] = val_id

@@ -170,108 +170,59 @@ static void compute_pixel_deltas(uint16_t pcx, uint16_t pcy,
 
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
-typedef struct {
-  uint16_t rx[3], ry[3];
-} VertexOutput;
 
-typedef struct {
-  uint16_t cos_val, sin_val, nsin_val;
-  uint16_t vx[3], vy[3];
-} PipelineInput;
+// Standardized PSRAM input layout:
+//   [0..NUM_UNIFORMS-1] = shader uniforms
+//   [NUM_UNIFORMS..NUM_UNIFORMS+3*NUM_ATTRIBUTES-1] = vertex attributes (3 vertices)
+#define NUM_VERTICES 3
 
-static void read_input(PipelineInput *in) {
+static void read_input(uint16_t *uniforms, uint16_t attrs[][VERT_NUM_ATTRIBUTES]) {
+  // Read uniforms
+  for (int i = 0; i < VERT_NUM_UNIFORMS; i++)
+    uniforms[i] = PSRAM_IN(i);
 
-  // Host pre-computes cos/sin/nsin and writes them to PSRAM
-  in->cos_val = PSRAM_IN(0);
-  for (int v = 0; v < 3; v++) {
-    in->vx[v] = PSRAM_IN(1 + v * 2);
-    in->vy[v] = PSRAM_IN(2 + v * 2);
-  }
-  in->sin_val = PSRAM_IN(7);
-  in->nsin_val = PSRAM_IN(8);
+  // Read vertex attributes
+  for (int v = 0; v < NUM_VERTICES; v++)
+    for (int i = 0; i < VERT_NUM_ATTRIBUTES; i++)
+      attrs[v][i] = PSRAM_IN(VERT_NUM_UNIFORMS + v * VERT_NUM_ATTRIBUTES + i);
 
   // Clear the DONE marker from previous runs so host doesn't read stale data
   PSRAM_OUT(FB_OFFSET + FB_WIDTH * FB_HEIGHT) = 0;
-
-  puts_uart("cos=");
-  print_hex16(in->cos_val);
-  puts_uart("\r\n");
-
-  // Write raw inputs to PSRAM output for host verification
-  // Output layout: [0..6] = raw inputs (angle, vx0,vy0, vx1,vy1, vx2,vy2)
-  // [7..9] = sin, cos, nsin
-  // [10..15] = rotated vertices (rx0,ry0, rx1,ry1, rx2,ry2), etc.
-  // Write raw inputs to PSRAM output for host verification
-  PSRAM_OUT(0) = in->cos_val;
-  for (int v = 0; v < 3; v++) {
-    PSRAM_OUT(1 + v * 2) = in->vx[v];
-    PSRAM_OUT(2 + v * 2) = in->vy[v];
-  }
   puts_uart("A\r\n");
 }
 
-static void run_vertex_shader(const PipelineInput *in, VertexOutput *out) {
-
+static void run_vertex_shader(const uint16_t *uniforms,
+                               const uint16_t attrs[][VERT_NUM_ATTRIBUTES],
+                               uint16_t outputs[][VERT_NUM_OUTPUTS]) {
   borg_load_vert_shader();
-  puts_uart("B\r\n");
 
-  // sin/cos/nsin already read from PSRAM above
-  PSRAM_OUT(7) = in->sin_val;
-  PSRAM_OUT(8) = in->cos_val;
-  PSRAM_OUT(9) = in->nsin_val;
+  // Load uniforms once (they persist across borg_run calls)
+  for (int i = 0; i < VERT_NUM_UNIFORMS; i++)
+    BORG_REG(vert_uniform_regs[i]) = uniforms[i];
 
-  puts_uart("sin=");
-  print_hex16(in->sin_val);
-  puts_uart(" cos=");
-  print_hex16(in->cos_val);
-  puts_uart("\r\n");
-
-  for (int v = 0; v < 3; v++) {
-    BORG_CONTROL = 2; // Reset PC before writing registers
-    BORG_REG(VERT_BORG_REG_COS) = in->cos_val;
-    BORG_REG(VERT_BORG_REG_X) = in->vx[v];
-    BORG_REG(VERT_BORG_REG_NSIN) = in->nsin_val;
-    BORG_REG(VERT_BORG_REG_SIN) = in->sin_val;
-    BORG_REG(VERT_BORG_REG_Y) = in->vy[v];
-
-    borg_run(); // Start only, no reset
-
-    out->rx[v] = BORG_REG(VERT_BORG_REG_RX) & 0xFFFF;
-    out->ry[v] = BORG_REG(VERT_BORG_REG_RY) & 0xFFFF;
-
-    puts_uart("V");
-    putc_uart('0' + v);
-    puts_uart(" rx=");
-    print_hex16(out->rx[v]);
-    puts_uart(" ry=");
-    print_hex16(out->ry[v]);
-    puts_uart("\r\n");
-  }
-
-  // Write rotated vertices to output [10..15]
-  for (int v = 0; v < 3; v++) {
-    PSRAM_OUT(10 + v * 2 + 0) = out->rx[v];
-    PSRAM_OUT(10 + v * 2 + 1) = out->ry[v];
+  for (int v = 0; v < NUM_VERTICES; v++) {
+    BORG_CONTROL = 2; // Reset PC
+    // Reload uniforms after PC reset (reset clears register writes in flight)
+    for (int i = 0; i < VERT_NUM_UNIFORMS; i++)
+      BORG_REG(vert_uniform_regs[i]) = uniforms[i];
+    for (int i = 0; i < VERT_NUM_ATTRIBUTES; i++)
+      BORG_REG(vert_attribute_regs[i]) = attrs[v][i];
+#if VERT_NUM_CONSTS > 0
+    for (int i = 0; i < VERT_NUM_CONSTS; i++)
+      BORG_REG(vert_const_regs[i]) = vert_const_vals[i];
+#endif
+    borg_run();
+    for (int i = 0; i < VERT_NUM_OUTPUTS; i++)
+      outputs[v][i] = BORG_REG(vert_output_regs[i]) & 0xFFFF;
   }
   puts_uart("D\r\n");
 }
 
-static void screen_space_translate(const uint16_t *rx, const uint16_t *ry,
-                                   uint16_t *sx, uint16_t *sy) {
-  puts_uart("E\r\n");
-  for (int v = 0; v < 3; v++) {
-    sx[v] = borg_fp16_add(rx[v], FP16_EIGHT);
-    sy[v] = borg_fp16_add(ry[v], FP16_EIGHT);
-    PSRAM_OUT(16 + v * 2 + 0) = sx[v];
-    PSRAM_OUT(16 + v * 2 + 1) = sy[v];
-
-    puts_uart("S");
-    putc_uart('0' + v);
-    puts_uart(" sx=");
-    print_hex16(sx[v]);
-    puts_uart(" sy=");
-    print_hex16(sy[v]);
-    puts_uart("\r\n");
+static void screen_space_translate(const uint16_t vout[][VERT_NUM_OUTPUTS],
+                                    uint16_t *sx, uint16_t *sy) {
+  for (int v = 0; v < NUM_VERTICES; v++) {
+    sx[v] = borg_fp16_add(vout[v][0], FP16_EIGHT);
+    sy[v] = borg_fp16_add(vout[v][1], FP16_EIGHT);
   }
 }
 
@@ -340,25 +291,26 @@ int main() {
   STARTUP_DELAY();
   UART_BAUD = 34;
 
-  puts_uart("Borg debug pipeline v1\r\n");
+  puts_uart("Borg pipeline\r\n");
 
-  // Read input
-  PipelineInput in;
-  read_input(&in);
+  // Read input from PSRAM (standardized layout: uniforms, then vertex attributes)
+  uint16_t uniforms[VERT_NUM_UNIFORMS];
+  uint16_t attrs[NUM_VERTICES][VERT_NUM_ATTRIBUTES];
+  read_input(uniforms, attrs);
 
-  // Vertex shader
-  VertexOutput vout;
-  run_vertex_shader(&in, &vout);
+  // Vertex shader (generic dispatch)
+  uint16_t vout[NUM_VERTICES][VERT_NUM_OUTPUTS];
+  run_vertex_shader(uniforms, attrs, vout);
 
   // Screen-space translation: add 8.0
   uint16_t sx[3], sy[3];
-  screen_space_translate(vout.rx, vout.ry, sx, sy);
+  screen_space_translate(vout, sx, sy);
 
   uint16_t dx[3], neg_dy[3];
   compute_edge_vectors(sx, sy, dx, neg_dy);
 
-  // Read inv_area from PSRAM (computed by host Python script)
-  uint16_t inv_area = PSRAM_IN(9) & 0xFFFF;
+  // Read inv_area from PSRAM (after uniforms + vertex data)
+  uint16_t inv_area = PSRAM_IN(VERT_NUM_UNIFORMS + NUM_VERTICES * VERT_NUM_ATTRIBUTES) & 0xFFFF;
   uint16_t colors[3] = { FP16_ONE, FP16_HALF, 0 };
 
   // Nested loop (for disassembly comparison - this hangs on TinyQV)

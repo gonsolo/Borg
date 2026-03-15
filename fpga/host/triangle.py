@@ -383,48 +383,14 @@ def float_to_fp16(f):
     return (sign << 15) | (biased << 10) | frac_bits
 
 
-def edge_fn(ax, ay, bx, by, px, py):
-    """Signed area for point-in-triangle test."""
-    return (bx - ax) * (py - ay) - (by - ay) * (px - ax)
-
-# Vertex colors for barycentric interpolation (grayscale)
-VTX_COLORS = [0.3, 0.5, 1.0]
-
-
-def write_ppm(filename, fb, w, h, sx=None, sy=None):
-    """Write a PPM P3 image with barycentric color interpolation.
-    If sx/sy (screen-space vertices) are provided, interpolate vertex colors.
-    Otherwise treat fb values as FP16 grayscale."""
-    printed_debug = False
+def write_ppm(filename, fb, w, h):
+    """Write a PPM P3 image from hardware-interpolated FP16 framebuffer values."""
     with open(filename, 'w') as f:
         f.write("P3\n%d %d\n255\n" % (w, h))
         for y in range(h):
             for x in range(w):
                 val = fb[y * w + x]
-                if val and sx is not None:
-                    # Barycentric interpolation using edge functions
-                    px, py_ = x + 0.5, y + 0.5
-                    e0 = edge_fn(sx[0], sy[0], sx[1], sy[1], px, py_)
-                    e1 = edge_fn(sx[1], sy[1], sx[2], sy[2], px, py_)
-                    e2 = edge_fn(sx[2], sy[2], sx[0], sy[0], px, py_)
-                    total = e0 + e1 + e2
-
-                    if not printed_debug and filename.endswith("triangle_00.ppm"):
-                        print(f"DEBUG: sx={sx}, sy={sy}, px={px}, py={py_}")
-                        print(f"DEBUG: e0={e0}, e1={e1}, e2={e2}, total={total}")
-                        printed_debug = True
-
-                    if abs(total) > 1e-6:
-                        w0 = e1 / total  # weight for v0
-                        w1 = e2 / total  # weight for v1
-                        w2 = e0 / total  # weight for v2
-                        intensity = w0 * VTX_COLORS[0] + w1 * VTX_COLORS[1] + w2 * VTX_COLORS[2]
-                        intensity = max(0.0, min(1.0, intensity))
-                    else:
-                        intensity = 0.5
-                    c = int(intensity * 255 + 0.5)
-                    f.write("%d %d %d " % (c, c, c))
-                elif val:
+                if val:
                     intensity = fp16_to_float(val)
                     c = max(0, min(255, int(intensity * 255 + 0.5)))
                     f.write("%d %d %d " % (c, c, c))
@@ -450,19 +416,22 @@ def render_frame(frame):
     nsin_fp = float_to_fp16(-sin_a)
     sin_fp = float_to_fp16(sin_a)
 
-    # --- Write 3 vertices to PSRAM ---
+    # --- Write shader inputs to PSRAM (standardized layout) ---
+    # Layout: [uniforms...][vertex_attrs...][inv_area]
+    # Uniforms: sin, cos, nsin (3 words, matching VERT_NUM_UNIFORMS)
+    # Attributes per vertex: x, y (2 words each, matching VERT_NUM_ATTRIBUTES)
     run_tinyqv.setup_ram()
     sm_w = rp2.StateMachine(0, qspi_write, 16_000_000,
                             out_base=Pin(0), sideset_base=Pin(2))
     sm_w.active(1)
 
-    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR, cos_fp)
-    for vi, (vx, vy) in enumerate(TRI):
-        base = PSRAM_IO_SPI_ADDR + (1 + vi * 2) * 4
-        qpi_write_word(sm_w, base + 0, float_to_fp16(vx))
-        qpi_write_word(sm_w, base + 4, float_to_fp16(vy))
-    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 7 * 4, sin_fp)
-    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 8 * 4, nsin_fp)
+    offset = 0
+    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, sin_fp);  offset += 1
+    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, cos_fp);  offset += 1
+    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, nsin_fp); offset += 1
+    for vx, vy in TRI:
+        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, float_to_fp16(vx)); offset += 1
+        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, float_to_fp16(vy)); offset += 1
 
     # Compute inv_area for barycentric interpolation
     sx_list, sy_list = [], []
@@ -472,13 +441,13 @@ def render_frame(frame):
         sx_list.append(rx + 8.0)
         sy_list.append(ry + 8.0)
     cx, cy = sum(sx_list) / 3.0, sum(sy_list) / 3.0
-    e0 = edge_fn(sx_list[0], sy_list[0], sx_list[1], sy_list[1], cx, cy)
-    e1 = edge_fn(sx_list[1], sy_list[1], sx_list[2], sy_list[2], cx, cy)
-    e2 = edge_fn(sx_list[2], sy_list[2], sx_list[0], sy_list[0], cx, cy)
+    e0 = (sx_list[1] - sx_list[0]) * (cy - sy_list[0]) - (sy_list[1] - sy_list[0]) * (cx - sx_list[0])
+    e1 = (sx_list[2] - sx_list[1]) * (cy - sy_list[1]) - (sy_list[2] - sy_list[1]) * (cx - sx_list[1])
+    e2 = (sx_list[0] - sx_list[2]) * (cy - sy_list[2]) - (sy_list[0] - sy_list[2]) * (cx - sx_list[2])
     total_area = e0 + e1 + e2
     inv_area_val = 1.0 / total_area if abs(total_area) > 1e-10 else 0.0
     inv_area_fp = float_to_fp16(inv_area_val)
-    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 9 * 4, inv_area_fp)
+    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, inv_area_fp)
     print(f"inv_area={inv_area_val:.6f} fp16=0x{inv_area_fp:04X} total={total_area:.4f}")
 
     for i in range(32, 288):
@@ -577,21 +546,12 @@ def render_frame(frame):
             val = qpi_read_word(sm_r, out_base + (32 + py * WIDTH + px) * 4) & 0xFFFF
             fb[py * WIDTH + px] = val
 
-    # --- Read screen-space vertices for barycentric interpolation ---
-    sx_verts = [0.0] * 3
-    sy_verts = [0.0] * 3
-    for v in range(3):
-        sx_bits = qpi_read_word(sm_r, out_base + (16 + v * 2) * 4) & 0xFFFF
-        sy_bits = qpi_read_word(sm_r, out_base + (16 + v * 2 + 1) * 4) & 0xFFFF
-        sx_verts[v] = fp16_to_float(sx_bits)
-        sy_verts[v] = fp16_to_float(sy_bits)
-
     sm_r.active(0)
     del sm_r
 
-    # --- Write PPM with barycentric color interpolation ---
+    # --- Write PPM using hardware-interpolated FP16 intensities ---
     fname = "/remote/triangle_%02d.ppm" % frame
-    write_ppm(fname, fb, WIDTH, HEIGHT, sx_verts, sy_verts)
+    write_ppm(fname, fb, WIDTH, HEIGHT)
     print("Frame %02d (%.0f deg): %s" % (frame, frame * 36.0, fname))
 
 

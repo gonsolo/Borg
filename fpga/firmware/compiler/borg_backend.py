@@ -17,6 +17,38 @@ class BorgBackend:
         self.host_post = []          # Host code after Borg execution
         self.constants = {}          # f_zero -> 0.0, f_one -> 1.0
         self.borg_defines = []       # (io_type, name, preg) from @borg annotations
+        self.borg_uniforms = []      # (name, preg) for uniform registers
+        self.borg_attributes = []    # (name, preg) for attribute registers
+        self.borg_outputs = []       # (name, preg) for output registers
+        self.borg_consts = []        # (name, preg, value) for constants used in Borg instructions
+
+    @staticmethod
+    def _float_to_fp16(f):
+        """Convert float to FP16 bits (for compile-time constant embedding)."""
+        if f == 0.0:
+            return 0x0000
+        sign = 0
+        if f < 0:
+            sign = 1
+            f = -f
+        exp = 0
+        tmp = f
+        while tmp >= 2.0:
+            tmp /= 2.0
+            exp += 1
+        while tmp < 1.0:
+            tmp *= 2.0
+            exp -= 1
+        frac = int((tmp - 1.0) * 1024 + 0.5)
+        biased = exp + 15
+        if frac >= 1024:
+            frac = 0
+            biased += 1
+        if biased >= 31:
+            return (sign << 15) | 0x7C00
+        if biased <= 0:
+            return sign << 15
+        return (sign << 15) | (biased << 10) | frac
 
     def alloc_reg(self, vreg):
         """Allocate a physical Borg register (0-15) for a virtual register."""
@@ -28,6 +60,10 @@ class BorgBackend:
         self.vreg_to_preg[vreg] = preg
         self.next_preg += 1
         return preg
+
+    def encode_fp16_fadd(self, rd, rs1, rs2):
+        """Encode FP16 fadd: [15:14]=00, [11:8]=rs2, [7:4]=rs1, [3:0]=rd"""
+        return (0 << 14) | (rs2 << 8) | (rs1 << 4) | rd
 
     def encode_fp16_fmul(self, rd, rs1, rs2):
         """Encode FP16 fmul: [15:14]=01, [11:8]=rs2, [7:4]=rs1, [3:0]=rd"""
@@ -52,7 +88,10 @@ class BorgBackend:
             if not tokens:
                 continue
             op = tokens[0]
-            if op == "fmul.s":
+            if op == "fadd.s":
+                rd, a, b = tokens[1], tokens[2], tokens[3]
+                borg_vregs.update([rd, a, b])
+            elif op == "fmul.s":
                 rd, a, b = tokens[1], tokens[2], tokens[3]
                 borg_vregs.update([rd, a, b])
             elif op == "fmadd.s":
@@ -85,12 +124,18 @@ class BorgBackend:
             # Parse @borg annotations before skipping comments
             if line.startswith("# @borg "):
                 parts = line.split()
-                # parts = ["#", "@borg", "input"/"output", "name", "vreg"]
+                # parts = ["#", "@borg", "uniform"/"attribute"/"output", "name", "vreg"]
                 if len(parts) == 5:
                     io_type, name, vreg = parts[2], parts[3], parts[4]
                     if vreg in self.vreg_to_preg:
                         preg = self.vreg_to_preg[vreg]
                         self.borg_defines.append((io_type, name.upper(), preg))
+                        if io_type == "uniform":
+                            self.borg_uniforms.append((name.upper(), preg))
+                        elif io_type == "attribute":
+                            self.borg_attributes.append((name.upper(), preg))
+                        elif io_type == "output":
+                            self.borg_outputs.append((name.upper(), preg))
                 continue
             if line.startswith("#") or not line:
                 continue
@@ -159,6 +204,14 @@ class BorgBackend:
                     self.host_post.append(f"    // {line_clean} -- passthrough")
                     self.host_post.append(f"    store_fp16({mem}, {src});")
 
+            elif op == "fadd.s":
+                rd, a, b = tokens[1], tokens[2], tokens[3]
+                prd = self.vreg_to_preg[rd]
+                pa = self.vreg_to_preg[a]
+                pb = self.vreg_to_preg[b]
+                enc = self.encode_fp16_fadd(prd, pa, pb)
+                self.borg_instrs.append((enc, f"fadd r{prd}, r{pa}, r{pb}  // {comment}"))
+
             elif op == "fmul.s":
                 rd, a, b = tokens[1], tokens[2], tokens[3]
                 prd = self.vreg_to_preg[rd]
@@ -178,6 +231,11 @@ class BorgBackend:
 
             elif op == "ret":
                 pass  # Halt is implicit (IMEM word = 0)
+
+        # Detect constants used in Borg instructions
+        for vreg, preg in self.vreg_to_preg.items():
+            if vreg in self.constants:
+                self.borg_consts.append((vreg, preg, self.constants[vreg]))
 
     def emit_header(self, shader_name="shader"):
         """Generate a C header with the Borg IMEM program and host driver code."""
@@ -211,6 +269,43 @@ class BorgBackend:
             lines.append("// Register assignments")
             for io_type, name, preg in self.borg_defines:
                 lines.append(f"#define {prefix}_BORG_REG_{name}  {preg}")
+            lines.append("")
+
+        # Register metadata arrays for generic shader dispatch
+        if self.borg_uniforms:
+            lines.append(f"#define {prefix}_NUM_UNIFORMS {len(self.borg_uniforms)}")
+            regs = ", ".join(str(preg) for _, preg in self.borg_uniforms)
+            lines.append(f"static const int {var_prefix}_uniform_regs[] = {{{regs}}};")
+            lines.append("")
+        else:
+            lines.append(f"#define {prefix}_NUM_UNIFORMS 0")
+            lines.append("")
+
+        if self.borg_attributes:
+            lines.append(f"#define {prefix}_NUM_ATTRIBUTES {len(self.borg_attributes)}")
+            regs = ", ".join(str(preg) for _, preg in self.borg_attributes)
+            lines.append(f"static const int {var_prefix}_attribute_regs[] = {{{regs}}};")
+            lines.append("")
+        else:
+            lines.append(f"#define {prefix}_NUM_ATTRIBUTES 0")
+            lines.append("")
+
+        if self.borg_outputs:
+            lines.append(f"#define {prefix}_NUM_OUTPUTS {len(self.borg_outputs)}")
+            regs = ", ".join(str(preg) for _, preg in self.borg_outputs)
+            lines.append(f"static const int {var_prefix}_output_regs[] = {{{regs}}};")
+            lines.append("")
+
+        # Shader constants (compile-time known values that need register loading)
+        if self.borg_consts:
+            lines.append(f"#define {prefix}_NUM_CONSTS {len(self.borg_consts)}")
+            regs = ", ".join(str(preg) for _, preg, _ in self.borg_consts)
+            lines.append(f"static const int {var_prefix}_const_regs[] = {{{regs}}};")
+            vals = ", ".join(f"0x{self._float_to_fp16(float(val)):04X}" for _, _, val in self.borg_consts)
+            lines.append(f"static const uint16_t {var_prefix}_const_vals[] = {{{vals}}};")
+            lines.append("")
+        else:
+            lines.append(f"#define {prefix}_NUM_CONSTS 0")
             lines.append("")
 
         # Host driver function (guarded for firmware compatibility)
