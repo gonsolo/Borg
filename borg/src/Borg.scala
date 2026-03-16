@@ -43,11 +43,11 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   // registerFile: 8 general-purpose registers for floating-point data (r0-r7)
   val registerFile = SyncReadMem(8, UInt(config.totalBits.W))
 
-  // instructionMemory: 8 words of instruction memory to store the shader program
-  val instructionMemory = SyncReadMem(8, UInt(config.totalBits.W))
+  // instructionMemory: 6 words of instruction memory to store the shader program
+  val instructionMemory = SyncReadMem(6, UInt(config.totalBits.W))
 
   // programCounter: Points to the current instruction in instructionMemory
-  val programCounter = RegInit(0.U(4.W))
+  val programCounter = RegInit(0.U(3.W))
 
   // running: Status flag indicating if the processor is currently executing a program
   val running = RegInit(false.B)
@@ -200,8 +200,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     registerFile.write(reg_w_addr, reg_w_data)
   }
 
-  // IMEM Write (addresses 32–56, 7 words)
-  when(is_writing && io.address >= 32.U && io.address < 60.U) {
+  // IMEM Write (addresses 32–52, 6 words)
+  when(is_writing && io.address >= 32.U && io.address < 56.U) {
     instructionMemory.write(io.address(4, 2), io.data_in)
   }
 

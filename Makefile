@@ -55,10 +55,7 @@ lint: generate_verilog
 test-chisel-core:
 	$(MILL) tinyqv.test
 
-test-all: lint
-	$(MILL) borg.test tinyqv.test
-	$(TEST_SOC) core
-	$(TEST_SOC) borg
+test-all: lint test-chisel-borg test-chisel-core test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl
 
 datasheet.pdf: generate_verilog
 	$(TT_TOOL) --create-pdf

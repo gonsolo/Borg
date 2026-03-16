@@ -21,7 +21,7 @@ project:
     - "../out/borg/verilog/MulAddRecFNToRaw_preMul_e5_s11.sv"
     - "../out/borg/verilog/MulAddRecFNToRaw_postMul_e5_s11.sv"
     - "../out/borg/verilog/Borg.sv"
-    - "../out/borg/verilog/instructionMemory_8x16.sv"
+    - "../out/borg/verilog/instructionMemory_6x16.sv"
     - "../out/borg/verilog/registerFile_8x16.sv"
     - "../out/borg/verilog/RoundAnyRawFNToRecFN_ie5_is13_oe5_os11.sv"
     - "../out/borg/verilog/RoundRawFNToRecFN_e5_s11.sv"

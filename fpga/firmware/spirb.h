@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#define SPIRB_MAX_INSTRS  8
+#define SPIRB_MAX_INSTRS  6
 #define SPIRB_MAX_REGS   16
 
 // Parsed in-memory representation of a SPIR-B shader blob.
