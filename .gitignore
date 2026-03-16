@@ -16,3 +16,4 @@ datasheet.pdf
 /out
 .direnv
 __pycache__
+compile_commands.json

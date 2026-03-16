@@ -16,7 +16,7 @@ TEST_JSON = ../../data/test_cases.json
 all: test_data.h $(PROJECT_NAME).bin $(PROJECT_NAME).hex
 
 triangle:
-	$(MAKE) PROJECT_NAME=triangle PROJECT_SOURCES="triangle.c ../sdk/borg_math.c"
+	bear -- $(MAKE) PROJECT_NAME=triangle PROJECT_SOURCES="triangle.c ../sdk/borg_math.c"
 
 test_data.h: $(TEST_JSON) convert_test_data.py
 	python convert_test_data.py
