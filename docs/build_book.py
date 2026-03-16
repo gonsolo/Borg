@@ -80,7 +80,10 @@ def process_markdown(src: Path, snippet_cache: dict) -> str:
         lang = lang_for(filepath)
         return f"```{lang}\n{code}\n```"
 
-    return SNIPPET_REF.sub(replace, text)
+    result = SNIPPET_REF.sub(replace, text)
+    # Rewrite internal .md links to .html for GitHub Pages
+    result = re.sub(r'\]\((\d\d_\w+)\.md\)', r'](\1.html)', result)
+    return result
 
 
 def main():
