@@ -334,10 +334,43 @@ class BorgBackend:
         lines.append("#endif // BORG_HOST_DRIVER")
         return "\n".join(lines)
 
+    def emit_binary(self):
+        """Serialize the shader to SPIR-B binary format (see docs/spirb.md)."""
+        import struct
+        parts = []
+
+        # Header: 6 bytes
+        n_instr = len(self.borg_instrs)
+        n_uni = len(self.borg_uniforms)
+        n_attr = len(self.borg_attributes)
+        n_out = len(self.borg_outputs)
+        n_const = len(self.borg_consts)
+        parts.append(struct.pack('<6B', n_instr, n_uni, n_attr, n_out, n_const, 0))
+
+        # Instructions: N × uint16_le
+        for enc, _comment in self.borg_instrs:
+            parts.append(struct.pack('<H', enc))
+
+        # Register index arrays: uint8 each
+        for _, preg in self.borg_uniforms:
+            parts.append(struct.pack('B', preg))
+        for _, preg in self.borg_attributes:
+            parts.append(struct.pack('B', preg))
+        for _, preg in self.borg_outputs:
+            parts.append(struct.pack('B', preg))
+        for _, preg, _ in self.borg_consts:
+            parts.append(struct.pack('B', preg))
+
+        # Constant values: C × uint16_le
+        for _, _, val in self.borg_consts:
+            parts.append(struct.pack('<H', self._float_to_fp16(float(val))))
+
+        return b''.join(parts)
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python borg_backend.py <input.s> [output.h]")
+        print("Usage: python borg_backend.py <input.s> [output.borg.h | output.borg]")
         sys.exit(1)
 
     with open(sys.argv[1], 'r') as f:
@@ -346,10 +379,19 @@ if __name__ == "__main__":
     shader_name = os.path.splitext(os.path.basename(sys.argv[1]))[0]  # e.g. "vert" from "vert.s"
     backend = BorgBackend()
     backend.lower(asm_text)
-    header = backend.emit_header(shader_name)
+
     if len(sys.argv) > 2:
-        with open(sys.argv[2], 'w') as f:
-            f.write(header + "\n")
-        print(f"Generated {sys.argv[2]}")
+        out_path = sys.argv[2]
+        if out_path.endswith('.borg'):
+            data = backend.emit_binary()
+            with open(out_path, 'wb') as f:
+                f.write(data)
+            print(f"Generated {out_path} ({len(data)} bytes)")
+        else:
+            header = backend.emit_header(shader_name)
+            with open(out_path, 'w') as f:
+                f.write(header + "\n")
+            print(f"Generated {out_path}")
     else:
-        print(header)
+        print(backend.emit_header(shader_name))
+

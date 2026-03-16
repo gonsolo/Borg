@@ -6,7 +6,7 @@
 
 #include "borg_math.h"
 #include "compiler/rasterize.borg.h"
-#include "compiler/vert.borg.h"
+#include "spirb.h"
 
 // --- Hardware addresses ---
 #define UART_TX (*(volatile uint32_t *)0x08000080)
@@ -102,11 +102,14 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 #define BORG_FP16_SUB(a, b) borg_fp16_add((a), (b) ^ 0x8000)
 #define BORG_FP16_NEG(x) ((x) ^ 0x8000)
 
-// Vertex shader: load compiled program from generated header
-static void borg_load_vert_shader(void) {
-  for (int i = 0; i < VERT_BORG_PROGRAM_LEN; i++)
-    BORG_IMEM(i) = vert_borg_program[i];
-  BORG_IMEM(VERT_BORG_PROGRAM_LEN) = 0x0000; // halt
+// Global vert shader parsed from PSRAM at startup
+static spirb_shader_t vert_shader;
+static int vert_data_offset;  // PSRAM word offset where uniforms/attrs start
+
+static void borg_load_spirb_shader(const spirb_shader_t *s) {
+  for (int i = 0; i < s->num_instrs; i++)
+    BORG_IMEM(i) = s->instrs[i];
+  BORG_IMEM(s->num_instrs) = 0x0000; // halt
 }
 
 static void borg_load_add_shader(void) {
@@ -171,20 +174,44 @@ static void compute_pixel_deltas(uint16_t pcx, uint16_t pcy,
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
 
-// Standardized PSRAM input layout:
-//   [0..NUM_UNIFORMS-1] = shader uniforms
-//   [NUM_UNIFORMS..NUM_UNIFORMS+3*NUM_ATTRIBUTES-1] = vertex attributes (3 vertices)
+// PSRAM input layout:
+//   [0..1]  = vert blob length (uint16_le, in bytes)
+//   [2..]   = vert SPIR-B blob (byte-packed across words)
+//   [...] = shader uniforms
+//   [...] = vertex attributes (3 vertices × num_attributes)
+//   [...] = inv_area
 #define NUM_VERTICES 3
+#define SPIRB_MAX_BLOB_WORDS 16  // max SPIR-B blob size in 32-bit words
 
-static void read_input(uint16_t *uniforms, uint16_t attrs[][VERT_NUM_ATTRIBUTES]) {
+static void parse_vert_shader(void) {
+  // Read blob length from first PSRAM word (low 16 bits)
+  uint16_t blob_len = PSRAM_IN(0) & 0xFFFF;
+
+  // Read blob bytes from PSRAM (packed as bytes in 32-bit words)
+  uint8_t blob[SPIRB_MAX_BLOB_WORDS * 4];
+  int blob_words = (blob_len + 3) / 4;
+  for (int i = 0; i < blob_words; i++) {
+    uint32_t w = PSRAM_IN(1 + i);
+    blob[i * 4 + 0] = w & 0xFF;
+    blob[i * 4 + 1] = (w >> 8) & 0xFF;
+    blob[i * 4 + 2] = (w >> 16) & 0xFF;
+    blob[i * 4 + 3] = (w >> 24) & 0xFF;
+  }
+
+  spirb_parse(blob, &vert_shader);
+  vert_data_offset = 1 + blob_words;  // PSRAM word index where uniforms start
+}
+
+static void read_input(uint16_t *uniforms, uint16_t *attrs) {
   // Read uniforms
-  for (int i = 0; i < VERT_NUM_UNIFORMS; i++)
-    uniforms[i] = PSRAM_IN(i);
+  for (int i = 0; i < vert_shader.num_uniforms; i++)
+    uniforms[i] = PSRAM_IN(vert_data_offset + i);
 
-  // Read vertex attributes
-  for (int v = 0; v < NUM_VERTICES; v++)
-    for (int i = 0; i < VERT_NUM_ATTRIBUTES; i++)
-      attrs[v][i] = PSRAM_IN(VERT_NUM_UNIFORMS + v * VERT_NUM_ATTRIBUTES + i);
+  // Read vertex attributes (flat array: 3 vertices × num_attributes)
+  int attr_base = vert_data_offset + vert_shader.num_uniforms;
+  int total_attrs = NUM_VERTICES * vert_shader.num_attributes;
+  for (int i = 0; i < total_attrs; i++)
+    attrs[i] = PSRAM_IN(attr_base + i);
 
   // Clear the DONE marker from previous runs so host doesn't read stale data
   PSRAM_OUT(FB_OFFSET + FB_WIDTH * FB_HEIGHT) = 0;
@@ -192,37 +219,37 @@ static void read_input(uint16_t *uniforms, uint16_t attrs[][VERT_NUM_ATTRIBUTES]
 }
 
 static void run_vertex_shader(const uint16_t *uniforms,
-                               const uint16_t attrs[][VERT_NUM_ATTRIBUTES],
-                               uint16_t outputs[][VERT_NUM_OUTPUTS]) {
-  borg_load_vert_shader();
+                               const uint16_t *attrs,
+                               uint16_t *outputs) {
+  const spirb_shader_t *s = &vert_shader;
+  borg_load_spirb_shader(s);
 
   // Load uniforms once (they persist across borg_run calls)
-  for (int i = 0; i < VERT_NUM_UNIFORMS; i++)
-    BORG_REG(vert_uniform_regs[i]) = uniforms[i];
+  for (int i = 0; i < s->num_uniforms; i++)
+    BORG_REG(s->uniform_regs[i]) = uniforms[i];
 
   for (int v = 0; v < NUM_VERTICES; v++) {
     BORG_CONTROL = 2; // Reset PC
     // Reload uniforms after PC reset (reset clears register writes in flight)
-    for (int i = 0; i < VERT_NUM_UNIFORMS; i++)
-      BORG_REG(vert_uniform_regs[i]) = uniforms[i];
-    for (int i = 0; i < VERT_NUM_ATTRIBUTES; i++)
-      BORG_REG(vert_attribute_regs[i]) = attrs[v][i];
-#if VERT_NUM_CONSTS > 0
-    for (int i = 0; i < VERT_NUM_CONSTS; i++)
-      BORG_REG(vert_const_regs[i]) = vert_const_vals[i];
-#endif
+    for (int i = 0; i < s->num_uniforms; i++)
+      BORG_REG(s->uniform_regs[i]) = uniforms[i];
+    for (int i = 0; i < s->num_attributes; i++)
+      BORG_REG(s->attribute_regs[i]) = attrs[v * s->num_attributes + i];
+    for (int i = 0; i < s->num_consts; i++)
+      BORG_REG(s->const_regs[i]) = s->const_vals[i];
     borg_run();
-    for (int i = 0; i < VERT_NUM_OUTPUTS; i++)
-      outputs[v][i] = BORG_REG(vert_output_regs[i]) & 0xFFFF;
+    for (int i = 0; i < s->num_outputs; i++)
+      outputs[v * s->num_outputs + i] = BORG_REG(s->output_regs[i]) & 0xFFFF;
   }
   puts_uart("D\r\n");
 }
 
-static void screen_space_translate(const uint16_t vout[][VERT_NUM_OUTPUTS],
+static void screen_space_translate(const uint16_t *vout,
                                     uint16_t *sx, uint16_t *sy) {
+  int stride = vert_shader.num_outputs;
   for (int v = 0; v < NUM_VERTICES; v++) {
-    sx[v] = borg_fp16_add(vout[v][0], FP16_EIGHT);
-    sy[v] = borg_fp16_add(vout[v][1], FP16_EIGHT);
+    sx[v] = borg_fp16_add(vout[v * stride + 0], FP16_EIGHT);
+    sy[v] = borg_fp16_add(vout[v * stride + 1], FP16_EIGHT);
   }
 }
 
@@ -293,13 +320,16 @@ int main() {
 
   puts_uart("Borg pipeline\r\n");
 
-  // Read input from PSRAM (standardized layout: uniforms, then vertex attributes)
-  uint16_t uniforms[VERT_NUM_UNIFORMS];
-  uint16_t attrs[NUM_VERTICES][VERT_NUM_ATTRIBUTES];
+  // Parse vert shader blob from PSRAM
+  parse_vert_shader();
+
+  // Read input from PSRAM (after the blob)
+  uint16_t uniforms[SPIRB_MAX_REGS];
+  uint16_t attrs[NUM_VERTICES * SPIRB_MAX_REGS];
   read_input(uniforms, attrs);
 
   // Vertex shader (generic dispatch)
-  uint16_t vout[NUM_VERTICES][VERT_NUM_OUTPUTS];
+  uint16_t vout[NUM_VERTICES * SPIRB_MAX_REGS];
   run_vertex_shader(uniforms, attrs, vout);
 
   // Screen-space translation: add 8.0
@@ -310,7 +340,9 @@ int main() {
   compute_edge_vectors(sx, sy, dx, neg_dy);
 
   // Read inv_area from PSRAM (after uniforms + vertex data)
-  uint16_t inv_area = PSRAM_IN(VERT_NUM_UNIFORMS + NUM_VERTICES * VERT_NUM_ATTRIBUTES) & 0xFFFF;
+  int inv_area_idx = vert_data_offset + vert_shader.num_uniforms
+                     + NUM_VERTICES * vert_shader.num_attributes;
+  uint16_t inv_area = PSRAM_IN(inv_area_idx) & 0xFFFF;
   uint16_t colors[3] = { FP16_ONE, FP16_HALF, 0 };
 
   // Nested loop (for disassembly comparison - this hangs on TinyQV)

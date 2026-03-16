@@ -2,9 +2,11 @@ vert.spv
 vert.spvasm
 vert.s
 vert.borg.h
+vert.borg
 frag.spv
 frag.spvasm
 frag.s
 frag.borg.h
 rasterize.borg.h
+rasterize.borg
 __pycache__/

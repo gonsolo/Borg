@@ -15,6 +15,7 @@ help:
 	@echo -e "  borg.asc:\t\tRun Place & Route (pnr)."
 	@echo -e "  borg.bin:\t\tGenerate the FPGA bitstream."
 	@echo -e "  resource_check:\tCheck LUT and DFF usage coefficients."
+	@echo -e "  test-all:\t\tRun all FPGA-side tests."
 	@echo -e "  clean:\t\tRemove build artifacts."
 
 
@@ -84,4 +85,7 @@ clean:
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
 
-.PHONY: all help burn clean reset resource_check triangle tio
+test-all:
+	$(MAKE) -C firmware/compiler test
+
+.PHONY: all help burn clean reset resource_check test-all triangle tio
