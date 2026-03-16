@@ -293,12 +293,29 @@ static const uint16_t pc_lut[16] = {
     0x4A40, 0x4AC0, 0x4B40, 0x4BC0  // 12.5, 13.5, 14.5, 15.5
 };
 
-// Barycentric interpolation for one pixel (noinline to keep main small)
-// Returns 0 for outside pixels, interpolated color for inside pixels.
-static uint16_t __attribute__((noinline)) borg_bary_color(
+// Run fragment shader for one scalar channel.
+// Assumes frag shader is already loaded in IMEM.
+static uint16_t __attribute__((noinline)) borg_frag_channel(
+    uint16_t e0, uint16_t e1, uint16_t e2,
+    uint16_t inv_area, uint16_t c0, uint16_t c1, uint16_t c2) {
+  BORG_REG(frag_shader.attribute_regs[0]) = e0;
+  BORG_REG(frag_shader.attribute_regs[1]) = e1;
+  BORG_REG(frag_shader.attribute_regs[2]) = e2;
+  BORG_REG(frag_shader.uniform_regs[0]) = inv_area;
+  BORG_REG(frag_shader.uniform_regs[1]) = c0;
+  BORG_REG(frag_shader.uniform_regs[2]) = c1;
+  BORG_REG(frag_shader.uniform_regs[3]) = c2;
+  borg_run();
+  return BORG_REG(frag_shader.output_regs[0]) & 0xFFFF;
+}
+
+// Barycentric RGB interpolation for one pixel (noinline to keep main small)
+// Writes r, g, b outputs. Returns 1 if inside, 0 if outside.
+static int __attribute__((noinline)) borg_bary_rgb(
     uint16_t *dx, uint16_t *neg_dy,
     uint16_t *dpx, uint16_t *dpy,
-    uint16_t inv_area, uint16_t *colors) {
+    uint16_t inv_area, uint16_t colors[3][3],
+    uint16_t *r_out, uint16_t *g_out, uint16_t *b_out) {
   // Rasterize shader: compute edge values
   borg_load_spirb_shader(&rast_shader);
   uint16_t e0 = borg_rasterize_edge(dx[0], neg_dy[0], dpx[0], dpy[0]);
@@ -309,19 +326,12 @@ static uint16_t __attribute__((noinline)) borg_bary_color(
       (fp16_ge_zero(e1) && e1 != 0) ||
       (fp16_ge_zero(e2) && e2 != 0))
     return 0;
-  // Fragment shader: weights + color interpolation in one pass
+  // Fragment shader: run once per channel (R, G, B)
   borg_load_spirb_shader(&frag_shader);
-  // Load attributes: e0, e1, e2
-  BORG_REG(frag_shader.attribute_regs[0]) = e0;
-  BORG_REG(frag_shader.attribute_regs[1]) = e1;
-  BORG_REG(frag_shader.attribute_regs[2]) = e2;
-  // Load uniforms: inv_area, c0, c1, c2
-  BORG_REG(frag_shader.uniform_regs[0]) = inv_area;
-  BORG_REG(frag_shader.uniform_regs[1]) = colors[0];
-  BORG_REG(frag_shader.uniform_regs[2]) = colors[1];
-  BORG_REG(frag_shader.uniform_regs[3]) = colors[2];
-  borg_run();
-  return BORG_REG(frag_shader.output_regs[0]) & 0xFFFF;
+  *r_out = borg_frag_channel(e0, e1, e2, inv_area, colors[0][0], colors[1][0], colors[2][0]);
+  *g_out = borg_frag_channel(e0, e1, e2, inv_area, colors[0][1], colors[1][1], colors[2][1]);
+  *b_out = borg_frag_channel(e0, e1, e2, inv_area, colors[0][2], colors[1][2], colors[2][2]);
+  return 1;
 }
 
 int main() {
@@ -353,22 +363,32 @@ int main() {
   int inv_area_idx = shader_data_offset + vert_shader.num_uniforms
                      + NUM_VERTICES * vert_shader.num_attributes;
   uint16_t inv_area = PSRAM_IN(inv_area_idx) & 0xFFFF;
-  uint16_t colors[3] = { FP16_ONE, FP16_HALF, 0 };
+  // Vertex colors: Red, Green, Blue (per-vertex RGB)
+  // colors[vertex][channel]: v0=red, v1=green, v2=blue
+  uint16_t colors[3][3] = {
+    { FP16_ONE, 0, 0 },       // vertex 0: red
+    { 0, FP16_ONE, 0 },       // vertex 1: green
+    { 0, 0, FP16_ONE },       // vertex 2: blue
+  };
 
-  // Nested loop (for disassembly comparison - this hangs on TinyQV)
+  // Nested loop: 3 words per pixel (R, G, B)
   for (int py = 0; py < FB_HEIGHT; py++) {
     uint16_t pcy = pc_lut[py];
     for (int px = 0; px < FB_WIDTH; px++) {
       uint16_t pcx = pc_lut[px];
       uint16_t dpx_arr[3], dpy_arr[3];
       compute_pixel_deltas(pcx, pcy, sx, sy, dpx_arr, dpy_arr);
-      uint16_t c = borg_bary_color(dx, neg_dy, dpx_arr, dpy_arr, inv_area, colors);
-      PSRAM_OUT(FB_OFFSET + py * FB_WIDTH + px) = c;
+      uint16_t r = 0, g = 0, b = 0;
+      borg_bary_rgb(dx, neg_dy, dpx_arr, dpy_arr, inv_area, colors, &r, &g, &b);
+      int base = FB_OFFSET + (py * FB_WIDTH + px) * 3;
+      PSRAM_OUT(base + 0) = r;
+      PSRAM_OUT(base + 1) = g;
+      PSRAM_OUT(base + 2) = b;
     }
   }
 
-  // Done
-  PSRAM_OUT(FB_OFFSET + FB_WIDTH * FB_HEIGHT) = 0xDEAD;
+  // Done marker after RGB framebuffer (16*16*3 = 768 words)
+  PSRAM_OUT(FB_OFFSET + FB_WIDTH * FB_HEIGHT * 3) = 0xDEAD;
   puts_uart("DONE\r\n");
 
   while (1)

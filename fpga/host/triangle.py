@@ -384,18 +384,17 @@ def float_to_fp16(f):
 
 
 def write_ppm(filename, fb, w, h):
-    """Write a PPM P3 image from hardware-interpolated FP16 framebuffer values."""
+    """Write a PPM P3 image from RGB FP16 framebuffer values.
+    fb is a list of (r, g, b) FP16 tuples."""
     with open(filename, 'w') as f:
         f.write("P3\n%d %d\n255\n" % (w, h))
         for y in range(h):
             for x in range(w):
-                val = fb[y * w + x]
-                if val:
-                    intensity = fp16_to_float(val)
-                    c = max(0, min(255, int(intensity * 255 + 0.5)))
-                    f.write("%d %d %d " % (c, c, c))
-                else:
-                    f.write("0 0 0 ")
+                r_fp16, g_fp16, b_fp16 = fb[y * w + x]
+                r = max(0, min(255, int(fp16_to_float(r_fp16) * 255 + 0.5))) if r_fp16 else 0
+                g = max(0, min(255, int(fp16_to_float(g_fp16) * 255 + 0.5))) if g_fp16 else 0
+                b = max(0, min(255, int(fp16_to_float(b_fp16) * 255 + 0.5))) if b_fp16 else 0
+                f.write("%d %d %d " % (r, g, b))
             f.write("\n")
 
 
@@ -568,21 +567,24 @@ def render_frame(frame):
 
     out_base = PSRAM_IO_SPI_ADDR + 128
     
-    # Read DONE marker
-    done = qpi_read_word(sm_r, out_base + 288 * 4)
+    # Read DONE marker (FB_OFFSET=32, 16*16*3=768 RGB words)
+    done = qpi_read_word(sm_r, out_base + (32 + 768) * 4)
     print("Done marker: 0x%04X" % done)
 
-    # --- Read hardware rasterizer framebuffer (FP16 grayscale values) ---
-    fb = [0] * (WIDTH * HEIGHT)
+    # --- Read hardware rasterizer framebuffer (3 FP16 words per pixel: R,G,B) ---
+    fb = [(0, 0, 0)] * (WIDTH * HEIGHT)
     for py in range(HEIGHT):
         for px in range(WIDTH):
-            val = qpi_read_word(sm_r, out_base + (32 + py * WIDTH + px) * 4) & 0xFFFF
-            fb[py * WIDTH + px] = val
+            base = 32 + (py * WIDTH + px) * 3
+            r = qpi_read_word(sm_r, out_base + (base + 0) * 4) & 0xFFFF
+            g = qpi_read_word(sm_r, out_base + (base + 1) * 4) & 0xFFFF
+            b = qpi_read_word(sm_r, out_base + (base + 2) * 4) & 0xFFFF
+            fb[py * WIDTH + px] = (r, g, b)
 
     sm_r.active(0)
     del sm_r
 
-    # --- Write PPM using hardware-interpolated FP16 intensities ---
+    # --- Write PPM using hardware-interpolated RGB values ---
     fname = "/remote/triangle_%02d.ppm" % frame
     write_ppm(fname, fb, WIDTH, HEIGHT)
     print("Frame %02d (%.0f deg): %s" % (frame, frame * 36.0, fname))
