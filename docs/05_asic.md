@@ -57,11 +57,3 @@ The design is verified at multiple levels before tape-out:
 make test-all   # Run Chisel + cocotb tests
 make lint       # Verilator lint check
 ```
-
-## 3D Chip Viewer
-
-After the GDS is built, you can inspect the manufactured layout in 3D.
-The viewer shows all metal layers, standard cells, and routing of the
-final chip as submitted to the IHP SG13G2 foundry:
-
-[View the Borg chip in 3D](https://app.tinytapeout.com/projects/3645)
