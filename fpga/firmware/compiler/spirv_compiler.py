@@ -22,6 +22,12 @@ class TinySpirvCompiler:
         self.local_vars = {} # Tracks SSA pointers like %s, %c, %rot
         self.borg_io = []    # List of (type, name, reg) for @borg annotations
         self.vreg_roles = {} # spirv_id -> role name for semantic tracking
+        self.shader_type = "vertex"  # "vertex" or "fragment"
+        self.decorations = {}        # id -> {"Location": N, "Binding": N, ...}
+        self.member_names = {}       # (struct_id, member_idx) -> name
+        self.storage_classes = {}    # id -> "Input" / "Output" / "Uniform"
+        self.struct_types = {}       # type_id -> [member_type_ids]
+        self.var_types = {}          # var_id -> type_id
 
     def get_reg(self, spirv_id):
         # 1. Constants
@@ -73,23 +79,67 @@ class TinySpirvCompiler:
 
             if res_id: self.get_reg(res_id) # Assign ID early
 
-            if opcode == "OpName": 
+            if opcode == "OpEntryPoint":
+                model = args[0] if args else ""
+                if model == "Fragment":
+                    self.shader_type = "fragment"
+                elif model == "Vertex":
+                    self.shader_type = "vertex"
+
+            elif opcode == "OpName": 
                 self.id_to_name[t[1]] = t[2].strip('"')
+            elif opcode == "OpMemberName":
+                struct_id = t[1]
+                member_idx = int(t[2])
+                name = t[3].strip('"')
+                self.member_names[(struct_id, member_idx)] = name
+            elif opcode == "OpDecorate":
+                target_id = t[1]
+                decoration = t[2]
+                if target_id not in self.decorations:
+                    self.decorations[target_id] = {}
+                if decoration == "Location" and len(t) > 3:
+                    self.decorations[target_id]["Location"] = int(t[3])
+                elif decoration == "Binding" and len(t) > 3:
+                    self.decorations[target_id]["Binding"] = int(t[3])
             elif opcode == "OpConstant":
                 # Extract value from raw line (regex \w+ misses negative signs)
                 val_match = re.search(r'OpConstant\s+\S+\s+(-?[\d.]+)', line)
                 self.constants[res_id] = val_match.group(1) if val_match else t[-1]
+            elif opcode == "OpTypeStruct":
+                # Record struct member types
+                self.struct_types[res_id] = [a for a in args if a.startswith('%')]
             elif opcode == "OpVariable":
+                # Determine storage class from the raw line
+                storage = None
+                for kw in ["Input", "Output", "Uniform", "Function"]:
+                    if kw in line.split(";")[0]:
+                        storage = kw
+                        break
+                if storage:
+                    self.storage_classes[res_id] = storage
+                # Track type
+                if args:
+                    self.var_types[res_id] = args[0]
+
                 name = self.id_to_name.get(res_id, "unknown")
-                if name in self.name_to_base:
-                    self.ptr_map[res_id] = (self.name_to_base[name], 0)
-                elif res_id == "%_": # Explicit gl_Position catch
-                    self.ptr_map[res_id] = ("a4", 0)
+                if self.shader_type == "vertex":
+                    # Original vertex shader mapping
+                    if name in self.name_to_base:
+                        self.ptr_map[res_id] = (self.name_to_base[name], 0)
+                    elif res_id == "%_":
+                        self.ptr_map[res_id] = ("a4", 0)
+                elif self.shader_type == "fragment":
+                    if storage == "Uniform":
+                        self.ptr_map[res_id] = ("uniform_block", 0)
             elif opcode in ("OpCompositeConstruct", "OpConstantComposite"):
                 self.composites[res_id] = [a for a in args[1:] if a.startswith('%')]
 
         # --- PASS 2: Code Generation ---
-        self.asm.append(f"# Compiled from {filename}\n# a0=pc, a1=inPos, a2=inColor, a3=fragColor, a4=gl_Pos")
+        if self.shader_type == "vertex":
+            self.asm.append(f"# Compiled from {filename}\n# a0=pc, a1=inPos, a2=inColor, a3=fragColor, a4=gl_Pos")
+        else:
+            self.asm.append(f"# Compiled from {filename}\n# Fragment shader: barycentric interpolation")
         self.emit("li.s f_zero, 0.0")
         self.emit("li.s f_one, 1.0")
         # Emit li.s for all other float constants (e.g. -2.0 from translations)
@@ -107,9 +157,29 @@ class TinySpirvCompiler:
             args = t[2:] if res_id else t[1:]
 
             if opcode == "OpAccessChain":
-                base_reg = self.ptr_map.get(args[1], ("a0", 0))[0]
-                offset = int(self.constants.get(args[2], 0)) * 4
-                self.ptr_map[res_id] = (base_reg, offset)
+                base_ptr = args[1]
+                if base_ptr in self.ptr_map:
+                    base_info = self.ptr_map[base_ptr]
+                    if base_info[0] == "uniform_block":
+                        # Access into uniform struct: use member index as identifier
+                        member_idx = int(self.constants.get(args[2], 0))
+                        member_name = self.member_names.get((
+                            self.id_to_name.get(base_ptr, base_ptr), member_idx),
+                            f"member_{member_idx}")
+                        # Try to find in struct's member_names with the struct type name
+                        for (sid, midx), mname in self.member_names.items():
+                            if midx == member_idx:
+                                member_name = mname
+                                break
+                        self.ptr_map[res_id] = ("uniform_member", member_name)
+                    else:
+                        base_reg = base_info[0]
+                        offset = int(self.constants.get(args[2], 0)) * 4
+                        self.ptr_map[res_id] = (base_reg, offset)
+                else:
+                    base_reg = self.ptr_map.get(args[1], ("a0", 0))[0]
+                    offset = int(self.constants.get(args[2], 0)) * 4
+                    self.ptr_map[res_id] = (base_reg, offset)
 
             elif opcode == "OpLoad":
                 ptr_id = args[1]
@@ -119,40 +189,75 @@ class TinySpirvCompiler:
                     self.reg_map[res_id] = self.get_reg(src_val)
                     if src_val in self.composites:
                         self.composites[res_id] = self.composites[src_val]
-                    # Propagate semantic roles through load
                     if src_val in self.vreg_roles:
                         self.vreg_roles[res_id] = self.vreg_roles[src_val]
-                else:
-                    dest = self.get_reg(res_id)
-                    ptr = self.ptr_map.get(ptr_id)
-                    if ptr:
-                        self.emit(f"flw {dest}, {ptr[1]}({ptr[0]})", f"Load {self.id_to_name.get(ptr_id,'val')}")
+                elif ptr_id in self.ptr_map:
+                    ptr_info = self.ptr_map[ptr_id]
+                    if ptr_info[0] == "uniform_member":
+                        # Load from uniform struct member (deduplicate)
+                        member_name = ptr_info[1]
+                        cache_key = f"_uniform_{member_name}"
+                        if cache_key in self.reg_map:
+                            self.reg_map[res_id] = self.reg_map[cache_key]
+                        else:
+                            reg = self.get_reg(res_id)
+                            self.emit(f"flw {reg}, 0(uniform_{member_name})", f"Load uniform {member_name}")
+                            self.borg_io.append(("uniform", member_name, reg))
+                            self.reg_map[cache_key] = reg
+                    else:
+                        dest = self.get_reg(res_id)
+                        base_reg, offset = ptr_info
+                        self.emit(f"flw {dest}, {offset}({base_reg})", f"Load {self.id_to_name.get(ptr_id,'val')}")
                         if "inPos" in self.id_to_name.get(ptr_id, ""):
-                            # Safely map vector components without circular references
                             x_id, y_id = res_id + "_x", res_id + "_y"
                             self.reg_map[x_id] = dest
-                            y_reg = self.get_reg(y_id) # Safe creation!
-                            self.emit(f"flw {y_reg}, {ptr[1]+4}({ptr[0]})", "Load inPos.y")
+                            y_reg = self.get_reg(y_id)
+                            self.emit(f"flw {y_reg}, {offset+4}({base_reg})", "Load inPos.y")
                             self.composites[res_id] = [x_id, y_id]
                             self.borg_io.append(("attribute", "x", dest))
                             self.borg_io.append(("attribute", "y", y_reg))
+                elif self.shader_type == "fragment" and self.storage_classes.get(ptr_id) == "Input":
+                    # Fragment shader input variable (not in ptr_map)
+                    reg = self.get_reg(res_id)
+                    name = self.id_to_name.get(ptr_id, f"in{len(self.borg_io)}")
+                    self.emit(f"flw {reg}, 0(attr_{name})", f"Load {name}")
+                    self.borg_io.append(("attribute", name, reg))
+                else:
+                    reg = self.get_reg(res_id)
 
             elif opcode == "OpExtInst":
                 op = args[2].lower()
                 reg = self.get_reg(res_id)
-                self.emit(f"f{op}.s {reg}, {self.get_reg(args[3])}")
-                if op == "sin":
-                    self.vreg_roles[res_id] = "sin"
-                    self.borg_io.append(("uniform", "sin", reg))
-                elif op == "cos":
-                    self.vreg_roles[res_id] = "cos"
-                    self.borg_io.append(("uniform", "cos", reg))
+                if op == "fma":
+                    # fma(a, b, c) = a * b + c → fmadd.s rd, rs1, rs2, rs3
+                    # Accumulate in-place: result reuses addend register (c).
+                    # This keeps the fmadd rs3 and rd as the same physical register,
+                    # reducing register pressure and satisfying the 2-bit rs3 constraint.
+                    ra = self.get_reg(args[3])
+                    rb = self.get_reg(args[4])
+                    rc = self.get_reg(args[5])
+                    self.reg_map[res_id] = rc  # alias result to addend
+                    self.emit(f"fmadd.s {rc}, {ra}, {rb}, {rc}", f"{rc} = {ra} * {rb} + {rc}")
+                else:
+                    self.emit(f"f{op}.s {reg}, {self.get_reg(args[3])}")
+                    if op == "sin":
+                        self.vreg_roles[res_id] = "sin"
+                        self.borg_io.append(("uniform", "sin", reg))
+                    elif op == "cos":
+                        self.vreg_roles[res_id] = "cos"
+                        self.borg_io.append(("uniform", "cos", reg))
 
             elif opcode == "OpFNegate":
                 reg = self.get_reg(res_id)
                 self.emit(f"fneg.s {reg}, {self.get_reg(args[1])}")
                 if self.vreg_roles.get(args[1]) == "sin":
                     self.borg_io.append(("uniform", "nsin", reg))
+
+            elif opcode == "OpFMul":
+                reg = self.get_reg(res_id)
+                ra = self.get_reg(args[1])
+                rb = self.get_reg(args[2])
+                self.emit(f"fmul.s {reg}, {ra}, {rb}", f"{reg} = {ra} * {rb}")
 
             elif opcode == "OpFAdd":
                 # Check if operands are composites (vec2/vec3/vec4)
@@ -200,8 +305,13 @@ class TinySpirvCompiler:
             elif opcode == "OpStore":
                 ptr_id, val_id = args[0], args[1]
 
-                # Check if this pointer is in our memory map (global out/in)
-                if ptr_id in self.ptr_map:
+                if self.shader_type == "fragment" and self.storage_classes.get(ptr_id) == "Output":
+                    # Fragment shader output
+                    reg = self.get_reg(val_id)
+                    name = self.id_to_name.get(ptr_id, "out")
+                    self.emit(f"fsw {reg}, 0(out_{name})", f"Store {name}")
+                    self.borg_io.append(("output", name, reg))
+                elif ptr_id in self.ptr_map:
                     base_reg, offset = self.ptr_map[ptr_id]
 
                     # We want to store if it targets a4 (gl_Pos) or a3 (fragColor)

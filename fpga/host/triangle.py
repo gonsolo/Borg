@@ -424,7 +424,7 @@ def render_frame(frame):
     sm_w.active(1)
 
     # Load SPIR-B blobs from files (cached across frames)
-    global _vert_blob, _rast_blob
+    global _vert_blob, _rast_blob, _frag_blob
     if '_vert_blob' not in dir() or _vert_blob is None:
         with open('/remote/firmware/compiler/vert.borg', 'rb') as f:
             _vert_blob = f.read()
@@ -433,6 +433,10 @@ def render_frame(frame):
         with open('/remote/firmware/compiler/rasterize.borg', 'rb') as f:
             _rast_blob = f.read()
         print(f"Loaded rasterize.borg ({len(_rast_blob)} bytes)")
+    if '_frag_blob' not in dir() or _frag_blob is None:
+        with open('/remote/firmware/compiler/frag.borg', 'rb') as f:
+            _frag_blob = f.read()
+        print(f"Loaded frag.borg ({len(_frag_blob)} bytes)")
 
     def write_blob(sm, base_addr, offset, blob):
         """Write a SPIR-B blob to PSRAM: [length word] [data words...]"""
@@ -450,6 +454,7 @@ def render_frame(frame):
     offset = 0
     offset = write_blob(sm_w, PSRAM_IO_SPI_ADDR, offset, _vert_blob)
     offset = write_blob(sm_w, PSRAM_IO_SPI_ADDR, offset, _rast_blob)
+    offset = write_blob(sm_w, PSRAM_IO_SPI_ADDR, offset, _frag_blob)
 
     # Uniforms: sin, cos, nsin
     qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, sin_fp);  offset += 1

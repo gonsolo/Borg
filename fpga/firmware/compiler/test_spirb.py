@@ -85,5 +85,6 @@ if __name__ == '__main__':
 
     print("SPIR-B round-trip tests:")
     test_shader("vert", os.path.join(test_dir, "vert.s"))
+    test_shader("frag", os.path.join(test_dir, "frag.s"))
     test_shader("rasterize", os.path.join(test_dir, "rasterize.s"))
     print("All tests passed!")

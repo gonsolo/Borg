@@ -101,8 +101,24 @@ class BorgBackend:
                 if c not in fmadd_accumulators:
                     fmadd_accumulators.append(c)
 
+        # Pre-scan @borg annotations to identify I/O virtual registers
+        # These MUST be in r0-r7 (MMIO-accessible range)
+        io_vregs = []
+        for line in lines:
+            if line.startswith("# @borg "):
+                parts = line.split()
+                if len(parts) == 5:
+                    vreg = parts[4]
+                    if vreg in borg_vregs and vreg not in io_vregs:
+                        io_vregs.append(vreg)
+
         # Allocate fmadd accumulators FIRST to guarantee they get r0-r3
         for vreg in fmadd_accumulators:
+            if vreg not in self.vreg_to_preg:
+                self.alloc_reg(vreg)
+
+        # Allocate I/O registers NEXT to guarantee they get r0-r7
+        for vreg in io_vregs:
             if vreg not in self.vreg_to_preg:
                 self.alloc_reg(vreg)
 

@@ -104,6 +104,7 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 // Global shaders parsed from PSRAM at startup
 static spirb_shader_t vert_shader;
 static spirb_shader_t rast_shader;
+static spirb_shader_t frag_shader;
 static int shader_data_offset;  // PSRAM word offset where uniforms/attrs start
 
 static void borg_load_spirb_shader(const spirb_shader_t *s) {
@@ -128,20 +129,6 @@ static uint16_t borg_fp16_sub_raw(uint16_t a, uint16_t b) {
   return BORG_REG(0) & 0xFFFF;
 }
 
-// Fragment shader: barycentric weight computation + color interpolation.
-// Uses r8-r10 (pipeline-only) for intermediate weights.
-// Inputs: r0=e0, r1=e1, r2=e2 (edge values), r3=inv_area,
-//         r4=c0, r5=c1, r6=c2 (vertex colors)
-// Output: r0 = interpolated color
-static void borg_load_frag_shader(void) {
-  BORG_IMEM(0) = 0x4308;  // fmul r8, r0, r3      (w0 = e0 * inv_area)
-  BORG_IMEM(1) = 0x4319;  // fmul r9, r1, r3      (w1 = e1 * inv_area)
-  BORG_IMEM(2) = 0x432A;  // fmul r10, r2, r3     (w2 = e2 * inv_area)
-  BORG_IMEM(3) = 0x4480;  // fmul r0, r8, r4      (acc = w0 * c0)
-  BORG_IMEM(4) = 0x8590;  // fmadd r0, r9, r5, r0 (acc += w1 * c1)
-  BORG_IMEM(5) = 0x86A0;  // fmadd r0, r10, r6, r0 (result = acc + w2 * c2)
-  BORG_IMEM(6) = 0x0000;  // halt
-}
 
 // Rasterize edge: uses parsed rast_shader register map
 static uint16_t borg_rasterize_edge(uint16_t dx_e, uint16_t neg_dy_e, uint16_t dpx_e, uint16_t dpy_e) {
@@ -205,6 +192,19 @@ static void parse_shaders(void) {
     blob[i * 4 + 3] = (w >> 24) & 0xFF;
   }
   spirb_parse(blob, &rast_shader);
+  offset += blob_words;
+
+  // Parse frag shader blob
+  uint16_t frag_blob_len = PSRAM_IN(offset) & 0xFFFF; offset++;
+  blob_words = (frag_blob_len + 3) / 4;
+  for (int i = 0; i < blob_words; i++) {
+    uint32_t w = PSRAM_IN(offset + i);
+    blob[i * 4 + 0] = w & 0xFF;
+    blob[i * 4 + 1] = (w >> 8) & 0xFF;
+    blob[i * 4 + 2] = (w >> 16) & 0xFF;
+    blob[i * 4 + 3] = (w >> 24) & 0xFF;
+  }
+  spirb_parse(blob, &frag_shader);
   offset += blob_words;
 
   shader_data_offset = offset;
@@ -310,16 +310,18 @@ static uint16_t __attribute__((noinline)) borg_bary_color(
       (fp16_ge_zero(e2) && e2 != 0))
     return 0;
   // Fragment shader: weights + color interpolation in one pass
-  borg_load_frag_shader();
-  BORG_REG(0) = e0;
-  BORG_REG(1) = e1;
-  BORG_REG(2) = e2;
-  BORG_REG(3) = inv_area;
-  BORG_REG(4) = colors[0];
-  BORG_REG(5) = colors[1];
-  BORG_REG(6) = colors[2];
+  borg_load_spirb_shader(&frag_shader);
+  // Load attributes: e0, e1, e2
+  BORG_REG(frag_shader.attribute_regs[0]) = e0;
+  BORG_REG(frag_shader.attribute_regs[1]) = e1;
+  BORG_REG(frag_shader.attribute_regs[2]) = e2;
+  // Load uniforms: inv_area, c0, c1, c2
+  BORG_REG(frag_shader.uniform_regs[0]) = inv_area;
+  BORG_REG(frag_shader.uniform_regs[1]) = colors[0];
+  BORG_REG(frag_shader.uniform_regs[2]) = colors[1];
+  BORG_REG(frag_shader.uniform_regs[3]) = colors[2];
   borg_run();
-  return BORG_REG(0) & 0xFFFF;
+  return BORG_REG(frag_shader.output_regs[0]) & 0xFFFF;
 }
 
 int main() {
