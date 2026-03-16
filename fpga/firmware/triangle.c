@@ -5,7 +5,6 @@
 // Writes diagnostic data to PSRAM for step-by-step verification.
 
 #include "borg_math.h"
-#include "compiler/rasterize.borg.h"
 #include "spirb.h"
 
 // --- Hardware addresses ---
@@ -102,9 +101,10 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 #define BORG_FP16_SUB(a, b) borg_fp16_add((a), (b) ^ 0x8000)
 #define BORG_FP16_NEG(x) ((x) ^ 0x8000)
 
-// Global vert shader parsed from PSRAM at startup
+// Global shaders parsed from PSRAM at startup
 static spirb_shader_t vert_shader;
-static int vert_data_offset;  // PSRAM word offset where uniforms/attrs start
+static spirb_shader_t rast_shader;
+static int shader_data_offset;  // PSRAM word offset where uniforms/attrs start
 
 static void borg_load_spirb_shader(const spirb_shader_t *s) {
   for (int i = 0; i < s->num_instrs; i++)
@@ -128,14 +128,6 @@ static uint16_t borg_fp16_sub_raw(uint16_t a, uint16_t b) {
   return BORG_REG(0) & 0xFFFF;
 }
 
-// Rasterize shader: edge function evaluation (fmul + fmadd, no fstep)
-static void borg_load_rasterize_shader(void) {
-  BORG_IMEM(0) = 0x4410;
-  BORG_IMEM(1) = 0x8320;
-  BORG_IMEM(2) = 0x0000;
-  BORG_IMEM(3) = 0x0000;
-}
-
 // Fragment shader: barycentric weight computation + color interpolation.
 // Uses r8-r10 (pipeline-only) for intermediate weights.
 // Inputs: r0=e0, r1=e1, r2=e2 (edge values), r3=inv_area,
@@ -151,13 +143,15 @@ static void borg_load_frag_shader(void) {
   BORG_IMEM(6) = 0x0000;  // halt
 }
 
+// Rasterize edge: uses parsed rast_shader register map
 static uint16_t borg_rasterize_edge(uint16_t dx_e, uint16_t neg_dy_e, uint16_t dpx_e, uint16_t dpy_e) {
-  BORG_REG(1) = dx_e;
-  BORG_REG(2) = neg_dy_e;
-  BORG_REG(3) = dpx_e;
-  BORG_REG(4) = dpy_e;
+  const spirb_shader_t *s = &rast_shader;
+  BORG_REG(s->attribute_regs[0]) = dx_e;
+  BORG_REG(s->attribute_regs[1]) = neg_dy_e;
+  BORG_REG(s->attribute_regs[2]) = dpx_e;
+  BORG_REG(s->attribute_regs[3]) = dpy_e;
   borg_run();
-  return BORG_REG(0) & 0xFFFF;
+  return BORG_REG(s->output_regs[0]) & 0xFFFF;
 }
 
 static void compute_pixel_deltas(uint16_t pcx, uint16_t pcy,
@@ -183,32 +177,46 @@ static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 #define NUM_VERTICES 3
 #define SPIRB_MAX_BLOB_WORDS 16  // max SPIR-B blob size in 32-bit words
 
-static void parse_vert_shader(void) {
-  // Read blob length from first PSRAM word (low 16 bits)
-  uint16_t blob_len = PSRAM_IN(0) & 0xFFFF;
+static void parse_shaders(void) {
+  int offset = 0;
 
-  // Read blob bytes from PSRAM (packed as bytes in 32-bit words)
+  // Parse vert shader blob
+  uint16_t vert_blob_len = PSRAM_IN(offset) & 0xFFFF; offset++;
   uint8_t blob[SPIRB_MAX_BLOB_WORDS * 4];
-  int blob_words = (blob_len + 3) / 4;
+  int blob_words = (vert_blob_len + 3) / 4;
   for (int i = 0; i < blob_words; i++) {
-    uint32_t w = PSRAM_IN(1 + i);
+    uint32_t w = PSRAM_IN(offset + i);
     blob[i * 4 + 0] = w & 0xFF;
     blob[i * 4 + 1] = (w >> 8) & 0xFF;
     blob[i * 4 + 2] = (w >> 16) & 0xFF;
     blob[i * 4 + 3] = (w >> 24) & 0xFF;
   }
-
   spirb_parse(blob, &vert_shader);
-  vert_data_offset = 1 + blob_words;  // PSRAM word index where uniforms start
+  offset += blob_words;
+
+  // Parse rasterize shader blob
+  uint16_t rast_blob_len = PSRAM_IN(offset) & 0xFFFF; offset++;
+  blob_words = (rast_blob_len + 3) / 4;
+  for (int i = 0; i < blob_words; i++) {
+    uint32_t w = PSRAM_IN(offset + i);
+    blob[i * 4 + 0] = w & 0xFF;
+    blob[i * 4 + 1] = (w >> 8) & 0xFF;
+    blob[i * 4 + 2] = (w >> 16) & 0xFF;
+    blob[i * 4 + 3] = (w >> 24) & 0xFF;
+  }
+  spirb_parse(blob, &rast_shader);
+  offset += blob_words;
+
+  shader_data_offset = offset;
 }
 
 static void read_input(uint16_t *uniforms, uint16_t *attrs) {
   // Read uniforms
   for (int i = 0; i < vert_shader.num_uniforms; i++)
-    uniforms[i] = PSRAM_IN(vert_data_offset + i);
+    uniforms[i] = PSRAM_IN(shader_data_offset + i);
 
   // Read vertex attributes (flat array: 3 vertices × num_attributes)
-  int attr_base = vert_data_offset + vert_shader.num_uniforms;
+  int attr_base = shader_data_offset + vert_shader.num_uniforms;
   int total_attrs = NUM_VERTICES * vert_shader.num_attributes;
   for (int i = 0; i < total_attrs; i++)
     attrs[i] = PSRAM_IN(attr_base + i);
@@ -292,7 +300,7 @@ static uint16_t __attribute__((noinline)) borg_bary_color(
     uint16_t *dpx, uint16_t *dpy,
     uint16_t inv_area, uint16_t *colors) {
   // Rasterize shader: compute edge values
-  borg_load_rasterize_shader();
+  borg_load_spirb_shader(&rast_shader);
   uint16_t e0 = borg_rasterize_edge(dx[0], neg_dy[0], dpx[0], dpy[0]);
   uint16_t e1 = borg_rasterize_edge(dx[1], neg_dy[1], dpx[1], dpy[1]);
   uint16_t e2 = borg_rasterize_edge(dx[2], neg_dy[2], dpx[2], dpy[2]);
@@ -320,8 +328,8 @@ int main() {
 
   puts_uart("Borg pipeline\r\n");
 
-  // Parse vert shader blob from PSRAM
-  parse_vert_shader();
+  // Parse shader blobs from PSRAM
+  parse_shaders();
 
   // Read input from PSRAM (after the blob)
   uint16_t uniforms[SPIRB_MAX_REGS];
@@ -340,7 +348,7 @@ int main() {
   compute_edge_vectors(sx, sy, dx, neg_dy);
 
   // Read inv_area from PSRAM (after uniforms + vertex data)
-  int inv_area_idx = vert_data_offset + vert_shader.num_uniforms
+  int inv_area_idx = shader_data_offset + vert_shader.num_uniforms
                      + NUM_VERTICES * vert_shader.num_attributes;
   uint16_t inv_area = PSRAM_IN(inv_area_idx) & 0xFFFF;
   uint16_t colors[3] = { FP16_ONE, FP16_HALF, 0 };

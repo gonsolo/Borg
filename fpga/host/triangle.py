@@ -423,26 +423,33 @@ def render_frame(frame):
                             out_base=Pin(0), sideset_base=Pin(2))
     sm_w.active(1)
 
-    # Load SPIR-B blob from file (cached across frames)
-    global _vert_blob
+    # Load SPIR-B blobs from files (cached across frames)
+    global _vert_blob, _rast_blob
     if '_vert_blob' not in dir() or _vert_blob is None:
         with open('/remote/firmware/compiler/vert.borg', 'rb') as f:
             _vert_blob = f.read()
         print(f"Loaded vert.borg ({len(_vert_blob)} bytes)")
+    if '_rast_blob' not in dir() or _rast_blob is None:
+        with open('/remote/firmware/compiler/rasterize.borg', 'rb') as f:
+            _rast_blob = f.read()
+        print(f"Loaded rasterize.borg ({len(_rast_blob)} bytes)")
 
-    # Word 0: blob length in bytes
+    def write_blob(sm, base_addr, offset, blob):
+        """Write a SPIR-B blob to PSRAM: [length word] [data words...]"""
+        qpi_write_word(sm, base_addr + offset * 4, len(blob)); offset += 1
+        blob_words = (len(blob) + 3) // 4
+        for i in range(blob_words):
+            w = 0
+            for j in range(4):
+                idx = i * 4 + j
+                if idx < len(blob):
+                    w |= blob[idx] << (j * 8)
+            qpi_write_word(sm, base_addr + offset * 4, w); offset += 1
+        return offset
+
     offset = 0
-    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, len(_vert_blob)); offset += 1
-
-    # Words 1..N: blob bytes packed into 32-bit words (little-endian)
-    blob_words = (len(_vert_blob) + 3) // 4
-    for i in range(blob_words):
-        w = 0
-        for j in range(4):
-            idx = i * 4 + j
-            if idx < len(_vert_blob):
-                w |= _vert_blob[idx] << (j * 8)
-        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, w); offset += 1
+    offset = write_blob(sm_w, PSRAM_IO_SPI_ADDR, offset, _vert_blob)
+    offset = write_blob(sm_w, PSRAM_IO_SPI_ADDR, offset, _rast_blob)
 
     # Uniforms: sin, cos, nsin
     qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, sin_fp);  offset += 1
