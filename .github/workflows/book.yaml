@@ -2,11 +2,6 @@ name: book
 
 on:
   push:
-    paths:
-      - 'docs/**'
-      - 'borg/src/**'
-      - 'tinyqv/src/**'
-      - 'fpga/firmware/**'
   workflow_dispatch:
 
 permissions:
@@ -24,41 +19,47 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Generate SystemVerilog
+        run: nix develop --command make generate_verilog
+
+      - name: Build 3D viewer (TT docs)
+        uses: TinyTapeout/tt-gds-action/docs@ttihp26a
 
       - name: Build book (resolve snippets)
         run: python3 docs/build_book.py
 
-      - name: Convert to HTML
+      - name: Convert book to HTML
         run: |
           sudo apt-get install -y pandoc
-          mkdir -p docs/book/html
+          SITE=$(find . -path '*/pages/*' -name 'index.html' -printf '%h\n' | head -1)
+          if [ -z "$SITE" ]; then SITE=docs/book/html; mkdir -p "$SITE"; fi
+
           for f in docs/book/*.md; do
             base=$(basename "$f" .md)
             pandoc "$f" -s --toc --metadata title="Borg GPU" \
-              --css=style.css -o "docs/book/html/${base}.html"
+              --css=style.css -o "${SITE}/${base}.html"
           done
-          cp docs/triangle.png docs/book/html/ 2>/dev/null || true
+          cp docs/triangle.png "$SITE/" 2>/dev/null || true
 
-      - name: Create stylesheet
-        run: |
-          cat > docs/book/html/style.css << 'EOF'
+          cat > "${SITE}/style.css" << 'ENDCSS'
           body { max-width: 800px; margin: 2rem auto; padding: 0 1rem;
                  font-family: -apple-system, sans-serif; line-height: 1.6; color: #e0e0e0;
                  background: #1a1a2e; }
           h1, h2, h3 { color: #e94560; }
-          a { color: #0f3460; }
+          a { color: #5dade2; }
           pre { background: #16213e; padding: 1rem; border-radius: 6px; overflow-x: auto; }
           code { font-size: 0.9em; }
           table { border-collapse: collapse; width: 100%; }
           th, td { border: 1px solid #333; padding: 0.5rem; text-align: left; }
           th { background: #16213e; }
           img { max-width: 100%; image-rendering: pixelated; }
-          EOF
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/book/html
+          ENDCSS
 
   deploy:
     needs: build
