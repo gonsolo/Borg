@@ -1,8 +1,8 @@
 project:
-  title:        "Borg - Vertex shader"
+  title:        "Borg - Tiny GPU"
   author:       "Andreas Wendleder"
   discord:      "gonsolo"
-  description:  "A Risc-V SoC with a vertex shading engine"
+  description:  "A RISC-V SoC with a GPU featuring vertex shading, rasterization, and RGB fragment shading"
   language:     "Chisel"
   clock_hz:     0
 

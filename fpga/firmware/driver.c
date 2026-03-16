@@ -39,15 +39,7 @@ static void puts_uart(const char *s) {
     putc_uart(*s++);
 }
 
-static char hex_chars[] = "0123456789abcdef";
-static void print_hex16(unsigned int v) {
-  putc_uart('0');
-  putc_uart('x');
-  putc_uart(hex_chars[(v >> 12) & 0xF]);
-  putc_uart(hex_chars[(v >> 8) & 0xF]);
-  putc_uart(hex_chars[(v >> 4) & 0xF]);
-  putc_uart(hex_chars[v & 0xF]);
-}
+
 
 // --- Borg FPU helpers ---
 static void borg_run(void) {
@@ -171,17 +163,6 @@ static void compute_edge_vectors(const uint16_t *sx, const uint16_t *sy,
   neg_dy[1] = BORG_FP16_NEG(BORG_FP16_SUB(sy[2], sy[1]));
   dx[2] = BORG_FP16_SUB(sx[0], sx[2]);
   neg_dy[2] = BORG_FP16_NEG(BORG_FP16_SUB(sy[0], sy[2]));
-  for (int e = 0; e < 3; e++) {
-    PSRAM_OUT(22 + e * 2 + 0) = dx[e];
-    PSRAM_OUT(22 + e * 2 + 1) = neg_dy[e];
-    puts_uart("E");
-    putc_uart('0' + e);
-    puts_uart(" dx=");
-    print_hex16(dx[e]);
-    puts_uart(" ndy=");
-    print_hex16(neg_dy[e]);
-    puts_uart("\r\n");
-  }
   puts_uart("F\r\n");
 }
 
@@ -273,13 +254,14 @@ void borg_set_angle(borg_draw_data_t *d, uint16_t angle_fp16) {
   d->uniforms[0] = fp16_sin(angle_fp16);
   d->uniforms[1] = fp16_cos(angle_fp16);
   d->uniforms[2] = fp16_neg(d->uniforms[0]);
-
-  // Clear stale DONE marker
-  PSRAM_OUT(FB_OFFSET + BORG_FB_WIDTH * BORG_FB_HEIGHT * 3) = 0;
-  puts_uart("A\r\n");
 }
 
-void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3]) {
+#define FRAME_FB_SIZE (BORG_FB_WIDTH * BORG_FB_HEIGHT * 3)  // 768 words
+#define FRAME_STRIDE  (FRAME_FB_SIZE + 1)                    // 769 words (FB + DONE marker)
+
+void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame) {
+  // Clear stale DONE marker for this frame
+  PSRAM_OUT(frame * FRAME_STRIDE + FRAME_FB_SIZE) = 0;
   // Build colors array from vertex data
   uint16_t colors[3][3];
   for (int v = 0; v < 3; v++)
@@ -324,7 +306,7 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3]) {
       uint16_t r = 0, g = 0, b = 0;
       borg_bary_rgb(dx, neg_dy, dpx_arr, dpy_arr,
                      inv_area, colors, &r, &g, &b);
-      int base = FB_OFFSET + (py * BORG_FB_WIDTH + px) * 3;
+      int base = frame * FRAME_STRIDE + (py * BORG_FB_WIDTH + px) * 3;
       PSRAM_OUT(base + 0) = r;
       PSRAM_OUT(base + 1) = g;
       PSRAM_OUT(base + 2) = b;
@@ -332,7 +314,7 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3]) {
   }
 }
 
-void borg_present(void) {
-  PSRAM_OUT(FB_OFFSET + BORG_FB_WIDTH * BORG_FB_HEIGHT * 3) = 0xDEAD;
+void borg_present(int frame) {
+  PSRAM_OUT(frame * FRAME_STRIDE + FRAME_FB_SIZE) = 0xDEAD;
   puts_uart("DONE\r\n");
 }

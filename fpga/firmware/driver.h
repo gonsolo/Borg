@@ -36,7 +36,7 @@ void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
 void borg_set_angle(borg_draw_data_t *d, uint16_t angle_fp16);
 
 // Render a triangle: vertex shade → rasterize → fragment shade → framebuffer
-void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3]);
+void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame);
 
-// Write DONE marker to PSRAM
-void borg_present(void);
+// Write DONE marker for a frame to PSRAM
+void borg_present(int frame);

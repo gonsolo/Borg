@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
 // Simple Vulkan-like triangle application.
-// Renders a single frame of a colored triangle at a fixed rotation.
+// Renders 10 frames of a rotating colored triangle.
 // 100% self-contained: shader blobs embedded in firmware binary.
 
 #include "driver.h"
@@ -11,6 +11,7 @@
 
 // FP16 36° in radians ≈ 0.6283
 #define FP16_36DEG 0x3909
+#define NUM_FRAMES 10
 
 // Triangle vertices: position (x, y) + color (r, g, b) in FP16
 // Centered at origin, scaled to 60% of half-width (4.8 units)
@@ -25,11 +26,17 @@ int main() {
               rasterize_borg, rasterize_borg_len,
               frag_borg, frag_borg_len);
 
-    borg_draw_data_t draw;
-    borg_set_angle(&draw, FP16_36DEG);
+    uint16_t angle = FP16_ZERO;
 
-    borg_cmd_draw(&draw, vertices);
-    borg_present();
+    for (int frame = 0; frame < NUM_FRAMES; frame++) {
+        borg_draw_data_t draw;
+        borg_set_angle(&draw, angle);
+
+        borg_cmd_draw(&draw, vertices, frame);
+        borg_present(frame);
+
+        angle = fp16_add(angle, FP16_36DEG);
+    }
 
     while (1)
         ;

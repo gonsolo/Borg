@@ -405,60 +405,11 @@ _s = WIDTH * 0.3
 TRI = [(0.0, -_s), (-_s, _s), (_s, _s)]
 
 
-def render_frame(frame):
-    """Render a single frame of the rotating triangle using Borg hardware."""
-    angle = frame * 36.0 * 3.14159265 / 180.0
-    cos_a = math.cos(angle)
-    sin_a = math.sin(angle)
-
-    cos_fp = float_to_fp16(cos_a)
-    nsin_fp = float_to_fp16(-sin_a)
-    sin_fp = float_to_fp16(sin_a)
-
-    # --- Write SPIR-B blob + shader inputs to PSRAM ---
-    # Layout: [blob_len (1 word)] [blob_words...] [uniforms] [vertex_attrs] [inv_area]
-    run_tinyqv.setup_ram()
-    sm_w = rp2.StateMachine(0, qspi_write, 16_000_000,
-                            out_base=Pin(0), sideset_base=Pin(2))
-    sm_w.active(1)
-
-    # Load SPIR-B blobs from files (cached across frames)
-    global _vert_blob, _rast_blob, _frag_blob
-    if '_vert_blob' not in dir() or _vert_blob is None:
-        with open('/remote/firmware/compiler/vert.borg', 'rb') as f:
-            _vert_blob = f.read()
-        print(f"Loaded vert.borg ({len(_vert_blob)} bytes)")
-    if '_rast_blob' not in dir() or _rast_blob is None:
-        with open('/remote/firmware/compiler/rasterize.borg', 'rb') as f:
-            _rast_blob = f.read()
-        print(f"Loaded rasterize.borg ({len(_rast_blob)} bytes)")
-    if '_frag_blob' not in dir() or _frag_blob is None:
-        with open('/remote/firmware/compiler/frag.borg', 'rb') as f:
-            _frag_blob = f.read()
-        print(f"Loaded frag.borg ({len(_frag_blob)} bytes)")
-
-    def write_blob(sm, base_addr, offset, blob):
-        """Write a SPIR-B blob to PSRAM: [length word] [data words...]"""
-        qpi_write_word(sm, base_addr + offset * 4, len(blob)); offset += 1
-        blob_words = (len(blob) + 3) // 4
-        for i in range(blob_words):
-            w = 0
-            for j in range(4):
-                idx = i * 4 + j
-                if idx < len(blob):
-                    w |= blob[idx] << (j * 8)
-            qpi_write_word(sm, base_addr + offset * 4, w); offset += 1
-        return offset
-
-    offset = 0
-    offset = write_blob(sm_w, PSRAM_IO_SPI_ADDR, offset, _vert_blob)
-    offset = write_blob(sm_w, PSRAM_IO_SPI_ADDR, offset, _rast_blob)
-    offset = write_blob(sm_w, PSRAM_IO_SPI_ADDR, offset, _frag_blob)
-
-
-
-    sm_w.active(0)
-    del sm_w
+def render_all_frames():
+    """Boot FPGA, let firmware render 10 frames, read back all framebuffers."""
+    NUM_FRAMES = 10
+    FRAME_FB_SIZE = WIDTH * HEIGHT * 3  # 768 words per frame
+    FRAME_STRIDE = FRAME_FB_SIZE + 1     # 769 words (FB + DONE marker)
 
     # --- Boot FPGA ---
     ice_creset_b = machine.Pin(27, machine.Pin.OUT)
@@ -514,8 +465,9 @@ def render_frame(frame):
     time.sleep(0.001)
     clk.off()
 
+    # Run at 4MHz, wait for all 10 frames to complete
     _clk = machine.PWM(Pin(24), freq=4_000_000, duty_u16=32768)
-    time.sleep(5)
+    time.sleep(30)  # 10 frames takes a while
 
     # --- Stop and reset FPGA ---
     _clk.deinit()
@@ -531,43 +483,38 @@ def render_frame(frame):
 
     run_tinyqv.setup_ram()
 
-    # --- Read 3 rotated vertices ---
+    # --- Read back all 10 framebuffers ---
     sm_r = rp2.StateMachine(0, qspi_read, 16_000_000,
                             in_base=Pin(0), out_base=Pin(0),
                             sideset_base=Pin(2))
     sm_r.active(1)
 
     out_base = PSRAM_IO_SPI_ADDR + 128
-    
-    # Read DONE marker (FB_OFFSET=32, 16*16*3=768 RGB words)
-    done = qpi_read_word(sm_r, out_base + (32 + 768) * 4)
-    print("Done marker: 0x%04X" % done)
 
-    # --- Read hardware rasterizer framebuffer (3 FP16 words per pixel: R,G,B) ---
-    fb = [(0, 0, 0)] * (WIDTH * HEIGHT)
-    for py in range(HEIGHT):
-        for px in range(WIDTH):
-            base = 32 + (py * WIDTH + px) * 3
-            r = qpi_read_word(sm_r, out_base + (base + 0) * 4) & 0xFFFF
-            g = qpi_read_word(sm_r, out_base + (base + 1) * 4) & 0xFFFF
-            b = qpi_read_word(sm_r, out_base + (base + 2) * 4) & 0xFFFF
-            fb[py * WIDTH + px] = (r, g, b)
+    for frame in range(NUM_FRAMES):
+        frame_base = frame * FRAME_STRIDE
+
+        # Check DONE marker for this frame
+        done = qpi_read_word(sm_r, out_base + (frame_base + FRAME_FB_SIZE) * 4)
+        print("Frame %d Done marker: 0x%04X" % (frame, done))
+
+        # Read RGB framebuffer (3 FP16 words per pixel)
+        fb = [(0, 0, 0)] * (WIDTH * HEIGHT)
+        for py in range(HEIGHT):
+            for px in range(WIDTH):
+                base = frame_base + (py * WIDTH + px) * 3
+                r = qpi_read_word(sm_r, out_base + (base + 0) * 4) & 0xFFFF
+                g = qpi_read_word(sm_r, out_base + (base + 1) * 4) & 0xFFFF
+                b = qpi_read_word(sm_r, out_base + (base + 2) * 4) & 0xFFFF
+                fb[py * WIDTH + px] = (r, g, b)
+
+        fname = "/remote/triangle_%02d.ppm" % frame
+        write_ppm(fname, fb, WIDTH, HEIGHT)
+        print("Frame %02d (%.0f deg): %s" % (frame, frame * 36.0, fname))
 
     sm_r.active(0)
     del sm_r
-
-    # --- Write PPM using hardware-interpolated RGB values ---
-    fname = "/remote/triangle_%02d.ppm" % frame
-    write_ppm(fname, fb, WIDTH, HEIGHT)
-    print("Frame %02d (%.0f deg): %s" % (frame, frame * 36.0, fname))
-
-
-def render_frames():
-    """Render 10 frames of a rotating triangle using Borg hardware."""
-    print("\n--- Rendering 10 triangle frames ---")
-    for frame in range(10):
-        render_frame(frame)
-    print("All frames rendered.")
+    print("All %d frames rendered." % NUM_FRAMES)
 
 
 def run_animation():
@@ -583,28 +530,12 @@ def run_animation():
 
     run_tinyqv.program_firmware.program('firmware/triangle.bin')
     run_tinyqv.setup_flash()
+    run_tinyqv.setup_ram()
 
-    print("\n--- Rendering 10 triangle frames ---")
-    for frame in range(10):
-        run_tinyqv.setup_ram()
-        render_frame(frame)
-    print("All frames rendered.")
+    render_all_frames()
+
 
 def run_single_frame(frame=0):
-    """Render a single frame (called by 'make triangle')."""
-    machine.freq(112_000_000)
+    """Entry point for rendering (renders all frames, kept for compatibility)."""
+    run_animation()
 
-    for i in range(30):
-        Pin(i, Pin.IN, pull=None)
-
-    flash_sel = Pin(17, Pin.IN, Pin.PULL_UP)
-    ice_creset_b = machine.Pin(27, machine.Pin.OUT)
-    ice_creset_b.value(0)
-
-    run_tinyqv.program_firmware.program('firmware/triangle.bin')
-    run_tinyqv.setup_flash()
-
-    print("\n--- Rendering triangle frame %d ---" % frame)
-    run_tinyqv.setup_ram()
-    render_frame(frame)
-    print("Frame rendered.")
