@@ -40,6 +40,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   dontTouch(io)
 
   // --- Storage ---
+  // @doc:storage
   // registerFile: 8 general-purpose registers for floating-point data (r0-r7)
   val registerFile = SyncReadMem(8, UInt(config.totalBits.W))
 
@@ -51,6 +52,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
 
   // running: Status flag indicating if the processor is currently executing a program
   val running = RegInit(false.B)
+  // @doc:end
 
   // --- Pipeline Control ---
   val busy_counter = RegInit(0.U(3.W))

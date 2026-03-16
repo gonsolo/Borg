@@ -65,7 +65,10 @@ gds: user_config
 	$(TT_TOOL) --harden --ihp --no-docker
 print_stats:
 	./tt/tt_tool.py --print-stats
+book:
+	python3 docs/build_book.py
 
 .PHONY: all generate_verilog help print_stats gds user_config lint test-all \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
-	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core
+	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
+	book

@@ -17,3 +17,4 @@ datasheet.pdf
 .direnv
 __pycache__
 compile_commands.json
+docs/book/
