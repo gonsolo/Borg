@@ -7,6 +7,7 @@ package tinyqv.cpu
 import chisel3._
 import chisel3.util._
 
+// @doc:alu
 class TinyQVAlu extends RawModule {
   override val desiredName = "tinyqv_alu"
 
@@ -37,6 +38,7 @@ class TinyQVAlu extends RawModule {
 
   cy_out := sum(4)
 }
+// @doc:end
 
 class TinyQVShifter extends RawModule {
   override val desiredName = "tinyqv_shifter"

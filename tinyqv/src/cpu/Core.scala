@@ -82,6 +82,7 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
   val tmp_data = RegInit(0.U(32.W))
   val load_top_bit = RegInit(false.B)
 
+  // @doc:core-datapath
   // Registers Module
   val registers = Module(new TinyQVRegisters(numRegs, regAddrBits))
   registers.clk := clock
@@ -114,6 +115,7 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
 
   cy := alu.cy_out
   cmp := cmp_out
+  // @doc:end
 
   // Shifter instance and state
   val shift_amt = RegInit(0.U(5.W))

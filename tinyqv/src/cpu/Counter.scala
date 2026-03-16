@@ -20,6 +20,7 @@ class TinyQVCounter(val outputWidth: Int = 4) extends RawModule {
   val cy_out = IO(Output(Bool()))
 
   withClockAndReset(clk, !rstn) {
+    // @doc:nibble-counter
     // 32-bit shift register broken into 8x 4-bit chunks
     val registers = RegInit(VecInit(Seq.fill(8)(0.U(4.W))))
     val cy = RegInit(false.B)
@@ -40,6 +41,7 @@ class TinyQVCounter(val outputWidth: Int = 4) extends RawModule {
     registers(7) := increment_result(3, 0)
 
     cy := increment_result(4)
+    // @doc:end
 
     // data output logic: assign data = register[3 + OUTPUT_WIDTH:4]
     val flatReg = Cat(registers.reverse) 
