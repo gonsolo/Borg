@@ -9,7 +9,7 @@ OBJCOPY = riscv32-none-elf-objcopy
 TINYQV_SDK ?= ../sdk
 
 PROJECT_NAME = triangle
-PROJECT_SOURCES = triangle.c ../sdk/borg_math.c
+PROJECT_SOURCES = triangle.c driver.c ../sdk/borg_math.c
 
 all: triangle
 

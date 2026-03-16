@@ -479,11 +479,22 @@ def render_frame(frame):
     total_area = e0 + e1 + e2
     inv_area_val = 1.0 / total_area if abs(total_area) > 1e-10 else 0.0
     inv_area_fp = float_to_fp16(inv_area_val)
-    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, inv_area_fp)
+    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, inv_area_fp); offset += 1
     print(f"inv_area={inv_area_val:.6f} fp16=0x{inv_area_fp:04X} total={total_area:.4f}")
 
-    for i in range(32, 288):
-        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + i * 4, 0)
+    # Per-vertex RGB colors (3 vertices × 3 channels = 9 words)
+    # v0=red, v1=green, v2=blue
+    vertex_colors = [
+        (1.0, 0.0, 0.0),  # vertex 0: red
+        (0.0, 1.0, 0.0),  # vertex 1: green
+        (0.0, 0.0, 1.0),  # vertex 2: blue
+    ]
+    for r, g, b in vertex_colors:
+        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, float_to_fp16(r)); offset += 1
+        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, float_to_fp16(g)); offset += 1
+        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, float_to_fp16(b)); offset += 1
+
+
 
     sm_w.active(0)
     del sm_w
