@@ -61,10 +61,7 @@ make lint       # Verilator lint check
 ## 3D Chip Viewer
 
 After the GDS is built, you can inspect the manufactured layout in 3D.
-The viewer below shows all metal layers, standard cells, and routing of the
+The viewer shows all metal layers, standard cells, and routing of the
 final chip as submitted to the IHP SG13G2 foundry:
 
-<iframe src="index.html" width="100%" height="500" frameborder="0"></iframe>
-
-*If the viewer doesn't load, open the [3D viewer](index.html) directly.*
-
+[View the Borg chip in 3D](https://app.tinytapeout.com/projects/3645)
