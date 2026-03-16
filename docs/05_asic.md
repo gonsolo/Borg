@@ -57,3 +57,14 @@ The design is verified at multiple levels before tape-out:
 make test-all   # Run Chisel + cocotb tests
 make lint       # Verilator lint check
 ```
+
+## 3D Chip Viewer
+
+After the GDS is built, you can inspect the manufactured layout in 3D.
+The viewer below shows all metal layers, standard cells, and routing of the
+final chip as submitted to the IHP SG13G2 foundry:
+
+<iframe src="index.html" width="100%" height="500" frameborder="0"></iframe>
+
+*If the viewer doesn't load, open the [3D viewer](index.html) directly.*
+
