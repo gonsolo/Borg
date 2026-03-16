@@ -46,22 +46,22 @@ class BorgDriver:
 
     def encode_add(self, rs1=0, rs2=1, rd=2):
         if self.is_fp16:
-            return (rs2 << 8) | (rs1 << 5) | (rd << 2)
+            return (rs2 << 8) | (rs1 << 4) | rd
         return (0x00 << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7)
 
     def encode_mul(self, rs1=0, rs2=1, rd=2):
         if self.is_fp16:
-            return (1 << 13) | (rs2 << 8) | (rs1 << 5) | (rd << 2)
+            return (1 << 14) | (rs2 << 8) | (rs1 << 4) | rd
         return (0x4 << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7)
 
     def encode_fma(self, rs1=0, rs2=1, rs3=3, rd=2):
         if self.is_fp16:
-            return (2 << 13) | (rs3 << 11) | (rs2 << 8) | (rs1 << 5) | (rd << 2)
+            return (2 << 14) | (rs3 << 12) | (rs2 << 8) | (rs1 << 4) | rd
         return (rs3 << 27) | (rs2 << 20) | (rs1 << 15) | (rd << 7) | (1 << 2)
 
     def encode_fneg(self, rs1=0, rd=1):
         if self.is_fp16:
-            return (3 << 13) | (rs1 << 5) | (rd << 2)
+            return (3 << 14) | (rs1 << 4) | rd
         return (0x6 << 25) | (rs1 << 15) | (rd << 7)
 
     async def write_reg(self, reg_idx, val):
