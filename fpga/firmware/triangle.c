@@ -3,9 +3,11 @@
 
 // Simple Vulkan-like triangle application.
 // Renders a single frame of a colored triangle at a fixed rotation.
+// 100% self-contained: shader blobs embedded in firmware binary.
 
 #include "driver.h"
 #include "borg_math.h"
+#include "compiler/shader_blobs.h"
 
 // FP16 36° in radians ≈ 0.6283
 #define FP16_36DEG 0x3909
@@ -19,9 +21,10 @@ const borg_vertex_t vertices[3] = {
 };
 
 int main() {
-    borg_init();
+    borg_init(vert_borg, vert_borg_len,
+              rasterize_borg, rasterize_borg_len,
+              frag_borg, frag_borg_len);
 
-    // Render a single frame at 36° rotation
     borg_draw_data_t draw;
     borg_set_angle(&draw, FP16_36DEG);
 

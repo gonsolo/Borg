@@ -21,14 +21,12 @@
 #define BORG_CONTROL (*(volatile uint32_t *)(BORG_BASE + 60))
 #define BORG_STATUS (*(volatile uint32_t *)(BORG_BASE + 60))
 
-#define PSRAM_IN(n) (*(volatile uint32_t *)(0x01001000 + (n) * 4))
 #define PSRAM_OUT(n) (*(volatile uint32_t *)(0x01001000 + 128 + (n) * 4))
 
 #define FB_OFFSET 32
 #define FP16_EIGHT 0x4800
 
 #define NUM_VERTICES 3
-#define SPIRB_MAX_BLOB_WORDS 16
 
 // --- UART ---
 void putc_uart(int c) {
@@ -107,7 +105,6 @@ static uint16_t borg_fp16_rcp(uint16_t x) {
 static spirb_shader_t vert_shader;
 static spirb_shader_t rast_shader;
 static spirb_shader_t frag_shader;
-static int shader_data_offset;
 
 static void borg_load_spirb_shader(const spirb_shader_t *s) {
   for (int i = 0; i < s->num_instrs; i++)
@@ -129,52 +126,8 @@ static uint16_t borg_fp16_sub_raw(uint16_t a, uint16_t b) {
   return BORG_REG(0) & 0xFFFF;
 }
 
-// --- Shader parsing ---
-static void parse_shaders(void) {
-  int offset = 0;
-  uint8_t blob[SPIRB_MAX_BLOB_WORDS * 4];
 
-  // Parse vert shader blob
-  uint16_t blob_len = PSRAM_IN(offset) & 0xFFFF; offset++;
-  int blob_words = (blob_len + 3) / 4;
-  for (int i = 0; i < blob_words; i++) {
-    uint32_t w = PSRAM_IN(offset + i);
-    blob[i * 4 + 0] = w & 0xFF;
-    blob[i * 4 + 1] = (w >> 8) & 0xFF;
-    blob[i * 4 + 2] = (w >> 16) & 0xFF;
-    blob[i * 4 + 3] = (w >> 24) & 0xFF;
-  }
-  spirb_parse(blob, &vert_shader);
-  offset += blob_words;
 
-  // Parse rasterize shader blob
-  blob_len = PSRAM_IN(offset) & 0xFFFF; offset++;
-  blob_words = (blob_len + 3) / 4;
-  for (int i = 0; i < blob_words; i++) {
-    uint32_t w = PSRAM_IN(offset + i);
-    blob[i * 4 + 0] = w & 0xFF;
-    blob[i * 4 + 1] = (w >> 8) & 0xFF;
-    blob[i * 4 + 2] = (w >> 16) & 0xFF;
-    blob[i * 4 + 3] = (w >> 24) & 0xFF;
-  }
-  spirb_parse(blob, &rast_shader);
-  offset += blob_words;
-
-  // Parse frag shader blob
-  blob_len = PSRAM_IN(offset) & 0xFFFF; offset++;
-  blob_words = (blob_len + 3) / 4;
-  for (int i = 0; i < blob_words; i++) {
-    uint32_t w = PSRAM_IN(offset + i);
-    blob[i * 4 + 0] = w & 0xFF;
-    blob[i * 4 + 1] = (w >> 8) & 0xFF;
-    blob[i * 4 + 2] = (w >> 16) & 0xFF;
-    blob[i * 4 + 3] = (w >> 24) & 0xFF;
-  }
-  spirb_parse(blob, &frag_shader);
-  offset += blob_words;
-
-  shader_data_offset = offset;
-}
 
 // --- Vertex shader ---
 static void run_vertex_shader(const uint16_t *uniforms,
@@ -303,11 +256,15 @@ static int __attribute__((noinline)) borg_bary_rgb(
 
 // --- Public API ---
 
-void borg_init(void) {
+void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
+               const uint8_t *rast_blob, unsigned int rast_len,
+               const uint8_t *frag_blob, unsigned int frag_len) {
   STARTUP_DELAY();
   UART_BAUD = 34;
   puts_uart("Borg pipeline\r\n");
-  parse_shaders();
+  spirb_parse(vert_blob, &vert_shader);
+  spirb_parse(rast_blob, &rast_shader);
+  spirb_parse(frag_blob, &frag_shader);
 }
 
 void borg_set_angle(borg_draw_data_t *d, uint16_t angle_fp16) {

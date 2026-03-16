@@ -27,8 +27,10 @@ typedef struct {
     uint16_t uniforms[16];
 } borg_draw_data_t;
 
-// Initialize hardware (UART, parse shaders from PSRAM)
-void borg_init(void);
+// Initialize hardware and parse embedded shader blobs
+void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
+               const uint8_t *rast_blob, unsigned int rast_len,
+               const uint8_t *frag_blob, unsigned int frag_len);
 
 // Set up draw data from a rotation angle (FP16 radians)
 void borg_set_angle(borg_draw_data_t *d, uint16_t angle_fp16);

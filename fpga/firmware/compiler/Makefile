@@ -1,4 +1,4 @@
-all: vert.borg.h vert.borg frag.borg.h frag.borg rasterize.borg.h rasterize.borg
+all: vert.borg.h vert.borg frag.borg.h frag.borg rasterize.borg.h rasterize.borg shader_blobs.h
 
 vert.borg.h: vert.s borg_backend.py
 	python borg_backend.py vert.s vert.borg.h
@@ -27,9 +27,18 @@ rasterize.borg.h: rasterize.s borg_backend.py
 rasterize.borg: rasterize.s borg_backend.py
 	python borg_backend.py rasterize.s rasterize.borg
 
+shader_blobs.h: vert.borg rasterize.borg frag.borg
+	@echo "// Auto-generated: embedded SPIR-B shader blobs" > $@
+	@echo "#pragma once" >> $@
+	@echo "#include <stdint.h>" >> $@
+	@echo "" >> $@
+	xxd -i vert.borg >> $@
+	xxd -i rasterize.borg >> $@
+	xxd -i frag.borg >> $@
+
 test: all
 	python test_spirb.py
 
 clean:
-	rm -f vert.s vert.spvasm vert.spv vert.borg.h vert.borg frag.s frag.spvasm frag.spv frag.borg.h frag.borg rasterize.borg.h rasterize.borg
+	rm -f vert.s vert.spvasm vert.spv vert.borg.h vert.borg frag.s frag.spvasm frag.spv frag.borg.h frag.borg rasterize.borg.h rasterize.borg shader_blobs.h
 .PHONY: clean
