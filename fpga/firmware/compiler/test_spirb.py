@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: © 2025-2026 Andreas Wendleder
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Round-trip test for SPIR-B binary format.
 
 Verifies that emit_binary() produces a blob that, when parsed back,

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: © 2025-2026 Andreas Wendleder
-// SPDX-License-Identifier: CERN-OHL-S-2.0
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 // Simple Vulkan-like triangle application.
 // Renders a single frame of a colored triangle.

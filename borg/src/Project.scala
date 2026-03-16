@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: © 2024 Michael Bell
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: CERN-OHL-S-2.0
 package borg
 
 import chisel3._

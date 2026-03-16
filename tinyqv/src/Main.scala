@@ -1,5 +1,5 @@
 // Copyright Andreas Wendleder 2025-2026
-// SPDX-License-Identifier: CERN-OHL-S-2.0
+// SPDX-License-Identifier: Apache-2.0
 
 package tinyqv
 

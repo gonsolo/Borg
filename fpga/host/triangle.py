@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: (c) 2025-2026 Andreas Wendleder
-# SPDX-License-Identifier: CERN-OHL-S-2.0
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 # Host-side script for PSRAM round-trip Borg rotation test.
 # One-way test: firmware writes results to PSRAM, host reads them.
