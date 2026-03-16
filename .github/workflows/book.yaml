@@ -1,0 +1,72 @@
+name: book
+
+on:
+  push:
+    paths:
+      - 'docs/**'
+      - 'borg/src/**'
+      - 'tinyqv/src/**'
+      - 'fpga/firmware/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Build book (resolve snippets)
+        run: python3 docs/build_book.py
+
+      - name: Convert to HTML
+        run: |
+          sudo apt-get install -y pandoc
+          mkdir -p docs/book/html
+          for f in docs/book/*.md; do
+            base=$(basename "$f" .md)
+            pandoc "$f" -s --toc --metadata title="Borg GPU" \
+              --css=style.css -o "docs/book/html/${base}.html"
+          done
+          cp docs/triangle.png docs/book/html/ 2>/dev/null || true
+
+      - name: Create stylesheet
+        run: |
+          cat > docs/book/html/style.css << 'EOF'
+          body { max-width: 800px; margin: 2rem auto; padding: 0 1rem;
+                 font-family: -apple-system, sans-serif; line-height: 1.6; color: #e0e0e0;
+                 background: #1a1a2e; }
+          h1, h2, h3 { color: #e94560; }
+          a { color: #0f3460; }
+          pre { background: #16213e; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+          code { font-size: 0.9em; }
+          table { border-collapse: collapse; width: 100%; }
+          th, td { border: 1px solid #333; padding: 0.5rem; text-align: left; }
+          th { background: #16213e; }
+          img { max-width: 100%; image-rendering: pixelated; }
+          EOF
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/book/html
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
