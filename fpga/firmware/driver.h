@@ -18,16 +18,19 @@ typedef struct {
     uint16_t color[3];  // r, g, b
 } borg_vertex_t;
 
-// Framebuffer dimensions
-#define BORG_FB_WIDTH  16
-#define BORG_FB_HEIGHT 16
+// Framebuffer dimensions (set at runtime from host)
+extern int borg_fb_width;
+extern int borg_fb_height;
+#define BORG_FB_WIDTH  borg_fb_width
+#define BORG_FB_HEIGHT borg_fb_height
+#define BORG_MAX_FB_DIM 64
 
 // Draw state (uniforms computed from angle)
 typedef struct {
     uint16_t uniforms[16];
 } borg_draw_data_t;
 
-// Initialize hardware and parse embedded shader blobs
+// Initialize hardware, parse embedded shader blobs, read resolution from PSRAM
 void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
                const uint8_t *rast_blob, unsigned int rast_len,
                const uint8_t *frag_blob, unsigned int frag_len);

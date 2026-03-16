@@ -399,7 +399,7 @@ def write_ppm(filename, fb, w, h):
 
 
 # --- Triangle rendering constants ---
-WIDTH = HEIGHT = 16
+WIDTH = HEIGHT = 32
 # Triangle vertices centered at origin, scaled to 60% of half-width
 _s = WIDTH * 0.3
 TRI = [(0.0, -_s), (-_s, _s), (_s, _s)]
@@ -411,7 +411,16 @@ def render_all_frames():
     FRAME_FB_SIZE = WIDTH * HEIGHT * 3  # 768 words per frame
     FRAME_STRIDE = FRAME_FB_SIZE + 1     # 769 words (FB + DONE marker)
 
-    # --- Boot FPGA ---
+    # --- Write framebuffer dimensions to PSRAM for firmware ---
+    run_tinyqv.setup_ram()
+    sm_w = rp2.StateMachine(0, qspi_write, 16_000_000,
+                            out_base=Pin(0), sideset_base=Pin(2))
+    sm_w.active(1)
+    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 0 * 4, WIDTH)
+    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 1 * 4, HEIGHT)
+    sm_w.active(0)
+    del sm_w
+    print("Sent resolution %dx%d to PSRAM" % (WIDTH, HEIGHT))
     ice_creset_b = machine.Pin(27, machine.Pin.OUT)
     ice_done = machine.Pin(26, machine.Pin.IN)
     time.sleep_us(10)
@@ -530,7 +539,6 @@ def run_animation():
 
     run_tinyqv.program_firmware.program('firmware/triangle.bin')
     run_tinyqv.setup_flash()
-    run_tinyqv.setup_ram()
 
     render_all_frames()
 

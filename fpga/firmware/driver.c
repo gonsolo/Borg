@@ -21,21 +21,16 @@
 #define BORG_CONTROL (*(volatile uint32_t *)(BORG_BASE + 60))
 #define BORG_STATUS (*(volatile uint32_t *)(BORG_BASE + 60))
 
+#define PSRAM_IN(n) (*(volatile uint32_t *)(0x01001000 + (n) * 4))
 #define PSRAM_OUT(n) (*(volatile uint32_t *)(0x01001000 + 128 + (n) * 4))
 
-#define FB_OFFSET 32
 #define FP16_SIXTEEN 0x4C00
 
-// FP16 half-width of framebuffer (for NDC → screen-space conversion)
-#if BORG_FB_WIDTH == 16
-  #define FP16_HALF_WIDTH 0x4800   // 8.0
-#elif BORG_FB_WIDTH == 32
-  #define FP16_HALF_WIDTH 0x4C00   // 16.0
-#elif BORG_FB_WIDTH == 64
-  #define FP16_HALF_WIDTH 0x5000   // 32.0
-#else
-  #error "Unsupported BORG_FB_WIDTH — add FP16_HALF_WIDTH entry"
-#endif
+// Runtime framebuffer dimensions and derived values
+int borg_fb_width;
+int borg_fb_height;
+static uint16_t fp16_half_width;
+static uint16_t pc_lut[BORG_MAX_FB_DIM];
 
 #define NUM_VERTICES 3
 
@@ -173,8 +168,8 @@ static void screen_space_translate(const uint16_t *vout,
                                     uint16_t *sx, uint16_t *sy) {
   int stride = vert_shader.num_outputs;
   for (int v = 0; v < NUM_VERTICES; v++) {
-    sx[v] = borg_fp16_fmadd(vout[v * stride + 0], FP16_HALF_WIDTH, FP16_HALF_WIDTH);
-    sy[v] = borg_fp16_fmadd(vout[v * stride + 1], FP16_HALF_WIDTH, FP16_HALF_WIDTH);
+    sx[v] = borg_fp16_fmadd(vout[v * stride + 0], fp16_half_width, fp16_half_width);
+    sy[v] = borg_fp16_fmadd(vout[v * stride + 1], fp16_half_width, fp16_half_width);
   }
 }
 
@@ -201,17 +196,8 @@ static void compute_pixel_deltas(uint16_t pcx, uint16_t pcy,
 
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
-// Precomputed FP16 pixel center coordinates: 0.5, 1.5, ..., 31.5
-static const uint16_t pc_lut[32] = {
-    0x3800, 0x3E00, 0x4100, 0x4300, // 0.5, 1.5, 2.5, 3.5
-    0x4480, 0x4580, 0x4680, 0x4780, // 4.5, 5.5, 6.5, 7.5
-    0x4840, 0x48C0, 0x4940, 0x49C0, // 8.5, 9.5, 10.5, 11.5
-    0x4A40, 0x4AC0, 0x4B40, 0x4BC0, // 12.5, 13.5, 14.5, 15.5
-    0x4C20, 0x4C60, 0x4CA0, 0x4CE0, // 16.5, 17.5, 18.5, 19.5
-    0x4D20, 0x4D60, 0x4DA0, 0x4DE0, // 20.5, 21.5, 22.5, 23.5
-    0x4E20, 0x4E60, 0x4EA0, 0x4EE0, // 24.5, 25.5, 26.5, 27.5
-    0x4F20, 0x4F60, 0x4FA0, 0x4FE0  // 28.5, 29.5, 30.5, 31.5
-};
+// Precomputed FP16 pixel center coordinates (computed at runtime)
+// pc_lut defined as global above
 
 // --- Rasterization ---
 static uint16_t borg_rasterize_edge(uint16_t dx_e, uint16_t neg_dy_e,
@@ -270,6 +256,29 @@ void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
   STARTUP_DELAY();
   UART_BAUD = 34;
   puts_uart("Borg pipeline\r\n");
+
+  // Read framebuffer dimensions from PSRAM (written by host)
+  borg_fb_width  = PSRAM_IN(0) & 0xFFFF;
+  borg_fb_height = PSRAM_IN(1) & 0xFFFF;
+  if (borg_fb_width == 0 || borg_fb_width > BORG_MAX_FB_DIM) borg_fb_width = 16;
+  if (borg_fb_height == 0 || borg_fb_height > BORG_MAX_FB_DIM) borg_fb_height = 16;
+
+  // Compute FP16 half-width for NDC→screen transform
+  // half_width = width / 2 (integer), then convert to FP16
+  int hw = borg_fb_width / 2;
+  // Simple integer-to-FP16 for powers of 2 (8, 16, 32)
+  int exp = 0;
+  int tmp = hw;
+  while (tmp > 1) { tmp >>= 1; exp++; }
+  fp16_half_width = ((exp + 15) << 10);  // power-of-2, mantissa=0
+
+  // Compute pixel center LUT: 0.5, 1.5, ..., (width-0.5)
+  uint16_t val = FP16_HALF;  // 0.5
+  for (int i = 0; i < borg_fb_width; i++) {
+    pc_lut[i] = val;
+    val = borg_fp16_add(val, FP16_ONE);
+  }
+
   spirb_parse(vert_blob, &vert_shader);
   spirb_parse(rast_blob, &rast_shader);
   spirb_parse(frag_blob, &frag_shader);
