@@ -22,7 +22,7 @@ typedef struct {
 #define BORG_FB_WIDTH  16
 #define BORG_FB_HEIGHT 16
 
-// Draw data read from PSRAM (uniforms only — vertices come from the application)
+// Draw state (uniforms computed from angle)
 typedef struct {
     uint16_t uniforms[16];
 } borg_draw_data_t;
@@ -30,8 +30,8 @@ typedef struct {
 // Initialize hardware (UART, parse shaders from PSRAM)
 void borg_init(void);
 
-// Read draw data from PSRAM (uniforms, vertex attributes, inv_area, colors)
-void borg_read_draw_data(borg_draw_data_t *d);
+// Set up draw data from a rotation angle (FP16 radians)
+void borg_set_angle(borg_draw_data_t *d, uint16_t angle_fp16);
 
 // Render a triangle: vertex shade → rasterize → fragment shade → framebuffer
 void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3]);

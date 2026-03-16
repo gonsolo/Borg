@@ -310,10 +310,12 @@ void borg_init(void) {
   parse_shaders();
 }
 
-void borg_read_draw_data(borg_draw_data_t *d) {
-  // Read uniforms
-  for (int i = 0; i < vert_shader.num_uniforms; i++)
-    d->uniforms[i] = PSRAM_IN(shader_data_offset + i);
+void borg_set_angle(borg_draw_data_t *d, uint16_t angle_fp16) {
+  // Compute vertex shader uniforms from angle
+  // The vertex shader expects: uniform[0]=sin, uniform[1]=cos, uniform[2]=-sin
+  d->uniforms[0] = fp16_sin(angle_fp16);
+  d->uniforms[1] = fp16_cos(angle_fp16);
+  d->uniforms[2] = fp16_neg(d->uniforms[0]);
 
   // Clear stale DONE marker
   PSRAM_OUT(FB_OFFSET + BORG_FB_WIDTH * BORG_FB_HEIGHT * 3) = 0;

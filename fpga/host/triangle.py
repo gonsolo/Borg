@@ -455,11 +455,6 @@ def render_frame(frame):
     offset = write_blob(sm_w, PSRAM_IO_SPI_ADDR, offset, _rast_blob)
     offset = write_blob(sm_w, PSRAM_IO_SPI_ADDR, offset, _frag_blob)
 
-    # Uniforms: sin, cos, nsin
-    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, sin_fp);  offset += 1
-    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, cos_fp);  offset += 1
-    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, nsin_fp); offset += 1
-
 
 
     sm_w.active(0)
