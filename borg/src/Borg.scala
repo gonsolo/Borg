@@ -40,9 +40,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   dontTouch(io)
 
   // --- Storage ---
-  // registerFile: 16 general-purpose registers for floating-point data
-  // r0-r7 are MMIO-accessible, r8-r15 are pipeline-only
-  val registerFile = SyncReadMem(16, UInt(config.totalBits.W))
+  // registerFile: 8 general-purpose registers for floating-point data (r0-r7)
+  val registerFile = SyncReadMem(8, UInt(config.totalBits.W))
 
   // instructionMemory: 8 words of instruction memory to store the shader program
   val instructionMemory = SyncReadMem(8, UInt(config.totalBits.W))
@@ -68,12 +67,11 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val fetchedInstruction = instructionMemory.read(nextPC)
 
   // --- Instruction Decoding ---
-  // FP32: 3-bit indices extracted from RISC-V positions (r0-r7 only)
-  // FP16: 4-bit indices for 16 registers
-  //   [15:14]=op [13:12]=rs3/ext [11:8]=rs2 [7:4]=rs1 [3:0]=rd
-  val rs1_idx = if (config.totalBits >= 20) fetchedInstruction(19, 15)(2, 0) else fetchedInstruction(7, 4)
-  val rs2_idx = if (config.totalBits >= 25) fetchedInstruction(24, 20)(2, 0) else fetchedInstruction(11, 8)
-  val rd_idx = if (config.totalBits >= 32) fetchedInstruction(11, 7)(2, 0) else fetchedInstruction(3, 0)
+  // 3-bit register indices (r0-r7) for both FP32 and FP16
+  // FP16: [15:14]=op [13:12]=rs3/ext [11:8]=rs2 [7:4]=rs1 [3:0]=rd
+  val rs1_idx = if (config.totalBits >= 20) fetchedInstruction(19, 15)(2, 0) else fetchedInstruction(6, 4)
+  val rs2_idx = if (config.totalBits >= 25) fetchedInstruction(24, 20)(2, 0) else fetchedInstruction(10, 8)
+  val rd_idx = if (config.totalBits >= 32) fetchedInstruction(11, 7)(2, 0) else fetchedInstruction(2, 0)
 
   // Operation type: ADD, MUL, FMA, FNEG, FSTEP
   // FP32: bit 2 = FMA flag; funct7[28:25] = 0x0→ADD, 0x4→MUL, 0x6→FNEG, 0x8→FSTEP (when not FMA)
