@@ -7,6 +7,7 @@
 #include "borg_math.h"
 #include "spirb.h"
 
+// @doc:mmio-map
 // --- Hardware addresses ---
 #define UART_TX (*(volatile uint32_t *)0x08000080)
 #define UART_STATUS (*(volatile uint32_t *)0x08000084)
@@ -23,6 +24,7 @@
 
 #define PSRAM_IN(n) (*(volatile uint32_t *)(0x01001000 + (n) * 4))
 #define PSRAM_OUT(n) (*(volatile uint32_t *)(0x01001000 + 128 + (n) * 4))
+// @doc:end
 
 #define FP16_SIXTEEN 0x4C00
 
@@ -47,6 +49,7 @@ static void puts_uart(const char *s) {
 
 
 
+// @doc:fpu-helpers
 // --- Borg FPU helpers ---
 static void borg_run(void) {
   BORG_CONTROL = 2;
@@ -78,6 +81,7 @@ static uint16_t borg_fp16_mul(uint16_t a, uint16_t b) {
   BORG_REG(2) = b;
   borg_run();
   return BORG_REG(0) & 0xFFFF;
+// @doc:end
 }
 
 static uint16_t borg_fp16_fmadd(uint16_t a, uint16_t b, uint16_t c) {

@@ -12,6 +12,7 @@
 // FP16 36° in radians ≈ 0.6283
 #define FP16_36DEG 0x3909
 
+// @doc:triangle-app
 // Triangle vertices: position (x, y) + color (r, g, b) in FP16
 // Positions in normalized coordinates [-1, 1], driver scales to screen space
 const borg_vertex_t vertices[3] = {
@@ -35,3 +36,4 @@ int main() {
         ;
     return 0;
 }
+// @doc:end
