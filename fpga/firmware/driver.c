@@ -72,6 +72,36 @@ static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
 
 #define BORG_FP16_SUB(a, b) borg_fp16_add((a), (b) ^ 0x8000)
 #define BORG_FP16_NEG(x) ((x) ^ 0x8000)
+#define FP16_TWO  0x4000
+
+static uint16_t borg_fp16_mul(uint16_t a, uint16_t b) {
+  // fmul r0, r1, r2: [15:14]=01, [11:8]=r2, [7:4]=r1, [3:0]=r0
+  BORG_IMEM(0) = 0x4210;
+  BORG_IMEM(1) = 0x0000; // halt
+  BORG_REG(1) = a;
+  BORG_REG(2) = b;
+  borg_run();
+  return BORG_REG(0) & 0xFFFF;
+}
+
+// FP16 reciprocal using Newton-Raphson: y = 1/x
+// Initial estimate via exponent flip, refined with 2 NR iterations.
+static uint16_t borg_fp16_rcp(uint16_t x) {
+  uint16_t sign = x & 0x8000;
+  uint16_t exp = (x >> 10) & 0x1F;
+  if (exp == 0 || exp == 31) return 0;
+  // Initial estimate: flip exponent around bias, zero mantissa
+  uint16_t est_exp = 30 - exp;
+  if (est_exp >= 31) return sign | 0x7C00;
+  uint16_t y = sign | (est_exp << 10);
+  // Newton-Raphson: y = y * (2 - x * y), 2 iterations
+  for (int i = 0; i < 2; i++) {
+    uint16_t xy = borg_fp16_mul(x, y);
+    uint16_t correction = BORG_FP16_SUB(FP16_TWO, xy);
+    y = borg_fp16_mul(y, correction);
+  }
+  return y;
+}
 
 // --- Shader globals ---
 static spirb_shader_t vert_shader;
@@ -291,10 +321,6 @@ void borg_read_draw_data(borg_draw_data_t *d) {
   for (int i = 0; i < total_attrs; i++)
     d->attrs[i] = PSRAM_IN(attr_base + i);
 
-  // Read inv_area
-  int inv_area_idx = attr_base + total_attrs;
-  d->inv_area = PSRAM_IN(inv_area_idx) & 0xFFFF;
-
   // Clear stale DONE marker
   PSRAM_OUT(FB_OFFSET + BORG_FB_WIDTH * BORG_FB_HEIGHT * 3) = 0;
   puts_uart("A\r\n");
@@ -314,6 +340,16 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3]) {
   uint16_t sx[3], sy[3];
   screen_space_translate(vout, sx, sy);
 
+  // Triangle setup: compute inv_area from screen-space positions
+  // area = (sx1-sx0)*(sy2-sy0) - (sx2-sx0)*(sy1-sy0) (2D cross product)
+  uint16_t dx10 = BORG_FP16_SUB(sx[1], sx[0]);
+  uint16_t dy20 = BORG_FP16_SUB(sy[2], sy[0]);
+  uint16_t dx20 = BORG_FP16_SUB(sx[2], sx[0]);
+  uint16_t dy10 = BORG_FP16_SUB(sy[1], sy[0]);
+  uint16_t area = BORG_FP16_SUB(borg_fp16_mul(dx10, dy20),
+                                 borg_fp16_mul(dx20, dy10));
+  uint16_t inv_area = borg_fp16_rcp(area);
+
   // Edge vectors
   uint16_t dx[3], neg_dy[3];
   compute_edge_vectors(sx, sy, dx, neg_dy);
@@ -327,7 +363,7 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3]) {
       compute_pixel_deltas(pcx, pcy, sx, sy, dpx_arr, dpy_arr);
       uint16_t r = 0, g = 0, b = 0;
       borg_bary_rgb(dx, neg_dy, dpx_arr, dpy_arr,
-                     d->inv_area, colors, &r, &g, &b);
+                     inv_area, colors, &r, &g, &b);
       int base = FB_OFFSET + (py * BORG_FB_WIDTH + px) * 3;
       PSRAM_OUT(base + 0) = r;
       PSRAM_OUT(base + 1) = g;

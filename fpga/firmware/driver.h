@@ -25,7 +25,6 @@ typedef struct {
 typedef struct {
     uint16_t uniforms[16];
     uint16_t attrs[3 * 16];   // 3 vertices × max 16 attributes
-    uint16_t inv_area;
 } borg_draw_data_t;
 
 // Initialize hardware (UART, parse shaders from PSRAM)

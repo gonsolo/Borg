@@ -465,23 +465,6 @@ def render_frame(frame):
         qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, float_to_fp16(vx)); offset += 1
         qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, float_to_fp16(vy)); offset += 1
 
-    # Compute inv_area for barycentric interpolation
-    sx_list, sy_list = [], []
-    for vx, vy in TRI:
-        rx = cos_a * vx - sin_a * vy
-        ry = sin_a * vx + cos_a * vy
-        sx_list.append(rx + 8.0)
-        sy_list.append(ry + 8.0)
-    cx, cy = sum(sx_list) / 3.0, sum(sy_list) / 3.0
-    e0 = (sx_list[1] - sx_list[0]) * (cy - sy_list[0]) - (sy_list[1] - sy_list[0]) * (cx - sx_list[0])
-    e1 = (sx_list[2] - sx_list[1]) * (cy - sy_list[1]) - (sy_list[2] - sy_list[1]) * (cx - sx_list[1])
-    e2 = (sx_list[0] - sx_list[2]) * (cy - sy_list[2]) - (sy_list[0] - sy_list[2]) * (cx - sx_list[2])
-    total_area = e0 + e1 + e2
-    inv_area_val = 1.0 / total_area if abs(total_area) > 1e-10 else 0.0
-    inv_area_fp = float_to_fp16(inv_area_val)
-    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, inv_area_fp); offset += 1
-    print(f"inv_area={inv_area_val:.6f} fp16=0x{inv_area_fp:04X} total={total_area:.4f}")
-
 
 
     sm_w.active(0)
