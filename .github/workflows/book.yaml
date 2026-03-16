@@ -49,6 +49,8 @@ jobs:
           img { max-width: 100%; image-rendering: pixelated; }
           ENDCSS
 
+          echo '<meta http-equiv="refresh" content="0; url=00_index.html">' > _site/index.html
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
