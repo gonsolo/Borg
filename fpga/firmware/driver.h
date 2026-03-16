@@ -12,8 +12,9 @@
 #define FP16_HALF 0x3800
 #define FP16_ZERO 0x0000
 
-// Vertex with per-vertex color (RGB in FP16)
+// Vertex with position and per-vertex color (all FP16)
 typedef struct {
+    uint16_t pos[2];    // x, y
     uint16_t color[3];  // r, g, b
 } borg_vertex_t;
 
@@ -21,10 +22,9 @@ typedef struct {
 #define BORG_FB_WIDTH  16
 #define BORG_FB_HEIGHT 16
 
-// Draw data read from PSRAM (populated by borg_read_draw_data)
+// Draw data read from PSRAM (uniforms only — vertices come from the application)
 typedef struct {
     uint16_t uniforms[16];
-    uint16_t attrs[3 * 16];   // 3 vertices × max 16 attributes
 } borg_draw_data_t;
 
 // Initialize hardware (UART, parse shaders from PSRAM)

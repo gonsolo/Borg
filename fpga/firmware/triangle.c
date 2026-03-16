@@ -6,10 +6,12 @@
 
 #include "driver.h"
 
+// Triangle vertices: position (x, y) + color (r, g, b) in FP16
+// Centered at origin, scaled to 60% of half-width (4.8 units)
 const borg_vertex_t vertices[3] = {
-    { .color = { FP16_ONE,  FP16_ZERO, FP16_ZERO } },  // red
-    { .color = { FP16_ZERO, FP16_ONE,  FP16_ZERO } },  // green
-    { .color = { FP16_ZERO, FP16_ZERO, FP16_ONE  } },  // blue
+    { .pos = { 0x0000, 0xC4CD }, .color = { FP16_ONE,  FP16_ZERO, FP16_ZERO } },  // ( 0.0, -4.8) red
+    { .pos = { 0xC4CD, 0x44CD }, .color = { FP16_ZERO, FP16_ONE,  FP16_ZERO } },  // (-4.8,  4.8) green
+    { .pos = { 0x44CD, 0x44CD }, .color = { FP16_ZERO, FP16_ZERO, FP16_ONE  } },  // ( 4.8,  4.8) blue
 };
 
 int main() {

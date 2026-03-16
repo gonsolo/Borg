@@ -315,12 +315,6 @@ void borg_read_draw_data(borg_draw_data_t *d) {
   for (int i = 0; i < vert_shader.num_uniforms; i++)
     d->uniforms[i] = PSRAM_IN(shader_data_offset + i);
 
-  // Read vertex attributes
-  int attr_base = shader_data_offset + vert_shader.num_uniforms;
-  int total_attrs = NUM_VERTICES * vert_shader.num_attributes;
-  for (int i = 0; i < total_attrs; i++)
-    d->attrs[i] = PSRAM_IN(attr_base + i);
-
   // Clear stale DONE marker
   PSRAM_OUT(FB_OFFSET + BORG_FB_WIDTH * BORG_FB_HEIGHT * 3) = 0;
   puts_uart("A\r\n");
@@ -332,9 +326,16 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3]) {
   for (int v = 0; v < 3; v++)
     for (int c = 0; c < 3; c++)
       colors[v][c] = vertices[v].color[c];
+  // Build vertex attribute array from vertex positions
+  uint16_t attrs[NUM_VERTICES * 2];
+  for (int v = 0; v < NUM_VERTICES; v++) {
+    attrs[v * 2 + 0] = vertices[v].pos[0];
+    attrs[v * 2 + 1] = vertices[v].pos[1];
+  }
+
   // Vertex shader
   uint16_t vout[NUM_VERTICES * SPIRB_MAX_REGS];
-  run_vertex_shader(d->uniforms, d->attrs, vout);
+  run_vertex_shader(d->uniforms, attrs, vout);
 
   // Screen-space translation
   uint16_t sx[3], sy[3];

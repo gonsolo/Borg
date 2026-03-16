@@ -460,11 +460,6 @@ def render_frame(frame):
     qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, cos_fp);  offset += 1
     qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, nsin_fp); offset += 1
 
-    # Vertex attributes: 3 vertices × (x, y)
-    for vx, vy in TRI:
-        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, float_to_fp16(vx)); offset += 1
-        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + offset * 4, float_to_fp16(vy)); offset += 1
-
 
 
     sm_w.active(0)
