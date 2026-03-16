@@ -295,18 +295,17 @@ void borg_read_draw_data(borg_draw_data_t *d) {
   int inv_area_idx = attr_base + total_attrs;
   d->inv_area = PSRAM_IN(inv_area_idx) & 0xFFFF;
 
-  // Read per-vertex RGB colors (3 vertices × 3 channels = 9 words)
-  int color_base = inv_area_idx + 1;
-  for (int v = 0; v < 3; v++)
-    for (int c = 0; c < 3; c++)
-      d->colors[v][c] = PSRAM_IN(color_base + v * 3 + c) & 0xFFFF;
-
   // Clear stale DONE marker
   PSRAM_OUT(FB_OFFSET + BORG_FB_WIDTH * BORG_FB_HEIGHT * 3) = 0;
   puts_uart("A\r\n");
 }
 
-void borg_cmd_draw(const borg_draw_data_t *d) {
+void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3]) {
+  // Build colors array from vertex data
+  uint16_t colors[3][3];
+  for (int v = 0; v < 3; v++)
+    for (int c = 0; c < 3; c++)
+      colors[v][c] = vertices[v].color[c];
   // Vertex shader
   uint16_t vout[NUM_VERTICES * SPIRB_MAX_REGS];
   run_vertex_shader(d->uniforms, d->attrs, vout);
@@ -328,7 +327,7 @@ void borg_cmd_draw(const borg_draw_data_t *d) {
       compute_pixel_deltas(pcx, pcy, sx, sy, dpx_arr, dpy_arr);
       uint16_t r = 0, g = 0, b = 0;
       borg_bary_rgb(dx, neg_dy, dpx_arr, dpy_arr,
-                     d->inv_area, (uint16_t (*)[3])d->colors, &r, &g, &b);
+                     d->inv_area, colors, &r, &g, &b);
       int base = FB_OFFSET + (py * BORG_FB_WIDTH + px) * 3;
       PSRAM_OUT(base + 0) = r;
       PSRAM_OUT(base + 1) = g;
