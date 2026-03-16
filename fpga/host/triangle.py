@@ -407,7 +407,7 @@ TRI = [(0.0, -_s), (-_s, _s), (_s, _s)]
 
 def render_all_frames():
     """Boot FPGA, let firmware render 10 frames, read back all framebuffers."""
-    NUM_FRAMES = 10
+    NUM_FRAMES = 1
     FRAME_FB_SIZE = WIDTH * HEIGHT * 3  # 768 words per frame
     FRAME_STRIDE = FRAME_FB_SIZE + 1     # 769 words (FB + DONE marker)
 
@@ -465,9 +465,9 @@ def render_all_frames():
     time.sleep(0.001)
     clk.off()
 
-    # Run at 4MHz, wait for all 10 frames to complete
+    # Run at 4MHz, wait for rendering to complete
     _clk = machine.PWM(Pin(24), freq=4_000_000, duty_u16=32768)
-    time.sleep(30)  # 10 frames takes a while
+    time.sleep(10)
 
     # --- Stop and reset FPGA ---
     _clk.deinit()

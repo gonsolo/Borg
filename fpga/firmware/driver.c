@@ -24,7 +24,18 @@
 #define PSRAM_OUT(n) (*(volatile uint32_t *)(0x01001000 + 128 + (n) * 4))
 
 #define FB_OFFSET 32
-#define FP16_EIGHT 0x4800
+#define FP16_SIXTEEN 0x4C00
+
+// FP16 half-width of framebuffer (for NDC → screen-space conversion)
+#if BORG_FB_WIDTH == 16
+  #define FP16_HALF_WIDTH 0x4800   // 8.0
+#elif BORG_FB_WIDTH == 32
+  #define FP16_HALF_WIDTH 0x4C00   // 16.0
+#elif BORG_FB_WIDTH == 64
+  #define FP16_HALF_WIDTH 0x5000   // 32.0
+#else
+  #error "Unsupported BORG_FB_WIDTH — add FP16_HALF_WIDTH entry"
+#endif
 
 #define NUM_VERTICES 3
 
@@ -70,6 +81,18 @@ static uint16_t borg_fp16_mul(uint16_t a, uint16_t b) {
   BORG_IMEM(1) = 0x0000; // halt
   BORG_REG(1) = a;
   BORG_REG(2) = b;
+  borg_run();
+  return BORG_REG(0) & 0xFFFF;
+}
+
+static uint16_t borg_fp16_fmadd(uint16_t a, uint16_t b, uint16_t c) {
+  // fmadd r0, r1, r2, r3: [15:14]=10, [13:12]=r3(low2), [11:8]=r2, [7:4]=r1, [3:0]=r0
+  // r0 = r1 * r2 + r3
+  BORG_IMEM(0) = 0xB210;  // fmadd r0 = r1 * r2 + r3 (rs3=3 → bits[13:12]=11=3)
+  BORG_IMEM(1) = 0x0000;
+  BORG_REG(1) = a;
+  BORG_REG(2) = b;
+  BORG_REG(3) = c;
   borg_run();
   return BORG_REG(0) & 0xFFFF;
 }
@@ -150,8 +173,8 @@ static void screen_space_translate(const uint16_t *vout,
                                     uint16_t *sx, uint16_t *sy) {
   int stride = vert_shader.num_outputs;
   for (int v = 0; v < NUM_VERTICES; v++) {
-    sx[v] = borg_fp16_add(vout[v * stride + 0], FP16_EIGHT);
-    sy[v] = borg_fp16_add(vout[v * stride + 1], FP16_EIGHT);
+    sx[v] = borg_fp16_fmadd(vout[v * stride + 0], FP16_HALF_WIDTH, FP16_HALF_WIDTH);
+    sy[v] = borg_fp16_fmadd(vout[v * stride + 1], FP16_HALF_WIDTH, FP16_HALF_WIDTH);
   }
 }
 
@@ -178,12 +201,16 @@ static void compute_pixel_deltas(uint16_t pcx, uint16_t pcy,
 
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
-// Precomputed FP16 pixel center coordinates: 0.5, 1.5, ..., 15.5
-static const uint16_t pc_lut[16] = {
-    0x3800, 0x3E00, 0x4100, 0x4300,
-    0x4480, 0x4580, 0x4680, 0x4780,
-    0x4840, 0x48C0, 0x4940, 0x49C0,
-    0x4A40, 0x4AC0, 0x4B40, 0x4BC0
+// Precomputed FP16 pixel center coordinates: 0.5, 1.5, ..., 31.5
+static const uint16_t pc_lut[32] = {
+    0x3800, 0x3E00, 0x4100, 0x4300, // 0.5, 1.5, 2.5, 3.5
+    0x4480, 0x4580, 0x4680, 0x4780, // 4.5, 5.5, 6.5, 7.5
+    0x4840, 0x48C0, 0x4940, 0x49C0, // 8.5, 9.5, 10.5, 11.5
+    0x4A40, 0x4AC0, 0x4B40, 0x4BC0, // 12.5, 13.5, 14.5, 15.5
+    0x4C20, 0x4C60, 0x4CA0, 0x4CE0, // 16.5, 17.5, 18.5, 19.5
+    0x4D20, 0x4D60, 0x4DA0, 0x4DE0, // 20.5, 21.5, 22.5, 23.5
+    0x4E20, 0x4E60, 0x4EA0, 0x4EE0, // 24.5, 25.5, 26.5, 27.5
+    0x4F20, 0x4F60, 0x4FA0, 0x4FE0  // 28.5, 29.5, 30.5, 31.5
 };
 
 // --- Rasterization ---

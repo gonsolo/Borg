@@ -24,11 +24,8 @@ void main() {
     // 2. Apply rotation to the position
     vec2 rotatedPos = rot * inPos;
 
-    // 3. Translate left
-    vec2 translatedPos = rotatedPos + vec2(-2.0, 0.0);
-
-    // 4. Set the final vertex position
-    gl_Position = vec4(translatedPos, 0.0, 1.0);
+    // 3. Set the final vertex position
+    gl_Position = vec4(rotatedPos, 0.0, 1.0);
 
     // 4. Pass the color to the next stage
     fragColor = inColor;

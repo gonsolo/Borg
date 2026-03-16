@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
 // Simple Vulkan-like triangle application.
-// Renders 10 frames of a rotating colored triangle.
+// Renders a single frame of a colored triangle.
 // 100% self-contained: shader blobs embedded in firmware binary.
 
 #include "driver.h"
@@ -11,14 +11,13 @@
 
 // FP16 36° in radians ≈ 0.6283
 #define FP16_36DEG 0x3909
-#define NUM_FRAMES 10
 
 // Triangle vertices: position (x, y) + color (r, g, b) in FP16
-// Centered at origin, scaled to 60% of half-width (4.8 units)
+// Positions in normalized coordinates [-1, 1], driver scales to screen space
 const borg_vertex_t vertices[3] = {
-    { .pos = { 0x0000, 0xC4CD }, .color = { FP16_ONE,  FP16_ZERO, FP16_ZERO } },  // ( 0.0, -4.8) red
-    { .pos = { 0xC4CD, 0x44CD }, .color = { FP16_ZERO, FP16_ONE,  FP16_ZERO } },  // (-4.8,  4.8) green
-    { .pos = { 0x44CD, 0x44CD }, .color = { FP16_ZERO, FP16_ZERO, FP16_ONE  } },  // ( 4.8,  4.8) blue
+    { .pos = { 0x0000, 0xB8CD }, .color = { FP16_ONE,  FP16_ZERO, FP16_ZERO } },  // ( 0.0, -0.6) red
+    { .pos = { 0xB8CD, 0x38CD }, .color = { FP16_ZERO, FP16_ONE,  FP16_ZERO } },  // (-0.6,  0.6) green
+    { .pos = { 0x38CD, 0x38CD }, .color = { FP16_ZERO, FP16_ZERO, FP16_ONE  } },  // ( 0.6,  0.6) blue
 };
 
 int main() {
@@ -26,17 +25,11 @@ int main() {
               rasterize_borg, rasterize_borg_len,
               frag_borg, frag_borg_len);
 
-    uint16_t angle = FP16_ZERO;
+    borg_draw_data_t draw;
+    borg_set_angle(&draw, FP16_36DEG);
 
-    for (int frame = 0; frame < NUM_FRAMES; frame++) {
-        borg_draw_data_t draw;
-        borg_set_angle(&draw, angle);
-
-        borg_cmd_draw(&draw, vertices, frame);
-        borg_present(frame);
-
-        angle = fp16_add(angle, FP16_36DEG);
-    }
+    borg_cmd_draw(&draw, vertices, 0);
+    borg_present(0);
 
     while (1)
         ;
