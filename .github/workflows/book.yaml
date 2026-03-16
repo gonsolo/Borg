@@ -26,17 +26,16 @@ jobs:
       - name: Convert book to HTML
         run: |
           sudo apt-get install -y pandoc
-          SITE=$(find . -path '*/pages/*' -name 'index.html' -printf '%h\n' | head -1)
-          if [ -z "$SITE" ]; then SITE=docs/book/html; mkdir -p "$SITE"; fi
+          mkdir -p _site
 
           for f in docs/book/*.md; do
             base=$(basename "$f" .md)
             pandoc "$f" -s --toc --metadata title="Borg GPU" \
-              --css=style.css -o "${SITE}/${base}.html"
+              --css=style.css -o "_site/${base}.html"
           done
-          cp docs/triangle.png "$SITE/" 2>/dev/null || true
+          cp docs/triangle.png _site/ 2>/dev/null || true
 
-          cat > "${SITE}/style.css" << 'ENDCSS'
+          cat > _site/style.css << 'ENDCSS'
           body { max-width: 800px; margin: 2rem auto; padding: 0 1rem;
                  font-family: -apple-system, sans-serif; line-height: 1.6; color: #e0e0e0;
                  background: #1a1a2e; }
@@ -49,6 +48,11 @@ jobs:
           th { background: #16213e; }
           img { max-width: 100%; image-rendering: pixelated; }
           ENDCSS
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
 
   deploy:
     needs: build
