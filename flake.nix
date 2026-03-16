@@ -34,6 +34,7 @@
       # Use nativeBuildInputs for tools that provide executables
       nativeBuildInputs = [
         pkgs.bash-completion
+        pkgs.bear
         pkgs.bzip2
         pkgs.cmake
         pkgs.coreutils
