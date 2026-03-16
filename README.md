@@ -17,6 +17,8 @@ The prototype based on Firesim can be found in the
 
 The design is a **TinyQV RISC-V SoC** with the **Borg FP16 shader processor** as a memory-mapped peripheral, targeting both iCE40 FPGAs (pico-ice) and ASIC (IHP SG13G2 via Tiny Tapeout).
 
+![Triangle rendered by the Borg GPU](docs/triangle.png)
+
 ### Borg Shader Processor
 
 A minimal programmable shading unit with:
@@ -97,3 +99,29 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | Tiny Tapeout TTIHP26a [submission](https://app.tinytapeout.com/projects/3645) | ✅ Submitted |
 | Test manufactured chip | ⏳ Pending |
 | Vulkan driver | 📋 Planned |
+
+## Software Bill of Materials
+
+| Component | Description | License |
+|-----------|-------------|---------|
+| [Chisel](https://github.com/chipsalliance/chisel) | Hardware construction language (Scala → Verilog) | Apache-2.0 |
+| [TinyQV](https://github.com/MichaelBell/tinyQV) | RV32I RISC-V CPU core (rewritten in Chisel) | Apache-2.0 |
+| [Berkeley HardFloat](https://github.com/ucb-bar/berkeley-hardfloat) | IEEE-754 floating-point units (FMA) | BSD-3-Clause |
+| [LibreLane](https://github.com/efabless/librelane) | RTL-to-GDS ASIC flow orchestrator | Apache-2.0 |
+| [Yosys](https://github.com/YosysHQ/yosys) | RTL synthesis | ISC |
+| [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD) | Place and route | BSD-3-Clause |
+| [Magic](https://github.com/RTimothyEdwards/magic) | Layout tool, DRC, GDS export | MIT |
+| [KLayout](https://github.com/KLayout/klayout) | GDS viewer and DRC | GPL-2.0 |
+| [IHP SG13G2 PDK](https://github.com/IHP-GmbH/IHP-Open-PDK) | IHP 130nm process design kit | Apache-2.0 |
+| [cocotb](https://github.com/cocotb/cocotb) | Python-based RTL simulation and testing | BSD-3-Clause |
+| [Icarus Verilog](https://github.com/steveicarus/iverilog) | Verilog simulation (cocotb backend) | GPL-2.0 |
+| [Verilator](https://github.com/verilator/verilator) | Verilog linting and simulation | LGPL-3.0 |
+| [nextpnr](https://github.com/YosysHQ/nextpnr) | FPGA place and route (iCE40) | ISC |
+| [IceStorm](https://github.com/YosysHQ/icestorm) | iCE40 FPGA bitstream tools | ISC |
+| [Netgen](https://github.com/RTimothyEdwards/netgen) | LVS (Layout vs. Schematic) | MIT |
+| [GCC](https://gcc.gnu.org/) | RISC-V cross-compiler (`riscv32-embedded`) | GPL-3.0 |
+| [Mill](https://github.com/com-lihaoyi/mill) | Scala build tool | MIT |
+| [Tiny Tapeout Tools](https://github.com/TinyTapeout/tt-support-tools) | Build and submission orchestrator | Apache-2.0 |
+| [Nix](https://github.com/NixOS/nix) | Reproducible development environment | LGPL-2.1 |
+| [CIRCT/firtool](https://github.com/llvm/circt) | Chisel → Verilog compiler (FIRRTL) | Apache-2.0 (LLVM) |
+| [OpenJDK](https://openjdk.org/) | Java runtime for Chisel/Mill | GPL-2.0 + CE |
