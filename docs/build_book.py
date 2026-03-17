@@ -82,7 +82,7 @@ def process_markdown(src: Path, snippet_cache: dict) -> str:
 
     result = SNIPPET_REF.sub(replace, text)
     # Rewrite internal .md links to .html for GitHub Pages
-    result = re.sub(r'\]\((\d\d_\w+)\.md\)', r'](\1.html)', result)
+    result = re.sub(r'\]\(([A-Za-z0-9]{2}_\w+)\.md\)', r'](\1.html)', result)
     return result
 
 
