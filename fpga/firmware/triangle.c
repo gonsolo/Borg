@@ -13,12 +13,22 @@
 #define FP16_36DEG 0x3909
 
 // @doc:triangle-app
-// Triangle vertices: position (x, y) + color (r, g, b) in FP16
+// Front triangle: position (x, y, z) + color (r, g, b) in FP16
 // Positions in normalized coordinates [-1, 1], driver scales to screen space
-const borg_vertex_t vertices[3] = {
-    { .pos = { 0x0000, 0xB8CD }, .color = { FP16_ONE,  FP16_ZERO, FP16_ZERO } },  // ( 0.0, -0.6) red
-    { .pos = { 0xB8CD, 0x38CD }, .color = { FP16_ZERO, FP16_ONE,  FP16_ZERO } },  // (-0.6,  0.6) green
-    { .pos = { 0x38CD, 0x38CD }, .color = { FP16_ZERO, FP16_ZERO, FP16_ONE  } },  // ( 0.6,  0.6) blue
+#define FP16_Z_NEAR 0x3266  // 0.2
+#define FP16_Z_FAR  0x3A66  // 0.8
+
+const borg_vertex_t front_tri[3] = {
+    { .pos = { 0x0000, 0xB8CD, FP16_Z_NEAR }, .color = { FP16_ONE,  FP16_ZERO, FP16_ZERO } },  // ( 0.0, -0.6, 0.2) red
+    { .pos = { 0xB8CD, 0x38CD, FP16_Z_NEAR }, .color = { FP16_ZERO, FP16_ONE,  FP16_ZERO } },  // (-0.6,  0.6, 0.2) green
+    { .pos = { 0x38CD, 0x38CD, FP16_Z_NEAR }, .color = { FP16_ZERO, FP16_ZERO, FP16_ONE  } },  // ( 0.6,  0.6, 0.2) blue
+};
+
+// Back triangle: larger, solid red, behind the front one
+const borg_vertex_t back_tri[3] = {
+    { .pos = { 0x0000, 0xBCCD, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ZERO, FP16_ZERO } },  // ( 0.0, -0.9, 0.8) red
+    { .pos = { 0xBCCD, 0x3CCD, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ZERO, FP16_ZERO } },  // (-0.9,  0.9, 0.8) red
+    { .pos = { 0x3CCD, 0x3CCD, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ZERO, FP16_ZERO } },  // ( 0.9,  0.9, 0.8) red
 };
 
 int main() {
@@ -29,7 +39,9 @@ int main() {
     borg_draw_data_t draw;
     borg_set_angle(&draw, FP16_36DEG);
 
-    borg_cmd_draw(&draw, vertices, 0);
+    borg_clear_zbuffer(0);
+    borg_cmd_draw(&draw, front_tri, 0);  // draw front (RGB) first
+    borg_cmd_draw(&draw, back_tri, 0);   // draw back (red) — z-buffer should reject overlap
     borg_present(0);
 
     while (1)

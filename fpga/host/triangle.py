@@ -386,15 +386,19 @@ def float_to_fp16(f):
 def write_ppm(filename, fb, w, h):
     """Write a PPM P3 image from RGB FP16 framebuffer values.
     fb is a list of (r, g, b) FP16 tuples."""
+    def fp16_to_byte(bits):
+        if not bits:
+            return 0
+        v = fp16_to_float(bits)
+        if math.isnan(v) or math.isinf(v):
+            return 0
+        return max(0, min(255, int(v * 255 + 0.5)))
     with open(filename, 'w') as f:
         f.write("P3\n%d %d\n255\n" % (w, h))
         for y in range(h):
             for x in range(w):
                 r_fp16, g_fp16, b_fp16 = fb[y * w + x]
-                r = max(0, min(255, int(fp16_to_float(r_fp16) * 255 + 0.5))) if r_fp16 else 0
-                g = max(0, min(255, int(fp16_to_float(g_fp16) * 255 + 0.5))) if g_fp16 else 0
-                b = max(0, min(255, int(fp16_to_float(b_fp16) * 255 + 0.5))) if b_fp16 else 0
-                f.write("%d %d %d " % (r, g, b))
+                f.write("%d %d %d " % (fp16_to_byte(r_fp16), fp16_to_byte(g_fp16), fp16_to_byte(b_fp16)))
             f.write("\n")
 
 
@@ -408,8 +412,9 @@ TRI = [(0.0, -_s), (-_s, _s), (_s, _s)]
 def render_all_frames():
     """Boot FPGA, let firmware render 10 frames, read back all framebuffers."""
     NUM_FRAMES = 1
-    FRAME_FB_SIZE = WIDTH * HEIGHT * 3  # 768 words per frame
-    FRAME_STRIDE = FRAME_FB_SIZE + 1     # 769 words (FB + DONE marker)
+    FRAME_FB_SIZE = WIDTH * HEIGHT * 3  # RGB words per frame
+    FRAME_ZB_SIZE = WIDTH * HEIGHT       # Z-buffer words per frame
+    FRAME_STRIDE = FRAME_FB_SIZE + FRAME_ZB_SIZE + 1  # FB + ZB + DONE marker
 
     # --- Write framebuffer dimensions to PSRAM for firmware ---
     run_tinyqv.setup_ram()
@@ -504,7 +509,7 @@ def render_all_frames():
         frame_base = frame * FRAME_STRIDE
 
         # Check DONE marker for this frame
-        done = qpi_read_word(sm_r, out_base + (frame_base + FRAME_FB_SIZE) * 4)
+        done = qpi_read_word(sm_r, out_base + (frame_base + FRAME_FB_SIZE + FRAME_ZB_SIZE) * 4)
         print("Frame %d Done marker: 0x%04X" % (frame, done))
 
         # Read RGB framebuffer (3 FP16 words per pixel)
