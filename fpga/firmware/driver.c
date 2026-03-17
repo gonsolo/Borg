@@ -14,6 +14,26 @@
 #define FP16_SIXTEEN 0x4C00
 
 typedef struct { uint16_t r, g, b; } rgb16_t;
+typedef struct { uint16_t u, v; } uv16_t;
+
+static inline void fb_write_pixel(int base, rgb16_t c) {
+  PSRAM_OUT(base + 0) = c.r;
+  PSRAM_OUT(base + 1) = c.g;
+  PSRAM_OUT(base + 2) = c.b;
+}
+
+static inline rgb16_t fb_read_texel(int base) {
+  return (rgb16_t){ PSRAM_IN(base + 0), PSRAM_IN(base + 1), PSRAM_IN(base + 2) };
+}
+
+typedef struct { int x, y; } texcoord_t;
+typedef struct { int w, h; } dim2_t;
+
+typedef struct {
+  int psram_offset;        // -1 = no texture
+  dim2_t size;             // integer dimensions
+  uint16_t w_fp16, h_fp16; // FP16 dimensions for Borg FPU
+} texture_t;
 
 // Runtime framebuffer dimensions and derived values
 int borg_fb_width;
@@ -24,11 +44,7 @@ static uint16_t pc_lut[BORG_MAX_FB_DIM];
 #define NUM_VERTICES 3
 
 // --- Texture state ---
-static int tex_psram_offset = -1;  // -1 = no texture
-static int tex_width;
-static int tex_height;
-static uint16_t tex_width_fp16;    // FP16 encoding of width
-static uint16_t tex_height_fp16;   // FP16 encoding of height
+static texture_t tex = { .psram_offset = -1 };
 
 // --- UART ---
 void putc_uart(int c) {
@@ -162,33 +178,40 @@ static void run_vertex_shader(const uint16_t *uniforms,
   puts_uart("D\r\n");
 }
 
-static void screen_space_translate(const uint16_t *vout,
-                                    uint16_t *sx, uint16_t *sy) {
+static void screen_space_translate(const uint16_t *vout, uv16_t *spos) {
   int stride = vert_shader.num_outputs;
   for (int v = 0; v < NUM_VERTICES; v++) {
-    sx[v] = borg_fp16_fmadd(vout[v * stride + 0], fp16_half_width, fp16_half_width);
-    sy[v] = borg_fp16_fmadd(vout[v * stride + 1], fp16_half_width, fp16_half_width);
+    spos[v] = (uv16_t){
+      borg_fp16_fmadd(vout[v * stride + 0], fp16_half_width, fp16_half_width),
+      borg_fp16_fmadd(vout[v * stride + 1], fp16_half_width, fp16_half_width)
+    };
   }
 }
 
-static void compute_edge_vectors(const uint16_t *sx, const uint16_t *sy,
-                                  uint16_t *dx, uint16_t *neg_dy) {
-  dx[0] = BORG_FP16_SUB(sx[1], sx[0]);
-  neg_dy[0] = BORG_FP16_NEG(BORG_FP16_SUB(sy[1], sy[0]));
-  dx[1] = BORG_FP16_SUB(sx[2], sx[1]);
-  neg_dy[1] = BORG_FP16_NEG(BORG_FP16_SUB(sy[2], sy[1]));
-  dx[2] = BORG_FP16_SUB(sx[0], sx[2]);
-  neg_dy[2] = BORG_FP16_NEG(BORG_FP16_SUB(sy[0], sy[2]));
+static void compute_edge_vectors(const uv16_t *spos, uv16_t *edges) {
+  edges[0] = (uv16_t){
+    BORG_FP16_SUB(spos[1].u, spos[0].u),
+    BORG_FP16_NEG(BORG_FP16_SUB(spos[1].v, spos[0].v))
+  };
+  edges[1] = (uv16_t){
+    BORG_FP16_SUB(spos[2].u, spos[1].u),
+    BORG_FP16_NEG(BORG_FP16_SUB(spos[2].v, spos[1].v))
+  };
+  edges[2] = (uv16_t){
+    BORG_FP16_SUB(spos[0].u, spos[2].u),
+    BORG_FP16_NEG(BORG_FP16_SUB(spos[0].v, spos[2].v))
+  };
   puts_uart("F\r\n");
 }
 
-static void compute_pixel_deltas(uint16_t pcx, uint16_t pcy,
-                                  const uint16_t *sx, const uint16_t *sy,
-                                  uint16_t *dpx, uint16_t *dpy) {
+static void compute_pixel_deltas(uv16_t pc, const uv16_t *spos,
+                                  uv16_t *deltas) {
   borg_load_add_shader();
   for (int e = 0; e < 3; e++) {
-    dpx[e] = borg_fp16_sub_raw(pcx, sx[e]);
-    dpy[e] = borg_fp16_sub_raw(pcy, sy[e]);
+    deltas[e] = (uv16_t){
+      borg_fp16_sub_raw(pc.u, spos[e].u),
+      borg_fp16_sub_raw(pc.v, spos[e].v)
+    };
   }
 }
 
@@ -204,6 +227,13 @@ static int fp16_to_uint(uint16_t fp16) {
   int shift = exp - 15;       // number of integer bits
   if (shift >= 10) return mantissa << (shift - 10);
   return mantissa >> (10 - shift);
+}
+
+static inline texcoord_t uv_to_texcoord(uv16_t uv, uint16_t w_fp16, uint16_t h_fp16) {
+  return (texcoord_t){
+    fp16_to_uint(borg_fp16_mul(uv.u, w_fp16)),
+    fp16_to_uint(borg_fp16_mul(uv.v, h_fp16))
+  };
 }
 
 // Precomputed FP16 pixel center coordinates (computed at runtime)
@@ -236,17 +266,16 @@ static uint16_t __attribute__((noinline)) borg_frag_channel(
 }
 
 static int __attribute__((noinline)) borg_bary_rgb(
-    uint16_t *dx, uint16_t *neg_dy,
-    uint16_t *dpx, uint16_t *dpy,
+    const uv16_t *edges, const uv16_t *deltas,
     uint16_t inv_area, uint16_t colors[3][3],
     const uint16_t z_vals[3],
-    const uint16_t uv_u[3], const uint16_t uv_v[3],
+    const uv16_t uvs[3],
     rgb16_t *color_out,
-    uint16_t *z_out, uint16_t *u_out, uint16_t *v_out) {
+    uint16_t *z_out, uv16_t *uv_out) {
   borg_load_spirb_shader(&rast_shader);
-  uint16_t e0 = borg_rasterize_edge(dx[0], neg_dy[0], dpx[0], dpy[0]);
-  uint16_t e1 = borg_rasterize_edge(dx[1], neg_dy[1], dpx[1], dpy[1]);
-  uint16_t e2 = borg_rasterize_edge(dx[2], neg_dy[2], dpx[2], dpy[2]);
+  uint16_t e0 = borg_rasterize_edge(edges[0].u, edges[0].v, deltas[0].u, deltas[0].v);
+  uint16_t e1 = borg_rasterize_edge(edges[1].u, edges[1].v, deltas[1].u, deltas[1].v);
+  uint16_t e2 = borg_rasterize_edge(edges[2].u, edges[2].v, deltas[2].u, deltas[2].v);
   if ((fp16_ge_zero(e0) && e0 != 0) ||
       (fp16_ge_zero(e1) && e1 != 0) ||
       (fp16_ge_zero(e2) && e2 != 0))
@@ -261,11 +290,11 @@ static int __attribute__((noinline)) borg_bary_rgb(
   *z_out = borg_frag_channel(e0, e1, e2, inv_area,
                               z_vals[0], z_vals[1], z_vals[2]);
   // UV interpolation (only when textured)
-  if (uv_u && uv_v) {
-    *u_out = borg_frag_channel(e0, e1, e2, inv_area,
-                                uv_u[0], uv_u[1], uv_u[2]);
-    *v_out = borg_frag_channel(e0, e1, e2, inv_area,
-                                uv_v[0], uv_v[1], uv_v[2]);
+  if (uvs) {
+    uv_out->u = borg_frag_channel(e0, e1, e2, inv_area,
+                                uvs[0].u, uvs[1].u, uvs[2].u);
+    uv_out->v = borg_frag_channel(e0, e1, e2, inv_area,
+                                uvs[0].v, uvs[1].v, uvs[2].v);
   }
   return 1;
 }
@@ -341,15 +370,37 @@ static uint16_t uint_to_fp16(int val) {
 }
 
 void borg_set_texture(int psram_offset, int width, int height) {
-  tex_psram_offset = psram_offset;
-  tex_width = width;
-  tex_height = height;
-  tex_width_fp16 = uint_to_fp16(width);
-  tex_height_fp16 = uint_to_fp16(height);
+  tex = (texture_t){
+    .psram_offset = psram_offset,
+    .size = { width, height },
+    .w_fp16 = uint_to_fp16(width), .h_fp16 = uint_to_fp16(height)
+  };
 }
 
 void borg_clear_texture(void) {
-  tex_psram_offset = -1;
+  tex.psram_offset = -1;
+}
+
+static void shade_and_write_pixel(int frame, int px, int py,
+                                  rgb16_t color, uint16_t z, uv16_t uv_interp,
+                                  const texture_t *t) {
+  // Depth test: read current z, compare (closer = smaller)
+  int zb_idx = frame * FRAME_STRIDE + FRAME_FB_SIZE + (py * BORG_FB_WIDTH + px);
+  uint16_t old_z = PSRAM_OUT(zb_idx);
+  if (z >= old_z) return;
+  PSRAM_OUT(zb_idx) = z;
+
+  // Texture sampling: replace vertex colors with texel
+  if (t->psram_offset >= 0) {
+    texcoord_t tc = uv_to_texcoord(uv_interp, t->w_fp16, t->h_fp16);
+    if (tc.x >= t->size.w)  tc.x = t->size.w - 1;
+    if (tc.y >= t->size.h) tc.y = t->size.h - 1;
+    int texel = t->psram_offset + (tc.y * t->size.w + tc.x) * 3;
+    color = fb_read_texel(texel);
+  }
+
+  int base = frame * FRAME_STRIDE + (py * BORG_FB_WIDTH + px) * 3;
+  fb_write_pixel(base, color);
 }
 
 void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame) {
@@ -372,68 +423,46 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
   run_vertex_shader(d->uniforms, attrs, vout);
 
   // Screen-space translation
-  uint16_t sx[3], sy[3];
-  screen_space_translate(vout, sx, sy);
+  uv16_t spos[3];
+  screen_space_translate(vout, spos);
 
   // Triangle setup: compute inv_area from screen-space positions
   // area = (sx1-sx0)*(sy2-sy0) - (sx2-sx0)*(sy1-sy0) (2D cross product)
-  uint16_t dx10 = BORG_FP16_SUB(sx[1], sx[0]);
-  uint16_t dy20 = BORG_FP16_SUB(sy[2], sy[0]);
-  uint16_t dx20 = BORG_FP16_SUB(sx[2], sx[0]);
-  uint16_t dy10 = BORG_FP16_SUB(sy[1], sy[0]);
+  uint16_t dx10 = BORG_FP16_SUB(spos[1].u, spos[0].u);
+  uint16_t dy20 = BORG_FP16_SUB(spos[2].v, spos[0].v);
+  uint16_t dx20 = BORG_FP16_SUB(spos[2].u, spos[0].u);
+  uint16_t dy10 = BORG_FP16_SUB(spos[1].v, spos[0].v);
   uint16_t area = BORG_FP16_SUB(borg_fp16_mul(dx10, dy20),
                                  borg_fp16_mul(dx20, dy10));
   uint16_t inv_area = borg_fp16_rcp(area);
 
   // Edge vectors
-  uint16_t dx[3], neg_dy[3];
-  compute_edge_vectors(sx, sy, dx, neg_dy);
+  uv16_t edges[3];
+  compute_edge_vectors(spos, edges);
 
   // Rasterize + fragment shade
   for (int py = 0; py < BORG_FB_HEIGHT; py++) {
-    uint16_t pcy = pc_lut[py];
     for (int px = 0; px < BORG_FB_WIDTH; px++) {
-      uint16_t pcx = pc_lut[px];
-      uint16_t dpx_arr[3], dpy_arr[3];
-      compute_pixel_deltas(pcx, pcy, sx, sy, dpx_arr, dpy_arr);
+      uv16_t pc = { pc_lut[px], pc_lut[py] };
+      uv16_t deltas[3];
+      compute_pixel_deltas(pc, spos, deltas);
       rgb16_t color = {0, 0, 0};
-      uint16_t z = 0, u_interp = 0, v_interp = 0;
+      uint16_t z = 0;
+      uv16_t uv_interp = {0, 0};
       uint16_t z_vals[3] = { vertices[0].pos[2], vertices[1].pos[2], vertices[2].pos[2] };
-      const uint16_t *uv_u = 0, *uv_v = 0;
-      uint16_t uv_u_vals[3], uv_v_vals[3];
-      if (tex_psram_offset >= 0) {
-        uv_u_vals[0] = vertices[0].uv[0]; uv_u_vals[1] = vertices[1].uv[0]; uv_u_vals[2] = vertices[2].uv[0];
-        uv_v_vals[0] = vertices[0].uv[1]; uv_v_vals[1] = vertices[1].uv[1]; uv_v_vals[2] = vertices[2].uv[1];
-        uv_u = uv_u_vals;
-        uv_v = uv_v_vals;
-      }
-      int visible = borg_bary_rgb(dx, neg_dy, dpx_arr, dpy_arr,
-                     inv_area, colors, z_vals, uv_u, uv_v,
-                     &color, &z, &u_interp, &v_interp);
-      if (visible) {
-        // Depth test: read current z, compare (closer = smaller)
-        int zb_idx = frame * FRAME_STRIDE + FRAME_FB_SIZE + (py * BORG_FB_WIDTH + px);
-        uint16_t old_z = PSRAM_OUT(zb_idx);
-        if (z < old_z) {
-          PSRAM_OUT(zb_idx) = z;
-
-          // Texture sampling: replace vertex colors with texel
-          if (tex_psram_offset >= 0) {
-            // Multiply FP16 UV by FP16 texture dimension on Borg FPU
-            int tx = fp16_to_uint(borg_fp16_mul(u_interp, tex_width_fp16));
-            int ty = fp16_to_uint(borg_fp16_mul(v_interp, tex_height_fp16));
-            if (tx >= tex_width) tx = tex_width - 1;
-            if (ty >= tex_height) ty = tex_height - 1;
-            int texel = tex_psram_offset + (ty * tex_width + tx) * 3;
-            color = (rgb16_t){ PSRAM_IN(texel + 0), PSRAM_IN(texel + 1), PSRAM_IN(texel + 2) };
-          }
-
-          int base = frame * FRAME_STRIDE + (py * BORG_FB_WIDTH + px) * 3;
-          PSRAM_OUT(base + 0) = color.r;
-          PSRAM_OUT(base + 1) = color.g;
-          PSRAM_OUT(base + 2) = color.b;
+      const uv16_t *uvs = 0;
+      uv16_t uv_vals[3];
+      if (tex.psram_offset >= 0) {
+        for (int i = 0; i < 3; i++) {
+          uv_vals[i] = (uv16_t){ vertices[i].uv[0], vertices[i].uv[1] };
         }
+        uvs = uv_vals;
       }
+      int visible = borg_bary_rgb(edges, deltas,
+                     inv_area, colors, z_vals, uvs,
+                     &color, &z, &uv_interp);
+      if (visible)
+        shade_and_write_pixel(frame, px, py, color, z, uv_interp, &tex);
     }
   }
 }
