@@ -165,3 +165,48 @@ bare metal and building upward, it shows that textured, z-buffered triangle
 rendering is achievable without any of the API complexity that modern stacks
 carry. The gaps above define the path from minimal GPU to the kind of hardware
 his proposed API targets.
+
+### Vulkan Implementation Strategy (Aligned with Aaltonen)
+
+When building the Mesa Vulkan ICD (Phase 3), prioritize the subset of Vulkan
+that maps naturally to Borg's minimal hardware and matches Aaltonen's vision.
+Defer or omit the complexity that exists only to abstract away hardware
+differences Borg doesn't have.
+
+**Implement first** — these are cheap because Borg's simplicity makes them trivial:
+
+| Vulkan Feature | Why |
+| -------------- | --- |
+| `vkCmdDraw` / `vkCmdDrawIndexed` | Core draw path — maps to `borg_run()` loop |
+| NIR → SPIR-B shader compiler | Aaltonen's "shader = kernel" — just emit FMA/ADD/MUL ops |
+| `VK_EXT_headless_surface` / `wsi_headless` | No display hardware — render to PSRAM buffer |
+| Push constants | Maps directly to Borg register loads — zero binding overhead |
+| Single `VkQueue`, single `VkCommandBuffer` | Borg is single-threaded — no synchronization needed |
+| `vkCmdPipelineBarrier` (no-op) | Firmware serializes everything — barriers are free |
+| Vertex input (pull model) | CPU-side vertex fetch, load into registers per-vertex |
+
+**Defer** — real work, but not needed for first milestone:
+
+| Vulkan Feature | Why Defer |
+| -------------- | --------- |
+| Descriptor sets / pools | Aaltonen says skip these — use push constants or direct MMIO |
+| Multiple render passes | Single render target to PSRAM is sufficient initially |
+| Multisampling (MSAA) | No hardware support — would need firmware supersampling |
+| Dynamic state (`VK_DYNAMIC_STATE_*`) | No PSO permutations — Borg has no baked state to vary |
+| `VkFence` / `VkSemaphore` (real sync) | Single-threaded — `vkQueueWaitIdle` is sufficient |
+
+**Omit entirely** — complexity that Aaltonen explicitly argues against:
+
+| Vulkan Feature | Rationale |
+| -------------- | --------- |
+| Descriptor indexing / bindless descriptors | Borg has no descriptor model — registers are already "bindless" |
+| Pipeline cache / `VkPipelineCache` | No PSO — shader compilation is a trivial SPIR-B translation |
+| Geometry / tessellation shaders | Aaltonen calls these "failed experiments" |
+| Sparse resources / sparse binding | No virtual memory, no page tables |
+| `VK_KHR_ray_tracing_pipeline` | No ray-tracing hardware |
+| Subpass dependencies | Single render target, single pass — not applicable |
+| Multiple `VkPhysicalDevice` | One GPU, one device |
+
+The result: a Vulkan ICD that is closer to Aaltonen's 150-line prototype API
+than to a full Vulkan 1.0 implementation. Mesa's `vk_device` and `vk_meta`
+helpers handle the boilerplate; the Borg-specific driver stays small.
