@@ -32,4 +32,5 @@ object Main extends App {
   )
 
   PicoIcePins.emitPCF(s"$targetDir/pico_ice.pcf", clockMhz)
+  MmioMap.emitHeader("fpga/firmware/mmio.h")
 }

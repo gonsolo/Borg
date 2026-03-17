@@ -53,9 +53,9 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends RawModule {
     data_ready := data_ready_r || (data_write_n =/= 3.U(2.W))
 
     // --- Address Decoding ---
-    val PERI_GPIO = 1.U
-    val PERI_UART = 2.U
-    val PERI_BORG = 3.U
+    val PERI_GPIO = MmioMap.userPeriU(MmioMap.USER_PERI_GPIO)
+    val PERI_UART = MmioMap.userPeriU(MmioMap.USER_PERI_UART)
+    val PERI_BORG = MmioMap.userPeriU(MmioMap.USER_PERI_BORG)
 
     val peri_sel = addr_in(10, 6)
     val is_gpio = peri_sel === PERI_GPIO

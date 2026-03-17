@@ -3,5 +3,6 @@
 /*.hex
 *.o
 test_data.h
+mmio.h
 borg_psram
 borg_psram.asm

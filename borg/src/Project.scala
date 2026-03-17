@@ -69,16 +69,16 @@ trait SoCLogic { self: RawModule =>
   def soc_ui_in: UInt
   def soc_qspi_data_in: UInt
 
-  // --- Address map constants ---
-  val PERI_NONE = 0x0.U(4.W)
-  val PERI_ID = 0x2.U(4.W)
-  val PERI_GPIO_OUT_SEL = 0x3.U(4.W)
-  val PERI_DEBUG_UART = 0x6.U(4.W)
-  val PERI_DEBUG_UART_STATUS = 0x7.U(4.W)
-  val PERI_DEBUG_UART_BAUD = 0x8.U(4.W)
-  val PERI_TIME_LIMIT = 0xB.U(4.W)
-  val PERI_DEBUG = 0xC.U(4.W)
-  val PERI_USER = 0xF.U(4.W)
+  // Address map constants from centralized MmioMap
+  val PERI_NONE              = MmioMap.socPeriU(MmioMap.PERI_NONE)
+  val PERI_ID                = MmioMap.socPeriU(MmioMap.PERI_ID)
+  val PERI_GPIO_OUT_SEL      = MmioMap.socPeriU(MmioMap.PERI_GPIO_OUT_SEL)
+  val PERI_DEBUG_UART        = MmioMap.socPeriU(MmioMap.PERI_DEBUG_UART)
+  val PERI_DEBUG_UART_STATUS = MmioMap.socPeriU(MmioMap.PERI_DEBUG_UART_STATUS)
+  val PERI_DEBUG_UART_BAUD   = MmioMap.socPeriU(MmioMap.PERI_DEBUG_UART_BAUD)
+  val PERI_TIME_LIMIT        = MmioMap.socPeriU(MmioMap.PERI_TIME_LIMIT)
+  val PERI_DEBUG             = MmioMap.socPeriU(MmioMap.PERI_DEBUG)
+  val PERI_USER              = MmioMap.socPeriU(MmioMap.PERI_USER)
 
   // --- Core and peripheral instantiation ---
   val i_tinyqv = Module(new tinyQV)
@@ -139,9 +139,9 @@ trait SoCLogic { self: RawModule =>
 
     val connect_peripheral = WireDefault(PERI_NONE)
 
-    when(Cat(addr(27, 6), addr(1, 0)) === 0x800000.U) {
-      connect_peripheral := addr(5, 2)
-    } .elsewhen(addr(27, 11) === 0x10000.U) {
+    when(MmioMap.socRegion.matches(addr)) {
+      connect_peripheral := MmioMap.socRegion.index(addr)
+    } .elsewhen(MmioMap.userRegion.matches(addr)) {
       connect_peripheral := PERI_USER
     }
 
