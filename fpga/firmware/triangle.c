@@ -19,17 +19,31 @@
 #define FP16_Z_FAR  0x3A66  // 0.8
 
 const borg_vertex_t front_tri[3] = {
-    { .pos = { 0x0000, 0xB8CD, FP16_Z_NEAR }, .color = { FP16_ONE,  FP16_ZERO, FP16_ZERO } },  // ( 0.0, -0.6, 0.2) red
-    { .pos = { 0xB8CD, 0x38CD, FP16_Z_NEAR }, .color = { FP16_ZERO, FP16_ONE,  FP16_ZERO } },  // (-0.6,  0.6, 0.2) green
-    { .pos = { 0x38CD, 0x38CD, FP16_Z_NEAR }, .color = { FP16_ZERO, FP16_ZERO, FP16_ONE  } },  // ( 0.6,  0.6, 0.2) blue
+    { .pos = { 0x0000, 0xB8CD, FP16_Z_NEAR }, .color = { FP16_ONE,  FP16_ZERO, FP16_ZERO },
+      .uv = { FP16_ZERO, FP16_ZERO } },
+    { .pos = { 0xB8CD, 0x38CD, FP16_Z_NEAR }, .color = { FP16_ZERO, FP16_ONE,  FP16_ZERO },
+      .uv = { FP16_ZERO, FP16_ZERO } },
+    { .pos = { 0x38CD, 0x38CD, FP16_Z_NEAR }, .color = { FP16_ZERO, FP16_ZERO, FP16_ONE  },
+      .uv = { FP16_ZERO, FP16_ZERO } },
 };
 
-// Back triangle: larger, solid red, behind the front one
+// Back triangle: larger, textured, behind the front one
+// UV maps: top vertex → (0.5, 0), bottom-left → (0, 1), bottom-right → (1, 1)
 const borg_vertex_t back_tri[3] = {
-    { .pos = { 0x0000, 0xBCCD, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ZERO, FP16_ZERO } },  // ( 0.0, -0.9, 0.8) red
-    { .pos = { 0xBCCD, 0x3CCD, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ZERO, FP16_ZERO } },  // (-0.9,  0.9, 0.8) red
-    { .pos = { 0x3CCD, 0x3CCD, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ZERO, FP16_ZERO } },  // ( 0.9,  0.9, 0.8) red
+    { .pos = { 0x0000, 0xBCCD, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ZERO, FP16_ZERO },
+      .uv = { FP16_HALF, FP16_ZERO } },
+    { .pos = { 0xBCCD, 0x3CCD, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ZERO, FP16_ZERO },
+      .uv = { FP16_ZERO, FP16_ONE } },
+    { .pos = { 0x3CCD, 0x3CCD, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ZERO, FP16_ZERO },
+      .uv = { FP16_ONE, FP16_ONE } },
 };
+
+// Texture at PSRAM_IN offset past the framebuffer output region.
+// PSRAM_OUT(n) = PSRAM_IN(n+32), framebuffer uses PSRAM_OUT 0..4096,
+// so PSRAM_IN 32..4128 is occupied. Place texture well past that.
+#define TEX_PSRAM_OFFSET 4200
+#define TEX_WIDTH  32
+#define TEX_HEIGHT 32
 
 int main() {
     borg_init(vert_borg, vert_borg_len,
@@ -40,8 +54,10 @@ int main() {
     borg_set_angle(&draw, FP16_36DEG);
 
     borg_clear_zbuffer(0);
-    borg_cmd_draw(&draw, front_tri, 0);  // draw front (RGB) first
-    borg_cmd_draw(&draw, back_tri, 0);   // draw back (red) — z-buffer should reject overlap
+    borg_cmd_draw(&draw, front_tri, 0);  // draw front (RGB) — no texture
+    borg_set_texture(TEX_PSRAM_OFFSET, TEX_WIDTH, TEX_HEIGHT);
+    borg_cmd_draw(&draw, back_tri, 0);   // draw back (textured)
+    borg_clear_texture();
     borg_present(0);
 
     while (1)

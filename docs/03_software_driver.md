@@ -92,15 +92,61 @@ This allows correct rendering of overlapping triangles regardless of draw
 order, at the cost of one extra PSRAM read/write and one shader invocation
 per visible pixel.
 
+## Texturing
+
+The driver supports firmware-only texture mapping, with no additional
+hardware. Textures are stored as FP16 RGB data in PSRAM and sampled
+per-pixel using interpolated UV coordinates.
+
+### UV Interpolation
+
+Each vertex carries `uv[2]` texture coordinates (FP16, range 0–1).
+The existing `borg_frag_channel` function interpolates U and V per pixel
+using the same barycentric coordinates as color and depth — two additional
+shader invocations per textured pixel.
+
+### Texel Lookup
+
+The interpolated UV values are multiplied by the texture dimensions
+using the Borg FPU (`borg_fp16_mul`), converted to integer indices
+via `fp16_to_uint`, and used to read RGB texel data from PSRAM:
+
+```c
+int tx = fp16_to_uint(borg_fp16_mul(u, tex_width_fp16));
+int ty = fp16_to_uint(borg_fp16_mul(v, tex_height_fp16));
+int texel = tex_offset + (ty * tex_width + tx) * 3;
+r = PSRAM_IN(texel);
+g = PSRAM_IN(texel + 1);
+b = PSRAM_IN(texel + 2);
+```
+
+### PSRAM Layout
+
+Texture data must not overlap with the framebuffer output region.
+`PSRAM_OUT(n)` maps to `PSRAM_IN(n + 32)`, so the framebuffer and
+z-buffer occupy `PSRAM_IN` words 32 through ~4128. Texture data is
+placed above this range (e.g. offset 4200).
+
+### Performance
+
+Texturing adds per visible pixel:
+
+| Operation                | Count |
+|--------------------------|-------|
+| UV interpolation         | 2 shader runs (frag) |
+| UV × dimension multiply  | 2 FPU calls |
+| Texel read               | 3 PSRAM reads |
+| **Total per textured pixel** | **11 shader runs + 2 FPU + 3 PSRAM reads** |
+
 ## The Triangle Application
 
-The application renders two overlapping triangles to demonstrate the z-buffer.
-Vertices include position (x, y, z) and per-vertex RGB color, all FP16:
+The application renders two overlapping triangles to demonstrate
+texturing and z-buffering. The front triangle uses per-vertex color
+interpolation, while the back triangle is textured with a 32×32
+RGBW test pattern:
 
 {{snippet:fpga/firmware/triangle.c:triangle-app}}
 
-The front triangle is a small color-interpolated triangle (red/green/blue
-vertices) at z = 0.2. The back triangle is a larger solid-red triangle at
-z = 0.8. Despite being drawn second, the red triangle only appears where it
-extends beyond the front triangle — the z-buffer correctly rejects pixels
-where the closer triangle has already been rendered.
+The front triangle's color-interpolated RGB appears in the center,
+while the back triangle's RGBW texture is visible around the edges.
+The z-buffer ensures correct occlusion regardless of draw order.

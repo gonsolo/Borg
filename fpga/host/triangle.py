@@ -423,6 +423,22 @@ def render_all_frames():
     sm_w.active(1)
     qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 0 * 4, WIDTH)
     qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 1 * 4, HEIGHT)
+
+    # --- Upload texture data to PSRAM (after framebuffer output region) ---
+    # PSRAM_OUT(n) = PSRAM_IN(n+32), FB uses OUT words 0..4096 = IN words 32..4128
+    TEX_PSRAM_OFFSET = 4200
+    try:
+        import struct
+        with open('firmware/test_texture.dat', 'rb') as f:
+            tex_data = f.read()
+        n_words = len(tex_data) // 2
+        for i in range(n_words):
+            word = struct.unpack_from('<H', tex_data, i * 2)[0]
+            qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + i) * 4, word)
+        print("Uploaded texture: %d words to PSRAM offset %d" % (n_words, TEX_PSRAM_OFFSET))
+    except Exception as e:
+        print("WARNING: Could not load texture: %s" % e)
+
     sm_w.active(0)
     del sm_w
     print("Sent resolution %dx%d to PSRAM" % (WIDTH, HEIGHT))
@@ -481,7 +497,7 @@ def render_all_frames():
 
     # Run at 4MHz, wait for rendering to complete
     _clk = machine.PWM(Pin(24), freq=4_000_000, duty_u16=32768)
-    time.sleep(10)
+    time.sleep(60)  # texture rendering is slow (extra shader runs + PSRAM reads per pixel)
 
     # --- Stop and reset FPGA ---
     _clk.deinit()

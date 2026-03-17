@@ -13,10 +13,11 @@
 #define FP16_ZERO 0x0000
 #define FP16_MAX_DEPTH 0x7BFF  // max finite FP16 (65504)
 
-// Vertex with position and per-vertex color (all FP16)
+// Vertex with position, color, and optional UV (all FP16)
 typedef struct {
     uint16_t pos[3];    // x, y, z
     uint16_t color[3];  // r, g, b
+    uint16_t uv[2];     // u, v texture coordinates (0..1)
 } borg_vertex_t;
 
 // Framebuffer dimensions (set at runtime from host)
@@ -41,6 +42,12 @@ void borg_set_angle(borg_draw_data_t *d, uint16_t angle_fp16);
 
 // Clear z-buffer for a frame to FP16_MAX_DEPTH
 void borg_clear_zbuffer(int frame);
+
+// Set texture for subsequent draw calls (PSRAM offset, dimensions)
+void borg_set_texture(int psram_offset, int width, int height);
+
+// Disable texturing for subsequent draw calls
+void borg_clear_texture(void);
 
 // Render a triangle: vertex shade → rasterize → z-test → fragment shade → framebuffer
 void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame);

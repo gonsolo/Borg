@@ -5,6 +5,6 @@
 0. [Introduction](00_introduction.md) — Motivation and project overview
 1. [The Borg Shader Processor](01_shader_processor.md) — FP16 FMA, registers, instruction memory
 2. [The TinyQV CPU](02_tinyqv_cpu.md) — Nibble-serial RV32I architecture
-3. [The Software Driver](03_software_driver.md) — MMIO interface, shader pipeline, z-buffer
+3. [The Software Driver](03_software_driver.md) — Shader pipeline, z-buffer, texturing
 4. [Running on an FPGA](04_fpga.md) — pico-ice build, host communication, PIO
 5. [Generating the ASIC](05_asic.md) — RTL-to-GDS flow, configuration, verification

@@ -36,6 +36,13 @@ static uint16_t pc_lut[BORG_MAX_FB_DIM];
 
 #define NUM_VERTICES 3
 
+// --- Texture state ---
+static int tex_psram_offset = -1;  // -1 = no texture
+static int tex_width;
+static int tex_height;
+static uint16_t tex_width_fp16;    // FP16 encoding of width
+static uint16_t tex_height_fp16;   // FP16 encoding of height
+
 // --- UART ---
 void putc_uart(int c) {
   while (UART_STATUS & 1)
@@ -200,6 +207,18 @@ static void compute_pixel_deltas(uint16_t pcx, uint16_t pcy,
 
 static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
 
+// Convert FP16 (positive) to unsigned integer (truncate)
+static int fp16_to_uint(uint16_t fp16) {
+  int exp = (fp16 >> 10) & 0x1F;
+  int frac = fp16 & 0x3FF;
+  if (exp < 15) return 0;  // value < 1.0, integer part is 0
+  if (exp == 0) return 0;  // zero/subnormal
+  int mantissa = 1024 + frac;  // 1.frac in Q10
+  int shift = exp - 15;       // number of integer bits
+  if (shift >= 10) return mantissa << (shift - 10);
+  return mantissa >> (10 - shift);
+}
+
 // Precomputed FP16 pixel center coordinates (computed at runtime)
 // pc_lut defined as global above
 
@@ -234,8 +253,9 @@ static int __attribute__((noinline)) borg_bary_rgb(
     uint16_t *dpx, uint16_t *dpy,
     uint16_t inv_area, uint16_t colors[3][3],
     const uint16_t z_vals[3],
+    const uint16_t uv_u[3], const uint16_t uv_v[3],
     uint16_t *r_out, uint16_t *g_out, uint16_t *b_out,
-    uint16_t *z_out) {
+    uint16_t *z_out, uint16_t *u_out, uint16_t *v_out) {
   borg_load_spirb_shader(&rast_shader);
   uint16_t e0 = borg_rasterize_edge(dx[0], neg_dy[0], dpx[0], dpy[0]);
   uint16_t e1 = borg_rasterize_edge(dx[1], neg_dy[1], dpx[1], dpy[1]);
@@ -253,6 +273,13 @@ static int __attribute__((noinline)) borg_bary_rgb(
                               colors[0][2], colors[1][2], colors[2][2]);
   *z_out = borg_frag_channel(e0, e1, e2, inv_area,
                               z_vals[0], z_vals[1], z_vals[2]);
+  // UV interpolation (only when textured)
+  if (uv_u && uv_v) {
+    *u_out = borg_frag_channel(e0, e1, e2, inv_area,
+                                uv_u[0], uv_u[1], uv_u[2]);
+    *v_out = borg_frag_channel(e0, e1, e2, inv_area,
+                                uv_v[0], uv_v[1], uv_v[2]);
+  }
   return 1;
 }
 
@@ -315,6 +342,29 @@ void borg_clear_zbuffer(int frame) {
     PSRAM_OUT(zb_offset + i) = FP16_MAX_DEPTH;
 }
 
+// Convert integer to FP16 (for small positive integers)
+static uint16_t uint_to_fp16(int val) {
+  if (val == 0) return 0;
+  int exp = 25;  // bias(15) + Q10 offset(10)
+  int mantissa = val;
+  // Normalize: shift until mantissa is in [1024, 2048)
+  while (mantissa >= 2048) { mantissa >>= 1; exp++; }
+  while (mantissa < 1024)  { mantissa <<= 1; exp--; }
+  return (uint16_t)((exp << 10) | (mantissa & 0x3FF));
+}
+
+void borg_set_texture(int psram_offset, int width, int height) {
+  tex_psram_offset = psram_offset;
+  tex_width = width;
+  tex_height = height;
+  tex_width_fp16 = uint_to_fp16(width);
+  tex_height_fp16 = uint_to_fp16(height);
+}
+
+void borg_clear_texture(void) {
+  tex_psram_offset = -1;
+}
+
 void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame) {
   // Clear stale DONE marker for this frame
   PSRAM_OUT(frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE) = 0;
@@ -359,16 +409,39 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
       uint16_t pcx = pc_lut[px];
       uint16_t dpx_arr[3], dpy_arr[3];
       compute_pixel_deltas(pcx, pcy, sx, sy, dpx_arr, dpy_arr);
-      uint16_t r = 0, g = 0, b = 0, z = 0;
+      uint16_t r = 0, g = 0, b = 0, z = 0, u_interp = 0, v_interp = 0;
       uint16_t z_vals[3] = { vertices[0].pos[2], vertices[1].pos[2], vertices[2].pos[2] };
+      const uint16_t *uv_u = 0, *uv_v = 0;
+      uint16_t uv_u_vals[3], uv_v_vals[3];
+      if (tex_psram_offset >= 0) {
+        uv_u_vals[0] = vertices[0].uv[0]; uv_u_vals[1] = vertices[1].uv[0]; uv_u_vals[2] = vertices[2].uv[0];
+        uv_v_vals[0] = vertices[0].uv[1]; uv_v_vals[1] = vertices[1].uv[1]; uv_v_vals[2] = vertices[2].uv[1];
+        uv_u = uv_u_vals;
+        uv_v = uv_v_vals;
+      }
       int visible = borg_bary_rgb(dx, neg_dy, dpx_arr, dpy_arr,
-                     inv_area, colors, z_vals, &r, &g, &b, &z);
+                     inv_area, colors, z_vals, uv_u, uv_v,
+                     &r, &g, &b, &z, &u_interp, &v_interp);
       if (visible) {
         // Depth test: read current z, compare (closer = smaller)
         int zb_idx = frame * FRAME_STRIDE + FRAME_FB_SIZE + (py * BORG_FB_WIDTH + px);
         uint16_t old_z = PSRAM_OUT(zb_idx);
         if (z < old_z) {
           PSRAM_OUT(zb_idx) = z;
+
+          // Texture sampling: replace vertex colors with texel
+          if (tex_psram_offset >= 0) {
+            // Multiply FP16 UV by FP16 texture dimension on Borg FPU
+            int tx = fp16_to_uint(borg_fp16_mul(u_interp, tex_width_fp16));
+            int ty = fp16_to_uint(borg_fp16_mul(v_interp, tex_height_fp16));
+            if (tx >= tex_width) tx = tex_width - 1;
+            if (ty >= tex_height) ty = tex_height - 1;
+            int texel = tex_psram_offset + (ty * tex_width + tx) * 3;
+            r = PSRAM_IN(texel + 0);
+            g = PSRAM_IN(texel + 1);
+            b = PSRAM_IN(texel + 2);
+          }
+
           int base = frame * FRAME_STRIDE + (py * BORG_FB_WIDTH + px) * 3;
           PSRAM_OUT(base + 0) = r;
           PSRAM_OUT(base + 1) = g;
