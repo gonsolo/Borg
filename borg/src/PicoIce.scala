@@ -80,3 +80,37 @@ class tinyQV_top(val CLOCK_MHZ: Int = 4) extends RawModule with SoCLogic {
 
   uo_out := uo_out_val
 }
+
+/** pico-ice board pin mapping and PCF generation.
+  *
+  * Pin numbers are physical properties of the pico-ice PCB.
+  * Signal names are derived from tinyQV_top's Chisel IO to stay in sync.
+  */
+object PicoIcePins {
+  // (signal_name, pin_number) — order matches the PCB schematic sections
+  val pins: Seq[(String, Int)] = Seq(
+    // Clock and reset
+    ("clk",      35), ("rst_n",    39),
+    // QSPI — Chisel Vec generates sd_0..sd_3
+    ("flash_cs", 25),
+    ("sd_0",     19), ("sd_1",     27),
+    ("sck",      21),
+    ("sd_2",     23), ("sd_3",     18),
+    ("ram_a_cs", 26), ("ram_b_cs", 20),
+    // General purpose I/O — UInt(8.W) generates bus notation [N]
+    ("ui_in[0]", 43), ("ui_in[1]", 38), ("ui_in[2]", 34), ("ui_in[3]", 31),
+    ("ui_in[4]", 42), ("ui_in[5]", 36), ("ui_in[6]", 32), ("ui_in[7]", 28),
+    ("uo_out[0]", 4), ("uo_out[1]", 2), ("uo_out[2]",47), ("uo_out[3]",45),
+    ("uo_out[4]", 3), ("uo_out[5]",48), ("uo_out[6]",46), ("uo_out[7]",44),
+  )
+
+  def emitPCF(path: String, clockMhz: Int): Unit = {
+    val writer = new java.io.PrintWriter(path)
+    for ((name, pin) <- pins)
+      writer.println(f"set_io --warn-no-port $name%-12s $pin")
+    writer.println()
+    writer.println(s"set_frequency clk $clockMhz")
+    writer.close()
+    println(s"Generated PCF: $path")
+  }
+}

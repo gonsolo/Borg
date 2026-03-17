@@ -42,7 +42,7 @@ borg.json: $(SRC_FILES) ../out/borg/verilog/Borg.sv
 
 # Place and Route (P&R)
 borg.asc: borg.json
-	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf pico_ice.pcf --asc borg.asc \
+	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf ../out/borg/verilog/pico_ice.pcf --asc borg.asc \
 		--freq 4
 
 # Generate FPGA bitstream
