@@ -80,6 +80,32 @@ Extend the shader processor to support more Vulkan features.
 - **QSPI Flash**: 128 Mbit (16 MB) — kernel + rootfs + Mesa libraries
 - **Display**: RP2040 reads framebuffer from PSRAM, no KMS/DRM needed
 
+## vkcube Gap Analysis
+
+What's needed to run `vkcube` — the standard Vulkan spinning textured cube demo
+(12 triangles, one texture, perspective projection, no lighting).
+
+**Required (all firmware-only):**
+
+| Feature | Effort | Notes |
+|---------|--------|-------|
+| Perspective projection | Medium | 4×4 MVP matrix multiply (~16 FMA per vertex) |
+| Triangle clipping | Medium | Near/far plane clip before rasterization |
+| Multiple triangles | Easy | Loop over 12-triangle cube mesh |
+| Mesa Vulkan ICD | Large | Minimal `vk_device`, shader compiler, draw path (Phase 3) |
+
+**Already have:**
+
+| Feature | Status |
+|---------|--------|
+| Texture mapping | ✅ UV interpolation + PSRAM sampling |
+| Z-buffer | ✅ Per-pixel depth testing |
+| Vertex transformation | ✅ Matrix via FPU |
+
+**Not needed for vkcube:** lighting, fog, alpha blending, skinned animation.
+
+vkcube is the natural first Vulkan milestone — achievable after Phase 3 (Mesa driver).
+
 ## SuperTuxKart Gap Analysis
 
 What's needed beyond the current pipeline to render a Vulkan game like SuperTuxKart.
