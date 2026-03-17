@@ -15,7 +15,7 @@
 - [x] FPGA validation on pico-ice
 - [x] GDS submission (4×2 tiles, IHP SG13G2)
 
-### Tux Racer Gap Analysis
+## Tux Racer Gap Analysis
 
 What's needed beyond the current pipeline to render a game like Tux Racer.
 
