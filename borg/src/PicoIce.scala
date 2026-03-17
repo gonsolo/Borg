@@ -10,7 +10,7 @@ import chisel3.experimental.Analog
 
 /** pico-ice FPGA top-level module.
   *
-  * Functionally equivalent to the TT ASIC top-level (tt_um_tt_tinyQV),
+  * Functionally equivalent to the TT ASIC top-level (tt_um_gonsolo_borg),
   * but with direct FPGA I/O and SB_IO primitives for tri-state QSPI.
   */
 class tinyQV_top(val CLOCK_MHZ: Int = 4) extends RawModule with SoCLogic {

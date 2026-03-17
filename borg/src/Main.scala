@@ -14,7 +14,7 @@ object Main extends App {
   new java.io.File(targetDir).mkdirs()
 
   ChiselStage.emitSystemVerilogFile(
-    gen = new tt_um_tt_tinyQV(clockMhz),
+    gen = new tt_um_gonsolo_borg(clockMhz),
     args = Array("--target-dir", targetDir),
     firtoolOpts = Array("--split-verilog", "--lowering-options=disallowLocalVariables,noAlwaysComb", "--disable-all-randomization", "--strip-debug-info")
   )

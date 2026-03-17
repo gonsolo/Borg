@@ -248,7 +248,7 @@ trait SoCLogic { self: RawModule =>
 }
 
 
-class tt_um_tt_tinyQV(val CLOCK_MHZ: Int = 4) extends RawModule with SoCLogic {
+class tt_um_gonsolo_borg(val CLOCK_MHZ: Int = 4) extends RawModule with SoCLogic {
   val ui_in = IO(Input(UInt(8.W)))
   val uo_out = IO(Output(UInt(8.W)))
   val uio_in = IO(Input(UInt(8.W)))

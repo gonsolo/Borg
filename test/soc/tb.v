@@ -51,7 +51,7 @@ module tb ();
 `endif
 
   // Replace tt_um_example with your module name:
-  tt_um_tt_tinyQV user_project (
+  tt_um_gonsolo_borg user_project (
 
 `ifdef USE_POWER_PINS
       // Only include these if your gate_level_netlist.v

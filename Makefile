@@ -22,6 +22,7 @@ help:
 	@echo -e "  datasheet.pdf:\t\tGenerate datasheet for Tinytapeout."
 	@echo -e "  user_config:\t\t\tGenerate user config for tapeout."
 	@echo -e "  print_stats:\t\t\tPrint statistics about tile usage."
+	@echo -e "  clean:\t\t\tRemove all build artifacts."
 
 export CLOCK_MHZ = 4
 
@@ -50,7 +51,7 @@ test-chisel-borg:
 YAML_SOURCES = $(shell sed -n '/source_files:/,/pinout:/p' info.yaml | grep '\- "' | sed 's/.*"\(.*\)".*/\1/' | sed 's|^\.\./||')
 
 lint: generate_verilog
-	verilator --lint-only -Wall -Iout/tinyqv/verilog -Iout/borg/verilog --top-module tt_um_tt_tinyQV lint.vlt $(YAML_SOURCES)
+	verilator --lint-only -Wall -Iout/tinyqv/verilog -Iout/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $(YAML_SOURCES)
 
 test-chisel-core:
 	$(MILL) tinyqv.test
@@ -69,7 +70,13 @@ print_stats:
 book:
 	python3 docs/build_book.py
 
-.PHONY: all generate_verilog help print_stats gds user_config lint test-all \
+clean:
+	rm -f src/config_merged.json src/user_config.json
+	rm -rf out/
+	$(MAKE) -C fpga clean
+	$(MAKE) -C test/soc clean
+
+.PHONY: all generate_verilog help print_stats gds user_config lint test-all clean \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book

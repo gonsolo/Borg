@@ -61,7 +61,7 @@ else
     # --- CI-AWARE NETLIST DETECTION ---
     # The GH Action copies the netlist to ../gate_level_netlist.v
     CI_NETLIST = $(CURDIR)/../gate_level_netlist.v
-    LOCAL_NETLIST = $(CURDIR)/../../runs/wokwi/final/nl/tt_um_tt_tinyQV.nl.v
+    LOCAL_NETLIST = $(CURDIR)/../../runs/wokwi/final/nl/tt_um_gonsolo_borg.nl.v
 
     ifneq ($(wildcard $(CI_NETLIST)),)
         GL_NETLIST = $(CI_NETLIST)
@@ -102,5 +102,5 @@ borg:
 
 # Clean up build artifacts
 clean::
-	rm -rf sim_build results.xml
+	rm -rf sim_build results.xml tb.vcd tb.vcd.hier
 
