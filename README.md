@@ -10,8 +10,7 @@ Electronic Design Automation (EDA) tools.
 Recognizing that full GPU development is highly complex, the initiative capitalizes on recent
 advances in low-cost chip manufacturing to make individual tape-outs feasible for small teams.
 
-The prototype based on Firesim can be found in the
-[pre-NLnet](https://github.com/gonsolo/OldBorg/tree/PreNLnet) repository.
+📖 Read the [Borg GPU Book](https://gonsolo.github.io/Borg/) for detailed documentation.
 
 ## Architecture
 
@@ -48,9 +47,9 @@ Based on Michael Bell's [TinyQV](https://github.com/MichaelBell/tinyQV), an RV32
 
 ## Prerequisites
 
-* [Nix](https://nixos.org)
-* [Git](https://git-scm.com)
-* [Make](https://www.gnu.org/software/make)
+- [Nix](https://nixos.org)
+- [Git](https://git-scm.com)
+- [Make](https://www.gnu.org/software/make)
 
 ## Building and Testing
 
