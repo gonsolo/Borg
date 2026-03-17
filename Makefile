@@ -56,6 +56,7 @@ test-chisel-core:
 	$(MILL) tinyqv.test
 
 test-all: lint test-chisel-borg test-chisel-core test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl
+	$(MAKE) -C fpga test-all
 
 datasheet.pdf: generate_verilog
 	$(TT_TOOL) --create-pdf

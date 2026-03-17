@@ -2,11 +2,11 @@ set_io --warn-no-port clk    	35
 set_io --warn-no-port rst_n    	39
 
 set_io --warn-no-port flash_cs  25
-set_io --warn-no-port sd[0]     19
-set_io --warn-no-port sd[1]     27
+set_io --warn-no-port sd_0      19
+set_io --warn-no-port sd_1      27
 set_io --warn-no-port sck       21
-set_io --warn-no-port sd[2]     23
-set_io --warn-no-port sd[3]     18
+set_io --warn-no-port sd_2      23
+set_io --warn-no-port sd_3      18
 set_io --warn-no-port ram_a_cs  26
 set_io --warn-no-port ram_b_cs  20
 

@@ -21,8 +21,7 @@ help:
 
 ######### Build hardware ###########################################################################
 
-SRC_FILES = pico_ice.v \
-	    $(wildcard ../out/borg/verilog/*.sv) \
+SRC_FILES = $(wildcard ../out/borg/verilog/*.sv) \
 	    $(wildcard ../out/tinyqv/verilog/*.sv) \
 
 CHISEL_SRCS = $(wildcard ../borg/src/*.scala) $(wildcard ../tinyqv/src/*.scala)

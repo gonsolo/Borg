@@ -291,11 +291,13 @@ async def read_byte(dut, reg, expected_val):
       if get_sim_time("ns") - start_sim_time > timeout_ns:
           dut._log.error(f"Timeout waiting for UART start bit. debug_uart_tx={dut.debug_uart_tx.value}, uo_out={dut.uo_out.value}")
           assert False, "Timeout waiting for UART start bit"
-  # Use integer picoseconds to avoid FP precision errors in cocotb Timer
+  # Debug UART defaults to 115200 baud: divider = (CLOCK_MHZ * 1_000_000) // 115200
+  # Hardware counts 0..divider, so cycles_per_bit = divider + 1
   clock_period_ps = int(1000000.0 / CLOCK_MHZ)
   if clock_period_ps % 2 != 0:
       clock_period_ps += 1
-  bit_time_ps = CLOCK_MHZ * clock_period_ps  # exact integer
+  baud_divider = (CLOCK_MHZ * 1000000) // 115200
+  bit_time_ps = (baud_divider + 1) * clock_period_ps  # exact integer
   # Wait 1.5 bit times to skip start bit and sample mid-first-data-bit
   # This is robust to GL propagation delays that may shift the start bit edge
   await Timer(bit_time_ps * 3 // 2, "ps")

@@ -1,0 +1,82 @@
+// SPDX-FileCopyrightText: © 2024 Michael Bell
+// Changes Copyright © 2026 Andreas Wendleder
+// SPDX-License-Identifier: CERN-OHL-S-2.0
+
+package borg
+
+import chisel3._
+import chisel3.util._
+import chisel3.experimental.Analog
+
+/** pico-ice FPGA top-level module.
+  *
+  * Functionally equivalent to the TT ASIC top-level (tt_um_tt_tinyQV),
+  * but with direct FPGA I/O and SB_IO primitives for tri-state QSPI.
+  */
+class tinyQV_top(val CLOCK_MHZ: Int = 4) extends RawModule with SoCLogic {
+  val clk      = IO(Input(Clock()))
+  val rst_n    = IO(Input(Bool()))
+
+  val flash_cs = IO(Analog(1.W))
+  val sd       = IO(Vec(4, Analog(1.W)))
+  val sck      = IO(Analog(1.W))
+  val ram_a_cs = IO(Analog(1.W))
+  val ram_b_cs = IO(Analog(1.W))
+
+  val ui_in    = IO(Input(UInt(8.W)))
+  val uo_out   = IO(Output(UInt(8.W)))
+
+  // Implement SoCLogic abstract members
+  def soc_clk = clk
+  def soc_rst_n = rst_n
+  lazy val soc_rst_reg_n: Bool = withClockAndReset((!clk.asBool).asClock, false.B) {
+    RegNext(rst_n)
+  }
+  def soc_ui_in = ui_in
+
+  // SB_IO instances for QSPI data pins (sd[3:0]) — bidirectional
+  val qspi_data_io = Seq.tabulate(4) { i =>
+    val sbio = Module(new SB_IO(pinType = 0x29, pullup = 0))  // 6'b101001
+    sbio.PACKAGE_PIN  <> sd(i)
+    sbio.OUTPUT_CLK   := clk
+    sbio.INPUT_CLK    := clk
+    sbio
+  }
+
+  // Read qspi_data_in from SB_IO D_IN_0 outputs
+  def soc_qspi_data_in = Cat(
+    qspi_data_io(3).D_IN_0,
+    qspi_data_io(2).D_IN_0,
+    qspi_data_io(1).D_IN_0,
+    qspi_data_io(0).D_IN_0
+  )
+
+  // SB_IO instances for QSPI control pins — output only
+  val controlPins = Seq(flash_cs, sck, ram_a_cs, ram_b_cs)
+  val qspi_ctrl_io = controlPins.map { pin =>
+    val sbio = Module(new SB_IO(pinType = 0x29, pullup = 0))  // 6'b101001
+    sbio.PACKAGE_PIN  <> pin
+    sbio.OUTPUT_CLK   := clk
+    sbio.INPUT_CLK    := clk
+    sbio.OUTPUT_ENABLE := rst_n
+    sbio
+  }
+
+  // Wire up the SoC
+  val uo_out_val = wireSoC()
+
+  // Connect QSPI data SB_IO outputs from SoC
+  for (i <- 0 until 4) {
+    qspi_data_io(i).OUTPUT_ENABLE := qspi_data_oe(i)
+    qspi_data_io(i).D_OUT_0      := qspi_data_out(i)
+  }
+
+  // Connect QSPI control SB_IO outputs from SoC
+  // Order: flash_cs=0, sck=1, ram_a_cs=2, ram_b_cs=3
+  qspi_ctrl_io(0).D_OUT_0 := qspi_flash_select
+  qspi_ctrl_io(1).D_OUT_0 := qspi_clk_out
+  qspi_ctrl_io(2).D_OUT_0 := qspi_ram_a_select
+  qspi_ctrl_io(3).D_OUT_0 := qspi_ram_b_select
+
+  uo_out := uo_out_val
+}
