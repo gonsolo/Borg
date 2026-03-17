@@ -13,6 +13,8 @@
 
 #define FP16_SIXTEEN 0x4C00
 
+typedef struct { uint16_t r, g, b; } rgb16_t;
+
 // Runtime framebuffer dimensions and derived values
 int borg_fb_width;
 int borg_fb_height;
@@ -239,7 +241,7 @@ static int __attribute__((noinline)) borg_bary_rgb(
     uint16_t inv_area, uint16_t colors[3][3],
     const uint16_t z_vals[3],
     const uint16_t uv_u[3], const uint16_t uv_v[3],
-    uint16_t *r_out, uint16_t *g_out, uint16_t *b_out,
+    rgb16_t *color_out,
     uint16_t *z_out, uint16_t *u_out, uint16_t *v_out) {
   borg_load_spirb_shader(&rast_shader);
   uint16_t e0 = borg_rasterize_edge(dx[0], neg_dy[0], dpx[0], dpy[0]);
@@ -250,11 +252,11 @@ static int __attribute__((noinline)) borg_bary_rgb(
       (fp16_ge_zero(e2) && e2 != 0))
     return 0;
   borg_load_spirb_shader(&frag_shader);
-  *r_out = borg_frag_channel(e0, e1, e2, inv_area,
+  color_out->r = borg_frag_channel(e0, e1, e2, inv_area,
                               colors[0][0], colors[1][0], colors[2][0]);
-  *g_out = borg_frag_channel(e0, e1, e2, inv_area,
+  color_out->g = borg_frag_channel(e0, e1, e2, inv_area,
                               colors[0][1], colors[1][1], colors[2][1]);
-  *b_out = borg_frag_channel(e0, e1, e2, inv_area,
+  color_out->b = borg_frag_channel(e0, e1, e2, inv_area,
                               colors[0][2], colors[1][2], colors[2][2]);
   *z_out = borg_frag_channel(e0, e1, e2, inv_area,
                               z_vals[0], z_vals[1], z_vals[2]);
@@ -394,7 +396,8 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
       uint16_t pcx = pc_lut[px];
       uint16_t dpx_arr[3], dpy_arr[3];
       compute_pixel_deltas(pcx, pcy, sx, sy, dpx_arr, dpy_arr);
-      uint16_t r = 0, g = 0, b = 0, z = 0, u_interp = 0, v_interp = 0;
+      rgb16_t color = {0, 0, 0};
+      uint16_t z = 0, u_interp = 0, v_interp = 0;
       uint16_t z_vals[3] = { vertices[0].pos[2], vertices[1].pos[2], vertices[2].pos[2] };
       const uint16_t *uv_u = 0, *uv_v = 0;
       uint16_t uv_u_vals[3], uv_v_vals[3];
@@ -406,7 +409,7 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
       }
       int visible = borg_bary_rgb(dx, neg_dy, dpx_arr, dpy_arr,
                      inv_area, colors, z_vals, uv_u, uv_v,
-                     &r, &g, &b, &z, &u_interp, &v_interp);
+                     &color, &z, &u_interp, &v_interp);
       if (visible) {
         // Depth test: read current z, compare (closer = smaller)
         int zb_idx = frame * FRAME_STRIDE + FRAME_FB_SIZE + (py * BORG_FB_WIDTH + px);
@@ -422,15 +425,13 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
             if (tx >= tex_width) tx = tex_width - 1;
             if (ty >= tex_height) ty = tex_height - 1;
             int texel = tex_psram_offset + (ty * tex_width + tx) * 3;
-            r = PSRAM_IN(texel + 0);
-            g = PSRAM_IN(texel + 1);
-            b = PSRAM_IN(texel + 2);
+            color = (rgb16_t){ PSRAM_IN(texel + 0), PSRAM_IN(texel + 1), PSRAM_IN(texel + 2) };
           }
 
           int base = frame * FRAME_STRIDE + (py * BORG_FB_WIDTH + px) * 3;
-          PSRAM_OUT(base + 0) = r;
-          PSRAM_OUT(base + 1) = g;
-          PSRAM_OUT(base + 2) = b;
+          PSRAM_OUT(base + 0) = color.r;
+          PSRAM_OUT(base + 1) = color.g;
+          PSRAM_OUT(base + 2) = color.b;
         }
       }
     }
