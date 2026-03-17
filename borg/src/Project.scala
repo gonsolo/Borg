@@ -3,6 +3,7 @@
 package borg
 
 import chisel3._
+import MmioMap._
 import chisel3.util._
 import chisel3.experimental.IntParam
 import _root_.circt.stage.ChiselStage
@@ -69,16 +70,6 @@ trait SoCLogic { self: RawModule =>
   def soc_ui_in: UInt
   def soc_qspi_data_in: UInt
 
-  // Address map constants from centralized MmioMap
-  val PERI_NONE              = MmioMap.socPeriU(MmioMap.PERI_NONE)
-  val PERI_ID                = MmioMap.socPeriU(MmioMap.PERI_ID)
-  val PERI_GPIO_OUT_SEL      = MmioMap.socPeriU(MmioMap.PERI_GPIO_OUT_SEL)
-  val PERI_DEBUG_UART        = MmioMap.socPeriU(MmioMap.PERI_DEBUG_UART)
-  val PERI_DEBUG_UART_STATUS = MmioMap.socPeriU(MmioMap.PERI_DEBUG_UART_STATUS)
-  val PERI_DEBUG_UART_BAUD   = MmioMap.socPeriU(MmioMap.PERI_DEBUG_UART_BAUD)
-  val PERI_TIME_LIMIT        = MmioMap.socPeriU(MmioMap.PERI_TIME_LIMIT)
-  val PERI_DEBUG             = MmioMap.socPeriU(MmioMap.PERI_DEBUG)
-  val PERI_USER              = MmioMap.socPeriU(MmioMap.PERI_USER)
 
   // --- Core and peripheral instantiation ---
   val i_tinyqv = Module(new tinyQV)
@@ -137,12 +128,12 @@ trait SoCLogic { self: RawModule =>
     i_peripherals.data_read_n := read_n
     i_peripherals.data_read_complete := read_complete
 
-    val connect_peripheral = WireDefault(PERI_NONE)
+    val connect_peripheral = WireDefault(socPeriU(PERI_NONE))
 
     when(MmioMap.socRegion.matches(addr)) {
       connect_peripheral := MmioMap.socRegion.index(addr)
     } .elsewhen(MmioMap.userRegion.matches(addr)) {
-      connect_peripheral := PERI_USER
+      connect_peripheral := socPeriU(PERI_USER)
     }
 
     val gpio_out_sel = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(Cat(!soc_ui_in(0), 0.U(1.W))) }
@@ -156,13 +147,13 @@ trait SoCLogic { self: RawModule =>
 
     withClockAndReset(soc_clk, false.B) {
       when(write_n =/= 3.U(2.W)) {
-        when(connect_peripheral === PERI_GPIO_OUT_SEL) {
+        when(connect_peripheral === socPeriU(PERI_GPIO_OUT_SEL)) {
           gpio_out_sel := data_to_write(7, 6)
         }
-        when(connect_peripheral === PERI_TIME_LIMIT) {
+        when(connect_peripheral === socPeriU(PERI_TIME_LIMIT)) {
           time_limit := data_to_write(6, 2)
         }
-        when(connect_peripheral === PERI_DEBUG_UART_BAUD) {
+        when(connect_peripheral === socPeriU(PERI_DEBUG_UART_BAUD)) {
           debug_baud_divider := data_to_write(12, 0)
         }
       }
@@ -172,17 +163,17 @@ trait SoCLogic { self: RawModule =>
 
     data_from_read := "hFFFFFFFF".U(32.W)
     switch(connect_peripheral) {
-      is(PERI_ID) { data_from_read := 0x41.U(32.W) }
-      is(PERI_GPIO_OUT_SEL) { data_from_read := Cat(0.U(24.W), gpio_out_sel, 0.U(6.W)) }
-      is(PERI_DEBUG_UART_STATUS) { data_from_read := Cat(0.U(31.W), debug_uart_tx_busy) }
-      is(PERI_DEBUG_UART_BAUD) { data_from_read := Cat(0.U(19.W), debug_baud_divider) }
-      is(PERI_TIME_LIMIT) { data_from_read := Cat(0.U(25.W), time_limit, 3.U(2.W)) }
-      is(PERI_USER) { data_from_read := peri_data_out }
+      is(socPeriU(PERI_ID)) { data_from_read := 0x41.U(32.W) }
+      is(socPeriU(PERI_GPIO_OUT_SEL)) { data_from_read := Cat(0.U(24.W), gpio_out_sel, 0.U(6.W)) }
+      is(socPeriU(PERI_DEBUG_UART_STATUS)) { data_from_read := Cat(0.U(31.W), debug_uart_tx_busy) }
+      is(socPeriU(PERI_DEBUG_UART_BAUD)) { data_from_read := Cat(0.U(19.W), debug_baud_divider) }
+      is(socPeriU(PERI_TIME_LIMIT)) { data_from_read := Cat(0.U(25.W), time_limit, 3.U(2.W)) }
+      is(socPeriU(PERI_USER)) { data_from_read := peri_data_out }
     }
 
-    data_ready := Mux(connect_peripheral === PERI_USER, peri_data_ready, 1.U(1.W))
+    data_ready := Mux(connect_peripheral === socPeriU(PERI_USER), peri_data_ready, 1.U(1.W))
 
-    val debug_uart_tx_start = (write_n =/= 3.U(2.W)) && (connect_peripheral === PERI_DEBUG_UART)
+    val debug_uart_tx_start = (write_n =/= 3.U(2.W)) && (connect_peripheral === socPeriU(PERI_DEBUG_UART))
 
     val debug_uart_txd = i_debug_uart_tx.io.uart_txd
     i_debug_uart_tx.io.uart_tx_en := debug_uart_tx_start
@@ -201,7 +192,7 @@ trait SoCLogic { self: RawModule =>
 
     val debug_register_data = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(soc_ui_in(1)) }
     withClockAndReset(soc_clk, false.B) {
-      when(write_n =/= 3.U(2.W) && connect_peripheral === PERI_DEBUG) {
+      when(write_n =/= 3.U(2.W) && connect_peripheral === socPeriU(PERI_DEBUG)) {
         debug_register_data := data_to_write(0)
       }
     }
