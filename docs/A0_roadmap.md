@@ -131,3 +131,37 @@ Architectural gaps (need hardware or major rework):
 | Alpha blending | Read-modify-write framebuffer + sort order |
 | Skinned animation | Bone matrix palette per vertex |
 | Real-time display | Need VGA/SPI LCD output instead of PSRAM dump |
+
+## "No Graphics API" Gap Analysis
+
+How Borg compares to the idealized bindless GPU hardware described by
+Sebastian Aaltonen in [No Graphics API](https://www.sebastianaaltonen.com/blog/no-graphics-api).
+
+Where Borg already aligns:
+
+| Principle | Borg Status |
+| --------- | ----------- |
+| No descriptor sets or binding tables | ✅ Direct MMIO registers — no binding model at all |
+| Shader = simple compute kernel | ✅ SPIR-B is a flat sequence of FMA/ADD/MUL/FNEG/FSTEP |
+| Minimal API surface | ✅ Handful of firmware calls (`borg_set_shader`, `borg_run`) |
+| Raw memory access from shader | ✅ Register file + IMEM are raw MMIO-mapped |
+| No PSO permutation explosion | ✅ No pipeline state objects exist |
+| Strip fixed-function hardware | ✅ Rasterization and z-buffer live in firmware |
+
+Gaps relative to the idealized hardware:
+
+| Feature | Gap |
+| ------- | --- |
+| 64-bit GPU pointers | Borg has no pointer model — shaders read only from registers loaded by firmware |
+| Bindless texture heap | No texture hardware — sampling is firmware-driven from PSRAM |
+| Compute shader dispatch | No general compute — shader core is rasterization-only |
+| Barriers / fences | Not needed yet — single-threaded firmware serializes everything |
+| Command buffers | No concept — firmware issues MMIO writes directly |
+| Mesh shaders / GPU-driven rendering | No programmable geometry stage |
+| Wide SIMD execution | Single-lane FP16 ALU, no wavefront/warp parallelism |
+
+Borg validates Aaltonen's thesis from the opposite direction: by starting from
+bare metal and building upward, it shows that textured, z-buffered triangle
+rendering is achievable without any of the API complexity that modern stacks
+carry. The gaps above define the path from minimal GPU to the kind of hardware
+his proposed API targets.
