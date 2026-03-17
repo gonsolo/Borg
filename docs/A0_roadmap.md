@@ -166,7 +166,7 @@ rendering is achievable without any of the API complexity that modern stacks
 carry. The gaps above define the path from minimal GPU to the kind of hardware
 his proposed API targets.
 
-### Vulkan Implementation Strategy (Aligned with Aaltonen)
+## Vulkan Implementation Strategy (Aligned with Aaltonen)
 
 When building the Mesa Vulkan ICD (Phase 3), prioritize the subset of Vulkan
 that maps naturally to Borg's minimal hardware and matches Aaltonen's vision.
