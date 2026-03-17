@@ -8,3 +8,7 @@
 3. [The Software Driver](03_software_driver.md) — Shader pipeline, z-buffer, texturing
 4. [Running on an FPGA](04_fpga.md) — pico-ice build, host communication, PIO
 5. [Generating the ASIC](05_asic.md) — RTL-to-GDS flow, configuration, verification
+
+### Appendices
+
+A. [Development Roadmap](A0_roadmap.md) — Phases, gap analysis, Tux Racer

@@ -10,8 +10,36 @@
 - [x] SPIR-B runtime shader loading
 - [x] Per-vertex color interpolation
 - [x] Dynamic framebuffer resolution
+- [x] Z-buffer (firmware, per-pixel depth testing)
+- [x] Texture mapping (firmware, UV interpolation + PSRAM sampling)
 - [x] FPGA validation on pico-ice
 - [x] GDS submission (4×2 tiles, IHP SG13G2)
+
+### Tux Racer Gap Analysis
+
+What's needed beyond the current pipeline to render a game like Tux Racer.
+
+**Firmware-only (no hardware changes):**
+
+| Feature | Effort | Notes |
+|---------|--------|-------|
+| Perspective projection | Medium | Full MVP matrix multiply (~16 FMA per vertex) |
+| Camera/view matrix | Easy | Combined with perspective |
+| Triangle clipping | Medium | Near/far plane clip before rasterization |
+| Directional lighting | Medium | dot(N, L) per vertex or per pixel |
+| Multiple textures | Easy | Already works — different `borg_set_texture` per triangle |
+| Fog | Easy | Blend toward fog color based on depth |
+| Bounding-box culling | Easy | Skip pixels outside triangle AABB |
+
+**Architectural gaps (need hardware or major rework):**
+
+| Feature | Challenge |
+|---------|-----------|
+| Performance | Showstopper — 32×32 × 2 tri takes ~60s; Tux Racer needs 640×480 × 1000+ tri at 60fps. Gap: ~10⁶× |
+| Bilinear filtering | 4 texel reads + 3 lerps per pixel |
+| Alpha blending | Read-modify-write framebuffer + sort order |
+| Skinned animation | Bone matrix palette per vertex |
+| Real-time display | Need VGA/SPI LCD output instead of PSRAM dump |
 
 ## Phase 2: Linux-Capable CPU (~3-4 months)
 
