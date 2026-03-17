@@ -99,7 +99,7 @@ What's needed beyond the current pipeline to render a game like Tux Racer.
 **Architectural gaps (need hardware or major rework):**
 
 | Feature | Challenge |
-|---------|-----------||
+|---------|-----------|
 | Performance | Showstopper — 32×32 × 2 tri takes ~60s; Tux Racer needs 640×480 × 1000+ tri at 60fps. Gap: ~10⁶× |
 | Bilinear filtering | 4 texel reads + 3 lerps per pixel |
 | Alpha blending | Read-modify-write framebuffer + sort order |
