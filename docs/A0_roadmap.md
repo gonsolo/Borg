@@ -80,9 +80,9 @@ Extend the shader processor to support more Vulkan features.
 - **QSPI Flash**: 128 Mbit (16 MB) — kernel + rootfs + Mesa libraries
 - **Display**: RP2040 reads framebuffer from PSRAM, no KMS/DRM needed
 
-## Tux Racer Gap Analysis
+## SuperTuxKart Gap Analysis
 
-What's needed beyond the current pipeline to render a game like Tux Racer.
+What's needed beyond the current pipeline to render a Vulkan game like SuperTuxKart.
 
 **Firmware-only (no hardware changes):**
 
@@ -100,7 +100,7 @@ What's needed beyond the current pipeline to render a game like Tux Racer.
 
 | Feature | Challenge |
 |---------|-----------|
-| Performance | Showstopper — 32×32 × 2 tri takes ~60s; Tux Racer needs 640×480 × 1000+ tri at 60fps. Gap: ~10⁶× |
+| Performance | Showstopper — 32×32 × 2 tri takes ~60s; SuperTuxKart needs 1080p × 100k+ tri at 60fps. Gap: ~10⁹× |
 | Bilinear filtering | 4 texel reads + 3 lerps per pixel |
 | Alpha blending | Read-modify-write framebuffer + sort order |
 | Skinned animation | Bone matrix palette per vertex |

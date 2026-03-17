@@ -11,4 +11,4 @@
 
 ### Appendices
 
-A. [Development Roadmap](A0_roadmap.md) — Phases, gap analysis, Tux Racer
+A. [Development Roadmap](A0_roadmap.md) — Phases, gap analysis, SuperTuxKart
