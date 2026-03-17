@@ -11,6 +11,6 @@
 
 ### Appendices
 
-A. [Development Roadmap](A0_roadmap.md) — Phases, gap analysis, SuperTuxKart
-
-B. [Bibliography](A1_bibliography.md) — References and further reading
+1. [Development Roadmap](A0_roadmap.md) — Phases, tile budget, hardware resources
+2. [Bibliography](A1_bibliography.md) — References and further reading
+3. [Gap Analysis and Vulkan Strategy](A2_gap_analysis.md) — vkcube, SuperTuxKart, "No Graphics API", Vulkan ICD plan
