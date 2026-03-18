@@ -83,6 +83,41 @@ def test_shader(name, asm_path):
     print(f"  {name}: OK ({len(blob)} bytes)")
 
 
+def test_pipeline(name, spvasm_path, expected_instrs, expected_unis,
+                  expected_attrs, expected_outs):
+    """End-to-end test: SPIR-V text → compiler → backend → verify encodings."""
+    from spirv_compiler import TinySpirvCompiler
+
+    # Stage 1: SPIR-V → pseudo-assembly
+    compiler = TinySpirvCompiler()
+    asm = compiler.compile_file(spvasm_path)
+    assert not asm.startswith("Error"), f"{name}: compile failed: {asm}"
+
+    # Stage 2: pseudo-assembly → backend
+    backend = BorgBackend()
+    backend.lower(asm)
+
+    # Verify instruction encodings
+    actual_instrs = [enc for enc, _ in backend.borg_instrs]
+    assert actual_instrs == expected_instrs, \
+        f"{name}: instrs mismatch\n  expected: {['0x%04X' % x for x in expected_instrs]}\n  actual:   {['0x%04X' % x for x in actual_instrs]}"
+
+    # Verify register allocations (physical register indices)
+    actual_unis = [p for _, p in backend.borg_uniforms]
+    actual_attrs = [p for _, p in backend.borg_attributes]
+    actual_outs = [p for _, p in backend.borg_outputs]
+    assert actual_unis == expected_unis, f"{name}: uniform regs {actual_unis} != {expected_unis}"
+    assert actual_attrs == expected_attrs, f"{name}: attribute regs {actual_attrs} != {expected_attrs}"
+    assert actual_outs == expected_outs, f"{name}: output regs {actual_outs} != {expected_outs}"
+
+    # Also verify round-trip
+    blob = backend.emit_binary()
+    parsed = parse_spirb(blob)
+    assert parsed['instrs'] == expected_instrs, f"{name}: binary round-trip instrs mismatch"
+
+    print(f"  {name}: OK (pipeline → {len(backend.borg_instrs)} instrs, {len(blob)} bytes)")
+
+
 if __name__ == '__main__':
     test_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -90,4 +125,20 @@ if __name__ == '__main__':
     test_shader("vert", os.path.join(test_dir, "vert.s"))
     test_shader("frag", os.path.join(test_dir, "frag.s"))
     test_shader("rasterize", os.path.join(test_dir, "rasterize.s"))
+
+    print("End-to-end pipeline tests:")
+    # Known-good instruction encodings from current shaders
+    if os.path.exists(os.path.join(test_dir, "vert.spvasm")):
+        test_pipeline("vert", os.path.join(test_dir, "vert.spvasm"),
+                      expected_instrs=[0x4530, 0x8640, 0x4521, 0x9631],
+                      expected_unis=[2, 3, 4],
+                      expected_attrs=[5, 6],
+                      expected_outs=[0, 1])
+    if os.path.exists(os.path.join(test_dir, "frag.spvasm")):
+        test_pipeline("frag", os.path.join(test_dir, "frag.spvasm"),
+                      expected_instrs=[0x4218, 0x4239, 0x424A, 0x4580, 0x8690, 0x87A0],
+                      expected_unis=[2, 5, 6, 7],
+                      expected_attrs=[1, 3, 4],
+                      expected_outs=[0])
+
     print("All tests passed!")
