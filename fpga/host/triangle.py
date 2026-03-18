@@ -303,55 +303,74 @@ def render_all_frames():
     # --- Write framebuffer dimensions to PSRAM for firmware ---
     t_psram = time.ticks_ms()
     run_tinyqv.setup_ram()
+
+    # --- Upload texture data to PSRAM (after framebuffer output region) ---
+    # TEX_PSRAM_OFFSET imported from borg_mmio.py
+    # Sentinel word stored right after texture data to detect prior upload
+    TEX_SENTINEL_OFFSET = TEX_PSRAM_OFFSET + 32 * 32 * 3  # Word 7272 (after texture ends at 7271)
+    TEX_SENTINEL_MAGIC = 0xBEEF
+
+    # Check if texture is already uploaded by reading the sentinel
+    sm_r_check = rp2.StateMachine(0, qspi_read, 16_000_000,
+                                  in_base=Pin(0), out_base=Pin(0),
+                                  sideset_base=Pin(2))
+    sm_r_check.active(1)
+    sentinel_val = qpi_read_word(sm_r_check, PSRAM_IO_SPI_ADDR + TEX_SENTINEL_OFFSET * 4)
+    sm_r_check.active(0)
+    del sm_r_check
+
     sm_w = rp2.StateMachine(0, qspi_write, 16_000_000,
                             out_base=Pin(0), sideset_base=Pin(2))
     sm_w.active(1)
     qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 0 * 4, WIDTH)
     qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 1 * 4, HEIGHT)
 
-    # --- Upload texture data to PSRAM (after framebuffer output region) ---
-    # TEX_PSRAM_OFFSET imported from borg_mmio.py
-    try:
-        import struct
-        with open('firmware/test_texture.dat', 'rb') as f:
-            tex_data = f.read()
-        
-        TEX_WIDTH = 32
-        TEX_HEIGHT = 32
-        
-        def morton_interleave(n):
-            n = (n | (n << 8)) & 0x00FF00FF
-            n = (n | (n << 4)) & 0x0F0F0F0F
-            n = (n | (n << 2)) & 0x33333333
-            n = (n | (n << 1)) & 0x55555555
-            return n
+    if sentinel_val == TEX_SENTINEL_MAGIC:
+        print("Texture already in PSRAM (sentinel=0x%04X), skipping upload" % sentinel_val)
+    else:
+        try:
+            import struct
+            with open('firmware/test_texture.dat', 'rb') as f:
+                tex_data = f.read()
 
-        def morton_encode(x, y):
-            return morton_interleave(x) | (morton_interleave(y) << 1)
+            TEX_WIDTH = 32
+            TEX_HEIGHT = 32
 
-        total_words = TEX_WIDTH * TEX_HEIGHT * 3
-        for y in range(TEX_HEIGHT):
-            for x in range(TEX_WIDTH):
-                src_idx = y * TEX_WIDTH + x
-                dst_idx = morton_encode(x, y)
-                
-                # Fetch RGB from tex_data linear array
-                r = struct.unpack_from('<H', tex_data, (src_idx * 3 + 0) * 2)[0]
-                g = struct.unpack_from('<H', tex_data, (src_idx * 3 + 1) * 2)[0]
-                b = struct.unpack_from('<H', tex_data, (src_idx * 3 + 2) * 2)[0]
-                
-                qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * 3 + 0) * 4, r)
-                qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * 3 + 1) * 4, g)
-                qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * 3 + 2) * 4, b)
-        print("Uploaded texture: %d words to PSRAM offset %d in Morton order" % (total_words, TEX_PSRAM_OFFSET))
-    except Exception as e:
-        print("WARNING: Could not load texture: %s" % e)
+            def morton_interleave(n):
+                n = (n | (n << 8)) & 0x00FF00FF
+                n = (n | (n << 4)) & 0x0F0F0F0F
+                n = (n | (n << 2)) & 0x33333333
+                n = (n | (n << 1)) & 0x55555555
+                return n
+
+            def morton_encode(x, y):
+                return morton_interleave(x) | (morton_interleave(y) << 1)
+
+            total_words = TEX_WIDTH * TEX_HEIGHT * 3
+            for y in range(TEX_HEIGHT):
+                for x in range(TEX_WIDTH):
+                    src_idx = y * TEX_WIDTH + x
+                    dst_idx = morton_encode(x, y)
+
+                    # Fetch RGB from tex_data linear array
+                    r = struct.unpack_from('<H', tex_data, (src_idx * 3 + 0) * 2)[0]
+                    g = struct.unpack_from('<H', tex_data, (src_idx * 3 + 1) * 2)[0]
+                    b = struct.unpack_from('<H', tex_data, (src_idx * 3 + 2) * 2)[0]
+
+                    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * 3 + 0) * 4, r)
+                    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * 3 + 1) * 4, g)
+                    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * 3 + 2) * 4, b)
+            # Write sentinel after successful upload
+            qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + TEX_SENTINEL_OFFSET * 4, TEX_SENTINEL_MAGIC)
+            print("Uploaded texture: %d words to PSRAM offset %d in Morton order" % (total_words, TEX_PSRAM_OFFSET))
+        except Exception as e:
+            print("WARNING: Could not load texture: %s" % e)
 
     sm_w.active(0)
     del sm_w
     print("Sent resolution %dx%d to PSRAM in %d ms" % (WIDTH, HEIGHT, time.ticks_diff(time.ticks_ms(), t_psram)))
 
-    # Boot FPGA, run for 25s (the second textured triangle takes ~20s in hardware!), then tear down
+    # Boot FPGA, test if TextureCache removed the 20s latency!
     t_fpga = time.ticks_ms()
     clk_pwm, ice_creset_b = fpga_boot(run_seconds=25)
     fpga_teardown(clk_pwm, ice_creset_b)
