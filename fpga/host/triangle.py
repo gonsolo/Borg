@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025-2026 Andreas Wendleder
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Host-side script for PSRAM round-trip Borg rotation test.
+# Host-side script for Borg triangle rendering on pico-ice FPGA.
 # One-way test: firmware writes results to PSRAM, host reads them.
 # Uses PIO-based QPI read (no exit sequence needed).
 
@@ -12,15 +12,6 @@ import machine
 from machine import Pin, SPI
 
 import run_tinyqv
-
-# --- Test cases ---
-TEST_CASES = [
-    ("0",          1.0, 0.0),
-    ("pi/2",       1.0, 0.0),
-    ("pi/4",       1.0, 1.0),
-    ("pi (180)",   1.0, 0.0),
-    ("0 (2,0.5)",  2.0, 0.5),
-]
 
 def fp16_to_float(bits):
     """Convert FP16 bits to Python float."""
@@ -34,6 +25,7 @@ def fp16_to_float(bits):
     else:
         val = (1.0 + frac / 1024.0) * (2 ** (exp - 15))
     return -val if sign else val
+
 
 # This PIO program handles high-speed timing to transfer data from the workstation into the PSRAM on the PMOD.
 @rp2.asm_pio(autopush=True, push_thresh=8, in_shiftdir=rp2.PIO.SHIFT_LEFT,
@@ -183,48 +175,10 @@ def qpi_read_word(sm, addr):
     return struct.unpack('<I', data)[0]
 
 
-def run():
-    # We need to manually do the run_tinyqv setup steps to inject our SPI write
-    machine.freq(112_000_000)
-
-    for i in range(30):
-        Pin(i, Pin.IN, pull=None)
-
-    flash_sel = Pin(17, Pin.IN, Pin.PULL_UP)
+def fpga_boot(run_seconds=1):
+    """Boot the FPGA: release reset, set up QSPI pins, start clock, wait.
+    Returns (clk_pwm, ice_creset_b) for teardown."""
     ice_creset_b = machine.Pin(27, machine.Pin.OUT)
-    ice_creset_b.value(0)
-    
-    run_tinyqv.program_firmware.program('firmware/triangle.bin')
-    run_tinyqv.setup_flash()
-
-    run_tinyqv.setup_ram()
-
-    # Initialize PIO for QPI writes (no FPGA clock needed - PIO drives SPI bus directly)
-    sm = rp2.StateMachine(0, qspi_write, 16_000_000, out_base=Pin(0), sideset_base=Pin(2))
-    sm.active(1)
-
-    n_tests = len(TEST_CASES)
-    qpi_write_word(sm, PSRAM_IO_SPI_ADDR, n_tests)
-
-    for i, (label, x_f, y_f) in enumerate(TEST_CASES):
-        if i == 0:   vals = (0x3C00, 0x3C00, 0x8000, 0x0000, 0x0000)
-        elif i == 1: vals = (0x0000, 0x3C00, 0xBC00, 0x3C00, 0x0000)
-        elif i == 2: vals = (0x39A8, 0x3C00, 0xB9A8, 0x39A8, 0x3C00)
-        elif i == 3: vals = (0xBC00, 0x3C00, 0x0000, 0x0000, 0x0000)
-        elif i == 4: vals = (0x3C00, 0x4000, 0x8000, 0x0000, 0x3800)
-
-        base_addr = PSRAM_IO_SPI_ADDR + (1 + i * 5) * 4
-        qpi_write_word(sm, base_addr + 0,  vals[0])
-        qpi_write_word(sm, base_addr + 4,  vals[1])
-        qpi_write_word(sm, base_addr + 8,  vals[2])
-        qpi_write_word(sm, base_addr + 12, vals[3])
-        qpi_write_word(sm, base_addr + 16, vals[4])
-
-    print("PSRAM input data written via QPI PIO.")
-    sm.active(0)
-    del sm
-
-    # Now boot the FPGA
     ice_done = machine.Pin(26, machine.Pin.IN)
     time.sleep_us(10)
     ice_creset_b.value(1)
@@ -234,7 +188,6 @@ def run():
 
     rst_n = Pin(12, Pin.OUT)
     clk = Pin(24, Pin.OUT)
-
     clk.off()
     rst_n.on()
     time.sleep(0.001)
@@ -278,73 +231,26 @@ def run():
     time.sleep(0.001)
     clk.off()
 
-    # Start FPGA clock
-    global _clk
-    _clk = machine.PWM(Pin(24), freq=4_000_000, duty_u16=32768)
+    # Start FPGA clock and wait for firmware to execute
+    clk_pwm = machine.PWM(Pin(24), freq=4_000_000, duty_u16=32768)
+    time.sleep(run_seconds)
+    return clk_pwm, ice_creset_b
 
-    time.sleep(1)
-    # Stop clock and assert FPGA reset to release the QSPI bus
-    _clk.deinit()
+
+def fpga_teardown(clk_pwm, ice_creset_b):
+    """Stop FPGA clock, assert reset, release QSPI bus, re-init PSRAM."""
+    clk_pwm.deinit()
     Pin(24, Pin.IN, pull=Pin.PULL_DOWN)
     rst_n = Pin(12, Pin.OUT)
     rst_n.off()
     time.sleep(0.001)
-
-    # Put the FPGA into reset (tri-state its outputs)
-    ice_creset_b = machine.Pin(27, machine.Pin.OUT)
     ice_creset_b.value(0)
     time.sleep(0.01)
-
-    # Release all QSPI pins before re-initializing PSRAM
     for p in [0, 1, 2, 3, 4, 5, 6, 7]:
         Pin(p, Pin.IN, pull=None)
     Pin(12, Pin.IN, pull=Pin.PULL_DOWN)
-
-    # Re-initialize PSRAM into QPI mode so PIO reads work reliably
     run_tinyqv.setup_ram()
 
-    # Initialize PIO for QPI reads
-    sm = rp2.StateMachine(0, qspi_read, 16_000_000, in_base=Pin(0), out_base=Pin(0), sideset_base=Pin(2))
-    sm.active(1)
-
-    n_tests = len(TEST_CASES)
-
-    # Output starts at +128 bytes from PSRAM_IO_SPI_ADDR (matching firmware PSRAM_RESULT)
-    out_base = PSRAM_IO_SPI_ADDR + 128
-    
-    done = qpi_read_word(sm, out_base + n_tests * 8)
-    if done != 0xDEAD:
-        print("WARNING: Done marker not found (got 0x%08X, expected 0xDEAD)" % done)
-
-    print("\n--- DEBUG: Host checking PSRAM inputs via QPI ---")
-    r_n = qpi_read_word(sm, PSRAM_IO_SPI_ADDR)
-    print("N_TESTS at %06X = 0x%08X" % (PSRAM_IO_SPI_ADDR, r_n))
-    for j in range(5):
-        base_addr = PSRAM_IO_SPI_ADDR + (1 + j * 5) * 4
-        print("T%d cos at %06X = 0x%08X" % (j, base_addr, qpi_read_word(sm, base_addr)))
-    print("-------------------------------------------------")
-
-    print()
-    print("  +================+=============+====================+")
-    print("  | Input (x, y)   | Angle       | Output (rx, ry)    |")
-    print("  +================+=============+====================+")
-
-    for i, (label, x_f, y_f) in enumerate(TEST_CASES):
-        rx_bits = qpi_read_word(sm, out_base + i * 8) & 0xFFFF
-        ry_bits = qpi_read_word(sm, out_base + i * 8 + 4) & 0xFFFF
-        rx = fp16_to_float(rx_bits)
-        ry = fp16_to_float(ry_bits)
-
-        print("  | (%5.1f,%5.1f)  | %-11s | (%7.3f,%7.3f)  |" % (x_f, y_f, label, rx, ry))
-
-    print("  +================+=============+====================+")
-    print()
-    print("Done!")
-
-    sm.active(0)
-
-    # --- Triangle rotation demo ---
-    render_frames()
 
 
 # --- Triangle rasterization helpers ---
@@ -442,76 +348,9 @@ def render_all_frames():
     sm_w.active(0)
     del sm_w
     print("Sent resolution %dx%d to PSRAM" % (WIDTH, HEIGHT))
-    ice_creset_b = machine.Pin(27, machine.Pin.OUT)
-    ice_done = machine.Pin(26, machine.Pin.IN)
-    time.sleep_us(10)
-    ice_creset_b.value(1)
-
-    while ice_done.value() == 0:
-        time.sleep(0.001)
-
-    rst_n = Pin(12, Pin.OUT)
-    clk = Pin(24, Pin.OUT)
-    clk.off()
-    rst_n.on()
-    time.sleep(0.001)
-    rst_n.off()
-
-    clk.on()
-    time.sleep(0.001)
-    clk.off()
-    time.sleep(0.001)
-
-    flash_sel = Pin(1, Pin.OUT)
-    qspi_sd0 = Pin(3, Pin.OUT)
-    qspi_sd1 = Pin(0, Pin.OUT)
-    qspi_sd2 = Pin(5, Pin.OUT)
-    ram_a_sel = Pin(4, Pin.OUT)
-    ram_b_sel = Pin(6, Pin.OUT)
-
-    flash_sel.on()
-    ram_a_sel.on()
-    ram_b_sel.on()
-    qspi_sd0.on()
-    qspi_sd1.off()
-    qspi_sd2.off()
-
-    for i in range(10):
-        clk.off()
-        time.sleep(0.001)
-        clk.on()
-        time.sleep(0.001)
-
-    Pin(1, Pin.IN, pull=Pin.PULL_UP)
-    Pin(2, Pin.IN, pull=Pin.PULL_DOWN)
-    Pin(3, Pin.IN, pull=None)
-    Pin(0, Pin.IN, pull=None)
-    Pin(4, Pin.IN, pull=Pin.PULL_UP)
-    Pin(5, Pin.IN, pull=None)
-    Pin(6, Pin.IN, pull=Pin.PULL_UP)
-    Pin(7, Pin.IN, pull=None)
-
-    rst_n.on()
-    time.sleep(0.001)
-    clk.off()
-
-    # Run at 4MHz, wait for rendering to complete
-    _clk = machine.PWM(Pin(24), freq=4_000_000, duty_u16=32768)
-    time.sleep(60)  # texture rendering is slow (extra shader runs + PSRAM reads per pixel)
-
-    # --- Stop and reset FPGA ---
-    _clk.deinit()
-    Pin(24, Pin.IN, pull=Pin.PULL_DOWN)
-    rst_n = Pin(12, Pin.OUT)
-    rst_n.off()
-    time.sleep(0.001)
-    ice_creset_b.value(0)
-    time.sleep(0.01)
-    for p in [0, 1, 2, 3, 4, 5, 6, 7]:
-        Pin(p, Pin.IN, pull=None)
-    Pin(12, Pin.IN, pull=Pin.PULL_DOWN)
-
-    run_tinyqv.setup_ram()
+    # Boot FPGA, run for 60s (texture rendering is slow), then tear down
+    clk_pwm, ice_creset_b = fpga_boot(run_seconds=60)
+    fpga_teardown(clk_pwm, ice_creset_b)
 
     # --- Read back all 10 framebuffers ---
     sm_r = rp2.StateMachine(0, qspi_read, 16_000_000,
