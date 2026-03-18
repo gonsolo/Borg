@@ -1,11 +1,36 @@
 # SPDX-FileCopyrightText: © 2025-2026 Andreas Wendleder
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+"""SPIR-V disassembly → Borg pseudo-assembly compiler.
+
+Translates SPIR-V text (spirv-dis output) into a custom pseudo-assembly
+that mirrors RISC-V F-extension mnemonics (fmul.s, fmadd.s, fadd.s, etc.).
+The pseudo-assembly is then consumed by borg_backend.py which lowers it
+to Borg IMEM instructions + host C code.
+
+Pipeline:  shader.frag → glslc → spirv-dis → spirv_compiler.py → borg_backend.py → .borg blob
+"""
+
 import re
 import sys
 
+
 class TinySpirvCompiler:
+    """Two-pass compiler from SPIR-V text to Borg pseudo-assembly.
+
+    Pass 1 (metadata): Collects names, constants, struct types, storage
+    classes, decorations, and variable mappings from OpName, OpDecorate,
+    OpConstant, OpVariable, etc.
+
+    Pass 2 (codegen): Walks executable opcodes (OpLoad, OpStore, OpFMul,
+    OpFAdd, OpExtInst/FMA, OpMatrixTimesVector, etc.) and emits pseudo-asm
+    instructions with @borg annotations for I/O register binding.
+
+    Supports both vertex and fragment shaders, auto-detected from
+    OpEntryPoint.
+    """
     def __init__(self):
+        """Initialize compiler state for a fresh compilation."""
         self.reg_map = {}
         self.next_reg = 0
         self.asm = []
@@ -33,6 +58,11 @@ class TinySpirvCompiler:
         self.var_types = {}          # var_id -> type_id
 
     def get_reg(self, spirv_id):
+        """Map a SPIR-V SSA ID to a virtual register name.
+
+        Well-known constants (float_0, float_1) get fixed names.
+        All other IDs are assigned sequential f0, f1, f2, ... names.
+        """
         # 1. Constants
         if "float_0" in spirv_id: return "f_zero"
         if "float_1" in spirv_id: return "f_one"
@@ -64,9 +94,19 @@ class TinySpirvCompiler:
         return res
 
     def emit(self, ins, comment=""):
+        """Append a pseudo-assembly instruction to the output."""
         self.asm.append(f"    {ins:25} # {comment}" if comment else f"    {ins}")
 
     def compile_file(self, filename):
+        """Compile a SPIR-V text file to Borg pseudo-assembly.
+
+        Args:
+            filename: Path to a .spvasm file (output of spirv-dis).
+
+        Returns:
+            Multi-line string of pseudo-assembly with @borg annotations,
+            or an error message string on failure.
+        """
         try:
             with open(filename, 'r', encoding='utf-8') as f:
                 raw = [l.split(';')[0].strip() for l in f.readlines()]

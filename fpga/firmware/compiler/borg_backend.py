@@ -1,6 +1,18 @@
 # SPDX-FileCopyrightText: © 2025-2026 Andreas Wendleder
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+"""Borg backend: lowers pseudo-assembly to IMEM instructions + SPIR-B blobs.
+
+Takes the pseudo-assembly output of spirv_compiler.py and produces either:
+- A C header (.borg.h) with encoded IMEM instructions and host driver code
+- A SPIR-B binary blob (.borg) for runtime shader loading via spirb_parse()
+
+The backend performs register allocation (virtual → physical Borg registers),
+instruction encoding (16-bit FP16 format), and host/device code splitting.
+Operations the Borg FPU can't handle (sin, cos, fneg) are emitted as host
+C code that runs on TinyQV before/after Borg execution.
+"""
+
 import sys
 
 
