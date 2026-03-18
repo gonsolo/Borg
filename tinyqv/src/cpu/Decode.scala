@@ -26,6 +26,21 @@ class TinyQVDecodeIO(val regAddrBits: Int) extends Bundle {
   val mem_op_increment_reg = Output(Bool())
 }
 
+/** Combinational instruction decoder for RV32IC (32-bit + compressed).
+  *
+  * Decodes a 32-bit instruction word into pipeline control signals:
+  *   - '''Instruction type''' (`InstrType` enum): load, store, ALU, branch, JAL, etc.
+  *   - '''Immediate''' (sign-extended to 32 bits, format-specific encoding)
+  *   - '''ALU/memory operation''' (4-bit opcode, 3-bit mem width)
+  *   - '''Register indices''' (rs1, rs2, rd — 4-bit for RV32E with 16 registers)
+  *
+  * Compressed 16-bit instructions (instr[1:0] != 3) are decoded in-place
+  * without expansion, mapping directly to the same output signals.
+  *
+  * This is a [[RawModule]] (no clock/reset) — purely combinational logic.
+  *
+  * @param regAddrBits register address width (default 4 for RV32E's 16 registers)
+  */
 class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
   val io = IO(new TinyQVDecodeIO(regAddrBits))
 

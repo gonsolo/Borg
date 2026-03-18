@@ -12,6 +12,17 @@ import chisel3.util._
 
 // QspiControllerIO is no longer needed — QspiController now uses an inline Bundle
 
+/** Memory controller — arbitrates QSPI bus between instruction fetch and data.
+  *
+  * Manages a single [[QspiController]] instance shared by:
+  *   - '''Instruction fetch:''' streaming 16-bit instruction words from flash
+  *   - '''Data read/write:''' byte/halfword/word PSRAM access for loads and stores
+  *
+  * Data transactions take priority over instruction fetch. Multi-beat
+  * (continued) transactions are supported for load/store-multiple sequences.
+  * The controller reassembles byte-wide QSPI data into the CPU's 32-bit
+  * data bus and handles stall/stop signaling for instruction prefetch.
+  */
 class TinyQVMemCtrl extends Module {
   val io = IO(new TinyQVMemCtrlIO)
     // Sequential State

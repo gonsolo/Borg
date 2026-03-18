@@ -110,6 +110,16 @@ class TinyQVMemCtrlIO extends Bundle {
   val debug_stop_txn = Output(Bool())
 }
 
+/** TinyQV top-level SoC — integrates CPU core with memory controller.
+  *
+  * Instantiates [[TinyQVCpu]] and [[TinyQVMemCtrl]], routing memory transactions
+  * based on address decode:
+  *   - '''Internal''' (addr[27:25] == 0): routed to `TinyQVMemCtrl` (QSPI flash/PSRAM)
+  *   - '''External''' (addr[27:25] != 0): routed to `io.data_*` (MMIO peripherals)
+  *
+  * Also provides instruction fetch wiring (CPU ↔ MemCtrl), SPI pin mapping,
+  * and a synchronized reset that delays release by one clock cycle.
+  */
 class TinyQV extends Module {
 
   val io = FlatIO(new tinyQVIO)
