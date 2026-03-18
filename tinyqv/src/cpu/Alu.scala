@@ -8,52 +8,58 @@ import chisel3._
 import chisel3.util._
 
 // @doc:alu
+class TinyQVAluIO extends Bundle {
+  val op = Input(UInt(4.W))
+  val a = Input(UInt(4.W))
+  val b = Input(UInt(4.W))
+  val cy_in = Input(Bool())
+  val cmp_in = Input(Bool())
+  val d = Output(UInt(4.W))
+  val cy_out = Output(Bool())
+  val cmp_res = Output(Bool())
+}
+
 class TinyQVAlu extends RawModule {
+  val io = IO(new TinyQVAluIO)
 
-  val op = IO(Input(UInt(4.W)))
-  val a = IO(Input(UInt(4.W)))
-  val b = IO(Input(UInt(4.W)))
-  val cy_in = IO(Input(Bool()))
-  val cmp_in = IO(Input(Bool()))
-  val d = IO(Output(UInt(4.W)))
-  val cy_out = IO(Output(Bool()))
-  val cmp_res = IO(Output(Bool()))
+  val a_for_add = Cat(0.B, io.a)
+  val b_for_add = Cat(0.B, Mux(io.op(1) || io.op(3), ~io.b, io.b))
+  val sum = a_for_add + b_for_add + io.cy_in.asUInt
+  val a_xor_b = io.a ^ io.b
 
-  val a_for_add = Cat(0.B, a)
-  val b_for_add = Cat(0.B, Mux(op(1) || op(3), ~b, b))
-  val sum = a_for_add + b_for_add + cy_in.asUInt
-  val a_xor_b = a ^ b
-
-  d := MuxLookup(op(2, 0), 0.U(4.W))(Seq(
+  io.d := MuxLookup(io.op(2, 0), 0.U(4.W))(Seq(
     0.U -> sum(3, 0),
-    7.U -> (a & b),
-    6.U -> (a | b),
+    7.U -> (io.a & io.b),
+    6.U -> (io.a | io.b),
     4.U -> a_xor_b
   ))
 
-  cmp_res := Mux(op(0), !sum(4),
-              Mux(op(1), a(3) ^ b_for_add(3) ^ sum(4),
-                cmp_in && a_xor_b === 0.U))
+  io.cmp_res := Mux(io.op(0), !sum(4),
+              Mux(io.op(1), io.a(3) ^ b_for_add(3) ^ sum(4),
+                io.cmp_in && a_xor_b === 0.U))
 
-  cy_out := sum(4)
+  io.cy_out := sum(4)
 }
 // @doc:end
 
+class TinyQVShifterIO extends Bundle {
+  val op = Input(UInt(2.W))
+  val counter = Input(UInt(3.W))
+  val a = Input(UInt(32.W))
+  val b = Input(UInt(5.W))
+  val d = Output(UInt(4.W))
+}
+
 class TinyQVShifter extends RawModule {
+  val io = IO(new TinyQVShifterIO)
 
-  val op = IO(Input(UInt(2.W))) // op[3:2]
-  val counter = IO(Input(UInt(3.W)))
-  val a = IO(Input(UInt(32.W)))
-  val b = IO(Input(UInt(5.W)))
-  val d = IO(Output(UInt(4.W)))
+  val top_bit = Mux(io.op(1), io.a(31), 0.B)
+  val shift_right = io.op(0)
 
-  val top_bit = Mux(op(1), a(31), 0.B) // op(1) is op[3]
-  val shift_right = op(0) // op(0) is op[2]
+  val a_for_shift_right = Mux(shift_right, io.a, Reverse(io.a))
 
-  val a_for_shift_right = Mux(shift_right, a, Reverse(a))
-
-  val c = Mux(shift_right, counter, ~counter)
-  val shift_amt = Cat(0.B, b) + Cat(0.B, c, 0.U(2.W))
+  val c = Mux(shift_right, io.counter, ~io.counter)
+  val shift_amt = Cat(0.B, io.b) + Cat(0.B, c, 0.U(2.W))
   
   val adjusted_shift_amt = shift_amt(4,0)
 
@@ -61,5 +67,5 @@ class TinyQVShifter extends RawModule {
 
   val dr = Mux(shift_amt(5), Fill(4, top_bit), (a_for_shift >> adjusted_shift_amt)(3, 0))
 
-  d := Mux(shift_right, dr, Reverse(dr))
+  io.d := Mux(shift_right, dr, Reverse(dr))
 }

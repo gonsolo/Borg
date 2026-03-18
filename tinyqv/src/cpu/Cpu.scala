@@ -20,28 +20,28 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     // Decoder interface
     val decoder = Module(new TinyQVDecode)
     val instr = Wire(UInt(32.W))
-    decoder.instr := instr
+    decoder.io.instr := instr
     
-    val imm_de = decoder.imm
-    val is_load_de = decoder.is_load
-    val is_alu_imm_de = decoder.is_alu_imm
-    val is_auipc_de = decoder.is_auipc
-    val is_store_de = decoder.is_store
-    val is_alu_reg_de = decoder.is_alu_reg
-    val is_lui_de = decoder.is_lui
-    val is_branch_de = decoder.is_branch
-    val is_jalr_de = decoder.is_jalr
-    val is_jal_de = decoder.is_jal
-    val is_ret_de = decoder.is_ret
-    val is_system_de = decoder.is_system
-    val instr_len_de = decoder.instr_len
-    val alu_op_de = decoder.alu_op
-    val mem_op_de = decoder.mem_op
-    val rs1_de = decoder.rs1
-    val rs2_de = decoder.rs2
-    val rd_de = decoder.rd
-    val additional_mem_ops_de = decoder.additional_mem_ops
-    val mem_op_increment_reg_de = decoder.mem_op_increment_reg
+    val imm_de = decoder.io.imm
+    val is_load_de = decoder.io.is_load
+    val is_alu_imm_de = decoder.io.is_alu_imm
+    val is_auipc_de = decoder.io.is_auipc
+    val is_store_de = decoder.io.is_store
+    val is_alu_reg_de = decoder.io.is_alu_reg
+    val is_lui_de = decoder.io.is_lui
+    val is_branch_de = decoder.io.is_branch
+    val is_jalr_de = decoder.io.is_jalr
+    val is_jal_de = decoder.io.is_jal
+    val is_ret_de = decoder.io.is_ret
+    val is_system_de = decoder.io.is_system
+    val instr_len_de = decoder.io.instr_len
+    val alu_op_de = decoder.io.alu_op
+    val mem_op_de = decoder.io.mem_op
+    val rs1_de = decoder.io.rs1
+    val rs2_de = decoder.io.rs2
+    val rd_de = decoder.io.rd
+    val additional_mem_ops_de = decoder.io.additional_mem_ops
+    val mem_op_increment_reg_de = decoder.io.mem_op_increment_reg
 
     // Pipeline Registers
     val imm = RegInit(0.U(32.W))
@@ -107,11 +107,11 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     core.io.next_pc := MuxLookup(counter_hi, 0.U(4.W))( (0 until 8).map(i => i.U -> next_pc_for_core(i*4+3, i*4)) )
     
     val timers = Module(new TinyQVTime)
-    timers.time_pulse := io.time_pulse
-    timers.counter := counter_hi
+    timers.io.time_pulse := io.time_pulse
+    timers.io.counter := counter_hi
     
     val is_timer_addr = io.data_addr(27, 4) === 0xFFFFF0.U && !io.data_addr(3)
-    val timer_data = timers.data_out
+    val timer_data = timers.io.data_out
     
     core.io.data_in := Mux(is_timer_addr, timer_data, MuxLookup(counter_hi, 0.U(4.W))( (0 until 8).map(i => i.U -> io.data_in(i*4+3, i*4)) ))
     
@@ -306,11 +306,11 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     next_pc_for_core := Cat(0.U(8.W), next_pc)
 
     // Timer wiring
-    timers.set_mtime := is_timer_addr && io.data_write_n =/= 3.U && !io.data_addr(2)
-    timers.set_mtimecmp := is_timer_addr && io.data_write_n =/= 3.U && io.data_addr(2)
-    timers.data_in := data_out_slice
-    timers.read_mtimecmp := io.data_addr(2)
-    core.io.timer_interrupt := timers.timer_interrupt
+    timers.io.set_mtime := is_timer_addr && io.data_write_n =/= 3.U && !io.data_addr(2)
+    timers.io.set_mtimecmp := is_timer_addr && io.data_write_n =/= 3.U && io.data_addr(2)
+    timers.io.data_in := data_out_slice
+    timers.io.read_mtimecmp := io.data_addr(2)
+    core.io.timer_interrupt := timers.io.timer_interrupt
 
     // Debugging
     io.data_read_complete := is_load && instr_complete_core && !stall_core

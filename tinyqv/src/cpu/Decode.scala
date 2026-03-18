@@ -7,37 +7,36 @@ package tinyqv.cpu
 import chisel3._
 import chisel3.util._
 
+class TinyQVDecodeIO(val regAddrBits: Int) extends Bundle {
+  val instr = Input(UInt(32.W))
+  val imm = Output(UInt(32.W))
+  val is_load = Output(Bool())
+  val is_alu_imm = Output(Bool())
+  val is_auipc = Output(Bool())
+  val is_store = Output(Bool())
+  val is_alu_reg = Output(Bool())
+  val is_lui = Output(Bool())
+  val is_branch = Output(Bool())
+  val is_jalr = Output(Bool())
+  val is_jal = Output(Bool())
+  val is_ret = Output(Bool())
+  val is_system = Output(Bool())
+  val instr_len = Output(UInt(2.W))
+  val alu_op = Output(UInt(4.W))
+  val mem_op = Output(UInt(3.W))
+  val rs1 = Output(UInt(regAddrBits.W))
+  val rs2 = Output(UInt(regAddrBits.W))
+  val rd = Output(UInt(regAddrBits.W))
+  val additional_mem_ops = Output(UInt(3.W))
+  val mem_op_increment_reg = Output(Bool())
+}
+
 class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
-
-  val instr = IO(Input(UInt(32.W)))
-
-  val imm = IO(Output(UInt(32.W)))
-
-  val is_load = IO(Output(Bool()))
-  val is_alu_imm = IO(Output(Bool()))
-  val is_auipc = IO(Output(Bool()))
-  val is_store = IO(Output(Bool()))
-  val is_alu_reg = IO(Output(Bool()))
-  val is_lui = IO(Output(Bool()))
-  val is_branch = IO(Output(Bool()))
-  val is_jalr = IO(Output(Bool()))
-  val is_jal = IO(Output(Bool()))
-  val is_ret = IO(Output(Bool()))
-  val is_system = IO(Output(Bool()))
-
-  val instr_len = IO(Output(UInt(2.W)))
-
-  val alu_op = IO(Output(UInt(4.W)))
-  val mem_op = IO(Output(UInt(3.W)))
-
-  val rs1 = IO(Output(UInt(regAddrBits.W)))
-  val rs2 = IO(Output(UInt(regAddrBits.W)))
-  val rd = IO(Output(UInt(regAddrBits.W)))
-
-  val additional_mem_ops = IO(Output(UInt(3.W)))
-  val mem_op_increment_reg = IO(Output(Bool()))
+  val io = IO(new TinyQVDecodeIO(regAddrBits))
 
   // 32-bit Immediates
+  val instr = io.instr
+
   val uImm = Cat(instr(31), instr(30, 12), 0.U(12.W))
   val iImm = Cat(Fill(21, instr(31)), instr(30, 20))
   val sImm = Cat(Fill(21, instr(31)), instr(30, 25), instr(11, 7))
@@ -59,233 +58,233 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
   val cScxtImm     = Cat(Fill(23, instr(12)), instr(9, 7), instr(10), instr(11), 0.U(4.W))
 
   // Default assignments
-  is_load := false.B
-  is_alu_imm := false.B
-  is_auipc := false.B
-  is_store := false.B
-  is_alu_reg := false.B
-  is_lui := false.B
-  is_branch := false.B
-  is_jalr := false.B
-  is_jal := false.B
-  is_ret := false.B
-  is_system := false.B
-  imm := 0.U
-  alu_op := 0.U
-  mem_op := 0.U
-  rs1 := 0.U
-  rs2 := 0.U
-  rd := 0.U
-  additional_mem_ops := 0.U
-  mem_op_increment_reg := true.B
+  io.is_load := false.B
+  io.is_alu_imm := false.B
+  io.is_auipc := false.B
+  io.is_store := false.B
+  io.is_alu_reg := false.B
+  io.is_lui := false.B
+  io.is_branch := false.B
+  io.is_jalr := false.B
+  io.is_jal := false.B
+  io.is_ret := false.B
+  io.is_system := false.B
+  io.imm := 0.U
+  io.alu_op := 0.U
+  io.mem_op := 0.U
+  io.rs1 := 0.U
+  io.rs2 := 0.U
+  io.rd := 0.U
+  io.additional_mem_ops := 0.U
+  io.mem_op_increment_reg := true.B
 
   when(instr(1, 0) === 3.U) {
     // 32-bit instructions
     switch(instr(6, 2)) {
-      is("b00000".U) { is_load := true.B }
-      is("b00100".U) { is_alu_imm := true.B }
-      is("b00101".U) { is_auipc := true.B }
-      is("b01000".U) { is_store := true.B }
-      is("b01100".U) { is_alu_reg := true.B }
-      is("b01101".U) { is_lui := true.B }
-      is("b11000".U) { is_branch := true.B }
-      is("b11001".U) { is_jalr := true.B }
-      is("b11011".U) { is_jal := true.B }
-      is("b11100".U) { is_system := true.B }
+      is("b00000".U) { io.is_load := true.B }
+      is("b00100".U) { io.is_alu_imm := true.B }
+      is("b00101".U) { io.is_auipc := true.B }
+      is("b01000".U) { io.is_store := true.B }
+      is("b01100".U) { io.is_alu_reg := true.B }
+      is("b01101".U) { io.is_lui := true.B }
+      is("b11000".U) { io.is_branch := true.B }
+      is("b11001".U) { io.is_jalr := true.B }
+      is("b11011".U) { io.is_jal := true.B }
+      is("b11100".U) { io.is_system := true.B }
     }
 
-    imm := MuxCase(iImm, Seq(
-      (is_auipc || is_lui) -> uImm,
-      is_store -> sImm,
-      is_branch -> bImm,
-      is_jal -> jImm
+    io.imm := MuxCase(iImm, Seq(
+      (io.is_auipc || io.is_lui) -> uImm,
+      io.is_store -> sImm,
+      io.is_branch -> bImm,
+      io.is_jal -> jImm
     ))
 
-    when(is_load || is_auipc || is_store || is_jalr || is_jal) {
-      alu_op := 0.U // ADD
-    } .elsewhen(is_branch) {
-      alu_op := Cat(0.U(1.W), !instr(14), instr(14, 13))
-    } .elsewhen(instr(26) && is_alu_reg && instr(27)) {
-      alu_op := Cat(3.U(2.W), instr(26), instr(13)) // CZERO
+    when(io.is_load || io.is_auipc || io.is_store || io.is_jalr || io.is_jal) {
+      io.alu_op := 0.U // ADD
+    } .elsewhen(io.is_branch) {
+      io.alu_op := Cat(0.U(1.W), !instr(14), instr(14, 13))
+    } .elsewhen(instr(26) && io.is_alu_reg && instr(27)) {
+      io.alu_op := Cat(3.U(2.W), instr(26), instr(13)) // CZERO
     } .otherwise {
       val bit30 = instr(30) && (instr(5) || instr(13, 12) === 1.U)
-      alu_op := Cat(bit30, instr(14, 12))
+      io.alu_op := Cat(bit30, instr(14, 12))
     }
 
-    mem_op := instr(14, 12)
+    io.mem_op := instr(14, 12)
 
-    rs1 := instr(15 + regAddrBits - 1, 15)
-    rs2 := instr(20 + regAddrBits - 1, 20)
-    rd  := instr(7 + regAddrBits - 1, 7)
+    io.rs1 := instr(15 + regAddrBits - 1, 15)
+    io.rs2 := instr(20 + regAddrBits - 1, 20)
+    io.rd  := instr(7 + regAddrBits - 1, 7)
 
   } .otherwise {
     // 16-bit compressed instructions
-    imm := 0.U
-    mem_op := 0.U
-    rs1 := 0.U
-    rs2 := 0.U
-    rd := 0.U
+    io.imm := 0.U
+    io.mem_op := 0.U
+    io.rs1 := 0.U
+    io.rs2 := 0.U
+    io.rd := 0.U
 
     switch(Cat(instr(1, 0), instr(15, 13))) {
       is("b00000".U) { // ADDI4SPN
-        is_alu_imm := true.B
-        imm := cAddi4SpImm
-        rs1 := 2.U
-        rd := Cat(true.B, instr(4, 2))
+        io.is_alu_imm := true.B
+        io.imm := cAddi4SpImm
+        io.rs1 := 2.U
+        io.rd := Cat(true.B, instr(4, 2))
       }
       is("b00010".U) { // LW
-        is_load := true.B
-        mem_op := 2.U
-        imm := cLswImm
-        rs1 := Cat(true.B, instr(9, 7))
-        rd := Cat(true.B, instr(4, 2))
+        io.is_load := true.B
+        io.mem_op := 2.U
+        io.imm := cLswImm
+        io.rs1 := Cat(true.B, instr(9, 7))
+        io.rd := Cat(true.B, instr(4, 2))
       }
       is("b00100".U) { // Load/store byte or halfword
-        imm := Mux(instr(10), cLshImm, cLsbImm)
-        rs1 := Cat(true.B, instr(9, 7))
+        io.imm := Mux(instr(10), cLshImm, cLsbImm)
+        io.rs1 := Cat(true.B, instr(9, 7))
         when(instr(11)) {
-          is_store := true.B
-          mem_op := Cat(0.U(2.W), instr(10))
-          rs2 := Cat(true.B, instr(4, 2))
+          io.is_store := true.B
+          io.mem_op := Cat(0.U(2.W), instr(10))
+          io.rs2 := Cat(true.B, instr(4, 2))
         } .otherwise {
-          is_load := true.B
-          mem_op := Cat(!(instr(10) & instr(6)), 0.U(1.W), instr(10))
-          rd := Cat(true.B, instr(4, 2))
+          io.is_load := true.B
+          io.mem_op := Cat(!(instr(10) & instr(6)), 0.U(1.W), instr(10))
+          io.rd := Cat(true.B, instr(4, 2))
         }
       }
       is("b00110".U) { // SW
-        is_store := true.B
-        mem_op := 2.U
-        imm := cLswImm
-        rs1 := Cat(true.B, instr(9, 7))
-        rs2 := Cat(true.B, instr(4, 2))
+        io.is_store := true.B
+        io.mem_op := 2.U
+        io.imm := cLswImm
+        io.rs1 := Cat(true.B, instr(9, 7))
+        io.rs2 := Cat(true.B, instr(4, 2))
       }
       // b00111 was SCXT (removed custom TinyQV instruction)
       is("b01000".U) { // ADDI
-        is_alu_imm := true.B
-        imm := cAluImm
-        rs1 := instr(10, 7)
-        rd := instr(10, 7)
+        io.is_alu_imm := true.B
+        io.imm := cAluImm
+        io.rs1 := instr(10, 7)
+        io.rd := instr(10, 7)
       }
       is("b01001".U) { // JAL
-        is_jal := true.B
-        imm := cJImm
-        rd := 1.U
+        io.is_jal := true.B
+        io.imm := cJImm
+        io.rd := 1.U
       }
       is("b01010".U) { // LI
-        is_alu_imm := true.B
-        imm := cAluImm
-        rs1 := 0.U
-        rd := instr(10, 7)
+        io.is_alu_imm := true.B
+        io.imm := cAluImm
+        io.rs1 := 0.U
+        io.rd := instr(10, 7)
       }
       is("b01011".U) { // ADDI16SP / LUI
-        rd := instr(10, 7)
+        io.rd := instr(10, 7)
         when(instr(10, 7) === 2.U) {
-          is_alu_imm := true.B
-          imm := cAddi16SpImm
-          rs1 := 2.U
+          io.is_alu_imm := true.B
+          io.imm := cAddi16SpImm
+          io.rs1 := 2.U
         } .otherwise {
-          is_lui := true.B
-          imm := cLuiImm
+          io.is_lui := true.B
+          io.imm := cLuiImm
         }
       }
       is("b01100".U) { // ALU
-        rs1 := Cat(true.B, instr(9, 7))
-        rs2 := Cat(true.B, instr(4, 2))
-        rd  := Cat(true.B, instr(9, 7))
-        imm := cAluImm
+        io.rs1 := Cat(true.B, instr(9, 7))
+        io.rs2 := Cat(true.B, instr(4, 2))
+        io.rd  := Cat(true.B, instr(9, 7))
+        io.imm := cAluImm
         when(instr(11, 10) =/= 3.U) {
-          is_alu_imm := true.B
+          io.is_alu_imm := true.B
           when(instr(11) === 0.B) { // SRx
-            alu_op := Cat(instr(10), 5.U(3.W))
+            io.alu_op := Cat(instr(10), 5.U(3.W))
           } .otherwise {
-            alu_op := 7.U // ANDI
+            io.alu_op := 7.U // ANDI
           }
         } .elsewhen(instr(12)) {
-          is_alu_imm := true.B
+          io.is_alu_imm := true.B
           when(instr(4, 2) === 5.U) { // NOT
-            alu_op := 4.U // XOR
-            imm := "hffffffff".U
+            io.alu_op := 4.U // XOR
+            io.imm := "hffffffff".U
           } .otherwise { // ZEXT
-            alu_op := 7.U // AND
-            imm := Cat(0.U(16.W), Fill(8, instr(3)), "hff".U(8.W))
+            io.alu_op := 7.U // AND
+            io.imm := Cat(0.U(16.W), Fill(8, instr(3)), "hff".U(8.W))
           }
         } .otherwise {
-          is_alu_reg := true.B
+          io.is_alu_reg := true.B
           switch(instr(6, 5)) {
-            is(0.U) { alu_op := 8.U } // SUB
-            is(1.U) { alu_op := 4.U } // XOR
-            is(2.U) { alu_op := 6.U } // OR
-            is(3.U) { alu_op := 7.U } // AND
+            is(0.U) { io.alu_op := 8.U } // SUB
+            is(1.U) { io.alu_op := 4.U } // XOR
+            is(2.U) { io.alu_op := 6.U } // OR
+            is(3.U) { io.alu_op := 7.U } // AND
           }
         }
       }
       is("b01101".U) { // J
-        is_jal := true.B
-        imm := cJImm
-        rd := 0.U
+        io.is_jal := true.B
+        io.imm := cJImm
+        io.rd := 0.U
       }
       is("b01110".U) { // BEQZ
-        is_branch := true.B
-        imm := cBImm
-        rs1 := Cat(true.B, instr(9, 7))
-        rs2 := 0.U
-        alu_op := 4.U // XOR
-        mem_op := 0.U
+        io.is_branch := true.B
+        io.imm := cBImm
+        io.rs1 := Cat(true.B, instr(9, 7))
+        io.rs2 := 0.U
+        io.alu_op := 4.U // XOR
+        io.mem_op := 0.U
       }
       is("b01111".U) { // BNEZ
-        is_branch := true.B
-        imm := cBImm
-        rs1 := Cat(true.B, instr(9, 7))
-        rs2 := 0.U
-        alu_op := 4.U // XOR
-        mem_op := 1.U
+        io.is_branch := true.B
+        io.imm := cBImm
+        io.rs1 := Cat(true.B, instr(9, 7))
+        io.rs2 := 0.U
+        io.alu_op := 4.U // XOR
+        io.mem_op := 1.U
       }
       is("b10000".U) { // SLLI
-        is_alu_imm := true.B
-        imm := cAluImm
-        rs1 := instr(10, 7)
-        rd := instr(10, 7)
-        alu_op := 1.U
+        io.is_alu_imm := true.B
+        io.imm := cAluImm
+        io.rs1 := instr(10, 7)
+        io.rd := instr(10, 7)
+        io.alu_op := 1.U
       }
       // b10001 was LCXT (removed custom TinyQV instruction)
       is("b10010".U) { // LWSP
-        is_load := true.B
-        mem_op := 2.U
-        imm := cLwspImm
-        rs1 := 2.U
-        rd := instr(10, 7)
+        io.is_load := true.B
+        io.mem_op := 2.U
+        io.imm := cLwspImm
+        io.rs1 := 2.U
+        io.rd := instr(10, 7)
       }
       // b10011 was LWTP (removed - conflicts with c.flwsp encoding)
       is("b10100".U) {
         when(instr(6, 2) === 0.U) {
           when(instr(11, 7) === 0.U) { // EBREAK
-            is_system := true.B
-            imm := 1.U
+            io.is_system := true.B
+            io.imm := 1.U
           } .otherwise { // J(AL)R
-            when(instr(10, 7) === 1.U && !instr(12)) { is_ret := true.B }
-            is_jalr := true.B
-            imm := 0.U
-            rs1 := instr(10, 7)
-            rd := Cat(0.U(3.W), instr(12))
+            when(instr(10, 7) === 1.U && !instr(12)) { io.is_ret := true.B }
+            io.is_jalr := true.B
+            io.imm := 0.U
+            io.rs1 := instr(10, 7)
+            io.rd := Cat(0.U(3.W), instr(12))
           }
         } .otherwise { // MV / ADD
-          is_alu_reg := true.B
-          rs1 := Mux(instr(12), instr(10, 7), 0.U)
-          rs2 := instr(5, 2)
-          rd := instr(10, 7)
+          io.is_alu_reg := true.B
+          io.rs1 := Mux(instr(12), instr(10, 7), 0.U)
+          io.rs2 := instr(5, 2)
+          io.rd := instr(10, 7)
         }
       }
       is("b10110".U) { // SWSP
-        is_store := true.B
-        mem_op := 2.U
-        imm := cSwspImm
-        rs1 := 2.U
-        rs2 := instr(5, 2)
+        io.is_store := true.B
+        io.mem_op := 2.U
+        io.imm := cSwspImm
+        io.rs1 := 2.U
+        io.rs2 := instr(5, 2)
       }
       // b10111 was SWTP (removed - conflicts with c.fswsp encoding)
     }
   }
 
-  instr_len := Mux(instr(1, 0) === 3.U, 2.U, 1.U)
+  io.instr_len := Mux(instr(1, 0) === 3.U, 2.U, 1.U)
 }

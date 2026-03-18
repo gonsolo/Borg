@@ -22,13 +22,13 @@ object TinyQVCounterTests extends TestSuite {
         dut.reset.poke(true.B)
         dut.clock.step(1)
         dut.reset.poke(false.B)
-        dut.add.poke(true.B)
+        dut.io.add.poke(true.B)
         
         def peekVal32(): Long = {
           var value: Long = 0
           for (i <- 0 until 8) {
-            dut.counter.poke(i.U)
-            value |= (dut.data.peek().litValue.toLong << (i * 4))
+            dut.io.counter.poke(i.U)
+            value |= (dut.io.data.peek().litValue.toLong << (i * 4))
             dut.clock.step(1)
           }
           value
@@ -50,15 +50,15 @@ object TinyQVCounterTests extends TestSuite {
         dut.reset.poke(true.B)
         dut.clock.step(1)
         dut.reset.poke(false.B)
-        dut.add.poke(false.B)
+        dut.io.add.poke(false.B)
 
         def stepRotation(add: Boolean): Long = {
           var value: Long = 0
           for (i <- 0 until 8) {
-            dut.counter.poke(i.U)
-            if (i == 0) dut.add.poke(add.B)
-            else dut.add.poke(false.B)
-            value |= (dut.data.peek().litValue.toLong << (i * 4))
+            dut.io.counter.poke(i.U)
+            if (i == 0) dut.io.add.poke(add.B)
+            else dut.io.add.poke(false.B)
+            value |= (dut.io.data.peek().litValue.toLong << (i * 4))
             dut.clock.step(1)
           }
           value

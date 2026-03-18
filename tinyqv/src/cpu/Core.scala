@@ -84,13 +84,13 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
   // @doc:core-datapath
   // Registers Module
   val registers = Module(new TinyQVRegisters(numRegs, regAddrBits))
-  registers.counter := io.counter
-  registers.rs1 := io.rs1
-  registers.rs2 := io.rs2
-  registers.rd := io.rd
-  val data_rs1 = registers.data_rs1
-  val data_rs2 = registers.data_rs2
-  io.return_addr := registers.return_addr
+  registers.io.counter := io.counter
+  registers.io.rs1 := io.rs1
+  registers.io.rs2 := io.rs2
+  registers.io.rd := io.rd
+  val data_rs1 = registers.io.data_rs1
+  val data_rs2 = registers.io.data_rs2
+  io.return_addr := registers.io.return_addr
 
   // Alu instance and state
   val cy = RegInit(false.B)
@@ -101,16 +101,16 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
   val alu_a_in = Mux(is_czero, 0.U, Mux(io.is_auipc || io.is_jal, io.pc, data_rs1))
   val alu_b_in = Mux(io.is_alu_reg || io.is_branch, data_rs2, io.imm)
 
-  alu.op := alu_op_in
-  alu.a := alu_a_in
-  alu.b := alu_b_in
-  alu.cy_in := Mux(io.counter === 0.U, alu_op_in(1) || alu_op_in(3), cy)
-  alu.cmp_in := Mux(io.counter === 0.U, 1.B, cmp)
+  alu.io.op := alu_op_in
+  alu.io.a := alu_a_in
+  alu.io.b := alu_b_in
+  alu.io.cy_in := Mux(io.counter === 0.U, alu_op_in(1) || alu_op_in(3), cy)
+  alu.io.cmp_in := Mux(io.counter === 0.U, 1.B, cmp)
 
-  val alu_out = alu.d
-  val cmp_out = alu.cmp_res
+  val alu_out = alu.io.d
+  val cmp_out = alu.io.cmp_res
 
-  cy := alu.cy_out
+  cy := alu.io.cy_out
   cmp := cmp_out
   // @doc:end
 
@@ -125,11 +125,11 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
   }
 
   val shifter = Module(new TinyQVShifter())
-  shifter.op := io.alu_op(3, 2)
-  shifter.counter := io.counter
-  shifter.a := tmp_data
-  shifter.b := shift_amt
-  val shift_out = shifter.d
+  shifter.io.op := io.alu_op(3, 2)
+  shifter.io.counter := io.counter
+  shifter.io.a := tmp_data
+  shifter.io.b := shift_amt
+  val shift_out = shifter.io.d
 
   // load_top_bit logic
   val load_top_bit_next = Wire(Bool())
@@ -176,8 +176,8 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     data_rd := csr_read
   }
 
-  registers.wr_en := wr_en
-  registers.data_rd := data_rd
+  registers.io.wr_en := wr_en
+  registers.io.data_rd := data_rd
   io.debug_reg_wen := wr_en
   io.debug_rd := data_rd
 
@@ -256,13 +256,13 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
 
   // Counters
   val cycle_counter = Module(new TinyQVCounter(7))
-  cycle_counter.add := 1.B
-  cycle_counter.counter := io.counter
-  cycle_counter.set := 0.B
-  cycle_counter.data_in := 0.U
+  cycle_counter.io.add := 1.B
+  cycle_counter.io.counter := io.counter
+  cycle_counter.io.set := 0.B
+  cycle_counter.io.data_in := 0.U
   
-  val cycle_count_wide = cycle_counter.data // 7 bits
-  val cycle_cy = cycle_counter.cy_out
+  val cycle_count_wide = cycle_counter.io.data // 7 bits
+  val cycle_cy = cycle_counter.io.cy_out
 
   val time_hi = RegInit(0.U(3.W))
   when(io.counter === 7.U && cycle_cy) {
