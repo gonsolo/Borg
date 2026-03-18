@@ -7,20 +7,15 @@ package tinyqv.cpu
 import chisel3._
 import chisel3.util._
 
+object InstrType extends ChiselEnum {
+  val none, load, aluImm, auipc, store, aluReg, lui, branch, jalr, jal, system = Value
+}
+
 class TinyQVDecodeIO(val regAddrBits: Int) extends Bundle {
   val instr = Input(UInt(32.W))
   val imm = Output(UInt(32.W))
-  val is_load = Output(Bool())
-  val is_alu_imm = Output(Bool())
-  val is_auipc = Output(Bool())
-  val is_store = Output(Bool())
-  val is_alu_reg = Output(Bool())
-  val is_lui = Output(Bool())
-  val is_branch = Output(Bool())
-  val is_jalr = Output(Bool())
-  val is_jal = Output(Bool())
+  val instrType = Output(InstrType())
   val is_ret = Output(Bool())
-  val is_system = Output(Bool())
   val instr_len = Output(UInt(2.W))
   val alu_op = Output(UInt(4.W))
   val mem_op = Output(UInt(3.W))
@@ -58,17 +53,8 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
   val cScxtImm     = Cat(Fill(23, instr(12)), instr(9, 7), instr(10), instr(11), 0.U(4.W))
 
   // Default assignments
-  io.is_load := false.B
-  io.is_alu_imm := false.B
-  io.is_auipc := false.B
-  io.is_store := false.B
-  io.is_alu_reg := false.B
-  io.is_lui := false.B
-  io.is_branch := false.B
-  io.is_jalr := false.B
-  io.is_jal := false.B
+  io.instrType := InstrType.none
   io.is_ret := false.B
-  io.is_system := false.B
   io.imm := 0.U
   io.alu_op := 0.U
   io.mem_op := 0.U
@@ -81,30 +67,30 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
   when(instr(1, 0) === 3.U) {
     // 32-bit instructions
     switch(instr(6, 2)) {
-      is("b00000".U) { io.is_load := true.B }
-      is("b00100".U) { io.is_alu_imm := true.B }
-      is("b00101".U) { io.is_auipc := true.B }
-      is("b01000".U) { io.is_store := true.B }
-      is("b01100".U) { io.is_alu_reg := true.B }
-      is("b01101".U) { io.is_lui := true.B }
-      is("b11000".U) { io.is_branch := true.B }
-      is("b11001".U) { io.is_jalr := true.B }
-      is("b11011".U) { io.is_jal := true.B }
-      is("b11100".U) { io.is_system := true.B }
+      is("b00000".U) { io.instrType := InstrType.load }
+      is("b00100".U) { io.instrType := InstrType.aluImm }
+      is("b00101".U) { io.instrType := InstrType.auipc }
+      is("b01000".U) { io.instrType := InstrType.store }
+      is("b01100".U) { io.instrType := InstrType.aluReg }
+      is("b01101".U) { io.instrType := InstrType.lui }
+      is("b11000".U) { io.instrType := InstrType.branch }
+      is("b11001".U) { io.instrType := InstrType.jalr }
+      is("b11011".U) { io.instrType := InstrType.jal }
+      is("b11100".U) { io.instrType := InstrType.system }
     }
 
     io.imm := MuxCase(iImm, Seq(
-      (io.is_auipc || io.is_lui) -> uImm,
-      io.is_store -> sImm,
-      io.is_branch -> bImm,
-      io.is_jal -> jImm
+      (io.instrType === InstrType.auipc || io.instrType === InstrType.lui) -> uImm,
+      (io.instrType === InstrType.store) -> sImm,
+      (io.instrType === InstrType.branch) -> bImm,
+      (io.instrType === InstrType.jal) -> jImm
     ))
 
-    when(io.is_load || io.is_auipc || io.is_store || io.is_jalr || io.is_jal) {
+    when(io.instrType === InstrType.load || io.instrType === InstrType.auipc || io.instrType === InstrType.store || io.instrType === InstrType.jalr || io.instrType === InstrType.jal) {
       io.alu_op := 0.U // ADD
-    } .elsewhen(io.is_branch) {
+    } .elsewhen(io.instrType === InstrType.branch) {
       io.alu_op := Cat(0.U(1.W), !instr(14), instr(14, 13))
-    } .elsewhen(instr(26) && io.is_alu_reg && instr(27)) {
+    } .elsewhen(instr(26) && io.instrType === InstrType.aluReg && instr(27)) {
       io.alu_op := Cat(3.U(2.W), instr(26), instr(13)) // CZERO
     } .otherwise {
       val bit30 = instr(30) && (instr(5) || instr(13, 12) === 1.U)
@@ -127,13 +113,13 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
 
     switch(Cat(instr(1, 0), instr(15, 13))) {
       is("b00000".U) { // ADDI4SPN
-        io.is_alu_imm := true.B
+        io.instrType := InstrType.aluImm
         io.imm := cAddi4SpImm
         io.rs1 := 2.U
         io.rd := Cat(true.B, instr(4, 2))
       }
       is("b00010".U) { // LW
-        io.is_load := true.B
+        io.instrType := InstrType.load
         io.mem_op := 2.U
         io.imm := cLswImm
         io.rs1 := Cat(true.B, instr(9, 7))
@@ -143,17 +129,17 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
         io.imm := Mux(instr(10), cLshImm, cLsbImm)
         io.rs1 := Cat(true.B, instr(9, 7))
         when(instr(11)) {
-          io.is_store := true.B
+          io.instrType := InstrType.store
           io.mem_op := Cat(0.U(2.W), instr(10))
           io.rs2 := Cat(true.B, instr(4, 2))
         } .otherwise {
-          io.is_load := true.B
+          io.instrType := InstrType.load
           io.mem_op := Cat(!(instr(10) & instr(6)), 0.U(1.W), instr(10))
           io.rd := Cat(true.B, instr(4, 2))
         }
       }
       is("b00110".U) { // SW
-        io.is_store := true.B
+        io.instrType := InstrType.store
         io.mem_op := 2.U
         io.imm := cLswImm
         io.rs1 := Cat(true.B, instr(9, 7))
@@ -161,18 +147,18 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
       }
       // b00111 was SCXT (removed custom TinyQV instruction)
       is("b01000".U) { // ADDI
-        io.is_alu_imm := true.B
+        io.instrType := InstrType.aluImm
         io.imm := cAluImm
         io.rs1 := instr(10, 7)
         io.rd := instr(10, 7)
       }
       is("b01001".U) { // JAL
-        io.is_jal := true.B
+        io.instrType := InstrType.jal
         io.imm := cJImm
         io.rd := 1.U
       }
       is("b01010".U) { // LI
-        io.is_alu_imm := true.B
+        io.instrType := InstrType.aluImm
         io.imm := cAluImm
         io.rs1 := 0.U
         io.rd := instr(10, 7)
@@ -180,11 +166,11 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
       is("b01011".U) { // ADDI16SP / LUI
         io.rd := instr(10, 7)
         when(instr(10, 7) === 2.U) {
-          io.is_alu_imm := true.B
+          io.instrType := InstrType.aluImm
           io.imm := cAddi16SpImm
           io.rs1 := 2.U
         } .otherwise {
-          io.is_lui := true.B
+          io.instrType := InstrType.lui
           io.imm := cLuiImm
         }
       }
@@ -194,14 +180,14 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
         io.rd  := Cat(true.B, instr(9, 7))
         io.imm := cAluImm
         when(instr(11, 10) =/= 3.U) {
-          io.is_alu_imm := true.B
+          io.instrType := InstrType.aluImm
           when(instr(11) === 0.B) { // SRx
             io.alu_op := Cat(instr(10), 5.U(3.W))
           } .otherwise {
             io.alu_op := 7.U // ANDI
           }
         } .elsewhen(instr(12)) {
-          io.is_alu_imm := true.B
+          io.instrType := InstrType.aluImm
           when(instr(4, 2) === 5.U) { // NOT
             io.alu_op := 4.U // XOR
             io.imm := "hffffffff".U
@@ -210,7 +196,7 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
             io.imm := Cat(0.U(16.W), Fill(8, instr(3)), "hff".U(8.W))
           }
         } .otherwise {
-          io.is_alu_reg := true.B
+          io.instrType := InstrType.aluReg
           switch(instr(6, 5)) {
             is(0.U) { io.alu_op := 8.U } // SUB
             is(1.U) { io.alu_op := 4.U } // XOR
@@ -220,12 +206,12 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
         }
       }
       is("b01101".U) { // J
-        io.is_jal := true.B
+        io.instrType := InstrType.jal
         io.imm := cJImm
         io.rd := 0.U
       }
       is("b01110".U) { // BEQZ
-        io.is_branch := true.B
+        io.instrType := InstrType.branch
         io.imm := cBImm
         io.rs1 := Cat(true.B, instr(9, 7))
         io.rs2 := 0.U
@@ -233,7 +219,7 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
         io.mem_op := 0.U
       }
       is("b01111".U) { // BNEZ
-        io.is_branch := true.B
+        io.instrType := InstrType.branch
         io.imm := cBImm
         io.rs1 := Cat(true.B, instr(9, 7))
         io.rs2 := 0.U
@@ -241,7 +227,7 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
         io.mem_op := 1.U
       }
       is("b10000".U) { // SLLI
-        io.is_alu_imm := true.B
+        io.instrType := InstrType.aluImm
         io.imm := cAluImm
         io.rs1 := instr(10, 7)
         io.rd := instr(10, 7)
@@ -249,7 +235,7 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
       }
       // b10001 was LCXT (removed custom TinyQV instruction)
       is("b10010".U) { // LWSP
-        io.is_load := true.B
+        io.instrType := InstrType.load
         io.mem_op := 2.U
         io.imm := cLwspImm
         io.rs1 := 2.U
@@ -259,24 +245,24 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
       is("b10100".U) {
         when(instr(6, 2) === 0.U) {
           when(instr(11, 7) === 0.U) { // EBREAK
-            io.is_system := true.B
+            io.instrType := InstrType.system
             io.imm := 1.U
           } .otherwise { // J(AL)R
             when(instr(10, 7) === 1.U && !instr(12)) { io.is_ret := true.B }
-            io.is_jalr := true.B
+            io.instrType := InstrType.jalr
             io.imm := 0.U
             io.rs1 := instr(10, 7)
             io.rd := Cat(0.U(3.W), instr(12))
           }
         } .otherwise { // MV / ADD
-          io.is_alu_reg := true.B
+          io.instrType := InstrType.aluReg
           io.rs1 := Mux(instr(12), instr(10, 7), 0.U)
           io.rs2 := instr(5, 2)
           io.rd := instr(10, 7)
         }
       }
       is("b10110".U) { // SWSP
-        io.is_store := true.B
+        io.instrType := InstrType.store
         io.mem_op := 2.U
         io.imm := cSwspImm
         io.rs1 := 2.U

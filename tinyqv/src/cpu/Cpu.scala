@@ -26,18 +26,8 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     val instr = Wire(UInt(32.W))
     decoder.io.instr := instr
     
-    val imm_de = decoder.io.imm
-    val is_load_de = decoder.io.is_load
-    val is_alu_imm_de = decoder.io.is_alu_imm
-    val is_auipc_de = decoder.io.is_auipc
-    val is_store_de = decoder.io.is_store
-    val is_alu_reg_de = decoder.io.is_alu_reg
-    val is_lui_de = decoder.io.is_lui
-    val is_branch_de = decoder.io.is_branch
-    val is_jalr_de = decoder.io.is_jalr
-    val is_jal_de = decoder.io.is_jal
+    val instrType_de = decoder.io.instrType
     val is_ret_de = decoder.io.is_ret
-    val is_system_de = decoder.io.is_system
     val instr_len_de = decoder.io.instr_len
     val alu_op_de = decoder.io.alu_op
     val mem_op_de = decoder.io.mem_op
@@ -49,16 +39,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
 
     // Pipeline Registers
     val imm = RegInit(0.U(32.W))
-    val is_load = RegInit(false.B)
-    val is_alu_imm = RegInit(false.B)
-    val is_auipc = RegInit(false.B)
-    val is_store = RegInit(false.B)
-    val is_alu_reg = RegInit(false.B)
-    val is_lui = RegInit(false.B)
-    val is_branch = RegInit(false.B)
-    val is_jalr = RegInit(false.B)
-    val is_jal = RegInit(false.B)
-    val is_system = RegInit(false.B)
+    val instrType = RegInit(InstrType.none)
     val instr_len = RegInit(2.U(2.W))
     val alu_op = RegInit(0.U(4.W))
     val mem_op = RegInit(0.U(3.W))
@@ -68,6 +49,11 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     val additional_mem_ops = RegInit(0.U(3.W))
     val addr_offset = RegInit(0.U(2.W))
     val mem_op_increment_reg = RegInit(false.B)
+
+    // Convenience booleans derived from enum
+    val is_load = instrType === InstrType.load
+    val is_store = instrType === InstrType.store
+    val is_branch = instrType === InstrType.branch
 
     val interrupt_core = RegInit(false.B)
     val instr_valid = RegInit(false.B)
@@ -85,15 +71,15 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     val stall_core = !instr_valid || ((is_store || is_load) && !no_write_in_progress)
     
     core.io.is_load := is_load && instr_valid && no_write_in_progress
-    core.io.is_alu_imm := is_alu_imm && instr_valid
-    core.io.is_auipc := is_auipc && instr_valid
+    core.io.is_alu_imm := (instrType === InstrType.aluImm) && instr_valid
+    core.io.is_auipc := (instrType === InstrType.auipc) && instr_valid
     core.io.is_store := is_store && instr_valid && no_write_in_progress
-    core.io.is_alu_reg := is_alu_reg && instr_valid
-    core.io.is_lui := is_lui && instr_valid
+    core.io.is_alu_reg := (instrType === InstrType.aluReg) && instr_valid
+    core.io.is_lui := (instrType === InstrType.lui) && instr_valid
     core.io.is_branch := is_branch && instr_valid
-    core.io.is_jalr := is_jalr && instr_valid
-    core.io.is_jal := is_jal && instr_valid
-    core.io.is_system := is_system && instr_valid
+    core.io.is_jalr := (instrType === InstrType.jalr) && instr_valid
+    core.io.is_jal := (instrType === InstrType.jal) && instr_valid
+    core.io.is_system := (instrType === InstrType.system) && instr_valid
     core.io.is_interrupt := interrupt_core
     core.io.is_stall := stall_core && !interrupt_core
     
@@ -159,17 +145,8 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     }.elsewhen((counter_hi === 7.U && !instr_valid) || instr_complete || branch) {
       interrupt_core := false.B
       when(Cat(0.U(2.W), instr_len_de) <= instr_avail_len) {
-        imm := imm_de
-        is_load := is_load_de
-        is_alu_imm := is_alu_imm_de
-        is_auipc := is_auipc_de
-        is_store := is_store_de
-        is_alu_reg := is_alu_reg_de
-        is_lui := is_lui_de
-        is_branch := is_branch_de
-        is_jalr := is_jalr_de
-        is_jal := is_jal_de
-        is_system := is_system_de
+        imm := decoder.io.imm
+        instrType := instrType_de
         instr_len := instr_len_de
         alu_op := alu_op_de
         mem_op := mem_op_de
@@ -181,7 +158,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
         mem_op_increment_reg := mem_op_increment_reg_de
         instr_valid := !branch && !is_ret_de
         
-        early_branch := is_jal_de && !branch
+        early_branch := (instrType_de === InstrType.jal) && !branch
         is_ret := is_ret_de && !branch
       }.otherwise {
         instr_valid := false.B
