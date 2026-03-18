@@ -26,8 +26,8 @@ that targets both FPGAs (for development) and ASICs (for manufacturing).
 ## What This Book Covers
 
 1. **The Borg Shader Processor** — the FP16 FMA unit, register file, and instruction set
-2. **The TinyQV CPU** — the nibble-serial RISC-V core that hosts the GPU
-3. **The Software Driver** — firmware that implements the rendering pipeline
+2. **The Shader Compiler** — translating GLSL shaders to Borg machine code
+3. **The Software Driver** — firmware that ties everything together into a rendering pipeline
 4. **Running on an FPGA** — prototyping on the pico-ice board
 5. **Generating the ASIC** — the RTL-to-GDS flow for silicon manufacturing
 
