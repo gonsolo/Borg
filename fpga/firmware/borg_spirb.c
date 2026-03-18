@@ -3,7 +3,7 @@
 
 // SPIR-B runtime shader loader for Borg.
 
-#include "spirb.h"
+#include "borg_spirb.h"
 
 int spirb_parse(const uint8_t *blob, spirb_shader_t *s) {
   const uint8_t *p = blob;

@@ -4,7 +4,7 @@
 // Borg FPU helpers — hardware-accelerated FP16 arithmetic via MMIO.
 
 #include "borg_fpu.h"
-#include "spirb.h"
+#include "borg_spirb.h"
 #include "mmio.h"
 
 // @doc:fpu-helpers
