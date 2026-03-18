@@ -19,9 +19,9 @@ object TinyQVCounterTests extends TestSuite {
   val tests = Tests {
     utest.test("mcycle") {
       runCounterTest(4) { dut =>
-        dut.rstn.poke(false.B)
-        dut.clk.step(1)
-        dut.rstn.poke(true.B)
+        dut.reset.poke(true.B)
+        dut.clock.step(1)
+        dut.reset.poke(false.B)
         dut.add.poke(true.B)
         
         def peekVal32(): Long = {
@@ -29,7 +29,7 @@ object TinyQVCounterTests extends TestSuite {
           for (i <- 0 until 8) {
             dut.counter.poke(i.U)
             value |= (dut.data.peek().litValue.toLong << (i * 4))
-            dut.clk.step(1)
+            dut.clock.step(1)
           }
           value
         }
@@ -47,9 +47,9 @@ object TinyQVCounterTests extends TestSuite {
 
     utest.test("minstret") {
       runCounterTest(4) { dut =>
-        dut.rstn.poke(false.B)
-        dut.clk.step(1)
-        dut.rstn.poke(true.B)
+        dut.reset.poke(true.B)
+        dut.clock.step(1)
+        dut.reset.poke(false.B)
         dut.add.poke(false.B)
 
         def stepRotation(add: Boolean): Long = {
@@ -59,7 +59,7 @@ object TinyQVCounterTests extends TestSuite {
             if (i == 0) dut.add.poke(add.B)
             else dut.add.poke(false.B)
             value |= (dut.data.peek().litValue.toLong << (i * 4))
-            dut.clk.step(1)
+            dut.clock.step(1)
           }
           value
         }

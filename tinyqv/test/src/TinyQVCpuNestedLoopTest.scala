@@ -43,8 +43,6 @@ class TinyQVCpuWrapper extends Module {
   val debug_counter_hi = IO(Output(UInt(3.W)))
 
   val cpu = Module(new TinyQVCpu(16, 4))
-  cpu.io.clk := clock
-  cpu.io.rstn := !reset.asBool
 
   instr_addr := cpu.io.instr_addr
   instr_fetch_restart := cpu.io.instr_fetch_restart

@@ -7,20 +7,38 @@ package tinyqv.cpu
 import chisel3._
 import chisel3.util._
 
-class QspiController extends RawModule {
-  override val desiredName = "qspi_controller"
-  val io = IO(new QspiControllerIO)
+class QspiControllerIO extends Bundle {
+  val spi_data_in = Input(UInt(4.W))
+  val spi_data_out = Output(UInt(4.W))
+  val spi_data_oe = Output(UInt(4.W))
+  val spi_clk_out = Output(Bool())
 
+  val spi_flash_select = Output(Bool())
+  val spi_ram_a_select = Output(Bool())
+  val spi_ram_b_select = Output(Bool())
+
+  val addr_in = Input(UInt(25.W))
+  val data_in = Input(UInt(8.W))
+  val start_read = Input(Bool())
+  val start_write = Input(Bool())
+  val stall_txn = Input(Bool())
+  val stop_txn = Input(Bool())
+
+  val data_out = Output(UInt(8.W))
+  val data_req = Output(Bool())
+  val data_ready = Output(Bool())
+  val busy = Output(Bool())
+}
+
+class QspiController extends Module {
+  val io = IO(new QspiControllerIO)
   // FSM States
   object State extends ChiselEnum {
     val IDLE, CMD, ADDR, DUMMY1, DUMMY2, DATA, STALLED, STALL_RECOVER = Value
   }
 
-  // Need a clk_pos signal for the negedge block
   val spi_clk_pos_wire = Wire(Bool())
   val spi_clk_use_neg_wire = Wire(Bool())
-
-  withClockAndReset(io.clk, !io.rstn) {
     val fsm_state = RegInit(State.IDLE)
     val is_writing = RegInit(false.B)
     val addr = RegInit(0.U(24.W))
@@ -47,7 +65,7 @@ class QspiController extends RawModule {
     spi_clk_use_neg_wire := spi_clk_use_neg
 
     // Configuration latched during reset
-    when (!io.rstn) {
+    when (reset.asBool) {
       delay_cycles_cfg := io.spi_data_in(1, 0)
       spi_clk_use_neg := io.spi_data_in(2)
     }
@@ -227,10 +245,8 @@ class QspiController extends RawModule {
     io.spi_ram_b_select := spi_ram_b_select_reg
     io.data_ready := data_ready_reg
     io.data_req := data_req_reg
-  }
-
   // SPI clock generation on negedge
-  val spi_clk_neg = withClock((!io.clk.asBool).asClock) {
+  val spi_clk_neg = withClock((!clock.asBool).asClock) {
     RegNext(spi_clk_pos_wire)
   }
   io.spi_clk_out := Mux(spi_clk_use_neg_wire, spi_clk_neg, spi_clk_pos_wire)

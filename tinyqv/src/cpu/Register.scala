@@ -7,11 +7,8 @@ package tinyqv.cpu
 import chisel3._
 import chisel3.util._
 
-class TinyQVRegisters(val numRegs: Int = 16, val regAddrBits: Int = 4) extends RawModule {
-  override val desiredName = "tinyqv_registers"
-  
-  val clk = IO(Input(Clock()))
-  val rstn = IO(Input(Bool()))
+class TinyQVRegisters(val numRegs: Int = 16, val regAddrBits: Int = 4) extends Module {
+
   val wr_en = IO(Input(Bool()))
   val counter = IO(Input(UInt(3.W)))
   val rs1 = IO(Input(UInt(regAddrBits.W)))
@@ -21,8 +18,6 @@ class TinyQVRegisters(val numRegs: Int = 16, val regAddrBits: Int = 4) extends R
   val data_rs2 = IO(Output(UInt(4.W)))
   val data_rd = IO(Input(UInt(4.W)))
   val return_addr = IO(Output(UInt(23.W)))
-
-  withClockAndReset(clk, !rstn) {
     // Registers 1 to numRegs-1. x0 is hardcoded 0.
     // We create numRegs registers, though x0, x3 (gp), and x4 (tp) won't be used as storage registers
     // for reg_access, but we keep them to match the array structure and potentially return_addr.
@@ -50,5 +45,4 @@ class TinyQVRegisters(val numRegs: Int = 16, val regAddrBits: Int = 4) extends R
     data_rs1 := reg_access(rs1)
     data_rs2 := reg_access(rs2)
     return_addr := registers(1)(31, 9)
-  }
 }

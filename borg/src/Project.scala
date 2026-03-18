@@ -8,52 +8,15 @@ import chisel3.util._
 import chisel3.experimental.IntParam
 import _root_.circt.stage.ChiselStage
 import java.nio.file.{Files, Paths}
+import tinyqv.cpu.{tinyQVIO, TinyQV}
 
-class tinyQVIO extends Bundle {
-
-  val data_addr = Output(UInt(28.W))
-  val data_write_n = Output(UInt(2.W))
-  val data_read_n = Output(UInt(2.W))
-  val data_read_complete = Output(Bool())
-  val data_out = Output(UInt(32.W))
-
-  val data_ready = Input(Bool())
-  val data_in = Input(UInt(32.W))
-
-  val interrupt_req = Input(UInt(16.W))
-  val time_pulse = Input(Bool())
-
-  val spi_data_in = Input(UInt(4.W))
-  val spi_data_out = Output(UInt(4.W))
-  val spi_data_oe = Output(UInt(4.W))
-  val spi_clk_out = Output(Bool())
-  val spi_flash_select = Output(Bool())
-  val spi_ram_a_select = Output(Bool())
-  val spi_ram_b_select = Output(Bool())
-
-  val debug_instr_complete = Output(Bool())
-  val debug_instr_ready = Output(Bool())
-  val debug_instr_valid = Output(Bool())
-  val debug_fetch_restart = Output(Bool())
-  val debug_data_ready = Output(Bool())
-  val debug_interrupt_pending = Output(Bool())
-  val debug_branch = Output(Bool())
-  val debug_early_branch = Output(Bool())
-  val debug_ret = Output(Bool())
-  val debug_reg_wen = Output(Bool())
-  val debug_counter_0 = Output(Bool())
-  val debug_data_continue = Output(Bool())
-  val debug_stall_txn = Output(Bool())
-  val debug_stop_txn = Output(Bool())
-  val debug_rd = Output(UInt(4.W))
-}
-
-class tinyQV extends ExtModule {
-  val clk = IO(Input(Clock()))
-  val rstn = IO(Input(Bool()))
+// tinyQV ExtModule wraps the Chisel-generated TinyQV Verilog for SoC integration
+class tinyQV_ExtModule extends ExtModule(Map()) {
+  override val desiredName = "TinyQV"
+  val clock = IO(Input(Clock()))
+  val reset = IO(Input(Reset()))
   val io = FlatIO(new tinyQVIO)
 }
-
 
 /** Common SoC logic shared between TT ASIC and pico-ice FPGA top-level modules.
   *
@@ -72,8 +35,10 @@ trait SoCLogic { self: RawModule =>
 
 
   // --- Core and peripheral instantiation ---
-  val i_tinyqv = Module(new tinyQV)
-  lazy val i_peripherals = Module(new tinyQV_peripherals(CLOCK_MHZ))
+  val i_tinyqv = Module(new tinyQV_ExtModule)
+  lazy val i_peripherals = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+    Module(new tinyQV_peripherals(CLOCK_MHZ))
+  }
   lazy val i_debug_uart_tx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new tinyqv.peri.uart.UartTx(13))
   }
@@ -88,8 +53,8 @@ trait SoCLogic { self: RawModule =>
 
   /** Wire up the entire SoC. Call this from the top-level module body. */
   def wireSoC(): UInt = {
-    i_tinyqv.clk := soc_clk
-    i_tinyqv.rstn := soc_rst_reg_n
+    i_tinyqv.clock := soc_clk
+    i_tinyqv.reset := !soc_rst_reg_n
     i_tinyqv.io.spi_data_in := soc_qspi_data_in
 
     val addr = i_tinyqv.io.data_addr
@@ -104,10 +69,10 @@ trait SoCLogic { self: RawModule =>
     i_tinyqv.io.data_ready := data_ready
     i_tinyqv.io.data_in := data_from_read
 
-    val peri_out = i_peripherals.uo_out
-    val peri_data_out = i_peripherals.data_out
-    val peri_data_ready = i_peripherals.data_ready
-    val peri_interrupts = i_peripherals.user_interrupts
+    val peri_out = i_peripherals.io.uo_out
+    val peri_data_out = i_peripherals.io.data_out
+    val peri_data_ready = i_peripherals.io.data_ready
+    val peri_interrupts = i_peripherals.io.user_interrupts
 
     // Peripherals get synchronized ui_in.
     val ui_in_sync0 = withClockAndReset(soc_clk, false.B) { RegNext(soc_ui_in) }
@@ -119,14 +84,12 @@ trait SoCLogic { self: RawModule =>
     val time_pulse = Wire(Bool())
     i_tinyqv.io.time_pulse := time_pulse
 
-    i_peripherals.clk := soc_clk
-    i_peripherals.rst_n := soc_rst_reg_n
-    i_peripherals.ui_in := ui_in_sync
-    i_peripherals.addr_in := addr(10, 0)
-    i_peripherals.data_in := data_to_write
-    i_peripherals.data_write_n := write_n
-    i_peripherals.data_read_n := read_n
-    i_peripherals.data_read_complete := read_complete
+    i_peripherals.io.ui_in := ui_in_sync
+    i_peripherals.io.addr_in := addr(10, 0)
+    i_peripherals.io.data_in := data_to_write
+    i_peripherals.io.data_write_n := write_n
+    i_peripherals.io.data_read_n := read_n
+    i_peripherals.io.data_read_complete := read_complete
 
     val connect_peripheral = WireDefault(socPeriU(PERI_NONE))
 

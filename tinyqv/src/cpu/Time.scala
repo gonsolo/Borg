@@ -7,11 +7,7 @@ package tinyqv.cpu
 import chisel3._
 import chisel3.util._
 
-class TinyQVTime extends RawModule {
-  override val desiredName = "tinyQV_time"
-
-  val clk = IO(Input(Clock()))
-  val rstn = IO(Input(Bool()))
+class TinyQVTime extends Module {
 
   val time_pulse = IO(Input(Bool()))
   val set_mtime = IO(Input(Bool()))
@@ -24,13 +20,10 @@ class TinyQVTime extends RawModule {
 
   val timer_interrupt = IO(Output(Bool()))
 
-  withClockAndReset(clk, !rstn) {
     val mtime_out = Wire(UInt(4.W))
     val time_pulse_r = RegInit(false.B)
 
     val i_mtime = Module(new TinyQVCounter(4))
-    i_mtime.clk := clk
-    i_mtime.rstn := rstn
     i_mtime.add := time_pulse | time_pulse_r
     i_mtime.counter := counter
     i_mtime.set := set_mtime
@@ -66,6 +59,5 @@ class TinyQVTime extends RawModule {
     }
 
     data_out := Mux(read_mtimecmp, mtimecmp(7, 4), mtime_out)
-  }
 }
 

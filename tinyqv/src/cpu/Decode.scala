@@ -8,7 +8,6 @@ import chisel3._
 import chisel3.util._
 
 class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
-  override val desiredName = "tinyqv_decoder"
 
   val instr = IO(Input(UInt(32.W)))
 

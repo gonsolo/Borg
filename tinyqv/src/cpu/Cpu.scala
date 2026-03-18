@@ -7,8 +7,7 @@ package tinyqv.cpu
 import chisel3._
 import chisel3.util._
 
-class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends RawModule {
-  override val desiredName = "tinyqv_cpu"
+class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
   val io = IO(new TinyQVCpuIO)
 
   def setRange(u: UInt, hi: Int, lo: Int, data: UInt): UInt = {
@@ -17,7 +16,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends RawModule {
     (u & ~mask) | ((data << lo) & mask)
   }
 
-  withClockAndReset(io.clk, !io.rstn) {
+
     // Decoder interface
     val decoder = Module(new TinyQVDecode)
     val instr = Wire(UInt(32.W))
@@ -108,8 +107,6 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends RawModule {
     core.io.next_pc := MuxLookup(counter_hi, 0.U(4.W))( (0 until 8).map(i => i.U -> next_pc_for_core(i*4+3, i*4)) )
     
     val timers = Module(new TinyQVTime)
-    timers.clk := io.clk
-    timers.rstn := io.rstn
     timers.time_pulse := io.time_pulse
     timers.counter := counter_hi
     
@@ -329,5 +326,4 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends RawModule {
     io.debug_pc := pc
     io.debug_imm := imm
     io.debug_counter_hi := counter_hi
-  }
 }

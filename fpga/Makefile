@@ -28,7 +28,7 @@ CHISEL_SRCS = $(wildcard ../borg/src/*.scala) $(wildcard ../tinyqv/src/*.scala)
 
 # Regenerate Verilog from Chisel when sources change
 ../out/borg/verilog/Borg.sv: $(CHISEL_SRCS)
-	cd .. && mill borg.run
+	cd .. && CLOCK_MHZ=4 mill borg.runMain borg.Main && CLOCK_MHZ=4 mill tinyqv.runMain tinyqv.Main
 
 # Hardware limits
 MAX_LUTS = 5280

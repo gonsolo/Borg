@@ -9,7 +9,6 @@ import chisel3.util._
 
 // @doc:alu
 class TinyQVAlu extends RawModule {
-  override val desiredName = "tinyqv_alu"
 
   val op = IO(Input(UInt(4.W)))
   val a = IO(Input(UInt(4.W)))
@@ -41,7 +40,6 @@ class TinyQVAlu extends RawModule {
 // @doc:end
 
 class TinyQVShifter extends RawModule {
-  override val desiredName = "tinyqv_shifter"
 
   val op = IO(Input(UInt(2.W))) // op[3:2]
   val counter = IO(Input(UInt(3.W)))

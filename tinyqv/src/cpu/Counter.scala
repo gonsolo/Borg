@@ -7,19 +7,14 @@ package tinyqv.cpu
 import chisel3._
 import chisel3.util._
 
-class TinyQVCounter(val outputWidth: Int = 4) extends RawModule {
-  override val desiredName = s"tinyqv_counter_$outputWidth"
-  
-  val clk = IO(Input(Clock()))
-  val rstn = IO(Input(Bool()))
+class TinyQVCounter(val outputWidth: Int = 4) extends Module {
+
   val add = IO(Input(Bool()))
   val counter = IO(Input(UInt(3.W)))
   val set = IO(Input(Bool()))
   val data_in = IO(Input(UInt(4.W)))
   val data = IO(Output(UInt(outputWidth.W)))
   val cy_out = IO(Output(Bool()))
-
-  withClockAndReset(clk, !rstn) {
     // @doc:nibble-counter
     // 32-bit shift register broken into 8x 4-bit chunks
     val registers = RegInit(VecInit(Seq.fill(8)(0.U(4.W))))
@@ -47,5 +42,4 @@ class TinyQVCounter(val outputWidth: Int = 4) extends RawModule {
     val flatReg = Cat(registers.reverse) 
     data := flatReg(outputWidth - 1, 0)
     cy_out := increment_result(4)
-  }
 }

@@ -54,7 +54,6 @@ class TinyQVCoreIO(regAddrBits: Int) extends Bundle {
 }
 
 class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
-  override val desiredName = "tinyqv_core"
   
   val io = IO(new TinyQVCoreIO(regAddrBits))
 
@@ -85,8 +84,6 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
   // @doc:core-datapath
   // Registers Module
   val registers = Module(new TinyQVRegisters(numRegs, regAddrBits))
-  registers.clk := clock
-  registers.rstn := !reset.asBool
   registers.counter := io.counter
   registers.rs1 := io.rs1
   registers.rs2 := io.rs2
@@ -259,8 +256,6 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
 
   // Counters
   val cycle_counter = Module(new TinyQVCounter(7))
-  cycle_counter.clk := clock
-  cycle_counter.rstn := !reset.asBool
   cycle_counter.add := 1.B
   cycle_counter.counter := io.counter
   cycle_counter.set := 0.B

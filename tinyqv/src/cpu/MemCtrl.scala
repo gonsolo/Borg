@@ -10,37 +10,10 @@ import chisel3.util._
 // Use the same IO Bundle as defined in TinyQV.scala
 // If they are in the same package, they are visible.
 
-class QspiControllerIO extends Bundle {
-  val clk = Input(Clock())
-  val rstn = Input(Bool())
+// QspiControllerIO is no longer needed — QspiController now uses an inline Bundle
 
-  val spi_data_in = Input(UInt(4.W))
-  val spi_data_out = Output(UInt(4.W))
-  val spi_data_oe = Output(UInt(4.W))
-  val spi_clk_out = Output(Bool())
-
-  val spi_flash_select = Output(Bool())
-  val spi_ram_a_select = Output(Bool())
-  val spi_ram_b_select = Output(Bool())
-
-  val addr_in = Input(UInt(25.W))
-  val data_in = Input(UInt(8.W))
-  val start_read = Input(Bool())
-  val start_write = Input(Bool())
-  val stall_txn = Input(Bool())
-  val stop_txn = Input(Bool())
-
-  val data_out = Output(UInt(8.W))
-  val data_req = Output(Bool())
-  val data_ready = Output(Bool())
-  val busy = Output(Bool())
-}
-
-class TinyQVMemCtrl extends RawModule {
-  override val desiredName = "tinyqv_mem_ctrl"
+class TinyQVMemCtrl extends Module {
   val io = IO(new TinyQVMemCtrlIO)
-
-  withClockAndReset(io.clk, !io.rstn) {
     // Sequential State
     val instr_active = RegInit(false.B)
     val started = RegInit(false.B)
@@ -145,8 +118,6 @@ class TinyQVMemCtrl extends RawModule {
 
     // QspiController instantiation
     val q_ctrl = Module(new QspiController())
-    q_ctrl.io.clk := io.clk
-    q_ctrl.io.rstn := io.rstn
     q_ctrl.io.spi_data_in := io.spi_data_in
     io.spi_data_out := q_ctrl.io.spi_data_out
     io.spi_data_oe := q_ctrl.io.spi_data_oe
@@ -186,5 +157,4 @@ class TinyQVMemCtrl extends RawModule {
 
     io.debug_stall_txn := stall_txn
     io.debug_stop_txn := stop_txn
-  }
 }

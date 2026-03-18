@@ -8,7 +8,6 @@ import chisel3._
 import chisel3.util._
 
 class TinyQVQspiFlash(val dataWidthBytes: Int = 2, val addrBits: Int = 24) extends RawModule {
-  override val desiredName = "qspi_flash_controller"
 
   val clk = IO(Input(Clock()))
   val rstn = IO(Input(Bool()))
