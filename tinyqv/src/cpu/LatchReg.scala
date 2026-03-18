@@ -16,12 +16,6 @@ class LatchRegIO(val w: Int) extends Bundle {
   val data_out = Output(UInt(w.W))
 }
 
-class LatchReg32IO extends Bundle {
-  val wen = Input(Bool())
-  val data_in = Input(UInt(32.W))
-  val data_out = Output(UInt(32.W))
-}
-
 trait HasLatchRegIO { this: Module =>
   val io: LatchRegIO
 }
@@ -45,7 +39,7 @@ class LatchRegP(w: Int) extends Module with HasLatchRegIO {
 }
 
 class LatchReg32(gen: => Module with HasLatchRegIO) extends Module {
-  val io = IO(new LatchReg32IO)
+  val io = IO(new LatchRegIO(32))
 
   val l_lo = Module(gen)
   val l_hi = Module(gen)
