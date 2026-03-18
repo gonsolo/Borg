@@ -5,6 +5,7 @@
 # One-way test: firmware writes results to PSRAM, host reads them.
 # Uses PIO-based QPI read (no exit sequence needed).
 
+import math
 import time
 import struct
 import rp2
@@ -38,10 +39,56 @@ def qspi_write():
     out(pins, 8).side(1)
     out(pindirs, 8).side(1)
 
-# Map a 4-bit data nibble to the 8-pin PIO byte for QSPI bus.
-# Pins: SD3(7), RAMB(6), SD2(5), RAMA(4), SD0(3), SCK(2-sideset), CS(1), SD1(0)
-def qpi_nibble(n):
-    return ((n & 8) << 4) | (1 << 6) | ((n & 4) << 3) | (0 << 4) | ((n & 1) << 3) | (1 << 1) | ((n & 2) >> 1)
+# --- QSPI PIO pin positions (directly match pico-ice PMOD wiring) ---
+# PIO byte bit → physical pin function
+PIN_SD1  = 0   # QSPI data bit 1
+PIN_CS   = 1   # Chip select (directly active-low via PIO)
+PIN_SCK  = 2   # Clock (PIO sideset, not in data byte)
+PIN_SD0  = 3   # QSPI data bit 0
+PIN_RAMA = 4   # RAM A select
+PIN_SD2  = 5   # QSPI data bit 2
+PIN_RAMB = 6   # RAM B select
+PIN_SD3  = 7   # QSPI data bit 3
+
+# Idle state: CS=1 (deselected), RAMA=1, RAMB=1, all SD lines low
+QSPI_IDLE = (1 << PIN_RAMB) | (1 << PIN_RAMA) | (1 << PIN_CS)  # 0b01010110 = 0x56
+QSPI_ALL_OUTPUT = 0xFF  # All 8 PIO pins set to output
+
+# All QSPI bus pins (for bulk init/release in fpga_boot/teardown)
+QSPI_PINS = [PIN_SD1, PIN_CS, PIN_SCK, PIN_SD0, PIN_RAMA, PIN_SD2, PIN_RAMB, PIN_SD3]
+
+# PSRAM QPI commands
+PSRAM_CMD_WRITE     = 0x02  # QPI Write
+PSRAM_CMD_FAST_READ = 0x0B  # QPI Fast Read
+
+# Command + 24-bit address = 8 nibbles
+CMD_ADDR_NIBBLES = 8
+
+
+def nibble_to_pio(n):
+    """Map a 4-bit data nibble to the 8-pin PIO byte for QSPI bus."""
+    return (((n >> 3) & 1) << PIN_SD3 |
+            ((n >> 2) & 1) << PIN_SD2 |
+            ((n >> 1) & 1) << PIN_SD1 |
+            ((n >> 0) & 1) << PIN_SD0 |
+            (1 << PIN_CS) |
+            (1 << PIN_RAMB))
+
+
+def pio_to_nibble(b):
+    """Extract a 4-bit data nibble from a PIO pin byte (inverse of nibble_to_pio)."""
+    return (((b >> PIN_SD3) & 1) << 3 |
+            ((b >> PIN_SD2) & 1) << 2 |
+            ((b >> PIN_SD1) & 1) << 1 |
+            ((b >> PIN_SD0) & 1) << 0)
+
+def send_qpi_cmd_addr(sm, cmd, addr):
+    """Send QPI command byte and 24-bit address as nibbles."""
+    sm.put(nibble_to_pio(0))
+    sm.put(nibble_to_pio(cmd))
+    for shift in range(20, -4, -4):
+        sm.put(nibble_to_pio((addr >> shift) & 0xF))
+
 
 # This function formats the Quad-SPI write protocol (command and address) and feeds it to the PIO hardware engine.
 def qpi_write(sm, addr, data_bytes):
@@ -49,28 +96,21 @@ def qpi_write(sm, addr, data_bytes):
     num_bytes = len(data_bytes)
     
     # x = 8 cmd nibbles - 1
-    sm.put(8 - 1)
+    sm.put(CMD_ADDR_NIBBLES - 1)
     # y = data nibbles - 1
     sm.put(num_bytes * 2 - 1)
     
     # pindirs
-    sm.put(0b11111111) 
+    sm.put(QSPI_ALL_OUTPUT) 
     
-    sm.put(qpi_nibble(0))
-    sm.put(qpi_nibble(0x2))
-    sm.put(qpi_nibble((addr >> 20) & 0xF))
-    sm.put(qpi_nibble((addr >> 16) & 0xF))
-    sm.put(qpi_nibble((addr >> 12) & 0xF))
-    sm.put(qpi_nibble((addr >> 8) & 0xF))
-    sm.put(qpi_nibble((addr >> 4) & 0xF))
-    sm.put(qpi_nibble((addr >> 0) & 0xF))
+    send_qpi_cmd_addr(sm, PSRAM_CMD_WRITE, addr)
     
     for b in data_bytes:
-        sm.put(qpi_nibble((b >> 4) & 0xF))
-        sm.put(qpi_nibble(b & 0xF))
+        sm.put(nibble_to_pio((b >> 4) & 0xF))
+        sm.put(nibble_to_pio(b & 0xF))
         
-    sm.put(0b11111111)
-    sm.put(0b01010110)
+    sm.put(QSPI_ALL_OUTPUT)
+    sm.put(QSPI_IDLE)
 
 def qpi_write_word(sm, addr, value):
     data = struct.pack('<I', value & 0xFFFFFFFF)
@@ -107,30 +147,23 @@ def qpi_read(sm, addr, num_bytes):
     buf = bytearray(num_bytes * 2 + 4)
     
     # x = 8 cmd nibbles - 1
-    sm.put(8 - 1)
+    sm.put(CMD_ADDR_NIBBLES - 1)
     # y = data nibbles + dummy nibbles - 1 (2 data nibbles/byte + 4 dummy nibbles)
     sm.put(num_bytes * 2 + 4 - 1)
     
     # pindirs
-    sm.put(0b11111111) 
+    sm.put(QSPI_ALL_OUTPUT) 
     
-    sm.put(qpi_nibble(0))
-    sm.put(qpi_nibble(0xB))
-    sm.put(qpi_nibble((addr >> 20) & 0xF))
-    sm.put(qpi_nibble((addr >> 16) & 0xF))
-    sm.put(qpi_nibble((addr >> 12) & 0xF))
-    sm.put(qpi_nibble((addr >> 8) & 0xF))
-    sm.put(qpi_nibble((addr >> 4) & 0xF))
-    sm.put(qpi_nibble((addr >> 0) & 0xF))
+    send_qpi_cmd_addr(sm, PSRAM_CMD_FAST_READ, addr)
     
     # pindirs for read
-    sm.put(0b01010110)
+    sm.put(QSPI_IDLE)
     
     for i in range(num_bytes * 2 + 4):
         buf[i] = sm.get()
         
-    sm.put(0b11111111)
-    sm.put(0b01010110)
+    sm.put(QSPI_ALL_OUTPUT)
+    sm.put(QSPI_IDLE)
     
     # Reassemble bytes from nibbles (skip 4 dummy nibbles)
     out_buf = bytearray(num_bytes)
@@ -138,15 +171,10 @@ def qpi_read(sm, addr, num_bytes):
         h = buf[4 + i * 2]
         l = buf[4 + i * 2 + 1]
         
-        # Pins: SD3(7), RAMB(6), SD2(5), RAMA(4), SD0(3), SCK(2-sideset), CS(1), SD1(0)
-        # Extract data bits:
-        # bit 3 of nibble = SD3 (pin 7)
-        # bit 2 of nibble = SD2 (pin 5)
-        # bit 1 of nibble = SD1 (pin 0) -> !! Wait, original code had SD1 on pin 0
-        # bit 0 of nibble = SD0 (pin 3)
-        hn = ((h >> 4) & 8) | ((h >> 3) & 4) | ((h << 1) & 2) | ((h >> 3) & 1)
-        ln = ((l >> 4) & 8) | ((l >> 3) & 4) | ((l << 1) & 2) | ((l >> 3) & 1)
-        
+        # Extract data nibble from PIO pin byte using named pin positions
+        hn = pio_to_nibble(h)
+        ln = pio_to_nibble(l)
+
         out_buf[i] = (hn << 4) | ln
         
     return out_buf
@@ -180,12 +208,12 @@ def fpga_boot(run_seconds=1):
     clk.off()
     time.sleep(0.001)
 
-    flash_sel = Pin(1, Pin.OUT)
-    qspi_sd0  = Pin(3, Pin.OUT)
-    qspi_sd1  = Pin(0, Pin.OUT)
-    qspi_sd2  = Pin(5, Pin.OUT)
-    ram_a_sel = Pin(4, Pin.OUT)
-    ram_b_sel = Pin(6, Pin.OUT)
+    flash_sel = Pin(PIN_CS, Pin.OUT)
+    qspi_sd0  = Pin(PIN_SD0, Pin.OUT)
+    qspi_sd1  = Pin(PIN_SD1, Pin.OUT)
+    qspi_sd2  = Pin(PIN_SD2, Pin.OUT)
+    ram_a_sel = Pin(PIN_RAMA, Pin.OUT)
+    ram_b_sel = Pin(PIN_RAMB, Pin.OUT)
 
     flash_sel.on()
     ram_a_sel.on()
@@ -200,14 +228,14 @@ def fpga_boot(run_seconds=1):
         clk.on()
         time.sleep(0.001)
 
-    Pin(1, Pin.IN, pull=Pin.PULL_UP)
-    Pin(2, Pin.IN, pull=Pin.PULL_DOWN)
-    Pin(3, Pin.IN, pull=None)
-    Pin(0, Pin.IN, pull=None)
-    Pin(4, Pin.IN, pull=Pin.PULL_UP)
-    Pin(5, Pin.IN, pull=None)
-    Pin(6, Pin.IN, pull=Pin.PULL_UP)
-    Pin(7, Pin.IN, pull=None)
+    Pin(PIN_CS,   Pin.IN, pull=Pin.PULL_UP)
+    Pin(PIN_SCK,  Pin.IN, pull=Pin.PULL_DOWN)
+    Pin(PIN_SD0,  Pin.IN, pull=None)
+    Pin(PIN_SD1,  Pin.IN, pull=None)
+    Pin(PIN_RAMA, Pin.IN, pull=Pin.PULL_UP)
+    Pin(PIN_SD2,  Pin.IN, pull=None)
+    Pin(PIN_RAMB, Pin.IN, pull=Pin.PULL_UP)
+    Pin(PIN_SD3,  Pin.IN, pull=None)
 
     rst_n.on()
     time.sleep(0.001)
@@ -228,7 +256,7 @@ def fpga_teardown(clk_pwm, ice_creset_b):
     time.sleep(0.001)
     ice_creset_b.value(0)
     time.sleep(0.01)
-    for p in [0, 1, 2, 3, 4, 5, 6, 7]:
+    for p in QSPI_PINS:
         Pin(p, Pin.IN, pull=None)
     Pin(12, Pin.IN, pull=Pin.PULL_DOWN)
     run_tinyqv.setup_ram()
@@ -236,11 +264,6 @@ def fpga_teardown(clk_pwm, ice_creset_b):
 
 
 # --- Triangle rasterization helpers ---
-
-import math
-
-
-
 
 def write_ppm(filename, fb, w, h):
     """Write a PPM P3 image from RGB FP16 framebuffer values.
