@@ -73,7 +73,22 @@ object MmioMap {
   val USER_PERI_UART = 2
   val USER_PERI_BORG = 3
 
-  // --- User sub-register offsets (addr[5:0]) ---
+  // --- TinyQV bus conventions ---
+  val BUS_IDLE = 3  // data_write_n / data_read_n = 0b11 means no operation
+
+  // --- User peripheral address field positions (within 11-bit addr_in) ---
+  val USER_PERI_SEL_HI   = 10  // addr_in(10:6) selects sub-peripheral
+  val USER_PERI_SEL_LO   = 6
+  val USER_SUB_ADDR_HI   = 5   // addr_in(5:0) is the sub-register address
+  val USER_SUB_ADDR_LO   = 0
+  val GPIO_FUNC_SEL_IDX_HI = 4 // addr_in(4:2) selects which pin's func_sel
+  val GPIO_FUNC_SEL_IDX_LO = 2
+
+  // GPIO (tinyQV_peripherals in Peripherals.scala)
+  val GPIO_OUT_OFFSET    = 0   // GPIO output register
+  val GPIO_IN_OFFSET     = 4   // GPIO input register (read-only)
+  val GPIO_FUNC_SEL_BIT  = 5   // Bit 5 high = func_sel register space
+
   // UART (PeriUart.scala)
   val UART_TX_OFFSET     = 0   // TX data write / RX data read
   val UART_STATUS_OFFSET = 4   // Status register
