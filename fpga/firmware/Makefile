@@ -6,6 +6,11 @@ AR = riscv32-none-elf-ar
 LD = riscv32-none-elf-ld
 OBJCOPY = riscv32-none-elf-objcopy
 
+# Disable Nixpkgs compiler wrapper hardening flags which pollute bare-metal linking
+export HARDENING_DISABLE=all
+export NIX_HARDENING_ENABLE=
+unexport NIX_HARDENING_ENABLE
+
 TINYQV_SDK ?= ../sdk
 
 PROJECT_NAME = triangle
