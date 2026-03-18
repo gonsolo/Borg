@@ -240,7 +240,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     // Instruction Fetch Wiring
     val next_pc = Cat(instr_data_start, 0.U(3.W)) + Cat(0.U(20.W), next_pc_offset, 0.B)
     val pc_wrap = next_pc_offset(2) && instr_complete
-    val next_instr_write_offset = instr_write_offset.asUInt + (io.instr_ready && instr_fetch_running).asUInt - Mux(pc_wrap, 4.U, 0.U)
+    val next_instr_write_offset = instr_write_offset.asUInt + (io.instrFetch.instr_ready && instr_fetch_running).asUInt - Mux(pc_wrap, 4.U, 0.U)
     val next_instr_stall = next_instr_write_offset === Cat(1.B, pc_offset).asUInt
     
     val early_branch_addr = pc(23, 1) + imm(23, 1)
@@ -263,22 +263,22 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
        instr_fetch_running := false.B
     }.otherwise {
        when(early_branch) { instr_fetch_running := false.B }
-       .elsewhen(io.instr_fetch_started) { instr_fetch_running := true.B }
-       .elsewhen(io.instr_fetch_stopped) { instr_fetch_running := false.B }
+       .elsewhen(io.instrFetch.instr_fetch_started) { instr_fetch_running := true.B }
+       .elsewhen(io.instrFetch.instr_fetch_stopped) { instr_fetch_running := false.B }
        
        instr_write_offset := next_instr_write_offset
        when(instr_complete) {
          pc_offset := next_pc_offset(1, 0)
          instr_data_start := next_pc(23, 3)
        }
-       when(io.instr_ready && instr_fetch_running) {
-         instr_data(instr_write_offset(1, 0)) := io.instr_data_in
+       when(io.instrFetch.instr_ready && instr_fetch_running) {
+         instr_data(instr_write_offset(1, 0)) := io.instrFetch.instr_data
        }
     }
 
-    io.instr_fetch_restart := !instr_fetch_running && (!branch || was_early_branch) && !early_branch && !is_ret
-    io.instr_fetch_stall := next_instr_stall
-    io.instr_addr := Mux(was_early_branch, early_branch_addr, Cat(instr_data_start, 0.U(2.W)) + Cat(0.U(20.W), instr_write_offset))
+    io.instrFetch.instr_fetch_restart := !instr_fetch_running && (!branch || was_early_branch) && !early_branch && !is_ret
+    io.instrFetch.instr_fetch_stall := next_instr_stall
+    io.instrFetch.instr_addr := Mux(was_early_branch, early_branch_addr, Cat(instr_data_start, 0.U(2.W)) + Cat(0.U(20.W), instr_write_offset))
 
     val pc_offset_hi = pc_offset + 1.U
     val next_pc_offset_hi = next_pc_offset(1, 0) + 1.U

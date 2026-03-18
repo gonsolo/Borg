@@ -41,9 +41,9 @@ class TinyQVMemCtrl extends Module {
 
     val is_instr = instr_active || start_instr
     val txn_len = Mux(is_instr, 1.U(2.W), data_txn_len)
-    val addr_in = Mux(is_instr, Cat(0.U(1.W), io.instr_addr, 0.U(1.W)), io.data_addr(24,0))
+    val addr_in = Mux(is_instr, Cat(0.U(1.W), io.instrFetch.instr_addr, 0.U(1.W)), io.data_addr(24,0))
 
-    val stall_txn = instr_active && io.instr_fetch_stall && !io.instr_ready && (qspi_data_byte_idx === 1.U)
+    val stall_txn = instr_active && io.instrFetch.instr_fetch_stall && !io.instrFetch.instr_ready && (qspi_data_byte_idx === 1.U)
 
     // Control FSM
     start_instr := false.B
@@ -53,9 +53,9 @@ class TinyQVMemCtrl extends Module {
 
     when (qspi_busy || qspi_write_done) {
       when (instr_active) {
-        when (io.instr_fetch_restart && (!started || stall_txn)) {
+        when (io.instrFetch.instr_fetch_restart && (!started || stall_txn)) {
           stop_txn := true.B
-        } .elsewhen ((qspi_data_ready && qspi_data_byte_idx === 1.U) || io.instr_fetch_stall) {
+        } .elsewhen ((qspi_data_ready && qspi_data_byte_idx === 1.U) || io.instrFetch.instr_fetch_stall) {
           when (data_txn_n =/= 3.U) {
             stop_txn := true.B
           }
@@ -68,7 +68,7 @@ class TinyQVMemCtrl extends Module {
         start_read := true.B
       } .elsewhen (io.data_write_n =/= 3.U) {
         start_write := true.B
-      } .elsewhen (io.instr_fetch_restart) {
+      } .elsewhen (io.instrFetch.instr_fetch_restart) {
         start_instr := true.B
       }
     }
@@ -89,10 +89,10 @@ class TinyQVMemCtrl extends Module {
     when (qspi_data_ready) {
       qspi_data_buf(qspi_data_byte_idx) := qspi_data_out
     } .elsewhen (io.data_write_n =/= 3.U && (data_stall || start_write)) {
-      qspi_data_buf(0) := io.data_to_write(7,0)
-      qspi_data_buf(1) := io.data_to_write(15,8)
-      qspi_data_buf(2) := io.data_to_write(23,16)
-      qspi_data_buf(3) := io.data_to_write(31,24)
+      qspi_data_buf(0) := io.data_out(7,0)
+      qspi_data_buf(1) := io.data_out(15,8)
+      qspi_data_buf(2) := io.data_out(23,16)
+      qspi_data_buf(3) := io.data_out(31,24)
     }
 
     qspi_write_done := qspi_data_req && qspi_data_byte_idx === data_txn_len
@@ -139,16 +139,16 @@ class TinyQVMemCtrl extends Module {
     qspi_busy := q_ctrl.io.busy
 
     // Module Outputs
-    io.instr_fetch_started := started
-    io.instr_fetch_stopped := stopped
-    io.instr_data := Cat(qspi_data_out, qspi_data_buf(0))
-    io.instr_ready := instr_active && qspi_data_ready && qspi_data_byte_idx === 1.U
+    io.instrFetch.instr_fetch_started := started
+    io.instrFetch.instr_fetch_stopped := stopped
+    io.instrFetch.instr_data := Cat(qspi_data_out, qspi_data_buf(0))
+    io.instrFetch.instr_ready := instr_active && qspi_data_ready && qspi_data_byte_idx === 1.U
 
     data_ready := !instr_active && ((qspi_data_ready && qspi_data_byte_idx === data_txn_len) ||
                                     (io.data_write_n =/= 3.U && ((data_stall && qspi_data_byte_idx === 0.U) || start_write)))
     io.data_ready := data_ready
 
-    io.data_from_read := Mux(data_ready,
+    io.data_in := Mux(data_ready,
       Cat(qspi_data_out,
           qspi_data_buf(2),
           Mux(data_txn_len === 1.U, qspi_data_out, qspi_data_buf(1)),

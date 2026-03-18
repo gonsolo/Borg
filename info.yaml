@@ -28,6 +28,7 @@ project:
     - "../out/tinyqv/verilog/TinyQVAlu.sv"
     - "../out/tinyqv/verilog/TinyQVShifter.sv"
     - "../out/tinyqv/verilog/TinyQVCore.sv"
+    - "../out/tinyqv/verilog/CsrFile.sv"
     - "../out/tinyqv/verilog/TinyQVCpu.sv"
     - "../out/tinyqv/verilog/TinyQVDecode.sv"
     - "../out/tinyqv/verilog/TinyQVMemCtrl.sv"

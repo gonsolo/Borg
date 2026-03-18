@@ -44,15 +44,19 @@ class tinyQVIO extends Bundle {
   val debug_stop_txn = Output(Bool())
   val debug_rd = Output(UInt(4.W))
 }
-class TinyQVCpuIO extends Bundle {
+// Instruction fetch interface (CPU perspective: outputs to memory, inputs from memory)
+class InstrFetchIO extends Bundle {
   val instr_addr = Output(UInt(23.W))
   val instr_fetch_restart = Output(Bool())
   val instr_fetch_stall = Output(Bool())
-
   val instr_fetch_started = Input(Bool())
   val instr_fetch_stopped = Input(Bool())
-  val instr_data_in = Input(UInt(16.W))
+  val instr_data = Input(UInt(16.W))
   val instr_ready = Input(Bool())
+}
+
+class TinyQVCpuIO extends Bundle {
+  val instrFetch = new InstrFetchIO
 
   val interrupt_req = Input(UInt(16.W))
 
@@ -83,23 +87,16 @@ class TinyQVCpuIO extends Bundle {
 }
 
 class TinyQVMemCtrlIO extends Bundle {
-  val instr_addr = Input(UInt(23.W))
-  val instr_fetch_restart = Input(Bool())
-  val instr_fetch_stall = Input(Bool())
-
-  val instr_fetch_started = Output(Bool())
-  val instr_fetch_stopped = Output(Bool())
-  val instr_data = Output(UInt(16.W))
-  val instr_ready = Output(Bool())
+  val instrFetch = Flipped(new InstrFetchIO)
 
   val data_addr = Input(UInt(25.W))
   val data_write_n = Input(UInt(2.W))
   val data_read_n = Input(UInt(2.W))
-  val data_to_write = Input(UInt(32.W))
+  val data_out = Input(UInt(32.W))
   val data_continue = Input(Bool())
 
   val data_ready = Output(Bool())
-  val data_from_read = Output(UInt(32.W))
+  val data_in = Output(UInt(32.W))
 
   val spi_data_in = Input(UInt(4.W))
   val spi_data_out = Output(UInt(4.W))
@@ -131,7 +128,7 @@ class TinyQV extends Module {
 
   // CPU data interface
   val qv_data_ready = Mux(is_mem, mem.io.data_ready, io.data_ready)
-  val qv_data_from_read = Mux(is_mem, mem.io.data_from_read, io.data_in)
+  val qv_data_from_read = Mux(is_mem, mem.io.data_in, io.data_in)
 
   cpu.io.data_ready := qv_data_ready
   cpu.io.data_in := qv_data_from_read
@@ -140,7 +137,7 @@ class TinyQV extends Module {
   mem.io.data_addr := qv_data_addr(24, 0)
   mem.io.data_write_n := Mux(is_mem, cpu.io.data_write_n, 3.U(2.W))
   mem.io.data_read_n := Mux(is_mem, cpu.io.data_read_n, 3.U(2.W))
-  mem.io.data_to_write := cpu.io.data_out
+  mem.io.data_out := cpu.io.data_out
   mem.io.data_continue := cpu.io.data_continue
 
   // Top-level mappings
@@ -150,20 +147,13 @@ class TinyQV extends Module {
   io.data_read_complete := Mux(!is_mem, cpu.io.data_read_complete, false.B)
   io.data_out := cpu.io.data_out
 
-  // CPU - Mem instruction wiring
-  val cpu_instr_addr = cpu.io.instr_addr
-  val instr_addr = WireInit(cpu_instr_addr)
+  // CPU - Mem instruction wiring (bulk connect)
+  cpu.io.instrFetch <> mem.io.instrFetch
+
+  // Debug wire for instruction address (used by cocotb tests via hierarchical access)
+  val instr_addr = WireInit(cpu.io.instrFetch.instr_addr)
   instr_addr.suggestName("instr_addr")
   dontTouch(instr_addr)
-
-  mem.io.instr_addr := instr_addr
-  mem.io.instr_fetch_restart := cpu.io.instr_fetch_restart
-  mem.io.instr_fetch_stall := cpu.io.instr_fetch_stall
-
-  cpu.io.instr_fetch_started := mem.io.instr_fetch_started
-  cpu.io.instr_fetch_stopped := mem.io.instr_fetch_stopped
-  cpu.io.instr_data_in := mem.io.instr_data
-  cpu.io.instr_ready := mem.io.instr_ready
 
   // Interrupts and Time
   cpu.io.interrupt_req := io.interrupt_req
@@ -180,9 +170,9 @@ class TinyQV extends Module {
 
   // Debug signals
   io.debug_instr_complete := cpu.io.debug_instr_complete
-  io.debug_instr_ready := mem.io.instr_ready
+  io.debug_instr_ready := mem.io.instrFetch.instr_ready
   io.debug_instr_valid := cpu.io.debug_instr_valid
-  io.debug_fetch_restart := cpu.io.instr_fetch_restart
+  io.debug_fetch_restart := cpu.io.instrFetch.instr_fetch_restart
   io.debug_data_ready := qv_data_ready
   io.debug_interrupt_pending := cpu.io.debug_interrupt_pending
   io.debug_branch := cpu.io.debug_branch

@@ -17,7 +17,7 @@ class TinyQVCpuWrapper extends Module {
   val instr_fetch_stall = IO(Output(Bool()))
   val instr_fetch_started = IO(Input(Bool()))
   val instr_fetch_stopped = IO(Input(Bool()))
-  val instr_data_in = IO(Input(UInt(16.W)))
+  val instr_data = IO(Input(UInt(16.W)))
   val instr_ready = IO(Input(Bool()))
   val interrupt_req = IO(Input(UInt(16.W)))
   val data_addr = IO(Output(UInt(28.W)))
@@ -44,13 +44,13 @@ class TinyQVCpuWrapper extends Module {
 
   val cpu = Module(new TinyQVCpu(16, 4))
 
-  instr_addr := cpu.io.instr_addr
-  instr_fetch_restart := cpu.io.instr_fetch_restart
-  instr_fetch_stall := cpu.io.instr_fetch_stall
-  cpu.io.instr_fetch_started := instr_fetch_started
-  cpu.io.instr_fetch_stopped := instr_fetch_stopped
-  cpu.io.instr_data_in := instr_data_in
-  cpu.io.instr_ready := instr_ready
+  instr_addr := cpu.io.instrFetch.instr_addr
+  instr_fetch_restart := cpu.io.instrFetch.instr_fetch_restart
+  instr_fetch_stall := cpu.io.instrFetch.instr_fetch_stall
+  cpu.io.instrFetch.instr_fetch_started := instr_fetch_started
+  cpu.io.instrFetch.instr_fetch_stopped := instr_fetch_stopped
+  cpu.io.instrFetch.instr_data := instr_data
+  cpu.io.instrFetch.instr_ready := instr_ready
   cpu.io.interrupt_req := interrupt_req
   data_addr := cpu.io.data_addr
   data_write_n := cpu.io.data_write_n
@@ -187,7 +187,7 @@ object TinyQVCpuNestedLoopTest extends TestSuite {
         step(7)
 
         // Present first (low) halfword
-        dut.instr_data_in.poke((instr & 0xFFFF).U)
+        dut.instr_data.poke((instr & 0xFFFF).U)
         dut.instr_ready.poke(true.B)
 
         if (len == 4) {
@@ -198,7 +198,7 @@ object TinyQVCpuNestedLoopTest extends TestSuite {
           step(7)
 
           // Present second (high) halfword
-          dut.instr_data_in.poke(((instr >> 16) & 0xFFFF).U)
+          dut.instr_data.poke(((instr >> 16) & 0xFFFF).U)
           dut.instr_ready.poke(true.B)
         }
         // Leave instr_ready=1; next sendInstr or expectBranch will clear it.
@@ -271,7 +271,7 @@ object TinyQVCpuNestedLoopTest extends TestSuite {
 
       dut.instr_fetch_started.poke(false.B)
       dut.instr_fetch_stopped.poke(false.B)
-      dut.instr_data_in.poke(0.U)
+      dut.instr_data.poke(0.U)
       dut.instr_ready.poke(false.B)
       dut.data_ready.poke(false.B)
       dut.data_in.poke(0.U)
