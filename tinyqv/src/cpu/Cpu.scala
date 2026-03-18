@@ -16,6 +16,10 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     (u & ~mask) | ((data << lo) & mask)
   }
 
+  // Select a 4-bit nibble from a 32-bit value by index
+  def nibbleSlice(data: UInt, sel: UInt): UInt =
+    VecInit((0 until 8).map(i => data(i*4+3, i*4)))(sel)
+
 
     // Decoder interface
     val decoder = Module(new TinyQVDecode)
@@ -74,7 +78,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     val counter = Cat(counter_hi, 0.U(2.W))
     
     core.io.counter := counter_hi
-    core.io.imm := MuxLookup(counter_hi, 0.U(4.W))( (0 until 8).map(i => i.U -> imm(i*4+3, i*4)) )
+    core.io.imm := nibbleSlice(imm, counter_hi)
     core.io.imm_lo := imm(11, 0)
     
     val no_write_in_progress = RegInit(true.B)
@@ -101,10 +105,10 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     core.io.interrupt_req := io.interrupt_req
     
     val pc = Wire(UInt(32.W))
-    core.io.pc := MuxLookup(counter_hi, 0.U(4.W))( (0 until 8).map(i => i.U -> pc(i*4+3, i*4)) )
+    core.io.pc := nibbleSlice(pc, counter_hi)
     
     val next_pc_for_core = Wire(UInt(32.W))
-    core.io.next_pc := MuxLookup(counter_hi, 0.U(4.W))( (0 until 8).map(i => i.U -> next_pc_for_core(i*4+3, i*4)) )
+    core.io.next_pc := nibbleSlice(next_pc_for_core, counter_hi)
     
     val timers = Module(new TinyQVTime)
     timers.io.time_pulse := io.time_pulse
@@ -113,7 +117,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     val is_timer_addr = io.data_addr(27, 4) === 0xFFFFF0.U && !io.data_addr(3)
     val timer_data = timers.io.data_out
     
-    core.io.data_in := Mux(is_timer_addr, timer_data, MuxLookup(counter_hi, 0.U(4.W))( (0 until 8).map(i => i.U -> io.data_in(i*4+3, i*4)) ))
+    core.io.data_in := Mux(is_timer_addr, timer_data, nibbleSlice(io.data_in, counter_hi))
     
     val data_ready_core = Wire(Bool())
     core.io.load_data_ready := data_ready_core
