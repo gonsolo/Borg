@@ -53,6 +53,19 @@ class TinyQVCoreIO(regAddrBits: Int) extends Bundle {
   val debug_rd = Output(UInt(4.W))
 }
 
+/** TinyQV execution core — processes one 4-bit nibble per clock cycle.
+  *
+  * Handles ALU operations, load/store data paths, shift operations,
+  * branch decisions, and instruction completion detection. Delegates
+  * all CSR and interrupt logic to the [[CsrFile]] sub-module.
+  *
+  * Each instruction takes 8 cycles (counter 0–7) to process all 32 bits
+  * as 4-bit nibbles, with multi-cycle instructions taking additional
+  * 8-cycle beats (tracked by an internal `cycle` counter).
+  *
+  * @param numRegs number of integer registers (default 16 for RV32E)
+  * @param regAddrBits register address width (default 4)
+  */
 class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
   
   val io = IO(new TinyQVCoreIO(regAddrBits))

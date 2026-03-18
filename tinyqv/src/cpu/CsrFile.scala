@@ -40,6 +40,21 @@ class CsrFileIO extends Bundle {
   val mcause = Output(UInt(6.W))
 }
 
+/** RISC-V Machine-mode CSR file with interrupt controller.
+  *
+  * Contains all machine-mode CSRs (mstatus, mie, mip, mepc, mcause, misa),
+  * cycle/time performance counters, and interrupt priority logic.
+  *
+  * CSR reads and writes are nibble-serialized: each CSR field is accessed
+  * at a specific `counter` position matching its bit position in the
+  * full 32-bit register.
+  *
+  * Interrupt handling:
+  *   - Evaluates `(mip & mie) != 0` with `mstatus.mie` global enable
+  *   - Timer interrupt (bit 16) has highest priority
+  *   - External interrupts (bits 15:0) use priority encoder
+  *   - Double-fault detection disables all interrupts
+  */
 class CsrFile extends Module {
   val io = IO(new CsrFileIO)
 

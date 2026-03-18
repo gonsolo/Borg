@@ -7,6 +7,49 @@ package tinyqv.cpu
 import chisel3._
 import chisel3.util._
 
+/** TinyQV CPU — nibble-serial RISC-V RV32IC processor.
+  *
+  * == Architecture ==
+  *
+  * {{{
+  *   TinyQVCpu
+  *   ├── TinyQVDecode      — Combinational instruction decoder (RV32IC)
+  *   ├── TinyQVCore        — Execution engine (ALU, shifter, register file)
+  *   │   └── CsrFile       — CSR registers, interrupt logic, cycle/time counters
+  *   └── TinyQVTime        — mtime/mtimecmp timer comparator
+  * }}}
+  *
+  * == Nibble-Serial Pipeline ==
+  *
+  * All data paths are 4 bits wide. A 3-bit `counter_hi` (0–7) cycles through
+  * 8 nibbles per instruction beat, processing bits [3:0] through [31:28].
+  *
+  * {{{
+  *   counter_hi:  0    1    2    3    4    5    6    7    0    1  ...
+  *                ├─── nibble 0 ──── nibble 1 ──── ... ──── nibble 7 ───┤
+  *                └──────────── one instruction beat ──────────────────┘
+  * }}}
+  *
+  * == Pipeline Stages ==
+  *
+  * '''Stage 1 — Decode''' (combinational, during counter_hi == 7 of previous beat):
+  *   - TinyQVDecode reads raw instruction bits from the fetch buffer
+  *   - Pipeline registers latch decoded fields (instrType, alu_op, rs1, rs2, rd, imm)
+  *
+  * '''Stage 2 — Execute''' (8 nibble cycles, counter_hi 0–7):
+  *   - TinyQVCore processes one nibble per cycle: ALU, loads, stores, branches
+  *   - CsrFile handles CSR read/write and interrupt evaluation in parallel
+  *
+  * == Stall & Branch Conditions ==
+  *
+  *   - '''Stall:''' `!instr_valid` or load/store with `!no_write_in_progress`
+  *   - '''Branch:''' JAL/JALR/trap/mret or taken conditional branch (at counter_hi == 7)
+  *   - '''Early branch:''' JAL decoded → fetch redirected one beat early
+  *   - '''Interrupt:''' instruction completes with `interrupt_pending` → pipeline drains
+  *
+  * @param numRegs number of integer registers (default 16 for RV32E)
+  * @param regAddrBits register address width (default 4)
+  */
 class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
   val io = IO(new TinyQVCpuIO)
 
