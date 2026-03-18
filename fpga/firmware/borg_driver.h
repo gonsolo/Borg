@@ -6,6 +6,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "borg_fpu.h"
 
 // FP16 constants
 #define FP16_ONE  0x3C00
@@ -15,9 +16,9 @@
 
 // Vertex with position, color, and optional UV (all FP16)
 typedef struct {
-    uint16_t pos[3];    // x, y, z
-    uint16_t color[3];  // r, g, b
-    uint16_t uv[2];     // u, v texture coordinates (0..1)
+    fp16_t pos[3];    // x, y, z
+    fp16_t color[3];  // r, g, b
+    fp16_t uv[2];     // u, v texture coordinates (0..1)
 } borg_vertex_t;
 
 // Framebuffer dimensions (set at runtime from host)
@@ -29,7 +30,7 @@ extern int borg_fb_height;
 
 // Draw state (uniforms computed from angle)
 typedef struct {
-    uint16_t uniforms[16];
+    fp16_t uniforms[16];
 } borg_draw_data_t;
 
 // Initialize hardware, parse embedded shader blobs, read resolution from PSRAM
@@ -38,7 +39,7 @@ void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
                const uint8_t *frag_blob, unsigned int frag_len);
 
 // Set up draw data from a rotation angle (FP16 radians)
-void borg_set_angle(borg_draw_data_t *d, uint16_t angle_fp16);
+void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16);
 
 // Clear z-buffer for a frame to FP16_MAX_DEPTH
 void borg_clear_zbuffer(int frame);

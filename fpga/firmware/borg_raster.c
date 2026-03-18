@@ -11,8 +11,8 @@
 #define NUM_VERTICES 3
 
 void screen_space_translate(const spirb_shader_t *vert_shader,
-                            const uint16_t *vout, uv16_t *spos,
-                            uint16_t fp16_half_width) {
+                            const fp16_t *vout, uv16_t *spos,
+                            fp16_t fp16_half_width) {
   int stride = vert_shader->num_outputs;
   for (int v = 0; v < NUM_VERTICES; v++) {
     spos[v] = (uv16_t){
@@ -48,9 +48,9 @@ void compute_pixel_deltas(uv16_t pc, const uv16_t *spos,
   }
 }
 
-uint16_t borg_rasterize_edge(const spirb_shader_t *rast_shader,
-                              uint16_t dx_e, uint16_t neg_dy_e,
-                              uint16_t dpx_e, uint16_t dpy_e) {
+fp16_t borg_rasterize_edge(const spirb_shader_t *rast_shader,
+                              fp16_t dx_e, fp16_t neg_dy_e,
+                              fp16_t dpx_e, fp16_t dpy_e) {
   BORG_REG(rast_shader->attribute_regs[0]) = dx_e;
   BORG_REG(rast_shader->attribute_regs[1]) = neg_dy_e;
   BORG_REG(rast_shader->attribute_regs[2]) = dpx_e;
@@ -59,10 +59,10 @@ uint16_t borg_rasterize_edge(const spirb_shader_t *rast_shader,
   return BORG_REG(rast_shader->output_regs[0]) & 0xFFFF;
 }
 
-uint16_t __attribute__((noinline)) borg_frag_channel(
+fp16_t __attribute__((noinline)) borg_frag_channel(
     const spirb_shader_t *frag_shader,
-    uint16_t e0, uint16_t e1, uint16_t e2,
-    uint16_t inv_area, uint16_t c0, uint16_t c1, uint16_t c2) {
+    fp16_t e0, fp16_t e1, fp16_t e2,
+    fp16_t inv_area, fp16_t c0, fp16_t c1, fp16_t c2) {
   BORG_REG(frag_shader->attribute_regs[0]) = e0;
   BORG_REG(frag_shader->attribute_regs[1]) = e1;
   BORG_REG(frag_shader->attribute_regs[2]) = e2;
@@ -78,15 +78,15 @@ int __attribute__((noinline)) borg_bary_rgb(
     const spirb_shader_t *rast_shader,
     const spirb_shader_t *frag_shader,
     const uv16_t *edges, const uv16_t *deltas,
-    uint16_t inv_area, uint16_t colors[3][3],
-    const uint16_t z_vals[3],
+    fp16_t inv_area, fp16_t colors[3][3],
+    const fp16_t z_vals[3],
     const uv16_t uvs[3],
     rgb16_t *color_out,
-    uint16_t *z_out, uv16_t *uv_out) {
+    fp16_t *z_out, uv16_t *uv_out) {
   borg_load_spirb_shader(rast_shader);
-  uint16_t e0 = borg_rasterize_edge(rast_shader, edges[0].u, edges[0].v, deltas[0].u, deltas[0].v);
-  uint16_t e1 = borg_rasterize_edge(rast_shader, edges[1].u, edges[1].v, deltas[1].u, deltas[1].v);
-  uint16_t e2 = borg_rasterize_edge(rast_shader, edges[2].u, edges[2].v, deltas[2].u, deltas[2].v);
+  fp16_t e0 = borg_rasterize_edge(rast_shader, edges[0].u, edges[0].v, deltas[0].u, deltas[0].v);
+  fp16_t e1 = borg_rasterize_edge(rast_shader, edges[1].u, edges[1].v, deltas[1].u, deltas[1].v);
+  fp16_t e2 = borg_rasterize_edge(rast_shader, edges[2].u, edges[2].v, deltas[2].u, deltas[2].v);
   if ((fp16_ge_zero(e0) && e0 != 0) ||
       (fp16_ge_zero(e1) && e1 != 0) ||
       (fp16_ge_zero(e2) && e2 != 0))
@@ -110,7 +110,7 @@ int __attribute__((noinline)) borg_bary_rgb(
   return 1;
 }
 
-texcoord_t uv_to_texcoord(uv16_t uv, uint16_t w_fp16, uint16_t h_fp16) {
+texcoord_t uv_to_texcoord(uv16_t uv, fp16_t w_fp16, fp16_t h_fp16) {
   return (texcoord_t){
     fp16_to_uint(borg_fp16_mul(uv.u, w_fp16)),
     fp16_to_uint(borg_fp16_mul(uv.v, h_fp16))

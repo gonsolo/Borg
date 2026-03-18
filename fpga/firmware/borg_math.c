@@ -14,7 +14,7 @@
 
 // Simple FP16 → unsigned fixed-point (Q8.8 or similar)
 // Returns angle * 256 / (2π) as an integer [0, 255]
-static uint8_t angle_to_index(uint16_t angle) {
+static uint8_t angle_to_index(fp16_t angle) {
     // Extract FP16 components
     uint16_t sign = (angle >> 15) & 1;
     int16_t  exp  = ((angle >> 10) & 0x1F) - 15;  // unbiased exponent
@@ -45,7 +45,7 @@ static uint8_t angle_to_index(uint16_t angle) {
     return (uint8_t)(idx & 0xFF);
 }
 
-uint16_t fp16_sin(uint16_t angle_fp16) {
+fp16_t fp16_sin(fp16_t angle_fp16) {
     uint8_t idx = angle_to_index(angle_fp16);
 
     // Quadrant reduction: idx is [0, 255] mapping to [0, 2π)
@@ -70,7 +70,7 @@ uint16_t fp16_sin(uint16_t angle_fp16) {
     return sin_lut[lut_idx] ^ negate;
 }
 
-uint16_t fp16_cos(uint16_t angle_fp16) {
+fp16_t fp16_cos(fp16_t angle_fp16) {
     // cos(x) = sin(x + π/2)
     // In index space: shift by 64 (= π/2 worth of indices)
     uint8_t idx = angle_to_index(angle_fp16);

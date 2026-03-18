@@ -118,14 +118,14 @@ object MmioMap {
     w.println()
 
     w.println("// --- User UART peripheral ---")
-    w.println(f"#define UART_TX     (*(volatile uint32_t *)0x${userAddr(USER_PERI_UART, UART_TX_OFFSET)}%08X)")
-    w.println(f"#define UART_STATUS (*(volatile uint32_t *)0x${userAddr(USER_PERI_UART, UART_STATUS_OFFSET)}%08X)")
-    w.println(f"#define UART_BAUD   (*(volatile uint32_t *)0x${userAddr(USER_PERI_UART, UART_BAUD_OFFSET)}%08X)")
+    w.println(f"#define UART_TX     (*(volatile uint32_t *)0x${userAddr(USER_PERI_UART, UART_TX_OFFSET)}%08XUL)")
+    w.println(f"#define UART_STATUS (*(volatile uint32_t *)0x${userAddr(USER_PERI_UART, UART_STATUS_OFFSET)}%08XUL)")
+    w.println(f"#define UART_BAUD   (*(volatile uint32_t *)0x${userAddr(USER_PERI_UART, UART_BAUD_OFFSET)}%08XUL)")
     w.println()
 
     w.println("// --- Borg GPU peripheral ---")
     val borgBase = userAddr(USER_PERI_BORG, 0)
-    w.println(f"#define BORG_BASE    0x${borgBase}%08X")
+    w.println(f"#define BORG_BASE    0x${borgBase}%08XUL")
     w.println(f"#define BORG_REG(n)     (*(volatile uint32_t *)(BORG_BASE + (n) * 4))")
     w.println(f"#define BORG_IMEM(n)    (*(volatile uint32_t *)(BORG_BASE + ${BORG_IMEM_OFFSET} + (n) * 4))")
     w.println(f"#define BORG_CONTROL    (*(volatile uint32_t *)(BORG_BASE + ${BORG_CONTROL_OFFSET}))")
@@ -133,8 +133,8 @@ object MmioMap {
     w.println()
 
     w.println("// --- PSRAM (QSPI memory space) ---")
-    w.println(f"#define PSRAM_IN(n)  (*(volatile uint32_t *)(0x${PSRAM_BASE}%08X + (n) * 4))")
-    w.println(f"#define PSRAM_OUT(n) (*(volatile uint32_t *)(0x${PSRAM_BASE}%08X + ${PSRAM_OUT_OFFSET} + (n) * 4))")
+    w.println(f"#define PSRAM_IN(n)  (*(volatile uint32_t *)(0x${PSRAM_BASE}%08XUL + (n) * 4))")
+    w.println(f"#define PSRAM_OUT(n) (*(volatile uint32_t *)(0x${PSRAM_BASE}%08XUL + ${PSRAM_OUT_OFFSET} + (n) * 4))")
     w.println()
 
     w.println("// --- Convenience ---")

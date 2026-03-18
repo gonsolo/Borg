@@ -6,6 +6,12 @@
 
 #include <stdint.h>
 
+// Documentary typedef (matches borg_fpu.h; guarded for order-independence)
+#ifndef FP16_T_DEFINED
+#define FP16_T_DEFINED
+typedef uint16_t fp16_t;
+#endif
+
 /**
  * FP16 sin/cos using a 64-entry lookup table.
  * Angle is in FP16 radians [0, 2π).
@@ -13,12 +19,12 @@
  */
 
 // Negate FP16 value (XOR sign bit)
-static inline uint16_t fp16_neg(uint16_t x) {
+static inline fp16_t fp16_neg(fp16_t x) {
     return x ^ 0x8000;
 }
 
 // Convert FP16 to a signed fixed-point Q16 (for add/sub)
-static inline int32_t fp16_to_fixed(uint16_t f) {
+static inline int32_t fp16_to_fixed(fp16_t f) {
     uint16_t sign = (f >> 15) & 1;
     int16_t  exp  = ((f >> 10) & 0x1F) - 15;
     uint32_t mant = (f & 0x3FF) | 0x400;  // implicit 1.mantissa
@@ -32,7 +38,7 @@ static inline int32_t fp16_to_fixed(uint16_t f) {
 }
 
 // Convert signed fixed-point Q16 back to FP16
-static inline uint16_t fixed_to_fp16(int32_t v) {
+static inline fp16_t fixed_to_fp16(int32_t v) {
     if (v == 0) return 0;
     uint16_t sign = 0;
     uint32_t uv;
@@ -67,17 +73,17 @@ static inline uint16_t fixed_to_fp16(int32_t v) {
 }
 
 // FP16 subtraction: a - b
-static inline uint16_t fp16_sub(uint16_t a, uint16_t b) {
+static inline fp16_t fp16_sub(fp16_t a, fp16_t b) {
     return fixed_to_fp16(fp16_to_fixed(a) - fp16_to_fixed(b));
 }
 
 // FP16 addition: a + b
-static inline uint16_t fp16_add(uint16_t a, uint16_t b) {
+static inline fp16_t fp16_add(fp16_t a, fp16_t b) {
     return fixed_to_fp16(fp16_to_fixed(a) + fp16_to_fixed(b));
 }
 
 // FP16 reciprocal: 1.0 / x (software, no fdiv needed)
-static inline uint16_t fp16_recip(uint16_t x) {
+static inline fp16_t fp16_recip(fp16_t x) {
     int32_t fx = fp16_to_fixed(x);
     if (fx == 0) return 0x7C00; // +inf
     // We want (1.0 in Q16) / fx = 65536 / fx
@@ -122,9 +128,9 @@ static const uint16_t sin_lut[65] = {
 };
 
 /** Compute FP16 sin(angle) where angle is FP16 radians. */
-uint16_t fp16_sin(uint16_t angle_fp16);
+fp16_t fp16_sin(fp16_t angle_fp16);
 
 /** Compute FP16 cos(angle) = sin(angle + π/2). */
-uint16_t fp16_cos(uint16_t angle_fp16);
+fp16_t fp16_cos(fp16_t angle_fp16);
 
 #endif // BORG_MATH_H

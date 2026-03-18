@@ -18,7 +18,7 @@ void borg_run(void) {
     timeout--;
 }
 
-uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
+fp16_t borg_fp16_add(fp16_t a, fp16_t b) {
   BORG_IMEM(0) = 0x0210;
   BORG_IMEM(1) = 0x0000;
   BORG_REG(1) = a;
@@ -27,7 +27,7 @@ uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
   return BORG_REG(0) & 0xFFFF;
 }
 
-uint16_t borg_fp16_mul(uint16_t a, uint16_t b) {
+fp16_t borg_fp16_mul(fp16_t a, fp16_t b) {
   // fmul r0, r1, r2: [15:14]=01, [11:8]=r2, [7:4]=r1, [3:0]=r0
   BORG_IMEM(0) = 0x4210;
   BORG_IMEM(1) = 0x0000; // halt
@@ -38,7 +38,7 @@ uint16_t borg_fp16_mul(uint16_t a, uint16_t b) {
 // @doc:end
 }
 
-uint16_t borg_fp16_fmadd(uint16_t a, uint16_t b, uint16_t c) {
+fp16_t borg_fp16_fmadd(fp16_t a, fp16_t b, fp16_t c) {
   // fmadd r0, r1, r2, r3: [15:14]=10, [13:12]=r3(low2), [11:8]=r2, [7:4]=r1, [3:0]=r0
   // r0 = r1 * r2 + r3
   BORG_IMEM(0) = 0xB210;  // fmadd r0 = r1 * r2 + r3 (rs3=3 → bits[13:12]=11=3)
@@ -52,18 +52,18 @@ uint16_t borg_fp16_fmadd(uint16_t a, uint16_t b, uint16_t c) {
 
 // FP16 reciprocal using Newton-Raphson: y = 1/x
 // Initial estimate via exponent flip, refined with 2 NR iterations.
-uint16_t borg_fp16_rcp(uint16_t x) {
-  uint16_t sign = x & 0x8000;
+fp16_t borg_fp16_rcp(fp16_t x) {
+  fp16_t sign = x & 0x8000;
   uint16_t exp = (x >> 10) & 0x1F;
   if (exp == 0 || exp == 31) return 0;
   // Initial estimate: flip exponent around bias, zero mantissa
   uint16_t est_exp = 30 - exp;
   if (est_exp >= 31) return sign | 0x7C00;
-  uint16_t y = sign | (est_exp << 10);
+  fp16_t y = sign | (est_exp << 10);
   // Newton-Raphson: y = y * (2 - x * y), 2 iterations
   for (int i = 0; i < 2; i++) {
-    uint16_t xy = borg_fp16_mul(x, y);
-    uint16_t correction = BORG_FP16_SUB(FP16_TWO, xy);
+    fp16_t xy = borg_fp16_mul(x, y);
+    fp16_t correction = BORG_FP16_SUB(FP16_TWO, xy);
     y = borg_fp16_mul(y, correction);
   }
   return y;
@@ -82,7 +82,7 @@ void borg_load_add_shader(void) {
   BORG_IMEM(3) = 0x0000;
 }
 
-uint16_t borg_fp16_sub_raw(uint16_t a, uint16_t b) {
+fp16_t borg_fp16_sub_raw(fp16_t a, fp16_t b) {
   BORG_REG(1) = a;
   BORG_REG(2) = b ^ 0x8000;
   borg_run();
@@ -90,7 +90,7 @@ uint16_t borg_fp16_sub_raw(uint16_t a, uint16_t b) {
 }
 
 // Convert FP16 (positive) to unsigned integer (truncate)
-int fp16_to_uint(uint16_t fp16) {
+int fp16_to_uint(fp16_t fp16) {
   int exp = (fp16 >> 10) & 0x1F;
   int frac = fp16 & 0x3FF;
   if (exp < 15) return 0;  // value < 1.0, integer part is 0
@@ -102,7 +102,7 @@ int fp16_to_uint(uint16_t fp16) {
 }
 
 // Convert integer to FP16 (for small positive integers)
-uint16_t uint_to_fp16(int val) {
+fp16_t uint_to_fp16(int val) {
   if (val == 0) return 0;
   int exp = 25;  // bias(15) + Q10 offset(10)
   int mantissa = val;

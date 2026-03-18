@@ -36,8 +36,8 @@ typedef struct {
 // Runtime framebuffer dimensions and derived values
 int borg_fb_width;
 int borg_fb_height;
-static uint16_t fp16_half_width;
-static uint16_t pc_lut[BORG_MAX_FB_DIM];
+static fp16_t fp16_half_width;
+static fp16_t pc_lut[BORG_MAX_FB_DIM];
 
 #define NUM_VERTICES 3
 
@@ -61,9 +61,9 @@ static spirb_shader_t rast_shader;
 static spirb_shader_t frag_shader;
 
 // --- Vertex shader ---
-static void run_vertex_shader(const uint16_t *uniforms,
-                               const uint16_t *attrs,
-                               uint16_t *outputs) {
+static void run_vertex_shader(const fp16_t *uniforms,
+                               const fp16_t *attrs,
+                               fp16_t *outputs) {
   const spirb_shader_t *s = &vert_shader;
   borg_load_spirb_shader(s);
 
@@ -110,7 +110,7 @@ void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
   fp16_half_width = ((exp + 15) << 10);  // power-of-2, mantissa=0
 
   // Compute pixel center LUT: 0.5, 1.5, ..., (width-0.5)
-  uint16_t val = FP16_HALF;  // 0.5
+  fp16_t val = FP16_HALF;  // 0.5
   for (int i = 0; i < borg_fb_width; i++) {
     pc_lut[i] = val;
     val = borg_fp16_add(val, FP16_ONE);
@@ -121,7 +121,7 @@ void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
   spirb_parse(frag_blob, &frag_shader);
 }
 
-void borg_set_angle(borg_draw_data_t *d, uint16_t angle_fp16) {
+void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
   // Compute vertex shader uniforms from angle
   // The vertex shader expects: uniform[0]=sin, uniform[1]=cos, uniform[2]=-sin
   d->uniforms[0] = fp16_sin(angle_fp16);
@@ -157,11 +157,11 @@ void borg_clear_texture(void) {
 }
 
 static void shade_and_write_pixel(int frame, int px, int py,
-                                  rgb16_t color, uint16_t z, uv16_t uv_interp,
+                                  rgb16_t color, fp16_t z, uv16_t uv_interp,
                                   const texture_t *t) {
   // Depth test: read current z, compare (closer = smaller)
   int zb_idx = frame * FRAME_STRIDE + FRAME_FB_SIZE + (py * BORG_FB_WIDTH + px);
-  uint16_t old_z = PSRAM_OUT(zb_idx);
+  fp16_t old_z = PSRAM_OUT(zb_idx);
   if (z >= old_z) return;
   PSRAM_OUT(zb_idx) = z;
 
@@ -182,19 +182,19 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
   // Clear stale DONE marker for this frame
   PSRAM_OUT(frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE) = 0;
   // Build colors array from vertex data
-  uint16_t colors[3][3];
+  fp16_t colors[3][3];
   for (int v = 0; v < 3; v++)
     for (int c = 0; c < 3; c++)
       colors[v][c] = vertices[v].color[c];
   // Build vertex attribute array from vertex positions
-  uint16_t attrs[NUM_VERTICES * 2];
+  fp16_t attrs[NUM_VERTICES * 2];
   for (int v = 0; v < NUM_VERTICES; v++) {
     attrs[v * 2 + 0] = vertices[v].pos[0];
     attrs[v * 2 + 1] = vertices[v].pos[1];
   }
 
   // Vertex shader
-  uint16_t vout[NUM_VERTICES * SPIRB_MAX_REGS];
+  fp16_t vout[NUM_VERTICES * SPIRB_MAX_REGS];
   run_vertex_shader(d->uniforms, attrs, vout);
 
   // Screen-space translation
@@ -203,13 +203,13 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
 
   // Triangle setup: compute inv_area from screen-space positions
   // area = (sx1-sx0)*(sy2-sy0) - (sx2-sx0)*(sy1-sy0) (2D cross product)
-  uint16_t dx10 = BORG_FP16_SUB(spos[1].u, spos[0].u);
-  uint16_t dy20 = BORG_FP16_SUB(spos[2].v, spos[0].v);
-  uint16_t dx20 = BORG_FP16_SUB(spos[2].u, spos[0].u);
-  uint16_t dy10 = BORG_FP16_SUB(spos[1].v, spos[0].v);
-  uint16_t area = BORG_FP16_SUB(borg_fp16_mul(dx10, dy20),
+  fp16_t dx10 = BORG_FP16_SUB(spos[1].u, spos[0].u);
+  fp16_t dy20 = BORG_FP16_SUB(spos[2].v, spos[0].v);
+  fp16_t dx20 = BORG_FP16_SUB(spos[2].u, spos[0].u);
+  fp16_t dy10 = BORG_FP16_SUB(spos[1].v, spos[0].v);
+  fp16_t area = BORG_FP16_SUB(borg_fp16_mul(dx10, dy20),
                                  borg_fp16_mul(dx20, dy10));
-  uint16_t inv_area = borg_fp16_rcp(area);
+  fp16_t inv_area = borg_fp16_rcp(area);
 
   // Edge vectors
   uv16_t edges[3];
@@ -223,9 +223,9 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
       uv16_t deltas[3];
       compute_pixel_deltas(pc, spos, deltas);
       rgb16_t color = {0, 0, 0};
-      uint16_t z = 0;
+      fp16_t z = 0;
       uv16_t uv_interp = {0, 0};
-      uint16_t z_vals[3] = { vertices[0].pos[2], vertices[1].pos[2], vertices[2].pos[2] };
+      fp16_t z_vals[3] = { vertices[0].pos[2], vertices[1].pos[2], vertices[2].pos[2] };
       const uv16_t *uvs = 0;
       uv16_t uv_vals[3];
       if (tex.psram_offset >= 0) {

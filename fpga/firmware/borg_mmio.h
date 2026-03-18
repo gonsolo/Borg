@@ -2,20 +2,20 @@
 #pragma once
 
 // --- User UART peripheral ---
-#define UART_TX     (*(volatile uint32_t *)0x08000080)
-#define UART_STATUS (*(volatile uint32_t *)0x08000084)
-#define UART_BAUD   (*(volatile uint32_t *)0x08000088)
+#define UART_TX     (*(volatile uint32_t *)0x08000080UL)
+#define UART_STATUS (*(volatile uint32_t *)0x08000084UL)
+#define UART_BAUD   (*(volatile uint32_t *)0x08000088UL)
 
 // --- Borg GPU peripheral ---
-#define BORG_BASE    0x080000C0
+#define BORG_BASE    0x080000C0UL
 #define BORG_REG(n)     (*(volatile uint32_t *)(BORG_BASE + (n) * 4))
 #define BORG_IMEM(n)    (*(volatile uint32_t *)(BORG_BASE + 32 + (n) * 4))
 #define BORG_CONTROL    (*(volatile uint32_t *)(BORG_BASE + 60))
 #define BORG_STATUS     (*(volatile uint32_t *)(BORG_BASE + 60))
 
 // --- PSRAM (QSPI memory space) ---
-#define PSRAM_IN(n)  (*(volatile uint32_t *)(0x01001000 + (n) * 4))
-#define PSRAM_OUT(n) (*(volatile uint32_t *)(0x01001000 + 128 + (n) * 4))
+#define PSRAM_IN(n)  (*(volatile uint32_t *)(0x01001000UL + (n) * 4))
+#define PSRAM_OUT(n) (*(volatile uint32_t *)(0x01001000UL + 128 + (n) * 4))
 
 // --- Convenience ---
 #define STARTUP_DELAY() do { \

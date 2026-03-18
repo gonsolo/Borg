@@ -7,16 +7,22 @@
 
 #include <stdint.h>
 
-// Forward declaration — full definition in spirb.h
+// Documentary typedef: distinguishes FP16 float values from raw integers.
+#ifndef FP16_T_DEFINED
+#define FP16_T_DEFINED
+typedef uint16_t fp16_t;
+#endif
+
+// Forward declaration — full definition in borg_spirb.h
 struct spirb_shader_t;
 typedef struct spirb_shader_t spirb_shader_t;
 
 // --- Borg FPU wrappers ---
 void borg_run(void);
-uint16_t borg_fp16_add(uint16_t a, uint16_t b);
-uint16_t borg_fp16_mul(uint16_t a, uint16_t b);
-uint16_t borg_fp16_fmadd(uint16_t a, uint16_t b, uint16_t c);
-uint16_t borg_fp16_rcp(uint16_t x);
+fp16_t borg_fp16_add(fp16_t a, fp16_t b);
+fp16_t borg_fp16_mul(fp16_t a, fp16_t b);
+fp16_t borg_fp16_fmadd(fp16_t a, fp16_t b, fp16_t c);
+fp16_t borg_fp16_rcp(fp16_t x);
 
 // --- Inline macros ---
 #define BORG_FP16_SUB(a, b) borg_fp16_add((a), (b) ^ 0x8000)
@@ -24,11 +30,11 @@ uint16_t borg_fp16_rcp(uint16_t x);
 #define FP16_TWO  0x4000
 
 // --- FP16 conversion utilities ---
-static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
-int fp16_to_uint(uint16_t fp16);
-uint16_t uint_to_fp16(int val);
+static inline int fp16_ge_zero(fp16_t v) { return (v & 0x8000) == 0; }
+int fp16_to_uint(fp16_t fp16);
+fp16_t uint_to_fp16(int val);
 
 // --- Shader loader helpers ---
 void borg_load_spirb_shader(const spirb_shader_t *s);
 void borg_load_add_shader(void);
-uint16_t borg_fp16_sub_raw(uint16_t a, uint16_t b);
+fp16_t borg_fp16_sub_raw(fp16_t a, fp16_t b);
