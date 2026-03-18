@@ -21,3 +21,7 @@
 #define STARTUP_DELAY() do { \
     for (volatile int i = 0; i < 10000; i++) ; \
   } while (0)
+
+// --- Shared PSRAM layout (matches borg_mmio.py) ---
+#define TEX_PSRAM_OFFSET 4200
+#define DONE_MARKER 0xDEAD

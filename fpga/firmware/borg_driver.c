@@ -245,6 +245,6 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
 }
 
 void borg_present(int frame) {
-  PSRAM_OUT(frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE) = 0xDEAD;
+  PSRAM_OUT(frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE) = DONE_MARKER;
   puts_uart("DONE\r\n");
 }
