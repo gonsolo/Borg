@@ -71,7 +71,7 @@ static void run_vertex_shader(const fp16_t *uniforms,
     BORG_REG(s->uniform_regs[i]) = uniforms[i];
 
   for (int v = 0; v < NUM_VERTICES; v++) {
-    BORG_CONTROL = 2;
+    BORG_CONTROL = BORG_CTL_RESET;
     for (int i = 0; i < s->num_uniforms; i++)
       BORG_REG(s->uniform_regs[i]) = uniforms[i];
     for (int i = 0; i < s->num_attributes; i++)

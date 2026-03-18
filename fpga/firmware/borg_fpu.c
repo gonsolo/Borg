@@ -10,11 +10,11 @@
 // @doc:fpu-helpers
 // --- Borg FPU helpers ---
 void borg_run(void) {
-  BORG_CONTROL = 2;
+  BORG_CONTROL = BORG_CTL_RESET;
   (void)BORG_STATUS;
-  BORG_CONTROL = 1;
+  BORG_CONTROL = BORG_CTL_START;
   int timeout = 100000;
-  while (!(BORG_STATUS & 2) && timeout > 0)
+  while (!(BORG_STATUS & BORG_STS_IDLE) && timeout > 0)
     timeout--;
 }
 

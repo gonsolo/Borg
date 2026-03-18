@@ -12,6 +12,9 @@
 #define BORG_IMEM(n)    (*(volatile uint32_t *)(BORG_BASE + 32 + (n) * 4))
 #define BORG_CONTROL    (*(volatile uint32_t *)(BORG_BASE + 60))
 #define BORG_STATUS     (*(volatile uint32_t *)(BORG_BASE + 60))
+#define BORG_CTL_START  1  // write: start execution
+#define BORG_CTL_RESET  2  // write: reset pipeline
+#define BORG_STS_IDLE   2  // read: pipeline idle
 
 // --- PSRAM (QSPI memory space) ---
 #define PSRAM_IN(n)  (*(volatile uint32_t *)(0x01001000UL + (n) * 4))

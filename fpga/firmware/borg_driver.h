@@ -8,11 +8,7 @@
 #include <stdint.h>
 #include "borg_fpu.h"
 
-// FP16 constants
-#define FP16_ONE  0x3C00
-#define FP16_HALF 0x3800
-#define FP16_ZERO 0x0000
-#define FP16_MAX_DEPTH 0x7BFF  // max finite FP16 (65504)
+// FP16 constants from borg_fpu.h (single source of truth)
 
 // Vertex with position, color, and optional UV (all FP16)
 typedef struct {

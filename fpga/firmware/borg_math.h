@@ -106,9 +106,7 @@ static inline fp16_t fp16_recip(fp16_t x) {
     return fixed_to_fp16(result);
 }
 
-// FP16 constants
-#define FP16_ZERO     0x0000
-#define FP16_ONE      0x3C00
+// FP16 math constants (FP16_ZERO, FP16_ONE etc. are in borg_fpu.h)
 #define FP16_PI       0x4248  // 3.14062
 #define FP16_HALF_PI  0x3E48  // 1.57031
 #define FP16_TWO_PI   0x4648  // 6.28125

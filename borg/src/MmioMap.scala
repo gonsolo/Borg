@@ -99,6 +99,13 @@ object MmioMap {
   val BORG_IMEM_OFFSET    = 32  // Instruction memory base (4 × 16-bit)
   val BORG_CONTROL_OFFSET = 60  // Control / status register
 
+  // Borg control register bits (write to BORG_CONTROL)
+  val BORG_CTL_START = 1  // bit 0: start execution
+  val BORG_CTL_RESET = 2  // bit 1: reset pipeline
+
+  // Borg status register bits (read from BORG_STATUS)
+  val BORG_STS_IDLE  = 2  // bit 1: pipeline idle (not running)
+
   // --- PSRAM addresses (QSPI memory space, not peripheral space) ---
   val PSRAM_BASE       = 0x01001000  // CPU address
   val PSRAM_SPI_BASE   = 0x001000    // SPI/QSPI address (24-bit)
@@ -135,6 +142,9 @@ object MmioMap {
     w.println(f"#define BORG_IMEM(n)    (*(volatile uint32_t *)(BORG_BASE + ${BORG_IMEM_OFFSET} + (n) * 4))")
     w.println(f"#define BORG_CONTROL    (*(volatile uint32_t *)(BORG_BASE + ${BORG_CONTROL_OFFSET}))")
     w.println(f"#define BORG_STATUS     (*(volatile uint32_t *)(BORG_BASE + ${BORG_CONTROL_OFFSET}))")
+    w.println(f"#define BORG_CTL_START  $BORG_CTL_START  // write: start execution")
+    w.println(f"#define BORG_CTL_RESET  $BORG_CTL_RESET  // write: reset pipeline")
+    w.println(f"#define BORG_STS_IDLE   $BORG_STS_IDLE  // read: pipeline idle")
     w.println()
 
     w.println("// --- PSRAM (QSPI memory space) ---")
