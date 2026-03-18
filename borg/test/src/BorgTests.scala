@@ -320,5 +320,249 @@ object BorgTests extends TestSuite {
         println("--- Done ---\n")
       }
     }
+
+    // =====================================================================
+    // NEW TEST GROUP 1: Individual instruction isolation (FP16)
+    // Quick, targeted verification of each op with known inputs.
+    // =====================================================================
+    utest.test("individual_instruction_fp16_tests") {
+      val config = FloatConfig.FP16
+      simulate(new Borg(config)) { borg =>
+        println("\n=== Individual Instruction FP16 Tests ===")
+
+        // ADD: 1.0 + 2.0 = 3.0
+        runTest(borg, config, ADD, 1.0f, 2.0f)
+        // ADD: -3.0 + 3.0 = 0.0
+        runTest(borg, config, ADD, -3.0f, 3.0f)
+        // ADD: 0.5 + 0.25 = 0.75
+        runTest(borg, config, ADD, 0.5f, 0.25f)
+
+        // MUL: 3.0 × 4.0 = 12.0
+        runTest(borg, config, MUL, 3.0f, 4.0f)
+        // MUL: -2.0 × 3.0 = -6.0
+        runTest(borg, config, MUL, -2.0f, 3.0f)
+        // MUL: 0.5 × 0.5 = 0.25
+        runTest(borg, config, MUL, 0.5f, 0.5f)
+
+        // FMA: 2.0 × 3.0 + 1.0 = 7.0
+        runTest(borg, config, FMA(3), 2.0f, 3.0f, 1.0f)
+        // FMA: 4.0 × 0.5 + (-2.0) = 0.0
+        runTest(borg, config, FMA(3), 4.0f, 0.5f, -2.0f)
+
+        // FNEG: -(5.0) = -5.0
+        runTest(borg, config, FNEG, 5.0f, 0f)
+        // FNEG: -(-3.0) = 3.0
+        runTest(borg, config, FNEG, -3.0f, 0f)
+
+        // FSTEP: -1.0 → 0.0
+        runTest(borg, config, FSTEP, -1.0f, 0f)
+        // FSTEP: +1.0 → 1.0
+        runTest(borg, config, FSTEP, 1.0f, 0f)
+
+        println("=== Individual Instruction FP16 Tests Passed ===\n")
+      }
+    }
+
+    // =====================================================================
+    // NEW TEST GROUP 2: Edge-case inputs (FP16)
+    // Tests boundary values: zero, near-overflow, very small, neg-zero.
+    // =====================================================================
+    utest.test("edge_case_tests") {
+      val config = FloatConfig.FP16
+      simulate(new Borg(config)) { borg =>
+        println("\n=== Edge Case Tests ===")
+
+        // --- Zero behavior ---
+        // MUL: 0.0 × 42.0 = 0.0
+        runTest(borg, config, MUL, 0.0f, 42.0f)
+        // ADD: 0.0 + 0.0 = 0.0
+        runTest(borg, config, ADD, 0.0f, 0.0f)
+        // ADD: 0.0 + 7.5 = 7.5
+        runTest(borg, config, ADD, 0.0f, 7.5f)
+
+        // --- Near-max FP16 values ---
+        // ADD: 30000 + 30000 = 60000 (within FP16 max 65504)
+        runTest(borg, config, ADD, 30000f, 30000f)
+        // MUL: 100 × 100 = 10000
+        runTest(borg, config, MUL, 100f, 100f)
+
+        // --- Very small values ---
+        // ADD: 0.01 + 0.01 ≈ 0.02
+        runTest(borg, config, ADD, 0.01f, 0.01f)
+        // MUL: 0.1 × 0.1 = 0.01
+        runTest(borg, config, MUL, 0.1f, 0.1f)
+
+        // --- FNEG of zero ---
+        // FNEG(0.0) — hardware XORs sign bit
+        runTest(borg, config, FNEG, 0.0f, 0f)
+
+        // --- FSTEP boundaries ---
+        // FSTEP(0.0) → 0.0 (zero is ≤ 0)
+        runTest(borg, config, FSTEP, 0.0f, 0f)
+        // FSTEP with small positive FP16 value → 1.0
+        runTest(borg, config, FSTEP, 0.01f, 0f)
+        // FSTEP with small negative → 0.0
+        runTest(borg, config, FSTEP, -0.01f, 0f)
+
+        // --- Mixed sign operations ---
+        // ADD: -100.0 + 100.0 = 0.0
+        runTest(borg, config, ADD, -100.0f, 100.0f)
+        // MUL: -1.0 × -1.0 = 1.0
+        runTest(borg, config, MUL, -1.0f, -1.0f)
+
+        println("=== Edge Case Tests Passed ===\n")
+      }
+    }
+
+    // =====================================================================
+    // NEW TEST GROUP 3: MMIO register read/write round-trip (FP16)
+    // Verifies the memory-mapped interface for register file and control.
+    // =====================================================================
+    utest.test("mmio_register_tests") {
+      val config = FloatConfig.FP16
+      simulate(new Borg(config)) { borg =>
+        println("\n=== MMIO Register Tests ===")
+
+        // --- Round-trip: write and read back all 8 registers ---
+        resetAndWait(borg)
+        val testValues = Seq(1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f)
+        for (r <- 0 until 8) {
+          writeAddr(borg, r * 4, floatToBits(testValues(r), config))
+        }
+        for (r <- 0 until 8) {
+          val readBack = readAddr(borg, r * 4, config)
+          assertResult(readBack, testValues(r), config, s"reg$r round-trip")
+        }
+        println("  Register round-trip: PASSED")
+
+        // --- Status register: idle when not running ---
+        borg.io.address.poke(60.U)
+        borg.io.data_read_n.poke(2.U)
+        borg.io.data_write_n.poke(3.U)
+        borg.clock.step(1)
+        val status = borg.io.data_out.peek().litValue
+        borg.io.data_read_n.poke(3.U)
+        // Bit 1 = idle flag (should be set when not running)
+        Predef.assert((status & 2) != 0, s"Expected idle bit set, got status=$status")
+        println(s"  Status register (idle): 0x${status.toString(16)} — PASSED")
+
+        // --- Verify IMEM write → execute → correct result ---
+        // Write r0=10.0, r1=5.0, program: ADD r2=r0+r1, check r2=15.0
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(10.0f, config))   // r0
+        writeAddr(borg, 4, floatToBits(5.0f, config))    // r1
+        val addInstr = encodeInstruction(config, ADD, rs1 = 0, rs2 = 1, rd = 2)
+        writeAddr(borg, 32, addInstr)  // imem[0]
+        writeAddr(borg, 36, 0)         // halt
+        startAndWaitForHalt(borg)
+        val r2 = readAddr(borg, 8, config)
+        assertResult(r2, 15.0f, config, "IMEM write → execute (10+5)")
+        println("  IMEM write → execute: PASSED")
+
+        println("=== MMIO Register Tests Passed ===\n")
+      }
+    }
+
+    // =====================================================================
+    // NEW TEST GROUP 4: Pipeline / multi-instruction programs (FP16)
+    // Tests data-dependency chains and full IMEM capacity.
+    // =====================================================================
+    utest.test("pipeline_tests") {
+      val config = FloatConfig.FP16
+      simulate(new Borg(config)) { borg =>
+        println("\n=== Pipeline Tests ===")
+
+        // --- Test 1: 3-instruction chain with data dependencies ---
+        // r0=2.0, r1=3.0
+        // imem[0]: ADD r2 = r0 + r1      → 5.0
+        // imem[1]: MUL r3 = r2 × r0      → 10.0
+        // imem[2]: ADD r4 = r3 + r1      → 13.0
+        // imem[3]: halt
+        println("  Test 1: 3-instruction dependency chain")
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(2.0f, config))   // r0
+        writeAddr(borg, 4, floatToBits(3.0f, config))    // r1
+        val i0 = encodeInstruction(config, ADD, rs1 = 0, rs2 = 1, rd = 2)
+        val i1 = encodeInstruction(config, MUL, rs1 = 2, rs2 = 0, rd = 3)
+        val i2 = encodeInstruction(config, ADD, rs1 = 3, rs2 = 1, rd = 4)
+        writeAddr(borg, 32, i0)
+        writeAddr(borg, 36, i1)
+        writeAddr(borg, 40, i2)
+        writeAddr(borg, 44, 0)  // halt
+        startAndWaitForHalt(borg)
+        assertResult(readAddr(borg, 8, config), 5.0f, config, "chain: r2 = 2+3")
+        assertResult(readAddr(borg, 12, config), 10.0f, config, "chain: r3 = 5×2")
+        assertResult(readAddr(borg, 16, config), 13.0f, config, "chain: r4 = 10+3")
+        println("  Dependency chain: PASSED")
+
+        // --- Test 2: Full 6-instruction IMEM (max capacity) ---
+        // r0=1.0
+        // imem[0]: ADD r1 = r0 + r0      → 2.0
+        // imem[1]: ADD r2 = r1 + r0      → 3.0
+        // imem[2]: ADD r3 = r2 + r0      → 4.0
+        // imem[3]: ADD r4 = r3 + r0      → 5.0
+        // imem[4]: ADD r5 = r4 + r0      → 6.0
+        // imem[5]: halt
+        println("  Test 2: Full IMEM capacity (5 instructions + halt)")
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(1.0f, config))
+        writeAddr(borg, 32, encodeInstruction(config, ADD, rs1 = 0, rs2 = 0, rd = 1))
+        writeAddr(borg, 36, encodeInstruction(config, ADD, rs1 = 1, rs2 = 0, rd = 2))
+        writeAddr(borg, 40, encodeInstruction(config, ADD, rs1 = 2, rs2 = 0, rd = 3))
+        writeAddr(borg, 44, encodeInstruction(config, ADD, rs1 = 3, rs2 = 0, rd = 4))
+        writeAddr(borg, 48, encodeInstruction(config, ADD, rs1 = 4, rs2 = 0, rd = 5))
+        writeAddr(borg, 52, 0)  // halt in slot 5
+        startAndWaitForHalt(borg)
+        assertResult(readAddr(borg, 4, config), 2.0f, config, "imem full: r1=2")
+        assertResult(readAddr(borg, 8, config), 3.0f, config, "imem full: r2=3")
+        assertResult(readAddr(borg, 12, config), 4.0f, config, "imem full: r3=4")
+        assertResult(readAddr(borg, 16, config), 5.0f, config, "imem full: r4=5")
+        assertResult(readAddr(borg, 20, config), 6.0f, config, "imem full: r5=6")
+        println("  Full IMEM: PASSED")
+
+        // --- Test 3: Reset clears execution state ---
+        // After running a program, reset, load a different program, run again
+        println("  Test 3: Reset-and-rerun")
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(100.0f, config))
+        writeAddr(borg, 4, floatToBits(50.0f, config))
+        writeAddr(borg, 32, encodeInstruction(config, MUL, rs1 = 0, rs2 = 1, rd = 2))
+        writeAddr(borg, 36, 0)
+        startAndWaitForHalt(borg)
+        assertResult(readAddr(borg, 8, config), 5000.0f, config, "pre-reset: 100×50")
+
+        // Now reset and run a different computation
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(7.0f, config))
+        writeAddr(borg, 4, floatToBits(3.0f, config))
+        writeAddr(borg, 32, encodeInstruction(config, ADD, rs1 = 0, rs2 = 1, rd = 2))
+        writeAddr(borg, 36, 0)
+        startAndWaitForHalt(borg)
+        assertResult(readAddr(borg, 8, config), 10.0f, config, "post-reset: 7+3")
+        println("  Reset-and-rerun: PASSED")
+
+        // --- Test 4: Mixed operation types in single program ---
+        // r0=4.0, r1=2.0
+        // imem[0]: MUL r2 = r0 × r1       → 8.0
+        // imem[1]: ADD r3 = r2 + r0        → 12.0
+        // imem[2]: FNEG r4 = -r3           → -12.0
+        // imem[3]: halt
+        println("  Test 4: Mixed ops (MUL → ADD → FNEG)")
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(4.0f, config))
+        writeAddr(borg, 4, floatToBits(2.0f, config))
+        writeAddr(borg, 32, encodeInstruction(config, MUL, rs1 = 0, rs2 = 1, rd = 2))
+        writeAddr(borg, 36, encodeInstruction(config, ADD, rs1 = 2, rs2 = 0, rd = 3))
+        writeAddr(borg, 40, encodeInstruction(config, FNEG, rs1 = 3, rs2 = 0, rd = 4))
+        writeAddr(borg, 44, 0)
+        startAndWaitForHalt(borg)
+        assertResult(readAddr(borg, 8, config), 8.0f, config, "mixed: r2=4×2")
+        assertResult(readAddr(borg, 12, config), 12.0f, config, "mixed: r3=8+4")
+        assertResult(readAddr(borg, 16, config), -12.0f, config, "mixed: r4=-12")
+        println("  Mixed ops: PASSED")
+
+        println("=== Pipeline Tests Passed ===\n")
+      }
+    }
   }
 }
