@@ -70,6 +70,18 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
   val is_csr_set = is_csr && io.alu_op(1, 0) === "b10".U
   val is_csr_clear = is_csr && io.alu_op(1, 0) === "b11".U
 
+  // CSR write/set/clear helpers
+  def csrUpdate(reg: UInt, data: UInt): Unit = {
+    when(is_csr_write) { reg := data }
+    .elsewhen(is_csr_set) { reg := reg | data }
+    .elsewhen(is_csr_clear) { reg := reg & ~data }
+  }
+  def csrUpdateBit(reg: Bool, dataBit: Bool): Unit = {
+    when(is_csr_write) { reg := dataBit }
+    .elsewhen(is_csr_set && dataBit) { reg := true.B }
+    .elsewhen(is_csr_clear && dataBit) { reg := false.B }
+  }
+
   val is_slt = io.alu_op(3, 1) === "b001".U
   val alu_cycles = is_slt || is_shift
 
@@ -318,13 +330,9 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     mstatus_mie := mstatus_mpie
   }.elsewhen(io.imm_lo === "h300".U) {
     when(io.counter === 0.U) {
-      when(is_csr_write) { mstatus_mie := data_rs1(3) }
-      .elsewhen(is_csr_set && data_rs1(3)) { mstatus_mie := true.B }
-      .elsewhen(is_csr_clear && data_rs1(3)) { mstatus_mie := false.B }
+      csrUpdateBit(mstatus_mie, data_rs1(3))
     }.elsewhen(io.counter === 1.U) {
-      when(is_csr_write) { mstatus_mpie := data_rs1(3) }
-      .elsewhen(is_csr_set && data_rs1(3)) { mstatus_mpie := true.B }
-      .elsewhen(is_csr_clear && data_rs1(3)) { mstatus_mpie := false.B }
+      csrUpdateBit(mstatus_mpie, data_rs1(3))
     }
   }
 
@@ -347,39 +355,27 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     mip_reg := 0.U
   } .elsewhen (io.counter === 1.U) {
     when (io.imm_lo === "h304".U) {
-      when (is_csr_write) { mie_16 := data_rs1(3) }
-      .elsewhen (is_csr_set) { mie_16 := mie_16 | data_rs1(3) }
-      .elsewhen (is_csr_clear) { mie_16 := mie_16 & ~data_rs1(3) }
+      csrUpdateBit(mie_16, data_rs1(3))
     }
   } .elsewhen (io.counter === 4.U) {
     when (io.imm_lo === "h304".U) {
-      when (is_csr_write) { mie_3_0 := data_rs1 }
-      .elsewhen (is_csr_set) { mie_3_0 := mie_3_0 | data_rs1 }
-      .elsewhen (is_csr_clear) { mie_3_0 := mie_3_0 & ~data_rs1 }
+      csrUpdate(mie_3_0, data_rs1)
     } .elsewhen (io.imm_lo === "h344".U) {
-      when (is_csr_write) { mip_reg := data_rs1(1, 0) }
-      .elsewhen (is_csr_set) { mip_reg := mip_reg | data_rs1(1, 0) }
-      .elsewhen (is_csr_clear) { mip_reg := mip_reg & ~data_rs1(1, 0) }
+      csrUpdate(mip_reg, data_rs1(1, 0))
     }
   } .elsewhen (io.counter === 5.U) {
     last_interrupt_req := io.interrupt_req(1, 0)
     mip_reg := mip_reg | (io.interrupt_req(1, 0) & ~last_interrupt_req)
     when (io.imm_lo === "h304".U) {
-      when (is_csr_write) { mie_7_4 := data_rs1 }
-      .elsewhen (is_csr_set) { mie_7_4 := mie_7_4 | data_rs1 }
-      .elsewhen (is_csr_clear) { mie_7_4 := mie_7_4 & ~data_rs1 }
+      csrUpdate(mie_7_4, data_rs1)
     }
   } .elsewhen (io.counter === 6.U) {
     when (io.imm_lo === "h304".U) {
-      when (is_csr_write) { mie_11_8 := data_rs1 }
-      .elsewhen (is_csr_set) { mie_11_8 := mie_11_8 | data_rs1 }
-      .elsewhen (is_csr_clear) { mie_11_8 := mie_11_8 & ~data_rs1 }
+      csrUpdate(mie_11_8, data_rs1)
     }
   } .elsewhen (io.counter === 7.U) {
     when (io.imm_lo === "h304".U) {
-      when (is_csr_write) { mie_15_12 := data_rs1 }
-      .elsewhen (is_csr_set) { mie_15_12 := mie_15_12 | data_rs1 }
-      .elsewhen (is_csr_clear) { mie_15_12 := mie_15_12 & ~data_rs1 }
+      csrUpdate(mie_15_12, data_rs1)
     }
   }
 
