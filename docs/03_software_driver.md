@@ -1,7 +1,7 @@
 # The Software Driver
 
 The firmware running on TinyQV provides a Vulkan-like API for rendering triangles.
-It consists of a driver library (`borg_driver.c`, `borg_fpu.c`, `borg_raster.c`) and an application (`triangle.c`).
+It consists of a driver library (`borg_driver.c`, `borg_fpu.c`, `borg_raster.c`) and an application (`borg_triangle.c`).
 
 ## Memory-Mapped Hardware
 
@@ -145,7 +145,7 @@ texturing and z-buffering. The front triangle uses per-vertex color
 interpolation, while the back triangle is textured with a 32×32
 RGBW test pattern:
 
-{{snippet:fpga/firmware/triangle.c:triangle-app}}
+{{snippet:fpga/firmware/borg_triangle.c:triangle-app}}
 
 The front triangle's color-interpolated RGB appears in the center,
 while the back triangle's RGBW texture is visible around the edges.

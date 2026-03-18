@@ -6,7 +6,7 @@
 #include "borg_raster.h"
 #include "borg_fpu.h"
 #include "borg_spirb.h"
-#include "mmio.h"
+#include "borg_mmio.h"
 
 #define NUM_VERTICES 3
 
