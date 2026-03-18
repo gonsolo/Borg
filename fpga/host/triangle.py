@@ -49,6 +49,11 @@ def qspi_write():
     out(pins, 8).side(1)
     out(pindirs, 8).side(1)
 
+# Map a 4-bit data nibble to the 8-pin PIO byte for QSPI bus.
+# Pins: SD3(7), RAMB(6), SD2(5), RAMA(4), SD0(3), SCK(2-sideset), CS(1), SD1(0)
+def qpi_nibble(n):
+    return ((n & 8) << 4) | (1 << 6) | ((n & 4) << 3) | (0 << 4) | ((n & 1) << 3) | (1 << 1) | ((n & 2) >> 1)
+
 # This function formats the Quad-SPI write protocol (command and address) and feeds it to the PIO hardware engine.
 def qpi_write(sm, addr, data_bytes):
     # Setup the PIO state machine for a Write (0x02) in QPI mode
@@ -62,9 +67,6 @@ def qpi_write(sm, addr, data_bytes):
     # pindirs
     sm.put(0b11111111) 
     
-    def qpi_nibble(n):
-        return ((n & 8) << 4) | (1 << 6) | ((n & 4) << 3) | (0 << 4) | ((n & 1) << 3) | (1 << 1) | ((n & 2) >> 1)
-        
     sm.put(qpi_nibble(0))
     sm.put(qpi_nibble(0x2))
     sm.put(qpi_nibble((addr >> 20) & 0xF))
@@ -124,14 +126,6 @@ def qpi_read(sm, addr, num_bytes):
     # pindirs
     sm.put(0b11111111) 
     
-    # 8 Cmd nibbles (Fast Read 0x0B + 24-bit addr)
-    # Each byte to PIO sets the 8 pins.
-    # Pins: SD3(7), RAMB(6), SD2(5), RAMA(4), SD0(3), SCK(2-sideset), CS(1), SD1(0)
-    # We want RAM_A_SEL(4)=0, CS(1)=1
-    
-    def qpi_nibble(n):
-        return ((n & 8) << 4) | (1 << 6) | ((n & 4) << 3) | (0 << 4) | ((n & 1) << 3) | (1 << 1) | ((n & 2) >> 1)
-        
     sm.put(qpi_nibble(0))
     sm.put(qpi_nibble(0xB))
     sm.put(qpi_nibble((addr >> 20) & 0xF))
