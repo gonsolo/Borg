@@ -31,9 +31,34 @@ class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
   val user_interrupt = Output(Bool())
 }
 
-/** Borg is a minimal shading processor with instruction memory and a program
-  * counter. It executes floating-point FMA instructions in a 4-cycle
-  * pipeline.
+/** Borg — minimal FP16 shading processor with 4-cycle FMA pipeline.
+  *
+  * == Instruction Format (FP16, 16-bit) ==
+  *
+  * {{{
+  *   Op     Encoding [15:0]                         Semantics
+  *   ───────────────────────────────────────────────────────────────
+  *   ADD    00_xx_ssss_rrrr_dddd                     rd = rs1 + rs2
+  *   MUL    01_xx_ssss_rrrr_dddd                     rd = rs1 × rs2
+  *   FMA    10_cc_ssss_rrrr_dddd                     rd = rs1 × rs2 + rs3
+  *   FNEG   11_00_xxxx_rrrr_dddd                     rd = −rs1
+  *   FSTEP  11_01_xxxx_rrrr_dddd                     rd = (rs1 > 0) ? 1.0 : 0.0
+  *   HALT   0000_0000_0000_0000                      stop execution
+  *
+  *   d[3:0]=rd, r[7:4]=rs1, s[11:8]=rs2, c[13:12]=rs3(FMA only)
+  * }}}
+  *
+  * == Pipeline (4 cycles per instruction) ==
+  *
+  *   - Cycle 1: Fetch instruction, read rs1/rs2/rs3 from register file
+  *   - Cycles 2–3: FMA unit computes result
+  *   - Cycle 4: Write-back to rd
+  *
+  * == MMIO Interface ==
+  *
+  *   - Registers 0–28 (8 words): read/write register file r0–r7
+  *   - IMEM 32–52 (6 words): write instruction memory
+  *   - Control/Status 60: write bit 0 = start, bit 1 = reset; read bit 1 = idle
   */
 class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val io = IO(new BorgIO(config))
