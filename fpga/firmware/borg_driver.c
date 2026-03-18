@@ -235,30 +235,35 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
   compute_edge_vectors(spos, edges);
   puts_uart("F\r\n");
 
-  // Rasterize + fragment shade
-  for (int py = 0; py < BORG_FB_HEIGHT; py++) {
-    for (int px = 0; px < BORG_FB_WIDTH; px++) {
-      uv16_t pc = { pc_lut[px], pc_lut[py] };
-      uv16_t deltas[3];
-      compute_pixel_deltas(pc, spos, deltas);
-      rgb16_t color = {0, 0, 0};
-      fp16_t z = 0;
-      uv16_t uv_interp = {0, 0};
-      fp16_t z_vals[3] = { vertices[0].pos[2], vertices[1].pos[2], vertices[2].pos[2] };
-      const uv16_t *uvs = 0;
-      uv16_t uv_vals[3];
-      if (tex.psram_offset >= 0) {
-        for (int i = 0; i < 3; i++) {
-          uv_vals[i] = (uv16_t){ vertices[i].uv[0], vertices[i].uv[1] };
+  // Rasterize + fragment shade in 4x4 Blocks
+  const int BLOCK_SIZE = 4;
+  for (int by = 0; by < BORG_FB_HEIGHT; by += BLOCK_SIZE) {
+    for (int bx = 0; bx < BORG_FB_WIDTH; bx += BLOCK_SIZE) {
+      for (int py = by; py < by + BLOCK_SIZE && py < BORG_FB_HEIGHT; py++) {
+        for (int px = bx; px < bx + BLOCK_SIZE && px < BORG_FB_WIDTH; px++) {
+          uv16_t pc = { pc_lut[px], pc_lut[py] };
+          uv16_t deltas[3];
+          compute_pixel_deltas(pc, spos, deltas);
+          rgb16_t color = {0, 0, 0};
+          fp16_t z = 0;
+          uv16_t uv_interp = {0, 0};
+          fp16_t z_vals[3] = { vertices[0].pos[2], vertices[1].pos[2], vertices[2].pos[2] };
+          const uv16_t *uvs = 0;
+          uv16_t uv_vals[3];
+          if (tex.psram_offset >= 0) {
+            for (int i = 0; i < 3; i++) {
+              uv_vals[i] = (uv16_t){ vertices[i].uv[0], vertices[i].uv[1] };
+            }
+            uvs = uv_vals;
+          }
+          int visible = borg_bary_rgb(&rast_shader, &frag_shader,
+                         edges, deltas,
+                         inv_area, colors, z_vals, uvs,
+                         &color, &z, &uv_interp);
+          if (visible)
+            shade_and_write_pixel(frame, px, py, color, z, uv_interp, &tex);
         }
-        uvs = uv_vals;
       }
-      int visible = borg_bary_rgb(&rast_shader, &frag_shader,
-                     edges, deltas,
-                     inv_area, colors, z_vals, uvs,
-                     &color, &z, &uv_interp);
-      if (visible)
-        shade_and_write_pixel(frame, px, py, color, z, uv_interp, &tex);
     }
   }
   t_draw_cycles += get_cycles() - t_start;
