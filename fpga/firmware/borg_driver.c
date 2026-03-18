@@ -265,6 +265,12 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
 }
 
 void borg_present(int frame) {
+  // Wait for the GPU to finish the last draw command before finalizing the frame!
+  unsigned int t_wait = get_cycles();
+  while (!(BORG_STATUS & BORG_STS_IDLE))
+    ;
+  t_draw_cycles += get_cycles() - t_wait;
+
   int base = frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE;
   PSRAM_OUT(base)     = DONE_MARKER;
   PSRAM_OUT(base + 1) = t_init_cycles & 0xFFFF;

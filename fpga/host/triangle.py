@@ -327,9 +327,9 @@ def render_all_frames():
     del sm_w
     print("Sent resolution %dx%d to PSRAM in %d ms" % (WIDTH, HEIGHT, time.ticks_diff(time.ticks_ms(), t_psram)))
 
-    # Boot FPGA, run for 8s (~3.5s startup + ~1.5s rendering), then tear down
+    # Boot FPGA, run for 25s (the second textured triangle takes ~20s in hardware!), then tear down
     t_fpga = time.ticks_ms()
-    clk_pwm, ice_creset_b = fpga_boot(run_seconds=8)
+    clk_pwm, ice_creset_b = fpga_boot(run_seconds=25)
     fpga_teardown(clk_pwm, ice_creset_b)
     print("FPGA boot/run/teardown took %d ms" % time.ticks_diff(time.ticks_ms(), t_fpga))
 
