@@ -101,6 +101,19 @@ static void run_vertex_shader(const fp16_t *uniforms,
 
 // --- Public API ---
 
+static inline uint32_t morton_interleave(uint32_t x) {
+  x = (x | (x << 8)) & 0x00FF00FF;
+  x = (x | (x << 4)) & 0x0F0F0F0F;
+  x = (x | (x << 2)) & 0x33333333;
+  x = (x | (x << 1)) & 0x55555555;
+  return x;
+}
+
+static inline uint32_t morton_encode(uint32_t x, uint32_t y) {
+  return morton_interleave(x) | (morton_interleave(y) << 1);
+}
+
+// Small delay loop necessary to wait for system/Pico to be fully ready
 void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
                const uint8_t *rast_blob, unsigned int rast_len,
                const uint8_t *frag_blob, unsigned int frag_len) {
@@ -188,7 +201,8 @@ static void shade_and_write_pixel(int frame, int px, int py,
     texcoord_t tc = uv_to_texcoord(uv_interp, t->w_fp16, t->h_fp16);
     if (tc.x >= t->size.w)  tc.x = t->size.w - 1;
     if (tc.y >= t->size.h) tc.y = t->size.h - 1;
-    int texel = t->psram_offset + (tc.y * t->size.w + tc.x) * 3;
+    int morton_idx = morton_encode(tc.x, tc.y);
+    int texel = t->psram_offset + morton_idx * 3;
     color = fb_read_texel(texel);
   }
 

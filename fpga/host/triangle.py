@@ -315,11 +315,35 @@ def render_all_frames():
         import struct
         with open('firmware/test_texture.dat', 'rb') as f:
             tex_data = f.read()
-        n_words = len(tex_data) // 2
-        for i in range(n_words):
-            word = struct.unpack_from('<H', tex_data, i * 2)[0]
-            qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + i) * 4, word)
-        print("Uploaded texture: %d words to PSRAM offset %d" % (n_words, TEX_PSRAM_OFFSET))
+        
+        TEX_WIDTH = 32
+        TEX_HEIGHT = 32
+        
+        def morton_interleave(n):
+            n = (n | (n << 8)) & 0x00FF00FF
+            n = (n | (n << 4)) & 0x0F0F0F0F
+            n = (n | (n << 2)) & 0x33333333
+            n = (n | (n << 1)) & 0x55555555
+            return n
+
+        def morton_encode(x, y):
+            return morton_interleave(x) | (morton_interleave(y) << 1)
+
+        total_words = TEX_WIDTH * TEX_HEIGHT * 3
+        for y in range(TEX_HEIGHT):
+            for x in range(TEX_WIDTH):
+                src_idx = y * TEX_WIDTH + x
+                dst_idx = morton_encode(x, y)
+                
+                # Fetch RGB from tex_data linear array
+                r = struct.unpack_from('<H', tex_data, (src_idx * 3 + 0) * 2)[0]
+                g = struct.unpack_from('<H', tex_data, (src_idx * 3 + 1) * 2)[0]
+                b = struct.unpack_from('<H', tex_data, (src_idx * 3 + 2) * 2)[0]
+                
+                qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * 3 + 0) * 4, r)
+                qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * 3 + 1) * 4, g)
+                qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * 3 + 2) * 4, b)
+        print("Uploaded texture: %d words to PSRAM offset %d in Morton order" % (total_words, TEX_PSRAM_OFFSET))
     except Exception as e:
         print("WARNING: Could not load texture: %s" % e)
 
