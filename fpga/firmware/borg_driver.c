@@ -1,9 +1,11 @@
 // SPDX-FileCopyrightText: © 2025-2026 Andreas Wendleder
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Borg GPU driver implementation.
+// Borg GPU driver — pipeline orchestration, hardware init, draw commands.
 
-#include "driver.h"
+#include "borg_driver.h"
+#include "borg_fpu.h"
+#include "borg_raster.h"
 #include "borg_math.h"
 #include "spirb.h"
 
@@ -12,9 +14,6 @@
 // @doc:end
 
 #define FP16_SIXTEEN 0x4C00
-
-typedef struct { uint16_t r, g, b; } rgb16_t;
-typedef struct { uint16_t u, v; } uv16_t;
 
 static inline void fb_write_pixel(int base, rgb16_t c) {
   PSRAM_OUT(base + 0) = c.r;
@@ -26,7 +25,6 @@ static inline rgb16_t fb_read_texel(int base) {
   return (rgb16_t){ PSRAM_IN(base + 0), PSRAM_IN(base + 1), PSRAM_IN(base + 2) };
 }
 
-typedef struct { int x, y; } texcoord_t;
 typedef struct { int w, h; } dim2_t;
 
 typedef struct {
@@ -57,101 +55,10 @@ static void puts_uart(const char *s) {
     putc_uart(*s++);
 }
 
-
-
-// @doc:fpu-helpers
-// --- Borg FPU helpers ---
-static void borg_run(void) {
-  BORG_CONTROL = 2;
-  (void)BORG_STATUS;
-  BORG_CONTROL = 1;
-  int timeout = 100000;
-  while (!(BORG_STATUS & 2) && timeout > 0)
-    timeout--;
-}
-
-static uint16_t borg_fp16_add(uint16_t a, uint16_t b) {
-  BORG_IMEM(0) = 0x0210;
-  BORG_IMEM(1) = 0x0000;
-  BORG_REG(1) = a;
-  BORG_REG(2) = b;
-  borg_run();
-  return BORG_REG(0) & 0xFFFF;
-}
-
-#define BORG_FP16_SUB(a, b) borg_fp16_add((a), (b) ^ 0x8000)
-#define BORG_FP16_NEG(x) ((x) ^ 0x8000)
-#define FP16_TWO  0x4000
-
-static uint16_t borg_fp16_mul(uint16_t a, uint16_t b) {
-  // fmul r0, r1, r2: [15:14]=01, [11:8]=r2, [7:4]=r1, [3:0]=r0
-  BORG_IMEM(0) = 0x4210;
-  BORG_IMEM(1) = 0x0000; // halt
-  BORG_REG(1) = a;
-  BORG_REG(2) = b;
-  borg_run();
-  return BORG_REG(0) & 0xFFFF;
-// @doc:end
-}
-
-static uint16_t borg_fp16_fmadd(uint16_t a, uint16_t b, uint16_t c) {
-  // fmadd r0, r1, r2, r3: [15:14]=10, [13:12]=r3(low2), [11:8]=r2, [7:4]=r1, [3:0]=r0
-  // r0 = r1 * r2 + r3
-  BORG_IMEM(0) = 0xB210;  // fmadd r0 = r1 * r2 + r3 (rs3=3 → bits[13:12]=11=3)
-  BORG_IMEM(1) = 0x0000;
-  BORG_REG(1) = a;
-  BORG_REG(2) = b;
-  BORG_REG(3) = c;
-  borg_run();
-  return BORG_REG(0) & 0xFFFF;
-}
-
-// FP16 reciprocal using Newton-Raphson: y = 1/x
-// Initial estimate via exponent flip, refined with 2 NR iterations.
-static uint16_t borg_fp16_rcp(uint16_t x) {
-  uint16_t sign = x & 0x8000;
-  uint16_t exp = (x >> 10) & 0x1F;
-  if (exp == 0 || exp == 31) return 0;
-  // Initial estimate: flip exponent around bias, zero mantissa
-  uint16_t est_exp = 30 - exp;
-  if (est_exp >= 31) return sign | 0x7C00;
-  uint16_t y = sign | (est_exp << 10);
-  // Newton-Raphson: y = y * (2 - x * y), 2 iterations
-  for (int i = 0; i < 2; i++) {
-    uint16_t xy = borg_fp16_mul(x, y);
-    uint16_t correction = BORG_FP16_SUB(FP16_TWO, xy);
-    y = borg_fp16_mul(y, correction);
-  }
-  return y;
-}
-
 // --- Shader globals ---
 static spirb_shader_t vert_shader;
 static spirb_shader_t rast_shader;
 static spirb_shader_t frag_shader;
-
-static void borg_load_spirb_shader(const spirb_shader_t *s) {
-  for (int i = 0; i < s->num_instrs; i++)
-    BORG_IMEM(i) = s->instrs[i];
-  BORG_IMEM(s->num_instrs) = 0x0000;
-}
-
-static void borg_load_add_shader(void) {
-  BORG_IMEM(0) = 0x0210;
-  BORG_IMEM(1) = 0x0000;
-  BORG_IMEM(2) = 0x0000;
-  BORG_IMEM(3) = 0x0000;
-}
-
-static uint16_t borg_fp16_sub_raw(uint16_t a, uint16_t b) {
-  BORG_REG(1) = a;
-  BORG_REG(2) = b ^ 0x8000;
-  borg_run();
-  return BORG_REG(0) & 0xFFFF;
-}
-
-
-
 
 // --- Vertex shader ---
 static void run_vertex_shader(const uint16_t *uniforms,
@@ -176,127 +83,6 @@ static void run_vertex_shader(const uint16_t *uniforms,
       outputs[v * s->num_outputs + i] = BORG_REG(s->output_regs[i]) & 0xFFFF;
   }
   puts_uart("D\r\n");
-}
-
-static void screen_space_translate(const uint16_t *vout, uv16_t *spos) {
-  int stride = vert_shader.num_outputs;
-  for (int v = 0; v < NUM_VERTICES; v++) {
-    spos[v] = (uv16_t){
-      borg_fp16_fmadd(vout[v * stride + 0], fp16_half_width, fp16_half_width),
-      borg_fp16_fmadd(vout[v * stride + 1], fp16_half_width, fp16_half_width)
-    };
-  }
-}
-
-static void compute_edge_vectors(const uv16_t *spos, uv16_t *edges) {
-  edges[0] = (uv16_t){
-    BORG_FP16_SUB(spos[1].u, spos[0].u),
-    BORG_FP16_NEG(BORG_FP16_SUB(spos[1].v, spos[0].v))
-  };
-  edges[1] = (uv16_t){
-    BORG_FP16_SUB(spos[2].u, spos[1].u),
-    BORG_FP16_NEG(BORG_FP16_SUB(spos[2].v, spos[1].v))
-  };
-  edges[2] = (uv16_t){
-    BORG_FP16_SUB(spos[0].u, spos[2].u),
-    BORG_FP16_NEG(BORG_FP16_SUB(spos[0].v, spos[2].v))
-  };
-  puts_uart("F\r\n");
-}
-
-static void compute_pixel_deltas(uv16_t pc, const uv16_t *spos,
-                                  uv16_t *deltas) {
-  borg_load_add_shader();
-  for (int e = 0; e < 3; e++) {
-    deltas[e] = (uv16_t){
-      borg_fp16_sub_raw(pc.u, spos[e].u),
-      borg_fp16_sub_raw(pc.v, spos[e].v)
-    };
-  }
-}
-
-static inline int fp16_ge_zero(uint16_t v) { return (v & 0x8000) == 0; }
-
-// Convert FP16 (positive) to unsigned integer (truncate)
-static int fp16_to_uint(uint16_t fp16) {
-  int exp = (fp16 >> 10) & 0x1F;
-  int frac = fp16 & 0x3FF;
-  if (exp < 15) return 0;  // value < 1.0, integer part is 0
-  if (exp == 0) return 0;  // zero/subnormal
-  int mantissa = 1024 + frac;  // 1.frac in Q10
-  int shift = exp - 15;       // number of integer bits
-  if (shift >= 10) return mantissa << (shift - 10);
-  return mantissa >> (10 - shift);
-}
-
-static inline texcoord_t uv_to_texcoord(uv16_t uv, uint16_t w_fp16, uint16_t h_fp16) {
-  return (texcoord_t){
-    fp16_to_uint(borg_fp16_mul(uv.u, w_fp16)),
-    fp16_to_uint(borg_fp16_mul(uv.v, h_fp16))
-  };
-}
-
-// Precomputed FP16 pixel center coordinates (computed at runtime)
-// pc_lut defined as global above
-
-// --- Rasterization ---
-static uint16_t borg_rasterize_edge(uint16_t dx_e, uint16_t neg_dy_e,
-                                     uint16_t dpx_e, uint16_t dpy_e) {
-  const spirb_shader_t *s = &rast_shader;
-  BORG_REG(s->attribute_regs[0]) = dx_e;
-  BORG_REG(s->attribute_regs[1]) = neg_dy_e;
-  BORG_REG(s->attribute_regs[2]) = dpx_e;
-  BORG_REG(s->attribute_regs[3]) = dpy_e;
-  borg_run();
-  return BORG_REG(s->output_regs[0]) & 0xFFFF;
-}
-
-static uint16_t __attribute__((noinline)) borg_frag_channel(
-    uint16_t e0, uint16_t e1, uint16_t e2,
-    uint16_t inv_area, uint16_t c0, uint16_t c1, uint16_t c2) {
-  BORG_REG(frag_shader.attribute_regs[0]) = e0;
-  BORG_REG(frag_shader.attribute_regs[1]) = e1;
-  BORG_REG(frag_shader.attribute_regs[2]) = e2;
-  BORG_REG(frag_shader.uniform_regs[0]) = inv_area;
-  BORG_REG(frag_shader.uniform_regs[1]) = c0;
-  BORG_REG(frag_shader.uniform_regs[2]) = c1;
-  BORG_REG(frag_shader.uniform_regs[3]) = c2;
-  borg_run();
-  return BORG_REG(frag_shader.output_regs[0]) & 0xFFFF;
-}
-
-static int __attribute__((noinline)) borg_bary_rgb(
-    const uv16_t *edges, const uv16_t *deltas,
-    uint16_t inv_area, uint16_t colors[3][3],
-    const uint16_t z_vals[3],
-    const uv16_t uvs[3],
-    rgb16_t *color_out,
-    uint16_t *z_out, uv16_t *uv_out) {
-  borg_load_spirb_shader(&rast_shader);
-  uint16_t e0 = borg_rasterize_edge(edges[0].u, edges[0].v, deltas[0].u, deltas[0].v);
-  uint16_t e1 = borg_rasterize_edge(edges[1].u, edges[1].v, deltas[1].u, deltas[1].v);
-  uint16_t e2 = borg_rasterize_edge(edges[2].u, edges[2].v, deltas[2].u, deltas[2].v);
-  if ((fp16_ge_zero(e0) && e0 != 0) ||
-      (fp16_ge_zero(e1) && e1 != 0) ||
-      (fp16_ge_zero(e2) && e2 != 0))
-    return 0;
-  borg_load_spirb_shader(&frag_shader);
-  color_out->r = borg_frag_channel(e0, e1, e2, inv_area,
-                              colors[0][0], colors[1][0], colors[2][0]);
-  color_out->g = borg_frag_channel(e0, e1, e2, inv_area,
-                              colors[0][1], colors[1][1], colors[2][1]);
-  color_out->b = borg_frag_channel(e0, e1, e2, inv_area,
-                              colors[0][2], colors[1][2], colors[2][2]);
-  *z_out = borg_frag_channel(e0, e1, e2, inv_area,
-                              z_vals[0], z_vals[1], z_vals[2]);
-  // UV interpolation (only when textured)
-  if (uvs) {
-    uv_out->u = borg_frag_channel(e0, e1, e2, inv_area,
-                                uvs[0].u, uvs[1].u, uvs[2].u);
-    uv_out->v = borg_frag_channel(e0, e1, e2, inv_area,
-                                uvs[0].v, uvs[1].v, uvs[2].v);
-  }
-  return 1;
 }
 
 // --- Public API ---
@@ -358,17 +144,6 @@ void borg_clear_zbuffer(int frame) {
     PSRAM_OUT(zb_offset + i) = FP16_MAX_DEPTH;
 }
 
-// Convert integer to FP16 (for small positive integers)
-static uint16_t uint_to_fp16(int val) {
-  if (val == 0) return 0;
-  int exp = 25;  // bias(15) + Q10 offset(10)
-  int mantissa = val;
-  // Normalize: shift until mantissa is in [1024, 2048)
-  while (mantissa >= 2048) { mantissa >>= 1; exp++; }
-  while (mantissa < 1024)  { mantissa <<= 1; exp--; }
-  return (uint16_t)((exp << 10) | (mantissa & 0x3FF));
-}
-
 void borg_set_texture(int psram_offset, int width, int height) {
   tex = (texture_t){
     .psram_offset = psram_offset,
@@ -424,7 +199,7 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
 
   // Screen-space translation
   uv16_t spos[3];
-  screen_space_translate(vout, spos);
+  screen_space_translate(&vert_shader, vout, spos, fp16_half_width);
 
   // Triangle setup: compute inv_area from screen-space positions
   // area = (sx1-sx0)*(sy2-sy0) - (sx2-sx0)*(sy1-sy0) (2D cross product)
@@ -439,6 +214,7 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
   // Edge vectors
   uv16_t edges[3];
   compute_edge_vectors(spos, edges);
+  puts_uart("F\r\n");
 
   // Rasterize + fragment shade
   for (int py = 0; py < BORG_FB_HEIGHT; py++) {
@@ -458,7 +234,8 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
         }
         uvs = uv_vals;
       }
-      int visible = borg_bary_rgb(edges, deltas,
+      int visible = borg_bary_rgb(&rast_shader, &frag_shader,
+                     edges, deltas,
                      inv_area, colors, z_vals, uvs,
                      &color, &z, &uv_interp);
       if (visible)

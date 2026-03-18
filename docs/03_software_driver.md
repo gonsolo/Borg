@@ -1,7 +1,7 @@
 # The Software Driver
 
 The firmware running on TinyQV provides a Vulkan-like API for rendering triangles.
-It consists of a driver library (`driver.c`) and an application (`triangle.c`).
+It consists of a driver library (`borg_driver.c`, `borg_fpu.c`, `borg_raster.c`) and an application (`triangle.c`).
 
 ## Memory-Mapped Hardware
 
@@ -9,7 +9,7 @@ The Borg shader processor is accessed through memory-mapped I/O registers.
 The CPU reads and writes these addresses to load shader programs, set register
 values, and control execution:
 
-{{snippet:fpga/firmware/driver.c:mmio-map}}
+{{snippet:fpga/firmware/borg_driver.c:mmio-map}}
 
 The Borg peripheral occupies 16 words starting at `0x080000C0`: 8 FP16 registers
 (r0–r7), 6 instruction memory words, and a control/status register. PSRAM
@@ -20,7 +20,7 @@ provides shared memory between the CPU and the RP2040 host.
 The driver provides convenience functions that program the instruction memory
 and invoke the FPU for single operations:
 
-{{snippet:fpga/firmware/driver.c:fpu-helpers}}
+{{snippet:fpga/firmware/borg_fpu.c:fpu-helpers}}
 
 Each helper loads a one-instruction shader, writes the operands to registers,
 triggers execution, and reads back the result. The `borg_run()` function handles

@@ -5,7 +5,7 @@
 // Renders a single frame of a colored triangle.
 // 100% self-contained: shader blobs embedded in firmware binary.
 
-#include "driver.h"
+#include "borg_driver.h"
 #include "borg_math.h"
 #include "compiler/shader_blobs.h"
 
