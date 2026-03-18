@@ -100,7 +100,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     timers.io.time_pulse := io.time_pulse
     timers.io.counter := counter_hi
     
-    val is_timer_addr = io.data_addr(27, 4) === 0xFFFFF0.U && !io.data_addr(3)
+    val is_timer_addr = io.data_addr(27, 4) === MMIO.TIMER_BASE_HI && !io.data_addr(3)
     val timer_data = timers.io.data_out
     
     core.io.data_in := Mux(is_timer_addr, timer_data, nibbleSlice(io.data_in, counter_hi))

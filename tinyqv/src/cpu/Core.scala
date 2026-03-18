@@ -304,7 +304,7 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
   when(io.counter <= 5.U) {
     val mepc_top = Wire(UInt(4.W))
     when(is_exception) { mepc_top := io.pc }
-    .elsewhen(is_csr_write && io.imm_lo === "h341".U) { mepc_top := data_rs1 }
+    .elsewhen(is_csr_write && io.imm_lo === CSR.MEPC) { mepc_top := data_rs1 }
     .otherwise { mepc_top := mepc(3, 0) }
     mepc := Cat(mepc_top, mepc(23, 4))
   }
@@ -328,7 +328,7 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     mstatus_mie := false.B
   }.elsewhen(is_mret) {
     mstatus_mie := mstatus_mpie
-  }.elsewhen(io.imm_lo === "h300".U) {
+  }.elsewhen(io.imm_lo === CSR.MSTATUS) {
     when(io.counter === 0.U) {
       csrUpdateBit(mstatus_mie, data_rs1(3))
     }.elsewhen(io.counter === 1.U) {
@@ -354,27 +354,27 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     mie_3_0 := 0.U
     mip_reg := 0.U
   } .elsewhen (io.counter === 1.U) {
-    when (io.imm_lo === "h304".U) {
+    when (io.imm_lo === CSR.MIE) {
       csrUpdateBit(mie_16, data_rs1(3))
     }
   } .elsewhen (io.counter === 4.U) {
-    when (io.imm_lo === "h304".U) {
+    when (io.imm_lo === CSR.MIE) {
       csrUpdate(mie_3_0, data_rs1)
-    } .elsewhen (io.imm_lo === "h344".U) {
+    } .elsewhen (io.imm_lo === CSR.MIP) {
       csrUpdate(mip_reg, data_rs1(1, 0))
     }
   } .elsewhen (io.counter === 5.U) {
     last_interrupt_req := io.interrupt_req(1, 0)
     mip_reg := mip_reg | (io.interrupt_req(1, 0) & ~last_interrupt_req)
-    when (io.imm_lo === "h304".U) {
+    when (io.imm_lo === CSR.MIE) {
       csrUpdate(mie_7_4, data_rs1)
     }
   } .elsewhen (io.counter === 6.U) {
-    when (io.imm_lo === "h304".U) {
+    when (io.imm_lo === CSR.MIE) {
       csrUpdate(mie_11_8, data_rs1)
     }
   } .elsewhen (io.counter === 7.U) {
-    when (io.imm_lo === "h304".U) {
+    when (io.imm_lo === CSR.MIE) {
       csrUpdate(mie_15_12, data_rs1)
     }
   }
@@ -399,43 +399,43 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
   }
 
   switch(io.imm_lo) {
-    is("h300".U) { // mstatus
+    is(CSR.MSTATUS) { // mstatus
       csr_read := Mux(io.counter === 0.U, Cat(mstatus_mie, mstatus_mte, 0.U(2.W)),
                   Mux(io.counter === 1.U, Cat(mstatus_mpie, 0.U(3.W)), 0.U))
     }
-    is("h301".U) { // misa
+    is(CSR.MISA) { // misa
       csr_read := Mux(io.counter === 0.U || io.counter === 7.U, "b0100".U,
                   Mux(io.counter === 1.U, "b0001".U, 0.U))
     }
-    is("h304".U) { // mie
+    is(CSR.MIE) { // mie
       csr_read := Mux(io.counter === 1.U, Cat(mie(16), 0.U(3.W)),
                   Mux(io.counter === 4.U, mie(3, 0),
                   Mux(io.counter === 5.U, mie(7, 4),
                   Mux(io.counter === 6.U, mie(11, 8),
                   Mux(io.counter === 7.U, mie(15, 12), 0.U)))))
     }
-    is("h341".U) { // mepc
+    is(CSR.MEPC) { // mepc
       csr_read := Mux(io.counter <= 5.U, mepc(3, 0), 0.U)
     }
-    is("h342".U) { // mcause
+    is(CSR.MCAUSE) { // mcause
       csr_read := Mux(io.counter === 0.U, mcause(3, 0),
                   Mux(io.counter === 1.U, Cat(0.U(3.W), mcause(4)),
                   Mux(io.counter === 7.U, Cat(mcause(5), 0.U(3.W)), 0.U)))
     }
-    is("h344".U) { // mip
+    is(CSR.MIP) { // mip
       csr_read := Mux(io.counter === 1.U, Cat(mip(16), 0.U(3.W)),
                   Mux(io.counter === 4.U, mip(3, 0),
                   Mux(io.counter === 5.U, mip(7, 4),
                   Mux(io.counter === 6.U, mip(11, 8),
                   Mux(io.counter === 7.U, mip(15, 12), 0.U)))))
     }
-    is("hC00".U) { // cycle_count
+    is(CSR.CYCLE) { // cycle_count
       csr_read := cycle_count_out_val
     }
-    is("hC01".U) { // time_count
+    is(CSR.TIME) { // time_count
       csr_read := time_count_out_val
     }
-    is("hF13".U) { // mimpid
+    is(CSR.MIMPID) { // mimpid
       csr_read := Mux(io.counter === 0.U, "b0011".U, 0.U)
     }
   }
