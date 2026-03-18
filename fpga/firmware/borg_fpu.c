@@ -19,8 +19,8 @@ void borg_run(void) {
 }
 
 fp16_t borg_fp16_add(fp16_t a, fp16_t b) {
-  BORG_IMEM(0) = 0x0210;
-  BORG_IMEM(1) = 0x0000;
+  BORG_IMEM(0) = BORG_INSTR_FADD(0, 1, 2);
+  BORG_IMEM(1) = BORG_INSTR_HALT;
   BORG_REG(1) = a;
   BORG_REG(2) = b;
   borg_run();
@@ -28,9 +28,8 @@ fp16_t borg_fp16_add(fp16_t a, fp16_t b) {
 }
 
 fp16_t borg_fp16_mul(fp16_t a, fp16_t b) {
-  // fmul r0, r1, r2: [15:14]=01, [11:8]=r2, [7:4]=r1, [3:0]=r0
-  BORG_IMEM(0) = 0x4210;
-  BORG_IMEM(1) = 0x0000; // halt
+  BORG_IMEM(0) = BORG_INSTR_FMUL(0, 1, 2);
+  BORG_IMEM(1) = BORG_INSTR_HALT;
   BORG_REG(1) = a;
   BORG_REG(2) = b;
   borg_run();
@@ -39,10 +38,8 @@ fp16_t borg_fp16_mul(fp16_t a, fp16_t b) {
 }
 
 fp16_t borg_fp16_fmadd(fp16_t a, fp16_t b, fp16_t c) {
-  // fmadd r0, r1, r2, r3: [15:14]=10, [13:12]=r3(low2), [11:8]=r2, [7:4]=r1, [3:0]=r0
-  // r0 = r1 * r2 + r3
-  BORG_IMEM(0) = 0xB210;  // fmadd r0 = r1 * r2 + r3 (rs3=3 → bits[13:12]=11=3)
-  BORG_IMEM(1) = 0x0000;
+  BORG_IMEM(0) = BORG_INSTR_FMADD(0, 1, 2, 3);
+  BORG_IMEM(1) = BORG_INSTR_HALT;
   BORG_REG(1) = a;
   BORG_REG(2) = b;
   BORG_REG(3) = c;
@@ -72,14 +69,14 @@ fp16_t borg_fp16_rcp(fp16_t x) {
 void borg_load_spirb_shader(const spirb_shader_t *s) {
   for (int i = 0; i < s->num_instrs; i++)
     BORG_IMEM(i) = s->instrs[i];
-  BORG_IMEM(s->num_instrs) = 0x0000;
+  BORG_IMEM(s->num_instrs) = BORG_INSTR_HALT;
 }
 
 void borg_load_add_shader(void) {
-  BORG_IMEM(0) = 0x0210;
-  BORG_IMEM(1) = 0x0000;
-  BORG_IMEM(2) = 0x0000;
-  BORG_IMEM(3) = 0x0000;
+  BORG_IMEM(0) = BORG_INSTR_FADD(0, 1, 2);
+  BORG_IMEM(1) = BORG_INSTR_HALT;
+  BORG_IMEM(2) = BORG_INSTR_HALT;
+  BORG_IMEM(3) = BORG_INSTR_HALT;
 }
 
 fp16_t borg_fp16_sub_raw(fp16_t a, fp16_t b) {

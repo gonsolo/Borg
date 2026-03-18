@@ -28,3 +28,10 @@
 // --- Shared PSRAM layout (matches borg_mmio.py) ---
 #define TEX_PSRAM_OFFSET 4200
 #define DONE_MARKER 0xDEAD
+
+// --- Borg instruction encoding (matches Borg.scala format) ---
+// FP16: [15:14]=op [13:12]=rs3/ext [11:8]=rs2 [7:4]=rs1 [3:0]=rd
+#define BORG_INSTR_FADD(rd, rs1, rs2)        (0x0000 | ((rs2) << 8) | ((rs1) << 4) | (rd))
+#define BORG_INSTR_FMUL(rd, rs1, rs2)        (0x4000 | ((rs2) << 8) | ((rs1) << 4) | (rd))
+#define BORG_INSTR_FMADD(rd, rs1, rs2, rs3)  (0x8000 | ((rs3) << 12) | ((rs2) << 8) | ((rs1) << 4) | (rd))
+#define BORG_INSTR_HALT                       0x0000

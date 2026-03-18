@@ -8,7 +8,7 @@ to integrate with the Borg shader processor.
 
 Before diving into the details, here is how the pieces fit together:
 
-```
+```text
 TinyQV  (top-level SoC wrapper)
 ├── TinyQVCpu         — Pipeline: decode → execute, stalls, branches
 │   ├── TinyQVDecode  — Combinational instruction decoder (RV32IC)
@@ -70,11 +70,13 @@ overlap between decode and execute.
 ### Stalls and Branches
 
 The pipeline stalls when:
+
 - **No instruction ready**: the fetch buffer hasn't received enough instruction
   data from flash yet.
 - **Load/store pending**: a previous memory access hasn't completed.
 
 Branches work as follows:
+
 - **JAL** can redirect fetch *early* (one beat before decode completes), since
   the target address is fully available from the immediate.
 - **Conditional branches** redirect at the end of the execute stage after
