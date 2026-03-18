@@ -22,7 +22,11 @@ class LatchReg32IO extends Bundle {
   val data_out = Output(UInt(32.W))
 }
 
-class LatchRegN(w: Int) extends Module {
+trait HasLatchRegIO { this: Module =>
+  val io: LatchRegIO
+}
+
+class LatchRegN(w: Int) extends Module with HasLatchRegIO {
   val io = IO(new LatchRegIO(w))
 
   // Negative edge register
@@ -32,7 +36,7 @@ class LatchRegN(w: Int) extends Module {
   io.data_out := state
 }
 
-class LatchRegP(w: Int) extends Module {
+class LatchRegP(w: Int) extends Module with HasLatchRegIO {
   val io = IO(new LatchRegIO(w))
 
   // Positive edge register
@@ -40,11 +44,11 @@ class LatchRegP(w: Int) extends Module {
   io.data_out := state
 }
 
-class LatchReg32N extends Module {
+class LatchReg32(gen: => Module with HasLatchRegIO) extends Module {
   val io = IO(new LatchReg32IO)
 
-  val l_lo = Module(new LatchRegN(16))
-  val l_hi = Module(new LatchRegN(16))
+  val l_lo = Module(gen)
+  val l_hi = Module(gen)
 
   l_lo.io.wen := io.wen
   l_lo.io.data_in := io.data_in(15, 0)
@@ -55,17 +59,6 @@ class LatchReg32N extends Module {
   io.data_out := Cat(l_hi.io.data_out, l_lo.io.data_out)
 }
 
-class LatchReg32P extends Module {
-  val io = IO(new LatchReg32IO)
+class LatchReg32N extends LatchReg32(new LatchRegN(16))
+class LatchReg32P extends LatchReg32(new LatchRegP(16))
 
-  val l_lo = Module(new LatchRegP(16))
-  val l_hi = Module(new LatchRegP(16))
-
-  l_lo.io.wen := io.wen
-  l_lo.io.data_in := io.data_in(15, 0)
-  
-  l_hi.io.wen := io.wen
-  l_hi.io.data_in := io.data_in(31, 16)
-
-  io.data_out := Cat(l_hi.io.data_out, l_lo.io.data_out)
-}
