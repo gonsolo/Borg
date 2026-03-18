@@ -20,7 +20,7 @@ class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
   val user_interrupts = Output(UInt(14.W))
 }
 
-class tinyQV_peripherals(val CLOCK_MHZ: Int = 64) extends Module {
+class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
   val io = IO(new PeripheralsIO(CLOCK_MHZ))
     // --- Data Bus Logic ---
     val data_out_r = RegInit(0.U(32.W))

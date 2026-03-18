@@ -7,7 +7,7 @@ import chisel3.RawModule
 import circt.stage.ChiselStage
 
 object Main extends App {
-  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "12").toInt
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", MmioMap.CLOCK_MHZ.toString).toInt
   println(s"Generating Verilog with CLOCK_MHZ = $clockMhz")
 
   val targetDir = "out/borg/verilog"
@@ -31,7 +31,7 @@ object Main extends App {
     firtoolOpts = Array("--split-verilog", "--lowering-options=disallowLocalVariables,noAlwaysComb", "--disable-all-randomization", "--strip-debug-info")
   )
 
-  PicoIcePins.emitPCF(s"$targetDir/pico_ice.pcf", clockMhz)
+  PicoIcePins.emitPCF(s"$targetDir/pico_ice.pcf")
   MmioMap.emitHeader("fpga/firmware/borg_mmio.h")
   MmioMap.emitPython("fpga/host/borg_mmio.py")
 }

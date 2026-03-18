@@ -28,7 +28,7 @@ CHISEL_SRCS = $(wildcard ../borg/src/*.scala) $(wildcard ../tinyqv/src/*.scala)
 
 # Regenerate Verilog from Chisel when sources change
 ../out/borg/verilog/Borg.sv: $(CHISEL_SRCS)
-	cd .. && CLOCK_MHZ=4 mill borg.runMain borg.Main && CLOCK_MHZ=4 mill tinyqv.runMain tinyqv.Main
+	cd .. && mill borg.runMain borg.Main && mill tinyqv.runMain tinyqv.Main
 
 # Hardware limits
 MAX_LUTS = 5280
@@ -40,10 +40,11 @@ YOSYS_SCRIPT = read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tiny
 borg.json: $(SRC_FILES) ../out/borg/verilog/Borg.sv
 	yosys -p "$(YOSYS_SCRIPT)" -DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
 
-# Place and Route (P&R)
+# Place and Route (P&R) — freq derived from MmioMap.CLOCK_MHZ via generated header
+CLOCK_FREQ := $(shell grep -m1 'define CLOCK_MHZ' firmware/borg_mmio.h | awk '{print $$3}')
 borg.asc: borg.json
 	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf ../out/borg/verilog/pico_ice.pcf --asc borg.asc \
-		--freq 4
+		--freq $(CLOCK_FREQ)
 
 # Generate FPGA bitstream
 borg.bin: borg.asc

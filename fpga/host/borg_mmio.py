@@ -7,3 +7,7 @@ PSRAM_OUT_OFFSET = 128
 # Shared layout constants
 TEX_PSRAM_OFFSET = 4200
 DONE_MARKER = 0xDEAD
+
+# System clock (from MmioMap.scala)
+CLOCK_MHZ = 4
+FPGA_CLOCK_HZ = 4000000  # CLOCK_MHZ * 1e6

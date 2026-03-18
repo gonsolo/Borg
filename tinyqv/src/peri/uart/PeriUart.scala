@@ -23,7 +23,7 @@ class PeriUartIO extends Bundle {
   val user_interrupt = Output(UInt(2.W))
 }
 
-class PeriUart(val CLOCK_MHZ: Int = 64, val DIVIDER_REG_LEN: Int = 13) extends Module {
+class PeriUart(val CLOCK_MHZ: Int, val DIVIDER_REG_LEN: Int = 13) extends Module {
   override val desiredName = "tqvp_uart_wrapper"
   
   val io = IO(new PeriUartIO)

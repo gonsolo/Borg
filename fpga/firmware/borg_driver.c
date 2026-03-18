@@ -91,7 +91,7 @@ void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
                const uint8_t *rast_blob, unsigned int rast_len,
                const uint8_t *frag_blob, unsigned int frag_len) {
   STARTUP_DELAY();
-  UART_BAUD = 34;
+  UART_BAUD = UART_BAUD_DEFAULT;
   puts_uart("Borg pipeline\r\n");
 
   // Read framebuffer dimensions from PSRAM (written by host)

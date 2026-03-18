@@ -14,7 +14,7 @@ from machine import Pin, SPI
 
 import run_tinyqv
 from fp16_utils import fp16_to_float, float_to_fp16
-from borg_mmio import PSRAM_IO_SPI_ADDR, PSRAM_OUT_OFFSET, TEX_PSRAM_OFFSET, DONE_MARKER
+from borg_mmio import PSRAM_IO_SPI_ADDR, PSRAM_OUT_OFFSET, TEX_PSRAM_OFFSET, DONE_MARKER, FPGA_CLOCK_HZ
 
 
 # This PIO program handles high-speed timing to transfer data from the workstation into the PSRAM on the PMOD.
@@ -50,8 +50,8 @@ PIN_SD2  = 5   # QSPI data bit 2
 PIN_RAMB = 6   # RAM B select
 PIN_SD3  = 7   # QSPI data bit 3
 
-# Idle state: CS=1 (deselected), RAMA=1, RAMB=1, all SD lines low
-QSPI_IDLE = (1 << PIN_RAMB) | (1 << PIN_RAMA) | (1 << PIN_CS)  # 0b01010110 = 0x56
+# Idle state: CS=1 (deselected), RAMA=1, RAMB=1, SCK=1, all SD lines low
+QSPI_IDLE = (1 << PIN_RAMB) | (1 << PIN_RAMA) | (1 << PIN_SCK) | (1 << PIN_CS)  # 0b01010110 = 0x56
 QSPI_ALL_OUTPUT = 0xFF  # All 8 PIO pins set to output
 
 # All QSPI bus pins (for bulk init/release in fpga_boot/teardown)
@@ -242,7 +242,7 @@ def fpga_boot(run_seconds=1):
     clk.off()
 
     # Start FPGA clock and wait for firmware to execute
-    clk_pwm = machine.PWM(Pin(24), freq=4_000_000, duty_u16=32768)
+    clk_pwm = machine.PWM(Pin(24), freq=FPGA_CLOCK_HZ, duty_u16=32768)
     time.sleep(run_seconds)
     return clk_pwm, ice_creset_b
 

@@ -13,7 +13,7 @@ import chisel3.experimental.Analog
   * Functionally equivalent to the TT ASIC top-level (tt_um_gonsolo_borg),
   * but with direct FPGA I/O and SB_IO primitives for tri-state QSPI.
   */
-class tinyQV_top(val CLOCK_MHZ: Int = 4) extends RawModule with SoCLogic {
+class tinyQV_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val clk      = IO(Input(Clock()))
   val rst_n    = IO(Input(Bool()))
 
@@ -104,12 +104,12 @@ object PicoIcePins {
     ("uo_out[4]", 3), ("uo_out[5]",48), ("uo_out[6]",46), ("uo_out[7]",44),
   )
 
-  def emitPCF(path: String, clockMhz: Int): Unit = {
+  def emitPCF(path: String): Unit = {
     val writer = new java.io.PrintWriter(path)
     for ((name, pin) <- pins)
       writer.println(f"set_io --warn-no-port $name%-12s $pin")
     writer.println()
-    writer.println(s"set_frequency clk $clockMhz")
+    // Clock frequency constraint is in fpga/Makefile (--freq flag)
     writer.close()
     println(s"Generated PCF: $path")
   }
