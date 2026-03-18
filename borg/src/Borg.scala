@@ -68,6 +68,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     Mux(is_busy && busy_counter === 1.U, programCounter + 1.U, programCounter)
   val fetchedInstruction = instructionMemory.read(nextPC)
 
+  // @doc:instruction-format
   // --- Instruction Decoding ---
   // 3-bit register indices (r0-r7) for both FP32 and FP16
   // FP16: [15:14]=op [13:12]=rs3/ext [11:8]=rs2 [7:4]=rs1 [3:0]=rd
@@ -95,10 +96,12 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   } else {
     fetchedInstruction(15, 14) === 3.U && fetchedInstruction(13, 12) === 1.U
   }
+  // @doc:end
 
   // rs3 index for FMA (third source register, 2-bit for FP16 → r0-r3 only)
   val rs3_idx = if (config.totalBits >= 32) fetchedInstruction(31, 27)(2, 0) else fetchedInstruction(13, 12)
 
+  // @doc:fetch-execute
   // --- Fetch & Execute Logic ---
   when(running && !is_busy) {
     when(fetchedInstruction === 0.U) {
@@ -122,6 +125,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
       busy_counter := 0.U
     }
   }
+  // @doc:end
 
   // --- Register File State Access ---
   // Port A: Pipeline RS1 (Word index 0-3)
@@ -170,6 +174,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     is_fstep_reg := is_fstep
   }
 
+  // @doc:fma-muxing
   val fma = Module(new MulAddRecFN(config.exp, config.sig))
   // FNEG uses op=2: op(1)=1 negates product. -(a*b)+c. With a=1.0, b=rs1, c=0.0 → -rs1
   fma.io.op := Mux(is_fneg_reg, 2.U, 0.U)
@@ -182,6 +187,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   fma.io.c := Mux(is_fma_reg, recC, Mux(is_mul_reg || is_fneg_reg, recZero, recB))
   fma.io.roundingMode := 0.U
   fma.io.detectTininess := 1.U
+  // @doc:end
 
   // Write-back: At busy_counter 1 (Cycle 4 of 4)
   val mmio_reg_write = is_writing && io.address < 32.U
@@ -189,10 +195,12 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val reg_w_en = mmio_reg_write || pipe_reg_write
   val reg_w_addr = Mux(pipe_reg_write, rd_idx, io.address(4, 2))
 
+  // @doc:fstep
   // FSTEP: output 0.0 if rs1 <= 0, else 1.0 (sign-preserving step function)
   // Compatible with existing C edge test: positive+nonzero = outside
   val fstep_is_negative_or_zero = recA_raw(config.totalBits - 1) || (recA_raw === 0.U)
   val fstep_result = Mux(fstep_is_negative_or_zero, 0.U(config.totalBits.W), one_fn)
+  // @doc:end
 
   val fma_result = fNFromRecFN(config.exp, config.sig, fma.io.out)
   val reg_w_data =
@@ -202,6 +210,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     registerFile.write(reg_w_addr, reg_w_data)
   }
 
+  // @doc:mmio
   // IMEM Write (addresses 32–52, 6 words)
   when(is_writing && io.address >= 32.U && io.address < 56.U) {
     instructionMemory.write(io.address(4, 2), io.data_in)
@@ -221,4 +230,5 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   io.data_ready := (io.data_read_n === 3.U) || read_ready_del
   io.uo_out := 0.U
   io.user_interrupt := false.B
+  // @doc:end
 }

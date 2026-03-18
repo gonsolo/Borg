@@ -22,6 +22,7 @@ help:
 	@echo -e "  datasheet.pdf:\t\tGenerate datasheet for Tinytapeout."
 	@echo -e "  user_config:\t\t\tGenerate user config for tapeout."
 	@echo -e "  print_stats:\t\t\tPrint statistics about tile usage."
+	@echo -e "  book:\t\t\t\tBuild the documentation book."
 	@echo -e "  clean:\t\t\tRemove all build artifacts."
 
 export CLOCK_MHZ = 4
