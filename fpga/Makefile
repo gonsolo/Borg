@@ -69,8 +69,8 @@ resource_check: yosys.log
 
 # Build firmware and run triangle rendering
 triangle:
-	$(MAKE) -C firmware triangle
-	mpremote mount . + exec "import sys; sys.path.append('host'); import triangle; triangle.run_single_frame(0)" | tee /tmp/mpremote_output.txt
+	@$(MAKE) --no-print-directory -s -C firmware triangle
+	@mpremote mount . + exec "import sys; sys.path.append('host'); import triangle; triangle.run_single_frame(0)" | tee /tmp/mpremote_output.txt
 
 # Catch debug output (preferably in a second shell)
 tio:

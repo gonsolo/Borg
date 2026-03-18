@@ -244,6 +244,7 @@ def fpga_boot(run_seconds=1):
     # Start FPGA clock and wait for firmware to execute
     clk_pwm = machine.PWM(Pin(24), freq=FPGA_CLOCK_HZ, duty_u16=32768)
     time.sleep(run_seconds)
+    
     return clk_pwm, ice_creset_b
 
 
@@ -293,12 +294,14 @@ TRI = [(0.0, -_s), (-_s, _s), (_s, _s)]
 
 def render_all_frames():
     """Boot FPGA, let firmware render 10 frames, read back all framebuffers."""
+    t_start_all = time.ticks_ms()
     NUM_FRAMES = 1
     FRAME_FB_SIZE = WIDTH * HEIGHT * 3  # RGB words per frame
     FRAME_ZB_SIZE = WIDTH * HEIGHT       # Z-buffer words per frame
     FRAME_STRIDE = FRAME_FB_SIZE + FRAME_ZB_SIZE + 1  # FB + ZB + DONE marker
 
     # --- Write framebuffer dimensions to PSRAM for firmware ---
+    t_psram = time.ticks_ms()
     run_tinyqv.setup_ram()
     sm_w = rp2.StateMachine(0, qspi_write, 16_000_000,
                             out_base=Pin(0), sideset_base=Pin(2))
@@ -322,12 +325,16 @@ def render_all_frames():
 
     sm_w.active(0)
     del sm_w
-    print("Sent resolution %dx%d to PSRAM" % (WIDTH, HEIGHT))
-    # Boot FPGA, run for 60s (texture rendering is slow), then tear down
-    clk_pwm, ice_creset_b = fpga_boot(run_seconds=60)
+    print("Sent resolution %dx%d to PSRAM in %d ms" % (WIDTH, HEIGHT, time.ticks_diff(time.ticks_ms(), t_psram)))
+
+    # Boot FPGA, run for 25s, then tear down
+    t_fpga = time.ticks_ms()
+    clk_pwm, ice_creset_b = fpga_boot(run_seconds=25)
     fpga_teardown(clk_pwm, ice_creset_b)
+    print("FPGA boot/run/teardown took %d ms" % time.ticks_diff(time.ticks_ms(), t_fpga))
 
     # --- Read back all 10 framebuffers ---
+    t_readback = time.ticks_ms()
     sm_r = rp2.StateMachine(0, qspi_read, 16_000_000,
                             in_base=Pin(0), out_base=Pin(0),
                             sideset_base=Pin(2))
@@ -339,8 +346,25 @@ def render_all_frames():
         frame_base = frame * FRAME_STRIDE
 
         # Check DONE marker for this frame
-        done = qpi_read_word(sm_r, out_base + (frame_base + FRAME_FB_SIZE + FRAME_ZB_SIZE) * 4)
+        marker_base = frame_base + FRAME_FB_SIZE + FRAME_ZB_SIZE
+        done = qpi_read_word(sm_r, out_base + marker_base * 4)
+        
+        t_init_lo = qpi_read_word(sm_r, out_base + (marker_base + 1) * 4)
+        t_init_hi = qpi_read_word(sm_r, out_base + (marker_base + 2) * 4)
+        t_init_cycles = t_init_lo | (t_init_hi << 16)
+        
+        t_clear_lo = qpi_read_word(sm_r, out_base + (marker_base + 3) * 4)
+        t_clear_hi = qpi_read_word(sm_r, out_base + (marker_base + 4) * 4)
+        t_clear_cycles = t_clear_lo | (t_clear_hi << 16)
+        
+        t_draw_lo = qpi_read_word(sm_r, out_base + (marker_base + 5) * 4)
+        t_draw_hi = qpi_read_word(sm_r, out_base + (marker_base + 6) * 4)
+        t_draw_cycles = t_draw_lo | (t_draw_hi << 16)
+        
         print("Frame %d Done marker: 0x%04X" % (frame, done))
+        print(" -> FW Init took:   %d cycles (%.2f ms)" % (t_init_cycles, t_init_cycles * 1000 / FPGA_CLOCK_HZ))
+        print(" -> FW Clear took:  %d cycles (%.2f ms)" % (t_clear_cycles, t_clear_cycles * 1000 / FPGA_CLOCK_HZ))
+        print(" -> FW Draw took:   %d cycles (%.2f ms)" % (t_draw_cycles, t_draw_cycles * 1000 / FPGA_CLOCK_HZ))
 
         # Read RGB framebuffer (3 FP16 words per pixel)
         fb = [(0, 0, 0)] * (WIDTH * HEIGHT)
@@ -358,8 +382,8 @@ def render_all_frames():
 
     sm_r.active(0)
     del sm_r
-    print("All %d frames rendered." % NUM_FRAMES)
-
+    print("All %d frames rendered in %d ms." % (NUM_FRAMES, time.ticks_diff(time.ticks_ms(), t_readback)))
+    print("Total render_all_frames time: %d ms" % time.ticks_diff(time.ticks_ms(), t_start_all))
 
 def run_animation():
     """Entry point for rendering all 10 frames."""
@@ -372,8 +396,13 @@ def run_animation():
     ice_creset_b = machine.Pin(27, machine.Pin.OUT)
     ice_creset_b.value(0)
 
+    t_prog = time.ticks_ms()
     run_tinyqv.program_firmware.program('firmware/triangle.bin')
+    print("Firmware programmed in %d ms" % time.ticks_diff(time.ticks_ms(), t_prog))
+
+    t_flash = time.ticks_ms()
     run_tinyqv.setup_flash()
+    print("Flash setup in %d ms" % time.ticks_diff(time.ticks_ms(), t_flash))
 
     render_all_frames()
 

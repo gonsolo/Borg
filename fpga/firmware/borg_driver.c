@@ -41,6 +41,11 @@ static fp16_t pc_lut[BORG_MAX_FB_DIM];
 
 #define NUM_VERTICES 3
 
+// Global timing vars
+unsigned int t_init_cycles = 0;
+unsigned int t_clear_cycles = 0;
+unsigned int t_draw_cycles = 0;
+
 // --- Texture state ---
 static texture_t tex = { .psram_offset = -1 };
 
@@ -54,6 +59,15 @@ static void puts_uart(const char *s) {
   while (*s)
     putc_uart(*s++);
 }
+
+// --- Timing and debug printing ---
+static inline unsigned int get_cycles(void) {
+  unsigned int cycles;
+  __asm__ volatile ("csrr %0, cycle" : "=r" (cycles));
+  return cycles;
+}
+
+
 
 // --- Shader globals ---
 static spirb_shader_t vert_shader;
@@ -93,6 +107,7 @@ void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
   STARTUP_DELAY();
   UART_BAUD = UART_BAUD_DEFAULT;
   puts_uart("Borg pipeline\r\n");
+  unsigned int t_init = get_cycles();
 
   // Read framebuffer dimensions from PSRAM (written by host)
   borg_fb_width  = PSRAM_IN(0) & 0xFFFF;
@@ -119,6 +134,7 @@ void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
   spirb_parse(vert_blob, &vert_shader);
   spirb_parse(rast_blob, &rast_shader);
   spirb_parse(frag_blob, &frag_shader);
+  t_init_cycles = get_cycles() - t_init;
 }
 
 void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
@@ -134,6 +150,7 @@ void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
 #define FRAME_STRIDE  (FRAME_FB_SIZE + FRAME_ZB_SIZE + 1)     // FB + ZB + DONE marker
 
 void borg_clear_zbuffer(int frame) {
+  unsigned int t_start = get_cycles();
   int fb_offset = frame * FRAME_STRIDE;
   int zb_offset = fb_offset + FRAME_FB_SIZE;
   // Clear RGB framebuffer to black
@@ -142,6 +159,7 @@ void borg_clear_zbuffer(int frame) {
   // Clear z-buffer to max depth
   for (int i = 0; i < FRAME_ZB_SIZE; i++)
     PSRAM_OUT(zb_offset + i) = FP16_MAX_DEPTH;
+  t_clear_cycles = get_cycles() - t_start;
 }
 
 void borg_set_texture(int psram_offset, int width, int height) {
@@ -179,6 +197,7 @@ static void shade_and_write_pixel(int frame, int px, int py,
 }
 
 void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame) {
+  unsigned int t_start = get_cycles();
   // Clear stale DONE marker for this frame
   PSRAM_OUT(frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE) = 0;
   // Build colors array from vertex data
@@ -242,9 +261,16 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
         shade_and_write_pixel(frame, px, py, color, z, uv_interp, &tex);
     }
   }
+  t_draw_cycles += get_cycles() - t_start;
 }
 
 void borg_present(int frame) {
-  PSRAM_OUT(frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE) = DONE_MARKER;
-  puts_uart("DONE\r\n");
+  int base = frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE;
+  PSRAM_OUT(base)     = DONE_MARKER;
+  PSRAM_OUT(base + 1) = t_init_cycles & 0xFFFF;
+  PSRAM_OUT(base + 2) = (t_init_cycles >> 16) & 0xFFFF;
+  PSRAM_OUT(base + 3) = t_clear_cycles & 0xFFFF;
+  PSRAM_OUT(base + 4) = (t_clear_cycles >> 16) & 0xFFFF;
+  PSRAM_OUT(base + 5) = t_draw_cycles & 0xFFFF;
+  PSRAM_OUT(base + 6) = (t_draw_cycles >> 16) & 0xFFFF;
 }
