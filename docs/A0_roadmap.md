@@ -39,13 +39,16 @@ compute.
 | 8–9 | Submit + wait only | Full owner | None |
 | 10–12 (CPU ext.) | Submit + wait | Full owner | None |
 
-### Step 0: Nibble-Serial FMA
+### Step 0: Nibble-Serial FMA ✅ (2026-03-19)
 
 Replace the combinational 11×11 HardFloat `MulAddRecFN` with a multi-cycle
 nibble-serial implementation. Trades latency (~16 cycles instead of 4) for
 ~215 fewer LUTs — headroom needed for all subsequent steps. MMIO interface
 unchanged. Follows TinyQV's existing nibble-serial pattern. The nibble-serial
 multiplier is reused in Step 10 for integer mul/div.
+
+Verified: Chisel tests (unit + Borg integration + pipeline) and FPGA triangle
+rendering on pico-ice.
 
 ### Step 1: Hardware Edge Function Unit
 

@@ -60,7 +60,7 @@ class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
   *   - IMEM 32–52 (6 words): write instruction memory
   *   - Control/Status 60: write bit 0 = start, bit 1 = reset; read bit 1 = idle
   */
-class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
+class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean = false) extends Module {
   val io = IO(new BorgIO(config))
   dontTouch(io)
 
@@ -82,6 +82,14 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   // --- Pipeline Control ---
   val busy_counter = RegInit(0.U(3.W))
   val is_busy = busy_counter > 0.U
+
+  // Forward-declared wire for FMA ready signal (connected when FMA is instantiated)
+  val fma_ready = if (nibbleSerial) WireDefault(false.B) else WireDefault(true.B)
+
+  // Track whether the nibble-serial FMA is actively computing.
+  // This avoids a race where fma_ready is true during the same cycle as
+  // fma.io.valid (because the FSM hasn't transitioned from idle yet).
+  val fma_inflight = if (nibbleSerial) Some(RegInit(false.B)) else None
 
   val is_writing = io.data_write_n === 2.U
   val is_reading = io.data_read_n === 2.U
@@ -132,12 +140,33 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     when(fetchedInstruction === 0.U) {
       running := false.B
     }.otherwise {
-      busy_counter := 4.U
+      if (nibbleSerial) {
+        busy_counter := 7.U  // Enough for nibble-serial FMA + pipeline
+      } else {
+        busy_counter := 4.U
+      }
     }
   }.elsewhen(is_busy) {
-    busy_counter := busy_counter - 1.U
-    when(busy_counter === 1.U) {
-      programCounter := programCounter + 1.U
+    if (nibbleSerial) {
+      // In nibble-serial mode, stay busy until FMA completes.
+      // We check that fma_inflight has been set (so we don't react to the
+      // initial fma_ready that exists before valid is even asserted) and
+      // then wait for fma_ready to indicate completion.
+      val inflight = fma_inflight.get
+      when(inflight && fma_ready && busy_counter > 1.U) {
+        busy_counter := 1.U  // One more cycle for writeback
+        inflight := false.B
+      }.elsewhen(busy_counter <= 1.U) {
+        busy_counter := busy_counter - 1.U
+        when(busy_counter === 1.U) {
+          programCounter := programCounter + 1.U
+        }
+      }
+    } else {
+      busy_counter := busy_counter - 1.U
+      when(busy_counter === 1.U) {
+        programCounter := programCounter + 1.U
+      }
     }
   }
 
@@ -200,7 +229,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   }
 
   // @doc:fma-muxing
-  val fma = Module(new MulAddRecFN(config.exp, config.sig))
+  val fma = Module(new MulAddRecFN(config.exp, config.sig, nibbleSerial))
   // FNEG uses op=2: op(1)=1 negates product. -(a*b)+c. With a=1.0, b=rs1, c=0.0 → -rs1
   fma.io.op := Mux(is_fneg_reg, 2.U, 0.U)
   // ADD: a=1.0, b=rs1, c=rs2     → 1.0*rs1 + rs2 = rs1+rs2
@@ -212,6 +241,26 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   fma.io.c := Mux(is_fma_reg, recC, Mux(is_mul_reg || is_fneg_reg, recZero, recB))
   fma.io.roundingMode := 0.U
   fma.io.detectTininess := 1.U
+
+  // Wire valid/ready for nibble-serial mode
+  // The register file uses SyncReadMem (1-cycle latency) and the recFN conversion
+  // adds another cycle via rs*_en_del gating. So fma inputs are valid 2 cycles
+  // after fma_start. In combinational mode this doesn't matter (inputs settle
+  // before writeback), but nibble-serial latches inputs on valid.
+  val fma_start = running && !is_busy && fetchedInstruction =/= 0.U
+  if (nibbleSerial) {
+    val fma_valid_d1 = RegNext(fma_start, false.B)
+    fma.io.valid := fma_valid_d1
+    // Mark inflight when valid is sent to the FMA
+    when(fma_valid_d1) {
+      fma_inflight.get := true.B
+    }
+  } else {
+    fma.io.valid := fma_start
+  }
+  if (nibbleSerial) {
+    fma_ready := fma.io.ready
+  }
   // @doc:end
 
   // Write-back: At busy_counter 1 (Cycle 4 of 4)
