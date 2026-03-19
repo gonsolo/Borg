@@ -1,7 +1,5 @@
-all: vert.borg.h vert.borg frag.borg.h frag.borg rasterize.borg.h rasterize.borg shader_blobs.h
+all: vert.borg frag.borg rasterize.borg shader_blobs.h
 
-vert.borg.h: vert.s borg_backend.py
-	python borg_backend.py vert.s vert.borg.h
 vert.borg: vert.s borg_backend.py
 	python borg_backend.py vert.s vert.borg
 vert.s: vert.spvasm spirv_compiler.py
@@ -11,8 +9,6 @@ vert.spvasm: vert.spv
 vert.spv: shader.vert
 	glslangValidator -V shader.vert -o vert.spv
 
-frag.borg.h: frag.s borg_backend.py
-	python borg_backend.py frag.s frag.borg.h
 frag.borg: frag.s borg_backend.py
 	python borg_backend.py frag.s frag.borg
 frag.s: frag.spvasm spirv_compiler.py
@@ -22,8 +18,6 @@ frag.spvasm: frag.spv
 frag.spv: shader.frag
 	glslangValidator -V shader.frag -o frag.spv
 
-rasterize.borg.h: rasterize.s borg_backend.py
-	python borg_backend.py rasterize.s rasterize.borg.h
 rasterize.borg: rasterize.s borg_backend.py
 	python borg_backend.py rasterize.s rasterize.borg
 
@@ -40,5 +34,5 @@ test: all
 	python test_spirb.py
 
 clean:
-	rm -f vert.s vert.spvasm vert.spv vert.borg.h vert.borg frag.s frag.spvasm frag.spv frag.borg.h frag.borg rasterize.borg.h rasterize.borg shader_blobs.h
+	rm -f vert.s vert.spvasm vert.spv vert.borg frag.s frag.spvasm frag.spv frag.borg rasterize.borg shader_blobs.h
 .PHONY: clean

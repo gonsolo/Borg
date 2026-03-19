@@ -1,40 +1,41 @@
-# Edge function rasterizer shader
+# Batched edge function rasterizer shader
 #
-# Evaluates one edge of a triangle for a given pixel position.
-# The host calls this shader three times per pixel (once per edge).
-# If all three results are >= 0, the pixel is inside the triangle.
+# Evaluates all three edge functions of a triangle for a given pixel position
+# in a single Borg execution.  The host loads edge constants (uniforms) once
+# per triangle and pixel deltas (attributes) per pixel.
 #
-# The edge function for an edge from vertex A to vertex B at pixel P is:
+# Each edge function:
+#   e = dx * dpy + neg_dy * dpx
 #
-#   e = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
-#     = dx * dpy - dy * dpx
+# Uniform inputs (loaded once per triangle):
+#   dx0, neg_dy0, dx1, neg_dy1, dx2, neg_dy2
 #
-# To map this to fmul + fmadd (avoiding fmsub), the host negates dy:
+# Attribute inputs (loaded per pixel):
+#   dpx0, dpy0, dpx1, dpy1, dpx2, dpy2
 #
-#   e = dx * dpy + (-dy) * dpx
+# Outputs:
+#   e0, e1, e2  (>= 0 means inside this edge)
 #
-# Register inputs (precomputed by host per edge per pixel):
-#   a0 = dx     = bx - ax    (edge vector x component)
-#   a1 = neg_dy = -(by - ay) (negated edge vector y component)
-#   a2 = dpx    = px - ax    (pixel-to-vertex x delta)
-#   a3 = dpy    = py - ay    (pixel-to-vertex y delta)
-#
-# Register output:
-#   a4 = edge function result (>= 0 means inside this edge)
-#
-    li.s f_zero, 0.0
-    li.s f_one, 1.0
-    flw f0, 0(a0)            # Load dx
-    flw f1, 0(a1)            # Load neg_dy
-    flw f2, 0(a2)            # Load dpx
-    flw f3, 0(a3)            # Load dpy
-    fmul.s f4, f0, f3        # f4 = dx * dpy
-    fmadd.s f4, f1, f2, f4   # f4 = neg_dy * dpx + dx * dpy = edge
-    fsw f4, 0(a4)            # Store edge result
+    fmul.s  f_e0, f_dx0, f_dpy0         # e0  = dx0 * dpy0
+    fmadd.s f_e0, f_ndy0, f_dpx0, f_e0  # e0 += neg_dy0 * dpx0
+    fmul.s  f_e1, f_dx1, f_dpy1         # e1  = dx1 * dpy1
+    fmadd.s f_e1, f_ndy1, f_dpx1, f_e1  # e1 += neg_dy1 * dpx1
+    fmul.s  f_e2, f_dx2, f_dpy2         # e2  = dx2 * dpy2
+    fmadd.s f_e2, f_ndy2, f_dpx2, f_e2  # e2 += neg_dy2 * dpx2
     ret
 
-# @borg attribute dx f0
-# @borg attribute neg_dy f1
-# @borg attribute dpx f2
-# @borg attribute dpy f3
-# @borg output edge f4
+# @borg uniform dx0 f_dx0
+# @borg uniform neg_dy0 f_ndy0
+# @borg uniform dx1 f_dx1
+# @borg uniform neg_dy1 f_ndy1
+# @borg uniform dx2 f_dx2
+# @borg uniform neg_dy2 f_ndy2
+# @borg attribute dpx0 f_dpx0
+# @borg attribute dpy0 f_dpy0
+# @borg attribute dpx1 f_dpx1
+# @borg attribute dpy1 f_dpy1
+# @borg attribute dpx2 f_dpx2
+# @borg attribute dpy2 f_dpy2
+# @borg output e0 f_e0
+# @borg output e1 f_e1
+# @borg output e2 f_e2

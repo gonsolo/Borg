@@ -215,10 +215,9 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
   // Clear stale DONE marker for this frame
   PSRAM_OUT(frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE) = 0;
   // Build colors array from vertex data
-  fp16_t colors[3][3];
+  rgb16_t colors[3];
   for (int v = 0; v < 3; v++)
-    for (int c = 0; c < 3; c++)
-      colors[v][c] = vertices[v].color[c];
+    colors[v] = (rgb16_t){ vertices[v].color[0], vertices[v].color[1], vertices[v].color[2] };
   // Build vertex attribute array from vertex positions
   fp16_t attrs[NUM_VERTICES * 2];
   for (int v = 0; v < NUM_VERTICES; v++) {
@@ -261,7 +260,7 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
           rgb16_t color = {0, 0, 0};
           fp16_t z = 0;
           uv16_t uv_interp = {0, 0};
-          fp16_t z_vals[3] = { vertices[0].pos[2], vertices[1].pos[2], vertices[2].pos[2] };
+          fp16x3_t z_vals = { vertices[0].pos[2], vertices[1].pos[2], vertices[2].pos[2] };
           const uv16_t *uvs = 0;
           uv16_t uv_vals[3];
           if (tex.psram_offset >= 0) {
