@@ -50,11 +50,14 @@ multiplier is reused in Step 10 for integer mul/div.
 Verified: Chisel tests (unit + Borg integration + pipeline) and FPGA triangle
 rendering on pico-ice.
 
-### Step 1: Hardware Edge Function Unit
+### Step 1: Hardware Edge Function Unit ✅ (2026-03-19)
 
 Batch all 3 edge functions (`e = dx·dpy − (−dy)·dpx`) into a single trigger,
-reusing the FMA sequentially. Eliminates 3 `borg_run()` MMIO round-trips per
-pixel.
+reusing the FMA sequentially. Eliminates 2 of 3 `borg_run()` MMIO round-trips
+per pixel. Widened register file (8→16), IMEM (6→8), and address bus (6→7 bits).
+
+Verified: Chisel tests (195/195 + batched edge test), cocotb SoC tests (2/2),
+and FPGA triangle rendering on pico-ice.
 
 ### Step 2: Hardware Fragment Interpolation
 

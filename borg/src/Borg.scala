@@ -20,8 +20,8 @@ object FloatConfig {
   */
 class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
   val address = Input(
-    UInt(6.W)
-  ) // 64-word address space (byte-addressed internally by shifting)
+    UInt(7.W)
+  ) // 128-byte address space (byte-addressed internally by shifting)
   val data_in = Input(UInt(config.totalBits.W))
   val data_write_n = Input(UInt(2.W)) // 0b10 for write
   val data_read_n = Input(UInt(2.W))
@@ -66,11 +66,11 @@ class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean
 
   // --- Storage ---
   // @doc:storage
-  // registerFile: 8 general-purpose registers for floating-point data (r0-r7)
-  val registerFile = SyncReadMem(8, UInt(config.totalBits.W))
+  // registerFile: 16 general-purpose registers for floating-point data (r0-r15)
+  val registerFile = SyncReadMem(16, UInt(config.totalBits.W))
 
-  // instructionMemory: 6 words of instruction memory to store the shader program
-  val instructionMemory = SyncReadMem(6, UInt(config.totalBits.W))
+  // instructionMemory: 8 words of instruction memory to store the shader program
+  val instructionMemory = SyncReadMem(8, UInt(config.totalBits.W))
 
   // programCounter: Points to the current instruction in instructionMemory
   val programCounter = RegInit(0.U(3.W))
@@ -103,11 +103,11 @@ class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean
 
   // @doc:instruction-format
   // --- Instruction Decoding ---
-  // 3-bit register indices (r0-r7) for both FP32 and FP16
+  // 4-bit register indices (r0-r15) for FP16, 4-bit (from wider fields) for FP32
   // FP16: [15:14]=op [13:12]=rs3/ext [11:8]=rs2 [7:4]=rs1 [3:0]=rd
-  val rs1_idx = if (config.totalBits >= 20) fetchedInstruction(19, 15)(2, 0) else fetchedInstruction(6, 4)
-  val rs2_idx = if (config.totalBits >= 25) fetchedInstruction(24, 20)(2, 0) else fetchedInstruction(10, 8)
-  val rd_idx = if (config.totalBits >= 32) fetchedInstruction(11, 7)(2, 0) else fetchedInstruction(2, 0)
+  val rs1_idx = if (config.totalBits >= 20) fetchedInstruction(19, 15)(3, 0) else fetchedInstruction(7, 4)
+  val rs2_idx = if (config.totalBits >= 25) fetchedInstruction(24, 20)(3, 0) else fetchedInstruction(11, 8)
+  val rd_idx = if (config.totalBits >= 32) fetchedInstruction(11, 7)(3, 0) else fetchedInstruction(3, 0)
 
   // Operation type: ADD, MUL, FMA, FNEG, FSTEP
   // FP32: bit 2 = FMA flag; funct7[28:25] = 0x0→ADD, 0x4→MUL, 0x6→FNEG, 0x8→FSTEP (when not FMA)
@@ -170,13 +170,14 @@ class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean
     }
   }
 
-  // Handle Control (shared address 60: read=status, write=control)
-  when(is_writing && io.address === 60.U) {
+  // Handle Control (shared address 124: read=status, write=control)
+  when(is_writing && io.address === 124.U) {
     when(io.data_in(0)) { running := true.B }
     when(io.data_in(1)) {
       programCounter := 0.U
       running := false.B
       busy_counter := 0.U
+      if (nibbleSerial) { fma_inflight.get := false.B }
     }
   }
   // @doc:end
@@ -198,7 +199,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean
   // During execution, this port reads rs3; when idle, it serves MMIO reads/writes.
   val mmio_reg_en = !running && !is_busy && (is_reading || is_writing)
   val rs3_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
-  val portC_addr = Mux(running || is_busy, rs3_idx, io.address(4, 2))
+  val portC_addr = Mux(running || is_busy, rs3_idx, io.address(5, 2))
   val portC_en = mmio_reg_en || rs3_en
   val mmio_reg_en_del = RegNext(mmio_reg_en && is_reading, false.B)
   val rs3_en_del = RegNext(rs3_en, false.B)
@@ -264,10 +265,10 @@ class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean
   // @doc:end
 
   // Write-back: At busy_counter 1 (Cycle 4 of 4)
-  val mmio_reg_write = is_writing && io.address < 32.U
+  val mmio_reg_write = is_writing && io.address < 64.U
   val pipe_reg_write = running && is_busy && busy_counter === 1.U
   val reg_w_en = mmio_reg_write || pipe_reg_write
-  val reg_w_addr = Mux(pipe_reg_write, rd_idx, io.address(4, 2))
+  val reg_w_addr = Mux(pipe_reg_write, rd_idx, io.address(5, 2))
 
   // @doc:fstep
   // FSTEP: output 0.0 if rs1 <= 0, else 1.0 (sign-preserving step function)
@@ -285,19 +286,19 @@ class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean
   }
 
   // @doc:mmio
-  // IMEM Write (addresses 32–52, 6 words)
-  when(is_writing && io.address >= 32.U && io.address < 56.U) {
+  // IMEM Write (addresses 64–92, 8 words)
+  when(is_writing && io.address >= 64.U && io.address < 96.U) {
     instructionMemory.write(io.address(4, 2), io.data_in)
   }
 
   // --- Memory-Mapped Read Logic ---
-  val read_addr_del = RegInit(0.U(6.W))
+  val read_addr_del = RegInit(0.U(7.W))
   read_addr_del := io.address
 
   val status_reg = Cat(0.U((config.totalBits - 2).W), !running, 0.U(1.W))
 
-  io.data_out := Mux(read_addr_del < 32.U, mmio_reg_data,
-    Mux(read_addr_del === 60.U, status_reg, 0.U)
+  io.data_out := Mux(read_addr_del < 64.U, mmio_reg_data,
+    Mux(read_addr_del === 124.U, status_reg, 0.U)
   )
 
   val read_ready_del = RegNext(is_reading, false.B)

@@ -34,4 +34,5 @@ object Main extends App {
   PicoIcePins.emitPCF(s"$targetDir/pico_ice.pcf")
   MmioMap.emitHeader("fpga/firmware/borg_mmio.h")
   MmioMap.emitPython("fpga/host/borg_mmio.py")
+  MmioMap.emitPython("test/soc/borg_mmio.py")
 }

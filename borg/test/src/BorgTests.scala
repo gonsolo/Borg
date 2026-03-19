@@ -97,13 +97,13 @@ object BorgTests extends TestSuite {
 
   // --- Execution helpers ---
 
-  def resetAndWait(borg: Borg): Unit = writeAddr(borg, 60, 2)
+  def resetAndWait(borg: Borg): Unit = writeAddr(borg, 124, 2)
 
   def startAndWaitForHalt(borg: Borg): Unit = {
-    writeAddr(borg, 60, 1)
+    writeAddr(borg, 124, 1)
     var status: BigInt = 0
     do {
-      borg.io.address.poke(60.U)
+      borg.io.address.poke(124.U)
       borg.io.data_read_n.poke(2.U)
       borg.io.data_write_n.poke(3.U)
       borg.clock.step(1)
@@ -150,8 +150,8 @@ object BorgTests extends TestSuite {
     }
 
     // Write instruction and halt
-    writeAddr(borg, 32, instr)
-    writeAddr(borg, 36, 0)
+    writeAddr(borg, 64, instr)
+    writeAddr(borg, 68, 0)
 
     startAndWaitForHalt(borg)
     assertResult(readAddr(borg, rdAddr, config), expected, config, label)
@@ -206,8 +206,8 @@ object BorgTests extends TestSuite {
         writeAddr(borg, 20, floatToBits(7.0f, FloatConfig.FP32))  // reg5
         // ADD: rd=6, rs1=4, rs2=5 → reg6 = 3.0 + 7.0 = 10.0
         val instr = encodeInstruction(FloatConfig.FP32, ADD, rs1 = 4, rs2 = 5, rd = 6)
-        writeAddr(borg, 32, instr)  // imem[0]
-        writeAddr(borg, 36, 0)      // halt
+        writeAddr(borg, 64, instr)  // imem[0]
+        writeAddr(borg, 68, 0)      // halt
         startAndWaitForHalt(borg)
         val result = readAddr(borg, 24, FloatConfig.FP32)  // reg6
         assertResult(result, 10.0f, FloatConfig.FP32, "3.0 + 7.0 (high regs)")
@@ -256,11 +256,11 @@ object BorgTests extends TestSuite {
         for (rt <- rotTests) {
           println(f"\n  Test: ${rt.label}")
           resetAndWait(borg)
-          writeAddr(borg, 32, instrFmulCX)
-          writeAddr(borg, 36, instrFmaddRX)
-          writeAddr(borg, 40, instrFmulSX)
-          writeAddr(borg, 44, instrFmaddRY)
-          writeAddr(borg, 48, 0)  // halt
+          writeAddr(borg, 64, instrFmulCX)
+          writeAddr(borg, 68, instrFmaddRX)
+          writeAddr(borg, 72, instrFmulSX)
+          writeAddr(borg, 76, instrFmaddRY)
+          writeAddr(borg, 80, 0)  // halt
           writeAddr(borg, 8,  rt.cos)   // r2 = cos
           writeAddr(borg, 12, rt.x)     // r3 = x
           writeAddr(borg, 16, rt.nsin)  // r4 = -sin
@@ -293,8 +293,8 @@ object BorgTests extends TestSuite {
         writeAddr(borg, 8,  0x4000)  // r2 = 2.0
         writeAddr(borg, 12, 0x4200)  // r3 = 3.0
         val singleInstr = encodeInstruction(config, MUL, rs1 = 2, rs2 = 3, rd = 0)
-        writeAddr(borg, 32, singleInstr)
-        writeAddr(borg, 36, 0)
+        writeAddr(borg, 64, singleInstr)
+        writeAddr(borg, 68, 0)
         println(f"  Instruction: fmul r0, r2, r3 = 0x${singleInstr}%04X")
         resetAndWait(borg)
         startAndWaitForHalt(borg)
@@ -436,7 +436,7 @@ object BorgTests extends TestSuite {
         println("  Register round-trip: PASSED")
 
         // --- Status register: idle when not running ---
-        borg.io.address.poke(60.U)
+        borg.io.address.poke(124.U)
         borg.io.data_read_n.poke(2.U)
         borg.io.data_write_n.poke(3.U)
         borg.clock.step(1)
@@ -452,8 +452,8 @@ object BorgTests extends TestSuite {
         writeAddr(borg, 0, floatToBits(10.0f, config))   // r0
         writeAddr(borg, 4, floatToBits(5.0f, config))    // r1
         val addInstr = encodeInstruction(config, ADD, rs1 = 0, rs2 = 1, rd = 2)
-        writeAddr(borg, 32, addInstr)  // imem[0]
-        writeAddr(borg, 36, 0)         // halt
+        writeAddr(borg, 64, addInstr)  // imem[0]
+        writeAddr(borg, 68, 0)         // halt
         startAndWaitForHalt(borg)
         val r2 = readAddr(borg, 8, config)
         assertResult(r2, 15.0f, config, "IMEM write → execute (10+5)")
@@ -485,10 +485,10 @@ object BorgTests extends TestSuite {
         val i0 = encodeInstruction(config, ADD, rs1 = 0, rs2 = 1, rd = 2)
         val i1 = encodeInstruction(config, MUL, rs1 = 2, rs2 = 0, rd = 3)
         val i2 = encodeInstruction(config, ADD, rs1 = 3, rs2 = 1, rd = 4)
-        writeAddr(borg, 32, i0)
-        writeAddr(borg, 36, i1)
-        writeAddr(borg, 40, i2)
-        writeAddr(borg, 44, 0)  // halt
+        writeAddr(borg, 64, i0)
+        writeAddr(borg, 68, i1)
+        writeAddr(borg, 72, i2)
+        writeAddr(borg, 76, 0)  // halt
         startAndWaitForHalt(borg)
         assertResult(readAddr(borg, 8, config), 5.0f, config, "chain: r2 = 2+3")
         assertResult(readAddr(borg, 12, config), 10.0f, config, "chain: r3 = 5×2")
@@ -506,12 +506,12 @@ object BorgTests extends TestSuite {
         println("  Test 2: Full IMEM capacity (5 instructions + halt)")
         resetAndWait(borg)
         writeAddr(borg, 0, floatToBits(1.0f, config))
-        writeAddr(borg, 32, encodeInstruction(config, ADD, rs1 = 0, rs2 = 0, rd = 1))
-        writeAddr(borg, 36, encodeInstruction(config, ADD, rs1 = 1, rs2 = 0, rd = 2))
-        writeAddr(borg, 40, encodeInstruction(config, ADD, rs1 = 2, rs2 = 0, rd = 3))
-        writeAddr(borg, 44, encodeInstruction(config, ADD, rs1 = 3, rs2 = 0, rd = 4))
-        writeAddr(borg, 48, encodeInstruction(config, ADD, rs1 = 4, rs2 = 0, rd = 5))
-        writeAddr(borg, 52, 0)  // halt in slot 5
+        writeAddr(borg, 64, encodeInstruction(config, ADD, rs1 = 0, rs2 = 0, rd = 1))
+        writeAddr(borg, 68, encodeInstruction(config, ADD, rs1 = 1, rs2 = 0, rd = 2))
+        writeAddr(borg, 72, encodeInstruction(config, ADD, rs1 = 2, rs2 = 0, rd = 3))
+        writeAddr(borg, 76, encodeInstruction(config, ADD, rs1 = 3, rs2 = 0, rd = 4))
+        writeAddr(borg, 80, encodeInstruction(config, ADD, rs1 = 4, rs2 = 0, rd = 5))
+        writeAddr(borg, 84, 0)  // halt in slot 5
         startAndWaitForHalt(borg)
         assertResult(readAddr(borg, 4, config), 2.0f, config, "imem full: r1=2")
         assertResult(readAddr(borg, 8, config), 3.0f, config, "imem full: r2=3")
@@ -526,8 +526,8 @@ object BorgTests extends TestSuite {
         resetAndWait(borg)
         writeAddr(borg, 0, floatToBits(100.0f, config))
         writeAddr(borg, 4, floatToBits(50.0f, config))
-        writeAddr(borg, 32, encodeInstruction(config, MUL, rs1 = 0, rs2 = 1, rd = 2))
-        writeAddr(borg, 36, 0)
+        writeAddr(borg, 64, encodeInstruction(config, MUL, rs1 = 0, rs2 = 1, rd = 2))
+        writeAddr(borg, 68, 0)
         startAndWaitForHalt(borg)
         assertResult(readAddr(borg, 8, config), 5000.0f, config, "pre-reset: 100×50")
 
@@ -535,8 +535,8 @@ object BorgTests extends TestSuite {
         resetAndWait(borg)
         writeAddr(borg, 0, floatToBits(7.0f, config))
         writeAddr(borg, 4, floatToBits(3.0f, config))
-        writeAddr(borg, 32, encodeInstruction(config, ADD, rs1 = 0, rs2 = 1, rd = 2))
-        writeAddr(borg, 36, 0)
+        writeAddr(borg, 64, encodeInstruction(config, ADD, rs1 = 0, rs2 = 1, rd = 2))
+        writeAddr(borg, 68, 0)
         startAndWaitForHalt(borg)
         assertResult(readAddr(borg, 8, config), 10.0f, config, "post-reset: 7+3")
         println("  Reset-and-rerun: PASSED")
@@ -551,10 +551,10 @@ object BorgTests extends TestSuite {
         resetAndWait(borg)
         writeAddr(borg, 0, floatToBits(4.0f, config))
         writeAddr(borg, 4, floatToBits(2.0f, config))
-        writeAddr(borg, 32, encodeInstruction(config, MUL, rs1 = 0, rs2 = 1, rd = 2))
-        writeAddr(borg, 36, encodeInstruction(config, ADD, rs1 = 2, rs2 = 0, rd = 3))
-        writeAddr(borg, 40, encodeInstruction(config, FNEG, rs1 = 3, rs2 = 0, rd = 4))
-        writeAddr(borg, 44, 0)
+        writeAddr(borg, 64, encodeInstruction(config, MUL, rs1 = 0, rs2 = 1, rd = 2))
+        writeAddr(borg, 68, encodeInstruction(config, ADD, rs1 = 2, rs2 = 0, rd = 3))
+        writeAddr(borg, 72, encodeInstruction(config, FNEG, rs1 = 3, rs2 = 0, rd = 4))
+        writeAddr(borg, 76, 0)
         startAndWaitForHalt(borg)
         assertResult(readAddr(borg, 8, config), 8.0f, config, "mixed: r2=4×2")
         assertResult(readAddr(borg, 12, config), 12.0f, config, "mixed: r3=8+4")

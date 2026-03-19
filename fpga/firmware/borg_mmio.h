@@ -6,16 +6,16 @@
 #define UART_BAUD_DEFAULT 34  // 4 MHz / 115200 baud
 
 // --- User UART peripheral ---
-#define UART_TX     (*(volatile uint32_t *)0x08000080UL)
-#define UART_STATUS (*(volatile uint32_t *)0x08000084UL)
-#define UART_BAUD   (*(volatile uint32_t *)0x08000088UL)
+#define UART_TX     (*(volatile uint32_t *)0x08000100UL)
+#define UART_STATUS (*(volatile uint32_t *)0x08000104UL)
+#define UART_BAUD   (*(volatile uint32_t *)0x08000108UL)
 
 // --- Borg GPU peripheral ---
-#define BORG_BASE    0x080000C0UL
+#define BORG_BASE    0x08000180UL
 #define BORG_REG(n)     (*(volatile uint32_t *)(BORG_BASE + (n) * 4))
-#define BORG_IMEM(n)    (*(volatile uint32_t *)(BORG_BASE + 32 + (n) * 4))
-#define BORG_CONTROL    (*(volatile uint32_t *)(BORG_BASE + 60))
-#define BORG_STATUS     (*(volatile uint32_t *)(BORG_BASE + 60))
+#define BORG_IMEM(n)    (*(volatile uint32_t *)(BORG_BASE + 64 + (n) * 4))
+#define BORG_CONTROL    (*(volatile uint32_t *)(BORG_BASE + 124))
+#define BORG_STATUS     (*(volatile uint32_t *)(BORG_BASE + 124))
 #define BORG_CTL_START  1  // write: start execution
 #define BORG_CTL_RESET  2  // write: reset pipeline
 #define BORG_STS_IDLE   2  // read: pipeline idle

@@ -5,6 +5,7 @@ from riscvmodel.regnames import x0, tp, a0, a1
 from riscvmodel import csrnames
 
 import test_util
+from borg_mmio import USER_PERIPHERAL_STRIDE
 
 # This class provides access to the peripheral's registers.
 class TinyQV:
@@ -13,12 +14,13 @@ class TinyQV:
     def __init__(self, dut, peripheral_num):
         self.dut = dut
         self.peripheral_num = peripheral_num
+        stride = USER_PERIPHERAL_STRIDE
         if peripheral_num < 16:
-            self.base_address = peripheral_num * 0x40
+            self.base_address = peripheral_num * stride
         elif peripheral_num >= 32:
-            self.base_address = peripheral_num * 0x40 - 0x200
+            self.base_address = peripheral_num * stride - 8 * stride
         else:
-            self.base_address = 0x300 + peripheral_num * 0x10
+            self.base_address = 12 * stride + peripheral_num * 0x10
 
     # Reset the design, this reset will initialize TinyQV and connect
     # all inputs and outputs to your peripheral.

@@ -80,9 +80,9 @@ object MmioMap {
   val CLOCK_MHZ = 4
 
   // --- User peripheral address field positions (within 11-bit addr_in) ---
-  val USER_PERI_SEL_HI   = 10  // addr_in(10:6) selects sub-peripheral
-  val USER_PERI_SEL_LO   = 6
-  val USER_SUB_ADDR_HI   = 5   // addr_in(5:0) is the sub-register address
+  val USER_PERI_SEL_HI   = 10  // addr_in(10:7) selects sub-peripheral
+  val USER_PERI_SEL_LO   = 7
+  val USER_SUB_ADDR_HI   = 6   // addr_in(6:0) is the sub-register address
   val USER_SUB_ADDR_LO   = 0
   val GPIO_FUNC_SEL_IDX_HI = 4 // addr_in(4:2) selects which pin's func_sel
   val GPIO_FUNC_SEL_IDX_LO = 2
@@ -98,9 +98,9 @@ object MmioMap {
   val UART_BAUD_OFFSET   = 8   // Baud divider
 
   // Borg GPU (Borg.scala)
-  val BORG_REG_OFFSET     = 0   // Register file base (8 × 16-bit)
-  val BORG_IMEM_OFFSET    = 32  // Instruction memory base (4 × 16-bit)
-  val BORG_CONTROL_OFFSET = 60  // Control / status register
+  val BORG_REG_OFFSET     = 0    // Register file base (16 × 16-bit)
+  val BORG_IMEM_OFFSET    = 64   // Instruction memory base (8 × 16-bit)
+  val BORG_CONTROL_OFFSET = 124  // Control / status register
 
   // Borg control register bits (write to BORG_CONTROL)
   val BORG_CTL_START = 1  // bit 0: start execution
@@ -123,7 +123,7 @@ object MmioMap {
   def userPeriU(idx: Int): UInt = idx.U
 
   // --- Full address computation helpers ---
-  private def userAddr(select: Int, offset: Int): Int = USER_BASE + select * 64 + offset
+  private def userAddr(select: Int, offset: Int): Int = USER_BASE + select * 128 + offset
 
   /** Emit C header with all MMIO addresses. */
   def emitHeader(path: String): Unit = {
@@ -195,6 +195,13 @@ object MmioMap {
     w.println("# System clock (from MmioMap.scala)")
     w.println(f"CLOCK_MHZ = $CLOCK_MHZ")
     w.println(f"FPGA_CLOCK_HZ = ${CLOCK_MHZ * 1_000_000}  # CLOCK_MHZ * 1e6")
+    w.println()
+    w.println("# User peripheral addressing (for TinyQV bus driver)")
+    w.println(f"USER_PERIPHERAL_STRIDE = 0x${1 << (USER_SUB_ADDR_HI + 1)}%02X")
+    w.println()
+    w.println("# Borg GPU sub-register offsets")
+    w.println(f"BORG_IMEM_OFFSET = $BORG_IMEM_OFFSET")
+    w.println(f"BORG_CONTROL_OFFSET = $BORG_CONTROL_OFFSET")
     w.close()
     println(s"Generated Python constants: $path")
   }
