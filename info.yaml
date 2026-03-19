@@ -17,7 +17,8 @@ project:
   source_files:
     - "../out/borg/verilog/tt_um_gonsolo_borg.sv"
     - "../out/borg/verilog/tinyQV_peripherals.sv"
-    - "../out/borg/verilog/MulAddRecFN_e5_s11.sv"
+    - "../out/borg/verilog/MulAddRecFN_e5_s11_nibble.sv"
+    - "../out/borg/verilog/NibbleSerialMulAdd.sv"
     - "../out/borg/verilog/MulAddRecFNToRaw_preMul_e5_s11.sv"
     - "../out/borg/verilog/MulAddRecFNToRaw_postMul_e5_s11.sv"
     - "../out/borg/verilog/Borg.sv"
