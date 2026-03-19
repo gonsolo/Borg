@@ -109,7 +109,7 @@ class MulAddRecFNToRaw_preMul(expWidth: Int, sigWidth: Int) extends RawModule
     val posNatCAlignDist = sNatCAlignDist(expWidth + 1, 0)
     val isMinCAlign = rawA.isZero || rawB.isZero || (sNatCAlignDist < 0.S)
     val CIsDominant =
-        ! rawC.isZero && (isMinCAlign || (posNatCAlignDist <= sigWidth.U))
+        !rawC.isZero && (isMinCAlign || (posNatCAlignDist <= sigWidth.U))
     val CAlignDist =
         Mux(isMinCAlign,
             0.U,
@@ -133,7 +133,7 @@ class MulAddRecFNToRaw_preMul(expWidth: Int, sigWidth: Int) extends RawModule
     val alignedSigC =
         Cat(mainAlignedSigC>>3,
             Mux(doSubMags,
-                mainAlignedSigC(2, 0).andR && ! reduced4CExtra,
+                mainAlignedSigC(2, 0).andR && !reduced4CExtra,
                 mainAlignedSigC(2, 0).orR  ||   reduced4CExtra
             )
         )
@@ -275,7 +275,7 @@ class MulAddRecFNToRaw_postMul(expWidth: Int, sigWidth: Int) extends RawModule
         io.fromPreMul.isSigNaNAny ||
         (io.fromPreMul.isInfA && io.fromPreMul.isZeroB) ||
         (io.fromPreMul.isZeroA && io.fromPreMul.isInfB) ||
-        (! io.fromPreMul.isNaNAOrB &&
+        (!io.fromPreMul.isNaNAOrB &&
              (io.fromPreMul.isInfA || io.fromPreMul.isInfB) &&
              io.fromPreMul.isInfC &&
              io.fromPreMul.doSubMags)
@@ -284,15 +284,15 @@ class MulAddRecFNToRaw_postMul(expWidth: Int, sigWidth: Int) extends RawModule
 //*** IMPROVE?:
     io.rawOut.isZero :=
         notNaN_addZeros ||
-            (! io.fromPreMul.CIsDominant && notCDom_completeCancellation)
+            (!io.fromPreMul.CIsDominant && notCDom_completeCancellation)
     io.rawOut.sign :=
         (notNaN_isInfProd && io.fromPreMul.signProd) ||
         (io.fromPreMul.isInfC && opSignC) ||
-        (notNaN_addZeros && ! roundingMode_min &&
+        (notNaN_addZeros && !roundingMode_min &&
             io.fromPreMul.signProd && opSignC) ||
         (notNaN_addZeros && roundingMode_min &&
             (io.fromPreMul.signProd || opSignC)) ||
-        (! notNaN_isInfOut && ! notNaN_addZeros &&
+        (!notNaN_isInfOut && !notNaN_addZeros &&
              Mux(io.fromPreMul.CIsDominant, CDom_sign, notCDom_sign))
     io.rawOut.sExp := Mux(io.fromPreMul.CIsDominant, CDom_sExp, notCDom_sExp)
     io.rawOut.sig := Mux(io.fromPreMul.CIsDominant, CDom_sig, notCDom_sig)

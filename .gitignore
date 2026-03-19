@@ -18,3 +18,5 @@ datasheet.pdf
 __pycache__
 compile_commands.json
 docs/book/
+.bsp
+.metals
