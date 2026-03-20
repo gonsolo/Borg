@@ -69,61 +69,65 @@ repeated `borg_cmd_draw()` calls). Already works for 2 triangles in
 
 4×4 MVP matrix multiply per vertex (~16 FMA per vertex). Transforms from
 model space to clip space and applies perspective divide. Uses the existing
-Borg FMA via MMIO.
+Borg FMA via MMIO. Estimate: 2–3 days.
 
 ### Step 1c: Triangle Clipping (Firmware)
 
 Near/far plane clipping before rasterization. Clip triangles that cross the
 near plane; cull those entirely behind it. Sutherland–Hodgman or simplified
-guard-band approach.
+guard-band approach. Estimate: 2–3 days.
 
 ### Step 2: Hardware Fragment Interpolation
 
 Batch up to 6 fragment channel computations
 (`channel = (e0·c0 + e1·c1 + e2·c2) · inv_area` for R, G, B, Z, U, V) through
 the FMA with a single trigger. Eliminates 3–6 more round-trips per pixel.
+Estimate: 1 week.
 
 ### Step 3: Pixel Iterator (Hardware Rasterizer)
 
 Counter-based x/y walker that evaluates edge functions (Step 1) and triggers
 fragment interpolation (Step 2) for each inside pixel. CPU submits one triangle
 instead of driving every pixel. **This is the key transition from
-"ALU co-processor" to "rasterizer."**
+"ALU co-processor" to "rasterizer."** Estimate: 1–2 weeks.
 
 ### Step 4: On-Chip Tile Buffer (BRAM)
 
 4×4 pixel tile buffer in Block RAM (RGB + Z). Rasterizer writes on-chip; a
 burst flush writes the completed tile to PSRAM. Eliminates per-pixel PSRAM
 round-trips. Tile-based approach matches mobile GPU architecture (Mali,
-PowerVR, Adreno).
+PowerVR, Adreno). Estimate: 1–2 weeks.
 
 ### Step 5: Hardware Z-Buffer Unit
 
 FP16 comparator at the tile buffer write port — depth test in hardware instead
-of firmware. ~20 LUTs.
+of firmware. ~20 LUTs. Estimate: 2–3 days.
 
 ### Step 6: Command FIFO
 
 2–4 entry FIFO between CPU and pixel iterator. CPU submits the next triangle
 while GPU rasterizes the current one. Embryonic command buffer.
+Estimate: 3–5 days.
 
 ### Step 7: Texture Fetch Unit
 
 UV-to-texel conversion, Morton addressing, and PSRAM texel read inside the
 pixel iterator. By this step the CPU is out of the inner loop, so there is no
 bus contention — the failure mode of the earlier texture cache experiment.
+Estimate: 1–2 weeks.
 
 ### Step 8: Vertex Shader Auto-Sequencer
 
 FSM that sequences 3 vertex shader runs (loading attributes, running SPIR-B
 shader, storing outputs, applying screen-space transform) without CPU
-involvement.
+involvement. Estimate: 1 week.
 
 ### Step 9: Full Autonomous Triangle Pipeline
 
 Integration of Steps 0–8. CPU submits a triangle descriptor; GPU does
 vertex shade → triangle setup → rasterize → fragment shade → Z-test →
 tile buffer → PSRAM flush. CPU only writes triangle data and waits for DONE.
+Estimate: 1–2 weeks.
 
 ### Step Dependencies
 
@@ -139,72 +143,94 @@ Step 0 (nibble-serial FMA)
 
 ## Phase 3: Linux-Capable CPU
 
-Target: ~Q3 2026 — expand TinyQV to RV32IMA. Can be developed in parallel
-with GPU Steps 1–9. The only shared resource is the nibble-serial multiplier
-(Step 0), which must be arbitrated between CPU mul and GPU FMA.
+Target: ~Aug 2026 — expand TinyQV to RV32IMA. Sequential after Phase 2.
+The only shared resource is the nibble-serial multiplier (Step 0), which must
+be arbitrated between CPU mul and GPU FMA.
 
 ### Step 10: M Extension (Integer Multiply/Divide)
 
 Reuse the nibble-serial multiplier from Step 0 for MUL/MULH/DIV/REM.
 ~8 cycles for 32-bit multiply via 4-bit partials. ~50 LUTs for decode.
+Estimate: 1 week.
 
 ### Step 11: A Extension (Atomics)
 
 LR.W / SC.W for Linux `futex` and spinlocks. Reservation register (32-bit
-address + valid bit). ~100 LUTs.
+address + valid bit). ~100 LUTs. Reference KianV implementation.
+Estimate: 3–5 days.
 
 ### Step 12: MMU (Sv32)
 
 Two-level page table walker, 4–8 entry TLB, `satp`/`mstatus` CSRs.
-Intermediate milestone: boot no-MMU Linux first. ~800–1200 LUTs — the most
-expensive single addition.
+Intermediate milestone: boot no-MMU Linux first (~1 week).
+~800–1200 LUTs — the most expensive single addition.
+Estimate: 3–4 weeks.
 
-| Task | Estimate | Notes |
-| ---- | -------- | ----- |
-| M extension (mul/div) | 1–2 weeks | Reuse nibble-serial multiplier from Step 0 |
-| A extension (atomics) | 1 week | LR/SC, reference KianV |
-| MMU (Sv32) | 1–2 months | TLB + page table walker — hardest piece |
-| Boot no-MMU Linux | 2 weeks | Intermediate milestone before MMU |
-| Boot full Linux | 2–4 weeks | Kernel, device tree, rootfs on QSPI PSRAM (8 MB) |
+### Step 12a: Boot no-MMU Linux
 
-## Phase 4: Mesa Vulkan Driver (~2-3 months)
+Intermediate milestone before full MMU. Estimate: 1 week.
 
-Target: ~Q4 2026
+### Step 12b: Boot Full Linux
 
-Write a Mesa Vulkan ICD for the Borg GPU.
+Kernel, device tree, rootfs on QSPI PSRAM (8 MB). Estimate: 1–2 weeks.
 
-| Task | Estimate | Notes |
-| ---- | -------- | ----- |
-| Minimal `vk_device` + `wsi_headless` | 2-3 weeks | Headless rendering, no window system needed |
-| Shader compiler (NIR → SPIR-B) | 2-4 weeks | NIR backend generating Borg instructions |
-| Draw path (`vkCmdDraw`) | 2-3 weeks | Vertex + fragment shader dispatch to hardware |
-| Texture sampling (software) | 1-2 weeks | CPU-side sampling, spec-compliant but slow |
-| Vulkan CTS subset | 2-4 weeks | Run conformance tests, fix failures |
+## Phase 4: Mesa Vulkan Driver
 
-## Phase 5: GPU Hardware Extensions (~2-3 months)
+Target: ~Oct 2026 (~6–8 weeks total). Write a Mesa Vulkan ICD for the Borg GPU.
 
-Target: ~Q1 2027
+### Step 13: Minimal `vk_device` + `wsi_headless`
 
-Extend the shader processor to support more Vulkan features. These items only
-make sense on a larger tile or ASIC.
+Headless rendering, no window system needed. Estimate: 1–2 weeks.
 
-| Task | Estimate | Notes |
-| ---- | -------- | ----- |
-| Larger register file + IMEM | 1 week | 16 regs, 16 IMEM slots for complex shaders |
-| Integer ALU ops in shader | 2 weeks | Comparison, bitwise, integer math |
-| Memory load/store from shader | 2–3 weeks | Enables shader-side texture addressing |
-| Framebuffer blending | 1–2 weeks | Alpha blending support |
-| Multi-lane SIMD (2–4 FMA) | 2–3 weeks | Process multiple pixels per cycle |
-| Second tapeout submission | 2 weeks | 4×4 or 4×5 tile, Linux + Vulkan capable |
+### Step 14: Shader Compiler (NIR → SPIR-B)
+
+NIR backend generating Borg instructions. Estimate: 2–3 weeks.
+
+### Step 15: Draw Path (`vkCmdDraw`)
+
+Vertex + fragment shader dispatch to hardware. Estimate: 1–2 weeks.
+
+### Step 16: Texture Sampling (Software)
+
+CPU-side sampling, spec-compliant but slow. Estimate: 1 week.
+
+### Step 17: Vulkan CTS Subset
+
+Run conformance tests, fix failures. Estimate: 1–2 weeks.
+
+## Phase 5: GPU Hardware Extensions
+
+Target: ~Jan 2027 (~6–8 weeks total). Extend the shader processor to support
+more Vulkan features. These items only make sense on a larger tile or ASIC.
+
+### Step 18: Larger Register File + IMEM
+
+16 regs, 16 IMEM slots for complex shaders. Estimate: 3–5 days.
+
+### Step 19: Integer ALU Ops in Shader
+
+Comparison, bitwise, integer math. Estimate: 1 week.
+
+### Step 20: Memory Load/Store from Shader
+
+Enables shader-side texture addressing. Estimate: 1–2 weeks.
+
+### Step 21: Framebuffer Blending
+
+Alpha blending support. Estimate: 3–5 days.
+
+### Step 22: Multi-Lane SIMD (2–4 FMA)
+
+Process multiple pixels per cycle. Estimate: 1–2 weeks.
+
+### Step 23: Second Tapeout Submission
+
+4×4 or 4×5 tile, Linux + Vulkan capable. Estimate: 1 week.
 
 ## Phase 6: Vulkan 1.0 Conformance
 
-Target: ~Q2 2027
-
-| Task | Estimate | Notes |
-| ---- | -------- | ----- |
-| Full CTS pass | 1–2 months | Mesa handles most complexity |
-| Khronos conformance submission | 1 month | Documentation + test results |
+Target: ~Mar 2027. Full CTS pass (~3–4 weeks); Mesa handles most complexity.
+Khronos conformance submission (~2 weeks): documentation + test results.
 
 ## Tile Budget Estimate
 
