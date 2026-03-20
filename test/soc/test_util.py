@@ -9,6 +9,8 @@ from riscvmodel.insn import *
 from riscvmodel.regnames import x0, x1, gp, tp, a0
 from riscvmodel import csrnames # Added by the change
 
+from borg_mmio import SOC_PERI_DEBUG_UART, SOC_PERI_GPIO_OUT_SEL, GPIO_FUNC_SEL
+
 CLOCK_MHZ = int(os.environ.get("CLOCK_MHZ", "4")) # Added by the change
 print(f"DEBUG: CLOCK_MHZ (util) = {CLOCK_MHZ}")
 def calculate_bit_time(clock_mhz):
@@ -279,7 +281,7 @@ async def stop_nops():
     nop_task = None
 
 async def read_byte(dut, reg, expected_val):
-  await send_instr(dut, InstructionSW(tp, reg, 0x18).encode())
+  await send_instr(dut, InstructionSW(tp, reg, SOC_PERI_DEBUG_UART).encode())
 
   await start_nops(dut)
   # Wait for start bit.
@@ -370,7 +372,7 @@ async def read_reg(dut, reg, allow_long_delay=False):
 
 async def set_all_outputs_to_peripheral(dut, peripheral_num):
     await send_instr(dut, InstructionADDI(a0, x0, 0xc0).encode())
-    await send_instr(dut, InstructionSW(tp, a0, 0xc).encode())
+    await send_instr(dut, InstructionSW(tp, a0, SOC_PERI_GPIO_OUT_SEL).encode())
     await send_instr(dut, InstructionADDI(a0, x0, peripheral_num).encode())
-    for func_sel in range(0x60, 0x80, 4):
+    for func_sel in range(GPIO_FUNC_SEL, GPIO_FUNC_SEL + 0x20, 4):
         await send_instr(dut, InstructionSW(tp, a0, func_sel).encode())

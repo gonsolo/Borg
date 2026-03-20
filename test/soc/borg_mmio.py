@@ -15,6 +15,26 @@ FPGA_CLOCK_HZ = 4000000  # CLOCK_MHZ * 1e6
 # User peripheral addressing (for TinyQV bus driver)
 USER_PERIPHERAL_STRIDE = 0x80
 
+# SoC peripheral offsets (tp-relative, bypass user peripheral decoding)
+SOC_PERI_ID           = 0x08
+SOC_PERI_GPIO_OUT_SEL = 0x0C
+SOC_PERI_DEBUG_UART   = 0x18
+SOC_PERI_TIME_LIMIT   = 0x2C
+
+# User peripheral base offsets (tp-relative)
+GPIO_BASE = 0x80
+UART_BASE = 0x100
+BORG_USER_BASE = 0x180
+
+# GPIO sub-register offsets (relative to GPIO_BASE)
+GPIO_OUT      = GPIO_BASE + 0
+GPIO_IN       = GPIO_BASE + 4
+GPIO_FUNC_SEL = GPIO_BASE + 0x20  # func_sel register space
+
+# UART sub-register offsets (relative to UART_BASE)
+UART_TX_DATA = UART_BASE + 0
+UART_STATUS  = UART_BASE + 4
+
 # Borg GPU sub-register offsets
 BORG_IMEM_OFFSET = 64
 BORG_CONTROL_OFFSET = 124
