@@ -77,15 +77,16 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1773507226,
-        "narHash": "sha256-X7zSVZgjLrwP5oBCdapHlaPuS2rNW53+WHg73tl+hMg=",
-        "owner": "NixOS",
+        "lastModified": 1774013652,
+        "narHash": "sha256-XMtP21J8K9ZCK8SSCwfvpexpus4za3jfqE/r3d3he2M=",
+        "owner": "gonsolo",
         "repo": "nixpkgs",
-        "rev": "85106a26f43516e50a5b95925bbf76f9258b05eb",
+        "rev": "c59ecb3a7aa7884dd8b6980171847edaf5b95fef",
         "type": "github"
       },
       "original": {
-        "owner": "NixOS",
+        "owner": "gonsolo",
+        "ref": "pybind11-protobuf",
         "repo": "nixpkgs",
         "type": "github"
       }
