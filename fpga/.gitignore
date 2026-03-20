@@ -4,6 +4,6 @@ borg.json
 nextpnr.log
 yosys.log
 out
-triangle*.ppm
+*.ppm
 triangle_animation.mp4
 animation.webp

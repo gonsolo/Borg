@@ -292,7 +292,7 @@ _s = WIDTH * 0.3
 TRI = [(0.0, -_s), (-_s, _s), (_s, _s)]
 
 
-def render_all_frames():
+def render_all_frames(app_name='triangle'):
     """Boot FPGA, let firmware render 10 frames, read back all framebuffers."""
     t_start_all = time.ticks_ms()
     NUM_FRAMES = 1
@@ -419,7 +419,7 @@ def render_all_frames():
                 b = qpi_read_word(sm_r, out_base + (base + 2) * 4) & 0xFFFF
                 fb[py * WIDTH + px] = (r, g, b)
 
-        fname = "/remote/triangle_%02d.ppm" % frame
+        fname = "/remote/%s_%02d.ppm" % (app_name, frame)
         write_ppm(fname, fb, WIDTH, HEIGHT)
         print("Frame %02d (%.0f deg): %s" % (frame, frame * 36.0, fname))
 
@@ -428,7 +428,7 @@ def render_all_frames():
     print("All %d frames rendered in %d ms." % (NUM_FRAMES, time.ticks_diff(time.ticks_ms(), t_readback)))
     print("Total render_all_frames time: %d ms" % time.ticks_diff(time.ticks_ms(), t_start_all))
 
-def run_animation():
+def run_animation(firmware_bin='firmware/triangle.bin'):
     """Entry point for rendering all 10 frames."""
     machine.freq(112_000_000)
 
@@ -440,17 +440,19 @@ def run_animation():
     ice_creset_b.value(0)
 
     t_prog = time.ticks_ms()
-    run_tinyqv.program_firmware.program('firmware/triangle.bin')
+    run_tinyqv.program_firmware.program(firmware_bin)
     print("Firmware programmed in %d ms" % time.ticks_diff(time.ticks_ms(), t_prog))
 
     t_flash = time.ticks_ms()
     run_tinyqv.setup_flash()
     print("Flash setup in %d ms" % time.ticks_diff(time.ticks_ms(), t_flash))
 
-    render_all_frames()
+    # Derive app name from firmware binary (e.g. 'firmware/vkcube.bin' -> 'vkcube')
+    app_name = firmware_bin.rsplit('/', 1)[-1].replace('.bin', '')
+    render_all_frames(app_name)
 
 
-def run_single_frame(frame=0):
+def run_single_frame(frame=0, firmware_bin='firmware/triangle.bin'):
     """Entry point for rendering (renders all frames, kept for compatibility)."""
-    run_animation()
+    run_animation(firmware_bin)
 

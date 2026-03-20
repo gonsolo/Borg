@@ -140,11 +140,19 @@ object NibbleSerialTests extends TestSuite {
         // MUL
         runNibbleSerialTest(borg, config, MUL, 3.0f, 4.0f)
         runNibbleSerialTest(borg, config, MUL, -2.0f, 3.0f)
-        runNibbleSerialTest(borg, config, MUL, 0.5f, 0.5f)
+        // MUL: 0.5 × 0.809 — the specific case that fails on FPGA!
+        // cos(36°) ≈ 0.809, FP16 0x3A79
+        runNibbleSerialTest(borg, config, MUL, 0.5f, 0.809f)
+        runNibbleSerialTest(borg, config, MUL, -0.5f, 0.809f)
+        runNibbleSerialTest(borg, config, MUL, 0.5f, 0.588f)  // sin(36°)
+        runNibbleSerialTest(borg, config, MUL, -0.5f, 0.588f)
 
         // FMA
         runNibbleSerialTest(borg, config, FMA(3), 2.0f, 3.0f, 1.0f)
         runNibbleSerialTest(borg, config, FMA(3), 4.0f, 0.5f, -2.0f)
+        // FMA reproducing the vertex shader: rx = cos*x + (-sin)*y
+        // cos*(-0.5) + (-sin)*(-0.5) = -0.405 + 0.294 = -0.111
+        runNibbleSerialTest(borg, config, FMA(3), -0.588f, -0.5f, -0.405f)
 
         // FNEG
         runNibbleSerialTest(borg, config, FNEG, 5.0f, 0f)
@@ -271,6 +279,117 @@ object NibbleSerialTests extends TestSuite {
 
         println("=== Nibble-Serial Batched Edge Test Passed ===\n")
       }
+    }
+
+    // ===================================================================
+    // Cross-validation: nibble-serial vs combinational FMA
+    // Runs the same operations through both implementations and compares
+    // results bit-for-bit.
+    // ===================================================================
+    utest.test("nibble_serial_cross_validation") {
+      val config = FloatConfig.FP16
+
+      // Helper to run a single op and return the raw FP16 bits
+      def runAndGetBits(borg: Borg, config: FloatConfig, op: Op, a: Float, b: Float, c: Float = 0f): BigInt = {
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(a, config))
+        writeAddr(borg, 4, floatToBits(b, config))
+        val instr = op match {
+          case ADD    => encodeInstruction(config, ADD, rs1 = 0, rs2 = 1, rd = 2)
+          case MUL    => encodeInstruction(config, MUL, rs1 = 0, rs2 = 1, rd = 2)
+          case fma: FMA =>
+            writeAddr(borg, 12, floatToBits(c, config))
+            encodeInstruction(config, FMA(rs3 = 3), rs1 = 0, rs2 = 1, rd = 2)
+          case _ => throw new RuntimeException(s"Unsupported op for cross-validation: $op")
+        }
+        writeAddr(borg, 64, instr)
+        writeAddr(borg, 68, 0) // halt
+
+        writeAddr(borg, 124, 1) // start
+        var status: BigInt = 0
+        var waitCycles = 0
+        do {
+          borg.io.address.poke(124.U)
+          borg.io.data_read_n.poke(2.U)
+          borg.io.data_write_n.poke(3.U)
+          borg.clock.step(1)
+          status = borg.io.data_out.peek().litValue
+          waitCycles += 1
+        } while ((status & 2) == 0 && waitCycles < 500)
+        borg.io.data_read_n.poke(3.U)
+        Predef.assert((status & 2) != 0, s"Did not complete in $waitCycles cycles")
+
+        // Read raw bits (not float conversion, for exact comparison)
+        borg.io.address.poke(8.U)
+        borg.io.data_read_n.poke(2.U)
+        borg.io.data_write_n.poke(3.U)
+        borg.clock.step(1)
+        val bits = borg.io.data_out.peek().litValue & 0xFFFF
+        borg.io.data_read_n.poke(3.U)
+        bits
+      }
+
+      // Test cases: (op, a, b, c, label)
+      case class XValCase(op: Op, a: Float, b: Float, c: Float, label: String)
+      val testCases = Seq(
+        // The problematic 0.5 cases
+        XValCase(MUL, 0.5f, 0.809f, 0f, "0.5 × cos(36°)"),
+        XValCase(MUL, -0.5f, 0.809f, 0f, "-0.5 × cos(36°)"),
+        XValCase(MUL, 0.5f, 0.588f, 0f, "0.5 × sin(36°)"),
+        XValCase(MUL, -0.5f, 0.588f, 0f, "-0.5 × sin(36°)"),
+        XValCase(MUL, 0.5f, 0.5f, 0f, "0.5 × 0.5"),
+        XValCase(MUL, 0.5f, 3.0f, 0f, "0.5 × 3.0"),
+        // FMA cases matching the vertex shader
+        XValCase(FMA(3), 0.809f, -0.5f, 0.294f, "cos*(-0.5) + 0.294"),
+        XValCase(FMA(3), -0.588f, -0.5f, -0.405f, "(-sin)*(-0.5) + (-0.405)"),
+        // General cases
+        XValCase(MUL, 3.0f, 4.0f, 0f, "3 × 4"),
+        XValCase(MUL, -2.0f, 3.0f, 0f, "-2 × 3"),
+        XValCase(ADD, 1.0f, 2.0f, 0f, "1 + 2"),
+        XValCase(ADD, -100.0f, 100.0f, 0f, "-100 + 100"),
+        XValCase(FMA(3), 2.0f, 3.0f, 1.0f, "2*3+1"),
+        XValCase(FMA(3), 4.0f, 0.5f, -2.0f, "4*0.5+(-2)"),
+        // Power-of-two significands (zero mantissa)
+        XValCase(MUL, 0.25f, 0.809f, 0f, "0.25 × cos(36°)"),
+        XValCase(MUL, 1.0f, 0.809f, 0f, "1.0 × cos(36°)"),
+        XValCase(MUL, 2.0f, 0.809f, 0f, "2.0 × cos(36°)"),
+        XValCase(MUL, 0.125f, 0.809f, 0f, "0.125 × cos(36°)"),
+      )
+
+      // Run combinational
+      val combResults = new scala.collection.mutable.ArrayBuffer[(BigInt, String)]()
+      simulate(new Borg(config, nibbleSerial = false)) { borg =>
+        println("\n=== Cross-Validation: Combinational FMA ===")
+        for (tc <- testCases) {
+          val bits = runAndGetBits(borg, config, tc.op, tc.a, tc.b, tc.c)
+          combResults += ((bits, tc.label))
+          println(f"  ${tc.label}%-30s -> 0x${bits}%04X (${bitsToFloat(bits, config)}%.4f)")
+        }
+      }
+
+      // Run nibble-serial
+      val nibbleResults = new scala.collection.mutable.ArrayBuffer[(BigInt, String)]()
+      simulate(new Borg(config, nibbleSerial = true)) { borg =>
+        println("\n=== Cross-Validation: Nibble-Serial FMA ===")
+        for (tc <- testCases) {
+          val bits = runAndGetBits(borg, config, tc.op, tc.a, tc.b, tc.c)
+          nibbleResults += ((bits, tc.label))
+          println(f"  ${tc.label}%-30s -> 0x${bits}%04X (${bitsToFloat(bits, config)}%.4f)")
+        }
+      }
+
+      // Compare bit-for-bit
+      println("\n=== Cross-Validation Results ===")
+      var mismatches = 0
+      for (i <- testCases.indices) {
+        val (combBits, label) = combResults(i)
+        val (nibbleBits, _) = nibbleResults(i)
+        val status = if (combBits == nibbleBits) "OK" else { mismatches += 1; "MISMATCH!" }
+        println(f"  $label%-30s comb=0x${combBits}%04X nibble=0x${nibbleBits}%04X  $status")
+      }
+      println(f"  Total: ${testCases.size} tests, $mismatches mismatches")
+      Predef.assert(mismatches == 0, s"$mismatches cross-validation mismatches found!")
+      println("=== Cross-Validation Passed ===\n")
     }
   }
 }

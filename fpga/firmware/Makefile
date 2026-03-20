@@ -14,13 +14,18 @@ unexport NIX_HARDENING_ENABLE
 TINYQV_SDK ?= ../sdk
 
 PROJECT_NAME = triangle
-PROJECT_SOURCES = borg_triangle.c borg_driver.c borg_fpu.c borg_raster.c borg_spirb.c borg_math.c
+SHARED_SOURCES = borg_driver.c borg_fpu.c borg_raster.c borg_spirb.c borg_math.c
+PROJECT_SOURCES = borg_triangle.c $(SHARED_SOURCES)
 
 all: triangle
 
 triangle:
 	$(MAKE) -C compiler all
 	bear -- $(MAKE) $(PROJECT_NAME).bin $(PROJECT_NAME).hex
+
+vkcube:
+	$(MAKE) -C compiler all
+	bear -- $(MAKE) PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" vkcube.bin vkcube.hex
 
 clean:
 	rm -f *.o *.elf *.bin *.hex *.asm

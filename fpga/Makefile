@@ -8,6 +8,7 @@ all: help
 help:
 	@echo "commands: "
 	@echo -e "$(BOLD)  triangle:\t\tRender a single triangle frame.$(RESET)"
+	@echo -e "$(BOLD)  vkcube:\t\tRender a colored cube (12 triangles).$(RESET)"
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
 	@echo -e "  tio:\t\t\tConnect to the serial console."
 	@echo -e "  reset:\t\tReset the CPU."
@@ -70,7 +71,12 @@ resource_check: yosys.log
 # Build firmware and run triangle rendering
 triangle:
 	@$(MAKE) --no-print-directory -s -C firmware triangle
-	@mpremote mount . + exec "import sys; sys.path.append('host'); import triangle; triangle.run_single_frame(0)" | tee /tmp/mpremote_output.txt
+	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, 'firmware/triangle.bin')" | tee /tmp/mpremote_output.txt
+
+# Build firmware and run vkcube rendering
+vkcube:
+	@$(MAKE) --no-print-directory -s -C firmware vkcube
+	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, 'firmware/vkcube.bin')" | tee /tmp/mpremote_output.txt
 
 # Catch debug output (preferably in a second shell)
 tio:
@@ -88,4 +94,8 @@ clean:
 test-all:
 	$(MAKE) -C firmware/compiler test
 
-.PHONY: all help burn clean reset resource_check test-all triangle tio
+# Timing analysis on the synthesized bitstream
+timing:
+	icetime -d up5k -c $(shell grep 'CLOCK_MHZ' firmware/borg_mmio.h | awk '{print $$3}') borg.asc
+
+.PHONY: all help burn clean reset resource_check test-all timing triangle vkcube tio

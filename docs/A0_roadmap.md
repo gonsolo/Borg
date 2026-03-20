@@ -59,6 +59,24 @@ per pixel. Widened register file (8→16), IMEM (6→8), and address bus (6→7 
 Verified: Chisel tests (195/195 + batched edge test), cocotb SoC tests (2/2),
 and FPGA triangle rendering on pico-ice.
 
+### Step 1a: Multiple Triangles (Firmware)
+
+Loop over a multi-triangle mesh in firmware (e.g. 12-triangle cube via
+repeated `borg_cmd_draw()` calls). Already works for 2 triangles in
+`borg_triangle.c`; extending to N is trivial.
+
+### Step 1b: Perspective Projection (Firmware)
+
+4×4 MVP matrix multiply per vertex (~16 FMA per vertex). Transforms from
+model space to clip space and applies perspective divide. Uses the existing
+Borg FMA via MMIO.
+
+### Step 1c: Triangle Clipping (Firmware)
+
+Near/far plane clipping before rasterization. Clip triangles that cross the
+near plane; cull those entirely behind it. Sutherland–Hodgman or simplified
+guard-band approach.
+
 ### Step 2: Hardware Fragment Interpolation
 
 Batch up to 6 fragment channel computations

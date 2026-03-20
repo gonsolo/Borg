@@ -233,6 +233,7 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
   uv16_t spos[3];
   screen_space_translate(&vert_shader, vout, spos, fp16_half_width);
 
+
   // Triangle setup: compute inv_area from screen-space positions
   // area = (sx1-sx0)*(sy2-sy0) - (sx2-sx0)*(sy1-sy0) (2D cross product)
   fp16_t dx10 = BORG_FP16_SUB(spos[1].u, spos[0].u);
@@ -241,6 +242,11 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
   fp16_t dy10 = BORG_FP16_SUB(spos[1].v, spos[0].v);
   fp16_t area = BORG_FP16_SUB(borg_fp16_mul(dx10, dy20),
                                  borg_fp16_mul(dx20, dy10));
+
+  // Skip degenerate triangles (zero area) — e.g. edge-on faces under
+  // orthographic projection.  borg_fp16_rcp(0) produces inf/NaN that
+  // hangs the rasterizer.
+  if ((area & 0x7FFF) == 0) return;
   fp16_t inv_area = borg_fp16_rcp(area);
 
   // Edge vectors
