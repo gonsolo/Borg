@@ -59,13 +59,20 @@ class NibbleSerialMulAdd(val sigWidth: Int) extends Module {
       }
     }
     is(multiplying) {
-      // Extract current nibble from aReg
-      val shift = nibbleCount << 2
-      val nibble = (aReg >> shift)(3, 0)
+      // Extract current nibble from aReg via a lookup table (avoids wide shift)
+      val nibbles = VecInit((0 until numNibbles).map { i =>
+        aReg(math.min(i * 4 + 3, sigWidth - 1), i * 4)
+      })
+      val nibble = nibbles(nibbleCount)
 
       // Partial product: nibble * bReg, shifted left by (nibbleCount * 4)
-      val partialProduct = (nibble * bReg).asUInt
-      val shifted = (partialProduct << shift)(sigWidth * 2 + 3, 0)
+      val partialProduct = nibble * bReg
+      val accWidth = sigWidth * 2 + 4  // accumulator width
+      val paddedProduct = partialProduct.pad(accWidth)
+      val shiftedVec = VecInit((0 until numNibbles).map { i =>
+        (paddedProduct << (i * 4))(accWidth - 1, 0)
+      })
+      val shifted = shiftedVec(nibbleCount)
 
       accumulator := accumulator + shifted
 
