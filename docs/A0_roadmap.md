@@ -59,7 +59,7 @@ per pixel. Widened register file (8→16), IMEM (6→8), and address bus (6→7 
 Verified: Chisel tests (195/195 + batched edge test), cocotb SoC tests (2/2),
 and FPGA triangle rendering on pico-ice.
 
-### Step 1a: Multiple Triangles (Firmware)
+### Step 1a: Multiple Triangles (Firmware) ✅ (2026-03-20)
 
 Loop over a multi-triangle mesh in firmware (e.g. 12-triangle cube via
 repeated `borg_cmd_draw()` calls). Already works for 2 triangles in
