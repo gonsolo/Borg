@@ -314,12 +314,9 @@ class MulAddRecFNIO(expWidth: Int, sigWidth: Int) extends Bundle {
     val ready = Output(Bool())
 }
 
-class MulAddRecFN(expWidth: Int, sigWidth: Int, nibbleSerial: Boolean = false) extends Module
+class MulAddRecFN(expWidth: Int, sigWidth: Int) extends Module
 {
-    override def desiredName = {
-      val suffix = if (nibbleSerial) "_nibble" else ""
-      s"MulAddRecFN_e${expWidth}_s${sigWidth}${suffix}"
-    }
+    override def desiredName = s"MulAddRecFN_e${expWidth}_s${sigWidth}"
     val io = IO(new MulAddRecFNIO(expWidth, sigWidth))
 
     //------------------------------------------------------------------------
@@ -334,41 +331,17 @@ class MulAddRecFN(expWidth: Int, sigWidth: Int, nibbleSerial: Boolean = false) e
     mulAddRecFNToRaw_preMul.io.b  := io.b
     mulAddRecFNToRaw_preMul.io.c  := io.c
 
-    val mulAddResult = if (nibbleSerial) {
-      // Nibble-serial: multi-cycle multiply via NibbleSerialMulAdd
-      val serialMul = Module(new NibbleSerialMulAdd(sigWidth))
-      serialMul.io.a := mulAddRecFNToRaw_preMul.io.mulAddA
-      serialMul.io.b := mulAddRecFNToRaw_preMul.io.mulAddB
-      serialMul.io.c := mulAddRecFNToRaw_preMul.io.mulAddC
-      serialMul.io.valid := io.valid
-      io.ready := serialMul.io.ready
-      serialMul.io.result
-    } else {
-      // Combinational: original single-cycle multiply
-      io.ready := true.B
+    val mulAddResult =
+      // Combinational single-cycle multiply
       (mulAddRecFNToRaw_preMul.io.mulAddA *
            mulAddRecFNToRaw_preMul.io.mulAddB) +&
           mulAddRecFNToRaw_preMul.io.mulAddC
-    }
 
-    if (nibbleSerial) {
-      // In nibble-serial mode, the preMul outputs depend on io.a/b/c which
-      // revert to zero after the register-file read window closes.  Latch
-      // the inter-stage bundle on the cycle io.valid fires so postMul sees
-      // stable data when the FMA result arrives several cycles later.
-      val latchedPreMul = Reg(new MulAddRecFN_interIo(expWidth, sigWidth))
-      val latchedRoundingMode = Reg(UInt(3.W))
-      when(io.valid) {
-        latchedPreMul := mulAddRecFNToRaw_preMul.io.toPostMul
-        latchedRoundingMode := io.roundingMode
-      }
-      mulAddRecFNToRaw_postMul.io.fromPreMul := latchedPreMul
-      mulAddRecFNToRaw_postMul.io.roundingMode := latchedRoundingMode
-    } else {
-      mulAddRecFNToRaw_postMul.io.fromPreMul :=
-          mulAddRecFNToRaw_preMul.io.toPostMul
-      mulAddRecFNToRaw_postMul.io.roundingMode := io.roundingMode
-    }
+    io.ready := true.B
+
+    mulAddRecFNToRaw_postMul.io.fromPreMul :=
+        mulAddRecFNToRaw_preMul.io.toPostMul
+    mulAddRecFNToRaw_postMul.io.roundingMode := io.roundingMode
     mulAddRecFNToRaw_postMul.io.mulAddResult := mulAddResult
 
     //------------------------------------------------------------------------

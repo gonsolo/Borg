@@ -105,7 +105,7 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
       data_ready_from_peri := data_ready_uart
     }
 
-    val borg = Module(new Borg(FloatConfig.FP16, nibbleSerial = true))
+    val borg = Module(new Borg(FloatConfig.FP16))
     borg.io.address := io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO)
     borg.io.data_in := io.data_in(15, 0)
     borg.io.data_write_n := io.data_write_n | Fill(2, !is_borg)

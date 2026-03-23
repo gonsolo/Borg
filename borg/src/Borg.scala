@@ -20,8 +20,8 @@ object FloatConfig {
   */
 class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
   val address = Input(
-    UInt(7.W)
-  ) // 128-byte address space (byte-addressed internally by shifting)
+    UInt(8.W)
+  ) // 256-byte address space (byte-addressed internally by shifting)
   val data_in = Input(UInt(config.totalBits.W))
   val data_write_n = Input(UInt(2.W)) // 0b10 for write
   val data_read_n = Input(UInt(2.W))
@@ -29,6 +29,32 @@ class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
   val data_ready = Output(Bool())
   val uo_out = Output(UInt(8.W))
   val user_interrupt = Output(Bool())
+}
+
+class RegFileCopyIO(width: Int) extends Bundle {
+  val readAddr  = Input(UInt(5.W))
+  val readEn    = Input(Bool())
+  val readData  = Output(UInt(width.W))
+  val writeAddr = Input(UInt(5.W))
+  val writeEn   = Input(Bool())
+  val writeData = Input(UInt(width.W))
+}
+
+/** Single-copy register file with exactly 1 read + 1 write port.
+  * Each instance gets a unique Verilog module name to prevent CIRCT
+  * deduplication, ensuring yosys can infer iCE40 Block RAMs.
+  */
+class RegFileCopy(width: Int, instName: String) extends Module {
+  override def desiredName = instName
+
+  val io = IO(new RegFileCopyIO(width))
+
+  val mem = SyncReadMem(32, UInt(width.W))
+  io.readData := mem.read(io.readAddr, io.readEn)
+
+  when(io.writeEn) {
+    mem.write(io.writeAddr, io.writeData)
+  }
 }
 
 /** Borg — minimal FP16 shading processor with 4-cycle FMA pipeline.
@@ -56,18 +82,31 @@ class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
   *
   * == MMIO Interface ==
   *
-  *   - Registers 0–28 (8 words): read/write register file r0–r7
-  *   - IMEM 32–52 (6 words): write instruction memory
-  *   - Control/Status 60: write bit 0 = start, bit 1 = reset; read bit 1 = idle
+  *   - Registers 0–124 (32 words): read/write register file r0–r31
+  *   - IMEM 128–156 (8 words): write instruction memory
+  *   - Control/Status 252: write bit 0 = start, bit 1 = reset; read bit 1 = idle
   */
-class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean = false) extends Module {
+class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val io = IO(new BorgIO(config))
   dontTouch(io)
 
   // --- Storage ---
   // @doc:storage
-  // registerFile: 16 general-purpose registers for floating-point data (r0-r15)
-  val registerFile = SyncReadMem(16, UInt(config.totalBits.W))
+  // Triplicated register file: GPU-standard multi-port BRAM pattern.
+  //
+  // A 3-read-port register file cannot map to iCE40 Block RAM (2 ports max).
+  // Instead we keep three identical copies, each with 1 read + 1 write port:
+  //   - regFileA: read port serves rs1 (pipeline operand A)
+  //   - regFileB: read port serves rs2 (pipeline operand B)
+  //   - regFileC: read port serves rs3 (FMA) / MMIO register access
+  // All three receive the same writes, so they always hold identical data.
+  // Cost: 3 iCE40 BRAMs (of 30 available), saving ~1000 flip-flops.
+  //
+  // Each copy is wrapped in a separate Module to prevent CIRCT from merging
+  // them into a single multi-port memory (which yosys can't map to BRAMs).
+  val regFileA = Module(new RegFileCopy(config.totalBits, "regFileA"))
+  val regFileB = Module(new RegFileCopy(config.totalBits, "regFileB"))
+  val regFileC = Module(new RegFileCopy(config.totalBits, "regFileC"))
 
   // instructionMemory: 8 words of instruction memory to store the shader program
   val instructionMemory = SyncReadMem(8, UInt(config.totalBits.W))
@@ -82,14 +121,6 @@ class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean
   // --- Pipeline Control ---
   val busy_counter = RegInit(0.U(3.W))
   val is_busy = busy_counter > 0.U
-
-  // Forward-declared wire for FMA ready signal (connected when FMA is instantiated)
-  val fma_ready = if (nibbleSerial) WireDefault(false.B) else WireDefault(true.B)
-
-  // Track whether the nibble-serial FMA is actively computing.
-  // This avoids a race where fma_ready is true during the same cycle as
-  // fma.io.valid (because the FSM hasn't transitioned from idle yet).
-  val fma_inflight = if (nibbleSerial) Some(RegInit(false.B)) else None
 
   val is_writing = io.data_write_n === 2.U
   val is_reading = io.data_read_n === 2.U
@@ -140,72 +171,53 @@ class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean
     when(fetchedInstruction === 0.U) {
       running := false.B
     }.otherwise {
-      if (nibbleSerial) {
-        busy_counter := 7.U  // Enough for nibble-serial FMA + pipeline
-      } else {
-        busy_counter := 4.U
-      }
+      busy_counter := 4.U
     }
   }.elsewhen(is_busy) {
-    if (nibbleSerial) {
-      // In nibble-serial mode, stay busy until FMA completes.
-      // We check that fma_inflight has been set (so we don't react to the
-      // initial fma_ready that exists before valid is even asserted) and
-      // then wait for fma_ready to indicate completion.
-      val inflight = fma_inflight.get
-      when(inflight && fma_ready && busy_counter > 1.U) {
-        busy_counter := 1.U  // One more cycle for writeback
-        inflight := false.B
-      }.elsewhen(busy_counter <= 1.U) {
-        busy_counter := busy_counter - 1.U
-        when(busy_counter === 1.U) {
-          programCounter := programCounter + 1.U
-        }
-      }
-    } else {
-      busy_counter := busy_counter - 1.U
-      when(busy_counter === 1.U) {
-        programCounter := programCounter + 1.U
-      }
+    busy_counter := busy_counter - 1.U
+    when(busy_counter === 1.U) {
+      programCounter := programCounter + 1.U
     }
   }
 
-  // Handle Control (shared address 124: read=status, write=control)
-  when(is_writing && io.address === 124.U) {
+  // Handle Control (address 252: read=status, write=control)
+  when(is_writing && io.address === 252.U) {
     when(io.data_in(0)) { running := true.B }
     when(io.data_in(1)) {
       programCounter := 0.U
       running := false.B
       busy_counter := 0.U
-      if (nibbleSerial) { fma_inflight.get := false.B }
     }
   }
   // @doc:end
 
   // --- Register File State Access ---
-  // Port A: Pipeline RS1 (Word index 0-3)
+  // Port A: Pipeline RS1 — reads from regFileA
   val rs1_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
   val rs1_en_del = RegNext(rs1_en, false.B)
-  val recA_raw_in = registerFile.read(rs1_idx, rs1_en)
-  val recA_raw = Mux(rs1_en_del, recA_raw_in, 0.U)
+  regFileA.io.readAddr := rs1_idx
+  regFileA.io.readEn := rs1_en
+  val recA_raw = Mux(rs1_en_del, regFileA.io.readData, 0.U)
 
-  // Port B: Pipeline RS2
+  // Port B: Pipeline RS2 — reads from regFileB
   val rs2_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
   val rs2_en_del = RegNext(rs2_en, false.B)
-  val recB_raw_in = registerFile.read(rs2_idx, rs2_en)
-  val recB_raw = Mux(rs2_en_del, recB_raw_in, 0.U)
+  regFileB.io.readAddr := rs2_idx
+  regFileB.io.readEn := rs2_en
+  val recB_raw = Mux(rs2_en_del, regFileB.io.readData, 0.U)
 
-  // Port C: MMIO Register Access / RS3 for FMA
+  // Port C: MMIO Register Access / RS3 for FMA — reads from regFileC
   // During execution, this port reads rs3; when idle, it serves MMIO reads/writes.
   val mmio_reg_en = !running && !is_busy && (is_reading || is_writing)
   val rs3_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
-  val portC_addr = Mux(running || is_busy, rs3_idx, io.address(5, 2))
+  val portC_addr = Mux(running || is_busy, rs3_idx, io.address(6, 2))
   val portC_en = mmio_reg_en || rs3_en
   val mmio_reg_en_del = RegNext(mmio_reg_en && is_reading, false.B)
   val rs3_en_del = RegNext(rs3_en, false.B)
-  val portC_data_in = registerFile.read(portC_addr, portC_en)
-  val mmio_reg_data = Mux(mmio_reg_en_del, portC_data_in, 0.U)
-  val recC_raw = Mux(rs3_en_del, portC_data_in, 0.U)
+  regFileC.io.readAddr := portC_addr
+  regFileC.io.readEn := portC_en
+  val mmio_reg_data = Mux(mmio_reg_en_del, regFileC.io.readData, 0.U)
+  val recC_raw = Mux(rs3_en_del, regFileC.io.readData, 0.U)
 
   // --- ALU: Floating Point FMA ---
   val recA = recFNFromFN(config.exp, config.sig, recA_raw)
@@ -230,7 +242,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean
   }
 
   // @doc:fma-muxing
-  val fma = Module(new MulAddRecFN(config.exp, config.sig, nibbleSerial))
+  val fma = Module(new MulAddRecFN(config.exp, config.sig))
   // FNEG uses op=2: op(1)=1 negates product. -(a*b)+c. With a=1.0, b=rs1, c=0.0 → -rs1
   fma.io.op := Mux(is_fneg_reg, 2.U, 0.U)
   // ADD: a=1.0, b=rs1, c=rs2     → 1.0*rs1 + rs2 = rs1+rs2
@@ -243,32 +255,15 @@ class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean
   fma.io.roundingMode := 0.U
   fma.io.detectTininess := 1.U
 
-  // Wire valid/ready for nibble-serial mode
-  // The register file uses SyncReadMem (1-cycle latency) and the recFN conversion
-  // adds another cycle via rs*_en_del gating. So fma inputs are valid 2 cycles
-  // after fma_start. In combinational mode this doesn't matter (inputs settle
-  // before writeback), but nibble-serial latches inputs on valid.
   val fma_start = running && !is_busy && fetchedInstruction =/= 0.U
-  if (nibbleSerial) {
-    val fma_valid_d1 = RegNext(fma_start, false.B)
-    fma.io.valid := fma_valid_d1
-    // Mark inflight when valid is sent to the FMA
-    when(fma_valid_d1) {
-      fma_inflight.get := true.B
-    }
-  } else {
-    fma.io.valid := fma_start
-  }
-  if (nibbleSerial) {
-    fma_ready := fma.io.ready
-  }
+  fma.io.valid := fma_start
   // @doc:end
 
   // Write-back: At busy_counter 1 (Cycle 4 of 4)
-  val mmio_reg_write = is_writing && io.address < 64.U
+  val mmio_reg_write = is_writing && io.address < 128.U
   val pipe_reg_write = running && is_busy && busy_counter === 1.U
   val reg_w_en = mmio_reg_write || pipe_reg_write
-  val reg_w_addr = Mux(pipe_reg_write, rd_idx, io.address(5, 2))
+  val reg_w_addr = Mux(pipe_reg_write, rd_idx, io.address(6, 2))
 
   // @doc:fstep
   // FSTEP: output 0.0 if rs1 <= 0, else 1.0 (sign-preserving step function)
@@ -281,24 +276,31 @@ class Borg(val config: FloatConfig = FloatConfig.FP32, val nibbleSerial: Boolean
   val reg_w_data =
     Mux(pipe_reg_write, Mux(is_fstep_reg, fstep_result, fma_result), io.data_in)
 
-  when(reg_w_en) {
-    registerFile.write(reg_w_addr, reg_w_data)
-  }
+  // Write to all three register file copies simultaneously (mirrored writes)
+  regFileA.io.writeAddr := reg_w_addr
+  regFileA.io.writeEn := reg_w_en
+  regFileA.io.writeData := reg_w_data
+  regFileB.io.writeAddr := reg_w_addr
+  regFileB.io.writeEn := reg_w_en
+  regFileB.io.writeData := reg_w_data
+  regFileC.io.writeAddr := reg_w_addr
+  regFileC.io.writeEn := reg_w_en
+  regFileC.io.writeData := reg_w_data
 
   // @doc:mmio
-  // IMEM Write (addresses 64–92, 8 words)
-  when(is_writing && io.address >= 64.U && io.address < 96.U) {
+  // IMEM Write (addresses 128–156, 8 words)
+  when(is_writing && io.address >= 128.U && io.address < 160.U) {
     instructionMemory.write(io.address(4, 2), io.data_in)
   }
 
   // --- Memory-Mapped Read Logic ---
-  val read_addr_del = RegInit(0.U(7.W))
+  val read_addr_del = RegInit(0.U(8.W))
   read_addr_del := io.address
 
   val status_reg = Cat(0.U((config.totalBits - 2).W), !running, 0.U(1.W))
 
-  io.data_out := Mux(read_addr_del < 64.U, mmio_reg_data,
-    Mux(read_addr_del === 124.U, status_reg, 0.U)
+  io.data_out := Mux(read_addr_del < 128.U, mmio_reg_data,
+    Mux(read_addr_del === 252.U, status_reg, 0.U)
   )
 
   val read_ready_del = RegNext(is_reading, false.B)

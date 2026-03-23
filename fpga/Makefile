@@ -22,8 +22,8 @@ help:
 
 ######### Build hardware ###########################################################################
 
-SRC_FILES = $(wildcard ../out/borg/verilog/*.sv) \
-	    $(wildcard ../out/tinyqv/verilog/*.sv) \
+# Source files are derived from info.yaml (single source of truth)
+SRC_FILES = $(shell grep '^\s*- "' ../info.yaml | sed 's/.*"\(.*\)"/\1/')
 
 CHISEL_SRCS = $(wildcard ../borg/src/*.scala) $(wildcard ../tinyqv/src/*.scala)
 
@@ -37,8 +37,8 @@ MAX_DFFS = 5280
 
 YOSYS_SCRIPT = read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tinyQV_top \
 	       -json borg.json
-# Build netlist
 borg.json: $(SRC_FILES) ../out/borg/verilog/Borg.sv
+	@echo "Building netlist"
 	yosys -p "$(YOSYS_SCRIPT)" -DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
 
 # Place and Route (P&R) — freq derived from MmioMap.CLOCK_MHZ via generated header
@@ -61,7 +61,7 @@ resource_check: yosys.log
 	        percent=($$1/max)*100; \
 	        printf "SB_LUT4 (Logic): \t%d \t%.0f%%\n", $$1, percent \
 	}'
-	@grep "SB_DFF" yosys.log | awk -v max=$(MAX_DFFS) '{sum+=$$$$2;} END { \
+	@grep "SB_DFF" yosys.log | tail -n7 | awk -v max=$(MAX_DFFS) '{sum+=$$1;} END { \
 	        percent=(sum/max)*100; \
 	        printf "SB_DFF* (Registers): \t%d \t%.0f%%\n", sum, percent \
 	}'

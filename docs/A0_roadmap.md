@@ -39,16 +39,13 @@ compute.
 | 8–9 | Submit + wait only | Full owner | None |
 | 10–12 (CPU ext.) | Submit + wait | Full owner | None |
 
-### Step 0: Nibble-Serial FMA ✅ (2026-03-19)
+### Step 0: ~~Nibble-Serial FMA~~ (removed 2026-03-23)
 
-Replace the combinational 11×11 HardFloat `MulAddRecFN` with a multi-cycle
-nibble-serial implementation. Trades latency (~16 cycles instead of 4) for
-~215 fewer LUTs — headroom needed for all subsequent steps. MMIO interface
-unchanged. Follows TinyQV's existing nibble-serial pattern. The nibble-serial
-multiplier is reused in Step 10 for integer mul/div.
-
-Verified: Chisel tests (unit + Borg integration + pipeline) and FPGA triangle
-rendering on pico-ice.
+Replaced the combinational 11×11 HardFloat `MulAddRecFN` with a multi-cycle
+nibble-serial implementation. Saved ~215 LUTs but added pipeline complexity
+(fma_inflight/ready handshake, timing issues with register file expansion).
+**Removed** in favour of the simpler combinational FMA — the 4% LUT savings
+was not worth the ongoing complexity. See [A4_experiments.md](A4_experiments.md).
 
 ### Step 1: Hardware Edge Function Unit ✅ (2026-03-19)
 
@@ -132,8 +129,7 @@ Estimate: 1–2 weeks.
 ### Step Dependencies
 
 ```text
-Step 0 (nibble-serial FMA)
-  └→ Step 1 (edge HW) → Step 2 (frag HW) → Step 3 (pixel iterator)
+Step 1 (edge HW) → Step 2 (frag HW) → Step 3 (pixel iterator)
                                                ├→ Step 4 (tile buffer) → Step 5 (Z-test)
                                                ├→ Step 6 (command FIFO)
                                                └→ Step 7 (texture fetch)
@@ -144,13 +140,10 @@ Step 0 (nibble-serial FMA)
 ## Phase 3: Linux-Capable CPU
 
 Target: ~Aug 2026 — expand TinyQV to RV32IMA. Sequential after Phase 2.
-The only shared resource is the nibble-serial multiplier (Step 0), which must
-be arbitrated between CPU mul and GPU FMA.
 
 ### Step 10: M Extension (Integer Multiply/Divide)
 
-Reuse the nibble-serial multiplier from Step 0 for MUL/MULH/DIV/REM.
-~8 cycles for 32-bit multiply via 4-bit partials. ~50 LUTs for decode.
+Add dedicated integer multiplier for MUL/MULH/DIV/REM.
 Estimate: 1 week.
 
 ### Step 11: A Extension (Atomics)
