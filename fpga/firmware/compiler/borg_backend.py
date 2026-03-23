@@ -7,19 +7,27 @@ Takes the pseudo-assembly output of spirv_compiler.py and produces
 a SPIR-B binary blob (.borg) for runtime shader loading via spirb_parse().
 
 The backend performs register allocation (virtual → physical Borg registers),
-instruction encoding (16-bit FP16 format), and host/device code splitting.
-Operations the Borg FPU can't handle (sin, cos, fneg) are emitted as host
-C code that runs on TinyQV before/after Borg execution.
+instruction encoding (32-bit RISC-V R-type / R4-type format), and
+host/device code splitting.
 """
 
 import sys
+import os
+
+# Add fpga/host to path to import the auto-generated borg_mmio.py
+# (which contains the single source of truth for instruction encoding)
+host_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "host"))
+if host_dir not in sys.path:
+    sys.path.insert(0, host_dir)
+
+from borg_mmio import encode_rv32_add, encode_rv32_mul, encode_rv32_fmadd
 
 
 class BorgBackend:
     """
     Lowers vert.s pseudo-assembly into host C code + Borg IMEM instructions.
     The host handles: li.s, flw, fsw, fsin, fcos, fneg, ret
-    Borg handles:     fmul.s, fmadd.s (as 16-bit FP16 encoded instructions)
+    Borg handles:     fmul.s, fmadd.s (as 32-bit RISC-V encoded instructions)
     """
 
     def __init__(self):
@@ -75,17 +83,7 @@ class BorgBackend:
         self.next_preg += 1
         return preg
 
-    def encode_fp16_fadd(self, rd, rs1, rs2):
-        """Encode FP16 fadd: [15:14]=00, [11:8]=rs2, [7:4]=rs1, [3:0]=rd"""
-        return (0 << 14) | (rs2 << 8) | (rs1 << 4) | rd
-
-    def encode_fp16_fmul(self, rd, rs1, rs2):
-        """Encode FP16 fmul: [15:14]=01, [11:8]=rs2, [7:4]=rs1, [3:0]=rd"""
-        return (1 << 14) | (rs2 << 8) | (rs1 << 4) | rd
-
-    def encode_fp16_fmadd(self, rd, rs1, rs2, rs3):
-        """Encode FP16 fmadd: [15:14]=10, [13:12]=rs3, [11:8]=rs2, [7:4]=rs1, [3:0]=rd"""
-        return (2 << 14) | (rs3 << 12) | (rs2 << 8) | (rs1 << 4) | rd
+    # encode_rv32_* methods removed, using single source of truth from borg_mmio
 
     def lower(self, asm_text):
         """Parse pseudo-assembly and split into host/Borg operations."""
@@ -238,7 +236,7 @@ class BorgBackend:
                 prd = self.vreg_to_preg[rd]
                 pa = self.vreg_to_preg[a]
                 pb = self.vreg_to_preg[b]
-                enc = self.encode_fp16_fadd(prd, pa, pb)
+                enc = encode_rv32_add(pa, pb, prd)
                 self.borg_instrs.append((enc, f"fadd r{prd}, r{pa}, r{pb}  // {comment}"))
 
             elif op == "fmul.s":
@@ -246,7 +244,7 @@ class BorgBackend:
                 prd = self.vreg_to_preg[rd]
                 pa = self.vreg_to_preg[a]
                 pb = self.vreg_to_preg[b]
-                enc = self.encode_fp16_fmul(prd, pa, pb)
+                enc = encode_rv32_mul(pa, pb, prd)
                 self.borg_instrs.append((enc, f"fmul r{prd}, r{pa}, r{pb}  // {comment}"))
 
             elif op == "fmadd.s":
@@ -255,7 +253,7 @@ class BorgBackend:
                 pa = self.vreg_to_preg[a]
                 pb = self.vreg_to_preg[b]
                 pc = self.vreg_to_preg[c]
-                enc = self.encode_fp16_fmadd(prd, pa, pb, pc)
+                enc = encode_rv32_fmadd(pa, pb, pc, prd)
                 self.borg_instrs.append((enc, f"fmadd r{prd}, r{pa}, r{pb}, r{pc}  // {comment}"))
 
             elif op == "ret":
@@ -279,9 +277,9 @@ class BorgBackend:
         n_const = len(self.borg_consts)
         parts.append(struct.pack('<6B', n_instr, n_uni, n_attr, n_out, n_const, 0))
 
-        # Instructions: N × uint16_le
+        # Instructions: N × uint32_le
         for enc, _comment in self.borg_instrs:
-            parts.append(struct.pack('<H', enc))
+            parts.append(struct.pack('<I', enc))
 
         # Register index arrays: uint8 each
         for _, preg in self.borg_uniforms:

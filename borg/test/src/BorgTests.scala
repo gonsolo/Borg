@@ -80,19 +80,15 @@ object BorgTests extends TestSuite {
   case object FSTEP extends Op
 
   def encodeInstruction(config: FloatConfig, op: Op, rs1: Int, rs2: Int, rd: Int): BigInt = {
-    if (config.totalBits >= 32) op match {
-      case ADD     => BigInt((0x00 << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7))
-      case MUL     => BigInt((0x4  << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7))
-      case FMA(r3) => BigInt((r3  << 27) | (rs2 << 20) | (rs1 << 15) | (rd << 7) | (1 << 2))
-      case FNEG    => BigInt((0x6  << 25) | (rs1 << 15) | (rd << 7))
-      case FSTEP   => BigInt((0x8  << 25) | (rs1 << 15) | (rd << 7))
-    } else op match {
-      case ADD     => BigInt((rs2 << 8) | (rs1 << 4) | rd)
-      case MUL     => BigInt((1 << 14) | (rs2 << 8) | (rs1 << 4) | rd)
-      case FMA(r3) => BigInt((2 << 14) | (r3 << 12) | (rs2 << 8) | (rs1 << 4) | rd)
-      case FNEG    => BigInt((3 << 14) | (rs1 << 4) | rd)
-      case FSTEP   => BigInt((3 << 14) | (1 << 12) | (rs1 << 4) | rd)
+    // 32-bit RISC-V R-type / R4-type encoding (Single Source of Truth)
+    val instVal: BigInt = op match {
+      case ADD     => Instructions.ADD(rs1, rs2, rd)
+      case MUL     => Instructions.MUL(rs1, rs2, rd)
+      case FMA(r3) => Instructions.FMA(rs1, rs2, r3, rd)
+      case FNEG    => Instructions.FNEG(rs1, rd)
+      case FSTEP   => Instructions.FSTEP(rs1, rd)
     }
+    instVal
   }
 
   // --- Execution helpers ---

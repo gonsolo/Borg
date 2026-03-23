@@ -9,6 +9,7 @@ import cocotb
 from cocotb.clock import Clock
 from tqv import TinyQV
 from borg_mmio import BORG_IMEM_OFFSET, BORG_CONTROL_OFFSET
+from borg_mmio import encode_rv32_add, encode_rv32_mul, encode_rv32_fmadd, encode_rv32_fneg
 
 FP16_MAX = 65504
 PERIPHERAL_NUM = 3
@@ -45,25 +46,7 @@ class BorgDriver:
         else:
             return struct.unpack("<f", struct.pack("<I", b & 0xFFFFFFFF))[0]
 
-    def encode_add(self, rs1=0, rs2=1, rd=2):
-        if self.is_fp16:
-            return (rs2 << 8) | (rs1 << 4) | rd
-        return (0x00 << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7)
-
-    def encode_mul(self, rs1=0, rs2=1, rd=2):
-        if self.is_fp16:
-            return (1 << 14) | (rs2 << 8) | (rs1 << 4) | rd
-        return (0x4 << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7)
-
-    def encode_fma(self, rs1=0, rs2=1, rs3=3, rd=2):
-        if self.is_fp16:
-            return (2 << 14) | (rs3 << 12) | (rs2 << 8) | (rs1 << 4) | rd
-        return (rs3 << 27) | (rs2 << 20) | (rs1 << 15) | (rd << 7) | (1 << 2)
-
-    def encode_fneg(self, rs1=0, rd=1):
-        if self.is_fp16:
-            return (3 << 14) | (rs1 << 4) | rd
-        return (0x6 << 25) | (rs1 << 15) | (rd << 7)
+    # Encoding methods removed (using single source of truth from borg_mmio)
 
     async def write_reg(self, reg_idx, val):
         await self.tqv.write_word_reg(reg_idx * 4, self.float_to_bits(val))
@@ -138,19 +121,19 @@ async def run_op_test(dut, driver, op, a, b, c=0.0):
     """Unified test runner for ADD, MUL, FMA."""
     if op == "add":
         operands = [(0, a), (1, b)]
-        instr = driver.encode_add()
+        instr = encode_rv32_add()
         label = f"{a:8.2f} + {b:8.2f}"
     elif op == "mul":
         operands = [(0, a), (1, b)]
-        instr = driver.encode_mul()
+        instr = encode_rv32_mul()
         label = f"{a:8.2f} * {b:8.2f}"
     elif op == "fneg":
         operands = [(0, a)]
-        instr = driver.encode_fneg()
+        instr = encode_rv32_fneg()
         label = f"fneg({a:8.2f})"
     else:
         operands = [(0, a), (1, b), (3, c)]
-        instr = driver.encode_fma()
+        instr = encode_rv32_fmadd()
         label = f"{a:8.2f} * {b:8.2f} + {c:8.2f}"
 
     result = await driver.run_program(operands, instr, rd_idx=1 if op == "fneg" else 2)
@@ -216,10 +199,10 @@ async def test_borg_rotation_shader(dut):
     #   fmul  r1, r5, r3       // sin*x → r1
     #   fmadd r1, r2, r6, r1   // cos*y + sin*x → r1 (ry)
     #   halt
-    instr_fmul_cx  = driver.encode_mul(rs1=2, rs2=3, rd=0)
-    instr_fmadd_rx = driver.encode_fma(rs1=4, rs2=6, rs3=0, rd=0)
-    instr_fmul_sx  = driver.encode_mul(rs1=5, rs2=3, rd=1)
-    instr_fmadd_ry = driver.encode_fma(rs1=2, rs2=6, rs3=1, rd=1)
+    instr_fmul_cx  = encode_rv32_mul(rs1=2, rs2=3, rd=0)
+    instr_fmadd_rx = encode_rv32_fmadd(rs1=4, rs2=6, rs3=0, rd=0)
+    instr_fmul_sx  = encode_rv32_mul(rs1=5, rs2=3, rd=1)
+    instr_fmadd_ry = encode_rv32_fmadd(rs1=2, rs2=6, rs3=1, rd=1)
 
     dut._log.info(f"  IMEM[0] fmul  r0,r2,r3:     0x{instr_fmul_cx:04X}")
     dut._log.info(f"  IMEM[1] fmadd r0,r4,r6,r0:  0x{instr_fmadd_rx:04X}")

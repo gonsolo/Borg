@@ -96,6 +96,7 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | Per-vertex color interpolation | ✅ Done |
 | Dynamic framebuffer resolution | ✅ Done |
 | Tiny Tapeout TTIHP26a [submission](https://app.tinytapeout.com/projects/3645) | ✅ Submitted |
+| 32-bit RISC-V instructions & 32-entry register file | ✅ Done |
 | Test manufactured chip | ⏳ Pending |
 | Vulkan driver | 📋 Planned |
 

@@ -22,7 +22,7 @@ class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
   val address = Input(
     UInt(8.W)
   ) // 256-byte address space (byte-addressed internally by shifting)
-  val data_in = Input(UInt(config.totalBits.W))
+  val data_in = Input(UInt(32.W))  // 32-bit data for IMEM writes; register writes use low config.totalBits
   val data_write_n = Input(UInt(2.W)) // 0b10 for write
   val data_read_n = Input(UInt(2.W))
   val data_out = Output(UInt(config.totalBits.W))
@@ -59,19 +59,20 @@ class RegFileCopy(width: Int, instName: String) extends Module {
 
 /** Borg — minimal FP16 shading processor with 4-cycle FMA pipeline.
   *
-  * == Instruction Format (FP16, 16-bit) ==
+  * == Instruction Format (32-bit RISC-V) ==
   *
   * {{{
-  *   Op     Encoding [15:0]                         Semantics
-  *   ───────────────────────────────────────────────────────────────
-  *   ADD    00_xx_ssss_rrrr_dddd                     rd = rs1 + rs2
-  *   MUL    01_xx_ssss_rrrr_dddd                     rd = rs1 × rs2
-  *   FMA    10_cc_ssss_rrrr_dddd                     rd = rs1 × rs2 + rs3
-  *   FNEG   11_00_xxxx_rrrr_dddd                     rd = −rs1
-  *   FSTEP  11_01_xxxx_rrrr_dddd                     rd = (rs1 > 0) ? 1.0 : 0.0
-  *   HALT   0000_0000_0000_0000                      stop execution
+  *   Op     Encoding [31:0]                                         Semantics
+  *   ───────────────────────────────────────────────────────────────────────────
+  *   ADD    funct7=0x00|rs2|rs1|rm|rd|OP-FP(1010011)               rd = rs1 + rs2
+  *   MUL    funct7=0x04|rs2|rs1|rm|rd|OP-FP(1010011)               rd = rs1 × rs2
+  *   FNEG   funct7=0x06|rs2|rs1|rm|rd|OP-FP(1010011)               rd = −rs1
+  *   FSTEP  funct7=0x08|rs2|rs1|rm|rd|OP-FP(1010011)               rd = (rs1 > 0) ? 1.0 : 0.0
+  *   FMA    rs3|00|rs2|rs1|rm|rd|MADD(1000011)                      rd = rs1 × rs2 + rs3
+  *   HALT   0000_0000_0000_0000_0000_0000_0000_0000                stop execution
   *
-  *   d[3:0]=rd, r[7:4]=rs1, s[11:8]=rs2, c[13:12]=rs3(FMA only)
+  *   R-type:  funct7[31:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | opcode[6:0]
+  *   R4-type: rs3[31:27] | funct2[26:25] | rs2[24:20] | rs1[19:15] | rm[14:12] | rd[11:7] | opcode[6:0]
   * }}}
   *
   * == Pipeline (4 cycles per instruction) ==
@@ -82,8 +83,8 @@ class RegFileCopy(width: Int, instName: String) extends Module {
   *
   * == MMIO Interface ==
   *
-  *   - Registers 0–124 (32 words): read/write register file r0–r31
-  *   - IMEM 128–248 (31 usable words): write instruction memory
+  *   - Registers 0–124 (32 words): read/write register file r0–r31 (16-bit FP16)
+  *   - IMEM 128–248 (31 usable words): write instruction memory (32-bit)
   *   - Control/Status 252: write bit 0 = start, bit 1 = reset; read bit 1 = idle
   *   Note: IMEM slot 31 (address 252) overlaps control. It always reads as 0 (HALT).
   */
@@ -109,9 +110,9 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val regFileB = Module(new RegFileCopy(config.totalBits, "regFileB"))
   val regFileC = Module(new RegFileCopy(config.totalBits, "regFileC"))
 
-  // instructionMemory: 32 words of instruction memory to store the shader program
+  // instructionMemory: 32 words of 32-bit RISC-V instructions
   // Slot 31 (address 252) overlaps the control register and always reads as HALT (0).
-  val instructionMemory = SyncReadMem(32, UInt(config.totalBits.W))
+  val instructionMemory = SyncReadMem(32, UInt(32.W))
 
   // programCounter: Points to the current instruction in instructionMemory
   val programCounter = RegInit(0.U(5.W))
@@ -135,37 +136,21 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val fetchedInstruction = instructionMemory.read(nextPC)
 
   // @doc:instruction-format
-  // --- Instruction Decoding ---
-  // 4-bit register indices (r0-r15) for FP16, 4-bit (from wider fields) for FP32
-  // FP16: [15:14]=op [13:12]=rs3/ext [11:8]=rs2 [7:4]=rs1 [3:0]=rd
-  val rs1_idx = if (config.totalBits >= 20) fetchedInstruction(19, 15)(3, 0) else fetchedInstruction(7, 4)
-  val rs2_idx = if (config.totalBits >= 25) fetchedInstruction(24, 20)(3, 0) else fetchedInstruction(11, 8)
-  val rd_idx = if (config.totalBits >= 32) fetchedInstruction(11, 7)(3, 0) else fetchedInstruction(3, 0)
+  // R-type:  funct7[31:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | opcode[6:0]
+  // R4-type: rs3[31:27] | funct2[26:25] | rs2[24:20] | rs1[19:15] | rm[14:12] | rd[11:7] | opcode[6:0]
+  val rs1_idx = Instructions.BF_RS1(fetchedInstruction)
+  val rs2_idx = Instructions.BF_RS2(fetchedInstruction)
+  val rd_idx  = Instructions.BF_RD(fetchedInstruction)
 
-  // Operation type: ADD, MUL, FMA, FNEG, FSTEP
-  // FP32: bit 2 = FMA flag; funct7[28:25] = 0x0→ADD, 0x4→MUL, 0x6→FNEG, 0x8→FSTEP (when not FMA)
-  // FP16: bits[15:14] = 00→ADD, 01→MUL, 10→FMA, 11→extended
-  //       For extended (11): bits[13:12] = 00→FNEG, 01→FSTEP
-  val is_fma = if (config.totalBits >= 32) fetchedInstruction(2) else fetchedInstruction(15, 14) === 2.U
-  val is_mul = if (config.totalBits >= 32) {
-    !fetchedInstruction(2) && fetchedInstruction(28, 25) === 0x4.U
-  } else {
-    fetchedInstruction(15, 14) === 1.U
-  }
-  val is_fneg = if (config.totalBits >= 32) {
-    !fetchedInstruction(2) && fetchedInstruction(28, 25) === 0x6.U
-  } else {
-    fetchedInstruction(15, 14) === 3.U && fetchedInstruction(13, 12) === 0.U
-  }
-  val is_fstep = if (config.totalBits >= 32) {
-    !fetchedInstruction(2) && fetchedInstruction(28, 25) === 0x8.U
-  } else {
-    fetchedInstruction(15, 14) === 3.U && fetchedInstruction(13, 12) === 1.U
-  }
+  // Operation type from funct7[28:25] (non-FMA) or opcode bit 2 (FMA)
+  val is_fma   = fetchedInstruction(Instructions.BITS_OPCODE_FMA_BIT)  // opcode = MADD (1000011) vs OP-FP (1010011)
+  val is_mul   = !is_fma && Instructions.BF_F7_OP(fetchedInstruction) === Instructions.FUNCT7_MUL.U
+  val is_fneg  = !is_fma && Instructions.BF_F7_OP(fetchedInstruction) === Instructions.FUNCT7_FNEG.U
+  val is_fstep = !is_fma && Instructions.BF_F7_OP(fetchedInstruction) === Instructions.FUNCT7_FSTEP.U
   // @doc:end
 
-  // rs3 index for FMA (third source register, 2-bit for FP16 → r0-r3 only)
-  val rs3_idx = if (config.totalBits >= 32) fetchedInstruction(31, 27)(2, 0) else fetchedInstruction(13, 12)
+  // rs3 index for FMA (third source register, R4-type bits [31:27])
+  val rs3_idx = Instructions.BF_RS3(fetchedInstruction)
 
   // @doc:fetch-execute
   // --- Fetch & Execute Logic ---
@@ -276,7 +261,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
 
   val fma_result = fNFromRecFN(config.exp, config.sig, fma.io.out)
   val reg_w_data =
-    Mux(pipe_reg_write, Mux(is_fstep_reg, fstep_result, fma_result), io.data_in)
+    Mux(pipe_reg_write, Mux(is_fstep_reg, fstep_result, fma_result), io.data_in(config.totalBits - 1, 0))
 
   // Write to all three register file copies simultaneously (mirrored writes)
   regFileA.io.writeAddr := reg_w_addr

@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#define SPIRB_MAX_INSTRS  8
+#define SPIRB_MAX_INSTRS 32
 #define SPIRB_MAX_REGS   16
 
 // Parsed in-memory representation of a SPIR-B shader blob.
@@ -18,7 +18,7 @@ typedef struct spirb_shader_t {
   uint8_t  num_attributes;
   uint8_t  num_outputs;
   uint8_t  num_consts;
-  uint16_t instrs[SPIRB_MAX_INSTRS];
+  uint32_t instrs[SPIRB_MAX_INSTRS];
   uint8_t  uniform_regs[SPIRB_MAX_REGS];
   uint8_t  attribute_regs[SPIRB_MAX_REGS];
   uint8_t  output_regs[SPIRB_MAX_REGS];

@@ -14,6 +14,7 @@ Target: March 2026 — TTIHP26a shuttle
 - [x] Texture mapping (firmware, UV interpolation + PSRAM sampling)
 - [x] FPGA validation on pico-ice
 - [x] GDS submission (4×2 tiles, IHP SG13G2)
+- [x] 32-bit RISC-V instructions & 32-entry register file
 
 ## Phase 2: GPU Autonomy
 
@@ -62,13 +63,19 @@ Loop over a multi-triangle mesh in firmware (e.g. 12-triangle cube via
 repeated `borg_cmd_draw()` calls). Already works for 2 triangles in
 `borg_triangle.c`; extending to N is trivial.
 
-### Step 1b: Perspective Projection (Firmware)
+### Step 1b: 32-bit RISC-V Hardware Expansion ✅ (2026-03-23)
+
+Expanded the register file from 16 to 32 entries and instruction memory from 8 to 32 slots.
+Transitioned the instruction format from custom 16-bit to standard 32-bit RISC-V (R-type / R4-type).
+This expansion provides enough capacity to run the full `vkcube` perspective projection vertex shader in a single pass.
+
+### Step 1c: Perspective Projection (Firmware)
 
 4×4 MVP matrix multiply per vertex (~16 FMA per vertex). Transforms from
 model space to clip space and applies perspective divide. Uses the existing
 Borg FMA via MMIO. Estimate: 2–3 days.
 
-### Step 1c: Triangle Clipping (Firmware)
+### Step 1d: Triangle Clipping (Firmware)
 
 Near/far plane clipping before rasterization. Clip triangles that cross the
 near plane; cull those entirely behind it. Sutherland–Hodgman or simplified

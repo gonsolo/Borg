@@ -16,6 +16,7 @@ TINYQV_SDK ?= ../sdk
 PROJECT_NAME = triangle
 SHARED_SOURCES = borg_driver.c borg_fpu.c borg_raster.c borg_spirb.c borg_math.c
 PROJECT_SOURCES = borg_triangle.c $(SHARED_SOURCES)
+HEADERS = $(wildcard *.h)
 
 all: triangle
 
@@ -34,7 +35,7 @@ clean:
 $(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s
 	$(MAKE) -C $(TINYQV_SDK) $(notdir $@)
 
-%.o: %.c
+%.o: %.c $(HEADERS)
 	$(CC) -O2 -I$(TINYQV_SDK) -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -c $< -o $@
 
 %.o: %.s
