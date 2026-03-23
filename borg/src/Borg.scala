@@ -83,8 +83,9 @@ class RegFileCopy(width: Int, instName: String) extends Module {
   * == MMIO Interface ==
   *
   *   - Registers 0–124 (32 words): read/write register file r0–r31
-  *   - IMEM 128–156 (8 words): write instruction memory
+  *   - IMEM 128–248 (31 usable words): write instruction memory
   *   - Control/Status 252: write bit 0 = start, bit 1 = reset; read bit 1 = idle
+  *   Note: IMEM slot 31 (address 252) overlaps control. It always reads as 0 (HALT).
   */
 class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val io = IO(new BorgIO(config))
@@ -108,11 +109,12 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val regFileB = Module(new RegFileCopy(config.totalBits, "regFileB"))
   val regFileC = Module(new RegFileCopy(config.totalBits, "regFileC"))
 
-  // instructionMemory: 8 words of instruction memory to store the shader program
-  val instructionMemory = SyncReadMem(8, UInt(config.totalBits.W))
+  // instructionMemory: 32 words of instruction memory to store the shader program
+  // Slot 31 (address 252) overlaps the control register and always reads as HALT (0).
+  val instructionMemory = SyncReadMem(32, UInt(config.totalBits.W))
 
   // programCounter: Points to the current instruction in instructionMemory
-  val programCounter = RegInit(0.U(3.W))
+  val programCounter = RegInit(0.U(5.W))
 
   // running: Status flag indicating if the processor is currently executing a program
   val running = RegInit(false.B)
@@ -288,9 +290,9 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   regFileC.io.writeData := reg_w_data
 
   // @doc:mmio
-  // IMEM Write (addresses 128–156, 8 words)
-  when(is_writing && io.address >= 128.U && io.address < 160.U) {
-    instructionMemory.write(io.address(4, 2), io.data_in)
+  // IMEM Write (addresses 128–248, 31 usable slots; address 252 = control)
+  when(is_writing && io.address >= 128.U && io.address < 252.U) {
+    instructionMemory.write(io.address(6, 2), io.data_in)
   }
 
   // --- Memory-Mapped Read Logic ---

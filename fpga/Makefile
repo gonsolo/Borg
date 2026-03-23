@@ -22,14 +22,20 @@ help:
 
 ######### Build hardware ###########################################################################
 
-# Source files are derived from info.yaml (single source of truth)
-SRC_FILES = $(shell grep '^\s*- "' ../info.yaml | sed 's/.*"\(.*\)"/\1/')
+# Source files: ASIC files from info.yaml + FPGA-specific extras (e.g. tinyQV_top wrapper).
+# Extras are computed as files that exist in the verilog output but aren't in info.yaml.
+SHELL := /bin/bash
+ASIC_FILES = $(shell grep '^\s*- "' ../info.yaml | sed 's/.*"\(.*\)"/\1/')
+FPGA_EXTRA_FILES = $(shell comm -23 \
+	<(ls ../out/borg/verilog/*.sv ../out/tinyqv/verilog/*.sv 2>/dev/null | sort) \
+	<(grep '^\s*- "' ../info.yaml | sed 's/.*"\(.*\)"/\1/' | sort))
+SRC_FILES = $(ASIC_FILES) $(FPGA_EXTRA_FILES)
 
 CHISEL_SRCS = $(wildcard ../borg/src/*.scala) $(wildcard ../tinyqv/src/*.scala)
 
 # Regenerate Verilog from Chisel when sources change
 ../out/borg/verilog/Borg.sv: $(CHISEL_SRCS)
-	cd .. && mill borg.runMain borg.Main && mill tinyqv.runMain tinyqv.Main
+	cd .. && mill borg.runMain borg.Main && mill tinyqv.runMain tinyqv.Main && mill fpga.tinyqv.runMain borg.FpgaMain
 
 # Hardware limits
 MAX_LUTS = 5280
@@ -39,7 +45,7 @@ YOSYS_SCRIPT = read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tiny
 	       -json borg.json
 borg.json: $(SRC_FILES) ../out/borg/verilog/Borg.sv
 	@echo "Building netlist"
-	yosys -p "$(YOSYS_SCRIPT)" -DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
+	@yosys -p "$(YOSYS_SCRIPT)" -DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
 
 # Place and Route (P&R) — freq derived from MmioMap.CLOCK_MHZ via generated header
 CLOCK_FREQ := $(shell grep -m1 'define CLOCK_MHZ' firmware/borg_mmio.h | awk '{print $$3}')

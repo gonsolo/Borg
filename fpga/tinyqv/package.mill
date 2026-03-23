@@ -1,0 +1,7 @@
+package build.fpga.tinyqv
+import mill._, scalalib._
+import build.BorgModule
+
+object `package` extends BorgModule {
+  override def moduleDeps = Seq(build.borg)
+}

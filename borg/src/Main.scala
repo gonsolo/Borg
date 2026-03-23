@@ -25,13 +25,6 @@ object Main extends App {
     firtoolOpts = Array("--split-verilog", "--lowering-options=disallowLocalVariables", "--disable-all-randomization", "--strip-debug-info")
   )
 
-  ChiselStage.emitSystemVerilogFile(
-    gen = new tinyQV_top(clockMhz),
-    args = Array("--target-dir", targetDir),
-    firtoolOpts = Array("--split-verilog", "--lowering-options=disallowLocalVariables,noAlwaysComb", "--disable-all-randomization", "--strip-debug-info")
-  )
-
-  PicoIcePins.emitPCF(s"$targetDir/pico_ice.pcf")
   MmioMap.emitHeader("fpga/firmware/borg_mmio.h")
   MmioMap.emitPython("fpga/host/borg_mmio.py")
   MmioMap.emitPython("test/soc/borg_mmio.py")
