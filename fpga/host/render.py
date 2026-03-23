@@ -308,7 +308,15 @@ def render_all_frames(app_name='triangle'):
     # TEX_PSRAM_OFFSET imported from borg_mmio.py
     # Sentinel word stored right after texture data to detect prior upload
     TEX_SENTINEL_OFFSET = TEX_PSRAM_OFFSET + 32 * 32 * 3  # Word 7272 (after texture ends at 7271)
-    TEX_SENTINEL_MAGIC = 0xBEEF
+    # Select texture file per app
+    if app_name == 'vkcube':
+        tex_file = 'firmware/borg_texture.dat'
+    else:
+        tex_file = 'firmware/test_texture.dat'
+
+    # Sentinel magic derived from texture filename — different textures get
+    # different sentinels so switching apps forces a re-upload.
+    TEX_SENTINEL_MAGIC = sum(ord(c) for c in tex_file) & 0xFFFF
 
     # Check if texture is already uploaded by reading the sentinel
     sm_r_check = rp2.StateMachine(0, qspi_read, 16_000_000,
@@ -330,7 +338,7 @@ def render_all_frames(app_name='triangle'):
     else:
         try:
             import struct
-            with open('firmware/test_texture.dat', 'rb') as f:
+            with open(tex_file, 'rb') as f:
                 tex_data = f.read()
 
             TEX_WIDTH = 32
