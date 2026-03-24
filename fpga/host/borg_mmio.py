@@ -7,6 +7,9 @@ CLOCK_MHZ = 4
 TEX_PSRAM_OFFSET = 4200
 DONE_MARKER = 0xDEAD
 
+# --- SPIR-B binary format ---
+SPIRB_INSTR_BYTES = 4
+
 # --- Borg instruction encoding (32-bit RISC-V R-type / R4-type) ---
 def encode_rv32_fadd(rs1=0, rs2=1, rd=2):
     return (0x00000000 | (rs2 << 20) | (rs1 << 15) | (rd << 7))

@@ -45,14 +45,17 @@ class Fp16Rcp extends Module {
   val isNaN             = isInfOrNaN && mant =/= 0.U
   val isInf             = isInfOrNaN && mant === 0.U
 
-  // --- 17-entry LUT: mant_out = round((2 / (1 + i/16) - 1) * 1024) ---
+  // @doc:rcp-lut
+  // 17-entry LUT: mant_out = round((2 / (1 + i/16) - 1) * 1024)
   // Index i corresponds to mantissa bits [9:6].  Entry 16 is a virtual
   // sentinel for the interpolation of interval 15.
   val rcpLut = VecInit(Seq(
     1023, 904, 796, 701, 614, 536, 465, 401,
      341, 287, 236, 190, 146, 106,  68,  33, 0
   ).map(_.U(10.W)))
+  // @doc:end
 
+  // @doc:rcp-interpolation
   val lutIdx  = mant(9, 6)                    // top 4 bits → table index (0–15)
   val frac    = mant(5, 0)                    // bottom 6 bits → interpolation fraction
 
@@ -63,6 +66,7 @@ class Fp16Rcp extends Module {
   val delta      = lutVal - lutNext           // max 120, fits 7 bits
   val correction = (delta * frac) >> 6        // 7×6 → 13 bit product, >>6 → 7 bits
   val estMant    = lutVal - correction
+  // @doc:end
 
   // --- Reciprocal exponent: 29 − exp (with clamping) ---
   val estExp = WireDefault(0.U(5.W))

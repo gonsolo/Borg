@@ -12,7 +12,9 @@ import sys
 import os
 
 sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'host'))
 from borg_backend import BorgBackend
+from borg_mmio import SPIRB_INSTR_BYTES
 
 
 def parse_spirb(blob):
@@ -21,10 +23,11 @@ def parse_spirb(blob):
     n_instr, n_uni, n_attr, n_out, n_const, _ = struct.unpack_from('<6B', blob, p)
     p += 6
 
+    _fmt = {2: '<H', 4: '<I'}[SPIRB_INSTR_BYTES]
     instrs = []
     for _ in range(n_instr):
-        instrs.append(struct.unpack_from('<H', blob, p)[0])
-        p += 2
+        instrs.append(struct.unpack_from(_fmt, blob, p)[0])
+        p += SPIRB_INSTR_BYTES
 
     uniform_regs = list(blob[p:p + n_uni]); p += n_uni
     attribute_regs = list(blob[p:p + n_attr]); p += n_attr
@@ -130,13 +133,19 @@ if __name__ == '__main__':
     # Known-good instruction encodings from current shaders
     if os.path.exists(os.path.join(test_dir, "vert.spvasm")):
         test_pipeline("vert", os.path.join(test_dir, "vert.spvasm"),
-                      expected_instrs=[0x4530, 0x8640, 0x4521, 0x9631],
-                      expected_unis=[2, 3, 4],
-                      expected_attrs=[5, 6],
-                      expected_outs=[0, 1])
+                      expected_instrs=[
+                          0x09420000, 0x01540004, 0x01660004, 0x01780004,
+                          0x09428080, 0x09548084, 0x09668084, 0x09788084,
+                          0x09430100, 0x11550104, 0x11670104, 0x11790104,
+                          0x09438180, 0x19558184, 0x19678184, 0x19798184],
+                      expected_unis=list(range(4, 20)),
+                      expected_attrs=[20, 21, 22],
+                      expected_outs=[0, 1, 2, 3])
     if os.path.exists(os.path.join(test_dir, "frag.spvasm")):
         test_pipeline("frag", os.path.join(test_dir, "frag.spvasm"),
-                      expected_instrs=[0x4218, 0x4239, 0x424A, 0x4580, 0x8690, 0x87A0],
+                      expected_instrs=[
+                          0x08208400, 0x08218480, 0x08220500,
+                          0x08540000, 0x00648004, 0x00750004],
                       expected_unis=[2, 5, 6, 7],
                       expected_attrs=[1, 3, 4],
                       expected_outs=[0])

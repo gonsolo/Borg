@@ -22,20 +22,22 @@ The design is a **TinyQV RISC-V SoC** with the **Borg FP16 shader processor** as
 
 A minimal programmable shading unit with:
 
-- **FP16 Fused Multiply-Add (FMA)** — IEEE-754 compliant HardFloat unit supporting ADD, MUL, FMA, FNEG, and FSTEP operations
-- **8 general-purpose FP16 registers** (r0–r7), MMIO-accessible from the CPU
-- **6-word instruction memory** for shader programs
+- **FP16 Fused Multiply-Add (FMA)** — IEEE-754 compliant HardFloat unit supporting ADD, MUL, FMA, FNEG, FSTEP, and FRCP operations
+- **32 general-purpose FP16 registers** (r0–r31), MMIO-accessible from the CPU
+- **32-word instruction memory** for shader programs
+- **Hardware FP16 reciprocal (RCP)** — LUT + linear interpolation for perspective division
 - **4-cycle pipeline** with automatic halt-on-zero-instruction
 
 ### Rendering Pipeline
 
 The firmware implements a full triangle rendering pipeline:
 
-1. **Vertex Shader** — Transforms vertices (e.g., 2D rotation) using programmable SPIR-B shaders executed on the Borg FPU
+1. **Vertex Shader** — 4×4 MVP matrix multiply with hardware perspective division, executed as a single shader pass on the Borg FPU
 2. **Screen-Space Translation** — NDC to pixel coordinates with configurable framebuffer resolution (up to 64×64)
-3. **Rasterization** — Edge-function based triangle testing with hardware-accelerated FP16 cross products
+3. **Rasterization** — Edge-function based triangle testing with hardware-accelerated FP16 cross products, back-face culling
 4. **Fragment Shader** — Barycentric interpolation for per-vertex RGB color blending
-5. **Framebuffer Output** — Results written to PSRAM, read by host (RP2040) for display
+5. **Z-Buffer** — Per-pixel depth testing with texture mapping from PSRAM
+6. **Framebuffer Output** — Results written to PSRAM, read by host (RP2040) for display
 
 ### SPIR-B Shader Format
 
@@ -97,6 +99,9 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | Dynamic framebuffer resolution | ✅ Done |
 | Tiny Tapeout TTIHP26a [submission](https://app.tinytapeout.com/projects/3645) | ✅ Submitted |
 | 32-bit RISC-V instructions & 32-entry register file | ✅ Done |
+| Hardware perspective projection (4×4 MVP shader) | ✅ Done |
+| Hardware FP16 reciprocal (FRCP) | ✅ Done |
+| Back-face culling & depth-correct vkcube | ✅ Done |
 | Test manufactured chip | ⏳ Pending |
 | Vulkan driver | 📋 Planned |
 

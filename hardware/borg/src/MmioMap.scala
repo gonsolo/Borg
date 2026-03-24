@@ -210,6 +210,9 @@ object MmioMap {
     e.assign("TEX_PSRAM_OFFSET", TEX_PSRAM_OFFSET)
     e.assignHex("DONE_MARKER", DONE_MARKER, 4)
 
+    e.section("SPIR-B binary format")
+    e.assign("SPIRB_INSTR_BYTES", 4)
+
     e.section("Borg instruction encoding (32-bit RISC-V R-type / R4-type)")
     def hex(i: BigInt) = f"$i%08X"
     e.emitInstrR("fadd", hex(ADD(0,0,0)))

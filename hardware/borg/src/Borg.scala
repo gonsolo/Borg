@@ -59,21 +59,7 @@ class RegFileCopy(width: Int, instName: String) extends Module {
 
 /** Borg — minimal FP16 shading processor with 4-cycle FMA pipeline.
   *
-  * == Instruction Format (32-bit RISC-V) ==
-  *
-  * {{{
-  *   Op     Encoding [31:0]                                         Semantics
-  *   ───────────────────────────────────────────────────────────────────────────
-  *   ADD    funct7=0x00|rs2|rs1|rm|rd|OP-FP(1010011)               rd = rs1 + rs2
-  *   MUL    funct7=0x04|rs2|rs1|rm|rd|OP-FP(1010011)               rd = rs1 × rs2
-  *   FNEG   funct7=0x06|rs2|rs1|rm|rd|OP-FP(1010011)               rd = −rs1
-  *   FSTEP  funct7=0x08|rs2|rs1|rm|rd|OP-FP(1010011)               rd = (rs1 > 0) ? 1.0 : 0.0
-  *   FMA    rs3|00|rs2|rs1|rm|rd|MADD(1000011)                      rd = rs1 × rs2 + rs3
-  *   HALT   0000_0000_0000_0000_0000_0000_0000_0000                stop execution
-  *
-  *   R-type:  funct7[31:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | opcode[6:0]
-  *   R4-type: rs3[31:27] | funct2[26:25] | rs2[24:20] | rs1[19:15] | rm[14:12] | rd[11:7] | opcode[6:0]
-  * }}}
+  * Instruction encoding is defined in [[Instructions]].
   *
   * == Pipeline (4 cycles per instruction) ==
   *
@@ -83,230 +69,265 @@ class RegFileCopy(width: Int, instName: String) extends Module {
   *
   * == MMIO Interface ==
   *
-  *   - Registers 0–124 (32 words): read/write register file r0–r31 (16-bit FP16)
+  *   - Registers 0–124 (32 words): read/write register file r0–r31
   *   - IMEM 128–248 (31 usable words): write instruction memory (32-bit)
   *   - Control/Status 252: write bit 0 = start, bit 1 = reset; read bit 1 = idle
-  *   Note: IMEM slot 31 (address 252) overlaps control. It always reads as 0 (HALT).
   */
 class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val io = IO(new BorgIO(config))
   dontTouch(io)
 
-  // --- Storage ---
   // @doc:storage
+  // --- Storage ---
   // Triplicated register file: GPU-standard multi-port BRAM pattern.
-  //
-  // A 3-read-port register file cannot map to iCE40 Block RAM (2 ports max).
-  // Instead we keep three identical copies, each with 1 read + 1 write port:
-  //   - regFileA: read port serves rs1 (pipeline operand A)
-  //   - regFileB: read port serves rs2 (pipeline operand B)
-  //   - regFileC: read port serves rs3 (FMA) / MMIO register access
+  // 3 identical copies (1 read + 1 write each) for rs1, rs2, rs3/MMIO.
   // All three receive the same writes, so they always hold identical data.
   // Cost: 3 iCE40 BRAMs (of 30 available), saving ~1000 flip-flops.
-  //
-  // Each copy is wrapped in a separate Module to prevent CIRCT from merging
-  // them into a single multi-port memory (which yosys can't map to BRAMs).
   val regFileA = Module(new RegFileCopy(config.totalBits, "regFileA"))
   val regFileB = Module(new RegFileCopy(config.totalBits, "regFileB"))
   val regFileC = Module(new RegFileCopy(config.totalBits, "regFileC"))
 
-  // instructionMemory: 32 words of 32-bit RISC-V instructions
-  // Slot 31 (address 252) overlaps the control register and always reads as HALT (0).
   val instructionMemory = SyncReadMem(32, UInt(32.W))
-
-  // programCounter: Points to the current instruction in instructionMemory
   val programCounter = RegInit(0.U(5.W))
-
-  // running: Status flag indicating if the processor is currently executing a program
   val running = RegInit(false.B)
   // @doc:end
 
   // --- Pipeline Control ---
   val busy_counter = RegInit(0.U(3.W))
   val is_busy = busy_counter > 0.U
-
   val is_writing = io.data_write_n === 2.U
   val is_reading = io.data_read_n === 2.U
 
-  // --- Stage Variables (Combinational) ---
-
-  // --- Instruction Memory Read Logic (1-Cycle Latency) ---
+  // --- Instruction Fetch ---
   val nextPC =
     Mux(is_busy && busy_counter === 1.U, programCounter + 1.U, programCounter)
   val fetchedInstruction = instructionMemory.read(nextPC)
 
   // @doc:instruction-format
-  // R-type:  funct7[31:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | opcode[6:0]
-  // R4-type: rs3[31:27] | funct2[26:25] | rs2[24:20] | rs1[19:15] | rm[14:12] | rd[11:7] | opcode[6:0]
-  val rs1_idx = Instructions.BF_RS1(fetchedInstruction)
-  val rs2_idx = Instructions.BF_RS2(fetchedInstruction)
-  val rd_idx  = Instructions.BF_RD(fetchedInstruction)
-
-  // Operation type from funct7[28:25] (non-FMA) or opcode bit 2 (FMA)
-  val is_fma   = fetchedInstruction(Instructions.BITS_OPCODE_FMA_BIT)  // opcode = MADD (1000011) vs OP-FP (1010011)
-  val is_mul   = !is_fma && Instructions.BF_F7_OP(fetchedInstruction) === Instructions.FUNCT7_MUL.U
-  val is_fneg  = !is_fma && Instructions.BF_F7_OP(fetchedInstruction) === Instructions.FUNCT7_FNEG.U
-  val is_fstep = !is_fma && Instructions.BF_F7_OP(fetchedInstruction) === Instructions.FUNCT7_FSTEP.U
-  val is_frcp  = !is_fma && Instructions.BF_F7_OP(fetchedInstruction) === Instructions.FUNCT7_FRCP.U
+  // --- Instruction Decode ---
+  val (rs1_idx, rs2_idx, rs3_idx, rd_idx,
+       is_fma, is_mul, is_fneg, is_fstep, is_frcp) = decode(fetchedInstruction)
   // @doc:end
-
-  // rs3 index for FMA (third source register, R4-type bits [31:27])
-  val rs3_idx = Instructions.BF_RS3(fetchedInstruction)
 
   // @doc:fetch-execute
-  // --- Fetch & Execute Logic ---
-  when(running && !is_busy) {
-    when(fetchedInstruction === 0.U) {
-      running := false.B
-    }.otherwise {
-      busy_counter := 4.U
-    }
-  }.elsewhen(is_busy) {
-    busy_counter := busy_counter - 1.U
-    when(busy_counter === 1.U) {
-      programCounter := programCounter + 1.U
-    }
-  }
-
-  // Handle Control (address 252: read=status, write=control)
-  when(is_writing && io.address === 252.U) {
-    when(io.data_in(0)) { running := true.B }
-    when(io.data_in(1)) {
-      programCounter := 0.U
-      running := false.B
-      busy_counter := 0.U
-    }
-  }
-  // @doc:end
-
-  // --- Register File State Access ---
-  // Port A: Pipeline RS1 — reads from regFileA
-  val rs1_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
-  val rs1_en_del = RegNext(rs1_en, false.B)
-  regFileA.io.readAddr := rs1_idx
-  regFileA.io.readEn := rs1_en
-  val recA_raw = Mux(rs1_en_del, regFileA.io.readData, 0.U)
-
-  // Port B: Pipeline RS2 — reads from regFileB
-  val rs2_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
-  val rs2_en_del = RegNext(rs2_en, false.B)
-  regFileB.io.readAddr := rs2_idx
-  regFileB.io.readEn := rs2_en
-  val recB_raw = Mux(rs2_en_del, regFileB.io.readData, 0.U)
-
-  // Port C: MMIO Register Access / RS3 for FMA — reads from regFileC
-  // During execution, this port reads rs3; when idle, it serves MMIO reads/writes.
-  val mmio_reg_en = !running && !is_busy && (is_reading || is_writing)
-  val rs3_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
-  val portC_addr = Mux(running || is_busy, rs3_idx, io.address(6, 2))
-  val portC_en = mmio_reg_en || rs3_en
-  val mmio_reg_en_del = RegNext(mmio_reg_en && is_reading, false.B)
-  val rs3_en_del = RegNext(rs3_en, false.B)
-  regFileC.io.readAddr := portC_addr
-  regFileC.io.readEn := portC_en
-  val mmio_reg_data = Mux(mmio_reg_en_del, regFileC.io.readData, 0.U)
-  val recC_raw = Mux(rs3_en_del, regFileC.io.readData, 0.U)
-
-  // --- ALU: Floating Point FMA ---
-  val recA = recFNFromFN(config.exp, config.sig, recA_raw)
-  val recB = recFNFromFN(config.exp, config.sig, recB_raw)
-  val recC = recFNFromFN(config.exp, config.sig, recC_raw)
-
-  // Constants for operation muxing
-  val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
-  val recOne = recFNFromFN(config.exp, config.sig, one_fn)
-  val recZero = recFNFromFN(config.exp, config.sig, 0.U(config.totalBits.W))
-
-  // Latch op type when execution starts, hold through the 4-cycle pipeline
-  val is_mul_reg = RegInit(false.B)
-  val is_fma_reg = RegInit(false.B)
-  val is_fneg_reg = RegInit(false.B)
-  val is_fstep_reg = RegInit(false.B)
-  val is_frcp_reg = RegInit(false.B)
-  when(running && !is_busy && fetchedInstruction =/= 0.U) {
-    is_mul_reg := is_mul
-    is_fma_reg := is_fma
-    is_fneg_reg := is_fneg
-    is_fstep_reg := is_fstep
-    is_frcp_reg := is_frcp
-  }
-
-  // @doc:fma-muxing
-  val fma = Module(new MulAddRecFN(config.exp, config.sig))
-  // FNEG uses op=2: op(1)=1 negates product. -(a*b)+c. With a=1.0, b=rs1, c=0.0 → -rs1
-  fma.io.op := Mux(is_fneg_reg, 2.U, 0.U)
-  // ADD: a=1.0, b=rs1, c=rs2     → 1.0*rs1 + rs2 = rs1+rs2
-  // MUL: a=rs1,  b=rs2, c=0.0    → rs1*rs2 + 0.0 = rs1*rs2
-  // FMA: a=rs1,  b=rs2, c=rs3    → rs1*rs2 + rs3
-  // FNEG: a=1.0, b=rs1, c=0.0    → -(1.0*rs1) + 0.0 = -rs1
-  fma.io.a := Mux(is_mul_reg || is_fma_reg, recA, recOne)
-  fma.io.b := Mux(is_mul_reg || is_fma_reg, recB, recA)
-  fma.io.c := Mux(is_fma_reg, recC, Mux(is_mul_reg || is_fneg_reg, recZero, recB))
-  fma.io.roundingMode := 0.U
-  fma.io.detectTininess := 1.U
-
+  // --- Fetch & Execute FSM ---
   val fma_start = running && !is_busy && fetchedInstruction =/= 0.U
-  fma.io.valid := fma_start
+  runPipeline(fma_start)
+
+  // --- Register File Read Ports ---
+  val (recA_raw, recB_raw, recC_raw, mmio_reg_data) = wireRegisterReads()
+
+  // --- ALU ---
+  val (fma_result, is_fstep_reg, is_frcp_reg) =
+    wireFma(recA_raw, recB_raw, recC_raw, fma_start)
+  val fstep_result = computeFstep(recA_raw)
+  val frcp_result = computeFrcp(recA_raw)
+
+  // --- Write-Back ---
+  wireWriteBack(fma_result, fstep_result, frcp_result,
+    is_fstep_reg, is_frcp_reg, mmio_reg_data)
+
+  // --- MMIO ---
+  wireMmio()
   // @doc:end
 
-  // Write-back: At busy_counter 1 (Cycle 4 of 4)
-  val mmio_reg_write = is_writing && io.address < 128.U
-  val pipe_reg_write = running && is_busy && busy_counter === 1.U
-  val reg_w_en = mmio_reg_write || pipe_reg_write
-  val reg_w_addr = Mux(pipe_reg_write, rd_idx, io.address(6, 2))
+  // =========================================================================
+  // Helper functions
+  // =========================================================================
+
+  /** Decode a 32-bit RISC-V instruction into register indices and op flags. */
+  private def decode(instr: UInt) = {
+    val rs1 = Instructions.BF_RS1(instr)
+    val rs2 = Instructions.BF_RS2(instr)
+    val rs3 = Instructions.BF_RS3(instr)
+    val rd  = Instructions.BF_RD(instr)
+
+    val fma   = instr(Instructions.BITS_OPCODE_FMA_BIT)
+    val f7op  = Instructions.BF_F7_OP(instr)
+    val mul   = !fma && f7op === Instructions.FUNCT7_MUL.U
+    val fneg  = !fma && f7op === Instructions.FUNCT7_FNEG.U
+    val fstep = !fma && f7op === Instructions.FUNCT7_FSTEP.U
+    val frcp  = !fma && f7op === Instructions.FUNCT7_FRCP.U
+
+    (rs1, rs2, rs3, rd, fma, mul, fneg, fstep, frcp)
+  }
+
+  /** Fetch/execute FSM: start pipeline, count down busy cycles, advance PC. */
+  private def runPipeline(fma_start: Bool): Unit = {
+    when(running && !is_busy) {
+      when(fetchedInstruction === 0.U) {
+        running := false.B
+      }.otherwise {
+        busy_counter := 4.U
+      }
+    }.elsewhen(is_busy) {
+      busy_counter := busy_counter - 1.U
+      when(busy_counter === 1.U) {
+        programCounter := programCounter + 1.U
+      }
+    }
+
+    // Control register (address 252): bit 0 = start, bit 1 = reset
+    when(is_writing && io.address === 252.U) {
+      when(io.data_in(0)) { running := true.B }
+      when(io.data_in(1)) {
+        programCounter := 0.U
+        running := false.B
+        busy_counter := 0.U
+      }
+    }
+  }
+
+  /** Wire the three register file read ports (A=rs1, B=rs2, C=rs3/MMIO). */
+  private def wireRegisterReads() = {
+    val recA = wirePortA()
+    val recB = wirePortB()
+    val (recC, mmio_data) = wirePortC()
+    (recA, recB, recC, mmio_data)
+  }
+
+  /** Port A: pipeline rs1 read from regFileA. */
+  private def wirePortA(): UInt = {
+    val en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
+    val en_del = RegNext(en, false.B)
+    regFileA.io.readAddr := rs1_idx
+    regFileA.io.readEn := en
+    Mux(en_del, regFileA.io.readData, 0.U)
+  }
+
+  /** Port B: pipeline rs2 read from regFileB. */
+  private def wirePortB(): UInt = {
+    val en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
+    val en_del = RegNext(en, false.B)
+    regFileB.io.readAddr := rs2_idx
+    regFileB.io.readEn := en
+    Mux(en_del, regFileB.io.readData, 0.U)
+  }
+
+  /** Port C: rs3 during execution, MMIO register access when idle. */
+  private def wirePortC(): (UInt, UInt) = {
+    val mmio_en = !running && !is_busy && (is_reading || is_writing)
+    val rs3_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
+    val addr = Mux(running || is_busy, rs3_idx, io.address(6, 2))
+    val en = mmio_en || rs3_en
+    val mmio_en_del = RegNext(mmio_en && is_reading, false.B)
+    val rs3_en_del = RegNext(rs3_en, false.B)
+    regFileC.io.readAddr := addr
+    regFileC.io.readEn := en
+    (Mux(rs3_en_del, regFileC.io.readData, 0.U),
+     Mux(mmio_en_del, regFileC.io.readData, 0.U))
+  }
+
+  /** Wire FMA unit: mux operands for ADD/MUL/FMA/FNEG.
+    * Returns (fma_result, is_fstep_reg, is_frcp_reg).
+    */
+  private def wireFma(
+      recA_raw: UInt, recB_raw: UInt, recC_raw: UInt, start: Bool
+  ): (UInt, Bool, Bool) = {
+    val recA = recFNFromFN(config.exp, config.sig, recA_raw)
+    val recB = recFNFromFN(config.exp, config.sig, recB_raw)
+    val recC = recFNFromFN(config.exp, config.sig, recC_raw)
+
+    val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
+    val recOne = recFNFromFN(config.exp, config.sig, one_fn)
+    val recZero = recFNFromFN(config.exp, config.sig, 0.U(config.totalBits.W))
+
+    // Latch op type for the 4-cycle pipeline
+    val is_mul_reg = RegInit(false.B)
+    val is_fma_reg = RegInit(false.B)
+    val is_fneg_reg = RegInit(false.B)
+    val is_fstep_reg = RegInit(false.B)
+    val is_frcp_reg = RegInit(false.B)
+    when(start) {
+      is_mul_reg := is_mul
+      is_fma_reg := is_fma
+      is_fneg_reg := is_fneg
+      is_fstep_reg := is_fstep
+      is_frcp_reg := is_frcp
+    }
+
+    // @doc:fma-muxing
+    val fma = Module(new MulAddRecFN(config.exp, config.sig))
+    // ADD:  1.0 * rs1 + rs2       MUL: rs1 * rs2 + 0.0
+    // FMA:  rs1 * rs2 + rs3       FNEG: -(1.0 * rs1) + 0.0
+    fma.io.op := Mux(is_fneg_reg, 2.U, 0.U)
+    fma.io.a := Mux(is_mul_reg || is_fma_reg, recA, recOne)
+    fma.io.b := Mux(is_mul_reg || is_fma_reg, recB, recA)
+    fma.io.c := Mux(is_fma_reg, recC, Mux(is_mul_reg || is_fneg_reg, recZero, recB))
+    fma.io.roundingMode := 0.U
+    fma.io.detectTininess := 1.U
+    fma.io.valid := start
+    // @doc:end
+
+    (fNFromRecFN(config.exp, config.sig, fma.io.out), is_fstep_reg, is_frcp_reg)
+  }
 
   // @doc:fstep
-  // FSTEP: output 0.0 if rs1 <= 0, else 1.0 (sign-preserving step function)
-  // Compatible with existing C edge test: positive+nonzero = outside
-  val fstep_is_negative_or_zero = recA_raw(config.totalBits - 1) || (recA_raw === 0.U)
-  val fstep_result = Mux(fstep_is_negative_or_zero, 0.U(config.totalBits.W), one_fn)
+  /** FSTEP: 0.0 if rs1 ≤ 0, else 1.0. */
+  private def computeFstep(recA_raw: UInt): UInt = {
+    val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
+    val neg_or_zero = recA_raw(config.totalBits - 1) || (recA_raw === 0.U)
+    Mux(neg_or_zero, 0.U(config.totalBits.W), one_fn)
+  }
   // @doc:end
 
   // @doc:frcp
-  // FRCP: hardware FP16 reciprocal (1/x) via 16-entry LUT + linear interpolation.
-  // Operates on raw FP16 bits, bypasses FMA entirely.
-  val rcp = Module(new Fp16Rcp)
-  rcp.io.in := recA_raw(15, 0)
-  val frcp_result = if (config.totalBits > 16) Cat(0.U((config.totalBits - 16).W), rcp.io.out) else rcp.io.out
+  /** FRCP: hardware FP16 reciprocal via LUT + interpolation. */
+  private def computeFrcp(recA_raw: UInt): UInt = {
+    val rcp = Module(new Fp16Rcp)
+    rcp.io.in := recA_raw(15, 0)
+    if (config.totalBits > 16) Cat(0.U((config.totalBits - 16).W), rcp.io.out)
+    else rcp.io.out
+  }
   // @doc:end
 
-  val fma_result = fNFromRecFN(config.exp, config.sig, fma.io.out)
-  val reg_w_data =
-    Mux(pipe_reg_write,
+  /** Write-back: pipeline result or MMIO write to all three register copies. */
+  private def wireWriteBack(
+      fma_result: UInt, fstep_result: UInt, frcp_result: UInt,
+      is_fstep_reg: Bool, is_frcp_reg: Bool, mmio_reg_data: UInt
+  ): Unit = {
+    val mmio_write = is_writing && io.address < 128.U
+    val pipe_write = running && is_busy && busy_counter === 1.U
+    val w_en = mmio_write || pipe_write
+    val w_addr = Mux(pipe_write, rd_idx, io.address(6, 2))
+
+    val w_data = Mux(pipe_write,
       Mux(is_fstep_reg, fstep_result,
         Mux(is_frcp_reg, frcp_result, fma_result)),
       io.data_in(config.totalBits - 1, 0))
 
-  // Write to all three register file copies simultaneously (mirrored writes)
-  regFileA.io.writeAddr := reg_w_addr
-  regFileA.io.writeEn := reg_w_en
-  regFileA.io.writeData := reg_w_data
-  regFileB.io.writeAddr := reg_w_addr
-  regFileB.io.writeEn := reg_w_en
-  regFileB.io.writeData := reg_w_data
-  regFileC.io.writeAddr := reg_w_addr
-  regFileC.io.writeEn := reg_w_en
-  regFileC.io.writeData := reg_w_data
-
-  // @doc:mmio
-  // IMEM Write (addresses 128–248, 31 usable slots; address 252 = control)
-  when(is_writing && io.address >= 128.U && io.address < 252.U) {
-    instructionMemory.write(io.address(6, 2), io.data_in)
+    writeAllCopies(w_addr, w_en, w_data)
   }
 
-  // --- Memory-Mapped Read Logic ---
-  val read_addr_del = RegInit(0.U(8.W))
-  read_addr_del := io.address
+  /** Write the same addr/en/data to all three register file copies. */
+  private def writeAllCopies(addr: UInt, en: Bool, data: UInt): Unit = {
+    for (rf <- Seq(regFileA, regFileB, regFileC)) {
+      rf.io.writeAddr := addr
+      rf.io.writeEn := en
+      rf.io.writeData := data
+    }
+  }
 
-  val status_reg = Cat(0.U((config.totalBits - 2).W), !running, 0.U(1.W))
+  // @doc:mmio
+  /** MMIO: IMEM writes, register read mux, status/ready signals. */
+  private def wireMmio(): Unit = {
+    // IMEM write (addresses 128–248)
+    when(is_writing && io.address >= 128.U && io.address < 252.U) {
+      instructionMemory.write(io.address(6, 2), io.data_in)
+    }
 
-  io.data_out := Mux(read_addr_del < 128.U, mmio_reg_data,
-    Mux(read_addr_del === 252.U, status_reg, 0.U)
-  )
+    // Read mux
+    val read_addr_del = RegInit(0.U(8.W))
+    read_addr_del := io.address
+    val status_reg = Cat(0.U((config.totalBits - 2).W), !running, 0.U(1.W))
+    io.data_out := Mux(read_addr_del < 128.U, mmio_reg_data,
+      Mux(read_addr_del === 252.U, status_reg, 0.U))
 
-  val read_ready_del = RegNext(is_reading, false.B)
-  io.data_ready := (io.data_read_n === 3.U) || read_ready_del
-  io.uo_out := 0.U
-  io.user_interrupt := false.B
+    val read_ready_del = RegNext(is_reading, false.B)
+    io.data_ready := (io.data_read_n === 3.U) || read_ready_del
+    io.uo_out := 0.U
+    io.user_interrupt := false.B
+  }
   // @doc:end
+
 }

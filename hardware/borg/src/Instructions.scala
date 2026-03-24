@@ -15,6 +15,7 @@ object Instructions {
     def apply(u: UInt): UInt = u(hi, lo)
   }
 
+  // @doc:isa-bitfields
   // --- RISC-V Instruction Format Definitions ---
   val BF_RS1    = BitField(19, 15)
   val BF_RS2    = BitField(24, 20)
@@ -23,13 +24,12 @@ object Instructions {
   val BF_OP     = BitField(6, 0)
   val BF_FUNCT3 = BitField(14, 12)
   val BF_FUNCT7 = BitField(31, 25)
-  
+
   // Custom hardware decode boundaries
   val BF_F7_OP = BitField(28, 25)
   val BITS_OPCODE_FMA_BIT = 2
 
   // --- Opcodes ---
-  // Note: Borg natively checks bit 2 of the opcode to quickly identify FMA.
   val OPCODE_ALU = 0x00
   val OPCODE_FMA = 0x04
 
@@ -38,6 +38,7 @@ object Instructions {
   val FUNCT7_FNEG  = 0x06
   val FUNCT7_FSTEP = 0x08
   val FUNCT7_FRCP  = 0x0A
+  // @doc:end
 
   // --- Base Instruction Encoders ---
   def encodeRType(funct7: Int, rs2: Int, rs1: Int, rd: Int, funct3: Int = 0, opcode: Int = OPCODE_ALU): BigInt =
@@ -46,13 +47,14 @@ object Instructions {
   def encodeR4Type(rs3: Int, funct2: Int, rs2: Int, rs1: Int, rd: Int, funct3: Int = 0, opcode: Int = OPCODE_FMA): BigInt =
     BigInt((rs3 << BF_RS3.lo) | (funct2 << 25) | (rs2 << BF_RS2.lo) | (rs1 << BF_RS1.lo) | (funct3 << BF_FUNCT3.lo) | (rd << BF_RD.lo) | (opcode << BF_OP.lo))
 
-  // --- Specific Instruction Constructors (Software usage) ---
+  // @doc:isa-encoders
   def ADD(rs1: Int, rs2: Int, rd: Int): BigInt = encodeRType(FUNCT7_ADD, rs2, rs1, rd)
   def MUL(rs1: Int, rs2: Int, rd: Int): BigInt = encodeRType(FUNCT7_MUL, rs2, rs1, rd)
   def FNEG(rs1: Int, rd: Int): BigInt = encodeRType(FUNCT7_FNEG, 0, rs1, rd)
   def FSTEP(rs1: Int, rd: Int): BigInt = encodeRType(FUNCT7_FSTEP, 0, rs1, rd)
   def FRCP(rs1: Int, rd: Int): BigInt = encodeRType(FUNCT7_FRCP, 0, rs1, rd)
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd)
+  // @doc:end
 
   // --- String Formatters for C / Python Generation ---
   def PY_ARGS_R    = s"(rs2 << ${BF_RS2.lo}) | (rs1 << ${BF_RS1.lo}) | (rd << ${BF_RD.lo})"

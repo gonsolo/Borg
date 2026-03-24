@@ -9,6 +9,9 @@
 #define TEX_PSRAM_OFFSET 4200
 #define DONE_MARKER 0xDEAD
 
+// --- SPIR-B binary format ---
+#define SPIRB_INSTR_BYTES 4
+
 // --- Borg instruction encoding (32-bit RISC-V R-type / R4-type) ---
 #define BORG_INSTR_FADD(rd, rs1, rs2)       (0x00000000UL | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FMUL(rd, rs1, rs2)       (0x08000000UL | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
