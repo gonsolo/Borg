@@ -10,32 +10,48 @@ import java.io.File
 
 object Main extends App {
 
-  val outDir = "out/tinyqv/verilog"
+  val outDir = "out/hardware/tinyqv/verilog"
   new File(outDir).mkdirs()
 
   val argsArray = Array("--target-dir", outDir)
   val firtoolOptsArray = Array("--split-verilog", "--lowering-options=disallowLocalVariables,disallowPackedArrays,noAlwaysComb", "--disable-all-randomization", "--strip-debug-info")
 
-  ChiselStage.emitSystemVerilogFile(new TinyQVCounter(4), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new TinyQVCounter(5), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new TinyQVCounter(7), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new TinyQVRegisters(), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new TinyQVAlu(), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new TinyQVShifter(), argsArray, firtoolOptsArray)
+  var allAsicFiles = Set[String]()
 
-  ChiselStage.emitSystemVerilogFile(new TinyQVCpu(16, 4), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new TinyQVCore(), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new TinyQVTime(), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new TinyQVQspiFlash(2, 24), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new TinyQV(), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new LatchRegN(8), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new LatchRegP(8), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new LatchReg32N(), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new LatchReg32P(), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new TinyQVMemCtrl(), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new TinyQVDecode(4), argsArray, firtoolOptsArray)
-  ChiselStage.emitSystemVerilogFile(new QspiController(), argsArray, firtoolOptsArray)
+  def emitAndCollect(gen: => chisel3.RawModule) = {
+    ChiselStage.emitSystemVerilogFile(gen, argsArray, firtoolOptsArray)
+    val filelistPath = s"$outDir/filelist.f"
+    if (new java.io.File(filelistPath).exists()) {
+      val lines = scala.io.Source.fromFile(filelistPath).getLines().toList
+      allAsicFiles ++= lines.map(f => s"../$outDir/$f")
+    }
+  }
+
+  emitAndCollect(new TinyQVCounter(4))
+  emitAndCollect(new TinyQVCounter(5))
+  emitAndCollect(new TinyQVCounter(7))
+  emitAndCollect(new TinyQVRegisters())
+  emitAndCollect(new TinyQVAlu())
+  emitAndCollect(new TinyQVShifter())
+
+  emitAndCollect(new TinyQVCpu(16, 4))
+  emitAndCollect(new TinyQVCore())
+  emitAndCollect(new TinyQVTime())
+  emitAndCollect(new TinyQVQspiFlash(2, 24))
+  emitAndCollect(new TinyQV())
+  emitAndCollect(new LatchRegN(8))
+  emitAndCollect(new LatchRegP(8))
+  emitAndCollect(new LatchReg32N())
+  emitAndCollect(new LatchReg32P())
+  emitAndCollect(new TinyQVMemCtrl())
+  emitAndCollect(new TinyQVDecode(4))
+  emitAndCollect(new QspiController())
   // Removed explicit emit of UartRx and UartTx as they are now emitted through PeriUart
+
+  val asicFilesPath = s"$outDir/asic_files.txt"
+  val asicPw = new PrintWriter(new File(asicFilesPath))
+  allAsicFiles.toList.sorted.foreach(asicPw.println)
+  asicPw.close()
 
   // Write a wrapper for tinyqv_counter that selects the correct version based on OUTPUT_WIDTH
   val wrapper = """

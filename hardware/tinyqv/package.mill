@@ -1,4 +1,4 @@
-package build.tinyqv
+package build.hardware.tinyqv
 import mill._, scalalib._
 import build.BorgModule
 

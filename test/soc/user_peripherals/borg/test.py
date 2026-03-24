@@ -9,7 +9,7 @@ import cocotb
 from cocotb.clock import Clock
 from tqv import TinyQV
 from borg_mmio import BORG_IMEM_OFFSET, BORG_CONTROL_OFFSET
-from borg_mmio import encode_rv32_add, encode_rv32_mul, encode_rv32_fmadd, encode_rv32_fneg
+from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd, encode_rv32_fneg
 
 FP16_MAX = 65504
 PERIPHERAL_NUM = 3
@@ -121,11 +121,11 @@ async def run_op_test(dut, driver, op, a, b, c=0.0):
     """Unified test runner for ADD, MUL, FMA."""
     if op == "add":
         operands = [(0, a), (1, b)]
-        instr = encode_rv32_add()
+        instr = encode_rv32_fadd()
         label = f"{a:8.2f} + {b:8.2f}"
     elif op == "mul":
         operands = [(0, a), (1, b)]
-        instr = encode_rv32_mul()
+        instr = encode_rv32_fmul()
         label = f"{a:8.2f} * {b:8.2f}"
     elif op == "fneg":
         operands = [(0, a)]
@@ -199,9 +199,9 @@ async def test_borg_rotation_shader(dut):
     #   fmul  r1, r5, r3       // sin*x → r1
     #   fmadd r1, r2, r6, r1   // cos*y + sin*x → r1 (ry)
     #   halt
-    instr_fmul_cx  = encode_rv32_mul(rs1=2, rs2=3, rd=0)
+    instr_fmul_cx  = encode_rv32_fmul(rs1=2, rs2=3, rd=0)
     instr_fmadd_rx = encode_rv32_fmadd(rs1=4, rs2=6, rs3=0, rd=0)
-    instr_fmul_sx  = encode_rv32_mul(rs1=5, rs2=3, rd=1)
+    instr_fmul_sx  = encode_rv32_fmul(rs1=5, rs2=3, rd=1)
     instr_fmadd_ry = encode_rv32_fmadd(rs1=2, rs2=6, rs3=1, rd=1)
 
     dut._log.info(f"  IMEM[0] fmul  r0,r2,r3:     0x{instr_fmul_cx:04X}")

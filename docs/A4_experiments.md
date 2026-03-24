@@ -25,7 +25,7 @@ with a multi-cycle nibble-serial implementation (4 bits per cycle).
 - The roadmap plans a larger tile for Phase 2+, where 215 LUTs is noise.
 
 **Files removed:**
-- `borg/src/MulAddRecFNNibbleSerial.scala` — nibble-serial multiplier
+- `hardware/borg/src/MulAddRecFNNibbleSerial.scala` — nibble-serial multiplier
 - `borg/test/src/NibbleSerialTests.scala` — dedicated test suite
 
 **Lessons learned:**

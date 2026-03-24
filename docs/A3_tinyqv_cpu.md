@@ -35,7 +35,7 @@ This dramatically reduces area at the cost of throughput — each instruction ta
 
 The ALU operates on nibbles with carry propagation between cycles:
 
-{{snippet:tinyqv/src/cpu/Alu.scala:alu}}
+{{snippet:hardware/tinyqv/src/cpu/Alu.scala:alu}}
 
 Note the 4-bit inputs (`a`, `b`) and the carry chain (`cy_in`, `cy_out`). The CPU
 feeds nibbles from the register file one at a time, and the carry propagates across
@@ -46,7 +46,7 @@ cycles to produce a full 32-bit result.
 The 32-bit program counter and address registers are implemented as shift registers
 of 8 nibbles. Each cycle processes one nibble position:
 
-{{snippet:tinyqv/src/cpu/Counter.scala:nibble-counter}}
+{{snippet:hardware/tinyqv/src/cpu/Counter.scala:nibble-counter}}
 
 The shift register rotates through all 8 positions, applying the increment carry
 chain as it goes. After 8 cycles, the full 32-bit value has been updated.
@@ -102,7 +102,7 @@ if both bits are 1, it's a 32-bit instruction; otherwise it's compressed.
 The core module connects the register file and ALU. On each cycle, a nibble
 of the source registers is fed to the ALU, and the result nibble is written back:
 
-{{snippet:tinyqv/src/cpu/Core.scala:core-datapath}}
+{{snippet:hardware/tinyqv/src/cpu/Core.scala:core-datapath}}
 
 The `counter` signal (0–7) selects which nibble is being processed. When `counter`
 reaches 7, the instruction is complete and the next one begins decoding.

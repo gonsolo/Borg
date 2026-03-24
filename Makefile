@@ -28,8 +28,10 @@ help:
 export CLOCK_MHZ = 4
 
 generate_verilog:
-	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) borg.runMain borg.Main
-	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) tinyqv.runMain tinyqv.Main
+	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.borg.runMain borg.Main
+	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.tinyqv.runMain tinyqv.Main
+	@python3 scripts/update_info_yaml.py
+	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.tinyqv.runMain borg.FpgaMain
 
 test-cocotb-soc-core-rtl: generate_verilog
 	$(TEST_SOC) core
@@ -45,17 +47,13 @@ test-cocotb-soc-borg-gl:
 	$(TEST_SOC) borg GATES=yes
 
 test-chisel-borg:
-	$(MILL) borg.test
-
-# Extract Verilog sources from info.yaml for linting
-# We select lines after 'source_files:' but before 'pinout:'
-YAML_SOURCES = $(shell sed -n '/source_files:/,/pinout:/p' info.yaml | grep '\- "' | sed 's/.*"\(.*\)".*/\1/' | sed 's|^\.\./||')
+	$(MILL) hardware.borg.test
 
 lint: generate_verilog
-	verilator --lint-only -Wall -Iout/tinyqv/verilog -Iout/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $(YAML_SOURCES)
+	verilator --lint-only -Wall -Iout/hardware/tinyqv/verilog -Iout/hardware/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $$(cat out/hardware/borg/verilog/asic_files.txt out/hardware/tinyqv/verilog/asic_files.txt | sed 's|^\.\./||' | tr '\n' ' ')
 
 test-chisel-core:
-	$(MILL) tinyqv.test
+	$(MILL) hardware.tinyqv.test
 
 test-all: lint test-chisel-borg test-chisel-core test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl
 	$(MAKE) -C fpga test-all
@@ -81,3 +79,4 @@ clean:
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book
+

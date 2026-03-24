@@ -3,5 +3,5 @@ import mill._, scalalib._
 import build.BorgModule
 
 object `package` extends BorgModule {
-  override def moduleDeps = Seq(build.borg)
+  override def moduleDeps = Seq(build.hardware.borg)
 }

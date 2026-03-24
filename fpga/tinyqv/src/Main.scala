@@ -9,7 +9,7 @@ import circt.stage.ChiselStage
 // Run via: mill fpga.tinyqv.runMain borg.FpgaMain
 object FpgaMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", MmioMap.CLOCK_MHZ.toString).toInt
-  val targetDir = "out/borg/verilog"
+  val targetDir = "out/hardware/borg/verilog"
   new java.io.File(targetDir).mkdirs()
 
   ChiselStage.emitSystemVerilogFile(

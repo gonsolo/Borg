@@ -15,7 +15,7 @@ the CPU communicates with it over MMIO.
 At the heart of the processor are a small register file, an instruction memory,
 and a program counter. The entire state fits in a handful of flip-flops:
 
-{{snippet:borg/src/Borg.scala:storage}}
+{{snippet:hardware/borg/src/Borg.scala:storage}}
 
 The register file holds 8 FP16 values that the CPU can read and write via MMIO.
 The instruction memory stores up to 6 shader instructions — enough for simple
@@ -43,7 +43,7 @@ GPU needs.
 
 Here is how the decoder extracts these fields from the fetched instruction:
 
-{{snippet:borg/src/Borg.scala:instruction-format}}
+{{snippet:hardware/borg/src/Borg.scala:instruction-format}}
 
 Notice how the code supports both FP16 and FP32 instruction widths — the
 `if (config.totalBits >= ...)` guards select wider bit-fields for 32-bit
@@ -65,7 +65,7 @@ tracks where we are in the pipeline:
 
 If the fetched instruction is zero, the processor halts instead of executing.
 
-{{snippet:borg/src/Borg.scala:fetch-execute}}
+{{snippet:hardware/borg/src/Borg.scala:fetch-execute}}
 
 The control register at MMIO address 60 lets the CPU start execution (bit 0)
 or reset the processor (bit 1). A reset clears the program counter and stops
@@ -89,13 +89,13 @@ This "one unit, many operations" trick saves a huge amount of silicon — instea
 of separate adder, multiplier, and negation circuits, we reuse one FMA datapath
 for everything:
 
-{{snippet:borg/src/Borg.scala:fma-muxing}}
+{{snippet:hardware/borg/src/Borg.scala:fma-muxing}}
 
 The fifth operation, **FSTEP**, doesn't use the FMA at all. It implements a
 step function used during rasterization to test whether a pixel is inside a
 triangle edge. The result is simply 1.0 for positive inputs and 0.0 otherwise:
 
-{{snippet:borg/src/Borg.scala:fstep}}
+{{snippet:hardware/borg/src/Borg.scala:fstep}}
 
 ## Talking to the CPU
 
@@ -114,7 +114,7 @@ instruction memory, fills the input registers, writes a 1 to the control
 register to start execution, and then polls the status register until the
 "done" bit is set. It can then read the output registers.
 
-{{snippet:borg/src/Borg.scala:mmio}}
+{{snippet:hardware/borg/src/Borg.scala:mmio}}
 
 The `data_ready` signal implements a simple handshake so the CPU knows when
 read data is valid — important because the register file uses synchronous
