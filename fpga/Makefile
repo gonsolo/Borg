@@ -54,8 +54,11 @@ borg.bin: borg.asc
 	icepack $< $@
 
 # Burn to FPGA
-burn: borg.bin
+.burned: borg.bin
 	mpremote mount . + run host/program_bitstream.py
+	@touch .burned
+
+burn: .burned
 
 # Print used FPGA resources (after borg.json has been generated)
 resource_check: yosys.log
@@ -71,12 +74,12 @@ resource_check: yosys.log
 ######### Build software and run ###################################################################
 
 # Build firmware and run triangle rendering
-triangle:
+triangle: .burned
 	@$(MAKE) --no-print-directory -s -C firmware triangle
 	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, 'firmware/triangle.bin')" | tee /tmp/mpremote_output.txt
 
 # Build firmware and run vkcube rendering
-vkcube:
+vkcube: .burned
 	@$(MAKE) --no-print-directory -s -C firmware vkcube
 	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, 'firmware/vkcube.bin')" | tee /tmp/mpremote_output.txt
 
@@ -85,11 +88,11 @@ tio:
 	tio /dev/ttyACM1 | tee /tmp/tio_output.txt
 
 # Reset FPGA
-reset:
+reset: .burned
 	mpremote mount . + exec "import sys; sys.path.append('host'); import run_tinyqv; run_tinyqv.run(query=False, stop=False)"
 
 clean:
-	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm
+	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm .burned
 	$(MAKE) -C firmware clean
 	$(MAKE) -C sdk clean
 

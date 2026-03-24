@@ -10,12 +10,12 @@
 #define DONE_MARKER 0xDEAD
 
 // --- Borg instruction encoding (32-bit RISC-V R-type / R4-type) ---
-#define BORG_INSTR_FADD            (0x00000000UL | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
-#define BORG_INSTR_FMUL            (0x08000000UL | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
-#define BORG_INSTR_FMADD           (0x00000004UL | ((rs3) << 27) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
-#define BORG_INSTR_FNEG            (0x0C000000UL | ((rs1) << 15) | ((rd) << 7))
-#define BORG_INSTR_FSTEP           (0x10000000UL | ((rs1) << 15) | ((rd) << 7))
-#define BORG_INSTR_HALT            0x00000000
+#define BORG_INSTR_FADD(rd, rs1, rs2)       (0x00000000UL | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FMUL(rd, rs1, rs2)       (0x08000000UL | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FMADD(rd, rs1, rs2, rs3) (0x00000004UL | ((rs3) << 27) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FNEG(rd, rs1)            (0x0C000000UL | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FSTEP(rd, rs1)           (0x10000000UL | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_HALT                     0x00000000UL
 
 // --- User UART peripheral ---
 #define UART_BAUD_DEFAULT 34  // 4 MHz / 115200 baud

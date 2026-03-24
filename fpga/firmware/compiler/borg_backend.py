@@ -20,7 +20,7 @@ host_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "
 if host_dir not in sys.path:
     sys.path.insert(0, host_dir)
 
-from borg_mmio import encode_rv32_add, encode_rv32_mul, encode_rv32_fmadd
+from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd
 
 
 class BorgBackend:
@@ -236,7 +236,7 @@ class BorgBackend:
                 prd = self.vreg_to_preg[rd]
                 pa = self.vreg_to_preg[a]
                 pb = self.vreg_to_preg[b]
-                enc = encode_rv32_add(pa, pb, prd)
+                enc = encode_rv32_fadd(pa, pb, prd)
                 self.borg_instrs.append((enc, f"fadd r{prd}, r{pa}, r{pb}  // {comment}"))
 
             elif op == "fmul.s":
@@ -244,7 +244,7 @@ class BorgBackend:
                 prd = self.vreg_to_preg[rd]
                 pa = self.vreg_to_preg[a]
                 pb = self.vreg_to_preg[b]
-                enc = encode_rv32_mul(pa, pb, prd)
+                enc = encode_rv32_fmul(pa, pb, prd)
                 self.borg_instrs.append((enc, f"fmul r{prd}, r{pa}, r{pb}  // {comment}"))
 
             elif op == "fmadd.s":

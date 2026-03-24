@@ -21,3 +21,4 @@ docs/book/
 .bsp
 .metals
 .scala-build
+fpga/.burned

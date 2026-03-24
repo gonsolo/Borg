@@ -155,14 +155,22 @@ object MmioMap {
       w.println(s"#define $name 0x$hex")
     }
 
-    def emitInstrR(name: String, hexOp: String): Unit =
-      w.println(f"#define BORG_INSTR_${name.toUpperCase}%-15s (0x${hexOp}UL | $C_ARGS_R)")
-    def emitInstrR4(name: String, hexOp: String): Unit =
-      w.println(f"#define BORG_INSTR_${name.toUpperCase}%-15s (0x${hexOp}UL | $C_ARGS_R4)")
-    def emitInstrR1(name: String, hexOp: String): Unit =
-      w.println(f"#define BORG_INSTR_${name.toUpperCase}%-15s (0x${hexOp}UL | $C_ARGS_FNEG)")
-    def emitInstr0(name: String, hexOp: String): Unit =
-      w.println(f"#define BORG_INSTR_${name.toUpperCase}%-15s 0x$hexOp")
+    def emitInstrR(name: String, hexOp: String): Unit = {
+      val m = s"BORG_INSTR_${name.toUpperCase}(rd, rs1, rs2)"
+      w.println(f"#define $m%-35s (0x${hexOp}UL | $C_ARGS_R)")
+    }
+    def emitInstrR4(name: String, hexOp: String): Unit = {
+      val m = s"BORG_INSTR_${name.toUpperCase}(rd, rs1, rs2, rs3)"
+      w.println(f"#define $m%-35s (0x${hexOp}UL | $C_ARGS_R4)")
+    }
+    def emitInstrR1(name: String, hexOp: String): Unit = {
+      val m = s"BORG_INSTR_${name.toUpperCase}(rd, rs1)"
+      w.println(f"#define $m%-35s (0x${hexOp}UL | $C_ARGS_FNEG)")
+    }
+    def emitInstr0(name: String, hexOp: String): Unit = {
+      val m = s"BORG_INSTR_${name.toUpperCase}"
+      w.println(f"#define $m%-35s 0x${hexOp}UL")
+    }
   }
 
   class PythonEmitter(w: java.io.PrintWriter) extends Emitter(w) {
