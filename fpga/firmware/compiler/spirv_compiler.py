@@ -220,6 +220,13 @@ class TinySpirvCompiler:
                         offset = int(self.constants.get(args[2], 0)) * 4
                         self.ptr_map[res_id] = (base_reg, offset)
                 else:
+                    if base_ptr in self.local_vars:
+                        src_val = self.local_vars[base_ptr]
+                        idx_val = self.constants.get(args[2], args[2])
+                        idx = int(idx_val) if str(idx_val).lstrip('-').isdigit() else 0
+                        self.ptr_map[res_id] = ("local_alias", src_val, idx)
+                        continue
+                    
                     base_reg = self.ptr_map.get(args[1], ("a0", 0))[0]
                     offset = int(self.constants.get(args[2], 0)) * 4
                     self.ptr_map[res_id] = (base_reg, offset)
@@ -236,6 +243,13 @@ class TinySpirvCompiler:
                         self.vreg_roles[res_id] = self.vreg_roles[src_val]
                 elif ptr_id in self.ptr_map:
                     ptr_info = self.ptr_map[ptr_id]
+                    if ptr_info[0] == "local_alias":
+                        src_val, idx = ptr_info[1], ptr_info[2]
+                        flat = self.resolve_flat(src_val)
+                        if idx < len(flat):
+                            self.reg_map[res_id] = flat[idx]
+                        continue
+                    
                     if ptr_info[0] == "uniform_member":
                         # Load from uniform struct member (deduplicate)
                         member_name = ptr_info[1]
@@ -248,17 +262,48 @@ class TinySpirvCompiler:
                             self.borg_io.append(("uniform", member_name, reg))
                             self.reg_map[cache_key] = reg
                     else:
-                        dest = self.get_reg(res_id)
                         base_reg, offset = ptr_info
+                        if base_reg == "a1":
+                            idx = offset // 4
+                            axis = ["x", "y", "z", "w"][idx]
+                            cache_key = f"_inPos_{axis}"
+                            if cache_key not in self.reg_map:
+                                dest = self.get_reg(res_id)
+                                self.reg_map[cache_key] = dest
+                                self.borg_io.append(("attribute", axis, dest))
+                            self.reg_map[res_id] = self.reg_map[cache_key]
+                            # Generate composites implicitly via caching if the whole block is loaded
+                            if "inPos" in self.id_to_name.get(ptr_id, ""):
+                                x_id, y_id, z_id = res_id + "_x", res_id + "_y", res_id + "_z"
+                                self.reg_map[x_id] = self.reg_map.setdefault("_inPos_x", self.get_reg(x_id))
+                                self.reg_map[y_id] = self.reg_map.setdefault("_inPos_y", self.get_reg(y_id))
+                                self.reg_map[z_id] = self.reg_map.setdefault("_inPos_z", self.get_reg(z_id))
+                                self.composites[res_id] = [x_id, y_id, z_id]
+                                # Only append borg_io if it was just created
+                                if ("attribute", "x", self.reg_map[x_id]) not in self.borg_io:
+                                    self.borg_io.append(("attribute", "x", self.reg_map[x_id]))
+                                if ("attribute", "y", self.reg_map[y_id]) not in self.borg_io:
+                                    self.borg_io.append(("attribute", "y", self.reg_map[y_id]))
+                                if ("attribute", "z", self.reg_map[z_id]) not in self.borg_io:
+                                    self.borg_io.append(("attribute", "z", self.reg_map[z_id]))
+                            continue
+                        
+                        dest = self.get_reg(res_id)
+                        struct_type = t[2] if len(t) > 2 else ""
+                        if struct_type == "%mat4v4float":
+                            # Unroll the exact 16 memory constructs manually
+                            comp_ids = []
+                            for m in range(16):
+                                comp_id = f"{res_id}_m{m}"
+                                r = self.get_reg(comp_id)
+                                self.reg_map[comp_id] = r
+                                comp_ids.append(comp_id)
+                                self.borg_io.append(("uniform", f"mvp_{m}", r))
+                            self.composites[res_id] = comp_ids
+                            self.reg_map[res_id] = self.reg_map[comp_ids[0]]
+                            continue
+
                         self.emit(f"flw {dest}, {offset}({base_reg})", f"Load {self.id_to_name.get(ptr_id,'val')}")
-                        if "inPos" in self.id_to_name.get(ptr_id, ""):
-                            x_id, y_id = res_id + "_x", res_id + "_y"
-                            self.reg_map[x_id] = dest
-                            y_reg = self.get_reg(y_id)
-                            self.emit(f"flw {y_reg}, {offset+4}({base_reg})", "Load inPos.y")
-                            self.composites[res_id] = [x_id, y_id]
-                            self.borg_io.append(("attribute", "x", dest))
-                            self.borg_io.append(("attribute", "y", y_reg))
                 elif self.shader_type == "fragment" and self.storage_classes.get(ptr_id) == "Input":
                     # Fragment shader input variable (not in ptr_map)
                     reg = self.get_reg(res_id)
@@ -333,6 +378,22 @@ class TinySpirvCompiler:
                 if idx < len(flat):
                     self.reg_map[res_id] = flat[idx]
 
+            elif opcode == "OpVectorShuffle":
+                vec1 = self.resolve_flat(args[1])
+                vec2 = self.resolve_flat(args[2])
+                combined = vec1 + vec2
+                comp_ids = []
+                for i, comp in enumerate(args[3:]):
+                    if comp != "4294967295":
+                        idx = int(comp)
+                        val = combined[idx] if idx < len(combined) else "f_zero"
+                        comp_id = f"{res_id}_{i}"
+                        comp_ids.append(comp_id)
+                        self.reg_map[comp_id] = val
+                    else:
+                        comp_ids.append("f_zero")
+                self.composites[res_id] = comp_ids
+
             elif opcode == "OpMatrixTimesVector":
                 m, v = self.resolve_flat(args[1]), self.resolve_flat(args[2])
                 if len(m) == 4 and len(v) >= 2:
@@ -344,6 +405,20 @@ class TinySpirvCompiler:
                     # Store as vec2 result (vec4 wrapping happens in OpCompositeConstruct)
                     self.composites[res_id] = [res_id+"_x", res_id+"_y"]
                     self.reg_map[res_id+"_x"], self.reg_map[res_id+"_y"] = "f30", "f31"
+
+                elif len(m) == 16 and len(v) >= 4:
+                    res_ids = []
+                    for row in range(4):
+                        dst = f"{res_id}_{row}"
+                        res_ids.append(dst)
+                        self.reg_map[dst] = self.get_reg(dst)
+                        dst_r = self.reg_map[dst]
+
+                        self.emit(f"fmul.s {dst_r}, {m[row]}, {v[0]}", f"M{row}0*v[0]")
+                        self.emit(f"fmadd.s {dst_r}, {m[row + 4]}, {v[1]}, {dst_r}", f"M{row}1*v[1]")
+                        self.emit(f"fmadd.s {dst_r}, {m[row + 8]}, {v[2]}, {dst_r}", f"M{row}2*v[2]")
+                        self.emit(f"fmadd.s {dst_r}, {m[row + 12]}, {v[3]}, {dst_r}", f"M{row}3*v[3]")
+                    self.composites[res_id] = res_ids
 
             elif opcode == "OpStore":
                 ptr_id, val_id = args[0], args[1]
@@ -366,6 +441,8 @@ class TinySpirvCompiler:
                         if base_reg == "a4" and len(flat_vals) >= 2:
                             self.borg_io.append(("output", "rx", flat_vals[0]))
                             self.borg_io.append(("output", "ry", flat_vals[1]))
+                            if len(flat_vals) >= 3:
+                                self.borg_io.append(("output", "rz", flat_vals[2]))
                 else:
                     # Virtual store for local variables (%s, %c, etc.)
                     self.local_vars[ptr_id] = val_id

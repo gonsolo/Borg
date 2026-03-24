@@ -62,15 +62,39 @@ static const borg_vertex_t cube_tris[6][3] = {
 };
 
 int main() {
+    int done_idx = 0 * (BORG_FB_WIDTH * BORG_FB_HEIGHT * 3 + BORG_FB_WIDTH * BORG_FB_HEIGHT + 7) + (BORG_FB_WIDTH * BORG_FB_HEIGHT * 3) + (BORG_FB_WIDTH * BORG_FB_HEIGHT);
+    ((volatile uint16_t *)(0x44000000))[done_idx] = 0xBEEF;
+
     borg_init(vert_borg, vert_borg_len,
               rasterize_borg, rasterize_borg_len,
               frag_borg, frag_borg_len);
 
-    // Vertex shader = identity (no additional 2D rotation)
+    // Vertex shader = identity (Phase 2 4x4 MVP)
     borg_draw_data_t draw;
-    draw.uniforms[0] = FP16_ZERO;   // sin(0) = 0
-    draw.uniforms[1] = FP16_ONE;    // cos(0) = 1
-    draw.uniforms[2] = FP16_ZERO;   // -sin(0) = 0
+    
+    // Col 0
+    draw.uniforms[0] = FP16_ONE;
+    draw.uniforms[1] = FP16_ZERO;
+    draw.uniforms[2] = FP16_ZERO;
+    draw.uniforms[3] = FP16_ZERO;
+
+    // Col 1
+    draw.uniforms[4] = FP16_ZERO;
+    draw.uniforms[5] = FP16_ONE;
+    draw.uniforms[6] = FP16_ZERO;
+    draw.uniforms[7] = FP16_ZERO;
+
+    // Col 2
+    draw.uniforms[8] = FP16_ZERO;
+    draw.uniforms[9] = FP16_ZERO;
+    draw.uniforms[10] = FP16_ONE;
+    draw.uniforms[11] = FP16_ZERO;
+
+    // Col 3
+    draw.uniforms[12] = FP16_ZERO;
+    draw.uniforms[13] = FP16_ZERO;
+    draw.uniforms[14] = FP16_ZERO;
+    draw.uniforms[15] = FP16_ONE;
 
     borg_clear_zbuffer(0);
 
@@ -79,17 +103,10 @@ int main() {
 
     for (int i = 0; i < 6; i++) {
         borg_cmd_draw(&draw, cube_tris[i], 0);
-        while (UART_STATUS & 1)
-            ;
-        UART_TX = '0' + i;
     }
 
     borg_clear_texture();
     borg_present(0);
-
-    while (UART_STATUS & 1)
-        ;
-    UART_TX = 'X';
 
     while (1)
         ;

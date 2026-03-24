@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 #define SPIRB_MAX_INSTRS 32
-#define SPIRB_MAX_REGS   16
+#define SPIRB_MAX_REGS   32
 
 // Parsed in-memory representation of a SPIR-B shader blob.
 typedef struct spirb_shader_t {

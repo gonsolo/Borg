@@ -76,8 +76,8 @@ class BorgBackend:
         """Allocate a physical Borg register (0-15) for a virtual register."""
         if vreg in self.vreg_to_preg:
             return self.vreg_to_preg[vreg]
-        if self.next_preg >= 16:
-            raise RuntimeError(f"Out of Borg registers (max 16), trying to alloc for {vreg}")
+        if self.next_preg >= 32:
+            raise RuntimeError(f"Out of Borg registers (max 32), trying to alloc for {vreg}")
         preg = self.next_preg
         self.vreg_to_preg[vreg] = preg
         self.next_preg += 1
@@ -120,7 +120,7 @@ class BorgBackend:
                 parts = line.split()
                 if len(parts) == 5:
                     vreg = parts[4]
-                    if vreg in borg_vregs and vreg not in io_vregs:
+                    if vreg not in io_vregs:
                         io_vregs.append(vreg)
 
         # Allocate fmadd accumulators FIRST to guarantee they get r0-r3

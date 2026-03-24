@@ -151,11 +151,34 @@ void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
 }
 
 void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
-  // Compute vertex shader uniforms from angle
-  // The vertex shader expects: uniform[0]=sin, uniform[1]=cos, uniform[2]=-sin
-  d->uniforms[0] = fp16_sin(angle_fp16);
-  d->uniforms[1] = fp16_cos(angle_fp16);
-  d->uniforms[2] = fp16_neg(d->uniforms[0]);
+  // Compute vertex shader uniforms from angle for Phase 2 4x4 Projection
+  fp16_t s = fp16_sin(angle_fp16);
+  fp16_t c = fp16_cos(angle_fp16);
+  fp16_t ns = fp16_neg(s);
+  
+  // Col 0 (X)
+  d->uniforms[0] = c;
+  d->uniforms[1] = s;
+  d->uniforms[2] = FP16_ZERO;
+  d->uniforms[3] = FP16_ZERO;
+
+  // Col 1 (Y)
+  d->uniforms[4] = ns;
+  d->uniforms[5] = c;
+  d->uniforms[6] = FP16_ZERO;
+  d->uniforms[7] = FP16_ZERO;
+
+  // Col 2 (Z) - passed through seamlessly
+  d->uniforms[8] = FP16_ZERO;
+  d->uniforms[9] = FP16_ZERO;
+  d->uniforms[10] = FP16_ONE;
+  d->uniforms[11] = FP16_ZERO;
+
+  // Col 3 (Translations/W)
+  d->uniforms[12] = FP16_ZERO;
+  d->uniforms[13] = FP16_ZERO;
+  d->uniforms[14] = FP16_ZERO;
+  d->uniforms[15] = FP16_ONE;
 }
 
 #define FRAME_FB_SIZE (BORG_FB_WIDTH * BORG_FB_HEIGHT * 3)  // RGB words
@@ -219,10 +242,11 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
   for (int v = 0; v < 3; v++)
     colors[v] = (rgb16_t){ vertices[v].color[0], vertices[v].color[1], vertices[v].color[2] };
   // Build vertex attribute array from vertex positions
-  fp16_t attrs[NUM_VERTICES * 2];
+  fp16_t attrs[NUM_VERTICES * 3];
   for (int v = 0; v < NUM_VERTICES; v++) {
-    attrs[v * 2 + 0] = vertices[v].pos[0];
-    attrs[v * 2 + 1] = vertices[v].pos[1];
+    attrs[v * 3 + 0] = vertices[v].pos[0];
+    attrs[v * 3 + 1] = vertices[v].pos[1];
+    attrs[v * 3 + 2] = vertices[v].pos[2];
   }
 
   // Vertex shader
@@ -266,7 +290,8 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
           rgb16_t color = {0, 0, 0};
           fp16_t z = 0;
           uv16_t uv_interp = {0, 0};
-          fp16x3_t z_vals = { vertices[0].pos[2], vertices[1].pos[2], vertices[2].pos[2] };
+          int stride = vert_shader.num_outputs;
+          fp16x3_t z_vals = { vout[0 * stride + 2], vout[1 * stride + 2], vout[2 * stride + 2] };
           const uv16_t *uvs = 0;
           uv16_t uv_vals[3];
           if (tex.psram_offset >= 0) {
