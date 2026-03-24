@@ -17,8 +17,8 @@ from riscvmodel.variant import RV32E
 
 from borg_mmio import (
     SOC_PERI_ID, SOC_PERI_GPIO_OUT_SEL, SOC_PERI_TIME_LIMIT,
-    GPIO_OUT, GPIO_IN, GPIO_FUNC_SEL,
-    UART_TX_DATA, UART_STATUS,
+    GPIO_BASE, GPIO_OUT, GPIO_IN, GPIO_FUNC_SEL,
+    UART_BASE, UART_TX_DATA, UART_STATUS,
 )
 
 from test_util import (
@@ -69,7 +69,7 @@ async def test_start(dut):
     # Test UART TX
     uart_byte = 0x54
     await send_instr(dut, InstructionADDI(x1, x0, uart_byte).encode())
-    await send_instr(dut, InstructionSW(tp, x1, UART_TX_DATA).encode())
+    await send_instr(dut, InstructionSW(tp, x1, UART_BASE + UART_TX_DATA).encode())
 
     await start_nops(dut)
     
@@ -129,17 +129,17 @@ async def test_start(dut):
 
         await stop_nops()
 
-        await send_instr(dut, InstructionLW(x1, tp, UART_STATUS).encode())
+        await send_instr(dut, InstructionLW(x1, tp, UART_BASE + UART_STATUS).encode())
         await read_byte(dut, x1, 0x2)
-        await send_instr(dut, InstructionLW(x1, tp, UART_TX_DATA).encode())
+        await send_instr(dut, InstructionLW(x1, tp, UART_BASE + UART_TX_DATA).encode())
         await read_byte(dut, x1, uart_rx_byte)
         assert dut.uart_rts.value == 0
-        await send_instr(dut, InstructionLW(x1, tp, UART_STATUS).encode())
+        await send_instr(dut, InstructionLW(x1, tp, UART_BASE + UART_STATUS).encode())
         await read_byte(dut, x1, 0x2)
-        await send_instr(dut, InstructionLW(x1, tp, UART_TX_DATA).encode())
+        await send_instr(dut, InstructionLW(x1, tp, UART_BASE + UART_TX_DATA).encode())
         await read_byte(dut, x1, uart_rx_byte2)
         assert dut.uart_rts.value == 0
-        await send_instr(dut, InstructionLW(x1, tp, UART_STATUS).encode())
+        await send_instr(dut, InstructionLW(x1, tp, UART_BASE + UART_STATUS).encode())
         await read_byte(dut, x1, 0)
 
         if j != 4:
@@ -161,14 +161,14 @@ async def test_start(dut):
             await send_instr(dut, InstructionADDI(x1, x0, (gpio_sel >> j) & 1).encode())
             await send_instr(dut, InstructionSW(tp, x1, GPIO_FUNC_SEL + j * 4).encode())
         await send_instr(dut, InstructionADDI(x1, x0, gpio_out).encode())
-        await send_instr(dut, InstructionSW(tp, x1, GPIO_OUT).encode())
+        await send_instr(dut, InstructionSW(tp, x1, GPIO_BASE + GPIO_OUT).encode())
         for _ in range(5):
             await send_instr(dut, InstructionADDI(x0, x0, 0).encode())
         assert (dut.uo_out.value.to_unsigned() & gpio_sel) == (gpio_out & gpio_sel)
 
     # Ensure uo_out is normally high
     await send_instr(dut, InstructionADDI(x1, x0, 0x80).encode())
-    await send_instr(dut, InstructionSW(tp, x1, GPIO_OUT).encode())
+    await send_instr(dut, InstructionSW(tp, x1, GPIO_BASE + GPIO_OUT).encode())
 
 
 @cocotb.test()
@@ -430,7 +430,7 @@ async def test_load_bug(dut):
     await send_instr(dut, InstructionBEQ(a0, x0, 270).encode())
 
     # Use standard LW for tp-based load (LWTP was removed)
-    await send_instr(dut, InstructionLW(a3, tp, GPIO_IN).encode())
+    await send_instr(dut, InstructionLW(a3, tp, GPIO_BASE + GPIO_IN).encode())
     await send_instr(dut, encode_clwsp(a2, 12))
     await expect_load(dut, 0x1001000 + 12, 0x123)
     await read_byte(dut, a3, input_byte)
@@ -490,7 +490,7 @@ async def test_multistore_interrupt(dut):
     await start_read(dut, 0)
 
     # Transmit a byte and enable interrupt on writeable
-    await send_instr(dut, InstructionSW(tp, x0, UART_TX_DATA).encode())
+    await send_instr(dut, InstructionSW(tp, x0, UART_BASE + UART_TX_DATA).encode())
     await send_instr(dut, InstructionLUI(a0, 0x80).encode())
     await send_instr(dut, InstructionCSRRW(x0, a0, csrnames.mie).encode())
 
