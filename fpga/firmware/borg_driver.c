@@ -96,7 +96,6 @@ static void run_vertex_shader(const fp16_t *uniforms,
     for (int i = 0; i < s->num_outputs; i++)
       outputs[v * s->num_outputs + i] = BORG_REG(s->output_regs[i]) & 0xFFFF;
   }
-  puts_uart("D\r\n");
 }
 
 // --- Public API ---
@@ -253,6 +252,17 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
   fp16_t vout[NUM_VERTICES * SPIRB_MAX_REGS];
   run_vertex_shader(d->uniforms, attrs, vout);
 
+  int stride = vert_shader.num_outputs;
+  // Phase 3: Perspective Division. The Vertex Shader passes `w` back via the `rw` matrix index.
+  if (stride >= 4) {
+      for (int v = 0; v < NUM_VERTICES; v++) {
+          fp16_t inv_w = borg_fp16_rcp(vout[v * stride + 3]);
+          vout[v * stride + 0] = borg_fp16_mul(vout[v * stride + 0], inv_w);
+          vout[v * stride + 1] = borg_fp16_mul(vout[v * stride + 1], inv_w);
+          vout[v * stride + 2] = borg_fp16_mul(vout[v * stride + 2], inv_w);
+      }
+  }
+
   // Screen-space translation
   uv16_t spos[3];
   screen_space_translate(&vert_shader, vout, spos, fp16_half_width);
@@ -276,7 +286,6 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
   // Edge vectors
   uv16_t edges[3];
   compute_edge_vectors(spos, edges);
-  puts_uart("F\r\n");
 
   // Rasterize + fragment shade in 4x4 Blocks
   const int BLOCK_SIZE = 4;

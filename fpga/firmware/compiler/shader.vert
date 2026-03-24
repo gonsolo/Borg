@@ -13,7 +13,7 @@ layout(push_constant) uniform PushConstants {
 } pc;
 
 void main() {
-    // Phase 2: Hardware matrix multiplication natively!
+    // Phase 3: Hardware projection generation (we can't explicitly use w-div in GPU arrays, we must evaluate on the CPU natively out-of-band later)
     gl_Position = pc.mvp * vec4(inPos, 1.0);
 
     // Pass the color to the next stage

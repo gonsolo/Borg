@@ -443,6 +443,8 @@ class TinySpirvCompiler:
                             self.borg_io.append(("output", "ry", flat_vals[1]))
                             if len(flat_vals) >= 3:
                                 self.borg_io.append(("output", "rz", flat_vals[2]))
+                            if len(flat_vals) >= 4:
+                                self.borg_io.append(("output", "rw", flat_vals[3]))
                 else:
                     # Virtual store for local variables (%s, %c, etc.)
                     self.local_vars[ptr_id] = val_id
