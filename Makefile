@@ -24,6 +24,7 @@ help:
 	@echo -e "  print_stats:\t\t\tPrint statistics about tile usage."
 	@echo -e "  book:\t\t\t\tBuild the documentation book."
 	@echo -e "  clean:\t\t\tRemove all build artifacts."
+	@echo -e "  clean-gh-runs:\t\tDelete all GitHub workflow runs except the last 8."
 
 export CLOCK_MHZ = 4
 
@@ -75,8 +76,11 @@ clean:
 	$(MAKE) -C fpga clean
 	$(MAKE) -C test/soc clean
 
+clean-gh-runs:
+	gh run list --limit 200 --json databaseId --jq '.[8:] | .[].databaseId' | xargs -I {} gh run delete {}
+
 .PHONY: all generate_verilog help print_stats gds user_config lint test-all clean \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
-	book
+	book clean-gh-runs
 
