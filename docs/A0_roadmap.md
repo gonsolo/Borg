@@ -69,17 +69,19 @@ Expanded the register file from 16 to 32 entries and instruction memory from 8 t
 Transitioned the instruction format from custom 16-bit to standard 32-bit RISC-V (R-type / R4-type).
 This expansion provides enough capacity to run the full `vkcube` perspective projection vertex shader in a single pass.
 
-### Step 4: Perspective Projection (Firmware)
+### Step 4: Perspective Projection (Hardware Shader)
 
 4×4 MVP matrix multiply per vertex (~16 FMA per vertex). Transforms from
-model space to clip space and applies perspective divide. Uses the existing
-Borg FMA via MMIO. Estimate: 2–3 days.
+model space to clip space and applies perspective divide. Thanks to the expanded
+32-entry register file, this entire operation can now be loaded and executed
+natively as a single shader program on the Borg GPU. Estimate: 2–3 days.
 
-### Step 5: Triangle Clipping (Firmware)
+### Step 5: Triangle Clipping (Hardware Shader)
 
 Near/far plane clipping before rasterization. Clip triangles that cross the
-near plane; cull those entirely behind it. Sutherland–Hodgman or simplified
-guard-band approach. Estimate: 2–3 days.
+near plane; cull those entirely behind it. Like perspective projection, this
+can leverage the expanded register capacity to run natively on the GPU.
+Estimate: 2–3 days.
 
 ### Step 6: Hardware Fragment Interpolation
 
