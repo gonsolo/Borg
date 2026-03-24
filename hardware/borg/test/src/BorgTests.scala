@@ -78,6 +78,7 @@ object BorgTests extends TestSuite {
   case class FMA(rs3: Int) extends Op
   case object FNEG extends Op
   case object FSTEP extends Op
+  case object FRCP extends Op
 
   def encodeInstruction(config: FloatConfig, op: Op, rs1: Int, rs2: Int, rd: Int): BigInt = {
     // 32-bit RISC-V R-type / R4-type encoding (Single Source of Truth)
@@ -87,6 +88,7 @@ object BorgTests extends TestSuite {
       case FMA(r3) => Instructions.FMA(rs1, rs2, r3, rd)
       case FNEG    => Instructions.FNEG(rs1, rd)
       case FSTEP   => Instructions.FSTEP(rs1, rd)
+      case FRCP    => Instructions.FRCP(rs1, rd)
     }
     instVal
   }
@@ -139,6 +141,9 @@ object BorgTests extends TestSuite {
         val expected = if (a <= 0f) 0.0f else 1.0f
         (encodeInstruction(config, FSTEP, rs1 = 0, rs2 = 0, rd = 2),
           8, expected, f"fstep($a%8.2f)")
+      case FRCP =>
+        (encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2),
+          8, 1.0f / a, f"frcp($a%8.4f)")
       case fma: FMA =>
         writeAddr(borg, 12, floatToBits(c, config))
         (encodeInstruction(config, FMA(rs3 = 3), rs1 = 0, rs2 = 1, rd = 2),
@@ -176,6 +181,8 @@ object BorgTests extends TestSuite {
           }
         case FSTEP =>
           runTest(borg, config, FSTEP, a, 0f)
+        case FRCP =>
+          runTest(borg, config, FRCP, a, 0f)
       }
     }
     println(s"--- $tag Tests Passed ---\n")
@@ -558,6 +565,93 @@ object BorgTests extends TestSuite {
         println("  Mixed ops: PASSED")
 
         println("=== Pipeline Tests Passed ===\n")
+      }
+    }
+
+    // =====================================================================
+    // NEW TEST GROUP 5: Hardware FRCP (FP16 reciprocal)
+    // Verifies the LUT-based reciprocal unit with various inputs.
+    // =====================================================================
+    utest.test("frcp_tests") {
+      val config = FloatConfig.FP16
+      simulate(new Borg(config)) { borg =>
+        println("\n=== FRCP Tests ===")
+
+        // Helper with relaxed tolerance for LUT approximation (~0.1% max error)
+        def assertFrcp(actual: Float, expected: Float, label: String): Unit = {
+          val tol = math.max(2e-3f * math.abs(expected), 2e-3f)
+          println(f"Check: $label -> Actual: $actual%10.6f (Exp: $expected%10.6f, tol: $tol%.6f)")
+          utest.assert(math.abs(actual - expected) < tol)
+        }
+
+        // --- Normal positive values ---
+        // rcp(2.0) ≈ 0.5
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(2.0f, config))
+        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
+        writeAddr(borg, 132, 0)
+        startAndWaitForHalt(borg)
+        assertFrcp(readAddr(borg, 8, config), 0.5f, "rcp(2.0)")
+
+        // rcp(4.0) ≈ 0.25
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(4.0f, config))
+        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
+        writeAddr(borg, 132, 0)
+        startAndWaitForHalt(borg)
+        assertFrcp(readAddr(borg, 8, config), 0.25f, "rcp(4.0)")
+
+        // rcp(0.5) ≈ 2.0
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(0.5f, config))
+        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
+        writeAddr(borg, 132, 0)
+        startAndWaitForHalt(borg)
+        assertFrcp(readAddr(borg, 8, config), 2.0f, "rcp(0.5)")
+
+        // rcp(1.0) ≈ 1.0
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(1.0f, config))
+        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
+        writeAddr(borg, 132, 0)
+        startAndWaitForHalt(borg)
+        assertFrcp(readAddr(borg, 8, config), 1.0f, "rcp(1.0)")
+
+        // rcp(3.0) ≈ 0.3333
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(3.0f, config))
+        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
+        writeAddr(borg, 132, 0)
+        startAndWaitForHalt(borg)
+        assertFrcp(readAddr(borg, 8, config), 1.0f / 3.0f, "rcp(3.0)")
+
+        // rcp(10.0) ≈ 0.1
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(10.0f, config))
+        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
+        writeAddr(borg, 132, 0)
+        startAndWaitForHalt(borg)
+        assertFrcp(readAddr(borg, 8, config), 0.1f, "rcp(10.0)")
+
+        // --- Negative value ---
+        // rcp(-2.0) ≈ -0.5
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(-2.0f, config))
+        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
+        writeAddr(borg, 132, 0)
+        startAndWaitForHalt(borg)
+        assertFrcp(readAddr(borg, 8, config), -0.5f, "rcp(-2.0)")
+
+        // --- Non-power-of-2 (tests interpolation) ---
+        // rcp(1.5) ≈ 0.6667
+        resetAndWait(borg)
+        writeAddr(borg, 0, floatToBits(1.5f, config))
+        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
+        writeAddr(borg, 132, 0)
+        startAndWaitForHalt(borg)
+        assertFrcp(readAddr(borg, 8, config), 1.0f / 1.5f, "rcp(1.5)")
+
+        println("=== FRCP Tests Passed ===\n")
       }
     }
   }

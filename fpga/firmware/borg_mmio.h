@@ -15,6 +15,7 @@
 #define BORG_INSTR_FMADD(rd, rs1, rs2, rs3) (0x00000004UL | ((rs3) << 27) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FNEG(rd, rs1)            (0x0C000000UL | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FSTEP(rd, rs1)           (0x10000000UL | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FRCP(rd, rs1)            (0x14000000UL | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_HALT                     0x00000000UL
 
 // --- User UART peripheral ---

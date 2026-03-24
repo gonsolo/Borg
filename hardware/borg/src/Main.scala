@@ -29,12 +29,12 @@ object Main extends App {
 
   emitAndCollect(
     new tt_um_gonsolo_borg(clockMhz),
-    Array("--split-verilog", "--lowering-options=disallowLocalVariables,noAlwaysComb", "--disable-all-randomization", "--strip-debug-info")
+    Array("--split-verilog", "--lowering-options=disallowLocalVariables,disallowPackedArrays,noAlwaysComb", "--disable-all-randomization", "--strip-debug-info")
   )
 
   emitAndCollect(
     new tinyQV_peripherals(clockMhz),
-    Array("--split-verilog", "--lowering-options=disallowLocalVariables", "--disable-all-randomization", "--strip-debug-info")
+    Array("--split-verilog", "--lowering-options=disallowLocalVariables,disallowPackedArrays", "--disable-all-randomization", "--strip-debug-info")
   )
 
   MmioMap.emitHeader("fpga/firmware/borg_mmio.h")

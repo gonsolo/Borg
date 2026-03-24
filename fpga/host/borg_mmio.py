@@ -18,6 +18,8 @@ def encode_rv32_fneg(rs1=0, rd=1):
     return (0x0C000000 | (rs1 << 15) | (rd << 7))
 def encode_rv32_fstep(rs1=0, rd=1):
     return (0x10000000 | (rs1 << 15) | (rd << 7))
+def encode_rv32_frcp(rs1=0, rd=1):
+    return (0x14000000 | (rs1 << 15) | (rd << 7))
 def encode_rv32_halt(): return 0x00000000
 
 # --- PSRAM addresses (QSPI/SPI space) ---

@@ -147,6 +147,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val is_mul   = !is_fma && Instructions.BF_F7_OP(fetchedInstruction) === Instructions.FUNCT7_MUL.U
   val is_fneg  = !is_fma && Instructions.BF_F7_OP(fetchedInstruction) === Instructions.FUNCT7_FNEG.U
   val is_fstep = !is_fma && Instructions.BF_F7_OP(fetchedInstruction) === Instructions.FUNCT7_FSTEP.U
+  val is_frcp  = !is_fma && Instructions.BF_F7_OP(fetchedInstruction) === Instructions.FUNCT7_FRCP.U
   // @doc:end
 
   // rs3 index for FMA (third source register, R4-type bits [31:27])
@@ -221,11 +222,13 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val is_fma_reg = RegInit(false.B)
   val is_fneg_reg = RegInit(false.B)
   val is_fstep_reg = RegInit(false.B)
+  val is_frcp_reg = RegInit(false.B)
   when(running && !is_busy && fetchedInstruction =/= 0.U) {
     is_mul_reg := is_mul
     is_fma_reg := is_fma
     is_fneg_reg := is_fneg
     is_fstep_reg := is_fstep
+    is_frcp_reg := is_frcp
   }
 
   // @doc:fma-muxing
@@ -259,9 +262,20 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val fstep_result = Mux(fstep_is_negative_or_zero, 0.U(config.totalBits.W), one_fn)
   // @doc:end
 
+  // @doc:frcp
+  // FRCP: hardware FP16 reciprocal (1/x) via 16-entry LUT + linear interpolation.
+  // Operates on raw FP16 bits, bypasses FMA entirely.
+  val rcp = Module(new Fp16Rcp)
+  rcp.io.in := recA_raw(15, 0)
+  val frcp_result = if (config.totalBits > 16) Cat(0.U((config.totalBits - 16).W), rcp.io.out) else rcp.io.out
+  // @doc:end
+
   val fma_result = fNFromRecFN(config.exp, config.sig, fma.io.out)
   val reg_w_data =
-    Mux(pipe_reg_write, Mux(is_fstep_reg, fstep_result, fma_result), io.data_in(config.totalBits - 1, 0))
+    Mux(pipe_reg_write,
+      Mux(is_fstep_reg, fstep_result,
+        Mux(is_frcp_reg, frcp_result, fma_result)),
+      io.data_in(config.totalBits - 1, 0))
 
   // Write to all three register file copies simultaneously (mirrored writes)
   regFileA.io.writeAddr := reg_w_addr

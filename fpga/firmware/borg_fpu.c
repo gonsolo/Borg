@@ -47,30 +47,13 @@ fp16_t borg_fp16_fmadd(fp16_t a, fp16_t b, fp16_t c) {
   return BORG_REG(0) & 0xFFFF;
 }
 
-// FP16 reciprocal using Newton-Raphson: y = 1/x
-// Initial estimate via exponent flip + mantissa complement, refined with
-// 3 NR iterations.
+// FP16 reciprocal: 1/x via hardware FRCP instruction (LUT + interpolation).
 fp16_t borg_fp16_rcp(fp16_t x) {
-  fp16_t sign = x & 0x8000;
-  uint16_t exp = (x >> 10) & 0x1F;
-  if (exp == 0 || exp == 31) return 0;
-  uint16_t mant = x & 0x3FF;
-  // Initial estimate: for x = 2^e * (1+m/1024), estimate 1/x as
-  // 2^(-e) * (2 - (1+m/1024)) = 2^(-e) * (1 - m/1024)
-  // Encoded: exponent = 29-exp (one less than before), mantissa = 1023-m.
-  // This keeps x*y_init in [1.0, 2.0), avoiding the collapse at m≈1023.
-  uint16_t est_exp = 29 - exp;
-  if ((int16_t)est_exp < 0) est_exp = 0;
-  if (est_exp >= 31) return sign | 0x7C00;
-  uint16_t est_mant = 0x3FF - mant;
-  fp16_t y = sign | (est_exp << 10) | est_mant;
-  // Newton-Raphson: y = y * (2 - x * y), 3 iterations for FP16 precision
-  for (int i = 0; i < 3; i++) {
-    fp16_t xy = borg_fp16_mul(x, y);
-    fp16_t correction = BORG_FP16_SUB(FP16_TWO, xy);
-    y = borg_fp16_mul(y, correction);
-  }
-  return y;
+  BORG_IMEM(0) = BORG_INSTR_FRCP(0, 1);
+  BORG_IMEM(1) = BORG_INSTR_HALT;
+  BORG_REG(1) = x;
+  borg_run();
+  return BORG_REG(0) & 0xFFFF;
 }
 
 void borg_load_spirb_shader(const spirb_shader_t *s) {

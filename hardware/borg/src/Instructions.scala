@@ -37,6 +37,7 @@ object Instructions {
   val FUNCT7_MUL   = 0x04
   val FUNCT7_FNEG  = 0x06
   val FUNCT7_FSTEP = 0x08
+  val FUNCT7_FRCP  = 0x0A
 
   // --- Base Instruction Encoders ---
   def encodeRType(funct7: Int, rs2: Int, rs1: Int, rd: Int, funct3: Int = 0, opcode: Int = OPCODE_ALU): BigInt =
@@ -50,6 +51,7 @@ object Instructions {
   def MUL(rs1: Int, rs2: Int, rd: Int): BigInt = encodeRType(FUNCT7_MUL, rs2, rs1, rd)
   def FNEG(rs1: Int, rd: Int): BigInt = encodeRType(FUNCT7_FNEG, 0, rs1, rd)
   def FSTEP(rs1: Int, rd: Int): BigInt = encodeRType(FUNCT7_FSTEP, 0, rs1, rd)
+  def FRCP(rs1: Int, rd: Int): BigInt = encodeRType(FUNCT7_FRCP, 0, rs1, rd)
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd)
 
   // --- String Formatters for C / Python Generation ---

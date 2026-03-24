@@ -217,6 +217,7 @@ object MmioMap {
     e.emitInstrR4("fmadd", hex(FMA(0,0,0,0)))
     e.emitInstrR1("fneg", hex(FNEG(0,0)))
     e.emitInstrR1("fstep", hex(FSTEP(0,0)))
+    e.emitInstrR1("frcp", hex(FRCP(0,0)))
     e.emitInstr0("halt", "00000000")
   }
 
