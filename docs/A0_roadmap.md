@@ -65,9 +65,11 @@ repeated `borg_cmd_draw()` calls). Already works for 2 triangles in
 
 ### Step 3: 32-bit RISC-V Hardware Expansion ✅ (2026-03-23)
 
-Expanded the register file from 16 to 32 entries and instruction memory from 8 to 32 slots.
-Transitioned the instruction format from custom 16-bit to standard 32-bit RISC-V (R-type / R4-type).
-This expansion provides enough capacity to run the full `vkcube` perspective projection vertex shader in a single pass.
+Expanded the register file from 16 to 32 entries and instruction memory
+from 8 to 32 slots.  Transitioned the instruction format from custom 16-bit
+to standard 32-bit RISC-V (R-type / R4-type).  This expansion provides
+enough capacity to run the full `vkcube` perspective projection vertex
+shader in a single pass.
 
 ### Step 4: Perspective Projection (Hardware Shader) ✅ (2026-03-24)
 
@@ -77,9 +79,14 @@ model space to clip space natively. Thanks to the expanded
 natively as a single shader program on the Borg GPU. (Perspective divide is 
 currently mapped to a fast firmware soft-float via `borg_fp16_rcp`).
 
-### Step 4b: Hardware Reciprocal (RCP) Unit
+### Step 5: Hardware Reciprocal (RCP) Unit ✅ (2026-03-24)
 
-Implement a lightweight, fast-iterative Reciprocal FPU block in Chisel mapping to a new `F_RCP` assembly opcode. This will eliminate the firmware soft-float W-divide overhead, allowing SPIR-V `OpFDiv` to evaluate 100% natively in the hardware vertex shader. Estimate: 3–5 days.
+Combinational FP16 reciprocal using a 17-entry VecInit LUT with linear
+interpolation (~0.05% accuracy).  Mapped to `FRCP` instruction (funct7=0x0A).
+Eliminated the firmware Newton-Raphson loop, replacing 4 MMIO round-trips per
+W-divide with a single instruction.  Also fixed vkcube bottom-face rendering:
+added explicit back-face culling (positive-area skip) and negative-Z pixel
+discard to prevent FP16 edge-test precision leaks from corrupting the Z-buffer.
 
 ### Step 6: Triangle Clipping (Hardware Shader)
 

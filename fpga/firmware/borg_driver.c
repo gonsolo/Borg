@@ -212,7 +212,10 @@ void borg_clear_texture(void) {
 static void shade_and_write_pixel(int frame, int px, int py,
                                   rgb16_t color, fp16_t z, uv16_t uv_interp,
                                   const texture_t *t) {
-  // Depth test: read current z, compare (closer = smaller)
+  // Depth test: read current z, compare (closer = smaller).
+  // Skip pixels with negative Z (behind camera) — their sign bit would
+  // corrupt the unsigned Z-buffer comparison.
+  if (!fp16_ge_zero(z)) return;
   int zb_idx = frame * FRAME_STRIDE + FRAME_FB_SIZE + (py * BORG_FB_WIDTH + px);
   fp16_t old_z = PSRAM_OUT(zb_idx);
   if (z >= old_z) return;
@@ -277,10 +280,10 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
   fp16_t area = BORG_FP16_SUB(borg_fp16_mul(dx10, dy20),
                                  borg_fp16_mul(dx20, dy10));
 
-  // Skip degenerate triangles (zero area) — e.g. edge-on faces under
-  // orthographic projection.  borg_fp16_rcp(0) produces inf/NaN that
-  // hangs the rasterizer.
-  if ((area & 0x7FFF) == 0) return;
+  // Skip degenerate triangles (zero area) and back-facing triangles
+  // (positive area = CW winding).  Without this, FP16 precision in the
+  // edge test leaks boundary pixels from back faces, corrupting the Z-buffer.
+  if (fp16_ge_zero(area)) return;
   fp16_t inv_area = borg_fp16_rcp(area);
 
   // Edge vectors

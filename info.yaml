@@ -16,6 +16,7 @@ project:
   # Don't forget to also update this list when Chisel generates new Verilog modules.
   source_files:
     - "../out/hardware/borg/verilog/Borg.sv"
+    - "../out/hardware/borg/verilog/Fp16Rcp.sv"
     - "../out/hardware/borg/verilog/MulAddRecFNToRaw_postMul_e5_s11.sv"
     - "../out/hardware/borg/verilog/MulAddRecFNToRaw_preMul_e5_s11.sv"
     - "../out/hardware/borg/verilog/MulAddRecFN_e5_s11.sv"

@@ -10,6 +10,7 @@
 #include "borg_math.h"
 #include "compiler/shader_blobs.h"
 
+
 // UV corner macros for texture mapping
 #define UV_00 { FP16_ZERO, FP16_ZERO }  // top-left
 #define UV_10 { FP16_ONE,  FP16_ZERO }  // top-right
@@ -148,9 +149,8 @@ int main() {
     // Enable Borg texture for all faces
     borg_set_texture(TEX_PSRAM_OFFSET, TEX_WIDTH, TEX_HEIGHT);
 
-    for (int i = 0; i < 12; i++) {
+    for (int i = 0; i < 12; i++)
         borg_cmd_draw(&draw, cube_tris[i], 0);
-    }
 
     borg_clear_texture();
     borg_present(0);

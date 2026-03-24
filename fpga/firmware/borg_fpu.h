@@ -37,6 +37,12 @@ fp16_t borg_fp16_rcp(fp16_t x);
 
 // --- FP16 conversion utilities ---
 static inline int fp16_ge_zero(fp16_t v) { return (v & 0x8000) == 0; }
+// Signed FP16 less-than: handles negative values correctly.
+static inline int fp16_lt(fp16_t a, fp16_t b) {
+  int sa = a >> 15, sb = b >> 15;
+  if (sa != sb) return sa > sb;       // negative < positive
+  return sa ? (a > b) : (a < b);      // both neg: larger bits = more negative
+}
 int fp16_to_uint(fp16_t fp16);
 fp16_t uint_to_fp16(int val);
 

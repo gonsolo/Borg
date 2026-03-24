@@ -46,22 +46,18 @@ class Fp16Rcp extends Module {
   val isInf             = isInfOrNaN && mant === 0.U
 
   // --- 17-entry LUT: mant_out = round((2 / (1 + i/16) - 1) * 1024) ---
-  // Uses MuxLookup (mux tree) instead of VecInit to avoid SystemVerilog
-  // array-literal syntax that yosys cannot parse.
-  private val lutData = Seq(
+  // Index i corresponds to mantissa bits [9:6].  Entry 16 is a virtual
+  // sentinel for the interpolation of interval 15.
+  val rcpLut = VecInit(Seq(
     1023, 904, 796, 701, 614, 536, 465, 401,
      341, 287, 236, 190, 146, 106,  68,  33, 0
-  )
+  ).map(_.U(10.W)))
 
   val lutIdx  = mant(9, 6)                    // top 4 bits → table index (0–15)
   val frac    = mant(5, 0)                    // bottom 6 bits → interpolation fraction
 
-  val lutVal  = MuxLookup(lutIdx, 0.U(10.W))(
-    (0 until 16).map(i => i.U -> lutData(i).U(10.W))
-  )
-  val lutNext = MuxLookup(lutIdx, 0.U(10.W))(
-    (0 until 16).map(i => i.U -> lutData(i + 1).U(10.W))
-  )
+  val lutVal  = rcpLut(lutIdx)                // value at interval start
+  val lutNext = rcpLut(lutIdx +& 1.U)         // value at interval end
 
   // delta × frac / 64  (delta is always positive since 1/x is decreasing)
   val delta      = lutVal - lutNext           // max 120, fits 7 bits

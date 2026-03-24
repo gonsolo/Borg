@@ -25,7 +25,7 @@ help:
 # 1. ASIC sources from Chisel (paths are already ../out/...)
 # 2. Verilog generated from the scala source in fpga/tinyqv
 FPGA_EXTRA_FILES = \
-	../out/hardware/borg/verilog/tinyQV_top.sv
+	../out/fpga/verilog/tinyQV_top.sv
 
 SRC_FILES = $$(cat ../out/hardware/borg/verilog/asic_files.txt ../out/hardware/tinyqv/verilog/asic_files.txt | tr '\n' ' ') $(FPGA_EXTRA_FILES)
 
@@ -46,7 +46,7 @@ borg.json: ../out/hardware/borg/verilog/Borg.sv
 # Place and Route (P&R) — freq derived from MmioMap.CLOCK_MHZ via generated header
 CLOCK_FREQ = $(shell grep -m1 'define CLOCK_MHZ' firmware/borg_mmio.h | awk '{print $$3}')
 borg.asc: borg.json
-	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf ../out/hardware/borg/verilog/pico_ice.pcf --asc borg.asc \
+	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf ../out/fpga/verilog/pico_ice.pcf --asc borg.asc \
 		--freq $(CLOCK_FREQ)
 
 # Generate FPGA bitstream
