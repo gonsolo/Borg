@@ -1,6 +1,6 @@
 {
   inputs = {
-    #nixpkgs.url = "github:gonsolo/nixpkgs/pybind11-protobuf";
+    #nixpkgs.url = "github:gonsolo/nixpkgs/librelane";
     nixpkgs.url = "github:NixOS/nixpkgs";
     alejandra.url = "github:kamadorueda/alejandra/4.0.0";
   };
