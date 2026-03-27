@@ -118,10 +118,11 @@ instead of driving every pixel. **This is the key transition from
   Added `start_pc` jump control via `BORG_CONTROL` to keep `rast`, `frag`, and `add` shaders concurrently active in the 32-entry IMEM.
 - **Step 9.2: Bounding Box Early-Out** ✅ (2026-03-27)
   Structured the rasterization pipeline: `xy16_t`/`xy16x3_t`/`rgb16x3_t`/`uv16x3_t` types, `triangle_t` and `frag_result_t` structs, `compute_bbox` with correct negative-coord clamp, and helper extraction (`shade_pixel`→`shade_tile`→`shade_tiles`, `build_clip_vertices`, `clip_and_rasterize`). Fixed left-edge clipping bug caused by `fp16_to_uint` ignoring the sign bit.
-- [ ] **Step 9.3: Hardware Counter Iterator**
-- [ ] **Step 9.4: Hardware Edge Bounding Box Evaluation**
-- [ ] **Step 9.5: Hardware Coord Expansion (int-to-fp16)**
-- [ ] **Step 9.6: CPU-Drawn Pixel Dispatch**
+- **Step 9.3: Hardware Counter Iterator** ✅ (2026-03-27)
+  Added 6-bit x/y hardware counters, 4-coordinate bounding box registers, and single-instruction iteration advancement via `BORG_ITER` MMIO interface. Eliminated the nested software-based loop inside the `shade_tiles` firmware loop, moving spatial boundary checks strictly into hardware.
+- **Step 9.4: Hardware Edge Bounding Box Evaluation**
+- **Step 9.5: Hardware Coord Expansion (int-to-fp16)**
+- **Step 9.6: CPU-Drawn Pixel Dispatch**
 
 ### Step 10: On-Chip Tile Buffer (BRAM)
 

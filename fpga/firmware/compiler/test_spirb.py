@@ -144,10 +144,13 @@ if __name__ == '__main__':
     if os.path.exists(os.path.join(test_dir, "frag.spvasm")):
         test_pipeline("frag", os.path.join(test_dir, "frag.spvasm"),
                       expected_instrs=[
-                          0x08208400, 0x08218480, 0x08220500,
-                          0x08540000, 0x00648004, 0x00750004],
-                      expected_unis=[2, 5, 6, 7],
-                      expected_attrs=[1, 3, 4],
-                      expected_outs=[0])
+                          0x08730E00, 0x08740E80, 0x08748F00, 0x08CE0000, 0x00BE8004, 0x00AF0004,
+                          0x08FE0080, 0x08EE8084, 0x08DF0084, 0x092E0100, 0x111E8104, 0x110F0104,
+                          0x095E0180, 0x194E8184, 0x193F0184, 0x098E0200, 0x217E8204, 0x216F0204,
+                          0x09BE0280, 0x29AE8284, 0x299F0284
+                      ],
+                      expected_unis=[7, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27],
+                      expected_attrs=[6, 8, 9],
+                      expected_outs=[0, 1, 2, 3, 4, 5])
 
     print("All tests passed!")

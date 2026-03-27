@@ -16,10 +16,13 @@ from riscvmodel import csrnames
 from riscvmodel.variant import RV32E
 
 from borg_mmio import (
-    SOC_PERI_ID, SOC_PERI_GPIO_OUT_SEL, SOC_PERI_TIME_LIMIT,
-    GPIO_BASE, GPIO_OUT, GPIO_IN, GPIO_FUNC_SEL,
-    UART_BASE, UART_TX_DATA, UART_STATUS,
+    SOC_PERI_ID_OFFSET, SOC_PERI_GPIO_OUT_SEL_OFFSET, SOC_PERI_TIME_LIMIT_OFFSET,
+    USER_BASE, GPIO_BASE, GPIO_OUT_OFFSET, GPIO_IN_OFFSET, GPIO_FUNC_SEL_BIT,
+    UART_BASE, UART_TX_OFFSET, UART_STATUS_OFFSET,
 )
+
+GPIO_TP_BASE = GPIO_BASE - USER_BASE
+UART_TP_BASE = UART_BASE - USER_BASE
 
 from test_util import (
     reset,
@@ -60,7 +63,7 @@ async def test_start(dut):
     await start_read(dut, 0)
 
     # Read ID
-    await send_instr(dut, InstructionLW(x1, tp, SOC_PERI_ID).encode())
+    await send_instr(dut, InstructionLW(x1, tp, SOC_PERI_ID_OFFSET).encode())
     assert await read_reg(dut, x1) == ord("A")
 
     for i in range(8):
@@ -69,7 +72,7 @@ async def test_start(dut):
     # Test UART TX
     uart_byte = 0x54
     await send_instr(dut, InstructionADDI(x1, x0, uart_byte).encode())
-    await send_instr(dut, InstructionSW(tp, x1, UART_BASE + UART_TX_DATA).encode())
+    await send_instr(dut, InstructionSW(tp, x1, UART_TP_BASE + UART_TX_OFFSET).encode())
 
     await start_nops(dut)
     
@@ -129,17 +132,17 @@ async def test_start(dut):
 
         await stop_nops()
 
-        await send_instr(dut, InstructionLW(x1, tp, UART_BASE + UART_STATUS).encode())
+        await send_instr(dut, InstructionLW(x1, tp, UART_TP_BASE + UART_STATUS_OFFSET).encode())
         await read_byte(dut, x1, 0x2)
-        await send_instr(dut, InstructionLW(x1, tp, UART_BASE + UART_TX_DATA).encode())
+        await send_instr(dut, InstructionLW(x1, tp, UART_TP_BASE + UART_TX_OFFSET).encode())
         await read_byte(dut, x1, uart_rx_byte)
         assert dut.uart_rts.value == 0
-        await send_instr(dut, InstructionLW(x1, tp, UART_BASE + UART_STATUS).encode())
+        await send_instr(dut, InstructionLW(x1, tp, UART_TP_BASE + UART_STATUS_OFFSET).encode())
         await read_byte(dut, x1, 0x2)
-        await send_instr(dut, InstructionLW(x1, tp, UART_BASE + UART_TX_DATA).encode())
+        await send_instr(dut, InstructionLW(x1, tp, UART_TP_BASE + UART_TX_OFFSET).encode())
         await read_byte(dut, x1, uart_rx_byte2)
         assert dut.uart_rts.value == 0
-        await send_instr(dut, InstructionLW(x1, tp, UART_BASE + UART_STATUS).encode())
+        await send_instr(dut, InstructionLW(x1, tp, UART_TP_BASE + UART_STATUS_OFFSET).encode())
         await read_byte(dut, x1, 0)
 
         if j != 4:
@@ -152,23 +155,23 @@ async def test_start(dut):
 
     # GPIO
     await send_instr(dut, InstructionADDI(x1, x0, 0xFF).encode())
-    await send_instr(dut, InstructionSW(tp, x1, SOC_PERI_GPIO_OUT_SEL).encode())
+    await send_instr(dut, InstructionSW(tp, x1, SOC_PERI_GPIO_OUT_SEL_OFFSET).encode())
 
     for i in range(40):
         gpio_sel = random.randint(0, 255)
         gpio_out = random.randint(0, 255)
         for j in range(8):
             await send_instr(dut, InstructionADDI(x1, x0, (gpio_sel >> j) & 1).encode())
-            await send_instr(dut, InstructionSW(tp, x1, GPIO_FUNC_SEL + j * 4).encode())
+            await send_instr(dut, InstructionSW(tp, x1, GPIO_TP_BASE + (1 << GPIO_FUNC_SEL_BIT) + j * 4).encode())
         await send_instr(dut, InstructionADDI(x1, x0, gpio_out).encode())
-        await send_instr(dut, InstructionSW(tp, x1, GPIO_BASE + GPIO_OUT).encode())
+        await send_instr(dut, InstructionSW(tp, x1, GPIO_TP_BASE + GPIO_OUT_OFFSET).encode())
         for _ in range(5):
             await send_instr(dut, InstructionADDI(x0, x0, 0).encode())
         assert (dut.uo_out.value.to_unsigned() & gpio_sel) == (gpio_out & gpio_sel)
 
     # Ensure uo_out is normally high
     await send_instr(dut, InstructionADDI(x1, x0, 0x80).encode())
-    await send_instr(dut, InstructionSW(tp, x1, GPIO_BASE + GPIO_OUT).encode())
+    await send_instr(dut, InstructionSW(tp, x1, GPIO_TP_BASE + GPIO_OUT_OFFSET).encode())
 
 
 @cocotb.test()
@@ -255,7 +258,7 @@ async def test_time_limit(dut):
     await start_read(dut, 0)
 
     # Read time limit register (packed format: {25'b0, time_limit[4:0], 2'b11})
-    await send_instr(dut, InstructionLW(x1, tp, SOC_PERI_TIME_LIMIT).encode())
+    await send_instr(dut, InstructionLW(x1, tp, SOC_PERI_TIME_LIMIT_OFFSET).encode())
     raw_readback = await read_reg(dut, x1)
     actual_time_limit = (raw_readback >> 2) & 0x1F  # Extract time_limit from packed format
     
@@ -263,7 +266,7 @@ async def test_time_limit(dut):
     # e.g for 12MHz, default time_limit is 2, half is 1
     fast_time_limit = max(1, actual_time_limit // 2)  # min 1: nibble-serial counter needs 8 cycles
     await send_instr(dut, InstructionADDI(x1, x0, fast_time_limit << 2).encode())
-    await send_instr(dut, InstructionSW(tp, x1, SOC_PERI_TIME_LIMIT).encode())
+    await send_instr(dut, InstructionSW(tp, x1, SOC_PERI_TIME_LIMIT_OFFSET).encode())
 
     # Wait for the 7-bit time_count (0-127) to wrap and stabilize on the new
     # threshold.  When time_limit is decreased, time_count may have already
@@ -296,7 +299,7 @@ async def test_time_limit(dut):
     # e.g for 12MHz, default time_limit is 2, slow could be 5
     slow_time_limit = (actual_time_limit + 1) * 2 - 1
     await send_instr(dut, InstructionADDI(x1, x0, slow_time_limit << 2).encode())
-    await send_instr(dut, InstructionSW(tp, x1, SOC_PERI_TIME_LIMIT).encode())
+    await send_instr(dut, InstructionSW(tp, x1, SOC_PERI_TIME_LIMIT_OFFSET).encode())
 
     # Same stabilization wait for the slow divider
     await start_nops(dut)
@@ -430,7 +433,7 @@ async def test_load_bug(dut):
     await send_instr(dut, InstructionBEQ(a0, x0, 270).encode())
 
     # Use standard LW for tp-based load (LWTP was removed)
-    await send_instr(dut, InstructionLW(a3, tp, GPIO_BASE + GPIO_IN).encode())
+    await send_instr(dut, InstructionLW(a3, tp, GPIO_TP_BASE + GPIO_IN_OFFSET).encode())
     await send_instr(dut, encode_clwsp(a2, 12))
     await expect_load(dut, 0x1001000 + 12, 0x123)
     await read_byte(dut, a3, input_byte)
@@ -490,7 +493,7 @@ async def test_multistore_interrupt(dut):
     await start_read(dut, 0)
 
     # Transmit a byte and enable interrupt on writeable
-    await send_instr(dut, InstructionSW(tp, x0, UART_BASE + UART_TX_DATA).encode())
+    await send_instr(dut, InstructionSW(tp, x0, UART_TP_BASE + UART_TX_OFFSET).encode())
     await send_instr(dut, InstructionLUI(a0, 0x80).encode())
     await send_instr(dut, InstructionCSRRW(x0, a0, csrnames.mie).encode())
 

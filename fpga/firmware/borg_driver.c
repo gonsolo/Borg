@@ -333,14 +333,6 @@ static void shade_pixel(int px, int py,
     shade_and_write_pixel(frame, px, py, result.color, result.z, result.uv, t);
 }
 
-// Shade all pixels within a single tile.
-static void shade_tile(int tx, int ty, int tile, int x1, int y1,
-                       const triangle_t *tri, const texture_t *t, int frame) {
-  for (int py = ty; py < ty + tile && py < y1; py++)
-    for (int px = tx; px < tx + tile && px < x1; px++)
-      shade_pixel(px, py, tri, t, frame);
-}
-
 // Compute screen-space AABB of 3 vertices, clamped to framebuffer.
 static bbox_t compute_bbox(const xy16x3_t *pos) {
   fp16_t min_x = pos->v[0].x, max_x = pos->v[0].x;
@@ -360,13 +352,16 @@ static bbox_t compute_bbox(const xy16x3_t *pos) {
   return (bbox_t){ x0, y0, x1, y1 };
 }
 
-// Iterate all 4x4 tiles within the triangle's bounding box.
+// Iterate all pixels within the triangle's bounding box via hardware counters.
 static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
   bbox_t bb = compute_bbox(&tri->screen_pos);
-  const int TILE = 4;
-  for (int ty = bb.y0; ty < bb.y1; ty += TILE)
-    for (int tx = bb.x0; tx < bb.x1; tx += TILE)
-      shade_tile(tx, ty, TILE, bb.x1, bb.y1, tri, t, frame);
+  BORG_ITER_BBOX = BORG_ITER_PACK_BBOX(bb.x0, bb.y0, bb.x1, bb.y1);
+  for (;;) {
+    uint32_t iter = BORG_ITER;
+    if (!BORG_ITER_VALID(iter)) break;
+    shade_pixel(BORG_ITER_X(iter), BORG_ITER_Y(iter), tri, t, frame);
+    BORG_ITER = 1;
+  }
 }
 
 // Clip-space → NDC → screen-space for 3 vertices.

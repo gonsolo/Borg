@@ -14,9 +14,9 @@ object Main extends App {
   Emit.emitAndCollect(new tt_um_gonsolo_borg(clockMhz), targetDir, allAsicFiles)
   Emit.emitAndCollect(new tinyQV_peripherals(clockMhz), targetDir, allAsicFiles)
 
-  MmioMap.emitHeader("fpga/firmware/borg_mmio.h")
-  MmioMap.emitPython("fpga/host/borg_mmio.py")
-  MmioMap.emitPython("test/soc/borg_mmio.py")
+  MmioGenerator.emitHeader("fpga/firmware/borg_mmio.h")
+  MmioGenerator.emitPython("fpga/host/borg_mmio.py")
+  MmioGenerator.emitPython("test/soc/borg_mmio.py")
 
   val fw = new java.io.PrintWriter(new java.io.File(s"$targetDir/asic_files.txt"))
   allAsicFiles.toList.sorted.foreach(fw.println)

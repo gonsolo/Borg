@@ -95,13 +95,13 @@ object BorgTests extends TestSuite {
 
   // --- Execution helpers ---
 
-  def resetAndWait(borg: Borg): Unit = writeAddr(borg, 252, 2)
+  def resetAndWait(borg: Borg): Unit = writeAddr(borg, MmioMap.BORG_CONTROL_OFFSET, 2)
 
   def startAndWaitForHalt(borg: Borg): Unit = {
-    writeAddr(borg, 252, 1)
+    writeAddr(borg, MmioMap.BORG_CONTROL_OFFSET, 1)
     var status: BigInt = 0
     do {
-      borg.io.address.poke(252.U)
+      borg.io.address.poke(MmioMap.BORG_CONTROL_OFFSET.U)
       borg.io.data_read_n.poke(2.U)
       borg.io.data_write_n.poke(3.U)
       borg.clock.step(1)
@@ -439,7 +439,7 @@ object BorgTests extends TestSuite {
         println("  Register round-trip: PASSED")
 
         // --- Status register: idle when not running ---
-        borg.io.address.poke(252.U)
+        borg.io.address.poke(MmioMap.BORG_CONTROL_OFFSET.U)
         borg.io.data_read_n.poke(2.U)
         borg.io.data_write_n.poke(3.U)
         borg.clock.step(1)

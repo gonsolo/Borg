@@ -20,8 +20,8 @@ object FloatConfig {
   */
 class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
   val address = Input(
-    UInt(8.W)
-  ) // 256-byte address space (byte-addressed internally by shifting)
+    UInt(9.W)
+  ) // 512-byte address space (byte-addressed internally by shifting)
   val data_in = Input(UInt(32.W))  // 32-bit data for IMEM writes; register writes use low config.totalBits
   val data_write_n = Input(UInt(2.W)) // 0b10 for write
   val data_read_n = Input(UInt(2.W))
@@ -32,10 +32,10 @@ class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
 }
 
 class RegFileCopyIO(width: Int) extends Bundle {
-  val readAddr  = Input(UInt(5.W))
+  val readAddr  = Input(UInt(log2Ceil(MmioMap.BORG_NUM_REGS).W))
   val readEn    = Input(Bool())
   val readData  = Output(UInt(width.W))
-  val writeAddr = Input(UInt(5.W))
+  val writeAddr = Input(UInt(log2Ceil(MmioMap.BORG_NUM_REGS).W))
   val writeEn   = Input(Bool())
   val writeData = Input(UInt(width.W))
 }
@@ -49,7 +49,7 @@ class RegFileCopy(width: Int, instName: String) extends Module {
 
   val io = IO(new RegFileCopyIO(width))
 
-  val mem = SyncReadMem(32, UInt(width.W))
+  val mem = SyncReadMem(MmioMap.BORG_NUM_REGS, UInt(width.W))
   io.readData := mem.read(io.readAddr, io.readEn)
 
   when(io.writeEn) {
@@ -87,9 +87,17 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val regFileB = Module(new RegFileCopy(config.totalBits, "regFileB"))
   val regFileC = Module(new RegFileCopy(config.totalBits, "regFileC"))
 
-  val instructionMemory = SyncReadMem(32, UInt(32.W))
-  val programCounter = RegInit(0.U(5.W))
+  val instructionMemory = SyncReadMem(MmioMap.BORG_IMEM_SLOTS, UInt(32.W))
+  val programCounter = RegInit(0.U(log2Ceil(MmioMap.BORG_IMEM_SLOTS).W))
   val running = RegInit(false.B)
+
+  // --- Pixel Iterator ---
+  val iter_x  = RegInit(0.U(6.W))
+  val iter_y  = RegInit(0.U(6.W))
+  val bbox_x0 = RegInit(0.U(6.W))
+  val bbox_y0 = RegInit(0.U(6.W))
+  val bbox_x1 = RegInit(0.U(6.W))
+  val bbox_y1 = RegInit(0.U(6.W))
   // @doc:end
 
   // --- Pipeline Control ---
@@ -167,8 +175,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
       }
     }
 
-    // Control register (address 252): bit 0 = start, bit 1 = reset
-    when(is_writing && io.address === 252.U) {
+    // Control register: bit 0 = start, bit 1 = reset
+    when(is_writing && io.address === MmioMap.BORG_CONTROL_OFFSET.U) {
       when(io.data_in(0)) { running := true.B }
       when(io.data_in(1)) {
         programCounter := io.data_in(MmioMap.BORG_CTL_PC_MSB, MmioMap.BORG_CTL_PC_LSB)
@@ -206,9 +214,9 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
 
   /** Port C: rs3 during execution, MMIO register access when idle. */
   private def wirePortC(): (UInt, UInt) = {
-    val mmio_en = !running && !is_busy && (is_reading || is_writing)
+    val mmio_en = !running && !is_busy && (is_reading || is_writing) && io.address >= MmioMap.BORG_REG_OFFSET.U && io.address < MmioMap.BORG_IMEM_OFFSET.U
     val rs3_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
-    val addr = Mux(running || is_busy, rs3_idx, io.address(6, 2))
+    val addr = Mux(running || is_busy, rs3_idx, (io.address - MmioMap.BORG_REG_OFFSET.U) >> 2)
     val en = mmio_en || rs3_en
     val mmio_en_del = RegNext(mmio_en && is_reading, false.B)
     val rs3_en_del = RegNext(rs3_en, false.B)
@@ -286,10 +294,10 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
       fma_result: UInt, fstep_result: UInt, frcp_result: UInt,
       is_fstep_reg: Bool, is_frcp_reg: Bool, mmio_reg_data: UInt
   ): Unit = {
-    val mmio_write = is_writing && io.address < 128.U
+    val mmio_write = is_writing && io.address >= MmioMap.BORG_REG_OFFSET.U && io.address < MmioMap.BORG_IMEM_OFFSET.U
     val pipe_write = running && is_busy && busy_counter === 1.U
     val w_en = mmio_write || pipe_write
-    val w_addr = Mux(pipe_write, rd_idx, io.address(6, 2))
+    val w_addr = Mux(pipe_write, rd_idx, (io.address - MmioMap.BORG_REG_OFFSET.U) >> 2)
 
     val w_data = Mux(pipe_write,
       Mux(is_fstep_reg, fstep_result,
@@ -309,19 +317,44 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   }
 
   // @doc:mmio
-  /** MMIO: IMEM writes, register read mux, status/ready signals. */
+  /** MMIO: IMEM writes, register read mux, status/ready signals, pixel iterator. */
   private def wireMmio(): Unit = {
-    // IMEM write (addresses 128–248)
-    when(is_writing && io.address >= 128.U && io.address < 252.U) {
-      instructionMemory.write(io.address(6, 2), io.data_in)
+    // IMEM write
+    when(is_writing && io.address >= MmioMap.BORG_IMEM_OFFSET.U && io.address < MmioMap.BORG_IMEM_END.U) {
+      val imem_idx = (io.address - MmioMap.BORG_IMEM_OFFSET.U) >> 2
+      instructionMemory.write(imem_idx, io.data_in)
+    }
+
+    // Pixel iterator: write bbox — resets counters
+    when(is_writing && io.address === MmioMap.BORG_ITER_BBOX_OFFSET.U) {
+      bbox_x0 := io.data_in(5, 0)
+      bbox_y0 := io.data_in(11, 6)
+      bbox_x1 := io.data_in(17, 12)
+      bbox_y1 := io.data_in(23, 18)
+      iter_x  := io.data_in(5, 0)
+      iter_y  := io.data_in(11, 6)
+    }
+
+    // Pixel iterator: write to advance
+    when(is_writing && io.address === MmioMap.BORG_ITER_OFFSET.U) {
+      when(iter_x + 1.U >= bbox_x1) {
+        iter_x := bbox_x0
+        iter_y := iter_y + 1.U
+      }.otherwise {
+        iter_x := iter_x + 1.U
+      }
     }
 
     // Read mux
-    val read_addr_del = RegInit(0.U(8.W))
+    val read_addr_del = RegInit(0.U(9.W))
     read_addr_del := io.address
     val status_reg = Cat(0.U((config.totalBits - 2).W), !running, 0.U(1.W))
-    io.data_out := Mux(read_addr_del < 128.U, mmio_reg_data,
-      Mux(read_addr_del === 252.U, status_reg, 0.U))
+    val iter_valid = iter_y < bbox_y1
+    val iter_reg   = Cat(iter_valid, iter_y, iter_x)
+    io.data_out := Mux(read_addr_del >= MmioMap.BORG_REG_OFFSET.U && read_addr_del < MmioMap.BORG_IMEM_OFFSET.U, mmio_reg_data,
+      Mux(read_addr_del === MmioMap.BORG_ITER_OFFSET.U,
+        iter_reg,
+        Mux(read_addr_del === MmioMap.BORG_CONTROL_OFFSET.U, status_reg, 0.U)))
 
     val read_ready_del = RegNext(is_reading, false.B)
     io.data_ready := (io.data_read_n === 3.U) || read_ready_del

@@ -11,12 +11,14 @@ import Instructions._
   *
   * Address decoding (inherited from TinyQV by Michael Bell):
   *   SoC peripherals:  Cat(addr[27:6], addr[1:0]) === SOC_COMPARE  → addr[5:2] selects peripheral
-  *   User peripherals: addr[27:11] === USER_COMPARE                → addr[10:6] selects sub-peripheral
+  // User peripherals: addr[10:0] = 11-bit sub-address (2KB for sub-decoding)
+  //   addr[10:9] selects sub-peripheral (4 slots)
+  //   addr[8:0] selects offset within peripheral (512 bytes)
   *
-  * Full CPU address formulas:
-  *   SoC:  soc_base  + index  × 4     (e.g. ID:   0x02000000 + 2×4  = 0x02000008)
-  *   User: user_base + select × 64    (e.g. UART: 0x08000000 + 2×64 = 0x08000080)
-  *   Sub:  user_base + select × 64 + offset
+  // Full CPU address formulas:
+  //   SoC:  soc_base  + index  × 4     (e.g. ID:   0x02000000 + 2×4  = 0x02000008)
+  //   User: user_base + select × 512   (e.g. UART: 0x08000000 + 2×512 = 0x08000400)
+  //   Sub:  user_base + select × 512 + offset
   */
 object MmioMap {
   // --- Magic constants from Michael Bell's TinyQV address decoder ---
@@ -69,7 +71,7 @@ object MmioMap {
   val PERI_DEBUG             = 0xC
   val PERI_USER              = 0xF
 
-  // --- User peripheral selects (addr[10:6], used in Peripherals.scala) ---
+  // --- User peripheral selects (addr[10:9], used in Peripherals.scala) ---
   val USER_PERI_GPIO = 1
   val USER_PERI_UART = 2
   val USER_PERI_BORG = 3
@@ -78,12 +80,14 @@ object MmioMap {
   val BUS_IDLE = 3  // data_write_n / data_read_n = 0b11 means no operation
 
   // --- System clock (single source of truth for FPGA builds) ---
-  val CLOCK_MHZ = 4
+  val CLOCK_MHZ = sys.env.getOrElse("CLOCK_MHZ", "4").toInt
+  val FPGA_CLOCK_HZ = CLOCK_MHZ * 1000000
+  val UART_BAUD_DEFAULT = FPGA_CLOCK_HZ / 115200
 
   // --- User peripheral address field positions (within 11-bit addr_in) ---
-  val USER_PERI_SEL_HI   = 10  // addr_in(10:8) selects sub-peripheral (3-bit, 8 slots)
-  val USER_PERI_SEL_LO   = 8
-  val USER_SUB_ADDR_HI   = 7   // addr_in(7:0) is the 8-bit sub-register address
+  val USER_PERI_SEL_HI   = 10  // addr_in(10:9) selects sub-peripheral (2-bit, 4 slots)
+  val USER_PERI_SEL_LO   = 9
+  val USER_SUB_ADDR_HI   = 8   // addr_in(8:0) is the 9-bit sub-register address
   val USER_SUB_ADDR_LO   = 0
   val GPIO_FUNC_SEL_IDX_HI = 4 // addr_in(4:2) selects which pin's func_sel
   val GPIO_FUNC_SEL_IDX_LO = 2
@@ -99,9 +103,32 @@ object MmioMap {
   val UART_BAUD_OFFSET   = 8   // Baud divider
 
   // Borg GPU (Borg.scala)
+  val BORG_NUM_REGS       = 32
   val BORG_REG_OFFSET     = 0    // Register file base (32 × 16-bit)
-  val BORG_IMEM_OFFSET    = 128  // Instruction memory base (8 × 16-bit)
-  val BORG_CONTROL_OFFSET = 252  // Control / status register
+  val BORG_IMEM_SLOTS     = 32
+  val BORG_IMEM_OFFSET    = BORG_REG_OFFSET + (BORG_NUM_REGS * 4)  // Instruction memory base (32 × 32-bit)
+  val BORG_IMEM_END       = BORG_IMEM_OFFSET + (BORG_IMEM_SLOTS * 4)
+  val BORG_ITER_BBOX_OFFSET = BORG_IMEM_END      // Pixel iterator: write bbox
+  val BORG_ITER_OFFSET      = BORG_ITER_BBOX_OFFSET + 4  // Pixel iterator: advance
+  val BORG_CONTROL_OFFSET   = BORG_ITER_OFFSET + 4  // Control / status register
+
+  // Borg pixel iterator configuration
+  val BORG_ITER_COORD_BITS    = 6
+  val BORG_ITER_COORD_MASK    = (1 << BORG_ITER_COORD_BITS) - 1
+
+  // SPIR-B instruction format sizing
+  val SPIRB_INSTR_BYTES       = 4
+  
+  // Iterator reading layout (from BORG_ITER)
+  val BORG_ITER_X_SHIFT       = 0
+  val BORG_ITER_Y_SHIFT       = BORG_ITER_X_SHIFT + BORG_ITER_COORD_BITS
+  val BORG_ITER_VALID_SHIFT   = BORG_ITER_Y_SHIFT + BORG_ITER_COORD_BITS
+
+  // Iterator BBOX packing layout (to BORG_ITER_BBOX)
+  val BORG_ITER_BBOX_X0_SHIFT = 0
+  val BORG_ITER_BBOX_Y0_SHIFT = BORG_ITER_BBOX_X0_SHIFT + BORG_ITER_COORD_BITS
+  val BORG_ITER_BBOX_X1_SHIFT = BORG_ITER_BBOX_Y0_SHIFT + BORG_ITER_COORD_BITS
+  val BORG_ITER_BBOX_Y1_SHIFT = BORG_ITER_BBOX_X1_SHIFT + BORG_ITER_COORD_BITS
 
   // Borg control register bits (write to BORG_CONTROL)
   val BORG_CTL_START = 1  // bit 0: start execution
@@ -115,6 +142,8 @@ object MmioMap {
   // Borg status register bits (read from BORG_STATUS)
   val BORG_STS_IDLE  = 2  // bit 1: pipeline idle (not running)
 
+
+
   // --- PSRAM addresses (QSPI memory space, not peripheral space) ---
   val PSRAM_BASE       = 0x01001000  // CPU address
   val PSRAM_SPI_BASE   = 0x001000    // SPI/QSPI address (24-bit)
@@ -123,197 +152,24 @@ object MmioMap {
   // --- Shared PSRAM layout (used by both firmware and host) ---
   val TEX_PSRAM_OFFSET = 4200        // Texture data starts here (word index)
   val DONE_MARKER      = 0xDEAD      // Frame completion sentinel
+  val STARTUP_DELAY_CYCLES = 10000   // Convenience delay iterations
 
   // --- Chisel UInt accessors for hardware ---
   def socPeriU(idx: Int): UInt = idx.U(4.W)
   def userPeriU(idx: Int): UInt = idx.U
 
   // --- Full address computation helpers ---
-  private def userAddr(select: Int, offset: Int): Int = USER_BASE + select * 256 + offset
+  def userAddr(select: Int, offset: Int): Int = USER_BASE + select * 512 + offset
 
+  // --- Derived Base Addresses for Firmware / Host ---
+  val USER_PERI_STRIDE             = 1 << (USER_SUB_ADDR_HI + 1)
+  val GPIO_BASE                    = USER_BASE + USER_PERI_GPIO * USER_PERI_STRIDE
+  val UART_BASE                    = USER_BASE + USER_PERI_UART * USER_PERI_STRIDE
+  val BORG_BASE                    = USER_BASE + USER_PERI_BORG * USER_PERI_STRIDE
 
-
-  // --- Formatter Abstraction ---
-  abstract class Emitter(val w: java.io.PrintWriter) {
-    def comment(text: String): Unit
-    def section(text: String): Unit = { w.println(); comment(s"--- $text ---") }
-    def assign(name: String, value: Int, commentStr: String = ""): Unit
-    def assignHex(name: String, value: Int, width: Int): Unit
-
-    def emitInstrR(name: String, hexOp: String): Unit
-    def emitInstrR4(name: String, hexOp: String): Unit
-    def emitInstrR1(name: String, hexOp: String): Unit
-    def emitInstr0(name: String, hexOp: String): Unit
-  }
-
-  class CEmitter(w: java.io.PrintWriter) extends Emitter(w) {
-    w.println("#pragma once")
-    w.println()
-
-    def comment(text: String): Unit = w.println(s"// $text")
-    def assign(name: String, value: Int, commentStr: String = ""): Unit = {
-      val cmt = if (commentStr.nonEmpty) s"  // $commentStr" else ""
-      w.println(s"#define $name $value$cmt")
-    }
-    def assignHex(name: String, value: Int, width: Int): Unit = {
-      val hex = String.format(s"%0${width}X", Integer.valueOf(value))
-      w.println(s"#define $name 0x$hex")
-    }
-
-    def emitInstrR(name: String, hexOp: String): Unit = {
-      val m = s"BORG_INSTR_${name.toUpperCase}(rd, rs1, rs2)"
-      w.println(f"#define $m%-35s (0x${hexOp}UL | $C_ARGS_R)")
-    }
-    def emitInstrR4(name: String, hexOp: String): Unit = {
-      val m = s"BORG_INSTR_${name.toUpperCase}(rd, rs1, rs2, rs3)"
-      w.println(f"#define $m%-35s (0x${hexOp}UL | $C_ARGS_R4)")
-    }
-    def emitInstrR1(name: String, hexOp: String): Unit = {
-      val m = s"BORG_INSTR_${name.toUpperCase}(rd, rs1)"
-      w.println(f"#define $m%-35s (0x${hexOp}UL | $C_ARGS_FNEG)")
-    }
-    def emitInstr0(name: String, hexOp: String): Unit = {
-      val m = s"BORG_INSTR_${name.toUpperCase}"
-      w.println(f"#define $m%-35s 0x${hexOp}UL")
-    }
-  }
-
-  class PythonEmitter(w: java.io.PrintWriter) extends Emitter(w) {
-    def comment(text: String): Unit = w.println(s"# $text")
-    def assign(name: String, value: Int, commentStr: String = ""): Unit = {
-      val cmt = if (commentStr.nonEmpty) s"  # $commentStr" else ""
-      w.println(s"$name = $value$cmt")
-    }
-    def assignHex(name: String, value: Int, width: Int): Unit = {
-      val hex = String.format(s"%0${width}X", Integer.valueOf(value))
-      w.println(s"$name = 0x$hex")
-    }
-
-    def emitInstrR(name: String, hexOp: String): Unit = {
-      w.println(s"def encode_rv32_$name(rs1=0, rs2=1, rd=2):")
-      w.println(s"    return (0x$hexOp | $PY_ARGS_R)")
-    }
-    def emitInstrR4(name: String, hexOp: String): Unit = {
-      w.println(s"def encode_rv32_$name(rs1=0, rs2=1, rs3=3, rd=2):")
-      w.println(s"    return (0x$hexOp | $PY_ARGS_R4)")
-    }
-    def emitInstrR1(name: String, hexOp: String): Unit = {
-      w.println(s"def encode_rv32_$name(rs1=0, rd=1):")
-      w.println(s"    return (0x$hexOp | $PY_ARGS_FNEG)")
-    }
-    def emitInstr0(name: String, hexOp: String): Unit = {
-      // Not typically needed in python host, but added for completeness
-      w.println(s"def encode_rv32_$name(): return 0x$hexOp")
-    }
-  }
-
-  private def emitCommon(e: Emitter): Unit = {
-    e.section("System clock")
-    e.assign("CLOCK_MHZ", CLOCK_MHZ)
-
-    e.section("Shared PSRAM layout")
-    e.assign("TEX_PSRAM_OFFSET", TEX_PSRAM_OFFSET)
-    e.assignHex("DONE_MARKER", DONE_MARKER, 4)
-
-    e.section("SPIR-B binary format")
-    e.assign("SPIRB_INSTR_BYTES", 4)
-
-    e.section("Borg instruction encoding (32-bit RISC-V R-type / R4-type)")
-    def hex(i: BigInt) = f"$i%08X"
-    e.emitInstrR("fadd", hex(ADD(0,0,0)))
-    e.emitInstrR("fmul", hex(MUL(0,0,0)))
-    e.emitInstrR4("fmadd", hex(FMA(0,0,0,0)))
-    e.emitInstrR1("fneg", hex(FNEG(0,0)))
-    e.emitInstrR1("fstep", hex(FSTEP(0,0)))
-    e.emitInstrR1("frcp", hex(FRCP(0,0)))
-    e.emitInstr0("halt", "00000000")
-  }
-
-  /** Emit C header with all MMIO addresses. */
-  def emitHeader(path: String): Unit = {
-    val w = new java.io.PrintWriter(path)
-    val e = new CEmitter(w)
-    e.comment("Auto-generated by MmioMap.scala — do not edit manually")
-
-    emitCommon(e)
-
-    e.section("User UART peripheral")
-    e.assign("UART_BAUD_DEFAULT", CLOCK_MHZ * 1000000 / 115200, s"$CLOCK_MHZ MHz / 115200 baud")
-    w.println(f"#define UART_TX     (*(volatile uint32_t *)0x${userAddr(USER_PERI_UART, UART_TX_OFFSET)}%08XUL)")
-    w.println(f"#define UART_STATUS (*(volatile uint32_t *)0x${userAddr(USER_PERI_UART, UART_STATUS_OFFSET)}%08XUL)")
-    w.println(f"#define UART_BAUD   (*(volatile uint32_t *)0x${userAddr(USER_PERI_UART, UART_BAUD_OFFSET)}%08XUL)")
-
-    e.section("Borg GPU peripheral")
-    val borgBase = userAddr(USER_PERI_BORG, 0)
-    w.println(f"#define BORG_BASE    0x${borgBase}%08XUL")
-    w.println(f"#define BORG_REG(n)     (*(volatile uint32_t *)(BORG_BASE + (n) * 4))")
-    w.println(f"#define BORG_IMEM(n)    (*(volatile uint32_t *)(BORG_BASE + ${BORG_IMEM_OFFSET} + (n) * 4))")
-    w.println(f"#define BORG_CONTROL    (*(volatile uint32_t *)(BORG_BASE + ${BORG_CONTROL_OFFSET}))")
-    w.println(f"#define BORG_STATUS     (*(volatile uint32_t *)(BORG_BASE + ${BORG_CONTROL_OFFSET}))")
-    e.assign("BORG_CTL_START", BORG_CTL_START, "write: start execution")
-    e.assign("BORG_CTL_RESET", BORG_CTL_RESET, "write: reset pipeline")
-    e.assign("BORG_CTL_PC_SHIFT", BORG_CTL_PC_SHIFT, "bit offset for PC jump")
-    e.assignHex("BORG_CTL_PC_MASK", BORG_CTL_PC_MASK, 2)
-    w.println(s"#define BORG_CTL_PC(pc) (((pc) & BORG_CTL_PC_MASK) << BORG_CTL_PC_SHIFT)")
-    e.assign("BORG_STS_IDLE", BORG_STS_IDLE, "read: pipeline idle")
-
-    e.section("PSRAM (QSPI memory space)")
-    w.println(f"#define PSRAM_IN(n)  (*(volatile uint32_t *)(0x${PSRAM_BASE}%08XUL + (n) * 4))")
-    w.println(f"#define PSRAM_OUT(n) (*(volatile uint32_t *)(0x${PSRAM_BASE}%08XUL + ${PSRAM_OUT_OFFSET} + (n) * 4))")
-
-    e.section("Convenience")
-    w.println("#define STARTUP_DELAY() do { \\")
-    w.println("    for (volatile int i = 0; i < 10000; i++) ; \\")
-    w.println("  } while (0)")
-
-    w.close()
-    println(s"Generated MMIO header: $path")
-  }
-
-  /** Emit Python constants file for host scripts. */
-  def emitPython(path: String): Unit = {
-    val w = new java.io.PrintWriter(path)
-    val e = new PythonEmitter(w)
-    e.comment("Auto-generated by MmioMap.scala — do not edit manually")
-
-    emitCommon(e)
-
-    e.section("PSRAM addresses (QSPI/SPI space)")
-    w.println(f"PSRAM_IO_SPI_ADDR = 0x${PSRAM_SPI_BASE}%06X")
-    e.assign("PSRAM_OUT_OFFSET", PSRAM_OUT_OFFSET)
-
-    e.section("System clock additions")
-    e.assign("FPGA_CLOCK_HZ", CLOCK_MHZ * 1000000, "CLOCK_MHZ * 1e6")
-
-    e.section("User peripheral addressing (for TinyQV bus driver)")
-    val stride = 1 << (USER_SUB_ADDR_HI + 1)
-    w.println(f"USER_PERIPHERAL_STRIDE = 0x${stride}%02X")
-
-    e.section("SoC peripheral offsets (tp-relative, bypass user peripheral decoding)")
-    w.println(f"SOC_PERI_ID           = 0x${PERI_ID * 4}%02X")
-    w.println(f"SOC_PERI_GPIO_OUT_SEL = 0x${PERI_GPIO_OUT_SEL * 4}%02X")
-    w.println(f"SOC_PERI_DEBUG_UART   = 0x${PERI_DEBUG_UART * 4}%02X")
-    w.println(f"SOC_PERI_TIME_LIMIT   = 0x${PERI_TIME_LIMIT * 4}%02X")
-
-    e.section("User peripheral base offsets (tp-relative)")
-    w.println(f"GPIO_BASE = 0x${USER_PERI_GPIO * stride}%02X")
-    w.println(f"UART_BASE = 0x${USER_PERI_UART * stride}%02X")
-    w.println(f"BORG_USER_BASE = 0x${USER_PERI_BORG * stride}%02X")
-
-    e.section("GPIO sub-register offsets (relative to GPIO_BASE)")
-    e.assign("GPIO_OUT", GPIO_OUT_OFFSET)
-    e.assign("GPIO_IN", GPIO_IN_OFFSET)
-    w.println(f"GPIO_FUNC_SEL = GPIO_BASE + 0x${1 << GPIO_FUNC_SEL_BIT}%02X  # func_sel register space")
-
-    e.section("UART sub-register offsets (relative to UART_BASE)")
-    e.assign("UART_TX_DATA", UART_TX_OFFSET)
-    e.assign("UART_STATUS", UART_STATUS_OFFSET)
-
-    e.section("Borg GPU sub-register offsets")
-    e.assign("BORG_IMEM_OFFSET", BORG_IMEM_OFFSET)
-    e.assign("BORG_CONTROL_OFFSET", BORG_CONTROL_OFFSET)
-
-    w.close()
-    println(s"Generated Python constants: $path")
-  }
+  val SOC_PERI_ID_OFFSET           = PERI_ID * 4
+  val SOC_PERI_GPIO_OUT_SEL_OFFSET = PERI_GPIO_OUT_SEL * 4
+  val SOC_PERI_DEBUG_UART_OFFSET   = PERI_DEBUG_UART * 4
+  val SOC_PERI_TIME_LIMIT_OFFSET   = PERI_TIME_LIMIT * 4
 }
+
