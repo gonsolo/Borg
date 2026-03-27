@@ -36,6 +36,7 @@
         pkgs.bash-completion
         pkgs.bear
         pkgs.bzip2
+        pkgs.circt
         pkgs.cmake
         pkgs.coreutils
         pkgs.gcc
