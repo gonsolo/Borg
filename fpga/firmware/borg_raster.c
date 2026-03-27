@@ -39,7 +39,7 @@ void compute_edge_vectors(const uv16_t *spos, uv16_t *edges) {
 
 void compute_pixel_deltas(uv16_t pc, const uv16_t *spos,
                                   uv16_t *deltas) {
-  borg_load_add_shader();
+  // add shader is loaded globally at offset 28
   for (int e = 0; e < 3; e++) {
     deltas[e] = (uv16_t){
       borg_fp16_sub_raw(pc.u, spos[e].u),
@@ -64,7 +64,7 @@ static edges3_t borg_rasterize_edges(const spirb_shader_t *s, const uv16_t *delt
     BORG_REG(s->attribute_regs[i * 2 + 0]) = deltas[i].u;
     BORG_REG(s->attribute_regs[i * 2 + 1]) = deltas[i].v;
   }
-  borg_run();
+  borg_run(BORG_IMEM_RAST_OFFSET);
   return (edges3_t){
     BORG_REG(s->output_regs[0]) & 0xFFFF,
     BORG_REG(s->output_regs[1]) & 0xFFFF,
@@ -82,15 +82,14 @@ int __attribute__((noinline)) borg_shade_fragment(
     const uv16_t uvs[3],
     rgb16_t *color_out,
     fp16_t *z_out, uv16_t *uv_out) {
-  // Batched edge evaluation via SPIR-B rasterize shader
-  borg_load_spirb_shader(rast_shader);
+  // Batched edge evaluation via SPIR-B rasterize shader (loaded at offset 0)
   borg_load_edge_constants(rast_shader, edges);
   edges3_t e = borg_rasterize_edges(rast_shader, deltas);
   if ((fp16_ge_zero(e.e0) && e.e0 != 0) ||
       (fp16_ge_zero(e.e1) && e.e1 != 0) ||
       (fp16_ge_zero(e.e2) && e.e2 != 0))
     return 0;
-  borg_load_spirb_shader(frag_shader);
+  // Fragment shader is loaded at offset 16
 
   // Load batched fragment shader uniforms
   BORG_REG(frag_shader->uniform_regs[0]) = inv_area;
@@ -123,7 +122,7 @@ int __attribute__((noinline)) borg_shade_fragment(
   BORG_REG(frag_shader->attribute_regs[1]) = e.e1;
   BORG_REG(frag_shader->attribute_regs[2]) = e.e2;
 
-  borg_run();
+  borg_run(BORG_IMEM_FRAG_OFFSET);
 
   // Read batched outputs
   color_out->r = BORG_REG(frag_shader->output_regs[0]) & 0xFFFF;

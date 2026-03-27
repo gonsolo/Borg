@@ -100,7 +100,7 @@ static void run_vertex_shader(const fp16_t *uniforms,
       BORG_REG(s->attribute_regs[i]) = attrs[v * s->num_attributes + i];
     for (int i = 0; i < s->num_consts; i++)
       BORG_REG(s->const_regs[i]) = s->const_vals[i];
-    borg_run();
+    borg_run(BORG_IMEM_VERT_OFFSET);
     for (int i = 0; i < s->num_outputs; i++)
       outputs[v * s->num_outputs + i] = BORG_REG(s->output_regs[i]) & 0xFFFF;
   }
@@ -366,6 +366,11 @@ static void rasterize_clipped_triangle(const clip_vertex_t *cv,
     uv_vals[2] = (uv16_t){ cv[2].u, cv[2].v };
     uvs = uv_vals;
   }
+
+  // Load shaders once per triangle into dual IMEM slots
+  borg_load_spirb_shader_at(&rast_shader, BORG_IMEM_RAST_OFFSET);
+  borg_load_spirb_shader_at(&frag_shader, BORG_IMEM_FRAG_OFFSET);
+  borg_load_add_shader();
 
   // Rasterize + fragment shade in 4x4 blocks
   const int BLOCK_SIZE = 4;

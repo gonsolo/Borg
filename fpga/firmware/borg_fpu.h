@@ -18,7 +18,7 @@ struct spirb_shader_t;
 typedef struct spirb_shader_t spirb_shader_t;
 
 // --- Borg FPU wrappers ---
-void borg_run(void);
+void borg_run(uint32_t start_pc);
 fp16_t borg_fp16_add(fp16_t a, fp16_t b);
 fp16_t borg_fp16_mul(fp16_t a, fp16_t b);
 fp16_t borg_fp16_fmadd(fp16_t a, fp16_t b, fp16_t c);
@@ -47,6 +47,12 @@ int fp16_to_uint(fp16_t fp16);
 fp16_t uint_to_fp16(int val);
 
 // --- Shader loader helpers ---
+#define BORG_IMEM_VERT_OFFSET 0
+#define BORG_IMEM_RAST_OFFSET 0
+#define BORG_IMEM_FRAG_OFFSET 7
+#define BORG_IMEM_ADD_OFFSET  29
+
 void borg_load_spirb_shader(const spirb_shader_t *s);
+void borg_load_spirb_shader_at(const spirb_shader_t *s, int offset);
 void borg_load_add_shader(void);
 fp16_t borg_fp16_sub_raw(fp16_t a, fp16_t b);

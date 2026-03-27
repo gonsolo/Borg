@@ -171,7 +171,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     when(is_writing && io.address === 252.U) {
       when(io.data_in(0)) { running := true.B }
       when(io.data_in(1)) {
-        programCounter := 0.U
+        programCounter := io.data_in(MmioMap.BORG_CTL_PC_MSB, MmioMap.BORG_CTL_PC_LSB)
         running := false.B
         busy_counter := 0.U
       }

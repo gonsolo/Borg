@@ -9,8 +9,8 @@
 
 // @doc:fpu-helpers
 // --- Borg FPU helpers ---
-void borg_run(void) {
-  BORG_CONTROL = BORG_CTL_RESET;
+void borg_run(uint32_t start_pc) {
+  BORG_CONTROL = BORG_CTL_RESET | BORG_CTL_PC(start_pc);
   (void)BORG_STATUS;
   BORG_CONTROL = BORG_CTL_START;
   int timeout = 100000;
@@ -21,60 +21,64 @@ void borg_run(void) {
 }
 
 fp16_t borg_fp16_add(fp16_t a, fp16_t b) {
-  BORG_IMEM(0) = BORG_INSTR_FADD(0, 1, 2);
-  BORG_IMEM(1) = BORG_INSTR_HALT;
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FADD(0, 1, 2);
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
   BORG_REG(1) = a;
   BORG_REG(2) = b;
-  borg_run();
+  borg_run(BORG_IMEM_ADD_OFFSET);
   return BORG_REG(0) & 0xFFFF;
 }
 
 fp16_t borg_fp16_mul(fp16_t a, fp16_t b) {
-  BORG_IMEM(0) = BORG_INSTR_FMUL(0, 1, 2);
-  BORG_IMEM(1) = BORG_INSTR_HALT;
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FMUL(0, 1, 2);
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
   BORG_REG(1) = a;
   BORG_REG(2) = b;
-  borg_run();
+  borg_run(BORG_IMEM_ADD_OFFSET);
   return BORG_REG(0) & 0xFFFF;
 // @doc:end
 }
 
 fp16_t borg_fp16_fmadd(fp16_t a, fp16_t b, fp16_t c) {
-  BORG_IMEM(0) = BORG_INSTR_FMADD(0, 1, 2, 3);
-  BORG_IMEM(1) = BORG_INSTR_HALT;
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FMADD(0, 1, 2, 3);
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
   BORG_REG(1) = a;
   BORG_REG(2) = b;
   BORG_REG(3) = c;
-  borg_run();
+  borg_run(BORG_IMEM_ADD_OFFSET);
   return BORG_REG(0) & 0xFFFF;
 }
 
 // FP16 reciprocal: 1/x via hardware FRCP instruction (LUT + interpolation).
 fp16_t borg_fp16_rcp(fp16_t x) {
-  BORG_IMEM(0) = BORG_INSTR_FRCP(0, 1);
-  BORG_IMEM(1) = BORG_INSTR_HALT;
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FRCP(0, 1);
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
   BORG_REG(1) = x;
-  borg_run();
+  borg_run(BORG_IMEM_ADD_OFFSET);
   return BORG_REG(0) & 0xFFFF;
 }
 
-void borg_load_spirb_shader(const spirb_shader_t *s) {
+void borg_load_spirb_shader_at(const spirb_shader_t *s, int offset) {
   for (int i = 0; i < s->num_instrs; i++)
-    BORG_IMEM(i) = s->instrs[i];
-  BORG_IMEM(s->num_instrs) = BORG_INSTR_HALT;
+    BORG_IMEM(offset + i) = s->instrs[i];
+  BORG_IMEM(offset + s->num_instrs) = BORG_INSTR_HALT;
+}
+
+void borg_load_spirb_shader(const spirb_shader_t *s) {
+  borg_load_spirb_shader_at(s, 0);
 }
 
 void borg_load_add_shader(void) {
-  BORG_IMEM(0) = BORG_INSTR_FADD(0, 1, 2);
-  BORG_IMEM(1) = BORG_INSTR_HALT;
-  BORG_IMEM(2) = BORG_INSTR_HALT;
-  BORG_IMEM(3) = BORG_INSTR_HALT;
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FADD(0, 1, 2);
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
 }
 
 fp16_t borg_fp16_sub_raw(fp16_t a, fp16_t b) {
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FADD(0, 1, 2);
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
   BORG_REG(1) = a;
   BORG_REG(2) = b ^ 0x8000;
-  borg_run();
+  borg_run(BORG_IMEM_ADD_OFFSET);
   return BORG_REG(0) & 0xFFFF;
 }
 

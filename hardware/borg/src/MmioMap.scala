@@ -106,6 +106,11 @@ object MmioMap {
   // Borg control register bits (write to BORG_CONTROL)
   val BORG_CTL_START = 1  // bit 0: start execution
   val BORG_CTL_RESET = 2  // bit 1: reset pipeline
+  val BORG_CTL_PC_SHIFT = 5    // bit 5: start of PC offset
+  val BORG_CTL_PC_BITS  = 5    // width of PC offset
+  val BORG_CTL_PC_MSB   = BORG_CTL_PC_SHIFT + BORG_CTL_PC_BITS - 1
+  val BORG_CTL_PC_LSB   = BORG_CTL_PC_SHIFT
+  val BORG_CTL_PC_MASK  = (1 << BORG_CTL_PC_BITS) - 1
 
   // Borg status register bits (read from BORG_STATUS)
   val BORG_STS_IDLE  = 2  // bit 1: pipeline idle (not running)
@@ -247,6 +252,9 @@ object MmioMap {
     w.println(f"#define BORG_STATUS     (*(volatile uint32_t *)(BORG_BASE + ${BORG_CONTROL_OFFSET}))")
     e.assign("BORG_CTL_START", BORG_CTL_START, "write: start execution")
     e.assign("BORG_CTL_RESET", BORG_CTL_RESET, "write: reset pipeline")
+    e.assign("BORG_CTL_PC_SHIFT", BORG_CTL_PC_SHIFT, "bit offset for PC jump")
+    e.assignHex("BORG_CTL_PC_MASK", BORG_CTL_PC_MASK, 2)
+    w.println(s"#define BORG_CTL_PC(pc) (((pc) & BORG_CTL_PC_MASK) << BORG_CTL_PC_SHIFT)")
     e.assign("BORG_STS_IDLE", BORG_STS_IDLE, "read: pipeline idle")
 
     e.section("PSRAM (QSPI memory space)")

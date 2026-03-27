@@ -35,6 +35,9 @@
 #define BORG_STATUS     (*(volatile uint32_t *)(BORG_BASE + 252))
 #define BORG_CTL_START 1  // write: start execution
 #define BORG_CTL_RESET 2  // write: reset pipeline
+#define BORG_CTL_PC_SHIFT 5  // bit offset for PC jump
+#define BORG_CTL_PC_MASK 0x1F
+#define BORG_CTL_PC(pc) (((pc) & BORG_CTL_PC_MASK) << BORG_CTL_PC_SHIFT)
 #define BORG_STS_IDLE 2  // read: pipeline idle
 
 // --- PSRAM (QSPI memory space) ---

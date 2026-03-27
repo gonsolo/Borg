@@ -33,12 +33,12 @@ compute.
 | Step | CPU → PSRAM | GPU → PSRAM | Contention |
 | ---- | ----------- | ----------- | ---------- |
 | Current | R/W every pixel | None | Low (CPU is sole user) |
-| 0–8 | R/W every pixel (unchanged) | None | Low |
-| **9 (tile buffer)** | **Between tiles only** | **Write** (tile flush) | **Low** |
-| 10–11 | Between tiles/triangles | Write (flush) | Low |
-| **12 (texture fetch)** | Between triangles | **Read + Write** | **None** — CPU out of loop |
-| 13–14 | Submit + wait only | Full owner | None |
-| 15–19 (CPU ext.) | Submit + wait | Full owner | None |
+| 0–9 | R/W every pixel (unchanged) | None | Low |
+| **10 (tile buffer)** | **Between tiles only** | **Write** (tile flush) | **Low** |
+| 11–12 | Between tiles/triangles | Write (flush) | Low |
+| **13 (texture fetch)** | Between triangles | **Read + Write** | **None** — CPU out of loop |
+| 14–15 | Submit + wait only | Full owner | None |
+| 16–20 (CPU ext.) | Submit + wait | Full owner | None |
 
 ### Step 0: ~~Nibble-Serial FMA~~ (removed 2026-03-23)
 
@@ -71,15 +71,19 @@ to standard 32-bit RISC-V (R-type / R4-type).  This expansion provides
 enough capacity to run the full `vkcube` perspective projection vertex
 shader in a single pass.
 
-### Step 4: Perspective Projection (Hardware Shader) ✅ (2026-03-24)
+### Step 4: Larger Register File + IMEM ✅ (2026-03-23)
+
+Expanded to 32 registers and 32 IMEM slots.
+
+### Step 5: Perspective Projection (Hardware Shader) ✅ (2026-03-24)
 
 4×4 MVP matrix multiply per vertex (~16 FMA per vertex). Transforms from
 model space to clip space natively. Thanks to the expanded
 32-entry register file, this entire operation is now loaded and executed
-natively as a single shader program on the Borg GPU. (Perspective divide is 
+natively as a single shader program on the Borg GPU. (Perspective divide is
 currently mapped to a fast firmware soft-float via `borg_fp16_rcp`).
 
-### Step 5: Hardware Reciprocal (RCP) Unit ✅ (2026-03-24)
+### Step 6: Hardware Reciprocal (RCP) Unit ✅ (2026-03-24)
 
 Combinational FP16 reciprocal using a 17-entry VecInit LUT with linear
 interpolation (~0.05% accuracy).  Mapped to `FRCP` instruction (funct7=0x0A).
@@ -88,7 +92,7 @@ W-divide with a single instruction.  Also fixed vkcube bottom-face rendering:
 added explicit back-face culling (positive-area skip) and negative-Z pixel
 discard to prevent FP16 edge-test precision leaks from corrupting the Z-buffer.
 
-### Step 6: Triangle Clipping (Hardware Shader) ✅ (2026-03-27)
+### Step 7: Triangle Clipping (Hardware Shader) ✅ (2026-03-27)
 
 Near/far plane Sutherland–Hodgman clipping in firmware: vertices classified
 against near (z ≥ 0) and far (z ≤ w) planes, intersection computed via
@@ -97,53 +101,60 @@ Verified with vkcube at Z=0.0 (near-clipped), Z=0.5 (visible), Z=1.5
 (far-clipped).  Also refactored vkcube: compact indexed geometry, mat4
 helpers, fp16_from_float(), and Vulkan-style BorgShaderModule API.
 
-### Step 7: Hardware Fragment Interpolation ✅ (2026-03-27)
+### Step 8: Hardware Fragment Interpolation ✅ (2026-03-27)
 
 Batch up to 6 fragment channel computations
 (`channel = (e0·c0 + e1·c1 + e2·c2) · inv_area` for R, G, B, Z, U, V) through
 the FMA with a single trigger. Eliminates 3–6 more round-trips per pixel.
 
-### Step 8: Pixel Iterator (Hardware Rasterizer)
+### Step 9: Pixel Iterator (Hardware Rasterizer)
 
 Counter-based x/y walker that evaluates edge functions (Step 1) and triggers
-fragment interpolation (Step 7) for each inside pixel. CPU submits one triangle
+fragment interpolation (Step 8) for each inside pixel. CPU submits one triangle
 instead of driving every pixel. **This is the key transition from
 "ALU co-processor" to "rasterizer."** Estimate: 1–2 weeks.
 
-### Step 9: On-Chip Tile Buffer (BRAM)
+- [x] **Step 9.1: Dual Shader IMEM Residency** ✅ (2026-03-27)
+  Added `start_pc` jump control via `BORG_CONTROL` to keep `rast`, `frag`, and `add` shaders concurrently active in the 32-entry IMEM.
+- [ ] **Step 9.2: Hardware Counter Iterator**
+- [ ] **Step 9.3: Hardware Edge Bounding Box Evaluation**
+- [ ] **Step 9.4: Hardware Coord Expansion (int-to-fp16)**
+- [ ] **Step 9.5: CPU-Drawn Pixel Dispatch**
+
+### Step 10: On-Chip Tile Buffer (BRAM)
 
 4×4 pixel tile buffer in Block RAM (RGB + Z). Rasterizer writes on-chip; a
 burst flush writes the completed tile to PSRAM. Eliminates per-pixel PSRAM
 round-trips. Tile-based approach matches mobile GPU architecture (Mali,
 PowerVR, Adreno). Estimate: 1–2 weeks.
 
-### Step 10: Hardware Z-Buffer Unit
+### Step 11: Hardware Z-Buffer Unit
 
 FP16 comparator at the tile buffer write port — depth test in hardware instead
 of firmware. ~20 LUTs. Estimate: 2–3 days.
 
-### Step 11: Command FIFO
+### Step 12: Command FIFO
 
 2–4 entry FIFO between CPU and pixel iterator. CPU submits the next triangle
 while GPU rasterizes the current one. Embryonic command buffer.
 Estimate: 3–5 days.
 
-### Step 12: Texture Fetch Unit
+### Step 13: Texture Fetch Unit
 
 UV-to-texel conversion, Morton addressing, and PSRAM texel read inside the
 pixel iterator. By this step the CPU is out of the inner loop, so there is no
 bus contention — the failure mode of the earlier texture cache experiment.
 Estimate: 1–2 weeks.
 
-### Step 13: Vertex Shader Auto-Sequencer
+### Step 14: Vertex Shader Auto-Sequencer
 
 FSM that sequences 3 vertex shader runs (loading attributes, running SPIR-B
 shader, storing outputs, applying screen-space transform) without CPU
 involvement. Estimate: 1 week.
 
-### Step 14: Full Autonomous Triangle Pipeline
+### Step 15: Full Autonomous Triangle Pipeline
 
-Integration of Steps 0–13. CPU submits a triangle descriptor; GPU does
+Integration of Steps 0–14. CPU submits a triangle descriptor; GPU does
 vertex shade → triangle setup → rasterize → fragment shade → Z-test →
 tile buffer → PSRAM flush. CPU only writes triangle data and waits for DONE.
 Estimate: 1–2 weeks.
@@ -151,41 +162,41 @@ Estimate: 1–2 weeks.
 ### Step Dependencies
 
 ```text
-Step 1 (edge HW) → Step 7 (frag HW) → Step 8 (pixel iterator)
-                                               ├→ Step 9 (tile buffer) → Step 10 (Z-test)
-                                               ├→ Step 11 (command FIFO)
-                                               └→ Step 12 (texture fetch)
-     Step 13 (vertex auto-seq) ────────────────┘ (independent, plugs in at front)
-     Step 14 = integration test of all above
+Step 1 (edge HW) → Step 8 (frag HW) → Step 9 (pixel iterator)
+                                               ├→ Step 10 (tile buffer) → Step 11 (Z-test)
+                                               ├→ Step 12 (command FIFO)
+                                               └→ Step 13 (texture fetch)
+     Step 14 (vertex auto-seq) ────────────────┘ (independent, plugs in at front)
+     Step 15 = integration test of all above
 ```
 
 ## Phase 3: Linux-Capable CPU
 
 Target: ~Aug 2026 — expand TinyQV to RV32IMA. Sequential after Phase 2.
 
-### Step 15: M Extension (Integer Multiply/Divide)
+### Step 16: M Extension (Integer Multiply/Divide)
 
 Add dedicated integer multiplier for MUL/MULH/DIV/REM.
 Estimate: 1 week.
 
-### Step 16: A Extension (Atomics)
+### Step 17: A Extension (Atomics)
 
 LR.W / SC.W for Linux `futex` and spinlocks. Reservation register (32-bit
 address + valid bit). ~100 LUTs. Reference KianV implementation.
 Estimate: 3–5 days.
 
-### Step 17: MMU (Sv32)
+### Step 18: MMU (Sv32)
 
 Two-level page table walker, 4–8 entry TLB, `satp`/`mstatus` CSRs.
 Intermediate milestone: boot no-MMU Linux first (~1 week).
 ~800–1200 LUTs — the most expensive single addition.
 Estimate: 3–4 weeks.
 
-### Step 18: Boot no-MMU Linux
+### Step 19: Boot no-MMU Linux
 
 Intermediate milestone before full MMU. Estimate: 1 week.
 
-### Step 19: Boot Full Linux
+### Step 20: Boot Full Linux
 
 Kernel, device tree, rootfs on QSPI PSRAM (8 MB). Estimate: 1–2 weeks.
 
@@ -193,23 +204,23 @@ Kernel, device tree, rootfs on QSPI PSRAM (8 MB). Estimate: 1–2 weeks.
 
 Target: ~Oct 2026 (~6–8 weeks total). Write a Mesa Vulkan ICD for the Borg GPU.
 
-### Step 20: Minimal `vk_device` + `wsi_headless`
+### Step 21: Minimal `vk_device` + `wsi_headless`
 
 Headless rendering, no window system needed. Estimate: 1–2 weeks.
 
-### Step 21: Shader Compiler (NIR → SPIR-B)
+### Step 22: Shader Compiler (NIR → SPIR-B)
 
 NIR backend generating Borg instructions. Estimate: 2–3 weeks.
 
-### Step 22: Draw Path (`vkCmdDraw`)
+### Step 23: Draw Path (`vkCmdDraw`)
 
 Vertex + fragment shader dispatch to hardware. Estimate: 1–2 weeks.
 
-### Step 23: Texture Sampling (Software)
+### Step 24: Texture Sampling (Software)
 
 CPU-side sampling, spec-compliant but slow. Estimate: 1 week.
 
-### Step 24: Vulkan CTS Subset
+### Step 25: Vulkan CTS Subset
 
 Run conformance tests, fix failures. Estimate: 1–2 weeks.
 
@@ -217,10 +228,6 @@ Run conformance tests, fix failures. Estimate: 1–2 weeks.
 
 Target: ~Jan 2027 (~6–8 weeks total). Extend the shader processor to support
 more Vulkan features. These items only make sense on a larger tile or ASIC.
-
-### Step 25: Larger Register File + IMEM
-
-16 regs, 16 IMEM slots for complex shaders. Estimate: 3–5 days.
 
 ### Step 26: Integer ALU Ops in Shader
 
