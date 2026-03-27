@@ -72,22 +72,8 @@ static edges3_t borg_rasterize_edges(const spirb_shader_t *s, const uv16_t *delt
   };
 }
 
-fp16_t __attribute__((noinline)) borg_frag_channel(
-    const spirb_shader_t *frag_shader,
-    edges3_t e,
-    fp16_t inv_area, fp16x3_t c) {
-  BORG_REG(frag_shader->attribute_regs[0]) = e.e0;
-  BORG_REG(frag_shader->attribute_regs[1]) = e.e1;
-  BORG_REG(frag_shader->attribute_regs[2]) = e.e2;
-  BORG_REG(frag_shader->uniform_regs[0]) = inv_area;
-  BORG_REG(frag_shader->uniform_regs[1]) = c.a;
-  BORG_REG(frag_shader->uniform_regs[2]) = c.b;
-  BORG_REG(frag_shader->uniform_regs[3]) = c.c;
-  borg_run();
-  return BORG_REG(frag_shader->output_regs[0]) & 0xFFFF;
-}
 
-int __attribute__((noinline)) borg_bary_rgb(
+int __attribute__((noinline)) borg_shade_fragment(
     const spirb_shader_t *rast_shader,
     const spirb_shader_t *frag_shader,
     const uv16_t *edges, const uv16_t *deltas,
@@ -105,15 +91,50 @@ int __attribute__((noinline)) borg_bary_rgb(
       (fp16_ge_zero(e.e2) && e.e2 != 0))
     return 0;
   borg_load_spirb_shader(frag_shader);
-  color_out->r = borg_frag_channel(frag_shader, e, inv_area, GATHER(colors, r));
-  color_out->g = borg_frag_channel(frag_shader, e, inv_area, GATHER(colors, g));
-  color_out->b = borg_frag_channel(frag_shader, e, inv_area, GATHER(colors, b));
-  *z_out = borg_frag_channel(frag_shader, e, inv_area, z_vals);
-  // UV interpolation (only when textured)
+
+  // Load batched fragment shader uniforms
+  BORG_REG(frag_shader->uniform_regs[0]) = inv_area;
+  BORG_REG(frag_shader->uniform_regs[1]) = colors[0].r;
+  BORG_REG(frag_shader->uniform_regs[2]) = colors[1].r;
+  BORG_REG(frag_shader->uniform_regs[3]) = colors[2].r;
+  BORG_REG(frag_shader->uniform_regs[4]) = colors[0].g;
+  BORG_REG(frag_shader->uniform_regs[5]) = colors[1].g;
+  BORG_REG(frag_shader->uniform_regs[6]) = colors[2].g;
+  BORG_REG(frag_shader->uniform_regs[7]) = colors[0].b;
+  BORG_REG(frag_shader->uniform_regs[8]) = colors[1].b;
+  BORG_REG(frag_shader->uniform_regs[9]) = colors[2].b;
+  BORG_REG(frag_shader->uniform_regs[10]) = z_vals.a;
+  BORG_REG(frag_shader->uniform_regs[11]) = z_vals.b;
+  BORG_REG(frag_shader->uniform_regs[12]) = z_vals.c;
+
   if (uvs) {
-    uv_out->u = borg_frag_channel(frag_shader, e, inv_area, GATHER(uvs, u));
-    uv_out->v = borg_frag_channel(frag_shader, e, inv_area, GATHER(uvs, v));
+    BORG_REG(frag_shader->uniform_regs[13]) = uvs[0].u;
+    BORG_REG(frag_shader->uniform_regs[14]) = uvs[1].u;
+    BORG_REG(frag_shader->uniform_regs[15]) = uvs[2].u;
+    BORG_REG(frag_shader->uniform_regs[16]) = uvs[0].v;
+    BORG_REG(frag_shader->uniform_regs[17]) = uvs[1].v;
+    BORG_REG(frag_shader->uniform_regs[18]) = uvs[2].v;
+  } else {
+    for (int i=13; i<=18; i++) BORG_REG(frag_shader->uniform_regs[i]) = 0;
   }
+
+  // Reload per-pixel attributes
+  BORG_REG(frag_shader->attribute_regs[0]) = e.e0;
+  BORG_REG(frag_shader->attribute_regs[1]) = e.e1;
+  BORG_REG(frag_shader->attribute_regs[2]) = e.e2;
+
+  borg_run();
+
+  // Read batched outputs
+  color_out->r = BORG_REG(frag_shader->output_regs[0]) & 0xFFFF;
+  color_out->g = BORG_REG(frag_shader->output_regs[1]) & 0xFFFF;
+  color_out->b = BORG_REG(frag_shader->output_regs[2]) & 0xFFFF;
+  *z_out = BORG_REG(frag_shader->output_regs[3]) & 0xFFFF;
+  if (uvs) {
+    uv_out->u = BORG_REG(frag_shader->output_regs[4]) & 0xFFFF;
+    uv_out->v = BORG_REG(frag_shader->output_regs[5]) & 0xFFFF;
+  }
+
   return 1;
 }
 

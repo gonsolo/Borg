@@ -36,7 +36,7 @@ fp16_t borg_frag_channel(const spirb_shader_t *frag_shader,
     fp16_t inv_area, fp16x3_t c);
 
 // Full barycentric rasterization: edge test + fragment shading for one pixel
-int borg_bary_rgb(const spirb_shader_t *rast_shader,
+int borg_shade_fragment(const spirb_shader_t *rast_shader,
     const spirb_shader_t *frag_shader,
     const uv16_t *edges, const uv16_t *deltas,
     fp16_t inv_area, const rgb16_t colors[3],

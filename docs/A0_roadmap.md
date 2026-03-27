@@ -97,12 +97,11 @@ Verified with vkcube at Z=0.0 (near-clipped), Z=0.5 (visible), Z=1.5
 (far-clipped).  Also refactored vkcube: compact indexed geometry, mat4
 helpers, fp16_from_float(), and Vulkan-style BorgShaderModule API.
 
-### Step 7: Hardware Fragment Interpolation
+### Step 7: Hardware Fragment Interpolation ✅ (2026-03-27)
 
 Batch up to 6 fragment channel computations
 (`channel = (e0·c0 + e1·c1 + e2·c2) · inv_area` for R, G, B, Z, U, V) through
 the FMA with a single trigger. Eliminates 3–6 more round-trips per pixel.
-Estimate: 1 week.
 
 ### Step 8: Pixel Iterator (Hardware Rasterizer)
 

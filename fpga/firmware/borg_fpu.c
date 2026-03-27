@@ -14,7 +14,9 @@ void borg_run(void) {
   (void)BORG_STATUS;
   BORG_CONTROL = BORG_CTL_START;
   int timeout = 100000;
-  while (!(BORG_STATUS & BORG_STS_IDLE) && timeout > 0)
+  // BORG_STATUS returns {running (1-bit), busy_counter (3-bits)}.
+  // So 'running' is bit 3, which is 8.
+  while ((BORG_STATUS & 8) && timeout > 0)
     timeout--;
 }
 

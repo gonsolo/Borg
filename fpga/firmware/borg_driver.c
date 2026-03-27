@@ -379,7 +379,7 @@ static void rasterize_clipped_triangle(const clip_vertex_t *cv,
           rgb16_t color = {0, 0, 0};
           fp16_t z = 0;
           uv16_t uv_interp = {0, 0};
-          int visible = borg_bary_rgb(&rast_shader, &frag_shader,
+          int visible = borg_shade_fragment(&rast_shader, &frag_shader,
                          edges, deltas,
                          inv_area, colors, z_vals, uvs,
                          &color, &z, &uv_interp);
