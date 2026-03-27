@@ -29,10 +29,27 @@ typedef struct {
     fp16_t uniforms[16];
 } borg_draw_data_t;
 
-// Initialize hardware, parse embedded shader blobs, read resolution from PSRAM
-void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
-               const uint8_t *rast_blob, unsigned int rast_len,
-               const uint8_t *frag_blob, unsigned int frag_len);
+// Shader module — mirrors Vulkan's VkShaderModule.
+// Created from compiled SPIR-B bytecode via borgCreateShaderModule().
+typedef struct {
+    const uint8_t *code;
+    unsigned int codeSize;
+} BorgShaderModule;
+
+// Create a shader module from compiled SPIR-B bytecode.
+// Mirrors vkCreateShaderModule().
+static inline void borgCreateShaderModule(BorgShaderModule *module,
+                                          const uint8_t *code,
+                                          unsigned int codeSize) {
+    module->code = code;
+    module->codeSize = codeSize;
+}
+
+// Initialize hardware, parse shader modules, read resolution from PSRAM.
+// Mirrors vkCreateGraphicsPipelines() — binds vert/rast/frag stages.
+void borg_init(const BorgShaderModule *vert,
+               const BorgShaderModule *rast,
+               const BorgShaderModule *frag);
 
 // Set up draw data from a rotation angle (FP16 radians)
 void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16);

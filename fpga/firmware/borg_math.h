@@ -23,6 +23,19 @@ static inline fp16_t fp16_neg(fp16_t x) {
     return x ^ 0x8000;
 }
 
+// Convert a C float literal to FP16 bit pattern.
+// Uses pure integer bit manipulation (union trick) — no soft-float arithmetic.
+// With constant arguments the compiler folds this entirely at compile time.
+static inline fp16_t fp16_from_float(float f) {
+    union { float f; uint32_t u; } v = { f };
+    uint32_t sign = (v.u >> 16) & 0x8000;
+    int32_t  exp  = (int32_t)((v.u >> 23) & 0xFF) - 127 + 15;
+    uint32_t mant = v.u & 0x7FFFFF;
+    if (exp <= 0)  return (fp16_t)sign;            // underflow → ±0
+    if (exp >= 31) return (fp16_t)(sign | 0x7C00); // overflow  → ±inf
+    return (fp16_t)(sign | ((uint32_t)exp << 10) | (mant >> 13));
+}
+
 // Convert FP16 to a signed fixed-point Q16 (for add/sub)
 static inline int32_t fp16_to_fixed(fp16_t f) {
     uint16_t sign = (f >> 15) & 1;

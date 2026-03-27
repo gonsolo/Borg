@@ -40,6 +40,14 @@ static fp16_t fp16_half_width;
 static fp16_t pc_lut[BORG_MAX_FB_DIM];
 
 #define NUM_VERTICES 3
+#define MAX_CLIP_VERTS 4  // Clipping one triangle can produce at most a quad
+
+// Clipped vertex: carries all interpolable attributes through clipping.
+typedef struct {
+    fp16_t x, y, z, w;      // clip-space position
+    fp16_t r, g, b;          // vertex color
+    fp16_t u, v;             // texture UV
+} clip_vertex_t;
 
 // Global timing vars
 unsigned int t_init_cycles = 0;
@@ -112,10 +120,9 @@ static inline uint32_t morton_encode(uint32_t x, uint32_t y) {
   return morton_interleave(x) | (morton_interleave(y) << 1);
 }
 
-// Small delay loop necessary to wait for system/Pico to be fully ready
-void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
-               const uint8_t *rast_blob, unsigned int rast_len,
-               const uint8_t *frag_blob, unsigned int frag_len) {
+void borg_init(const BorgShaderModule *vert,
+               const BorgShaderModule *rast,
+               const BorgShaderModule *frag) {
   STARTUP_DELAY();
   UART_BAUD = UART_BAUD_DEFAULT;
   puts_uart("Borg pipeline\r\n");
@@ -143,9 +150,9 @@ void borg_init(const uint8_t *vert_blob, unsigned int vert_len,
     val = borg_fp16_add(val, FP16_ONE);
   }
 
-  spirb_parse(vert_blob, &vert_shader);
-  spirb_parse(rast_blob, &rast_shader);
-  spirb_parse(frag_blob, &frag_shader);
+  spirb_parse(vert->code, &vert_shader);
+  spirb_parse(rast->code, &rast_shader);
+  spirb_parse(frag->code, &frag_shader);
   t_init_cycles = get_cycles() - t_init;
 }
 
@@ -235,14 +242,160 @@ static void shade_and_write_pixel(int frame, int px, int py,
   fb_write_pixel(base, color);
 }
 
+// --- Triangle Clipping (Step 6) ---
+
+// Linearly interpolate between two clip vertices: result = a + t * (b - a)
+static clip_vertex_t clip_lerp(const clip_vertex_t *a, const clip_vertex_t *b, fp16_t t) {
+  clip_vertex_t out;
+  // For each component: out = a + t * (b - a) = fmadd(t, b-a, a)
+  out.x = borg_fp16_fmadd(t, BORG_FP16_SUB(b->x, a->x), a->x);
+  out.y = borg_fp16_fmadd(t, BORG_FP16_SUB(b->y, a->y), a->y);
+  out.z = borg_fp16_fmadd(t, BORG_FP16_SUB(b->z, a->z), a->z);
+  out.w = borg_fp16_fmadd(t, BORG_FP16_SUB(b->w, a->w), a->w);
+  out.r = borg_fp16_fmadd(t, BORG_FP16_SUB(b->r, a->r), a->r);
+  out.g = borg_fp16_fmadd(t, BORG_FP16_SUB(b->g, a->g), a->g);
+  out.b = borg_fp16_fmadd(t, BORG_FP16_SUB(b->b, a->b), a->b);
+  out.u = borg_fp16_fmadd(t, BORG_FP16_SUB(b->u, a->u), a->u);
+  out.v = borg_fp16_fmadd(t, BORG_FP16_SUB(b->v, a->v), a->v);
+  return out;
+}
+
+// Clip polygon against near plane (z >= 0 in clip space).
+// Sutherland-Hodgman: vertices with z < 0 are outside.
+// Returns number of output vertices (0..MAX_CLIP_VERTS).
+static int clip_near(const clip_vertex_t *in, int n_in,
+                     clip_vertex_t *out) {
+  int n_out = 0;
+  for (int i = 0; i < n_in; i++) {
+    int prev_idx = (i == 0) ? n_in - 1 : i - 1;
+    const clip_vertex_t *cur = &in[i];
+    const clip_vertex_t *prev = &in[prev_idx];
+    int cur_inside  = fp16_ge_zero(cur->z);
+    int prev_inside = fp16_ge_zero(prev->z);
+    if (cur_inside != prev_inside) {
+      // Edge crosses the near plane — compute intersection.
+      // t = prev.z / (prev.z - cur.z)
+      fp16_t denom = BORG_FP16_SUB(prev->z, cur->z);
+      fp16_t t = borg_fp16_mul(prev->z, borg_fp16_rcp(denom));
+      out[n_out++] = clip_lerp(prev, cur, t);
+    }
+    if (cur_inside)
+      out[n_out++] = *cur;
+  }
+  return n_out;
+}
+
+// Clip polygon against far plane (z <= w in clip space).
+// Sutherland-Hodgman: vertices with z > w are outside.
+// Returns number of output vertices (0..MAX_CLIP_VERTS+1, capped at 7 for a triangle).
+static int clip_far(const clip_vertex_t *in, int n_in,
+                    clip_vertex_t *out) {
+  int n_out = 0;
+  for (int i = 0; i < n_in; i++) {
+    int prev_idx = (i == 0) ? n_in - 1 : i - 1;
+    const clip_vertex_t *cur = &in[i];
+    const clip_vertex_t *prev = &in[prev_idx];
+    // signed distance to far plane: d = w - z (inside when d >= 0)
+    fp16_t d_cur  = BORG_FP16_SUB(cur->w, cur->z);
+    fp16_t d_prev = BORG_FP16_SUB(prev->w, prev->z);
+    int cur_inside  = fp16_ge_zero(d_cur);
+    int prev_inside = fp16_ge_zero(d_prev);
+    if (cur_inside != prev_inside) {
+      // t = d_prev / (d_prev - d_cur)
+      fp16_t denom = BORG_FP16_SUB(d_prev, d_cur);
+      fp16_t t = borg_fp16_mul(d_prev, borg_fp16_rcp(denom));
+      out[n_out++] = clip_lerp(prev, cur, t);
+    }
+    if (cur_inside)
+      out[n_out++] = *cur;
+  }
+  return n_out;
+}
+
+// Rasterize a single triangle from 3 clip vertices (post-clipping).
+// Performs perspective division, screen-space translation, triangle setup,
+// and the rasterization loop.
+static void rasterize_clipped_triangle(const clip_vertex_t *cv,
+                                       const texture_t *t, int frame) {
+
+  // Perspective division
+  fp16_t ndc[3][3];  // [vertex][x,y,z]
+  for (int v = 0; v < 3; v++) {
+    fp16_t w = (&cv[v])->w;
+    fp16_t inv_w = borg_fp16_rcp(w);
+    ndc[v][0] = borg_fp16_mul((&cv[v])->x, inv_w);
+    ndc[v][1] = borg_fp16_mul((&cv[v])->y, inv_w);
+    ndc[v][2] = borg_fp16_mul((&cv[v])->z, inv_w);
+  }
+
+  // Screen-space translation: NDC → pixel coordinates
+  uv16_t spos[3];
+  for (int v = 0; v < 3; v++) {
+    spos[v] = (uv16_t){
+      borg_fp16_fmadd(ndc[v][0], fp16_half_width, fp16_half_width),
+      borg_fp16_fmadd(ndc[v][1], fp16_half_width, fp16_half_width)
+    };
+  }
+
+  // Triangle setup: area and back-face culling
+  fp16_t dx10 = BORG_FP16_SUB(spos[1].u, spos[0].u);
+  fp16_t dy20 = BORG_FP16_SUB(spos[2].v, spos[0].v);
+  fp16_t dx20 = BORG_FP16_SUB(spos[2].u, spos[0].u);
+  fp16_t dy10 = BORG_FP16_SUB(spos[1].v, spos[0].v);
+  fp16_t area = BORG_FP16_SUB(borg_fp16_mul(dx10, dy20),
+                               borg_fp16_mul(dx20, dy10));
+  if (fp16_ge_zero(area)) return;  // degenerate or back-facing
+  fp16_t inv_area = borg_fp16_rcp(area);
+
+  // Edge vectors
+  uv16_t edges[3];
+  compute_edge_vectors(spos, edges);
+
+  // Build per-vertex data arrays for rasterizer
+  rgb16_t colors[3] = {
+    { cv[0].r, cv[0].g, cv[0].b },
+    { cv[1].r, cv[1].g, cv[1].b },
+    { cv[2].r, cv[2].g, cv[2].b }
+  };
+  fp16x3_t z_vals = { ndc[0][2], ndc[1][2], ndc[2][2] };
+  const uv16_t *uvs = 0;
+  uv16_t uv_vals[3];
+  if (t->psram_offset >= 0) {
+    uv_vals[0] = (uv16_t){ cv[0].u, cv[0].v };
+    uv_vals[1] = (uv16_t){ cv[1].u, cv[1].v };
+    uv_vals[2] = (uv16_t){ cv[2].u, cv[2].v };
+    uvs = uv_vals;
+  }
+
+  // Rasterize + fragment shade in 4x4 blocks
+  const int BLOCK_SIZE = 4;
+  for (int by = 0; by < BORG_FB_HEIGHT; by += BLOCK_SIZE) {
+    for (int bx = 0; bx < BORG_FB_WIDTH; bx += BLOCK_SIZE) {
+      for (int py = by; py < by + BLOCK_SIZE && py < BORG_FB_HEIGHT; py++) {
+        for (int px = bx; px < bx + BLOCK_SIZE && px < BORG_FB_WIDTH; px++) {
+          uv16_t pc = { pc_lut[px], pc_lut[py] };
+          uv16_t deltas[3];
+          compute_pixel_deltas(pc, spos, deltas);
+          rgb16_t color = {0, 0, 0};
+          fp16_t z = 0;
+          uv16_t uv_interp = {0, 0};
+          int visible = borg_bary_rgb(&rast_shader, &frag_shader,
+                         edges, deltas,
+                         inv_area, colors, z_vals, uvs,
+                         &color, &z, &uv_interp);
+          if (visible)
+            shade_and_write_pixel(frame, px, py, color, z, uv_interp, t);
+        }
+      }
+    }
+  }
+}
+
 void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame) {
   unsigned int t_start = get_cycles();
   // Clear stale DONE marker for this frame
   PSRAM_OUT(frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE) = 0;
-  // Build colors array from vertex data
-  rgb16_t colors[3];
-  for (int v = 0; v < 3; v++)
-    colors[v] = (rgb16_t){ vertices[v].color[0], vertices[v].color[1], vertices[v].color[2] };
+
   // Build vertex attribute array from vertex positions
   fp16_t attrs[NUM_VERTICES * 3];
   for (int v = 0; v < NUM_VERTICES; v++) {
@@ -256,73 +409,37 @@ void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], i
   run_vertex_shader(d->uniforms, attrs, vout);
 
   int stride = vert_shader.num_outputs;
-  // Phase 3: Perspective Division. The Vertex Shader passes `w` back via the `rw` matrix index.
-  if (stride >= 4) {
-      for (int v = 0; v < NUM_VERTICES; v++) {
-          fp16_t inv_w = borg_fp16_rcp(vout[v * stride + 3]);
-          vout[v * stride + 0] = borg_fp16_mul(vout[v * stride + 0], inv_w);
-          vout[v * stride + 1] = borg_fp16_mul(vout[v * stride + 1], inv_w);
-          vout[v * stride + 2] = borg_fp16_mul(vout[v * stride + 2], inv_w);
-      }
+
+  // --- Step 6: Triangle Clipping ---
+  // Build clip vertices from vertex shader output + original vertex attributes.
+  clip_vertex_t clip_in[3];
+  for (int v = 0; v < 3; v++) {
+    clip_in[v].x = vout[v * stride + 0];
+    clip_in[v].y = vout[v * stride + 1];
+    clip_in[v].z = (stride >= 3) ? vout[v * stride + 2] : FP16_ZERO;
+    clip_in[v].w = (stride >= 4) ? vout[v * stride + 3] : FP16_ONE;
+    clip_in[v].r = vertices[v].color[0];
+    clip_in[v].g = vertices[v].color[1];
+    clip_in[v].b = vertices[v].color[2];
+    clip_in[v].u = vertices[v].uv[0];
+    clip_in[v].v = vertices[v].uv[1];
   }
 
-  // Screen-space translation
-  uv16_t spos[3];
-  screen_space_translate(&vert_shader, vout, spos, fp16_half_width);
+  // Clip against near plane (z >= 0), then far plane (z <= w).
+  clip_vertex_t clip_a[MAX_CLIP_VERTS + 1];
+  clip_vertex_t clip_b[MAX_CLIP_VERTS + 2];
+  int n_clip = clip_near(clip_in, 3, clip_a);
+  if (n_clip < 3) goto done;
+  n_clip = clip_far(clip_a, n_clip, clip_b);
+  if (n_clip < 3) goto done;
 
-
-  // Triangle setup: compute inv_area from screen-space positions
-  // area = (sx1-sx0)*(sy2-sy0) - (sx2-sx0)*(sy1-sy0) (2D cross product)
-  fp16_t dx10 = BORG_FP16_SUB(spos[1].u, spos[0].u);
-  fp16_t dy20 = BORG_FP16_SUB(spos[2].v, spos[0].v);
-  fp16_t dx20 = BORG_FP16_SUB(spos[2].u, spos[0].u);
-  fp16_t dy10 = BORG_FP16_SUB(spos[1].v, spos[0].v);
-  fp16_t area = BORG_FP16_SUB(borg_fp16_mul(dx10, dy20),
-                                 borg_fp16_mul(dx20, dy10));
-
-  // Skip degenerate triangles (zero area) and back-facing triangles
-  // (positive area = CW winding).  Without this, FP16 precision in the
-  // edge test leaks boundary pixels from back faces, corrupting the Z-buffer.
-  if (fp16_ge_zero(area)) return;
-  fp16_t inv_area = borg_fp16_rcp(area);
-
-  // Edge vectors
-  uv16_t edges[3];
-  compute_edge_vectors(spos, edges);
-
-  // Rasterize + fragment shade in 4x4 Blocks
-  const int BLOCK_SIZE = 4;
-  for (int by = 0; by < BORG_FB_HEIGHT; by += BLOCK_SIZE) {
-    for (int bx = 0; bx < BORG_FB_WIDTH; bx += BLOCK_SIZE) {
-      for (int py = by; py < by + BLOCK_SIZE && py < BORG_FB_HEIGHT; py++) {
-        for (int px = bx; px < bx + BLOCK_SIZE && px < BORG_FB_WIDTH; px++) {
-          uv16_t pc = { pc_lut[px], pc_lut[py] };
-          uv16_t deltas[3];
-          compute_pixel_deltas(pc, spos, deltas);
-          rgb16_t color = {0, 0, 0};
-          fp16_t z = 0;
-          uv16_t uv_interp = {0, 0};
-          int stride = vert_shader.num_outputs;
-          fp16x3_t z_vals = { vout[0 * stride + 2], vout[1 * stride + 2], vout[2 * stride + 2] };
-          const uv16_t *uvs = 0;
-          uv16_t uv_vals[3];
-          if (tex.psram_offset >= 0) {
-            for (int i = 0; i < 3; i++) {
-              uv_vals[i] = (uv16_t){ vertices[i].uv[0], vertices[i].uv[1] };
-            }
-            uvs = uv_vals;
-          }
-          int visible = borg_bary_rgb(&rast_shader, &frag_shader,
-                         edges, deltas,
-                         inv_area, colors, z_vals, uvs,
-                         &color, &z, &uv_interp);
-          if (visible)
-            shade_and_write_pixel(frame, px, py, color, z, uv_interp, &tex);
-        }
-      }
-    }
+  // Fan-triangulate the clipped polygon and rasterize each triangle.
+  for (int i = 1; i < n_clip - 1; i++) {
+    clip_vertex_t tri[3] = { clip_b[0], clip_b[i], clip_b[i + 1] };
+    rasterize_clipped_triangle(tri, &tex, frame);
   }
-  t_draw_cycles += get_cycles() - t_start;
+
+done:  t_draw_cycles += get_cycles() - t_start;
 }
 
 void borg_present(int frame) {

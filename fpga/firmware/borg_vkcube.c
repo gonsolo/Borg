@@ -11,82 +11,39 @@
 #include "compiler/shader_blobs.h"
 
 
-// UV corner macros for texture mapping
-#define UV_00 { FP16_ZERO, FP16_ZERO }  // top-left
-#define UV_10 { FP16_ONE,  FP16_ZERO }  // top-right
-#define UV_01 { FP16_ZERO, FP16_ONE  }  // bottom-left
-#define UV_11 { FP16_ONE,  FP16_ONE  }  // bottom-right
+#define FP16_N1 0xBC00  // -1.0 in FP16
+#define FP16_P1 0x3C00  //  1.0 in FP16
 
-#define FP16_N1 0xBC00
-#define FP16_P1 0x3C00
-
-// 8 un-rotated Khronos vertices: pure [-1, 1] axes!
-#define V0  FP16_N1, FP16_N1, FP16_N1   // Front Top-Left
-#define V1  FP16_P1, FP16_N1, FP16_N1   // Front Top-Right
-#define V2  FP16_P1, FP16_P1, FP16_N1   // Front Bottom-Right
-#define V3  FP16_N1, FP16_P1, FP16_N1   // Front Bottom-Left
-#define V4  FP16_N1, FP16_N1, FP16_P1   // Back Top-Left
-#define V5  FP16_P1, FP16_N1, FP16_P1   // Back Top-Right
-#define V6  FP16_P1, FP16_P1, FP16_P1   // Back Bottom-Right
-#define V7  FP16_N1, FP16_P1, FP16_P1   // Back Bottom-Left
-
-// White vertex color — texture provides the actual color
-#define COL_WHITE  { FP16_ONE, FP16_ONE, FP16_ONE }
-
-// Texture dimensions
 #define TEX_WIDTH  32
 #define TEX_HEIGHT 32
 
-// Draw ALL 6 faces (12 triangles) to test Z-buffer depth sorting.
-static const borg_vertex_t cube_tris[12][3] = {
-    // Front face (V0=TL, V3=BL, V2=BR, V1=TR)
-    { { .pos={V0}, .color=COL_WHITE, .uv=UV_00 },
-      { .pos={V3}, .color=COL_WHITE, .uv=UV_01 },
-      { .pos={V2}, .color=COL_WHITE, .uv=UV_11 } },
-    { { .pos={V0}, .color=COL_WHITE, .uv=UV_00 },
-      { .pos={V2}, .color=COL_WHITE, .uv=UV_11 },
-      { .pos={V1}, .color=COL_WHITE, .uv=UV_10 } },
+// 8 cube vertex positions (Khronos axes, FP16)
+static const fp16_t cube_verts[8][3] = {
+    { FP16_N1, FP16_N1, FP16_N1 },  // 0: Front Top-Left
+    { FP16_P1, FP16_N1, FP16_N1 },  // 1: Front Top-Right
+    { FP16_P1, FP16_P1, FP16_N1 },  // 2: Front Bottom-Right
+    { FP16_N1, FP16_P1, FP16_N1 },  // 3: Front Bottom-Left
+    { FP16_N1, FP16_N1, FP16_P1 },  // 4: Back Top-Left
+    { FP16_P1, FP16_N1, FP16_P1 },  // 5: Back Top-Right
+    { FP16_P1, FP16_P1, FP16_P1 },  // 6: Back Bottom-Right
+    { FP16_N1, FP16_P1, FP16_P1 },  // 7: Back Bottom-Left
+};
 
-    // Right face (V1=TL, V2=BL, V6=BR, V5=TR)
-    { { .pos={V1}, .color=COL_WHITE, .uv=UV_00 },
-      { .pos={V2}, .color=COL_WHITE, .uv=UV_01 },
-      { .pos={V6}, .color=COL_WHITE, .uv=UV_11 } },
-    { { .pos={V1}, .color=COL_WHITE, .uv=UV_00 },
-      { .pos={V6}, .color=COL_WHITE, .uv=UV_11 },
-      { .pos={V5}, .color=COL_WHITE, .uv=UV_10 } },
+// 6 faces as quads: { TL, BL, BR, TR } vertex indices into cube_verts
+static const uint8_t cube_faces[6][4] = {
+    { 0, 3, 2, 1 },  // Front
+    { 1, 2, 6, 5 },  // Right
+    { 4, 0, 1, 5 },  // Top
+    { 5, 6, 7, 4 },  // Back
+    { 4, 7, 3, 0 },  // Left
+    { 3, 7, 6, 2 },  // Bottom
+};
 
-    // Top face (V4=TL, V0=BL, V1=BR, V5=TR) -- Wait! Y is down so back to front is top?
-    // Let's just map Top Face: (V4=TL, V0=BL, V1=BR, V5=TR)
-    { { .pos={V4}, .color=COL_WHITE, .uv=UV_00 },
-      { .pos={V0}, .color=COL_WHITE, .uv=UV_01 },
-      { .pos={V1}, .color=COL_WHITE, .uv=UV_11 } },
-    { { .pos={V4}, .color=COL_WHITE, .uv=UV_00 },
-      { .pos={V1}, .color=COL_WHITE, .uv=UV_11 },
-      { .pos={V5}, .color=COL_WHITE, .uv=UV_10 } },
-
-    // Back face (V5=TL, V6=BL, V7=BR, V4=TR)
-    { { .pos={V5}, .color=COL_WHITE, .uv=UV_00 },
-      { .pos={V6}, .color=COL_WHITE, .uv=UV_01 },
-      { .pos={V7}, .color=COL_WHITE, .uv=UV_11 } },
-    { { .pos={V5}, .color=COL_WHITE, .uv=UV_00 },
-      { .pos={V7}, .color=COL_WHITE, .uv=UV_11 },
-      { .pos={V4}, .color=COL_WHITE, .uv=UV_10 } },
-
-    // Left face (V4=TL, V7=BL, V3=BR, V0=TR)
-    { { .pos={V4}, .color=COL_WHITE, .uv=UV_00 },
-      { .pos={V7}, .color=COL_WHITE, .uv=UV_01 },
-      { .pos={V3}, .color=COL_WHITE, .uv=UV_11 } },
-    { { .pos={V4}, .color=COL_WHITE, .uv=UV_00 },
-      { .pos={V3}, .color=COL_WHITE, .uv=UV_11 },
-      { .pos={V0}, .color=COL_WHITE, .uv=UV_10 } },
-
-    // Bottom face (V3=TL, V7=BL, V6=BR, V2=TR)
-    { { .pos={V3}, .color=COL_WHITE, .uv=UV_00 },
-      { .pos={V7}, .color=COL_WHITE, .uv=UV_01 },
-      { .pos={V6}, .color=COL_WHITE, .uv=UV_11 } },
-    { { .pos={V3}, .color=COL_WHITE, .uv=UV_00 },
-      { .pos={V6}, .color=COL_WHITE, .uv=UV_11 },
-      { .pos={V2}, .color=COL_WHITE, .uv=UV_10 } },
+// Each quad → 2 triangles: (TL,BL,BR) and (TL,BR,TR), always the same UV split.
+static const uint8_t quad_qi[2][3]    = { { 0, 1, 2 }, { 0, 2, 3 } };
+static const fp16_t  quad_uvs[2][3][2] = {
+    { { FP16_ZERO, FP16_ZERO }, { FP16_ZERO, FP16_ONE }, { FP16_ONE, FP16_ONE  } },
+    { { FP16_ZERO, FP16_ZERO }, { FP16_ONE,  FP16_ONE }, { FP16_ONE, FP16_ZERO } },
 };
 
 static void mat4_identity(fp16_t m[16]) {
@@ -107,51 +64,72 @@ static void mat4_mul(fp16_t out[16], const fp16_t a[16], const fp16_t b[16]) {
     }
 }
 
+static void mat4_scale(fp16_t m[16], float s) {
+    mat4_identity(m);
+    fp16_t v = fp16_from_float(s);
+    m[0] = v; m[5] = v; m[10] = v;
+}
+
+static void mat4_rotate_x(fp16_t m[16], float radians) {
+    mat4_identity(m);
+    fp16_t a = fp16_from_float(radians);
+    fp16_t s = fp16_sin(a), c = fp16_cos(a);
+    m[5] = c; m[9] = fp16_neg(s);
+    m[6] = s; m[10] = c;
+}
+
+static void mat4_rotate_y(fp16_t m[16], float radians) {
+    mat4_identity(m);
+    fp16_t a = fp16_from_float(radians);
+    fp16_t s = fp16_sin(a), c = fp16_cos(a);
+    m[0] = c;  m[8] = s;
+    m[2] = fp16_neg(s); m[10] = c;
+}
+
+static void mat4_translate_z(fp16_t m[16], float z) {
+    mat4_identity(m);
+    m[14] = fp16_from_float(z);
+}
+
+static void draw_cube(const borg_draw_data_t *draw) {
+    for (int f = 0; f < 6; f++) {
+        for (int t = 0; t < 2; t++) {
+            borg_vertex_t tri[3];
+            for (int v = 0; v < 3; v++) {
+                const fp16_t *vp = cube_verts[cube_faces[f][quad_qi[t][v]]];
+                tri[v] = (borg_vertex_t){
+                    .pos   = { vp[0], vp[1], vp[2] },
+                    .color = { FP16_ONE, FP16_ONE, FP16_ONE },
+                    .uv    = { quad_uvs[t][v][0], quad_uvs[t][v][1] },
+                };
+            }
+            borg_cmd_draw(draw, tri, 0);
+        }
+    }
+}
+
 int main() {
-    borg_init(vert_borg, vert_borg_len,
-              rasterize_borg, rasterize_borg_len,
-              frag_borg, frag_borg_len);
+    BorgShaderModule vert, rast, frag;
+    borgCreateShaderModule(&vert, vert_borg, sizeof(vert_borg));
+    borgCreateShaderModule(&rast, rasterize_borg, sizeof(rasterize_borg));
+    borgCreateShaderModule(&frag, frag_borg, sizeof(frag_borg));
+    borg_init(&vert, &rast, &frag);
 
+    fp16_t s[16], rx[16], ry[16], tz[16], t1[16], t2[16];
+    mat4_scale(s, 0.25f);
+    mat4_rotate_x(rx, -0.4363f);
+    mat4_rotate_y(ry, 0.6109f);
+    mat4_translate_z(tz, 0.5f);
+
+    // MVP = Translate · Scale · Rx · Ry
     borg_draw_data_t draw;
-    fp16_t scale[16], rx[16], ry[16], trans[16];
-    fp16_t t1[16], t2[16];
-
-    // Scale (0.4) = 0x3666 (roughly)
-    mat4_identity(scale);
-    scale[0] = 0x3666; scale[5] = 0x3666; scale[10] = 0x3666;
-
-    // Rx(-25 degrees) -> -0.436 radians (fp16_neg(0x36F8))
-    mat4_identity(rx);
-    fp16_t ax = fp16_neg(0x36F8);
-    fp16_t sx = fp16_sin(ax), cx = fp16_cos(ax);
-    rx[5] = cx; rx[9] = fp16_neg(sx);
-    rx[6] = sx; rx[10] = cx;
-
-    // Ry(35 degrees) -> 0.610 radians (0x38E1)
-    mat4_identity(ry);
-    fp16_t ay = 0x38E1;
-    fp16_t sy = fp16_sin(ay), cy = fp16_cos(ay);
-    ry[0] = cy; ry[8] = sy;
-    ry[2] = fp16_neg(sy); ry[10] = cy;
-
-    // Translate Z=0.5 (0x3800)
-    mat4_identity(trans);
-    trans[14] = 0x3800; // Col 3, Row 2 (Z trans)
-
-    // Compute final MVP = Translate * Scale * Rx * Ry (apply left-to-right on vertices = Ry first)
-    // T * S * Rx * Ry
     mat4_mul(t1, rx, ry);
-    mat4_mul(t2, scale, t1);
-    mat4_mul(draw.uniforms, trans, t2);
+    mat4_mul(t2, s, t1);
+    mat4_mul(draw.uniforms, tz, t2);
 
     borg_clear_zbuffer(0);
-
-    // Enable Borg texture for all faces
     borg_set_texture(TEX_PSRAM_OFFSET, TEX_WIDTH, TEX_HEIGHT);
-
-    for (int i = 0; i < 12; i++)
-        borg_cmd_draw(&draw, cube_tris[i], 0);
-
+    draw_cube(&draw);
     borg_clear_texture();
     borg_present(0);
 
@@ -159,3 +137,4 @@ int main() {
         ;
     return 0;
 }
+

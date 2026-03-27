@@ -45,9 +45,11 @@ const borg_vertex_t back_tri[3] = {
 #define TEX_HEIGHT 32
 
 int main() {
-    borg_init(vert_borg, vert_borg_len,
-              rasterize_borg, rasterize_borg_len,
-              frag_borg, frag_borg_len);
+    BorgShaderModule vert, rast, frag;
+    borgCreateShaderModule(&vert, vert_borg, sizeof(vert_borg));
+    borgCreateShaderModule(&rast, rasterize_borg, sizeof(rasterize_borg));
+    borgCreateShaderModule(&frag, frag_borg, sizeof(frag_borg));
+    borg_init(&vert, &rast, &frag);
 
     borg_draw_data_t draw;
     borg_set_angle(&draw, FP16_36DEG);
