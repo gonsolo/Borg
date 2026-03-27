@@ -45,11 +45,15 @@ static inline void borgCreateShaderModule(BorgShaderModule *module,
     module->codeSize = codeSize;
 }
 
-// Initialize hardware, parse shader modules, read resolution from PSRAM.
-// Mirrors vkCreateGraphicsPipelines() — binds vert/rast/frag stages.
-void borg_init(const BorgShaderModule *vert,
-               const BorgShaderModule *rast,
-               const BorgShaderModule *frag);
+// Initialize hardware: UART, PSRAM resolution, LUTs.
+// Mirrors vkCreateDevice().
+void borgCreateDevice(void);
+
+// Parse and bind shader modules to the pipeline stages.
+// Mirrors vkCreateGraphicsPipelines().
+void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
+                                const BorgShaderModule *rast,
+                                const BorgShaderModule *frag);
 
 // Set up draw data from a rotation angle (FP16 radians)
 void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16);
@@ -63,8 +67,9 @@ void borg_set_texture(int psram_offset, int width, int height);
 // Disable texturing for subsequent draw calls
 void borg_clear_texture(void);
 
-// Render a triangle: vertex shade → rasterize → z-test → fragment shade → framebuffer
-void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame);
+// Render a triangle: vertex shade → rasterize → z-test → fragment shade → framebuffer.
+// Mirrors vkCmdDraw().
+void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame);
 
 // Write DONE marker for a frame to PSRAM
 void borg_present(int frame);

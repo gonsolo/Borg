@@ -120,9 +120,7 @@ static inline uint32_t morton_encode(uint32_t x, uint32_t y) {
   return morton_interleave(x) | (morton_interleave(y) << 1);
 }
 
-void borg_init(const BorgShaderModule *vert,
-               const BorgShaderModule *rast,
-               const BorgShaderModule *frag) {
+void borgCreateDevice(void) {
   STARTUP_DELAY();
   UART_BAUD = UART_BAUD_DEFAULT;
   puts_uart("Borg pipeline\r\n");
@@ -135,25 +133,27 @@ void borg_init(const BorgShaderModule *vert,
   if (borg_fb_height == 0 || borg_fb_height > BORG_MAX_FB_DIM) borg_fb_height = 16;
 
   // Compute FP16 half-width for NDC→screen transform
-  // half_width = width / 2 (integer), then convert to FP16
   int hw = borg_fb_width / 2;
-  // Simple integer-to-FP16 for powers of 2 (8, 16, 32)
   int exp = 0;
   int tmp = hw;
   while (tmp > 1) { tmp >>= 1; exp++; }
-  fp16_half_width = ((exp + 15) << 10);  // power-of-2, mantissa=0
+  fp16_half_width = ((exp + 15) << 10);
 
   // Compute pixel center LUT: 0.5, 1.5, ..., (width-0.5)
-  fp16_t val = FP16_HALF;  // 0.5
+  fp16_t val = FP16_HALF;
   for (int i = 0; i < borg_fb_width; i++) {
     pc_lut[i] = val;
     val = borg_fp16_add(val, FP16_ONE);
   }
+  t_init_cycles = get_cycles() - t_init;
+}
 
+void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
+                                const BorgShaderModule *rast,
+                                const BorgShaderModule *frag) {
   spirb_parse(vert->code, &vert_shader);
   spirb_parse(rast->code, &rast_shader);
   spirb_parse(frag->code, &frag_shader);
-  t_init_cycles = get_cycles() - t_init;
 }
 
 void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
@@ -391,7 +391,7 @@ static void rasterize_clipped_triangle(const clip_vertex_t *cv,
   }
 }
 
-void borg_cmd_draw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame) {
+void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame) {
   unsigned int t_start = get_cycles();
   // Clear stale DONE marker for this frame
   PSRAM_OUT(frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE) = 0;

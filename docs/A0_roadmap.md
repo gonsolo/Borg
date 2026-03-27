@@ -88,12 +88,14 @@ W-divide with a single instruction.  Also fixed vkcube bottom-face rendering:
 added explicit back-face culling (positive-area skip) and negative-Z pixel
 discard to prevent FP16 edge-test precision leaks from corrupting the Z-buffer.
 
-### Step 6: Triangle Clipping (Hardware Shader)
+### Step 6: Triangle Clipping (Hardware Shader) ✅ (2026-03-27)
 
-Near/far plane clipping before rasterization. Clip triangles that cross the
-near plane; cull those entirely behind it. Like perspective projection, this
-can leverage the expanded register capacity to run natively on the GPU.
-Estimate: 2–3 days.
+Near/far plane Sutherland–Hodgman clipping in firmware: vertices classified
+against near (z ≥ 0) and far (z ≤ w) planes, intersection computed via
+hardware FRCP + FMUL, clipped polygon fan-triangulated and rasterized.
+Verified with vkcube at Z=0.0 (near-clipped), Z=0.5 (visible), Z=1.5
+(far-clipped).  Also refactored vkcube: compact indexed geometry, mat4
+helpers, fp16_from_float(), and Vulkan-style BorgShaderModule API.
 
 ### Step 7: Hardware Fragment Interpolation
 

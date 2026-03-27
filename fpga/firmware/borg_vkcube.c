@@ -103,17 +103,19 @@ static void draw_cube(const borg_draw_data_t *draw) {
                     .uv    = { quad_uvs[t][v][0], quad_uvs[t][v][1] },
                 };
             }
-            borg_cmd_draw(draw, tri, 0);
+            borgCmdDraw(draw, tri, 0);
         }
     }
 }
 
 int main() {
+    borgCreateDevice();
+
     BorgShaderModule vert, rast, frag;
     borgCreateShaderModule(&vert, vert_borg, sizeof(vert_borg));
     borgCreateShaderModule(&rast, rasterize_borg, sizeof(rasterize_borg));
     borgCreateShaderModule(&frag, frag_borg, sizeof(frag_borg));
-    borg_init(&vert, &rast, &frag);
+    borgCreateGraphicsPipeline(&vert, &rast, &frag);
 
     fp16_t s[16], rx[16], ry[16], tz[16], t1[16], t2[16];
     mat4_scale(s, 0.25f);
