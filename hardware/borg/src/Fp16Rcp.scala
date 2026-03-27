@@ -59,7 +59,7 @@ class Fp16Rcp extends Module {
   val lutIdx  = mant(9, 6)                    // top 4 bits → table index (0–15)
   val frac    = mant(5, 0)                    // bottom 6 bits → interpolation fraction
 
-  val lutVal  = rcpLut(lutIdx)                // value at interval start
+  val lutVal  = rcpLut(Cat(0.U(1.W), lutIdx)) // value at interval start
   val lutNext = rcpLut(lutIdx +& 1.U)         // value at interval end
 
   // delta × frac / 64  (delta is always positive since 1/x is decreasing)
