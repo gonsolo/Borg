@@ -103,7 +103,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   // --- Pipeline Control ---
   val busy_counter = RegInit(0.U(3.W))
   val is_busy = busy_counter > 0.U
-  val is_writing = io.data_write_n === 2.U
+  val is_writing = io.data_write_n === 2.U && RegNext(io.data_write_n) =/= 2.U
   val is_reading = io.data_read_n === 2.U
 
   // --- Instruction Fetch ---
