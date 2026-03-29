@@ -23,3 +23,7 @@ docs/book/
 .scala-build
 fpga/.burned
 TODO
+
+.cache/
+.cmd_output.txt
+.test-all.log
