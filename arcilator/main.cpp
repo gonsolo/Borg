@@ -112,14 +112,6 @@ public:
                     if (!wrote_half_byte) {
                         addr_reg++;
                         if (addr_reg >= mem.size()) addr_reg = 0;
-                        if (is_flash && addr_reg % 4 == 0) {
-                            static int traces2 = 0;
-                            if (traces2 < 20) {
-                                uint32_t word = mem[addr_reg] | (mem[addr_reg+1] << 8) | (mem[addr_reg+2] << 16) | (mem[addr_reg+3] << 24);
-                                printf("[SIM] Flash word at addr 0x%X = 0x%08X\n", addr_reg, word);
-                                traces2++;
-                            }
-                        }
                     }
                 }
             }
@@ -157,13 +149,6 @@ public:
                     state = DATA_READ;
                     wrote_half_byte = false; 
                     first_data_falling_edge = true;
-                    if (is_flash) {
-                        static int traces = 0;
-                        if (traces < 100) {
-                            std::cout << "[SIM] Flash access at addr: 0x" << std::hex << addr_reg << std::dec << "\n";
-                            traces++;
-                        }
-                    }
                 }
             } else if (state == DATA_WRITE) {
                 if (!wrote_half_byte) {
