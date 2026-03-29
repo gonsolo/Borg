@@ -40,4 +40,14 @@ object Emit {
       allFiles ++= lines.map(f => s"../$targetDir/$f")
     }
   }
+  def emitFIRRTL(
+      gen: => RawModule,
+      targetDir: String
+  ): Unit = {
+    new java.io.File(targetDir).mkdirs()
+    ChiselStage.emitCHIRRTLFile(
+      gen = gen,
+      args = Array("--target-dir", targetDir)
+    )
+  }
 }

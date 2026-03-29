@@ -43,8 +43,10 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
     }
     data_ready_r := read_req && data_ready_from_peri
 
+    val write_req = io.data_write_n =/= MmioMap.BUS_IDLE.U(2.W)
+    val write_ready_r = RegNext(write_req && !(data_ready_r || RegNext(write_req)))
     io.data_out := data_out_r
-    io.data_ready := data_ready_r || (io.data_write_n =/= MmioMap.BUS_IDLE.U(2.W))
+    io.data_ready := data_ready_r || write_ready_r
 
     // --- Address Decoding ---
     val PERI_GPIO = MmioMap.userPeriU(MmioMap.USER_PERI_GPIO)

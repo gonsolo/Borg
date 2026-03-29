@@ -5,7 +5,7 @@ def main():
     # Read the directly collected ASIC files from both stages
     sv_files = set()
     
-    for asic_file_list in ['out/hardware/borg/verilog/asic_files.txt', 'out/hardware/tinyqv/verilog/asic_files.txt']:
+    for asic_file_list in ['out/hardware/borg/verilog/asic_files.txt']:
         if os.path.exists(asic_file_list):
             with open(asic_file_list, 'r') as f:
                 for line in f:

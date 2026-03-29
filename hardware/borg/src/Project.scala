@@ -35,7 +35,9 @@ trait SoCLogic { self: RawModule =>
 
 
   // --- Core and peripheral instantiation ---
-  val i_tinyqv = Module(new tinyQV_ExtModule)
+  lazy val i_tinyqv = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+    Module(new tinyqv.cpu.TinyQV)
+  }
   lazy val i_peripherals = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new tinyQV_peripherals(CLOCK_MHZ))
   }
@@ -53,8 +55,6 @@ trait SoCLogic { self: RawModule =>
 
   /** Wire up the entire SoC. Call this from the top-level module body. */
   def wireSoC(): UInt = {
-    i_tinyqv.clock := soc_clk
-    i_tinyqv.reset := !soc_rst_reg_n
     i_tinyqv.io.spi_data_in := soc_qspi_data_in
 
     val addr = i_tinyqv.io.data_addr

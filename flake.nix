@@ -19,6 +19,7 @@
       p.cocotb
       p.gdstk
       p.gitpython
+      p.jinja2
       p.klayout
       p.matplotlib
       p.mistune
