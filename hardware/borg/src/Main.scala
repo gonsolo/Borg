@@ -17,7 +17,7 @@ object Main extends App {
   val firrtlTargetDir = "out/hardware/borg/firrtl"
   Emit.emitFIRRTL(new tt_um_gonsolo_borg(clockMhz), firrtlTargetDir)
 
-  MmioGenerator.emitHeader("fpga/firmware/borg_mmio.h")
+  MmioGenerator.emitHeader("software/borg/borg_mmio.h")
   MmioGenerator.emitPython("fpga/host/borg_mmio.py")
   MmioGenerator.emitPython("test/soc/borg_mmio.py")
 

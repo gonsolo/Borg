@@ -16,7 +16,7 @@ import os
 
 # Add fpga/host to path to import the auto-generated borg_mmio.py
 # (which contains the single source of truth for instruction encoding)
-host_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "host"))
+host_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "fpga", "host"))
 if host_dir not in sys.path:
     sys.path.insert(0, host_dir)
 

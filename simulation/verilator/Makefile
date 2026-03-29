@@ -11,7 +11,7 @@ verilator_sim: main.cpp $(SRC_FILES)
 	-o verilator_sim
 
 triangle: verilator_sim
-	./obj_dir/verilator_sim ../../fpga/firmware/triangle.bin triangle
+	./obj_dir/verilator_sim ../../software/borg/triangle.bin triangle
 
 clean:
 	rm -rf obj_dir verilator_sim *.ppm

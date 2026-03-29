@@ -48,7 +48,7 @@ TEX_SIZE = 32
 
 img = Image.open('borg.ppm').convert('RGB').resize((TEX_SIZE, TEX_SIZE), Image.LANCZOS)
 
-with open('firmware/borg_texture.dat', 'wb') as f:
+with open('../software/borg/borg_texture.dat', 'wb') as f:
     for y in range(TEX_SIZE):
         for x in range(TEX_SIZE):
             r8, g8, b8 = img.getpixel((x, y))
@@ -57,4 +57,4 @@ with open('firmware/borg_texture.dat', 'wb') as f:
             b = float_to_fp16(b8 / 255.0)
             f.write(struct.pack('<HHH', r, g, b))
 
-print(f"Generated firmware/borg_texture.dat ({TEX_SIZE}x{TEX_SIZE}, 6144 bytes)")
+print(f"Generated ../software/borg/borg_texture.dat ({TEX_SIZE}x{TEX_SIZE}, 6144 bytes)")

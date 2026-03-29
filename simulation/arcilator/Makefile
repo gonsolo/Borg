@@ -9,7 +9,7 @@ export HARDENING_DISABLE=all
 export NIX_HARDENING_ENABLE=
 unexport NIX_HARDENING_ENABLE
 
-FIRMWARE_DIR = ../../fpga/firmware
+FIRMWARE_DIR = ../../software/borg
 
 .PHONY: all clean triangle vkcube $(FIRMWARE_DIR)/%.bin
 

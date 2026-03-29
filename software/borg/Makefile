@@ -11,7 +11,7 @@ export HARDENING_DISABLE=all
 export NIX_HARDENING_ENABLE=
 unexport NIX_HARDENING_ENABLE
 
-TINYQV_SDK ?= ../sdk
+TINYQV_SDK ?= ../tinyqv
 
 PROJECT_NAME = triangle
 SHARED_SOURCES = borg_driver.c borg_fpu.c borg_raster.c borg_spirb.c borg_math.c

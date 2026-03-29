@@ -9,7 +9,7 @@ The Borg shader processor is accessed through memory-mapped I/O registers.
 The CPU reads and writes these addresses to load shader programs, set register
 values, and control execution:
 
-{{snippet:fpga/firmware/borg_driver.c:mmio-map}}
+{{snippet:software/borg/borg_driver.c:mmio-map}}
 
 The Borg peripheral occupies 16 words starting at `0x080000C0`: 8 FP16 registers
 (r0–r7), 6 instruction memory words, and a control/status register. PSRAM
@@ -20,7 +20,7 @@ provides shared memory between the CPU and the RP2040 host.
 The driver provides convenience functions that program the instruction memory
 and invoke the FPU for single operations:
 
-{{snippet:fpga/firmware/borg_fpu.c:fpu-helpers}}
+{{snippet:software/borg/borg_fpu.c:fpu-helpers}}
 
 Each helper loads a one-instruction shader, writes the operands to registers,
 triggers execution, and reads back the result. The `borg_run()` function handles
@@ -145,7 +145,7 @@ texturing and z-buffering. The front triangle uses per-vertex color
 interpolation, while the back triangle is textured with a 32×32
 RGBW test pattern:
 
-{{snippet:fpga/firmware/borg_triangle.c:triangle-app}}
+{{snippet:software/borg/borg_triangle.c:triangle-app}}
 
 The front triangle's color-interpolated RGB appears in the center,
 while the back triangle's RGBW texture is visible around the edges.

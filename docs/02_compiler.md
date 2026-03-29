@@ -114,7 +114,7 @@ the register maps to bind shader inputs/outputs before each invocation.
 
 ## Build Integration
 
-The shader compiler runs as part of `make` in `fpga/firmware/compiler/`.
+The shader compiler runs as part of `make` in `software/borg/compiler/`.
 The three `.borg` files (vert, frag, rasterize) are embedded into the
 firmware binary via `xxd -i`, making the shaders part of the ROM image
 with no filesystem needed.

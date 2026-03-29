@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
     psram_init_words[psram_spi_word_offset + 0] = width;
     psram_init_words[psram_spi_word_offset + 1] = height;
 
-    std::string tex_path = app_name == "vkcube" ? "../../fpga/firmware/borg_texture.dat" : "../../fpga/firmware/test_texture.dat";
+    std::string tex_path = app_name == "vkcube" ? "../../software/borg/borg_texture.dat" : "../../software/borg/test_texture.dat";
     std::ifstream tex_f(tex_path, std::ios::binary);
     if (tex_f) {
         std::vector<uint8_t> tex_data(32 * 32 * 6); // 32x32 RGB FP16

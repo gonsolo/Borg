@@ -44,7 +44,7 @@ borg.json: ../out/hardware/borg/verilog/Borg.sv
 	@yosys -p "read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json" -DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
 
 # Place and Route (P&R) — freq derived from MmioMap.CLOCK_MHZ via generated header
-CLOCK_FREQ = $(shell grep -m1 'define CLOCK_MHZ' firmware/borg_mmio.h | awk '{print $$3}')
+CLOCK_FREQ = $(shell grep -m1 'define CLOCK_MHZ' ../software/borg/borg_mmio.h | awk '{print $$3}')
 borg.asc: borg.json
 	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf ../out/fpga/verilog/pico_ice.pcf --asc borg.asc \
 		--freq $(CLOCK_FREQ)
@@ -75,13 +75,13 @@ resource_check: yosys.log
 
 # Build firmware and run triangle rendering
 triangle: .burned
-	@$(MAKE) --no-print-directory -s -C firmware triangle
-	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, 'firmware/triangle.bin')" | tee /tmp/mpremote_output.txt
+	@$(MAKE) --no-print-directory -s -C ../software/borg triangle
+	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, '../software/borg/triangle.bin')" | tee /tmp/mpremote_output.txt
 
 # Build firmware and run vkcube rendering
 vkcube: .burned
-	@$(MAKE) --no-print-directory -s -C firmware vkcube
-	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, 'firmware/vkcube.bin')" | tee /tmp/mpremote_output.txt
+	@$(MAKE) --no-print-directory -s -C ../software/borg vkcube
+	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, '../software/borg/vkcube.bin')" | tee /tmp/mpremote_output.txt
 
 # Catch debug output (preferably in a second shell)
 tio:
@@ -93,14 +93,14 @@ reset: .burned
 
 clean:
 	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm .burned
-	$(MAKE) -C firmware clean
-	$(MAKE) -C sdk clean
+	$(MAKE) -C ../software/borg clean
+	$(MAKE) -C ../software/tinyqv clean
 
 test-all:
-	$(MAKE) -C firmware/compiler test
+	$(MAKE) -C ../software/borg/compiler test
 
 # Timing analysis on the synthesized bitstream
 timing:
-	icetime -d up5k -c $(shell grep 'CLOCK_MHZ' firmware/borg_mmio.h | awk '{print $$3}') borg.asc
+	icetime -d up5k -c $(shell grep 'CLOCK_MHZ' ../software/borg/borg_mmio.h | awk '{print $$3}') borg.asc
 
 .PHONY: all help burn clean reset resource_check test-all timing triangle vkcube tio
