@@ -9,39 +9,13 @@ IEEE 754 half-precision floats in [0..1]).  Linear row-major order — Morton
 reordering is handled by the host upload script (render.py).
 """
 
+import sys
+import os
 import struct
 from PIL import Image
 
-# FP16 conversion (matches host/fp16_utils.py)
-def float_to_fp16(f):
-    if f == 0.0:
-        return 0x0000
-    sign = 0
-    if f < 0:
-        sign = 1
-        f = -f
-    if f >= 65504.0:
-        return (sign << 15) | 0x7C00
-    if f < 2.0**-24:
-        return sign << 15
-    if f < 2.0**-14:
-        return (sign << 15) | int(f / 2.0**-14 * 1024 + 0.5)
-    exp = 0
-    tmp = f
-    while tmp >= 2.0:
-        tmp /= 2.0
-        exp += 1
-    while tmp < 1.0:
-        tmp *= 2.0
-        exp -= 1
-    frac_bits = int((tmp - 1.0) * 1024 + 0.5)
-    biased = exp + 15
-    if frac_bits >= 1024:
-        frac_bits = 0
-        biased += 1
-    if biased >= 31:
-        return (sign << 15) | 0x7C00
-    return (sign << 15) | (biased << 10) | frac_bits
+sys.path.append(os.path.join(os.path.dirname(__file__), 'host'))
+from borg_utils import float_to_fp16
 
 
 TEX_SIZE = 32

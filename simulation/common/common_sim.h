@@ -168,18 +168,7 @@ public:
     }
 };
 
-inline uint16_t morton_interleave(uint16_t x) {
-    uint32_t val = x;
-    val = (val | (val << 8)) & 0x00FF00FF;
-    val = (val | (val << 4)) & 0x0F0F0F0F;
-    val = (val | (val << 2)) & 0x33333333;
-    val = (val | (val << 1)) & 0x55555555;
-    return val;
-}
-
-inline uint32_t morton_encode(uint16_t x, uint16_t y) {
-    return morton_interleave(x) | (morton_interleave(y) << 1);
-}
+#include "../../software/borg/borg_math.h"
 
 inline float fp16_to_float(uint16_t h) {
     int sign = (h >> 15) & 1;

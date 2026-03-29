@@ -111,17 +111,6 @@ static void run_vertex_shader(const fp16_t *uniforms, const fp16_t *attrs,
 
 // --- Public API ---
 
-static inline uint32_t morton_interleave(uint32_t x) {
-  x = (x | (x << 8)) & 0x00FF00FF;
-  x = (x | (x << 4)) & 0x0F0F0F0F;
-  x = (x | (x << 2)) & 0x33333333;
-  x = (x | (x << 1)) & 0x55555555;
-  return x;
-}
-
-static inline uint32_t morton_encode(uint32_t x, uint32_t y) {
-  return morton_interleave(x) | (morton_interleave(y) << 1);
-}
 
 void borgCreateDevice(void) {
   STARTUP_DELAY();

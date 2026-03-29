@@ -48,3 +48,17 @@ def float_to_fp16(f):
     if biased >= 31:
         return (sign << 15) | 0x7C00
     return (sign << 15) | (biased << 10) | frac_bits
+
+
+def morton_interleave(n):
+    """Interleave bits of a 16-bit integer for Z-order curve mapping."""
+    n = (n | (n << 8)) & 0x00FF00FF
+    n = (n | (n << 4)) & 0x0F0F0F0F
+    n = (n | (n << 2)) & 0x33333333
+    n = (n | (n << 1)) & 0x55555555
+    return n
+
+
+def morton_encode(x, y):
+    """Combine two 16-bit coordinates into a 32-bit Morton (Z-order) index."""
+    return morton_interleave(x) | (morton_interleave(y) << 1)

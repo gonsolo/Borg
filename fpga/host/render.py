@@ -13,7 +13,7 @@ import machine
 from machine import Pin, SPI
 
 import run_tinyqv
-from fp16_utils import fp16_to_float, float_to_fp16
+from borg_utils import fp16_to_float, float_to_fp16, morton_encode
 from borg_mmio import PSRAM_IO_SPI_ADDR, PSRAM_OUT_OFFSET, TEX_PSRAM_OFFSET, DONE_MARKER, FPGA_CLOCK_HZ
 
 
@@ -344,15 +344,6 @@ def render_all_frames(app_name='triangle'):
             TEX_WIDTH = 32
             TEX_HEIGHT = 32
 
-            def morton_interleave(n):
-                n = (n | (n << 8)) & 0x00FF00FF
-                n = (n | (n << 4)) & 0x0F0F0F0F
-                n = (n | (n << 2)) & 0x33333333
-                n = (n | (n << 1)) & 0x55555555
-                return n
-
-            def morton_encode(x, y):
-                return morton_interleave(x) | (morton_interleave(y) << 1)
 
             total_words = TEX_WIDTH * TEX_HEIGHT * 3
             for y in range(TEX_HEIGHT):

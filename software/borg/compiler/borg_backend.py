@@ -21,6 +21,7 @@ if host_dir not in sys.path:
     sys.path.insert(0, host_dir)
 
 from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd
+from borg_utils import float_to_fp16
 
 
 class BorgBackend:
@@ -44,33 +45,6 @@ class BorgBackend:
         self.borg_outputs = []       # (name, preg) for output registers
         self.borg_consts = []        # (name, preg, value) for constants used in Borg instructions
 
-    @staticmethod
-    def _float_to_fp16(f):
-        """Convert float to FP16 bits (for compile-time constant embedding)."""
-        if f == 0.0:
-            return 0x0000
-        sign = 0
-        if f < 0:
-            sign = 1
-            f = -f
-        exp = 0
-        tmp = f
-        while tmp >= 2.0:
-            tmp /= 2.0
-            exp += 1
-        while tmp < 1.0:
-            tmp *= 2.0
-            exp -= 1
-        frac = int((tmp - 1.0) * 1024 + 0.5)
-        biased = exp + 15
-        if frac >= 1024:
-            frac = 0
-            biased += 1
-        if biased >= 31:
-            return (sign << 15) | 0x7C00
-        if biased <= 0:
-            return sign << 15
-        return (sign << 15) | (biased << 10) | frac
 
     def alloc_reg(self, vreg):
         """Allocate a physical Borg register (0-15) for a virtual register."""
@@ -293,7 +267,7 @@ class BorgBackend:
 
         # Constant values: C × uint16_le
         for _, _, val in self.borg_consts:
-            parts.append(struct.pack('<H', self._float_to_fp16(float(val))))
+            parts.append(struct.pack('<H', float_to_fp16(float(val))))
 
         return b''.join(parts)
 
