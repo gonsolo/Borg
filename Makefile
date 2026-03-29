@@ -51,7 +51,7 @@ test-chisel-borg:
 	$(MILL) hardware.borg.test
 
 lint: generate_verilog
-	verilator --lint-only -Wall -Iout/hardware/tinyqv/verilog -Iout/hardware/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $$(cat out/hardware/borg/verilog/asic_files.txt out/hardware/tinyqv/verilog/asic_files.txt | sed 's|^\.\./||' | tr '\n' ' ')
+	verilator --lint-only -Wall -Iout/hardware/tinyqv/verilog -Iout/hardware/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $$(cat out/hardware/borg/verilog/asic_files.txt | sed 's|^\.\./||') $$(for f in $$(cat out/hardware/tinyqv/verilog/asic_files.txt | xargs -I{} basename {}); do [ ! -f out/hardware/borg/verilog/$$f ] && echo out/hardware/tinyqv/verilog/$$f; done; true)
 
 test-chisel-core:
 	$(MILL) hardware.tinyqv.test
