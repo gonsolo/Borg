@@ -27,7 +27,7 @@ help:
 FPGA_EXTRA_FILES = \
 	../out/fpga/verilog/tinyQV_top.sv
 
-SRC_FILES = $$(cat ../out/hardware/borg/verilog/asic_files.txt ../out/hardware/tinyqv/verilog/asic_files.txt | tr '\n' ' ') $(FPGA_EXTRA_FILES)
+SRC_FILES = $$(cat ../out/hardware/borg/verilog/asic_files.txt ../out/hardware/tinyqv/verilog/asic_files.txt | awk -F/ '!seen[$$NF]++' | tr '\n' ' ') $(FPGA_EXTRA_FILES)
 
 CHISEL_SRCS = $(wildcard ../hardware/borg/src/*.scala) $(wildcard ../hardware/tinyqv/src/*.scala)
 
