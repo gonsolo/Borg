@@ -3,7 +3,7 @@ SRC_FILES = $(shell cat ../../out/hardware/borg/verilog/asic_files.txt ../../out
 all: triangle
 
 verilator_sim: main.cpp $(SRC_FILES)
-	verilator -cc --exe -O3 -Wall --build \
+	verilator -cc --exe -O3 -x-assign fast -x-initial fast --noassert -Wall --build -j 0 \
 	-I../../out/hardware/tinyqv/verilog -I../../out/hardware/borg/verilog \
 	--top-module tt_um_gonsolo_borg \
 	../../lint.vlt \
