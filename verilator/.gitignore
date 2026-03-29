@@ -1,0 +1,5 @@
+verilator_sim
+obj_dir/
+*.o
+*.ppm
+*.log
