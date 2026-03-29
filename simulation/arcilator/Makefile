@@ -9,14 +9,14 @@ export HARDENING_DISABLE=all
 export NIX_HARDENING_ENABLE=
 unexport NIX_HARDENING_ENABLE
 
-FIRMWARE_DIR = ../fpga/firmware
+FIRMWARE_DIR = ../../fpga/firmware
 
 .PHONY: all clean triangle vkcube $(FIRMWARE_DIR)/%.bin
 
 all: triangle vkcube
 
 # Step 1: FIRRTL → HW MLIR
-borg.mlir: ../out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir
+borg.mlir: ../../out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir
 	$(FIRTOOL) $< --ir-hw > $@
 
 # Step 2: HW MLIR → LLVM IR + state info
