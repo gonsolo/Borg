@@ -70,6 +70,15 @@ make test-cocotb-soc-core-rtl  # CPU SoC integration tests (cocotb)
 make test-cocotb-soc-borg-rtl  # Borg peripheral tests (cocotb)
 ```
 
+### Cycle-Accurate C++ Simulation
+
+Fast C++ simulators for RTL validation, rendering frames locally without an FPGA.
+
+```bash
+cd simulation/verilator    # or cd simulation/arcilator
+make triangle              # Build simulator and render a triangle frame
+```
+
 ### FPGA (pico-ice)
 
 Prerequisites: pico-ice FPGA + Raspberry Pi debug probe.
@@ -102,6 +111,8 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | Hardware perspective projection (4×4 MVP shader) | ✅ Done |
 | Hardware FP16 reciprocal (FRCP) | ✅ Done |
 | Back-face culling & depth-correct vkcube | ✅ Done |
+| Hardware fragment interpolation | ✅ Done |
+| Cycle-accurate C++ simulation (Arcilator & Verilator) | ✅ Done |
 | Test manufactured chip | ⏳ Pending |
 | Vulkan driver | 📋 Planned |
 
@@ -129,4 +140,5 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | [Tiny Tapeout Tools](https://github.com/TinyTapeout/tt-support-tools) | Build and submission orchestrator | Apache-2.0 |
 | [Nix](https://github.com/NixOS/nix) | Reproducible development environment | LGPL-2.1 |
 | [CIRCT/firtool](https://github.com/llvm/circt) | Chisel → Verilog compiler (FIRRTL) | Apache-2.0 (LLVM) |
+| [Arcilator](https://github.com/llvm/circt) | Cycle-accurate FIRRTL C++ simulator | Apache-2.0 (LLVM) |
 | [OpenJDK](https://openjdk.org/) | Java runtime for Chisel/Mill | GPL-2.0 + CE |
