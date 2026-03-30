@@ -310,9 +310,9 @@ def render_all_frames(app_name='triangle'):
     TEX_SENTINEL_OFFSET = TEX_PSRAM_OFFSET + 32 * 32 * 3  # Word 7272 (after texture ends at 7271)
     # Select texture file per app
     if app_name == 'vkcube':
-        tex_file = '../software/borg/borg_texture.dat'
+        tex_file = 'firmware_cache/borg_texture.dat'
     else:
-        tex_file = '../software/borg/test_texture.dat'
+        tex_file = 'firmware_cache/test_texture.dat'
 
     # Sentinel magic derived from texture filename — different textures get
     # different sentinels so switching apps forces a re-upload.
@@ -427,7 +427,7 @@ def render_all_frames(app_name='triangle'):
     print("All %d frames rendered in %d ms." % (NUM_FRAMES, time.ticks_diff(time.ticks_ms(), t_readback)))
     print("Total render_all_frames time: %d ms" % time.ticks_diff(time.ticks_ms(), t_start_all))
 
-def run_animation(firmware_bin='../software/borg/triangle.bin'):
+def run_animation(firmware_bin='firmware_cache/triangle.bin'):
     """Entry point for rendering all 10 frames."""
     machine.freq(112_000_000)
 
@@ -451,7 +451,7 @@ def run_animation(firmware_bin='../software/borg/triangle.bin'):
     render_all_frames(app_name)
 
 
-def run_single_frame(frame=0, firmware_bin='../software/borg/triangle.bin'):
+def run_single_frame(frame=0, firmware_bin='firmware_cache/triangle.bin'):
     """Entry point for rendering (renders all frames, kept for compatibility)."""
     run_animation(firmware_bin)
 

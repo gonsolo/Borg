@@ -76,12 +76,16 @@ resource_check: yosys.log
 # Build firmware and run triangle rendering
 triangle: .burned
 	@$(MAKE) --no-print-directory -s -C ../software/borg triangle
-	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, '../software/borg/triangle.bin')" | tee /tmp/mpremote_output.txt
+	@mkdir -p firmware_cache
+	@cp ../software/borg/triangle.bin ../software/borg/test_texture.dat firmware_cache/
+	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, 'firmware_cache/triangle.bin')" | tee /tmp/mpremote_output.txt
 
 # Build firmware and run vkcube rendering
 vkcube: .burned
 	@$(MAKE) --no-print-directory -s -C ../software/borg vkcube
-	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, '../software/borg/vkcube.bin')" | tee /tmp/mpremote_output.txt
+	@mkdir -p firmware_cache
+	@cp ../software/borg/vkcube.bin ../software/borg/borg_texture.dat firmware_cache/
+	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, 'firmware_cache/vkcube.bin')" | tee /tmp/mpremote_output.txt
 
 # Catch debug output (preferably in a second shell)
 tio:

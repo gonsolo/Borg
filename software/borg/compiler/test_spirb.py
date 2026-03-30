@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'fpga', 'host'))
 from borg_backend import BorgBackend
 from borg_mmio import SPIRB_INSTR_BYTES
+from borg_utils import float_to_fp16
 
 
 def parse_spirb(blob):
@@ -79,7 +80,7 @@ def test_shader(name, asm_path):
 
     # Verify constant values
     for i, (_, _, val) in enumerate(backend.borg_consts):
-        expected_fp16 = BorgBackend._float_to_fp16(float(val))
+        expected_fp16 = float_to_fp16(float(val))
         assert parsed['const_vals'][i] == expected_fp16, \
             f"{name}: const_val[{i}] mismatch: 0x{parsed['const_vals'][i]:04X} != 0x{expected_fp16:04X}"
 

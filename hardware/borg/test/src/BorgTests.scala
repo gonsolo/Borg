@@ -654,5 +654,67 @@ object BorgTests extends TestSuite {
         println("=== FRCP Tests Passed ===\n")
       }
     }
+
+    // =====================================================================
+    // NEW TEST GROUP 6: Edge-case / Inside Flag test (FP16)
+    // Verifies that BORG_ITER_INSIDE behaves correctly over r0, r1, r2 updates
+    // =====================================================================
+    utest.test("inside_flag_tests") {
+      val config = FloatConfig.FP16
+      simulate(new Borg(config)) { borg =>
+        println("\n=== Inside Flag Snoop Tests ===")
+
+        def assertInside(expected: Boolean, label: String): Unit = {
+          borg.io.address.poke(MmioMap.BORG_ITER_OFFSET.U)
+          borg.io.data_read_n.poke(2.U)
+          borg.io.data_write_n.poke(3.U)
+          borg.clock.step(1)
+          val iterVal = borg.io.data_out.peek().litValue
+          borg.io.data_read_n.poke(3.U)
+          
+          val isInside = ((iterVal >> MmioMap.BORG_ITER_INSIDE_SHIFT) & 1) == 1
+          println(f"Check: $label -> Actual: $isInside (Exp: $expected)")
+          utest.assert(isInside == expected)
+        }
+
+        def writeToReg(rDest: Int, value: Float): Unit = {
+           borg.clock.step(10)
+           writeAddr(borg, 16, floatToBits(value, config)) // r4 holds the value
+           writeAddr(borg, 20, floatToBits(0.0f, config)) // r5 holds 0.0
+           val instr = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = rDest)
+           
+           resetAndWait(borg)
+           writeAddr(borg, 128, instr)
+           writeAddr(borg, 132, 0) // halt
+           startAndWaitForHalt(borg)
+        }
+
+        println("  Test 1: All negative (strictly inside)")
+        writeToReg(0, -1.0f)
+        writeToReg(1, -2.0f)
+        writeToReg(2, -3.0f)
+        assertInside(true, "All negative")
+
+        println("  Test 2: One positive (outside)")
+        writeToReg(1, 1.0f)
+        assertInside(false, "r1 is positive")
+
+        println("  Test 3: Zero is inside (edge tie)")
+        writeToReg(0, 0.0f)
+        writeToReg(1, 0.0f)
+        writeToReg(2, 0.0f)
+        assertInside(true, "All zero")
+
+        println("  Test 4: Negative-Zero is inside (magnitude is 0)")
+        writeAddr(borg, 16, floatToBits(0.0f, config))
+        resetAndWait(borg)
+        writeAddr(borg, 128, encodeInstruction(config, FNEG, rs1 = 4, rs2 = 4, rd = 1)) // r1 = -0.0
+        writeAddr(borg, 132, 0)
+        startAndWaitForHalt(borg)
+        assertInside(true, "r1 is -0.0 (rest 0.0)")
+
+        println("=== Inside Flag Snoop Tests Passed ===\n")
+      }
+    }
   }
 }

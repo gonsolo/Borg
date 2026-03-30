@@ -27,3 +27,4 @@ TODO
 .cache/
 .cmd_output.txt
 .test-all.log
+fpga/firmware_cache/

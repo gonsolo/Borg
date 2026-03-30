@@ -98,6 +98,10 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val bbox_y0 = RegInit(0.U(6.W))
   val bbox_x1 = RegInit(0.U(6.W))
   val bbox_y1 = RegInit(0.U(6.W))
+  val e0_outside = RegInit(false.B)
+  val e1_outside = RegInit(false.B)
+  val e2_outside = RegInit(false.B)
+  val inside_flag = !e0_outside && !e1_outside && !e2_outside
   // @doc:end
 
   // --- Pipeline Control ---
@@ -304,6 +308,24 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
         Mux(is_frcp_reg, frcp_result, fma_result)),
       io.data_in(config.totalBits - 1, 0))
 
+    // @doc:inside-snoop
+    // Snoop on shader output registers (r0, r1, r2) to automatically record edge signs
+    when(pipe_write) {
+      val sign_bit = fma_result(config.totalBits - 1).asBool
+      val magn_non_zero = fma_result(config.totalBits - 2, 0) =/= 0.U
+      val is_outside = (!sign_bit) && magn_non_zero
+      when(w_addr === 0.U) {
+        e0_outside := is_outside
+      }
+      when(w_addr === 1.U) {
+        e1_outside := is_outside
+      }
+      when(w_addr === 2.U) {
+        e2_outside := is_outside
+      }
+    }
+    // @doc:end
+
     writeAllCopies(w_addr, w_en, w_data)
   }
 
@@ -350,7 +372,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     read_addr_del := io.address
     val status_reg = Cat(0.U((config.totalBits - 2).W), !running, 0.U(1.W))
     val iter_valid = iter_y < bbox_y1
-    val iter_reg   = Cat(iter_valid, iter_y, iter_x)
+    val iter_reg   = Cat(inside_flag, iter_valid, iter_y, iter_x)
     io.data_out := Mux(read_addr_del >= MmioMap.BORG_REG_OFFSET.U && read_addr_del < MmioMap.BORG_IMEM_OFFSET.U, mmio_reg_data,
       Mux(read_addr_del === MmioMap.BORG_ITER_OFFSET.U,
         iter_reg,

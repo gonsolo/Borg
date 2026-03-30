@@ -22,6 +22,7 @@
 #define BORG_ITER_BBOX_Y1_SHIFT 18
 #define BORG_ITER_COORD_BITS 6
 #define BORG_ITER_COORD_MASK 63
+#define BORG_ITER_INSIDE_SHIFT 13
 #define BORG_ITER_OFFSET 260
 #define BORG_ITER_VALID_SHIFT 12
 #define BORG_ITER_X_SHIFT 0
@@ -97,6 +98,7 @@
 #define BORG_ITER_X(v)            (((v) >> BORG_ITER_X_SHIFT) & BORG_ITER_COORD_MASK)
 #define BORG_ITER_Y(v)            (((v) >> BORG_ITER_Y_SHIFT) & BORG_ITER_COORD_MASK)
 #define BORG_ITER_VALID(v)        (((v) >> BORG_ITER_VALID_SHIFT) & 1)
+#define BORG_ITER_INSIDE(v)       (((v) >> BORG_ITER_INSIDE_SHIFT) & 1)
 #define PSRAM_IN(n)       (*(volatile uint32_t *)(PSRAM_BASE + (n) * 4))
 #define PSRAM_OUT(n)      (*(volatile uint32_t *)(PSRAM_BASE + PSRAM_OUT_OFFSET + (n) * 4))
 
