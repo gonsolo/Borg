@@ -75,8 +75,8 @@ clean:
 	rm -rf out/
 	$(MAKE) -C fpga clean
 	$(MAKE) -C test/soc clean
-	$(MAKE) -C software/borg clean
-	$(MAKE) -C software/tinyqv clean
+	$(MAKE) -C software clean
+	$(MAKE) -C simulation clean
 
 clean-gh-runs:
 	gh run list --limit 200 --json databaseId --jq '.[8:] | .[].databaseId' | xargs -I {} gh run delete {}

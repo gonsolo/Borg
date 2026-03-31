@@ -15,6 +15,10 @@ FIRMWARE_DIR = ../../software/borg
 
 all: triangle vkcube
 
+# Step 0: Hardware Generation
+../../out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir:
+	$(MAKE) -C ../../ generate_verilog
+
 # Step 1: FIRRTL → HW MLIR
 borg.mlir: ../../out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir
 	$(FIRTOOL) $< --ir-hw > $@
