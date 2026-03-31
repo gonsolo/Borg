@@ -16,7 +16,9 @@ import os
 
 # Add fpga/host to path to import the auto-generated borg_mmio.py
 # (which contains the single source of truth for instruction encoding)
-host_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "fpga", "host"))
+host_dir = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "fpga", "host")
+)
 if host_dir not in sys.path:
     sys.path.insert(0, host_dir)
 
@@ -35,23 +37,26 @@ class BorgBackend:
         # Maps virtual register names to physical Borg register indices
         self.vreg_to_preg = {}
         self.next_preg = 0
-        self.borg_instrs = []        # Borg IMEM instructions (encoded)
-        self.host_pre = []           # Host code before Borg execution
-        self.host_post = []          # Host code after Borg execution
-        self.constants = {}          # f_zero -> 0.0, f_one -> 1.0
-        self.borg_defines = []       # (io_type, name, preg) from @borg annotations
-        self.borg_uniforms = []      # (name, preg) for uniform registers
-        self.borg_attributes = []    # (name, preg) for attribute registers
-        self.borg_outputs = []       # (name, preg) for output registers
-        self.borg_consts = []        # (name, preg, value) for constants used in Borg instructions
-
+        self.borg_instrs = []  # Borg IMEM instructions (encoded)
+        self.host_pre = []  # Host code before Borg execution
+        self.host_post = []  # Host code after Borg execution
+        self.constants = {}  # f_zero -> 0.0, f_one -> 1.0
+        self.borg_defines = []  # (io_type, name, preg) from @borg annotations
+        self.borg_uniforms = []  # (name, preg) for uniform registers
+        self.borg_attributes = []  # (name, preg) for attribute registers
+        self.borg_outputs = []  # (name, preg) for output registers
+        self.borg_consts = (
+            []
+        )  # (name, preg, value) for constants used in Borg instructions
 
     def alloc_reg(self, vreg):
-        """Allocate a physical Borg register (0-15) for a virtual register."""
+        """Allocate a physical Borg register (0-29) for a virtual register."""
         if vreg in self.vreg_to_preg:
             return self.vreg_to_preg[vreg]
-        if self.next_preg >= 32:
-            raise RuntimeError(f"Out of Borg registers (max 32), trying to alloc for {vreg}")
+        if self.next_preg >= 30:
+            raise RuntimeError(
+                f"FATAL: Out of Borg registers (Max 30, since r30/r31 are reserved). Trying to alloc for {vreg}"
+            )
         preg = self.next_preg
         self.vreg_to_preg[vreg] = preg
         self.next_preg += 1
@@ -63,6 +68,14 @@ class BorgBackend:
         """Parse pseudo-assembly and split into host/Borg operations."""
         lines = [l.strip() for l in asm_text.strip().split("\n")]
 
+        borg_vregs, fmadd_accumulators = self._pass_identify_vregs(lines)
+        io_vregs, output_vregs = self._pass_parse_annotations(lines)
+        self._pass_allocate_registers(
+            lines, borg_vregs, fmadd_accumulators, io_vregs, output_vregs
+        )
+        self._pass_emit_instructions(lines)
+
+    def _pass_identify_vregs(self, lines):
         # First pass: identify which virtual registers are used in fmul/fmadd
         borg_vregs = set()
         fmadd_accumulators = []  # rs3 in fmadd: only 2-bit field, must be r0-r3
@@ -86,7 +99,9 @@ class BorgBackend:
                 # rs3 (accumulator) has only 2 bits — must be allocated to r0-r3
                 if c not in fmadd_accumulators:
                     fmadd_accumulators.append(c)
+        return borg_vregs, fmadd_accumulators
 
+    def _pass_parse_annotations(self, lines):
         # Pre-scan @borg annotations to identify I/O virtual registers
         io_vregs = []
         output_vregs = set()
@@ -99,7 +114,11 @@ class BorgBackend:
                         io_vregs.append(vreg)
                     if parts[2] == "output":
                         output_vregs.add(vreg)
+        return io_vregs, output_vregs
 
+    def _pass_allocate_registers(
+        self, lines, borg_vregs, fmadd_accumulators, io_vregs, output_vregs
+    ):
         # Allocate fmadd accumulators FIRST to guarantee they get r0-r3
         for vreg in fmadd_accumulators:
             if vreg not in self.vreg_to_preg:
@@ -113,7 +132,8 @@ class BorgBackend:
         # Pre-compute last use for each vreg
         last_use = {}
         for i, line in enumerate(lines):
-            if line.startswith("#") or not line: continue
+            if line.startswith("#") or not line:
+                continue
             tokens = line.split("#")[0].strip().replace(",", " ").split()
             for tok in tokens[1:]:
                 if tok in borg_vregs:
@@ -122,23 +142,36 @@ class BorgBackend:
         # Allocate remaining Borg physical registers with simple liveness analysis
         active_vregs = set(io_vregs).union(fmadd_accumulators)
         for i, line in enumerate(lines):
-            if line.startswith("#") or not line: continue
+            if line.startswith("#") or not line:
+                continue
             tokens = line.split("#")[0].strip().replace(",", " ").split()
-            if not tokens: continue
+            if not tokens:
+                continue
             for tok in tokens[1:]:
                 if tok in borg_vregs and tok not in self.vreg_to_preg:
-                    used_pregs = {self.vreg_to_preg[v] for v in active_vregs if v in self.vreg_to_preg}
+                    used_pregs = {
+                        self.vreg_to_preg[v]
+                        for v in active_vregs
+                        if v in self.vreg_to_preg
+                    }
                     preg = next((p for p in range(4, 30) if p not in used_pregs), None)
                     if preg is None:
-                        raise RuntimeError(f"Liveness analysis failed! Out of Borg registers (max 30), trying to alloc for {tok}")
+                        raise RuntimeError(
+                            f"Liveness analysis failed! Out of Borg registers (max 30), trying to alloc for {tok}"
+                        )
                     self.vreg_to_preg[tok] = preg
                     active_vregs.add(tok)
-                    
+
             for tok in tokens[1:]:
-                if tok in borg_vregs and tok not in output_vregs and tok not in fmadd_accumulators:
+                if (
+                    tok in borg_vregs
+                    and tok not in output_vregs
+                    and tok not in fmadd_accumulators
+                ):
                     if last_use.get(tok, -1) == i:
                         active_vregs.discard(tok)
 
+    def _pass_emit_instructions(self, lines):
         # Second pass: classify and lower
         in_borg_section = False
         for line in lines:
@@ -197,7 +230,9 @@ class BorgBackend:
             elif op == "fneg.s":
                 dst, src = tokens[1], tokens[2]
                 self.host_pre.append(f"    // {line_clean}")
-                self.host_pre.append(f"    uint16_t {dst} = {src} ^ 0x8000;  // XOR sign bit")
+                self.host_pre.append(
+                    f"    uint16_t {dst} = {src} ^ 0x8000;  // XOR sign bit"
+                )
                 if dst in self.vreg_to_preg:
                     preg = self.vreg_to_preg[dst]
                     self.host_pre.append(f"    borg_write_reg({preg}, {dst});")
@@ -217,11 +252,15 @@ class BorgBackend:
                 if src in self.vreg_to_preg:
                     preg = self.vreg_to_preg[src]
                     self.host_post.append(f"    // {line_clean}  {comment}")
-                    self.host_post.append(f"    uint16_t {src}_out = borg_read_reg({preg});")
+                    self.host_post.append(
+                        f"    uint16_t {src}_out = borg_read_reg({preg});"
+                    )
                     self.host_post.append(f"    store_fp16({mem}, {src}_out);")
                 elif src in self.constants:
                     self.host_post.append(f"    // {line_clean}  {comment}")
-                    self.host_post.append(f"    store_fp16({mem}, float_to_fp16({self.constants[src]}));")
+                    self.host_post.append(
+                        f"    store_fp16({mem}, float_to_fp16({self.constants[src]}));"
+                    )
                 else:
                     self.host_post.append(f"    // {line_clean} -- passthrough")
                     self.host_post.append(f"    store_fp16({mem}, {src});")
@@ -232,7 +271,9 @@ class BorgBackend:
                 pa = self.vreg_to_preg[a]
                 pb = self.vreg_to_preg[b]
                 enc = encode_rv32_fadd(pa, pb, prd)
-                self.borg_instrs.append((enc, f"fadd r{prd}, r{pa}, r{pb}  // {comment}"))
+                self.borg_instrs.append(
+                    (enc, f"fadd r{prd}, r{pa}, r{pb}  // {comment}")
+                )
 
             elif op == "fmul.s":
                 rd, a, b = tokens[1], tokens[2], tokens[3]
@@ -240,7 +281,9 @@ class BorgBackend:
                 pa = self.vreg_to_preg[a]
                 pb = self.vreg_to_preg[b]
                 enc = encode_rv32_fmul(pa, pb, prd)
-                self.borg_instrs.append((enc, f"fmul r{prd}, r{pa}, r{pb}  // {comment}"))
+                self.borg_instrs.append(
+                    (enc, f"fmul r{prd}, r{pa}, r{pb}  // {comment}")
+                )
 
             elif op == "fmadd.s":
                 rd, a, b, c = tokens[1], tokens[2], tokens[3], tokens[4]
@@ -249,7 +292,9 @@ class BorgBackend:
                 pb = self.vreg_to_preg[b]
                 pc = self.vreg_to_preg[c]
                 enc = encode_rv32_fmadd(pa, pb, pc, prd)
-                self.borg_instrs.append((enc, f"fmadd r{prd}, r{pa}, r{pb}, r{pc}  // {comment}"))
+                self.borg_instrs.append(
+                    (enc, f"fmadd r{prd}, r{pa}, r{pb}, r{pc}  // {comment}")
+                )
 
             elif op == "ret":
                 pass  # Halt is implicit (IMEM word = 0)
@@ -262,6 +307,7 @@ class BorgBackend:
     def emit_binary(self):
         """Serialize the shader to SPIR-B binary format (see docs/spirb.md)."""
         import struct
+
         parts = []
 
         # Header: 6 bytes
@@ -270,27 +316,27 @@ class BorgBackend:
         n_attr = len(self.borg_attributes)
         n_out = len(self.borg_outputs)
         n_const = len(self.borg_consts)
-        parts.append(struct.pack('<6B', n_instr, n_uni, n_attr, n_out, n_const, 0))
+        parts.append(struct.pack("<6B", n_instr, n_uni, n_attr, n_out, n_const, 0))
 
         # Instructions: N × uint32_le
         for enc, _comment in self.borg_instrs:
-            parts.append(struct.pack('<I', enc))
+            parts.append(struct.pack("<I", enc))
 
         # Register index arrays: uint8 each
         for _, preg in self.borg_uniforms:
-            parts.append(struct.pack('B', preg))
+            parts.append(struct.pack("B", preg))
         for _, preg in self.borg_attributes:
-            parts.append(struct.pack('B', preg))
+            parts.append(struct.pack("B", preg))
         for _, preg in self.borg_outputs:
-            parts.append(struct.pack('B', preg))
+            parts.append(struct.pack("B", preg))
         for _, preg, _ in self.borg_consts:
-            parts.append(struct.pack('B', preg))
+            parts.append(struct.pack("B", preg))
 
         # Constant values: C × uint16_le
         for _, _, val in self.borg_consts:
-            parts.append(struct.pack('<H', float_to_fp16(float(val))))
+            parts.append(struct.pack("<H", float_to_fp16(float(val))))
 
-        return b''.join(parts)
+        return b"".join(parts)
 
 
 if __name__ == "__main__":
@@ -298,14 +344,17 @@ if __name__ == "__main__":
         print("Usage: python borg_backend.py <input.s> <output.borg>")
         sys.exit(1)
 
-    with open(sys.argv[1], 'r') as f:
+    with open(sys.argv[1], "r") as f:
         asm_text = f.read()
     backend = BorgBackend()
     backend.lower(asm_text)
 
     out_path = sys.argv[2]
     data = backend.emit_binary()
-    with open(out_path, 'wb') as f:
+    with open(out_path, "wb") as f:
         f.write(data)
-    print(f"Generated {out_path} ({len(data)} bytes)")
 
+    # Calculate peak registers used (highest physical register allocated + 1)
+    peak_regs = max(backend.vreg_to_preg.values()) + 1 if backend.vreg_to_preg else 0
+    print(f"INFO: Peak register usage: {peak_regs}/30")
+    print(f"Generated {out_path} ({len(data)} bytes)")
