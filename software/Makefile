@@ -1,4 +1,4 @@
-.PHONY: all clean borg tinyqv generate_verilog
+.PHONY: all clean test borg tinyqv generate_verilog
 
 all: generate_verilog borg tinyqv
 
@@ -10,6 +10,9 @@ borg:
 
 tinyqv:
 	$(MAKE) -C tinyqv
+
+test:
+	$(MAKE) -C borg/compiler test
 
 clean:
 	$(MAKE) -C borg clean

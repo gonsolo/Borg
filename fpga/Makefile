@@ -100,11 +100,8 @@ clean:
 	$(MAKE) -C ../software/borg clean
 	$(MAKE) -C ../software/tinyqv clean
 
-test-all:
-	$(MAKE) -C ../software/borg/compiler test
-
 # Timing analysis on the synthesized bitstream
 timing:
 	icetime -d up5k -c $(shell grep 'CLOCK_MHZ' ../software/borg/borg_mmio.h | awk '{print $$3}') borg.asc
 
-.PHONY: all help burn clean reset resource_check test-all timing triangle vkcube tio
+.PHONY: all help burn clean reset resource_check timing triangle vkcube tio
