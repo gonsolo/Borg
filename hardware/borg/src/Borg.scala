@@ -102,6 +102,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val e1_outside = RegInit(false.B)
   val e2_outside = RegInit(false.B)
   val inside_flag = !e0_outside && !e1_outside && !e2_outside
+  val auto_run_stall = RegInit(false.B)    // held high during auto-triggered shader execution
+  val auto_run_pending = RegInit(false.B)  // delays running by 1 cycle for SyncReadMem fetch
   // @doc:end
 
   // --- Pipeline Control ---
@@ -357,7 +359,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
       iter_y  := io.data_in(11, 6)
     }
 
-    // Pixel iterator: write to advance
+    // Pixel iterator: write to advance + auto-trigger rasterizer shader
     when(is_writing && io.address === MmioMap.BORG_ITER_OFFSET.U) {
       when(iter_x + 1.U >= bbox_x1) {
         iter_x := bbox_x0
@@ -365,6 +367,21 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
       }.otherwise {
         iter_x := iter_x + 1.U
       }
+      // Auto-trigger: set PC=0 now, delay running by 1 cycle for SyncReadMem
+      programCounter := 0.U
+      auto_run_pending := true.B
+      auto_run_stall := true.B
+    }
+
+    // Delayed start: SyncReadMem has now fetched imem[0]
+    when(auto_run_pending) {
+      running := true.B
+      auto_run_pending := false.B
+    }
+
+    // Clear auto-run stall when shader halts
+    when(auto_run_stall && !running && !auto_run_pending) {
+      auto_run_stall := false.B
     }
 
     // Read mux
@@ -379,7 +396,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
         Mux(read_addr_del === MmioMap.BORG_CONTROL_OFFSET.U, status_reg, 0.U)))
 
     val read_ready_del = RegNext(is_reading, false.B)
-    io.data_ready := (io.data_read_n === 3.U) || read_ready_del
+    io.data_ready := Mux(auto_run_stall, false.B,
+      (io.data_read_n === 3.U) || read_ready_del)
     io.uo_out := 0.U
     io.user_interrupt := false.B
   }

@@ -716,5 +716,92 @@ object BorgTests extends TestSuite {
         println("=== Inside Flag Snoop Tests Passed ===\n")
       }
     }
+
+    // =====================================================================
+    // NEW TEST GROUP 7: Auto-Run on BORG_ITER write (Step 10.4.2)
+    // Verifies that writing to BORG_ITER auto-triggers the shader at PC=0
+    // and that data_ready stalls until the shader completes.
+    // =====================================================================
+    utest.test("auto_run_tests") {
+      val config = FloatConfig.FP16
+      simulate(new Borg(config)) { borg =>
+        println("\n=== Auto-Run Tests ===")
+
+        // --- Test 1: Auto-run triggers shader on BORG_ITER write ---
+        // Load a simple shader at PC=0: ADD r0 = r4 + r5
+        println("  Test 1: Auto-run triggers shader")
+        resetAndWait(borg)
+        val addInstr = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = 0)
+        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET, addInstr)       // imem[0]
+        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 4, 0)          // imem[1] = halt
+
+        // Load operands
+        writeAddr(borg, 16, floatToBits(3.0f, config))   // r4 = 3.0
+        writeAddr(borg, 20, floatToBits(7.0f, config))   // r5 = 7.0
+
+        // Set up bounding box: (0,0)-(2,2)
+        val bbox = (0 | (0 << 6) | (2 << 12) | (2 << 18))
+        writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, bbox)
+
+        // Write BORG_ITER to advance — should auto-trigger shader at PC=0
+        writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
+
+        // Wait for auto-run to complete (shader runs ~8 cycles for ADD+HALT)
+        borg.clock.step(20)
+
+        // Read r0 — should be 3.0 + 7.0 = 10.0
+        val result = readAddr(borg, 0, config)
+        assertResult(result, 10.0f, config, "auto-run: r0 = r4 + r5")
+        println("  Auto-run shader: PASSED")
+
+        // --- Test 2: Iterator advanced correctly after auto-run ---
+        println("  Test 2: Iterator advances with auto-run")
+        borg.io.address.poke(MmioMap.BORG_ITER_OFFSET.U)
+        borg.io.data_read_n.poke(2.U)
+        borg.io.data_write_n.poke(3.U)
+        borg.clock.step(1)
+        val iterVal = borg.io.data_out.peek().litValue
+        borg.io.data_read_n.poke(3.U)
+        val ix = (iterVal >> MmioMap.BORG_ITER_X_SHIFT) & MmioMap.BORG_ITER_COORD_MASK
+        val iy = (iterVal >> MmioMap.BORG_ITER_Y_SHIFT) & MmioMap.BORG_ITER_COORD_MASK
+        println(f"    Iterator position: ($ix, $iy)")
+        // After bbox (0,0)-(2,2) and one advance, should be at (1,0)
+        Predef.assert(ix == 1 && iy == 0, s"Expected (1,0), got ($ix,$iy)")
+        println("  Iterator advance: PASSED")
+
+        // --- Test 3: Inside flag updated by auto-run ---
+        // Write a negative value to r0 via auto-run: r0 = FNEG(r4) where r4 = 3.0
+        println("  Test 3: Inside flag via auto-run")
+        resetAndWait(borg)
+        val fnegInstr = encodeInstruction(config, FNEG, rs1 = 4, rs2 = 0, rd = 0)
+        val fneg1Instr = encodeInstruction(config, FNEG, rs1 = 4, rs2 = 0, rd = 1)
+        val fneg2Instr = encodeInstruction(config, FNEG, rs1 = 4, rs2 = 0, rd = 2)
+        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET, fnegInstr)       // r0 = -r4
+        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 4, fneg1Instr)  // r1 = -r4
+        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 8, fneg2Instr)  // r2 = -r4
+        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 12, 0)          // halt
+
+        writeAddr(borg, 16, floatToBits(3.0f, config))   // r4 = 3.0 (positive)
+        writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, bbox)
+
+        // Write BORG_ITER — auto-runs shader, r0/r1/r2 all become -3.0 (negative → inside)
+        writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
+        borg.clock.step(30)
+
+        // Read inside_flag
+        borg.io.address.poke(MmioMap.BORG_ITER_OFFSET.U)
+        borg.io.data_read_n.poke(2.U)
+        borg.io.data_write_n.poke(3.U)
+        borg.clock.step(1)
+        val iterVal2 = borg.io.data_out.peek().litValue
+        borg.io.data_read_n.poke(3.U)
+        val isInside = ((iterVal2 >> MmioMap.BORG_ITER_INSIDE_SHIFT) & 1) == 1
+        println(f"    inside_flag: $isInside (expected true)")
+        Predef.assert(isInside, "Expected inside_flag=true after negative edge results")
+        println("  Inside flag via auto-run: PASSED")
+
+        println("=== Auto-Run Tests Passed ===\n")
+      }
+    }
   }
 }

@@ -126,7 +126,7 @@ instead of driving every pixel. **This is the key transition from
   Added 6-bit x/y hardware counters, 4-coordinate bounding box registers, and single-instruction iteration advancement via `BORG_ITER` MMIO interface. Eliminated the nested software-based loop inside the `shade_tiles` firmware loop, moving spatial boundary checks strictly into hardware.
 - **Step 10.4: Hardware Edge Bounding Box Evaluation**
   - **10.4.1: Edge Sign Evaluation & Inside Flag** ✅ (2026-03-30): Snoop FPU writes to `r0/1/2` to latch edge function signs and expose a unified `inside_flag` via the `BORG_ITER` MMR.
-  - **10.4.2: Rasterizer Auto-Execution**: Auto-trigger the shader at `PC=0` on iterator advance, stalling the CPU until completion.
+  - **10.4.2: Rasterizer Auto-Execution** ✅ (2026-03-31): Auto-trigger the shader at `PC=0` on iterator advance, stalling the CPU until completion.
 - **Step 10.5: Hardware Coord Expansion (int-to-fp16)**
   Convert 6-bit integer iterator coordinates into FP16 pixel centers combinatorially, mapping them to `r30` and `r31`.
 - **Step 10.6: CPU-Drawn Pixel Dispatch**

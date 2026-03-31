@@ -66,5 +66,18 @@ int borg_shade_fragment(const spirb_shader_t *rast_shader,
     const xy16_t deltas[3],
     frag_result_t *result);
 
+// Load edge constants (uniforms) into rasterizer shader registers (once per triangle).
+void borg_load_edge_constants(const spirb_shader_t *s, const xy16_t *edges);
+
+// Load per-pixel deltas into rasterizer attribute registers (without running shader).
+void borg_load_edge_deltas(const spirb_shader_t *s, const xy16_t *deltas);
+
+// Run fragment shader only — assumes edge shader already ran (values in rast output regs).
+// Returns 1 always (caller should have already checked inside_flag).
+int borg_run_fragment(const spirb_shader_t *rast_shader,
+    const spirb_shader_t *frag_shader,
+    const triangle_t *tri,
+    frag_result_t *result);
+
 // UV to texel coordinate conversion
 texcoord_t uv_to_texcoord(uv16_t uv, fp16_t w_fp16, fp16_t h_fp16);

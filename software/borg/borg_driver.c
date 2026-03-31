@@ -311,17 +311,6 @@ static int clip_far(const clip_vertex_t *in, int n_in, clip_vertex_t *out) {
   return n_out;
 }
 
-// Shade a single pixel: edge test → fragment interpolation → z-test → write.
-static void shade_pixel(int px, int py,
-                        const triangle_t *tri, const texture_t *t, int frame) {
-  xy16_t pc = {pc_lut[px], pc_lut[py]};
-  xy16_t deltas[3];
-  compute_pixel_deltas(pc, tri->screen_pos.v, deltas);
-  frag_result_t result = {{0,0,0}, 0, {0,0}};
-  if (borg_shade_fragment(&rast_shader, &frag_shader, tri, deltas, &result))
-    shade_and_write_pixel(frame, px, py, result.color, result.z, result.uv, t);
-}
-
 // Compute screen-space AABB of 3 vertices, clamped to framebuffer.
 static bbox_t compute_bbox(const xy16x3_t *pos) {
   fp16_t min_x = pos->v[0].x, max_x = pos->v[0].x;
@@ -342,14 +331,38 @@ static bbox_t compute_bbox(const xy16x3_t *pos) {
 }
 
 // Iterate all pixels within the triangle's bounding box via hardware counters.
+// BORG_ITER write auto-triggers the rasterizer shader and stalls until done.
 static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
   bbox_t bb = compute_bbox(&tri->screen_pos);
   BORG_ITER_BBOX = BORG_ITER_PACK_BBOX(bb.x0, bb.y0, bb.x1, bb.y1);
+
   for (;;) {
     uint32_t iter = BORG_ITER;
     if (!BORG_ITER_VALID(iter)) break;
-    shade_pixel(BORG_ITER_X(iter), BORG_ITER_Y(iter), tri, t, frame);
+    int px = BORG_ITER_X(iter);
+    int py = BORG_ITER_Y(iter);
+
+    // Load edge constants (uniforms) — must reload each pixel because the
+    // fragment shader clobbers rasterizer uniform registers (r3-r8).
+    borg_load_edge_constants(&rast_shader, tri->edges.v);
+
+    // Compute and load per-pixel deltas into attribute registers
+    xy16_t pc = {pc_lut[px], pc_lut[py]};
+    xy16_t deltas[3];
+    compute_pixel_deltas(pc, tri->screen_pos.v, deltas);
+    borg_load_edge_deltas(&rast_shader, deltas);
+
+    // Advance iterator — auto-triggers edge shader at PC=0, CPU stalls until done
     BORG_ITER = 1;
+
+    // Read back: inside_flag reflects the shader that just ran for (px, py)
+    uint32_t iter2 = BORG_ITER;
+    if (!BORG_ITER_INSIDE(iter2)) continue;
+
+    // Fragment shading — edge values already in rast output registers
+    frag_result_t result = {{0,0,0}, 0, {0,0}};
+    borg_run_fragment(&rast_shader, &frag_shader, tri, &result);
+    shade_and_write_pixel(frame, px, py, result.color, result.z, result.uv, t);
   }
 }
 

@@ -48,11 +48,19 @@ void compute_pixel_deltas(xy16_t pc, const xy16_t *screen_pos,
 }
 
 // Load edge constants (uniforms) once per triangle.
-static void borg_load_edge_constants(const spirb_shader_t *s, const xy16_t *edges) {
+void borg_load_edge_constants(const spirb_shader_t *s, const xy16_t *edges) {
   // Uniforms: dx0, neg_dy0, dx1, neg_dy1, dx2, neg_dy2
   for (int i = 0; i < 3; i++) {
     BORG_REG(s->uniform_regs[i * 2 + 0]) = edges[i].x;
     BORG_REG(s->uniform_regs[i * 2 + 1]) = edges[i].y;
+  }
+}
+
+// Load per-pixel deltas into attribute registers (without running the shader).
+void borg_load_edge_deltas(const spirb_shader_t *s, const xy16_t *deltas) {
+  for (int i = 0; i < 3; i++) {
+    BORG_REG(s->attribute_regs[i * 2 + 0]) = deltas[i].x;
+    BORG_REG(s->attribute_regs[i * 2 + 1]) = deltas[i].y;
   }
 }
 
@@ -143,4 +151,49 @@ texcoord_t uv_to_texcoord(uv16_t uv, fp16_t w_fp16, fp16_t h_fp16) {
     fp16_to_uint(borg_fp16_mul(uv.u, w_fp16)),
     fp16_to_uint(borg_fp16_mul(uv.v, h_fp16))
   };
+}
+
+// Run fragment shader only — edge values already in rast output registers.
+// Assumes edge shader has already been run (e.g., by borg_run or auto-trigger).
+int borg_run_fragment(
+    const spirb_shader_t *rast_shader,
+    const spirb_shader_t *frag_shader,
+    const triangle_t *tri,
+    frag_result_t *result) {
+  // Read edge values from rasterizer output registers
+  fp16_t e0 = BORG_REG(rast_shader->output_regs[0]) & 0xFFFF;
+  fp16_t e1 = BORG_REG(rast_shader->output_regs[1]) & 0xFFFF;
+  fp16_t e2 = BORG_REG(rast_shader->output_regs[2]) & 0xFFFF;
+
+  // Load fragment uniforms (per-triangle constants)
+  const rgb16_t *colors = tri->colors.v;
+  BORG_REG(frag_shader->uniform_regs[0]) = tri->inv_area;
+  load_uniform_triple(frag_shader, 1,  colors[0].r, colors[1].r, colors[2].r);
+  load_uniform_triple(frag_shader, 4,  colors[0].g, colors[1].g, colors[2].g);
+  load_uniform_triple(frag_shader, 7,  colors[0].b, colors[1].b, colors[2].b);
+  load_uniform_triple(frag_shader, 10, tri->z_vals.v[0], tri->z_vals.v[1], tri->z_vals.v[2]);
+
+  if (tri->has_uvs) {
+    const uv16_t *uvs = tri->uvs.v;
+    load_uniform_triple(frag_shader, 13, uvs[0].u, uvs[1].u, uvs[2].u);
+    load_uniform_triple(frag_shader, 16, uvs[0].v, uvs[1].v, uvs[2].v);
+  } else {
+    for (int i = 13; i <= 18; i++) BORG_REG(frag_shader->uniform_regs[i]) = 0;
+  }
+
+  // Load edge values as fragment attributes
+  BORG_REG(frag_shader->attribute_regs[0]) = e0;
+  BORG_REG(frag_shader->attribute_regs[1]) = e1;
+  BORG_REG(frag_shader->attribute_regs[2]) = e2;
+
+  borg_run(BORG_IMEM_FRAG_OFFSET);
+
+  result->color = read_output_rgb(frag_shader, 0);
+  result->z     = read_output_reg(frag_shader, 3);
+  if (tri->has_uvs) {
+    result->uv.u = read_output_reg(frag_shader, 4);
+    result->uv.v = read_output_reg(frag_shader, 5);
+  }
+
+  return 1;
 }
