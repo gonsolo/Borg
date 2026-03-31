@@ -70,7 +70,8 @@ class BorgBackend:
 
         borg_vregs, fmadd_accumulators = self._pass_identify_vregs(lines)
         io_vregs, output_vregs = self._pass_parse_annotations(lines)
-        self._pass_allocate_registers(
+        self._pass_allocate_fixed_registers(fmadd_accumulators, io_vregs)
+        self._pass_liveness_analysis_and_alloc(
             lines, borg_vregs, fmadd_accumulators, io_vregs, output_vregs
         )
         self._pass_emit_instructions(lines)
@@ -116,9 +117,7 @@ class BorgBackend:
                         output_vregs.add(vreg)
         return io_vregs, output_vregs
 
-    def _pass_allocate_registers(
-        self, lines, borg_vregs, fmadd_accumulators, io_vregs, output_vregs
-    ):
+    def _pass_allocate_fixed_registers(self, fmadd_accumulators, io_vregs):
         # Allocate fmadd accumulators FIRST to guarantee they get r0-r3
         for vreg in fmadd_accumulators:
             if vreg not in self.vreg_to_preg:
@@ -129,6 +128,9 @@ class BorgBackend:
             if vreg not in self.vreg_to_preg:
                 self.alloc_reg(vreg)
 
+    def _pass_liveness_analysis_and_alloc(
+        self, lines, borg_vregs, fmadd_accumulators, io_vregs, output_vregs
+    ):
         # Pre-compute last use for each vreg
         last_use = {}
         for i, line in enumerate(lines):
