@@ -89,6 +89,7 @@ class BorgBackend:
 
         # Pre-scan @borg annotations to identify I/O virtual registers
         io_vregs = []
+        output_vregs = set()
         for line in lines:
             if line.startswith("# @borg "):
                 parts = line.split()
@@ -96,6 +97,8 @@ class BorgBackend:
                     vreg = parts[4]
                     if vreg not in io_vregs:
                         io_vregs.append(vreg)
+                    if parts[2] == "output":
+                        output_vregs.add(vreg)
 
         # Allocate fmadd accumulators FIRST to guarantee they get r0-r3
         for vreg in fmadd_accumulators:
@@ -107,17 +110,34 @@ class BorgBackend:
             if vreg not in self.vreg_to_preg:
                 self.alloc_reg(vreg)
 
-        # Allocate remaining Borg physical registers in order of first appearance
-        for line in lines:
-            if line.startswith("#") or not line:
-                continue
-            parts = line.split("#")[0].strip()
-            tokens = parts.replace(",", " ").split()
-            if not tokens:
-                continue
+        # Pre-compute last use for each vreg
+        last_use = {}
+        for i, line in enumerate(lines):
+            if line.startswith("#") or not line: continue
+            tokens = line.split("#")[0].strip().replace(",", " ").split()
+            for tok in tokens[1:]:
+                if tok in borg_vregs:
+                    last_use[tok] = i
+
+        # Allocate remaining Borg physical registers with simple liveness analysis
+        active_vregs = set(io_vregs).union(fmadd_accumulators)
+        for i, line in enumerate(lines):
+            if line.startswith("#") or not line: continue
+            tokens = line.split("#")[0].strip().replace(",", " ").split()
+            if not tokens: continue
             for tok in tokens[1:]:
                 if tok in borg_vregs and tok not in self.vreg_to_preg:
-                    self.alloc_reg(tok)
+                    used_pregs = {self.vreg_to_preg[v] for v in active_vregs if v in self.vreg_to_preg}
+                    preg = next((p for p in range(4, 30) if p not in used_pregs), None)
+                    if preg is None:
+                        raise RuntimeError(f"Liveness analysis failed! Out of Borg registers (max 30), trying to alloc for {tok}")
+                    self.vreg_to_preg[tok] = preg
+                    active_vregs.add(tok)
+                    
+            for tok in tokens[1:]:
+                if tok in borg_vregs and tok not in output_vregs and tok not in fmadd_accumulators:
+                    if last_use.get(tok, -1) == i:
+                        active_vregs.discard(tok)
 
         # Second pass: classify and lower
         in_borg_section = False
@@ -130,6 +150,7 @@ class BorgBackend:
                     io_type, name, vreg = parts[2], parts[3], parts[4]
                     if vreg in self.vreg_to_preg:
                         preg = self.vreg_to_preg[vreg]
+                        print(f"MAPPED {io_type} {name} to r{preg}")
                         self.borg_defines.append((io_type, name.upper(), preg))
                         if io_type == "uniform":
                             self.borg_uniforms.append((name.upper(), preg))

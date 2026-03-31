@@ -104,6 +104,24 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val inside_flag = !e0_outside && !e1_outside && !e2_outside
   val auto_run_stall = RegInit(false.B)    // held high during auto-triggered shader execution
   val auto_run_pending = RegInit(false.B)  // delays running by 1 cycle for SyncReadMem fetch
+
+  // --- Coordinate Expansion LUT ---
+  // Maps 6-bit integer pixel coordinates (0-63) to float16 pixel centers (+0.5)
+  // The hardware internally uses recFN for its pipeline, but coordLut should 
+  // output the raw IEEE FP16 bit pattern. The recFN wrapper converts standard
+  // external IEEE-754 format to HardFloat's recoded format automatically!
+  val coordLut = VecInit(Seq.tabulate(64) { i =>
+    val f = i.toFloat + 0.5f
+    val bits = if (config == FloatConfig.FP32) {
+      java.lang.Float.floatToRawIntBits(f) & 0xffffffffL
+    } else {
+      val raw = java.lang.Float.floatToRawIntBits(f)
+      val exp = ((raw >>> 23) & 0xff) - 127 + 15
+      val sig = (raw >>> 13) & 0x3ff
+      (exp << 10) | sig
+    }
+    bits.U(config.totalBits.W)
+  })
   // @doc:end
 
   // --- Pipeline Control ---
@@ -204,18 +222,26 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   private def wirePortA(): UInt = {
     val en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
     val en_del = RegNext(en, false.B)
+    val rs1_idx_del = RegNext(rs1_idx, 0.U)
     regFileA.io.readAddr := rs1_idx
     regFileA.io.readEn := en
-    Mux(en_del, regFileA.io.readData, 0.U)
+    val resolved_data = Mux(rs1_idx_del === 30.U, coordLut(iter_x),
+                        Mux(rs1_idx_del === 31.U, coordLut(iter_y),
+                        regFileA.io.readData))
+    Mux(en_del, resolved_data, 0.U)
   }
 
   /** Port B: pipeline rs2 read from regFileB. */
   private def wirePortB(): UInt = {
     val en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
     val en_del = RegNext(en, false.B)
+    val rs2_idx_del = RegNext(rs2_idx, 0.U)
     regFileB.io.readAddr := rs2_idx
     regFileB.io.readEn := en
-    Mux(en_del, regFileB.io.readData, 0.U)
+    val resolved_data = Mux(rs2_idx_del === 30.U, coordLut(iter_x),
+                        Mux(rs2_idx_del === 31.U, coordLut(iter_y),
+                        regFileB.io.readData))
+    Mux(en_del, resolved_data, 0.U)
   }
 
   /** Port C: rs3 during execution, MMIO register access when idle. */
@@ -226,10 +252,14 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val en = mmio_en || rs3_en
     val mmio_en_del = RegNext(mmio_en && is_reading, false.B)
     val rs3_en_del = RegNext(rs3_en, false.B)
+    val addr_del = RegNext(addr, 0.U)
     regFileC.io.readAddr := addr
     regFileC.io.readEn := en
-    (Mux(rs3_en_del, regFileC.io.readData, 0.U),
-     Mux(mmio_en_del, regFileC.io.readData, 0.U))
+    val resolved_data = Mux(addr_del === 30.U, coordLut(iter_x),
+                        Mux(addr_del === 31.U, coordLut(iter_y),
+                        regFileC.io.readData))
+    (Mux(rs3_en_del, resolved_data, 0.U),
+     Mux(mmio_en_del, resolved_data, 0.U))
   }
 
   /** Wire FMA unit: mux operands for ADD/MUL/FMA/FNEG.

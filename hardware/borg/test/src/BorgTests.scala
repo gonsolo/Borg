@@ -803,5 +803,65 @@ object BorgTests extends TestSuite {
         println("=== Auto-Run Tests Passed ===\n")
       }
     }
+
+    utest.test("coordlut_tests") {
+      simulate(new Borg(FloatConfig.FP16)) { borg =>
+        borg.reset.poke(true.B)
+        borg.clock.step(5)
+        borg.reset.poke(false.B)
+        borg.clock.step(5)
+
+        println("\n=== Test: coordLut Hardware Coordinate Expansion ===")
+
+        // Setup BORG_ITER_BBOX to [10, 20] to [10, 20]
+        borg.io.address.poke(MmioMap.BORG_ITER_BBOX_OFFSET.U)
+        borg.io.data_in.poke(((20 << 18) | (20 << 12) | (10 << 6) | 10).U)
+        borg.io.data_write_n.poke(2.U)
+        borg.clock.step(1)
+        borg.io.data_write_n.poke(3.U)
+
+        // Advance iterator normally to initialize it
+        borg.io.address.poke(MmioMap.BORG_ITER_OFFSET.U)
+        borg.io.data_in.poke(1.U)
+        borg.io.data_write_n.poke(2.U)
+        borg.clock.step(1)
+        borg.io.data_write_n.poke(3.U)
+        borg.clock.step(1)
+
+        // Wait to be sure iter_x=10, iter_y=10
+        
+        // Let's compute expected float16 bits for 10.5
+        // 10.5 = 1010.1 = 1.0101 * 2^3
+        // sign=0, exp = 3+15 = 18 = 0b10010
+        // frac = 0101 0000 00
+        // Expected FP16 = 0 10010 0101000000 = 0x4940 = 18752
+        val expected_fp16 = 0x4940L
+
+        // Read r30 via MMIO
+        borg.io.address.poke((MmioMap.BORG_REG_OFFSET + 30 * 4).U)
+        borg.io.data_read_n.poke(2.U)
+        borg.clock.step(1)
+        val r30_val = borg.io.data_out.peek().litValue
+        borg.io.data_read_n.poke(3.U)
+        borg.clock.step(1)
+
+        // Read r31 via MMIO
+        borg.io.address.poke((MmioMap.BORG_REG_OFFSET + 31 * 4).U)
+        borg.io.data_read_n.poke(2.U)
+        borg.clock.step(1)
+        val r31_val = borg.io.data_out.peek().litValue
+        borg.io.data_read_n.poke(3.U)
+        borg.clock.step(1)
+
+        println(f"  Expected Float16 bits: 0x$expected_fp16%04x")
+        println(f"  Read r30 (x=10):       0x$r30_val%04x")
+        println(f"  Read r31 (y=10):       0x$r31_val%04x")
+
+        Predef.assert(r30_val == expected_fp16, f"r30 via MMIO mismatch. Expected 0x$expected_fp16%04x, got 0x$r30_val%04x")
+        Predef.assert(r31_val == expected_fp16, f"r31 via MMIO mismatch. Expected 0x$expected_fp16%04x, got 0x$r31_val%04x")
+
+        println("=== coordLut Tests Passed ===\n")
+      }
+    }
   }
 }

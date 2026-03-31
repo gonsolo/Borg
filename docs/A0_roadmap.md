@@ -127,8 +127,10 @@ instead of driving every pixel. **This is the key transition from
 - **Step 10.4: Hardware Edge Bounding Box Evaluation**
   - **10.4.1: Edge Sign Evaluation & Inside Flag** ✅ (2026-03-30): Snoop FPU writes to `r0/1/2` to latch edge function signs and expose a unified `inside_flag` via the `BORG_ITER` MMR.
   - **10.4.2: Rasterizer Auto-Execution** ✅ (2026-03-31): Auto-trigger the shader at `PC=0` on iterator advance, stalling the CPU until completion.
-- **Step 10.5: Hardware Coord Expansion (int-to-fp16)**
-  Convert 6-bit integer iterator coordinates into FP16 pixel centers combinatorially, mapping them to `r30` and `r31`.
+- **Step 10.5: Hardware Coordinate Expansion (int-to-fp16)**
+  - ✅ **10.5.1: Hardware `coordLut` and MMIO Verification**: Convert 6-bit int iterator coords into FP16 pixel centers mapped to `r30` and `r31`. Verify via MMIO reads against software computations without altering the running edge shader.
+  - **10.5.2: FPU Coordinate Expansion Pipeline**: Pass negative vertex coordinates (`-v.x`, `-v.y`) as uniforms into `rasterize.s`. Rewrite the shader to compute `dpx = px - vx` natively using `fadd.s` with `r30/r31`, keeping pixel accuracy.
+  - **10.5.3: Software Delta Decommissioning**: Remove legacy firmware `compute_pixel_deltas`. Validate `make triangle` produces the pixel-perfect rendering using strictly hardware coordinate expansion.
 - **Step 10.6: CPU-Drawn Pixel Dispatch**
 
 ### Step 11: On-Chip Tile Buffer (BRAM)
