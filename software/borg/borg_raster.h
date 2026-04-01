@@ -5,41 +5,59 @@
 
 #pragma once
 
-#include <stdint.h>
 #include "borg_fpu.h"
+#include <stdint.h>
 
 // Forward declaration — full definition in borg_spirb.h
 struct spirb_shader_t;
 typedef struct spirb_shader_t spirb_shader_t;
 
-typedef struct { fp16_t x, y; } xy16_t;   // screen-space: positions, edges, deltas
-typedef struct { fp16_t u, v; } uv16_t;    // texture coordinates
-typedef struct { fp16_t r, g, b; } rgb16_t;
-typedef struct { fp16_t e0, e1, e2; } edges3_t;
-typedef struct { fp16_t v[3]; } fp16x3_t;
-typedef struct { int x, y; } texcoord_t;
+typedef struct {
+  fp16_t x, y;
+} xy16_t; // screen-space: positions, edges, deltas
+typedef struct {
+  fp16_t u, v;
+} uv16_t; // texture coordinates
+typedef struct {
+  fp16_t r, g, b;
+} rgb16_t;
+typedef struct {
+  fp16_t e0, e1, e2;
+} edges3_t;
+typedef struct {
+  fp16_t v[3];
+} fp16x3_t;
+typedef struct {
+  int x, y;
+} texcoord_t;
 
 // Per-vertex triple types — all members accessible via .v[0..2].
-typedef struct { xy16_t  v[3]; } xy16x3_t;
-typedef struct { rgb16_t v[3]; } rgb16x3_t;
-typedef struct { uv16_t  v[3]; } uv16x3_t;
+typedef struct {
+  xy16_t v[3];
+} xy16x3_t;
+typedef struct {
+  rgb16_t v[3];
+} rgb16x3_t;
+typedef struct {
+  uv16_t v[3];
+} uv16x3_t;
 
 // Per-triangle rasterization state, computed once per triangle.
 typedef struct {
-  xy16x3_t  screen_pos;  // screen-space vertex positions
-  xy16x3_t  edges;       // edge normal vectors
-  fp16_t    inv_area;    // 1 / signed area
-  rgb16x3_t colors;      // per-vertex colors
-  fp16x3_t  z_vals;      // per-vertex z depths
-  uv16x3_t  uvs;         // per-vertex texture UVs
-  int       has_uvs;     // nonzero if textured
+  xy16x3_t screen_pos; // screen-space vertex positions
+  xy16x3_t edges;      // edge normal vectors
+  fp16_t inv_area;     // 1 / signed area
+  rgb16x3_t colors;    // per-vertex colors
+  fp16x3_t z_vals;     // per-vertex z depths
+  uv16x3_t uvs;        // per-vertex texture UVs
+  int has_uvs;         // nonzero if textured
 } triangle_t;
 
 // Output of fragment shading for one pixel.
 typedef struct {
   rgb16_t color;
-  fp16_t  z;
-  uv16_t  uv;
+  fp16_t z;
+  uv16_t uv;
 } frag_result_t;
 
 // Screen-space translation: NDC → pixel coordinates
@@ -50,34 +68,16 @@ void screen_space_translate(const spirb_shader_t *vert_shader,
 // Compute edge normal vectors from screen-space triangle positions
 void compute_edge_vectors(const xy16_t *screen_pos, xy16_t *edges);
 
-// Compute per-pixel deltas from pixel center to each vertex
-void compute_pixel_deltas(xy16_t pc, const xy16_t *screen_pos, xy16_t *deltas);
-
-// Fragment shader: compute one interpolated channel
-fp16_t borg_frag_channel(const spirb_shader_t *frag_shader,
-    edges3_t e,
-    fp16_t inv_area, fp16x3_t c);
-
-// Full barycentric rasterization: edge test + fragment shading for one pixel.
-// Returns 1 if the pixel is visible (inside triangle), 0 otherwise.
-int borg_shade_fragment(const spirb_shader_t *rast_shader,
-    const spirb_shader_t *frag_shader,
-    const triangle_t *tri,
-    const xy16_t deltas[3],
-    frag_result_t *result);
-
-// Load edge constants (uniforms) into rasterizer shader registers (once per triangle).
+// Load edge constants (uniforms) into rasterizer shader registers (once per
+// triangle).
 void borg_load_edge_constants(const spirb_shader_t *s, const xy16_t *edges);
 
-// Load per-pixel deltas into rasterizer attribute registers (without running shader).
-void borg_load_edge_deltas(const spirb_shader_t *s, const xy16_t *deltas);
-
-// Run fragment shader only — assumes edge shader already ran (values in rast output regs).
-// Returns 1 always (caller should have already checked inside_flag).
+// Run fragment shader only — assumes edge shader already ran (values in rast
+// output regs). Returns 1 always (caller should have already checked
+// inside_flag).
 int borg_run_fragment(const spirb_shader_t *rast_shader,
-    const spirb_shader_t *frag_shader,
-    const triangle_t *tri,
-    frag_result_t *result);
+                      const spirb_shader_t *frag_shader, const triangle_t *tri,
+                      frag_result_t *result);
 
 // UV to texel coordinate conversion
 texcoord_t uv_to_texcoord(uv16_t uv, fp16_t w_fp16, fp16_t h_fp16);

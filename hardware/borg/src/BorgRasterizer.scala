@@ -33,6 +33,8 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   // Outputs
   val iterX         = Output(UInt(6.W))
   val iterY         = Output(UInt(6.W))
+  val shaderIterX   = Output(UInt(6.W))  // latched pre-advance position for coordLut
+  val shaderIterY   = Output(UInt(6.W))  // latched pre-advance position for coordLut
   val insideFlag    = Output(Bool())
   val iterValid     = Output(Bool())
   val autoRunStall  = Output(Bool())
@@ -45,6 +47,8 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   // --- State ---
   val iter_x  = RegInit(0.U(6.W))
   val iter_y  = RegInit(0.U(6.W))
+  val shader_iter_x = RegInit(0.U(6.W))  // pre-advance position for coordLut
+  val shader_iter_y = RegInit(0.U(6.W))  // pre-advance position for coordLut
   val bbox_x0 = RegInit(0.U(6.W))
   val bbox_y0 = RegInit(0.U(6.W))
   val bbox_x1 = RegInit(0.U(6.W))
@@ -70,6 +74,9 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   // --- Iterator advance ---
   io.triggerCore := false.B
   when(io.advance) {
+    // Latch current position BEFORE advancing — shader r30/r31 read these
+    shader_iter_x := iter_x
+    shader_iter_y := iter_y
     when(iter_x + 1.U >= bbox_x1) {
       iter_x := bbox_x0
       iter_y := iter_y + 1.U
@@ -84,8 +91,7 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   // @doc:inside-snoop
   when(io.pipeWriteEn) {
     val sign_bit = io.pipeWriteData(config.totalBits - 1).asBool
-    val magn_non_zero = io.pipeWriteData(config.totalBits - 2, 0) =/= 0.U
-    val is_outside = (!sign_bit) && magn_non_zero
+    val is_outside = sign_bit
     when(io.pipeWriteAddr === 0.U) { e0_outside := is_outside }
     when(io.pipeWriteAddr === 1.U) { e1_outside := is_outside }
     when(io.pipeWriteAddr === 2.U) { e2_outside := is_outside }
@@ -100,6 +106,8 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   // --- Outputs ---
   io.iterX        := iter_x
   io.iterY        := iter_y
+  io.shaderIterX  := shader_iter_x
+  io.shaderIterY  := shader_iter_y
   io.insideFlag   := inside_flag
   io.iterValid    := iter_y < bbox_y1
   io.autoRunStall := auto_run_stall

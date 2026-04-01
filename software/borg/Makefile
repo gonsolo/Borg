@@ -28,8 +28,12 @@ vkcube:
 	$(MAKE) -C compiler all
 	bear -- $(MAKE) PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" vkcube.bin vkcube.hex
 
+test-native: test_raster.c borg_raster.c borg_math.c
+	gcc -O2 -g -Wall -Wno-int-to-pointer-cast test_raster.c borg_raster.c borg_math.c -I. -D BORG_BASE=0 -o test_raster -lm
+	./test_raster
+
 clean:
-	rm -f *.o *.elf *.bin *.hex *.asm
+	rm -f *.o *.elf *.bin *.hex *.asm test_raster
 	make -C compiler clean
 
 $(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s

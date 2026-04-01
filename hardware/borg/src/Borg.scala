@@ -93,8 +93,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   core.io.data_in    := io.data_in
   core.io.is_writing := is_writing
   core.io.is_reading := is_reading
-  core.io.iterX      := rast.io.iterX
-  core.io.iterY      := rast.io.iterY
+  core.io.iterX      := rast.io.shaderIterX   // latched pre-advance position for coordLut
+  core.io.iterY      := rast.io.shaderIterY   // latched pre-advance position for coordLut
   core.io.triggerShader := rast.io.triggerCore
 
   // --- BorgRasterizer wiring ---

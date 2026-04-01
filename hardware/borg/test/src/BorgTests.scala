@@ -50,11 +50,10 @@ object BorgTests extends TestSuite {
 
   // --- Low-level bus helpers ---
 
-  def writeAddr(borg: Borg, addr: Int, bits: BigInt): Unit = {
+  def writeAddr(borg: Borg, addr: Int, data: BigInt): Unit = {
     borg.io.address.poke(addr.U)
-    borg.io.data_in.poke(bits.U)
+    borg.io.data_in.poke(data.U)
     borg.io.data_write_n.poke(2.U)
-    borg.io.data_read_n.poke(3.U)
     borg.clock.step(1)
     borg.io.data_write_n.poke(3.U)
     borg.clock.step(1)
@@ -63,11 +62,15 @@ object BorgTests extends TestSuite {
   def readAddr(borg: Borg, addr: Int, config: FloatConfig): Float = {
     borg.io.address.poke(addr.U)
     borg.io.data_read_n.poke(2.U)
-    borg.io.data_write_n.poke(3.U)
     borg.clock.step(1)
-    val res = bitsToFloat(borg.io.data_out.peek().litValue, config)
+    borg.clock.step(1) // WAIT FOR PIPELINE TO FINISH MUX AND LATCH
+    
+    val bits = borg.io.data_out.peek().litValue
+    
     borg.io.data_read_n.poke(3.U)
-    res
+    borg.clock.step(1)
+    
+    bitsToFloat(bits, config)
   }
 
   // --- Instruction encoding ---
@@ -123,10 +126,13 @@ object BorgTests extends TestSuite {
 
   def runTest(borg: Borg, config: FloatConfig, op: Op, a: Float, b: Float, c: Float = 0f): Unit = {
     resetAndWait(borg)
-
     // Load operands
     writeAddr(borg, 0, floatToBits(a, config))
+    val confirm_r0 = readAddr(borg, 0, config)
+    
     writeAddr(borg, 4, floatToBits(b, config))
+    val confirm_r1 = readAddr(borg, 4, config)
+
     val (instr, rdAddr, expected, label) = op match {
       case ADD =>
         (encodeInstruction(config, ADD, rs1 = 0, rs2 = 1, rd = 2),
@@ -136,26 +142,43 @@ object BorgTests extends TestSuite {
           8, a * b, f"$a%8.2f * $b%8.2f")
       case FNEG =>
         (encodeInstruction(config, FNEG, rs1 = 0, rs2 = 0, rd = 2),
-          8, -a, f"fneg($a%8.2f)")
+          8, -a, f"-$a%8.2f")
       case FSTEP =>
-        val expected = if (a <= 0f) 0.0f else 1.0f
-        (encodeInstruction(config, FSTEP, rs1 = 0, rs2 = 0, rd = 2),
-          8, expected, f"fstep($a%8.2f)")
+        (encodeInstruction(config, FSTEP, rs1 = 0, rs2 = 0, rd = 2), // rs1 edge, rs2 not used
+          8, if (a > 0.0f) 1.0f else 0.0f, f"step($a%8.2f)")
       case FRCP =>
         (encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2),
-          8, 1.0f / a, f"frcp($a%8.4f)")
-      case fma: FMA =>
-        writeAddr(borg, 12, floatToBits(c, config))
-        (encodeInstruction(config, FMA(rs3 = 3), rs1 = 0, rs2 = 1, rd = 2),
-          8, a * b + c, f"$a%8.2f * $b%8.2f + $c%8.2f")
+          8, 1.0f / a, f"rcp($a%8.2f)")
+      case FMA(cVal) =>
+        (encodeInstruction(config, FMA(2), rs1 = 0, rs2 = 1, rd = 3),
+          12, a * b + cVal, f"$a%8.2f * $b%8.2f + $cVal%8.2f")
+    }
+
+    if (op == FMA(c.toInt)) {
+      writeAddr(borg, 8, floatToBits(c, config))
     }
 
     // Write instruction and halt
     writeAddr(borg, 128, instr)
-    writeAddr(borg, 132, 0)
+    writeAddr(borg, 132, 0) // halt
+
+    val r0_pre = readAddr(borg, 0, config)
+    val r1_pre = readAddr(borg, 4, config)
+    val r2_pre = readAddr(borg, 8, config)
 
     startAndWaitForHalt(borg)
-    assertResult(readAddr(borg, rdAddr, config), expected, config, label)
+    
+    val r0_post = readAddr(borg, 0, config)
+    val r1_post = readAddr(borg, 4, config)
+    val actual = readAddr(borg, rdAddr, config)
+    
+    // Check result
+    if (op == ADD && a == 1.0f && b == 2.0f) {
+        val cr0_bits = java.lang.Float.floatToRawIntBits(confirm_r0) & 0xffff
+        val actual_bits = java.lang.Float.floatToRawIntBits(actual) & 0xffff
+        println(s">>> MAGIC DEBUG BITS: C_r0=0x${cr0_bits.toHexString} | C_r1=$confirm_r1 | POST r0=$r0_post, r1=$r1_post, r2=$actual (bits: 0x${actual_bits.toHexString})")
+    }
+    assertResult(actual, expected, config, label)
   }
 
   // --- Test suites ---
@@ -407,7 +430,11 @@ object BorgTests extends TestSuite {
         // FSTEP with small negative → 0.0
         runTest(borg, config, FSTEP, -0.01f, 0f)
 
-        // --- Mixed sign operations ---
+        borg.io.data_write_n.poke(3.U)
+        borg.io.data_read_n.poke(3.U)
+        borg.clock.step(1)
+        
+        // --- Single tests across all operators ---
         // ADD: -100.0 + 100.0 = 0.0
         runTest(borg, config, ADD, -100.0f, 100.0f)
         // MUL: -1.0 × -1.0 = 1.0
@@ -427,6 +454,10 @@ object BorgTests extends TestSuite {
         println("\n=== MMIO Register Tests ===")
 
         // --- Round-trip: write and read back all 8 registers ---
+        borg.io.data_write_n.poke(3.U)
+        borg.io.data_read_n.poke(3.U)
+        borg.clock.step(1)
+        
         resetAndWait(borg)
         val testValues = Seq(1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f)
         for (r <- 0 until 8) {
@@ -438,6 +469,10 @@ object BorgTests extends TestSuite {
         }
         println("  Register round-trip: PASSED")
 
+        borg.io.data_write_n.poke(3.U)
+        borg.io.data_read_n.poke(3.U)
+        borg.clock.step(1)
+        
         // --- Status register: idle when not running ---
         borg.io.address.poke(MmioMap.BORG_CONTROL_OFFSET.U)
         borg.io.data_read_n.poke(2.U)
@@ -739,6 +774,10 @@ object BorgTests extends TestSuite {
         writeAddr(borg, 16, floatToBits(3.0f, config))   // r4 = 3.0
         writeAddr(borg, 20, floatToBits(7.0f, config))   // r5 = 7.0
 
+        borg.io.data_write_n.poke(3.U)
+        borg.io.data_read_n.poke(3.U)
+        borg.clock.step(1)
+        
         // Set up bounding box: (0,0)-(2,2)
         val bbox = (0 | (0 << 6) | (2 << 12) | (2 << 18))
         writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, bbox)
@@ -819,8 +858,12 @@ object BorgTests extends TestSuite {
         borg.io.data_write_n.poke(2.U)
         borg.clock.step(1)
         borg.io.data_write_n.poke(3.U)
+        borg.clock.step(1)
 
-        // Advance iterator normally to initialize it
+        // Write a HALT to IMEM[0] so auto-run doesn't hang on random uninitialized memory
+        writeAddr(borg, 128, 0)
+        
+        // Advance iterator normally to initialize it (this triggers the shader!)
         borg.io.address.poke(MmioMap.BORG_ITER_OFFSET.U)
         borg.io.data_in.poke(1.U)
         borg.io.data_write_n.poke(2.U)
@@ -828,7 +871,19 @@ object BorgTests extends TestSuite {
         borg.io.data_write_n.poke(3.U)
         borg.clock.step(1)
 
-        // Wait to be sure iter_x=10, iter_y=10
+        // Wait to be sure iter_x=10, iter_y=10 AND wait for the shader to halt!
+        // Because the advance step automatically triggers the shader, running is TRUE.
+        // We cannot use MMIO back-door reads if running is TRUE!
+        var status: BigInt = 0
+        do {
+            borg.io.address.poke(MmioMap.BORG_CONTROL_OFFSET.U)
+            borg.io.data_read_n.poke(2.U)
+            borg.io.data_write_n.poke(3.U)
+            borg.clock.step(1)
+            status = borg.io.data_out.peek().litValue
+        } while ((status & 2) == 0)
+        borg.io.data_read_n.poke(3.U)
+        borg.clock.step(1)
         
         // Let's compute expected float16 bits for 10.5
         // 10.5 = 1010.1 = 1.0101 * 2^3

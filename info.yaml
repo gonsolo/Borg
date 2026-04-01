@@ -37,7 +37,7 @@ project:
     - "../out/hardware/borg/verilog/TinyQVRegisters.sv"
     - "../out/hardware/borg/verilog/TinyQVShifter.sv"
     - "../out/hardware/borg/verilog/TinyQVTime.sv"
-    - "../out/hardware/borg/verilog/instructionMemory_32x32.sv"
+    - "../out/hardware/borg/verilog/instructionMemory_64x32.sv"
     - "../out/hardware/borg/verilog/mem_32x16.sv"
     - "../out/hardware/borg/verilog/regFileA.sv"
     - "../out/hardware/borg/verilog/regFileB.sv"

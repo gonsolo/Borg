@@ -193,7 +193,7 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
   private def wirePortA(): UInt = {
     val en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
     val en_del = RegNext(en, false.B)
-    val rs1_idx_del = RegNext(rs1_idx, 0.U)
+    val rs1_idx_del = RegEnable(rs1_idx, en)
     regFileA.io.readAddr := rs1_idx
     regFileA.io.readEn := en
     val resolved_data = Mux(rs1_idx_del === 30.U, coordLut(io.iterX),
@@ -206,7 +206,7 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
   private def wirePortB(): UInt = {
     val en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
     val en_del = RegNext(en, false.B)
-    val rs2_idx_del = RegNext(rs2_idx, 0.U)
+    val rs2_idx_del = RegEnable(rs2_idx, en)
     regFileB.io.readAddr := rs2_idx
     regFileB.io.readEn := en
     val resolved_data = Mux(rs2_idx_del === 30.U, coordLut(io.iterX),
@@ -223,7 +223,7 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val en = mmio_en || rs3_en
     val mmio_en_del = RegNext(mmio_en && io.is_reading, false.B)
     val rs3_en_del = RegNext(rs3_en, false.B)
-    val addr_del = RegNext(addr, 0.U)
+    val addr_del = RegEnable(addr, en)
     regFileC.io.readAddr := addr
     regFileC.io.readEn := en
     val resolved_data = Mux(addr_del === 30.U, coordLut(io.iterX),

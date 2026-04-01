@@ -13,6 +13,7 @@ tinyqv:
 
 test:
 	$(MAKE) -C borg/compiler test
+	$(MAKE) -C borg test-native
 
 clean:
 	$(MAKE) -C borg clean

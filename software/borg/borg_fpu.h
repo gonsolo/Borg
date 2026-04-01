@@ -49,8 +49,8 @@ fp16_t uint_to_fp16(int val);
 // --- Shader loader helpers ---
 #define BORG_IMEM_VERT_OFFSET 0
 #define BORG_IMEM_RAST_OFFSET 0
-#define BORG_IMEM_FRAG_OFFSET 7
-#define BORG_IMEM_ADD_OFFSET  29
+#define BORG_IMEM_FRAG_OFFSET 13
+#define BORG_IMEM_ADD_OFFSET  35
 
 void borg_load_spirb_shader(const spirb_shader_t *s);
 void borg_load_spirb_shader_at(const spirb_shader_t *s, int offset);

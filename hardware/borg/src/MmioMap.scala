@@ -105,7 +105,7 @@ object MmioMap {
   // Borg GPU (Borg.scala)
   val BORG_NUM_REGS       = 32
   val BORG_REG_OFFSET     = 0    // Register file base (32 × 16-bit)
-  val BORG_IMEM_SLOTS     = 32
+  val BORG_IMEM_SLOTS     = 64
   val BORG_IMEM_OFFSET    = BORG_REG_OFFSET + (BORG_NUM_REGS * 4)  // Instruction memory base (32 × 32-bit)
   val BORG_IMEM_END       = BORG_IMEM_OFFSET + (BORG_IMEM_SLOTS * 4)
   val BORG_ITER_BBOX_OFFSET = BORG_IMEM_END      // Pixel iterator: write bbox
@@ -135,7 +135,7 @@ object MmioMap {
   val BORG_CTL_START = 1  // bit 0: start execution
   val BORG_CTL_RESET = 2  // bit 1: reset pipeline
   val BORG_CTL_PC_SHIFT = 5    // bit 5: start of PC offset
-  val BORG_CTL_PC_BITS  = 5    // width of PC offset
+  val BORG_CTL_PC_BITS  = 6    // width of PC offset
   val BORG_CTL_PC_MSB   = BORG_CTL_PC_SHIFT + BORG_CTL_PC_BITS - 1
   val BORG_CTL_PC_LSB   = BORG_CTL_PC_SHIFT
   val BORG_CTL_PC_MASK  = (1 << BORG_CTL_PC_BITS) - 1

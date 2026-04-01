@@ -100,6 +100,14 @@ class BorgBackend:
                 # rs3 (accumulator) has only 2 bits — must be allocated to r0-r3
                 if c not in fmadd_accumulators:
                     fmadd_accumulators.append(c)
+
+        # Pre-map hardware-fixed registers (coordLut pixel centers)
+        for vreg in list(borg_vregs):
+            if vreg == "f_r30":
+                self.vreg_to_preg["f_r30"] = 30
+            elif vreg == "f_r31":
+                self.vreg_to_preg["f_r31"] = 31
+
         return borg_vregs, fmadd_accumulators
 
     def _pass_parse_annotations(self, lines):
@@ -356,7 +364,8 @@ if __name__ == "__main__":
     with open(out_path, "wb") as f:
         f.write(data)
 
-    # Calculate peak registers used (highest physical register allocated + 1)
-    peak_regs = max(backend.vreg_to_preg.values()) + 1 if backend.vreg_to_preg else 0
+    # Calculate peak registers used (highest allocatable register + 1, excluding hw-fixed r30/r31)
+    allocatable_pregs = [p for p in backend.vreg_to_preg.values() if p < 30]
+    peak_regs = max(allocatable_pregs) + 1 if allocatable_pregs else 0
     print(f"INFO: Peak register usage: {peak_regs}/30")
     print(f"Generated {out_path} ({len(data)} bytes)")
