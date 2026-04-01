@@ -136,6 +136,10 @@ instead of driving every pixel. **This is the key transition from
   - **10.5.2: FPU Coordinate Expansion Pipeline** ✅ (2026-04-01): Pass negative vertex coordinates (`-v.x`, `-v.y`) as uniforms into `rasterize.s`. Rewrite the shader to compute `dpx = px - vx` natively using `fadd.s` with `r30/r31`, keeping pixel accuracy.
   - **10.5.3: Software Delta Decommissioning** ✅ (2026-04-01): Remove legacy firmware `compute_pixel_deltas`. Validate `make triangle` produces the pixel-perfect rendering using strictly hardware coordinate expansion.
 - **Step 10.6: CPU-Drawn Pixel Dispatch**
+    Auto-chain the rasterizer and fragment shaders so a single `BORG_ITER` advance evaluates edges, tests inside, and (for inside pixels) runs the fragment shader — all while the CPU stalls. The CPU only reads back shaded results and writes to PSRAM.
+  - **10.6.1: Fragment Shader Register Alignment** ✅ (2026-04-01): Recompile `frag.s` so it reads edge values directly from r0/r1/r2 (rasterizer output slots) instead of separate attribute registers. Remove the firmware register copy. No hardware changes.
+  - **10.6.2: Chained Shader Trigger (Hardware)**: Add `frag_start_pc` register and phase FSM (`IDLE→RAST→FRAG`) to BorgRasterizer/BorgCore. Firmware unchanged.
+  - **10.6.3: Firmware Auto-Chain Integration**: Rewrite `shade_tiles()` to use auto-chaining. Eliminate the manual `borg_run_fragment()` call from the hot path.
 
 ### Step 11: On-Chip Tile Buffer (BRAM)
 

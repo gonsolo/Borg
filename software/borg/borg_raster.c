@@ -70,16 +70,12 @@ texcoord_t uv_to_texcoord(uv16_t uv, fp16_t w_fp16, fp16_t h_fp16) {
                       fp16_to_uint(borg_fp16_mul(uv.v, h_fp16))};
 }
 
-// Run fragment shader only — edge values already in rast output registers.
-// Assumes edge shader has already been run (e.g., by borg_run or auto-trigger).
+// Run fragment shader only — edge values already in r0/r1/r2.
+// Step 10.6.1: fragment shader reads e0/e1/e2 directly from rasterizer
+// output registers (r0/r1/r2) — no attribute copy needed.
 int borg_run_fragment(const spirb_shader_t *rast_shader,
                       const spirb_shader_t *frag_shader, const triangle_t *tri,
                       frag_result_t *result) {
-  // Read edge values from rasterizer output registers
-  fp16_t e0 = BORG_REG(rast_shader->output_regs[0]) & 0xFFFF;
-  fp16_t e1 = BORG_REG(rast_shader->output_regs[1]) & 0xFFFF;
-  fp16_t e2 = BORG_REG(rast_shader->output_regs[2]) & 0xFFFF;
-
   // Load fragment uniforms (per-triangle constants)
   const rgb16_t *colors = tri->colors.v;
   BORG_REG(frag_shader->uniform_regs[0]) = tri->inv_area;
@@ -87,7 +83,7 @@ int borg_run_fragment(const spirb_shader_t *rast_shader,
   load_uniform_triple(frag_shader, 4, colors[0].g, colors[1].g, colors[2].g);
   load_uniform_triple(frag_shader, 7, colors[0].b, colors[1].b, colors[2].b);
   load_uniform_triple(frag_shader, 10, tri->z_vals.v[0], tri->z_vals.v[1],
-                      tri->z_vals.v[2]);
+                       tri->z_vals.v[2]);
 
   if (tri->has_uvs) {
     const uv16_t *uvs = tri->uvs.v;
@@ -98,10 +94,8 @@ int borg_run_fragment(const spirb_shader_t *rast_shader,
       BORG_REG(frag_shader->uniform_regs[i]) = 0;
   }
 
-  // Load edge values as fragment attributes
-  BORG_REG(frag_shader->attribute_regs[0]) = e0;
-  BORG_REG(frag_shader->attribute_regs[1]) = e1;
-  BORG_REG(frag_shader->attribute_regs[2]) = e2;
+  // Edge values e0/e1/e2 are already in r0/r1/r2 from the rasterizer shader.
+  // The recompiled frag shader reads them directly — no attribute copy needed.
 
   borg_run(BORG_IMEM_FRAG_OFFSET);
 
