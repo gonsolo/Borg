@@ -214,7 +214,7 @@ class TinySpirvCompiler:
                             if midx == member_idx:
                                 member_name = mname
                                 break
-                        self.ptr_map[res_id] = ("uniform_member", member_name)
+                        self.ptr_map[res_id] = ("uniform_member", member_name, member_idx)
                     else:
                         base_reg = base_info[0]
                         offset = int(self.constants.get(args[2], 0)) * 4
@@ -253,13 +253,14 @@ class TinySpirvCompiler:
                     if ptr_info[0] == "uniform_member":
                         # Load from uniform struct member (deduplicate)
                         member_name = ptr_info[1]
+                        member_idx = ptr_info[2]
                         cache_key = f"_uniform_{member_name}"
                         if cache_key in self.reg_map:
                             self.reg_map[res_id] = self.reg_map[cache_key]
                         else:
                             reg = self.get_reg(res_id)
                             self.emit(f"flw {reg}, 0(uniform_{member_name})", f"Load uniform {member_name}")
-                            self.borg_io.append(("uniform", member_name, reg))
+                            self.borg_io.append(("uniform", member_name, reg, member_idx))
                             self.reg_map[cache_key] = reg
                     else:
                         base_reg, offset = ptr_info
@@ -298,7 +299,7 @@ class TinySpirvCompiler:
                                 r = self.get_reg(comp_id)
                                 self.reg_map[comp_id] = r
                                 comp_ids.append(comp_id)
-                                self.borg_io.append(("uniform", f"mvp_{m}", r))
+                                self.borg_io.append(("uniform", f"mvp_{m}", r, m))
                             self.composites[res_id] = comp_ids
                             self.reg_map[res_id] = self.reg_map[comp_ids[0]]
                             continue
@@ -330,16 +331,16 @@ class TinySpirvCompiler:
                     self.emit(f"f{op}.s {reg}, {self.get_reg(args[3])}")
                     if op == "sin":
                         self.vreg_roles[res_id] = "sin"
-                        self.borg_io.append(("uniform", "sin", reg))
+                        self.borg_io.append(("uniform", "sin", reg, 999))
                     elif op == "cos":
                         self.vreg_roles[res_id] = "cos"
-                        self.borg_io.append(("uniform", "cos", reg))
+                        self.borg_io.append(("uniform", "cos", reg, 999))
 
             elif opcode == "OpFNegate":
                 reg = self.get_reg(res_id)
                 self.emit(f"fneg.s {reg}, {self.get_reg(args[1])}")
                 if self.vreg_roles.get(args[1]) == "sin":
-                    self.borg_io.append(("uniform", "nsin", reg))
+                    self.borg_io.append(("uniform", "nsin", reg, 999))
 
             elif opcode == "OpFMul":
                 reg = self.get_reg(res_id)
@@ -454,7 +455,11 @@ class TinySpirvCompiler:
         # Emit Borg register annotations
         if self.borg_io:
             self.asm.append("")
-            for io_type, name, reg in self.borg_io:
+            
+            for entry in self.borg_io:
+                # Uniform entries are 4-tuples (type, name, reg, member_idx),
+                # others are 3-tuples (type, name, reg).
+                io_type, name, reg = entry[0], entry[1], entry[2]
                 self.asm.append(f"# @borg {io_type} {name} {reg}")
 
         return "\n".join(self.asm)

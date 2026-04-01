@@ -76,6 +76,14 @@ texcoord_t uv_to_texcoord(uv16_t uv, fp16_t w_fp16, fp16_t h_fp16) {
 int borg_run_fragment(const spirb_shader_t *rast_shader,
                       const spirb_shader_t *frag_shader, const triangle_t *tri,
                       frag_result_t *result) {
+  // Copy edge values from rasterizer output regs (r0/r1/r2) into fragment
+  // shader attribute registers. We must read them FIRST before loading uniforms,
+  // because fragment uniforms might physically overlap with rasterizer outputs!
+  uint16_t tmp_attrs[16];
+  for (int i = 0; i < frag_shader->num_attributes; i++) {
+    tmp_attrs[i] = BORG_REG(rast_shader->output_regs[i]) & 0xFFFF;
+  }
+
   // Load fragment uniforms (per-triangle constants)
   const rgb16_t *colors = tri->colors.v;
   BORG_REG(frag_shader->uniform_regs[0]) = tri->inv_area;
@@ -94,12 +102,10 @@ int borg_run_fragment(const spirb_shader_t *rast_shader,
       BORG_REG(frag_shader->uniform_regs[i]) = 0;
   }
 
-  // Copy edge values from rasterizer output regs (r0/r1/r2) into fragment
-  // shader attribute registers. The rasterizer outputs e0/e1/e2 to r0/r1/r2,
-  // but the fragment shader expects them at its own attribute register slots.
+  // Now that fragment uniforms are loaded (potentially overwriting rasterizer
+  // output slots), we can safely push the cached attributes to the frag registers.
   for (int i = 0; i < frag_shader->num_attributes; i++) {
-    BORG_REG(frag_shader->attribute_regs[i]) =
-        BORG_REG(rast_shader->output_regs[i]) & 0xFFFF;
+    BORG_REG(frag_shader->attribute_regs[i]) = tmp_attrs[i];
   }
 
   borg_run(BORG_IMEM_FRAG_OFFSET);

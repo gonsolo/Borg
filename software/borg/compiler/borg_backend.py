@@ -65,21 +65,29 @@ class BorgBackend:
     # encode_rv32_* methods removed, using single source of truth from borg_mmio
 
     def lower(self, asm_text):
-        """Parse pseudo-assembly and split into host/Borg operations."""
+        """Parse pseudo-assembly and split into host/Borg operations.
+
+        Pass manager -- runs the following passes in order:
+          1. identify_vregs         -- collect Borg virtual registers
+          2. parse_annotations      -- extract @borg uniform/attribute/output declarations
+          3. compute_live_intervals -- compute [first_def, last_use] for each vreg
+          4. linear_scan_alloc      -- Poletto & Sarkar (1999): assign physical regs,
+                                       reusing registers across non-overlapping lifetimes
+          5. emit_instructions      -- encode and emit host/Borg instructions
+        """
         lines = [l.strip() for l in asm_text.strip().split("\n")]
 
-        borg_vregs, fmadd_accumulators = self._pass_identify_vregs(lines)
-        io_vregs, output_vregs = self._pass_parse_annotations(lines)
-        self._pass_allocate_fixed_registers(fmadd_accumulators, io_vregs)
-        self._pass_liveness_analysis_and_alloc(
-            lines, borg_vregs, fmadd_accumulators, io_vregs, output_vregs
+        borg_vregs = self._pass_identify_vregs(lines)
+        io_vregs, output_vregs, uniform_vregs = self._pass_parse_annotations(lines)
+        live_intervals = self._pass_compute_live_intervals(lines, borg_vregs)
+        self._pass_linear_scan_alloc(
+            live_intervals, io_vregs, output_vregs, uniform_vregs
         )
         self._pass_emit_instructions(lines)
 
     def _pass_identify_vregs(self, lines):
-        # First pass: identify which virtual registers are used in fmul/fmadd
+        # First pass: identify which virtual registers are used in Borg instructions
         borg_vregs = set()
-        fmadd_accumulators = []  # rs3 in fmadd: only 2-bit field, must be r0-r3
         for line in lines:
             if line.startswith("#") or not line:
                 continue
@@ -97,9 +105,8 @@ class BorgBackend:
             elif op == "fmadd.s":
                 rd, a, b, c = tokens[1], tokens[2], tokens[3], tokens[4]
                 borg_vregs.update([rd, a, b, c])
-                # rs3 (accumulator) has only 2 bits — must be allocated to r0-r3
-                if c not in fmadd_accumulators:
-                    fmadd_accumulators.append(c)
+                # rs3 (accumulator) has full 5-bit field (BF_RS3 = BitField(31,27))
+                # No need to restrict to r0-r3
 
         # Pre-map hardware-fixed registers (coordLut pixel centers)
         for vreg in list(borg_vregs):
@@ -108,49 +115,42 @@ class BorgBackend:
             elif vreg == "f_r31":
                 self.vreg_to_preg["f_r31"] = 31
 
-        return borg_vregs, fmadd_accumulators
+        return borg_vregs
 
     def _pass_parse_annotations(self, lines):
         # Pre-scan @borg annotations to identify I/O virtual registers
         io_vregs = []
         output_vregs = set()
+        uniform_vregs = set()
         for line in lines:
             if line.startswith("# @borg "):
                 parts = line.split()
                 if len(parts) == 5:
-                    vreg = parts[4]
-                    if vreg not in io_vregs:
-                        io_vregs.append(vreg)
-                    if parts[2] == "output":
+                    if parts[2] == "bind":
+                        vreg = parts[3]
+                        preg = int(parts[4])
+                        self.vreg_to_preg[vreg] = preg
+                        if vreg not in io_vregs:
+                            io_vregs.append(vreg)
                         output_vregs.add(vreg)
-        return io_vregs, output_vregs
+                    else:
+                        vreg = parts[4]
+                        if vreg not in io_vregs:
+                            io_vregs.append(vreg)
+                        if parts[2] == "output":
+                            output_vregs.add(vreg)
+                        elif parts[2] == "uniform":
+                            uniform_vregs.add(vreg)
+        return io_vregs, output_vregs, uniform_vregs
 
-    def _pass_allocate_fixed_registers(self, fmadd_accumulators, io_vregs):
-        # Allocate fmadd accumulators FIRST to guarantee they get r0-r3
-        for vreg in fmadd_accumulators:
-            if vreg not in self.vreg_to_preg:
-                self.alloc_reg(vreg)
+    def _pass_compute_live_intervals(self, lines, borg_vregs):
+        """Compute [first_appearance, last_use] live intervals for each vreg.
 
-        # Allocate I/O registers NEXT to guarantee they get r0-r7
-        for vreg in io_vregs:
-            if vreg not in self.vreg_to_preg:
-                self.alloc_reg(vreg)
-
-    def _pass_liveness_analysis_and_alloc(
-        self, lines, borg_vregs, fmadd_accumulators, io_vregs, output_vregs
-    ):
-        # Pre-compute last use for each vreg
-        last_use = {}
-        for i, line in enumerate(lines):
-            if line.startswith("#") or not line:
-                continue
-            tokens = line.split("#")[0].strip().replace(",", " ").split()
-            for tok in tokens[1:]:
-                if tok in borg_vregs:
-                    last_use[tok] = i
-
-        # Allocate remaining Borg physical registers with simple liveness analysis
-        active_vregs = set(io_vregs).union(fmadd_accumulators)
+        For straight-line shader code (no branches, no loops) this is exact.
+        Each interval is the minimal range [start, end] where the vreg must
+        occupy a physical register.
+        """
+        intervals = {}  # vreg -> [start_line_idx, end_line_idx]
         for i, line in enumerate(lines):
             if line.startswith("#") or not line:
                 continue
@@ -158,28 +158,105 @@ class BorgBackend:
             if not tokens:
                 continue
             for tok in tokens[1:]:
-                if tok in borg_vregs and tok not in self.vreg_to_preg:
-                    used_pregs = {
-                        self.vreg_to_preg[v]
-                        for v in active_vregs
-                        if v in self.vreg_to_preg
-                    }
-                    preg = next((p for p in range(4, 30) if p not in used_pregs), None)
-                    if preg is None:
-                        raise RuntimeError(
-                            f"Liveness analysis failed! Out of Borg registers (max 30), trying to alloc for {tok}"
-                        )
-                    self.vreg_to_preg[tok] = preg
-                    active_vregs.add(tok)
+                if tok in borg_vregs:
+                    if tok not in intervals:
+                        intervals[tok] = [i, i]
+                    else:
+                        intervals[tok][1] = i
+            # Also mark the def (rd) as starting here
+            if len(tokens) > 1 and tokens[1] in borg_vregs:
+                vr = tokens[1]
+                if vr not in intervals:
+                    intervals[vr] = [i, i]
+        return intervals
 
-            for tok in tokens[1:]:
-                if (
-                    tok in borg_vregs
-                    and tok not in output_vregs
-                    and tok not in fmadd_accumulators
-                ):
-                    if last_use.get(tok, -1) == i:
-                        active_vregs.discard(tok)
+    def _pass_linear_scan_alloc(
+        self, live_intervals, io_vregs, output_vregs, uniform_vregs
+    ):
+        """Linear Scan Register Allocation -- Poletto & Sarkar (1999).
+
+        Algorithm:
+          1. Sort live intervals by start point.
+          2. Walk forward: for each new interval, first expire any active
+             intervals whose end < current start, freeing their registers.
+          3. Assign the lowest available physical register.
+        Constraints:
+          - r30, r31 are pre-mapped (coordLut); never enter the pool.
+          - Outputs live to end-of-shader: firmware reads them after halt.
+          - Uniforms live to end-of-shader: loaded once per triangle,
+            reused across multiple pixel shader invocations.
+          - All I/O vregs (attributes + uniforms + outputs) start at line 0:
+            firmware pre-loads them before the shader runs, so they must
+            overlap at the beginning to prevent aliasing to the same preg.
+        """
+        max_line = max((v[1] for v in live_intervals.values()), default=0)
+
+        # Extend outputs to end-of-shader (firmware reads after halt)
+        for vreg in output_vregs:
+            if vreg in live_intervals:
+                live_intervals[vreg][1] = max_line
+            else:
+                live_intervals[vreg] = [0, max_line]
+
+        # Extend uniforms to end-of-shader (loaded once per triangle,
+        # must persist across multiple pixel invocations)
+        for vreg in uniform_vregs:
+            if vreg in live_intervals:
+                live_intervals[vreg][1] = max_line
+            else:
+                live_intervals[vreg] = [0, max_line]
+
+        # All I/O vregs are pre-loaded by firmware before line 0.
+        # They MUST start at 0 so they conceptually overlap at the beginning
+        # and do not get assigned to the same physical register.
+        for vreg in io_vregs:
+            if vreg in live_intervals:
+                live_intervals[vreg][0] = 0
+            else:
+                live_intervals[vreg] = [0, max_line]
+
+        # Sort by start point (Poletto & Sarkar sec. 4)
+        sorted_vregs = sorted(live_intervals, key=lambda v: live_intervals[v][0])
+
+        # Single register pool: r0-r29 (rs3 has full 5-bit field, no restriction)
+        reg_pool = list(range(0, 30))
+
+        # Remove pre-mapped registers from pool so they are not doubly assigned
+        for preg in self.vreg_to_preg.values():
+            if preg in reg_pool:
+                reg_pool.remove(preg)
+
+        # active = [(end_line, vreg)] kept sorted by end point
+        active = []
+
+        def expire_old(current_start):
+            """Return registers of intervals that ended before current_start."""
+            expired = [a for a in active if a[0] < current_start]
+            for end, vreg in expired:
+                active.remove((end, vreg))
+                preg = self.vreg_to_preg[vreg]
+                reg_pool.append(preg)
+                reg_pool.sort()
+
+        for vreg in sorted_vregs:
+            if vreg in self.vreg_to_preg:
+                # Pre-mapped (r30/r31 or bind): still add to active for tracking
+                start, end = live_intervals[vreg]
+                active.append((end, vreg))
+                active.sort(key=lambda a: a[0])
+                continue
+
+            start, end = live_intervals[vreg]
+            expire_old(start)
+
+            if not reg_pool:
+                raise RuntimeError(f"Out of Borg registers (max 30) for {vreg}")
+
+            preg = reg_pool.pop(0)
+            self.vreg_to_preg[vreg] = preg
+            print(f"MAPPED {vreg} to r{preg}  [{start},{end}]")
+            active.append((end, vreg))
+            active.sort(key=lambda a: a[0])
 
     def _pass_emit_instructions(self, lines):
         # Second pass: classify and lower

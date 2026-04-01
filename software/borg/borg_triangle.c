@@ -43,6 +43,7 @@ const borg_vertex_t back_tri[3] = {
 #define TEX_HEIGHT 32
 
 int main() {
+    PSRAM_OUT(0) = 0x1234;
     borgCreateDevice();
 
     BorgShaderModule vert, rast, frag;

@@ -51,6 +51,9 @@
 # @borg uniform neg_vy1 f_neg_vy1
 # @borg uniform neg_vx2 f_neg_vx2
 # @borg uniform neg_vy2 f_neg_vy2
+# @borg bind f_e0 0
+# @borg bind f_e1 1
+# @borg bind f_e2 2
 # @borg output e0 f_e0
 # @borg output e1 f_e1
 # @borg output e2 f_e2

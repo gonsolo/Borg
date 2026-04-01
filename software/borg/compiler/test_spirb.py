@@ -135,23 +135,25 @@ if __name__ == '__main__':
     if os.path.exists(os.path.join(test_dir, "vert.spvasm")):
         test_pipeline("vert", os.path.join(test_dir, "vert.spvasm"),
                       expected_instrs=[
-                          0x09420000, 0x01540004, 0x01660004, 0x01780004,
-                          0x09428080, 0x09548084, 0x09668084, 0x09788084,
-                          0x09430100, 0x11550104, 0x11670104, 0x11790104,
-                          0x09438180, 0x19558184, 0x19678184, 0x19798184],
-                      expected_unis=list(range(4, 20)),
-                      expected_attrs=[20, 21, 22],
-                      expected_outs=[0, 1, 2, 3])
+                          0x08208000, 0x00418004, 0x00628004, 0x01738004,
+                          0x08248400, 0x40450404, 0x40658404, 0x41760404,
+                          0x08270680, 0x68478684, 0x68680684, 0x69788684,
+                          0x08298900, 0x904A0904, 0x906A8904, 0x917B0904],
+                      expected_unis=[1, 9, 14, 19, 3, 10, 15, 20, 5, 11, 16, 21, 7, 12, 17, 22],
+                      expected_attrs=[2, 4, 6],
+                      expected_outs=[0, 8, 13, 18])
     if os.path.exists(os.path.join(test_dir, "frag.spvasm")):
         test_pipeline("frag", os.path.join(test_dir, "frag.spvasm"),
                       expected_instrs=[
-                          0x08730E00, 0x08740300, 0x08748400, 0x08CE0000, 0x00B30004, 0x00A40004,
-                          0x08FE0080, 0x08E30084, 0x08D40084, 0x092E0100, 0x11130104, 0x11040104,
-                          0x095E0180, 0x19430184, 0x19340184, 0x098E0200, 0x21730204, 0x21640204,
-                          0x09BE0280, 0x29A30284, 0x29940284
+                          0x08100E00, 0x08110000, 0x08118100, 0x086E0380,
+                          0x38500384, 0x38410384, 0x08AE0580, 0x58900584,
+                          0x58810584, 0x08EE0780, 0x78D00784, 0x78C10784,
+                          0x092E0980, 0x99100984, 0x99010984, 0x096E0B80,
+                          0xB9500B84, 0xB9410B84, 0x09AE0D80, 0xD9900D84,
+                          0xD9810D84
                       ],
-                      expected_unis=[7, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27],
-                      expected_attrs=[6, 8, 9],
-                      expected_outs=[0, 1, 2, 3, 4, 5])
+                      expected_unis=[1, 4, 5, 6, 8, 9, 10, 12, 13, 14, 16, 17, 18, 20, 21, 22, 24, 25, 26],
+                      expected_attrs=[0, 2, 3],
+                      expected_outs=[7, 11, 15, 19, 23, 27])
 
     print("All tests passed!")
