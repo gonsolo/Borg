@@ -35,33 +35,26 @@ For each triangle, the driver runs the following pipeline stages on Borg:
 Run once per vertex. Transforms positions (e.g. rotation) using uniforms
 set by the CPU.
 
-### 2. Rasterize Shader (3 invocations per pixel)
+### 2. Rasterize Shader (1 invocation per pixel)
 
-For each pixel in the framebuffer, the rasterize shader evaluates one edge
-function per call. Three calls produce the edge values `e0`, `e1`, `e2`.
-If all three are ≤ 0, the pixel is inside the triangle.
+For each pixel in the bounding box, the rasterizer shader evaluates all three edge functions simultaneously. Pixel integer coordinates are automatically expanded to FP16 by the hardware `coordLut` and injected into `r30`/`r31`. If all three edges are valid, the hardware `inside_flag` is set.
 
-### 3. Fragment Shader (3 invocations per visible pixel)
+### 3. Fragment Shader (1 invocation per visible pixel)
 
-For pixels inside the triangle, the fragment shader performs barycentric
-interpolation of per-vertex attributes. It runs once per color channel
-(R, G, B), computing `result = (e0 * c0 + e1 * c1 + e2 * c2) * inv_area`.
+For pixels inside the triangle, the hardware FSM auto-chains to the fragment shader. The fragment shader is a unified program (`shader.frag`) compiled with the Poletto & Sarkar linear scan register allocator. Taking up to 29 registers, it simultaneously performs barycentric interpolation for all outputs:
 
-### 4. Depth Interpolation (1 invocation per visible pixel)
-
-The fragment shader runs a fourth time to interpolate the vertex z-values
-using the same barycentric coordinates. This produces per-pixel depth for
-the z-buffer test.
+- Per-vertex RGB color blending
+- Z-buffer depth interpolation
+- UV texture coordinate interpolation
 
 ### Summary
 
-| Stage              | Shader       | Invocations          |
-|--------------------|--------------|----------------------|
-| Vertex shading     | `vert.s`     | 3 per triangle       |
-| Rasterization      | `rasterize.s`| 3 per pixel          |
-| Fragment shading   | `frag.s`     | 3 per visible pixel  |
-| Depth interpolation| `frag.s`     | 1 per visible pixel  |
-| **Total per pixel**|              | **7 shader runs**    |
+| Stage              | Shader        | Invocations           |
+|--------------------|---------------|-----------------------|
+| Vertex shading     | `vert.s`      | 3 per triangle        |
+| Rasterization      | `rasterize.s` | 1 per pixel           |
+| Fragment shading   | `shader.frag` | 1 per visible pixel   |
+| **Total per pixel**|               | **1 to 2 shader runs**|
 
 ## Z-Buffer
 
@@ -101,9 +94,7 @@ per-pixel using interpolated UV coordinates.
 ### UV Interpolation
 
 Each vertex carries `uv[2]` texture coordinates (FP16, range 0–1).
-The existing `borg_frag_channel` function interpolates U and V per pixel
-using the same barycentric coordinates as color and depth — two additional
-shader invocations per textured pixel.
+The unified fragment shader interpolates U and V per pixel using the same barycentric coordinates as color and depth simultaneously in a single shader invocation.
 
 ### Texel Lookup
 
@@ -131,12 +122,12 @@ placed above this range (e.g. offset 4200).
 
 Texturing adds per visible pixel:
 
-| Operation                | Count |
-|--------------------------|-------|
-| UV interpolation         | 2 shader runs (frag) |
-| UV × dimension multiply  | 2 FPU calls |
-| Texel read               | 3 PSRAM reads |
-| **Total per textured pixel** | **11 shader runs + 2 FPU + 3 PSRAM reads** |
+| Operation                | Count                                    |
+|--------------------------|------------------------------------------|
+| UV interpolation         | included in 1x `shader.frag` run         |
+| UV × dimension multiply  | 2 FPU calls                              |
+| Texel read               | 3 PSRAM reads                            |
+| **Total per textured pixel** | **1 shader run + 2 FPU + 3 PSRAM reads** |
 
 ## The Triangle Application
 

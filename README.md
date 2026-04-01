@@ -23,7 +23,7 @@ The design is a **TinyQV RISC-V SoC** with the **Borg FP16 shader processor** as
 A minimal programmable shading unit with:
 
 - **FP16 Fused Multiply-Add (FMA)** — IEEE-754 compliant HardFloat unit supporting ADD, MUL, FMA, FNEG, FSTEP, and FRCP operations
-- **32 general-purpose FP16 registers** (r0–r31), MMIO-accessible from the CPU
+- **32 general-purpose FP16 registers** (r0–r31, expanding to 64), MMIO-accessible from the CPU
 - **32-word instruction memory** for shader programs
 - **Hardware FP16 reciprocal (RCP)** — LUT + linear interpolation for perspective division
 - **4-cycle pipeline** with automatic halt-on-zero-instruction
@@ -34,8 +34,8 @@ The firmware implements a full triangle rendering pipeline:
 
 1. **Vertex Shader** — 4×4 MVP matrix multiply with hardware perspective division, executed as a single shader pass on the Borg FPU
 2. **Screen-Space Translation** — NDC to pixel coordinates with configurable framebuffer resolution (up to 64×64)
-3. **Rasterization** — Edge-function based triangle testing with hardware-accelerated FP16 cross products, back-face culling
-4. **Fragment Shader** — Barycentric interpolation for per-vertex RGB color blending
+3. **Rasterization** — Hardware-iterator driven edge evaluation with native FP16 coordinate expansion and FSM auto-chaining
+4. **Fragment Shader** — Unified pass (compiled via linear scan allocator) performing barycentric interpolation for RGB, Z, and UV simultaneously
 5. **Z-Buffer** — Per-pixel depth testing with texture mapping from PSRAM
 6. **Framebuffer Output** — Results written to PSRAM, read by host (RP2040) for display
 
