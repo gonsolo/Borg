@@ -138,8 +138,8 @@ instead of driving every pixel. **This is the key transition from
 - **Step 10.6: CPU-Drawn Pixel Dispatch**
     Auto-chain the rasterizer and fragment shaders so a single `BORG_ITER` advance evaluates edges, tests inside, and (for inside pixels) runs the fragment shader — all while the CPU stalls. The CPU only reads back shaded results and writes to PSRAM.
   - **10.6.1: Fragment Shader Register Alignment** ✅ (2026-04-01): Recompile `frag.s` so it reads edge values directly from r0/r1/r2 (rasterizer output slots) instead of separate attribute registers. Remove the firmware register copy. No hardware changes.
-  - **10.6.2: Chained Shader Trigger (Hardware)**: Add `frag_start_pc` register and phase FSM (`IDLE→RAST→FRAG`) to BorgRasterizer/BorgCore. Firmware unchanged.
-  - **10.6.3: Firmware Auto-Chain Integration**: Rewrite `shade_tiles()` to use auto-chaining. Eliminate the manual `borg_run_fragment()` call from the hot path.
+  - **10.6.2: Chained Shader Trigger (Hardware)** ✅ (2026-04-01): Add `frag_start_pc` register and phase FSM (`IDLE→RAST→FRAG`) to BorgRasterizer/BorgCore. Fix edge-sign snooping convention (positive=inside, negative=outside). Add attribute copy from rasterizer output regs to fragment attribute regs.
+  - **10.6.3: Firmware Auto-Chain Integration**: Rewrite `shade_tiles()` to use auto-chaining. Eliminate the manual `borg_run_fragment()` call from the hot path by hoisting fragment uniform loads to run once per triangle, then using the hardware FSM to automatically execute the fragment shader inside `BORG_ITER` advances.
 
 ### Step 11: On-Chip Tile Buffer (BRAM)
 
@@ -205,16 +205,16 @@ LR.W / SC.W for Linux `futex` and spinlocks. Reservation register (32-bit
 address + valid bit). ~100 LUTs. Reference KianV implementation.
 Estimate: 3–5 days.
 
-### Step 19: MMU (Sv32)
+### Step 19: Boot no-MMU Linux
+
+Intermediate milestone before full MMU. Estimate: 1 week.
+
+### Step 20: MMU (Sv32)
 
 Two-level page table walker, 4–8 entry TLB, `satp`/`mstatus` CSRs.
 Intermediate milestone: boot no-MMU Linux first (~1 week).
 ~800–1200 LUTs — the most expensive single addition.
 Estimate: 3–4 weeks.
-
-### Step 20: Boot no-MMU Linux
-
-Intermediate milestone before full MMU. Estimate: 1 week.
 
 ### Step 21: Boot Full Linux
 

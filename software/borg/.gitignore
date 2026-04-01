@@ -6,3 +6,5 @@ test_data.h
 mmio.h
 borg_psram
 borg_psram.asm
+borg_mmio.h
+test_raster

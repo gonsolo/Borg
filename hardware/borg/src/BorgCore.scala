@@ -22,9 +22,10 @@ class BorgCoreIO(val config: FloatConfig) extends Bundle {
   val is_reading   = Input(Bool())
 
   // Rasterizer interface
-  val iterX          = Input(UInt(6.W))
-  val iterY          = Input(UInt(6.W))
-  val triggerShader  = Input(Bool())       // pulse from rasterizer: set PC=0 + pending
+  val iterX              = Input(UInt(6.W))
+  val iterY              = Input(UInt(6.W))
+  val triggerShaderValid = Input(Bool())        // pulse from rasterizer: trigger shader
+  val triggerShaderPC    = Input(UInt(6.W))      // PC to start at
 
   // Pipeline write-back snoop (exposed to rasterizer)
   val pipeWriteEn   = Output(Bool())
@@ -162,9 +163,9 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
       }
     }
 
-    // Auto-trigger from rasterizer
-    when(io.triggerShader) {
-      programCounter := 0.U
+    // Auto-trigger from rasterizer (Step 10.6.2: carries PC)
+    when(io.triggerShaderValid) {
+      programCounter := io.triggerShaderPC
       auto_run_pending := true.B
     }
 

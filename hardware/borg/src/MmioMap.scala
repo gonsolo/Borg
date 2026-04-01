@@ -111,6 +111,7 @@ object MmioMap {
   val BORG_ITER_BBOX_OFFSET = BORG_IMEM_END      // Pixel iterator: write bbox
   val BORG_ITER_OFFSET      = BORG_ITER_BBOX_OFFSET + 4  // Pixel iterator: advance
   val BORG_CONTROL_OFFSET   = BORG_ITER_OFFSET + 4  // Control / status register
+  val BORG_FRAG_PC_OFFSET   = BORG_CONTROL_OFFSET + 4 // Fragment shader start PC for auto-chaining
 
   // Borg pixel iterator configuration
   val BORG_ITER_COORD_BITS    = 6

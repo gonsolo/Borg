@@ -98,7 +98,12 @@ object BorgTests extends TestSuite {
 
   // --- Execution helpers ---
 
-  def resetAndWait(borg: Borg): Unit = writeAddr(borg, MmioMap.BORG_CONTROL_OFFSET, 2)
+  def resetAndWait(borg: Borg): Unit = {
+    borg.io.data_write_n.poke(3.U)
+    borg.io.data_read_n.poke(3.U)
+    borg.clock.step(1)
+    writeAddr(borg, MmioMap.BORG_CONTROL_OFFSET, 2)
+  }
 
   def startAndWaitForHalt(borg: Borg): Unit = {
     writeAddr(borg, MmioMap.BORG_CONTROL_OFFSET, 1)
@@ -133,31 +138,36 @@ object BorgTests extends TestSuite {
     writeAddr(borg, 4, floatToBits(b, config))
     val confirm_r1 = readAddr(borg, 4, config)
 
+    val a_eff = bitsToFloat(floatToBits(a, config), config)
+    val b_eff = bitsToFloat(floatToBits(b, config), config)
+    val c_eff = bitsToFloat(floatToBits(c, config), config)
+
     val (instr, rdAddr, expected, label) = op match {
       case ADD =>
         (encodeInstruction(config, ADD, rs1 = 0, rs2 = 1, rd = 2),
-          8, a + b, f"$a%8.2f + $b%8.2f")
+          8, a_eff + b_eff, f"$a_eff%8.2f + $b_eff%8.2f")
       case MUL =>
         (encodeInstruction(config, MUL, rs1 = 0, rs2 = 1, rd = 2),
-          8, a * b, f"$a%8.2f * $b%8.2f")
+          8, a_eff * b_eff, f"$a_eff%8.2f * $b_eff%8.2f")
       case FNEG =>
         (encodeInstruction(config, FNEG, rs1 = 0, rs2 = 0, rd = 2),
-          8, -a, f"-$a%8.2f")
+          8, -a_eff, f"-$a_eff%8.2f")
       case FSTEP =>
         (encodeInstruction(config, FSTEP, rs1 = 0, rs2 = 0, rd = 2), // rs1 edge, rs2 not used
-          8, if (a > 0.0f) 1.0f else 0.0f, f"step($a%8.2f)")
+          8, if (a_eff > 0.0f) 1.0f else 0.0f, f"step($a_eff%8.2f)")
       case FRCP =>
         (encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2),
-          8, 1.0f / a, f"rcp($a%8.2f)")
-      case FMA(cVal) =>
-        (encodeInstruction(config, FMA(2), rs1 = 0, rs2 = 1, rd = 3),
-          12, a * b + cVal, f"$a%8.2f * $b%8.2f + $cVal%8.2f")
+          8, 1.0f / a_eff, f"rcp($a_eff%8.2f)")
+      case FMA(rs3) =>
+        (encodeInstruction(config, FMA(rs3), rs1 = 0, rs2 = 1, rd = 3),
+          12, a_eff * b_eff + c_eff, f"$a_eff%8.2f * $b_eff%8.2f + $c_eff%8.2f")
     }
 
-    if (op == FMA(c.toInt)) {
-      writeAddr(borg, 8, floatToBits(c, config))
+    op match {
+      case FMA(rs3) =>
+        writeAddr(borg, rs3 * 4, floatToBits(c, config))
+      case _ =>
     }
-
     // Write instruction and halt
     writeAddr(borg, 128, instr)
     writeAddr(borg, 132, 0) // halt
@@ -178,6 +188,7 @@ object BorgTests extends TestSuite {
         val actual_bits = java.lang.Float.floatToRawIntBits(actual) & 0xffff
         println(s">>> MAGIC DEBUG BITS: C_r0=0x${cr0_bits.toHexString} | C_r1=$confirm_r1 | POST r0=$r0_post, r1=$r1_post, r2=$actual (bits: 0x${actual_bits.toHexString})")
     }
+    println(s"TEST: $label -> Actual: $actual, Expected: $expected (Pre r0=$r0_pre, r1=$r1_pre)")
     assertResult(actual, expected, config, label)
   }
 
@@ -724,15 +735,15 @@ object BorgTests extends TestSuite {
            startAndWaitForHalt(borg)
         }
 
-        println("  Test 1: All negative (strictly inside)")
-        writeToReg(0, -1.0f)
-        writeToReg(1, -2.0f)
-        writeToReg(2, -3.0f)
-        assertInside(true, "All negative")
+        println("  Test 1: All positive (strictly inside)")
+        writeToReg(0, 1.0f)
+        writeToReg(1, 2.0f)
+        writeToReg(2, 3.0f)
+        assertInside(true, "All positive")
 
-        println("  Test 2: One positive (outside)")
-        writeToReg(1, 1.0f)
-        assertInside(false, "r1 is positive")
+        println("  Test 2: One negative (outside)")
+        writeToReg(1, -1.0f)
+        assertInside(false, "r1 is negative")
 
         println("  Test 3: Zero is inside (edge tie)")
         writeToReg(0, 0.0f)
@@ -809,21 +820,22 @@ object BorgTests extends TestSuite {
         println("  Iterator advance: PASSED")
 
         // --- Test 3: Inside flag updated by auto-run ---
-        // Write a negative value to r0 via auto-run: r0 = FNEG(r4) where r4 = 3.0
+        // Write positive values to r0/r1/r2 via auto-run: r0=r1=r2 = r4+r5 where r4=3.0, r5=0.0
         println("  Test 3: Inside flag via auto-run")
         resetAndWait(borg)
-        val fnegInstr = encodeInstruction(config, FNEG, rs1 = 4, rs2 = 0, rd = 0)
-        val fneg1Instr = encodeInstruction(config, FNEG, rs1 = 4, rs2 = 0, rd = 1)
-        val fneg2Instr = encodeInstruction(config, FNEG, rs1 = 4, rs2 = 0, rd = 2)
-        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET, fnegInstr)       // r0 = -r4
-        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 4, fneg1Instr)  // r1 = -r4
-        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 8, fneg2Instr)  // r2 = -r4
+        val addInstr0 = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = 0)
+        val addInstr1 = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = 1)
+        val addInstr2 = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = 2)
+        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET, addInstr0)       // r0 = r4+r5 = 3.0
+        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 4, addInstr1)   // r1 = r4+r5 = 3.0
+        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 8, addInstr2)   // r2 = r4+r5 = 3.0
         writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 12, 0)          // halt
 
         writeAddr(borg, 16, floatToBits(3.0f, config))   // r4 = 3.0 (positive)
+        writeAddr(borg, 20, floatToBits(0.0f, config))   // r5 = 0.0
         writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, bbox)
 
-        // Write BORG_ITER — auto-runs shader, r0/r1/r2 all become -3.0 (negative → inside)
+        // Write BORG_ITER — auto-runs shader, r0/r1/r2 all become 3.0 (positive → inside)
         writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
         borg.clock.step(30)
 
@@ -836,7 +848,7 @@ object BorgTests extends TestSuite {
         borg.io.data_read_n.poke(3.U)
         val isInside = ((iterVal2 >> MmioMap.BORG_ITER_INSIDE_SHIFT) & 1) == 1
         println(f"    inside_flag: $isInside (expected true)")
-        Predef.assert(isInside, "Expected inside_flag=true after negative edge results")
+        Predef.assert(isInside, "Expected inside_flag=true after positive edge results")
         println("  Inside flag via auto-run: PASSED")
 
         println("=== Auto-Run Tests Passed ===\n")

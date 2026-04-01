@@ -78,6 +78,7 @@ static void puts_uart(const char *s) {
     putc_uart(*s++);
 }
 
+
 // --- Timing and debug printing ---
 static inline unsigned int get_cycles(void) {
   unsigned int cycles;
@@ -118,6 +119,7 @@ static void run_vertex_shader(const fp16_t *uniforms, const fp16_t *attrs,
 
 void borgCreateDevice(void) {
   STARTUP_DELAY();
+  BORG_FRAG_PC = 0; // Explicitly disable uninitialized auto-chaining
   UART_BAUD = UART_BAUD_DEFAULT;
   puts_uart("Borg pipeline\r\n");
   unsigned int t_init = get_cycles();

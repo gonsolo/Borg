@@ -99,7 +99,8 @@ object BorgCoreTests extends TestSuite {
     core.io.is_reading.poke(false.B)
     core.io.iterX.poke(0.U)
     core.io.iterY.poke(0.U)
-    core.io.triggerShader.poke(false.B)
+    core.io.triggerShaderValid.poke(false.B)
+    core.io.triggerShaderPC.poke(0.U)
     core.clock.step(1)
   }
 

@@ -29,11 +29,15 @@ object MmioGenerator {
     def comment(text: String): Unit = w.println(s"// $text")
     def assign(name: String, value: Int, commentStr: String = ""): Unit = {
       val cmt = if (commentStr.nonEmpty) s"  // $commentStr" else ""
+      w.println(s"#ifndef $name")
       w.println(s"#define $name $value$cmt")
+      w.println(s"#endif")
     }
     def assignHex(name: String, value: Int, width: Int): Unit = {
       val hex = String.format(s"%0${width}X", Integer.valueOf(value))
+      w.println(s"#ifndef $name")
       w.println(s"#define $name 0x$hex")
+      w.println(s"#endif")
     }
 
     def emitInstrR(name: String, hexOp: String): Unit = {
@@ -150,6 +154,7 @@ object MmioGenerator {
 
     e.defReg("BORG_ITER_BBOX", "BORG_BASE + BORG_ITER_BBOX_OFFSET")
     e.defReg("BORG_ITER",      "BORG_BASE + BORG_ITER_OFFSET")
+    e.defReg("BORG_FRAG_PC",   "BORG_BASE + BORG_FRAG_PC_OFFSET")
     e.defMacro("BORG_ITER_PACK_BBOX", "x0,y0,x1,y1", "(((y1)<<BORG_ITER_BBOX_Y1_SHIFT)|((x1)<<BORG_ITER_BBOX_X1_SHIFT)|((y0)<<BORG_ITER_BBOX_Y0_SHIFT)|((x0)<<BORG_ITER_BBOX_X0_SHIFT))")
     e.defMacro("BORG_ITER_X", "v", "(((v) >> BORG_ITER_X_SHIFT) & BORG_ITER_COORD_MASK)")
     e.defMacro("BORG_ITER_Y", "v", "(((v) >> BORG_ITER_Y_SHIFT) & BORG_ITER_COORD_MASK)")

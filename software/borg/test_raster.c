@@ -79,7 +79,10 @@ int main() {
         
         printf("Edge %d Evaluation at Opposite Vertex (V%d): %.2f (FP16: %04X)\n", i, prev, e_float, e_val);
         
-        // Assert interior point is strictly positive (otherwise the neg_dy subtraction order is reversed!)
+        // SIGN CONVENTION GROUND TRUTH: Interior points have POSITIVE edge values.
+        // The hardware inside-flag snooper in BorgRasterizer.scala relies on this:
+        //   positive/zero → inside,  negative → outside.
+        // If this assertion fails, the edge winding or subtraction order is wrong.
         assert(e_float > 0.0f);
         
         // Check absolute area determinant boundary

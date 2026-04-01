@@ -17,8 +17,13 @@
 #   r30 = coordLut[iter_x] = px + 0.5
 #   r31 = coordLut[iter_y] = py + 0.5
 #
-# Outputs:
+# Outputs (written to r0, r1, r2):
 #   e0, e1, e2  (>= 0 means inside this edge)
+#
+# SIGN CONVENTION: The hardware inside-flag snooper in BorgRasterizer.scala
+# checks these output registers. POSITIVE or ZERO = inside, NEGATIVE = outside.
+# See the comment block in BorgRasterizer.scala for the full explanation.
+#
 #
     fadd.s  f_dpx0, f_r30, f_neg_vx0       # dpx0 = px - vx0
     fadd.s  f_dpy0, f_r31, f_neg_vy0       # dpy0 = py - vy0

@@ -94,8 +94,13 @@ int borg_run_fragment(const spirb_shader_t *rast_shader,
       BORG_REG(frag_shader->uniform_regs[i]) = 0;
   }
 
-  // Edge values e0/e1/e2 are already in r0/r1/r2 from the rasterizer shader.
-  // The recompiled frag shader reads them directly — no attribute copy needed.
+  // Copy edge values from rasterizer output regs (r0/r1/r2) into fragment
+  // shader attribute registers. The rasterizer outputs e0/e1/e2 to r0/r1/r2,
+  // but the fragment shader expects them at its own attribute register slots.
+  for (int i = 0; i < frag_shader->num_attributes; i++) {
+    BORG_REG(frag_shader->attribute_regs[i]) =
+        BORG_REG(rast_shader->output_regs[i]) & 0xFFFF;
+  }
 
   borg_run(BORG_IMEM_FRAG_OFFSET);
 
