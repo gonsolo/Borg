@@ -139,11 +139,21 @@ instead of driving every pixel. **This is the key transition from
     Auto-chain the rasterizer and fragment shaders so a single `BORG_ITER` advance evaluates edges, tests inside, and (for inside pixels) runs the fragment shader — all while the CPU stalls. The CPU only reads back shaded results and writes to PSRAM.
   - **10.6.1: Fragment Shader Register Alignment** ✅ (2026-04-01): Recompile `frag.s` so it reads edge values directly from r0/r1/r2 (rasterizer output slots) instead of separate attribute registers. Remove the firmware register copy. No hardware changes.
   - **10.6.2: Chained Shader Trigger (Hardware)** ✅ (2026-04-01): Add `frag_start_pc` register and phase FSM (`IDLE→RAST→FRAG`) to BorgRasterizer/BorgCore. Fix edge-sign snooping convention (positive=inside, negative=outside). Add attribute copy from rasterizer output regs to fragment attribute regs.
-  - **10.6.3: Linear Scan Register Allocation** ✅ (2026-04-01): Implement Poletto & Sarkar (1999) linear scan register allocation in `borg_backend.py`. Add a pass manager (`identify_vregs` → `parse_annotations` → `compute_live_intervals` → `linear_scan_alloc` → `emit_instructions`). Reuses temporaries across non-overlapping lifetimes; `rasterize.s` 18→17 (dpx/dpy reused across edges); `vert.s` 29→24. `shader.frag` stays at 29/30 because 28 I/O vregs (19 uniforms + 3 attributes + 6 outputs) must be live simultaneously — uniforms persist across pixel invocations. Verified pixel-perfect against `golden.ppm`.
-    > **Bugs fixed during register allocator development:**
-    > 1. **rs3 field width misconception:** The initial implementation restricted fmadd accumulators to r0-r3, assuming a 2-bit rs3 field. `Instructions.scala` defines `BF_RS3 = BitField(31, 27)` — a full 5-bit field addressing all 32 registers. Removed the unnecessary accumulator pool restriction.
-    > 2. **Uniform sorting broke R↔B vertex colors:** The SPIR-V compiler sorted uniform annotations by `member_idx`, reordering them from SPIR-V instruction order (r2, r1, r0) to (r0, r1, r2). This broke the implicit mapping between edge function weights and vertex colors: edge e0 gives the weight for the vertex *opposite* edge 0 (vertex 2), so the firmware's positional `load_uniform_triple(colors[0], colors[1], colors[2])` must match the SPIR-V order where R2 appears first. Reverted to SPIR-V instruction order.
-  - **10.6.4: Firmware Auto-Chain Integration**: Rewrite `shade_tiles()` to use auto-chaining. Eliminate the manual `borg_run_fragment()` call from the hot path by hoisting fragment uniform loads to run once per triangle, then using the hardware FSM to automatically execute the fragment shader inside `BORG_ITER` advances.
+  - **10.6.3: Linear Scan Register Allocation** ✅ (2026-04-01)
+    Implemented Poletto & Sarkar (1999) linear scan register allocation in `borg_backend.py`. Added a pass manager (`identify_vregs` → `parse_annotations` → `compute_live_intervals` → `linear_scan_alloc` → `emit_instructions`). Reused temporaries across non-overlapping lifetimes:
+    - `rasterize.s`: 18 → 17 registers (dpx/dpy reused across edges).
+    - `vert.s`: 29 → 24 registers.
+    - `shader.frag`: 29/30 registers (28 I/O vregs must be live simultaneously; uniforms persist).
+    - Verified pixel-perfect against `golden.ppm`.
+
+    *Bugs fixed during register allocator development:*
+    1. **`rs3` field width misconception:** The initial implementation restricted `fmadd` accumulators to r0-r3, assuming a 2-bit `rs3` field. `Instructions.scala` defines a full 5-bit field. Removed the unnecessary restriction.
+    2. **Uniform sorting broke R↔B vertex colors:** The SPIR-V compiler sorted uniforms by `member_idx`, reordering them. This broke the implicit mapping where edge weights match their opposite vertex colors. Reverted to SPIR-V instruction order.
+  - **10.6.4: Architectural Register Expansion (64 Regs)**: Expand the architecture from 32 to 64 general-purpose registers to solve rasterizer/fragment shader state clobbering, mimicking the architectural evolution of mobile GPUs like ARM Mali Bifrost.
+    - **10.6.4.1: Hardware 6-Bit Expansion**: Expand `BF_RS1`, `BF_RS2`, `BF_RS3`, and `BF_RD` instruction fields from 5-bit to 6-bit. Increase `BORG_NUM_REGS` to 64 in `MmioMap.scala`. Remap the virtual `coordLut` coordinate injection from `r30/r31` to `r62/r63`.
+    - **10.6.4.2: Compiler 6-Bit Expansion**: Update `Instructions.py` to match the new 6-bit hardware encoding. Increase the linear scan allocator's usable GPR pool from 30 to 62 (`r0-r61`).
+    - **10.6.4.3: Shader Reallocation**: Rebuild `rasterize.s` and `shader.frag`. Ensure uniforms for shaders no longer overlap, allowing full state retention across pixel invocations.
+  - **10.6.5: Firmware Auto-Chain Integration**: Rewrite `shade_tiles()` to use auto-chaining. Eliminate the manual `borg_run_fragment()` call from the hot path by hoisting fragment uniform loads to run once per triangle, then using the hardware FSM to automatically execute the fragment shader inside `BORG_ITER` advances.
 
 ### Step 11: On-Chip Tile Buffer (BRAM)
 
