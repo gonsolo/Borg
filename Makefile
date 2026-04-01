@@ -29,9 +29,9 @@ help:
 export CLOCK_MHZ = 4
 
 generate_verilog:
+	@python3 scripts/update_info_yaml.py
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.borg.runMain borg.Main
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.tinyqv.runMain tinyqv.Main
-	@python3 scripts/update_info_yaml.py
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.tinyqv.runMain borg.FpgaMain
 
 test-cocotb-soc-core-rtl: generate_verilog
