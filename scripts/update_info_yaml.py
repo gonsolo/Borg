@@ -35,6 +35,7 @@ def main():
     new_content = content.replace('{{source_files}}', file_list_str)
     
     with open(yaml_path, 'w') as f:
+        f.write("# This file is generated from info.template.yaml — do not edit manually!\n")
         f.write(new_content)
 
     print(f"Generated {yaml_path} from {template_path} with {len(sv_files)} ASIC source files.")
