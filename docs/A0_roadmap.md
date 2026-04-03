@@ -149,11 +149,11 @@ instead of driving every pixel. **This is the key transition from
     *Bugs fixed during register allocator development:*
     1. **`rs3` field width misconception:** The initial implementation restricted `fmadd` accumulators to r0-r3, assuming a 2-bit `rs3` field. `Instructions.scala` defines a full 5-bit field. Removed the unnecessary restriction.
     2. **Uniform sorting broke R↔B vertex colors:** The SPIR-V compiler sorted uniforms by `member_idx`, reordering them. This broke the implicit mapping where edge weights match their opposite vertex colors. Reverted to SPIR-V instruction order.
-  - **10.6.4: Architectural Register Expansion (64 Regs)**: Expand the architecture from 32 to 64 general-purpose registers to solve rasterizer/fragment shader state clobbering, mimicking the architectural evolution of mobile GPUs like ARM Mali Bifrost.
-    - **10.6.4.1: Hardware 6-Bit Expansion**: Expand `BF_RS1`, `BF_RS2`, `BF_RS3`, and `BF_RD` instruction fields from 5-bit to 6-bit. Increase `BORG_NUM_REGS` to 64 in `MmioMap.scala`. Remap the virtual `coordLut` coordinate injection from `r30/r31` to `r62/r63`.
-    - **10.6.4.2: Compiler 6-Bit Expansion**: Update `Instructions.py` to match the new 6-bit hardware encoding. Increase the linear scan allocator's usable GPR pool from 30 to 62 (`r0-r61`).
-    - **10.6.4.3: Shader Reallocation**: Rebuild `rasterize.s` and `shader.frag`. Ensure uniforms for shaders no longer overlap, allowing full state retention across pixel invocations.
-  - **10.6.5: Firmware Auto-Chain Integration**: Rewrite `shade_tiles()` to use auto-chaining. Eliminate the manual `borg_run_fragment()` call from the hot path by hoisting fragment uniform loads to run once per triangle, then using the hardware FSM to automatically execute the fragment shader inside `BORG_ITER` advances.
+  - **10.6.4: Uniform Buffer (Replaces 64-GPR Expansion)**: Add a separate 32-entry × 16-bit read-only uniform buffer to solve rasterizer/fragment shader state clobbering. This follows the universal GPU pattern (PowerVR shared registers, VideoCore IV streaming FIFO, Mali Bifrost fast constant storage, Adreno constant RAM) rather than doubling the GPR file. Adds ~512 flip-flops on ASIC (+11%) vs. ~1,536 for 64 GPRs (+21%), preserves RISC-V 5-bit register encoding, and maps naturally to Vulkan UBOs/push constants. See [A5_register_architecture.md](A5_register_architecture.md) for the full design rationale, GPU architecture survey, and area analysis.
+    - **10.6.4.1: Hardware Uniform Buffer**: Add 32-entry `SyncReadMem`/register-based uniform buffer (1 BRAM on iCE40, 512 FFs on ASIC). Decode `funct3[1:0]` to select which operand reads from the uniform buffer (`00`=all GPR, `01`=rs1, `10`=rs2, `11`=rs3). Integrate the read mux into the operand-resolution stage alongside the existing `coordLut` injection. Add `BORG_UNIFORM_OFFSET` MMIO region for CPU writes (32 × 2 = 64 bytes, FP16-addressed).
+    - **10.6.4.2: Compiler Uniform Support**: Update `borg_backend.py` to distinguish uniform vs. GPR virtual registers and emit the appropriate `funct3` bits. Update `Instructions.scala` encoding functions to accept the uniform operand flag. The register allocator assigns uniforms to the uniform buffer and temporaries/I/O to GPRs separately.
+    - **10.6.4.3: Shader Reallocation**: Rebuild `rasterize.s` (12 uniforms → buffer, ~8 GPRs) and `shader.frag` (19 uniforms → buffer, ~13 GPRs). Combined: 31 of 32 uniform slots used, ~16 of 30 GPRs used. Verify pixel-perfect against `golden.ppm`.
+  - **10.6.5: Firmware Auto-Chain Integration**: Rewrite `shade_tiles()` to use auto-chaining. The CPU loads both shader stages' uniforms into the buffer once per triangle (31 entries). The hardware FSM chains rasterizer → fragment without register conflicts — uniforms persist in the buffer while GPRs are reused freely. Eliminate the manual `borg_run_fragment()` call from the hot path.
 
 ### Step 11: On-Chip Tile Buffer (BRAM)
 
@@ -170,7 +170,9 @@ of firmware. ~20 LUTs. Estimate: 2–3 days.
 ### Step 13: Command FIFO
 
 2–4 entry FIFO between CPU and pixel iterator. CPU submits the next triangle
-while GPU rasterizes the current one. Embryonic command buffer.
+while GPU rasterizes the current one. Embryonic command buffer. Each FIFO entry
+must include the uniform buffer snapshot (~64 bytes), bbox (3 bytes), and
+frag_pc — roughly 68 bytes per entry, fitting in 1–2 BRAMs for a 4-entry FIFO.
 Estimate: 3–5 days.
 
 ### Step 14: Texture Fetch Unit
@@ -184,7 +186,10 @@ Estimate: 1–2 weeks.
 
 FSM that sequences 3 vertex shader runs (loading attributes, running SPIR-B
 shader, storing outputs, applying screen-space transform) without CPU
-involvement. Estimate: 1 week.
+involvement. The sequencer must reload the uniform buffer between stages: the
+vertex shader uses 16 uniform slots (4×4 MVP matrix), while the rasterizer and
+fragment shaders use 31 slots (edge constants + vertex colors + inv_area).
+Estimate: 1 week.
 
 ### Step 16: Full Autonomous Triangle Pipeline
 
