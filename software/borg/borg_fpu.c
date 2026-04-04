@@ -21,7 +21,7 @@ void borg_run(uint32_t start_pc) {
 }
 
 fp16_t borg_fp16_add(fp16_t a, fp16_t b) {
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FADD(0, 1, 2);
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FADD(0, 1, 2, 0);
   BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
   BORG_REG(1) = a;
   BORG_REG(2) = b;
@@ -30,7 +30,7 @@ fp16_t borg_fp16_add(fp16_t a, fp16_t b) {
 }
 
 fp16_t borg_fp16_mul(fp16_t a, fp16_t b) {
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FMUL(0, 1, 2);
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FMUL(0, 1, 2, 0);
   BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
   BORG_REG(1) = a;
   BORG_REG(2) = b;
@@ -40,7 +40,7 @@ fp16_t borg_fp16_mul(fp16_t a, fp16_t b) {
 }
 
 fp16_t borg_fp16_fmadd(fp16_t a, fp16_t b, fp16_t c) {
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FMADD(0, 1, 2, 3);
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FMADD(0, 1, 2, 3, 0);
   BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
   BORG_REG(1) = a;
   BORG_REG(2) = b;
@@ -51,7 +51,7 @@ fp16_t borg_fp16_fmadd(fp16_t a, fp16_t b, fp16_t c) {
 
 // FP16 reciprocal: 1/x via hardware FRCP instruction (LUT + interpolation).
 fp16_t borg_fp16_rcp(fp16_t x) {
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FRCP(0, 1);
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FRCP(0, 1, 0);
   BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
   BORG_REG(1) = x;
   borg_run(BORG_IMEM_ADD_OFFSET);
@@ -69,12 +69,12 @@ void borg_load_spirb_shader(const spirb_shader_t *s) {
 }
 
 void borg_load_add_shader(void) {
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FADD(0, 1, 2);
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FADD(0, 1, 2, 0);
   BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
 }
 
 fp16_t borg_fp16_sub_raw(fp16_t a, fp16_t b) {
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FADD(0, 1, 2);
+  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FADD(0, 1, 2, 0);
   BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
   BORG_REG(1) = a;
   BORG_REG(2) = b ^ 0x8000;

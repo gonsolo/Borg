@@ -36,8 +36,8 @@ void compute_edge_vectors(const xy16_t *screen_pos, xy16_t *edges) {
 void borg_load_edge_constants(const spirb_shader_t *s, const xy16_t *edges) {
   // Uniforms: dx0, neg_dy0, dx1, neg_dy1, dx2, neg_dy2
   for (int i = 0; i < 3; i++) {
-    BORG_REG(s->uniform_regs[i * 2 + 0]) = edges[i].x;
-    BORG_REG(s->uniform_regs[i * 2 + 1]) = edges[i].y;
+    BORG_UNIFORM(s->uniform_regs[i * 2 + 0]) = edges[i].x;
+    BORG_UNIFORM(s->uniform_regs[i * 2 + 1]) = edges[i].y;
   }
 }
 
@@ -46,9 +46,9 @@ void borg_load_edge_constants(const spirb_shader_t *s, const xy16_t *edges) {
 // Load 3 consecutive per-vertex values into uniform registers at base_reg.
 static void load_uniform_triple(const spirb_shader_t *s, int base_reg,
                                 fp16_t v0, fp16_t v1, fp16_t v2) {
-  BORG_REG(s->uniform_regs[base_reg + 0]) = v0;
-  BORG_REG(s->uniform_regs[base_reg + 1]) = v1;
-  BORG_REG(s->uniform_regs[base_reg + 2]) = v2;
+  BORG_UNIFORM(s->uniform_regs[base_reg + 0]) = v0;
+  BORG_UNIFORM(s->uniform_regs[base_reg + 1]) = v1;
+  BORG_UNIFORM(s->uniform_regs[base_reg + 2]) = v2;
 }
 
 // Read one output register as an fp16.
@@ -86,7 +86,7 @@ int borg_run_fragment(const spirb_shader_t *rast_shader,
 
   // Load fragment uniforms (per-triangle constants)
   const rgb16_t *colors = tri->colors.v;
-  BORG_REG(frag_shader->uniform_regs[0]) = tri->inv_area;
+  BORG_UNIFORM(frag_shader->uniform_regs[0]) = tri->inv_area;
   load_uniform_triple(frag_shader, 1, colors[0].r, colors[1].r, colors[2].r);
   load_uniform_triple(frag_shader, 4, colors[0].g, colors[1].g, colors[2].g);
   load_uniform_triple(frag_shader, 7, colors[0].b, colors[1].b, colors[2].b);
@@ -99,7 +99,7 @@ int borg_run_fragment(const spirb_shader_t *rast_shader,
     load_uniform_triple(frag_shader, 16, uvs[0].v, uvs[1].v, uvs[2].v);
   } else {
     for (int i = 13; i <= 18; i++)
-      BORG_REG(frag_shader->uniform_regs[i]) = 0;
+      BORG_UNIFORM(frag_shader->uniform_regs[i]) = 0;
   }
 
   // Now that fragment uniforms are loaded (potentially overwriting rasterizer

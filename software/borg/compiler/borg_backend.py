@@ -36,6 +36,7 @@ class BorgBackend:
     def __init__(self):
         # Maps virtual register names to physical Borg register indices
         self.vreg_to_preg = {}
+        self.vreg_type = {}  # vreg -> 'uniform' or 'gpr'
         self.next_preg = 0
         self.borg_instrs = []  # Borg IMEM instructions (encoded)
         self.host_pre = []  # Host code before Borg execution
@@ -198,65 +199,79 @@ class BorgBackend:
             else:
                 live_intervals[vreg] = [0, max_line]
 
-        # Extend uniforms to end-of-shader (loaded once per triangle,
-        # must persist across multiple pixel invocations)
+        # Set types and extend lifetime for uniforms
         for vreg in uniform_vregs:
+            live_intervals[vreg] = [0, max_line]
+            self.vreg_type[vreg] = 'uniform'
+
+        for vreg in output_vregs:
             if vreg in live_intervals:
                 live_intervals[vreg][1] = max_line
             else:
                 live_intervals[vreg] = [0, max_line]
 
-        # All I/O vregs are pre-loaded by firmware before line 0.
-        # They MUST start at 0 so they conceptually overlap at the beginning
-        # and do not get assigned to the same physical register.
         for vreg in io_vregs:
+            if vreg not in self.vreg_type:
+                self.vreg_type[vreg] = 'gpr'
             if vreg in live_intervals:
                 live_intervals[vreg][0] = 0
             else:
                 live_intervals[vreg] = [0, max_line]
 
-        # Sort by start point (Poletto & Sarkar sec. 4)
+        # Any undefined vregs are temporary GPRs
+        for vreg in live_intervals:
+            if vreg not in self.vreg_type:
+                self.vreg_type[vreg] = 'gpr'
+
         sorted_vregs = sorted(live_intervals, key=lambda v: live_intervals[v][0])
 
-        # Single register pool: r0-r29 (rs3 has full 5-bit field, no restriction)
-        reg_pool = list(range(0, 30))
+        gpr_pool = list(range(0, 30))
+        uni_pool = list(range(0, 32))
 
-        # Remove pre-mapped registers from pool so they are not doubly assigned
-        for preg in self.vreg_to_preg.values():
-            if preg in reg_pool:
-                reg_pool.remove(preg)
+        for vreg, preg in self.vreg_to_preg.items():
+            if self.vreg_type.get(vreg, 'gpr') == 'gpr':
+                if preg in gpr_pool:
+                    gpr_pool.remove(preg)
+            else:
+                if preg in uni_pool:
+                    uni_pool.remove(preg)
 
-        # active = [(end_line, vreg)] kept sorted by end point
-        active = []
+        active_gpr = []
 
-        def expire_old(current_start):
-            """Return registers of intervals that ended before current_start."""
-            expired = [a for a in active if a[0] < current_start]
+        def expire_old_gpr(current_start):
+            expired = [a for a in active_gpr if a[0] < current_start]
             for end, vreg in expired:
-                active.remove((end, vreg))
+                active_gpr.remove((end, vreg))
                 preg = self.vreg_to_preg[vreg]
-                reg_pool.append(preg)
-                reg_pool.sort()
+                gpr_pool.append(preg)
+                gpr_pool.sort()
 
         for vreg in sorted_vregs:
             if vreg in self.vreg_to_preg:
-                # Pre-mapped (r30/r31 or bind): still add to active for tracking
                 start, end = live_intervals[vreg]
-                active.append((end, vreg))
-                active.sort(key=lambda a: a[0])
+                if self.vreg_type[vreg] == 'gpr':
+                    active_gpr.append((end, vreg))
+                    active_gpr.sort(key=lambda a: a[0])
                 continue
 
             start, end = live_intervals[vreg]
-            expire_old(start)
+            
+            if self.vreg_type[vreg] == 'uniform':
+                if not uni_pool:
+                    raise RuntimeError(f"Out of Uniform registers (max 32) for {vreg}")
+                preg = uni_pool.pop(0)
+                self.vreg_to_preg[vreg] = preg
+                print(f"MAPPED UNIFORM {vreg} to u{preg}  [{start},{end}]")
+            else:
+                expire_old_gpr(start)
+                if not gpr_pool:
+                    raise RuntimeError(f"Out of Borg registers (max 30) for {vreg}")
+                preg = gpr_pool.pop(0)
+                self.vreg_to_preg[vreg] = preg
+                print(f"MAPPED GPR {vreg} to r{preg}  [{start},{end}]")
+                active_gpr.append((end, vreg))
+                active_gpr.sort(key=lambda a: a[0])
 
-            if not reg_pool:
-                raise RuntimeError(f"Out of Borg registers (max 30) for {vreg}")
-
-            preg = reg_pool.pop(0)
-            self.vreg_to_preg[vreg] = preg
-            print(f"MAPPED {vreg} to r{preg}  [{start},{end}]")
-            active.append((end, vreg))
-            active.sort(key=lambda a: a[0])
 
     def _pass_emit_instructions(self, lines):
         # Second pass: classify and lower
@@ -304,7 +319,10 @@ class BorgBackend:
                 self.host_pre.append(f"    uint16_t {dst} = fp16_sin({src});")
                 if dst in self.vreg_to_preg:
                     preg = self.vreg_to_preg[dst]
-                    self.host_pre.append(f"    borg_write_reg({preg}, {dst});")
+                    if self.vreg_type.get(dst) == 'uniform':
+                        self.host_pre.append(f"    BORG_UNIFORM({preg}) = {dst};")
+                    else:
+                        self.host_pre.append(f"    borg_write_reg({preg}, {dst});")
 
             elif op == "fcos.s":
                 dst, src = tokens[1], tokens[2]
@@ -312,7 +330,10 @@ class BorgBackend:
                 self.host_pre.append(f"    uint16_t {dst} = fp16_cos({src});")
                 if dst in self.vreg_to_preg:
                     preg = self.vreg_to_preg[dst]
-                    self.host_pre.append(f"    borg_write_reg({preg}, {dst});")
+                    if self.vreg_type.get(dst) == 'uniform':
+                        self.host_pre.append(f"    BORG_UNIFORM({preg}) = {dst};")
+                    else:
+                        self.host_pre.append(f"    borg_write_reg({preg}, {dst});")
 
             elif op == "fneg.s":
                 dst, src = tokens[1], tokens[2]
@@ -322,7 +343,10 @@ class BorgBackend:
                 )
                 if dst in self.vreg_to_preg:
                     preg = self.vreg_to_preg[dst]
-                    self.host_pre.append(f"    borg_write_reg({preg}, {dst});")
+                    if self.vreg_type.get(dst) == 'uniform':
+                        self.host_pre.append(f"    BORG_UNIFORM({preg}) = {dst};")
+                    else:
+                        self.host_pre.append(f"    borg_write_reg({preg}, {dst});")
 
             elif op.startswith("flw"):
                 dst = tokens[1]
@@ -331,7 +355,10 @@ class BorgBackend:
                 self.host_pre.append(f"    uint16_t {dst} = load_fp16({mem});")
                 if dst in self.vreg_to_preg:
                     preg = self.vreg_to_preg[dst]
-                    self.host_pre.append(f"    borg_write_reg({preg}, {dst});")
+                    if self.vreg_type.get(dst) == 'uniform':
+                        self.host_pre.append(f"    BORG_UNIFORM({preg}) = {dst};")
+                    else:
+                        self.host_pre.append(f"    borg_write_reg({preg}, {dst});")
 
             elif op.startswith("fsw"):
                 src = tokens[1]
@@ -339,9 +366,10 @@ class BorgBackend:
                 if src in self.vreg_to_preg:
                     preg = self.vreg_to_preg[src]
                     self.host_post.append(f"    // {line_clean}  {comment}")
-                    self.host_post.append(
-                        f"    uint16_t {src}_out = borg_read_reg({preg});"
-                    )
+                    if self.vreg_type.get(src) == 'uniform':
+                        self.host_post.append(f"    uint16_t {src}_out = BORG_UNIFORM({preg});")
+                    else:
+                        self.host_post.append(f"    uint16_t {src}_out = borg_read_reg({preg});")
                     self.host_post.append(f"    store_fp16({mem}, {src}_out);")
                 elif src in self.constants:
                     self.host_post.append(f"    // {line_clean}  {comment}")
@@ -357,9 +385,18 @@ class BorgBackend:
                 prd = self.vreg_to_preg[rd]
                 pa = self.vreg_to_preg[a]
                 pb = self.vreg_to_preg[b]
-                enc = encode_rv32_fadd(pa, pb, prd)
+                
+                funct3 = 0
+                a_uni = (self.vreg_type.get(a) == 'uniform')
+                b_uni = (self.vreg_type.get(b) == 'uniform')
+                if a_uni: funct3 = 1
+                if b_uni:
+                    if funct3 != 0: raise RuntimeError(f"Multiple uniform operands in {line_clean}")
+                    funct3 = 2
+                
+                enc = encode_rv32_fadd(pa, pb, prd, funct3)
                 self.borg_instrs.append(
-                    (enc, f"fadd r{prd}, r{pa}, r{pb}  // {comment}")
+                    (enc, f"fadd r{prd}, r{pa}, r{pb}  // funct3={funct3} {comment}")
                 )
 
             elif op == "fmul.s":
@@ -367,9 +404,18 @@ class BorgBackend:
                 prd = self.vreg_to_preg[rd]
                 pa = self.vreg_to_preg[a]
                 pb = self.vreg_to_preg[b]
-                enc = encode_rv32_fmul(pa, pb, prd)
+                
+                funct3 = 0
+                a_uni = (self.vreg_type.get(a) == 'uniform')
+                b_uni = (self.vreg_type.get(b) == 'uniform')
+                if a_uni: funct3 = 1
+                if b_uni:
+                    if funct3 != 0: raise RuntimeError(f"Multiple uniform operands in {line_clean}")
+                    funct3 = 2
+                    
+                enc = encode_rv32_fmul(pa, pb, prd, funct3)
                 self.borg_instrs.append(
-                    (enc, f"fmul r{prd}, r{pa}, r{pb}  // {comment}")
+                    (enc, f"fmul r{prd}, r{pa}, r{pb}  // funct3={funct3} {comment}")
                 )
 
             elif op == "fmadd.s":
@@ -378,9 +424,22 @@ class BorgBackend:
                 pa = self.vreg_to_preg[a]
                 pb = self.vreg_to_preg[b]
                 pc = self.vreg_to_preg[c]
-                enc = encode_rv32_fmadd(pa, pb, pc, prd)
+                
+                funct3 = 0
+                a_uni = (self.vreg_type.get(a) == 'uniform')
+                b_uni = (self.vreg_type.get(b) == 'uniform')
+                c_uni = (self.vreg_type.get(c) == 'uniform')
+                if a_uni: funct3 = 1
+                if b_uni:
+                    if funct3 != 0: raise RuntimeError(f"Multiple uniform operands in {line_clean}")
+                    funct3 = 2
+                if c_uni:
+                    if funct3 != 0: raise RuntimeError(f"Multiple uniform operands in {line_clean}")
+                    funct3 = 3
+                
+                enc = encode_rv32_fmadd(pa, pb, pc, prd, funct3)
                 self.borg_instrs.append(
-                    (enc, f"fmadd r{prd}, r{pa}, r{pb}, r{pc}  // {comment}")
+                    (enc, f"fmadd r{prd}, r{pa}, r{pb}, r{pc}  // funct3={funct3} {comment}")
                 )
 
             elif op == "ret":

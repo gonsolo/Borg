@@ -48,20 +48,20 @@ object Instructions {
     BigInt((rs3 << BF_RS3.lo) | (funct2 << 25) | (rs2 << BF_RS2.lo) | (rs1 << BF_RS1.lo) | (funct3 << BF_FUNCT3.lo) | (rd << BF_RD.lo) | (opcode << BF_OP.lo))
 
   // @doc:isa-encoders
-  def ADD(rs1: Int, rs2: Int, rd: Int): BigInt = encodeRType(FUNCT7_ADD, rs2, rs1, rd)
-  def MUL(rs1: Int, rs2: Int, rd: Int): BigInt = encodeRType(FUNCT7_MUL, rs2, rs1, rd)
-  def FNEG(rs1: Int, rd: Int): BigInt = encodeRType(FUNCT7_FNEG, 0, rs1, rd)
-  def FSTEP(rs1: Int, rd: Int): BigInt = encodeRType(FUNCT7_FSTEP, 0, rs1, rd)
-  def FRCP(rs1: Int, rd: Int): BigInt = encodeRType(FUNCT7_FRCP, 0, rs1, rd)
-  def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd)
+  def ADD(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ADD, rs2, rs1, rd, funct3)
+  def MUL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_MUL, rs2, rs1, rd, funct3)
+  def FNEG(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FNEG, 0, rs1, rd, funct3)
+  def FSTEP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FSTEP, 0, rs1, rd, funct3)
+  def FRCP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FRCP, 0, rs1, rd, funct3)
+  def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
   // @doc:end
 
   // --- String Formatters for C / Python Generation ---
-  def PY_ARGS_R    = s"(rs2 << ${BF_RS2.lo}) | (rs1 << ${BF_RS1.lo}) | (rd << ${BF_RD.lo})"
-  def PY_ARGS_R4   = s"(rs3 << ${BF_RS3.lo}) | (rs2 << ${BF_RS2.lo}) | (rs1 << ${BF_RS1.lo}) | (rd << ${BF_RD.lo})"
-  def PY_ARGS_FNEG = s"(rs1 << ${BF_RS1.lo}) | (rd << ${BF_RD.lo})"
+  def PY_ARGS_R    = s"(funct3 << ${BF_FUNCT3.lo}) | (rs2 << ${BF_RS2.lo}) | (rs1 << ${BF_RS1.lo}) | (rd << ${BF_RD.lo})"
+  def PY_ARGS_R4   = s"(funct3 << ${BF_FUNCT3.lo}) | (rs3 << ${BF_RS3.lo}) | (rs2 << ${BF_RS2.lo}) | (rs1 << ${BF_RS1.lo}) | (rd << ${BF_RD.lo})"
+  def PY_ARGS_FNEG = s"(funct3 << ${BF_FUNCT3.lo}) | (rs1 << ${BF_RS1.lo}) | (rd << ${BF_RD.lo})"
 
-  def C_ARGS_R     = s"((rs2) << ${BF_RS2.lo}) | ((rs1) << ${BF_RS1.lo}) | ((rd) << ${BF_RD.lo})"
-  def C_ARGS_R4    = s"((rs3) << ${BF_RS3.lo}) | ((rs2) << ${BF_RS2.lo}) | ((rs1) << ${BF_RS1.lo}) | ((rd) << ${BF_RD.lo})"
-  def C_ARGS_FNEG  = s"((rs1) << ${BF_RS1.lo}) | ((rd) << ${BF_RD.lo})"
+  def C_ARGS_R     = s"((funct3) << ${BF_FUNCT3.lo}) | ((rs2) << ${BF_RS2.lo}) | ((rs1) << ${BF_RS1.lo}) | ((rd) << ${BF_RD.lo})"
+  def C_ARGS_R4    = s"((funct3) << ${BF_FUNCT3.lo}) | ((rs3) << ${BF_RS3.lo}) | ((rs2) << ${BF_RS2.lo}) | ((rs1) << ${BF_RS1.lo}) | ((rd) << ${BF_RD.lo})"
+  def C_ARGS_FNEG  = s"((funct3) << ${BF_FUNCT3.lo}) | ((rs1) << ${BF_RS1.lo}) | ((rd) << ${BF_RD.lo})"
 }

@@ -98,12 +98,12 @@ static void run_vertex_shader(const fp16_t *uniforms, const fp16_t *attrs,
   borg_load_spirb_shader(s);
 
   for (int i = 0; i < s->num_uniforms; i++)
-    BORG_REG(s->uniform_regs[i]) = uniforms[i];
+    BORG_UNIFORM(s->uniform_regs[i]) = uniforms[i];
 
   for (int v = 0; v < NUM_VERTICES; v++) {
     BORG_CONTROL = BORG_CTL_RESET;
     for (int i = 0; i < s->num_uniforms; i++)
-      BORG_REG(s->uniform_regs[i]) = uniforms[i];
+      BORG_UNIFORM(s->uniform_regs[i]) = uniforms[i];
     for (int i = 0; i < s->num_attributes; i++)
       BORG_REG(s->attribute_regs[i]) = attrs[v * s->num_attributes + i];
     for (int i = 0; i < s->num_consts; i++)
@@ -351,8 +351,8 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
     borg_load_edge_constants(&rast_shader, tri->edges.v);
     // Negated vertex positions: -vx0, -vy0, -vx1, -vy1, -vx2, -vy2 (uniform_regs[6..11])
     for (int i = 0; i < 3; i++) {
-      BORG_REG(rast_shader.uniform_regs[6 + i * 2 + 0]) = BORG_FP16_NEG(tri->screen_pos.v[i].x);
-      BORG_REG(rast_shader.uniform_regs[6 + i * 2 + 1]) = BORG_FP16_NEG(tri->screen_pos.v[i].y);
+      BORG_UNIFORM(rast_shader.uniform_regs[6 + i * 2 + 0]) = BORG_FP16_NEG(tri->screen_pos.v[i].x);
+      BORG_UNIFORM(rast_shader.uniform_regs[6 + i * 2 + 1]) = BORG_FP16_NEG(tri->screen_pos.v[i].y);
     }
 
     // Advance iterator — auto-triggers edge shader at PC=0, CPU stalls until done.

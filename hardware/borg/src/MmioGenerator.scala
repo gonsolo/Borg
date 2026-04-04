@@ -41,16 +41,16 @@ object MmioGenerator {
     }
 
     def emitInstrR(name: String, hexOp: String): Unit = {
-      val m = s"BORG_INSTR_${name.toUpperCase}(rd, rs1, rs2)"
-      w.println(f"#define $m%-35s (0x${hexOp}UL | $C_ARGS_R)")
+      val m = s"BORG_INSTR_${name.toUpperCase}(rd, rs1, rs2, funct3)"
+      w.println(f"#define $m%-40s (0x${hexOp}UL | $C_ARGS_R)")
     }
     def emitInstrR4(name: String, hexOp: String): Unit = {
-      val m = s"BORG_INSTR_${name.toUpperCase}(rd, rs1, rs2, rs3)"
-      w.println(f"#define $m%-35s (0x${hexOp}UL | $C_ARGS_R4)")
+      val m = s"BORG_INSTR_${name.toUpperCase}(rd, rs1, rs2, rs3, funct3)"
+      w.println(f"#define $m%-40s (0x${hexOp}UL | $C_ARGS_R4)")
     }
     def emitInstrR1(name: String, hexOp: String): Unit = {
-      val m = s"BORG_INSTR_${name.toUpperCase}(rd, rs1)"
-      w.println(f"#define $m%-35s (0x${hexOp}UL | $C_ARGS_FNEG)")
+      val m = s"BORG_INSTR_${name.toUpperCase}(rd, rs1, funct3)"
+      w.println(f"#define $m%-40s (0x${hexOp}UL | $C_ARGS_FNEG)")
     }
     def emitInstr0(name: String, hexOp: String): Unit = {
       val m = s"BORG_INSTR_${name.toUpperCase}"
@@ -84,15 +84,15 @@ object MmioGenerator {
     }
 
     def emitInstrR(name: String, hexOp: String): Unit = {
-      w.println(s"def encode_rv32_$name(rs1=0, rs2=1, rd=2):")
+      w.println(s"def encode_rv32_$name(rs1=0, rs2=1, rd=2, funct3=0):")
       w.println(s"    return (0x$hexOp | $PY_ARGS_R)")
     }
     def emitInstrR4(name: String, hexOp: String): Unit = {
-      w.println(s"def encode_rv32_$name(rs1=0, rs2=1, rs3=3, rd=2):")
+      w.println(s"def encode_rv32_$name(rs1=0, rs2=1, rs3=3, rd=2, funct3=0):")
       w.println(s"    return (0x$hexOp | $PY_ARGS_R4)")
     }
     def emitInstrR1(name: String, hexOp: String): Unit = {
-      w.println(s"def encode_rv32_$name(rs1=0, rd=1):")
+      w.println(s"def encode_rv32_$name(rs1=0, rd=1, funct3=0):")
       w.println(s"    return (0x$hexOp | $PY_ARGS_FNEG)")
     }
     def emitInstr0(name: String, hexOp: String): Unit = {
