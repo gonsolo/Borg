@@ -61,6 +61,8 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val running = RegInit(false.B)
   val auto_run_pending = RegInit(false.B)
 
+  val uniformMem = SyncReadMem(MmioMap.BORG_UNIFORM_ENTRIES, UInt(config.totalBits.W))
+
   // --- Coordinate Expansion LUT ---
   // Maps 6-bit integer pixel coordinates (0-63) to float16 pixel centers (+0.5)
   val coordLut = VecInit(Seq.tabulate(64) { i =>
@@ -89,7 +91,7 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
   // @doc:instruction-format
   // --- Instruction Decode ---
   val (rs1_idx, rs2_idx, rs3_idx, rd_idx,
-       is_fma, is_mul, is_fneg, is_fstep, is_frcp) = decode(fetchedInstruction)
+       is_fma, is_mul, is_fneg, is_fstep, is_frcp, funct3) = decode(fetchedInstruction)
   // @doc:end
 
   // @doc:fetch-execute
@@ -134,8 +136,9 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val fneg  = !fma && f7op === Instructions.FUNCT7_FNEG.U
     val fstep = !fma && f7op === Instructions.FUNCT7_FSTEP.U
     val frcp  = !fma && f7op === Instructions.FUNCT7_FRCP.U
+    val funct3 = Instructions.BF_FUNCT3(instr)
 
-    (rs1, rs2, rs3, rd, fma, mul, fneg, fstep, frcp)
+    (rs1, rs2, rs3, rd, fma, mul, fneg, fstep, frcp, funct3)
   }
 
   /** Fetch/execute FSM: start pipeline, count down busy cycles, advance PC. */
@@ -180,18 +183,38 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
       val imem_idx = (io.address - MmioMap.BORG_IMEM_OFFSET.U) >> 2
       instructionMemory.write(imem_idx, io.data_in)
     }
+
+    when(io.is_writing && io.address >= MmioMap.BORG_UNIFORM_OFFSET.U && io.address < MmioMap.BORG_UNIFORM_END.U) {
+      val uniform_idx = (io.address - MmioMap.BORG_UNIFORM_OFFSET.U) >> 2
+      uniformMem.write(uniform_idx(4, 0), io.data_in(config.totalBits - 1, 0))
+    }
   }
 
   /** Wire the three register file read ports (A=rs1, B=rs2, C=rs3/MMIO). */
   private def wireRegisterReads() = {
-    val recA = wirePortA()
-    val recB = wirePortB()
-    val (recC, mmio_data) = wirePortC()
-    (recA, recB, recC, mmio_data)
+    val op_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
+    val op_en_del = RegNext(op_en, false.B)
+    val funct3_del = RegEnable(funct3, op_en) // delayed to match read data
+
+    val (recA, rs1_idx_del) = wirePortA()
+    val (recB, rs2_idx_del) = wirePortB()
+    val (recC, rs3_idx_del, mmio_data) = wirePortC()
+
+    val uniform_addr = Mux(funct3 === 1.U, rs1_idx,
+                       Mux(funct3 === 2.U, rs2_idx, rs3_idx))
+    
+    val read_data = uniformMem.read(uniform_addr(4, 0), op_en)
+    val uniform_data = Mux(op_en_del, read_data, 0.U)
+
+    val uniform_recA = Mux(funct3_del === 1.U, uniform_data, recA)
+    val uniform_recB = Mux(funct3_del === 2.U, uniform_data, recB)
+    val uniform_recC = Mux(funct3_del === 3.U, uniform_data, recC)
+
+    (uniform_recA, uniform_recB, uniform_recC, mmio_data)
   }
 
   /** Port A: pipeline rs1 read from regFileA. */
-  private def wirePortA(): UInt = {
+  private def wirePortA(): (UInt, UInt) = {
     val en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
     val en_del = RegNext(en, false.B)
     val rs1_idx_del = RegEnable(rs1_idx, en)
@@ -200,11 +223,11 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val resolved_data = Mux(rs1_idx_del === 30.U, coordLut(io.iterX),
                         Mux(rs1_idx_del === 31.U, coordLut(io.iterY),
                         regFileA.io.readData))
-    Mux(en_del, resolved_data, 0.U)
+    (Mux(en_del, resolved_data, 0.U), rs1_idx_del)
   }
 
   /** Port B: pipeline rs2 read from regFileB. */
-  private def wirePortB(): UInt = {
+  private def wirePortB(): (UInt, UInt) = {
     val en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
     val en_del = RegNext(en, false.B)
     val rs2_idx_del = RegEnable(rs2_idx, en)
@@ -213,11 +236,11 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val resolved_data = Mux(rs2_idx_del === 30.U, coordLut(io.iterX),
                         Mux(rs2_idx_del === 31.U, coordLut(io.iterY),
                         regFileB.io.readData))
-    Mux(en_del, resolved_data, 0.U)
+    (Mux(en_del, resolved_data, 0.U), rs2_idx_del)
   }
 
   /** Port C: rs3 during execution, MMIO register access when idle. */
-  private def wirePortC(): (UInt, UInt) = {
+  private def wirePortC(): (UInt, UInt, UInt) = {
     val mmio_en = !running && !is_busy && (io.is_reading || io.is_writing) && io.address >= MmioMap.BORG_REG_OFFSET.U && io.address < MmioMap.BORG_IMEM_OFFSET.U
     val rs3_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
     val addr = Mux(running || is_busy, rs3_idx, (io.address - MmioMap.BORG_REG_OFFSET.U) >> 2)
@@ -230,7 +253,7 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val resolved_data = Mux(addr_del === 30.U, coordLut(io.iterX),
                         Mux(addr_del === 31.U, coordLut(io.iterY),
                         regFileC.io.readData))
-    (Mux(rs3_en_del, resolved_data, 0.U),
+    (Mux(rs3_en_del, resolved_data, 0.U), addr_del,
      Mux(mmio_en_del, resolved_data, 0.U))
   }
 

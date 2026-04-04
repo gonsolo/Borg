@@ -105,17 +105,31 @@ object BorgTests extends TestSuite {
     writeAddr(borg, MmioMap.BORG_CONTROL_OFFSET, 2)
   }
 
-  def startAndWaitForHalt(borg: Borg): Unit = {
-    writeAddr(borg, MmioMap.BORG_CONTROL_OFFSET, 1)
+  def waitForHalt(borg: Borg, maxCycles: Int = 1000): Unit = {
     var status: BigInt = 0
+    var cycles = 0
+    
+    // Explicit initial step to ensure any pending combinational triggers from 
+    // immediately preceding MMIO writes (e.g. advance triggers) resolve cleanly
+    // before we start polling the control registers.
+    borg.clock.step(1)
+    
     do {
       borg.io.address.poke(MmioMap.BORG_CONTROL_OFFSET.U)
       borg.io.data_read_n.poke(2.U)
       borg.io.data_write_n.poke(3.U)
       borg.clock.step(1)
       status = borg.io.data_out.peek().litValue
-    } while ((status & 2) == 0)
+      cycles += 1
+    } while ((status & 2) == 0 && cycles < maxCycles)
+    
     borg.io.data_read_n.poke(3.U)
+    utest.assert(cycles < maxCycles) // Ensure we didn't time out
+  }
+
+  def startAndWaitForHalt(borg: Borg): Unit = {
+    writeAddr(borg, MmioMap.BORG_CONTROL_OFFSET, 1)
+    waitForHalt(borg)
   }
 
   def assertResult(actual: Float, expected: Float, config: FloatConfig, label: String): Unit = {
@@ -796,8 +810,10 @@ object BorgTests extends TestSuite {
         // Write BORG_ITER to advance — should auto-trigger shader at PC=0
         writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
 
-        // Wait for auto-run to complete (shader runs ~8 cycles for ADD+HALT)
-        borg.clock.step(20)
+        // Wait for auto-run to complete by bounded polling of the status register
+        // It takes ~7 cycles for the rasterizer to evaluate the coordinate FPU,
+        // so we wait up to 20 cycles for it to start, then wait for it to finish.
+        waitForHalt(borg, 40)
 
         // Read r0 — should be 3.0 + 7.0 = 10.0
         val result = readAddr(borg, 0, config)

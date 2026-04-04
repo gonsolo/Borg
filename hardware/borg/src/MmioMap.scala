@@ -105,13 +105,18 @@ object MmioMap {
   // Borg GPU (Borg.scala)
   val BORG_NUM_REGS       = 32
   val BORG_REG_OFFSET     = 0    // Register file base (32 × 16-bit)
-  val BORG_IMEM_SLOTS     = 64
+  val BORG_IMEM_SLOTS     = 56   // reduced from 64 to fit uniform buffer; shaders total ~50 insns
   val BORG_IMEM_OFFSET    = BORG_REG_OFFSET + (BORG_NUM_REGS * 4)  // Instruction memory base (32 × 32-bit)
   val BORG_IMEM_END       = BORG_IMEM_OFFSET + (BORG_IMEM_SLOTS * 4)
   val BORG_ITER_BBOX_OFFSET = BORG_IMEM_END      // Pixel iterator: write bbox
   val BORG_ITER_OFFSET      = BORG_ITER_BBOX_OFFSET + 4  // Pixel iterator: advance
   val BORG_CONTROL_OFFSET   = BORG_ITER_OFFSET + 4  // Control / status register
   val BORG_FRAG_PC_OFFSET   = BORG_CONTROL_OFFSET + 4 // Fragment shader start PC for auto-chaining
+
+  // Uniform buffer (32 entries, 4-byte MMIO addressed; scaffolding until DMA in step 15)
+  val BORG_UNIFORM_ENTRIES  = 32
+  val BORG_UNIFORM_OFFSET   = BORG_FRAG_PC_OFFSET + 4
+  val BORG_UNIFORM_END      = BORG_UNIFORM_OFFSET + BORG_UNIFORM_ENTRIES * 4
 
   // Borg pixel iterator configuration
   val BORG_ITER_COORD_BITS    = 6

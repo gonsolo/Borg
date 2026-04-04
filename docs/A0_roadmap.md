@@ -150,10 +150,14 @@ instead of driving every pixel. **This is the key transition from
     1. **`rs3` field width misconception:** The initial implementation restricted `fmadd` accumulators to r0-r3, assuming a 2-bit `rs3` field. `Instructions.scala` defines a full 5-bit field. Removed the unnecessary restriction.
     2. **Uniform sorting broke R↔B vertex colors:** The SPIR-V compiler sorted uniforms by `member_idx`, reordering them. This broke the implicit mapping where edge weights match their opposite vertex colors. Reverted to SPIR-V instruction order.
   - **10.6.4: Uniform Buffer (Replaces 64-GPR Expansion)**: Add a separate 32-entry × 16-bit read-only uniform buffer to solve rasterizer/fragment shader state clobbering. This follows the universal GPU pattern (PowerVR shared registers, VideoCore IV streaming FIFO, Mali Bifrost fast constant storage, Adreno constant RAM) rather than doubling the GPR file. Adds ~512 flip-flops on ASIC (+11%) vs. ~1,536 for 64 GPRs (+21%), preserves RISC-V 5-bit register encoding, and maps naturally to Vulkan UBOs/push constants. See [A5_register_architecture.md](A5_register_architecture.md) for the full design rationale, GPU architecture survey, and area analysis.
-    - **10.6.4.1: Hardware Uniform Buffer**: Add 32-entry `SyncReadMem`/register-based uniform buffer (1 BRAM on iCE40, 512 FFs on ASIC). Decode `funct3[1:0]` to select which operand reads from the uniform buffer (`00`=all GPR, `01`=rs1, `10`=rs2, `11`=rs3). Integrate the read mux into the operand-resolution stage alongside the existing `coordLut` injection. Add `BORG_UNIFORM_OFFSET` MMIO region for CPU writes (32 × 2 = 64 bytes, FP16-addressed).
+    - **10.6.4.1: Hardware Uniform Buffer** ✅ (2026-04-04): Add 32-entry register-based uniform buffer (~512 FFs). Decode `funct3[1:0]` to select which operand reads from the uniform buffer (`00`=all GPR, `01`=rs1, `10`=rs2, `11`=rs3). Integrate the read mux into the operand-resolution stage alongside the existing `coordLut` injection. Add MMIO write path (4-byte addressed, 32 entries). To fit in the 9-bit address space, shrink IMEM from 64→56 slots (shaders total ~50 instructions, no functional impact). MMIO loading is scaffolding — step 15 (DMA) replaces it.
     - **10.6.4.2: Compiler Uniform Support**: Update `borg_backend.py` to distinguish uniform vs. GPR virtual registers and emit the appropriate `funct3` bits. Update `Instructions.scala` encoding functions to accept the uniform operand flag. The register allocator assigns uniforms to the uniform buffer and temporaries/I/O to GPRs separately.
     - **10.6.4.3: Shader Reallocation**: Rebuild `rasterize.s` (12 uniforms → buffer, ~8 GPRs) and `shader.frag` (19 uniforms → buffer, ~13 GPRs). Combined: 31 of 32 uniform slots used, ~16 of 30 GPRs used. Verify pixel-perfect against `golden.ppm`.
-  - **10.6.5: Firmware Auto-Chain Integration**: Rewrite `shade_tiles()` to use auto-chaining. The CPU loads both shader stages' uniforms into the buffer once per triangle (31 entries). The hardware FSM chains rasterizer → fragment without register conflicts — uniforms persist in the buffer while GPRs are reused freely. Eliminate the manual `borg_run_fragment()` call from the hot path.
+  - **10.6.5: Firmware Auto-Chain Integration**: Rewrite `shade_tiles()` to use auto-chaining. CPU loads both shader stages' uniforms into the buffer once per triangle (31 entries via MMIO). The hardware FSM chains rasterizer → fragment without register conflicts — uniforms persist in the buffer while GPRs are reused freely. Eliminate the manual `borg_run_fragment()` call from the hot path.
+
+  **Uniform data path progression:**
+  - *Step 10 (now)*: CPU → MMIO writes → on-chip buffer (32 entries, scaffolding)
+  - *Step 15 (GPU DMA)*: GPU fetches uniforms, IMEM, and registers from PSRAM autonomously
 
 ### Step 11: On-Chip Tile Buffer (BRAM)
 
@@ -171,7 +175,7 @@ of firmware. ~20 LUTs. Estimate: 2–3 days.
 
 2–4 entry FIFO between CPU and pixel iterator. CPU submits the next triangle
 while GPU rasterizes the current one. Embryonic command buffer. Each FIFO entry
-must include the uniform buffer snapshot (~64 bytes), bbox (3 bytes), and
+includes the uniform buffer snapshot (~64 bytes), bbox (3 bytes), and
 frag_pc — roughly 68 bytes per entry, fitting in 1–2 BRAMs for a 4-entry FIFO.
 Estimate: 3–5 days.
 
@@ -182,18 +186,29 @@ pixel iterator. By this step the CPU is out of the inner loop, so there is no
 bus contention — the failure mode of the earlier texture cache experiment.
 Estimate: 1–2 weeks.
 
-### Step 15: Vertex Shader Auto-Sequencer
+### Step 15: GPU DMA Engine
+
+Generalize the PSRAM read path from Step 14 into a DMA engine that can load
+uniforms, IMEM, and registers from PSRAM into on-chip storage. Replaces the
+temporary MMIO-based bulk data loading from step 10.6.4.1. The CPU writes a
+base pointer and transfer descriptor to an MMIO control register; the DMA
+engine fetches the data autonomously. This frees ~384 bytes of MMIO address
+space (registers + IMEM) and eliminates CPU bus contention during shader setup.
+Estimate: 1 week.
+
+### Step 16: Vertex Shader Auto-Sequencer
 
 FSM that sequences 3 vertex shader runs (loading attributes, running SPIR-B
 shader, storing outputs, applying screen-space transform) without CPU
-involvement. The sequencer must reload the uniform buffer between stages: the
-vertex shader uses 16 uniform slots (4×4 MVP matrix), while the rasterizer and
+involvement. Uses the DMA engine (Step 15) to load vertex attributes from
+PSRAM. The sequencer reloads the uniform buffer between stages: the vertex
+shader uses 16 uniform slots (4×4 MVP matrix), while the rasterizer and
 fragment shaders use 31 slots (edge constants + vertex colors + inv_area).
 Estimate: 1 week.
 
-### Step 16: Full Autonomous Triangle Pipeline
+### Step 17: Full Autonomous Triangle Pipeline
 
-Integration of Steps 0–15. CPU submits a triangle descriptor; GPU does
+Integration of Steps 0–16. CPU submits a triangle descriptor; GPU does
 vertex shade → triangle setup → rasterize → fragment shade → Z-test →
 tile buffer → PSRAM flush. CPU only writes triangle data and waits for DONE.
 Estimate: 1–2 weeks.
@@ -204,38 +219,38 @@ Estimate: 1–2 weeks.
 Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
                                                ├→ Step 11 (tile buffer) → Step 12 (Z-test)
                                                ├→ Step 13 (command FIFO)
-                                               └→ Step 14 (texture fetch)
-     Step 15 (vertex auto-seq) ────────────────┘ (independent, plugs in at front)
-     Step 16 = integration test of all above
+                                               └→ Step 14 (texture fetch) → Step 15 (DMA)
+     Step 16 (vertex auto-seq) ─────────────────────────────────────────┘
+     Step 17 = integration test of all above
 ```
 
 ## Phase 3: Linux-Capable CPU
 
 Target: ~Aug 2026 — expand TinyQV to RV32IMA. Sequential after Phase 2.
 
-### Step 17: M Extension (Integer Multiply/Divide)
+### Step 18: M Extension (Integer Multiply/Divide)
 
 Add dedicated integer multiplier for MUL/MULH/DIV/REM.
 Estimate: 1 week.
 
-### Step 18: A Extension (Atomics)
+### Step 19: A Extension (Atomics)
 
 LR.W / SC.W for Linux `futex` and spinlocks. Reservation register (32-bit
 address + valid bit). ~100 LUTs. Reference KianV implementation.
 Estimate: 3–5 days.
 
-### Step 19: Boot no-MMU Linux
+### Step 20: Boot no-MMU Linux
 
 Intermediate milestone before full MMU. Estimate: 1 week.
 
-### Step 20: MMU (Sv32)
+### Step 21: MMU (Sv32)
 
 Two-level page table walker, 4–8 entry TLB, `satp`/`mstatus` CSRs.
 Intermediate milestone: boot no-MMU Linux first (~1 week).
 ~800–1200 LUTs — the most expensive single addition.
 Estimate: 3–4 weeks.
 
-### Step 21: Boot Full Linux
+### Step 22: Boot Full Linux
 
 Kernel, device tree, rootfs on QSPI PSRAM (8 MB). Estimate: 1–2 weeks.
 
@@ -243,23 +258,23 @@ Kernel, device tree, rootfs on QSPI PSRAM (8 MB). Estimate: 1–2 weeks.
 
 Target: ~Oct 2026 (~6–8 weeks total). Write a Mesa Vulkan ICD for the Borg GPU.
 
-### Step 22: Minimal `vk_device` + `wsi_headless`
+### Step 23: Minimal `vk_device` + `wsi_headless`
 
 Headless rendering, no window system needed. Estimate: 1–2 weeks.
 
-### Step 23: Shader Compiler (NIR → SPIR-B)
+### Step 24: Shader Compiler (NIR → SPIR-B)
 
 NIR backend generating Borg instructions. Estimate: 2–3 weeks.
 
-### Step 24: Draw Path (`vkCmdDraw`)
+### Step 25: Draw Path (`vkCmdDraw`)
 
 Vertex + fragment shader dispatch to hardware. Estimate: 1–2 weeks.
 
-### Step 25: Texture Sampling (Software)
+### Step 26: Texture Sampling (Software)
 
 CPU-side sampling, spec-compliant but slow. Estimate: 1 week.
 
-### Step 26: Vulkan CTS Subset
+### Step 27: Vulkan CTS Subset
 
 Run conformance tests, fix failures. Estimate: 1–2 weeks.
 
@@ -268,23 +283,23 @@ Run conformance tests, fix failures. Estimate: 1–2 weeks.
 Target: ~Jan 2027 (~6–8 weeks total). Extend the shader processor to support
 more Vulkan features. These items only make sense on a larger tile or ASIC.
 
-### Step 27: Integer ALU Ops in Shader
+### Step 28: Integer ALU Ops in Shader
 
 Comparison, bitwise, integer math. Estimate: 1 week.
 
-### Step 28: Memory Load/Store from Shader
+### Step 29: Memory Load/Store from Shader
 
 Enables shader-side texture addressing. Estimate: 1–2 weeks.
 
-### Step 29: Framebuffer Blending
+### Step 30: Framebuffer Blending
 
 Alpha blending support. Estimate: 3–5 days.
 
-### Step 30: Multi-Lane SIMD (2–4 FMA)
+### Step 31: Multi-Lane SIMD (2–4 FMA)
 
 Process multiple pixels per cycle. Estimate: 1–2 weeks.
 
-### Step 31: Second Tapeout Submission
+### Step 32: Second Tapeout Submission
 
 4×4 or 4×5 tile, Linux + Vulkan capable. Estimate: 1 week.
 

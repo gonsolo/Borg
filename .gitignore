@@ -13,7 +13,7 @@ test/results.xml
 test/gate_level_netlist.v
 .nix-home/
 datasheet.pdf
-/out
+out/
 .direnv
 __pycache__
 compile_commands.json

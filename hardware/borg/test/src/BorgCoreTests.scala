@@ -246,5 +246,114 @@ object BorgCoreTests extends TestSuite {
         println("  PASSED")
       }
     }
+
+    // --- Uniform Buffer Tests (Step 10.6.4.1) ---
+
+    /** Write a uniform entry via MMIO. */
+    def writeUniform(core: BorgCore, idx: Int, bits: BigInt): Unit =
+      writeCore(core, MmioMap.BORG_UNIFORM_OFFSET + idx * 4, bits)
+
+    utest.test("uniform_funct3_01_rs1") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: uniform_funct3_01_rs1 ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // u5 = 7.0, r1 = 3.0
+        // fadd with funct3=01: r2 = u5 + r1 = 7.0 + 3.0 = 10.0
+        writeUniform(core, 5, floatToFp16Bits(7.0f))
+        writeReg(core, 1, floatToFp16Bits(3.0f))
+
+        // Encode fadd with funct3=1 (rs1 from uniform): ADD(rs1=5, rs2=1, rd=2)
+        val instr = Instructions.encodeRType(Instructions.FUNCT7_ADD, 1, 5, 2, funct3 = 1)
+        writeImem(core, 0, instr)
+        writeImem(core, 1, 0)
+
+        // Read out uniform buffer 5 using peek
+        core.clock.step(2)
+        // uniformMem isn't exposed, so we can't peek it directly from the wrapper easily.
+        // Let's just start and see what happens.
+        startAndWait(core)
+        val result = fp16BitsToFloat(readReg(core, 2))
+        println(f"  fadd(u5=7.0, r1=3.0) funct3=01 = $result%.2f (expected 10.0)")
+        utest.assert(math.abs(result - 10.0f) < 0.1f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("uniform_funct3_10_rs2") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: uniform_funct3_10_rs2 ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // r0 = 4.0, u3 = 5.0
+        // fmul with funct3=10: r2 = r0 * u3 = 4.0 * 5.0 = 20.0
+        writeReg(core, 0, floatToFp16Bits(4.0f))
+        writeUniform(core, 3, floatToFp16Bits(5.0f))
+
+        // Encode fmul with funct3=2 (rs2 from uniform): MUL(rs1=0, rs2=3, rd=2)
+        val instr = Instructions.encodeRType(Instructions.FUNCT7_MUL, 3, 0, 2, funct3 = 2)
+        writeImem(core, 0, instr)
+        writeImem(core, 1, 0)
+
+        startAndWait(core)
+        val result = fp16BitsToFloat(readReg(core, 2))
+        println(f"  fmul(r0=4.0, u3=5.0) funct3=10 = $result%.2f (expected 20.0)")
+        utest.assert(math.abs(result - 20.0f) < 0.5f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("uniform_funct3_11_rs3") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: uniform_funct3_11_rs3 ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // r0 = 2.0, r1 = 3.0, u4 = 1.0
+        // fmadd with funct3=11: r2 = r0 * r1 + u4 = 6.0 + 1.0 = 7.0
+        writeReg(core, 0, floatToFp16Bits(2.0f))
+        writeReg(core, 1, floatToFp16Bits(3.0f))
+        writeUniform(core, 4, floatToFp16Bits(1.0f))
+
+        // Encode fmadd with funct3=3 (rs3 from uniform): FMA(rs1=0, rs2=1, rs3=4, rd=2)
+        val instr = Instructions.encodeR4Type(4, 0, 1, 0, 2, funct3 = 3)
+        writeImem(core, 0, instr)
+        writeImem(core, 1, 0)
+
+        startAndWait(core)
+        val result = fp16BitsToFloat(readReg(core, 2))
+        println(f"  fmadd(r0=2.0, r1=3.0, u4=1.0) funct3=11 = $result%.2f (expected 7.0)")
+        utest.assert(math.abs(result - 7.0f) < 0.1f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("uniform_funct3_00_backward_compat") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: uniform_funct3_00_backward_compat ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // Same as fadd_fp16 test but with uniform buffer populated
+        // to prove funct3=00 ignores the uniform buffer entirely.
+        writeUniform(core, 0, floatToFp16Bits(999.0f))
+        writeUniform(core, 1, floatToFp16Bits(888.0f))
+        writeReg(core, 0, floatToFp16Bits(2.0f))
+        writeReg(core, 1, floatToFp16Bits(3.0f))
+
+        // fadd r2, r0, r1 with funct3=0 (default): should read from GPRs
+        val instr = Instructions.ADD(0, 1, 2)
+        writeImem(core, 0, instr)
+        writeImem(core, 1, 0)
+
+        startAndWait(core)
+        val result = fp16BitsToFloat(readReg(core, 2))
+        println(f"  fadd(r0=2.0, r1=3.0) funct3=00 = $result%.2f (expected 5.0, NOT 999+888)")
+        utest.assert(math.abs(result - 5.0f) < 0.01f)
+        println("  PASSED")
+      }
+    }
   }
 }

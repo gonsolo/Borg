@@ -161,6 +161,8 @@ object MmioGenerator {
     e.defMacro("BORG_ITER_VALID", "v", "(((v) >> BORG_ITER_VALID_SHIFT) & 1)")
     e.defMacro("BORG_ITER_INSIDE", "v", "(((v) >> BORG_ITER_INSIDE_SHIFT) & 1)")
 
+    e.defRegArray("BORG_UNIFORM", "BORG_BASE + BORG_UNIFORM_OFFSET")
+
     e.defRegArray("PSRAM_IN",  "PSRAM_BASE")
     e.defRegArray("PSRAM_OUT", "PSRAM_BASE + PSRAM_OUT_OFFSET")
 
