@@ -36,6 +36,7 @@
       nativeBuildInputs = [
         pkgs.bash-completion
         pkgs.bear
+        pkgs.bitwuzla
         pkgs.bzip2
         pkgs.circt
         pkgs.cmake
@@ -63,6 +64,7 @@
         pkgs.verilator
         pkgs.which
         pkgs.yosys
+        pkgs.z3
         pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
         pkgs.pkgsCross.riscv32-embedded.buildPackages.binutils
         pythonEnv
