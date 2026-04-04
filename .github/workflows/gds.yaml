@@ -41,6 +41,12 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Generate SystemVerilog
+        run: nix develop --command make generate_verilog
+
       - name: GL test
         uses: TinyTapeout/tt-gds-action/gl_test@ttihp26a
         env:
