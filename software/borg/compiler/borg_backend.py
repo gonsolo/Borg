@@ -41,9 +41,10 @@ class BorgBackend:
     Borg handles:     fmul.s, fmadd.s (as 32-bit RISC-V encoded instructions)
     """
 
-    def __init__(self):
+    def __init__(self, uniform_base=0):
         # Maps virtual register names to physical Borg register indices (GPR)
         self.vreg_to_preg = {}
+        self.uniform_base = uniform_base
         # Maps uniform virtual registers to uniform buffer indices (u0-u31)
         self.vreg_to_uniform = {}
         # Set of virtual register names that are uniforms
@@ -228,7 +229,7 @@ class BorgBackend:
         max_line = max((v[1] for v in live_intervals.values()), default=0)
 
         # --- Allocate uniforms to uniform buffer (u0-u31) ---
-        next_uniform_idx = 0
+        next_uniform_idx = self.uniform_base
         for vreg in io_vregs:
             if vreg in uniform_vregs:
                 if next_uniform_idx >= 32:
@@ -520,16 +521,24 @@ class BorgBackend:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python borg_backend.py <input.s> <output.borg>")
+    # Parse optional --uniform-base N flag
+    args = sys.argv[1:]
+    uniform_base = 0
+    if "--uniform-base" in args:
+        idx = args.index("--uniform-base")
+        uniform_base = int(args[idx + 1])
+        args = args[:idx] + args[idx + 2:]
+
+    if len(args) != 2:
+        print("Usage: python borg_backend.py <input.s> <output.borg> [--uniform-base N]")
         sys.exit(1)
 
-    with open(sys.argv[1], "r") as f:
+    with open(args[0], "r") as f:
         asm_text = f.read()
-    backend = BorgBackend()
+    backend = BorgBackend(uniform_base=uniform_base)
     backend.lower(asm_text)
 
-    out_path = sys.argv[2]
+    out_path = args[1]
     data = backend.emit_binary()
     with open(out_path, "wb") as f:
         f.write(data)

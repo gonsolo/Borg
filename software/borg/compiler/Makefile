@@ -10,7 +10,7 @@ vert.spv: shader.vert
 	glslangValidator -V shader.vert -o vert.spv
 
 frag.borg: frag.s borg_backend.py ../../../fpga/host/borg_mmio.py
-	python borg_backend.py frag.s frag.borg
+	python borg_backend.py frag.s frag.borg --uniform-base 12
 frag.s: frag.spvasm spirv_compiler.py
 	python spirv_compiler.py frag.spvasm frag.s
 frag.spvasm: frag.spv

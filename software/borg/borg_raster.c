@@ -44,7 +44,7 @@ void borg_load_edge_constants(const spirb_shader_t *s, const xy16_t *edges) {
 
 
 // Load 3 consecutive per-vertex values into uniform registers at base_reg.
-static void load_uniform_triple(const spirb_shader_t *s, int base_reg,
+void load_uniform_triple(const spirb_shader_t *s, int base_reg,
                                 fp16_t v0, fp16_t v1, fp16_t v2) {
   BORG_UNIFORM(s->uniform_regs[base_reg + 0]) = v0;
   BORG_UNIFORM(s->uniform_regs[base_reg + 1]) = v1;
@@ -52,12 +52,12 @@ static void load_uniform_triple(const spirb_shader_t *s, int base_reg,
 }
 
 // Read one output register as an fp16.
-static fp16_t read_output_reg(const spirb_shader_t *s, int reg) {
+fp16_t read_output_reg(const spirb_shader_t *s, int reg) {
   return BORG_REG(s->output_regs[reg]) & 0xFFFF;
 }
 
 // Read 3 consecutive output registers as an rgb16_t.
-static rgb16_t read_output_rgb(const spirb_shader_t *s, int base_reg) {
+rgb16_t read_output_rgb(const spirb_shader_t *s, int base_reg) {
   return (rgb16_t){read_output_reg(s, base_reg + 0),
                    read_output_reg(s, base_reg + 1),
                    read_output_reg(s, base_reg + 2)};

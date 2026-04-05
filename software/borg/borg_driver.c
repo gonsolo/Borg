@@ -335,42 +335,74 @@ static bbox_t compute_bbox(const xy16x3_t *pos) {
 }
 
 // Iterate all pixels within the triangle's bounding box via hardware counters.
-// BORG_ITER write auto-triggers the rasterizer shader and stalls until done.
+// Step 10.6.5: Auto-chain integration — load all uniforms (rast u0-u11 + frag
+// u12-u30) once per triangle, then the hardware FSM chains rasterizer → fragment
+// without CPU involvement.  Eliminates per-pixel uniform reloading and the
+// manual borg_run_fragment() call.
 static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
   bbox_t bb = compute_bbox(&tri->screen_pos);
 
   BORG_ITER_BBOX = BORG_ITER_PACK_BBOX(bb.x0, bb.y0, bb.x1, bb.y1);
 
+  // --- Load ALL uniforms once per triangle ---
+
+  // Rasterizer uniforms (u0-u11): edge constants + negated vertex positions
+  borg_load_edge_constants(&rast_shader, tri->edges.v);
+  for (int i = 0; i < 3; i++) {
+    BORG_UNIFORM(rast_shader.uniform_regs[6 + i * 2 + 0]) = BORG_FP16_NEG(tri->screen_pos.v[i].x);
+    BORG_UNIFORM(rast_shader.uniform_regs[6 + i * 2 + 1]) = BORG_FP16_NEG(tri->screen_pos.v[i].y);
+  }
+
+  // Fragment uniforms (u12-u30): inv_area, vertex colors, z, UV
+  const rgb16_t *colors = tri->colors.v;
+  BORG_UNIFORM(frag_shader.uniform_regs[0]) = tri->inv_area;
+  load_uniform_triple(&frag_shader, 1, colors[0].r, colors[1].r, colors[2].r);
+  load_uniform_triple(&frag_shader, 4, colors[0].g, colors[1].g, colors[2].g);
+  load_uniform_triple(&frag_shader, 7, colors[0].b, colors[1].b, colors[2].b);
+  load_uniform_triple(&frag_shader, 10, tri->z_vals.v[0], tri->z_vals.v[1],
+                       tri->z_vals.v[2]);
+
+  if (tri->has_uvs) {
+    const uv16_t *uvs = tri->uvs.v;
+    load_uniform_triple(&frag_shader, 13, uvs[0].u, uvs[1].u, uvs[2].u);
+    load_uniform_triple(&frag_shader, 16, uvs[0].v, uvs[1].v, uvs[2].v);
+  } else {
+    for (int i = 13; i <= 18; i++)
+      BORG_UNIFORM(frag_shader.uniform_regs[i]) = 0;
+  }
+
+  // Enable auto-chaining: RAST at PC=0, FRAG at frag_start_pc
+  BORG_FRAG_PC = BORG_IMEM_FRAG_OFFSET;
+
   for (;;) {
     uint32_t iter = BORG_ITER;
     if (!BORG_ITER_VALID(iter)) break;
 
-    // Load all rasterizer uniforms — must reload each pixel because the
-    // fragment shader clobbers rasterizer register slots.
-    // Edge constants: dx0, neg_dy0, dx1, neg_dy1, dx2, neg_dy2 (uniform_regs[0..5])
-    borg_load_edge_constants(&rast_shader, tri->edges.v);
-    // Negated vertex positions: -vx0, -vy0, -vx1, -vy1, -vx2, -vy2 (uniform_regs[6..11])
-    for (int i = 0; i < 3; i++) {
-      BORG_UNIFORM(rast_shader.uniform_regs[6 + i * 2 + 0]) = BORG_FP16_NEG(tri->screen_pos.v[i].x);
-      BORG_UNIFORM(rast_shader.uniform_regs[6 + i * 2 + 1]) = BORG_FP16_NEG(tri->screen_pos.v[i].y);
-    }
-
-    // Advance iterator — auto-triggers edge shader at PC=0, CPU stalls until done.
-    // Hardware r30/r31 inject coordLut[iter_x/y] as pixel centers into the shader.
-    BORG_ITER = 1;
-
-    // Read back: inside_flag reflects the shader that just ran for (px, py)
-    uint32_t iter2 = BORG_ITER;
     int px = BORG_ITER_X(iter);
     int py = BORG_ITER_Y(iter);
 
+    // Advance iterator — auto-triggers RAST shader at PC=0, then chains to
+    // FRAG shader if inside.  CPU stalls until the full chain completes.
+    BORG_ITER = 1;
+
+    // Read back: inside_flag reflects the completed RAST+FRAG chain
+    uint32_t iter2 = BORG_ITER;
+
     if (!BORG_ITER_INSIDE(iter2)) continue;
 
-    // Fragment shading — edge values already in rast output registers
+    // Fragment shader already ran — just read results
     frag_result_t result = {{0,0,0}, 0, {0,0}};
-    borg_run_fragment(&rast_shader, &frag_shader, tri, &result);
+    result.color = read_output_rgb(&frag_shader, 0);
+    result.z = read_output_reg(&frag_shader, 3);
+    if (tri->has_uvs) {
+      result.uv.u = read_output_reg(&frag_shader, 4);
+      result.uv.v = read_output_reg(&frag_shader, 5);
+    }
     shade_and_write_pixel(frame, px, py, result.color, result.z, result.uv, t);
   }
+
+  // Disable chaining after triangle
+  BORG_FRAG_PC = 0;
 }
 
 

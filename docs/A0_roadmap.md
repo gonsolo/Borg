@@ -111,7 +111,7 @@ the FMA with a single trigger. Eliminates 3–6 more round-trips per pixel.
 
 Added cycle-accurate C++ simulation models via arcilator and verilator.
 
-### Step 10: Pixel Iterator (Hardware Rasterizer)
+### Step 10: Pixel Iterator (Hardware Rasterizer) ✅ (2026-04-05)
 
 Counter-based x/y walker that evaluates edge functions (Step 1) and triggers
 fragment interpolation (Step 9) for each inside pixel. CPU submits one triangle
@@ -153,7 +153,11 @@ instead of driving every pixel. **This is the key transition from
     - **10.6.4.1: Hardware Uniform Buffer** ✅ (2026-04-04): Add 32-entry register-based uniform buffer (~512 FFs). Decode `funct3[1:0]` to select which operand reads from the uniform buffer (`00`=all GPR, `01`=rs1, `10`=rs2, `11`=rs3). Integrate the read mux into the operand-resolution stage alongside the existing `coordLut` injection. Add MMIO write path (4-byte addressed, 32 entries). To fit in the 9-bit address space, shrink IMEM from 64→56 slots (shaders total ~50 instructions, no functional impact). MMIO loading is scaffolding — step 15 (DMA) replaces it.
     - **10.6.4.2: Compiler Uniform Support** ✅ (2026-04-05): Update `borg_backend.py` to distinguish uniform vs. GPR virtual registers and emit the appropriate `funct3` bits. Update `Instructions.scala` encoding functions to accept the uniform operand flag. The register allocator assigns uniforms to the uniform buffer and temporaries/I/O to GPRs separately.
     - **10.6.4.3: Shader Reallocation** ✅ (2026-04-05): Rebuild `rasterize.s` (12 uniforms → buffer, ~8 GPRs) and `shader.frag` (19 uniforms → buffer, ~13 GPRs). Combined: 31 of 32 uniform slots used, ~16 of 30 GPRs used. Verify pixel-perfect against `golden.ppm`.
-  - **10.6.5: Firmware Auto-Chain Integration**: Rewrite `shade_tiles()` to use auto-chaining. CPU loads both shader stages' uniforms into the buffer once per triangle (31 entries via MMIO). The hardware FSM chains rasterizer → fragment without register conflicts — uniforms persist in the buffer while GPRs are reused freely. Eliminate the manual `borg_run_fragment()` call from the hot path.
+  - **10.6.5: Firmware Auto-Chain Integration** ✅ (2026-04-05): Rewrote `shade_tiles()` to load all 31 uniforms once per triangle (rast u0–u11 + frag u12–u30) and rely on the hardware FSM for autonomous RAST→FRAG chaining via `BORG_FRAG_PC`. Eliminated the per-pixel `borg_run_fragment()` call and per-pixel uniform reloading (~34 MMIO round-trips per inside pixel → ~8). Key changes:
+    - **Compiler**: Added `--uniform-base N` flag to `borg_backend.py` for non-overlapping uniform allocation across shader stages. Fragment shader compiled with `--uniform-base 12`.
+    - **Register-level ABI**: `spirv_compiler.py` emits `@borg bind` for fragment Input variables (e0→r0, e1→r1, e2→r2), matching rasterizer output slots. User writes GLSL; the system compiler enforces the convention — analogous to GPU varying linkage.
+    - **Firmware**: Uniform setup moved from per-pixel to per-triangle. Inner loop reduced to iterator advance + result readback. `borg_run_fragment()` retained for debug/fallback only.
+    - **Verified** pixel-perfect triangle rendering in Verilator (11.1M cycles).
 
   **Uniform data path progression:**
   - *Step 10 (now)*: CPU → MMIO writes → on-chip buffer (32 entries, scaffolding)

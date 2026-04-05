@@ -311,6 +311,15 @@ class TinySpirvCompiler:
                     name = self.id_to_name.get(ptr_id, f"in{len(self.borg_io)}")
                     self.emit(f"flw {reg}, 0(attr_{name})", f"Load {name}")
                     self.borg_io.append(("attribute", name, reg))
+                    # Register-level ABI: pin fragment inputs to match rasterizer
+                    # output slots.  rasterize.s outputs: e0→r0, e1→r1, e2→r2.
+                    # The driver loads all uniforms once per triangle, so both
+                    # shaders read from the same register file.  Pinning the
+                    # fragment attributes avoids a CPU-mediated register copy
+                    # between the RAST and FRAG phases of auto-chaining.
+                    FRAG_INPUT_ABI = {"e0": 0, "e1": 1, "e2": 2}
+                    if name in FRAG_INPUT_ABI:
+                        self.borg_io.append(("bind", name, reg, FRAG_INPUT_ABI[name]))
                 else:
                     reg = self.get_reg(res_id)
 
@@ -458,9 +467,15 @@ class TinySpirvCompiler:
             
             for entry in self.borg_io:
                 # Uniform entries are 4-tuples (type, name, reg, member_idx),
+                # bind entries are 4-tuples (type, name, vreg, target_preg),
                 # others are 3-tuples (type, name, reg).
                 io_type, name, reg = entry[0], entry[1], entry[2]
-                self.asm.append(f"# @borg {io_type} {name} {reg}")
+                if io_type == "bind":
+                    # @borg bind <vreg> <target_preg>
+                    target_preg = entry[3]
+                    self.asm.append(f"# @borg bind {reg} {target_preg}")
+                else:
+                    self.asm.append(f"# @borg {io_type} {name} {reg}")
 
         return "\n".join(self.asm)
 

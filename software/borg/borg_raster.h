@@ -81,3 +81,13 @@ int borg_run_fragment(const spirb_shader_t *rast_shader,
 
 // UV to texel coordinate conversion
 texcoord_t uv_to_texcoord(uv16_t uv, fp16_t w_fp16, fp16_t h_fp16);
+
+// Load 3 consecutive per-vertex values into uniform registers at base_reg.
+void load_uniform_triple(const spirb_shader_t *s, int base_reg,
+                         fp16_t v0, fp16_t v1, fp16_t v2);
+
+// Read one output register as an fp16.
+fp16_t read_output_reg(const spirb_shader_t *s, int reg);
+
+// Read 3 consecutive output registers as an rgb16_t.
+rgb16_t read_output_rgb(const spirb_shader_t *s, int base_reg);

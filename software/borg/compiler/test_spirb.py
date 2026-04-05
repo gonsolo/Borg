@@ -51,12 +51,12 @@ def parse_spirb(blob):
     }
 
 
-def test_shader(name, asm_path):
+def test_shader(name, asm_path, uniform_base=0):
     """Test that emit_binary round-trips correctly for a given shader."""
     with open(asm_path, 'r') as f:
         asm_text = f.read()
 
-    backend = BorgBackend()
+    backend = BorgBackend(uniform_base=uniform_base)
     backend.lower(asm_text)
     blob = backend.emit_binary()
     parsed = parse_spirb(blob)
@@ -88,7 +88,7 @@ def test_shader(name, asm_path):
 
 
 def test_pipeline(name, spvasm_path, expected_instrs, expected_unis,
-                  expected_attrs, expected_outs):
+                  expected_attrs, expected_outs, uniform_base=0):
     """End-to-end test: SPIR-V text → compiler → backend → verify encodings."""
     from spirv_compiler import TinySpirvCompiler
 
@@ -98,7 +98,7 @@ def test_pipeline(name, spvasm_path, expected_instrs, expected_unis,
     assert not asm.startswith("Error"), f"{name}: compile failed: {asm}"
 
     # Stage 2: pseudo-assembly → backend
-    backend = BorgBackend()
+    backend = BorgBackend(uniform_base=uniform_base)
     backend.lower(asm)
 
     # Verify instruction encodings
@@ -127,7 +127,7 @@ if __name__ == '__main__':
 
     print("SPIR-B round-trip tests:")
     test_shader("vert", os.path.join(test_dir, "vert.s"))
-    test_shader("frag", os.path.join(test_dir, "frag.s"))
+    test_shader("frag", os.path.join(test_dir, "frag.s"), uniform_base=12)
     test_shader("rasterize", os.path.join(test_dir, "rasterize.s"))
 
     print("End-to-end pipeline tests:")
@@ -145,15 +145,16 @@ if __name__ == '__main__':
     if os.path.exists(os.path.join(test_dir, "frag.spvasm")):
         test_pipeline("frag", os.path.join(test_dir, "frag.spvasm"),
                       expected_instrs=[
-                          0x08002480, 0x0800A000, 0x08012080, 0x0834A180,
-                          0x18202184, 0x1810A184, 0x0864A200, 0x20502204,
-                          0x2040A204, 0x0894A280, 0x28802284, 0x2870A284,
-                          0x08C4A300, 0x30B02304, 0x30A0A304, 0x08F4A380,
-                          0x38E02384, 0x38D0A384, 0x0924A400, 0x41102404,
-                          0x4100A404
+                          0x08C02480, 0x08C0A500, 0x08C12580, 0x08F4A180,
+                          0x18E52184, 0x18D5A184, 0x0924A200, 0x21152204,
+                          0x2105A204, 0x0954A280, 0x29452284, 0x2935A284,
+                          0x0984A300, 0x31752304, 0x3165A304, 0x09B4A380,
+                          0x39A52384, 0x3995A384, 0x09E4A400, 0x41D52404,
+                          0x41C5A404
                       ],
-                      expected_unis=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+                      expected_unis=[12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30],
                       expected_attrs=[0, 1, 2],
-                      expected_outs=[3, 4, 5, 6, 7, 8])
+                      expected_outs=[3, 4, 5, 6, 7, 8],
+                      uniform_base=12)
 
     print("All tests passed!")
