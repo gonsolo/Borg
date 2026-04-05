@@ -21,7 +21,7 @@ all: triangle vkcube
 
 # Step 1: FIRRTL → HW MLIR
 borg.mlir: ../../out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir
-	$(FIRTOOL) $< --ir-hw > $@
+	$(FIRTOOL) $< --disable-layers=Verification --ir-hw > $@
 
 # Step 2: HW MLIR → LLVM IR + state info
 arc.ll state.json: borg.mlir

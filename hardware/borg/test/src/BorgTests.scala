@@ -744,9 +744,21 @@ object BorgTests extends TestSuite {
            val instr = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = rDest)
            
            resetAndWait(borg)
+           // We must set valid BBOX so that advance puts it in sRast.
+           // BBOX = (0,0) to (4,4) -> packBbox(0,0,4,4) = 4<<12 | 4<<18 = 0x100000 | 0x4000 = 0x104000
+           writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, 0x104000)
            writeAddr(borg, 128, instr)
            writeAddr(borg, 132, 0) // halt
-           startAndWaitForHalt(borg)
+           // Trigger auto-run via BORG_ITER to enter sRast phase where snooping happens
+           writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
+           waitForHalt(borg)
+           
+           // Delay by asserting a dummy readAddr.
+           // Because the test is poking combinationally to evaluate insideFlag, and
+           // waitForHalt returns immediately upon core execution halt but before
+           // auto_run_stall propagates and clears in BorgRasterizer, we need an
+           // additional two test-cycles of delay to avoid a combinational race constraint.
+           readAddr(borg, rDest * 4, config)
         }
 
         println("  Test 1: All positive (strictly inside)")
@@ -768,9 +780,11 @@ object BorgTests extends TestSuite {
         println("  Test 4: Negative-Zero is inside (magnitude is 0)")
         writeAddr(borg, 16, floatToBits(0.0f, config))
         resetAndWait(borg)
+        writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, 0x104000)
         writeAddr(borg, 128, encodeInstruction(config, FNEG, rs1 = 4, rs2 = 4, rd = 1)) // r1 = -0.0
         writeAddr(borg, 132, 0)
-        startAndWaitForHalt(borg)
+        writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
+        waitForHalt(borg)
         assertInside(true, "r1 is -0.0 (rest 0.0)")
 
         println("=== Inside Flag Snoop Tests Passed ===\n")

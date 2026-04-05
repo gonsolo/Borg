@@ -116,7 +116,8 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
 
   // --- Shader chaining FSM ---
   // When rast shader finishes: chain to frag shader if inside, else release CPU
-  val core_just_finished = !io.coreRunning && !io.coreAutoRunPending
+  val core_was_active = RegNext(io.coreRunning || io.coreAutoRunPending, false.B)
+  val core_just_finished = core_was_active && !io.coreRunning && !io.coreAutoRunPending
 
   when(phase === sRast && core_just_finished) {
     when(inside_flag && frag_start_pc =/= 0.U) {
@@ -167,7 +168,7 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   //     `make triangle` in simulation/verilator and check the output image.
   //
   // @doc:inside-snoop
-  when(io.pipeWriteEn) {
+  when(io.pipeWriteEn && phase === sRast) {
     val sign_bit      = io.pipeWriteData(config.totalBits - 1).asBool
     val magn_non_zero = io.pipeWriteData(config.totalBits - 2, 0) =/= 0.U
     // Negative non-zero → outside.  Positive or zero → inside.

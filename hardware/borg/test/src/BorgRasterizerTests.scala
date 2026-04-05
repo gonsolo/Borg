@@ -154,6 +154,11 @@ object BorgRasterizerTests extends TestSuite {
         utest.assert(initFlag)
         println("  Initial: insideFlag=true ✓")
 
+        // Enter sRast phase so snooping is active
+        rast.io.advance.poke(true.B)
+        rast.clock.step(1)
+        rast.io.advance.poke(false.B)
+
         // Write a negative (outside) value to edge 0: -1.0 FP16 = 0xBC00
         rast.io.pipeWriteEn.poke(true.B)
         rast.io.pipeWriteAddr.poke(0.U)
@@ -296,17 +301,6 @@ object BorgRasterizerTests extends TestSuite {
         setBbox(rast, 0, 0, 4, 4)
         setFragPC(rast, 13)
 
-        // Set all edges to inside (positive sign)
-        for (i <- 0 until 3) {
-          rast.io.pipeWriteEn.poke(true.B)
-          rast.io.pipeWriteAddr.poke(i.U)
-          rast.io.pipeWriteData.poke(0x3C00.U)  // +1.0
-          rast.clock.step(1)
-        }
-        rast.io.pipeWriteEn.poke(false.B)
-        rast.clock.step(1)
-        utest.assert(rast.io.insideFlag.peek().litToBoolean)
-
         // Advance → triggers rast shader at PC=0
         pokeIdle(rast)
         rast.io.advance.poke(true.B)
@@ -318,8 +312,19 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(1)
         rast.io.coreAutoRunPending.poke(false.B)
         rast.io.coreRunning.poke(true.B)
-        rast.clock.step(3)
 
+        // --- DURING CORE RUNNING, WRITE EDGES ---
+        for (i <- 0 until 3) {
+          rast.io.pipeWriteEn.poke(true.B)
+          rast.io.pipeWriteAddr.poke(i.U)
+          rast.io.pipeWriteData.poke(0x3C00.U)  // +1.0
+          rast.clock.step(1)
+        }
+        rast.io.pipeWriteEn.poke(false.B)
+
+        utest.assert(rast.io.insideFlag.peek().litToBoolean)
+        
+        rast.clock.step(1)
         rast.io.coreRunning.poke(false.B)
 
         // Read combinatorial values BEFORE clock ticks

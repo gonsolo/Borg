@@ -24,6 +24,8 @@ static inline void fb_write_pixel(int base, rgb16_t c) {
   PSRAM_OUT(base + 2) = c.b;
 }
 
+
+
 static inline rgb16_t fb_read_texel(int base) {
   return (rgb16_t){PSRAM_IN(base + 0), PSRAM_IN(base + 1), PSRAM_IN(base + 2)};
 }
@@ -390,6 +392,7 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
 
     if (!BORG_ITER_INSIDE(iter2)) continue;
 
+    puts_uart("I");
     // Fragment shader already ran — just read results
     frag_result_t result = {{0,0,0}, 0, {0,0}};
     result.color = read_output_rgb(&frag_shader, 0);
@@ -496,6 +499,7 @@ static void clip_and_rasterize(const clip_vertex_t clip_in[3],
 
   for (int i = 1; i < n - 1; i++) {
     clip_vertex_t tri[3] = { clip_b[0], clip_b[i], clip_b[i + 1] };
+    puts_uart("T");
     rasterize_clipped_triangle(tri, t, frame);
   }
 }

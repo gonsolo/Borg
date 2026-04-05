@@ -159,11 +159,17 @@ instead of driving every pixel. **This is the key transition from
     - **Firmware**: Uniform setup moved from per-pixel to per-triangle. Inner loop reduced to iterator advance + result readback. `borg_run_fragment()` retained for debug/fallback only.
     - **Verified** pixel-perfect triangle rendering in Verilator (11.1M cycles).
 
+  - **10.6.6: Debug Rendering Regression (Mostly Black with few pixels)**
+    - *10.6.6.1: Verify rasterizer edge calculations and vertex mapping differences between software and hardware.*
+    - *10.6.6.2: Ensure the fragment shader temporaries do not corrupt the edge signs monitored by `BorgRasterizer.scala` via `io.pipeWriteEn` snooping.*
+    - *10.6.6.3: Resolve rendering issues caused by negation mismatches (`BORG_FP16_NEG`) in software versus hardware shader `fadd.s` operations.*
+    - *10.6.6.4: Clean up unused logging code and legacy tile pixel writers.*
+
   **Uniform data path progression:**
   - *Step 10 (now)*: CPU → MMIO writes → on-chip buffer (32 entries, scaffolding)
   - *Step 15 (GPU DMA)*: GPU fetches uniforms, IMEM, and registers from PSRAM autonomously
 
-### Step 11: On-Chip Tile Buffer (BRAM)
+### Step 11: On-Chip Tile Buffer (BRAM) ✅ (2026-04-06)
 
 4×4 pixel tile buffer in Block RAM (RGB + Z). Rasterizer writes on-chip; a
 burst flush writes the completed tile to PSRAM. Eliminates per-pixel PSRAM
