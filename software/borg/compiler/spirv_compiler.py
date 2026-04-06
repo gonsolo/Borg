@@ -438,6 +438,12 @@ class TinySpirvCompiler:
                     reg = self.get_reg(val_id)
                     name = self.id_to_name.get(ptr_id, "out")
                     self.emit(f"fsw {reg}, 0(out_{name})", f"Store {name}")
+                    
+                    # Hardware Auto-Write ABI: R=r26, G=r27, B=r28, Z=r29
+                    FRAG_OUTPUT_ABI = {"outR": 26, "outG": 27, "outB": 28, "outZ": 29}
+                    if name in FRAG_OUTPUT_ABI:
+                        self.borg_io.append(("bind", name, reg, FRAG_OUTPUT_ABI[name]))
+                    
                     self.borg_io.append(("output", name, reg))
                 elif ptr_id in self.ptr_map:
                     base_reg, offset = self.ptr_map[ptr_id]

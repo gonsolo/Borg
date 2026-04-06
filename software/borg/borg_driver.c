@@ -344,16 +344,7 @@ static bbox_t compute_bbox(const xy16x3_t *pos) {
 static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
   bbox_t bb = compute_bbox(&tri->screen_pos);
 
-  borg_bbox_t hw_bb = {
-    .min_x = bb.x0,
-    .min_y = bb.y0,
-    .max_x = bb.x1,
-    .max_y = bb.y1
-  };
-  BORG_ITER_BBOX = hw_bb.raw;
-
   // --- Load ALL uniforms once per triangle ---
-
   // Rasterizer uniforms (u0-u11): edge constants + negated vertex positions
   borg_load_edge_constants(&rast_shader, tri->edges.v);
   for (int i = 0; i < 3; i++) {
@@ -364,50 +355,91 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
   // Fragment uniforms (u12-u30): inv_area, vertex colors, z, UV
   const rgb16_t *colors = tri->colors.v;
   BORG_UNIFORM(frag_shader.uniform_regs[0]) = tri->inv_area;
-  load_uniform_triple(&frag_shader, 1, colors[0].r, colors[1].r, colors[2].r);
-  load_uniform_triple(&frag_shader, 4, colors[0].g, colors[1].g, colors[2].g);
-  load_uniform_triple(&frag_shader, 7, colors[0].b, colors[1].b, colors[2].b);
-  load_uniform_triple(&frag_shader, 10, tri->z_vals.v[0], tri->z_vals.v[1],
-                       tri->z_vals.v[2]);
 
   if (tri->has_uvs) {
     const uv16_t *uvs = tri->uvs.v;
-    load_uniform_triple(&frag_shader, 13, uvs[0].u, uvs[1].u, uvs[2].u);
-    load_uniform_triple(&frag_shader, 16, uvs[0].v, uvs[1].v, uvs[2].v);
+    // Map U and V into the R and G uniforms
+    // This allows the hardware tile buffer's R/G slots to temporarily hold U/V!
+    load_uniform_triple(&frag_shader, 1, uvs[0].u, uvs[1].u, uvs[2].u);
+    load_uniform_triple(&frag_shader, 4, uvs[0].v, uvs[1].v, uvs[2].v);
+    load_uniform_triple(&frag_shader, 7, 0, 0, 0); // B unused
+    for (int i = 13; i <= 18; i++)
+      BORG_UNIFORM(frag_shader.uniform_regs[i]) = 0;
   } else {
+    load_uniform_triple(&frag_shader, 1, colors[0].r, colors[1].r, colors[2].r);
+    load_uniform_triple(&frag_shader, 4, colors[0].g, colors[1].g, colors[2].g);
+    load_uniform_triple(&frag_shader, 7, colors[0].b, colors[1].b, colors[2].b);
     for (int i = 13; i <= 18; i++)
       BORG_UNIFORM(frag_shader.uniform_regs[i]) = 0;
   }
 
+  load_uniform_triple(&frag_shader, 10, tri->z_vals.v[0], tri->z_vals.v[1],
+                       tri->z_vals.v[2]);
+
   // Enable auto-chaining: RAST at PC=0, FRAG at frag_start_pc
   BORG_FRAG_PC = BORG_IMEM_FRAG_OFFSET;
 
-  for (;;) {
-    uint32_t iter = BORG_ITER;
-    if (!BORG_ITER_VALID(iter)) break;
+  // 4x4 Tiling loop (Step 11.4): subdivide bbox into 4x4 tiles
+  for (int ty = bb.y0 & ~3; ty < bb.y1; ty += 4) {
+    for (int tx = bb.x0 & ~3; tx < bb.x1; tx += 4) {
+      
+      // Compute clamped 4x4 sub-bbox for this tile
+      borg_bbox_t hw_bb = {
+        .min_x = (tx > bb.x0) ? tx : bb.x0,
+        .min_y = (ty > bb.y0) ? ty : bb.y0,
+        .max_x = ((tx + 4) < bb.x1) ? (tx + 4) : bb.x1,
+        .max_y = ((ty + 4) < bb.y1) ? (ty + 4) : bb.y1
+      };
+      
+      // If tile is completely outside bbox, skip
+      if (hw_bb.min_x >= hw_bb.max_x || hw_bb.min_y >= hw_bb.max_y) continue;
 
-    int px = BORG_ITER_X(iter);
-    int py = BORG_ITER_Y(iter);
+      // Clear the tile buffer (write 1 to bit 4 of BORG_TILE_CTRL)
+      BORG_TILE_CTRL = (1 << 4);
 
-    // Advance iterator — auto-triggers RAST shader at PC=0, then chains to
-    // FRAG shader if inside.  CPU stalls until the full chain completes.
-    BORG_ITER = 1;
+      // Set the bbox for the hardware iterator
+      BORG_ITER_BBOX = hw_bb.raw;
 
-    // Read back: inside_flag reflects the completed RAST+FRAG chain
-    uint32_t iter2 = BORG_ITER;
+      // Spin the rasterizer through the sub-bbox
+      for (;;) {
+        uint32_t iter = BORG_ITER;
+        if (!BORG_ITER_VALID(iter)) break;
+        // Advance iterator — hardware automatically pushes RGB+Z to Tile Buffer!
+        BORG_ITER = 1;
+      }
 
-    if (!BORG_ITER_INSIDE(iter2)) continue;
-
-    puts_uart("I");
-    // Fragment shader already ran — just read results
-    frag_result_t result = {{0,0,0}, 0, {0,0}};
-    result.color = read_output_rgb(&frag_shader, 0);
-    result.z = read_output_reg(&frag_shader, 3);
-    if (tri->has_uvs) {
-      result.uv.u = read_output_reg(&frag_shader, 4);
-      result.uv.v = read_output_reg(&frag_shader, 5);
+      // Tile has been fully shaded on-chip! 
+      // Flush the 4x4 tile buffer to PSRAM.
+      for (int py = 0; py < 4; py++) {
+        int abs_y = ty + py;
+        if (abs_y < hw_bb.min_y || abs_y >= hw_bb.max_y) continue;
+        
+        for (int px = 0; px < 4; px++) {
+          int abs_x = tx + px;
+          if (abs_x < hw_bb.min_x || abs_x >= hw_bb.max_x) continue;
+          
+          int tile_idx = px | (py << 2);
+          BORG_TILE_CTRL = tile_idx;
+          
+          uint32_t rg = BORG_TILE_RG;
+          uint32_t bz = BORG_TILE_BZ;
+          
+          fp16_t z = bz & 0xFFFF;
+          if (z >= FP16_MAX_DEPTH) continue; // Fragment was not shaded or was outside!
+          
+          // The tile buffer stores U/V in R/G when textured, or R/G in R/G when untextured.
+          if (tri->has_uvs) {
+            uv16_t uv = {rg >> 16, rg & 0xFFFF}; // U from R, V from G
+            rgb16_t stub_color = {0,0,0}; // Overwritten by texel fetch
+            shade_and_write_pixel(frame, abs_x, abs_y, stub_color, z, uv, t);
+          } else {
+            rgb16_t color = {rg >> 16, rg & 0xFFFF, bz >> 16};
+            uv16_t stub_uv = {0, 0};
+            shade_and_write_pixel(frame, abs_x, abs_y, color, z, stub_uv, t);
+          }
+        }
+      }
     }
-    shade_and_write_pixel(frame, px, py, result.color, result.z, result.uv, t);
   }
 
   // Disable chaining after triangle

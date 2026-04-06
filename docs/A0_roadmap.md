@@ -192,16 +192,19 @@ PowerVR, Adreno). Estimate: 1–2 weeks.
     Verified: 31/31 Chisel tests, Verilator triangle+vkcube, FPGA triangle+vkcube.
 - **Step 11.2.5: Hardware Types & Decoupled Bus Reflection** ✅ (2026-04-06)
     General structural clean up across the codebase prior to Auto-Write integration:
-    - **`ColorZ` Bundle**: Replaced 8 discrete RGBZ ports inside `BorgTileBuffer` with a cleanly casted 64-bit `.asUInt()` unified structure.
-    - **Instruction Bundling**: Stripped primitive tuple decodes inside `BorgCore` in favor of `FpuOpFlags` and `RegIndices` bundles cleanly routing down into the pipelined FSM execution blocks.
-    - **`BorgBusIO` Layer**: Substituted ad-hoc MMIO wires (`address`, `data_in`, `is_writing`, `is_reading`) with a unified internal `BorgBusIO`, cleanly bridging dependencies into cleanly typed abstractions over standard sub-modules.
-- **Step 11.3: Auto-Write from Fragment Shader**
+  - **`ColorZ` Bundle**: Replaced 8 discrete RGBZ ports inside `BorgTileBuffer` with a cleanly casted 64-bit `.asUInt()` unified structure.
+  - **Instruction Bundling**: Stripped primitive tuple decodes inside `BorgCore` in favor of `FpuOpFlags` and `RegIndices` bundles cleanly routing down into the pipelined FSM execution blocks.
+  - **`BorgBusIO` Layer**: Substituted ad-hoc MMIO wires (`address`, `data_in`, `is_writing`, `is_reading`) with a unified internal `BorgBusIO`, cleanly bridging dependencies into cleanly typed abstractions over standard sub-modules.
+- **Step 11.3: Auto-Write from Fragment Shader** ✅ (2026-04-06)
     After FRAG completes for inside pixel, auto-write RGB+Z from fragment output
     registers to tile buffer. CPU no longer reads per-pixel results. New FSM phase
-    `sTileWrite`. Chisel test + Verilator.
-- **Step 11.4: Firmware Tile-Loop Restructuring**
-    Restructure `shade_tiles()` to loop in 4×4 tile chunks. After each tile,
-    flush tile buffer → PSRAM. Verified by `make triangle` golden image.
+    `sTileWrite`. Hardware ABIs pinned for R/G/B/Z output. Chisel test + Verilator.
+
+- **Step 11.4: Firmware Tile-Loop Restructuring** ✅ (2026-04-06)
+    Restructure `shade_tiles()` to loop in 4x4 tile chunks. After each tile,
+    compute 4x4 bbox for hardware. CPU spins until `BORG_ITER_VALID` goes low,
+    then CPU reads from `BorgTileBuffer` and blasts 16 pixels to PSRAM in a burst.
+    Implemented in C firmware. Verified functional in Arcilator and Verilator.
 
 ### Step 12: Hardware Z-Buffer Unit
 

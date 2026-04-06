@@ -48,13 +48,18 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   val autoRunStall  = Output(Bool())
   val triggerCoreValid = Output(Bool())  // pulse: tells BorgCore to auto-run
   val triggerCorePC    = Output(UInt(6.W))  // PC to start at
+
+  // Tile Buffer auto-write interface (Step 11.3)
+  val tileWriteIdx  = Output(UInt(4.W))
+  val tileWriteData = Output(new ColorZ(16))
+  val tileWriteEn   = Output(Bool())
 }
 
 class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val io = IO(new BorgRasterizerIO(config))
 
   // --- Phase FSM ---
-  val sIdle :: sRast :: sFrag :: Nil = Enum(3)
+  val sIdle :: sRast :: sFrag :: sTileWrite :: Nil = Enum(4)
   val phase = RegInit(sIdle)
 
   // --- State ---
@@ -71,6 +76,13 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
 
   val auto_run_stall = RegInit(false.B)
 
+  // Fragment output snooping registers (Hardware ABI: R=r26, G=r27, B=r28, Z=r29)
+  // Always 16-bit to match Tile Buffer capacity (if core is FP32, it sends FP16 in low bits)
+  val frag_r = RegInit(0.U(16.W))
+  val frag_g = RegInit(0.U(16.W))
+  val frag_b = RegInit(0.U(16.W))
+  val frag_z = RegInit(0.U(16.W))
+
   // --- Fragment PC write ---
   when(io.setFragPC) {
     frag_start_pc := io.fragPCData
@@ -84,6 +96,11 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   // --- Trigger outputs (directly driven, no register delay) ---
   io.triggerCoreValid := false.B
   io.triggerCorePC    := 0.U
+
+  // Tile buffer write default (no write)
+  io.tileWriteEn   := false.B
+  io.tileWriteIdx  := iter_reg.x(1, 0) | (iter_reg.y(1, 0) << 2.U)
+  io.tileWriteData := 0.U.asTypeOf(new ColorZ(16))
 
   // --- Iterator advance ---
   when(io.advance) {
@@ -120,13 +137,26 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   }
 
   when(phase === sFrag && core_just_finished) {
-    // Fragment shader finished: release CPU
+    // Fragment shader finished: auto-write to tile buffer
+    phase := sTileWrite
+  }
+
+  when(phase === sTileWrite) {
+    // Push the snooped values to the tile buffer (Step 11.3 auto-write)
+    // We use the pre-advanced coordinates for index!
+    io.tileWriteIdx := shader_iter_reg.x(1, 0) | (shader_iter_reg.y(1, 0) << 2.U)
+    io.tileWriteData.r := frag_r
+    io.tileWriteData.g := frag_g
+    io.tileWriteData.b := frag_b
+    io.tileWriteData.z := frag_z
+    io.tileWriteEn := true.B
+
     phase := sIdle
     auto_run_stall := false.B
   }
 
   // =========================================================================
-  // Edge-sign snooping — SIGN CONVENTION (read this before changing!)
+  // Fragment Output & Edge-sign snooping
   // =========================================================================
   //
   // The rasterizer shader (rasterize.s) evaluates edge functions for each
@@ -165,6 +195,14 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
     when(io.pipeWriteAddr === 2.U) { e2_outside := is_negative_nonzero }
   }
   // @doc:end
+
+  // Snoop fragment shader output (Hardware ABI: R=r26, G=r27, B=r28, Z=r29)
+  when(io.pipeWriteEn && phase === sFrag) {
+    when(io.pipeWriteAddr === 26.U) { frag_r := io.pipeWriteData(15, 0) }
+    when(io.pipeWriteAddr === 27.U) { frag_g := io.pipeWriteData(15, 0) }
+    when(io.pipeWriteAddr === 28.U) { frag_b := io.pipeWriteData(15, 0) }
+    when(io.pipeWriteAddr === 29.U) { frag_z := io.pipeWriteData(15, 0) }
+  }
 
   // --- Outputs ---
   io.iter         := iter_reg

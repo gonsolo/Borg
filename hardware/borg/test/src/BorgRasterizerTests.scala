@@ -337,8 +337,11 @@ object BorgRasterizerTests extends TestSuite {
         utest.assert(stall)
         // Simulate frag shader running
         simulateShaderRun(rast)
+        
+        // Wait 1 extra cycle for sTileWrite phase (auto-write to tile buffer)
+        rast.clock.step(1)
 
-        // After frag completes: stall cleared
+        // After frag and auto-write completes: stall cleared
         val finalStall = rast.io.autoRunStall.peek().litToBoolean
         println(f"  After frag done: stall=$finalStall")
         utest.assert(!finalStall)

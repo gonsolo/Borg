@@ -138,15 +138,17 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
       tileShadowB := io.data_in(31, 16)
       tileShadowZ := io.data_in(15, 0)
     }
-    tile.io.writeEn  := is_writing && io.address === MmioMap.BORG_TILE_RG_OFFSET.U
-    tile.io.writeIdx := tileReadIdx
+    
+    val mmioTileWriteEn = is_writing && io.address === MmioMap.BORG_TILE_RG_OFFSET.U
+    tile.io.writeEn  := mmioTileWriteEn || rast.io.tileWriteEn
+    tile.io.writeIdx := Mux(rast.io.tileWriteEn, rast.io.tileWriteIdx, tileReadIdx)
     
     val writeColor = Wire(new ColorZ(16))
     writeColor.r := io.data_in(31, 16)
     writeColor.g := io.data_in(15, 0)
     writeColor.b := tileShadowB
     writeColor.z := tileShadowZ
-    tile.io.writeData := writeColor
+    tile.io.writeData := Mux(rast.io.tileWriteEn, rast.io.tileWriteData, writeColor)
 
     // Read port: trigger BRAM read when CTRL is written (data ready by next access)
     // Use data_in directly for readIdx during CTRL write (tileReadIdx hasn't updated yet)
