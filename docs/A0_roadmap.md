@@ -190,8 +190,11 @@ PowerVR, Adreno). Estimate: 1–2 weeks.
     Improved `print_resources` Makefile target with carry chain and LC estimation.
     FPGA: 3859 LUTs (73%), 1549 DFFs (29%), 10 BRAMs — comfortably within budget.
     Verified: 31/31 Chisel tests, Verilator triangle+vkcube, FPGA triangle+vkcube.
-- **Step 11.2.5: ColorZ Hardware Structure**
-    Refactor the Tile Buffer's IO ports and internal signals to use a unified `ColorZ` Chisel bundle (R, G, B, Z). Leverage `MmioGenerator.scala` to natively reflect this structure into `borg_colorz_t` for the firmware. This sets the structural foundation needed before auto-wiring the FSM.
+- **Step 11.2.5: Hardware Types & Decoupled Bus Reflection** ✅ (2026-04-06)
+    General structural clean up across the codebase prior to Auto-Write integration:
+    - **`ColorZ` Bundle**: Replaced 8 discrete RGBZ ports inside `BorgTileBuffer` with a cleanly casted 64-bit `.asUInt()` unified structure.
+    - **Instruction Bundling**: Stripped primitive tuple decodes inside `BorgCore` in favor of `FpuOpFlags` and `RegIndices` bundles cleanly routing down into the pipelined FSM execution blocks.
+    - **`BorgBusIO` Layer**: Substituted ad-hoc MMIO wires (`address`, `data_in`, `is_writing`, `is_reading`) with a unified internal `BorgBusIO`, cleanly bridging dependencies into cleanly typed abstractions over standard sub-modules.
 - **Step 11.3: Auto-Write from Fragment Shader**
     After FRAG completes for inside pixel, auto-write RGB+Z from fragment output
     registers to tile buffer. CPU no longer reads per-pixel results. New FSM phase
