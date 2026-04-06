@@ -19,10 +19,10 @@ object BorgTileBufferTests extends TestSuite {
   /** Set all inputs to idle. */
   def pokeIdle(tb: BorgTileBuffer): Unit = {
     tb.io.writeIdx.poke(0.U)
-    tb.io.writeR.poke(0.U)
-    tb.io.writeG.poke(0.U)
-    tb.io.writeB.poke(0.U)
-    tb.io.writeZ.poke(0.U)
+    tb.io.writeData.r.poke(0.U)
+    tb.io.writeData.g.poke(0.U)
+    tb.io.writeData.b.poke(0.U)
+    tb.io.writeData.z.poke(0.U)
     tb.io.writeEn.poke(false.B)
     tb.io.readIdx.poke(0.U)
     tb.io.readEn.poke(false.B)
@@ -43,10 +43,10 @@ object BorgTileBufferTests extends TestSuite {
   def writePixel(tb: BorgTileBuffer, idx: Int, r: Int, g: Int, b: Int, z: Int): Unit = {
     pokeIdle(tb)
     tb.io.writeIdx.poke(idx.U)
-    tb.io.writeR.poke(r.U)
-    tb.io.writeG.poke(g.U)
-    tb.io.writeB.poke(b.U)
-    tb.io.writeZ.poke(z.U)
+    tb.io.writeData.r.poke(r.U)
+    tb.io.writeData.g.poke(g.U)
+    tb.io.writeData.b.poke(b.U)
+    tb.io.writeData.z.poke(z.U)
     tb.io.writeEn.poke(true.B)
     tb.clock.step(1)
     tb.io.writeEn.poke(false.B)
@@ -60,10 +60,10 @@ object BorgTileBufferTests extends TestSuite {
     tb.clock.step(1)  // BRAM read fires
     tb.io.readEn.poke(false.B)
     tb.clock.step(1)  // Hold registers capture BRAM output
-    val r = tb.io.readR.peek().litValue.toInt
-    val g = tb.io.readG.peek().litValue.toInt
-    val b = tb.io.readB.peek().litValue.toInt
-    val z = tb.io.readZ.peek().litValue.toInt
+    val r = tb.io.readData.r.peek().litValue.toInt
+    val g = tb.io.readData.g.peek().litValue.toInt
+    val b = tb.io.readData.b.peek().litValue.toInt
+    val z = tb.io.readData.z.peek().litValue.toInt
     (r, g, b, z)
   }
 

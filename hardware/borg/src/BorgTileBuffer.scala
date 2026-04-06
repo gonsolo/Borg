@@ -26,19 +26,13 @@ import chisel3.util._
 class BorgTileBufferIO(val dataBits: Int = 16) extends Bundle {
   // Write port (from rasterizer auto-write or MMIO)
   val writeIdx  = Input(UInt(4.W))       // 0–15 tile pixel index
-  val writeR    = Input(UInt(dataBits.W))
-  val writeG    = Input(UInt(dataBits.W))
-  val writeB    = Input(UInt(dataBits.W))
-  val writeZ    = Input(UInt(dataBits.W))
+  val writeData = Input(new ColorZ(dataBits))
   val writeEn   = Input(Bool())
 
   // Read port (for MMIO flush — 2-cycle latency: BRAM + hold reg)
   val readIdx   = Input(UInt(4.W))
   val readEn    = Input(Bool())
-  val readR     = Output(UInt(dataBits.W))
-  val readG     = Output(UInt(dataBits.W))
-  val readB     = Output(UInt(dataBits.W))
-  val readZ     = Output(UInt(dataBits.W))
+  val readData  = Output(new ColorZ(dataBits))
 
   // Z peek (1-cycle latency via BRAM — for future hardware Z comparison)
   val peekZIdx  = Input(UInt(4.W))
@@ -55,7 +49,7 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
   val FP16_MAX_DEPTH_VAL = 0x7BFF  // Scala constant
   val FP16_MAX_DEPTH = FP16_MAX_DEPTH_VAL.U(dataBits.W)
   val TILE_SIZE = 16  // 4×4
-  val PACKED_BITS = dataBits * 4  // 64 bits: R[63:48], G[47:32], B[31:16], Z[15:0]
+  val PACKED_BITS = new ColorZ(dataBits).getWidth  // 64 bits
 
   // --- RGBZ buffer: single BRAM (16 × 64-bit = 1024 bits, fits in 1 iCE40 EBR) ---
   val rgbzMem = SyncReadMem(TILE_SIZE, UInt(PACKED_BITS.W))
@@ -68,8 +62,13 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
 
   io.clearBusy := clearing
 
-  // Clear value: RGB=0, Z=FP16_MAX_DEPTH
-  val clearWord = Cat(0.U(dataBits.W), 0.U(dataBits.W), 0.U(dataBits.W), FP16_MAX_DEPTH)
+  // Clear value: Z=FP16_MAX_DEPTH, RGB=0
+  val clearColor = Wire(new ColorZ(dataBits))
+  clearColor.r := 0.U
+  clearColor.g := 0.U
+  clearColor.b := 0.U
+  clearColor.z := FP16_MAX_DEPTH
+  val clearWord = clearColor.asUInt
 
   // --- Clear logic ---
   when(io.clearEn && !clearing) {
@@ -83,8 +82,7 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
 
   // --- Write logic ---
   when(io.writeEn && !clearing) {
-    val packed = Cat(io.writeR, io.writeG, io.writeB, io.writeZ)
-    rgbzMem.write(io.writeIdx, packed)
+    rgbzMem.write(io.writeIdx, io.writeData.asUInt)
   }
 
   // --- Z peek: shares the BRAM read port (iCE40 EBR has only 1R+1W) ---
@@ -94,24 +92,15 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
   val effectiveReadEn  = (io.readEn && !clearing) || !clearing
   val rgbzRead = rgbzMem.read(effectiveReadIdx, effectiveReadEn)
 
-  val readRheld = RegInit(0.U(dataBits.W))
-  val readGheld = RegInit(0.U(dataBits.W))
-  val readBheld = RegInit(0.U(dataBits.W))
-  val readZheld = RegInit(0.U(dataBits.W))
+  val readDataHeld = RegInit(0.U.asTypeOf(new ColorZ(dataBits)))
 
   // Capture BRAM output one cycle after readEn pulse
   val readEnDel = RegNext(io.readEn && !clearing, false.B)
   when(readEnDel) {
-    readRheld := rgbzRead(dataBits * 4 - 1, dataBits * 3)
-    readGheld := rgbzRead(dataBits * 3 - 1, dataBits * 2)
-    readBheld := rgbzRead(dataBits * 2 - 1, dataBits)
-    readZheld := rgbzRead(dataBits - 1, 0)
+    readDataHeld := rgbzRead.asTypeOf(new ColorZ(dataBits))
   }
 
-  io.readR := readRheld
-  io.readG := readGheld
-  io.readB := readBheld
-  io.readZ := readZheld
+  io.readData := readDataHeld
 
   // peekZ: latched from BRAM output when not doing a main read
   val peekZheld = RegInit(FP16_MAX_DEPTH_VAL.U(dataBits.W))
