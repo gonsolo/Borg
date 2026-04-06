@@ -89,8 +89,7 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
 
   // @doc:instruction-format
   // --- Instruction Decode ---
-  val (rs1_idx, rs2_idx, rs3_idx, rd_idx,
-       is_fma, is_mul, is_fneg, is_fstep, is_frcp, funct3) = decode(fetchedInstruction)
+  val (rs1_idx, rs2_idx, rs3_idx, rd_idx, opFlags) = decode(fetchedInstruction)
   // @doc:end
 
   // @doc:fetch-execute
@@ -129,15 +128,16 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val rs3 = Instructions.BF_RS3(instr)
     val rd  = Instructions.BF_RD(instr)
 
-    val fma   = instr(Instructions.BITS_OPCODE_FMA_BIT)
-    val f7op  = Instructions.BF_F7_OP(instr)
-    val mul   = !fma && f7op === Instructions.FUNCT7_MUL.U
-    val fneg  = !fma && f7op === Instructions.FUNCT7_FNEG.U
-    val fstep = !fma && f7op === Instructions.FUNCT7_FSTEP.U
-    val frcp  = !fma && f7op === Instructions.FUNCT7_FRCP.U
-    val funct3 = Instructions.BF_FUNCT3(instr)
+    val flags = Wire(new FpuOpFlags())
+    flags.fma   := instr(Instructions.BITS_OPCODE_FMA_BIT)
+    val f7op    = Instructions.BF_F7_OP(instr)
+    flags.mul   := !flags.fma && f7op === Instructions.FUNCT7_MUL.U
+    flags.fneg  := !flags.fma && f7op === Instructions.FUNCT7_FNEG.U
+    flags.fstep := !flags.fma && f7op === Instructions.FUNCT7_FSTEP.U
+    flags.frcp  := !flags.fma && f7op === Instructions.FUNCT7_FRCP.U
+    flags.funct3 := Instructions.BF_FUNCT3(instr)
 
-    (rs1, rs2, rs3, rd, fma, mul, fneg, fstep, frcp, funct3)
+    (rs1, rs2, rs3, rd, flags)
   }
 
   /** Fetch/execute FSM: start pipeline, count down busy cycles, advance PC. */
@@ -193,14 +193,14 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
   private def wireRegisterReads() = {
     val op_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
     val op_en_del = RegNext(op_en, false.B)
-    val funct3_del = RegEnable(funct3, op_en) // delayed to match read data
+    val funct3_del = RegEnable(opFlags.funct3, op_en) // delayed to match read data
 
     val (recA, rs1_idx_del) = wirePortA()
     val (recB, rs2_idx_del) = wirePortB()
     val (recC, rs3_idx_del, mmio_data) = wirePortC()
 
-    val uniform_addr = Mux(funct3 === 1.U, rs1_idx,
-                       Mux(funct3 === 2.U, rs2_idx, rs3_idx))
+    val uniform_addr = Mux(opFlags.funct3 === 1.U, rs1_idx,
+                       Mux(opFlags.funct3 === 2.U, rs2_idx, rs3_idx))
     
     val read_data = uniformMem.read(uniform_addr(4, 0), op_en)
     val uniform_data = Mux(op_en_del, read_data, 0.U)
@@ -277,11 +277,11 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val is_fstep_reg = RegInit(false.B)
     val is_frcp_reg = RegInit(false.B)
     when(start) {
-      is_mul_reg := is_mul
-      is_fma_reg := is_fma
-      is_fneg_reg := is_fneg
-      is_fstep_reg := is_fstep
-      is_frcp_reg := is_frcp
+      is_mul_reg := opFlags.mul
+      is_fma_reg := opFlags.fma
+      is_fneg_reg := opFlags.fneg
+      is_fstep_reg := opFlags.fstep
+      is_frcp_reg := opFlags.frcp
     }
 
     // @doc:fma-muxing
