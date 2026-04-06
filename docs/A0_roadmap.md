@@ -206,10 +206,15 @@ PowerVR, Adreno). Estimate: 1–2 weeks.
     then CPU reads from `BorgTileBuffer` and blasts 16 pixels to PSRAM in a burst.
     Implemented in C firmware. Verified functional in Arcilator and Verilator.
 
-### Step 12: Hardware Z-Buffer Unit
+### Step 12: Hardware Z-Buffer Unit ✅ (2026-04-06)
 
 FP16 comparator at the tile buffer write port — depth test in hardware instead
-of firmware. ~20 LUTs. Estimate: 2–3 days.
+of firmware. 2-cycle read→compare→conditional-write state machine inside
+`BorgTileBuffer`. Unsigned integer comparison (valid for positive FP16).
+Rasterizer's `sTileWrite` phase asserts `zTestEn` and waits for `zTestBusy`.
+Firmware `shade_and_write_pixel` no longer does per-pixel negative-Z guard
+(hardware handles it). PSRAM Z-buffer write retained for cross-triangle ordering.
+Verified: all Chisel tests, Verilator + Arcilator triangle rendering.
 
 ### Step 13: Command FIFO
 
