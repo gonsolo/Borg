@@ -118,6 +118,12 @@ object MmioMap {
   val BORG_UNIFORM_OFFSET   = BORG_FRAG_PC_OFFSET + 4
   val BORG_UNIFORM_END      = BORG_UNIFORM_OFFSET + BORG_UNIFORM_ENTRIES * 4
 
+  // Tile buffer (Step 11.2): indexed read for flush, clear via CTRL
+  // Write CTRL to set pixel index (triggers BRAM read), then read RG/BZ.
+  val BORG_TILE_CTRL_OFFSET = BORG_UNIFORM_END       // write: bits[3:0]=idx, bit[4]=clear
+  val BORG_TILE_RG_OFFSET   = BORG_TILE_CTRL_OFFSET + 4  // read: {R[31:16], G[15:0]}
+  val BORG_TILE_BZ_OFFSET   = BORG_TILE_RG_OFFSET + 4    // read: {B[31:16], Z[15:0]}
+
   // Borg pixel iterator configuration
   val BORG_ITER_COORD_BITS    = 6
   val BORG_ITER_COORD_MASK    = (1 << BORG_ITER_COORD_BITS) - 1

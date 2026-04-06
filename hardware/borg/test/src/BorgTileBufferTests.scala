@@ -30,13 +30,13 @@ object BorgTileBufferTests extends TestSuite {
     tb.io.clearEn.poke(false.B)
   }
 
-  /** Explicit reset pulse — required for Vec RegInit in EphemeralSimulator. */
+  /** Explicit reset pulse + wait for BRAM auto-clear (16 cycles). */
   def resetModule(tb: BorgTileBuffer): Unit = {
     pokeIdle(tb)
     tb.reset.poke(true.B)
     tb.clock.step(2)
     tb.reset.poke(false.B)
-    tb.clock.step(1)
+    tb.clock.step(18)  // 16 cycles for BRAM clear + margin
   }
 
   /** Write one pixel to the tile buffer. */
@@ -52,13 +52,14 @@ object BorgTileBufferTests extends TestSuite {
     tb.io.writeEn.poke(false.B)
   }
 
-  /** Read one pixel (RGB has 1-cycle latency from BRAM, Z is combinational). */
+  /** Read one pixel (RGB has 2-cycle latency: BRAM + hold reg; Z is also latched). */
   def readPixel(tb: BorgTileBuffer, idx: Int): (Int, Int, Int, Int) = {
     pokeIdle(tb)
     tb.io.readIdx.poke(idx.U)
     tb.io.readEn.poke(true.B)
-    tb.clock.step(1)  // BRAM read latency
+    tb.clock.step(1)  // BRAM read fires
     tb.io.readEn.poke(false.B)
+    tb.clock.step(1)  // Hold registers capture BRAM output
     val r = tb.io.readR.peek().litValue.toInt
     val g = tb.io.readG.peek().litValue.toInt
     val b = tb.io.readB.peek().litValue.toInt
@@ -138,10 +139,11 @@ object BorgTileBufferTests extends TestSuite {
         utest.assert(!tb.io.clearBusy.peek().litToBoolean)
         tb.clock.step(1)  // one extra for settling
 
-        // Verify Z entries are FP16_MAX_DEPTH
+        // Verify Z entries are FP16_MAX_DEPTH (via peekZ — 1-cycle BRAM latency)
         for (i <- Seq(0, 7, 15)) {
           pokeIdle(tb)
           tb.io.peekZIdx.poke(i.U)
+          tb.clock.step(2)  // BRAM read + peekZ hold register
           val z = tb.io.peekZ.peek().litValue.toInt
           println(f"  Z[$i] = 0x$z%04X (expect 0x${FP16_MAX_DEPTH}%04X)")
           utest.assert(z == FP16_MAX_DEPTH)
@@ -159,14 +161,16 @@ object BorgTileBufferTests extends TestSuite {
       }
     }
 
-    utest.test("z_peek_combinational") {
+    utest.test("z_peek_bram") {
       simulate(new BorgTileBuffer()) { tb =>
-        println("\n--- BorgTileBuffer: z_peek_combinational ---")
+        println("\n--- BorgTileBuffer: z_peek_bram ---")
         resetModule(tb)
 
-        // After reset, all Z should be FP16_MAX_DEPTH
+        // After reset + auto-clear, all Z should be FP16_MAX_DEPTH
+        // peekZ now has 2-cycle latency (BRAM read + hold register)
         for (i <- 0 until 16) {
           tb.io.peekZIdx.poke(i.U)
+          tb.clock.step(2)  // BRAM read + hold register
           val z = tb.io.peekZ.peek().litValue.toInt
           if (i < 4) println(f"  Z[$i] = 0x$z%04X")
           utest.assert(z == FP16_MAX_DEPTH)
@@ -176,14 +180,16 @@ object BorgTileBufferTests extends TestSuite {
         // Write Z to entry 3
         writePixel(tb, idx = 3, r = 0, g = 0, b = 0, z = 0x2800)
 
-        // Peek should return updated value combinationally
+        // Peek should return updated value after 2-cycle BRAM latency
         tb.io.peekZIdx.poke(3.U)
+        tb.clock.step(2)
         val z3 = tb.io.peekZ.peek().litValue.toInt
         println(f"  After write: Z[3] = 0x$z3%04X (expect 0x2800)")
         utest.assert(z3 == 0x2800)
 
         // Other entries unchanged
         tb.io.peekZIdx.poke(4.U)
+        tb.clock.step(2)
         val z4 = tb.io.peekZ.peek().litValue.toInt
         println(f"  Unchanged:   Z[4] = 0x$z4%04X (expect 0x7BFF)")
         utest.assert(z4 == FP16_MAX_DEPTH)
@@ -196,9 +202,10 @@ object BorgTileBufferTests extends TestSuite {
         println("\n--- BorgTileBuffer: initial_z_values ---")
         resetModule(tb)
 
-        // All Z entries should be FP16_MAX_DEPTH (0x7BFF) after reset
+        // All Z entries should be FP16_MAX_DEPTH (0x7BFF) after reset + auto-clear
         for (i <- 0 until 16) {
           tb.io.peekZIdx.poke(i.U)
+          tb.clock.step(2)  // BRAM read + hold register
           val z = tb.io.peekZ.peek().litValue.toInt
           utest.assert(z == FP16_MAX_DEPTH)
         }

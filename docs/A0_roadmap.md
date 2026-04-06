@@ -177,11 +177,17 @@ round-trips. Tile-based approach matches mobile GPU architecture (Mali,
 PowerVR, Adreno). Estimate: 1–2 weeks.
 
 - **Step 11.1: Standalone `BorgTileBuffer` Module** ✅ (2026-04-06)
-    Standalone Chisel module: 16-entry Z register array (256 FFs) + 16-entry RGB
-    BRAM (48 bits wide). Write/read/clear ports. Unit tested without FSM wiring.
-- **Step 11.2: MMIO Wiring**
-    Wire tile buffer into `Borg.scala`, add MMIO addresses for read (flush) and
-    clear. Firmware can manually write/read the tile buffer. MMIO round-trip test.
+    Standalone Chisel module: 16×64-bit unified RGBZ BRAM (single iCE40 EBR).
+    Write/read/clear ports. Auto-clear on reset (16-cycle BRAM sequential write).
+    Unit tested without FSM wiring.
+- **Step 11.2: MMIO Wiring** ✅ (2026-04-06)
+    Wired tile buffer into `Borg.scala` with two-step MMIO write protocol
+    (BZ shadow registers → RG trigger). Added CTRL register for read index
+    and clear. 32-bit packed readback (RG and BZ). Holding registers for BRAM
+    read persistence. Shared BRAM read port for peekZ (2-cycle latency).
+    Improved `print_resources` Makefile target with carry chain and LC estimation.
+    FPGA: 3859 LUTs (73%), 1549 DFFs (29%), 10 BRAMs — comfortably within budget.
+    Verified: 31/31 Chisel tests, Verilator triangle+vkcube, FPGA triangle+vkcube.
 - **Step 11.3: Auto-Write from Fragment Shader**
     After FRAG completes for inside pixel, auto-write RGB+Z from fragment output
     registers to tile buffer. CPU no longer reads per-pixel results. New FSM phase

@@ -163,6 +163,16 @@ object MmioGenerator {
 
     e.defRegArray("BORG_UNIFORM", "BORG_BASE + BORG_UNIFORM_OFFSET")
 
+    e.section("Tile buffer (Step 11.2)")
+    e.defReg("BORG_TILE_CTRL", "BORG_BASE + BORG_TILE_CTRL_OFFSET")
+    e.defReg("BORG_TILE_RG",   "BORG_BASE + BORG_TILE_RG_OFFSET")
+    e.defReg("BORG_TILE_BZ",   "BORG_BASE + BORG_TILE_BZ_OFFSET")
+    e.defMacro("BORG_TILE_SET_IDX", "idx", "do { BORG_TILE_CTRL = (idx) & 0xF; } while(0)")
+    e.defMacro("BORG_TILE_CLEAR",   "", "do { BORG_TILE_CTRL = 0x10; } while(0)")
+    e.defMacro("BORG_TILE_R", "rg", "(((rg) >> 16) & 0xFFFF)")
+    e.defMacro("BORG_TILE_G", "rg", "((rg) & 0xFFFF)")
+    e.defMacro("BORG_TILE_B", "bz", "(((bz) >> 16) & 0xFFFF)")
+    e.defMacro("BORG_TILE_Z", "bz", "((bz) & 0xFFFF)")
     e.defRegArray("PSRAM_IN",  "PSRAM_BASE")
     e.defRegArray("PSRAM_OUT", "PSRAM_BASE + PSRAM_OUT_OFFSET")
 

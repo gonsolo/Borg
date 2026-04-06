@@ -12,11 +12,11 @@ import chisel3.util._
   * After all pixels in the tile are processed, the CPU flushes the buffer
   * to PSRAM in a batch, eliminating per-pixel PSRAM round-trips.
   *
-  * Storage split:
-  *   - Z buffer: 16 × 16-bit registers (~256 FFs).
-  *     Registers allow same-cycle read for Z comparison (Step 11.5).
-  *   - RGB buffer: 16 × 48-bit SyncReadMem (1 iCE40 EBR block).
-  *     BRAM is fine for RGB since it's only read during flush (1-cycle latency OK).
+  * Storage: All 4 channels packed into a single 64-bit SyncReadMem (1 EBR).
+  * This avoids the ~256 FF cost of register-based Z storage.
+  * Z comparison for Step 11.5 will use a 1-cycle BRAM read in the FSM.
+  *
+  * Clear writes FP16_MAX_DEPTH for Z and 0 for RGB sequentially (16 cycles).
   *
   * Tile index: tile_idx = iter_x[1:0] | (iter_y[1:0] << 2)
   *
@@ -32,7 +32,7 @@ class BorgTileBufferIO(val dataBits: Int = 16) extends Bundle {
   val writeZ    = Input(UInt(dataBits.W))
   val writeEn   = Input(Bool())
 
-  // Read port (for MMIO flush — 1-cycle latency for RGB, combinational for Z)
+  // Read port (for MMIO flush — 2-cycle latency: BRAM + hold reg)
   val readIdx   = Input(UInt(4.W))
   val readEn    = Input(Bool())
   val readR     = Output(UInt(dataBits.W))
@@ -40,13 +40,13 @@ class BorgTileBufferIO(val dataBits: Int = 16) extends Bundle {
   val readB     = Output(UInt(dataBits.W))
   val readZ     = Output(UInt(dataBits.W))
 
-  // Z peek (combinational — for hardware Z comparison in Step 11.5)
+  // Z peek (1-cycle latency via BRAM — for future hardware Z comparison)
   val peekZIdx  = Input(UInt(4.W))
   val peekZ     = Output(UInt(dataBits.W))
 
-  // Clear (resets all Z to FP16_MAX_DEPTH, RGB to 0)
+  // Clear (resets all entries: Z to FP16_MAX_DEPTH, RGB to 0)
   val clearEn   = Input(Bool())
-  val clearBusy = Output(Bool())         // high while clearing RGB BRAM sequentially
+  val clearBusy = Output(Bool())         // high while clearing BRAM sequentially
 }
 
 class BorgTileBuffer(val dataBits: Int = 16) extends Module {
@@ -55,54 +55,69 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
   val FP16_MAX_DEPTH_VAL = 0x7BFF  // Scala constant
   val FP16_MAX_DEPTH = FP16_MAX_DEPTH_VAL.U(dataBits.W)
   val TILE_SIZE = 16  // 4×4
+  val PACKED_BITS = dataBits * 4  // 64 bits: R[63:48], G[47:32], B[31:16], Z[15:0]
 
-  // --- Z buffer: register-based (same-cycle read for comparison) ---
-  val zBuf = RegInit(VecInit(Seq.fill(TILE_SIZE)(FP16_MAX_DEPTH_VAL.U(dataBits.W))))
-
-  // --- RGB buffer: BRAM-based (1-cycle read latency, OK for flush) ---
-  // Pack RGB into a single 48-bit word for efficient BRAM usage
-  val rgbMem = SyncReadMem(TILE_SIZE, UInt((dataBits * 3).W))
+  // --- RGBZ buffer: single BRAM (16 × 64-bit = 1024 bits, fits in 1 iCE40 EBR) ---
+  val rgbzMem = SyncReadMem(TILE_SIZE, UInt(PACKED_BITS.W))
 
   // --- Clear state machine ---
-  // Z registers can be cleared in 1 cycle (parallel reset).
-  // RGB BRAM needs sequential writes (1 entry per cycle).
-  val clearCounter = RegInit(TILE_SIZE.U(5.W))  // counts 0..15 during clear
+  // BRAM needs sequential writes (1 entry per cycle).
+  // Init to 0 → auto-clear on reset (BRAM has no initial values unlike RegInit).
+  val clearCounter = RegInit(0.U(5.W))
   val clearing = clearCounter < TILE_SIZE.U
 
   io.clearBusy := clearing
 
+  // Clear value: RGB=0, Z=FP16_MAX_DEPTH
+  val clearWord = Cat(0.U(dataBits.W), 0.U(dataBits.W), 0.U(dataBits.W), FP16_MAX_DEPTH)
+
   // --- Clear logic ---
   when(io.clearEn && !clearing) {
-    // Start clear: reset all Z registers immediately
-    for (i <- 0 until TILE_SIZE) {
-      zBuf(i) := FP16_MAX_DEPTH
-    }
-    // Start sequential RGB clear
     clearCounter := 0.U
   }
 
   when(clearing) {
-    rgbMem.write(clearCounter, 0.U)
+    rgbzMem.write(clearCounter, clearWord)
     clearCounter := clearCounter + 1.U
   }
 
   // --- Write logic ---
   when(io.writeEn && !clearing) {
-    zBuf(io.writeIdx) := io.writeZ
-    val rgbPacked = Cat(io.writeR, io.writeG, io.writeB)
-    rgbMem.write(io.writeIdx, rgbPacked)
+    val packed = Cat(io.writeR, io.writeG, io.writeB, io.writeZ)
+    rgbzMem.write(io.writeIdx, packed)
   }
 
-  // --- Read logic ---
-  // RGB: 1-cycle latency from BRAM
-  val rgbRead = rgbMem.read(io.readIdx, io.readEn && !clearing)
-  io.readR := rgbRead(dataBits * 3 - 1, dataBits * 2)
-  io.readG := rgbRead(dataBits * 2 - 1, dataBits)
-  io.readB := rgbRead(dataBits - 1, 0)
+  // --- Z peek: shares the BRAM read port (iCE40 EBR has only 1R+1W) ---
+  // When readEn is inactive, the BRAM continuously reads peekZIdx.
+  // When readEn is active, the main read takes priority and peekZ is stale (OK).
+  val effectiveReadIdx = Mux(io.readEn && !clearing, io.readIdx, io.peekZIdx)
+  val effectiveReadEn  = (io.readEn && !clearing) || !clearing
+  val rgbzRead = rgbzMem.read(effectiveReadIdx, effectiveReadEn)
 
-  // Z: combinational from registers
-  io.readZ := zBuf(io.readIdx)
+  val readRheld = RegInit(0.U(dataBits.W))
+  val readGheld = RegInit(0.U(dataBits.W))
+  val readBheld = RegInit(0.U(dataBits.W))
+  val readZheld = RegInit(0.U(dataBits.W))
 
-  // --- Z peek: combinational (for future hardware Z comparison) ---
-  io.peekZ := zBuf(io.peekZIdx)
+  // Capture BRAM output one cycle after readEn pulse
+  val readEnDel = RegNext(io.readEn && !clearing, false.B)
+  when(readEnDel) {
+    readRheld := rgbzRead(dataBits * 4 - 1, dataBits * 3)
+    readGheld := rgbzRead(dataBits * 3 - 1, dataBits * 2)
+    readBheld := rgbzRead(dataBits * 2 - 1, dataBits)
+    readZheld := rgbzRead(dataBits - 1, 0)
+  }
+
+  io.readR := readRheld
+  io.readG := readGheld
+  io.readB := readBheld
+  io.readZ := readZheld
+
+  // peekZ: latched from BRAM output when not doing a main read
+  val peekZheld = RegInit(FP16_MAX_DEPTH_VAL.U(dataBits.W))
+  val notMainRead = RegNext(!io.readEn || clearing, true.B)
+  when(notMainRead && !RegNext(clearing, true.B)) {
+    peekZheld := rgbzRead(dataBits - 1, 0)
+  }
+  io.peekZ := peekZheld
 }

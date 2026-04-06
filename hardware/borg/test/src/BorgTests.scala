@@ -960,5 +960,114 @@ object BorgTests extends TestSuite {
         println("=== coordLut Tests Passed ===\n")
       }
     }
+
+    // =====================================================================
+    // Step 11.2: Tile Buffer MMIO Round-Trip Test
+    // Verifies write/read through the BORG_TILE_CTRL/RG/BZ MMIO interface.
+    // Two-step write protocol: write BZ (shadows B/Z), then write RG (fires).
+    // =====================================================================
+    utest.test("tile_buffer_mmio_tests") {
+      val config = FloatConfig.FP16
+      simulate(new Borg(config)) { borg =>
+        println("\n=== Tile Buffer MMIO Tests ===")
+
+        // Helper: read raw 32-bit value from MMIO address
+        def readRaw(addr: Int): BigInt = {
+          borg.io.address.poke(addr.U)
+          borg.io.data_read_n.poke(2.U)
+          borg.io.data_write_n.poke(3.U)
+          borg.clock.step(1)
+          borg.clock.step(1)
+          val v = borg.io.data_out.peek().litValue
+          borg.io.data_read_n.poke(3.U)
+          borg.clock.step(1)
+          v
+        }
+
+        // Helper: write full pixel (R, G, B, Z) to tile buffer at index idx
+        // Protocol: (1) CTRL=idx, (2) BZ={B,Z}, (3) RG={R,G} → triggers write
+        def writeTilePixel(idx: Int, r: Int, g: Int, b: Int, z: Int): Unit = {
+          writeAddr(borg, MmioMap.BORG_TILE_CTRL_OFFSET, idx & 0xF)
+          val bzPacked = (BigInt(b & 0xFFFF) << 16) | BigInt(z & 0xFFFF)
+          writeAddr(borg, MmioMap.BORG_TILE_BZ_OFFSET, bzPacked)
+          val rgPacked = (BigInt(r & 0xFFFF) << 16) | BigInt(g & 0xFFFF)
+          writeAddr(borg, MmioMap.BORG_TILE_RG_OFFSET, rgPacked)
+        }
+
+        // Helper: read tile pixel at index idx → (R, G, B, Z)
+        def readTilePixel(idx: Int): (Int, Int, Int, Int) = {
+          writeAddr(borg, MmioMap.BORG_TILE_CTRL_OFFSET, idx & 0xF)
+          borg.clock.step(2) // settle for BRAM read
+          val rg = readRaw(MmioMap.BORG_TILE_RG_OFFSET)
+          val bz = readRaw(MmioMap.BORG_TILE_BZ_OFFSET)
+          val r = ((rg >> 16) & 0xFFFF).toInt
+          val g = (rg & 0xFFFF).toInt
+          val b = ((bz >> 16) & 0xFFFF).toInt
+          val z = (bz & 0xFFFF).toInt
+          (r, g, b, z)
+        }
+
+        // Init
+        borg.io.data_write_n.poke(3.U)
+        borg.io.data_read_n.poke(3.U)
+        borg.reset.poke(true.B)
+        borg.clock.step(2)
+        borg.reset.poke(false.B)
+        borg.clock.step(20)  // wait for tile buffer BRAM auto-clear (16 cycles)
+
+        // --- Test 1: Full 4-channel pixel write and read-back ---
+        println("  Test 1: Full pixel (R,G,B,Z) round-trip")
+        writeTilePixel(0, r=0x3C00, g=0x4000, b=0x4200, z=0x1234)
+        val (r1, g1, b1, z1) = readTilePixel(0)
+        println(f"    Index 0: R=0x$r1%04X G=0x$g1%04X B=0x$b1%04X Z=0x$z1%04X")
+        Predef.assert(r1 == 0x3C00, s"R mismatch: got 0x${r1.toHexString}")
+        Predef.assert(g1 == 0x4000, s"G mismatch: got 0x${g1.toHexString}")
+        Predef.assert(b1 == 0x4200, s"B mismatch: got 0x${b1.toHexString}")
+        Predef.assert(z1 == 0x1234, s"Z mismatch: got 0x${z1.toHexString}")
+        println("    PASSED")
+
+        // --- Test 2: Z initial value at untouched index ---
+        println("  Test 2: Z initial value at untouched index")
+        val (_, _, _, z2) = readTilePixel(15)
+        println(f"    Index 15: Z=0x$z2%04X (expect 0x7BFF)")
+        utest.assert(z2 == 0x7BFF)
+        println("    PASSED")
+
+        // --- Test 3: Multi-index independence ---
+        println("  Test 3: Multi-index independence")
+        writeTilePixel(5, r=0xAAAA, g=0xBBBB, b=0xCCCC, z=0xDDDD)
+        val (r5, g5, b5, z5) = readTilePixel(5)
+        println(f"    Index 5: R=0x$r5%04X G=0x$g5%04X B=0x$b5%04X Z=0x$z5%04X")
+        utest.assert(r5 == 0xAAAA && g5 == 0xBBBB && b5 == 0xCCCC && z5 == 0xDDDD)
+        // Index 0 should still have its original values
+        val (r0, g0, b0, z0) = readTilePixel(0)
+        println(f"    Index 0: R=0x$r0%04X G=0x$g0%04X B=0x$b0%04X Z=0x$z0%04X (unchanged)")
+        utest.assert(r0 == 0x3C00 && g0 == 0x4000 && b0 == 0x4200 && z0 == 0x1234)
+        println("    PASSED")
+
+        // --- Test 4: Clear resets Z to 0x7BFF and RGB to 0 ---
+        println("  Test 4: Clear tile buffer")
+        writeAddr(borg, MmioMap.BORG_TILE_CTRL_OFFSET, 0x10)  // bit 4 = clear
+        borg.clock.step(20)  // wait for sequential RGB clear
+        val (rc, gc, bc, zc) = readTilePixel(0)
+        println(f"    After clear idx 0: R=0x$rc%04X G=0x$gc%04X B=0x$bc%04X Z=0x$zc%04X")
+        Predef.assert(zc == 0x7BFF, s"Z not cleared: got 0x${zc.toHexString}")
+        Predef.assert(rc == 0 && gc == 0 && bc == 0, s"RGB not cleared: R=$rc G=$gc B=$bc")
+        val (rc5, gc5, bc5, zc5) = readTilePixel(5)
+        println(f"    After clear idx 5: R=0x$rc5%04X G=0x$gc5%04X B=0x$bc5%04X Z=0x$zc5%04X")
+        utest.assert(zc5 == 0x7BFF && rc5 == 0 && gc5 == 0 && bc5 == 0)
+        println("    PASSED")
+
+        // --- Test 5: Write after clear works ---
+        println("  Test 5: Write after clear")
+        writeTilePixel(7, r=0x1111, g=0x2222, b=0x3333, z=0x4444)
+        val (rw, gw, bw, zw) = readTilePixel(7)
+        println(f"    Index 7: R=0x$rw%04X G=0x$gw%04X B=0x$bw%04X Z=0x$zw%04X")
+        utest.assert(rw == 0x1111 && gw == 0x2222 && bw == 0x3333 && zw == 0x4444)
+        println("    PASSED")
+
+        println("=== Tile Buffer MMIO Tests Passed ===\n")
+      }
+    }
   }
 }

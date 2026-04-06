@@ -7,7 +7,7 @@ RESET   := \033[0m
 all: help
 help:
 	@echo "commands: "
-	@echo -e "$(BOLD)  triangle:\t\tRender a single triangle frame.$(RESET)"
+	@echo -e "$(BOLD)  triangle:\t\tRender two triangles.$(RESET)"
 	@echo -e "$(BOLD)  vkcube:\t\tRender a colored cube (12 triangles).$(RESET)"
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
 	@echo -e "  tio:\t\t\tConnect to the serial console."
@@ -15,7 +15,7 @@ help:
 	@echo -e "  borg.json:\t\tRun synthesis."
 	@echo -e "  borg.asc:\t\tRun Place & Route (pnr)."
 	@echo -e "  borg.bin:\t\tGenerate the FPGA bitstream."
-	@echo -e "  resource_check:\tCheck LUT and DFF usage coefficients."
+	@echo -e "  print_resources:\tCheck LUT, DFF, carry, and BRAM usage."
 	@echo -e "  test-all:\t\tRun all FPGA-side tests."
 	@echo -e "  clean:\t\tRemove build artifacts."
 
@@ -61,15 +61,29 @@ borg.bin: borg.asc
 burn: .burned
 
 # Print used FPGA resources (after borg.json has been generated)
-resource_check: yosys.log
-	@grep "SB_LUT4" yosys.log | tail -n1 | awk -v max=$(MAX_LUTS) '{ \
-	        percent=($$1/max)*100; \
-	        printf "SB_LUT4 (Logic): \t%d \t%.0f%%\n", $$1, percent \
-	}'
-	@grep "SB_DFF" yosys.log | tail -n7 | awk -v max=$(MAX_DFFS) '{sum+=$$1;} END { \
-	        percent=(sum/max)*100; \
-	        printf "SB_DFF* (Registers): \t%d \t%.0f%%\n", sum, percent \
-	}'
+# LC estimate: each SB_CARRY requires its own LC (can't share with DFFs).
+# Remaining LUTs and DFFs can share LCs, so effective total ≈ carries + max(luts-carries, dffs).
+print_resources: yosys.log
+	@LUTS=$$(grep "SB_LUT4" yosys.log | tail -n1 | awk '{print $$1}'); \
+	DFFS=$$(grep "SB_DFF" yosys.log | tail -n7 | awk '{sum+=$$1} END{print sum}'); \
+	CARRY=$$(grep "SB_CARRY" yosys.log | tail -n1 | awk '{print $$1}'); \
+	BRAM=$$(grep "SB_RAM40_4K" yosys.log | tail -n1 | awk '{print $$1}'); \
+	LC_EST=$$((CARRY + (LUTS - CARRY > DFFS ? LUTS - CARRY : DFFS))); \
+	LUT_PCT=$$((LUTS * 100 / $(MAX_LUTS))); \
+	DFF_PCT=$$((DFFS * 100 / $(MAX_DFFS))); \
+	LC_PCT=$$((LC_EST * 100 / $(MAX_LUTS))); \
+	printf "SB_LUT4  (Logic):     %5d / %d  %3d%%\n" $$LUTS $(MAX_LUTS) $$LUT_PCT; \
+	printf "SB_DFF*  (Registers): %5d / %d  %3d%%\n" $$DFFS $(MAX_DFFS) $$DFF_PCT; \
+	printf "SB_CARRY (Chains):    %5d\n" $$CARRY; \
+	printf "SB_RAM40 (BRAM):      %5d / 30\n" $$BRAM; \
+	printf "Est. LC  (Placeable): %5d / %d  %3d%%\n" $$LC_EST $(MAX_LUTS) $$LC_PCT; \
+	if [ $$LC_EST -gt $(MAX_LUTS) ]; then \
+		printf "\033[1;31m  ⚠  OVER LIMIT by %d LCs — nextpnr will fail!\033[0m\n" $$((LC_EST - $(MAX_LUTS))); \
+	elif [ $$LC_PCT -gt 95 ]; then \
+		printf "\033[1;33m  ⚠  Tight fit (>95%%) — nextpnr may struggle to place\033[0m\n"; \
+	else \
+		printf "\033[1;32m  ✓  Should fit\033[0m\n"; \
+	fi
 
 ######### Build software and run ###################################################################
 
@@ -104,4 +118,4 @@ clean:
 timing:
 	icetime -d up5k -c $(shell grep 'CLOCK_MHZ' ../software/borg/borg_mmio.h | awk '{print $$3}') borg.asc
 
-.PHONY: all help burn clean reset resource_check timing triangle vkcube tio
+.PHONY: all help burn clean reset print_resources timing triangle vkcube tio

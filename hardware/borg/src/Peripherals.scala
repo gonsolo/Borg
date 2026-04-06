@@ -113,7 +113,7 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
     borg.io.data_write_n := io.data_write_n | Fill(2, !is_borg)
     borg.io.data_read_n := data_read_n_peri | Fill(2, !is_borg)
 
-    val data_from_borg = Cat(0.U(16.W), borg.io.data_out)
+    val data_from_borg = borg.io.data_out  // already 32-bit
     val data_ready_borg = borg.io.data_ready
     val uo_out_borg = borg.io.uo_out
 
