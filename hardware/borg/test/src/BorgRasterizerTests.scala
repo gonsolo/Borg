@@ -93,8 +93,8 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(1)  // let reset take effect
         setBbox(rast, 2, 3, 5, 6)
 
-        val x = rast.io.iterX.peek().litValue.toInt
-        val y = rast.io.iterY.peek().litValue.toInt
+        val x = rast.io.iter.x.peek().litValue.toInt
+        val y = rast.io.iter.y.peek().litValue.toInt
         println(f"  After setBbox(2,3,5,6): iterX=$x, iterY=$y")
         utest.assert(x == 2)
         utest.assert(y == 3)
@@ -116,22 +116,22 @@ object BorgRasterizerTests extends TestSuite {
           (1, 3), (2, 3), (3, 3),
         )
 
-        val ix = rast.io.iterX.peek().litValue.toInt
-        val iy = rast.io.iterY.peek().litValue.toInt
+        val ix = rast.io.iter.x.peek().litValue.toInt
+        val iy = rast.io.iter.y.peek().litValue.toInt
         println(f"  Start: ($ix, $iy)")
         utest.assert(ix == 1 && iy == 1)
 
         for ((ex, ey) <- expected) {
           advance(rast)
-          val ax = rast.io.iterX.peek().litValue.toInt
-          val ay = rast.io.iterY.peek().litValue.toInt
+          val ax = rast.io.iter.x.peek().litValue.toInt
+          val ay = rast.io.iter.y.peek().litValue.toInt
           println(f"  Advance -> ($ax, $ay)  expected ($ex, $ey)")
           utest.assert(ax == ex && ay == ey)
         }
 
         advance(rast)
-        val fx = rast.io.iterX.peek().litValue.toInt
-        val fy = rast.io.iterY.peek().litValue.toInt
+        val fx = rast.io.iter.x.peek().litValue.toInt
+        val fy = rast.io.iter.y.peek().litValue.toInt
         val valid = rast.io.iterValid.peek().litToBoolean
         println(f"  Final: ($fx, $fy) valid=$valid")
         utest.assert(!valid)

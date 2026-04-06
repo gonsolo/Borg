@@ -22,8 +22,7 @@ class BorgCoreIO(val config: FloatConfig) extends Bundle {
   val is_reading   = Input(Bool())
 
   // Rasterizer interface
-  val iterX              = Input(UInt(6.W))
-  val iterY              = Input(UInt(6.W))
+  val iter               = Input(new Coord())
   val triggerShaderValid = Input(Bool())        // pulse from rasterizer: trigger shader
   val triggerShaderPC    = Input(UInt(6.W))      // PC to start at
 
@@ -220,8 +219,8 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val rs1_idx_del = RegEnable(rs1_idx, en)
     regFileA.io.readAddr := rs1_idx
     regFileA.io.readEn := en
-    val resolved_data = Mux(rs1_idx_del === 30.U, coordLut(io.iterX),
-                        Mux(rs1_idx_del === 31.U, coordLut(io.iterY),
+    val resolved_data = Mux(rs1_idx_del === 30.U, coordLut(io.iter.x),
+                        Mux(rs1_idx_del === 31.U, coordLut(io.iter.y),
                         regFileA.io.readData))
     (Mux(en_del, resolved_data, 0.U), rs1_idx_del)
   }
@@ -233,8 +232,8 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val rs2_idx_del = RegEnable(rs2_idx, en)
     regFileB.io.readAddr := rs2_idx
     regFileB.io.readEn := en
-    val resolved_data = Mux(rs2_idx_del === 30.U, coordLut(io.iterX),
-                        Mux(rs2_idx_del === 31.U, coordLut(io.iterY),
+    val resolved_data = Mux(rs2_idx_del === 30.U, coordLut(io.iter.x),
+                        Mux(rs2_idx_del === 31.U, coordLut(io.iter.y),
                         regFileB.io.readData))
     (Mux(en_del, resolved_data, 0.U), rs2_idx_del)
   }
@@ -250,8 +249,8 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val addr_del = RegEnable(addr, en)
     regFileC.io.readAddr := addr
     regFileC.io.readEn := en
-    val resolved_data = Mux(addr_del === 30.U, coordLut(io.iterX),
-                        Mux(addr_del === 31.U, coordLut(io.iterY),
+    val resolved_data = Mux(addr_del === 30.U, coordLut(io.iter.x),
+                        Mux(addr_del === 31.U, coordLut(io.iter.y),
                         regFileC.io.readData))
     (Mux(rs3_en_del, resolved_data, 0.U), addr_del,
      Mux(mmio_en_del, resolved_data, 0.U))

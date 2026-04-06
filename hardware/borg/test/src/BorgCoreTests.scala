@@ -97,8 +97,8 @@ object BorgCoreTests extends TestSuite {
     core.io.data_in.poke(0.U)
     core.io.is_writing.poke(false.B)
     core.io.is_reading.poke(false.B)
-    core.io.iterX.poke(0.U)
-    core.io.iterY.poke(0.U)
+    core.io.iter.x.poke(0.U)
+    core.io.iter.y.poke(0.U)
     core.io.triggerShaderValid.poke(false.B)
     core.io.triggerShaderPC.poke(0.U)
     core.clock.step(1)
@@ -204,8 +204,8 @@ object BorgCoreTests extends TestSuite {
         resetCore(core)
 
         // Set iterX=5, iterY=10 (pixel centers: 5.5, 10.5)
-        core.io.iterX.poke(5.U)
-        core.io.iterY.poke(10.U)
+        core.io.iter.x.poke(5.U)
+        core.io.iter.y.poke(10.U)
 
         // fadd r2, r30, r31 → r2 = coordLut[5] + coordLut[10] = 5.5 + 10.5 = 16.0
         writeReg(core, 0, 0)

@@ -99,8 +99,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     core.io.data_in    := io.data_in
     core.io.is_writing := is_writing
     core.io.is_reading := is_reading
-    core.io.iterX      := rast.io.shaderIterX   // latched pre-advance position for coordLut
-    core.io.iterY      := rast.io.shaderIterY   // latched pre-advance position for coordLut
+    core.io.iter       := rast.io.shaderIter    // latched pre-advance position for coordLut
     core.io.triggerShaderValid := rast.io.triggerCoreValid
     core.io.triggerShaderPC    := rast.io.triggerCorePC
   }
@@ -162,7 +161,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val read_addr_del = RegInit(0.U(9.W))
     read_addr_del := io.address
 
-    val iter_reg = Cat(rast.io.insideFlag, rast.io.iterValid, rast.io.iterY, rast.io.iterX)
+    val iter_reg = Cat(rast.io.insideFlag, rast.io.iterValid, rast.io.iter.y, rast.io.iter.x)
 
     // Tile buffer read: {R[31:16], G[15:0]} and {B[31:16], Z[15:0]}
     val tileRG = Cat(tile.io.readR, tile.io.readG)

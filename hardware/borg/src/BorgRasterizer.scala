@@ -41,10 +41,8 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   val coreAutoRunPending = Input(Bool())
 
   // Outputs
-  val iterX         = Output(UInt(6.W))
-  val iterY         = Output(UInt(6.W))
-  val shaderIterX   = Output(UInt(6.W))  // latched pre-advance position for coordLut
-  val shaderIterY   = Output(UInt(6.W))  // latched pre-advance position for coordLut
+  val iter          = Output(new Coord())
+  val shaderIter    = Output(new Coord())  // latched pre-advance position for coordLut
   val insideFlag    = Output(Bool())
   val iterValid     = Output(Bool())
   val autoRunStall  = Output(Bool())
@@ -60,10 +58,8 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   val phase = RegInit(sIdle)
 
   // --- State ---
-  val iter_x  = RegInit(0.U(6.W))
-  val iter_y  = RegInit(0.U(6.W))
-  val shader_iter_x = RegInit(0.U(6.W))  // pre-advance position for coordLut
-  val shader_iter_y = RegInit(0.U(6.W))  // pre-advance position for coordLut
+  val iter_reg          = RegInit(0.U.asTypeOf(new Coord()))
+  val shader_iter_reg   = RegInit(0.U.asTypeOf(new Coord()))  // pre-advance position for coordLut
   val bbox_x0 = RegInit(0.U(6.W))
   val bbox_y0 = RegInit(0.U(6.W))
   val bbox_x1 = RegInit(0.U(6.W))
@@ -89,8 +85,8 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
     bbox_y0 := io.bboxData(11, 6)
     bbox_x1 := io.bboxData(17, 12)
     bbox_y1 := io.bboxData(23, 18)
-    iter_x  := io.bboxData(5, 0)
-    iter_y  := io.bboxData(11, 6)
+    iter_reg.x  := io.bboxData(5, 0)
+    iter_reg.y  := io.bboxData(11, 6)
   }
 
   // --- Trigger outputs (directly driven, no register delay) ---
@@ -100,13 +96,12 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   // --- Iterator advance ---
   when(io.advance) {
     // Latch current position BEFORE advancing — shader r30/r31 read these
-    shader_iter_x := iter_x
-    shader_iter_y := iter_y
-    when(iter_x + 1.U >= bbox_x1) {
-      iter_x := bbox_x0
-      iter_y := iter_y + 1.U
+    shader_iter_reg := iter_reg
+    when(iter_reg.x + 1.U >= bbox_x1) {
+      iter_reg.x := bbox_x0
+      iter_reg.y := iter_reg.y + 1.U
     }.otherwise {
-      iter_x := iter_x + 1.U
+      iter_reg.x := iter_reg.x + 1.U
     }
     auto_run_stall := true.B
     phase := sRast
@@ -180,11 +175,9 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   // @doc:end
 
   // --- Outputs ---
-  io.iterX        := iter_x
-  io.iterY        := iter_y
-  io.shaderIterX  := shader_iter_x
-  io.shaderIterY  := shader_iter_y
+  io.iter         := iter_reg
+  io.shaderIter   := shader_iter_reg
   io.insideFlag   := inside_flag
-  io.iterValid    := iter_y < bbox_y1
+  io.iterValid    := iter_reg.y < bbox_y1
   io.autoRunStall := auto_run_stall
 }
