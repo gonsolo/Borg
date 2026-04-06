@@ -22,33 +22,7 @@ class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
 
 class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
   val io = IO(new PeripheralsIO(CLOCK_MHZ))
-    // --- Data Bus Logic ---
-    val data_out_r = RegInit(0.U(32.W))
-    val data_out_hold = RegInit(false.B)
-    val data_ready_r = RegInit(false.B)
-
-    val read_req = io.data_read_n =/= MmioMap.BUS_IDLE.U(2.W)
-    val data_from_peri = WireDefault(0.U(32.W))
-    val data_ready_from_peri = WireDefault(false.B)
-
-    val data_read_n_peri = io.data_read_n | Fill(2, data_ready_r)
-
-    when(io.data_read_complete) {
-      data_out_hold := false.B
-    }
-
-    when(!data_out_hold && data_ready_from_peri && read_req) {
-      data_out_hold := true.B
-      data_out_r := data_from_peri
-    }
-    data_ready_r := read_req && data_ready_from_peri
-
-    val write_req = io.data_write_n =/= MmioMap.BUS_IDLE.U(2.W)
-    val write_ready_r = RegNext(write_req && !(data_ready_r || RegNext(write_req)))
-    io.data_out := data_out_r
-    io.data_ready := data_ready_r || write_ready_r
-
-    // --- Address Decoding ---
+    // --- Address Decoding Variables ---
     val PERI_GPIO = MmioMap.userPeriU(MmioMap.USER_PERI_GPIO)
     val PERI_UART = MmioMap.userPeriU(MmioMap.USER_PERI_UART)
     val PERI_BORG = MmioMap.userPeriU(MmioMap.USER_PERI_BORG)
@@ -58,88 +32,140 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
     val is_uart = peri_sel === PERI_UART
     val is_borg = peri_sel === PERI_BORG
 
-    // --- GPIO & Pin Muxing (Flattened for Synthesis) ---
-    val gpio_out = RegInit(0.U(8.W))
+    // --- Data Bus Shared Wires ---
+    val data_from_peri = WireDefault(0.U(32.W))
+    val data_ready_from_peri = WireDefault(false.B)
+    val data_ready_r = RegInit(false.B)
+    val data_read_n_peri = io.data_read_n | Fill(2, data_ready_r)
+
+    // --- Peripheral Outputs ---
+    val gpio_out = Wire(UInt(8.W))
+    val func_sel = Wire(Vec(8, UInt(6.W)))
     
-    // Default pin muxing: pins 0-1 → UART, pins 2-7 → GPIO
-    val func_sel = RegInit(VecInit(
-      PERI_UART.pad(6), PERI_UART.pad(6),
-      PERI_GPIO.pad(6), PERI_GPIO.pad(6), PERI_GPIO.pad(6),
-      PERI_GPIO.pad(6), PERI_GPIO.pad(6), PERI_GPIO.pad(6)
-    ))
+    val uo_out_uart = Wire(UInt(8.W))
+    val interrupt_uart_0 = Wire(Bool())
+    val interrupt_uart_1 = Wire(Bool())
 
-    when(is_gpio) {
-      when(io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO) === MmioMap.GPIO_OUT_OFFSET.U && io.data_write_n =/= MmioMap.BUS_IDLE.U) {
-        gpio_out := io.data_in(7, 0)
-      }
-      when(io.addr_in(MmioMap.GPIO_FUNC_SEL_BIT) === 1.U && io.addr_in(1, 0) === 0.U && io.data_write_n =/= MmioMap.BUS_IDLE.U) {
-        val sel_idx = io.addr_in(MmioMap.GPIO_FUNC_SEL_IDX_HI, MmioMap.GPIO_FUNC_SEL_IDX_LO)
-        func_sel(sel_idx) := io.data_in(5, 0)
-      }
-    }
+    val uo_out_borg = Wire(UInt(8.W))
+    val interrupt_borg = Wire(Bool())
 
-    // Bus Mux
-    data_ready_from_peri := true.B
-    when(is_gpio) {
-      when(io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO) === MmioMap.GPIO_OUT_OFFSET.U) {
-        data_from_peri := Cat(0.U(24.W), gpio_out)
-      } .elsewhen(io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO) === MmioMap.GPIO_IN_OFFSET.U) {
-        data_from_peri := Cat(0.U(24.W), io.ui_in)
-      } .otherwise {
-        data_from_peri := 0.U
-      }
-    }
-
+    // --- Instantiate Sub-Modules inside methods to organize logic ---
     val i_uart = Module(new tinyqv.peri.uart.PeriUart(CLOCK_MHZ))
-    // clk and rst_n are implicit in Chisel modules
-    i_uart.io.ui_in := io.ui_in
-    i_uart.io.address := io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO)
-    i_uart.io.data_in := io.data_in
-    i_uart.io.data_write_n := io.data_write_n | Fill(2, !is_uart)
-    i_uart.io.data_read_n := data_read_n_peri | Fill(2, !is_uart)
-    
-    val data_from_uart = i_uart.io.data_out
-    val data_ready_uart = i_uart.io.data_ready
-    val uo_out_uart = i_uart.io.uo_out
-
-    when(is_uart) {
-      data_from_peri := data_from_uart
-      data_ready_from_peri := data_ready_uart
-    }
-
     val borg = Module(new Borg(FloatConfig.FP16))
-    borg.io.address := io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO)
-    borg.io.data_in := io.data_in
-    borg.io.data_write_n := io.data_write_n | Fill(2, !is_borg)
-    borg.io.data_read_n := data_read_n_peri | Fill(2, !is_borg)
 
-    val data_from_borg = borg.io.data_out  // already 32-bit
-    val data_ready_borg = borg.io.data_ready
-    val uo_out_borg = borg.io.uo_out
+    // --- Wire Everything ---
+    wireDataBus()
+    wireGpio()
+    wireUart()
+    wireBorg()
+    wireOutputAndInterrupts()
 
-    when(is_borg) {
-      data_from_peri := data_from_borg
-      data_ready_from_peri := data_ready_borg
+    private def wireDataBus(): Unit = {
+      val data_out_r = RegInit(0.U(32.W))
+      val data_out_hold = RegInit(false.B)
+      val read_req = io.data_read_n =/= MmioMap.BUS_IDLE.U(2.W)
+
+      when(io.data_read_complete) {
+        data_out_hold := false.B
+      }
+
+      when(!data_out_hold && data_ready_from_peri && read_req) {
+        data_out_hold := true.B
+        data_out_r := data_from_peri
+      }
+      data_ready_r := read_req && data_ready_from_peri
+
+      val write_req = io.data_write_n =/= MmioMap.BUS_IDLE.U(2.W)
+      val write_ready_r = RegNext(write_req && !(data_ready_r || RegNext(write_req)))
+      io.data_out := data_out_r
+      io.data_ready := data_ready_r || write_ready_r
     }
 
-    val uo_out_muxed = Wire(Vec(8, Bool()))
-    for (k <- 0 until 8) {
-      when(func_sel(k) === PERI_UART) {
-        uo_out_muxed(k) := uo_out_uart(k)
-      } .elsewhen(func_sel(k) === PERI_BORG) {
-        uo_out_muxed(k) := uo_out_borg(k)
-      } .otherwise {
-        uo_out_muxed(k) := gpio_out(k)
+    private def wireGpio(): Unit = {
+      val gpio_out_reg = RegInit(0.U(8.W))
+      val func_sel_reg = RegInit(VecInit(
+        PERI_UART.pad(6), PERI_UART.pad(6),
+        PERI_GPIO.pad(6), PERI_GPIO.pad(6), PERI_GPIO.pad(6),
+        PERI_GPIO.pad(6), PERI_GPIO.pad(6), PERI_GPIO.pad(6)
+      ))
+
+      gpio_out := gpio_out_reg
+      func_sel := func_sel_reg
+
+      when(is_gpio) {
+        when(io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO) === MmioMap.GPIO_OUT_OFFSET.U && io.data_write_n =/= MmioMap.BUS_IDLE.U) {
+          gpio_out_reg := io.data_in(7, 0)
+        }
+        when(io.addr_in(MmioMap.GPIO_FUNC_SEL_BIT) === 1.U && io.addr_in(1, 0) === 0.U && io.data_write_n =/= MmioMap.BUS_IDLE.U) {
+          val sel_idx = io.addr_in(MmioMap.GPIO_FUNC_SEL_IDX_HI, MmioMap.GPIO_FUNC_SEL_IDX_LO)
+          func_sel_reg(sel_idx) := io.data_in(5, 0)
+        }
+      }
+
+      data_ready_from_peri := true.B
+      when(is_gpio) {
+        when(io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO) === MmioMap.GPIO_OUT_OFFSET.U) {
+          data_from_peri := Cat(0.U(24.W), gpio_out_reg)
+        } .elsewhen(io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO) === MmioMap.GPIO_IN_OFFSET.U) {
+          data_from_peri := Cat(0.U(24.W), io.ui_in)
+        } .otherwise {
+          data_from_peri := 0.U
+        }
       }
     }
-    io.uo_out := uo_out_muxed.asUInt
 
-    val interrupts = Wire(Vec(14, Bool()))
-    for (i <- 0 until 14) { interrupts(i) := false.B }
-    interrupts(0) := i_uart.io.user_interrupt(0)
-    interrupts(1) := i_uart.io.user_interrupt(1)
-    interrupts(2) := borg.io.user_interrupt
-    io.user_interrupts := interrupts.asUInt
+    private def wireUart(): Unit = {
+      i_uart.io.ui_in := io.ui_in
+      i_uart.io.address := io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO)
+      i_uart.io.data_in := io.data_in
+      i_uart.io.data_write_n := io.data_write_n | Fill(2, !is_uart)
+      i_uart.io.data_read_n := data_read_n_peri | Fill(2, !is_uart)
+      
+      uo_out_uart := i_uart.io.uo_out
+      interrupt_uart_0 := i_uart.io.user_interrupt(0)
+      interrupt_uart_1 := i_uart.io.user_interrupt(1)
+
+      when(is_uart) {
+        data_from_peri := i_uart.io.data_out
+        data_ready_from_peri := i_uart.io.data_ready
+      }
+    }
+
+    private def wireBorg(): Unit = {
+      borg.io.address := io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO)
+      borg.io.data_in := io.data_in
+      borg.io.data_write_n := io.data_write_n | Fill(2, !is_borg)
+      borg.io.data_read_n := data_read_n_peri | Fill(2, !is_borg)
+
+      uo_out_borg := borg.io.uo_out
+      interrupt_borg := borg.io.user_interrupt
+
+      when(is_borg) {
+        data_from_peri := borg.io.data_out
+        data_ready_from_peri := borg.io.data_ready
+      }
+    }
+
+    private def wireOutputAndInterrupts(): Unit = {
+      val uo_out_muxed = Wire(Vec(8, Bool()))
+      for (k <- 0 until 8) {
+        when(func_sel(k) === PERI_UART) {
+          uo_out_muxed(k) := uo_out_uart(k)
+        } .elsewhen(func_sel(k) === PERI_BORG) {
+          uo_out_muxed(k) := uo_out_borg(k)
+        } .otherwise {
+          uo_out_muxed(k) := gpio_out(k)
+        }
+      }
+      io.uo_out := uo_out_muxed.asUInt
+
+      val interrupts = Wire(Vec(14, Bool()))
+      for (i <- 0 until 14) { interrupts(i) := false.B }
+      interrupts(0) := interrupt_uart_0
+      interrupts(1) := interrupt_uart_1
+      interrupts(2) := interrupt_borg
+      io.user_interrupts := interrupts.asUInt
+    }
 }
 
 

@@ -89,92 +89,98 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val rast = Module(new BorgRasterizer(config))
   val tile = Module(new BorgTileBuffer())
 
-  // --- BorgCore wiring ---
-  core.io.address    := io.address
-  core.io.data_in    := io.data_in
-  core.io.is_writing := is_writing
-  core.io.is_reading := is_reading
-  core.io.iterX      := rast.io.shaderIterX   // latched pre-advance position for coordLut
-  core.io.iterY      := rast.io.shaderIterY   // latched pre-advance position for coordLut
-  core.io.triggerShaderValid := rast.io.triggerCoreValid
-  core.io.triggerShaderPC    := rast.io.triggerCorePC
+  wireCore()
+  wireRasterizer()
+  wireTileBuffer()
+  wireMmioRead()
 
-  // --- BorgRasterizer wiring ---
-  rast.io.setBbox   := is_writing && io.address === MmioMap.BORG_ITER_BBOX_OFFSET.U
-  rast.io.bboxData  := io.data_in(23, 0)
-  rast.io.setFragPC := is_writing && io.address === MmioMap.BORG_FRAG_PC_OFFSET.U
-  rast.io.fragPCData := io.data_in(5, 0)
-  rast.io.advance   := is_writing && io.address === MmioMap.BORG_ITER_OFFSET.U
-
-  // Pipeline write-back snoop
-  rast.io.pipeWriteEn   := core.io.pipeWriteEn
-  rast.io.pipeWriteAddr := core.io.pipeWriteAddr
-  rast.io.pipeWriteData := core.io.pipeWriteData
-
-  // Core state feedback
-  rast.io.coreRunning        := core.io.running
-  rast.io.coreAutoRunPending := core.io.autoRunPending
-
-  // --- BorgTileBuffer wiring (Step 11.2) ---
-  // MMIO write to BORG_TILE_CTRL: set read index (triggers BRAM read) or clear
-  val tileReadIdx = RegInit(0.U(4.W))
-  when(is_writing && io.address === MmioMap.BORG_TILE_CTRL_OFFSET.U) {
-    tileReadIdx := io.data_in(3, 0)
+  private def wireCore(): Unit = {
+    core.io.address    := io.address
+    core.io.data_in    := io.data_in
+    core.io.is_writing := is_writing
+    core.io.is_reading := is_reading
+    core.io.iterX      := rast.io.shaderIterX   // latched pre-advance position for coordLut
+    core.io.iterY      := rast.io.shaderIterY   // latched pre-advance position for coordLut
+    core.io.triggerShaderValid := rast.io.triggerCoreValid
+    core.io.triggerShaderPC    := rast.io.triggerCorePC
   }
-  tile.io.clearEn := is_writing && io.address === MmioMap.BORG_TILE_CTRL_OFFSET.U && io.data_in(4)
 
-  // MMIO write to tile buffer (manual write for testing; auto-write comes in 11.3)
-  // Two-step protocol: (1) write CTRL to set index, (2) write BZ to shadow B/Z,
-  // (3) write RG to trigger the actual tile buffer write with all 4 channels.
-  val tileShadowB = RegInit(0.U(16.W))
-  val tileShadowZ = RegInit(0.U(16.W))
-  when(is_writing && io.address === MmioMap.BORG_TILE_BZ_OFFSET.U) {
-    tileShadowB := io.data_in(31, 16)
-    tileShadowZ := io.data_in(15, 0)
+  private def wireRasterizer(): Unit = {
+    rast.io.setBbox   := is_writing && io.address === MmioMap.BORG_ITER_BBOX_OFFSET.U
+    rast.io.bboxData  := io.data_in(23, 0)
+    rast.io.setFragPC := is_writing && io.address === MmioMap.BORG_FRAG_PC_OFFSET.U
+    rast.io.fragPCData := io.data_in(5, 0)
+    rast.io.advance   := is_writing && io.address === MmioMap.BORG_ITER_OFFSET.U
+
+    // Pipeline write-back snoop
+    rast.io.pipeWriteEn   := core.io.pipeWriteEn
+    rast.io.pipeWriteAddr := core.io.pipeWriteAddr
+    rast.io.pipeWriteData := core.io.pipeWriteData
+
+    // Core state feedback
+    rast.io.coreRunning        := core.io.running
+    rast.io.coreAutoRunPending := core.io.autoRunPending
   }
-  tile.io.writeEn  := is_writing && io.address === MmioMap.BORG_TILE_RG_OFFSET.U
-  tile.io.writeIdx := tileReadIdx
-  tile.io.writeR   := io.data_in(31, 16)
-  tile.io.writeG   := io.data_in(15, 0)
-  tile.io.writeB   := tileShadowB
-  tile.io.writeZ   := tileShadowZ
 
-  // Read port: trigger BRAM read when CTRL is written (data ready by next access)
-  // Use data_in directly for readIdx during CTRL write (tileReadIdx hasn't updated yet)
-  val ctrlWriting = is_writing && io.address === MmioMap.BORG_TILE_CTRL_OFFSET.U
-  tile.io.readIdx := Mux(ctrlWriting, io.data_in(3, 0), tileReadIdx)
-  tile.io.readEn  := ctrlWriting
+  private def wireTileBuffer(): Unit = {
+    // MMIO write to BORG_TILE_CTRL: set read index (triggers BRAM read) or clear
+    val tileReadIdx = RegInit(0.U(4.W))
+    when(is_writing && io.address === MmioMap.BORG_TILE_CTRL_OFFSET.U) {
+      tileReadIdx := io.data_in(3, 0)
+    }
+    tile.io.clearEn := is_writing && io.address === MmioMap.BORG_TILE_CTRL_OFFSET.U && io.data_in(4)
 
-  // Z peek (for future Step 12)
-  tile.io.peekZIdx := Mux(ctrlWriting, io.data_in(3, 0), tileReadIdx)
+    // MMIO write to tile buffer (manual write for testing; auto-write comes in 11.3)
+    // Two-step protocol: (1) write CTRL to set index, (2) write BZ to shadow B/Z,
+    // (3) write RG to trigger the actual tile buffer write with all 4 channels.
+    val tileShadowB = RegInit(0.U(16.W))
+    val tileShadowZ = RegInit(0.U(16.W))
+    when(is_writing && io.address === MmioMap.BORG_TILE_BZ_OFFSET.U) {
+      tileShadowB := io.data_in(31, 16)
+      tileShadowZ := io.data_in(15, 0)
+    }
+    tile.io.writeEn  := is_writing && io.address === MmioMap.BORG_TILE_RG_OFFSET.U
+    tile.io.writeIdx := tileReadIdx
+    tile.io.writeR   := io.data_in(31, 16)
+    tile.io.writeG   := io.data_in(15, 0)
+    tile.io.writeB   := tileShadowB
+    tile.io.writeZ   := tileShadowZ
 
-  // @doc:mmio
-  // --- Read Mux ---
-  val read_addr_del = RegInit(0.U(9.W))
-  read_addr_del := io.address
+    // Read port: trigger BRAM read when CTRL is written (data ready by next access)
+    // Use data_in directly for readIdx during CTRL write (tileReadIdx hasn't updated yet)
+    val ctrlWriting = is_writing && io.address === MmioMap.BORG_TILE_CTRL_OFFSET.U
+    tile.io.readIdx := Mux(ctrlWriting, io.data_in(3, 0), tileReadIdx)
+    tile.io.readEn  := ctrlWriting
 
-  val iter_reg = Cat(rast.io.insideFlag, rast.io.iterValid, rast.io.iterY, rast.io.iterX)
+    // Z peek (for future Step 12)
+    tile.io.peekZIdx := Mux(ctrlWriting, io.data_in(3, 0), tileReadIdx)
+  }
 
-  // Tile buffer read: {R[31:16], G[15:0]} and {B[31:16], Z[15:0]}
-  val tileRG = Cat(tile.io.readR, tile.io.readG)
-  val tileBZ = Cat(tile.io.readB, tile.io.readZ)
+  private def wireMmioRead(): Unit = {
+    // @doc:mmio
+    // --- Read Mux ---
+    val read_addr_del = RegInit(0.U(9.W))
+    read_addr_del := io.address
 
-  io.data_out := Mux(read_addr_del >= MmioMap.BORG_REG_OFFSET.U && read_addr_del < MmioMap.BORG_IMEM_OFFSET.U,
-    core.io.regReadData,
-    Mux(read_addr_del === MmioMap.BORG_ITER_OFFSET.U,
-      iter_reg,
-      Mux(read_addr_del === MmioMap.BORG_CONTROL_OFFSET.U,
-        core.io.statusReg,
-        Mux(read_addr_del === MmioMap.BORG_TILE_RG_OFFSET.U,
-          tileRG,
-          Mux(read_addr_del === MmioMap.BORG_TILE_BZ_OFFSET.U,
-            tileBZ,
-            0.U)))))
+    val iter_reg = Cat(rast.io.insideFlag, rast.io.iterValid, rast.io.iterY, rast.io.iterX)
 
-  val read_ready_del = RegNext(is_reading, false.B)
-  io.data_ready := Mux(rast.io.autoRunStall, false.B,
-    (io.data_read_n === 3.U) || read_ready_del)
-  io.uo_out := 0.U
-  io.user_interrupt := false.B
-  // @doc:end
+    // Tile buffer read: {R[31:16], G[15:0]} and {B[31:16], Z[15:0]}
+    val tileRG = Cat(tile.io.readR, tile.io.readG)
+    val tileBZ = Cat(tile.io.readB, tile.io.readZ)
+
+    io.data_out := MuxCase(0.U, Seq(
+      (read_addr_del >= MmioMap.BORG_REG_OFFSET.U && read_addr_del < MmioMap.BORG_IMEM_OFFSET.U) -> core.io.regReadData,
+      (read_addr_del === MmioMap.BORG_ITER_OFFSET.U) -> iter_reg,
+      (read_addr_del === MmioMap.BORG_CONTROL_OFFSET.U) -> core.io.statusReg,
+      (read_addr_del === MmioMap.BORG_TILE_RG_OFFSET.U) -> tileRG,
+      (read_addr_del === MmioMap.BORG_TILE_BZ_OFFSET.U) -> tileBZ
+    ))
+
+    val read_ready_del = RegNext(is_reading, false.B)
+    io.data_ready := Mux(rast.io.autoRunStall, false.B,
+      (io.data_read_n === 3.U) || read_ready_del)
+    io.uo_out := 0.U
+    io.user_interrupt := false.B
+    // @doc:end
+  }
 }
