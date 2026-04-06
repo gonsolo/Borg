@@ -169,12 +169,26 @@ instead of driving every pixel. **This is the key transition from
   - *Step 10 (now)*: CPU → MMIO writes → on-chip buffer (32 entries, scaffolding)
   - *Step 15 (GPU DMA)*: GPU fetches uniforms, IMEM, and registers from PSRAM autonomously
 
-### Step 11: On-Chip Tile Buffer (BRAM) ✅ (2026-04-06)
+### Step 11: On-Chip Tile Buffer (BRAM)
 
 4×4 pixel tile buffer in Block RAM (RGB + Z). Rasterizer writes on-chip; a
 burst flush writes the completed tile to PSRAM. Eliminates per-pixel PSRAM
 round-trips. Tile-based approach matches mobile GPU architecture (Mali,
 PowerVR, Adreno). Estimate: 1–2 weeks.
+
+- **Step 11.1: Standalone `BorgTileBuffer` Module** ✅ (2026-04-06)
+    Standalone Chisel module: 16-entry Z register array (256 FFs) + 16-entry RGB
+    BRAM (48 bits wide). Write/read/clear ports. Unit tested without FSM wiring.
+- **Step 11.2: MMIO Wiring**
+    Wire tile buffer into `Borg.scala`, add MMIO addresses for read (flush) and
+    clear. Firmware can manually write/read the tile buffer. MMIO round-trip test.
+- **Step 11.3: Auto-Write from Fragment Shader**
+    After FRAG completes for inside pixel, auto-write RGB+Z from fragment output
+    registers to tile buffer. CPU no longer reads per-pixel results. New FSM phase
+    `sTileWrite`. Chisel test + Verilator.
+- **Step 11.4: Firmware Tile-Loop Restructuring**
+    Restructure `shade_tiles()` to loop in 4×4 tile chunks. After each tile,
+    flush tile buffer → PSRAM. Verified by `make triangle` golden image.
 
 ### Step 12: Hardware Z-Buffer Unit
 
