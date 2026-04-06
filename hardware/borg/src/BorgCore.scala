@@ -15,11 +15,8 @@ import chisel3.util.*
   */
 
 class BorgCoreIO(val config: FloatConfig) extends Bundle {
-  // MMIO bus (directly from BorgIO)
-  val address      = Input(UInt(9.W))
-  val data_in      = Input(UInt(32.W))
-  val is_writing   = Input(Bool())
-  val is_reading   = Input(Bool())
+  // MMIO bus
+  val bus = Flipped(new BorgBusIO())
 
   // Rasterizer interface
   val iter               = Input(new Coord())
@@ -157,10 +154,10 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     }
 
     // Control register: bit 0 = start, bit 1 = reset
-    when(io.is_writing && io.address === MmioMap.BORG_CONTROL_OFFSET.U) {
-      when(io.data_in(0)) { running := true.B }
-      when(io.data_in(1)) {
-        programCounter := io.data_in(MmioMap.BORG_CTL_PC_MSB, MmioMap.BORG_CTL_PC_LSB)
+    when(io.bus.is_writing && io.bus.address === MmioMap.BORG_CONTROL_OFFSET.U) {
+      when(io.bus.data_in(0)) { running := true.B }
+      when(io.bus.data_in(1)) {
+        programCounter := io.bus.data_in(MmioMap.BORG_CTL_PC_MSB, MmioMap.BORG_CTL_PC_LSB)
         running := false.B
         busy_counter := 0.U
       }
@@ -179,14 +176,14 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     }
 
     // IMEM write
-    when(io.is_writing && io.address >= MmioMap.BORG_IMEM_OFFSET.U && io.address < MmioMap.BORG_IMEM_END.U) {
-      val imem_idx = (io.address - MmioMap.BORG_IMEM_OFFSET.U) >> 2
-      instructionMemory.write(imem_idx, io.data_in)
+    when(io.bus.is_writing && io.bus.address >= MmioMap.BORG_IMEM_OFFSET.U && io.bus.address < MmioMap.BORG_IMEM_END.U) {
+      val imem_idx = (io.bus.address - MmioMap.BORG_IMEM_OFFSET.U) >> 2
+      instructionMemory.write(imem_idx, io.bus.data_in)
     }
 
-    when(io.is_writing && io.address >= MmioMap.BORG_UNIFORM_OFFSET.U && io.address < MmioMap.BORG_UNIFORM_END.U) {
-      val uniform_idx = (io.address - MmioMap.BORG_UNIFORM_OFFSET.U) >> 2
-      uniformMem.write(uniform_idx(4, 0), io.data_in(config.totalBits - 1, 0))
+    when(io.bus.is_writing && io.bus.address >= MmioMap.BORG_UNIFORM_OFFSET.U && io.bus.address < MmioMap.BORG_UNIFORM_END.U) {
+      val uniform_idx = (io.bus.address - MmioMap.BORG_UNIFORM_OFFSET.U) >> 2
+      uniformMem.write(uniform_idx(4, 0), io.bus.data_in(config.totalBits - 1, 0))
     }
   }
 
@@ -241,11 +238,11 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
 
   /** Port C: rs3 during execution, MMIO register access when idle. */
   private def wirePortC(): (UInt, UInt, UInt) = {
-    val mmio_en = !running && !is_busy && (io.is_reading || io.is_writing) && io.address >= MmioMap.BORG_REG_OFFSET.U && io.address < MmioMap.BORG_IMEM_OFFSET.U
+    val mmio_en = !running && !is_busy && (io.bus.is_reading || io.bus.is_writing) && io.bus.address >= MmioMap.BORG_REG_OFFSET.U && io.bus.address < MmioMap.BORG_IMEM_OFFSET.U
     val rs3_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
-    val addr = Mux(running || is_busy, regs.rs3, (io.address - MmioMap.BORG_REG_OFFSET.U) >> 2)
+    val addr = Mux(running || is_busy, regs.rs3, (io.bus.address - MmioMap.BORG_REG_OFFSET.U) >> 2)
     val en = mmio_en || rs3_en
-    val mmio_en_del = RegNext(mmio_en && io.is_reading, false.B)
+    val mmio_en_del = RegNext(mmio_en && io.bus.is_reading, false.B)
     val rs3_en_del = RegNext(rs3_en, false.B)
     val addr_del = RegEnable(addr, en)
     regFileC.io.readAddr := addr
@@ -325,15 +322,15 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
       fma_result: UInt, fstep_result: UInt, frcp_result: UInt,
       is_fstep_reg: Bool, is_frcp_reg: Bool, mmio_reg_data: UInt
   ): Unit = {
-    val mmio_write = io.is_writing && io.address >= MmioMap.BORG_REG_OFFSET.U && io.address < MmioMap.BORG_IMEM_OFFSET.U
+    val mmio_write = io.bus.is_writing && io.bus.address >= MmioMap.BORG_REG_OFFSET.U && io.bus.address < MmioMap.BORG_IMEM_OFFSET.U
     val pipe_write = running && is_busy && busy_counter === 1.U
     val w_en = mmio_write || pipe_write
-    val w_addr = Mux(pipe_write, regs.rd, (io.address - MmioMap.BORG_REG_OFFSET.U) >> 2)
+    val w_addr = Mux(pipe_write, regs.rd, (io.bus.address - MmioMap.BORG_REG_OFFSET.U) >> 2)
 
     val w_data = Mux(pipe_write,
       Mux(is_fstep_reg, fstep_result,
         Mux(is_frcp_reg, frcp_result, fma_result)),
-      io.data_in(config.totalBits - 1, 0))
+      io.bus.data_in(config.totalBits - 1, 0))
 
     // Expose write-back for rasterizer snooping
     io.pipeWriteEn   := pipe_write

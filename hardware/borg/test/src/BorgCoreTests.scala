@@ -39,24 +39,24 @@ object BorgCoreTests extends TestSuite {
 
   /** Perform a write to BorgCore (simulating the edge-detected is_writing pulse). */
   def writeCore(core: BorgCore, addr: Int, data: BigInt): Unit = {
-    core.io.address.poke(addr.U)
-    core.io.data_in.poke(data.U)
-    core.io.is_writing.poke(true.B)
-    core.io.is_reading.poke(false.B)
+    core.io.bus.address.poke(addr.U)
+    core.io.bus.data_in.poke(data.U)
+    core.io.bus.is_writing.poke(true.B)
+    core.io.bus.is_reading.poke(false.B)
     core.clock.step(1)
-    core.io.is_writing.poke(false.B)
+    core.io.bus.is_writing.poke(false.B)
     core.clock.step(1)
   }
 
   /** Read a register from BorgCore via the regReadData output. */
   def readReg(core: BorgCore, regIdx: Int): BigInt = {
     val addr = MmioMap.BORG_REG_OFFSET + regIdx * 4
-    core.io.address.poke(addr.U)
-    core.io.is_reading.poke(true.B)
-    core.io.is_writing.poke(false.B)
+    core.io.bus.address.poke(addr.U)
+    core.io.bus.is_reading.poke(true.B)
+    core.io.bus.is_writing.poke(false.B)
     core.clock.step(1)
     val result = core.io.regReadData.peek().litValue
-    core.io.is_reading.poke(false.B)
+    core.io.bus.is_reading.poke(false.B)
     result
   }
 
@@ -79,24 +79,24 @@ object BorgCoreTests extends TestSuite {
     var idle = false
     var watchdog = 0
     while (!idle && watchdog < 200) {
-      core.io.address.poke(MmioMap.BORG_CONTROL_OFFSET.U)
-      core.io.is_reading.poke(true.B)
-      core.io.is_writing.poke(false.B)
+      core.io.bus.address.poke(MmioMap.BORG_CONTROL_OFFSET.U)
+      core.io.bus.is_reading.poke(true.B)
+      core.io.bus.is_writing.poke(false.B)
       core.clock.step(1)
       val status = core.io.statusReg.peek().litValue
       idle = (status & 2) != 0
       watchdog += 1
     }
-    core.io.is_reading.poke(false.B)
+    core.io.bus.is_reading.poke(false.B)
     utest.assert(idle)
   }
 
   /** Set default idle state on all inputs. */
   def idleInputs(core: BorgCore): Unit = {
-    core.io.address.poke(0.U)
-    core.io.data_in.poke(0.U)
-    core.io.is_writing.poke(false.B)
-    core.io.is_reading.poke(false.B)
+    core.io.bus.address.poke(0.U)
+    core.io.bus.data_in.poke(0.U)
+    core.io.bus.is_writing.poke(false.B)
+    core.io.bus.is_reading.poke(false.B)
     core.io.iter.x.poke(0.U)
     core.io.iter.y.poke(0.U)
     core.io.triggerShaderValid.poke(false.B)

@@ -95,10 +95,10 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   wireMmioRead()
 
   private def wireCore(): Unit = {
-    core.io.address    := io.address
-    core.io.data_in    := io.data_in
-    core.io.is_writing := is_writing
-    core.io.is_reading := is_reading
+    core.io.bus.address    := io.address
+    core.io.bus.data_in    := io.data_in
+    core.io.bus.is_writing := is_writing
+    core.io.bus.is_reading := is_reading
     core.io.iter       := rast.io.shaderIter    // latched pre-advance position for coordLut
     core.io.triggerShaderValid := rast.io.triggerCoreValid
     core.io.triggerShaderPC    := rast.io.triggerCorePC
