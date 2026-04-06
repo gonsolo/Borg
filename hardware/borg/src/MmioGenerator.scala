@@ -3,6 +3,7 @@
 
 package borg
 
+import chisel3._
 import Instructions._
 
 /** Code generator for firmware headers and Python constants bound to MmioMap. */
@@ -20,6 +21,8 @@ object MmioGenerator {
     def emitInstrR4(name: String, hexOp: String): Unit
     def emitInstrR1(name: String, hexOp: String): Unit
     def emitInstr0(name: String, hexOp: String): Unit
+
+    def emitBundle(structName: String, bundle: Bundle): Unit = {}
   }
 
   class CEmitter(w: java.io.PrintWriter) extends Emitter(w) {
@@ -38,6 +41,40 @@ object MmioGenerator {
       w.println(s"#ifndef $name")
       w.println(s"#define $name 0x$hex")
       w.println(s"#endif")
+    }
+
+    override def emitBundle(structName: String, bundle: Bundle): Unit = {
+      w.println()
+      w.println("typedef union {")
+      w.println("    struct {")
+
+      var totalWidth = 0
+      def walk(b: Data, prefix: String = ""): Unit = {
+        b match {
+          case bun: Bundle =>
+            // In Chisel 3, elements naturally yield in reverse-declaration order,
+            // mapping correctly to C bitfield assignments starting at LSB.
+            bun.elements.toSeq.foreach { case (name, data) =>
+              val newPrefix = if (prefix.isEmpty) name else s"${prefix}_$name"
+              walk(data, newPrefix)
+            }
+          case v: chisel3.Element =>
+            val width = v.getWidth
+            w.println(s"        uint32_t $prefix : $width;")
+            totalWidth += width
+        }
+      }
+      
+      walk(bundle)
+      
+      val pad = 32 - totalWidth
+      if (pad > 0) {
+        w.println(s"        uint32_t _pad  : $pad;")
+      }
+      w.println("    };")
+      w.println("    uint32_t raw;")
+      w.println(s"} $structName;")
+      w.println()
     }
 
     def emitInstrR(name: String, hexOp: String): Unit = {
@@ -99,6 +136,28 @@ object MmioGenerator {
       // Not typically needed in python host, but added for completeness
       w.println(s"def encode_rv32_$name(): return 0x$hexOp")
     }
+
+    override def emitBundle(structName: String, bundle: Bundle): Unit = {
+      var totalWidth = 0
+      val sn = structName.toUpperCase.replace("_T", "")
+      def walk(b: Data, prefix: String = ""): Unit = {
+        b match {
+          case bun: Bundle =>
+            bun.elements.toSeq.reverse.foreach { case (name, data) =>
+              val newPrefix = if (prefix.isEmpty) name else s"${prefix}_$name"
+              walk(data, newPrefix)
+            }
+          case v: chisel3.Element =>
+            val width = v.getWidth
+            val px = prefix.toUpperCase
+            w.println(s"${sn}_${px}_SHIFT = $totalWidth")
+            w.println(s"${sn}_${px}_MASK = ${(1 << width) - 1}")
+            totalWidth += width
+        }
+      }
+      walk(bundle)
+      w.println()
+    }
   }
 
   private def emitAllConstants(e: Emitter): Unit = {
@@ -153,13 +212,13 @@ object MmioGenerator {
     e.defMacro("BORG_CTL_PC", "pc", "(((pc) & BORG_CTL_PC_MASK) << BORG_CTL_PC_SHIFT)")
 
     e.defReg("BORG_ITER_BBOX", "BORG_BASE + BORG_ITER_BBOX_OFFSET")
+    e.emitBundle("borg_bbox_t", new Bbox())
     e.defReg("BORG_ITER",      "BORG_BASE + BORG_ITER_OFFSET")
-    e.defReg("BORG_FRAG_PC",   "BORG_BASE + BORG_FRAG_PC_OFFSET")
-    e.defMacro("BORG_ITER_PACK_BBOX", "x0,y0,x1,y1", "(((y1)<<BORG_ITER_BBOX_Y1_SHIFT)|((x1)<<BORG_ITER_BBOX_X1_SHIFT)|((y0)<<BORG_ITER_BBOX_Y0_SHIFT)|((x0)<<BORG_ITER_BBOX_X0_SHIFT))")
     e.defMacro("BORG_ITER_X", "v", "(((v) >> BORG_ITER_X_SHIFT) & BORG_ITER_COORD_MASK)")
     e.defMacro("BORG_ITER_Y", "v", "(((v) >> BORG_ITER_Y_SHIFT) & BORG_ITER_COORD_MASK)")
     e.defMacro("BORG_ITER_VALID", "v", "(((v) >> BORG_ITER_VALID_SHIFT) & 1)")
     e.defMacro("BORG_ITER_INSIDE", "v", "(((v) >> BORG_ITER_INSIDE_SHIFT) & 1)")
+    e.defReg("BORG_FRAG_PC",   "BORG_BASE + BORG_FRAG_PC_OFFSET")
 
     e.defRegArray("BORG_UNIFORM", "BORG_BASE + BORG_UNIFORM_OFFSET")
 

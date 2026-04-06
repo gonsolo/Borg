@@ -745,8 +745,8 @@ object BorgTests extends TestSuite {
            
            resetAndWait(borg)
            // We must set valid BBOX so that advance puts it in sRast.
-           // BBOX = (0,0) to (4,4) -> packBbox(0,0,4,4) = 4<<12 | 4<<18 = 0x100000 | 0x4000 = 0x104000
-           writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, 0x104000)
+           // packBbox(0,0,4,4) = 0<<18 | 0<<12 | 4<<6 | 4 = 260
+           writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, 260)
            writeAddr(borg, 128, instr)
            writeAddr(borg, 132, 0) // halt
            // Trigger auto-run via BORG_ITER to enter sRast phase where snooping happens
@@ -780,7 +780,7 @@ object BorgTests extends TestSuite {
         println("  Test 4: Negative-Zero is inside (magnitude is 0)")
         writeAddr(borg, 16, floatToBits(0.0f, config))
         resetAndWait(borg)
-        writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, 0x104000)
+        writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, 260)
         writeAddr(borg, 128, encodeInstruction(config, FNEG, rs1 = 4, rs2 = 4, rd = 1)) // r1 = -0.0
         writeAddr(borg, 132, 0)
         writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
@@ -818,7 +818,7 @@ object BorgTests extends TestSuite {
         borg.clock.step(1)
         
         // Set up bounding box: (0,0)-(2,2)
-        val bbox = (0 | (0 << 6) | (2 << 12) | (2 << 18))
+        val bbox = (0 << 18) | (0 << 12) | (2 << 6) | 2
         writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, bbox)
 
         // Write BORG_ITER to advance — should auto-trigger shader at PC=0
@@ -896,7 +896,7 @@ object BorgTests extends TestSuite {
 
         // Setup BORG_ITER_BBOX to [10, 20] to [10, 20]
         borg.io.address.poke(MmioMap.BORG_ITER_BBOX_OFFSET.U)
-        borg.io.data_in.poke(((20 << 18) | (20 << 12) | (10 << 6) | 10).U)
+        borg.io.data_in.poke(((10 << 18) | (10 << 12) | (20 << 6) | 20).U)
         borg.io.data_write_n.poke(2.U)
         borg.clock.step(1)
         borg.io.data_write_n.poke(3.U)

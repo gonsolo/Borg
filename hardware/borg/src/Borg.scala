@@ -106,7 +106,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
 
   private def wireRasterizer(): Unit = {
     rast.io.setBbox   := is_writing && io.address === MmioMap.BORG_ITER_BBOX_OFFSET.U
-    rast.io.bboxData  := io.data_in(23, 0)
+    rast.io.bboxData  := io.data_in.asTypeOf(chiselTypeOf(rast.io.bboxData))
     rast.io.setFragPC := is_writing && io.address === MmioMap.BORG_FRAG_PC_OFFSET.U
     rast.io.fragPCData := io.data_in(5, 0)
     rast.io.advance   := is_writing && io.address === MmioMap.BORG_ITER_OFFSET.U

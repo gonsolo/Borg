@@ -164,6 +164,8 @@ instead of driving every pixel. **This is the key transition from
     - *10.6.6.2: Ensure the fragment shader temporaries do not corrupt the edge signs monitored by `BorgRasterizer.scala` via `io.pipeWriteEn` snooping.*
     - *10.6.6.3: Resolve rendering issues caused by negation mismatches (`BORG_FP16_NEG`) in software versus hardware shader `fadd.s` operations.*
     - *10.6.6.4: Clean up unused logging code and legacy tile pixel writers.*
+  - **10.6.7: Cross-Language Structural Reflection** ✅ (2026-04-06)
+    Replaced brittle, manually hardcoded C-packing macros (`BORG_ITER_PACK_BBOX`) with a dynamic Chisel-to-C struct generator inside `MmioGenerator.scala`. By recursively walking `Bundle.elements`, the exact hardware logical layouts of structures like `Coord` and `Bbox` are dynamically reflected into the C firmware headers as `borg_bbox_t` structs. This decouples the hardware layout from arbitrary software shifts and permanently solves C-bitfield layout mismatch regressions.
 
   **Uniform data path progression:**
   - *Step 10 (now)*: CPU → MMIO writes → on-chip buffer (32 entries, scaffolding)
@@ -188,6 +190,8 @@ PowerVR, Adreno). Estimate: 1–2 weeks.
     Improved `print_resources` Makefile target with carry chain and LC estimation.
     FPGA: 3859 LUTs (73%), 1549 DFFs (29%), 10 BRAMs — comfortably within budget.
     Verified: 31/31 Chisel tests, Verilator triangle+vkcube, FPGA triangle+vkcube.
+- **Step 11.2.5: ColorZ Hardware Structure**
+    Refactor the Tile Buffer's IO ports and internal signals to use a unified `ColorZ` Chisel bundle (R, G, B, Z). Leverage `MmioGenerator.scala` to natively reflect this structure into `borg_colorz_t` for the firmware. This sets the structural foundation needed before auto-wiring the FSM.
 - **Step 11.3: Auto-Write from Fragment Shader**
     After FRAG completes for inside pixel, auto-write RGB+Z from fragment output
     registers to tile buffer. CPU no longer reads per-pixel results. New FSM phase
@@ -225,6 +229,13 @@ base pointer and transfer descriptor to an MMIO control register; the DMA
 engine fetches the data autonomously. This frees ~384 bytes of MMIO address
 space (registers + IMEM) and eliminates CPU bus contention during shader setup.
 Estimate: 1 week.
+
+### Step 15.5: Standard Bus Architecture (TileLink Migration)
+
+Refactor the raw `address === OFFSET` and `data_in` multiplexing inside `Borg.scala` to adhere to standard system-on-chip paradigms.
+
+- **15.5.1: MmioBus Bundle & RegMap**: Consolidate raw `data_in`/`address`/`we` lines into a unified `DecoupledIO`-style `BorgBusIO` bundle. Create a local `RegMap` helper trait and `RegField` wrappers to programmatically generate the decode Muxes, isolating bus protocol code from GPU logic.
+- **15.5.2: TileLink / Diplomacy Integration**: Convert `Borg` from a standard `Module` to a RocketChip `LazyModule`. Attach a `TLRegisterNode` and feed it the `RegMap` configuration. The TileLink compiler will then auto-generate cycle-accurate crossbars, ACKs, and masks, granting Borg out-of-the-box interoperability with ecosystem generators like Chipyard/LiteX.
 
 ### Step 16: Vertex Shader Auto-Sequencer
 

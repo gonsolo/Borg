@@ -344,7 +344,13 @@ static bbox_t compute_bbox(const xy16x3_t *pos) {
 static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
   bbox_t bb = compute_bbox(&tri->screen_pos);
 
-  BORG_ITER_BBOX = BORG_ITER_PACK_BBOX(bb.x0, bb.y0, bb.x1, bb.y1);
+  borg_bbox_t hw_bb = {
+    .min_x = bb.x0,
+    .min_y = bb.y0,
+    .max_x = bb.x1,
+    .max_y = bb.y1
+  };
+  BORG_ITER_BBOX = hw_bb.raw;
 
   // --- Load ALL uniforms once per triangle ---
 

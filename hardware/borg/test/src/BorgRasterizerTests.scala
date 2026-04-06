@@ -16,12 +16,7 @@ object BorgRasterizerTests extends TestSuite {
 
   val config = FloatConfig.FP16
 
-  /** Pack bbox fields into 24-bit MMIO word. */
-  def packBbox(x0: Int, y0: Int, x1: Int, y1: Int): BigInt =
-    BigInt(x0 & 0x3F) |
-    (BigInt(y0 & 0x3F) << 6) |
-    (BigInt(x1 & 0x3F) << 12) |
-    (BigInt(y1 & 0x3F) << 18)
+
 
   /** Set all control inputs to idle (no clock step). */
   def pokeIdle(rast: BorgRasterizer): Unit = {
@@ -40,7 +35,10 @@ object BorgRasterizerTests extends TestSuite {
   def setBbox(rast: BorgRasterizer, x0: Int, y0: Int, x1: Int, y1: Int): Unit = {
     pokeIdle(rast)
     rast.io.setBbox.poke(true.B)
-    rast.io.bboxData.poke(packBbox(x0, y0, x1, y1).U)
+    rast.io.bboxData.min.x.poke(x0.U)
+    rast.io.bboxData.min.y.poke(y0.U)
+    rast.io.bboxData.max.x.poke(x1.U)
+    rast.io.bboxData.max.y.poke(y1.U)
     rast.clock.step(1)
     rast.io.setBbox.poke(false.B)
     rast.clock.step(1)

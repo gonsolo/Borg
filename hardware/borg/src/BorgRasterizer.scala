@@ -22,7 +22,7 @@ import chisel3.util._
 class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   // Bbox write (directly from MMIO data_in bits)
   val setBbox     = Input(Bool())
-  val bboxData    = Input(UInt(24.W))     // {bbox_y1[23:18], bbox_x1[17:12], bbox_y0[11:6], bbox_x0[5:0]}
+  val bboxData    = Input(new Bbox())
 
   // Fragment shader PC write (from MMIO write to BORG_FRAG_PC)
   val setFragPC   = Input(Bool())
@@ -60,10 +60,7 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   // --- State ---
   val iter_reg          = RegInit(0.U.asTypeOf(new Coord()))
   val shader_iter_reg   = RegInit(0.U.asTypeOf(new Coord()))  // pre-advance position for coordLut
-  val bbox_x0 = RegInit(0.U(6.W))
-  val bbox_y0 = RegInit(0.U(6.W))
-  val bbox_x1 = RegInit(0.U(6.W))
-  val bbox_y1 = RegInit(0.U(6.W))
+  val bbox_reg = RegInit(0.U.asTypeOf(new Bbox()))
 
   val frag_start_pc = RegInit(0.U(6.W))
 
@@ -79,14 +76,9 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
     frag_start_pc := io.fragPCData
   }
 
-  // --- Bbox write ---
   when(io.setBbox) {
-    bbox_x0 := io.bboxData(5, 0)
-    bbox_y0 := io.bboxData(11, 6)
-    bbox_x1 := io.bboxData(17, 12)
-    bbox_y1 := io.bboxData(23, 18)
-    iter_reg.x  := io.bboxData(5, 0)
-    iter_reg.y  := io.bboxData(11, 6)
+    bbox_reg := io.bboxData
+    iter_reg := io.bboxData.min
   }
 
   // --- Trigger outputs (directly driven, no register delay) ---
@@ -97,8 +89,8 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   when(io.advance) {
     // Latch current position BEFORE advancing — shader r30/r31 read these
     shader_iter_reg := iter_reg
-    when(iter_reg.x + 1.U >= bbox_x1) {
-      iter_reg.x := bbox_x0
+    when(iter_reg.x + 1.U >= bbox_reg.max.x) {
+      iter_reg.x := bbox_reg.min.x
       iter_reg.y := iter_reg.y + 1.U
     }.otherwise {
       iter_reg.x := iter_reg.x + 1.U
@@ -178,6 +170,6 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   io.iter         := iter_reg
   io.shaderIter   := shader_iter_reg
   io.insideFlag   := inside_flag
-  io.iterValid    := iter_reg.y < bbox_y1
+  io.iterValid    := iter_reg.y < bbox_reg.max.y
   io.autoRunStall := auto_run_stall
 }
