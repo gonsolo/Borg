@@ -220,11 +220,8 @@ void borg_clear_texture(void) { tex.psram_offset = -1; }
 static void shade_and_write_pixel(int frame, int px, int py, rgb16_t color,
                                   fp16_t z, uv16_t uv_interp,
                                   const texture_t *t) {
-  // Depth test: read current z, compare (closer = smaller).
-  // Skip pixels with negative Z (behind camera) — their sign bit would
-  // corrupt the unsigned Z-buffer comparison.
-  if (!fp16_ge_zero(z))
-    return;
+  // Hardware Z-test (Step 12) handles intra-tile depth in the tile buffer.
+  // We still write Z to PSRAM for cross-triangle depth ordering.
   int zb_idx = frame * FRAME_STRIDE + FRAME_FB_SIZE + (py * BORG_FB_WIDTH + px);
   fp16_t old_z = PSRAM_OUT(zb_idx);
   if (z >= old_z)

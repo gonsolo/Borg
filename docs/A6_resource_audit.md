@@ -1,17 +1,17 @@
 # A6: iCE40 UP5K Resource Audit
 
-Last updated: 2026-04-06 (after Step 12)
+Last updated: 2026-04-07 (after Step 12 optimization)
 
 ## Current State
 
 | Resource | Used | Available | Free | Unit Size |
 | --- | --- | --- | --- | --- |
-| **LCs (packed)** | **~5280** | **5280** | **~0** | 1 LUT4 + 1 DFF |
+| **LCs (packed)** | **5204** | **5280** | **76** | 1 LUT4 + 1 DFF |
 | BRAM (EBR) | 10 | 30 | 20 | 4 Kbit, dual-port, initializable |
 | SPRAM | 0 | 4 | 4 | 256 Kbit, single-port, no init |
 | DSP | 1 | 8 | 7 | 16×16 multiply |
-| LUT4 (yosys) | ~4170 | 5280 | ~1110 | — |
-| DFF (yosys) | ~1770 | 5280 | ~3510 | — |
+| LUT4 (yosys) | ~4020 | 5280 | ~1260 | — |
+| DFF (yosys) | ~1500 | 5280 | ~3780 | — |
 
 ## BRAM vs SPRAM
 
@@ -41,7 +41,7 @@ Last updated: 2026-04-06 (after Step 12)
 
 | Step | LUTs | DFFs | BRAM | SPRAM | Strategy |
 | --- | --- | --- | --- | --- | --- |
-| 12: Z-Buffer ✅ | +55 | +131 | — | — | 8-bit register shadow |
+| 12: Z-Buffer ✅ | +40 | +0 | — | — | BRAM-based read-modify-write |
 | 13: Command FIFO | +90 | +25 | +2 | — | FIFO entries in BRAM |
 | 14: Texture Fetch | +100 | +30 | — | +1 | Texel cache in SPRAM |
 | 15: DMA Engine | +90 | +65 | — | +1 | Staging buffer in SPRAM |

@@ -269,11 +269,11 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val recZero = recFNFromFN(config.exp, config.sig, 0.U(config.totalBits.W))
 
     // Latch op type for the 4-cycle pipeline
-    val is_mul_reg = RegInit(false.B)
-    val is_fma_reg = RegInit(false.B)
-    val is_fneg_reg = RegInit(false.B)
-    val is_fstep_reg = RegInit(false.B)
-    val is_frcp_reg = RegInit(false.B)
+    val is_mul_reg = Reg(Bool())
+    val is_fma_reg = Reg(Bool())
+    val is_fneg_reg = Reg(Bool())
+    val is_fstep_reg = Reg(Bool())
+    val is_frcp_reg = Reg(Bool())
     when(start) {
       is_mul_reg := opFlags.mul
       is_fma_reg := opFlags.fma

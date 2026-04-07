@@ -53,6 +53,10 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   val tileWriteIdx  = Output(UInt(4.W))
   val tileWriteData = Output(new ColorZ(16))
   val tileWriteEn   = Output(Bool())
+
+  // Tile Buffer Z-test interface (Step 12)
+  val tileZTestEn   = Output(Bool())     // assert with tileWriteEn for Z-tested write
+  val tileZTestBusy = Input(Bool())      // tile buffer is busy with Z-test
 }
 
 class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module {
@@ -64,7 +68,7 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
 
   // --- State ---
   val iter_reg          = RegInit(0.U.asTypeOf(new Coord()))
-  val shader_iter_reg   = RegInit(0.U.asTypeOf(new Coord()))  // pre-advance position for coordLut
+  val shader_iter_reg   = Reg(new Coord())  // pre-advance position for coordLut (no reset needed: set before use)
   val bbox_reg = RegInit(0.U.asTypeOf(new Bbox()))
 
   val frag_start_pc = RegInit(0.U(6.W))
@@ -78,10 +82,10 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
 
   // Fragment output snooping registers (Hardware ABI: R=r26, G=r27, B=r28, Z=r29)
   // Always 16-bit to match Tile Buffer capacity (if core is FP32, it sends FP16 in low bits)
-  val frag_r = RegInit(0.U(16.W))
-  val frag_g = RegInit(0.U(16.W))
-  val frag_b = RegInit(0.U(16.W))
-  val frag_z = RegInit(0.U(16.W))
+  val frag_r = Reg(UInt(16.W))  // no reset needed: written by shader before read
+  val frag_g = Reg(UInt(16.W))
+  val frag_b = Reg(UInt(16.W))
+  val frag_z = Reg(UInt(16.W))
 
   // --- Fragment PC write ---
   when(io.setFragPC) {
@@ -99,6 +103,7 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
 
   // Tile buffer write default (no write)
   io.tileWriteEn   := false.B
+  io.tileZTestEn   := false.B
   io.tileWriteIdx  := iter_reg.x(1, 0) | (iter_reg.y(1, 0) << 2.U)
   io.tileWriteData := 0.U.asTypeOf(new ColorZ(16))
 
@@ -142,7 +147,7 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   }
 
   when(phase === sTileWrite) {
-    // Push the snooped values to the tile buffer (Step 11.3 auto-write)
+    // Push the snooped values to the tile buffer with Z-test (Step 12)
     // We use the pre-advanced coordinates for index!
     io.tileWriteIdx := shader_iter_reg.x(1, 0) | (shader_iter_reg.y(1, 0) << 2.U)
     io.tileWriteData.r := frag_r
@@ -150,9 +155,13 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
     io.tileWriteData.b := frag_b
     io.tileWriteData.z := frag_z
     io.tileWriteEn := true.B
+    io.tileZTestEn := true.B
 
-    phase := sIdle
-    auto_run_stall := false.B
+    // Wait for tile buffer Z-test to complete (2-cycle read→compare→write)
+    when(!io.tileZTestBusy) {
+      phase := sIdle
+      auto_run_stall := false.B
+    }
   }
 
   // =========================================================================

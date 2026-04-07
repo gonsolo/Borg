@@ -150,14 +150,16 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     writeColor.z := tileShadowZ
     tile.io.writeData := Mux(rast.io.tileWriteEn, rast.io.tileWriteData, writeColor)
 
+    // Z-test: only the rasterizer auto-write path uses Z-tested writes (Step 12)
+    // MMIO writes are unconditional (no Z-test)
+    tile.io.zTestEn := rast.io.tileZTestEn
+    rast.io.tileZTestBusy := tile.io.zTestBusy
+
     // Read port: trigger BRAM read when CTRL is written (data ready by next access)
     // Use data_in directly for readIdx during CTRL write (tileReadIdx hasn't updated yet)
     val ctrlWriting = is_writing && io.address === MmioMap.BORG_TILE_CTRL_OFFSET.U
     tile.io.readIdx := Mux(ctrlWriting, io.data_in(3, 0), tileReadIdx)
     tile.io.readEn  := ctrlWriting
-
-    // Z peek (for future Step 12)
-    tile.io.peekZIdx := Mux(ctrlWriting, io.data_in(3, 0), tileReadIdx)
   }
 
   private def wireMmioRead(): Unit = {

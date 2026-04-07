@@ -206,7 +206,7 @@ PowerVR, Adreno). Estimate: 1–2 weeks.
     then CPU reads from `BorgTileBuffer` and blasts 16 pixels to PSRAM in a burst.
     Implemented in C firmware. Verified functional in Arcilator and Verilator.
 
-### Step 12: Hardware Z-Buffer Unit ✅ (2026-04-06)
+### Step 12: Hardware Z-Buffer Unit ✅ (2026-04-07)
 
 FP16 comparator at the tile buffer write port — depth test in hardware instead
 of firmware. 2-cycle read→compare→conditional-write state machine inside

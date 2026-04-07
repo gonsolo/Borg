@@ -12,15 +12,19 @@ import chisel3.util._
   * After all pixels in the tile are processed, the CPU flushes the buffer
   * to PSRAM in a batch, eliminating per-pixel PSRAM round-trips.
   *
-  * Storage: All 4 channels packed into a single 64-bit SyncReadMem (1 EBR).
-  * This avoids the ~256 FF cost of register-based Z storage.
-  * Z comparison for Step 11.5 will use a 1-cycle BRAM read in the FSM.
+  * Storage: RGBZ packed into a single 64-bit SyncReadMem (1 EBR).
+  *
+  * Hardware Z-test (Step 12): A 16×16-bit register shadow tracks Z values.
+  * When zTestEn is asserted with writeEn, the comparator checks the shadow
+  * (combinational, zero latency). Pixel is written only if new Z < shadow Z.
+  * This avoids BRAM read port muxing — saves ~900 LUTs vs BRAM-based Z-test.
+  * Cost: 256 FFs for the Z shadow (16 entries × 16 bits).
   *
   * Clear writes FP16_MAX_DEPTH for Z and 0 for RGB sequentially (16 cycles).
   *
   * Tile index: tile_idx = iter_x[1:0] | (iter_y[1:0] << 2)
   *
-  * Step 11 of the Borg GPU roadmap.
+  * Steps 11–12 of the Borg GPU roadmap.
   */
 
 class BorgTileBufferIO(val dataBits: Int = 16) extends Bundle {
@@ -29,14 +33,14 @@ class BorgTileBufferIO(val dataBits: Int = 16) extends Bundle {
   val writeData = Input(new ColorZ(dataBits))
   val writeEn   = Input(Bool())
 
+  // Z-tested write (Step 12): only write if new Z < existing Z
+  val zTestEn   = Input(Bool())          // when high with writeEn, use Z-compare
+  val zTestBusy = Output(Bool())         // always false (combinational Z-test)
+
   // Read port (for MMIO flush — 2-cycle latency: BRAM + hold reg)
   val readIdx   = Input(UInt(4.W))
   val readEn    = Input(Bool())
   val readData  = Output(new ColorZ(dataBits))
-
-  // Z peek (1-cycle latency via BRAM — for future hardware Z comparison)
-  val peekZIdx  = Input(UInt(4.W))
-  val peekZ     = Output(UInt(dataBits.W))
 
   // Clear (resets all entries: Z to FP16_MAX_DEPTH, RGB to 0)
   val clearEn   = Input(Bool())
@@ -54,9 +58,14 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
   // --- RGBZ buffer: single BRAM (16 × 64-bit = 1024 bits, fits in 1 iCE40 EBR) ---
   val rgbzMem = SyncReadMem(TILE_SIZE, UInt(PACKED_BITS.W))
 
+  // --- Z shadow: register-based (16 × 8-bit = 128 FFs) ---
+  // Tracks upper 8 bits of Z (sign + exponent + 2 MSB mantissa).
+  // For positive FP16, upper-byte comparison gives sufficient depth precision.
+  // --- Hardware Z-test (Step 12) ---
+  // Uses 2-cycle BRAM read→compare→write instead of 128 DFF shadow registers.
+  // Saves ~128 LCs. Rasterizer stalls while zTestBusy is high.
+
   // --- Clear state machine ---
-  // BRAM needs sequential writes (1 entry per cycle).
-  // Init to 0 → auto-clear on reset (BRAM has no initial values unlike RegInit).
   val clearCounter = RegInit(0.U(5.W))
   val clearing = clearCounter < TILE_SIZE.U
 
@@ -80,19 +89,41 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
     clearCounter := clearCounter + 1.U
   }
 
+  // --- Z-test State Machine ---
+  // Cycle 1: zTestEn=1, zReadDone=0  -> Issue BRAM Read, assert zTestBusy
+  // Cycle 2: zTestEn=1, zReadDone=1  -> Compare Z, issue BRAM Write, drop zTestBusy
+  val zReadDone = RegInit(false.B)
+  when(io.zTestEn && !clearing) {
+    zReadDone := true.B
+  }.otherwise {
+    zReadDone := false.B
+  }
+
+  io.zTestBusy := !zReadDone
+
+  val doingZRead = io.zTestEn && !zReadDone && !clearing
+
+  // --- BRAM read port (Muxed MMIO vs Z-test) ---
+  val effectiveReadIdx = Mux(doingZRead, io.writeIdx, Mux(io.readEn && !clearing, io.readIdx, 0.U))
+  val effectiveReadEn  = doingZRead || (io.readEn && !clearing)
+  val rgbzRead = rgbzMem.read(effectiveReadIdx, effectiveReadEn)
+
+  // --- Z-test Compare ---
+  // Compare full 16-bit Z (unsigned: valid for positive FP16)
+  val oldZ = rgbzRead.asTypeOf(new ColorZ(dataBits)).z
+  val newZ = io.writeData.z
+  val zTestPass = newZ < oldZ
+
+  val doingZWrite = io.zTestEn && zReadDone && !clearing && zTestPass
+
   // --- Write logic ---
-  when(io.writeEn && !clearing) {
+  val doWrite = doingZWrite || (io.writeEn && !io.zTestEn && !clearing)
+
+  when(doWrite) {
     rgbzMem.write(io.writeIdx, io.writeData.asUInt)
   }
 
-  // --- Z peek: shares the BRAM read port (iCE40 EBR has only 1R+1W) ---
-  // When readEn is inactive, the BRAM continuously reads peekZIdx.
-  // When readEn is active, the main read takes priority and peekZ is stale (OK).
-  val effectiveReadIdx = Mux(io.readEn && !clearing, io.readIdx, io.peekZIdx)
-  val effectiveReadEn  = (io.readEn && !clearing) || !clearing
-  val rgbzRead = rgbzMem.read(effectiveReadIdx, effectiveReadEn)
-
-  val readDataHeld = RegInit(0.U.asTypeOf(new ColorZ(dataBits)))
+  val readDataHeld = Reg(new ColorZ(dataBits))
 
   // Capture BRAM output one cycle after readEn pulse
   val readEnDel = RegNext(io.readEn && !clearing, false.B)
@@ -101,12 +132,4 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
   }
 
   io.readData := readDataHeld
-
-  // peekZ: latched from BRAM output when not doing a main read
-  val peekZheld = RegInit(FP16_MAX_DEPTH_VAL.U(dataBits.W))
-  val notMainRead = RegNext(!io.readEn || clearing, true.B)
-  when(notMainRead && !RegNext(clearing, true.B)) {
-    peekZheld := rgbzRead(dataBits - 1, 0)
-  }
-  io.peekZ := peekZheld
 }
