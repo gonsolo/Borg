@@ -103,7 +103,7 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 ## Milestones
 
 | Task | Status |
-|------|--------|
+| --- | --- |
 | FPU on software simulator (Chisel + cocotb) | ✅ Done |
 | FPU integrated into TinyQV SoC | ✅ Done |
 | Vertex shader on FPGA | ✅ Done |
@@ -127,7 +127,7 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 ## Software Bill of Materials
 
 | Component | Description | License |
-|-----------|-------------|---------|
+| --- | --- | --- |
 | [Chisel](https://github.com/chipsalliance/chisel) | Hardware construction language (Scala → Verilog) | Apache-2.0 |
 | [TinyQV](https://github.com/MichaelBell/tinyQV) | RV32I RISC-V CPU core (rewritten in Chisel) | Apache-2.0 |
 | [Berkeley HardFloat](https://github.com/ucb-bar/berkeley-hardfloat) | IEEE-754 floating-point units (FMA) | BSD-3-Clause |
