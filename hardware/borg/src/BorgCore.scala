@@ -25,6 +25,11 @@ class BorgCoreIO(val config: FloatConfig) extends Bundle {
   val uniformPage        = Input(UInt(1.W))      // which 32-entry uniform page the GPU reads from
   val uniformWritePage   = Input(UInt(1.W))      // which 32-entry page MMIO writes target
 
+  // Control signals from SystemRDL register block
+  val controlStart       = Input(Bool())
+  val controlReset       = Input(Bool())
+  val controlStartPC     = Input(UInt(6.W))
+
   // Pipeline write-back snoop (exposed to rasterizer)
   val pipeWriteEn   = Output(Bool())
   val pipeWriteAddr = Output(UInt(log2Ceil(MmioMap.BORG_NUM_REGS).W))
@@ -36,9 +41,6 @@ class BorgCoreIO(val config: FloatConfig) extends Bundle {
 
   // MMIO register read data (for top-level read mux)
   val regReadData = Output(UInt(config.totalBits.W))
-
-  // Status register (for top-level read mux)
-  val statusReg = Output(UInt(config.totalBits.W))
 }
 
 class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
@@ -114,7 +116,6 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
   io.running := running
   io.autoRunPending := auto_run_pending
   io.regReadData := mmio_reg_data
-  io.statusReg := Cat(0.U((config.totalBits - 2).W), !running, 0.U(1.W))
   // @doc:end
 
   // =========================================================================
@@ -156,17 +157,15 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
       }
     }
 
-    // Control register: bit 0 = start, bit 1 = reset
-    when(io.bus.is_writing && io.bus.address === MmioMap.BORG_CONTROL_OFFSET.U) {
-      when(io.bus.data_in(0)) { 
-        running := true.B 
-        running_by_rasterizer := false.B
-      }
-      when(io.bus.data_in(1)) {
-        programCounter := io.bus.data_in(MmioMap.BORG_CTL_PC_MSB, MmioMap.BORG_CTL_PC_LSB)
-        running := false.B
-        busy_counter := 0.U
-      }
+    // Control register from RDL (singlepulse fields)
+    when(io.controlStart) { 
+      running := true.B 
+      running_by_rasterizer := false.B
+    }
+    when(io.controlReset) {
+      programCounter := io.controlStartPC
+      running := false.B
+      busy_counter := 0.U
     }
 
     // Auto-trigger from rasterizer (Step 10.6.2: carries PC)

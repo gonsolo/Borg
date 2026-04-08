@@ -105,7 +105,7 @@ object BorgTests extends TestSuite {
     borg.io.data_write_n.poke(3.U)
     borg.io.data_read_n.poke(3.U)
     borg.clock.step(1)
-    writeAddr(borg, MmioMap.BORG_CONTROL_OFFSET, 2)
+    writeAddr(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
   }
 
   def waitForHalt(borg: Borg, maxCycles: Int = 1000): Unit = {
@@ -118,7 +118,7 @@ object BorgTests extends TestSuite {
     borg.clock.step(1)
     
     do {
-      borg.io.address.poke(MmioMap.BORG_CONTROL_OFFSET.U)
+      borg.io.address.poke(BorgGpuRegs.status_offset)
       borg.io.data_read_n.poke(2.U)
       borg.io.data_write_n.poke(3.U)
       borg.clock.step(1)
@@ -131,7 +131,7 @@ object BorgTests extends TestSuite {
   }
 
   def startAndWaitForHalt(borg: Borg): Unit = {
-    writeAddr(borg, MmioMap.BORG_CONTROL_OFFSET, 1)
+    writeAddr(borg, BorgGpuRegs.control_offset.litValue.toInt, 1)
     waitForHalt(borg)
   }
 
@@ -502,7 +502,7 @@ object BorgTests extends TestSuite {
         borg.clock.step(1)
         
         // --- Status register: idle when not running ---
-        borg.io.address.poke(MmioMap.BORG_CONTROL_OFFSET.U)
+        borg.io.address.poke(BorgGpuRegs.status_offset)
         borg.io.data_read_n.poke(2.U)
         borg.io.data_write_n.poke(3.U)
         borg.clock.step(1)
@@ -935,7 +935,7 @@ object BorgTests extends TestSuite {
         // We cannot use MMIO back-door reads if running is TRUE!
         var status: BigInt = 0
         do {
-            borg.io.address.poke(MmioMap.BORG_CONTROL_OFFSET.U)
+            borg.io.address.poke(BorgGpuRegs.status_offset)
             borg.io.data_read_n.poke(2.U)
             borg.io.data_write_n.poke(3.U)
             borg.clock.step(1)

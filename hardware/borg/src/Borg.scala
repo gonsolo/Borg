@@ -123,11 +123,10 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     core.io.triggerShaderValid := rast.io.triggerCoreValid
     core.io.triggerShaderPC    := rast.io.triggerCorePC
 
-    val uniformWritePage = RegInit(0.U(1.W))
-    when(is_writing && io.address === MmioMap.BORG_CONTROL_OFFSET.U) {
-      uniformWritePage := io.data_in(5)
-    }
-    core.io.uniformWritePage   := uniformWritePage
+    core.io.controlStart     := rdlRegs.io.hw.control_start
+    core.io.controlReset     := rdlRegs.io.hw.control_reset_pipeline
+    core.io.controlStartPC   := rdlRegs.io.hw.control_start_pc
+    core.io.uniformWritePage := rdlRegs.io.hw.control_uniform_write_page
   }
 
   private def wireRasterizer(): Unit = {
@@ -217,12 +216,15 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val tileBZ = Cat(tile.io.readData.b, tile.io.readData.z)
 
     val stsFifoFull = !fifo.io.enq.ready
-    val statusRegFull = core.io.statusReg | (stsFifoFull << 2)
+    
+    // Status register hookup
+    rdlRegs.io.hw.status_idle := !core.io.running
+    rdlRegs.io.hw.status_fifo_full := stsFifoFull
 
     io.data_out := MuxCase(0.U, Seq(
       (read_addr_del >= MmioMap.BORG_REG_OFFSET.U && read_addr_del < MmioMap.BORG_IMEM_OFFSET.U) -> core.io.regReadData,
       (read_addr_del === MmioMap.BORG_ITER_OFFSET.U) -> iter_reg,
-      (read_addr_del === MmioMap.BORG_CONTROL_OFFSET.U) -> statusRegFull,
+      (read_addr_del === BorgGpuRegs.status_offset) -> rdlRegs.io.bus.readData,
       (read_addr_del === MmioMap.BORG_TILE_RG_OFFSET.U) -> tileRG,
       (read_addr_del === MmioMap.BORG_TILE_BZ_OFFSET.U) -> tileBZ
     ))

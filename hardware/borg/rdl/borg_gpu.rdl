@@ -355,16 +355,11 @@ addrmap borg_gpu {
     // ---- Pixel Iterator Position / Advance: 0x164 ----
     iter_reg_t iter;
 
-    // ---- Control (write) / Status (read): 0x168 ----
-    // Note: In hardware, writes decode as control_reg_t fields and reads
-    // return status_reg_t fields.  SystemRDL models this as two overlapping
-    // registers.  The RTL generator must emit the appropriate mux.
+    // ---- Control (write only): 0x168 ----
     control_reg_t control;
-    // status_reg_t shares the same address — modeled as an alias:
-    // (PeakRDL supports `alias` for overlapping R/W semantics.)
 
-    // ---- Fragment Shader Start PC: 0x16C ----
-    frag_pc_reg_t frag_pc;
+    // ---- Status (read only): 0x16C ----
+    status_reg_t status;
 
     // ---- Uniform Buffer (1 page × 32 entries): 0x170 – 0x1EC ----
     uniform_reg_t uniform[32] += 0x4;

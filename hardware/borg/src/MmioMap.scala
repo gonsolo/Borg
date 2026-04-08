@@ -110,15 +110,13 @@ object MmioMap {
   val BORG_IMEM_END       = BORG_IMEM_OFFSET + (BORG_IMEM_SLOTS * 4)
   val BORG_ITER_BBOX_OFFSET = BORG_IMEM_END      // Pixel iterator: write bbox
   val BORG_ITER_OFFSET      = BORG_ITER_BBOX_OFFSET + 4  // Pixel iterator: advance
-  val BORG_CONTROL_OFFSET   = BORG_ITER_OFFSET + 4  // Control / status register
-  val BORG_FRAG_PC_OFFSET   = BORG_CONTROL_OFFSET + 4 // Fragment shader start PC for auto-chaining
 
   // Uniform buffer (2 pages × 32 entries = 64 hardware entries; scaffolding until DMA in step 16)
   // MMIO window covers one page (32 entries); uniformWritePage selects the target page.
   val BORG_UNIFORM_PAGE_ENTRIES = 32
   val BORG_UNIFORM_PAGES        = 2
   val BORG_UNIFORM_ENTRIES      = BORG_UNIFORM_PAGE_ENTRIES * BORG_UNIFORM_PAGES // 64 hardware entries
-  val BORG_UNIFORM_OFFSET       = BORG_FRAG_PC_OFFSET + 4
+  val BORG_UNIFORM_OFFSET       = BORG_ITER_OFFSET + 12
   val BORG_UNIFORM_END          = BORG_UNIFORM_OFFSET + BORG_UNIFORM_PAGE_ENTRIES * 4  // MMIO window = 1 page
 
   // Tile buffer (Step 11.2): indexed read for flush, clear via CTRL
@@ -147,19 +145,6 @@ object MmioMap {
   val BORG_ITER_BBOX_Y0_SHIFT = BORG_ITER_BBOX_X0_SHIFT + BORG_ITER_COORD_BITS
   val BORG_ITER_BBOX_X1_SHIFT = BORG_ITER_BBOX_Y0_SHIFT + BORG_ITER_COORD_BITS
   val BORG_ITER_BBOX_Y1_SHIFT = BORG_ITER_BBOX_X1_SHIFT + BORG_ITER_COORD_BITS
-
-  // Borg control register bits (write to BORG_CONTROL)
-  val BORG_CTL_START = 1  // bit 0: start execution
-  val BORG_CTL_RESET = 2  // bit 1: reset pipeline
-  val BORG_CTL_PC_SHIFT = 5    // bit 5: start of PC offset
-  val BORG_CTL_PC_BITS  = 6    // width of PC offset
-  val BORG_CTL_PC_MSB   = BORG_CTL_PC_SHIFT + BORG_CTL_PC_BITS - 1
-  val BORG_CTL_PC_LSB   = BORG_CTL_PC_SHIFT
-  val BORG_CTL_PC_MASK  = (1 << BORG_CTL_PC_BITS) - 1
-
-  // Borg status register bits (read from BORG_STATUS)
-  val BORG_STS_IDLE      = 2  // bit 1: pipeline idle (not running)
-  val BORG_STS_FIFO_FULL = 4  // bit 2: Command FIFO is full
 
 
 

@@ -106,7 +106,7 @@ static void run_vertex_shader(const fp16_t *uniforms, const fp16_t *attrs,
     BORG_UNIFORM(s->uniform_regs[i]) = uniforms[i];
 
   for (int v = 0; v < NUM_VERTICES; v++) {
-    BORG_CONTROL = BORG_CTL_RESET;
+    BORG_GPU->control = CONTROL_REG_T__RESET_PIPELINE_bm;
     for (int i = 0; i < s->num_uniforms; i++)
       BORG_UNIFORM(s->uniform_regs[i]) = uniforms[i];
     for (int i = 0; i < s->num_attributes; i++)
@@ -124,7 +124,6 @@ static void run_vertex_shader(const fp16_t *uniforms, const fp16_t *attrs,
 
 void borgCreateDevice(void) {
   STARTUP_DELAY();
-  BORG_FRAG_PC = 0; // Explicitly disable uninitialized auto-chaining
   UART_BAUD = UART_BAUD_DEFAULT;
   puts_uart("Borg pipeline\r\n");
   unsigned int t_init = get_cycles();
@@ -357,7 +356,7 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
 
   // Ping-pong the uniform pages (Step 13.4)
   current_uniform_page ^= 1;
-  BORG_CONTROL = (current_uniform_page << 5);
+  BORG_GPU->control = (current_uniform_page << CONTROL_REG_T__UNIFORM_WRITE_PAGE_bp);
 
   // --- Load ALL uniforms once per triangle ---
   // Rasterizer uniforms (u0-u11): edge constants + negated vertex positions
@@ -410,7 +409,7 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
       BORG_TILE_CTRL = (1 << 4);
 
       // Wait for space in the command FIFO
-      while (BORG_STATUS & (1 << BORG_STS_FIFO_FULL));
+      while (BORG_GPU->status & STATUS_REG_T__FIFO_FULL_bm);
 
       // Enqueue the command for this hardware tile
       // cmd = uniformPage[30] | fragPC[29:24] | bbox[23:0]
@@ -593,7 +592,7 @@ void borg_present(int frame) {
   // Wait for the GPU to finish the last draw command before finalizing the
   // frame!
   unsigned int t_wait = get_cycles();
-  while (!(BORG_STATUS & BORG_STS_IDLE))
+  while (!(BORG_GPU->status & STATUS_REG_T__IDLE_bm))
     ;
   t_draw_cycles += get_cycles() - t_wait;
 

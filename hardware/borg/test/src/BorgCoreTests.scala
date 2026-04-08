@@ -68,26 +68,27 @@ object BorgCoreTests extends TestSuite {
   def writeImem(core: BorgCore, slot: Int, instr: BigInt): Unit =
     writeCore(core, MmioMap.BORG_IMEM_OFFSET + slot * 4, instr)
 
-  /** Reset the core (bit 1 of control register). */
-  def resetCore(core: BorgCore): Unit =
-    writeCore(core, MmioMap.BORG_CONTROL_OFFSET, 2)
+  def resetCore(core: BorgCore): Unit = {
+    core.io.controlReset.poke(true.B)
+    core.clock.step(1)
+    core.io.controlReset.poke(false.B)
+    core.clock.step(1)
+  }
 
   /** Start execution and poll status until idle. */
   def startAndWait(core: BorgCore): Unit = {
-    writeCore(core, MmioMap.BORG_CONTROL_OFFSET, 1)
-    // Poll status: bit 1 = idle
+    core.io.controlStart.poke(true.B)
+    core.clock.step(1)
+    core.io.controlStart.poke(false.B)
+    // Poll running output
     var idle = false
     var watchdog = 0
     while (!idle && watchdog < 200) {
-      core.io.bus.address.poke(MmioMap.BORG_CONTROL_OFFSET.U)
-      core.io.bus.is_reading.poke(true.B)
-      core.io.bus.is_writing.poke(false.B)
       core.clock.step(1)
-      val status = core.io.statusReg.peek().litValue
-      idle = (status & 2) != 0
+      val running = core.io.running.peek().litToBoolean
+      idle = !running
       watchdog += 1
     }
-    core.io.bus.is_reading.poke(false.B)
     utest.assert(idle)
   }
 
@@ -102,6 +103,9 @@ object BorgCoreTests extends TestSuite {
     core.io.triggerShaderPC.poke(0.U)
     core.io.uniformPage.poke(0.U)
     core.io.uniformWritePage.poke(0.U)
+    core.io.controlStart.poke(false.B)
+    core.io.controlReset.poke(false.B)
+    core.io.controlStartPC.poke(0.U)
     core.clock.step(1)
   }
 
