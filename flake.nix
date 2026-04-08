@@ -24,11 +24,14 @@
       p.matplotlib
       p.mistune
       p.numpy
+      p.peakrdl
+      p.peakrdl-cheader
       p.pip
       p.pyaml
       p.pytest
       p.requests
       p.riscv-model
+      p.systemrdl-compiler
     ]);
   in {
     devShells.${system}.default = pkgs.mkShell {
