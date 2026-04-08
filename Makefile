@@ -82,7 +82,7 @@ RDL_OUT      := hardware/borg/rdl/generated
 
 $(RDL_VENV)/bin/activate:
 	python3 -m venv $(RDL_VENV)
-	$(RDL_PIP) install systemrdl-compiler
+	$(RDL_PIP) install systemrdl-compiler peakrdl-cheader
 	@if [ -d $(RDL_CHISEL) ]; then \
 		$(RDL_PIP) install -e $(RDL_CHISEL); \
 	else \
