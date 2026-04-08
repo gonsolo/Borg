@@ -1,6 +1,6 @@
-![GDS](../../workflows/gds/badge.svg) ![Book](../../workflows/book/badge.svg) ![Test](../../workflows/test/badge.svg) ![FPGA](../../workflows/fpga/badge.svg)
-
 # Borg - European Graphics Processing Unit
+
+![GDS](../../workflows/gds/badge.svg) ![Book](../../workflows/book/badge.svg) ![Test](../../workflows/test/badge.svg) ![FPGA](../../workflows/fpga/badge.svg)
 
 ## Foundational workflow for an open-source GPU
 
