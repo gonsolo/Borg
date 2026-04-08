@@ -47,7 +47,7 @@ borg.json: ../out/hardware/borg/verilog/Borg.sv
 CLOCK_FREQ = $(shell grep -m1 'define CLOCK_MHZ' ../software/borg/borg_mmio.h | awk '{print $$3}')
 borg.asc: borg.json
 	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf ../out/fpga/verilog/pico_ice.pcf --asc borg.asc \
-		--freq $(CLOCK_FREQ) > nextpnr.log 2>&1
+		--freq $(CLOCK_FREQ) --log nextpnr.log
 
 # Generate FPGA bitstream
 borg.bin: borg.asc
