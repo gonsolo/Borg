@@ -267,7 +267,6 @@ Estimate: 1 week.
 ### Step 15: Interactive Viewer ✅ (2026-04-09)
 
 Implement a workstation-side UI runner that embeds the C++ Verilator simulation. Bridges the simulation's PSRAM output securely to an SDL2/Pygame window, enabling instantaneous visualization and WASD/mouse manipulation of the hardware engine in real-time.
-Estimate: 3-5 days.
 
 - **Step 15.1: Fast Memory Simulation (Optional)**: Bypass the QSPI serialization in the simulator by directly hooking the C++ memory models onto the TinyQV memory bus using a fast `TinyQVMemCtrlSim`, accelerating simulation cycles by 26x for smoother interactive UI framerates.
 - **Step 15.2: Multi-Core Shading Simulation (Optional)**: Refactor `BorgRaster` with parameterizable execution width to dispatch multiple pixels concurrently across a parallel array of `BorgCore` FPUs exclusively for simulation speedup.
