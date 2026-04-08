@@ -22,6 +22,8 @@ class BorgCoreIO(val config: FloatConfig) extends Bundle {
   val iter               = Input(new Coord())
   val triggerShaderValid = Input(Bool())        // pulse from rasterizer: trigger shader
   val triggerShaderPC    = Input(UInt(6.W))      // PC to start at
+  val uniformPage        = Input(UInt(1.W))      // which 32-entry uniform page the GPU reads from
+  val uniformWritePage   = Input(UInt(1.W))      // which 32-entry page MMIO writes target
 
   // Pipeline write-back snoop (exposed to rasterizer)
   val pipeWriteEn   = Output(Bool())
@@ -183,7 +185,7 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
 
     when(io.bus.is_writing && io.bus.address >= MmioMap.BORG_UNIFORM_OFFSET.U && io.bus.address < MmioMap.BORG_UNIFORM_END.U) {
       val uniform_idx = (io.bus.address - MmioMap.BORG_UNIFORM_OFFSET.U) >> 2
-      uniformMem.write(uniform_idx(4, 0), io.bus.data_in(config.totalBits - 1, 0))
+      uniformMem.write(Cat(io.uniformWritePage, uniform_idx(4, 0)), io.bus.data_in(config.totalBits - 1, 0))
     }
   }
 
@@ -200,7 +202,7 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val uniform_addr = Mux(opFlags.funct3 === 1.U, regs.rs1,
                        Mux(opFlags.funct3 === 2.U, regs.rs2, regs.rs3))
     
-    val read_data = uniformMem.read(uniform_addr(4, 0), op_en)
+    val read_data = uniformMem.read(Cat(io.uniformPage, uniform_addr(4, 0)), op_en)
     val uniform_data = Mux(op_en_del, read_data, 0.U)
 
     val uniform_recA = Mux(funct3_del === 1.U, uniform_data, recA)

@@ -113,10 +113,13 @@ object MmioMap {
   val BORG_CONTROL_OFFSET   = BORG_ITER_OFFSET + 4  // Control / status register
   val BORG_FRAG_PC_OFFSET   = BORG_CONTROL_OFFSET + 4 // Fragment shader start PC for auto-chaining
 
-  // Uniform buffer (32 entries, 4-byte MMIO addressed; scaffolding until DMA in step 15)
-  val BORG_UNIFORM_ENTRIES  = 32
-  val BORG_UNIFORM_OFFSET   = BORG_FRAG_PC_OFFSET + 4
-  val BORG_UNIFORM_END      = BORG_UNIFORM_OFFSET + BORG_UNIFORM_ENTRIES * 4
+  // Uniform buffer (2 pages × 32 entries = 64 hardware entries; scaffolding until DMA in step 16)
+  // MMIO window covers one page (32 entries); uniformWritePage selects the target page.
+  val BORG_UNIFORM_PAGE_ENTRIES = 32
+  val BORG_UNIFORM_PAGES        = 2
+  val BORG_UNIFORM_ENTRIES      = BORG_UNIFORM_PAGE_ENTRIES * BORG_UNIFORM_PAGES // 64 hardware entries
+  val BORG_UNIFORM_OFFSET       = BORG_FRAG_PC_OFFSET + 4
+  val BORG_UNIFORM_END          = BORG_UNIFORM_OFFSET + BORG_UNIFORM_PAGE_ENTRIES * 4  // MMIO window = 1 page
 
   // Tile buffer (Step 11.2): indexed read for flush, clear via CTRL
   // Write CTRL to set pixel index (triggers BRAM read), then read RG/BZ.

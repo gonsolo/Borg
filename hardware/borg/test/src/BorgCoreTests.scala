@@ -91,7 +91,6 @@ object BorgCoreTests extends TestSuite {
     utest.assert(idle)
   }
 
-  /** Set default idle state on all inputs. */
   def idleInputs(core: BorgCore): Unit = {
     core.io.bus.address.poke(0.U)
     core.io.bus.data_in.poke(0.U)
@@ -101,6 +100,8 @@ object BorgCoreTests extends TestSuite {
     core.io.iter.y.poke(0.U)
     core.io.triggerShaderValid.poke(false.B)
     core.io.triggerShaderPC.poke(0.U)
+    core.io.uniformPage.poke(0.U)
+    core.io.uniformWritePage.poke(0.U)
     core.clock.step(1)
   }
 
@@ -352,6 +353,49 @@ object BorgCoreTests extends TestSuite {
         val result = fp16BitsToFloat(readReg(core, 2))
         println(f"  fadd(r0=2.0, r1=3.0) funct3=00 = $result%.2f (expected 5.0, NOT 999+888)")
         utest.assert(math.abs(result - 5.0f) < 0.01f)
+        println("  PASSED")
+      }
+    }
+    utest.test("dual_page_uniform_buffer") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: dual_page_uniform_buffer ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // Write 111.0 to page 0, uniform index 5
+        core.io.uniformWritePage.poke(0.U)
+        writeUniform(core, 5, floatToFp16Bits(111.0f))
+
+        // Write 222.0 to page 1, uniform index 5
+        core.io.uniformWritePage.poke(1.U)
+        writeUniform(core, 5, floatToFp16Bits(222.0f))
+
+        // Program: fadd r2, u5, r0 (funct3=01: rs1 from uniform buffer)
+        // Instruction encodes rs1=5 -> uniform index 5; rs2=0 -> GPR r0 = 0.0
+        writeReg(core, 0, floatToFp16Bits(0.0f))  // r0 = 0 (additive identity)
+        val uload_instr = Instructions.ADD(5, 0, 2, funct3 = 1)  // result = uniform[5] + 0.0
+        writeImem(core, 0, uload_instr)
+        writeImem(core, 1, 0)  // halt
+
+        // Run with uniformPage = 0 → should read 111.0
+        core.io.uniformPage.poke(0.U)
+        startAndWait(core)
+        val result_pg0 = fp16BitsToFloat(readReg(core, 2))
+        println(f"  Page 0 uniform read: $result_pg0%.2f (expected 111.0)")
+        utest.assert(math.abs(result_pg0 - 111.0f) < 0.01f)
+
+        // Reset execution state, but BRAM stays
+        resetCore(core)
+        core.io.triggerShaderValid.poke(false.B)
+        core.clock.step(5)
+
+        // Run with uniformPage = 1 → should read 222.0
+        core.io.uniformPage.poke(1.U)
+        startAndWait(core)
+        val result_pg1 = fp16BitsToFloat(readReg(core, 2))
+        println(f"  Page 1 uniform read: $result_pg1%.2f (expected 222.0)")
+        utest.assert(math.abs(result_pg1 - 222.0f) < 0.01f)
+
         println("  PASSED")
       }
     }

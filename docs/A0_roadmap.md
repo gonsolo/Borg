@@ -227,7 +227,7 @@ Estimate: 3–5 days.
 - **Step 13.1: Standalone `BorgCommandFIFO` Module** ✅ (2026-04-08)
     Implement a decoupled Chisel `Queue` wrapping a new `BorgCommand` bundle (Bbox, uniform_page, frag_pc).
     Create Chisel unit tests to verify enqueue/dequeue handshaking, ensuring it holds commands correctly.
-- **Step 13.2: Dual-Page Uniform Buffer**
+- **Step 13.2: Dual-Page Uniform Buffer** ✅ (2026-04-08)
     Expand the hardware uniform buffer from 32 to 64 entries (2 pages of 32 entries).
     The CPU writes to the "front" page while the GPU reads from the "back" page (specified by `uniform_page` from the FIFO).
     Add MMIO addressing for the second page and verify through Chisel tests.

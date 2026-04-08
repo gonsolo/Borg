@@ -102,6 +102,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     core.io.iter       := rast.io.shaderIter    // latched pre-advance position for coordLut
     core.io.triggerShaderValid := rast.io.triggerCoreValid
     core.io.triggerShaderPC    := rast.io.triggerCorePC
+    core.io.uniformPage        := 0.U  // Step 13.3: FIFO will drive this
+    core.io.uniformWritePage   := 0.U  // Step 13.3: firmware will toggle this
   }
 
   private def wireRasterizer(): Unit = {
