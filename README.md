@@ -63,13 +63,13 @@ Based on Michael Bell's [TinyQV](https://github.com/MichaelBell/tinyQV), an RV32
 
 ### Run all tests (Chisel + RTL cocotb)
 
-```
+```bash
 make test-all
 ```
 
 ### Individual test targets
 
-```
+```bash
 make test-chisel-borg          # Borg FPU unit tests (Chisel)
 make test-chisel-core          # TinyQV CPU tests (Chisel)
 make test-cocotb-soc-core-rtl  # CPU SoC integration tests (cocotb)
@@ -88,7 +88,7 @@ python simulation/verilator/viewer.py # Bind the Pygame UI to cycle-accurate ren
 
 Prerequisites: pico-ice FPGA + Raspberry Pi debug probe.
 
-```
+```bash
 cd fpga
 make burn           # Build bitstream and upload to FPGA
 make triangle       # Run triangle rendering (vertex shader on FPGA, display on RP2040)
@@ -96,7 +96,7 @@ make triangle       # Run triangle rendering (vertex shader on FPGA, display on 
 
 ### ASIC (Tiny Tapeout)
 
-```
+```bash
 make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 ```
 
