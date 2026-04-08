@@ -264,16 +264,21 @@ Estimate: 1 week.
 - **Step 14.3: RTL Integration** ✅ (2026-04-08): Wired the generated Chisel module block (`BorgGpuRegs`) into the `BorgBusIO` interface, replacing all manual address decoders and manual Flip-Flops in `Borg.scala` with PeakRDL's register nodes.
 - **Step 14.4: Firmware/Backend Integration** ✅ (2026-04-08): Integrated `PeakRDL-cheader` to emit `borg_regs.h` (C headers) and a custom Python emit for `borg_mmio.py`. Completely deleted `MmioMap.scala`. Validated SystemRDL outputs against FPGA LC constraints (5113 LCs) via tied-off read-ports and verified the complete cocotb/Verilator/Arcilator/FPGA software stack.
 
-### Step 15: Texture Fetch Unit
+### Step 15: Interactive Viewer
+
+Implement a workstation-side UI runner that embeds the C++ Verilator simulation. Bridges the simulation's PSRAM output securely to an SDL2/Pygame window, enabling instantaneous visualization and WASD/mouse manipulation of the hardware engine in real-time.
+Estimate: 3-5 days.
+
+### Step 16: Texture Fetch Unit
 
 UV-to-texel conversion, Morton addressing, and PSRAM texel read inside the
 pixel iterator. By this step the CPU is out of the inner loop, so there is no
 bus contention — the failure mode of the earlier texture cache experiment.
 Estimate: 1–2 weeks.
 
-### Step 16: GPU DMA Engine
+### Step 17: GPU DMA Engine
 
-Generalize the PSRAM read path from Step 15 into a DMA engine that can load
+Generalize the PSRAM read path from Step 16 into a DMA engine that can load
 uniforms, IMEM, and registers from PSRAM into on-chip storage. Replaces the
 temporary MMIO-based bulk data loading from step 10.6.4.1. The CPU writes a
 base pointer and transfer descriptor to an MMIO control register; the DMA
@@ -281,26 +286,26 @@ engine fetches the data autonomously. This frees ~384 bytes of MMIO address
 space (registers + IMEM) and eliminates CPU bus contention during shader setup.
 Estimate: 1 week.
 
-### Step 16.5: Standard Bus Architecture (TileLink Migration) - Optional
+### Step 17.5: Standard Bus Architecture (TileLink Migration) - Optional
 
 Refactor the raw `address === OFFSET` and `data_in` multiplexing inside `Borg.scala` to adhere to standard system-on-chip paradigms.
 
-- **16.5.1: MmioBus Bundle & RegMap**: Consolidate raw `data_in`/`address`/`we` lines into a unified `DecoupledIO`-style `BorgBusIO` bundle. Create a local `RegMap` helper trait and `RegField` wrappers to programmatically generate the decode Muxes, isolating bus protocol code from GPU logic.
-- **16.5.2: TileLink / Diplomacy Integration**: Convert `Borg` from a standard `Module` to a RocketChip `LazyModule`. Attach a `TLRegisterNode` and feed it the `RegMap` configuration. The TileLink compiler will then auto-generate cycle-accurate crossbars, ACKs, and masks, granting Borg out-of-the-box interoperability with ecosystem generators like Chipyard/LiteX.
+- **17.5.1: MmioBus Bundle & RegMap**: Consolidate raw `data_in`/`address`/`we` lines into a unified `DecoupledIO`-style `BorgBusIO` bundle. Create a local `RegMap` helper trait and `RegField` wrappers to programmatically generate the decode Muxes, isolating bus protocol code from GPU logic.
+- **17.5.2: TileLink / Diplomacy Integration**: Convert `Borg` from a standard `Module` to a RocketChip `LazyModule`. Attach a `TLRegisterNode` and feed it the `RegMap` configuration. The TileLink compiler will then auto-generate cycle-accurate crossbars, ACKs, and masks, granting Borg out-of-the-box interoperability with ecosystem generators like Chipyard/LiteX.
 
-### Step 17: Vertex Shader Auto-Sequencer
+### Step 18: Vertex Shader Auto-Sequencer
 
 FSM that sequences 3 vertex shader runs (loading attributes, running SPIR-B
 shader, storing outputs, applying screen-space transform) without CPU
-involvement. Uses the DMA engine (Step 16) to load vertex attributes from
+involvement. Uses the DMA engine (Step 17) to load vertex attributes from
 PSRAM. The sequencer reloads the uniform buffer between stages: the vertex
 shader uses 16 uniform slots (4×4 MVP matrix), while the rasterizer and
 fragment shaders use 31 slots (edge constants + vertex colors + inv_area).
 Estimate: 1 week.
 
-### Step 18: Full Autonomous Triangle Pipeline
+### Step 19: Full Autonomous Triangle Pipeline
 
-Integration of Steps 0–17. CPU submits a triangle descriptor; GPU does
+Integration of Steps 0–18. CPU submits a triangle descriptor; GPU does
 vertex shade → triangle setup → rasterize → fragment shade → Z-test →
 tile buffer → PSRAM flush. CPU only writes triangle data and waits for DONE.
 Estimate: 1–2 weeks.
@@ -312,9 +317,10 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
                                                ├→ Step 11 (tile buffer) → Step 12 (Z-test)
                                                ├→ Step 13 (command FIFO)
                                                ├→ Step 14 (SystemRDL)
-                                               └→ Step 15 (texture fetch) → Step 16 (DMA)
-     Step 17 (vertex auto-seq) ─────────────────────────────────────────┘
-     Step 18 = integration test of all above
+                                               ├→ Step 15 (interactive viewer)
+                                               └→ Step 16 (texture fetch) → Step 17 (DMA)
+     Step 18 (vertex auto-seq) ─────────────────────────────────────────┘
+     Step 19 = integration test of all above
 ```
 
 ## Phase 3: Linux-Capable CPU
