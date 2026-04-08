@@ -164,7 +164,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
 
   private def wireMmioRead(): Unit = {
     // @doc:mmio
-    val fifo = Module(new chisel3.util.Queue(new BorgCommand(), 2))
+    val fifo = Module(new BorgCommandFIFO())
     
     // Push commands from MMIO
     val isEnqueue = is_writing && io.address === MmioMap.BORG_COMMAND_ENQUEUE_OFFSET.U
@@ -176,7 +176,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     fifo.io.enq.bits.bbox.max.x := io.data_in(17, 12)
     fifo.io.enq.bits.bbox.max.y := io.data_in(23, 18)
 
-    // Connect Rasterizer to FIFO completely!
+    // Connect Rasterizer to FIFO
     rast.io.cmdPop <> fifo.io.deq
 
     core.io.uniformPage := rast.io.uniformPage

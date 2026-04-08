@@ -12,7 +12,7 @@ object BorgCommandFIFOTests extends TestSuite {
   val tests = Tests {
 
     utest.test("enqueue_and_dequeue_properly") {
-      simulate(new BorgCommandFIFO(entries = 4)) { dut =>
+      simulate(new BorgCommandFIFO(entries = 2)) { dut =>
         dut.reset.poke(true.B)
         dut.clock.step(2)
         dut.reset.poke(false.B)
@@ -47,7 +47,7 @@ object BorgCommandFIFOTests extends TestSuite {
     }
 
     utest.test("handle_backpressure") {
-      simulate(new BorgCommandFIFO(entries = 4)) { dut =>
+      simulate(new BorgCommandFIFO(entries = 2)) { dut =>
         dut.reset.poke(true.B)
         dut.clock.step(2)
         dut.reset.poke(false.B)
@@ -55,8 +55,8 @@ object BorgCommandFIFOTests extends TestSuite {
         dut.io.enq.valid.poke(false.B)
         dut.io.deq.ready.poke(false.B)
         
-        // Enqueue 4 items
-        for (i <- 0 until 4) {
+        // Enqueue 2 items (fill the FIFO)
+        for (i <- 0 until 2) {
           utest.assert(dut.io.enq.ready.peek().litToBoolean)
           dut.io.enq.valid.poke(true.B)
           dut.io.enq.bits.fragPC.poke(i.U)

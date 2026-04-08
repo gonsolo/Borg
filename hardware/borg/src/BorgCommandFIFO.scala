@@ -11,7 +11,7 @@ class BorgCommandFIFOIO extends Bundle {
   val deq = Decoupled(new BorgCommand())
 }
 
-class BorgCommandFIFO(entries: Int = 4) extends Module {
+class BorgCommandFIFO(entries: Int = 2) extends Module {
   val io = IO(new BorgCommandFIFOIO())
 
   // Use Chisel's built-in Queue to implement the FIFO.
