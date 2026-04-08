@@ -18,20 +18,13 @@ os.makedirs(c_out_dir, exist_ok=True)
 chisel = ChiselExporter()
 cheader = CHeaderExporter()
 
-# Peripherals to generate.
-#   chisel=True  — generate Chisel register block (only for peripherals
-#                  that the Scala hardware actually instantiates).
-#   chisel=False — generate C header only.
-#
-# Note: PeakRDL-chisel currently generates a companion object named after
-# the root addrmap, causing name collisions if multiple peripherals are
-# exported.  Only the Borg GPU Chisel block is used by hardware; GPIO/UART/
-# PSRAM Chisel blocks are reserved for future integration.
+# Each peripheral is compiled independently so each gets its own
+# uniquely-named Chisel companion object (e.g. BorgGpuRegs, GpioMapRegs).
 peripherals = [
-    {"name": "borg",  "rdl": "borg.rdl",  "chisel": True},
-    {"name": "gpio",  "rdl": "gpio.rdl",  "chisel": False},
-    {"name": "uart",  "rdl": "uart.rdl",  "chisel": False},
-    {"name": "psram", "rdl": "psram.rdl", "chisel": False},
+    {"name": "borg",  "rdl": "borg.rdl"},
+    {"name": "gpio",  "rdl": "gpio.rdl"},
+    {"name": "uart",  "rdl": "uart.rdl"},
+    {"name": "psram", "rdl": "psram.rdl"},
 ]
 
 for p in peripherals:
@@ -41,15 +34,14 @@ for p in peripherals:
 
     for child in root.children():
         if isinstance(child, systemrdl.node.AddrmapNode):
-            # C header (always)
+            # Chisel register block
+            chisel.export(child, scala_out_dir, package_name="borg")
+            print(f"Generated Chisel: {p['name']}")
+
+            # C header
             cheader_file = os.path.join(c_out_dir, f"{p['name']}_regs.h")
             cheader.export(child, cheader_file)
             print(f"Generated C header: {cheader_file}")
-
-            # Chisel register block (only if enabled)
-            if p["chisel"]:
-                chisel.export(child, scala_out_dir, package_name="borg")
-                print(f"Generated Chisel: {p['name']}")
 
 # Also compile the full SoC for the combined C header (has base addresses)
 rdlc_soc = systemrdl.RDLCompiler()

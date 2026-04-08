@@ -22,7 +22,7 @@
 // These describe firmware-level memory layout conventions, not hardware registers.
 // The PSRAM base address comes from the RDL-generated soc_regs.h.
 #define PSRAM_SPI_BASE    0x001000    // 24-bit SPI/QSPI address
-#define PSRAM_OUT_OFFSET  128         // Word offset: PSRAM_OUT(n) = PSRAM_IN(n + 128)
+#define PSRAM_OUT_OFFSET  128         // Byte offset: PSRAM_OUT base = PSRAM_BASE + 128
 #define TEX_PSRAM_OFFSET  4200        // Word index where texture data begins
 
 // --- Frame completion sentinel ---
@@ -41,7 +41,7 @@
 #define PSRAM_BASE 0x01001000
 #endif
 #define PSRAM_IN(n)   (*(volatile uint32_t *)(PSRAM_BASE + (n) * 4))
-#define PSRAM_OUT(n)  (*(volatile uint32_t *)(PSRAM_BASE + PSRAM_OUT_OFFSET * 4 + (n) * 4))
+#define PSRAM_OUT(n)  (*(volatile uint32_t *)(PSRAM_BASE + PSRAM_OUT_OFFSET + (n) * 4))
 
 // --- Peripheral base addresses ---
 // These come from the SoC address map (soc.rdl).

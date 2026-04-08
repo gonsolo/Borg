@@ -16,7 +16,6 @@
 #include "borg_sys.h"
 #include "borg_isa.h"
 // @doc:end
-#include "borg_gpu_regs.h"
 
 #define FP16_SIXTEEN 0x4C00
 
