@@ -150,3 +150,7 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | [CIRCT/firtool](https://github.com/llvm/circt) | Chisel → Verilog compiler (FIRRTL) | Apache-2.0 (LLVM) |
 | [Arcilator](https://github.com/llvm/circt) | Cycle-accurate FIRRTL C++ simulator | Apache-2.0 (LLVM) |
 | [OpenJDK](https://openjdk.org/) | Java runtime for Chisel/Mill | GPL-2.0 + CE |
+| [SystemRDL](https://www.accellera.org/downloads/standards/systemrdl) | Register logic definition standard | Accellera |
+| [PeakRDL](https://github.com/SystemRDL/PeakRDL) | Toolchain for parsing and exporting SystemRDL | GPL-3.0 |
+| [nanobind](https://github.com/wjakob/nanobind) | Zero-overhead C++ to Python bindings | BSD-3-Clause |
+| [Pygame (SDL2)](https://github.com/pygame/pygame) | Hardware-accelerated UI windowing subsystem | LGPL-2.1 |
