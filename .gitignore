@@ -29,4 +29,3 @@ TODO
 .test-all.log
 fpga/firmware_cache/
 info.yaml
-hardware/borg/rdl/generated/

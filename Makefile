@@ -77,14 +77,14 @@ book:
 # PeakRDL-chisel is picked up via PYTHONPATH from ~/src/PeakRDL-chisel.
 RDL_CHISEL   := $(HOME)/src/PeakRDL-chisel/src
 RDL_SRC      := hardware/borg/rdl/borg_gpu.rdl
-RDL_OUT      := hardware/borg/rdl/generated
+RDL_OUT      := out/hardware/borg/rdl
 RDL_PYTHON   := PYTHONPATH=$(RDL_CHISEL):$$PYTHONPATH python3
 
 rdl: $(RDL_SRC)
 	@echo "=== Validating SystemRDL ==="
 	$(RDL_PYTHON) hardware/borg/rdl/validate_rdl.py
 	@echo "=== Generating Chisel register block ==="
-	$(RDL_PYTHON) hardware/borg/rdl/test_chisel_export.py
+	$(RDL_PYTHON) hardware/borg/rdl/test_chisel_export.py $(RDL_OUT)
 	@echo "Output: $(RDL_OUT)/"
 
 clean:
