@@ -24,6 +24,7 @@ help:
 	@echo -e "  print_stats:\t\t\tPrint statistics about tile usage."
 	@echo -e "  book:\t\t\t\tBuild the documentation book."
 	@echo -e "  clean:\t\t\tRemove all build artifacts."
+	@echo -e "  rdl:\t\t\t\tValidate SystemRDL and generate Chisel register block."
 	@echo -e "  clean-gh-runs:\t\tDelete all GitHub workflow runs except the last 8."
 
 export CLOCK_MHZ = 4
@@ -71,8 +72,33 @@ print_stats:
 book:
 	python3 docs/build_book.py
 
+# --- SystemRDL → Chisel register generation ---
+RDL_VENV     := .venv-rdl
+RDL_PIP      := $(RDL_VENV)/bin/pip
+RDL_PYTHON   := $(RDL_VENV)/bin/python3
+RDL_CHISEL   := $(HOME)/src/PeakRDL-chisel
+RDL_SRC      := hardware/borg/rdl/borg_gpu.rdl
+RDL_OUT      := hardware/borg/rdl/generated
+
+$(RDL_VENV)/bin/activate:
+	python3 -m venv $(RDL_VENV)
+	$(RDL_PIP) install systemrdl-compiler
+	@if [ -d $(RDL_CHISEL) ]; then \
+		$(RDL_PIP) install -e $(RDL_CHISEL); \
+	else \
+		echo "WARNING: PeakRDL-chisel not found at $(RDL_CHISEL) — skipping Chisel export"; \
+	fi
+
+rdl: $(RDL_VENV)/bin/activate $(RDL_SRC)
+	@echo "=== Validating SystemRDL ==="
+	$(RDL_PYTHON) hardware/borg/rdl/validate_rdl.py
+	@echo "=== Generating Chisel register block ==="
+	$(RDL_PYTHON) hardware/borg/rdl/test_chisel_export.py
+	@echo "Output: $(RDL_OUT)/"
+
 clean:
 	rm -f src/config_merged.json src/user_config.json
+	rm -rf $(RDL_VENV) $(RDL_OUT)
 	rm -rf out/
 	$(MAKE) -C fpga clean
 	$(MAKE) -C test/soc clean
@@ -82,7 +108,7 @@ clean:
 clean-gh-runs:
 	gh run list --limit 200 --json databaseId --jq '.[8:] | .[].databaseId' | xargs -I {} gh run delete {}
 
-.PHONY: all generate_verilog help print_stats gds user_config lint test-all clean \
+.PHONY: all generate_verilog help print_stats gds user_config lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book clean-gh-runs
