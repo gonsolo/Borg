@@ -43,6 +43,12 @@ The firmware implements a full triangle rendering pipeline:
 
 Shaders are compiled from GLSL-like source to a compact binary format (SPIR-B) and loaded at runtime from PSRAM — no firmware reflash needed to change shaders.
 
+### SystemRDL & Hardware Command FIFO
+
+The MMIO architecture is generated automatically via the Accellera **SystemRDL** standard using `PeakRDL-chisel`, emitting both the Chisel `BorgGpuRegs` layout and the C-headers directly.
+
+It features an asynchronous 4-entry **Command FIFO** so the CPU can pack and queue asynchronous drawing packets while the GPU handles geometry and rasterization in the background.
+
 ### TinyQV CPU
 
 Based on Michael Bell's [TinyQV](https://github.com/MichaelBell/tinyQV), an RV32I RISC-V core with nibble-serial processing designed for Tiny Tapeout. The original Verilog was **rewritten in Chisel** and heavily modified — including expanded register file support (RV32E → RV32I), integrated Borg peripheral bus, and adapted pipeline for QSPI flash/PSRAM and UART.
@@ -70,13 +76,12 @@ make test-cocotb-soc-core-rtl  # CPU SoC integration tests (cocotb)
 make test-cocotb-soc-borg-rtl  # Borg peripheral tests (cocotb)
 ```
 
-### Cycle-Accurate C++ Simulation
+### Cycle-Accurate C++ Simulation & Interactive Pygame UI
 
-Fast C++ simulators for RTL validation, rendering frames locally without an FPGA.
+Fast C++ simulators for RTL validation, capable of rendering frames locally without an FPGA, featuring a real-time cycle-accurate interactive view.
 
 ```bash
-cd simulation/verilator    # or cd simulation/arcilator
-make triangle              # Build simulator and render a triangle frame
+python simulation/verilator/viewer.py # Bind the Pygame UI to cycle-accurate rendering
 ```
 
 ### FPGA (pico-ice)
@@ -112,7 +117,10 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | Hardware FP16 reciprocal (FRCP) | ✅ Done |
 | Back-face culling & depth-correct vkcube | ✅ Done |
 | Hardware fragment interpolation | ✅ Done |
+| SystemRDL Automated Memory Mapping | ✅ Done |
+| Hardware Command FIFO (4-entry asynchronous submission) | ✅ Done |
 | Cycle-accurate C++ simulation (Arcilator & Verilator) | ✅ Done |
+| Interactive UI Viewer (zero-copy Pygame) | ✅ Done |
 | Test manufactured chip | ⏳ Pending |
 | Vulkan driver | 📋 Planned |
 

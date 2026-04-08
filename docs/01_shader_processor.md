@@ -129,19 +129,19 @@ which `MmioMap.scala` then emits as C macros and Python functions:
 ## Talking to the CPU
 
 The CPU sees the shader processor as a set of memory addresses. Writing to an
-address loads data; reading from one retrieves it. The address map is divided
-into three regions:
+address loads data; reading from one retrieves it. Rather than maintaining manual offsets, the address map is exclusively managed via **SystemRDL** (see `borg_gpu.rdl`) which automatically generates both the Chisel `BorgGpuRegs` layout and the C-headers mapping (`borg_regs.h`).
 
-| Address range | Function |
+The address map is logically grouped into:
+
+| Address Offset | Function |
 | --- | --- |
-| 0–124 (words 0–31) | Register file (r0–r31) |
-| 128–248 (words 32–62) | Instruction memory (31 slots) |
-| 252 | Control / status register |
+| `0x00`–`0x3C` | Register file (r0–r15) |
+| `0x40`–`0x48` | Command FIFO Data ports |
+| `0x50`–`0x68` | Execution Control, Pipeline Status |
+| `0x80`–`0xFC` | Instruction memory (31 slots) |
 
 A typical workflow looks like this: the CPU writes a shader program into the
-instruction memory, fills the input registers, writes a 1 to the control
-register to start execution, and then polls the status register until the
-"done" bit is set. It can then read the output registers.
+instruction memory, fills the input uniforms, and instead of blocking, queues asynchronous rendering descriptors to the 4-entry **Command FIFO**. The FIFO then handles passing the commands (like rasterization iterator values and shader PC triggers) to the GPU hardware logic while the CPU computes the next triangle.
 
 {{snippet:hardware/borg/src/Borg.scala:mmio}}
 
