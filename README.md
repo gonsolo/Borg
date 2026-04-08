@@ -47,7 +47,7 @@ Shaders are compiled from GLSL-like source to a compact binary format (SPIR-B) a
 
 The MMIO architecture is generated automatically via the Accellera **SystemRDL** standard using `PeakRDL-chisel`, emitting both the Chisel `BorgGpuRegs` layout and the C-headers directly.
 
-It features an asynchronous 4-entry **Command FIFO** so the CPU can pack and queue asynchronous drawing packets while the GPU handles geometry and rasterization in the background.
+It features an asynchronous 2-entry **Command FIFO** so the CPU can pack and queue asynchronous drawing packets while the GPU handles geometry and rasterization in the background.
 
 ### TinyQV CPU
 
@@ -118,7 +118,7 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | Back-face culling & depth-correct vkcube | ✅ Done |
 | Hardware fragment interpolation | ✅ Done |
 | SystemRDL Automated Memory Mapping | ✅ Done |
-| Hardware Command FIFO (4-entry asynchronous submission) | ✅ Done |
+| Hardware Command FIFO (2-entry asynchronous submission) | ✅ Done |
 | Cycle-accurate C++ simulation (Arcilator & Verilator) | ✅ Done |
 | Interactive UI Viewer (zero-copy Pygame) | ✅ Done |
 | Test manufactured chip | ⏳ Pending |

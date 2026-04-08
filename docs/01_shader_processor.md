@@ -141,7 +141,7 @@ The address map is logically grouped into:
 | `0x80`–`0xFC` | Instruction memory (31 slots) |
 
 A typical workflow looks like this: the CPU writes a shader program into the
-instruction memory, fills the input uniforms, and instead of blocking, queues asynchronous rendering descriptors to the 4-entry **Command FIFO**. The FIFO then handles passing the commands (like rasterization iterator values and shader PC triggers) to the GPU hardware logic while the CPU computes the next triangle.
+instruction memory, fills the input uniforms, and instead of blocking, queues asynchronous rendering descriptors to the 2-entry **Command FIFO**. The FIFO then handles passing the commands (like rasterization iterator values and shader PC triggers) to the GPU hardware logic while the CPU computes the next triangle.
 
 {{snippet:hardware/borg/src/Borg.scala:mmio}}
 
