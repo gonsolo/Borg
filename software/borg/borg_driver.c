@@ -76,7 +76,7 @@ void putc_uart(int c) {
   UART_TX = c;
 }
 
-static void puts_uart(const char *s) {
+void puts_uart(const char *s) {
   while (*s)
     putc_uart(*s++);
 }

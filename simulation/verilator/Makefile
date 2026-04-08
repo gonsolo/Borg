@@ -27,11 +27,20 @@ $(FIRMWARE_DIR)/%.bin: $(HW_DIR)/borg/verilog/asic_files.txt
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
 # Simulation targets
-triangle: verilator_sim $(FIRMWARE_DIR)/triangle.bin
+triangle: verilator_sim python_extension $(FIRMWARE_DIR)/triangle.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/triangle.bin triangle
 
-vkcube: verilator_sim $(FIRMWARE_DIR)/vkcube.bin
+vkcube: verilator_sim python_extension $(FIRMWARE_DIR)/vkcube.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube
 
+python_extension: verilator_sim
+	@rm -rf build && mkdir -p build && cd build && cmake .. \
+		-DCMAKE_CXX_COMPILER=g++ \
+		-DPython_EXECUTABLE=$$(which python3) \
+		-DVERILATOR_ROOT=$$(dirname $$(dirname $$(which verilator)))/share/verilator \
+		&& make
+	@cp build/borg_sim.*.so .
+
 clean:
-	rm -rf obj_dir verilator_sim *.ppm
+	rm -rf obj_dir build verilator_sim *.ppm *.so
+

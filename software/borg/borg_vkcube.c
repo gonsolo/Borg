@@ -130,14 +130,25 @@ int main() {
     mat4_mul(t2, s, t1);
     mat4_mul(draw.uniforms, tz, t2);
 
+    extern void puts_uart(const char *s); // already implemented in borg_driver.c
+    
+    puts_uart("[VKCUBE] Clearing Z-buffer...\n");
     borg_clear_zbuffer(0);
+    
+    puts_uart("[VKCUBE] Setting Texture...\n");
     borg_set_texture(TEX_PSRAM_OFFSET, TEX_WIDTH, TEX_HEIGHT);
+    
+    puts_uart("[VKCUBE] Drawing cube...\n");
     draw_cube(&draw);
-    borg_clear_texture();
+    
+    puts_uart("[VKCUBE] Calling present(0)...\n");
     borg_present(0);
+    
+    puts_uart("[VKCUBE] Frame 0 Complete!\n");
 
-    while (1)
-        ;
+    while (1) {
+        // Sleep on first frame to check completion marker logic cleanly
+    }
     return 0;
 }
 

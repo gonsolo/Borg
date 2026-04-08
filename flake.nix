@@ -27,11 +27,13 @@
       p.peakrdl
       p.peakrdl-cheader
       p.pip
+      p.pygame
       p.pyaml
       p.pytest
       p.requests
       p.riscv-model
       p.systemrdl-compiler
+      p.nanobind
     ]);
   in {
     devShells.${system}.default = pkgs.mkShell {
