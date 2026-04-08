@@ -4,7 +4,7 @@
 package borg
 
 object Main extends App {
-  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", MmioMap.CLOCK_MHZ.toString).toInt
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "4").toInt
   println(s"Generating Verilog with CLOCK_MHZ = $clockMhz")
 
   val targetDir = "out/hardware/borg/verilog"

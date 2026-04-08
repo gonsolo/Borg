@@ -134,8 +134,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   private def wireTileBuffer(): Unit = {
     // MMIO write to tile_ctrl: set read index (triggers BRAM read) or clear
     val ctrlWriting = is_writing && io.address === BorgGpuRegs.tile_ctrl_offset
-    val tileReadIdx = RegInit(0.U(4.W))
-    when(ctrlWriting) { tileReadIdx := io.data_in(3, 0) }
+    val tileReadIdx = rdlRegs.io.hw.tile_ctrl_read_idx
     
     tile.io.clearEn := rdlRegs.io.hw.tile_ctrl_clear
 
@@ -190,11 +189,13 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     rdlRegs.io.hw.iter_valid := rast.io.iterValid
     rdlRegs.io.hw.iter_inside_flag := rast.io.insideFlag
 
-    // RDL Tile state injection (these provide the 'read' value naturally via hw=rw)
-    rdlRegs.io.hw.tile_rg_red_in := tile.io.readData.r
-    rdlRegs.io.hw.tile_rg_g_in := tile.io.readData.g
-    rdlRegs.io.hw.tile_bz_b_in := tile.io.readData.b
-    rdlRegs.io.hw.tile_bz_z_in := tile.io.readData.z
+    // RDL Tile state injection
+    // To prevent Yosys from allocating 64 redundant logic cells for PeakRDL shadow registers,
+    // we tie the hardware read-port to 0. We already manually proxy the tile reads via data_out MuxCase.
+    rdlRegs.io.hw.tile_rg_red_in := 0.U
+    rdlRegs.io.hw.tile_rg_g_in := 0.U
+    rdlRegs.io.hw.tile_bz_b_in := 0.U
+    rdlRegs.io.hw.tile_bz_z_in := 0.U
 
     val stsFifoFull = !fifo.io.enq.ready
     rdlRegs.io.hw.status_idle := !core.io.running

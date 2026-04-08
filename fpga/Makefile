@@ -44,7 +44,7 @@ borg.json: ../out/hardware/borg/verilog/Borg.sv
 	@yosys -p "read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json" -DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
 
 # Place and Route (P&R) — freq derived from MmioMap.CLOCK_MHZ via generated header
-CLOCK_FREQ = $(shell grep -m1 'define CLOCK_MHZ' ../software/borg/borg_mmio.h | awk '{print $$3}')
+CLOCK_FREQ = $(shell grep -m1 'define CLOCK_MHZ' ../software/borg/borg_sys.h | awk '{print $$3}')
 borg.asc: borg.json
 	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf ../out/fpga/verilog/pico_ice.pcf --asc borg.asc \
 		--freq $(CLOCK_FREQ) --log nextpnr.log
@@ -54,7 +54,8 @@ borg.bin: borg.asc
 	icepack $< $@
 
 # Burn to FPGA
-.burned: borg.bin
+.burned: borg.bin ../out/hardware/borg/rdl/borg_mmio.py
+	mpremote cp ../out/hardware/borg/rdl/borg_mmio.py :borg_mmio.py
 	mpremote mount . + run host/program_bitstream.py
 	@touch .burned
 
@@ -104,14 +105,14 @@ triangle: .burned
 	@$(MAKE) --no-print-directory -s -C ../software/borg triangle
 	@mkdir -p firmware_cache
 	@cp ../software/borg/triangle.bin ../software/borg/test_texture.dat firmware_cache/
-	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, 'firmware_cache/triangle.bin')" | tee /tmp/mpremote_output.txt
+	@mpremote mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/triangle.bin')" | tee /tmp/mpremote_output.txt
 
 # Build firmware and run vkcube rendering
 vkcube: .burned
 	@$(MAKE) --no-print-directory -s -C ../software/borg vkcube
 	@mkdir -p firmware_cache
 	@cp ../software/borg/vkcube.bin ../software/borg/borg_texture.dat firmware_cache/
-	@mpremote mount . + exec "import sys; sys.path.append('host'); import render; render.run_single_frame(0, 'firmware_cache/vkcube.bin')" | tee /tmp/mpremote_output.txt
+	@mpremote mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/vkcube.bin')" | tee /tmp/mpremote_output.txt
 
 # Catch debug output (preferably in a second shell)
 tio:
@@ -119,7 +120,7 @@ tio:
 
 # Reset FPGA
 reset: .burned
-	mpremote mount . + exec "import sys; sys.path.append('host'); import run_tinyqv; run_tinyqv.run(query=False, stop=False)"
+	mpremote mount . + exec "import sys; sys.path.extend(['host', '/']); import run_tinyqv; run_tinyqv.run(query=False, stop=False)"
 
 clean:
 	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm .burned
@@ -128,6 +129,6 @@ clean:
 
 # Timing analysis on the synthesized bitstream
 timing:
-	icetime -d up5k -c $(shell grep 'CLOCK_MHZ' ../software/borg/borg_mmio.h | awk '{print $$3}') borg.asc
+	icetime -d up5k -c $(shell grep 'CLOCK_MHZ' ../software/borg/borg_sys.h | awk '{print $$3}') borg.asc
 
 .PHONY: all help burn clean reset print_resources timing triangle vkcube tio

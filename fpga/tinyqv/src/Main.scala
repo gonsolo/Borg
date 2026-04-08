@@ -8,7 +8,7 @@ import circt.stage.ChiselStage
 // FPGA-specific Verilog generation: tinyQV_top wrapper and PCF pinout.
 // Run via: mill fpga.tinyqv.runMain borg.FpgaMain
 object FpgaMain extends App {
-  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", MmioMap.CLOCK_MHZ.toString).toInt
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "4").toInt
   val targetDir = "out/fpga/verilog"
   new java.io.File(targetDir).mkdirs()
 

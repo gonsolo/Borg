@@ -3,12 +3,49 @@
 package borg
 
 import chisel3._
-import MmioMap._
 import chisel3.util._
 import chisel3.experimental.IntParam
 import _root_.circt.stage.ChiselStage
 import java.nio.file.{Files, Paths}
 import tinyqv.cpu.{tinyQVIO, TinyQV}
+
+// ---------------------------------------------------------------------------
+// TinyQV bus decoder constants — inlined from the former MmioMap.scala.
+// These are Michael Bell's foundational address-decode choices and cannot
+// be expressed in SystemRDL.
+// ---------------------------------------------------------------------------
+private[borg] object SoCDecode {
+  // Magic comparison values for SoC vs User region detection
+  private val SOC_REGION_ID  = 0x800000  // Cat(addr[27:6], addr[1:0])
+  private val USER_REGION_ID = 0x10000   // addr[27:11]
+
+  case class AddrRegion(matchFn: UInt => Bool, indexHi: Int, indexLo: Int) {
+    def matches(addr: UInt): Bool = matchFn(addr)
+    def index(addr: UInt): UInt = addr(indexHi, indexLo)
+  }
+
+  val socRegion = AddrRegion(
+    matchFn = addr => Cat(addr(27, 6), addr(1, 0)) === SOC_REGION_ID.U,
+    indexHi = 5, indexLo = 2
+  )
+  val userRegion = AddrRegion(
+    matchFn = addr => addr(27, 11) === USER_REGION_ID.U,
+    indexHi = 10, indexLo = 0
+  )
+
+  // SoC peripheral indices (addr[5:2])
+  val PERI_NONE              = 0x0
+  val PERI_ID                = 0x2
+  val PERI_GPIO_OUT_SEL      = 0x3
+  val PERI_DEBUG_UART        = 0x6
+  val PERI_DEBUG_UART_STATUS = 0x7
+  val PERI_DEBUG_UART_BAUD   = 0x8
+  val PERI_TIME_LIMIT        = 0xB
+  val PERI_DEBUG             = 0xC
+  val PERI_USER              = 0xF
+
+  def socPeriU(idx: Int): UInt = idx.U(4.W)
+}
 
 // tinyQV ExtModule wraps the Chisel-generated TinyQV Verilog for SoC integration
 class tinyQV_ExtModule extends ExtModule(Map()) {
@@ -91,11 +128,12 @@ trait SoCLogic { self: RawModule =>
     i_peripherals.io.data_read_n := read_n
     i_peripherals.io.data_read_complete := read_complete
 
+    import SoCDecode._
     val connect_peripheral = WireDefault(socPeriU(PERI_NONE))
 
-    when(MmioMap.socRegion.matches(addr)) {
-      connect_peripheral := MmioMap.socRegion.index(addr)
-    } .elsewhen(MmioMap.userRegion.matches(addr)) {
+    when(SoCDecode.socRegion.matches(addr)) {
+      connect_peripheral := SoCDecode.socRegion.index(addr)
+    } .elsewhen(SoCDecode.userRegion.matches(addr)) {
       connect_peripheral := socPeriU(PERI_USER)
     }
 

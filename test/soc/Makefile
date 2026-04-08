@@ -23,7 +23,7 @@ all: sim
 
 # --- 3. COMPILATION ARGUMENTS ---
 COMPILE_ARGS += -I$(SRC_DIR) -I$(CURDIR)/../../out/hardware/borg/verilog -DSIM
-export PYTHONPATH := $(CURDIR):../../:$(PYTHONPATH)
+export PYTHONPATH := $(CURDIR):../../out/hardware/borg/rdl:../../:$(PYTHONPATH)
 
 # Icarus Verilog specific flags
 ifeq ($(SIM), icarus)

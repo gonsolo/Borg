@@ -7,6 +7,32 @@ import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
 
+// User peripheral address decode constants — inlined from the former PeriphDecode.scala.
+private[borg] object PeriphDecode {
+  // User peripheral selects (addr[10:9])
+  val USER_PERI_GPIO = 1
+  val USER_PERI_UART = 2
+  val USER_PERI_BORG = 3
+
+  // TinyQV bus idle sentinel
+  val BUS_IDLE = 3
+
+  // Address field positions within 11-bit addr_in
+  val USER_PERI_SEL_HI   = 10
+  val USER_PERI_SEL_LO   = 9
+  val USER_SUB_ADDR_HI   = 8
+  val USER_SUB_ADDR_LO   = 0
+
+  // GPIO non-standard address bit decoding
+  val GPIO_FUNC_SEL_BIT    = 5
+  val GPIO_FUNC_SEL_IDX_HI = 4
+  val GPIO_FUNC_SEL_IDX_LO = 2
+  val GPIO_OUT_OFFSET       = 0
+  val GPIO_IN_OFFSET        = 4
+
+  def userPeriU(idx: Int): UInt = idx.U
+}
+
 class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
   val ui_in = Input(UInt(8.W))
   val uo_out = Output(UInt(8.W))
@@ -23,11 +49,11 @@ class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
 class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
   val io = IO(new PeripheralsIO(CLOCK_MHZ))
     // --- Address Decoding Variables ---
-    val PERI_GPIO = MmioMap.userPeriU(MmioMap.USER_PERI_GPIO)
-    val PERI_UART = MmioMap.userPeriU(MmioMap.USER_PERI_UART)
-    val PERI_BORG = MmioMap.userPeriU(MmioMap.USER_PERI_BORG)
+    val PERI_GPIO = PeriphDecode.userPeriU(PeriphDecode.USER_PERI_GPIO)
+    val PERI_UART = PeriphDecode.userPeriU(PeriphDecode.USER_PERI_UART)
+    val PERI_BORG = PeriphDecode.userPeriU(PeriphDecode.USER_PERI_BORG)
 
-    val peri_sel = io.addr_in(MmioMap.USER_PERI_SEL_HI, MmioMap.USER_PERI_SEL_LO)
+    val peri_sel = io.addr_in(PeriphDecode.USER_PERI_SEL_HI, PeriphDecode.USER_PERI_SEL_LO)
     val is_gpio = peri_sel === PERI_GPIO
     val is_uart = peri_sel === PERI_UART
     val is_borg = peri_sel === PERI_BORG
@@ -63,7 +89,7 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
     private def wireDataBus(): Unit = {
       val data_out_r = RegInit(0.U(32.W))
       val data_out_hold = RegInit(false.B)
-      val read_req = io.data_read_n =/= MmioMap.BUS_IDLE.U(2.W)
+      val read_req = io.data_read_n =/= PeriphDecode.BUS_IDLE.U(2.W)
 
       when(io.data_read_complete) {
         data_out_hold := false.B
@@ -75,7 +101,7 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
       }
       data_ready_r := read_req && data_ready_from_peri
 
-      val write_req = io.data_write_n =/= MmioMap.BUS_IDLE.U(2.W)
+      val write_req = io.data_write_n =/= PeriphDecode.BUS_IDLE.U(2.W)
       val write_ready_r = RegNext(write_req && !(data_ready_r || RegNext(write_req)))
       io.data_out := data_out_r
       io.data_ready := data_ready_r || write_ready_r
@@ -93,20 +119,20 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
       func_sel := func_sel_reg
 
       when(is_gpio) {
-        when(io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO) === MmioMap.GPIO_OUT_OFFSET.U && io.data_write_n =/= MmioMap.BUS_IDLE.U) {
+        when(io.addr_in(PeriphDecode.USER_SUB_ADDR_HI, PeriphDecode.USER_SUB_ADDR_LO) === PeriphDecode.GPIO_OUT_OFFSET.U && io.data_write_n =/= PeriphDecode.BUS_IDLE.U) {
           gpio_out_reg := io.data_in(7, 0)
         }
-        when(io.addr_in(MmioMap.GPIO_FUNC_SEL_BIT) === 1.U && io.addr_in(1, 0) === 0.U && io.data_write_n =/= MmioMap.BUS_IDLE.U) {
-          val sel_idx = io.addr_in(MmioMap.GPIO_FUNC_SEL_IDX_HI, MmioMap.GPIO_FUNC_SEL_IDX_LO)
+        when(io.addr_in(PeriphDecode.GPIO_FUNC_SEL_BIT) === 1.U && io.addr_in(1, 0) === 0.U && io.data_write_n =/= PeriphDecode.BUS_IDLE.U) {
+          val sel_idx = io.addr_in(PeriphDecode.GPIO_FUNC_SEL_IDX_HI, PeriphDecode.GPIO_FUNC_SEL_IDX_LO)
           func_sel_reg(sel_idx) := io.data_in(5, 0)
         }
       }
 
       data_ready_from_peri := true.B
       when(is_gpio) {
-        when(io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO) === MmioMap.GPIO_OUT_OFFSET.U) {
+        when(io.addr_in(PeriphDecode.USER_SUB_ADDR_HI, PeriphDecode.USER_SUB_ADDR_LO) === PeriphDecode.GPIO_OUT_OFFSET.U) {
           data_from_peri := Cat(0.U(24.W), gpio_out_reg)
-        } .elsewhen(io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO) === MmioMap.GPIO_IN_OFFSET.U) {
+        } .elsewhen(io.addr_in(PeriphDecode.USER_SUB_ADDR_HI, PeriphDecode.USER_SUB_ADDR_LO) === PeriphDecode.GPIO_IN_OFFSET.U) {
           data_from_peri := Cat(0.U(24.W), io.ui_in)
         } .otherwise {
           data_from_peri := 0.U
@@ -116,7 +142,7 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
 
     private def wireUart(): Unit = {
       i_uart.io.ui_in := io.ui_in
-      i_uart.io.address := io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO)
+      i_uart.io.address := io.addr_in(PeriphDecode.USER_SUB_ADDR_HI, PeriphDecode.USER_SUB_ADDR_LO)
       i_uart.io.data_in := io.data_in
       i_uart.io.data_write_n := io.data_write_n | Fill(2, !is_uart)
       i_uart.io.data_read_n := data_read_n_peri | Fill(2, !is_uart)
@@ -132,7 +158,7 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
     }
 
     private def wireBorg(): Unit = {
-      borg.io.address := io.addr_in(MmioMap.USER_SUB_ADDR_HI, MmioMap.USER_SUB_ADDR_LO)
+      borg.io.address := io.addr_in(PeriphDecode.USER_SUB_ADDR_HI, PeriphDecode.USER_SUB_ADDR_LO)
       borg.io.data_in := io.data_in
       borg.io.data_write_n := io.data_write_n | Fill(2, !is_borg)
       borg.io.data_read_n := data_read_n_peri | Fill(2, !is_borg)

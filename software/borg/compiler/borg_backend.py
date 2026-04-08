@@ -25,10 +25,16 @@ import os
 # Add fpga/host to path to import the auto-generated borg_mmio.py
 # (which contains the single source of truth for instruction encoding)
 host_dir = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..", "fpga", "host")
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "out", "hardware", "borg", "rdl")
 )
 if host_dir not in sys.path:
     sys.path.insert(0, host_dir)
+
+fpga_host_dir = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "fpga", "host")
+)
+if fpga_host_dir not in sys.path:
+    sys.path.insert(0, fpga_host_dir)
 
 from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd
 from borg_utils import float_to_fp16
