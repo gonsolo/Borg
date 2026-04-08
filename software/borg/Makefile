@@ -29,7 +29,7 @@ vkcube:
 	bear -- $(MAKE) PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" vkcube.bin vkcube.hex
 
 test-native: test_raster.c borg_raster.c borg_math.c
-	gcc -O2 -g -Wall -Wno-int-to-pointer-cast test_raster.c borg_raster.c borg_math.c -I. -D BORG_BASE=0 -o test_raster -lm
+	gcc -O2 -g -Wall -Wno-int-to-pointer-cast test_raster.c borg_raster.c borg_math.c -I. -I../../out/hardware/borg/rdl -D BORG_BASE=0 -o test_raster -lm
 	./test_raster
 
 clean:
@@ -40,7 +40,7 @@ $(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s
 	$(MAKE) -C $(TINYQV_SDK) $(notdir $@)
 
 %.o: %.c $(HEADERS)
-	$(CC) -O2 -I$(TINYQV_SDK) -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -c $< -o $@
+	$(CC) -O2 -I$(TINYQV_SDK) -I../../out/hardware/borg/rdl -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -c $< -o $@
 
 %.o: %.s
 	$(AS) -march=$(ARCH) -mabi=$(ABI) -I$(TINYQV_SDK) $< -o $@

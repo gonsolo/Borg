@@ -127,8 +127,7 @@ object MmioMap {
   val BORG_TILE_RG_OFFSET   = BORG_TILE_CTRL_OFFSET + 4  // read: {R[31:16], G[15:0]}
   val BORG_TILE_BZ_OFFSET   = BORG_TILE_RG_OFFSET + 4    // read: {B[31:16], Z[15:0]}
 
-  // Command FIFO (Step 13.3)
-  val BORG_COMMAND_ENQUEUE_OFFSET = BORG_TILE_BZ_OFFSET + 4 // write: {uniformPage[30], fragPC[29:24], bbox[23:0]}
+  // Command FIFO (migrated to SystemRDL/Chisel slices)
 
   // Borg pixel iterator configuration
   val BORG_ITER_COORD_BITS    = 6

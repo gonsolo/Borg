@@ -88,6 +88,26 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val core = Module(new BorgCore(config))
   val rast = Module(new BorgRasterizer(config))
   val tile = Module(new BorgTileBuffer())
+  val rdlRegs = Module(new BorgGpuRegs()) // Auto-generated RDL register block
+
+  rdlRegs.io.bus.address   := io.address
+  rdlRegs.io.bus.writeData := io.data_in
+  rdlRegs.io.bus.writeEn   := is_writing
+  rdlRegs.io.bus.readEn    := is_reading
+
+  // Defaults for hw inbound signals (RDL Vertical Slice prerequisites)
+  rdlRegs.io.hw.iter_bbox_min_x_in := 0.U
+  rdlRegs.io.hw.iter_bbox_min_y_in := 0.U
+  rdlRegs.io.hw.iter_bbox_max_x_in := 0.U
+  rdlRegs.io.hw.iter_bbox_max_y_in := 0.U
+  rdlRegs.io.hw.iter_x := 0.U
+  rdlRegs.io.hw.iter_y := 0.U
+  rdlRegs.io.hw.iter_valid := 0.U
+  rdlRegs.io.hw.iter_inside_flag := 0.U
+  rdlRegs.io.hw.tile_rg_g_in := 0.U
+  rdlRegs.io.hw.tile_rg_red_in := 0.U
+  rdlRegs.io.hw.tile_bz_z_in := 0.U
+  rdlRegs.io.hw.tile_bz_b_in := 0.U
 
   wireCore()
   wireRasterizer()
@@ -165,16 +185,20 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   private def wireMmioRead(): Unit = {
     // @doc:mmio
     val fifo = Module(new BorgCommandFIFO())
+
+    // Vertical Slice 1: Command Enqueue
+    // Delay 'valid' by 1 cycle so the hardware fields (which register the write data)
+    // are available on the next cycle for enqueue.
+    val writeCmd = is_writing && io.address === BorgGpuRegs.cmd_enqueue_offset
+    val isEnqueue = RegNext(writeCmd, false.B)
     
-    // Push commands from MMIO
-    val isEnqueue = is_writing && io.address === MmioMap.BORG_COMMAND_ENQUEUE_OFFSET.U
     fifo.io.enq.valid := isEnqueue
-    fifo.io.enq.bits.uniformPage := io.data_in(30)
-    fifo.io.enq.bits.fragPC := io.data_in(29, 24)
-    fifo.io.enq.bits.bbox.min.x := io.data_in(5, 0)
-    fifo.io.enq.bits.bbox.min.y := io.data_in(11, 6)
-    fifo.io.enq.bits.bbox.max.x := io.data_in(17, 12)
-    fifo.io.enq.bits.bbox.max.y := io.data_in(23, 18)
+    fifo.io.enq.bits.uniformPage := rdlRegs.io.hw.cmd_enqueue_uniform_page
+    fifo.io.enq.bits.fragPC := rdlRegs.io.hw.cmd_enqueue_frag_pc
+    fifo.io.enq.bits.bbox.min.x := rdlRegs.io.hw.cmd_enqueue_bbox_min_x
+    fifo.io.enq.bits.bbox.min.y := rdlRegs.io.hw.cmd_enqueue_bbox_min_y
+    fifo.io.enq.bits.bbox.max.x := rdlRegs.io.hw.cmd_enqueue_bbox_max_x
+    fifo.io.enq.bits.bbox.max.y := rdlRegs.io.hw.cmd_enqueue_bbox_max_y
 
     // Connect Rasterizer to FIFO
     rast.io.cmdPop <> fifo.io.deq

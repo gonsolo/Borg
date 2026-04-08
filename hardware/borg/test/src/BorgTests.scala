@@ -752,7 +752,7 @@ object BorgTests extends TestSuite {
            // packBbox(0,0,4,4) -> min=(0,0), max=(4,4)
            // max.y=4, max.x=4, min.y=0, min.x=0
            val bbox = (4 << 18) | (4 << 12) | (0 << 6) | 0
-           writeAddr(borg, MmioMap.BORG_COMMAND_ENQUEUE_OFFSET, bbox)
+           writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, bbox)
            // Wait a few cycles for the FIFO to pass the command to the rasterizer
            borg.clock.step(5)
            
@@ -791,7 +791,7 @@ object BorgTests extends TestSuite {
         resetAndWait(borg)
         // packBbox(0,0,4,4) -> max.y=4, max.x=4, min.y=0, min.x=0
         val bbox = (4 << 18) | (4 << 12) | (0 << 6) | 0
-        writeAddr(borg, MmioMap.BORG_COMMAND_ENQUEUE_OFFSET, bbox)
+        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, bbox)
         borg.clock.step(5)
         writeAddr(borg, 128, encodeInstruction(config, FNEG, rs1 = 4, rs2 = 4, rd = 1)) // r1 = -0.0
         writeAddr(borg, 132, 0)
@@ -832,7 +832,7 @@ object BorgTests extends TestSuite {
         // Set up bounding box: min=(0,0), max=(2,2)
         // bbox layout: max.y(23..18) | max.x(17..12) | min.y(11..6) | min.x(5..0)
         val bbox = (2 << 18) | (2 << 12) | (0 << 6) | 0
-        writeAddr(borg, MmioMap.BORG_COMMAND_ENQUEUE_OFFSET, bbox)
+        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, bbox)
         borg.clock.step(5)
 
         // Write BORG_ITER to advance — should auto-trigger shader at PC=0
@@ -880,7 +880,7 @@ object BorgTests extends TestSuite {
 
         writeAddr(borg, 16, floatToBits(3.0f, config))   // r4 = 3.0 (positive)
         writeAddr(borg, 20, floatToBits(0.0f, config))   // r5 = 0.0
-        writeAddr(borg, MmioMap.BORG_COMMAND_ENQUEUE_OFFSET, bbox)
+        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, bbox)
         borg.clock.step(5)
 
         // Write BORG_ITER — auto-runs shader, r0/r1/r2 all become 3.0 (positive → inside)
@@ -916,7 +916,7 @@ object BorgTests extends TestSuite {
 
         // Setup BORG_ITER_BBOX via command enqueue: min=(10, 10), max=(20, 20)
         val bbox = (20 << 18) | (20 << 12) | (10 << 6) | 10
-        writeAddr(borg, MmioMap.BORG_COMMAND_ENQUEUE_OFFSET, bbox)
+        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, bbox)
         borg.clock.step(5)
 
         // Write a HALT to IMEM[0] so auto-run doesn't hang on random uninitialized memory

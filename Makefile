@@ -29,7 +29,7 @@ help:
 
 export CLOCK_MHZ = 4
 
-generate_verilog:
+generate_verilog: rdl
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.borg.runMain borg.Main
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.tinyqv.runMain tinyqv.Main
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.tinyqv.runMain borg.FpgaMain
@@ -77,19 +77,22 @@ book:
 # PeakRDL-chisel is picked up via PYTHONPATH from ~/src/PeakRDL-chisel.
 RDL_CHISEL   := $(HOME)/src/PeakRDL-chisel/src
 RDL_SRC      := hardware/borg/rdl/borg_gpu.rdl
-RDL_OUT      := out/hardware/borg/rdl
+RDL_SCALA_OUT:= hardware/borg/src/generated
+RDL_C_OUT    := out/hardware/borg/rdl
 RDL_PYTHON   := PYTHONPATH=$(RDL_CHISEL):$$PYTHONPATH python3
 
 rdl: $(RDL_SRC)
 	@echo "=== Validating SystemRDL ==="
 	$(RDL_PYTHON) hardware/borg/rdl/validate_rdl.py
 	@echo "=== Generating Chisel register block ==="
-	$(RDL_PYTHON) hardware/borg/rdl/test_chisel_export.py $(RDL_OUT)
-	@echo "Output: $(RDL_OUT)/"
+	mkdir -p $(RDL_C_OUT)
+	$(RDL_PYTHON) hardware/borg/rdl/test_chisel_export.py $(RDL_SCALA_OUT) $(RDL_C_OUT)
+	@echo "Output: $(RDL_C_OUT)/ and $(RDL_SCALA_OUT)/"
 
 clean:
 	rm -f src/config_merged.json src/user_config.json
-	rm -rf $(RDL_OUT)
+	rm -rf $(RDL_C_OUT)
+	rm -rf $(RDL_SCALA_OUT)
 	rm -rf out/
 	$(MAKE) -C fpga clean
 	$(MAKE) -C test/soc clean

@@ -78,7 +78,10 @@ object BorgRasterizerTests extends TestSuite {
       simulate(new BorgRasterizer(config)) { rast =>
         println("\n--- BorgRasterizer: bbox_init ---")
         pokeIdle(rast)
-        rast.clock.step(1)  // let reset take effect
+        rast.reset.poke(true.B)
+        rast.clock.step(2)
+        rast.reset.poke(false.B)
+        rast.clock.step(1)
         setCommand(rast, 2, 3, 5, 6, 0)
 
         val x = rast.io.iter.x.peek().litValue.toInt
@@ -95,6 +98,9 @@ object BorgRasterizerTests extends TestSuite {
       simulate(new BorgRasterizer(config)) { rast =>
         println("\n--- BorgRasterizer: bbox_walk_3x3 ---")
         pokeIdle(rast)
+        rast.reset.poke(true.B)
+        rast.clock.step(2)
+        rast.reset.poke(false.B)
         rast.clock.step(1)
         setCommand(rast, 1, 1, 4, 4, 0)  // 3×3 box: (1,1) to (3,3)
 
@@ -198,6 +204,9 @@ object BorgRasterizerTests extends TestSuite {
       simulate(new BorgRasterizer(config)) { rast =>
         println("\n--- BorgRasterizer: trigger_and_stall ---")
         pokeIdle(rast)
+        rast.reset.poke(true.B)
+        rast.clock.step(2)
+        rast.reset.poke(false.B)
         rast.clock.step(1)
         setCommand(rast, 0, 0, 4, 4, 0)
 
@@ -244,8 +253,16 @@ object BorgRasterizerTests extends TestSuite {
       simulate(new BorgRasterizer(config)) { rast =>
         println("\n--- BorgRasterizer: chain_outside_pixel_no_frag ---")
         pokeIdle(rast)
+        rast.reset.poke(true.B)
+        rast.clock.step(2)
+        rast.reset.poke(false.B)
         rast.clock.step(1)
         setCommand(rast, 0, 0, 4, 4, 13) // frag shader at IMEM slot 13
+
+        // Advance → enters sRast phase where snooping happens
+        pokeIdle(rast)
+        rast.io.advance.poke(true.B)
+        rast.clock.step(1)
 
         // Set edge 0 to outside (negative sign)
         rast.io.pipeWriteEn.poke(true.B)
@@ -255,11 +272,6 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.pipeWriteEn.poke(false.B)
         rast.clock.step(1)
         utest.assert(!rast.io.insideFlag.peek().litToBoolean)
-
-        // Advance → triggers rast shader
-        pokeIdle(rast)
-        rast.io.advance.poke(true.B)
-        rast.clock.step(1)
 
         // Check: triggerCoreValid fired with PC=0
         val trigPC = rast.io.triggerCorePC.peek().litValue.toInt
@@ -284,6 +296,9 @@ object BorgRasterizerTests extends TestSuite {
       simulate(new BorgRasterizer(config)) { rast =>
         println("\n--- BorgRasterizer: chain_inside_pixel_triggers_frag ---")
         pokeIdle(rast)
+        rast.reset.poke(true.B)
+        rast.clock.step(2)
+        rast.reset.poke(false.B)
         rast.clock.step(1)
         setCommand(rast, 0, 0, 4, 4, 13)
 
@@ -341,9 +356,18 @@ object BorgRasterizerTests extends TestSuite {
       simulate(new BorgRasterizer(config)) { rast =>
         println("\n--- BorgRasterizer: chain_disabled_when_frag_pc_zero ---")
         pokeIdle(rast)
+        rast.reset.poke(true.B)
+        rast.clock.step(2)
+        rast.reset.poke(false.B)
         rast.clock.step(1)
         // Setup frag_start_pc = 0 (disabled) explicitly to avoid uninitialized state cross-talk
         setCommand(rast, 0, 0, 4, 4, 0)
+        // Advance -> enter sRast phase where snooping happens
+        pokeIdle(rast)
+        rast.io.advance.poke(true.B)
+        rast.clock.step(1)
+        rast.io.advance.poke(false.B)
+
         // Set all edges inside (positive sign)
         for (i <- 0 until 3) {
           rast.io.pipeWriteEn.poke(true.B)
@@ -353,12 +377,6 @@ object BorgRasterizerTests extends TestSuite {
         }
         rast.io.pipeWriteEn.poke(false.B)
         rast.clock.step(1)
-
-        // Advance
-        pokeIdle(rast)
-        rast.io.advance.poke(true.B)
-        rast.clock.step(1)
-        rast.io.advance.poke(false.B)
 
         // Simulate rast shader manually
         rast.io.coreAutoRunPending.poke(true.B)
