@@ -15,7 +15,6 @@ import utest._
 object BorgTileBufferTests extends TestSuite {
 
   val FP16_MAX_DEPTH = 0x7BFF
-  val FP16_MAX_DEPTH_HI = 0x7B  // upper 8 bits of 0x7BFF (shadow precision)
 
   /** Set all inputs to idle. */
   def pokeIdle(tb: BorgTileBuffer): Unit = {
@@ -25,9 +24,9 @@ object BorgTileBufferTests extends TestSuite {
     tb.io.writeData.b.poke(0.U)
     tb.io.writeData.z.poke(0.U)
     tb.io.writeEn.poke(false.B)
-    tb.io.zTestEn.poke(false.B)
     tb.io.readIdx.poke(0.U)
     tb.io.readEn.poke(false.B)
+    tb.io.peekZIdx.poke(0.U)
     tb.io.clearEn.poke(false.B)
   }
 
@@ -140,6 +139,16 @@ object BorgTileBufferTests extends TestSuite {
         utest.assert(!tb.io.clearBusy.peek().litToBoolean)
         tb.clock.step(1)  // one extra for settling
 
+        // Verify Z entries are FP16_MAX_DEPTH (via peekZ — 1-cycle BRAM latency)
+        for (i <- Seq(0, 7, 15)) {
+          pokeIdle(tb)
+          tb.io.peekZIdx.poke(i.U)
+          tb.clock.step(2)  // BRAM read + peekZ hold register
+          val z = tb.io.peekZ.peek().litValue.toInt
+          println(f"  Z[$i] = 0x$z%04X (expect 0x${FP16_MAX_DEPTH}%04X)")
+          utest.assert(z == FP16_MAX_DEPTH)
+        }
+
         // Verify RGB entries are 0 (read from BRAM)
         val (r0, g0, b0, _) = readPixel(tb, 0)
         println(f"  RGB[0] = (0x$r0%04X, 0x$g0%04X, 0x$b0%04X) (expect 0)")
@@ -152,73 +161,55 @@ object BorgTileBufferTests extends TestSuite {
       }
     }
 
-    utest.test("z_test_compare_and_write") {
+    utest.test("z_peek_bram") {
       simulate(new BorgTileBuffer()) { tb =>
-        println("\n--- BorgTileBuffer: z_test_compare_and_write ---")
+        println("\n--- BorgTileBuffer: z_peek_bram ---")
         resetModule(tb)
 
-        // Step 1: Unconditional write at index 5 with Z=0x2000
-        writePixel(tb, idx = 5, r = 0x1111, g = 0x2222, b = 0x3333, z = 0x2000)
-        val (r1, g1, b1, z1) = readPixel(tb, 5)
-        println(f"  Initial write: R=0x$r1%04X G=0x$g1%04X B=0x$b1%04X Z=0x$z1%04X")
-        utest.assert(r1 == 0x1111 && z1 == 0x2000)
-
-        // Step 2: Z-tested write with Z=0x3000 (farther) — should be REJECTED
-        pokeIdle(tb)
-        tb.io.writeIdx.poke(5.U)
-        tb.io.writeData.r.poke(0xAAAA.U)
-        tb.io.writeData.g.poke(0xBBBB.U)
-        tb.io.writeData.b.poke(0xCCCC.U)
-        tb.io.writeData.z.poke(0x3000.U)
-        tb.io.writeEn.poke(true.B)
-        tb.io.zTestEn.poke(true.B)
-        
-        // Wait for Z-test to complete while holding signals
-        var wait = 0
-        tb.clock.step(1) // Step once to trigger busy flag
-        while (tb.io.zTestBusy.peek().litToBoolean && wait < 10) {
-          tb.clock.step(1)
-          wait += 1
+        // After reset + auto-clear, all Z should be FP16_MAX_DEPTH
+        // peekZ now has 2-cycle latency (BRAM read + hold register)
+        for (i <- 0 until 16) {
+          tb.io.peekZIdx.poke(i.U)
+          tb.clock.step(2)  // BRAM read + hold register
+          val z = tb.io.peekZ.peek().litValue.toInt
+          if (i < 4) println(f"  Z[$i] = 0x$z%04X")
+          utest.assert(z == FP16_MAX_DEPTH)
         }
-        tb.clock.step(1) // Execute the write cycle
-        
-        tb.io.writeEn.poke(false.B)
-        tb.io.zTestEn.poke(false.B)
-        println(f"  Z-test (farther) took $wait extra cycles")
-        utest.assert(!tb.io.zTestBusy.peek().litToBoolean)
+        println("  All 16 entries = 0x7BFF after reset ✓")
 
-        // Verify: original data should be unchanged (farther Z rejected)
-        val (r2, g2, b2, z2) = readPixel(tb, 5)
-        println(f"  After farther write: R=0x$r2%04X Z=0x$z2%04X (expect 0x1111, 0x2000)")
-        utest.assert(r2 == 0x1111 && z2 == 0x2000)
+        // Write Z to entry 3
+        writePixel(tb, idx = 3, r = 0, g = 0, b = 0, z = 0x2800)
 
-        // Step 3: Z-tested write with Z=0x1000 (closer) — should SUCCEED
-        pokeIdle(tb)
-        tb.io.writeIdx.poke(5.U)
-        tb.io.writeData.r.poke(0xDDDD.U)
-        tb.io.writeData.g.poke(0xEEEE.U)
-        tb.io.writeData.b.poke(0x0FFF.U)
-        tb.io.writeData.z.poke(0x1000.U)
-        tb.io.writeEn.poke(true.B)
-        tb.io.zTestEn.poke(true.B)
-        
-        wait = 0
-        tb.clock.step(1)
-        while (tb.io.zTestBusy.peek().litToBoolean && wait < 10) {
-          tb.clock.step(1)
-          wait += 1
+        // Peek should return updated value after 2-cycle BRAM latency
+        tb.io.peekZIdx.poke(3.U)
+        tb.clock.step(2)
+        val z3 = tb.io.peekZ.peek().litValue.toInt
+        println(f"  After write: Z[3] = 0x$z3%04X (expect 0x2800)")
+        utest.assert(z3 == 0x2800)
+
+        // Other entries unchanged
+        tb.io.peekZIdx.poke(4.U)
+        tb.clock.step(2)
+        val z4 = tb.io.peekZ.peek().litValue.toInt
+        println(f"  Unchanged:   Z[4] = 0x$z4%04X (expect 0x7BFF)")
+        utest.assert(z4 == FP16_MAX_DEPTH)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("initial_z_values") {
+      simulate(new BorgTileBuffer()) { tb =>
+        println("\n--- BorgTileBuffer: initial_z_values ---")
+        resetModule(tb)
+
+        // All Z entries should be FP16_MAX_DEPTH (0x7BFF) after reset + auto-clear
+        for (i <- 0 until 16) {
+          tb.io.peekZIdx.poke(i.U)
+          tb.clock.step(2)  // BRAM read + hold register
+          val z = tb.io.peekZ.peek().litValue.toInt
+          utest.assert(z == FP16_MAX_DEPTH)
         }
-        tb.clock.step(1) // Execute the write cycle
-        
-        tb.io.writeEn.poke(false.B)
-        tb.io.zTestEn.poke(false.B)
-        println(f"  Z-test (closer) took $wait extra cycles")
-
-        // Verify: new closer data should have won
-        val (r3, g3, b3, z3) = readPixel(tb, 5)
-        println(f"  After closer write: R=0x$r3%04X Z=0x$z3%04X (expect 0xDDDD, 0x1000)")
-        utest.assert(r3 == 0xDDDD && z3 == 0x1000)
-
+        println("  All 16 Z entries = 0x7BFF after reset ✓")
         println("  PASSED")
       }
     }

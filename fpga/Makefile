@@ -41,13 +41,13 @@ MAX_DFFS = 5280
 
 borg.json: ../out/hardware/borg/verilog/Borg.sv
 	@echo "Building netlist"
-	@yosys -p "read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tinyQV_top; opt -purge; write_json borg.json" -DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
+	@yosys -p "read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json" -DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
 
 # Place and Route (P&R) — freq derived from MmioMap.CLOCK_MHZ via generated header
 CLOCK_FREQ = $(shell grep -m1 'define CLOCK_MHZ' ../software/borg/borg_mmio.h | awk '{print $$3}')
 borg.asc: borg.json
 	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf ../out/fpga/verilog/pico_ice.pcf --asc borg.asc \
-		--freq $(CLOCK_FREQ) --placer heap --log nextpnr.log
+		--freq $(CLOCK_FREQ)
 
 # Generate FPGA bitstream
 borg.bin: borg.asc
@@ -77,13 +77,6 @@ print_resources: yosys.log
 	printf "SB_CARRY (Chains):    %5d\n" $$CARRY; \
 	printf "SB_RAM40 (BRAM):      %5d / 30\n" $$BRAM; \
 	printf "Est. LC  (Placeable): %5d / %d  %3d%%\n" $$LC_EST $(MAX_LUTS) $$LC_PCT; \
-	if [ -f nextpnr.log ]; then \
-		PACKED=$$(grep 'ICESTORM_LC:' nextpnr.log | awk '{for(i=1;i<=NF;i++) if($$i ~ /^[0-9]+\//) {split($$i,a,"/"); print a[1]}}'); \
-		if [ -n "$$PACKED" ]; then \
-			PACKED_PCT=$$((PACKED * 100 / $(MAX_LUTS))); \
-			printf "Packed LC (nextpnr):  %5d / %d  %3d%%\n" $$PACKED $(MAX_LUTS) $$PACKED_PCT; \
-		fi; \
-	fi; \
 	if [ $$LC_EST -gt $(MAX_LUTS) ]; then \
 		printf "\033[1;31m  ⚠  OVER LIMIT by %d LCs — nextpnr will fail!\033[0m\n" $$((LC_EST - $(MAX_LUTS))); \
 	elif [ $$LC_PCT -gt 95 ]; then \

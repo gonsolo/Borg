@@ -29,7 +29,6 @@ object BorgRasterizerTests extends TestSuite {
     rast.io.pipeWriteData.poke(0.U)
     rast.io.coreRunning.poke(false.B)
     rast.io.coreAutoRunPending.poke(false.B)
-    rast.io.tileZTestBusy.poke(false.B)
   }
 
   /** Set the bounding box and let it take effect. */
