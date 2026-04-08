@@ -1,4 +1,4 @@
-![](../../workflows/gds/badge.svg) ![](../../workflows/book/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
+![GDS](../../workflows/gds/badge.svg) ![Book](../../workflows/book/badge.svg) ![Test](../../workflows/test/badge.svg) ![FPGA](../../workflows/fpga/badge.svg)
 
 # Borg - European Graphics Processing Unit
 
