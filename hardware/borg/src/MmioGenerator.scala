@@ -52,9 +52,10 @@ object MmioGenerator {
       def walk(b: Data, prefix: String = ""): Unit = {
         b match {
           case bun: Bundle =>
-            // In Chisel 3, elements naturally yield in reverse-declaration order,
-            // mapping correctly to C bitfield assignments starting at LSB.
-            bun.elements.toSeq.foreach { case (name, data) =>
+            // Fix: Chisel 3 elements yield in reverse-declaration order. We must reverse them
+            // so we emit the first declared element first. In C bitfields, the first element
+            // starts at the LSB, which correctly maps to the lowest bits of the register.
+            bun.elements.toSeq.reverse.foreach { case (name, data) =>
               val newPrefix = if (prefix.isEmpty) name else s"${prefix}_$name"
               walk(data, newPrefix)
             }

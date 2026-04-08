@@ -338,11 +338,23 @@ static bbox_t compute_bbox(const xy16x3_t *pos) {
 
 // Iterate all pixels within the triangle's bounding box via hardware counters.
 // Step 10.6.5: Auto-chain integration — load all uniforms (rast u0-u11 + frag
-// u12-u30) once per triangle, then the hardware FSM chains rasterizer → fragment
+// u12-u30) once per triangle, then the hardware FSM chains rasterizer -> fragment
 // without CPU involvement.  Eliminates per-pixel uniform reloading and the
 // manual borg_run_fragment() call.
+static int current_uniform_page = 0;
+
 static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
   bbox_t bb = compute_bbox(&tri->screen_pos);
+
+  PSRAM_OUT(5003) = 0x2222;
+  PSRAM_OUT(5004) = bb.x0;
+  PSRAM_OUT(5005) = bb.y0;
+  PSRAM_OUT(5006) = bb.x1;
+  PSRAM_OUT(5007) = bb.y1;
+
+  // Ping-pong the uniform pages (Step 13.4)
+  current_uniform_page ^= 1;
+  BORG_CONTROL = (current_uniform_page << 5);
 
   // --- Load ALL uniforms once per triangle ---
   // Rasterizer uniforms (u0-u11): edge constants + negated vertex positions
@@ -376,9 +388,6 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
   load_uniform_triple(&frag_shader, 10, tri->z_vals.v[0], tri->z_vals.v[1],
                        tri->z_vals.v[2]);
 
-  // Enable auto-chaining: RAST at PC=0, FRAG at frag_start_pc
-  BORG_FRAG_PC = BORG_IMEM_FRAG_OFFSET;
-
   // 4x4 Tiling loop (Step 11.4): subdivide bbox into 4x4 tiles
   for (int ty = bb.y0 & ~3; ty < bb.y1; ty += 4) {
     for (int tx = bb.x0 & ~3; tx < bb.x1; tx += 4) {
@@ -397,10 +406,22 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
       // Clear the tile buffer (write 1 to bit 4 of BORG_TILE_CTRL)
       BORG_TILE_CTRL = (1 << 4);
 
-      // Set the bbox for the hardware iterator
-      BORG_ITER_BBOX = hw_bb.raw;
+      // Wait for space in the command FIFO
+      while (BORG_STATUS & (1 << BORG_STS_FIFO_FULL));
 
-      // Spin the rasterizer through the sub-bbox
+      // Enqueue the command for this hardware tile
+      // cmd = uniformPage[30] | fragPC[29:24] | bbox[23:0]
+      uint32_t cmd = hw_bb.raw | (BORG_IMEM_FRAG_OFFSET << 24) | (current_uniform_page << 30);
+      #ifndef BORG_COMMAND_ENQUEUE
+      #define BORG_COMMAND_ENQUEUE (*(volatile uint32_t *)(BORG_BASE + BORG_COMMAND_ENQUEUE_OFFSET))
+      #endif
+      BORG_COMMAND_ENQUEUE = cmd;
+
+      // Hardware needs a few cycles to pop from FIFO and start the tile
+      for (volatile int k=0; k<16; k++) { __asm__ volatile("nop"); }
+
+      // Spin the rasterizer through the sub-bbox.
+      // The bus reads will stall automatically if the hardware is computing.
       for (;;) {
         uint32_t iter = BORG_ITER;
         if (!BORG_ITER_VALID(iter)) break;
@@ -426,7 +447,8 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
           
           fp16_t z = bz & 0xFFFF;
           if (z >= FP16_MAX_DEPTH) continue; // Fragment was not shaded or was outside!
-          
+          puts_uart("P");
+
           // The tile buffer stores U/V in R/G when textured, or R/G in R/G when untextured.
           if (tri->has_uvs) {
             uv16_t uv = {rg >> 16, rg & 0xFFFF}; // U from R, V from G
@@ -442,8 +464,7 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
     }
   }
 
-  // Disable chaining after triangle
-  BORG_FRAG_PC = 0;
+  // Disable chaining after triangle (no longer need to clear register, handled per-command)
 }
 
 
@@ -525,19 +546,23 @@ static void build_clip_vertices(const fp16_t *vout, int stride,
   }
 }
 
-// Clip polygon against near and far planes, fan-triangulate, and rasterize.
 static void clip_and_rasterize(const clip_vertex_t clip_in[3],
                                const texture_t *t, int frame) {
   clip_vertex_t clip_a[MAX_CLIP_VERTS + 1];
   clip_vertex_t clip_b[MAX_CLIP_VERTS + 2];
-  int n = clip_near(clip_in, 3, clip_a);
-  if (n < 3) return;
-  n = clip_far(clip_a, n, clip_b);
-  if (n < 3) return;
+  
+  int n_near = clip_near(clip_in, 3, clip_a);
+  if (n_near < 3) return;
 
-  for (int i = 1; i < n - 1; i++) {
+  int n_far = clip_far(clip_a, n_near, clip_b);
+  if (n_far < 3) return;
+
+  PSRAM_OUT(5000) = 0x1111;
+  PSRAM_OUT(5001) = n_near;
+  PSRAM_OUT(5002) = n_far;
+
+  for (int i = 1; i < n_far - 1; i++) {
     clip_vertex_t tri[3] = { clip_b[0], clip_b[i], clip_b[i + 1] };
-    puts_uart("T");
     rasterize_clipped_triangle(tri, t, frame);
   }
 }
@@ -561,7 +586,6 @@ void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
   build_clip_vertices(vout, vert_shader.num_outputs, vertices, clip_in);
 
   clip_and_rasterize(clip_in, &tex, frame);
-
   t_draw_cycles += get_cycles() - t_start;
 }
 

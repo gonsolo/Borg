@@ -102,15 +102,15 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     core.io.iter       := rast.io.shaderIter    // latched pre-advance position for coordLut
     core.io.triggerShaderValid := rast.io.triggerCoreValid
     core.io.triggerShaderPC    := rast.io.triggerCorePC
-    core.io.uniformPage        := 0.U  // Step 13.3: FIFO will drive this
-    core.io.uniformWritePage   := 0.U  // Step 13.3: firmware will toggle this
+
+    val uniformWritePage = RegInit(0.U(1.W))
+    when(is_writing && io.address === MmioMap.BORG_CONTROL_OFFSET.U) {
+      uniformWritePage := io.data_in(5)
+    }
+    core.io.uniformWritePage   := uniformWritePage
   }
 
   private def wireRasterizer(): Unit = {
-    rast.io.setBbox   := is_writing && io.address === MmioMap.BORG_ITER_BBOX_OFFSET.U
-    rast.io.bboxData  := io.data_in.asTypeOf(chiselTypeOf(rast.io.bboxData))
-    rast.io.setFragPC := is_writing && io.address === MmioMap.BORG_FRAG_PC_OFFSET.U
-    rast.io.fragPCData := io.data_in(5, 0)
     rast.io.advance   := is_writing && io.address === MmioMap.BORG_ITER_OFFSET.U
 
     // Pipeline write-back snoop
@@ -164,20 +164,41 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
 
   private def wireMmioRead(): Unit = {
     // @doc:mmio
-    // --- Read Mux ---
+    val fifo = Module(new chisel3.util.Queue(new BorgCommand(), 2))
+    
+    // Push commands from MMIO
+    val isEnqueue = is_writing && io.address === MmioMap.BORG_COMMAND_ENQUEUE_OFFSET.U
+    fifo.io.enq.valid := isEnqueue
+    fifo.io.enq.bits.uniformPage := io.data_in(30)
+    fifo.io.enq.bits.fragPC := io.data_in(29, 24)
+    fifo.io.enq.bits.bbox.min.x := io.data_in(5, 0)
+    fifo.io.enq.bits.bbox.min.y := io.data_in(11, 6)
+    fifo.io.enq.bits.bbox.max.x := io.data_in(17, 12)
+    fifo.io.enq.bits.bbox.max.y := io.data_in(23, 18)
+
+    // Connect Rasterizer to FIFO completely!
+    rast.io.cmdPop <> fifo.io.deq
+
+    core.io.uniformPage := rast.io.uniformPage
+
+    // MMIO read
     val read_addr_del = RegInit(0.U(9.W))
     read_addr_del := io.address
 
-    val iter_reg = Cat(rast.io.insideFlag, rast.io.iterValid, rast.io.iter.y, rast.io.iter.x)
+    // Bits 13: insideFlag, Bit 12: iterValid, Bits 11-6: y, Bits 5-0: x
+    val iter_reg = Cat(0.U(18.W), rast.io.insideFlag, rast.io.iterValid, rast.io.iter.y, rast.io.iter.x)
 
     // Tile buffer read: {R[31:16], G[15:0]} and {B[31:16], Z[15:0]}
     val tileRG = Cat(tile.io.readData.r, tile.io.readData.g)
     val tileBZ = Cat(tile.io.readData.b, tile.io.readData.z)
 
+    val stsFifoFull = !fifo.io.enq.ready
+    val statusRegFull = core.io.statusReg | (stsFifoFull << 2)
+
     io.data_out := MuxCase(0.U, Seq(
       (read_addr_del >= MmioMap.BORG_REG_OFFSET.U && read_addr_del < MmioMap.BORG_IMEM_OFFSET.U) -> core.io.regReadData,
       (read_addr_del === MmioMap.BORG_ITER_OFFSET.U) -> iter_reg,
-      (read_addr_del === MmioMap.BORG_CONTROL_OFFSET.U) -> core.io.statusReg,
+      (read_addr_del === MmioMap.BORG_CONTROL_OFFSET.U) -> statusRegFull,
       (read_addr_del === MmioMap.BORG_TILE_RG_OFFSET.U) -> tileRG,
       (read_addr_del === MmioMap.BORG_TILE_BZ_OFFSET.U) -> tileBZ
     ))

@@ -10,6 +10,11 @@
 // @doc:fpu-helpers
 // --- Borg FPU helpers ---
 void borg_run(uint32_t start_pc) {
+  // We MUST wait for the GPU to be fully idle before resetting it for FPU use,
+  // otherwise we might kill a rasterization job in progress from the FIFO!
+  while (!(BORG_STATUS & (1 << 1)))
+    ;
+
   BORG_CONTROL = BORG_CTL_RESET | BORG_CTL_PC(start_pc);
   (void)BORG_STATUS;
   BORG_CONTROL = BORG_CTL_START;

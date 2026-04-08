@@ -20,13 +20,8 @@ import chisel3.util._
   */
 
 class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
-  // Bbox write (directly from MMIO data_in bits)
-  val setBbox     = Input(Bool())
-  val bboxData    = Input(new Bbox())
-
-  // Fragment shader PC write (from MMIO write to BORG_FRAG_PC)
-  val setFragPC   = Input(Bool())
-  val fragPCData  = Input(UInt(6.W))
+  // Command pop interface (Step 13.3)
+  val cmdPop      = Flipped(Decoupled(new BorgCommand()))
 
   // Iterator advance (from MMIO write to BORG_ITER)
   val advance     = Input(Bool())
@@ -45,6 +40,7 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   val shaderIter    = Output(new Coord())  // latched pre-advance position for coordLut
   val insideFlag    = Output(Bool())
   val iterValid     = Output(Bool())
+  val uniformPage   = Output(UInt(1.W)) // Expose to BorgCore
   val autoRunStall  = Output(Bool())
   val triggerCoreValid = Output(Bool())  // pulse: tells BorgCore to auto-run
   val triggerCorePC    = Output(UInt(6.W))  // PC to start at
@@ -65,9 +61,9 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   // --- State ---
   val iter_reg          = RegInit(0.U.asTypeOf(new Coord()))
   val shader_iter_reg   = RegInit(0.U.asTypeOf(new Coord()))  // pre-advance position for coordLut
-  val bbox_reg = RegInit(0.U.asTypeOf(new Bbox()))
-
-  val frag_start_pc = RegInit(0.U(6.W))
+  val bbox_reg          = RegInit(0.U.asTypeOf(new Bbox()))
+  val frag_start_pc     = RegInit(0.U(6.W))
+  val uniform_page_reg  = RegInit(0.U(1.W))
 
   val e0_outside = RegInit(false.B)
   val e1_outside = RegInit(false.B)
@@ -83,14 +79,16 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   val frag_b = RegInit(0.U(16.W))
   val frag_z = RegInit(0.U(16.W))
 
-  // --- Fragment PC write ---
-  when(io.setFragPC) {
-    frag_start_pc := io.fragPCData
-  }
-
-  when(io.setBbox) {
-    bbox_reg := io.bboxData
-    iter_reg := io.bboxData.min
+  // --- Command Popping ---
+  val iter_valid = iter_reg.y < bbox_reg.max.y
+  
+  io.cmdPop.ready := false.B
+  when(phase === sIdle && io.cmdPop.valid && !iter_valid) {
+    io.cmdPop.ready := true.B
+    bbox_reg := io.cmdPop.bits.bbox
+    iter_reg := io.cmdPop.bits.bbox.min
+    frag_start_pc := io.cmdPop.bits.fragPC
+    uniform_page_reg := io.cmdPop.bits.uniformPage
   }
 
   // --- Trigger outputs (directly driven, no register delay) ---
@@ -208,6 +206,7 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   io.iter         := iter_reg
   io.shaderIter   := shader_iter_reg
   io.insideFlag   := inside_flag
-  io.iterValid    := iter_reg.y < bbox_reg.max.y
+  io.iterValid    := iter_valid
   io.autoRunStall := auto_run_stall
+  io.uniformPage  := uniform_page_reg
 }

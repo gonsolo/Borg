@@ -99,6 +99,9 @@ object BorgTests extends TestSuite {
   // --- Execution helpers ---
 
   def resetAndWait(borg: Borg): Unit = {
+    borg.reset.poke(true.B)
+    borg.clock.step(2)
+    borg.reset.poke(false.B)
     borg.io.data_write_n.poke(3.U)
     borg.io.data_read_n.poke(3.U)
     borg.clock.step(1)
@@ -744,9 +747,15 @@ object BorgTests extends TestSuite {
            val instr = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = rDest)
            
            resetAndWait(borg)
-           // We must set valid BBOX so that advance puts it in sRast.
-           // packBbox(0,0,4,4) = 0<<18 | 0<<12 | 4<<6 | 4 = 260
-           writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, 260)
+           // Pack Bbox: packBbox(0,0,4,4) = 0<<18 | 0<<12 | 4<<6 | 4 = 260
+           // Enqueue via Command FIFO. uniformPage=0, fragPC=0 (0 << 24)
+           // packBbox(0,0,4,4) -> min=(0,0), max=(4,4)
+           // max.y=4, max.x=4, min.y=0, min.x=0
+           val bbox = (4 << 18) | (4 << 12) | (0 << 6) | 0
+           writeAddr(borg, MmioMap.BORG_COMMAND_ENQUEUE_OFFSET, bbox)
+           // Wait a few cycles for the FIFO to pass the command to the rasterizer
+           borg.clock.step(5)
+           
            writeAddr(borg, 128, instr)
            writeAddr(borg, 132, 0) // halt
            // Trigger auto-run via BORG_ITER to enter sRast phase where snooping happens
@@ -780,7 +789,10 @@ object BorgTests extends TestSuite {
         println("  Test 4: Negative-Zero is inside (magnitude is 0)")
         writeAddr(borg, 16, floatToBits(0.0f, config))
         resetAndWait(borg)
-        writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, 260)
+        // packBbox(0,0,4,4) -> max.y=4, max.x=4, min.y=0, min.x=0
+        val bbox = (4 << 18) | (4 << 12) | (0 << 6) | 0
+        writeAddr(borg, MmioMap.BORG_COMMAND_ENQUEUE_OFFSET, bbox)
+        borg.clock.step(5)
         writeAddr(borg, 128, encodeInstruction(config, FNEG, rs1 = 4, rs2 = 4, rd = 1)) // r1 = -0.0
         writeAddr(borg, 132, 0)
         writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
@@ -817,9 +829,11 @@ object BorgTests extends TestSuite {
         borg.io.data_read_n.poke(3.U)
         borg.clock.step(1)
         
-        // Set up bounding box: (0,0)-(2,2)
-        val bbox = (0 << 18) | (0 << 12) | (2 << 6) | 2
-        writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, bbox)
+        // Set up bounding box: min=(0,0), max=(2,2)
+        // bbox layout: max.y(23..18) | max.x(17..12) | min.y(11..6) | min.x(5..0)
+        val bbox = (2 << 18) | (2 << 12) | (0 << 6) | 0
+        writeAddr(borg, MmioMap.BORG_COMMAND_ENQUEUE_OFFSET, bbox)
+        borg.clock.step(5)
 
         // Write BORG_ITER to advance — should auto-trigger shader at PC=0
         writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
@@ -840,10 +854,13 @@ object BorgTests extends TestSuite {
         borg.io.data_read_n.poke(2.U)
         borg.io.data_write_n.poke(3.U)
         borg.clock.step(1)
+        borg.clock.step(1)
         val iterVal = borg.io.data_out.peek().litValue
         borg.io.data_read_n.poke(3.U)
+        borg.clock.step(1)
         val ix = (iterVal >> MmioMap.BORG_ITER_X_SHIFT) & MmioMap.BORG_ITER_COORD_MASK
         val iy = (iterVal >> MmioMap.BORG_ITER_Y_SHIFT) & MmioMap.BORG_ITER_COORD_MASK
+        println(f"    Raw iterVal: 0x$iterVal%08X")
         println(f"    Iterator position: ($ix, $iy)")
         // After bbox (0,0)-(2,2) and one advance, should be at (1,0)
         Predef.assert(ix == 1 && iy == 0, s"Expected (1,0), got ($ix,$iy)")
@@ -863,7 +880,8 @@ object BorgTests extends TestSuite {
 
         writeAddr(borg, 16, floatToBits(3.0f, config))   // r4 = 3.0 (positive)
         writeAddr(borg, 20, floatToBits(0.0f, config))   // r5 = 0.0
-        writeAddr(borg, MmioMap.BORG_ITER_BBOX_OFFSET, bbox)
+        writeAddr(borg, MmioMap.BORG_COMMAND_ENQUEUE_OFFSET, bbox)
+        borg.clock.step(5)
 
         // Write BORG_ITER — auto-runs shader, r0/r1/r2 all become 3.0 (positive → inside)
         writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
@@ -874,8 +892,10 @@ object BorgTests extends TestSuite {
         borg.io.data_read_n.poke(2.U)
         borg.io.data_write_n.poke(3.U)
         borg.clock.step(1)
+        borg.clock.step(1)
         val iterVal2 = borg.io.data_out.peek().litValue
         borg.io.data_read_n.poke(3.U)
+        borg.clock.step(1)
         val isInside = ((iterVal2 >> MmioMap.BORG_ITER_INSIDE_SHIFT) & 1) == 1
         println(f"    inside_flag: $isInside (expected true)")
         Predef.assert(isInside, "Expected inside_flag=true after positive edge results")
@@ -894,13 +914,10 @@ object BorgTests extends TestSuite {
 
         println("\n=== Test: coordLut Hardware Coordinate Expansion ===")
 
-        // Setup BORG_ITER_BBOX to [10, 20] to [10, 20]
-        borg.io.address.poke(MmioMap.BORG_ITER_BBOX_OFFSET.U)
-        borg.io.data_in.poke(((10 << 18) | (10 << 12) | (20 << 6) | 20).U)
-        borg.io.data_write_n.poke(2.U)
-        borg.clock.step(1)
-        borg.io.data_write_n.poke(3.U)
-        borg.clock.step(1)
+        // Setup BORG_ITER_BBOX via command enqueue: min=(10, 10), max=(20, 20)
+        val bbox = (20 << 18) | (20 << 12) | (10 << 6) | 10
+        writeAddr(borg, MmioMap.BORG_COMMAND_ENQUEUE_OFFSET, bbox)
+        borg.clock.step(5)
 
         // Write a HALT to IMEM[0] so auto-run doesn't hang on random uninitialized memory
         writeAddr(borg, 128, 0)

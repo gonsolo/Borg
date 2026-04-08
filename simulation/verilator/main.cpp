@@ -168,6 +168,9 @@ int main(int argc, char** argv) {
             done = true;
             std::cout << "[SIM] Frame complete! DONE_MARKER detected.\n";
             std::cout << "Total Sim Cycles:  " << cycles << " cycles.\n";
+            for (int i = 2500; i < 2504; i++) {
+                printf("PSRAM[%d] = 0x%08X (%d)\n", i, psram_words[i], psram_words[i]);
+            }
         }
 
         if (cycles > 200000000) {

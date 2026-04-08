@@ -20,9 +20,7 @@ object BorgRasterizerTests extends TestSuite {
 
   /** Set all control inputs to idle (no clock step). */
   def pokeIdle(rast: BorgRasterizer): Unit = {
-    rast.io.setBbox.poke(false.B)
-    rast.io.setFragPC.poke(false.B)
-    rast.io.fragPCData.poke(0.U)
+    rast.io.cmdPop.valid.poke(false.B)
     rast.io.advance.poke(false.B)
     rast.io.pipeWriteEn.poke(false.B)
     rast.io.pipeWriteAddr.poke(0.U)
@@ -31,26 +29,18 @@ object BorgRasterizerTests extends TestSuite {
     rast.io.coreAutoRunPending.poke(false.B)
   }
 
-  /** Set the bounding box and let it take effect. */
-  def setBbox(rast: BorgRasterizer, x0: Int, y0: Int, x1: Int, y1: Int): Unit = {
+  /** Command the rasterizer with bbox and pc via cmdPop. */
+  def setCommand(rast: BorgRasterizer, x0: Int, y0: Int, x1: Int, y1: Int, pc: Int): Unit = {
     pokeIdle(rast)
-    rast.io.setBbox.poke(true.B)
-    rast.io.bboxData.min.x.poke(x0.U)
-    rast.io.bboxData.min.y.poke(y0.U)
-    rast.io.bboxData.max.x.poke(x1.U)
-    rast.io.bboxData.max.y.poke(y1.U)
+    rast.io.cmdPop.valid.poke(true.B)
+    rast.io.cmdPop.bits.bbox.min.x.poke(x0.U)
+    rast.io.cmdPop.bits.bbox.min.y.poke(y0.U)
+    rast.io.cmdPop.bits.bbox.max.x.poke(x1.U)
+    rast.io.cmdPop.bits.bbox.max.y.poke(y1.U)
+    rast.io.cmdPop.bits.fragPC.poke(pc.U)
+    rast.io.cmdPop.bits.uniformPage.poke(0.U)
     rast.clock.step(1)
-    rast.io.setBbox.poke(false.B)
-    rast.clock.step(1)
-  }
-
-  /** Set the fragment shader PC. */
-  def setFragPC(rast: BorgRasterizer, pc: Int): Unit = {
-    pokeIdle(rast)
-    rast.io.setFragPC.poke(true.B)
-    rast.io.fragPCData.poke(pc.U)
-    rast.clock.step(1)
-    rast.io.setFragPC.poke(false.B)
+    rast.io.cmdPop.valid.poke(false.B)
     rast.clock.step(1)
   }
 
@@ -89,7 +79,7 @@ object BorgRasterizerTests extends TestSuite {
         println("\n--- BorgRasterizer: bbox_init ---")
         pokeIdle(rast)
         rast.clock.step(1)  // let reset take effect
-        setBbox(rast, 2, 3, 5, 6)
+        setCommand(rast, 2, 3, 5, 6, 0)
 
         val x = rast.io.iter.x.peek().litValue.toInt
         val y = rast.io.iter.y.peek().litValue.toInt
@@ -106,7 +96,7 @@ object BorgRasterizerTests extends TestSuite {
         println("\n--- BorgRasterizer: bbox_walk_3x3 ---")
         pokeIdle(rast)
         rast.clock.step(1)
-        setBbox(rast, 1, 1, 4, 4)  // 3×3 box: (1,1) to (3,3)
+        setCommand(rast, 1, 1, 4, 4, 0)  // 3×3 box: (1,1) to (3,3)
 
         val expected = Seq(
           (2, 1), (3, 1),
@@ -209,7 +199,7 @@ object BorgRasterizerTests extends TestSuite {
         println("\n--- BorgRasterizer: trigger_and_stall ---")
         pokeIdle(rast)
         rast.clock.step(1)
-        setBbox(rast, 0, 0, 4, 4)
+        setCommand(rast, 0, 0, 4, 4, 0)
 
         // Advance should pulse triggerCoreValid and set autoRunStall
         pokeIdle(rast)
@@ -255,8 +245,7 @@ object BorgRasterizerTests extends TestSuite {
         println("\n--- BorgRasterizer: chain_outside_pixel_no_frag ---")
         pokeIdle(rast)
         rast.clock.step(1)
-        setBbox(rast, 0, 0, 4, 4)
-        setFragPC(rast, 13)  // frag shader at IMEM slot 13
+        setCommand(rast, 0, 0, 4, 4, 13) // frag shader at IMEM slot 13
 
         // Set edge 0 to outside (negative sign)
         rast.io.pipeWriteEn.poke(true.B)
@@ -296,8 +285,7 @@ object BorgRasterizerTests extends TestSuite {
         println("\n--- BorgRasterizer: chain_inside_pixel_triggers_frag ---")
         pokeIdle(rast)
         rast.clock.step(1)
-        setBbox(rast, 0, 0, 4, 4)
-        setFragPC(rast, 13)
+        setCommand(rast, 0, 0, 4, 4, 13)
 
         // Advance → triggers rast shader at PC=0
         pokeIdle(rast)
@@ -354,9 +342,8 @@ object BorgRasterizerTests extends TestSuite {
         println("\n--- BorgRasterizer: chain_disabled_when_frag_pc_zero ---")
         pokeIdle(rast)
         rast.clock.step(1)
-        setBbox(rast, 0, 0, 4, 4)
         // Setup frag_start_pc = 0 (disabled) explicitly to avoid uninitialized state cross-talk
-        setFragPC(rast, 0)
+        setCommand(rast, 0, 0, 4, 4, 0)
         // Set all edges inside (positive sign)
         for (i <- 0 until 3) {
           rast.io.pipeWriteEn.poke(true.B)

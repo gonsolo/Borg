@@ -58,6 +58,7 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val programCounter = RegInit(0.U(log2Ceil(MmioMap.BORG_IMEM_SLOTS).W))
   val running = RegInit(false.B)
   val auto_run_pending = RegInit(false.B)
+  val running_by_rasterizer = RegInit(false.B)
 
   val uniformMem = SyncReadMem(MmioMap.BORG_UNIFORM_ENTRIES, UInt(config.totalBits.W))
 
@@ -157,7 +158,10 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
 
     // Control register: bit 0 = start, bit 1 = reset
     when(io.bus.is_writing && io.bus.address === MmioMap.BORG_CONTROL_OFFSET.U) {
-      when(io.bus.data_in(0)) { running := true.B }
+      when(io.bus.data_in(0)) { 
+        running := true.B 
+        running_by_rasterizer := false.B
+      }
       when(io.bus.data_in(1)) {
         programCounter := io.bus.data_in(MmioMap.BORG_CTL_PC_MSB, MmioMap.BORG_CTL_PC_LSB)
         running := false.B
@@ -169,6 +173,7 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     when(io.triggerShaderValid) {
       programCounter := io.triggerShaderPC
       auto_run_pending := true.B
+      running_by_rasterizer := true.B
     }
 
     // Delayed start: SyncReadMem has now fetched imem[0]
@@ -202,7 +207,8 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val uniform_addr = Mux(opFlags.funct3 === 1.U, regs.rs1,
                        Mux(opFlags.funct3 === 2.U, regs.rs2, regs.rs3))
     
-    val read_data = uniformMem.read(Cat(io.uniformPage, uniform_addr(4, 0)), op_en)
+    val read_page = Mux(running_by_rasterizer, io.uniformPage, io.uniformWritePage)
+    val read_data = uniformMem.read(Cat(read_page, uniform_addr(4, 0)), op_en)
     val uniform_data = Mux(op_en_del, read_data, 0.U)
 
     val uniform_recA = Mux(funct3_del === 1.U, uniform_data, recA)

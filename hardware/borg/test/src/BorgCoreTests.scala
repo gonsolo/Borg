@@ -378,6 +378,7 @@ object BorgCoreTests extends TestSuite {
         writeImem(core, 1, 0)  // halt
 
         // Run with uniformPage = 0 → should read 111.0
+        core.io.uniformWritePage.poke(0.U)
         core.io.uniformPage.poke(0.U)
         startAndWait(core)
         val result_pg0 = fp16BitsToFloat(readReg(core, 2))
@@ -390,6 +391,7 @@ object BorgCoreTests extends TestSuite {
         core.clock.step(5)
 
         // Run with uniformPage = 1 → should read 222.0
+        core.io.uniformWritePage.poke(1.U)
         core.io.uniformPage.poke(1.U)
         startAndWait(core)
         val result_pg1 = fp16BitsToFloat(readReg(core, 2))

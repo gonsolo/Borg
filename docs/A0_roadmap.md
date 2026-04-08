@@ -231,10 +231,11 @@ Estimate: 3–5 days.
     Expand the hardware uniform buffer from 32 to 64 entries (2 pages of 32 entries).
     The CPU writes to the "front" page while the GPU reads from the "back" page (specified by `uniform_page` from the FIFO).
     Add MMIO addressing for the second page and verify through Chisel tests.
-- **Step 13.3: Hardware FIFO Integration**
+- **Step 13.3: Hardware FIFO Integration** ✅ (2026-04-08)
     Wire `BorgCommandFIFO` into `Borg.scala`. Map the push interface to a new MMIO write endpoint
     (`BORG_COMMAND_ENQUEUE`). Connect the pop interface to `BorgRasterizer`. Expose a `FIFO_FULL`
     bit in `BORG_STATUS` so the firmware can poll. Ensure the rasterizer uses the popped `uniform_page`.
+    *Note: The FPGA synthesis is currently failing due to LC overflow (5335 / 5280 LCs). Triangle and vkcube pass in Verilator and Arcilator.*
 - **Step 13.4: Firmware Integration & Synchronization**
     Update `borg_driver.c` to ping-pong between uniform pages. `shade_tiles()` writes uniforms
     to the inactive page, polls `BORG_STS_FIFO_FULL`, then enqueues the command.
@@ -281,7 +282,7 @@ engine fetches the data autonomously. This frees ~384 bytes of MMIO address
 space (registers + IMEM) and eliminates CPU bus contention during shader setup.
 Estimate: 1 week.
 
-### Step 16.5: Standard Bus Architecture (TileLink Migration)
+### Step 16.5: Standard Bus Architecture (TileLink Migration) - Optional
 
 Refactor the raw `address === OFFSET` and `data_in` multiplexing inside `Borg.scala` to adhere to standard system-on-chip paradigms.
 
