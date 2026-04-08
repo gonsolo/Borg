@@ -10,63 +10,61 @@
 // @doc:fpu-helpers
 // --- Borg FPU helpers ---
 void borg_run(uint32_t start_pc) {
-  // We MUST wait for the GPU to be fully idle before resetting it for FPU use,
-  // otherwise we might kill a rasterization job in progress from the FIFO!
-  while (!(BORG_STATUS & (1 << 1)))
+  // We MUST wait for the GPU to be fully idle before resetting it for FPU use.
+  while (!(BORG_GPU->status & STATUS_REG_T__IDLE_bm))
     ;
 
-  BORG_CONTROL = BORG_CTL_RESET | BORG_CTL_PC(start_pc);
-  (void)BORG_STATUS;
-  BORG_CONTROL = BORG_CTL_START;
+  BORG_GPU->control = CONTROL_REG_T__RESET_PIPELINE_bm | (start_pc << CONTROL_REG_T__START_PC_bp);
+  (void)BORG_GPU->status;
+  BORG_GPU->control = CONTROL_REG_T__START_bm;
   int timeout = 100000;
-  // BORG_STATUS returns {running (1-bit), busy_counter (3-bits)}.
-  // So 'running' is bit 3, which is 8.
-  while ((BORG_STATUS & 8) && timeout > 0)
+  // Wait until it becomes idle again
+  while (!(BORG_GPU->status & STATUS_REG_T__IDLE_bm) && timeout > 0)
     timeout--;
 }
 
 fp16_t borg_fp16_add(fp16_t a, fp16_t b) {
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FADD(0, 1, 2, 0);
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
-  BORG_REG(1) = a;
-  BORG_REG(2) = b;
+  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FADD(0, 1, 2, 0);
+  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
+  BORG_GPU->gpr[1] = a;
+  BORG_GPU->gpr[2] = b;
   borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_REG(0) & 0xFFFF;
+  return BORG_GPU->gpr[0] & 0xFFFF;
 }
 
 fp16_t borg_fp16_mul(fp16_t a, fp16_t b) {
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FMUL(0, 1, 2, 0);
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
-  BORG_REG(1) = a;
-  BORG_REG(2) = b;
+  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FMUL(0, 1, 2, 0);
+  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
+  BORG_GPU->gpr[1] = a;
+  BORG_GPU->gpr[2] = b;
   borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_REG(0) & 0xFFFF;
+  return BORG_GPU->gpr[0] & 0xFFFF;
 // @doc:end
 }
 
 fp16_t borg_fp16_fmadd(fp16_t a, fp16_t b, fp16_t c) {
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FMADD(0, 1, 2, 3, 0);
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
-  BORG_REG(1) = a;
-  BORG_REG(2) = b;
-  BORG_REG(3) = c;
+  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FMADD(0, 1, 2, 3, 0);
+  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
+  BORG_GPU->gpr[1] = a;
+  BORG_GPU->gpr[2] = b;
+  BORG_GPU->gpr[3] = c;
   borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_REG(0) & 0xFFFF;
+  return BORG_GPU->gpr[0] & 0xFFFF;
 }
 
 // FP16 reciprocal: 1/x via hardware FRCP instruction (LUT + interpolation).
 fp16_t borg_fp16_rcp(fp16_t x) {
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FRCP(0, 1, 0);
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
-  BORG_REG(1) = x;
+  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FRCP(0, 1, 0);
+  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
+  BORG_GPU->gpr[1] = x;
   borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_REG(0) & 0xFFFF;
+  return BORG_GPU->gpr[0] & 0xFFFF;
 }
 
 void borg_load_spirb_shader_at(const spirb_shader_t *s, int offset) {
   for (int i = 0; i < s->num_instrs; i++)
-    BORG_IMEM(offset + i) = s->instrs[i];
-  BORG_IMEM(offset + s->num_instrs) = BORG_INSTR_HALT;
+    BORG_GPU->imem[offset + i] = s->instrs[i];
+  BORG_GPU->imem[offset + s->num_instrs] = BORG_INSTR_HALT;
 }
 
 void borg_load_spirb_shader(const spirb_shader_t *s) {
@@ -74,17 +72,17 @@ void borg_load_spirb_shader(const spirb_shader_t *s) {
 }
 
 void borg_load_add_shader(void) {
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FADD(0, 1, 2, 0);
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
+  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FADD(0, 1, 2, 0);
+  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
 }
 
 fp16_t borg_fp16_sub_raw(fp16_t a, fp16_t b) {
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET) = BORG_INSTR_FADD(0, 1, 2, 0);
-  BORG_IMEM(BORG_IMEM_ADD_OFFSET + 1) = BORG_INSTR_HALT;
-  BORG_REG(1) = a;
-  BORG_REG(2) = b ^ 0x8000;
+  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FADD(0, 1, 2, 0);
+  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
+  BORG_GPU->gpr[1] = a;
+  BORG_GPU->gpr[2] = b ^ 0x8000;
   borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_REG(0) & 0xFFFF;
+  return BORG_GPU->gpr[0] & 0xFFFF;
 }
 
 // Convert FP16 (positive) to unsigned integer (truncate)

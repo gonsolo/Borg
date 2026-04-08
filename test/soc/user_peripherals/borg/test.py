@@ -8,7 +8,7 @@ import numpy as np
 import cocotb
 from cocotb.clock import Clock
 from tqv import TinyQV
-from borg_mmio import BORG_IMEM_OFFSET, BORG_CONTROL_OFFSET
+from borg_mmio import BORG_IMEM_OFFSET
 from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd, encode_rv32_fneg
 
 FP16_MAX = 65504
@@ -24,9 +24,9 @@ class BorgDriver:
         self.dut = dut
         self.tqv = tqv
         self.is_fp16 = is_fp16
-        self.ADDR_STATUS = BORG_CONTROL_OFFSET
+        self.ADDR_STATUS = 364
         self.ADDR_IMEM = BORG_IMEM_OFFSET
-        self.ADDR_CONTROL = BORG_CONTROL_OFFSET
+        self.ADDR_CONTROL = 360
 
     def is_close(self, actual, expected):
         rel_eps = 1e-3 if self.is_fp16 else 1e-6

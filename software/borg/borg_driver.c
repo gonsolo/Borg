@@ -17,8 +17,6 @@
 // @doc:end
 #include "borg_gpu_regs.h"
 
-#define BORG_GPU ((volatile borg_gpu_t*) BORG_BASE)
-
 #define FP16_SIXTEEN 0x4C00
 
 static inline void fb_write_pixel(int base, rgb16_t c) {
@@ -103,19 +101,19 @@ static void run_vertex_shader(const fp16_t *uniforms, const fp16_t *attrs,
   borg_load_spirb_shader(s);
 
   for (int i = 0; i < s->num_uniforms; i++)
-    BORG_UNIFORM(s->uniform_regs[i]) = uniforms[i];
+    BORG_GPU->uniform[s->uniform_regs[i]] = uniforms[i];
 
   for (int v = 0; v < NUM_VERTICES; v++) {
     BORG_GPU->control = CONTROL_REG_T__RESET_PIPELINE_bm;
     for (int i = 0; i < s->num_uniforms; i++)
-      BORG_UNIFORM(s->uniform_regs[i]) = uniforms[i];
+      BORG_GPU->uniform[s->uniform_regs[i]] = uniforms[i];
     for (int i = 0; i < s->num_attributes; i++)
-      BORG_REG(s->attribute_regs[i]) = attrs[v * s->num_attributes + i];
+      BORG_GPU->gpr[s->attribute_regs[i]] = attrs[v * s->num_attributes + i];
     for (int i = 0; i < s->num_consts; i++)
-      BORG_REG(s->const_regs[i]) = s->const_vals[i];
+      BORG_GPU->gpr[s->const_regs[i]] = s->const_vals[i];
     borg_run(BORG_IMEM_VERT_OFFSET);
     for (int i = 0; i < s->num_outputs; i++)
-      outputs[v * s->num_outputs + i] = BORG_REG(s->output_regs[i]) & 0xFFFF;
+      outputs[v * s->num_outputs + i] = BORG_GPU->gpr[s->output_regs[i]] & 0xFFFF;
   }
 }
 
@@ -362,13 +360,13 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
   // Rasterizer uniforms (u0-u11): edge constants + negated vertex positions
   borg_load_edge_constants(&rast_shader, tri->edges.v);
   for (int i = 0; i < 3; i++) {
-    BORG_UNIFORM(rast_shader.uniform_regs[6 + i * 2 + 0]) = BORG_FP16_NEG(tri->screen_pos.v[i].x);
-    BORG_UNIFORM(rast_shader.uniform_regs[6 + i * 2 + 1]) = BORG_FP16_NEG(tri->screen_pos.v[i].y);
+    BORG_GPU->uniform[rast_shader.uniform_regs[6 + i * 2 + 0]] = BORG_FP16_NEG(tri->screen_pos.v[i].x);
+    BORG_GPU->uniform[rast_shader.uniform_regs[6 + i * 2 + 1]] = BORG_FP16_NEG(tri->screen_pos.v[i].y);
   }
 
   // Fragment uniforms (u12-u30): inv_area, vertex colors, z, UV
   const rgb16_t *colors = tri->colors.v;
-  BORG_UNIFORM(frag_shader.uniform_regs[0]) = tri->inv_area;
+  BORG_GPU->uniform[frag_shader.uniform_regs[0]] = tri->inv_area;
 
   if (tri->has_uvs) {
     const uv16_t *uvs = tri->uvs.v;
@@ -378,13 +376,13 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
     load_uniform_triple(&frag_shader, 4, uvs[0].v, uvs[1].v, uvs[2].v);
     load_uniform_triple(&frag_shader, 7, 0, 0, 0); // B unused
     for (int i = 13; i <= 18; i++)
-      BORG_UNIFORM(frag_shader.uniform_regs[i]) = 0;
+      BORG_GPU->uniform[frag_shader.uniform_regs[i]] = 0;
   } else {
     load_uniform_triple(&frag_shader, 1, colors[0].r, colors[1].r, colors[2].r);
     load_uniform_triple(&frag_shader, 4, colors[0].g, colors[1].g, colors[2].g);
     load_uniform_triple(&frag_shader, 7, colors[0].b, colors[1].b, colors[2].b);
     for (int i = 13; i <= 18; i++)
-      BORG_UNIFORM(frag_shader.uniform_regs[i]) = 0;
+      BORG_GPU->uniform[frag_shader.uniform_regs[i]] = 0;
   }
 
   load_uniform_triple(&frag_shader, 10, tri->z_vals.v[0], tri->z_vals.v[1],
@@ -395,54 +393,58 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
     for (int tx = bb.x0 & ~3; tx < bb.x1; tx += 4) {
       
       // Compute clamped 4x4 sub-bbox for this tile
-      borg_bbox_t hw_bb = {
-        .min_x = (tx > bb.x0) ? tx : bb.x0,
-        .min_y = (ty > bb.y0) ? ty : bb.y0,
-        .max_x = ((tx + 4) < bb.x1) ? (tx + 4) : bb.x1,
-        .max_y = ((ty + 4) < bb.y1) ? (ty + 4) : bb.y1
-      };
+      int min_x = (tx > bb.x0) ? tx : bb.x0;
+      int min_y = (ty > bb.y0) ? ty : bb.y0;
+      int max_x = ((tx + 4) < bb.x1) ? (tx + 4) : bb.x1;
+      int max_y = ((ty + 4) < bb.y1) ? (ty + 4) : bb.y1;
       
       // If tile is completely outside bbox, skip
-      if (hw_bb.min_x >= hw_bb.max_x || hw_bb.min_y >= hw_bb.max_y) continue;
-
-      // Clear the tile buffer (write 1 to bit 4 of BORG_TILE_CTRL)
-      BORG_TILE_CTRL = (1 << 4);
+      if (min_x >= max_x || min_y >= max_y) continue;
 
       // Wait for space in the command FIFO
       while (BORG_GPU->status & STATUS_REG_T__FIFO_FULL_bm);
 
       // Enqueue the command for this hardware tile
-      // cmd = uniformPage[30] | fragPC[29:24] | bbox[23:0]
-      uint32_t cmd = hw_bb.raw | (BORG_IMEM_FRAG_OFFSET << 24) | (current_uniform_page << 30);
+      uint32_t cmd = (min_x << CMD_ENQUEUE_REG_T__BBOX_MIN_X_bp) |
+                     (min_y << CMD_ENQUEUE_REG_T__BBOX_MIN_Y_bp) |
+                     (max_x << CMD_ENQUEUE_REG_T__BBOX_MAX_X_bp) |
+                     (max_y << CMD_ENQUEUE_REG_T__BBOX_MAX_Y_bp) |
+                     (BORG_IMEM_FRAG_OFFSET << CMD_ENQUEUE_REG_T__FRAG_PC_bp) |
+                     (current_uniform_page << CMD_ENQUEUE_REG_T__UNIFORM_PAGE_bp);
       BORG_GPU->cmd_enqueue = cmd;
 
       // Hardware needs a few cycles to pop from FIFO and start the tile
       for (volatile int k=0; k<16; k++) { __asm__ volatile("nop"); }
 
-      // Spin the rasterizer through the sub-bbox.
-      // The bus reads will stall automatically if the hardware is computing.
-      for (;;) {
-        uint32_t iter = BORG_ITER;
-        if (!BORG_ITER_VALID(iter)) break;
-        // Advance iterator — hardware automatically pushes RGB+Z to Tile Buffer!
-        BORG_ITER = 1;
-      }
+      // Clear the tile buffer (write 1 to bit 4 of tile_ctrl)
+      BORG_GPU->tile_ctrl = TILE_CTRL_REG_T__CLEAR_bm;
+      
+      uint32_t active_pixels = 0;
+      do {
+        uint32_t iter = BORG_GPU->iter;
+        if (!(iter & ITER_REG_T__VALID_bm)) break;
 
-      // Tile has been fully shaded on-chip! 
-      // Flush the 4x4 tile buffer to PSRAM.
-      for (int py = 0; py < 4; py++) {
-        int abs_y = ty + py;
-        if (abs_y < hw_bb.min_y || abs_y >= hw_bb.max_y) continue;
-        
-        for (int px = 0; px < 4; px++) {
-          int abs_x = tx + px;
-          if (abs_x < hw_bb.min_x || abs_x >= hw_bb.max_x) continue;
+        // BORG_GPU->iter write advances the iterator by one pixel
+        BORG_GPU->iter = 1;
+
+        if (iter & ITER_REG_T__INSIDE_FLAG_bm) {
+            active_pixels++;
+        }
+      } while (1);
+
+      if (active_pixels > 0) {
+        // Only flush tile buffer to PSRAM if something was drawn
+        for (uint32_t tile_idx = 0; tile_idx < 16; tile_idx++) {
+          // Set read index in TILE_CTRL
+          BORG_GPU->tile_ctrl = tile_idx;
           
-          int tile_idx = px | (py << 2);
-          BORG_TILE_CTRL = tile_idx;
+          uint32_t rg = BORG_GPU->tile_rg;
+          uint32_t bz = BORG_GPU->tile_bz;
           
-          uint32_t rg = BORG_TILE_RG;
-          uint32_t bz = BORG_TILE_BZ;
+          int abs_x = (tile_idx & 3) + tx;
+          int abs_y = (tile_idx >> 2) + ty;
+          
+          if (abs_x < min_x || abs_x >= max_x || abs_y < min_y || abs_y >= max_y) continue;
           
           fp16_t z = bz & 0xFFFF;
           if (z >= FP16_MAX_DEPTH) continue; // Fragment was not shaded or was outside!

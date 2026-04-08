@@ -28,7 +28,7 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
 
   // Pipeline write-back snoop (from BorgCore)
   val pipeWriteEn   = Input(Bool())
-  val pipeWriteAddr = Input(UInt(log2Ceil(MmioMap.BORG_NUM_REGS).W))
+  val pipeWriteAddr = Input(UInt(log2Ceil(32).W))
   val pipeWriteData = Input(UInt(config.totalBits.W))
 
   // Core state feedback (needed for stall clearing)

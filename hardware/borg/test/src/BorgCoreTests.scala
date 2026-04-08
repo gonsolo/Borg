@@ -50,7 +50,7 @@ object BorgCoreTests extends TestSuite {
 
   /** Read a register from BorgCore via the regReadData output. */
   def readReg(core: BorgCore, regIdx: Int): BigInt = {
-    val addr = MmioMap.BORG_REG_OFFSET + regIdx * 4
+    val addr = 0 + regIdx * 4
     core.io.bus.address.poke(addr.U)
     core.io.bus.is_reading.poke(true.B)
     core.io.bus.is_writing.poke(false.B)
@@ -62,11 +62,11 @@ object BorgCoreTests extends TestSuite {
 
   /** Write a register via MMIO. */
   def writeReg(core: BorgCore, regIdx: Int, bits: BigInt): Unit =
-    writeCore(core, MmioMap.BORG_REG_OFFSET + regIdx * 4, bits)
+    writeCore(core, 0 + regIdx * 4, bits)
 
   /** Write an instruction to IMEM. */
   def writeImem(core: BorgCore, slot: Int, instr: BigInt): Unit =
-    writeCore(core, MmioMap.BORG_IMEM_OFFSET + slot * 4, instr)
+    writeCore(core, 128 + slot * 4, instr)
 
   def resetCore(core: BorgCore): Unit = {
     core.io.controlReset.poke(true.B)
@@ -256,7 +256,7 @@ object BorgCoreTests extends TestSuite {
 
     /** Write a uniform entry via MMIO. */
     def writeUniform(core: BorgCore, idx: Int, bits: BigInt): Unit =
-      writeCore(core, MmioMap.BORG_UNIFORM_OFFSET + idx * 4, bits)
+      writeCore(core, 368 + idx * 4, bits)
 
     utest.test("uniform_funct3_01_rs1") {
       simulate(new BorgCore(config)) { core =>

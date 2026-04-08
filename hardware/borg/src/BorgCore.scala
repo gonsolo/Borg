@@ -32,7 +32,7 @@ class BorgCoreIO(val config: FloatConfig) extends Bundle {
 
   // Pipeline write-back snoop (exposed to rasterizer)
   val pipeWriteEn   = Output(Bool())
-  val pipeWriteAddr = Output(UInt(log2Ceil(MmioMap.BORG_NUM_REGS).W))
+  val pipeWriteAddr = Output(UInt(log2Ceil(32).W))
   val pipeWriteData = Output(UInt(config.totalBits.W))
 
   // Status outputs (exposed to rasterizer and top-level read mux)
@@ -56,13 +56,13 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val regFileB = Module(new RegFileCopy(config.totalBits, "regFileB"))
   val regFileC = Module(new RegFileCopy(config.totalBits, "regFileC"))
 
-  val instructionMemory = SyncReadMem(MmioMap.BORG_IMEM_SLOTS, UInt(32.W))
-  val programCounter = RegInit(0.U(log2Ceil(MmioMap.BORG_IMEM_SLOTS).W))
+  val instructionMemory = SyncReadMem(56, UInt(32.W))
+  val programCounter = RegInit(0.U(log2Ceil(56).W))
   val running = RegInit(false.B)
   val auto_run_pending = RegInit(false.B)
   val running_by_rasterizer = RegInit(false.B)
 
-  val uniformMem = SyncReadMem(MmioMap.BORG_UNIFORM_ENTRIES, UInt(config.totalBits.W))
+  val uniformMem = SyncReadMem(64, UInt(config.totalBits.W))
 
   // --- Coordinate Expansion LUT ---
   // Maps 6-bit integer pixel coordinates (0-63) to float16 pixel centers (+0.5)
@@ -182,13 +182,13 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     }
 
     // IMEM write
-    when(io.bus.is_writing && io.bus.address >= MmioMap.BORG_IMEM_OFFSET.U && io.bus.address < MmioMap.BORG_IMEM_END.U) {
-      val imem_idx = (io.bus.address - MmioMap.BORG_IMEM_OFFSET.U) >> 2
+    when(io.bus.is_writing && io.bus.address >= BorgGpuRegs.imem_offset && io.bus.address < 352.U) {
+      val imem_idx = (io.bus.address - BorgGpuRegs.imem_offset) >> 2
       instructionMemory.write(imem_idx, io.bus.data_in)
     }
 
-    when(io.bus.is_writing && io.bus.address >= MmioMap.BORG_UNIFORM_OFFSET.U && io.bus.address < MmioMap.BORG_UNIFORM_END.U) {
-      val uniform_idx = (io.bus.address - MmioMap.BORG_UNIFORM_OFFSET.U) >> 2
+    when(io.bus.is_writing && io.bus.address >= BorgGpuRegs.uniform_offset && io.bus.address < 496.U) {
+      val uniform_idx = (io.bus.address - BorgGpuRegs.uniform_offset) >> 2
       uniformMem.write(Cat(io.uniformWritePage, uniform_idx(4, 0)), io.bus.data_in(config.totalBits - 1, 0))
     }
   }
@@ -245,9 +245,9 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
 
   /** Port C: rs3 during execution, MMIO register access when idle. */
   private def wirePortC(): (UInt, UInt, UInt) = {
-    val mmio_en = !running && !is_busy && (io.bus.is_reading || io.bus.is_writing) && io.bus.address >= MmioMap.BORG_REG_OFFSET.U && io.bus.address < MmioMap.BORG_IMEM_OFFSET.U
+    val mmio_en = !running && !is_busy && (io.bus.is_reading || io.bus.is_writing) && io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
     val rs3_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
-    val addr = Mux(running || is_busy, regs.rs3, (io.bus.address - MmioMap.BORG_REG_OFFSET.U) >> 2)
+    val addr = Mux(running || is_busy, regs.rs3, (io.bus.address - BorgGpuRegs.gpr_offset) >> 2)
     val en = mmio_en || rs3_en
     val mmio_en_del = RegNext(mmio_en && io.bus.is_reading, false.B)
     val rs3_en_del = RegNext(rs3_en, false.B)
@@ -329,10 +329,10 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
       fma_result: UInt, fstep_result: UInt, frcp_result: UInt,
       is_fstep_reg: Bool, is_frcp_reg: Bool, mmio_reg_data: UInt
   ): Unit = {
-    val mmio_write = io.bus.is_writing && io.bus.address >= MmioMap.BORG_REG_OFFSET.U && io.bus.address < MmioMap.BORG_IMEM_OFFSET.U
+    val mmio_write = io.bus.is_writing && io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
     val pipe_write = running && is_busy && busy_counter === 1.U
     val w_en = mmio_write || pipe_write
-    val w_addr = Mux(pipe_write, regs.rd, (io.bus.address - MmioMap.BORG_REG_OFFSET.U) >> 2)
+    val w_addr = Mux(pipe_write, regs.rd, (io.bus.address - BorgGpuRegs.gpr_offset) >> 2)
 
     val w_data = Mux(pipe_write,
       Mux(is_fstep_reg, fstep_result,

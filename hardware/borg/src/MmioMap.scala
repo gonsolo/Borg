@@ -102,51 +102,7 @@ object MmioMap {
   val UART_STATUS_OFFSET = 4   // Status register
   val UART_BAUD_OFFSET   = 8   // Baud divider
 
-  // Borg GPU (Borg.scala)
-  val BORG_NUM_REGS       = 32
-  val BORG_REG_OFFSET     = 0    // Register file base (32 × 16-bit)
-  val BORG_IMEM_SLOTS     = 56   // reduced from 64 to fit uniform buffer; shaders total ~50 insns
-  val BORG_IMEM_OFFSET    = BORG_REG_OFFSET + (BORG_NUM_REGS * 4)  // Instruction memory base (32 × 32-bit)
-  val BORG_IMEM_END       = BORG_IMEM_OFFSET + (BORG_IMEM_SLOTS * 4)
-  val BORG_ITER_BBOX_OFFSET = BORG_IMEM_END      // Pixel iterator: write bbox
-  val BORG_ITER_OFFSET      = BORG_ITER_BBOX_OFFSET + 4  // Pixel iterator: advance
-
-  // Uniform buffer (2 pages × 32 entries = 64 hardware entries; scaffolding until DMA in step 16)
-  // MMIO window covers one page (32 entries); uniformWritePage selects the target page.
-  val BORG_UNIFORM_PAGE_ENTRIES = 32
-  val BORG_UNIFORM_PAGES        = 2
-  val BORG_UNIFORM_ENTRIES      = BORG_UNIFORM_PAGE_ENTRIES * BORG_UNIFORM_PAGES // 64 hardware entries
-  val BORG_UNIFORM_OFFSET       = BORG_ITER_OFFSET + 12
-  val BORG_UNIFORM_END          = BORG_UNIFORM_OFFSET + BORG_UNIFORM_PAGE_ENTRIES * 4  // MMIO window = 1 page
-
-  // Tile buffer (Step 11.2): indexed read for flush, clear via CTRL
-  // Write CTRL to set pixel index (triggers BRAM read), then read RG/BZ.
-  val BORG_TILE_CTRL_OFFSET = BORG_UNIFORM_END       // write: bits[3:0]=idx, bit[4]=clear
-  val BORG_TILE_RG_OFFSET   = BORG_TILE_CTRL_OFFSET + 4  // read: {R[31:16], G[15:0]}
-  val BORG_TILE_BZ_OFFSET   = BORG_TILE_RG_OFFSET + 4    // read: {B[31:16], Z[15:0]}
-
-  // Command FIFO (migrated to SystemRDL/Chisel slices)
-
-  // Borg pixel iterator configuration
-  val BORG_ITER_COORD_BITS    = 6
-  val BORG_ITER_COORD_MASK    = (1 << BORG_ITER_COORD_BITS) - 1
-
-  // SPIR-B instruction format sizing
-  val SPIRB_INSTR_BYTES       = 4
-  
-  // Iterator reading layout (from BORG_ITER)
-  val BORG_ITER_X_SHIFT       = 0
-  val BORG_ITER_Y_SHIFT       = BORG_ITER_X_SHIFT + BORG_ITER_COORD_BITS
-  val BORG_ITER_VALID_SHIFT   = BORG_ITER_Y_SHIFT + BORG_ITER_COORD_BITS
-  val BORG_ITER_INSIDE_SHIFT  = BORG_ITER_VALID_SHIFT + 1
-
-  // Iterator BBOX packing layout (to BORG_ITER_BBOX)
-  val BORG_ITER_BBOX_X0_SHIFT = 0
-  val BORG_ITER_BBOX_Y0_SHIFT = BORG_ITER_BBOX_X0_SHIFT + BORG_ITER_COORD_BITS
-  val BORG_ITER_BBOX_X1_SHIFT = BORG_ITER_BBOX_Y0_SHIFT + BORG_ITER_COORD_BITS
-  val BORG_ITER_BBOX_Y1_SHIFT = BORG_ITER_BBOX_X1_SHIFT + BORG_ITER_COORD_BITS
-
-
+  // Borg GPU (Borg.scala) constants migrated to BorgGpuRegs
 
   // --- PSRAM addresses (QSPI memory space, not peripheral space) ---
   val PSRAM_BASE       = 0x01001000  // CPU address

@@ -201,35 +201,15 @@ object MmioGenerator {
     emitCommon(e)
 
     e.section("C Macros for Address Casting")
+    w.println("#include \"borg_gpu_regs.h\"")
+    w.println("#define BORG_GPU ((volatile borg_gpu_t*) BORG_BASE)")
+    
     e.defReg("UART_TX",     "UART_BASE + UART_TX_OFFSET")
     e.defReg("UART_STATUS", "UART_BASE + UART_STATUS_OFFSET")
     e.defReg("UART_BAUD",   "UART_BASE + UART_BAUD_OFFSET")
     
-    e.defRegArray("BORG_REG",  "BORG_BASE + BORG_REG_OFFSET")
-    e.defRegArray("BORG_IMEM", "BORG_BASE + BORG_IMEM_OFFSET")
-    e.defReg("BORG_CONTROL",   "BORG_BASE + BORG_CONTROL_OFFSET")
-    e.defReg("BORG_STATUS",    "BORG_BASE + BORG_CONTROL_OFFSET")
+    // The legacy BORG_REG, BORG_IMEM, BORG_UNIFORM accessors have been migrated to borg_gpu_regs.h
 
-    e.defMacro("BORG_CTL_PC", "pc", "(((pc) & BORG_CTL_PC_MASK) << BORG_CTL_PC_SHIFT)")
-
-    e.defReg("BORG_ITER_BBOX", "BORG_BASE + BORG_ITER_BBOX_OFFSET")
-    e.emitBundle("borg_bbox_t", new Bbox())
-    e.defReg("BORG_ITER",      "BORG_BASE + BORG_ITER_OFFSET")
-    e.defMacro("BORG_ITER_X", "v", "(((v) >> BORG_ITER_X_SHIFT) & BORG_ITER_COORD_MASK)")
-    e.defMacro("BORG_ITER_Y", "v", "(((v) >> BORG_ITER_Y_SHIFT) & BORG_ITER_COORD_MASK)")
-    e.defMacro("BORG_ITER_VALID", "v", "(((v) >> BORG_ITER_VALID_SHIFT) & 1)")
-    e.defMacro("BORG_ITER_INSIDE", "v", "(((v) >> BORG_ITER_INSIDE_SHIFT) & 1)")
-    e.defReg("BORG_FRAG_PC",   "BORG_BASE + BORG_FRAG_PC_OFFSET")
-
-    e.defRegArray("BORG_UNIFORM", "BORG_BASE + BORG_UNIFORM_OFFSET")
-
-    e.section("Tile buffer (Step 11.2)")
-    e.defReg("BORG_TILE_CTRL", "BORG_BASE + BORG_TILE_CTRL_OFFSET")
-    e.defReg("BORG_TILE_RG",   "BORG_BASE + BORG_TILE_RG_OFFSET")
-    e.defReg("BORG_TILE_BZ",   "BORG_BASE + BORG_TILE_BZ_OFFSET")
-    e.defMacro("BORG_TILE_SET_IDX", "idx", "do { BORG_TILE_CTRL = (idx) & 0xF; } while(0)")
-    e.defMacro("BORG_TILE_CLEAR",   "", "do { BORG_TILE_CTRL = 0x10; } while(0)")
-    e.emitBundle("borg_colorz_t", new ColorZ(16))
     e.defRegArray("PSRAM_IN",  "PSRAM_BASE")
     e.defRegArray("PSRAM_OUT", "PSRAM_BASE + PSRAM_OUT_OFFSET")
 

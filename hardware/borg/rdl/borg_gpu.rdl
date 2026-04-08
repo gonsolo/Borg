@@ -33,20 +33,6 @@ field coord_field_t {
     fieldwidth = 6;
 };
 
-// --- Bounding box (4 × 6-bit coords, matches Chisel Bbox bundle) ---
-// Bit layout: {max.y[23:18], max.x[17:12], min.y[11:6], min.x[5:0]}
-reg iter_bbox_reg_t {
-    name = "Pixel Iterator Bounding Box";
-    desc = "Write the 4×4 tile bounding box for the hardware pixel iterator.
-            Packed as {max.y, max.x, min.y, min.x}, 6 bits each.";
-
-    field {} min_x[6] = 0;
-    field {} min_y[6] = 0;
-    field {} max_x[6] = 0;
-    field {} max_y[6] = 0;
-    field {} RSVD[8]  = 0;
-};
-
 // --- Iterator read-back ---
 // Bit layout: {rsvd[31:14], inside[13], valid[12], y[11:6], x[5:0]}
 reg iter_reg_t {
@@ -349,11 +335,8 @@ addrmap borg_gpu {
     // ---- Instruction Memory: 0x080 – 0x15C (56 entries × 4 bytes) ----
     imem_reg_t imem[56] @ 0x080 += 0x4; // Explicit alignment boundary
 
-    // ---- Pixel Iterator Bounding Box: 0x160 ----
-    iter_bbox_reg_t iter_bbox;
-
     // ---- Pixel Iterator Position / Advance: 0x164 ----
-    iter_reg_t iter;
+    iter_reg_t iter @ 0x164;
 
     // ---- Control (write only): 0x168 ----
     control_reg_t control;

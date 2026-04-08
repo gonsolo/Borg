@@ -728,14 +728,14 @@ object BorgTests extends TestSuite {
         println("\n=== Inside Flag Snoop Tests ===")
 
         def assertInside(expected: Boolean, label: String): Unit = {
-          borg.io.address.poke(MmioMap.BORG_ITER_OFFSET.U)
+          borg.io.address.poke(BorgGpuRegs.iter_offset)
           borg.io.data_read_n.poke(2.U)
           borg.io.data_write_n.poke(3.U)
           borg.clock.step(1)
           val iterVal = borg.io.data_out.peek().litValue
           borg.io.data_read_n.poke(3.U)
           
-          val isInside = ((iterVal >> MmioMap.BORG_ITER_INSIDE_SHIFT) & 1) == 1
+          val isInside = ((iterVal >> 13) & 1) == 1
           println(f"Check: $label -> Actual: $isInside (Exp: $expected)")
           utest.assert(isInside == expected)
         }
@@ -759,7 +759,7 @@ object BorgTests extends TestSuite {
            writeAddr(borg, 128, instr)
            writeAddr(borg, 132, 0) // halt
            // Trigger auto-run via BORG_ITER to enter sRast phase where snooping happens
-           writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
+           writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
            waitForHalt(borg)
            
            // Delay by asserting a dummy readAddr.
@@ -795,7 +795,7 @@ object BorgTests extends TestSuite {
         borg.clock.step(5)
         writeAddr(borg, 128, encodeInstruction(config, FNEG, rs1 = 4, rs2 = 4, rd = 1)) // r1 = -0.0
         writeAddr(borg, 132, 0)
-        writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
+        writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
         waitForHalt(borg)
         assertInside(true, "r1 is -0.0 (rest 0.0)")
 
@@ -818,8 +818,8 @@ object BorgTests extends TestSuite {
         println("  Test 1: Auto-run triggers shader")
         resetAndWait(borg)
         val addInstr = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = 0)
-        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET, addInstr)       // imem[0]
-        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 4, 0)          // imem[1] = halt
+        writeAddr(borg, 128, addInstr)       // imem[0]
+        writeAddr(borg, 128 + 4, 0)          // imem[1] = halt
 
         // Load operands
         writeAddr(borg, 16, floatToBits(3.0f, config))   // r4 = 3.0
@@ -836,7 +836,7 @@ object BorgTests extends TestSuite {
         borg.clock.step(5)
 
         // Write BORG_ITER to advance — should auto-trigger shader at PC=0
-        writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
+        writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
 
         // Wait for auto-run to complete by bounded polling of the status register
         // It takes ~7 cycles for the rasterizer to evaluate the coordinate FPU,
@@ -850,7 +850,7 @@ object BorgTests extends TestSuite {
 
         // --- Test 2: Iterator advanced correctly after auto-run ---
         println("  Test 2: Iterator advances with auto-run")
-        borg.io.address.poke(MmioMap.BORG_ITER_OFFSET.U)
+        borg.io.address.poke(BorgGpuRegs.iter_offset)
         borg.io.data_read_n.poke(2.U)
         borg.io.data_write_n.poke(3.U)
         borg.clock.step(1)
@@ -858,8 +858,8 @@ object BorgTests extends TestSuite {
         val iterVal = borg.io.data_out.peek().litValue
         borg.io.data_read_n.poke(3.U)
         borg.clock.step(1)
-        val ix = (iterVal >> MmioMap.BORG_ITER_X_SHIFT) & MmioMap.BORG_ITER_COORD_MASK
-        val iy = (iterVal >> MmioMap.BORG_ITER_Y_SHIFT) & MmioMap.BORG_ITER_COORD_MASK
+        val ix = (iterVal >> 0) & 63
+        val iy = (iterVal >> 6) & 63
         println(f"    Raw iterVal: 0x$iterVal%08X")
         println(f"    Iterator position: ($ix, $iy)")
         // After bbox (0,0)-(2,2) and one advance, should be at (1,0)
@@ -873,10 +873,10 @@ object BorgTests extends TestSuite {
         val addInstr0 = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = 0)
         val addInstr1 = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = 1)
         val addInstr2 = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = 2)
-        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET, addInstr0)       // r0 = r4+r5 = 3.0
-        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 4, addInstr1)   // r1 = r4+r5 = 3.0
-        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 8, addInstr2)   // r2 = r4+r5 = 3.0
-        writeAddr(borg, MmioMap.BORG_IMEM_OFFSET + 12, 0)          // halt
+        writeAddr(borg, 128, addInstr0)       // r0 = r4+r5 = 3.0
+        writeAddr(borg, 128 + 4, addInstr1)   // r1 = r4+r5 = 3.0
+        writeAddr(borg, 128 + 8, addInstr2)   // r2 = r4+r5 = 3.0
+        writeAddr(borg, 128 + 12, 0)          // halt
 
         writeAddr(borg, 16, floatToBits(3.0f, config))   // r4 = 3.0 (positive)
         writeAddr(borg, 20, floatToBits(0.0f, config))   // r5 = 0.0
@@ -884,11 +884,11 @@ object BorgTests extends TestSuite {
         borg.clock.step(5)
 
         // Write BORG_ITER — auto-runs shader, r0/r1/r2 all become 3.0 (positive → inside)
-        writeAddr(borg, MmioMap.BORG_ITER_OFFSET, 1)
+        writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
         borg.clock.step(30)
 
         // Read inside_flag
-        borg.io.address.poke(MmioMap.BORG_ITER_OFFSET.U)
+        borg.io.address.poke(BorgGpuRegs.iter_offset)
         borg.io.data_read_n.poke(2.U)
         borg.io.data_write_n.poke(3.U)
         borg.clock.step(1)
@@ -896,7 +896,7 @@ object BorgTests extends TestSuite {
         val iterVal2 = borg.io.data_out.peek().litValue
         borg.io.data_read_n.poke(3.U)
         borg.clock.step(1)
-        val isInside = ((iterVal2 >> MmioMap.BORG_ITER_INSIDE_SHIFT) & 1) == 1
+        val isInside = ((iterVal2 >> 13) & 1) == 1
         println(f"    inside_flag: $isInside (expected true)")
         Predef.assert(isInside, "Expected inside_flag=true after positive edge results")
         println("  Inside flag via auto-run: PASSED")
@@ -923,7 +923,7 @@ object BorgTests extends TestSuite {
         writeAddr(borg, 128, 0)
         
         // Advance iterator normally to initialize it (this triggers the shader!)
-        borg.io.address.poke(MmioMap.BORG_ITER_OFFSET.U)
+        borg.io.address.poke(BorgGpuRegs.iter_offset)
         borg.io.data_in.poke(1.U)
         borg.io.data_write_n.poke(2.U)
         borg.clock.step(1)
@@ -952,7 +952,7 @@ object BorgTests extends TestSuite {
         val expected_fp16 = 0x4940L
 
         // Read r30 via MMIO
-        borg.io.address.poke((MmioMap.BORG_REG_OFFSET + 30 * 4).U)
+        borg.io.address.poke((0 + 30 * 4).U)
         borg.io.data_read_n.poke(2.U)
         borg.clock.step(1)
         val r30_val = borg.io.data_out.peek().litValue
@@ -960,7 +960,7 @@ object BorgTests extends TestSuite {
         borg.clock.step(1)
 
         // Read r31 via MMIO
-        borg.io.address.poke((MmioMap.BORG_REG_OFFSET + 31 * 4).U)
+        borg.io.address.poke((0 + 31 * 4).U)
         borg.io.data_read_n.poke(2.U)
         borg.clock.step(1)
         val r31_val = borg.io.data_out.peek().litValue
@@ -1004,19 +1004,19 @@ object BorgTests extends TestSuite {
         // Helper: write full pixel (R, G, B, Z) to tile buffer at index idx
         // Protocol: (1) CTRL=idx, (2) BZ={B,Z}, (3) RG={R,G} → triggers write
         def writeTilePixel(idx: Int, r: Int, g: Int, b: Int, z: Int): Unit = {
-          writeAddr(borg, MmioMap.BORG_TILE_CTRL_OFFSET, idx & 0xF)
+          writeAddr(borg, BorgGpuRegs.tile_ctrl_offset.litValue.toInt, idx & 0xF)
           val bzPacked = (BigInt(b & 0xFFFF) << 16) | BigInt(z & 0xFFFF)
-          writeAddr(borg, MmioMap.BORG_TILE_BZ_OFFSET, bzPacked)
+          writeAddr(borg, BorgGpuRegs.tile_bz_offset.litValue.toInt, bzPacked)
           val rgPacked = (BigInt(r & 0xFFFF) << 16) | BigInt(g & 0xFFFF)
-          writeAddr(borg, MmioMap.BORG_TILE_RG_OFFSET, rgPacked)
+          writeAddr(borg, BorgGpuRegs.tile_rg_offset.litValue.toInt, rgPacked)
         }
 
         // Helper: read tile pixel at index idx → (R, G, B, Z)
         def readTilePixel(idx: Int): (Int, Int, Int, Int) = {
-          writeAddr(borg, MmioMap.BORG_TILE_CTRL_OFFSET, idx & 0xF)
+          writeAddr(borg, BorgGpuRegs.tile_ctrl_offset.litValue.toInt, idx & 0xF)
           borg.clock.step(2) // settle for BRAM read
-          val rg = readRaw(MmioMap.BORG_TILE_RG_OFFSET)
-          val bz = readRaw(MmioMap.BORG_TILE_BZ_OFFSET)
+          val rg = readRaw(BorgGpuRegs.tile_rg_offset.litValue.toInt)
+          val bz = readRaw(BorgGpuRegs.tile_bz_offset.litValue.toInt)
           val r = ((rg >> 16) & 0xFFFF).toInt
           val g = (rg & 0xFFFF).toInt
           val b = ((bz >> 16) & 0xFFFF).toInt
@@ -1064,7 +1064,7 @@ object BorgTests extends TestSuite {
 
         // --- Test 4: Clear resets Z to 0x7BFF and RGB to 0 ---
         println("  Test 4: Clear tile buffer")
-        writeAddr(borg, MmioMap.BORG_TILE_CTRL_OFFSET, 0x10)  // bit 4 = clear
+        writeAddr(borg, BorgGpuRegs.tile_ctrl_offset.litValue.toInt, 0x10)  // bit 4 = clear
         borg.clock.step(20)  // wait for sequential RGB clear
         val (rc, gc, bc, zc) = readTilePixel(0)
         println(f"    After clear idx 0: R=0x$rc%04X G=0x$gc%04X B=0x$bc%04X Z=0x$zc%04X")

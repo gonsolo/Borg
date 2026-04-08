@@ -32,10 +32,10 @@ class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
 }
 
 class RegFileCopyIO(width: Int) extends Bundle {
-  val readAddr  = Input(UInt(log2Ceil(MmioMap.BORG_NUM_REGS).W))
+  val readAddr  = Input(UInt(log2Ceil(32).W))
   val readEn    = Input(Bool())
   val readData  = Output(UInt(width.W))
-  val writeAddr = Input(UInt(log2Ceil(MmioMap.BORG_NUM_REGS).W))
+  val writeAddr = Input(UInt(log2Ceil(32).W))
   val writeEn   = Input(Bool())
   val writeData = Input(UInt(width.W))
 }
@@ -49,7 +49,7 @@ class RegFileCopy(width: Int, instName: String) extends Module {
 
   val io = IO(new RegFileCopyIO(width))
 
-  val mem = SyncReadMem(MmioMap.BORG_NUM_REGS, UInt(width.W))
+  val mem = SyncReadMem(32, UInt(width.W))
   io.readData := mem.read(io.readAddr, io.readEn)
 
   when(io.writeEn) {
@@ -95,19 +95,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   rdlRegs.io.bus.writeEn   := is_writing
   rdlRegs.io.bus.readEn    := is_reading
 
-  // Defaults for hw inbound signals (RDL Vertical Slice prerequisites)
-  rdlRegs.io.hw.iter_bbox_min_x_in := 0.U
-  rdlRegs.io.hw.iter_bbox_min_y_in := 0.U
-  rdlRegs.io.hw.iter_bbox_max_x_in := 0.U
-  rdlRegs.io.hw.iter_bbox_max_y_in := 0.U
-  rdlRegs.io.hw.iter_x := 0.U
-  rdlRegs.io.hw.iter_y := 0.U
-  rdlRegs.io.hw.iter_valid := 0.U
-  rdlRegs.io.hw.iter_inside_flag := 0.U
-  rdlRegs.io.hw.tile_rg_g_in := 0.U
-  rdlRegs.io.hw.tile_rg_red_in := 0.U
-  rdlRegs.io.hw.tile_bz_z_in := 0.U
-  rdlRegs.io.hw.tile_bz_b_in := 0.U
+  // Sub-modules
+
 
   wireCore()
   wireRasterizer()
@@ -130,7 +119,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   }
 
   private def wireRasterizer(): Unit = {
-    rast.io.advance   := is_writing && io.address === MmioMap.BORG_ITER_OFFSET.U
+    rast.io.advance   := is_writing && io.address === BorgGpuRegs.iter_offset
 
     // Pipeline write-back snoop
     rast.io.pipeWriteEn   := core.io.pipeWriteEn
@@ -143,24 +132,22 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   }
 
   private def wireTileBuffer(): Unit = {
-    // MMIO write to BORG_TILE_CTRL: set read index (triggers BRAM read) or clear
+    // MMIO write to tile_ctrl: set read index (triggers BRAM read) or clear
+    val ctrlWriting = is_writing && io.address === BorgGpuRegs.tile_ctrl_offset
     val tileReadIdx = RegInit(0.U(4.W))
-    when(is_writing && io.address === MmioMap.BORG_TILE_CTRL_OFFSET.U) {
-      tileReadIdx := io.data_in(3, 0)
-    }
-    tile.io.clearEn := is_writing && io.address === MmioMap.BORG_TILE_CTRL_OFFSET.U && io.data_in(4)
+    when(ctrlWriting) { tileReadIdx := io.data_in(3, 0) }
+    
+    tile.io.clearEn := rdlRegs.io.hw.tile_ctrl_clear
 
-    // MMIO write to tile buffer (manual write for testing; auto-write comes in 11.3)
-    // Two-step protocol: (1) write CTRL to set index, (2) write BZ to shadow B/Z,
-    // (3) write RG to trigger the actual tile buffer write with all 4 channels.
+    // Two-step protocol: shadow BZ -> write RG triggers
     val tileShadowB = RegInit(0.U(16.W))
     val tileShadowZ = RegInit(0.U(16.W))
-    when(is_writing && io.address === MmioMap.BORG_TILE_BZ_OFFSET.U) {
+    when(is_writing && io.address === BorgGpuRegs.tile_bz_offset) {
       tileShadowB := io.data_in(31, 16)
       tileShadowZ := io.data_in(15, 0)
     }
     
-    val mmioTileWriteEn = is_writing && io.address === MmioMap.BORG_TILE_RG_OFFSET.U
+    val mmioTileWriteEn = is_writing && io.address === BorgGpuRegs.tile_rg_offset
     tile.io.writeEn  := mmioTileWriteEn || rast.io.tileWriteEn
     tile.io.writeIdx := Mux(rast.io.tileWriteEn, rast.io.tileWriteIdx, tileReadIdx)
     
@@ -171,23 +158,15 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     writeColor.z := tileShadowZ
     tile.io.writeData := Mux(rast.io.tileWriteEn, rast.io.tileWriteData, writeColor)
 
-    // Read port: trigger BRAM read when CTRL is written (data ready by next access)
-    // Use data_in directly for readIdx during CTRL write (tileReadIdx hasn't updated yet)
-    val ctrlWriting = is_writing && io.address === MmioMap.BORG_TILE_CTRL_OFFSET.U
+    // Read port: trigger BRAM read when CTRL is written
     tile.io.readIdx := Mux(ctrlWriting, io.data_in(3, 0), tileReadIdx)
     tile.io.readEn  := ctrlWriting
-
-    // Z peek (for future Step 12)
     tile.io.peekZIdx := Mux(ctrlWriting, io.data_in(3, 0), tileReadIdx)
   }
 
   private def wireMmioRead(): Unit = {
-    // @doc:mmio
     val fifo = Module(new BorgCommandFIFO())
 
-    // Vertical Slice 1: Command Enqueue
-    // Delay 'valid' by 1 cycle so the hardware fields (which register the write data)
-    // are available on the next cycle for enqueue.
     val writeCmd = is_writing && io.address === BorgGpuRegs.cmd_enqueue_offset
     val isEnqueue = RegNext(writeCmd, false.B)
     
@@ -199,41 +178,38 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     fifo.io.enq.bits.bbox.max.x := rdlRegs.io.hw.cmd_enqueue_bbox_max_x
     fifo.io.enq.bits.bbox.max.y := rdlRegs.io.hw.cmd_enqueue_bbox_max_y
 
-    // Connect Rasterizer to FIFO
     rast.io.cmdPop <> fifo.io.deq
-
     core.io.uniformPage := rast.io.uniformPage
 
-    // MMIO read
     val read_addr_del = RegInit(0.U(9.W))
     read_addr_del := io.address
 
-    // Bits 13: insideFlag, Bit 12: iterValid, Bits 11-6: y, Bits 5-0: x
-    val iter_reg = Cat(0.U(18.W), rast.io.insideFlag, rast.io.iterValid, rast.io.iter.y, rast.io.iter.x)
+    // RDL Iter state injection
+    rdlRegs.io.hw.iter_x := rast.io.iter.x
+    rdlRegs.io.hw.iter_y := rast.io.iter.y
+    rdlRegs.io.hw.iter_valid := rast.io.iterValid
+    rdlRegs.io.hw.iter_inside_flag := rast.io.insideFlag
 
-    // Tile buffer read: {R[31:16], G[15:0]} and {B[31:16], Z[15:0]}
-    val tileRG = Cat(tile.io.readData.r, tile.io.readData.g)
-    val tileBZ = Cat(tile.io.readData.b, tile.io.readData.z)
+    // RDL Tile state injection (these provide the 'read' value naturally via hw=rw)
+    rdlRegs.io.hw.tile_rg_red_in := tile.io.readData.r
+    rdlRegs.io.hw.tile_rg_g_in := tile.io.readData.g
+    rdlRegs.io.hw.tile_bz_b_in := tile.io.readData.b
+    rdlRegs.io.hw.tile_bz_z_in := tile.io.readData.z
 
     val stsFifoFull = !fifo.io.enq.ready
-    
-    // Status register hookup
     rdlRegs.io.hw.status_idle := !core.io.running
     rdlRegs.io.hw.status_fifo_full := stsFifoFull
 
-    io.data_out := MuxCase(0.U, Seq(
-      (read_addr_del >= MmioMap.BORG_REG_OFFSET.U && read_addr_del < MmioMap.BORG_IMEM_OFFSET.U) -> core.io.regReadData,
-      (read_addr_del === MmioMap.BORG_ITER_OFFSET.U) -> iter_reg,
-      (read_addr_del === BorgGpuRegs.status_offset) -> rdlRegs.io.bus.readData,
-      (read_addr_del === MmioMap.BORG_TILE_RG_OFFSET.U) -> tileRG,
-      (read_addr_del === MmioMap.BORG_TILE_BZ_OFFSET.U) -> tileBZ
+    val rdl_read_data = rdlRegs.io.bus.readData
+    io.data_out := MuxCase(rdl_read_data, Seq(
+      (read_addr_del < 128.U) -> core.io.regReadData,
+      (read_addr_del === BorgGpuRegs.tile_rg_offset) -> Cat(tile.io.readData.r, tile.io.readData.g),
+      (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.readData.b, tile.io.readData.z)
     ))
 
     val read_ready_del = RegNext(is_reading, false.B)
-    io.data_ready := Mux(rast.io.autoRunStall, false.B,
-      (io.data_read_n === 3.U) || read_ready_del)
+    io.data_ready := Mux(rast.io.autoRunStall, false.B, (io.data_read_n === 3.U) || read_ready_del)
     io.uo_out := 0.U
     io.user_interrupt := false.B
-    // @doc:end
   }
 }

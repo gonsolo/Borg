@@ -36,8 +36,8 @@ void compute_edge_vectors(const xy16_t *screen_pos, xy16_t *edges) {
 void borg_load_edge_constants(const spirb_shader_t *s, const xy16_t *edges) {
   // Uniforms: dx0, neg_dy0, dx1, neg_dy1, dx2, neg_dy2
   for (int i = 0; i < 3; i++) {
-    BORG_UNIFORM(s->uniform_regs[i * 2 + 0]) = edges[i].x;
-    BORG_UNIFORM(s->uniform_regs[i * 2 + 1]) = edges[i].y;
+    BORG_GPU->uniform[s->uniform_regs[i * 2 + 0]] = edges[i].x;
+    BORG_GPU->uniform[s->uniform_regs[i * 2 + 1]] = edges[i].y;
   }
 }
 
@@ -46,14 +46,14 @@ void borg_load_edge_constants(const spirb_shader_t *s, const xy16_t *edges) {
 // Load 3 consecutive per-vertex values into uniform registers at base_reg.
 void load_uniform_triple(const spirb_shader_t *s, int base_reg,
                                 fp16_t v0, fp16_t v1, fp16_t v2) {
-  BORG_UNIFORM(s->uniform_regs[base_reg + 0]) = v0;
-  BORG_UNIFORM(s->uniform_regs[base_reg + 1]) = v1;
-  BORG_UNIFORM(s->uniform_regs[base_reg + 2]) = v2;
+  BORG_GPU->uniform[s->uniform_regs[base_reg + 0]] = v0;
+  BORG_GPU->uniform[s->uniform_regs[base_reg + 1]] = v1;
+  BORG_GPU->uniform[s->uniform_regs[base_reg + 2]] = v2;
 }
 
 // Read one output register as an fp16.
 fp16_t read_output_reg(const spirb_shader_t *s, int reg) {
-  return BORG_REG(s->output_regs[reg]) & 0xFFFF;
+  return BORG_GPU->gpr[s->output_regs[reg]] & 0xFFFF;
 }
 
 // Read 3 consecutive output registers as an rgb16_t.
@@ -81,12 +81,12 @@ int borg_run_fragment(const spirb_shader_t *rast_shader,
   // because fragment uniforms might physically overlap with rasterizer outputs!
   uint16_t tmp_attrs[16];
   for (int i = 0; i < frag_shader->num_attributes; i++) {
-    tmp_attrs[i] = BORG_REG(rast_shader->output_regs[i]) & 0xFFFF;
+    tmp_attrs[i] = BORG_GPU->gpr[rast_shader->output_regs[i]] & 0xFFFF;
   }
 
   // Load fragment uniforms (per-triangle constants)
   const rgb16_t *colors = tri->colors.v;
-  BORG_UNIFORM(frag_shader->uniform_regs[0]) = tri->inv_area;
+  BORG_GPU->uniform[frag_shader->uniform_regs[0]] = tri->inv_area;
   load_uniform_triple(frag_shader, 1, colors[0].r, colors[1].r, colors[2].r);
   load_uniform_triple(frag_shader, 4, colors[0].g, colors[1].g, colors[2].g);
   load_uniform_triple(frag_shader, 7, colors[0].b, colors[1].b, colors[2].b);
@@ -99,13 +99,13 @@ int borg_run_fragment(const spirb_shader_t *rast_shader,
     load_uniform_triple(frag_shader, 16, uvs[0].v, uvs[1].v, uvs[2].v);
   } else {
     for (int i = 13; i <= 18; i++)
-      BORG_UNIFORM(frag_shader->uniform_regs[i]) = 0;
+      BORG_GPU->uniform[frag_shader->uniform_regs[i]] = 0;
   }
 
   // Now that fragment uniforms are loaded (potentially overwriting rasterizer
   // output slots), we can safely push the cached attributes to the frag registers.
   for (int i = 0; i < frag_shader->num_attributes; i++) {
-    BORG_REG(frag_shader->attribute_regs[i]) = tmp_attrs[i];
+    BORG_GPU->gpr[frag_shader->attribute_regs[i]] = tmp_attrs[i];
   }
 
   borg_run(BORG_IMEM_FRAG_OFFSET);
