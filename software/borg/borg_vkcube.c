@@ -120,34 +120,47 @@ int main() {
 
     fp16_t s[16], rx[16], ry[16], tz[16], t1[16], t2[16];
     mat4_scale(s, 0.25f);
-    mat4_rotate_x(rx, -0.4363f);
-    mat4_rotate_y(ry, 0.6109f);
     mat4_translate_z(tz, 0.5f);
-
-    // MVP = Translate · Scale · Rx · Ry
-    borg_draw_data_t draw;
-    mat4_mul(t1, rx, ry);
-    mat4_mul(t2, s, t1);
-    mat4_mul(draw.uniforms, tz, t2);
 
     extern void puts_uart(const char *s); // already implemented in borg_driver.c
     
-    puts_uart("[VKCUBE] Clearing Z-buffer...\n");
-    borg_clear_zbuffer(0);
-    
-    puts_uart("[VKCUBE] Setting Texture...\n");
-    borg_set_texture(TEX_PSRAM_OFFSET, TEX_WIDTH, TEX_HEIGHT);
-    
-    puts_uart("[VKCUBE] Drawing cube...\n");
-    draw_cube(&draw);
-    
-    puts_uart("[VKCUBE] Calling present(0)...\n");
-    borg_present(0);
-    
-    puts_uart("[VKCUBE] Frame 0 Complete!\n");
+    // Read shared parameters from PSRAM (offset 2 and 3 -> PSRAM base + 8 and 12)
+    union { uint32_t u; float f; } rot_x_reader, rot_y_reader;
+
+    int frame_count = 0;
 
     while (1) {
-        // Sleep on first frame to check completion marker logic cleanly
+        // Read the rotation angles from the simulation (shared via PSRAM_IN)
+        rot_x_reader.u = PSRAM_IN(2);
+        rot_y_reader.u = PSRAM_IN(3);
+        
+        float rx_f = rot_x_reader.f;
+        float ry_f = rot_y_reader.f;
+        
+        mat4_rotate_x(rx, rx_f);
+        mat4_rotate_y(ry, ry_f);
+
+        // MVP = Translate · Scale · Rx · Ry
+        borg_draw_data_t draw;
+        mat4_mul(t1, rx, ry);
+        mat4_mul(t2, s, t1);
+        mat4_mul(draw.uniforms, tz, t2);
+
+        if (frame_count == 0) puts_uart("[VKCUBE] Clearing Z-buffer...\n");
+        borg_clear_zbuffer(0);
+        
+        if (frame_count == 0) puts_uart("[VKCUBE] Setting Texture...\n");
+        borg_set_texture(TEX_PSRAM_OFFSET, TEX_WIDTH, TEX_HEIGHT);
+        
+        if (frame_count == 0) puts_uart("[VKCUBE] Drawing cube...\n");
+        draw_cube(&draw);
+        
+        if (frame_count == 0) puts_uart("[VKCUBE] Calling present(0)...\n");
+        borg_present(0);
+        
+        if (frame_count == 0) puts_uart("[VKCUBE] First Frame Complete!\n");
+        
+        frame_count++;
     }
     return 0;
 }

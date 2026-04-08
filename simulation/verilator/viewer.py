@@ -39,10 +39,39 @@ def main():
     
     cycles_simulated = 0
     running = True
+    
+    # Camera interaction state
+    rot_x = -0.4363
+    rot_y = 0.6109
+    mouse_dragging = False
+    last_mouse_pos = (0, 0)
+
+    # Initial camera setup
+    sim.set_camera_angles(rot_x, rot_y)
+
+    print("Borg pipeline")
+    
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1: # Left click
+                    mouse_dragging = True
+                    last_mouse_pos = event.pos
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if event.button == 1:
+                    mouse_dragging = False
+            elif event.type == pygame.MOUSEMOTION:
+                if mouse_dragging:
+                    dx = event.pos[0] - last_mouse_pos[0]
+                    dy = event.pos[1] - last_mouse_pos[1]
+                    # Sensitivity scaling
+                    rot_y += dx * 0.01
+                    rot_x += dy * 0.01
+                    last_mouse_pos = event.pos
+                    # Update the simulator PSRAM
+                    sim.set_camera_angles(rot_x, rot_y)
                 
         # 1. Update uniforms (to be implemented: send new MVP matrix based on rotation)
         # sim.set_uniforms(...)

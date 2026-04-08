@@ -25,6 +25,14 @@ public:
         return sim->step(cycles);
     }
     
+    void set_camera_angles(float rx, float ry) {
+        uint32_t* psram_words = (uint32_t*)sim->psram->mem.data();
+        float* psram_floats = (float*)&psram_words[sim->psram_spi_word_offset];
+        // Store rx, ry at PSRAM_BASE + 8 and PSRAM_BASE + 12
+        psram_floats[2] = rx;
+        psram_floats[3] = ry;
+    }
+    
     // Write 31 16-bit uniform values (e.g. matrices, edge constants) into PSRAM offset
     void set_uniforms(const std::vector<float>& floats) {
         // ... Wait, uniform setup in the C++ testbench was via psram writes?
@@ -58,6 +66,9 @@ public:
                 fb_rgb[out_idx + 2] = b_b;
             }
         }
+        
+        // Clear the DONE_MARKER so the next frame can be rendered
+        psram_words_out[sim->marker_offset_word] = 0;
 
         size_t shape[3] = { (size_t)sim->height, (size_t)sim->width, 3 };
         
@@ -74,5 +85,6 @@ NB_MODULE(borg_sim, m) {
         .def(nb::init<const std::string&>())
         .def("load_texture", &SimulatorWrapper::load_texture)
         .def("step", &SimulatorWrapper::step)
+        .def("set_camera_angles", &SimulatorWrapper::set_camera_angles)
         .def("get_framebuffer", &SimulatorWrapper::get_framebuffer);
 }
