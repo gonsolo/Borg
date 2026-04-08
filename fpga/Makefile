@@ -47,7 +47,7 @@ borg.json: ../out/hardware/borg/verilog/Borg.sv
 CLOCK_FREQ = $(shell grep -m1 'define CLOCK_MHZ' ../software/borg/borg_mmio.h | awk '{print $$3}')
 borg.asc: borg.json
 	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf ../out/fpga/verilog/pico_ice.pcf --asc borg.asc \
-		--freq $(CLOCK_FREQ)
+		--freq $(CLOCK_FREQ) > nextpnr.log 2>&1
 
 # Generate FPGA bitstream
 borg.bin: borg.asc
@@ -69,18 +69,30 @@ print_resources: yosys.log
 	CARRY=$$(grep "SB_CARRY" yosys.log | tail -n1 | awk '{print $$1}'); \
 	BRAM=$$(grep "SB_RAM40_4K" yosys.log | tail -n1 | awk '{print $$1}'); \
 	LC_EST=$$((CARRY + (LUTS - CARRY > DFFS ? LUTS - CARRY : DFFS))); \
-	LUT_PCT=$$((LUTS * 100 / $(MAX_LUTS))); \
-	DFF_PCT=$$((DFFS * 100 / $(MAX_DFFS))); \
-	LC_PCT=$$((LC_EST * 100 / $(MAX_LUTS))); \
-	printf "SB_LUT4  (Logic):     %5d / %d  %3d%%\n" $$LUTS $(MAX_LUTS) $$LUT_PCT; \
-	printf "SB_DFF*  (Registers): %5d / %d  %3d%%\n" $$DFFS $(MAX_DFFS) $$DFF_PCT; \
-	printf "SB_CARRY (Chains):    %5d\n" $$CARRY; \
-	printf "SB_RAM40 (BRAM):      %5d / 30\n" $$BRAM; \
-	printf "Est. LC  (Placeable): %5d / %d  %3d%%\n" $$LC_EST $(MAX_LUTS) $$LC_PCT; \
-	if [ $$LC_EST -gt $(MAX_LUTS) ]; then \
-		printf "\033[1;31m  ⚠  OVER LIMIT by %d LCs — nextpnr will fail!\033[0m\n" $$((LC_EST - $(MAX_LUTS))); \
-	elif [ $$LC_PCT -gt 95 ]; then \
-		printf "\033[1;33m  ⚠  Tight fit (>95%%) — nextpnr may struggle to place\033[0m\n"; \
+	printf "$(BOLD)Synthesis Estimate (Yosys):$(RESET)\n"; \
+	printf "  SB_LUT4:   %5d\n" $$LUTS; \
+	printf "  SB_DFF:    %5d\n" $$DFFS; \
+	printf "  SB_CARRY:  %5d\n" $$CARRY; \
+	printf "  SB_RAM40:  %5d / 30\n" $$BRAM; \
+	printf "  Est. LC:   %5d / %d (%3d%%)\n" $$LC_EST $(MAX_LUTS) $$((LC_EST * 100 / $(MAX_LUTS))); \
+	if [ -f nextpnr.log ]; then \
+		PNR_LC=$$(sed -n 's/.*ICESTORM_LC:[[:space:]]*\([0-9]*\)\/.*/\1/p' nextpnr.log); \
+		PNR_RAM=$$(sed -n 's/.*ICESTORM_RAM:[[:space:]]*\([0-9]*\)\/.*/\1/p' nextpnr.log); \
+		if [ -n "$$PNR_LC" ]; then \
+			printf "$(BOLD)Final Utilization (nextpnr):$(RESET)\n"; \
+			printf "  LCs:       %5d / %d (%3d%%)\n" $$PNR_LC $(MAX_LUTS) $$((PNR_LC * 100 / $(MAX_LUTS))); \
+			printf "  BRAMs:     %5d / 30 (%3d%%)\n" $$PNR_RAM $$((PNR_RAM * 100 / 30)); \
+			LC_VAL=$$PNR_LC; \
+		else \
+			LC_VAL=$$LC_EST; \
+		fi; \
+	else \
+		LC_VAL=$$LC_EST; \
+	fi; \
+	if [ $$LC_VAL -gt $(MAX_LUTS) ]; then \
+		printf "\033[1;31m  ⚠  OVER LIMIT by %d LCs\033[0m\n" $$((LC_VAL - $(MAX_LUTS))); \
+	elif [ $$((LC_VAL * 100 / $(MAX_LUTS))) -gt 95 ]; then \
+		printf "\033[1;33m  ⚠  Tight fit (>95%%)\033[0m\n"; \
 	else \
 		printf "\033[1;32m  ✓  Should fit\033[0m\n"; \
 	fi
