@@ -1,0 +1,383 @@
+// SPDX-FileCopyrightText: © 2026 Andreas Wendleder
+// SPDX-License-Identifier: CERN-OHL-S-2.0
+//
+// Borg GPU — SystemRDL 2.0 Register Description
+//
+// This file is the machine-parsable single source of truth for the Borg GPU
+// MMIO register map.  It mirrors the constants defined in MmioMap.scala and
+// is intended to replace them via PeakRDL code generation (Step 14).
+//
+// Address space: 512 bytes (9-bit byte address), 32-bit data bus.
+// All registers are 32-bit aligned (4-byte stride).
+//
+// Offset computation (matches Chisel):
+//   REG_FILE:     0x000 – 0x07C  (32 × 4 = 128 bytes)
+//   IMEM:         0x080 – 0x15C  (56 × 4 = 224 bytes)
+//   ITER_BBOX:    0x160
+//   ITER:         0x164
+//   CONTROL:      0x168  (write: control, read: status — same address)
+//   FRAG_PC:      0x16C
+//   UNIFORM[0]:   0x170 – 0x1EC  (32 × 4 = 128 bytes, MMIO window = 1 page)
+//   TILE_CTRL:    0x1F0
+//   TILE_RG:      0x1F4
+//   TILE_BZ:      0x1F8
+//   CMD_ENQUEUE:  0x1FC
+
+// ============================================================================
+// Field / Register type definitions
+// ============================================================================
+
+// --- Coordinate (6-bit x/y pair, matches Chisel Coord bundle) ---
+field coord_field_t {
+    sw = rw; hw = r;
+    fieldwidth = 6;
+};
+
+// --- Bounding box (4 × 6-bit coords, matches Chisel Bbox bundle) ---
+// Bit layout: {max.y[23:18], max.x[17:12], min.y[11:6], min.x[5:0]}
+reg iter_bbox_reg_t {
+    name = "Pixel Iterator Bounding Box";
+    desc = "Write the 4×4 tile bounding box for the hardware pixel iterator.
+            Packed as {max.y, max.x, min.y, min.x}, 6 bits each.";
+
+    field {} min_x[6] = 0;
+    field {} min_y[6] = 0;
+    field {} max_x[6] = 0;
+    field {} max_y[6] = 0;
+    field {} RSVD[8]  = 0;
+};
+
+// --- Iterator read-back ---
+// Bit layout: {rsvd[31:14], inside[13], valid[12], y[11:6], x[5:0]}
+reg iter_reg_t {
+    name = "Pixel Iterator Position";
+    desc = "Read: current iterator position plus valid/inside flags.
+            Write: advance the iterator by one pixel (data ignored).";
+
+    field {
+        sw = r; hw = w;
+        desc = "Current pixel X coordinate (6-bit).";
+    } x[6] = 0;
+
+    field {
+        sw = r; hw = w;
+        desc = "Current pixel Y coordinate (6-bit).";
+    } y[6] = 0;
+
+    field {
+        sw = r; hw = w;
+        desc = "Iterator valid flag — 1 while inside bounding box.";
+    } valid[1] = 0;
+
+    field {
+        sw = r; hw = w;
+        desc = "Inside flag — 1 if current pixel passes all 3 edge tests.";
+    } inside_flag[1] = 0;
+
+    field {
+        sw = r; hw = na;
+    } RSVD[18] = 0;
+};
+
+// --- Control register (write path) ---
+// The control and status registers share the same address (0x168).
+// A write drives the control fields; a read returns the status fields.
+reg control_reg_t {
+    name = "GPU Control";
+    desc = "Write: start execution, reset pipeline, set uniform write page and
+            start PC.  Bits are active-high, self-clearing where noted.";
+
+    field {
+        sw = w; hw = r;
+        singlepulse;
+        desc = "Bit 0: Start shader execution (self-clearing pulse).";
+    } start[1] = 0;
+
+    field {
+        sw = w; hw = r;
+        singlepulse;
+        desc = "Bit 1: Reset the pipeline (self-clearing pulse).";
+    } reset_pipeline[1] = 0;
+
+    field {
+        sw = w; hw = na;
+        desc = "Bits 4:2: Reserved.";
+    } RSVD_ctl[3] = 0;
+
+    field {
+        sw = w; hw = r;
+        desc = "Bit 5: Select which uniform buffer page (0 or 1) MMIO writes
+                target.  The GPU reads from the page specified per-command by
+                the Command FIFO entry's uniformPage field.";
+    } uniform_write_page[1] = 0;
+
+    field {
+        sw = w; hw = r;
+        desc = "Bits 10:5: Shader start PC (6-bit program counter offset into
+                IMEM).  Coincides with uniform_write_page at bit 5 — in hardware
+                the CONTROL write decodes both fields simultaneously.";
+    } start_pc[6] = 0;
+
+    field {
+        sw = w; hw = na;
+    } RSVD_hi[20] = 0;
+};
+
+// --- Status register (read path at same address as CONTROL) ---
+reg status_reg_t {
+    name = "GPU Status";
+    desc = "Read-only status at the same address as CONTROL (0x168).
+            Hardware returns this value on read; writes go to control_reg_t.";
+
+    field {
+        sw = r; hw = w;
+        desc = "Bit 0: Reserved (always 0).";
+    } RSVD0[1] = 0;
+
+    field {
+        sw = r; hw = w;
+        desc = "Bit 1: Idle — 1 when the shader pipeline is not running.";
+    } idle[1] = 0;
+
+    field {
+        sw = r; hw = w;
+        desc = "Bit 2: FIFO full — 1 when the Command FIFO cannot accept
+                another entry.  Firmware must poll this before enqueue.";
+    } fifo_full[1] = 0;
+
+    field {
+        sw = r; hw = na;
+    } RSVD_hi[29] = 0;
+};
+
+// --- Fragment shader start PC ---
+reg frag_pc_reg_t {
+    name = "Fragment Shader Start PC";
+    desc = "Write the IMEM entry point for the fragment shader.  The rasterizer
+            auto-chains to this PC after the rasterize shader completes for an
+            inside pixel.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "6-bit fragment shader program counter.";
+    } frag_pc[6] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[26] = 0;
+};
+
+// --- Tile buffer CTRL ---
+// Write: bits[3:0] = pixel index (triggers BRAM read), bit[4] = clear.
+reg tile_ctrl_reg_t {
+    name = "Tile Buffer Control";
+    desc = "Write to set the tile buffer read index or trigger a clear.
+            Setting bit 4 clears the entire 4×4 tile buffer.";
+
+    field {
+        sw = w; hw = r;
+        desc = "Bits 3:0: Tile buffer pixel index (0–15) for read-back.
+                Writing this triggers a BRAM read; data is available at
+                TILE_RG / TILE_BZ on the next cycle.";
+    } read_idx[4] = 0;
+
+    field {
+        sw = w; hw = r;
+        singlepulse;
+        desc = "Bit 4: Clear — writing 1 clears all 16 tile entries.";
+    } clear[1] = 0;
+
+    field {
+        sw = w; hw = na;
+    } RSVD[27] = 0;
+};
+
+// --- Tile buffer RG read-back ---
+// Read: {R[31:16], G[15:0]} of the indexed pixel.
+// Write: triggers a tile buffer write (with values from BZ shadow + this RG).
+reg tile_rg_reg_t {
+    name = "Tile Buffer RG";
+    desc = "Read: packed {R[31:16], G[15:0]} of the tile pixel selected by
+            TILE_CTRL.read_idx.
+            Write: combined with BZ shadow registers to write a full RGBZ pixel.";
+
+    field {
+        sw = rw; hw = rw;
+        desc = "Green channel (FP16, bits 15:0).";
+    } g[16] = 0;
+
+    field {
+        sw = rw; hw = rw;
+        desc = "Red channel (FP16, bits 31:16).";
+    } red[16] = 0;
+};
+
+// --- Tile buffer BZ read-back / shadow ---
+// Read: {B[31:16], Z[15:0]} of the indexed pixel.
+// Write: latches B and Z into shadow registers for the next RG write trigger.
+reg tile_bz_reg_t {
+    name = "Tile Buffer BZ";
+    desc = "Read: packed {B[31:16], Z[15:0]} of the tile pixel selected by
+            TILE_CTRL.read_idx.
+            Write: latches B and Z into shadow registers; the actual tile buffer
+            write is triggered by the subsequent TILE_RG write.";
+
+    field {
+        sw = rw; hw = rw;
+        desc = "Depth channel (FP16, bits 15:0).";
+    } z[16] = 0;
+
+    field {
+        sw = rw; hw = rw;
+        desc = "Blue channel (FP16, bits 31:16).";
+    } b[16] = 0;
+};
+
+// --- Command FIFO enqueue ---
+// Write: {rsvd[31], uniformPage[30], fragPC[29:24], bbox{max.y,max.x,min.y,min.x}[23:0]}
+reg cmd_enqueue_reg_t {
+    name = "Command FIFO Enqueue";
+    desc = "Write-only.  Push a rasterization command into the 2-entry Command
+            FIFO.  The command includes a bounding box, fragment shader PC, and
+            which uniform buffer page the GPU should read from.  Poll
+            STATUS.fifo_full before writing.";
+
+    field {
+        sw = w; hw = r;
+        desc = "Bits 5:0: Bounding box min X (6-bit).";
+    } bbox_min_x[6] = 0;
+
+    field {
+        sw = w; hw = r;
+        desc = "Bits 11:6: Bounding box min Y (6-bit).";
+    } bbox_min_y[6] = 0;
+
+    field {
+        sw = w; hw = r;
+        desc = "Bits 17:12: Bounding box max X (6-bit).";
+    } bbox_max_x[6] = 0;
+
+    field {
+        sw = w; hw = r;
+        desc = "Bits 23:18: Bounding box max Y (6-bit).";
+    } bbox_max_y[6] = 0;
+
+    field {
+        sw = w; hw = r;
+        desc = "Bits 29:24: Fragment shader start PC (6-bit IMEM index).";
+    } frag_pc[6] = 0;
+
+    field {
+        sw = w; hw = r;
+        desc = "Bit 30: Uniform buffer page select (0 or 1).";
+    } uniform_page[1] = 0;
+
+    field {
+        sw = w; hw = na;
+    } RSVD[1] = 0;
+};
+
+
+// ============================================================================
+// Register file and memory types (arrayed)
+// ============================================================================
+
+// --- 16-bit FP register (stored in 32-bit word, upper bits ignored on write) ---
+reg gpr_reg_t {
+    name = "General Purpose Register";
+    desc = "FP16 GPU register.  Writes use the low 16 bits of the 32-bit data
+            word; reads return the 16-bit value zero-extended to 32 bits.
+            32 entries: r0–r31.";
+
+    field {
+        sw = rw; hw = rw;
+        desc = "FP16 register value.";
+    } value[16] = 0;
+
+    field {
+        sw = r; hw = na;
+    } RSVD[16] = 0;
+};
+
+// --- 32-bit instruction memory word ---
+reg imem_reg_t {
+    name = "Instruction Memory";
+    desc = "32-bit RISC-V instruction word.  56 slots (0–55).  Write-only from
+            MMIO; the FPU fetches instructions from here during execution.";
+
+    field {
+        sw = w; hw = r;
+        desc = "32-bit instruction (RISC-V R-type or R4-type encoding).";
+    } instruction[32] = 0;
+};
+
+// --- 16-bit uniform buffer entry ---
+reg uniform_reg_t {
+    name = "Uniform Buffer Entry";
+    desc = "FP16 uniform value.  32 entries visible via MMIO (one page);
+            CONTROL.uniform_write_page selects which hardware page (0 or 1)
+            these writes target.  The GPU reads the page selected by the
+            Command FIFO entry's uniformPage field.";
+
+    field {
+        sw = w; hw = r;
+        desc = "FP16 uniform value (low 16 bits of 32-bit write).";
+    } value[16] = 0;
+
+    field {
+        sw = w; hw = na;
+    } RSVD[16] = 0;
+};
+
+
+// ============================================================================
+// Address map
+// ============================================================================
+
+addrmap borg_gpu {
+    name = "Borg GPU";
+    desc = "Borg minimal FP16 shading processor — SystemRDL 2.0 register map.
+            512-byte address space (byte 0x000–0x1FF), 32-bit aligned.
+            Base address is USER_BASE + USER_PERI_BORG × 512 = 0x08000600.";
+
+    default hw = r;
+    default sw = rw;
+
+    // ---- Register File: 0x000 – 0x07C (32 entries × 4 bytes) ----
+    gpr_reg_t gpr[32] @ 0x000 += 0x4;
+
+    // ---- Instruction Memory: 0x080 – 0x15C (56 entries × 4 bytes) ----
+    imem_reg_t imem[56] @ 0x080 += 0x4;
+
+    // ---- Pixel Iterator Bounding Box: 0x160 ----
+    iter_bbox_reg_t iter_bbox @ 0x160;
+
+    // ---- Pixel Iterator Position / Advance: 0x164 ----
+    iter_reg_t iter @ 0x164;
+
+    // ---- Control (write) / Status (read): 0x168 ----
+    // Note: In hardware, writes decode as control_reg_t fields and reads
+    // return status_reg_t fields.  SystemRDL models this as two overlapping
+    // registers.  The RTL generator must emit the appropriate mux.
+    control_reg_t control @ 0x168;
+    // status_reg_t shares the same address — modeled as an alias:
+    // (PeakRDL supports `alias` for overlapping R/W semantics.)
+
+    // ---- Fragment Shader Start PC: 0x16C ----
+    frag_pc_reg_t frag_pc @ 0x16C;
+
+    // ---- Uniform Buffer (1 page × 32 entries): 0x170 – 0x1EC ----
+    uniform_reg_t uniform[32] @ 0x170 += 0x4;
+
+    // ---- Tile Buffer Control: 0x1F0 ----
+    tile_ctrl_reg_t tile_ctrl @ 0x1F0;
+
+    // ---- Tile Buffer RG Read / Write Trigger: 0x1F4 ----
+    tile_rg_reg_t tile_rg @ 0x1F4;
+
+    // ---- Tile Buffer BZ Read / Shadow Latch: 0x1F8 ----
+    tile_bz_reg_t tile_bz @ 0x1F8;
+
+    // ---- Command FIFO Enqueue: 0x1FC ----
+    cmd_enqueue_reg_t cmd_enqueue @ 0x1FC;
+};

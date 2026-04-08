@@ -254,10 +254,12 @@ specification. This eliminates the recurring class of bugs where hardware MMIO
 offsets drift out of sync with firmware `#define`s.
 Estimate: 1 week.
 
-- **Step 14.1: RDL Specification**: Write the `.rdl` file describing all Borg
-  GPU registers (reg file, IMEM, control/status, iterator, uniform buffer,
-  tile buffer CTRL/RG/BZ). Use the open-source `systemrdl-compiler` and
-  `PeakRDL` toolchain for parsing and validation.
+- **Step 14.1: RDL Specification** ✅ (2026-04-08): Wrote `hardware/borg/rdl/borg_gpu.rdl`
+  describing all Borg GPU registers: GPR file (32×16-bit), IMEM (56×32-bit),
+  pixel iterator (bbox + position/valid/inside), control/status, fragment PC,
+  uniform buffer (32-entry MMIO window), tile buffer (CTRL/RG/BZ), and command
+  FIFO enqueue. Validated with `systemrdl-compiler` — 512-byte address map,
+  all offsets match `MmioMap.scala`.
 - **Step 14.2: RTL Generation**: Develop a custom Scala/Chisel backend for `PeakRDL` to
   directly emit synthesizable Chisel `Module` register blocks from the `.rdl`,
   replacing the manual address comparisons in `Borg.scala`. Wire the generated
