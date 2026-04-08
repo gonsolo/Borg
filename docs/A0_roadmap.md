@@ -216,7 +216,7 @@ Firmware `shade_and_write_pixel` no longer does per-pixel negative-Z guard
 (hardware handles it). PSRAM Z-buffer write retained for cross-triangle ordering.
 Verified: all Chisel tests, Verilator + Arcilator triangle rendering.
 
-### Step 13: Command FIFO
+### Step 13: Command FIFO ✅ (2026-04-08)
 
 2–4 entry FIFO between CPU and pixel iterator. CPU submits the next triangle
 while GPU rasterizes the current one. Embryonic command buffer. Each FIFO entry
@@ -235,11 +235,13 @@ Estimate: 3–5 days.
     Wire `BorgCommandFIFO` into `Borg.scala`. Map the push interface to a new MMIO write endpoint
     (`BORG_COMMAND_ENQUEUE`). Connect the pop interface to `BorgRasterizer`. Expose a `FIFO_FULL`
     bit in `BORG_STATUS` so the firmware can poll. Ensure the rasterizer uses the popped `uniform_page`.
-    *Note: The FPGA synthesis is currently failing due to LC overflow (5335 / 5280 LCs). Triangle and vkcube pass in Verilator and Arcilator.*
-- **Step 13.4: Firmware Integration & Synchronization**
-    Update `borg_driver.c` to ping-pong between uniform pages. `shade_tiles()` writes uniforms
-    to the inactive page, polls `BORG_STS_FIFO_FULL`, then enqueues the command.
-    Verify that `make triangle` in Verilator renders correctly without read-under-write corruption.
+    FPGA utilization: 5192 / 5280 LCs (98%) after reducing FIFO depth from 4 to 2.
+    Verified: Chisel tests, Verilator+Arcilator triangle/vkcube, FPGA triangle/vkcube.
+- **Step 13.4: Firmware Integration & Synchronization** ✅ (2026-04-08)
+    Updated `borg_driver.c` to ping-pong between uniform pages. `shade_tiles()` toggles
+    `current_uniform_page`, sets `uniformWritePage` via `BORG_CONTROL[5]`, loads uniforms to
+    the inactive page, polls `BORG_STS_FIFO_FULL`, then enqueues with `uniformPage` in bit 30.
+    Verified pixel-perfect against `golden.ppm` in Verilator (11.3M cycles).
 
 ### Step 14: SystemRDL Register Description
 
