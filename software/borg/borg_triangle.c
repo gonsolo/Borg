@@ -7,7 +7,8 @@
 
 #include "borg_driver.h"
 #include "borg_math.h"
-#include "borg_mmio.h"
+#include "borg_sys.h"
+#include "borg_isa.h"
 #include "compiler/shader_blobs.h"
 
 // FP16 vertex position constants (can't use fp16_from_float in const initializers)

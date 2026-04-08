@@ -1,0 +1,76 @@
+// SPDX-FileCopyrightText: © 2026 Andreas Wendleder
+// SPDX-License-Identifier: CERN-OHL-S-2.0
+//
+// UART — SystemRDL 2.0 Register Description
+//
+// TinyQV UART peripheral register map (PeriUart.scala).
+// Address space within the 512-byte user peripheral window.
+
+reg uart_txrx_reg_t {
+    name = "UART TX/RX Data";
+    desc = "Write: transmit a byte (bits 7:0).
+            Read: receive a buffered byte (bits 7:0).
+            Reading clears the RX buffer.";
+
+    field {
+        sw = rw; hw = rw;
+        desc = "TX data (write) / RX data (read), bits [7:0].";
+    } data[8] = 0;
+
+    field { sw = r; hw = na; } RSVD[24] = 0;
+};
+
+reg uart_status_reg_t {
+    name = "UART Status";
+    desc = "Read-only status register.";
+
+    field {
+        sw = r; hw = w;
+        desc = "Bit 0: TX busy — 1 when a byte is being transmitted.";
+    } tx_busy[1] = 0;
+
+    field {
+        sw = r; hw = w;
+        desc = "Bit 1: RX buffered — 1 when a received byte is available.";
+    } rx_buffered[1] = 0;
+
+    field { sw = r; hw = na; } RSVD[30] = 0;
+};
+
+reg uart_baud_reg_t {
+    name = "UART Baud Divider";
+    desc = "Read/write baud rate divider.  Default = CLOCK_HZ / 115200.";
+
+    field {
+        sw = rw; hw = rw;
+        desc = "13-bit baud divider value.";
+    } divider[13] = 0;
+
+    field { sw = r; hw = na; } RSVD[19] = 0;
+};
+
+reg uart_rxd_sel_reg_t {
+    name = "UART RXD Select";
+    desc = "Select which ui_in pin is used for UART receive.
+            0 = ui_in[7] (default), 1 = ui_in[3].";
+
+    field {
+        sw = rw; hw = rw;
+        desc = "RXD input pin select.";
+    } sel[1] = 0;
+
+    field { sw = r; hw = na; } RSVD[31] = 0;
+};
+
+addrmap uart_map {
+    name = "UART";
+    desc = "TinyQV UART peripheral — TX, RX, status, baud divider, RXD select.";
+
+    default hw = r;
+    default sw = rw;
+
+    uart_txrx_reg_t   tx_rx      @ 0x0;
+    uart_status_reg_t  status     @ 0x4;
+    uart_baud_reg_t    baud       @ 0x8;
+    uart_rxd_sel_reg_t rxd_select @ 0xC;
+};

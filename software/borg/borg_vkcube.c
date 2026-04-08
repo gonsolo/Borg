@@ -5,7 +5,8 @@
 // Dynamic GPU Matrix Hardware rendering bounds testing Khronos geometry coordinates directly.
 
 #include "borg_driver.h"
-#include "borg_mmio.h"
+#include "borg_sys.h"
+#include "borg_isa.h"
 #include "borg_fpu.h"
 #include "borg_math.h"
 #include "compiler/shader_blobs.h"

@@ -1,0 +1,46 @@
+// SPDX-FileCopyrightText: © 2026 Andreas Wendleder
+// SPDX-License-Identifier: CERN-OHL-S-2.0
+//
+// GPIO — SystemRDL 2.0 Register Description
+//
+// TinyQV GPIO peripheral register map.
+// Address space: 512 bytes (9-bit byte address), 32-bit data bus.
+// Only the first two registers (out/in) are standard; func_sel uses
+// non-standard address bit decoding handled in Peripherals.scala.
+
+reg gpio_out_reg_t {
+    name = "GPIO Output";
+    desc = "8-bit GPIO output register.  Writing sets the output pin levels.";
+
+    field {
+        sw = rw; hw = rw;
+        desc = "GPIO output pins [7:0].";
+    } pins[8] = 0;
+
+    field { sw = r; hw = na; } RSVD[24] = 0;
+};
+
+reg gpio_in_reg_t {
+    name = "GPIO Input";
+    desc = "8-bit GPIO input register (read-only).  Returns current pin levels.";
+
+    field {
+        sw = r; hw = w;
+        desc = "GPIO input pins [7:0].";
+    } pins[8] = 0;
+
+    field { sw = r; hw = na; } RSVD[24] = 0;
+};
+
+addrmap gpio_map {
+    name = "GPIO";
+    desc = "TinyQV GPIO peripheral.  Two registers for output and input.
+            Additional func_sel registers use non-standard address decoding
+            (bit 5 of address) and are handled separately in hardware.";
+
+    default hw = r;
+    default sw = rw;
+
+    gpio_out_reg_t gpio_out @ 0x0;
+    gpio_in_reg_t  gpio_in  @ 0x4;
+};

@@ -5,7 +5,8 @@
 
 #include "borg_fpu.h"
 #include "borg_spirb.h"
-#include "borg_mmio.h"
+#include "borg_sys.h"
+#include "borg_isa.h"
 
 // @doc:fpu-helpers
 // --- Borg FPU helpers ---

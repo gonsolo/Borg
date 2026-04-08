@@ -76,17 +76,18 @@ book:
 # systemrdl-compiler and peakrdl-cheader are provided by Nix (flake.nix).
 # PeakRDL-chisel is picked up via PYTHONPATH from ~/src/PeakRDL-chisel.
 RDL_CHISEL   := $(HOME)/src/PeakRDL-chisel/src
-RDL_SRC      := hardware/borg/rdl/borg_gpu.rdl
+RDL_DIR      := hardware/rdl
+RDL_SRC      := $(wildcard $(RDL_DIR)/*.rdl)
 RDL_SCALA_OUT:= hardware/borg/src/generated
 RDL_C_OUT    := out/hardware/borg/rdl
 RDL_PYTHON   := PYTHONPATH=$(RDL_CHISEL):$$PYTHONPATH python3
 
 rdl: $(RDL_SRC)
 	@echo "=== Validating SystemRDL ==="
-	$(RDL_PYTHON) hardware/borg/rdl/validate_rdl.py
-	@echo "=== Generating Chisel register block ==="
+	$(RDL_PYTHON) $(RDL_DIR)/validate_rdl.py
+	@echo "=== Generating Chisel register blocks and C headers ==="
 	mkdir -p $(RDL_C_OUT)
-	$(RDL_PYTHON) hardware/borg/rdl/test_chisel_export.py $(RDL_SCALA_OUT) $(RDL_C_OUT)
+	$(RDL_PYTHON) $(RDL_DIR)/generate.py $(RDL_SCALA_OUT) $(RDL_C_OUT)
 	@echo "Output: $(RDL_C_OUT)/ and $(RDL_SCALA_OUT)/"
 
 clean:

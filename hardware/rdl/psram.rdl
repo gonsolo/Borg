@@ -1,0 +1,43 @@
+// SPDX-FileCopyrightText: © 2026 Andreas Wendleder
+// SPDX-License-Identifier: CERN-OHL-S-2.0
+//
+// PSRAM — SystemRDL 2.0 Register Description
+//
+// External QSPI PSRAM memory region.  Not a register file — models the
+// memory-mapped address layout for firmware and host code generation.
+//
+// CPU address: 0x01001000 (PSRAM_BASE)
+// SPI address: 0x001000   (24-bit QSPI address)
+//
+// Layout:
+//   IN  window: PSRAM_BASE + n × 4         (read)
+//   OUT window: PSRAM_BASE + 128 × 4 + n × 4  (write, OUT_OFFSET = 128 words)
+//
+// TEX_PSRAM_OFFSET = 4200 (word index where texture data begins)
+
+// A single 32-bit PSRAM word (used as array element).
+reg psram_word_t {
+    name = "PSRAM Word";
+    desc = "32-bit memory-mapped PSRAM word.";
+
+    field {
+        sw = rw; hw = rw;
+        desc = "32-bit data value.";
+    } data[32] = 0;
+};
+
+addrmap psram_map {
+    name = "PSRAM";
+    desc = "External QSPI PSRAM.  Two overlapping windows: IN (read) at base,
+            OUT (write) at base + 512 bytes (128 words × 4 bytes).
+            SPI base address: 0x001000.";
+
+    default hw = rw;
+    default sw = rw;
+
+    // IN window: word 0 at offset 0x000
+    psram_word_t mem_in[1] @ 0x000 += 0x4;
+
+    // OUT window: word 0 at offset 0x200 (128 × 4 = 512 bytes)
+    psram_word_t mem_out[1] @ 0x200 += 0x4;
+};

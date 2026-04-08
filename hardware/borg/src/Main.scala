@@ -17,9 +17,9 @@ object Main extends App {
   val firrtlTargetDir = "out/hardware/borg/firrtl"
   Emit.emitFIRRTL(new tt_um_gonsolo_borg(clockMhz), firrtlTargetDir)
 
-  MmioGenerator.emitHeader("software/borg/borg_mmio.h")
-  MmioGenerator.emitPython("fpga/host/borg_mmio.py")
-  MmioGenerator.emitPython("test/soc/borg_mmio.py")
+  // C headers and Chisel register blocks are now generated from SystemRDL
+  // files in hardware/rdl/ via `make rdl`.  Python constants (fpga/host/borg_mmio.py,
+  // test/soc/borg_mmio.py) are hand-maintained.
 
   val fw = new java.io.PrintWriter(new java.io.File(s"$targetDir/asic_files.txt"))
   allAsicFiles.toList.sorted.foreach(fw.println)

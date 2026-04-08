@@ -7,7 +7,11 @@ import chisel3._
 import chisel3.util.Cat
 import Instructions._
 
-/** Centralized MMIO address map — single source of truth for hardware and firmware.
+/** Centralized MMIO address map — bus decoder and SoC peripheral indices.
+  *
+  * Register-level definitions (GPIO, UART, Borg GPU, PSRAM) have been migrated
+  * to SystemRDL files in hardware/rdl/.  This object retains only the TinyQV
+  * bus decoder logic and SoC-level constants that cannot be expressed in RDL.
   *
   * Address decoding (inherited from TinyQV by Michael Bell):
   *   SoC peripherals:  Cat(addr[27:6], addr[1:0]) === SOC_COMPARE  → addr[5:2] selects peripheral
@@ -55,11 +59,6 @@ object MmioMap {
     indexHi  = 10, indexLo = 0
   )
 
-  // --- CPU-visible base address for user peripherals (for C header generation) ---
-  // Both regions overlap at 0x08000000, but for firmware the user peripheral
-  // addresses are what matter (SoC peripherals are internal to the SoC).
-  val USER_BASE = 0x08000000
-
   // --- SoC peripheral indices (addr[5:2], used in Project.scala SoCLogic) ---
   val PERI_NONE              = 0x0
   val PERI_ID                = 0x2
@@ -81,55 +80,24 @@ object MmioMap {
 
   // --- System clock (single source of truth for FPGA builds) ---
   val CLOCK_MHZ = sys.env.getOrElse("CLOCK_MHZ", "4").toInt
-  val FPGA_CLOCK_HZ = CLOCK_MHZ * 1000000
-  val UART_BAUD_DEFAULT = FPGA_CLOCK_HZ / 115200
 
   // --- User peripheral address field positions (within 11-bit addr_in) ---
   val USER_PERI_SEL_HI   = 10  // addr_in(10:9) selects sub-peripheral (2-bit, 4 slots)
   val USER_PERI_SEL_LO   = 9
   val USER_SUB_ADDR_HI   = 8   // addr_in(8:0) is the 9-bit sub-register address
   val USER_SUB_ADDR_LO   = 0
-  val GPIO_FUNC_SEL_IDX_HI = 4 // addr_in(4:2) selects which pin's func_sel
+
+  // GPIO func_sel uses non-standard address bit decoding (not register offsets).
+  // These must stay in Scala for Peripherals.scala hardware decode.
+  val GPIO_FUNC_SEL_BIT    = 5   // Bit 5 high = func_sel register space
+  val GPIO_FUNC_SEL_IDX_HI = 4   // addr_in(4:2) selects which pin's func_sel
   val GPIO_FUNC_SEL_IDX_LO = 2
 
-  // GPIO (tinyQV_peripherals in Peripherals.scala)
-  val GPIO_OUT_OFFSET    = 0   // GPIO output register
-  val GPIO_IN_OFFSET     = 4   // GPIO input register (read-only)
-  val GPIO_FUNC_SEL_BIT  = 5   // Bit 5 high = func_sel register space
-
-  // UART (PeriUart.scala)
-  val UART_TX_OFFSET     = 0   // TX data write / RX data read
-  val UART_STATUS_OFFSET = 4   // Status register
-  val UART_BAUD_OFFSET   = 8   // Baud divider
-
-  // Borg GPU (Borg.scala) constants migrated to BorgGpuRegs
-
-  // --- PSRAM addresses (QSPI memory space, not peripheral space) ---
-  val PSRAM_BASE       = 0x01001000  // CPU address
-  val PSRAM_SPI_BASE   = 0x001000    // SPI/QSPI address (24-bit)
-  val PSRAM_OUT_OFFSET = 128         // PSRAM_OUT(n) = PSRAM_IN(n + OUT_OFFSET)
-
-  // --- Shared PSRAM layout (used by both firmware and host) ---
-  val TEX_PSRAM_OFFSET = 4200        // Texture data starts here (word index)
-  val DONE_MARKER      = 0xDEAD      // Frame completion sentinel
-  val STARTUP_DELAY_CYCLES = 10000   // Convenience delay iterations
+  // GPIO register offsets (used in Peripherals.scala address comparisons)
+  val GPIO_OUT_OFFSET = 0
+  val GPIO_IN_OFFSET  = 4
 
   // --- Chisel UInt accessors for hardware ---
   def socPeriU(idx: Int): UInt = idx.U(4.W)
   def userPeriU(idx: Int): UInt = idx.U
-
-  // --- Full address computation helpers ---
-  def userAddr(select: Int, offset: Int): Int = USER_BASE + select * 512 + offset
-
-  // --- Derived Base Addresses for Firmware / Host ---
-  val USER_PERI_STRIDE             = 1 << (USER_SUB_ADDR_HI + 1)
-  val GPIO_BASE                    = USER_BASE + USER_PERI_GPIO * USER_PERI_STRIDE
-  val UART_BASE                    = USER_BASE + USER_PERI_UART * USER_PERI_STRIDE
-  val BORG_BASE                    = USER_BASE + USER_PERI_BORG * USER_PERI_STRIDE
-
-  val SOC_PERI_ID_OFFSET           = PERI_ID * 4
-  val SOC_PERI_GPIO_OUT_SEL_OFFSET = PERI_GPIO_OUT_SEL * 4
-  val SOC_PERI_DEBUG_UART_OFFSET   = PERI_DEBUG_UART * 4
-  val SOC_PERI_TIME_LIMIT_OFFSET   = PERI_TIME_LIMIT * 4
 }
-
