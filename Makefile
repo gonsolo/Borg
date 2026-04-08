@@ -73,23 +73,14 @@ book:
 	python3 docs/build_book.py
 
 # --- SystemRDL → Chisel register generation ---
-RDL_VENV     := .venv-rdl
-RDL_PIP      := $(RDL_VENV)/bin/pip
-RDL_PYTHON   := $(RDL_VENV)/bin/python3
-RDL_CHISEL   := $(HOME)/src/PeakRDL-chisel
+# systemrdl-compiler and peakrdl-cheader are provided by Nix (flake.nix).
+# PeakRDL-chisel is picked up via PYTHONPATH from ~/src/PeakRDL-chisel.
+RDL_CHISEL   := $(HOME)/src/PeakRDL-chisel/src
 RDL_SRC      := hardware/borg/rdl/borg_gpu.rdl
 RDL_OUT      := hardware/borg/rdl/generated
+RDL_PYTHON   := PYTHONPATH=$(RDL_CHISEL):$$PYTHONPATH python3
 
-$(RDL_VENV)/bin/activate:
-	python3 -m venv $(RDL_VENV)
-	$(RDL_PIP) install systemrdl-compiler peakrdl-cheader
-	@if [ -d $(RDL_CHISEL) ]; then \
-		$(RDL_PIP) install -e $(RDL_CHISEL); \
-	else \
-		echo "WARNING: PeakRDL-chisel not found at $(RDL_CHISEL) — skipping Chisel export"; \
-	fi
-
-rdl: $(RDL_VENV)/bin/activate $(RDL_SRC)
+rdl: $(RDL_SRC)
 	@echo "=== Validating SystemRDL ==="
 	$(RDL_PYTHON) hardware/borg/rdl/validate_rdl.py
 	@echo "=== Generating Chisel register block ==="
@@ -98,7 +89,7 @@ rdl: $(RDL_VENV)/bin/activate $(RDL_SRC)
 
 clean:
 	rm -f src/config_merged.json src/user_config.json
-	rm -rf $(RDL_VENV) $(RDL_OUT)
+	rm -rf $(RDL_OUT)
 	rm -rf out/
 	$(MAKE) -C fpga clean
 	$(MAKE) -C test/soc clean
