@@ -261,8 +261,8 @@ Estimate: 1 week.
   FIFO enqueue. Validated with `systemrdl-compiler` — 512-byte address map,
   all offsets match `MmioMap.scala`.
 - **Step 14.2: PeakRDL-chisel Exporter** ✅ (2026-04-08): Developed the custom Scala/Chisel backend publisher plugin for `PeakRDL` (https://github.com/gonsolo/PeakRDL-chisel) to directly emit synthesizable Chisel `Module` register blocks from the `.rdl`.
-- **Step 14.3: RTL Integration**: Wire the generated Chisel module block into the existing `BorgBusIO` interface, incrementally replacing the manual address comparisons in `Borg.scala`.
-- **Step 14.4: Firmware Integration**: Use `PeakRDL-cheader` to emit `borg_gpu_regs.h` with struct-typed accessors, replacing the hand-maintained `MmioGenerator.scala` output. Verify firmware compiles and tests pass.
+- **Step 14.3: RTL Integration** ✅ (2026-04-08): Wired the generated Chisel module block (`BorgGpuRegs`) into the `BorgBusIO` interface, replacing all manual address decoders and manual Flip-Flops in `Borg.scala` with PeakRDL's register nodes.
+- **Step 14.4: Firmware/Backend Integration** ✅ (2026-04-08): Integrated `PeakRDL-cheader` to emit `borg_regs.h` (C headers) and a custom Python emit for `borg_mmio.py`. Completely deleted `MmioMap.scala`. Validated SystemRDL outputs against FPGA LC constraints (5113 LCs) via tied-off read-ports and verified the complete cocotb/Verilator/Arcilator/FPGA software stack.
 
 ### Step 15: Texture Fetch Unit
 
