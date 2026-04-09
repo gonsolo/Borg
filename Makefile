@@ -74,8 +74,8 @@ book:
 
 # --- SystemRDL → Chisel register generation ---
 # systemrdl-compiler and peakrdl-cheader are provided by Nix (flake.nix).
-# PeakRDL-chisel is picked up via PYTHONPATH from ~/src/PeakRDL-chisel.
-RDL_CHISEL   := $(HOME)/src/PeakRDL-chisel/src
+# PeakRDL-chisel is a git submodule at repo root.
+RDL_CHISEL   := $(CURDIR)/PeakRDL-chisel/src
 RDL_DIR      := hardware/rdl
 RDL_SRC      := $(wildcard $(RDL_DIR)/*.rdl)
 RDL_SCALA_OUT:= hardware/borg/src/generated
