@@ -41,12 +41,38 @@ public:
     }
     
     // Expose the 32x32x3 RGB byte buffer as a NumPy array (zero-copy read)
-    // Expose the 32x32x3 RGB byte buffer as a NumPy array
     nb::ndarray<nb::numpy, uint8_t, nb::shape<-1, -1, 3>, nb::c_contig> get_framebuffer() {
         if (fb_rgb.size() != sim->width * sim->height * 3) {
             fb_rgb.resize(sim->width * sim->height * 3);
         }
         
+#ifdef FAST_MEM
+        auto& psram_arr = sim->model->rootp->tt_um_gonsolo_borg_sim__DOT__uo_out_val_i_tinyqv__DOT__memSim__DOT__sim_mem_ext__DOT__Memory;
+        
+        for (uint32_t y = 0; y < sim->height; y++) {
+            for (uint32_t x = 0; x < sim->width; x++) {
+                uint32_t base = (sim->out_base_word + (y * sim->width + x) * 3) * 4;
+                uint16_t r_fp16 = psram_arr[0x40000 + base] | (psram_arr[0x40000 + base + 1] << 8);
+                uint16_t g_fp16 = psram_arr[0x40000 + base + 4] | (psram_arr[0x40000 + base + 5] << 8);
+                uint16_t b_fp16 = psram_arr[0x40000 + base + 8] | (psram_arr[0x40000 + base + 9] << 8);
+                
+                uint8_t r_b = std::max(0, std::min(255, (int)(::fp16_to_float(r_fp16) * 255)));
+                uint8_t g_b = std::max(0, std::min(255, (int)(::fp16_to_float(g_fp16) * 255)));
+                uint8_t b_b = std::max(0, std::min(255, (int)(::fp16_to_float(b_fp16) * 255)));
+                
+                uint32_t out_idx = (y * sim->width + x) * 3;
+                fb_rgb[out_idx + 0] = r_b;
+                fb_rgb[out_idx + 1] = g_b;
+                fb_rgb[out_idx + 2] = b_b;
+            }
+        }
+        
+        uint32_t marker_byte_idx = 0x40000 + sim->marker_offset_word * 4;
+        psram_arr[marker_byte_idx] = 0;
+        psram_arr[marker_byte_idx+1] = 0;
+        psram_arr[marker_byte_idx+2] = 0;
+        psram_arr[marker_byte_idx+3] = 0;
+#else
         uint32_t* psram_words_out = (uint32_t*)sim->psram->mem.data();
         
         for (uint32_t y = 0; y < sim->height; y++) {
@@ -56,9 +82,9 @@ public:
                 uint16_t g_fp16 = (uint16_t)psram_words_out[base + 1];
                 uint16_t b_fp16 = (uint16_t)psram_words_out[base + 2];
                 
-                uint8_t r_b = std::max(0, std::min(255, (int)(fp16_to_float(r_fp16) * 255)));
-                uint8_t g_b = std::max(0, std::min(255, (int)(fp16_to_float(g_fp16) * 255)));
-                uint8_t b_b = std::max(0, std::min(255, (int)(fp16_to_float(b_fp16) * 255)));
+                uint8_t r_b = std::max(0, std::min(255, (int)(::fp16_to_float(r_fp16) * 255)));
+                uint8_t g_b = std::max(0, std::min(255, (int)(::fp16_to_float(g_fp16) * 255)));
+                uint8_t b_b = std::max(0, std::min(255, (int)(::fp16_to_float(b_fp16) * 255)));
                 
                 uint32_t out_idx = (y * sim->width + x) * 3;
                 fb_rgb[out_idx + 0] = r_b;
@@ -69,6 +95,7 @@ public:
         
         // Clear the DONE_MARKER so the next frame can be rendered
         psram_words_out[sim->marker_offset_word] = 0;
+#endif
 
         size_t shape[3] = { (size_t)sim->height, (size_t)sim->width, 3 };
         
@@ -80,7 +107,11 @@ public:
     }
 };
 
+#ifdef FAST_MEM
+NB_MODULE(borg_sim_fast, m) {
+#else
 NB_MODULE(borg_sim, m) {
+#endif
     nb::class_<SimulatorWrapper>(m, "BorgSimulator")
         .def(nb::init<const std::string&>())
         .def("load_texture", &SimulatorWrapper::load_texture)

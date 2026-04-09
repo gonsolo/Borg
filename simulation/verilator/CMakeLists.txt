@@ -17,8 +17,6 @@ execute_process(
 list(APPEND CMAKE_PREFIX_PATH "${nanobind_ROOT}")
 find_package(nanobind CONFIG REQUIRED)
 
-nanobind_add_module(borg_sim nanobind_wrapper.cpp)
-
 # The verilator model code requires the verilator includes
 find_package(verilator HINTS ${VERILATOR_ROOT})
 
@@ -28,14 +26,30 @@ file(GLOB VERILATOR_OBJS "${CMAKE_CURRENT_SOURCE_DIR}/obj_dir/*.o")
 # Exclude main.o because it has the main() entrypoint
 list(FILTER VERILATOR_OBJS EXCLUDE REGEX "main\\.o$")
 
-target_link_libraries(borg_sim PRIVATE ${VERILATOR_OBJS})
+if(FAST_MEM)
+  nanobind_add_module(borg_sim_fast nanobind_wrapper.cpp)
+  target_link_libraries(borg_sim_fast PRIVATE ${VERILATOR_OBJS})
 
-# Verilator headers
-target_include_directories(borg_sim PRIVATE 
-    ${CMAKE_CURRENT_SOURCE_DIR}/obj_dir 
-    ${VERILATOR_ROOT}/include
-    ${VERILATOR_ROOT}/include/vltstd
-)
+  # Verilator headers
+  target_include_directories(borg_sim_fast PRIVATE 
+      ${CMAKE_CURRENT_SOURCE_DIR}/obj_dir 
+      ${VERILATOR_ROOT}/include
+      ${VERILATOR_ROOT}/include/vltstd
+  )
 
-# Optional optimisation flags
-target_compile_options(borg_sim PRIVATE -O3 -fno-strict-aliasing)
+  # Optional optimisation flags
+  target_compile_options(borg_sim_fast PRIVATE -O3 -fno-strict-aliasing -DFAST_MEM=1)
+else()
+  nanobind_add_module(borg_sim nanobind_wrapper.cpp)
+  target_link_libraries(borg_sim PRIVATE ${VERILATOR_OBJS})
+
+  # Verilator headers
+  target_include_directories(borg_sim PRIVATE 
+      ${CMAKE_CURRENT_SOURCE_DIR}/obj_dir 
+      ${VERILATOR_ROOT}/include
+      ${VERILATOR_ROOT}/include/vltstd
+  )
+
+  # Optional optimisation flags
+  target_compile_options(borg_sim PRIVATE -O3 -fno-strict-aliasing)
+endif()
