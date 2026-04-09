@@ -243,7 +243,7 @@ Estimate: 3–5 days.
     the inactive page, polls `BORG_STS_FIFO_FULL`, then enqueues with `uniformPage` in bit 30.
     Verified pixel-perfect against `golden.ppm` in Verilator (11.3M cycles).
 
-### Step 14: SystemRDL Register Description ✅ (2026-04-09)
+### Step 14: SystemRDL Register Description ✅ (2026-04-08)
 
 Replace the hand-maintained `MmioMap.scala` constants and `MmioGenerator.scala`
 C header emission with a machine-parsable [SystemRDL](https://github.com/SystemRDL)
