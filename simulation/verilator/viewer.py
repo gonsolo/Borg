@@ -55,6 +55,8 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                running = False
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1: # Left click
                     mouse_dragging = True
@@ -96,8 +98,7 @@ def main():
             
         # 3. Fetch framebuffer zero-copy ndarray (shape: 32, 32, 3, dtype: uint8)
         fb_array = sim.get_framebuffer()
-        print("Frame completed! Rendering to screen... Pixel max:", fb_array.max())
-        
+
         # 4. Blit to Pygame
         # Pygame expects (width, height, 3). The numpy array is already correctly shaped.
         # But we need to use pygame.surfarray.make_surface.

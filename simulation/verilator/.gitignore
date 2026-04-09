@@ -3,3 +3,4 @@ obj_dir/
 *.o
 *.ppm
 *.log
+/build

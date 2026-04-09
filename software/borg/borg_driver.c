@@ -448,7 +448,7 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
           
           fp16_t z = bz & 0xFFFF;
           if (z >= FP16_MAX_DEPTH) continue; // Fragment was not shaded or was outside!
-          puts_uart("P");
+
 
           // The tile buffer stores U/V in R/G when textured, or R/G in R/G when untextured.
           if (tri->has_uvs) {

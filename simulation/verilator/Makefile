@@ -33,6 +33,9 @@ triangle: verilator_sim python_extension $(FIRMWARE_DIR)/triangle.bin
 vkcube: verilator_sim python_extension $(FIRMWARE_DIR)/vkcube.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube
 
+vkcube_gui: python_extension $(FIRMWARE_DIR)/vkcube.bin
+	python3 viewer.py
+
 python_extension: verilator_sim
 	@rm -rf build && mkdir -p build && cd build && cmake .. \
 		-DCMAKE_CXX_COMPILER=g++ \
@@ -40,6 +43,8 @@ python_extension: verilator_sim
 		-DVERILATOR_ROOT=$$(dirname $$(dirname $$(which verilator)))/share/verilator \
 		&& make
 	@cp build/borg_sim.*.so .
+
+.PHONY: all triangle vkcube vkcube_gui clean
 
 clean:
 	rm -rf obj_dir build verilator_sim *.ppm *.so

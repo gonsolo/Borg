@@ -127,7 +127,7 @@ int main() {
     // Read shared parameters from PSRAM (offset 2 and 3 -> PSRAM base + 8 and 12)
     union { uint32_t u; float f; } rot_x_reader, rot_y_reader;
 
-    int frame_count = 0;
+
 
     while (1) {
         // Read the rotation angles from the simulation (shared via PSRAM_IN)
@@ -146,21 +146,21 @@ int main() {
         mat4_mul(t2, s, t1);
         mat4_mul(draw.uniforms, tz, t2);
 
-        if (frame_count == 0) puts_uart("[VKCUBE] Clearing Z-buffer...\n");
+
         borg_clear_zbuffer(0);
         
-        if (frame_count == 0) puts_uart("[VKCUBE] Setting Texture...\n");
+
         borg_set_texture(TEX_PSRAM_OFFSET, TEX_WIDTH, TEX_HEIGHT);
         
-        if (frame_count == 0) puts_uart("[VKCUBE] Drawing cube...\n");
+
         draw_cube(&draw);
         
-        if (frame_count == 0) puts_uart("[VKCUBE] Calling present(0)...\n");
+
         borg_present(0);
         
-        if (frame_count == 0) puts_uart("[VKCUBE] First Frame Complete!\n");
+
         
-        frame_count++;
+
     }
     return 0;
 }
