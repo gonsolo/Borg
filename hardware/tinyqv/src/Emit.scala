@@ -19,8 +19,7 @@ object Emit {
       "disallowLocalVariables," +
       "disallowPackedArrays," +
       "noAlwaysComb",
-    "--disable-all-randomization",
-    "--strip-debug-info"
+    "--disable-all-randomization"
   )
 
   /** Emit split-verilog and collect generated filenames. */

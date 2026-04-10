@@ -54,7 +54,7 @@ class TinyQVMemCtrl extends Module {
     val txn_len = Mux(is_instr, 1.U(2.W), data_txn_len)
     val addr_in = Mux(is_instr, Cat(0.U(1.W), io.instrFetch.instr_addr, 0.U(1.W)), io.data_addr(24,0))
 
-    val stall_txn = instr_active && io.instrFetch.instr_fetch_stall && !io.instrFetch.instr_ready && (qspi_data_byte_idx === 1.U)
+    val stall_txn = instr_active && io.instrFetch.instr_fetch_stall && !qspi_data_ready && (qspi_data_byte_idx === 1.U)
 
     // Control FSM
     start_instr := false.B

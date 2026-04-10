@@ -9,7 +9,7 @@ int main(int argc, char** argv) {
     std::string firmware_path = argv[1];
     std::string app_name = argv[2];
 
-    BorgSimulator sim(firmware_path, 32, 32);
+    BorgSimulator sim(firmware_path, false, 32, 32);
 
     std::string tex_path = app_name == "vkcube" ? "../../software/borg/borg_texture.dat" : "../../software/borg/test_texture.dat";
     sim.load_texture(tex_path);

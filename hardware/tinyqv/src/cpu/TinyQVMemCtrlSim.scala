@@ -1,8 +1,5 @@
-// Simulation-only fast memory controller — replaces TinyQVMemCtrl for Verilator.
-// Responds to reads in 2 cycles and writes in 1 cycle using SyncReadMem,
-// bypassing the ~80-cycle QSPI serialization overhead.
-//
-// Copyright © 2026 Andreas Wendleder
+// Copyright Michael Bell 2024
+// Conversion to Chisel Copyright © 2026 Andreas Wendleder
 // SPDX-License-Identifier: Apache-2.0
 
 package tinyqv.cpu
@@ -10,134 +7,126 @@ package tinyqv.cpu
 import chisel3._
 import chisel3.util._
 
-/** Fast simulation memory controller.
+// Use the same IO Bundle as defined in TinyQV.scala
+// If they are in the same package, they are visible.
+
+// QspiControllerSimSimIO is no longer needed — QspiControllerSimSim now uses an inline Bundle
+
+/** Memory controller — arbitrates QSPI bus between instruction fetch and data.
   *
-  * Same [[TinyQVMemCtrlIO]] interface as [[TinyQVMemCtrl]] but uses
-  * on-chip [[SyncReadMem]] arrays instead of QSPI serialization.
+  * Manages a single [[QspiControllerSimSim]] instance shared by:
+  *   - '''Instruction fetch:''' streaming 16-bit instruction words from flash
+  *   - '''Data read/write:''' byte/halfword/word PSRAM access for loads and stores
   *
-  * Memory map (matches QspiController conventions):
-  *   - addr_in[24] == 0 → flash (instruction fetch)
-  *   - addr_in[24] == 1 → PSRAM (data read/write)
-  *
-  * Timing:
-  *   - Instruction fetch: 1 cycle latency (read 2 bytes)
-  *   - Data read: 2 cycles (address latch → data ready)
-  *   - Data write: 1 cycle (immediate acknowledgement)
+  * Data transactions take priority over instruction fetch. Multi-beat
+  * (continued) transactions are supported for load/store-multiple sequences.
+  * The controller reassembles byte-wide QSPI data into the CPU's 32-bit
+  * data bus and handles stall/stop signaling for instruction prefetch.
   */
 class TinyQVMemCtrlSim extends Module {
   val io = IO(new TinyQVMemCtrlIO)
+    // Unified Simulation Memory (Firmware/Flash mapped at 0x0)
+    // NOTE: Uses SyncReadMem with dummy write port so CIRCT emits
+    // an external SRAM module whose Memory array is C++-accessible.
+    val sim_mem_ext = SyncReadMem(1048576, UInt(8.W))
+    // PSRAM mapped at 0x01000000
+    val sim_psram_ext = Mem(8388608, UInt(8.W))
 
-  // --- Unified Memory Array ---
-  // To prevent Firrtl from optimizing away read-only memories, we use a single
-  // unified simulation memory read/written by the data ports.
-  // 512KB total: 0x00000-0x3FFFF -> Flash (256KB), 0x40000-0x7FFFF -> PSRAM (256KB)
-  val sim_mem = SyncReadMem(524288, UInt(8.W))
+    // --- Dummy write port to prevent CIRCT constant-folding the flash ---
+    // A never-asserted write enable keeps the memory alive while guaranteeing
+    // the synthesised logic is unchanged.
+    val flash_wen = WireDefault(false.B)
+    dontTouch(flash_wen) // Prevent optimiser from proving it constant
+    when(flash_wen) {
+      sim_mem_ext.write(0.U(20.W), 0.U(8.W))
+    }
 
-  // --- Instruction Fetch ---
-  // The CPU requests 16-bit instructions at word-aligned addresses.
-  // instr_addr is a 23-bit word address; byte address = instr_addr << 1.
-  val instr_byte_addr = Cat(io.instrFetch.instr_addr, 0.U(1.W))
+    val instr_active = RegInit(false.B)
+    val started = RegInit(false.B)
+    val stopped = RegInit(false.B)
 
-  // Pipeline registers for instruction fetch
-  val instr_started_reg = RegInit(false.B)
-  val instr_ready_reg = RegInit(false.B)
-  
-  // Read ports for flash (always active, we just capture the output)
-  val fetch_en_0 = io.instrFetch.instr_fetch_restart && !io.instrFetch.instr_fetch_stall
-  val fetch_en_1 = RegNext(fetch_en_0)
-  
-  val flash_rd0 = sim_mem.read(instr_byte_addr(17,0), fetch_en_0)
-  val instr_addr_reg = RegEnable(instr_byte_addr, fetch_en_0)
-  val flash_rd1 = sim_mem.read(instr_addr_reg(17,0) + 1.U, fetch_en_1)
+    // Instruction Fetch Instant Interface
+    val instr_addr_byte = Cat(io.instrFetch.instr_addr, 0.U(1.W))
+    val fetch_en_0 = (io.instrFetch.instr_fetch_restart || instr_active) && !io.instrFetch.instr_fetch_stall
+    val fetch_en_1 = RegNext(fetch_en_0)
 
-  val instr_byte0_reg = RegEnable(flash_rd0, fetch_en_1)
+    val flash_rd0 = sim_mem_ext.read(instr_addr_byte(19, 0), fetch_en_0)
+    val flash_rd1 = sim_mem_ext.read(instr_addr_byte(19, 0) + 1.U, fetch_en_0)
 
-  when(fetch_en_0) {
-    instr_started_reg := true.B
-    instr_ready_reg := false.B
-  }.elsewhen(fetch_en_1) {
-    instr_started_reg := false.B
-    instr_ready_reg := true.B
-  }.otherwise {
-    instr_started_reg := false.B
-    instr_ready_reg := false.B
-  }
+    when(io.instrFetch.instr_fetch_restart) {
+      instr_active := true.B
+    }
 
-  io.instrFetch.instr_fetch_started := instr_started_reg
-  io.instrFetch.instr_fetch_stopped := false.B
-  io.instrFetch.instr_data := Cat(flash_rd1, instr_byte0_reg)
-  io.instrFetch.instr_ready := instr_ready_reg
+    // started/stopped MUST be single-cycle pulses (matching real MemCtrl lines 88-90).
+    // The CPU uses these to toggle instr_fetch_running in an elsewhen chain (Cpu.scala:308-310).
+    // If started latches high, the CPU can never clear instr_fetch_running.
+    started := io.instrFetch.instr_fetch_restart
+    stopped := false.B  // We never stop the instruction stream in sim mode
 
-  // --- Data Read/Write ---
-  val data_txn_n = io.data_write_n & io.data_read_n
+    io.instrFetch.instr_fetch_started := started
+    io.instrFetch.instr_fetch_stopped := stopped
+    // Self-throttle: after delivering a word, skip one cycle.
+    // This prevents buffer overflow without creating a combinational cycle
+    // with the CPU's stall signal (which depends on instr_ready).
+    // Still ~25x faster than QSPI (1 word/2 cycles vs 1 word/~50 cycles).
+    val instr_ready_out = Wire(Bool())
+    val just_delivered = RegNext(instr_ready_out, false.B)
+    instr_ready_out := instr_active && fetch_en_1 && !just_delivered
+    io.instrFetch.instr_ready := instr_ready_out
+    io.instrFetch.instr_data := Cat(flash_rd1, flash_rd0)
 
-  // Transaction length: 0=byte, 1=halfword, 3=word
-  val data_txn_len = Cat(data_txn_n(1), data_txn_n(1) | data_txn_n(0))
+    // Data Routing (PSRAM Framebuffer) Sequential State
+    val psram_read_active = RegInit(false.B)
+    val psram_write_active = RegInit(false.B)
+    val psram_read_data = Reg(UInt(32.W))
 
-  // FSM for data transactions
-  val sIdle :: sRead1 :: Nil = Enum(2)
-  val dstate = RegInit(sIdle)
-  val data_ready_reg = RegInit(false.B)
-  val data_addr_reg = Reg(UInt(18.W))
-  val data_len_reg = Reg(UInt(2.W))
-  val read_buf = RegInit(VecInit(Seq.fill(4)(0.U(8.W))))
+    when (io.data_read_n =/= 3.U && !psram_read_active) {
+      // Intercept all data reads in simulation to bypass QSPI
+      psram_read_active := true.B
+      
+      val psram_addr = io.data_addr(22, 0)
+      val r0 = sim_psram_ext(psram_addr)
+      val r1 = sim_psram_ext(psram_addr + 1.U)
+      val r2 = sim_psram_ext(psram_addr + 2.U)
+      val r3 = sim_psram_ext(psram_addr + 3.U)
+      psram_read_data := Cat(r3, r2, r1, r0)
+    } .elsewhen (io.data_write_n =/= 3.U && !psram_write_active) {
+      // Intercept all data writes to bypass QSPI
+      psram_write_active := true.B
+      
+      val psram_write_addr = io.data_addr(22, 0)
+      val w_data = io.data_out
 
-  // PSRAM byte address: offset by 0x40000 (256KB) to put it in the upper half of sim_mem
-  val psram_byte_addr = io.data_addr(17, 0) + 0x40000.U
-
-  // Read ports (active during sRead1)
-  val rd_active = dstate === sRead1
-  val rd0 = sim_mem.read(data_addr_reg, rd_active)
-  val rd1 = sim_mem.read(data_addr_reg + 1.U, rd_active)
-  val rd2 = sim_mem.read(data_addr_reg + 2.U, rd_active)
-  val rd3 = sim_mem.read(data_addr_reg + 3.U, rd_active)
-
-  data_ready_reg := false.B
-
-  switch(dstate) {
-    is(sIdle) {
-      when(io.data_read_n =/= 3.U) {
-        // Start data read: latch address
-        data_addr_reg := psram_byte_addr
-        data_len_reg := data_txn_len
-        dstate := sRead1
-      }.elsewhen(io.data_write_n =/= 3.U) {
-        // Data write: immediate
-        val wa = psram_byte_addr
-        sim_mem.write(wa, io.data_out(7, 0))
-        when(data_txn_len >= 1.U) {
-          sim_mem.write(wa + 1.U, io.data_out(15, 8))
-        }
-        when(data_txn_len >= 3.U) {
-          sim_mem.write(wa + 2.U, io.data_out(23, 16))
-          sim_mem.write(wa + 3.U, io.data_out(31, 24))
-        }
-        data_ready_reg := true.B
-        // Stay in sIdle for continued transactions
+      when (io.data_write_n(1)) { // Upper 16 bits active (Word)
+        sim_psram_ext(psram_write_addr + 2.U) := w_data(23, 16)
+        sim_psram_ext(psram_write_addr + 3.U) := w_data(31, 24)
       }
+      when (io.data_write_n(0) || io.data_write_n(1)) { // Lower 16 bits active (Word or Hafword)
+        sim_psram_ext(psram_write_addr + 1.U) := w_data(15, 8)
+      }
+      // Byte, Halfword, Word all write byte 0
+      sim_psram_ext(psram_write_addr) := w_data(7, 0)
     }
-    is(sRead1) {
-      // Data arrives from SyncReadMem this cycle
-      read_buf(0) := rd0
-      read_buf(1) := rd1
-      read_buf(2) := rd2
-      read_buf(3) := rd3
-      data_ready_reg := true.B
-      dstate := sIdle
+
+    when (psram_read_active) {
+      psram_read_active := false.B
     }
-  }
+    when (psram_write_active) {
+      psram_write_active := false.B
+    }
 
-  io.data_ready := data_ready_reg
-  io.data_in := Cat(read_buf(3), read_buf(2), read_buf(1), read_buf(0))
+    // Module Outputs
+    io.data_ready := psram_read_active || psram_write_active
+    io.data_in := psram_read_data
 
-  // --- SPI outputs: tied off (not used in simulation) ---
-  io.spi_data_out := 0.U
-  io.spi_data_oe := 0.U
-  io.spi_clk_out := false.B
-  io.spi_flash_select := true.B   // Deselected (active low)
-  io.spi_ram_a_select := true.B
-  io.spi_ram_b_select := true.B
+    // Tie off unused QSPI outputs since fast sim bypasses them completely
+    io.spi_data_out := 0.U
+    io.spi_data_oe := 0.U
+    io.spi_clk_out := false.B
+    io.spi_flash_select := false.B
+    io.spi_ram_a_select := false.B
+    io.spi_ram_b_select := false.B
 
-  io.debug_stall_txn := false.B
-  io.debug_stop_txn := false.B
+    io.debug_stall_txn := false.B
+    io.debug_stop_txn := false.B
 }

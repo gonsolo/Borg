@@ -7,7 +7,10 @@ import pygame
 import numpy as np
 
 # Load the compiled nanobind module
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+script_dir = os.path.dirname(os.path.abspath(__file__))
+use_fast = '--fast' in sys.argv
+sys.path.insert(0, os.path.join(script_dir, 'build'))
+sys.path.append(script_dir)
 import borg_sim
 
 def main():
@@ -23,7 +26,7 @@ def main():
         sys.exit(1)
         
     print(f"Loading Firmware: {FW_PATH}")
-    sim = borg_sim.BorgSimulator(FW_PATH)
+    sim = borg_sim.BorgSimulator(FW_PATH, use_fast)
     
     if os.path.exists(TEX_PATH):
         print(f"Loading Texture: {TEX_PATH}")

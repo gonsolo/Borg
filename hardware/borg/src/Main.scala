@@ -24,4 +24,14 @@ object Main extends App {
   val fw = new java.io.PrintWriter(new java.io.File(s"$targetDir/asic_files.txt"))
   allAsicFiles.toList.sorted.foreach(fw.println)
   fw.close()
+
+  // Generate Simulation-only fast memory variant
+  val simTargetDir = "out/hardware/borg/verilog_sim"
+  new java.io.File(simTargetDir).mkdirs()
+  val simAsicFiles = collection.mutable.Set[String]()
+  Emit.emitAndCollect(new tt_um_gonsolo_borg_sim(clockMhz), simTargetDir, simAsicFiles)
+  Emit.emitAndCollect(new tinyQV_peripherals(clockMhz), simTargetDir, simAsicFiles)
+  val fwSim = new java.io.PrintWriter(new java.io.File(s"$simTargetDir/asic_files.txt"))
+  simAsicFiles.toList.sorted.foreach(fwSim.println)
+  fwSim.close()
 }

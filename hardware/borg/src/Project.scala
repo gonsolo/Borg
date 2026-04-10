@@ -62,6 +62,7 @@ class tinyQV_ExtModule extends ExtModule(Map()) {
   */
 trait SoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
+  def SIM_FAST_MEM: Boolean = false
 
   // --- Abstract members provided by each top-level ---
   def soc_clk: Clock
@@ -73,8 +74,11 @@ trait SoCLogic { self: RawModule =>
 
   // --- Core and peripheral instantiation ---
   lazy val i_tinyqv = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new tinyqv.cpu.TinyQV)
+    Module(new tinyqv.cpu.TinyQV("", SIM_FAST_MEM))
   }
+  
+  // Expose the dynamic runtime pin if we are in an instance where it exists natively:
+  lazy val fast_sim_en_bind = i_tinyqv.io.fast_sim_en := soc_ui_in(7)
   lazy val i_peripherals = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new tinyQV_peripherals(CLOCK_MHZ))
   }
@@ -92,6 +96,7 @@ trait SoCLogic { self: RawModule =>
 
   /** Wire up the entire SoC. Call this from the top-level module body. */
   def wireSoC(): UInt = {
+    fast_sim_en_bind
     i_tinyqv.io.spi_data_in := soc_qspi_data_in
 
     val addr = i_tinyqv.io.data_addr
@@ -271,4 +276,10 @@ class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val unused = ena ^ uio_in(7) ^ uio_in(6) ^ uio_in(3) ^ uio_in(0) ^ read_complete
 
   uo_out := Cat(uo_out_val(7, 1), uo_out_val(0) ^ unused ^ unused)
+}
+
+/** Simulation-only variant with fast memory array instance built-in. */
+class tt_um_gonsolo_borg_sim(override val CLOCK_MHZ: Int) extends tt_um_gonsolo_borg(CLOCK_MHZ) {
+  override def SIM_FAST_MEM: Boolean = true
+  override val desiredName = "tt_um_gonsolo_borg"
 }

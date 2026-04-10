@@ -28,6 +28,8 @@ class tinyQVIO extends Bundle {
   val spi_ram_a_select = Output(Bool())
   val spi_ram_b_select = Output(Bool())
 
+  val fast_sim_en = Input(Bool()) // Runtime switch for memory controller backend!
+
   val debug_instr_complete = Output(Bool())
   val debug_instr_ready = Output(Bool())
   val debug_instr_valid = Output(Bool())
@@ -120,7 +122,10 @@ class TinyQVMemCtrlIO extends Bundle {
   * Also provides instruction fetch wiring (CPU ↔ MemCtrl), SPI pin mapping,
   * and a synchronized reset that delays release by one clock cycle.
   */
-class TinyQV extends Module {
+class TinyQV(
+  val programFile: String = "",
+  val simEnabled: Boolean = false
+) extends Module {
 
   val io = FlatIO(new tinyQVIO)
 
@@ -128,7 +133,89 @@ class TinyQV extends Module {
   val rst_reg_n = RegNext(true.B, false.B)
 
   val cpu = withReset(!rst_reg_n) { Module(new TinyQVCpu(16, 4)) }
-  val mem = Module(new TinyQVMemCtrl())
+  val memReal = Module(new TinyQVMemCtrl())
+  
+  // Wire memory IO
+  val mem_io = Wire(new TinyQVMemCtrlIO)
+  mem_io.spi_data_in := io.spi_data_in
+  
+  if (simEnabled) {
+    val memSim = Module(new TinyQVMemCtrlSim())
+    
+    // MUX physical and CPU interfaces to whichever memory controller is selected
+    // Note: SPI inputs always broadcast to both to keep them synchronized if they share bus!
+    memReal.io.spi_data_in := io.spi_data_in
+    memSim.io.spi_data_in := io.spi_data_in
+    
+    memReal.io.data_addr := mem_io.data_addr
+    memSim.io.data_addr := mem_io.data_addr
+    memReal.io.data_write_n := mem_io.data_write_n
+    memSim.io.data_write_n := mem_io.data_write_n
+    memReal.io.data_read_n := mem_io.data_read_n
+    memSim.io.data_read_n := mem_io.data_read_n
+    memReal.io.data_out := mem_io.data_out
+    memSim.io.data_out := mem_io.data_out
+    memReal.io.data_continue := mem_io.data_continue
+    memSim.io.data_continue := mem_io.data_continue
+    
+    memReal.io.instrFetch.instr_addr := mem_io.instrFetch.instr_addr
+    memSim.io.instrFetch.instr_addr := mem_io.instrFetch.instr_addr
+    memReal.io.instrFetch.instr_fetch_restart := mem_io.instrFetch.instr_fetch_restart
+    memSim.io.instrFetch.instr_fetch_restart := mem_io.instrFetch.instr_fetch_restart
+    memReal.io.instrFetch.instr_fetch_stall := mem_io.instrFetch.instr_fetch_stall
+    memSim.io.instrFetch.instr_fetch_stall := mem_io.instrFetch.instr_fetch_stall
+    
+    // STEP 1: Instruction Fetch Isolation
+    // Only instrFetch outputs are muxed by fast_sim_en.
+    // Data, SPI, and debug ALWAYS go through memReal (QSPI),
+    // so PSRAM traffic still uses the C++ SPI model.
+    mem_io.data_ready := memReal.io.data_ready
+    mem_io.data_in := memReal.io.data_in
+    
+    mem_io.spi_data_out := memReal.io.spi_data_out
+    mem_io.spi_data_oe := memReal.io.spi_data_oe
+    mem_io.spi_flash_select := memReal.io.spi_flash_select
+    mem_io.spi_ram_a_select := memReal.io.spi_ram_a_select
+    mem_io.spi_ram_b_select := memReal.io.spi_ram_b_select
+    mem_io.spi_clk_out := memReal.io.spi_clk_out
+    
+    mem_io.debug_stall_txn := memReal.io.debug_stall_txn
+    mem_io.debug_stop_txn := memReal.io.debug_stop_txn
+    
+    mem_io.instrFetch.instr_fetch_started := Mux(io.fast_sim_en, memSim.io.instrFetch.instr_fetch_started, memReal.io.instrFetch.instr_fetch_started)
+    mem_io.instrFetch.instr_fetch_stopped := Mux(io.fast_sim_en, memSim.io.instrFetch.instr_fetch_stopped, memReal.io.instrFetch.instr_fetch_stopped)
+    mem_io.instrFetch.instr_data := Mux(io.fast_sim_en, memSim.io.instrFetch.instr_data, memReal.io.instrFetch.instr_data)
+    mem_io.instrFetch.instr_ready := Mux(io.fast_sim_en, memSim.io.instrFetch.instr_ready, memReal.io.instrFetch.instr_ready)
+  } else {
+    memReal.io.spi_data_in := io.spi_data_in
+    memReal.io.data_addr := mem_io.data_addr
+    memReal.io.data_write_n := mem_io.data_write_n
+    memReal.io.data_read_n := mem_io.data_read_n
+    memReal.io.data_out := mem_io.data_out
+    memReal.io.data_continue := mem_io.data_continue
+    
+    memReal.io.instrFetch.instr_addr := mem_io.instrFetch.instr_addr
+    memReal.io.instrFetch.instr_fetch_restart := mem_io.instrFetch.instr_fetch_restart
+    memReal.io.instrFetch.instr_fetch_stall := mem_io.instrFetch.instr_fetch_stall
+    
+    mem_io.data_ready := memReal.io.data_ready
+    mem_io.data_in := memReal.io.data_in
+    
+    mem_io.spi_data_out := memReal.io.spi_data_out
+    mem_io.spi_data_oe := memReal.io.spi_data_oe
+    mem_io.spi_flash_select := memReal.io.spi_flash_select
+    mem_io.spi_ram_a_select := memReal.io.spi_ram_a_select
+    mem_io.spi_ram_b_select := memReal.io.spi_ram_b_select
+    mem_io.spi_clk_out := memReal.io.spi_clk_out
+    
+    mem_io.debug_stall_txn := memReal.io.debug_stall_txn
+    mem_io.debug_stop_txn := memReal.io.debug_stop_txn
+    
+    mem_io.instrFetch.instr_fetch_started := memReal.io.instrFetch.instr_fetch_started
+    mem_io.instrFetch.instr_fetch_stopped := memReal.io.instrFetch.instr_fetch_stopped
+    mem_io.instrFetch.instr_data := memReal.io.instrFetch.instr_data
+    mem_io.instrFetch.instr_ready := memReal.io.instrFetch.instr_ready
+  }
 
   cpu.io.interrupt_req := io.interrupt_req
 
@@ -137,18 +224,18 @@ class TinyQV extends Module {
   val is_mem = qv_data_addr(27, 25) === 0.U
 
   // CPU data interface
-  val qv_data_ready = Mux(is_mem, mem.io.data_ready, io.data_ready)
-  val qv_data_from_read = Mux(is_mem, mem.io.data_in, io.data_in)
+  val qv_data_ready = Mux(is_mem, mem_io.data_ready, io.data_ready)
+  val qv_data_from_read = Mux(is_mem, mem_io.data_in, io.data_in)
 
   cpu.io.data_ready := qv_data_ready
   cpu.io.data_in := qv_data_from_read
 
   // Mem data interface
-  mem.io.data_addr := qv_data_addr(24, 0)
-  mem.io.data_write_n := Mux(is_mem, cpu.io.data_write_n, 3.U(2.W))
-  mem.io.data_read_n := Mux(is_mem, cpu.io.data_read_n, 3.U(2.W))
-  mem.io.data_out := cpu.io.data_out
-  mem.io.data_continue := cpu.io.data_continue
+  mem_io.data_addr := qv_data_addr(24, 0)
+  mem_io.data_write_n := Mux(is_mem, cpu.io.data_write_n, 3.U(2.W))
+  mem_io.data_read_n := Mux(is_mem, cpu.io.data_read_n, 3.U(2.W))
+  mem_io.data_out := cpu.io.data_out
+  mem_io.data_continue := cpu.io.data_continue
 
   // Top-level mappings
   io.data_addr := qv_data_addr
@@ -158,7 +245,7 @@ class TinyQV extends Module {
   io.data_out := cpu.io.data_out
 
   // CPU - Mem instruction wiring (bulk connect)
-  cpu.io.instrFetch <> mem.io.instrFetch
+  cpu.io.instrFetch <> mem_io.instrFetch
 
   // Debug wire for instruction address (used by cocotb tests via hierarchical access)
   val instr_addr = WireInit(cpu.io.instrFetch.instr_addr)
@@ -170,17 +257,16 @@ class TinyQV extends Module {
   cpu.io.time_pulse := io.time_pulse
 
   // SPI interface
-  mem.io.spi_data_in := io.spi_data_in
-  io.spi_data_out := mem.io.spi_data_out
-  io.spi_data_oe := mem.io.spi_data_oe
-  io.spi_flash_select := mem.io.spi_flash_select
-  io.spi_ram_a_select := mem.io.spi_ram_a_select
-  io.spi_ram_b_select := mem.io.spi_ram_b_select
-  io.spi_clk_out := mem.io.spi_clk_out
+  io.spi_data_out := mem_io.spi_data_out
+  io.spi_data_oe := mem_io.spi_data_oe
+  io.spi_flash_select := mem_io.spi_flash_select
+  io.spi_ram_a_select := mem_io.spi_ram_a_select
+  io.spi_ram_b_select := mem_io.spi_ram_b_select
+  io.spi_clk_out := mem_io.spi_clk_out
 
   // Debug signals
   io.debug_instr_complete := cpu.io.debug_instr_complete
-  io.debug_instr_ready := mem.io.instrFetch.instr_ready
+  io.debug_instr_ready := mem_io.instrFetch.instr_ready
   io.debug_instr_valid := cpu.io.debug_instr_valid
   io.debug_fetch_restart := cpu.io.instrFetch.instr_fetch_restart
   io.debug_data_ready := qv_data_ready
@@ -191,7 +277,7 @@ class TinyQV extends Module {
   io.debug_reg_wen := cpu.io.debug_reg_wen
   io.debug_counter_0 := cpu.io.debug_counter_0
   io.debug_data_continue := cpu.io.data_continue
-  io.debug_stall_txn := mem.io.debug_stall_txn
-  io.debug_stop_txn := mem.io.debug_stop_txn
+  io.debug_stall_txn := mem_io.debug_stall_txn
+  io.debug_stop_txn := mem_io.debug_stop_txn
   io.debug_rd := cpu.io.debug_rd
 }

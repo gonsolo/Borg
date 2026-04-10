@@ -8,9 +8,10 @@ namespace nb = nanobind;
 class SimulatorWrapper {
     BorgSimulator* sim;
     std::vector<uint8_t> fb_rgb;
+    bool fast_mode;
 public:
-    SimulatorWrapper(const std::string& firmware_path) {
-        sim = new BorgSimulator(firmware_path, 32, 32);
+    SimulatorWrapper(const std::string& firmware_path, bool fast_mode = false) : fast_mode(fast_mode) {
+        sim = new BorgSimulator(firmware_path, fast_mode, 32, 32);
     }
     
     ~SimulatorWrapper() {
@@ -26,18 +27,7 @@ public:
     }
     
     void set_camera_angles(float rx, float ry) {
-        uint32_t* psram_words = (uint32_t*)sim->psram->mem.data();
-        float* psram_floats = (float*)&psram_words[sim->psram_spi_word_offset];
-        // Store rx, ry at PSRAM_BASE + 8 and PSRAM_BASE + 12
-        psram_floats[2] = rx;
-        psram_floats[3] = ry;
-    }
-    
-    // Write 31 16-bit uniform values (e.g. matrices, edge constants) into PSRAM offset
-    void set_uniforms(const std::vector<float>& floats) {
-        // ... Wait, uniform setup in the C++ testbench was via psram writes?
-        // Actually the software does it via MMIO directly, or PSRAM.
-        // We can expose the ability to overwrite the PSRAM uniform page area directly.
+        sim->set_camera_angles(rx, ry);
     }
     
     // Expose the 32x32x3 RGB byte buffer as a NumPy array (zero-copy read)
@@ -45,42 +35,16 @@ public:
         if (fb_rgb.size() != sim->width * sim->height * 3) {
             fb_rgb.resize(sim->width * sim->height * 3);
         }
-        
-#ifdef FAST_MEM
-        auto& psram_arr = sim->model->rootp->tt_um_gonsolo_borg_sim__DOT__uo_out_val_i_tinyqv__DOT__memSim__DOT__sim_mem_ext__DOT__Memory;
-        
-        for (uint32_t y = 0; y < sim->height; y++) {
-            for (uint32_t x = 0; x < sim->width; x++) {
-                uint32_t base = (sim->out_base_word + (y * sim->width + x) * 3) * 4;
-                uint16_t r_fp16 = psram_arr[0x40000 + base] | (psram_arr[0x40000 + base + 1] << 8);
-                uint16_t g_fp16 = psram_arr[0x40000 + base + 4] | (psram_arr[0x40000 + base + 5] << 8);
-                uint16_t b_fp16 = psram_arr[0x40000 + base + 8] | (psram_arr[0x40000 + base + 9] << 8);
-                
-                uint8_t r_b = std::max(0, std::min(255, (int)(::fp16_to_float(r_fp16) * 255)));
-                uint8_t g_b = std::max(0, std::min(255, (int)(::fp16_to_float(g_fp16) * 255)));
-                uint8_t b_b = std::max(0, std::min(255, (int)(::fp16_to_float(b_fp16) * 255)));
-                
-                uint32_t out_idx = (y * sim->width + x) * 3;
-                fb_rgb[out_idx + 0] = r_b;
-                fb_rgb[out_idx + 1] = g_b;
-                fb_rgb[out_idx + 2] = b_b;
-            }
-        }
-        
-        uint32_t marker_byte_idx = 0x40000 + sim->marker_offset_word * 4;
-        psram_arr[marker_byte_idx] = 0;
-        psram_arr[marker_byte_idx+1] = 0;
-        psram_arr[marker_byte_idx+2] = 0;
-        psram_arr[marker_byte_idx+3] = 0;
-#else
-        uint32_t* psram_words_out = (uint32_t*)sim->psram->mem.data();
+
+        // Step 1: Framebuffer always from C++ QSPI model
+        uint32_t* psram_words = (uint32_t*)sim->psram->mem.data();
         
         for (uint32_t y = 0; y < sim->height; y++) {
             for (uint32_t x = 0; x < sim->width; x++) {
                 uint32_t base = sim->out_base_word + (y * sim->width + x) * 3;
-                uint16_t r_fp16 = (uint16_t)psram_words_out[base + 0];
-                uint16_t g_fp16 = (uint16_t)psram_words_out[base + 1];
-                uint16_t b_fp16 = (uint16_t)psram_words_out[base + 2];
+                uint16_t r_fp16 = (uint16_t)psram_words[base + 0];
+                uint16_t g_fp16 = (uint16_t)psram_words[base + 1];
+                uint16_t b_fp16 = (uint16_t)psram_words[base + 2];
                 
                 uint8_t r_b = std::max(0, std::min(255, (int)(::fp16_to_float(r_fp16) * 255)));
                 uint8_t g_b = std::max(0, std::min(255, (int)(::fp16_to_float(g_fp16) * 255)));
@@ -94,8 +58,7 @@ public:
         }
         
         // Clear the DONE_MARKER so the next frame can be rendered
-        psram_words_out[sim->marker_offset_word] = 0;
-#endif
+        psram_words[sim->marker_offset_word] = 0;
 
         size_t shape[3] = { (size_t)sim->height, (size_t)sim->width, 3 };
         
@@ -107,13 +70,9 @@ public:
     }
 };
 
-#ifdef FAST_MEM
-NB_MODULE(borg_sim_fast, m) {
-#else
 NB_MODULE(borg_sim, m) {
-#endif
     nb::class_<SimulatorWrapper>(m, "BorgSimulator")
-        .def(nb::init<const std::string&>())
+        .def(nb::init<const std::string&, bool>(), nb::arg("firmware_path"), nb::arg("fast_mode") = false)
         .def("load_texture", &SimulatorWrapper::load_texture)
         .def("step", &SimulatorWrapper::step)
         .def("set_camera_angles", &SimulatorWrapper::set_camera_angles)
