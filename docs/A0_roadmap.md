@@ -264,13 +264,12 @@ Estimate: 1 week.
 - **Step 14.3: RTL Integration** ✅ (2026-04-08): Wired the generated Chisel module block (`BorgGpuRegs`) into the `BorgBusIO` interface, replacing all manual address decoders and manual Flip-Flops in `Borg.scala` with PeakRDL's register nodes.
 - **Step 14.4: Firmware/Backend Integration** ✅ (2026-04-08): Integrated `PeakRDL-cheader` to emit `borg_regs.h` (C headers) and a custom Python emit for `borg_mmio.py`. Completely deleted `MmioMap.scala`. Validated SystemRDL outputs against FPGA LC constraints (5113 LCs) via tied-off read-ports and verified the complete cocotb/Verilator/Arcilator/FPGA software stack.
 
-### Step 15: Interactive Viewer
+### Step 15: Interactive Viewer ✅ (2026-04-10)
 
 Implement a workstation-side UI runner that embeds the C++ Verilator simulation. Bridges the simulation's PSRAM output securely to an SDL2/Pygame window, enabling instantaneous visualization and WASD/mouse manipulation of the hardware engine in real-time.
 
 - **Step 15.1: Pygame Binding & UI Rotation** ✅ (2026-04-09): Setup zero-copy nanobind bridge, cleared SPI deadlocks, and successfully bound mouse movement to dynamic hardware rotation rendering.
-- **Step 15.2: Fast Memory Simulation (Optional)**: Bypass the QSPI serialization in the simulator by directly hooking the C++ memory models onto the TinyQV memory bus using a fast `TinyQVMemCtrlSim`, accelerating simulation cycles by 26x for smoother interactive UI framerates.
-- **Step 15.3: Multi-Core Shading Simulation (Optional)**: Refactor `BorgRaster` with parameterizable execution width to dispatch multiple pixels concurrently across a parallel array of `BorgCore` FPUs exclusively for simulation speedup.
+- **Step 15.2: Fast Memory Simulation** ✅ (2026-04-10): Bypass the QSPI serialization in the simulator by directly hooking the C++ memory models onto the TinyQV memory bus using a fast `TinyQVMemCtrlSim`, accelerating simulation cycles by ~11x (from >20M to 1.75M cycles per frame) for smoother interactive UI framerates.
 
 ### Step 16: Texture Fetch Unit
 
@@ -400,6 +399,10 @@ Alpha blending support. Estimate: 3–5 days.
 ### Step 32: Multi-Lane SIMD (2–4 FMA)
 
 Process multiple pixels per cycle. Estimate: 1–2 weeks.
+
+### Step 32.5: Multi-Core Shading Simulation (Optional)
+
+Refactor `BorgRaster` with parameterizable execution width to dispatch multiple pixels concurrently across a parallel array of `BorgCore` FPUs exclusively for simulation speedup. (Moved from Phase 2; deferred until CPU bottlenecks are resolved).
 
 ### Step 33: Second Tapeout Submission
 
