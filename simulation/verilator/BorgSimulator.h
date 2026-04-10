@@ -161,6 +161,31 @@ public:
             miso = !flash_cs ? f_data : (!ram_a_cs ? r_data : 0);
             model->uio_in = encode_spi_data_in(miso);
 
+            static uint8_t last_write_n = 3;
+            if (fast_mode) {
+                uint32_t addr = model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_tinyqv__DOT__cpu__DOT__data_addr_reg;
+                uint8_t write_n = model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_tinyqv__DOT__cpu__DOT__data_write_n_reg;
+                
+                if (write_n != 3) {
+                    uint32_t data = model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_tinyqv__DOT__cpu__DOT__data_out_reg;
+                    
+                    if ((addr >> 23) == 2) {
+                        uint32_t psram_addr = addr & 0x7FFFFF;
+                        uint8_t* pmem = psram->mem.data();
+                        if (psram_addr < psram->mem.size() - 3) {
+                            if (write_n == 2) {
+                                pmem[psram_addr + 2] = (data >> 16) & 0xFF;
+                                pmem[psram_addr + 3] = (data >> 24) & 0xFF;
+                            }
+                            if (write_n == 1 || write_n == 2) {
+                                pmem[psram_addr + 1] = (data >> 8) & 0xFF;
+                            }
+                            pmem[psram_addr + 0] = data & 0xFF;
+                        }
+                    }
+                }
+                last_write_n = write_n;
+            }
 
             // UART TX Decode (4 MHz / 115200 Baud = ~35 cycles per bit)
             static uint8_t last_uart = 1;
