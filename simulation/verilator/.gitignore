@@ -4,3 +4,4 @@ obj_dir/
 *.ppm
 *.log
 /build
+*.so
