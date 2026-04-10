@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/home/gonsolo/work/Borg/simulation/verilator/build/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

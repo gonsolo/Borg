@@ -1,4 +1,0 @@
-/home/gonsolo/work/Borg/simulation/verilator/build/CMakeFiles/borg_sim.dir
-/home/gonsolo/work/Borg/simulation/verilator/build/CMakeFiles/nanobind-static.dir
-/home/gonsolo/work/Borg/simulation/verilator/build/CMakeFiles/edit_cache.dir
-/home/gonsolo/work/Borg/simulation/verilator/build/CMakeFiles/rebuild_cache.dir
