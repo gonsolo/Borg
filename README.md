@@ -4,9 +4,9 @@
 
 ## Foundational workflow for an open-source GPU
 
-The Borg (**B**ring yer **O**wn **GR**aphics) project aims to establish
-the complete foundational workflow for an open-source GPU using entirely free and open
-Electronic Design Automation (EDA) tools.
+The Borg (**B**ring yer **O**wn **GR**aphics) project—supported by [NLnet](https://nlnet.nl/project/Borg)—is
+establishing a fully transparent, end-to-end silicon implementation flow for open-source GPU hardware using
+a 100% libre EDA toolchain.
 Recognizing that full GPU development is highly complex, the initiative capitalizes on recent
 advances in low-cost chip manufacturing to make individual tape-outs feasible for small teams.
 
@@ -14,7 +14,8 @@ advances in low-cost chip manufacturing to make individual tape-outs feasible fo
 
 ## Architecture
 
-The design is a **TinyQV RISC-V SoC** with the **Borg FP16 shader processor** as a memory-mapped peripheral, targeting both iCE40 FPGAs (pico-ice) and ASIC (IHP SG13G2 via Tiny Tapeout).
+The design is a **TinyQV RISC-V SoC** with the **Borg FP16 shader processor** as a memory-mapped peripheral,
+targeting both iCE40 FPGAs (pico-ice) and ASIC (IHP SG13G2 via Tiny Tapeout).
 
 ![Triangle rendered by the Borg GPU](docs/triangle.png)
 
