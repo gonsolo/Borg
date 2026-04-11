@@ -41,7 +41,7 @@ MAX_DFFS = 5280
 
 borg.json: ../out/hardware/borg/verilog/Borg.sv
 	@echo "Building netlist"
-	@yosys -p "read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json" -DICE40 -DPURE_RTL -DSYNTH_FPGA > yosys.log
+	@yosys -p "read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json; stat -top tinyQV_top" -DICE40 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ > yosys.log
 
 # Place and Route (P&R) — freq derived from MmioMap.CLOCK_MHZ via generated header
 CLOCK_FREQ = $(shell grep -m1 'define CLOCK_MHZ' ../software/borg/borg_sys.h | awk '{print $$3}')

@@ -116,6 +116,11 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     core.io.controlReset     := rdlRegs.io.hw.control_reset_pipeline
     core.io.controlStartPC   := rdlRegs.io.hw.control_start_pc
     core.io.uniformWritePage := rdlRegs.io.hw.control_uniform_write_page
+
+    // CoordLut init port — only used during simulation; synthesis uses $readmemh
+    core.io.coordWriteEn   := false.B
+    core.io.coordWriteAddr := 0.U
+    core.io.coordWriteData := 0.U
   }
 
   private def wireRasterizer(): Unit = {

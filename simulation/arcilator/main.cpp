@@ -69,6 +69,28 @@ int main(int argc, char** argv) {
     }
     model.view.rst_n = 1;
 
+    // Initialize coordLut BRAMs (arcilator doesn't support $readmemh)
+    // Offsets and layout from state.json: coordLutX at 704, coordLutY at 480, stride=2, depth=64
+    {
+        const uint16_t coord_lut[64] = {
+            0x3800, 0x3E00, 0x4100, 0x4300, 0x4480, 0x4580, 0x4680, 0x4780,
+            0x4840, 0x48C0, 0x4940, 0x49C0, 0x4A40, 0x4AC0, 0x4B40, 0x4BC0,
+            0x4C20, 0x4C60, 0x4CA0, 0x4CE0, 0x4D20, 0x4D60, 0x4DA0, 0x4DE0,
+            0x4E20, 0x4E60, 0x4EA0, 0x4EE0, 0x4F20, 0x4F60, 0x4FA0, 0x4FE0,
+            0x5010, 0x5030, 0x5050, 0x5070, 0x5090, 0x50B0, 0x50D0, 0x50F0,
+            0x5110, 0x5130, 0x5150, 0x5170, 0x5190, 0x51B0, 0x51D0, 0x51F0,
+            0x5210, 0x5230, 0x5250, 0x5270, 0x5290, 0x52B0, 0x52D0, 0x52F0,
+            0x5310, 0x5330, 0x5350, 0x5370, 0x5390, 0x53B0, 0x53D0, 0x53F0,
+        };
+        const int COORD_LUT_X_OFFSET = 704;
+        const int COORD_LUT_Y_OFFSET = 480;
+        for (int i = 0; i < 64; i++) {
+            *(uint16_t*)(model.storage.data() + COORD_LUT_X_OFFSET + i * 2) = coord_lut[i];
+            *(uint16_t*)(model.storage.data() + COORD_LUT_Y_OFFSET + i * 2) = coord_lut[i];
+        }
+        std::cout << "[SIM] coordLut BRAMs initialized.\n";
+    }
+
     std::cout << "[SIM] Starting simulation...\n";
 
     uint64_t cycles = 0;

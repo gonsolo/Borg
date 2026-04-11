@@ -5,6 +5,7 @@ package borg
 
 import chisel3.*
 import chisel3.util.*
+import chisel3.util.experimental.loadMemoryFromFileInline
 
 /** BorgCore — FPU pipeline, register files, instruction memory, and MMIO.
   *
@@ -29,6 +30,11 @@ class BorgCoreIO(val config: FloatConfig) extends Bundle {
   val controlStart       = Input(Bool())
   val controlReset       = Input(Bool())
   val controlStartPC     = Input(UInt(6.W))
+
+  // CoordLut initialization (for simulation — synthesis uses loadMemoryFromFileInline)
+  val coordWriteEn   = Input(Bool())
+  val coordWriteAddr = Input(UInt(6.W))
+  val coordWriteData = Input(UInt(config.totalBits.W))
 
   // Pipeline write-back snoop (exposed to rasterizer)
   val pipeWriteEn   = Output(Bool())
@@ -64,25 +70,31 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
 
   val uniformMem = SyncReadMem(64, UInt(config.totalBits.W))
 
-  // --- Coordinate Expansion LUT ---
+  // --- Coordinate Expansion LUT (BRAM) ---
   // Maps 6-bit integer pixel coordinates (0-63) to float16 pixel centers (+0.5)
-  val coordLut = VecInit(Seq.tabulate(64) { i =>
-    val f = i.toFloat + 0.5f
-    val bits = if (config == FloatConfig.FP32) {
-      java.lang.Float.floatToRawIntBits(f) & 0xffffffffL
-    } else {
-      val raw = java.lang.Float.floatToRawIntBits(f)
-      val exp = ((raw >>> 23) & 0xff) - 127 + 15
-      val sig = (raw >>> 13) & 0x3ff
-      (exp << 10) | sig
-    }
-    bits.U(config.totalBits.W)
-  })
+  // Two BRAM copies: one for X coord reads, one for Y — allows simultaneous access.
+  // Saves ~100 LUTs vs. the previous VecInit combinational ROM.
+  val coordLutX = SyncReadMem(64, UInt(config.totalBits.W))
+  val coordLutY = SyncReadMem(64, UInt(config.totalBits.W))
+  loadMemoryFromFileInline(coordLutX, "coord_lut.hex")
+  loadMemoryFromFileInline(coordLutY, "coord_lut.hex")
+
+  // CoordLut write port (for simulation initialization — tied off in synthesis)
+  when(io.coordWriteEn) {
+    coordLutX.write(io.coordWriteAddr, io.coordWriteData)
+    coordLutY.write(io.coordWriteAddr, io.coordWriteData)
+  }
   // @doc:end
 
   // --- Pipeline Control ---
   val busy_counter = RegInit(0.U(3.W))
   val is_busy = busy_counter > 0.U
+
+  // Shared BRAM reads: all 3 register ports use the same pixel coordinates
+  // (must be after busy_counter/is_busy to avoid forward reference)
+  val coordReadEn = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
+  val coordX = coordLutX.read(io.iter.x, coordReadEn)
+  val coordY = coordLutY.read(io.iter.y, coordReadEn)
 
   // --- Instruction Fetch ---
   val nextPC =
@@ -224,8 +236,8 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val rs1_idx_del = RegEnable(regs.rs1, en)
     regFileA.io.readAddr := regs.rs1
     regFileA.io.readEn := en
-    val resolved_data = Mux(rs1_idx_del === 30.U, coordLut(io.iter.x),
-                        Mux(rs1_idx_del === 31.U, coordLut(io.iter.y),
+    val resolved_data = Mux(rs1_idx_del === 30.U, coordX,
+                        Mux(rs1_idx_del === 31.U, coordY,
                         regFileA.io.readData))
     (Mux(en_del, resolved_data, 0.U), rs1_idx_del)
   }
@@ -237,8 +249,8 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val rs2_idx_del = RegEnable(regs.rs2, en)
     regFileB.io.readAddr := regs.rs2
     regFileB.io.readEn := en
-    val resolved_data = Mux(rs2_idx_del === 30.U, coordLut(io.iter.x),
-                        Mux(rs2_idx_del === 31.U, coordLut(io.iter.y),
+    val resolved_data = Mux(rs2_idx_del === 30.U, coordX,
+                        Mux(rs2_idx_del === 31.U, coordY,
                         regFileB.io.readData))
     (Mux(en_del, resolved_data, 0.U), rs2_idx_del)
   }
@@ -254,8 +266,8 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val addr_del = RegEnable(addr, en)
     regFileC.io.readAddr := addr
     regFileC.io.readEn := en
-    val resolved_data = Mux(addr_del === 30.U, coordLut(io.iter.x),
-                        Mux(addr_del === 31.U, coordLut(io.iter.y),
+    val resolved_data = Mux(addr_del === 30.U, coordX,
+                        Mux(addr_del === 31.U, coordY,
                         regFileC.io.readData))
     (Mux(rs3_en_del, resolved_data, 0.U), addr_del,
      Mux(mmio_en_del, resolved_data, 0.U))

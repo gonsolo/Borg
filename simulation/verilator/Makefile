@@ -23,6 +23,7 @@ verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/asic_files.txt $(V_SRCS)
 	-I$(HW_DIR)/tinyqv/verilog/verification/assert -I$(HW_DIR)/tinyqv/verilog/verification \
 	--top-module tt_um_gonsolo_borg \
 	-CFLAGS "-fPIC" \
+	-DENABLE_INITIAL_MEM_ \
 	../../lint.vlt \
 	$$SRC_FILES \
 	$(HW_DIR)/borg/verilog_sim/verification/layers-*.sv \

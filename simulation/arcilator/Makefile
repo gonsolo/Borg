@@ -25,7 +25,7 @@ borg.mlir: ../../out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir
 
 # Step 2: HW MLIR → LLVM IR + state info
 arc.ll state.json: borg.mlir
-	$(ARCILATOR) $< --inline --lookup-tables --state-file state.json -o arc.ll
+	$(ARCILATOR) $< --inline --observe-memories --state-file state.json -o arc.ll
 
 # Step 3: LLVM IR → object
 arc.o: arc.ll

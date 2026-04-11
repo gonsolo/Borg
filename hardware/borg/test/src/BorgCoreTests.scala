@@ -106,6 +106,23 @@ object BorgCoreTests extends TestSuite {
     core.io.controlStart.poke(false.B)
     core.io.controlReset.poke(false.B)
     core.io.controlStartPC.poke(0.U)
+    core.io.coordWriteEn.poke(false.B)
+    core.io.coordWriteAddr.poke(0.U)
+    core.io.coordWriteData.poke(0.U)
+    core.clock.step(1)
+  }
+
+  /** Initialize the coordLut BRAMs with FP16 pixel centers (0.5, 1.5, ... 63.5).
+    * Required for simulation since loadMemoryFromFileInline only works in synthesis.
+    */
+  def initCoordLut(core: BorgCore): Unit = {
+    for (i <- 0 until 64) {
+      core.io.coordWriteEn.poke(true.B)
+      core.io.coordWriteAddr.poke(i.U)
+      core.io.coordWriteData.poke(floatToFp16Bits(i.toFloat + 0.5f).U)
+      core.clock.step(1)
+    }
+    core.io.coordWriteEn.poke(false.B)
     core.clock.step(1)
   }
 
@@ -206,6 +223,7 @@ object BorgCoreTests extends TestSuite {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: coordLut_injection ---")
         idleInputs(core)
+        initCoordLut(core)  // Initialize BRAM with pixel centers for simulation
         resetCore(core)
 
         // Set iterX=5, iterY=10 (pixel centers: 5.5, 10.5)
