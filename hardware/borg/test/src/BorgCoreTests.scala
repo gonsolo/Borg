@@ -107,6 +107,7 @@ object BorgCoreTests extends TestSuite {
     core.io.controlReset.poke(false.B)
     core.io.controlStartPC.poke(0.U)
     core.io.coordWriteEn.poke(false.B)
+    core.io.coordWriteIsRcp.poke(false.B)
     core.io.coordWriteAddr.poke(0.U)
     core.io.coordWriteData.poke(0.U)
     core.clock.step(1)
@@ -116,6 +117,7 @@ object BorgCoreTests extends TestSuite {
     * Required for simulation since loadMemoryFromFileInline only works in synthesis.
     */
   def initCoordLut(core: BorgCore): Unit = {
+    core.io.coordWriteIsRcp.poke(false.B)
     for (i <- 0 until 64) {
       core.io.coordWriteEn.poke(true.B)
       core.io.coordWriteAddr.poke(i.U)
@@ -123,6 +125,25 @@ object BorgCoreTests extends TestSuite {
       core.clock.step(1)
     }
     core.io.coordWriteEn.poke(false.B)
+    core.clock.step(1)
+  }
+
+  /** Initialize the rcpLut BRAMs with the 17-entry reciprocal LUT.
+    * Values: round((2/(1+i/16) - 1) * 1024) for i=0..16.
+    * Required for simulation since loadMemoryFromFileInline only works in synthesis.
+    */
+  val rcpLutValues = Seq(1023, 904, 796, 701, 614, 536, 465, 401, 341, 287, 236, 190, 146, 106, 68, 33, 0)
+
+  def initRcpLut(core: BorgCore): Unit = {
+    core.io.coordWriteIsRcp.poke(true.B)
+    for (i <- 0 until 17) {
+      core.io.coordWriteEn.poke(true.B)
+      core.io.coordWriteAddr.poke(i.U)
+      core.io.coordWriteData.poke(rcpLutValues(i).U)
+      core.clock.step(1)
+    }
+    core.io.coordWriteEn.poke(false.B)
+    core.io.coordWriteIsRcp.poke(false.B)
     core.clock.step(1)
   }
 
@@ -419,6 +440,39 @@ object BorgCoreTests extends TestSuite {
         val result_pg1 = fp16BitsToFloat(readReg(core, 2))
         println(f"  Page 1 uniform read: $result_pg1%.2f (expected 222.0)")
         utest.assert(math.abs(result_pg1 - 222.0f) < 0.01f)
+
+        println("  PASSED")
+      }
+    }
+
+    // --- FRCP via BorgCore (with rcpLut BRAM initialization) ---
+    utest.test("frcp_fp16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: frcp_fp16 ---")
+        idleInputs(core)
+        initRcpLut(core)  // Initialize rcpLut BRAM (required for simulation)
+        resetCore(core)
+
+        def testFrcp(input: Float, expected: Float, label: String): Unit = {
+          resetCore(core)
+          writeReg(core, 0, floatToFp16Bits(input))
+          writeImem(core, 0, Instructions.FRCP(rs1 = 0, rd = 2))
+          writeImem(core, 1, 0)  // halt
+          startAndWait(core)
+          val result = fp16BitsToFloat(readReg(core, 2))
+          val tol = math.max(2e-3f * math.abs(expected), 2e-3f)
+          println(f"  $label: actual=$result%.6f expected=$expected%.6f tol=$tol%.6f")
+          utest.assert(math.abs(result - expected) < tol)
+        }
+
+        testFrcp(2.0f,  0.5f,       "rcp(2.0)")
+        testFrcp(4.0f,  0.25f,      "rcp(4.0)")
+        testFrcp(0.5f,  2.0f,       "rcp(0.5)")
+        testFrcp(1.0f,  1.0f,       "rcp(1.0)")
+        testFrcp(3.0f,  1.0f/3.0f,  "rcp(3.0)")
+        testFrcp(10.0f, 0.1f,       "rcp(10.0)")
+        testFrcp(-2.0f, -0.5f,      "rcp(-2.0)")
+        testFrcp(1.5f,  1.0f/1.5f,  "rcp(1.5)")
 
         println("  PASSED")
       }

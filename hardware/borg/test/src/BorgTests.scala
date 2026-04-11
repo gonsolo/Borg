@@ -632,90 +632,12 @@ object BorgTests extends TestSuite {
     }
 
     // =====================================================================
-    // NEW TEST GROUP 5: Hardware FRCP (FP16 reciprocal)
-    // Verifies the LUT-based reciprocal unit with various inputs.
+    // FRCP tests moved to BorgCoreTests.frcp_fp16 (needs rcpLut BRAM init
+    // via coordWriteIsRcp, which is only accessible at BorgCore level).
     // =====================================================================
     utest.test("frcp_tests") {
-      val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
-        println("\n=== FRCP Tests ===")
-
-        // Helper with relaxed tolerance for LUT approximation (~0.1% max error)
-        def assertFrcp(actual: Float, expected: Float, label: String): Unit = {
-          val tol = math.max(2e-3f * math.abs(expected), 2e-3f)
-          println(f"Check: $label -> Actual: $actual%10.6f (Exp: $expected%10.6f, tol: $tol%.6f)")
-          utest.assert(math.abs(actual - expected) < tol)
-        }
-
-        // --- Normal positive values ---
-        // rcp(2.0) ≈ 0.5
-        resetAndWait(borg)
-        writeAddr(borg, 0, floatToBits(2.0f, config))
-        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
-        writeAddr(borg, 132, 0)
-        startAndWaitForHalt(borg)
-        assertFrcp(readAddr(borg, 8, config), 0.5f, "rcp(2.0)")
-
-        // rcp(4.0) ≈ 0.25
-        resetAndWait(borg)
-        writeAddr(borg, 0, floatToBits(4.0f, config))
-        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
-        writeAddr(borg, 132, 0)
-        startAndWaitForHalt(borg)
-        assertFrcp(readAddr(borg, 8, config), 0.25f, "rcp(4.0)")
-
-        // rcp(0.5) ≈ 2.0
-        resetAndWait(borg)
-        writeAddr(borg, 0, floatToBits(0.5f, config))
-        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
-        writeAddr(borg, 132, 0)
-        startAndWaitForHalt(borg)
-        assertFrcp(readAddr(borg, 8, config), 2.0f, "rcp(0.5)")
-
-        // rcp(1.0) ≈ 1.0
-        resetAndWait(borg)
-        writeAddr(borg, 0, floatToBits(1.0f, config))
-        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
-        writeAddr(borg, 132, 0)
-        startAndWaitForHalt(borg)
-        assertFrcp(readAddr(borg, 8, config), 1.0f, "rcp(1.0)")
-
-        // rcp(3.0) ≈ 0.3333
-        resetAndWait(borg)
-        writeAddr(borg, 0, floatToBits(3.0f, config))
-        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
-        writeAddr(borg, 132, 0)
-        startAndWaitForHalt(borg)
-        assertFrcp(readAddr(borg, 8, config), 1.0f / 3.0f, "rcp(3.0)")
-
-        // rcp(10.0) ≈ 0.1
-        resetAndWait(borg)
-        writeAddr(borg, 0, floatToBits(10.0f, config))
-        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
-        writeAddr(borg, 132, 0)
-        startAndWaitForHalt(borg)
-        assertFrcp(readAddr(borg, 8, config), 0.1f, "rcp(10.0)")
-
-        // --- Negative value ---
-        // rcp(-2.0) ≈ -0.5
-        resetAndWait(borg)
-        writeAddr(borg, 0, floatToBits(-2.0f, config))
-        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
-        writeAddr(borg, 132, 0)
-        startAndWaitForHalt(borg)
-        assertFrcp(readAddr(borg, 8, config), -0.5f, "rcp(-2.0)")
-
-        // --- Non-power-of-2 (tests interpolation) ---
-        // rcp(1.5) ≈ 0.6667
-        resetAndWait(borg)
-        writeAddr(borg, 0, floatToBits(1.5f, config))
-        writeAddr(borg, 128, encodeInstruction(config, FRCP, rs1 = 0, rs2 = 0, rd = 2))
-        writeAddr(borg, 132, 0)
-        startAndWaitForHalt(borg)
-        assertFrcp(readAddr(borg, 8, config), 1.0f / 1.5f, "rcp(1.5)")
-
-        println("=== FRCP Tests Passed ===\n")
-      }
+      // Stub — actual FRCP tests are in BorgCoreTests.frcp_fp16
+      println("FRCP tests moved to BorgCoreTests.frcp_fp16")
     }
 
     // =====================================================================
@@ -1068,6 +990,78 @@ object BorgTests extends TestSuite {
         println("    PASSED")
 
         println("=== Tile Buffer MMIO Tests Passed ===\n")
+      }
+    }
+
+    // =====================================================================
+    // NEW TEST GROUP: Texture Fetch Hardware (Step 16.3)
+    // Tests fp16_to_uint6, Morton encoding, and MMIO round-trip.
+    // =====================================================================
+    utest.test("tex_fetch_tests") {
+      val config = FloatConfig.FP16
+      simulate(new Borg(config)) { borg =>
+        println("\n=== Texture Fetch Tests ===")
+
+        // Helper: read raw 32-bit value from MMIO address
+        def readRaw(addr: Int): BigInt = {
+          borg.io.address.poke(addr.U)
+          borg.io.data_read_n.poke(2.U)
+          borg.io.data_write_n.poke(3.U)
+          borg.clock.step(1)
+          borg.clock.step(1)
+          val v = borg.io.data_out.peek().litValue
+          borg.io.data_read_n.poke(3.U)
+          borg.clock.step(1)
+          v
+        }
+
+        /** Write packed FP16 UV to tex_uv register and read back Morton + raw coords. */
+        def testTexFetch(u_fp16: Int, v_fp16: Int, expU6: Int, expV6: Int, label: String): Unit = {
+          val packed = ((v_fp16 & 0xFFFF) << 16) | (u_fp16 & 0xFFFF)
+          writeAddr(borg, BorgGpuRegs.tex_uv_offset.litValue.toInt, BigInt(packed & 0xFFFFFFFFL))
+          borg.clock.step(1)
+
+          // Read tex_addr @ offset 516: {8'rsvd, raw_v[23:18], raw_u[17:12], morton[11:0]}
+          val texAddrVal = readRaw(BorgGpuRegs.tex_addr_offset.litValue.toInt)
+          val mortonVal = (texAddrVal & 0xFFF).toInt
+          val gotU6 = ((texAddrVal >> 12) & 0x3F).toInt
+          val gotV6 = ((texAddrVal >> 18) & 0x3F).toInt
+
+          // Compute expected Morton
+          var expMorton = 0
+          for (bit <- 0 until 6) {
+            expMorton |= ((expU6 >> bit) & 1) << (bit * 2)
+            expMorton |= ((expV6 >> bit) & 1) << (bit * 2 + 1)
+          }
+
+          println(f"  $label: u6=$gotU6 (exp $expU6), v6=$gotV6 (exp $expV6), morton=0x$mortonVal%03X (exp 0x$expMorton%03X)")
+          utest.assert(gotU6 == expU6)
+          utest.assert(gotV6 == expV6)
+          utest.assert(mortonVal == expMorton)
+        }
+
+        // FP16 constants (sign=0, exp=e, mant=m)
+        // 0.0  = 0x0000
+        // 1.0  = 0x3C00 (exp=15, mant=0)
+        // 2.0  = 0x4000 (exp=16, mant=0)
+        // 4.0  = 0x4400 (exp=17, mant=0)
+        // 10.0 = 0x4900 (exp=18, mant=0x100)
+        // 32.0 = 0x5000 (exp=19, mant=0)
+        // 63.0 = 0x53E0 (exp=20, mant=0x3E0)
+        // 100.0= 0x5640 (exp=21, mant=0x240) → clamps to 63
+
+        testTexFetch(0x0000, 0x0000, 0, 0,   "zero, zero")
+        testTexFetch(0x3C00, 0x3C00, 1, 1,   "1.0, 1.0")
+        testTexFetch(0x4000, 0x4000, 2, 2,   "2.0, 2.0")
+        testTexFetch(0x4400, 0x4400, 4, 4,   "4.0, 4.0")
+        testTexFetch(0x4900, 0x4900, 10, 10, "10.0, 10.0")
+        testTexFetch(0x5000, 0x5000, 32, 32, "32.0, 32.0")
+        testTexFetch(0x53E0, 0x53E0, 63, 63, "63.0, 63.0")
+        testTexFetch(0x5640, 0x5640, 63, 63, "100.0 clamped, 100.0 clamped")
+        testTexFetch(0xC000, 0x0000, 0,  0,  "neg(-2.0), zero")
+        testTexFetch(0x4000, 0x53E0, 2,  63, "2.0, 63.0")
+
+        println("=== Texture Fetch Tests Passed ===\n")
       }
     }
   }

@@ -17,8 +17,10 @@ import chisel3.util._
   *   y = y * (2.0 - x * y)   // one FMUL + FMADD
   * }}}
   *
-  * Area: 17 × 10-bit LUT (170 bits) + one 7×6-bit multiply for
-  * interpolation.  No dedicated multiplier for NR.
+  * Area: LUT values are supplied externally from BRAM (2 EBRs) rather than
+  * synthesized as VecInit mux trees.  The interpolation arithmetic (7×6-bit
+  * multiply + subtract) is still combinational.  Saves ~40–60 LUTs vs. the
+  * previous VecInit combinational ROM.
   *
   * Edge cases (IEEE 754 compliant):
   *   - rcp(±0)        = ±Inf
@@ -28,6 +30,9 @@ import chisel3.util._
   */
 class Fp16RcpIO extends Bundle {
   val in  = Input(UInt(16.W))
+  // External BRAM LUT data (pre-fetched 1 cycle before by BorgCore)
+  val lutVal  = Input(UInt(10.W))   // rcpLut[lutIdx]
+  val lutNext = Input(UInt(10.W))   // rcpLut[lutIdx + 1]
   val out = Output(UInt(16.W))
 }
 
@@ -45,22 +50,12 @@ class Fp16Rcp extends Module {
   val isNaN             = isInfOrNaN && mant =/= 0.U
   val isInf             = isInfOrNaN && mant === 0.U
 
-  // @doc:rcp-lut
-  // 17-entry LUT: mant_out = round((2 / (1 + i/16) - 1) * 1024)
-  // Index i corresponds to mantissa bits [9:6].  Entry 16 is a virtual
-  // sentinel for the interpolation of interval 15.
-  val rcpLut = VecInit(Seq(
-    1023, 904, 796, 701, 614, 536, 465, 401,
-     341, 287, 236, 190, 146, 106,  68,  33, 0
-  ).map(_.U(10.W)))
-  // @doc:end
-
   // @doc:rcp-interpolation
-  val lutIdx  = mant(9, 6)                    // top 4 bits → table index (0–15)
   val frac    = mant(5, 0)                    // bottom 6 bits → interpolation fraction
 
-  val lutVal  = rcpLut(Cat(0.U(1.W), lutIdx)) // value at interval start
-  val lutNext = rcpLut(lutIdx +& 1.U)         // value at interval end
+  // LUT values come from external BRAM (already fetched by BorgCore)
+  val lutVal  = io.lutVal
+  val lutNext = io.lutNext
 
   // delta × frac / 64  (delta is always positive since 1/x is decreasing)
   val delta      = lutVal - lutNext           // max 120, fits 7 bits

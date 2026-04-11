@@ -47,13 +47,13 @@
 // These come from the SoC address map (soc.rdl).
 // Fallbacks for builds that don't include RDL-generated headers.
 #ifndef GPIO_BASE
-#define GPIO_BASE 0x08000200
+#define GPIO_BASE 0x08000400
 #endif
 #ifndef UART_BASE
-#define UART_BASE 0x08000400
+#define UART_BASE 0x08000800
 #endif
 #ifndef BORG_BASE
-#define BORG_BASE 0x08000600
+#define BORG_BASE 0x08000C00
 #endif
 
 // --- UART accessor macros ---

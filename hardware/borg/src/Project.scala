@@ -17,7 +17,7 @@ import tinyqv.cpu.{tinyQVIO, TinyQV}
 private[borg] object SoCDecode {
   // Magic comparison values for SoC vs User region detection
   private val SOC_REGION_ID  = 0x800000  // Cat(addr[27:6], addr[1:0])
-  private val USER_REGION_ID = 0x10000   // addr[27:11]
+  private val USER_REGION_ID = 0x8000    // addr[27:12]
 
   case class AddrRegion(matchFn: UInt => Bool, indexHi: Int, indexLo: Int) {
     def matches(addr: UInt): Bool = matchFn(addr)
@@ -29,8 +29,8 @@ private[borg] object SoCDecode {
     indexHi = 5, indexLo = 2
   )
   val userRegion = AddrRegion(
-    matchFn = addr => addr(27, 11) === USER_REGION_ID.U,
-    indexHi = 10, indexLo = 0
+    matchFn = addr => addr(27, 12) === USER_REGION_ID.U,
+    indexHi = 11, indexLo = 0
   )
 
   // SoC peripheral indices (addr[5:2])
@@ -127,7 +127,7 @@ trait SoCLogic { self: RawModule =>
     i_tinyqv.io.time_pulse := time_pulse
 
     i_peripherals.io.ui_in := ui_in_sync
-    i_peripherals.io.addr_in := addr(10, 0)
+    i_peripherals.io.addr_in := addr(11, 0)
     i_peripherals.io.data_in := data_to_write
     i_peripherals.io.data_write_n := write_n
     i_peripherals.io.data_read_n := read_n

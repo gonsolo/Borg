@@ -20,8 +20,8 @@ object FloatConfig {
   */
 class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
   val address = Input(
-    UInt(9.W)
-  ) // 512-byte address space (byte-addressed internally by shifting)
+    UInt(10.W)
+  ) // 1024-byte address space (byte-addressed internally by shifting)
   val data_in = Input(UInt(32.W))  // 32-bit data for IMEM writes; register writes use low config.totalBits
   val data_write_n = Input(UInt(2.W)) // 0b10 for write
   val data_read_n = Input(UInt(2.W))
@@ -117,10 +117,11 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     core.io.controlStartPC   := rdlRegs.io.hw.control_start_pc
     core.io.uniformWritePage := rdlRegs.io.hw.control_uniform_write_page
 
-    // CoordLut init port — only used during simulation; synthesis uses $readmemh
-    core.io.coordWriteEn   := false.B
-    core.io.coordWriteAddr := 0.U
-    core.io.coordWriteData := 0.U
+    // CoordLut/RcpLut init port — only used during simulation; synthesis uses $readmemh
+    core.io.coordWriteEn    := false.B
+    core.io.coordWriteIsRcp := false.B
+    core.io.coordWriteAddr  := 0.U
+    core.io.coordWriteData  := 0.U
   }
 
   private def wireRasterizer(): Unit = {
@@ -185,7 +186,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     rast.io.cmdPop <> fifo.io.deq
     core.io.uniformPage := rast.io.uniformPage
 
-    val read_addr_del = RegInit(0.U(9.W))
+    val read_addr_del = RegInit(0.U(10.W))
     read_addr_del := io.address
 
     // RDL Iter state injection
@@ -205,6 +206,19 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val stsFifoFull = !fifo.io.enq.ready
     rdlRegs.io.hw.status_idle := !core.io.running
     rdlRegs.io.hw.status_fifo_full := stsFifoFull
+
+    // =========================================================================
+    // Texture Fetch Hardware (Step 16.3)
+    // =========================================================================
+    // RDL handles tex_uv write path and tex_addr read path.
+    // Here we wire the combinational fp16→uint6 + Morton pipeline.
+    val tex_x = Fp16ToUint6(rdlRegs.io.hw.tex_uv_u)
+    val tex_y = Fp16ToUint6(rdlRegs.io.hw.tex_uv_v)
+    val morton_index = MortonEncode(tex_x, tex_y)
+
+    rdlRegs.io.hw.tex_addr_morton := morton_index
+    rdlRegs.io.hw.tex_addr_raw_u  := tex_x
+    rdlRegs.io.hw.tex_addr_raw_v  := tex_y
 
     val rdl_read_data = rdlRegs.io.bus.readData
     io.data_out := MuxCase(rdl_read_data, Seq(

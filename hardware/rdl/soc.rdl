@@ -6,11 +6,11 @@
 // Composes all peripherals at their CPU-visible base addresses.
 //
 // Address computation (TinyQV convention):
-//   User peripherals: USER_BASE + select × 512
+//   User peripherals: USER_BASE + select × 1024
 //   USER_BASE = 0x08000000
-//   GPIO:  select=1 → 0x08000200
-//   UART:  select=2 → 0x08000400
-//   Borg:  select=3 → 0x08000600
+//   GPIO:  select=1 → 0x08000400
+//   UART:  select=2 → 0x08000800
+//   Borg:  select=3 → 0x08000C00
 //   PSRAM: separate region at 0x01001000
 
 addrmap soc {
@@ -18,8 +18,8 @@ addrmap soc {
     desc = "Top-level address map for the Borg SoC.  Instantiates all
             peripherals at their CPU-visible base addresses.";
 
-    gpio_map gpio @ 0x08000200;
-    uart_map uart @ 0x08000400;
-    borg_gpu borg @ 0x08000600;
+    gpio_map gpio @ 0x08000400;
+    uart_map uart @ 0x08000800;
+    borg_gpu borg @ 0x08000C00;
     psram_map psram @ 0x01001000;
 };

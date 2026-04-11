@@ -31,10 +31,11 @@ class BorgCoreIO(val config: FloatConfig) extends Bundle {
   val controlReset       = Input(Bool())
   val controlStartPC     = Input(UInt(6.W))
 
-  // CoordLut initialization (for simulation — synthesis uses loadMemoryFromFileInline)
-  val coordWriteEn   = Input(Bool())
-  val coordWriteAddr = Input(UInt(6.W))
-  val coordWriteData = Input(UInt(config.totalBits.W))
+  // CoordLut/RcpLut initialization (for simulation — synthesis uses loadMemoryFromFileInline)
+  val coordWriteEn    = Input(Bool())
+  val coordWriteIsRcp = Input(Bool())   // false → coordLut, true → rcpLut
+  val coordWriteAddr  = Input(UInt(6.W))
+  val coordWriteData  = Input(UInt(config.totalBits.W))
 
   // Pipeline write-back snoop (exposed to rasterizer)
   val pipeWriteEn   = Output(Bool())
@@ -80,9 +81,26 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
   loadMemoryFromFileInline(coordLutY, "coord_lut.hex")
 
   // CoordLut write port (for simulation initialization — tied off in synthesis)
-  when(io.coordWriteEn) {
+  when(io.coordWriteEn && !io.coordWriteIsRcp) {
     coordLutX.write(io.coordWriteAddr, io.coordWriteData)
     coordLutY.write(io.coordWriteAddr, io.coordWriteData)
+  }
+
+  // --- Reciprocal LUT (BRAM) ---
+  // 17-entry × 10-bit LUT for FP16 reciprocal with linear interpolation.
+  // Two BRAM copies: one reads at lutIdx, one at lutIdx+1 — allows simultaneous access.
+  // Dimensions (17×10) are intentionally unique across the design to prevent CIRCT
+  // from merging this module with other SyncReadMem instances (which drops $readmemh).
+  // Saves ~40-60 LUTs vs. the previous VecInit combinational ROM.
+  val rcpLutA = SyncReadMem(17, UInt(10.W))  // rcpLut[lutIdx]
+  val rcpLutB = SyncReadMem(17, UInt(10.W))  // rcpLut[lutIdx + 1]
+  loadMemoryFromFileInline(rcpLutA, "rcp_lut.hex")
+  loadMemoryFromFileInline(rcpLutB, "rcp_lut.hex")
+
+  // RcpLut write port (for simulation initialization — tied off in synthesis)
+  when(io.coordWriteEn && io.coordWriteIsRcp) {
+    rcpLutA.write(io.coordWriteAddr(4, 0), io.coordWriteData(9, 0))
+    rcpLutB.write(io.coordWriteAddr(4, 0), io.coordWriteData(9, 0))
   }
   // @doc:end
 
@@ -327,10 +345,41 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
   // @doc:end
 
   // @doc:frcp
-  /** FRCP: hardware FP16 reciprocal via LUT + interpolation. */
+  /** FRCP: hardware FP16 reciprocal via LUT + interpolation.
+    *
+    * RCP LUT is stored in BRAM (2 copies for parallel access).
+    * Pipeline timing:
+    *   counter=0: fma_start fires, instruction decoded, rs1 address presented
+    *   counter=4: recA_raw valid → extract lutIdx → present to BRAM
+    *   counter=3: BRAM data available → register it
+    *   counter=2: registered data stable
+    *   counter=1: write-back uses registered BRAM data + combinational interpolation
+    *
+    * We issue the BRAM read at counter=4 (when recA_raw first becomes valid)
+    * and register the output at counter=3.  The registered values are held
+    * stable through write-back at counter=1.
+    */
   private def computeFrcp(recA_raw: UInt): UInt = {
+    // Extract LUT index from FP16 mantissa (top 4 bits)
+    val rcpMant = recA_raw(9, 0)
+    val rcpLutIdx = rcpMant(9, 6)
+
+    // Issue BRAM reads continuously — the read address tracks recA_raw(9,6).
+    // SyncReadMem returns data 1 cycle after address+enable are presented.
+    val rcpReadEn = is_busy && busy_counter >= 2.U
+    val rcpLutRawVal  = rcpLutA.read(rcpLutIdx, rcpReadEn)
+    val rcpLutRawNext = rcpLutB.read(rcpLutIdx +& 1.U, rcpReadEn)
+
+    // Register the BRAM output at counter=3 (data from the read at counter=4).
+    // This ensures the LUT values are stable for the combinational Fp16Rcp
+    // logic at write-back (counter=1).
+    val rcpLutValReg  = RegEnable(rcpLutRawVal,  is_busy && busy_counter === 3.U)
+    val rcpLutNextReg = RegEnable(rcpLutRawNext, is_busy && busy_counter === 3.U)
+
     val rcp = Module(new Fp16Rcp)
-    rcp.io.in := recA_raw(15, 0)
+    rcp.io.in      := recA_raw(15, 0)
+    rcp.io.lutVal  := rcpLutValReg
+    rcp.io.lutNext := rcpLutNextReg
     if (config.totalBits > 16) Cat(0.U((config.totalBits - 16).W), rcp.io.out)
     else rcp.io.out
   }

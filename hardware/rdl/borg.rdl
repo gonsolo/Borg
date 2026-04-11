@@ -7,7 +7,7 @@
 // MMIO register map.  It mirrors the constants defined in MmioMap.scala and
 // is intended to replace them via PeakRDL code generation (Step 14).
 //
-// Address space: 512 bytes (9-bit byte address), 32-bit data bus.
+// Address space: 1024 bytes (10-bit byte address), 32-bit data bus.
 // All registers are 32-bit aligned (4-byte stride).
 //
 // Offset computation (matches Chisel):
@@ -263,6 +263,51 @@ reg cmd_enqueue_reg_t {
     } RSVD[1] = 0;
 };
 
+// --- Texture UV input ---
+// Write: pack (V_fp16 << 16 | U_fp16).  Hardware converts FP16→uint6
+// and computes a Morton-encoded texel index.
+reg tex_uv_reg_t {
+    name = "Texture UV Input";
+    desc = "Write packed FP16 UV coordinates (U in low 16, V in high 16).
+            Reading returns the Morton-encoded 12-bit texel index.";
+
+    field {
+        sw = w; hw = r;
+        desc = "Bits 15:0: U coordinate (FP16, pre-scaled to texel space).";
+    } u[16] = 0;
+
+    field {
+        sw = w; hw = r;
+        desc = "Bits 31:16: V coordinate (FP16, pre-scaled to texel space).";
+    } v[16] = 0;
+};
+
+// --- Texture address (computed by hardware) ---
+// Read: Morton-encoded texel index from the most recent tex_uv write.
+reg tex_addr_reg_t {
+    name = "Texture Address";
+    desc = "Read-only.  Returns the Morton-encoded 12-bit texel index computed
+            from the most recent tex_uv write, plus raw uint6 coordinates.";
+
+    field {
+        sw = r; hw = w;
+        desc = "Bits 11:0: Morton-encoded texel index.";
+    } morton[12] = 0;
+
+    field {
+        sw = r; hw = w;
+        desc = "Bits 17:12: Raw uint6 U coordinate.";
+    } raw_u[6] = 0;
+
+    field {
+        sw = r; hw = w;
+        desc = "Bits 23:18: Raw uint6 V coordinate.";
+    } raw_v[6] = 0;
+
+    field {
+        sw = r; hw = na;
+    } RSVD[8] = 0;
+};
 
 // ============================================================================
 // Register file and memory types (arrayed)
@@ -323,8 +368,8 @@ reg uniform_reg_t {
 addrmap borg_gpu {
     name = "Borg GPU";
     desc = "Borg minimal FP16 shading processor — SystemRDL 2.0 register map.
-            512-byte address space (byte 0x000–0x1FF), 32-bit aligned.
-            Base address is USER_BASE + USER_PERI_BORG × 512 = 0x08000600.";
+            1024-byte address space (byte 0x000–0x3FF), 32-bit aligned.
+            Base address is USER_BASE + USER_PERI_BORG × 1024 = 0x08000C00.";
 
     default hw = r;
     default sw = rw;
@@ -333,7 +378,7 @@ addrmap borg_gpu {
     gpr_reg_t gpr[32] @ 0x000 += 0x4;
 
     // ---- Instruction Memory: 0x080 – 0x15C (56 entries × 4 bytes) ----
-    imem_reg_t imem[56] @ 0x080 += 0x4; // Explicit alignment boundary
+    imem_reg_t imem[56] @ 0x080 += 0x4;
 
     // ---- Pixel Iterator Position / Advance: 0x164 ----
     iter_reg_t iter @ 0x164;
@@ -358,4 +403,10 @@ addrmap borg_gpu {
 
     // ---- Command FIFO Enqueue: 0x1FC ----
     cmd_enqueue_reg_t cmd_enqueue;
+
+    // ---- Texture UV Input: 0x200 ----
+    tex_uv_reg_t tex_uv @ 0x200;
+
+    // ---- Texture Address (HW-computed): 0x204 ----
+    tex_addr_reg_t tex_addr;
 };

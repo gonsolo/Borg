@@ -271,12 +271,38 @@ Implement a workstation-side UI runner that embeds the C++ Verilator simulation.
 - **Step 15.1: Pygame Binding & UI Rotation** ✅ (2026-04-09): Setup zero-copy nanobind bridge, cleared SPI deadlocks, and successfully bound mouse movement to dynamic hardware rotation rendering.
 - **Step 15.2: Fast Memory Simulation** ✅ (2026-04-10): Bypass the QSPI serialization in the simulator by directly hooking the C++ memory models onto the TinyQV memory bus using a fast `TinyQVMemCtrlSim`, accelerating simulation cycles by ~11x (from >20M to 1.75M cycles per frame) for smoother interactive UI framerates.
 
-### Step 16: Texture Fetch Unit
+### Step 16: Texture Fetch Unit (In Progress)
 
 UV-to-texel conversion, Morton addressing, and PSRAM texel read inside the
 pixel iterator. By this step the CPU is out of the inner loop, so there is no
 bus contention — the failure mode of the earlier texture cache experiment.
-Estimate: 1–2 weeks.
+
+- **Step 16.1: rcpLut → BRAM** ✅ (2026-04-11): Migrated `Fp16Rcp` VecInit ROM
+  to dual `SyncReadMem(17, UInt(10.W))` instances. Used unique 17×10 dimensions
+  to prevent CIRCT module deduplication with `coordLut`. Added `rcp_lut.hex` and
+  a `coordWriteIsRcp` test-time init port. New `BorgCoreTests.frcp_fp16` test
+  verifies 8 reciprocal cases. FPGA: 5268/5280 LCs, 10/30 BRAMs.
+
+- **Step 16.2: Peripheral Bus Widening (11→12 bit)** ✅ (2026-04-11): Widened
+  peripheral `addr_in` from 11 to 12 bits, giving each peripheral 1024 bytes of
+  MMIO space instead of 512. Updated `SoCDecode.userRegion` matchFn, `PeriphDecode`
+  sel/sub-addr positions, `BorgIO`/`BorgBus` address widths, and `soc.rdl`/
+  `borg_sys.h` base addresses (BORG now at `0x08000C00`). Zero net LC overhead.
+
+- **Step 16.3: FP16→uint6 + Morton Encoding Hardware** ✅ (2026-04-11): Added
+  `tex_uv_reg_t` (@ 0x200) and `tex_addr_reg_t` (@ 0x204) to `borg.rdl` and
+  regenerated `BorgGpuRegs.scala`. New `TextureAddr.scala` implements `Fp16ToUint6`
+  (combinational floor+clamp, ~15 LUTs) and `MortonEncode` (pure bit interleaving,
+  0 LUTs). CPU writes packed FP16 {V, U} to `TEX_UV`; hardware computes the 12-bit
+  Morton texel index and exposes it at `TEX_ADDR`. `BorgTests.tex_fetch_tests`
+  verifies 10 cases including clamping and negatives. Zero net LC overhead.
+
+- **Step 16.4: Hardware PSRAM Texel Fetch** — Add a PSRAM-fetch FSM state to
+  `BorgRasterizer` between `sFrag` and `sTileWrite`. GPU reads 3-byte RGB texel
+  from PSRAM autonomously using the Morton index, without CPU involvement.
+
+- **Step 16.5: Firmware Integration** — Update `frag.s` and `borg_triangle.c`
+  to pass UV uniforms, enable `TEX_UV` writes, and render a textured triangle.
 
 ### Step 17: GPU DMA Engine
 

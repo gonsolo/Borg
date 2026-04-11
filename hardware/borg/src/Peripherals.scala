@@ -17,10 +17,10 @@ private[borg] object PeriphDecode {
   // TinyQV bus idle sentinel
   val BUS_IDLE = 3
 
-  // Address field positions within 11-bit addr_in
-  val USER_PERI_SEL_HI   = 10
-  val USER_PERI_SEL_LO   = 9
-  val USER_SUB_ADDR_HI   = 8
+  // Address field positions within 12-bit addr_in
+  val USER_PERI_SEL_HI   = 11
+  val USER_PERI_SEL_LO   = 10
+  val USER_SUB_ADDR_HI   = 9
   val USER_SUB_ADDR_LO   = 0
 
   // GPIO non-standard address bit decoding
@@ -36,7 +36,7 @@ private[borg] object PeriphDecode {
 class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
   val ui_in = Input(UInt(8.W))
   val uo_out = Output(UInt(8.W))
-  val addr_in = Input(UInt(11.W))
+  val addr_in = Input(UInt(12.W))
   val data_in = Input(UInt(32.W))
   val data_write_n = Input(UInt(2.W))
   val data_read_n = Input(UInt(2.W))
