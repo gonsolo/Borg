@@ -64,14 +64,19 @@ yosys -p "read -sv $(SRC_FILES); hierarchy -top tinyQV_top; \
 
 | ID | Module | Change | Savings | Risk |
 | --- | --- | --- | --- | --- |
-| S1 | **TinyQVRegisters** | Reduce CPU GPR 16→12 | ~60 | Low |
+| ~~S1~~ | ~~**TinyQVRegisters**~~ | ~~Reduce CPU GPR 16→12~~ | ~~~60~~ | ❌ **Invalid** |
 | S2 | **CsrFile** | Prune unused CSRs | ~40–60 | Low |
 | S3 | **BorgCore** | Remove MMIO GPR read path | ~20–30 | Low |
 | S4 | **BorgGpuRegs** | Remove shadow registers for read-only fields | ~15–20 | None |
 
-**S1: CPU Register Reduction.** TinyQV uses `numRegs=16` but firmware only
-uses r0–r11 (verified by `riscv32-objdump -d` of all `.elf` files). Reducing
-to 12 saves 4×32-bit shift registers = ~60 LUTs. Make `numRegs` a parameter.
+**~~S1~~: CPU Register Reduction — INVALID with GCC.** r12–r15 are ABI
+registers `a2`–`a5` (function arguments 3–6). GCC for `rv32e` uses them
+freely whenever a function has more than 2 arguments or needs local
+variables — regardless of what the current shader assembly happens to do.
+Reducing `numRegs` to 12 would cause silent register corruption in any
+GCC-compiled firmware. Only viable if all firmware is hand-written assembly
+**and** the linker script explicitly forbids r12–r15 (non-standard). Do not
+pursue without first switching to asm-only firmware.
 
 **S2: CSR Pruning.** Full machine-mode CsrFile (530 cells) implements
 `mcycle`, `minstret`, `mcycleh`, `minstreth`, `mtimecmp`, `mtimecmph`,
@@ -149,7 +154,7 @@ leaving room for the full Phase 2 feature set.
 
 1. **S4** (RDL shadow registers) — zero risk, ~15 LUTs, immediate
 2. **S2** (CSR pruning) — low risk, ~40–60 LUTs, parameterize now
-3. **S1** (CPU GPR reduction) — low risk, ~60 LUTs, verify firmware first
+3. ~~**S1** (CPU GPR reduction)~~ — ❌ invalid with GCC (`a2`–`a5` are r12–r15)
 4. **20.0a/b/c** (planned DMA prerequisites) — at Step 20
 5. **A3** (optional UART) — medium risk, ~250 LUTs, parameterize now
 6. **A4** (nibble-serial shifter) — low risk, ~50 LUTs, uses existing pattern
