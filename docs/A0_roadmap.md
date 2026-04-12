@@ -472,7 +472,7 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 ### FPGA LC Budget
 
 | Step | Change | Est. LCs | Running total | Fits? |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Current (16.3) | — | — | 5268 | ✅ |
 | 17 (SoC restructure) | Package move only | +0 | 5268 | ✅ |
 | 18.1 (MemCtrl extract) | GPU port mux | +5–8 | ~5276 | ✅ tight |
@@ -484,7 +484,7 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 ### BRAM Budget
 
 | BRAM | Contents | Size | Count |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | regFileA/B/C | GPR copies (rs1/rs2/rs3) | 32×16-bit | 3 |
 | instructionMemory | Shader IMEM | 56×32-bit | 1 |
 | uniformMem | Uniform buffer (2 pages) | 64×16-bit | 1 |
