@@ -5,7 +5,7 @@ _boot:
 .option norvc
     j _start          # Reset
     j _trap_handler   # Trap
-.option rvc    
+
     short_isr_entry   # Interrupt, vectored here
     csrr a0, mcause
     slli s1, a0, 2

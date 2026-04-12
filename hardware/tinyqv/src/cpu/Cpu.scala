@@ -70,7 +70,6 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     decoder.io.instr := instr
     
     val instrType_de = decoder.io.instrType
-    val is_ret_de = decoder.io.is_ret
     val instr_len_de = decoder.io.instr_len
     val alu_op_de = decoder.io.alu_op
     val mem_op_de = decoder.io.mem_op
@@ -174,7 +173,6 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     val instr_avail_len = Mux(was_early_branch, 0.U(4.W), instr_write_offset.asUInt - Mux(instr_valid, next_pc_offset, Cat(0.B, pc_offset)))
     
     val early_branch = WireDefault(false.B)
-    val is_ret = WireDefault(false.B)
 
     // Pipeline Logic
     when(any_additional_mem_ops && instr_complete_core && !stall_core) {
@@ -199,10 +197,9 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
         additional_mem_ops := additional_mem_ops_de
         addr_offset := 0.U
         mem_op_increment_reg := mem_op_increment_reg_de
-        instr_valid := !branch && !is_ret_de
+        instr_valid := !branch
         
         early_branch := (instrType_de === InstrType.jal) && !branch
-        is_ret := is_ret_de && !branch
       }.otherwise {
         instr_valid := false.B
       }
@@ -299,12 +296,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
          pc_offset := addr_out(2, 1)
        }
        instr_fetch_running := was_early_branch
-    }.elsewhen(is_ret) {
-       instr_data_start := return_addr(22, 2)
-       instr_write_offset := Cat(0.B, return_addr(1, 0))
-       pc_offset := return_addr(1, 0)
-       instr_fetch_running := false.B
-    }.otherwise {
+     }.otherwise {
        when(early_branch) { instr_fetch_running := false.B }
        .elsewhen(io.instrFetch.instr_fetch_started) { instr_fetch_running := true.B }
        .elsewhen(io.instrFetch.instr_fetch_stopped) { instr_fetch_running := false.B }
@@ -319,7 +311,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
        }
     }
 
-    io.instrFetch.instr_fetch_restart := !instr_fetch_running && (!branch || was_early_branch) && !early_branch && !is_ret
+    io.instrFetch.instr_fetch_restart := !instr_fetch_running && (!branch || was_early_branch) && !early_branch
     io.instrFetch.instr_fetch_stall := next_instr_stall
     io.instrFetch.instr_addr := Mux(was_early_branch, early_branch_addr, Cat(instr_data_start, 0.U(2.W)) + Cat(0.U(20.W), instr_write_offset))
 
@@ -343,7 +335,7 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     io.debug_interrupt_pending := interrupt_pending
     io.debug_branch := branch
     io.debug_early_branch := early_branch
-    io.debug_ret := is_ret
+    io.debug_ret := false.B  // No compressed c.ret; all returns via JALR branch path
     io.debug_reg_wen := core.io.debug_reg_wen
     io.debug_counter_0 := counter_hi === 0.U
     io.debug_rd := core.io.debug_rd

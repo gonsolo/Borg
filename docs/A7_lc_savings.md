@@ -97,19 +97,17 @@ to the RDL source removes them.
 
 ### Tier 3: Architectural Restructuring — ~150–250 LUTs
 
-| ID | Module | Change | Savings | Risk | BRAM Cost |
-| --- | --- | --- | --- | --- | --- |
-| A1 | **TinyQVDecode** | Compressed decode → BRAM LUT | ~100–150 | Medium | +1 BRAM |
+| ~~A1~~ | ~~**TinyQVDecode**~~ | ~~Compressed decode → BRAM LUT~~ | ~~~100–150~~ | ~~Medium~~ | ~~+1 BRAM~~ |
+| **A1b** | **TinyQVDecode** | **Remove C extension entirely** | **~400–500** | **Low** | **0** |
 | A2 | **QspiController** | Share flash+PSRAM controller | ~80–120 | High | 0 |
 | ~~A3~~ | ~~**UART**~~ | ~~Make UART optional~~ | ~~~250~~ | ⚠️ **Not recommended** | 0 |
 | A4 | **TinyQVShifter** | Nibble-serial shifter | ~50–80 | Low | 0 |
 
-**A1: Decode BRAM.** The 852-cell TinyQVDecode is a combinational mux tree for
-RV32IC. The compressed instruction decoder (14 `is()` cases, each computing
-imm/rs1/rs2/rd/alu_op/mem_op) is essentially a lookup table. Encoding the 14
-compressed formats into a BRAM lookup (32-bit entries, 256 entries indexed by
-`{funct3, opcode[1:0], key_bits}`) would replace ~400 LUT4s with 1 BRAM
-read + minimal glue. The 32-bit instruction path stays combinational.
+**~~A1~~: Decode BRAM — Superseded.** The original plan was to move the compressed
+decoder into a BRAM lookup table. Instead, the entire C extension was removed
+(Step 17.3), saving ~400–500 LUTs at zero BRAM cost. Firmware code size
+increases ~30–40% but runs from 16 MB QSPI flash. The C extension can be
+re-added in Phase 3 on a larger tile. ✅ **Implemented 2026-04-12.**
 
 **~~A3~~: Optional UART — Not recommended.** The 250 LCs are saved only in
 a build without the UART. The moment any debugging is needed via `tio`, the
@@ -141,23 +139,24 @@ SPRAM is single-port, but `sTexFetch` already serializes access.
 | --- | --- | --- | --- | --- | --- |
 | 1: Planned (20.0) | ~40 | 0 | 0 | None | Step 20 |
 | 2: Structural | ~80–130 | 0 | 0 | Low | Step 17–18 |
-| 3: Architectural | ~150–250 | +1 | 0 | Medium | Step 17 |
-| 4: SPRAM migration | 0 (enables) | −1 | +2 | Low | Step 21 |
-| **Total** | **~270–420** | **+1** | **+2** | — | — |
+| 3: Architectural (A1b) | **~400–500** | **0** | 0 | Low | ✅ Step 17.3 |
+| 4: SPRAM migration | 0 (enables) | 0 | +2 | Low | Step 21 |
+| **Total** | **~520–670** | **0** | **+2** | — | — |
 
-With Tier 1+2 alone (~120–170 LUTs freed), the design drops to ~5100 LCs,
-giving comfortable headroom for Steps 18–21.
+With A1b alone (~400–500 LUTs freed), the design drops to ~4900 LCs,
+giving comfortable headroom for Steps 18–22.
 
-With Tier 1+2+3 (~270–420 LUTs freed), the design drops to ~4850–5000 LCs,
-leaving room for the full Phase 2 feature set.
+With all tiers (~520–670 LUTs freed), the design drops to ~4750–4900 LCs,
+leaving substantial room for the full Phase 2 feature set.
 
 ## Recommended Priority Order
 
-1. **S4** (RDL shadow registers) — zero risk, ~15 LUTs, immediate
-2. ~~**S2** (CSR pruning)~~ — ⚠️ not recommended (temporary savings; added back in Phase 3)
-3. ~~**S1** (CPU GPR reduction)~~ — ❌ invalid with GCC (`a2`–`a5` are r12–r15)
-4. **20.0a/b/c** (planned DMA prerequisites) — at Step 20
-5. ~~**A3** (optional UART)~~ — ⚠️ not recommended (250 LCs return the moment you debug)
-6. **A4** (nibble-serial shifter) — low risk, ~50 LUTs, uses existing pattern
-7. **A1** (decode BRAM) — medium risk, ~100 LUTs, needs careful testing
+1. ✅ **A1b** (remove C extension) — low risk, ~400–500 LUTs, **done 2026-04-12**
+2. ✅ **S4** (RDL shadow registers) — zero risk, ~15 LUTs, done
+3. ~~**S2** (CSR pruning)~~ — ⚠️ not recommended (temporary savings; added back in Phase 3)
+4. ~~**S1** (CPU GPR reduction)~~ — ❌ invalid with GCC (`a2`–`a5` are r12–r15)
+5. **20.0a/b/c** (planned DMA prerequisites) — at Step 20
+6. ~~**A3** (optional UART)~~ — ⚠️ not recommended (250 LCs return the moment you debug)
+7. ❌ ~~**A4** (nibble-serial shifter)~~ — abandoned, saved only ~3 LCs
 8. **P1** (SPRAM cache) — no LUT savings but better cache, at Step 21
+

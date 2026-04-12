@@ -318,16 +318,21 @@ Target: free ~165–250 LUTs, bringing running total from 5420 to ~5170–5255.
     `TinyQVCounter` and `TinyQVTime`. Cost: 8 extra cycles per shift
     instruction. Shifts are rare in GPU shader firmware.
 
-- **Step 17.3: A1 — TinyQVDecode BRAM** (~100–150 LUTs)
-    The compressed instruction decoder (14 `is()` cases in `Decode.scala`,
-    lines 129–287) is a pure lookup table. Encode the 14 RVC formats into a
-    32-bit-wide× 256-entry BRAM (indexed by `{funct3, opcode[1:0], key_bits}`).
-    The 32-bit instruction path (lines 82–119) stays combinational. Cost: +1
-    BRAM (11/30 total).
+- **Step 17.3: Remove C Extension** ✅ (2026-04-12)
+    Removed the RISC-V C (compressed) extension entirely from TinyQV.
+    Deleted the 14-case compressed decoder (~210 lines in `Decode.scala`),
+    all compressed immediate computations, the `is_ret` early-return
+    optimization, and the `.option rvc` directive from `start.s`. Switched
+    firmware from `rv32ec_zicsr` to `rv32e_zicsr` in both Makefiles.
+    Firmware code size increases ~30-40% but runs from 16 MB QSPI flash
+    (not area-constrained). Hardwired `instr_len` to 2 (32-bit only).
+    The C extension can be re-added in Phase 3 on a larger tile.
+    **Results:** Yosys 3881 LUT4s (was ~4100), nextpnr 5184/5280 LCs (98%).
+    Verified: Chisel tests, Verilator, Arcilator, FPGA synthesis.
 
-- **Step 17.4: Verify all targets**
-    All Chisel tests pass, Verilator/Arcilator triangle+vkcube, FPGA synthesis
-    confirms LC count ≤ 5280.
+- **Step 17.4: Verify all targets** ✅ (2026-04-13)
+    All Chisel tests pass (28 TinyQV + 24 Borg), Verilator triangle OK,
+    Arcilator triangle OK, FPGA synthesis 5184 LCs (98%), 10/30 BRAMs.
 
 ### Step 18: SoC Project Restructure
 
@@ -510,16 +515,16 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 
 | Step | Change | Est. LCs | Running total | Fits? |
 | --- | --- | --- | --- | --- |
-| Current (16.3) | — | — | 5420 | ⚠ |
-| 17.1 (S4 RDL shadows) | Remove redundant FFs | **−15–20** | ~5400 | ⚠ |
-| 17.2 (A4 nibble shifter) | ❌ abandoned — iterative replacement ~= barrel LUTs | **−3** | ~5417 | ⚠ |
-| 17.3 (A1 decode BRAM) | RVC decode → BRAM LUT | **−100–150** | ~5200 | ✅ |
-| 18 (SoC restructure) | Package move only | +0 | ~5200 | ✅ |
-| 19.1 (MemCtrl extract) | GPU port mux | +5–8 | ~5208 | ✅ |
-| 19.2 (sTexFetch FSM) | 1 FSM state + addr calc | +8–12 | ~5220 | ✅ |
-| 21.0 (LUT recovery) | Remove MMIO IMEM+uniform+GPR write | **−40–70** | ~5160 | ✅ |
-| 21.1 (DMA FSM) | FSM + addr counter + dest mux | +20–30 | ~5190 | ✅ |
-| 22 (cache) | Tag compare + data FFs | +25–35 | ~5220 | ✅ |
+| Current (16.3) | — | — | 5268 | ⚠ |
+| 17.1 (S4 RDL shadows) | Remove redundant FFs | **−15–20** | ~5250 | ⚠ |
+| 17.2 (A4 nibble shifter) | ❌ abandoned — iterative replacement ~= barrel LUTs | **−3** | ~5265 | ⚠ |
+| 17.3 (remove C ext) | Delete RVC decoder entirely | **−84** (actual) | **5184** | ✅ |
+| 18 (SoC restructure) | Package move only | +0 | ~5184 | ✅ |
+| 19.1 (MemCtrl extract) | GPU port mux | +5–8 | ~5192 | ✅ |
+| 19.2 (sTexFetch FSM) | 1 FSM state + addr calc | +8–12 | ~5204 | ✅ |
+| 21.0 (LUT recovery) | Remove MMIO IMEM+uniform+GPR write | **−40–70** | ~5140 | ✅ |
+| 21.1 (DMA FSM) | FSM + addr counter + dest mux | +20–30 | ~5170 | ✅ |
+| 22 (cache) | Tag compare + data FFs | +25–35 | ~5200 | ✅ |
 
 ### BRAM Budget
 
@@ -531,8 +536,7 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 | coordLutX/Y | Pixel → FP16 | 64×16-bit | 2 |
 | rcpLutA/B | Reciprocal LUT | 17×10-bit | 2 |
 | rgbzMem | Tile buffer | 16×64-bit | 1 |
-| TinyQVDecode (Step 17.3) | RVC decode LUT | 256×32-bit | 1 |
-| **Total** | | | **11 / 30** |
+| **Total** | | | **10 / 30** |
 
 ## Phase 3: Linux-Capable CPU
 

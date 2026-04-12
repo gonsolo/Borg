@@ -145,37 +145,7 @@ object TinyQVDecodeTests extends TestSuite {
       }
     }
 
-    utest.test("compressed C.NOP decodes as ALU-IMM") {
-      withDecode { dut =>
-        // C.NOP = 0x0001 (ADDI x0, x0, 0)
-        dut.io.instr.poke(0x0001.U)
-        utest.assert(dut.io.instrType.peek().litValue == InstrType.aluImm.litValue)
-        utest.assert(dut.io.instr_len.peek().litValue == 1) // 1 halfword
-      }
-    }
 
-    utest.test("compressed C.LW decodes as load") {
-      withDecode { dut =>
-        // C.LW: bits[1:0]=00, bits[15:13]=010
-        // C.LW rd', offset(rs1'): 010_nnn_mmm_pp_ddd_00
-        val instr = 0x4000 // C.LW with rs1'=x8, rd'=x8, offset=0
-        dut.io.instr.poke(instr.U)
-        utest.assert(dut.io.instrType.peek().litValue == InstrType.load.litValue)
-        utest.assert(dut.io.instr_len.peek().litValue == 1) // 1 halfword
-      }
-    }
-
-    utest.test("compressed C.J decodes as JAL") {
-      withDecode { dut =>
-        // C.J: bits[1:0]=01, bits[15:13]=101 → JAL x0, offset
-        // 101_xxxxxxxxxxx_01
-        val instr = 0xA001 // C.J with offset 0
-        dut.io.instr.poke(instr.U)
-        utest.assert(dut.io.instrType.peek().litValue == InstrType.jal.litValue)
-        utest.assert(dut.io.instr_len.peek().litValue == 1) // 1 halfword
-        utest.assert(dut.io.rd.peek().litValue == 0) // C.J writes x0
-      }
-    }
 
     utest.test("32-bit instruction has instr_len=4") {
       withDecode { dut =>

@@ -2,7 +2,7 @@ ARCILATOR = arcilator
 FIRTOOL = firtool
 LLC = llc
 CLANG = clang++
-CIRCT_TOOLS = /nix/store/9p497d8hxgpvyr441sa5nd41j0lyl6y3-circt-1.140.0/bin
+CIRCT_TOOLS = $(shell dirname $(shell which arcilator))
 
 # Disable Nixpkgs compiler wrapper hardening flags which pollute bare-metal linking
 export HARDENING_DISABLE=all
@@ -33,7 +33,7 @@ arc.o: arc.ll
 
 # Step 4: state.json → C++ header
 arc.h: state.json
-	python3 /home/gonsolo/src/circt/tools/arcilator/arcilator-header-cpp.py $< > $@
+	python3 arcilator-header-cpp.py $< > $@
 
 # Step 5: Build test harness
 main.o: main.cpp arc.h arcilator-runtime.h

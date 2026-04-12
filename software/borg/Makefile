@@ -1,5 +1,5 @@
 CC = riscv32-none-elf-gcc
-ARCH = rv32ec_zicsr
+ARCH = rv32e_zicsr
 ABI = ilp32e
 AS = riscv32-none-elf-as
 AR = riscv32-none-elf-ar
