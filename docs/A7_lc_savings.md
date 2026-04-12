@@ -101,7 +101,7 @@ to the RDL source removes them.
 | --- | --- | --- | --- | --- | --- |
 | A1 | **TinyQVDecode** | Compressed decode → BRAM LUT | ~100–150 | Medium | +1 BRAM |
 | A2 | **QspiController** | Share flash+PSRAM controller | ~80–120 | High | 0 |
-| A3 | **UART** | Make UART optional | ~250 | Medium | 0 |
+| ~~A3~~ | ~~**UART**~~ | ~~Make UART optional~~ | ~~~250~~ | ⚠️ **Not recommended** | 0 |
 | A4 | **TinyQVShifter** | Nibble-serial shifter | ~50–80 | Low | 0 |
 
 **A1: Decode BRAM.** The 852-cell TinyQVDecode is a combinational mux tree for
@@ -111,9 +111,10 @@ compressed formats into a BRAM lookup (32-bit entries, 256 entries indexed by
 `{funct3, opcode[1:0], key_bits}`) would replace ~400 LUT4s with 1 BRAM
 read + minimal glue. The 32-bit instruction path stays combinational.
 
-**A3: Optional UART.** The UART consumes ~250 LCs. Making it a parameter
-(`hasUart: Boolean`) frees 250 LCs for resource-constrained builds. FPGA
-builds needing serial debug keep it enabled.
+**~~A3~~: Optional UART — Not recommended.** The 250 LCs are saved only in
+a build without the UART. The moment any debugging is needed via `tio`, the
+UART must be re-enabled, the LCs come back, and the design is over budget
+again. It saves nothing in practice.
 
 **A4: Nibble-serial shifter.** TinyQV already uses nibble-serial processing
 for counters and timers. The barrel shifter (149 cells) could be replaced with
@@ -156,7 +157,7 @@ leaving room for the full Phase 2 feature set.
 2. ~~**S2** (CSR pruning)~~ — ⚠️ not recommended (temporary savings; added back in Phase 3)
 3. ~~**S1** (CPU GPR reduction)~~ — ❌ invalid with GCC (`a2`–`a5` are r12–r15)
 4. **20.0a/b/c** (planned DMA prerequisites) — at Step 20
-5. **A3** (optional UART) — medium risk, ~250 LUTs, parameterize now
+5. ~~**A3** (optional UART)~~ — ⚠️ not recommended (250 LCs return the moment you debug)
 6. **A4** (nibble-serial shifter) — low risk, ~50 LUTs, uses existing pattern
 7. **A1** (decode BRAM) — medium risk, ~100 LUTs, needs careful testing
 8. **P1** (SPRAM cache) — no LUT savings but better cache, at Step 21
