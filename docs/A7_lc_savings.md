@@ -65,7 +65,7 @@ yosys -p "read -sv $(SRC_FILES); hierarchy -top tinyQV_top; \
 | ID | Module | Change | Savings | Risk |
 | --- | --- | --- | --- | --- |
 | ~~S1~~ | ~~**TinyQVRegisters**~~ | ~~Reduce CPU GPR 16→12~~ | ~~~60~~ | ❌ **Invalid** |
-| S2 | **CsrFile** | Prune unused CSRs | ~40–60 | Low |
+| ~~S2~~ | ~~**CsrFile**~~ | ~~Prune unused CSRs~~ | ~~~40–60~~ | ⚠️ **Not recommended** |
 | S3 | **BorgCore** | Remove MMIO GPR read path | ~20–30 | Low |
 | S4 | **BorgGpuRegs** | Remove shadow registers for read-only fields | ~15–20 | None |
 
@@ -78,11 +78,11 @@ GCC-compiled firmware. Only viable if all firmware is hand-written assembly
 **and** the linker script explicitly forbids r12–r15 (non-standard). Do not
 pursue without first switching to asm-only firmware.
 
-**S2: CSR Pruning.** Full machine-mode CsrFile (530 cells) implements
-`mcycle`, `minstret`, `mcycleh`, `minstreth`, `mtimecmp`, `mtimecmph`,
-`mstatus.mte`, `mie`, `mscratch`, etc. For Phase 2 (no interrupts, no Linux),
-only `mtvec`, `mepc`, `mcause`, `mscratch`, `mstatus.mie/mpie` are needed.
-Parameterize the rest behind a `hasFullCSR: Boolean` flag.
+**~~S2~~: CSR Pruning — Not recommended.** The savings (~40–60 LUTs) are
+temporary: Phase 3 (Step 27, no-MMU Linux) requires the full machine-mode
+CSR set (`mcycle`, `minstret`, `mtimecmp`, `mie`, etc.). Pruning now and
+re-enabling in Phase 3 is pure churn, and risks accidentally breaking
+interrupt or timer handling in the interim. Leave the CsrFile intact.
 
 **S3: GPR Read Path Removal.** The MMIO GPR read path (`regFileC` shared read
 port for `core.io.regReadData`) is used only for CPU debugging. Once DMA is in
@@ -153,7 +153,7 @@ leaving room for the full Phase 2 feature set.
 ## Recommended Priority Order
 
 1. **S4** (RDL shadow registers) — zero risk, ~15 LUTs, immediate
-2. **S2** (CSR pruning) — low risk, ~40–60 LUTs, parameterize now
+2. ~~**S2** (CSR pruning)~~ — ⚠️ not recommended (temporary savings; added back in Phase 3)
 3. ~~**S1** (CPU GPR reduction)~~ — ❌ invalid with GCC (`a2`–`a5` are r12–r15)
 4. **20.0a/b/c** (planned DMA prerequisites) — at Step 20
 5. **A3** (optional UART) — medium risk, ~250 LUTs, parameterize now
