@@ -312,7 +312,7 @@ Target: free ~165–250 LUTs, bringing running total from 5420 to ~5170–5255.
     hardware-read-only — redundant FFs. Add `hwReadOnly` flags to `borg.rdl`
     and regenerate `BorgGpuRegs.scala`.
 
-- **Step 17.2: A4 — Nibble-serial barrel shifter** (~50–80 LUTs)
+- **Step 17.2: A4 — Nibble-serial barrel shifter** ❌ abandoned (2026-04-12) (actual: −3 LCs)
     Replace `TinyQVShifter` barrel shifter (149 cells) with a 4-bit-per-cycle
     iterative version, matching the nibble-serial pattern already used in
     `TinyQVCounter` and `TinyQVTime`. Cost: 8 extra cycles per shift
@@ -512,7 +512,7 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 | --- | --- | --- | --- | --- |
 | Current (16.3) | — | — | 5420 | ⚠ |
 | 17.1 (S4 RDL shadows) | Remove redundant FFs | **−15–20** | ~5400 | ⚠ |
-| 17.2 (A4 nibble shifter) | Iterative vs barrel | **−50–80** | ~5330 | ⚠ |
+| 17.2 (A4 nibble shifter) | ❌ abandoned — iterative replacement ~= barrel LUTs | **−3** | ~5417 | ⚠ |
 | 17.3 (A1 decode BRAM) | RVC decode → BRAM LUT | **−100–150** | ~5200 | ✅ |
 | 18 (SoC restructure) | Package move only | +0 | ~5200 | ✅ |
 | 19.1 (MemCtrl extract) | GPU port mux | +5–8 | ~5208 | ✅ |
