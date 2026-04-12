@@ -1002,6 +1002,13 @@ object BorgTests extends TestSuite {
       simulate(new Borg(config)) { borg =>
         println("\n=== Texture Fetch Tests ===")
 
+        // Reset and settle — ensures all RegInit values are applied before
+        // any combinational read of tex_addr (no longer gated by shadow reg).
+        borg.reset.poke(true.B)
+        borg.clock.step(2)
+        borg.reset.poke(false.B)
+        borg.clock.step(2)
+
         // Helper: read raw 32-bit value from MMIO address
         def readRaw(addr: Int): BigInt = {
           borg.io.address.poke(addr.U)

@@ -306,7 +306,7 @@ Before adding any new infrastructure, recover LC headroom from four
 low-risk structural changes identified in [A7_lc_savings.md](A7_lc_savings.md).
 Target: free ~185–280 LUTs, bringing running total from 5268 to ~4990–5080.
 
-- **Step 17.1: S4 — Remove RDL shadow registers** (~15–20 LUTs)
+- **Step 17.1: S4 — Remove RDL shadow registers** ✅ (2026-04-12) (~15–20 LUTs)
     PeakRDL generates shadow flip-flops for fields that are hardware-writable
     but also MMIO-readable. Fields like `iter_x`, `iter_y`, `iter_valid` are
     hardware-read-only — redundant FFs. Add `hwReadOnly` flags to `borg.rdl`
