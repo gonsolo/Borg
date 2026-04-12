@@ -70,9 +70,13 @@ async def test_start(dut):
         await send_instr(dut, InstructionADDI(i + 8, x0, 0x102 * i).encode())
 
     # Test UART TX
+    # UART_TP_BASE (0x800 = 2048) exceeds 12-bit signed immediate.
+    # Build UART base in a2 = tp + 0x400 + 0x400.
+    await send_instr(dut, InstructionADDI(a2, tp, 0x400).encode())
+    await send_instr(dut, InstructionADDI(a2, a2, 0x400).encode())
     uart_byte = 0x54
     await send_instr(dut, InstructionADDI(x1, x0, uart_byte).encode())
-    await send_instr(dut, InstructionSW(tp, x1, UART_TP_BASE + UART_TX_RX_OFFSET).encode())
+    await send_instr(dut, InstructionSW(a2, x1, UART_TX_RX_OFFSET).encode())
 
     await start_nops(dut)
     
@@ -132,17 +136,17 @@ async def test_start(dut):
 
         await stop_nops()
 
-        await send_instr(dut, InstructionLW(x1, tp, UART_TP_BASE + UART_STATUS_OFFSET).encode())
+        await send_instr(dut, InstructionLW(x1, a2, UART_STATUS_OFFSET).encode())
         await read_byte(dut, x1, 0x2)
-        await send_instr(dut, InstructionLW(x1, tp, UART_TP_BASE + UART_TX_RX_OFFSET).encode())
+        await send_instr(dut, InstructionLW(x1, a2, UART_TX_RX_OFFSET).encode())
         await read_byte(dut, x1, uart_rx_byte)
         assert dut.uart_rts.value == 0
-        await send_instr(dut, InstructionLW(x1, tp, UART_TP_BASE + UART_STATUS_OFFSET).encode())
+        await send_instr(dut, InstructionLW(x1, a2, UART_STATUS_OFFSET).encode())
         await read_byte(dut, x1, 0x2)
-        await send_instr(dut, InstructionLW(x1, tp, UART_TP_BASE + UART_TX_RX_OFFSET).encode())
+        await send_instr(dut, InstructionLW(x1, a2, UART_TX_RX_OFFSET).encode())
         await read_byte(dut, x1, uart_rx_byte2)
         assert dut.uart_rts.value == 0
-        await send_instr(dut, InstructionLW(x1, tp, UART_TP_BASE + UART_STATUS_OFFSET).encode())
+        await send_instr(dut, InstructionLW(x1, a2, UART_STATUS_OFFSET).encode())
         await read_byte(dut, x1, 0)
 
         if j != 4:
@@ -493,7 +497,10 @@ async def test_multistore_interrupt(dut):
     await start_read(dut, 0)
 
     # Transmit a byte and enable interrupt on writeable
-    await send_instr(dut, InstructionSW(tp, x0, UART_TP_BASE + UART_TX_RX_OFFSET).encode())
+    # UART_TP_BASE (0x800) exceeds 12-bit signed immediate; build in x1.
+    await send_instr(dut, InstructionADDI(x1, tp, 0x400).encode())
+    await send_instr(dut, InstructionADDI(x1, x1, 0x400).encode())
+    await send_instr(dut, InstructionSW(x1, x0, UART_TX_RX_OFFSET).encode())
     await send_instr(dut, InstructionLUI(a0, 0x80).encode())
     await send_instr(dut, InstructionCSRRW(x0, a0, csrnames.mie).encode())
 
