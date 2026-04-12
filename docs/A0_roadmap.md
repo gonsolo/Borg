@@ -302,9 +302,9 @@ bus contention — the failure mode of the earlier texture cache experiment.
 
 ### Step 17: LUT Recovery
 
-Before adding any new infrastructure, recover LC headroom from four
+Before adding any new infrastructure, recover LC headroom from three
 low-risk structural changes identified in [A7_lc_savings.md](A7_lc_savings.md).
-Target: free ~185–280 LUTs, bringing running total from 5268 to ~4990–5080.
+Target: free ~165–250 LUTs, bringing running total from 5420 to ~5170–5255.
 
 - **Step 17.1: S4 — Remove RDL shadow registers** ✅ (2026-04-12) (~15–20 LUTs)
     PeakRDL generates shadow flip-flops for fields that are hardware-writable
@@ -312,28 +312,22 @@ Target: free ~185–280 LUTs, bringing running total from 5268 to ~4990–5080.
     hardware-read-only — redundant FFs. Add `hwReadOnly` flags to `borg.rdl`
     and regenerate `BorgGpuRegs.scala`.
 
-- **Step 17.2: S3 — Remove MMIO GPR read path** (~20–30 LUTs)
-    The `regFileC` shared read port (`wirePortC()` `mmio_en` mux) is used only
-    for CPU debugging of shader register state. Once DMA is in place this path
-    is unused. Remove the `mmio_en` conditional from `wirePortC()` in
-    `BorgCore.scala`.
-
-- **Step 17.3: A4 — Nibble-serial barrel shifter** (~50–80 LUTs)
+- **Step 17.2: A4 — Nibble-serial barrel shifter** (~50–80 LUTs)
     Replace `TinyQVShifter` barrel shifter (149 cells) with a 4-bit-per-cycle
     iterative version, matching the nibble-serial pattern already used in
     `TinyQVCounter` and `TinyQVTime`. Cost: 8 extra cycles per shift
     instruction. Shifts are rare in GPU shader firmware.
 
-- **Step 17.4: A1 — TinyQVDecode BRAM** (~100–150 LUTs)
+- **Step 17.3: A1 — TinyQVDecode BRAM** (~100–150 LUTs)
     The compressed instruction decoder (14 `is()` cases in `Decode.scala`,
     lines 129–287) is a pure lookup table. Encode the 14 RVC formats into a
     32-bit-wide× 256-entry BRAM (indexed by `{funct3, opcode[1:0], key_bits}`).
     The 32-bit instruction path (lines 82–119) stays combinational. Cost: +1
     BRAM (11/30 total).
 
-- **Step 17.5: Verify all targets**
+- **Step 17.4: Verify all targets**
     All Chisel tests pass, Verilator/Arcilator triangle+vkcube, FPGA synthesis
-    confirms LC count ≤ 5100.
+    confirms LC count ≤ 5280.
 
 ### Step 18: SoC Project Restructure
 
@@ -407,7 +401,13 @@ the driver changes. Estimate: 1 week.
   - **21.0a: Remove IMEM MMIO write path** (~15 LUTs saved) — DMA replaces it
   - **21.0b: Remove MMIO uniform write path** (~15 LUTs saved) — DMA replaces it
   - **21.0c: Simplify RDL address decode** (~10 LUTs saved)
-  - Target: free ~40 LUTs to bring running total back under budget
+  - **21.0d: S3 — Remove MMIO GPR read path** (optional, ~20–30 LUTs)
+    The `regFileC` shared read port (`wirePortC()` `mmio_en` mux) is used only
+    for CPU debugging of shader register state. With DMA in place this path
+    is unused. Remove the `mmio_en` conditional from `wirePortC()` in
+    `BorgCore.scala`. Requires refactoring all Chisel/cocotb test GPR reads
+    to use pipeline write-back snooping.
+  - Target: free ~40–70 LUTs to bring running total back under budget
 
 - **Step 21.1: DMA controller FSM** (`BorgDMA.scala`)
     Accepts `(base_ptr, length, destination)` descriptor via MMIO. Issues
@@ -510,17 +510,16 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 
 | Step | Change | Est. LCs | Running total | Fits? |
 | --- | --- | --- | --- | --- |
-| Current (16.3) | — | — | 5268 | ✅ |
-| 17.1 (S4 RDL shadows) | Remove redundant FFs | **−15–20** | ~5250 | ✅ |
-| 17.2 (S3 GPR read path) | Remove mmio_en mux | **−20–30** | ~5225 | ✅ |
-| 17.3 (A4 nibble shifter) | Iterative vs barrel | **−50–80** | ~5160 | ✅ |
-| 17.4 (A1 decode BRAM) | RVC decode → BRAM LUT | **−100–150** | ~5030 | ✅ |
-| 18 (SoC restructure) | Package move only | +0 | ~5030 | ✅ |
-| 19.1 (MemCtrl extract) | GPU port mux | +5–8 | ~5038 | ✅ |
-| 19.2 (sTexFetch FSM) | 1 FSM state + addr calc | +8–12 | ~5050 | ✅ |
-| 21.0 (LUT recovery) | Remove MMIO IMEM+uniform write | **−40** | ~5010 | ✅ |
-| 21.1 (DMA FSM) | FSM + addr counter + dest mux | +20–30 | ~5040 | ✅ |
-| 22 (cache) | Tag compare + data FFs | +25–35 | ~5070 | ✅ |
+| Current (16.3) | — | — | 5420 | ⚠ |
+| 17.1 (S4 RDL shadows) | Remove redundant FFs | **−15–20** | ~5400 | ⚠ |
+| 17.2 (A4 nibble shifter) | Iterative vs barrel | **−50–80** | ~5330 | ⚠ |
+| 17.3 (A1 decode BRAM) | RVC decode → BRAM LUT | **−100–150** | ~5200 | ✅ |
+| 18 (SoC restructure) | Package move only | +0 | ~5200 | ✅ |
+| 19.1 (MemCtrl extract) | GPU port mux | +5–8 | ~5208 | ✅ |
+| 19.2 (sTexFetch FSM) | 1 FSM state + addr calc | +8–12 | ~5220 | ✅ |
+| 21.0 (LUT recovery) | Remove MMIO IMEM+uniform+GPR write | **−40–70** | ~5160 | ✅ |
+| 21.1 (DMA FSM) | FSM + addr counter + dest mux | +20–30 | ~5190 | ✅ |
+| 22 (cache) | Tag compare + data FFs | +25–35 | ~5220 | ✅ |
 
 ### BRAM Budget
 
@@ -532,7 +531,7 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 | coordLutX/Y | Pixel → FP16 | 64×16-bit | 2 |
 | rcpLutA/B | Reciprocal LUT | 17×10-bit | 2 |
 | rgbzMem | Tile buffer | 16×64-bit | 1 |
-| TinyQVDecode (Step 17.4) | RVC decode LUT | 256×32-bit | 1 |
+| TinyQVDecode (Step 17.3) | RVC decode LUT | 256×32-bit | 1 |
 | **Total** | | | **11 / 30** |
 
 ## Phase 3: Linux-Capable CPU
