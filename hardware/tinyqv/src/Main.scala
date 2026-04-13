@@ -5,7 +5,7 @@ package tinyqv
 
 import tinyqv.cpu.{TinyQVCpu, TinyQVCore, TinyQVCounter, TinyQVRegisters,
   TinyQVAlu, TinyQVShifter, TinyQVTime, TinyQVQspiFlash, TinyQV,
-  LatchRegN, LatchRegP, LatchReg32N, LatchReg32P, TinyQVMemCtrl,
+  LatchRegN, LatchRegP, LatchReg32N, LatchReg32P,
   TinyQVDecode, QspiController}
 import java.io.{PrintWriter, File}
 
@@ -31,7 +31,7 @@ object Main extends App {
     () => new LatchRegP(8),
     () => new LatchReg32N(),
     () => new LatchReg32P(),
-    () => new TinyQVMemCtrl(),
+
     () => new TinyQVDecode(4),
     () => new QspiController(),
   ).foreach(gen => borg.Emit.emitAndCollect(gen(), outDir, allAsicFiles))

@@ -368,13 +368,12 @@ VideoCore's TMU = our `sTexFetch`, VPM = our `BorgTileBuffer`, shared SDRAM =
 our shared QSPI PSRAM, central bus arbiter = our 2:1 mux. Also matches
 PowerVR SGX's Data Masters + tile-based deferred rendering pattern.
 
-- **Step 19.1: Extract MemCtrl to SoC level**
-    Rename `TinyQVMemCtrl` → `SoCMemCtrl` (already in `soc` package from Step 18).
-    Add `gpu_read` port to IO: `gpu_addr(23.W)`, `gpu_read_req(Bool)`,
-    `gpu_data(32.W)`, `gpu_data_ready(Bool)` (~5–8 LUTs). Add one `elsewhen` to
-    arbiter priority chain: CPU data > GPU texel > instruction fetch.
-    Wire GPU port through SoCLogic → Peripherals → Borg (unused by GPU logic yet).
-    All existing tests pass.
+- ✅ **Step 19.1: Extract MemCtrl to SoC level** *(2026-04-13)*
+    Renamed `TinyQVMemCtrl` → `MemoryController` and moved to `soc` package.
+    `TinyQV` is now a pure CPU (no QSPI knowledge); `MemoryController` owns all
+    SPI/QSPI pins and arbitrates CPU instr-fetch, CPU data, and a stubbed GPU
+    read port (`gpu_addr`, `gpu_read_req`, `gpu_data`, `gpu_read_ready`).
+    `SoCLogic` wires all three peer components. All tests pass (Verilator + Arcilator).
 
 - **Step 19.2: Wire GPU port to BorgRasterizer**
     Add `sTexFetch` FSM state to `BorgRasterizer`. Connect Morton index →

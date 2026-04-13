@@ -20,7 +20,7 @@ public:
     uint32_t marker_offset_word;
 
     // Convenience accessor for the Chisel flash SyncReadMem array
-    auto& flash_arr()  { return model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_tinyqv__DOT__memSim__DOT__sim_mem_ext_ext__DOT__Memory; }
+    auto& flash_arr()  { return model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_flash_ext_ext__DOT__Memory; }
     
     BorgSimulator(const std::string& firmware_path, bool fast_mode_val = false, uint32_t w = 32, uint32_t h = 32) {
         fast_mode = fast_mode_val;
@@ -163,11 +163,11 @@ public:
 
             static uint8_t last_write_n = 3;
             if (fast_mode) {
-                uint32_t addr = model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_tinyqv__DOT__cpu__DOT__data_addr_reg;
-                uint8_t write_n = model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_tinyqv__DOT__cpu__DOT__data_write_n_reg;
+                uint32_t addr = model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_memReal_io_instrFetch_instr_addr_i_tinyqv__DOT__cpu__DOT__data_addr_reg;
+                uint8_t write_n = model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_memReal_io_instrFetch_instr_addr_i_tinyqv__DOT__cpu__DOT__data_write_n_reg;
                 
                 if (write_n != 3) {
-                    uint32_t data = model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_tinyqv__DOT__cpu__DOT__data_out_reg;
+                    uint32_t data = model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_memReal_io_instrFetch_instr_addr_i_tinyqv__DOT__cpu__DOT__data_out_reg;
                     
                     if ((addr >> 23) == 2) {
                         uint32_t psram_addr = addr & 0x7FFFFF;
