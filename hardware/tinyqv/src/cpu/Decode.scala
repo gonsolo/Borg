@@ -63,18 +63,22 @@ class TinyQVDecode(val regAddrBits: Int = 4) extends RawModule {
   io.additional_mem_ops := 0.U
   io.mem_op_increment_reg := true.B
 
-  // 32-bit instructions only (C extension removed in Step 17.3)
-  switch(instr(6, 2)) {
-    is("b00000".U) { io.instrType := InstrType.load }
-    is("b00100".U) { io.instrType := InstrType.aluImm }
-    is("b00101".U) { io.instrType := InstrType.auipc }
-    is("b01000".U) { io.instrType := InstrType.store }
-    is("b01100".U) { io.instrType := InstrType.aluReg }
-    is("b01101".U) { io.instrType := InstrType.lui }
-    is("b11000".U) { io.instrType := InstrType.branch }
-    is("b11001".U) { io.instrType := InstrType.jalr }
-    is("b11011".U) { io.instrType := InstrType.jal }
-    is("b11100".U) { io.instrType := InstrType.system }
+  // 32-bit instructions must have bits[1:0] == 11.
+  // Without this guard, garbled buffer data (from partial instruction fetch
+  // interrupts) can decode as valid load/store/branch, causing random execution.
+  when(instr(1, 0) === 3.U) {
+    switch(instr(6, 2)) {
+      is("b00000".U) { io.instrType := InstrType.load }
+      is("b00100".U) { io.instrType := InstrType.aluImm }
+      is("b00101".U) { io.instrType := InstrType.auipc }
+      is("b01000".U) { io.instrType := InstrType.store }
+      is("b01100".U) { io.instrType := InstrType.aluReg }
+      is("b01101".U) { io.instrType := InstrType.lui }
+      is("b11000".U) { io.instrType := InstrType.branch }
+      is("b11001".U) { io.instrType := InstrType.jalr }
+      is("b11011".U) { io.instrType := InstrType.jal }
+      is("b11100".U) { io.instrType := InstrType.system }
+    }
   }
 
   io.imm := MuxCase(iImm, Seq(

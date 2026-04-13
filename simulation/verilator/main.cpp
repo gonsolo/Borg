@@ -14,6 +14,11 @@ int main(int argc, char** argv) {
     std::string tex_path = app_name == "vkcube" ? "../../software/borg/borg_texture.dat" : "../../software/borg/test_texture.dat";
     sim.load_texture(tex_path);
 
+    // Set initial camera rotation so the cube is visibly rotated (matches viewer.py defaults)
+    if (app_name == "vkcube") {
+        sim.set_camera_angles(-0.4363f, 0.6109f);
+    }
+
     std::cout << "[SIM] Starting simulation...\n";
 
     uint64_t total_cycles = 0;

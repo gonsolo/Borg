@@ -79,87 +79,87 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     val additional_mem_ops_de = decoder.io.additional_mem_ops
     val mem_op_increment_reg_de = decoder.io.mem_op_increment_reg
 
-    // Pipeline Registers
-    val imm = RegInit(0.U(32.W))
-    val instrType = RegInit(InstrType.none)
-    val instr_len = RegInit(2.U(2.W))
-    val alu_op = RegInit(0.U(4.W))
-    val mem_op = RegInit(0.U(3.W))
-    val rs1 = RegInit(0.U(4.W))
-    val rs2 = RegInit(0.U(4.W))
-    val rd = RegInit(0.U(4.W))
-    val additional_mem_ops = RegInit(0.U(3.W))
-    val addr_offset = RegInit(0.U(2.W))
-    val mem_op_increment_reg = RegInit(false.B)
+  // Pipeline Registers
+  val imm = RegInit(0.U(32.W))
+  val instrType = RegInit(InstrType.none)
+  val instr_len = RegInit(2.U(2.W))
+  val alu_op = RegInit(0.U(4.W))
+  val mem_op = RegInit(0.U(3.W))
+  val rs1 = RegInit(0.U(4.W))
+  val rs2 = RegInit(0.U(4.W))
+  val rd = RegInit(0.U(4.W))
+  val additional_mem_ops = RegInit(0.U(3.W))
+  val addr_offset = RegInit(0.U(2.W))
+  val mem_op_increment_reg = RegInit(false.B)
 
-    // Convenience booleans derived from enum
-    val is_load = instrType === InstrType.load
-    val is_store = instrType === InstrType.store
-    val is_branch = instrType === InstrType.branch
+  // Convenience booleans derived from enum
+  val is_load = instrType === InstrType.load
+  val is_store = instrType === InstrType.store
+  val is_branch = instrType === InstrType.branch
 
-    val interrupt_core = RegInit(false.B)
-    val instr_valid = RegInit(false.B)
+  val interrupt_core = RegInit(false.B)
+  val instr_valid = RegInit(false.B)
 
-    // Core Instantiation
-    val core = Module(new TinyQVCore(numRegs, regAddrBits))
-    val counter_hi = RegInit(0.U(3.W))
-    val counter = Cat(counter_hi, 0.U(2.W))
-    
-    core.io.counter := counter_hi
-    core.io.imm := nibbleSlice(imm, counter_hi)
-    core.io.imm_lo := imm(11, 0)
-    
-    val no_write_in_progress = RegInit(true.B)
-    val stall_core = !instr_valid || ((is_store || is_load) && !no_write_in_progress)
-    
-    core.io.is_load := is_load && instr_valid && no_write_in_progress
-    core.io.is_alu_imm := (instrType === InstrType.aluImm) && instr_valid
-    core.io.is_auipc := (instrType === InstrType.auipc) && instr_valid
-    core.io.is_store := is_store && instr_valid && no_write_in_progress
-    core.io.is_alu_reg := (instrType === InstrType.aluReg) && instr_valid
-    core.io.is_lui := (instrType === InstrType.lui) && instr_valid
-    core.io.is_branch := is_branch && instr_valid
-    core.io.is_jalr := (instrType === InstrType.jalr) && instr_valid
-    core.io.is_jal := (instrType === InstrType.jal) && instr_valid
-    core.io.is_system := (instrType === InstrType.system) && instr_valid
-    core.io.is_interrupt := interrupt_core
-    core.io.is_stall := stall_core && !interrupt_core
-    
-    core.io.alu_op := alu_op
-    core.io.mem_op := mem_op
-    core.io.rs1 := rs1
-    core.io.rs2 := rs2
-    core.io.rd := rd
-    core.io.interrupt_req := io.interrupt_req
-    
-    val pc = Wire(UInt(32.W))
-    core.io.pc := nibbleSlice(pc, counter_hi)
-    
-    val next_pc_for_core = Wire(UInt(32.W))
-    core.io.next_pc := nibbleSlice(next_pc_for_core, counter_hi)
-    
-    val timers = Module(new TinyQVTime)
-    timers.io.time_pulse := io.time_pulse
-    timers.io.counter := counter_hi
-    
-    val is_timer_addr = io.data_addr(27, 4) === MMIO.TIMER_BASE_HI && !io.data_addr(3)
-    val timer_data = timers.io.data_out
-    
-    core.io.data_in := Mux(is_timer_addr, timer_data, nibbleSlice(io.data_in, counter_hi))
-    
-    val data_ready_core = Wire(Bool())
-    core.io.load_data_ready := data_ready_core
-    
-    val data_out_slice = core.io.data_out
-    val addr_out = core.io.addr_out
-    val address_ready = core.io.address_ready
-    val instr_complete_core = core.io.instr_complete
-    val branch = core.io.branch
-    val return_addr = core.io.return_addr
-    val interrupt_pending = core.io.interrupt_pending
-    
-    val any_additional_mem_ops = additional_mem_ops =/= 0.U
-    val instr_complete = instr_complete_core && !stall_core && !any_additional_mem_ops
+  // Core Instantiation
+  val core = Module(new TinyQVCore(numRegs, regAddrBits))
+  val counter_hi = RegInit(0.U(3.W))
+  val counter = Cat(counter_hi, 0.U(2.W))
+  
+  core.io.counter := counter_hi
+  core.io.imm := nibbleSlice(imm, counter_hi)
+  core.io.imm_lo := imm(11, 0)
+  
+  val no_write_in_progress = RegInit(true.B)
+  val stall_core = !instr_valid || ((is_store || is_load) && !no_write_in_progress)
+  
+  core.io.is_load := is_load && instr_valid && no_write_in_progress
+  core.io.is_alu_imm := (instrType === InstrType.aluImm) && instr_valid
+  core.io.is_auipc := (instrType === InstrType.auipc) && instr_valid
+  core.io.is_store := is_store && instr_valid && no_write_in_progress
+  core.io.is_alu_reg := (instrType === InstrType.aluReg) && instr_valid
+  core.io.is_lui := (instrType === InstrType.lui) && instr_valid
+  core.io.is_branch := is_branch && instr_valid
+  core.io.is_jalr := (instrType === InstrType.jalr) && instr_valid
+  core.io.is_jal := (instrType === InstrType.jal) && instr_valid
+  core.io.is_system := (instrType === InstrType.system) && instr_valid
+  core.io.is_interrupt := interrupt_core
+  core.io.is_stall := stall_core && !interrupt_core
+  
+  core.io.alu_op := alu_op
+  core.io.mem_op := mem_op
+  core.io.rs1 := rs1
+  core.io.rs2 := rs2
+  core.io.rd := rd
+  core.io.interrupt_req := io.interrupt_req
+  
+  val pc = Wire(UInt(32.W))
+  core.io.pc := nibbleSlice(pc, counter_hi)
+  
+  val next_pc_for_core = Wire(UInt(32.W))
+  core.io.next_pc := nibbleSlice(next_pc_for_core, counter_hi)
+  
+  // Timer module
+  val timers = Module(new TinyQVTime)
+  timers.io.time_pulse := io.time_pulse
+  timers.io.counter := counter_hi
+  
+  val is_timer_addr = io.data_addr(27, 4) === MMIO.TIMER_BASE_HI && !io.data_addr(3)
+  val timer_data = timers.io.data_out
+  core.io.data_in := Mux(is_timer_addr, timer_data, nibbleSlice(io.data_in, counter_hi))
+  
+  val data_ready_core = Wire(Bool())
+  core.io.load_data_ready := data_ready_core
+  
+  val data_out_slice = core.io.data_out
+  val addr_out = core.io.addr_out
+  val address_ready = core.io.address_ready
+  val instr_complete_core = core.io.instr_complete
+  val branch = core.io.branch
+  val return_addr = core.io.return_addr
+  val interrupt_pending = core.io.interrupt_pending
+  
+  val any_additional_mem_ops = additional_mem_ops =/= 0.U
+  val instr_complete = instr_complete_core && !stall_core && !any_additional_mem_ops
 
     // Instruction Fetch Logic
     val instr_data = RegInit(VecInit(Seq.fill(4)(0.U(16.W))))
@@ -174,6 +174,27 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     
     val early_branch = WireDefault(false.B)
 
+  val data_ready_ext = io.data_ready && io.data_addr(27, 26) =/= 3.U
+  val data_ready_latch = RegInit(false.B)
+  val data_ready_sync = RegInit(false.B)
+  
+  val data_addr_reg = RegInit(0.U(28.W))
+  val load_started = RegInit(false.B)
+  val data_write_n_reg = RegInit(3.U(2.W))
+  val data_read_n_reg = RegInit(3.U(2.W))
+  val data_continue_reg = RegInit(false.B)
+  val data_out_reg = RegInit(0.U(32.W))
+
+  // Grouped logic evaluation
+  updatePipelineAndFetchStates()
+  updateDataAddressSync()
+  updateInstructionFetch()
+  updateTimers()
+  updateDebugSignals()
+
+  // -- Private Inline Methods --
+
+  private def updatePipelineAndFetchStates(): Unit = {
     // Pipeline Logic
     when(any_additional_mem_ops && instr_complete_core && !stall_core) {
       rs2 := rs2 + mem_op_increment_reg.asUInt
@@ -208,12 +229,10 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     when(counter_hi === 7.U) {
       was_early_branch := early_branch && !branch
     }
+  }
 
+  private def updateDataAddressSync(): Unit = {
     // Data ready sync logic
-    val data_ready_ext = io.data_ready && io.data_addr(27, 26) =/= 3.U
-    val data_ready_latch = RegInit(false.B)
-    val data_ready_sync = RegInit(false.B)
-    
     counter_hi := counter_hi + 1.U
     when(counter_hi === 0.U) {
       data_ready_latch := false.B
@@ -225,18 +244,13 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     data_ready_core := Mux(counter_hi === 0.U, data_ready_ext || data_ready_latch || is_timer_addr, data_ready_sync)
 
     // Data address and control logic
-    val data_addr_reg = RegInit(0.U(28.W))
     io.data_addr := data_addr_reg
     when(address_ready) {
       data_addr_reg := Cat(addr_out(27, 4), (addr_out(3, 2) + addr_offset)(1, 0), addr_out(1, 0))
     }
 
-    val load_started = RegInit(false.B)
-    val data_write_n_reg = RegInit(3.U(2.W))
     io.data_write_n := data_write_n_reg
-    val data_read_n_reg = RegInit(3.U(2.W))
     io.data_read_n := data_read_n_reg
-    val data_continue_reg = RegInit(false.B)
     io.data_continue := data_continue_reg
 
     when(is_store && address_ready) {
@@ -269,14 +283,15 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
       load_started := false.B
     }
     
-    val data_out_reg = RegInit(0.U(32.W))
     io.data_out := data_out_reg
     when(is_store && no_write_in_progress) {
       data_out_reg := MuxLookup(counter_hi, data_out_reg)( (0 until 8).map { i =>
         i.U -> setRange(data_out_reg, i*4+3, i*4, data_out_slice)
       })
     }
+  }
 
+  private def updateInstructionFetch(): Unit = {
     // Instruction Fetch Wiring
     val next_pc = Cat(instr_data_start, 0.U(3.W)) + Cat(0.U(20.W), next_pc_offset, 0.B)
     val pc_wrap = next_pc_offset(2) && instr_complete
@@ -297,18 +312,29 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
        }
        instr_fetch_running := was_early_branch
      }.otherwise {
-       when(early_branch) { instr_fetch_running := false.B }
-       .elsewhen(io.instrFetch.instr_fetch_started) { instr_fetch_running := true.B }
-       .elsewhen(io.instrFetch.instr_fetch_stopped) { instr_fetch_running := false.B }
+        when(early_branch) { instr_fetch_running := false.B }
+        .elsewhen(io.instrFetch.instr_fetch_started) { instr_fetch_running := true.B }
+        .elsewhen(io.instrFetch.instr_fetch_stopped) {
+          instr_fetch_running := false.B
+        }
        
-       instr_write_offset := next_instr_write_offset
-       when(instr_complete) {
-         pc_offset := next_pc_offset(1, 0)
-         instr_data_start := next_pc(23, 3)
-       }
-       when(io.instrFetch.instr_ready && instr_fetch_running) {
-         instr_data(instr_write_offset(1, 0)) := io.instrFetch.instr_data
-       }
+        instr_write_offset := next_instr_write_offset
+        // Realign write offset to 32-bit boundary when fetch stops.
+        // After RVC removal, all instructions are 2 half-words. If the fetch
+        // stopped after an odd number of half-words, the write offset becomes
+        // misaligned, causing subsequent instructions to straddle boundaries
+        // and decode as garbled data. Discard any orphan half-word by rounding
+        // write offset down to even alignment with pc_offset.
+        when(io.instrFetch.instr_fetch_stopped && next_instr_write_offset(0) =/= pc_offset(0)) {
+          instr_write_offset := next_instr_write_offset - 1.U
+        }
+        when(instr_complete) {
+          pc_offset := next_pc_offset(1, 0)
+          instr_data_start := next_pc(23, 3)
+        }
+        when(io.instrFetch.instr_ready && instr_fetch_running) {
+          instr_data(instr_write_offset(1, 0)) := io.instrFetch.instr_data
+        }
     }
 
     io.instrFetch.instr_fetch_restart := !instr_fetch_running && (!branch || was_early_branch) && !early_branch
@@ -320,14 +346,18 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     instr := Mux(instr_valid, Cat(instr_data(next_pc_offset_hi), instr_data(next_pc_offset(1, 0))), Cat(instr_data(pc_offset_hi), instr_data(pc_offset)))
     pc := Cat(0.U(8.W), instr_data_start, pc_offset, 0.B)
     next_pc_for_core := Cat(0.U(8.W), next_pc)
+  }
 
+  private def updateTimers(): Unit = {
     // Timer wiring
     timers.io.set_mtime := is_timer_addr && io.data_write_n =/= 3.U && !io.data_addr(2)
     timers.io.set_mtimecmp := is_timer_addr && io.data_write_n =/= 3.U && io.data_addr(2)
     timers.io.data_in := data_out_slice
     timers.io.read_mtimecmp := io.data_addr(2)
     core.io.timer_interrupt := timers.io.timer_interrupt
+  }
 
+  private def updateDebugSignals(): Unit = {
     // Debugging
     io.data_read_complete := is_load && instr_complete_core && !stall_core
     io.debug_instr_complete := instr_complete
@@ -342,4 +372,5 @@ class TinyQVCpu(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     io.debug_pc := pc
     io.debug_imm := imm
     io.debug_counter_hi := counter_hi
+  }
 }

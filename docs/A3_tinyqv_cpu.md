@@ -12,7 +12,7 @@ Before diving into the details, here is how the pieces fit together:
 TinyQV  (top-level SoC wrapper)
 ├── TinyQVCpu         — Pipeline: decode → execute, stalls, branches
 │   ├── TinyQVDecode  — Combinational instruction decoder (RV32IC)
-│   ├── TinyQVCore    — Execution engine (4-bit ALU, shifter, register file)
+│   ├── Core          — Execution engine (4-bit ALU, shifter, register file)
 │   │   └── CsrFile   — CSR registers, interrupts, cycle/time counters
 │   └── TinyQVTime    — mtime/mtimecmp timer comparator
 └── TinyQVMemCtrl     — QSPI bus arbitrator (flash for instructions, PSRAM for data)

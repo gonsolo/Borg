@@ -82,13 +82,36 @@ int main(int argc, char** argv) {
             0x5210, 0x5230, 0x5250, 0x5270, 0x5290, 0x52B0, 0x52D0, 0x52F0,
             0x5310, 0x5330, 0x5350, 0x5370, 0x5390, 0x53B0, 0x53D0, 0x53F0,
         };
-        const int COORD_LUT_X_OFFSET = 704;
-        const int COORD_LUT_Y_OFFSET = 480;
+        const int COORD_LUT_X_OFFSET = 720;
+        const int COORD_LUT_Y_OFFSET = 496;
         for (int i = 0; i < 64; i++) {
             *(uint16_t*)(model.storage.data() + COORD_LUT_X_OFFSET + i * 2) = coord_lut[i];
             *(uint16_t*)(model.storage.data() + COORD_LUT_Y_OFFSET + i * 2) = coord_lut[i];
         }
         std::cout << "[SIM] coordLut BRAMs initialized.\n";
+    }
+
+    // Initialize rcpLut BRAMs (arcilator doesn't support $readmemh)
+    // Offsets from state.json: rcpLutA at 1168, rcpLutB at 1216 (depth 17, stride 2)
+    {
+        const uint16_t rcp_lut[17] = {
+            0x03FF, 0x0388, 0x031C, 0x02BD, 0x0266, 0x0218, 0x01D1, 0x0191,
+            0x0155, 0x011F, 0x00EC, 0x00BE, 0x0092, 0x006A, 0x0044, 0x0021, 0x0000
+        };
+        const int RCP_LUT_A_OFFSET = 1168;
+        const int RCP_LUT_B_OFFSET = 1216;
+        for (int i = 0; i < 17; i++) {
+            *(uint16_t*)(model.storage.data() + RCP_LUT_A_OFFSET + i * 2) = rcp_lut[i];
+            *(uint16_t*)(model.storage.data() + RCP_LUT_B_OFFSET + i * 2) = rcp_lut[i];
+        }
+        std::cout << "[SIM] rcpLut BRAMs initialized.\n";
+    }
+
+    // Set initial camera rotation so the cube is visibly rotated (matches viewer.py defaults)
+    if (app_name == "vkcube") {
+        float* psram_floats = (float*)&psram_init_words[psram_spi_word_offset];
+        psram_floats[2] = -0.4363f;
+        psram_floats[3] = 0.6109f;
     }
 
     std::cout << "[SIM] Starting simulation...\n";

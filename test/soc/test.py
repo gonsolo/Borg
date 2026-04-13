@@ -438,7 +438,7 @@ async def test_load_bug(dut):
 
     # Use standard LW for tp-based load (LWTP was removed)
     await send_instr(dut, InstructionLW(a3, tp, GPIO_TP_BASE + GPIO_GPIO_IN_OFFSET).encode())
-    await send_instr(dut, encode_clwsp(a2, 12))
+    await send_instr(dut, InstructionLW(a2, sp, 12).encode())
     await expect_load(dut, 0x1001000 + 12, 0x123)
     await read_byte(dut, a3, input_byte)
     await read_byte(dut, a2, 0x123)
@@ -473,7 +473,7 @@ async def test_load_throughput(dut):
     await send_instr(dut, InstructionBEQ(a0, x0, 270).encode())
 
     for i in range(32):
-        await send_instr(dut, encode_clwsp(a2, i * 4))
+        await send_instr(dut, InstructionLW(a2, sp, i * 4).encode())
         # Use standard SW for tp-based store (SWTP was removed)
         await send_instr(dut, InstructionSW(tp, a2, 0x3C0).encode())
         await expect_load(dut, 0x1001000 + i * 4, i)
@@ -797,23 +797,7 @@ ops_alu = [
     SimpleOp(
         InstructionCZERO_NEZ, lambda rs1, rs2: 0 if reg[rs2] != 0 else reg[rs1], "?!0"
     ),
-    CIOp(encode_cli, 1, -32, lambda rs1, imm: imm, "=i(c)"),
-    CIOp(encode_caddi, 1, -32, lambda rs1, imm: reg[rs1] + imm, "+i(c)"),
-    CIOp(encode_cslli, 1, 0, lambda rs1, imm: reg[rs1] << imm, "<<i(c)"),
-    CIOp(
-        encode_csrli, 8, 0, lambda rs1, imm: (reg[rs1] & 0xFFFFFFFF) >> imm, ">>li(c)"
-    ),
-    CIOp(encode_csrai, 8, 0, lambda rs1, imm: reg[rs1] >> imm, ">>li(c)"),
-    CIOp(encode_candi, 8, -32, lambda rs1, imm: reg[rs1] & imm, "&i(c)"),
-    CIOp(encode_cnot, 8, 0, lambda rs1, imm: ~(reg[rs1] & 0xFFFFFFFF), "~(c)"),
-    CIOp(encode_czext_b, 8, 0, lambda rs1, imm: reg[rs1] & 0xFF, "zb(c)"),
-    CIOp(encode_czext_h, 8, 0, lambda rs1, imm: reg[rs1] & 0xFFFF, "zh(c)"),
-    CROp(encode_cmv, 1, lambda rs1, rs2: reg[rs2], "=(c)"),
-    CROp(encode_cadd, 1, lambda rs1, rs2: reg[rs1] + reg[rs2], "+(c)"),
-    CROp(encode_csub, 8, lambda rs1, rs2: reg[rs1] - reg[rs2], "-(c)"),
-    CROp(encode_cxor, 8, lambda rs1, rs2: reg[rs1] ^ reg[rs2], "^(c)"),
-    CROp(encode_cor, 8, lambda rs1, rs2: reg[rs1] | reg[rs2], "|(c)"),
-    CROp(encode_cand, 8, lambda rs1, rs2: reg[rs1] & reg[rs2], "&(c)"),
+    # Compressed instruction ops removed — hardware no longer supports RVC (Step 17.3)
 ]
 
 
@@ -1123,35 +1107,7 @@ ops = [
     SimpleOp(
         InstructionCZERO_NEZ, lambda rs1, rs2: 0 if reg[rs2] != 0 else reg[rs1], "?!0"
     ),
-    CIOp(encode_cli, 1, -32, lambda rs1, imm: imm, "=i(c)"),
-    CIOp(encode_caddi, 1, -32, lambda rs1, imm: reg[rs1] + imm, "+i(c)"),
-    CIOp(encode_cslli, 1, 0, lambda rs1, imm: reg[rs1] << imm, "<<i(c)"),
-    CIOp(
-        encode_csrli, 8, 0, lambda rs1, imm: (reg[rs1] & 0xFFFFFFFF) >> imm, ">>li(c)"
-    ),
-    CIOp(encode_csrai, 8, 0, lambda rs1, imm: reg[rs1] >> imm, ">>li(c)"),
-    CIOp(encode_candi, 8, -32, lambda rs1, imm: reg[rs1] & imm, "&i(c)"),
-    CIOp(encode_cnot, 8, 0, lambda rs1, imm: ~(reg[rs1] & 0xFFFFFFFF), "~(c)"),
-    CIOp(encode_czext_b, 8, 0, lambda rs1, imm: reg[rs1] & 0xFF, "zb(c)"),
-    CIOp(encode_czext_h, 8, 0, lambda rs1, imm: reg[rs1] & 0xFFFF, "zh(c)"),
-    CROp(encode_cmv, 1, lambda rs1, rs2: reg[rs2], "=(c)"),
-    CROp(encode_cadd, 1, lambda rs1, rs2: reg[rs1] + reg[rs2], "+(c)"),
-    CROp(encode_csub, 8, lambda rs1, rs2: reg[rs1] - reg[rs2], "-(c)"),
-    CROp(encode_cxor, 8, lambda rs1, rs2: reg[rs1] ^ reg[rs2], "^(c)"),
-    CROp(encode_cor, 8, lambda rs1, rs2: reg[rs1] | reg[rs2], "|(c)"),
-    CROp(encode_cand, 8, lambda rs1, rs2: reg[rs1] & reg[rs2], "&(c)"),
-    CLoadOp(encode_clw, 0, 31, 4, 4, lambda val: val, "lw(c)"),
-    CLoadOp(
-        encode_lh,
-        0,
-        1,
-        2,
-        -2,
-        lambda val: (val & 0xFFFF) - 0x10000 if (val & 0x8000) != 0 else val & 0xFFFF,
-        "lh(c)",
-    ),
-    CLoadOp(encode_lhu, 0, 1, 2, 2, lambda val: val & 0xFFFF, "lhu(c)"),
-    CLoadOp(encode_lbu, 0, 3, 1, 1, lambda val: val & 0xFF, "lbu(c)"),
+    # Compressed instruction ops removed — hardware no longer supports RVC (Step 17.3)
     LoadOp(InstructionLW, -0x800, 0x7FF, 1, 4, lambda val: val, "lw"),
     LoadOp(
         InstructionLH,
@@ -1173,7 +1129,7 @@ ops = [
     ),
     LoadOp(InstructionLHU, -0x800, 0x7FF, 1, 2, lambda val: val & 0xFFFF, "lhu"),
     LoadOp(InstructionLBU, -0x800, 0x7FF, 1, 1, lambda val: val & 0xFF, "lbu"),
-    CStoreOp(encode_csw, 0, 31, 4, 4, lambda rs1: reg[rs1] & 0xFFFFFFFF, "sw(c)"),
+    # CStoreOp(encode_csw) removed — hardware no longer supports RVC (Step 17.3)
     StoreOp(
         InstructionSW, -0x800, 0x7FF, 1, 4, lambda rs1: reg[rs1] & 0xFFFFFFFF, "sw"
     ),

@@ -333,11 +333,22 @@ def render_all_frames(app_name='triangle'):
     qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 0 * 4, WIDTH)
     qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 1 * 4, HEIGHT)
 
+    # Write default camera rotation angles to PSRAM words 2 and 3 so the firmware
+    # reads them correctly on real FPGA hardware.  The PSRAM chip is NOT zero-
+    # initialised between runs, so the firmware's "== 0  →  use defaults" guard in
+    # borg_vkcube.c DOES NOT fire – it sees garbage floats and misuses them.
+    # Both simulation targets (arcilator/main.cpp and BorgSimulator.h) explicitly
+    # pre-populate these two words; do the same here.
+    if app_name == 'vkcube':
+        _rx_word = struct.unpack('<I', struct.pack('<f', -0.4363))[0]
+        _ry_word = struct.unpack('<I', struct.pack('<f',  0.6109))[0]
+        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 2 * 4, _rx_word)
+        qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + 3 * 4, _ry_word)
+
     if sentinel_val == TEX_SENTINEL_MAGIC:
         print("Texture already in PSRAM (sentinel=0x%04X), skipping upload" % sentinel_val)
     else:
         try:
-            import struct
             with open(tex_file, 'rb') as f:
                 tex_data = f.read()
 

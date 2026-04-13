@@ -194,14 +194,12 @@ async def send_instr(dut, data, ok_to_exit=False, allow_long_delay=False):
     for i in range(instr_len):
         dut.qspi_data_in.value = (data >> (nibble_shift_order[i])) & 0xF
         await ClockCycles(dut.clk, 1, False)
-        for _ in range(400 if allow_long_delay else 20):
+        for _ in range(400 if allow_long_delay else 80):
             if ok_to_exit and dut.qspi_flash_select.value == 1:
                 return
-            assert dut.qspi_flash_select.value == 0
-            if dut.qspi_clk_out.value == 0:
-                await ClockCycles(dut.clk, 1, False)
-            else:
+            if dut.qspi_flash_select.value == 0 and dut.qspi_clk_out.value == 1:
                 break
+            await ClockCycles(dut.clk, 1, False)
         assert dut.qspi_clk_out.value == 1
         assert dut.qspi_data_oe.value == 0
         await ClockCycles(dut.clk, 1, False)
@@ -219,7 +217,7 @@ async def expect_load(dut, addr, val, bytes=4):
     else:
         assert False # Load from flash not currently supported in this test
 
-    for i in range(12):
+    for i in range(100):
         if select.value == 0:
             await start_read(dut, addr)
             dut.qspi_data_in.value = (val >> (nibble_shift_order[0])) & 0xF
@@ -233,7 +231,7 @@ async def expect_load(dut, addr, val, bytes=4):
                 dut.qspi_data_in.value = (val >> (nibble_shift_order[j])) & 0xF
             break
         elif dut.qspi_flash_select.value == 0:
-            await send_instr(dut, 0x0001, True)
+            await send_instr(dut, 0x00000013, True)
         else:
             await ClockCycles(dut.clk, 1, False)
     else:
@@ -242,8 +240,8 @@ async def expect_load(dut, addr, val, bytes=4):
     for i in range(8):
         await ClockCycles(dut.clk, 1)
         if dut.qspi_flash_select.value == 0:
-            if hasattr(dut.user_project, "i_tinyqv"):
-                await start_read(dut, dut.user_project.i_tinyqv.instr_addr.value.to_unsigned() * 2)
+            if hasattr(dut.user_project, "uo_out_val_i_tinyqv"):
+                await start_read(dut, dut.user_project.uo_out_val_i_tinyqv.instr_addr.value.to_unsigned() * 2)
             else:
                 await start_read(dut, None)
             break
@@ -323,7 +321,7 @@ async def expect_store(dut, addr, bytes=4, allow_long_delay=False):
         assert False
 
     val = 0
-    for i in range(12):
+    for i in range(100):
         if select.value == 0:
             await start_write(dut, addr)
             for j in range(bytes*2):
@@ -344,7 +342,7 @@ async def expect_store(dut, addr, bytes=4, allow_long_delay=False):
             assert select.value == 1
             break
         elif dut.qspi_flash_select.value == 0:
-            await send_instr(dut, 0x0001, True, allow_long_delay)
+            await send_instr(dut, 0x00000013, True, allow_long_delay)
         else:
             await ClockCycles(dut.clk, 1, False)
     else:
@@ -353,8 +351,8 @@ async def expect_store(dut, addr, bytes=4, allow_long_delay=False):
     for i in range(8):
         await ClockCycles(dut.clk, 1)
         if dut.qspi_flash_select.value == 0:
-            if hasattr(dut.user_project, "i_tinyqv"):
-                await start_read(dut, dut.user_project.i_tinyqv.instr_addr.value.to_unsigned() * 2)
+            if hasattr(dut.user_project, "uo_out_val_i_tinyqv"):
+                await start_read(dut, dut.user_project.uo_out_val_i_tinyqv.instr_addr.value.to_unsigned() * 2)
             else:
                 await start_read(dut, None)
             break

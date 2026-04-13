@@ -141,12 +141,19 @@ int main() {
   } rot_x_reader, rot_y_reader;
 
   while (1) {
-    // Read the rotation angles from the simulation (shared via PSRAM_IN)
+    // Read the rotation angles from the host (shared via PSRAM_IN)
     rot_x_reader.u = PSRAM_IN(2);
     rot_y_reader.u = PSRAM_IN(3);
 
     float rx_f = rot_x_reader.f;
     float ry_f = rot_y_reader.f;
+
+    // Default rotation when no angles set by host (headless / FPGA)
+    // Compare raw uint32 to avoid soft-float __eqsf2 (0x0 == IEEE 754 +0.0)
+    if (rot_x_reader.u == 0 && rot_y_reader.u == 0) {
+      rx_f = -0.4363f;
+      ry_f =  0.6109f;
+    }
 
     mat4_rotate_x(rx, rx_f);
     mat4_rotate_y(ry, ry_f);
@@ -161,6 +168,14 @@ int main() {
     borg_set_texture(TEX_PSRAM_OFFSET, TEX_WIDTH, TEX_HEIGHT);
     draw_cube(&draw);
     borg_present(0);
+
+    // Wait until the host/viewer clears the DONE marker before rendering
+    // the next frame.  On FPGA the marker is never cleared, so the firmware
+    // spins here preserving the framebuffer.  The interactive simulation
+    // viewer clears it in get_framebuffer() to request a new frame.
+    // DONE offset = FB(32*32*3) + ZB(32*32) = 4096 words from PSRAM_OUT base.
+    while (PSRAM_OUT(4096) == DONE_MARKER)
+      ;
   }
   return 0;
 }
