@@ -6,6 +6,7 @@ package borg
 import chisel3.*
 import chisel3.util.*
 import chisel3.util.experimental.loadMemoryFromFileInline
+import hardfloat._
 
 /** BorgCore — FPU pipeline, register files, instruction memory, and MMIO.
   *

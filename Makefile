@@ -30,9 +30,9 @@ help:
 export CLOCK_MHZ = 4
 
 generate_verilog: rdl
-	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.borg.runMain borg.Main
+	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.soc.runMain soc.Main
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.tinyqv.runMain tinyqv.Main
-	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.tinyqv.runMain borg.FpgaMain
+	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.tinyqv.runMain soc.FpgaMain
 	# Must run after mill: reads asic_files.txt generated above.
 	@python3 scripts/update_info_yaml.py
 

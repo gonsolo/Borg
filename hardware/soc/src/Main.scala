@@ -1,7 +1,9 @@
 // Copyright Andreas Wendleder 2025-2026
-// CERN-OHL-S-2.0
+// SPDX-License-Identifier: CERN-OHL-S-2.0
 
-package borg
+package soc
+
+import borg.Emit
 
 object Main extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "4").toInt

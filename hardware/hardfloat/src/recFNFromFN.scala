@@ -34,28 +34,17 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 =============================================================================*/
 
-package borg
+package hardfloat
 
 import chisel3.*
-import chisel3.util.*
 
-/*----------------------------------------------------------------------------
-| In the result, no more than one of 'isNaN', 'isInf', and 'isZero' will be
-| set.
- *----------------------------------------------------------------------------*/
-object rawFloatFromRecFN {
-  def apply(expWidth: Int, sigWidth: Int, in: Bits): RawFloat = {
-    val exp = in(expWidth + sigWidth - 1, sigWidth - 1)
-    val isZero = exp(expWidth, expWidth - 2) === 0.U
-    val isSpecial = exp(expWidth, expWidth - 1) === 3.U
-
-    val out = Wire(new RawFloat(expWidth, sigWidth))
-    out.isNaN := isSpecial && exp(expWidth - 2)
-    out.isInf := isSpecial && !exp(expWidth - 2)
-    out.isZero := isZero
-    out.sign := in(expWidth + sigWidth)
-    out.sExp := exp.zext
-    out.sig := 0.U(1.W) ## !isZero ## in(sigWidth - 2, 0)
-    out
+object recFNFromFN {
+  def apply(expWidth: Int, sigWidth: Int, in: Bits) = {
+    val rawIn = rawFloatFromFN(expWidth, sigWidth, in)
+    rawIn.sign ##
+      (Mux(rawIn.isZero, 0.U(3.W), rawIn.sExp(expWidth, expWidth - 2)) |
+        Mux(rawIn.isNaN, 1.U, 0.U)) ##
+      rawIn.sExp(expWidth - 3, 0) ##
+      rawIn.sig(sigWidth - 2, 0)
   }
 }

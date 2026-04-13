@@ -1,20 +1,18 @@
 // SPDX-FileCopyrightText: © 2024 Michael Bell
 // SPDX-License-Identifier: CERN-OHL-S-2.0
-package borg
+package soc
 
 import chisel3._
 import chisel3.util._
-import chisel3.experimental.IntParam
-import _root_.circt.stage.ChiselStage
-import java.nio.file.{Files, Paths}
 import tinyqv.cpu.{tinyQVIO, TinyQV}
+
 
 // ---------------------------------------------------------------------------
 // TinyQV bus decoder constants — inlined from the former MmioMap.scala.
 // These are Michael Bell's foundational address-decode choices and cannot
 // be expressed in SystemRDL.
 // ---------------------------------------------------------------------------
-private[borg] object SoCDecode {
+private[soc] object SoCDecode {
   // Magic comparison values for SoC vs User region detection
   private val SOC_REGION_ID  = 0x800000  // Cat(addr[27:6], addr[1:0])
   private val USER_REGION_ID = 0x8000    // addr[27:12]

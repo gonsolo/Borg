@@ -270,7 +270,7 @@ Implement a workstation-side UI runner that embeds the C++ Verilator simulation.
 - **Step 15.1: Pygame Binding & UI Rotation** ✅ (2026-04-09): Setup zero-copy nanobind bridge, cleared SPI deadlocks, and successfully bound mouse movement to dynamic hardware rotation rendering.
 - **Step 15.2: Fast Memory Simulation** ✅ (2026-04-10): Bypass the QSPI serialization in the simulator by directly hooking the C++ memory models onto the TinyQV memory bus using a fast `TinyQVMemCtrlSim`, accelerating simulation cycles by ~11x (from >20M to 1.75M cycles per frame) for smoother interactive UI framerates.
 
-### Step 16: Texture Fetch Unit
+### Step 16: Texture Fetch Unit ✅ (2026-04-13)
 
 UV-to-texel conversion, Morton addressing, and PSRAM texel read inside the
 pixel iterator. By this step the CPU is out of the inner loop, so there is no
@@ -300,7 +300,7 @@ bus contention — the failure mode of the earlier texture cache experiment.
 > the GPU to act as a PSRAM bus master, which depends on the Shared Memory
 > Controller (Step 19). They continue as Step 20.
 
-### Step 17: LUT Recovery
+### Step 17: LUT Recovery ✅ (2026-04-13)
 
 Before adding any new infrastructure, recover LC headroom from three
 low-risk structural changes identified in [A7_lc_savings.md](A7_lc_savings.md).
@@ -334,12 +334,12 @@ Target: free ~165–250 LUTs, bringing running total from 5420 to ~5170–5255.
     All Chisel tests pass (28 TinyQV + 24 Borg), Verilator triangle OK,
     Arcilator triangle OK, FPGA synthesis 5184 LCs (98%), 10/30 BRAMs.
 
-### Step 18: SoC Project Restructure
+### Step 18: SoC Project Restructure ✅ (2026-04-13)
 
 Reorganize the Mill build so `soc` is the parent module of both `borg` (GPU)
 and `tinyqv` (CPU). This must happen before Step 19 adds new SoC-level files.
 
-- **Step 18.1: Create `hardware/soc/` Mill module**
+- **Step 18.1: Create `hardware/soc/` Mill module** ✅ (2026-04-13)
     Move `Project.scala`, `Peripherals.scala` from `borg` package → `soc` package.
     Move `TinyQVMemCtrl.scala`, `TinyQVMemCtrlSim.scala` from `tinyqv.cpu` → `soc`.
     Create `hardware/soc/package.mill` with
@@ -347,7 +347,7 @@ and `tinyqv` (CPU). This must happen before Step 19 adds new SoC-level files.
     Update `hardware/borg/package.mill` and `hardware/tinyqv/package.mill` to have
     no deps (leaf modules).
 
-- **Step 18.2: Verify all targets**
+- **Step 18.2: Verify all targets** ✅ (2026-04-13)
     All Chisel tests pass, Verilator/Arcilator triangle+vkcube, FPGA synthesis.
 
 ```text

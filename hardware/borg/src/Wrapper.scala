@@ -1,7 +1,11 @@
+// Copyright Andreas Wendleder 2025-2026
+// SPDX-License-Identifier: CERN-OHL-S-2.0
+
 package borg
 
 import chisel3.*
 import chisel3.util.log2Up
+import hardfloat._
 
 class FNFromRecFNWrapperIO(inputWidth: UInt, outputWidth: UInt) extends Bundle {
   val in = Input(inputWidth)

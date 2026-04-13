@@ -2,11 +2,12 @@
 // Changes Copyright © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
-package borg
+package soc
 
 import chisel3._
 import chisel3.util._
 import chisel3.experimental.Analog
+import borg.SB_IO
 
 /** pico-ice FPGA top-level module.
   *

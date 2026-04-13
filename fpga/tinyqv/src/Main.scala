@@ -1,12 +1,13 @@
 // Copyright Andreas Wendleder 2025-2026
 // CERN-OHL-S-2.0
 
-package borg
+package soc
 
 import circt.stage.ChiselStage
+import borg.Emit
 
 // FPGA-specific Verilog generation: tinyQV_top wrapper and PCF pinout.
-// Run via: mill fpga.tinyqv.runMain borg.FpgaMain
+// Run via: mill fpga.tinyqv.runMain soc.FpgaMain
 object FpgaMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "4").toInt
   val targetDir = "out/fpga/verilog"
