@@ -85,7 +85,7 @@ object BorgCoreTests extends TestSuite {
     var watchdog = 0
     while (!idle && watchdog < 200) {
       core.clock.step(1)
-      val running = core.io.running.peek().litToBoolean
+      val running = core.io.status.running.peek().litToBoolean
       idle = !running
       watchdog += 1
     }
@@ -99,8 +99,8 @@ object BorgCoreTests extends TestSuite {
     core.io.bus.is_reading.poke(false.B)
     core.io.iter.x.poke(0.U)
     core.io.iter.y.poke(0.U)
-    core.io.triggerShaderValid.poke(false.B)
-    core.io.triggerShaderPC.poke(0.U)
+    core.io.coreTrigger.valid.poke(false.B)
+    core.io.coreTrigger.pc.poke(0.U)
     core.io.uniformPage.poke(0.U)
     core.io.uniformWritePage.poke(0.U)
     core.io.controlStart.poke(false.B)
@@ -430,7 +430,7 @@ object BorgCoreTests extends TestSuite {
 
         // Reset execution state, but BRAM stays
         resetCore(core)
-        core.io.triggerShaderValid.poke(false.B)
+        core.io.coreTrigger.valid.poke(false.B)
         core.clock.step(5)
 
         // Run with uniformPage = 1 → should read 222.0

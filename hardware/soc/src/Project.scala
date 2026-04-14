@@ -4,7 +4,7 @@ package soc
 
 import chisel3._
 import chisel3.util._
-import tinyqv.cpu.{tinyQVIO, TinyQV}
+import tinyqv.cpu.{TinyQVIO, TinyQV}
 
 
 // ---------------------------------------------------------------------------
@@ -45,12 +45,12 @@ private[soc] object SoCDecode {
   def socPeriU(idx: Int): UInt = idx.U(4.W)
 }
 
-// tinyQV ExtModule wraps the Chisel-generated TinyQV Verilog for SoC integration
-class tinyQV_ExtModule extends ExtModule(Map()) {
+// CpuExtModule wraps the Chisel-generated TinyQV Verilog for SoC integration
+class CpuExtModule extends ExtModule(Map()) {
   override val desiredName = "TinyQV"
   val clock = IO(Input(Clock()))
   val reset = IO(Input(Reset()))
-  val io = FlatIO(new tinyQVIO)
+  val io = FlatIO(new TinyQVIO)
 }
 
 /** Common SoC logic shared between TT ASIC and pico-ice FPGA top-level modules.
@@ -94,12 +94,12 @@ trait SoCLogic { self: RawModule =>
   }
 
   // --- QSPI outputs — sourced from MemoryController, not TinyQV ---
-  lazy val qspi_data_out:     UInt = i_memReal.io.spi_data_out
-  lazy val qspi_data_oe:      UInt = i_memReal.io.spi_data_oe
-  lazy val qspi_clk_out:      Bool = i_memReal.io.spi_clk_out
-  lazy val qspi_flash_select: Bool = i_memReal.io.spi_flash_select
-  lazy val qspi_ram_a_select: Bool = i_memReal.io.spi_ram_a_select
-  lazy val qspi_ram_b_select: Bool = i_memReal.io.spi_ram_b_select
+  lazy val qspi_data_out:     UInt = i_memReal.io.qspiPins.dataOut
+  lazy val qspi_data_oe:      UInt = i_memReal.io.qspiPins.dataOe
+  lazy val qspi_clk_out:      Bool = i_memReal.io.qspiPins.clkOut
+  lazy val qspi_flash_select: Bool = i_memReal.io.qspiPins.flashSelect
+  lazy val qspi_ram_a_select: Bool = i_memReal.io.qspiPins.ramASelect
+  lazy val qspi_ram_b_select: Bool = i_memReal.io.qspiPins.ramBSelect
 
   /** Wire up the entire SoC. Call this from the top-level module body. */
   def wireSoC(): UInt = {
@@ -108,7 +108,7 @@ trait SoCLogic { self: RawModule =>
     // MemoryController wiring
     // Real controller always present; sim controller optional (SIM_FAST_MEM).
     // -------------------------------------------------------------------------
-    i_memReal.io.spi_data_in := soc_qspi_data_in
+    i_memReal.io.qspiPins.dataIn := soc_qspi_data_in
 
     // GPU read port — wired from peripherals (Step 19.2)
     i_memReal.io.gpuRead <> i_peripherals.io.gpuRead
@@ -117,7 +117,7 @@ trait SoCLogic { self: RawModule =>
       val memSim = withClockAndReset(soc_clk, !soc_rst_reg_n) {
         Module(new MemoryControllerSim())
       }
-      memSim.io.spi_data_in := soc_qspi_data_in
+      memSim.io.qspiPins.dataIn := soc_qspi_data_in
       memSim.io.gpuRead <> i_peripherals.io.gpuRead
 
       val fast_sim_en = soc_ui_in(7)
@@ -127,11 +127,11 @@ trait SoCLogic { self: RawModule =>
         m.instrFetch.instr_addr         := i_tinyqv.io.instr_addr
         m.instrFetch.instr_fetch_restart := i_tinyqv.io.instr_fetch_restart
         m.instrFetch.instr_fetch_stall   := i_tinyqv.io.instr_fetch_stall
-        m.cpu_addr          := i_tinyqv.io.mem_addr
-        m.cpu_write_n       := i_tinyqv.io.mem_write_n
-        m.cpu_read_n        := i_tinyqv.io.mem_read_n
-        m.cpu_data_out      := i_tinyqv.io.mem_data_out
-        m.cpu_data_continue := i_tinyqv.io.mem_data_continue
+        m.cpuData.addr         := i_tinyqv.io.memBus.addr
+        m.cpuData.writeN       := i_tinyqv.io.memBus.writeN
+        m.cpuData.readN        := i_tinyqv.io.memBus.readN
+        m.cpuData.dataOut      := i_tinyqv.io.memBus.dataOut
+        m.cpuData.dataContinue := i_tinyqv.io.memBus.dataContinue
       }
 
       // Instruction fetch outputs MUXed: sim (fast) vs real (QSPI)
@@ -149,8 +149,8 @@ trait SoCLogic { self: RawModule =>
                          i_memReal.io.instrFetch.instr_ready)
 
       // Data always from real controller (QSPI PSRAM model)
-      i_tinyqv.io.mem_ready   := i_memReal.io.cpu_ready
-      i_tinyqv.io.mem_data_in := i_memReal.io.cpu_data_in
+      i_tinyqv.io.memBus.ready   := i_memReal.io.cpuData.ready
+      i_tinyqv.io.memBus.dataIn := i_memReal.io.cpuData.dataIn
 
       // GPU read responses MUXed by fast_sim_en (Step 19.2)
       // Note: req/addr are driven combinationally from peripherals above;
@@ -163,19 +163,19 @@ trait SoCLogic { self: RawModule =>
       i_memReal.io.instrFetch.instr_addr         := i_tinyqv.io.instr_addr
       i_memReal.io.instrFetch.instr_fetch_restart := i_tinyqv.io.instr_fetch_restart
       i_memReal.io.instrFetch.instr_fetch_stall   := i_tinyqv.io.instr_fetch_stall
-      i_memReal.io.cpu_addr          := i_tinyqv.io.mem_addr
-      i_memReal.io.cpu_write_n       := i_tinyqv.io.mem_write_n
-      i_memReal.io.cpu_read_n        := i_tinyqv.io.mem_read_n
-      i_memReal.io.cpu_data_out      := i_tinyqv.io.mem_data_out
-      i_memReal.io.cpu_data_continue := i_tinyqv.io.mem_data_continue
+      i_memReal.io.cpuData.addr         := i_tinyqv.io.memBus.addr
+      i_memReal.io.cpuData.writeN       := i_tinyqv.io.memBus.writeN
+      i_memReal.io.cpuData.readN        := i_tinyqv.io.memBus.readN
+      i_memReal.io.cpuData.dataOut      := i_tinyqv.io.memBus.dataOut
+      i_memReal.io.cpuData.dataContinue := i_tinyqv.io.memBus.dataContinue
 
       i_tinyqv.io.instr_fetch_started := i_memReal.io.instrFetch.instr_fetch_started
       i_tinyqv.io.instr_fetch_stopped := i_memReal.io.instrFetch.instr_fetch_stopped
       i_tinyqv.io.instr_data          := i_memReal.io.instrFetch.instr_data
       i_tinyqv.io.instr_ready         := i_memReal.io.instrFetch.instr_ready
 
-      i_tinyqv.io.mem_ready   := i_memReal.io.cpu_ready
-      i_tinyqv.io.mem_data_in := i_memReal.io.cpu_data_in
+      i_tinyqv.io.memBus.ready   := i_memReal.io.cpuData.ready
+      i_tinyqv.io.memBus.dataIn := i_memReal.io.cpuData.dataIn
 
       // GPU read responses from real controller (Step 19.2)
       i_peripherals.io.gpuRead.data  := i_memReal.io.gpuRead.data

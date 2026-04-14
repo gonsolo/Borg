@@ -112,8 +112,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     core.io.bus.is_writing := is_writing
     core.io.bus.is_reading := is_reading
     core.io.iter       := rast.io.shaderIter    // latched pre-advance position for coordLut
-    core.io.triggerShaderValid := rast.io.triggerCoreValid
-    core.io.triggerShaderPC    := rast.io.triggerCorePC
+    core.io.coreTrigger <> rast.io.coreTrigger
 
     core.io.controlStart     := rdlRegs.io.hw.control_start
     core.io.controlReset     := rdlRegs.io.hw.control_reset_pipeline
@@ -131,20 +130,17 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     rast.io.advance   := is_writing && io.address === BorgGpuRegs.iter_offset
 
     // Pipeline write-back snoop
-    rast.io.pipeWriteEn   := core.io.pipeWriteEn
-    rast.io.pipeWriteAddr := core.io.pipeWriteAddr
-    rast.io.pipeWriteData := core.io.pipeWriteData
+    rast.io.pipeWrite <> core.io.pipeWrite
 
     // Core state feedback
-    rast.io.coreRunning        := core.io.running
-    rast.io.coreAutoRunPending := core.io.autoRunPending
+    rast.io.coreStatus <> core.io.status
 
     // GPU read port wiring (Step 19.2)
     rast.io.gpuRead <> io.gpuRead
 
     // Texture configuration — hardcoded for Step 19.2; disabled until Step 20.2 firmware
-    rast.io.tex_base_addr := 0x51A0.U(16.W)
-    rast.io.tex_en        := false.B
+    rast.io.texConfig.baseAddr    := 0x51A0.U(16.W)
+    rast.io.texConfig.en          := false.B
   }
 
   private def wireTileBuffer(): Unit = {
@@ -163,15 +159,15 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     }
     
     val mmioTileWriteEn = is_writing && io.address === BorgGpuRegs.tile_rg_offset
-    tile.io.writeEn  := mmioTileWriteEn || rast.io.tileWriteEn
-    tile.io.writeIdx := Mux(rast.io.tileWriteEn, rast.io.tileWriteIdx, tileReadIdx)
+    tile.io.writeEn  := mmioTileWriteEn || rast.io.tileWrite.en
+    tile.io.writeIdx := Mux(rast.io.tileWrite.en, rast.io.tileWrite.idx, tileReadIdx)
     
     val writeColor = Wire(new ColorZ(16))
     writeColor.r := io.data_in(31, 16)
     writeColor.g := io.data_in(15, 0)
     writeColor.b := tileShadowB
     writeColor.z := tileShadowZ
-    tile.io.writeData := Mux(rast.io.tileWriteEn, rast.io.tileWriteData, writeColor)
+    tile.io.writeData := Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor)
 
     // Read port: trigger BRAM read when CTRL is written
     tile.io.readIdx := Mux(ctrlWriting, io.data_in(3, 0), tileReadIdx)
@@ -212,7 +208,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     rdlRegs.io.hw.tile_bz_z_in := 0.U
 
     val stsFifoFull = !fifo.io.enq.ready
-    rdlRegs.io.hw.status_idle := !core.io.running
+    rdlRegs.io.hw.status_idle := !core.io.status.running
     rdlRegs.io.hw.status_fifo_full := stsFifoFull
 
     // =========================================================================
@@ -229,7 +225,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     rdlRegs.io.hw.tex_addr_raw_v  := tex_y
 
     // Wire morton_index to rasterizer for sTexFetch (Step 19.2)
-    rast.io.morton_index := morton_index
+    rast.io.texConfig.mortonIndex := morton_index
 
     val rdl_read_data = rdlRegs.io.bus.readData
     io.data_out := MuxCase(rdl_read_data, Seq(

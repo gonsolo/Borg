@@ -77,10 +77,10 @@ class MemoryControllerSim extends Module {
   dontTouch(psram_write_active)  // Keep alive for C++ write tracking
   val psram_read_data    = RegInit(0.U(32.W))
 
-  val is_psram_addr = io.cpu_addr(24, 23) === 2.U
+  val is_psram_addr = io.cpuData.addr(24, 23) === 2.U
 
   // Isolated read ports to avoid FIRRTL synchronous-memory trapping
-  val psram_addr_wire = io.cpu_addr(22, 0)
+  val psram_addr_wire = io.cpuData.addr(22, 0)
   val r0 = sim_psram_ext(psram_addr_wire)
   val r1 = sim_psram_ext(psram_addr_wire + 1.U)
   val r2 = sim_psram_ext(psram_addr_wire + 2.U)
@@ -88,21 +88,21 @@ class MemoryControllerSim extends Module {
 
   // Capture memory value on cycle 2 to compensate for inferred clock enable
   val read_latch = RegNext(
-    io.cpu_read_n =/= 3.U && !psram_read_active && is_psram_addr, false.B
+    io.cpuData.readN =/= 3.U && !psram_read_active && is_psram_addr, false.B
   )
   when(read_latch) { psram_read_data := Cat(r3, r2, r1, r0) }
 
-  when(io.cpu_read_n =/= 3.U && !psram_read_active && is_psram_addr) {
+  when(io.cpuData.readN =/= 3.U && !psram_read_active && is_psram_addr) {
     psram_read_active := true.B
-  } .elsewhen(io.cpu_write_n =/= 3.U && !psram_write_active && is_psram_addr) {
+  } .elsewhen(io.cpuData.writeN =/= 3.U && !psram_write_active && is_psram_addr) {
     psram_write_active := true.B
-    val w_addr = io.cpu_addr(22, 0)
-    val w_data = io.cpu_data_out
-    when(io.cpu_write_n === 2.U) {  // Word
+    val w_addr = io.cpuData.addr(22, 0)
+    val w_data = io.cpuData.dataOut
+    when(io.cpuData.writeN === 2.U) {  // Word
       sim_psram_ext(w_addr + 2.U) := w_data(23, 16)
       sim_psram_ext(w_addr + 3.U) := w_data(31, 24)
     }
-    when(io.cpu_write_n === 1.U || io.cpu_write_n === 2.U) {  // Halfword or Word
+    when(io.cpuData.writeN === 1.U || io.cpuData.writeN === 2.U) {  // Halfword or Word
       sim_psram_ext(w_addr + 1.U) := w_data(15, 8)
     }
     // Byte, Halfword, Word all write byte 0
@@ -110,11 +110,11 @@ class MemoryControllerSim extends Module {
   }
 
   // Clear active flags once the CPU drops the request
-  when(psram_read_active  && io.cpu_read_n  === 3.U) { psram_read_active  := false.B }
-  when(psram_write_active && io.cpu_write_n === 3.U) { psram_write_active := false.B }
+  when(psram_read_active  && io.cpuData.readN  === 3.U) { psram_read_active  := false.B }
+  when(psram_write_active && io.cpuData.writeN === 3.U) { psram_write_active := false.B }
 
-  io.cpu_ready   := psram_read_active || psram_write_active
-  io.cpu_data_in := psram_read_data
+  io.cpuData.ready   := psram_read_active || psram_write_active
+  io.cpuData.dataIn := psram_read_data
 
   // ---------------------------------------------------------------------------
   // GPU Read Port — fast bypass (Step 19.2)
@@ -146,12 +146,12 @@ class MemoryControllerSim extends Module {
   // ---------------------------------------------------------------------------
   // SPI outputs — tied off; fast sim bypasses QSPI entirely
   // ---------------------------------------------------------------------------
-  io.spi_data_out     := 0.U
-  io.spi_data_oe      := 0.U
-  io.spi_clk_out      := false.B
-  io.spi_flash_select := false.B
-  io.spi_ram_a_select := false.B
-  io.spi_ram_b_select := false.B
+  io.qspiPins.dataOut     := 0.U
+  io.qspiPins.dataOe      := 0.U
+  io.qspiPins.clkOut      := false.B
+  io.qspiPins.flashSelect := false.B
+  io.qspiPins.ramASelect  := false.B
+  io.qspiPins.ramBSelect  := false.B
 
   io.debug_stall_txn := false.B
   io.debug_stop_txn  := false.B

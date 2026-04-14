@@ -22,8 +22,7 @@ class BorgCoreIO(val config: FloatConfig) extends Bundle {
 
   // Rasterizer interface
   val iter               = Input(new Coord())
-  val triggerShaderValid = Input(Bool())        // pulse from rasterizer: trigger shader
-  val triggerShaderPC    = Input(UInt(6.W))      // PC to start at
+  val coreTrigger       = Flipped(new CoreTriggerIO)  // pulse from rasterizer: trigger shader
   val uniformPage        = Input(UInt(1.W))      // which 32-entry uniform page the GPU reads from
   val uniformWritePage   = Input(UInt(1.W))      // which 32-entry page MMIO writes target
 
@@ -39,13 +38,10 @@ class BorgCoreIO(val config: FloatConfig) extends Bundle {
   val coordWriteData  = Input(UInt(config.totalBits.W))
 
   // Pipeline write-back snoop (exposed to rasterizer)
-  val pipeWriteEn   = Output(Bool())
-  val pipeWriteAddr = Output(UInt(log2Ceil(32).W))
-  val pipeWriteData = Output(UInt(config.totalBits.W))
+  val pipeWrite = new PipeWriteIO(config.totalBits)
 
   // Status outputs (exposed to rasterizer and top-level read mux)
-  val running        = Output(Bool())
-  val autoRunPending = Output(Bool())
+  val status = new CoreStatusIO
 
   // MMIO register read data (for top-level read mux)
   val regReadData = Output(UInt(config.totalBits.W))
@@ -144,8 +140,8 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     is_fstep_reg, is_frcp_reg, mmio_reg_data)
 
   // --- Status outputs ---
-  io.running := running
-  io.autoRunPending := auto_run_pending
+  io.status.running := running
+  io.status.autoRunPending := auto_run_pending
   io.regReadData := mmio_reg_data
   // @doc:end
 
@@ -200,8 +196,8 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
     }
 
     // Auto-trigger from rasterizer (Step 10.6.2: carries PC)
-    when(io.triggerShaderValid) {
-      programCounter := io.triggerShaderPC
+    when(io.coreTrigger.valid) {
+      programCounter := io.coreTrigger.pc
       auto_run_pending := true.B
       running_by_rasterizer := true.B
     }
@@ -402,9 +398,9 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
       io.bus.data_in(config.totalBits - 1, 0))
 
     // Expose write-back for rasterizer snooping
-    io.pipeWriteEn   := pipe_write
-    io.pipeWriteAddr := w_addr
-    io.pipeWriteData := w_data
+    io.pipeWrite.en   := pipe_write
+    io.pipeWrite.addr := w_addr
+    io.pipeWrite.data := w_data
 
     writeAllCopies(w_addr, w_en, w_data)
   }

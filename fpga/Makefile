@@ -55,8 +55,14 @@ borg.bin: borg.asc
 
 # Burn to FPGA
 .burned: borg.bin ../out/hardware/borg/rdl/borg_mmio.py
+	@-umount /dev/sda 2>/dev/null; true
 	mpremote cp ../out/hardware/borg/rdl/borg_mmio.py :borg_mmio.py
-	mpremote mount . + run host/program_bitstream.py
+	@for attempt in 1 2; do \
+		echo "[BURN] Attempt $$attempt ..."; \
+		mpremote mount . + run host/program_bitstream.py && break; \
+		echo "[BURN] Failed — waiting 3s for USB recovery ..."; \
+		sleep 3; \
+	done
 	@touch .burned
 
 burn: .burned
@@ -102,6 +108,7 @@ print_resources: yosys.log
 
 # Build firmware and run triangle rendering
 triangle: .burned
+	@sleep 2
 	@$(MAKE) --no-print-directory -s -C ../software/borg triangle
 	@mkdir -p firmware_cache
 	@cp ../software/borg/triangle.bin ../software/borg/test_texture.dat firmware_cache/
@@ -109,6 +116,7 @@ triangle: .burned
 
 # Build firmware and run vkcube rendering
 vkcube: .burned
+	@sleep 2
 	@$(MAKE) --no-print-directory -s -C ../software/borg vkcube
 	@mkdir -p firmware_cache
 	@cp ../software/borg/vkcube.bin ../software/borg/borg_texture.dat firmware_cache/

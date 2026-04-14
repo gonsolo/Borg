@@ -6,7 +6,7 @@ package soc
 
 import chisel3._
 import chisel3.util._
-import tinyqv.cpu.{InstrFetchIO, QspiController}
+import tinyqv.cpu.{InstrFetchIO, MemBusIO, QspiController}
 import borg.GpuReadIO
 
 /** IO bundle for the SoC-level memory controller.
@@ -21,26 +21,14 @@ class MemoryControllerIO extends Bundle {
   val instrFetch = Flipped(new InstrFetchIO)
 
   // CPU data bus (QSPI region: addr[27:25] == 0 on the TinyQV side)
-  val cpu_addr          = Input(UInt(25.W))
-  val cpu_write_n       = Input(UInt(2.W))
-  val cpu_read_n        = Input(UInt(2.W))
-  val cpu_data_out      = Input(UInt(32.W))
-  val cpu_data_continue = Input(Bool())
-  val cpu_ready         = Output(Bool())
-  val cpu_data_in       = Output(UInt(32.W))
+  val cpuData = Flipped(new MemBusIO)
 
   // GPU read port (slave end — Flipped so Output/Input directions are from the GPU master's view)
   val gpuRead = Flipped(new GpuReadIO)
 
   // SPI/QSPI pins — MemoryController is the sole owner of the physical bus;
   // neither TinyQV nor Borg have any knowledge of QSPI.
-  val spi_data_in      = Input(UInt(4.W))
-  val spi_data_out     = Output(UInt(4.W))
-  val spi_data_oe      = Output(UInt(4.W))
-  val spi_clk_out      = Output(Bool())
-  val spi_flash_select = Output(Bool())
-  val spi_ram_a_select = Output(Bool())
-  val spi_ram_b_select = Output(Bool())
+  val qspiPins = new QspiPinsIO
 
   val debug_stall_txn = Output(Bool())
   val debug_stop_txn  = Output(Bool())
@@ -81,7 +69,7 @@ class MemoryController extends Module {
   val stop_txn    = Wire(Bool())
   val data_ready  = Wire(Bool())
 
-  val data_txn_n = io.cpu_write_n & io.cpu_read_n
+  val data_txn_n = io.cpuData.writeN & io.cpuData.readN
 
   val qspi_busy       = Wire(Bool())
   val qspi_data_req   = Wire(Bool())
@@ -97,7 +85,7 @@ class MemoryController extends Module {
     Mux(
       is_instr,
       Cat(0.U(1.W), io.instrFetch.instr_addr, 0.U(1.W)),
-      io.cpu_addr(24, 0)
+      io.cpuData.addr(24, 0)
     )
   )
 
@@ -131,9 +119,9 @@ class MemoryController extends Module {
       stop_txn := true.B
     }
   } .otherwise {
-    when(io.cpu_read_n =/= 3.U) {
+    when(io.cpuData.readN =/= 3.U) {
       start_read := true.B
-    } .elsewhen(io.cpu_write_n =/= 3.U) {
+    } .elsewhen(io.cpuData.writeN =/= 3.U) {
       start_write := true.B
     } .elsewhen(io.gpuRead.req) {
       start_gpu_read := true.B
@@ -160,11 +148,11 @@ class MemoryController extends Module {
 
   when(qspi_data_ready) {
     qspi_data_buf(qspi_data_byte_idx) := qspi_data_out
-  } .elsewhen(io.cpu_write_n =/= 3.U && (data_stall || start_write)) {
-    qspi_data_buf(0) := io.cpu_data_out(7, 0)
-    qspi_data_buf(1) := io.cpu_data_out(15, 8)
-    qspi_data_buf(2) := io.cpu_data_out(23, 16)
-    qspi_data_buf(3) := io.cpu_data_out(31, 24)
+  } .elsewhen(io.cpuData.writeN =/= 3.U && (data_stall || start_write)) {
+    qspi_data_buf(0) := io.cpuData.dataOut(7, 0)
+    qspi_data_buf(1) := io.cpuData.dataOut(15, 8)
+    qspi_data_buf(2) := io.cpuData.dataOut(23, 16)
+    qspi_data_buf(3) := io.cpuData.dataOut(31, 24)
   }
 
   qspi_write_done := qspi_data_req && qspi_data_byte_idx === data_txn_len
@@ -184,29 +172,29 @@ class MemoryController extends Module {
     } .elsewhen(
       data_stall &&
       qspi_data_byte_idx === 0.U &&
-      ((io.cpu_read_n =/= 3.U && !data_ready) || io.cpu_write_n =/= 3.U)
+      ((io.cpuData.readN =/= 3.U && !data_ready) || io.cpuData.writeN =/= 3.U)
     ) {
       data_stall   := false.B
-      continue_txn := io.cpu_data_continue
+      continue_txn := io.cpuData.dataContinue
     }
   } .otherwise {
     data_stall := false.B
     when(start_gpu_read) {
       continue_txn := false.B
     } .elsewhen(start_write || start_read) {
-      continue_txn := io.cpu_data_continue
+      continue_txn := io.cpuData.dataContinue
     }
   }
 
   // QspiController instantiation
   val q_ctrl = Module(new QspiController())
-  q_ctrl.io.spi_data_in   := io.spi_data_in
-  io.spi_data_out         := q_ctrl.io.spi_data_out
-  io.spi_data_oe          := q_ctrl.io.spi_data_oe
-  io.spi_clk_out          := q_ctrl.io.spi_clk_out
-  io.spi_flash_select     := q_ctrl.io.spi_flash_select
-  io.spi_ram_a_select     := q_ctrl.io.spi_ram_a_select
-  io.spi_ram_b_select     := q_ctrl.io.spi_ram_b_select
+  q_ctrl.io.spi_data_in   := io.qspiPins.dataIn
+  io.qspiPins.dataOut     := q_ctrl.io.spi_data_out
+  io.qspiPins.dataOe      := q_ctrl.io.spi_data_oe
+  io.qspiPins.clkOut      := q_ctrl.io.spi_clk_out
+  io.qspiPins.flashSelect := q_ctrl.io.spi_flash_select
+  io.qspiPins.ramASelect  := q_ctrl.io.spi_ram_a_select
+  io.qspiPins.ramBSelect  := q_ctrl.io.spi_ram_b_select
 
   q_ctrl.io.addr_in    := addr_in
   q_ctrl.io.data_in    := qspi_data_buf(
@@ -232,11 +220,11 @@ class MemoryController extends Module {
   // CPU Data Bus Outputs
   data_ready := !instr_active && !gpu_active && (
     (qspi_data_ready && qspi_data_byte_idx === data_txn_len) ||
-    (io.cpu_write_n =/= 3.U &&
+    (io.cpuData.writeN =/= 3.U &&
       ((data_stall && qspi_data_byte_idx === 0.U) || start_write))
   )
-  io.cpu_ready   := data_ready
-  io.cpu_data_in := Mux(
+  io.cpuData.ready   := data_ready
+  io.cpuData.dataIn := Mux(
     data_ready,
     Cat(
       qspi_data_out,

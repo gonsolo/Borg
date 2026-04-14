@@ -7,7 +7,28 @@ package tinyqv.cpu
 import chisel3._
 import chisel3.util._
 
-class tinyQVIO extends Bundle {
+/** CPU → MemoryController PSRAM data bus (from CPU master's perspective).
+  * Use Flipped() at the memory controller (slave) end.
+  *
+  * addr(25.W)         — byte address within QSPI region
+  * writeN(2.W)        — 11=idle, 10=word, 01=half, 00=byte
+  * readN(2.W)         — same encoding
+  * dataOut(32.W)      — write data from CPU
+  * dataContinue       — burst continuation flag
+  * ready              — response: transaction complete
+  * dataIn(32.W)       — read data to CPU
+  */
+class MemBusIO extends Bundle {
+  val addr         = Output(UInt(25.W))
+  val writeN       = Output(UInt(2.W))
+  val readN        = Output(UInt(2.W))
+  val dataOut      = Output(UInt(32.W))
+  val dataContinue = Output(Bool())
+  val ready        = Input(Bool())
+  val dataIn       = Input(UInt(32.W))
+}
+
+class TinyQVIO extends Bundle {
   // ---------------------------------------------------------------------------
   // MMIO peripheral bus — external SoC peripherals (addr[27:25] != 0)
   // ---------------------------------------------------------------------------
@@ -36,13 +57,7 @@ class tinyQVIO extends Bundle {
   // ---------------------------------------------------------------------------
   // Memory data bus — QSPI region (addr[27:25] == 0); wired to MemoryController
   // ---------------------------------------------------------------------------
-  val mem_addr          = Output(UInt(25.W))
-  val mem_write_n       = Output(UInt(2.W))
-  val mem_read_n        = Output(UInt(2.W))
-  val mem_data_out      = Output(UInt(32.W))
-  val mem_data_continue = Output(Bool())
-  val mem_ready         = Input(Bool())
-  val mem_data_in       = Input(UInt(32.W))
+  val memBus = new MemBusIO
 
   // ---------------------------------------------------------------------------
   // Debug signals
@@ -115,7 +130,7 @@ class TinyQVCpuIO extends Bundle {
   */
 class TinyQV(val programFile: String = "") extends Module {
 
-  val io = FlatIO(new tinyQVIO)
+  val io = FlatIO(new TinyQVIO)
 
   // Synchronized reset — delays release by one clock cycle
   val rst_reg_n = RegNext(true.B, false.B)
@@ -144,11 +159,11 @@ class TinyQV(val programFile: String = "") extends Module {
   // ---------------------------------------------------------------------------
   // Memory data bus (QSPI region → MemoryController)
   // ---------------------------------------------------------------------------
-  io.mem_addr          := cpu.io.data_addr(24, 0)
-  io.mem_write_n       := Mux(is_mem, cpu.io.data_write_n, 3.U(2.W))
-  io.mem_read_n        := Mux(is_mem, cpu.io.data_read_n,  3.U(2.W))
-  io.mem_data_out      := cpu.io.data_out
-  io.mem_data_continue := cpu.io.data_continue
+  io.memBus.addr         := cpu.io.data_addr(24, 0)
+  io.memBus.writeN       := Mux(is_mem, cpu.io.data_write_n, 3.U(2.W))
+  io.memBus.readN        := Mux(is_mem, cpu.io.data_read_n,  3.U(2.W))
+  io.memBus.dataOut      := cpu.io.data_out
+  io.memBus.dataContinue := cpu.io.data_continue
 
   // ---------------------------------------------------------------------------
   // MMIO peripheral bus (SoCLogic-facing)
@@ -160,8 +175,8 @@ class TinyQV(val programFile: String = "") extends Module {
   io.data_out           := cpu.io.data_out
 
   // Data mux back to CPU
-  cpu.io.data_ready := Mux(is_mem, io.mem_ready,   io.data_ready)
-  cpu.io.data_in    := Mux(is_mem, io.mem_data_in, io.data_in)
+  cpu.io.data_ready := Mux(is_mem, io.memBus.ready,   io.data_ready)
+  cpu.io.data_in    := Mux(is_mem, io.memBus.dataIn, io.data_in)
 
   // Other CPU inputs
   cpu.io.interrupt_req := io.interrupt_req
@@ -174,7 +189,7 @@ class TinyQV(val programFile: String = "") extends Module {
   io.debug_instr_ready       := io.instr_ready
   io.debug_instr_valid       := cpu.io.debug_instr_valid
   io.debug_fetch_restart     := cpu.io.instrFetch.instr_fetch_restart
-  io.debug_data_ready        := Mux(is_mem, io.mem_ready, io.data_ready)
+  io.debug_data_ready        := Mux(is_mem, io.memBus.ready, io.data_ready)
   io.debug_interrupt_pending := cpu.io.debug_interrupt_pending
   io.debug_branch            := cpu.io.debug_branch
   io.debug_early_branch      := cpu.io.debug_early_branch

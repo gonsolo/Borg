@@ -22,17 +22,17 @@ object BorgRasterizerTests extends TestSuite {
   def pokeIdle(rast: BorgRasterizer): Unit = {
     rast.io.cmdPop.valid.poke(false.B)
     rast.io.advance.poke(false.B)
-    rast.io.pipeWriteEn.poke(false.B)
-    rast.io.pipeWriteAddr.poke(0.U)
-    rast.io.pipeWriteData.poke(0.U)
-    rast.io.coreRunning.poke(false.B)
-    rast.io.coreAutoRunPending.poke(false.B)
+    rast.io.pipeWrite.en.poke(false.B)
+    rast.io.pipeWrite.addr.poke(0.U)
+    rast.io.pipeWrite.data.poke(0.U)
+    rast.io.coreStatus.running.poke(false.B)
+    rast.io.coreStatus.autoRunPending.poke(false.B)
     // Step 19.2 GPU read-port defaults
     rast.io.gpuRead.data.poke(0.U)
     rast.io.gpuRead.ready.poke(false.B)
-    rast.io.morton_index.poke(0.U)
-    rast.io.tex_base_addr.poke(0.U)
-    rast.io.tex_en.poke(false.B)
+    rast.io.texConfig.mortonIndex.poke(0.U)
+    rast.io.texConfig.baseAddr.poke(0.U)
+    rast.io.texConfig.en.poke(false.B)
   }
 
   /** Command the rasterizer with bbox and pc via cmdPop. */
@@ -60,21 +60,21 @@ object BorgRasterizerTests extends TestSuite {
     // After advance, the core would be running (triggered by triggerCoreValid),
     // so hold coreRunning=true to keep auto_run_stall alive.
     rast.io.advance.poke(false.B)
-    rast.io.coreRunning.poke(true.B)
+    rast.io.coreStatus.running.poke(true.B)
     rast.clock.step(1)
     // Then core finishes
-    rast.io.coreRunning.poke(false.B)
+    rast.io.coreStatus.running.poke(false.B)
     rast.clock.step(1)
   }
 
   /** Simulate a complete shader execution: auto_run_pending → running → halt. */
   def simulateShaderRun(rast: BorgRasterizer, cycles: Int = 3): Unit = {
-    rast.io.coreAutoRunPending.poke(true.B)
+    rast.io.coreStatus.autoRunPending.poke(true.B)
     rast.clock.step(1)
-    rast.io.coreAutoRunPending.poke(false.B)
-    rast.io.coreRunning.poke(true.B)
+    rast.io.coreStatus.autoRunPending.poke(false.B)
+    rast.io.coreStatus.running.poke(true.B)
     rast.clock.step(cycles)
-    rast.io.coreRunning.poke(false.B)
+    rast.io.coreStatus.running.poke(false.B)
     rast.clock.step(1)
   }
 
@@ -160,44 +160,44 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.advance.poke(false.B)
 
         // Write a negative (outside) value to edge 0: -1.0 FP16 = 0xBC00
-        rast.io.pipeWriteEn.poke(true.B)
-        rast.io.pipeWriteAddr.poke(0.U)
-        rast.io.pipeWriteData.poke(0xBC00.U)
+        rast.io.pipeWrite.en.poke(true.B)
+        rast.io.pipeWrite.addr.poke(0.U)
+        rast.io.pipeWrite.data.poke(0xBC00.U)
         rast.clock.step(1)
-        rast.io.pipeWriteEn.poke(false.B)
+        rast.io.pipeWrite.en.poke(false.B)
         rast.clock.step(1)
 
         utest.assert(!rast.io.insideFlag.peek().litToBoolean)
         println("  After e0=-1.0: insideFlag=false ✓")
 
         // Write a positive (inside) value to edge 0: +1.0 FP16 = 0x3C00
-        rast.io.pipeWriteEn.poke(true.B)
-        rast.io.pipeWriteAddr.poke(0.U)
-        rast.io.pipeWriteData.poke(0x3C00.U)
+        rast.io.pipeWrite.en.poke(true.B)
+        rast.io.pipeWrite.addr.poke(0.U)
+        rast.io.pipeWrite.data.poke(0x3C00.U)
         rast.clock.step(1)
-        rast.io.pipeWriteEn.poke(false.B)
+        rast.io.pipeWrite.en.poke(false.B)
         rast.clock.step(1)
 
         utest.assert(rast.io.insideFlag.peek().litToBoolean)
         println("  After e0=+1.0: insideFlag=true ✓")
 
         // Write negative to edge 1
-        rast.io.pipeWriteEn.poke(true.B)
-        rast.io.pipeWriteAddr.poke(1.U)
-        rast.io.pipeWriteData.poke(0xC000.U)  // -2.0
+        rast.io.pipeWrite.en.poke(true.B)
+        rast.io.pipeWrite.addr.poke(1.U)
+        rast.io.pipeWrite.data.poke(0xC000.U)  // -2.0
         rast.clock.step(1)
-        rast.io.pipeWriteEn.poke(false.B)
+        rast.io.pipeWrite.en.poke(false.B)
         rast.clock.step(1)
 
         utest.assert(!rast.io.insideFlag.peek().litToBoolean)
         println("  After e1=-2.0: insideFlag=false ✓")
 
         // Zero should count as inside (sign=0, magnitude=0 → not outside)
-        rast.io.pipeWriteEn.poke(true.B)
-        rast.io.pipeWriteAddr.poke(1.U)
-        rast.io.pipeWriteData.poke(0.U)
+        rast.io.pipeWrite.en.poke(true.B)
+        rast.io.pipeWrite.addr.poke(1.U)
+        rast.io.pipeWrite.data.poke(0.U)
         rast.clock.step(1)
-        rast.io.pipeWriteEn.poke(false.B)
+        rast.io.pipeWrite.en.poke(false.B)
         rast.clock.step(1)
 
         utest.assert(rast.io.insideFlag.peek().litToBoolean)
@@ -222,18 +222,18 @@ object BorgRasterizerTests extends TestSuite {
         // Don't step yet — check triggerCoreValid is combinationally high during advance
         rast.clock.step(1)
 
-        val triggered = rast.io.triggerCoreValid.peek().litToBoolean
-        println(f"  During advance: triggerCoreValid=$triggered")
+        val triggered = rast.io.coreTrigger.valid.peek().litToBoolean
+        println(f"  During advance: coreTrigger.valid=$triggered")
         utest.assert(triggered)
 
         // Now simulate: advance done, core starts running (auto_run_pending→running)
         rast.io.advance.poke(false.B)
-        rast.io.coreAutoRunPending.poke(true.B)
+        rast.io.coreStatus.autoRunPending.poke(true.B)
         rast.clock.step(1)
 
         // Core is now running
-        rast.io.coreAutoRunPending.poke(false.B)
-        rast.io.coreRunning.poke(true.B)
+        rast.io.coreStatus.autoRunPending.poke(false.B)
+        rast.io.coreStatus.running.poke(true.B)
 
         val stalled = rast.io.autoRunStall.peek().litToBoolean
         println(f"  While core running: autoRunStall=$stalled")
@@ -243,7 +243,7 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(5)
 
         // Core halts
-        rast.io.coreRunning.poke(false.B)
+        rast.io.coreStatus.running.poke(false.B)
         rast.clock.step(1)
 
         val clearedStall = !rast.io.autoRunStall.peek().litToBoolean
@@ -271,17 +271,17 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(1)
 
         // Set edge 0 to outside (negative sign)
-        rast.io.pipeWriteEn.poke(true.B)
-        rast.io.pipeWriteAddr.poke(0.U)
-        rast.io.pipeWriteData.poke(0xBC00.U)  // -1.0
+        rast.io.pipeWrite.en.poke(true.B)
+        rast.io.pipeWrite.addr.poke(0.U)
+        rast.io.pipeWrite.data.poke(0xBC00.U)  // -1.0
         rast.clock.step(1)
-        rast.io.pipeWriteEn.poke(false.B)
+        rast.io.pipeWrite.en.poke(false.B)
         rast.clock.step(1)
         utest.assert(!rast.io.insideFlag.peek().litToBoolean)
 
         // Check: triggerCoreValid fired with PC=0
-        val trigPC = rast.io.triggerCorePC.peek().litValue.toInt
-        println(f"  Advance: triggerCorePC=$trigPC (expect 0)")
+        val trigPC = rast.io.coreTrigger.pc.peek().litValue.toInt
+        println(f"  Advance: coreTrigger.pc=$trigPC (expect 0)")
         utest.assert(trigPC == 0)
 
         // Simulate rast shader running and finishing
@@ -291,8 +291,8 @@ object BorgRasterizerTests extends TestSuite {
         // After rast completes for an outside pixel: stall should be cleared,
         // and NO second trigger should fire (frag skipped)
         val stall = rast.io.autoRunStall.peek().litToBoolean
-        val trig = rast.io.triggerCoreValid.peek().litToBoolean
-        println(f"  After rast done (outside): stall=$stall, triggerCoreValid=$trig")
+        val trig = rast.io.coreTrigger.valid.peek().litToBoolean
+        println(f"  After rast done (outside): stall=$stall, coreTrigger.valid=$trig")
         utest.assert(!stall)
         println("  PASSED")
       }
@@ -315,28 +315,28 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.advance.poke(false.B)
 
         // Simulate rast shader running
-        rast.io.coreAutoRunPending.poke(true.B)
+        rast.io.coreStatus.autoRunPending.poke(true.B)
         rast.clock.step(1)
-        rast.io.coreAutoRunPending.poke(false.B)
-        rast.io.coreRunning.poke(true.B)
+        rast.io.coreStatus.autoRunPending.poke(false.B)
+        rast.io.coreStatus.running.poke(true.B)
 
         // --- DURING CORE RUNNING, WRITE EDGES ---
         for (i <- 0 until 3) {
-          rast.io.pipeWriteEn.poke(true.B)
-          rast.io.pipeWriteAddr.poke(i.U)
-          rast.io.pipeWriteData.poke(0x3C00.U)  // +1.0
+          rast.io.pipeWrite.en.poke(true.B)
+          rast.io.pipeWrite.addr.poke(i.U)
+          rast.io.pipeWrite.data.poke(0x3C00.U)  // +1.0
           rast.clock.step(1)
         }
-        rast.io.pipeWriteEn.poke(false.B)
+        rast.io.pipeWrite.en.poke(false.B)
 
         utest.assert(rast.io.insideFlag.peek().litToBoolean)
         
         rast.clock.step(1)
-        rast.io.coreRunning.poke(false.B)
+        rast.io.coreStatus.running.poke(false.B)
 
         // Read combinatorial values BEFORE clock ticks
-        val trigValid = rast.io.triggerCoreValid.peek().litToBoolean
-        val trigPC = rast.io.triggerCorePC.peek().litValue.toInt
+        val trigValid = rast.io.coreTrigger.valid.peek().litToBoolean
+        val trigPC = rast.io.coreTrigger.pc.peek().litValue.toInt
         val in = rast.io.insideFlag.peek().litToBoolean
 
         rast.clock.step(1)
@@ -381,41 +381,41 @@ object BorgRasterizerTests extends TestSuite {
         val gpuWord1   = 0x4200                               // B in [15:0]
 
         // Enable texturing
-        rast.io.tex_base_addr.poke(texBase.U)
-        rast.io.morton_index.poke(mortonIdx.U)
-        rast.io.tex_en.poke(true.B)
+        rast.io.texConfig.baseAddr.poke(texBase.U)
+        rast.io.texConfig.mortonIndex.poke(mortonIdx.U)
+        rast.io.texConfig.en.poke(true.B)
 
         // Set up a bbox command with a non-zero fragPC
         setCommand(rast, 0, 0, 4, 4, 13)
 
         // Advance → sRast
         pokeIdle(rast)
-        rast.io.tex_base_addr.poke(texBase.U)
-        rast.io.morton_index.poke(mortonIdx.U)
-        rast.io.tex_en.poke(true.B)
+        rast.io.texConfig.baseAddr.poke(texBase.U)
+        rast.io.texConfig.mortonIndex.poke(mortonIdx.U)
+        rast.io.texConfig.en.poke(true.B)
         rast.io.advance.poke(true.B)
         rast.clock.step(1)
         rast.io.advance.poke(false.B)
 
         // Simulate rast shader — write all edges inside (+1.0)
-        rast.io.coreAutoRunPending.poke(true.B)
+        rast.io.coreStatus.autoRunPending.poke(true.B)
         rast.clock.step(1)
-        rast.io.coreAutoRunPending.poke(false.B)
-        rast.io.coreRunning.poke(true.B)
+        rast.io.coreStatus.autoRunPending.poke(false.B)
+        rast.io.coreStatus.running.poke(true.B)
         for (i <- 0 until 3) {
-          rast.io.pipeWriteEn.poke(true.B)
-          rast.io.pipeWriteAddr.poke(i.U)
-          rast.io.pipeWriteData.poke(0x3C00.U)  // +1.0 FP16
+          rast.io.pipeWrite.en.poke(true.B)
+          rast.io.pipeWrite.addr.poke(i.U)
+          rast.io.pipeWrite.data.poke(0x3C00.U)  // +1.0 FP16
           rast.clock.step(1)
         }
-        rast.io.pipeWriteEn.poke(false.B)
+        rast.io.pipeWrite.en.poke(false.B)
         rast.clock.step(1)
-        rast.io.coreRunning.poke(false.B)
+        rast.io.coreStatus.running.poke(false.B)
 
         // Read triggerCoreValid before the clock edge — should fire for sFrag
-        val trigFrag = rast.io.triggerCoreValid.peek().litToBoolean
-        val trigPC   = rast.io.triggerCorePC.peek().litValue.toInt
-        println(f"  After rast: triggerCoreValid=$trigFrag, triggerCorePC=$trigPC (expect 13)")
+        val trigFrag = rast.io.coreTrigger.valid.peek().litToBoolean
+        val trigPC   = rast.io.coreTrigger.pc.peek().litValue.toInt
+        println(f"  After rast: coreTrigger.valid=$trigFrag, coreTrigger.pc=$trigPC (expect 13)")
         utest.assert(trigFrag)
         utest.assert(trigPC == 13)
         rast.clock.step(1)
@@ -456,8 +456,8 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.gpuRead.ready.poke(false.B)
 
         // FSM is now in sTileWrite — tileWriteEn combinationally asserted (before next edge)
-        val tileWr = rast.io.tileWriteEn.peek().litToBoolean
-        println(f"  sTileWrite: tileWriteEn=$tileWr")
+        val tileWr = rast.io.tileWrite.en.peek().litToBoolean
+        println(f"  sTileWrite: tileWrite.en=$tileWr")
         utest.assert(tileWr)
 
         // Clock through sTileWrite → sIdle; stall is cleared
@@ -488,31 +488,31 @@ object BorgRasterizerTests extends TestSuite {
 
         // Set all edges inside (positive sign)
         for (i <- 0 until 3) {
-          rast.io.pipeWriteEn.poke(true.B)
-          rast.io.pipeWriteAddr.poke(i.U)
-          rast.io.pipeWriteData.poke(0x3C00.U)  // +1.0
+          rast.io.pipeWrite.en.poke(true.B)
+          rast.io.pipeWrite.addr.poke(i.U)
+          rast.io.pipeWrite.data.poke(0x3C00.U)  // +1.0
           rast.clock.step(1)
         }
-        rast.io.pipeWriteEn.poke(false.B)
+        rast.io.pipeWrite.en.poke(false.B)
         rast.clock.step(1)
 
         // Simulate rast shader manually
-        rast.io.coreAutoRunPending.poke(true.B)
+        rast.io.coreStatus.autoRunPending.poke(true.B)
         rast.clock.step(1)
-        rast.io.coreAutoRunPending.poke(false.B)
-        rast.io.coreRunning.poke(true.B)
+        rast.io.coreStatus.autoRunPending.poke(false.B)
+        rast.io.coreStatus.running.poke(true.B)
         rast.clock.step(3)
 
         // Ready to finish
-        rast.io.coreRunning.poke(false.B)
+        rast.io.coreStatus.running.poke(false.B)
         // Check state before clock edge!
-        val tv = rast.io.triggerCoreValid.peek().litToBoolean
-        val tp = rast.io.triggerCorePC.peek().litValue
+        val tv = rast.io.coreTrigger.valid.peek().litToBoolean
+        val tp = rast.io.coreTrigger.pc.peek().litValue
         val in = rast.io.insideFlag.peek().litToBoolean
 
         rast.clock.step(1)
         val stall = rast.io.autoRunStall.peek().litToBoolean
-        val tv_after = rast.io.triggerCoreValid.peek().litToBoolean
+        val tv_after = rast.io.coreTrigger.valid.peek().litToBoolean
         utest.assert(!stall)
         println("  PASSED")
       }

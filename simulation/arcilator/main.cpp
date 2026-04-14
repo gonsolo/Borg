@@ -1,5 +1,36 @@
 #include "../common/common_sim.h"
 #include "arc.h"
+#include <fstream>
+#include <sstream>
+
+// Parse state.json to find the byte offset of a memory whose name contains |pattern|.
+// Returns -1 if not found.
+static int find_memory_offset(const std::string& pattern) {
+    std::ifstream f("state.json");
+    if (!f) return -1;
+    std::string line;
+    int last_offset = -1;
+    bool in_name = false;
+    while (std::getline(f, line)) {
+        // Look for "name" lines containing the pattern
+        auto np = line.find("\"name\"");
+        if (np != std::string::npos && line.find(pattern) != std::string::npos) {
+            in_name = true;
+            continue;
+        }
+        if (in_name) {
+            auto op = line.find("\"offset\"");
+            if (op != std::string::npos) {
+                auto colon = line.find(':', op);
+                if (colon != std::string::npos) {
+                    last_offset = std::atoi(line.c_str() + colon + 1);
+                }
+                in_name = false;
+            }
+        }
+    }
+    return last_offset;
+}
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::cerr << "Usage: " << argv[0] << " <firmware.bin> <app_name>\n";
@@ -70,7 +101,7 @@ int main(int argc, char** argv) {
     model.view.rst_n = 1;
 
     // Initialize coordLut BRAMs (arcilator doesn't support $readmemh)
-    // Offsets and layout from state.json: coordLutX at 704, coordLutY at 480, stride=2, depth=64
+    // Offsets are read dynamically from state.json to survive refactors.
     {
         const uint16_t coord_lut[64] = {
             0x3800, 0x3E00, 0x4100, 0x4300, 0x4480, 0x4580, 0x4680, 0x4780,
@@ -82,29 +113,37 @@ int main(int argc, char** argv) {
             0x5210, 0x5230, 0x5250, 0x5270, 0x5290, 0x52B0, 0x52D0, 0x52F0,
             0x5310, 0x5330, 0x5350, 0x5370, 0x5390, 0x53B0, 0x53D0, 0x53F0,
         };
-        const int COORD_LUT_X_OFFSET = 704;
-        const int COORD_LUT_Y_OFFSET = 480;
+        int COORD_LUT_X_OFFSET = find_memory_offset("coordLutX_ext");
+        int COORD_LUT_Y_OFFSET = find_memory_offset("coordLutY_ext");
+        if (COORD_LUT_X_OFFSET < 0 || COORD_LUT_Y_OFFSET < 0) {
+            std::cerr << "[SIM] ERROR: Could not find coordLut offsets in state.json\n";
+            return 1;
+        }
         for (int i = 0; i < 64; i++) {
             *(uint16_t*)(model.storage.data() + COORD_LUT_X_OFFSET + i * 2) = coord_lut[i];
             *(uint16_t*)(model.storage.data() + COORD_LUT_Y_OFFSET + i * 2) = coord_lut[i];
         }
-        std::cout << "[SIM] coordLut BRAMs initialized.\n";
+        std::cout << "[SIM] coordLut BRAMs initialized (X@" << COORD_LUT_X_OFFSET << ", Y@" << COORD_LUT_Y_OFFSET << ").\n";
     }
 
     // Initialize rcpLut BRAMs (arcilator doesn't support $readmemh)
-    // Offsets from state.json: rcpLutA at 1168, rcpLutB at 1216 (depth 17, stride 2)
+    // Offsets are read dynamically from state.json to survive refactors.
     {
         const uint16_t rcp_lut[17] = {
             0x03FF, 0x0388, 0x031C, 0x02BD, 0x0266, 0x0218, 0x01D1, 0x0191,
             0x0155, 0x011F, 0x00EC, 0x00BE, 0x0092, 0x006A, 0x0044, 0x0021, 0x0000
         };
-        const int RCP_LUT_A_OFFSET = 1152;
-        const int RCP_LUT_B_OFFSET = 1200;
+        int RCP_LUT_A_OFFSET = find_memory_offset("rcpLutA_ext");
+        int RCP_LUT_B_OFFSET = find_memory_offset("rcpLutB_ext");
+        if (RCP_LUT_A_OFFSET < 0 || RCP_LUT_B_OFFSET < 0) {
+            std::cerr << "[SIM] ERROR: Could not find rcpLut offsets in state.json\n";
+            return 1;
+        }
         for (int i = 0; i < 17; i++) {
             *(uint16_t*)(model.storage.data() + RCP_LUT_A_OFFSET + i * 2) = rcp_lut[i];
             *(uint16_t*)(model.storage.data() + RCP_LUT_B_OFFSET + i * 2) = rcp_lut[i];
         }
-        std::cout << "[SIM] rcpLut BRAMs initialized.\n";
+        std::cout << "[SIM] rcpLut BRAMs initialized (A@" << RCP_LUT_A_OFFSET << ", B@" << RCP_LUT_B_OFFSET << ").\n";
     }
 
     // Set initial camera rotation so the cube is visibly rotated (matches viewer.py defaults)

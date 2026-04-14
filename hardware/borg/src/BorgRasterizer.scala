@@ -27,13 +27,10 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   val advance     = Input(Bool())
 
   // Pipeline write-back snoop (from BorgCore)
-  val pipeWriteEn   = Input(Bool())
-  val pipeWriteAddr = Input(UInt(log2Ceil(32).W))
-  val pipeWriteData = Input(UInt(config.totalBits.W))
+  val pipeWrite = Flipped(new PipeWriteIO(config.totalBits))
 
   // Core state feedback (needed for stall clearing)
-  val coreRunning        = Input(Bool())
-  val coreAutoRunPending = Input(Bool())
+  val coreStatus = Flipped(new CoreStatusIO)
 
   // Outputs
   val iter          = Output(new Coord())
@@ -42,19 +39,14 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   val iterValid     = Output(Bool())
   val uniformPage   = Output(UInt(1.W)) // Expose to BorgCore
   val autoRunStall  = Output(Bool())
-  val triggerCoreValid = Output(Bool())  // pulse: tells BorgCore to auto-run
-  val triggerCorePC    = Output(UInt(6.W))  // PC to start at
+  val coreTrigger   = new CoreTriggerIO  // pulse: tells BorgCore to auto-run
 
   // Tile Buffer auto-write interface (Step 11.3)
-  val tileWriteIdx  = Output(UInt(4.W))
-  val tileWriteData = Output(new ColorZ(16))
-  val tileWriteEn   = Output(Bool())
+  val tileWrite = new TileWriteIO
 
   // GPU memory read port (Step 19.2: sTexFetch)
-  val gpuRead      = new GpuReadIO
-  val morton_index   = Input(UInt(12.W))
-  val tex_base_addr  = Input(UInt(16.W))
-  val tex_en         = Input(Bool())
+  val gpuRead    = new GpuReadIO
+  val texConfig  = new TexConfigIO
 }
 
 class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module {
@@ -99,13 +91,13 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   }
 
   // --- Trigger outputs (directly driven, no register delay) ---
-  io.triggerCoreValid := false.B
-  io.triggerCorePC    := 0.U
+  io.coreTrigger.valid := false.B
+  io.coreTrigger.pc    := 0.U
 
   // Tile buffer write default (no write)
-  io.tileWriteEn   := false.B
-  io.tileWriteIdx  := iter_reg.x(1, 0) | (iter_reg.y(1, 0) << 2.U)
-  io.tileWriteData := 0.U.asTypeOf(new ColorZ(16))
+  io.tileWrite.en   := false.B
+  io.tileWrite.idx  := iter_reg.x(1, 0) | (iter_reg.y(1, 0) << 2.U)
+  io.tileWrite.data := 0.U.asTypeOf(new ColorZ(16))
 
   // GPU read port defaults (Step 19.2)
   io.gpuRead.req  := false.B
@@ -123,21 +115,21 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
     }
     auto_run_stall := true.B
     phase := sRast
-    io.triggerCoreValid := true.B
-    io.triggerCorePC    := 0.U  // rasterizer shader always at PC=0
+    io.coreTrigger.valid := true.B
+    io.coreTrigger.pc    := 0.U  // rasterizer shader always at PC=0
   }
 
   // --- Shader chaining FSM ---
   // When rast shader finishes: chain to frag shader if inside, else release CPU
-  val core_was_active = RegNext(io.coreRunning || io.coreAutoRunPending, false.B)
-  val core_just_finished = core_was_active && !io.coreRunning && !io.coreAutoRunPending
+  val core_was_active = RegNext(io.coreStatus.running || io.coreStatus.autoRunPending, false.B)
+  val core_just_finished = core_was_active && !io.coreStatus.running && !io.coreStatus.autoRunPending
 
   when(phase === sRast && core_just_finished) {
     when(inside_flag && frag_start_pc =/= 0.U) {
       // Inside pixel and chaining enabled: trigger fragment shader
       phase := sFrag
-      io.triggerCoreValid := true.B
-      io.triggerCorePC    := frag_start_pc
+      io.coreTrigger.valid := true.B
+      io.coreTrigger.pc    := frag_start_pc
     }.otherwise {
       // Outside pixel or chaining disabled: release CPU immediately
       phase := sIdle
@@ -147,7 +139,7 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
 
   when(phase === sFrag && core_just_finished) {
     // Fragment shader finished: texel fetch or tile write
-    when(io.tex_en) {
+    when(io.texConfig.en) {
       phase := sTexFetch
       read_word_count := 0.U
     } .otherwise {
@@ -164,7 +156,7 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   // Address is computed combinationally (no register needed: inputs are
   // stable while FSM is in sTexFetch). Word 1 = base | 4 (bit 2 set,
   // zero-cost since base is 8-byte aligned from <<3).
-  val tex_base = io.tex_base_addr +& (io.morton_index << 3)
+  val tex_base = io.texConfig.baseAddr +& (io.texConfig.mortonIndex << 3)
   when(phase === sTexFetch) {
     io.gpuRead.req  := true.B
     io.gpuRead.addr := Mux(read_word_count === 0.U, tex_base, tex_base | 4.U)
@@ -185,12 +177,12 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   when(phase === sTileWrite) {
     // Push the snooped values to the tile buffer (Step 11.3 auto-write)
     // We use the pre-advanced coordinates for index!
-    io.tileWriteIdx := shader_iter_reg.x(1, 0) | (shader_iter_reg.y(1, 0) << 2.U)
-    io.tileWriteData.r := frag_r
-    io.tileWriteData.g := frag_g
-    io.tileWriteData.b := frag_b
-    io.tileWriteData.z := frag_z
-    io.tileWriteEn := true.B
+    io.tileWrite.idx := shader_iter_reg.x(1, 0) | (shader_iter_reg.y(1, 0) << 2.U)
+    io.tileWrite.data.r := frag_r
+    io.tileWrite.data.g := frag_g
+    io.tileWrite.data.b := frag_b
+    io.tileWrite.data.z := frag_z
+    io.tileWrite.en := true.B
 
     phase := sIdle
     auto_run_stall := false.B
@@ -226,23 +218,23 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   //     `make triangle` in simulation/verilator and check the output image.
   //
   // @doc:inside-snoop
-  when(io.pipeWriteEn && phase === sRast) {
-    val sign_bit      = io.pipeWriteData(config.totalBits - 1).asBool
-    val magn_non_zero = io.pipeWriteData(config.totalBits - 2, 0) =/= 0.U
+  when(io.pipeWrite.en && phase === sRast) {
+    val sign_bit      = io.pipeWrite.data(config.totalBits - 1).asBool
+    val magn_non_zero = io.pipeWrite.data(config.totalBits - 2, 0) =/= 0.U
     // Negative non-zero → outside.  Positive or zero → inside.
     val is_negative_nonzero = sign_bit && magn_non_zero
-    when(io.pipeWriteAddr === 0.U) { e0_outside := is_negative_nonzero }
-    when(io.pipeWriteAddr === 1.U) { e1_outside := is_negative_nonzero }
-    when(io.pipeWriteAddr === 2.U) { e2_outside := is_negative_nonzero }
+    when(io.pipeWrite.addr === 0.U) { e0_outside := is_negative_nonzero }
+    when(io.pipeWrite.addr === 1.U) { e1_outside := is_negative_nonzero }
+    when(io.pipeWrite.addr === 2.U) { e2_outside := is_negative_nonzero }
   }
   // @doc:end
 
   // Snoop fragment shader output (Hardware ABI: R=r26, G=r27, B=r28, Z=r29)
-  when(io.pipeWriteEn && phase === sFrag) {
-    when(io.pipeWriteAddr === 26.U) { frag_r := io.pipeWriteData(15, 0) }
-    when(io.pipeWriteAddr === 27.U) { frag_g := io.pipeWriteData(15, 0) }
-    when(io.pipeWriteAddr === 28.U) { frag_b := io.pipeWriteData(15, 0) }
-    when(io.pipeWriteAddr === 29.U) { frag_z := io.pipeWriteData(15, 0) }
+  when(io.pipeWrite.en && phase === sFrag) {
+    when(io.pipeWrite.addr === 26.U) { frag_r := io.pipeWrite.data(15, 0) }
+    when(io.pipeWrite.addr === 27.U) { frag_g := io.pipeWrite.data(15, 0) }
+    when(io.pipeWrite.addr === 28.U) { frag_b := io.pipeWrite.data(15, 0) }
+    when(io.pipeWrite.addr === 29.U) { frag_z := io.pipeWrite.data(15, 0) }
   }
 
   // --- Outputs ---
