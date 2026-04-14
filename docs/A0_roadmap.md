@@ -403,12 +403,12 @@ Verified: all Chisel tests pass, Verilator/Arcilator triangle OK.
 The texel fetch FSM and firmware integration, now that the Shared Memory
 Controller (Step 19) provides the GPU read port.
 
-- **Step 20.1: sTexFetch FSM Integration**
+- **Step 21.1: sTexFetch FSM Integration**
     Wire Morton index from `TextureAddr` → `psramAddr` on the GPU read port.
     `sTexFetch` state between `sFrag` and `sTileWrite`: assert `gpu_read_req`,
     wait for `gpu_data_ready`, latch RGB. Chisel tests + Verilator verification.
 
-- **Step 20.2: Firmware Integration**
+- **Step 21.2: Firmware Integration**
     Update `frag.s` to write UV outputs to `TEX_UV` register. Update
     `borg_triangle.c` to load test texture into PSRAM and enable texturing.
     Textured triangle rendering verified against golden output.
@@ -457,28 +457,28 @@ On QSPI PSRAM, each texel fetch costs ~120 cycles (4 bytes × 30 cy/byte).
 Adjacent pixels in a textured triangle almost always hit the same or
 neighboring texels. A tiny cache eliminates redundant PSRAM reads.
 
-- **Step 22.1: 4-line direct-mapped texture cache**
+- **Step 23.1: 4-line direct-mapped texture cache**
     4 × (12-bit Morton tag + 24-bit RGB data) = 144 bits = ~18 FFs +
     comparators. ~30 LUTs, 0 BRAMs. `sTexFetch` FSM checks cache first; on
     hit, skips PSRAM entirely. Est. hit rate: ~60%.
 
-- **Step 22.2: Cache hit/miss perf counter** via status register
+- **Step 23.2: Cache hit/miss perf counter** via status register
 
-- **Step 22.3: Evaluate 8-line variant** (~50 LUTs, ~75% hit rate) — if LUT
+- **Step 23.3: Evaluate 8-line variant** (~50 LUTs, ~75% hit rate) — if LUT
     budget allows
 
 ### Step 24: SoC Bus Protocol
 
 Replace the hand-rolled `elsewhen` priority chain with a named bus protocol.
 
-- **Step 23.1: BorgBus protocol definition**
+- **Step 24.1: BorgBus protocol definition**
     `BorgBusIO` bundle: `addr(25.W)`, `data_w(32.W)`, `op(2.W)`, `valid(Bool)`
     → `data_r(32.W)`, `ready(Bool)`. Inspired by TileLink-UL semantics but
     without the Diplomacy overhead.
 
-- **Step 23.2: BorgBus arbiter** (replaces hand-rolled Mux chain in SoCMemCtrl)
-- **Step 23.3: Borg → BorgBus master adapter**
-- **Step 23.4: TileLink compatibility layer** (optional, for future Chipyard
+- **Step 24.2: BorgBus arbiter** (replaces hand-rolled Mux chain in SoCMemCtrl)
+- **Step 24.3: Borg → BorgBus master adapter**
+- **Step 24.4: TileLink compatibility layer** (optional, for future Chipyard
     integration — ~50 line `BorgBusToTileLink` adapter)
 
   **Why not TileLink directly?** TileLink requires the RocketChip Diplomacy
