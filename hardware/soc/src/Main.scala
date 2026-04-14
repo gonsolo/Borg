@@ -14,7 +14,7 @@ object Main extends App {
   val allAsicFiles = collection.mutable.Set[String]()
 
   Emit.emitAndCollect(new tt_um_gonsolo_borg(clockMhz), targetDir, allAsicFiles)
-  Emit.emitAndCollect(new tinyQV_peripherals(clockMhz), targetDir, allAsicFiles)
+  Emit.emitAndCollect(new Peripherals(clockMhz), targetDir, allAsicFiles)
 
   val firrtlTargetDir = "out/hardware/borg/firrtl"
   Emit.emitFIRRTL(new tt_um_gonsolo_borg(clockMhz), firrtlTargetDir)
@@ -32,7 +32,7 @@ object Main extends App {
   new java.io.File(simTargetDir).mkdirs()
   val simAsicFiles = collection.mutable.Set[String]()
   Emit.emitAndCollect(new tt_um_gonsolo_borg_sim(clockMhz), simTargetDir, simAsicFiles)
-  Emit.emitAndCollect(new tinyQV_peripherals(clockMhz), simTargetDir, simAsicFiles)
+  Emit.emitAndCollect(new Peripherals(clockMhz), simTargetDir, simAsicFiles)
   val fwSim = new java.io.PrintWriter(new java.io.File(s"$simTargetDir/asic_files.txt"))
   simAsicFiles.toList.sorted.foreach(fwSim.println)
   fwSim.close()

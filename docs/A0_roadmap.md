@@ -385,7 +385,237 @@ PowerVR SGX's Data Masters + tile-based deferred rendering pattern.
     passes. Chisel `tex_fetch_path` test verifies full FSM handshake.
     FPGA actual: 5256 / 5280 LCs (99%), 10 / 30 BRAMs.
 
-### Step 20: Hardware PSRAM Texel Fetch (continues Step 16)
+### Step 20: IO Bundle Refactor (Code Quality)
+
+Group flat signal clusters into named Chisel Bundles across the hardware
+hierarchy. Pure refactor — no RTL behaviour change, no new logic, no LC
+impact. The goal is to eliminate long lists of manual wiring assignments
+(`a := b`) that can be replaced by a single `<>` bulk-connect.
+
+**Background / motivation:**
+Steps 19.1–19.2 introduced `GpuReadIO` as the first named bundle on the
+GPU memory port. Several other flat-signal clusters across the codebase
+have the same problem: 3–7 related signals with a shared prefix that
+require repetitive per-signal wiring in connecting modules. This step
+generalises that pattern throughout the hierarchy.
+
+**Note on `FlatIO`:** `TinyQV` and `tinyQV_ExtModule` both declare
+`val io = FlatIO(new tinyQVIO)`. `FlatIO` still generates flat Verilog
+ports; nesting inside `tinyQVIO` renames them from `mem_addr` to
+`memBus_addr` etc. This is safe because both the Chisel module and the
+ExtModule share the same bundle type — they always stay in sync. The only
+risk is cocotb/C++ harnesses that reference TinyQV port names by string;
+check `test/` before committing.
+
+#### Bundles to create
+
+**`hardware/tinyqv/src/cpu/TinyQV.scala` — add to existing file (same package as `InstrFetchIO`):**
+
+```scala
+/** CPU → MemoryController PSRAM data bus (from CPU master's perspective).
+  * Use Flipped() at the memory controller (slave) end.
+  *
+  * addr(25.W)         — byte address within QSPI region
+  * writeN(2.W)        — 11=idle, 10=word, 01=half, 00=byte
+  * readN(2.W)         — same encoding
+  * dataOut(32.W)      — write data from CPU
+  * dataContinue       — burst continuation flag
+  * ready              — response: transaction complete
+  * dataIn(32.W)       — read data to CPU
+  */
+class MemBusIO extends Bundle {
+  val addr         = Output(UInt(25.W))
+  val writeN       = Output(UInt(2.W))
+  val readN        = Output(UInt(2.W))
+  val dataOut      = Output(UInt(32.W))
+  val dataContinue = Output(Bool())
+  val ready        = Input(Bool())
+  val dataIn       = Input(UInt(32.W))
+}
+```
+
+In `tinyQVIO`: replace 7 flat `mem_*` fields with `val memBus = new MemBusIO`.
+Update all `io.mem_*` references inside `TinyQV.scala` to `io.memBus.*`.
+Also update `tinyQV_ExtModule` — no code change needed there since it
+declares `val io = FlatIO(new tinyQVIO)` and that bundle is shared.
+
+**`hardware/soc/src/QspiPinsIO.scala` — new file, `package soc`:**
+
+```scala
+/** Physical QSPI pin bundle (from MemoryController's perspective).
+  * data_in is the only Input; all outputs drive the physical bus.
+  */
+class QspiPinsIO extends Bundle {
+  val dataIn      = Input(UInt(4.W))
+  val dataOut     = Output(UInt(4.W))
+  val dataOe      = Output(UInt(4.W))
+  val clkOut      = Output(Bool())
+  val flashSelect = Output(Bool())
+  val ramASelect  = Output(Bool())
+  val ramBSelect  = Output(Bool())
+}
+```
+
+In `MemoryControllerIO`: replace 7 flat `spi_*` fields with
+`val qspiPins = new QspiPinsIO`.
+In `MemoryControllerSim`: replace 6 tie-offs with `io.qspiPins.*`.
+In `MemoryController`: replace `q_ctrl ↔ io.spi_*` connections with
+`io.qspiPins.*`.
+In `Project.scala`: update 6 `lazy val qspi_*` declarations to read from
+`i_memReal.io.qspiPins.*`; update `spi_data_in` assignment to
+`i_memReal.io.qspiPins.dataIn`.
+
+In `MemoryControllerIO`: also replace the 7 flat `cpu_*` fields with
+`val cpuData = Flipped(new MemBusIO)` (import `tinyqv.cpu.MemBusIO`).
+Update all `io.cpu_*` references in `MemoryController.scala` and
+`MemoryControllerSim.scala` to `io.cpuData.*`.
+In `Project.wireSoC()` the 7-line CPU wiring blocks become:
+```scala
+i_memReal.io.cpuData <> i_tinyqv.io.memBus
+// (and in the SIM_FAST_MEM branch: memSim.io.cpuData <> i_tinyqv.io.memBus)
+i_tinyqv.io.mem_ready   := i_memReal.io.cpuData.ready    // already gone
+i_tinyqv.io.mem_data_in := i_memReal.io.cpuData.dataIn   // already gone
+```
+
+**`hardware/borg/src/PipeWriteIO.scala` — new file, `package borg`:**
+
+```scala
+/** Pipeline write-back snoop.
+  * Defined from BorgCore's perspective (Output = core drives it).
+  * Use Flipped() in BorgRasterizerIO.
+  */
+class PipeWriteIO(val totalBits: Int) extends Bundle {
+  val en   = Output(Bool())
+  val addr = Output(UInt(5.W))  // log2Ceil(32) = 5
+  val data = Output(UInt(totalBits.W))
+}
+```
+
+In `BorgCoreIO`: replace 3 flat `pipeWrite*` fields with
+`val pipeWrite = new PipeWriteIO(config.totalBits)`.
+In `BorgCore.wireWriteBack()`: `io.pipeWriteEn/Addr/Data` → `io.pipeWrite.en/addr/data`.
+In `BorgRasterizerIO`: replace 3 flat `pipeWrite*` fields with
+`val pipeWrite = Flipped(new PipeWriteIO(config.totalBits))`.
+In `BorgRasterizer`: `io.pipeWriteEn` → `io.pipeWrite.en` etc.
+In `Borg.wireRasterizer()`: replace 3 manual assignments with
+`rast.io.pipeWrite <> core.io.pipeWrite`.
+In `BorgRasterizerTests`: update `pokeIdle` and all test sites that
+poke `pipeWriteEn/Addr/Data` to use `pipeWrite.en/addr/data`.
+
+**`hardware/borg/src/CoreTriggerIO.scala` — new file, `package borg`:**
+
+```scala
+/** Rasterizer → Core shader trigger (from rasterizer's perspective: Output).
+  * Use Flipped() in BorgCoreIO.
+  * Note: BorgCoreIO previously named these `triggerShader*`;
+  *       BorgRasterizerIO named them `triggerCore*`. Unified here.
+  */
+class CoreTriggerIO extends Bundle {
+  val valid = Output(Bool())
+  val pc    = Output(UInt(6.W))
+}
+```
+
+In `BorgRasterizerIO`: replace `triggerCoreValid/PC` with
+`val coreTrigger = new CoreTriggerIO`.
+In `BorgRasterizer`: `io.triggerCoreValid/PC` → `io.coreTrigger.valid/pc`.
+In `BorgCoreIO`: replace `triggerShaderValid/PC` with
+`val coreTrigger = Flipped(new CoreTriggerIO)`.
+In `BorgCore`: `io.triggerShaderValid/PC` → `io.coreTrigger.valid/pc`.
+In `Borg.wireRasterizer()` + `wireCore()`: replace 2-line wiring with
+`core.io.coreTrigger <> rast.io.coreTrigger`.
+In tests: `triggerCoreValid` → `coreTrigger.valid`.
+
+**`hardware/borg/src/CoreStatusIO.scala` — new file, `package borg`:**
+
+```scala
+/** Core execution status (from BorgCore's perspective: Output).
+  * Use Flipped() in BorgRasterizerIO.
+  * Note: BorgCoreIO had `running/autoRunPending`;
+  *       BorgRasterizerIO had `coreRunning/coreAutoRunPending`. Unified here.
+  */
+class CoreStatusIO extends Bundle {
+  val running        = Output(Bool())
+  val autoRunPending = Output(Bool())
+}
+```
+
+In `BorgCoreIO`: replace `running/autoRunPending` with
+`val status = new CoreStatusIO`.
+In `BorgCore`: `io.running/autoRunPending` → `io.status.running/autoRunPending`.
+In `BorgRasterizerIO`: replace `coreRunning/coreAutoRunPending` with
+`val coreStatus = Flipped(new CoreStatusIO)`.
+In `BorgRasterizer`: `io.coreRunning/coreAutoRunPending` →
+`io.coreStatus.running/autoRunPending`.
+In `Borg.wireRasterizer()`: replace 2 manual assignments with
+`rast.io.coreStatus <> core.io.status`.
+Update `Borg.wireMmioRead()` reference `core.io.running` →
+`core.io.status.running`.
+In tests: `coreRunning/coreAutoRunPending` → `coreStatus.running/autoRunPending`.
+
+**`hardware/borg/src/TexConfigIO.scala` — new file, `package borg`:**
+
+```scala
+/** Texture fetch configuration (inputs to BorgRasterizer).
+  * mortonIndex: 12-bit Morton-encoded texel address (from Fp16ToUint6 + MortonEncode)
+  * baseAddr:    16-bit PSRAM base address of the texture (×8 for byte offset)
+  * en:          texture fetch enable gate
+  */
+class TexConfigIO extends Bundle {
+  val mortonIndex = Input(UInt(12.W))
+  val baseAddr    = Input(UInt(16.W))
+  val en          = Input(Bool())
+}
+```
+
+In `BorgRasterizerIO`: replace `morton_index/tex_base_addr/tex_en` with
+`val texConfig = new TexConfigIO`.
+In `BorgRasterizer`: `io.morton_index/tex_base_addr/tex_en` →
+`io.texConfig.mortonIndex/baseAddr/en`.
+In `Borg.wireRasterizer()`: 3 lines become `rast.io.texConfig.mortonIndex := ...
+rast.io.texConfig.baseAddr := ...; rast.io.texConfig.en := false.B`.
+In `Borg.wireMmioRead()`: assignment `rast.io.morton_index :=` →
+`rast.io.texConfig.mortonIndex :=`.
+In `BorgRasterizerTests pokeIdle()`: update 3 pokes.
+
+**`hardware/borg/src/TileWriteIO.scala` — new file, `package borg`:**
+
+```scala
+/** Rasterizer → TileBuffer write interface (from rasterizer Output perspective).
+  * idx:  4-bit tile buffer slot (x[1:0] | y[1:0] << 2)
+  * data: packed ColorZ(16) — r/g/b/z each 16-bit FP
+  * en:   write-enable (combinationally high in sTileWrite state)
+  */
+class TileWriteIO extends Bundle {
+  val idx  = Output(UInt(4.W))
+  val data = Output(new ColorZ(16))
+  val en   = Output(Bool())
+}
+```
+
+In `BorgRasterizerIO`: replace `tileWriteIdx/Data/En` with
+`val tileWrite = new TileWriteIO`.
+In `BorgRasterizer`: `io.tileWriteEn/Idx/Data` → `io.tileWrite.en/idx/data`.
+In `Borg.wireTileBuffer()`:
+```scala
+tile.io.writeEn   := mmioTileWriteEn || rast.io.tileWrite.en
+tile.io.writeIdx  := Mux(rast.io.tileWrite.en, rast.io.tileWrite.idx, tileReadIdx)
+tile.io.writeData := Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor)
+```
+In `BorgRasterizerTests`: update peek of `tileWriteEn` →
+`rast.io.tileWrite.en`.
+
+#### Verification
+
+- `make test-all` must pass with 0 regressions (8/8 BorgRasterizer tests,
+  all BorgCore tests, all Verilator/Arcilator tests).
+- `make generate_verilog` must succeed (tests that `soc.Main` compiles).
+- Verilog diff: only port-name changes (`mem_addr` → `memBus_addr`, etc.);
+  no new logic, no width changes, no added registers.
+- `make triangle` on pico-ice: confirm FPGA still synthesises and P&R fits
+  within 5280 LCs.
+
+### Step 21: Hardware PSRAM Texel Fetch (continues Step 16)
 
 The texel fetch FSM and firmware integration, now that the Shared Memory
 Controller (Step 19) provides the GPU read port.
@@ -400,17 +630,17 @@ Controller (Step 19) provides the GPU read port.
     `borg_triangle.c` to load test texture into PSRAM and enable texturing.
     Textured triangle rendering verified against golden output.
 
-### Step 21: GPU DMA Engine
+### Step 22: GPU DMA Engine
 
 Generalize the GPU read port for bulk transfers. The DMA engine drives the
 **same** `gpu_read` port built in Step 19 — `SoCMemCtrl` is unchanged, only
 the driver changes. Estimate: 1 week.
 
-- **Step 21.0: LUT Recovery** (prerequisite micro-steps)
-  - **21.0a: Remove IMEM MMIO write path** (~15 LUTs saved) — DMA replaces it
-  - **21.0b: Remove MMIO uniform write path** (~15 LUTs saved) — DMA replaces it
-  - **21.0c: Simplify RDL address decode** (~10 LUTs saved)
-  - **21.0d: S3 — Remove MMIO GPR read path** (optional, ~20–30 LUTs)
+- **Step 22.0: LUT Recovery** (prerequisite micro-steps)
+  - **22.0a: Remove IMEM MMIO write path** (~15 LUTs saved) — DMA replaces it
+  - **22.0b: Remove MMIO uniform write path** (~15 LUTs saved) — DMA replaces it
+  - **22.0c: Simplify RDL address decode** (~10 LUTs saved)
+  - **22.0d: S3 — Remove MMIO GPR read path** (optional, ~20–30 LUTs)
     The `regFileC` shared read port (`wirePortC()` `mmio_en` mux) is used only
     for CPU debugging of shader register state. With DMA in place this path
     is unused. Remove the `mmio_en` conditional from `wirePortC()` in
@@ -418,14 +648,14 @@ the driver changes. Estimate: 1 week.
     to use pipeline write-back snooping.
   - Target: free ~40–70 LUTs to bring running total back under budget
 
-- **Step 21.1: DMA controller FSM** (`BorgDMA.scala`)
+- **Step 22.1: DMA controller FSM** (`BorgDMA.scala`)
     Accepts `(base_ptr, length, destination)` descriptor via MMIO. Issues
     sequential `gpu_read_req` for each word. Routes returned data to the correct
     on-chip buffer (uniform/IMEM/GPR). Multiplexes with `sTexFetch` requests.
 
-- **Step 21.2: Bulk IMEM load from PSRAM** (replaces MMIO IMEM writes)
-- **Step 21.3: Bulk uniform load from PSRAM**
-- **Step 21.4: Firmware integration** (`dma_load_shader()`, `dma_load_uniforms()`)
+- **Step 22.2: Bulk IMEM load from PSRAM** (replaces MMIO IMEM writes)
+- **Step 22.3: Bulk uniform load from PSRAM**
+- **Step 22.4: Firmware integration** (`dma_load_shader()`, `dma_load_uniforms()`)
 
   **IMEM strategy:** IMEM BRAM stays (1-cycle fetch is critical for pipeline
   throughput). DMA loads it from PSRAM, replacing the ~56 `borg_write_imem()`
@@ -433,11 +663,11 @@ the driver changes. Estimate: 1 week.
   future optimization — trades 1 BRAM for ~30 LUTs + 30× latency on real QSPI.
 
   **Memory evolution:** The `gpu_read` port created in Step 19 IS the DMA port.
-  Step 19 drives it from `BorgRasterizer.sTexFetch`; Step 21 drives it from
-  `BorgDMA`. Step 23 (bus protocol) wraps it as a standard `BorgBus` master —
+  Step 19 drives it from `BorgRasterizer.sTexFetch`; Step 22 drives it from
+  `BorgDMA`. Step 24 (bus protocol) wraps it as a standard `BorgBus` master —
   each step changes *who drives the port*, not the port itself.
 
-### Step 22: Data Cache
+### Step 23: Data Cache
 
 Tiny texture cache to avoid redundant PSRAM reads for adjacent pixels.
 On QSPI PSRAM, each texel fetch costs ~120 cycles (4 bytes × 30 cy/byte).
@@ -454,7 +684,7 @@ neighboring texels. A tiny cache eliminates redundant PSRAM reads.
 - **Step 22.3: Evaluate 8-line variant** (~50 LUTs, ~75% hit rate) — if LUT
     budget allows
 
-### Step 23: SoC Bus Protocol
+### Step 24: SoC Bus Protocol
 
 Replace the hand-rolled `elsewhen` priority chain with a named bus protocol.
 
@@ -473,7 +703,7 @@ Replace the hand-rolled `elsewhen` priority chain with a named bus protocol.
   budget. BorgBus is semantically 1:1 with TL-UL Get/Put, so a future
   migration is a thin adapter.
 
-### Step 24: Vertex Shader Auto-Sequencer
+### Step 25: Vertex Shader Auto-Sequencer
 
 FSM that sequences 3 vertex shader runs (loading attributes, running SPIR-B
 shader, storing outputs, applying screen-space transform) without CPU
@@ -483,7 +713,7 @@ shader uses 16 uniform slots (4×4 MVP matrix), while the rasterizer and
 fragment shaders use 31 slots (edge constants + vertex colors + inv_area).
 Estimate: 1 week.
 
-### Step 25: Full Autonomous Triangle Pipeline
+### Step 26: Full Autonomous Triangle Pipeline
 
 Integration of Steps 1–24. CPU submits a triangle descriptor; GPU does
 vertex shade → triangle setup → rasterize → fragment shade → Z-test →
@@ -526,9 +756,10 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 | 18 (SoC restructure) | Package move only | +0 | ~5184 | ✅ |
 | 19.1 (MemCtrl extract) | GPU port mux | +5–8 | ~5192 | ✅ |
 | 19.2 (sTexFetch FSM) | 1 FSM state + addr calc | **+64** (actual) | **5256** | ⚠ |
-| 21.0 (LUT recovery) | Remove MMIO IMEM+uniform+GPR write | **−40–70** | ~5140 | ✅ |
-| 21.1 (DMA FSM) | FSM + addr counter + dest mux | +20–30 | ~5170 | ✅ |
-| 22 (cache) | Tag compare + data FFs | +25–35 | ~5200 | ✅ |
+| 20 (IO bundle refactor) | Pure rename — no new logic | +0 | **5256** | ⚠ |
+| 22.0 (LUT recovery) | Remove MMIO IMEM+uniform+GPR write | **−40–70** | ~5140 | ✅ |
+| 22.1 (DMA FSM) | FSM + addr counter + dest mux | +20–30 | ~5170 | ✅ |
+| 23 (cache) | Tag compare + data FFs | +25–35 | ~5200 | ✅ |
 
 ### BRAM Budget
 
@@ -546,29 +777,29 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 
 Target: ~Aug 2026 — expand TinyQV to RV32IMA. Sequential after Phase 2.
 
-### Step 26: M Extension (Integer Multiply/Divide)
+### Step 27: M Extension (Integer Multiply/Divide)
 
 Add dedicated integer multiplier for MUL/MULH/DIV/REM.
 Estimate: 1 week.
 
-### Step 27: A Extension (Atomics)
+### Step 28: A Extension (Atomics)
 
 LR.W / SC.W for Linux `futex` and spinlocks. Reservation register (32-bit
 address + valid bit). ~100 LUTs. Reference KianV implementation.
 Estimate: 3–5 days.
 
-### Step 28: Boot no-MMU Linux
+### Step 29: Boot no-MMU Linux
 
 Intermediate milestone before full MMU. Estimate: 1 week.
 
-### Step 29: MMU (Sv32)
+### Step 30: MMU (Sv32)
 
 Two-level page table walker, 4–8 entry TLB, `satp`/`mstatus` CSRs.
 Intermediate milestone: boot no-MMU Linux first (~1 week).
 ~800–1200 LUTs — the most expensive single addition.
 Estimate: 3–4 weeks.
 
-### Step 30: Boot Full Linux
+### Step 31: Boot Full Linux
 
 Kernel, device tree, rootfs on QSPI PSRAM (8 MB). Estimate: 1–2 weeks.
 
@@ -576,23 +807,23 @@ Kernel, device tree, rootfs on QSPI PSRAM (8 MB). Estimate: 1–2 weeks.
 
 Target: ~Oct 2026 (~6–8 weeks total). Write a Mesa Vulkan ICD for the Borg GPU.
 
-### Step 31: Minimal `vk_device` + `wsi_headless`
+### Step 32: Minimal `vk_device` + `wsi_headless`
 
 Headless rendering, no window system needed. Estimate: 1–2 weeks.
 
-### Step 32: Shader Compiler (NIR → SPIR-B)
+### Step 33: Shader Compiler (NIR → SPIR-B)
 
 NIR backend generating Borg instructions. Estimate: 2–3 weeks.
 
-### Step 33: Draw Path (`vkCmdDraw`)
+### Step 34: Draw Path (`vkCmdDraw`)
 
 Vertex + fragment shader dispatch to hardware. Estimate: 1–2 weeks.
 
-### Step 34: Texture Sampling (Software)
+### Step 35: Texture Sampling (Software)
 
 CPU-side sampling, spec-compliant but slow. Estimate: 1 week.
 
-### Step 35: Vulkan CTS Subset
+### Step 36: Vulkan CTS Subset
 
 Run conformance tests, fix failures. Estimate: 1–2 weeks.
 
@@ -601,27 +832,27 @@ Run conformance tests, fix failures. Estimate: 1–2 weeks.
 Target: ~Jan 2027 (~6–8 weeks total). Extend the shader processor to support
 more Vulkan features. These items only make sense on a larger tile or ASIC.
 
-### Step 36: Integer ALU Ops in Shader
+### Step 37: Integer ALU Ops in Shader
 
 Comparison, bitwise, integer math. Estimate: 1 week.
 
-### Step 37: Memory Load/Store from Shader
+### Step 38: Memory Load/Store from Shader
 
 Enables shader-side texture addressing. Estimate: 1–2 weeks.
 
-### Step 38: Framebuffer Blending
+### Step 39: Framebuffer Blending
 
 Alpha blending support. Estimate: 3–5 days.
 
-### Step 39: Multi-Lane SIMD (2–4 FMA)
+### Step 40: Multi-Lane SIMD (2–4 FMA)
 
 Process multiple pixels per cycle. Estimate: 1–2 weeks.
 
-### Step 39.5: Multi-Core Shading Simulation (Optional)
+### Step 40.5: Multi-Core Shading Simulation (Optional)
 
 Refactor `BorgRaster` with parameterizable execution width to dispatch multiple pixels concurrently across a parallel array of `BorgCore` FPUs exclusively for simulation speedup. (Moved from Phase 2; deferred until CPU bottlenecks are resolved).
 
-### Step 40: Second Tapeout Submission
+### Step 41: Second Tapeout Submission
 
 4×4 or 4×5 tile, Linux + Vulkan capable. Estimate: 1 week.
 

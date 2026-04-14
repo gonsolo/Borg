@@ -28,8 +28,8 @@ object BorgRasterizerTests extends TestSuite {
     rast.io.coreRunning.poke(false.B)
     rast.io.coreAutoRunPending.poke(false.B)
     // Step 19.2 GPU read-port defaults
-    rast.io.gpu_data.poke(0.U)
-    rast.io.gpu_read_ready.poke(false.B)
+    rast.io.gpuRead.data.poke(0.U)
+    rast.io.gpuRead.ready.poke(false.B)
     rast.io.morton_index.poke(0.U)
     rast.io.tex_base_addr.poke(0.U)
     rast.io.tex_en.poke(false.B)
@@ -425,35 +425,35 @@ object BorgRasterizerTests extends TestSuite {
 
         // After frag, tex_en=true → FSM should enter sTexFetch.
         // Verify gpu_read_req is asserted and gpu_addr = Word 0
-        rast.io.gpu_read_ready.poke(false.B)
+        rast.io.gpuRead.ready.poke(false.B)
         rast.clock.step(1)  // settle into sTexFetch
 
-        val req0  = rast.io.gpu_read_req.peek().litToBoolean
-        val addr0 = rast.io.gpu_addr.peek().litValue.toInt
+        val req0  = rast.io.gpuRead.req.peek().litToBoolean
+        val addr0 = rast.io.gpuRead.addr.peek().litValue.toInt
         println(f"  sTexFetch Word0: gpu_read_req=$req0, gpu_addr=0x${addr0.toHexString} (expect 0x${expectedW0.toHexString})")
         utest.assert(req0)
         utest.assert(addr0 == expectedW0)
 
         // Feed back Word 0 data
-        rast.io.gpu_data.poke(gpuWord0.U)
-        rast.io.gpu_read_ready.poke(true.B)
+        rast.io.gpuRead.data.poke(gpuWord0.U)
+        rast.io.gpuRead.ready.poke(true.B)
         rast.clock.step(1)
-        rast.io.gpu_read_ready.poke(false.B)
+        rast.io.gpuRead.ready.poke(false.B)
 
         // Now FSM should request Word 1
         rast.clock.step(1)
-        val req1  = rast.io.gpu_read_req.peek().litToBoolean
-        val addr1 = rast.io.gpu_addr.peek().litValue.toInt
+        val req1  = rast.io.gpuRead.req.peek().litToBoolean
+        val addr1 = rast.io.gpuRead.addr.peek().litValue.toInt
         println(f"  sTexFetch Word1: gpu_read_req=$req1, gpu_addr=0x${addr1.toHexString} (expect 0x${expectedW1.toHexString})")
         utest.assert(req1)
         utest.assert(addr1 == expectedW1)
 
         // Feed back Word 1 data; on this clock edge the FSM transitions to sTileWrite
         // and tileWriteEn is asserted combinationally in the SAME cycle.
-        rast.io.gpu_data.poke(gpuWord1.U)
-        rast.io.gpu_read_ready.poke(true.B)
+        rast.io.gpuRead.data.poke(gpuWord1.U)
+        rast.io.gpuRead.ready.poke(true.B)
         rast.clock.step(1)
-        rast.io.gpu_read_ready.poke(false.B)
+        rast.io.gpuRead.ready.poke(false.B)
 
         // FSM is now in sTileWrite — tileWriteEn combinationally asserted (before next edge)
         val tileWr = rast.io.tileWriteEn.peek().litToBoolean

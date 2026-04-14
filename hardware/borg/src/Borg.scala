@@ -31,10 +31,7 @@ class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
   val user_interrupt = Output(Bool())
 
   // GPU read port (Step 19.2: sTexFetch → MemoryController)
-  val gpu_addr       = Output(UInt(16.W))
-  val gpu_read_req   = Output(Bool())
-  val gpu_data       = Input(UInt(32.W))
-  val gpu_read_ready = Input(Bool())
+  val gpuRead = new GpuReadIO
 }
 
 class RegFileCopyIO(width: Int) extends Bundle {
@@ -143,10 +140,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     rast.io.coreAutoRunPending := core.io.autoRunPending
 
     // GPU read port wiring (Step 19.2)
-    io.gpu_addr     := rast.io.gpu_addr
-    io.gpu_read_req := rast.io.gpu_read_req
-    rast.io.gpu_data       := io.gpu_data
-    rast.io.gpu_read_ready := io.gpu_read_ready
+    rast.io.gpuRead <> io.gpuRead
 
     // Texture configuration — hardcoded for Step 19.2; disabled until Step 20.2 firmware
     rast.io.tex_base_addr := 0x51A0.U(16.W)

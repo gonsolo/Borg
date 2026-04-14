@@ -5,7 +5,7 @@ package soc
 
 import chisel3._
 import chisel3.util._
-import borg.{Borg, FloatConfig}
+import borg.{Borg, FloatConfig, GpuReadIO}
 
 // User peripheral address decode constants — inlined from the former PeriphDecode.scala.
 private[soc] object PeriphDecode {
@@ -46,13 +46,10 @@ class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
   val user_interrupts = Output(UInt(14.W))
 
   // GPU read port (Step 19.2: Borg → MemoryController)
-  val gpu_addr       = Output(UInt(16.W))
-  val gpu_read_req   = Output(Bool())
-  val gpu_data       = Input(UInt(32.W))
-  val gpu_read_ready = Input(Bool())
+  val gpuRead = new GpuReadIO
 }
 
-class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
+class Peripherals(val CLOCK_MHZ: Int) extends Module {
   val io = IO(new PeripheralsIO(CLOCK_MHZ))
     // --- Address Decoding Variables ---
     val PERI_GPIO = PeriphDecode.userPeriU(PeriphDecode.USER_PERI_GPIO)
@@ -173,10 +170,7 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
       interrupt_borg := borg.io.user_interrupt
 
       // GPU read port passthrough (Step 19.2)
-      borg.io.gpu_data       := io.gpu_data
-      borg.io.gpu_read_ready := io.gpu_read_ready
-      io.gpu_addr            := borg.io.gpu_addr
-      io.gpu_read_req        := borg.io.gpu_read_req
+      borg.io.gpuRead <> io.gpuRead
 
       when(is_borg) {
         data_from_peri := borg.io.data_out

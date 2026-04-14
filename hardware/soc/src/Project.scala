@@ -59,7 +59,7 @@ class tinyQV_ExtModule extends ExtModule(Map()) {
   *   - [[TinyQV]]           — pure CPU; no QSPI knowledge
   *   - [[MemoryController]] — owns SPI/QSPI pins; arbitrates CPU instr-fetch,
   *                            CPU data, and GPU read (Step 19.2)
-  *   - [[tinyQV_peripherals]] (Borg GPU + UART + GPIO) — no QSPI knowledge
+  *   - [[Peripherals]] (Borg GPU + UART + GPIO) — no QSPI knowledge
   *
   * Subclasses must provide: soc_clk, soc_rst_n, soc_rst_reg_n, soc_ui_in,
   * soc_qspi_data_in. The trait provides: QSPI outputs, uo_out value, and all
@@ -87,7 +87,7 @@ trait SoCLogic { self: RawModule =>
     Module(new MemoryController())
   }
   lazy val i_peripherals = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new tinyQV_peripherals(CLOCK_MHZ))
+    Module(new Peripherals(CLOCK_MHZ))
   }
   lazy val i_debug_uart_tx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new tinyqv.peri.uart.UartTx(13))
@@ -111,16 +111,14 @@ trait SoCLogic { self: RawModule =>
     i_memReal.io.spi_data_in := soc_qspi_data_in
 
     // GPU read port — wired from peripherals (Step 19.2)
-    i_memReal.io.gpu_addr     := i_peripherals.io.gpu_addr
-    i_memReal.io.gpu_read_req := i_peripherals.io.gpu_read_req
+    i_memReal.io.gpuRead <> i_peripherals.io.gpuRead
 
     if (SIM_FAST_MEM) {
       val memSim = withClockAndReset(soc_clk, !soc_rst_reg_n) {
         Module(new MemoryControllerSim())
       }
       memSim.io.spi_data_in := soc_qspi_data_in
-      memSim.io.gpu_addr     := i_peripherals.io.gpu_addr
-      memSim.io.gpu_read_req := i_peripherals.io.gpu_read_req
+      memSim.io.gpuRead <> i_peripherals.io.gpuRead
 
       val fast_sim_en = soc_ui_in(7)
 
@@ -155,8 +153,10 @@ trait SoCLogic { self: RawModule =>
       i_tinyqv.io.mem_data_in := i_memReal.io.cpu_data_in
 
       // GPU read responses MUXed by fast_sim_en (Step 19.2)
-      i_peripherals.io.gpu_data       := Mux(fast_sim_en, memSim.io.gpu_data,       i_memReal.io.gpu_data)
-      i_peripherals.io.gpu_read_ready := Mux(fast_sim_en, memSim.io.gpu_read_ready, i_memReal.io.gpu_read_ready)
+      // Note: req/addr are driven combinationally from peripherals above;
+      // we only need to MUX the response (data + ready) back.
+      i_peripherals.io.gpuRead.data  := Mux(fast_sim_en, memSim.io.gpuRead.data,  i_memReal.io.gpuRead.data)
+      i_peripherals.io.gpuRead.ready := Mux(fast_sim_en, memSim.io.gpuRead.ready, i_memReal.io.gpuRead.ready)
 
     } else {
       // Simple case: only real controller
@@ -178,8 +178,8 @@ trait SoCLogic { self: RawModule =>
       i_tinyqv.io.mem_data_in := i_memReal.io.cpu_data_in
 
       // GPU read responses from real controller (Step 19.2)
-      i_peripherals.io.gpu_data       := i_memReal.io.gpu_data
-      i_peripherals.io.gpu_read_ready := i_memReal.io.gpu_read_ready
+      i_peripherals.io.gpuRead.data  := i_memReal.io.gpuRead.data
+      i_peripherals.io.gpuRead.ready := i_memReal.io.gpuRead.ready
     }
 
     // -------------------------------------------------------------------------

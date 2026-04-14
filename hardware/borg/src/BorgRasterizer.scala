@@ -51,10 +51,7 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   val tileWriteEn   = Output(Bool())
 
   // GPU memory read port (Step 19.2: sTexFetch)
-  val gpu_addr       = Output(UInt(16.W))
-  val gpu_read_req   = Output(Bool())
-  val gpu_data       = Input(UInt(32.W))
-  val gpu_read_ready = Input(Bool())
+  val gpuRead      = new GpuReadIO
   val morton_index   = Input(UInt(12.W))
   val tex_base_addr  = Input(UInt(16.W))
   val tex_en         = Input(Bool())
@@ -111,8 +108,8 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   io.tileWriteData := 0.U.asTypeOf(new ColorZ(16))
 
   // GPU read port defaults (Step 19.2)
-  io.gpu_read_req := false.B
-  io.gpu_addr     := 0.U
+  io.gpuRead.req  := false.B
+  io.gpuRead.addr := 0.U
 
   // --- Iterator advance ---
   when(io.advance) {
@@ -169,18 +166,18 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   // zero-cost since base is 8-byte aligned from <<3).
   val tex_base = io.tex_base_addr +& (io.morton_index << 3)
   when(phase === sTexFetch) {
-    io.gpu_read_req := true.B
-    io.gpu_addr     := Mux(read_word_count === 0.U, tex_base, tex_base | 4.U)
+    io.gpuRead.req  := true.B
+    io.gpuRead.addr := Mux(read_word_count === 0.U, tex_base, tex_base | 4.U)
 
-    when(io.gpu_read_ready) {
+    when(io.gpuRead.ready) {
       when(read_word_count === 0.U) {
-        frag_r := io.gpu_data(15, 0)
-        frag_g := io.gpu_data(31, 16)
+        frag_r := io.gpuRead.data(15, 0)
+        frag_g := io.gpuRead.data(31, 16)
         read_word_count := 1.U
       } .otherwise {
-        frag_b := io.gpu_data(15, 0)
+        frag_b := io.gpuRead.data(15, 0)
         phase := sTileWrite
-        io.gpu_read_req := false.B
+        io.gpuRead.req := false.B
       }
     }
   }

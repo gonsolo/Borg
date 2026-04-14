@@ -6,6 +6,7 @@ package soc
 
 import chisel3._
 import chisel3.util._
+import borg.GpuReadIO
 
 /** Fast-simulation memory controller variant.
   *
@@ -122,8 +123,8 @@ class MemoryControllerSim extends Module {
   val gpu_addr_reg     = RegInit(0.U(16.W))
 
   // Latch address on new request
-  when(io.gpu_read_req && !gpu_read_pending) {
-    gpu_addr_reg    := io.gpu_addr
+  when(io.gpuRead.req && !gpu_read_pending) {
+    gpu_addr_reg     := io.gpuRead.addr
     gpu_read_pending := true.B
   }
 
@@ -134,11 +135,11 @@ class MemoryControllerSim extends Module {
   val gpu_r3 = sim_psram_ext(gpu_addr_reg + 3.U)
 
   // Assemble and drive outputs
-  io.gpu_data       := Cat(gpu_r3, gpu_r2, gpu_r1, gpu_r0)
-  io.gpu_read_ready := gpu_read_pending
+  io.gpuRead.data  := Cat(gpu_r3, gpu_r2, gpu_r1, gpu_r0)
+  io.gpuRead.ready := gpu_read_pending
 
   // Clear pending when requestor drops req
-  when(gpu_read_pending && !io.gpu_read_req) {
+  when(gpu_read_pending && !io.gpuRead.req) {
     gpu_read_pending := false.B
   }
 

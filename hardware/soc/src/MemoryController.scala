@@ -7,13 +7,14 @@ package soc
 import chisel3._
 import chisel3.util._
 import tinyqv.cpu.{InstrFetchIO, QspiController}
+import borg.GpuReadIO
 
 /** IO bundle for the SoC-level memory controller.
   *
   * Arbitrates the QSPI bus between three requestors:
   *   - CPU instruction fetch (via [[InstrFetchIO]])
   *   - CPU data read/write (loads, stores, PSRAM framebuffer)
-  *   - GPU read (autonomous texel fetch — tied off in Step 19.1, wired in Step 19.2)
+  *   - GPU read (autonomous texel fetch — Step 19.2)
   */
 class MemoryControllerIO extends Bundle {
   // CPU instruction fetch interface
@@ -28,11 +29,8 @@ class MemoryControllerIO extends Bundle {
   val cpu_ready         = Output(Bool())
   val cpu_data_in       = Output(UInt(32.W))
 
-  // GPU read port — arbiter added in Step 19.2
-  val gpu_addr       = Input(UInt(16.W))  // 16-bit: 64KB texture space
-  val gpu_read_req   = Input(Bool())
-  val gpu_data       = Output(UInt(32.W))
-  val gpu_read_ready = Output(Bool())
+  // GPU read port (slave end — Flipped so Output/Input directions are from the GPU master's view)
+  val gpuRead = Flipped(new GpuReadIO)
 
   // SPI/QSPI pins — MemoryController is the sole owner of the physical bus;
   // neither TinyQV nor Borg have any knowledge of QSPI.
@@ -95,7 +93,7 @@ class MemoryController extends Module {
   val txn_len   = Mux(is_instr, 1.U(2.W), data_txn_len)
   val addr_in   = Mux(
     is_gpu,
-    Cat(2.U(2.W), 0.U(7.W), io.gpu_addr),
+    Cat(2.U(2.W), 0.U(7.W), io.gpuRead.addr),
     Mux(
       is_instr,
       Cat(0.U(1.W), io.instrFetch.instr_addr, 0.U(1.W)),
@@ -123,7 +121,7 @@ class MemoryController extends Module {
         (qspi_data_ready && qspi_data_byte_idx === 1.U) ||
         io.instrFetch.instr_fetch_stall
       ) {
-        when(data_txn_n =/= 3.U || io.gpu_read_req) { stop_txn := true.B }
+        when(data_txn_n =/= 3.U || io.gpuRead.req) { stop_txn := true.B }
       }
     } .elsewhen(
       (qspi_data_ready || qspi_data_req) &&
@@ -137,7 +135,7 @@ class MemoryController extends Module {
       start_read := true.B
     } .elsewhen(io.cpu_write_n =/= 3.U) {
       start_write := true.B
-    } .elsewhen(io.gpu_read_req) {
+    } .elsewhen(io.gpuRead.req) {
       start_gpu_read := true.B
     } .elsewhen(io.instrFetch.instr_fetch_restart) {
       start_instr := true.B
@@ -250,8 +248,8 @@ class MemoryController extends Module {
   )
 
   // GPU Read Port — arbiter wired in Step 19.2
-  io.gpu_read_ready := gpu_active && qspi_data_ready && qspi_data_byte_idx === data_txn_len
-  io.gpu_data       := Cat(
+  io.gpuRead.ready := gpu_active && qspi_data_ready && qspi_data_byte_idx === data_txn_len
+  io.gpuRead.data  := Cat(
     qspi_data_out,
     qspi_data_buf(2),
     qspi_data_buf(1),
