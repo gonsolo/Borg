@@ -44,6 +44,12 @@ class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
   val data_ready = Output(Bool())
   val data_read_complete = Input(Bool())
   val user_interrupts = Output(UInt(14.W))
+
+  // GPU read port (Step 19.2: Borg → MemoryController)
+  val gpu_addr       = Output(UInt(16.W))
+  val gpu_read_req   = Output(Bool())
+  val gpu_data       = Input(UInt(32.W))
+  val gpu_read_ready = Input(Bool())
 }
 
 class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
@@ -165,6 +171,12 @@ class tinyQV_peripherals(val CLOCK_MHZ: Int) extends Module {
 
       uo_out_borg := borg.io.uo_out
       interrupt_borg := borg.io.user_interrupt
+
+      // GPU read port passthrough (Step 19.2)
+      borg.io.gpu_data       := io.gpu_data
+      borg.io.gpu_read_ready := io.gpu_read_ready
+      io.gpu_addr            := borg.io.gpu_addr
+      io.gpu_read_req        := borg.io.gpu_read_req
 
       when(is_borg) {
         data_from_peri := borg.io.data_out

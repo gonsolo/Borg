@@ -357,7 +357,7 @@ Mill dependency graph:
   borg   (GPU, leaf)  ──┘
 ```
 
-### Step 19: Shared Memory Controller
+### Step 19: Shared Memory Controller ✅ (2026-04-14)
 
 Extract `TinyQVMemCtrl` to SoC level and add a GPU read port, making Borg an
 autonomous bus master for PSRAM reads. This follows the universal GPU memory
@@ -375,10 +375,15 @@ PowerVR SGX's Data Masters + tile-based deferred rendering pattern.
     read port (`gpu_addr`, `gpu_read_req`, `gpu_data`, `gpu_read_ready`).
     `SoCLogic` wires all three peer components. All tests pass (Verilator + Arcilator).
 
-- **Step 19.2: Wire GPU port to BorgRasterizer**
-    Add `sTexFetch` FSM state to `BorgRasterizer`. Connect Morton index →
-    `psramAddr`. New Chisel tests for texel fetch path.
-    FPGA estimate: +8–12 LUTs, running total ~5100–5120.
+- ✅ **Step 19.2: Wire GPU port to BorgRasterizer** *(2026-04-14)*
+    Added `sTexFetch` FSM state to `BorgRasterizer`: 2-word packed PSRAM read
+    (R+G in Word 0, B in Word 1), latching into `frag_r/g/b` before `sTileWrite`.
+    Connected Morton index → `gpu_addr`; `tex_en` gates the fetch path.
+    GPU read port wired end-to-end: `BorgRasterizer` → `Borg` → `Peripherals` →
+    `Project` → `MemoryController` arbiter (real + sim). `MemoryControllerSim`
+    implements fast-path bypass for Verilator/Arcilator. `make triangle` on FPGA
+    passes. Chisel `tex_fetch_path` test verifies full FSM handshake.
+    FPGA actual: 5256 / 5280 LCs (99%), 10 / 30 BRAMs.
 
 ### Step 20: Hardware PSRAM Texel Fetch (continues Step 16)
 
@@ -520,7 +525,7 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 | 17.3 (remove C ext) | Delete RVC decoder entirely | **−84** (actual) | **5184** | ✅ |
 | 18 (SoC restructure) | Package move only | +0 | ~5184 | ✅ |
 | 19.1 (MemCtrl extract) | GPU port mux | +5–8 | ~5192 | ✅ |
-| 19.2 (sTexFetch FSM) | 1 FSM state + addr calc | +8–12 | ~5204 | ✅ |
+| 19.2 (sTexFetch FSM) | 1 FSM state + addr calc | **+64** (actual) | **5256** | ⚠ |
 | 21.0 (LUT recovery) | Remove MMIO IMEM+uniform+GPR write | **−40–70** | ~5140 | ✅ |
 | 21.1 (DMA FSM) | FSM + addr counter + dest mux | +20–30 | ~5170 | ✅ |
 | 22 (cache) | Tag compare + data FFs | +25–35 | ~5200 | ✅ |

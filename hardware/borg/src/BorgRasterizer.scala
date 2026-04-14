@@ -49,13 +49,22 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   val tileWriteIdx  = Output(UInt(4.W))
   val tileWriteData = Output(new ColorZ(16))
   val tileWriteEn   = Output(Bool())
+
+  // GPU memory read port (Step 19.2: sTexFetch)
+  val gpu_addr       = Output(UInt(16.W))
+  val gpu_read_req   = Output(Bool())
+  val gpu_data       = Input(UInt(32.W))
+  val gpu_read_ready = Input(Bool())
+  val morton_index   = Input(UInt(12.W))
+  val tex_base_addr  = Input(UInt(16.W))
+  val tex_en         = Input(Bool())
 }
 
 class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val io = IO(new BorgRasterizerIO(config))
 
   // --- Phase FSM ---
-  val sIdle :: sRast :: sFrag :: sTileWrite :: Nil = Enum(4)
+  val sIdle :: sRast :: sFrag :: sTexFetch :: sTileWrite :: Nil = Enum(5)
   val phase = RegInit(sIdle)
 
   // --- State ---
@@ -71,6 +80,7 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   val inside_flag = !e0_outside && !e1_outside && !e2_outside
 
   val auto_run_stall = RegInit(false.B)
+  val read_word_count = RegInit(0.U(1.W))  // sTexFetch: 0 or 1 (2 packed reads)
 
   // Fragment output snooping registers (Hardware ABI: R=r26, G=r27, B=r28, Z=r29)
   // Always 16-bit to match Tile Buffer capacity (if core is FP32, it sends FP16 in low bits)
@@ -99,6 +109,10 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   io.tileWriteEn   := false.B
   io.tileWriteIdx  := iter_reg.x(1, 0) | (iter_reg.y(1, 0) << 2.U)
   io.tileWriteData := 0.U.asTypeOf(new ColorZ(16))
+
+  // GPU read port defaults (Step 19.2)
+  io.gpu_read_req := false.B
+  io.gpu_addr     := 0.U
 
   // --- Iterator advance ---
   when(io.advance) {
@@ -135,8 +149,40 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   }
 
   when(phase === sFrag && core_just_finished) {
-    // Fragment shader finished: auto-write to tile buffer
-    phase := sTileWrite
+    // Fragment shader finished: texel fetch or tile write
+    when(io.tex_en) {
+      phase := sTexFetch
+      read_word_count := 0.U
+    } .otherwise {
+      phase := sTileWrite
+    }
+  }
+
+  // --- sTexFetch: autonomous PSRAM texel read (Step 19.2) ---
+  //
+  // Texel memory layout (8 bytes per texel, stride = power-of-2):
+  //   Word 0 [offset +0]: { G[15:0], R[15:0] }   — both R and G packed
+  //   Word 1 [offset +4]: { pad[15:0], B[15:0] }  — B only
+  //
+  // Address is computed combinationally (no register needed: inputs are
+  // stable while FSM is in sTexFetch). Word 1 = base | 4 (bit 2 set,
+  // zero-cost since base is 8-byte aligned from <<3).
+  val tex_base = io.tex_base_addr +& (io.morton_index << 3)
+  when(phase === sTexFetch) {
+    io.gpu_read_req := true.B
+    io.gpu_addr     := Mux(read_word_count === 0.U, tex_base, tex_base | 4.U)
+
+    when(io.gpu_read_ready) {
+      when(read_word_count === 0.U) {
+        frag_r := io.gpu_data(15, 0)
+        frag_g := io.gpu_data(31, 16)
+        read_word_count := 1.U
+      } .otherwise {
+        frag_b := io.gpu_data(15, 0)
+        phase := sTileWrite
+        io.gpu_read_req := false.B
+      }
+    }
   }
 
   when(phase === sTileWrite) {

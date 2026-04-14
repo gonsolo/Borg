@@ -14,6 +14,7 @@ import circt.stage.ChiselStage
   */
 object Emit {
   val firtoolOpts = Array(
+    "-O=release",
     "--split-verilog",
     "--lowering-options=" +
       "disallowLocalVariables," +

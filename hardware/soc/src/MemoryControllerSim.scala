@@ -116,10 +116,31 @@ class MemoryControllerSim extends Module {
   io.cpu_data_in := psram_read_data
 
   // ---------------------------------------------------------------------------
-  // GPU Read Port — tied off in Step 19.1
+  // GPU Read Port — fast bypass (Step 19.2)
   // ---------------------------------------------------------------------------
-  io.gpu_data       := 0.U
-  io.gpu_read_ready := false.B
+  val gpu_read_pending = RegInit(false.B)
+  val gpu_addr_reg     = RegInit(0.U(16.W))
+
+  // Latch address on new request
+  when(io.gpu_read_req && !gpu_read_pending) {
+    gpu_addr_reg    := io.gpu_addr
+    gpu_read_pending := true.B
+  }
+
+  // Read 4 bytes from PSRAM at latched address
+  val gpu_r0 = sim_psram_ext(gpu_addr_reg)
+  val gpu_r1 = sim_psram_ext(gpu_addr_reg + 1.U)
+  val gpu_r2 = sim_psram_ext(gpu_addr_reg + 2.U)
+  val gpu_r3 = sim_psram_ext(gpu_addr_reg + 3.U)
+
+  // Assemble and drive outputs
+  io.gpu_data       := Cat(gpu_r3, gpu_r2, gpu_r1, gpu_r0)
+  io.gpu_read_ready := gpu_read_pending
+
+  // Clear pending when requestor drops req
+  when(gpu_read_pending && !io.gpu_read_req) {
+    gpu_read_pending := false.B
+  }
 
   // ---------------------------------------------------------------------------
   // SPI outputs — tied off; fast sim bypasses QSPI entirely

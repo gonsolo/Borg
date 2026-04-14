@@ -110,17 +110,17 @@ trait SoCLogic { self: RawModule =>
     // -------------------------------------------------------------------------
     i_memReal.io.spi_data_in := soc_qspi_data_in
 
-    // GPU read port — tied off in Step 19.1
-    i_memReal.io.gpu_addr    := 0.U
-    i_memReal.io.gpu_read_req := false.B
+    // GPU read port — wired from peripherals (Step 19.2)
+    i_memReal.io.gpu_addr     := i_peripherals.io.gpu_addr
+    i_memReal.io.gpu_read_req := i_peripherals.io.gpu_read_req
 
     if (SIM_FAST_MEM) {
       val memSim = withClockAndReset(soc_clk, !soc_rst_reg_n) {
         Module(new MemoryControllerSim())
       }
       memSim.io.spi_data_in := soc_qspi_data_in
-      memSim.io.gpu_addr    := 0.U
-      memSim.io.gpu_read_req := false.B
+      memSim.io.gpu_addr     := i_peripherals.io.gpu_addr
+      memSim.io.gpu_read_req := i_peripherals.io.gpu_read_req
 
       val fast_sim_en = soc_ui_in(7)
 
@@ -154,6 +154,10 @@ trait SoCLogic { self: RawModule =>
       i_tinyqv.io.mem_ready   := i_memReal.io.cpu_ready
       i_tinyqv.io.mem_data_in := i_memReal.io.cpu_data_in
 
+      // GPU read responses MUXed by fast_sim_en (Step 19.2)
+      i_peripherals.io.gpu_data       := Mux(fast_sim_en, memSim.io.gpu_data,       i_memReal.io.gpu_data)
+      i_peripherals.io.gpu_read_ready := Mux(fast_sim_en, memSim.io.gpu_read_ready, i_memReal.io.gpu_read_ready)
+
     } else {
       // Simple case: only real controller
       i_memReal.io.instrFetch.instr_addr         := i_tinyqv.io.instr_addr
@@ -172,6 +176,10 @@ trait SoCLogic { self: RawModule =>
 
       i_tinyqv.io.mem_ready   := i_memReal.io.cpu_ready
       i_tinyqv.io.mem_data_in := i_memReal.io.cpu_data_in
+
+      // GPU read responses from real controller (Step 19.2)
+      i_peripherals.io.gpu_data       := i_memReal.io.gpu_data
+      i_peripherals.io.gpu_read_ready := i_memReal.io.gpu_read_ready
     }
 
     // -------------------------------------------------------------------------

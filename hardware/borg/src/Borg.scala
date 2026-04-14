@@ -29,6 +29,12 @@ class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
   val data_ready = Output(Bool())
   val uo_out = Output(UInt(8.W))
   val user_interrupt = Output(Bool())
+
+  // GPU read port (Step 19.2: sTexFetch → MemoryController)
+  val gpu_addr       = Output(UInt(16.W))
+  val gpu_read_req   = Output(Bool())
+  val gpu_data       = Input(UInt(32.W))
+  val gpu_read_ready = Input(Bool())
 }
 
 class RegFileCopyIO(width: Int) extends Bundle {
@@ -135,6 +141,16 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     // Core state feedback
     rast.io.coreRunning        := core.io.running
     rast.io.coreAutoRunPending := core.io.autoRunPending
+
+    // GPU read port wiring (Step 19.2)
+    io.gpu_addr     := rast.io.gpu_addr
+    io.gpu_read_req := rast.io.gpu_read_req
+    rast.io.gpu_data       := io.gpu_data
+    rast.io.gpu_read_ready := io.gpu_read_ready
+
+    // Texture configuration — hardcoded for Step 19.2; disabled until Step 20.2 firmware
+    rast.io.tex_base_addr := 0x51A0.U(16.W)
+    rast.io.tex_en        := false.B
   }
 
   private def wireTileBuffer(): Unit = {
@@ -195,9 +211,7 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     rdlRegs.io.hw.iter_valid := rast.io.iterValid
     rdlRegs.io.hw.iter_inside_flag := rast.io.insideFlag
 
-    // RDL Tile state injection
-    // To prevent Yosys from allocating 64 redundant logic cells for PeakRDL shadow registers,
-    // we tie the hardware read-port to 0. We already manually proxy the tile reads via data_out MuxCase.
+    // RDL Tile state injection — tie to 0; Borg.scala proxies tile reads via data_out MuxCase
     rdlRegs.io.hw.tile_rg_red_in := 0.U
     rdlRegs.io.hw.tile_rg_g_in := 0.U
     rdlRegs.io.hw.tile_bz_b_in := 0.U
@@ -219,6 +233,9 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     rdlRegs.io.hw.tex_addr_morton := morton_index
     rdlRegs.io.hw.tex_addr_raw_u  := tex_x
     rdlRegs.io.hw.tex_addr_raw_v  := tex_y
+
+    // Wire morton_index to rasterizer for sTexFetch (Step 19.2)
+    rast.io.morton_index := morton_index
 
     val rdl_read_data = rdlRegs.io.bus.readData
     io.data_out := MuxCase(rdl_read_data, Seq(
