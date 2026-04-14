@@ -16,11 +16,11 @@ Target: March 2026 — TTIHP26a shuttle
 - [x] GDS submission (4×2 tiles, IHP SG13G2)
 - [x] 32-bit RISC-V instructions & 32-entry register file
 
-## Phase 2: GPU Autonomy
+## Phase 2: GPU Autonomy (Steps 21–26.5)
 
-Move the rendering inner loop from firmware into hardware, step by step.
-Each step produces a measurable speed-up, can be tested against the existing
-`triangle.py` golden image, and fits on iCE40.
+Target: **~June 2026** — move the rendering inner loop from firmware into
+hardware, step by step. Each step produces a measurable speed-up, can be
+tested against the existing `triangle.py` golden image, and fits on iCE40.
 
 ### Current Architecture
 
@@ -398,28 +398,53 @@ behaviour change, no new logic, no LC impact. Replaced dozens of manual
 tests, C++ simulation harnesses, and `FlatIO`-based ExtModule port names.
 Verified: all Chisel tests pass, Verilator/Arcilator triangle OK.
 
-### Step 21: Hardware PSRAM Texel Fetch (continues Step 16)
+### Step 21: Area Optimizations + Tex Fetch Enable
 
-The texel fetch FSM and firmware integration, now that the Shared Memory
-Controller (Step 19) provides the GPU read port.
+**Do area optimizations first** to create headroom before adding new features.
+The iCE40 is at 5280/5280 (100%) after Step 20. The root cause: 4019 LUTs
+use 5280 LCs because ~1261 DFFs can't share cells with their LUTs. DFF
+reduction is more effective than LUT reduction.
 
-- **Step 21.1: sTexFetch FSM Integration**
-    Wire Morton index from `TextureAddr` → `psramAddr` on the GPU read port.
-    `sTexFetch` state between `sFrag` and `sTileWrite`: assert `gpu_read_req`,
-    wait for `gpu_data_ready`, latch RGB. Chisel tests + Verilator verification.
+- **Step 21.0: Area Optimizations** (prerequisite for all new features)
+  - **O1: RDL tile shadow registers → `hw=r`** (~40 LCs saved)
+    Change `tile_rg` and `tile_bz` fields in `borg.rdl` from `hw=rw` to
+    `hw=r`. PeakRDL stops generating 64 DFFs of shadow registers. The MMIO
+    read path already bypasses them via `MuxCase` in `Borg.scala`. **Zero risk.**
+  - **O5: Command FIFO 2→1 entries** (~20 LCs saved)
+    Reduce `BorgCommandFIFO` from 2 to 1 entry. Saves ~31 DFFs. With GPU
+    autonomy (Step 25+), command submission is infrequent. Low risk.
+  - **O6: Fp16Rcp NaN/Inf removal** (~8 LCs saved)
+    GPU shaders never produce NaN/Inf inputs to FRCP. Remove `isNaN`, `isInf`
+    detection and 2 of 3 `MuxCase` arms. Keep only zero/subnormal check.
+  - **O7: Remove dead `peekZ` tile buffer port** (~15 LCs saved)
+    `tile.io.peekZ` output is never read in `Borg.scala` — dead logic. Remove
+    `peekZIdx`, `peekZ`, `peekZheld`, `notMainRead`, and the
+    `effectiveReadIdx` mux from `BorgTileBuffer.scala`.
+  - **O8: Remove duplicate `read_addr_del`** (~6 LCs saved)
+    `Borg.scala` has a 10-bit `read_addr_del` register that duplicates
+    `BorgGpuRegs`'s internal `readAddr`. Share a single register.
+  - Target: **−89 LCs** → running total ~5191
 
-- **Step 21.2: Firmware Integration**
+- ✅ **Step 21.1: sTexFetch FSM Integration** *(completed during Step 19.2)*
+    Morton index wiring, sTexFetch FSM, 2-word PSRAM read, Chisel tests — all
+    done. `texConfig.en` is hardcoded to `false.B`; `texConfig.baseAddr` is
+    hardcoded to `0x51A0`. Both will be made MMIO-controllable below.
+
+- **Step 21.2: Tex Config MMIO + Firmware Integration** (+10 LCs)
+    Add `tex_config_reg_t` to `borg.rdl` with `base_addr[16]` and `en[1]`
+    fields. Regenerate `BorgGpuRegs`. Wire to `rast.io.texConfig` in
+    `Borg.scala`, replacing the hardcoded values.
     Update `frag.s` to write UV outputs to `TEX_UV` register. Update
     `borg_triangle.c` to load test texture into PSRAM and enable texturing.
     Textured triangle rendering verified against golden output.
 
-### Step 22: GPU DMA Engine
+### Step 22: GPU DMA Engine + LUT Recovery
 
 Generalize the GPU read port for bulk transfers. The DMA engine drives the
 **same** `gpu_read` port built in Step 19 — `SoCMemCtrl` is unchanged, only
 the driver changes. Estimate: 1 week.
 
-- **Step 22.0: LUT Recovery** (prerequisite micro-steps)
+- **Step 22.0: LUT Recovery** (prerequisite micro-steps, −44 LCs)
   - **22.0a: Remove IMEM MMIO write path** (~15 LUTs saved) — DMA replaces it
   - **22.0b: Remove MMIO uniform write path** (~15 LUTs saved) — DMA replaces it
   - **22.0c: Simplify RDL address decode** (~10 LUTs saved)
@@ -429,9 +454,13 @@ the driver changes. Estimate: 1 week.
     is unused. Remove the `mmio_en` conditional from `wirePortC()` in
     `BorgCore.scala`. Requires refactoring all Chisel/cocotb test GPR reads
     to use pipeline write-back snooping.
-  - Target: free ~40–70 LUTs to bring running total back under budget
 
-- **Step 22.1: DMA controller FSM** (`BorgDMA.scala`)
+  **Chicken-and-egg:** Steps 22.0a/b remove MMIO paths before DMA exists.
+  Chisel tests and Verilator can load IMEM/uniforms via the C++ test harness
+  (direct memory poke). Remove uniform MMIO first (less time-critical); keep
+  IMEM MMIO until DMA is tested, then remove.
+
+- **Step 22.1: DMA controller FSM** (`BorgDMA.scala`, +25 LCs)
     Accepts `(base_ptr, length, destination)` descriptor via MMIO. Issues
     sequential `gpu_read_req` for each word. Routes returned data to the correct
     on-chip buffer (uniform/IMEM/GPR). Multiplexes with `sTexFetch` requests.
@@ -447,61 +476,176 @@ the driver changes. Estimate: 1 week.
 
   **Memory evolution:** The `gpu_read` port created in Step 19 IS the DMA port.
   Step 19 drives it from `BorgRasterizer.sTexFetch`; Step 22 drives it from
-  `BorgDMA`. Step 24 (bus protocol) wraps it as a standard `BorgBus` master —
-  each step changes *who drives the port*, not the port itself.
+  `BorgDMA`.
 
-### Step 23: Data Cache
+### Step 23: GPU PSRAM Write Port (+15 LCs)
 
-Tiny texture cache to avoid redundant PSRAM reads for adjacent pixels.
-On QSPI PSRAM, each texel fetch costs ~120 cycles (4 bytes × 30 cy/byte).
-Adjacent pixels in a textured triangle almost always hit the same or
-neighboring texels. A tiny cache eliminates redundant PSRAM reads.
+Add `GpuWriteIO` (or extend `GpuReadIO` to bidirectional `GpuMemIO` with a
+`wr` flag) for autonomous tile buffer flush to PSRAM. Currently, tile buffer
+flush is done by the CPU via MMIO reads (`TILE_RG`/`TILE_BZ`) + PSRAM writes.
+For GPU autonomy (Step 26), the GPU must flush tiles without CPU involvement.
 
-- **Step 23.1: 4-line direct-mapped texture cache**
-    4 × (12-bit Morton tag + 24-bit RGB data) = 144 bits = ~18 FFs +
-    comparators. ~30 LUTs, 0 BRAMs. `sTexFetch` FSM checks cache first; on
-    hit, skips PSRAM entirely. Est. hit rate: ~60%.
+- **Step 23.1: GpuMemIO bundle** (+5 LCs)
+    Extend `GpuReadIO` with `wr: Bool` and `wdata: UInt(32.W)`.
+    `MemoryController` arbiter adds a write path for GPU port.
 
-- **Step 23.2: Cache hit/miss perf counter** via status register
+- **Step 23.2: sTileFlush FSM state** (+10 LCs)
+    New state in `BorgRasterizer` after the last pixel in a tile: sequentially
+    reads the 16-entry tile buffer BRAM and issues GPU write requests to PSRAM.
+    16 entries × 4 words (R, G, B, Z) = 64 GPU write cycles per tile.
 
-- **Step 23.3: Evaluate 8-line variant** (~50 LUTs, ~75% hit rate) — if LUT
-    budget allows
+### Step 24: Integrated Vertex + Triangle Setup Sequencer (+45 LCs)
 
-### Step 24: SoC Bus Protocol
+Unified FSM that replaces what the CPU currently does in `shade_tiles()`,
+`run_vertex_shader()`, `triangle_setup()`, and `compute_edge_vectors()`.
+Combines the planned DMA engine (Step 22) and vertex sequencer into a
+single FSM to share registers, address counters, and control logic.
 
-Replace the hand-rolled `elsewhen` priority chain with a named bus protocol.
+- **Step 24.1: Vertex shader sequencing**
+    FSM sequences 3 vertex shader runs: DMA loads vertex attributes from
+    PSRAM into GPR, runs SPIR-B shader, stores clip-space outputs. Reloads
+    uniform buffer between vertex and fragment stages.
 
-- **Step 24.1: BorgBus protocol definition**
-    `BorgBusIO` bundle: `addr(25.W)`, `data_w(32.W)`, `op(2.W)`, `valid(Bool)`
-    → `data_r(32.W)`, `ready(Bool)`. Inspired by TileLink-UL semantics but
-    without the Diplomacy overhead.
+- **Step 24.2: Triangle setup shader**
+    A 4th shader program that computes edge equations, signed area, `inv_area`
+    (FRCP), and bounding box from the 3 vertex outputs. Currently done in
+    firmware (`triangle_setup()` + `compute_edge_vectors()` in
+    `borg_driver.c`). No new hardware — uses existing FMA+FRCP. ~80 shader
+    cycles per triangle, negligible vs. per-pixel rasterization.
 
-- **Step 24.2: BorgBus arbiter** (replaces hand-rolled Mux chain in SoCMemCtrl)
-- **Step 24.3: Borg → BorgBus master adapter**
-- **Step 24.4: TileLink compatibility layer** (optional, for future Chipyard
-    integration — ~50 line `BorgBusToTileLink` adapter)
+- **Step 24.3: Automatic uniform reload**
+    After triangle setup, the sequencer DMA-loads the rasterizer + fragment
+    shader uniforms (edge constants, vertex colors, inv_area, z_vals) from
+    the setup shader outputs, then enqueues the first tile command.
 
-  **Why not TileLink directly?** TileLink requires the RocketChip Diplomacy
-  framework (~30K LOC). The `LazyModule` conversion would blow the iCE40 LC
-  budget. BorgBus is semantically 1:1 with TL-UL Get/Put, so a future
-  migration is a thin adapter.
+### ~~Step 23 (old): Data Cache~~ → Deferred
 
-### Step 25: Vertex Shader Auto-Sequencer
+Deferred to Phase 5 (larger FPGA or ASIC). Not needed for functional
+correctness. The ~30 LUT cost doesn't fit the iCE40 budget, and on ASIC
+(Tiny Tapeout) a BRAM-based full-coverage cache is possible at zero LUT cost.
 
-FSM that sequences 3 vertex shader runs (loading attributes, running SPIR-B
-shader, storing outputs, applying screen-space transform) without CPU
-involvement. Uses the DMA engine (Step 21) to load vertex attributes from
-PSRAM. The sequencer reloads the uniform buffer between stages: the vertex
-shader uses 16 uniform slots (4×4 MVP matrix), while the rasterizer and
-fragment shaders use 31 slots (edge constants + vertex colors + inv_area).
-Estimate: 1 week.
+### ~~Step 24 (old): SoC Bus Protocol~~ → Deferred
 
-### Step 26: Full Autonomous Triangle Pipeline
+Deferred to Phase 5 (larger FPGA or ASIC). Code quality improvement, not
+functional. The hand-rolled priority chain works correctly. A proper
+`BorgBus` → TileLink adapter is worth doing on the Nitefury II or for ASIC,
+but not on iCE40 at 99% utilization.
 
-Integration of Steps 1–24. CPU submits a triangle descriptor; GPU does
-vertex shade → triangle setup → rasterize → fragment shade → Z-test →
-tile buffer → PSRAM flush. CPU only writes triangle data and waits for DONE.
+### Step 25: Full Autonomous Triangle Pipeline
+
+Integration of Steps 21–24. CPU submits a triangle descriptor; GPU does:
+
+1. **Vertex shade** (3× vertex shader runs via DMA + sequencer)
+2. **Triangle setup** (setup shader: edge equations, inv_area, bbox)
+3. **Rasterize** (hardware pixel iterator + edge evaluation)
+4. **Fragment shade** (hardware FMA pipeline, snooped write-back)
+5. **Texture fetch** (sTexFetch FSM, Morton-encoded PSRAM read)
+6. **Z-test** (tile buffer BRAM comparison)
+7. **Tile write** (sTileWrite to BRAM)
+8. **Tile flush** (sTileFlush to PSRAM via GPU write port)
+
+CPU only writes the triangle descriptor and waits for DONE interrupt.
 Estimate: 1–2 weeks.
+
+### Step 26: Multi-Triangle Autonomous Rendering
+
+Extend Step 25 to process a list of triangle descriptors from PSRAM without
+CPU involvement. The GPU reads the next descriptor, runs the full pipeline,
+and signals DONE after the last triangle. The CPU submits a draw call
+(base pointer + count) and waits.
+
+### Step 26.5: Real-Time VGA Output (TT VGA PMOD)
+
+Drive the Tiny Tapeout VGA PMOD directly from the pico-ice FPGA for
+real-time display — the hardware equivalent of `make vkcube_gui`.
+No host PC needed; the GPU renders to a monitor in real time.
+
+**TT VGA PMOD pinout** (resistor-DAC, 2 bits per channel):
+
+| `uo_out` pin | VGA Function |
+| --- | --- |
+| `uo_out[0]` | R1 |
+| `uo_out[1]` | G1 |
+| `uo_out[2]` | B1 |
+| `uo_out[3]` | VSync |
+| `uo_out[4]` | R0 |
+| `uo_out[5]` | G0 |
+| `uo_out[6]` | B0 |
+| `uo_out[7]` | HSync |
+
+**Pin conflict:** The VGA PMOD uses all 8 `uo_out` pins, but the current
+design uses `uo_out[0]` for UART TX and `uo_out[6]` for debug UART.
+Solution: **build-time option** — `CONFIG=student_vga` routes VGA to
+`uo_out`, while `CONFIG=student` keeps UART. The RP2040 can provide UART
+independently via its own USB connection, so VGA mode doesn't lose debug.
+
+**Architecture — SPRAM framebuffer + VGA scanout:**
+
+```text
+┌─ iCE40 UP5K ─────────────────────────────────────────────┐
+│                                                           │
+│  GPU renders → PSRAM (existing)                           │
+│       │                                                   │
+│  CPU copies frame → SPRAM (32 KB, one of 4 blocks)        │
+│       │              ↑ single-port, time-shared            │
+│       │              │                                     │
+│  VGA Controller ─────┘                                     │
+│       │  H/V counters + pixel address + FP16→RGB222        │
+│       │  Reads SPRAM during active pixels                  │
+│       │  CPU writes during vblank (16.7 ms budget)         │
+│       ↓                                                    │
+│  uo_out[7:0] → TT VGA PMOD → Monitor                      │
+└───────────────────────────────────────────────────────────┘
+```
+
+**SPRAM timing:** The iCE40 SPRAM is single-port (16-bit × 16K = 256 Kbit).
+Time-sharing: VGA reads during active display lines, CPU writes during
+vertical blanking (~1.6 ms per frame = ~38K cycles at 24 MHz — enough
+to copy a 32×32×3 = 3072-word framebuffer with margin).
+
+**Supported framebuffer sizes:**
+
+| Resolution | SPRAM usage | VGA upscale | Pixels/frame |
+| --- | --- | --- | --- |
+| 32×32 | 2 KB (6%) | 20×15 pixel blocks | 1,024 |
+| 64×64 | 8 KB (25%) | 10×7 pixel blocks | 4,096 |
+| 128×96 | 24 KB (75%) | 5×5 pixel blocks | 12,288 |
+
+**VGA timing:** 640×480 @ 60 Hz requires a 25.175 MHz pixel clock.
+The iCE40 PLL can generate 25.125 MHz from the 12 MHz oscillator
+(within VGA spec tolerance). The VGA controller upscales the small
+framebuffer by repeating each pixel N× horizontally and M× vertically.
+
+**FP16 → RGB222 conversion:** The GPU framebuffer stores FP16 colors.
+The VGA DAC needs 2 bits per channel. A minimal converter:
+```
+R[1:0] = fp16_color[14:13]  (top 2 mantissa bits, exponent-gated)
+```
+~10 LUTs for all 3 channels. Visually crude but functional for a demo.
+
+**Sub-steps:**
+
+- **Step 26.5a: VGA timing generator** (+30 LCs)
+    H/V counters, sync pulse generation, blanking flags.
+    Chisel module `VgaController.scala`.
+
+- **Step 26.5b: SPRAM framebuffer** (+20 LCs)
+    SPRAM `SB_SPRAM256KA` instantiation, address mux (CPU write port
+    during vblank, VGA read port during active). MMIO trigger for
+    frame copy (`PSRAM → SPRAM` DMA, or CPU loop).
+
+- **Step 26.5c: FP16→RGB222 scanout** (+15 LCs)
+    Pixel fetch from SPRAM, upscale counter, format conversion, `uo_out`
+    drive. Build-time `CONFIG=student_vga` selects VGA vs. UART on `uo_out`.
+
+- **Step 26.5d: `make fpga_vga` target** (+0 LCs)
+    Makefile target that builds the VGA-enabled bitstream. PCF constraints
+    for VGA PMOD pins on the pico-ice output header.
+
+**LC cost:** ~65 LCs. Fits in student profile (~4800 + 65 = ~4865 LCs, 92%).
+
+**SPRAM budget:** Uses 1 of 4 available SPRAM blocks. 3 remain free for
+future use (e.g., instruction cache, data cache, or larger framebuffer).
 
 ### Step Dependencies
 
@@ -517,32 +661,48 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
                                                        │
                                                   Step 18 (SoC restructure)
                                                        │
-                                                  Step 19 (shared MemCtrl) → Step 21 (DMA)
-                                                       │                          │
-                                                  Step 20 (texel fetch)     Step 22 (cache)
-                                                       │                          │
-                                                       │                     Step 23 (bus)
-                                                       │                          │
-                                                       └──→ Step 24 (vertex seq) ←┘
-                                                                  │
-                                                            Step 25 (full pipeline)
+                                                  Step 19 (shared MemCtrl)
+                                                       │
+                                                  Step 20 (IO bundle refactor)
+                                                       │
+                                               Step 21 (area opts + tex enable)
+                                                       │
+                                               Step 22 (DMA + LUT recovery)
+                                                       │
+                                               Step 23 (GPU write port)
+                                                       │
+                                               Step 24 (vert seq + tri setup)
+                                                       │
+                                               Step 25 (full autonomous pipeline)
+                                                       │
+                                               Step 26 (multi-triangle rendering)
 ```
 
-### FPGA LC Budget
+### FPGA LC Budget (pico-ice, iCE40 UP5K — 5280 LCs)
 
 | Step | Change | Est. LCs | Running total | Fits? |
 | --- | --- | --- | --- | --- |
 | Current (16.3) | — | — | 5268 | ⚠ |
 | 17.1 (S4 RDL shadows) | Remove redundant FFs | **−15–20** | ~5250 | ⚠ |
-| 17.2 (A4 nibble shifter) | ❌ abandoned — iterative replacement ~= barrel LUTs | **−3** | ~5265 | ⚠ |
-| 17.3 (remove C ext) | Delete RVC decoder entirely | **−84** (actual) | **5184** | ✅ |
+| 17.2 (A4 nibble shifter) | ❌ abandoned | **−3** | ~5265 | ⚠ |
+| 17.3 (remove C ext) | Delete RVC decoder | **−84** (actual) | **5184** | ✅ |
 | 18 (SoC restructure) | Package move only | +0 | ~5184 | ✅ |
 | 19.1 (MemCtrl extract) | GPU port mux | +5–8 | ~5192 | ✅ |
 | 19.2 (sTexFetch FSM) | 1 FSM state + addr calc | **+64** (actual) | **5256** | ⚠ |
-| 20 (IO bundle refactor) | Pure rename — no new logic | +0 | **5256** | ⚠ |
-| 22.0 (LUT recovery) | Remove MMIO IMEM+uniform+GPR write | **−40–70** | ~5140 | ✅ |
-| 22.1 (DMA FSM) | FSM + addr counter + dest mux | +20–30 | ~5170 | ✅ |
-| 23 (cache) | Tag compare + data FFs | +25–35 | ~5200 | ✅ |
+| 20 (IO bundle refactor) | Pure rename | +0 | **5280** | ⚠ |
+| **21.0 (area opts)** | **O1+O5+O6+O7+O8** | **−89** | **5191** | ✅ |
+| 21.2 (tex config MMIO) | RDL register | +10 | 5201 | ✅ |
+| 22.0 (LUT recovery) | Remove MMIO paths | **−44** | 5157 | ✅ |
+| 22.1 (DMA FSM) | FSM + addr counter | +25 | 5182 | ✅ |
+| 23 (GPU write port) | sTileFlush + arbiter | +15 | 5197 | ✅ |
+| 24 (vert seq + tri setup) | Unified FSM | +45 | 5242 | ✅ |
+| 25 (pipeline integration) | Wiring + control | +15 | 5257 | ✅ |
+| 26 (multi-triangle) | Descriptor reader | +10 | **5267** | ✅ |
+| **Margin** | | | **13 LCs** | |
+
+**Reserve optimizations** (if margin is too tight):
+- O4: Direct tile buffer write (−40 LCs, medium risk)
+- O2: Remove `tex_uv` registers after Step 24 (−20 LCs)
 
 ### BRAM Budget
 
@@ -556,9 +716,213 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 | rgbzMem | Tile buffer | 16×64-bit | 1 |
 | **Total** | | | **10 / 30** |
 
-## Phase 3: Linux-Capable CPU
+### Development Platform Strategy
 
-Target: ~Aug 2026 — expand TinyQV to RV32IMA. Sequential after Phase 2.
+| Phase | Platform | Reason |
+| --- | --- | --- |
+| Phase 2 (Steps 21–26) | **pico-ice** (iCE40 UP5K) | TT-compatible pinout, forces area discipline |
+| Phase 3 (Steps 27–30) | **pico-ice** (GPU=off) or **ULX3S** (ECP5-85K) | CPU-only fits at 75%; ECP5 for full design |
+| Phase 4–5 (Steps 32–41) | **ULX3S** or **Nitefury II** (Artix-7) | FP32 GPU, Vulkan conformance, DDR3/PCIe |
+| Tapeout | **Tiny Tapeout** (IHP SG13G2, 32 tiles) | Full SoC fits in ~14 tiles |
+
+**Development flow:**
+
+```text
+RTL development ──→ Nitefury II / ULX3S (fast iteration, full design)
+                │
+Area lint ──────→ pico-ice iCE40 build (canary: if it fits here, it fits everywhere)
+                │
+ASIC validation ─→ OpenLane CI (nightly: Yosys → OpenROAD → STA at 50 MHz)
+                │
+Tapeout ────────→ Tiny Tapeout (IHP SG13G2, 32 tiles)
+```
+
+**Key portability rules:**
+1. No vendor primitives — all memories are `SyncReadMem`, all multiplies via HardFloat
+2. Keep the iCE40 build alive as a size canary (GPU as build-time option)
+3. Design for 50 MHz max (iCE40 meets timing at 24 MHz → IHP meets at 50 MHz)
+4. Run ASIC synthesis in CI to catch non-portable constructs early
+
+**Platform comparison:**
+
+| Resource | pico-ice | ULX3S (ECP5-85K) | Nitefury II (XC7A200T) | TT (32 tiles, IHP) |
+| --- | --- | --- | --- | --- |
+| Logic | 5,280 LCs | 84,480 LUT4s | 134,600 LUT6s | ~96K std cells |
+| BRAM | 120 Kbit | 3,744 Kbit | 13,140 Kbit | SRAM macros |
+| DSP | 8 | 56 | 740 | None (synth) |
+| RAM | 8 MB QSPI | 32 MB SDRAM | 1 GB DDR3 | External QSPI |
+| Toolchain | Yosys+nextpnr | Yosys+nextpnr | Yosys+nextpnr (F4PGA) | OpenLane |
+| TT pin-compat | ✅ | Adapter needed | ❌ | N/A (is TT) |
+| Phase 2 fits? | ✅ (99%) | ✅ (6%) | ✅ (2%) | ✅ (~8 tiles) |
+| Full Vulkan? | ❌ | ✅ | ✅ | ✅ (~14 tiles) |
+
+### ULX3S / ECP5 Integration
+
+The ULX3S (Lattice ECP5-85K) is the natural stepping stone between pico-ice
+and Nitefury. It uses the **same open-source toolchain** (Yosys + nextpnr)
+and has 16× the logic, with 32 MB SDRAM on board.
+
+**Architecture — Chisel top-level wrapper (same pattern as PicoIce.scala):**
+
+```text
+┌─ ULX3S FPGA (ECP5-85K) ────────────────────────────────────┐
+│                                                              │
+│  ┌─ ULX3S_top (Chisel RawModule + SoCLogic) ──────────────┐ │
+│  │                                                         │ │
+│  │  ECP5 PLL (25 MHz xtal → 24 MHz system clock)           │ │
+│  │  BB / TRELLIS_IO for QSPI bidirectional pins            │ │
+│  │                                                         │ │
+│  │  ┌─ SoCLogic (identical to pico-ice and TT) ─────────┐ │ │
+│  │  │  TinyQV CPU                                        │ │ │
+│  │  │  MemoryController (QSPI)                           │ │ │
+│  │  │  Peripherals (Borg GPU + UART)                     │ │ │
+│  │  └────────────────────────────────────────────────────┘ │ │
+│  │                                                         │ │
+│  │  QSPI pins → PMOD header → PSRAM daughter board         │ │
+│  │  UART TX/RX → FTDI USB or PMOD                          │ │
+│  └─────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  On-board SDRAM (32 MB) — unused by Borg, available for     │
+│  future direct-memory experiments                            │
+└──────────────────────────────────────────────────────────────┘
+```
+
+The ULX3S wrapper is a Chisel `RawModule with SoCLogic` — exactly like
+`tinyQV_top` (PicoIce.scala), but using ECP5 I/O primitives instead of
+iCE40 `SB_IO`:
+
+| pico-ice (iCE40) | ULX3S (ECP5) | Function |
+| --- | --- | --- |
+| `SB_IO` (pin_type=0x29) | `BB` / `TRELLIS_IO` | Bidirectional QSPI data |
+| `SB_HFOSC` (48 MHz / div) | `EHXPLLL` (25 MHz → 24 MHz) | Clock generation |
+| Direct pin assignment | Direct pin assignment | QSPI control (CS, SCK) |
+| PCF constraints | LPF constraints | Pin mapping |
+
+**Why ULX3S is ideal for Phase 3:**
+1. **Same toolchain** — Yosys + nextpnr-ecp5. Same Makefile
+   structure as iCE40, just `--85k` instead of `--up5k`.
+2. **Same `SoCLogic` trait** — zero RTL changes. Only the top-level wrapper
+   and pin constraints differ.
+3. **LUT4 architecture** — ECP5 uses LUT4 like iCE40 and ASIC synthesis.
+   Area estimates transfer directly (unlike Artix-7 LUT6).
+4. **QSPI on PMOD** — attach real PSRAM on a PMOD daughter board. Same
+   protocol, same timing, same firmware. Or use on-board flash for code.
+5. **85K LUTs** — enough for full CPU (RV32IMA + MMU) + GPU + Phase 5
+   features, all at once.
+6. **~$60** — fraction of the Nitefury II cost.
+
+**QSPI PSRAM connection:** The ULX3S has PMOD headers. A small daughter
+board with an APS6404L QSPI PSRAM chip (same as on pico-ice) connects
+via 6 PMOD pins (4× data + SCK + CS). The Borg SoC sees identical PSRAM
+hardware. Alternatively, the on-board 16 MB SPI flash can serve as
+read-only PSRAM for code-only testing.
+
+**Integration files (future):**
+
+```text
+fpga/ulx3s/
+  src/ULX3S.scala        — Chisel top-level (RawModule + SoCLogic)
+  ULX3S.lpf              — ECP5 pin constraints
+  Makefile               — Yosys + nextpnr-ecp5 + ecppack
+```
+
+**When to use ULX3S vs. pico-ice vs. Nitefury:**
+
+| Scenario | Platform |
+| --- | --- |
+| Phase 2 (Steps 21–26), area-constrained dev | pico-ice |
+| Phase 3 (Steps 27–31), CPU grows past iCE40 | **ULX3S** |
+| Phase 3 with GPU enabled (doesn't fit iCE40) | **ULX3S** |
+| Phase 4–5, PCIe host access, DDR3 framebuffer | Nitefury II |
+| ASIC validation, nightly CI | OpenLane |
+| Tapeout | Tiny Tapeout (32 tiles) |
+
+### Nitefury II / LiteX Integration
+
+
+The Nitefury II (Artix-7 XC7A200T) has 40× the logic of the pico-ice, 1 GB
+DDR3, and PCIe Gen2 x4. LiteX provides the outer shell (clocks, DDR3
+controller, PCIe bridge) while the Borg SoC runs inside unchanged.
+
+**Architecture — TT-compatible black box:**
+
+```text
+┌─ Nitefury II FPGA ──────────────────────────────────────────┐
+│                                                              │
+│  ┌─ LiteX Shell ──────────────────────────────────────────┐  │
+│  │  PCIe ↔ Wishbone bridge                                │  │
+│  │  DDR3 controller (LiteDRAM)                            │  │
+│  │  UART-over-PCIe                                        │  │
+│  │  QSPI PSRAM emulator (DDR3 → QSPI protocol bridge)    │  │
+│  │                                                        │  │
+│  │  ┌─ tt_um_gonsolo_borg ─────────────────────────────┐  │  │
+│  │  │                                                   │  │  │
+│  │  │  ui_in[7:0]  ← UART RX, interrupts (from LiteX)  │  │  │
+│  │  │  uo_out[7:0] → UART TX, debug (to LiteX)         │  │  │
+│  │  │  uio[7:0]    ↔ QSPI (to PSRAM emulator)          │  │  │
+│  │  │                                                   │  │  │
+│  │  │  Identical RTL to pico-ice and TT ASIC            │  │  │
+│  │  └───────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+The `tt_um_gonsolo_borg` module is instantiated as a LiteX `Instance()`
+black box. Its 8+8+8 pin interface is wired to LiteX-provided bridges:
+
+| TT Pin | Nitefury Mapping |
+| --- | --- |
+| `ui_in[7]` (UART RX) | PCIe UART bridge RX |
+| `uo_out[0]` (UART TX) | PCIe UART bridge TX |
+| `uio[0]` (Flash CS) | QSPI flash on PMOD or emulated |
+| `uio[1:2,4:5]` (SD0–SD3) | QSPI PSRAM emulator data |
+| `uio[3]` (SCK) | QSPI PSRAM emulator clock |
+| `uio[6]` (RAM A CS) | QSPI PSRAM emulator select A |
+| `uio[7]` (RAM B CS) | QSPI PSRAM emulator select B |
+| `clk` | LiteX system clock (24 MHz, matching pico-ice) |
+| `rst_n` | LiteX reset controller |
+
+**QSPI PSRAM emulator:** A small LiteX module that implements the QSPI PSRAM
+protocol (APS6404L/ESP-PSRAM64H) on the `uio` pins but backs storage with a
+DDR3 memory region. This gives the Borg SoC 8 MB of "PSRAM" at full QSPI
+speed but backed by DDR3 reliability. The emulator reuses the existing QSPI
+timing — no RTL changes inside `tt_um_gonsolo_borg`.
+
+**Why this approach:**
+1. **Byte-identical RTL** — the exact same `tt_um_gonsolo_borg` Verilog tapes
+   out on TT and runs on Nitefury. No `ifdef`, no conditional compilation.
+2. **PCIe host access** — the host PC can read/write DDR3 directly (framebuffer
+   inspection, texture upload, register debug) via LiteX's PCIe→Wishbone bridge,
+   without touching the Borg SoC's QSPI interface.
+3. **Higher clock headroom** — the Artix-7 can run `tt_um_gonsolo_borg` at
+   50+ MHz (vs. 24 MHz on pico-ice), validating ASIC timing margins.
+4. **Incremental migration** — when Phase 4–5 needs more bandwidth, the QSPI
+   emulator can be replaced with a direct AXI↔Wishbone bridge into the SoC
+   (requires modifying `SoCLogic`, but the `tt_um_gonsolo_borg` wrapper stays
+   as the tapeout target).
+
+**LiteX integration files (future):**
+
+```text
+fpga/nitefury/
+  nitefury_borg.py       — LiteX SoC definition + PSRAM emulator
+  qspi_psram_emu.py      — QSPI protocol → DDR3 bridge
+  Makefile               — builds bitstream via Yosys + nextpnr-xilinx (F4PGA)
+```
+
+**Existing code that enables this:**
+- `SoCLogic` trait (Project.scala:71) — all SoC wiring is platform-independent
+- `tt_um_gonsolo_borg` (Project.scala:338) — standardized 8+8+8 pin interface
+- `tinyQV_top` (PicoIce.scala:17) — shows how to wrap `SoCLogic` for a
+  different platform (SB_IO for iCE40 vs. LiteX `Instance()` for Artix-7)
+
+## Phase 3: Linux-Capable CPU (Steps 27–31)
+
+Target: **~Sept 2026** — expand TinyQV to RV32IMA. Sequential after Phase 2.
+
+*Velocity note: Steps 1–20 completed in 27 days (Mar 19 – Apr 14). Phase 2
+adds ~7 steps of medium-hard complexity (FPGA at 99%). Phase 3's bottleneck
+is the Sv32 MMU (3–4 weeks alone). Dates assume current solo-dev pace.*
 
 ### Step 27: M Extension (Integer Multiply/Divide)
 
@@ -586,9 +950,11 @@ Estimate: 3–4 weeks.
 
 Kernel, device tree, rootfs on QSPI PSRAM (8 MB). Estimate: 1–2 weeks.
 
-## Phase 4: Mesa Vulkan Driver
+## Phase 4: Mesa Vulkan Driver (Steps 32–36)
 
-Target: ~Oct 2026 (~6–8 weeks total). Write a Mesa Vulkan ICD for the Borg GPU.
+Target: **~Nov–Dec 2026** (~8–10 weeks). Write a Mesa Vulkan ICD for the
+Borg GPU. This is a domain shift — Mesa/NIR/SPIR-V are a new codebase.
+Expect 2–3 weeks ramp-up on top of implementation time.
 
 ### Step 32: Minimal `vk_device` + `wsi_headless`
 
@@ -610,10 +976,11 @@ CPU-side sampling, spec-compliant but slow. Estimate: 1 week.
 
 Run conformance tests, fix failures. Estimate: 1–2 weeks.
 
-## Phase 5: GPU Hardware Extensions
+## Phase 5: GPU Hardware Extensions (Steps 37–41)
 
-Target: ~Jan 2027 (~6–8 weeks total). Extend the shader processor to support
-more Vulkan features. These items only make sense on a larger tile or ASIC.
+Target: **~Jan–Feb 2027** (~6–8 weeks). Extend the shader processor to
+support more Vulkan features. These items only make sense on a larger FPGA
+(ULX3S or Nitefury) or ASIC (Tiny Tapeout).
 
 ### Step 37: Integer ALU Ops in Shader
 
@@ -641,8 +1008,13 @@ Refactor `BorgRaster` with parameterizable execution width to dispatch multiple 
 
 ## Phase 6: Vulkan 1.0 Conformance
 
-Target: ~Mar 2027. Full CTS pass (~3–4 weeks); Mesa handles most complexity.
-Khronos conformance submission (~2 weeks): documentation + test results.
+Target: **~Mar–Apr 2027**. Full CTS pass (~3–4 weeks); Mesa handles most
+complexity. Khronos conformance submission (~2 weeks): documentation + test
+results.
+
+*CTS debugging is inherently unpredictable — a single spec-compliance edge
+case can take days. The Mar 2027 date assumes no major architectural
+rework is needed.*
 
 ## Tile Budget Estimate
 
@@ -652,6 +1024,7 @@ Khronos conformance submission (~2 weeks): documentation + test results.
 | Phase 2 only (RV32I + autonomous GPU) | 4×3 (12) | 715€ | GPU autonomy, no Linux |
 | Phase 2 + 3 (RV32IMA + autonomous GPU) | 4×5 (20) | 1115€ | Linux + GPU, target |
 | Comfortable (room for Phase 5) | 4×6 (24) | 1315€ | Full Vulkan + extensions |
+| **Full Vulkan (FP32 + multicore)** | **4×8 (32)** | **1715€** | **Vulkan conformance target** |
 
 Costs: 50€/tile + 100€ PCB + 15€ shipping (Tiny Tapeout IHP).
 
@@ -661,8 +1034,91 @@ Costs: 50€/tile + 100€ PCB + 15€ shipping (Tiny Tapeout IHP).
 - **QSPI Flash**: 128 Mbit (16 MB) — kernel + rootfs + Mesa libraries
 - **Display**: RP2040 reads framebuffer from PSRAM, no KMS/DRM needed
 
+## Build Configurations
+
+The design uses build-time Chisel parameters so a student with a **$40
+pico-ice** can still build and play with a working GPU, even after the full
+roadmap is implemented. Features are opt-in — the iCE40 "lite" config
+strips everything that doesn't fit, while larger FPGAs enable the full stack.
+
+### Configuration Profiles
+
+```scala
+case class BorgConfig(
+  enableGpu:           Boolean = true,   // Borg GPU (FP16 shader core)
+  enableFp32:          Boolean = false,  // FP32 FMA (Phase 5)
+  enableDMA:           Boolean = true,   // GPU DMA engine (Step 22)
+  enableTexFetch:      Boolean = true,   // Hardware texel fetch (Step 21)
+  enableAutoSequencer: Boolean = true,   // Vertex sequencer (Step 24)
+  enableGpuWrite:      Boolean = true,   // GPU PSRAM write (Step 23)
+  enableBlending:      Boolean = false,  // Alpha blending (Phase 5)
+  enableCExtension:    Boolean = false,  // RV32C compressed ISA
+  enableMExtension:    Boolean = false,  // RV32M multiply/divide
+  enableMMU:           Boolean = false,  // Sv32 MMU (Phase 3)
+)
+```
+
+| | 🎓 Student (pico-ice) | 🔧 Developer (ULX3S) | 🚀 Full Vulkan (TT/Nitefury) |
+| --- | --- | --- | --- |
+| **FPGA** | iCE40 UP5K | ECP5-85K | XC7A200T / ASIC |
+| **Cost** | ~$40 | ~$60 | ~$200 / 1715€ |
+| GPU core | ✅ FP16 | ✅ FP16 | ✅ FP32 |
+| Rasterizer | ✅ | ✅ | ✅ |
+| Fragment shader | ✅ | ✅ | ✅ |
+| Tile buffer | ✅ | ✅ | ✅ |
+| Texture fetch | ❌ | ✅ | ✅ |
+| DMA engine | ❌ | ✅ | ✅ |
+| Auto sequencer | ❌ | ✅ | ✅ |
+| GPU PSRAM write | ❌ | ✅ | ✅ |
+| Blending | ❌ | ❌ | ✅ |
+| CPU ISA | RV32I | RV32IMA | RV32IMA |
+| C extension | ❌ | ✅ | ✅ |
+| MMU | ❌ | ✅ | ✅ |
+| Linux | ❌ | ✅ | ✅ |
+| Vulkan conformant | ❌ | ❌ | ✅ |
+| **Est. LCs** | **~4,800** | **~8,000** | **~36,000** |
+| **Fits?** | ✅ (91%) | ✅ (9%) | ✅ |
+
+### Student Profile — What You Can Do
+
+With just a pico-ice ($40) and the student config, a user gets:
+
+- **Hardware-accelerated triangle rendering** — the CPU submits per-tile
+  4×4 commands, the GPU rasterizes + fragment-shades autonomously
+- **Vertex-colored 3D cube** — the `vkcube` demo works with CPU-driven
+  vertex shading and tile flush
+- **FP16 shader programming** — write fragment shaders in SPIR-B assembly,
+  load via MMIO, see results on screen
+- **Full source code** — Chisel RTL, C firmware, Python tools, all open-source
+
+What's missing vs. the full config: texture mapping, autonomous vertex
+shading / tile flush (CPU does these), Linux, Vulkan API. But the **core GPU
+experience** — writing shaders, watching triangles render, understanding the
+pipeline — is fully there.
+
+### How to Select a Configuration
+
+```bash
+# Student config (pico-ice, iCE40)
+make fpga CONFIG=student
+
+# Developer config (ULX3S, ECP5)
+make fpga-ulx3s CONFIG=developer
+
+# Full config (Nitefury, simulation, or TT ASIC)
+make asic CONFIG=full
+```
+
+The Makefile passes the config name to Chisel's `MILL_ARGS`, which selects
+the appropriate `BorgConfig` case class. All configs share the same RTL
+source — only the parameter values differ.
+
 ## Design Principles
 
 1. **One thing at a time.** Each step produces bit-exact golden output.
-2. **Area-first.** Reuse the FMA; don't duplicate ALUs. iCE40 is the constraint.
+2. **Area-first, configurable.** Reuse the FMA; don't duplicate ALUs. iCE40
+   is the minimum target — features that don't fit are build-time optional.
 3. **Firmware fallback.** Hardware fast path for common case; CPU for edge cases.
+4. **Free software only.** All tools are open-source: Yosys, nextpnr, OpenLane,
+   Chisel, Mill. No vendor-locked toolchains.
+5. **Accessible.** A student with a $40 pico-ice can build and run the GPU.
