@@ -435,6 +435,19 @@ reduction is more effective than LUT reduction.
     already computed inside `BorgGpuRegs`.
   - Target: **−89 LCs** → running total ~5191
 
+- ✅ **Step 21.0.1: Parallel Test Runner** *(2026-04-15)*
+    Replaced the serial `make test-all` chain with a Python runner
+    (`scripts/test_runner.py`) that parallelises independent suites and
+    shows a live animated display. Total wall-clock time: **~3 minutes**
+    (was sequential; dominated by `chisel › borg` at 2m 40s).
+
+    Execution order: `generate_verilog → lint` (sequential setup, avoids
+    mill lock contention), then `chisel:borg · chisel:tinyqv · software ·
+    cocotb:soc-core` all in parallel, then `cocotb:soc-borg` after
+    soc-core (shared `test/soc/` directory).
+
+    Result: **7/7 suites passed** in 2m 58s with green ✓ per suite.
+
 - ✅ **Step 21.1: sTexFetch FSM Integration** *(completed during Step 19.2)*
     Morton index wiring, sTexFetch FSM, 2-word PSRAM read, Chisel tests — all
     done. `texConfig.en` is hardcoded to `false.B`; `texConfig.baseAddr` is

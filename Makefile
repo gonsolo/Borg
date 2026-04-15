@@ -18,7 +18,7 @@ help:
 	@echo -e "  test-cocotb-soc-borg-rtl:\tRun Borg peripheral tests (cocotb)."
 	@echo -e "  test-cocotb-soc-core-gl:\tRun Gate-Level core simulations (cocotb)."
 	@echo -e "  test-cocotb-soc-borg-gl:\tRun Gate-Level borg simulations (cocotb)."
-	@echo -e "  test-all:\t\t\tRun all tests."
+	@echo -e "  test-all:\t\t\tRun all tests (quiet summary with ✓/✗ per suite)."
 	@echo -e "  datasheet.pdf:\t\tGenerate datasheet for Tinytapeout."
 	@echo -e "  user_config:\t\t\tGenerate user config for tapeout."
 	@echo -e "  print_stats:\t\t\tPrint statistics about tile usage."
@@ -58,8 +58,8 @@ lint: generate_verilog
 test-chisel-core:
 	$(MILL) hardware.tinyqv.test
 
-test-all: lint test-chisel-borg test-chisel-core test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl
-	$(MAKE) -C software test
+test-all:
+	@MILL_JOBS=$(MILL_JOBS) python3 scripts/test_runner.py
 
 datasheet.pdf: generate_verilog
 	$(TT_TOOL) --create-pdf
@@ -106,5 +106,5 @@ clean-gh-runs:
 .PHONY: all generate_verilog help print_stats gds user_config lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
-	book clean-gh-runs
+	book clean-gh-runs scripts/test_summary.sh
 
