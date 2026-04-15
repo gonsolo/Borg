@@ -126,8 +126,11 @@ instead of driving every pixel. **This is the key transition from
 - **Step 10.4: Hardware Edge Bounding Box Evaluation**
   - **10.4.1: Edge Sign Evaluation & Inside Flag** ✅ (2026-03-30): Snoop FPU writes to `r0/1/2` to latch edge function signs and expose a unified `inside_flag` via the `BORG_ITER` MMR.
     > **Hardware-in-the-Loop Debugging Note:** During the transition to the native FPGA iterator, the GPU produced a solid black screen (despite passing RTL). The core bugs we isolated were entirely mathematical edge cases:
+    >
     > 1. **Winding Order Inversion:** In our Y-down screen space, calculating edge vectors as `pos[next] - pos[i]` was generating *negative* edge bounds for strictly interior pixels. This incorrectly culled the entire triangle because hardware `fstep.s` expects strictly positive values for `inside_flag`. We reversed the subtraction to `pos[i] - pos[next]`.
+    >
     > 2. **Barycentric Interpolation Collapse:** The `dy` component of the edge vector had a deeply buried sign error. Because of this, the edge distances no longer summed up to the triangle's explicit +area, causing barycentric multiplication by `inv_area` to explode pixel colors into blackness. Fixing `edges[i].y` to exactly `pos[next].y - pos[i].y` restored mathematical harmony.
+    >
     > 3. To prevent this from ever quietly breaking again, a new `test_raster.c` native invariant tracker was written that mathematically mocks the CCW boundary rules to guarantee +area bounds are strictly maintained by the C firmware mathematically.
   - **10.4.2: Rasterizer Auto-Execution** ✅ (2026-03-31): Auto-trigger the shader at `PC=0` on iterator advance, stalling the CPU until completion.
 - **Step 10.5: Hardware Coordinate Expansion (int-to-fp16)** ✅ (2026-04-01)
@@ -146,7 +149,9 @@ instead of driving every pixel. **This is the key transition from
     - Verified pixel-perfect against `golden.ppm`.
 
     *Bugs fixed during register allocator development:*
+
     1. **`rs3` field width misconception:** The initial implementation restricted `fmadd` accumulators to r0-r3, assuming a 2-bit `rs3` field. `Instructions.scala` defines a full 5-bit field. Removed the unnecessary restriction.
+
     2. **Uniform sorting broke R↔B vertex colors:** The SPIR-V compiler sorted uniforms by `member_idx`, reordering them. This broke the implicit mapping where edge weights match their opposite vertex colors. Reverted to SPIR-V instruction order.
   - **10.6.4: Uniform Buffer (Replaces 64-GPR Expansion)**: Add a separate 32-entry × 16-bit read-only uniform buffer to solve rasterizer/fragment shader state clobbering. This follows the universal GPU pattern (PowerVR shared registers, VideoCore IV streaming FIFO, Mali Bifrost fast constant storage, Adreno constant RAM) rather than doubling the GPR file. Adds ~512 flip-flops on ASIC (+11%) vs. ~1,536 for 64 GPRs (+21%), preserves RISC-V 5-bit register encoding, and maps naturally to Vulkan UBOs/push constants. See [A5_register_architecture.md](A5_register_architecture.md) for the full design rationale, GPU architecture survey, and area analysis.
     - **10.6.4.1: Hardware Uniform Buffer** ✅ (2026-04-04): Add 32-entry register-based uniform buffer (~512 FFs). Decode `funct3[1:0]` to select which operand reads from the uniform buffer (`00`=all GPR, `01`=rs1, `10`=rs2, `11`=rs3). Integrate the read mux into the operand-resolution stage alongside the existing `coordLut` injection. Add MMIO write path (4-byte addressed, 32 entries). To fit in the 9-bit address space, shrink IMEM from 64→56 slots (shaders total ~50 instructions, no functional impact). MMIO loading is scaffolding — Step 21 (DMA) replaces it.
@@ -154,8 +159,11 @@ instead of driving every pixel. **This is the key transition from
     - **10.6.4.3: Shader Reallocation** ✅ (2026-04-05): Rebuild `rasterize.s` (12 uniforms → buffer, ~8 GPRs) and `shader.frag` (19 uniforms → buffer, ~13 GPRs). Combined: 31 of 32 uniform slots used, ~16 of 30 GPRs used. Verify pixel-perfect against `golden.ppm`.
   - **10.6.5: Firmware Auto-Chain Integration** ✅ (2026-04-05): Rewrote `shade_tiles()` to load all 31 uniforms once per triangle (rast u0–u11 + frag u12–u30) and rely on the hardware FSM for autonomous RAST→FRAG chaining via `BORG_FRAG_PC`. Eliminated the per-pixel `borg_run_fragment()` call and per-pixel uniform reloading (~34 MMIO round-trips per inside pixel → ~8). Key changes:
     - **Compiler**: Added `--uniform-base N` flag to `borg_backend.py` for non-overlapping uniform allocation across shader stages. Fragment shader compiled with `--uniform-base 12`.
+
     - **Register-level ABI**: `spirv_compiler.py` emits `@borg bind` for fragment Input variables (e0→r0, e1→r1, e2→r2), matching rasterizer output slots. User writes GLSL; the system compiler enforces the convention — analogous to GPU varying linkage.
+
     - **Firmware**: Uniform setup moved from per-pixel to per-triangle. Inner loop reduced to iterator advance + result readback. `borg_run_fragment()` retained for debug/fallback only.
+
     - **Verified** pixel-perfect triangle rendering in Verilator (11.1M cycles).
 
   - **10.6.6: Debug Rendering Regression (Mostly Black with few pixels)**
@@ -618,9 +626,11 @@ framebuffer by repeating each pixel N× horizontally and M× vertically.
 
 **FP16 → RGB222 conversion:** The GPU framebuffer stores FP16 colors.
 The VGA DAC needs 2 bits per channel. A minimal converter:
-```
+
+```verilog
 R[1:0] = fp16_color[14:13]  (top 2 mantissa bits, exponent-gated)
 ```
+
 ~10 LUTs for all 3 channels. Visually crude but functional for a demo.
 
 **Sub-steps:**
@@ -701,6 +711,7 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 | **Margin** | | | **13 LCs** | |
 
 **Reserve optimizations** (if margin is too tight):
+
 - O4: Direct tile buffer write (−40 LCs, medium risk)
 - O2: Remove `tex_uv` registers after Step 24 (−20 LCs)
 
@@ -738,6 +749,7 @@ Tapeout ────────→ Tiny Tapeout (IHP SG13G2, 32 tiles)
 ```
 
 **Key portability rules:**
+
 1. No vendor primitives — all memories are `SyncReadMem`, all multiplies via HardFloat
 2. Keep the iCE40 build alive as a size canary (GPU as build-time option)
 3. Design for 50 MHz max (iCE40 meets timing at 24 MHz → IHP meets at 50 MHz)
@@ -799,6 +811,7 @@ iCE40 `SB_IO`:
 | PCF constraints | LPF constraints | Pin mapping |
 
 **Why ULX3S is ideal for Phase 3:**
+
 1. **Same toolchain** — Yosys + nextpnr-ecp5. Same Makefile
    structure as iCE40, just `--85k` instead of `--up5k`.
 2. **Same `SoCLogic` trait** — zero RTL changes. Only the top-level wrapper
@@ -838,7 +851,6 @@ fpga/ulx3s/
 | Tapeout | Tiny Tapeout (32 tiles) |
 
 ### Nitefury II / LiteX Integration
-
 
 The Nitefury II (Artix-7 XC7A200T) has 40× the logic of the pico-ice, 1 GB
 DDR3, and PCIe Gen2 x4. LiteX provides the outer shell (clocks, DDR3
@@ -889,6 +901,7 @@ speed but backed by DDR3 reliability. The emulator reuses the existing QSPI
 timing — no RTL changes inside `tt_um_gonsolo_borg`.
 
 **Why this approach:**
+
 1. **Byte-identical RTL** — the exact same `tt_um_gonsolo_borg` Verilog tapes
    out on TT and runs on Nitefury. No `ifdef`, no conditional compilation.
 2. **PCIe host access** — the host PC can read/write DDR3 directly (framebuffer
@@ -911,6 +924,7 @@ fpga/nitefury/
 ```
 
 **Existing code that enables this:**
+
 - `SoCLogic` trait (Project.scala:71) — all SoC wiring is platform-independent
 - `tt_um_gonsolo_borg` (Project.scala:338) — standardized 8+8+8 pin interface
 - `tinyQV_top` (PicoIce.scala:17) — shows how to wrap `SoCLogic` for a
