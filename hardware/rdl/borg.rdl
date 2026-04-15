@@ -188,12 +188,12 @@ reg tile_rg_reg_t {
             Write: combined with BZ shadow registers to write a full RGBZ pixel.";
 
     field {
-        sw = rw; hw = rw;
+        sw = rw; hw = r;
         desc = "Green channel (FP16, bits 15:0).";
     } g[16] = 0;
 
     field {
-        sw = rw; hw = rw;
+        sw = rw; hw = r;
         desc = "Red channel (FP16, bits 31:16).";
     } red[16] = 0;
 };
@@ -209,12 +209,12 @@ reg tile_bz_reg_t {
             write is triggered by the subsequent TILE_RG write.";
 
     field {
-        sw = rw; hw = rw;
+        sw = rw; hw = r;
         desc = "Depth channel (FP16, bits 15:0).";
     } z[16] = 0;
 
     field {
-        sw = rw; hw = rw;
+        sw = rw; hw = r;
         desc = "Blue channel (FP16, bits 31:16).";
     } b[16] = 0;
 };

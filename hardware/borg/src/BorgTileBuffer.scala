@@ -25,18 +25,14 @@ import chisel3.util._
 
 class BorgTileBufferIO(val dataBits: Int = 16) extends Bundle {
   // Write port (from rasterizer auto-write or MMIO)
-  val writeIdx  = Input(UInt(4.W))       // 0–15 tile pixel index
+  val writeIdx  = Input(UInt(4.W))       // 0-15 tile pixel index
   val writeData = Input(new ColorZ(dataBits))
   val writeEn   = Input(Bool())
 
-  // Read port (for MMIO flush — 2-cycle latency: BRAM + hold reg)
+  // Read port (for MMIO flush - 2-cycle latency: BRAM + hold reg)
   val readIdx   = Input(UInt(4.W))
   val readEn    = Input(Bool())
   val readData  = Output(new ColorZ(dataBits))
-
-  // Z peek (1-cycle latency via BRAM — for future hardware Z comparison)
-  val peekZIdx  = Input(UInt(4.W))
-  val peekZ     = Output(UInt(dataBits.W))
 
   // Clear (resets all entries: Z to FP16_MAX_DEPTH, RGB to 0)
   val clearEn   = Input(Bool())
@@ -85,28 +81,17 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
     rgbzMem.write(io.writeIdx, io.writeData.asUInt)
   }
 
-  // --- Z peek: shares the BRAM read port (iCE40 EBR has only 1R+1W) ---
-  // When readEn is inactive, the BRAM continuously reads peekZIdx.
-  // When readEn is active, the main read takes priority and peekZ is stale (OK).
-  val effectiveReadIdx = Mux(io.readEn && !clearing, io.readIdx, io.peekZIdx)
-  val effectiveReadEn  = (io.readEn && !clearing) || !clearing
-  val rgbzRead = rgbzMem.read(effectiveReadIdx, effectiveReadEn)
+  // --- Read port ---
+  val effectiveReadEn = io.readEn && !clearing
+  val rgbzRead = rgbzMem.read(io.readIdx, effectiveReadEn)
 
   val readDataHeld = RegInit(0.U.asTypeOf(new ColorZ(dataBits)))
 
   // Capture BRAM output one cycle after readEn pulse
-  val readEnDel = RegNext(io.readEn && !clearing, false.B)
+  val readEnDel = RegNext(effectiveReadEn, false.B)
   when(readEnDel) {
     readDataHeld := rgbzRead.asTypeOf(new ColorZ(dataBits))
   }
 
   io.readData := readDataHeld
-
-  // peekZ: latched from BRAM output when not doing a main read
-  val peekZheld = RegInit(FP16_MAX_DEPTH_VAL.U(dataBits.W))
-  val notMainRead = RegNext(!io.readEn || clearing, true.B)
-  when(notMainRead && !RegNext(clearing, true.B)) {
-    peekZheld := rgbzRead(dataBits - 1, 0)
-  }
-  io.peekZ := peekZheld
 }

@@ -1,7 +1,9 @@
 import time
 import machine
 from machine import SPI, Pin
-machine.freq(133_000_000)
+# Keep CPU at 48 MHz during flash — 133 MHz + 12 MHz SPI causes USB instability
+# on some hosts during long blocking writes (USB device reset in dmesg).
+machine.freq(48_000_000)
 
 for i in range(30):
     Pin(i, Pin.IN, pull=None)
@@ -10,7 +12,7 @@ flash_sel = Pin(17, Pin.IN, Pin.PULL_UP)
 ice_creset_b = machine.Pin(27, machine.Pin.OUT)
 ice_creset_b.value(0)
 
-spi = SPI(1, 12_000_000, sck=Pin(10), mosi=Pin(11), miso=Pin(8))
+spi = SPI(1, 6_000_000, sck=Pin(10), mosi=Pin(11), miso=Pin(8))
 
 flash_sel = Pin(9, Pin.OUT)
 ram_sel = Pin(14, Pin.OUT)

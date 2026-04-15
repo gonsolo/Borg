@@ -26,7 +26,6 @@ object BorgTileBufferTests extends TestSuite {
     tb.io.writeEn.poke(false.B)
     tb.io.readIdx.poke(0.U)
     tb.io.readEn.poke(false.B)
-    tb.io.peekZIdx.poke(0.U)
     tb.io.clearEn.poke(false.B)
   }
 
@@ -139,12 +138,9 @@ object BorgTileBufferTests extends TestSuite {
         utest.assert(!tb.io.clearBusy.peek().litToBoolean)
         tb.clock.step(1)  // one extra for settling
 
-        // Verify Z entries are FP16_MAX_DEPTH (via peekZ — 1-cycle BRAM latency)
+        // Verify Z entries are FP16_MAX_DEPTH (via readPixel)
         for (i <- Seq(0, 7, 15)) {
-          pokeIdle(tb)
-          tb.io.peekZIdx.poke(i.U)
-          tb.clock.step(2)  // BRAM read + peekZ hold register
-          val z = tb.io.peekZ.peek().litValue.toInt
+          val (_, _, _, z) = readPixel(tb, i)
           println(f"  Z[$i] = 0x$z%04X (expect 0x${FP16_MAX_DEPTH}%04X)")
           utest.assert(z == FP16_MAX_DEPTH)
         }
@@ -167,11 +163,8 @@ object BorgTileBufferTests extends TestSuite {
         resetModule(tb)
 
         // After reset + auto-clear, all Z should be FP16_MAX_DEPTH
-        // peekZ now has 2-cycle latency (BRAM read + hold register)
         for (i <- 0 until 16) {
-          tb.io.peekZIdx.poke(i.U)
-          tb.clock.step(2)  // BRAM read + hold register
-          val z = tb.io.peekZ.peek().litValue.toInt
+          val (_, _, _, z) = readPixel(tb, i)
           if (i < 4) println(f"  Z[$i] = 0x$z%04X")
           utest.assert(z == FP16_MAX_DEPTH)
         }
@@ -180,17 +173,13 @@ object BorgTileBufferTests extends TestSuite {
         // Write Z to entry 3
         writePixel(tb, idx = 3, r = 0, g = 0, b = 0, z = 0x2800)
 
-        // Peek should return updated value after 2-cycle BRAM latency
-        tb.io.peekZIdx.poke(3.U)
-        tb.clock.step(2)
-        val z3 = tb.io.peekZ.peek().litValue.toInt
+        // Read back Z via readPixel
+        val (_, _, _, z3) = readPixel(tb, 3)
         println(f"  After write: Z[3] = 0x$z3%04X (expect 0x2800)")
         utest.assert(z3 == 0x2800)
 
         // Other entries unchanged
-        tb.io.peekZIdx.poke(4.U)
-        tb.clock.step(2)
-        val z4 = tb.io.peekZ.peek().litValue.toInt
+        val (_, _, _, z4) = readPixel(tb, 4)
         println(f"  Unchanged:   Z[4] = 0x$z4%04X (expect 0x7BFF)")
         utest.assert(z4 == FP16_MAX_DEPTH)
         println("  PASSED")
@@ -204,9 +193,7 @@ object BorgTileBufferTests extends TestSuite {
 
         // All Z entries should be FP16_MAX_DEPTH (0x7BFF) after reset + auto-clear
         for (i <- 0 until 16) {
-          tb.io.peekZIdx.poke(i.U)
-          tb.clock.step(2)  // BRAM read + hold register
-          val z = tb.io.peekZ.peek().litValue.toInt
+          val (_, _, _, z) = readPixel(tb, i)
           utest.assert(z == FP16_MAX_DEPTH)
         }
         println("  All 16 Z entries = 0x7BFF after reset ✓")

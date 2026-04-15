@@ -57,11 +57,11 @@ borg.bin: borg.asc
 .burned: borg.bin ../out/hardware/borg/rdl/borg_mmio.py
 	@-umount /dev/sda 2>/dev/null; true
 	mpremote cp ../out/hardware/borg/rdl/borg_mmio.py :borg_mmio.py
-	@for attempt in 1 2; do \
+	@for attempt in 1 2 3; do \
 		echo "[BURN] Attempt $$attempt ..."; \
 		mpremote mount . + run host/program_bitstream.py && break; \
-		echo "[BURN] Failed — waiting 3s for USB recovery ..."; \
-		sleep 3; \
+		echo "[BURN] Failed — waiting 8s for USB recovery ..."; \
+		sleep 8; \
 	done
 	@touch .burned
 

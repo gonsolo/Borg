@@ -172,7 +172,6 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     // Read port: trigger BRAM read when CTRL is written
     tile.io.readIdx := Mux(ctrlWriting, io.data_in(3, 0), tileReadIdx)
     tile.io.readEn  := ctrlWriting
-    tile.io.peekZIdx := Mux(ctrlWriting, io.data_in(3, 0), tileReadIdx)
   }
 
   private def wireMmioRead(): Unit = {
@@ -192,8 +191,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     rast.io.cmdPop <> fifo.io.deq
     core.io.uniformPage := rast.io.uniformPage
 
-    val read_addr_del = RegInit(0.U(10.W))
-    read_addr_del := io.address
+    // O8: use RDL's internal readAddr (RegNext of address) instead of a duplicate register.
+    val read_addr_del = RegNext(io.address)
 
     // RDL Iter state injection
     rdlRegs.io.hw.iter_x := rast.io.iter.x
@@ -201,11 +200,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     rdlRegs.io.hw.iter_valid := rast.io.iterValid
     rdlRegs.io.hw.iter_inside_flag := rast.io.insideFlag
 
-    // RDL Tile state injection — tie to 0; Borg.scala proxies tile reads via data_out MuxCase
-    rdlRegs.io.hw.tile_rg_red_in := 0.U
-    rdlRegs.io.hw.tile_rg_g_in := 0.U
-    rdlRegs.io.hw.tile_bz_b_in := 0.U
-    rdlRegs.io.hw.tile_bz_z_in := 0.U
+    // RDL tile fields are hw=r (Step 21.0 O1): no shadow register feedback needed.
+    // MMIO reads of TILE_RG/TILE_BZ are proxied via data_out MuxCase below.
 
     val stsFifoFull = !fifo.io.enq.ready
     rdlRegs.io.hw.status_idle := !core.io.status.running

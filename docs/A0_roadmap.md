@@ -414,23 +414,25 @@ use 5280 LCs because ~1261 DFFs can't share cells with their LUTs. DFF
 reduction is more effective than LUT reduction.
 
 - **Step 21.0: Area Optimizations** (prerequisite for all new features)
-  - **O1: RDL tile shadow registers → `hw=r`** (~40 LCs saved)
-    Change `tile_rg` and `tile_bz` fields in `borg.rdl` from `hw=rw` to
-    `hw=r`. PeakRDL stops generating 64 DFFs of shadow registers. The MMIO
-    read path already bypasses them via `MuxCase` in `Borg.scala`. **Zero risk.**
+  - ✅ **O1: RDL tile shadow registers → `hw=r`** (~40 LCs saved) *(2026-04-15)*
+    Changed `tile_rg` and `tile_bz` fields in `borg.rdl` from `hw=rw` to
+    `hw=r`. PeakRDL no longer generates 4 `_in`/`_out` port pairs or the
+    feedback mux into those 64 DFFs. Removed 4 dead `tile_*_in := 0.U` ties
+    from `Borg.scala`. **Zero risk.**
   - **O5: Command FIFO 2→1 entries** (~20 LCs saved)
     Reduce `BorgCommandFIFO` from 2 to 1 entry. Saves ~31 DFFs. With GPU
     autonomy (Step 25+), command submission is infrequent. Low risk.
   - **O6: Fp16Rcp NaN/Inf removal** (~8 LCs saved)
     GPU shaders never produce NaN/Inf inputs to FRCP. Remove `isNaN`, `isInf`
     detection and 2 of 3 `MuxCase` arms. Keep only zero/subnormal check.
-  - **O7: Remove dead `peekZ` tile buffer port** (~15 LCs saved)
-    `tile.io.peekZ` output is never read in `Borg.scala` — dead logic. Remove
-    `peekZIdx`, `peekZ`, `peekZheld`, `notMainRead`, and the
-    `effectiveReadIdx` mux from `BorgTileBuffer.scala`.
-  - **O8: Remove duplicate `read_addr_del`** (~6 LCs saved)
-    `Borg.scala` has a 10-bit `read_addr_del` register that duplicates
-    `BorgGpuRegs`'s internal `readAddr`. Share a single register.
+  - ✅ **O7: Remove dead `peekZ` tile buffer port** (~15 LCs saved) *(2026-04-15)*
+    `tile.io.peekZ` output was never read in `Borg.scala` — dead logic. Removed
+    `peekZIdx`, `peekZ`, `peekZheld`, `notMainRead`, and the `effectiveReadIdx`
+    mux from `BorgTileBuffer.scala`. Updated tile buffer tests to use `readData.z`.
+  - ✅ **O8: Remove duplicate `read_addr_del`** (~6 LCs saved) *(2026-04-15)*
+    Replaced `RegInit(0.U(10.W))` + assignment in `Borg.scala` with `RegNext(io.address)` —
+    equivalent, but lets synthesis share/eliminate the register with the `readAddr`
+    already computed inside `BorgGpuRegs`.
   - Target: **−89 LCs** → running total ~5191
 
 - ✅ **Step 21.1: sTexFetch FSM Integration** *(completed during Step 19.2)*
