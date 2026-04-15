@@ -575,8 +575,8 @@ No host PC needed; the GPU renders to a monitor in real time.
 
 **Pin conflict:** The VGA PMOD uses all 8 `uo_out` pins, but the current
 design uses `uo_out[0]` for UART TX and `uo_out[6]` for debug UART.
-Solution: **build-time option** — `CONFIG=student_vga` routes VGA to
-`uo_out`, while `CONFIG=student` keeps UART. The RP2040 can provide UART
+Solution: **build-time option** — `CONFIG=lite_vga` routes VGA to
+`uo_out`, while `CONFIG=lite` keeps UART. The RP2040 can provide UART
 independently via its own USB connection, so VGA mode doesn't lose debug.
 
 **Architecture — SPRAM framebuffer + VGA scanout:**
@@ -636,13 +636,13 @@ R[1:0] = fp16_color[14:13]  (top 2 mantissa bits, exponent-gated)
 
 - **Step 26.5c: FP16→RGB222 scanout** (+15 LCs)
     Pixel fetch from SPRAM, upscale counter, format conversion, `uo_out`
-    drive. Build-time `CONFIG=student_vga` selects VGA vs. UART on `uo_out`.
+    drive. Build-time `CONFIG=lite_vga` selects VGA vs. UART on `uo_out`.
 
 - **Step 26.5d: `make fpga_vga` target** (+0 LCs)
     Makefile target that builds the VGA-enabled bitstream. PCF constraints
     for VGA PMOD pins on the pico-ice output header.
 
-**LC cost:** ~65 LCs. Fits in student profile (~4800 + 65 = ~4865 LCs, 92%).
+**LC cost:** ~65 LCs. Fits in lite profile (~4800 + 65 = ~4865 LCs, 92%).
 
 **SPRAM budget:** Uses 1 of 4 available SPRAM blocks. 3 remain free for
 future use (e.g., instruction cache, data cache, or larger framebuffer).
@@ -1036,14 +1036,18 @@ Costs: 50€/tile + 100€ PCB + 15€ shipping (Tiny Tapeout IHP).
 
 ## Build Configurations
 
-The design uses build-time Chisel parameters so a student with a **$40
+The design will use build-time Chisel parameters so that a **$40
 pico-ice** can still build and play with a working GPU, even after the full
-roadmap is implemented. Features are opt-in — the iCE40 "lite" config
-strips everything that doesn't fit, while larger FPGAs enable the full stack.
+roadmap is implemented. Features will be opt-in — the iCE40 "lite" config
+will strip everything that doesn't fit, while larger FPGAs enable the full stack.
 
-### Configuration Profiles
+### Configuration Profiles (Planned)
+
+A future `BorgConfig` case class will parameterize feature inclusion at
+build time. The envisioned API:
 
 ```scala
+// Planned — does not exist yet
 case class BorgConfig(
   enableGpu:           Boolean = true,   // Borg GPU (FP16 shader core)
   enableFp32:          Boolean = false,  // FP32 FMA (Phase 5)
@@ -1058,7 +1062,7 @@ case class BorgConfig(
 )
 ```
 
-| | 🎓 Student (pico-ice) | 🔧 Developer (ULX3S) | 🚀 Full Vulkan (TT/Nitefury) |
+| | 🔰 Lite (pico-ice) | 🔧 Developer (ULX3S) | 🚀 Full Vulkan (TT/Nitefury) |
 | --- | --- | --- | --- |
 | **FPGA** | iCE40 UP5K | ECP5-85K | XC7A200T / ASIC |
 | **Cost** | ~$40 | ~$60 | ~$200 / 1715€ |
@@ -1079,9 +1083,9 @@ case class BorgConfig(
 | **Est. LCs** | **~4,800** | **~8,000** | **~36,000** |
 | **Fits?** | ✅ (91%) | ✅ (9%) | ✅ |
 
-### Student Profile — What You Can Do
+### Lite Profile — What You Can Do
 
-With just a pico-ice ($40) and the student config, a user gets:
+With just a pico-ice ($40) and the lite config, a user gets:
 
 - **Hardware-accelerated triangle rendering** — the CPU submits per-tile
   4×4 commands, the GPU rasterizes + fragment-shades autonomously
@@ -1099,8 +1103,8 @@ pipeline — is fully there.
 ### How to Select a Configuration
 
 ```bash
-# Student config (pico-ice, iCE40)
-make fpga CONFIG=student
+# Lite config (pico-ice, iCE40)
+make fpga CONFIG=lite
 
 # Developer config (ULX3S, ECP5)
 make fpga-ulx3s CONFIG=developer
@@ -1121,4 +1125,4 @@ source — only the parameter values differ.
 3. **Firmware fallback.** Hardware fast path for common case; CPU for edge cases.
 4. **Free software only.** All tools are open-source: Yosys, nextpnr, OpenLane,
    Chisel, Mill. No vendor-locked toolchains.
-5. **Accessible.** A student with a $40 pico-ice can build and run the GPU.
+5. **Accessible.** Anyone with a $40 pico-ice can build and run the GPU.
