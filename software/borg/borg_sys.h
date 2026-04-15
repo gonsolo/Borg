@@ -24,6 +24,9 @@
 #define PSRAM_SPI_BASE    0x001000    // 24-bit SPI/QSPI address
 #define PSRAM_OUT_OFFSET  128         // Byte offset: PSRAM_OUT base = PSRAM_BASE + 128
 #define TEX_PSRAM_OFFSET  4200        // Word index where texture data begins
+// PSRAM byte address for hardware sTexFetch (gpuRead.addr is a raw PSRAM byte addr):
+//   PSRAM_SPI_BASE + PSRAM_OUT_OFFSET + TEX_PSRAM_OFFSET * 4
+#define TEX_PSRAM_BYTE_ADDR  (PSRAM_SPI_BASE + PSRAM_OUT_OFFSET + TEX_PSRAM_OFFSET * 4)
 
 // --- Frame completion sentinel ---
 #define DONE_MARKER       0xDEAD

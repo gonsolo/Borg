@@ -1022,13 +1022,59 @@ object BorgTests extends TestSuite {
           v
         }
 
-        /** Write packed FP16 UV to tex_uv register and read back Morton + raw coords. */
+        /** Drive FP16 UV values through the rasterizer's pipeline snoop path.
+          * The Morton encoder reads from rast.io.fragU/fragV, which are driven by
+          * the rasterizer's frag_r/frag_g registers. These are snooped from pipeline
+          * writes to r26 (outU) and r27 (outV) during the sFrag phase only.
+          *
+          * To test from the top level, we need a two-shader pipeline:
+          * 1. Rast shader (PC=0): sets r0/r1/r2 = +1.0 so inside_flag = true
+          * 2. Frag shader (PC=4): writes r26=u, r27=v (snooped as fragU/fragV)
+          * The rasterizer chains sRast → sFrag when inside=true and fragPC != 0.
+          */
         def testTexFetch(u_fp16: Int, v_fp16: Int, expU6: Int, expV6: Int, label: String): Unit = {
-          val packed = ((v_fp16 & 0xFFFF) << 16) | (u_fp16 & 0xFFFF)
-          writeAddr(borg, BorgGpuRegs.tex_uv_offset.litValue.toInt, BigInt(packed & 0xFFFFFFFFL))
-          borg.clock.step(1)
+          resetAndWait(borg)
 
-          // Read tex_addr @ offset 516: {8'rsvd, raw_v[23:18], raw_u[17:12], morton[11:0]}
+          // Load values into source registers
+          writeAddr(borg, 16, BigInt(u_fp16 & 0xFFFF))   // r4 = u
+          writeAddr(borg, 20, BigInt(v_fp16 & 0xFFFF))   // r5 = v
+          writeAddr(borg, 24, BigInt(0))                   // r6 = 0.0
+          writeAddr(borg, 28, BigInt(0x3C00))              // r7 = 1.0 (positive, for edges)
+
+          // Rast shader at PC=0: set all edges inside (r0=r1=r2 = +1.0), then halt
+          val setR0 = encodeInstruction(config, ADD, rs1 = 7, rs2 = 6, rd = 0)  // r0 = 1.0+0 = 1.0
+          val setR1 = encodeInstruction(config, ADD, rs1 = 7, rs2 = 6, rd = 1)  // r1 = 1.0
+          val setR2 = encodeInstruction(config, ADD, rs1 = 7, rs2 = 6, rd = 2)  // r2 = 1.0
+          writeAddr(borg, 128 + 0*4, setR0)   // IMEM[0]
+          writeAddr(borg, 128 + 1*4, setR1)   // IMEM[1]
+          writeAddr(borg, 128 + 2*4, setR2)   // IMEM[2]
+          writeAddr(borg, 128 + 3*4, 0)       // IMEM[3] = halt (rast shader ends)
+
+          // Frag shader at PC=4: write r26=u, r27=v, then halt
+          val addU = encodeInstruction(config, ADD, rs1 = 4, rs2 = 6, rd = 26) // r26 = u
+          val addV = encodeInstruction(config, ADD, rs1 = 5, rs2 = 6, rd = 27) // r27 = v
+          writeAddr(borg, 128 + 4*4, addU)    // IMEM[4]
+          writeAddr(borg, 128 + 5*4, addV)    // IMEM[5]
+          writeAddr(borg, 128 + 6*4, 0)       // IMEM[6] = halt (frag shader ends)
+
+          // Enqueue bbox command with fragPC=4
+          // bits: [29:24]=fragPC, [23:18]=max.y, [17:12]=max.x, [11:6]=min.y, [5:0]=min.x
+          val fragPC = 4
+          val bbox = (fragPC << 24) | (4 << 18) | (4 << 12) | (0 << 6) | 0
+          writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, bbox)
+          borg.clock.step(5)
+
+          // Trigger auto-run via BORG_ITER write
+          // Pipeline: sRast(PC=0) → sFrag(PC=4, snoops r26/r27) → sTileWrite → sIdle
+          writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
+          // Wait for rast shader to halt, then allow time for rasterizer FSM
+          // to chain into sFrag and re-trigger the core before polling again.
+          waitForHalt(borg, 60)
+          borg.clock.step(3)  // rasterizer FSM: detect halt → check inside → trigger frag
+          waitForHalt(borg, 60)  // wait for frag shader to halt
+          borg.clock.step(5)  // settle through sTileWrite → sIdle
+
+          // Read tex_addr: {8'rsvd, raw_v[23:18], raw_u[17:12], morton[11:0]}
           val texAddrVal = readRaw(BorgGpuRegs.tex_addr_offset.litValue.toInt)
           val mortonVal = (texAddrVal & 0xFFF).toInt
           val gotU6 = ((texAddrVal >> 12) & 0x3F).toInt

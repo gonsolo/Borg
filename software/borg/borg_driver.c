@@ -213,9 +213,19 @@ void borg_set_texture(int psram_offset, int width, int height) {
                     .size = {width, height},
                     .w_fp16 = uint_to_fp16(width),
                     .h_fp16 = uint_to_fp16(height)};
+  // Step 21.2: Enable hardware sTexFetch via TEX_CONFIG MMIO register.
+  // base_addr is a raw PSRAM byte address (matching gpuRead.addr addressing).
+  // The hardware computes texel byte addr = base_addr + mortonIndex * 8.
+  uint32_t byte_addr = PSRAM_SPI_BASE + PSRAM_OUT_OFFSET + psram_offset * 4;
+  BORG_GPU->tex_config = (byte_addr & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
+                         TEX_CONFIG_REG_T__EN_bm;
 }
 
-void borg_clear_texture(void) { tex.psram_offset = -1; }
+void borg_clear_texture(void) {
+  tex.psram_offset = -1;
+  // Step 21.2: Disable hardware sTexFetch.
+  BORG_GPU->tex_config = 0;
+}
 
 static void shade_and_write_pixel(int frame, int px, int py, rgb16_t color,
                                   fp16_t z, uv16_t uv_interp,
@@ -370,10 +380,18 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
 
   if (tri->has_uvs) {
     const uv16_t *uvs = tri->uvs.v;
-    // Map U and V into the R and G uniforms
-    // This allows the hardware tile buffer's R/G slots to temporarily hold U/V!
-    load_uniform_triple(&frag_shader, 1, uvs[0].u, uvs[1].u, uvs[2].u);
-    load_uniform_triple(&frag_shader, 4, uvs[0].v, uvs[1].v, uvs[2].v);
+    // Hardware sTexFetch path: Fp16ToUint6 expects integer-range texcoords
+    // (e.g. 0..31 for a 32x32 texture), so pre-scale UV by tex dimensions.
+    // The fragment shader interpolates these and the hardware Morton encoder
+    // converts the result to a texel index.
+    load_uniform_triple(&frag_shader, 1,
+        borg_fp16_mul(uvs[0].u, t->w_fp16),
+        borg_fp16_mul(uvs[1].u, t->w_fp16),
+        borg_fp16_mul(uvs[2].u, t->w_fp16));
+    load_uniform_triple(&frag_shader, 4,
+        borg_fp16_mul(uvs[0].v, t->h_fp16),
+        borg_fp16_mul(uvs[1].v, t->h_fp16),
+        borg_fp16_mul(uvs[2].v, t->h_fp16));
     load_uniform_triple(&frag_shader, 7, 0, 0, 0); // B unused
     for (int i = 13; i <= 18; i++)
       BORG_GPU->uniform[frag_shader.uniform_regs[i]] = 0;
@@ -450,15 +468,24 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
           if (z >= FP16_MAX_DEPTH) continue; // Fragment was not shaded or was outside!
 
 
-          // The tile buffer stores U/V in R/G when textured, or R/G in R/G when untextured.
-          if (tri->has_uvs) {
+          // Step 21.2: When hardware sTexFetch is active (TEX_CONFIG.en=1) the
+          // hardware FSM has already replaced frag_r/g/b with the actual texel
+          // RGB — the tile buffer holds the final pixel.  Skip the CPU texel fetch.
+          // When tex is disabled (or CPU-side texturing), use the old path.
+          if (tri->has_uvs && !(BORG_GPU->tex_config & TEX_CONFIG_REG_T__EN_bm)) {
+            // CPU-side texel fetch: tile buffer holds U(→R) and V(→G)
             uv16_t uv = {rg >> 16, rg & 0xFFFF}; // U from R, V from G
             rgb16_t stub_color = {0,0,0}; // Overwritten by texel fetch
             shade_and_write_pixel(frame, abs_x, abs_y, stub_color, z, uv, t);
           } else {
+            // Hardware texel fetch done (or no texture): tile buffer holds RGB.
+            // Pass no-texture so shade_and_write_pixel doesn't re-do the
+            // CPU-side texel fetch (which would use stub UV and overwrite
+            // the correct hardware-fetched color).
             rgb16_t color = {rg >> 16, rg & 0xFFFF, bz >> 16};
             uv16_t stub_uv = {0, 0};
-            shade_and_write_pixel(frame, abs_x, abs_y, color, z, stub_uv, t);
+            static const texture_t no_tex = {.psram_offset = -1};
+            shade_and_write_pixel(frame, abs_x, abs_y, color, z, stub_uv, &no_tex);
           }
         }
       }

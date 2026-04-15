@@ -307,7 +307,7 @@ def render_all_frames(app_name='triangle'):
     # --- Upload texture data to PSRAM (after framebuffer output region) ---
     # TEX_PSRAM_OFFSET imported from borg_mmio.py
     # Sentinel word stored right after texture data to detect prior upload
-    TEX_SENTINEL_OFFSET = TEX_PSRAM_OFFSET + 32 * 32 * 3  # Word 7272 (after texture ends at 7271)
+    TEX_SENTINEL_OFFSET = TEX_PSRAM_OFFSET + 32 * 32 * 2  # After 2-word-per-texel data
     # Select texture file per app
     if app_name == 'vkcube':
         tex_file = 'firmware_cache/borg_texture.dat'
@@ -323,7 +323,7 @@ def render_all_frames(app_name='triangle'):
                                   in_base=Pin(0), out_base=Pin(0),
                                   sideset_base=Pin(2))
     sm_r_check.active(1)
-    sentinel_val = qpi_read_word(sm_r_check, PSRAM_IO_SPI_ADDR + TEX_SENTINEL_OFFSET * 4)
+    sentinel_val = qpi_read_word(sm_r_check, PSRAM_IO_SPI_ADDR + PSRAM_OUT_OFFSET + TEX_SENTINEL_OFFSET * 4)
     sm_r_check.active(0)
     del sm_r_check
 
@@ -355,8 +355,12 @@ def render_all_frames(app_name='triangle'):
             TEX_WIDTH = 32
             TEX_HEIGHT = 32
 
-
-            total_words = TEX_WIDTH * TEX_HEIGHT * 3
+            # Hardware sTexFetch expects packed 2-word format per texel:
+            #   Word 0 [offset +0]: { G[15:0], R[15:0] }
+            #   Word 1 [offset +4]: { pad[15:0], B[15:0] }
+            # Stride = 2 words (8 bytes) per texel, Morton-ordered.
+            total_words = TEX_WIDTH * TEX_HEIGHT * 2
+            tex_spi_base = PSRAM_IO_SPI_ADDR + PSRAM_OUT_OFFSET + TEX_PSRAM_OFFSET * 4
             for y in range(TEX_HEIGHT):
                 for x in range(TEX_WIDTH):
                     src_idx = y * TEX_WIDTH + x
@@ -367,11 +371,15 @@ def render_all_frames(app_name='triangle'):
                     g = struct.unpack_from('<H', tex_data, (src_idx * 3 + 1) * 2)[0]
                     b = struct.unpack_from('<H', tex_data, (src_idx * 3 + 2) * 2)[0]
 
-                    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * 3 + 0) * 4, r)
-                    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * 3 + 1) * 4, g)
-                    qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * 3 + 2) * 4, b)
+                    # Pack into 2-word format: Word 0 = {G, R}, Word 1 = {0, B}
+                    # Address includes PSRAM_OUT_OFFSET to match firmware's TEX_PSRAM_BYTE_ADDR
+                    word0 = (g << 16) | r
+                    word1 = b
+                    qpi_write_word(sm_w, tex_spi_base + (dst_idx * 2 + 0) * 4, word0)
+                    qpi_write_word(sm_w, tex_spi_base + (dst_idx * 2 + 1) * 4, word1)
             # Write sentinel after successful upload
-            qpi_write_word(sm_w, PSRAM_IO_SPI_ADDR + TEX_SENTINEL_OFFSET * 4, TEX_SENTINEL_MAGIC)
+            tex_sentinel_addr = PSRAM_IO_SPI_ADDR + PSRAM_OUT_OFFSET + TEX_SENTINEL_OFFSET * 4
+            qpi_write_word(sm_w, tex_sentinel_addr, TEX_SENTINEL_MAGIC)
             print("Uploaded texture: %d words to PSRAM offset %d in Morton order" % (total_words, TEX_PSRAM_OFFSET))
         except Exception as e:
             print("WARNING: Could not load texture: %s" % e)

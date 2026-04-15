@@ -65,9 +65,14 @@ int main(int argc, char** argv) {
         tex_f.read((char*)tex_data.data(), tex_data.size());
         
         uint32_t TEX_PSRAM_OFFSET = 4200;
-        // In render.py: PSRAM_IO_SPI_ADDR + (TEX_PSRAM_OFFSET + dst_idx * ...) * 4
-        uint32_t tex_base = psram_spi_word_offset + TEX_PSRAM_OFFSET;
+        // Compute the PSRAM byte address matching what the GPU reads via
+        // gpuRead.addr: PSRAM_SPI_BASE + PSRAM_OUT_OFFSET + TEX_PSRAM_OFFSET * 4
+        uint32_t tex_byte_base = 0x1000 + 128 + TEX_PSRAM_OFFSET * 4;  // = 0x5220
 
+        // Store texels in packed 2-word (8-byte) format:
+        //   Word 0: { G[15:0], R[15:0] }  (little-endian in PSRAM bytes)
+        //   Word 1: { pad[15:0], B[15:0] }
+        uint8_t* pmem = psram.mem.data();
         for (int y = 0; y < 32; y++) {
             for (int x = 0; x < 32; x++) {
                 int src_idx = y * 32 + x;
@@ -77,12 +82,23 @@ int main(int argc, char** argv) {
                 uint16_t g = tex_data[(src_idx * 3 + 1) * 2] | (tex_data[(src_idx * 3 + 1) * 2 + 1] << 8);
                 uint16_t b = tex_data[(src_idx * 3 + 2) * 2] | (tex_data[(src_idx * 3 + 2) * 2 + 1] << 8);
 
-                psram_init_words[tex_base + dst_idx * 3 + 0] = r;
-                psram_init_words[tex_base + dst_idx * 3 + 1] = g;
-                psram_init_words[tex_base + dst_idx * 3 + 2] = b;
+                // Word 0: { G, R } — little-endian: byte[0..1]=R, byte[2..3]=G
+                uint32_t word0 = (uint32_t)r | ((uint32_t)g << 16);
+                // Word 1: { pad, B } — little-endian: byte[0..1]=B, byte[2..3]=0
+                uint32_t word1 = (uint32_t)b;
+
+                uint32_t byte_addr = tex_byte_base + dst_idx * 8;
+                pmem[byte_addr + 0] = word0 & 0xFF;
+                pmem[byte_addr + 1] = (word0 >> 8) & 0xFF;
+                pmem[byte_addr + 2] = (word0 >> 16) & 0xFF;
+                pmem[byte_addr + 3] = (word0 >> 24) & 0xFF;
+                pmem[byte_addr + 4] = word1 & 0xFF;
+                pmem[byte_addr + 5] = (word1 >> 8) & 0xFF;
+                pmem[byte_addr + 6] = (word1 >> 16) & 0xFF;
+                pmem[byte_addr + 7] = (word1 >> 24) & 0xFF;
             }
         }
-        std::cout << "[SIM] Texture loaded.\n";
+        std::cout << "[SIM] Texture loaded at PSRAM byte 0x" << std::hex << tex_byte_base << std::dec << ".\n";
     }
 
     // Reset Sequence

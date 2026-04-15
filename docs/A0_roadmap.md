@@ -453,13 +453,18 @@ reduction is more effective than LUT reduction.
     done. `texConfig.en` is hardcoded to `false.B`; `texConfig.baseAddr` is
     hardcoded to `0x51A0`. Both will be made MMIO-controllable below.
 
-- **Step 21.2: Tex Config MMIO + Firmware Integration** (+10 LCs)
-    Add `tex_config_reg_t` to `borg.rdl` with `base_addr[16]` and `en[1]`
-    fields. Regenerate `BorgGpuRegs`. Wire to `rast.io.texConfig` in
-    `Borg.scala`, replacing the hardcoded values.
-    Update `frag.s` to write UV outputs to `TEX_UV` register. Update
-    `borg_triangle.c` to load test texture into PSRAM and enable texturing.
-    Textured triangle rendering verified against golden output.
+- ✅ **Step 21.2: Tex Config MMIO + Firmware Integration** *(2026-04-15)* (+10 LCs)
+    Added `tex_config_reg_t` to `borg.rdl` (`base_addr[16]` + `en[1]` @ 0x208).
+    Regenerated `BorgGpuRegs`. Replaced hardcoded `texConfig.baseAddr`/`en` in
+    `Borg.scala` with `rdlRegs.io.hw.tex_config_*`. Morton encoder now muxes
+    between CPU-written TEX_UV (tex disabled) and rasterizer-snooped fragment
+    U/V (tex enabled) via new `fragU`/`fragV` outputs on `BorgRasterizerIO`.
+    `borg_set_texture()` now writes `TEX_CONFIG` hardware register to enable
+    `sTexFetch`; `borg_clear_texture()` clears it. Tile-flush firmware detects
+    hardware fetch (TEX_CONFIG.en=1) and reads tile buffer as RGB directly,
+    bypassing the CPU-side texel re-fetch.
+    Verified: 7/7 test suites pass; Verilator textured triangle in 13.1M cycles.
+
 
 ### Step 22: GPU DMA Engine + LUT Recovery
 

@@ -47,6 +47,11 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   // GPU memory read port (Step 19.2: sTexFetch)
   val gpuRead    = new GpuReadIO
   val texConfig  = new TexConfigIO
+
+  // Snooped fragment U/V outputs for autonomous Morton encoding (Step 21.2)
+  // When texturing, frag.s maps U→outR (r26) and V→outG (r27) via shader recompilation.
+  val fragU      = Output(UInt(16.W))
+  val fragV      = Output(UInt(16.W))
 }
 
 class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module {
@@ -153,21 +158,24 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   //   Word 0 [offset +0]: { G[15:0], R[15:0] }   — both R and G packed
   //   Word 1 [offset +4]: { pad[15:0], B[15:0] }  — B only
   //
-  // Address is computed combinationally (no register needed: inputs are
-  // stable while FSM is in sTexFetch). Word 1 = base | 4 (bit 2 set,
-  // zero-cost since base is 8-byte aligned from <<3).
+  // Read order is swapped (B first, RG second) to avoid corrupting the Morton
+  // encoder.  fragU/fragV are wired from frag_r/frag_g, so writing frag_r/g
+  // would change mortonIndex mid-fetch.  By reading B into frag_b first (which
+  // is NOT part of the Morton path), the address stays stable for the second
+  // read.  RG is written last, just before sTileWrite — no latch needed.
   val tex_base = io.texConfig.baseAddr +& (io.texConfig.mortonIndex << 3)
   when(phase === sTexFetch) {
     io.gpuRead.req  := true.B
-    io.gpuRead.addr := Mux(read_word_count === 0.U, tex_base, tex_base | 4.U)
+    // Word 1 (B, offset +4) first, then Word 0 (RG, offset +0)
+    io.gpuRead.addr := Mux(read_word_count === 0.U, tex_base | 4.U, tex_base)
 
     when(io.gpuRead.ready) {
       when(read_word_count === 0.U) {
-        frag_r := io.gpuRead.data(15, 0)
-        frag_g := io.gpuRead.data(31, 16)
+        frag_b := io.gpuRead.data(15, 0)   // B only — no Morton corruption
         read_word_count := 1.U
       } .otherwise {
-        frag_b := io.gpuRead.data(15, 0)
+        frag_r := io.gpuRead.data(15, 0)   // Safe: last read before sTileWrite
+        frag_g := io.gpuRead.data(31, 16)
         phase := sTileWrite
         io.gpuRead.req := false.B
       }
@@ -244,4 +252,6 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   io.iterValid    := iter_valid
   io.autoRunStall := auto_run_stall
   io.uniformPage  := uniform_page_reg
+  io.fragU        := frag_r   // snooped U (mapped into r26 slot when texturing)
+  io.fragV        := frag_g   // snooped V (mapped into r27 slot when texturing)
 }

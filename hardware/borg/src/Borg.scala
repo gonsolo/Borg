@@ -138,9 +138,9 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     // GPU read port wiring (Step 19.2)
     rast.io.gpuRead <> io.gpuRead
 
-    // Texture configuration — hardcoded for Step 19.2; disabled until Step 20.2 firmware
-    rast.io.texConfig.baseAddr    := 0x51A0.U(16.W)
-    rast.io.texConfig.en          := false.B
+    // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
+    rast.io.texConfig.baseAddr := rdlRegs.io.hw.tex_config_base_addr
+    rast.io.texConfig.en       := rdlRegs.io.hw.tex_config_en.asBool
   }
 
   private def wireTileBuffer(): Unit = {
@@ -208,12 +208,13 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     rdlRegs.io.hw.status_fifo_full := stsFifoFull
 
     // =========================================================================
-    // Texture Fetch Hardware (Step 16.3)
+    // Texture Fetch Hardware (Step 16.3 / Step 21.2)
     // =========================================================================
-    // RDL handles tex_uv write path and tex_addr read path.
-    // Here we wire the combinational fp16→uint6 + Morton pipeline.
-    val tex_x = Fp16ToUint6(rdlRegs.io.hw.tex_uv_u)
-    val tex_y = Fp16ToUint6(rdlRegs.io.hw.tex_uv_v)
+    // Morton encoder: always uses the rasterizer's snooped fragment U/V.
+    // (The CPU TEX_UV register is preserved for MMIO compatibility but is
+    //  no longer routed into the Morton pipeline — saves ~32 LUTs.)
+    val tex_x = Fp16ToUint6(rast.io.fragU)
+    val tex_y = Fp16ToUint6(rast.io.fragV)
     val morton_index = MortonEncode(tex_x, tex_y)
 
     rdlRegs.io.hw.tex_addr_morton := morton_index

@@ -110,17 +110,21 @@ trait SoCLogic { self: RawModule =>
     // -------------------------------------------------------------------------
     i_memReal.io.qspiPins.dataIn := soc_qspi_data_in
 
-    // GPU read port — wired from peripherals (Step 19.2)
-    i_memReal.io.gpuRead <> i_peripherals.io.gpuRead
-
+    // GPU read port — req/addr always go to both controllers;
+    // data/ready are MUXed in the SIM_FAST_MEM block below.
     if (SIM_FAST_MEM) {
       val memSim = withClockAndReset(soc_clk, !soc_rst_reg_n) {
         Module(new MemoryControllerSim())
       }
       memSim.io.qspiPins.dataIn := soc_qspi_data_in
-      memSim.io.gpuRead <> i_peripherals.io.gpuRead
 
       val fast_sim_en = soc_ui_in(7)
+
+      // GPU read: req/addr to both controllers
+      i_memReal.io.gpuRead.req  := i_peripherals.io.gpuRead.req
+      i_memReal.io.gpuRead.addr := i_peripherals.io.gpuRead.addr
+      memSim.io.gpuRead.req     := i_peripherals.io.gpuRead.req
+      memSim.io.gpuRead.addr    := i_peripherals.io.gpuRead.addr
 
       // Both controllers receive all CPU signals so sim_psram_ext stays in sync
       Seq(i_memReal.io, memSim.io).foreach { m =>
@@ -153,8 +157,6 @@ trait SoCLogic { self: RawModule =>
       i_tinyqv.io.memBus.dataIn := i_memReal.io.cpuData.dataIn
 
       // GPU read responses MUXed by fast_sim_en (Step 19.2)
-      // Note: req/addr are driven combinationally from peripherals above;
-      // we only need to MUX the response (data + ready) back.
       i_peripherals.io.gpuRead.data  := Mux(fast_sim_en, memSim.io.gpuRead.data,  i_memReal.io.gpuRead.data)
       i_peripherals.io.gpuRead.ready := Mux(fast_sim_en, memSim.io.gpuRead.ready, i_memReal.io.gpuRead.ready)
 
@@ -177,7 +179,9 @@ trait SoCLogic { self: RawModule =>
       i_tinyqv.io.memBus.ready   := i_memReal.io.cpuData.ready
       i_tinyqv.io.memBus.dataIn := i_memReal.io.cpuData.dataIn
 
-      // GPU read responses from real controller (Step 19.2)
+      // GPU read port — single controller
+      i_memReal.io.gpuRead.req  := i_peripherals.io.gpuRead.req
+      i_memReal.io.gpuRead.addr := i_peripherals.io.gpuRead.addr
       i_peripherals.io.gpuRead.data  := i_memReal.io.gpuRead.data
       i_peripherals.io.gpuRead.ready := i_memReal.io.gpuRead.ready
     }

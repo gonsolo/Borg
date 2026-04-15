@@ -282,6 +282,30 @@ reg tex_uv_reg_t {
     } v[16] = 0;
 };
 
+// --- Texture configuration (Step 21.2) ---
+// Write: set texture PSRAM base address and enable hardware texel fetch.
+reg tex_config_reg_t {
+    name = "Texture Configuration";
+    desc = "Configures the hardware sTexFetch path.  Write base_addr and en
+            before submitting textured draw commands.  base_addr is a 16-bit
+            word index (×8 for byte offset, matching the 8-byte-per-texel layout).
+            Set en=1 to enable autonomous texel fetches after each fragment shade.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 15:0: PSRAM base address of the texture (16-bit word index).";
+    } base_addr[16] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bit 16: Enable hardware texel fetch (sTexFetch FSM).  0=disabled.";
+    } en[1] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[15] = 0;
+};
+
 // --- Texture address (computed by hardware) ---
 // Read: Morton-encoded texel index from the most recent tex_uv write.
 reg tex_addr_reg_t {
@@ -409,4 +433,7 @@ addrmap borg_gpu {
 
     // ---- Texture Address (HW-computed): 0x204 ----
     tex_addr_reg_t tex_addr;
+
+    // ---- Texture Configuration: 0x208 ----
+    tex_config_reg_t tex_config;
 };

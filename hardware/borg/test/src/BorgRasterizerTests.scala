@@ -424,33 +424,33 @@ object BorgRasterizerTests extends TestSuite {
         simulateShaderRun(rast)
 
         // After frag, tex_en=true → FSM should enter sTexFetch.
-        // Verify gpu_read_req is asserted and gpu_addr = Word 0
+        // Read order is swapped: B (Word 1, addr|4) first, then RG (Word 0, addr)
+        // to avoid corrupting the Morton encoder (fragU/fragV are wired from frag_r/frag_g).
         rast.io.gpuRead.ready.poke(false.B)
         rast.clock.step(1)  // settle into sTexFetch
 
         val req0  = rast.io.gpuRead.req.peek().litToBoolean
         val addr0 = rast.io.gpuRead.addr.peek().litValue.toInt
-        println(f"  sTexFetch Word0: gpu_read_req=$req0, gpu_addr=0x${addr0.toHexString} (expect 0x${expectedW0.toHexString})")
+        println(f"  sTexFetch Read0 (B): gpu_read_req=$req0, gpu_addr=0x${addr0.toHexString} (expect 0x${expectedW1.toHexString})")
         utest.assert(req0)
-        utest.assert(addr0 == expectedW0)
+        utest.assert(addr0 == expectedW1)  // B word first (offset +4)
 
-        // Feed back Word 0 data
-        rast.io.gpuRead.data.poke(gpuWord0.U)
+        // Feed back Word 1 data (B)
+        rast.io.gpuRead.data.poke(gpuWord1.U)
         rast.io.gpuRead.ready.poke(true.B)
         rast.clock.step(1)
         rast.io.gpuRead.ready.poke(false.B)
 
-        // Now FSM should request Word 1
+        // Now FSM should request RG (Word 0, base addr)
         rast.clock.step(1)
         val req1  = rast.io.gpuRead.req.peek().litToBoolean
         val addr1 = rast.io.gpuRead.addr.peek().litValue.toInt
-        println(f"  sTexFetch Word1: gpu_read_req=$req1, gpu_addr=0x${addr1.toHexString} (expect 0x${expectedW1.toHexString})")
+        println(f"  sTexFetch Read1 (RG): gpu_read_req=$req1, gpu_addr=0x${addr1.toHexString} (expect 0x${expectedW0.toHexString})")
         utest.assert(req1)
-        utest.assert(addr1 == expectedW1)
+        utest.assert(addr1 == expectedW0)  // RG word second (offset +0)
 
-        // Feed back Word 1 data; on this clock edge the FSM transitions to sTileWrite
-        // and tileWriteEn is asserted combinationally in the SAME cycle.
-        rast.io.gpuRead.data.poke(gpuWord1.U)
+        // Feed back Word 0 data (RG); on this clock edge the FSM transitions to sTileWrite
+        rast.io.gpuRead.data.poke(gpuWord0.U)
         rast.io.gpuRead.ready.poke(true.B)
         rast.clock.step(1)
         rast.io.gpuRead.ready.poke(false.B)

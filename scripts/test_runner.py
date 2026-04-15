@@ -9,7 +9,7 @@ Execution order:
   After soc-core:    cocotb:soc-borg  (shares test/soc/ dir with soc-core)
 """
 
-import os, re, subprocess, sys, tempfile, threading, time
+import os, re, shutil, subprocess, sys, tempfile, threading, time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -170,6 +170,7 @@ def main() -> None:
     test_soc = f"make -j1 -C '{root}/test/soc' -B"
 
     log_dir    = tempfile.mkdtemp(prefix="borg-test-")
+    persist_dir = root / "test_logs"
     suites     = make_suites(root, mill, test_soc)
     by_label   = {s.label: s for s in suites}
 
@@ -203,6 +204,7 @@ def main() -> None:
     dt = threading.Thread(target=display_loop, daemon=True)
     dt.start()
 
+    first_failure = None
     try:
         # ── Sequential suites ─────────────────────────────────────────────────
         for s in (x for x in suites if x.sequential):
@@ -225,11 +227,14 @@ def main() -> None:
                 _start(s, log_dir)
 
         # Poll: finish suites, unblock dependents
+        first_failure = None
         while remaining:
             for s in list(remaining):
                 if s.state == State.RUNNING and s.proc.poll() is not None:
                     _finish(s)
                     remaining.remove(s)
+                    if s.state == State.FAIL:
+                        first_failure = s
                     # Unblock any suite waiting on this one
                     for other in remaining:
                         if other.depends_on == s.label and other.state == State.PENDING:
@@ -238,6 +243,18 @@ def main() -> None:
                             else:
                                 other.state = State.FAIL  # skip if dep failed
                                 remaining.remove(other)
+            if first_failure:
+                # Kill remaining running suites and abort
+                for s in list(remaining):
+                    if s.state == State.RUNNING and s.proc:
+                        s.proc.kill()
+                        s.proc.wait()
+                        s.elapsed = time.monotonic() - s.start
+                        s.state = State.FAIL
+                    elif s.state == State.PENDING:
+                        s.state = State.FAIL
+                remaining.clear()
+                break
             time.sleep(0.05)
 
     finally:
@@ -246,8 +263,11 @@ def main() -> None:
         with lock:
             _render(suites, frame[0], total_done(), lines_printed)
 
-    # ── Failure detail ────────────────────────────────────────────────────────
-    _show_failures(suites)
+    # ── Failure detail (show only the first failure immediately) ────────────
+    if first_failure:
+        _show_failures([first_failure])
+    else:
+        _show_failures(suites)
 
     # ── Summary ───────────────────────────────────────────────────────────────
     failures = [s for s in suites if s.state == State.FAIL]
@@ -260,6 +280,18 @@ def main() -> None:
         names = ", ".join(s.label for s in failures)
         print(f"  {RED}{BOLD}✗  {len(failures)}/{n} suite(s) FAILED: {names}"
               f"{RESET}  {DIM}({wall}){RESET}")
+    print()
+    # ── Persist logs ──────────────────────────────────────────────────────────
+    persist_dir.mkdir(exist_ok=True)
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    run_dir = persist_dir / ts
+    shutil.copytree(log_dir, str(run_dir))
+    # Keep a "latest" symlink for quick access
+    latest = persist_dir / "latest"
+    if latest.is_symlink() or latest.exists():
+        latest.unlink()
+    latest.symlink_to(run_dir.name)
+    print(f"  {DIM}Logs saved to test_logs/{ts}/ (test_logs/latest){RESET}")
     print()
     if failures:
         sys.exit(1)
