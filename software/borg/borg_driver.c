@@ -132,7 +132,11 @@ void borgCreateDevice(void) {
   if (borg_fb_width == 0) borg_fb_width = 32;
   if (borg_fb_height == 0) borg_fb_height = 32;
 
-  // Compute FP16 half-width for NDC→screen transform
+
+
+  // Compute FP16 half-width for NDC→screen transform.
+  // Must encode both exponent AND mantissa to handle non-power-of-2 widths.
+  // E.g. width=60 → hw=30 → FP16 0x4F80 (30.0), not 0x4C00 (16.0).
   int hw = borg_fb_width / 2;
   int exp = 0;
   int tmp = hw;
@@ -140,7 +144,8 @@ void borgCreateDevice(void) {
     tmp >>= 1;
     exp++;
   }
-  fp16_half_width = ((exp + 15) << 10);
+  int mantissa = ((hw - (1 << exp)) << (10 - exp)) & 0x3FF;
+  fp16_half_width = ((exp + 15) << 10) | mantissa;
 
   // Compute pixel center LUT: 0.5, 1.5, ..., (width-0.5)
   fp16_t val = FP16_HALF;
@@ -208,16 +213,15 @@ void borg_clear_zbuffer(int frame) {
   t_clear_cycles = get_cycles() - t_start;
 }
 
-void borg_set_texture(int psram_offset, int width, int height) {
-  tex = (texture_t){.psram_offset = psram_offset,
-                    .size = {width, height},
-                    .w_fp16 = uint_to_fp16(width),
-                    .h_fp16 = uint_to_fp16(height)};
+void borg_set_texture(int tex_width, int tex_height) {
+  tex = (texture_t){.psram_offset = 0,  // unused, texture at fixed PSRAM addr
+                    .size = {tex_width, tex_height},
+                    .w_fp16 = uint_to_fp16(tex_width),
+                    .h_fp16 = uint_to_fp16(tex_height)};
   // Step 21.2: Enable hardware sTexFetch via TEX_CONFIG MMIO register.
-  // base_addr is a raw PSRAM byte address (matching gpuRead.addr addressing).
-  // The hardware computes texel byte addr = base_addr + mortonIndex * 8.
-  uint32_t byte_addr = PSRAM_SPI_BASE + PSRAM_OUT_OFFSET + psram_offset * 4;
-  BORG_GPU->tex_config = (byte_addr & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
+  // Texture lives at TEX_PSRAM_BYTE_ADDR_FIXED (defined in borg_layout.h),
+  // BEFORE the framebuffer, so it always fits in the 16-bit base_addr field.
+  BORG_GPU->tex_config = (TEX_PSRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
                          TEX_CONFIG_REG_T__EN_bm;
 }
 

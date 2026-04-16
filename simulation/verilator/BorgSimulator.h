@@ -8,6 +8,10 @@
 
 class BorgSimulator {
 public:
+    // Texture placed BEFORE framebuffer in PSRAM, so TEX_CONFIG.base_addr
+    // always fits in 16 bits.  No resolution ceiling from texture addressing.
+    static constexpr uint32_t DEFAULT_WIDTH  = 64;
+    static constexpr uint32_t DEFAULT_HEIGHT = 64;
     Vtt_um_gonsolo_borg* model;
     QSPIMemory* flash;
     QSPIMemory* psram;
@@ -22,7 +26,7 @@ public:
     // Convenience accessor for the Chisel flash SyncReadMem array
     auto& flash_arr()  { return model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_flash_ext_ext__DOT__Memory; }
     
-    BorgSimulator(const std::string& firmware_path, bool fast_mode_val = false, uint32_t w = 32, uint32_t h = 32) {
+    BorgSimulator(const std::string& firmware_path, bool fast_mode_val = false, uint32_t w = DEFAULT_WIDTH, uint32_t h = DEFAULT_HEIGHT) {
         fast_mode = fast_mode_val;
         model = new Vtt_um_gonsolo_borg;
         flash = new QSPIMemory(1024 * 1024, true); // 1MB flash
@@ -31,7 +35,7 @@ public:
         width = w;
         height = h;
         psram_spi_word_offset = 0x1000 / 4;
-        out_base_word = psram_spi_word_offset + (128 / 4);
+        out_base_word = psram_spi_word_offset + (PSRAM_OUT_OFFSET / 4);
         
         uint32_t frame_fb_size = width * height * 3;
         uint32_t frame_zb_size = width * height;
@@ -81,15 +85,10 @@ public:
             std::vector<uint8_t> tex_data(32 * 32 * 6); // 32x32 RGB FP16
             tex_f.read((char*)tex_data.data(), tex_data.size());
             
-            // Compute the PSRAM byte address matching what the GPU reads via
-            // gpuRead.addr.  The firmware sets TEX_CONFIG.base_addr to
-            // TEX_PSRAM_BYTE_ADDR (defined in borg_sys.h); the hardware then
-            // reads at base_addr + mortonIndex * 8.
-            //
-            // TEX_PSRAM_BYTE_ADDR = PSRAM_SPI_BASE + PSRAM_OUT_OFFSET + TEX_PSRAM_OFFSET * 4
-            //                     = 0x1000 + 128 + 4200*4 = 0x5220
-            uint32_t TEX_PSRAM_OFFSET = 4200;
-            uint32_t tex_byte_base = 0x1000 + 128 + TEX_PSRAM_OFFSET * 4;  // = 0x5220
+            // Texture lives at TEX_PSRAM_BYTE_ADDR_FIXED (defined in
+            // borg_layout.h), BEFORE the framebuffer, so it always fits
+            // in the 16-bit TEX_CONFIG.base_addr register.
+            uint32_t tex_byte_base = TEX_PSRAM_BYTE_ADDR_FIXED;
 
             // Store texels in packed 2-word (8-byte) format at the PSRAM byte
             // address the GPU sTexFetch hardware will read:

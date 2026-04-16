@@ -32,8 +32,8 @@ def main():
         print(f"Loading Texture: {TEX_PATH}")
         sim.load_texture(TEX_PATH)
         
-    SCALE = 16
-    WIDTH, HEIGHT = 32, 32
+    SCALE = 1
+    WIDTH, HEIGHT = sim.width, sim.height  # driven by BorgSimulator::DEFAULT_WIDTH/HEIGHT
     
     screen = pygame.display.set_mode((WIDTH * SCALE, HEIGHT * SCALE))
     pygame.display.set_caption("Borg GPU Interactive Viewer")
@@ -99,16 +99,14 @@ def main():
             pygame.display.set_caption(f"Borg GPU | Simulating... {cycles_simulated/1000000:.1f}M cycles | {clock.get_fps():.1f} UI FPS")
             continue
             
-        # 3. Fetch framebuffer zero-copy ndarray (shape: 32, 32, 3, dtype: uint8)
+        # 3. Fetch framebuffer ndarray (shape: 500, 500, 3, dtype: uint8)
         fb_array = sim.get_framebuffer()
 
         # 4. Blit to Pygame
         # Pygame expects (width, height, 3). The numpy array is already correctly shaped.
         # But we need to use pygame.surfarray.make_surface.
-        # Note: Pygame surfaces usually expect width as the first axis. Numpy might be (height, width, 3).
-        # We'll rotate/transpose it if needed.
-        # The memory array is stored as (Y, X, RGB), so shape is (32, 32, 3).
-        # Numpy transpose axis to match Pygame (X, Y, RGB) -> (1, 0, 2)
+        # Note: Pygame surfaces usually expect width as the first axis. Numpy is (height, width, 3).
+        # Transpose axes to match Pygame (X, Y, RGB) -> (1, 0, 2)
         transposed_fb = np.transpose(fb_array, (1, 0, 2))
         
         surface = pygame.surfarray.make_surface(transposed_fb)

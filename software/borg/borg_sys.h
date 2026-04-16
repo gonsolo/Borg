@@ -19,14 +19,11 @@
 #define BUS_IDLE 3
 
 // --- PSRAM layout constants ---
-// These describe firmware-level memory layout conventions, not hardware registers.
-// The PSRAM base address comes from the RDL-generated soc_regs.h.
-#define PSRAM_SPI_BASE    0x001000    // 24-bit SPI/QSPI address
-#define PSRAM_OUT_OFFSET  128         // Byte offset: PSRAM_OUT base = PSRAM_BASE + 128
-#define TEX_PSRAM_OFFSET  4200        // Word index where texture data begins
-// PSRAM byte address for hardware sTexFetch (gpuRead.addr is a raw PSRAM byte addr):
-//   PSRAM_SPI_BASE + PSRAM_OUT_OFFSET + TEX_PSRAM_OFFSET * 4
-#define TEX_PSRAM_BYTE_ADDR  (PSRAM_SPI_BASE + PSRAM_OUT_OFFSET + TEX_PSRAM_OFFSET * 4)
+// Pure arithmetic layout macros live in borg_layout.h (shared with simulator).
+#include "borg_layout.h"
+
+// Fixed PSRAM byte address for texture data — defined in borg_layout.h as
+// TEX_PSRAM_BYTE_ADDR_FIXED.  Always fits in the 16-bit TEX_CONFIG register.
 
 // --- Frame completion sentinel ---
 #define DONE_MARKER       0xDEAD

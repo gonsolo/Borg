@@ -58,7 +58,7 @@ int main() {
 
     borg_clear_zbuffer(0);
     borgCmdDraw(&draw, front_tri, 0);  // draw front (RGB) — no texture
-    borg_set_texture(TEX_PSRAM_OFFSET, TEX_WIDTH, TEX_HEIGHT);
+    borg_set_texture(TEX_WIDTH, TEX_HEIGHT);
     borgCmdDraw(&draw, back_tri, 0);   // draw back (textured)
     borg_clear_texture();
     borg_present(0);

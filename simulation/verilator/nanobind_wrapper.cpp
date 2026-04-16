@@ -11,7 +11,7 @@ class SimulatorWrapper {
     bool fast_mode;
 public:
     SimulatorWrapper(const std::string& firmware_path, bool fast_mode = false) : fast_mode(fast_mode) {
-        sim = new BorgSimulator(firmware_path, fast_mode, 32, 32);
+        sim = new BorgSimulator(firmware_path, fast_mode);
     }
     
     ~SimulatorWrapper() {
@@ -29,8 +29,11 @@ public:
     void set_camera_angles(float rx, float ry) {
         sim->set_camera_angles(rx, ry);
     }
-    
-    // Expose the 32x32x3 RGB byte buffer as a NumPy array (zero-copy read)
+
+    uint32_t width()  const { return sim->width; }
+    uint32_t height() const { return sim->height; }
+
+    // Expose the framebuffer as a NumPy array (zero-copy read); dimensions from sim.width/height
     nb::ndarray<nb::numpy, uint8_t, nb::shape<-1, -1, 3>, nb::c_contig> get_framebuffer() {
         if (fb_rgb.size() != sim->width * sim->height * 3) {
             fb_rgb.resize(sim->width * sim->height * 3);
@@ -76,5 +79,7 @@ NB_MODULE(borg_sim, m) {
         .def("load_texture", &SimulatorWrapper::load_texture)
         .def("step", &SimulatorWrapper::step)
         .def("set_camera_angles", &SimulatorWrapper::set_camera_angles)
-        .def("get_framebuffer", &SimulatorWrapper::get_framebuffer);
+        .def("get_framebuffer", &SimulatorWrapper::get_framebuffer)
+        .def_prop_ro("width",  &SimulatorWrapper::width)
+        .def_prop_ro("height", &SimulatorWrapper::height);
 }

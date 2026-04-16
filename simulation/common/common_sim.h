@@ -169,6 +169,7 @@ public:
 };
 
 #include "../../software/borg/borg_math.h"
+#include "../../software/borg/borg_layout.h"
 
 inline float fp16_to_float(uint16_t h) {
     int sign = (h >> 15) & 1;

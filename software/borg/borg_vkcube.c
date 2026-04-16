@@ -165,7 +165,7 @@ int main() {
     mat4_mul(draw.uniforms, tz, t2);
 
     borg_clear_zbuffer(0);
-    borg_set_texture(TEX_PSRAM_OFFSET, TEX_WIDTH, TEX_HEIGHT);
+    borg_set_texture(TEX_WIDTH, TEX_HEIGHT);
     draw_cube(&draw);
     borg_present(0);
 
@@ -173,8 +173,8 @@ int main() {
     // the next frame.  On FPGA the marker is never cleared, so the firmware
     // spins here preserving the framebuffer.  The interactive simulation
     // viewer clears it in get_framebuffer() to request a new frame.
-    // DONE offset = FB(32*32*3) + ZB(32*32) = 4096 words from PSRAM_OUT base.
-    while (PSRAM_OUT(4096) == DONE_MARKER)
+    int done_offset = BORG_FB_WIDTH * BORG_FB_HEIGHT * 4; // FB(w*h*3) + ZB(w*h)
+    while (PSRAM_OUT(done_offset) == DONE_MARKER)
       ;
   }
   return 0;
