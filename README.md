@@ -1,4 +1,4 @@
-# Borg - European Graphics Processing Unit
+# Borg - Tiny Open Source Graphics Processing Unit
 
 ![GDS](../../workflows/gds/badge.svg) ![Book](../../workflows/book/badge.svg) ![Test](../../workflows/test/badge.svg) ![FPGA](../../workflows/fpga/badge.svg)
 
