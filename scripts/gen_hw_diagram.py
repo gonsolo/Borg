@@ -51,7 +51,7 @@ NODE_COLORS = {
 }
 
 # Modules we consider "top-level connectors" and want highlighted
-TOP_LEVEL = {"tt_um_gonsolo_borg", "tt_um_gonsolo_borg_sim", "Project", "Borg", "TinyQV", "Software"}
+TOP_LEVEL = {"tt_um_gonsolo_borg", "tt_um_gonsolo_borg_sim", "Project", "Borg", "TinyQV", "Borg Driver", "TinyQV Firmware"}
 
 # Modules that are data-types / IO bundles — skip as nodes
 SKIP_PATTERNS = [
@@ -187,8 +187,10 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
         all_defined["rdl"].add(rn)
 
     # Add Software pseudo-nodes
-    module_to_group["Software"] = "software"
-    all_defined["software"].add("Software")
+    module_to_group["Borg Driver"] = "software"
+    all_defined["software"].add("Borg Driver")
+    module_to_group["TinyQV Firmware"] = "software"
+    all_defined["software"].add("TinyQV Firmware")
 
     # Pre-compute edges so we can filter orphan nodes
     # (done early; draw_edges() below re-uses this set)
@@ -213,14 +215,19 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
         ("Peripherals", "gpio"),
         ("Peripherals", "uart"),
         ("MemoryController", "psram"),
-        ("Software", "borg"),
-        ("Software", "soc"),
-        ("Software", "gpio"),
-        ("Software", "uart"),
-        ("Software", "psram"),
     ]:
         if rdl_file in rdl_nodes and consumer in module_to_group:
             edges.add((rdl_file, consumer, "generated regs"))
+
+    for sw, rdl_file in [
+        ("Borg Driver", "borg"),
+        ("Borg Driver", "psram"),
+        ("TinyQV Firmware", "soc"),
+        ("TinyQV Firmware", "gpio"),
+        ("TinyQV Firmware", "uart"),
+    ]:
+        if rdl_file in rdl_nodes and sw in module_to_group:
+            edges.add((sw, rdl_file, "software uses regs"))
     if "soc" in rdl_nodes and "Project" in module_to_group:
         edges.add(("soc", "Project", "generated regs"))
 
@@ -308,41 +315,19 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
     edge_styles = {
         "instantiates": {"color": "#3b82f6", "penwidth": "1.8", "arrowhead": "vee", "style": "solid"},
         "generated regs": {"color": "#10b981", "penwidth": "1.4", "arrowhead": "diamond", "style": "dashed"},
+        "software uses regs": {"color": "#d97706", "penwidth": "1.4", "arrowhead": "open", "style": "dashed"},
     }
 
     for (src, dst, kind) in sorted(edges):
         style = edge_styles.get(kind, {})
         dot.edge(src, dst, **style)
 
-    # Legend
-    with dot.subgraph(name="cluster_legend") as leg:
-        leg.attr(label="Legend", fontcolor="#94a3b8", fontsize="11",
-                 style="filled", fillcolor="#161b22", color="#374151")
-        fn = "Helvetica Neue,Helvetica,Arial,sans-serif"
-        leg.node("leg_top", "Top-Level", shape="box3d", style="filled,rounded",
-                 fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
-                 fontsize="10", fontname=fn)
-        leg.node("leg_inst", "Module A", shape="box", style="filled,rounded",
-                 fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
-                 fontsize="10", fontname=fn)
-        leg.node("leg_inst2", "Module B", shape="box", style="filled,rounded",
-                 fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
-                 fontsize="10", fontname=fn)
-        leg.node("leg_inst4", "Module C", shape="box", style="filled,rounded",
-                 fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
-                 fontsize="10", fontname=fn)
-        leg.node("leg_float", "◈ Floating island\n(not reachable from top)", shape="box",
-                 style="filled,dashed", fillcolor="#3b0a0a", fontcolor="#ff6b6b",
-                 color="#ef4444", penwidth="2", fontsize="10", fontname=fn)
-        leg.node("leg_orphan", "⚠ Orphan\n(no edges)", shape="box",
-                 style="filled,dashed", fillcolor="#3b0a0a", fontcolor="#ff6b6b",
-                 color="#ef4444", penwidth="2", fontsize="10", fontname=fn)
-        leg.edge("leg_inst", "leg_inst2", label="instantiates", style="solid",
-                 color="#3b82f6", arrowhead="vee", fontsize="9", fontcolor="#94a3b8",
-                 fontname=fn)
-        leg.edge("leg_inst2", "leg_inst4", label="generated regs", style="dashed",
-                 color="#10b981", arrowhead="diamond", fontsize="9", fontcolor="#94a3b8",
-                 fontname=fn)
+    # Force hierarchy layout (user request: soc > gpu/cpu > fpu)
+    dot.edge("Project", "Borg", style="invis", weight="100")
+    dot.edge("Project", "TinyQV", style="invis", weight="100")
+    dot.edge("Borg", "MulAddRecFN", style="invis", weight="100")
+
+    # (Legend removed as per user request)
 
     return dot
 
