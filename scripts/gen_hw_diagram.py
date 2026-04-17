@@ -87,9 +87,9 @@ def parse_scala_file(path: Path) -> dict:
         if name in TOP_LEVEL:
             defined.add(name)
 
-    # Module(new Foo(...)) instantiations
+    # Module(new Foo(...)) instantiations — also catches lambda style: () => new Foo(...)
     instantiates = set()
-    for m in re.finditer(r"Module\s*\(\s*new\s+(?:[\w.]+\.)?(\w+)", text):
+    for m in re.finditer(r"(?:Module\s*\(\s*)?new\s+(?:[\w.]+\.)?([A-Z]\w+)\s*[({]", text):
         name = m.group(1)
         if not is_skippable(name):
             instantiates.add(name)
@@ -175,6 +175,42 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
         module_to_group[rn] = "rdl"
         all_defined["rdl"].add(rn)
 
+    # Pre-compute edges so we can filter orphan nodes
+    # (done early; draw_edges() below re-uses this set)
+    edges: set[tuple[str, str, str]] = set()
+
+    for group, files in hw_data.items():
+        for f in files:
+            for defn in f["defined"]:
+                for inst in f["instantiates"]:
+                    if inst != defn and inst in module_to_group:
+                        edges.add((defn, inst, "instantiates"))
+
+    for group, files in hw_data.items():
+        for f in files:
+            for defn in f["defined"]:
+                for (pkg, sym) in f["imports"]:
+                    if sym in module_to_group and sym != defn:
+                        edge = (defn, sym, "uses")
+                        rev = (sym, defn, "uses")
+                        if edge not in edges and rev not in edges:
+                            if module_to_group.get(sym) != group:
+                                edges.add(edge)
+
+    for consumer, rdl_file in [("Borg", "borg"), ("Peripherals", "soc"), ("Project", "soc")]:
+        if rdl_file in rdl_nodes and consumer in module_to_group:
+            edges.add((rdl_file, consumer, "generated regs"))
+    if "soc" in rdl_nodes and "Project" in module_to_group:
+        edges.add(("soc", "Project", "generated regs"))
+
+    # Only render nodes that participate in at least one edge (skip orphans)
+    connected: set[str] = set()
+    for src, dst, _ in edges:
+        connected.add(src)
+        connected.add(dst)
+    # Always include explicit top-level modules even if somehow unconnected
+    connected |= TOP_LEVEL & module_to_group.keys()
+
     # Create subgraphs (clusters) per group
     for group, group_cfg in GROUPS.items():
         nc = NODE_COLORS[group]
@@ -191,55 +227,30 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
             )
             for name in sorted(all_defined[group]):
                 is_top = name in TOP_LEVEL
-                node_attrs = dict(nc)
-                if is_top:
-                    node_attrs["penwidth"] = "3"
-                    node_attrs["shape"] = "box3d"
+                is_orphan = name not in connected
+                if is_orphan:
+                    # Warning style — signals this module needs wiring up or removal
+                    node_attrs = {
+                        "style": "filled,dashed",
+                        "fillcolor": "#3b0a0a",
+                        "fontcolor": "#ff6b6b",
+                        "color": "#ef4444",
+                        "penwidth": "2",
+                        "shape": "box",
+                    }
+                    label = f"⚠ {name}"
                 else:
-                    node_attrs["shape"] = "box"
+                    node_attrs = dict(nc)
+                    node_attrs["shape"] = "box3d" if is_top else "box"
+                    if is_top:
+                        node_attrs["penwidth"] = "3"
+                    label = name
                 node_attrs["fontname"] = "Helvetica Neue,Helvetica,Arial,sans-serif"
                 node_attrs["fontsize"] = "11" if not is_top else "12"
                 node_attrs["margin"] = "0.2,0.1"
-                sg.node(name, label=name, **node_attrs)
+                sg.node(name, label=label, **node_attrs)
 
-    # Collect edges: instantiation relationships
-    edges: set[tuple[str, str, str]] = set()
-
-    for group, files in hw_data.items():
-        for f in files:
-            for defn in f["defined"]:
-                for inst in f["instantiates"]:
-                    if inst != defn and inst in module_to_group:
-                        edges.add((defn, inst, "instantiates"))
-
-    # Cross-package: if SoC imports tinyqv.cpu.TinyQV and also instantiates it
-    # (already captured via Module(new ...)), but add import-only edges for things
-    # not yet covered
-    for group, files in hw_data.items():
-        for f in files:
-            for defn in f["defined"]:
-                for (pkg, sym) in f["imports"]:
-                    if sym in module_to_group and sym != defn:
-                        # Only add if no direct instantiation edge exists
-                        edge = (defn, sym, "uses")
-                        rev = (sym, defn, "uses")
-                        if edge not in edges and rev not in edges:
-                            # only add if cross-group (avoids noise)
-                            if module_to_group.get(sym) != group:
-                                edges.add(edge)
-
-    # RDL edges: generated register blocks appear in borg source as BorgGpuRegs
-    # and the rdl files describe them — add conceptual edges
-    borg_rdl_consumers = {
-        "Borg": "borg",
-        "Project": "soc",
-        "Peripherals": "soc",
-    }
-    for consumer, rdl_file in [("Borg", "borg"), ("Peripherals", "soc"), ("Project", "soc")]:
-        if rdl_file in rdl_nodes and consumer in module_to_group:
-            edges.add((rdl_file, consumer, "generated regs"))
-    if "soc" in rdl_nodes and "Project" in module_to_group:
-        edges.add(("soc", "Project", "generated regs"))
+    # (edges already computed above before node rendering)
 
     # Draw edges
     edge_styles = {
