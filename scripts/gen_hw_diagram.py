@@ -33,6 +33,7 @@ except ImportError:
 # Configuration — map subdirectory names to display groups + colours
 # ---------------------------------------------------------------------------
 GROUPS = {
+    "software":  {"label": "Software Stack",         "color": "#b45309", "fontcolor": "#fef3c7", "fillcolor": "#78350f"},
     "soc":       {"label": "SoC (Top Level)",       "color": "#1a1a2e", "fontcolor": "#e2e8f0", "fillcolor": "#16213e"},
     "borg":      {"label": "Borg GPU",               "color": "#0f3460", "fontcolor": "#e2e8f0", "fillcolor": "#0f3460"},
     "tinyqv":    {"label": "TinyQV RISC-V CPU",     "color": "#533483", "fontcolor": "#e2e8f0", "fillcolor": "#533483"},
@@ -41,6 +42,7 @@ GROUPS = {
 }
 
 NODE_COLORS = {
+    "software":  {"style": "filled,rounded", "fillcolor": "#451a03", "fontcolor": "#fcd34d", "color": "#d97706"},
     "soc":       {"style": "filled,rounded", "fillcolor": "#1e3a5f", "fontcolor": "#93c5fd", "color": "#3b82f6"},
     "borg":      {"style": "filled,rounded", "fillcolor": "#1e3a5f", "fontcolor": "#6ee7b7", "color": "#10b981"},
     "tinyqv":    {"style": "filled,rounded", "fillcolor": "#2d1b69", "fontcolor": "#c4b5fd", "color": "#8b5cf6"},
@@ -49,7 +51,7 @@ NODE_COLORS = {
 }
 
 # Modules we consider "top-level connectors" and want highlighted
-TOP_LEVEL = {"tt_um_gonsolo_borg", "tt_um_gonsolo_borg_sim", "Project", "Borg", "TinyQV"}
+TOP_LEVEL = {"tt_um_gonsolo_borg", "tt_um_gonsolo_borg_sim", "Project", "Borg", "TinyQV", "Software"}
 
 # Modules that are data-types / IO bundles — skip as nodes
 SKIP_PATTERNS = [
@@ -184,6 +186,10 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
         module_to_group[rn] = "rdl"
         all_defined["rdl"].add(rn)
 
+    # Add Software pseudo-nodes
+    module_to_group["Software"] = "software"
+    all_defined["software"].add("Software")
+
     # Pre-compute edges so we can filter orphan nodes
     # (done early; draw_edges() below re-uses this set)
     edges: set[tuple[str, str, str]] = set()
@@ -207,6 +213,11 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
         ("Peripherals", "gpio"),
         ("Peripherals", "uart"),
         ("MemoryController", "psram"),
+        ("Software", "borg"),
+        ("Software", "soc"),
+        ("Software", "gpio"),
+        ("Software", "uart"),
+        ("Software", "psram"),
     ]:
         if rdl_file in rdl_nodes and consumer in module_to_group:
             edges.add((rdl_file, consumer, "generated regs"))
