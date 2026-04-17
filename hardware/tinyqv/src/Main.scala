@@ -4,7 +4,7 @@
 package tinyqv
 
 import tinyqv.cpu.{TinyQVCpu, TinyQVCore, TinyQVCounter, TinyQVRegisters,
-  TinyQVAlu, TinyQVShifter, TinyQVTime, TinyQVQspiFlash, TinyQV,
+  TinyQVAlu, TinyQVShifter, TinyQVTime, TinyQV,
   TinyQVDecode, QspiController}
 import java.io.{PrintWriter, File}
 
@@ -24,7 +24,6 @@ object Main extends App {
     () => new TinyQVCpu(16, 4),
     () => new TinyQVCore(),
     () => new TinyQVTime(),
-    () => new TinyQVQspiFlash(2, 24),
     () => new TinyQV(),
 
     () => new TinyQVDecode(4),

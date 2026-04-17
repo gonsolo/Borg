@@ -36,7 +36,7 @@ GROUPS = {
     "soc":       {"label": "SoC (Top Level)",       "color": "#1a1a2e", "fontcolor": "#e2e8f0", "fillcolor": "#16213e"},
     "borg":      {"label": "Borg GPU",               "color": "#0f3460", "fontcolor": "#e2e8f0", "fillcolor": "#0f3460"},
     "tinyqv":    {"label": "TinyQV RISC-V CPU",     "color": "#533483", "fontcolor": "#e2e8f0", "fillcolor": "#533483"},
-    "hardfloat": {"label": "Berkeley HardFloat FPU","color": "#e94560", "fontcolor": "#ffffff", "fillcolor": "#c23152"},
+    "hardfloat": {"label": "Berkeley HardFloat FPU","color": "#b45309", "fontcolor": "#fef3c7", "fillcolor": "#92400e"},
     "rdl":       {"label": "Register Descriptions",  "color": "#2d6a4f", "fontcolor": "#e2e8f0", "fillcolor": "#2d6a4f"},
 }
 
@@ -44,7 +44,7 @@ NODE_COLORS = {
     "soc":       {"style": "filled,rounded", "fillcolor": "#1e3a5f", "fontcolor": "#93c5fd", "color": "#3b82f6"},
     "borg":      {"style": "filled,rounded", "fillcolor": "#1e3a5f", "fontcolor": "#6ee7b7", "color": "#10b981"},
     "tinyqv":    {"style": "filled,rounded", "fillcolor": "#2d1b69", "fontcolor": "#c4b5fd", "color": "#8b5cf6"},
-    "hardfloat": {"style": "filled,rounded", "fillcolor": "#450a0a", "fontcolor": "#fca5a5", "color": "#ef4444"},
+    "hardfloat": {"style": "filled,rounded", "fillcolor": "#451a03", "fontcolor": "#fcd34d", "color": "#d97706"},
     "rdl":       {"style": "filled,rounded", "fillcolor": "#064e3b", "fontcolor": "#6ee7b7", "color": "#10b981"},
 }
 
@@ -93,10 +93,11 @@ def parse_scala_file(path: Path) -> dict:
             defined.add(name)
 
     # Module(new Foo(...)) instantiations — also catches lambda style: () => new Foo(...)
+    # and no-arg constructors like Module(new CsrFile) where ) immediately follows.
     # Skip App-only files (e.g. Main.scala) — their lambda lists are emitter config, not hierarchy
     instantiates = set()
     if defined or not app_objects:
-        for m in re.finditer(r"(?:Module\s*\(\s*)?new\s+(?:[\w.]+\.)?([A-Z]\w+)\s*[({]", text):
+        for m in re.finditer(r"(?:Module\s*\(\s*)?new\s+(?:[\w.]+\.)?([A-Z]\w+)\s*[({)]", text):
             name = m.group(1)
             if not is_skippable(name):
                 instantiates.add(name)
@@ -249,6 +250,7 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
                 fillcolor="#161b22",
                 color=group_cfg["color"],
                 penwidth="2",
+                labelloc="b",  # label at bottom — avoids visual overlap with incoming arrowheads
             )
             for name in sorted(all_defined[group]):
                 is_top = name in TOP_LEVEL
