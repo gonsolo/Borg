@@ -219,6 +219,23 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
     # Always include explicit top-level modules even if somehow unconnected
     connected |= TOP_LEVEL & module_to_group.keys()
 
+    # BFS from all top-level nodes to find modules reachable from the top of the hierarchy
+    # Build adjacency (directed: parent -> child)
+    adj: dict[str, set[str]] = defaultdict(set)
+    for src, dst, _ in edges:
+        adj[src].add(dst)
+        adj[dst].add(src)  # treat as undirected for reachability from top
+
+    reachable: set[str] = set()
+    queue = list(TOP_LEVEL & module_to_group.keys())
+    reachable.update(queue)
+    while queue:
+        node = queue.pop()
+        for neighbour in adj.get(node, []):
+            if neighbour not in reachable:
+                reachable.add(neighbour)
+                queue.append(neighbour)
+
     # Create subgraphs (clusters) per group
     for group, group_cfg in GROUPS.items():
         nc = NODE_COLORS[group]
@@ -236,8 +253,9 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
             for name in sorted(all_defined[group]):
                 is_top = name in TOP_LEVEL
                 is_orphan = name not in connected
+                is_floating = connected and name in connected and name not in reachable
                 if is_orphan:
-                    # Warning style — signals this module needs wiring up or removal
+                    # Red — no edges at all, needs wiring or removal
                     node_attrs = {
                         "style": "filled,dashed",
                         "fillcolor": "#3b0a0a",
@@ -247,6 +265,17 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
                         "shape": "box",
                     }
                     label = f"⚠ {name}"
+                elif is_floating:
+                    # Orange — has edges but not reachable from any top cell
+                    node_attrs = {
+                        "style": "filled,dashed",
+                        "fillcolor": "#3b1f00",
+                        "fontcolor": "#fb923c",
+                        "color": "#f97316",
+                        "penwidth": "2",
+                        "shape": "box",
+                    }
+                    label = f"◈ {name}"
                 else:
                     node_attrs = dict(nc)
                     node_attrs["shape"] = "box3d" if is_top else "box"
@@ -257,6 +286,7 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
                 node_attrs["fontsize"] = "11" if not is_top else "12"
                 node_attrs["margin"] = "0.2,0.1"
                 sg.node(name, label=label, **node_attrs)
+
 
     # (edges already computed above before node rendering)
 
@@ -276,18 +306,25 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
     with dot.subgraph(name="cluster_legend") as leg:
         leg.attr(label="Legend", fontcolor="#94a3b8", fontsize="11",
                  style="filled", fillcolor="#161b22", color="#374151")
-        leg.node("leg_inst", "Module A", shape="box", style="filled,rounded",
-                 fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
-                 fontsize="10", fontname="Helvetica Neue,Helvetica,Arial,sans-serif")
-        leg.node("leg_inst2", "Module B", shape="box", style="filled,rounded",
-                 fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
-                 fontsize="10", fontname="Helvetica Neue,Helvetica,Arial,sans-serif")
+        fn = "Helvetica Neue,Helvetica,Arial,sans-serif"
         leg.node("leg_top", "Top-Level", shape="box3d", style="filled,rounded",
                  fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
-                 fontsize="10", fontname="Helvetica Neue,Helvetica,Arial,sans-serif")
+                 fontsize="10", fontname=fn)
+        leg.node("leg_inst", "Module A", shape="box", style="filled,rounded",
+                 fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
+                 fontsize="10", fontname=fn)
+        leg.node("leg_inst2", "Module B", shape="box", style="filled,rounded",
+                 fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
+                 fontsize="10", fontname=fn)
+        leg.node("leg_float", "◈ Floating island\n(not reachable from top)", shape="box",
+                 style="filled,dashed", fillcolor="#3b1f00", fontcolor="#fb923c",
+                 color="#f97316", penwidth="2", fontsize="10", fontname=fn)
+        leg.node("leg_orphan", "⚠ Orphan\n(no edges)", shape="box",
+                 style="filled,dashed", fillcolor="#3b0a0a", fontcolor="#ff6b6b",
+                 color="#ef4444", penwidth="2", fontsize="10", fontname=fn)
         leg.edge("leg_inst", "leg_inst2", label="instantiates", style="solid",
                  color="#3b82f6", arrowhead="vee", fontsize="9", fontcolor="#94a3b8",
-                 fontname="Helvetica Neue,Helvetica,Arial,sans-serif")
+                 fontname=fn)
 
     return dot
 
