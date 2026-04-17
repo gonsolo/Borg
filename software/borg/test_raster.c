@@ -34,6 +34,10 @@ void borg_run(uint32_t start_pc) { assert(0 && "Unexpected call to borg_run"); }
 void borg_load_spirb_shader(const spirb_shader_t *s) { }
 void borg_load_spirb_shader_at(const spirb_shader_t *s, int offset) { }
 
+// Mock driver globals (defined in borg_driver.c which can't compile on x86)
+int borg_fb_width  = 32;
+int borg_fb_height = 32;
+
 int main() {
     printf("Running Raster Math Tests...\n");
 
