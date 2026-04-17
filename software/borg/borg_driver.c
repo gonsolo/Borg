@@ -200,13 +200,16 @@ void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
 #define FRAME_STRIDE                                                           \
   (FRAME_FB_SIZE + FRAME_ZB_SIZE + 1) // FB + ZB + DONE marker
 
-void borg_clear_zbuffer(int frame) {
+void borg_clear_zbuffer(int frame, rgb16_t clear_color) {
   unsigned int t_start = get_cycles();
   int fb_offset = frame * FRAME_STRIDE;
   int zb_offset = fb_offset + FRAME_FB_SIZE;
-  // Clear RGB framebuffer to black
-  for (int i = 0; i < FRAME_FB_SIZE; i++)
-    PSRAM_OUT(fb_offset + i) = 0;
+  // Clear RGB framebuffer with the specified color
+  for (int i = 0; i < FRAME_FB_SIZE; i += 3) {
+    PSRAM_OUT(fb_offset + i + 0) = clear_color.r;
+    PSRAM_OUT(fb_offset + i + 1) = clear_color.g;
+    PSRAM_OUT(fb_offset + i + 2) = clear_color.b;
+  }
   // Clear z-buffer to max depth
   for (int i = 0; i < FRAME_ZB_SIZE; i++)
     PSRAM_OUT(zb_offset + i) = FP16_MAX_DEPTH;

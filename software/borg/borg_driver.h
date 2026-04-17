@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include "borg_fpu.h"
+#include "borg_raster.h"
 
 // FP16 constants from borg_fpu.h (single source of truth)
 
@@ -59,7 +60,7 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
 void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16);
 
 // Clear z-buffer for a frame to FP16_MAX_DEPTH
-void borg_clear_zbuffer(int frame);
+void borg_clear_zbuffer(int frame, rgb16_t clear_color);
 
 // Set texture for subsequent draw calls (dimensions only; address is fixed)
 void borg_set_texture(int tex_width, int tex_height);

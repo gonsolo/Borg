@@ -164,7 +164,8 @@ int main() {
     mat4_mul(t2, s, t1);
     mat4_mul(draw.uniforms, tz, t2);
 
-    borg_clear_zbuffer(0);
+    // Khronos vkcube reference background: {0.2f, 0.2f, 0.2f} (FP16 0x3266)
+    borg_clear_zbuffer(0, (rgb16_t){0x3266, 0x3266, 0x3266});
     borg_set_texture(TEX_WIDTH, TEX_HEIGHT);
     draw_cube(&draw);
     borg_present(0);

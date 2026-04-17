@@ -56,7 +56,7 @@ int main() {
     borg_draw_data_t draw;
     borg_set_angle(&draw, fp16_from_float(0.6283f));  // 36 degrees
 
-    borg_clear_zbuffer(0);
+    borg_clear_zbuffer(0, (rgb16_t){FP16_ZERO, FP16_ZERO, FP16_ZERO});
     borgCmdDraw(&draw, front_tri, 0);  // draw front (RGB) — no texture
     borg_set_texture(TEX_WIDTH, TEX_HEIGHT);
     borgCmdDraw(&draw, back_tri, 0);   // draw back (textured)
