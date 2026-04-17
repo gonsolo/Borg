@@ -198,17 +198,7 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
     for group, files in hw_data.items():
         for f in files:
             for defn in f["defined"]:
-                for (pkg, sym) in f["imports"]:
-                    if sym in module_to_group and sym != defn:
-                        # Skip if there is already an instantiates relationship
-                        if (defn, sym, "instantiates") in edges or (sym, defn, "instantiates") in edges:
-                            continue
-                            
-                        edge = (defn, sym, "uses")
-                        rev = (sym, defn, "uses")
-                        if edge not in edges and rev not in edges:
-                            if module_to_group.get(sym) != group:
-                                edges.add(edge)
+                pass # Imports previously generated 'uses' edges, now removed
 
     for consumer, rdl_file in [
         ("Borg", "borg"),
@@ -306,7 +296,6 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
     # Draw edges
     edge_styles = {
         "instantiates": {"color": "#3b82f6", "penwidth": "1.8", "arrowhead": "vee", "style": "solid"},
-        "uses":         {"color": "#6b7280", "penwidth": "1.2", "arrowhead": "open", "style": "dashed"},
         "generated regs": {"color": "#10b981", "penwidth": "1.4", "arrowhead": "diamond", "style": "dashed"},
     }
 
@@ -328,10 +317,7 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
         leg.node("leg_inst2", "Module B", shape="box", style="filled,rounded",
                  fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
                  fontsize="10", fontname=fn)
-        leg.node("leg_inst3", "Module C", shape="box", style="filled,rounded",
-                 fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
-                 fontsize="10", fontname=fn)
-        leg.node("leg_inst4", "Module D", shape="box", style="filled,rounded",
+        leg.node("leg_inst4", "Module C", shape="box", style="filled,rounded",
                  fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
                  fontsize="10", fontname=fn)
         leg.node("leg_float", "◈ Floating island\n(not reachable from top)", shape="box",
@@ -343,10 +329,7 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
         leg.edge("leg_inst", "leg_inst2", label="instantiates", style="solid",
                  color="#3b82f6", arrowhead="vee", fontsize="9", fontcolor="#94a3b8",
                  fontname=fn)
-        leg.edge("leg_inst2", "leg_inst3", label="uses", style="dashed",
-                 color="#6b7280", arrowhead="open", fontsize="9", fontcolor="#94a3b8",
-                 fontname=fn)
-        leg.edge("leg_inst3", "leg_inst4", label="generated regs", style="dashed",
+        leg.edge("leg_inst2", "leg_inst4", label="generated regs", style="dashed",
                  color="#10b981", arrowhead="diamond", fontsize="9", fontcolor="#94a3b8",
                  fontname=fn)
 
