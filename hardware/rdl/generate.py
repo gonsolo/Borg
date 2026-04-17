@@ -22,10 +22,10 @@ cheader = CHeaderExporter()
 # Each peripheral is compiled independently so each gets its own
 # uniquely-named Chisel companion object (e.g. BorgGpuRegs, GpioMapRegs).
 peripherals = [
-    {"name": "borg",  "rdl": "borg.rdl"},
-    {"name": "gpio",  "rdl": "gpio.rdl"},
-    {"name": "uart",  "rdl": "uart.rdl"},
-    {"name": "psram", "rdl": "psram.rdl"},
+    {"name": "borg",  "rdl": "borg.rdl", "chisel": True},
+    {"name": "gpio",  "rdl": "gpio.rdl", "chisel": False},
+    {"name": "uart",  "rdl": "uart.rdl", "chisel": False},
+    {"name": "psram", "rdl": "psram.rdl", "chisel": False},
 ]
 
 for p in peripherals:
@@ -35,9 +35,10 @@ for p in peripherals:
 
     for child in root.children():
         if isinstance(child, AddrmapNode):
-            # Chisel register block
-            chisel.export(child, scala_out_dir, package_name="borg")
-            print(f"Generated Chisel: {p['name']}")
+            # Chisel register block (only if enabled)
+            if p.get("chisel", False):
+                chisel.export(child, scala_out_dir, package_name="borg")
+                print(f"Generated Chisel: {p['name']}")
 
             # C header
             cheader_file = os.path.join(c_out_dir, f"{p['name']}_regs.h")
