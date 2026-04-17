@@ -21,7 +21,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build book (resolve snippets)
-        run: python3 docs/build_book.py
+        run: |
+          sudo apt-get install -y python3-graphviz graphviz
+          python3 docs/build_book.py
 
       - name: Convert book to HTML
         run: |
@@ -34,6 +36,7 @@ jobs:
               --css=style.css -o "_site/${base}.html"
           done
           cp docs/triangle.png _site/ 2>/dev/null || true
+          cp docs/hw_diagram.svg _site/ 2>/dev/null || true
 
           cat > _site/style.css << 'ENDCSS'
           body { max-width: 800px; margin: 2rem auto; padding: 0 1rem;

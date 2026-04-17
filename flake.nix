@@ -19,6 +19,7 @@
       p.cocotb
       p.gdstk
       p.gitpython
+      p.graphviz # for gen_hw_diagram.py
       p.jinja2
       p.klayout
       p.matplotlib
@@ -51,6 +52,7 @@
         pkgs.gnugrep
         pkgs.gnumake
         pkgs.gnused
+        pkgs.graphviz # dot binary for gen_hw_diagram.py
         pkgs.iverilog
         pkgs.icestorm
         pkgs.jdk25

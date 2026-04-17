@@ -12,6 +12,8 @@ Output: docs/book/ (rendered markdown with code inlined)
 """
 
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -88,6 +90,28 @@ def process_markdown(src: Path, snippet_cache: dict) -> str:
 
 def main():
     BOOK_OUT.mkdir(parents=True, exist_ok=True)
+
+    # Regenerate hardware component diagram before building the book
+    diagram_script = ROOT / "scripts" / "gen_hw_diagram.py"
+    diagram_svg = DOCS / "hw_diagram.svg"
+    if diagram_script.exists():
+        print("  Regenerating hardware diagram...")
+        result = subprocess.run(
+            [sys.executable, str(diagram_script), "--output", str(DOCS / "hw_diagram")],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"  WARNING: diagram generation failed:\n{result.stderr.strip()}", file=sys.stderr)
+        else:
+            print(f"  {result.stdout.strip()}")
+
+    # Copy the SVG into the book output so relative links resolve
+    if diagram_svg.exists():
+        shutil.copy(diagram_svg, BOOK_OUT / "hw_diagram.svg")
+        print(f"  hw_diagram.svg -> book/hw_diagram.svg")
+
     snippet_cache: dict = {}
     sources = sorted(DOCS.glob("*.md"))
     sources = [s for s in sources if s.name != "Plan.md"]  # skip non-book files
