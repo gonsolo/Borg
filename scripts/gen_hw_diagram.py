@@ -200,6 +200,10 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
             for defn in f["defined"]:
                 for (pkg, sym) in f["imports"]:
                     if sym in module_to_group and sym != defn:
+                        # Skip if there is already an instantiates relationship
+                        if (defn, sym, "instantiates") in edges or (sym, defn, "instantiates") in edges:
+                            continue
+                            
                         edge = (defn, sym, "uses")
                         rev = (sym, defn, "uses")
                         if edge not in edges and rev not in edges:
