@@ -153,14 +153,47 @@ def _start(suite: Suite, log_dir: str) -> None:
                                   stdout=fh, stderr=subprocess.STDOUT)
     fh.close()
 
-def _finish(suite: Suite) -> None:
+def _append_mill_worker_logs(suite: Suite, root: Path) -> None:
+    """After a Mill test suite finishes, append worker stdout logs so failures are visible."""
+    if "chisel" not in suite.label:
+        return
+    # Determine which hardware module to look at
+    if "borg" in suite.label:
+        pattern = root / "out" / "hardware" / "borg" / "test" / "testForked.dest"
+    elif "tinyqv" in suite.label:
+        pattern = root / "out" / "hardware" / "tinyqv" / "test" / "testForked.dest"
+    else:
+        return
+
+    worker_logs = sorted(pattern.glob("worker-*.log")) if pattern.exists() else []
+    result_logs = sorted(pattern.glob("worker-*/result.log")) if pattern.exists() else []
+
+    combined = worker_logs + result_logs
+    if not combined:
+        return
+
+    try:
+        with open(suite.log, "a") as out:
+            out.write("\n\n--- Mill worker output ---\n")
+            for wlog in combined:
+                try:
+                    out.write(wlog.read_text(errors="replace"))
+                    out.write("\n")
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+def _finish(suite: Suite, root: Path) -> None:
     suite.proc.wait()
     suite.elapsed = time.monotonic() - suite.start
+    _append_mill_worker_logs(suite, root)
     if suite.proc.returncode == 0:
         suite.state   = State.PASS
         suite.n_tests = count_tests(suite.log)
     else:
         suite.state = State.FAIL
+
 
 # ── Runner ────────────────────────────────────────────────────────────────────
 def main() -> None:
@@ -210,7 +243,7 @@ def main() -> None:
         for s in (x for x in suites if x.sequential):
             _start(s, log_dir)
             s.proc.wait()
-            _finish(s)
+            _finish(s, root)
             if s.state == State.FAIL:
                 stop_event.set(); dt.join()
                 with lock:
@@ -231,7 +264,7 @@ def main() -> None:
         while remaining:
             for s in list(remaining):
                 if s.state == State.RUNNING and s.proc.poll() is not None:
-                    _finish(s)
+                    _finish(s, root)
                     remaining.remove(s)
                     if s.state == State.FAIL:
                         first_failure = s

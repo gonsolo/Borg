@@ -266,6 +266,7 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.fragPcReg.poke(13.U)
         rast.io.advance.poke(true.B)
         rast.clock.step(1)
+        rast.io.advance.poke(false.B)  // must de-assert before pipeWrite: advance resets edge flags every cycle it is high
 
         // Set edge 0 to outside (negative sign)
         rast.io.pipeWrite.en.poke(true.B)
