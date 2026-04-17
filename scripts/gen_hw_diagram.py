@@ -71,28 +71,36 @@ def parse_scala_file(path: Path) -> dict:
     """Extract class/object definitions and Module(new ...) instantiations."""
     text = path.read_text(errors="replace")
 
-    # Classes / objects that extend Module or RawModule
+    # Detect Scala App objects — these are build drivers, not hardware modules
+    app_objects: set[str] = set()
+    for m in re.finditer(r"(?:class|object)\s+(\w+)(?:\(.*?\))?\s+extends\s+App\b", text):
+        app_objects.add(m.group(1))
+
+    # Classes / objects that extend Module or RawModule (skip App objects)
     defined = set()
     for m in re.finditer(
         r"(?:class|object)\s+(\w+)(?:\(.*?\))?\s+extends\s+(?:\w+\.)*(?:Module|RawModule)",
         text,
     ):
         name = m.group(1)
-        if not is_skippable(name):
+        if not is_skippable(name) and name not in app_objects:
             defined.add(name)
 
     # Also pick up top-level classes by name heuristic (class Foo extends SoCLogic)
     for m in re.finditer(r"(?:class|object)\s+(\w+)(?:\(.*?\))?", text):
         name = m.group(1)
-        if name in TOP_LEVEL:
+        if name in TOP_LEVEL and name not in app_objects:
             defined.add(name)
 
     # Module(new Foo(...)) instantiations — also catches lambda style: () => new Foo(...)
+    # Skip App-only files (e.g. Main.scala) — their lambda lists are emitter config, not hierarchy
     instantiates = set()
-    for m in re.finditer(r"(?:Module\s*\(\s*)?new\s+(?:[\w.]+\.)?([A-Z]\w+)\s*[({]", text):
-        name = m.group(1)
-        if not is_skippable(name):
-            instantiates.add(name)
+    if defined or not app_objects:
+        for m in re.finditer(r"(?:Module\s*\(\s*)?new\s+(?:[\w.]+\.)?([A-Z]\w+)\s*[({]", text):
+            name = m.group(1)
+            if not is_skippable(name):
+                instantiates.add(name)
+
 
     # import tinyqv.cpu.{TinyQV, ...} — track cross-package imports
     imports = set()
