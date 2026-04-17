@@ -2,9 +2,9 @@
 # SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Convert borg.ppm (256×256 RGB8) to firmware/borg_texture.dat (32×32 FP16 RGB).
+"""Convert borg.ppm (256×256 RGB8) to firmware/borg_texture.dat (256×256 FP16 RGB).
 
-Output format: 32×32 pixels, each pixel = 3 × uint16 little-endian (R, G, B as
+Output format: 256×256 pixels, each pixel = 3 × uint16 little-endian (R, G, B as
 IEEE 754 half-precision floats in [0..1]).  Linear row-major order — Morton
 reordering is handled by the host upload script (render.py).
 """
@@ -18,7 +18,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'host'))
 from borg_utils import float_to_fp16
 
 
-TEX_SIZE = 32
+TEX_SIZE = 256
 
 img = Image.open('borg.ppm').convert('RGB').resize((TEX_SIZE, TEX_SIZE), Image.LANCZOS)
 
@@ -31,4 +31,4 @@ with open('../software/borg/borg_texture.dat', 'wb') as f:
             b = float_to_fp16(b8 / 255.0)
             f.write(struct.pack('<HHH', r, g, b))
 
-print(f"Generated ../software/borg/borg_texture.dat ({TEX_SIZE}x{TEX_SIZE}, 6144 bytes)")
+print(f"Generated ../software/borg/borg_texture.dat ({TEX_SIZE}x{TEX_SIZE}, {TEX_SIZE*TEX_SIZE*6} bytes)")

@@ -9,14 +9,12 @@ import utest._
 
 /** Standalone tests for BorgRasterizer — no FPU, no MMIO, no shaders.
   *
-  * Verifies bounding-box traversal, inside-flag snooping, stall logic,
+  * Verifies tile-origin traversal, inside-flag snooping, stall logic,
   * and shader chaining FSM (Step 10.6.2).
   */
 object BorgRasterizerTests extends TestSuite {
 
   val config = FloatConfig.FP16
-
-
 
   /** Set all control inputs to idle (no clock step). */
   def pokeIdle(rast: BorgRasterizer): Unit = {
@@ -33,18 +31,18 @@ object BorgRasterizerTests extends TestSuite {
     rast.io.texConfig.mortonIndex.poke(0.U)
     rast.io.texConfig.baseAddr.poke(0.U)
     rast.io.texConfig.en.poke(false.B)
+    // Register-driven frag_pc and uniform_page
+    rast.io.fragPcReg.poke(0.U)
+    rast.io.uniformPageReg.poke(0.U)
   }
 
-  /** Command the rasterizer with bbox and pc via cmdPop. */
-  def setCommand(rast: BorgRasterizer, x0: Int, y0: Int, x1: Int, y1: Int, pc: Int): Unit = {
+  /** Command the rasterizer with tile origin via cmdPop. */
+  def setTileCommand(rast: BorgRasterizer, tx: Int, ty: Int, fragPc: Int = 0): Unit = {
     pokeIdle(rast)
     rast.io.cmdPop.valid.poke(true.B)
-    rast.io.cmdPop.bits.bbox.min.x.poke(x0.U)
-    rast.io.cmdPop.bits.bbox.min.y.poke(y0.U)
-    rast.io.cmdPop.bits.bbox.max.x.poke(x1.U)
-    rast.io.cmdPop.bits.bbox.max.y.poke(y1.U)
-    rast.io.cmdPop.bits.fragPC.poke(pc.U)
-    rast.io.cmdPop.bits.uniformPage.poke(0.U)
+    rast.io.cmdPop.bits.tileOrigin.x.poke(tx.U)
+    rast.io.cmdPop.bits.tileOrigin.y.poke(ty.U)
+    rast.io.fragPcReg.poke(fragPc.U)
     rast.clock.step(1)
     rast.io.cmdPop.valid.poke(false.B)
     rast.clock.step(1)
@@ -80,46 +78,48 @@ object BorgRasterizerTests extends TestSuite {
 
   val tests = Tests {
 
-    utest.test("bbox_init") {
+    utest.test("tile_origin_init") {
       simulate(new BorgRasterizer(config)) { rast =>
-        println("\n--- BorgRasterizer: bbox_init ---")
+        println("\n--- BorgRasterizer: tile_origin_init ---")
         pokeIdle(rast)
         rast.reset.poke(true.B)
         rast.clock.step(2)
         rast.reset.poke(false.B)
         rast.clock.step(1)
-        setCommand(rast, 2, 3, 5, 6, 0)
+        setTileCommand(rast, 4, 8)
 
         val x = rast.io.iter.x.peek().litValue.toInt
         val y = rast.io.iter.y.peek().litValue.toInt
-        println(f"  After setBbox(2,3,5,6): iterX=$x, iterY=$y")
-        utest.assert(x == 2)
-        utest.assert(y == 3)
+        println(f"  After setTileCommand(4,8): iterX=$x, iterY=$y")
+        utest.assert(x == 4)
+        utest.assert(y == 8)
         utest.assert(rast.io.iterValid.peek().litToBoolean)
         println("  PASSED")
       }
     }
 
-    utest.test("bbox_walk_3x3") {
+    utest.test("tile_walk_4x4") {
       simulate(new BorgRasterizer(config)) { rast =>
-        println("\n--- BorgRasterizer: bbox_walk_3x3 ---")
+        println("\n--- BorgRasterizer: tile_walk_4x4 ---")
         pokeIdle(rast)
         rast.reset.poke(true.B)
         rast.clock.step(2)
         rast.reset.poke(false.B)
         rast.clock.step(1)
-        setCommand(rast, 1, 1, 4, 4, 0)  // 3×3 box: (1,1) to (3,3)
+        setTileCommand(rast, 0, 0)  // 4×4 tile at origin
 
+        // Expected: (0,0), advance → (1,0), (2,0), (3,0), (0,1), ...
         val expected = Seq(
-          (2, 1), (3, 1),
-          (1, 2), (2, 2), (3, 2),
-          (1, 3), (2, 3), (3, 3),
+          (1, 0), (2, 0), (3, 0),
+          (0, 1), (1, 1), (2, 1), (3, 1),
+          (0, 2), (1, 2), (2, 2), (3, 2),
+          (0, 3), (1, 3), (2, 3), (3, 3),
         )
 
         val ix = rast.io.iter.x.peek().litValue.toInt
         val iy = rast.io.iter.y.peek().litValue.toInt
         println(f"  Start: ($ix, $iy)")
-        utest.assert(ix == 1 && iy == 1)
+        utest.assert(ix == 0 && iy == 0)
 
         for ((ex, ey) <- expected) {
           advance(rast)
@@ -130,10 +130,8 @@ object BorgRasterizerTests extends TestSuite {
         }
 
         advance(rast)
-        val fx = rast.io.iter.x.peek().litValue.toInt
-        val fy = rast.io.iter.y.peek().litValue.toInt
         val valid = rast.io.iterValid.peek().litToBoolean
-        println(f"  Final: ($fx, $fy) valid=$valid")
+        println(f"  After all 16 pixels: valid=$valid")
         utest.assert(!valid)
         println("  PASSED")
       }
@@ -214,24 +212,22 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(2)
         rast.reset.poke(false.B)
         rast.clock.step(1)
-        setCommand(rast, 0, 0, 4, 4, 0)
+        setTileCommand(rast, 0, 0)
 
         // Advance should pulse triggerCoreValid and set autoRunStall
         pokeIdle(rast)
         rast.io.advance.poke(true.B)
-        // Don't step yet — check triggerCoreValid is combinationally high during advance
         rast.clock.step(1)
 
         val triggered = rast.io.coreTrigger.valid.peek().litToBoolean
         println(f"  During advance: coreTrigger.valid=$triggered")
         utest.assert(triggered)
 
-        // Now simulate: advance done, core starts running (auto_run_pending→running)
+        // Now simulate: advance done, core starts running
         rast.io.advance.poke(false.B)
         rast.io.coreStatus.autoRunPending.poke(true.B)
         rast.clock.step(1)
 
-        // Core is now running
         rast.io.coreStatus.autoRunPending.poke(false.B)
         rast.io.coreStatus.running.poke(true.B)
 
@@ -239,10 +235,8 @@ object BorgRasterizerTests extends TestSuite {
         println(f"  While core running: autoRunStall=$stalled")
         utest.assert(stalled)
 
-        // Core runs for a few cycles
         rast.clock.step(5)
 
-        // Core halts
         rast.io.coreStatus.running.poke(false.B)
         rast.clock.step(1)
 
@@ -263,10 +257,13 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(2)
         rast.reset.poke(false.B)
         rast.clock.step(1)
-        setCommand(rast, 0, 0, 4, 4, 13) // frag shader at IMEM slot 13
+        setTileCommand(rast, 0, 0, fragPc = 13)
+        // Keep fragPcReg set for the duration
+        rast.io.fragPcReg.poke(13.U)
 
-        // Advance → enters sRast phase where snooping happens
+        // Advance → enters sRast phase
         pokeIdle(rast)
+        rast.io.fragPcReg.poke(13.U)
         rast.io.advance.poke(true.B)
         rast.clock.step(1)
 
@@ -279,7 +276,6 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(1)
         utest.assert(!rast.io.insideFlag.peek().litToBoolean)
 
-        // Check: triggerCoreValid fired with PC=0
         val trigPC = rast.io.coreTrigger.pc.peek().litValue.toInt
         println(f"  Advance: coreTrigger.pc=$trigPC (expect 0)")
         utest.assert(trigPC == 0)
@@ -288,8 +284,6 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.advance.poke(false.B)
         simulateShaderRun(rast)
 
-        // After rast completes for an outside pixel: stall should be cleared,
-        // and NO second trigger should fire (frag skipped)
         val stall = rast.io.autoRunStall.peek().litToBoolean
         val trig = rast.io.coreTrigger.valid.peek().litToBoolean
         println(f"  After rast done (outside): stall=$stall, coreTrigger.valid=$trig")
@@ -306,10 +300,12 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(2)
         rast.reset.poke(false.B)
         rast.clock.step(1)
-        setCommand(rast, 0, 0, 4, 4, 13)
+        setTileCommand(rast, 0, 0, fragPc = 13)
+        rast.io.fragPcReg.poke(13.U)
 
         // Advance → triggers rast shader at PC=0
         pokeIdle(rast)
+        rast.io.fragPcReg.poke(13.U)
         rast.io.advance.poke(true.B)
         rast.clock.step(1)
         rast.io.advance.poke(false.B)
@@ -320,7 +316,7 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.coreStatus.autoRunPending.poke(false.B)
         rast.io.coreStatus.running.poke(true.B)
 
-        // --- DURING CORE RUNNING, WRITE EDGES ---
+        // Write edges inside
         for (i <- 0 until 3) {
           rast.io.pipeWrite.en.poke(true.B)
           rast.io.pipeWrite.addr.poke(i.U)
@@ -334,23 +330,19 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(1)
         rast.io.coreStatus.running.poke(false.B)
 
-        // Read combinatorial values BEFORE clock ticks
         val trigValid = rast.io.coreTrigger.valid.peek().litToBoolean
         val trigPC = rast.io.coreTrigger.pc.peek().litValue.toInt
-        val in = rast.io.insideFlag.peek().litToBoolean
 
         rast.clock.step(1)
         val stall = rast.io.autoRunStall.peek().litToBoolean
         utest.assert(trigValid)
         utest.assert(trigPC == 13)
         utest.assert(stall)
-        // Simulate frag shader running
         simulateShaderRun(rast)
         
-        // Wait 1 extra cycle for sTileWrite phase (auto-write to tile buffer)
+        // Wait 1 extra cycle for sTileWrite phase
         rast.clock.step(1)
 
-        // After frag and auto-write completes: stall cleared
         val finalStall = rast.io.autoRunStall.peek().litToBoolean
         println(f"  After frag done: stall=$finalStall")
         utest.assert(!finalStall)
@@ -369,35 +361,33 @@ object BorgRasterizerTests extends TestSuite {
         rast.reset.poke(false.B)
         rast.clock.step(1)
 
-        // Texture configuration: base=0x0100, morton=0x005 → tex_base = 0x0100 + (5<<3) = 0x0128
-        // Word 0 addr = 0x0128, Word 1 addr = 0x012C (0x0128 | 4)
         val texBase    = 0x0100
         val mortonIdx  = 0x005
-        val expectedW0 = texBase + (mortonIdx << 3)          // 0x0128
-        val expectedW1 = expectedW0 | 4                       // 0x012C
+        val expectedW0 = texBase + (mortonIdx << 3)
+        val expectedW1 = expectedW0 | 4
 
-        // Packed texel data: word0 = {G=0x3C00, R=0x4000}, word1 = {pad=0, B=0x4200}
-        val gpuWord0   = (0x3C00 << 16) | 0x4000             // G in [31:16], R in [15:0]
-        val gpuWord1   = 0x4200                               // B in [15:0]
+        val gpuWord0   = (0x3C00 << 16) | 0x4000
+        val gpuWord1   = 0x4200
 
         // Enable texturing
         rast.io.texConfig.baseAddr.poke(texBase.U)
         rast.io.texConfig.mortonIndex.poke(mortonIdx.U)
         rast.io.texConfig.en.poke(true.B)
+        rast.io.fragPcReg.poke(13.U)
 
-        // Set up a bbox command with a non-zero fragPC
-        setCommand(rast, 0, 0, 4, 4, 13)
+        setTileCommand(rast, 0, 0, fragPc = 13)
 
         // Advance → sRast
         pokeIdle(rast)
         rast.io.texConfig.baseAddr.poke(texBase.U)
         rast.io.texConfig.mortonIndex.poke(mortonIdx.U)
         rast.io.texConfig.en.poke(true.B)
+        rast.io.fragPcReg.poke(13.U)
         rast.io.advance.poke(true.B)
         rast.clock.step(1)
         rast.io.advance.poke(false.B)
 
-        // Simulate rast shader — write all edges inside (+1.0)
+        // Simulate rast shader — write all edges inside
         rast.io.coreStatus.autoRunPending.poke(true.B)
         rast.clock.step(1)
         rast.io.coreStatus.autoRunPending.poke(false.B)
@@ -405,14 +395,13 @@ object BorgRasterizerTests extends TestSuite {
         for (i <- 0 until 3) {
           rast.io.pipeWrite.en.poke(true.B)
           rast.io.pipeWrite.addr.poke(i.U)
-          rast.io.pipeWrite.data.poke(0x3C00.U)  // +1.0 FP16
+          rast.io.pipeWrite.data.poke(0x3C00.U)
           rast.clock.step(1)
         }
         rast.io.pipeWrite.en.poke(false.B)
         rast.clock.step(1)
         rast.io.coreStatus.running.poke(false.B)
 
-        // Read triggerCoreValid before the clock edge — should fire for sFrag
         val trigFrag = rast.io.coreTrigger.valid.peek().litToBoolean
         val trigPC   = rast.io.coreTrigger.pc.peek().litValue.toInt
         println(f"  After rast: coreTrigger.valid=$trigFrag, coreTrigger.pc=$trigPC (expect 13)")
@@ -423,44 +412,37 @@ object BorgRasterizerTests extends TestSuite {
         // Simulate frag shader
         simulateShaderRun(rast)
 
-        // After frag, tex_en=true → FSM should enter sTexFetch.
-        // Read order is swapped: B (Word 1, addr|4) first, then RG (Word 0, addr)
-        // to avoid corrupting the Morton encoder (fragU/fragV are wired from frag_r/frag_g).
+        // sTexFetch: B word first, then RG
         rast.io.gpuRead.ready.poke(false.B)
-        rast.clock.step(1)  // settle into sTexFetch
+        rast.clock.step(1)
 
         val req0  = rast.io.gpuRead.req.peek().litToBoolean
         val addr0 = rast.io.gpuRead.addr.peek().litValue.toInt
         println(f"  sTexFetch Read0 (B): gpu_read_req=$req0, gpu_addr=0x${addr0.toHexString} (expect 0x${expectedW1.toHexString})")
         utest.assert(req0)
-        utest.assert(addr0 == expectedW1)  // B word first (offset +4)
+        utest.assert(addr0 == expectedW1)
 
-        // Feed back Word 1 data (B)
         rast.io.gpuRead.data.poke(gpuWord1.U)
         rast.io.gpuRead.ready.poke(true.B)
         rast.clock.step(1)
         rast.io.gpuRead.ready.poke(false.B)
 
-        // Now FSM should request RG (Word 0, base addr)
         rast.clock.step(1)
         val req1  = rast.io.gpuRead.req.peek().litToBoolean
         val addr1 = rast.io.gpuRead.addr.peek().litValue.toInt
         println(f"  sTexFetch Read1 (RG): gpu_read_req=$req1, gpu_addr=0x${addr1.toHexString} (expect 0x${expectedW0.toHexString})")
         utest.assert(req1)
-        utest.assert(addr1 == expectedW0)  // RG word second (offset +0)
+        utest.assert(addr1 == expectedW0)
 
-        // Feed back Word 0 data (RG); on this clock edge the FSM transitions to sTileWrite
         rast.io.gpuRead.data.poke(gpuWord0.U)
         rast.io.gpuRead.ready.poke(true.B)
         rast.clock.step(1)
         rast.io.gpuRead.ready.poke(false.B)
 
-        // FSM is now in sTileWrite — tileWriteEn combinationally asserted (before next edge)
         val tileWr = rast.io.tileWrite.en.peek().litToBoolean
         println(f"  sTileWrite: tileWrite.en=$tileWr")
         utest.assert(tileWr)
 
-        // Clock through sTileWrite → sIdle; stall is cleared
         rast.clock.step(1)
         val finalStall = rast.io.autoRunStall.peek().litToBoolean
         println(f"  After tile write: autoRunStall=$finalStall")
@@ -478,41 +460,34 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(2)
         rast.reset.poke(false.B)
         rast.clock.step(1)
-        // Setup frag_start_pc = 0 (disabled) explicitly to avoid uninitialized state cross-talk
-        setCommand(rast, 0, 0, 4, 4, 0)
-        // Advance -> enter sRast phase where snooping happens
+        setTileCommand(rast, 0, 0, fragPc = 0)
+        // Advance -> enter sRast
         pokeIdle(rast)
+        rast.io.fragPcReg.poke(0.U)
         rast.io.advance.poke(true.B)
         rast.clock.step(1)
         rast.io.advance.poke(false.B)
 
-        // Set all edges inside (positive sign)
+        // Set all edges inside
         for (i <- 0 until 3) {
           rast.io.pipeWrite.en.poke(true.B)
           rast.io.pipeWrite.addr.poke(i.U)
-          rast.io.pipeWrite.data.poke(0x3C00.U)  // +1.0
+          rast.io.pipeWrite.data.poke(0x3C00.U)
           rast.clock.step(1)
         }
         rast.io.pipeWrite.en.poke(false.B)
         rast.clock.step(1)
 
-        // Simulate rast shader manually
+        // Simulate rast shader
         rast.io.coreStatus.autoRunPending.poke(true.B)
         rast.clock.step(1)
         rast.io.coreStatus.autoRunPending.poke(false.B)
         rast.io.coreStatus.running.poke(true.B)
         rast.clock.step(3)
 
-        // Ready to finish
         rast.io.coreStatus.running.poke(false.B)
-        // Check state before clock edge!
-        val tv = rast.io.coreTrigger.valid.peek().litToBoolean
-        val tp = rast.io.coreTrigger.pc.peek().litValue
-        val in = rast.io.insideFlag.peek().litToBoolean
-
         rast.clock.step(1)
         val stall = rast.io.autoRunStall.peek().litToBoolean
-        val tv_after = rast.io.coreTrigger.valid.peek().litToBoolean
         utest.assert(!stall)
         println("  PASSED")
       }

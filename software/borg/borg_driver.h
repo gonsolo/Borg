@@ -22,7 +22,7 @@ extern int borg_fb_width;
 extern int borg_fb_height;
 #define BORG_FB_WIDTH  borg_fb_width
 #define BORG_FB_HEIGHT borg_fb_height
-#define BORG_MAX_FB_DIM 64
+#define BORG_MAX_FB_DIM 512
 
 // Draw state (uniforms computed from angle)
 typedef struct {

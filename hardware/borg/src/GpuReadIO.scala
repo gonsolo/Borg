@@ -22,7 +22,7 @@ import chisel3._
   * }}}
   */
 class GpuReadIO extends Bundle {
-  val addr  = Output(UInt(16.W))  // 16-bit: 64 KB texture space
+  val addr  = Output(UInt(20.W))  // 20-bit: 1 MB texture address space
   val req   = Output(Bool())
   val data  = Input(UInt(32.W))
   val ready = Input(Bool())

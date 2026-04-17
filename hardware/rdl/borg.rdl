@@ -27,14 +27,14 @@
 // Field / Register type definitions
 // ============================================================================
 
-// --- Coordinate (6-bit x/y pair, matches Chisel Coord bundle) ---
+// --- Coordinate (10-bit x/y pair, matches Chisel Coord bundle) ---
 field coord_field_t {
     sw = rw; hw = r;
-    fieldwidth = 6;
+    fieldwidth = 10;
 };
 
 // --- Iterator read-back ---
-// Bit layout: {rsvd[31:14], inside[13], valid[12], y[11:6], x[5:0]}
+// Bit layout: {rsvd[31:22], inside[21], valid[20], y[19:10], x[9:0]}
 reg iter_reg_t {
     name = "Pixel Iterator Position";
     desc = "Read: current iterator position plus valid/inside flags.
@@ -42,13 +42,13 @@ reg iter_reg_t {
 
     field {
         sw = r; hw = w;
-        desc = "Current pixel X coordinate (6-bit).";
-    } x[6] = 0;
+        desc = "Current pixel X coordinate (10-bit).";
+    } x[10] = 0;
 
     field {
         sw = r; hw = w;
-        desc = "Current pixel Y coordinate (6-bit).";
-    } y[6] = 0;
+        desc = "Current pixel Y coordinate (10-bit).";
+    } y[10] = 0;
 
     field {
         sw = r; hw = w;
@@ -62,7 +62,7 @@ reg iter_reg_t {
 
     field {
         sw = r; hw = na;
-    } RSVD[18] = 0;
+    } RSVD[10] = 0;
 };
 
 // --- Control register (write path) ---
@@ -220,51 +220,32 @@ reg tile_bz_reg_t {
 };
 
 // --- Command FIFO enqueue ---
-// Write: {rsvd[31], uniformPage[30], fragPC[29:24], bbox{max.y,max.x,min.y,min.x}[23:0]}
+// Write: {rsvd[31:20], tile_y[19:10], tile_x[9:0]}
+// frag_pc and uniform_page are read from their dedicated registers.
 reg cmd_enqueue_reg_t {
     name = "Command FIFO Enqueue";
     desc = "Write-only.  Push a rasterization command into the 2-entry Command
-            FIFO.  The command includes a bounding box, fragment shader PC, and
-            which uniform buffer page the GPU should read from.  Poll
-            STATUS.fifo_full before writing.";
+            FIFO.  The command specifies the 4×4 tile origin (in pixel coords).
+            frag_pc comes from FRAG_PC register; uniform page from CONTROL.
+            Poll STATUS.fifo_full before writing.";
 
     field {
         sw = w; hw = r;
-        desc = "Bits 5:0: Bounding box min X (6-bit).";
-    } bbox_min_x[6] = 0;
+        desc = "Bits 9:0: Tile origin X (10-bit pixel coordinate, 4-aligned).";
+    } tile_x[10] = 0;
 
     field {
         sw = w; hw = r;
-        desc = "Bits 11:6: Bounding box min Y (6-bit).";
-    } bbox_min_y[6] = 0;
-
-    field {
-        sw = w; hw = r;
-        desc = "Bits 17:12: Bounding box max X (6-bit).";
-    } bbox_max_x[6] = 0;
-
-    field {
-        sw = w; hw = r;
-        desc = "Bits 23:18: Bounding box max Y (6-bit).";
-    } bbox_max_y[6] = 0;
-
-    field {
-        sw = w; hw = r;
-        desc = "Bits 29:24: Fragment shader start PC (6-bit IMEM index).";
-    } frag_pc[6] = 0;
-
-    field {
-        sw = w; hw = r;
-        desc = "Bit 30: Uniform buffer page select (0 or 1).";
-    } uniform_page[1] = 0;
+        desc = "Bits 19:10: Tile origin Y (10-bit pixel coordinate, 4-aligned).";
+    } tile_y[10] = 0;
 
     field {
         sw = w; hw = na;
-    } RSVD[1] = 0;
+    } RSVD[12] = 0;
 };
 
 // --- Texture UV input ---
-// Write: pack (V_fp16 << 16 | U_fp16).  Hardware converts FP16→uint6
+// Write: pack (V_fp16 << 16 | U_fp16).  Hardware converts FP16→uint8
 // and computes a Morton-encoded texel index.
 reg tex_uv_reg_t {
     name = "Texture UV Input";
@@ -310,27 +291,23 @@ reg tex_config_reg_t {
 // Read: Morton-encoded texel index from the most recent tex_uv write.
 reg tex_addr_reg_t {
     name = "Texture Address";
-    desc = "Read-only.  Returns the Morton-encoded 12-bit texel index computed
-            from the most recent tex_uv write, plus raw uint6 coordinates.";
+    desc = "Read-only.  Returns the Morton-encoded 16-bit texel index computed
+            from the most recent tex_uv write, plus raw uint8 coordinates.";
 
     field {
         sw = r; hw = w;
-        desc = "Bits 11:0: Morton-encoded texel index.";
-    } morton[12] = 0;
+        desc = "Bits 15:0: Morton-encoded texel index.";
+    } morton[16] = 0;
 
     field {
         sw = r; hw = w;
-        desc = "Bits 17:12: Raw uint6 U coordinate.";
-    } raw_u[6] = 0;
+        desc = "Bits 23:16: Raw uint8 U coordinate.";
+    } raw_u[8] = 0;
 
     field {
         sw = r; hw = w;
-        desc = "Bits 23:18: Raw uint6 V coordinate.";
-    } raw_v[6] = 0;
-
-    field {
-        sw = r; hw = na;
-    } RSVD[8] = 0;
+        desc = "Bits 31:24: Raw uint8 V coordinate.";
+    } raw_v[8] = 0;
 };
 
 // ============================================================================
@@ -436,4 +413,7 @@ addrmap borg_gpu {
 
     // ---- Texture Configuration: 0x208 ----
     tex_config_reg_t tex_config;
+
+    // ---- Fragment Shader Start PC: 0x20C ----
+    frag_pc_reg_t frag_pc;
 };

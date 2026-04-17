@@ -384,8 +384,8 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
 
   if (tri->has_uvs) {
     const uv16_t *uvs = tri->uvs.v;
-    // Hardware sTexFetch path: Fp16ToUint6 expects integer-range texcoords
-    // (e.g. 0..31 for a 32x32 texture), so pre-scale UV by tex dimensions.
+    // Hardware sTexFetch path: Fp16ToUint8 expects integer-range texcoords
+    // (e.g. 0..255 for a 256x256 texture), so pre-scale UV by tex dimensions.
     // The fragment shader interpolates these and the hardware Morton encoder
     // converts the result to a texel index.
     load_uniform_triple(&frag_shader, 1,
@@ -410,29 +410,19 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
   load_uniform_triple(&frag_shader, 10, tri->z_vals.v[0], tri->z_vals.v[1],
                        tri->z_vals.v[2]);
 
+  // Write frag_pc to the dedicated FRAG_PC register
+  BORG_GPU->frag_pc = BORG_IMEM_FRAG_OFFSET;
+
   // 4x4 Tiling loop (Step 11.4): subdivide bbox into 4x4 tiles
   for (int ty = bb.y0 & ~3; ty < bb.y1; ty += 4) {
     for (int tx = bb.x0 & ~3; tx < bb.x1; tx += 4) {
       
-      // Compute clamped 4x4 sub-bbox for this tile
-      int min_x = (tx > bb.x0) ? tx : bb.x0;
-      int min_y = (ty > bb.y0) ? ty : bb.y0;
-      int max_x = ((tx + 4) < bb.x1) ? (tx + 4) : bb.x1;
-      int max_y = ((ty + 4) < bb.y1) ? (ty + 4) : bb.y1;
-      
-      // If tile is completely outside bbox, skip
-      if (min_x >= max_x || min_y >= max_y) continue;
-
       // Wait for space in the command FIFO
       while (BORG_GPU->status & STATUS_REG_T__FIFO_FULL_bm);
 
-      // Enqueue the command for this hardware tile
-      uint32_t cmd = (min_x << CMD_ENQUEUE_REG_T__BBOX_MIN_X_bp) |
-                     (min_y << CMD_ENQUEUE_REG_T__BBOX_MIN_Y_bp) |
-                     (max_x << CMD_ENQUEUE_REG_T__BBOX_MAX_X_bp) |
-                     (max_y << CMD_ENQUEUE_REG_T__BBOX_MAX_Y_bp) |
-                     (BORG_IMEM_FRAG_OFFSET << CMD_ENQUEUE_REG_T__FRAG_PC_bp) |
-                     (current_uniform_page << CMD_ENQUEUE_REG_T__UNIFORM_PAGE_bp);
+      // Enqueue tile-origin command (hardware iterates full 4×4 tile)
+      uint32_t cmd = (tx << CMD_ENQUEUE_REG_T__TILE_X_bp) |
+                     (ty << CMD_ENQUEUE_REG_T__TILE_Y_bp);
       BORG_GPU->cmd_enqueue = cmd;
 
       // Hardware needs a few cycles to pop from FIFO and start the tile
@@ -463,10 +453,13 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
           uint32_t rg = BORG_GPU->tile_rg;
           uint32_t bz = BORG_GPU->tile_bz;
           
+          // With tile-origin, pixels within the tile are at (tx + col, ty + row)
           int abs_x = (tile_idx & 3) + tx;
           int abs_y = (tile_idx >> 2) + ty;
           
-          if (abs_x < min_x || abs_x >= max_x || abs_y < min_y || abs_y >= max_y) continue;
+          // Skip pixels outside the triangle's bounding box or framebuffer
+          if (abs_x < bb.x0 || abs_x >= bb.x1 || abs_y < bb.y0 || abs_y >= bb.y1) continue;
+          if (abs_x >= BORG_FB_WIDTH || abs_y >= BORG_FB_HEIGHT) continue;
           
           fp16_t z = bz & 0xFFFF;
           if (z >= FP16_MAX_DEPTH) continue; // Fragment was not shaded or was outside!
@@ -529,7 +522,22 @@ static int triangle_setup(const xy16x3_t *pos, fp16_t *inv_area) {
   // Hardware fstep.s expects positive edge values. 
   // Since we allow negative area, we negate it here and in the edge constants.
   area ^= 0x8000;
-  *inv_area = borg_fp16_rcp(area);
+
+  // Edge-vector normalization compensation (see borg_load_edge_constants):
+  // borg_load_edge_constants divides each edge vector by fb_width, so
+  // inv_area must be multiplied by fb_width to keep barycentric weights correct:
+  //   w = (E/W) * (W/area) = E/area  ✓
+  //
+  // Implementation: construct inv_width via direct FP16 exponent flip (avoids
+  // the Fp16Rcp factor-of-2 bug for power-of-2 inputs), multiply area by it to
+  // get area/W (always a normal FP16 at any practical resolution), then rcp that.
+  //   inv_area_scaled = rcp(area * inv_width) = rcp(area/W) = W/area
+  //
+  // At 128×128: area/128 ≈ 184 (normal), rcp(184) ≈ 0.00543 >> 6e-5 min-normal.
+  fp16_t fb_fp16   = uint_to_fp16(borg_fb_width);
+  fp16_t inv_width = (fp16_t)((30u - ((fb_fp16 >> 10) & 0x1Fu)) << 10);
+  fp16_t area_norm = borg_fp16_mul(area, inv_width);   // area / fb_width
+  *inv_area = borg_fp16_rcp(area_norm);                // W / area
   return 1;
 }
 

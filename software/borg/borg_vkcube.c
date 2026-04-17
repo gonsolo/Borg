@@ -15,8 +15,8 @@
 #define FP16_N1 0xBC00 // -1.0 in FP16
 #define FP16_P1 0x3C00 //  1.0 in FP16
 
-#define TEX_WIDTH 32
-#define TEX_HEIGHT 32
+#define TEX_WIDTH 256
+#define TEX_HEIGHT 256
 
 // 8 cube vertex positions (Khronos axes, FP16)
 static const fp16_t cube_verts[8][3] = {

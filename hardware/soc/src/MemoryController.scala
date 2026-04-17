@@ -81,7 +81,7 @@ class MemoryController extends Module {
   val txn_len   = Mux(is_instr, 1.U(2.W), data_txn_len)
   val addr_in   = Mux(
     is_gpu,
-    Cat(2.U(2.W), 0.U(7.W), io.gpuRead.addr),
+    Cat(2.U(2.W), 0.U(3.W), io.gpuRead.addr),
     Mux(
       is_instr,
       Cat(0.U(1.W), io.instrFetch.instr_addr, 0.U(1.W)),

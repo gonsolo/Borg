@@ -141,6 +141,10 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
     rast.io.texConfig.baseAddr := rdlRegs.io.hw.tex_config_base_addr
     rast.io.texConfig.en       := rdlRegs.io.hw.tex_config_en.asBool
+
+    // frag_pc and uniform_page from dedicated registers
+    rast.io.fragPcReg      := rdlRegs.io.hw.frag_pc_frag_pc
+    rast.io.uniformPageReg := rdlRegs.io.hw.control_uniform_write_page
   }
 
   private def wireTileBuffer(): Unit = {
@@ -181,12 +185,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     val isEnqueue = RegNext(writeCmd, false.B)
     
     fifo.io.enq.valid := isEnqueue
-    fifo.io.enq.bits.uniformPage := rdlRegs.io.hw.cmd_enqueue_uniform_page
-    fifo.io.enq.bits.fragPC := rdlRegs.io.hw.cmd_enqueue_frag_pc
-    fifo.io.enq.bits.bbox.min.x := rdlRegs.io.hw.cmd_enqueue_bbox_min_x
-    fifo.io.enq.bits.bbox.min.y := rdlRegs.io.hw.cmd_enqueue_bbox_min_y
-    fifo.io.enq.bits.bbox.max.x := rdlRegs.io.hw.cmd_enqueue_bbox_max_x
-    fifo.io.enq.bits.bbox.max.y := rdlRegs.io.hw.cmd_enqueue_bbox_max_y
+    fifo.io.enq.bits.tileOrigin.x := rdlRegs.io.hw.cmd_enqueue_tile_x
+    fifo.io.enq.bits.tileOrigin.y := rdlRegs.io.hw.cmd_enqueue_tile_y
 
     rast.io.cmdPop <> fifo.io.deq
     core.io.uniformPage := rast.io.uniformPage
@@ -213,8 +213,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
     // Morton encoder: always uses the rasterizer's snooped fragment U/V.
     // (The CPU TEX_UV register is preserved for MMIO compatibility but is
     //  no longer routed into the Morton pipeline — saves ~32 LUTs.)
-    val tex_x = Fp16ToUint6(rast.io.fragU)
-    val tex_y = Fp16ToUint6(rast.io.fragV)
+    val tex_x = Fp16ToUint8(rast.io.fragU)
+    val tex_y = Fp16ToUint8(rast.io.fragV)
     val morton_index = MortonEncode(tex_x, tex_y)
 
     rdlRegs.io.hw.tex_addr_morton := morton_index

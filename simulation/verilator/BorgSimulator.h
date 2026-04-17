@@ -10,8 +10,8 @@ class BorgSimulator {
 public:
     // Texture placed BEFORE framebuffer in PSRAM, so TEX_CONFIG.base_addr
     // always fits in 16 bits.  No resolution ceiling from texture addressing.
-    static constexpr uint32_t DEFAULT_WIDTH  = 64;
-    static constexpr uint32_t DEFAULT_HEIGHT = 64;
+    static constexpr uint32_t DEFAULT_WIDTH  = 32;
+    static constexpr uint32_t DEFAULT_HEIGHT = 32;
     Vtt_um_gonsolo_borg* model;
     QSPIMemory* flash;
     QSPIMemory* psram;

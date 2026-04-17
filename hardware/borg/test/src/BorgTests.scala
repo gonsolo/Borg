@@ -657,7 +657,7 @@ object BorgTests extends TestSuite {
           val iterVal = borg.io.data_out.peek().litValue
           borg.io.data_read_n.poke(3.U)
           
-          val isInside = ((iterVal >> 13) & 1) == 1
+          val isInside = ((iterVal >> 21) & 1) == 1
           println(f"Check: $label -> Actual: $isInside (Exp: $expected)")
           utest.assert(isInside == expected)
         }
@@ -669,12 +669,9 @@ object BorgTests extends TestSuite {
            val instr = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = rDest)
            
            resetAndWait(borg)
-           // Pack Bbox: packBbox(0,0,4,4) = 0<<18 | 0<<12 | 4<<6 | 4 = 260
-           // Enqueue via Command FIFO. uniformPage=0, fragPC=0 (0 << 24)
-           // packBbox(0,0,4,4) -> min=(0,0), max=(4,4)
-           // max.y=4, max.x=4, min.y=0, min.x=0
-           val bbox = (4 << 18) | (4 << 12) | (0 << 6) | 0
-           writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, bbox)
+           // Tile-origin encoding: tile_y[19:10] | tile_x[9:0]
+           val tileCmd = (0 << 10) | 0  // tile origin (0,0)
+           writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd)
            // Wait a few cycles for the FIFO to pass the command to the rasterizer
            borg.clock.step(5)
            
@@ -711,9 +708,9 @@ object BorgTests extends TestSuite {
         println("  Test 4: Negative-Zero is inside (magnitude is 0)")
         writeAddr(borg, 16, floatToBits(0.0f, config))
         resetAndWait(borg)
-        // packBbox(0,0,4,4) -> max.y=4, max.x=4, min.y=0, min.x=0
-        val bbox = (4 << 18) | (4 << 12) | (0 << 6) | 0
-        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, bbox)
+        // Tile-origin encoding: tile_y[19:10] | tile_x[9:0]
+        val tileCmd = (0 << 10) | 0  // tile origin (0,0)
+        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd)
         borg.clock.step(5)
         writeAddr(borg, 128, encodeInstruction(config, FNEG, rs1 = 4, rs2 = 4, rd = 1)) // r1 = -0.0
         writeAddr(borg, 132, 0)
@@ -752,9 +749,9 @@ object BorgTests extends TestSuite {
         borg.clock.step(1)
         
         // Set up bounding box: min=(0,0), max=(2,2)
-        // bbox layout: max.y(23..18) | max.x(17..12) | min.y(11..6) | min.x(5..0)
-        val bbox = (2 << 18) | (2 << 12) | (0 << 6) | 0
-        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, bbox)
+        // Tile-origin encoding: tile origin (0,0)
+        val tileCmd = (0 << 10) | 0
+        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd)
         borg.clock.step(5)
 
         // Write BORG_ITER to advance — should auto-trigger shader at PC=0
@@ -780,11 +777,11 @@ object BorgTests extends TestSuite {
         val iterVal = borg.io.data_out.peek().litValue
         borg.io.data_read_n.poke(3.U)
         borg.clock.step(1)
-        val ix = (iterVal >> 0) & 63
-        val iy = (iterVal >> 6) & 63
+        val ix = (iterVal >> 0) & 0x3FF
+        val iy = (iterVal >> 10) & 0x3FF
         println(f"    Raw iterVal: 0x$iterVal%08X")
         println(f"    Iterator position: ($ix, $iy)")
-        // After bbox (0,0)-(2,2) and one advance, should be at (1,0)
+        // After tile (0,0) 4×4 and one advance, should be at (1,0)
         Predef.assert(ix == 1 && iy == 0, s"Expected (1,0), got ($ix,$iy)")
         println("  Iterator advance: PASSED")
 
@@ -802,7 +799,7 @@ object BorgTests extends TestSuite {
 
         writeAddr(borg, 16, floatToBits(3.0f, config))   // r4 = 3.0 (positive)
         writeAddr(borg, 20, floatToBits(0.0f, config))   // r5 = 0.0
-        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, bbox)
+        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd)
         borg.clock.step(5)
 
         // Write BORG_ITER — auto-runs shader, r0/r1/r2 all become 3.0 (positive → inside)
@@ -818,7 +815,7 @@ object BorgTests extends TestSuite {
         val iterVal2 = borg.io.data_out.peek().litValue
         borg.io.data_read_n.poke(3.U)
         borg.clock.step(1)
-        val isInside = ((iterVal2 >> 13) & 1) == 1
+        val isInside = ((iterVal2 >> 21) & 1) == 1
         println(f"    inside_flag: $isInside (expected true)")
         Predef.assert(isInside, "Expected inside_flag=true after positive edge results")
         println("  Inside flag via auto-run: PASSED")
@@ -840,8 +837,8 @@ object BorgTests extends TestSuite {
 
         println("\n=== Test: coordLut MMIO Read Path ===")
 
-        val bbox = (20 << 18) | (20 << 12) | (10 << 6) | 10
-        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, bbox)
+        val tileCmd2 = (10 << 10) | 10  // tile origin (10,10)
+        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd2)
         borg.clock.step(5)
 
         writeAddr(borg, 128, 0)
@@ -1057,11 +1054,11 @@ object BorgTests extends TestSuite {
           writeAddr(borg, 128 + 5*4, addV)    // IMEM[5]
           writeAddr(borg, 128 + 6*4, 0)       // IMEM[6] = halt (frag shader ends)
 
-          // Enqueue bbox command with fragPC=4
-          // bits: [29:24]=fragPC, [23:18]=max.y, [17:12]=max.x, [11:6]=min.y, [5:0]=min.x
+          // Enqueue tile command + write frag_pc to dedicated register
           val fragPC = 4
-          val bbox = (fragPC << 24) | (4 << 18) | (4 << 12) | (0 << 6) | 0
-          writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, bbox)
+          writeAddr(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, fragPC)
+          val tileCmd = (0 << 10) | 0  // tile origin (0,0)
+          writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd)
           borg.clock.step(5)
 
           // Trigger auto-run via BORG_ITER write
@@ -1074,22 +1071,22 @@ object BorgTests extends TestSuite {
           waitForHalt(borg, 60)  // wait for frag shader to halt
           borg.clock.step(5)  // settle through sTileWrite → sIdle
 
-          // Read tex_addr: {8'rsvd, raw_v[23:18], raw_u[17:12], morton[11:0]}
+          // Read tex_addr: {raw_v[31:24], raw_u[23:16], morton[15:0]}
           val texAddrVal = readRaw(BorgGpuRegs.tex_addr_offset.litValue.toInt)
-          val mortonVal = (texAddrVal & 0xFFF).toInt
-          val gotU6 = ((texAddrVal >> 12) & 0x3F).toInt
-          val gotV6 = ((texAddrVal >> 18) & 0x3F).toInt
+          val mortonVal = (texAddrVal & 0xFFFF).toInt
+          val gotU8 = ((texAddrVal >> 16) & 0xFF).toInt
+          val gotV8 = ((texAddrVal >> 24) & 0xFF).toInt
 
-          // Compute expected Morton
+          // Compute expected Morton (8-bit interleave)
           var expMorton = 0
-          for (bit <- 0 until 6) {
+          for (bit <- 0 until 8) {
             expMorton |= ((expU6 >> bit) & 1) << (bit * 2)
             expMorton |= ((expV6 >> bit) & 1) << (bit * 2 + 1)
           }
 
-          println(f"  $label: u6=$gotU6 (exp $expU6), v6=$gotV6 (exp $expV6), morton=0x$mortonVal%03X (exp 0x$expMorton%03X)")
-          utest.assert(gotU6 == expU6)
-          utest.assert(gotV6 == expV6)
+          println(f"  $label: u8=$gotU8 (exp $expU6), v8=$gotV8 (exp $expV6), morton=0x$mortonVal%04X (exp 0x$expMorton%04X)")
+          utest.assert(gotU8 == expU6)
+          utest.assert(gotV8 == expV6)
           utest.assert(mortonVal == expMorton)
         }
 
@@ -1110,7 +1107,7 @@ object BorgTests extends TestSuite {
         testTexFetch(0x4900, 0x4900, 10, 10, "10.0, 10.0")
         testTexFetch(0x5000, 0x5000, 32, 32, "32.0, 32.0")
         testTexFetch(0x53E0, 0x53E0, 63, 63, "63.0, 63.0")
-        testTexFetch(0x5640, 0x5640, 63, 63, "100.0 clamped, 100.0 clamped")
+        testTexFetch(0x5640, 0x5640, 100, 100, "100.0, 100.0")
         testTexFetch(0xC000, 0x0000, 0,  0,  "neg(-2.0), zero")
         testTexFetch(0x4000, 0x53E0, 2,  63, "2.0, 63.0")
 

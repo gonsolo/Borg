@@ -4,6 +4,7 @@
 // Borg rasterization primitives — edge tests, barycentric interpolation.
 
 #include "borg_raster.h"
+#include "borg_driver.h"
 #include "borg_fpu.h"
 #include "borg_sys.h"
 #include "borg_isa.h"
@@ -34,11 +35,33 @@ void compute_edge_vectors(const xy16_t *screen_pos, xy16_t *edges) {
 
 
 // Load edge constants (uniforms) once per triangle.
+//
+// Edge-vector normalization: the rast shader computes the edge function as
+//   E = dx*(coordX + neg_vx) + dy*(coordY + neg_vy)
+// where coordX/Y come from the coordLut in pixel units (0.5 … width-0.5).
+// At large resolutions (128×128+) the signed triangle area scales with width²,
+// making inv_area = 1/area subnormal in FP16 (below 2^-14 ≈ 6e-5).
+//
+// Fix: divide edge vectors dx/dy by fb_width before upload.  The caller must
+// compensate by multiplying inv_area by fb_width (see triangle_setup).
+//
+//   E_scaled = (dx/W)*(coordX + neg_vx) + (dy/W)*(coordY + neg_vy)  = E/W
+//   w = E_scaled * inv_area_scaled
+//     = (E/W) * (W/area)  =  E/area  ← barycentric weight unchanged
+//
+// inv_width is constructed by direct FP16 exponent manipulation rather than
+// calling borg_fp16_rcp(fb_width).  The Fp16Rcp hardware uses estExp = 29 -
+// input_exp, which is off by one for exact powers-of-2 (mant = 0): it returns
+// 2^-8 for 1/128 instead of the correct 2^-7.  Direct bit manipulation:
+//   fp16(2^n) has exp_field = n+15, mant = 0.
+//   fp16(2^-n) has exp_field = 15-n = 30 - (n+15) = 30 - exp_of_width.
 void borg_load_edge_constants(const spirb_shader_t *s, const xy16_t *edges) {
-  // Uniforms: dx0, neg_dy0, dx1, neg_dy1, dx2, neg_dy2
+  // Construct 1/fb_width directly from the FP16 exponent (exact for powers of 2)
+  fp16_t fb_fp16  = uint_to_fp16(borg_fb_width);
+  fp16_t inv_width = (fp16_t)((30u - ((fb_fp16 >> 10) & 0x1Fu)) << 10);
   for (int i = 0; i < 3; i++) {
-    BORG_GPU->uniform[s->uniform_regs[i * 2 + 0]] = edges[i].x;
-    BORG_GPU->uniform[s->uniform_regs[i * 2 + 1]] = edges[i].y;
+    BORG_GPU->uniform[s->uniform_regs[i * 2 + 0]] = borg_fp16_mul(edges[i].x, inv_width);
+    BORG_GPU->uniform[s->uniform_regs[i * 2 + 1]] = borg_fp16_mul(edges[i].y, inv_width);
   }
 }
 

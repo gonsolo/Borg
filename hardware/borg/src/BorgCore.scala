@@ -34,7 +34,7 @@ class BorgCoreIO(val config: FloatConfig) extends Bundle {
   // CoordLut/RcpLut initialization (for simulation — synthesis uses loadMemoryFromFileInline)
   val coordWriteEn    = Input(Bool())
   val coordWriteIsRcp = Input(Bool())   // false → coordLut, true → rcpLut
-  val coordWriteAddr  = Input(UInt(6.W))
+  val coordWriteAddr  = Input(UInt(9.W))
   val coordWriteData  = Input(UInt(config.totalBits.W))
 
   // Pipeline write-back snoop (exposed to rasterizer)
@@ -69,11 +69,11 @@ class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val uniformMem = SyncReadMem(64, UInt(config.totalBits.W))
 
   // --- Coordinate Expansion LUT (BRAM) ---
-  // Maps 6-bit integer pixel coordinates (0-63) to float16 pixel centers (+0.5)
+  // Maps 9-bit integer pixel coordinates (0-511) to float16 pixel centers (+0.5)
   // Two BRAM copies: one for X coord reads, one for Y — allows simultaneous access.
   // Saves ~100 LUTs vs. the previous VecInit combinational ROM.
-  val coordLutX = SyncReadMem(64, UInt(config.totalBits.W))
-  val coordLutY = SyncReadMem(64, UInt(config.totalBits.W))
+  val coordLutX = SyncReadMem(512, UInt(config.totalBits.W))
+  val coordLutY = SyncReadMem(512, UInt(config.totalBits.W))
   loadMemoryFromFileInline(coordLutX, "coord_lut.hex")
   loadMemoryFromFileInline(coordLutY, "coord_lut.hex")
 

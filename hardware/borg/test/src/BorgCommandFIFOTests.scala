@@ -26,23 +26,18 @@ object BorgCommandFIFOTests extends TestSuite {
         utest.assert(!dut.io.deq.valid.peek().litToBoolean)
         utest.assert(dut.io.enq.ready.peek().litToBoolean)
 
-        // 1. Enqueue first command
+        // 1. Enqueue first command (tile origin)
         dut.io.enq.valid.poke(true.B)
-        dut.io.enq.bits.uniformPage.poke(0.U)
-        dut.io.enq.bits.fragPC.poke(42.U)
-        dut.io.enq.bits.bbox.min.x.poke(0.U)
-        dut.io.enq.bits.bbox.min.y.poke(0.U)
-        dut.io.enq.bits.bbox.max.x.poke(16.U)
-        dut.io.enq.bits.bbox.max.y.poke(16.U)
+        dut.io.enq.bits.tileOrigin.x.poke(16.U)
+        dut.io.enq.bits.tileOrigin.y.poke(20.U)
         dut.clock.step()
         
         dut.io.enq.valid.poke(false.B)
         
         // Verify valid data propagates to output
         utest.assert(dut.io.deq.valid.peek().litToBoolean)
-        utest.assert(dut.io.deq.bits.uniformPage.peek().litValue == 0)
-        utest.assert(dut.io.deq.bits.fragPC.peek().litValue == 42)
-        utest.assert(dut.io.deq.bits.bbox.max.x.peek().litValue == 16)
+        utest.assert(dut.io.deq.bits.tileOrigin.x.peek().litValue == 16)
+        utest.assert(dut.io.deq.bits.tileOrigin.y.peek().litValue == 20)
       }
     }
 
@@ -59,7 +54,8 @@ object BorgCommandFIFOTests extends TestSuite {
         for (i <- 0 until 2) {
           utest.assert(dut.io.enq.ready.peek().litToBoolean)
           dut.io.enq.valid.poke(true.B)
-          dut.io.enq.bits.fragPC.poke(i.U)
+          dut.io.enq.bits.tileOrigin.x.poke((i * 4).U)
+          dut.io.enq.bits.tileOrigin.y.poke(0.U)
           dut.clock.step()
         }
         
@@ -70,7 +66,7 @@ object BorgCommandFIFOTests extends TestSuite {
         // Dequeue one
         dut.io.deq.ready.poke(true.B)
         utest.assert(dut.io.deq.valid.peek().litToBoolean)
-        utest.assert(dut.io.deq.bits.fragPC.peek().litValue == 0)
+        utest.assert(dut.io.deq.bits.tileOrigin.x.peek().litValue == 0)
         dut.clock.step()
 
         dut.io.deq.ready.poke(false.B)

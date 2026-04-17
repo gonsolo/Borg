@@ -17,6 +17,10 @@ import chisel3.util._
   *        → FRAG (if inside, auto-trigger fragment shader at frag_start_pc)
   *        → IDLE (release CPU stall)
   *   Outside pixels skip FRAG and go RAST → IDLE immediately.
+  *
+  * Tile-origin mode: each command specifies a 4×4 tile origin.
+  * The iterator walks all 16 pixels (x0..x0+3, y0..y0+3).
+  * frag_pc and uniform_page come from dedicated registers, not the command.
   */
 
 class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
@@ -31,6 +35,10 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
 
   // Core state feedback (needed for stall clearing)
   val coreStatus = Flipped(new CoreStatusIO)
+
+  // Register-driven frag_pc and uniform_page (from dedicated MMIO registers)
+  val fragPcReg       = Input(UInt(6.W))
+  val uniformPageReg  = Input(UInt(1.W))
 
   // Outputs
   val iter          = Output(new Coord())
@@ -64,9 +72,8 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   // --- State ---
   val iter_reg          = RegInit(0.U.asTypeOf(new Coord()))
   val shader_iter_reg   = RegInit(0.U.asTypeOf(new Coord()))  // pre-advance position for coordLut
-  val bbox_reg          = RegInit(0.U.asTypeOf(new Bbox()))
-  val frag_start_pc     = RegInit(0.U(6.W))
-  val uniform_page_reg  = RegInit(0.U(1.W))
+  val tile_origin_reg   = RegInit(0.U.asTypeOf(new Coord()))  // 4×4 tile origin
+  val tile_max_reg      = RegInit(0.U.asTypeOf(new Coord()))  // tile_origin + 4
 
   val e0_outside = RegInit(false.B)
   val e1_outside = RegInit(false.B)
@@ -84,15 +91,16 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   val frag_z = RegInit(0.U(16.W))
 
   // --- Command Popping ---
-  val iter_valid = iter_reg.y < bbox_reg.max.y
-  
+  // Iterator valid while y hasn't reached tile_max.y
+  val iter_valid = iter_reg.y < tile_max_reg.y
+
   io.cmdPop.ready := false.B
   when(phase === sIdle && io.cmdPop.valid && !iter_valid) {
     io.cmdPop.ready := true.B
-    bbox_reg := io.cmdPop.bits.bbox
-    iter_reg := io.cmdPop.bits.bbox.min
-    frag_start_pc := io.cmdPop.bits.fragPC
-    uniform_page_reg := io.cmdPop.bits.uniformPage
+    tile_origin_reg := io.cmdPop.bits.tileOrigin
+    tile_max_reg.x  := io.cmdPop.bits.tileOrigin.x + 4.U
+    tile_max_reg.y  := io.cmdPop.bits.tileOrigin.y + 4.U
+    iter_reg        := io.cmdPop.bits.tileOrigin
   }
 
   // --- Trigger outputs (directly driven, no register delay) ---
@@ -112,12 +120,16 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   when(io.advance) {
     // Latch current position BEFORE advancing — shader r30/r31 read these
     shader_iter_reg := iter_reg
-    when(iter_reg.x + 1.U >= bbox_reg.max.x) {
-      iter_reg.x := bbox_reg.min.x
+    when(iter_reg.x + 1.U >= tile_max_reg.x) {
+      iter_reg.x := tile_origin_reg.x
       iter_reg.y := iter_reg.y + 1.U
     }.otherwise {
       iter_reg.x := iter_reg.x + 1.U
     }
+    // Reset edge flags for new pixel (they get set by shader write-back snooping)
+    e0_outside := false.B
+    e1_outside := false.B
+    e2_outside := false.B
     auto_run_stall := true.B
     phase := sRast
     io.coreTrigger.valid := true.B
@@ -130,11 +142,11 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   val core_just_finished = core_was_active && !io.coreStatus.running && !io.coreStatus.autoRunPending
 
   when(phase === sRast && core_just_finished) {
-    when(inside_flag && frag_start_pc =/= 0.U) {
+    when(inside_flag && io.fragPcReg =/= 0.U) {
       // Inside pixel and chaining enabled: trigger fragment shader
       phase := sFrag
       io.coreTrigger.valid := true.B
-      io.coreTrigger.pc    := frag_start_pc
+      io.coreTrigger.pc    := io.fragPcReg
     }.otherwise {
       // Outside pixel or chaining disabled: release CPU immediately
       phase := sIdle
@@ -251,7 +263,7 @@ class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module 
   io.insideFlag   := inside_flag
   io.iterValid    := iter_valid
   io.autoRunStall := auto_run_stall
-  io.uniformPage  := uniform_page_reg
+  io.uniformPage  := io.uniformPageReg  // pass through from register
   io.fragU        := frag_r   // snooped U (mapped into r26 slot when texturing)
   io.fragV        := frag_g   // snooped V (mapped into r27 slot when texturing)
 }

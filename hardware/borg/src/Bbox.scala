@@ -5,7 +5,7 @@ package borg
 
 import chisel3._
 
-class Bbox(val w: Int = 6) extends Bundle {
+class Bbox(val w: Int = 10) extends Bundle {
   val min = new Coord(w)
   val max = new Coord(w)
 }

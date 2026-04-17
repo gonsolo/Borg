@@ -48,7 +48,8 @@ vkcube_gui_fast: python_extension $(FIRMWARE_DIR)/vkcube.bin
 	python3 viewer.py --fast
 
 python_extension: verilator_sim
-	mkdir -p build && cd build && cmake .. -DCMAKE_CXX_COMPILER=g++ -DPython_EXECUTABLE=$$(which python3) -DVERILATOR_ROOT=$$(dirname $$(dirname $$(which verilator)))/share/verilator && make
+	mkdir -p build && cd build && cmake .. -DCMAKE_CXX_COMPILER=g++ -DPython_EXECUTABLE=$$(which python3) -DVERILATOR_ROOT=$$(dirname $$(dirname $$(which verilator)))/share/verilator -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && make
+	@ln -sf build/compile_commands.json compile_commands.json
 
 .PHONY: all triangle vkcube vkcube_gui clean
 
