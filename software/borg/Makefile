@@ -28,6 +28,10 @@ vkcube:
 	$(MAKE) -C compiler all
 	bear -- $(MAKE) PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" vkcube.bin vkcube.hex
 
+textest:
+	$(MAKE) -C compiler all
+	bear -- $(MAKE) PROJECT_NAME=textest PROJECT_SOURCES="borg_textest.c $(SHARED_SOURCES)" textest.bin textest.hex
+
 test-native: test_raster.c borg_raster.c borg_math.c
 	gcc -O2 -g -Wall -Wno-int-to-pointer-cast test_raster.c borg_raster.c borg_math.c -I. -I../../out/hardware/borg/rdl -D BORG_BASE=0 -o test_raster -lm
 	./test_raster

@@ -15,7 +15,7 @@ int main(int argc, char** argv) {
 
     BorgSimulator sim(firmware_path, false, sim_w, sim_h);
 
-    std::string tex_path = app_name == "vkcube" ? "../../software/borg/borg_texture.dat" : "../../software/borg/test_texture.dat";
+    std::string tex_path = (app_name == "vkcube" || app_name == "textest") ? "../../software/borg/borg_texture.dat" : "../../software/borg/test_texture.dat";
     sim.load_texture(tex_path, tex_dim);
 
     if (app_name == "vkcube") {

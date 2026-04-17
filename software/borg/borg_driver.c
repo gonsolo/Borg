@@ -382,6 +382,13 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
   }
 
   // Fragment uniforms (u12-u30): inv_area, vertex colors, z, UV
+  //
+  // Barycentric weight mapping:
+  //   compute_edge_vectors() builds edge[i] = v[i]→v[(i+1)%3].
+  //   Edge[i] is opposite vertex (i+2)%3, so the fragment shader weight
+  //   w_i (from edge function E_i) corresponds to vertex (i+2)%3:
+  //     w0 → v2,  w1 → v0,  w2 → v1
+  //   Upload per-vertex attributes in [v2, v0, v1] order to match.
   const rgb16_t *colors = tri->colors.v;
   BORG_GPU->uniform[frag_shader.uniform_regs[0]] = tri->inv_area;
 
@@ -392,25 +399,25 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
     // The fragment shader interpolates these and the hardware Morton encoder
     // converts the result to a texel index.
     load_uniform_triple(&frag_shader, 1,
-        borg_fp16_mul(uvs[0].u, t->w_fp16),
         borg_fp16_mul(uvs[1].u, t->w_fp16),
+        borg_fp16_mul(uvs[0].u, t->w_fp16),
         borg_fp16_mul(uvs[2].u, t->w_fp16));
     load_uniform_triple(&frag_shader, 4,
-        borg_fp16_mul(uvs[0].v, t->h_fp16),
         borg_fp16_mul(uvs[1].v, t->h_fp16),
+        borg_fp16_mul(uvs[0].v, t->h_fp16),
         borg_fp16_mul(uvs[2].v, t->h_fp16));
     load_uniform_triple(&frag_shader, 7, 0, 0, 0); // B unused
     for (int i = 13; i <= 18; i++)
       BORG_GPU->uniform[frag_shader.uniform_regs[i]] = 0;
   } else {
-    load_uniform_triple(&frag_shader, 1, colors[0].r, colors[1].r, colors[2].r);
-    load_uniform_triple(&frag_shader, 4, colors[0].g, colors[1].g, colors[2].g);
-    load_uniform_triple(&frag_shader, 7, colors[0].b, colors[1].b, colors[2].b);
+    load_uniform_triple(&frag_shader, 1, colors[1].r, colors[0].r, colors[2].r);
+    load_uniform_triple(&frag_shader, 4, colors[1].g, colors[0].g, colors[2].g);
+    load_uniform_triple(&frag_shader, 7, colors[1].b, colors[0].b, colors[2].b);
     for (int i = 13; i <= 18; i++)
       BORG_GPU->uniform[frag_shader.uniform_regs[i]] = 0;
   }
 
-  load_uniform_triple(&frag_shader, 10, tri->z_vals.v[0], tri->z_vals.v[1],
+  load_uniform_triple(&frag_shader, 10, tri->z_vals.v[1], tri->z_vals.v[0],
                        tri->z_vals.v[2]);
 
   // Write frag_pc to the dedicated FRAG_PC register
