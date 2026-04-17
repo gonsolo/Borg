@@ -8,15 +8,11 @@
 
 class BorgSimulator {
 public:
-    // Texture placed BEFORE framebuffer in PSRAM, so TEX_CONFIG.base_addr
-    // always fits in 16 bits.  No resolution ceiling from texture addressing.
-    static constexpr uint32_t DEFAULT_WIDTH  = 32;
-    static constexpr uint32_t DEFAULT_HEIGHT = 32;
     Vtt_um_gonsolo_borg* model;
     QSPIMemory* flash;
     QSPIMemory* psram;
     bool fast_mode;
-    
+
     uint32_t width;
     uint32_t height;
     uint32_t psram_spi_word_offset;
@@ -25,8 +21,8 @@ public:
 
     // Convenience accessor for the Chisel flash SyncReadMem array
     auto& flash_arr()  { return model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_flash_ext_ext__DOT__Memory; }
-    
-    BorgSimulator(const std::string& firmware_path, bool fast_mode_val = false, uint32_t w = DEFAULT_WIDTH, uint32_t h = DEFAULT_HEIGHT) {
+
+    BorgSimulator(const std::string& firmware_path, bool fast_mode_val = false, uint32_t w = 32, uint32_t h = 32) {
         fast_mode = fast_mode_val;
         model = new Vtt_um_gonsolo_borg;
         flash = new QSPIMemory(1024 * 1024, true); // 1MB flash
@@ -79,34 +75,25 @@ public:
         delete psram;
     }
     
-    void load_texture(const std::string& tex_path) {
+    void load_texture(const std::string& tex_path, uint32_t tex_dim = 32) {
         std::ifstream tex_f(tex_path, std::ios::binary);
         if (tex_f) {
-            std::vector<uint8_t> tex_data(32 * 32 * 6); // 32x32 RGB FP16
+            uint32_t num_texels = tex_dim * tex_dim;
+            std::vector<uint8_t> tex_data(num_texels * 6); // RGB FP16 = 6 bytes/texel
             tex_f.read((char*)tex_data.data(), tex_data.size());
-            
-            // Texture lives at TEX_PSRAM_BYTE_ADDR_FIXED (defined in
-            // borg_layout.h), BEFORE the framebuffer, so it always fits
-            // in the 16-bit TEX_CONFIG.base_addr register.
-            uint32_t tex_byte_base = TEX_PSRAM_BYTE_ADDR_FIXED;
 
-            // Store texels in packed 2-word (8-byte) format at the PSRAM byte
-            // address the GPU sTexFetch hardware will read:
-            //   Word 0: { G[15:0], R[15:0] }  (little-endian in PSRAM bytes)
-            //   Word 1: { pad[15:0], B[15:0] }
+            uint32_t tex_byte_base = TEX_PSRAM_BYTE_ADDR_FIXED;
             uint8_t* pmem = psram->mem.data();
-            for (int y = 0; y < 32; y++) {
-                for (int x = 0; x < 32; x++) {
-                    int src_idx = y * 32 + x;
-                    int dst_idx = morton_encode(x, y);
+            for (uint32_t y = 0; y < tex_dim; y++) {
+                for (uint32_t x = 0; x < tex_dim; x++) {
+                    uint32_t src_idx = y * tex_dim + x;
+                    uint32_t dst_idx = morton_encode(x, y);
 
                     uint16_t r = tex_data[(src_idx * 3 + 0) * 2] | (tex_data[(src_idx * 3 + 0) * 2 + 1] << 8);
                     uint16_t g = tex_data[(src_idx * 3 + 1) * 2] | (tex_data[(src_idx * 3 + 1) * 2 + 1] << 8);
                     uint16_t b = tex_data[(src_idx * 3 + 2) * 2] | (tex_data[(src_idx * 3 + 2) * 2 + 1] << 8);
 
-                    // Word 0: { G, R } — little-endian: byte[0..1]=R, byte[2..3]=G
                     uint32_t word0 = (uint32_t)r | ((uint32_t)g << 16);
-                    // Word 1: { pad, B } — little-endian: byte[0..1]=B, byte[2..3]=0
                     uint32_t word1 = (uint32_t)b;
 
                     uint32_t byte_addr = tex_byte_base + dst_idx * 8;
@@ -120,8 +107,8 @@ public:
                     pmem[byte_addr + 7] = (word1 >> 24) & 0xFF;
                 }
             }
-            std::cout << "[SIM] Texture loaded at PSRAM byte 0x" << std::hex << tex_byte_base << std::dec << ".\n";
-            // No Chisel PSRAM sync needed — data goes through QSPI in step 1
+            std::cout << "[SIM] Texture loaded at PSRAM byte 0x" << std::hex << tex_byte_base
+                      << " (" << std::dec << tex_dim << "x" << tex_dim << ").\n";
         }
     }
     

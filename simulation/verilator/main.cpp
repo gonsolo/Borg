@@ -2,19 +2,22 @@
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <firmware.bin> <app_name>\n";
+        std::cerr << "Usage: " << argv[0] << " <firmware.bin> <app_name> [width] [height] [tex_dim]\n";
         return 1;
     }
     Verilated::commandArgs(argc, argv);
     std::string firmware_path = argv[1];
     std::string app_name = argv[2];
 
-    BorgSimulator sim(firmware_path, false);
+    uint32_t sim_w   = (argc > 3) ? std::stoul(argv[3]) : 32;
+    uint32_t sim_h   = (argc > 4) ? std::stoul(argv[4]) : sim_w;
+    uint32_t tex_dim = (argc > 5) ? std::stoul(argv[5]) : 32;
+
+    BorgSimulator sim(firmware_path, false, sim_w, sim_h);
 
     std::string tex_path = app_name == "vkcube" ? "../../software/borg/borg_texture.dat" : "../../software/borg/test_texture.dat";
-    sim.load_texture(tex_path);
+    sim.load_texture(tex_path, tex_dim);
 
-    // Set initial camera rotation so the cube is visibly rotated (matches viewer.py defaults)
     if (app_name == "vkcube") {
         sim.set_camera_angles(-0.4363f, 0.6109f);
     }

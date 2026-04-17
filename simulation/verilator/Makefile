@@ -36,10 +36,10 @@ $(FIRMWARE_DIR)/%.bin: $(HW_DIR)/borg/verilog/asic_files.txt
 
 # Simulation targets
 triangle: verilator_sim python_extension $(FIRMWARE_DIR)/triangle.bin
-	./obj_dir/verilator_sim $(FIRMWARE_DIR)/triangle.bin triangle
+	./obj_dir/verilator_sim $(FIRMWARE_DIR)/triangle.bin triangle 32 32 32
 
 vkcube: verilator_sim python_extension $(FIRMWARE_DIR)/vkcube.bin
-	./obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube
+	./obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube 256 256 256
 
 vkcube_gui: python_extension $(FIRMWARE_DIR)/vkcube.bin
 	python3 viewer.py
