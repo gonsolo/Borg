@@ -11,12 +11,18 @@ unexport NIX_HARDENING_ENABLE
 
 FIRMWARE_DIR = ../../software/borg
 
+# Track Chisel sources so the .fir is regenerated when hardware changes
+CHISEL_SRCS = $(shell find ../../hardware/borg/src ../../hardware/soc/src \
+                           ../../hardware/tinyqv/src \
+                           -name '*.scala' -not -path '*/generated/*' 2>/dev/null) \
+              $(wildcard ../../hardware/rdl/*.rdl)
+
 .PHONY: all clean triangle vkcube $(FIRMWARE_DIR)/%.bin
 
 all: triangle vkcube
 
-# Step 0: Hardware Generation
-../../out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir:
+# Step 0: Hardware Generation — reruns when any Chisel/RDL source changes
+../../out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir: $(CHISEL_SRCS)
 	$(MAKE) -C ../../ generate_verilog
 
 # Step 1: FIRRTL → HW MLIR

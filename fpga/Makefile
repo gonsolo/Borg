@@ -29,7 +29,9 @@ FPGA_EXTRA_FILES = \
 
 SRC_FILES = $$(cat ../out/hardware/borg/verilog/asic_files.txt ../out/hardware/tinyqv/verilog/asic_files.txt | awk -F/ '!seen[$$NF]++' | tr '\n' ' ') $(FPGA_EXTRA_FILES)
 
-CHISEL_SRCS = $(wildcard ../hardware/borg/src/*.scala) $(wildcard ../hardware/tinyqv/src/*.scala)
+CHISEL_SRCS = $(wildcard ../hardware/borg/src/*.scala) \
+              $(wildcard ../hardware/soc/src/*.scala) \
+              $(wildcard ../hardware/tinyqv/src/*.scala)
 
 # Regenerate Verilog from Chisel when sources change
 ../out/hardware/borg/verilog/Borg.sv: $(CHISEL_SRCS)

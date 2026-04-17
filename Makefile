@@ -29,12 +29,24 @@ help:
 
 export CLOCK_MHZ = 4
 
-generate_verilog: rdl
+# Handwritten Scala sources (excludes RDL-generated files under src/generated/)
+HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/src \
+                        -name '*.scala' -not -path '*/generated/*' 2>/dev/null)
+
+# Stamp target: only re-runs Mill when Scala or RDL sources actually change.
+# | rdl is an order-only dep so rdl always runs first (it is fast and idempotent)
+# but a re-run of rdl alone does not invalidate the stamp.
+.verilog_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.soc.runMain soc.Main
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.tinyqv.runMain tinyqv.Main
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.tinyqv.runMain soc.FpgaMain
 	# Must run after mill: reads asic_files.txt generated above.
 	@python3 scripts/update_info_yaml.py
+	@touch $@
+
+# Convenience alias: ensures rdl and the verilog stamp are up to date.
+# Still declared phony so `make generate_verilog` always checks deps explicitly.
+generate_verilog: rdl .verilog_stamp
 
 test-cocotb-soc-core-rtl: generate_verilog
 	$(TEST_SOC) core
@@ -52,7 +64,9 @@ test-cocotb-soc-borg-gl:
 test-chisel-borg:
 	$(MILL) hardware.borg.test
 
-lint: generate_verilog
+# lint depends on .verilog_stamp (not generate_verilog) so it does not
+# re-trigger the three Mill invocations when Verilog is already current.
+lint: .verilog_stamp
 	verilator --lint-only -Wall -Iout/hardware/tinyqv/verilog -Iout/hardware/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $$(cat out/hardware/borg/verilog/asic_files.txt | sed 's|^\.\./||') $$(for f in $$(cat out/hardware/tinyqv/verilog/asic_files.txt | xargs -I{} basename {}); do [ ! -f out/hardware/borg/verilog/$$f ] && echo out/hardware/tinyqv/verilog/$$f; done; true)
 
 test-chisel-core:
@@ -91,7 +105,7 @@ rdl: $(RDL_SRC)
 	@echo "Output: $(RDL_C_OUT)/ and $(RDL_SCALA_OUT)/"
 
 clean:
-	rm -f src/config_merged.json src/user_config.json
+	rm -f src/config_merged.json src/user_config.json .verilog_stamp
 	rm -rf $(RDL_C_OUT)
 	rm -rf $(RDL_SCALA_OUT)
 	rm -rf out/
