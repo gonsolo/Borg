@@ -308,8 +308,7 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
 
     for (src, dst, kind) in sorted(edges):
         style = edge_styles.get(kind, {})
-        dot.edge(src, dst, label=kind, fontsize="9", fontcolor="#94a3b8",
-                 fontname="Helvetica Neue,Helvetica,Arial,sans-serif", **style)
+        dot.edge(src, dst, **style)
 
     # Legend
     with dot.subgraph(name="cluster_legend") as leg:
@@ -325,6 +324,12 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
         leg.node("leg_inst2", "Module B", shape="box", style="filled,rounded",
                  fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
                  fontsize="10", fontname=fn)
+        leg.node("leg_inst3", "Module C", shape="box", style="filled,rounded",
+                 fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
+                 fontsize="10", fontname=fn)
+        leg.node("leg_inst4", "Module D", shape="box", style="filled,rounded",
+                 fillcolor="#1e3a5f", fontcolor="#93c5fd", color="#3b82f6",
+                 fontsize="10", fontname=fn)
         leg.node("leg_float", "◈ Floating island\n(not reachable from top)", shape="box",
                  style="filled,dashed", fillcolor="#3b0a0a", fontcolor="#ff6b6b",
                  color="#ef4444", penwidth="2", fontsize="10", fontname=fn)
@@ -333,6 +338,12 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
                  color="#ef4444", penwidth="2", fontsize="10", fontname=fn)
         leg.edge("leg_inst", "leg_inst2", label="instantiates", style="solid",
                  color="#3b82f6", arrowhead="vee", fontsize="9", fontcolor="#94a3b8",
+                 fontname=fn)
+        leg.edge("leg_inst2", "leg_inst3", label="uses", style="dashed",
+                 color="#6b7280", arrowhead="open", fontsize="9", fontcolor="#94a3b8",
+                 fontname=fn)
+        leg.edge("leg_inst3", "leg_inst4", label="generated regs", style="dashed",
+                 color="#10b981", arrowhead="diamond", fontsize="9", fontcolor="#94a3b8",
                  fontname=fn)
 
     return dot
