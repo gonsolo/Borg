@@ -406,7 +406,7 @@ behaviour change, no new logic, no LC impact. Replaced dozens of manual
 tests, C++ simulation harnesses, and `FlatIO`-based ExtModule port names.
 Verified: all Chisel tests pass, Verilator/Arcilator triangle OK.
 
-### Step 21: Area Optimizations + Tex Fetch Enable
+### Step 21: Area Optimizations + Tex Fetch Enable ✅ (2026-04-18)
 
 **Do area optimizations first** to create headroom before adding new features.
 The iCE40 is at 5280/5280 (100%) after Step 20. The root cause: 4019 LUTs
@@ -419,12 +419,13 @@ reduction is more effective than LUT reduction.
     `hw=r`. PeakRDL no longer generates 4 `_in`/`_out` port pairs or the
     feedback mux into those 64 DFFs. Removed 4 dead `tile_*_in := 0.U` ties
     from `Borg.scala`. **Zero risk.**
-  - **O5: Command FIFO 2→1 entries** (~20 LCs saved)
-    Reduce `BorgCommandFIFO` from 2 to 1 entry. Saves ~31 DFFs. With GPU
-    autonomy (Step 25+), command submission is infrequent. Low risk.
-  - **O6: Fp16Rcp NaN/Inf removal** (~8 LCs saved)
-    GPU shaders never produce NaN/Inf inputs to FRCP. Remove `isNaN`, `isInf`
-    detection and 2 of 3 `MuxCase` arms. Keep only zero/subnormal check.
+  - ✅ **O5: Command FIFO 2→1 entries** (~20 LCs saved) *(2026-04-18)*
+    Implemented via `BorgConfig.FPGA(fifoDepth=1)`. The centralized `BorgConfig`
+    allows per-target depth: 1 for FPGA (area-constrained), larger for Sim.
+  - **O6: Fp16Rcp NaN/Inf removal** (~8 LCs saved) — *deferred*
+    GPU shaders never produce NaN/Inf inputs to FRCP. However, keeping `isNaN`/
+    `isInf` detection preserves future CPU/Linux compatibility (software FP16
+    paths may produce denormals). Defer until Phase 3.
   - ✅ **O7: Remove dead `peekZ` tile buffer port** (~15 LCs saved) *(2026-04-15)*
     `tile.io.peekZ` output was never read in `Borg.scala` — dead logic. Removed
     `peekZIdx`, `peekZ`, `peekZheld`, `notMainRead`, and the `effectiveReadIdx`
