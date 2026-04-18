@@ -14,7 +14,7 @@ import utest._
   */
 object BorgCoreTests extends TestSuite {
 
-  val config = FloatConfig.FP16
+  val config = BorgConfig.Sim
 
   def floatToFp16Bits(f: Float): BigInt = {
     val bits = java.lang.Float.floatToRawIntBits(f)
