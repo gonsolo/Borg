@@ -31,3 +31,5 @@ fpga/firmware_cache/
 info.yaml
 hardware/borg/src/generated/
 test_logs/
+.verilog_stamp
+build/
