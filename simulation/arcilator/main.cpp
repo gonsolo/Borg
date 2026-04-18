@@ -64,10 +64,7 @@ int main(int argc, char** argv) {
         std::vector<uint8_t> tex_data(32 * 32 * 6); // 32x32 RGB FP16
         tex_f.read((char*)tex_data.data(), tex_data.size());
         
-        uint32_t TEX_PSRAM_OFFSET = 4200;
-        // Compute the PSRAM byte address matching what the GPU reads via
-        // gpuRead.addr: PSRAM_SPI_BASE + PSRAM_OUT_OFFSET + TEX_PSRAM_OFFSET * 4
-        uint32_t tex_byte_base = 0x1000 + 128 + TEX_PSRAM_OFFSET * 4;  // = 0x5220
+        uint32_t tex_byte_base = TEX_PSRAM_BYTE_ADDR_FIXED;
 
         // Store texels in packed 2-word (8-byte) format:
         //   Word 0: { G[15:0], R[15:0] }  (little-endian in PSRAM bytes)
@@ -174,8 +171,9 @@ int main(int argc, char** argv) {
     uint64_t cycles = 0;
     bool done = false;
     
-    // PSRAM_OUT_OFFSET = 128 (bytes). So byte base = 0x1000 + 128 = 4224. Words = 1056.
-    uint32_t out_base_word = psram_spi_word_offset + (128 / 4);
+    // Framebuffer starts after PSRAM_IN params + texture region.
+    // PSRAM_OUT_OFFSET is defined in borg_layout.h (included via common_sim.h).
+    uint32_t out_base_word = psram_spi_word_offset + (PSRAM_OUT_OFFSET / 4);
     // Frame stride and sizes in words
     uint32_t frame_fb_size = width * height * 3;
     uint32_t frame_zb_size = width * height;
@@ -220,6 +218,8 @@ int main(int argc, char** argv) {
         r_data = psram.tick(get_ram_a_cs(uio_out), clk, data_out);
         m_data = !get_flash_cs(uio_out) ? f_data : (!get_ram_a_cs(uio_out) ? r_data : 0);
         model.view.uio_in = encode_spi_data_in(m_data);
+
+
 
         static uint8_t last_uart = 1;
         static int uart_bits_received = 0;

@@ -3,7 +3,6 @@
 
 package soc
 
-import borg.Emit
 
 object Main extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "4").toInt
@@ -18,6 +17,9 @@ object Main extends App {
 
   val firrtlTargetDir = "out/hardware/borg/firrtl"
   Emit.emitFIRRTL(new tt_um_gonsolo_borg(clockMhz), firrtlTargetDir)
+
+  val firrtlSimDir = "out/hardware/borg/firrtl_sim"
+  Emit.emitFIRRTL(new tt_um_gonsolo_borg_sim(clockMhz), firrtlSimDir)
 
   // C headers and Chisel register blocks are now generated from SystemRDL
   // files in hardware/rdl/ via `make rdl`.  Python constants (fpga/host/borg_mmio.py,

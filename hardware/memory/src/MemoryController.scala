@@ -2,11 +2,11 @@
 // Conversion to Chisel Copyright © 2026 Andreas Wendleder
 // SPDX-License-Identifier: Apache-2.0
 
-package soc
+package memory
 
 import chisel3._
 import chisel3.util._
-import tinyqv.cpu.{InstrFetchIO, MemBusIO, QspiController}
+import tinyqv.cpu.{InstrFetchIO, MemBusIO}
 import borg.GpuReadIO
 
 /** IO bundle for the SoC-level memory controller.

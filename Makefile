@@ -30,7 +30,7 @@ help:
 export CLOCK_MHZ = 4
 
 # Handwritten Scala sources (excludes RDL-generated files under src/generated/)
-HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/src \
+HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/src hardware/memory/src \
                         -name '*.scala' -not -path '*/generated/*' 2>/dev/null)
 
 # Stamp target: only re-runs Mill when Scala or RDL sources actually change.
@@ -38,7 +38,6 @@ HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/sr
 # but a re-run of rdl alone does not invalidate the stamp.
 .verilog_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.soc.runMain soc.Main
-	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.tinyqv.runMain tinyqv.Main
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.tinyqv.runMain soc.FpgaMain
 	# Must run after mill: reads asic_files.txt generated above.
 	@python3 scripts/update_info_yaml.py
@@ -67,7 +66,7 @@ test-chisel-borg:
 # lint depends on .verilog_stamp (not generate_verilog) so it does not
 # re-trigger the three Mill invocations when Verilog is already current.
 lint: .verilog_stamp
-	verilator --lint-only -Wall -Iout/hardware/tinyqv/verilog -Iout/hardware/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $$(cat out/hardware/borg/verilog/asic_files.txt | sed 's|^\.\./||') $$(for f in $$(cat out/hardware/tinyqv/verilog/asic_files.txt | xargs -I{} basename {}); do [ ! -f out/hardware/borg/verilog/$$f ] && echo out/hardware/tinyqv/verilog/$$f; done; true)
+	verilator --lint-only -Wall -Iout/hardware/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $$(cat out/hardware/borg/verilog/asic_files.txt | sed 's|^\.\./||')
 
 test-chisel-core:
 	$(MILL) hardware.tinyqv.test

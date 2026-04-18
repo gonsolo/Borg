@@ -2,7 +2,7 @@
 // Conversion to Chisel Copyright © 2026 Andreas Wendleder
 // SPDX-License-Identifier: Apache-2.0
 
-package tinyqv.cpu
+package memory
 
 import chisel3._
 import chisel3.util._

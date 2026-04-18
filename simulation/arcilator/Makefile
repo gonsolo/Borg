@@ -13,7 +13,7 @@ FIRMWARE_DIR = ../../software/borg
 
 # Track Chisel sources so the .fir is regenerated when hardware changes
 CHISEL_SRCS = $(shell find ../../hardware/borg/src ../../hardware/soc/src \
-                           ../../hardware/tinyqv/src \
+                           ../../hardware/tinyqv/src ../../hardware/memory/src \
                            -name '*.scala' -not -path '*/generated/*' 2>/dev/null) \
               $(wildcard ../../hardware/rdl/*.rdl)
 

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
-package soc
+package memory
 
 import chisel3._
 

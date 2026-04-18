@@ -4,7 +4,6 @@
 package soc
 
 import circt.stage.ChiselStage
-import borg.Emit
 
 // FPGA-specific Verilog generation: tinyQV_top wrapper and PCF pinout.
 // Run via: mill fpga.tinyqv.runMain soc.FpgaMain

@@ -28,6 +28,17 @@ class MemBusIO extends Bundle {
   val dataIn       = Input(UInt(32.W))
 }
 
+// Instruction fetch interface (CPU perspective: outputs to memory, inputs from memory)
+class InstrFetchIO extends Bundle {
+  val instr_addr          = Output(UInt(23.W))
+  val instr_fetch_restart = Output(Bool())
+  val instr_fetch_stall   = Output(Bool())
+  val instr_fetch_started = Input(Bool())
+  val instr_fetch_stopped = Input(Bool())
+  val instr_data          = Input(UInt(16.W))
+  val instr_ready         = Input(Bool())
+}
+
 class TinyQVIO extends Bundle {
   // ---------------------------------------------------------------------------
   // MMIO peripheral bus — external SoC peripherals (addr[27:25] != 0)
@@ -77,16 +88,7 @@ class TinyQVIO extends Bundle {
   val debug_rd                = Output(UInt(4.W))
 }
 
-// Instruction fetch interface (CPU perspective: outputs to memory, inputs from memory)
-class InstrFetchIO extends Bundle {
-  val instr_addr          = Output(UInt(23.W))
-  val instr_fetch_restart = Output(Bool())
-  val instr_fetch_stall   = Output(Bool())
-  val instr_fetch_started = Input(Bool())
-  val instr_fetch_stopped = Input(Bool())
-  val instr_data          = Input(UInt(16.W))
-  val instr_ready         = Input(Bool())
-}
+
 
 class TinyQVCpuIO extends Bundle {
   val instrFetch = new InstrFetchIO

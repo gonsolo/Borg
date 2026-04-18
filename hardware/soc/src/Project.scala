@@ -5,6 +5,7 @@ package soc
 import chisel3._
 import chisel3.util._
 import tinyqv.cpu.{TinyQVIO, TinyQV}
+import memory.{MemoryController, MemoryControllerSim, MemoryControllerIO, QspiPinsIO}
 
 
 // ---------------------------------------------------------------------------

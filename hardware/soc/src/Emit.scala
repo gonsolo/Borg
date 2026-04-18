@@ -1,7 +1,7 @@
 // Copyright Andreas Wendleder 2026
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
-package borg
+package soc
 
 import chisel3.RawModule
 import circt.stage.ChiselStage

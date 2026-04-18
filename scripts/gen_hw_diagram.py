@@ -35,6 +35,7 @@ except ImportError:
 GROUPS = {
     "software":  {"label": "Software Stack",         "color": "#b45309", "fontcolor": "#fef3c7", "fillcolor": "#78350f"},
     "soc":       {"label": "SoC (Top Level)",       "color": "#1a1a2e", "fontcolor": "#e2e8f0", "fillcolor": "#16213e"},
+    "memory":    {"label": "Memory Subsystem",       "color": "#1e3a5f", "fontcolor": "#e2e8f0", "fillcolor": "#1e3a5f"},
     "borg":      {"label": "Borg GPU",               "color": "#0f3460", "fontcolor": "#e2e8f0", "fillcolor": "#0f3460"},
     "tinyqv":    {"label": "TinyQV RISC-V CPU",     "color": "#533483", "fontcolor": "#e2e8f0", "fillcolor": "#533483"},
     "hardfloat": {"label": "Berkeley HardFloat FPU","color": "#833471", "fontcolor": "#e2e8f0", "fillcolor": "#833471"},
@@ -44,6 +45,7 @@ GROUPS = {
 NODE_COLORS = {
     "software":  {"style": "filled,rounded", "fillcolor": "#451a03", "fontcolor": "#fcd34d", "color": "#d97706"},
     "soc":       {"style": "filled,rounded", "fillcolor": "#1e3a5f", "fontcolor": "#93c5fd", "color": "#3b82f6"},
+    "memory":    {"style": "filled,rounded", "fillcolor": "#1a3a4f", "fontcolor": "#7dd3fc", "color": "#0ea5e9"},
     "borg":      {"style": "filled,rounded", "fillcolor": "#1e3a5f", "fontcolor": "#6ee7b7", "color": "#10b981"},
     "tinyqv":    {"style": "filled,rounded", "fillcolor": "#2d1b69", "fontcolor": "#c4b5fd", "color": "#8b5cf6"},
     "hardfloat": {"style": "filled,rounded", "fillcolor": "#4a1841", "fontcolor": "#f9a8d4", "color": "#ec4899"},
@@ -203,10 +205,7 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
                     if inst != defn and inst in module_to_group:
                         edges.add((defn, inst, "instantiates"))
 
-    for group, files in hw_data.items():
-        for f in files:
-            for defn in f["defined"]:
-                pass # Imports previously generated 'uses' edges, now removed
+
 
     for consumer, rdl_file in [
         ("Borg", "borg"),
