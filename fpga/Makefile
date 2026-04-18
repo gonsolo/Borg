@@ -4,6 +4,9 @@
 BOLD := \033[1m
 RESET   := \033[0m
 
+# Safe mpremote wrapper: timeout + automatic USB recovery on hang
+MPREMOTE := host/mpremote_safe.sh
+
 all: help
 help:
 	@echo "commands: "
@@ -12,6 +15,8 @@ help:
 	@echo -e "  burn:\t\t\tGenerate bitstream and flash to FPGA."
 	@echo -e "  tio:\t\t\tConnect to the serial console."
 	@echo -e "  reset:\t\tReset the CPU."
+	@echo -e "  usb-recover:\t\tRecover hung pico-ice USB (no reboot)."
+	@echo -e "  usb-check:\t\tCheck if pico-ice USB is responsive."
 	@echo -e "  borg.json:\t\tRun synthesis."
 	@echo -e "  borg.asc:\t\tRun Place & Route (pnr)."
 	@echo -e "  borg.bin:\t\tGenerate the FPGA bitstream."
@@ -22,26 +27,25 @@ help:
 
 ######### Build hardware ###########################################################################
 
-# 1. ASIC sources from Chisel (paths are already ../out/...)
-# 2. Verilog generated from the scala source in fpga/tinyqv
-FPGA_EXTRA_FILES = \
-	../out/fpga/verilog/tinyQV_top.sv
+# All FPGA-parameterized Verilog is emitted by FpgaMain into out/fpga/verilog/.
+# This includes BorgConfig.FPGA variants (coordWidth=6, fifoDepth=1).
+FPGA_VERILOG_DIR = ../out/fpga/verilog
 
-SRC_FILES = $$(cat ../out/hardware/borg/verilog/asic_files.txt ../out/hardware/tinyqv/verilog/asic_files.txt | awk -F/ '!seen[$$NF]++' | tr '\n' ' ') $(FPGA_EXTRA_FILES)
+SRC_FILES = $$(find $(FPGA_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
 
 CHISEL_SRCS = $(wildcard ../hardware/borg/src/*.scala) \
               $(wildcard ../hardware/soc/src/*.scala) \
               $(wildcard ../hardware/tinyqv/src/*.scala)
 
 # Regenerate Verilog from Chisel when sources change
-../out/hardware/borg/verilog/Borg.sv: $(CHISEL_SRCS)
+$(FPGA_VERILOG_DIR)/tinyQV_top.sv: $(CHISEL_SRCS)
 	$(MAKE) -C .. generate_verilog
 
 # Hardware limits
 MAX_LUTS = 5280
 MAX_DFFS = 5280
 
-borg.json: ../out/hardware/borg/verilog/Borg.sv
+borg.json: $(FPGA_VERILOG_DIR)/tinyQV_top.sv
 	@echo "Building netlist"
 	@yosys -p "read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json; stat -top tinyQV_top" -DICE40 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ > yosys.log
 
@@ -49,25 +53,27 @@ borg.json: ../out/hardware/borg/verilog/Borg.sv
 CLOCK_FREQ = $(shell grep -m1 'define CLOCK_MHZ' ../software/borg/borg_sys.h | awk '{print $$3}')
 borg.asc: borg.json
 	nextpnr-ice40 --up5k --package sg48 --json borg.json --pcf ../out/fpga/verilog/pico_ice.pcf --asc borg.asc \
-		--freq $(CLOCK_FREQ) --log nextpnr.log
+		--freq $(CLOCK_FREQ) --log nextpnr.log --seed 0
 
 # Generate FPGA bitstream
 borg.bin: borg.asc
 	icepack $< $@
 
-# Burn to FPGA
+# Burn to FPGA (uses safe wrapper for automatic USB recovery on hang)
 .burned: borg.bin ../out/hardware/borg/rdl/borg_mmio.py
 	@-umount /dev/sda 2>/dev/null; true
-	mpremote cp ../out/hardware/borg/rdl/borg_mmio.py :borg_mmio.py
-	@for attempt in 1 2 3; do \
-		echo "[BURN] Attempt $$attempt ..."; \
-		mpremote mount . + run host/program_bitstream.py && break; \
-		echo "[BURN] Failed — waiting 8s for USB recovery ..."; \
-		sleep 8; \
-	done
+	$(MPREMOTE) 60 cp ../out/hardware/borg/rdl/borg_mmio.py :borg_mmio.py
+	$(MPREMOTE) 180 mount . + run host/program_bitstream.py
 	@touch .burned
 
 burn: .burned
+
+# USB recovery targets
+usb-recover:
+	@host/usb_recover.sh
+
+usb-check:
+	@host/usb_recover.sh --check
 
 # Print used FPGA resources (after borg.json has been generated)
 # LC estimate: each SB_CARRY requires its own LC (can't share with DFFs).
@@ -114,7 +120,7 @@ triangle: .burned
 	@$(MAKE) --no-print-directory -s -C ../software/borg triangle
 	@mkdir -p firmware_cache
 	@cp ../software/borg/triangle.bin ../software/borg/test_texture.dat firmware_cache/
-	@mpremote mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/triangle.bin')" | tee /tmp/mpremote_output.txt
+	@$(MPREMOTE) 300 mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/triangle.bin')" | tee /tmp/mpremote_output.txt
 
 # Build firmware and run vkcube rendering
 vkcube: .burned
@@ -122,7 +128,7 @@ vkcube: .burned
 	@$(MAKE) --no-print-directory -s -C ../software/borg vkcube
 	@mkdir -p firmware_cache
 	@cp ../software/borg/vkcube.bin ../software/borg/borg_texture.dat firmware_cache/
-	@mpremote mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/vkcube.bin')" | tee /tmp/mpremote_output.txt
+	@$(MPREMOTE) 300 mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/vkcube.bin')" | tee /tmp/mpremote_output.txt
 
 # Catch debug output (preferably in a second shell)
 tio:
@@ -130,7 +136,7 @@ tio:
 
 # Reset FPGA
 reset: .burned
-	mpremote mount . + exec "import sys; sys.path.extend(['host', '/']); import run_tinyqv; run_tinyqv.run(query=False, stop=False)"
+	$(MPREMOTE) 60 mount . + exec "import sys; sys.path.extend(['host', '/']); import run_tinyqv; run_tinyqv.run(query=False, stop=False)"
 
 clean:
 	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm .burned
@@ -141,4 +147,4 @@ clean:
 timing:
 	icetime -d up5k -c $(shell grep 'CLOCK_MHZ' ../software/borg/borg_sys.h | awk '{print $$3}') borg.asc
 
-.PHONY: all help burn clean reset print_resources timing triangle vkcube tio
+.PHONY: all help burn clean reset print_resources timing triangle vkcube tio usb-recover usb-check

@@ -18,6 +18,13 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
 
+      - name: Print tool versions
+        run: |
+          echo "=== nixpkgs rev (from flake.lock) ==="
+          nix flake metadata --json | python3 -c "import sys,json; m=json.load(sys.stdin); print(m['locks']['nodes']['nixpkgs_2']['locked']['rev'])"
+          echo "=== Tool versions ==="
+          nix develop --command bash -c "nextpnr-ice40 --version; yosys --version"
+
       - name: Create FPGA bitstream
         run: nix develop --command bash -c "make generate_verilog && make -C fpga borg.bin"
 

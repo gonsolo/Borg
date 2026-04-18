@@ -14,7 +14,7 @@ from machine import Pin, SPI
 
 import run_tinyqv
 from borg_utils import fp16_to_float, float_to_fp16, morton_encode
-from borg_mmio import PSRAM_IO_SPI_ADDR, PSRAM_OUT_OFFSET, TEX_PSRAM_OFFSET, DONE_MARKER, FPGA_CLOCK_HZ
+from borg_mmio import PSRAM_IO_SPI_ADDR, PSRAM_OUT_OFFSET, TEX_PSRAM_BYTE_OFFSET, DONE_MARKER, FPGA_CLOCK_HZ
 
 
 # This PIO program handles high-speed timing to transfer data from the workstation into the PSRAM on the PMOD.
@@ -304,15 +304,24 @@ def render_all_frames(app_name='triangle'):
     t_psram = time.ticks_ms()
     run_tinyqv.setup_ram()
 
-    # --- Upload texture data to PSRAM (after framebuffer output region) ---
-    # TEX_PSRAM_OFFSET imported from borg_mmio.py
-    # Sentinel word stored right after texture data to detect prior upload
-    TEX_SENTINEL_OFFSET = TEX_PSRAM_OFFSET + 32 * 32 * 2  # After 2-word-per-texel data
+    # --- Upload texture data to PSRAM (before framebuffer, at fixed byte address) ---
+    # Texture SPI base = PSRAM_IO_SPI_ADDR + TEX_PSRAM_BYTE_OFFSET (= 0x1080)
+    TEX_SPI_BASE = PSRAM_IO_SPI_ADDR + TEX_PSRAM_BYTE_OFFSET
     # Select texture file per app
     if app_name == 'vkcube':
         tex_file = 'firmware_cache/borg_texture.dat'
     else:
         tex_file = 'firmware_cache/test_texture.dat'
+
+    # Detect texture dimensions from file size to place sentinel correctly
+    import os
+    tex_size = os.stat(tex_file)[6]
+    tex_n_texels = tex_size // 6  # 3 FP16 channels = 6 bytes/texel
+    tex_dim = 1
+    while tex_dim * tex_dim < tex_n_texels:
+        tex_dim *= 2
+    # Sentinel after the Morton-packed texture: dim×dim texels × 2 words × 4 bytes
+    TEX_SENTINEL_SPI_ADDR = TEX_SPI_BASE + tex_dim * tex_dim * 2 * 4
 
     # Sentinel magic derived from texture filename — different textures get
     # different sentinels so switching apps forces a re-upload.
@@ -323,7 +332,7 @@ def render_all_frames(app_name='triangle'):
                                   in_base=Pin(0), out_base=Pin(0),
                                   sideset_base=Pin(2))
     sm_r_check.active(1)
-    sentinel_val = qpi_read_word(sm_r_check, PSRAM_IO_SPI_ADDR + PSRAM_OUT_OFFSET + TEX_SENTINEL_OFFSET * 4)
+    sentinel_val = qpi_read_word(sm_r_check, TEX_SENTINEL_SPI_ADDR)
     sm_r_check.active(0)
     del sm_r_check
 
@@ -349,38 +358,40 @@ def render_all_frames(app_name='triangle'):
         print("Texture already in PSRAM (sentinel=0x%04X), skipping upload" % sentinel_val)
     else:
         try:
-            with open(tex_file, 'rb') as f:
-                tex_data = f.read()
-
-            TEX_WIDTH = 32
-            TEX_HEIGHT = 32
+            TEX_WIDTH = tex_dim
+            TEX_HEIGHT = tex_dim
+            print("Uploading %dx%d texture (%d bytes)" % (TEX_WIDTH, TEX_HEIGHT, tex_size))
 
             # Hardware sTexFetch expects packed 2-word format per texel:
             #   Word 0 [offset +0]: { G[15:0], R[15:0] }
             #   Word 1 [offset +4]: { pad[15:0], B[15:0] }
             # Stride = 2 words (8 bytes) per texel, Morton-ordered.
             total_words = TEX_WIDTH * TEX_HEIGHT * 2
-            tex_spi_base = PSRAM_IO_SPI_ADDR + PSRAM_OUT_OFFSET + TEX_PSRAM_OFFSET * 4
-            for y in range(TEX_HEIGHT):
-                for x in range(TEX_WIDTH):
-                    src_idx = y * TEX_WIDTH + x
-                    dst_idx = morton_encode(x, y)
+            tex_spi_base = TEX_SPI_BASE
+            row_bytes = TEX_WIDTH * 3 * 2  # one row of FP16 RGB data
 
-                    # Fetch RGB from tex_data linear array
-                    r = struct.unpack_from('<H', tex_data, (src_idx * 3 + 0) * 2)[0]
-                    g = struct.unpack_from('<H', tex_data, (src_idx * 3 + 1) * 2)[0]
-                    b = struct.unpack_from('<H', tex_data, (src_idx * 3 + 2) * 2)[0]
+            with open(tex_file, 'rb') as f:
+                for y in range(TEX_HEIGHT):
+                    row_data = f.read(row_bytes)
+                    for x in range(TEX_WIDTH):
+                        dst_idx = morton_encode(x, y)
 
-                    # Pack into 2-word format: Word 0 = {G, R}, Word 1 = {0, B}
-                    # Address includes PSRAM_OUT_OFFSET to match firmware's TEX_PSRAM_BYTE_ADDR
-                    word0 = (g << 16) | r
-                    word1 = b
-                    qpi_write_word(sm_w, tex_spi_base + (dst_idx * 2 + 0) * 4, word0)
-                    qpi_write_word(sm_w, tex_spi_base + (dst_idx * 2 + 1) * 4, word1)
+                        # Fetch RGB from row buffer
+                        r = struct.unpack_from('<H', row_data, (x * 3 + 0) * 2)[0]
+                        g = struct.unpack_from('<H', row_data, (x * 3 + 1) * 2)[0]
+                        b = struct.unpack_from('<H', row_data, (x * 3 + 2) * 2)[0]
+
+                        # Pack into 2-word format: Word 0 = {G, R}, Word 1 = {0, B}
+                        word0 = (g << 16) | r
+                        word1 = b
+                        qpi_write_word(sm_w, tex_spi_base + (dst_idx * 2 + 0) * 4, word0)
+                        qpi_write_word(sm_w, tex_spi_base + (dst_idx * 2 + 1) * 4, word1)
+                    if y % 32 == 0:
+                        print("  row %d/%d" % (y, TEX_HEIGHT))
+
             # Write sentinel after successful upload
-            tex_sentinel_addr = PSRAM_IO_SPI_ADDR + PSRAM_OUT_OFFSET + TEX_SENTINEL_OFFSET * 4
-            qpi_write_word(sm_w, tex_sentinel_addr, TEX_SENTINEL_MAGIC)
-            print("Uploaded texture: %d words to PSRAM offset %d in Morton order" % (total_words, TEX_PSRAM_OFFSET))
+            qpi_write_word(sm_w, TEX_SENTINEL_SPI_ADDR, TEX_SENTINEL_MAGIC)
+            print("Uploaded texture: %d words to PSRAM byte offset 0x%X in Morton order" % (total_words, TEX_PSRAM_BYTE_OFFSET))
         except Exception as e:
             print("WARNING: Could not load texture: %s" % e)
 

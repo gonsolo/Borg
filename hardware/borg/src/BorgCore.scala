@@ -16,12 +16,12 @@ import hardfloat._
   * This module can be independently unit-tested for FPU correctness.
   */
 
-class BorgCoreIO(val config: FloatConfig) extends Bundle {
+class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // MMIO bus
   val bus = Flipped(new BorgBusIO())
 
   // Rasterizer interface
-  val iter               = Input(new Coord())
+  val iter               = Input(new Coord(cfg.coordWidth))
   val coreTrigger       = Flipped(new CoreTriggerIO)  // pulse from rasterizer: trigger shader
   val uniformPage        = Input(UInt(1.W))      // which 32-entry uniform page the GPU reads from
   val uniformWritePage   = Input(UInt(1.W))      // which 32-entry page MMIO writes target
@@ -35,20 +35,22 @@ class BorgCoreIO(val config: FloatConfig) extends Bundle {
   val coordWriteEn    = Input(Bool())
   val coordWriteIsRcp = Input(Bool())   // false → coordLut, true → rcpLut
   val coordWriteAddr  = Input(UInt(9.W))
-  val coordWriteData  = Input(UInt(config.totalBits.W))
+  val coordWriteData  = Input(UInt(cfg.totalBits.W))
 
   // Pipeline write-back snoop (exposed to rasterizer)
-  val pipeWrite = new PipeWriteIO(config.totalBits)
+  val pipeWrite = new PipeWriteIO(cfg.totalBits)
 
   // Status outputs (exposed to rasterizer and top-level read mux)
   val status = new CoreStatusIO
 
   // MMIO register read data (for top-level read mux)
-  val regReadData = Output(UInt(config.totalBits.W))
+  val regReadData = Output(UInt(cfg.totalBits.W))
 }
 
-class BorgCore(val config: FloatConfig = FloatConfig.FP32) extends Module {
-  val io = IO(new BorgCoreIO(config))
+class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+  val io = IO(new BorgCoreIO(cfg))
+
+  private val config = cfg.fp  // shorthand for FP config used in arithmetic
 
   // @doc:storage
   // --- Storage ---

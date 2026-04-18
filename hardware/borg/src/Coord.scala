@@ -5,7 +5,7 @@ package borg
 
 import chisel3._
 
-class Coord(val w: Int = 10) extends Bundle {
+class Coord(val w: Int = 9) extends Bundle {
   val x = UInt(w.W)
   val y = UInt(w.W)
 }

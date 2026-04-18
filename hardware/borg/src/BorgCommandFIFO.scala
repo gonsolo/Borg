@@ -6,13 +6,13 @@ package borg
 import chisel3._
 import chisel3.util._
 
-class BorgCommandFIFOIO extends Bundle {
-  val enq = Flipped(Decoupled(new BorgCommand()))
-  val deq = Decoupled(new BorgCommand())
+class BorgCommandFIFOIO(coordWidth: Int = 9) extends Bundle {
+  val enq = Flipped(Decoupled(new BorgCommand(coordWidth)))
+  val deq = Decoupled(new BorgCommand(coordWidth))
 }
 
-class BorgCommandFIFO(entries: Int = 2) extends Module {
-  val io = IO(new BorgCommandFIFOIO())
+class BorgCommandFIFO(entries: Int = 2, coordWidth: Int = 9) extends Module {
+  val io = IO(new BorgCommandFIFOIO(coordWidth))
 
   // Use Chisel's built-in Queue to implement the FIFO.
   val queue = Queue(io.enq, entries)

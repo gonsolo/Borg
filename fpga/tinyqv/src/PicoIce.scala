@@ -8,6 +8,7 @@ import chisel3._
 import chisel3.util._
 import chisel3.experimental.Analog
 import borg.SB_IO
+import borg.BorgConfig
 
 /** pico-ice FPGA top-level module.
   *
@@ -15,6 +16,7 @@ import borg.SB_IO
   * but with direct FPGA I/O and SB_IO primitives for tri-state QSPI.
   */
 class tinyQV_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
+  override def BORG_CFG: BorgConfig = BorgConfig.FPGA
   val clk      = IO(Input(Clock()))
   val rst_n    = IO(Input(Bool()))
 

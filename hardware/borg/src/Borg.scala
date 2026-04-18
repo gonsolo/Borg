@@ -18,11 +18,11 @@ object FloatConfig {
 /** BorgIO defines the interface for the shading processor. It uses
   * memory-mapped I/O for register and instruction memory access.
   */
-class BorgIO(val config: FloatConfig = FloatConfig.FP32) extends Bundle {
+class BorgIO(val cfg: BorgConfig) extends Bundle {
   val address = Input(
     UInt(10.W)
   ) // 1024-byte address space (byte-addressed internally by shifting)
-  val data_in = Input(UInt(32.W))  // 32-bit data for IMEM writes; register writes use low config.totalBits
+  val data_in = Input(UInt(32.W))  // 32-bit data for IMEM writes; register writes use low cfg.totalBits
   val data_write_n = Input(UInt(2.W)) // 0b10 for write
   val data_read_n = Input(UInt(2.W))
   val data_out = Output(UInt(32.W))  // 32-bit: register reads, tile buffer reads are packed 32-bit
@@ -79,8 +79,8 @@ class RegFileCopy(width: Int, instName: String) extends Module {
   *   - IMEM 128–248 (31 usable words): write instruction memory (32-bit)
   *   - Control/Status 252: write bit 0 = start, bit 1 = reset; read bit 1 = idle
   */
-class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
-  val io = IO(new BorgIO(config))
+class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+  val io = IO(new BorgIO(cfg))
   dontTouch(io)
 
   // --- Edge detection for bus signals ---
@@ -88,8 +88,8 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   val is_reading = io.data_read_n === 2.U
 
   // --- Sub-modules ---
-  val core = Module(new BorgCore(config))
-  val rast = Module(new BorgRasterizer(config))
+  val core = Module(new BorgCore(cfg))
+  val rast = Module(new BorgRasterizer(cfg))
   val tile = Module(new BorgTileBuffer())
   val rdlRegs = Module(new BorgGpuRegs()) // Auto-generated RDL register block
 
@@ -179,14 +179,14 @@ class Borg(val config: FloatConfig = FloatConfig.FP32) extends Module {
   }
 
   private def wireMmioRead(): Unit = {
-    val fifo = Module(new BorgCommandFIFO())
+    val fifo = Module(new BorgCommandFIFO(cfg.fifoDepth, cfg.coordWidth))
 
     val writeCmd = is_writing && io.address === BorgGpuRegs.cmd_enqueue_offset
     val isEnqueue = RegNext(writeCmd, false.B)
     
     fifo.io.enq.valid := isEnqueue
-    fifo.io.enq.bits.tileOrigin.x := rdlRegs.io.hw.cmd_enqueue_tile_x
-    fifo.io.enq.bits.tileOrigin.y := rdlRegs.io.hw.cmd_enqueue_tile_y
+    fifo.io.enq.bits.tileOrigin.x := rdlRegs.io.hw.cmd_enqueue_tile_x(cfg.coordWidth - 1, 0)
+    fifo.io.enq.bits.tileOrigin.y := rdlRegs.io.hw.cmd_enqueue_tile_y(cfg.coordWidth - 1, 0)
 
     rast.io.cmdPop <> fifo.io.deq
     core.io.uniformPage := rast.io.uniformPage

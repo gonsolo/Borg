@@ -5,7 +5,7 @@ package soc
 
 import chisel3._
 import chisel3.util._
-import borg.{Borg, FloatConfig, GpuReadIO}
+import borg.{Borg, BorgConfig, GpuReadIO}
 
 // User peripheral address decode constants — inlined from the former PeriphDecode.scala.
 private[soc] object PeriphDecode {
@@ -49,7 +49,7 @@ class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
   val gpuRead = new GpuReadIO
 }
 
-class Peripherals(val CLOCK_MHZ: Int) extends Module {
+class Peripherals(val CLOCK_MHZ: Int, val borgCfg: BorgConfig = BorgConfig.Sim) extends Module {
   val io = IO(new PeripheralsIO(CLOCK_MHZ))
     // --- Address Decoding Variables ---
     val PERI_GPIO = PeriphDecode.userPeriU(PeriphDecode.USER_PERI_GPIO)
@@ -80,7 +80,7 @@ class Peripherals(val CLOCK_MHZ: Int) extends Module {
 
     // --- Instantiate Sub-Modules inside methods to organize logic ---
     val i_uart = Module(new tinyqv.peri.uart.PeriUart(CLOCK_MHZ))
-    val borg = Module(new Borg(FloatConfig.FP16))
+    val borg = Module(new Borg(borgCfg))
 
     // --- Wire Everything ---
     wireDataBus()

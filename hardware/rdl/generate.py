@@ -160,8 +160,8 @@ def emit_python(path, rdl_consts):
         f.write("STARTUP_DELAY_CYCLES = 10000\n")
         f.write("PSRAM_SPI_BASE = 0x00001000\n")
         f.write("PSRAM_IO_SPI_ADDR = PSRAM_SPI_BASE\n")
-        f.write("PSRAM_OUT_OFFSET = 128\n")
-        f.write("TEX_PSRAM_OFFSET = 4200\n")
+        f.write("PSRAM_OUT_OFFSET = 524416\n")  # Must match borg_layout.h
+        f.write("TEX_PSRAM_BYTE_OFFSET = 128\n")  # Byte offset from PSRAM_SPI_BASE to texture
         f.write("\n")
         
         f.write("# --- SPIR-B Format Constants ---\n")

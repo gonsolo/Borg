@@ -6,6 +6,7 @@ import chisel3._
 import chisel3.util._
 import tinyqv.cpu.{TinyQVIO, TinyQV}
 import memory.{MemoryController, MemoryControllerSim, MemoryControllerIO, QspiPinsIO}
+import borg.BorgConfig
 
 
 // ---------------------------------------------------------------------------
@@ -72,6 +73,7 @@ class CpuExtModule extends ExtModule(Map()) {
 trait SoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
   def SIM_FAST_MEM: Boolean = false
+  def BORG_CFG: BorgConfig = BorgConfig.Sim
 
   // --- Abstract members provided by each top-level ---
   def soc_clk: Clock
@@ -88,7 +90,7 @@ trait SoCLogic { self: RawModule =>
     Module(new MemoryController())
   }
   lazy val i_peripherals = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new Peripherals(CLOCK_MHZ))
+    Module(new Peripherals(CLOCK_MHZ, BORG_CFG))
   }
   lazy val i_debug_uart_tx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new tinyqv.peri.uart.UartTx(13))

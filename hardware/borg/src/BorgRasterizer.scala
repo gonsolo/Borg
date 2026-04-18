@@ -23,15 +23,15 @@ import chisel3.util._
   * frag_pc and uniform_page come from dedicated registers, not the command.
   */
 
-class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
+class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // Command pop interface (Step 13.3)
-  val cmdPop      = Flipped(Decoupled(new BorgCommand()))
+  val cmdPop      = Flipped(Decoupled(new BorgCommand(cfg.coordWidth)))
 
   // Iterator advance (from MMIO write to BORG_ITER)
   val advance     = Input(Bool())
 
   // Pipeline write-back snoop (from BorgCore)
-  val pipeWrite = Flipped(new PipeWriteIO(config.totalBits))
+  val pipeWrite = Flipped(new PipeWriteIO(cfg.totalBits))
 
   // Core state feedback (needed for stall clearing)
   val coreStatus = Flipped(new CoreStatusIO)
@@ -41,8 +41,8 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   val uniformPageReg  = Input(UInt(1.W))
 
   // Outputs
-  val iter          = Output(new Coord())
-  val shaderIter    = Output(new Coord())  // latched pre-advance position for coordLut
+  val iter          = Output(new Coord(cfg.coordWidth))
+  val shaderIter    = Output(new Coord(cfg.coordWidth))  // latched pre-advance position for coordLut
   val insideFlag    = Output(Bool())
   val iterValid     = Output(Bool())
   val uniformPage   = Output(UInt(1.W)) // Expose to BorgCore
@@ -62,18 +62,20 @@ class BorgRasterizerIO(val config: FloatConfig) extends Bundle {
   val fragV      = Output(UInt(16.W))
 }
 
-class BorgRasterizer(val config: FloatConfig = FloatConfig.FP32) extends Module {
-  val io = IO(new BorgRasterizerIO(config))
+class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+  val io = IO(new BorgRasterizerIO(cfg))
+
+  private val config = cfg.fp  // shorthand for FP arithmetic
 
   // --- Phase FSM ---
   val sIdle :: sRast :: sFrag :: sTexFetch :: sTileWrite :: Nil = Enum(5)
   val phase = RegInit(sIdle)
 
   // --- State ---
-  val iter_reg          = RegInit(0.U.asTypeOf(new Coord()))
-  val shader_iter_reg   = RegInit(0.U.asTypeOf(new Coord()))  // pre-advance position for coordLut
-  val tile_origin_reg   = RegInit(0.U.asTypeOf(new Coord()))  // 4×4 tile origin
-  val tile_max_reg      = RegInit(0.U.asTypeOf(new Coord()))  // tile_origin + 4
+  val iter_reg          = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))
+  val shader_iter_reg   = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))  // pre-advance position for coordLut
+  val tile_origin_reg   = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))  // 4×4 tile origin
+  val tile_max_reg      = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))  // tile_origin + 4
 
   val e0_outside = RegInit(false.B)
   val e1_outside = RegInit(false.B)
