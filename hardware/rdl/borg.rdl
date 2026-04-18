@@ -132,8 +132,14 @@ reg status_reg_t {
     } fifo_full[1] = 0;
 
     field {
+        sw = r; hw = w;
+        desc = "Bit 3: DMA busy — 1 while the DMA engine is transferring data
+                from PSRAM to IMEM or the uniform buffer.";
+    } dma_busy[1] = 0;
+
+    field {
         sw = r; hw = na;
-    } RSVD_hi[29] = 0;
+    } RSVD_hi[28] = 0;
 };
 
 // --- Fragment shader start PC ---
@@ -151,6 +157,58 @@ reg frag_pc_reg_t {
     field {
         sw = rw; hw = na;
     } RSVD[26] = 0;
+};
+
+// --- DMA PSRAM base address (Step 22.1) ---
+reg dma_psram_reg_t {
+    name = "DMA PSRAM Base Address";
+    desc = "PSRAM byte address of the first word to transfer.  Must be
+            4-byte aligned.  Write before triggering DMA_CONFIG.start.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 19:0: 20-bit PSRAM byte address.";
+    } base[20] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[12] = 0;
+};
+
+// --- DMA transfer config + trigger (Step 22.1) ---
+reg dma_config_reg_t {
+    name = "DMA Configuration";
+    desc = "Configures and triggers a bulk DMA transfer from PSRAM into
+            IMEM or the uniform buffer.  Write DMA_ADDR first, then write
+            this register with start=1 to launch the transfer.  Poll
+            STATUS.dma_busy (bit 3) for completion.";
+
+    field {
+        sw = w; hw = r;
+        singlepulse;
+        desc = "Bit 0: Start DMA transfer (self-clearing pulse).";
+    } start[1] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 6:1: Number of 32-bit words to transfer (1–56 for IMEM,
+                1–32 for uniforms).";
+    } length[6] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 8:7: Destination buffer.
+                0=IMEM, 1=Uniform-page0, 2=Uniform-page1.";
+    } dest[2] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 14:9: Starting word index in the destination buffer.";
+    } offset[6] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[17] = 0;
 };
 
 // --- Tile buffer CTRL ---
@@ -416,4 +474,10 @@ addrmap borg_gpu {
 
     // ---- Fragment Shader Start PC: 0x20C ----
     frag_pc_reg_t frag_pc;
+
+    // ---- DMA PSRAM Base Address: 0x210 ----
+    dma_psram_reg_t dma_psram;
+
+    // ---- DMA Configuration + Trigger: 0x214 ----
+    dma_config_reg_t dma_config;
 };

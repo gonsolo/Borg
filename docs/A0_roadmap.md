@@ -16,7 +16,7 @@ Target: March 2026 — TTIHP26a shuttle
 - [x] GDS submission (4×2 tiles, IHP SG13G2)
 - [x] 32-bit RISC-V instructions & 32-entry register file
 
-## Phase 2: GPU Autonomy (Steps 21–26.5)
+## Phase 2: GPU Autonomy (Steps 21–27.5)
 
 Target: **~June 2026** — move the rendering inner loop from firmware into
 hardware, step by step. Each step produces a measurable speed-up, can be
@@ -466,18 +466,44 @@ reduction is more effective than LUT reduction.
     bypassing the CPU-side texel re-fetch.
     Verified: 7/7 test suites pass; Verilator textured triangle in 13.1M cycles.
 
+### Dev Infrastructure ✅ (2026-04-18)
 
-### Step 22: GPU DMA Engine + LUT Recovery
+Continuous housekeeping work done alongside Steps 21–22. Not a numbered GPU
+feature step, but recorded here for traceability.
+
+- **BorgConfig centralized parameterization**: New `BorgConfig` case class
+  consolidates `coordWidth`, `fifoDepth`, and `FloatConfig` into a single
+  per-target parameter object. `BorgConfig.FPGA` and `BorgConfig.Sim` replace
+  all ad-hoc compile-time flags throughout the hierarchy.
+- **`.verilog_stamp` incremental build**: Root `Makefile` skips `generate_verilog`
+  when Chisel/RDL sources haven't changed, saving ~30s per `make -C fpga` iteration.
+- **Hardware architecture diagram generator** (`scripts/gen_hw_diagram.py`):
+  Parses Scala sources to produce an SVG component graph. Used in the HPG 2026
+  poster. Also useful for spotting dead/orphaned modules — nodes with no
+  instantiation edges stand out immediately. Fixes: orphan detection,
+  deduplication of instantiation edges, layout improvements, Software Stack overlay.
+- **nextpnr `--seed 0`**: Pinned the placement RNG seed in `fpga/Makefile` for
+  deterministic LC counts across local and CI environments.
+- **CI tool-version diagnostics**: Added "Print tool versions" step to
+  `.github/workflows/fpga.yaml` that logs the nixpkgs rev and nextpnr/yosys
+  versions, enabling direct local-vs-CI comparison.
+- **Memory package modularization**: `TinyQVMemCtrl` extracted into a standalone
+  `memory` package; arcilator simulation fixed.
+- **Miscellaneous**: Dead code removal (`LatchReg*`), Chisel test fixes
+  (`BorgCoreTests` updated for `BorgConfig.Sim`), `test_raster.c` native mock
+  for `borg_fb_width/height`.
+
+### Step 22: GPU DMA Engine + LUT Recovery ✅ (2026-04-18)
 
 Generalize the GPU read port for bulk transfers. The DMA engine drives the
 **same** `gpu_read` port built in Step 19 — `SoCMemCtrl` is unchanged, only
 the driver changes. Estimate: 1 week.
 
-- **Step 22.0: LUT Recovery** (prerequisite micro-steps, −44 LCs)
-  - **22.0a: Remove IMEM MMIO write path** (~15 LUTs saved) — DMA replaces it
-  - **22.0b: Remove MMIO uniform write path** (~15 LUTs saved) — DMA replaces it
-  - **22.0c: Simplify RDL address decode** (~10 LUTs saved)
-  - **22.0d: S3 — Remove MMIO GPR read path** (optional, ~20–30 LUTs)
+- **Step 22.0: LUT Recovery** ✅ (prerequisite micro-steps, −44 LCs)
+  - ✅ **22.0a: Remove IMEM MMIO write path** (~15 LUTs saved) — DMA replaces it
+  - ✅ **22.0b: Remove MMIO uniform write path** (~15 LUTs saved) — DMA replaces it
+  - ✅ **22.0c: Simplify RDL address decode** (~10 LUTs saved)
+  - ✅ **22.0d: S3 — Remove MMIO GPR read path** (optional, ~20–30 LUTs)
     The `regFileC` shared read port (`wirePortC()` `mmio_en` mux) is used only
     for CPU debugging of shader register state. With DMA in place this path
     is unused. Remove the `mmio_en` conditional from `wirePortC()` in
@@ -489,14 +515,14 @@ the driver changes. Estimate: 1 week.
   (direct memory poke). Remove uniform MMIO first (less time-critical); keep
   IMEM MMIO until DMA is tested, then remove.
 
-- **Step 22.1: DMA controller FSM** (`BorgDMA.scala`, +25 LCs)
+- ✅ **Step 22.1: DMA controller FSM** (`BorgDMA.scala`, +25 LCs) *(2026-04-18)*
     Accepts `(base_ptr, length, destination)` descriptor via MMIO. Issues
     sequential `gpu_read_req` for each word. Routes returned data to the correct
     on-chip buffer (uniform/IMEM/GPR). Multiplexes with `sTexFetch` requests.
 
-- **Step 22.2: Bulk IMEM load from PSRAM** (replaces MMIO IMEM writes)
-- **Step 22.3: Bulk uniform load from PSRAM**
-- **Step 22.4: Firmware integration** (`dma_load_shader()`, `dma_load_uniforms()`)
+- ✅ **Step 22.2: Bulk IMEM load from PSRAM** (replaces MMIO IMEM writes)
+- ✅ **Step 22.3: Bulk uniform load from PSRAM**
+- ✅ **Step 22.4: Firmware integration** (`dma_load_shader()`, `dma_load_uniforms()`)
 
   **IMEM strategy:** IMEM BRAM stays (1-cycle fetch is critical for pipeline
   throughput). DMA loads it from PSRAM, replacing the ~56 `borg_write_imem()`
@@ -507,62 +533,95 @@ the driver changes. Estimate: 1 week.
   Step 19 drives it from `BorgRasterizer.sTexFetch`; Step 22 drives it from
   `BorgDMA`.
 
-### Step 23: GPU PSRAM Write Port (+15 LCs)
+### Step 23: Cross-Target Parity (Arcilator / Verilator / FPGA + Software)
+
+Establish a systematic quality gate that ensures Arcilator, Verilator, and FPGA
+always produce identical results to the software reference — so that bugs like
+the RP2040 texture heap exhaustion (which was invisible in simulation) are caught
+automatically before they can reach hardware. The root cause of such bugs is a
+discrepancy between what the software stack does and what each target exercises.
+This step closes that gap structurally. Estimate: 3–5 days.
+
+- **Step 23.1: Unified `make` run targets**
+    Standardize `make triangle` and `make vkcube` across all three targets.
+    A single top-level invocation exercises Arcilator, Verilator, and FPGA
+    without manual per-target coordination, removing the opportunity for
+    target-specific workarounds to silently accumulate.
+
+- **Step 23.2: Pixel-exact golden comparison on all targets**
+    Extend `make test-all` to pixel-compare the output of each target against
+    the software golden image (`golden.ppm`). Any divergence between Arcilator,
+    Verilator, or FPGA output fails the suite immediately. This catches
+    rendering bugs that are invisible when only one target is tested.
+
+- **Step 23.3: Shared software path for texture upload**
+    Unify the texture upload code path so that the same logic (chunked
+    Morton-ordered streaming, sentinel check) runs on all three targets.
+    Simulation targets use a C++ harness shim; FPGA uses the RP2040
+    MicroPython path — but both exercise the same protocol, ensuring
+    firmware-level regressions are caught in simulation before FPGA runs.
+
+- **Step 23.4: `make test-all` target parity enforcement**
+    Add a CI check that fails if any target is missing from the test matrix.
+    No target may be silently skipped. FPGA test results are uploaded as
+    artefacts so regressions are traceable.
+
+### Step 24: GPU PSRAM Write Port (+15 LCs)
 
 Add `GpuWriteIO` (or extend `GpuReadIO` to bidirectional `GpuMemIO` with a
 `wr` flag) for autonomous tile buffer flush to PSRAM. Currently, tile buffer
 flush is done by the CPU via MMIO reads (`TILE_RG`/`TILE_BZ`) + PSRAM writes.
 For GPU autonomy (Step 26), the GPU must flush tiles without CPU involvement.
 
-- **Step 23.1: GpuMemIO bundle** (+5 LCs)
+- **Step 24.1: GpuMemIO bundle** (+5 LCs)
     Extend `GpuReadIO` with `wr: Bool` and `wdata: UInt(32.W)`.
     `MemoryController` arbiter adds a write path for GPU port.
 
-- **Step 23.2: sTileFlush FSM state** (+10 LCs)
+- **Step 24.2: sTileFlush FSM state** (+10 LCs)
     New state in `BorgRasterizer` after the last pixel in a tile: sequentially
     reads the 16-entry tile buffer BRAM and issues GPU write requests to PSRAM.
     16 entries × 4 words (R, G, B, Z) = 64 GPU write cycles per tile.
 
-### Step 24: Integrated Vertex + Triangle Setup Sequencer (+45 LCs)
+### Step 25: Integrated Vertex + Triangle Setup Sequencer (+45 LCs)
 
 Unified FSM that replaces what the CPU currently does in `shade_tiles()`,
 `run_vertex_shader()`, `triangle_setup()`, and `compute_edge_vectors()`.
 Combines the planned DMA engine (Step 22) and vertex sequencer into a
 single FSM to share registers, address counters, and control logic.
 
-- **Step 24.1: Vertex shader sequencing**
+- **Step 25.1: Vertex shader sequencing**
     FSM sequences 3 vertex shader runs: DMA loads vertex attributes from
     PSRAM into GPR, runs SPIR-B shader, stores clip-space outputs. Reloads
     uniform buffer between vertex and fragment stages.
 
-- **Step 24.2: Triangle setup shader**
+- **Step 25.2: Triangle setup shader**
     A 4th shader program that computes edge equations, signed area, `inv_area`
     (FRCP), and bounding box from the 3 vertex outputs. Currently done in
     firmware (`triangle_setup()` + `compute_edge_vectors()` in
     `borg_driver.c`). No new hardware — uses existing FMA+FRCP. ~80 shader
     cycles per triangle, negligible vs. per-pixel rasterization.
 
-- **Step 24.3: Automatic uniform reload**
+- **Step 25.3: Automatic uniform reload**
     After triangle setup, the sequencer DMA-loads the rasterizer + fragment
     shader uniforms (edge constants, vertex colors, inv_area, z_vals) from
     the setup shader outputs, then enqueues the first tile command.
 
-### ~~Step 23 (old): Data Cache~~ → Deferred
+### ~~Step 24 (old): Data Cache~~ → Deferred
 
 Deferred to Phase 5 (larger FPGA or ASIC). Not needed for functional
 correctness. The ~30 LUT cost doesn't fit the iCE40 budget, and on ASIC
 (Tiny Tapeout) a BRAM-based full-coverage cache is possible at zero LUT cost.
 
-### ~~Step 24 (old): SoC Bus Protocol~~ → Deferred
+### ~~Step 25 (old): SoC Bus Protocol~~ → Deferred
 
 Deferred to Phase 5 (larger FPGA or ASIC). Code quality improvement, not
 functional. The hand-rolled priority chain works correctly. A proper
 `BorgBus` → TileLink adapter is worth doing on the Nitefury II or for ASIC,
 but not on iCE40 at 99% utilization.
 
-### Step 25: Full Autonomous Triangle Pipeline
+### Step 26: Full Autonomous Triangle Pipeline
 
-Integration of Steps 21–24. CPU submits a triangle descriptor; GPU does:
+Integration of Steps 21–25. CPU submits a triangle descriptor; GPU does:
 
 1. **Vertex shade** (3× vertex shader runs via DMA + sequencer)
 2. **Triangle setup** (setup shader: edge equations, inv_area, bbox)
@@ -576,14 +635,14 @@ Integration of Steps 21–24. CPU submits a triangle descriptor; GPU does:
 CPU only writes the triangle descriptor and waits for DONE interrupt.
 Estimate: 1–2 weeks.
 
-### Step 26: Multi-Triangle Autonomous Rendering
+### Step 27: Multi-Triangle Autonomous Rendering
 
 Extend Step 25 to process a list of triangle descriptors from PSRAM without
 CPU involvement. The GPU reads the next descriptor, runs the full pipeline,
 and signals DONE after the last triangle. The CPU submits a draw call
 (base pointer + count) and waits.
 
-### Step 26.5: Real-Time VGA Output (TT VGA PMOD)
+### Step 27.5: Real-Time VGA Output (TT VGA PMOD)
 
 Drive the Tiny Tapeout VGA PMOD directly from the pico-ice FPGA for
 real-time display — the hardware equivalent of `make vkcube_gui`.
@@ -656,20 +715,20 @@ R[1:0] = fp16_color[14:13]  (top 2 mantissa bits, exponent-gated)
 
 **Sub-steps:**
 
-- **Step 26.5a: VGA timing generator** (+30 LCs)
+- **Step 27.5a: VGA timing generator** (+30 LCs)
     H/V counters, sync pulse generation, blanking flags.
     Chisel module `VgaController.scala`.
 
-- **Step 26.5b: SPRAM framebuffer** (+20 LCs)
+- **Step 27.5b: SPRAM framebuffer** (+20 LCs)
     SPRAM `SB_SPRAM256KA` instantiation, address mux (CPU write port
     during vblank, VGA read port during active). MMIO trigger for
     frame copy (`PSRAM → SPRAM` DMA, or CPU loop).
 
-- **Step 26.5c: FP16→RGB222 scanout** (+15 LCs)
+- **Step 27.5c: FP16→RGB222 scanout** (+15 LCs)
     Pixel fetch from SPRAM, upscale counter, format conversion, `uo_out`
     drive. Build-time `CONFIG=lite_vga` selects VGA vs. UART on `uo_out`.
 
-- **Step 26.5d: `make fpga_vga` target** (+0 LCs)
+- **Step 27.5d: `make fpga_vga` target** (+0 LCs)
     Makefile target that builds the VGA-enabled bitstream. PCF constraints
     for VGA PMOD pins on the pico-ice output header.
 
@@ -700,13 +759,15 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
                                                        │
                                                Step 22 (DMA + LUT recovery)
                                                        │
-                                               Step 23 (GPU write port)
+                                           Step 23 (unified runtime + tex)
                                                        │
-                                               Step 24 (vert seq + tri setup)
+                                               Step 24 (GPU write port)
                                                        │
-                                               Step 25 (full autonomous pipeline)
+                                               Step 25 (vert seq + tri setup)
                                                        │
-                                               Step 26 (multi-triangle rendering)
+                                               Step 26 (full autonomous pipeline)
+                                                       │
+                                               Step 27 (multi-triangle rendering)
 ```
 
 ### FPGA LC Budget (pico-ice, iCE40 UP5K — 5280 LCs)
@@ -725,10 +786,11 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 | 21.2 (tex config MMIO) | RDL register | +10 | 5201 | ✅ |
 | 22.0 (LUT recovery) | Remove MMIO paths | **−44** | 5157 | ✅ |
 | 22.1 (DMA FSM) | FSM + addr counter | +25 | 5182 | ✅ |
-| 23 (GPU write port) | sTileFlush + arbiter | +15 | 5197 | ✅ |
-| 24 (vert seq + tri setup) | Unified FSM | +45 | 5242 | ✅ |
-| 25 (pipeline integration) | Wiring + control | +15 | 5257 | ✅ |
-| 26 (multi-triangle) | Descriptor reader | +10 | **5267** | ✅ |
+| 23 (unified runtime + tex) | Makefile + tex unification | +0 | 5182 | |
+| 24 (GPU write port) | sTileFlush + arbiter | +15 | 5197 | ✅ |
+| 25 (vert seq + tri setup) | Unified FSM | +45 | 5242 | ✅ |
+| 26 (pipeline integration) | Wiring + control | +15 | 5257 | ✅ |
+| 27 (multi-triangle) | Descriptor reader | +10 | **5267** | ✅ |
 | **Margin** | | | **13 LCs** | |
 
 **Reserve optimizations** (if margin is too tight):
@@ -864,8 +926,8 @@ fpga/ulx3s/
 
 | Scenario | Platform |
 | --- | --- |
-| Phase 2 (Steps 21–26), area-constrained dev | pico-ice |
-| Phase 3 (Steps 27–31), CPU grows past iCE40 | **ULX3S** |
+| Phase 2 (Steps 21–27), area-constrained dev | pico-ice |
+| Phase 3 (Steps 28–32), CPU grows past iCE40 | **ULX3S** |
 | Phase 3 with GPU enabled (doesn't fit iCE40) | **ULX3S** |
 | Phase 4–5, PCIe host access, DDR3 framebuffer | Nitefury II |
 | ASIC validation, nightly CI | OpenLane |
@@ -1089,7 +1151,7 @@ case class BorgConfig(
   enableDMA:           Boolean = true,   // GPU DMA engine (Step 22)
   enableTexFetch:      Boolean = true,   // Hardware texel fetch (Step 21)
   enableAutoSequencer: Boolean = true,   // Vertex sequencer (Step 24)
-  enableGpuWrite:      Boolean = true,   // GPU PSRAM write (Step 23)
+  enableGpuWrite:      Boolean = true,   // GPU PSRAM write (Step 24)
   enableBlending:      Boolean = false,  // Alpha blending (Phase 5)
   enableCExtension:    Boolean = false,  // RV32C compressed ISA
   enableMExtension:    Boolean = false,  // RV32M multiply/divide

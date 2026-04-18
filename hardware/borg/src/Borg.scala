@@ -79,7 +79,18 @@ class RegFileCopy(width: Int, instName: String) extends Module {
   *   - IMEM 128–248 (31 usable words): write instruction memory (32-bit)
   *   - Control/Status 252: write bit 0 = start, bit 1 = reset; read bit 1 = idle
   */
+object Borg {
+  /** Allow tests to instantiate [[Borg]] with a [[FloatConfig]] directly,
+    * e.g. `new Borg(FloatConfig.FP16)`.  Maps to [[BorgConfig.Sim]] with the
+    * requested float format and simulation-appropriate defaults.
+    */
+  def apply(fp: FloatConfig): Borg = new Borg(BorgConfig.Sim.copy(fp = fp))
+}
+
 class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+  /** Auxiliary constructor: allows `new Borg(FloatConfig.FP16)` in tests. */
+  def this(fp: FloatConfig) = this(BorgConfig.Sim.copy(fp = fp))
+
   val io = IO(new BorgIO(cfg))
   dontTouch(io)
 
@@ -92,6 +103,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val rast = Module(new BorgRasterizer(cfg))
   val tile = Module(new BorgTileBuffer())
   val rdlRegs = Module(new BorgGpuRegs()) // Auto-generated RDL register block
+  val dma  = Module(new BorgDMA)
 
   rdlRegs.io.bus.address   := io.address
   rdlRegs.io.bus.writeData := io.data_in
@@ -105,6 +117,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   wireRasterizer()
   wireTileBuffer()
   wireMmioRead()
+  wireDMA()
 
   private def wireCore(): Unit = {
     core.io.bus.address    := io.address
@@ -124,6 +137,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     core.io.coordWriteIsRcp := false.B
     core.io.coordWriteAddr  := 0.U
     core.io.coordWriteData  := 0.U
+
+    // DMA write ports (Step 22.1)
+    core.io.dmaImemWrite    <> dma.io.imemWrite
+    core.io.dmaUniformWrite <> dma.io.uniformWrite
   }
 
   private def wireRasterizer(): Unit = {
@@ -135,8 +152,16 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // Core state feedback
     rast.io.coreStatus <> core.io.status
 
-    // GPU read port wiring (Step 19.2)
-    rast.io.gpuRead <> io.gpuRead
+    // GPU read port arbitration: DMA has exclusive access while busy (Step 22.1).
+    // dma.io.busy is derived from BorgDMA's registered FSM state, so it has no
+    // combinational path back to rast.io.gpuRead.req — no cycle, no ready delay.
+    // DMA only runs during shader-load phase; rast only runs during rasterisation.
+    io.gpuRead.req  := Mux(dma.io.busy, dma.io.gpuRead.req, rast.io.gpuRead.req)
+    io.gpuRead.addr := Mux(dma.io.busy, dma.io.gpuRead.addr, rast.io.gpuRead.addr)
+    rast.io.gpuRead.data  := io.gpuRead.data
+    rast.io.gpuRead.ready := io.gpuRead.ready && !dma.io.busy
+    dma.io.gpuRead.data   := io.gpuRead.data
+    dma.io.gpuRead.ready  := io.gpuRead.ready && dma.io.busy
 
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
     rast.io.texConfig.baseAddr := rdlRegs.io.hw.tex_config_base_addr
@@ -235,5 +260,20 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     io.data_ready := Mux(rast.io.autoRunStall, false.B, (io.data_read_n === 3.U) || read_ready_del)
     io.uo_out := 0.U
     io.user_interrupt := false.B
+  }
+
+  private def wireDMA(): Unit = {
+    // Build descriptor from RDL registers
+    val desc = Wire(new DMADescriptor)
+    desc.baseAddr := rdlRegs.io.hw.dma_psram_base
+    desc.length   := rdlRegs.io.hw.dma_config_length
+    desc.dest     := rdlRegs.io.hw.dma_config_dest
+    desc.offset   := rdlRegs.io.hw.dma_config_offset
+
+    dma.io.start := rdlRegs.io.hw.dma_config_start.asBool
+    dma.io.desc  := desc
+
+    // Feed busy back to STATUS register (bit 3)
+    rdlRegs.io.hw.status_dma_busy := dma.io.busy.asUInt
   }
 }

@@ -39,7 +39,7 @@ triangle: verilator_sim python_extension $(FIRMWARE_DIR)/triangle.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/triangle.bin triangle 32 32 32
 
 vkcube: verilator_sim python_extension $(FIRMWARE_DIR)/vkcube.bin
-	./obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube 256 256 256
+	./obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube 32 32 256
 
 textest: verilator_sim python_extension $(FIRMWARE_DIR)/textest.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/textest.bin textest 32 32 256

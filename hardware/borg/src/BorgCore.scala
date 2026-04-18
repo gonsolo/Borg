@@ -37,6 +37,10 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val coordWriteAddr  = Input(UInt(9.W))
   val coordWriteData  = Input(UInt(cfg.totalBits.W))
 
+  // DMA write ports (Step 22.1): used instead of MMIO on FPGA (cfg.hasImemMmio=false)
+  val dmaImemWrite    = Flipped(new DMAWritePort(32))
+  val dmaUniformWrite = Flipped(new DMAWritePort(16))
+
   // Pipeline write-back snoop (exposed to rasterizer)
   val pipeWrite = new PipeWriteIO(cfg.totalBits)
 
@@ -210,16 +214,26 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       auto_run_pending := false.B
     }
 
-    // IMEM write
-    when(io.bus.is_writing && io.bus.address >= BorgGpuRegs.imem_offset && io.bus.address < 352.U) {
-      val imem_idx = (io.bus.address - BorgGpuRegs.imem_offset) >> 2
-      instructionMemory.write(imem_idx, io.bus.data_in)
-    }
+    // IMEM write: DMA has priority; MMIO gated by cfg.hasImemMmio (Step 22.0).
+    // Single write() call so CIRCT generates a 1-write-port BRAM (avoids unused W1_clk).
+    val mmioImemWrite = cfg.hasImemMmio.B &&
+        io.bus.is_writing && io.bus.address >= BorgGpuRegs.imem_offset && io.bus.address < 352.U
+    val imemWen  = io.dmaImemWrite.en || mmioImemWrite
+    val imemAddr = Mux(io.dmaImemWrite.en, io.dmaImemWrite.addr,
+                       (io.bus.address - BorgGpuRegs.imem_offset) >> 2)
+    val imemData = Mux(io.dmaImemWrite.en, io.dmaImemWrite.data, io.bus.data_in)
+    when(imemWen) { instructionMemory.write(imemAddr, imemData) }
 
-    when(io.bus.is_writing && io.bus.address >= BorgGpuRegs.uniform_offset && io.bus.address < 496.U) {
-      val uniform_idx = (io.bus.address - BorgGpuRegs.uniform_offset) >> 2
-      uniformMem.write(Cat(io.uniformWritePage, uniform_idx(4, 0)), io.bus.data_in(config.totalBits - 1, 0))
-    }
+    // Uniform write: same single-port pattern.
+    val mmioUnifWrite = cfg.hasImemMmio.B &&
+        io.bus.is_writing && io.bus.address >= BorgGpuRegs.uniform_offset && io.bus.address < 496.U
+    val unifWen  = io.dmaUniformWrite.en || mmioUnifWrite
+    val unifIdx  = (io.bus.address - BorgGpuRegs.uniform_offset) >> 2
+    val unifAddr = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.addr,
+                       Cat(io.uniformWritePage, unifIdx(4, 0)))
+    val unifData = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.data,
+                       io.bus.data_in(config.totalBits - 1, 0))
+    when(unifWen) { uniformMem.write(unifAddr, unifData) }
   }
 
   /** Wire the three register file read ports (A=rs1, B=rs2, C=rs3/MMIO). */

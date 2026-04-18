@@ -8,15 +8,19 @@ package borg
   * Encapsulates all target-specific knobs so that a single parameter
   * flows through the entire hierarchy.
   *
-  * @param fp         Floating-point format (FP16 for iCE40, FP32 for future ASIC)
-  * @param coordWidth Pixel coordinate width: max framebuffer dimension = 2^coordWidth.
-  *                   6 → 64px (FPGA), 9 → 512px (ASIC/sim for 500×500 renders)
-  * @param fifoDepth  Command FIFO depth. 1 saves ~12 LCs on iCE40.
+  * @param fp           Floating-point format (FP16 for iCE40, FP32 for future ASIC)
+  * @param coordWidth   Pixel coordinate width: max framebuffer dimension = 2^coordWidth.
+  *                     6 → 64px (FPGA), 9 → 512px (ASIC/sim for 500×500 renders)
+  * @param fifoDepth    Command FIFO depth. 1 saves ~12 LCs on iCE40.
+  * @param hasImemMmio  When true, the MMIO IMEM/uniform write paths are synthesised.
+  *                     Set false on FPGA once firmware uses DMA (Step 22.0, ~30 LCs saved).
+  *                     Must remain true in Sim so Chisel tests can still poke IMEM directly.
   */
 case class BorgConfig(
     fp: FloatConfig = FloatConfig.FP16,
     coordWidth: Int = 9,
-    fifoDepth: Int = 2
+    fifoDepth: Int = 2,
+    hasImemMmio: Boolean = true
 ) {
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
@@ -24,17 +28,22 @@ case class BorgConfig(
 }
 
 object BorgConfig {
-  /** pico-ice iCE40 UP5K: 5280 LCs, 30 BRAMs, 4 MHz. */
+  /** pico-ice iCE40 UP5K: 5280 LCs, 30 BRAMs, 4 MHz.
+    * hasImemMmio stays true until firmware DMA is verified (Step 22.4),
+    * then flip to false for ~30 LC savings (Step 22.0).
+    */
   val FPGA = BorgConfig(
-    fp         = FloatConfig.FP16,
-    coordWidth = 6,   // max 64×64 framebuffer
-    fifoDepth  = 2
+    fp           = FloatConfig.FP16,
+    coordWidth   = 6,   // max 64×64 framebuffer
+    fifoDepth    = 1,
+    hasImemMmio  = true // flip to false after Step 22.4
   )
 
   /** Verilator / Arcilator simulation: no area constraint. */
   val Sim = BorgConfig(
-    fp         = FloatConfig.FP16,
-    coordWidth = 9,   // max 512×512 framebuffer (covers 500×500)
-    fifoDepth  = 2
+    fp           = FloatConfig.FP16,
+    coordWidth   = 9,   // max 512×512 framebuffer (covers 500×500)
+    fifoDepth    = 2,
+    hasImemMmio  = true // always true in sim: tests poke IMEM via MMIO
   )
 }

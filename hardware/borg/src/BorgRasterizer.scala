@@ -63,6 +63,9 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
 }
 
 class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+  /** Auxiliary constructor: allows `new BorgRasterizer(FloatConfig.FP16)` in tests. */
+  def this(fp: FloatConfig) = this(BorgConfig.Sim.copy(fp = fp))
+
   val io = IO(new BorgRasterizerIO(cfg))
 
   private val config = cfg.fp  // shorthand for FP arithmetic
