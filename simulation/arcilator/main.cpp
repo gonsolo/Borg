@@ -52,16 +52,19 @@ int main(int argc, char** argv) {
     
     // PSRAM byte mapping: the hardware maps PSRAM starting at offset 0x1000.
     // So PSRAM_IO_SPI_ADDR = 0x1000 (4096 bytes, which is 1024 words).
-    uint32_t psram_spi_word_offset = 0x1000 / 4;
+     uint32_t psram_spi_word_offset = 0x1000 / 4;
     
     uint32_t* psram_init_words = (uint32_t*)psram.mem.data();
     psram_init_words[psram_spi_word_offset + 0] = width;
     psram_init_words[psram_spi_word_offset + 1] = height;
 
+    // vkcube uses a 256×256 texture; triangle uses 32×32.
+    uint32_t tex_dim = (app_name == "vkcube" || app_name == "textest") ? 256 : 32;
     std::string tex_path = app_name == "vkcube" ? "../../software/borg/borg_texture.dat" : "../../software/borg/test_texture.dat";
     std::ifstream tex_f(tex_path, std::ios::binary);
     if (tex_f) {
-        std::vector<uint8_t> tex_data(32 * 32 * 6); // 32x32 RGB FP16
+        uint32_t num_texels = tex_dim * tex_dim;
+        std::vector<uint8_t> tex_data(num_texels * 6); // RGB FP16 = 6 bytes/texel
         tex_f.read((char*)tex_data.data(), tex_data.size());
         
         uint32_t tex_byte_base = TEX_PSRAM_BYTE_ADDR_FIXED;
@@ -70,10 +73,10 @@ int main(int argc, char** argv) {
         //   Word 0: { G[15:0], R[15:0] }  (little-endian in PSRAM bytes)
         //   Word 1: { pad[15:0], B[15:0] }
         uint8_t* pmem = psram.mem.data();
-        for (int y = 0; y < 32; y++) {
-            for (int x = 0; x < 32; x++) {
-                int src_idx = y * 32 + x;
-                int dst_idx = morton_encode(x, y);
+        for (uint32_t y = 0; y < tex_dim; y++) {
+            for (uint32_t x = 0; x < tex_dim; x++) {
+                uint32_t src_idx = y * tex_dim + x;
+                uint32_t dst_idx = morton_encode(x, y);
 
                 uint16_t r = tex_data[(src_idx * 3 + 0) * 2] | (tex_data[(src_idx * 3 + 0) * 2 + 1] << 8);
                 uint16_t g = tex_data[(src_idx * 3 + 1) * 2] | (tex_data[(src_idx * 3 + 1) * 2 + 1] << 8);
@@ -166,6 +169,41 @@ int main(int argc, char** argv) {
         psram_floats[3] = 0.6109f;
     }
 
+    // DEBUG: Initialize sim_flash_ext and sim_psram_ext BRAMs for fast_sim_en mode.
+    // This allows MemoryControllerSim to serve instructions and GPU texture reads
+    // directly from Chisel BRAM, bypassing the real QSPI serialization path.
+    {
+        int FLASH_OFFSET = find_memory_offset("sim_flash_ext");
+        int PSRAM_OFFSET = find_memory_offset("sim_psram_ext");
+        int GPU_PSRAM_OFFSET = find_memory_offset("sim_psram_gpu");
+        if (FLASH_OFFSET >= 0 && PSRAM_OFFSET >= 0 && GPU_PSRAM_OFFSET >= 0) {
+            // Copy firmware into sim_flash_ext
+            for (size_t i = 0; i < flash.mem.size(); i++) {
+                *(model.storage.data() + FLASH_OFFSET + i) = flash.mem[i];
+            }
+            // Copy PSRAM data (init words, texture, etc.) into sim_psram_ext
+            for (size_t i = 0; i < psram.mem.size(); i++) {
+                *(model.storage.data() + PSRAM_OFFSET + i) = psram.mem[i];
+            }
+            // Pack first 1 MB of PSRAM into 32-bit words for GPU BRAM (sim_psram_gpu).
+            // GPU address is 20-bit (1 MB max). Word[i] = {byte[4i+3],...,byte[4i+0]}.
+            size_t gpu_size = 1048576; // 1 MB = 262144 × 4 bytes
+            for (size_t i = 0; i < gpu_size; i += 4) {
+                uint32_t word = (uint32_t)psram.mem[i]
+                              | ((uint32_t)psram.mem[i+1] << 8)
+                              | ((uint32_t)psram.mem[i+2] << 16)
+                              | ((uint32_t)psram.mem[i+3] << 24);
+                *(uint32_t*)(model.storage.data() + GPU_PSRAM_OFFSET + i) = word;
+            }
+            std::cout << "[SIM] sim_flash_ext (" << flash.mem.size() << " bytes), "
+                      << "sim_psram_ext (" << psram.mem.size() << " bytes), and "
+                      << "sim_psram_gpu (" << gpu_size << " bytes) initialized for fast_sim_en.\n";
+        } else {
+            std::cerr << "[SIM] WARNING: sim_flash_ext, sim_psram_ext, or sim_psram_gpu not found in state.json.\n"
+                      << "  Make sure the sim FIRRTL (with MemoryControllerSim) is being used.\n";
+        }
+    }
+
     std::cout << "[SIM] Starting simulation...\n";
 
     uint64_t cycles = 0;
@@ -180,6 +218,15 @@ int main(int argc, char** argv) {
     uint32_t marker_offset_word = out_base_word + frame_fb_size + frame_zb_size;
     
     uint8_t prev_uio_out = 0xFF;
+
+    // DEBUG: Enable fast_sim_en — mux instruction fetch + GPU reads through MemoryControllerSim
+    model.view.ui_in = 0x80;
+
+    // Hoist PSRAM offset lookup — offset is constant, never re-read state.json in the loop.
+    int SIM_PSRAM_OFF = find_memory_offset("sim_psram_ext");
+    uint32_t* sim_psram_words = (SIM_PSRAM_OFF >= 0)
+        ? (uint32_t*)(model.storage.data() + SIM_PSRAM_OFF)
+        : (uint32_t*)psram.mem.data();  // fallback to C++ model
 
     while (!done) {
         // Phase 1 (Clock Low)
@@ -259,12 +306,16 @@ int main(int argc, char** argv) {
 
         if (cycles % 1000000 == 0) std::cout << "[SIM] " << (cycles / 1000000) << " million cycles\n" << std::flush;
 
-        // Check completion marker
-        uint32_t* psram_words = (uint32_t*)psram.mem.data();
-        if (psram_words[marker_offset_word] == 0x0000DEAD) {
+        if (sim_psram_words[marker_offset_word] == 0x0000DEAD) {
             done = true;
             std::cout << "[SIM] Frame complete! DONE_MARKER detected.\n";
             std::cout << "Total Sim Cycles:  " << cycles << " cycles.\n";
+
+            // Copy sim_psram_ext into C++ psram model for PPM save
+            if (SIM_PSRAM_OFF >= 0) {
+                memcpy(psram.mem.data(), model.storage.data() + SIM_PSRAM_OFF, psram.mem.size());
+                std::cout << "[SIM] Copied sim_psram_ext → C++ psram for PPM save.\n";
+            }
         }
 
         if (cycles > 200000000) {

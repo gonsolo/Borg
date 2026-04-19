@@ -103,7 +103,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val rast = Module(new BorgRasterizer(cfg))
   val tile = Module(new BorgTileBuffer())
   val rdlRegs = Module(new BorgGpuRegs()) // Auto-generated RDL register block
-  val dma  = Module(new BorgDMA)
+  val dma = if (cfg.hasDMA) Some(Module(new BorgDMA)) else None
 
   rdlRegs.io.bus.address   := io.address
   rdlRegs.io.bus.writeData := io.data_in
@@ -138,9 +138,19 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     core.io.coordWriteAddr  := 0.U
     core.io.coordWriteData  := 0.U
 
-    // DMA write ports (Step 22.1)
-    core.io.dmaImemWrite    <> dma.io.imemWrite
-    core.io.dmaUniformWrite <> dma.io.uniformWrite
+    // DMA write ports (Step 22.1) — only wired when hasDMA=true
+    dma match {
+      case Some(d) =>
+        core.io.dmaImemWrite    <> d.io.imemWrite
+        core.io.dmaUniformWrite <> d.io.uniformWrite
+      case None =>
+        core.io.dmaImemWrite.en   := false.B
+        core.io.dmaImemWrite.addr := 0.U
+        core.io.dmaImemWrite.data := 0.U
+        core.io.dmaUniformWrite.en   := false.B
+        core.io.dmaUniformWrite.addr := 0.U
+        core.io.dmaUniformWrite.data := 0.U
+    }
   }
 
   private def wireRasterizer(): Unit = {
@@ -152,16 +162,19 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // Core state feedback
     rast.io.coreStatus <> core.io.status
 
-    // GPU read port arbitration: DMA has exclusive access while busy (Step 22.1).
-    // dma.io.busy is derived from BorgDMA's registered FSM state, so it has no
-    // combinational path back to rast.io.gpuRead.req — no cycle, no ready delay.
-    // DMA only runs during shader-load phase; rast only runs during rasterisation.
-    io.gpuRead.req  := Mux(dma.io.busy, dma.io.gpuRead.req, rast.io.gpuRead.req)
-    io.gpuRead.addr := Mux(dma.io.busy, dma.io.gpuRead.addr, rast.io.gpuRead.addr)
-    rast.io.gpuRead.data  := io.gpuRead.data
-    rast.io.gpuRead.ready := io.gpuRead.ready && !dma.io.busy
-    dma.io.gpuRead.data   := io.gpuRead.data
-    dma.io.gpuRead.ready  := io.gpuRead.ready && dma.io.busy
+    // GPU read port: DMA arbitration when hasDMA=true, direct to rast otherwise.
+    dma match {
+      case Some(d) =>
+        io.gpuRead.req  := Mux(d.io.busy, d.io.gpuRead.req, rast.io.gpuRead.req)
+        io.gpuRead.addr := Mux(d.io.busy, d.io.gpuRead.addr, rast.io.gpuRead.addr)
+        rast.io.gpuRead.data  := io.gpuRead.data
+        rast.io.gpuRead.ready := io.gpuRead.ready && !d.io.busy
+        d.io.gpuRead.data     := io.gpuRead.data
+        d.io.gpuRead.ready    := io.gpuRead.ready && d.io.busy
+      case None =>
+        // No DMA: rast has exclusive gpuRead access
+        rast.io.gpuRead <> io.gpuRead
+    }
 
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
     rast.io.texConfig.baseAddr := rdlRegs.io.hw.tex_config_base_addr
@@ -263,17 +276,39 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   }
 
   private def wireDMA(): Unit = {
-    // Build descriptor from RDL registers
-    val desc = Wire(new DMADescriptor)
-    desc.baseAddr := rdlRegs.io.hw.dma_psram_base
-    desc.length   := rdlRegs.io.hw.dma_config_length
-    desc.dest     := rdlRegs.io.hw.dma_config_dest
-    desc.offset   := rdlRegs.io.hw.dma_config_offset
+    dma match {
+      case Some(d) =>
+        // DMA RDL registers have nogen=true (no hw ports generated).
+        // Decode the DMA descriptor fields directly from the MMIO bus.
+        // These registers mirror dma_psram @ 0x210 and dma_config @ 0x214.
+        val dmaBaseReg   = RegInit(0.U(20.W))
+        val dmaLenReg    = RegInit(0.U(6.W))
+        val dmaDestReg   = RegInit(0.U(2.W))
+        val dmaOffsetReg = RegInit(0.U(6.W))
+        val dmaStartPulse = WireDefault(false.B)
 
-    dma.io.start := rdlRegs.io.hw.dma_config_start.asBool
-    dma.io.desc  := desc
+        when(is_writing && io.address === BorgGpuRegs.dma_psram_offset) {
+          dmaBaseReg := io.data_in(19, 0)
+        }
+        when(is_writing && io.address === BorgGpuRegs.dma_config_offset) {
+          dmaLenReg    := io.data_in(6, 1)
+          dmaDestReg   := io.data_in(8, 7)
+          dmaOffsetReg := io.data_in(14, 9)
+          dmaStartPulse := io.data_in(0)
+        }
 
-    // Feed busy back to STATUS register (bit 3)
-    rdlRegs.io.hw.status_dma_busy := dma.io.busy.asUInt
+        val desc = Wire(new DMADescriptor)
+        desc.baseAddr := dmaBaseReg
+        desc.length   := dmaLenReg
+        desc.dest     := dmaDestReg
+        desc.offset   := dmaOffsetReg
+        d.io.start := dmaStartPulse
+        d.io.desc  := desc
+        rdlRegs.io.hw.status_dma_busy := d.io.busy.asUInt
+
+      case None =>
+        // hasDMA=false: DMA RDL registers have nogen=true, no hw ports.
+        rdlRegs.io.hw.status_dma_busy := 0.U
+    }
   }
 }

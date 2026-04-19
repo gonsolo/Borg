@@ -155,9 +155,14 @@ trait SoCLogic { self: RawModule =>
         Mux(fast_sim_en, memSim.io.instrFetch.instr_ready,
                          i_memReal.io.instrFetch.instr_ready)
 
-      // Data always from real controller (QSPI PSRAM model)
-      i_tinyqv.io.memBus.ready   := i_memReal.io.cpuData.ready
-      i_tinyqv.io.memBus.dataIn := i_memReal.io.cpuData.dataIn
+      // CPU data path: mux PSRAM reads through MemoryControllerSim when
+      // fast_sim_en is set.  Flash data reads (addr bits 24:23 != 10) must
+      // remain on the real controller — MemoryControllerSim only handles PSRAM
+      // and would never assert ready for Flash addresses.
+      val cpu_addr_is_psram = i_tinyqv.io.memBus.addr(24, 23) === 2.U
+      val use_sim_cpu = fast_sim_en && cpu_addr_is_psram
+      i_tinyqv.io.memBus.ready  := Mux(use_sim_cpu, memSim.io.cpuData.ready,  i_memReal.io.cpuData.ready)
+      i_tinyqv.io.memBus.dataIn := Mux(use_sim_cpu, memSim.io.cpuData.dataIn, i_memReal.io.cpuData.dataIn)
 
       // GPU read responses MUXed by fast_sim_en (Step 19.2)
       i_peripherals.io.gpuRead.data  := Mux(fast_sim_en, memSim.io.gpuRead.data,  i_memReal.io.gpuRead.data)

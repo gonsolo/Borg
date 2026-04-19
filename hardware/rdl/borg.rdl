@@ -24,6 +24,15 @@
 //   CMD_ENQUEUE:  0x1FC
 
 // ============================================================================
+// User-defined properties
+// ============================================================================
+
+// nogen: when true on a register instance, suppresses hardware synthesis for
+// that register.  The offset constant is still emitted for firmware
+// compatibility; writes to the MMIO address are silently ignored by hardware.
+property nogen { type = boolean; default = false; component = reg; };
+
+// ============================================================================
 // Field / Register type definitions
 // ============================================================================
 
@@ -311,13 +320,13 @@ reg tex_uv_reg_t {
             Reading returns the Morton-encoded 12-bit texel index.";
 
     field {
-        sw = w; hw = r;
-        desc = "Bits 15:0: U coordinate (FP16, pre-scaled to texel space).";
+        sw = w; hw = na;
+        desc = "Bits 15:0: U coordinate (FP16, pre-scaled to texel space). Deprecated: hardware now uses rasterizer snoop.";
     } u[16] = 0;
 
     field {
-        sw = w; hw = r;
-        desc = "Bits 31:16: V coordinate (FP16, pre-scaled to texel space).";
+        sw = w; hw = na;
+        desc = "Bits 31:16: V coordinate (FP16, pre-scaled to texel space). Deprecated: hardware now uses rasterizer snoop.";
     } v[16] = 0;
 };
 
@@ -475,9 +484,11 @@ addrmap borg_gpu {
     // ---- Fragment Shader Start PC: 0x20C ----
     frag_pc_reg_t frag_pc;
 
-    // ---- DMA PSRAM Base Address: 0x210 ----
+    // ---- DMA PSRAM Base Address: 0x210 — nogen on FPGA (hasDMA=false) ----
     dma_psram_reg_t dma_psram;
+    dma_psram->nogen = true;
 
-    // ---- DMA Configuration + Trigger: 0x214 ----
+    // ---- DMA Configuration + Trigger: 0x214 — nogen on FPGA (hasDMA=false) ----
     dma_config_reg_t dma_config;
+    dma_config->nogen = true;
 };

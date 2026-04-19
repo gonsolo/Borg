@@ -24,7 +24,12 @@ class MemoryControllerSim extends Module {
   // Unified simulation memories — SyncReadMem so CIRCT emits external SRAM
   // modules whose backing arrays are directly accessible from C++.
   val sim_flash_ext = SyncReadMem(1048576, UInt(8.W))  // 1 MB flash/firmware
-  val sim_psram_ext = SyncReadMem(8388608, UInt(8.W))  // 8 MB PSRAM
+  val sim_psram_ext = SyncReadMem(8388608, UInt(8.W))  // 8 MB PSRAM (CPU read/write)
+
+  // Separate 32-bit-wide BRAM for GPU reads — avoids multi-port contention
+  // with CPU reads on sim_psram_ext.  Indexed by word address (byte_addr >> 2).
+  // Only 1 MB (GPU addr is 20-bit); C++ harness packs 4 bytes per entry.
+  val sim_psram_gpu = SyncReadMem(262144, UInt(32.W)) // 256K words × 32-bit = 1 MB
 
   // Dummy write ports to prevent CIRCT from constant-folding the memories away.
   // The never-asserted write-enable keeps the memory alive while guaranteeing
@@ -34,6 +39,7 @@ class MemoryControllerSim extends Module {
   when(flash_wen) {
     sim_flash_ext.write(0.U(20.W), 0.U(8.W))
     sim_psram_ext.write(0.U(23.W), 0.U(8.W))
+    sim_psram_gpu.write(0.U(18.W), 0.U(32.W))
   }
 
   // ---------------------------------------------------------------------------
@@ -119,29 +125,42 @@ class MemoryControllerSim extends Module {
 
   // ---------------------------------------------------------------------------
   // GPU Read Port — fast bypass (Step 19.2)
+  //
+  // The rasterizer's sTexFetch holds req=true across two consecutive reads with
+  // different addresses. After each read completes (ready pulse), we auto-clear
+  // pending so the next cycle re-latches the (now-updated) address.
+  // This matches the real MemoryController where gpu_active goes false after
+  // each completed SPI transaction.
   // ---------------------------------------------------------------------------
   val gpu_read_pending = RegInit(false.B)
-  val gpu_addr_reg     = RegInit(0.U(16.W))
+  val gpu_data_valid   = RegInit(false.B)
+  val gpu_addr_reg     = RegInit(0.U(20.W))  // Must match GpuReadIO.addr width
 
   // Latch address on new request
   when(io.gpuRead.req && !gpu_read_pending) {
     gpu_addr_reg     := io.gpuRead.addr
     gpu_read_pending := true.B
+    gpu_data_valid   := false.B
   }
 
-  // Read 4 bytes from PSRAM at latched address
-  val gpu_r0 = sim_psram_ext(gpu_addr_reg)
-  val gpu_r1 = sim_psram_ext(gpu_addr_reg + 1.U)
-  val gpu_r2 = sim_psram_ext(gpu_addr_reg + 2.U)
-  val gpu_r3 = sim_psram_ext(gpu_addr_reg + 3.U)
+  // SyncReadMem has 1-cycle read latency: at T+1 gpu_addr_reg is stable,
+  // read fires; at T+2 data is valid on the output.
+  when(gpu_read_pending && !gpu_data_valid) {
+    gpu_data_valid := true.B
+  }
 
-  // Assemble and drive outputs
-  io.gpuRead.data  := Cat(gpu_r3, gpu_r2, gpu_r1, gpu_r0)
-  io.gpuRead.ready := gpu_read_pending
+  // Single 32-bit read from dedicated GPU BRAM (word-addressed, combinational)
+  val gpu_word = sim_psram_gpu(gpu_addr_reg(19, 2))
 
-  // Clear pending when requestor drops req
-  when(gpu_read_pending && !io.gpuRead.req) {
+  // Drive outputs — combinational data, ready gated by data_valid.
+  // At T+2 both are correct: data_valid=true and gpu_word holds T+1’s read.
+  io.gpuRead.data  := gpu_word
+  io.gpuRead.ready := gpu_data_valid
+
+  // Auto-clear after data delivered so back-to-back reads re-latch the address.
+  when(gpu_data_valid || (gpu_read_pending && !io.gpuRead.req)) {
     gpu_read_pending := false.B
+    gpu_data_valid   := false.B
   }
 
   // ---------------------------------------------------------------------------

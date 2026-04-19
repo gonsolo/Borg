@@ -22,11 +22,13 @@ CHISEL_SRCS = $(shell find ../../hardware/borg/src ../../hardware/soc/src \
 all: triangle vkcube
 
 # Step 0: Hardware Generation — reruns when any Chisel/RDL source changes
-../../out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir: $(CHISEL_SRCS)
+# Step 0: Hardware Generation — reruns when any Chisel/RDL source changes
+# DEBUG: Using sim FIRRTL to test GPU read bypass via MemoryControllerSim
+../../out/hardware/borg/firrtl_sim/tt_um_gonsolo_borg.fir: $(CHISEL_SRCS)
 	$(MAKE) -C ../../ generate_verilog
 
 # Step 1: FIRRTL → HW MLIR
-borg.mlir: ../../out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir
+borg.mlir: ../../out/hardware/borg/firrtl_sim/tt_um_gonsolo_borg.fir
 	$(FIRTOOL) $< --disable-layers=Verification --ir-hw > $@
 
 # Step 2: HW MLIR → LLVM IR + state info

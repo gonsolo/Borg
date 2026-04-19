@@ -20,7 +20,8 @@ case class BorgConfig(
     fp: FloatConfig = FloatConfig.FP16,
     coordWidth: Int = 9,
     fifoDepth: Int = 2,
-    hasImemMmio: Boolean = true
+    hasImemMmio: Boolean = true,
+    hasDMA: Boolean = true
 ) {
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
@@ -36,7 +37,8 @@ object BorgConfig {
     fp           = FloatConfig.FP16,
     coordWidth   = 6,   // max 64×64 framebuffer
     fifoDepth    = 1,
-    hasImemMmio  = true // flip to false after Step 22.4
+    hasImemMmio  = true, // flip to false after Step 22.4
+    hasDMA       = false // BorgDMA costs ~180 LCs; re-enable once firmware uses it
   )
 
   /** Verilator / Arcilator simulation: no area constraint. */
