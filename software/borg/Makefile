@@ -26,7 +26,8 @@ triangle:
 
 vkcube:
 	$(MAKE) -C compiler all
-	bear -- $(MAKE) PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" vkcube.bin vkcube.hex
+	bear -- $(MAKE) PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" \
+		EXTRA_CFLAGS="$(if $(LARGE_TEX),,-DUSE_SMALL_TEXTURE)" vkcube.bin vkcube.hex
 
 textest:
 	$(MAKE) -C compiler all
@@ -44,7 +45,7 @@ $(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s
 	$(MAKE) -C $(TINYQV_SDK) $(notdir $@)
 
 %.o: %.c $(HEADERS)
-	$(CC) -O2 -I$(TINYQV_SDK) -I../../out/hardware/borg/rdl -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -c $< -o $@
+	$(CC) -O2 -I$(TINYQV_SDK) -I../../out/hardware/borg/rdl -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc $(EXTRA_CFLAGS) -c $< -o $@
 
 %.o: %.s
 	$(AS) -march=$(ARCH) -mabi=$(ABI) -I$(TINYQV_SDK) $< -o $@

@@ -323,9 +323,9 @@ def render_all_frames(app_name='triangle'):
     # Sentinel after the Morton-packed texture: dim×dim texels × 2 words × 4 bytes
     TEX_SENTINEL_SPI_ADDR = TEX_SPI_BASE + tex_dim * tex_dim * 2 * 4
 
-    # Sentinel magic derived from texture filename — different textures get
-    # different sentinels so switching apps forces a re-upload.
-    TEX_SENTINEL_MAGIC = sum(ord(c) for c in tex_file) & 0xFFFF
+    # Sentinel magic derived from texture filename and size — different textures 
+    # get different sentinels so switching apps or sizes forces a re-upload.
+    TEX_SENTINEL_MAGIC = (sum(ord(c) for c in tex_file) + tex_size) & 0xFFFF
 
     # Check if texture is already uploaded by reading the sentinel
     sm_r_check = rp2.StateMachine(0, qspi_read, 16_000_000,

@@ -1,11 +1,14 @@
 # SPDX-FileCopyrightText: © 2025-2026 Andreas Wendleder
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# Prevent parallel make from running two FPGA targets that share /dev/ttyACM0
+.NOTPARALLEL:
+
 BOLD := \033[1m
 RESET   := \033[0m
 
-# Safe mpremote wrapper: timeout + automatic USB recovery on hang
-MPREMOTE := host/mpremote_safe.sh
+# Rock-solid mpremote wrapper: lockfile + pre-flight + SIGTERM + auto-recovery
+MPREMOTE := host/mpremote.sh
 
 all: help
 help:
@@ -17,6 +20,10 @@ help:
 	@echo -e "  reset:\t\tReset the CPU."
 	@echo -e "  usb-recover:\t\tRecover hung pico-ice USB (no reboot)."
 	@echo -e "  usb-check:\t\tCheck if pico-ice USB is responsive."
+	@echo -e "  usb-preflight:\tCheck USB health + auto-recover before a run."
+	@echo -e "  install-udev:\t\tInstall udev rules (run once on each new workstation)."
+	@echo -e "  enable-bootsel:\tTemporarily allow /dev/sda for uf2 flashing (needs sudo)."
+	@echo -e "  disable-bootsel:\tRe-block usb_storage for pico-ice BOOTSEL (needs sudo)."
 	@echo -e "  borg.json:\t\tRun synthesis."
 	@echo -e "  borg.asc:\t\tRun Place & Route (pnr)."
 	@echo -e "  borg.bin:\t\tGenerate the FPGA bitstream."
@@ -59,14 +66,19 @@ borg.asc: borg.json
 borg.bin: borg.asc
 	icepack $< $@
 
-# Burn to FPGA (uses safe wrapper for automatic USB recovery on hang)
+# Burn to FPGA (uses rock-solid wrapper — umount is handled inside mpremote.sh)
+# Use FORCE_REBURN=1 to re-flash even if .burned exists, e.g. after a USB hang
+# that may have corrupted the previous flash:  make burn FORCE_REBURN=1
 .burned: borg.bin ../out/hardware/borg/rdl/borg_mmio.py
-	@-umount /dev/sda 2>/dev/null; true
 	$(MPREMOTE) 60 cp ../out/hardware/borg/rdl/borg_mmio.py :borg_mmio.py
 	$(MPREMOTE) 180 mount . + run host/program_bitstream.py
 	@touch .burned
 
-burn: .burned
+burn: usb-preflight
+ifdef FORCE_REBURN
+	@rm -f .burned
+endif
+	$(MAKE) .burned
 
 # USB recovery targets
 usb-recover:
@@ -74,6 +86,15 @@ usb-recover:
 
 usb-check:
 	@host/usb_recover.sh --check
+
+# Pre-flight: check USB health and auto-recover before any deployment
+# Depended upon by triangle/vkcube/burn so they always start from a good state
+usb-preflight:
+	@if ! host/usb_recover.sh --check 2>/dev/null; then \
+		echo -e "$(BOLD)[PREFLIGHT]$(RESET) pico-ice not responsive — attempting recovery ..."; \
+		host/usb_recover.sh || (echo -e "\033[1;31m[PREFLIGHT] Recovery failed. Replug pico-ice.\033[0m" && exit 1); \
+	fi
+	@echo -e "$(BOLD)[PREFLIGHT]$(RESET) pico-ice OK"
 
 # Print used FPGA resources (after borg.json has been generated)
 # LC estimate: each SB_CARRY requires its own LC (can't share with DFFs).
@@ -115,24 +136,23 @@ print_resources: yosys.log
 ######### Build software and run ###################################################################
 
 # Build firmware and run triangle rendering
-triangle: .burned
-	@sleep 2
+triangle: usb-preflight .burned
 	@$(MAKE) --no-print-directory -s -C ../software/borg triangle
 	@mkdir -p firmware_cache
 	@cp ../software/borg/triangle.bin ../software/borg/test_texture.dat firmware_cache/
 	@$(MPREMOTE) 300 mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/triangle.bin')" | tee /tmp/mpremote_output.txt
 
 # Build firmware and run vkcube rendering
-vkcube: .burned
-	@sleep 2
-	@$(MAKE) --no-print-directory -s -C ../software/borg vkcube
+vkcube: usb-preflight .burned
+	@$(MAKE) --no-print-directory -s -C ../software/borg vkcube LARGE_TEX=$(LARGE_TEX)
 	@mkdir -p firmware_cache
-	@cp ../software/borg/vkcube.bin ../software/borg/borg_texture.dat firmware_cache/
+	@cp ../software/borg/vkcube.bin firmware_cache/
+	@cp ../software/borg/$(if $(LARGE_TEX),borg_texture.dat,borg_texture_small.dat) firmware_cache/borg_texture.dat
 	@$(MPREMOTE) 300 mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/vkcube.bin')" | tee /tmp/mpremote_output.txt
 
 # Catch debug output (preferably in a second shell)
 tio:
-	tio /dev/ttyACM1 | tee /tmp/tio_output.txt
+	tio $$(ls /dev/serial/by-id/*Debug_Probe*if01* 2>/dev/null | head -n1 || echo /dev/ttyACM1) | tee /tmp/tio_output.txt
 
 # Reset FPGA
 reset: .burned
@@ -143,8 +163,32 @@ clean:
 	$(MAKE) -C ../software/borg clean
 	$(MAKE) -C ../software/tinyqv clean
 
+# Install udev rules so usb_storage never deadlocks on pico-ice USB crashes.
+# Run once on each new workstation (requires sudo).
+install-udev:
+	@echo "Installing /etc/udev/rules.d/99-pico-ice.rules ..."
+	sudo cp host/99-pico-ice.rules /etc/udev/rules.d/
+	sudo udevadm control --reload-rules
+	sudo udevadm trigger
+	@echo "Done. Replug the pico-ice to apply."
+
+# Temporarily allow /dev/sda so you can flash firmware via UF2 drag-and-drop.
+# Re-run 'make disable-bootsel' (or 'make install-udev') when done.
+enable-bootsel:
+	@echo "Temporarily allowing usb_storage for BOOTSEL mode ..."
+	@sudo sed -i 's|^\(SUBSYSTEM=="usb".*idProduct=="0003".*DRIVER=="usb-storage".*\)|#\1  # temporarily disabled|' /etc/udev/rules.d/99-pico-ice.rules
+	@sudo udevadm control --reload-rules && sudo udevadm trigger
+	@echo "BOOTSEL /dev/sda enabled. Run 'make disable-bootsel' when done."
+
+disable-bootsel:
+	@echo "Re-blocking usb_storage for BOOTSEL mode ..."
+	sudo cp host/99-pico-ice.rules /etc/udev/rules.d/
+	sudo udevadm control --reload-rules
+	sudo udevadm trigger
+	@echo "BOOTSEL /dev/sda blocked again (kernel-safe)."
+
 # Timing analysis on the synthesized bitstream
 timing:
 	icetime -d up5k -c $(shell grep 'CLOCK_MHZ' ../software/borg/borg_sys.h | awk '{print $$3}') borg.asc
 
-.PHONY: all help burn clean reset print_resources timing triangle vkcube tio usb-recover usb-check
+.PHONY: all help burn clean reset print_resources timing triangle vkcube tio usb-recover usb-check usb-preflight install-udev enable-bootsel disable-bootsel

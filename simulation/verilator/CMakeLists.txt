@@ -29,6 +29,8 @@ list(FILTER VERILATOR_OBJS EXCLUDE REGEX "main\\.o$")
 nanobind_add_module(borg_sim nanobind_wrapper.cpp)
 target_link_libraries(borg_sim PRIVATE ${VERILATOR_OBJS})
 
+
+
 # Verilator headers
 target_include_directories(borg_sim PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/obj_dir 

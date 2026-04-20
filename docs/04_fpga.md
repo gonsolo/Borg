@@ -15,7 +15,31 @@ make burn       # Synthesize, place & route, program bitstream
 make triangle   # Run the triangle demo
 ```
 
+## Host Setup (one time per workstation)
+
+Install the udev rules before first use:
+
+```bash
+sudo make -C fpga install-udev
+```
+
+This installs `fpga/host/99-pico-ice.rules` into `/etc/udev/rules.d/`, which
+prevents the kernel's `usb_storage` driver from binding to the pico-ice.
+
+**Why this matters:** When the RP2040's MicroPython USB stack crashes under heavy
+PIO/SPI load, it may briefly present as a USB mass storage device. Without this
+rule, `usb_storage` binds to it, gets stuck in an uninterruptible kernel sleep
+(`state:D`), and **a full system reboot is required** to recover — even replug
+won't help. With the rule installed, the device simply re-enumerates as `ttyACM0`
+after the RP2040 restarts its USB stack.
+
+> **Note:** If you ever see `ttyACM0` disappear and `mpremote` returns
+> `OSError: [Errno 5]`, run `sudo make -C fpga usb-recover` first. If that fails
+> (i.e. you see `error -110` in dmesg), only a reboot will fix it — but with the
+> udev rule installed this should never happen again.
+
 ## Hardware Setup
+
 
 The pico-ice connects to the host workstation via USB. The RP2040 handles:
 

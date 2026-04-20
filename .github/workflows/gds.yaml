@@ -2,7 +2,10 @@ name: gds
 
 on:
   push:
+    tags:
+      - 'v*'
   workflow_dispatch:
+
 
 jobs:
   gds:
