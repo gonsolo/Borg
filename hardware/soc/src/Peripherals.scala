@@ -5,7 +5,7 @@ package soc
 
 import chisel3._
 import chisel3.util._
-import borg.{Borg, BorgConfig, GpuReadIO}
+import borg.{Borg, BorgConfig, GpuMemIO}
 
 // User peripheral address decode constants — inlined from the former PeriphDecode.scala.
 private[soc] object PeriphDecode {
@@ -46,7 +46,7 @@ class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
   val user_interrupts = Output(UInt(14.W))
 
   // GPU read port (Step 19.2: Borg → MemoryController)
-  val gpuRead = new GpuReadIO
+  val gpuMem = new GpuMemIO
 }
 
 class Peripherals(val CLOCK_MHZ: Int, val borgCfg: BorgConfig = BorgConfig.Sim) extends Module {
@@ -170,7 +170,7 @@ class Peripherals(val CLOCK_MHZ: Int, val borgCfg: BorgConfig = BorgConfig.Sim) 
       interrupt_borg := borg.io.user_interrupt
 
       // GPU read port passthrough (Step 19.2)
-      borg.io.gpuRead <> io.gpuRead
+      borg.io.gpuMem <> io.gpuMem
 
       when(is_borg) {
         data_from_peri := borg.io.data_out

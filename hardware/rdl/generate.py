@@ -38,12 +38,10 @@ for p in peripherals:
             # Chisel register block (only if enabled)
             if p.get("chisel", False):
                 chisel.export(child, scala_out_dir, package_name="borg")
-                print(f"Generated Chisel: {p['name']}")
 
             # C header
             cheader_file = os.path.join(c_out_dir, f"{p['name']}_regs.h")
             cheader.export(child, cheader_file)
-            print(f"Generated C header: {cheader_file}")
 
 # Also compile the full SoC for the combined C header (has base addresses)
 rdlc_soc = systemrdl.RDLCompiler()
@@ -54,7 +52,6 @@ for child in root_soc.children():
     if isinstance(child, AddrmapNode):
         soc_header = os.path.join(c_out_dir, "soc_regs.h")
         cheader.export(child, soc_header)
-        print(f"Generated SoC C header: {soc_header}")
 
 
 # ============================================================================
@@ -99,7 +96,6 @@ def emit_python(path, rdl_consts):
         borg_regs = {k: v for k, v in sorted(rdl_consts.items()) if k.startswith("BORG_") and k.endswith("_OFFSET")}
         for k, v in borg_regs.items():
             # Strip BORG_ prefix for cleaner names matching legacy convention
-            short = k.replace("BORG_", "BORG_")  # keep as-is for clarity
             f.write(f"{k} = 0x{v:03X}\n")
         f.write("\n")
 
@@ -183,12 +179,11 @@ def emit_python(path, rdl_consts):
         f.write("    return (0x14000000 | (funct3 << 12) | (rs1 << 15) | (rd << 7))\n")
         f.write("def encode_rv32_halt(): return 0x00000000\n")
 
-    print(f"Generated Python: {path}")
-
 
 # Generate Python constants (single canonical copy — Makefile copies to consumers)
 rdl_consts = collect_rdl_constants(root_soc)
 emit_python(os.path.join(c_out_dir, "borg_mmio.py"), rdl_consts)
 
-print(f"\nChisel output: {scala_out_dir}")
-print(f"C header output: {c_out_dir}")
+print(f"✓ RDL generation successful.")
+print(f"  Chisel: {scala_out_dir}")
+print(f"  C/Python: {c_out_dir}")

@@ -18,6 +18,7 @@ obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/asic_files.txt $(V_SR
 	@SRC_FILES=$$(cat $(HW_DIR)/borg/verilog_sim/asic_files.txt $(HW_DIR)/tinyqv/verilog/asic_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
 	echo "Building Verilator models..."; \
 	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall --build -j 0 \
+	-MAKEFLAGS "-s" \
 	-I$(HW_DIR)/borg/verilog_sim -I$(HW_DIR)/tinyqv/verilog \
 	-I$(HW_DIR)/borg/verilog_sim/verification/assert -I$(HW_DIR)/borg/verilog_sim/verification \
 	-I$(HW_DIR)/tinyqv/verilog/verification/assert -I$(HW_DIR)/tinyqv/verilog/verification \
@@ -38,27 +39,24 @@ $(FIRMWARE_DIR)/%.bin: $(HW_DIR)/borg/verilog/asic_files.txt
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
 # Simulation targets
-triangle: obj_dir/verilator_sim $(FIRMWARE_DIR)/triangle.bin
+triangle: obj_dir/verilator_sim python_extension $(FIRMWARE_DIR)/triangle.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/triangle.bin triangle 32 32 32
 
-vkcube: obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin
+vkcube: obj_dir/verilator_sim python_extension $(FIRMWARE_DIR)/vkcube.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube 32 32 64
 
-textest: obj_dir/verilator_sim $(FIRMWARE_DIR)/textest.bin
+textest: obj_dir/verilator_sim python_extension $(FIRMWARE_DIR)/textest.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/textest.bin textest 32 32 64
 
 vkcube_gui: python_extension $(FIRMWARE_DIR)/vkcube.bin
 	python3 viewer.py
 
-vkcube_gui_fast: python_extension $(FIRMWARE_DIR)/vkcube.bin
-	python3 viewer.py --fast
-
 python_extension: obj_dir/verilator_sim
-	mkdir -p build && cd build && cmake .. -DCMAKE_CXX_COMPILER=g++ -DPython_EXECUTABLE=$$(which python3) -DVERILATOR_ROOT=$$(dirname $$(dirname $$(which verilator)))/share/verilator -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && make
+	@mkdir -p build && cd build && cmake .. -DCMAKE_CXX_COMPILER=g++ -DPython_EXECUTABLE=$$(which python3) -DVERILATOR_ROOT=$$(dirname $$(dirname $$(which verilator)))/share/verilator -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null && $(MAKE) -s
 	@ln -sf build/compile_commands.json compile_commands.json
 
 .PHONY: all triangle vkcube textest vkcube_gui clean
 
 clean:
-	rm -rf obj_dir build build_fast verilator_sim verilator_sim_fast *.ppm *.so
+	rm -rf obj_dir build verilator_sim *.ppm *.so
 

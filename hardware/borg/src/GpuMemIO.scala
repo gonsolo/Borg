@@ -16,12 +16,12 @@ import chisel3._
   *
   * {{{
   *   // GPU / peripherals IO bundle (master):
-  *   val gpuRead = new GpuReadIO
+  *   val gpuMem = new GpuMemIO
   *   // MemoryController IO bundle (slave):
-  *   val gpuRead = Flipped(new GpuReadIO)
+  *   val gpuMem = Flipped(new GpuMemIO)
   * }}}
   */
-class GpuReadIO extends Bundle {
+class GpuMemIO extends Bundle {
   val addr  = Output(UInt(20.W))  // 20-bit: 1 MB texture address space
   val req   = Output(Bool())
   val data  = Input(UInt(32.W))

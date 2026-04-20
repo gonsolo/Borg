@@ -243,7 +243,6 @@ class BorgBackend:
                 if next_uniform_idx >= 32:
                     raise RuntimeError(f"Out of uniform buffer slots (max 32) for {vreg}")
                 self.vreg_to_uniform[vreg] = next_uniform_idx
-                print(f"UNIFORM {vreg} -> u{next_uniform_idx}")
                 next_uniform_idx += 1
                 # Remove from live_intervals since uniforms don't need GPRs
                 if vreg in live_intervals:
@@ -305,7 +304,6 @@ class BorgBackend:
 
             preg = reg_pool.pop(0)
             self.vreg_to_preg[vreg] = preg
-            print(f"MAPPED {vreg} to r{preg}  [{start},{end}]")
             active.append((end, vreg))
             active.sort(key=lambda a: a[0])
 
@@ -354,13 +352,11 @@ class BorgBackend:
                     if io_type == "uniform":
                         if vreg in self.vreg_to_uniform:
                             uidx = self.vreg_to_uniform[vreg]
-                            print(f"MAPPED {io_type} {name} to u{uidx}")
                             self.borg_defines.append((io_type, name.upper(), uidx))
                             self.borg_uniforms.append((name.upper(), uidx))
                     elif io_type in ("attribute", "output", "bind"):
                         if vreg in self.vreg_to_preg:
                             preg = self.vreg_to_preg[vreg]
-                            print(f"MAPPED {io_type} {name} to r{preg}")
                             self.borg_defines.append((io_type, name.upper(), preg))
                             if io_type == "attribute":
                                 self.borg_attributes.append((name.upper(), preg))
@@ -555,5 +551,4 @@ if __name__ == "__main__":
     allocatable_pregs = [p for p in backend.vreg_to_preg.values() if p < 30]
     peak_regs = max(allocatable_pregs) + 1 if allocatable_pregs else 0
     n_uniforms = len(backend.vreg_to_uniform)
-    print(f"INFO: Peak GPR usage: {peak_regs}/30, Uniform buffer: {n_uniforms}/32")
     print(f"Generated {out_path} ({len(data)} bytes)")

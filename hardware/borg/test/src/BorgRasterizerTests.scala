@@ -26,8 +26,8 @@ object BorgRasterizerTests extends TestSuite {
     rast.io.coreStatus.running.poke(false.B)
     rast.io.coreStatus.autoRunPending.poke(false.B)
     // Step 19.2 GPU read-port defaults
-    rast.io.gpuRead.data.poke(0.U)
-    rast.io.gpuRead.ready.poke(false.B)
+    rast.io.gpuMem.data.poke(0.U)
+    rast.io.gpuMem.ready.poke(false.B)
     rast.io.texConfig.mortonIndex.poke(0.U)
     rast.io.texConfig.baseAddr.poke(0.U)
     rast.io.texConfig.en.poke(false.B)
@@ -414,31 +414,31 @@ object BorgRasterizerTests extends TestSuite {
         simulateShaderRun(rast)
 
         // sTexFetch: B word first, then RG
-        rast.io.gpuRead.ready.poke(false.B)
+        rast.io.gpuMem.ready.poke(false.B)
         rast.clock.step(1)
 
-        val req0  = rast.io.gpuRead.req.peek().litToBoolean
-        val addr0 = rast.io.gpuRead.addr.peek().litValue.toInt
+        val req0  = rast.io.gpuMem.req.peek().litToBoolean
+        val addr0 = rast.io.gpuMem.addr.peek().litValue.toInt
         println(f"  sTexFetch Read0 (B): gpu_read_req=$req0, gpu_addr=0x${addr0.toHexString} (expect 0x${expectedW1.toHexString})")
         utest.assert(req0)
         utest.assert(addr0 == expectedW1)
 
-        rast.io.gpuRead.data.poke(gpuWord1.U)
-        rast.io.gpuRead.ready.poke(true.B)
+        rast.io.gpuMem.data.poke(gpuWord1.U)
+        rast.io.gpuMem.ready.poke(true.B)
         rast.clock.step(1)
-        rast.io.gpuRead.ready.poke(false.B)
+        rast.io.gpuMem.ready.poke(false.B)
 
         rast.clock.step(1)
-        val req1  = rast.io.gpuRead.req.peek().litToBoolean
-        val addr1 = rast.io.gpuRead.addr.peek().litValue.toInt
+        val req1  = rast.io.gpuMem.req.peek().litToBoolean
+        val addr1 = rast.io.gpuMem.addr.peek().litValue.toInt
         println(f"  sTexFetch Read1 (RG): gpu_read_req=$req1, gpu_addr=0x${addr1.toHexString} (expect 0x${expectedW0.toHexString})")
         utest.assert(req1)
         utest.assert(addr1 == expectedW0)
 
-        rast.io.gpuRead.data.poke(gpuWord0.U)
-        rast.io.gpuRead.ready.poke(true.B)
+        rast.io.gpuMem.data.poke(gpuWord0.U)
+        rast.io.gpuMem.ready.poke(true.B)
         rast.clock.step(1)
-        rast.io.gpuRead.ready.poke(false.B)
+        rast.io.gpuMem.ready.poke(false.B)
 
         val tileWr = rast.io.tileWrite.en.peek().litToBoolean
         println(f"  sTileWrite: tileWrite.en=$tileWr")

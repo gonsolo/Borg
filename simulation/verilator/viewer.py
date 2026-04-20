@@ -8,7 +8,6 @@ import numpy as np
 
 # Load the compiled nanobind module
 script_dir = os.path.dirname(os.path.abspath(__file__))
-use_fast = '--fast' in sys.argv
 use_arc = '--arc' in sys.argv or 'arc_viewer' in os.path.basename(sys.argv[0])
 sys.path.insert(0, os.path.join(script_dir, 'build'))
 sys.path.insert(0, os.path.join(script_dir, '../arcilator/build'))
@@ -32,7 +31,7 @@ def main():
         sys.exit(1)
         
     print(f"Loading Firmware: {FW_PATH}")
-    sim = borg_sim.BorgSimulator(FW_PATH, use_fast)
+    sim = borg_sim.BorgSimulator(FW_PATH)
     
     if os.path.exists(TEX_PATH):
         print(f"Loading Texture: {TEX_PATH}")

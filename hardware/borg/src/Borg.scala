@@ -31,7 +31,7 @@ class BorgIO(val cfg: BorgConfig) extends Bundle {
   val user_interrupt = Output(Bool())
 
   // GPU read port (Step 19.2: sTexFetch → MemoryController)
-  val gpuRead = new GpuReadIO
+  val gpuMem = new GpuMemIO
 }
 
 class RegFileCopyIO(width: Int) extends Bundle {
@@ -169,15 +169,15 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // GPU read port: DMA arbitration when hasDMA=true, direct to rast otherwise.
     dma match {
       case Some(d) =>
-        io.gpuRead.req  := Mux(d.io.busy, d.io.gpuRead.req, rast.io.gpuRead.req)
-        io.gpuRead.addr := Mux(d.io.busy, d.io.gpuRead.addr, rast.io.gpuRead.addr)
-        rast.io.gpuRead.data  := io.gpuRead.data
-        rast.io.gpuRead.ready := io.gpuRead.ready && !d.io.busy
-        d.io.gpuRead.data     := io.gpuRead.data
-        d.io.gpuRead.ready    := io.gpuRead.ready && d.io.busy
+        io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req, rast.io.gpuMem.req)
+        io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr, rast.io.gpuMem.addr)
+        rast.io.gpuMem.data  := io.gpuMem.data
+        rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy
+        d.io.gpuMem.data     := io.gpuMem.data
+        d.io.gpuMem.ready    := io.gpuMem.ready && d.io.busy
       case None =>
-        // No DMA: rast has exclusive gpuRead access
-        rast.io.gpuRead <> io.gpuRead
+        // No DMA: rast has exclusive gpuMem access
+        rast.io.gpuMem <> io.gpuMem
     }
 
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)

@@ -25,20 +25,20 @@ class BorgDMAIO extends Bundle {
   val start        = Input(Bool())
   val desc         = Input(new DMADescriptor)
   val busy         = Output(Bool())
-  val gpuRead      = new GpuReadIO
+  val gpuMem      = new GpuMemIO
   val imemWrite    = new DMAWritePort(32)
   val uniformWrite = new DMAWritePort(16)
 }
 
 /** BorgDMA — bulk PSRAM→IMEM/Uniform DMA engine (Step 22.1).
   *
-  * Drives the same [[GpuReadIO]] port used by sTexFetch. Arbitration is
+  * Drives the same [[GpuMemIO]] port used by sTexFetch. Arbitration is
   * handled externally in Borg.scala; DMA only runs when the rasterizer is
   * idle so the two never contend in practice.
   *
   * FSM:
   *   sIdle → sRead on start pulse
-  *   sRead: assert gpuRead.req; on ready → write word + advance counter;
+  *   sRead: assert gpuMem.req; on ready → write word + advance counter;
   *          if all words done → sIdle, else stay in sRead
   *
   * dest encoding:
@@ -57,8 +57,8 @@ class BorgDMA extends Module {
   val descReg  = RegInit(0.U.asTypeOf(new DMADescriptor))
 
   // Defaults
-  io.gpuRead.req  := false.B
-  io.gpuRead.addr := 0.U
+  io.gpuMem.req   := false.B
+  io.gpuMem.addr  := 0.U
 
   io.imemWrite.en   := false.B
   io.imemWrite.addr := 0.U
@@ -81,23 +81,23 @@ class BorgDMA extends Module {
     }
 
     is(sRead) {
-      io.gpuRead.req  := true.B
-      io.gpuRead.addr := addrReg
+      io.gpuMem.req  := true.B
+      io.gpuMem.addr := addrReg
 
-      when(io.gpuRead.ready) {
+      when(io.gpuMem.ready) {
         val destIdx = descReg.offset +& countReg
 
         when(descReg.dest === 0.U) {
           // IMEM: full 32-bit word
           io.imemWrite.en   := true.B
           io.imemWrite.addr := destIdx
-          io.imemWrite.data := io.gpuRead.data
+          io.imemWrite.data := io.gpuMem.data
         }.otherwise {
           // Uniform buffer: low 16 bits; page from dest field
           val page = Mux(descReg.dest === 2.U, 1.U(1.W), 0.U(1.W))
           io.uniformWrite.en   := true.B
           io.uniformWrite.addr := Cat(page, destIdx(4, 0))
-          io.uniformWrite.data := io.gpuRead.data(15, 0)
+          io.uniformWrite.data := io.gpuMem.data(15, 0)
         }
 
         addrReg  := addrReg + 4.U

@@ -37,8 +37,6 @@ class QspiController extends Module {
     val IDLE, CMD, ADDR, DUMMY1, DUMMY2, DATA, STALLED, STALL_RECOVER = Value
   }
 
-  val spi_clk_pos_wire = Wire(Bool())
-  val spi_clk_use_neg_wire = Wire(Bool())
     val fsm_state = RegInit(State.IDLE)
     val is_writing = RegInit(false.B)
     val addr = RegInit(0.U(24.W))

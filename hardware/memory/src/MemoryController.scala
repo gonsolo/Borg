@@ -7,7 +7,7 @@ package memory
 import chisel3._
 import chisel3.util._
 import tinyqv.cpu.{InstrFetchIO, MemBusIO}
-import borg.GpuReadIO
+import borg.GpuMemIO
 
 /** IO bundle for the SoC-level memory controller.
   *
@@ -24,7 +24,7 @@ class MemoryControllerIO extends Bundle {
   val cpuData = Flipped(new MemBusIO)
 
   // GPU read port (slave end — Flipped so Output/Input directions are from the GPU master's view)
-  val gpuRead = Flipped(new GpuReadIO)
+  val gpuMem = Flipped(new GpuMemIO)
 
   // SPI/QSPI pins — MemoryController is the sole owner of the physical bus;
   // neither TinyQV nor Borg have any knowledge of QSPI.
@@ -81,7 +81,7 @@ class MemoryController extends Module {
   val txn_len   = Mux(is_instr, 1.U(2.W), data_txn_len)
   val addr_in = WireDefault(io.cpuData.addr(24, 0))
   when(is_instr) { addr_in := Cat(0.U(1.W), io.instrFetch.instr_addr, 0.U(1.W)) }
-  when(is_gpu)   { addr_in := Cat(2.U(2.W), 0.U(3.W), io.gpuRead.addr) }
+  when(is_gpu)   { addr_in := Cat(2.U(2.W), 0.U(3.W), io.gpuMem.addr) }
 
   val stall_txn = instr_active &&
     io.instrFetch.instr_fetch_stall &&
@@ -130,7 +130,7 @@ class MemoryController extends Module {
           (qspi_data_ready && qspi_data_byte_idx === 1.U) ||
           io.instrFetch.instr_fetch_stall
         ) {
-          when(data_txn_n =/= 3.U || io.gpuRead.req) { stop_txn := true.B }
+          when(data_txn_n =/= 3.U || io.gpuMem.req) { stop_txn := true.B }
         }
       } .elsewhen(
         (qspi_data_ready || qspi_data_req) &&
@@ -144,7 +144,7 @@ class MemoryController extends Module {
         start_read := true.B
       } .elsewhen(io.cpuData.writeN =/= 3.U) {
         start_write := true.B
-      } .elsewhen(io.gpuRead.req) {
+      } .elsewhen(io.gpuMem.req) {
         start_gpu_read := true.B
       } .elsewhen(io.instrFetch.instr_fetch_restart) {
         start_instr := true.B
@@ -249,8 +249,8 @@ class MemoryController extends Module {
     io.cpuData.dataIn := assembleCpuDataIn()
 
     // GPU Read Port — arbiter wired in Step 19.2
-    io.gpuRead.ready := gpu_active && qspi_data_ready && qspi_data_byte_idx === data_txn_len
-    io.gpuRead.data  := assembleGpuData()
+    io.gpuMem.ready := gpu_active && qspi_data_ready && qspi_data_byte_idx === data_txn_len
+    io.gpuMem.data  := assembleGpuData()
 
     io.debug_stall_txn := stall_txn
     io.debug_stop_txn  := stop_txn

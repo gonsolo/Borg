@@ -10,9 +10,6 @@ class VerBorgSimulator : public BorgSimulatorBase {
 public:
     Vtt_um_gonsolo_borg* model;
 
-    // Convenience accessor for the Chisel flash SyncReadMem array
-    auto& flash_arr()  { return model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_flash_ext_ext__DOT__Memory; }
-
     VerBorgSimulator(const std::string& firmware_path, bool fast_mode_val = false, uint32_t w = 32, uint32_t h = 32) {
         fast_mode = fast_mode_val;
         model = new Vtt_um_gonsolo_borg;
@@ -33,16 +30,6 @@ public:
         uint32_t* psram_init_words = (uint32_t*)psram->mem.data();
         psram_init_words[psram_spi_word_offset + 0] = width;
         psram_init_words[psram_spi_word_offset + 1] = height;
-
-        // STEP 1: Only load firmware into the Chisel flash array.
-        // Data (PSRAM) still goes through the C++ QSPI model.
-        if (fast_mode) {
-            for (size_t i = 0; i < flash->mem.size() && i < flash_arr().size(); i++) {
-                flash_arr()[i] = flash->mem[i];
-            }
-            std::cout << "[SIM] Fast mode: firmware loaded into Chisel flash array ("
-                      << flash->mem.size() << " bytes). Data via QSPI.\n";
-        }
 
         // Reset Sequence
         model->clk = 0;
@@ -95,14 +82,12 @@ public:
     }
     
     virtual void host_write_psram_word(uint32_t word_addr, uint32_t value) override {
-        if (fast_mode) {
-            uint32_t byte_addr = word_addr * 4;
-            if (byte_addr + 3 < 8388608) {
-                model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_psram_ext_ext__DOT__Memory[byte_addr] = value & 0xFF;
-                model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_psram_ext_ext__DOT__Memory[byte_addr+1] = (value >> 8) & 0xFF;
-                model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_psram_ext_ext__DOT__Memory[byte_addr+2] = (value >> 16) & 0xFF;
-                model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_psram_ext_ext__DOT__Memory[byte_addr+3] = (value >> 24) & 0xFF;
-            }
+        uint32_t byte_addr = word_addr * 4;
+        if (byte_addr + 3 < psram->mem.size()) {
+            psram->mem[byte_addr] = value & 0xFF;
+            psram->mem[byte_addr+1] = (value >> 8) & 0xFF;
+            psram->mem[byte_addr+2] = (value >> 16) & 0xFF;
+            psram->mem[byte_addr+3] = (value >> 24) & 0xFF;
         }
     }
 };

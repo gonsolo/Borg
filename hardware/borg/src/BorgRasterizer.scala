@@ -52,8 +52,8 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // Tile Buffer auto-write interface (Step 11.3)
   val tileWrite = new TileWriteIO
 
-  // GPU memory read port (Step 19.2: sTexFetch)
-  val gpuRead    = new GpuReadIO
+  // GPU memory read/write port (Step 19.2/24.3)
+  val gpuMem    = new GpuMemIO
   val texConfig  = new TexConfigIO
 
   // Snooped fragment U/V outputs for autonomous Morton encoding (Step 21.2)
@@ -126,9 +126,9 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   io.tileWrite.idx  := tileIndex(iter_reg)
   io.tileWrite.data := 0.U.asTypeOf(new ColorZ(16))
 
-  // GPU read port defaults (Step 19.2)
-  io.gpuRead.req  := false.B
-  io.gpuRead.addr := 0.U
+  // GPU read port defaults (Step 19.2 / 24.3)
+  io.gpuMem.req   := false.B
+  io.gpuMem.addr  := 0.U
 
   // --- Iterator advance ---
   when(io.advance) {
@@ -191,19 +191,19 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   // read.  RG is written last, just before sTileWrite — no latch needed.
   val tex_base = io.texConfig.baseAddr +& (io.texConfig.mortonIndex << 3)
   when(phase === sTexFetch) {
-    io.gpuRead.req  := true.B
+    io.gpuMem.req  := true.B
     // Word 1 (B, offset +4) first, then Word 0 (RG, offset +0)
-    io.gpuRead.addr := Mux(read_word_count === 0.U, tex_base | 4.U, tex_base)
+    io.gpuMem.addr := Mux(read_word_count === 0.U, tex_base | 4.U, tex_base)
 
-    when(io.gpuRead.ready) {
+    when(io.gpuMem.ready) {
       when(read_word_count === 0.U) {
-        frag_b := io.gpuRead.data(15, 0)   // B only — no Morton corruption
+        frag_b := io.gpuMem.data(15, 0)   // B only — no Morton corruption
         read_word_count := 1.U
       } .otherwise {
-        frag_r := io.gpuRead.data(15, 0)   // Safe: last read before sTileWrite
-        frag_g := io.gpuRead.data(31, 16)
+        frag_r := io.gpuMem.data(15, 0)   // Safe: last read before sTileWrite
+        frag_g := io.gpuMem.data(31, 16)
         phase := sTileWrite
-        io.gpuRead.req := false.B
+        io.gpuMem.req := false.B
       }
     }
   }
