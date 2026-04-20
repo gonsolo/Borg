@@ -1,6 +1,5 @@
 #pragma once
 #include "../common/BorgSimulatorBase.h"
-#include "../common/BorgSimulatorBase.h"
 #include <string>
 
 struct tt_um_gonsolo_borg;

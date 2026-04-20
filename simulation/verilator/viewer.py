@@ -9,9 +9,15 @@ import numpy as np
 # Load the compiled nanobind module
 script_dir = os.path.dirname(os.path.abspath(__file__))
 use_fast = '--fast' in sys.argv
+use_arc = '--arc' in sys.argv or 'arc_viewer' in os.path.basename(sys.argv[0])
 sys.path.insert(0, os.path.join(script_dir, 'build'))
+sys.path.insert(0, os.path.join(script_dir, '../arcilator/build'))
 sys.path.append(script_dir)
-import borg_sim
+
+if use_arc:
+    import arc_sim as borg_sim
+else:
+    import borg_sim
 
 def main():
     print("Starting Interactive Borg Viewer...")

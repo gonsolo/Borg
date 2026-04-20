@@ -81,3 +81,8 @@ vkcube_slow: arcilator_sim $(FIRMWARE_DIR)/vkcube.bin
 
 clean:
 	rm -f arc.h arc.ll borg.mlir state.json *.o arcilator_sim *.ppm
+	rm -rf build *.so
+
+python_extension: arcilator_sim
+	mkdir -p build && cd build && cmake .. -DCMAKE_CXX_COMPILER=g++ -DPython_EXECUTABLE=$(shell which python3) -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && $(MAKE)
+	cp build/*.so .
