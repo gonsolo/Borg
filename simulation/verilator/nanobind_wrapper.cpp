@@ -6,12 +6,12 @@
 namespace nb = nanobind;
 
 class SimulatorWrapper {
-    BorgSimulator* sim;
+    VerBorgSimulator* sim;
     std::vector<uint8_t> fb_rgb;
     bool fast_mode;
 public:
     SimulatorWrapper(const std::string& firmware_path, bool fast_mode = false) : fast_mode(fast_mode) {
-        sim = new BorgSimulator(firmware_path, fast_mode);
+        sim = new VerBorgSimulator(firmware_path, fast_mode);
     }
     
     ~SimulatorWrapper() {

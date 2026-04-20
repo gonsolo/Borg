@@ -13,7 +13,7 @@ int main(int argc, char** argv) {
     uint32_t sim_h   = (argc > 4) ? std::stoul(argv[4]) : sim_w;
     uint32_t tex_dim = (argc > 5) ? std::stoul(argv[5]) : 32;
 
-    BorgSimulator sim(firmware_path, false, sim_w, sim_h);
+    VerBorgSimulator sim(firmware_path, false, sim_w, sim_h);
 
     std::string tex_path = (app_name == "vkcube" || app_name == "textest") ? "../../software/borg/borg_texture_small.dat" : "../../software/borg/test_texture.dat";
     sim.load_texture(tex_path, tex_dim);

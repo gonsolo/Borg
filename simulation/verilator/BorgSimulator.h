@@ -1,31 +1,19 @@
 #pragma once
 
-#include "../common/common_sim.h"
-#include "../common/texture_loader.h"
-#include "../common/uart_decoder.h"
+#include "../common/BorgSimulatorBase.h"
 
 #include <Vtt_um_gonsolo_borg.h>
 #include <Vtt_um_gonsolo_borg___024root.h>
 #include <verilated.h>
 
-class BorgSimulator {
+class VerBorgSimulator : public BorgSimulatorBase {
 public:
     Vtt_um_gonsolo_borg* model;
-    QSPIMemory* flash;
-    QSPIMemory* psram;
-    UartDecoder uart;
-    bool fast_mode;
-
-    uint32_t width;
-    uint32_t height;
-    uint32_t psram_spi_word_offset;
-    uint32_t out_base_word;
-    uint32_t marker_offset_word;
 
     // Convenience accessor for the Chisel flash SyncReadMem array
     auto& flash_arr()  { return model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_flash_ext_ext__DOT__Memory; }
 
-    BorgSimulator(const std::string& firmware_path, bool fast_mode_val = false, uint32_t w = 32, uint32_t h = 32) {
+    VerBorgSimulator(const std::string& firmware_path, bool fast_mode_val = false, uint32_t w = 32, uint32_t h = 32) {
         fast_mode = fast_mode_val;
         model = new Vtt_um_gonsolo_borg;
         flash = new QSPIMemory(1024 * 1024, true); // 1MB flash
@@ -72,115 +60,37 @@ public:
         model->rst_n = 1;
     }
     
-    ~BorgSimulator() {
+    virtual ~VerBorgSimulator() override {
         delete model;
-        delete flash;
-        delete psram;
     }
     
-    void load_texture(const std::string& tex_path, uint32_t tex_dim = 32) {
-        load_texture_to_psram(psram->mem.data(), tex_path, tex_dim, TEX_PSRAM_BYTE_ADDR_FIXED);
-    }
-
-    
-    void set_camera_angles(float rx, float ry) {
-        uint32_t* psram_words = (uint32_t*)psram->mem.data();
-        float* psram_floats = (float*)&psram_words[psram_spi_word_offset];
-        psram_floats[2] = rx;
-        psram_floats[3] = ry;
-        // No Chisel PSRAM sync needed — data goes through QSPI in step 1
+    virtual void clock_low() override {
+        model->clk = 0;
+        model->eval();
     }
     
-    // Returns true when a frame completed (0xDEAD marker found), false if still busy
-    bool step(uint32_t cycles_to_run) {
-        
-        uint32_t* psram_words = (uint32_t*)psram->mem.data();
-
-        // Marker always checked in C++ QSPI model (data path is QSPI)
-        if (psram_words[marker_offset_word] == 0x0000DEAD) {
-            psram_words[marker_offset_word] = 0;
-        }
-        
-        // Assert pin 7 of user inputs to tell the SoC to mux instruction fetch to memSim
-        model->ui_in = fast_mode ? 0x80 : 0x00;
-
-        for (uint32_t c = 0; c < cycles_to_run; c++) {
-            // Phase 1 (Clock Low)
-            model->clk = 0;
-            model->eval();
-
-            uint8_t uio_out = model->uio_out;
-            uint8_t uo_out  = model->uo_out;
-            
-            bool spi_clk = get_spi_clk(uio_out);
-            bool flash_cs = get_flash_cs(uio_out);
-            bool ram_a_cs = get_ram_a_cs(uio_out);
-            
-            uint8_t mosi = decode_spi_data_out(uio_out);
-
-            uint8_t f_data = flash->tick(flash_cs, spi_clk, mosi);
-            uint8_t r_data = psram->tick(ram_a_cs, spi_clk, mosi);
-            uint8_t miso = !flash_cs ? f_data : (!ram_a_cs ? r_data : 0);
-            model->uio_in = encode_spi_data_in(miso);
-
-            // Phase 2 (Clock High)
-            model->clk = 1;
-            model->eval();
-
-            uio_out = model->uio_out;
-            uo_out  = model->uo_out;
-            
-            spi_clk = get_spi_clk(uio_out);
-            flash_cs = get_flash_cs(uio_out);
-            ram_a_cs = get_ram_a_cs(uio_out);
-            mosi = decode_spi_data_out(uio_out);
-
-            f_data = flash->tick(flash_cs, spi_clk, mosi);
-            r_data = psram->tick(ram_a_cs, spi_clk, mosi);
-            miso = !flash_cs ? f_data : (!ram_a_cs ? r_data : 0);
-            model->uio_in = encode_spi_data_in(miso);
-
-            static uint8_t last_write_n = 3;
-            if (fast_mode) {
-                uint32_t addr = model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_memReal_io_instrFetch_instr_addr_i_tinyqv__DOT__cpu__DOT__data_addr_reg;
-                uint8_t write_n = model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_memReal_io_instrFetch_instr_addr_i_tinyqv__DOT__cpu__DOT__data_write_n_reg;
-                
-                if (write_n != 3) {
-                    uint32_t data = model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_i_memReal_io_instrFetch_instr_addr_i_tinyqv__DOT__cpu__DOT__data_out_reg;
-                    
-                    if ((addr >> 23) == 2) {
-                        uint32_t psram_addr = addr & 0x7FFFFF;
-                        uint8_t* pmem = psram->mem.data();
-                        if (psram_addr < psram->mem.size() - 3) {
-                            if (write_n == 2) {
-                                pmem[psram_addr + 2] = (data >> 16) & 0xFF;
-                                pmem[psram_addr + 3] = (data >> 24) & 0xFF;
-                            }
-                            if (write_n == 1 || write_n == 2) {
-                                pmem[psram_addr + 1] = (data >> 8) & 0xFF;
-                            }
-                            pmem[psram_addr + 0] = data & 0xFF;
-                        }
-                    }
-                }
-                last_write_n = write_n;
-            }
-
-            // UART TX Decode
-            if (uart.tick((uo_out >> 0) & 1)) {
-                std::cout << (char)uart.byte() << std::flush;
-            }
-
-            // Marker always in C++ QSPI model
-            if (psram_words[marker_offset_word] == 0x0000DEAD) {
-                return true; // Frame rendered successfully!
-            }
-        }
-        return false; // Did not finish frame yet
+    virtual void clock_high() override {
+        model->clk = 1;
+        model->eval();
     }
     
-    void save_ppm(const std::string& name) {
-        // Framebuffer always in C++ QSPI model for step 1
-        ::save_ppm(name, width, height, out_base_word, psram->mem);
+    virtual uint8_t get_uio_out() override {
+        return model->uio_out;
+    }
+    
+    virtual uint8_t get_uo_out() override {
+        return model->uo_out;
+    }
+    
+    virtual void set_uio_in(uint8_t val) override {
+        model->uio_in = val;
+    }
+    
+    virtual void set_ui_in(uint8_t val) override {
+        model->ui_in = val;
+    }
+    
+    virtual int get_uart_bit_pos() const override {
+        return 0; // uo_out >> 0
     }
 };

@@ -28,6 +28,7 @@ verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/asic_files.txt $(V_SRCS)
 	$$SRC_FILES \
 	$(HW_DIR)/borg/verilog_sim/verification/layers-*.sv \
 	main.cpp \
+	../common/BorgSimulatorBase.cpp \
 	../common/texture_loader.cpp \
 	../common/uart_decoder.cpp \
 	-o verilator_sim
