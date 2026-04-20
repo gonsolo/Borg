@@ -29,6 +29,7 @@ verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/asic_files.txt $(V_SRCS)
 	$(HW_DIR)/borg/verilog_sim/verification/layers-*.sv \
 	main.cpp \
 	../common/texture_loader.cpp \
+	../common/uart_decoder.cpp \
 	-o verilator_sim
 
 # Software dependency (implicitly requires hardware mmio mappings)

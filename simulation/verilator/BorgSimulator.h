@@ -2,7 +2,7 @@
 
 #include "../common/common_sim.h"
 #include "../common/texture_loader.h"
-
+#include "../common/uart_decoder.h"
 
 #include <Vtt_um_gonsolo_borg.h>
 #include <Vtt_um_gonsolo_borg___024root.h>
@@ -13,6 +13,7 @@ public:
     Vtt_um_gonsolo_borg* model;
     QSPIMemory* flash;
     QSPIMemory* psram;
+    UartDecoder uart;
     bool fast_mode;
 
     uint32_t width;
@@ -165,36 +166,10 @@ public:
                 last_write_n = write_n;
             }
 
-            // UART TX Decode (4 MHz / 115200 Baud = ~35 cycles per bit)
-            static uint8_t last_uart = 1;
-            static int uart_bits_received = 0;
-            static int uart_cycles_waited = 0;
-            static uint8_t uart_byte = 0;
-            static bool uart_receiving = false;
-            
-            uint8_t uart_txd = (uo_out >> 0) & 1;
-            
-            if (!uart_receiving) {
-                if (last_uart == 1 && uart_txd == 0) {
-                    uart_receiving = true;
-                    uart_cycles_waited = -17; // Wait ~0.5 bits to sample middle of bit 0
-                    uart_bits_received = 0;
-                    uart_byte = 0;
-                }
-            } else {
-                uart_cycles_waited++;
-                if (uart_cycles_waited == 35) {
-                    uart_cycles_waited = 0;
-                    if (uart_bits_received < 8) {
-                        uart_byte |= (uart_txd << uart_bits_received);
-                        uart_bits_received++;
-                    } else { // 8 bits received. Stop bit is next, but we don't strictly need to check it
-                        std::cout << (char)uart_byte << std::flush;
-                        uart_receiving = false;
-                    }
-                }
+            // UART TX Decode
+            if (uart.tick((uo_out >> 0) & 1)) {
+                std::cout << (char)uart.byte() << std::flush;
             }
-            last_uart = uart_txd;
 
             // Marker always in C++ QSPI model
             if (psram_words[marker_offset_word] == 0x0000DEAD) {

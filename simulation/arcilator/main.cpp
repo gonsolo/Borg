@@ -1,5 +1,6 @@
 #include "../common/common_sim.h"
 #include "../common/texture_loader.h"
+#include "../common/uart_decoder.h"
 #include "arc.h"
 #include <fstream>
 #include <sstream>
@@ -180,6 +181,7 @@ int main(int argc, char** argv) {
     uint32_t frame_zb_size = width * height;
     uint32_t marker_offset_word = out_base_word + frame_fb_size + frame_zb_size;
     
+    UartDecoder uart;
     uint8_t prev_uio_out = 0xFF;
 
     // DEBUG: Enable fast_sim_en — mux instruction fetch + GPU reads through MemoryControllerSim
@@ -231,39 +233,9 @@ int main(int argc, char** argv) {
 
 
 
-        static uint8_t last_uart = 1;
-        static int uart_bits_received = 0;
-        static int uart_cycles_waited = 0;
-        static uint8_t uart_byte = 0;
-        static bool uart_receiving = false;
-        
-        uint8_t uart_txd = (model.view.uo_out >> 6) & 1;
-        
-        if (!uart_receiving) {
-            if (last_uart == 1 && uart_txd == 0) {
-                uart_receiving = true;
-                uart_cycles_waited = 0;
-                uart_bits_received = 0;
-                uart_byte = 0;
-            }
-        } else {
-            uart_cycles_waited++;
-            if (uart_cycles_waited == 52) { 
-                uart_byte |= (uart_txd << uart_bits_received);
-                uart_bits_received++;
-                uart_cycles_waited = 52 - 35; 
-            } else if (uart_bits_received > 0 && uart_cycles_waited == 35) {
-                if (uart_bits_received < 8) {
-                    uart_byte |= (uart_txd << uart_bits_received);
-                    uart_bits_received++;
-                    uart_cycles_waited = 0;
-                } else {
-                    std::cout << (char)uart_byte << std::flush;
-                    uart_receiving = false;
-                }
-            }
+        if (uart.tick((model.view.uo_out >> 6) & 1)) {
+            std::cout << (char)uart.byte() << std::flush;
         }
-        last_uart = uart_txd;
 
         cycles++;
 

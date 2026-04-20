@@ -1,11 +1,10 @@
 arc.h
 arc.ll
-arc.o
+*.o
 borg.mlir
 borg_yosys.fir
 borg_yosys.mlir
 state.json
 yosys.log
 arcilator_sim
-main.o
 *.ppm

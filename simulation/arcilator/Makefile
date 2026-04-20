@@ -47,12 +47,15 @@ arc.h: state.json
 texture_loader.o: ../common/texture_loader.cpp ../common/texture_loader.h
 	$(CLANG) -O3 -c ../common/texture_loader.cpp -I../common -I../../out/hardware/borg/rdl -o $@
 
+uart_decoder.o: ../common/uart_decoder.cpp ../common/uart_decoder.h
+	$(CLANG) -O3 -c ../common/uart_decoder.cpp -I../common -o $@
+
 main.o: main.cpp arc.h arcilator-runtime.h ../common/texture_loader.h
 	$(CLANG) -O3 -c main.cpp -I../common -o $@
 
 # Step 6: Link
-arcilator_sim: main.o arc.o texture_loader.o
-	$(CLANG) -O3 main.o arc.o texture_loader.o -o $@
+arcilator_sim: main.o arc.o texture_loader.o uart_decoder.o
+	$(CLANG) -O3 main.o arc.o texture_loader.o uart_decoder.o -o $@
 
 # Dependency on firmware binaries
 $(FIRMWARE_DIR)/%.bin:
@@ -66,4 +69,4 @@ vkcube: arcilator_sim $(FIRMWARE_DIR)/vkcube.bin
 	./arcilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube
 
 clean:
-	rm -f arc.h arc.ll arc.o borg.mlir state.json main.o texture_loader.o arcilator_sim *.ppm
+	rm -f arc.h arc.ll borg.mlir state.json *.o arcilator_sim *.ppm
