@@ -25,7 +25,7 @@ def main():
     
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
     FW_PATH = os.path.join(SCRIPT_DIR, "../../software/borg/vkcube.bin")
-    TEX_PATH = os.path.join(SCRIPT_DIR, "../../software/borg/borg_texture.dat")
+    TEX_PATH = os.path.join(SCRIPT_DIR, "../../software/borg/borg_texture_small.dat")
     
     if not os.path.exists(FW_PATH):
         print(f"Error: Firmware {FW_PATH} not found.")
@@ -36,7 +36,7 @@ def main():
     
     if os.path.exists(TEX_PATH):
         print(f"Loading Texture: {TEX_PATH}")
-        sim.load_texture(TEX_PATH)
+        sim.load_texture(TEX_PATH, 64)
         
     WIDTH, HEIGHT = sim.width, sim.height  # driven by BorgSimulator::DEFAULT_WIDTH/HEIGHT
     SCALE = max(1, 512 // WIDTH)
