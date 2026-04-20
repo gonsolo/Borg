@@ -13,7 +13,7 @@ import machine
 from machine import Pin, SPI
 
 import run_tinyqv
-from borg_utils import float_to_fp16, morton_encode
+
 from borg_mmio import PSRAM_IO_SPI_ADDR, PSRAM_OUT_OFFSET, TEX_PSRAM_BYTE_OFFSET, DONE_MARKER, FPGA_CLOCK_HZ
 
 

@@ -56,7 +56,7 @@ BorgSimulatorBase.o: ../common/BorgSimulatorBase.cpp ../common/BorgSimulatorBase
 ArcBorgSimulator.o: ArcBorgSimulator.cpp ArcBorgSimulator.h
 	$(CLANG) -O3 -c ArcBorgSimulator.cpp -I../common -o $@
 
-main.o: main.cpp arc.h arcilator-runtime.h ../common/texture_loader.h
+main.o: main.cpp arc.h arcilator-runtime.h ../common/texture_loader.h ArcBorgSimulator.h ../common/BorgSimulatorBase.h
 	$(CLANG) -O3 -c main.cpp -I../common -o $@
 
 # Step 6: Link
