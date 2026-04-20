@@ -8,3 +8,5 @@ state.json
 yosys.log
 arcilator_sim
 *.ppm
+*.so
+build/

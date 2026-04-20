@@ -1,6 +1,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
+#include <cstring>
 #include "ArcBorgSimulator.h"
 
 namespace nb = nanobind;
@@ -46,9 +47,7 @@ public:
         // In fast mode, arcilator modifies sim_psram_ext directly. Copy it back to C++ model.
         int PSRAM_OFFSET = sim->find_memory_offset("sim_psram_ext");
         if (PSRAM_OFFSET >= 0) {
-            for (size_t i = 0; i < sim->psram->mem.size(); i++) {
-                sim->psram->mem[i] = *(sim->get_storage_ptr() + PSRAM_OFFSET + i);
-            }
+            std::memcpy(sim->psram->mem.data(), sim->get_storage_ptr() + PSRAM_OFFSET, sim->psram->mem.size());
         }
 
         uint32_t* psram_words = (uint32_t*)sim->psram->mem.data();
