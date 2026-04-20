@@ -533,7 +533,7 @@ the driver changes. Estimate: 1 week.
   Step 19 drives it from `BorgRasterizer.sTexFetch`; Step 22 drives it from
   `BorgDMA`.
 
-### Step 23: Cross-Target Parity (Arcilator / Verilator / FPGA + Software)
+### Step 23: Cross-Target Parity (Arcilator / Verilator / FPGA + Software) ✅ (2026-04-20)
 
 Establish a systematic quality gate that ensures Arcilator, Verilator, and FPGA
 always produce identical results to the software reference — so that bugs like
@@ -542,26 +542,26 @@ automatically before they can reach hardware. The root cause of such bugs is a
 discrepancy between what the software stack does and what each target exercises.
 This step closes that gap structurally. Estimate: 3–5 days.
 
-- **Step 23.1: Unified `make` run targets**
+- **Step 23.1: Unified `make` run targets** ✅
     Standardize `make triangle` and `make vkcube` across all three targets.
     A single top-level invocation exercises Arcilator, Verilator, and FPGA
     without manual per-target coordination, removing the opportunity for
     target-specific workarounds to silently accumulate.
 
-- **Step 23.2: Pixel-exact golden comparison on all targets**
+- **Step 23.2: Pixel-exact golden comparison on all targets** ✅
     Extend `make test-all` to pixel-compare the output of each target against
     the software golden image (`golden.ppm`). Any divergence between Arcilator,
     Verilator, or FPGA output fails the suite immediately. This catches
     rendering bugs that are invisible when only one target is tested.
 
-- **Step 23.3: Shared software path for texture upload**
+- **Step 23.3: Shared software path for texture upload** ✅
     Unify the texture upload code path so that the same logic (chunked
     Morton-ordered streaming, sentinel check) runs on all three targets.
     Simulation targets use a C++ harness shim; FPGA uses the RP2040
     MicroPython path — but both exercise the same protocol, ensuring
     firmware-level regressions are caught in simulation before FPGA runs.
 
-- **Step 23.4: `make test-all` target parity enforcement**
+- **Step 23.4: `make test-all` target parity enforcement** ✅
     Add a CI check that fails if any target is missing from the test matrix.
     No target may be silently skipped. FPGA test results are uploaded as
     artefacts so regressions are traceable.
