@@ -13,7 +13,7 @@ import machine
 from machine import Pin, SPI
 
 import run_tinyqv
-from borg_utils import fp16_to_float, float_to_fp16, morton_encode
+from borg_utils import float_to_fp16, morton_encode
 from borg_mmio import PSRAM_IO_SPI_ADDR, PSRAM_OUT_OFFSET, TEX_PSRAM_BYTE_OFFSET, DONE_MARKER, FPGA_CLOCK_HZ
 
 
@@ -264,27 +264,6 @@ def fpga_teardown(clk_pwm, ice_creset_b):
 
 
 
-# --- Triangle rasterization helpers ---
-
-def write_ppm(filename, fb, w, h):
-    """Write a PPM P3 image from RGB FP16 framebuffer values.
-    fb is a list of (r, g, b) FP16 tuples."""
-    def fp16_to_byte(bits):
-        if not bits:
-            return 0
-        v = fp16_to_float(bits)
-        if math.isnan(v) or math.isinf(v):
-            return 0
-        return max(0, min(255, int(v * 255 + 0.5)))
-    with open(filename, 'w') as f:
-        f.write("P3\n%d %d\n255\n" % (w, h))
-        for y in range(h):
-            for x in range(w):
-                r_fp16, g_fp16, b_fp16 = fb[y * w + x]
-                f.write("%d %d %d " % (fp16_to_byte(r_fp16), fp16_to_byte(g_fp16), fp16_to_byte(b_fp16)))
-            f.write("\n")
-
-
 # --- Triangle rendering constants ---
 WIDTH = HEIGHT = 32
 # Triangle vertices centered at origin, scaled to 60% of half-width
@@ -445,17 +424,16 @@ def render_all_frames(app_name='triangle'):
         print(" -> FW Draw took:   %d cycles (%.2f ms)" % (t_draw_cycles, t_draw_cycles * 1000 / FPGA_CLOCK_HZ))
 
         # Read RGB framebuffer (3 FP16 words per pixel)
-        fb = [(0, 0, 0)] * (WIDTH * HEIGHT)
-        for py in range(HEIGHT):
-            for px in range(WIDTH):
-                base = frame_base + (py * WIDTH + px) * 3
-                r = qpi_read_word(sm_r, out_base + (base + 0) * 4) & 0xFFFF
-                g = qpi_read_word(sm_r, out_base + (base + 1) * 4) & 0xFFFF
-                b = qpi_read_word(sm_r, out_base + (base + 2) * 4) & 0xFFFF
-                fb[py * WIDTH + px] = (r, g, b)
+        fname = "/remote/%s_%02d.bin" % (app_name, frame)
+        with open(fname, 'wb') as f:
+            for py in range(HEIGHT):
+                for px in range(WIDTH):
+                    base = frame_base + (py * WIDTH + px) * 3
+                    r = qpi_read_word(sm_r, out_base + (base + 0) * 4) & 0xFFFF
+                    g = qpi_read_word(sm_r, out_base + (base + 1) * 4) & 0xFFFF
+                    b = qpi_read_word(sm_r, out_base + (base + 2) * 4) & 0xFFFF
+                    f.write(struct.pack('<HHH', r, g, b))
 
-        fname = "/remote/%s_%02d.ppm" % (app_name, frame)
-        write_ppm(fname, fb, WIDTH, HEIGHT)
         print("Frame %02d (%.0f deg): %s" % (frame, frame * 36.0, fname))
 
     sm_r.active(0)

@@ -142,6 +142,7 @@ triangle: usb-preflight .burned
 	@cp ../software/borg/triangle.bin ../software/borg/test_texture.dat firmware_cache/
 	@python3 ../scripts/encode_texture.py ../software/borg/test_texture.dat firmware_cache/test_texture_morton.bin
 	@$(MPREMOTE) 300 mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/triangle.bin')" | tee /tmp/mpremote_output.txt
+	@python3 ../scripts/postprocess.py triangle_00.bin triangle_00.ppm 32 32
 
 # Build firmware and run vkcube rendering (always uses 64×64 small texture)
 vkcube: usb-preflight .burned
@@ -151,6 +152,7 @@ vkcube: usb-preflight .burned
 	@cp ../software/borg/borg_texture_small.dat firmware_cache/borg_texture.dat
 	@python3 ../scripts/encode_texture.py ../software/borg/borg_texture_small.dat firmware_cache/borg_texture_morton.bin
 	@$(MPREMOTE) 300 mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/vkcube.bin')" | tee /tmp/mpremote_output.txt
+	@python3 ../scripts/postprocess.py vkcube_00.bin vkcube_00.ppm 32 32
 
 # Catch debug output (preferably in a second shell)
 tio:
@@ -161,7 +163,7 @@ reset: .burned
 	$(MPREMOTE) 60 mount . + exec "import sys; sys.path.extend(['host', '/']); import run_tinyqv; run_tinyqv.run(query=False, stop=False)"
 
 clean:
-	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm .burned
+	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm vkcube*.ppm triangle*.bin vkcube*.bin .burned
 	$(MAKE) -C ../software/borg clean
 	$(MAKE) -C ../software/tinyqv clean
 
