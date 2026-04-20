@@ -37,11 +37,9 @@ if fpga_host_dir not in sys.path:
     sys.path.insert(0, fpga_host_dir)
 
 from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd
-sys.path.append(os.path.join(fpga_host_dir, '../simulation/common/build'))
-try:
-    from borg_utils_c import fp16_from_float as float_to_fp16
-except ImportError:
-    from borg_utils import float_to_fp16
+sys.path.append(os.path.join(fpga_host_dir, '../../simulation/verilator/build/common_build'))
+sys.path.append(os.path.join(fpga_host_dir, '../../simulation/arcilator/build/common_build'))
+from borg_utils_c import fp16_from_float as float_to_fp16
 
 
 class BorgBackend:

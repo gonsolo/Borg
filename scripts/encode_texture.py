@@ -13,7 +13,8 @@ import sys
 import os
 import struct
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '../simulation/common/build'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../simulation/verilator/build/common_build'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../simulation/arcilator/build/common_build'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../fpga/host'))
 
 try:
