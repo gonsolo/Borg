@@ -18,8 +18,8 @@ public:
         delete sim;
     }
     
-    void load_texture(const std::string& tex_path) {
-        sim->load_texture(tex_path);
+    void load_texture(const std::string& tex_path, uint32_t tex_dim = 32) {
+        sim->load_texture(tex_path, tex_dim);
     }
     
     bool step(uint32_t cycles) {
@@ -76,7 +76,7 @@ public:
 NB_MODULE(borg_sim, m) {
     nb::class_<SimulatorWrapper>(m, "BorgSimulator")
         .def(nb::init<const std::string&, bool>(), nb::arg("firmware_path"), nb::arg("fast_mode") = false)
-        .def("load_texture", &SimulatorWrapper::load_texture)
+        .def("load_texture", &SimulatorWrapper::load_texture, nb::arg("tex_path"), nb::arg("tex_dim") = 32)
         .def("step", &SimulatorWrapper::step)
         .def("set_camera_angles", &SimulatorWrapper::set_camera_angles)
         .def("get_framebuffer", &SimulatorWrapper::get_framebuffer)
