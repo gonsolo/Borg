@@ -6,6 +6,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Documentary typedef (matches borg_fpu.h; guarded for order-independence)
 #ifndef FP16_T_DEFINED
 #define FP16_T_DEFINED
@@ -47,6 +51,38 @@ static inline fp16_t fp16_from_float(float f) {
     if (exp <= 0)  return (fp16_t)sign;            // underflow → ±0
     if (exp >= 31) return (fp16_t)(sign | 0x7C00); // overflow  → ±inf
     return (fp16_t)(sign | ((uint32_t)exp << 10) | (mant >> 13));
+}
+
+// Convert FP16 bit pattern to a C float.
+// Uses pure integer bit manipulation (union trick).
+static inline float fp16_to_float(fp16_t h) {
+    union { uint32_t u; float f; } v;
+    uint32_t sign = (h >> 15) & 1;
+    uint32_t exp = (h >> 10) & 0x1F;
+    uint32_t mant = h & 0x3FF;
+    
+    if (exp == 0) {
+        if (mant == 0) {
+            v.u = sign << 31;
+            return v.f;
+        }
+        // Denormalized
+        while ((mant & 0x400) == 0) {
+            mant <<= 1;
+            exp--;
+        }
+        exp++;
+        mant &= 0x3FF;
+        v.u = (sign << 31) | ((exp + 127 - 15) << 23) | (mant << 13);
+        return v.f;
+    } else if (exp == 31) {
+        // Inf/NaN
+        v.u = (sign << 31) | 0x7F800000 | (mant << 13);
+        return v.f;
+    }
+    
+    v.u = (sign << 31) | ((exp + 127 - 15) << 23) | (mant << 13);
+    return v.f;
 }
 
 // Convert FP16 to a signed fixed-point Q16 (for add/sub)
@@ -156,5 +192,9 @@ fp16_t fp16_sin(fp16_t angle_fp16);
 
 /** Compute FP16 cos(angle) = sin(angle + π/2). */
 fp16_t fp16_cos(fp16_t angle_fp16);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // BORG_MATH_H

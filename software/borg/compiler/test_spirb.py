@@ -15,7 +15,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'fpga', 'host'))
 from borg_backend import BorgBackend
 from borg_mmio import SPIRB_INSTR_BYTES
-from borg_utils import float_to_fp16
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../../simulation/common/build'))
+try:
+    from borg_utils_c import fp16_from_float as float_to_fp16
+except ImportError:
+    from borg_utils import float_to_fp16
 
 
 def parse_spirb(blob):

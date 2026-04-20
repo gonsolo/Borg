@@ -171,15 +171,7 @@ public:
 #include "../../software/borg/borg_math.h"
 #include "../../software/borg/borg_layout.h"
 
-inline float fp16_to_float(uint16_t h) {
-    int sign = (h >> 15) & 1;
-    int exp = (h >> 10) & 0x1F;
-    int mant = h & 0x3FF;
-    if (exp == 0 && mant == 0) return 0.0f;
-    if (exp == 31) return (mant == 0) ? INFINITY : NAN;
-    if (exp == 0) return (sign ? -1.0f : 1.0f) * std::pow(2.0f, -14.0f) * (mant / 1024.0f);
-    return (sign ? -1.0f : 1.0f) * std::pow(2.0f, exp - 15.0f) * (1.0f + mant / 1024.0f);
-}
+// fp16_to_float is now in borg_math.h
 
 inline void save_ppm(const std::string& app_name, uint32_t width, uint32_t height, uint32_t out_base_word, const std::vector<uint8_t>& mem) {
     char ppm_name[256];

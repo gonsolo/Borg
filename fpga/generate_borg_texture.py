@@ -15,7 +15,11 @@ import struct
 from PIL import Image
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'host'))
-from borg_utils import float_to_fp16
+sys.path.append(os.path.join(os.path.dirname(__file__), '../simulation/common/build'))
+try:
+    from borg_utils_c import fp16_from_float as float_to_fp16
+except ImportError:
+    from borg_utils import float_to_fp16
 
 
 def generate_texture(size, filename):

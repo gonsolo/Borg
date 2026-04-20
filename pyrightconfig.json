@@ -1,0 +1,7 @@
+{
+  "extraPaths": [
+    "out/hardware/borg/rdl",
+    "fpga/host",
+    "simulation/common/build"
+  ]
+}
