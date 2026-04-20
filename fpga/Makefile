@@ -140,6 +140,7 @@ triangle: usb-preflight .burned
 	@$(MAKE) --no-print-directory -s -C ../software/borg triangle
 	@mkdir -p firmware_cache
 	@cp ../software/borg/triangle.bin ../software/borg/test_texture.dat firmware_cache/
+	@python3 ../scripts/encode_texture.py ../software/borg/test_texture.dat firmware_cache/test_texture_morton.bin
 	@$(MPREMOTE) 300 mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/triangle.bin')" | tee /tmp/mpremote_output.txt
 
 # Build firmware and run vkcube rendering (always uses 64×64 small texture)
@@ -148,6 +149,7 @@ vkcube: usb-preflight .burned
 	@mkdir -p firmware_cache
 	@cp ../software/borg/vkcube.bin firmware_cache/
 	@cp ../software/borg/borg_texture_small.dat firmware_cache/borg_texture.dat
+	@python3 ../scripts/encode_texture.py ../software/borg/borg_texture_small.dat firmware_cache/borg_texture_morton.bin
 	@$(MPREMOTE) 300 mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/vkcube.bin')" | tee /tmp/mpremote_output.txt
 
 # Catch debug output (preferably in a second shell)

@@ -309,9 +309,9 @@ def render_all_frames(app_name='triangle'):
     TEX_SPI_BASE = PSRAM_IO_SPI_ADDR + TEX_PSRAM_BYTE_OFFSET
     # Select texture file per app
     if app_name == 'vkcube':
-        tex_file = 'firmware_cache/borg_texture.dat'
+        tex_file = 'firmware_cache/borg_texture_morton.bin'
     else:
-        tex_file = 'firmware_cache/test_texture.dat'
+        tex_file = 'firmware_cache/test_texture_morton.bin'
 
     # Sentinel is at a FIXED PSRAM word (word 8 = byte offset 0x20).
     # This is well below the texture area (TEX_PSRAM_BYTE_OFFSET = 0x1080).
@@ -324,7 +324,7 @@ def render_all_frames(app_name='triangle'):
     # Texture dimensions derived from file size (needed for upload loop + CRC)
     import os, binascii
     tex_size = os.stat(tex_file)[6]
-    tex_n_texels = tex_size // 6  # 3 FP16 channels = 6 bytes/texel
+    tex_n_texels = tex_size // 8  # 2 words (8 bytes) per texel in morton SPI format
     tex_dim = 1
     while tex_dim * tex_dim < tex_n_texels:
         tex_dim *= 2
@@ -373,32 +373,27 @@ def render_all_frames(app_name='triangle'):
             TEX_HEIGHT = tex_dim
             print("Uploading %dx%d texture (%d bytes)" % (TEX_WIDTH, TEX_HEIGHT, tex_size))
 
-            # Hardware sTexFetch expects packed 2-word format per texel:
-            #   Word 0 [offset +0]: { G[15:0], R[15:0] }
-            #   Word 1 [offset +4]: { pad[15:0], B[15:0] }
-            # Stride = 2 words (8 bytes) per texel, Morton-ordered.
+            # The .bin file is already pre-packed and Morton-ordered by the workstation
             total_words = TEX_WIDTH * TEX_HEIGHT * 2
             tex_spi_base = TEX_SPI_BASE
-            row_bytes = TEX_WIDTH * 3 * 2  # one row of FP16 RGB data
 
             with open(tex_file, 'rb') as f:
-                for y in range(TEX_HEIGHT):
-                    row_data = f.read(row_bytes)
-                    for x in range(TEX_WIDTH):
-                        dst_idx = morton_encode(x, y)
-
-                        # Fetch RGB from row buffer
-                        r = struct.unpack_from('<H', row_data, (x * 3 + 0) * 2)[0]
-                        g = struct.unpack_from('<H', row_data, (x * 3 + 1) * 2)[0]
-                        b = struct.unpack_from('<H', row_data, (x * 3 + 2) * 2)[0]
-
-                        # Pack into 2-word format: Word 0 = {G, R}, Word 1 = {0, B}
-                        word0 = (g << 16) | r
-                        word1 = b
-                        qpi_write_word(sm_w, tex_spi_base + (dst_idx * 2 + 0) * 4, word0)
-                        qpi_write_word(sm_w, tex_spi_base + (dst_idx * 2 + 1) * 4, word1)
-                    if y % 32 == 0:
-                        print("  row %d/%d" % (y, TEX_HEIGHT))
+                CHUNK_TEXELS = 256
+                chunk_bytes = CHUNK_TEXELS * 8
+                offset = 0
+                y_approx = 0
+                while True:
+                    data = f.read(chunk_bytes)
+                    if not data: break
+                    for i in range(0, len(data), 8):
+                        word0 = struct.unpack_from('<I', data, i)[0]
+                        word1 = struct.unpack_from('<I', data, i + 4)[0]
+                        qpi_write_word(sm_w, tex_spi_base + offset, word0)
+                        qpi_write_word(sm_w, tex_spi_base + offset + 4, word1)
+                        offset += 8
+                    y_approx += CHUNK_TEXELS // TEX_WIDTH
+                    if y_approx % 32 == 0 and y_approx > 0:
+                        print("  row approx %d/%d" % (y_approx, TEX_HEIGHT))
 
             # Write sentinel after successful upload
             qpi_write_word(sm_w, TEX_SENTINEL_SPI_ADDR, TEX_SENTINEL_MAGIC)
