@@ -38,8 +38,8 @@ def main():
         print(f"Loading Texture: {TEX_PATH}")
         sim.load_texture(TEX_PATH)
         
-    SCALE = 1
     WIDTH, HEIGHT = sim.width, sim.height  # driven by BorgSimulator::DEFAULT_WIDTH/HEIGHT
+    SCALE = max(1, 512 // WIDTH)
     
     screen = pygame.display.set_mode((WIDTH * SCALE, HEIGHT * SCALE))
     pygame.display.set_caption("Borg GPU Interactive Viewer")
@@ -129,7 +129,7 @@ def main():
         
         # Print actual FPS to title
         fps = clock.get_fps()
-        pygame.display.set_caption(f"Borg GPU Interactive Viewer | {fps:.1f} FPS")
+        pygame.display.set_caption(f"Borg GPU Interactive Viewer | {cycles_simulated/1000000:.1f}M cycles | {fps:.1f} FPS")
 
     pygame.quit()
 
