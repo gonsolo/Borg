@@ -23,13 +23,14 @@ find_package(verilator HINTS ${VERILATOR_ROOT})
 # Add verilator obj_dir output as statically linked sources/objects
 # Assuming the user runs `make verilator_sim` before running cmake.
 file(GLOB VERILATOR_OBJS "${CMAKE_CURRENT_SOURCE_DIR}/obj_dir/*.o")
-# Exclude main.o because it has the main() entrypoint
 list(FILTER VERILATOR_OBJS EXCLUDE REGEX "main\\.o$")
+list(FILTER VERILATOR_OBJS EXCLUDE REGEX "texture_loader\\.o$")
+list(FILTER VERILATOR_OBJS EXCLUDE REGEX "uart_decoder\\.o$")
+list(FILTER VERILATOR_OBJS EXCLUDE REGEX "BorgSimulatorBase\\.o$")
 
 nanobind_add_module(borg_sim nanobind_wrapper.cpp)
-target_link_libraries(borg_sim PRIVATE ${VERILATOR_OBJS})
-
-
+add_subdirectory(../common common_build)
+target_link_libraries(borg_sim PRIVATE borgsim ${VERILATOR_OBJS})
 
 # Verilator headers
 target_include_directories(borg_sim PRIVATE 
