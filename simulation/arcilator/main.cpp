@@ -1,4 +1,5 @@
 #include "../common/common_sim.h"
+#include "../common/texture_loader.h"
 #include "arc.h"
 #include <fstream>
 #include <sstream>
@@ -58,48 +59,10 @@ int main(int argc, char** argv) {
     psram_init_words[psram_spi_word_offset + 0] = width;
     psram_init_words[psram_spi_word_offset + 1] = height;
 
-    // vkcube uses a 256×256 texture; triangle uses 32×32.
-    uint32_t tex_dim = (app_name == "vkcube" || app_name == "textest") ? 256 : 32;
-    std::string tex_path = app_name == "vkcube" ? "../../software/borg/borg_texture.dat" : "../../software/borg/test_texture.dat";
-    std::ifstream tex_f(tex_path, std::ios::binary);
-    if (tex_f) {
-        uint32_t num_texels = tex_dim * tex_dim;
-        std::vector<uint8_t> tex_data(num_texels * 6); // RGB FP16 = 6 bytes/texel
-        tex_f.read((char*)tex_data.data(), tex_data.size());
-        
-        uint32_t tex_byte_base = TEX_PSRAM_BYTE_ADDR_FIXED;
-
-        // Store texels in packed 2-word (8-byte) format:
-        //   Word 0: { G[15:0], R[15:0] }  (little-endian in PSRAM bytes)
-        //   Word 1: { pad[15:0], B[15:0] }
-        uint8_t* pmem = psram.mem.data();
-        for (uint32_t y = 0; y < tex_dim; y++) {
-            for (uint32_t x = 0; x < tex_dim; x++) {
-                uint32_t src_idx = y * tex_dim + x;
-                uint32_t dst_idx = morton_encode(x, y);
-
-                uint16_t r = tex_data[(src_idx * 3 + 0) * 2] | (tex_data[(src_idx * 3 + 0) * 2 + 1] << 8);
-                uint16_t g = tex_data[(src_idx * 3 + 1) * 2] | (tex_data[(src_idx * 3 + 1) * 2 + 1] << 8);
-                uint16_t b = tex_data[(src_idx * 3 + 2) * 2] | (tex_data[(src_idx * 3 + 2) * 2 + 1] << 8);
-
-                // Word 0: { G, R } — little-endian: byte[0..1]=R, byte[2..3]=G
-                uint32_t word0 = (uint32_t)r | ((uint32_t)g << 16);
-                // Word 1: { pad, B } — little-endian: byte[0..1]=B, byte[2..3]=0
-                uint32_t word1 = (uint32_t)b;
-
-                uint32_t byte_addr = tex_byte_base + dst_idx * 8;
-                pmem[byte_addr + 0] = word0 & 0xFF;
-                pmem[byte_addr + 1] = (word0 >> 8) & 0xFF;
-                pmem[byte_addr + 2] = (word0 >> 16) & 0xFF;
-                pmem[byte_addr + 3] = (word0 >> 24) & 0xFF;
-                pmem[byte_addr + 4] = word1 & 0xFF;
-                pmem[byte_addr + 5] = (word1 >> 8) & 0xFF;
-                pmem[byte_addr + 6] = (word1 >> 16) & 0xFF;
-                pmem[byte_addr + 7] = (word1 >> 24) & 0xFF;
-            }
-        }
-        std::cout << "[SIM] Texture loaded at PSRAM byte 0x" << std::hex << tex_byte_base << std::dec << ".\n";
-    }
+    // vkcube uses a 64×64 texture; triangle uses 32×32.
+    uint32_t tex_dim = (app_name == "vkcube" || app_name == "textest") ? 64 : 32;
+    std::string tex_path = app_name == "vkcube" ? "../../software/borg/borg_texture_small.dat" : "../../software/borg/test_texture.dat";
+    load_texture_to_psram(psram.mem.data(), tex_path, tex_dim, TEX_PSRAM_BYTE_ADDR_FIXED);
 
     // Reset Sequence
     model.view.clk = 0;

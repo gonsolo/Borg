@@ -323,9 +323,16 @@ def render_all_frames(app_name='triangle'):
     # Sentinel after the Morton-packed texture: dim×dim texels × 2 words × 4 bytes
     TEX_SENTINEL_SPI_ADDR = TEX_SPI_BASE + tex_dim * tex_dim * 2 * 4
 
-    # Sentinel magic derived from texture filename and size — different textures 
-    # get different sentinels so switching apps or sizes forces a re-upload.
-    TEX_SENTINEL_MAGIC = (sum(ord(c) for c in tex_file) + tex_size) & 0xFFFF
+    # Sentinel magic derived from the actual file content (first+last 256 bytes XOR'd)
+    # so that replacing a texture file with different content (same name, same size)
+    # correctly triggers a re-upload. Using a full CRC is too slow on the RP2040, so
+    # we sample the first and last 256 bytes and fold into a 16-bit value.
+    import binascii
+    with open(tex_file, 'rb') as _sf:
+        _head = _sf.read(256)
+        _sf.seek(max(0, tex_size - 256))
+        _tail = _sf.read(256)
+    TEX_SENTINEL_MAGIC = (binascii.crc32(_head + _tail) ^ tex_size) & 0xFFFF
 
     # Check if texture is already uploaded by reading the sentinel
     sm_r_check = rp2.StateMachine(0, qspi_read, 16_000_000,

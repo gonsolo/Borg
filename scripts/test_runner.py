@@ -49,6 +49,25 @@ class Suite:
     n_tests:    int        = 0
 
 def make_suites(root: Path, mill: str, test_soc: str) -> list:
+    golden   = root / "simulation" / "golden"
+    compare  = f"python3 '{root}/scripts/compare_ppm.py'"
+    verilator_dir = root / "simulation" / "verilator"
+    arcilator_dir = root / "simulation" / "arcilator"
+
+    def verilator_render(app: str) -> str:
+        ppm = f"{app}_00.ppm"
+        return (
+            f"cd '{verilator_dir}' && make {app} && "
+            f"{compare} '{verilator_dir}/{ppm}' '{golden}/{ppm}' --max-diff 1"
+        )
+
+    def arcilator_render(app: str) -> str:
+        ppm = f"{app}_00.ppm"
+        return (
+            f"cd '{arcilator_dir}' && make {app} && "
+            f"{compare} '{arcilator_dir}/{ppm}' '{golden}/{ppm}' --max-diff 1"
+        )
+
     return [
         # ── Sequential setup ──────────────────────────────────────────────────
         Suite("setup  › generate_verilog",
@@ -67,10 +86,20 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
               f"cd '{root}' && make -C software test"),
         Suite("cocotb › soc-core (rtl)",
               f"cd '{root}' && {test_soc} core"),
+        # Render tests (verilator)
+        Suite("render › verilator › triangle", verilator_render("triangle")),
+        Suite("render › verilator › vkcube",   verilator_render("vkcube")),
+        # Render tests (arcilator)
+        Suite("render › arcilator › triangle", arcilator_render("triangle")),
+        Suite("render › arcilator › vkcube",   arcilator_render("vkcube")),
         # ── Starts only after soc-core (shared test/soc/ dir) ────────────────
         Suite("cocotb › soc-borg  (rtl)",
               f"cd '{root}' && {test_soc} borg",
               depends_on="cocotb › soc-core (rtl)"),
+        # ── FPGA render tests (skipped automatically if no /dev/ttyACM*) ──────
+        # Exit 0 from the script = pass (includes the graceful skip case).
+        Suite("render › fpga  (hw)",
+              f"bash '{root}/scripts/fpga_render_test.sh'"),
     ]
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

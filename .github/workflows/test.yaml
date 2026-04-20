@@ -3,9 +3,6 @@ on: [push, workflow_dispatch]
 jobs:
   test:
     runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        test: [core, borg]
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -17,21 +14,23 @@ jobs:
 
       - name: Run tests
         run: |
-          nix develop --command make test-cocotb-soc-${{ matrix.test }}-rtl
+          nix develop --command make test-all
+        env:
+          MILL_JOBS: 4
 
-      - name: Test Summary
-        uses: test-summary/action@v2.3
-        with:
-          paths: "test/soc/results.xml"
-        if: always()
-
-      - name: upload waveform and test results
+      - name: Upload test logs
         if: success() || failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.test }}
+          name: test-logs
+          path: test_logs/latest/
+
+      - name: Upload waveform and cocotb results
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cocotb-results
           path: |
             test/soc/sim_build/rtl/tb.fst
             test/soc/results.xml
             test/soc/sim_build/rtl/*.log
-
