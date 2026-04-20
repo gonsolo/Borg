@@ -10,6 +10,8 @@ void BorgSimulatorBase::set_camera_angles(float rx, float ry) {
     float* psram_floats = (float*)&psram_words[psram_spi_word_offset];
     psram_floats[2] = rx;
     psram_floats[3] = ry;
+    host_write_psram_word(psram_spi_word_offset + 2, psram_words[psram_spi_word_offset + 2]);
+    host_write_psram_word(psram_spi_word_offset + 3, psram_words[psram_spi_word_offset + 3]);
 }
 
 void BorgSimulatorBase::save_ppm(const std::string& name) {

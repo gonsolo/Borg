@@ -93,4 +93,16 @@ public:
     virtual int get_uart_bit_pos() const override {
         return 0; // uo_out >> 0
     }
+    
+    virtual void host_write_psram_word(uint32_t word_addr, uint32_t value) override {
+        if (fast_mode) {
+            uint32_t byte_addr = word_addr * 4;
+            if (byte_addr + 3 < 8388608) {
+                model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_psram_ext_ext__DOT__Memory[byte_addr] = value & 0xFF;
+                model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_psram_ext_ext__DOT__Memory[byte_addr+1] = (value >> 8) & 0xFF;
+                model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_psram_ext_ext__DOT__Memory[byte_addr+2] = (value >> 16) & 0xFF;
+                model->rootp->tt_um_gonsolo_borg__DOT__uo_out_val_memSim__DOT__sim_psram_ext_ext__DOT__Memory[byte_addr+3] = (value >> 24) & 0xFF;
+            }
+        }
+    }
 };

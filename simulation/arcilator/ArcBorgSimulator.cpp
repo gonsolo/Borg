@@ -60,6 +60,12 @@ int ArcBorgSimulator::get_uart_bit_pos() const {
     return 6; // uo_out >> 6
 }
 
+void ArcBorgSimulator::host_write_psram_word(uint32_t word_addr, uint32_t value) {
+    if (fast_mode && ext_psram_offset >= 0) {
+        *(uint32_t*)(model->storage.data() + ext_psram_offset + word_addr * 4) = value;
+    }
+}
+
 uint8_t* ArcBorgSimulator::get_storage_ptr() {
     return model->storage.data();
 }
@@ -148,14 +154,14 @@ void ArcBorgSimulator::backend_reset() {
 
     if (fast_mode) {
         int FLASH_OFFSET = find_memory_offset("sim_flash_ext");
-        int PSRAM_OFFSET = find_memory_offset("sim_psram_ext");
+        ext_psram_offset = find_memory_offset("sim_psram_ext");
         int GPU_PSRAM_OFFSET = find_memory_offset("sim_psram_gpu");
-        if (FLASH_OFFSET >= 0 && PSRAM_OFFSET >= 0 && GPU_PSRAM_OFFSET >= 0) {
+        if (FLASH_OFFSET >= 0 && ext_psram_offset >= 0 && GPU_PSRAM_OFFSET >= 0) {
             for (size_t i = 0; i < flash->mem.size(); i++) {
                 *(model->storage.data() + FLASH_OFFSET + i) = flash->mem[i];
             }
             for (size_t i = 0; i < psram->mem.size(); i++) {
-                *(model->storage.data() + PSRAM_OFFSET + i) = psram->mem[i];
+                *(model->storage.data() + ext_psram_offset + i) = psram->mem[i];
             }
             size_t gpu_size = 1048576;
             for (size_t i = 0; i < gpu_size; i += 4) {

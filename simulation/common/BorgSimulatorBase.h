@@ -38,6 +38,7 @@ public:
 
     // Optional: Backends can override this to implement fast_sim_en memory snooping
     virtual void fast_sim_snoop() {}
+    virtual void host_write_psram_word(uint32_t word_addr, uint32_t value) {}
     
     // Shared methods (step() will be moved here in Step 3.2)
     void load_texture(const std::string& tex_path, uint32_t tex_dim = 32);

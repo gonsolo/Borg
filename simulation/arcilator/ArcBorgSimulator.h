@@ -18,8 +18,10 @@ public:
     virtual void set_uio_in(uint8_t val) override;
     virtual void set_ui_in(uint8_t val) override;
     int get_uart_bit_pos() const override;
+    virtual void host_write_psram_word(uint32_t word_addr, uint32_t value) override;
 
     uint8_t* get_storage_ptr();
+    int ext_psram_offset = -1;
     void backend_reset();
     int find_memory_offset(const std::string& pattern);
 };
