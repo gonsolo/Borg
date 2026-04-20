@@ -142,12 +142,12 @@ triangle: usb-preflight .burned
 	@cp ../software/borg/triangle.bin ../software/borg/test_texture.dat firmware_cache/
 	@$(MPREMOTE) 300 mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/triangle.bin')" | tee /tmp/mpremote_output.txt
 
-# Build firmware and run vkcube rendering
+# Build firmware and run vkcube rendering (always uses 64×64 small texture)
 vkcube: usb-preflight .burned
-	@$(MAKE) --no-print-directory -s -C ../software/borg vkcube LARGE_TEX=$(LARGE_TEX)
+	@$(MAKE) --no-print-directory -s -C ../software/borg vkcube
 	@mkdir -p firmware_cache
 	@cp ../software/borg/vkcube.bin firmware_cache/
-	@cp ../software/borg/$(if $(LARGE_TEX),borg_texture.dat,borg_texture_small.dat) firmware_cache/borg_texture.dat
+	@cp ../software/borg/borg_texture_small.dat firmware_cache/borg_texture.dat
 	@$(MPREMOTE) 300 mount . + exec "import sys; sys.path.extend(['host', '/']); import render; render.run_single_frame(0, 'firmware_cache/vkcube.bin')" | tee /tmp/mpremote_output.txt
 
 # Catch debug output (preferably in a second shell)

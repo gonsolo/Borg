@@ -313,26 +313,30 @@ def render_all_frames(app_name='triangle'):
     else:
         tex_file = 'firmware_cache/test_texture.dat'
 
-    # Detect texture dimensions from file size to place sentinel correctly
-    import os
+    # Sentinel is at a FIXED PSRAM word (word 8 = byte offset 0x20).
+    # This is well below the texture area (TEX_PSRAM_BYTE_OFFSET = 0x1080).
+    # Using a fixed address means any texture upload overwrites the previous
+    # app's sentinel, preventing the cross-contamination bug where a stale
+    # vkcube sentinel survives a triangle run and causes vkcube to skip its
+    # texture re-upload (rendering triangle's test_texture on the cube).
+    TEX_SENTINEL_SPI_ADDR = PSRAM_IO_SPI_ADDR + 8 * 4  # word 8 = 0x20
+
+    # Texture dimensions derived from file size (needed for upload loop + CRC)
+    import os, binascii
     tex_size = os.stat(tex_file)[6]
     tex_n_texels = tex_size // 6  # 3 FP16 channels = 6 bytes/texel
     tex_dim = 1
     while tex_dim * tex_dim < tex_n_texels:
         tex_dim *= 2
-    # Sentinel after the Morton-packed texture: dim×dim texels × 2 words × 4 bytes
-    TEX_SENTINEL_SPI_ADDR = TEX_SPI_BASE + tex_dim * tex_dim * 2 * 4
 
-    # Sentinel magic derived from the actual file content (first+last 256 bytes XOR'd)
-    # so that replacing a texture file with different content (same name, same size)
-    # correctly triggers a re-upload. Using a full CRC is too slow on the RP2040, so
-    # we sample the first and last 256 bytes and fold into a 16-bit value.
-    import binascii
+    # Sentinel magic derived from the actual file content (first+last 256 bytes)
+    # and the app name — so triangle and vkcube can never accidentally share
+    # a sentinel even if their texture files happened to have the same CRC.
     with open(tex_file, 'rb') as _sf:
         _head = _sf.read(256)
         _sf.seek(max(0, tex_size - 256))
         _tail = _sf.read(256)
-    TEX_SENTINEL_MAGIC = (binascii.crc32(_head + _tail) ^ tex_size) & 0xFFFF
+    TEX_SENTINEL_MAGIC = (binascii.crc32(_head + _tail + app_name.encode()) ^ tex_size) & 0xFFFF
 
     # Check if texture is already uploaded by reading the sentinel
     sm_r_check = rp2.StateMachine(0, qspi_read, 16_000_000,

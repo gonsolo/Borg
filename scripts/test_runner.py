@@ -78,20 +78,26 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
               sequential=True),          # depends on generate_verilog being done;
                                          # serialised here to avoid mill contention
         # ── Parallel (no inter-dependencies) ─────────────────────────────────
+        # NOTE: chisel suites share the Mill build server — serialise them to
+        # avoid "Another Mill process is running" lock contention.
         Suite("chisel › borg",
               f"cd '{root}' && {mill} hardware.borg.test"),
         Suite("chisel › tinyqv",
-              f"cd '{root}' && {mill} hardware.tinyqv.test"),
+              f"cd '{root}' && {mill} hardware.tinyqv.test",
+              depends_on="chisel › borg"),
         Suite("software",
               f"cd '{root}' && make -C software test"),
         Suite("cocotb › soc-core (rtl)",
               f"cd '{root}' && {test_soc} core"),
-        # Render tests (verilator)
+        # NOTE: verilator triangle/vkcube share obj_dir — serialise to prevent
+        # parallel 'rm -rf obj_dir' races that corrupt the verilator_sim build.
         Suite("render › verilator › triangle", verilator_render("triangle")),
-        Suite("render › verilator › vkcube",   verilator_render("vkcube")),
-        # Render tests (arcilator)
+        Suite("render › verilator › vkcube",   verilator_render("vkcube"),
+              depends_on="render › verilator › triangle"),
+        # NOTE: arcilator triangle/vkcube share arcilator_sim — same reason.
         Suite("render › arcilator › triangle", arcilator_render("triangle")),
-        Suite("render › arcilator › vkcube",   arcilator_render("vkcube")),
+        Suite("render › arcilator › vkcube",   arcilator_render("vkcube"),
+              depends_on="render › arcilator › triangle"),
         # ── Starts only after soc-core (shared test/soc/ dir) ────────────────
         Suite("cocotb › soc-borg  (rtl)",
               f"cd '{root}' && {test_soc} borg",
