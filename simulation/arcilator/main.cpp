@@ -1,38 +1,6 @@
-#include "../common/common_sim.h"
-#include "../common/texture_loader.h"
-#include "../common/uart_decoder.h"
-#include "arc.h"
-#include <fstream>
-#include <sstream>
+#include "ArcBorgSimulator.h"
+#include <iostream>
 
-// Parse state.json to find the byte offset of a memory whose name contains |pattern|.
-// Returns -1 if not found.
-static int find_memory_offset(const std::string& pattern) {
-    std::ifstream f("state.json");
-    if (!f) return -1;
-    std::string line;
-    int last_offset = -1;
-    bool in_name = false;
-    while (std::getline(f, line)) {
-        // Look for "name" lines containing the pattern
-        auto np = line.find("\"name\"");
-        if (np != std::string::npos && line.find(pattern) != std::string::npos) {
-            in_name = true;
-            continue;
-        }
-        if (in_name) {
-            auto op = line.find("\"offset\"");
-            if (op != std::string::npos) {
-                auto colon = line.find(':', op);
-                if (colon != std::string::npos) {
-                    last_offset = std::atoi(line.c_str() + colon + 1);
-                }
-                in_name = false;
-            }
-        }
-    }
-    return last_offset;
-}
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::cerr << "Usage: " << argv[0] << " <firmware.bin> <app_name>\n";
@@ -41,227 +9,48 @@ int main(int argc, char** argv) {
     std::string firmware_path = argv[1];
     std::string app_name = argv[2];
 
-    tt_um_gonsolo_borg model;
-
-    QSPIMemory flash(1024 * 1024, true); // 1MB flash
-    flash.load_bin(firmware_path);
-
-    // 8MB PSRAM mirroring setup
-    QSPIMemory psram(8 * 1024 * 1024, false);
-
     uint32_t width = 32;
     uint32_t height = 32;
-    
-    // PSRAM byte mapping: the hardware maps PSRAM starting at offset 0x1000.
-    // So PSRAM_IO_SPI_ADDR = 0x1000 (4096 bytes, which is 1024 words).
-     uint32_t psram_spi_word_offset = 0x1000 / 4;
-    
-    uint32_t* psram_init_words = (uint32_t*)psram.mem.data();
-    psram_init_words[psram_spi_word_offset + 0] = width;
-    psram_init_words[psram_spi_word_offset + 1] = height;
-
-    // vkcube uses a 64×64 texture; triangle uses 32×32.
     uint32_t tex_dim = (app_name == "vkcube" || app_name == "textest") ? 64 : 32;
+
+    bool fast_mode = true;
+    if (argc > 3) {
+        fast_mode = (std::string(argv[3]) == "fast");
+    }
+
+    ArcBorgSimulator sim(firmware_path, fast_mode, width, height);
+
     std::string tex_path = app_name == "vkcube" ? "../../software/borg/borg_texture_small.dat" : "../../software/borg/test_texture.dat";
-    load_texture_to_psram(psram.mem.data(), tex_path, tex_dim, TEX_PSRAM_BYTE_ADDR_FIXED);
+    sim.load_texture(tex_path, tex_dim);
 
-    // Reset Sequence
-    model.view.clk = 0;
-    model.view.rst_n = 0;
-    model.view.ena = 1;
-    model.view.ui_in = 0;
-    model.view.uio_in = 0;
-
-    for (int i = 0; i < 10; i++) {
-        model.eval();
-        model.view.clk = 1;
-        model.eval();
-        model.view.clk = 0;
-    }
-    model.view.rst_n = 1;
-
-    // Initialize coordLut BRAMs (arcilator doesn't support $readmemh)
-    // Offsets are read dynamically from state.json to survive refactors.
-    {
-        const uint16_t coord_lut[64] = {
-            0x3800, 0x3E00, 0x4100, 0x4300, 0x4480, 0x4580, 0x4680, 0x4780,
-            0x4840, 0x48C0, 0x4940, 0x49C0, 0x4A40, 0x4AC0, 0x4B40, 0x4BC0,
-            0x4C20, 0x4C60, 0x4CA0, 0x4CE0, 0x4D20, 0x4D60, 0x4DA0, 0x4DE0,
-            0x4E20, 0x4E60, 0x4EA0, 0x4EE0, 0x4F20, 0x4F60, 0x4FA0, 0x4FE0,
-            0x5010, 0x5030, 0x5050, 0x5070, 0x5090, 0x50B0, 0x50D0, 0x50F0,
-            0x5110, 0x5130, 0x5150, 0x5170, 0x5190, 0x51B0, 0x51D0, 0x51F0,
-            0x5210, 0x5230, 0x5250, 0x5270, 0x5290, 0x52B0, 0x52D0, 0x52F0,
-            0x5310, 0x5330, 0x5350, 0x5370, 0x5390, 0x53B0, 0x53D0, 0x53F0,
-        };
-        int COORD_LUT_X_OFFSET = find_memory_offset("coordLutX_ext");
-        int COORD_LUT_Y_OFFSET = find_memory_offset("coordLutY_ext");
-        if (COORD_LUT_X_OFFSET < 0 || COORD_LUT_Y_OFFSET < 0) {
-            std::cerr << "[SIM] ERROR: Could not find coordLut offsets in state.json\n";
-            return 1;
-        }
-        for (int i = 0; i < 64; i++) {
-            *(uint16_t*)(model.storage.data() + COORD_LUT_X_OFFSET + i * 2) = coord_lut[i];
-            *(uint16_t*)(model.storage.data() + COORD_LUT_Y_OFFSET + i * 2) = coord_lut[i];
-        }
-        std::cout << "[SIM] coordLut BRAMs initialized (X@" << COORD_LUT_X_OFFSET << ", Y@" << COORD_LUT_Y_OFFSET << ").\n";
-    }
-
-    // Initialize rcpLut BRAMs (arcilator doesn't support $readmemh)
-    // Offsets are read dynamically from state.json to survive refactors.
-    {
-        const uint16_t rcp_lut[17] = {
-            0x03FF, 0x0388, 0x031C, 0x02BD, 0x0266, 0x0218, 0x01D1, 0x0191,
-            0x0155, 0x011F, 0x00EC, 0x00BE, 0x0092, 0x006A, 0x0044, 0x0021, 0x0000
-        };
-        int RCP_LUT_A_OFFSET = find_memory_offset("rcpLutA_ext");
-        int RCP_LUT_B_OFFSET = find_memory_offset("rcpLutB_ext");
-        if (RCP_LUT_A_OFFSET < 0 || RCP_LUT_B_OFFSET < 0) {
-            std::cerr << "[SIM] ERROR: Could not find rcpLut offsets in state.json\n";
-            return 1;
-        }
-        for (int i = 0; i < 17; i++) {
-            *(uint16_t*)(model.storage.data() + RCP_LUT_A_OFFSET + i * 2) = rcp_lut[i];
-            *(uint16_t*)(model.storage.data() + RCP_LUT_B_OFFSET + i * 2) = rcp_lut[i];
-        }
-        std::cout << "[SIM] rcpLut BRAMs initialized (A@" << RCP_LUT_A_OFFSET << ", B@" << RCP_LUT_B_OFFSET << ").\n";
-    }
-
-    // Set initial camera rotation so the cube is visibly rotated (matches viewer.py defaults)
     if (app_name == "vkcube") {
-        float* psram_floats = (float*)&psram_init_words[psram_spi_word_offset];
-        psram_floats[2] = -0.4363f;
-        psram_floats[3] = 0.6109f;
+        sim.set_camera_angles(-0.4363f, 0.6109f);
     }
 
-    // DEBUG: Initialize sim_flash_ext and sim_psram_ext BRAMs for fast_sim_en mode.
-    // This allows MemoryControllerSim to serve instructions and GPU texture reads
-    // directly from Chisel BRAM, bypassing the real QSPI serialization path.
-    {
-        int FLASH_OFFSET = find_memory_offset("sim_flash_ext");
-        int PSRAM_OFFSET = find_memory_offset("sim_psram_ext");
-        int GPU_PSRAM_OFFSET = find_memory_offset("sim_psram_gpu");
-        if (FLASH_OFFSET >= 0 && PSRAM_OFFSET >= 0 && GPU_PSRAM_OFFSET >= 0) {
-            // Copy firmware into sim_flash_ext
-            for (size_t i = 0; i < flash.mem.size(); i++) {
-                *(model.storage.data() + FLASH_OFFSET + i) = flash.mem[i];
-            }
-            // Copy PSRAM data (init words, texture, etc.) into sim_psram_ext
-            for (size_t i = 0; i < psram.mem.size(); i++) {
-                *(model.storage.data() + PSRAM_OFFSET + i) = psram.mem[i];
-            }
-            // Pack first 1 MB of PSRAM into 32-bit words for GPU BRAM (sim_psram_gpu).
-            // GPU address is 20-bit (1 MB max). Word[i] = {byte[4i+3],...,byte[4i+0]}.
-            size_t gpu_size = 1048576; // 1 MB = 262144 × 4 bytes
-            for (size_t i = 0; i < gpu_size; i += 4) {
-                uint32_t word = (uint32_t)psram.mem[i]
-                              | ((uint32_t)psram.mem[i+1] << 8)
-                              | ((uint32_t)psram.mem[i+2] << 16)
-                              | ((uint32_t)psram.mem[i+3] << 24);
-                *(uint32_t*)(model.storage.data() + GPU_PSRAM_OFFSET + i) = word;
-            }
-            std::cout << "[SIM] sim_flash_ext (" << flash.mem.size() << " bytes), "
-                      << "sim_psram_ext (" << psram.mem.size() << " bytes), and "
-                      << "sim_psram_gpu (" << gpu_size << " bytes) initialized for fast_sim_en.\n";
-        } else {
-            std::cerr << "[SIM] WARNING: sim_flash_ext, sim_psram_ext, or sim_psram_gpu not found in state.json.\n"
-                      << "  Make sure the sim FIRRTL (with MemoryControllerSim) is being used.\n";
-        }
-    }
+    sim.backend_reset();
 
     std::cout << "[SIM] Starting simulation...\n";
 
-    uint64_t cycles = 0;
-    bool done = false;
-    
-    // Framebuffer starts after PSRAM_IN params + texture region.
-    // PSRAM_OUT_OFFSET is defined in borg_layout.h (included via common_sim.h).
-    uint32_t out_base_word = psram_spi_word_offset + (PSRAM_OUT_OFFSET / 4);
-    // Frame stride and sizes in words
-    uint32_t frame_fb_size = width * height * 3;
-    uint32_t frame_zb_size = width * height;
-    uint32_t marker_offset_word = out_base_word + frame_fb_size + frame_zb_size;
-    
-    UartDecoder uart;
-    uint8_t prev_uio_out = 0xFF;
-
-    // DEBUG: Enable fast_sim_en — mux instruction fetch + GPU reads through MemoryControllerSim
-    model.view.ui_in = 0x80;
-
-    // Hoist PSRAM offset lookup — offset is constant, never re-read state.json in the loop.
-    int SIM_PSRAM_OFF = find_memory_offset("sim_psram_ext");
-    uint32_t* sim_psram_words = (SIM_PSRAM_OFF >= 0)
-        ? (uint32_t*)(model.storage.data() + SIM_PSRAM_OFF)
-        : (uint32_t*)psram.mem.data();  // fallback to C++ model
-
-    while (!done) {
-        // Phase 1 (Clock Low)
-        model.view.clk = 0;
-        model.eval();
-
-        uint8_t uio_out = model.view.uio_out;
-        uint8_t uo_out  = model.view.uo_out;
-        
-        static uint8_t prev_uo_out = 0xFF;
-        if (uo_out != prev_uo_out) {
-            prev_uo_out = uo_out;
-        }
-
-        if (uio_out != prev_uio_out) {
-            prev_uio_out = uio_out;
-        }
-
-        bool clk = get_spi_clk(uio_out);
-        uint8_t data_out = decode_spi_data_out(uio_out);
-
-        uint8_t f_data = flash.tick(get_flash_cs(uio_out), clk, data_out);
-        uint8_t r_data = psram.tick(get_ram_a_cs(uio_out), clk, data_out);
-        uint8_t m_data = !get_flash_cs(uio_out) ? f_data : (!get_ram_a_cs(uio_out) ? r_data : 0);
-        model.view.uio_in = encode_spi_data_in(m_data);
-
-        // Phase 2 (Clock High)
-        model.view.clk = 1;
-        model.eval();
-
-        uio_out = model.view.uio_out;
-        clk = get_spi_clk(uio_out);
-        data_out = decode_spi_data_out(uio_out);
-
-        f_data = flash.tick(get_flash_cs(uio_out), clk, data_out);
-        r_data = psram.tick(get_ram_a_cs(uio_out), clk, data_out);
-        m_data = !get_flash_cs(uio_out) ? f_data : (!get_ram_a_cs(uio_out) ? r_data : 0);
-        model.view.uio_in = encode_spi_data_in(m_data);
-
-
-
-        if (uart.tick((model.view.uo_out >> 6) & 1)) {
-            std::cout << (char)uart.byte() << std::flush;
-        }
-
-        cycles++;
-
-        if (cycles % 1000000 == 0) std::cout << "[SIM] " << (cycles / 1000000) << " million cycles\n" << std::flush;
-
-        if (sim_psram_words[marker_offset_word] == 0x0000DEAD) {
-            done = true;
-            std::cout << "[SIM] Frame complete! DONE_MARKER detected.\n";
-            std::cout << "Total Sim Cycles:  " << cycles << " cycles.\n";
-
-            // Copy sim_psram_ext into C++ psram model for PPM save
-            if (SIM_PSRAM_OFF >= 0) {
-                memcpy(psram.mem.data(), model.storage.data() + SIM_PSRAM_OFF, psram.mem.size());
-                std::cout << "[SIM] Copied sim_psram_ext → C++ psram for PPM save.\n";
-            }
-        }
-
-        if (cycles > 200000000) {
-            std::cout << "[SIM] Timeout limit reached.\n";
-            break;
+    uint64_t total_cycles = 0;
+    while (!sim.step(100000)) {
+        total_cycles += 100000;
+        if (total_cycles % 1000000 == 0) {
+            std::cout << "[SIM] " << (total_cycles / 1000000) << " million cycles\n";
         }
     }
+    std::cout << "[SIM] Frame complete! DONE_MARKER detected.\n";
+    std::cout << "Total Sim Cycles:  " << total_cycles << " cycles.\n";
 
+    // In fast mode, arcilator modifies sim_psram_ext directly. We need to copy it back to C++ model
+    int PSRAM_OFFSET = sim.find_memory_offset("sim_psram_ext");
+    if (PSRAM_OFFSET >= 0) {
+        for (size_t i = 0; i < sim.psram->mem.size(); i++) {
+            sim.psram->mem[i] = *(sim.get_storage_ptr() + PSRAM_OFFSET + i);
+        }
+        std::cout << "[SIM] Copied sim_psram_ext → C++ psram for PPM save.\n";
+    }
 
-
-    save_ppm(app_name, width, height, out_base_word, psram.mem);
+    sim.save_ppm(app_name);
 
     return 0;
 }

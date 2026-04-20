@@ -50,23 +50,34 @@ texture_loader.o: ../common/texture_loader.cpp ../common/texture_loader.h
 uart_decoder.o: ../common/uart_decoder.cpp ../common/uart_decoder.h
 	$(CLANG) -O3 -c ../common/uart_decoder.cpp -I../common -o $@
 
+BorgSimulatorBase.o: ../common/BorgSimulatorBase.cpp ../common/BorgSimulatorBase.h
+	$(CLANG) -O3 -c ../common/BorgSimulatorBase.cpp -I../common -o $@
+
+ArcBorgSimulator.o: ArcBorgSimulator.cpp ArcBorgSimulator.h
+	$(CLANG) -O3 -c ArcBorgSimulator.cpp -I../common -o $@
+
 main.o: main.cpp arc.h arcilator-runtime.h ../common/texture_loader.h
 	$(CLANG) -O3 -c main.cpp -I../common -o $@
 
 # Step 6: Link
-arcilator_sim: main.o arc.o texture_loader.o uart_decoder.o
-	$(CLANG) -O3 main.o arc.o texture_loader.o uart_decoder.o -o $@
+arcilator_sim: main.o arc.o texture_loader.o uart_decoder.o BorgSimulatorBase.o ArcBorgSimulator.o
+	$(CLANG) -O3 main.o arc.o texture_loader.o uart_decoder.o BorgSimulatorBase.o ArcBorgSimulator.o -o $@
 
 # Dependency on firmware binaries
 $(FIRMWARE_DIR)/%.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
-# Step 7: Run targets
 triangle: arcilator_sim $(FIRMWARE_DIR)/triangle.bin
-	./arcilator_sim $(FIRMWARE_DIR)/triangle.bin triangle
+	./arcilator_sim $(FIRMWARE_DIR)/triangle.bin triangle fast
 
 vkcube: arcilator_sim $(FIRMWARE_DIR)/vkcube.bin
-	./arcilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube
+	./arcilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube fast
+
+triangle_slow: arcilator_sim $(FIRMWARE_DIR)/triangle.bin
+	./arcilator_sim $(FIRMWARE_DIR)/triangle.bin triangle slow
+
+vkcube_slow: arcilator_sim $(FIRMWARE_DIR)/vkcube.bin
+	./arcilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube slow
 
 clean:
 	rm -f arc.h arc.ll borg.mlir state.json *.o arcilator_sim *.ppm
