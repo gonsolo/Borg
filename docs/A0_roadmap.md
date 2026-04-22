@@ -16,7 +16,7 @@ Target: March 2026 — TTIHP26a shuttle
 - [x] GDS submission (4×2 tiles, IHP SG13G2)
 - [x] 32-bit RISC-V instructions & 32-entry register file
 
-## Phase 2: GPU Autonomy (Steps 21–27.5)
+## Phase 2: GPU Autonomy (Steps 21–29)
 
 Target: **~June 2026** — move the rendering inner loop from firmware into
 hardware, step by step. Each step produces a measurable speed-up, can be
@@ -566,42 +566,147 @@ This step closes that gap structurally. Estimate: 3–5 days.
     No target may be silently skipped. FPGA test results are uploaded as
     artefacts so regressions are traceable.
 
-### Step 24: GPU PSRAM Write Port (+15 LCs)
+### Step 24: Memory Controller Rearchitecture
 
-Add `GpuWriteIO` (or extend `GpuReadIO` to bidirectional `GpuMemIO` with a
-`wr` flag) for autonomous tile buffer flush to PSRAM. Currently, tile buffer
-flush is done by the CPU via MMIO reads (`TILE_RG`/`TILE_BZ`) + PSRAM writes.
-For GPU autonomy (Step 26), the GPU must flush tiles without CPU involvement.
+> **Prerequisite for GPU write port.** The Step 24/25 swap was forced by an
+> 8-hour debugging session (2026-04-22) that revealed the dual-controller
+> architecture (`MemoryController` + `MemoryControllerSim` both instantiated,
+> muxed by `fast_sim_en`) is fundamentally broken: SPI address-space offsets
+> leak into the fast model, `sim_psram_ext` and the C++ `psram->mem` diverge,
+> and GPU writes land in different memories depending on which controller's
+> `ready` signal is selected. The GPU write port (now Step 25) cannot be
+> reliably tested until the memory architecture is clean.
 
-- **Step 24.1: GpuMemIO bundle** (+5 LCs)
-    Extend `GpuReadIO` with `wr: Bool` and `wdata: UInt(32.W)`.
-    `MemoryController` arbiter adds a write path for GPU port.
+**Goal:** The SoC sees exactly **one** memory controller at a time — never
+both. Which controller is instantiated is a **build-time** (Chisel elaboration)
+decision, not a runtime mux:
 
-- **Step 24.2: sTileFlush FSM state** (+10 LCs)
-    New state in `BorgRasterizer` after the last pixel in a tile: sequentially
-    reads the 16-entry tile buffer BRAM and issues GPU write requests to PSRAM.
-    16 entries × 4 words (R, G, B, Z) = 64 GPU write cycles per tile.
+- **FPGA:** always the real QSPI `MemoryController`.
+- **Verilator / Arcilator:** selectable per build — either the fast
+  `MemoryControllerSim` (default, for rapid GPU iteration) or the real
+  `MemoryController` (for QSPI-level regression testing).
 
-### Step 25: Integrated Vertex + Triangle Setup Sequencer (+45 LCs)
+**Transparency principle:** The swap must be invisible to everything above
+the memory controller layer. Firmware, TinyQV (CPU), Borg (GPU), Peripherals,
+and the SoC top-level must be completely agnostic — the same unmodified
+firmware binary must produce identical results on either controller. This
+means both controllers expose an identical `MemoryInterface`, and the
+C++ simulator adapts its init/readback to match whichever controller is
+instantiated. No `#ifdef`, no firmware-side address fixups.
+
+No dual-instantiation, no `fast_sim_en` mux, no SPI offset confusion.
+
+- **Step 24.1: Extract `MemoryInterface` trait**
+    Define a common Chisel IO trait (`MemoryInterface`) with `instrFetch`,
+    `cpuData`, and `gpuRead` ports. Both `MemoryController` and
+    `MemoryControllerSim` implement this trait. `Project.scala` instantiates
+    exactly one, selected at **elaboration time** via `isSimulation`, not at
+    runtime via `ui_in[7]`.
+
+- **Step 24.2: Single-controller `Project.scala`**
+    Remove the dual-instantiation mux. When `isSimulation = true`:
+    only `MemoryControllerSim`. When `isSimulation = false`: only
+    `MemoryController`. No `fast_sim_en` signal. No runtime switching.
+
+- **Step 24.3: Unified PSRAM address space**
+    Remove the `PSRAM_SPI_BASE` (0x1000) offset from the simulation path.
+    The fast model's `sim_psram_ext` is indexed by `addr(22,0)` directly —
+    no SPI command header. The C++ simulator must use the same zero-based
+    addressing for `out_base_word`, `marker_offset_word`, and texture base.
+
+    Sub-tasks:
+    - **24.3a:** Update `BorgSimulator.h` constructor: `psram_spi_word_offset = 0`,
+      `out_base_word = PSRAM_OUT_OFFSET / 4` (no SPI offset).
+    - **24.3b:** Update `load_texture()` to write texture at byte offset 128
+      (not `0x1080 = PSRAM_SPI_BASE + 128`).
+    - **24.3c:** Update `sync_to_chisel()` to copy `psram->mem` →
+      `sim_psram_ext` and `sim_psram_gpu` with correct zero-based addressing.
+    - **24.3d:** Verify `PSRAM_OUT_WORD_BASE` in firmware matches the
+      hardware's `addr(22,0)` for GPU flush targets.
+
+- **Step 24.4: C++ simulator cleanup**
+    - **24.4a:** `BorgSimulatorBase::step()` skips QSPI ticks when
+      `fast_mode = true`. Only clocks the design, decodes UART, and
+      calls `fast_sim_snoop()`.
+    - **24.4b:** `fast_sim_snoop()` syncs the done-marker word from
+      `sim_psram_ext` → `psram->mem` each cycle.
+    - **24.4c:** `sync_framebuffer()` bulk-copies the FB+ZB region from
+      `sim_psram_ext` → `psram->mem` once before `save_ppm()`.
+    - **24.4d:** `sync_to_chisel()` populates `sim_psram_ext` and
+      `sim_psram_gpu` from `psram->mem` at init time.
+
+- **Step 24.5: Regression — triangle golden image**
+    `make triangle` must produce the correct golden triangle image using
+    **only** the fast controller. No QSPI involvement. This is the gate
+    for proceeding to Step 25.
+
+### Step 25: GPU PSRAM Write Port (+15 LCs)
+
+> **Depends on Step 24.** The GPU write port adds a write path from
+> `BorgRasterizer` to PSRAM, enabling autonomous tile buffer flushing.
+> Steps 25.1a–25.2b were completed on the old branch (2026-04-21) but
+> must be re-applied on top of the clean memory architecture from Step 24.
+
+Add a GPU write path so `BorgRasterizer` can autonomously flush the 4×4 tile
+buffer (16 entries × 4 words = 64 writes) to PSRAM without CPU involvement.
+Currently the CPU reads each tile entry via MMIO (`TILE_RG`/`TILE_BZ`) and
+writes to PSRAM itself — this is the last CPU-in-the-loop bottleneck before
+full GPU autonomy (Step 27).
+
+- **Step 25.1a: Rename `GpuReadIO` → `GpuMemIO`, add `wr`/`wdata`**
+    (Completed 2026-04-21, carry forward)
+
+- **Step 25.1b: Update all import/usage sites**
+    (Completed 2026-04-21, carry forward)
+
+- **Step 25.1c: Tie `wr := false.B`, `wdata := 0.U` everywhere**
+    (Completed 2026-04-21, carry forward)
+
+- **Step 25.2a: GPU write bypass in `MemoryControllerSim`**
+    (Completed 2026-04-21, carry forward)
+
+- **Step 25.2b: GPU write path in `MemoryController` (real QSPI)**
+    (Completed 2026-04-21, carry forward)
+
+- **Step 25.2c: `sTileFlush` FSM in `BorgRasterizer`** (+10 LCs)
+    New FSM state after `sTileWrite` on last pixel: reads 16 tile buffer entries
+    sequentially and issues 4 GPU write requests per entry (R, G, B, Z = 64
+    writes per tile). CPU pre-computes PSRAM base address and passes it via
+    command FIFO (avoids `y × width` multiply in hardware).
+
+- **Step 25.2d: Wire `sTileFlush` in `Borg.scala` + add MMIO/RDL regs**
+    Wire `flushConfig` (fbBase, zbBase, en) from MMIO registers regenerated by
+    PeakRDL. Mux tile buffer read port between MMIO and `sTileFlush`.
+
+    Remove the 16-iteration CPU flush loop from `shade_tiles()` in
+    `borg_driver.c`. Write `flush_base` MMIO register once per frame.
+
+- **Step 25.5: Firmware Integration**
+  - **Step 25.5.1: Add `borg_set_flush_base()` helper**
+  - **Step 25.5.2: Enable `flush_config.en` in `borg_set_texture()`**
+  - **Step 25.5.3: Set flush base per-tile in `shade_tiles()`**
+  - **Step 25.5.4: Implement polling handoff & guard legacy loop**
+
+### Step 26: Integrated Vertex + Triangle Setup Sequencer (+45 LCs)
 
 Unified FSM that replaces what the CPU currently does in `shade_tiles()`,
 `run_vertex_shader()`, `triangle_setup()`, and `compute_edge_vectors()`.
 Combines the planned DMA engine (Step 22) and vertex sequencer into a
 single FSM to share registers, address counters, and control logic.
 
-- **Step 25.1: Vertex shader sequencing**
+- **Step 26.1: Vertex shader sequencing** (unchanged)
     FSM sequences 3 vertex shader runs: DMA loads vertex attributes from
     PSRAM into GPR, runs SPIR-B shader, stores clip-space outputs. Reloads
     uniform buffer between vertex and fragment stages.
 
-- **Step 25.2: Triangle setup shader**
+- **Step 26.2: Triangle setup shader**
     A 4th shader program that computes edge equations, signed area, `inv_area`
     (FRCP), and bounding box from the 3 vertex outputs. Currently done in
     firmware (`triangle_setup()` + `compute_edge_vectors()` in
     `borg_driver.c`). No new hardware — uses existing FMA+FRCP. ~80 shader
     cycles per triangle, negligible vs. per-pixel rasterization.
 
-- **Step 25.3: Automatic uniform reload**
+- **Step 26.3: Automatic uniform reload**
     After triangle setup, the sequencer DMA-loads the rasterizer + fragment
     shader uniforms (edge constants, vertex colors, inv_area, z_vals) from
     the setup shader outputs, then enqueues the first tile command.
@@ -619,9 +724,9 @@ functional. The hand-rolled priority chain works correctly. A proper
 `BorgBus` → TileLink adapter is worth doing on the Nitefury II or for ASIC,
 but not on iCE40 at 99% utilization.
 
-### Step 26: Full Autonomous Triangle Pipeline
+### Step 27: Full Autonomous Triangle Pipeline
 
-Integration of Steps 21–25. CPU submits a triangle descriptor; GPU does:
+Integration of Steps 21–26. CPU submits a triangle descriptor; GPU does:
 
 1. **Vertex shade** (3× vertex shader runs via DMA + sequencer)
 2. **Triangle setup** (setup shader: edge equations, inv_area, bbox)
@@ -635,14 +740,14 @@ Integration of Steps 21–25. CPU submits a triangle descriptor; GPU does:
 CPU only writes the triangle descriptor and waits for DONE interrupt.
 Estimate: 1–2 weeks.
 
-### Step 27: Multi-Triangle Autonomous Rendering
+### Step 28: Multi-Triangle Autonomous Rendering
 
-Extend Step 25 to process a list of triangle descriptors from PSRAM without
+Extend Step 27 to process a list of triangle descriptors from PSRAM without
 CPU involvement. The GPU reads the next descriptor, runs the full pipeline,
 and signals DONE after the last triangle. The CPU submits a draw call
 (base pointer + count) and waits.
 
-### Step 27.5: Real-Time VGA Output (TT VGA PMOD)
+### Step 29: Real-Time VGA Output (TT VGA PMOD)
 
 Drive the Tiny Tapeout VGA PMOD directly from the pico-ice FPGA for
 real-time display — the hardware equivalent of `make vkcube_gui`.
@@ -715,20 +820,20 @@ R[1:0] = fp16_color[14:13]  (top 2 mantissa bits, exponent-gated)
 
 **Sub-steps:**
 
-- **Step 27.5a: VGA timing generator** (+30 LCs)
+- **Step 29a: VGA timing generator** (+30 LCs)
     H/V counters, sync pulse generation, blanking flags.
     Chisel module `VgaController.scala`.
 
-- **Step 27.5b: SPRAM framebuffer** (+20 LCs)
+- **Step 29b: SPRAM framebuffer** (+20 LCs)
     SPRAM `SB_SPRAM256KA` instantiation, address mux (CPU write port
     during vblank, VGA read port during active). MMIO trigger for
     frame copy (`PSRAM → SPRAM` DMA, or CPU loop).
 
-- **Step 27.5c: FP16→RGB222 scanout** (+15 LCs)
+- **Step 29c: FP16→RGB222 scanout** (+15 LCs)
     Pixel fetch from SPRAM, upscale counter, format conversion, `uo_out`
     drive. Build-time `CONFIG=lite_vga` selects VGA vs. UART on `uo_out`.
 
-- **Step 27.5d: `make fpga_vga` target** (+0 LCs)
+- **Step 29d: `make fpga_vga` target** (+0 LCs)
     Makefile target that builds the VGA-enabled bitstream. PCF constraints
     for VGA PMOD pins on the pico-ice output header.
 
@@ -763,11 +868,13 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
                                                        │
                                                Step 24 (GPU write port)
                                                        │
-                                               Step 25 (vert seq + tri setup)
+                                               Step 25 (MemCtrl rearch)
                                                        │
-                                               Step 26 (full autonomous pipeline)
+                                               Step 26 (vert seq + tri setup)
                                                        │
-                                               Step 27 (multi-triangle rendering)
+                                               Step 27 (full autonomous pipeline)
+                                                        │
+                                               Step 28 (multi-triangle rendering)
 ```
 
 ### FPGA LC Budget (pico-ice, iCE40 UP5K — 5280 LCs)
@@ -788,9 +895,10 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 | 22.1 (DMA FSM) | FSM + addr counter | +25 | 5182 | ✅ |
 | 23 (unified runtime + tex) | Makefile + tex unification | +0 | 5182 | |
 | 24 (GPU write port) | sTileFlush + arbiter | +15 | 5197 | ✅ |
-| 25 (vert seq + tri setup) | Unified FSM | +45 | 5242 | ✅ |
-| 26 (pipeline integration) | Wiring + control | +15 | 5257 | ✅ |
-| 27 (multi-triangle) | Descriptor reader | +10 | **5267** | ✅ |
+| 25 (MemCtrl rearch) | Unified arbiter logic | +0 | 5197 | ✅ |
+| 26 (vert seq + tri setup) | Unified FSM | +45 | 5242 | ✅ |
+| 27 (pipeline integration) | Wiring + control | +15 | 5257 | ✅ |
+| 28 (multi-triangle) | Descriptor reader | +10 | **5267** | ✅ |
 | **Margin** | | | **13 LCs** | |
 
 **Reserve optimizations** (if margin is too tight):
@@ -926,8 +1034,8 @@ fpga/ulx3s/
 
 | Scenario | Platform |
 | --- | --- |
-| Phase 2 (Steps 21–27), area-constrained dev | pico-ice |
-| Phase 3 (Steps 28–32), CPU grows past iCE40 | **ULX3S** |
+| Phase 2 (Steps 21–29), area-constrained dev | pico-ice |
+| Phase 3 (Steps 30–34), CPU grows past iCE40 | **ULX3S** |
 | Phase 3 with GPU enabled (doesn't fit iCE40) | **ULX3S** |
 | Phase 4–5, PCIe host access, DDR3 framebuffer | Nitefury II |
 | ASIC validation, nightly CI | OpenLane |
@@ -1013,7 +1121,7 @@ fpga/nitefury/
 - `tinyQV_top` (PicoIce.scala:17) — shows how to wrap `SoCLogic` for a
   different platform (SB_IO for iCE40 vs. LiteX `Instance()` for Artix-7)
 
-## Phase 3: Linux-Capable CPU (Steps 27–31)
+## Phase 3: Linux-Capable CPU (Steps 30–34)
 
 Target: **~Sept 2026** — expand TinyQV to RV32IMA. Sequential after Phase 2.
 
@@ -1021,85 +1129,85 @@ Target: **~Sept 2026** — expand TinyQV to RV32IMA. Sequential after Phase 2.
 adds ~7 steps of medium-hard complexity (FPGA at 99%). Phase 3's bottleneck
 is the Sv32 MMU (3–4 weeks alone). Dates assume current solo-dev pace.*
 
-### Step 27: M Extension (Integer Multiply/Divide)
+### Step 30: M Extension (Integer Multiply/Divide)
 
 Add dedicated integer multiplier for MUL/MULH/DIV/REM.
 Estimate: 1 week.
 
-### Step 28: A Extension (Atomics)
+### Step 31: A Extension (Atomics)
 
 LR.W / SC.W for Linux `futex` and spinlocks. Reservation register (32-bit
 address + valid bit). ~100 LUTs. Reference KianV implementation.
 Estimate: 3–5 days.
 
-### Step 29: Boot no-MMU Linux
+### Step 32: Boot no-MMU Linux
 
 Intermediate milestone before full MMU. Estimate: 1 week.
 
-### Step 30: MMU (Sv32)
+### Step 33: MMU (Sv32)
 
 Two-level page table walker, 4–8 entry TLB, `satp`/`mstatus` CSRs.
 Intermediate milestone: boot no-MMU Linux first (~1 week).
 ~800–1200 LUTs — the most expensive single addition.
 Estimate: 3–4 weeks.
 
-### Step 31: Boot Full Linux
+### Step 34: Boot Full Linux
 
 Kernel, device tree, rootfs on QSPI PSRAM (8 MB). Estimate: 1–2 weeks.
 
-## Phase 4: Mesa Vulkan Driver (Steps 32–36)
+## Phase 4: Mesa Vulkan Driver (Steps 35–39)
 
 Target: **~Nov–Dec 2026** (~8–10 weeks). Write a Mesa Vulkan ICD for the
 Borg GPU. This is a domain shift — Mesa/NIR/SPIR-V are a new codebase.
 Expect 2–3 weeks ramp-up on top of implementation time.
 
-### Step 32: Minimal `vk_device` + `wsi_headless`
+### Step 35: Minimal `vk_device` + `wsi_headless`
 
 Headless rendering, no window system needed. Estimate: 1–2 weeks.
 
-### Step 33: Shader Compiler (NIR → SPIR-B)
+### Step 36: Shader Compiler (NIR → SPIR-B)
 
 NIR backend generating Borg instructions. Estimate: 2–3 weeks.
 
-### Step 34: Draw Path (`vkCmdDraw`)
+### Step 37: Draw Path (`vkCmdDraw`)
 
 Vertex + fragment shader dispatch to hardware. Estimate: 1–2 weeks.
 
-### Step 35: Texture Sampling (Software)
+### Step 38: Texture Sampling (Software)
 
 CPU-side sampling, spec-compliant but slow. Estimate: 1 week.
 
-### Step 36: Vulkan CTS Subset
+### Step 39: Vulkan CTS Subset
 
 Run conformance tests, fix failures. Estimate: 1–2 weeks.
 
-## Phase 5: GPU Hardware Extensions (Steps 37–41)
+## Phase 5: GPU Hardware Extensions (Steps 40–44)
 
 Target: **~Jan–Feb 2027** (~6–8 weeks). Extend the shader processor to
 support more Vulkan features. These items only make sense on a larger FPGA
 (ULX3S or Nitefury) or ASIC (Tiny Tapeout).
 
-### Step 37: Integer ALU Ops in Shader
+### Step 40: Integer ALU Ops in Shader
 
 Comparison, bitwise, integer math. Estimate: 1 week.
 
-### Step 38: Memory Load/Store from Shader
+### Step 41: Memory Load/Store from Shader
 
 Enables shader-side texture addressing. Estimate: 1–2 weeks.
 
-### Step 39: Framebuffer Blending
+### Step 42: Framebuffer Blending
 
 Alpha blending support. Estimate: 3–5 days.
 
-### Step 40: Multi-Lane SIMD (2–4 FMA)
+### Step 43: Multi-Lane SIMD (2–4 FMA)
 
 Process multiple pixels per cycle. Estimate: 1–2 weeks.
 
-### Step 40.5: Multi-Core Shading Simulation (Optional)
+### Step 43.5: Multi-Core Shading Simulation (Optional)
 
 Refactor `BorgRaster` with parameterizable execution width to dispatch multiple pixels concurrently across a parallel array of `BorgCore` FPUs exclusively for simulation speedup. (Moved from Phase 2; deferred until CPU bottlenecks are resolved).
 
-### Step 41: Second Tapeout Submission
+### Step 44: Second Tapeout Submission
 
 4×4 or 4×5 tile, Linux + Vulkan capable. Estimate: 1 week.
 
