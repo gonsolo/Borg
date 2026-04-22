@@ -493,17 +493,17 @@ feature step, but recorded here for traceability.
   (`BorgCoreTests` updated for `BorgConfig.Sim`), `test_raster.c` native mock
   for `borg_fb_width/height`.
 
-### Step 22: GPU DMA Engine + LUT Recovery ✅ (2026-04-18)
+### Step 22: GPU DMA Engine + LUT Recovery (2026-04-18)
 
 Generalize the GPU read port for bulk transfers. The DMA engine drives the
 **same** `gpu_read` port built in Step 19 — `SoCMemCtrl` is unchanged, only
 the driver changes. Estimate: 1 week.
 
-- **Step 22.0: LUT Recovery** ✅ (prerequisite micro-steps, −44 LCs)
-  - ✅ **22.0a: Remove IMEM MMIO write path** (~15 LUTs saved) — DMA replaces it
-  - ✅ **22.0b: Remove MMIO uniform write path** (~15 LUTs saved) — DMA replaces it
-  - ✅ **22.0c: Simplify RDL address decode** (~10 LUTs saved)
-  - ✅ **22.0d: S3 — Remove MMIO GPR read path** (optional, ~20–30 LUTs)
+- **Step 22.0: LUT Recovery** (prerequisite micro-steps, −44 LCs)
+  - **22.0a: Remove IMEM MMIO write path** (~15 LUTs saved) — DMA replaces it
+  - **22.0b: Remove MMIO uniform write path** (~15 LUTs saved) — DMA replaces it
+  - **22.0c: Simplify RDL address decode** (~10 LUTs saved)
+  - **22.0d: S3 — Remove MMIO GPR read path** (optional, ~20–30 LUTs)
     The `regFileC` shared read port (`wirePortC()` `mmio_en` mux) is used only
     for CPU debugging of shader register state. With DMA in place this path
     is unused. Remove the `mmio_en` conditional from `wirePortC()` in
@@ -515,14 +515,14 @@ the driver changes. Estimate: 1 week.
   (direct memory poke). Remove uniform MMIO first (less time-critical); keep
   IMEM MMIO until DMA is tested, then remove.
 
-- ✅ **Step 22.1: DMA controller FSM** (`BorgDMA.scala`, +25 LCs) *(2026-04-18)*
+- **Step 22.1: DMA controller FSM** (`BorgDMA.scala`, +25 LCs) *(2026-04-18)*
     Accepts `(base_ptr, length, destination)` descriptor via MMIO. Issues
     sequential `gpu_read_req` for each word. Routes returned data to the correct
     on-chip buffer (uniform/IMEM/GPR). Multiplexes with `sTexFetch` requests.
 
-- ✅ **Step 22.2: Bulk IMEM load from PSRAM** (replaces MMIO IMEM writes)
-- ✅ **Step 22.3: Bulk uniform load from PSRAM**
-- ✅ **Step 22.4: Firmware integration** (`dma_load_shader()`, `dma_load_uniforms()`)
+- **Step 22.2: Bulk IMEM load from PSRAM** (replaces MMIO IMEM writes)
+- **Step 22.3: Bulk uniform load from PSRAM**
+- **Step 22.4: Firmware integration** (`dma_load_shader()`, `dma_load_uniforms()`)
 
   **IMEM strategy:** IMEM BRAM stays (1-cycle fetch is critical for pipeline
   throughput). DMA loads it from PSRAM, replacing the ~56 `borg_write_imem()`

@@ -13,7 +13,7 @@ $(HW_DIR)/borg/verilog/asic_files.txt:
 
 # Verilator simulator depends on hardware generation and the actual verilog files
 # We use the verilog_sim directory because it includes the memSim RAM array logic!
-verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/asic_files.txt $(V_SRCS)
+obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/asic_files.txt $(V_SRCS)
 	@rm -rf obj_dir
 	@SRC_FILES=$$(cat $(HW_DIR)/borg/verilog_sim/asic_files.txt $(HW_DIR)/tinyqv/verilog/asic_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
 	echo "Building Verilator models..."; \
@@ -38,13 +38,13 @@ $(FIRMWARE_DIR)/%.bin: $(HW_DIR)/borg/verilog/asic_files.txt
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
 # Simulation targets
-triangle: verilator_sim python_extension $(FIRMWARE_DIR)/triangle.bin
+triangle: obj_dir/verilator_sim $(FIRMWARE_DIR)/triangle.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/triangle.bin triangle 32 32 32
 
-vkcube: verilator_sim python_extension $(FIRMWARE_DIR)/vkcube.bin
+vkcube: obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube 32 32 64
 
-textest: verilator_sim python_extension $(FIRMWARE_DIR)/textest.bin
+textest: obj_dir/verilator_sim $(FIRMWARE_DIR)/textest.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/textest.bin textest 32 32 64
 
 vkcube_gui: python_extension $(FIRMWARE_DIR)/vkcube.bin
@@ -53,7 +53,7 @@ vkcube_gui: python_extension $(FIRMWARE_DIR)/vkcube.bin
 vkcube_gui_fast: python_extension $(FIRMWARE_DIR)/vkcube.bin
 	python3 viewer.py --fast
 
-python_extension: verilator_sim
+python_extension: obj_dir/verilator_sim
 	mkdir -p build && cd build && cmake .. -DCMAKE_CXX_COMPILER=g++ -DPython_EXECUTABLE=$$(which python3) -DVERILATOR_ROOT=$$(dirname $$(dirname $$(which verilator)))/share/verilator -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && make
 	@ln -sf build/compile_commands.json compile_commands.json
 
