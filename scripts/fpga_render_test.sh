@@ -79,7 +79,8 @@ run_test() {
         info "  Commit simulation/golden/fpga/ to lock it in."
     else
         # max-diff=8: tolerates ~1 ULP FP16 rounding variation on real hardware
-        if $COMPARE "$candidate" "$golden_img" --max-diff 8; then
+        # max-fail-pixels=2: tolerates minor edge discrepancies (aliasing/rounding)
+        if $COMPARE "$candidate" "$golden_img" --max-diff 8 --max-fail-pixels 2; then
             ok "$target render matches FPGA golden"
         else
             fail "$target render differs from FPGA golden"

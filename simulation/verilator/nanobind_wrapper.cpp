@@ -8,10 +8,9 @@ namespace nb = nanobind;
 class SimulatorWrapper {
     VerBorgSimulator* sim;
     std::vector<uint8_t> fb_rgb;
-    bool fast_mode;
 public:
-    SimulatorWrapper(const std::string& firmware_path, bool fast_mode = false) : fast_mode(fast_mode) {
-        sim = new VerBorgSimulator(firmware_path, fast_mode);
+    SimulatorWrapper(const std::string& firmware_path, uint32_t width = 32, uint32_t height = 32) {
+        sim = new VerBorgSimulator(firmware_path, width, height);
     }
     
     ~SimulatorWrapper() {
@@ -39,7 +38,6 @@ public:
             fb_rgb.resize(sim->width * sim->height * 3);
         }
 
-        // Step 1: Framebuffer always from C++ QSPI model
         uint32_t* psram_words = (uint32_t*)sim->psram->mem.data();
         
         for (uint32_t y = 0; y < sim->height; y++) {
@@ -75,7 +73,7 @@ public:
 
 NB_MODULE(borg_sim, m) {
     nb::class_<SimulatorWrapper>(m, "BorgSimulator")
-        .def(nb::init<const std::string&, bool>(), nb::arg("firmware_path"), nb::arg("fast_mode") = false)
+        .def(nb::init<const std::string&, uint32_t, uint32_t>(), nb::arg("firmware_path"), nb::arg("width") = 32, nb::arg("height") = 32)
         .def("load_texture", &SimulatorWrapper::load_texture, nb::arg("tex_path"), nb::arg("tex_dim") = 32)
         .def("step", &SimulatorWrapper::step)
         .def("set_camera_angles", &SimulatorWrapper::set_camera_angles)

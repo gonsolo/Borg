@@ -165,6 +165,7 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     load_top_bit := load_top_bit_next
   }
 
+  // @doc:core-datapath
   private def calculateDataRdAndWrEn(alu_out: UInt, cmp_out: Bool, shift_out: UInt): (Bool, UInt) = {
     val wr_en = WireDefault(false.B)
     val data_rd = WireDefault(0.U(4.W))
@@ -204,6 +205,7 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     io.debug_rd := data_rd
     (wr_en, data_rd)
   }
+  // @doc:end
 
   private def updateCycle(): Unit = {
     when(last_count) {

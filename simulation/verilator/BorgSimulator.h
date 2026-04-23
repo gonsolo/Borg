@@ -10,8 +10,7 @@ class VerBorgSimulator : public BorgSimulatorBase {
 public:
     Vtt_um_gonsolo_borg* model;
 
-    VerBorgSimulator(const std::string& firmware_path, bool fast_mode_val = false, uint32_t w = 32, uint32_t h = 32) {
-        fast_mode = fast_mode_val;
+    VerBorgSimulator(const std::string& firmware_path, uint32_t w = 32, uint32_t h = 32) {
         model = new Vtt_um_gonsolo_borg;
         flash = new QSPIMemory(1024 * 1024, true); // 1MB flash
         psram = new QSPIMemory(8 * 1024 * 1024, false); // 8MB PSRAM

@@ -15,7 +15,7 @@ the CPU communicates with it over MMIO.
 At the heart of the processor are a small register file, an instruction memory,
 and a program counter. The entire state fits in a handful of flip-flops:
 
-{{snippet:hardware/borg/src/Borg.scala:storage}}
+{{snippet:hardware/borg/src/BorgCore.scala:storage}}
 
 The register file holds 32 FP16 values that the CPU can read and write via MMIO.
 The instruction memory stores up to 32 shader instructions — enough for full
@@ -33,7 +33,7 @@ See `Instructions.scala` for the full encoding definition.
 
 Here is how the decoder extracts these fields from the fetched instruction:
 
-{{snippet:hardware/borg/src/Borg.scala:instruction-format}}
+{{snippet:hardware/borg/src/BorgCore.scala:instruction-format}}
 
 ## Fetch and Execute
 
@@ -51,7 +51,7 @@ tracks where we are in the pipeline:
 
 If the fetched instruction is zero, the processor halts instead of executing.
 
-{{snippet:hardware/borg/src/Borg.scala:fetch-execute}}
+{{snippet:hardware/borg/src/BorgCore.scala:fetch-execute}}
 
 The control register at MMIO address 60 lets the CPU start execution (bit 0)
 or reset the processor (bit 1). A reset clears the program counter and stops
@@ -75,19 +75,19 @@ This "one unit, many operations" trick saves a huge amount of silicon — instea
 of separate adder, multiplier, and negation circuits, we reuse one FMA datapath
 for everything:
 
-{{snippet:hardware/borg/src/Borg.scala:fma-muxing}}
+{{snippet:hardware/borg/src/BorgCore.scala:fma-muxing}}
 
 The fifth operation, **FSTEP**, doesn't use the FMA at all.  It implements a
 step function used during rasterization to test whether a pixel is inside a
 triangle edge.  The result is simply 1.0 for positive inputs and 0.0 otherwise:
 
-{{snippet:hardware/borg/src/Borg.scala:fstep}}
+{{snippet:hardware/borg/src/BorgCore.scala:fstep}}
 
 The sixth operation, **FRCP**, provides hardware FP16 reciprocal (1/x) via a
 17-entry LUT with linear interpolation.  It enables single-instruction
 perspective division (W-divide) in the vertex shader:
 
-{{snippet:hardware/borg/src/Borg.scala:frcp}}
+{{snippet:hardware/borg/src/BorgCore.scala:frcp}}
 
 ### Inside the RCP Unit
 
@@ -100,7 +100,7 @@ remaining mantissa bits.
 The LUT stores 17 values (16 intervals + 1 sentinel), each 10 bits wide — a
 total of just 170 bits of ROM:
 
-{{snippet:hardware/borg/src/Fp16Rcp.scala:rcp-lut}}
+{{snippet:hardware/borg/src/BorgCore.scala:rcp-lut}}
 
 The interpolation uses only a 7×6-bit multiply and a subtraction —
 no full multiplier is needed:
@@ -135,10 +135,11 @@ The address map is logically grouped into:
 
 | Address Offset | Function |
 | --- | --- |
-| `0x00`–`0x3C` | Register file (r0–r15) |
-| `0x40`–`0x48` | Command FIFO Data ports |
-| `0x50`–`0x68` | Execution Control, Pipeline Status |
-| `0x80`–`0xFC` | Instruction memory (31 slots) |
+| `0x000`–`0x07C` | Register file (r0–r31) |
+| `0x080`–`0x15C` | Instruction memory (56 slots) |
+| `0x164`–`0x16C` | Status, Pipeline Control |
+| `0x170`–`0x1EC` | Uniform Memory (32 entries per page) |
+| `0x1F0`–`0x214` | Tile Buffer, Command FIFO, Texture Config |
 
 A typical workflow looks like this: the CPU writes a shader program into the
 instruction memory, fills the input uniforms, and instead of blocking, queues asynchronous rendering descriptors to the 2-entry **Command FIFO**. The FIFO then handles passing the commands (like rasterization iterator values and shader PC triggers) to the GPU hardware logic while the CPU computes the next triangle.

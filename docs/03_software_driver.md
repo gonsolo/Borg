@@ -56,78 +56,64 @@ For pixels inside the triangle, the hardware FSM auto-chains to the fragment sha
 | Fragment shading   | `shader.frag` | 1 per visible pixel   |
 | **Total per pixel**|               | **1 to 2 shader runs**|
 
-## Z-Buffer
+## Tile Buffer and Z-Buffer
 
-The driver implements depth testing entirely in firmware, with no hardware
-changes to the Borg processor.
+To reduce PSRAM bandwidth, Borg includes a 16-pixel **Hardware Tile Buffer**.
+Each pixel in the buffer stores both RGB color and a 16-bit Z-depth value.
 
-Each frame's PSRAM layout includes a z-buffer region alongside the RGB
-framebuffer:
+During rasterization, the fragment shader computes the Z-depth for the current
+pixel. The hardware then performs an automatic **depth test** against the value
+stored in the tile buffer. If the new pixel is closer, the color and depth are
+updated in the buffer.
 
-```text
-[R G B] × (width × height) + [Z] × (width × height) + [DONE marker]
-```
-
-Before rendering, `borg_clear_zbuffer()` initializes the RGB framebuffer to
-black and the z-buffer to `FP16_MAX_DEPTH` (0x7BFF). During rasterization,
-each visible pixel's interpolated depth is compared against the stored value.
-Pixels that are farther away are rejected:
+Once a tile (typically 4×4 or 16×1 pixels) is complete, the CPU or DMA engine
+flushes the buffer to PSRAM in a single burst write. This avoids the "read-modify-write"
+penalty of performing depth testing directly in PSRAM.
 
 ```c
-uint16_t old_z = PSRAM_OUT(zb_idx);
-if (z < old_z) {
-  PSRAM_OUT(zb_idx) = z;
-  // write RGB to framebuffer
-}
+// Accessing the tile buffer via MMIO
+BorgGpuRegs.tile_ctrl.read_idx = i;
+uint32_t rg = BorgGpuRegs.tile_rg;
+uint32_t bz = BorgGpuRegs.tile_bz;
 ```
-
-This allows correct rendering of overlapping triangles regardless of draw
-order, at the cost of one extra PSRAM read/write and one shader invocation
-per visible pixel.
 
 ## Texturing
 
-The driver supports firmware-only texture mapping, with no additional
-hardware. Textures are stored as FP16 RGB data in PSRAM and sampled
-per-pixel using interpolated UV coordinates.
+Borg supports **hardware-assisted texture mapping**. While the final texel
+fetch still happens in firmware (to avoid complex PSRAM controller logic),
+the hardware handles the most expensive part of the coordinate calculation.
 
-### UV Interpolation
+### Morton Encoding
 
-Each vertex carries `uv[2]` texture coordinates (FP16, range 0–1).
-The unified fragment shader interpolates U and V per pixel using the same barycentric coordinates as color and depth simultaneously in a single shader invocation.
+Textures are stored in PSRAM using a **Morton order** (Z-order curve) layout.
+This significantly improves cache locality compared to a linear scanline layout.
+The hardware `MortonEncode` unit automatically converts interpolated `U` and `V`
+coordinates into a linear memory offset:
+
+{{snippet:hardware/borg/src/Borg.scala:mmio}}
 
 ### Texel Lookup
 
-The interpolated UV values are multiplied by the texture dimensions
-using the Borg FPU (`borg_fp16_mul`), converted to integer indices
-via `fp16_to_uint`, and used to read RGB texel data from PSRAM:
+The firmware simply reads the pre-calculated `tex_addr_morton` from the MMIO
+status registers and uses it as an offset into the texture data in PSRAM:
 
 ```c
-int tx = fp16_to_uint(borg_fp16_mul(u, tex_width_fp16));
-int ty = fp16_to_uint(borg_fp16_mul(v, tex_height_fp16));
-int texel = tex_offset + (ty * tex_width + tx) * 3;
-r = PSRAM_IN(texel);
-g = PSRAM_IN(texel + 1);
-b = PSRAM_IN(texel + 2);
+uint16_t offset = BorgGpuRegs.tex_addr_morton;
+r = PSRAM_IN(tex_base + offset * 3 + 0);
+g = PSRAM_IN(tex_base + offset * 3 + 1);
+b = PSRAM_IN(tex_base + offset * 3 + 2);
 ```
-
-### PSRAM Layout
-
-Texture data must not overlap with the framebuffer output region.
-`PSRAM_OUT(n)` maps to `PSRAM_IN(n + 32)`, so the framebuffer and
-z-buffer occupy `PSRAM_IN` words 32 through ~4128. Texture data is
-placed above this range (e.g. offset 4200).
 
 ### Performance
 
-Texturing adds per visible pixel:
+Hardware acceleration reduces the per-pixel cost significantly:
 
-| Operation                | Count                                    |
-|--------------------------|------------------------------------------|
-| UV interpolation         | included in 1x `shader.frag` run         |
-| UV × dimension multiply  | 2 FPU calls                              |
-| Texel read               | 3 PSRAM reads                            |
-| **Total per textured pixel** | **1 shader run + 2 FPU + 3 PSRAM reads** |
+| Operation                | Implementation | Cost |
+|--------------------------|----------------|------|
+| UV Interpolation         | Fragment Shader| 0 extra cycles |
+| Morton Encoding          | **Hardware**   | 0 extra cycles |
+| Depth Test               | **Hardware**   | 0 extra cycles |
+| Texel Read               | Firmware       | 3 PSRAM reads |
 
 ## The Triangle Application
 

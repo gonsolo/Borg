@@ -12,21 +12,27 @@ advances in low-cost chip manufacturing to make individual tape-outs feasible fo
 
 📖 Read the [Borg GPU Book](https://gonsolo.github.io/Borg/) for detailed documentation.
 
+<!-- markdownlint-disable MD033 -->
+<p align="center">
+  <img src="docs/vkcube.500x500.png" alt="vkcube rendered by the Borg GPU">
+</p>
+<!-- markdownlint-restore MD033 -->
+
 ## Architecture
 
 The design is a **TinyQV RISC-V SoC** with the **Borg FP16 shader processor** as a memory-mapped peripheral,
 targeting both iCE40 FPGAs (pico-ice) and ASIC (IHP SG13G2 via Tiny Tapeout).
-
-![Triangle rendered by the Borg GPU](docs/triangle.png)
 
 ### Borg Shader Processor
 
 A minimal programmable shading unit with:
 
 - **FP16 Fused Multiply-Add (FMA)** — IEEE-754 compliant HardFloat unit supporting ADD, MUL, FMA, FNEG, FSTEP, and FRCP operations
-- **32 general-purpose FP16 registers** (r0–r31, expanding to 64), MMIO-accessible from the CPU
-- **32-word instruction memory** for shader programs
+- **32 general-purpose FP16 registers** (r0–r31), MMIO-accessible from the CPU
+- **56-word instruction memory** for shader programs
 - **Hardware FP16 reciprocal (RCP)** — LUT + linear interpolation for perspective division
+- **Hardware Tile Buffer** — 16-pixel buffer for RGB and Z-buffer depth testing
+- **Hardware Texture Unit** — Morton-encoded texture coordinate expansion
 - **4-cycle pipeline** with automatic halt-on-zero-instruction
 
 ### Rendering Pipeline
@@ -34,11 +40,12 @@ A minimal programmable shading unit with:
 The firmware implements a full triangle rendering pipeline:
 
 1. **Vertex Shader** — 4×4 MVP matrix multiply with hardware perspective division, executed as a single shader pass on the Borg FPU
-2. **Screen-Space Translation** — NDC to pixel coordinates with configurable framebuffer resolution (up to 64×64)
+2. **Screen-Space Translation** — NDC to pixel coordinates with configurable framebuffer resolution
 3. **Rasterization** — Hardware-iterator driven edge evaluation with native FP16 coordinate expansion and FSM auto-chaining
 4. **Fragment Shader** — Unified pass (compiled via linear scan allocator) performing barycentric interpolation for RGB, Z, and UV simultaneously
-5. **Z-Buffer** — Per-pixel depth testing with texture mapping from PSRAM
-6. **Framebuffer Output** — Results written to PSRAM, read by host (RP2040) for display
+5. **Hardware Z-Buffer** — Per-pixel depth testing in the hardware tile buffer
+6. **Hardware Texturing** — Morton-encoded texel fetch with snooped fragment coordinates
+7. **Framebuffer Output** — Results written to PSRAM, read by host (RP2040) for display
 
 ### SPIR-B Shader Format
 
@@ -82,7 +89,8 @@ make test-cocotb-soc-borg-rtl  # Borg peripheral tests (cocotb)
 Fast C++ simulators for RTL validation, capable of rendering frames locally without an FPGA, featuring a real-time cycle-accurate interactive view.
 
 ```bash
-python simulation/verilator/viewer.py # Bind the Pygame UI to cycle-accurate rendering
+make -C simulation/verilator vkcube_gui # Run vkcube in the interactive Verilator viewer
+make -C simulation/arcilator vkcube_gui  # Run in the faster Arcilator viewer
 ```
 
 ### FPGA (pico-ice)
@@ -103,23 +111,18 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 
 ## Milestones
 
-| Task | Status |
+| Milestone | Status |
 | --- | --- |
-| FPU on software simulator (Chisel + cocotb) | ✅ Done |
 | FPU integrated into TinyQV SoC | ✅ Done |
 | Vertex shader on FPGA | ✅ Done |
 | Triangle rasterization + fragment shading | ✅ Done |
 | SPIR-B runtime shader loading | ✅ Done |
 | Per-vertex color interpolation | ✅ Done |
-| Dynamic framebuffer resolution | ✅ Done |
-| Tiny Tapeout TTIHP26a [submission](https://app.tinytapeout.com/projects/3645) | ✅ Submitted |
+| Hardware Tile Buffer (Z-Buffer depth test) | ✅ Done |
+| Hardware Texture Address Unit (Morton encoding) | ✅ Done |
 | 32-bit RISC-V instructions & 32-entry register file | ✅ Done |
 | Hardware perspective projection (4×4 MVP shader) | ✅ Done |
 | Hardware FP16 reciprocal (FRCP) | ✅ Done |
-| Back-face culling & depth-correct vkcube | ✅ Done |
-| Hardware fragment interpolation | ✅ Done |
-| SystemRDL Automated Memory Mapping | ✅ Done |
-| Hardware Command FIFO (2-entry asynchronous submission) | ✅ Done |
 | Cycle-accurate C++ simulation (Arcilator & Verilator) | ✅ Done |
 | Interactive UI Viewer (zero-copy Pygame) | ✅ Done |
 | Test manufactured chip | ⏳ Pending |

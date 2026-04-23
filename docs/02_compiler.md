@@ -65,27 +65,26 @@ metadata tables.
 ### Register Allocation
 
 The backend maps virtual register names (f0, f1, ...) to physical Borg
-registers (r0–r7). Allocation follows a priority order:
-
-1. **FMA accumulators first** — the `rs3` field in fmadd is only 2 bits,
-   so accumulators must land in r0–r3.
-2. **I/O registers next** — uniforms, attributes, and outputs must be in
-   the MMIO-accessible range (r0–r7).
-3. **Remaining operands** — filled in order of first appearance.
+registers (r0–r31). Allocation follows a simple linear scan or priority-based
+mapping. Uniforms, attributes, and outputs are pinned to specific registers
+as defined in the SPIR-B metadata.
 
 ### Instruction Encoding
 
-Each instruction is a 16-bit word loaded into IMEM:
+Each instruction is a 32-bit word using standard RISC-V encoding. This allows
+leveraging existing RISC-V tools for disassembly and analysis:
 
-| Format | Bits 15–14 | Bits 13–12 | Bits 11–8 | Bits 7–4 | Bits 3–0 |
-| --- | --- | --- | --- | --- | --- |
-| `fadd` | 00 | — | rs2 | rs1 | rd |
-| `fmul` | 01 | — | rs2 | rs1 | rd |
-| `fmadd` | 10 | rs3 | rs2 | rs1 | rd |
-| `fneg` | 11 | 00 | — | rs1 | rd |
-| `fstep` | 11 | 01 | — | rs1 | rd |
+| Format | B31–25 | B24–20 | B19–15 | B14–12 | B11–7 | B6–0 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `fadd` | 0000000 | rs2 | rs1 | 111 | rd | 1010011 |
+| `fmul` | 0000100 | rs2 | rs1 | 111 | rd | 1010011 |
+| `fmadd` | rs3 | rs2 | rs1 | 111 | rd | 1000011 |
+| `fneg` | 0000001 | 00000 | rs1 | 111 | rd | 1010011 |
+| `fstep` | 0000010 | 00000 | rs1 | 111 | rd | 1010011 |
+| `frcp` | 0000011 | 00000 | rs1 | 111 | rd | 1010011 |
 
-A word of 0x0000 halts execution.
+A 32-bit word of `0x00000000` halts execution.
+
 
 ## The SPIR-B Binary Format
 
@@ -101,8 +100,8 @@ Offset  Size       Field
 3       1 byte     num_outputs        (O)
 4       1 byte     num_consts         (C)
 5       1 byte     reserved
-6       N × 2      instructions       uint16_le[]
-6+N*2   U          uniform_regs       uint8[]
+6       N × 4      instructions       uint32_le[]
+6+N*4   U          uniform_regs       uint8[]
 ...     A          attribute_regs     uint8[]
 ...     O          output_regs        uint8[]
 ...     C          const_regs         uint8[]

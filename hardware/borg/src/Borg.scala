@@ -220,6 +220,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     tile.io.readEn  := ctrlWriting
   }
 
+  // @doc:mmio
   private def wireMmioRead(): Unit = {
     val fifo = Module(new BorgCommandFIFO(cfg.fifoDepth, cfg.coordWidth))
 
@@ -278,6 +279,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     io.uo_out := 0.U
     io.user_interrupt := false.B
   }
+  // @doc:end
 
   private def wireDMA(): Unit = {
     dma match {

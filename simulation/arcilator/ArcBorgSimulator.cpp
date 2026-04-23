@@ -4,9 +4,8 @@
 #include <fstream>
 #include <sstream>
 
-ArcBorgSimulator::ArcBorgSimulator(const std::string& firmware_path, bool fast_mode_val, uint32_t w, uint32_t h) {
+ArcBorgSimulator::ArcBorgSimulator(const std::string& firmware_path, uint32_t w, uint32_t h) {
     model = new tt_um_gonsolo_borg;
-    fast_mode = fast_mode_val;
     flash = new QSPIMemory(1024 * 1024, true); // 1MB flash
     psram = new QSPIMemory(8 * 1024 * 1024, false); // 8MB PSRAM
     
@@ -61,16 +60,16 @@ int ArcBorgSimulator::get_uart_bit_pos() const {
 }
 
 void ArcBorgSimulator::host_write_psram_word(uint32_t word_addr, uint32_t value) {
-    if (fast_mode && ext_psram_offset >= 0) {
-        *(uint32_t*)(model->storage.data() + ext_psram_offset + word_addr * 4) = value;
+    uint32_t byte_addr = word_addr * 4;
+    if (byte_addr + 3 < psram->mem.size()) {
+        psram->mem[byte_addr] = value & 0xFF;
+        psram->mem[byte_addr+1] = (value >> 8) & 0xFF;
+        psram->mem[byte_addr+2] = (value >> 16) & 0xFF;
+        psram->mem[byte_addr+3] = (value >> 24) & 0xFF;
     }
 }
 
-uint8_t* ArcBorgSimulator::get_storage_ptr() {
-    return model->storage.data();
-}
-
-int ArcBorgSimulator::find_memory_offset(const std::string& pattern) {
+int ArcBorgSimulator::find_memory_offset(const std::string &pattern) {
     std::ifstream f("state.json");
     if (!f) return -1;
     std::string line;
@@ -152,28 +151,6 @@ void ArcBorgSimulator::backend_reset() {
         }
     }
 
-    if (fast_mode) {
-        int FLASH_OFFSET = find_memory_offset("sim_flash_ext");
-        ext_psram_offset = find_memory_offset("sim_psram_ext");
-        int GPU_PSRAM_OFFSET = find_memory_offset("sim_psram_gpu");
-        if (FLASH_OFFSET >= 0 && ext_psram_offset >= 0 && GPU_PSRAM_OFFSET >= 0) {
-            for (size_t i = 0; i < flash->mem.size(); i++) {
-                *(model->storage.data() + FLASH_OFFSET + i) = flash->mem[i];
-            }
-            for (size_t i = 0; i < psram->mem.size(); i++) {
-                *(model->storage.data() + ext_psram_offset + i) = psram->mem[i];
-            }
-            size_t gpu_size = 1048576;
-            for (size_t i = 0; i < gpu_size; i += 4) {
-                uint32_t word = (uint32_t)psram->mem[i]
-                              | ((uint32_t)psram->mem[i+1] << 8)
-                              | ((uint32_t)psram->mem[i+2] << 16)
-                              | ((uint32_t)psram->mem[i+3] << 24);
-                *(uint32_t*)(model->storage.data() + GPU_PSRAM_OFFSET + i) = word;
-            }
-            std::cout << "[SIM] sim_flash_ext (" << flash->mem.size() << " bytes), "
-                      << "sim_psram_ext (" << psram->mem.size() << " bytes), and "
-                      << "sim_psram_gpu (" << gpu_size << " bytes) initialized for fast_sim_en.\n";
-        }
-    }
+    // Fast simulation bypasses (sim_flash_ext, sim_psram_ext) removed.
+    // Simulator now operates strictly via the QSPI pin interface.
 }

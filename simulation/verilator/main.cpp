@@ -9,13 +9,13 @@ int main(int argc, char** argv) {
     std::string firmware_path = argv[1];
     std::string app_name = argv[2];
 
-    uint32_t sim_w   = (argc > 3) ? std::stoul(argv[3]) : 32;
-    uint32_t sim_h   = (argc > 4) ? std::stoul(argv[4]) : sim_w;
-    uint32_t tex_dim = (argc > 5) ? std::stoul(argv[5]) : 32;
+    uint32_t width = argc > 3 ? std::atoi(argv[3]) : 32;
+    uint32_t height = argc > 4 ? std::atoi(argv[4]) : 32;
+    uint32_t tex_dim = argc > 5 ? std::atoi(argv[5]) : 32;
 
-    VerBorgSimulator sim(firmware_path, false, sim_w, sim_h);
+    VerBorgSimulator sim(firmware_path, width, height);
 
-    std::string tex_path = (app_name == "vkcube" || app_name == "textest") ? "../../software/borg/borg_texture_small.dat" : "../../software/borg/test_texture.dat";
+    std::string tex_path = (app_name == "vkcube") ? "../../software/borg/borg_texture_small.dat" : "../../software/borg/test_texture.dat";
     sim.load_texture(tex_path, tex_dim);
 
     if (app_name == "vkcube") {

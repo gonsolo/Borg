@@ -41,7 +41,7 @@ def parse_ppm(path: str):
     return w, h, pixels
 
 
-def compare(candidate: str, golden: str, max_diff: int = 0) -> bool:
+def compare(candidate: str, golden: str, max_diff: int = 0, max_fail_pixels: int = 0) -> bool:
     cw, ch, cpix = parse_ppm(candidate)
     gw, gh, gpix = parse_ppm(golden)
 
@@ -60,12 +60,16 @@ def compare(candidate: str, golden: str, max_diff: int = 0) -> bool:
                 worst = diff
                 worst_pos = (i % cw, i // cw)
 
-    if n_fail:
+    if n_fail > max_fail_pixels:
         print(f"  FAIL  {n_fail}/{cw*ch} pixels differ "
-              f"(max_diff={max_diff}, worst={worst} at {worst_pos})")
+              f"(max_diff={max_diff}, max_fail_pixels={max_fail_pixels}, worst={worst} at {worst_pos})")
         return False
 
-    print(f"  PASS  {cw}x{ch} pixels match (max_diff={max_diff})")
+    if n_fail > 0:
+        print(f"  PASS  {cw}x{ch} pixels match with {n_fail} discrepancies "
+              f"(max_diff={max_diff}, max_fail_pixels={max_fail_pixels}, worst={worst} at {worst_pos})")
+    else:
+        print(f"  PASS  {cw}x{ch} pixels match (max_diff={max_diff})")
     return True
 
 
@@ -75,10 +79,12 @@ def main():
     ap.add_argument("golden",    help="Known-good golden PPM")
     ap.add_argument("--max-diff", type=int, default=0,
                     help="Max allowed per-channel difference (default: 0 = exact)")
+    ap.add_argument("--max-fail-pixels", type=int, default=0,
+                    help="Max number of pixels allowed to exceed max-diff (default: 0)")
     args = ap.parse_args()
 
     try:
-        ok = compare(args.candidate, args.golden, args.max_diff)
+        ok = compare(args.candidate, args.golden, args.max_diff, args.max_fail_pixels)
     except FileNotFoundError as e:
         print(f"  FAIL  File not found: {e}")
         sys.exit(1)

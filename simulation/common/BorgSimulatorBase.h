@@ -10,7 +10,6 @@ public:
     QSPIMemory* flash;
     QSPIMemory* psram;
     UartDecoder uart;
-    bool fast_mode;
     
     uint32_t width;
     uint32_t height;
@@ -36,7 +35,7 @@ public:
     virtual void set_ui_in(uint8_t val) = 0;
     virtual int get_uart_bit_pos() const = 0;
 
-    // Optional: Backends can override this to implement fast_sim_en memory snooping
+    // Optional: Backends can override this to implement custom memory snooping
     virtual void fast_sim_snoop() {}
     virtual void host_write_psram_word(uint32_t word_addr, uint32_t value) {}
     

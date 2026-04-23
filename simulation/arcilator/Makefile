@@ -68,16 +68,13 @@ $(FIRMWARE_DIR)/%.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
 triangle: arcilator_sim $(FIRMWARE_DIR)/triangle.bin
-	./arcilator_sim $(FIRMWARE_DIR)/triangle.bin triangle fast
+	./arcilator_sim $(FIRMWARE_DIR)/triangle.bin triangle
 
 vkcube: arcilator_sim $(FIRMWARE_DIR)/vkcube.bin
-	./arcilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube fast
+	./arcilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube
 
-triangle_slow: arcilator_sim $(FIRMWARE_DIR)/triangle.bin
-	./arcilator_sim $(FIRMWARE_DIR)/triangle.bin triangle slow
-
-vkcube_slow: arcilator_sim $(FIRMWARE_DIR)/vkcube.bin
-	./arcilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube slow
+textest: arcilator_sim $(FIRMWARE_DIR)/textest.bin
+	./arcilator_sim $(FIRMWARE_DIR)/textest.bin textest
 
 clean:
 	rm -f arc.h arc.ll borg.mlir state.json *.o arcilator_sim *.ppm

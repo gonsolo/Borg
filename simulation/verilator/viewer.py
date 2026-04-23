@@ -31,7 +31,7 @@ def main():
         sys.exit(1)
         
     print(f"Loading Firmware: {FW_PATH}")
-    sim = borg_sim.BorgSimulator(FW_PATH)
+    sim = borg_sim.BorgSimulator(FW_PATH, 32, 32)
     
     if os.path.exists(TEX_PATH):
         print(f"Loading Texture: {TEX_PATH}")

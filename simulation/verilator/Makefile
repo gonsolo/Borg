@@ -45,9 +45,6 @@ triangle: obj_dir/verilator_sim python_extension $(FIRMWARE_DIR)/triangle.bin
 vkcube: obj_dir/verilator_sim python_extension $(FIRMWARE_DIR)/vkcube.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube 32 32 64
 
-textest: obj_dir/verilator_sim python_extension $(FIRMWARE_DIR)/textest.bin
-	./obj_dir/verilator_sim $(FIRMWARE_DIR)/textest.bin textest 32 32 64
-
 vkcube_gui: python_extension $(FIRMWARE_DIR)/vkcube.bin
 	python3 viewer.py
 
@@ -55,7 +52,7 @@ python_extension: obj_dir/verilator_sim
 	@mkdir -p build && cd build && cmake .. -DCMAKE_CXX_COMPILER=g++ -DPython_EXECUTABLE=$$(which python3) -DVERILATOR_ROOT=$$(dirname $$(dirname $$(which verilator)))/share/verilator -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null && $(MAKE) -s
 	@ln -sf build/compile_commands.json compile_commands.json
 
-.PHONY: all triangle vkcube textest vkcube_gui clean
+.PHONY: all triangle vkcube vkcube_gui clean
 
 clean:
 	rm -rf obj_dir build verilator_sim *.ppm *.so

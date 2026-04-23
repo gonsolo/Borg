@@ -25,7 +25,7 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
         psram_words[marker_offset_word] = 0;
     }
 
-    set_ui_in(fast_mode ? 0x80 : 0x00);
+    set_ui_in(0x80); // Hold UART RXD (ui_in(7)) high (idle)
 
     for (uint32_t c = 0; c < cycles_to_run; c++) {
         // Phase 1 (Clock Low)

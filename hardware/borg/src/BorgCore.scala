@@ -88,6 +88,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     coordLutX.write(io.coordWriteAddr, io.coordWriteData)
     coordLutY.write(io.coordWriteAddr, io.coordWriteData)
   }
+  // @doc:end
 
   // --- Reciprocal LUT (BRAM) ---
   // 17-entry × 10-bit LUT for FP16 reciprocal with linear interpolation.
@@ -95,17 +96,18 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   // Dimensions (17×10) are intentionally unique across the design to prevent CIRCT
   // from merging this module with other SyncReadMem instances (which drops $readmemh).
   // Saves ~40-60 LUTs vs. the previous VecInit combinational ROM.
+  // @doc:rcp-lut
   val rcpLutA = SyncReadMem(17, UInt(10.W))  // rcpLut[lutIdx]
   val rcpLutB = SyncReadMem(17, UInt(10.W))  // rcpLut[lutIdx + 1]
   loadMemoryFromFileInline(rcpLutA, "rcp_lut.hex")
   loadMemoryFromFileInline(rcpLutB, "rcp_lut.hex")
+  // @doc:end
 
   // RcpLut write port (for simulation initialization — tied off in synthesis)
   when(io.coordWriteEn && io.coordWriteIsRcp) {
     rcpLutA.write(io.coordWriteAddr(4, 0), io.coordWriteData(9, 0))
     rcpLutB.write(io.coordWriteAddr(4, 0), io.coordWriteData(9, 0))
   }
-  // @doc:end
 
   // --- Pipeline Control ---
   val busy_counter = RegInit(0.U(3.W))
