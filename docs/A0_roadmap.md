@@ -595,7 +595,7 @@ full GPU autonomy (Step 27).
   `GpuMemIO` already renamed from `GpuReadIO`. The `wr` and `wdata` fields
   will be added together with the first consumer (Step 25.2).
 
-- **Step 25.2: GPU write path + smoke test — one red pixel at (0,0)**
+- **Step 25.2: GPU write path + smoke test — one red pixel at (0,0) ✅** (2026-04-23)
 
   Build the complete GPU write path and validate it end-to-end in one step.
   You can't test the arbiter without a writer, and you can't verify the

@@ -26,4 +26,7 @@ class GpuMemIO extends Bundle {
   val req   = Output(Bool())
   val data  = Input(UInt(32.W))
   val ready = Input(Bool())
+  // Step 25.2: GPU write path
+  val wr    = Output(Bool())      // assert to start a 4-byte QSPI write
+  val wdata = Output(UInt(32.W)) // data word to write
 }

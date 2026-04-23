@@ -11,9 +11,10 @@ import borg.GpuMemIO
 
 /** IO bundle for the SoC-level memory controller.
   *
-  * Arbitrates the QSPI bus between three requestors:
+  * Arbitrates the QSPI bus between four requestors:
   *   - CPU instruction fetch (via [[InstrFetchIO]])
   *   - CPU data read/write (loads, stores, PSRAM framebuffer)
+  *   - GPU write (autonomous tile flush — Step 25.2)
   *   - GPU read (autonomous texel fetch — Step 19.2)
   */
 class MemoryControllerIO extends Bundle {
@@ -39,7 +40,8 @@ class MemoryControllerIO extends Bundle {
   * Manages a single [[QspiController]] instance shared by:
   *   - '''Instruction fetch:''' streaming 16-bit instruction words from flash
   *   - '''CPU data read/write:''' byte/halfword/word PSRAM access for loads and stores
-  *   - '''GPU read:''' texel fetch from PSRAM (Step 19.2; tied off in Step 19.1)
+  *   - '''GPU write:''' autonomous PSRAM writes (tile flush — Step 25.2)
+  *   - '''GPU read:''' texel fetch from PSRAM (Step 19.2)
   *
   * Data transactions take priority over instruction fetch. Multi-beat
   * (continued) transactions are supported for load/store-multiple sequences.
@@ -52,6 +54,7 @@ class MemoryController extends Module {
   // Sequential State
   val instr_active       = RegInit(false.B)
   val gpu_active         = RegInit(false.B)
+  val gpu_write_active   = RegInit(false.B)  // Step 25.2: GPU write transaction in flight
   val started            = RegInit(false.B)
   val stopped            = RegInit(false.B)
   val qspi_write_done    = RegInit(false.B)
@@ -61,11 +64,11 @@ class MemoryController extends Module {
   val continue_txn       = RegInit(false.B)
   val data_stall         = RegInit(false.B)
 
-  // Combinational Logic
-  val start_instr    = Wire(Bool())
-  val start_read     = Wire(Bool())
-  val start_write    = Wire(Bool())
-  val start_gpu_read = Wire(Bool())
+  val start_instr     = Wire(Bool())
+  val start_read      = Wire(Bool())
+  val start_write     = Wire(Bool())
+  val start_gpu_write = Wire(Bool())  // Step 25.2
+  val start_gpu_read  = Wire(Bool())
   val stop_txn    = Wire(Bool())
   val data_ready  = Wire(Bool())
 
@@ -77,7 +80,7 @@ class MemoryController extends Module {
   val qspi_data_out   = Wire(UInt(8.W))
 
   val is_instr  = instr_active || start_instr
-  val is_gpu    = gpu_active || start_gpu_read
+  val is_gpu    = gpu_active || gpu_write_active || start_gpu_read || start_gpu_write
   val txn_len   = Mux(is_instr, 1.U(2.W), data_txn_len)
   val addr_in = WireDefault(io.cpuData.addr(24, 0))
   when(is_instr) { addr_in := Cat(0.U(1.W), io.instrFetch.instr_addr, 0.U(1.W)) }
@@ -116,11 +119,12 @@ class MemoryController extends Module {
   // --- Implementation Methods ---
 
   private def wireControlFsm(): Unit = {
-    start_instr    := false.B
-    start_read     := false.B
-    start_write    := false.B
-    start_gpu_read := false.B
-    stop_txn       := false.B
+    start_instr     := false.B
+    start_read      := false.B
+    start_write     := false.B
+    start_gpu_write := false.B
+    start_gpu_read  := false.B
+    stop_txn        := false.B
 
     when(qspi_busy || qspi_write_done) {
       when(instr_active) {
@@ -130,7 +134,7 @@ class MemoryController extends Module {
           (qspi_data_ready && qspi_data_byte_idx === 1.U) ||
           io.instrFetch.instr_fetch_stall
         ) {
-          when(data_txn_n =/= 3.U || io.gpuMem.req) { stop_txn := true.B }
+          when(data_txn_n =/= 3.U || io.gpuMem.req || io.gpuMem.wr) { stop_txn := true.B }
         }
       } .elsewhen(
         (qspi_data_ready || qspi_data_req) &&
@@ -140,10 +144,14 @@ class MemoryController extends Module {
         stop_txn := true.B
       }
     } .otherwise {
+      // Priority chain — mirrors BSV descending_urgency:
+      //   CPU read > CPU write > GPU write > GPU read > instr fetch
       when(io.cpuData.readN =/= 3.U) {
         start_read := true.B
       } .elsewhen(io.cpuData.writeN =/= 3.U) {
         start_write := true.B
+      } .elsewhen(io.gpuMem.wr) {
+        start_gpu_write := true.B
       } .elsewhen(io.gpuMem.req) {
         start_gpu_read := true.B
       } .elsewhen(io.instrFetch.instr_fetch_restart) {
@@ -151,14 +159,15 @@ class MemoryController extends Module {
       }
     }
 
-    instr_active := Mux(stop_txn, false.B, Mux(qspi_busy, instr_active, start_instr))
-    gpu_active   := Mux(stop_txn, false.B, Mux(qspi_busy, gpu_active, start_gpu_read))
-    started      := start_instr
-    stopped      := stop_txn
+    instr_active     := Mux(stop_txn, false.B, Mux(qspi_busy, instr_active, start_instr))
+    gpu_active       := Mux(stop_txn, false.B, Mux(qspi_busy, gpu_active, start_gpu_read))
+    gpu_write_active := Mux(stop_txn, false.B, Mux(qspi_busy, gpu_write_active, start_gpu_write))
+    started          := start_instr
+    stopped          := stop_txn
   }
 
   private def wireDataPath(): Unit = {
-    when(start_instr || start_read || start_write || start_gpu_read) {
+    when(start_instr || start_read || start_write || start_gpu_read || start_gpu_write) {
       qspi_data_byte_idx := 0.U
     } .otherwise {
       when(qspi_data_ready || qspi_data_req) {
@@ -174,11 +183,16 @@ class MemoryController extends Module {
       for (i <- 0 until 4) {
         qspi_data_buf(i) := io.cpuData.dataOut(i * 8 + 7, i * 8)
       }
+    } .elsewhen(start_gpu_write) {
+      // Step 25.2: load GPU write data into QSPI buffer
+      for (i <- 0 until 4) {
+        qspi_data_buf(i) := io.gpuMem.wdata(i * 8 + 7, i * 8)
+      }
     }
 
     qspi_write_done := qspi_data_req && qspi_data_byte_idx === data_txn_len
 
-    when(start_gpu_read) {
+    when(start_gpu_read || start_gpu_write) {
       data_txn_len := 3.U
     } .elsewhen(start_read || start_write) {
       data_txn_len := Cat(data_txn_n(1), data_txn_n(1) | data_txn_n(0))
@@ -200,7 +214,7 @@ class MemoryController extends Module {
       }
     } .otherwise {
       data_stall := false.B
-      when(start_gpu_read) {
+      when(start_gpu_read || start_gpu_write) {
         continue_txn := false.B
       } .elsewhen(start_write || start_read) {
         continue_txn := io.cpuData.dataContinue
@@ -223,7 +237,7 @@ class MemoryController extends Module {
       qspi_data_byte_idx + Mux(q_ctrl.io.data_req, 1.U, 0.U)
     )
     q_ctrl.io.start_read  := start_read || start_instr || start_gpu_read
-    q_ctrl.io.start_write := start_write
+    q_ctrl.io.start_write := start_write || start_gpu_write  // Step 25.2
     q_ctrl.io.stall_txn   := stall_txn || data_stall
     q_ctrl.io.stop_txn    := stop_txn
 
@@ -241,15 +255,20 @@ class MemoryController extends Module {
     io.instrFetch.instr_ready         := instr_active && qspi_data_ready && qspi_data_byte_idx === 1.U
 
     // CPU Data Bus Outputs
-    data_ready := !instr_active && !gpu_active && (
+    data_ready := !instr_active && !gpu_active && !gpu_write_active && (
       (qspi_data_ready && qspi_data_byte_idx === data_txn_len) ||
       (io.cpuData.writeN =/= 3.U && ((data_stall && qspi_data_byte_idx === 0.U) || start_write))
     )
     io.cpuData.ready  := data_ready
     io.cpuData.dataIn := assembleCpuDataIn()
 
-    // GPU Read Port — arbiter wired in Step 19.2
-    io.gpuMem.ready := gpu_active && qspi_data_ready && qspi_data_byte_idx === data_txn_len
+    // GPU Port — arbiter wired in Step 19.2, write path added Step 25.2
+    // ready pulses on read completion OR write completion.
+    // Write uses combinational data_req (not registered qspi_write_done) because
+    // stop_txn clears gpu_write_active in the same cycle qspi_write_done is set,
+    // so the registered version arrives 1 cycle too late.
+    io.gpuMem.ready := (gpu_active && qspi_data_ready && qspi_data_byte_idx === data_txn_len) ||
+                       (gpu_write_active && qspi_data_req && qspi_data_byte_idx === data_txn_len)
     io.gpuMem.data  := assembleGpuData()
 
     io.debug_stall_txn := stall_txn

@@ -15,7 +15,7 @@ $(HW_DIR)/borg/verilog/asic_files.txt:
 # We use the verilog_sim directory because it includes the memSim RAM array logic!
 obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/asic_files.txt $(V_SRCS)
 	@rm -rf obj_dir
-	@SRC_FILES=$$(cat $(HW_DIR)/borg/verilog_sim/asic_files.txt $(HW_DIR)/tinyqv/verilog/asic_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
+	@SRC_FILES=$$(cat $(HW_DIR)/borg/verilog_sim/asic_files.txt $(shell test -f $(HW_DIR)/tinyqv/verilog/asic_files.txt && echo $(HW_DIR)/tinyqv/verilog/asic_files.txt) | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
 	echo "Building Verilator models..."; \
 	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall --build -j 0 \
 	-MAKEFLAGS "-s" \

@@ -166,11 +166,15 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // Core state feedback
     rast.io.coreStatus <> core.io.status
 
-    // GPU read port: DMA arbitration when hasDMA=true, direct to rast otherwise.
+    // GPU memory port: DMA arbitration when hasDMA=true, direct to rast otherwise.
+    // Step 25.2: wr/wdata added for GPU write path. DMA is read-only, so
+    // write signals always come from rast (no mux needed for wr/wdata).
     dma match {
       case Some(d) =>
         io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req, rast.io.gpuMem.req)
         io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr, rast.io.gpuMem.addr)
+        io.gpuMem.wr    := rast.io.gpuMem.wr     // DMA never writes
+        io.gpuMem.wdata := rast.io.gpuMem.wdata
         rast.io.gpuMem.data  := io.gpuMem.data
         rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy
         d.io.gpuMem.data     := io.gpuMem.data

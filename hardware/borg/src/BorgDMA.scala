@@ -59,6 +59,8 @@ class BorgDMA extends Module {
   // Defaults
   io.gpuMem.req   := false.B
   io.gpuMem.addr  := 0.U
+  io.gpuMem.wr    := false.B
+  io.gpuMem.wdata := 0.U
 
   io.imemWrite.en   := false.B
   io.imemWrite.addr := 0.U
