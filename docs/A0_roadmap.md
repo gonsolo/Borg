@@ -566,86 +566,24 @@ This step closes that gap structurally. Estimate: 3–5 days.
     No target may be silently skipped. FPGA test results are uploaded as
     artefacts so regressions are traceable.
 
-### Step 24: Memory Controller Rearchitecture
+### Step 24: Memory Controller Rearchitecture ✅ (2026-04-23)
 
-> **Prerequisite for GPU write port.** The Step 24/25 swap was forced by an
-> 8-hour debugging session (2026-04-22) that revealed the dual-controller
-> architecture (`MemoryController` + `MemoryControllerSim` both instantiated,
-> muxed by `fast_sim_en`) is fundamentally broken: SPI address-space offsets
-> leak into the fast model, `sim_psram_ext` and the C++ `psram->mem` diverge,
-> and GPU writes land in different memories depending on which controller's
-> `ready` signal is selected. The GPU write port (now Step 25) cannot be
-> reliably tested until the memory architecture is clean.
+The "Dual Controller" architecture (`MemoryController` + `MemoryControllerSim` muxed by `fast_sim_en`) was found to be fundamentally unreliable due to divergent memory models and SPI address leaking.
 
-**Goal:** The SoC sees exactly **one** memory controller at a time — never
-both. Which controller is instantiated is a **build-time** (Chisel elaboration)
-decision, not a runtime mux:
+**Resolution:** The fast-simulation model (`MemoryControllerSim`) was **removed**. The SoC now uses a single, unified `MemoryController` for both FPGA and simulation. The C++ simulators (Verilator/Arcilator) have been upgraded to provide high-fidelity, cycle-accurate QSPI pin simulation.
 
-- **FPGA:** always the real QSPI `MemoryController`.
-- **Verilator / Arcilator:** selectable per build — either the fast
-  `MemoryControllerSim` (default, for rapid GPU iteration) or the real
-  `MemoryController` (for QSPI-level regression testing).
+- **Unified Logic:** `Project.scala` now instantiates exactly one `MemoryController`.
+- **Zero-Base Addressing:** Removed `PSRAM_SPI_BASE` (0x1000) offset; the memory controller handles the QSPI protocol internally, presenting a clean byte-addressed interface to the CPU and GPU.
+- **Simulator Parity:** The C++ simulator now operates strictly via the QSPI pin interface, ensuring 100% hardware parity for both flash (instructions) and PSRAM (data).
+- **Regression:** Verified pixel-perfect triangle and vkcube rendering using the cycle-accurate QSPI path.
 
-**Transparency principle:** The swap must be invisible to everything above
-the memory controller layer. Firmware, TinyQV (CPU), Borg (GPU), Peripherals,
-and the SoC top-level must be completely agnostic — the same unmodified
-firmware binary must produce identical results on either controller. This
-means both controllers expose an identical `MemoryInterface`, and the
-C++ simulator adapts its init/readback to match whichever controller is
-instantiated. No `#ifdef`, no firmware-side address fixups.
-
-No dual-instantiation, no `fast_sim_en` mux, no SPI offset confusion.
-
-- **Step 24.1: Extract `MemoryInterface` trait**
-    Define a common Chisel IO trait (`MemoryInterface`) with `instrFetch`,
-    `cpuData`, and `gpuRead` ports. Both `MemoryController` and
-    `MemoryControllerSim` implement this trait. `Project.scala` instantiates
-    exactly one, selected at **elaboration time** via `isSimulation`, not at
-    runtime via `ui_in[7]`.
-
-- **Step 24.2: Single-controller `Project.scala`**
-    Remove the dual-instantiation mux. When `isSimulation = true`:
-    only `MemoryControllerSim`. When `isSimulation = false`: only
-    `MemoryController`. No `fast_sim_en` signal. No runtime switching.
-
-- **Step 24.3: Unified PSRAM address space**
-    Remove the `PSRAM_SPI_BASE` (0x1000) offset from the simulation path.
-    The fast model's `sim_psram_ext` is indexed by `addr(22,0)` directly —
-    no SPI command header. The C++ simulator must use the same zero-based
-    addressing for `out_base_word`, `marker_offset_word`, and texture base.
-
-    Sub-tasks:
-    - **24.3a:** Update `BorgSimulator.h` constructor: `psram_spi_word_offset = 0`,
-      `out_base_word = PSRAM_OUT_OFFSET / 4` (no SPI offset).
-    - **24.3b:** Update `load_texture()` to write texture at byte offset 128
-      (not `0x1080 = PSRAM_SPI_BASE + 128`).
-    - **24.3c:** Update `sync_to_chisel()` to copy `psram->mem` →
-      `sim_psram_ext` and `sim_psram_gpu` with correct zero-based addressing.
-    - **24.3d:** Verify `PSRAM_OUT_WORD_BASE` in firmware matches the
-      hardware's `addr(22,0)` for GPU flush targets.
-
-- **Step 24.4: C++ simulator cleanup**
-    - **24.4a:** `BorgSimulatorBase::step()` skips QSPI ticks when
-      `fast_mode = true`. Only clocks the design, decodes UART, and
-      calls `fast_sim_snoop()`.
-    - **24.4b:** `fast_sim_snoop()` syncs the done-marker word from
-      `sim_psram_ext` → `psram->mem` each cycle.
-    - **24.4c:** `sync_framebuffer()` bulk-copies the FB+ZB region from
-      `sim_psram_ext` → `psram->mem` once before `save_ppm()`.
-    - **24.4d:** `sync_to_chisel()` populates `sim_psram_ext` and
-      `sim_psram_gpu` from `psram->mem` at init time.
-
-- **Step 24.5: Regression — triangle golden image**
-    `make triangle` must produce the correct golden triangle image using
-    **only** the fast controller. No QSPI involvement. This is the gate
-    for proceeding to Step 25.
-
-### Step 25: GPU PSRAM Write Port (+15 LCs)
-
-> **Depends on Step 24.** The GPU write port adds a write path from
-> `BorgRasterizer` to PSRAM, enabling autonomous tile buffer flushing.
-> Steps 25.1a–25.2b were completed on the old branch (2026-04-21) but
-> must be re-applied on top of the clean memory architecture from Step 24.
+> **Lesson learned (2026-04-21):** The previous attempt wired the full tile
+> flush FSM before verifying that a single GPU write could reach PSRAM.
+> Result: two days debugging black images. The root cause was the
+> `MemoryController` arbiter, not the rasterizer logic.
+>
+> **New strategy:** validate the write path end-to-end with one hardcoded
+> pixel before adding any FSM complexity.
 
 Add a GPU write path so `BorgRasterizer` can autonomously flush the 4×4 tile
 buffer (16 entries × 4 words = 64 writes) to PSRAM without CPU involvement.
@@ -653,39 +591,58 @@ Currently the CPU reads each tile entry via MMIO (`TILE_RG`/`TILE_BZ`) and
 writes to PSRAM itself — this is the last CPU-in-the-loop bottleneck before
 full GPU autonomy (Step 27).
 
-- **Step 25.1a: Rename `GpuReadIO` → `GpuMemIO`, add `wr`/`wdata`**
-    (Completed 2026-04-21, carry forward)
+- **Step 25.1: `GpuMemIO` write signals ✅** (rename done 2026-04-23)
+  `GpuMemIO` already renamed from `GpuReadIO`. The `wr` and `wdata` fields
+  will be added together with the first consumer (Step 25.2).
 
-- **Step 25.1b: Update all import/usage sites**
-    (Completed 2026-04-21, carry forward)
+- **Step 25.2: GPU write path + smoke test — one red pixel at (0,0)**
 
-- **Step 25.1c: Tie `wr := false.B`, `wdata := 0.U` everywhere**
-    (Completed 2026-04-21, carry forward)
+  Build the complete GPU write path and validate it end-to-end in one step.
+  You can't test the arbiter without a writer, and you can't verify the
+  writer without checking the output — so do both together.
 
-- **Step 25.2a: GPU write bypass in `MemoryControllerSim`**
-    (Completed 2026-04-21, carry forward)
+  **Hardware changes:**
+  - Add `wr: Output(Bool())` and `wdata: Output(UInt(32.W))` to `GpuMemIO`.
+  - Tie `wr := false.B` and `wdata := 0.U` at all existing usage sites.
+  - Add `start_gpu_write` to `MemoryController.wireControlFsm()`: when
+    `io.gpuMem.wr` is asserted, start a 4-byte QSPI write (cmd `0x02`)
+    to `io.gpuMem.addr` with `io.gpuMem.wdata`.
+    Priority: CPU data > GPU write > GPU read > instruction fetch.
+  - In `BorgRasterizer` (or a small test module), add a one-shot FSM
+    (`sGpuWriteTest`) that fires once after the first command FIFO pop.
+    It writes 3 words to the framebuffer at pixel (0,0):
 
-- **Step 25.2b: GPU write path in `MemoryController` (real QSPI)**
-    (Completed 2026-04-21, carry forward)
+    ```text
+    Word 0: addr = PSRAM_OUT_BYTE_ADDR + 0,  data = 0x3C00  (FP16 1.0 = red)
+    Word 1: addr = PSRAM_OUT_BYTE_ADDR + 4,  data = 0x0000  (FP16 0.0 = no green)
+    Word 2: addr = PSRAM_OUT_BYTE_ADDR + 8,  data = 0x0000  (FP16 0.0 = no blue)
+    ```
 
-- **Step 25.2c: `sTileFlush` FSM in `BorgRasterizer`** (+10 LCs)
-    New FSM state after `sTileWrite` on last pixel: reads 16 tile buffer entries
-    sequentially and issues 4 GPU write requests per entry (R, G, B, Z = 64
-    writes per tile). CPU pre-computes PSRAM base address and passes it via
-    command FIFO (avoids `y × width` multiply in hardware).
+    After writing 3 words, return to the normal rasterizer idle state.
 
-- **Step 25.2d: Wire `sTileFlush` in `Borg.scala` + add MMIO/RDL regs**
-    Wire `flushConfig` (fbBase, zbBase, en) from MMIO registers regenerated by
-    PeakRDL. Mux tile buffer read port between MMIO and `sTileFlush`.
+  **Gate:** run `make triangle` in the simulator. The PPM must show a red
+  pixel at (0,0) and the rest of the triangle must render normally (proving
+  the GPU write arbiter does not break CPU PSRAM access or instruction
+  fetch). The firmware must still reach `borg_present()` and write the
+  DONE marker.
 
-    Remove the 16-iteration CPU flush loop from `shade_tiles()` in
-    `borg_driver.c`. Write `flush_base` MMIO register once per frame.
+- **Step 25.3: `sTileFlush` FSM in `BorgRasterizer`** (+10 LCs)
+  New FSM state after `sTileWrite` on last pixel: reads 16 tile buffer
+  entries sequentially and issues 4 GPU write requests per entry
+  (R, G, B, Z = 64 writes per tile). CPU pre-computes PSRAM base address
+  and passes it via command FIFO (avoids `y × width` multiply in hardware).
 
-- **Step 25.5: Firmware Integration**
-  - **Step 25.5.1: Add `borg_set_flush_base()` helper**
-  - **Step 25.5.2: Enable `flush_config.en` in `borg_set_texture()`**
-  - **Step 25.5.3: Set flush base per-tile in `shade_tiles()`**
-  - **Step 25.5.4: Implement polling handoff & guard legacy loop**
+- **Step 25.4: Wire `sTileFlush` in `Borg.scala` + add MMIO/RDL regs**
+  Wire `flushConfig` (fbBase, zbBase, en) from MMIO registers regenerated
+  by PeakRDL. Mux tile buffer read port between MMIO and `sTileFlush`.
+  Remove the 16-iteration CPU flush loop from `shade_tiles()` in
+  `borg_driver.c`. Write `flush_base` MMIO register once per frame.
+
+- **Step 25.5: Firmware integration**
+  - **25.5a:** Add `borg_set_flush_base()` helper.
+  - **25.5b:** Enable `flush_config.en` in `borg_set_texture()`.
+  - **25.5c:** Set flush base per-tile in `shade_tiles()`.
+  - **25.5d:** Implement polling handoff & guard legacy loop.
 
 ### Step 26: Integrated Vertex + Triangle Setup Sequencer (+45 LCs)
 

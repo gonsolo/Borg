@@ -1,8 +1,9 @@
 {
   inputs = {
     #nixpkgs.url = "github:gonsolo/nixpkgs/librelane";
-    nixpkgs.url = "github:NixOS/nixpkgs";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     alejandra.url = "github:kamadorueda/alejandra/4.0.0";
+    alejandra.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs = {
@@ -49,6 +50,7 @@
         pkgs.coreutils
         pkgs.gcc
         pkgs.git
+        pkgs.glslang
         pkgs.gnugrep
         pkgs.gnumake
         pkgs.gnused
