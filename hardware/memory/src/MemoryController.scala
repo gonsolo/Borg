@@ -88,155 +88,171 @@ class MemoryController extends Module {
     !qspi_data_ready &&
     (qspi_data_byte_idx === 1.U)
 
-  // Control FSM
-  start_instr    := false.B
-  start_read     := false.B
-  start_write    := false.B
-  start_gpu_read := false.B
-  stop_txn       := false.B
+  // --- Core Wiring ---
+  wireControlFsm()
+  wireDataPath()
+  wireQspiController()
+  wireOutputs()
 
-  when(qspi_busy || qspi_write_done) {
-    when(instr_active) {
-      when(io.instrFetch.instr_fetch_restart && (!started || stall_txn)) {
-        stop_txn := true.B
+  // --- Helper Methods ---
+
+  private def assembleInstrData(): UInt = Cat(qspi_data_out, qspi_data_buf(0))
+
+  private def assembleCpuDataIn(): UInt = {
+    Mux(
+      data_ready,
+      Cat(
+        qspi_data_out,
+        qspi_data_buf(2),
+        Mux(data_txn_len === 1.U, qspi_data_out, qspi_data_buf(1)),
+        Mux(data_txn_len === 0.U, qspi_data_out, qspi_data_buf(0))
+      ),
+      qspi_data_buf.asUInt
+    )
+  }
+
+  private def assembleGpuData(): UInt = Cat(qspi_data_out, qspi_data_buf(2), qspi_data_buf(1), qspi_data_buf(0))
+
+  // --- Implementation Methods ---
+
+  private def wireControlFsm(): Unit = {
+    start_instr    := false.B
+    start_read     := false.B
+    start_write    := false.B
+    start_gpu_read := false.B
+    stop_txn       := false.B
+
+    when(qspi_busy || qspi_write_done) {
+      when(instr_active) {
+        when(io.instrFetch.instr_fetch_restart && (!started || stall_txn)) {
+          stop_txn := true.B
+        } .elsewhen(
+          (qspi_data_ready && qspi_data_byte_idx === 1.U) ||
+          io.instrFetch.instr_fetch_stall
+        ) {
+          when(data_txn_n =/= 3.U || io.gpuRead.req) { stop_txn := true.B }
+        }
       } .elsewhen(
-        (qspi_data_ready && qspi_data_byte_idx === 1.U) ||
-        io.instrFetch.instr_fetch_stall
+        (qspi_data_ready || qspi_data_req) &&
+        qspi_data_byte_idx === data_txn_len &&
+        !continue_txn
       ) {
-        when(data_txn_n =/= 3.U || io.gpuRead.req) { stop_txn := true.B }
+        stop_txn := true.B
       }
-    } .elsewhen(
-      (qspi_data_ready || qspi_data_req) &&
-      qspi_data_byte_idx === data_txn_len &&
-      !continue_txn
-    ) {
-      stop_txn := true.B
+    } .otherwise {
+      when(io.cpuData.readN =/= 3.U) {
+        start_read := true.B
+      } .elsewhen(io.cpuData.writeN =/= 3.U) {
+        start_write := true.B
+      } .elsewhen(io.gpuRead.req) {
+        start_gpu_read := true.B
+      } .elsewhen(io.instrFetch.instr_fetch_restart) {
+        start_instr := true.B
+      }
     }
-  } .otherwise {
-    when(io.cpuData.readN =/= 3.U) {
-      start_read := true.B
-    } .elsewhen(io.cpuData.writeN =/= 3.U) {
-      start_write := true.B
-    } .elsewhen(io.gpuRead.req) {
-      start_gpu_read := true.B
-    } .elsewhen(io.instrFetch.instr_fetch_restart) {
-      start_instr := true.B
-    }
+
+    instr_active := Mux(stop_txn, false.B, Mux(qspi_busy, instr_active, start_instr))
+    gpu_active   := Mux(stop_txn, false.B, Mux(qspi_busy, gpu_active, start_gpu_read))
+    started      := start_instr
+    stopped      := stop_txn
   }
 
-  // Update Sequential State
-  instr_active := Mux(stop_txn, false.B, Mux(qspi_busy, instr_active, start_instr))
-  gpu_active   := Mux(stop_txn, false.B, Mux(qspi_busy, gpu_active, start_gpu_read))
-  started      := start_instr
-  stopped      := stop_txn
-
-  when(start_instr || start_read || start_write || start_gpu_read) {
-    qspi_data_byte_idx := 0.U
-  } .otherwise {
-    when(qspi_data_ready || qspi_data_req) {
-      qspi_data_byte_idx := Mux(
-        qspi_data_byte_idx === txn_len, 0.U, qspi_data_byte_idx + 1.U
-      )
+  private def wireDataPath(): Unit = {
+    when(start_instr || start_read || start_write || start_gpu_read) {
+      qspi_data_byte_idx := 0.U
+    } .otherwise {
+      when(qspi_data_ready || qspi_data_req) {
+        qspi_data_byte_idx := Mux(
+          qspi_data_byte_idx === txn_len, 0.U, qspi_data_byte_idx + 1.U
+        )
+      }
     }
-  }
 
-  when(qspi_data_ready) {
-    qspi_data_buf(qspi_data_byte_idx) := qspi_data_out
-  } .elsewhen(io.cpuData.writeN =/= 3.U && (data_stall || start_write)) {
-    for (i <- 0 until 4) {
-      qspi_data_buf(i) := io.cpuData.dataOut(i * 8 + 7, i * 8)
+    when(qspi_data_ready) {
+      qspi_data_buf(qspi_data_byte_idx) := qspi_data_out
+    } .elsewhen(io.cpuData.writeN =/= 3.U && (data_stall || start_write)) {
+      for (i <- 0 until 4) {
+        qspi_data_buf(i) := io.cpuData.dataOut(i * 8 + 7, i * 8)
+      }
     }
-  }
 
-  qspi_write_done := qspi_data_req && qspi_data_byte_idx === data_txn_len
+    qspi_write_done := qspi_data_req && qspi_data_byte_idx === data_txn_len
 
-  when(start_gpu_read) {
-    data_txn_len := 3.U
-  } .elsewhen(start_read || start_write) {
-    data_txn_len := Cat(data_txn_n(1), data_txn_n(1) | data_txn_n(0))
-  }
-
-  when(continue_txn) {
-    when(
-      (qspi_data_req   && qspi_data_byte_idx + 1.U === data_txn_len) ||
-      (qspi_data_ready && qspi_data_byte_idx       === data_txn_len)
-    ) {
-      data_stall := true.B
-    } .elsewhen(
-      data_stall &&
-      qspi_data_byte_idx === 0.U &&
-      ((io.cpuData.readN =/= 3.U && !data_ready) || io.cpuData.writeN =/= 3.U)
-    ) {
-      data_stall   := false.B
-      continue_txn := io.cpuData.dataContinue
-    }
-  } .otherwise {
-    data_stall := false.B
     when(start_gpu_read) {
-      continue_txn := false.B
-    } .elsewhen(start_write || start_read) {
-      continue_txn := io.cpuData.dataContinue
+      data_txn_len := 3.U
+    } .elsewhen(start_read || start_write) {
+      data_txn_len := Cat(data_txn_n(1), data_txn_n(1) | data_txn_n(0))
+    }
+
+    when(continue_txn) {
+      when(
+        (qspi_data_req   && qspi_data_byte_idx + 1.U === data_txn_len) ||
+        (qspi_data_ready && qspi_data_byte_idx       === data_txn_len)
+      ) {
+        data_stall := true.B
+      } .elsewhen(
+        data_stall &&
+        qspi_data_byte_idx === 0.U &&
+        ((io.cpuData.readN =/= 3.U && !data_ready) || io.cpuData.writeN =/= 3.U)
+      ) {
+        data_stall   := false.B
+        continue_txn := io.cpuData.dataContinue
+      }
+    } .otherwise {
+      data_stall := false.B
+      when(start_gpu_read) {
+        continue_txn := false.B
+      } .elsewhen(start_write || start_read) {
+        continue_txn := io.cpuData.dataContinue
+      }
     }
   }
 
-  // QspiController instantiation
-  val q_ctrl = Module(new QspiController())
-  q_ctrl.io.spi_data_in   := io.qspiPins.dataIn
-  io.qspiPins.dataOut     := q_ctrl.io.spi_data_out
-  io.qspiPins.dataOe      := q_ctrl.io.spi_data_oe
-  io.qspiPins.clkOut      := q_ctrl.io.spi_clk_out
-  io.qspiPins.flashSelect := q_ctrl.io.spi_flash_select
-  io.qspiPins.ramASelect  := q_ctrl.io.spi_ram_a_select
-  io.qspiPins.ramBSelect  := q_ctrl.io.spi_ram_b_select
+  private def wireQspiController(): Unit = {
+    val q_ctrl = Module(new QspiController())
+    q_ctrl.io.spi_data_in   := io.qspiPins.dataIn
+    io.qspiPins.dataOut     := q_ctrl.io.spi_data_out
+    io.qspiPins.dataOe      := q_ctrl.io.spi_data_oe
+    io.qspiPins.clkOut      := q_ctrl.io.spi_clk_out
+    io.qspiPins.flashSelect := q_ctrl.io.spi_flash_select
+    io.qspiPins.ramASelect  := q_ctrl.io.spi_ram_a_select
+    io.qspiPins.ramBSelect  := q_ctrl.io.spi_ram_b_select
 
-  q_ctrl.io.addr_in    := addr_in
-  q_ctrl.io.data_in    := qspi_data_buf(
-    qspi_data_byte_idx + Mux(q_ctrl.io.data_req, 1.U, 0.U)
-  )
-  q_ctrl.io.start_read  := start_read || start_instr || start_gpu_read
-  q_ctrl.io.start_write := start_write
-  q_ctrl.io.stall_txn   := stall_txn || data_stall
-  q_ctrl.io.stop_txn    := stop_txn
+    q_ctrl.io.addr_in    := addr_in
+    q_ctrl.io.data_in    := qspi_data_buf(
+      qspi_data_byte_idx + Mux(q_ctrl.io.data_req, 1.U, 0.U)
+    )
+    q_ctrl.io.start_read  := start_read || start_instr || start_gpu_read
+    q_ctrl.io.start_write := start_write
+    q_ctrl.io.stall_txn   := stall_txn || data_stall
+    q_ctrl.io.stop_txn    := stop_txn
 
-  qspi_data_out   := q_ctrl.io.data_out
-  qspi_data_req   := q_ctrl.io.data_req
-  qspi_data_ready := q_ctrl.io.data_ready
-  qspi_busy       := q_ctrl.io.busy
+    qspi_data_out   := q_ctrl.io.data_out
+    qspi_data_req   := q_ctrl.io.data_req
+    qspi_data_ready := q_ctrl.io.data_ready
+    qspi_busy       := q_ctrl.io.busy
+  }
 
-  // CPU Instruction Fetch Outputs
-  io.instrFetch.instr_fetch_started := started
-  io.instrFetch.instr_fetch_stopped := stopped
-  io.instrFetch.instr_data          := Cat(qspi_data_out, qspi_data_buf(0))
-  io.instrFetch.instr_ready         :=
-    instr_active && qspi_data_ready && qspi_data_byte_idx === 1.U
+  private def wireOutputs(): Unit = {
+    // CPU Instruction Fetch Outputs
+    io.instrFetch.instr_fetch_started := started
+    io.instrFetch.instr_fetch_stopped := stopped
+    io.instrFetch.instr_data          := assembleInstrData()
+    io.instrFetch.instr_ready         := instr_active && qspi_data_ready && qspi_data_byte_idx === 1.U
 
-  // CPU Data Bus Outputs
-  data_ready := !instr_active && !gpu_active && (
-    (qspi_data_ready && qspi_data_byte_idx === data_txn_len) ||
-    (io.cpuData.writeN =/= 3.U &&
-      ((data_stall && qspi_data_byte_idx === 0.U) || start_write))
-  )
-  io.cpuData.ready   := data_ready
-  io.cpuData.dataIn := Mux(
-    data_ready,
-    Cat(
-      qspi_data_out,
-      qspi_data_buf(2),
-      Mux(data_txn_len === 1.U, qspi_data_out, qspi_data_buf(1)),
-      Mux(data_txn_len === 0.U, qspi_data_out, qspi_data_buf(0))
-    ),
-    qspi_data_buf.asUInt
-  )
+    // CPU Data Bus Outputs
+    data_ready := !instr_active && !gpu_active && (
+      (qspi_data_ready && qspi_data_byte_idx === data_txn_len) ||
+      (io.cpuData.writeN =/= 3.U && ((data_stall && qspi_data_byte_idx === 0.U) || start_write))
+    )
+    io.cpuData.ready  := data_ready
+    io.cpuData.dataIn := assembleCpuDataIn()
 
-  // GPU Read Port — arbiter wired in Step 19.2
-  io.gpuRead.ready := gpu_active && qspi_data_ready && qspi_data_byte_idx === data_txn_len
-  io.gpuRead.data  := Cat(
-    qspi_data_out,
-    qspi_data_buf(2),
-    qspi_data_buf(1),
-    qspi_data_buf(0)
-  )
+    // GPU Read Port — arbiter wired in Step 19.2
+    io.gpuRead.ready := gpu_active && qspi_data_ready && qspi_data_byte_idx === data_txn_len
+    io.gpuRead.data  := assembleGpuData()
 
-  io.debug_stall_txn := stall_txn
-  io.debug_stop_txn  := stop_txn
+    io.debug_stall_txn := stall_txn
+    io.debug_stop_txn  := stop_txn
+  }
 }
