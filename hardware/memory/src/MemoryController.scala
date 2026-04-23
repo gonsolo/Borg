@@ -79,15 +79,9 @@ class MemoryController extends Module {
   val is_instr  = instr_active || start_instr
   val is_gpu    = gpu_active || start_gpu_read
   val txn_len   = Mux(is_instr, 1.U(2.W), data_txn_len)
-  val addr_in   = Mux(
-    is_gpu,
-    Cat(2.U(2.W), 0.U(3.W), io.gpuRead.addr),
-    Mux(
-      is_instr,
-      Cat(0.U(1.W), io.instrFetch.instr_addr, 0.U(1.W)),
-      io.cpuData.addr(24, 0)
-    )
-  )
+  val addr_in = WireDefault(io.cpuData.addr(24, 0))
+  when(is_instr) { addr_in := Cat(0.U(1.W), io.instrFetch.instr_addr, 0.U(1.W)) }
+  when(is_gpu)   { addr_in := Cat(2.U(2.W), 0.U(3.W), io.gpuRead.addr) }
 
   val stall_txn = instr_active &&
     io.instrFetch.instr_fetch_stall &&
@@ -149,10 +143,9 @@ class MemoryController extends Module {
   when(qspi_data_ready) {
     qspi_data_buf(qspi_data_byte_idx) := qspi_data_out
   } .elsewhen(io.cpuData.writeN =/= 3.U && (data_stall || start_write)) {
-    qspi_data_buf(0) := io.cpuData.dataOut(7, 0)
-    qspi_data_buf(1) := io.cpuData.dataOut(15, 8)
-    qspi_data_buf(2) := io.cpuData.dataOut(23, 16)
-    qspi_data_buf(3) := io.cpuData.dataOut(31, 24)
+    for (i <- 0 until 4) {
+      qspi_data_buf(i) := io.cpuData.dataOut(i * 8 + 7, i * 8)
+    }
   }
 
   qspi_write_done := qspi_data_req && qspi_data_byte_idx === data_txn_len
