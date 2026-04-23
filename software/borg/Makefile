@@ -22,11 +22,13 @@ all: triangle
 
 triangle:
 	@$(MAKE) -C compiler all
-	@bear -- $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex
+	@bear -- $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex || $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex
 
 vkcube:
 	@$(MAKE) -C compiler all
 	@bear -- $(MAKE) -s PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" \
+		EXTRA_CFLAGS="$(if $(LARGE_TEX),,-DUSE_SMALL_TEXTURE)" vkcube.bin vkcube.hex || \
+		$(MAKE) -s PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" \
 		EXTRA_CFLAGS="$(if $(LARGE_TEX),,-DUSE_SMALL_TEXTURE)" vkcube.bin vkcube.hex
 
 test-native: test_raster.c borg_raster.c borg_math.c

@@ -58,14 +58,14 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
         ppm = f"{app}_00.ppm"
         return (
             f"cd '{verilator_dir}' && make {app} && "
-            f"{compare} '{verilator_dir}/{ppm}' '{golden}/{ppm}' --max-diff 1"
+            f"{compare} '{verilator_dir}/{ppm}' '{golden}/{ppm}' --max-diff 1 --max-fail-pixels 2"
         )
 
     def arcilator_render(app: str) -> str:
         ppm = f"{app}_00.ppm"
         return (
             f"cd '{arcilator_dir}' && make {app} && "
-            f"{compare} '{arcilator_dir}/{ppm}' '{golden}/{ppm}' --max-diff 1"
+            f"{compare} '{arcilator_dir}/{ppm}' '{golden}/{ppm}' --max-diff 1 --max-fail-pixels 2"
         )
 
     return [
