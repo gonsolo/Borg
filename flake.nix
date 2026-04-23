@@ -55,10 +55,11 @@
         pkgs.graphviz # dot binary for gen_hw_diagram.py
         pkgs.iverilog
         pkgs.icestorm
-        pkgs.jdk25
+        pkgs.jdk21
         pkgs.klayout
         pkgs.librelane
         pkgs.magic-vlsi
+        pkgs.metals
         pkgs.mill
         pkgs.mpremote
         pkgs.netgen-vlsi
@@ -66,6 +67,7 @@
         pkgs.openroad
         pkgs.pandoc
         pkgs.pkg-config
+        pkgs.scalafmt
         pkgs.tio
         pkgs.typst
         pkgs.verilator
@@ -89,8 +91,8 @@
           echo "Notice: Pure mode detected. Using local $HOME for caches."
         fi
 
-        # 2. Point to the JDK25 home so Java apps don't have to search the PATH
-        export JAVA_HOME=${pkgs.jdk25}
+        # 2. Point to the JDK21 home so Java apps don't have to search the PATH
+        export JAVA_HOME=${pkgs.jdk21}
 
         echo "Entering $GONSOLO_PROJECT development shell..."
 

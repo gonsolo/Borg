@@ -108,13 +108,22 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     iter_reg        := io.cmdPop.bits.tileOrigin
   }
 
+  // --- Helpers ---
+  def tileIndex(c: Coord): UInt = c.x(1, 0) | (c.y(1, 0) << 2.U)
+
+  def isOutside(data: UInt): Bool = {
+    val sign_bit      = data(config.totalBits - 1).asBool
+    val magn_non_zero = data(config.totalBits - 2, 0) =/= 0.U
+    sign_bit && magn_non_zero
+  }
+
   // --- Trigger outputs (directly driven, no register delay) ---
   io.coreTrigger.valid := false.B
   io.coreTrigger.pc    := 0.U
 
   // Tile buffer write default (no write)
   io.tileWrite.en   := false.B
-  io.tileWrite.idx  := iter_reg.x(1, 0) | (iter_reg.y(1, 0) << 2.U)
+  io.tileWrite.idx  := tileIndex(iter_reg)
   io.tileWrite.data := 0.U.asTypeOf(new ColorZ(16))
 
   // GPU read port defaults (Step 19.2)
@@ -202,7 +211,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   when(phase === sTileWrite) {
     // Push the snooped values to the tile buffer (Step 11.3 auto-write)
     // We use the pre-advanced coordinates for index!
-    io.tileWrite.idx := shader_iter_reg.x(1, 0) | (shader_iter_reg.y(1, 0) << 2.U)
+    io.tileWrite.idx := tileIndex(shader_iter_reg)
     io.tileWrite.data.r := frag_r
     io.tileWrite.data.g := frag_g
     io.tileWrite.data.b := frag_b
@@ -244,13 +253,9 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   //
   // @doc:inside-snoop
   when(io.pipeWrite.en && phase === sRast) {
-    val sign_bit      = io.pipeWrite.data(config.totalBits - 1).asBool
-    val magn_non_zero = io.pipeWrite.data(config.totalBits - 2, 0) =/= 0.U
-    // Negative non-zero → outside.  Positive or zero → inside.
-    val is_negative_nonzero = sign_bit && magn_non_zero
-    when(io.pipeWrite.addr === 0.U) { e0_outside := is_negative_nonzero }
-    when(io.pipeWrite.addr === 1.U) { e1_outside := is_negative_nonzero }
-    when(io.pipeWrite.addr === 2.U) { e2_outside := is_negative_nonzero }
+    when(io.pipeWrite.addr === 0.U) { e0_outside := isOutside(io.pipeWrite.data) }
+    when(io.pipeWrite.addr === 1.U) { e1_outside := isOutside(io.pipeWrite.data) }
+    when(io.pipeWrite.addr === 2.U) { e2_outside := isOutside(io.pipeWrite.data) }
   }
   // @doc:end
 

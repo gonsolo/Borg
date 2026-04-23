@@ -94,9 +94,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val io = IO(new BorgIO(cfg))
   dontTouch(io)
 
-  // --- Edge detection for bus signals ---
-  val is_writing = io.data_write_n === 2.U && RegNext(io.data_write_n) =/= 2.U
-  val is_reading = io.data_read_n === 2.U
+  // --- Unified Bus Bundle ---
+  val bus = Wire(new BorgBusIO())
 
   // --- Sub-modules ---
   val core = Module(new BorgCore(cfg))
@@ -105,25 +104,30 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val rdlRegs = Module(new BorgGpuRegs()) // Auto-generated RDL register block
   val dma = if (cfg.hasDMA) Some(Module(new BorgDMA)) else None
 
-  rdlRegs.io.bus.address   := io.address
-  rdlRegs.io.bus.writeData := io.data_in
-  rdlRegs.io.bus.writeEn   := is_writing
-  rdlRegs.io.bus.readEn    := is_reading
-
-  // Sub-modules
-
-
+  wireBus()
+  wireRdlRegs()
   wireCore()
   wireRasterizer()
   wireTileBuffer()
   wireMmioRead()
   wireDMA()
 
+  private def wireRdlRegs(): Unit = {
+    rdlRegs.io.bus.address   := bus.address
+    rdlRegs.io.bus.writeData := bus.data_in
+    rdlRegs.io.bus.writeEn   := bus.is_writing
+    rdlRegs.io.bus.readEn    := bus.is_reading
+  }
+
+  private def wireBus(): Unit = {
+    bus.address    := io.address
+    bus.data_in    := io.data_in
+    bus.is_writing := io.data_write_n === 2.U && RegNext(io.data_write_n) =/= 2.U
+    bus.is_reading := io.data_read_n === 2.U
+  }
+
   private def wireCore(): Unit = {
-    core.io.bus.address    := io.address
-    core.io.bus.data_in    := io.data_in
-    core.io.bus.is_writing := is_writing
-    core.io.bus.is_reading := is_reading
+    core.io.bus <> bus
     core.io.iter       := rast.io.shaderIter    // latched pre-advance position for coordLut
     core.io.coreTrigger <> rast.io.coreTrigger
 
@@ -154,7 +158,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   }
 
   private def wireRasterizer(): Unit = {
-    rast.io.advance   := is_writing && io.address === BorgGpuRegs.iter_offset
+    rast.io.advance   := bus.is_writing && bus.address === BorgGpuRegs.iter_offset
 
     // Pipeline write-back snoop
     rast.io.pipeWrite <> core.io.pipeWrite
@@ -187,7 +191,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
   private def wireTileBuffer(): Unit = {
     // MMIO write to tile_ctrl: set read index (triggers BRAM read) or clear
-    val ctrlWriting = is_writing && io.address === BorgGpuRegs.tile_ctrl_offset
+    val ctrlWriting = bus.is_writing && bus.address === BorgGpuRegs.tile_ctrl_offset
     val tileReadIdx = rdlRegs.io.hw.tile_ctrl_read_idx
     
     tile.io.clearEn := rdlRegs.io.hw.tile_ctrl_clear
@@ -195,31 +199,31 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // Two-step protocol: shadow BZ -> write RG triggers
     val tileShadowB = RegInit(0.U(16.W))
     val tileShadowZ = RegInit(0.U(16.W))
-    when(is_writing && io.address === BorgGpuRegs.tile_bz_offset) {
-      tileShadowB := io.data_in(31, 16)
-      tileShadowZ := io.data_in(15, 0)
+    when(bus.is_writing && bus.address === BorgGpuRegs.tile_bz_offset) {
+      tileShadowB := bus.data_in(31, 16)
+      tileShadowZ := bus.data_in(15, 0)
     }
     
-    val mmioTileWriteEn = is_writing && io.address === BorgGpuRegs.tile_rg_offset
+    val mmioTileWriteEn = bus.is_writing && bus.address === BorgGpuRegs.tile_rg_offset
     tile.io.writeEn  := mmioTileWriteEn || rast.io.tileWrite.en
     tile.io.writeIdx := Mux(rast.io.tileWrite.en, rast.io.tileWrite.idx, tileReadIdx)
     
     val writeColor = Wire(new ColorZ(16))
-    writeColor.r := io.data_in(31, 16)
-    writeColor.g := io.data_in(15, 0)
+    writeColor.r := bus.data_in(31, 16)
+    writeColor.g := bus.data_in(15, 0)
     writeColor.b := tileShadowB
     writeColor.z := tileShadowZ
     tile.io.writeData := Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor)
 
     // Read port: trigger BRAM read when CTRL is written
-    tile.io.readIdx := Mux(ctrlWriting, io.data_in(3, 0), tileReadIdx)
+    tile.io.readIdx := Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx)
     tile.io.readEn  := ctrlWriting
   }
 
   private def wireMmioRead(): Unit = {
     val fifo = Module(new BorgCommandFIFO(cfg.fifoDepth, cfg.coordWidth))
 
-    val writeCmd = is_writing && io.address === BorgGpuRegs.cmd_enqueue_offset
+    val writeCmd = bus.is_writing && bus.address === BorgGpuRegs.cmd_enqueue_offset
     val isEnqueue = RegNext(writeCmd, false.B)
     
     fifo.io.enq.valid := isEnqueue
@@ -230,7 +234,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     core.io.uniformPage := rast.io.uniformPage
 
     // O8: use RDL's internal readAddr (RegNext of address) instead of a duplicate register.
-    val read_addr_del = RegNext(io.address)
+    val read_addr_del = RegNext(bus.address)
 
     // RDL Iter state injection
     rdlRegs.io.hw.iter_x := rast.io.iter.x
@@ -269,7 +273,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.readData.b, tile.io.readData.z)
     ))
 
-    val read_ready_del = RegNext(is_reading, false.B)
+    val read_ready_del = RegNext(bus.is_reading, false.B)
     io.data_ready := Mux(rast.io.autoRunStall, false.B, (io.data_read_n === 3.U) || read_ready_del)
     io.uo_out := 0.U
     io.user_interrupt := false.B
@@ -287,14 +291,14 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         val dmaOffsetReg = RegInit(0.U(6.W))
         val dmaStartPulse = WireDefault(false.B)
 
-        when(is_writing && io.address === BorgGpuRegs.dma_psram_offset) {
-          dmaBaseReg := io.data_in(19, 0)
+        when(bus.is_writing && bus.address === BorgGpuRegs.dma_psram_offset) {
+          dmaBaseReg := bus.data_in(19, 0)
         }
-        when(is_writing && io.address === BorgGpuRegs.dma_config_offset) {
-          dmaLenReg    := io.data_in(6, 1)
-          dmaDestReg   := io.data_in(8, 7)
-          dmaOffsetReg := io.data_in(14, 9)
-          dmaStartPulse := io.data_in(0)
+        when(bus.is_writing && bus.address === BorgGpuRegs.dma_config_offset) {
+          dmaLenReg    := bus.data_in(6, 1)
+          dmaDestReg   := bus.data_in(8, 7)
+          dmaOffsetReg := bus.data_in(14, 9)
+          dmaStartPulse := bus.data_in(0)
         }
 
         val desc = Wire(new DMADescriptor)
