@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -23,24 +23,23 @@ jobs:
         run: nix develop --command make generate_verilog
 
       - name: Build GDS
-        uses: TinyTapeout/tt-gds-action@ttihp26a
+        uses: TinyTapeout/tt-gds-action@ttsky26a
         with:
-          pdk: ihp-sg13g2
-          librelane-version: 3.0.1
+          pdk: sky130A
 
   precheck:
     needs: gds
     runs-on: ubuntu-24.04
     steps:
       - name: Run Tiny Tapeout Precheck
-        uses: TinyTapeout/tt-gds-action/precheck@ttihp26a
+        uses: TinyTapeout/tt-gds-action/precheck@ttsky26a
 
   gl_test:
     needs: gds
     runs-on: ubuntu-24.04
     steps:
       - name: checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -51,7 +50,15 @@ jobs:
         run: nix develop --command make generate_verilog
 
       - name: GL test
-        uses: TinyTapeout/tt-gds-action/gl_test@ttihp26a
+        uses: TinyTapeout/tt-gds-action/gl_test@ttsky26a
         env:
           CLOCK_MHZ: 4
 
+  viewer:
+    needs: gds
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+    steps:
+      - uses: TinyTapeout/tt-gds-action/viewer@ttsky26a

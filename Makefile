@@ -77,9 +77,9 @@ test-all:
 datasheet.pdf: generate_verilog
 	$(TT_TOOL) --create-pdf
 user_config: generate_verilog
-	$(TT_TOOL) --create-user-config --ihp --no-docker
+	$(TT_TOOL) --create-user-config --no-docker
 gds: user_config
-	$(TT_TOOL) --harden --ihp --no-docker
+	$(TT_TOOL) --harden --no-docker
 print_stats:
 	./tt/tt_tool.py --print-stats
 book:
