@@ -105,6 +105,10 @@ make triangle       # Run triangle rendering (vertex shader on FPGA, display on 
 
 ### ASIC (Tiny Tapeout)
 
+<p align="center">
+  <img src="docs/gds_render_small.png" alt="Borg GPU GDS Render">
+</p>
+
 ```bash
 make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 ```
