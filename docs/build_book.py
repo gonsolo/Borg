@@ -112,6 +112,16 @@ def main():
         shutil.copy(diagram_svg, BOOK_OUT / "hw_diagram.svg")
         print(f"  hw_diagram.svg -> book/hw_diagram.svg")
 
+    # Copy images directory and loose pngs
+    if (DOCS / "images").exists():
+        if (BOOK_OUT / "images").exists():
+            shutil.rmtree(BOOK_OUT / "images")
+        shutil.copytree(DOCS / "images", BOOK_OUT / "images")
+        print("  images/ -> book/images/")
+    for img in DOCS.glob("*.png"):
+        shutil.copy(img, BOOK_OUT / img.name)
+        print(f"  {img.name} -> book/{img.name}")
+
     snippet_cache: dict = {}
     sources = sorted(DOCS.glob("*.md"))
     sources = [s for s in sources if s.name != "Plan.md"]  # skip non-book files
