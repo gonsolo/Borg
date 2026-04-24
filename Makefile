@@ -92,7 +92,7 @@ RDL_CHISEL   := $(CURDIR)/PeakRDL-chisel/src
 RDL_DIR      := hardware/rdl
 RDL_SRC      := $(wildcard $(RDL_DIR)/*.rdl)
 RDL_SCALA_OUT:= hardware/borg/src/generated
-RDL_C_OUT    := out/hardware/borg/rdl
+export RDL_C_OUT := $(CURDIR)/out/hardware/borg/rdl
 RDL_PYTHON   := PYTHONPATH=$(RDL_CHISEL):$$PYTHONPATH python3
 
 rdl: $(RDL_SRC)

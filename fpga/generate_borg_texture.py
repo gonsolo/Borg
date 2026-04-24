@@ -14,8 +14,7 @@ import os
 import struct
 from PIL import Image
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '../simulation/verilator/build/common_build'))
-sys.path.append(os.path.join(os.path.dirname(__file__), '../simulation/arcilator/build/common_build'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../software/borg/python/build'))
 from borg_utils_c import fp16_from_float as float_to_fp16
 
 def generate_texture(size, filename):

@@ -30,6 +30,8 @@ list(FILTER VERILATOR_OBJS EXCLUDE REGEX "BorgSimulatorBase\\.o$")
 
 nanobind_add_module(borg_sim nanobind_wrapper.cpp)
 add_subdirectory(../common common_build)
+# Pull borg_utils_c into this project so nanobind-static is compiled only once.
+add_subdirectory(../../software/borg/python borg_python_build)
 target_link_libraries(borg_sim PRIVATE borgsim ${VERILATOR_OBJS})
 
 # Verilator headers

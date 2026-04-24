@@ -1,12 +1,13 @@
+#include <climits>
 #include <nanobind/nanobind.h>
-#include "../../software/borg/borg_math.h"
-#include "../../software/borg/borg_math.c"
+#include "../borg_math.h"
+#include "../borg_math.c"
 
 namespace nb = nanobind;
 
 NB_MODULE(borg_utils_c, m) {
     m.doc() = "Borg math utilities (C implementation)";
-    
+
     m.def("morton_interleave", &morton_interleave, "Interleave bits for Morton encoding");
     m.def("morton_encode", &morton_encode, "Morton encode 2D coordinates");
     m.def("fp16_from_float", &fp16_from_float, "Convert a float to an FP16 bit pattern");

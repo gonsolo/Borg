@@ -1,3 +1,7 @@
+# Absolute path to RDL-generated headers.
+# Exported by the top-level Makefile; derive via git for standalone invocations.
+RDL_C_OUT ?= $(shell git rev-parse --show-toplevel)/out/hardware/borg/rdl
+
 CC = riscv32-none-elf-gcc
 ARCH = rv32e_zicsr
 ABI = ilp32e
@@ -18,32 +22,38 @@ SHARED_SOURCES = borg_driver.c borg_fpu.c borg_raster.c borg_spirb.c borg_math.c
 PROJECT_SOURCES = borg_triangle.c $(SHARED_SOURCES)
 HEADERS = $(wildcard *.h)
 
-all: triangle
+all: python triangle
 
-triangle:
+.PHONY: all triangle vkcube python test-native clean
+
+triangle: python
 	@$(MAKE) -C compiler all
 	@bear -- $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex || $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex
 
-vkcube:
+vkcube: python
 	@$(MAKE) -C compiler all
 	@bear -- $(MAKE) -s PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" \
 		EXTRA_CFLAGS="$(if $(LARGE_TEX),,-DUSE_SMALL_TEXTURE)" vkcube.bin vkcube.hex || \
 		$(MAKE) -s PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" \
 		EXTRA_CFLAGS="$(if $(LARGE_TEX),,-DUSE_SMALL_TEXTURE)" vkcube.bin vkcube.hex
 
+python:
+	$(MAKE) -C python
+
 test-native: test_raster.c borg_raster.c borg_math.c
-	gcc -O2 -g -Wall -Wno-int-to-pointer-cast test_raster.c borg_raster.c borg_math.c -I. -I../../out/hardware/borg/rdl -D BORG_BASE=0 -o test_raster -lm
+	gcc -O2 -g -Wall -Wno-int-to-pointer-cast test_raster.c borg_raster.c borg_math.c -I. -I$(RDL_C_OUT) -D BORG_BASE=0 -o test_raster -lm
 	./test_raster
 
 clean:
 	rm -f *.o *.elf *.bin *.hex *.asm test_raster
-	make -C compiler clean
+	$(MAKE) -C compiler clean
+	$(MAKE) -C python clean
 
 $(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s
 	$(MAKE) -C $(TINYQV_SDK) $(notdir $@)
 
 %.o: %.c $(HEADERS)
-	@$(CC) -O2 -I$(TINYQV_SDK) -I../../out/hardware/borg/rdl -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc $(EXTRA_CFLAGS) -c $< -o $@
+	@$(CC) -O2 -I$(TINYQV_SDK) -I$(RDL_C_OUT) -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc $(EXTRA_CFLAGS) -c $< -o $@
 
 %.o: %.s
 	@$(AS) -march=$(ARCH) -mabi=$(ABI) -I$(TINYQV_SDK) $< -o $@

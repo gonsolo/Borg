@@ -4,7 +4,7 @@ import random
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(SCRIPT_DIR, '../fpga/host'))
-sys.path.append(os.path.join(SCRIPT_DIR, '../simulation/common/build'))
+sys.path.append(os.path.join(SCRIPT_DIR, '../software/borg/python/build'))
 
 import borg_utils
 import borg_utils_c

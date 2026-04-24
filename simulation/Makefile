@@ -11,3 +11,5 @@ arcilator:
 clean:
 	$(MAKE) -C verilator clean
 	$(MAKE) -C arcilator clean
+	rm -rf common/build
+

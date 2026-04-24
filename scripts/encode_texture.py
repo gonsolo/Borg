@@ -13,16 +13,11 @@ import sys
 import os
 import struct
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '../simulation/verilator/build/common_build'))
-sys.path.append(os.path.join(os.path.dirname(__file__), '../simulation/arcilator/build/common_build'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../software/borg/python/build'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../fpga/host'))
 
-try:
-    import borg_utils_c
-    morton_encode = borg_utils_c.morton_encode
-except ImportError:
-    import borg_utils
-    morton_encode = borg_utils.morton_encode
+import borg_utils_c
+morton_encode = borg_utils_c.morton_encode
 
 
 def encode_texture(src_path, dst_path):

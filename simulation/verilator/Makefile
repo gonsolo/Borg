@@ -1,5 +1,7 @@
-HW_DIR = ../../out/hardware
-FIRMWARE_DIR = ../../software/borg
+ROOT      := $(shell git rev-parse --show-toplevel)
+RDL_C_OUT ?= $(ROOT)/out/hardware/borg/rdl
+HW_DIR    ?= $(ROOT)/out/hardware
+FIRMWARE_DIR ?= $(ROOT)/software/borg
 
 # Lazily evaluate SRC_FILES, avoiding failures if asic_files.txt doesn't exist yet
 # Use `wildcard` to trigger rebuilds if ANY verilog file changes in the output dir
@@ -7,9 +9,9 @@ V_SRCS = $(wildcard $(HW_DIR)/borg/verilog/*.v $(HW_DIR)/tinyqv/verilog/*.v)
 
 all: triangle vkcube
 
-# Hardware dependency
-$(HW_DIR)/borg/verilog/asic_files.txt:
-	$(MAKE) -C ../../ generate_verilog
+# Hardware dependency: call generate_verilog when either asic_files.txt is missing
+$(HW_DIR)/borg/verilog/asic_files.txt $(HW_DIR)/borg/verilog_sim/asic_files.txt:
+	$(MAKE) -C $(ROOT) generate_verilog
 
 # Verilator simulator depends on hardware generation and the actual verilog files
 # We use the verilog_sim directory because it includes the memSim RAM array logic!
@@ -25,7 +27,7 @@ obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/asic_files.txt $(V_SR
 	--top-module tt_um_gonsolo_borg \
 	-CFLAGS "-fPIC" \
 	-DENABLE_INITIAL_MEM_ \
-	../../lint.vlt \
+	$(ROOT)/lint.vlt \
 	$$SRC_FILES \
 	$(HW_DIR)/borg/verilog_sim/verification/layers-*.sv \
 	main.cpp \
@@ -39,10 +41,10 @@ $(FIRMWARE_DIR)/%.bin: $(HW_DIR)/borg/verilog/asic_files.txt
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
 # Simulation targets
-triangle: obj_dir/verilator_sim python_extension $(FIRMWARE_DIR)/triangle.bin
+triangle: obj_dir/verilator_sim $(FIRMWARE_DIR)/triangle.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/triangle.bin triangle 32 32 32
 
-vkcube: obj_dir/verilator_sim python_extension $(FIRMWARE_DIR)/vkcube.bin
+vkcube: obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube 32 32 64
 
 vkcube_gui: python_extension $(FIRMWARE_DIR)/vkcube.bin

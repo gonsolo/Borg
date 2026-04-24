@@ -12,16 +12,11 @@ import sys
 import os
 import struct
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '../simulation/verilator/build/common_build'))
-sys.path.append(os.path.join(os.path.dirname(__file__), '../simulation/arcilator/build/common_build'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../software/borg/python/build'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../fpga/host'))
 
-try:
-    import borg_utils_c
-    fp16_to_float = borg_utils_c.fp16_to_float
-except ImportError:
-    import borg_utils
-    fp16_to_float = borg_utils.fp16_to_float
+import borg_utils_c
+fp16_to_float = borg_utils_c.fp16_to_float
 
 def fp16_to_byte(bits):
     if not bits:
