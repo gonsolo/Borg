@@ -46,6 +46,7 @@
         pkgs.bitwuzla
         pkgs.bzip2
         pkgs.circt
+        pkgs.circt.llvm
         pkgs.cmake
         pkgs.coreutils
         pkgs.gcc
