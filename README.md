@@ -19,9 +19,11 @@ advances in low-cost chip manufacturing to make individual tape-outs feasible fo
 
 ### ASIC Global Placement Evolution
 
-[![ASIC Placement Animation](docs/images/placement_annotated.png)](docs/images/placement_animation.mp4)
+<video src="docs/images/placement_animation.mp4" controls="controls" width="100%" muted="muted" loop="loop">
+  <a href="docs/images/placement_animation.mp4">View Placement Animation</a>
+</video>
 
-*100-frame placement animation from the OpenROAD EDA toolchain. Colors indicate functional Chisel modules. Click the image to watch the video!*
+*100-frame placement animation from the OpenROAD EDA toolchain. Colors indicate functional Chisel modules.*
 <!-- markdownlint-restore MD033 -->
 
 ## Architecture
