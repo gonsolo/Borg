@@ -16,6 +16,13 @@ advances in low-cost chip manufacturing to make individual tape-outs feasible fo
 <p align="center">
   <img src="docs/vkcube.500x500.png" alt="vkcube rendered by the Borg GPU">
 </p>
+
+### ASIC Global Placement Evolution
+<p align="center">
+  <video src="docs/images/placement_animation.mp4" controls width="100%"></video>
+  <br>
+  <em>100-frame placement animation from the OpenROAD EDA toolchain. Colors indicate functional Chisel modules.</em>
+</p>
 <!-- markdownlint-restore MD033 -->
 
 ## Architecture

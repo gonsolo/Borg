@@ -26,6 +26,18 @@ orchestrates the full flow:
 7. **Timing Repair** — hold buffer insertion to meet timing
 8. **GDS Export** (Magic/KLayout) — final layout for manufacturing
 
+## Physical Organization
+
+During the Global Placement phase, the OpenROAD placement algorithms dynamically organize the flattened Verilog into physical clumps based strictly on wire connectivity.
+
+<p align="center">
+  <img src="images/placement_annotated.png" alt="Annotated Placement Clusters">
+  <br>
+  <em>Frame 44 of the global placement process, annotated with the functional modules. Colors reflect the Chisel design blocks.</em>
+</p>
+
+The dense connectivity of the GPU datapath forces the Tile Buffer, Rasterizer Math, and Texture Unit into tight clusters on the left. The Command FIFO naturally acts as a physical bridge, dropping directly into the center between the TinyQV CPU core and the GPU. The Memory Controller is pulled toward the top-right to interface with the external SPI pins.
+
 ## Configuration
 
 The build is configured through `src/config.json`:

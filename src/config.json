@@ -70,5 +70,8 @@
   "MAGIC_DEF_LABELS": 0,
 
   "//": "Only export pin area in LEF (without any connected nets)",
-  "MAGIC_WRITE_LEF_PINONLY": 1
+  "MAGIC_WRITE_LEF_PINONLY": 1,
+
+  "//": "Save per-iteration ODB snapshots for routing animation (adds ~10-15GB per run)",
+  "DRT_SAVE_SNAPSHOTS": 1
 }

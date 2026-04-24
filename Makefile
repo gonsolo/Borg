@@ -93,6 +93,9 @@ print_stats:
 	./tt/tt_tool.py --print-stats
 book:
 	python3 docs/build_book.py
+placement_animation:
+	@echo "Rendering 100 placement frames (~15 min)..."
+	bash scripts/animate_placement.sh
 
 # --- SystemRDL → Chisel register generation ---
 # systemrdl-compiler and peakrdl-cheader are provided by Nix (flake.nix).
