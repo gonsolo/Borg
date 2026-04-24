@@ -33,3 +33,4 @@ hardware/borg/src/generated/
 test_logs/
 .verilog_stamp
 build/
+.os-lib-watch-sentinel-*
