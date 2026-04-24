@@ -37,7 +37,7 @@ jobs:
           done
           cp docs/triangle.png _site/ 2>/dev/null || true
           cp docs/hw_diagram.svg _site/ 2>/dev/null || true
-          cp docs/book/gds_render_small.png _site/ 2>/dev/null || true
+          cp docs/gds_render_small.png _site/ 2>/dev/null || true
 
           cat > _site/style.css << 'ENDCSS'
           body { max-width: 800px; margin: 2rem auto; padding: 0 1rem;

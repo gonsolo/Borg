@@ -1,5 +1,7 @@
 # Generating the ASIC
 
+![Borg GPU GDS Render](gds_render_small.png)
+
 The design targets the IHP SG13G2 130nm process via the
 [Tiny Tapeout](https://tinytapeout.com/) program. The RTL-to-GDS flow uses
 entirely open-source tools.
