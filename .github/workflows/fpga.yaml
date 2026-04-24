@@ -1,5 +1,6 @@
 name: fpga
-
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 on:
   push:
     # Comment out (or remove) the following line to run the FPGA workflow on every push:
