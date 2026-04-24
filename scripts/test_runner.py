@@ -95,7 +95,8 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
         Suite("render › verilator › vkcube",   verilator_render("vkcube"),
               depends_on="render › verilator › triangle"),
         # NOTE: arcilator triangle/vkcube share arcilator_sim — same reason.
-        Suite("render › arcilator › triangle", arcilator_render("triangle")),
+        Suite("render › arcilator › triangle", arcilator_render("triangle"),
+              depends_on="render › verilator › vkcube"),
         Suite("render › arcilator › vkcube",   arcilator_render("vkcube"),
               depends_on="render › arcilator › triangle"),
         # ── Starts only after soc-core (shared test/soc/ dir) ────────────────
