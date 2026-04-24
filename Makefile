@@ -4,6 +4,13 @@ MILL_JOBS := $(if $(CI),1,4)
 MILL_OPTS := $(if $(CI),--no-server,) -j $(MILL_JOBS)
 MILL      := mill $(MILL_OPTS)
 
+PDK ?= sky130A
+ifeq ($(PDK),ihp-sg13g2)
+  PDK_FLAG = --ihp
+else
+  PDK_FLAG =
+endif
+
 BOLD := \033[1m
 RESET   := \033[0m
 
@@ -77,9 +84,11 @@ test-all:
 datasheet.pdf: generate_verilog
 	$(TT_TOOL) --create-pdf
 user_config: generate_verilog
-	$(TT_TOOL) --create-user-config --no-docker
+	@echo "Using PDK: $(PDK)"
+	$(TT_TOOL) --create-user-config $(PDK_FLAG) --no-docker
 gds: user_config
-	$(TT_TOOL) --harden --no-docker
+	@echo "Using PDK: $(PDK)"
+	$(TT_TOOL) --harden $(PDK_FLAG) --no-docker
 print_stats:
 	./tt/tt_tool.py --print-stats
 book:
