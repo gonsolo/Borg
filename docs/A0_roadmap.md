@@ -587,49 +587,275 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
   - **Gate:** `make triangle` shows a red pixel at (0,0) with normal rendering otherwise.
 
 - **Step 25.3: Architecture Decoupling (Rasterizer & Tile Buffer)**
-  `BorgRasterizer` has become a monolithic "God module" managing command iteration, shader dispatching, texture fetching, render output, and tile flushing. To ensure the design remains debuggable and synthesizable within the iCE40 5280 LC limit, we will decouple it into a clean, unidirectional pipeline connected via `DecoupledIO`.
 
-  - **Step 25.3a: BorgTileBuffer Unit Test**
-    Write a dedicated Chisel `PeekPokeTester` for `BorgTileBuffer` and `Borg.scala`'s read path. Simulate the exact CPU `sw` (set index) and `lw` (read RGBZ) sequence to lock in the 1-cycle BRAM latency handling and prevent regressions.
-  - **Step 25.3b: Pipeline Decoupling (Iterator & Dispatcher)**
-    Split `BorgRasterizer.scala` by extracting a `BorgIterator` (pops bounding boxes, iterates X/Y) and a `BorgShaderDispatcher` (triggers `sRast`, checks edge flags, conditionally triggers `sFrag`).
-  - **Step 25.3c: Pipeline Decoupling (Texture & ROP)**
-    Extract a `BorgTextureUnit` (handles PSRAM texture fetching if enabled) and a `BorgROP` (writes final RGBZ fragments to the `BorgTileBuffer`). Ensure `BorgROP` only writes if the `inside_flag` is true, fixing the tile buffer corruption bug.
-  - **Step 25.3d: Isolate BorgTileFlusher Module**
-    Create a standalone `BorgTileFlusher.scala` module to handle the hardware PSRAM writes. Keep the `sTileFlush` logic completely out of the core pipeline to avoid state machine bloat.
-  - **Step 25.3e: Software/Hardware Toggle**
-    Add a dedicated `HW_FLUSH_EN` bit to `TILE_CTRL`. The CPU driver will only wait for the hardware flusher when this bit is 1. If 0, it falls back to the legacy CPU-driven software flush loop. This ensures we always have a working baseline to compare against in Verilator.
+  > **Motivation:** Both Claude Opus and Gemini Pro High failed to debug
+  > Step 25.4a (autonomous tile flushing) when implemented against the
+  > monolithic `BorgRasterizer`. The 6-state FSM with interleaved concerns
+  > (iteration, shader dispatch, texture fetch, tile write, GPU smoke test)
+  > exceeds the effective reasoning capacity of current AI models. The
+  > decomposition is a **debuggability prerequisite**, not a code-quality
+  > exercise — it reduces the per-module context so that each FSM is small
+  > enough to reason about completely.
+
+  `BorgRasterizer` currently manages: command popping & tile iteration,
+  pixel advance & coordinate latching, RAST→FRAG shader chaining, edge-sign
+  snooping, fragment output snooping, PSRAM texture fetch, tile buffer
+  writes, and a one-shot GPU write smoke test — all in a single FSM
+  (`sIdle :: sRast :: sFrag :: sTexFetch :: sTileWrite :: sGpuWriteTest`).
+  We will decompose this into focused modules connected via `DecoupledIO`.
+
+  - **Step 25.3a: Integration-Level Tile Buffer Regression Test ✅** (2026-04-26)
+    Write a Chisel test against the full `Borg` module (not standalone
+    `BorgTileBuffer`) that exercises the exact CPU MMIO sequence:
+    1. Write `TILE_CTRL` to set read index (triggers BRAM read)
+    2. Read `TILE_RG` and `TILE_BZ` (hold-register latching)
+    3. Verify the 2-cycle BRAM → hold-register → MMIO readback latency
+
+    This locks in the integration wiring in `Borg.scala`
+    (`wireTileBuffer()` + `wireMmioRead()`) as a regression gate before
+    any refactoring begins. The existing `BorgTileBufferTests` test the
+    standalone module — this test covers the MMIO plumbing.
+    **Gate:** Test passes in Chisel simulation; `make triangle` unchanged
+    in Verilator.
+
+  - **Step 25.3b: Remove `sGpuWriteTest` State**
+    Delete the one-shot GPU write smoke test (`sGpuWriteTest`) and its
+    associated state: `write_word_idx`, `smoke_test_done`, and the
+    `when(!smoke_test_done)` command-pop guard in `BorgRasterizer.scala`.
+    This was scaffolding from Step 25.2 to validate the GPU write path
+    end-to-end. With Step 25.3g (tile flusher) about to exercise the same
+    `GpuMemIO.wr`/`wdata` path systematically, the smoke test is
+    superseded.
+
+    Reduces the FSM from 6→5 states and removes ~15 LCs of register +
+    mux overhead, creating headroom for the new modules.
+    **Gate:** `make triangle` produces identical output in Verilator (the
+    red pixel at (0,0) from the smoke test will disappear — update
+    `golden.ppm` if affected). All Chisel tests pass.
+
+  - **Step 25.3c: Extract `BorgIterator` Module**
+    Extract the bounding-box iteration logic into a standalone module.
+
+    **Module:** `BorgIterator.scala`
+
+    **Responsibilities:**
+    - Pop commands from `BorgCommandFIFO` via `Flipped(Decoupled(BorgCommand))`
+    - Own `iter_reg`, `shader_iter_reg`, `tile_origin_reg`, `tile_max_reg`
+    - Compute `iter_valid` (`iter_reg.y < tile_max_reg.y`)
+    - On `advance` pulse: latch `shader_iter_reg`, step `iter_reg.x/y`,
+      emit pixel coordinate to the dispatcher
+
+    **IO bundle:**
+
+    ```scala
+    class BorgIteratorIO(cfg: BorgConfig) extends Bundle {
+      val cmdPop    = Flipped(Decoupled(new BorgCommand(cfg.coordWidth)))
+      val advance   = Input(Bool())
+
+      val iter      = Output(new Coord(cfg.coordWidth))       // current position
+      val shaderIter= Output(new Coord(cfg.coordWidth))       // latched pre-advance
+      val iterValid = Output(Bool())                          // tile not exhausted
+      val tileIndex = Output(UInt(4.W))                       // x[1:0] | y[1:0]<<2
+      val pixelReady= Output(Bool())                          // advance was processed
+    }
+    ```
+
+    `BorgRasterizer` instantiates `BorgIterator` and connects its outputs
+    to the shader dispatch logic. The iterator is purely combinational on
+    the advance path — no FSM states, just registers and a counter.
+    **Gate:** All existing Chisel tests pass; `make triangle` pixel-perfect
+    in Verilator.
+
+  - **Step 25.3d: Extract `BorgShaderDispatcher` Logic**
+    Move the RAST→FRAG shader chaining FSM and edge-sign / fragment-output
+    snooping into a clearly delimited section of `BorgRasterizer` (or a
+    separate module if it helps clarity). The dispatcher owns:
+
+    **Responsibilities:**
+    - Phase FSM: `sIdle :: sRast :: sFrag :: sTexFetch :: sTileWrite`
+      (5 states after `sGpuWriteTest` removal)
+    - `auto_run_stall` register (set on advance, cleared on FSM→sIdle)
+    - Edge-sign snooping: `e0/e1/e2_outside` from `PipeWriteIO` when
+      `phase === sRast`
+    - `core_just_finished` detection from `CoreStatusIO`
+    - On RAST finish: check `inside_flag` → trigger FRAG or release
+    - On FRAG finish: route to `sTexFetch` (if `texConfig.en`) or
+      `sTileWrite`
+    - Fragment output snooping: `frag_r/g/b/z` from `PipeWriteIO` when
+      `phase === sFrag`
+    - `coreTrigger` output (valid + pc) to `BorgCore`
+
+    **Key interface contract:** The dispatcher consumes an advance pulse
+    from the iterator and produces a `tileWrite` pulse to the tile buffer.
+    It stalls the CPU via `auto_run_stall` between advance and completion.
+
+    **Gate:** All Chisel tests pass; `make triangle` pixel-perfect in
+    Verilator.
+
+  - **Step 25.3e: Extract `BorgTextureUnit` (If Needed)**
+    If the `sTexFetch` logic (28 lines, 2-word packed PSRAM read) is
+    proving hard to debug inside the dispatcher, extract it as:
+
+    **Module:** `BorgTextureUnit.scala`
+
+    **IO bundle:**
+
+    ```scala
+    class BorgTextureUnitIO extends Bundle {
+      val start     = Input(Bool())                // trigger from dispatcher
+      val done      = Output(Bool())               // single-cycle completion pulse
+      val texConfig = new TexConfigIO              // mortonIndex, baseAddr, en
+      val gpuMem    = new GpuMemIO                 // PSRAM read port
+      val fragColor = Output(new ColorZ(16))       // fetched R/G/B (Z pass-through)
+    }
+    ```
+
+    However, at 28 lines this may not be worth the module boundary
+    overhead. Evaluate after 25.3d — if the dispatcher is already clean
+    enough, keep `sTexFetch` inline and skip this step.
+    **Gate:** `make triangle` pixel-perfect in Verilator with textured
+    rendering.
+
+  - **Step 25.3f: Inside-Flag Guard on Tile Write**
+    Add an explicit `inside_flag` guard to the `sTileWrite` path:
+
+    ```scala
+    when(phase === sTileWrite && inside_flag) {
+      io.tileWrite.en := true.B
+      ...
+    }
+    ```
+
+    > **Note:** This is not a current bug — the existing FSM path prevents
+    > outside pixels from reaching `sTileWrite` (they go `sRast → sIdle`).
+    > However, Step 25.4d (fully autonomous iteration) will remove the
+    > `io.advance` signal and have the hardware iterate all 16 pixels
+    > autonomously. In that configuration, the dispatcher will process
+    > every pixel including outside ones, and without this guard, outside
+    > fragments would corrupt the tile buffer. Adding the guard now
+    > prevents a hard-to-debug regression later.
+
+    **Gate:** All Chisel tests pass; `make triangle` pixel-perfect in
+    Verilator. Add a dedicated Chisel test that verifies `tileWrite.en`
+    stays low when all three edge signs are negative.
+
+  - **Step 25.3g: Isolate `BorgTileFlusher` Module**
+    Create a standalone `BorgTileFlusher.scala` module to handle the
+    hardware PSRAM tile flush. This module lives entirely outside the
+    per-pixel pipeline — it activates only after all 16 pixels in a tile
+    are processed.
+
+    **Module:** `BorgTileFlusher.scala`
+
+    **IO bundle:**
+
+    ```scala
+    class BorgTileFlusherIO extends Bundle {
+      // Trigger interface
+      val start     = Input(Bool())                // pulse to begin flush
+      val busy      = Output(Bool())               // high while flushing
+
+      // Tile buffer read port
+      val tileRead  = new BorgTileBufferReadIO     // readIdx, readEn, readData
+
+      // PSRAM write port (shared with sTexFetch and DMA)
+      val gpuMem    = new GpuMemIO
+
+      // Configuration (from MMIO registers)
+      val fbBase    = Input(UInt(20.W))            // framebuffer PSRAM base
+      val zbBase    = Input(UInt(20.W))            // Z-buffer PSRAM base
+      val fbWidth   = Input(UInt(9.W))             // framebuffer width (for addr calc)
+      val tileX     = Input(UInt(9.W))             // tile origin X
+      val tileY     = Input(UInt(9.W))             // tile origin Y
+    }
+    ```
+
+    **GpuMemIO port sharing:** The flusher will share the `GpuMemIO`
+    port with `BorgRasterizer.sTexFetch` and `BorgDMA`. The current
+    2-way mux in `Borg.scala` (DMA vs. rast) becomes a 3-way mux with
+    priority: **CPU > DMA > Flusher > TexFetch**. In practice, the
+    flusher and texfetch never contend (flusher runs after the tile is
+    complete; texfetch runs during per-pixel rasterization). DMA runs
+    only between triangles. So the mux is for correctness, not
+    performance.
+
+    Initial implementation: empty FSM (`sIdle → sBusy → sIdle`) with no
+    actual PSRAM writes. Just proves the module instantiates, wires, and
+    the busy flag handshakes correctly.
+    **Gate:** Module compiles; Chisel unit test verifies start→busy→done
+    handshake; `make triangle` unchanged in Verilator.
+
+  - **Step 25.3h: Software/Hardware Flush Toggle**
+    Add a `HW_FLUSH_EN` bit to `TILE_CTRL` in `borg.rdl`. When set:
+    - The rasterizer asserts `flusher.start` after tile completion
+    - The CPU polls `flush_busy` instead of doing manual PSRAM writes
+
+    When clear (default): the CPU uses the existing firmware flush loop
+    in `borg_driver.c` (lines 457–498). This ensures we always have a
+    working baseline.
+
+    Update `borg_driver.c` to check `HW_FLUSH_EN`:
+
+    ```c
+    if (BORG_GPU->tile_ctrl & TILE_CTRL_REG_T__HW_FLUSH_EN_bm) {
+      while (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm);
+    } else {
+      // existing 16-pixel MMIO read + PSRAM write loop
+    }
+    ```
+
+    **Gate:** `make triangle` pixel-perfect in Verilator with
+    `HW_FLUSH_EN=0` (firmware flush) and `HW_FLUSH_EN=1` (hardware
+    flusher busy flag toggles correctly, no actual flush yet).
 
 - **Step 25.4: Autonomous Tile Flushing (Micro-steps)**
-  To avoid complex debugging, we will build the hardware flush in small, verifiable increments using the newly decoupled `BorgTileFlusher`.
+  Build the hardware flush in small, verifiable increments using the
+  newly decoupled `BorgTileFlusher`. Each micro-step must pass
+  `make triangle` in Verilator.
 
-  - **Step 25.4a: MMIO Wiring & Dummy Flush FSM**
-    Add `flushConfig` (fbBase, zbBase, en) MMIO registers. Wire them to the flusher.
-    Add a dummy state that simply asserts a `flush_busy` flag for a few cycles and returns to idle.
-    Update `borg_driver.c` to set the base addresses and poll the busy flag (with `HW_FLUSH_EN` = 1).
-    **Gate:** `make triangle` runs normally with the legacy CPU rendering (when `HW_FLUSH_EN` = 0) and waits properly when `HW_FLUSH_EN` = 1.
+  - **Step 25.4a: Single-Pixel Hardware Flush**
+    Update `BorgTileFlusher` to read *only* index 0 of the
+    `BorgTileBuffer` and write its 3 RGB words + 1 Z word to PSRAM at
+    `fbBase`/`zbBase`. Uses the `GpuMemIO.wr`/`wdata` path validated
+    by Step 25.2.
+    **Gate:** With `HW_FLUSH_EN=1`, `make triangle` shows the top-left
+    pixel of every 4×4 tile rendered by hardware; remaining 15 pixels
+    are missing (expected). With `HW_FLUSH_EN=0`, full rendering works.
 
-  - **Step 25.4b: Single-Pixel Hardware Flush**
-    Update the hardware flusher to read *only* index 0 of the `BorgTileBuffer` and write its RGBZ values to PSRAM at `fbBase`/`zbBase`.
-    **Gate:** `make triangle` shows the top-left pixel of every 4x4 tile rendered by hardware.
+  - **Step 25.4b: Full 16-Pixel Tile Flush**
+    Expand the flusher to iterate `flush_idx` from 0 to 15, reading
+    all 16 entries from the `BorgTileBuffer` and writing them to PSRAM.
+    Address calculation: `fb_addr = fbBase + ((tileY + row) * fbWidth +
+    (tileX + col)) * 3 + channel` (3 words per pixel for R/G/B).
+    Z address: `zb_addr = zbBase + (tileY + row) * fbWidth + (tileX + col)`.
+    **Gate:** With `HW_FLUSH_EN=1`, `make triangle` matches golden output
+    pixel-perfect. The CPU no longer does manual PSRAM writes.
 
-  - **Step 25.4c: Full 16-Pixel Tile Flush**
-    Expand the flusher to iterate `flush_idx` from 0 to 15, reading all 16 entries from the `BorgTileBuffer` and writing them to PSRAM.
-    Add address calculation (`fbWidth`) to step the PSRAM pointers correctly.
-    **Gate:** The hardware flushes entire tiles. The CPU can now stop doing manual PSRAM writes.
+  - **Step 25.4c: Remove CPU Tile Flush Path**
+    Delete the firmware flush loop in `borg_driver.c` (the 16-pixel MMIO
+    read + PSRAM write code). Set `HW_FLUSH_EN=1` unconditionally.
+    Remove the `HW_FLUSH_EN` toggle from firmware (keep the RDL bit for
+    debug, but default it to 1).
+    **Gate:** `make triangle` pixel-perfect in Verilator. The CPU tile
+    loop now only does: enqueue command → wait for iterator exhaustion →
+    (hardware flushes autonomously).
 
   - **Step 25.4d: Fully Autonomous Hardware Iteration**
-    Remove the `io.advance` signal. Let `BorgRasterizer` autonomously loop `iter_x` and `iter_y` over the 4x4 tile, triggering the flusher only after the 16th pixel.
-    **Gate:** `make triangle` matches golden output perfectly. CPU is entirely removed from the pixel loop.
+    Remove the `io.advance` signal. Let `BorgRasterizer` autonomously
+    loop `iter_x` and `iter_y` over the 4×4 tile, triggering the
+    flusher only after the 16th pixel. The CPU only enqueues tile
+    commands and waits for completion.
+    **Gate:** `make triangle` matches golden output perfectly. CPU is
+    entirely removed from the pixel loop.
 
-### Step 26: Integrated Vertex + Triangle Setup Sequencer (+45 LCs)
+### Step 26: Integrated Vertex + Triangle Setup Sequencer
 
 Unified FSM that replaces what the CPU currently does in `shade_tiles()`,
 `run_vertex_shader()`, `triangle_setup()`, and `compute_edge_vectors()`.
 Combines the planned DMA engine (Step 22) and vertex sequencer into a
 single FSM to share registers, address counters, and control logic.
 
-- **Step 26.1: Vertex shader sequencing** (unchanged)
+- **Step 26.1: Vertex shader sequencing**
     FSM sequences 3 vertex shader runs: DMA loads vertex attributes from
     PSRAM into GPR, runs SPIR-B shader, stores clip-space outputs. Reloads
     uniform buffer between vertex and fragment stages.
@@ -646,19 +872,6 @@ single FSM to share registers, address counters, and control logic.
     shader uniforms (edge constants, vertex colors, inv_area, z_vals) from
     the setup shader outputs, then enqueues the first tile command.
 
-### ~~Step 24 (old): Data Cache~~ → Deferred
-
-Deferred to Phase 5 (larger FPGA or ASIC). Not needed for functional
-correctness. The ~30 LUT cost doesn't fit the iCE40 budget, and on ASIC
-(Tiny Tapeout) a BRAM-based full-coverage cache is possible at zero LUT cost.
-
-### ~~Step 25 (old): SoC Bus Protocol~~ → Deferred
-
-Deferred to Phase 5 (larger FPGA or ASIC). Code quality improvement, not
-functional. The hand-rolled priority chain works correctly. A proper
-`BorgBus` → TileLink adapter is worth doing on the Nitefury II or for ASIC,
-but not on iCE40 at 99% utilization.
-
 ### Step 27: Full Autonomous Triangle Pipeline
 
 Integration of Steps 21–26. CPU submits a triangle descriptor; GPU does:
@@ -674,6 +887,19 @@ Integration of Steps 21–26. CPU submits a triangle descriptor; GPU does:
 
 CPU only writes the triangle descriptor and waits for DONE interrupt.
 Estimate: 1–2 weeks.
+
+### ~~Step 24 (old): Data Cache~~ → Deferred
+
+Deferred to Phase 5 (larger FPGA or ASIC). Not needed for functional
+correctness. The ~30 LUT cost doesn't fit the iCE40 budget, and on ASIC
+(Tiny Tapeout) a BRAM-based full-coverage cache is possible at zero LUT cost.
+
+### ~~Step 25 (old): SoC Bus Protocol~~ → Deferred
+
+Deferred to Phase 5 (larger FPGA or ASIC). Code quality improvement, not
+functional. The hand-rolled priority chain works correctly. A proper
+`BorgBus` → TileLink adapter is worth doing on the Nitefury II or for ASIC,
+but not on iCE40 at 99% utilization.
 
 ### Step 28: Multi-Triangle Autonomous Rendering
 
@@ -801,9 +1027,13 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
                                                        │
                                            Step 23 (unified runtime + tex)
                                                        │
-                                               Step 24 (GPU write port)
+                                               Step 24 (MemCtrl rearch)
                                                        │
-                                               Step 25 (MemCtrl rearch)
+                                            Step 25.1–25.2 (GPU write port)
+                                                       │
+                                            Step 25.3a–h (architecture decoupling)
+                                                       │
+                                            Step 25.4a–d (autonomous tile flush)
                                                        │
                                                Step 26 (vert seq + tri setup)
                                                        │
