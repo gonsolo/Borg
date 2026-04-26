@@ -32,8 +32,8 @@ $(ROOT)/out/hardware/borg/firrtl_sim/tt_um_gonsolo_borg.fir: $(CHISEL_SRCS)
 borg.mlir: $(ROOT)/out/hardware/borg/firrtl_sim/tt_um_gonsolo_borg.fir
 	$(FIRTOOL) $< --disable-layers=Verification --ir-hw > $@
 
-# Step 2: HW MLIR → LLVM IR + state info
-arc.ll state.json: borg.mlir
+# Step 2: HW MLIR → LLVM IR + state info  (single invocation produces both)
+arc.ll state.json &: borg.mlir
 	$(ARCILATOR) $< --inline --observe-memories --state-file state.json -o arc.ll
 
 # Step 3: LLVM IR → object

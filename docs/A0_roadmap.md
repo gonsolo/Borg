@@ -618,7 +618,7 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     **Gate:** Test passes in Chisel simulation; `make triangle` unchanged
     in Verilator.
 
-  - **Step 25.3b: Remove `sGpuWriteTest` State**
+  - **Step 25.3b: Remove `sGpuWriteTest` State ✅** (2026-04-26)
     Delete the one-shot GPU write smoke test (`sGpuWriteTest`) and its
     associated state: `write_word_idx`, `smoke_test_done`, and the
     `when(!smoke_test_done)` command-pop guard in `BorgRasterizer.scala`.

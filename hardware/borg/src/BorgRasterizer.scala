@@ -71,7 +71,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   private val config = cfg.fp  // shorthand for FP arithmetic
 
   // --- Phase FSM ---
-  val sIdle :: sRast :: sFrag :: sTexFetch :: sTileWrite :: sGpuWriteTest :: Nil = Enum(6)
+  val sIdle :: sRast :: sFrag :: sTexFetch :: sTileWrite :: Nil = Enum(5)
   val phase = RegInit(sIdle)
 
   // --- State ---
@@ -87,10 +87,6 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
   val auto_run_stall = RegInit(false.B)
   val read_word_count = RegInit(0.U(1.W))  // sTexFetch: 0 or 1 (2 packed reads)
-
-  // GPU write smoke test state (Step 25.2)
-  val write_word_idx    = RegInit(0.U(2.W))  // 0,1,2 for 3-word write
-  val smoke_test_done   = RegInit(false.B)   // one-shot: fires only on first command
 
   // Fragment output snooping registers (Hardware ABI: R=r26, G=r27, B=r28, Z=r29)
   // Always 16-bit to match Tile Buffer capacity (if core is FP32, it sends FP16 in low bits)
@@ -110,11 +106,6 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     tile_max_reg.x  := io.cmdPop.bits.tileOrigin.x + 4.U
     tile_max_reg.y  := io.cmdPop.bits.tileOrigin.y + 4.U
     iter_reg        := io.cmdPop.bits.tileOrigin
-    // Step 25.2: trigger GPU write smoke test on first command pop
-    when(!smoke_test_done) {
-      phase          := sGpuWriteTest
-      write_word_idx := 0.U
-    }
   }
 
   // --- Helpers ---
@@ -233,35 +224,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     auto_run_stall := false.B
   }
 
-  // --- sGpuWriteTest: one-shot GPU write smoke test (Step 25.2) ---
-  //
-  // Writes 3 words to PSRAM at pixel (0,0) to validate the GPU write path
-  // end-to-end before adding sTileFlush complexity.
-  //
-  // PSRAM output framebuffer base = 0x80000 (word-addressed by GpuMemIO.addr).
-  // Word 0: R = 0x3C00 (FP16 1.0 = red)
-  // Word 1: G = 0x0000
-  // Word 2: B = 0x0000
-  //
-  // Handshake: assert wr+addr+wdata → wait for ready → advance to next word.
-  // Mirrors BSV reference: gpuWriteTest_issue / gpuWriteTest_complete.
-  // PSRAM_SPI_BASE(0x1000) + PSRAM_OUT_OFFSET(0x80080) = 0x81080
-  val psramOutBase = 0x81080.U(20.W)  // Must match borg_layout.h
 
-  when(phase === sGpuWriteTest) {
-    io.gpuMem.wr    := true.B
-    io.gpuMem.addr  := psramOutBase + (write_word_idx << 2.U)
-    io.gpuMem.wdata := Mux(write_word_idx === 0.U, 0x3C00.U(32.W), 0.U(32.W))
-
-    when(io.gpuMem.ready) {
-      when(write_word_idx === 2.U) {
-        phase           := sIdle
-        smoke_test_done := true.B
-      } .otherwise {
-        write_word_idx := write_word_idx + 1.U
-      }
-    }
-  }
 
   // =========================================================================
   // Fragment Output & Edge-sign snooping
