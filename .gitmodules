@@ -1,6 +1,7 @@
 [submodule "tt"]
 	path = tt
 	url = https://github.com/gonsolo/tt-support-tools.git
+	branch = add-gf180-4x6
 [submodule "PeakRDL-chisel"]
 	path = PeakRDL-chisel
 	url = https://github.com/gonsolo/PeakRDL-chisel.git
