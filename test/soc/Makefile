@@ -43,22 +43,18 @@ else
     # PDK defaults: prefer env var, then auto-detect from installed ciel versions
     PDK ?= sky130A
     
-    # Normalize PDK name and detect PDK_ROOT
+    # Normalize PDK name
     ifeq ($(findstring ihp,$(PDK)),ihp)
         NORMALIZED_PDK := ihp-sg13g2
-        ifeq ($(PDK_ROOT),)
-            PDK_ROOT := $(firstword $(wildcard $(HOME)/.ciel/ciel/ihp-sg13g2/versions/*/))
-        endif
     else ifeq ($(findstring gf180,$(PDK)),gf180)
         NORMALIZED_PDK := gf180mcuD
-        ifeq ($(PDK_ROOT),)
-            PDK_ROOT := $(firstword $(wildcard $(HOME)/.ciel/ciel/gf180mcuD/versions/*/))
-        endif
     else
         NORMALIZED_PDK := sky130A
-        ifeq ($(PDK_ROOT),)
-            PDK_ROOT := $(firstword $(wildcard $(HOME)/.ciel/ciel/sky130A/versions/*/))
-        endif
+    endif
+
+    # Detect PDK_ROOT from installed ciel versions
+    ifeq ($(PDK_ROOT),)
+        PDK_ROOT := $(firstword $(wildcard $(HOME)/.ciel/ciel/$(NORMALIZED_PDK)/versions/*/))
     endif
 
     # --- CI-AWARE NETLIST DETECTION ---
