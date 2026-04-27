@@ -13,6 +13,7 @@ on:
         options:
           - sky130A
           - ihp-sg13g2
+          - gf180mcuD
 
 jobs:
   gds:
@@ -41,6 +42,12 @@ jobs:
         with:
           pdk: ihp-sg13g2
 
+      - name: Build GDS (GF180)
+        if: ${{ github.event.inputs.pdk == 'gf180mcuD' }}
+        uses: TinyTapeout/tt-gds-action@ttgf26a
+        with:
+          pdk: gf180mcuD
+
   precheck:
     needs: gds
     runs-on: ubuntu-24.04
@@ -52,6 +59,10 @@ jobs:
       - name: Run Tiny Tapeout Precheck (IHP)
         if: ${{ github.event.inputs.pdk == 'ihp-sg13g2' }}
         uses: TinyTapeout/tt-gds-action/precheck@ttihp26a
+
+      - name: Run Tiny Tapeout Precheck (GF180)
+        if: ${{ github.event.inputs.pdk == 'gf180mcuD' }}
+        uses: TinyTapeout/tt-gds-action/precheck@ttgf26a
 
   gl_test:
     needs: gds
@@ -80,6 +91,12 @@ jobs:
         env:
           CLOCK_MHZ: 4
 
+      - name: GL test (GF180)
+        if: ${{ github.event.inputs.pdk == 'gf180mcuD' }}
+        uses: TinyTapeout/tt-gds-action/gl_test@ttgf26a
+        env:
+          CLOCK_MHZ: 4
+
   viewer:
     needs: gds
     runs-on: ubuntu-24.04
@@ -94,3 +111,7 @@ jobs:
       - name: Viewer (IHP)
         if: ${{ github.event.inputs.pdk == 'ihp-sg13g2' }}
         uses: TinyTapeout/tt-gds-action/viewer@ttihp26a
+
+      - name: Viewer (GF180)
+        if: ${{ github.event.inputs.pdk == 'gf180mcuD' }}
+        uses: TinyTapeout/tt-gds-action/viewer@ttgf26a

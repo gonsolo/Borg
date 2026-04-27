@@ -4,12 +4,39 @@ MILL_JOBS := $(if $(CI),1,4)
 MILL_OPTS := $(if $(CI),--no-server,) -j $(MILL_JOBS)
 MILL      := mill $(MILL_OPTS)
 
-PDK ?= sky130A
+# PDK_FLAG is resolved inside the gds/user_config shell recipe when PDK is
+# not set on the command line.  Do not set a default here so we can detect
+# "user did not specify" vs "user passed PDK=...".  CI always sets PDK.
 ifeq ($(PDK),ihp-sg13g2)
   PDK_FLAG = --ihp
+else ifeq ($(PDK),gf180mcuD)
+  PDK_FLAG = --gf
 else
   PDK_FLAG =
 endif
+
+# Helper: resolve PDK interactively when not provided (skipped in CI)
+define PICK_PDK
+	if [ -n "$(PDK)" ] || [ -n "$(CI)" ]; then \
+		resolved_pdk="$(PDK)"; \
+		if [ -z "$$resolved_pdk" ]; then resolved_pdk=sky130A; fi; \
+	else \
+		echo ""; \
+		echo "  Select PDK:"; \
+		echo "    1) Sky130A  (SkyWater — default TT tapeout)"; \
+		echo "    2) IHP SG13G2  (IHP 130 nm BiCMOS)"; \
+		echo "    3) GF180MCU  (GlobalFoundries 180 nm)"; \
+		echo ""; \
+		printf "  Choice [1]: "; \
+		read choice; \
+		case "$$choice" in \
+			2) resolved_pdk=ihp-sg13g2 ;; \
+			3) resolved_pdk=gf180mcuD ;; \
+			*) resolved_pdk=sky130A ;; \
+		esac; \
+	fi; \
+	echo "  → Using PDK: $$resolved_pdk"
+endef
 
 BOLD := \033[1m
 RESET   := \033[0m
@@ -84,11 +111,14 @@ test-all:
 datasheet.pdf: generate_verilog
 	$(TT_TOOL) --create-pdf
 user_config: generate_verilog
-	@echo "Using PDK: $(PDK)"
-	$(TT_TOOL) --create-user-config $(PDK_FLAG) --no-docker
-gds: user_config
-	@echo "Using PDK: $(PDK)"
-	$(TT_TOOL) --harden $(PDK_FLAG) --no-docker
+	@$(PICK_PDK); \
+	 pdk_flag=$$([ "$$resolved_pdk" = ihp-sg13g2 ] && echo --ihp || ([ "$$resolved_pdk" = gf180mcuD ] && echo --gf || echo '')); \
+	 $(TT_TOOL) --create-user-config $$pdk_flag --no-docker
+gds: generate_verilog
+	@$(PICK_PDK); \
+	 pdk_flag=$$([ "$$resolved_pdk" = ihp-sg13g2 ] && echo --ihp || ([ "$$resolved_pdk" = gf180mcuD ] && echo --gf || echo '')); \
+	 $(TT_TOOL) --create-user-config $$pdk_flag --no-docker; \
+	 $(TT_TOOL) --harden $$pdk_flag --no-docker
 print_stats:
 	./tt/tt_tool.py --print-stats
 book:
