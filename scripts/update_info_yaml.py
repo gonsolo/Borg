@@ -44,11 +44,19 @@ def main():
         print(f"Error: {template_path} not found.", file=sys.stderr)
         sys.exit(1)
 
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--pdk', default=os.environ.get('PDK', 'sky130A'))
+    args = parser.parse_args()
+
+    tiles = "4x4" if args.pdk == "gf180mcuD" else "8x4"
+
     with open(template_path, 'r') as f:
         content = f.read()
     
-    # Replace the template marker with the structured list
+    # Replace the template markers
     new_content = content.replace('{{source_files}}', file_list_str)
+    new_content = new_content.replace('{{tiles}}', f'"{tiles}"')
     
     with open(yaml_path, 'w') as f:
         f.write("# This file is generated from info.template.yaml — do not edit manually!\n")

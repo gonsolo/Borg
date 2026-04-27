@@ -6,7 +6,7 @@ project:
   language:     "Chisel"
   clock_hz:     0
 
-  tiles: "8x4"
+  tiles: {{tiles}}
 
   top_module:  "tt_um_gonsolo_borg"
 

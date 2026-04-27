@@ -43,13 +43,15 @@ HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/sr
 .verilog_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.soc.runMain soc.Main
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.tinyqv.runMain soc.FpgaMain
-	# Must run after mill: reads asic_files.txt generated above.
-	@python3 scripts/update_info_yaml.py
 	@touch $@
+
+.PHONY: info.yaml
+info.yaml: .verilog_stamp
+	@python3 scripts/update_info_yaml.py
 
 # Convenience alias: ensures rdl and the verilog stamp are up to date.
 # Still declared phony so `make generate_verilog` always checks deps explicitly.
-generate_verilog: rdl .verilog_stamp
+generate_verilog: rdl .verilog_stamp info.yaml
 
 test-cocotb-soc-core-rtl: generate_verilog
 	$(TEST_SOC) core
@@ -80,10 +82,15 @@ test-all:
 
 datasheet.pdf: generate_verilog
 	$(TT_TOOL) --create-pdf
+user_config-sky130: export PDK=sky130A
 user_config-sky130: generate_verilog
 	$(TT_TOOL) --create-user-config --no-docker
+
+user_config-ihp: export PDK=ihp-sg13g2
 user_config-ihp: generate_verilog
 	$(TT_TOOL) --create-user-config --ihp --no-docker
+
+user_config-gf180: export PDK=gf180mcuD
 user_config-gf180: generate_verilog
 	$(TT_TOOL) --create-user-config --gf --no-docker
 

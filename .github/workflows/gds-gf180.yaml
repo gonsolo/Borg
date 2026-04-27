@@ -19,6 +19,8 @@ jobs:
 
       - name: Generate SystemVerilog
         run: nix develop --command make generate_verilog
+        env:
+          PDK: gf180mcuD
 
       - name: Build GDS (GF180)
         uses: TinyTapeout/tt-gds-action@ttgf26a
@@ -46,6 +48,8 @@ jobs:
 
       - name: Generate SystemVerilog
         run: nix develop --command make generate_verilog
+        env:
+          PDK: gf180mcuD
 
       - name: GL test (GF180)
         uses: TinyTapeout/tt-gds-action/gl_test@ttgf26a
