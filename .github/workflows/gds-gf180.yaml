@@ -1,0 +1,63 @@
+name: gds-gf180
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  gds:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Generate SystemVerilog
+        run: nix develop --command make generate_verilog
+
+      - name: Build GDS (GF180)
+        uses: TinyTapeout/tt-gds-action@ttgf26a
+        with:
+          pdk: gf180mcuD
+
+  precheck:
+    needs: gds
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Run Tiny Tapeout Precheck (GF180)
+        uses: TinyTapeout/tt-gds-action/precheck@ttgf26a
+
+  gl_test:
+    needs: gds
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Generate SystemVerilog
+        run: nix develop --command make generate_verilog
+
+      - name: GL test (GF180)
+        uses: TinyTapeout/tt-gds-action/gl_test@ttgf26a
+        env:
+          CLOCK_MHZ: 4
+
+  viewer:
+    needs: gds
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Viewer (GF180)
+        uses: TinyTapeout/tt-gds-action/viewer@ttgf26a

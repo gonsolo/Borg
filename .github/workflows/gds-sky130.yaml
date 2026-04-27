@@ -1,0 +1,63 @@
+name: gds-sky130
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  gds:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Generate SystemVerilog
+        run: nix develop --command make generate_verilog
+
+      - name: Build GDS (Sky130)
+        uses: TinyTapeout/tt-gds-action@ttsky26a
+        with:
+          pdk: sky130A
+
+  precheck:
+    needs: gds
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Run Tiny Tapeout Precheck (Sky130)
+        uses: TinyTapeout/tt-gds-action/precheck@ttsky26a
+
+  gl_test:
+    needs: gds
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Generate SystemVerilog
+        run: nix develop --command make generate_verilog
+
+      - name: GL test (Sky130)
+        uses: TinyTapeout/tt-gds-action/gl_test@ttsky26a
+        env:
+          CLOCK_MHZ: 4
+
+  viewer:
+    needs: gds
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Viewer (Sky130)
+        uses: TinyTapeout/tt-gds-action/viewer@ttsky26a

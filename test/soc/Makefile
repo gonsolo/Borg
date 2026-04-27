@@ -45,6 +45,8 @@ else
     ifeq ($(PDK_ROOT),)
         ifeq ($(findstring ihp,$(PDK)),ihp)
             PDK_ROOT := $(firstword $(wildcard $(HOME)/.ciel/ciel/ihp-sg13g2/versions/*/))
+        else ifeq ($(findstring gf180,$(PDK)),gf180)
+            PDK_ROOT := $(firstword $(wildcard $(HOME)/.ciel/ciel/gf180mcuD/versions/*/))
         else
             PDK_ROOT := $(firstword $(wildcard $(HOME)/.ciel/ciel/sky130A/versions/*/))
         endif
