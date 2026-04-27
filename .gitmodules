@@ -1,6 +1,6 @@
 [submodule "tt"]
 	path = tt
-	url = https://github.com/TinyTapeout/tt-support-tools
+	url = https://github.com/gonsolo/tt-support-tools.git
 [submodule "PeakRDL-chisel"]
 	path = PeakRDL-chisel
 	url = https://github.com/gonsolo/PeakRDL-chisel.git
