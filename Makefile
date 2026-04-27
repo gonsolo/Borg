@@ -4,39 +4,7 @@ MILL_JOBS := $(if $(CI),1,4)
 MILL_OPTS := $(if $(CI),--no-server,) -j $(MILL_JOBS)
 MILL      := mill $(MILL_OPTS)
 
-# PDK_FLAG is resolved inside the gds/user_config shell recipe when PDK is
-# not set on the command line.  Do not set a default here so we can detect
-# "user did not specify" vs "user passed PDK=...".  CI always sets PDK.
-ifeq ($(PDK),ihp-sg13g2)
-  PDK_FLAG = --ihp
-else ifeq ($(PDK),gf180mcuD)
-  PDK_FLAG = --gf
-else
-  PDK_FLAG =
-endif
 
-# Helper: resolve PDK interactively when not provided (skipped in CI)
-define PICK_PDK
-	if [ -n "$(PDK)" ] || [ -n "$(CI)" ]; then \
-		resolved_pdk="$(PDK)"; \
-		if [ -z "$$resolved_pdk" ]; then resolved_pdk=sky130A; fi; \
-	else \
-		echo ""; \
-		echo "  Select PDK:"; \
-		echo "    1) Sky130A  (SkyWater — default TT tapeout)"; \
-		echo "    2) IHP SG13G2  (IHP 130 nm BiCMOS)"; \
-		echo "    3) GF180MCU  (GlobalFoundries 180 nm)"; \
-		echo ""; \
-		printf "  Choice [1]: "; \
-		read choice; \
-		case "$$choice" in \
-			2) resolved_pdk=ihp-sg13g2 ;; \
-			3) resolved_pdk=gf180mcuD ;; \
-			*) resolved_pdk=sky130A ;; \
-		esac; \
-	fi; \
-	echo "  → Using PDK: $$resolved_pdk"
-endef
 
 BOLD := \033[1m
 RESET   := \033[0m
@@ -44,7 +12,9 @@ RESET   := \033[0m
 all: help
 help:
 	@echo "commands: "
-	@echo -e "$(BOLD)  gds:\t\t\t\tGenerate the GDS II file for Tinytapeout.$(RESET)"
+	@echo -e "$(BOLD)  gds-sky130:\t\t\tGenerate Sky130 GDS II file for Tinytapeout.$(RESET)"
+	@echo -e "$(BOLD)  gds-ihp:\t\t\tGenerate IHP SG13G2 GDS II file for Tinytapeout.$(RESET)"
+	@echo -e "$(BOLD)  gds-gf180:\t\t\tGenerate GF180MCU GDS II file for Tinytapeout.$(RESET)"
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
 	@echo -e "  test-chisel-core:\t\tRun TinyQV tests (Chisel)."
@@ -110,15 +80,19 @@ test-all:
 
 datasheet.pdf: generate_verilog
 	$(TT_TOOL) --create-pdf
-user_config: generate_verilog
-	@$(PICK_PDK); \
-	 pdk_flag=$$([ "$$resolved_pdk" = ihp-sg13g2 ] && echo --ihp || ([ "$$resolved_pdk" = gf180mcuD ] && echo --gf || echo '')); \
-	 $(TT_TOOL) --create-user-config $$pdk_flag --no-docker
-gds: generate_verilog
-	@$(PICK_PDK); \
-	 pdk_flag=$$([ "$$resolved_pdk" = ihp-sg13g2 ] && echo --ihp || ([ "$$resolved_pdk" = gf180mcuD ] && echo --gf || echo '')); \
-	 $(TT_TOOL) --create-user-config $$pdk_flag --no-docker; \
-	 $(TT_TOOL) --harden $$pdk_flag --no-docker
+user_config-sky130: generate_verilog
+	$(TT_TOOL) --create-user-config --no-docker
+user_config-ihp: generate_verilog
+	$(TT_TOOL) --create-user-config --ihp --no-docker
+user_config-gf180: generate_verilog
+	$(TT_TOOL) --create-user-config --gf --no-docker
+
+gds-sky130: user_config-sky130
+	$(TT_TOOL) --harden --no-docker
+gds-ihp: user_config-ihp
+	$(TT_TOOL) --harden --ihp --no-docker
+gds-gf180: user_config-gf180
+	$(TT_TOOL) --harden --gf --no-docker
 print_stats:
 	./tt/tt_tool.py --print-stats
 book:
@@ -155,7 +129,7 @@ clean:
 clean-gh-runs:
 	gh run list --limit 200 --json databaseId --jq '.[8:] | .[].databaseId' | xargs -I {} gh run delete {}
 
-.PHONY: all generate_verilog help print_stats gds user_config lint test-all clean rdl \
+.PHONY: all generate_verilog help print_stats gds-sky130 gds-ihp gds-gf180 user_config-sky130 user_config-ihp user_config-gf180 lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book clean-gh-runs scripts/test_summary.sh
