@@ -666,7 +666,10 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     **Gate:** All existing Chisel tests pass; `make triangle` pixel-perfect
     in Verilator.
 
-  - **Step 25.3d: Extract `BorgShaderDispatcher` Logic**
+  - **Step 25.3d: Extract `BorgShaderDispatcher` Logic ✅** (2026-04-27)
+    Move the RAST→FRAG shader chaining FSM and edge-sign / fragment-output
+    snooping into a clearly delimited section of `BorgRasterizer` (or a
+    separate module if it helps clarity). The dispatcher owns:**
     Move the RAST→FRAG shader chaining FSM and edge-sign / fragment-output
     snooping into a clearly delimited section of `BorgRasterizer` (or a
     separate module if it helps clarity). The dispatcher owns:
