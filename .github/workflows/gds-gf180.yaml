@@ -26,6 +26,8 @@ jobs:
         uses: TinyTapeout/tt-gds-action@ttgf26a
         with:
           pdk: gf180mcuD
+          tools-repo: gonsolo/tt-support-tools
+          tools-ref: add-gf180-4x6
 
   precheck:
     needs: gds
@@ -33,6 +35,9 @@ jobs:
     steps:
       - name: Run Tiny Tapeout Precheck (GF180)
         uses: TinyTapeout/tt-gds-action/precheck@ttgf26a
+        with:
+          tools-repo: gonsolo/tt-support-tools
+          tools-ref: add-gf180-4x6
 
   gl_test:
     needs: gds
@@ -53,6 +58,9 @@ jobs:
 
       - name: GL test (GF180)
         uses: TinyTapeout/tt-gds-action/gl_test@ttgf26a
+        with:
+          tools-repo: gonsolo/tt-support-tools
+          tools-ref: add-gf180-4x6
         env:
           CLOCK_MHZ: 4
 
@@ -65,3 +73,6 @@ jobs:
     steps:
       - name: Viewer (GF180)
         uses: TinyTapeout/tt-gds-action/viewer@ttgf26a
+        with:
+          tools-repo: gonsolo/tt-support-tools
+          tools-ref: add-gf180-4x6
