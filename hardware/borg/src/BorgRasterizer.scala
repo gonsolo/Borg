@@ -6,14 +6,18 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** BorgRasterizer — pixel iterator, inside-flag logic, and shader chaining.
+/** BorgRasterizer — shader chaining FSM, inside-flag logic, and tile buffer writes.
   *
-  * Manages the bounding-box traversal (iter_x / iter_y), snoops
-  * FPU write-back to latch edge signs for the inside flag, and
-  * (Step 10.6.2) chains rasterizer → fragment shader execution.
+  * Delegates bounding-box traversal to `BorgIterator` (Step 25.3c).
+  * This module owns:
+  *   - The per-pixel phase FSM (sIdle/sRast/sFrag/sTexFetch/sTileWrite)
+  *   - Edge-sign snooping and inside_flag computation
+  *   - Fragment output snooping (r26/r27/r28/r29)
+  *   - sTexFetch autonomous PSRAM texel read
+  *   - sTileWrite push to BorgTileBuffer
   *
   * Phase FSM (Step 10.6.2):
-  *   IDLE → RAST (advance triggers edge shader at PC=0)
+  *   IDLE → RAST (pixelReady from BorgIterator triggers edge shader at PC=0)
   *        → FRAG (if inside, auto-trigger fragment shader at frag_start_pc)
   *        → IDLE (release CPU stall)
   *   Outside pixels skip FRAG and go RAST → IDLE immediately.
@@ -24,7 +28,7 @@ import chisel3.util._
   */
 
 class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
-  // Command pop interface (Step 13.3)
+  // Command pop interface (Step 13.3) — forwarded to BorgIterator
   val cmdPop      = Flipped(Decoupled(new BorgCommand(cfg.coordWidth)))
 
   // Iterator advance (from MMIO write to BORG_ITER)
@@ -70,16 +74,14 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
   private val config = cfg.fp  // shorthand for FP arithmetic
 
+  // --- BorgIterator sub-module (Step 25.3c) ---
+  val iterator = Module(new BorgIterator(cfg))
+
   // --- Phase FSM ---
   val sIdle :: sRast :: sFrag :: sTexFetch :: sTileWrite :: Nil = Enum(5)
   val phase = RegInit(sIdle)
 
   // --- State ---
-  val iter_reg          = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))
-  val shader_iter_reg   = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))  // pre-advance position for coordLut
-  val tile_origin_reg   = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))  // 4×4 tile origin
-  val tile_max_reg      = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))  // tile_origin + 4
-
   val e0_outside = RegInit(false.B)
   val e1_outside = RegInit(false.B)
   val e2_outside = RegInit(false.B)
@@ -95,27 +97,10 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val frag_b = RegInit(0.U(16.W))
   val frag_z = RegInit(0.U(16.W))
 
-  // --- Command Popping ---
-  // Iterator valid while y hasn't reached tile_max.y
-  val iter_valid = iter_reg.y < tile_max_reg.y
-
-  io.cmdPop.ready := false.B
-  when(phase === sIdle && io.cmdPop.valid && !iter_valid) {
-    io.cmdPop.ready := true.B
-    tile_origin_reg := io.cmdPop.bits.tileOrigin
-    tile_max_reg.x  := io.cmdPop.bits.tileOrigin.x + 4.U
-    tile_max_reg.y  := io.cmdPop.bits.tileOrigin.y + 4.U
-    iter_reg        := io.cmdPop.bits.tileOrigin
-  }
-
-  // --- Helpers ---
-  def tileIndex(c: Coord): UInt = c.x(1, 0) | (c.y(1, 0) << 2.U)
-
-  def isOutside(data: UInt): Bool = {
-    val sign_bit      = data(config.totalBits - 1).asBool
-    val magn_non_zero = data(config.totalBits - 2, 0) =/= 0.U
-    sign_bit && magn_non_zero
-  }
+  // --- Wire BorgIterator ---
+  iterator.io.cmdPop    <> io.cmdPop
+  iterator.io.advance   := io.advance
+  iterator.io.phaseIdle := (phase === sIdle)
 
   // --- Trigger outputs (directly driven, no register delay) ---
   io.coreTrigger.valid := false.B
@@ -123,7 +108,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
   // Tile buffer write default (no write)
   io.tileWrite.en   := false.B
-  io.tileWrite.idx  := tileIndex(iter_reg)
+  io.tileWrite.idx  := iterator.io.tileIndex
   io.tileWrite.data := 0.U.asTypeOf(new ColorZ(16))
 
   // GPU memory port defaults (Step 19.2 / 24.3 / 25.2)
@@ -132,17 +117,9 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   io.gpuMem.wr    := false.B
   io.gpuMem.wdata := 0.U
 
-  // --- Iterator advance ---
-  when(io.advance) {
-    // Latch current position BEFORE advancing — shader r30/r31 read these
-    shader_iter_reg := iter_reg
-    when(iter_reg.x + 1.U >= tile_max_reg.x) {
-      iter_reg.x := tile_origin_reg.x
-      iter_reg.y := iter_reg.y + 1.U
-    }.otherwise {
-      iter_reg.x := iter_reg.x + 1.U
-    }
-    // Reset edge flags for new pixel (they get set by shader write-back snooping)
+  // --- React to pixelReady from BorgIterator (replaces the advance block) ---
+  when(iterator.io.pixelReady) {
+    // Reset edge flags for new pixel (set by shader write-back snooping)
     e0_outside := false.B
     e1_outside := false.B
     e2_outside := false.B
@@ -213,7 +190,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   when(phase === sTileWrite) {
     // Push the snooped values to the tile buffer (Step 11.3 auto-write)
     // We use the pre-advanced coordinates for index!
-    io.tileWrite.idx := tileIndex(shader_iter_reg)
+    io.tileWrite.idx := iterator.io.shaderTileIndex  // pre-advance position for correct tile slot
     io.tileWrite.data.r := frag_r
     io.tileWrite.data.g := frag_g
     io.tileWrite.data.b := frag_b
@@ -256,6 +233,12 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   //     `make triangle` in simulation/verilator and check the output image.
   //
   // @doc:inside-snoop
+  def isOutside(data: UInt): Bool = {
+    val sign_bit      = data(config.totalBits - 1).asBool
+    val magn_non_zero = data(config.totalBits - 2, 0) =/= 0.U
+    sign_bit && magn_non_zero
+  }
+
   when(io.pipeWrite.en && phase === sRast) {
     when(io.pipeWrite.addr === 0.U) { e0_outside := isOutside(io.pipeWrite.data) }
     when(io.pipeWrite.addr === 1.U) { e1_outside := isOutside(io.pipeWrite.data) }
@@ -272,10 +255,10 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   }
 
   // --- Outputs ---
-  io.iter         := iter_reg
-  io.shaderIter   := shader_iter_reg
+  io.iter         := iterator.io.iter
+  io.shaderIter   := iterator.io.shaderIter
   io.insideFlag   := inside_flag
-  io.iterValid    := iter_valid
+  io.iterValid    := iterator.io.iterValid
   io.autoRunStall := auto_run_stall
   io.uniformPage  := io.uniformPageReg  // pass through from register
   io.fragU        := frag_r   // snooped U (mapped into r26 slot when texturing)

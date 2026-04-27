@@ -633,7 +633,7 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     red pixel at (0,0) from the smoke test will disappear — update
     `golden.ppm` if affected). All Chisel tests pass.
 
-  - **Step 25.3c: Extract `BorgIterator` Module**
+  - **Step 25.3c: Extract `BorgIterator` Module ✅** (2026-04-27)
     Extract the bounding-box iteration logic into a standalone module.
 
     **Module:** `BorgIterator.scala`
