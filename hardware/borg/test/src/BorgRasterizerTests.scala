@@ -440,6 +440,10 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(1)
         rast.io.gpuMem.ready.poke(false.B)
 
+        // BorgTextureUnit needs one cycle to transition sReadRG→sDone and pulse done;
+        // the dispatcher then enters sTileWrite in the following cycle.
+        rast.clock.step(1)
+
         val tileWr = rast.io.tileWrite.en.peek().litToBoolean
         println(f"  sTileWrite: tileWrite.en=$tileWr")
         utest.assert(tileWr)

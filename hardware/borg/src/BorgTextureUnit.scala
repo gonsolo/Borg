@@ -1,0 +1,108 @@
+// SPDX-FileCopyrightText: © 2026 Andreas Wendleder
+// SPDX-License-Identifier: CERN-OHL-S-2.0
+
+package borg
+
+import chisel3._
+import chisel3.util._
+
+/** IO bundle for BorgTextureUnit.
+  *
+  * Designed as a future insertion point for texture compression (e.g. BC1/ETC).
+  * A decompressor would sit between [[gpuMem]] and [[fragColor]] without
+  * touching the caller's interface.
+  *
+  * Texel memory layout (8 bytes per texel, stride = power-of-2):
+  *   Word 0 [offset +0]: { G[15:0], R[15:0] }   — both R and G packed
+  *   Word 1 [offset +4]: { pad[15:0], B[15:0] }  — B only
+  *
+  * Read order: B first (offset +4), then RG (offset +0).
+  * Reason: fragU/fragV are wired from frag_r/frag_g in the dispatcher, so
+  * writing frag_r/g mid-fetch would change mortonIndex.  Reading B first
+  * (which is NOT part of the Morton path) keeps the address stable.
+  */
+class BorgTextureUnitIO extends Bundle {
+  val start     = Input(Bool())           // one-cycle trigger from dispatcher
+  val done      = Output(Bool())          // one-cycle completion pulse
+  val texConfig = new TexConfigIO         // mortonIndex, baseAddr, en
+  val gpuMem    = new GpuMemIO            // PSRAM read port
+  val fragColor = Output(new ColorZ(16))  // fetched R/G/B; Z is always zero here
+}
+
+/** Autonomous PSRAM texel fetch unit (Step 25.3e).
+  *
+  * Issues two sequential read requests over [[GpuMemIO]], assembles the
+  * 16-bit R, G, B channels, and pulses [[done]] for one cycle when finished.
+  *
+  * This module is a natural insertion point for texture compression:
+  * add decompression logic between the raw [[gpuMem.data]] reads and
+  * the [[fragColor]] outputs without changing the caller's interface.
+  *
+  * FSM:
+  *   sIdle → sReadB (fetch B word, offset +4)
+  *         → sReadRG (fetch RG word, offset +0)
+  *         → sDone (pulse done, return to sIdle)
+  */
+class BorgTextureUnit extends Module {
+  val io = IO(new BorgTextureUnitIO)
+
+  // --- FSM ---
+  val sIdle :: sReadB :: sReadRG :: sDone :: Nil = Enum(4)
+  val state = RegInit(sIdle)
+
+  // --- Result registers ---
+  val frag_r = RegInit(0.U(16.W))
+  val frag_g = RegInit(0.U(16.W))
+  val frag_b = RegInit(0.U(16.W))
+
+  // --- Base address (computed once on start, held stable across both reads) ---
+  // tex_base = baseAddr + (mortonIndex << 3)
+  val tex_base = io.texConfig.baseAddr +& (io.texConfig.mortonIndex << 3)
+
+  // --- Defaults ---
+  io.gpuMem.req   := false.B
+  io.gpuMem.addr  := 0.U
+  io.gpuMem.wr    := false.B
+  io.gpuMem.wdata := 0.U
+  io.done         := false.B
+
+  io.fragColor.r := frag_r
+  io.fragColor.g := frag_g
+  io.fragColor.b := frag_b
+  io.fragColor.z := 0.U  // Z is pass-through from shader snoop in dispatcher
+
+  switch(state) {
+
+    is(sIdle) {
+      when(io.start) {
+        state := sReadB
+      }
+    }
+
+    // Read 0: B word first (offset +4) — keeps Morton address stable
+    is(sReadB) {
+      io.gpuMem.req  := true.B
+      io.gpuMem.addr := tex_base | 4.U
+      when(io.gpuMem.ready) {
+        frag_b := io.gpuMem.data(15, 0)
+        state  := sReadRG
+      }
+    }
+
+    // Read 1: RG word (offset +0) — safe to overwrite R/G now
+    is(sReadRG) {
+      io.gpuMem.req  := true.B
+      io.gpuMem.addr := tex_base
+      when(io.gpuMem.ready) {
+        frag_r := io.gpuMem.data(15, 0)
+        frag_g := io.gpuMem.data(31, 16)
+        state  := sDone
+      }
+    }
+
+    is(sDone) {
+      io.done := true.B
+      state   := sIdle
+    }
+  }
+}

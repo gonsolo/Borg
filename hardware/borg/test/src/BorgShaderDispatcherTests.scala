@@ -393,6 +393,10 @@ object BorgShaderDispatcherTests extends TestSuite {
         d.clock.step(1)
         d.io.gpuMem.ready.poke(false.B)
 
+        // BorgTextureUnit needs one cycle to transition sReadRG→sDone and pulse done;
+        // the dispatcher then sees done and enters sTileWrite in the same cycle.
+        d.clock.step(1)
+
         // Should now be in sTileWrite
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TILE_WRITE)
         val tileEn = d.io.tileWrite.en.peek().litToBoolean

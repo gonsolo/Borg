@@ -695,29 +695,31 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     **Gate:** All Chisel tests pass; `make triangle` pixel-perfect in
     Verilator.
 
-  - **Step 25.3e: Extract `BorgTextureUnit` (If Needed)**
-    If the `sTexFetch` logic (28 lines, 2-word packed PSRAM read) is
-    proving hard to debug inside the dispatcher, extract it as:
+  - **Step 25.3e: Extract `BorgTextureUnit` ✅** (2026-04-28)
+    Extracted the 2-word PSRAM texel read from `BorgShaderDispatcher`
+    into a standalone `BorgTextureUnit.scala` with a clean
+    `start/done` handshake.
 
-    **Module:** `BorgTextureUnit.scala`
+    **Motivation (revised):** Beyond debuggability, `BorgTextureUnit` is
+    the natural **texture compression insertion point** — a BC1/ETC
+    decompressor can be added between the PSRAM reads and `fragColor`
+    without changing the caller interface.
 
-    **IO bundle:**
+    **FSM:** `sIdle → sReadB → sReadRG → sDone` (B-first ordering
+    preserved for Morton-address stability; see in-module comment).
 
-    ```scala
-    class BorgTextureUnitIO extends Bundle {
-      val start     = Input(Bool())                // trigger from dispatcher
-      val done      = Output(Bool())               // single-cycle completion pulse
-      val texConfig = new TexConfigIO              // mortonIndex, baseAddr, en
-      val gpuMem    = new GpuMemIO                 // PSRAM read port
-      val fragColor = Output(new ColorZ(16))       // fetched R/G/B (Z pass-through)
-    }
-    ```
+    **Timing note:** The extracted module adds **+1 cycle** to the
+    texture path vs. the old inline code: after the second PSRAM
+    response, the unit spends one cycle in `sDone` before pulsing
+    `done`. Updated `BorgShaderDispatcherTests` and
+    `BorgRasterizerTests` accordingly.
 
-    However, at 28 lines this may not be worth the module boundary
-    overhead. Evaluate after 25.3d — if the dispatcher is already clean
-    enough, keep `sTexFetch` inline and skip this step.
-    **Gate:** `make triangle` pixel-perfect in Verilator with textured
-    rendering.
+    **Tests:** `BorgTextureUnitTests.scala` — 7 tests covering address
+    computation, R/G/B unpacking, done-pulse width, quiet idle, PSRAM
+    stall (multi-cycle), back-to-back fetches, and start-ignored-mid-fetch.
+
+    **Gate:** All 12/12 `make test-all` suites pass; `make triangle`
+    pixel-perfect in Verilator and Arcilator; FPGA render verified.
 
   - **Step 25.3f: Inside-Flag Guard on Tile Write**
     Add an explicit `inside_flag` guard to the `sTileWrite` path:

@@ -68,6 +68,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
   val sIdle :: sRast :: sFrag :: sTexFetch :: sTileWrite :: Nil = Enum(5)
   val phase = RegInit(sIdle)
 
+  // --- Texture unit (Step 25.3e) ---
+  val texUnit = Module(new BorgTextureUnit)
+
   // --- Edge-sign state ---
   val e0_outside = RegInit(false.B)
   val e1_outside = RegInit(false.B)
@@ -77,11 +80,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
   // --- Stall ---
   val auto_run_stall = RegInit(false.B)
 
-  // --- Texture fetch word counter (0 or 1: 2 packed reads) ---
-  val read_word_count = RegInit(0.U(1.W))
-
   // --- Fragment output snooping registers (Hardware ABI: R=r26, G=r27, B=r28, Z=r29) ---
   // Always 16-bit to match Tile Buffer capacity (if core is FP32, it sends FP16 in low bits)
+  // Note: frag_r/g/b are owned by BorgTextureUnit when texturing; we read them back
+  // from texUnit.io.fragColor.  frag_r/g/b here are only used for the non-textured path.
   val frag_r = RegInit(0.U(16.W))
   val frag_g = RegInit(0.U(16.W))
   val frag_b = RegInit(0.U(16.W))
@@ -96,11 +98,11 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
   io.tileWrite.idx  := io.shaderTileIndex
   io.tileWrite.data := 0.U.asTypeOf(new ColorZ(16))
 
-  // GPU memory port defaults (Step 19.2 / 24.3 / 25.2)
-  io.gpuMem.req   := false.B
-  io.gpuMem.addr  := 0.U
-  io.gpuMem.wr    := false.B
-  io.gpuMem.wdata := 0.U
+  // GPU memory port: forwarded from BorgTextureUnit (Step 25.3e)
+  // The texture unit owns the read port during sTexFetch; it idles when not active.
+  texUnit.io.texConfig <> io.texConfig
+  texUnit.io.gpuMem    <> io.gpuMem
+  texUnit.io.start     := false.B  // overridden in sTexFetch transition below
 
   // --- React to pixelReady from BorgIterator ---
   when(io.pixelReady) {
@@ -136,40 +138,23 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
     // Fragment shader finished: texel fetch or tile write
     when(io.texConfig.en) {
       phase := sTexFetch
-      read_word_count := 0.U
+      texUnit.io.start := true.B   // one-cycle pulse into BorgTextureUnit
     } .otherwise {
       phase := sTileWrite
     }
   }
 
-  // --- sTexFetch: autonomous PSRAM texel read (Step 19.2) ---
+  // --- sTexFetch: delegated to BorgTextureUnit (Step 25.3e) ---
   //
-  // Texel memory layout (8 bytes per texel, stride = power-of-2):
-  //   Word 0 [offset +0]: { G[15:0], R[15:0] }   — both R and G packed
-  //   Word 1 [offset +4]: { pad[15:0], B[15:0] }  — B only
-  //
-  // Read order is swapped (B first, RG second) to avoid corrupting the Morton
-  // encoder.  fragU/fragV are wired from frag_r/frag_g, so writing frag_r/g
-  // would change mortonIndex mid-fetch.  By reading B into frag_b first (which
-  // is NOT part of the Morton path), the address stays stable for the second
-  // read.  RG is written last, just before sTileWrite — no latch needed.
-  val tex_base = io.texConfig.baseAddr +& (io.texConfig.mortonIndex << 3)
-  when(phase === sTexFetch) {
-    io.gpuMem.req  := true.B
-    // Word 1 (B, offset +4) first, then Word 0 (RG, offset +0)
-    io.gpuMem.addr := Mux(read_word_count === 0.U, tex_base | 4.U, tex_base)
-
-    when(io.gpuMem.ready) {
-      when(read_word_count === 0.U) {
-        frag_b := io.gpuMem.data(15, 0)   // B only — no Morton corruption
-        read_word_count := 1.U
-      } .otherwise {
-        frag_r := io.gpuMem.data(15, 0)   // Safe: last read before sTileWrite
-        frag_g := io.gpuMem.data(31, 16)
-        phase := sTileWrite
-        io.gpuMem.req := false.B
-      }
-    }
+  // The dispatcher enters sTexFetch, pulses texUnit.start (above), then waits
+  // for texUnit.done.  All PSRAM handshaking and B-first ordering live inside
+  // BorgTextureUnit — see that module for the detailed memory layout comment.
+  when(phase === sTexFetch && texUnit.io.done) {
+    // Latch the fetched colors from BorgTextureUnit before moving on
+    frag_r := texUnit.io.fragColor.r
+    frag_g := texUnit.io.fragColor.g
+    frag_b := texUnit.io.fragColor.b
+    phase  := sTileWrite
   }
 
   when(phase === sTileWrite) {
