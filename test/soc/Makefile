@@ -38,7 +38,7 @@ else
     # Gate level simulation — PDK-aware (Sky130 or IHP)
     SIM_BUILD = sim_build/gl
 
-    COMPILE_ARGS += -DGL_TEST -DFUNCTIONAL -DSIM -DUSE_POWER_PINS -DUNIT_DELAY=#1 -gspecify
+    COMPILE_ARGS += -DGL_TEST -DFUNCTIONAL -DSIM
 
     # PDK defaults: prefer env var, then auto-detect from installed ciel versions
     PDK ?= sky130A

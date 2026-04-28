@@ -8,3 +8,4 @@ ifeq ($(wildcard $(SKY130_PRIM)),)
 endif
 
 VERILOG_SOURCES += $(SKY130_PRIM) $(SKY130_STD_LIB)
+COMPILE_ARGS += -DUSE_POWER_PINS -DUNIT_DELAY=\#1 -gspecify

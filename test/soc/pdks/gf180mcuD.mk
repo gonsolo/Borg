@@ -7,3 +7,4 @@ ifeq ($(wildcard $(GF180_STD_LIB)),)
 endif
 
 VERILOG_SOURCES += $(GF180_STD_LIB)
+COMPILE_ARGS += -DUSE_POWER_PINS -DUNIT_DELAY=\#1 -gspecify
