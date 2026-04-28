@@ -49,7 +49,7 @@ def main():
     parser.add_argument('--pdk', default=os.environ.get('PDK', 'sky130A'))
     args = parser.parse_args()
 
-    tiles = "4x6" if args.pdk == "gf180mcuD" else "8x4"
+    tiles = "4x4" if args.pdk == "gf180mcuD" else "8x4"
 
     with open(template_path, 'r') as f:
         content = f.read()
