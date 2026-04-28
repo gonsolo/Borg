@@ -35,12 +35,8 @@ class BorgIO(val cfg: BorgConfig) extends Bundle {
 }
 
 class RegFileCopyIO(width: Int) extends Bundle {
-  val readAddr  = Input(UInt(log2Ceil(32).W))
-  val readEn    = Input(Bool())
-  val readData  = Output(UInt(width.W))
-  val writeAddr = Input(UInt(log2Ceil(32).W))
-  val writeEn   = Input(Bool())
-  val writeData = Input(UInt(width.W))
+  val rd = Flipped(new MemReadPort(log2Ceil(32), width))
+  val wr = Flipped(new MemWritePort(log2Ceil(32), width))
 }
 
 /** Single-copy register file with exactly 1 read + 1 write port.
@@ -53,10 +49,10 @@ class RegFileCopy(width: Int, instName: String) extends Module {
   val io = IO(new RegFileCopyIO(width))
 
   val mem = SyncReadMem(32, UInt(width.W))
-  io.readData := mem.read(io.readAddr, io.readEn)
+  io.rd.data := mem.read(io.rd.addr, io.rd.en)
 
-  when(io.writeEn) {
-    mem.write(io.writeAddr, io.writeData)
+  when(io.wr.en) {
+    mem.write(io.wr.addr, io.wr.data)
   }
 }
 
@@ -133,16 +129,16 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     core.io.iter       := rast.io.shaderIter    // latched pre-advance position for coordLut
     core.io.coreTrigger <> rast.io.coreTrigger
 
-    core.io.controlStart     := rdlRegs.io.hw.control_start
-    core.io.controlReset     := rdlRegs.io.hw.control_reset_pipeline
-    core.io.controlStartPC   := rdlRegs.io.hw.control_start_pc
-    core.io.uniformWritePage := rdlRegs.io.hw.control_uniform_write_page
+    core.io.control.start            := rdlRegs.io.hw.control_start
+    core.io.control.reset            := rdlRegs.io.hw.control_reset_pipeline
+    core.io.control.startPC          := rdlRegs.io.hw.control_start_pc
+    core.io.control.uniformWritePage := rdlRegs.io.hw.control_uniform_write_page
 
     // CoordLut/RcpLut init port — only used during simulation; synthesis uses $readmemh
-    core.io.coordWriteEn    := false.B
-    core.io.coordWriteIsRcp := false.B
-    core.io.coordWriteAddr  := 0.U
-    core.io.coordWriteData  := 0.U
+    core.io.lutInit.en    := false.B
+    core.io.lutInit.isRcp := false.B
+    core.io.lutInit.addr  := 0.U
+    core.io.lutInit.data  := 0.U
 
     // DMA write ports (Step 22.1) — only wired when hasDMA=true
     dma match {

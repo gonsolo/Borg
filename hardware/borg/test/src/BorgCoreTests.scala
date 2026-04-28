@@ -69,17 +69,17 @@ object BorgCoreTests extends TestSuite {
     writeCore(core, 128 + slot * 4, instr)
 
   def resetCore(core: BorgCore): Unit = {
-    core.io.controlReset.poke(true.B)
+    core.io.control.reset.poke(true.B)
     core.clock.step(1)
-    core.io.controlReset.poke(false.B)
+    core.io.control.reset.poke(false.B)
     core.clock.step(1)
   }
 
   /** Start execution and poll status until idle. */
   def startAndWait(core: BorgCore): Unit = {
-    core.io.controlStart.poke(true.B)
+    core.io.control.start.poke(true.B)
     core.clock.step(1)
-    core.io.controlStart.poke(false.B)
+    core.io.control.start.poke(false.B)
     // Poll running output
     var idle = false
     var watchdog = 0
@@ -102,14 +102,14 @@ object BorgCoreTests extends TestSuite {
     core.io.coreTrigger.valid.poke(false.B)
     core.io.coreTrigger.pc.poke(0.U)
     core.io.uniformPage.poke(0.U)
-    core.io.uniformWritePage.poke(0.U)
-    core.io.controlStart.poke(false.B)
-    core.io.controlReset.poke(false.B)
-    core.io.controlStartPC.poke(0.U)
-    core.io.coordWriteEn.poke(false.B)
-    core.io.coordWriteIsRcp.poke(false.B)
-    core.io.coordWriteAddr.poke(0.U)
-    core.io.coordWriteData.poke(0.U)
+    core.io.control.uniformWritePage.poke(0.U)
+    core.io.control.start.poke(false.B)
+    core.io.control.reset.poke(false.B)
+    core.io.control.startPC.poke(0.U)
+    core.io.lutInit.en.poke(false.B)
+    core.io.lutInit.isRcp.poke(false.B)
+    core.io.lutInit.addr.poke(0.U)
+    core.io.lutInit.data.poke(0.U)
     core.clock.step(1)
   }
 
@@ -117,14 +117,14 @@ object BorgCoreTests extends TestSuite {
     * Required for simulation since loadMemoryFromFileInline only works in synthesis.
     */
   def initCoordLut(core: BorgCore): Unit = {
-    core.io.coordWriteIsRcp.poke(false.B)
+    core.io.lutInit.isRcp.poke(false.B)
     for (i <- 0 until 64) {
-      core.io.coordWriteEn.poke(true.B)
-      core.io.coordWriteAddr.poke(i.U)
-      core.io.coordWriteData.poke(floatToFp16Bits(i.toFloat + 0.5f).U)
+      core.io.lutInit.en.poke(true.B)
+      core.io.lutInit.addr.poke(i.U)
+      core.io.lutInit.data.poke(floatToFp16Bits(i.toFloat + 0.5f).U)
       core.clock.step(1)
     }
-    core.io.coordWriteEn.poke(false.B)
+    core.io.lutInit.en.poke(false.B)
     core.clock.step(1)
   }
 
@@ -135,15 +135,15 @@ object BorgCoreTests extends TestSuite {
   val rcpLutValues = Seq(1023, 904, 796, 701, 614, 536, 465, 401, 341, 287, 236, 190, 146, 106, 68, 33, 0)
 
   def initRcpLut(core: BorgCore): Unit = {
-    core.io.coordWriteIsRcp.poke(true.B)
+    core.io.lutInit.isRcp.poke(true.B)
     for (i <- 0 until 17) {
-      core.io.coordWriteEn.poke(true.B)
-      core.io.coordWriteAddr.poke(i.U)
-      core.io.coordWriteData.poke(rcpLutValues(i).U)
+      core.io.lutInit.en.poke(true.B)
+      core.io.lutInit.addr.poke(i.U)
+      core.io.lutInit.data.poke(rcpLutValues(i).U)
       core.clock.step(1)
     }
-    core.io.coordWriteEn.poke(false.B)
-    core.io.coordWriteIsRcp.poke(false.B)
+    core.io.lutInit.en.poke(false.B)
+    core.io.lutInit.isRcp.poke(false.B)
     core.clock.step(1)
   }
 
@@ -406,11 +406,11 @@ object BorgCoreTests extends TestSuite {
         resetCore(core)
 
         // Write 111.0 to page 0, uniform index 5
-        core.io.uniformWritePage.poke(0.U)
+        core.io.control.uniformWritePage.poke(0.U)
         writeUniform(core, 5, floatToFp16Bits(111.0f))
 
         // Write 222.0 to page 1, uniform index 5
-        core.io.uniformWritePage.poke(1.U)
+        core.io.control.uniformWritePage.poke(1.U)
         writeUniform(core, 5, floatToFp16Bits(222.0f))
 
         // Program: fadd r2, u5, r0 (funct3=01: rs1 from uniform buffer)
@@ -421,7 +421,7 @@ object BorgCoreTests extends TestSuite {
         writeImem(core, 1, 0)  // halt
 
         // Run with uniformPage = 0 → should read 111.0
-        core.io.uniformWritePage.poke(0.U)
+        core.io.control.uniformWritePage.poke(0.U)
         core.io.uniformPage.poke(0.U)
         startAndWait(core)
         val result_pg0 = fp16BitsToFloat(readReg(core, 2))
@@ -434,7 +434,7 @@ object BorgCoreTests extends TestSuite {
         core.clock.step(5)
 
         // Run with uniformPage = 1 → should read 222.0
-        core.io.uniformWritePage.poke(1.U)
+        core.io.control.uniformWritePage.poke(1.U)
         core.io.uniformPage.poke(1.U)
         startAndWait(core)
         val result_pg1 = fp16BitsToFloat(readReg(core, 2))

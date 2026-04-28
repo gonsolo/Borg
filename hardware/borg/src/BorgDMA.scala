@@ -6,12 +6,6 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** DMA write port — driven by BorgDMA toward BorgCore internal buffers. */
-class DMAWritePort(dataWidth: Int) extends Bundle {
-  val en   = Output(Bool())
-  val addr = Output(UInt(6.W))
-  val data = Output(UInt(dataWidth.W))
-}
 
 /** DMA descriptor latched from MMIO at trigger time. */
 class DMADescriptor extends Bundle {
@@ -26,8 +20,8 @@ class BorgDMAIO extends Bundle {
   val desc         = Input(new DMADescriptor)
   val busy         = Output(Bool())
   val gpuMem      = new GpuMemIO
-  val imemWrite    = new DMAWritePort(32)
-  val uniformWrite = new DMAWritePort(16)
+  val imemWrite    = new MemWritePort(6, 32)
+  val uniformWrite = new MemWritePort(6, 16)
 }
 
 /** BorgDMA — bulk PSRAM→IMEM/Uniform DMA engine (Step 22.1).

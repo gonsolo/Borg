@@ -24,22 +24,16 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val iter               = Input(new Coord(cfg.coordWidth))
   val coreTrigger       = Flipped(new CoreTriggerIO)  // pulse from rasterizer: trigger shader
   val uniformPage        = Input(UInt(1.W))      // which 32-entry uniform page the GPU reads from
-  val uniformWritePage   = Input(UInt(1.W))      // which 32-entry page MMIO writes target
 
   // Control signals from SystemRDL register block
-  val controlStart       = Input(Bool())
-  val controlReset       = Input(Bool())
-  val controlStartPC     = Input(UInt(6.W))
+  val control = Input(new CoreControlIO)
 
   // CoordLut/RcpLut initialization (for simulation — synthesis uses loadMemoryFromFileInline)
-  val coordWriteEn    = Input(Bool())
-  val coordWriteIsRcp = Input(Bool())   // false → coordLut, true → rcpLut
-  val coordWriteAddr  = Input(UInt(9.W))
-  val coordWriteData  = Input(UInt(cfg.totalBits.W))
+  val lutInit = Input(new LutInitIO(9, cfg.totalBits))
 
   // DMA write ports (Step 22.1): used instead of MMIO on FPGA (cfg.hasImemMmio=false)
-  val dmaImemWrite    = Flipped(new DMAWritePort(32))
-  val dmaUniformWrite = Flipped(new DMAWritePort(16))
+  val dmaImemWrite    = Flipped(new MemWritePort(6, 32))
+  val dmaUniformWrite = Flipped(new MemWritePort(6, 16))
 
   // Pipeline write-back snoop (exposed to rasterizer)
   val pipeWrite = new PipeWriteIO(cfg.totalBits)
@@ -84,9 +78,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   loadMemoryFromFileInline(coordLutY, "coord_lut.hex")
 
   // CoordLut write port (for simulation initialization — tied off in synthesis)
-  when(io.coordWriteEn && !io.coordWriteIsRcp) {
-    coordLutX.write(io.coordWriteAddr, io.coordWriteData)
-    coordLutY.write(io.coordWriteAddr, io.coordWriteData)
+  when(io.lutInit.en && !io.lutInit.isRcp) {
+    coordLutX.write(io.lutInit.addr, io.lutInit.data)
+    coordLutY.write(io.lutInit.addr, io.lutInit.data)
   }
   // @doc:end
 
@@ -104,9 +98,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   // @doc:end
 
   // RcpLut write port (for simulation initialization — tied off in synthesis)
-  when(io.coordWriteEn && io.coordWriteIsRcp) {
-    rcpLutA.write(io.coordWriteAddr(4, 0), io.coordWriteData(9, 0))
-    rcpLutB.write(io.coordWriteAddr(4, 0), io.coordWriteData(9, 0))
+  when(io.lutInit.en && io.lutInit.isRcp) {
+    rcpLutA.write(io.lutInit.addr(4, 0), io.lutInit.data(9, 0))
+    rcpLutB.write(io.lutInit.addr(4, 0), io.lutInit.data(9, 0))
   }
 
   // --- Pipeline Control ---
@@ -193,12 +187,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     }
 
     // Control register from RDL (singlepulse fields)
-    when(io.controlStart) { 
+    when(io.control.start) { 
       running := true.B 
       running_by_rasterizer := false.B
     }
-    when(io.controlReset) {
-      programCounter := io.controlStartPC
+    when(io.control.reset) {
+      programCounter := io.control.startPC
       running := false.B
       busy_counter := 0.U
     }
@@ -239,13 +233,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     if (cfg.hasDMA) {
       val unifWen  = io.dmaUniformWrite.en || mmioUnifWrite
       val unifAddr = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.addr,
-                         Cat(io.uniformWritePage, unifIdx(4, 0)))
+                         Cat(io.control.uniformWritePage, unifIdx(4, 0)))
       val unifData = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.data,
                          io.bus.data_in(config.totalBits - 1, 0))
       when(unifWen) { uniformMem.write(unifAddr, unifData) }
     } else {
       when(mmioUnifWrite) {
-        uniformMem.write(Cat(io.uniformWritePage, unifIdx(4, 0)),
+        uniformMem.write(Cat(io.control.uniformWritePage, unifIdx(4, 0)),
                          io.bus.data_in(config.totalBits - 1, 0))
       }
     }
@@ -264,7 +258,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val uniform_addr = Mux(opFlags.funct3 === 1.U, regs.rs1,
                        Mux(opFlags.funct3 === 2.U, regs.rs2, regs.rs3))
     
-    val read_page = Mux(running_by_rasterizer, io.uniformPage, io.uniformWritePage)
+    val read_page = Mux(running_by_rasterizer, io.uniformPage, io.control.uniformWritePage)
     val read_data = uniformMem.read(Cat(read_page, uniform_addr(4, 0)), op_en)
     val uniform_data = Mux(op_en_del, read_data, 0.U)
 
@@ -280,11 +274,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
     val en_del = RegNext(en, false.B)
     val rs1_idx_del = RegEnable(regs.rs1, en)
-    regFileA.io.readAddr := regs.rs1
-    regFileA.io.readEn := en
+    regFileA.io.rd.addr := regs.rs1
+    regFileA.io.rd.en := en
     val resolved_data = Mux(rs1_idx_del === 30.U, coordX,
                         Mux(rs1_idx_del === 31.U, coordY,
-                        regFileA.io.readData))
+                        regFileA.io.rd.data))
     (Mux(en_del, resolved_data, 0.U), rs1_idx_del)
   }
 
@@ -293,11 +287,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
     val en_del = RegNext(en, false.B)
     val rs2_idx_del = RegEnable(regs.rs2, en)
-    regFileB.io.readAddr := regs.rs2
-    regFileB.io.readEn := en
+    regFileB.io.rd.addr := regs.rs2
+    regFileB.io.rd.en := en
     val resolved_data = Mux(rs2_idx_del === 30.U, coordX,
                         Mux(rs2_idx_del === 31.U, coordY,
-                        regFileB.io.readData))
+                        regFileB.io.rd.data))
     (Mux(en_del, resolved_data, 0.U), rs2_idx_del)
   }
 
@@ -310,11 +304,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val mmio_en_del = RegNext(mmio_en && io.bus.is_reading, false.B)
     val rs3_en_del = RegNext(rs3_en, false.B)
     val addr_del = RegEnable(addr, en)
-    regFileC.io.readAddr := addr
-    regFileC.io.readEn := en
+    regFileC.io.rd.addr := addr
+    regFileC.io.rd.en := en
     val resolved_data = Mux(addr_del === 30.U, coordX,
                         Mux(addr_del === 31.U, coordY,
-                        regFileC.io.readData))
+                        regFileC.io.rd.data))
     (Mux(rs3_en_del, resolved_data, 0.U), addr_del,
      Mux(mmio_en_del, resolved_data, 0.U))
   }
@@ -439,9 +433,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   /** Write the same addr/en/data to all three register file copies. */
   private def writeAllCopies(addr: UInt, en: Bool, data: UInt): Unit = {
     for (rf <- Seq(regFileA, regFileB, regFileC)) {
-      rf.io.writeAddr := addr
-      rf.io.writeEn := en
-      rf.io.writeData := data
+      rf.io.wr.addr := addr
+      rf.io.wr.en := en
+      rf.io.wr.data := data
     }
   }
 }
