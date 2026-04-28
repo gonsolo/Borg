@@ -25,18 +25,13 @@ import chisel3.util._
 
 class BorgTileBufferIO(val dataBits: Int = 16) extends Bundle {
   // Write port (from rasterizer auto-write or MMIO)
-  val writeIdx  = Input(UInt(4.W))       // 0-15 tile pixel index
-  val writeData = Input(new ColorZ(dataBits))
-  val writeEn   = Input(Bool())
+  val write = Flipped(new TileWriteIO)
 
-  // Read port (for MMIO flush - 2-cycle latency: BRAM + hold reg)
-  val readIdx   = Input(UInt(4.W))
-  val readEn    = Input(Bool())
-  val readData  = Output(new ColorZ(dataBits))
+  // Read port (for tile flush - 2-cycle latency: BRAM + hold reg)
+  val read  = Flipped(new TileReadIO(dataBits))
 
   // Clear (resets all entries: Z to FP16_MAX_DEPTH, RGB to 0)
-  val clearEn   = Input(Bool())
-  val clearBusy = Output(Bool())         // high while clearing BRAM sequentially
+  val clear = Flipped(new TileClearIO)
 }
 
 class BorgTileBuffer(val dataBits: Int = 16) extends Module {
@@ -56,7 +51,7 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
   val clearCounter = RegInit(0.U(5.W))
   val clearing = clearCounter < TILE_SIZE.U
 
-  io.clearBusy := clearing
+  io.clear.busy := clearing
 
   // Clear value: Z=FP16_MAX_DEPTH, RGB=0
   val clearColor = Wire(new ColorZ(dataBits))
@@ -67,7 +62,7 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
   val clearWord = clearColor.asUInt
 
   // --- Clear logic ---
-  when(io.clearEn && !clearing) {
+  when(io.clear.en && !clearing) {
     clearCounter := 0.U
   }
 
@@ -77,13 +72,13 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
   }
 
   // --- Write logic ---
-  when(io.writeEn && !clearing) {
-    rgbzMem.write(io.writeIdx, io.writeData.asUInt)
+  when(io.write.en && !clearing) {
+    rgbzMem.write(io.write.idx, io.write.data.asUInt)
   }
 
   // --- Read port ---
-  val effectiveReadEn = io.readEn && !clearing
-  val rgbzRead = rgbzMem.read(io.readIdx, effectiveReadEn)
+  val effectiveReadEn = io.read.en && !clearing
+  val rgbzRead = rgbzMem.read(io.read.idx, effectiveReadEn)
 
   val readDataHeld = RegInit(0.U.asTypeOf(new ColorZ(dataBits)))
 
@@ -93,5 +88,5 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
     readDataHeld := rgbzRead.asTypeOf(new ColorZ(dataBits))
   }
 
-  io.readData := readDataHeld
+  io.read.data := readDataHeld
 }

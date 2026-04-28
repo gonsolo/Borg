@@ -737,51 +737,14 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
 
     **Gate:** All 12/12 `make test-all` suites pass.
 
-  - **Step 25.3g: Isolate `BorgTileFlusher` Module**
-    Create a standalone `BorgTileFlusher.scala` module to handle the
-    hardware PSRAM tile flush. This module lives entirely outside the
-    per-pixel pipeline — it activates only after all 16 pixels in a tile
-    are processed.
+  - **Step 25.3g: Isolate `BorgTileFlusher` Module** ✅
+    Standalone module for hardware PSRAM tile flush.
+    - Activates after all 16 pixels are processed.
+    - Shared `GpuMemIO` mux (CPU > DMA > Flusher > TexFetch).
+    - Scaffold FSM (sIdle → sBusy → sIdle) for handshake verification.
+    - Gated by `cfg.hasFlusher` to save FPGA LCs.
 
-    **Module:** `BorgTileFlusher.scala`
-
-    **IO bundle:**
-
-    ```scala
-    class BorgTileFlusherIO extends Bundle {
-      // Trigger interface
-      val start     = Input(Bool())                // pulse to begin flush
-      val busy      = Output(Bool())               // high while flushing
-
-      // Tile buffer read port
-      val tileRead  = new BorgTileBufferReadIO     // readIdx, readEn, readData
-
-      // PSRAM write port (shared with sTexFetch and DMA)
-      val gpuMem    = new GpuMemIO
-
-      // Configuration (from MMIO registers)
-      val fbBase    = Input(UInt(20.W))            // framebuffer PSRAM base
-      val zbBase    = Input(UInt(20.W))            // Z-buffer PSRAM base
-      val fbWidth   = Input(UInt(9.W))             // framebuffer width (for addr calc)
-      val tileX     = Input(UInt(9.W))             // tile origin X
-      val tileY     = Input(UInt(9.W))             // tile origin Y
-    }
-    ```
-
-    **GpuMemIO port sharing:** The flusher will share the `GpuMemIO`
-    port with `BorgRasterizer.sTexFetch` and `BorgDMA`. The current
-    2-way mux in `Borg.scala` (DMA vs. rast) becomes a 3-way mux with
-    priority: **CPU > DMA > Flusher > TexFetch**. In practice, the
-    flusher and texfetch never contend (flusher runs after the tile is
-    complete; texfetch runs during per-pixel rasterization). DMA runs
-    only between triangles. So the mux is for correctness, not
-    performance.
-
-    Initial implementation: empty FSM (`sIdle → sBusy → sIdle`) with no
-    actual PSRAM writes. Just proves the module instantiates, wires, and
-    the busy flag handshakes correctly.
-    **Gate:** Module compiles; Chisel unit test verifies start→busy→done
-    handshake; `make triangle` unchanged in Verilator.
+    **Gate:** `BorgTileFlusherTests` pass; `make test-all` baseline intact.
 
   - **Step 25.3h: Software/Hardware Flush Toggle**
     Add a `HW_FLUSH_EN` bit to `TILE_CTRL` in `borg.rdl`. When set:

@@ -15,13 +15,18 @@ package borg
   * @param hasImemMmio  When true, the MMIO IMEM/uniform write paths are synthesised.
   *                     Set false on FPGA once firmware uses DMA (Step 22.0, ~30 LCs saved).
   *                     Must remain true in Sim so Chisel tests can still poke IMEM directly.
+  * @param hasFlusher   When true, BorgTileFlusher is instantiated and wired into the
+  *                     GpuMemIO mux.  Set false on FPGA until Step 25.4 adds real PSRAM
+  *                     writes (the scaffold + mux costs ~32 LCs that Yosys cannot optimize
+  *                     away through the FSM register).  Always true in Sim for test coverage.
   */
 case class BorgConfig(
     fp: FloatConfig = FloatConfig.FP16,
     coordWidth: Int = 9,
     fifoDepth: Int = 2,
     hasImemMmio: Boolean = true,
-    hasDMA: Boolean = true
+    hasDMA: Boolean = true,
+    hasFlusher: Boolean = true
 ) {
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
@@ -38,7 +43,8 @@ object BorgConfig {
     coordWidth   = 6,   // max 64×64 framebuffer
     fifoDepth    = 1,
     hasImemMmio  = true, // flip to false after Step 22.4
-    hasDMA       = false // BorgDMA costs ~180 LCs; re-enable once firmware uses it
+    hasDMA       = false, // BorgDMA costs ~180 LCs; re-enable once firmware uses it
+    hasFlusher   = false  // scaffold + mux costs ~32 LCs; enable in Step 25.4
   )
 
   /** Verilator / Arcilator simulation: no area constraint. */

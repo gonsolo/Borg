@@ -18,15 +18,15 @@ object BorgTileBufferTests extends TestSuite {
 
   /** Set all inputs to idle. */
   def pokeIdle(tb: BorgTileBuffer): Unit = {
-    tb.io.writeIdx.poke(0.U)
-    tb.io.writeData.r.poke(0.U)
-    tb.io.writeData.g.poke(0.U)
-    tb.io.writeData.b.poke(0.U)
-    tb.io.writeData.z.poke(0.U)
-    tb.io.writeEn.poke(false.B)
-    tb.io.readIdx.poke(0.U)
-    tb.io.readEn.poke(false.B)
-    tb.io.clearEn.poke(false.B)
+    tb.io.write.idx.poke(0.U)
+    tb.io.write.data.r.poke(0.U)
+    tb.io.write.data.g.poke(0.U)
+    tb.io.write.data.b.poke(0.U)
+    tb.io.write.data.z.poke(0.U)
+    tb.io.write.en.poke(false.B)
+    tb.io.read.idx.poke(0.U)
+    tb.io.read.en.poke(false.B)
+    tb.io.clear.en.poke(false.B)
   }
 
   /** Explicit reset pulse + wait for BRAM auto-clear (16 cycles). */
@@ -41,28 +41,28 @@ object BorgTileBufferTests extends TestSuite {
   /** Write one pixel to the tile buffer. */
   def writePixel(tb: BorgTileBuffer, idx: Int, r: Int, g: Int, b: Int, z: Int): Unit = {
     pokeIdle(tb)
-    tb.io.writeIdx.poke(idx.U)
-    tb.io.writeData.r.poke(r.U)
-    tb.io.writeData.g.poke(g.U)
-    tb.io.writeData.b.poke(b.U)
-    tb.io.writeData.z.poke(z.U)
-    tb.io.writeEn.poke(true.B)
+    tb.io.write.idx.poke(idx.U)
+    tb.io.write.data.r.poke(r.U)
+    tb.io.write.data.g.poke(g.U)
+    tb.io.write.data.b.poke(b.U)
+    tb.io.write.data.z.poke(z.U)
+    tb.io.write.en.poke(true.B)
     tb.clock.step(1)
-    tb.io.writeEn.poke(false.B)
+    tb.io.write.en.poke(false.B)
   }
 
   /** Read one pixel (RGB has 2-cycle latency: BRAM + hold reg; Z is also latched). */
   def readPixel(tb: BorgTileBuffer, idx: Int): (Int, Int, Int, Int) = {
     pokeIdle(tb)
-    tb.io.readIdx.poke(idx.U)
-    tb.io.readEn.poke(true.B)
+    tb.io.read.idx.poke(idx.U)
+    tb.io.read.en.poke(true.B)
     tb.clock.step(1)  // BRAM read fires
-    tb.io.readEn.poke(false.B)
+    tb.io.read.en.poke(false.B)
     tb.clock.step(1)  // Hold registers capture BRAM output
-    val r = tb.io.readData.r.peek().litValue.toInt
-    val g = tb.io.readData.g.peek().litValue.toInt
-    val b = tb.io.readData.b.peek().litValue.toInt
-    val z = tb.io.readData.z.peek().litValue.toInt
+    val r = tb.io.read.data.r.peek().litValue.toInt
+    val g = tb.io.read.data.g.peek().litValue.toInt
+    val b = tb.io.read.data.b.peek().litValue.toInt
+    val z = tb.io.read.data.z.peek().litValue.toInt
     (r, g, b, z)
   }
 
@@ -124,18 +124,18 @@ object BorgTileBufferTests extends TestSuite {
 
         // Trigger clear
         pokeIdle(tb)
-        tb.io.clearEn.poke(true.B)
+        tb.io.clear.en.poke(true.B)
         tb.clock.step(1)
-        tb.io.clearEn.poke(false.B)
+        tb.io.clear.en.poke(false.B)
 
         // Wait for clear to finish (16 cycles for RGB BRAM)
         var waitCycles = 0
-        while (tb.io.clearBusy.peek().litToBoolean && waitCycles < 20) {
+        while (tb.io.clear.busy.peek().litToBoolean && waitCycles < 20) {
           tb.clock.step(1)
           waitCycles += 1
         }
         println(f"  Clear took $waitCycles cycles")
-        utest.assert(!tb.io.clearBusy.peek().litToBoolean)
+        utest.assert(!tb.io.clear.busy.peek().litToBoolean)
         tb.clock.step(1)  // one extra for settling
 
         // Verify Z entries are FP16_MAX_DEPTH (via readPixel)

@@ -103,12 +103,14 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val tile = Module(new BorgTileBuffer())
   val rdlRegs = Module(new BorgGpuRegs()) // Auto-generated RDL register block
   val dma = if (cfg.hasDMA) Some(Module(new BorgDMA)) else None
+  val flusher = if (cfg.hasFlusher) Some(Module(new BorgTileFlusher())) else None
 
   wireBus()
   wireRdlRegs()
   wireCore()
   wireRasterizer()
   wireTileBuffer()
+  wireFlusher()
   wireMmioRead()
   wireDMA()
 
@@ -166,22 +168,63 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // Core state feedback
     rast.io.coreStatus <> core.io.status
 
-    // GPU memory port: DMA arbitration when hasDMA=true, direct to rast otherwise.
-    // Step 25.2: wr/wdata added for GPU write path. DMA is read-only, so
-    // write signals always come from rast (no mux needed for wr/wdata).
-    dma match {
-      case Some(d) =>
+    // GPU memory port: arbitration (Step 25.3g).
+    // Priority: DMA > Flusher > Rast (texFetch).
+    // In practice there is no contention: DMA runs between triangles,
+    // flusher runs after a tile is complete, texFetch runs during per-pixel
+    // rasterization.  The mux is for correctness, not performance.
+    //
+    // Step 25.2: wr/wdata added for GPU write path.  DMA is read-only, so
+    // write signals come from flusher or rast (flusher takes priority).
+    (dma, flusher) match {
+      case (Some(d), Some(f)) =>
+        // 3-way mux: DMA > Flusher > Rast
+        io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
+                           Mux(f.io.busy, f.io.gpuMem.req,
+                               rast.io.gpuMem.req))
+        io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
+                           Mux(f.io.busy, f.io.gpuMem.addr,
+                               rast.io.gpuMem.addr))
+        io.gpuMem.wr    := Mux(f.io.busy, f.io.gpuMem.wr,
+                               rast.io.gpuMem.wr)   // DMA never writes
+        io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
+                               rast.io.gpuMem.wdata)
+        rast.io.gpuMem.data     := io.gpuMem.data
+        rast.io.gpuMem.ready    := io.gpuMem.ready && !d.io.busy && !f.io.busy
+        f.io.gpuMem.data  := io.gpuMem.data
+        f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
+        d.io.gpuMem.data        := io.gpuMem.data
+        d.io.gpuMem.ready       := io.gpuMem.ready && d.io.busy
+
+      case (Some(d), None) =>
+        // 2-way mux: DMA > Rast (no flusher on FPGA until Step 25.4)
         io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req, rast.io.gpuMem.req)
         io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr, rast.io.gpuMem.addr)
-        io.gpuMem.wr    := rast.io.gpuMem.wr     // DMA never writes
+        io.gpuMem.wr    := rast.io.gpuMem.wr       // DMA never writes
         io.gpuMem.wdata := rast.io.gpuMem.wdata
         rast.io.gpuMem.data  := io.gpuMem.data
         rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy
         d.io.gpuMem.data     := io.gpuMem.data
         d.io.gpuMem.ready    := io.gpuMem.ready && d.io.busy
-      case None =>
-        // No DMA: rast has exclusive gpuMem access
-        rast.io.gpuMem <> io.gpuMem
+
+      case (None, Some(f)) =>
+        // 2-way mux: Flusher > Rast (no DMA)
+        io.gpuMem.req   := Mux(f.io.busy, f.io.gpuMem.req,
+                               rast.io.gpuMem.req)
+        io.gpuMem.addr  := Mux(f.io.busy, f.io.gpuMem.addr,
+                               rast.io.gpuMem.addr)
+        io.gpuMem.wr    := Mux(f.io.busy, f.io.gpuMem.wr,
+                               rast.io.gpuMem.wr)
+        io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
+                               rast.io.gpuMem.wdata)
+        rast.io.gpuMem.data     := io.gpuMem.data
+        rast.io.gpuMem.ready    := io.gpuMem.ready && !f.io.busy
+        f.io.gpuMem.data  := io.gpuMem.data
+        f.io.gpuMem.ready := io.gpuMem.ready && f.io.busy
+
+      case (None, None) =>
+        // Direct: Rast only (FPGA without DMA or flusher)
+        io.gpuMem <> rast.io.gpuMem
     }
 
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
@@ -198,7 +241,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val ctrlWriting = bus.is_writing && bus.address === BorgGpuRegs.tile_ctrl_offset
     val tileReadIdx = rdlRegs.io.hw.tile_ctrl_read_idx
     
-    tile.io.clearEn := rdlRegs.io.hw.tile_ctrl_clear
+    tile.io.clear.en := rdlRegs.io.hw.tile_ctrl_clear
 
     // Two-step protocol: shadow BZ -> write RG triggers
     val tileShadowB = RegInit(0.U(16.W))
@@ -209,19 +252,51 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     }
     
     val mmioTileWriteEn = bus.is_writing && bus.address === BorgGpuRegs.tile_rg_offset
-    tile.io.writeEn  := mmioTileWriteEn || rast.io.tileWrite.en
-    tile.io.writeIdx := Mux(rast.io.tileWrite.en, rast.io.tileWrite.idx, tileReadIdx)
+    tile.io.write.en  := mmioTileWriteEn || rast.io.tileWrite.en
+    tile.io.write.idx := Mux(rast.io.tileWrite.en, rast.io.tileWrite.idx, tileReadIdx)
     
     val writeColor = Wire(new ColorZ(16))
     writeColor.r := bus.data_in(31, 16)
     writeColor.g := bus.data_in(15, 0)
     writeColor.b := tileShadowB
     writeColor.z := tileShadowZ
-    tile.io.writeData := Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor)
+    tile.io.write.data := Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor)
 
     // Read port: trigger BRAM read when CTRL is written
-    tile.io.readIdx := Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx)
-    tile.io.readEn  := ctrlWriting
+    tile.io.read.idx := Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx)
+    tile.io.read.en  := ctrlWriting
+  }
+
+  /** Step 25.3g: Wire the BorgTileFlusher scaffold.
+    *
+    * - start is hardwired false (Step 25.3h will add MMIO trigger)
+    * - tileRead connects to the tile buffer read port (scaffold never asserts readEn)
+    * - gpuMem is wired via the mux in wireRasterizer()
+    * - config inputs use iterator tile origin; base addresses are placeholders
+    *   (Step 25.3h will wire them from MMIO registers)
+    */
+  private def wireFlusher(): Unit = {
+    flusher match {
+      case Some(f) =>
+        // Scaffold: never trigger the flusher
+        f.io.start := false.B
+
+        // Tile buffer read port — flusher reads RGBZ from the tile buffer.
+        // In the scaffold the flusher never asserts read.en, so no contention
+        // with the MMIO read path.  Step 25.4a will add a read.idx/read.en mux.
+        f.io.read.data := tile.io.read.data
+
+        // Config: tile origin from the iterator, base addresses are placeholders.
+        // Step 25.3h will wire these from MMIO registers.
+        f.io.tileX    := rast.io.iter.x
+        f.io.tileY    := rast.io.iter.y
+        f.io.fbBase   := 0.U
+        f.io.zbBase   := 0.U
+        f.io.fbWidth  := 0.U
+
+      case None =>
+        // hasFlusher=false (FPGA): no flusher module, nothing to wire.
+    }
   }
 
   // @doc:mmio
@@ -274,8 +349,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val rdl_read_data = rdlRegs.io.bus.readData
     io.data_out := MuxCase(rdl_read_data, Seq(
       (read_addr_del < 128.U) -> core.io.regReadData,
-      (read_addr_del === BorgGpuRegs.tile_rg_offset) -> Cat(tile.io.readData.r, tile.io.readData.g),
-      (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.readData.b, tile.io.readData.z)
+      (read_addr_del === BorgGpuRegs.tile_rg_offset) -> Cat(tile.io.read.data.r, tile.io.read.data.g),
+      (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.read.data.b, tile.io.read.data.z)
     ))
 
     val read_ready_del = RegNext(bus.is_reading, false.B)
