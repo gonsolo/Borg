@@ -53,9 +53,6 @@ Batch all 3 edge functions (`e = dx·dpy − (−dy)·dpx`) into a single trigge
 reusing the FMA sequentially. Eliminates 2 of 3 `borg_run()` MMIO round-trips
 per pixel. Widened register file (8→16), IMEM (6→8), and address bus (6→7 bits).
 
-Verified: Chisel tests (195/195 + batched edge test), cocotb SoC tests (2/2),
-and FPGA triangle rendering on pico-ice.
-
 ### Step 2: Multiple Triangles (Firmware) ✅ (2026-03-20)
 
 Loop over a multi-triangle mesh in firmware (e.g. 12-triangle cube via
@@ -118,41 +115,24 @@ instead of driving every pixel. **This is the key transition from
 "ALU co-processor" to "rasterizer."** Estimate: 1–2 weeks.
 
 - **Step 10.1: Dual Shader IMEM Residency** ✅ (2026-03-27)
-  Added `start_pc` jump control via `BORG_CONTROL` to keep `rast`, `frag`, and `add` shaders concurrently active in the 32-entry IMEM.
 - **Step 10.2: Bounding Box Early-Out** ✅ (2026-03-27)
-  Structured the rasterization pipeline: `xy16_t`/`xy16x3_t`/`rgb16x3_t`/`uv16x3_t` types, `triangle_t` and `frag_result_t` structs, `compute_bbox` with correct negative-coord clamp, and helper extraction (`shade_pixel`→`shade_tile`→`shade_tiles`, `build_clip_vertices`, `clip_and_rasterize`). Fixed left-edge clipping bug caused by `fp16_to_uint` ignoring the sign bit.
 - **Step 10.3: Hardware Counter Iterator** ✅ (2026-03-27)
-  Added 6-bit x/y hardware counters, 4-coordinate bounding box registers, and single-instruction iteration advancement via `BORG_ITER` MMIO interface. Eliminated the nested software-based loop inside the `shade_tiles` firmware loop, moving spatial boundary checks strictly into hardware.
 - **Step 10.4: Hardware Edge Bounding Box Evaluation**
   - **10.4.1: Edge Sign Evaluation & Inside Flag** ✅ (2026-03-30): Snoop FPU writes to `r0/1/2` to latch edge function signs and expose a unified `inside_flag` via the `BORG_ITER` MMR.
-    > **Hardware-in-the-Loop Debugging Note:** During the transition to the native FPGA iterator, the GPU produced a solid black screen (despite passing RTL). The core bugs we isolated were entirely mathematical edge cases:
-    >
-    > 1. **Winding Order Inversion:** In our Y-down screen space, calculating edge vectors as `pos[next] - pos[i]` was generating *negative* edge bounds for strictly interior pixels. This incorrectly culled the entire triangle because hardware `fstep.s` expects strictly positive values for `inside_flag`. We reversed the subtraction to `pos[i] - pos[next]`.
-    >
-    > 2. **Barycentric Interpolation Collapse:** The `dy` component of the edge vector had a deeply buried sign error. Because of this, the edge distances no longer summed up to the triangle's explicit +area, causing barycentric multiplication by `inv_area` to explode pixel colors into blackness. Fixing `edges[i].y` to exactly `pos[next].y - pos[i].y` restored mathematical harmony.
-    >
-    > 3. To prevent this from ever quietly breaking again, a new `test_raster.c` native invariant tracker was written that mathematically mocks the CCW boundary rules to guarantee +area bounds are strictly maintained by the C firmware mathematically.
   - **10.4.2: Rasterizer Auto-Execution** ✅ (2026-03-31): Auto-trigger the shader at `PC=0` on iterator advance, stalling the CPU until completion.
 - **Step 10.5: Hardware Coordinate Expansion (int-to-fp16)** ✅ (2026-04-01)
   - **10.5.1: Hardware `coordLut` and MMIO Verification** ✅ (2026-03-31): Convert 6-bit int iterator coords into FP16 pixel centers mapped to `r30` and `r31`. Verify via MMIO reads against software computations without altering the running edge shader.
   - **10.5.2: FPU Coordinate Expansion Pipeline** ✅ (2026-04-01): Pass negative vertex coordinates (`-v.x`, `-v.y`) as uniforms into `rasterize.s`. Rewrite the shader to compute `dpx = px - vx` natively using `fadd.s` with `r30/r31`, keeping pixel accuracy.
   - **10.5.3: Software Delta Decommissioning** ✅ (2026-04-01): Remove legacy firmware `compute_pixel_deltas`. Validate `make triangle` produces the pixel-perfect rendering using strictly hardware coordinate expansion.
 - **Step 10.6: CPU-Drawn Pixel Dispatch**
-    Auto-chain the rasterizer and fragment shaders so a single `BORG_ITER` advance evaluates edges, tests inside, and (for inside pixels) runs the fragment shader — all while the CPU stalls. The CPU only reads back shaded results and writes to PSRAM.
   - **10.6.1: Fragment Shader Register Alignment** ✅ (2026-04-01): Recompile `frag.s` so it reads edge values directly from r0/r1/r2 (rasterizer output slots) instead of separate attribute registers. Remove the firmware register copy. No hardware changes.
   - **10.6.2: Chained Shader Trigger (Hardware)** ✅ (2026-04-01): Add `frag_start_pc` register and phase FSM (`IDLE→RAST→FRAG`) to BorgRasterizer/BorgCore. Fix edge-sign snooping convention (positive=inside, negative=outside). Add attribute copy from rasterizer output regs to fragment attribute regs.
   - **10.6.3: Linear Scan Register Allocation** ✅ (2026-04-01)
-    Implemented Poletto & Sarkar (1999) linear scan register allocation in `borg_backend.py`. Added a pass manager (`identify_vregs` → `parse_annotations` → `compute_live_intervals` → `linear_scan_alloc` → `emit_instructions`). Reused temporaries across non-overlapping lifetimes:
     - `rasterize.s`: 18 → 17 registers (dpx/dpy reused across edges).
     - `vert.s`: 29 → 24 registers.
     - `shader.frag`: 29/30 registers (28 I/O vregs must be live simultaneously; uniforms persist).
     - Verified pixel-perfect against `golden.ppm`.
 
-    *Bugs fixed during register allocator development:*
-
-    1. **`rs3` field width misconception:** The initial implementation restricted `fmadd` accumulators to r0-r3, assuming a 2-bit `rs3` field. `Instructions.scala` defines a full 5-bit field. Removed the unnecessary restriction.
-
-    2. **Uniform sorting broke R↔B vertex colors:** The SPIR-V compiler sorted uniforms by `member_idx`, reordering them. This broke the implicit mapping where edge weights match their opposite vertex colors. Reverted to SPIR-V instruction order.
   - **10.6.4: Uniform Buffer (Replaces 64-GPR Expansion)**: Add a separate 32-entry × 16-bit read-only uniform buffer to solve rasterizer/fragment shader state clobbering. This follows the universal GPU pattern (PowerVR shared registers, VideoCore IV streaming FIFO, Mali Bifrost fast constant storage, Adreno constant RAM) rather than doubling the GPR file. Adds ~512 flip-flops on ASIC (+11%) vs. ~1,536 for 64 GPRs (+21%), preserves RISC-V 5-bit register encoding, and maps naturally to Vulkan UBOs/push constants. See [A5_register_architecture.md](A5_register_architecture.md) for the full design rationale, GPU architecture survey, and area analysis.
     - **10.6.4.1: Hardware Uniform Buffer** ✅ (2026-04-04): Add 32-entry register-based uniform buffer (~512 FFs). Decode `funct3[1:0]` to select which operand reads from the uniform buffer (`00`=all GPR, `01`=rs1, `10`=rs2, `11`=rs3). Integrate the read mux into the operand-resolution stage alongside the existing `coordLut` injection. Add MMIO write path (4-byte addressed, 32 entries). To fit in the 9-bit address space, shrink IMEM from 64→56 slots (shaders total ~50 instructions, no functional impact). MMIO loading is scaffolding — Step 21 (DMA) replaces it.
     - **10.6.4.2: Compiler Uniform Support** ✅ (2026-04-05): Update `borg_backend.py` to distinguish uniform vs. GPR virtual registers and emit the appropriate `funct3` bits. Update `Instructions.scala` encoding functions to accept the uniform operand flag. The register allocator assigns uniforms to the uniform buffer and temporaries/I/O to GPRs separately.
@@ -172,9 +152,7 @@ instead of driving every pixel. **This is the key transition from
     - *10.6.6.3: Resolve rendering issues caused by negation mismatches (`BORG_FP16_NEG`) in software versus hardware shader `fadd.s` operations.*
     - *10.6.6.4: Clean up unused logging code and legacy tile pixel writers.*
   - **10.6.7: Cross-Language Structural Reflection** ✅ (2026-04-06)
-    Replaced brittle, manually hardcoded C-packing macros (`BORG_ITER_PACK_BBOX`) with a dynamic Chisel-to-C struct generator inside `MmioGenerator.scala`. By recursively walking `Bundle.elements`, the exact hardware logical layouts of structures like `Coord` and `Bbox` are dynamically reflected into the C firmware headers as `borg_bbox_t` structs. This decouples the hardware layout from arbitrary software shifts and permanently solves C-bitfield layout mismatch regressions.
 
-  **Uniform data path progression:**
   - *Step 10 (now)*: CPU → MMIO writes → on-chip buffer (32 entries, scaffolding)
   - *Step 21 (GPU DMA)*: GPU fetches uniforms, IMEM, and registers from PSRAM autonomously
 
@@ -186,32 +164,14 @@ round-trips. Tile-based approach matches mobile GPU architecture (Mali,
 PowerVR, Adreno). Estimate: 1–2 weeks.
 
 - **Step 11.1: Standalone `BorgTileBuffer` Module** ✅ (2026-04-06)
-    Standalone Chisel module: 16×64-bit unified RGBZ BRAM (single iCE40 EBR).
-    Write/read/clear ports. Auto-clear on reset (16-cycle BRAM sequential write).
-    Unit tested without FSM wiring.
 - **Step 11.2: MMIO Wiring** ✅ (2026-04-06)
-    Wired tile buffer into `Borg.scala` with two-step MMIO write protocol
-    (BZ shadow registers → RG trigger). Added CTRL register for read index
-    and clear. 32-bit packed readback (RG and BZ). Holding registers for BRAM
-    read persistence. Shared BRAM read port for peekZ (2-cycle latency).
-    Improved `print_resources` Makefile target with carry chain and LC estimation.
-    FPGA: 3859 LUTs (73%), 1549 DFFs (29%), 10 BRAMs — comfortably within budget.
-    Verified: 31/31 Chisel tests, Verilator triangle+vkcube, FPGA triangle+vkcube.
 - **Step 11.2.5: Hardware Types & Decoupled Bus Reflection** ✅ (2026-04-06)
-    General structural clean up across the codebase prior to Auto-Write integration:
   - **`ColorZ` Bundle**: Replaced 8 discrete RGBZ ports inside `BorgTileBuffer` with a cleanly casted 64-bit `.asUInt()` unified structure.
   - **Instruction Bundling**: Stripped primitive tuple decodes inside `BorgCore` in favor of `FpuOpFlags` and `RegIndices` bundles cleanly routing down into the pipelined FSM execution blocks.
   - **`BorgBusIO` Layer**: Substituted ad-hoc MMIO wires (`address`, `data_in`, `is_writing`, `is_reading`) with a unified internal `BorgBusIO`, cleanly bridging dependencies into cleanly typed abstractions over standard sub-modules.
 - **Step 11.3: Auto-Write from Fragment Shader** ✅ (2026-04-06)
-    After FRAG completes for inside pixel, auto-write RGB+Z from fragment output
-    registers to tile buffer. CPU no longer reads per-pixel results. New FSM phase
-    `sTileWrite`. Hardware ABIs pinned for R/G/B/Z output. Chisel test + Verilator.
 
 - **Step 11.4: Firmware Tile-Loop Restructuring** ✅ (2026-04-06)
-    Restructure `shade_tiles()` to loop in 4x4 tile chunks. After each tile,
-    compute 4x4 bbox for hardware. CPU spins until `BORG_ITER_VALID` goes low,
-    then CPU reads from `BorgTileBuffer` and blasts 16 pixels to PSRAM in a burst.
-    Implemented in C firmware. Verified functional in Arcilator and Verilator.
 
 ### Step 12: Hardware Z-Buffer Unit ✅ (2026-04-07)
 
@@ -232,23 +192,9 @@ frag_pc — roughly 68 bytes per entry, fitting in 1–2 BRAMs for a 4-entry FIF
 Estimate: 3–5 days.
 
 - **Step 13.1: Standalone `BorgCommandFIFO` Module** ✅ (2026-04-08)
-    Implement a decoupled Chisel `Queue` wrapping a new `BorgCommand` bundle (Bbox, uniform_page, frag_pc).
-    Create Chisel unit tests to verify enqueue/dequeue handshaking, ensuring it holds commands correctly.
 - **Step 13.2: Dual-Page Uniform Buffer** ✅ (2026-04-08)
-    Expand the hardware uniform buffer from 32 to 64 entries (2 pages of 32 entries).
-    The CPU writes to the "front" page while the GPU reads from the "back" page (specified by `uniform_page` from the FIFO).
-    Add MMIO addressing for the second page and verify through Chisel tests.
 - **Step 13.3: Hardware FIFO Integration** ✅ (2026-04-08)
-    Wire `BorgCommandFIFO` into `Borg.scala`. Map the push interface to a new MMIO write endpoint
-    (`BORG_COMMAND_ENQUEUE`). Connect the pop interface to `BorgRasterizer`. Expose a `FIFO_FULL`
-    bit in `BORG_STATUS` so the firmware can poll. Ensure the rasterizer uses the popped `uniform_page`.
-    FPGA utilization: 5192 / 5280 LCs (98%) after reducing FIFO depth from 4 to 2.
-    Verified: Chisel tests, Verilator+Arcilator triangle/vkcube, FPGA triangle/vkcube.
 - **Step 13.4: Firmware Integration & Synchronization** ✅ (2026-04-08)
-    Updated `borg_driver.c` to ping-pong between uniform pages. `shade_tiles()` toggles
-    `current_uniform_page`, sets `uniformWritePage` via `BORG_CONTROL[5]`, loads uniforms to
-    the inactive page, polls `BORG_STS_FIFO_FULL`, then enqueues with `uniformPage` in bit 30.
-    Verified pixel-perfect against `golden.ppm` in Verilator (11.3M cycles).
 
 ### Step 14: SystemRDL Register Description ✅ (2026-04-08)
 
@@ -262,11 +208,6 @@ offsets drift out of sync with firmware `#define`s.
 Estimate: 1 week.
 
 - **Step 14.1: RDL Specification** ✅ (2026-04-08): Wrote `hardware/borg/rdl/borg_gpu.rdl`
-  describing all Borg GPU registers: GPR file (32×16-bit), IMEM (56×32-bit),
-  pixel iterator (bbox + position/valid/inside), control/status, fragment PC,
-  uniform buffer (32-entry MMIO window), tile buffer (CTRL/RG/BZ), and command
-  FIFO enqueue. Validated with `systemrdl-compiler` — 512-byte address map,
-  all offsets match `MmioMap.scala`.
 - **Step 14.2: PeakRDL-chisel Exporter** ✅ (2026-04-08): Developed the custom Scala/Chisel backend publisher plugin for `PeakRDL` (<https://github.com/gonsolo/PeakRDL-chisel>) to directly emit synthesizable Chisel `Module` register blocks from the `.rdl`.
 - **Step 14.3: RTL Integration** ✅ (2026-04-08): Wired the generated Chisel module block (`BorgGpuRegs`) into the `BorgBusIO` interface, replacing all manual address decoders and manual Flip-Flops in `Borg.scala` with PeakRDL's register nodes.
 - **Step 14.4: Firmware/Backend Integration** ✅ (2026-04-08): Integrated `PeakRDL-cheader` to emit `borg_regs.h` (C headers) and a custom Python emit for `borg_mmio.py`. Completely deleted `MmioMap.scala`. Validated SystemRDL outputs against FPGA LC constraints (5113 LCs) via tied-off read-ports and verified the complete cocotb/Verilator/Arcilator/FPGA software stack.
@@ -285,28 +226,10 @@ pixel iterator. By this step the CPU is out of the inner loop, so there is no
 bus contention — the failure mode of the earlier texture cache experiment.
 
 - **Step 16.1: rcpLut → BRAM** ✅ (2026-04-11): Migrated `Fp16Rcp` VecInit ROM
-  to dual `SyncReadMem(17, UInt(10.W))` instances. Used unique 17×10 dimensions
-  to prevent CIRCT module deduplication with `coordLut`. Added `rcp_lut.hex` and
-  a `coordWriteIsRcp` test-time init port. New `BorgCoreTests.frcp_fp16` test
-  verifies 8 reciprocal cases. FPGA: 5268/5280 LCs, 10/30 BRAMs.
 
 - **Step 16.2: Peripheral Bus Widening (11→12 bit)** ✅ (2026-04-11): Widened
-  peripheral `addr_in` from 11 to 12 bits, giving each peripheral 1024 bytes of
-  MMIO space instead of 512. Updated `SoCDecode.userRegion` matchFn, `PeriphDecode`
-  sel/sub-addr positions, `BorgIO`/`BorgBus` address widths, and `soc.rdl`/
-  `borg_sys.h` base addresses (BORG now at `0x08000C00`). Zero net LC overhead.
 
 - **Step 16.3: FP16→uint6 + Morton Encoding Hardware** ✅ (2026-04-11): Added
-  `tex_uv_reg_t` (@ 0x200) and `tex_addr_reg_t` (@ 0x204) to `borg.rdl` and
-  regenerated `BorgGpuRegs.scala`. New `TextureAddr.scala` implements `Fp16ToUint6`
-  (combinational floor+clamp, ~15 LUTs) and `MortonEncode` (pure bit interleaving,
-  0 LUTs). CPU writes packed FP16 {V, U} to `TEX_UV`; hardware computes the 12-bit
-  Morton texel index and exposes it at `TEX_ADDR`. `BorgTests.tex_fetch_tests`
-  verifies 10 cases including clamping and negatives. Zero net LC overhead.
-
-> **Note:** Steps 16.4–16.5 (texel fetch FSM and firmware integration) require
-> the GPU to act as a PSRAM bus master, which depends on the Shared Memory
-> Controller (Step 19). They continue as Step 20.
 
 ### Step 17: LUT Recovery ✅ (2026-04-13)
 
@@ -315,32 +238,12 @@ low-risk structural changes identified in [A7_lc_savings.md](A7_lc_savings.md).
 Target: free ~165–250 LUTs, bringing running total from 5420 to ~5170–5255.
 
 - **Step 17.1: S4 — Remove RDL shadow registers** ✅ (2026-04-12) (~15–20 LUTs)
-    PeakRDL generates shadow flip-flops for fields that are hardware-writable
-    but also MMIO-readable. Fields like `iter_x`, `iter_y`, `iter_valid` are
-    hardware-read-only — redundant FFs. Add `hwReadOnly` flags to `borg.rdl`
-    and regenerate `BorgGpuRegs.scala`.
 
 - **Step 17.2: A4 — Nibble-serial barrel shifter** ❌ abandoned (2026-04-12) (actual: −3 LCs)
-    Replace `TinyQVShifter` barrel shifter (149 cells) with a 4-bit-per-cycle
-    iterative version, matching the nibble-serial pattern already used in
-    `TinyQVCounter` and `TinyQVTime`. Cost: 8 extra cycles per shift
-    instruction. Shifts are rare in GPU shader firmware.
 
 - **Step 17.3: Remove C Extension** ✅ (2026-04-12)
-    Removed the RISC-V C (compressed) extension entirely from TinyQV.
-    Deleted the 14-case compressed decoder (~210 lines in `Decode.scala`),
-    all compressed immediate computations, the `is_ret` early-return
-    optimization, and the `.option rvc` directive from `start.s`. Switched
-    firmware from `rv32ec_zicsr` to `rv32e_zicsr` in both Makefiles.
-    Firmware code size increases ~30-40% but runs from 16 MB QSPI flash
-    (not area-constrained). Hardwired `instr_len` to 2 (32-bit only).
-    The C extension can be re-added in Phase 3 on a larger tile.
-    **Results:** Yosys 3881 LUT4s (was ~4100), nextpnr 5184/5280 LCs (98%).
-    Verified: Chisel tests, Verilator, Arcilator, FPGA synthesis.
 
 - **Step 17.4: Verify all targets** ✅ (2026-04-13)
-    All Chisel tests pass (28 TinyQV + 24 Borg), Verilator triangle OK,
-    Arcilator triangle OK, FPGA synthesis 5184 LCs (98%), 10/30 BRAMs.
 
 ### Step 18: SoC Project Restructure ✅ (2026-04-13)
 
@@ -348,22 +251,8 @@ Reorganize the Mill build so `soc` is the parent module of both `borg` (GPU)
 and `tinyqv` (CPU). This must happen before Step 19 adds new SoC-level files.
 
 - **Step 18.1: Create `hardware/soc/` Mill module** ✅ (2026-04-13)
-    Move `Project.scala`, `Peripherals.scala` from `borg` package → `soc` package.
-    Move `TinyQVMemCtrl.scala`, `TinyQVMemCtrlSim.scala` from `tinyqv.cpu` → `soc`.
-    Create `hardware/soc/package.mill` with
-    `moduleDeps = Seq(build.hardware.tinyqv, build.hardware.borg)`.
-    Update `hardware/borg/package.mill` and `hardware/tinyqv/package.mill` to have
-    no deps (leaf modules).
 
 - **Step 18.2: Verify all targets** ✅ (2026-04-13)
-    All Chisel tests pass, Verilator/Arcilator triangle+vkcube, FPGA synthesis.
-
-```text
-Mill dependency graph:
-  tinyqv (CPU, leaf)  ──┐
-                        ├──→  soc (parent)  ──→  fpga
-  borg   (GPU, leaf)  ──┘
-```
 
 ### Step 19: Shared Memory Controller ✅ (2026-04-14)
 
@@ -377,21 +266,8 @@ our shared QSPI PSRAM, central bus arbiter = our 2:1 mux. Also matches
 PowerVR SGX's Data Masters + tile-based deferred rendering pattern.
 
 - ✅ **Step 19.1: Extract MemCtrl to SoC level** *(2026-04-13)*
-    Renamed `TinyQVMemCtrl` → `MemoryController` and moved to `soc` package.
-    `TinyQV` is now a pure CPU (no QSPI knowledge); `MemoryController` owns all
-    SPI/QSPI pins and arbitrates CPU instr-fetch, CPU data, and a stubbed GPU
-    read port (`gpu_addr`, `gpu_read_req`, `gpu_data`, `gpu_read_ready`).
-    `SoCLogic` wires all three peer components. All tests pass (Verilator + Arcilator).
 
 - ✅ **Step 19.2: Wire GPU port to BorgRasterizer** *(2026-04-14)*
-    Added `sTexFetch` FSM state to `BorgRasterizer`: 2-word packed PSRAM read
-    (R+G in Word 0, B in Word 1), latching into `frag_r/g/b` before `sTileWrite`.
-    Connected Morton index → `gpu_addr`; `tex_en` gates the fetch path.
-    GPU read port wired end-to-end: `BorgRasterizer` → `Borg` → `Peripherals` →
-    `Project` → `MemoryController` arbiter (real + sim). `MemoryControllerSim`
-    implements fast-path bypass for Verilator/Arcilator. `make triangle` on FPGA
-    passes. Chisel `tex_fetch_path` test verifies full FSM handshake.
-    FPGA actual: 5256 / 5280 LCs (99%), 10 / 30 BRAMs.
 
 ### Step 20: IO Bundle Refactor (Code Quality) ✅ (2026-04-14)
 
@@ -415,56 +291,17 @@ reduction is more effective than LUT reduction.
 
 - **Step 21.0: Area Optimizations** (prerequisite for all new features)
   - ✅ **O1: RDL tile shadow registers → `hw=r`** (~40 LCs saved) *(2026-04-15)*
-    Changed `tile_rg` and `tile_bz` fields in `borg.rdl` from `hw=rw` to
-    `hw=r`. PeakRDL no longer generates 4 `_in`/`_out` port pairs or the
-    feedback mux into those 64 DFFs. Removed 4 dead `tile_*_in := 0.U` ties
-    from `Borg.scala`. **Zero risk.**
   - ✅ **O5: Command FIFO 2→1 entries** (~20 LCs saved) *(2026-04-18)*
-    Implemented via `BorgConfig.FPGA(fifoDepth=1)`. The centralized `BorgConfig`
-    allows per-target depth: 1 for FPGA (area-constrained), larger for Sim.
   - **O6: Fp16Rcp NaN/Inf removal** (~8 LCs saved) — *deferred*
-    GPU shaders never produce NaN/Inf inputs to FRCP. However, keeping `isNaN`/
-    `isInf` detection preserves future CPU/Linux compatibility (software FP16
-    paths may produce denormals). Defer until Phase 3.
   - ✅ **O7: Remove dead `peekZ` tile buffer port** (~15 LCs saved) *(2026-04-15)*
-    `tile.io.peekZ` output was never read in `Borg.scala` — dead logic. Removed
-    `peekZIdx`, `peekZ`, `peekZheld`, `notMainRead`, and the `effectiveReadIdx`
-    mux from `BorgTileBuffer.scala`. Updated tile buffer tests to use `readData.z`.
   - ✅ **O8: Remove duplicate `read_addr_del`** (~6 LCs saved) *(2026-04-15)*
-    Replaced `RegInit(0.U(10.W))` + assignment in `Borg.scala` with `RegNext(io.address)` —
-    equivalent, but lets synthesis share/eliminate the register with the `readAddr`
-    already computed inside `BorgGpuRegs`.
   - Target: **−89 LCs** → running total ~5191
 
 - ✅ **Step 21.0.1: Parallel Test Runner** *(2026-04-15)*
-    Replaced the serial `make test-all` chain with a Python runner
-    (`scripts/test_runner.py`) that parallelises independent suites and
-    shows a live animated display. Total wall-clock time: **~3 minutes**
-    (was sequential; dominated by `chisel › borg` at 2m 40s).
-
-    Execution order: `generate_verilog → lint` (sequential setup, avoids
-    mill lock contention), then `chisel:borg · chisel:tinyqv · software ·
-    cocotb:soc-core` all in parallel, then `cocotb:soc-borg` after
-    soc-core (shared `test/soc/` directory).
-
-    Result: **7/7 suites passed** in 2m 58s with green ✓ per suite.
 
 - ✅ **Step 21.1: sTexFetch FSM Integration** *(completed during Step 19.2)*
-    Morton index wiring, sTexFetch FSM, 2-word PSRAM read, Chisel tests — all
-    done. `texConfig.en` is hardcoded to `false.B`; `texConfig.baseAddr` is
-    hardcoded to `0x51A0`. Both will be made MMIO-controllable below.
 
 - ✅ **Step 21.2: Tex Config MMIO + Firmware Integration** *(2026-04-15)* (+10 LCs)
-    Added `tex_config_reg_t` to `borg.rdl` (`base_addr[16]` + `en[1]` @ 0x208).
-    Regenerated `BorgGpuRegs`. Replaced hardcoded `texConfig.baseAddr`/`en` in
-    `Borg.scala` with `rdlRegs.io.hw.tex_config_*`. Morton encoder now muxes
-    between CPU-written TEX_UV (tex disabled) and rasterizer-snooped fragment
-    U/V (tex enabled) via new `fragU`/`fragV` outputs on `BorgRasterizerIO`.
-    `borg_set_texture()` now writes `TEX_CONFIG` hardware register to enable
-    `sTexFetch`; `borg_clear_texture()` clears it. Tile-flush firmware detects
-    hardware fetch (TEX_CONFIG.en=1) and reads tile buffer as RGB directly,
-    bypassing the CPU-side texel re-fetch.
-    Verified: 7/7 test suites pass; Verilator textured triangle in 13.1M cycles.
 
 ### Dev Infrastructure ✅ (2026-04-18)
 
@@ -472,26 +309,12 @@ Continuous housekeeping work done alongside Steps 21–22. Not a numbered GPU
 feature step, but recorded here for traceability.
 
 - **BorgConfig centralized parameterization**: New `BorgConfig` case class
-  consolidates `coordWidth`, `fifoDepth`, and `FloatConfig` into a single
-  per-target parameter object. `BorgConfig.FPGA` and `BorgConfig.Sim` replace
-  all ad-hoc compile-time flags throughout the hierarchy.
 - **`.verilog_stamp` incremental build**: Root `Makefile` skips `generate_verilog`
-  when Chisel/RDL sources haven't changed, saving ~30s per `make -C fpga` iteration.
 - **Hardware architecture diagram generator** (`scripts/gen_hw_diagram.py`):
-  Parses Scala sources to produce an SVG component graph. Used in the HPG 2026
-  poster. Also useful for spotting dead/orphaned modules — nodes with no
-  instantiation edges stand out immediately. Fixes: orphan detection,
-  deduplication of instantiation edges, layout improvements, Software Stack overlay.
 - **nextpnr `--seed 0`**: Pinned the placement RNG seed in `fpga/Makefile` for
-  deterministic LC counts across local and CI environments.
 - **CI tool-version diagnostics**: Added "Print tool versions" step to
-  `.github/workflows/fpga.yaml` that logs the nixpkgs rev and nextpnr/yosys
-  versions, enabling direct local-vs-CI comparison.
 - **Memory package modularization**: `TinyQVMemCtrl` extracted into a standalone
-  `memory` package; arcilator simulation fixed.
 - **Miscellaneous**: Dead code removal (`LatchReg*`), Chisel test fixes
-  (`BorgCoreTests` updated for `BorgConfig.Sim`), `test_raster.c` native mock
-  for `borg_fb_width/height`.
 
 ### Step 22: GPU DMA Engine + LUT Recovery (2026-04-18)
 
@@ -504,34 +327,12 @@ the driver changes. Estimate: 1 week.
   - **22.0b: Remove MMIO uniform write path** (~15 LUTs saved) — DMA replaces it
   - **22.0c: Simplify RDL address decode** (~10 LUTs saved)
   - **22.0d: S3 — Remove MMIO GPR read path** (optional, ~20–30 LUTs)
-    The `regFileC` shared read port (`wirePortC()` `mmio_en` mux) is used only
-    for CPU debugging of shader register state. With DMA in place this path
-    is unused. Remove the `mmio_en` conditional from `wirePortC()` in
-    `BorgCore.scala`. Requires refactoring all Chisel/cocotb test GPR reads
-    to use pipeline write-back snooping.
-
-  **Chicken-and-egg:** Steps 22.0a/b remove MMIO paths before DMA exists.
-  Chisel tests and Verilator can load IMEM/uniforms via the C++ test harness
-  (direct memory poke). Remove uniform MMIO first (less time-critical); keep
-  IMEM MMIO until DMA is tested, then remove.
 
 - **Step 22.1: DMA controller FSM** (`BorgDMA.scala`, +25 LCs) *(2026-04-18)*
-    Accepts `(base_ptr, length, destination)` descriptor via MMIO. Issues
-    sequential `gpu_read_req` for each word. Routes returned data to the correct
-    on-chip buffer (uniform/IMEM/GPR). Multiplexes with `sTexFetch` requests.
 
 - **Step 22.2: Bulk IMEM load from PSRAM** (replaces MMIO IMEM writes)
 - **Step 22.3: Bulk uniform load from PSRAM**
 - **Step 22.4: Firmware integration** (`dma_load_shader()`, `dma_load_uniforms()`)
-
-  **IMEM strategy:** IMEM BRAM stays (1-cycle fetch is critical for pipeline
-  throughput). DMA loads it from PSRAM, replacing the ~56 `borg_write_imem()`
-  MMIO calls per shader change. Streaming fetch (eliminate BRAM entirely) is a
-  future optimization — trades 1 BRAM for ~30 LUTs + 30× latency on real QSPI.
-
-  **Memory evolution:** The `gpu_read` port created in Step 19 IS the DMA port.
-  Step 19 drives it from `BorgRasterizer.sTexFetch`; Step 22 drives it from
-  `BorgDMA`.
 
 ### Step 23: Cross-Target Parity (Arcilator / Verilator / FPGA + Software) ✅ (2026-04-20)
 
@@ -543,28 +344,12 @@ discrepancy between what the software stack does and what each target exercises.
 This step closes that gap structurally. Estimate: 3–5 days.
 
 - **Step 23.1: Unified `make` run targets** ✅
-    Standardize `make triangle` and `make vkcube` across all three targets.
-    A single top-level invocation exercises Arcilator, Verilator, and FPGA
-    without manual per-target coordination, removing the opportunity for
-    target-specific workarounds to silently accumulate.
 
 - **Step 23.2: Pixel-exact golden comparison on all targets** ✅
-    Extend `make test-all` to pixel-compare the output of each target against
-    the software golden image (`golden.ppm`). Any divergence between Arcilator,
-    Verilator, or FPGA output fails the suite immediately. This catches
-    rendering bugs that are invisible when only one target is tested.
 
 - **Step 23.3: Shared software path for texture upload** ✅
-    Unify the texture upload code path so that the same logic (chunked
-    Morton-ordered streaming, sentinel check) runs on all three targets.
-    Simulation targets use a C++ harness shim; FPGA uses the RP2040
-    MicroPython path — but both exercise the same protocol, ensuring
-    firmware-level regressions are caught in simulation before FPGA runs.
 
 - **Step 23.4: `make test-all` target parity enforcement** ✅
-    Add a CI check that fails if any target is missing from the test matrix.
-    No target may be silently skipped. FPGA test results are uploaded as
-    artefacts so regressions are traceable.
 
 ### Step 24: Memory Controller Rearchitecture ✅ (2026-04-23)
 
@@ -574,240 +359,60 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
 - **QSPI Parity:** Simulators (Verilator/Arcilator) now use high-fidelity QSPI pin simulation, ensuring 100% hardware parity for Flash and PSRAM.
 - **Results:** Verified pixel-perfect rendering using the new unified path.
 
-> **Lesson learned:** Validate the end-to-end write path with a single hardcoded pixel before adding complex FSM logic to avoid long debugging sessions.
-
 - **Step 25.1: `GpuMemIO` write signals ✅** (rename done 2026-04-23)
-  `GpuMemIO` already renamed from `GpuReadIO`. The `wr` and `wdata` fields
-  will be added together with the first consumer (Step 25.2).
 
 - **Step 25.2: GPU write path + smoke test — one red pixel at (0,0) ✅** (2026-04-23)
-  Implement the hardware write path and validate end-to-end by forcing a single red pixel write.
   - **Hardware:** Add `wr`/`wdata` to `GpuMemIO`. Update `MemoryController` with QSPI write command (0x02) and priority arbitration (CPU > GPU Write > GPU Read).
   - **Test:** Add one-shot `sGpuWriteTest` to `BorgRasterizer` to write 3 RGB words (1.0, 0.0, 0.0) at the framebuffer base on the first command.
   - **Gate:** `make triangle` shows a red pixel at (0,0) with normal rendering otherwise.
 
 - **Step 25.3: Architecture Decoupling (Rasterizer & Tile Buffer)**
 
-  > **Motivation:** Both Claude Opus and Gemini Pro High failed to debug
-  > Step 25.4a (autonomous tile flushing) when implemented against the
-  > monolithic `BorgRasterizer`. The 6-state FSM with interleaved concerns
-  > (iteration, shader dispatch, texture fetch, tile write, GPU smoke test)
-  > exceeds the effective reasoning capacity of current AI models. The
-  > decomposition is a **debuggability prerequisite**, not a code-quality
-  > exercise — it reduces the per-module context so that each FSM is small
-  > enough to reason about completely.
+  - **Step 25.3.1: Integration-Level Tile Buffer Regression Test ✅** (2026-04-26)
 
-  `BorgRasterizer` currently manages: command popping & tile iteration,
-  pixel advance & coordinate latching, RAST→FRAG shader chaining, edge-sign
-  snooping, fragment output snooping, PSRAM texture fetch, tile buffer
-  writes, and a one-shot GPU write smoke test — all in a single FSM
-  (`sIdle :: sRast :: sFrag :: sTexFetch :: sTileWrite :: sGpuWriteTest`).
-  We will decompose this into focused modules connected via `DecoupledIO`.
+  - **Step 25.3.2: Remove `sGpuWriteTest` State ✅** (2026-04-26)
 
-  - **Step 25.3a: Integration-Level Tile Buffer Regression Test ✅** (2026-04-26)
-    Write a Chisel test against the full `Borg` module (not standalone
-    `BorgTileBuffer`) that exercises the exact CPU MMIO sequence:
-    1. Write `TILE_CTRL` to set read index (triggers BRAM read)
-    2. Read `TILE_RG` and `TILE_BZ` (hold-register latching)
-    3. Verify the 2-cycle BRAM → hold-register → MMIO readback latency
+  - **Step 25.3.3: Extract `BorgIterator` Module ✅** (2026-04-27)
 
-    This locks in the integration wiring in `Borg.scala`
-    (`wireTileBuffer()` + `wireMmioRead()`) as a regression gate before
-    any refactoring begins. The existing `BorgTileBufferTests` test the
-    standalone module — this test covers the MMIO plumbing.
-    **Gate:** Test passes in Chisel simulation; `make triangle` unchanged
-    in Verilator.
-
-  - **Step 25.3b: Remove `sGpuWriteTest` State ✅** (2026-04-26)
-    Delete the one-shot GPU write smoke test (`sGpuWriteTest`) and its
-    associated state: `write_word_idx`, `smoke_test_done`, and the
-    `when(!smoke_test_done)` command-pop guard in `BorgRasterizer.scala`.
-    This was scaffolding from Step 25.2 to validate the GPU write path
-    end-to-end. With Step 25.3g (tile flusher) about to exercise the same
-    `GpuMemIO.wr`/`wdata` path systematically, the smoke test is
-    superseded.
-
-    Reduces the FSM from 6→5 states and removes ~15 LCs of register +
-    mux overhead, creating headroom for the new modules.
-    **Gate:** `make triangle` produces identical output in Verilator (the
-    red pixel at (0,0) from the smoke test will disappear — update
-    `golden.ppm` if affected). All Chisel tests pass.
-
-  - **Step 25.3c: Extract `BorgIterator` Module ✅** (2026-04-27)
-    Extract the bounding-box iteration logic into a standalone module.
-
-    **Module:** `BorgIterator.scala`
-
-    **Responsibilities:**
     - Pop commands from `BorgCommandFIFO` via `Flipped(Decoupled(BorgCommand))`
     - Own `iter_reg`, `shader_iter_reg`, `tile_origin_reg`, `tile_max_reg`
     - Compute `iter_valid` (`iter_reg.y < tile_max_reg.y`)
     - On `advance` pulse: latch `shader_iter_reg`, step `iter_reg.x/y`,
-      emit pixel coordinate to the dispatcher
 
-    **IO bundle:**
+  - **Step 25.3.4: Extract `BorgShaderDispatcher` Logic ✅** (2026-04-27)
 
-    ```scala
-    class BorgIteratorIO(cfg: BorgConfig) extends Bundle {
-      val cmdPop    = Flipped(Decoupled(new BorgCommand(cfg.coordWidth)))
-      val advance   = Input(Bool())
-
-      val iter      = Output(new Coord(cfg.coordWidth))       // current position
-      val shaderIter= Output(new Coord(cfg.coordWidth))       // latched pre-advance
-      val iterValid = Output(Bool())                          // tile not exhausted
-      val tileIndex = Output(UInt(4.W))                       // x[1:0] | y[1:0]<<2
-      val pixelReady= Output(Bool())                          // advance was processed
-    }
-    ```
-
-    `BorgRasterizer` instantiates `BorgIterator` and connects its outputs
-    to the shader dispatch logic. The iterator is purely combinational on
-    the advance path — no FSM states, just registers and a counter.
-    **Gate:** All existing Chisel tests pass; `make triangle` pixel-perfect
-    in Verilator.
-
-  - **Step 25.3d: Extract `BorgShaderDispatcher` Logic ✅** (2026-04-27)
-    Move the RAST→FRAG shader chaining FSM and edge-sign / fragment-output
-    snooping into a clearly delimited section of `BorgRasterizer` (or a
-    separate module if it helps clarity). The dispatcher owns:**
-    Move the RAST→FRAG shader chaining FSM and edge-sign / fragment-output
-    snooping into a clearly delimited section of `BorgRasterizer` (or a
-    separate module if it helps clarity). The dispatcher owns:
-
-    **Responsibilities:**
     - Phase FSM: `sIdle :: sRast :: sFrag :: sTexFetch :: sTileWrite`
-      (5 states after `sGpuWriteTest` removal)
     - `auto_run_stall` register (set on advance, cleared on FSM→sIdle)
     - Edge-sign snooping: `e0/e1/e2_outside` from `PipeWriteIO` when
-      `phase === sRast`
     - `core_just_finished` detection from `CoreStatusIO`
     - On RAST finish: check `inside_flag` → trigger FRAG or release
     - On FRAG finish: route to `sTexFetch` (if `texConfig.en`) or
-      `sTileWrite`
     - Fragment output snooping: `frag_r/g/b/z` from `PipeWriteIO` when
-      `phase === sFrag`
     - `coreTrigger` output (valid + pc) to `BorgCore`
 
-    **Key interface contract:** The dispatcher consumes an advance pulse
-    from the iterator and produces a `tileWrite` pulse to the tile buffer.
-    It stalls the CPU via `auto_run_stall` between advance and completion.
+  - **Step 25.3.5: Extract `BorgTextureUnit` ✅** (2026-04-28)
 
-    **Gate:** All Chisel tests pass; `make triangle` pixel-perfect in
-    Verilator.
+  - **Step 25.3.6: Inside-Flag Guard on Tile Write ✅** (2026-04-28)
 
-  - **Step 25.3e: Extract `BorgTextureUnit` ✅** (2026-04-28)
-    Extracted the 2-word PSRAM texel read from `BorgShaderDispatcher`
-    into a standalone `BorgTextureUnit.scala` with a clean
-    `start/done` handshake.
-
-    **Motivation (revised):** Beyond debuggability, `BorgTextureUnit` is
-    the natural **texture compression insertion point** — a BC1/ETC
-    decompressor can be added between the PSRAM reads and `fragColor`
-    without changing the caller interface.
-
-    **FSM:** `sIdle → sReadB → sReadRG → sDone` (B-first ordering
-    preserved for Morton-address stability; see in-module comment).
-
-    **Timing note:** The extracted module adds **+1 cycle** to the
-    texture path vs. the old inline code: after the second PSRAM
-    response, the unit spends one cycle in `sDone` before pulsing
-    `done`. Updated `BorgShaderDispatcherTests` and
-    `BorgRasterizerTests` accordingly.
-
-    **Tests:** `BorgTextureUnitTests.scala` — 7 tests covering address
-    computation, R/G/B unpacking, done-pulse width, quiet idle, PSRAM
-    stall (multi-cycle), back-to-back fetches, and start-ignored-mid-fetch.
-
-    **Gate:** All 12/12 `make test-all` suites pass; `make triangle`
-    pixel-perfect in Verilator and Arcilator; FPGA render verified.
-
-  - **Step 25.3f: Inside-Flag Guard on Tile Write ✅** (2026-04-28)
-    Added `io.tileWrite.en := inside_flag` in `BorgShaderDispatcher.sTileWrite`,
-    replacing the unconditional `true.B`.
-
-    Not a current bug — outside pixels are still routed `sRast → sIdle` and
-    never reach `sTileWrite`. Guard is a **forward-compatibility fix** for
-    Step 25.4d (autonomous iteration), where every pixel including outside
-    ones will reach `sTileWrite` and would corrupt the tile buffer without it.
-    FSM phase transition and stall release remain unconditional.
-
-    **Test:** `BorgShaderDispatcherTests.inside_flag_guard_blocks_tile_write`
-    — (1) outside pixel: `tileWrite.en` stays low, FSM returns to sIdle;
-    (2) inside pixel: `tileWrite.en` asserts (guard regression check).
-
-    **Gate:** All 12/12 `make test-all` suites pass.
-
-  - **Step 25.3g: Isolate `BorgTileFlusher` Module** ✅
-    Standalone module for hardware PSRAM tile flush.
+  - **Step 25.3.7: Isolate `BorgTileFlusher` Module** ✅
     - Activates after all 16 pixels are processed.
     - Shared `GpuMemIO` mux (CPU > DMA > Flusher > TexFetch).
     - Scaffold FSM (sIdle → sBusy → sIdle) for handshake verification.
     - Gated by `cfg.hasFlusher` to save FPGA LCs.
 
-    **Gate:** `BorgTileFlusherTests` pass; `make test-all` baseline intact.
-
-  - **Step 25.3h: Software/Hardware Flush Toggle**
-    Add a `HW_FLUSH_EN` bit to `TILE_CTRL` in `borg.rdl`. When set:
+  - **Step 25.3.8: Software/Hardware Flush Toggle**
     - The rasterizer asserts `flusher.start` after tile completion
     - The CPU polls `flush_busy` instead of doing manual PSRAM writes
 
-    When clear (default): the CPU uses the existing firmware flush loop
-    in `borg_driver.c` (lines 457–498). This ensures we always have a
-    working baseline.
-
-    Update `borg_driver.c` to check `HW_FLUSH_EN`:
-
-    ```c
-    if (BORG_GPU->tile_ctrl & TILE_CTRL_REG_T__HW_FLUSH_EN_bm) {
-      while (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm);
-    } else {
-      // existing 16-pixel MMIO read + PSRAM write loop
-    }
-    ```
-
-    **Gate:** `make triangle` pixel-perfect in Verilator with
-    `HW_FLUSH_EN=0` (firmware flush) and `HW_FLUSH_EN=1` (hardware
-    flusher busy flag toggles correctly, no actual flush yet).
-
 - **Step 25.4: Autonomous Tile Flushing (Micro-steps)**
-  Build the hardware flush in small, verifiable increments using the
-  newly decoupled `BorgTileFlusher`. Each micro-step must pass
-  `make triangle` in Verilator.
 
-  - **Step 25.4a: Single-Pixel Hardware Flush**
-    Update `BorgTileFlusher` to read *only* index 0 of the
-    `BorgTileBuffer` and write its 3 RGB words + 1 Z word to PSRAM at
-    `fbBase`/`zbBase`. Uses the `GpuMemIO.wr`/`wdata` path validated
-    by Step 25.2.
-    **Gate:** With `HW_FLUSH_EN=1`, `make triangle` shows the top-left
-    pixel of every 4×4 tile rendered by hardware; remaining 15 pixels
-    are missing (expected). With `HW_FLUSH_EN=0`, full rendering works.
+  - **Step 25.4.1: Single-Pixel Hardware Flush**
 
-  - **Step 25.4b: Full 16-Pixel Tile Flush**
-    Expand the flusher to iterate `flush_idx` from 0 to 15, reading
-    all 16 entries from the `BorgTileBuffer` and writing them to PSRAM.
-    Address calculation: `fb_addr = fbBase + ((tileY + row) * fbWidth +
-    (tileX + col)) * 3 + channel` (3 words per pixel for R/G/B).
-    Z address: `zb_addr = zbBase + (tileY + row) * fbWidth + (tileX + col)`.
-    **Gate:** With `HW_FLUSH_EN=1`, `make triangle` matches golden output
-    pixel-perfect. The CPU no longer does manual PSRAM writes.
+  - **Step 25.4.2: Full 16-Pixel Tile Flush**
 
-  - **Step 25.4c: Remove CPU Tile Flush Path**
-    Delete the firmware flush loop in `borg_driver.c` (the 16-pixel MMIO
-    read + PSRAM write code). Set `HW_FLUSH_EN=1` unconditionally.
-    Remove the `HW_FLUSH_EN` toggle from firmware (keep the RDL bit for
-    debug, but default it to 1).
-    **Gate:** `make triangle` pixel-perfect in Verilator. The CPU tile
-    loop now only does: enqueue command → wait for iterator exhaustion →
-    (hardware flushes autonomously).
+  - **Step 25.4.3: Remove CPU Tile Flush Path**
 
-  - **Step 25.4d: Fully Autonomous Hardware Iteration**
-    Remove the `io.advance` signal. Let `BorgRasterizer` autonomously
-    loop `iter_x` and `iter_y` over the 4×4 tile, triggering the
-    flusher only after the 16th pixel. The CPU only enqueues tile
-    commands and waits for completion.
-    **Gate:** `make triangle` matches golden output perfectly. CPU is
-    entirely removed from the pixel loop.
+  - **Step 25.4.4: Fully Autonomous Hardware Iteration**
 
 ### Step 26: Integrated Vertex + Triangle Setup Sequencer
 
@@ -817,50 +422,14 @@ Combines the planned DMA engine (Step 22) and vertex sequencer into a
 single FSM to share registers, address counters, and control logic.
 
 - **Step 26.1: Vertex shader sequencing**
-    FSM sequences 3 vertex shader runs: DMA loads vertex attributes from
-    PSRAM into GPR, runs SPIR-B shader, stores clip-space outputs. Reloads
-    uniform buffer between vertex and fragment stages.
 
 - **Step 26.2: Triangle setup shader**
-    A 4th shader program that computes edge equations, signed area, `inv_area`
-    (FRCP), and bounding box from the 3 vertex outputs. Currently done in
-    firmware (`triangle_setup()` + `compute_edge_vectors()` in
-    `borg_driver.c`). No new hardware — uses existing FMA+FRCP. ~80 shader
-    cycles per triangle, negligible vs. per-pixel rasterization.
 
 - **Step 26.3: Automatic uniform reload**
-    After triangle setup, the sequencer DMA-loads the rasterizer + fragment
-    shader uniforms (edge constants, vertex colors, inv_area, z_vals) from
-    the setup shader outputs, then enqueues the first tile command.
 
 ### Step 27: Full Autonomous Triangle Pipeline
 
 Integration of Steps 21–26. CPU submits a triangle descriptor; GPU does:
-
-1. **Vertex shade** (3× vertex shader runs via DMA + sequencer)
-2. **Triangle setup** (setup shader: edge equations, inv_area, bbox)
-3. **Rasterize** (hardware pixel iterator + edge evaluation)
-4. **Fragment shade** (hardware FMA pipeline, snooped write-back)
-5. **Texture fetch** (sTexFetch FSM, Morton-encoded PSRAM read)
-6. **Z-test** (tile buffer BRAM comparison)
-7. **Tile write** (sTileWrite to BRAM)
-8. **Tile flush** (sTileFlush to PSRAM via GPU write port)
-
-CPU only writes the triangle descriptor and waits for DONE interrupt.
-Estimate: 1–2 weeks.
-
-### ~~Step 24 (old): Data Cache~~ → Deferred
-
-Deferred to Phase 5 (larger FPGA or ASIC). Not needed for functional
-correctness. The ~30 LUT cost doesn't fit the iCE40 budget, and on ASIC
-(Tiny Tapeout) a BRAM-based full-coverage cache is possible at zero LUT cost.
-
-### ~~Step 25 (old): SoC Bus Protocol~~ → Deferred
-
-Deferred to Phase 5 (larger FPGA or ASIC). Code quality improvement, not
-functional. The hand-rolled priority chain works correctly. A proper
-`BorgBus` → TileLink adapter is worth doing on the Nitefury II or for ASIC,
-but not on iCE40 at 99% utilization.
 
 ### Step 28: Multi-Triangle Autonomous Rendering
 
@@ -875,8 +444,6 @@ Drive the Tiny Tapeout VGA PMOD directly from the pico-ice FPGA for
 real-time display — the hardware equivalent of `make vkcube_gui`.
 No host PC needed; the GPU renders to a monitor in real time.
 
-**TT VGA PMOD pinout** (resistor-DAC, 2 bits per channel):
-
 | `uo_out` pin | VGA Function |
 | --- | --- |
 | `uo_out[0]` | R1 |
@@ -888,120 +455,21 @@ No host PC needed; the GPU renders to a monitor in real time.
 | `uo_out[6]` | B0 |
 | `uo_out[7]` | HSync |
 
-**Pin conflict:** The VGA PMOD uses all 8 `uo_out` pins, but the current
-design uses `uo_out[0]` for UART TX and `uo_out[6]` for debug UART.
-Solution: **build-time option** — `CONFIG=lite_vga` routes VGA to
-`uo_out`, while `CONFIG=lite` keeps UART. The RP2040 can provide UART
-independently via its own USB connection, so VGA mode doesn't lose debug.
-
-**Architecture — SPRAM framebuffer + VGA scanout:**
-
-```text
-┌─ iCE40 UP5K ─────────────────────────────────────────────┐
-│                                                           │
-│  GPU renders → PSRAM (existing)                           │
-│       │                                                   │
-│  CPU copies frame → SPRAM (32 KB, one of 4 blocks)        │
-│       │              ↑ single-port, time-shared            │
-│       │              │                                     │
-│  VGA Controller ─────┘                                     │
-│       │  H/V counters + pixel address + FP16→RGB222        │
-│       │  Reads SPRAM during active pixels                  │
-│       │  CPU writes during vblank (16.7 ms budget)         │
-│       ↓                                                    │
-│  uo_out[7:0] → TT VGA PMOD → Monitor                      │
-└───────────────────────────────────────────────────────────┘
-```
-
-**SPRAM timing:** The iCE40 SPRAM is single-port (16-bit × 16K = 256 Kbit).
-Time-sharing: VGA reads during active display lines, CPU writes during
-vertical blanking (~1.6 ms per frame = ~38K cycles at 24 MHz — enough
-to copy a 32×32×3 = 3072-word framebuffer with margin).
-
-**Supported framebuffer sizes:**
-
 | Resolution | SPRAM usage | VGA upscale | Pixels/frame |
 | --- | --- | --- | --- |
 | 32×32 | 2 KB (6%) | 20×15 pixel blocks | 1,024 |
 | 64×64 | 8 KB (25%) | 10×7 pixel blocks | 4,096 |
 | 128×96 | 24 KB (75%) | 5×5 pixel blocks | 12,288 |
 
-**VGA timing:** 640×480 @ 60 Hz requires a 25.175 MHz pixel clock.
-The iCE40 PLL can generate 25.125 MHz from the 12 MHz oscillator
-(within VGA spec tolerance). The VGA controller upscales the small
-framebuffer by repeating each pixel N× horizontally and M× vertically.
+- **Step 29.1: VGA timing generator** (+30 LCs)
 
-**FP16 → RGB222 conversion:** The GPU framebuffer stores FP16 colors.
-The VGA DAC needs 2 bits per channel. A minimal converter:
+- **Step 29.2: SPRAM framebuffer** (+20 LCs)
 
-```verilog
-R[1:0] = fp16_color[14:13]  (top 2 mantissa bits, exponent-gated)
-```
+- **Step 29.3: FP16→RGB222 scanout** (+15 LCs)
 
-~10 LUTs for all 3 channels. Visually crude but functional for a demo.
-
-**Sub-steps:**
-
-- **Step 29a: VGA timing generator** (+30 LCs)
-    H/V counters, sync pulse generation, blanking flags.
-    Chisel module `VgaController.scala`.
-
-- **Step 29b: SPRAM framebuffer** (+20 LCs)
-    SPRAM `SB_SPRAM256KA` instantiation, address mux (CPU write port
-    during vblank, VGA read port during active). MMIO trigger for
-    frame copy (`PSRAM → SPRAM` DMA, or CPU loop).
-
-- **Step 29c: FP16→RGB222 scanout** (+15 LCs)
-    Pixel fetch from SPRAM, upscale counter, format conversion, `uo_out`
-    drive. Build-time `CONFIG=lite_vga` selects VGA vs. UART on `uo_out`.
-
-- **Step 29d: `make fpga_vga` target** (+0 LCs)
-    Makefile target that builds the VGA-enabled bitstream. PCF constraints
-    for VGA PMOD pins on the pico-ice output header.
-
-**LC cost:** ~65 LCs. Fits in lite profile (~4800 + 65 = ~4865 LCs, 92%).
-
-**SPRAM budget:** Uses 1 of 4 available SPRAM blocks. 3 remain free for
-future use (e.g., instruction cache, data cache, or larger framebuffer).
+- **Step 29.4: `make fpga_vga` target** (+0 LCs)
 
 ### Step Dependencies
-
-```text
-Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
-                                               ├→ Step 11 (tile buffer) → Step 12 (Z-test)
-                                               ├→ Step 13 (command FIFO)
-                                               ├→ Step 14 (SystemRDL)
-                                               ├→ Step 15 (interactive viewer)
-                                               └→ Step 16 (texture addr HW)
-                                                       │
-                                                  Step 17 (LUT recovery)
-                                                       │
-                                                  Step 18 (SoC restructure)
-                                                       │
-                                                  Step 19 (shared MemCtrl)
-                                                       │
-                                                  Step 20 (IO bundle refactor)
-                                                       │
-                                               Step 21 (area opts + tex enable)
-                                                       │
-                                               Step 22 (DMA + LUT recovery)
-                                                       │
-                                           Step 23 (unified runtime + tex)
-                                                       │
-                                               Step 24 (MemCtrl rearch)
-                                                       │
-                                            Step 25.1–25.2 (GPU write port)
-                                                       │
-                                            Step 25.3a–h (architecture decoupling)
-                                                       │
-                                            Step 25.4a–d (autonomous tile flush)
-                                                       │
-                                               Step 26 (vert seq + tri setup)
-                                                       │
-                                               Step 27 (full autonomous pipeline)
-                                                        │
-                                               Step 28 (multi-triangle rendering)
-```
 
 ### FPGA LC Budget (pico-ice, iCE40 UP5K — 5280 LCs)
 
@@ -1027,8 +495,6 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 | 28 (multi-triangle) | Descriptor reader | +10 | **5267** | ✅ |
 | **Margin** | | | **13 LCs** | |
 
-**Reserve optimizations** (if margin is too tight):
-
 - O4: Direct tile buffer write (−40 LCs, medium risk)
 - O2: Remove `tex_uv` registers after Step 24 (−20 LCs)
 
@@ -1053,27 +519,6 @@ Step 1 (edge HW) → Step 9 (frag HW) → Step 10 (pixel iterator)
 | Phase 4–5 (Steps 32–41) | **ULX3S** or **Nitefury II** (Artix-7) | FP32 GPU, Vulkan conformance, DDR3/PCIe |
 | Tapeout | **Tiny Tapeout** (IHP SG13G2, 32 tiles) | Full SoC fits in ~14 tiles |
 
-**Development flow:**
-
-```text
-RTL development ──→ Nitefury II / ULX3S (fast iteration, full design)
-                │
-Area lint ──────→ pico-ice iCE40 build (canary: if it fits here, it fits everywhere)
-                │
-ASIC validation ─→ OpenLane CI (nightly: Yosys → OpenROAD → STA at 50 MHz)
-                │
-Tapeout ────────→ Tiny Tapeout (IHP SG13G2, 32 tiles)
-```
-
-**Key portability rules:**
-
-1. No vendor primitives — all memories are `SyncReadMem`, all multiplies via HardFloat
-2. Keep the iCE40 build alive as a size canary (GPU as build-time option)
-3. Design for 50 MHz max (iCE40 meets timing at 24 MHz → IHP meets at 50 MHz)
-4. Run ASIC synthesis in CI to catch non-portable constructs early
-
-**Platform comparison:**
-
 | Resource | pico-ice | ULX3S (ECP5-85K) | Nitefury II (XC7A200T) | TT (32 tiles, IHP) |
 | --- | --- | --- | --- | --- |
 | Logic | 5,280 LCs | 84,480 LUT4s | 134,600 LUT6s | ~96K std cells |
@@ -1091,72 +536,12 @@ The ULX3S (Lattice ECP5-85K) is the natural stepping stone between pico-ice
 and Nitefury. It uses the **same open-source toolchain** (Yosys + nextpnr)
 and has 16× the logic, with 32 MB SDRAM on board.
 
-**Architecture — Chisel top-level wrapper (same pattern as PicoIce.scala):**
-
-```text
-┌─ ULX3S FPGA (ECP5-85K) ────────────────────────────────────┐
-│                                                              │
-│  ┌─ ULX3S_top (Chisel RawModule + SoCLogic) ──────────────┐ │
-│  │                                                         │ │
-│  │  ECP5 PLL (25 MHz xtal → 24 MHz system clock)           │ │
-│  │  BB / TRELLIS_IO for QSPI bidirectional pins            │ │
-│  │                                                         │ │
-│  │  ┌─ SoCLogic (identical to pico-ice and TT) ─────────┐ │ │
-│  │  │  TinyQV CPU                                        │ │ │
-│  │  │  MemoryController (QSPI)                           │ │ │
-│  │  │  Peripherals (Borg GPU + UART)                     │ │ │
-│  │  └────────────────────────────────────────────────────┘ │ │
-│  │                                                         │ │
-│  │  QSPI pins → PMOD header → PSRAM daughter board         │ │
-│  │  UART TX/RX → FTDI USB or PMOD                          │ │
-│  └─────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  On-board SDRAM (32 MB) — unused by Borg, available for     │
-│  future direct-memory experiments                            │
-└──────────────────────────────────────────────────────────────┘
-```
-
-The ULX3S wrapper is a Chisel `RawModule with SoCLogic` — exactly like
-`tinyQV_top` (PicoIce.scala), but using ECP5 I/O primitives instead of
-iCE40 `SB_IO`:
-
 | pico-ice (iCE40) | ULX3S (ECP5) | Function |
 | --- | --- | --- |
 | `SB_IO` (pin_type=0x29) | `BB` / `TRELLIS_IO` | Bidirectional QSPI data |
 | `SB_HFOSC` (48 MHz / div) | `EHXPLLL` (25 MHz → 24 MHz) | Clock generation |
 | Direct pin assignment | Direct pin assignment | QSPI control (CS, SCK) |
 | PCF constraints | LPF constraints | Pin mapping |
-
-**Why ULX3S is ideal for Phase 3:**
-
-1. **Same toolchain** — Yosys + nextpnr-ecp5. Same Makefile
-   structure as iCE40, just `--85k` instead of `--up5k`.
-2. **Same `SoCLogic` trait** — zero RTL changes. Only the top-level wrapper
-   and pin constraints differ.
-3. **LUT4 architecture** — ECP5 uses LUT4 like iCE40 and ASIC synthesis.
-   Area estimates transfer directly (unlike Artix-7 LUT6).
-4. **QSPI on PMOD** — attach real PSRAM on a PMOD daughter board. Same
-   protocol, same timing, same firmware. Or use on-board flash for code.
-5. **85K LUTs** — enough for full CPU (RV32IMA + MMU) + GPU + Phase 5
-   features, all at once.
-6. **~$60** — fraction of the Nitefury II cost.
-
-**QSPI PSRAM connection:** The ULX3S has PMOD headers. A small daughter
-board with an APS6404L QSPI PSRAM chip (same as on pico-ice) connects
-via 6 PMOD pins (4× data + SCK + CS). The Borg SoC sees identical PSRAM
-hardware. Alternatively, the on-board 16 MB SPI flash can serve as
-read-only PSRAM for code-only testing.
-
-**Integration files (future):**
-
-```text
-fpga/ulx3s/
-  src/ULX3S.scala        — Chisel top-level (RawModule + SoCLogic)
-  ULX3S.lpf              — ECP5 pin constraints
-  Makefile               — Yosys + nextpnr-ecp5 + ecppack
-```
-
-**When to use ULX3S vs. pico-ice vs. Nitefury:**
 
 | Scenario | Platform |
 | --- | --- |
@@ -1173,32 +558,6 @@ The Nitefury II (Artix-7 XC7A200T) has 40× the logic of the pico-ice, 1 GB
 DDR3, and PCIe Gen2 x4. LiteX provides the outer shell (clocks, DDR3
 controller, PCIe bridge) while the Borg SoC runs inside unchanged.
 
-**Architecture — TT-compatible black box:**
-
-```text
-┌─ Nitefury II FPGA ──────────────────────────────────────────┐
-│                                                              │
-│  ┌─ LiteX Shell ──────────────────────────────────────────┐  │
-│  │  PCIe ↔ Wishbone bridge                                │  │
-│  │  DDR3 controller (LiteDRAM)                            │  │
-│  │  UART-over-PCIe                                        │  │
-│  │  QSPI PSRAM emulator (DDR3 → QSPI protocol bridge)    │  │
-│  │                                                        │  │
-│  │  ┌─ tt_um_gonsolo_borg ─────────────────────────────┐  │  │
-│  │  │                                                   │  │  │
-│  │  │  ui_in[7:0]  ← UART RX, interrupts (from LiteX)  │  │  │
-│  │  │  uo_out[7:0] → UART TX, debug (to LiteX)         │  │  │
-│  │  │  uio[7:0]    ↔ QSPI (to PSRAM emulator)          │  │  │
-│  │  │                                                   │  │  │
-│  │  │  Identical RTL to pico-ice and TT ASIC            │  │  │
-│  │  └───────────────────────────────────────────────────┘  │  │
-│  └────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────┘
-```
-
-The `tt_um_gonsolo_borg` module is instantiated as a LiteX `Instance()`
-black box. Its 8+8+8 pin interface is wired to LiteX-provided bridges:
-
 | TT Pin | Nitefury Mapping |
 | --- | --- |
 | `ui_in[7]` (UART RX) | PCIe UART bridge RX |
@@ -1211,41 +570,9 @@ black box. Its 8+8+8 pin interface is wired to LiteX-provided bridges:
 | `clk` | LiteX system clock (24 MHz, matching pico-ice) |
 | `rst_n` | LiteX reset controller |
 
-**QSPI PSRAM emulator:** A small LiteX module that implements the QSPI PSRAM
-protocol (APS6404L/ESP-PSRAM64H) on the `uio` pins but backs storage with a
-DDR3 memory region. This gives the Borg SoC 8 MB of "PSRAM" at full QSPI
-speed but backed by DDR3 reliability. The emulator reuses the existing QSPI
-timing — no RTL changes inside `tt_um_gonsolo_borg`.
-
-**Why this approach:**
-
-1. **Byte-identical RTL** — the exact same `tt_um_gonsolo_borg` Verilog tapes
-   out on TT and runs on Nitefury. No `ifdef`, no conditional compilation.
-2. **PCIe host access** — the host PC can read/write DDR3 directly (framebuffer
-   inspection, texture upload, register debug) via LiteX's PCIe→Wishbone bridge,
-   without touching the Borg SoC's QSPI interface.
-3. **Higher clock headroom** — the Artix-7 can run `tt_um_gonsolo_borg` at
-   50+ MHz (vs. 24 MHz on pico-ice), validating ASIC timing margins.
-4. **Incremental migration** — when Phase 4–5 needs more bandwidth, the QSPI
-   emulator can be replaced with a direct AXI↔Wishbone bridge into the SoC
-   (requires modifying `SoCLogic`, but the `tt_um_gonsolo_borg` wrapper stays
-   as the tapeout target).
-
-**LiteX integration files (future):**
-
-```text
-fpga/nitefury/
-  nitefury_borg.py       — LiteX SoC definition + PSRAM emulator
-  qspi_psram_emu.py      — QSPI protocol → DDR3 bridge
-  Makefile               — builds bitstream via Yosys + nextpnr-xilinx (F4PGA)
-```
-
-**Existing code that enables this:**
-
 - `SoCLogic` trait (Project.scala:71) — all SoC wiring is platform-independent
 - `tt_um_gonsolo_borg` (Project.scala:338) — standardized 8+8+8 pin interface
 - `tinyQV_top` (PicoIce.scala:17) — shows how to wrap `SoCLogic` for a
-  different platform (SB_IO for iCE40 vs. LiteX `Instance()` for Artix-7)
 
 ## Phase 3: Linux-Capable CPU (Steps 30–34)
 
@@ -1343,10 +670,6 @@ Target: **~Mar–Apr 2027**. Full CTS pass (~3–4 weeks); Mesa handles most
 complexity. Khronos conformance submission (~2 weeks): documentation + test
 results.
 
-*CTS debugging is inherently unpredictable — a single spec-compliance edge
-case can take days. The Mar 2027 date assumes no major architectural
-rework is needed.*
-
 ## Tile Budget Estimate
 
 | Configuration | Tiles | Cost | Use Case |
@@ -1356,8 +679,6 @@ rework is needed.*
 | Phase 2 + 3 (RV32IMA + autonomous GPU) | 4×5 (20) | 1115€ | Linux + GPU, target |
 | Comfortable (room for Phase 5) | 4×6 (24) | 1315€ | Full Vulkan + extensions |
 | **Full Vulkan (FP32 + multicore)** | **4×8 (32)** | **1715€** | **Vulkan conformance target** |
-
-Costs: 50€/tile + 100€ PCB + 15€ shipping (Tiny Tapeout IHP).
 
 ## Hardware Resources
 
@@ -1376,22 +697,6 @@ will strip everything that doesn't fit, while larger FPGAs enable the full stack
 
 A future `BorgConfig` case class will parameterize feature inclusion at
 build time. The envisioned API:
-
-```scala
-// Planned — does not exist yet
-case class BorgConfig(
-  enableGpu:           Boolean = true,   // Borg GPU (FP16 shader core)
-  enableFp32:          Boolean = false,  // FP32 FMA (Phase 5)
-  enableDMA:           Boolean = true,   // GPU DMA engine (Step 22)
-  enableTexFetch:      Boolean = true,   // Hardware texel fetch (Step 21)
-  enableAutoSequencer: Boolean = true,   // Vertex sequencer (Step 24)
-  enableGpuWrite:      Boolean = true,   // GPU PSRAM write (Step 24)
-  enableBlending:      Boolean = false,  // Alpha blending (Phase 5)
-  enableCExtension:    Boolean = false,  // RV32C compressed ISA
-  enableMExtension:    Boolean = false,  // RV32M multiply/divide
-  enableMMU:           Boolean = false,  // Sv32 MMU (Phase 3)
-)
-```
 
 | | 🔰 Lite (pico-ice) | 🔧 Developer (ULX3S) | 🚀 Full Vulkan (TT/Nitefury) |
 | --- | --- | --- | --- |
@@ -1419,17 +724,9 @@ case class BorgConfig(
 With just a pico-ice ($40) and the lite config, a user gets:
 
 - **Hardware-accelerated triangle rendering** — the CPU submits per-tile
-  4×4 commands, the GPU rasterizes + fragment-shades autonomously
 - **Vertex-colored 3D cube** — the `vkcube` demo works with CPU-driven
-  vertex shading and tile flush
 - **FP16 shader programming** — write fragment shaders in SPIR-B assembly,
-  load via MMIO, see results on screen
 - **Full source code** — Chisel RTL, C firmware, Python tools, all open-source
-
-What's missing vs. the full config: texture mapping, autonomous vertex
-shading / tile flush (CPU does these), Linux, Vulkan API. But the **core GPU
-experience** — writing shaders, watching triangles render, understanding the
-pipeline — is fully there.
 
 ### How to Select a Configuration
 
@@ -1443,10 +740,6 @@ make fpga-ulx3s CONFIG=developer
 # Full config (Nitefury, simulation, or TT ASIC)
 make asic CONFIG=full
 ```
-
-The Makefile passes the config name to Chisel's `MILL_ARGS`, which selects
-the appropriate `BorgConfig` case class. All configs share the same RTL
-source — only the parameter values differ.
 
 ## Design Principles
 
