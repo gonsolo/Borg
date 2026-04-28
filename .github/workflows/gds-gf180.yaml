@@ -64,15 +64,4 @@ jobs:
         env:
           CLOCK_MHZ: 4
 
-  viewer:
-    needs: gds
-    runs-on: ubuntu-24.04
-    permissions:
-      pages: write
-      id-token: write
-    steps:
-      - name: Viewer (GF180)
-        uses: TinyTapeout/tt-gds-action/viewer@ttgf26a
-        with:
-          tools-repo: gonsolo/tt-support-tools
-          tools-ref: add-gf180-4x6
+

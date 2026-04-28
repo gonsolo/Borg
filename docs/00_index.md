@@ -1,5 +1,9 @@
 # Borg — An Open-Source GPU
 
+<p align="center">
+  <img src="gds_render_small.png" alt="Borg GPU GDS Render">
+</p>
+
 ## Table of Contents
 
 0. [Introduction](00_introduction.md) — Motivation and project overview
