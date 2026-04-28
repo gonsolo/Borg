@@ -1,6 +1,6 @@
 # Borg - Tiny Open Source Graphics Processing Unit
 
-![GDS Sky130](../../workflows/gds-sky130/badge.svg) ![GDS IHP](../../workflows/gds-ihp/badge.svg) ![GDS GF180](../../workflows/gds-gf180/badge.svg) ![Book](../../workflows/book/badge.svg) ![Test](../../workflows/test/badge.svg) ![FPGA](../../workflows/fpga/badge.svg)
+![GDS Sky130](../../workflows/gds-sky130/badge.svg) ![GDS IHP](../../workflows/gds-ihp/badge.svg) ![Book](../../workflows/book/badge.svg) ![Test](../../workflows/test/badge.svg) ![FPGA](../../workflows/fpga/badge.svg)
 
 ## Foundational workflow for an open-source GPU
 

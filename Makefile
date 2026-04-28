@@ -14,7 +14,7 @@ help:
 	@echo "commands: "
 	@echo -e "$(BOLD)  gds-sky130:\t\t\tGenerate Sky130 GDS II file for Tinytapeout.$(RESET)"
 	@echo -e "$(BOLD)  gds-ihp:\t\t\tGenerate IHP SG13G2 GDS II file for Tinytapeout.$(RESET)"
-	@echo -e "$(BOLD)  gds-gf180:\t\t\tGenerate GF180MCU GDS II file for Tinytapeout.$(RESET)"
+
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
 	@echo -e "  test-chisel-core:\t\tRun TinyQV tests (Chisel)."
@@ -90,16 +90,11 @@ user_config-ihp: export PDK=ihp-sg13g2
 user_config-ihp: generate_verilog
 	$(TT_TOOL) --create-user-config --ihp --no-docker
 
-user_config-gf180: export PDK=gf180mcuD
-user_config-gf180: generate_verilog
-	$(TT_TOOL) --create-user-config --gf --no-docker
-
 gds-sky130: user_config-sky130
 	$(TT_TOOL) --harden --no-docker
 gds-ihp: user_config-ihp
 	$(TT_TOOL) --harden --ihp --no-docker
-gds-gf180: user_config-gf180
-	$(TT_TOOL) --harden --gf --no-docker
+
 print_stats:
 	./tt/tt_tool.py --print-stats
 book:
@@ -136,7 +131,7 @@ clean:
 clean-gh-runs:
 	gh run list --limit 200 --json databaseId --jq '.[8:] | .[].databaseId' | xargs -I {} gh run delete {}
 
-.PHONY: all generate_verilog help print_stats gds-sky130 gds-ihp gds-gf180 user_config-sky130 user_config-ihp user_config-gf180 lint test-all clean rdl \
+.PHONY: all generate_verilog help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book clean-gh-runs scripts/test_summary.sh
