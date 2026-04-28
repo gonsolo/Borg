@@ -147,8 +147,15 @@ reg status_reg_t {
     } dma_busy[1] = 0;
 
     field {
+        sw = r; hw = w;
+        desc = "Bit 4: Flush busy — 1 while BorgTileFlusher is writing tile
+                pixels to PSRAM.  Firmware polls this bit instead of doing
+                manual PSRAM writes (Step 25.3h).";
+    } flush_busy[1] = 0;
+
+    field {
         sw = r; hw = na;
-    } RSVD_hi[28] = 0;
+    } RSVD_hi[27] = 0;
 };
 
 // --- Fragment shader start PC ---
@@ -377,9 +384,58 @@ reg tex_addr_reg_t {
     } raw_v[8] = 0;
 };
 
-// ============================================================================
-// Register file and memory types (arrayed)
-// ============================================================================
+// --- Tile flusher framebuffer base address (Step 25.3h) ---
+reg flush_fb_base_reg_t {
+    name = "Flush Framebuffer Base Address";
+    desc = "20-bit PSRAM byte address of the framebuffer base.
+            Written by firmware at startup; read by BorgTileFlusher on every
+            tile flush.  nogen: decoded from the raw bus by Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 19:0: 20-bit PSRAM byte address of framebuffer base.";
+    } fb_base[20] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[12] = 0;
+};
+
+// --- Tile flusher Z-buffer base address (Step 25.3h) ---
+reg flush_zb_base_reg_t {
+    name = "Flush Z-buffer Base Address";
+    desc = "20-bit PSRAM byte address of the Z-buffer base.
+            Written by firmware at startup; read by BorgTileFlusher on every
+            tile flush.  nogen: decoded from the raw bus by Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 19:0: 20-bit PSRAM byte address of Z-buffer base.";
+    } zb_base[20] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[12] = 0;
+};
+
+// --- Tile flusher framebuffer width (Step 25.3h) ---
+reg flush_width_reg_t {
+    name = "Flush Framebuffer Width";
+    desc = "9-bit framebuffer width in pixels (max 512).
+            Written by firmware at startup; used by BorgTileFlusher to compute
+            per-pixel PSRAM addresses.  nogen: decoded from the raw bus.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 8:0: Framebuffer width in pixels.";
+    } fb_width[9] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[23] = 0;
+};
+
+
 
 // --- 16-bit FP register (stored in 32-bit word, upper bits ignored on write) ---
 reg gpr_reg_t {
@@ -491,4 +547,16 @@ addrmap borg_gpu {
     // ---- DMA Configuration + Trigger: 0x214 — nogen on FPGA (hasDMA=false) ----
     dma_config_reg_t dma_config;
     dma_config->nogen = true;
+
+    // ---- Flush Framebuffer Base Address: 0x218 — nogen (decoded in Borg.scala) ----
+    flush_fb_base_reg_t flush_fb_base;
+    flush_fb_base->nogen = true;
+
+    // ---- Flush Z-buffer Base Address: 0x21C — nogen (decoded in Borg.scala) ----
+    flush_zb_base_reg_t flush_zb_base;
+    flush_zb_base->nogen = true;
+
+    // ---- Flush Framebuffer Width: 0x220 — nogen (decoded in Borg.scala) ----
+    flush_width_reg_t flush_width;
+    flush_width->nogen = true;
 };

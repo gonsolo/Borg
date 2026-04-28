@@ -455,7 +455,15 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
       } while (1);
 
       if (active_pixels > 0) {
-        // Only flush tile buffer to PSRAM if something was drawn
+        // Step 25.3h: Wait for the hardware flusher handshake.
+        // The rasterizer asserts flusher.start on the last iterator advance;
+        // firmware polls flush_busy until the flusher returns to idle.
+        // The scaffold completes in one cycle (sIdle→sBusy→sIdle), so this
+        // returns immediately.  Step 25.4 will add real PSRAM writes inside
+        // the hardware FSM and remove the CPU tile-write loop below.
+        while (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm);
+
+        // CPU tile-write path (retained for Step 25.3h; removed in Step 25.4.3).
         for (uint32_t tile_idx = 0; tile_idx < 16; tile_idx++) {
           // Set read index in TILE_CTRL
           BORG_GPU->tile_ctrl = tile_idx;

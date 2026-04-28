@@ -52,6 +52,9 @@ class BorgIteratorIO(val cfg: BorgConfig) extends Bundle {
 
   // One-cycle pulse: advance was processed, rasterizer should start sRast
   val pixelReady  = Output(Bool())
+
+  // One-cycle pulse: tile just exhausted (last advance stepped y past tile_max.y)
+  val tileComplete = Output(Bool())
 }
 
 class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
@@ -78,12 +81,18 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   }
 
   // --- Pixel advance ---
-  val pixel_ready = WireDefault(false.B)
+  val pixel_ready    = WireDefault(false.B)
+  val tile_complete  = WireDefault(false.B)
   when(io.advance) {
     shader_iter_reg := iter_reg   // latch pre-advance position
     when(iter_reg.x + 1.U >= tile_max_reg.x) {
       iter_reg.x := tile_origin_reg.x
-      iter_reg.y := iter_reg.y + 1.U
+      val next_y = iter_reg.y + 1.U
+      iter_reg.y := next_y
+      // Tile complete: y just stepped to or past tile_max.y
+      when(next_y >= tile_max_reg.y) {
+        tile_complete := true.B
+      }
     }.otherwise {
       iter_reg.x := iter_reg.x + 1.U
     }
@@ -100,4 +109,5 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   io.tileIndex       := tileIndex(iter_reg)
   io.shaderTileIndex := tileIndex(shader_iter_reg)
   io.pixelReady      := pixel_ready
+  io.tileComplete    := tile_complete
 }
