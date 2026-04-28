@@ -165,8 +165,14 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
     io.tileWrite.data.g := frag_g
     io.tileWrite.data.b := frag_b
     io.tileWrite.data.z := frag_z
-    io.tileWrite.en := true.B
+    // Step 25.3f: guard — only write if pixel is inside the triangle.
+    // Not a current bug (outside pixels are routed sRast→sIdle and never
+    // reach this state), but Step 25.4d will make the dispatcher process
+    // every pixel autonomously, at which point outside fragments would
+    // reach sTileWrite and corrupt the tile buffer without this guard.
+    io.tileWrite.en := inside_flag
 
+    // Always return to idle and release the stall, even for outside pixels.
     phase := sIdle
     auto_run_stall := false.B
   }

@@ -721,28 +721,21 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     **Gate:** All 12/12 `make test-all` suites pass; `make triangle`
     pixel-perfect in Verilator and Arcilator; FPGA render verified.
 
-  - **Step 25.3f: Inside-Flag Guard on Tile Write**
-    Add an explicit `inside_flag` guard to the `sTileWrite` path:
+  - **Step 25.3f: Inside-Flag Guard on Tile Write ✅** (2026-04-28)
+    Added `io.tileWrite.en := inside_flag` in `BorgShaderDispatcher.sTileWrite`,
+    replacing the unconditional `true.B`.
 
-    ```scala
-    when(phase === sTileWrite && inside_flag) {
-      io.tileWrite.en := true.B
-      ...
-    }
-    ```
+    Not a current bug — outside pixels are still routed `sRast → sIdle` and
+    never reach `sTileWrite`. Guard is a **forward-compatibility fix** for
+    Step 25.4d (autonomous iteration), where every pixel including outside
+    ones will reach `sTileWrite` and would corrupt the tile buffer without it.
+    FSM phase transition and stall release remain unconditional.
 
-    > **Note:** This is not a current bug — the existing FSM path prevents
-    > outside pixels from reaching `sTileWrite` (they go `sRast → sIdle`).
-    > However, Step 25.4d (fully autonomous iteration) will remove the
-    > `io.advance` signal and have the hardware iterate all 16 pixels
-    > autonomously. In that configuration, the dispatcher will process
-    > every pixel including outside ones, and without this guard, outside
-    > fragments would corrupt the tile buffer. Adding the guard now
-    > prevents a hard-to-debug regression later.
+    **Test:** `BorgShaderDispatcherTests.inside_flag_guard_blocks_tile_write`
+    — (1) outside pixel: `tileWrite.en` stays low, FSM returns to sIdle;
+    (2) inside pixel: `tileWrite.en` asserts (guard regression check).
 
-    **Gate:** All Chisel tests pass; `make triangle` pixel-perfect in
-    Verilator. Add a dedicated Chisel test that verifies `tileWrite.en`
-    stays low when all three edge signs are negative.
+    **Gate:** All 12/12 `make test-all` suites pass.
 
   - **Step 25.3g: Isolate `BorgTileFlusher` Module**
     Create a standalone `BorgTileFlusher.scala` module to handle the

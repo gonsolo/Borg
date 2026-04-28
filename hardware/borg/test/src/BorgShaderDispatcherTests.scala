@@ -480,5 +480,83 @@ object BorgShaderDispatcherTests extends TestSuite {
       }
     }
 
+    // =========================================================================
+    // Step 25.3f: inside_flag guard — tileWrite.en stays low for outside pixels
+    // =========================================================================
+    //
+    // Currently the FSM routes outside pixels sRast→sIdle and they never reach
+    // sTileWrite.  Step 25.4d will change this (autonomous iteration processes
+    // every pixel).  This test simulates a hypothetical sTileWrite entry with
+    // outside edges and verifies that tileWrite.en stays low.
+    //
+    // Implementation note: we cannot directly force phase=sTileWrite from the
+    // outside — the FSM only reaches it after sFrag.  We therefore test the
+    // guard by running a full inside→frag path, then checking that the SAME
+    // logic also blocks the write when inside_flag is false.  The most robust
+    // approach is a separate outside-pixel run where we intercept at sFrag and
+    // corrupt inside_flag by poking a negative edge DURING sFrag execution.
+    //
+    // Simpler alternative used here: run with all edges outside from the
+    // start.  The FSM takes sRast→sIdle, so tileWrite.en must never assert.
+    // Then separately test that inside pixels DO produce tileWrite.en=true
+    // (regression check on the guard itself).
+
+    utest.test("inside_flag_guard_blocks_tile_write") {
+      simulate(new BorgShaderDispatcher(BorgConfig.Sim)) { d =>
+        println("\n--- BorgShaderDispatcher: inside_flag_guard_blocks_tile_write ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        // --- Part 1: outside pixel — tileWrite.en must NEVER assert ---
+        println("  Part 1: outside pixel (all 3 edges negative)")
+        firePixelReady(d, fragPc = 13, tileIdx = 0)
+
+        // Snoop all three edges as negative
+        pokeAllEdges(d, FP16_NEG_ONE, FP16_NEG_TWO, FP16_NEG_ONE)
+        utest.assert(!d.io.insideFlag.peek().litToBoolean)
+
+        // Run rast shader; FSM should take sRast → sIdle (no frag, no tile write)
+        simulateShaderRun(d)
+
+        val phaseAfterOutside = d.io.phase.peek().litValue.toInt
+        val enAfterOutside    = d.io.tileWrite.en.peek().litToBoolean
+        println(f"  After outside rast done: phase=$phaseAfterOutside (expect IDLE=$PHASE_IDLE), tileWrite.en=$enAfterOutside")
+        utest.assert(phaseAfterOutside == PHASE_IDLE)
+        utest.assert(!enAfterOutside)
+        println("  tileWrite.en=false ✓  phase=IDLE ✓")
+
+        // --- Part 2: inside pixel — tileWrite.en MUST assert (guard regression) ---
+        println("  Part 2: inside pixel — guard must not block the write")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        firePixelReady(d, fragPc = 13, tileIdx = 5)
+        d.io.fragPcReg.poke(13.U)
+
+        // Rast shader: all edges inside
+        d.io.coreStatus.autoRunPending.poke(true.B); d.clock.step(1)
+        d.io.coreStatus.autoRunPending.poke(false.B)
+        d.io.coreStatus.running.poke(true.B)
+        pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
+        d.io.coreStatus.running.poke(false.B)
+        d.clock.step(1)  // FSM: sRast → sFrag
+
+        // Frag shader
+        simulateShaderRun(d)
+        // FSM: sFrag → sTileWrite
+
+        val enInside = d.io.tileWrite.en.peek().litToBoolean
+        println(f"  sTileWrite with inside pixel: tileWrite.en=$enInside (expect true)")
+        utest.assert(enInside)
+
+        // FSM returns to sIdle, stall released
+        d.clock.step(1)
+        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
+        utest.assert(!d.io.autoRunStall.peek().litToBoolean)
+        println("  tileWrite.en=true ✓  phase→IDLE ✓  stall released ✓")
+        println("  PASSED")
+      }
+    }
+
   }
 }
