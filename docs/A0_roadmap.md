@@ -397,10 +397,10 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     - `BorgRasterizer` exposes `tileComplete` at its IO boundary.
     - `Borg.scala` `wireFlusher()`: wires `f.io.start := rast.io.tileComplete`; decodes three nogen shadow registers (`FLUSH_FB_BASE`, `FLUSH_ZB_BASE`, `FLUSH_WIDTH`) from the raw bus; connects `f.io.busy → STATUS.flush_busy` (bit 4).
     - `borg.rdl`: added `flush_busy` field to `status_reg_t` and three `nogen` registers (`flush_fb_base`, `flush_zb_base`, `flush_width`) at 0x218–0x220.
-    - Firmware: polls `BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm` before the CPU tile-write loop; CPU tile-write path retained as fallback until Step 25.4.3.
+    - Firmware: polls `BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm` before the CPU tile-write loop; CPU tile-write path retained as fallback until Step 25.6.
     - Verified: 195/195 Chisel tests pass; Verilator triangle pixel-perfect against golden (11M cycles).
 
-- **Step 25.4: Autonomous Tile Flushing (Micro-steps)**
+- **Step 25.4: Autonomous Tile Flushing (Sim/Verilator/Arcilator) ✅** (2026-04-29)
 
   - **Step 25.4.1: Single-Pixel Hardware Flush ✅** (2026-04-29)
     - Integrated `BorgTileFlusher` hardware path with read-before-write depth-test logic.
