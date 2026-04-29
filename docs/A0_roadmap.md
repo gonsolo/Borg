@@ -347,9 +347,11 @@ This step closes that gap structurally. Estimate: 3–5 days.
 
 Unified the memory subsystem by removing the unreliable `MemoryControllerSim` and adopting a single, cycle-accurate `MemoryController` for both FPGA and simulation.
 
-- **Unified Logic:** SoC uses one `MemoryController` with a clean byte-addressed interface (no base offsets).
-- **QSPI Parity:** Simulators (Verilator/Arcilator) now use high-fidelity QSPI pin simulation, ensuring 100% hardware parity for Flash and PSRAM.
-- **Results:** Verified pixel-perfect rendering using the new unified path.
+- **Step 24.1: Unified Logic ✅** — SoC uses one `MemoryController` with a clean byte-addressed interface (no base offsets).
+- **Step 24.2: QSPI Parity ✅** — Simulators (Verilator/Arcilator) now use high-fidelity QSPI pin simulation, ensuring 100% hardware parity for Flash and PSRAM.
+- **Step 24.3: Verification ✅** — Verified pixel-perfect rendering using the new unified path.
+
+### Step 25: PSRAM Write Path + Architecture Decoupling ✅ (2026-04-29)
 
 - **Step 25.1: `GpuMemIO` write signals ✅** (rename done 2026-04-23)
 
@@ -397,7 +399,7 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     - `BorgRasterizer` exposes `tileComplete` at its IO boundary.
     - `Borg.scala` `wireFlusher()`: wires `f.io.start := rast.io.tileComplete`; decodes three nogen shadow registers (`FLUSH_FB_BASE`, `FLUSH_ZB_BASE`, `FLUSH_WIDTH`) from the raw bus; connects `f.io.busy → STATUS.flush_busy` (bit 4).
     - `borg.rdl`: added `flush_busy` field to `status_reg_t` and three `nogen` registers (`flush_fb_base`, `flush_zb_base`, `flush_width`) at 0x218–0x220.
-    - Firmware: polls `BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm` before the CPU tile-write loop; CPU tile-write path retained as fallback until Step 25.6.
+    - Firmware: polls `BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm` before the CPU tile-write loop; CPU tile-write path retained as fallback until Step 27.
     - Verified: 195/195 Chisel tests pass; Verilator triangle pixel-perfect against golden (11M cycles).
 
 - **Step 25.4: Autonomous Tile Flushing (Sim/Verilator/Arcilator) ✅** (2026-04-29)
@@ -416,46 +418,44 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     - Fixed arcilator `marker_offset_word` to use tiled layout (2 words/pixel vs old 4).
     - All 12/12 test suites pass including `render › fpga (hw)`. ✓
 
-### Step 25.5: DMA Firmware Integration + LUT Recovery
+### Step 26: DMA Firmware Integration + LUT Recovery
 
 Complete the firmware side of Step 22 and reclaim LC headroom to unblock the
 hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
 (Step 22.1); only firmware and FPGA config changes remain.
 
-- ✅ **Step 25.5.1: Remove `entry_lo`/`entry_hi` latch registers** (~64 LCs saved, 2026-04-29)\
+- ✅ **Step 26.1: Remove `entry_lo`/`entry_hi` latch registers** (~64 LCs saved, 2026-04-29)\
   `BorgTileFlusher`: `BorgTileBuffer.readDataHeld` already holds SRAM output stable; removed
   7→6-state FSM and 64 FFs. All 195/195 tests pass.
 
-- **Step 25.5.2: Replace `tileBase_reg + (word_idx << 2)` adder with running `addrReg`** (~18 LCs)\
+- **Step 26.2: Replace `tileBase_reg + (word_idx << 2)` adder with running `addrReg`** (~18 LCs)\
   `BorgTileFlusher`: eliminates the combinational 20-bit adder in `sWriteLo`/`sWriteHi` by
   using a simple +4 incrementer initialized to `tileBase` at flush start.
 
-- **Step 25.5.3: Don't latch full `descReg`** (~30 LCs)\
+- **Step 26.3: Don't latch full `descReg`** (~30 LCs)\
   `BorgDMA`: `length`, `dest`, and `offset` fields are stable for the entire transfer.
   Drive them as wires from `io.desc` directly; only `addrReg` needs a register.
 
-- **Step 25.5.4: Firmware DMA wrapper** — implement `dma_load_shader()` and
+- **Step 26.4: Firmware DMA wrapper** — implement `dma_load_shader()` and
   `dma_load_uniforms()` in `borg_fpu.c` using the `DMA_PSRAM` / `DMA_CONFIG`
   MMIO registers. Poll `STATUS.dma_busy` for completion.
 
-- **Step 25.5.5: Enable DMA on FPGA** — set `hasDMA=true` in `BorgConfig.FPGA`.
+- **Step 26.5: Enable DMA on FPGA** — set `hasDMA=true` in `BorgConfig.FPGA`.
   Replace `borg_load_spirb_shader_at()` MMIO word-by-word writes with
   `dma_load_shader()`. Verify pixel-perfect rendering.
 
-- **Step 25.5.6: Remove IMEM MMIO write path** (`hasImemMmio=false`) (~15 LCs) — DMA replaces it
+- **Step 26.6: Remove IMEM MMIO write path** (`hasImemMmio=false`) (~15 LCs) — DMA replaces it
 
-- **Step 25.5.7: Remove MMIO uniform write path** (~15 LCs) — DMA replaces it
+- **Step 26.7: Remove MMIO uniform write path** (~15 LCs) — DMA replaces it
 
-- **Step 25.5.8: Simplify RDL address decode** (~10 LCs)
+- **Step 26.8: Simplify RDL address decode** (~10 LCs)
 
-- **Step 25.5.9: Remove MMIO GPR read path** (optional, ~20–30 LCs)
+- **Step 26.9: Remove MMIO GPR read path** (optional, ~20–30 LCs)
 
-### Step 25.6: Enable HW Flusher on FPGA + Remove CPU Flush Path
+### Step 27: Enable HW Flusher on FPGA + Remove CPU Flush Path
 
-Prerequisite: Step 25.5 (LUT recovery frees ~95–120 LCs, making room for
-`BorgTileFlusher`'s net cost: ~218 LCs after 25.5.1, further reduced by 25.5.2).
-
-
+Prerequisite: Step 26 (LUT recovery frees ~95–120 LCs, making room for
+`BorgTileFlusher`'s net cost: ~218 LCs after 26.1, further reduced by 26.2).
 
 - Hardware: set `hasFlusher=true` in `BorgConfig.FPGA`.
 - Hardware: remove `tile_bz`/`tile_rg` MMIO readback arms from `wireMmioRead()` (~30–45 LCs saved).
@@ -463,36 +463,36 @@ Prerequisite: Step 25.5 (LUT recovery frees ~95–120 LCs, making room for
 - Firmware: delete the CPU tile-flush `else` branch in `borgBinRender()` (lines 536–547).
 - Verify pixel-perfect rendering on FPGA with hardware flusher active.
 
-### Step 25.7: Fully Autonomous Hardware Iteration
+### Step 28: Fully Autonomous Hardware Iteration
 
 With the hardware flusher running on FPGA, the CPU no longer touches the
 tile buffer or PSRAM write path during rendering. Full autonomy milestone.
 
-### Step 26: Integrated Vertex + Triangle Setup Sequencer
+### Step 29: Integrated Vertex + Triangle Setup Sequencer
 
 Unified FSM that replaces what the CPU currently does in `shade_tiles()`,
 `run_vertex_shader()`, `triangle_setup()`, and `compute_edge_vectors()`.
-Combines the DMA engine (Step 25.5) and vertex sequencer into a single FSM
+Combines the DMA engine (Step 26) and vertex sequencer into a single FSM
 to share registers, address counters, and control logic.
 
-- **Step 26.1: Vertex shader sequencing**
+- **Step 29.1: Vertex shader sequencing**
 
-- **Step 26.2: Triangle setup shader**
+- **Step 29.2: Triangle setup shader**
 
-- **Step 26.3: Automatic uniform reload**
+- **Step 29.3: Automatic uniform reload**
 
-### Step 27: Full Autonomous Triangle Pipeline
+### Step 30: Full Autonomous Triangle Pipeline
 
-Integration of Steps 21–26. CPU submits a triangle descriptor; GPU does:
+Integration of Steps 21–29. CPU submits a triangle descriptor; GPU does:
 
-### Step 28: Multi-Triangle Autonomous Rendering
+### Step 31: Multi-Triangle Autonomous Rendering
 
-Extend Step 27 to process a list of triangle descriptors from PSRAM without
+Extend Step 30 to process a list of triangle descriptors from PSRAM without
 CPU involvement. The GPU reads the next descriptor, runs the full pipeline,
 and signals DONE after the last triangle. The CPU submits a draw call
 (base pointer + count) and waits.
 
-### Step 29: Real-Time VGA Output (TT VGA PMOD)
+### Step 32: Real-Time VGA Output (TT VGA PMOD)
 
 Drive the Tiny Tapeout VGA PMOD directly from the pico-ice FPGA for
 real-time display — the hardware equivalent of `make vkcube_gui`.
@@ -515,13 +515,13 @@ No host PC needed; the GPU renders to a monitor in real time.
 | 64×64 | 8 KB (25%) | 10×7 pixel blocks | 4,096 |
 | 128×96 | 24 KB (75%) | 5×5 pixel blocks | 12,288 |
 
-- **Step 29.1: VGA timing generator** (+30 LCs)
+- **Step 32.1: VGA timing generator** (+30 LCs)
 
-- **Step 29.2: SPRAM framebuffer** (+20 LCs)
+- **Step 32.2: SPRAM framebuffer** (+20 LCs)
 
-- **Step 29.3: FP16→RGB222 scanout** (+15 LCs)
+- **Step 32.3: FP16→RGB222 scanout** (+15 LCs)
 
-- **Step 29.4: `make fpga_vga` target** (+0 LCs)
+- **Step 32.4: `make fpga_vga` target** (+0 LCs)
 
 ### Step Dependencies
 
@@ -542,17 +542,17 @@ No host PC needed; the GPU renders to a monitor in real time.
 | 22.0 (LUT recovery) | Remove MMIO paths | **−44** | 5157 | ✅ |
 | 22.1 (DMA FSM) ✅ | FSM + addr counter | +25 | 5182 | ✅ |
 | 23 (unified runtime + tex) | Makefile + tex unification | +0 | 5182 | |
-| 24 (GPU write port) | sTileFlush + arbiter | +15 | 5197 | ✅ |
-| 25 (MemCtrl rearch) | Unified arbiter logic | +0 | 5197 | ✅ |
-| 25.5 (DMA firmware + LUT) | Remove MMIO paths | **−44** | 5153 | ✅ |
-| 25.4.3 (HW flusher enable) | hasFlusher=true − readback | +240 | 5393 | ⚠ |
-| 26 (vert seq + tri setup) | Unified FSM | +45 | 5242 | ✅ |
-| 27 (pipeline integration) | Wiring + control | +15 | 5257 | ✅ |
-| 28 (multi-triangle) | Descriptor reader | +10 | **5267** | ✅ |
-| **Margin** | | | **13 LCs** | |
+| 24 (MemCtrl rearch) | Unified arbiter logic | +0 | 5197 | ✅ |
+| 25 (write path + decoupling) | GPU write + architecture | +15 | 5212 | ✅ |
+| 26 (DMA firmware + LUT) | Remove MMIO paths | **−44** | 5168 | ✅ |
+| 27 (HW flusher enable) | hasFlusher=true − readback | +240 | 5408 | ⚠ |
+| 29 (vert seq + tri setup) | Unified FSM | +45 | 5257 | ✅ |
+| 30 (pipeline integration) | Wiring + control | +15 | 5272 | ✅ |
+| 31 (multi-triangle) | Descriptor reader | +10 | **5282** | ⚠ |
+| **Margin** | | | **−2 LCs** | |
 
 - O4: Direct tile buffer write (−40 LCs, medium risk)
-- O2: Remove `tex_uv` registers after Step 24 (−20 LCs)
+- O2: Remove `tex_uv` registers after Step 25 (−20 LCs)
 
 ### BRAM Budget
 
