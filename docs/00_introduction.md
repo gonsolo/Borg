@@ -24,10 +24,10 @@ construction language embedded in Scala. Chisel generates synthesizable Verilog
 that targets both FPGAs (for development) and ASICs (for manufacturing).
 
 The diagram below shows how all hardware components interact. It is
-auto-generated from the Chisel source by `tools/gen_hw_diagram.py` and
+auto-generated from the Chisel source by `scripts/gen_hw_diagram.py` and
 reflects the current state of `hardware/`.
 
-![Borg hardware component interaction diagram](hw_diagram.svg)
+[![Borg hardware component interaction diagram](hw_diagram.svg)](hw_diagram.svg)
 
 
 ## What This Book Covers
