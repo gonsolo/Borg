@@ -166,8 +166,8 @@ void borgCreateDevice(void) {
   // address arithmetic in sync — a single source of truth.
   //
   // Frame 0:
-  //   FB  base word = 0 * FRAME_STRIDE            (same index as shade_and_write_pixel's `base`)
-  //   ZB  base word = 0 * FRAME_STRIDE + FRAME_FB_SIZE   (same index as shade_and_write_pixel's `zb_idx`)
+  //   FB  base word = 0 * FRAME_STRIDE
+  //   ZB  base word = 0 * FRAME_STRIDE + FRAME_FB_SIZE
   BORG_GPU->flush_fb_base = PSRAM_OUT_SPI(0 * FRAME_STRIDE);
   BORG_GPU->flush_zb_base = PSRAM_OUT_SPI(0 * FRAME_STRIDE + FRAME_FB_SIZE);
   // log2(fbWidth) — fbWidth is always a power of 2
@@ -250,36 +250,6 @@ void borg_clear_texture(void) {
   tex.psram_offset = -1;
   // Step 21.2: Disable hardware sTexFetch.
   BORG_GPU->tex_config = 0;
-}
-
-static void shade_and_write_pixel(int frame, int px, int py, rgb16_t color,
-                                  fp16_t z, uv16_t uv_interp,
-                                  const texture_t *t) {
-  // Depth test: read current z, compare (closer = smaller).
-  // Skip pixels with negative Z (behind camera) — their sign bit would
-  // corrupt the unsigned Z-buffer comparison.
-  if (!fp16_ge_zero(z))
-    return;
-  int zb_idx = frame * FRAME_STRIDE + FRAME_FB_SIZE + (py * BORG_FB_WIDTH + px);
-  fp16_t old_z = PSRAM_OUT(zb_idx);
-  if (z >= old_z)
-    return;
-  PSRAM_OUT(zb_idx) = z;
-
-  // Texture sampling: replace vertex colors with texel
-  if (t->psram_offset >= 0) {
-    texcoord_t tc = uv_to_texcoord(uv_interp, t->w_fp16, t->h_fp16);
-    if (tc.x >= t->size.w)
-      tc.x = t->size.w - 1;
-    if (tc.y >= t->size.h)
-      tc.y = t->size.h - 1;
-    int morton_idx = morton_encode(tc.x, tc.y);
-    int texel = t->psram_offset + morton_idx * 3;
-    color = fb_read_texel(texel);
-  }
-
-  int base = frame * FRAME_STRIDE + (py * BORG_FB_WIDTH + px) * 3;
-  fb_write_pixel(base, color);
 }
 
 // --- Triangle Clipping (Step 6) ---
@@ -473,57 +443,9 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
       } while (1);
 
       if (active_pixels > 0) {
-        // Step 25.3h: Wait for the hardware flusher handshake.
-        // The rasterizer asserts flusher.start on the last iterator advance;
-        // firmware polls flush_busy until the flusher returns to idle.
-        // The scaffold completes in one cycle (sIdle→sBusy→sIdle), so this
-        // returns immediately.  Step 25.4 will add real PSRAM writes inside
-        // the hardware FSM and remove the CPU tile-write loop below.
+        // Step 25.4.2: Hardware flusher owns all 16 pixels.
+        // Poll flush_busy until the flusher finishes writing the full tile.
         while (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm);
-
-        // CPU tile-write path (retained for Step 25.3h; removed in Step 25.4.3).
-        for (uint32_t tile_idx = 0; tile_idx < 16; tile_idx++) {
-          // CPU writes all 16 pixels.  When the hardware flusher is active
-          // (hasFlusher=true in sim), it writes pixel 0 first with the same
-          // depth test — the redundant CPU write produces identical results.
-          // Set read index in TILE_CTRL
-          BORG_GPU->tile_ctrl = tile_idx;
-          
-          uint32_t rg = BORG_GPU->tile_rg;
-          uint32_t bz = BORG_GPU->tile_bz;
-          
-          // With tile-origin, pixels within the tile are at (tx + col, ty + row)
-          int abs_x = (tile_idx & 3) + tx;
-          int abs_y = (tile_idx >> 2) + ty;
-          
-          // Skip pixels outside the triangle's bounding box or framebuffer
-          if (abs_x < bb.x0 || abs_x >= bb.x1 || abs_y < bb.y0 || abs_y >= bb.y1) continue;
-          if (abs_x >= BORG_FB_WIDTH || abs_y >= BORG_FB_HEIGHT) continue;
-          
-          fp16_t z = bz & 0xFFFF;
-          if (z >= FP16_MAX_DEPTH) continue; // Fragment was not shaded or was outside!
-
-
-          // Step 21.2: When hardware sTexFetch is active (TEX_CONFIG.en=1) the
-          // hardware FSM has already replaced frag_r/g/b with the actual texel
-          // RGB — the tile buffer holds the final pixel.  Skip the CPU texel fetch.
-          // When tex is disabled (or CPU-side texturing), use the old path.
-          if (tri->has_uvs && !(BORG_GPU->tex_config & TEX_CONFIG_REG_T__EN_bm)) {
-            // CPU-side texel fetch: tile buffer holds U(→R) and V(→G)
-            uv16_t uv = {rg >> 16, rg & 0xFFFF}; // U from R, V from G
-            rgb16_t stub_color = {0,0,0}; // Overwritten by texel fetch
-            shade_and_write_pixel(frame, abs_x, abs_y, stub_color, z, uv, t);
-          } else {
-            // Hardware texel fetch done (or no texture): tile buffer holds RGB.
-            // Pass no-texture so shade_and_write_pixel doesn't re-do the
-            // CPU-side texel fetch (which would use stub UV and overwrite
-            // the correct hardware-fetched color).
-            rgb16_t color = {rg >> 16, rg & 0xFFFF, bz >> 16};
-            uv16_t stub_uv = {0, 0};
-            static const texture_t no_tex = {.psram_offset = -1};
-            shade_and_write_pixel(frame, abs_x, abs_y, color, z, stub_uv, &no_tex);
-          }
-        }
       }
     }
   }

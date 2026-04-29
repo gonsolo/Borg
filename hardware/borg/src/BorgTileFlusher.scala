@@ -32,11 +32,19 @@ class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
   val tileY        = Input(UInt(9.W))
 }
 
-/** BorgTileFlusher — hardware tile flush, pixel 0 (Step 25.4.1).
+/** BorgTileFlusher — autonomous hardware tile flush for all 16 pixels (Step 25.4.2).
   *
-  * Flushes tile pixel index 0 (the top-left pixel of the 4×4 tile) from the
-  * tile buffer to PSRAM.  Pixels 1–15 are still flushed by the CPU tile-write
-  * loop in the firmware (removed in Step 25.4.2).
+  * Iterates over all 16 pixels (4×4 tile) and flushes each from the tile buffer
+  * to PSRAM via a hardware FSM.  The CPU tile-write loop is fully removed.
+  *
+  * === Pixel loop ===
+  * The 4-bit `pixel_idx` counter encodes `{row[1:0], col[1:0]}`:
+  * {{{
+  *   col   = pixel_idx(1, 0)    abs_x = tileX + col
+  *   row   = pixel_idx(3, 2)    abs_y = tileY + row
+  * }}}
+  * After the last write of each pixel, `sNextPixel` increments `pixel_idx`
+  * and loops back to `sReadTile`, or returns to `sIdle` after pixel 15.
   *
   * === Depth test ===
   * Before writing, the flusher reads the existing Z value from PSRAM and
@@ -44,6 +52,11 @@ class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
   * if the new Z is not closer (new_z >= old_z), matching the CPU-side depth
   * test in `shade_and_write_pixel`.  FP16 Z values are unsigned-compared
   * since negative-Z fragments are already rejected by the shader.
+  *
+  * === Skip condition ===
+  * Pixels with `z >= FP16_MAX_DEPTH` (0x7BFF) were not shaded or are outside
+  * the triangle.  The flusher skips PSRAM writes for these pixels and advances
+  * directly to `sNextPixel`.
   *
   * === PSRAM write protocol ===
   * - Assert `gpuMem.wr=1` with stable `addr`/`wdata`; hold until `ready` pulses.
@@ -58,25 +71,21 @@ class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
   * === Address arithmetic ===
   * All PSRAM addresses are byte addresses (same unit as [[GpuMemIO.addr]]).
   * {{{
-  *   pixel_off = (tileY << fbWidthLog2) + tileX       // pixel index within FB
+  *   pixel_off = (abs_y << fbWidthLog2) + abs_x       // pixel index within FB
   *   fb_addr   = fbBase + pixel_off * 12              // 3 channels × 4 bytes each
   *   zb_addr   = zbBase + pixel_off * 4               // 1 Z value × 4 bytes
   *   R at fb_addr+0, G at fb_addr+4, B at fb_addr+8
   *   Z at zb_addr
   * }}}
   * Multiplication by 12 = (<<3) + (<<2); by 4 = (<<2) — no DSP inference.
-  *
-  * === Skip condition ===
-  * Pixels with `z >= FP16_MAX_DEPTH` (0x7BFF) were not shaded or are outside the
-  * triangle.  The flusher skips PSRAM writes for these pixels (goes directly to sIdle).
   */
 class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   val io = IO(new BorgTileFlusherIO(dataBits))
 
   val FP16_MAX_DEPTH = 0x7BFF.U(16.W)
 
-  // --- FSM ---
-  val sIdle :: sReadTile :: sWaitBram :: sLatchData :: sReadOldZ :: sWriteR :: sWriteG :: sWriteB :: sWriteZ :: Nil = Enum(9)
+  // --- FSM (10 states) ---
+  val sIdle :: sReadTile :: sWaitBram :: sLatchData :: sReadOldZ :: sWriteR :: sWriteG :: sWriteB :: sWriteZ :: sNextPixel :: Nil = Enum(10)
   val state = RegInit(sIdle)
 
   // --- Latched config (captured at start) ---
@@ -85,6 +94,9 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   val fbWidthLog2_reg = RegInit(0.U(4.W))
   val tileX_reg       = RegInit(0.U(9.W))
   val tileY_reg       = RegInit(0.U(9.W))
+
+  // --- Pixel loop counter ---
+  val pixel_idx = RegInit(0.U(4.W))
 
   // --- Pixel RGBZ registers (latched from tile buffer) ---
   val r_reg = RegInit(0.U(16.W))
@@ -112,20 +124,20 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
 
     is(sIdle) {
       when(io.start) {
-        // Latch all config; Step 25.4.1 always flushes pixel index 0
         fbBase_reg      := io.fbBase
         zbBase_reg      := io.zbBase
         fbWidthLog2_reg := io.fbWidthLog2
         tileX_reg       := io.tileX
         tileY_reg       := io.tileY
+        pixel_idx       := 0.U
         state           := sReadTile
       }
     }
 
-    // --- Tile buffer read (pixel index 0) ---
+    // --- Tile buffer read (current pixel_idx) ---
     is(sReadTile) {
       io.read.en  := true.B
-      io.read.idx := 0.U   // pixel 0: top-left of tile
+      io.read.idx := pixel_idx
       state       := sWaitBram
     }
 
@@ -134,19 +146,24 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
       state := sLatchData
     }
 
-    // read.data is stable — latch RGBZ and compute byte addresses
+    // read.data is stable — latch RGBZ and compute byte addresses for current pixel
     is(sLatchData) {
       r_reg := io.read.data.r
       g_reg := io.read.data.g
       b_reg := io.read.data.b
       z_reg := io.read.data.z
 
-      // pixel_off = (tileY << fbWidthLog2) + tileX
-      // Use a 18-bit Wire so Chisel knows the result width before the shift,
-      // preventing Verilator from seeing unused upper bits in the shift intermediate.
-      // Max: tileY(511) << 8 + tileX(511) = 131327 → 17 bits needed; 18 is safe.
+      // abs_x = tileX + pixel_idx[1:0]  (col within 4×4 tile)
+      // abs_y = tileY + pixel_idx[3:2]  (row within 4×4 tile)
+      val abs_x = Wire(UInt(11.W))
+      val abs_y = Wire(UInt(11.W))
+      abs_x := tileX_reg + pixel_idx(1, 0)
+      abs_y := tileY_reg + pixel_idx(3, 2)
+
+      // pixel_off = (abs_y << fbWidthLog2) + abs_x
+      // Max: abs_y(511) << 8 + abs_x(511) = 131327 → 17 bits needed; 18 is safe.
       val pixel_off = Wire(UInt(18.W))
-      pixel_off := (tileY_reg(8, 0) << fbWidthLog2_reg)(17, 0) + tileX_reg
+      pixel_off := (abs_y(8, 0) << fbWidthLog2_reg)(17, 0) + abs_x
 
       // FB byte address: fbBase + pixel_off * 12
       //   * 12 = (pixel_off << 3) + (pixel_off << 2), no multiplier
@@ -156,9 +173,9 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
       // ZB byte address: zbBase + pixel_off * 4
       zb_addr_reg := zbBase_reg + (pixel_off << 2)
 
-      // Skip to idle if pixel was never shaded
+      // Skip to next pixel if this pixel was never shaded
       when(io.read.data.z >= FP16_MAX_DEPTH) {
-        state := sIdle
+        state := sNextPixel
       } .otherwise {
         state := sReadOldZ
       }
@@ -174,8 +191,8 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
         // old_z is in the low 16 bits of the 32-bit PSRAM word
         val old_z = io.gpuMem.data(15, 0)
         when(z_reg >= old_z) {
-          // Depth test failed: new pixel is not closer — skip writes
-          state := sIdle
+          // Depth test failed: new pixel is not closer — advance to next pixel
+          state := sNextPixel
         } .otherwise {
           // Depth test passed: new pixel is closer — proceed to write
           state := sWriteR
@@ -216,7 +233,17 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
       io.gpuMem.addr  := zb_addr_reg
       io.gpuMem.wdata := Cat(0.U(16.W), z_reg)
       when(io.gpuMem.ready) {
+        state := sNextPixel
+      }
+    }
+
+    // --- Advance to next pixel or return to idle after pixel 15 ---
+    is(sNextPixel) {
+      when(pixel_idx === 15.U) {
         state := sIdle
+      } .otherwise {
+        pixel_idx := pixel_idx + 1.U
+        state     := sReadTile
       }
     }
   }
