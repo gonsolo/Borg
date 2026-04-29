@@ -47,7 +47,8 @@ class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
   *
   * `io.read.data` is driven by BorgTileBuffer.readDataHeld, which holds its
   * value stable from the cycle after readEnDel fires until the next read.en.
-  * No local entry_lo/entry_hi buffers are needed — saves ~64 LCs.
+  * No local entry_lo/entry_hi buffers are needed — saves ~64 LCs (Step 26.1).
+  * No tileBase_reg + adder needed — running addrReg saves ~18 LCs (Step 26.2).
   *
   * Each tile SRAM entry is 64 bits: {R:16, G:16, B:16, Z:16} packed by Chisel.
   * Two PSRAM writes per entry → 32 writes total per tile.
@@ -66,8 +67,11 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   val state = RegInit(0.U(3.W))   // 0 = sIdle
 
   // DMA state
-  val tileBase_reg = RegInit(0.U(20.W))
-  val word_idx     = RegInit(0.U(6.W))   // 0..31, indexes PSRAM words (2 per SRAM entry)
+  // addrReg: running PSRAM byte address, starts at io.tileBase and advances +4
+  //          per write. Replaces tileBase_reg + (word_idx << 2) combinational
+  //          adder — saves ~20 LCs (tileBase_reg FFs) + ~6 LCs (simpler adder).
+  val addrReg  = RegInit(0.U(20.W))
+  val word_idx = RegInit(0.U(6.W))   // 0..31: SRAM index (>> 1) + termination (== 32)
 
   // Default outputs
   io.busy := (state =/= sIdle)
@@ -84,9 +88,9 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
 
     is(sIdle) {
       when(io.start) {
-        tileBase_reg := io.tileBase
-        word_idx     := 0.U
-        state        := sReadSram
+        addrReg  := io.tileBase   // initialize running address directly
+        word_idx := 0.U
+        state    := sReadSram
       }
     }
 
@@ -107,27 +111,29 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
       state := sWriteLo
     }
 
-    // Write low 32 bits ({b,z} = bits[31:0]) at tileBase + word_idx * 4
+    // Write low 32 bits ({b,z} = bits[31:0]) at current addrReg
     // io.read.data is stable: readDataHeld holds until next read.en
     // Chisel Bundle.asUInt: ColorZ(r,g,b,z) → {r,g,b,z} = bits[63:0]
     is(sWriteLo) {
       io.gpuMem.req   := true.B
       io.gpuMem.wr    := true.B
-      io.gpuMem.addr  := tileBase_reg + (word_idx << 2)
+      io.gpuMem.addr  := addrReg
       io.gpuMem.wdata := io.read.data.asUInt(31, 0)   // {b, z}
       when(io.gpuMem.ready) {
+        addrReg  := addrReg + 4.U
         word_idx := word_idx + 1.U
         state    := sWriteHi
       }
     }
 
-    // Write high 32 bits ({r,g} = bits[63:32]) at tileBase + word_idx * 4
+    // Write high 32 bits ({r,g} = bits[63:32]) at current addrReg
     is(sWriteHi) {
       io.gpuMem.req   := true.B
       io.gpuMem.wr    := true.B
-      io.gpuMem.addr  := tileBase_reg + (word_idx << 2)
+      io.gpuMem.addr  := addrReg
       io.gpuMem.wdata := io.read.data.asUInt(63, 32)  // {r, g}
       when(io.gpuMem.ready) {
+        addrReg  := addrReg + 4.U
         val next_word = word_idx + 1.U
         word_idx := next_word
         when(next_word === 32.U) {

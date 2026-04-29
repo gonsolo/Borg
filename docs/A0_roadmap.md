@@ -428,9 +428,9 @@ hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
   `BorgTileFlusher`: `BorgTileBuffer.readDataHeld` already holds SRAM output stable; removed
   7→6-state FSM and 64 FFs. All 195/195 tests pass.
 
-- **Step 26.2: Replace `tileBase_reg + (word_idx << 2)` adder with running `addrReg`** (~18 LCs)\
-  `BorgTileFlusher`: eliminates the combinational 20-bit adder in `sWriteLo`/`sWriteHi` by
-  using a simple +4 incrementer initialized to `tileBase` at flush start.
+- ✅ **Step 26.2: Replace `tileBase_reg + (word_idx << 2)` adder with running `addrReg`** (~18 LCs saved, 2026-04-29)\
+  `BorgTileFlusher`: removed `tileBase_reg` (20 FFs) and combinational adder; `addrReg`
+  initializes to `io.tileBase` and increments +4 per write. All 195/195 tests pass.
 
 - **Step 26.3: Don't latch full `descReg`** (~30 LCs)\
   `BorgDMA`: `length`, `dest`, and `offset` fields are stable for the entire transfer.
