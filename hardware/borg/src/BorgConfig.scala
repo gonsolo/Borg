@@ -42,9 +42,9 @@ object BorgConfig {
     fp           = FloatConfig.FP16,
     coordWidth   = 6,   // max 64×64 framebuffer
     fifoDepth    = 1,
-    hasImemMmio  = false, // DMA active (Step 26.5); MMIO write path removed (Steps 26.6+26.7)
-    hasDMA       = true,  // firmware wrappers done (Step 26.4); HW was already built (Step 22.1)
-    hasFlusher   = false  // costs ~200 LCs (after 26.1-26.2); enable in Step 27
+    hasImemMmio  = true,  // reverted: hasDMA=false requires MMIO for shader loading
+    hasDMA       = false, // ~327 LCs synthesised (2026-04-29); retry after LC budget cleared
+    hasFlusher   = false  // target: Step 27 after 26.8-26.9 savings
   )
 
   /** Verilator / Arcilator simulation: no area constraint. */

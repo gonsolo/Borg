@@ -440,32 +440,36 @@ hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
   `dma_load_uniforms()` added to `borg_fpu.c`/`borg_fpu.h`. Programs `DMA_PSRAM` +
   `DMA_CONFIG` (START|LENGTH|DEST|OFFSET) and polls `STATUS_REG_T__DMA_BUSY_bm`.
 
-- ✅ **Step 26.5: Enable DMA on FPGA** — set `hasDMA=true` in `BorgConfig.FPGA` (2026-04-29).
-  `BorgDMA` is now synthesised; firmware wrappers in place (Step 26.4). Verify no LC regression.
+**Next (do before hasFlusher):**
 
-- **Step 26.5b: Migrate shader load to DMA** — replace `borg_load_spirb_shader_at()` calls
-  in `borg_driver.c` with `dma_load_shader()`. Requires shaders to be pre-staged in PSRAM
-  at a known address (e.g. copied at init from flash). Verify pixel-perfect rendering on FPGA.
+- **Step 26.5: Simplify RDL address decode** (~10 LCs)
 
-- ✅ **Step 26.6+26.7: Remove IMEM MMIO + uniform write paths** (2026-04-29)\
-  Set `hasImemMmio=false` in `BorgConfig.FPGA` (both paths share the same flag).\
-  Forced immediately: `hasDMA=true` pushed synthesis to 5481 LCs (+201 over budget);\
-  this is the countermeasure. `BorgConfig.Sim` keeps `hasImemMmio=true` for tests.
+- **Step 26.6: Remove MMIO GPR read path** (optional, ~20–30 LCs)
 
-- **Step 26.8: Simplify RDL address decode** (~10 LCs)
+**Deferred — DMA on FPGA (2026-04-29: costs ~327 LCs synthesised, budget exhausted):**
 
-- **Step 26.9: Remove MMIO GPR read path** (optional, ~20–30 LCs)
+> `hasDMA=true` pushed synthesis to 5481 LCs (+201 over 5280 budget).
+> Setting `hasImemMmio=false` recovered only 53 LCs (→ 5428, still +148 over).
+> Reverted both flags. Will retry after additional LC budget is confirmed.
+
+- **Step 26.7: Enable DMA on FPGA** — set `hasDMA=true` + `hasImemMmio=false` together.
+  Prerequisite: Steps 26.5+26.6 savings + confirmation that budget allows +274 LC net cost.
+
+- **Step 26.8: Migrate shader load to DMA** — replace `borg_load_spirb_shader_at()` in
+  `borg_driver.c` with `dma_load_shader()`. Requires shaders pre-staged in PSRAM.
 
 ### Step 27: Enable HW Flusher on FPGA + Remove CPU Flush Path
 
-Prerequisite: Step 26 (LUT recovery frees ~95–120 LCs, making room for
-`BorgTileFlusher`'s net cost: ~218 LCs after 26.1, further reduced by 26.2).
+Prerequisite: Steps 26.5+26.6 (~30–40 LCs freed); `BorgTileFlusher` net cost ~200 LCs
+(after 26.1+26.2 optimisations). Estimated budget: ~5154 − 40 + 200 = ~5314 LCs (⚠ tight).
+MMIO readback removal below frees another ~40 LCs to close the gap.
 
 - Hardware: set `hasFlusher=true` in `BorgConfig.FPGA`.
 - Hardware: remove `tile_bz`/`tile_rg` MMIO readback arms from `wireMmioRead()` (~30–45 LCs saved).
 - Hardware: remove `ctrlWriting` read trigger arm from `wireTileBuffer()` (~5–10 LCs saved).
 - Firmware: delete the CPU tile-flush `else` branch in `borgBinRender()` (lines 536–547).
 - Verify pixel-perfect rendering on FPGA with hardware flusher active.
+
 
 ### Step 28: Fully Autonomous Hardware Iteration
 
