@@ -416,8 +416,6 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     - Fixed arcilator `marker_offset_word` to use tiled layout (2 words/pixel vs old 4).
     - All 12/12 test suites pass including `render › fpga (hw)`. ✓
 
-
-
 ### Step 25.5: DMA Firmware Integration + LUT Recovery
 
 Complete the firmware side of Step 22 and reclaim LC headroom to unblock the
