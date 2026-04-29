@@ -14,10 +14,16 @@
 
 // @doc:mmio-map
 #include "borg_sys.h"
-#include "borg_isa.h"
+#include "borg_isa.h"  // IWYU pragma: keep — used by @doc extractor + ISA macros
 // @doc:end
 
 #define FP16_SIXTEEN 0x4C00
+
+// --- PSRAM frame layout (word-index arithmetic, same units as PSRAM_OUT/PSRAM_OUT_SPI) ---
+// BORG_FB_WIDTH / BORG_FB_HEIGHT are compile-time constants from borg_driver.h.
+#define FRAME_FB_SIZE (BORG_FB_WIDTH * BORG_FB_HEIGHT * 3) // RGB words
+#define FRAME_ZB_SIZE (BORG_FB_WIDTH * BORG_FB_HEIGHT)     // Z-buffer words
+#define FRAME_STRIDE  (FRAME_FB_SIZE + FRAME_ZB_SIZE + 1)  // FB + ZB + DONE marker
 
 static inline void fb_write_pixel(int base, rgb16_t c) {
   PSRAM_OUT(base + 0) = c.r;
@@ -153,6 +159,23 @@ void borgCreateDevice(void) {
     pc_lut[i] = val;
     val = borg_fp16_add(val, FP16_ONE);
   }
+
+  // Step 25.4.1: Configure hardware tile flusher base addresses.
+  // Use PSRAM_OUT_SPI(n): the SPI-address companion to PSRAM_OUT(n).
+  // Both address the same physical PSRAM word; this keeps HW and CPU
+  // address arithmetic in sync — a single source of truth.
+  //
+  // Frame 0:
+  //   FB  base word = 0 * FRAME_STRIDE            (same index as shade_and_write_pixel's `base`)
+  //   ZB  base word = 0 * FRAME_STRIDE + FRAME_FB_SIZE   (same index as shade_and_write_pixel's `zb_idx`)
+  BORG_GPU->flush_fb_base = PSRAM_OUT_SPI(0 * FRAME_STRIDE);
+  BORG_GPU->flush_zb_base = PSRAM_OUT_SPI(0 * FRAME_STRIDE + FRAME_FB_SIZE);
+  // log2(fbWidth) — fbWidth is always a power of 2
+  unsigned int log2_w = 0;
+  unsigned int w = (unsigned int)borg_fb_width;
+  while (w > 1) { w >>= 1; log2_w++; }
+  BORG_GPU->flush_width = log2_w;
+
   t_init_cycles = get_cycles() - t_init;
 }
 
@@ -194,11 +217,6 @@ void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
   d->uniforms[14] = FP16_ZERO;
   d->uniforms[15] = FP16_ONE;
 }
-
-#define FRAME_FB_SIZE (BORG_FB_WIDTH * BORG_FB_HEIGHT * 3) // RGB words
-#define FRAME_ZB_SIZE (BORG_FB_WIDTH * BORG_FB_HEIGHT)     // Z-buffer words
-#define FRAME_STRIDE                                                           \
-  (FRAME_FB_SIZE + FRAME_ZB_SIZE + 1) // FB + ZB + DONE marker
 
 void borg_clear_zbuffer(int frame, rgb16_t clear_color) {
   unsigned int t_start = get_cycles();
@@ -465,6 +483,9 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
 
         // CPU tile-write path (retained for Step 25.3h; removed in Step 25.4.3).
         for (uint32_t tile_idx = 0; tile_idx < 16; tile_idx++) {
+          // CPU writes all 16 pixels.  When the hardware flusher is active
+          // (hasFlusher=true in sim), it writes pixel 0 first with the same
+          // depth test — the redundant CPU write produces identical results.
           // Set read index in TILE_CTRL
           BORG_GPU->tile_ctrl = tile_idx;
           

@@ -44,7 +44,7 @@ object BorgConfig {
     fifoDepth    = 1,
     hasImemMmio  = true, // flip to false after Step 22.4
     hasDMA       = false, // BorgDMA costs ~180 LCs; re-enable once firmware uses it
-    hasFlusher   = false  // scaffold + mux costs ~32 LCs; enable in Step 25.4
+    hasFlusher   = false  // costs ~32 LCs; re-enable once LC budget allows
   )
 
   /** Verilator / Arcilator simulation: no area constraint. */

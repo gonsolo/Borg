@@ -258,28 +258,34 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     writeColor.z := tileShadowZ
     tile.io.write.data := Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor)
 
-    // Read port: trigger BRAM read when CTRL is written
-    tile.io.read.idx := Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx)
-    tile.io.read.en  := ctrlWriting
+    // Read port: flusher gets priority; falls back to MMIO CTRL when flusher idle.
+    // In practice these never fire simultaneously: flusher active = pipeline busy
+    // = CPU not issuing TILE_CTRL reads.  Mux still required for correctness.
+    flusher match {
+      case Some(f) =>
+        tile.io.read.idx := Mux(f.io.read.en, f.io.read.idx,
+                               Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx))
+        tile.io.read.en  := f.io.read.en || ctrlWriting
+      case None =>
+        tile.io.read.idx := Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx)
+        tile.io.read.en  := ctrlWriting
+    }
   }
 
-  /** Step 25.3h: Wire BorgTileFlusher trigger + config (Software/Hardware Flush Toggle).
+  /** Step 25.4.1: Wire BorgTileFlusher with real PSRAM writes.
     *
-    * - `start`   : driven by `rast.io.tileComplete` — one-cycle pulse after all
-    *               16 pixels of the tile have been advanced.  The flusher latches
-    *               the tile origin from its config inputs at that moment.
-    * - `fbBase` / `zbBase` / `fbWidth` : decoded from the bus using shadow registers
-    *               (same nogen pattern as DMA).  Firmware writes these once at
-    *               startup; hardware reads them on every flush.
-    * - `status_flush_busy` : fed back into the STATUS register (bit 4) so firmware
-    *               can poll `BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm`
-    *               instead of manually writing pixels to PSRAM.
+    * - `start`        : driven by `rast.io.tileComplete`.
+    * - `fbBase`/`zbBase` : absolute PSRAM byte addresses (decoded from nogen regs).
+    * - `fbWidthLog2`  : log2(width) stored in the lower 4 bits of FLUSH_WIDTH reg.
+    *                    Firmware writes `__builtin_ctz(BORG_FB_WIDTH)`.
+    * - `status_flush_busy` : fed back into STATUS bit 4.
+    * - tile read port: muxed in wireTileBuffer() above.
     */
   private def wireFlusher(): Unit = {
     // Shadow registers for nogen flush config regs (bus-decoded, same pattern as DMA).
-    val flushFbBaseReg  = RegInit(0.U(20.W))
-    val flushZbBaseReg  = RegInit(0.U(20.W))
-    val flushFbWidthReg = RegInit(0.U(9.W))
+    val flushFbBaseReg      = RegInit(0.U(20.W))
+    val flushZbBaseReg      = RegInit(0.U(20.W))
+    val flushFbWidthLog2Reg = RegInit(0.U(4.W))  // log2(fbWidth)
 
     when(bus.is_writing && bus.address === BorgGpuRegs.flush_fb_base_offset) {
       flushFbBaseReg := bus.data_in(19, 0)
@@ -288,32 +294,28 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       flushZbBaseReg := bus.data_in(19, 0)
     }
     when(bus.is_writing && bus.address === BorgGpuRegs.flush_width_offset) {
-      flushFbWidthReg := bus.data_in(8, 0)
+      // Firmware writes log2(fbWidth) in bits [3:0]
+      flushFbWidthLog2Reg := bus.data_in(3, 0)
     }
 
     flusher match {
       case Some(f) =>
-        // Step 25.3h: trigger flusher on tile completion pulse from BorgRasterizer.
         f.io.start := rast.io.tileComplete
 
-        // Tile buffer read port — flusher reads RGBZ from the tile buffer.
-        // The scaffold never asserts read.en, so no contention with the MMIO
-        // read path.  Step 25.4a will add a read.idx/read.en mux.
+        // Tile buffer read data passthrough (idx/en muxed in wireTileBuffer).
         f.io.read.data := tile.io.read.data
 
-        // Config: tile origin from the iterator (latched at start), base addresses
-        // and width from the firmware-written shadow registers.
-        f.io.tileX   := rast.io.iter.x
-        f.io.tileY   := rast.io.iter.y
-        f.io.fbBase  := flushFbBaseReg
-        f.io.zbBase  := flushZbBaseReg
-        f.io.fbWidth := flushFbWidthReg
+        // Config: tile origin from iterator, base addresses + log2(width) from shadow regs.
+        f.io.tileX       := rast.io.tileOrigin.x
+        f.io.tileY       := rast.io.tileOrigin.y
+        f.io.fbBase      := flushFbBaseReg
+        f.io.zbBase      := flushZbBaseReg
+        f.io.fbWidthLog2 := flushFbWidthLog2Reg
 
         // Feed flush_busy back into STATUS register (bit 4).
         rdlRegs.io.hw.status_flush_busy := f.io.busy.asUInt
 
       case None =>
-        // hasFlusher=false (FPGA): status bit is always 0.
         rdlRegs.io.hw.status_flush_busy := 0.U
     }
   }

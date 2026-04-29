@@ -8,6 +8,9 @@
 #include <stdint.h>
 #include "borg_fpu.h"
 #include "borg_raster.h"
+#include "borg_regs.h"   // IWYU pragma: keep — borg_gpu_t used in BORG_GPU macro
+#include "borg_sys.h"    // BORG_BASE and system constants
+#define BORG_GPU ((volatile borg_gpu_t*) BORG_BASE)
 
 // FP16 constants from borg_fpu.h (single source of truth)
 

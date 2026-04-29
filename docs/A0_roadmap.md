@@ -410,7 +410,11 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
 
 - **Step 25.4: Autonomous Tile Flushing (Micro-steps)**
 
-  - **Step 25.4.1: Single-Pixel Hardware Flush**
+  - **Step 25.4.1: Single-Pixel Hardware Flush ✅** (2026-04-29)
+    - Integrated `BorgTileFlusher` hardware path with read-before-write depth-test logic.
+    - Unified address arithmetic for hardware and software paths using `PSRAM_OUT_SPI`.
+    - Resolved firmware build issues (assert.h stub, header include paths).
+    - Validated rendering parity across Verilator and FPGA targets.
 
   - **Step 25.4.2: Full 16-Pixel Tile Flush**
 

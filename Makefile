@@ -117,6 +117,9 @@ rdl: $(RDL_SRC)
 	@mkdir -p $(RDL_C_OUT)
 	@$(RDL_PYTHON) $(RDL_DIR)/validate_rdl.py
 	@$(RDL_PYTHON) $(RDL_DIR)/generate.py $(RDL_SCALA_OUT) $(RDL_C_OUT)
+	@# _Static_assert is a C11 keyword — no header needed. Strip the assert.h
+	@# include that PeakRDL-cheader emits so the generated file is self-contained.
+	@sed -i '/#include <assert.h>/d; s/static_assert(/_Static_assert(/g' $(RDL_C_OUT)/borg_regs.h
 
 clean:
 	rm -f src/config_merged.json src/user_config.json .verilog_stamp

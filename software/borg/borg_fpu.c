@@ -6,7 +6,9 @@
 #include "borg_fpu.h"
 #include "borg_spirb.h"
 #include "borg_sys.h"
+#include "borg_regs.h"  // borg_gpu_t + register bit-masks
 #include "borg_isa.h"
+#define BORG_GPU ((volatile borg_gpu_t*) BORG_BASE)
 
 // @doc:fpu-helpers
 // --- Borg FPU helpers ---

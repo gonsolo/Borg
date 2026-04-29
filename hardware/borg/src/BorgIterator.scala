@@ -55,6 +55,12 @@ class BorgIteratorIO(val cfg: BorgConfig) extends Bundle {
 
   // One-cycle pulse: tile just exhausted (last advance stepped y past tile_max.y)
   val tileComplete = Output(Bool())
+
+  // Tile origin (top-left corner of the current 4×4 tile)
+  // Valid whenever iter_valid has been true (i.e. a command is active).
+  // At the moment tileComplete fires, iter.y has already advanced past the tile;
+  // use tileOrigin (not iter) to get the correct tile base coordinates.
+  val tileOrigin = Output(new Coord(cfg.coordWidth))
 }
 
 class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
@@ -110,4 +116,5 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   io.shaderTileIndex := tileIndex(shader_iter_reg)
   io.pixelReady      := pixel_ready
   io.tileComplete    := tile_complete
+  io.tileOrigin      := tile_origin_reg
 }

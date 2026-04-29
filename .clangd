@@ -1,0 +1,6 @@
+CompileFlags:
+  Add:
+    # Generated RDL headers (borg_regs.h, etc.) live in out/hardware/borg/rdl.
+    # Without this, clangd fails to resolve #include "borg_regs.h" in headers
+    # that aren't themselves in compile_commands.json.
+    - -I/home/gonsolo/work/Borg/out/hardware/borg/rdl

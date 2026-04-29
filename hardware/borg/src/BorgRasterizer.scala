@@ -50,6 +50,9 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // One-cycle pulse: all 16 pixels of the tile have been advanced (Step 25.3h)
   val tileComplete  = Output(Bool())
 
+  // Tile origin (top-left corner of the current 4×4 tile), valid when tileComplete fires
+  val tileOrigin    = Output(new Coord(cfg.coordWidth))
+
   // Tile Buffer auto-write interface (Step 11.3)
   val tileWrite = new TileWriteIO
 
@@ -100,6 +103,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   io.shaderIter   := iterator.io.shaderIter
   io.iterValid    := iterator.io.iterValid
   io.tileComplete := iterator.io.tileComplete
+  io.tileOrigin   := iterator.io.tileOrigin
 
   // --- Passthrough ---
   io.uniformPage  := io.uniformPageReg  // pass through from register
