@@ -423,15 +423,15 @@ hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
 (Step 22.1); only firmware and FPGA config changes remain.
 
 - **Step 25.5.1: BorgTileFlusher LC Optimizations** (optional, ~82 LCs — no dependencies)
-  - ✅ **25.5.1a: Remove `entry_lo`/`entry_hi` latch registers** (~64 LCs saved, 2026-04-29)\
+  - ✅ **Step 25.5.1.1: Remove `entry_lo`/`entry_hi` latch registers** (~64 LCs saved, 2026-04-29)\
     `BorgTileBuffer.readDataHeld` already holds SRAM output stable; removed 7→6-state FSM
     and 64 FFs. All 195/195 tests pass.
-  - **25.5.1b: Replace `tileBase_reg + (word_idx << 2)` adder with running `addrReg`** (~18 LCs)\
+  - **Step 25.5.1.2: Replace `tileBase_reg + (word_idx << 2)` adder with running `addrReg`** (~18 LCs)\
     Eliminates the combinational 20-bit adder in `sWriteLo`/`sWriteHi` by using a
     simple +4 incrementer initialized to `tileBase` at flush start.
 
 - **Step 25.5.2: BorgDMA LC Optimizations** (optional, ~30 LCs — no dependencies)
-  - **25.5.2a: Don't latch full `descReg`** (~30 LCs)\
+  - **Step 25.5.2.1: Don't latch full `descReg`** (~30 LCs)\
     `length`, `dest`, and `offset` fields are stable for the entire transfer (firmware
     does not change them after the `start` pulse). Drive them as wires from `io.desc`
     directly; only `addrReg` needs a register since it increments each cycle.
@@ -445,16 +445,17 @@ hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
   `dma_load_shader()`. Verify pixel-perfect rendering.
 
 - **Step 25.5.5: LUT Recovery** (−44–74 LCs; depends on 25.5.3+25.5.4)
-  - **25.5.5a: Remove IMEM MMIO write path** (`hasImemMmio=false`) (~15 LCs) — DMA replaces it
-  - **25.5.5b: Remove MMIO uniform write path** (~15 LCs) — DMA replaces it
-  - **25.5.5c: Simplify RDL address decode** (~10 LCs)
-  - **25.5.5d: Remove MMIO GPR read path** (optional, ~20–30 LCs)
+  - **Step 25.5.5.1: Remove IMEM MMIO write path** (`hasImemMmio=false`) (~15 LCs) — DMA replaces it
+  - **Step 25.5.5.2: Remove MMIO uniform write path** (~15 LCs) — DMA replaces it
+  - **Step 25.5.5.3: Simplify RDL address decode** (~10 LCs)
+  - **Step 25.5.5.4: Remove MMIO GPR read path** (optional, ~20–30 LCs)
 
 
 ### Step 25.6: Enable HW Flusher on FPGA + Remove CPU Flush Path
 
 Prerequisite: Step 25.5 (LUT recovery frees ~95–120 LCs, making room for
-`BorgTileFlusher`'s net cost: ~218 LCs after 25.5.4a, further reduced by 25.5.4b).
+`BorgTileFlusher`'s net cost: ~218 LCs after 25.5.1.1, further reduced by 25.5.1.2).
+
 
 - Hardware: set `hasFlusher=true` in `BorgConfig.FPGA`.
 - Hardware: remove `tile_bz`/`tile_rg` MMIO readback arms from `wireMmioRead()` (~30–45 LCs saved).
