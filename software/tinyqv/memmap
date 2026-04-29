@@ -60,6 +60,10 @@ SECTIONS
         __interrupt_stack_top = .;
     } > ram_a
 
+    /* Mark the end of all firmware-owned PSRAM.  Hardware resources
+       (texture, framebuffer) must be placed AFTER this address.       */
+    __firmware_ram_end__ = .;
+
     .heap (NOLOAD):
     {
         . = ALIGN(4);
@@ -72,4 +76,11 @@ SECTIONS
     __StackTop = ORIGIN(ram_a) + LENGTH(ram_a);
     __StackLimit = __StackTop - 0x1000;
     ASSERT(__StackLimit >= __interrupt_stack_top, "region RAM overflowed")
+
+    /* Guard: firmware RAM end must not reach the texture region.
+       TEX_SPI_BYTE_ADDR is injected via -Wl,--defsym from borg_layout.h
+       (TEX_PSRAM_BYTE_ADDR_FIXED) by the Makefile — single source of truth.
+       CPU texture address = ORIGIN(ram_a) + TEX_SPI_BYTE_ADDR.           */
+    ASSERT(__firmware_ram_end__ <= ORIGIN(ram_a) + TEX_SPI_BYTE_ADDR,
+           "FIRMWARE BSS/DATA OVERFLOWS INTO TEXTURE REGION! Increase TEX_SPI_BYTE_ADDR or shrink firmware data.")
 }

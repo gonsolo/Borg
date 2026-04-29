@@ -275,9 +275,9 @@ def render_all_frames(app_name='triangle'):
     """Boot FPGA, let firmware render 10 frames, read back all framebuffers."""
     t_start_all = time.ticks_ms()
     NUM_FRAMES = 1
-    FRAME_FB_SIZE = WIDTH * HEIGHT * 3  # RGB words per frame
-    FRAME_ZB_SIZE = WIDTH * HEIGHT       # Z-buffer words per frame
-    FRAME_STRIDE = FRAME_FB_SIZE + FRAME_ZB_SIZE + 1  # FB + ZB + DONE marker
+    # TBDR tiled layout: 2 words per pixel (lo={B,Z}, hi={R,G}), no separate ZB.
+    FRAME_FB_SIZE = WIDTH * HEIGHT * 2   # 2 PSRAM words per pixel
+    FRAME_STRIDE = FRAME_FB_SIZE + 1     # FB + DONE marker (no ZB)
 
     # --- Write framebuffer dimensions to PSRAM for firmware ---
     t_psram = time.ticks_ms()
@@ -402,8 +402,8 @@ def render_all_frames(app_name='triangle'):
     for frame in range(NUM_FRAMES):
         frame_base = frame * FRAME_STRIDE
 
-        # Check DONE marker for this frame
-        marker_base = frame_base + FRAME_FB_SIZE + FRAME_ZB_SIZE
+        # Check DONE marker for this frame (immediately after FB, no ZB)
+        marker_base = frame_base + FRAME_FB_SIZE
         done = qpi_read_word(sm_r, out_base + marker_base * 4)
         
         t_init_lo = qpi_read_word(sm_r, out_base + (marker_base + 1) * 4)
@@ -423,16 +423,20 @@ def render_all_frames(app_name='triangle'):
         print(" -> FW Clear took:  %d cycles (%.2f ms)" % (t_clear_cycles, t_clear_cycles * 1000 / FPGA_CLOCK_HZ))
         print(" -> FW Draw took:   %d cycles (%.2f ms)" % (t_draw_cycles, t_draw_cycles * 1000 / FPGA_CLOCK_HZ))
 
-        # Read RGB framebuffer (3 FP16 words per pixel)
+        # Read tiled framebuffer: 2 words/pixel, 4×4 tiles.
+        # Output .bin stores {lo, hi} word pairs in scanline order (8 bytes/pixel)
+        # for postprocess.py to decode.
+        tiles_per_row = WIDTH >> 2
         fname = "/remote/%s_%02d.bin" % (app_name, frame)
         with open(fname, 'wb') as f:
             for py in range(HEIGHT):
                 for px in range(WIDTH):
-                    base = frame_base + (py * WIDTH + px) * 3
-                    r = qpi_read_word(sm_r, out_base + (base + 0) * 4) & 0xFFFF
-                    g = qpi_read_word(sm_r, out_base + (base + 1) * 4) & 0xFFFF
-                    b = qpi_read_word(sm_r, out_base + (base + 2) * 4) & 0xFFFF
-                    f.write(struct.pack('<HHH', r, g, b))
+                    tile_index = (py >> 2) * tiles_per_row + (px >> 2)
+                    tile_idx   = (px & 3) | ((py & 3) << 2)
+                    word_off   = frame_base + tile_index * 32 + tile_idx * 2
+                    lo = qpi_read_word(sm_r, out_base + (word_off + 0) * 4)
+                    hi = qpi_read_word(sm_r, out_base + (word_off + 1) * 4)
+                    f.write(struct.pack('<II', lo, hi))
 
         print("Frame %02d (%.0f deg): %s" % (frame, frame * 36.0, fname))
 

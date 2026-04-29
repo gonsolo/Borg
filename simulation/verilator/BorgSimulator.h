@@ -20,9 +20,9 @@ public:
         psram_spi_word_offset = 0x1000 / 4;
         out_base_word = psram_spi_word_offset + (PSRAM_OUT_OFFSET / 4);
         
-        uint32_t frame_fb_size = width * height * 3;
-        uint32_t frame_zb_size = width * height;
-        marker_offset_word = out_base_word + frame_fb_size + frame_zb_size;
+        // Step 25.4.2 Option A: tiled layout = 2 PSRAM words per pixel (lo=R|G, hi=B|Z).
+        uint32_t frame_tile_size = width * height * 2;   // words
+        marker_offset_word = out_base_word + frame_tile_size;
         
         flash->load_bin(firmware_path);
         

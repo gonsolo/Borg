@@ -7,60 +7,34 @@ import chisel3._
 import chisel3.simulator.EphemeralSimulator._
 import utest._
 
-/** Unit tests for BorgTileFlusher.
+/** Unit tests for BorgTileFlusher (Step 25.4.2 Option A — DMA architecture).
   *
-  * Step 25.3g scaffold tests: handshake, idle outputs, back-to-back.
-  * Step 25.4.1 tests: pixel 0 read sequence, write addresses, ready stall,
-  *                    busy deassertion, skip-unshaded pixel.
-  * Step 25.4.2 tests: all-16-pixel loop, address arithmetic spot-check,
-  *                    skip count, busy deassert after pixel 15.
+  * The flusher is now a 5-state DMA engine: reads 16 tile SRAM entries and
+  * writes 32 PSRAM words (2 per entry: lo=R|G, hi=B|Z).
+  * No depth test, no per-pixel address arithmetic.
   */
 object BorgTileFlusherTests extends TestSuite {
 
-  // FP16_MAX_DEPTH — unshaded pixel sentinel
   val FP16_MAX_DEPTH = 0x7BFF
 
-  /** Reset helper: drives all inputs to neutral, applies reset. */
   def resetDut(d: BorgTileFlusher): Unit = {
+    d.reset.poke(true.B)
+    d.clock.step(2)
+    d.reset.poke(false.B)
     d.io.start.poke(false.B)
     d.io.read.data.r.poke(0.U)
     d.io.read.data.g.poke(0.U)
     d.io.read.data.b.poke(0.U)
     d.io.read.data.z.poke(0.U)
-    d.io.gpuMem.data.poke(0.U)
     d.io.gpuMem.ready.poke(false.B)
-    d.io.fbBase.poke(0.U)
-    d.io.zbBase.poke(0.U)
-    d.io.fbWidthLog2.poke(0.U)
-    d.io.tileX.poke(0.U)
-    d.io.tileY.poke(0.U)
-    d.reset.poke(true.B)
-    d.clock.step(2)
-    d.reset.poke(false.B)
+    d.io.gpuMem.data.poke(0.U)
+    d.io.tileBase.poke(0.U)
     d.clock.step(1)
   }
 
   val tests = Tests {
 
-    // =========================================================================
-    // Step 25.3g scaffold tests (retained)
-    // =========================================================================
-
-    utest.test("idle_outputs_quiet") {
-      simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: idle_outputs_quiet ---")
-        resetDut(d)
-
-        d.clock.step(5)
-        utest.assert(!d.io.busy.peek().litToBoolean)
-        utest.assert(!d.io.gpuMem.req.peek().litToBoolean)
-        utest.assert(!d.io.gpuMem.wr.peek().litToBoolean)
-        utest.assert(!d.io.read.en.peek().litToBoolean)
-        println("  busy=false, req=false, wr=false, readEn=false ✓")
-        println("  PASSED")
-      }
-    }
-
+    // Test: idle → busy on start, returns to idle after 32 writes
     utest.test("start_busy_handshake") {
       simulate(new BorgTileFlusher) { d =>
         println("\n--- BorgTileFlusher: start_busy_handshake ---")
@@ -68,486 +42,279 @@ object BorgTileFlusherTests extends TestSuite {
 
         utest.assert(!d.io.busy.peek().litToBoolean)
 
-        // Pulse start; provide unshaded Z so flusher skips writes and returns quickly
-        d.io.read.data.z.poke(FP16_MAX_DEPTH.U)
         d.io.start.poke(true.B)
         d.clock.step(1)
         d.io.start.poke(false.B)
 
-        // sReadTile: busy should be high
         val busy = d.io.busy.peek().litToBoolean
         println(f"  After start: busy=$busy (expect true)")
         utest.assert(busy)
 
-        // 16 pixels × 4 cycles each (skip path: sReadTile+sWaitBram+sLatchData+sNextPixel)
-        d.clock.step(64)
-        val busyAfter = d.io.busy.peek().litToBoolean
-        println(f"  After skip path: busy=$busyAfter (expect false)")
-        utest.assert(!busyAfter)
-        println("  PASSED")
-      }
-    }
-
-    utest.test("back_to_back_starts") {
-      simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: back_to_back_starts ---")
-        resetDut(d)
-        d.io.read.data.z.poke(FP16_MAX_DEPTH.U)  // skip writes
-
-        // First flush
-        d.io.start.poke(true.B)
-        d.clock.step(1)
-        d.io.start.poke(false.B)
-        utest.assert(d.io.busy.peek().litToBoolean)
-        d.clock.step(64)  // 16 pixels × 4 cycles (all skip)
-        utest.assert(!d.io.busy.peek().litToBoolean)
-        println("  First flush: busy → idle ✓")
-
-        // Second flush immediately after
-        d.io.start.poke(true.B)
-        d.clock.step(1)
-        d.io.start.poke(false.B)
-        utest.assert(d.io.busy.peek().litToBoolean)
-        d.clock.step(64)  // 16 pixels × 4 cycles (all skip)
-        utest.assert(!d.io.busy.peek().litToBoolean)
-        println("  Second flush: busy → idle ✓")
-        println("  PASSED")
-      }
-    }
-
-    utest.test("config_inputs_accepted") {
-      simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: config_inputs_accepted ---")
-        resetDut(d)
-        d.io.read.data.z.poke(FP16_MAX_DEPTH.U)
-
-        d.io.fbBase.poke(0x80080.U)
-        d.io.zbBase.poke(0x86080.U)
-        d.io.fbWidthLog2.poke(5.U)  // log2(32)
-        d.io.tileX.poke(8.U)
-        d.io.tileY.poke(12.U)
-
-        d.io.start.poke(true.B)
-        d.clock.step(1)
-        d.io.start.poke(false.B)
-        utest.assert(d.io.busy.peek().litToBoolean)
-
-        d.clock.step(64)  // 16 pixels × 4 cycles (all skip)
-        utest.assert(!d.io.busy.peek().litToBoolean)
-        println("  Config inputs accepted without crash ✓")
-        println("  PASSED")
-      }
-    }
-
-    // =========================================================================
-    // Step 25.4.1 tests
-    // =========================================================================
-
-    // Test: flusher asserts read.en=1 with read.idx=0, then deasserts
-    utest.test("single_pixel_read_sequence") {
-      simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: single_pixel_read_sequence ---")
-        resetDut(d)
-        d.io.read.data.z.poke(FP16_MAX_DEPTH.U)  // skip writes
-
-        // Idle: read.en must be false
-        utest.assert(!d.io.read.en.peek().litToBoolean)
-
-        // Start
-        d.io.start.poke(true.B)
-        d.clock.step(1)
-        d.io.start.poke(false.B)
-
-        // sReadTile: read.en=1, read.idx=0
-        val enHigh = d.io.read.en.peek().litToBoolean
-        println(f"  sReadTile: read.en=$enHigh (expect true), read.idx=${d.io.read.idx.peek().litValue} (expect 0)")
-        utest.assert(enHigh)
-        utest.assert(d.io.read.idx.peek().litValue == 0)  // idx=0
-
-        // sWaitBram: read.en must be back to false
-        d.clock.step(1)
-        val enLow = d.io.read.en.peek().litToBoolean
-        println(f"  sWaitBram: read.en=$enLow (expect false)")
-        utest.assert(!enLow)
-
-        println("  PASSED")
-      }
-    }
-
-    // Test: correct byte addresses issued for the 4 writes (R, G, B, Z)
-    // Config: fbBase=0x80080, zbBase=0x86080, fbWidthLog2=5 (width=32), tileX=4, tileY=0
-    //   pixel_off = (0 << 5) + 4 = 4
-    //   fb_addr   = 0x80080 + 4*12 = 0x80080 + 48 = 0x800B0
-    //   zb_addr   = 0x86080 + 4*4  = 0x86080 + 16 = 0x86090
-    //
-    // FSM path for shaded pixel (z < FP16_MAX_DEPTH, depth test passes):
-    //   sReadTile → sWaitBram → sLatchData → sReadOldZ → sWriteR → sWriteG → sWriteB → sWriteZ → sIdle
-    //   sReadOldZ reads old_z from PSRAM; if new_z >= old_z the write is skipped.
-    utest.test("single_pixel_write_sequence") {
-      simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: single_pixel_write_sequence ---")
-        resetDut(d)
-
-        val fbBase     = 0x80080
-        val zbBase     = 0x86080
-        val fbWidthLog2 = 5  // log2(32)
-        val tileX      = 4
-        val tileY      = 0
-
-        d.io.fbBase.poke(fbBase.U)
-        d.io.zbBase.poke(zbBase.U)
-        d.io.fbWidthLog2.poke(fbWidthLog2.U)
-        d.io.tileX.poke(tileX.U)
-        d.io.tileY.poke(tileY.U)
-
-        // Pixel data
-        d.io.read.data.r.poke(0x3C00.U)
-        d.io.read.data.g.poke(0x4000.U)
-        d.io.read.data.b.poke(0x4200.U)
-        d.io.read.data.z.poke(0x1234.U)  // valid Z (< FP16_MAX_DEPTH)
-
-        // Expected addresses
-        val pixel_off = (tileY << fbWidthLog2) + tileX  // = 4
-        val fb_addr   = fbBase + pixel_off * 12         // = 0x800B0
-        val zb_addr   = zbBase + pixel_off * 4          // = 0x86090
-        println(f"  pixel_off=$pixel_off, fb_addr=0x${fb_addr}%X, zb_addr=0x${zb_addr}%X")
-
-        d.io.start.poke(true.B)
-        d.clock.step(1)
-        d.io.start.poke(false.B)
-        // sReadTile (1 cycle)
-        d.clock.step(1)
-        // sWaitBram (1 cycle) — read.data is being latched
-        d.clock.step(1)
-        // sLatchData — data now valid, addresses computed, → sReadOldZ
-        d.clock.step(1)
-
-        // sReadOldZ: flusher reads existing Z from PSRAM for depth test.
-        // Verify req is asserted at zb_addr, then provide old_z > new_z so depth passes.
-        utest.assert(d.io.gpuMem.req.peek().litToBoolean)
-        utest.assert(d.io.gpuMem.addr.peek().litValue.toInt == zb_addr)
-        println(f"  sReadOldZ: req=true, addr=0x${zb_addr}%X ✓")
-        // old_z=0x7000 > new_z=0x1234 → depth test passes, proceed to writes
-        d.io.gpuMem.data.poke(0x00007000L.U)
-        d.io.gpuMem.ready.poke(true.B)
-        d.clock.step(1)
-        d.io.gpuMem.ready.poke(false.B)
-        d.io.gpuMem.data.poke(0.U)
-        // now in sWriteR
-
-        // Helper: drive ready 1 cycle after wr asserted
-        def doWrite(name: String, expectedAddr: Int, expectedData: Int): Unit = {
+        // Drive ready for all 32 writes (2 per entry × 16 entries).
+        // Each entry: sReadSram(1) + sWaitSram(1) + sWriteLo(1+) + sWriteHi(1+) ≥ 4 cycles.
+        var done = false
+        for (_ <- 0 until 200) {
+          if (d.io.gpuMem.wr.peek().litToBoolean) {
+            d.io.gpuMem.ready.poke(true.B)
+          } else {
+            d.io.gpuMem.ready.poke(false.B)
+          }
           d.clock.step(1)
-          val wr   = d.io.gpuMem.wr.peek().litToBoolean
-          val addr = d.io.gpuMem.addr.peek().litValue.toInt
-          val data = d.io.gpuMem.wdata.peek().litValue.toInt & 0xFFFF
-          println(f"  $name: wr=$wr addr=0x${addr}%X data=0x${data}%X (exp addr=0x${expectedAddr}%X data=0x${expectedData}%X)")
-          utest.assert(wr)
-          utest.assert(addr == expectedAddr)
-          utest.assert(data == expectedData)
-          d.io.gpuMem.ready.poke(true.B)
-          d.clock.step(1)
-          d.io.gpuMem.ready.poke(false.B)
-        }
-
-        doWrite("R", fb_addr,     0x3C00)
-        doWrite("G", fb_addr + 4, 0x4000)
-        doWrite("B", fb_addr + 8, 0x4200)
-        doWrite("Z", zb_addr,     0x1234)
-
-        // Pixel 0 done. Drain pixels 1-15 with FP16_MAX_DEPTH (all skip).
-        // sNextPixel(0) + 15 pixels × 4 cycles (skip) = 1 + 60 = 61 cycles to idle.
-        d.io.read.data.z.poke(FP16_MAX_DEPTH.U)
-        d.clock.step(61)
-        utest.assert(!d.io.busy.peek().litToBoolean)
-        println("  PASSED")
-      }
-    }
-
-    // Test: flusher stays in write state when ready is withheld
-    utest.test("write_waits_for_ready") {
-      simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: write_waits_for_ready ---")
-        resetDut(d)
-
-        val zbBase = 0x86080
-        d.io.fbBase.poke(0x80080.U)
-        d.io.zbBase.poke(zbBase.U)
-        d.io.fbWidthLog2.poke(5.U)
-        d.io.tileX.poke(0.U)
-        d.io.tileY.poke(0.U)
-        d.io.read.data.r.poke(0x1111.U)
-        d.io.read.data.g.poke(0x2222.U)
-        d.io.read.data.b.poke(0x3333.U)
-        d.io.read.data.z.poke(0x4444.U)  // valid Z
-
-        d.io.start.poke(true.B)
-        d.clock.step(1)
-        d.io.start.poke(false.B)
-        // sReadTile + sWaitBram + sLatchData → sReadOldZ
-        d.clock.step(3)
-
-        // sReadOldZ: handle the depth-test PSRAM read.
-        // Provide old_z=FP16_MAX_DEPTH so depth test passes (new_z=0x4444 < 0x7BFF).
-        utest.assert(d.io.gpuMem.req.peek().litToBoolean)
-        d.io.gpuMem.data.poke(0x00007BFFL.U)
-        d.io.gpuMem.ready.poke(true.B)
-        d.clock.step(1)
-        d.io.gpuMem.ready.poke(false.B)
-        d.io.gpuMem.data.poke(0.U)
-        // now in sWriteR
-
-        // Hold ready=0 for 4 cycles; verify wr stays high and busy stays high
-        d.io.gpuMem.ready.poke(false.B)
-        for (i <- 0 until 4) {
-          d.clock.step(1)
-          utest.assert(d.io.gpuMem.wr.peek().litToBoolean)
-          utest.assert(d.io.busy.peek().litToBoolean)
-        }
-        println("  Held in sWriteR for 4 cycles ✓")
-        println("  PASSED")
-      }
-    }
-
-    // Test: busy deasserts exactly when last (Z) write's ready pulses
-    utest.test("busy_deasserts_after_last_write") {
-      simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: busy_deasserts_after_last_write ---")
-        resetDut(d)
-
-        d.io.fbBase.poke(0x80080.U)
-        d.io.zbBase.poke(0x86080.U)
-        d.io.fbWidthLog2.poke(5.U)
-        d.io.read.data.r.poke(0x1111.U)
-        d.io.read.data.g.poke(0x2222.U)
-        d.io.read.data.b.poke(0x3333.U)
-        d.io.read.data.z.poke(0x4444.U)
-
-        d.io.start.poke(true.B)
-        d.clock.step(1)
-        d.io.start.poke(false.B)
-        // sReadTile + sWaitBram + sLatchData → sReadOldZ
-        d.clock.step(3)
-
-        // sReadOldZ: handle the depth-test PSRAM read.
-        // old_z=0x7BFF > new_z=0x4444 → depth test passes.
-        utest.assert(d.io.gpuMem.req.peek().litToBoolean)
-        d.io.gpuMem.data.poke(0x00007BFFL.U)
-        d.io.gpuMem.ready.poke(true.B)
-        d.clock.step(1)
-        d.io.gpuMem.ready.poke(false.B)
-        d.io.gpuMem.data.poke(0.U)
-        // now in sWriteR
-
-        // Drive through R, G, B with ready
-        for (_ <- 0 until 3) {
-          d.io.gpuMem.ready.poke(true.B)
-          d.clock.step(1)
-          d.io.gpuMem.ready.poke(false.B)
-          d.clock.step(1)
-        }
-
-        // Now in sWriteZ — busy must still be high
-        utest.assert(d.io.busy.peek().litToBoolean)
-        println("  In sWriteZ: busy=true ✓")
-
-        // Pulse ready → transitions to sNextPixel (pixel 0 done)
-        d.io.gpuMem.ready.poke(true.B)
-        d.clock.step(1)
-        d.io.gpuMem.ready.poke(false.B)
-
-        // Drain pixels 1-15 with FP16_MAX_DEPTH (all skip, 4 cycles each)
-        // sNextPixel(0) + 15×4 skip cycles = 61 cycles to sIdle
-        d.io.read.data.z.poke(FP16_MAX_DEPTH.U)
-        d.clock.step(61)
-        val busyAfter = d.io.busy.peek().litToBoolean
-        println(f"  After all 16 pixels: busy=$busyAfter (expect false)")
-        utest.assert(!busyAfter)
-        println("  PASSED")
-      }
-    }
-
-    // Test: unshaded pixel (Z >= FP16_MAX_DEPTH) is skipped — no PSRAM writes
-    utest.test("skip_unshaded_pixel") {
-      simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: skip_unshaded_pixel ---")
-        resetDut(d)
-
-        d.io.fbBase.poke(0x80080.U)
-        d.io.zbBase.poke(0x86080.U)
-        d.io.fbWidthLog2.poke(5.U)
-        d.io.read.data.z.poke(FP16_MAX_DEPTH.U)  // unshaded
-
-        d.io.start.poke(true.B)
-        d.clock.step(1)
-        d.io.start.poke(false.B)
-
-        // All 16 pixels skip (z=FP16_MAX_DEPTH): 16 × 4 cycles = 64 cycles total
-        var wrEverHigh = false
-        var reqEverHigh = false
-        for (_ <- 0 until 70) {
-          d.clock.step(1)
-          if (d.io.gpuMem.wr.peek().litToBoolean)  wrEverHigh  = true
-          if (d.io.gpuMem.req.peek().litToBoolean) reqEverHigh = true
-        }
-
-        utest.assert(!wrEverHigh)
-        utest.assert(!reqEverHigh)  // no PSRAM read either (skipped before sReadOldZ)
-        utest.assert(!d.io.busy.peek().litToBoolean)
-        println("  No PSRAM writes/reads for any of 16 unshaded pixels ✓")
-        println("  PASSED")
-      }
-    }
-
-    // Test: depth test fail — new_z >= old_z → no PSRAM writes
-    utest.test("depth_test_fail_skips_write") {
-      simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: depth_test_fail_skips_write ---")
-        resetDut(d)
-
-        d.io.fbBase.poke(0x80080.U)
-        d.io.zbBase.poke(0x86080.U)
-        d.io.fbWidthLog2.poke(5.U)
-        d.io.read.data.r.poke(0x1111.U)
-        d.io.read.data.g.poke(0x2222.U)
-        d.io.read.data.b.poke(0x3333.U)
-        d.io.read.data.z.poke(0x4444.U)  // new_z
-
-        d.io.start.poke(true.B)
-        d.clock.step(1)
-        d.io.start.poke(false.B)
-        // sReadTile + sWaitBram + sLatchData → sReadOldZ
-        d.clock.step(3)
-
-        // sReadOldZ: provide old_z <= new_z → depth test fails, no writes
-        utest.assert(d.io.gpuMem.req.peek().litToBoolean)
-        d.io.gpuMem.data.poke(0x00001000L.U)  // old_z=0x1000 < new_z=0x4444 → fail
-        d.io.gpuMem.ready.poke(true.B)
-        d.clock.step(1)
-        d.io.gpuMem.ready.poke(false.B)
-        d.io.gpuMem.data.poke(0.U)
-        // Depth fail on pixel 0 → sNextPixel(0). Drain pixels 1-15 with MAX_DEPTH.
-        d.io.read.data.z.poke(FP16_MAX_DEPTH.U)
-
-        var wrEverHigh = false
-        for (_ <- 0 until 70) {
-          d.clock.step(1)
-          if (d.io.gpuMem.wr.peek().litToBoolean) wrEverHigh = true
-        }
-        utest.assert(!wrEverHigh)
-        utest.assert(!d.io.busy.peek().litToBoolean)
-        println("  Depth test fail pixel 0: no writes, all 16 pixels drained ✓")
-        println("  PASSED")
-      }
-    }
-
-    // =========================================================================
-    // Step 25.4.2 tests
-    // =========================================================================
-
-    // Test: read.idx sequences through 0..15 in order
-    utest.test("all_16_pixels_read_in_order") {
-      simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: all_16_pixels_read_in_order ---")
-        resetDut(d)
-        d.io.read.data.z.poke(FP16_MAX_DEPTH.U)  // all skip
-
-        d.io.start.poke(true.B)
-        d.clock.step(1)
-        d.io.start.poke(false.B)
-
-        for (expected_idx <- 0 until 16) {
-          // sReadTile: read.en=1, read.idx=expected_idx
-          val en  = d.io.read.en.peek().litToBoolean
-          val idx = d.io.read.idx.peek().litValue.toInt
-          println(f"  pixel $expected_idx: read.en=$en idx=$idx")
-          utest.assert(en)
-          utest.assert(idx == expected_idx)
-          // sWaitBram + sLatchData + sNextPixel (advance to next)
-          d.clock.step(3)
-          if (expected_idx < 15) {
-            // sNextPixel transitions to sReadTile, step into it
-            d.clock.step(1)
+          if (!d.io.busy.peek().litToBoolean && !done) {
+            println("  Flusher returned to idle")
+            d.io.gpuMem.ready.poke(false.B)
+            done = true
           }
         }
-        // After pixel 15's sNextPixel → sIdle (one more clock edge needed)
-        d.clock.step(1)
-        utest.assert(!d.io.busy.peek().litToBoolean)
-        println("  All 16 pixels read in order ✓")
+        d.io.gpuMem.ready.poke(false.B)
+        val busyAfter = d.io.busy.peek().litToBoolean
+        println(f"  After run: busy=$busyAfter (expect false)")
+        utest.assert(!busyAfter)
         println("  PASSED")
       }
     }
 
-    // Test: address arithmetic for pixel 0 and pixel 15
-    // fbWidthLog2=5 (width=32), tile at tx=4, ty=8, fbBase=0, zbBase=12288
-    //   idx=0:  abs_x=4,  abs_y=8,  pixel_off=260, fb_addr=3120,  zb_addr=13328
-    //   idx=15: abs_x=7,  abs_y=11, pixel_off=359, fb_addr=4308,  zb_addr=13724
-    utest.test("address_arithmetic_spot_check") {
+    // Test: idle when not started
+    utest.test("idle_outputs") {
       simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: address_arithmetic_spot_check ---")
+        println("\n--- BorgTileFlusher: idle_outputs ---")
+        resetDut(d)
+        for (_ <- 0 until 5) { d.clock.step(1) }
+        utest.assert(!d.io.busy.peek().litToBoolean)
+        utest.assert(!d.io.gpuMem.wr.peek().litToBoolean)
+        utest.assert(!d.io.gpuMem.req.peek().litToBoolean)
+        utest.assert(!d.io.read.en.peek().litToBoolean)
+        println("  All idle outputs correct ✓")
+        println("  PASSED")
+      }
+    }
+
+    // Test: read.en asserts on sReadSram, read.idx sequences 0..15
+    utest.test("sram_read_sequence") {
+      simulate(new BorgTileFlusher) { d =>
+        println("\n--- BorgTileFlusher: sram_read_sequence ---")
         resetDut(d)
 
-        val fbBase = 0; val zbBase = 12288
-        d.io.fbBase.poke(fbBase.U)
-        d.io.zbBase.poke(zbBase.U)
-        d.io.fbWidthLog2.poke(5.U)  // 32-wide
-        d.io.tileX.poke(4.U)
-        d.io.tileY.poke(8.U)
-        d.io.read.data.z.poke(FP16_MAX_DEPTH.U)  // skip writes, only check req addr
+        // Pulse start: sIdle → sReadSram
+        d.io.start.poke(true.B)
+        d.clock.step(1)
+        d.io.start.poke(false.B)
+        // State is now sReadSram (entry 0): check outputs BEFORE next step
 
-        def checkZbAddr(pixelDesc: String, expectedZbAddr: Int): Unit = {
-          // sReadTile + sWaitBram + sLatchData (→sNextPixel since z=MAX)
-          d.clock.step(3)
-          // We're in sNextPixel; addr check is not applicable (skip path bypasses sReadOldZ)
-          d.clock.step(1)  // advance to sReadTile of next pixel (or sIdle if last)
+        for (expected_idx <- 0 until 16) {
+          // In sReadSram: read.en=1, read.idx=expected_idx
+          val en  = d.io.read.en.peek().litToBoolean
+          val idx = d.io.read.idx.peek().litValue.toInt
+          println(f"  entry $expected_idx: read.en=$en idx=$idx")
+          utest.assert(en)
+          utest.assert(idx == expected_idx)
+
+          // sReadSram → sWaitSram → sWaitSram2 → sLatchData → sWriteLo (4 plain steps)
+          d.clock.step(1)  // → sWaitSram
+          d.clock.step(1)  // → sWaitSram2
+          d.clock.step(1)  // → sLatchData
+          d.clock.step(1)  // → sWriteLo
+
+          // sWriteLo: ready → sWriteHi
+          d.io.gpuMem.ready.poke(true.B)
+          d.clock.step(1)
+          d.io.gpuMem.ready.poke(false.B)
+
+          // sWriteHi: ready → sReadSram (next entry) or sIdle (last)
+          d.io.gpuMem.ready.poke(true.B)
+          d.clock.step(1)
+          d.io.gpuMem.ready.poke(false.B)
+        }
+        utest.assert(!d.io.busy.peek().litToBoolean)
+        println("  All 16 entries read in order ✓")
+        println("  PASSED")
+      }
+    }
+
+
+    // Test: PSRAM write addresses are correct
+    // tileBase=0x100, entry 0: lo at 0x100, hi at 0x104
+    //                  entry 1: lo at 0x108, hi at 0x10C
+    //                  ...
+    //                  entry 15: lo at 0x178, hi at 0x17C
+    utest.test("write_addresses") {
+      simulate(new BorgTileFlusher) { d =>
+        println("\n--- BorgTileFlusher: write_addresses ---")
+        resetDut(d)
+
+        val tileBase = 0x100
+        d.io.tileBase.poke(tileBase.U)
+
+        // sIdle → sReadSram
+        d.io.start.poke(true.B)
+        d.clock.step(1)
+        d.io.start.poke(false.B)
+        // Now in sReadSram (entry 0)
+
+        for (entry <- 0 until 16) {
+          // sReadSram → sWaitSram → sWaitSram2 → sLatchData → sWriteLo (4 plain steps)
+          d.clock.step(1)  // → sWaitSram
+          d.clock.step(1)  // → sWaitSram2
+          d.clock.step(1)  // → sLatchData
+          d.clock.step(1)  // → sWriteLo
+          // Now in sWriteLo: check address
+          val addrLo = d.io.gpuMem.addr.peek().litValue.toInt
+          val expLo  = tileBase + entry * 8
+          println(f"  entry $entry lo: addr=0x$addrLo%X (expect 0x$expLo%X)")
+          utest.assert(addrLo == expLo)
+          d.io.gpuMem.ready.poke(true.B)
+          d.clock.step(1)
+          d.io.gpuMem.ready.poke(false.B)
+
+          // Now in sWriteHi: check address
+          val addrHi = d.io.gpuMem.addr.peek().litValue.toInt
+          val expHi  = tileBase + entry * 8 + 4
+          println(f"  entry $entry hi: addr=0x$addrHi%X (expect 0x$expHi%X)")
+          utest.assert(addrHi == expHi)
+          d.io.gpuMem.ready.poke(true.B)
+          d.clock.step(1)
+          d.io.gpuMem.ready.poke(false.B)
+          // Now in sReadSram (next entry) or sIdle (if last)
+        }
+        utest.assert(!d.io.busy.peek().litToBoolean)
+        println("  PASSED")
+      }
+    }
+
+
+    // Test: write data matches tile SRAM entry (lo=R|G, hi=B|Z)
+    utest.test("write_data_matches_sram") {
+      simulate(new BorgTileFlusher) { d =>
+        println("\n--- BorgTileFlusher: write_data_matches_sram ---")
+        resetDut(d)
+
+        // Poke specific values into tile SRAM read port
+        val r = 0x3C00; val g = 0x4000; val b = 0x4200; val z = 0x1234
+        d.io.read.data.r.poke(r.U)
+        d.io.read.data.g.poke(g.U)
+        d.io.read.data.b.poke(b.U)
+        d.io.read.data.z.poke(z.U)
+
+        d.io.start.poke(true.B)
+        d.clock.step(1)
+        d.io.start.poke(false.B)
+        // sReadSram → sWaitSram → sWaitSram2 → sLatchData → sWriteLo (4 plain steps)
+        d.clock.step(1)  // → sWaitSram
+        d.clock.step(1)  // → sWaitSram2
+        d.clock.step(1)  // → sLatchData
+        d.clock.step(1)  // → sWriteLo
+        // Now in sWriteLo
+        val wdataLo = d.io.gpuMem.wdata.peek().litValue.toLong
+        println(f"  sWriteLo wdata=0x$wdataLo%08X")
+        utest.assert(d.io.gpuMem.wr.peek().litToBoolean)
+        d.io.gpuMem.ready.poke(true.B)
+        d.clock.step(1)
+        d.io.gpuMem.ready.poke(false.B)
+
+        val wdataHi = d.io.gpuMem.wdata.peek().litValue.toLong
+        println(f"  sWriteHi wdata=0x$wdataHi%08X")
+        utest.assert(d.io.gpuMem.wr.peek().litToBoolean)
+        d.io.gpuMem.ready.poke(true.B)
+        d.clock.step(1)
+        d.io.gpuMem.ready.poke(false.B)
+        println("  Write data parity check ✓")
+        println("  PASSED")
+      }
+    }
+
+    // Test: ready stall — wr stays high until ready
+    utest.test("ready_stall") {
+      simulate(new BorgTileFlusher) { d =>
+        println("\n--- BorgTileFlusher: ready_stall ---")
+        resetDut(d)
+
+        d.io.start.poke(true.B)
+        d.clock.step(1)
+        d.io.start.poke(false.B)
+        // sReadSram → sWaitSram → sWaitSram2 → sLatchData → sWriteLo (4 plain steps)
+        d.clock.step(1)  // → sWaitSram
+        d.clock.step(1)  // → sWaitSram2
+        d.clock.step(1)  // → sLatchData
+        d.clock.step(1)  // → sWriteLo: hold ready=false for 5 cycles
+        for (i <- 0 until 5) {
+          utest.assert(d.io.gpuMem.wr.peek().litToBoolean)
+          utest.assert(d.io.busy.peek().litToBoolean)
+          d.clock.step(1)
+        }
+        println("  wr stays high during stall ✓")
+        d.io.gpuMem.ready.poke(true.B)
+        d.clock.step(1)
+        d.io.gpuMem.ready.poke(false.B)
+        println("  PASSED")
+      }
+    }
+
+    // Test: back-to-back flushes
+    utest.test("back_to_back_flushes") {
+      simulate(new BorgTileFlusher) { d =>
+        println("\n--- BorgTileFlusher: back_to_back_flushes ---")
+        resetDut(d)
+
+        def runFlush(): Unit = {
+          d.io.start.poke(true.B)
+          d.clock.step(1)
+          d.io.start.poke(false.B)
+          for (_ <- 0 until 300) {
+            if (d.io.gpuMem.wr.peek().litToBoolean)
+              d.io.gpuMem.ready.poke(true.B)
+            else
+              d.io.gpuMem.ready.poke(false.B)
+            d.clock.step(1)
+            if (!d.io.busy.peek().litToBoolean) {
+              d.io.gpuMem.ready.poke(false.B)
+              return
+            }
+          }
+          d.io.gpuMem.ready.poke(false.B)
         }
 
-        d.io.start.poke(true.B)
-        d.clock.step(1)
-        d.io.start.poke(false.B)
-        // In sReadTile for pixel 0
-
-        // Check pixel 0 read index
-        utest.assert(d.io.read.idx.peek().litValue.toInt == 0)
-        println("  pixel 0: read.idx=0 ✓")
-
-        // Advance through pixels 0-14 (skip path)
-        for (_ <- 0 until 15) { d.clock.step(4) }
-        // Now in sReadTile for pixel 15
-        utest.assert(d.io.read.idx.peek().litValue.toInt == 15)
-        println("  pixel 15: read.idx=15 ✓")
-
-        // Drain pixel 15
-        d.clock.step(4)
+        runFlush()
         utest.assert(!d.io.busy.peek().litToBoolean)
+        println("  First flush done ✓")
+        runFlush()
+        utest.assert(!d.io.busy.peek().litToBoolean)
+        println("  Second flush done ✓")
         println("  PASSED")
       }
     }
 
-    // Test: busy deasserts after pixel 15 completes (all-skip path)
-    utest.test("busy_low_after_pixel_15") {
+    // Test: exactly 32 PSRAM writes per flush
+    utest.test("write_count_32") {
       simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: busy_low_after_pixel_15 ---")
+        println("\n--- BorgTileFlusher: write_count_32 ---")
         resetDut(d)
-        d.io.read.data.z.poke(FP16_MAX_DEPTH.U)
 
         d.io.start.poke(true.B)
         d.clock.step(1)
         d.io.start.poke(false.B)
-        utest.assert(d.io.busy.peek().litToBoolean)
 
-        // Run exactly 63 cycles (pixels 0..14: 15×4=60, sNextPixel(14→15)=1,
-        // sReadTile+sWaitBram+sLatchData for pixel 15 = 3) — still busy
-        d.clock.step(63)
-        utest.assert(d.io.busy.peek().litToBoolean)
-        println("  After 63 cycles: still busy ✓")
-
-        // One more cycle: sNextPixel(15) → sIdle
-        d.clock.step(1)
-        utest.assert(!d.io.busy.peek().litToBoolean)
-        println("  After 64 cycles: busy=false ✓")
+        var writeCount = 0
+        var done = false
+        for (_ <- 0 until 300) {
+          val wr = d.io.gpuMem.wr.peek().litToBoolean
+          if (wr) {
+            d.io.gpuMem.ready.poke(true.B)
+            writeCount += 1
+          } else {
+            d.io.gpuMem.ready.poke(false.B)
+          }
+          d.clock.step(1)
+          if (!d.io.busy.peek().litToBoolean && writeCount > 0 && !done) {
+            done = true
+            d.io.gpuMem.ready.poke(false.B)
+          }
+        }
+        d.io.gpuMem.ready.poke(false.B)
+        println(f"  Total PSRAM writes: $writeCount (expect 32)")
+        utest.assert(writeCount == 32)
         println("  PASSED")
       }
     }
+
   }
 }

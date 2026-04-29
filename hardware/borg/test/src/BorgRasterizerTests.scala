@@ -34,6 +34,11 @@ object BorgRasterizerTests extends TestSuite {
     // Register-driven frag_pc and uniform_page
     rast.io.fragPcReg.poke(0.U)
     rast.io.uniformPageReg.poke(0.U)
+    // Step 25.5C: tile read port — provide max depth so depth test passes
+    rast.io.tileRead.data.r.poke(0.U)
+    rast.io.tileRead.data.g.poke(0.U)
+    rast.io.tileRead.data.b.poke(0.U)
+    rast.io.tileRead.data.z.poke(0x7BFF.U)
   }
 
   /** Command the rasterizer with tile origin via cmdPop. */
@@ -214,14 +219,17 @@ object BorgRasterizerTests extends TestSuite {
         rast.clock.step(1)
         setTileCommand(rast, 0, 0)
 
-        // Advance should pulse triggerCoreValid and set autoRunStall
+        // Advance should pulse triggerCoreValid and set autoRunStall.
+        // coreTrigger.valid is combinational (driven by pixelReady in the same
+        // cycle).  After step(1), auto_run_stall becomes true and gates the
+        // iterator, so pixelReady (and coreTrigger.valid) drop to false.
+        // Therefore: peek the combinational output BEFORE stepping.
         pokeIdle(rast)
         rast.io.advance.poke(true.B)
-        rast.clock.step(1)
-
         val triggered = rast.io.coreTrigger.valid.peek().litToBoolean
         println(f"  During advance: coreTrigger.valid=$triggered")
         utest.assert(triggered)
+        rast.clock.step(1)
 
         // Now simulate: advance done, core starts running
         rast.io.advance.poke(false.B)
@@ -341,8 +349,8 @@ object BorgRasterizerTests extends TestSuite {
         utest.assert(stall)
         simulateShaderRun(rast)
         
-        // Wait 1 extra cycle for sTileWrite phase
-        rast.clock.step(1)
+        // Wait for depth test (sZRead → sZWait1 → sZWait2 → sTileWrite) + 1 for sTileWrite→sIdle
+        rast.clock.step(4)
 
         val finalStall = rast.io.autoRunStall.peek().litToBoolean
         println(f"  After frag done: stall=$finalStall")
@@ -441,8 +449,11 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.gpuMem.ready.poke(false.B)
 
         // BorgTextureUnit needs one cycle to transition sReadRG→sDone and pulse done;
-        // the dispatcher then enters sTileWrite in the following cycle.
+        // the dispatcher then enters sZRead (Step 25.5C).
         rast.clock.step(1)
+
+        // Step through depth test (3 cycles: sZRead → sZWait1 → sZWait2 → sTileWrite)
+        rast.clock.step(3)
 
         val tileWr = rast.io.tileWrite.en.peek().litToBoolean
         println(f"  sTileWrite: tileWrite.en=$tileWr")

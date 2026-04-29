@@ -258,19 +258,25 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     writeColor.z := tileShadowZ
     tile.io.write.data := Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor)
 
-    // Read port: flusher gets priority; falls back to MMIO CTRL when flusher idle.
-    // In practice these never fire simultaneously: flusher active = pipeline busy
-    // = CPU not issuing TILE_CTRL reads.  Mux still required for correctness.
+    // Read port: flusher > dispatcher depth-test > MMIO CTRL.
+    // Flusher and dispatcher never fire simultaneously (flusher waits for
+    // autoRunStall to drop).  Mux required for correctness.
     flusher match {
       case Some(f) =>
         tile.io.read.idx := Mux(f.io.read.en, f.io.read.idx,
-                               Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx))
-        tile.io.read.en  := f.io.read.en || ctrlWriting
+                               Mux(rast.io.tileRead.en, rast.io.tileRead.idx,
+                                  Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx)))
+        tile.io.read.en  := f.io.read.en || rast.io.tileRead.en || ctrlWriting
       case None =>
-        tile.io.read.idx := Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx)
-        tile.io.read.en  := ctrlWriting
+        tile.io.read.idx := Mux(rast.io.tileRead.en, rast.io.tileRead.idx,
+                               Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx))
+        tile.io.read.en  := rast.io.tileRead.en || ctrlWriting
     }
+
+    // Feed tile read data back to both flusher and dispatcher.
+    rast.io.tileRead.data := tile.io.read.data
   }
+
 
   /** Step 25.4.1: Wire BorgTileFlusher with real PSRAM writes.
     *
@@ -282,43 +288,45 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     * - tile read port: muxed in wireTileBuffer() above.
     */
   private def wireFlusher(): Unit = {
-    // Shadow registers for nogen flush config regs (bus-decoded, same pattern as DMA).
-    val flushFbBaseReg      = RegInit(0.U(20.W))
-    val flushZbBaseReg      = RegInit(0.U(20.W))
-    val flushFbWidthLog2Reg = RegInit(0.U(4.W))  // log2(fbWidth)
-
+    // Single shadow register: firmware writes tileBase per tile.
+    // tileBase = fbBase + tile_index * 128
+    //   tile_index = (ty >> 2) * tiles_per_row + (tx >> 2)
+    val flushTileBaseReg = RegInit(0.U(20.W))
     when(bus.is_writing && bus.address === BorgGpuRegs.flush_fb_base_offset) {
-      flushFbBaseReg := bus.data_in(19, 0)
+      flushTileBaseReg := bus.data_in(19, 0)
     }
-    when(bus.is_writing && bus.address === BorgGpuRegs.flush_zb_base_offset) {
-      flushZbBaseReg := bus.data_in(19, 0)
-    }
-    when(bus.is_writing && bus.address === BorgGpuRegs.flush_width_offset) {
-      // Firmware writes log2(fbWidth) in bits [3:0]
-      flushFbWidthLog2Reg := bus.data_in(3, 0)
+
+    // Deferred flusher start: tileComplete and pixelReady fire on the same
+    // cycle (the last iterator advance).  The dispatcher still needs to run
+    // the last pixel's shader pipeline and write to the tile SRAM before the
+    // flusher bulk-reads it.  Latch tileComplete and fire start only when
+    // autoRunStall drops (dispatcher finished the last tile write).
+    val flushPending = RegInit(false.B)
+    when(rast.io.tileComplete) {
+      flushPending := true.B
     }
 
     flusher match {
       case Some(f) =>
-        f.io.start := rast.io.tileComplete
+        when(flushPending && !rast.io.autoRunStall) {
+          f.io.start   := true.B
+          flushPending := false.B
+        } .otherwise {
+          f.io.start := false.B
+        }
 
-        // Tile buffer read data passthrough (idx/en muxed in wireTileBuffer).
         f.io.read.data := tile.io.read.data
+        f.io.tileBase  := flushTileBaseReg
 
-        // Config: tile origin from iterator, base addresses + log2(width) from shadow regs.
-        f.io.tileX       := rast.io.tileOrigin.x
-        f.io.tileY       := rast.io.tileOrigin.y
-        f.io.fbBase      := flushFbBaseReg
-        f.io.zbBase      := flushZbBaseReg
-        f.io.fbWidthLog2 := flushFbWidthLog2Reg
-
-        // Feed flush_busy back into STATUS register (bit 4).
-        rdlRegs.io.hw.status_flush_busy := f.io.busy.asUInt
+        // flush_busy includes flushPending: firmware must not proceed while
+        // the flusher is waiting for the dispatcher to finish the last pixel.
+        rdlRegs.io.hw.status_flush_busy := (flushPending || f.io.busy).asUInt
 
       case None =>
         rdlRegs.io.hw.status_flush_busy := 0.U
     }
   }
+
 
   // @doc:mmio
   private def wireMmioRead(): Unit = {

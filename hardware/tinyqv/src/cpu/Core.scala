@@ -104,6 +104,7 @@ class TinyQVCore(numRegs: Int = 16, regAddrBits: Int = 4) extends Module {
     registers.io.rs1 := io.rs1
     registers.io.rs2 := io.rs2
     registers.io.rd := io.rd
+    registers.io.stall := io.is_stall   // freeze register rotation during stalls
     io.return_addr := registers.io.return_addr
 
     csrFile.io.counter := io.counter

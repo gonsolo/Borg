@@ -56,6 +56,7 @@ public:
     int nibbles_left = 0;
     bool wrote_half_byte = false;
     bool first_data_falling_edge = false;
+    uint32_t sim_cycle = 0;  // set by caller
     
     QSPIMemory(size_t size, bool flash) {
         mem.resize(size, 0);
@@ -183,15 +184,28 @@ inline void save_ppm(const std::string& app_name, uint32_t width, uint32_t heigh
 
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            uint32_t base = out_base_word + (y * width + x) * 3;
-            uint16_t r = psram_words_out[base + 0];
-            uint16_t g = psram_words_out[base + 1];
-            uint16_t b = psram_words_out[base + 2];
-            
+            // Step 25.4.2 Option A: tiled framebuffer layout.
+            // tile_index = (y/4) * tiles_per_row + (x/4)
+            // tile_idx   = (x&3) | ((y&3) << 2)
+            // Each tile  = 32 PSRAM words (16 entries × 2 words each).
+            // Chisel Bundle.asUInt: first field = MSB.
+            //   ColorZ(r,g,b,z) → {r[63:48], g[47:32], b[31:16], z[15:0]}
+            //   hi word = bits[63:32] = {r, g}
+            //   lo word = bits[31:0]  = {b, z}
+            uint32_t tiles_per_row = width >> 2;
+            uint32_t tile_index    = (y >> 2) * tiles_per_row + (x >> 2);
+            uint32_t tile_idx      = (x & 3) | ((y & 3) << 2);
+            uint32_t word_off      = out_base_word + tile_index * 32 + tile_idx * 2;
+            uint32_t lo            = psram_words_out[word_off + 0];  // {b, z}
+            uint32_t hi            = psram_words_out[word_off + 1];  // {r, g}
+            uint16_t r = (uint16_t)(hi >> 16);
+            uint16_t g = (uint16_t)(hi & 0xFFFF);
+            uint16_t b = (uint16_t)(lo >> 16);
+
             int r_b = std::max(0, std::min(255, (int)(fp16_to_float(r) * 255)));
             int g_b = std::max(0, std::min(255, (int)(fp16_to_float(g) * 255)));
             int b_b = std::max(0, std::min(255, (int)(fp16_to_float(b) * 255)));
-            
+
             out << r_b << " " << g_b << " " << b_b << " ";
         }
         out << "\n";

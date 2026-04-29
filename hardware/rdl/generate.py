@@ -156,8 +156,21 @@ def emit_python(path, rdl_consts):
         f.write("STARTUP_DELAY_CYCLES = 10000\n")
         f.write("PSRAM_SPI_BASE = 0x00001000\n")
         f.write("PSRAM_IO_SPI_ADDR = PSRAM_SPI_BASE\n")
-        f.write("PSRAM_OUT_OFFSET = 524416\n")  # Must match borg_layout.h
-        f.write("TEX_PSRAM_BYTE_OFFSET = 128\n")  # Byte offset from PSRAM_SPI_BASE to texture
+        # Parse PSRAM layout from borg_layout.h (single source of truth)
+        layout_h = os.path.join(rdl_dir, "..", "..", "software", "borg", "borg_layout.h")
+        layout_vals = {}
+        with open(layout_h) as lh:
+            import re
+            for line in lh:
+                m = re.match(r'#define\s+(\w+)\s+(0x[\da-fA-F]+|\d+)', line)
+                if m:
+                    layout_vals[m.group(1)] = int(m.group(2), 0)
+        psram_out_off = layout_vals.get("PSRAM_OUT_OFFSET", 0x84000)
+        tex_byte_addr = layout_vals.get("TEX_PSRAM_BYTE_ADDR_FIXED", 0x5000)
+        psram_spi_base = layout_vals.get("PSRAM_SPI_BASE", 0x1000)
+        tex_byte_offset = tex_byte_addr - psram_spi_base
+        f.write(f"PSRAM_OUT_OFFSET = {psram_out_off}\n")  # from borg_layout.h
+        f.write(f"TEX_PSRAM_BYTE_OFFSET = {tex_byte_offset}\n")  # TEX_PSRAM_BYTE_ADDR_FIXED - PSRAM_SPI_BASE
         f.write("\n")
         
         f.write("# --- SPIR-B Format Constants ---\n")

@@ -47,10 +47,17 @@ public:
         
         for (uint32_t y = 0; y < sim->height; y++) {
             for (uint32_t x = 0; x < sim->width; x++) {
-                uint32_t base = sim->out_base_word + (y * sim->width + x) * 3;
-                uint16_t r_fp16 = (uint16_t)psram_words[base + 0];
-                uint16_t g_fp16 = (uint16_t)psram_words[base + 1];
-                uint16_t b_fp16 = (uint16_t)psram_words[base + 2];
+                // Tiled layout: tile_index = (y/4)*tiles_per_row + (x/4)
+                // tile_idx = (x&3) | ((y&3)<<2), each pixel = 2 words
+                uint32_t tiles_per_row = sim->width >> 2;
+                uint32_t tile_index = (y >> 2) * tiles_per_row + (x >> 2);
+                uint32_t tile_idx   = (x & 3) | ((y & 3) << 2);
+                uint32_t word_off   = sim->out_base_word + tile_index * 32 + tile_idx * 2;
+                uint32_t lo = psram_words[word_off + 0];  // {b, z}
+                uint32_t hi = psram_words[word_off + 1];  // {r, g}
+                uint16_t r_fp16 = (uint16_t)(hi >> 16);
+                uint16_t g_fp16 = (uint16_t)(hi & 0xFFFF);
+                uint16_t b_fp16 = (uint16_t)(lo >> 16);
                 
                 uint8_t r_b = std::max(0, std::min(255, (int)(::fp16_to_float(r_fp16) * 255)));
                 uint8_t g_b = std::max(0, std::min(255, (int)(::fp16_to_float(g_fp16) * 255)));

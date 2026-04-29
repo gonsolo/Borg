@@ -47,6 +47,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
 
   // --- Outputs to BorgTileBuffer ---
   val tileWrite  = new TileWriteIO              // tile buffer push
+  val tileRead   = new TileReadIO(16)           // Step 25.5C: depth test read port
 
   // --- Outputs to MemoryController (PSRAM) ---
   val gpuMem     = new GpuMemIO                 // texel read port
@@ -65,7 +66,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
   private val config = cfg.fp  // shorthand for FP arithmetic
 
   // --- Phase FSM ---
-  val sIdle :: sRast :: sFrag :: sTexFetch :: sTileWrite :: Nil = Enum(5)
+  // Step 25.5C: sZRead/sZWait1/sZWait2 added for depth test read-before-write.
+  val sIdle :: sRast :: sFrag :: sTexFetch :: sZRead :: sZWait1 :: sZWait2 :: sTileWrite :: Nil = Enum(8)
   val phase = RegInit(sIdle)
 
   // --- Texture unit (Step 25.3e) ---
@@ -99,83 +101,97 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
   io.tileWrite.data := 0.U.asTypeOf(new ColorZ(16))
 
   // GPU memory port: forwarded from BorgTextureUnit (Step 25.3e)
-  // The texture unit owns the read port during sTexFetch; it idles when not active.
   texUnit.io.texConfig <> io.texConfig
   texUnit.io.gpuMem    <> io.gpuMem
   texUnit.io.start     := false.B  // overridden in sTexFetch transition below
 
+  // Step 25.5C: tile read port defaults (no read)
+  io.tileRead.en  := false.B
+  io.tileRead.idx := io.shaderTileIndex
+
   // --- React to pixelReady from BorgIterator ---
   when(io.pixelReady) {
-    // Reset edge flags for new pixel (set by shader write-back snooping)
     e0_outside := false.B
     e1_outside := false.B
     e2_outside := false.B
     auto_run_stall := true.B
     phase := sRast
     io.coreTrigger.valid := true.B
-    io.coreTrigger.pc    := 0.U  // rasterizer shader always at PC=0
+    io.coreTrigger.pc    := 0.U
   }
 
   // --- Shader chaining FSM ---
-  // When rast shader finishes: chain to frag shader if inside, else release CPU
   val core_was_active = RegNext(io.coreStatus.running || io.coreStatus.autoRunPending, false.B)
   val core_just_finished = core_was_active && !io.coreStatus.running && !io.coreStatus.autoRunPending
 
   when(phase === sRast && core_just_finished) {
     when(inside_flag && io.fragPcReg =/= 0.U) {
-      // Inside pixel and chaining enabled: trigger fragment shader
       phase := sFrag
       io.coreTrigger.valid := true.B
       io.coreTrigger.pc    := io.fragPcReg
     }.otherwise {
-      // Outside pixel or chaining disabled: release CPU immediately
       phase := sIdle
       auto_run_stall := false.B
     }
   }
 
   when(phase === sFrag && core_just_finished) {
-    // Fragment shader finished: texel fetch or tile write
     when(io.texConfig.en) {
       phase := sTexFetch
-      texUnit.io.start := true.B   // one-cycle pulse into BorgTextureUnit
+      texUnit.io.start := true.B
     } .otherwise {
-      phase := sTileWrite
+      phase := sZRead
     }
   }
 
   // --- sTexFetch: delegated to BorgTextureUnit (Step 25.3e) ---
-  //
-  // The dispatcher enters sTexFetch, pulses texUnit.start (above), then waits
-  // for texUnit.done.  All PSRAM handshaking and B-first ordering live inside
-  // BorgTextureUnit — see that module for the detailed memory layout comment.
   when(phase === sTexFetch && texUnit.io.done) {
-    // Latch the fetched colors from BorgTextureUnit before moving on
     frag_r := texUnit.io.fragColor.r
     frag_g := texUnit.io.fragColor.g
     frag_b := texUnit.io.fragColor.b
-    phase  := sTileWrite
+    phase  := sZRead
+  }
+
+
+  // Step 25.5C: Depth test — read-before-write on tile SRAM
+  // =========================================================================
+  //
+  // BorgTileBuffer uses SyncReadMem + readDataHeld register:
+  //   Cycle 0 (sZRead):  assert read.en → SyncReadMem latches address
+  //   Cycle 1 (sZWait1): SyncReadMem output valid; readEnDel fires
+  //   Cycle 2 (sZWait2): readDataHeld captures → io.tileRead.data valid
+  //   Cycle 3 (sTileWrite): compare frag_z vs io.tileRead.data.z
+  //   (readDataHeld is held stable until next read.en pulse — no latch needed)
+
+  when(phase === sZRead) {
+    io.tileRead.en  := true.B
+    io.tileRead.idx := io.shaderTileIndex
+    phase := sZWait1
+  }
+
+  when(phase === sZWait1) {
+    phase := sZWait2
+  }
+
+  when(phase === sZWait2) {
+    phase := sTileWrite
   }
 
   when(phase === sTileWrite) {
-    // Push the snooped values to the tile buffer (Step 11.3 auto-write)
-    // We use the pre-advanced coordinates for index!
-    io.tileWrite.idx := io.shaderTileIndex  // pre-advance position for correct tile slot
+    io.tileWrite.idx := io.shaderTileIndex
     io.tileWrite.data.r := frag_r
     io.tileWrite.data.g := frag_g
     io.tileWrite.data.b := frag_b
     io.tileWrite.data.z := frag_z
-    // Step 25.3f: guard — only write if pixel is inside the triangle.
-    // Not a current bug (outside pixels are routed sRast→sIdle and never
-    // reach this state), but Step 25.4d will make the dispatcher process
-    // every pixel autonomously, at which point outside fragments would
-    // reach sTileWrite and corrupt the tile buffer without this guard.
-    io.tileWrite.en := inside_flag
+    // Step 25.5C depth test: write only if inside AND closer.
+    // FP16 Z is non-negative in NDC; unsigned < comparison is valid.
+    // io.tileRead.data is held stable in BorgTileBuffer.readDataHeld.
+    io.tileWrite.en := inside_flag && (frag_z < io.tileRead.data.z)
 
-    // Always return to idle and release the stall, even for outside pixels.
     phase := sIdle
     auto_run_stall := false.B
   }
+
 
 
 

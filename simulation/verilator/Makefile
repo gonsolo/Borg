@@ -29,7 +29,7 @@ obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/asic_files.txt $(V_SR
 	-DENABLE_INITIAL_MEM_ \
 	$(ROOT)/lint.vlt \
 	$$SRC_FILES \
-	$(HW_DIR)/borg/verilog_sim/verification/layers-*.sv \
+	$(wildcard $(HW_DIR)/borg/verilog_sim/verification/layers-*.sv) \
 	main.cpp \
 	../common/BorgSimulatorBase.cpp \
 	../common/texture_loader.cpp \

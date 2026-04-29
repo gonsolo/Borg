@@ -11,31 +11,32 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-
 // @doc:mmio-map
+#include "borg_isa.h" // IWYU pragma: keep — used by @doc extractor + ISA macros
 #include "borg_sys.h"
-#include "borg_isa.h"  // IWYU pragma: keep — used by @doc extractor + ISA macros
 // @doc:end
 
 #define FP16_SIXTEEN 0x4C00
 
-// --- PSRAM frame layout (word-index arithmetic, same units as PSRAM_OUT/PSRAM_OUT_SPI) ---
-// BORG_FB_WIDTH / BORG_FB_HEIGHT are compile-time constants from borg_driver.h.
-#define FRAME_FB_SIZE (BORG_FB_WIDTH * BORG_FB_HEIGHT * 3) // RGB words
-#define FRAME_ZB_SIZE (BORG_FB_WIDTH * BORG_FB_HEIGHT)     // Z-buffer words
-#define FRAME_STRIDE  (FRAME_FB_SIZE + FRAME_ZB_SIZE + 1)  // FB + ZB + DONE marker
+// --- PSRAM frame layout (tiled: 2 words per pixel) ---
+// Each pixel: lo word = {B[15:0], Z[15:0]} packed, hi word = {unused, R[15:0],
+// G[15:0]} Actually: lo = R|Z packed by flusher, hi = G|B packed by flusher.
+// FRAME_FB_SIZE = W*H*2 words (tiled layout, no separate Z buffer).
+#define FRAME_FB_SIZE (BORG_FB_WIDTH * BORG_FB_HEIGHT * 2)
+#define FRAME_ZB_SIZE 0
+#define FRAME_STRIDE (FRAME_FB_SIZE + 1) // FB + DONE marker
 
-static inline void fb_write_pixel(int base, rgb16_t c) {
-  PSRAM_OUT(base + 0) = c.r;
-  PSRAM_OUT(base + 1) = c.g;
-  PSRAM_OUT(base + 2) = c.b;
-}
+// Maximum tiles for the largest supported framebuffer (128×128 / 4×4 = 32×32
+// tiles).
+#define BORG_MAX_TILES 1024      // (128/4)*(128/4) = 1024
+#define BORG_MAX_DRAWS 16        // max draw calls per frame
+#define BORG_MAX_TRIS_PER_TILE 8 // max triangles that can touch one tile
 
-
-
-static inline rgb16_t fb_read_texel(int base) {
-  return (rgb16_t){PSRAM_IN(base + 0), PSRAM_IN(base + 1), PSRAM_IN(base + 2)};
-}
+// Per-tile triangle list (the "bin").
+// bin_count[t] = number of draw calls touching tile t
+// bin_list[t][i] = index into draw_calls[] for the i-th triangle on tile t
+static uint8_t bin_count[BORG_MAX_TILES];
+static uint8_t bin_list[BORG_MAX_TILES][BORG_MAX_TRIS_PER_TILE];
 
 typedef struct {
   int w, h;
@@ -53,6 +54,24 @@ int borg_fb_height;
 static fp16_t fp16_half_width;
 static fp16_t pc_lut[BORG_MAX_FB_DIM];
 
+// Integer bounding box (clamped to framebuffer).
+typedef struct {
+  int x0, y0, x1, y1;
+} bbox_t;
+
+// Snapshot of one submitted draw call (post-clip, post-setup).
+typedef struct {
+  triangle_t tri; // fully set-up triangle (screen_pos, edges, uniforms)
+  texture_t tex;  // copy of texture state at draw time
+  bbox_t bb;      // screen-space AABB (used for binning)
+  int frame;      // target frame index
+} draw_call_t;
+
+static draw_call_t draw_calls[BORG_MAX_DRAWS];
+static int draw_call_count = 0;
+static rgb16_t
+    last_clear_color; // saved by borgBinReset, used for empty-tile fill
+
 #define NUM_VERTICES 3
 #define MAX_CLIP_VERTS 4 // Clipping one triangle can produce at most a quad
 
@@ -62,10 +81,6 @@ typedef struct {
   fp16_t r, g, b;    // vertex color
   fp16_t u, v;       // texture UV
 } clip_vertex_t;
-
-// Integer bounding box (clamped to framebuffer).
-typedef struct { int x0, y0, x1, y1; } bbox_t;
-
 
 // Global timing vars
 unsigned int t_init_cycles = 0;
@@ -86,7 +101,6 @@ void puts_uart(const char *s) {
   while (*s)
     putc_uart(*s++);
 }
-
 
 // --- Timing and debug printing ---
 static inline unsigned int get_cycles(void) {
@@ -119,12 +133,12 @@ static void run_vertex_shader(const fp16_t *uniforms, const fp16_t *attrs,
       BORG_GPU->gpr[s->const_regs[i]] = s->const_vals[i];
     borg_run(BORG_IMEM_VERT_OFFSET);
     for (int i = 0; i < s->num_outputs; i++)
-      outputs[v * s->num_outputs + i] = BORG_GPU->gpr[s->output_regs[i]] & 0xFFFF;
+      outputs[v * s->num_outputs + i] =
+          BORG_GPU->gpr[s->output_regs[i]] & 0xFFFF;
   }
 }
 
 // --- Public API ---
-
 
 void borgCreateDevice(void) {
   STARTUP_DELAY();
@@ -135,10 +149,10 @@ void borgCreateDevice(void) {
   // Read framebuffer dimensions from PSRAM (written by host)
   borg_fb_width = PSRAM_IN(0);
   borg_fb_height = PSRAM_IN(1);
-  if (borg_fb_width == 0) borg_fb_width = 32;
-  if (borg_fb_height == 0) borg_fb_height = 32;
-
-
+  if (borg_fb_width == 0)
+    borg_fb_width = 32;
+  if (borg_fb_height == 0)
+    borg_fb_height = 32;
 
   // Compute FP16 half-width for NDC→screen transform.
   // Must encode both exponent AND mantissa to handle non-power-of-2 widths.
@@ -160,20 +174,16 @@ void borgCreateDevice(void) {
     val = borg_fp16_add(val, FP16_ONE);
   }
 
-  // Step 25.4.1: Configure hardware tile flusher base addresses.
-  // Use PSRAM_OUT_SPI(n): the SPI-address companion to PSRAM_OUT(n).
-  // Both address the same physical PSRAM word; this keeps HW and CPU
-  // address arithmetic in sync — a single source of truth.
-  //
-  // Frame 0:
-  //   FB  base word = 0 * FRAME_STRIDE
-  //   ZB  base word = 0 * FRAME_STRIDE + FRAME_FB_SIZE
+  // Step 25.4.1: Configure hardware tile flusher base address.
+  // Actual per-tile base is set dynamically in borgBinRender.
   BORG_GPU->flush_fb_base = PSRAM_OUT_SPI(0 * FRAME_STRIDE);
-  BORG_GPU->flush_zb_base = PSRAM_OUT_SPI(0 * FRAME_STRIDE + FRAME_FB_SIZE);
   // log2(fbWidth) — fbWidth is always a power of 2
   unsigned int log2_w = 0;
   unsigned int w = (unsigned int)borg_fb_width;
-  while (w > 1) { w >>= 1; log2_w++; }
+  while (w > 1) {
+    w >>= 1;
+    log2_w++;
+  }
   BORG_GPU->flush_width = log2_w;
 
   t_init_cycles = get_cycles() - t_init;
@@ -218,32 +228,32 @@ void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
   d->uniforms[15] = FP16_ONE;
 }
 
+// TBDR: Reset binning state. No PSRAM clearing needed —
+// clear color is written to empty tiles during borgBinRender.
+static void borgBinReset(rgb16_t cc) {
+  for (int i = 0; i < BORG_MAX_TILES; i++)
+    bin_count[i] = 0;
+  draw_call_count = 0;
+  last_clear_color = cc;
+}
+
 void borg_clear_zbuffer(int frame, rgb16_t clear_color) {
   unsigned int t_start = get_cycles();
-  int fb_offset = frame * FRAME_STRIDE;
-  int zb_offset = fb_offset + FRAME_FB_SIZE;
-  // Clear RGB framebuffer with the specified color
-  for (int i = 0; i < FRAME_FB_SIZE; i += 3) {
-    PSRAM_OUT(fb_offset + i + 0) = clear_color.r;
-    PSRAM_OUT(fb_offset + i + 1) = clear_color.g;
-    PSRAM_OUT(fb_offset + i + 2) = clear_color.b;
-  }
-  // Clear z-buffer to max depth
-  for (int i = 0; i < FRAME_ZB_SIZE; i++)
-    PSRAM_OUT(zb_offset + i) = FP16_MAX_DEPTH;
+  borgBinReset(clear_color);
   t_clear_cycles = get_cycles() - t_start;
 }
 
 void borg_set_texture(int tex_width, int tex_height) {
-  tex = (texture_t){.psram_offset = 0,  // unused, texture at fixed PSRAM addr
+  tex = (texture_t){.psram_offset = 0, // unused, texture at fixed PSRAM addr
                     .size = {tex_width, tex_height},
                     .w_fp16 = uint_to_fp16(tex_width),
                     .h_fp16 = uint_to_fp16(tex_height)};
   // Step 21.2: Enable hardware sTexFetch via TEX_CONFIG MMIO register.
   // Texture lives at TEX_PSRAM_BYTE_ADDR_FIXED (defined in borg_layout.h),
   // BEFORE the framebuffer, so it always fits in the 16-bit base_addr field.
-  BORG_GPU->tex_config = (TEX_PSRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
-                         TEX_CONFIG_REG_T__EN_bm;
+  BORG_GPU->tex_config =
+      (TEX_PSRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
+      TEX_CONFIG_REG_T__EN_bm;
 }
 
 void borg_clear_texture(void) {
@@ -327,74 +337,61 @@ static bbox_t compute_bbox(const xy16x3_t *pos) {
   fp16_t min_x = pos->v[0].x, max_x = pos->v[0].x;
   fp16_t min_y = pos->v[0].y, max_y = pos->v[0].y;
   for (int i = 1; i < 3; i++) {
-    if (fp16_lt(pos->v[i].x, min_x)) min_x = pos->v[i].x;
-    if (fp16_lt(max_x, pos->v[i].x)) max_x = pos->v[i].x;
-    if (fp16_lt(pos->v[i].y, min_y)) min_y = pos->v[i].y;
-    if (fp16_lt(max_y, pos->v[i].y)) max_y = pos->v[i].y;
+    if (fp16_lt(pos->v[i].x, min_x))
+      min_x = pos->v[i].x;
+    if (fp16_lt(max_x, pos->v[i].x))
+      max_x = pos->v[i].x;
+    if (fp16_lt(pos->v[i].y, min_y))
+      min_y = pos->v[i].y;
+    if (fp16_lt(max_y, pos->v[i].y))
+      max_y = pos->v[i].y;
   }
   int x0 = fp16_ge_zero(min_x) ? fp16_to_uint(min_x) : 0;
   int y0 = fp16_ge_zero(min_y) ? fp16_to_uint(min_y) : 0;
   int x1 = fp16_ge_zero(max_x) ? fp16_to_uint(max_x) + 1 : 0;
   int y1 = fp16_ge_zero(max_y) ? fp16_to_uint(max_y) + 1 : 0;
-  if (x1 > BORG_FB_WIDTH)  x1 = BORG_FB_WIDTH;
-  if (y1 > BORG_FB_HEIGHT) y1 = BORG_FB_HEIGHT;
-  return (bbox_t){ x0, y0, x1, y1 };
+  if (x1 > BORG_FB_WIDTH)
+    x1 = BORG_FB_WIDTH;
+  if (y1 > BORG_FB_HEIGHT)
+    y1 = BORG_FB_HEIGHT;
+  return (bbox_t){x0, y0, x1, y1};
 }
 
-// Iterate all pixels within the triangle's bounding box via hardware counters.
-// Step 10.6.5: Auto-chain integration — load all uniforms (rast u0-u11 + frag
-// u12-u30) once per triangle, then the hardware FSM chains rasterizer -> fragment
-// without CPU involvement.  Eliminates per-pixel uniform reloading and the
-// manual borg_run_fragment() call.
 static int current_uniform_page = 0;
 
-static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
-  bbox_t bb = compute_bbox(&tri->screen_pos);
-
-  PSRAM_OUT(5003) = 0x2222;
-  PSRAM_OUT(5004) = bb.x0;
-  PSRAM_OUT(5005) = bb.y0;
-  PSRAM_OUT(5006) = bb.x1;
-  PSRAM_OUT(5007) = bb.y1;
+// Load all uniforms for a draw call into the hardware pipeline.
+static void setup_tile_uniforms(const draw_call_t *dc) {
+  const triangle_t *tri = &dc->tri;
+  const texture_t *t = &dc->tex;
 
   // Ping-pong the uniform pages (Step 13.4)
   current_uniform_page ^= 1;
-  BORG_GPU->control = (current_uniform_page << CONTROL_REG_T__UNIFORM_WRITE_PAGE_bp);
+  BORG_GPU->control =
+      (current_uniform_page << CONTROL_REG_T__UNIFORM_WRITE_PAGE_bp);
 
-  // --- Load ALL uniforms once per triangle ---
   // Rasterizer uniforms (u0-u11): edge constants + negated vertex positions
   borg_load_edge_constants(&rast_shader, tri->edges.v);
   for (int i = 0; i < 3; i++) {
-    BORG_GPU->uniform[rast_shader.uniform_regs[6 + i * 2 + 0]] = BORG_FP16_NEG(tri->screen_pos.v[i].x);
-    BORG_GPU->uniform[rast_shader.uniform_regs[6 + i * 2 + 1]] = BORG_FP16_NEG(tri->screen_pos.v[i].y);
+    BORG_GPU->uniform[rast_shader.uniform_regs[6 + i * 2 + 0]] =
+        BORG_FP16_NEG(tri->screen_pos.v[i].x);
+    BORG_GPU->uniform[rast_shader.uniform_regs[6 + i * 2 + 1]] =
+        BORG_FP16_NEG(tri->screen_pos.v[i].y);
   }
 
-  // Fragment uniforms (u12-u30): inv_area, vertex colors, z, UV
-  //
-  // Barycentric weight mapping:
-  //   compute_edge_vectors() builds edge[i] = v[i]→v[(i+1)%3].
-  //   Edge[i] is opposite vertex (i+2)%3, so the fragment shader weight
-  //   w_i (from edge function E_i) corresponds to vertex (i+2)%3:
-  //     w0 → v2,  w1 → v0,  w2 → v1
-  //   Upload per-vertex attributes in [v2, v0, v1] order to match.
+  // Fragment uniforms: inv_area, vertex colors/UV, z
+  // Barycentric weight mapping: w0→v2, w1→v0, w2→v1
   const rgb16_t *colors = tri->colors.v;
   BORG_GPU->uniform[frag_shader.uniform_regs[0]] = tri->inv_area;
 
   if (tri->has_uvs) {
     const uv16_t *uvs = tri->uvs.v;
-    // Hardware sTexFetch path: Fp16ToUint8 expects integer-range texcoords
-    // (e.g. 0..255 for a 256x256 texture), so pre-scale UV by tex dimensions.
-    // The fragment shader interpolates these and the hardware Morton encoder
-    // converts the result to a texel index.
-    load_uniform_triple(&frag_shader, 1,
-        borg_fp16_mul(uvs[1].u, t->w_fp16),
-        borg_fp16_mul(uvs[0].u, t->w_fp16),
-        borg_fp16_mul(uvs[2].u, t->w_fp16));
-    load_uniform_triple(&frag_shader, 4,
-        borg_fp16_mul(uvs[1].v, t->h_fp16),
-        borg_fp16_mul(uvs[0].v, t->h_fp16),
-        borg_fp16_mul(uvs[2].v, t->h_fp16));
-    load_uniform_triple(&frag_shader, 7, 0, 0, 0); // B unused
+    load_uniform_triple(&frag_shader, 1, borg_fp16_mul(uvs[1].u, t->w_fp16),
+                        borg_fp16_mul(uvs[0].u, t->w_fp16),
+                        borg_fp16_mul(uvs[2].u, t->w_fp16));
+    load_uniform_triple(&frag_shader, 4, borg_fp16_mul(uvs[1].v, t->h_fp16),
+                        borg_fp16_mul(uvs[0].v, t->h_fp16),
+                        borg_fp16_mul(uvs[2].v, t->h_fp16));
+    load_uniform_triple(&frag_shader, 7, 0, 0, 0);
     for (int i = 13; i <= 18; i++)
       BORG_GPU->uniform[frag_shader.uniform_regs[i]] = 0;
   } else {
@@ -406,66 +403,166 @@ static void shade_tiles(const triangle_t *tri, const texture_t *t, int frame) {
   }
 
   load_uniform_triple(&frag_shader, 10, tri->z_vals.v[1], tri->z_vals.v[0],
-                       tri->z_vals.v[2]);
+                      tri->z_vals.v[2]);
 
-  // Write frag_pc to the dedicated FRAG_PC register
   BORG_GPU->frag_pc = BORG_IMEM_FRAG_OFFSET;
 
-  // 4x4 Tiling loop (Step 11.4): subdivide bbox into 4x4 tiles
-  for (int ty = bb.y0 & ~3; ty < bb.y1; ty += 4) {
-    for (int tx = bb.x0 & ~3; tx < bb.x1; tx += 4) {
-      
-      // Wait for space in the command FIFO
-      while (BORG_GPU->status & STATUS_REG_T__FIFO_FULL_bm);
+  // Enable/disable texture for this draw call
+  if (tri->has_uvs) {
+    BORG_GPU->tex_config =
+        (TEX_PSRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
+        TEX_CONFIG_REG_T__EN_bm;
+  } else {
+    BORG_GPU->tex_config = 0;
+  }
+}
 
-      // Enqueue tile-origin command (hardware iterates full 4×4 tile)
-      uint32_t cmd = (tx << CMD_ENQUEUE_REG_T__TILE_X_bp) |
-                     (ty << CMD_ENQUEUE_REG_T__TILE_Y_bp);
-      BORG_GPU->cmd_enqueue = cmd;
-
-      // Hardware needs a few cycles to pop from FIFO and start the tile
-      for (volatile int k=0; k<16; k++) { __asm__ volatile("nop"); }
-
-      // Clear the tile buffer (write 1 to bit 4 of tile_ctrl)
-      BORG_GPU->tile_ctrl = TILE_CTRL_REG_T__CLEAR_bm;
-      
-      uint32_t active_pixels = 0;
-      do {
-        uint32_t iter = BORG_GPU->iter;
-        if (!(iter & ITER_REG_T__VALID_bm)) break;
-
-        // BORG_GPU->iter write advances the iterator by one pixel
-        BORG_GPU->iter = 1;
-
-        if (iter & ITER_REG_T__INSIDE_FLAG_bm) {
-            active_pixels++;
+// Bin a single draw call into the per-tile lists.
+static void borgBin(void) {
+  int tiles_per_row = borg_fb_width >> 2;
+  for (int dc = 0; dc < draw_call_count; dc++) {
+    const bbox_t *bb = &draw_calls[dc].bb;
+    for (int ty = bb->y0 & ~3; ty < bb->y1; ty += 4) {
+      for (int tx = bb->x0 & ~3; tx < bb->x1; tx += 4) {
+        int tile_index = (ty >> 2) * tiles_per_row + (tx >> 2);
+        int cnt = bin_count[tile_index];
+        if (cnt < BORG_MAX_TRIS_PER_TILE) {
+          bin_list[tile_index][cnt] = (uint8_t)dc;
+          bin_count[tile_index] = cnt + 1;
         }
-      } while (1);
-
-      if (active_pixels > 0) {
-        // Step 25.4.2: Hardware flusher owns all 16 pixels.
-        // Poll flush_busy until the flusher finishes writing the full tile.
-        while (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm);
       }
     }
   }
-
-  // Disable chaining after triangle (no longer need to clear register, handled per-command)
 }
 
+// Record a draw call for later TBDR rendering.
+static void record_draw_call(const triangle_t *tri, const texture_t *t,
+                             int frame) {
+  if (draw_call_count >= BORG_MAX_DRAWS)
+    return;
+  draw_calls[draw_call_count++] = (draw_call_t){
+      .tri = *tri,
+      .tex = *t,
+      .bb = compute_bbox(&tri->screen_pos),
+      .frame = frame,
+  };
+}
+
+// TBDR tile-ordered render loop.
+static void borgBinRender(int frame) {
+  int tiles_per_row = borg_fb_width >> 2;
+  int tile_rows = borg_fb_height >> 2;
+  int fb_offset = frame * FRAME_STRIDE;
+
+  // Precompute packed clear color in tiled format:
+  //   lo word = {b[31:16], z_max[15:0]}
+  //   hi word = {r[31:16], g[15:0]}
+  uint32_t cc_lo = ((uint32_t)last_clear_color.b << 16) | FP16_MAX_DEPTH;
+  uint32_t cc_hi = ((uint32_t)last_clear_color.r << 16) | last_clear_color.g;
+
+  borg_load_spirb_shader_at(&rast_shader, BORG_IMEM_RAST_OFFSET);
+  borg_load_spirb_shader_at(&frag_shader, BORG_IMEM_FRAG_OFFSET);
+  borg_load_add_shader();
+
+  // Set the clear-color shadow registers once per frame.
+  // These same values are reused in the per-pixel MMIO pre-fill loop below.
+  BORG_GPU->tile_bz = cc_lo;   // {B[31:16], Z_max[15:0]}
+
+
+  for (int tile_row = 0; tile_row < tile_rows; tile_row++) {
+    for (int tile_col = 0; tile_col < tiles_per_row; tile_col++) {
+      int tile_index = tile_row * tiles_per_row + tile_col;
+      int count = (int)bin_count[tile_index];
+
+      int tx = tile_col << 2;
+      int ty = tile_row << 2;
+
+      if (count == 0) {
+        // Empty tile: write clear color directly to PSRAM (32 words = 16 pixels
+        // × 2).
+        int base = fb_offset + tile_index * 32;
+        for (int tile_idx = 0; tile_idx < 16; tile_idx++) {
+          PSRAM_OUT(base + tile_idx * 2 + 0) = cc_lo;
+          PSRAM_OUT(base + tile_idx * 2 + 1) = cc_hi;
+        }
+        continue;
+      }
+
+      // tileBase: written once per tile (same for all triangles on this tile).
+      uint32_t tile_base_spi =
+          PSRAM_OUT_SPI(0 * FRAME_STRIDE) + (uint32_t)tile_index * 128;
+      BORG_GPU->flush_fb_base = tile_base_spi;
+
+      // Pre-fill all 16 tile SRAM pixels with {clear_color.RGB, Z=max}.
+      // Uses the TILE_BZ shadow (set once above) + per-pixel TILE_CTRL/TILE_RG.
+      for (int tile_idx = 0; tile_idx < 16; tile_idx++) {
+        BORG_GPU->tile_ctrl = (uint32_t)tile_idx;
+        BORG_GPU->tile_rg   = cc_hi;
+      }
+
+      for (int slot = 0; slot < count; slot++) {
+        const draw_call_t *dc = &draw_calls[(int)bin_list[tile_index][slot]];
+
+        // Set up hardware uniforms for this draw call.
+        setup_tile_uniforms(dc);
+
+        // Enqueue tile command.
+        while (BORG_GPU->status & STATUS_REG_T__FIFO_FULL_bm)
+          ;
+        uint32_t cmd = ((uint32_t)tx << CMD_ENQUEUE_REG_T__TILE_X_bp) |
+                       ((uint32_t)ty << CMD_ENQUEUE_REG_T__TILE_Y_bp);
+        BORG_GPU->cmd_enqueue = cmd;
+
+        // Allow FIFO pop and dispatcher to start.
+        for (volatile int k = 0; k < 16; k++) {
+          __asm__ volatile("nop");
+        }
+
+        // Drain iterator (advances hardware through all 16 tile pixels).
+        do {
+          uint32_t iter = BORG_GPU->iter;
+          if (!(iter & ITER_REG_T__VALID_bm))
+            break;
+          BORG_GPU->iter = 1;
+        } while (1);
+
+        // --- Tile flush ---
+        // Detect HW flusher: FLUSH_BUSY goes high right after tileComplete
+        // (Sim, hasFlusher=true).  On FPGA (hasFlusher=false) it's hardwired 0.
+        if (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm) {
+          // HW flusher active — wait for it to finish writing to PSRAM.
+          while (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm);
+        } else {
+          // CPU tile flush (FPGA fallback): read 16 tile-buffer pixels → PSRAM.
+          int base = fb_offset + tile_index * 32;
+          for (int tile_idx = 0; tile_idx < 16; tile_idx++) {
+            BORG_GPU->tile_ctrl = (uint32_t)tile_idx;  // trigger BRAM read
+            // 2-cycle BRAM latency (SyncReadMem → readDataHeld)
+            __asm__ volatile("nop"); __asm__ volatile("nop");
+            __asm__ volatile("nop"); __asm__ volatile("nop");
+            uint32_t bz = BORG_GPU->tile_bz;   // {B[31:16], Z[15:0]}
+            uint32_t rg = BORG_GPU->tile_rg;   // {R[31:16], G[15:0]}
+            PSRAM_OUT(base + tile_idx * 2 + 0) = bz;
+            PSRAM_OUT(base + tile_idx * 2 + 1) = rg;
+          }
+        }
+      }   // for (int slot...)
+    }
+  }
+  (void)frame;
+}
 
 // Clip-space → NDC → screen-space for 3 vertices.
-static void perspective_divide(const clip_vertex_t *cv,
-                               fp16_t ndc[3][3], xy16x3_t *pos) {
+static void perspective_divide(const clip_vertex_t *cv, fp16_t ndc[3][3],
+                               xy16x3_t *pos) {
   for (int v = 0; v < 3; v++) {
     fp16_t inv_w = borg_fp16_rcp(cv[v].w);
     ndc[v][0] = borg_fp16_mul(cv[v].x, inv_w);
     ndc[v][1] = borg_fp16_mul(cv[v].y, inv_w);
     ndc[v][2] = borg_fp16_mul(cv[v].z, inv_w);
-    pos->v[v] = (xy16_t){
-      borg_fp16_fmadd(ndc[v][0], fp16_half_width, fp16_half_width),
-      borg_fp16_fmadd(ndc[v][1], fp16_half_width, fp16_half_width)
-    };
+    pos->v[v] =
+        (xy16_t){borg_fp16_fmadd(ndc[v][0], fp16_half_width, fp16_half_width),
+                 borg_fp16_fmadd(ndc[v][1], fp16_half_width, fp16_half_width)};
   }
 }
 
@@ -476,29 +573,32 @@ static int triangle_setup(const xy16x3_t *pos, fp16_t *inv_area) {
   fp16_t dy20 = BORG_FP16_SUB(pos->v[2].y, pos->v[0].y);
   fp16_t dx20 = BORG_FP16_SUB(pos->v[2].x, pos->v[0].x);
   fp16_t dy10 = BORG_FP16_SUB(pos->v[1].y, pos->v[0].y);
-  fp16_t area = BORG_FP16_SUB(borg_fp16_mul(dx10, dy20),
-                               borg_fp16_mul(dx20, dy10));
-  if (fp16_ge_zero(area)) return 0;  // degenerate or back-facing
+  fp16_t area =
+      BORG_FP16_SUB(borg_fp16_mul(dx10, dy20), borg_fp16_mul(dx20, dy10));
+  if (fp16_ge_zero(area))
+    return 0; // degenerate or back-facing
 
-  // Hardware fstep.s expects positive edge values. 
+  // Hardware fstep.s expects positive edge values.
   // Since we allow negative area, we negate it here and in the edge constants.
   area ^= 0x8000;
 
   // Edge-vector normalization compensation (see borg_load_edge_constants):
   // borg_load_edge_constants divides each edge vector by fb_width, so
-  // inv_area must be multiplied by fb_width to keep barycentric weights correct:
+  // inv_area must be multiplied by fb_width to keep barycentric weights
+  // correct:
   //   w = (E/W) * (W/area) = E/area  ✓
   //
   // Implementation: construct inv_width via direct FP16 exponent flip (avoids
   // the Fp16Rcp factor-of-2 bug for power-of-2 inputs), multiply area by it to
-  // get area/W (always a normal FP16 at any practical resolution), then rcp that.
+  // get area/W (always a normal FP16 at any practical resolution), then rcp
+  // that.
   //   inv_area_scaled = rcp(area * inv_width) = rcp(area/W) = W/area
   //
   // At 128×128: area/128 ≈ 184 (normal), rcp(184) ≈ 0.00543 >> 6e-5 min-normal.
-  fp16_t fb_fp16   = uint_to_fp16(borg_fb_width);
+  fp16_t fb_fp16 = uint_to_fp16(borg_fb_width);
   fp16_t inv_width = (fp16_t)((30u - ((fb_fp16 >> 10) & 0x1Fu)) << 10);
-  fp16_t area_norm = borg_fp16_mul(area, inv_width);   // area / fb_width
-  *inv_area = borg_fp16_rcp(area_norm);                // W / area
+  fp16_t area_norm = borg_fp16_mul(area, inv_width); // area / fb_width
+  *inv_area = borg_fp16_rcp(area_norm);              // W / area
   return 1;
 }
 
@@ -511,23 +611,22 @@ static void rasterize_clipped_triangle(const clip_vertex_t *cv,
   fp16_t inv_area;
   int setup_res = triangle_setup(&tri.screen_pos, &inv_area);
 
-  if (!setup_res) return;
+  if (!setup_res)
+    return;
   tri.inv_area = inv_area;
 
   compute_edge_vectors(tri.screen_pos.v, tri.edges.v);
 
   for (int v = 0; v < 3; v++) {
-    tri.colors.v[v] = (rgb16_t){ cv[v].r, cv[v].g, cv[v].b };
-    tri.uvs.v[v]    = (uv16_t){ cv[v].u, cv[v].v };
+    tri.colors.v[v] = (rgb16_t){cv[v].r, cv[v].g, cv[v].b};
+    tri.uvs.v[v] = (uv16_t){cv[v].u, cv[v].v};
   }
-  tri.z_vals  = (fp16x3_t){{ ndc[0][2], ndc[1][2], ndc[2][2] }};
+  tri.z_vals = (fp16x3_t){{ndc[0][2], ndc[1][2], ndc[2][2]}};
   tri.has_uvs = (t->psram_offset >= 0);
 
-  borg_load_spirb_shader_at(&rast_shader, BORG_IMEM_RAST_OFFSET);
-  borg_load_spirb_shader_at(&frag_shader, BORG_IMEM_FRAG_OFFSET);
-  borg_load_add_shader();
-
-  shade_tiles(&tri, t, frame);
+  // TBDR: record for deferred tile-ordered rendering instead of immediate
+  // shade.
+  record_draw_call(&tri, t, frame);
 }
 
 // Build clip-space vertices from vertex shader output and original attributes.
@@ -551,19 +650,17 @@ static void clip_and_rasterize(const clip_vertex_t clip_in[3],
                                const texture_t *t, int frame) {
   clip_vertex_t clip_a[MAX_CLIP_VERTS + 1];
   clip_vertex_t clip_b[MAX_CLIP_VERTS + 2];
-  
+
   int n_near = clip_near(clip_in, 3, clip_a);
-  if (n_near < 3) return;
+  if (n_near < 3)
+    return;
 
   int n_far = clip_far(clip_a, n_near, clip_b);
-  if (n_far < 3) return;
-
-  PSRAM_OUT(5000) = 0x1111;
-  PSRAM_OUT(5001) = n_near;
-  PSRAM_OUT(5002) = n_far;
+  if (n_far < 3)
+    return;
 
   for (int i = 1; i < n_far - 1; i++) {
-    clip_vertex_t tri[3] = { clip_b[0], clip_b[i], clip_b[i + 1] };
+    clip_vertex_t tri[3] = {clip_b[0], clip_b[i], clip_b[i + 1]};
     rasterize_clipped_triangle(tri, t, frame);
   }
 }
@@ -571,7 +668,6 @@ static void clip_and_rasterize(const clip_vertex_t clip_in[3],
 void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
                  int frame) {
   unsigned int t_start = get_cycles();
-  PSRAM_OUT(frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE) = 0;
 
   fp16_t attrs[NUM_VERTICES * 3];
   for (int v = 0; v < NUM_VERTICES; v++) {
@@ -586,19 +682,24 @@ void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
   clip_vertex_t clip_in[3];
   build_clip_vertices(vout, vert_shader.num_outputs, vertices, clip_in);
 
+  // TBDR: records draw call for deferred rendering (no immediate render)
   clip_and_rasterize(clip_in, &tex, frame);
   t_draw_cycles += get_cycles() - t_start;
 }
 
 void borg_present(int frame) {
-  // Wait for the GPU to finish the last draw command before finalizing the
-  // frame!
   unsigned int t_wait = get_cycles();
+
+  // TBDR: bin all recorded draw calls, then render tile-by-tile.
+  borgBin();
+  borgBinRender(frame);
+
+  // Wait for the GPU to finish the last tile flush.
   while (!(BORG_GPU->status & STATUS_REG_T__IDLE_bm))
     ;
   t_draw_cycles += get_cycles() - t_wait;
 
-  int base = frame * FRAME_STRIDE + FRAME_FB_SIZE + FRAME_ZB_SIZE;
+  int base = frame * FRAME_STRIDE + FRAME_FB_SIZE;
   PSRAM_OUT(base) = DONE_MARKER;
   PSRAM_OUT(base + 1) = t_init_cycles & 0xFFFF;
   PSRAM_OUT(base + 2) = (t_init_cycles >> 16) & 0xFFFF;

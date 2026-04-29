@@ -55,6 +55,8 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
 
   // Tile Buffer auto-write interface (Step 11.3)
   val tileWrite = new TileWriteIO
+  // Step 25.5C: Tile Buffer read port for depth test
+  val tileRead  = new TileReadIO(16)
 
   // GPU memory read/write port (Step 19.2/24.3)
   val gpuMem    = new GpuMemIO
@@ -78,7 +80,10 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
   // --- Wire BorgIterator ---
   iterator.io.cmdPop    <> io.cmdPop
-  iterator.io.advance   := io.advance
+  // Gate advance on dispatcher idle: if the dispatcher is still processing
+  // the previous pixel (autoRunStall), ignore the firmware's iter write.
+  // The firmware retries because iterValid remains true.
+  iterator.io.advance   := io.advance && !dispatcher.io.autoRunStall
   iterator.io.phaseIdle := (dispatcher.io.phase === 0.U)  // sIdle = Enum(5)(0) = 0
 
   // --- Wire BorgShaderDispatcher inputs ---
@@ -92,6 +97,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   // --- Forward dispatcher outputs to rasterizer IO ---
   io.coreTrigger  <> dispatcher.io.coreTrigger
   io.tileWrite    <> dispatcher.io.tileWrite
+  io.tileRead     <> dispatcher.io.tileRead
   io.gpuMem       <> dispatcher.io.gpuMem
   io.autoRunStall := dispatcher.io.autoRunStall
   io.insideFlag   := dispatcher.io.insideFlag

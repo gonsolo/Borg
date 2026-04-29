@@ -9,6 +9,7 @@ import chisel3.util._
 
 class TinyQVRegistersIO(val regAddrBits: Int) extends Bundle {
   val wr_en = Input(Bool())
+  val stall = Input(Bool())        // freeze rotation during pipeline stalls
   val counter = Input(UInt(3.W))
   val rs1 = Input(UInt(regAddrBits.W))
   val rs2 = Input(UInt(regAddrBits.W))
@@ -35,7 +36,13 @@ class TinyQVRegisters(val numRegs: Int = 16, val regAddrBits: Int = 4) extends M
         reg_access(i) := Cat(io.counter === 6.U, 0.U(3.W))
       } else {
         val low_nibble = Mux(io.wr_en && (io.rd === i.U), io.data_rd, registers(i)(7, 4))
-        registers(i) := Cat(registers(i)(3, 0), registers(i)(31, 8), low_nibble)
+        // Freeze rotation during stalls to prevent nibble misalignment.
+        // Without this gate, variable-length stalls (caused by external memory
+        // controller timing) rotate the shift register by a non-multiple-of-8,
+        // causing the CPU to read wrong nibbles on the next instruction.
+        when(!io.stall) {
+          registers(i) := Cat(registers(i)(3, 0), registers(i)(31, 8), low_nibble)
+        }
         reg_access(i) := registers(i)(7, 4)
       }
     }

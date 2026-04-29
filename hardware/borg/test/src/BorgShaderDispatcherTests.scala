@@ -34,12 +34,18 @@ object BorgShaderDispatcherTests extends TestSuite {
   val FP16_NEG_TWO = 0xC000  // -2.0
   val FP16_NEG_ZERO = 0x8000 // -0.0  ← MUST count as inside
 
-  // Phase enum values (matches Enum(5) in BorgShaderDispatcher)
-  val PHASE_IDLE      = 0
-  val PHASE_RAST      = 1
-  val PHASE_FRAG      = 2
-  val PHASE_TEX_FETCH = 3
-  val PHASE_TILE_WRITE = 4
+  // Phase enum values (matches Enum(8) in BorgShaderDispatcher, Step 25.5C)
+  val PHASE_IDLE       = 0
+  val PHASE_RAST       = 1
+  val PHASE_FRAG       = 2
+  val PHASE_TEX_FETCH  = 3
+  val PHASE_Z_READ     = 4
+  val PHASE_Z_WAIT1    = 5
+  val PHASE_Z_WAIT2    = 6
+  val PHASE_TILE_WRITE = 7
+
+  // FP16 max depth for tile buffer clear value
+  val FP16_MAX_DEPTH = 0x7BFF
 
   /** Set all inputs to safe idle defaults (no clock step). */
   def pokeIdle(d: BorgShaderDispatcher): Unit = {
@@ -56,6 +62,16 @@ object BorgShaderDispatcherTests extends TestSuite {
     d.io.texConfig.baseAddr.poke(0.U)
     d.io.gpuMem.data.poke(0.U)
     d.io.gpuMem.ready.poke(false.B)
+    // Step 25.5C: tile read port — provide max depth so depth test passes
+    d.io.tileRead.data.r.poke(0.U)
+    d.io.tileRead.data.g.poke(0.U)
+    d.io.tileRead.data.b.poke(0.U)
+    d.io.tileRead.data.z.poke(FP16_MAX_DEPTH.U)
+  }
+
+  /** Step through the 3 depth-test wait states (sZRead → sZWait1 → sZWait2 → sTileWrite). */
+  def stepThroughDepthTest(d: BorgShaderDispatcher): Unit = {
+    d.clock.step(3)  // sZRead → sZWait1 → sZWait2 → sTileWrite
   }
 
   /** Fire pixelReady for one cycle, then restore idle.
@@ -210,10 +226,15 @@ object BorgShaderDispatcherTests extends TestSuite {
         d.io.coreStatus.running.poke(false.B)
         d.clock.step(1)
 
-        // Should be in sTileWrite
+        // Should be in sZRead (Step 25.5C: depth test before tile write)
+        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_Z_READ)
+
+        // Step through depth test wait states
+        stepThroughDepthTest(d)
+
+        // Now in sTileWrite
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TILE_WRITE)
 
-        // sTileWrite fires this same cycle
         val tileEn  = d.io.tileWrite.en.peek().litToBoolean
         val tileIdx = d.io.tileWrite.idx.peek().litValue.toInt
         val tileR   = d.io.tileWrite.data.r.peek().litValue.toInt
@@ -222,7 +243,7 @@ object BorgShaderDispatcherTests extends TestSuite {
         val tileZ   = d.io.tileWrite.data.z.peek().litValue.toInt
         println(f"  sTileWrite: en=$tileEn, idx=$tileIdx, R=0x${tileR.toHexString}, G=0x${tileG.toHexString}, B=0x${tileB.toHexString}, Z=0x${tileZ.toHexString}")
         utest.assert(tileEn)
-        utest.assert(tileIdx == 7)            // shaderTileIndex from firePixelReady
+        utest.assert(tileIdx == 7)
         utest.assert(tileR == 0x1111)
         utest.assert(tileG == 0x2222)
         utest.assert(tileB == 0x3333)
@@ -256,11 +277,15 @@ object BorgShaderDispatcherTests extends TestSuite {
         utest.assert(d.io.autoRunStall.peek().litToBoolean)  // still set in sFrag
         println("  stall held through sRast ✓")
 
-        // Through sFrag (no tex)
+        // Through sFrag (no tex) → sZRead
         simulateShaderRun(d)
-        // sTileWrite phase fires this same cycle
-        utest.assert(d.io.autoRunStall.peek().litToBoolean)  // still set in sTileWrite
+        utest.assert(d.io.autoRunStall.peek().litToBoolean)  // still set in sZRead
         println("  stall held through sFrag ✓")
+
+        // Step through depth test (sZRead → sZWait1 → sZWait2 → sTileWrite)
+        stepThroughDepthTest(d)
+        utest.assert(d.io.autoRunStall.peek().litToBoolean)  // still set in sTileWrite
+        println("  stall held through depth test ✓")
 
         d.clock.step(1)  // sTileWrite → sIdle
         utest.assert(!d.io.autoRunStall.peek().litToBoolean)
@@ -394,10 +419,16 @@ object BorgShaderDispatcherTests extends TestSuite {
         d.io.gpuMem.ready.poke(false.B)
 
         // BorgTextureUnit needs one cycle to transition sReadRG→sDone and pulse done;
-        // the dispatcher then sees done and enters sTileWrite in the same cycle.
+        // the dispatcher then sees done and enters sZRead.
         d.clock.step(1)
 
-        // Should now be in sTileWrite
+        // Should now be in sZRead (Step 25.5C)
+        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_Z_READ)
+
+        // Step through depth test
+        stepThroughDepthTest(d)
+
+        // Now in sTileWrite
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TILE_WRITE)
         val tileEn = d.io.tileWrite.en.peek().litToBoolean
         val tileR  = d.io.tileWrite.data.r.peek().litValue.toInt
@@ -433,7 +464,8 @@ object BorgShaderDispatcherTests extends TestSuite {
         // rast + frag shaders (inside pixel, no tex)
         pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
         simulateShaderRun(d)  // through sRast
-        simulateShaderRun(d)  // through sFrag
+        simulateShaderRun(d)  // through sFrag → sZRead
+        stepThroughDepthTest(d)  // sZRead → sTileWrite
 
         val idx = d.io.tileWrite.idx.peek().litValue.toInt
         println(f"  tileWrite.idx=$idx (expect $expectedIdx)")
@@ -467,10 +499,15 @@ object BorgShaderDispatcherTests extends TestSuite {
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_FRAG)
         println(f"  rast done (inside): phase=FRAG ✓")
 
-        // frag shader → sTileWrite (no tex)
+        // frag shader → sZRead (Step 25.5C)
         simulateShaderRun(d)
+        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_Z_READ)
+        println(f"  frag done: phase=Z_READ ✓")
+
+        // sZRead → sZWait1 → sZWait2 → sTileWrite
+        stepThroughDepthTest(d)
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TILE_WRITE)
-        println(f"  frag done: phase=TILE_WRITE ✓")
+        println(f"  depth test done: phase=TILE_WRITE ✓")
 
         // → sIdle
         d.clock.step(1)
@@ -541,9 +578,10 @@ object BorgShaderDispatcherTests extends TestSuite {
         d.io.coreStatus.running.poke(false.B)
         d.clock.step(1)  // FSM: sRast → sFrag
 
-        // Frag shader
+        // Frag shader → sZRead
         simulateShaderRun(d)
-        // FSM: sFrag → sTileWrite
+        // FSM: sFrag → sZRead → sZWait1 → sZWait2 → sTileWrite
+        stepThroughDepthTest(d)
 
         val enInside = d.io.tileWrite.en.peek().litToBoolean
         println(f"  sTileWrite with inside pixel: tileWrite.en=$enInside (expect true)")

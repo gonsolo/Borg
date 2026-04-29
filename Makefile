@@ -66,7 +66,7 @@ test-cocotb-soc-core-gl:
 test-cocotb-soc-borg-gl:
 	$(TEST_SOC) borg GATES=yes
 
-test-chisel-borg:
+test-chisel-borg: rdl
 	$(MILL) hardware.borg.test
 
 # lint depends on .verilog_stamp (not generate_verilog) so it does not
@@ -74,7 +74,7 @@ test-chisel-borg:
 lint: .verilog_stamp
 	verilator --lint-only -Wall -Iout/hardware/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $$(cat out/hardware/borg/verilog/asic_files.txt | sed 's|^\.\./||')
 
-test-chisel-core:
+test-chisel-core: rdl
 	$(MILL) hardware.tinyqv.test
 
 test-all:

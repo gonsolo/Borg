@@ -2,6 +2,10 @@
 # Exported by the top-level Makefile; derive via git for standalone invocations.
 RDL_C_OUT ?= $(shell git rev-parse --show-toplevel)/out/hardware/borg/rdl
 
+# Texture PSRAM byte address — single source of truth is borg_layout.h.
+# Extracted here and passed to the linker so memmap ASSERT stays in sync.
+TEX_SPI_BYTE_ADDR := $(shell sed -n 's/.*TEX_PSRAM_BYTE_ADDR_FIXED[[:space:]]\+\(0x[0-9a-fA-F]\+\).*/\1/p' borg_layout.h)
+
 CC = riscv32-none-elf-gcc
 ARCH = rv32e_zicsr
 ABI = ilp32e
@@ -63,7 +67,7 @@ $(TINYQV_SDK)/tinyQV.a:
 	$(MAKE) -C $(TINYQV_SDK)
 
 $(PROJECT_NAME).elf: $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/tinyQV.a
-	@$(CC) -march=$(ARCH) -mabi=$(ABI) -nostartfiles -nostdlib -Wl,--gc-sections -Wl,--no-relax -T $(TINYQV_SDK)/memmap $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/tinyQV.a -lc -o $@
+	@$(CC) -march=$(ARCH) -mabi=$(ABI) -nostartfiles -nostdlib -Wl,--gc-sections -Wl,--no-relax -Wl,--defsym,TEX_SPI_BYTE_ADDR=$(TEX_SPI_BYTE_ADDR) -T $(TINYQV_SDK)/memmap $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/tinyQV.a -lc -o $@
 
 $(PROJECT_NAME).bin: $(PROJECT_NAME).elf
 	@$(OBJCOPY) $< -O binary $@

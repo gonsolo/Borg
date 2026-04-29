@@ -416,9 +416,16 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     - Resolved firmware build issues (assert.h stub, header include paths).
     - Validated rendering parity across Verilator and FPGA targets.
 
-  - **Step 25.4.2: Full 16-Pixel Tile Flush**
+  - **Step 25.4.2: Full 16-Pixel Tile Flush ✅** (2026-04-29)
+    - `BorgTileFlusher` flushes all 16 tile pixels to PSRAM per tile-complete signal (Sim/Verilator/Arcilator).
+    - FPGA CPU-fallback path: firmware reads all 16 pixels via `TILE_CTRL`/`TILE_BZ`/`TILE_RG` MMIO and writes to PSRAM when `FLUSH_BUSY=0` (HW flusher absent).
+    - Fixed `generate.py` to parse `borg_layout.h` for `PSRAM_OUT_OFFSET` and `TEX_PSRAM_BYTE_OFFSET` instead of hardcoded stale values (was `0x80100`/`0x80`, now `0x84000`/`0x4000`).
+    - Updated `fpga/host/render.py` and `scripts/postprocess.py` to decode TBDR tiled layout (2 words/pixel, 4×4 tile addressing, `lo={B,Z}` / `hi={R,G}`).
+    - Fixed arcilator `marker_offset_word` to use tiled layout (2 words/pixel vs old 4).
+    - All 12/12 test suites pass including `render › fpga (hw)`. ✓
 
   - **Step 25.4.3: Remove CPU Tile Flush Path**
+    - ⚠️ Blocked: `BorgTileFlusher` costs ~282 LCs on iCE40 UP5K (budget: 5280, currently at 5270 with flusher disabled). Must free ~300 LCs before enabling HW flusher on FPGA. Until then, CPU fallback is the only FPGA writeback path.
 
   - **Step 25.4.4: Fully Autonomous Hardware Iteration**
 

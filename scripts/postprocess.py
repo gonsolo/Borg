@@ -33,13 +33,16 @@ def postprocess(bin_file, ppm_file, w, h):
         fp.write(f"P3\n{w} {h}\n255\n")
         
         for y in range(h):
-            row_data = fb.read(w * 6)
+            # 8 bytes per pixel: lo (uint32) + hi (uint32)
+            row_data = fb.read(w * 8)
             if not row_data:
                 break
             for x in range(w):
-                r_fp16 = struct.unpack_from('<H', row_data, x * 6 + 0)[0]
-                g_fp16 = struct.unpack_from('<H', row_data, x * 6 + 2)[0]
-                b_fp16 = struct.unpack_from('<H', row_data, x * 6 + 4)[0]
+                lo = struct.unpack_from('<I', row_data, x * 8 + 0)[0]  # {B[31:16], Z[15:0]}
+                hi = struct.unpack_from('<I', row_data, x * 8 + 4)[0]  # {R[31:16], G[15:0]}
+                r_fp16 = (hi >> 16) & 0xFFFF
+                g_fp16 = hi & 0xFFFF
+                b_fp16 = (lo >> 16) & 0xFFFF
                 
                 fp.write(f"{fp16_to_byte(r_fp16)} {fp16_to_byte(g_fp16)} {fp16_to_byte(b_fp16)} ")
             fp.write("\n")

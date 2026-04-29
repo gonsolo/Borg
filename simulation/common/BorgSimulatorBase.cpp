@@ -38,6 +38,7 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
         uint8_t mosi = decode_spi_data_out(uio_out);
 
         uint8_t f_data = flash->tick(flash_cs, spi_clk, mosi);
+        psram->sim_cycle = c;
         uint8_t r_data = psram->tick(ram_a_cs, spi_clk, mosi);
         uint8_t miso = !flash_cs ? f_data : (!ram_a_cs ? r_data : 0);
         set_uio_in(encode_spi_data_in(miso));
