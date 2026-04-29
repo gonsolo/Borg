@@ -447,9 +447,10 @@ hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
   in `borg_driver.c` with `dma_load_shader()`. Requires shaders to be pre-staged in PSRAM
   at a known address (e.g. copied at init from flash). Verify pixel-perfect rendering on FPGA.
 
-- **Step 26.6: Remove IMEM MMIO write path** (`hasImemMmio=false`) (~15 LCs) — DMA replaces it
-
-- **Step 26.7: Remove MMIO uniform write path** (~15 LCs) — DMA replaces it
+- ✅ **Step 26.6+26.7: Remove IMEM MMIO + uniform write paths** (2026-04-29)\
+  Set `hasImemMmio=false` in `BorgConfig.FPGA` (both paths share the same flag).\
+  Forced immediately: `hasDMA=true` pushed synthesis to 5481 LCs (+201 over budget);\
+  this is the countermeasure. `BorgConfig.Sim` keeps `hasImemMmio=true` for tests.
 
 - **Step 26.8: Simplify RDL address decode** (~10 LCs)
 

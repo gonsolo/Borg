@@ -42,7 +42,7 @@ object BorgConfig {
     fp           = FloatConfig.FP16,
     coordWidth   = 6,   // max 64×64 framebuffer
     fifoDepth    = 1,
-    hasImemMmio  = true,  // flip to false in Step 26.6 once DMA is verified
+    hasImemMmio  = false, // DMA active (Step 26.5); MMIO write path removed (Steps 26.6+26.7)
     hasDMA       = true,  // firmware wrappers done (Step 26.4); HW was already built (Step 22.1)
     hasFlusher   = false  // costs ~200 LCs (after 26.1-26.2); enable in Step 27
   )
