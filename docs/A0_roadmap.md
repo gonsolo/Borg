@@ -432,9 +432,9 @@ hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
   `BorgTileFlusher`: removed `tileBase_reg` (20 FFs) and combinational adder; `addrReg`
   initializes to `io.tileBase` and increments +4 per write. All 195/195 tests pass.
 
-- **Step 26.3: Don't latch full `descReg`** (~30 LCs)\
-  `BorgDMA`: `length`, `dest`, and `offset` fields are stable for the entire transfer.
-  Drive them as wires from `io.desc` directly; only `addrReg` needs a register.
+- ✅ **Step 26.3: Don't latch full `descReg`** (~34 LCs saved, 2026-04-29)\
+  `BorgDMA`: removed `descReg` (34 FFs: baseAddr+length+dest+offset); `io.desc` fields
+  wired directly in `sRead` — firmware holds them stable during transfer. All 195/195 tests pass.
 
 - **Step 26.4: Firmware DMA wrapper** — implement `dma_load_shader()` and
   `dma_load_uniforms()` in `borg_fpu.c` using the `DMA_PSRAM` / `DMA_CONFIG`

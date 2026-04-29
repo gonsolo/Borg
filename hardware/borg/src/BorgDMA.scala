@@ -39,6 +39,11 @@ class BorgDMAIO extends Bundle {
   *   0 = IMEM        (32-bit words, direct)
   *   1 = Uniform page 0 (low 16 bits of each PSRAM word)
   *   2 = Uniform page 1 (low 16 bits of each PSRAM word)
+  *
+  * Protocol: io.desc fields (baseAddr, length, dest, offset) must remain
+  * stable from the start pulse until busy deasserts. They are driven
+  * directly as combinational wires in sRead — no local descReg copy is
+  * needed, saving ~34 LCs (Step 26.3).
   */
 class BorgDMA extends Module {
   val io = IO(new BorgDMAIO)
@@ -48,7 +53,8 @@ class BorgDMA extends Module {
 
   val addrReg  = RegInit(0.U(20.W))
   val countReg = RegInit(0.U(6.W))
-  val descReg  = RegInit(0.U.asTypeOf(new DMADescriptor))
+  // descReg removed (Step 26.3): io.desc fields are wired directly in sRead;
+  // firmware must hold them stable from start until busy deasserts.
 
   // Defaults
   io.gpuMem.req   := false.B
@@ -69,7 +75,6 @@ class BorgDMA extends Module {
   switch(state) {
     is(sIdle) {
       when(io.start) {
-        descReg  := io.desc
         addrReg  := io.desc.baseAddr
         countReg := 0.U
         state    := sRead
@@ -81,16 +86,16 @@ class BorgDMA extends Module {
       io.gpuMem.addr := addrReg
 
       when(io.gpuMem.ready) {
-        val destIdx = descReg.offset +& countReg
+        val destIdx = io.desc.offset +& countReg
 
-        when(descReg.dest === 0.U) {
+        when(io.desc.dest === 0.U) {
           // IMEM: full 32-bit word
           io.imemWrite.en   := true.B
           io.imemWrite.addr := destIdx
           io.imemWrite.data := io.gpuMem.data
         }.otherwise {
           // Uniform buffer: low 16 bits; page from dest field
-          val page = Mux(descReg.dest === 2.U, 1.U(1.W), 0.U(1.W))
+          val page = Mux(io.desc.dest === 2.U, 1.U(1.W), 0.U(1.W))
           io.uniformWrite.en   := true.B
           io.uniformWrite.addr := Cat(page, destIdx(4, 0))
           io.uniformWrite.data := io.gpuMem.data(15, 0)
@@ -98,7 +103,7 @@ class BorgDMA extends Module {
 
         addrReg  := addrReg + 4.U
         countReg := countReg + 1.U
-        when(countReg + 1.U >= descReg.length) {
+        when(countReg + 1.U >= io.desc.length) {
           state := sIdle
         }
         // otherwise: stay in sRead — next cycle re-asserts req with new addr
