@@ -416,13 +416,7 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     - Fixed arcilator `marker_offset_word` to use tiled layout (2 words/pixel vs old 4).
     - All 12/12 test suites pass including `render › fpga (hw)`. ✓
 
-  - **Step 25.4.3: Enable HW Flusher on FPGA + Remove CPU Flush Path**
-    - ⚠️ Blocked on LC budget: `BorgTileFlusher` costs ~282 LCs (budget: 5280, currently at 5270 with flusher disabled).
-    - Unblocked by Step 25.5 (DMA firmware + LUT recovery frees ~95–120 LCs).
-    - Hardware changes: set `hasFlusher=true` in `BorgConfig.FPGA`; remove `tile_bz`/`tile_rg` MMIO readback arms from `wireMmioRead()` (~30–45 LCs saved); remove `ctrlWriting` read trigger from `wireTileBuffer()` (~5–10 LCs).
-    - Firmware: delete the CPU tile-flush `else` branch in `borgBinRender()` (lines 536–547).
 
-  - **Step 25.4.4: Fully Autonomous Hardware Iteration**
 
 ### Step 25.5: DMA Firmware Integration + LUT Recovery
 
@@ -443,6 +437,22 @@ hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
   - **25.5.3b: Remove MMIO uniform write path** (~15 LCs) — DMA replaces it
   - **25.5.3c: Simplify RDL address decode** (~10 LCs)
   - **25.5.3d: Remove MMIO GPR read path** (optional, ~20–30 LCs)
+
+### Step 25.6: Enable HW Flusher on FPGA + Remove CPU Flush Path
+
+Prerequisite: Step 25.5 (LUT recovery frees ~95–120 LCs, making room for
+`BorgTileFlusher`'s ~282 LC cost).
+
+- Hardware: set `hasFlusher=true` in `BorgConfig.FPGA`.
+- Hardware: remove `tile_bz`/`tile_rg` MMIO readback arms from `wireMmioRead()` (~30–45 LCs saved).
+- Hardware: remove `ctrlWriting` read trigger arm from `wireTileBuffer()` (~5–10 LCs saved).
+- Firmware: delete the CPU tile-flush `else` branch in `borgBinRender()` (lines 536–547).
+- Verify pixel-perfect rendering on FPGA with hardware flusher active.
+
+### Step 25.7: Fully Autonomous Hardware Iteration
+
+With the hardware flusher running on FPGA, the CPU no longer touches the
+tile buffer or PSRAM write path during rendering. Full autonomy milestone.
 
 ### Step 26: Integrated Vertex + Triangle Setup Sequencer
 
