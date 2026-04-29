@@ -168,3 +168,22 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | [PeakRDL](https://github.com/SystemRDL/PeakRDL) | Toolchain for parsing and exporting SystemRDL | GPL-3.0 |
 | [nanobind](https://github.com/wjakob/nanobind) | Zero-overhead C++ to Python bindings | BSD-3-Clause |
 | [Pygame (SDL2)](https://github.com/pygame/pygame) | Hardware-accelerated UI windowing subsystem | LGPL-2.1 |
+
+## Citation
+
+If you use the Borg GPU in your research or project, please cite it using the following metadata:
+
+```bibtex
+@software{Wendleder_Borg_-_Tiny_2026,
+  author = {Wendleder, Andreas},
+  license = {CERN-OHL-S-2.0},
+  month = apr,
+  title = {{Borg - Tiny GPU}},
+  url = {https://github.com/gonsolo/Borg},
+  version = {0.1.0},
+  year = {2026},
+  note = {Funded by NLnet NGI0 Commons Fund. SkyWater 130nm and IHP SG13G2 Tapeouts}
+}
+```
+
+Alternatively, see the [CITATION.cff](CITATION.cff) file for machine-readable citation information.

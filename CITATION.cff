@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Wendleder"
+  given-names: "Andreas"
+title: "Borg - Tiny GPU"
+abstract: "A RISC-V SoC with a GPU featuring vertex shading, rasterization, and RGB fragment shading, targeting both iCE40 FPGAs and ASICs. Funded by NLnet NGI0 Commons Fund (SkyWater 130nm and IHP SG13G2 Tapeouts)."
+version: 0.1.0
+date-released: 2026-04-29
+url: "https://github.com/gonsolo/Borg"
+license: "CERN-OHL-S-2.0"
+keywords:
+  - "GPU"
+  - "RISC-V"
+  - "Chisel"
+  - "Open Source Hardware"
+  - "Tiny Tapeout"
+  - "iCE40"
