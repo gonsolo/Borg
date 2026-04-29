@@ -37,7 +37,7 @@ compute.
 | **11 (tile buffer)** | **Between tiles only** | **Write** (tile flush) | **Low** |
 | 12–13 | Between tiles/triangles | Write (flush) | Low |
 | **19 (texel fetch)** | Between triangles | **Read + Write** | **None** — CPU out of loop |
-| 20–24 | Submit + wait only | Full owner | None |
+| 20–25 | Submit + wait only | Full owner | None |
 
 ### Step 0: ~~Nibble-Serial FMA~~ (removed 2026-03-23)
 
@@ -316,23 +316,15 @@ feature step, but recorded here for traceability.
 - **Memory package modularization**: `TinyQVMemCtrl` extracted into a standalone
 - **Miscellaneous**: Dead code removal (`LatchReg*`), Chisel test fixes
 
-### Step 22: GPU DMA Engine + LUT Recovery (2026-04-18)
+### Step 22: GPU DMA Engine ✅ (partial, 2026-04-18)
 
 Generalize the GPU read port for bulk transfers. The DMA engine drives the
 **same** `gpu_read` port built in Step 19 — `SoCMemCtrl` is unchanged, only
-the driver changes. Estimate: 1 week.
+the driver changes.
 
-- **Step 22.0: LUT Recovery** (prerequisite micro-steps, −44 LCs)
-  - **22.0a: Remove IMEM MMIO write path** (~15 LUTs saved) — DMA replaces it
-  - **22.0b: Remove MMIO uniform write path** (~15 LUTs saved) — DMA replaces it
-  - **22.0c: Simplify RDL address decode** (~10 LUTs saved)
-  - **22.0d: S3 — Remove MMIO GPR read path** (optional, ~20–30 LUTs)
-
-- **Step 22.1: DMA controller FSM** (`BorgDMA.scala`, +25 LCs) *(2026-04-18)*
-
-- **Step 22.2: Bulk IMEM load from PSRAM** (replaces MMIO IMEM writes)
-- **Step 22.3: Bulk uniform load from PSRAM**
-- **Step 22.4: Firmware integration** (`dma_load_shader()`, `dma_load_uniforms()`)
+- **Step 22.1: DMA controller FSM** ✅ (`BorgDMA.scala`, +25 LCs) *(2026-04-18)*
+  - Full 2-state FSM (sIdle → sRead) that drives `GpuMemIO` and writes to IMEM or Uniform buffer.
+  - Hardware complete; `hasDMA=false` on FPGA until firmware integration (see Step 25.5).
 
 ### Step 23: Cross-Target Parity (Arcilator / Verilator / FPGA + Software) ✅ (2026-04-20)
 
@@ -424,17 +416,40 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     - Fixed arcilator `marker_offset_word` to use tiled layout (2 words/pixel vs old 4).
     - All 12/12 test suites pass including `render › fpga (hw)`. ✓
 
-  - **Step 25.4.3: Remove CPU Tile Flush Path**
-    - ⚠️ Blocked: `BorgTileFlusher` costs ~282 LCs on iCE40 UP5K (budget: 5280, currently at 5270 with flusher disabled). Must free ~300 LCs before enabling HW flusher on FPGA. Until then, CPU fallback is the only FPGA writeback path.
+  - **Step 25.4.3: Enable HW Flusher on FPGA + Remove CPU Flush Path**
+    - ⚠️ Blocked on LC budget: `BorgTileFlusher` costs ~282 LCs (budget: 5280, currently at 5270 with flusher disabled).
+    - Unblocked by Step 25.5 (DMA firmware + LUT recovery frees ~95–120 LCs).
+    - Hardware changes: set `hasFlusher=true` in `BorgConfig.FPGA`; remove `tile_bz`/`tile_rg` MMIO readback arms from `wireMmioRead()` (~30–45 LCs saved); remove `ctrlWriting` read trigger from `wireTileBuffer()` (~5–10 LCs).
+    - Firmware: delete the CPU tile-flush `else` branch in `borgBinRender()` (lines 536–547).
 
   - **Step 25.4.4: Fully Autonomous Hardware Iteration**
+
+### Step 25.5: DMA Firmware Integration + LUT Recovery
+
+Complete the firmware side of Step 22 and reclaim LC headroom to unblock the
+hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
+(Step 22.1); only firmware and FPGA config changes remain.
+
+- **Step 25.5.1: Firmware DMA wrapper** — implement `dma_load_shader()` and
+  `dma_load_uniforms()` in `borg_fpu.c` using the `DMA_PSRAM` / `DMA_CONFIG`
+  MMIO registers. Poll `STATUS.dma_busy` for completion.
+
+- **Step 25.5.2: Enable DMA on FPGA** — set `hasDMA=true` in `BorgConfig.FPGA`.
+  Replace `borg_load_spirb_shader_at()` MMIO word-by-word writes with
+  `dma_load_shader()`. Verify pixel-perfect rendering.
+
+- **Step 25.5.3: LUT Recovery** (−44–74 LCs, prerequisite for flusher)
+  - **25.5.3a: Remove IMEM MMIO write path** (`hasImemMmio=false`) (~15 LCs) — DMA replaces it
+  - **25.5.3b: Remove MMIO uniform write path** (~15 LCs) — DMA replaces it
+  - **25.5.3c: Simplify RDL address decode** (~10 LCs)
+  - **25.5.3d: Remove MMIO GPR read path** (optional, ~20–30 LCs)
 
 ### Step 26: Integrated Vertex + Triangle Setup Sequencer
 
 Unified FSM that replaces what the CPU currently does in `shade_tiles()`,
 `run_vertex_shader()`, `triangle_setup()`, and `compute_edge_vectors()`.
-Combines the planned DMA engine (Step 22) and vertex sequencer into a
-single FSM to share registers, address counters, and control logic.
+Combines the DMA engine (Step 25.5) and vertex sequencer into a single FSM
+to share registers, address counters, and control logic.
 
 - **Step 26.1: Vertex shader sequencing**
 
@@ -501,10 +516,12 @@ No host PC needed; the GPU renders to a monitor in real time.
 | **21.0 (area opts)** | **O1+O5+O6+O7+O8** | **−89** | **5191** | ✅ |
 | 21.2 (tex config MMIO) | RDL register | +10 | 5201 | ✅ |
 | 22.0 (LUT recovery) | Remove MMIO paths | **−44** | 5157 | ✅ |
-| 22.1 (DMA FSM) | FSM + addr counter | +25 | 5182 | ✅ |
+| 22.1 (DMA FSM) ✅ | FSM + addr counter | +25 | 5182 | ✅ |
 | 23 (unified runtime + tex) | Makefile + tex unification | +0 | 5182 | |
 | 24 (GPU write port) | sTileFlush + arbiter | +15 | 5197 | ✅ |
 | 25 (MemCtrl rearch) | Unified arbiter logic | +0 | 5197 | ✅ |
+| 25.5 (DMA firmware + LUT) | Remove MMIO paths | **−44** | 5153 | ✅ |
+| 25.4.3 (HW flusher enable) | hasFlusher=true − readback | +240 | 5393 | ⚠ |
 | 26 (vert seq + tri setup) | Unified FSM | +45 | 5242 | ✅ |
 | 27 (pipeline integration) | Wiring + control | +15 | 5257 | ✅ |
 | 28 (multi-triangle) | Descriptor reader | +10 | **5267** | ✅ |
