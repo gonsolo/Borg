@@ -436,9 +436,9 @@ hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
   `BorgDMA`: removed `descReg` (34 FFs: baseAddr+length+dest+offset); `io.desc` fields
   wired directly in `sRead` — firmware holds them stable during transfer. All 195/195 tests pass.
 
-- **Step 26.4: Firmware DMA wrapper** — implement `dma_load_shader()` and
-  `dma_load_uniforms()` in `borg_fpu.c` using the `DMA_PSRAM` / `DMA_CONFIG`
-  MMIO registers. Poll `STATUS.dma_busy` for completion.
+- ✅ **Step 26.4: Firmware DMA wrapper** (2026-04-29) — `dma_load_shader()` and
+  `dma_load_uniforms()` added to `borg_fpu.c`/`borg_fpu.h`. Programs `DMA_PSRAM` +
+  `DMA_CONFIG` (START|LENGTH|DEST|OFFSET) and polls `STATUS_REG_T__DMA_BUSY_bm`.
 
 - **Step 26.5: Enable DMA on FPGA** — set `hasDMA=true` in `BorgConfig.FPGA`.
   Replace `borg_load_spirb_shader_at()` MMIO word-by-word writes with

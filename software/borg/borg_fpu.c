@@ -70,6 +70,61 @@ void borg_load_spirb_shader_at(const spirb_shader_t *s, int offset) {
   BORG_GPU->imem[offset + s->num_instrs] = BORG_INSTR_HALT;
 }
 
+/** dma_load_shader — bulk-copy shader instructions from PSRAM to IMEM via DMA.
+ *
+ * @param psram_byte_addr  4-byte-aligned PSRAM source address of the shader blob
+ *                         (num_instrs 32-bit words; HALT is written separately below)
+ * @param num_instrs       number of 32-bit instruction words to DMA
+ * @param imem_offset      destination word index in IMEM (0 = start of IMEM)
+ *
+ * Caller must ensure no GPU core is running (STATUS.idle == 1).
+ * DMA_PSRAM holds only the data words; the HALT terminator is pre-written via
+ * MMIO before triggering the DMA so it is in place when execution starts.
+ */
+void dma_load_shader(uint32_t psram_byte_addr, int num_instrs, int imem_offset) {
+  /* Pre-write the HALT terminator — DMA does not cover it */
+  BORG_GPU->imem[imem_offset + num_instrs] = BORG_INSTR_HALT;
+
+  /* DMA_PSRAM: 20-bit byte-aligned base address */
+  BORG_GPU->dma_psram = psram_byte_addr & DMA_PSRAM_REG_T_NOGEN_T__BASE_bm;
+
+  /* DMA_CONFIG: length[6:1] | dest=0(IMEM)[8:7] | offset[14:9] | start[0] */
+  BORG_GPU->dma_config =
+      ((uint32_t)num_instrs   << DMA_CONFIG_REG_T_NOGEN_T__LENGTH_bp) |
+      (0U                     << DMA_CONFIG_REG_T_NOGEN_T__DEST_bp)   |
+      ((uint32_t)imem_offset  << DMA_CONFIG_REG_T_NOGEN_T__OFFSET_bp) |
+      DMA_CONFIG_REG_T_NOGEN_T__START_bm;
+
+  /* Poll until DMA completes */
+  while (BORG_GPU->status & STATUS_REG_T__DMA_BUSY_bm)
+    ;
+}
+
+/** dma_load_uniforms — bulk-copy FP16 uniforms from PSRAM to uniform buffer.
+ *
+ * @param psram_byte_addr  4-byte-aligned PSRAM source address
+ *                         Each PSRAM word holds one FP16 value in bits[15:0].
+ * @param num_uniforms     number of FP16 uniform values to transfer
+ * @param uniform_offset   starting index in the uniform buffer (0..31)
+ * @param page             uniform buffer page: 0 or 1
+ */
+void dma_load_uniforms(uint32_t psram_byte_addr, int num_uniforms,
+                       int uniform_offset, int page) {
+  /* dest encoding: page 0 → 1, page 1 → 2 */
+  uint32_t dest = (page == 0) ? 1U : 2U;
+
+  BORG_GPU->dma_psram = psram_byte_addr & DMA_PSRAM_REG_T_NOGEN_T__BASE_bm;
+
+  BORG_GPU->dma_config =
+      ((uint32_t)num_uniforms   << DMA_CONFIG_REG_T_NOGEN_T__LENGTH_bp) |
+      (dest                     << DMA_CONFIG_REG_T_NOGEN_T__DEST_bp)   |
+      ((uint32_t)uniform_offset << DMA_CONFIG_REG_T_NOGEN_T__OFFSET_bp) |
+      DMA_CONFIG_REG_T_NOGEN_T__START_bm;
+
+  while (BORG_GPU->status & STATUS_REG_T__DMA_BUSY_bm)
+    ;
+}
+
 void borg_load_spirb_shader(const spirb_shader_t *s) {
   borg_load_spirb_shader_at(s, 0);
 }
