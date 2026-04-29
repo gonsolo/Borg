@@ -29,7 +29,6 @@ reflects the current state of `hardware/`.
 
 [![Borg hardware component interaction diagram](hw_diagram.svg)](hw_diagram.svg)
 
-
 ## What This Book Covers
 
 1. **The Borg Shader Processor** — the FP16 FMA unit, register file, and instruction set
