@@ -440,9 +440,12 @@ hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
   `dma_load_uniforms()` added to `borg_fpu.c`/`borg_fpu.h`. Programs `DMA_PSRAM` +
   `DMA_CONFIG` (START|LENGTH|DEST|OFFSET) and polls `STATUS_REG_T__DMA_BUSY_bm`.
 
-- **Step 26.5: Enable DMA on FPGA** — set `hasDMA=true` in `BorgConfig.FPGA`.
-  Replace `borg_load_spirb_shader_at()` MMIO word-by-word writes with
-  `dma_load_shader()`. Verify pixel-perfect rendering.
+- ✅ **Step 26.5: Enable DMA on FPGA** — set `hasDMA=true` in `BorgConfig.FPGA` (2026-04-29).
+  `BorgDMA` is now synthesised; firmware wrappers in place (Step 26.4). Verify no LC regression.
+
+- **Step 26.5b: Migrate shader load to DMA** — replace `borg_load_spirb_shader_at()` calls
+  in `borg_driver.c` with `dma_load_shader()`. Requires shaders to be pre-staged in PSRAM
+  at a known address (e.g. copied at init from flash). Verify pixel-perfect rendering on FPGA.
 
 - **Step 26.6: Remove IMEM MMIO write path** (`hasImemMmio=false`) (~15 LCs) — DMA replaces it
 

@@ -42,9 +42,9 @@ object BorgConfig {
     fp           = FloatConfig.FP16,
     coordWidth   = 6,   // max 64×64 framebuffer
     fifoDepth    = 1,
-    hasImemMmio  = true, // flip to false after Step 22.4
-    hasDMA       = false, // BorgDMA costs ~180 LCs; re-enable once firmware uses it
-    hasFlusher   = false  // costs ~282 LCs; need area savings before enabling
+    hasImemMmio  = true,  // flip to false in Step 26.6 once DMA is verified
+    hasDMA       = true,  // firmware wrappers done (Step 26.4); HW was already built (Step 22.1)
+    hasFlusher   = false  // costs ~200 LCs (after 26.1-26.2); enable in Step 27
   )
 
   /** Verilator / Arcilator simulation: no area constraint. */
