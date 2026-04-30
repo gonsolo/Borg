@@ -311,7 +311,7 @@ feature step, but recorded here for traceability.
 - **BorgConfig centralized parameterization**: New `BorgConfig` case class
 - **`.verilog_stamp` incremental build**: Root `Makefile` skips `generate_verilog`
 - **Hardware architecture diagram generator** (`scripts/gen_hw_diagram.py`):
-- **nextpnr `--seed 0`**: Pinned the placement RNG seed in `fpga/Makefile` for
+- **nextpnr `--seed 0`**: Pinned the placement RNG seed in `fpga/picoice/Makefile` for
 - **CI tool-version diagnostics**: Added "Print tool versions" step to
 - **Memory package modularization**: `TinyQVMemCtrl` extracted into a standalone
 - **Miscellaneous**: Dead code removal (`LatchReg*`), Chisel test fixes
@@ -414,7 +414,7 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     - `BorgTileFlusher` flushes all 16 tile pixels to PSRAM per tile-complete signal (Sim/Verilator/Arcilator).
     - FPGA CPU-fallback path: firmware reads all 16 pixels via `TILE_CTRL`/`TILE_BZ`/`TILE_RG` MMIO and writes to PSRAM when `FLUSH_BUSY=0` (HW flusher absent).
     - Fixed `generate.py` to parse `borg_layout.h` for `PSRAM_OUT_OFFSET` and `TEX_PSRAM_BYTE_OFFSET` instead of hardcoded stale values (was `0x80100`/`0x80`, now `0x84000`/`0x4000`).
-    - Updated `fpga/host/render.py` and `scripts/postprocess.py` to decode TBDR tiled layout (2 words/pixel, 4×4 tile addressing, `lo={B,Z}` / `hi={R,G}`).
+    - Updated `fpga/common/host/render.py` and `scripts/postprocess.py` to decode TBDR tiled layout (2 words/pixel, 4×4 tile addressing, `lo={B,Z}` / `hi={R,G}`).
     - Fixed arcilator `marker_offset_word` to use tiled layout (2 words/pixel vs old 4).
     - All 12/12 test suites pass including `render › fpga (hw)`. ✓
 
@@ -449,12 +449,32 @@ hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
   snoop). Removed from `BorgGpuRegs.scala` and `borg.rdl`. Saves ~36 LCs at nextpnr.
   **Budget result: 5255 / 5280 LCs (99%), 25 under budget ✓**
 
-### Step 27: Prepare fpga/ Directory for Multi-Target
+### Step 27: Multi-Target FPGA Directory Restructuring ✅ (2026-04-30)
 
-- Split `fpga/` build system into per-target subdirectories (or `BOARD=` variable)
-  so pico-ice (iCE40) and ULX3S (ECP5) can be built independently.
-- Add `BorgConfig.ULX3S` stub in Scala (no board needed).
-- Verify pico-ice target still synthesises and passes `make test-all`.
+Reorganized `fpga/` from a flat pico-ice-only layout into a multi-target
+hierarchy supporting both pico-ice (iCE40 UP5K) and ULX3S (ECP5-85K).
+
+- **Step 27.1: Subdirectory-based target separation** ✅ — Split `fpga/` into
+  `fpga/picoice/` (board-specific build: Makefile, host scripts, PCF, firmware
+  cache), `fpga/ulx3s/` (stub for ECP5), and `fpga/common/` (shared host
+  scripts: `render.py`, `run_tinyqv.py`, `usb_recover.sh`, etc.). Top-level
+  `fpga/Makefile` is now a dispatcher that forwards `triangle`, `vkcube`,
+  `burn`, `borg.bin`, and `clean` to the appropriate board subdirectory.
+- **Step 27.2: `BorgConfig.ULX3S` stub** ✅ — `hardware/borg/src/BorgConfig.scala`: new config
+  with `coordWidth=9`, `hasDMA=true`, `hasFlusher=true`, `hasImemMmio=false` (ECP5 has no LC
+  budget pressure).
+- **Step 27.3: `BorgConfig.FPGA` → `BorgConfig.PicoIce` rename** ✅ — Updated in
+  `BorgConfig.scala` and `fpga/picoice/tinyqv/src/PicoIce.scala`.
+- **Step 27.4: `ulx3s_top` Chisel stub** ✅ — `fpga/ulx3s/tinyqv/src/ULX3S.scala`: compiles and
+  emits Verilog via `ULX3SMain` (`make generate_verilog_ulx3s`). Uses plain IO ports (not SB_IO);
+  ECP5 TRELLIS_IO/BB primitives and LPF constraints deferred until hardware arrives.
+- **Step 27.5: `generate_verilog_ulx3s` target in root `Makefile`** ✅ — Runs `ULX3SMain` at
+  `CLOCK_MHZ=25` (ECP5 PLL output); emits Verilog to `out/ulx3s/verilog/`.
+- **Step 27.6: Fix mpremote path resolution** ✅ — `render.py` texture and output
+  `.bin` paths were relative to the old `fpga/` mount root but now live under
+  `fpga/picoice/`. Fixed by deriving paths from the `firmware_bin` argument.
+  Updated `fpga_render_test.sh` candidate PPM path to `fpga/picoice/`.
+  All 12/12 test suites pass including `render › fpga (hw)`. ✓
 
 ### Step 28: Fully Autonomous Hardware Iteration
 
@@ -463,16 +483,8 @@ Verilator today. ULX3S provides final hardware confirmation only.
 
 With the hardware flusher active, the CPU no longer touches the tile buffer or PSRAM write path
 during rendering. Full autonomy milestone.
-`BorgConfig.Sim` already has `hasFlusher=true` — development and validation fully possible in
-Verilator today. ULX3S provides final hardware confirmation only.
-
-With the hardware flusher active, the CPU no longer touches the tile buffer or PSRAM write path
-during rendering. Full autonomy milestone.
 
 ### Step 29: Integrated Vertex + Triangle Setup Sequencer
-
-Pure Chisel RTL — no platform-specific IO. Fully developable and testable in Verilator before
-the ULX3S arrives.
 
 Pure Chisel RTL — no platform-specific IO. Fully developable and testable in Verilator before
 the ULX3S arrives.
@@ -491,7 +503,7 @@ to share registers, address counters, and control logic.
 ### Step 30: Full Autonomous Triangle Pipeline
 
 Integration of Steps 21–29. CPU submits a triangle descriptor; GPU does:
-Developable and testable in Verilator (BorgConfig.Sim).
+Developable and testable in Verilator (`BorgConfig.Sim`).
 
 ### Step 31: Multi-Triangle Autonomous Rendering
 
@@ -511,10 +523,10 @@ Verilator: PSRAM modelled by simulation model.
 - **HDMI display engine** — integrate the ECP5 HDMI PHY module (e.g.
   `fpga-odysseus hdmi_video.v`) for scanout; wire to framebuffer PSRAM read path.
 
-- **Enable DMA** — set `hasDMA=true` + `hasImemMmio=false` in `BorgConfig.ULX3S`.
-  (`hasDMA=true` costs +327 LCs; exceeds pico-ice budget, no constraint on ECP5.)
+- **~~Enable DMA~~** ✅ — `hasDMA=true` + `hasImemMmio=false` already set in `BorgConfig.ULX3S`
+  (Step 27.2). Firmware DMA wrappers (`dma_load_shader`/`dma_load_uniforms`) ready (Step 26.4).
 
-- **Enable HW Flusher** — set `hasFlusher=true` in `BorgConfig.ULX3S`.
+- **~~Enable HW Flusher~~** ✅ — `hasFlusher=true` already set in `BorgConfig.ULX3S` (Step 27.2).
   Firmware auto-detects via `FLUSH_BUSY` bit — no code change needed.
   Milestone: CPU no longer touches tile buffer or PSRAM write path during rendering.
 
@@ -578,14 +590,14 @@ No host PC needed; the GPU renders to a monitor in real time.
 | 24 (MemCtrl rearch) | Unified arbiter logic | +0 | 5197 | ✅ |
 | 25 (write path + decoupling) | GPU write + architecture | +15 | 5212 | ✅ |
 | 26 (DMA firmware + LUT) | Remove MMIO paths | **−44** | 5168 | ✅ |
-| 27 (HW flusher enable) | hasFlusher=true − readback | +240 | 5408 | ⚠ |
+| 27 (multi-target dir) | Directory restructure | +0 | 5168 | ✅ |
 | 29 (vert seq + tri setup) | Unified FSM | +45 | 5257 | ✅ |
 | 30 (pipeline integration) | Wiring + control | +15 | 5272 | ✅ |
 | 31 (multi-triangle) | Descriptor reader | +10 | **5282** | ⚠ |
 | **Margin** | | | **−2 LCs** | |
 
 - O4: Direct tile buffer write (−40 LCs, medium risk)
-- O2: Remove `tex_uv` registers after Step 25 (−20 LCs)
+- ~~O2: Remove `tex_uv` registers after Step 25 (−20 LCs)~~ — done in Step 26.5b (−36 LCs actual)
 
 ### BRAM Budget
 
@@ -603,8 +615,8 @@ No host PC needed; the GPU renders to a monitor in real time.
 
 | Phase | Platform | Reason |
 | --- | --- | --- |
-| Phase 2 (Steps 21–26) | **pico-ice** (iCE40 UP5K) | TT-compatible pinout, forces area discipline |
-| Phase 3 (Steps 27–30) | **pico-ice** (GPU=off) or **ULX3S** (ECP5-85K) | CPU-only fits at 75%; ECP5 for full design |
+| Phase 2 (Steps 21–27) | **pico-ice** (iCE40 UP5K) | TT-compatible pinout, forces area discipline |
+| Phase 3 (Steps 28–31) | **pico-ice** (GPU=off) or **ULX3S** (ECP5-85K) | CPU-only fits at 75%; ECP5 for full design |
 | Phase 4–5 (Steps 32–41) | **ULX3S** or **Nitefury II** (Artix-7) | FP32 GPU, Vulkan conformance, DDR3/PCIe |
 | Tapeout | **Tiny Tapeout** (IHP SG13G2, 32 tiles) | Full SoC fits in ~14 tiles |
 
@@ -634,7 +646,7 @@ and has 16× the logic, with 32 MB SDRAM on board.
 
 | Scenario | Platform |
 | --- | --- |
-| Phase 2 (Steps 21–29), area-constrained dev | pico-ice |
+| Phase 2 (Steps 21–27), area-constrained dev | pico-ice |
 | Phase 3 (Steps 30–34), CPU grows past iCE40 | **ULX3S** |
 | Phase 3 with GPU enabled (doesn't fit iCE40) | **ULX3S** |
 | Phase 4–5, PCIe host access, DDR3 framebuffer | Nitefury II |
@@ -661,9 +673,9 @@ controller, PCIe bridge) while the Borg SoC runs inside unchanged.
 
 - `SoCLogic` trait (Project.scala:71) — all SoC wiring is platform-independent
 - `tt_um_gonsolo_borg` (Project.scala:338) — standardized 8+8+8 pin interface
-- `tinyQV_top` (PicoIce.scala:17) — shows how to wrap `SoCLogic` for a
+- `tinyQV_top` (`fpga/picoice/tinyqv/src/PicoIce.scala`) — shows how to wrap `SoCLogic` for a
 
-## Phase 3: Linux-Capable CPU (Steps 30–34)
+## Phase 3: Linux-Capable CPU (Steps 28–34)
 
 Target: **~Sept 2026** — expand TinyQV to RV32IMA. Sequential after Phase 2.
 

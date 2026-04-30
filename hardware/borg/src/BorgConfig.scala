@@ -38,13 +38,26 @@ object BorgConfig {
     * hasImemMmio stays true until firmware DMA is verified (Step 22.4),
     * then flip to false for ~30 LC savings (Step 22.0).
     */
-  val FPGA = BorgConfig(
+  val PicoIce = BorgConfig(
     fp           = FloatConfig.FP16,
     coordWidth   = 6,   // max 64×64 framebuffer
     fifoDepth    = 1,
     hasImemMmio  = true,  // reverted: hasDMA=false requires MMIO for shader loading
     hasDMA       = false, // ~327 LCs synthesised (2026-04-29); retry after LC budget cleared
     hasFlusher   = false  // costs +222 LCs at nextpnr (230 over budget); ULX3S milestone
+  )
+
+  /** ULX3S ECP5-85K stub — no hardware available yet (Step 27).
+    * ECP5 has 84,480 LUT4s: no LC budget pressure, all features enabled.
+    * Synthesis target: nextpnr-ecp5 + .lpf constraints (not yet wired).
+    */
+  val ULX3S = BorgConfig(
+    fp           = FloatConfig.FP16,
+    coordWidth   = 9,   // max 512×512 framebuffer
+    fifoDepth    = 2,
+    hasImemMmio  = false, // DMA used for shader loading on ECP5
+    hasDMA       = true,  // ECP5 has ample headroom (+327 LCs is negligible)
+    hasFlusher   = true   // hardware tile flusher enabled
   )
 
   /** Verilator / Arcilator simulation: no area constraint. */

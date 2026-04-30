@@ -13,7 +13,7 @@ import os
 import struct
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '../software/borg/python/build'))
-sys.path.append(os.path.join(os.path.dirname(__file__), '../fpga/host'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../fpga/common/host'))
 
 import borg_utils_c
 fp16_to_float = borg_utils_c.fp16_to_float

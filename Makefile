@@ -35,6 +35,7 @@ export CLOCK_MHZ = 4
 
 # Handwritten Scala sources (excludes RDL-generated files under src/generated/)
 HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/src hardware/memory/src \
+                        fpga/picoice/tinyqv/src fpga/ulx3s/tinyqv/src \
                         -name '*.scala' -not -path '*/generated/*' 2>/dev/null)
 
 # Stamp target: only re-runs Mill when Scala or RDL sources actually change.
@@ -42,7 +43,7 @@ HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/sr
 # but a re-run of rdl alone does not invalidate the stamp.
 .verilog_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.soc.runMain soc.Main
-	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.tinyqv.runMain soc.FpgaMain
+	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.picoice.tinyqv.runMain soc.FpgaMain
 	@touch $@
 
 .PHONY: info.yaml
@@ -52,6 +53,10 @@ info.yaml: .verilog_stamp
 # Convenience alias: ensures rdl and the verilog stamp are up to date.
 # Still declared phony so `make generate_verilog` always checks deps explicitly.
 generate_verilog: rdl .verilog_stamp info.yaml
+
+# ULX3S (ECP5-85K) Verilog emission stub — no synthesis flow yet (Step 27).
+generate_verilog_ulx3s: rdl
+	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.tinyqv.runMain soc.ULX3SMain
 
 test-cocotb-soc-core-rtl: generate_verilog
 	$(TEST_SOC) core
@@ -134,7 +139,7 @@ clean:
 clean-gh-runs:
 	gh run list --limit 200 --json databaseId --jq '.[8:] | .[].databaseId' | xargs -I {} gh run delete {}
 
-.PHONY: all generate_verilog help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
+.PHONY: all generate_verilog generate_verilog_ulx3s help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book clean-gh-runs scripts/test_summary.sh

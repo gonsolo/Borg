@@ -271,7 +271,7 @@ _s = WIDTH * 0.3
 TRI = [(0.0, -_s), (-_s, _s), (_s, _s)]
 
 
-def render_all_frames(app_name='triangle'):
+def render_all_frames(app_name='triangle', firmware_bin='firmware_cache/triangle.bin'):
     """Boot FPGA, let firmware render 10 frames, read back all framebuffers."""
     t_start_all = time.ticks_ms()
     NUM_FRAMES = 1
@@ -286,11 +286,13 @@ def render_all_frames(app_name='triangle'):
     # --- Upload texture data to PSRAM (before framebuffer, at fixed byte address) ---
     # Texture SPI base = PSRAM_IO_SPI_ADDR + TEX_PSRAM_BYTE_OFFSET (= 0x1080)
     TEX_SPI_BASE = PSRAM_IO_SPI_ADDR + TEX_PSRAM_BYTE_OFFSET
-    # Select texture file per app
+    # Select texture file per app — derive directory from firmware_bin path
+    # so it resolves correctly under the board-specific subdirectory.
+    fw_dir = firmware_bin.rsplit('/', 1)[0] if '/' in firmware_bin else '.'
     if app_name == 'vkcube':
-        tex_file = 'firmware_cache/borg_texture_morton.bin'
+        tex_file = fw_dir + '/borg_texture_morton.bin'
     else:
-        tex_file = 'firmware_cache/test_texture_morton.bin'
+        tex_file = fw_dir + '/test_texture_morton.bin'
 
     # Sentinel is at a FIXED PSRAM word (word 8 = byte offset 0x20).
     # This is well below the texture area (TEX_PSRAM_BYTE_OFFSET = 0x1080).
@@ -427,7 +429,11 @@ def render_all_frames(app_name='triangle'):
         # Output .bin stores {lo, hi} word pairs in scanline order (8 bytes/pixel)
         # for postprocess.py to decode.
         tiles_per_row = WIDTH >> 2
-        fname = "/remote/%s_%02d.bin" % (app_name, frame)
+        # Derive output directory from firmware_bin so the .bin lands next to
+        # the Makefile that invokes postprocess.py (e.g. picoice/).
+        _target_dir = fw_dir.rsplit('/', 1)[0] if '/' in fw_dir else ''
+        _out_prefix = '/remote/' + _target_dir + '/' if _target_dir else '/remote/'
+        fname = "%s%s_%02d.bin" % (_out_prefix, app_name, frame)
         with open(fname, 'wb') as f:
             for py in range(HEIGHT):
                 for px in range(WIDTH):
@@ -466,7 +472,7 @@ def run_animation(firmware_bin='firmware_cache/triangle.bin'):
 
     # Derive app name from firmware binary (e.g. 'firmware/vkcube.bin' -> 'vkcube')
     app_name = firmware_bin.rsplit('/', 1)[-1].replace('.bin', '')
-    render_all_frames(app_name)
+    render_all_frames(app_name, firmware_bin)
 
 
 def run_single_frame(frame=0, firmware_bin='firmware_cache/triangle.bin'):

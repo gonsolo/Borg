@@ -16,7 +16,7 @@ import borg.BorgConfig
   * but with direct FPGA I/O and SB_IO primitives for tri-state QSPI.
   */
 class tinyQV_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
-  override def BORG_CFG: BorgConfig = BorgConfig.FPGA
+  override def BORG_CFG: BorgConfig = BorgConfig.PicoIce
   val clk      = IO(Input(Clock()))
   val rst_n    = IO(Input(Bool()))
 

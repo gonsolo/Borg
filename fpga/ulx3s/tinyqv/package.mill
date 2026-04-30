@@ -1,4 +1,4 @@
-package build.fpga.tinyqv
+package build.fpga.ulx3s.tinyqv
 import mill._, scalalib._
 import build.BorgModule
 

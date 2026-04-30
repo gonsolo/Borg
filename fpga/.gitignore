@@ -1,10 +1,2 @@
-borg.asc
+# Symlink created by `make -C fpga borg.bin` for CI artifact upload compatibility
 borg.bin
-borg.json
-nextpnr.log
-yosys.log
-out
-*.ppm
-triangle_animation.mp4
-animation.webp
-*.bin

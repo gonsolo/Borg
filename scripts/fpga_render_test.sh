@@ -64,7 +64,7 @@ run_test() {
         return
     fi
 
-    local candidate="$FPGA/$ppm"
+    local candidate="$FPGA/picoice/$ppm"
     if [[ ! -f "$candidate" ]]; then
         fail "$target: PPM not produced at $candidate"
         rm -f "$log"
