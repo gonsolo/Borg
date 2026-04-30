@@ -44,7 +44,7 @@ object BorgConfig {
     fifoDepth    = 1,
     hasImemMmio  = true,  // reverted: hasDMA=false requires MMIO for shader loading
     hasDMA       = false, // ~327 LCs synthesised (2026-04-29); retry after LC budget cleared
-    hasFlusher   = false  // target: Step 27 after 26.8-26.9 savings
+    hasFlusher   = false  // costs +222 LCs at nextpnr (230 over budget); ULX3S milestone
   )
 
   /** Verilator / Arcilator simulation: no area constraint. */

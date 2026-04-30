@@ -418,7 +418,7 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     - Fixed arcilator `marker_offset_word` to use tiled layout (2 words/pixel vs old 4).
     - All 12/12 test suites pass including `render › fpga (hw)`. ✓
 
-### Step 26: DMA Firmware Integration + LUT Recovery
+### ✅ Step 26: DMA Firmware Integration + LUT Recovery (2026-04-30)
 
 Complete the firmware side of Step 22 and reclaim LC headroom to unblock the
 hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
@@ -440,43 +440,34 @@ hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
   `dma_load_uniforms()` added to `borg_fpu.c`/`borg_fpu.h`. Programs `DMA_PSRAM` +
   `DMA_CONFIG` (START|LENGTH|DEST|OFFSET) and polls `STATUS_REG_T__DMA_BUSY_bm`.
 
-**Next (do before hasFlusher):**
+- ✅ **Step 26.5: Remove duplicate tile_bz shadow registers** (2026-04-30) — `tileShadowB`/
+  `tileShadowZ` in `Borg.scala` duplicated `tile_bz_b_reg`/`tile_bz_z_reg` already in the RDL.
+  Replaced with direct reads from `rdlRegs.io.hw.tile_bz_b/.tile_bz_z`. Saves ~35 LCs.
 
-- **Step 26.5: Simplify RDL address decode** (~10 LCs)
+- ✅ **Step 26.5b: Remove dead `tex_uv` registers** (2026-04-30) — `tex_uv_u_reg`/`tex_uv_v_reg`
+  had no hw output ports, no read-mux arm, firmware never writes them (hardware uses rasterizer UV
+  snoop). Removed from `BorgGpuRegs.scala` and `borg.rdl`. Saves ~36 LCs at nextpnr.
+  **Budget result: 5255 / 5280 LCs (99%), 25 under budget ✓**
 
-- **Step 26.6: Remove MMIO GPR read path** (optional, ~20–30 LCs)
+### Step 27: Prepare fpga/ Directory for Multi-Target
 
-**Deferred — DMA on FPGA (2026-04-29: costs ~327 LCs synthesised, budget exhausted):**
-
-> `hasDMA=true` pushed synthesis to 5481 LCs (+201 over 5280 budget).
-> Setting `hasImemMmio=false` recovered only 53 LCs (→ 5428, still +148 over).
-> Reverted both flags. Will retry after additional LC budget is confirmed.
-
-- **Step 26.7: Enable DMA on FPGA** — set `hasDMA=true` + `hasImemMmio=false` together.
-  Prerequisite: Steps 26.5+26.6 savings + confirmation that budget allows +274 LC net cost.
-
-- **Step 26.8: Migrate shader load to DMA** — replace `borg_load_spirb_shader_at()` in
-  `borg_driver.c` with `dma_load_shader()`. Requires shaders pre-staged in PSRAM.
-
-### Step 27: Enable HW Flusher on FPGA + Remove CPU Flush Path
-
-Prerequisite: Steps 26.5+26.6 (~30–40 LCs freed); `BorgTileFlusher` net cost ~200 LCs
-(after 26.1+26.2 optimisations). Estimated budget: ~5154 − 40 + 200 = ~5314 LCs (⚠ tight).
-MMIO readback removal below frees another ~40 LCs to close the gap.
-
-- Hardware: set `hasFlusher=true` in `BorgConfig.FPGA`.
-- Hardware: remove `tile_bz`/`tile_rg` MMIO readback arms from `wireMmioRead()` (~30–45 LCs saved).
-- Hardware: remove `ctrlWriting` read trigger arm from `wireTileBuffer()` (~5–10 LCs saved).
-- Firmware: delete the CPU tile-flush `else` branch in `borgBinRender()` (lines 536–547).
-- Verify pixel-perfect rendering on FPGA with hardware flusher active.
-
+- Split `fpga/` build system into per-target subdirectories (or `BOARD=` variable)
+  so pico-ice (iCE40) and ULX3S (ECP5) can be built independently.
+- Add `BorgConfig.ULX3S` stub in Scala (no board needed).
+- Verify pico-ice target still synthesises and passes `make test-all`.
 
 ### Step 28: Fully Autonomous Hardware Iteration
 
-With the hardware flusher running on FPGA, the CPU no longer touches the
-tile buffer or PSRAM write path during rendering. Full autonomy milestone.
+`BorgConfig.Sim` already has `hasFlusher=true` — development and validation fully possible in
+Verilator today. ULX3S provides final hardware confirmation only.
+
+With the hardware flusher active, the CPU no longer touches the tile buffer or PSRAM write path
+during rendering. Full autonomy milestone.
 
 ### Step 29: Integrated Vertex + Triangle Setup Sequencer
+
+Pure Chisel RTL — no platform-specific IO. Fully developable and testable in Verilator before
+the ULX3S arrives.
 
 Unified FSM that replaces what the CPU currently does in `shade_tiles()`,
 `run_vertex_shader()`, `triangle_setup()`, and `compute_edge_vectors()`.
@@ -492,6 +483,7 @@ to share registers, address counters, and control logic.
 ### Step 30: Full Autonomous Triangle Pipeline
 
 Integration of Steps 21–29. CPU submits a triangle descriptor; GPU does:
+Developable and testable in Verilator (BorgConfig.Sim).
 
 ### Step 31: Multi-Triangle Autonomous Rendering
 
@@ -499,8 +491,33 @@ Extend Step 30 to process a list of triangle descriptors from PSRAM without
 CPU involvement. The GPU reads the next descriptor, runs the full pipeline,
 and signals DONE after the last triangle. The CPU submits a draw call
 (base pointer + count) and waits.
+Verilator: PSRAM modelled by simulation model.
 
-### Step 32: Real-Time VGA Output (TT VGA PMOD)
+---
+
+### ⏳ ULX3S arrives
+
+- **ECP5 synthesis flow** — write `.lpf` pin constraints, add `nextpnr-ecp5` Makefile
+  target, verify Yosys elaboration compiles cleanly for ECP5.
+
+- **HDMI display engine** — integrate the ECP5 HDMI PHY module (e.g.
+  `fpga-odysseus hdmi_video.v`) for scanout; wire to framebuffer PSRAM read path.
+
+- **Enable DMA** — set `hasDMA=true` + `hasImemMmio=false` in `BorgConfig.ULX3S`.
+  (`hasDMA=true` costs +327 LCs; exceeds pico-ice budget, no constraint on ECP5.)
+
+- **Enable HW Flusher** — set `hasFlusher=true` in `BorgConfig.ULX3S`.
+  Firmware auto-detects via `FLUSH_BUSY` bit — no code change needed.
+  Milestone: CPU no longer touches tile buffer or PSRAM write path during rendering.
+
+- **Migrate shader load to DMA** — replace `borg_load_spirb_shader_at()` in
+  `borg_driver.c` with `dma_load_shader()`. Requires shaders pre-staged in PSRAM.
+
+- **Hardware validation of Steps 28–31** on ECP5.
+
+### Step 32: Real-Time VGA Output — pico-ice only (TT VGA PMOD)
+
+> **pico-ice specific.** ULX3S has HDMI output — covered in the ULX3S bringup section.
 
 Drive the Tiny Tapeout VGA PMOD directly from the pico-ice FPGA for
 real-time display — the hardware equivalent of `make vkcube_gui`.

@@ -318,24 +318,7 @@ reg cmd_enqueue_reg_t {
     } RSVD[12] = 0;
 };
 
-// --- Texture UV input ---
-// Write: pack (V_fp16 << 16 | U_fp16).  Hardware converts FP16→uint8
-// and computes a Morton-encoded texel index.
-reg tex_uv_reg_t {
-    name = "Texture UV Input";
-    desc = "Write packed FP16 UV coordinates (U in low 16, V in high 16).
-            Reading returns the Morton-encoded 12-bit texel index.";
-
-    field {
-        sw = w; hw = na;
-        desc = "Bits 15:0: U coordinate (FP16, pre-scaled to texel space). Deprecated: hardware now uses rasterizer snoop.";
-    } u[16] = 0;
-
-    field {
-        sw = w; hw = na;
-        desc = "Bits 31:16: V coordinate (FP16, pre-scaled to texel space). Deprecated: hardware now uses rasterizer snoop.";
-    } v[16] = 0;
-};
+// tex_uv_reg_t removed: hardware now uses rasterizer UV snoop; firmware never writes this register.
 
 // --- Texture configuration (Step 21.2) ---
 // Write: set texture PSRAM base address and enable hardware texel fetch.
@@ -528,8 +511,7 @@ addrmap borg_gpu {
     // ---- Command FIFO Enqueue: 0x1FC ----
     cmd_enqueue_reg_t cmd_enqueue;
 
-    // ---- Texture UV Input: 0x200 ----
-    tex_uv_reg_t tex_uv @ 0x200;
+    // tex_uv removed (no hw ports; firmware never writes it)
 
     // ---- Texture Address (HW-computed): 0x204 ----
     tex_addr_reg_t tex_addr;

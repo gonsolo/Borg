@@ -527,13 +527,15 @@ static void borgBinRender(int frame) {
         } while (1);
 
         // --- Tile flush ---
-        // Detect HW flusher: FLUSH_BUSY goes high right after tileComplete
-        // (Sim, hasFlusher=true).  On FPGA (hasFlusher=false) it's hardwired 0.
+        // Auto-detect HW flusher: FLUSH_BUSY goes high right after tileComplete
+        // when hasFlusher=true (Sim / ULX3S).  On pico-ice (hasFlusher=false) it
+        // is hardwired 0 → always takes the CPU flush path below.
         if (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm) {
           // HW flusher active — wait for it to finish writing to PSRAM.
           while (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm);
         } else {
-          // CPU tile flush (FPGA fallback): read 16 tile-buffer pixels → PSRAM.
+          // CPU tile flush (pico-ice fallback, hasFlusher=false):
+          // read 16 tile-buffer pixels from BRAM and write to PSRAM.
           int base = fb_offset + tile_index * 32;
           for (int tile_idx = 0; tile_idx < 16; tile_idx++) {
             BORG_GPU->tile_ctrl = (uint32_t)tile_idx;  // trigger BRAM read
@@ -546,6 +548,7 @@ static void borgBinRender(int frame) {
             PSRAM_OUT(base + tile_idx * 2 + 1) = rg;
           }
         }
+
       }   // for (int slot...)
     }
   }

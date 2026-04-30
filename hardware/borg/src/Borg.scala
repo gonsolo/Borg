@@ -239,14 +239,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     
     tile.io.clear.en := rdlRegs.io.hw.tile_ctrl_clear
 
-    // Two-step protocol: shadow BZ -> write RG triggers
-    val tileShadowB = RegInit(0.U(16.W))
-    val tileShadowZ = RegInit(0.U(16.W))
-    when(bus.is_writing && bus.address === BorgGpuRegs.tile_bz_offset) {
-      tileShadowB := bus.data_in(31, 16)
-      tileShadowZ := bus.data_in(15, 0)
-    }
-    
+    // Two-step protocol: shadow BZ written first, RG write triggers tile buffer write.
+    // tile_bz_b/tile_bz_z are captured by the RDL (tile_bz_b_reg/tile_bz_z_reg) and
+    // exposed via rdlRegs.io.hw.tile_bz_b/.tile_bz_z — no duplicate shadow needed (Step 26.5).
+
     val mmioTileWriteEn = bus.is_writing && bus.address === BorgGpuRegs.tile_rg_offset
     tile.io.write.en  := mmioTileWriteEn || rast.io.tileWrite.en
     tile.io.write.idx := Mux(rast.io.tileWrite.en, rast.io.tileWrite.idx, tileReadIdx)
@@ -254,8 +250,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val writeColor = Wire(new ColorZ(16))
     writeColor.r := bus.data_in(31, 16)
     writeColor.g := bus.data_in(15, 0)
-    writeColor.b := tileShadowB
-    writeColor.z := tileShadowZ
+    writeColor.b := rdlRegs.io.hw.tile_bz_b   // from RDL tile_bz_b_reg (Step 26.5)
+    writeColor.z := rdlRegs.io.hw.tile_bz_z   // from RDL tile_bz_z_reg (Step 26.5)
     tile.io.write.data := Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor)
 
     // Read port: flusher > dispatcher depth-test > MMIO CTRL.
@@ -277,7 +273,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     rast.io.tileRead.data := tile.io.read.data
   }
 
-
   /** Step 25.4.1: Wire BorgTileFlusher with real PSRAM writes.
     *
     * - `start`        : driven by `rast.io.tileComplete`.
@@ -288,26 +283,26 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     * - tile read port: muxed in wireTileBuffer() above.
     */
   private def wireFlusher(): Unit = {
-    // Single shadow register: firmware writes tileBase per tile.
-    // tileBase = fbBase + tile_index * 128
-    //   tile_index = (ty >> 2) * tiles_per_row + (tx >> 2)
-    val flushTileBaseReg = RegInit(0.U(20.W))
-    when(bus.is_writing && bus.address === BorgGpuRegs.flush_fb_base_offset) {
-      flushTileBaseReg := bus.data_in(19, 0)
-    }
-
-    // Deferred flusher start: tileComplete and pixelReady fire on the same
-    // cycle (the last iterator advance).  The dispatcher still needs to run
-    // the last pixel's shader pipeline and write to the tile SRAM before the
-    // flusher bulk-reads it.  Latch tileComplete and fire start only when
-    // autoRunStall drops (dispatcher finished the last tile write).
-    val flushPending = RegInit(false.B)
-    when(rast.io.tileComplete) {
-      flushPending := true.B
-    }
-
+    // flushTileBaseReg and flushPending are inside case Some(f) so they are
+    // eliminated at elaboration time when hasFlusher=false.
     flusher match {
       case Some(f) =>
+        // Single shadow register: firmware writes tileBase per tile.
+        val flushTileBaseReg = RegInit(0.U(20.W))
+        when(bus.is_writing && bus.address === BorgGpuRegs.flush_fb_base_offset) {
+          flushTileBaseReg := bus.data_in(19, 0)
+        }
+
+        // Deferred flusher start: tileComplete and pixelReady fire on the same
+        // cycle (the last iterator advance).  The dispatcher still needs to run
+        // the last pixel's shader pipeline and write to the tile SRAM before the
+        // flusher bulk-reads it.  Latch tileComplete and fire start only when
+        // autoRunStall drops (dispatcher finished the last tile write).
+        val flushPending = RegInit(false.B)
+        when(rast.io.tileComplete) {
+          flushPending := true.B
+        }
+
         when(flushPending && !rast.io.autoRunStall) {
           f.io.start   := true.B
           flushPending := false.B
@@ -326,7 +321,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         rdlRegs.io.hw.status_flush_busy := 0.U
     }
   }
-
 
   // @doc:mmio
   private def wireMmioRead(): Unit = {
@@ -376,6 +370,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     rast.io.texConfig.mortonIndex := morton_index
 
     val rdl_read_data = rdlRegs.io.bus.readData
+    // tile_rg/tile_bz readback arms kept unconditionally: needed by the test harness
+    // (readTilePixel) and by the CPU flush path (hasFlusher=false).
     io.data_out := MuxCase(rdl_read_data, Seq(
       (read_addr_del < 128.U) -> core.io.regReadData,
       (read_addr_del === BorgGpuRegs.tile_rg_offset) -> Cat(tile.io.read.data.r, tile.io.read.data.g),
