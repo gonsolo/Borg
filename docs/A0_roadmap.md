@@ -265,9 +265,9 @@ VideoCore's TMU = our `sTexFetch`, VPM = our `BorgTileBuffer`, shared SDRAM =
 our shared QSPI PSRAM, central bus arbiter = our 2:1 mux. Also matches
 PowerVR SGX's Data Masters + tile-based deferred rendering pattern.
 
-- ✅ **Step 19.1: Extract MemCtrl to SoC level** *(2026-04-13)*
+- **Step 19.1: Extract MemCtrl to SoC level** ✅ *(2026-04-13)*
 
-- ✅ **Step 19.2: Wire GPU port to BorgRasterizer** *(2026-04-14)*
+- **Step 19.2: Wire GPU port to BorgRasterizer** ✅ *(2026-04-14)*
 
 ### Step 20: IO Bundle Refactor (Code Quality) ✅ (2026-04-14)
 
@@ -297,11 +297,11 @@ reduction is more effective than LUT reduction.
   - ✅ **O8: Remove duplicate `read_addr_del`** (~6 LCs saved) *(2026-04-15)*
   - Target: **−89 LCs** → running total ~5191
 
-- ✅ **Step 21.0.1: Parallel Test Runner** *(2026-04-15)*
+- **Step 21.0.1: Parallel Test Runner** ✅ *(2026-04-15)*
 
-- ✅ **Step 21.1: sTexFetch FSM Integration** *(completed during Step 19.2)*
+- **Step 21.1: sTexFetch FSM Integration** ✅ *(completed during Step 19.2)*
 
-- ✅ **Step 21.2: Tex Config MMIO + Firmware Integration** *(2026-04-15)* (+10 LCs)
+- **Step 21.2: Tex Config MMIO + Firmware Integration** ✅ *(2026-04-15)* (+10 LCs)
 
 ### Dev Infrastructure ✅ (2026-04-18)
 
@@ -418,33 +418,33 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     - Fixed arcilator `marker_offset_word` to use tiled layout (2 words/pixel vs old 4).
     - All 12/12 test suites pass including `render › fpga (hw)`. ✓
 
-### ✅ Step 26: DMA Firmware Integration + LUT Recovery (2026-04-30)
+### Step 26: DMA Firmware Integration + LUT Recovery ✅ (2026-04-30)
 
 Complete the firmware side of Step 22 and reclaim LC headroom to unblock the
 hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
 (Step 22.1); only firmware and FPGA config changes remain.
 
-- ✅ **Step 26.1: Remove `entry_lo`/`entry_hi` latch registers** (~64 LCs saved, 2026-04-29)\
+- **Step 26.1: Remove `entry_lo`/`entry_hi` latch registers** ✅ (~64 LCs saved, 2026-04-29)\
   `BorgTileFlusher`: `BorgTileBuffer.readDataHeld` already holds SRAM output stable; removed
   7→6-state FSM and 64 FFs. All 195/195 tests pass.
 
-- ✅ **Step 26.2: Replace `tileBase_reg + (word_idx << 2)` adder with running `addrReg`** (~18 LCs saved, 2026-04-29)\
+- **Step 26.2: Replace `tileBase_reg + (word_idx << 2)` adder with running `addrReg`** ✅ (~18 LCs saved, 2026-04-29)\
   `BorgTileFlusher`: removed `tileBase_reg` (20 FFs) and combinational adder; `addrReg`
   initializes to `io.tileBase` and increments +4 per write. All 195/195 tests pass.
 
-- ✅ **Step 26.3: Don't latch full `descReg`** (~34 LCs saved, 2026-04-29)\
+- **Step 26.3: Don't latch full `descReg`** ✅ (~34 LCs saved, 2026-04-29)\
   `BorgDMA`: removed `descReg` (34 FFs: baseAddr+length+dest+offset); `io.desc` fields
   wired directly in `sRead` — firmware holds them stable during transfer. All 195/195 tests pass.
 
-- ✅ **Step 26.4: Firmware DMA wrapper** (2026-04-29) — `dma_load_shader()` and
+- **Step 26.4: Firmware DMA wrapper** ✅ (2026-04-29) — `dma_load_shader()` and
   `dma_load_uniforms()` added to `borg_fpu.c`/`borg_fpu.h`. Programs `DMA_PSRAM` +
   `DMA_CONFIG` (START|LENGTH|DEST|OFFSET) and polls `STATUS_REG_T__DMA_BUSY_bm`.
 
-- ✅ **Step 26.5: Remove duplicate tile_bz shadow registers** (2026-04-30) — `tileShadowB`/
+- **Step 26.5: Remove duplicate tile_bz shadow registers** ✅ (2026-04-30) — `tileShadowB`/
   `tileShadowZ` in `Borg.scala` duplicated `tile_bz_b_reg`/`tile_bz_z_reg` already in the RDL.
   Replaced with direct reads from `rdlRegs.io.hw.tile_bz_b/.tile_bz_z`. Saves ~35 LCs.
 
-- ✅ **Step 26.5b: Remove dead `tex_uv` registers** (2026-04-30) — `tex_uv_u_reg`/`tex_uv_v_reg`
+- **Step 26.5b: Remove dead `tex_uv` registers** ✅ (2026-04-30) — `tex_uv_u_reg`/`tex_uv_v_reg`
   had no hw output ports, no read-mux arm, firmware never writes them (hardware uses rasterizer UV
   snoop). Removed from `BorgGpuRegs.scala` and `borg.rdl`. Saves ~36 LCs at nextpnr.
   **Budget result: 5255 / 5280 LCs (99%), 25 under budget ✓**
@@ -463,8 +463,16 @@ Verilator today. ULX3S provides final hardware confirmation only.
 
 With the hardware flusher active, the CPU no longer touches the tile buffer or PSRAM write path
 during rendering. Full autonomy milestone.
+`BorgConfig.Sim` already has `hasFlusher=true` — development and validation fully possible in
+Verilator today. ULX3S provides final hardware confirmation only.
+
+With the hardware flusher active, the CPU no longer touches the tile buffer or PSRAM write path
+during rendering. Full autonomy milestone.
 
 ### Step 29: Integrated Vertex + Triangle Setup Sequencer
+
+Pure Chisel RTL — no platform-specific IO. Fully developable and testable in Verilator before
+the ULX3S arrives.
 
 Pure Chisel RTL — no platform-specific IO. Fully developable and testable in Verilator before
 the ULX3S arrives.
