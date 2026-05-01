@@ -550,9 +550,14 @@ Evolution path: Option B (VBO + stride) in Step 31; Option C (index buffer) in P
   page output muxed (sequencer > MMIO) in `wireCore()`.
   Gate: `BorgSequencerTests.sequencer_uniform_staging` — 198/198 tests pass. ✓
 
-- **Step 29.4: Integration test** — full triangle through `Borg` wrapper:
-  stage descriptor + shaders in PSRAM, trigger sequencer, iterate tile, verify tile buffer.
-  Gate: `BorgTests.sequencer_full_triangle` + full `mill hardware.borg.test`.
+- **Step 29.4: Integration test** ✅ (2026-05-01) — `sequencer_full_triangle` verifies
+  the complete pipeline: PSRAM descriptor → vertex shader → setup shader → sStageUniforms
+  → rasterizer (trivial "always inside") → fragment shader reads staged uniform u14
+  (color[0].r = 1.0) → tile buffer pixel RGBZ all match expected values.
+  Bug fix: sStageUniforms uniform write address must include `uniformPage` bit
+  (`Cat(uniformPage, writeIdx(4,0))`) — without this, staging always wrote to page 0,
+  breaking ping-pong.
+  Gate: `BorgSequencerTests.sequencer_full_triangle` — 199/199 tests pass. ✓
 
 - **Step 29.5: Firmware auto-detection + golden image** — `borgCmdDraw()` auto-detects
   sequencer via `STATUS.seq_busy`; writes descriptor to PSRAM + triggers `SEQ_TRIGGER`.

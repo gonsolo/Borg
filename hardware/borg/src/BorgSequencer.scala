@@ -385,7 +385,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       // u25-u30: uData stays 0
 
       io.uniformWrite.en   := true.B
-      io.uniformWrite.addr := writeIdx(4, 0)
+      io.uniformWrite.addr := Cat(uniformPage, writeIdx(4, 0))
       io.uniformWrite.data := uData
 
       when(writeIdx === 30.U) {

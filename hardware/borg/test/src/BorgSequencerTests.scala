@@ -332,5 +332,111 @@ object BorgSequencerTests extends TestSuite {
         println("=== sequencer_uniform_staging PASSED ===\n")
       }
     }
+
+    /** Step 29.4 gate: sequencer_full_triangle
+      *
+      * Full integration: sequencer stages uniforms from PSRAM descriptor,
+      * then rasterizer iterates a tile using those uniforms, fragment shader
+      * reads staged color values, tile buffer receives correct RGBZ.
+      */
+    utest.test("sequencer_full_triangle") {
+      simulate(new Borg(BorgConfig.Sim)) { borg =>
+        println("\n=== BorgSequencerTests: sequencer_full_triangle ===")
+
+        // --- (0) Reset ---
+        borg.reset.poke(true.B)
+        borg.io.data_write_n.poke(3.U)
+        borg.io.data_read_n.poke(3.U)
+        borg.io.gpuMem.ready.poke(false.B)
+        borg.io.gpuMem.data.poke(0.U)
+        borg.clock.step(4)
+        borg.reset.poke(false.B)
+        borg.clock.step(20)
+        rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
+
+        // --- (1) PSRAM setup ---
+        val vertAddr = 0x1000; val setupAddr = 0x3000; val descAddr = 0x2000
+        val c0r = 1.0f; val c0g = 0.0f; val c0b = 0.0f
+        val verts = Seq(
+          Seq(1.0f, 0.0f, 0.1f, c0r, c0g, c0b, 0.0f, 0.0f),
+          Seq(2.0f, 0.0f, 0.2f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f),
+          Seq(1.0f, 5.0f, 0.3f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f),
+        )
+        val vertShader = vertPassthroughShader()
+        val setup      = setupShader()
+        val psram: Map[Int, BigInt] =
+          vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
+          setup.zipWithIndex.map      { case (w,i) => (setupAddr + i*4) -> w }.toMap ++
+          buildDescriptor(descAddr, verts)
+
+        // --- (2) Run sequencer ---
+        rawWrite(borg, BorgGpuRegs.seq_desc_base_offset.litValue.toInt, descAddr)
+        rawWrite(borg, BorgGpuRegs.seq_vert_addr_offset.litValue.toInt, vertAddr)
+        rawWrite(borg, BorgGpuRegs.seq_vert_len_offset.litValue.toInt, vertShader.size)
+        rawWrite(borg, BorgGpuRegs.seq_setup_addr_offset.litValue.toInt, setupAddr)
+        rawWrite(borg, BorgGpuRegs.seq_setup_len_offset.litValue.toInt, setup.size)
+        rawWrite(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt, 1)
+        val (seen, cleared, _) = runSequencerUntilDone(borg, psram)
+        println(f"  Sequencer: busy=$seen, cleared=$cleared")
+        Predef.assert(cleared, "sequencer hung")
+
+        // --- (3) Load rast+frag shaders to IMEM ---
+        rawWrite(borg, 7 * 4, floatToBits16(1.0f))
+        rawWrite(borg, 6 * 4, floatToBits16(0.0f))
+        rawWrite(borg, 20 * 4, floatToBits16(0.5f))
+        rawWrite(borg, 21 * 4, floatToBits16(0.25f))
+        rawWrite(borg, 22 * 4, floatToBits16(0.1f))
+        val rastShader = Seq(
+          Instructions.ADD(rs1 = 7, rs2 = 6, rd = 0),
+          Instructions.ADD(rs1 = 7, rs2 = 6, rd = 1),
+          Instructions.ADD(rs1 = 7, rs2 = 6, rd = 2),
+          BigInt(0)
+        )
+        val fragShader = Seq(
+          Instructions.ADD(rs1 = 14, rs2 = 31, rd = 26, funct3 = 1),
+          Instructions.ADD(rs1 = 20, rs2 = 31, rd = 27),
+          Instructions.ADD(rs1 = 21, rs2 = 31, rd = 28),
+          Instructions.ADD(rs1 = 22, rs2 = 31, rd = 29),
+          BigInt(0)
+        )
+        for ((w, i) <- (rastShader ++ fragShader).zipWithIndex)
+          rawWrite(borg, 128 + i * 4, w & BigInt(0xFFFFFFFFL))
+
+        // --- (4) Configure rasterizer ---
+        rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 1 << 5)
+        rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 4)
+
+        // --- (5) Enqueue tile cmd + iterate ---
+        rawWrite(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, 0)
+        borg.clock.step(5)
+        for (_ <- 0 until 16) {
+          rawWrite(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
+          borg.clock.step(50)
+        }
+        borg.clock.step(20)
+
+        // --- (6) Read tile buffer pixel 0 ---
+        val expR = floatToBits16(c0r).toInt
+        val expG = floatToBits16(0.5f).toInt
+        val expB = floatToBits16(0.25f).toInt
+        val expZ = floatToBits16(0.1f).toInt
+        rawWrite(borg, BorgGpuRegs.tile_ctrl_offset.litValue.toInt, 0)
+        borg.clock.step(3)
+        val rg0 = rawRead(borg, BorgGpuRegs.tile_rg_offset.litValue.toInt)
+        val bz0 = rawRead(borg, BorgGpuRegs.tile_bz_offset.litValue.toInt)
+        val r0 = ((rg0 >> 16) & 0xFFFF).toInt
+        val g0 = (rg0 & 0xFFFF).toInt
+        val b0 = ((bz0 >> 16) & 0xFFFF).toInt
+        val z0 = (bz0 & 0xFFFF).toInt
+        println(f"  Tile[0]: R=0x$r0%04X(exp 0x$expR%04X) G=0x$g0%04X(exp 0x$expG%04X) B=0x$b0%04X(exp 0x$expB%04X) Z=0x$z0%04X(exp 0x$expZ%04X)")
+
+        Predef.assert(r0 == expR, f"R: 0x$r0%04X vs 0x$expR%04X")
+        Predef.assert(g0 == expG, f"G: 0x$g0%04X vs 0x$expG%04X")
+        Predef.assert(b0 == expB, f"B: 0x$b0%04X vs 0x$expB%04X")
+        Predef.assert(z0 == expZ, f"Z: 0x$z0%04X vs 0x$expZ%04X")
+
+        println("=== sequencer_full_triangle PASSED ===\n")
+      }
+    }
   }
 }
