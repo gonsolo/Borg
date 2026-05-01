@@ -26,3 +26,12 @@
 // Framebuffer starts after the texture region.
 // 0x5000 + 524288 (0x80000) = 0x85000.
 #define PSRAM_OUT_OFFSET  0x84000   // Byte offset from PSRAM_SPI_BASE: 0x85000 - 0x1000
+
+// --- Sequencer PSRAM layout (Step 29.5) ---
+// Placed between BSS end (~0x4260) and texture start (0x5000).
+// The sequencer needs: vert shader, setup shader, and per-draw-call vertex
+// descriptors (3 vertices × 8 FP16 words × 4 bytes = 96 bytes each).
+#define SEQ_VERT_SHADER_ADDR  0x4800  // SPI byte addr for vertex shader
+#define SEQ_SETUP_SHADER_ADDR 0x4880  // SPI byte addr for setup shader
+#define SEQ_DESC_BASE_ADDR    0x4900  // SPI byte addr for vertex descriptors
+#define SEQ_DESC_STRIDE       96      // 3 vertices × 8 words × 4 bytes

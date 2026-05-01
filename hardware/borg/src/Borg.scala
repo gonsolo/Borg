@@ -181,7 +181,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
                                                 d.io.uniformWrite.data)
             // Snoop: sequencer observes what DMA writes to the uniform buffer
             s.io.dmaUniformSnoop.en   := d.io.uniformWrite.en
-            s.io.dmaUniformSnoop.addr := d.io.uniformWrite.addr
+            s.io.dmaUniformSnoop.addr := d.io.uniformWrite.addr(2, 0)  // low 3 bits = word offset 0-7
             s.io.dmaUniformSnoop.data := d.io.uniformWrite.data
           case None =>
             core.io.dmaUniformWrite <> d.io.uniformWrite

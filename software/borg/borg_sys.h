@@ -47,6 +47,10 @@
 // PSRAM_OUT(n) and PSRAM_OUT_SPI(n) address the same physical PSRAM word;
 // the only difference is PSRAM_BASE (CPU-mapped) vs PSRAM_SPI_BASE (raw SPI).
 #define PSRAM_OUT_SPI(n) (PSRAM_SPI_BASE + PSRAM_OUT_OFFSET + (uint32_t)(n) * 4u)
+// Raw SPI byte address accessor: reads/writes a 32-bit word at an absolute SPI
+// byte address.  Used by the sequencer path to access shader/descriptor regions
+// at fixed addresses (Step 29.5).
+#define PSRAM_OUT_RAW(spi_addr) (*(volatile uint32_t *)(PSRAM_BASE - PSRAM_SPI_BASE + (spi_addr)))
 
 // --- Peripheral base addresses ---
 // These come from the SoC address map (soc.rdl).

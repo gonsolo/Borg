@@ -102,7 +102,7 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   // During vertex DMA, BorgCore's dmaUniformWrite is asserted by BorgDMA.
   // The sequencer snoops these writes to populate colorRegs.
   // Wired in Borg.scala from core.io.dmaUniformWrite (or DMA's uniformWrite).
-  val dmaUniformSnoop = Flipped(new MemWritePort(6, 16))
+  val dmaUniformSnoop = Flipped(new MemWritePort(3, 16))
 
   // --- Snooped clip-space vertex outputs (3 vertices × 4 components) ---
   val clipOut = Output(Vec(3, Vec(4, UInt(16.W))))
@@ -371,14 +371,14 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       }.elsewhen(w < 22.U) {
         // u13-u21: 9 color values = 3 components (R,G,B) × 3 vertices (bary order)
         // u13-u15 = R(v1,v0,v2), u16-u18 = G(v1,v0,v2), u19-u21 = B(v1,v0,v2)
-        val colorOff = w - 13.U  // 0-8
-        val comp     = colorOff / 3.U   // 0=R, 1=G, 2=B
-        val baryIdx  = colorOff % 3.U   // 0,1,2 → vertex baryV[baryIdx]
+        val colorOff = (w - 13.U)(3, 0)         // 0-8, 4 bits
+        val comp     = (colorOff / 3.U)(1, 0)   // 0=R,1=G,2=B, 2 bits
+        val baryIdx  = (colorOff % 3.U)(1, 0)   // 0,1,2 → vertex baryV[baryIdx], 2 bits
         val vIdx     = baryV(baryIdx)
         uData := colorRegs(vIdx)(comp)
       }.elsewhen(w < 25.U) {
         // u22-u24: z values — z_vals[1], z_vals[0], z_vals[2] (bary order)
-        val zOff = w - 22.U  // 0,1,2
+        val zOff = (w - 22.U)(1, 0)  // 0,1,2 (2 bits)
         val vIdx = baryV(zOff)
         uData := colorRegs(vIdx)(3)  // index 3 = z component
       }

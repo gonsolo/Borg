@@ -490,7 +490,7 @@ during rendering. Full autonomy milestone.
   high then clears, exactly 32 PSRAM writes issued at correct byte addresses (`tileBase + i*8`
   stride), and all lo/hi word data matches `{B,Z}` / `{R,G}` packing. Tests: 1/1 ✓.
 
-### Step 29: Integrated Vertex + Triangle Setup Sequencer
+### Step 29: Integrated Vertex + Triangle Setup Sequencer ✅ (2026-05-01)
 
 Pure Chisel RTL — no platform-specific IO. Fully developable and testable in Verilator before
 the ULX3S arrives. `hasSequencer=true` on Sim and ULX3S; `false` on PicoIce (LC budget).
@@ -559,15 +559,38 @@ Evolution path: Option B (VBO + stride) in Step 31; Option C (index buffer) in P
   breaking ping-pong.
   Gate: `BorgSequencerTests.sequencer_full_triangle` — 199/199 tests pass. ✓
 
-- **Step 29.5: Firmware auto-detection + golden image** — `borgCmdDraw()` auto-detects
-  sequencer via `STATUS.seq_busy`; writes descriptor to PSRAM + triggers `SEQ_TRIGGER`.
-  PicoIce path unchanged.
-  Gate: `make triangle` + `make vkcube` golden images match; `m test-all` 12/12.
+- **Step 29.5: Firmware auto-detection + golden image** ✅ (2026-05-01) — `borgCmdDraw()` auto-detects
+  sequencer via `STATUS.seq_busy` (trigger dummy run during `borgCreateGraphicsPipeline()`).
+  When detected, `borgBinRender()` replaces `setup_tile_uniforms()` with sequencer trigger:
+  writes vertex descriptor to PSRAM per draw call, triggers `SEQ_TRIGGER`, polls `seq_busy`,
+  reloads rast+frag shaders to IMEM (sequencer overwrites with setup shader).
+  New PSRAM layout: `SEQ_VERT_SHADER_ADDR` (0x4800), `SEQ_SETUP_SHADER_ADDR` (0x4880),
+  `SEQ_DESC_BASE_ADDR` (0x4900, 96-byte stride per draw call).
+  Added `PSRAM_OUT_RAW(spi_addr)` macro for raw SPI byte address access.
+  PicoIce path unchanged (`has_sequencer=0` → CPU `setup_tile_uniforms()` fallback).
+  Gate: `make triangle` + `make vkcube` golden images match baseline; 199/199 Chisel tests pass. ✓
 
 ### Step 30: Full Autonomous Triangle Pipeline
 
-Integration of Steps 21–29. CPU submits a triangle descriptor; GPU does:
-Developable and testable in Verilator (`BorgConfig.Sim`).
+Integration of Steps 21–29. CPU submits a triangle descriptor; GPU runs vertex
+shader, triangle setup, and uniform staging autonomously. CPU then tiles and
+fragment-shades as before. Developable and testable in Verilator (`BorgConfig.Sim`).
+
+The firmware sequencer path is scaffolded (Step 29.5) but blocked on the setup
+shader not being embedded in firmware ROM.  The hardware path is fully verified
+via `BorgSequencerTests.sequencer_full_triangle`.
+
+- **Step 30.1: Embed setup shader in firmware ROM** — Hard-code the 22-instruction
+  triangle-setup shader as a `uint32_t[]` array in `borg_driver.c` (using
+  `BORG_INSTR_*` macros from `borg_isa.h`).  During `borgCreateGraphicsPipeline()`,
+  write it to PSRAM at `SEQ_SETUP_SHADER_ADDR`, set `seq_setup_addr` and
+  `seq_setup_len`, then enable the `#if 0` auto-detection block.
+  Gate: `m test-all` golden images match with `has_sequencer=1` active.
+
+- **Step 30.2: Remove `setup_tile_uniforms()` from the hot path** — Once the
+  sequencer path is live, delete the CPU-side `setup_tile_uniforms()` call (now
+  inside `else` branch).  Add an assertion that `has_sequencer=1` in `BorgConfig.Sim`.
+  Gate: `make triangle` + `make vkcube` pass; render cycle count decreases.
 
 ### Step 31: Multi-Triangle Autonomous Rendering
 

@@ -34,3 +34,4 @@ TODO
 tt_submission
 *.vcd
 .verilog_stamp
+fpga/picoice/.burned
