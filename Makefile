@@ -44,6 +44,10 @@ HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/sr
 .verilog_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.soc.runMain soc.Main
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.picoice.tinyqv.runMain soc.FpgaMain
+	@# Yosys resolves $readmemh paths relative to the .sv file location (out/fpga/verilog/),
+	@# so the LUT hex files must be present there, not just in fpga/picoice/.
+	@ln -sf $(CURDIR)/hardware/borg/src/rcp_lut.hex   out/fpga/verilog/rcp_lut.hex
+	@ln -sf $(CURDIR)/hardware/borg/src/coord_lut.hex out/fpga/verilog/coord_lut.hex
 	@touch $@
 
 .PHONY: info.yaml
