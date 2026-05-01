@@ -1114,5 +1114,244 @@ object BorgTests extends TestSuite {
         println("=== Texture Fetch Tests Passed ===\n")
       }
     }
+
+    // =====================================================================
+    // Step 28: Fully Autonomous Hardware Iteration
+    //
+    // Validates that BorgConfig.Sim (hasFlusher=true) triggers the HW
+    // BorgTileFlusher autonomously after a tile is complete:
+    //   1. Write a known 4-channel pixel pattern into all 16 tile SRAM slots
+    //      via the TILE_CTRL / TILE_RG / TILE_BZ MMIO interface.
+    //   2. Set flush_fb_base to a known byte address (tileBase = 0x200).
+    //   3. Run a minimal rast+frag shader so tileComplete fires, which
+    //      triggers flushPending → flusher.start.
+    //   4. Drive io.gpuMem.ready=1 whenever gpuMem.wr=1 (model the PSRAM
+    //      accepting every write in one cycle).
+    //   5. Assert:
+    //      a. FLUSH_BUSY goes high after tileComplete.
+    //      b. Exactly 32 PSRAM writes are issued.
+    //      c. The first lo-word address is tileBase, consecutive writes
+    //         advance by 4 bytes (lo at base+8*i, hi at base+8*i+4).
+    //      d. The lo word of entry 0 matches {b[15:0], z[15:0]} and the
+    //         hi word matches {r[15:0], g[15:0]} as packed by BorgTileFlusher.
+    //      e. FLUSH_BUSY returns to 0 after all 32 writes.
+    //
+    // This is a pure Chisel/simulation test — no hardware required.
+    // BorgConfig.Sim has hasFlusher=true and hasDMA=true by default.
+    // =====================================================================
+    utest.test("hw_flusher_autonomous") {
+      val config = FloatConfig.FP16
+      // Borg(config) uses BorgConfig.Sim which has hasFlusher=true
+      simulate(new Borg(config)) { borg =>
+        println("\n=== Step 28: HW Flusher Autonomous Test ===")
+
+        // ---- helpers (local to avoid name clashes) ----
+        def rawWrite(addr: Int, data: BigInt): Unit = {
+          borg.io.address.poke(addr.U)
+          borg.io.data_in.poke(data.U)
+          borg.io.data_write_n.poke(2.U)
+          borg.clock.step(1)
+          borg.io.data_write_n.poke(3.U)
+          borg.clock.step(1)
+        }
+
+        def rawRead(addr: Int): BigInt = {
+          borg.io.address.poke(addr.U)
+          borg.io.data_read_n.poke(2.U)
+          borg.io.data_write_n.poke(3.U)
+          borg.clock.step(1)
+          borg.clock.step(1)
+          val v = borg.io.data_out.peek().litValue
+          borg.io.data_read_n.poke(3.U)
+          v
+        }
+
+        def readStatus(): BigInt = rawRead(BorgGpuRegs.status_offset.litValue.toInt)
+
+        def flushBusy(): Boolean =
+          (readStatus() & 0x10) != 0   // STATUS bit 4 = flush_busy
+
+        // ---- (0) Reset and settle ----
+        borg.reset.poke(true.B)
+        borg.io.data_write_n.poke(3.U)
+        borg.io.data_read_n.poke(3.U)
+        borg.io.gpuMem.ready.poke(false.B)
+        borg.io.gpuMem.data.poke(0.U)
+        borg.clock.step(4)
+        borg.reset.poke(false.B)
+        borg.clock.step(20)   // tile buffer auto-clear (16 cycles + margin)
+
+        // ---- (1) Write known pixel data to all 16 tile SRAM slots ----
+        // Pixel i: R = 0x1000+i, G = 0x2000+i, B = 0x3000+i, Z = 0x4000+i
+        println("  Writing 16 tile pixels via MMIO...")
+        for (i <- 0 until 16) {
+          val r = 0x1000 + i
+          val g = 0x2000 + i
+          val b = 0x3000 + i
+          val z = 0x4000 + i
+          // Protocol: CTRL=idx, BZ={B<<16|Z}, RG={R<<16|G} (RG write fires)
+          rawWrite(BorgGpuRegs.tile_ctrl_offset.litValue.toInt, i & 0xF)
+          rawWrite(BorgGpuRegs.tile_bz_offset.litValue.toInt,
+                   (BigInt(b & 0xFFFF) << 16) | BigInt(z & 0xFFFF))
+          rawWrite(BorgGpuRegs.tile_rg_offset.litValue.toInt,
+                   (BigInt(r & 0xFFFF) << 16) | BigInt(g & 0xFFFF))
+        }
+        borg.clock.step(4)
+
+        // ---- (2) Configure flush base address ----
+        val tileBase = 0x200   // arbitrary PSRAM byte offset
+        rawWrite(BorgGpuRegs.flush_fb_base_offset.litValue.toInt, tileBase)
+        rawWrite(BorgGpuRegs.flush_width_offset.litValue.toInt,   5)  // log2(32) = 5
+
+        // ---- (3) Set up a minimal shader: r0=r1=r2=1.0 (inside) then halt ----
+        // frag_pc=0 means the rasterizer will run one rast pass and call tileComplete.
+        rawWrite(BorgGpuRegs.control_offset.litValue.toInt, 2)  // reset pipeline
+
+        // Preload r7 = 1.0 (FP16 0x3C00) and r6 = 0.0 so shader can copy them
+        rawWrite(7 * 4, 0x3C00)   // r7 = 1.0
+        rawWrite(6 * 4, 0x0000)   // r6 = 0.0
+
+        // Shader at PC=0: r0=r1=r2 = r7+r6 = 1.0  → all edges inside
+        val addR0 = encodeInstruction(config, ADD, rs1 = 7, rs2 = 6, rd = 0)
+        val addR1 = encodeInstruction(config, ADD, rs1 = 7, rs2 = 6, rd = 1)
+        val addR2 = encodeInstruction(config, ADD, rs1 = 7, rs2 = 6, rd = 2)
+        rawWrite(128 + 0 * 4, addR0)
+        rawWrite(128 + 1 * 4, addR1)
+        rawWrite(128 + 2 * 4, addR2)
+        rawWrite(128 + 3 * 4, 0)      // halt — no frag shader (tileWrite → tileComplete)
+
+        // frag_pc = 0: only rast pass, no separate frag shader
+        rawWrite(BorgGpuRegs.frag_pc_offset.litValue.toInt, 0)
+
+        // ---- (4) Enqueue tile command (tx=0, ty=0) ----
+        val tileCmd = (0 << 10) | 0
+        rawWrite(BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd)
+        borg.clock.step(5)
+
+        // ---- (5) Drive the tile iterator through all 16 pixels ----
+        // We call BORG_ITER=1 sixteen times (once per pixel).  Each write:
+        //   • auto-runs the rast shader at PC=0
+        //   • the rasterizer sees inside=true → sTileWrite → tileComplete on pixel 15
+        // While stepping, drive gpuMem.ready whenever the flusher is writing.
+        // IMPORTANT: do NOT call readStatus()/rawRead() inside the tight capture
+        // loop — rawRead() steps the clock twice, and during those extra steps
+        // gpuMem.ready is still high, causing the flusher to accept a write that
+        // we don't observe (resulting in only 16 captures instead of 32).
+        // Instead: capture writes with a single-step loop; check FLUSH_BUSY
+        // separately between pixel iterations and after the drain.
+        println("  Running 16 iterator steps (driving gpuMem.ready)...")
+        var writeCount = 0
+        var flushBusySeen  = false
+        val writes = scala.collection.mutable.ArrayBuffer[(Int, Long)]()  // (addr, data)
+
+        // Single-cycle FLUSH_BUSY check: steps clock exactly once, does NOT
+        // assert gpuMem.ready (called only between pixel iterations).
+        def peekFlushBusy(): Boolean = {
+          borg.io.gpuMem.ready.poke(false.B)
+          borg.io.address.poke(BorgGpuRegs.status_offset)
+          borg.io.data_read_n.poke(2.U)
+          borg.io.data_write_n.poke(3.U)
+          borg.clock.step(1)
+          val v = borg.io.data_out.peek().litValue
+          borg.io.data_read_n.poke(3.U)
+          borg.clock.step(1)
+          (v & 0x10) != 0
+        }
+
+        // Tight capture loop: only peek/poke gpuMem signals + step once per iter
+        def drainFlusher(cycles: Int): Unit = {
+          for (_ <- 0 until cycles) {
+            if (borg.io.gpuMem.wr.peek().litToBoolean) {
+              writes += ((borg.io.gpuMem.addr.peek().litValue.toInt,
+                          borg.io.gpuMem.wdata.peek().litValue.toLong))
+              writeCount += 1
+              borg.io.gpuMem.ready.poke(true.B)
+            } else {
+              borg.io.gpuMem.ready.poke(false.B)
+            }
+            borg.clock.step(1)
+          }
+          borg.io.gpuMem.ready.poke(false.B)
+        }
+
+        for (_ <- 0 until 16) {
+          // Trigger one auto-run step
+          rawWrite(BorgGpuRegs.iter_offset.litValue.toInt, 1)
+          // Drain up to 60 cycles for this pixel; flusher fires on pixel 15
+          drainFlusher(60)
+          // Check FLUSH_BUSY between pixels (safe: no flusher writes expected
+          // during the first 15 pixels; after pixel 15, flusher may be active
+          // but drainFlusher(60) above should have captured all writes)
+          if (peekFlushBusy()) flushBusySeen = true
+        }
+
+        // Extra drain in case the flusher is still running
+        drainFlusher(400)
+
+        // Final FLUSH_BUSY check: must be clear after drain
+        val flushBusyClear = !peekFlushBusy() && flushBusySeen
+
+        // ---- Assertions ----
+
+        println(f"  FLUSH_BUSY seen high: $flushBusySeen (expect true)")
+        Predef.assert(flushBusySeen, "FLUSH_BUSY never went high — flusher not triggered")
+
+        println(f"  FLUSH_BUSY cleared:   $flushBusyClear (expect true)")
+        Predef.assert(flushBusyClear, "FLUSH_BUSY did not clear — flusher hung")
+
+        println(f"  Total PSRAM writes:   $writeCount (expect 32)")
+        Predef.assert(writeCount == 32, s"Expected 32 writes, got $writeCount")
+
+        // Verify the first entry (i=0): lo at tileBase, hi at tileBase+4
+        val (addr0Lo, data0Lo) = writes(0)
+        val (addr0Hi, data0Hi) = writes(1)
+        val expAddr0Lo = tileBase
+        val expAddr0Hi = tileBase + 4
+        // BorgTileFlusher lo word = asUInt(31,0)  → {b[15:0], z[15:0]}
+        // hi word = asUInt(63,32) → {r[15:0], g[15:0]}
+        // ColorZ(r,g,b,z) Chisel Bundle: asUInt packs MSB-first in declaration order.
+        // BorgTileBuffer stores ColorZ; flusher slices [31:0] and [63:32].
+        // Entry 0: r=0x1000, g=0x2000, b=0x3000, z=0x4000
+        // lo  = bits[31:0]  = {b=0x3000, z=0x4000} (packed by Chisel MSB first)
+        // hi  = bits[63:32] = {r=0x1000, g=0x2000}
+        val expData0Lo = (0x3000L << 16) | 0x4000L
+        val expData0Hi = (0x1000L << 16) | 0x2000L
+
+        println(f"  Write[0] addr=0x$addr0Lo%04X (exp 0x$expAddr0Lo%04X)  data=0x$data0Lo%08X (exp 0x$expData0Lo%08X)")
+        println(f"  Write[1] addr=0x$addr0Hi%04X (exp 0x$expAddr0Hi%04X)  data=0x$data0Hi%08X (exp 0x$expData0Hi%08X)")
+        Predef.assert(addr0Lo == expAddr0Lo, s"lo addr mismatch: got 0x${addr0Lo.toHexString}")
+        Predef.assert(addr0Hi == expAddr0Hi, s"hi addr mismatch: got 0x${addr0Hi.toHexString}")
+        Predef.assert(data0Lo == expData0Lo, s"lo data mismatch: got 0x${data0Lo.toHexString}")
+        Predef.assert(data0Hi == expData0Hi, s"hi data mismatch: got 0x${data0Hi.toHexString}")
+
+        // Verify address stride: lo[i] = tileBase + i*8, hi[i] = tileBase + i*8 + 4
+        for (i <- 0 until 16) {
+          val (aLo, _) = writes(i * 2)
+          val (aHi, _) = writes(i * 2 + 1)
+          val expLo = tileBase + i * 8
+          val expHi = tileBase + i * 8 + 4
+          Predef.assert(aLo == expLo, s"entry $i lo addr: got 0x${aLo.toHexString} exp 0x${expLo.toHexString}")
+          Predef.assert(aHi == expHi, s"entry $i hi addr: got 0x${aHi.toHexString} exp 0x${expHi.toHexString}")
+        }
+        println("  Address stride 8 bytes/entry ✓")
+
+        // Verify data for all 16 entries
+        for (i <- 0 until 16) {
+          val r = 0x1000 + i
+          val g = 0x2000 + i
+          val b = 0x3000 + i
+          val z = 0x4000 + i
+          val expLo = (b.toLong << 16) | z.toLong
+          val expHi = (r.toLong << 16) | g.toLong
+          val (_, gotLo) = writes(i * 2)
+          val (_, gotHi) = writes(i * 2 + 1)
+          Predef.assert(gotLo == expLo, s"entry $i lo data: got 0x${gotLo.toHexString} exp 0x${expLo.toHexString}")
+          Predef.assert(gotHi == expHi, s"entry $i hi data: got 0x${gotHi.toHexString} exp 0x${expHi.toHexString}")
+        }
+        println("  All 16 entry data values correct ✓")
+
+        println("=== Step 28: HW Flusher Autonomous Test PASSED ===\n")
+      }
+    }
   }
 }

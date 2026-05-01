@@ -476,13 +476,19 @@ hierarchy supporting both pico-ice (iCE40 UP5K) and ULX3S (ECP5-85K).
   Updated `fpga_render_test.sh` candidate PPM path to `fpga/picoice/`.
   All 12/12 test suites pass including `render › fpga (hw)`. ✓
 
-### Step 28: Fully Autonomous Hardware Iteration
+### Step 28: Fully Autonomous Hardware Iteration ✅
 
 `BorgConfig.Sim` already has `hasFlusher=true` — development and validation fully possible in
 Verilator today. ULX3S provides final hardware confirmation only.
 
 With the hardware flusher active, the CPU no longer touches the tile buffer or PSRAM write path
 during rendering. Full autonomy milestone.
+
+- **Step 28.1: `hw_flusher_autonomous` Chisel integration test** ✅ — Added to `BorgTests.scala`.
+  Writes a known 16-pixel pattern via MMIO, runs a rast shader through all 16 tile pixels so
+  `tileComplete` fires autonomously, drives `io.gpuMem.ready`, and verifies: `FLUSH_BUSY` goes
+  high then clears, exactly 32 PSRAM writes issued at correct byte addresses (`tileBase + i*8`
+  stride), and all lo/hi word data matches `{B,Z}` / `{R,G}` packing. Tests: 1/1 ✓.
 
 ### Step 29: Integrated Vertex + Triangle Setup Sequencer
 

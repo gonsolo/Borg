@@ -49,5 +49,20 @@ trait BorgModule extends ScalaModule {
         mvn"com.lihaoyi::os-lib:0.11.8"
       )
     }
+
+    // --- How to run a single test or test class ---
+    //
+    // Run all tests in one class (e.g. BorgTests):
+    //   mill hardware.borg.test.testOnly borg.BorgTests
+    //
+    // Run a single test method (class glob before --, full utest path after --):
+    //   mill hardware.borg.test.testOnly borg.BorgTests -- borg.BorgTests.hw_flusher_autonomous
+    //
+    // The part after -- is the utest query selector (full dotted path from package root).
+    // utest uses sbt.testing.Framework as its interface; `-- <path>` is passed as
+    // args(0) to BaseRunner, which filters both the class and the individual test.
+    //
+    // Note: `mill hardware.borg.test -- borg.BorgTests.foo` does NOT work —
+    // mill does not forward -- args to the sbt testing runner that way.
   }
 }
