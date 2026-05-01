@@ -100,7 +100,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val rdlRegs = Module(new BorgGpuRegs()) // Auto-generated RDL register block
   val dma = if (cfg.hasDMA) Some(Module(new BorgDMA)) else None
   val flusher = if (cfg.hasFlusher) Some(Module(new BorgTileFlusher())) else None
-  val sequencer = if (cfg.hasSequencer) Some(Module(new BorgSequencer)) else None
+  val sequencer = if (cfg.hasSequencer) Some(Module(new BorgSequencer(cfg))) else None
 
   wireBus()
   wireRdlRegs()
@@ -129,7 +129,18 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   private def wireCore(): Unit = {
     core.io.bus <> bus
     core.io.iter       := rast.io.shaderIter    // latched pre-advance position for coordLut
-    core.io.coreTrigger <> rast.io.coreTrigger
+
+    // CoreTrigger mux: sequencer > rasterizer (they never contend in practice —
+    // sequencer runs between triangles, rasterizer during pixel traversal).
+    sequencer match {
+      case Some(s) =>
+        core.io.coreTrigger.valid := Mux(s.io.busy, s.io.coreTrigger.valid,
+                                                    rast.io.coreTrigger.valid)
+        core.io.coreTrigger.pc    := Mux(s.io.busy, s.io.coreTrigger.pc,
+                                                    rast.io.coreTrigger.pc)
+      case None =>
+        core.io.coreTrigger <> rast.io.coreTrigger
+    }
 
     core.io.control.start            := rdlRegs.io.hw.control_start
     core.io.control.reset            := rdlRegs.io.hw.control_reset_pipeline
@@ -409,35 +420,52 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
           dmaStartPulse := bus.data_in(0)
         }
 
-        val desc = Wire(new DMADescriptor)
-        desc.baseAddr := dmaBaseReg
-        desc.length   := dmaLenReg
-        desc.dest     := dmaDestReg
-        desc.offset   := dmaOffsetReg
-        d.io.start := dmaStartPulse
-        d.io.desc  := desc
+        val mmioDesc = Wire(new DMADescriptor)
+        mmioDesc.baseAddr := dmaBaseReg
+        mmioDesc.length   := dmaLenReg
+        mmioDesc.dest     := dmaDestReg
+        mmioDesc.offset   := dmaOffsetReg
+
+        // DMA mux: sequencer > MMIO.  When sequencer is busy, it owns DMA.
+        sequencer match {
+          case Some(s) =>
+            d.io.start := Mux(s.io.busy, s.io.dmaStart, dmaStartPulse)
+            d.io.desc  := Mux(s.io.busy, s.io.dmaDesc,  mmioDesc)
+            s.io.dmaBusy := d.io.busy
+          case None =>
+            d.io.start := dmaStartPulse
+            d.io.desc  := mmioDesc
+        }
         rdlRegs.io.hw.status_dma_busy := d.io.busy.asUInt
 
       case None =>
         // hasDMA=false: DMA RDL registers have nogen=true, no hw ports.
         rdlRegs.io.hw.status_dma_busy := 0.U
+        // If sequencer exists without DMA (should not happen), tie off dmaBusy
+        sequencer.foreach(_.io.dmaBusy := false.B)
     }
   }
 
-  /** Step 29.0: Wire BorgSequencer MMIO decode and status bit.
+  /** Step 29.0/29.1: Wire BorgSequencer MMIO decode, status bit, and
+    * core/pipeline snoop interfaces.
     *
-    * - `seq_desc_base` (0x220): latches 20-bit PSRAM descriptor address.
-    * - `seq_trigger`   (0x224): singlepulse start (bit 0).
-    * - `status_seq_busy`: driven from sequencer.io.busy.
+    * MMIO registers (all nogen — decoded directly from bus):
+    * - `seq_desc_base`  (0x220): 20-bit PSRAM descriptor address.
+    * - `seq_trigger`    (0x224): singlepulse start (bit 0).
+    * - `seq_vert_addr`  (0x228): 20-bit PSRAM address of vertex shader binary.
+    * - `seq_vert_len`   (0x22C): vertex shader length in 32-bit words (6 bits).
     *
-    * Both registers are nogen in the RDL — decoded directly from the bus
-    * here, identical to wireFlusher / wireDMA patterns.
+    * Step 29.1 additions:
+    * - CoreStatus and PipeWrite snooped from BorgCore (broadcast, no mux needed).
+    * - DMA and CoreTrigger muxed in wireDMA() and wireCore() respectively.
     */
   private def wireSequencer(): Unit = {
     sequencer match {
       case Some(s) =>
-        val seqDescBaseReg = RegInit(0.U(20.W))
-        val seqStartPulse  = WireDefault(false.B)
+        val seqDescBaseReg  = RegInit(0.U(20.W))
+        val seqVertAddrReg  = RegInit(0.U(20.W))
+        val seqVertLenReg   = RegInit(0.U(6.W))
+        val seqStartPulse   = WireDefault(false.B)
 
         when(bus.is_writing && bus.address === BorgGpuRegs.seq_desc_base_offset) {
           seqDescBaseReg := bus.data_in(19, 0)
@@ -445,9 +473,26 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         when(bus.is_writing && bus.address === BorgGpuRegs.seq_trigger_offset) {
           seqStartPulse := bus.data_in(0)
         }
+        // Step 29.1: vertex shader address and length registers
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_addr_offset) {
+          seqVertAddrReg := bus.data_in(19, 0)
+        }
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_len_offset) {
+          seqVertLenReg := bus.data_in(5, 0)
+        }
 
-        s.io.start    := seqStartPulse
-        s.io.descBase := seqDescBaseReg
+        s.io.start         := seqStartPulse
+        s.io.descBase      := seqDescBaseReg
+        s.io.vertShaderAddr := seqVertAddrReg
+        s.io.vertShaderLen  := seqVertLenReg
+
+        // CoreStatus and PipeWrite: broadcast snoop (no mux — input-only, read from core)
+        s.io.coreStatus.running        := core.io.status.running
+        s.io.coreStatus.autoRunPending := core.io.status.autoRunPending
+        s.io.pipeWrite.en   := core.io.pipeWrite.en
+        s.io.pipeWrite.addr := core.io.pipeWrite.addr
+        s.io.pipeWrite.data := core.io.pipeWrite.data
+
         rdlRegs.io.hw.status_seq_busy := s.io.busy.asUInt
 
       case None =>

@@ -463,6 +463,40 @@ reg seq_trigger_reg_t {
     } RSVD[31] = 0;
 };
 
+// --- Vertex Sequencer: vertex shader PSRAM address (Step 29.1) ---
+reg seq_vert_addr_reg_t {
+    name = "Sequencer Vertex Shader Address";
+    desc = "20-bit PSRAM byte address of the vertex shader binary.
+            The sequencer DMA-loads this shader into IMEM before running
+            vertex transformations.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 19:0: 20-bit PSRAM byte address of vertex shader.";
+    } addr[20] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[12] = 0;
+};
+
+// --- Vertex Sequencer: vertex shader length (Step 29.1) ---
+reg seq_vert_len_reg_t {
+    name = "Sequencer Vertex Shader Length";
+    desc = "Length of vertex shader binary in 32-bit PSRAM words (1–56).
+            The sequencer passes this to BorgDMA as the transfer length.
+            nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 5:0: vertex shader length in 32-bit words.";
+    } len[6] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[26] = 0;
+};
+
 // --- 16-bit FP register (stored in 32-bit word, upper bits ignored on write) ---
 reg gpr_reg_t {
     name = "General Purpose Register";
@@ -592,4 +626,12 @@ addrmap borg_gpu {
     // ---- Sequencer Trigger: 0x224 — nogen (decoded in Borg.scala) ----
     seq_trigger_reg_t seq_trigger;
     seq_trigger->nogen = true;
+
+    // ---- Sequencer Vertex Shader Address: 0x228 — nogen (Step 29.1) ----
+    seq_vert_addr_reg_t seq_vert_addr;
+    seq_vert_addr->nogen = true;
+
+    // ---- Sequencer Vertex Shader Length: 0x22C — nogen (Step 29.1) ----
+    seq_vert_len_reg_t seq_vert_len;
+    seq_vert_len->nogen = true;
 };

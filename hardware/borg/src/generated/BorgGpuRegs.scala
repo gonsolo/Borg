@@ -59,6 +59,8 @@ class BorgGpuHwIO extends Bundle {
 
 
 
+
+
 }
 
 // ============================================================================
@@ -98,6 +100,8 @@ object BorgGpuRegs {
   val flush_width_offset = 540.U
   val seq_desc_base_offset = 544.U
   val seq_trigger_offset = 548.U
+  val seq_vert_addr_offset = 552.U
+  val seq_vert_len_offset = 556.U
 }
 
 class BorgGpuIO extends Bundle {
@@ -180,6 +184,10 @@ class BorgGpuRegs extends Module {
 
   // seq_trigger @ 0x224 — nogen: no hardware storage (disabled feature)
 
+  // seq_vert_addr @ 0x228 — nogen: no hardware storage (disabled feature)
+
+  // seq_vert_len @ 0x22C — nogen: no hardware storage (disabled feature)
+
 
   // --------------------------------------------------------------------------
   // Address decode — write path
@@ -226,6 +234,8 @@ class BorgGpuRegs extends Module {
   when(io.bus.writeEn && io.bus.address === 520.U) {
     frag_pc_frag_pc_reg := io.bus.writeData(5, 0)
   }
+
+
 
 
 
@@ -306,6 +316,8 @@ class BorgGpuRegs extends Module {
       0.U(26.W),
       frag_pc_frag_pc_reg
     ),
+
+
 
 
 

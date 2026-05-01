@@ -508,13 +508,20 @@ Evolution path: Option B (VBO + stride) in Step 31; Option C (index buffer) in P
 - **Step 29.0: Config + MMIO scaffolding** ✅ (2026-05-01) — `hasSequencer` flag
   (`PicoIce=false`, `ULX3S/Sim=true`), `SEQ_DESC_BASE` (0x220 nogen),
   `SEQ_TRIGGER` (0x224 nogen), `STATUS.seq_busy` (bit 5). `BorgSequencer` stub wired
-  into `Borg.scala`. `borg_regs.h` struct size → 0x228. All 12/12 suites pass. ✓
+  into `Borg.scala`. `borg_regs.h` struct size → 0x230. All 12/12 suites pass. ✓
 
-- **Step 29.1: BorgSequencer FSM — vertex shader sequencing** —
-  `sIdle → sLoadVertShader → sRunVert{0,1,2} → sDone`.
-  DMA loads shader into IMEM; `CoreTriggerIO` fires the core 3×; `PipeWriteIO`
-  snoops clip-space outputs into shadow registers. *Model: Opus.*
-  Gate: `BorgSequencerTests.vertex_shader_run`.
+- **Step 29.1: BorgSequencer FSM — vertex shader sequencing** ✅ (2026-05-01) —
+  7-state FSM: `sIdle → sLoadShader → sWaitDMA → sLoadVert → sWaitDMA →
+  sRunVert → sWaitVert → (×3 vertices) → sDone → sIdle`.
+  Uses `vertIdx` counter (0–2) and `nextAfterDMA` register to avoid state explosion.
+  DMA loads shader into IMEM; for each vertex, DMA loads 3 position words into
+  uniform buffer page 0, then `CoreTriggerIO` fires the core at PC=0; `PipeWriteIO`
+  snoops clip-space outputs (r0–r3) into 12 shadow registers (`clipRegs`).
+  Latched `dmaDescReg` holds descriptor stable for BorgDMA's direct-wire protocol
+  (Step 26.3). New MMIO nogen registers: `SEQ_VERT_ADDR` (0x228), `SEQ_VERT_LEN`
+  (0x22C). CoreTrigger mux (sequencer > rasterizer) in `wireCore()`.
+  DMA mux (sequencer > MMIO) in `wireDMA()`.
+  Gate: `BorgSequencerTests.vertex_shader_run` — 196/196 tests pass. ✓
 
 - **Step 29.2: Triangle setup shader** — `shaders/setup.s` (~25–30 instructions):
   perspective divide, NDC→screen, signed area + back-face cull, `inv_area`, edge vectors.
