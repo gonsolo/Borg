@@ -145,7 +145,16 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     core.io.control.start            := rdlRegs.io.hw.control_start
     core.io.control.reset            := rdlRegs.io.hw.control_reset_pipeline
     core.io.control.startPC          := rdlRegs.io.hw.control_start_pc
-    core.io.control.uniformWritePage := rdlRegs.io.hw.control_uniform_write_page
+    // Step 29.3: uniformWritePage mux — sequencer > MMIO.
+    // The sequencer drives this during sStageUniforms for ping-pong (Step 13.4).
+    sequencer match {
+      case Some(s) =>
+        core.io.control.uniformWritePage := Mux(s.io.busy,
+                                               s.io.uniformWritePage,
+                                               rdlRegs.io.hw.control_uniform_write_page)
+      case None =>
+        core.io.control.uniformWritePage := rdlRegs.io.hw.control_uniform_write_page
+    }
 
     // CoordLut/RcpLut init port — only used during simulation; synthesis uses $readmemh
     core.io.lutInit.en    := false.B
@@ -153,10 +162,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     core.io.lutInit.addr  := 0.U
     core.io.lutInit.data  := 0.U
 
-    // DMA write ports (Step 22.1) — only wired when hasDMA=true
-    // Step 29.2: Uniform write port is shared between DMA and sequencer.
-    // They never contend (sequencer writes during sWriteSetupInputs, DMA
-    // writes during sRead).  Mux gives sequencer priority.
+    // DMA write ports (Step 22.1) — only wired when hasDMA=true.
+    // Steps 29.2/29.3: Uniform write port is shared between DMA and sequencer;
+    // sequencer takes priority (they never contend in practice).
+    // Step 29.3: DMA's uniform write stream is also snooped by the sequencer
+    // to capture color/z data during the vertex DMA phase.
     dma match {
       case Some(d) =>
         core.io.dmaImemWrite <> d.io.imemWrite
@@ -169,6 +179,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
             core.io.dmaUniformWrite.data := Mux(s.io.uniformWrite.en,
                                                 s.io.uniformWrite.data,
                                                 d.io.uniformWrite.data)
+            // Snoop: sequencer observes what DMA writes to the uniform buffer
+            s.io.dmaUniformSnoop.en   := d.io.uniformWrite.en
+            s.io.dmaUniformSnoop.addr := d.io.uniformWrite.addr
+            s.io.dmaUniformSnoop.data := d.io.uniformWrite.data
           case None =>
             core.io.dmaUniformWrite <> d.io.uniformWrite
         }
@@ -181,6 +195,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
             core.io.dmaUniformWrite.en   := s.io.uniformWrite.en
             core.io.dmaUniformWrite.addr := s.io.uniformWrite.addr
             core.io.dmaUniformWrite.data := s.io.uniformWrite.data
+            s.io.dmaUniformSnoop.en   := false.B
+            s.io.dmaUniformSnoop.addr := 0.U
+            s.io.dmaUniformSnoop.data := 0.U
           case None =>
             core.io.dmaUniformWrite.en   := false.B
             core.io.dmaUniformWrite.addr := 0.U

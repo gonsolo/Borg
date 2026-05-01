@@ -535,19 +535,28 @@ Evolution path: Option B (VBO + stride) in Step 31; Option C (index buffer) in P
   (0x234).  `borg_regs.h` struct size → 0x238.
   Gate: `BorgSequencerTests.triangle_setup` — 197/197 tests pass. ✓
 
-- **Step 29.3: Uniform staging** — `sRunSetup → sStageUniforms → sDone`.
-  Writes ~20 uniform registers (edge constants, negated vertex positions, inv_area,
-  colors/UVs, z values) into rasterizer uniform memory via `uniformWrite` port.
-  Replaces `setup_tile_uniforms()`. *Model: Sonnet.*
-  Gate: `BorgTests.sequencer_uniform_staging`.
+- **Step 29.3: Uniform staging** ✅ (2026-05-01) — FSM extended to 12 states:
+  `sStageUniforms` writes all 31 physical uniform registers in 31 sequential cycles.
+  Physical layout fixed from SPIRB blob parse (`shader_blobs.h`):
+    u0–u5 = edge components (from `setupRegs[0–5]`, setup shader outputs);
+    u6–u11 = negated vertex positions (FNEG of `clipRegs[v][c]`);
+    u12 = inv_area (`setupRegs[7]`);
+    u13–u21 = RGB colors in barycentric order (v1,v0,v2) × 3 channels;
+    u22–u24 = z_vals (v1,v0,v2);  u25–u30 = 0 (UVs, future).
+  Descriptor stride updated to 32 bytes/vertex (`borg_vertex_t` layout: x,y,z,r,g,b,u,v).
+  DMA per vertex loads 8 words; `colorRegs[3][4]` (r,g,b,z) populated by snooping
+  DMA uniform write stream (`dmaUniformSnoop` port, wired in `wireCore()`).
+  `uniformWritePage` ping-pong: sequencer toggles `uniformPage` in `sWaitSetup`;
+  page output muxed (sequencer > MMIO) in `wireCore()`.
+  Gate: `BorgSequencerTests.sequencer_uniform_staging` — 198/198 tests pass. ✓
 
 - **Step 29.4: Integration test** — full triangle through `Borg` wrapper:
   stage descriptor + shaders in PSRAM, trigger sequencer, iterate tile, verify tile buffer.
-  *Model: Sonnet.* Gate: `BorgTests.sequencer_full_triangle` + full `mill hardware.borg.test`.
+  Gate: `BorgTests.sequencer_full_triangle` + full `mill hardware.borg.test`.
 
 - **Step 29.5: Firmware auto-detection + golden image** — `borgCmdDraw()` auto-detects
   sequencer via `STATUS.seq_busy`; writes descriptor to PSRAM + triggers `SEQ_TRIGGER`.
-  PicoIce path unchanged. *Model: Sonnet.*
+  PicoIce path unchanged.
   Gate: `make triangle` + `make vkcube` golden images match; `m test-all` 12/12.
 
 ### Step 30: Full Autonomous Triangle Pipeline
