@@ -154,17 +154,38 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     core.io.lutInit.data  := 0.U
 
     // DMA write ports (Step 22.1) — only wired when hasDMA=true
+    // Step 29.2: Uniform write port is shared between DMA and sequencer.
+    // They never contend (sequencer writes during sWriteSetupInputs, DMA
+    // writes during sRead).  Mux gives sequencer priority.
     dma match {
       case Some(d) =>
-        core.io.dmaImemWrite    <> d.io.imemWrite
-        core.io.dmaUniformWrite <> d.io.uniformWrite
+        core.io.dmaImemWrite <> d.io.imemWrite
+        sequencer match {
+          case Some(s) =>
+            core.io.dmaUniformWrite.en   := d.io.uniformWrite.en || s.io.uniformWrite.en
+            core.io.dmaUniformWrite.addr := Mux(s.io.uniformWrite.en,
+                                                s.io.uniformWrite.addr,
+                                                d.io.uniformWrite.addr)
+            core.io.dmaUniformWrite.data := Mux(s.io.uniformWrite.en,
+                                                s.io.uniformWrite.data,
+                                                d.io.uniformWrite.data)
+          case None =>
+            core.io.dmaUniformWrite <> d.io.uniformWrite
+        }
       case None =>
         core.io.dmaImemWrite.en   := false.B
         core.io.dmaImemWrite.addr := 0.U
         core.io.dmaImemWrite.data := 0.U
-        core.io.dmaUniformWrite.en   := false.B
-        core.io.dmaUniformWrite.addr := 0.U
-        core.io.dmaUniformWrite.data := 0.U
+        sequencer match {
+          case Some(s) =>
+            core.io.dmaUniformWrite.en   := s.io.uniformWrite.en
+            core.io.dmaUniformWrite.addr := s.io.uniformWrite.addr
+            core.io.dmaUniformWrite.data := s.io.uniformWrite.data
+          case None =>
+            core.io.dmaUniformWrite.en   := false.B
+            core.io.dmaUniformWrite.addr := 0.U
+            core.io.dmaUniformWrite.data := 0.U
+        }
     }
   }
 
@@ -446,26 +467,33 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     }
   }
 
-  /** Step 29.0/29.1: Wire BorgSequencer MMIO decode, status bit, and
+  /** Step 29.0/29.1/29.2: Wire BorgSequencer MMIO decode, status bit, and
     * core/pipeline snoop interfaces.
     *
     * MMIO registers (all nogen — decoded directly from bus):
-    * - `seq_desc_base`  (0x220): 20-bit PSRAM descriptor address.
-    * - `seq_trigger`    (0x224): singlepulse start (bit 0).
-    * - `seq_vert_addr`  (0x228): 20-bit PSRAM address of vertex shader binary.
-    * - `seq_vert_len`   (0x22C): vertex shader length in 32-bit words (6 bits).
+    * - `seq_desc_base`   (0x220): 20-bit PSRAM descriptor address.
+    * - `seq_trigger`     (0x224): singlepulse start (bit 0).
+    * - `seq_vert_addr`   (0x228): 20-bit PSRAM address of vertex shader binary.
+    * - `seq_vert_len`    (0x22C): vertex shader length in 32-bit words (6 bits).
+    * - `seq_setup_addr`  (0x230): 20-bit PSRAM address of setup shader (Step 29.2).
+    * - `seq_setup_len`   (0x234): setup shader length in 32-bit words (Step 29.2).
     *
     * Step 29.1 additions:
     * - CoreStatus and PipeWrite snooped from BorgCore (broadcast, no mux needed).
     * - DMA and CoreTrigger muxed in wireDMA() and wireCore() respectively.
+    *
+    * Step 29.2 additions:
+    * - Uniform write port muxed in wireCore() (sequencer > DMA).
     */
   private def wireSequencer(): Unit = {
     sequencer match {
       case Some(s) =>
-        val seqDescBaseReg  = RegInit(0.U(20.W))
-        val seqVertAddrReg  = RegInit(0.U(20.W))
-        val seqVertLenReg   = RegInit(0.U(6.W))
-        val seqStartPulse   = WireDefault(false.B)
+        val seqDescBaseReg   = RegInit(0.U(20.W))
+        val seqVertAddrReg   = RegInit(0.U(20.W))
+        val seqVertLenReg    = RegInit(0.U(6.W))
+        val seqSetupAddrReg  = RegInit(0.U(20.W))
+        val seqSetupLenReg   = RegInit(0.U(6.W))
+        val seqStartPulse    = WireDefault(false.B)
 
         when(bus.is_writing && bus.address === BorgGpuRegs.seq_desc_base_offset) {
           seqDescBaseReg := bus.data_in(19, 0)
@@ -480,11 +508,20 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_len_offset) {
           seqVertLenReg := bus.data_in(5, 0)
         }
+        // Step 29.2: setup shader address and length registers
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_addr_offset) {
+          seqSetupAddrReg := bus.data_in(19, 0)
+        }
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_len_offset) {
+          seqSetupLenReg := bus.data_in(5, 0)
+        }
 
-        s.io.start         := seqStartPulse
-        s.io.descBase      := seqDescBaseReg
-        s.io.vertShaderAddr := seqVertAddrReg
-        s.io.vertShaderLen  := seqVertLenReg
+        s.io.start           := seqStartPulse
+        s.io.descBase        := seqDescBaseReg
+        s.io.vertShaderAddr  := seqVertAddrReg
+        s.io.vertShaderLen   := seqVertLenReg
+        s.io.setupShaderAddr := seqSetupAddrReg
+        s.io.setupShaderLen  := seqSetupLenReg
 
         // CoreStatus and PipeWrite: broadcast snoop (no mux — input-only, read from core)
         s.io.coreStatus.running        := core.io.status.running

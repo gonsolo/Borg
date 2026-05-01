@@ -497,6 +497,39 @@ reg seq_vert_len_reg_t {
     } RSVD[26] = 0;
 };
 
+// --- Vertex Sequencer: setup shader PSRAM address (Step 29.2) ---
+reg seq_setup_addr_reg_t {
+    name = "Sequencer Setup Shader Address";
+    desc = "20-bit PSRAM byte address of the triangle setup shader binary.
+            The sequencer DMA-loads this shader into IMEM after vertex shading
+            to compute edge vectors and inv_area.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 19:0: 20-bit PSRAM byte address of setup shader.";
+    } addr[20] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[12] = 0;
+};
+
+// --- Vertex Sequencer: setup shader length (Step 29.2) ---
+reg seq_setup_len_reg_t {
+    name = "Sequencer Setup Shader Length";
+    desc = "Length of setup shader binary in 32-bit PSRAM words (1–56).
+            nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 5:0: setup shader length in 32-bit words.";
+    } len[6] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[26] = 0;
+};
+
 // --- 16-bit FP register (stored in 32-bit word, upper bits ignored on write) ---
 reg gpr_reg_t {
     name = "General Purpose Register";
@@ -634,4 +667,12 @@ addrmap borg_gpu {
     // ---- Sequencer Vertex Shader Length: 0x22C — nogen (Step 29.1) ----
     seq_vert_len_reg_t seq_vert_len;
     seq_vert_len->nogen = true;
+
+    // ---- Sequencer Setup Shader Address: 0x230 — nogen (Step 29.2) ----
+    seq_setup_addr_reg_t seq_setup_addr;
+    seq_setup_addr->nogen = true;
+
+    // ---- Sequencer Setup Shader Length: 0x234 — nogen (Step 29.2) ----
+    seq_setup_len_reg_t seq_setup_len;
+    seq_setup_len->nogen = true;
 };

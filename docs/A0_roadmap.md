@@ -523,10 +523,17 @@ Evolution path: Option B (VBO + stride) in Step 31; Option C (index buffer) in P
   DMA mux (sequencer > MMIO) in `wireDMA()`.
   Gate: `BorgSequencerTests.vertex_shader_run` — 196/196 tests pass. ✓
 
-- **Step 29.2: Triangle setup shader** — `shaders/setup.s` (~25–30 instructions):
-  perspective divide, NDC→screen, signed area + back-face cull, `inv_area`, edge vectors.
-  FSM extended: `sRunVert2 → sLoadSetupShader → sRunSetup`. *Model: Opus.*
-  Gate: `BorgSequencerTests.triangle_setup` (area + edge vectors match software reference).
+- **Step 29.2: Triangle setup shader** ✅ (2026-05-01) — 23-instruction setup shader
+  reads 6 screen-space coords from uniform buffer (u0–u5, loaded by sequencer from
+  clipRegs), computes edge vectors via FNEG+ADD pairs, signed area via MUL+FMA,
+  and inv_area via FRCP.  Outputs: r0–r5 = 6 edge components, r6 = area, r7 = inv_area.
+  FSM extended to 11 states: added `sWriteSetupInputs` (writes 6 clipReg values to
+  uniform buffer via new `uniformWrite` port, 6 cycles), `sLoadSetupShader` (DMA loads
+  setup shader into IMEM), `sRunSetup`/`sWaitSetup` (runs shader, snoops r0–r7 into
+  8-element `setupRegs`).  Uniform write port muxed between DMA and sequencer in
+  `wireCore()`.  New MMIO nogen registers: `SEQ_SETUP_ADDR` (0x230), `SEQ_SETUP_LEN`
+  (0x234).  `borg_regs.h` struct size → 0x238.
+  Gate: `BorgSequencerTests.triangle_setup` — 197/197 tests pass. ✓
 
 - **Step 29.3: Uniform staging** — `sRunSetup → sStageUniforms → sDone`.
   Writes ~20 uniform registers (edge constants, negated vertex positions, inv_area,
