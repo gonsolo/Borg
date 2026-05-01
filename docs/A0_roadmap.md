@@ -476,7 +476,7 @@ hierarchy supporting both pico-ice (iCE40 UP5K) and ULX3S (ECP5-85K).
   Updated `fpga_render_test.sh` candidate PPM path to `fpga/picoice/`.
   All 12/12 test suites pass including `render › fpga (hw)`. ✓
 
-### Step 28: Fully Autonomous Hardware Iteration ✅
+### Step 28: Fully Autonomous Hardware Iteration ✅ (2026-05-01)
 
 `BorgConfig.Sim` already has `hasFlusher=true` — development and validation fully possible in
 Verilator today. ULX3S provides final hardware confirmation only.
