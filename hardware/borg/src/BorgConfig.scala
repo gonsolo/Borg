@@ -26,7 +26,8 @@ case class BorgConfig(
     fifoDepth: Int = 2,
     hasImemMmio: Boolean = true,
     hasDMA: Boolean = true,
-    hasFlusher: Boolean = true
+    hasFlusher: Boolean = true,
+    hasSequencer: Boolean = true
 ) {
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
@@ -44,7 +45,8 @@ object BorgConfig {
     fifoDepth    = 1,
     hasImemMmio  = true,  // reverted: hasDMA=false requires MMIO for shader loading
     hasDMA       = false, // ~327 LCs synthesised (2026-04-29); retry after LC budget cleared
-    hasFlusher   = false  // costs +222 LCs at nextpnr (230 over budget); ULX3S milestone
+    hasFlusher   = false, // costs +222 LCs at nextpnr (230 over budget); ULX3S milestone
+    hasSequencer = false  // LC budget: +45 LCs estimated; ULX3S/Sim only
   )
 
   /** ULX3S ECP5-85K stub — no hardware available yet (Step 27).
@@ -57,7 +59,8 @@ object BorgConfig {
     fifoDepth    = 2,
     hasImemMmio  = false, // DMA used for shader loading on ECP5
     hasDMA       = true,  // ECP5 has ample headroom (+327 LCs is negligible)
-    hasFlusher   = true   // hardware tile flusher enabled
+    hasFlusher   = true,  // hardware tile flusher enabled
+    hasSequencer = true   // vertex/triangle setup sequencer (Step 29)
   )
 
   /** Verilator / Arcilator simulation: no area constraint. */

@@ -100,6 +100,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val rdlRegs = Module(new BorgGpuRegs()) // Auto-generated RDL register block
   val dma = if (cfg.hasDMA) Some(Module(new BorgDMA)) else None
   val flusher = if (cfg.hasFlusher) Some(Module(new BorgTileFlusher())) else None
+  val sequencer = if (cfg.hasSequencer) Some(Module(new BorgSequencer)) else None
 
   wireBus()
   wireRdlRegs()
@@ -107,6 +108,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   wireRasterizer()
   wireTileBuffer()
   wireFlusher()
+  wireSequencer()
   wireMmioRead()
   wireDMA()
 
@@ -419,6 +421,37 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       case None =>
         // hasDMA=false: DMA RDL registers have nogen=true, no hw ports.
         rdlRegs.io.hw.status_dma_busy := 0.U
+    }
+  }
+
+  /** Step 29.0: Wire BorgSequencer MMIO decode and status bit.
+    *
+    * - `seq_desc_base` (0x220): latches 20-bit PSRAM descriptor address.
+    * - `seq_trigger`   (0x224): singlepulse start (bit 0).
+    * - `status_seq_busy`: driven from sequencer.io.busy.
+    *
+    * Both registers are nogen in the RDL — decoded directly from the bus
+    * here, identical to wireFlusher / wireDMA patterns.
+    */
+  private def wireSequencer(): Unit = {
+    sequencer match {
+      case Some(s) =>
+        val seqDescBaseReg = RegInit(0.U(20.W))
+        val seqStartPulse  = WireDefault(false.B)
+
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_desc_base_offset) {
+          seqDescBaseReg := bus.data_in(19, 0)
+        }
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_trigger_offset) {
+          seqStartPulse := bus.data_in(0)
+        }
+
+        s.io.start    := seqStartPulse
+        s.io.descBase := seqDescBaseReg
+        rdlRegs.io.hw.status_seq_busy := s.io.busy.asUInt
+
+      case None =>
+        rdlRegs.io.hw.status_seq_busy := 0.U
     }
   }
 }

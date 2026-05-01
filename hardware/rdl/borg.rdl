@@ -154,8 +154,16 @@ reg status_reg_t {
     } flush_busy[1] = 0;
 
     field {
+        sw = r; hw = w;
+        desc = "Bit 5: Sequencer busy — 1 while BorgSequencer is processing a
+                vertex/setup shader sequence (Step 29).  Firmware polls this
+                bit after triggering SEQ_TRIGGER to know when the GPU has
+                finished computing uniforms and is ready for tile commands.";
+    } seq_busy[1] = 0;
+
+    field {
         sw = r; hw = na;
-    } RSVD_hi[27] = 0;
+    } RSVD_hi[26] = 0;
 };
 
 // --- Fragment shader start PC ---
@@ -420,6 +428,41 @@ reg flush_width_reg_t {
 
 
 
+// --- Vertex Sequencer: descriptor PSRAM base address (Step 29) ---
+reg seq_desc_base_reg_t {
+    name = "Sequencer Descriptor Base Address";
+    desc = "20-bit PSRAM byte address of the triangle descriptor (Option A layout:
+            25 FP16 words = pos[3×3] | color[3×3] | uv[3×2] | flags).
+            Write before triggering SEQ_TRIGGER.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 19:0: 20-bit PSRAM byte address of triangle descriptor.";
+    } base[20] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[12] = 0;
+};
+
+// --- Vertex Sequencer: trigger (Step 29) ---
+reg seq_trigger_reg_t {
+    name = "Sequencer Trigger";
+    desc = "Write bit 0 = 1 to start the vertex/triangle-setup sequencer.
+            SEQ_DESC_BASE must be set before triggering.  Self-clearing.
+            Poll STATUS.seq_busy for completion.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = w; hw = r;
+        singlepulse;
+        desc = "Bit 0: Start sequencer (self-clearing pulse).";
+    } start[1] = 0;
+
+    field {
+        sw = w; hw = na;
+    } RSVD[31] = 0;
+};
+
 // --- 16-bit FP register (stored in 32-bit word, upper bits ignored on write) ---
 reg gpr_reg_t {
     name = "General Purpose Register";
@@ -538,7 +581,15 @@ addrmap borg_gpu {
     flush_zb_base_reg_t flush_zb_base;
     flush_zb_base->nogen = true;
 
-    // ---- Flush Framebuffer Width: 0x220 — nogen (decoded in Borg.scala) ----
+    // ---- Flush Framebuffer Width: 0x21C — nogen (decoded in Borg.scala) ----
     flush_width_reg_t flush_width;
     flush_width->nogen = true;
+
+    // ---- Sequencer Descriptor Base Address: 0x220 — nogen (decoded in Borg.scala) ----
+    seq_desc_base_reg_t seq_desc_base;
+    seq_desc_base->nogen = true;
+
+    // ---- Sequencer Trigger: 0x224 — nogen (decoded in Borg.scala) ----
+    seq_trigger_reg_t seq_trigger;
+    seq_trigger->nogen = true;
 };

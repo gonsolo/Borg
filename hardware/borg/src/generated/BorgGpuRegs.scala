@@ -28,6 +28,7 @@ class BorgGpuHwIO extends Bundle {
   val status_fifo_full = Input(UInt(1.W))  // hw writes
   val status_dma_busy = Input(UInt(1.W))  // hw writes
   val status_flush_busy = Input(UInt(1.W))  // hw writes
+  val status_seq_busy = Input(UInt(1.W))  // hw writes
 
 
   val tile_ctrl_read_idx = Output(UInt(4.W))  // hw reads
@@ -50,6 +51,8 @@ class BorgGpuHwIO extends Bundle {
   val tex_config_en = Output(UInt(1.W))  // hw reads
 
   val frag_pc_frag_pc = Output(UInt(6.W))  // hw reads
+
+
 
 
 
@@ -93,6 +96,8 @@ object BorgGpuRegs {
   val flush_fb_base_offset = 532.U
   val flush_zb_base_offset = 536.U
   val flush_width_offset = 540.U
+  val seq_desc_base_offset = 544.U
+  val seq_trigger_offset = 548.U
 }
 
 class BorgGpuIO extends Bundle {
@@ -126,6 +131,7 @@ class BorgGpuRegs extends Module {
   val control_start_pc_reg = RegInit(0.U(6.W))
 
   // status @ 0x16C
+  
   
   
   
@@ -169,6 +175,10 @@ class BorgGpuRegs extends Module {
   // flush_zb_base @ 0x218 — nogen: no hardware storage (disabled feature)
 
   // flush_width @ 0x21C — nogen: no hardware storage (disabled feature)
+
+  // seq_desc_base @ 0x220 — nogen: no hardware storage (disabled feature)
+
+  // seq_trigger @ 0x224 — nogen: no hardware storage (disabled feature)
 
 
   // --------------------------------------------------------------------------
@@ -223,6 +233,8 @@ class BorgGpuRegs extends Module {
 
 
 
+
+
   // --------------------------------------------------------------------------
   // Singlepulse auto-clear
   // --------------------------------------------------------------------------
@@ -256,7 +268,8 @@ class BorgGpuRegs extends Module {
 
 
     (readAddr === 364.U) -> Cat(
-      0.U(27.W),
+      0.U(26.W),
+      io.hw.status_seq_busy,
       io.hw.status_flush_busy,
       io.hw.status_dma_busy,
       io.hw.status_fifo_full,
@@ -299,6 +312,8 @@ class BorgGpuRegs extends Module {
 
 
 
+
+
   ))
 
   // --------------------------------------------------------------------------
@@ -313,6 +328,7 @@ class BorgGpuRegs extends Module {
   io.hw.control_reset_pipeline := control_reset_pipeline_reg
   io.hw.control_uniform_write_page := control_uniform_write_page_reg
   io.hw.control_start_pc := control_start_pc_reg
+  
   
   
   

@@ -493,18 +493,48 @@ during rendering. Full autonomy milestone.
 ### Step 29: Integrated Vertex + Triangle Setup Sequencer
 
 Pure Chisel RTL — no platform-specific IO. Fully developable and testable in Verilator before
-the ULX3S arrives.
+the ULX3S arrives. `hasSequencer=true` on Sim and ULX3S; `false` on PicoIce (LC budget).
 
-Unified FSM that replaces what the CPU currently does in `shade_tiles()`,
-`run_vertex_shader()`, `triangle_setup()`, and `compute_edge_vectors()`.
-Combines the DMA engine (Step 26) and vertex sequencer into a single FSM
-to share registers, address counters, and control logic.
+`BorgSequencer` FSM replaces what the CPU currently does in `run_vertex_shader()`,
+`triangle_setup()`, and `compute_edge_vectors()` / `setup_tile_uniforms()`.
+Reuses the existing `BorgDMA` engine and `BorgCore` FPU pipeline — no new arithmetic hardware.
+Triangle setup is shader-based (per `docs/A1_bibliography.md`).
 
-- **Step 29.1: Vertex shader sequencing**
+**PSRAM descriptor layout (Option A — 25 FP16 words = 50 bytes):**
+`pos[3×3] | color[3×3] | uv[3×2] | flags` — post-clip, post-perspective-divide screen triangles.
+Clipping remains on CPU (variable-length polygon output is not FSM-friendly).
+Evolution path: Option B (VBO + stride) in Step 31; Option C (index buffer) in Phase 2.
 
-- **Step 29.2: Triangle setup shader**
+- **Step 29.0: Config + MMIO scaffolding** ✅ (2026-05-01) — `hasSequencer` flag
+  (`PicoIce=false`, `ULX3S/Sim=true`), `SEQ_DESC_BASE` (0x220 nogen),
+  `SEQ_TRIGGER` (0x224 nogen), `STATUS.seq_busy` (bit 5). `BorgSequencer` stub wired
+  into `Borg.scala`. `borg_regs.h` struct size → 0x228. All 12/12 suites pass. ✓
 
-- **Step 29.3: Automatic uniform reload**
+- **Step 29.1: BorgSequencer FSM — vertex shader sequencing** —
+  `sIdle → sLoadVertShader → sRunVert{0,1,2} → sDone`.
+  DMA loads shader into IMEM; `CoreTriggerIO` fires the core 3×; `PipeWriteIO`
+  snoops clip-space outputs into shadow registers. *Model: Opus.*
+  Gate: `BorgSequencerTests.vertex_shader_run`.
+
+- **Step 29.2: Triangle setup shader** — `shaders/setup.s` (~25–30 instructions):
+  perspective divide, NDC→screen, signed area + back-face cull, `inv_area`, edge vectors.
+  FSM extended: `sRunVert2 → sLoadSetupShader → sRunSetup`. *Model: Opus.*
+  Gate: `BorgSequencerTests.triangle_setup` (area + edge vectors match software reference).
+
+- **Step 29.3: Uniform staging** — `sRunSetup → sStageUniforms → sDone`.
+  Writes ~20 uniform registers (edge constants, negated vertex positions, inv_area,
+  colors/UVs, z values) into rasterizer uniform memory via `uniformWrite` port.
+  Replaces `setup_tile_uniforms()`. *Model: Sonnet.*
+  Gate: `BorgTests.sequencer_uniform_staging`.
+
+- **Step 29.4: Integration test** — full triangle through `Borg` wrapper:
+  stage descriptor + shaders in PSRAM, trigger sequencer, iterate tile, verify tile buffer.
+  *Model: Sonnet.* Gate: `BorgTests.sequencer_full_triangle` + full `mill hardware.borg.test`.
+
+- **Step 29.5: Firmware auto-detection + golden image** — `borgCmdDraw()` auto-detects
+  sequencer via `STATUS.seq_busy`; writes descriptor to PSRAM + triggers `SEQ_TRIGGER`.
+  PicoIce path unchanged. *Model: Sonnet.*
+  Gate: `make triangle` + `make vkcube` golden images match; `m test-all` 12/12.
 
 ### Step 30: Full Autonomous Triangle Pipeline
 
