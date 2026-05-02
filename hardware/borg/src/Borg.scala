@@ -385,7 +385,16 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     fifo.io.enq.bits.tileOrigin.y := rdlRegs.io.hw.cmd_enqueue_tile_y(cfg.coordWidth - 1, 0)
 
     rast.io.cmdPop <> fifo.io.deq
-    core.io.uniformPage := rast.io.uniformPage
+    // Step 30.1d: uniformPage mux — sequencer overrides when busy.
+    // seqBusy gates the coord mux: r30/r31 return 0 during sequencer shader runs.
+    sequencer match {
+      case Some(s) =>
+        core.io.uniformPage := Mux(s.io.busy, s.io.uniformWritePage, rast.io.uniformPage)
+        core.io.seqBusy     := s.io.busy
+      case None =>
+        core.io.uniformPage := rast.io.uniformPage
+        core.io.seqBusy     := false.B
+    }
 
     // O8: use RDL's internal readAddr (RegNext of address) instead of a duplicate register.
     val read_addr_del = RegNext(bus.address)
@@ -510,6 +519,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         val seqVertLenReg    = RegInit(0.U(6.W))
         val seqSetupAddrReg  = RegInit(0.U(20.W))
         val seqSetupLenReg   = RegInit(0.U(6.W))
+        val seqInvWidthReg   = RegInit(0.U(16.W))  // Step 30.1c
         val seqStartPulse    = WireDefault(false.B)
 
         when(bus.is_writing && bus.address === BorgGpuRegs.seq_desc_base_offset) {
@@ -532,6 +542,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_len_offset) {
           seqSetupLenReg := bus.data_in(5, 0)
         }
+        // Step 30.1c: inv_width for edge normalization
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_inv_width_offset) {
+          seqInvWidthReg := bus.data_in(15, 0)
+        }
 
         s.io.start           := seqStartPulse
         s.io.descBase        := seqDescBaseReg
@@ -539,6 +553,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         s.io.vertShaderLen   := seqVertLenReg
         s.io.setupShaderAddr := seqSetupAddrReg
         s.io.setupShaderLen  := seqSetupLenReg
+        s.io.seqInvWidth     := seqInvWidthReg  // Step 30.1c
 
         // CoreStatus and PipeWrite: broadcast snoop (no mux — input-only, read from core)
         s.io.coreStatus.running        := core.io.status.running

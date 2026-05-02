@@ -73,6 +73,9 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   /** Length of setup shader in 32-bit words (1–56) (Step 29.2). */
   val setupShaderLen  = Input(UInt(6.W))
 
+  /** FP16 value of 1/fb_width for edge normalization (Step 30.1c). */
+  val seqInvWidth     = Input(UInt(16.W))
+
   /** True while the sequencer FSM is active.  Drives STATUS.seq_busy (bit 5). */
   val busy     = Output(Bool())
 
@@ -255,8 +258,12 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       val desc = Wire(new DMADescriptor)
       desc.baseAddr := io.descBase + vertIdx * 32.U
       desc.length   := 8.U   // 8 × 32-bit words (x,y,z,r,g,b,u,v)
-      desc.dest     := 1.U   // dest=1 → uniform buffer page 0
+      // DMA dest encoding: 1=page0, 2=page1. Write to current uniformPage
+      // so vertex shader reads from the same page (Step 30.1c fix).
+      desc.dest     := Mux(uniformPage === 0.U, 1.U, 2.U)
       desc.offset   := 0.U   // write to u0..u7
+
+
 
       dmaDescReg   := desc
       io.dmaDesc   := desc
@@ -279,6 +286,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
           // All 3 vertices done → proceed to triangle setup (Step 29.2)
           writeIdx := 0.U
           state    := sWriteSetupInputs
+
         }.otherwise {
           vertIdx := vertIdx + 1.U
           state   := sLoadVert
@@ -288,15 +296,21 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
     // --- Step 29.2: Triangle setup ---
 
-    // Write 6 screen-space coordinates from clipRegs into uniform buffer.
-    // u0=v0.x, u1=v0.y, u2=v1.x, u3=v1.y, u4=v2.x, u5=v2.y
+    // Write 6 screen-space coordinates from clipRegs into uniform buffer,
+    // plus inv_width as u6 for edge normalization (Step 30.1c).
+    // u0=v0.x, u1=v0.y, u2=v1.x, u3=v1.y, u4=v2.x, u5=v2.y, u6=inv_width
     is(sWriteSetupInputs) {
-      val v = writeIdx(2, 1)  // writeIdx / 2 → vertex index (0, 1, 2)
-      val c = writeIdx(0)     // writeIdx % 2 → component (0=x, 1=y)
       io.uniformWrite.en   := true.B
-      io.uniformWrite.addr := writeIdx(4, 0)
-      io.uniformWrite.data := clipRegs(v)(c)
-      when(writeIdx === 5.U) {
+      io.uniformWrite.addr := Cat(uniformPage, writeIdx(4, 0))
+      when(writeIdx < 6.U) {
+        val v = writeIdx(2, 1)  // writeIdx / 2 → vertex index (0, 1, 2)
+        val c = writeIdx(0)     // writeIdx % 2 → component (0=x, 1=y)
+        io.uniformWrite.data := clipRegs(v)(Cat(0.U(1.W), c))
+      }.otherwise {
+        // u6 = inv_width
+        io.uniformWrite.data := io.seqInvWidth
+      }
+      when(writeIdx === 6.U) {
         state := sLoadSetupShader
       }.otherwise {
         writeIdx := writeIdx + 1.U
@@ -328,10 +342,12 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // Wait for setup shader to finish; snoop outputs into setupRegs
     is(sWaitSetup) {
       when(core_just_finished) {
-        // Toggle uniform write page for ping-pong (Step 13.4 pattern)
-        uniformPage := ~uniformPage
+        // Page flip disabled: sequencer always uses page 0 for all operations.
+        // The ping-pong (uniformPage := ~uniformPage) caused desync between
+        // the sequencer's write page and the rasterizer's read page.
         writeIdx    := 0.U
         state       := sStageUniforms
+
       }
     }
 
@@ -363,7 +379,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         // u6,u7 = -v0.x, -v0.y; u8,u9 = -v1.x, -v1.y; u10,u11 = -v2.x, -v2.y
         val vIdx = (w - 6.U)(2, 1)  // vertex index 0,1,2
         val cIdx = (w - 6.U)(0)     // component: 0=x, 1=y
-        val raw  = clipRegs(vIdx)(cIdx)
+        val raw  = clipRegs(vIdx)(Cat(0.U(1.W), cIdx))
         uData := raw ^ (1.U(16.W) << 15)  // flip sign bit = FNEG
       }.elsewhen(w === 12.U) {
         // u12: inv_area
@@ -387,6 +403,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       io.uniformWrite.en   := true.B
       io.uniformWrite.addr := Cat(uniformPage, writeIdx(4, 0))
       io.uniformWrite.data := uData
+
+
 
       when(writeIdx === 30.U) {
         state := sDone
@@ -435,5 +453,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         setupRegs(i) := io.pipeWrite.data(15, 0)
       }
     }
+
   }
 }

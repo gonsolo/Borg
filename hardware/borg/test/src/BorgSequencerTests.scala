@@ -403,7 +403,8 @@ object BorgSequencerTests extends TestSuite {
           rawWrite(borg, 128 + i * 4, w & BigInt(0xFFFFFFFFL))
 
         // --- (4) Configure rasterizer ---
-        rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 1 << 5)
+        // Sequencer always writes to page 0 (ping-pong disabled); CPU must read from page 0.
+        rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 0)  // page 0
         rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 4)
 
         // --- (5) Enqueue tile cmd + iterate ---

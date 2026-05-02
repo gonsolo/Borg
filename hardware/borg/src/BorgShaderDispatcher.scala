@@ -232,7 +232,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
   }
 
   when(io.pipeWrite.en && phase === sRast) {
-    when(io.pipeWrite.addr === 0.U) { e0_outside := isOutside(io.pipeWrite.data) }
+    when(io.pipeWrite.addr === 0.U) {
+      e0_outside := isOutside(io.pipeWrite.data)
+    }
     when(io.pipeWrite.addr === 1.U) { e1_outside := isOutside(io.pipeWrite.data) }
     when(io.pipeWrite.addr === 2.U) { e2_outside := isOutside(io.pipeWrite.data) }
   }

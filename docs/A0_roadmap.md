@@ -587,11 +587,33 @@ via `BorgSequencerTests.sequencer_full_triangle`.
   overwritten by the CPU path pending edge normalization (Step 30.1c).
   Gate: `m test-all` 12/12 green with `has_sequencer=1` active. ✅
 
-- **Step 30.1c: Add edge normalization in the setup shader** — Extend the
-  setup shader to multiply edge vectors by `inv_width` and compensate `inv_area`
-  by `width`, matching the CPU path's scaling.  Needed for resolutions >128 where
-  `inv_area` goes subnormal.  After this, remove the CPU uniform overwrite.
-  Gate: `m test-all` 12/12 green; sequencer-only uniforms produce matching output.
+- **Step 30.1c: Edge normalization + autonomous uniform staging** ✅ — Extended
+  the setup shader with `inv_width` normalization (31 instructions).  Added
+  `sStageUniforms` FSM in `BorgSequencer` to compute and stage all 31 rasterizer
+  uniforms autonomously.  Fixed root cause of black screen: `BorgCore` mapped
+  r30/r31 → coordX/coordY unconditionally; sequencer's vertex/setup shaders used
+  r31 as zero, contaminating vertex positions.  Fix: `seqBusy` signal gates the
+  coord mux (r30/r31 return 0 during sequencer shader runs).
+  Gate: `m test-all` 12/12 green. ✅
+
+- **Step 30.1d: Rename `coordOverride` → `seqBusy`** ✅ — Minimal cleanup:
+  renamed the external coord-mux gating signal to describe what it *is* rather
+  than what it *does*.  No functional change.
+
+- **Step 30.1e: Fix textured back-triangle regression** ✅ — Firmware-side UV
+  staging: render loop explicitly writes u13–u18 (UV interpolation uniforms) and
+  enables `tex_config` for textured draw calls, since `sStageUniforms` only stages
+  vertex colors.  Eliminated all-red rendering of the back triangle.
+
+- **Step 30.1f: Fix uniform page desync (ping-pong disabled)** ✅ — Disabling
+  `uniformPage` ping-pong in `BorgSequencer.sWaitSetup` eliminated a systematic
+  checkerboard rendering failure (every other tile black).  Root cause: the
+  alternating page write caused desync with the rasterizer's read page because the
+  two sides of the ping-pong never ran concurrently (sequencer completes before
+  rasterizer starts — no overlap).  Fix: sequencer always uses page 0; CPU sets
+  `current_uniform_page = 0` unconditionally.  Updated `BorgSequencerTests` to
+  match.  Fixed two Chisel W005 index-width warnings in `BorgSequencer`.
+  Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
 
 - **Step 30.2: Remove `setup_tile_uniforms()` from the hot path** — Once the
   sequencer path is live, delete the CPU-side `setup_tile_uniforms()` call (now

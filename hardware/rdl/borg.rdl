@@ -530,6 +530,23 @@ reg seq_setup_len_reg_t {
     } RSVD[26] = 0;
 };
 
+// --- Vertex Sequencer: inv_width for edge normalization (Step 30.1c) ---
+reg seq_inv_width_reg_t {
+    name = "Sequencer Inverse Width";
+    desc = "FP16 value of 1/fb_width, written once during init.
+            The sequencer writes this as u6 before running the setup shader,
+            enabling hardware-level edge normalization.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 15:0: FP16 value of 1/fb_width.";
+    } value[16] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[16] = 0;
+};
+
 // --- 16-bit FP register (stored in 32-bit word, upper bits ignored on write) ---
 reg gpr_reg_t {
     name = "General Purpose Register";
@@ -675,4 +692,8 @@ addrmap borg_gpu {
     // ---- Sequencer Setup Shader Length: 0x234 — nogen (Step 29.2) ----
     seq_setup_len_reg_t seq_setup_len;
     seq_setup_len->nogen = true;
+
+    // ---- Sequencer Inverse Width: 0x238 — nogen (Step 30.1c) ----
+    seq_inv_width_reg_t seq_inv_width;
+    seq_inv_width->nogen = true;
 };

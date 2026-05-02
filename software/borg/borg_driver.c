@@ -51,10 +51,12 @@ static const uint32_t seq_vert_shader[] = {
 };
 #define SEQ_VERT_SHADER_LEN (sizeof(seq_vert_shader) / sizeof(seq_vert_shader[0]))
 
-// Triangle setup shader (23 instructions, matching BorgSequencerTests.setupShader()):
+// Triangle setup shader (31 instructions, with edge normalization for Step 30.1c):
 //   u0-u5 = screen coords of all 3 vertices (written by sWriteSetupInputs).
-//   Outputs r0-r7 = edge components + area + inv_area.
-//   r8-r13 are working registers (intermediate positions).
+//   u6    = inv_width = 1/fb_width (written by sWriteSetupInputs, Step 30.1c).
+//   Outputs r0-r5 = normalized edge components (divided by fb_width).
+//   Output  r7    = inv_area = W/area (matching CPU path convention).
+//   r8-r21 are working registers (intermediate positions).
 static const uint32_t seq_setup_shader[] = {
   // Copy screen coords from uniforms u0-u5 into working regs r8-r13
   BORG_INSTR_FADD( 8, 0, 31, 1),  // r8  = v0.x
@@ -81,10 +83,19 @@ static const uint32_t seq_setup_shader[] = {
   BORG_INSTR_FNEG(21,  1, 0),     // r21 = -e0.dy
   BORG_INSTR_FMADD(6, 4, 21, 20, 0), // r6 = e2.dx * r21 + r20 = area
   // Negate area to match CPU convention (triangle_setup: area ^= 0x8000).
-  // The rasterizer's inside test expects positive edge function values,
-  // which requires inv_area > 0 for CW-wound triangles (raw area < 0).
   BORG_INSTR_FNEG(6,  6, 0),      // r6 = -area
-  BORG_INSTR_FRCP( 7,  6, 0),     // r7 = 1 / (-area) = inv_area (positive)
+  // Step 30.1c: Edge normalization.
+  // Multiply raw edges by inv_width (u6) to match CPU path's borg_load_edge_constants().
+  // Multiply negated area by inv_width: area/W → rcp gives W/area = inv_area.
+  // Order: normalize AFTER raw area computation, matching CPU's triangle_setup().
+  BORG_INSTR_FMUL( 0,  0,  6, 2), // r0 = e0.dx * u6(inv_width)  (funct3=2 → rs2 from uniform)
+  BORG_INSTR_FMUL( 1,  1,  6, 2), // r1 = e0.dy * inv_width
+  BORG_INSTR_FMUL( 2,  2,  6, 2), // r2 = e1.dx * inv_width
+  BORG_INSTR_FMUL( 3,  3,  6, 2), // r3 = e1.dy * inv_width
+  BORG_INSTR_FMUL( 4,  4,  6, 2), // r4 = e2.dx * inv_width
+  BORG_INSTR_FMUL( 5,  5,  6, 2), // r5 = e2.dy * inv_width
+  BORG_INSTR_FMUL( 6,  6,  6, 2), // r6 = (-area) * inv_width = -area/W
+  BORG_INSTR_FRCP( 7,  6, 0),     // r7 = rcp(-area/W) = W/area = inv_area
   BORG_INSTR_HALT,
 };
 #define SEQ_SETUP_SHADER_LEN (sizeof(seq_setup_shader) / sizeof(seq_setup_shader[0]))
@@ -263,6 +274,13 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
   BORG_GPU->seq_vert_len   = SEQ_VERT_SHADER_LEN;
   BORG_GPU->seq_setup_addr = SEQ_SETUP_SHADER_ADDR;
   BORG_GPU->seq_setup_len  = SEQ_SETUP_SHADER_LEN;
+  // Step 30.1c: Precompute 1/fb_width as exact FP16 (fb_width is a power of 2).
+  // fp16(2^n) has exp = n+15, so fp16(2^-n) has exp = 15-n = 30 - exp_of_width.
+  {
+    fp16_t fb_fp16   = uint_to_fp16(borg_fb_width);
+    fp16_t inv_width = (fp16_t)((30u - ((fb_fp16 >> 10) & 0x1Fu)) << 10);
+    BORG_GPU->seq_inv_width = inv_width;
+  }
 
   // Detection: trigger with desc=0, check if seq_busy goes high within 1 cycle.
   // If the hardware has no BorgSequencer, seq_trigger is unmapped and seq_busy stays 0.
@@ -273,7 +291,7 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
   if (has_sequencer) {
     while (BORG_GPU->status & STATUS_REG_T__SEQ_BUSY_bm)
       ;
-    current_uniform_page = 1;
+    current_uniform_page = 0; // sequencer always uses page 0 (no ping-pong)
   }
 }
 
@@ -608,7 +626,7 @@ static void borgBinRender(int frame) {
         const draw_call_t *dc = &draw_calls[(int)bin_list[tile_index][slot]];
 
         // Set up hardware uniforms for this draw call.
-        // Step 29.5: auto-detect sequencer path vs CPU path.
+        // Step 30.1c: sequencer handles edge normalization autonomously.
         if (has_sequencer) {
           uint32_t desc_addr = SEQ_DESC_BASE_ADDR
               + (uint32_t)(int)bin_list[tile_index][slot] * SEQ_DESC_STRIDE;
@@ -616,20 +634,43 @@ static void borgBinRender(int frame) {
           BORG_GPU->seq_trigger = 1;
           while (BORG_GPU->status & STATUS_REG_T__SEQ_BUSY_bm)
             ;
-          // The sequencer toggled its internal uniformPage, but we ignore
-          // the sequencer's uniforms for now (they lack edge normalization).
-          // Instead, overwrite all uniforms from the CPU's pre-computed data.
-          // NOTE: setup_tile_uniforms handles page toggle and control register
-          // internally, matching the CPU path's self-consistent page behavior.
-
+          current_uniform_page = 0; // sequencer always uses page 0 (no ping-pong)
           borg_load_spirb_shader_at(&rast_shader, BORG_IMEM_RAST_OFFSET);
           borg_load_spirb_shader_at(&frag_shader, BORG_IMEM_FRAG_OFFSET);
           borg_load_add_shader();
-          // Fall through to CPU uniform setup — same as else branch.
-          // This validates the sequencer FSM/DMA pipeline while keeping
-          // the CPU uniform path until Step 30.1c adds HW normalization.
+          BORG_GPU->control =
+              ((uint32_t)current_uniform_page << CONTROL_REG_T__UNIFORM_WRITE_PAGE_bp);
+          BORG_GPU->frag_pc = BORG_IMEM_FRAG_OFFSET;
+          // Step 30.1e: The sequencer's sStageUniforms always writes vertex
+          // colors to u13-u21. For textured triangles, the fragment shader
+          // expects UV data in u13-u18 and 0s in u19-u21 instead.
+          if (dc->tri.has_uvs) {
+            const uv16_t *uvs = dc->tri.uvs.v;
+            const texture_t *t = &dc->tex;
+            // u13-u15: scaled U coords (bary order: v1, v0, v2)
+            BORG_GPU->uniform[13] = borg_fp16_mul(uvs[1].u, t->w_fp16);
+            BORG_GPU->uniform[14] = borg_fp16_mul(uvs[0].u, t->w_fp16);
+            BORG_GPU->uniform[15] = borg_fp16_mul(uvs[2].u, t->w_fp16);
+            // u16-u18: scaled V coords (bary order: v1, v0, v2)
+            BORG_GPU->uniform[16] = borg_fp16_mul(uvs[1].v, t->h_fp16);
+            BORG_GPU->uniform[17] = borg_fp16_mul(uvs[0].v, t->h_fp16);
+            BORG_GPU->uniform[18] = borg_fp16_mul(uvs[2].v, t->h_fp16);
+            // u19-u21: 0 (blue channel unused in texture mode)
+            BORG_GPU->uniform[19] = 0;
+            BORG_GPU->uniform[20] = 0;
+            BORG_GPU->uniform[21] = 0;
+            // u25-u30: 0 (unused UV slots)
+            for (int i = 25; i <= 30; i++)
+              BORG_GPU->uniform[i] = 0;
+            BORG_GPU->tex_config =
+                (TEX_PSRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
+                TEX_CONFIG_REG_T__EN_bm;
+          } else {
+            BORG_GPU->tex_config = 0;
+          }
+        } else {
+          setup_tile_uniforms(dc);
         }
-        setup_tile_uniforms(dc);
 
         // Enqueue tile command.
         while (BORG_GPU->status & STATUS_REG_T__FIFO_FULL_bm)

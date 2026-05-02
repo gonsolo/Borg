@@ -43,6 +43,10 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
 
   // MMIO register read data (for top-level read mux)
   val regReadData = Output(UInt(cfg.totalBits.W))
+
+  // Step 30.1d: when sequencer is running vertex/setup shaders, r30/r31 must
+  // return 0 (not coordX/coordY) because those shaders use r31 as zero.
+  val seqBusy = Input(Bool())
 }
 
 class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
@@ -236,7 +240,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
                          Cat(io.control.uniformWritePage, unifIdx(4, 0)))
       val unifData = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.data,
                          io.bus.data_in(config.totalBits - 1, 0))
-      when(unifWen) { uniformMem.write(unifAddr, unifData) }
+      when(unifWen) {
+        uniformMem.write(unifAddr, unifData)
+      }
     } else {
       when(mmioUnifWrite) {
         uniformMem.write(Cat(io.control.uniformWritePage, unifIdx(4, 0)),
@@ -262,6 +268,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val read_data = uniformMem.read(Cat(read_page, uniform_addr(4, 0)), op_en)
     val uniform_data = Mux(op_en_del, read_data, 0.U)
 
+
     val uniform_recA = Mux(funct3_del === 1.U, uniform_data, recA)
     val uniform_recB = Mux(funct3_del === 2.U, uniform_data, recB)
     val uniform_recC = Mux(funct3_del === 3.U, uniform_data, recC)
@@ -276,9 +283,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val rs1_idx_del = RegEnable(regs.rs1, en)
     regFileA.io.rd.addr := regs.rs1
     regFileA.io.rd.en := en
-    val resolved_data = Mux(rs1_idx_del === 30.U, coordX,
-                        Mux(rs1_idx_del === 31.U, coordY,
-                        regFileA.io.rd.data))
+    val is_coord_reg_A = rs1_idx_del === 30.U || rs1_idx_del === 31.U
+    val resolved_data = Mux(is_coord_reg_A,
+                        Mux(!io.seqBusy,
+                          Mux(rs1_idx_del === 30.U, coordX, coordY),
+                          0.U),  // r30/r31 = 0 when not in rasterizer context
+                        regFileA.io.rd.data)
     (Mux(en_del, resolved_data, 0.U), rs1_idx_del)
   }
 
@@ -289,9 +299,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val rs2_idx_del = RegEnable(regs.rs2, en)
     regFileB.io.rd.addr := regs.rs2
     regFileB.io.rd.en := en
-    val resolved_data = Mux(rs2_idx_del === 30.U, coordX,
-                        Mux(rs2_idx_del === 31.U, coordY,
-                        regFileB.io.rd.data))
+    val is_coord_reg_B = rs2_idx_del === 30.U || rs2_idx_del === 31.U
+    val resolved_data = Mux(is_coord_reg_B,
+                        Mux(!io.seqBusy,
+                          Mux(rs2_idx_del === 30.U, coordX, coordY),
+                          0.U),  // r30/r31 = 0 when not in rasterizer context
+                        regFileB.io.rd.data)
     (Mux(en_del, resolved_data, 0.U), rs2_idx_del)
   }
 
@@ -306,9 +319,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val addr_del = RegEnable(addr, en)
     regFileC.io.rd.addr := addr
     regFileC.io.rd.en := en
-    val resolved_data = Mux(addr_del === 30.U, coordX,
-                        Mux(addr_del === 31.U, coordY,
-                        regFileC.io.rd.data))
+    val is_coord_reg_C = addr_del === 30.U || addr_del === 31.U
+    val resolved_data = Mux(is_coord_reg_C,
+                        Mux(!io.seqBusy,
+                          Mux(addr_del === 30.U, coordX, coordY),
+                          0.U),  // r30/r31 = 0 when not in rasterizer context
+                        regFileC.io.rd.data)
     (Mux(rs3_en_del, resolved_data, 0.U), addr_del,
      Mux(mmio_en_del, resolved_data, 0.U))
   }
