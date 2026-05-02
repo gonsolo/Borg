@@ -570,7 +570,7 @@ Evolution path: Option B (VBO + stride) in Step 31; Option C (index buffer) in P
   PicoIce path unchanged (`has_sequencer=0` → CPU `setup_tile_uniforms()` fallback).
   Gate: `make triangle` + `make vkcube` golden images match baseline; 199/199 Chisel tests pass. ✓
 
-### Step 30: Full Autonomous Triangle Pipeline
+### Step 30: Full Autonomous Triangle Pipeline ✅ (2026-05-02)
 
 Integration of Steps 21–29. CPU submits a triangle descriptor; GPU runs vertex
 shader, triangle setup, and uniform staging autonomously. CPU then tiles and
