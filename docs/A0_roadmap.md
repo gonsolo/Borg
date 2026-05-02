@@ -580,12 +580,18 @@ The firmware sequencer path is scaffolded (Step 29.5) but blocked on the setup
 shader not being embedded in firmware ROM.  The hardware path is fully verified
 via `BorgSequencerTests.sequencer_full_triangle`.
 
-- **Step 30.1: Embed setup shader in firmware ROM** — Hard-code the 22-instruction
-  triangle-setup shader as a `uint32_t[]` array in `borg_driver.c` (using
-  `BORG_INSTR_*` macros from `borg_isa.h`).  During `borgCreateGraphicsPipeline()`,
-  write it to PSRAM at `SEQ_SETUP_SHADER_ADDR`, set `seq_setup_addr` and
-  `seq_setup_len`, then enable the `#if 0` auto-detection block.
-  Gate: `m test-all` golden images match with `has_sequencer=1` active.
+- **Step 30.1: Embed setup shader + enable sequencer path** ✅ — Hard-coded the
+  22-instruction triangle-setup shader in `borg_driver.c`, embedded identity vert
+  shader in PSRAM, enabled the sequencer auto-detection path.  The sequencer FSM
+  and DMA pipeline are now exercised on every draw call; uniforms are still
+  overwritten by the CPU path pending edge normalization (Step 30.1c).
+  Gate: `m test-all` 12/12 green with `has_sequencer=1` active. ✅
+
+- **Step 30.1c: Add edge normalization in the setup shader** — Extend the
+  setup shader to multiply edge vectors by `inv_width` and compensate `inv_area`
+  by `width`, matching the CPU path's scaling.  Needed for resolutions >128 where
+  `inv_area` goes subnormal.  After this, remove the CPU uniform overwrite.
+  Gate: `m test-all` 12/12 green; sequencer-only uniforms produce matching output.
 
 - **Step 30.2: Remove `setup_tile_uniforms()` from the hot path** — Once the
   sequencer path is live, delete the CPU-side `setup_tile_uniforms()` call (now
