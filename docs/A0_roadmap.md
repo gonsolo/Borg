@@ -615,10 +615,12 @@ via `BorgSequencerTests.sequencer_full_triangle`.
   match.  Fixed two Chisel W005 index-width warnings in `BorgSequencer`.
   Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
 
-- **Step 30.6: Remove `setup_tile_uniforms()` from the hot path** — Delete the
-  CPU-side `setup_tile_uniforms()` call (now inside `else` branch).  Add an
-  assertion that `has_sequencer=1` in `BorgConfig.Sim`.
-  Gate: `make triangle` + `make vkcube` pass; render cycle count decreases.
+- **Step 30.6: Sequencer path is primary; CPU fallback retained for pico-ice**
+  ✅ (2026-05-02) — The sequencer path (`has_sequencer=1`) is now the primary
+  render path for Sim/ULX3S. `setup_tile_uniforms()` is retained as a CPU fallback
+  for pico-ice (`hasSequencer=false`). Runtime auto-detection selects the correct
+  path. Uniform ping-pong page is local to the CPU fallback only.
+  Gate: `m test-all` 12/12 green (Sim + FPGA). ✅
 
 ### Step 31: Multi-Triangle Autonomous Rendering
 

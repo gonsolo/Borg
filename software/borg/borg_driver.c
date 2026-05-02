@@ -32,11 +32,10 @@
 #define BORG_MAX_DRAWS 16        // max draw calls per frame
 #define BORG_MAX_TRIS_PER_TILE 8 // max triangles that can touch one tile
 
-// Step 29.5: Sequencer auto-detection flag (set during borgCreateGraphicsPipeline).
+// Sequencer auto-detection (set in borgCreateGraphicsPipeline).
+// Sim/ULX3S: hasSequencer=true → autonomous uniform staging.
+// PicoIce:   hasSequencer=false → CPU setup_tile_uniforms() fallback.
 static int has_sequencer = 0;
-
-// Uniform ping-pong page (toggles each draw call; shared by CPU and sequencer paths).
-static int current_uniform_page = 0;
 
 // Step 30.1b: Sequencer shader ROM constants.
 //
@@ -282,8 +281,8 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
     BORG_GPU->seq_inv_width = inv_width;
   }
 
-  // Detection: trigger with desc=0, check if seq_busy goes high within 1 cycle.
-  // If the hardware has no BorgSequencer, seq_trigger is unmapped and seq_busy stays 0.
+  // Detect sequencer: trigger with desc=0, check if seq_busy goes high.
+  // If hardware has no BorgSequencer, seq_trigger is unmapped and seq_busy stays 0.
   BORG_GPU->seq_desc_base = 0;
   BORG_GPU->seq_trigger = 1;
   volatile uint32_t st = BORG_GPU->status;
@@ -291,7 +290,6 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
   if (has_sequencer) {
     while (BORG_GPU->status & STATUS_REG_T__SEQ_BUSY_bm)
       ;
-    current_uniform_page = 0; // sequencer always uses page 0 (no ping-pong)
   }
 }
 
@@ -455,14 +453,14 @@ static bbox_t compute_bbox(const xy16x3_t *pos) {
   return (bbox_t){x0, y0, x1, y1};
 }
 
-
-
-// Load all uniforms for a draw call into the hardware pipeline.
+// CPU fallback: load all uniforms for a draw call into the hardware pipeline.
+// Used on pico-ice (no sequencer). Sequencer path replaces this on Sim/ULX3S.
 static void setup_tile_uniforms(const draw_call_t *dc) {
   const triangle_t *tri = &dc->tri;
   const texture_t *t = &dc->tex;
 
   // Ping-pong the uniform pages (Step 13.4)
+  static int current_uniform_page = 0;
   current_uniform_page ^= 1;
   BORG_GPU->control =
       (current_uniform_page << CONTROL_REG_T__UNIFORM_WRITE_PAGE_bp);
@@ -546,25 +544,19 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
       .frame = frame,
   };
 
-  // Step 29.5: Write vertex descriptor to PSRAM for sequencer path.
+  // Write vertex descriptor to PSRAM for the sequencer.
   // Descriptor layout: 3 vertices × 8 FP16 words (x,y,z,r,g,b,u,v) × 4 bytes.
-  // Each word occupies a 32-bit PSRAM slot with the FP16 value in the low 16 bits.
-  if (has_sequencer) {
-    uint32_t desc_base = SEQ_DESC_BASE_ADDR + (uint32_t)idx * SEQ_DESC_STRIDE;
-    for (int v = 0; v < 3; v++) {
-      uint32_t vbase = desc_base + (uint32_t)v * 32;
-      // Screen-space position (x, y from screen_pos, z from z_vals)
-      PSRAM_OUT_RAW(vbase + 0)  = tri->screen_pos.v[v].x;
-      PSRAM_OUT_RAW(vbase + 4)  = tri->screen_pos.v[v].y;
-      PSRAM_OUT_RAW(vbase + 8)  = tri->z_vals.v[v];
-      // Color
-      PSRAM_OUT_RAW(vbase + 12) = tri->colors.v[v].r;
-      PSRAM_OUT_RAW(vbase + 16) = tri->colors.v[v].g;
-      PSRAM_OUT_RAW(vbase + 20) = tri->colors.v[v].b;
-      // UV
-      PSRAM_OUT_RAW(vbase + 24) = tri->uvs.v[v].u;
-      PSRAM_OUT_RAW(vbase + 28) = tri->uvs.v[v].v;
-    }
+  uint32_t desc_base = SEQ_DESC_BASE_ADDR + (uint32_t)idx * SEQ_DESC_STRIDE;
+  for (int v = 0; v < 3; v++) {
+    uint32_t vbase = desc_base + (uint32_t)v * 32;
+    PSRAM_OUT_RAW(vbase + 0)  = tri->screen_pos.v[v].x;
+    PSRAM_OUT_RAW(vbase + 4)  = tri->screen_pos.v[v].y;
+    PSRAM_OUT_RAW(vbase + 8)  = tri->z_vals.v[v];
+    PSRAM_OUT_RAW(vbase + 12) = tri->colors.v[v].r;
+    PSRAM_OUT_RAW(vbase + 16) = tri->colors.v[v].g;
+    PSRAM_OUT_RAW(vbase + 20) = tri->colors.v[v].b;
+    PSRAM_OUT_RAW(vbase + 24) = tri->uvs.v[v].u;
+    PSRAM_OUT_RAW(vbase + 28) = tri->uvs.v[v].v;
   }
 
   draw_call_count++;
@@ -625,41 +617,33 @@ static void borgBinRender(int frame) {
       for (int slot = 0; slot < count; slot++) {
         const draw_call_t *dc = &draw_calls[(int)bin_list[tile_index][slot]];
 
-        // Set up hardware uniforms for this draw call.
-        // Step 30.1c: sequencer handles edge normalization autonomously.
         if (has_sequencer) {
+          // Sequencer path: autonomous uniform staging.
           uint32_t desc_addr = SEQ_DESC_BASE_ADDR
               + (uint32_t)(int)bin_list[tile_index][slot] * SEQ_DESC_STRIDE;
           BORG_GPU->seq_desc_base = desc_addr;
           BORG_GPU->seq_trigger = 1;
           while (BORG_GPU->status & STATUS_REG_T__SEQ_BUSY_bm)
             ;
-          current_uniform_page = 0; // sequencer always uses page 0 (no ping-pong)
           borg_load_spirb_shader_at(&rast_shader, BORG_IMEM_RAST_OFFSET);
           borg_load_spirb_shader_at(&frag_shader, BORG_IMEM_FRAG_OFFSET);
           borg_load_add_shader();
-          BORG_GPU->control =
-              ((uint32_t)current_uniform_page << CONTROL_REG_T__UNIFORM_WRITE_PAGE_bp);
+          BORG_GPU->control = 0; // uniform page 0 (no ping-pong)
           BORG_GPU->frag_pc = BORG_IMEM_FRAG_OFFSET;
-          // Step 30.1e: The sequencer's sStageUniforms always writes vertex
-          // colors to u13-u21. For textured triangles, the fragment shader
-          // expects UV data in u13-u18 and 0s in u19-u21 instead.
+          // UV overwrite: sStageUniforms writes vertex colors to u13-u21.
+          // For textured triangles replace u13-u18 with scaled UV coords.
           if (dc->tri.has_uvs) {
             const uv16_t *uvs = dc->tri.uvs.v;
             const texture_t *t = &dc->tex;
-            // u13-u15: scaled U coords (bary order: v1, v0, v2)
             BORG_GPU->uniform[13] = borg_fp16_mul(uvs[1].u, t->w_fp16);
             BORG_GPU->uniform[14] = borg_fp16_mul(uvs[0].u, t->w_fp16);
             BORG_GPU->uniform[15] = borg_fp16_mul(uvs[2].u, t->w_fp16);
-            // u16-u18: scaled V coords (bary order: v1, v0, v2)
             BORG_GPU->uniform[16] = borg_fp16_mul(uvs[1].v, t->h_fp16);
             BORG_GPU->uniform[17] = borg_fp16_mul(uvs[0].v, t->h_fp16);
             BORG_GPU->uniform[18] = borg_fp16_mul(uvs[2].v, t->h_fp16);
-            // u19-u21: 0 (blue channel unused in texture mode)
             BORG_GPU->uniform[19] = 0;
             BORG_GPU->uniform[20] = 0;
             BORG_GPU->uniform[21] = 0;
-            // u25-u30: 0 (unused UV slots)
             for (int i = 25; i <= 30; i++)
               BORG_GPU->uniform[i] = 0;
             BORG_GPU->tex_config =
@@ -669,6 +653,7 @@ static void borgBinRender(int frame) {
             BORG_GPU->tex_config = 0;
           }
         } else {
+          // CPU fallback (pico-ice, no sequencer).
           setup_tile_uniforms(dc);
         }
 
