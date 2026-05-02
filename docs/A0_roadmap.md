@@ -580,14 +580,14 @@ The firmware sequencer path is scaffolded (Step 29.5) but blocked on the setup
 shader not being embedded in firmware ROM.  The hardware path is fully verified
 via `BorgSequencerTests.sequencer_full_triangle`.
 
-- **Step 30.1: Embed setup shader + enable sequencer path** ✅ — Hard-coded the
+- **Step 30.1: Embed setup shader + enable sequencer path** ✅ (2026-05-02) — Hard-coded the
   22-instruction triangle-setup shader in `borg_driver.c`, embedded identity vert
   shader in PSRAM, enabled the sequencer auto-detection path.  The sequencer FSM
   and DMA pipeline are now exercised on every draw call; uniforms are still
-  overwritten by the CPU path pending edge normalization (Step 30.1c).
+  overwritten by the CPU path pending edge normalization.
   Gate: `m test-all` 12/12 green with `has_sequencer=1` active. ✅
 
-- **Step 30.1c: Edge normalization + autonomous uniform staging** ✅ — Extended
+- **Step 30.2: Edge normalization + autonomous uniform staging** ✅ (2026-05-02) — Extended
   the setup shader with `inv_width` normalization (31 instructions).  Added
   `sStageUniforms` FSM in `BorgSequencer` to compute and stage all 31 rasterizer
   uniforms autonomously.  Fixed root cause of black screen: `BorgCore` mapped
@@ -596,16 +596,16 @@ via `BorgSequencerTests.sequencer_full_triangle`.
   coord mux (r30/r31 return 0 during sequencer shader runs).
   Gate: `m test-all` 12/12 green. ✅
 
-- **Step 30.1d: Rename `coordOverride` → `seqBusy`** ✅ — Minimal cleanup:
+- **Step 30.3: Rename `coordOverride` → `seqBusy`** ✅ (2026-05-02) — Minimal cleanup:
   renamed the external coord-mux gating signal to describe what it *is* rather
   than what it *does*.  No functional change.
 
-- **Step 30.1e: Fix textured back-triangle regression** ✅ — Firmware-side UV
+- **Step 30.4: Fix textured back-triangle regression** ✅ (2026-05-02) — Firmware-side UV
   staging: render loop explicitly writes u13–u18 (UV interpolation uniforms) and
   enables `tex_config` for textured draw calls, since `sStageUniforms` only stages
   vertex colors.  Eliminated all-red rendering of the back triangle.
 
-- **Step 30.1f: Fix uniform page desync (ping-pong disabled)** ✅ — Disabling
+- **Step 30.5: Fix uniform page desync (ping-pong disabled)** ✅ (2026-05-02) — Disabling
   `uniformPage` ping-pong in `BorgSequencer.sWaitSetup` eliminated a systematic
   checkerboard rendering failure (every other tile black).  Root cause: the
   alternating page write caused desync with the rasterizer's read page because the
@@ -615,9 +615,9 @@ via `BorgSequencerTests.sequencer_full_triangle`.
   match.  Fixed two Chisel W005 index-width warnings in `BorgSequencer`.
   Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
 
-- **Step 30.2: Remove `setup_tile_uniforms()` from the hot path** — Once the
-  sequencer path is live, delete the CPU-side `setup_tile_uniforms()` call (now
-  inside `else` branch).  Add an assertion that `has_sequencer=1` in `BorgConfig.Sim`.
+- **Step 30.6: Remove `setup_tile_uniforms()` from the hot path** — Delete the
+  CPU-side `setup_tile_uniforms()` call (now inside `else` branch).  Add an
+  assertion that `has_sequencer=1` in `BorgConfig.Sim`.
   Gate: `make triangle` + `make vkcube` pass; render cycle count decreases.
 
 ### Step 31: Multi-Triangle Autonomous Rendering
