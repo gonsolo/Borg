@@ -858,35 +858,44 @@ CPU-side sampling, spec-compliant but slow. Estimate: 1 week.
 
 Run conformance tests, fix failures. Estimate: 1–2 weeks.
 
-## Phase 5: GPU Hardware Extensions (Steps 40–44)
+## Phase 5: Mobile GPU Fidelity (Steps 40–44)
 
-Target: **~Jan–Feb 2027** (~6–8 weeks). Extend the shader processor to
-support more Vulkan features. These items only make sense on a larger FPGA
-(ULX3S or Nitefury) or ASIC (Tiny Tapeout).
+Target: **~Jan–Feb 2027**. Transition from "Autonomous Renderer" to a feature-complete 
+"Mobile-Class GPU" (Bilinear, Z-Buffer, Blending).
 
-### Step 40: Integer ALU Ops in Shader
+### Step 40: Bilinear Texture Filtering
 
-Comparison, bitwise, integer math. Estimate: 1 week.
+Upgrade `BorgTextureUnit` and `TextureCache` to fetch 4 neighboring texels in a single 
+burst and perform hardware-weighted average. Eliminates pixelated "aliasing" 
+on magnified textures.
 
-### Step 41: Memory Load/Store from Shader
+### Step 41: Hardware Z-Buffer & Atomic Depth Test
 
-Enables shader-side texture addressing. Estimate: 1–2 weeks.
+Expand `BorgTileBuffer` from 64-bit to 80-bit per pixel (RGBA + Z). Implement 
+hardware "Depth Pass" logic: fragments are only written to the tile buffer 
+if `fragment_z < buffer_z`. Eliminates the need for CPU-side triangle sorting.
 
-### Step 42: Framebuffer Blending
+### Step 42: Framebuffer Alpha Blending
 
-Alpha blending support. Estimate: 3–5 days.
+Implement Read-Modify-Write (RMW) logic in `BorgTileBuffer`. Fragments can be 
+linearly blended with existing background pixels based on Alpha. Enables 
+smoke, glass, and transparency effects.
 
-### Step 43: Multi-Lane SIMD (2–4 FMA)
+### Step 43: Integer ALU & Bitwise Ops
 
-Process multiple pixels per cycle. Estimate: 1–2 weeks.
+Add `IADD`, `ISUB`, `AND`, `OR`, `XOR`, `SLL`, `SRL` to the `BorgCore` pipeline. 
+Necessary for Vulkan integer address math and bit-packed data structures.
 
-### Step 43.5: Multi-Core Shading Simulation (Optional)
+### Step 44: Multi-Lane SIMD (2–4 FMA Units)
 
-Refactor `BorgRaster` with parameterizable execution width to dispatch multiple pixels concurrently across a parallel array of `BorgCore` FPUs exclusively for simulation speedup. (Moved from Phase 2; deferred until CPU bottlenecks are resolved).
+Duplicate the FMA pipeline within `BorgCore` (or add multiple cores) to process 
+multiple pixels/vertices concurrently. Essential for hitting 60 FPS at 
+higher resolutions on ULX3S/Nitefury.
 
-### Step 44: Second Tapeout Submission
+### Step 45: Second Tapeout Submission
 
-4×4 or 4×5 tile, Linux + Vulkan capable. Estimate: 1 week.
+4×4 or 4×5 tile, Linux + Vulkan capable, with full hardware fidelity suite. 
+Estimate: 1 week.
 
 ## Phase 6: Vulkan 1.0 Conformance
 
