@@ -41,7 +41,7 @@ HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/sr
 # Stamp target: only re-runs Mill when Scala or RDL sources actually change.
 # | rdl is an order-only dep so rdl always runs first (it is fast and idempotent)
 # but a re-run of rdl alone does not invalidate the stamp.
-.verilog_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
+.verilog_stamp: $(HAND_CHISEL) $(RDL_SRC)
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.soc.runMain soc.Main
 	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.picoice.tinyqv.runMain soc.FpgaMain
 	@# Yosys resolves $readmemh paths relative to the .sv file location (out/fpga/verilog/),
@@ -56,7 +56,7 @@ info.yaml: .verilog_stamp
 
 # Convenience alias: ensures rdl and the verilog stamp are up to date.
 # Still declared phony so `make generate_verilog` always checks deps explicitly.
-generate_verilog: rdl .verilog_stamp info.yaml
+generate_verilog: .verilog_stamp info.yaml
 
 # ULX3S (ECP5-85K) Verilog emission stub — no synthesis flow yet (Step 27).
 generate_verilog_ulx3s: rdl
@@ -75,7 +75,7 @@ test-cocotb-soc-core-gl:
 test-cocotb-soc-borg-gl:
 	$(TEST_SOC) borg GATES=yes
 
-test-chisel-borg: rdl
+test-chisel-borg:
 	$(MILL) hardware.borg.test
 
 # lint depends on .verilog_stamp (not generate_verilog) so it does not

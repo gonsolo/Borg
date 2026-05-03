@@ -22,6 +22,8 @@ class BorgDMAIO extends Bundle {
   val gpuMem      = new GpuMemIO
   val imemWrite    = new MemWritePort(6, 32)
   val uniformWrite = new MemWritePort(6, 16)
+  // 32-bit snoop port for sequencer (valid when gpuMem.ready)
+  val snoop        = Output(Valid(UInt(32.W)))
 }
 
 /** BorgDMA — bulk PSRAM→IMEM/Uniform DMA engine (Step 22.1).
@@ -62,6 +64,9 @@ class BorgDMA extends Module {
   io.gpuMem.wr    := false.B
   io.gpuMem.wdata := 0.U
 
+  io.snoop.valid  := false.B
+  io.snoop.bits   := 0.U
+
   io.imemWrite.en   := false.B
   io.imemWrite.addr := 0.U
   io.imemWrite.data := 0.U
@@ -88,17 +93,22 @@ class BorgDMA extends Module {
       when(io.gpuMem.ready) {
         val destIdx = io.desc.offset +& countReg
 
+        io.snoop.valid := true.B
+        io.snoop.bits  := io.gpuMem.data
+
         when(io.desc.dest === 0.U) {
           // IMEM: full 32-bit word
           io.imemWrite.en   := true.B
           io.imemWrite.addr := destIdx
           io.imemWrite.data := io.gpuMem.data
-        }.otherwise {
+        }.elsewhen(io.desc.dest === 1.U) {
           // Uniform buffer: low 16 bits; page from dest field
-          val page = Mux(io.desc.dest === 2.U, 1.U(1.W), 0.U(1.W))
+          val page = 0.U(1.W)
           io.uniformWrite.en   := true.B
           io.uniformWrite.addr := Cat(page, destIdx(4, 0))
           io.uniformWrite.data := io.gpuMem.data(15, 0)
+        }.elsewhen(io.desc.dest === 2.U) {
+          // Snoop only (no write to IMEM or Uniforms)
         }
 
         addrReg  := addrReg + 4.U

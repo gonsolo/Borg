@@ -29,7 +29,7 @@
 // Maximum tiles for the largest supported framebuffer (128×128 / 4×4 = 32×32
 // tiles).
 #define BORG_MAX_TILES 1024      // (128/4)*(128/4) = 1024
-#define BORG_MAX_DRAWS 16        // max draw calls per frame
+#define BORG_MAX_DRAWS 8         // max draw calls per frame (Step 31: 8 × 128B = 1024B fits PSRAM gap)
 #define BORG_MAX_TRIS_PER_TILE 8 // max triangles that can touch one tile
 
 // Sequencer auto-detection (set in borgCreateGraphicsPipeline).
@@ -273,6 +273,22 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
   BORG_GPU->seq_vert_len   = SEQ_VERT_SHADER_LEN;
   BORG_GPU->seq_setup_addr = SEQ_SETUP_SHADER_ADDR;
   BORG_GPU->seq_setup_len  = SEQ_SETUP_SHADER_LEN;
+
+  // Step 31: Stage rast+frag shaders to PSRAM for autonomous re-DMA.
+  // After vertex+setup, the sequencer needs to reload IMEM with rast+frag.
+  for (int i = 0; i < (int)rast_shader.num_instrs; i++)
+    PSRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)i * 4) = rast_shader.instrs[i];
+  // HALT sentinel
+  PSRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)rast_shader.num_instrs * 4) = 0;
+  for (int i = 0; i < (int)frag_shader.num_instrs; i++)
+    PSRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)i * 4) = frag_shader.instrs[i];
+  PSRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)frag_shader.num_instrs * 4) = 0;
+
+  BORG_GPU->seq_rast_addr = SEQ_RAST_SHADER_ADDR;
+  BORG_GPU->seq_rast_len  = rast_shader.num_instrs + 1;  // +1 for HALT
+  BORG_GPU->seq_frag_addr = SEQ_FRAG_SHADER_ADDR;
+  BORG_GPU->seq_frag_len  = frag_shader.num_instrs + 1;  // +1 for HALT
+
   // Step 30.1c: Precompute 1/fb_width as exact FP16 (fb_width is a power of 2).
   // fp16(2^n) has exp = n+15, so fp16(2^-n) has exp = 15-n = 30 - exp_of_width.
   {
@@ -537,16 +553,19 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
   if (draw_call_count >= BORG_MAX_DRAWS)
     return;
   int idx = draw_call_count;
+  bbox_t bb = compute_bbox(&tri->screen_pos);
   draw_calls[idx] = (draw_call_t){
       .tri = *tri,
       .tex = *t,
-      .bb = compute_bbox(&tri->screen_pos),
+      .bb = bb,
       .frame = frame,
   };
 
-  // Write vertex descriptor to PSRAM for the sequencer.
-  // Descriptor layout: 3 vertices × 8 FP16 words (x,y,z,r,g,b,u,v) × 4 bytes.
+  // Write extended vertex descriptor to PSRAM for the sequencer (Step 31).
+  // Layout: 96B vertex data + 32B metadata = 128 bytes per descriptor.
   uint32_t desc_base = SEQ_DESC_BASE_ADDR + (uint32_t)idx * SEQ_DESC_STRIDE;
+
+  // Vertex data (unchanged): 3 vertices × 8 FP16 words × 4 bytes = 96 bytes
   for (int v = 0; v < 3; v++) {
     uint32_t vbase = desc_base + (uint32_t)v * 32;
     PSRAM_OUT_RAW(vbase + 0)  = tri->screen_pos.v[v].x;
@@ -558,6 +577,14 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
     PSRAM_OUT_RAW(vbase + 24) = tri->uvs.v[v].u;
     PSRAM_OUT_RAW(vbase + 28) = tri->uvs.v[v].v;
   }
+
+  // Step 31 metadata (offset 0x60 = 96 bytes from desc_base):
+  //   bbox: tile-aligned integers, packed {x[15:0], y[15:0]}
+  //   flags: bit 0 = has_uvs
+  PSRAM_OUT_RAW(desc_base + 96)  = ((uint32_t)(bb.y0 & ~3) << 16) | (uint32_t)(bb.x0 & ~3);
+  PSRAM_OUT_RAW(desc_base + 100) = ((uint32_t)(bb.y1) << 16) | (uint32_t)(bb.x1);
+  PSRAM_OUT_RAW(desc_base + 104) = tri->has_uvs ? 1u : 0u;
+  // Padding (offsets 108..124) left uninitialized — sequencer ignores them.
 
   draw_call_count++;
 }
@@ -622,11 +649,12 @@ static void borgBinRender(int frame) {
           uint32_t desc_addr = SEQ_DESC_BASE_ADDR
               + (uint32_t)(int)bin_list[tile_index][slot] * SEQ_DESC_STRIDE;
           BORG_GPU->seq_desc_base = desc_addr;
+          BORG_GPU->seq_tri_count = 1;
           BORG_GPU->seq_trigger = 1;
           while (BORG_GPU->status & STATUS_REG_T__SEQ_BUSY_bm)
             ;
-          borg_load_spirb_shader_at(&rast_shader, BORG_IMEM_RAST_OFFSET);
-          borg_load_spirb_shader_at(&frag_shader, BORG_IMEM_FRAG_OFFSET);
+          // Step 31.2: Sequencer autonomously reloaded rast/frag shaders.
+          // Only reload add_shader (used for fp16 FPU ops below).
           borg_load_add_shader();
           BORG_GPU->control = 0; // uniform page 0 (no ping-pong)
           BORG_GPU->frag_pc = BORG_IMEM_FRAG_OFFSET;
@@ -704,6 +732,44 @@ static void borgBinRender(int frame) {
     }
   }
   (void)frame;
+}
+
+// Step 31.4: Autonomous GPU tile iteration.
+// Replaces CPU-side binning and iteration with a single sequencer trigger.
+static void borgBinRenderAutonomous(int frame) {
+  int fb_offset = frame * FRAME_STRIDE;
+  int tiles_per_row = borg_fb_width >> 2;
+
+  uint32_t cc_lo = ((uint32_t)last_clear_color.b << 16) | FP16_MAX_DEPTH;
+  uint32_t cc_hi = ((uint32_t)last_clear_color.r << 16) | last_clear_color.g;
+  
+  // The sequencer does not clear the entire FB, only tiles touched by triangles.
+  // We must pre-clear the FB here for now.
+  for (int i = 0; i < (borg_fb_width * borg_fb_height); i++) {
+     PSRAM_OUT(fb_offset + i * 2 + 0) = cc_lo;
+     PSRAM_OUT(fb_offset + i * 2 + 1) = cc_hi;
+  }
+
+  BORG_GPU->seq_fb_base = PSRAM_OUT_SPI(fb_offset);
+  BORG_GPU->seq_tiles_per_row = tiles_per_row;
+  BORG_GPU->seq_clear_lo = cc_lo;
+  BORG_GPU->seq_clear_hi = cc_hi;
+  BORG_GPU->seq_rast_addr = BORG_IMEM_RAST_OFFSET;
+  BORG_GPU->seq_rast_len = BORG_IMEM_RAST_LEN;
+  BORG_GPU->seq_frag_addr = BORG_IMEM_FRAG_OFFSET;
+  BORG_GPU->seq_frag_len = BORG_IMEM_FRAG_LEN;
+
+  // Disable UV textures for autonomous mode for now
+  BORG_GPU->tex_config = 0;
+  BORG_GPU->control = 0; // uniform page 0
+
+  if (draw_call_count > 0) {
+      BORG_GPU->seq_desc_base = SEQ_DESC_BASE_ADDR;
+      BORG_GPU->seq_tri_count = draw_call_count;
+      BORG_GPU->seq_trigger = 1;
+      while (BORG_GPU->status & STATUS_REG_T__SEQ_BUSY_bm)
+        ;
+  }
 }
 
 // Clip-space → NDC → screen-space for 3 vertices.
@@ -844,9 +910,13 @@ void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
 void borg_present(int frame) {
   unsigned int t_wait = get_cycles();
 
-  // TBDR: bin all recorded draw calls, then render tile-by-tile.
-  borgBin();
-  borgBinRender(frame);
+  if (has_sequencer) {
+    borgBinRenderAutonomous(frame);
+  } else {
+    // TBDR: bin all recorded draw calls, then render tile-by-tile.
+    borgBin();
+    borgBinRender(frame);
+  }
 
   // Wait for the GPU to finish the last tile flush.
   while (!(BORG_GPU->status & STATUS_REG_T__IDLE_bm))

@@ -31,7 +31,9 @@
 // Placed between BSS end (~0x4260) and texture start (0x5000).
 // The sequencer needs: vert shader, setup shader, and per-draw-call vertex
 // descriptors (3 vertices × 8 FP16 words × 4 bytes = 96 bytes each).
-#define SEQ_VERT_SHADER_ADDR  0x4800  // SPI byte addr for vertex shader
-#define SEQ_SETUP_SHADER_ADDR 0x4880  // SPI byte addr for setup shader
-#define SEQ_DESC_BASE_ADDR    0x4900  // SPI byte addr for vertex descriptors
-#define SEQ_DESC_STRIDE       96      // 3 vertices × 8 words × 4 bytes
+#define SEQ_VERT_SHADER_ADDR  0x4800  // SPI byte addr for vertex shader (max 224B)
+#define SEQ_SETUP_SHADER_ADDR 0x4880  // SPI byte addr for setup shader (max 224B)
+#define SEQ_RAST_SHADER_ADDR  0x4900  // SPI byte addr for rast shader (Step 31, max 224B)
+#define SEQ_FRAG_SHADER_ADDR  0x4980  // SPI byte addr for frag shader (Step 31, max 224B)
+#define SEQ_DESC_BASE_ADDR    0x4A00  // SPI byte addr for vertex descriptors
+#define SEQ_DESC_STRIDE       128     // 3 vertices × 8 words × 4 bytes + 32B metadata (Step 31)
