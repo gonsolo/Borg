@@ -657,6 +657,92 @@ Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
 
 ---
 
+### Step 32: True TBR — Two-Pass Hardware Binning
+
+> **Motivation**: `vk_cube` renders 12 triangles with heavy face overlap. In the current
+> single-pass sequencer a tile in the centre of the screen is rasterised and flushed to
+> PSRAM once per triangle that covers it — up to 8×. A true TBR replaces this with a
+> geometry pass that bins all triangles to tiles, then a tile-render pass that flushes
+> each tile **exactly once per frame**, eliminating overdraw write bandwidth.
+
+#### 32.0 PSRAM memory layout
+
+Define the two new regions that live after the existing framebuffer:
+
+| Region | Size | Notes |
+| --- | --- | --- |
+| Per-tile bin lists | `maxTri × numTiles × 1 B` | triangle indices; fixed-size rows |
+| Per-triangle setup store | `maxTri × 64 B` | precomputed edge equations (u0–u11) |
+
+For vk_cube: 12 triangles × (10×8) tiles = 960 B bin lists + 768 B setup store.
+Add constants to `borg_layout.h`; update `generate.py` and `borg_driver.c`.
+
+#### 32.1 BorgBinner — bin list writer
+
+New small Chisel module `BorgBinner`:
+
+- Inputs: triangle index, setup-phase bbox `{y0,x0,y1,x1}` (tiled), trigger.
+- For each tile in bbox: DMA-write triangle index to `binList[tile][count[tile]++]`
+  in PSRAM. Count register per tile lives in a small SRAM (numTiles entries).
+- Output: `done` strobe when all tiles written.
+- Gated behind `hasBinner: Boolean` in `BorgConfig`; invisible to FPGA iCE40 target.
+  Gate: Chisel unit test verifies correct bin list contents in Verilator simulation.
+
+#### 32.2 BorgSequencer: geometry pass (Pass 1)
+
+Extend `BorgSequencer` FSM with a new phase that iterates triangles without
+rasterising:
+
+```text
+sGeoPass: for tri in 0..triCount-1:
+  sLoadVertShader → sRunVertShader
+  sLoadSetupShader → sRunSetupShader
+  sStoreSetup   ← DMA-write u0..u11 to setupStore[tri] in PSRAM
+  sBinTri       ← trigger BorgBinner with tri index + bbox; wait done
+→ sRenderPass (when all triangles binned)
+```
+
+No rasteriser or tile flusher involvement in Pass 1.
+Gate: `m test-all` 12/12 green; Verilator trace shows correct PSRAM writes.
+
+#### 32.3 BorgSequencer: tile render pass (Pass 2)
+
+Add second phase that iterates the framebuffer tile-by-tile:
+
+```text
+sRenderPass: for tile in 0..numTiles-1:
+  sFillClear    ← write seq_clear_lo/hi into all 16 tile buffer slots
+  for each tri in binList[tile]:  (zero iterations if empty tile)
+    sLoadSetup  ← DMA-read setupStore[tri] → uniformMem[0..11]
+    sLoadRastShader → sLoadFragShader (already in IMEM if unchanged)
+    sEnqueueTile → sIteratePixels → sWaitRast
+  sWaitFlush    ← flush tile to PSRAM once (always — even empty tiles)
+→ sDone
+```
+
+Empty tiles flush the clear color to PSRAM in one burst write.
+Non-empty tiles rasterize fragments on top of the clear-filled buffer.
+No tile is ever skipped — stale PSRAM from a previous frame is never visible.
+
+Shader IMEM stays loaded across inner loop iterations (no reload if same triangle
+count); only setup uniforms change.
+Gate: `m test-all` 12/12 green; render output pixel-perfect vs. single-pass baseline.
+
+#### 32.4 Driver integration
+
+- `borgBinRenderAutonomous()` writes `seq_tri_count`, `seq_clear_lo`, `seq_clear_hi`,
+  then `seq_trigger = 1`; both passes run autonomously.
+- **Remove the CPU-side clear-fill loop entirely.** Clear color is now written into
+  the tile buffer at the start of each tile in Pass 2 (`sFillClear`), so no upfront
+  PSRAM write is needed. Total PSRAM writes = `numTiles × 16 pixels × 2 words`
+  regardless of geometry — same as the old clear-fill alone, with triangles now free.
+- Update `borg_mmio.py` with new MMIO constant `seq_pass` (read-only: 0=geo, 1=tile)
+  for debug.
+  Gate: vk_cube renders correctly; background correct on empty tiles; PSRAM write
+  count drops to exactly 1× per tile per frame.
+
+---
+
 ### Optional: ASIC Size Reduction (target: 4×4 = 16 tiles on Sky130)
 
 > **Background**: Current 8×4 (32 tiles) at ~49% utilisation ≈ 15.7 tile-equivalents
