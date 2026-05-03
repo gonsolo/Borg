@@ -1,6 +1,6 @@
 # Borg GPU — Register Architecture & Uniform Storage
 
-**A Design Document for the Borg FP16 Shader Processor**
+A Design Document for the Borg FP16 Shader Processor
 
 Andreas Wendleder — April 2026
 
@@ -88,10 +88,10 @@ Each shader needs its own set of **uniform registers** — values that
 are loaded once per triangle and must persist across all pixel
 invocations:
 
-| Shader | Uniforms | I/O | Temporaries | Total |
-|--------|----------|-----|-------------|-------|
-| `rasterize.s` | 12 (edge constants, negated vertex positions) | 3 outputs (e0, e1, e2) + 2 hw inputs (r30, r31) | ~5 | 17 |
-| `shader.frag` | 19 (18 vertex colors + inv_area) | 3 inputs (e0, e1, e2) + 6 outputs (R,G,B,Z,U,V) | ~3 | 29 |
+| Shader        | Uniforms                                      | I/O                                             | Temporaries | Total |
+|---------------|-----------------------------------------------|-------------------------------------------------|-------------|-------|
+| `rasterize.s` | 12 (edge constants, negated vertex positions) | 3 outputs (e0, e1, e2) + 2 hw inputs (r30, r31) | ~5          | 17    |
+| `shader.frag` | 19 (18 vertex colors + inv_area)              | 3 inputs (e0, e1, e2) + 6 outputs (R,G,B,Z,U,V) | ~3          | 29    |
 
 The fragment shader alone consumes 29 of 30 usable registers (r0–r29,
 with r30/r31 reserved for the hardware coordinate LUT). When chained
@@ -127,9 +127,11 @@ Any solution must satisfy four simultaneous constraints:
   only through the OpenROAD flow.
 
 Current register file cost:
+
 - 32 registers × 16 bits × 3 copies = **1,536 flip-flops**
 
 Expanding to 64 registers:
+
 - 64 registers × 16 bits × 3 copies = **3,072 flip-flops** (+100%)
 
 ### 3.2 FPGA Prototyping (pico-ice, iCE40 UP5K)
@@ -148,7 +150,7 @@ one additional BRAM (4 total out of 30), which is acceptable.
 Borg currently uses standard RISC-V R-type and R4-type instruction
 encoding for its floating-point operations:
 
-```
+```text
 R-type:   [31:25] funct7  [24:20] rs2  [19:15] rs1  [14:12] funct3  [11:7] rd   [6:0] opcode
 R4-type:  [31:27] rs3 [26:25] funct2   [24:20] rs2  [19:15] rs1  [14:12] funct3  [11:7] rd   [6:0] opcode
 ```
@@ -299,6 +301,7 @@ the register file further as transistor budgets grew.
 
 Bifrost's 64 registers serve a different purpose than what Borg needs.
 In Bifrost, the large register file exists to:
+
 1. Support complex programmable shaders (user-written GLSL/HLSL)
 2. Reduce register spilling to memory (latency hiding)
 3. Trade off against thread occupancy (more registers = fewer threads)
@@ -365,6 +368,7 @@ between uniforms and temporaries.
 **Market**: Raspberry Pi (all models through Pi 3)
 
 VideoCore IV is the most relevant comparison for Borg because it is:
+
 - Fully documented (Broadcom released the architecture spec)
 - Extremely area-efficient
 - Used in a real product (Raspberry Pi)
@@ -390,6 +394,7 @@ read, returns the **next value from a sequential uniform stream**
 stored in memory. The hardware automatically advances a pointer.
 
 This is an extraordinarily area-efficient design:
+
 - No on-chip uniform storage needed (uniforms stream from memory)
 - No uniform register file (just a small FIFO for prefetching)
 - The register files are entirely free for computation
@@ -444,6 +449,7 @@ scalar register file handles uniform-like data. Demonstrates the
 GPR/uniform split even in an academic context.
 
 **MIAOW Register Architecture**:
+
 - Vector GPRs: 256 × 64-bit per SIMD lane
 - Scalar GPRs: 512 × 32-bit (shared, for uniform-like data)
 
@@ -467,6 +473,7 @@ to the 3nm Adreno 750 — a single pattern emerges:
 > **Uniforms are never stored in the GPR file.**
 
 The specific implementation varies:
+
 - PowerVR: Shared registers (`SHn`)
 - VideoCore IV: Streaming FIFO (`unif`)
 - Mali Bifrost: Fast constant storage
@@ -517,10 +524,12 @@ RISC-V compatibility.
 iCE40 BRAMs)
 
 **Pros**:
+
 - Simple programming model (everything is a register)
 - No new memory structures
 
 **Cons**:
+
 - Doubles register file area on ASIC (+100%)
 - Breaks RISC-V instruction encoding (6-bit fields required)
 - Custom instruction format needed
@@ -544,6 +553,7 @@ memory with combinational reads)
 register-based)
 
 **Pros**:
+
 - Minimal area cost (+33% of current register file, vs +100% for
   Option A)
 - Preserves RISC-V instruction encoding
@@ -552,6 +562,7 @@ register-based)
 - Only 1 read port needed (at most 1 uniform per instruction)
 
 **Cons**:
+
 - New hardware component (SyncReadMem + read mux)
 - Shader compiler must track uniform vs GPR operands
 - funct3 field repurposed (breaks strict RISC-V F-extension
@@ -569,11 +580,13 @@ automatically, reading vertex attributes from a dedicated buffer.
 **ASIC cost**: ~300 flip-flops (FSM + attribute buffer)
 
 **Pros**:
+
 - Smallest area cost
 - No ISA changes
 - Vulkan compatible (interpolation is implementation-defined)
 
 **Cons**:
+
 - Removes fragment shader programmability (limitable for Vulkan
   user shaders in Phase 4)
 - The user's fragment shader (from GLSL/HLSL) must still run
@@ -595,10 +608,12 @@ uniforms between passes.
 **ASIC cost**: 0 (no hardware changes)
 
 **Pros**:
+
 - Zero hardware cost
 - No ISA changes
 
 **Cons**:
+
 - 3–6× slower fragment shading (multiple passes per pixel)
 - Requires the chaining FSM to manage multiple passes, adding
   FSM complexity
@@ -622,7 +637,7 @@ to 00. These fields are available for extension.
 We use 2 bits from `funct3` to encode which operand (if any)
 reads from the uniform buffer instead of the GPR file:
 
-```
+```text
 funct3[1:0] encoding:
   00 = All operands from GPR file (default, backward compatible)
   01 = rs1 reads from uniform buffer
@@ -646,6 +661,7 @@ A critical observation makes this design practical: **in every Borg
 shader instruction, at most one operand is a uniform**.
 
 Rasterizer shader (`rasterize.s`):
+
 ```asm
 fadd.s  f_dpx, f_r30, f_neg_vx    # rs1=coordLut, rs2=UNIFORM, rs3=n/a
 fmul.s  f_e0,  f_dx0, f_dpy       # rs1=UNIFORM,  rs2=GPR,     rs3=n/a
@@ -653,6 +669,7 @@ fmadd.s f_e0,  f_ndy, f_dpx, f_e0 # rs1=UNIFORM,  rs2=GPR,     rs3=GPR
 ```
 
 Fragment shader (`shader.frag`):
+
 ```asm
 fmul.s  r_ch, r_e0, u_c0          # rs1=GPR, rs2=UNIFORM, rs3=n/a
 fmadd.s r_ch, r_e1, u_c1, r_ch    # rs1=GPR, rs2=UNIFORM, rs3=GPR
@@ -676,28 +693,31 @@ single-port memory is far smaller than a multi-port one.
 With uniforms externalized to the buffer:
 
 **Rasterizer shader**:
+
 | Resource | Count | Location |
-|----------|-------|----------|
+| --- | --- | --- |
 | Outputs (e0, e1, e2) | 3 | GPR: r0, r1, r2 |
 | Temporaries (dpx, dpy, reused) | ~5 | GPR: r3–r7 |
 | Edge constants (dx, neg_dy × 3) | 6 | Uniform buffer |
 | Negated vertices (neg_vx, neg_vy × 3) | 6 | Uniform buffer |
 | Hardware pixel coords | 2 | r30/r31 (coordLut) |
-| **Total GPR** | **8** | |
-| **Total uniform** | **12** | |
+| **Total GPR** | **8** | - |
+| **Total uniform** | **12** | - |
 
 **Fragment shader**:
+
 | Resource | Count | Location |
-|----------|-------|----------|
+| --- | --- | --- |
 | Inputs (e0, e1, e2) | 3 | GPR: r0, r1, r2 (from rasterizer) |
 | Outputs (R, G, B, Z, U, V) | 6 | GPR: r3–r8 |
 | Temporaries | ~4 | GPR: r9–r12 |
 | Vertex colors (c0, c1, c2 × 6 channels) | 18 | Uniform buffer |
 | inv_area | 1 | Uniform buffer |
-| **Total GPR** | **13** | |
-| **Total uniform** | **19** | |
+| **Total GPR** | **13** | - |
+| **Total uniform** | **19** | - |
 
 **Combined (both shaders coexisting)**:
+
 - GPR usage: 8 + 13 = ~16 (with overlap at r0–r2)
 - Uniform usage: 12 + 19 = 31
 
@@ -740,7 +760,7 @@ the operand-resolution stage. Currently, each port (A, B, C) has
 a mux that selects between the register file output and the
 coordLut injection for r30/r31:
 
-```
+```text
 resolved_data = Mux(idx === 30, coordLut(iterX),
                 Mux(idx === 31, coordLut(iterY),
                 regFile.readData))
@@ -748,7 +768,7 @@ resolved_data = Mux(idx === 30, coordLut(iterX),
 
 The uniform buffer adds one more mux input:
 
-```
+```text
 resolved_data = Mux(idx === 30, coordLut(iterX),
                 Mux(idx === 31, coordLut(iterY),
                 Mux(this_port_is_uniform, uniformBuf(idx),
@@ -765,7 +785,7 @@ The uniform buffer fits in the existing address space without
 reshuffling:
 
 | Region | Offset | Size | Description |
-|--------|--------|------|-------------|
+| --- | --- | --- | --- |
 | Registers (r0–r31) | 0 | 128 bytes | GPR file (32 × 4) |
 | IMEM | 128 | 256 bytes | 64 instruction slots |
 | Iterator BBOX | 384 | 4 bytes | Bounding box |
@@ -775,6 +795,7 @@ reshuffling:
 | **Uniform buffer** | **400** | **128 bytes** | **32 × 4 uniform slots** |
 
 Total: 528 bytes. Exceeds 512... so we can either:
+
 1. Use 2-byte addressing for uniforms (32 × 2 = 64 bytes → total 464)
 2. Reduce IMEM from 64 to 48 slots (saves 64 bytes → total 464)
 3. Expand to 10-bit address space (requires bus decoder change)
@@ -792,11 +813,13 @@ directly.
 The original three sub-steps of 10.6.4 are replaced:
 
 **Original**:
+
 - 10.6.4.1: Hardware 6-bit expansion (BF_RS1-RS3-RD 5→6 bits)
 - 10.6.4.2: Compiler 6-bit expansion (instruction encoding)
 - 10.6.4.3: Shader reallocation (rebuild shaders)
 
 **Revised**:
+
 - 10.6.4.1: **Hardware uniform buffer** — Add 32-entry SyncReadMem,
   decode funct3[1:0], integrate read mux into pipeline, add MMIO
   write interface
@@ -861,35 +884,35 @@ The uniform buffer maps directly to Vulkan's uniform buffer concept:
 ### 10.1 Current Design
 
 | Component | Entries | Copies | Bits | Flip-flops |
-|-----------|---------|--------|------|------------|
+| --- | --- | --- | --- | --- |
 | GPR file (FP16) | 32 | 3 | 16 | 1,536 |
 | IMEM | 64 | 1 | 32 | 2,048 |
 | Coord LUT | 64 | 1 | 16 | 1,024 |
 | Control regs | ~10 | 1 | various | ~200 |
-| **Total storage** | | | | **~4,808** |
+| **Total storage** | - | - | - | **~4,808** |
 
 ### 10.2 Option A: 64 GPR Expansion
 
 | Component | Entries | Copies | Bits | Flip-flops | Delta |
-|-----------|---------|--------|------|------------|-------|
+| --- | --- | --- | --- | --- | --- |
 | GPR file (FP16) | **64** | 3 | 16 | **3,072** | +1,536 |
 | IMEM | 48* | 1 | 32 | 1,536 | −512 |
 | Coord LUT | 64 | 1 | 16 | 1,024 | 0 |
 | Control regs | ~10 | 1 | various | ~200 | 0 |
-| **Total storage** | | | | **~5,832** | **+1,024** |
+| **Total storage** | - | - | - | **~5,832** | **+1,024** |
 
 *IMEM reduced to 48 to fit MMIO address space.
 
 ### 10.3 Option B: Uniform Buffer (Chosen)
 
 | Component | Entries | Copies | Bits | Flip-flops | Delta |
-|-----------|---------|--------|------|------------|-------|
+| --- | --- | --- | --- | --- | --- |
 | GPR file (FP16) | 32 | 3 | 16 | 1,536 | 0 |
 | IMEM | 64 | 1 | 32 | 2,048 | 0 |
 | Coord LUT | 64 | 1 | 16 | 1,024 | 0 |
 | **Uniform buffer** | **32** | **1** | **16** | **512** | **+512** |
 | Control regs | ~10 | 1 | various | ~200 | 0 |
-| **Total storage** | | | | **~5,320** | **+512** |
+| **Total storage** | - | - | - | **~5,320** | **+512** |
 
 ### 10.4 Comparison
 
