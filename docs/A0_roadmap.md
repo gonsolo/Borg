@@ -661,20 +661,24 @@ Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
 
 > **Background**: Current 8×4 (32 tiles) at ~49% utilisation ≈ 15.7 tile-equivalents
 > of logic. A 4×4 die (349,105 µm²) needs ≤65% utilisation to route reliably.
-> That requires cutting ~35% of area. Steps below are sorted **biggest savings /
-> lowest risk first**. All are optional; none affect FPGA targets.
+> That requires cutting ~35% of area. All steps are optional; none affect FPGA targets.
+>
+> **Sprint order** (8-day tapeout window, AI-assisted): start OPT-D immediately as a
+> trivial foundation, then OPT-B while the baseline GDS is still running — it needs the
+> most time to build and validate. Fill time between GDS runs with OPT-A. Skip OPT-C
+> if OPT-D+B+A lands at ≤65% utilisation on 4×4.
 
-- **OPT-A: Explicit SRAM macros for small memories** *(−5 to −10% area, low risk, ~1 week)*
+- **OPT-D: Add `BorgConfig.ASIC` — foundation for all other OPT steps** *(−0.5% area, very low risk, ~2–3 hours)*
 
-  OpenLane synthesises `SyncReadMem` below its SRAM threshold as flip-flop arrays
-  (very large). Replace `rcpLutA/B` (17×10), `uniformMem` (64×16), and
-  `instructionMemory` (56×32) with explicit `sky130_sram_1r1w` macro
-  instantiations via a Chisel `BlackBox`. Add an `BorgConfig.ASIC` configuration
-  flag and wrap the instantiation in a `hasExplicitSRAM` guard so FPGA targets
-  are unaffected.
-  Gate: GDS run shows ≥5% reduction in total cell area vs. baseline.
+  `BorgConfig.Sim` already enables all hardware features (`hasDMA`, `hasFlusher`,
+  `hasSequencer` all default true). The only flag that differs on an ASIC target is
+  `hasImemMmio=false` (saves ~30 LCs on iCE40, ~0.5% on Sky130). Add a named
+  `BorgConfig.ASIC` object identical to `Sim` but with `hasImemMmio=false`, and
+  wire the Makefile `gds-sky130` target to use it. Required as a prerequisite for
+  OPT-A's `hasExplicitSRAM` guard and OPT-C's `hasParallelAlu` flag.
+  Gate: GDS build uses `BorgConfig.ASIC` without regression.
 
-- **OPT-B: Custom FP16 FMADD — strip IEEE-754 special cases** *(−15 to −25% area, medium risk, ~3–4 weeks)*
+- **OPT-B: Custom FP16 FMADD — strip IEEE-754 special cases** *(−15 to −25% area, medium risk, ~4–5 days with AI)*
 
   HardFloat's `MulAddRecFN_e5_s11` handles subnormals, NaN, ±∞, and all IEEE-754
   rounding modes. The GPU pipeline never generates any of these — all values are
@@ -686,7 +690,17 @@ Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
   `BorgCoreTests` suite — pixel-perfect parity is the acceptance criterion.
   Gate: `m test-all` 12/12 green; GDS shows ≥15% area reduction vs. baseline.
 
-- **OPT-C: TinyQV parallel rewrite for ASIC** *(−3 to −8% area, medium risk, ~2–3 weeks)*
+- **OPT-A: Explicit SRAM macros for small memories** *(−5 to −10% area, low risk, ~1–2 days with AI)*
+
+  OpenLane synthesises `SyncReadMem` below its SRAM threshold as flip-flop arrays
+  (very large). Replace `rcpLutA/B` (17×10), `uniformMem` (64×16), and
+  `instructionMemory` (56×32) with explicit `sky130_sram_1r1w` macro
+  instantiations via a Chisel `BlackBox`. Wrap the instantiation in a
+  `hasExplicitSRAM` guard (set in `BorgConfig.ASIC`) so FPGA targets are unaffected.
+  Interleaves well with OPT-B GDS runs.
+  Gate: GDS run shows ≥5% reduction in total cell area vs. baseline.
+
+- **OPT-C: TinyQV parallel rewrite for ASIC** *(−3 to −8% area, medium risk, ~3–5 days with AI — only if OPT-D+B+A insufficient)*
 
   TinyQV uses nibble-serial (4-bit/cycle) ALU operations to minimise iCE40 LUT
   count. On Sky130, a full 32-bit parallel ALU is actually *smaller* in gate area
@@ -695,17 +709,6 @@ Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
   behind `hasParallelAlu: Boolean` in `BorgConfig`. The FPGA target keeps the
   nibble-serial path; the ASIC target uses the parallel one.
   Gate: all TinyQV Chisel tests pass; GDS confirms ≥3% total area reduction.
-
-- **OPT-D: Add `BorgConfig.ASIC` — documentation clarity, negligible area** *(−0.5% area, very low risk, ~2 days)*
-
-  `BorgConfig.Sim` already enables all hardware features (`hasDMA`, `hasFlusher`,
-  `hasSequencer` all default true). The only flag that differs on an ASIC target is
-  `hasImemMmio=false` (saves ~30 LCs on iCE40, ~0.5% on Sky130). So OPT-D is
-  almost purely cosmetic: add a named `BorgConfig.ASIC` object identical to `Sim`
-  but with `hasImemMmio=false`, and wire the Makefile `gds-sky130` target to use
-  it. Real gate savings come from OPT-A/B/C; OPT-D just makes the ASIC synthesis
-  path unambiguous and removes the only FPGA-specific code that leaks into the GDS.
-  Gate: GDS build uses `BorgConfig.ASIC` without regression.
 
 ---
 
