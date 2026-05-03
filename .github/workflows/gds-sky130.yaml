@@ -4,6 +4,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      save_snapshots:
+        description: 'Save per-iteration routing snapshots for animation (~15 GB)'
+        type: boolean
+        default: false
 
 jobs:
   gds:
@@ -24,6 +29,8 @@ jobs:
         uses: TinyTapeout/tt-gds-action@ttsky26a
         with:
           pdk: sky130A
+        env:
+          DRT_SAVE_SNAPSHOTS: ${{ inputs.save_snapshots && '1' || '0' }}
 
   precheck:
     needs: gds
