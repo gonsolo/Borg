@@ -664,7 +664,7 @@ Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
 > That requires cutting ~35% of area. Steps below are sorted **biggest savings /
 > lowest risk first**. All are optional; none affect FPGA targets.
 
-- **OPT-A: Explicit SRAM macros for small memories** _(−5 to −10% area, low risk, ~1 week)_
+- **OPT-A: Explicit SRAM macros for small memories** *(−5 to −10% area, low risk, ~1 week)*
 
   OpenLane synthesises `SyncReadMem` below its SRAM threshold as flip-flop arrays
   (very large). Replace `rcpLutA/B` (17×10), `uniformMem` (64×16), and
@@ -674,7 +674,7 @@ Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
   are unaffected.
   Gate: GDS run shows ≥5% reduction in total cell area vs. baseline.
 
-- **OPT-B: Custom FP16 FMADD — strip IEEE-754 special cases** _(−15 to −25% area, medium risk, ~3–4 weeks)_
+- **OPT-B: Custom FP16 FMADD — strip IEEE-754 special cases** *(−15 to −25% area, medium risk, ~3–4 weeks)*
 
   HardFloat's `MulAddRecFN_e5_s11` handles subnormals, NaN, ±∞, and all IEEE-754
   rounding modes. The GPU pipeline never generates any of these — all values are
@@ -686,7 +686,7 @@ Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
   `BorgCoreTests` suite — pixel-perfect parity is the acceptance criterion.
   Gate: `m test-all` 12/12 green; GDS shows ≥15% area reduction vs. baseline.
 
-- **OPT-C: TinyQV parallel rewrite for ASIC** _(−3 to −8% area, medium risk, ~2–3 weeks)_
+- **OPT-C: TinyQV parallel rewrite for ASIC** *(−3 to −8% area, medium risk, ~2–3 weeks)*
 
   TinyQV uses nibble-serial (4-bit/cycle) ALU operations to minimise iCE40 LUT
   count. On Sky130, a full 32-bit parallel ALU is actually *smaller* in gate area
@@ -696,14 +696,16 @@ Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
   nibble-serial path; the ASIC target uses the parallel one.
   Gate: all TinyQV Chisel tests pass; GDS confirms ≥3% total area reduction.
 
-- **OPT-D: Remove iCE40 config guards and dead code paths** _(−2 to −3% area, very low risk, ~2 days)_
+- **OPT-D: Add `BorgConfig.ASIC` — documentation clarity, negligible area** *(−0.5% area, very low risk, ~2 days)*
 
-  Several `when(config.hasFoo)` branches emit dead Verilog that Yosys prunes for
-  FPGA but OpenLane may not fully eliminate. Add a `BorgConfig.ASIC` variant that
-  sets `hasFlusher=true`, `hasDMA=true`, `hasSequencer=true`,
-  `hasImemMmio=false`, and removes pico-ice-only paths. Measure cell area before
-  and after. Even if purely cosmetic, it clarifies the ASIC target configuration.
-  Gate: GDS area ≤ baseline.
+  `BorgConfig.Sim` already enables all hardware features (`hasDMA`, `hasFlusher`,
+  `hasSequencer` all default true). The only flag that differs on an ASIC target is
+  `hasImemMmio=false` (saves ~30 LCs on iCE40, ~0.5% on Sky130). So OPT-D is
+  almost purely cosmetic: add a named `BorgConfig.ASIC` object identical to `Sim`
+  but with `hasImemMmio=false`, and wire the Makefile `gds-sky130` target to use
+  it. Real gate savings come from OPT-A/B/C; OPT-D just makes the ASIC synthesis
+  path unambiguous and removes the only FPGA-specific code that leaks into the GDS.
+  Gate: GDS build uses `BorgConfig.ASIC` without regression.
 
 ---
 
