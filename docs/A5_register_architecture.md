@@ -328,6 +328,9 @@ Key architectural features:
   PowerVR. Geometry is first binned into screen-space tiles. Then,
   for each tile, Hidden Surface Removal (HSR) eliminates occluded
   fragments **before** shading. Only visible pixels are shaded.
+  *(Note: Borg is a TBR — tile-based renderer — not a TBDR. Borg does
+  not perform a deferred HSR pass; it shades fragments in submission
+  order with per-pixel z-test.)*
 - **Unified Scalable Shader Engine (USSE)**: A unified shader
   processor that executes vertex, fragment, and compute work.
 - **Multiple register types**:

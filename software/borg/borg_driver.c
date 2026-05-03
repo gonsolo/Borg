@@ -341,7 +341,7 @@ void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
   d->uniforms[15] = FP16_ONE;
 }
 
-// TBDR: Reset binning state. No PSRAM clearing needed —
+// TBR: Reset binning state. No PSRAM clearing needed —
 // clear color is written to empty tiles during borgBinRender.
 static void borgBinReset(rgb16_t cc) {
   for (int i = 0; i < BORG_MAX_TILES; i++)
@@ -548,7 +548,7 @@ static void borgBin(void) {
   }
 }
 
-// Record a draw call for later TBDR rendering.
+// Record a draw call for later TBR rendering.
 static void record_draw_call(const triangle_t *tri, const texture_t *t,
                              int frame) {
   if (draw_call_count >= BORG_MAX_DRAWS)
@@ -590,7 +590,7 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
   draw_call_count++;
 }
 
-// TBDR tile-ordered render loop.
+// TBR tile-ordered render loop.
 static void borgBinRender(int frame) {
   int tiles_per_row = borg_fb_width >> 2;
   int tile_rows = borg_fb_height >> 2;
@@ -853,7 +853,7 @@ static void rasterize_clipped_triangle(const clip_vertex_t *cv,
   tri.z_vals = (fp16x3_t){{ndc[0][2], ndc[1][2], ndc[2][2]}};
   tri.has_uvs = (t->psram_offset >= 0);
 
-  // TBDR: record for deferred tile-ordered rendering instead of immediate
+  // TBR: record for tile-ordered rendering instead of immediate
   // shade.
   record_draw_call(&tri, t, frame);
 }
@@ -911,7 +911,7 @@ void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
   clip_vertex_t clip_in[3];
   build_clip_vertices(vout, vert_shader.num_outputs, vertices, clip_in);
 
-  // TBDR: records draw call for deferred rendering (no immediate render)
+  // TBR: records draw call for tile-ordered rendering (no immediate render)
   clip_and_rasterize(clip_in, &tex, frame);
   t_draw_cycles += get_cycles() - t_start;
 }
@@ -922,7 +922,7 @@ void borg_present(int frame) {
   if (has_sequencer) {
     borgBinRenderAutonomous(frame);
   } else {
-    // TBDR: bin all recorded draw calls, then render tile-by-tile.
+    // TBR: bin all recorded draw calls, then render tile-by-tile.
     borgBin();
     borgBinRender(frame);
   }

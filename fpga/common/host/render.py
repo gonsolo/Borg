@@ -275,7 +275,7 @@ def render_all_frames(app_name='triangle', firmware_bin='firmware_cache/triangle
     """Boot FPGA, let firmware render 10 frames, read back all framebuffers."""
     t_start_all = time.ticks_ms()
     NUM_FRAMES = 1
-    # TBDR tiled layout: 2 words per pixel (lo={B,Z}, hi={R,G}), no separate ZB.
+    # TBR tiled layout: 2 words per pixel (lo={B,Z}, hi={R,G}), no separate ZB.
     FRAME_FB_SIZE = WIDTH * HEIGHT * 2   # 2 PSRAM words per pixel
     FRAME_STRIDE = FRAME_FB_SIZE + 1     # FB + DONE marker (no ZB)
 

@@ -179,7 +179,7 @@ int main() {
     // the next frame.  On FPGA the marker is never cleared, so the firmware
     // spins here preserving the framebuffer.  The interactive simulation
     // viewer clears it in get_framebuffer() to request a new frame.
-    int done_offset = BORG_FB_WIDTH * BORG_FB_HEIGHT * 2; // TBDR tiled: 2 words/pixel, no ZB
+    int done_offset = BORG_FB_WIDTH * BORG_FB_HEIGHT * 2; // TBR tiled: 2 words/pixel, no ZB
     while (PSRAM_OUT(done_offset) == DONE_MARKER)
       ;
   }

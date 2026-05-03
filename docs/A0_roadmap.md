@@ -413,7 +413,7 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
     - `BorgTileFlusher` flushes all 16 tile pixels to PSRAM per tile-complete signal (Sim/Verilator/Arcilator).
     - FPGA CPU-fallback path: firmware reads all 16 pixels via `TILE_CTRL`/`TILE_BZ`/`TILE_RG` MMIO and writes to PSRAM when `FLUSH_BUSY=0` (HW flusher absent).
     - Fixed `generate.py` to parse `borg_layout.h` for `PSRAM_OUT_OFFSET` and `TEX_PSRAM_BYTE_OFFSET` instead of hardcoded stale values (was `0x80100`/`0x80`, now `0x84000`/`0x4000`).
-    - Updated `fpga/common/host/render.py` and `scripts/postprocess.py` to decode TBDR tiled layout (2 words/pixel, 4×4 tile addressing, `lo={B,Z}` / `hi={R,G}`).
+    - Updated `fpga/common/host/render.py` and `scripts/postprocess.py` to decode TBR tiled layout (2 words/pixel, 4×4 tile addressing, `lo={B,Z}` / `hi={R,G}`).
     - Fixed arcilator `marker_offset_word` to use tiled layout (2 words/pixel vs old 4).
     - All 12/12 test suites pass including `render › fpga (hw)`. ✓
 
