@@ -916,7 +916,7 @@ The uniform buffer maps directly to Vulkan's uniform buffer concept:
 
 ### 10.4 Comparison
 
-```
+```text
 Current design:     4,808 FFs  [████████████████████         ]
 + Uniform buffer:   5,320 FFs  [██████████████████████       ] (+11%)
 + 64 GPR expansion: 5,832 FFs  [█████████████████████████    ] (+21%)
@@ -934,7 +934,7 @@ legacy of the iCE40 FPGA's 1R1W BRAM constraint. On ASIC, there are
 alternative approaches:
 
 | Approach | GPR FFs | Additional cost |
-|----------|---------|-----------------|
+| --- | --- | --- |
 | 3 copies (current) | 1,536 | None |
 | 2 copies + latch rs3 early | 1,024 | +1 cycle for FMA |
 | 1 copy + time-muxed reads | 512 | +2-3 cycles CPI |
@@ -966,7 +966,7 @@ in order of increasing capacity and decreasing speed:
 ### 11.2 Mapping to Borg Hardware
 
 | Vulkan concept | Borg hardware | Capacity |
-|----------------|---------------|----------|
+| --- | --- | --- |
 | Push constants | Uniform buffer (direct write) | 64 bytes (32 × FP16) |
 | UBO (small) | Uniform buffer (driver loads) | 64 bytes |
 | UBO (large) | Uniform buffer + memory fetch | limited by PSRAM |
@@ -1101,7 +1101,7 @@ This replaces the original plan to expand the GPR file from 32 to
 ### What Changes
 
 | Item | Before | After |
-|------|--------|-------|
+| --- | --- | --- |
 | Register file | 32 GPRs (3 copies) | 32 GPRs (3 copies) — unchanged |
 | Uniform storage | In GPR file | Separate 32-entry buffer (1 copy) |
 | Instruction encoding | RISC-V R/R4-type, funct3=000 | Same, funct3[1:0] selects uniform operand |
