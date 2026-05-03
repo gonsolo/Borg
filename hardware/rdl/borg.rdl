@@ -547,6 +547,158 @@ reg seq_inv_width_reg_t {
     } RSVD[16] = 0;
 };
 
+// --- Sequencer: triangle count (Step 31) ---
+reg seq_tri_count_reg_t {
+    name = "Sequencer Triangle Count";
+    desc = "Number of triangle descriptors to process (1–16).
+            The sequencer loops through triCount descriptors starting at
+            SEQ_DESC_BASE with 128-byte stride.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 4:0: triangle count (1–16).";
+    } count[5] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[27] = 0;
+};
+
+// --- Sequencer: rast shader PSRAM address (Step 31) ---
+reg seq_rast_addr_reg_t {
+    name = "Sequencer Rast Shader Address";
+    desc = "20-bit PSRAM byte address of the rasterizer shader binary.
+            The sequencer DMA-loads this shader into IMEM after triangle setup
+            to prepare for tile iteration.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 19:0: 20-bit PSRAM byte address of rast shader.";
+    } addr[20] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[12] = 0;
+};
+
+// --- Sequencer: rast shader length (Step 31) ---
+reg seq_rast_len_reg_t {
+    name = "Sequencer Rast Shader Length";
+    desc = "Length of rast shader binary in 32-bit PSRAM words (1–56).
+            nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 5:0: rast shader length in 32-bit words.";
+    } len[6] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[26] = 0;
+};
+
+// --- Sequencer: frag shader PSRAM address (Step 31) ---
+reg seq_frag_addr_reg_t {
+    name = "Sequencer Frag Shader Address";
+    desc = "20-bit PSRAM byte address of the fragment shader binary.
+            The sequencer DMA-loads this shader into IMEM after the rast shader
+            to prepare for fragment shading.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 19:0: 20-bit PSRAM byte address of frag shader.";
+    } addr[20] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[12] = 0;
+};
+
+// --- Sequencer: frag shader length (Step 31) ---
+reg seq_frag_len_reg_t {
+    name = "Sequencer Frag Shader Length";
+    desc = "Length of frag shader binary in 32-bit PSRAM words (1–56).
+            nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 5:0: frag shader length in 32-bit words.";
+    } len[6] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[26] = 0;
+};
+
+// --- Sequencer: clear color low word (Step 31) ---
+reg seq_clear_lo_reg_t {
+    name = "Sequencer Clear Color Low";
+    desc = "Packed {B[31:16], Z[15:0]} clear color for tile buffer pre-fill.
+            The sequencer writes this to all 16 tile buffer entries before the
+            first triangle on each tile.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 15:0: Z channel (FP16) of clear color.";
+    } z[16] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 31:16: B channel (FP16) of clear color.";
+    } b[16] = 0;
+};
+
+// --- Sequencer: clear color high word (Step 31) ---
+reg seq_clear_hi_reg_t {
+    name = "Sequencer Clear Color High";
+    desc = "Packed {R[31:16], G[15:0]} clear color for tile buffer pre-fill.
+            nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 15:0: G channel (FP16) of clear color.";
+    } g[16] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 31:16: R channel (FP16) of clear color.";
+    } red[16] = 0;
+};
+
+// --- Sequencer: Framebuffer base address (Step 31.4) ---
+reg seq_fb_base_reg_t {
+    name = "Sequencer Framebuffer Base Address";
+    desc = "20-bit PSRAM byte address of the framebuffer.
+            Used by the sequencer to dynamically compute the flush base address
+            during autonomous tile iteration.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 19:0: 20-bit PSRAM byte address of framebuffer.";
+    } addr[20] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[12] = 0;
+};
+
+// --- Sequencer: Tiles per row (Step 31.4) ---
+reg seq_tiles_per_row_reg_t {
+    name = "Sequencer Tiles Per Row";
+    desc = "Number of tiles in one row of the framebuffer (fb_width / 4).
+            Used by the sequencer to compute the tile index.
+            nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 9:0: tiles per row.";
+    } count[10] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[22] = 0;
+};
+
 // --- 16-bit FP register (stored in 32-bit word, upper bits ignored on write) ---
 reg gpr_reg_t {
     name = "General Purpose Register";
@@ -696,4 +848,40 @@ addrmap borg_gpu {
     // ---- Sequencer Inverse Width: 0x238 — nogen (Step 30.1c) ----
     seq_inv_width_reg_t seq_inv_width;
     seq_inv_width->nogen = true;
+
+    // ---- Sequencer Triangle Count: 0x23C — nogen (Step 31) ----
+    seq_tri_count_reg_t seq_tri_count;
+    seq_tri_count->nogen = true;
+
+    // ---- Sequencer Rast Shader Address: 0x240 — nogen (Step 31) ----
+    seq_rast_addr_reg_t seq_rast_addr;
+    seq_rast_addr->nogen = true;
+
+    // ---- Sequencer Rast Shader Length: 0x244 — nogen (Step 31) ----
+    seq_rast_len_reg_t seq_rast_len;
+    seq_rast_len->nogen = true;
+
+    // ---- Sequencer Frag Shader Address: 0x248 — nogen (Step 31) ----
+    seq_frag_addr_reg_t seq_frag_addr;
+    seq_frag_addr->nogen = true;
+
+    // ---- Sequencer Frag Shader Length: 0x24C — nogen (Step 31) ----
+    seq_frag_len_reg_t seq_frag_len;
+    seq_frag_len->nogen = true;
+
+    // ---- Sequencer Clear Color Low: 0x250 — nogen (Step 31) ----
+    seq_clear_lo_reg_t seq_clear_lo;
+    seq_clear_lo->nogen = true;
+
+    // ---- Sequencer Clear Color High: 0x254 — nogen (Step 31) ----
+    seq_clear_hi_reg_t seq_clear_hi;
+    seq_clear_hi->nogen = true;
+
+    // ---- Sequencer Framebuffer Base Address: 0x258 — nogen (Step 31.4) ----
+    seq_fb_base_reg_t seq_fb_base;
+    seq_fb_base->nogen = true;
+
+    // ---- Sequencer Tiles Per Row: 0x25C — nogen (Step 31.4) ----
+    seq_tiles_per_row_reg_t seq_tiles_per_row;
+    seq_tiles_per_row->nogen = true;
 };

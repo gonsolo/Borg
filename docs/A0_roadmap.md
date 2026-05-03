@@ -1,6 +1,6 @@
 # Borg GPU — Development Roadmap
 
-## Phase 1: CPU + FP16 Shader Co-Processor (Complete)
+## Phase 1: Foundation & First Silicon (Grant Tasks 1-4) ✅
 
 Target: March 2026 — TTIHP26a shuttle
 
@@ -16,7 +16,7 @@ Target: March 2026 — TTIHP26a shuttle
 - [x] GDS submission (4×2 tiles, IHP SG13G2)
 - [x] 32-bit RISC-V instructions & 32-entry register file
 
-## Phase 2: GPU Autonomy (Steps 21–29)
+## Phase 2: GPU Autonomy & Fidelity 🏃
 
 Target: **~June 2026** — move the rendering inner loop from firmware into
 hardware, step by step. Each step produces a measurable speed-up, can be
@@ -262,8 +262,7 @@ architecture pattern: every GPU that shares memory with a CPU is a bus master
 issuing its own read/write transactions through a shared interconnect with an
 arbiter. The closest existing architecture is Broadcom VideoCore IV (RPi):
 VideoCore's TMU = our `sTexFetch`, VPM = our `BorgTileBuffer`, shared SDRAM =
-our shared QSPI PSRAM, central bus arbiter = our 2:1 mux. Also matches
-PowerVR SGX's Data Masters + tile-based deferred rendering pattern.
+our shared QSPI PSRAM, central bus arbiter = our 2:1 mux.
 
 - **Step 19.1: Extract MemCtrl to SoC level** ✅ *(2026-04-13)*
 
@@ -622,13 +621,39 @@ via `BorgSequencerTests.sequencer_full_triangle`.
   path. Uniform ping-pong page is local to the CPU fallback only.
   Gate: `m test-all` 12/12 green (Sim + FPGA). ✅
 
-### Step 31: Multi-Triangle Autonomous Rendering
+### Step 31: Multi-Triangle Autonomous Rendering ✅ (2026-05-03)
 
 Extend Step 30 to process a list of triangle descriptors from PSRAM without
-CPU involvement. The GPU reads the next descriptor, runs the full pipeline,
-and signals DONE after the last triangle. The CPU submits a draw call
-(base pointer + count) and waits.
-Verilator: PSRAM modelled by simulation model.
+CPU involvement. The GPU reads the next descriptor, runs the full pipeline
+(Vertex -> Setup -> Fragment), and signals DONE after the last triangle.
+The CPU submits a draw call (base pointer + count) and waits.
+
+- **Step 31.1: Infrastructure** ✅ — 128-byte descriptor layout (96B vertex +
+  32B metadata with tile-aligned bbox) + BBox storage registers in sequencer.
+
+- **Step 31.2: Shader Reload** ✅ — Hardware-driven IMEM staging: sequencer
+  DMA-loads rast/frag shaders from pre-staged PSRAM between setup and tile
+  iteration. Firmware stages shaders via `PSRAM_OUT_RAW` in
+  `borgCreateGraphicsPipeline()`.
+
+- **Step 31.3: Multi-Triangle Loop** ✅ — Sequential triangle processing via
+  `sNextTriangle`. `triCount=0` guard in `sIdle` prevents the firmware's
+  sequencer detection probe from running the full pipeline with garbage data
+  (which corrupted the PSRAM firmware binary via tile flushing to `fbBase=0`).
+
+- **Step 31.4: Autonomous Tile Iteration** ✅ (2026-05-03) — Hardware-driven
+  bounding box walk with `sClearTile → sEnqueueTile → sIteratePixels →
+  sWaitRast → sWaitFlush → sNextTile` loop. Three critical bugs fixed:
+  1. **coreTrigger mux deadlock**: Mux select changed from `s.io.busy` to
+     `s.io.coreTrigger.valid` so the dispatcher's trigger passes through
+     during tile iteration.
+  2. **writeIdx collision**: Dedicated `bboxWordIdx` counter for bbox DMA
+     snoop, preventing `sStageUniforms` from starting at offset 2.
+  3. **seqBusy coord gating**: New `seqShaderActive` output restricts
+     `r30/r31=0` to vertex/setup phases only, preserving pixel coordinates
+     during tile iteration rast/frag shaders.
+
+Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
 
 ---
 
@@ -792,7 +817,50 @@ controller, PCIe bridge) while the Borg SoC runs inside unchanged.
 - `tt_um_gonsolo_borg` (Project.scala:338) — standardized 8+8+8 pin interface
 - `tinyQV_top` (`fpga/picoice/tinyqv/src/PicoIce.scala`) — shows how to wrap `SoCLogic` for a
 
-## Phase 3: Linux-Capable CPU (Steps 28–34)
+### Step 33: Fragment Interpolation (Hardware-Assisted)
+
+Optimize shader interpolation path to utilize the hardware edge-equation signals for perspective-correct barycentric weights.
+
+## Phase 5: Mobile GPU Fidelity (Steps 40–44)
+
+Target: **~Jan–Feb 2027**. Transition from "Autonomous Renderer" to a feature-complete
+"Mobile-Class GPU" (Bilinear, Z-Buffer, Blending).
+
+### Step 34: Bilinear Texture Filtering
+
+Upgrade `BorgTextureUnit` and `TextureCache` to fetch 4 neighboring texels in a single
+burst and perform hardware-weighted average. Eliminates pixelated "aliasing"
+on magnified textures.
+
+### Step 35: Hardware Z-Buffer & Atomic Depth Test
+
+Expand `BorgTileBuffer` from 64-bit to 80-bit per pixel (RGBA + Z). Implement
+hardware "Depth Pass" logic: fragments are only written to the tile buffer
+if `fragment_z < buffer_z`. Eliminates the need for CPU-side triangle sorting.
+
+### Step 36: Framebuffer Alpha Blending
+
+Implement Read-Modify-Write (RMW) logic in `BorgTileBuffer`. Fragments can be
+linearly blended with existing background pixels based on Alpha. Enables
+smoke, glass, and transparency effects.
+
+### Step 37: Integer ALU & Bitwise Ops
+
+Add `IADD`, `ISUB`, `AND`, `OR`, `XOR`, `SLL`, `SRL` to the `BorgCore` pipeline.
+Necessary for Vulkan integer address math and bit-packed data structures.
+
+### Step 38: Multi-Lane SIMD (2–4 FMA Units)
+
+Duplicate the FMA pipeline within `BorgCore` (or add multiple cores) to process
+multiple pixels/vertices concurrently. Essential for hitting 60 FPS at
+higher resolutions on ULX3S/Nitefury.
+
+### Step 39: Second Tapeout Submission
+
+4×4 or 4×5 tile, Linux + Vulkan capable, with full hardware fidelity suite.
+Estimate: 1 week.
+
+## Phase 3: Linux-Capable CPU
 
 Target: **~Sept 2026** — expand TinyQV to RV32IMA. Sequential after Phase 2.
 
@@ -800,89 +868,59 @@ Target: **~Sept 2026** — expand TinyQV to RV32IMA. Sequential after Phase 2.
 adds ~7 steps of medium-hard complexity (FPGA at 99%). Phase 3's bottleneck
 is the Sv32 MMU (3–4 weeks alone). Dates assume current solo-dev pace.*
 
-### Step 30: M Extension (Integer Multiply/Divide)
+### Step 40: M Extension (Integer Multiply/Divide)
 
 Add dedicated integer multiplier for MUL/MULH/DIV/REM.
 Estimate: 1 week.
 
-### Step 31: A Extension (Atomics)
+### Step 41: A Extension (Atomics)
 
 LR.W / SC.W for Linux `futex` and spinlocks. Reservation register (32-bit
 address + valid bit). ~100 LUTs. Reference KianV implementation.
 Estimate: 3–5 days.
 
-### Step 32: Boot no-MMU Linux
+### Step 42: Boot no-MMU Linux
 
 Intermediate milestone before full MMU. Estimate: 1 week.
 
-### Step 33: MMU (Sv32)
+### Step 43: MMU (Sv32)
 
 Two-level page table walker, 4–8 entry TLB, `satp`/`mstatus` CSRs.
 Intermediate milestone: boot no-MMU Linux first (~1 week).
 ~800–1200 LUTs — the most expensive single addition.
 Estimate: 3–4 weeks.
 
-### Step 34: Boot Full Linux
+### Step 44: Boot Full Linux
 
 Kernel, device tree, rootfs on QSPI PSRAM (8 MB). Estimate: 1–2 weeks.
 
-## Phase 4: Mesa Vulkan Driver (Steps 35–39)
+## Phase 4: Mesa Vulkan Driver
 
 Target: **~Nov–Dec 2026** (~8–10 weeks). Write a Mesa Vulkan ICD for the
 Borg GPU. This is a domain shift — Mesa/NIR/SPIR-V are a new codebase.
 Expect 2–3 weeks ramp-up on top of implementation time.
 
-### Step 35: Minimal `vk_device` + `wsi_headless`
+### Step 45: Minimal `vk_device` + `wsi_headless`
 
 Headless rendering, no window system needed. Estimate: 1–2 weeks.
 
-### Step 36: Shader Compiler (NIR → SPIR-B)
+### Step 46: Shader Compiler (NIR → SPIR-B)
 
 NIR backend generating Borg instructions. Estimate: 2–3 weeks.
 
-### Step 37: Draw Path (`vkCmdDraw`)
+### Step 47: Draw Path (`vkCmdDraw`)
 
 Vertex + fragment shader dispatch to hardware. Estimate: 1–2 weeks.
 
-### Step 38: Texture Sampling (Software)
+### Step 48: Texture Sampling (Software)
 
 CPU-side sampling, spec-compliant but slow. Estimate: 1 week.
 
-### Step 39: Vulkan CTS Subset
+### Step 49: Vulkan CTS Subset
 
 Run conformance tests, fix failures. Estimate: 1–2 weeks.
 
-## Phase 5: GPU Hardware Extensions (Steps 40–44)
-
-Target: **~Jan–Feb 2027** (~6–8 weeks). Extend the shader processor to
-support more Vulkan features. These items only make sense on a larger FPGA
-(ULX3S or Nitefury) or ASIC (Tiny Tapeout).
-
-### Step 40: Integer ALU Ops in Shader
-
-Comparison, bitwise, integer math. Estimate: 1 week.
-
-### Step 41: Memory Load/Store from Shader
-
-Enables shader-side texture addressing. Estimate: 1–2 weeks.
-
-### Step 42: Framebuffer Blending
-
-Alpha blending support. Estimate: 3–5 days.
-
-### Step 43: Multi-Lane SIMD (2–4 FMA)
-
-Process multiple pixels per cycle. Estimate: 1–2 weeks.
-
-### Step 43.5: Multi-Core Shading Simulation (Optional)
-
-Refactor `BorgRaster` with parameterizable execution width to dispatch multiple pixels concurrently across a parallel array of `BorgCore` FPUs exclusively for simulation speedup. (Moved from Phase 2; deferred until CPU bottlenecks are resolved).
-
-### Step 44: Second Tapeout Submission
-
-4×4 or 4×5 tile, Linux + Vulkan capable. Estimate: 1 week.
-
-## Phase 6: Vulkan 1.0 Conformance
+## Phase 5: Vulkan 1.0 Conformance
 
 Target: **~Mar–Apr 2027**. Full CTS pass (~3–4 weeks); Mesa handles most
 complexity. Khronos conformance submission (~2 weeks): documentation + test

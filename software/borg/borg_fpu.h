@@ -52,6 +52,11 @@ fp16_t uint_to_fp16(int val);
 #define BORG_IMEM_FRAG_OFFSET 13
 #define BORG_IMEM_ADD_OFFSET  35
 
+// Instruction counts for hardware sequencer DMA shader reload (Step 31.2).
+// RAST occupies IMEM[0..12] (13 words), FRAG occupies IMEM[13..34] (22 words).
+#define BORG_IMEM_RAST_LEN  (BORG_IMEM_FRAG_OFFSET - BORG_IMEM_RAST_OFFSET)
+#define BORG_IMEM_FRAG_LEN  (BORG_IMEM_ADD_OFFSET  - BORG_IMEM_FRAG_OFFSET)
+
 void borg_load_spirb_shader(const spirb_shader_t *s);
 void borg_load_spirb_shader_at(const spirb_shader_t *s, int offset);
 void borg_load_add_shader(void);

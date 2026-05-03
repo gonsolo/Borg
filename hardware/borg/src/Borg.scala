@@ -130,13 +130,17 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     core.io.bus <> bus
     core.io.iter       := rast.io.shaderIter    // latched pre-advance position for coordLut
 
-    // CoreTrigger mux: sequencer > rasterizer (they never contend in practice —
-    // sequencer runs between triangles, rasterizer during pixel traversal).
+    // CoreTrigger mux: sequencer takes priority ONLY when it is actively
+    // asserting coreTrigger.valid (sRunVert, sRunSetup).  During tile iteration
+    // (sWaitRast), the sequencer does NOT trigger the core — the dispatcher
+    // does via rast.io.coreTrigger.  Using s.io.busy as the mux select would
+    // block the dispatcher's trigger while the sequencer is busy, causing a
+    // deadlock (autoRunStall never clears because the core never starts).
     sequencer match {
       case Some(s) =>
-        core.io.coreTrigger.valid := Mux(s.io.busy, s.io.coreTrigger.valid,
+        core.io.coreTrigger.valid := Mux(s.io.coreTrigger.valid, true.B,
                                                     rast.io.coreTrigger.valid)
-        core.io.coreTrigger.pc    := Mux(s.io.busy, s.io.coreTrigger.pc,
+        core.io.coreTrigger.pc    := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.pc,
                                                     rast.io.coreTrigger.pc)
       case None =>
         core.io.coreTrigger <> rast.io.coreTrigger
@@ -183,6 +187,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
             s.io.dmaUniformSnoop.en   := d.io.uniformWrite.en
             s.io.dmaUniformSnoop.addr := d.io.uniformWrite.addr(2, 0)  // low 3 bits = word offset 0-7
             s.io.dmaUniformSnoop.data := d.io.uniformWrite.data
+            s.io.dmaSnoop             := d.io.snoop
           case None =>
             core.io.dmaUniformWrite <> d.io.uniformWrite
         }
@@ -207,7 +212,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   }
 
   private def wireRasterizer(): Unit = {
-    rast.io.advance   := bus.is_writing && bus.address === BorgGpuRegs.iter_offset
+    rast.io.advance   := (bus.is_writing && bus.address === BorgGpuRegs.iter_offset) ||
+                         sequencer.map(_.io.iteratePixels).getOrElse(false.B)
 
     // Pipeline write-back snoop
     rast.io.pipeWrite <> core.io.pipeWrite
@@ -288,7 +294,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val ctrlWriting = bus.is_writing && bus.address === BorgGpuRegs.tile_ctrl_offset
     val tileReadIdx = rdlRegs.io.hw.tile_ctrl_read_idx
     
-    tile.io.clear.en := rdlRegs.io.hw.tile_ctrl_clear
+    tile.io.clear.en := rdlRegs.io.hw.tile_ctrl_clear.asBool ||
+                        sequencer.map(_.io.tileCtrlClear).getOrElse(false.B)
 
     // Two-step protocol: shadow BZ written first, RG write triggers tile buffer write.
     // tile_bz_b/tile_bz_z are captured by the RDL (tile_bz_b_reg/tile_bz_z_reg) and
@@ -354,18 +361,30 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
           flushPending := true.B
         }
 
-        when(flushPending && !rast.io.autoRunStall) {
+        val seqFlushActive = sequencer.map(_.io.flushTrigger).getOrElse(false.B)
+
+        when(flushPending && !rast.io.autoRunStall && !seqFlushActive) {
           f.io.start   := true.B
           flushPending := false.B
-        } .otherwise {
+        }.elsewhen(seqFlushActive) {
+          f.io.start   := true.B
+          // Suppress the CPU-path pending latch when sequencer owns the flush,
+          // so it cannot double-start the flusher after the sequencer finishes.
+          when(flushPending) { flushPending := false.B }
+        }.otherwise {
           f.io.start := false.B
         }
 
         f.io.read.data := tile.io.read.data
-        f.io.tileBase  := flushTileBaseReg
+        f.io.tileBase  := Mux(seqFlushActive,
+                              sequencer.map(_.io.flushBase).getOrElse(0.U),
+                              flushTileBaseReg)
 
-        // flush_busy includes flushPending: firmware must not proceed while
-        // the flusher is waiting for the dispatcher to finish the last pixel.
+        // Sequencer waits only for the actual flusher DMA, not the CPU-path
+        // flushPending latch (set by rast.io.tileComplete during seq iteration).
+        sequencer.foreach(_.io.flushBusy := f.io.busy)
+
+        // MMIO STATUS.flush_busy reflects both paths for firmware polling.
         rdlRegs.io.hw.status_flush_busy := (flushPending || f.io.busy).asUInt
 
       case None =>
@@ -380,9 +399,13 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val writeCmd = bus.is_writing && bus.address === BorgGpuRegs.cmd_enqueue_offset
     val isEnqueue = RegNext(writeCmd, false.B)
     
-    fifo.io.enq.valid := isEnqueue
-    fifo.io.enq.bits.tileOrigin.x := rdlRegs.io.hw.cmd_enqueue_tile_x(cfg.coordWidth - 1, 0)
-    fifo.io.enq.bits.tileOrigin.y := rdlRegs.io.hw.cmd_enqueue_tile_y(cfg.coordWidth - 1, 0)
+    val seqEnqueue = sequencer.map(_.io.enqueueTile.valid).getOrElse(false.B)
+    val seqTileX   = sequencer.map(_.io.enqueueTile.bits.x).getOrElse(0.U)
+    val seqTileY   = sequencer.map(_.io.enqueueTile.bits.y).getOrElse(0.U)
+
+    fifo.io.enq.valid := isEnqueue || seqEnqueue
+    fifo.io.enq.bits.tileOrigin.x := Mux(seqEnqueue, seqTileX, rdlRegs.io.hw.cmd_enqueue_tile_x(cfg.coordWidth - 1, 0))
+    fifo.io.enq.bits.tileOrigin.y := Mux(seqEnqueue, seqTileY, rdlRegs.io.hw.cmd_enqueue_tile_y(cfg.coordWidth - 1, 0))
 
     rast.io.cmdPop <> fifo.io.deq
     // Step 30.1d: uniformPage mux — sequencer overrides when busy.
@@ -390,7 +413,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     sequencer match {
       case Some(s) =>
         core.io.uniformPage := Mux(s.io.busy, s.io.uniformWritePage, rast.io.uniformPage)
-        core.io.seqBusy     := s.io.busy
+        core.io.seqBusy     := s.io.seqShaderActive
       case None =>
         core.io.uniformPage := rast.io.uniformPage
         core.io.seqBusy     := false.B
@@ -521,6 +544,16 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         val seqSetupLenReg   = RegInit(0.U(6.W))
         val seqInvWidthReg   = RegInit(0.U(16.W))  // Step 30.1c
         val seqStartPulse    = WireDefault(false.B)
+        // Step 31: multi-triangle autonomous rendering registers
+        val seqTriCountReg   = RegInit(0.U(5.W))
+        val seqRastAddrReg   = RegInit(0.U(20.W))
+        val seqRastLenReg    = RegInit(0.U(6.W))
+        val seqFragAddrReg   = RegInit(0.U(20.W))
+        val seqFragLenReg    = RegInit(0.U(6.W))
+        val seqClearLoReg    = RegInit(0.U(32.W))
+        val seqClearHiReg    = RegInit(0.U(32.W))
+        val seqFbBaseReg     = RegInit(0.U(20.W))
+        val seqTilesPerRowReg = RegInit(0.U(10.W))
 
         when(bus.is_writing && bus.address === BorgGpuRegs.seq_desc_base_offset) {
           seqDescBaseReg := bus.data_in(19, 0)
@@ -546,6 +579,34 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         when(bus.is_writing && bus.address === BorgGpuRegs.seq_inv_width_offset) {
           seqInvWidthReg := bus.data_in(15, 0)
         }
+        // Step 31: multi-triangle autonomous rendering registers
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_tri_count_offset) {
+          seqTriCountReg := bus.data_in(4, 0)
+        }
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_rast_addr_offset) {
+          seqRastAddrReg := bus.data_in(19, 0)
+        }
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_rast_len_offset) {
+          seqRastLenReg := bus.data_in(5, 0)
+        }
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_frag_addr_offset) {
+          seqFragAddrReg := bus.data_in(19, 0)
+        }
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_frag_len_offset) {
+          seqFragLenReg := bus.data_in(5, 0)
+        }
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_clear_lo_offset) {
+          seqClearLoReg := bus.data_in
+        }
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_clear_hi_offset) {
+          seqClearHiReg := bus.data_in
+        }
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_fb_base_offset) {
+          seqFbBaseReg := bus.data_in(19, 0)
+        }
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_tiles_per_row_offset) {
+          seqTilesPerRowReg := bus.data_in(9, 0)
+        }
 
         s.io.start           := seqStartPulse
         s.io.descBase        := seqDescBaseReg
@@ -554,6 +615,18 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         s.io.setupShaderAddr := seqSetupAddrReg
         s.io.setupShaderLen  := seqSetupLenReg
         s.io.seqInvWidth     := seqInvWidthReg  // Step 30.1c
+        // Step 31: multi-triangle autonomous rendering IO wiring
+        s.io.triCount        := seqTriCountReg
+        s.io.rastShaderAddr  := seqRastAddrReg
+        s.io.rastShaderLen   := seqRastLenReg
+        s.io.fragShaderAddr  := seqFragAddrReg
+        s.io.fragShaderLen   := seqFragLenReg
+        s.io.clearColorLo    := seqClearLoReg
+        s.io.clearColorHi    := seqClearHiReg
+        s.io.fbBase          := seqFbBaseReg
+        s.io.tilesPerRow     := seqTilesPerRowReg
+        s.io.tileComplete    := rast.io.tileComplete
+        s.io.autoRunStall    := rast.io.autoRunStall  // gates per-pixel advance pulses
 
         // CoreStatus and PipeWrite: broadcast snoop (no mux — input-only, read from core)
         s.io.coreStatus.running        := core.io.status.running

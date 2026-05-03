@@ -56,7 +56,7 @@ info.yaml: .verilog_stamp
 
 # Convenience alias: ensures rdl and the verilog stamp are up to date.
 # Still declared phony so `make generate_verilog` always checks deps explicitly.
-generate_verilog: rdl .verilog_stamp info.yaml
+generate_verilog: .verilog_stamp info.yaml
 
 # ULX3S (ECP5-85K) Verilog emission stub — no synthesis flow yet (Step 27).
 generate_verilog_ulx3s: rdl
@@ -75,7 +75,7 @@ test-cocotb-soc-core-gl:
 test-cocotb-soc-borg-gl:
 	$(TEST_SOC) borg GATES=yes
 
-test-chisel-borg: rdl
+test-chisel-borg:
 	$(MILL) hardware.borg.test
 
 # lint depends on .verilog_stamp (not generate_verilog) so it does not
