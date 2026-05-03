@@ -82,6 +82,16 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   /** One-cycle pulse on FSM completion. */
   val done     = Output(Bool())
 
+  /** True when the sequencer is running its own shaders (vertex/setup) and
+    * the core should return 0 for r30/r31 instead of pixel coordinates.
+    * False during tile iteration when the dispatcher triggers rast/frag shaders. */
+  val seqShaderActive = Output(Bool())
+
+  /** Debug: current FSM state value (for test diagnostics). */
+  val debugState = Output(UInt(5.W))
+  /** Debug: current tileCompleteLatch value. */
+  val debugTileCompleteLatch = Output(Bool())
+
   // --- DMA control (drives existing BorgDMA) ---
   val dmaStart = Output(Bool())
   val dmaDesc  = Output(new DMADescriptor)
@@ -154,6 +164,10 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val enqueueTile   = Valid(new Coord(cfg.coordWidth))
   val iteratePixels = Output(Bool())
   val tileComplete  = Input(Bool())
+  /** True while BorgShaderDispatcher is processing a pixel (set on advance, cleared on sIdle).
+    * The sequencer gates each advance pulse on !autoRunStall to avoid flooding
+    * the iterator before the pipeline has finished the previous pixel. */
+  val autoRunStall  = Input(Bool())
   val flushBase     = Output(UInt(20.W))
   val flushTrigger  = Output(Bool())
   val flushBusy     = Input(Bool())
@@ -254,9 +268,28 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val core_just_finished = core_was_active &&
     !io.coreStatus.running && !io.coreStatus.autoRunPending
 
+  // Registered tileComplete: breaks the combinational loop
+  //   advance → tileComplete (comb) → iteratePixels → advance.
+  // One cycle lag is harmless: the pipeline takes >>1 cycles per pixel.
+  // clearTileComplete is used to reset the latch at the start of each tile.
+  val clearTileComplete = RegInit(false.B)
+  val tileCompleteLatch = RegInit(false.B)
+  when(clearTileComplete) {
+    tileCompleteLatch := false.B
+    clearTileComplete := false.B
+  }.otherwise {
+    tileCompleteLatch := io.tileComplete
+  }
+
   // --- Output defaults ---
   io.busy := state =/= sIdle
   io.done := false.B
+  // seqShaderActive: only true during vertex/setup shader execution states
+  // (where r30/r31 must be zero, not pixel coordinates).
+  io.seqShaderActive := state === sRunVert || state === sWaitVert ||
+                        state === sRunSetup || state === sWaitSetup
+  io.debugState := state
+  io.debugTileCompleteLatch := tileCompleteLatch
 
   io.dmaStart := false.B
   io.dmaDesc  := dmaDescReg
@@ -282,6 +315,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   // tileBase = fbBase + ((tileY / 4) * tilesPerRow + (tileX / 4)) * 128
   val tileIndex = ((tileY >> 2) * io.tilesPerRow) + (tileX >> 2)
   io.flushBase := io.fbBase + (tileIndex << 7)
+
+
 
   // --- FSM ---
   switch(state) {
@@ -532,29 +567,43 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     }
 
     is(sClearTile) {
-      io.tileCtrlClear := true.B
-      // Wait 16 cycles for BorgTileBuffer to finish clearing internally
-      when(writeIdx === 16.U) {
-        state := sEnqueueTile
-      }.otherwise {
+      // Pulse tileCtrlClear for exactly one cycle (writeIdx=0), then wait
+      // for BorgTileBuffer to finish its 16-cycle BRAM clear sequence.
+      // Total wait: 1 (pulse) + 16 (BRAM writes) + 1 (register pipeline) = 18 cycles.
+      when(writeIdx === 0.U) {
+        io.tileCtrlClear  := true.B
+        clearTileComplete := true.B  // flush any stale tileComplete from previous tile
         writeIdx := writeIdx + 1.U
+      }.elsewhen(writeIdx < 18.U) {
+        writeIdx := writeIdx + 1.U
+      }.otherwise {
+        state := sEnqueueTile
       }
     }
 
     is(sEnqueueTile) {
+      // Enqueue the tile command (one-shot — transition immediately).
+      // Pipeline-idle guard is in sWaitRast (!autoRunStall && !tileCompleteLatch);
+      // holding valid here for multiple cycles would inject duplicate commands.
       io.enqueueTile.valid := true.B
       state := sIteratePixels
     }
 
+    // Send the first advance pulse.  Immediately transition to sWaitRast which
+    // will gate subsequent pulses on !autoRunStall.
     is(sIteratePixels) {
       io.iteratePixels := true.B
       state := sWaitRast
     }
 
     is(sWaitRast) {
-      io.iteratePixels := true.B
-      // Wait for rasterizer/iterator to finish all 16 pixels
-      when(io.tileComplete) {
+      // Gate each advance pulse: only fire when the pipeline is idle AND the
+      // tile is not yet complete.  Use the registered tileComplete (tileCompleteLatch)
+      // to break the advance→tileComplete→iteratePixels→advance combinational loop.
+      when(!io.autoRunStall && !tileCompleteLatch) {
+        io.iteratePixels := true.B
+      }
+      when(tileCompleteLatch) {
         state := sWaitFlush
       }
     }
@@ -571,11 +620,14 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     }
 
     is(sNextTile) {
+      // bboxMaxX/Y are exclusive ends (firmware writes bbox.x1/y1 which are
+      // already one-past-the-last-pixel, matching compute_bbox convention).
+      // Use >= so we stop *at* the exclusive boundary, not one tile past it.
       val nextX = tileX + 4.U
-      when(nextX > bboxMaxX) {
+      when(nextX >= bboxMaxX) {
         tileX := bboxMinX
         val nextY = tileY + 4.U
-        when(nextY > bboxMaxY) {
+        when(nextY >= bboxMaxY) {
           state := sNextTriangle
         }.otherwise {
           tileY := nextY
@@ -647,15 +699,21 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   }
 
   // --- DMA snoop for Bounding Box (Step 31.4) ---
+  // Use a dedicated counter instead of writeIdx to avoid corrupting the
+  // sStageUniforms write index (which also starts from 0).
+  val bboxWordIdx = RegInit(0.U(2.W))
+  when(state === sLoadBBox) {
+    bboxWordIdx := 0.U
+  }
   when(io.dmaSnoop.valid && state === sWaitDMA && nextAfterDMA === sStageUniforms) {
-    when(writeIdx === 0.U) {
+    when(bboxWordIdx === 0.U) {
       bboxMinX := io.dmaSnoop.bits(15, 0)
       bboxMinY := io.dmaSnoop.bits(31, 16)
-      writeIdx := 1.U
-    }.elsewhen(writeIdx === 1.U) {
+      bboxWordIdx := 1.U
+    }.elsewhen(bboxWordIdx === 1.U) {
       bboxMaxX := io.dmaSnoop.bits(15, 0)
       bboxMaxY := io.dmaSnoop.bits(31, 16)
-      writeIdx := 2.U
+      bboxWordIdx := 2.U
     }
   }
 }

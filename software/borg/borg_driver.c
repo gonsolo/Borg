@@ -29,7 +29,8 @@
 // Maximum tiles for the largest supported framebuffer (128×128 / 4×4 = 32×32
 // tiles).
 #define BORG_MAX_TILES 1024      // (128/4)*(128/4) = 1024
-#define BORG_MAX_DRAWS 8         // max draw calls per frame (Step 31: 8 × 128B = 1024B fits PSRAM gap)
+#define BORG_MAX_DRAWS 12        // max draw calls per frame
+                                  // SEQ_DESC_BASE_ADDR(0x4A00) to TEX_START(0x5000) = 0x600 = 12 × 128B
 #define BORG_MAX_TRIS_PER_TILE 8 // max triangles that can touch one tile
 
 // Sequencer auto-detection (set in borgCreateGraphicsPipeline).
@@ -743,8 +744,12 @@ static void borgBinRenderAutonomous(int frame) {
   uint32_t cc_lo = ((uint32_t)last_clear_color.b << 16) | FP16_MAX_DEPTH;
   uint32_t cc_hi = ((uint32_t)last_clear_color.r << 16) | last_clear_color.g;
   
-  // The sequencer does not clear the entire FB, only tiles touched by triangles.
-  // We must pre-clear the FB here for now.
+  // TODO(Step 32+): The sequencer only clears tiles it actually touches. Empty
+  // tiles never receive a sClearTile pass, so we pre-clear the entire framebuffer
+  // here to ensure those tiles show the clear color.  For a 64×64 FB this is
+  // 4096 PSRAM_OUT writes (~8K QSPI operations) and is the dominant latency in
+  // this function.  Optimization: scan draw_calls bboxes, zero-fill only the
+  // complement set (tiles not covered by any triangle).
   for (int i = 0; i < (borg_fb_width * borg_fb_height); i++) {
      PSRAM_OUT(fb_offset + i * 2 + 0) = cc_lo;
      PSRAM_OUT(fb_offset + i * 2 + 1) = cc_hi;
@@ -759,7 +764,12 @@ static void borgBinRenderAutonomous(int frame) {
   BORG_GPU->seq_frag_addr = BORG_IMEM_FRAG_OFFSET;
   BORG_GPU->seq_frag_len = BORG_IMEM_FRAG_LEN;
 
-  // Disable UV textures for autonomous mode for now
+  // UV textures are not supported in autonomous mode: the sequencer's
+  // sStageUniforms writes vertex *color* data to u13–u21 but does not read
+  // UV coordinates from the descriptor or write them to u13–u18.  Supporting
+  // UVs requires extending the sequencer to read desc[offset+24..28] per vertex
+  // and write scaled UV values to the fragment uniform slots.
+  // Until that is implemented, force tex_config=0 for all triangles.
   BORG_GPU->tex_config = 0;
   BORG_GPU->control = 0; // uniform page 0
 

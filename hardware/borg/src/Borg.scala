@@ -130,13 +130,17 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     core.io.bus <> bus
     core.io.iter       := rast.io.shaderIter    // latched pre-advance position for coordLut
 
-    // CoreTrigger mux: sequencer > rasterizer (they never contend in practice —
-    // sequencer runs between triangles, rasterizer during pixel traversal).
+    // CoreTrigger mux: sequencer takes priority ONLY when it is actively
+    // asserting coreTrigger.valid (sRunVert, sRunSetup).  During tile iteration
+    // (sWaitRast), the sequencer does NOT trigger the core — the dispatcher
+    // does via rast.io.coreTrigger.  Using s.io.busy as the mux select would
+    // block the dispatcher's trigger while the sequencer is busy, causing a
+    // deadlock (autoRunStall never clears because the core never starts).
     sequencer match {
       case Some(s) =>
-        core.io.coreTrigger.valid := Mux(s.io.busy, s.io.coreTrigger.valid,
+        core.io.coreTrigger.valid := Mux(s.io.coreTrigger.valid, true.B,
                                                     rast.io.coreTrigger.valid)
-        core.io.coreTrigger.pc    := Mux(s.io.busy, s.io.coreTrigger.pc,
+        core.io.coreTrigger.pc    := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.pc,
                                                     rast.io.coreTrigger.pc)
       case None =>
         core.io.coreTrigger <> rast.io.coreTrigger
@@ -357,24 +361,30 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
           flushPending := true.B
         }
 
-        when(flushPending && !rast.io.autoRunStall) {
+        val seqFlushActive = sequencer.map(_.io.flushTrigger).getOrElse(false.B)
+
+        when(flushPending && !rast.io.autoRunStall && !seqFlushActive) {
           f.io.start   := true.B
           flushPending := false.B
-        }.elsewhen(sequencer.map(_.io.flushTrigger).getOrElse(false.B)) {
+        }.elsewhen(seqFlushActive) {
           f.io.start   := true.B
+          // Suppress the CPU-path pending latch when sequencer owns the flush,
+          // so it cannot double-start the flusher after the sequencer finishes.
+          when(flushPending) { flushPending := false.B }
         }.otherwise {
           f.io.start := false.B
         }
 
         f.io.read.data := tile.io.read.data
-        f.io.tileBase  := Mux(sequencer.map(_.io.flushTrigger).getOrElse(false.B),
+        f.io.tileBase  := Mux(seqFlushActive,
                               sequencer.map(_.io.flushBase).getOrElse(0.U),
                               flushTileBaseReg)
 
-        sequencer.foreach(_.io.flushBusy := flushPending || f.io.busy)
+        // Sequencer waits only for the actual flusher DMA, not the CPU-path
+        // flushPending latch (set by rast.io.tileComplete during seq iteration).
+        sequencer.foreach(_.io.flushBusy := f.io.busy)
 
-        // flush_busy includes flushPending: firmware must not proceed while
-        // the flusher is waiting for the dispatcher to finish the last pixel.
+        // MMIO STATUS.flush_busy reflects both paths for firmware polling.
         rdlRegs.io.hw.status_flush_busy := (flushPending || f.io.busy).asUInt
 
       case None =>
@@ -403,7 +413,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     sequencer match {
       case Some(s) =>
         core.io.uniformPage := Mux(s.io.busy, s.io.uniformWritePage, rast.io.uniformPage)
-        core.io.seqBusy     := s.io.busy
+        core.io.seqBusy     := s.io.seqShaderActive
       case None =>
         core.io.uniformPage := rast.io.uniformPage
         core.io.seqBusy     := false.B
@@ -616,6 +626,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         s.io.fbBase          := seqFbBaseReg
         s.io.tilesPerRow     := seqTilesPerRowReg
         s.io.tileComplete    := rast.io.tileComplete
+        s.io.autoRunStall    := rast.io.autoRunStall  // gates per-pixel advance pulses
 
         // CoreStatus and PipeWrite: broadcast snoop (no mux — input-only, read from core)
         s.io.coreStatus.running        := core.io.status.running
