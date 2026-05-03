@@ -657,6 +657,56 @@ Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
 
 ---
 
+### Optional: ASIC Size Reduction (target: 4×4 = 16 tiles on Sky130)
+
+> **Background**: Current 8×4 (32 tiles) at ~49% utilisation ≈ 15.7 tile-equivalents
+> of logic. A 4×4 die (349,105 µm²) needs ≤65% utilisation to route reliably.
+> That requires cutting ~35% of area. Steps below are sorted **biggest savings /
+> lowest risk first**. All are optional; none affect FPGA targets.
+
+- **OPT-A: Explicit SRAM macros for small memories** _(−5 to −10% area, low risk, ~1 week)_
+
+  OpenLane synthesises `SyncReadMem` below its SRAM threshold as flip-flop arrays
+  (very large). Replace `rcpLutA/B` (17×10), `uniformMem` (64×16), and
+  `instructionMemory` (56×32) with explicit `sky130_sram_1r1w` macro
+  instantiations via a Chisel `BlackBox`. Add an `BorgConfig.ASIC` configuration
+  flag and wrap the instantiation in a `hasExplicitSRAM` guard so FPGA targets
+  are unaffected.
+  Gate: GDS run shows ≥5% reduction in total cell area vs. baseline.
+
+- **OPT-B: Custom FP16 FMADD — strip IEEE-754 special cases** _(−15 to −25% area, medium risk, ~3–4 weeks)_
+
+  HardFloat's `MulAddRecFN_e5_s11` handles subnormals, NaN, ±∞, and all IEEE-754
+  rounding modes. The GPU pipeline never generates any of these — all values are
+  bounded screen-space coordinates. A stripped FP16 multiplier + adder targeting
+  normal numbers only (flush-to-zero on underflow, saturate on overflow) can be
+  2–3× smaller in gate count. This is the single largest area win.
+  Implementation: new `BorgFp16Fma` Chisel module replacing `MulAddRecFN`; keep
+  HardFloat behind a config flag for comparison. Validate against the existing
+  `BorgCoreTests` suite — pixel-perfect parity is the acceptance criterion.
+  Gate: `m test-all` 12/12 green; GDS shows ≥15% area reduction vs. baseline.
+
+- **OPT-C: TinyQV parallel rewrite for ASIC** _(−3 to −8% area, medium risk, ~2–3 weeks)_
+
+  TinyQV uses nibble-serial (4-bit/cycle) ALU operations to minimise iCE40 LUT
+  count. On Sky130, a full 32-bit parallel ALU is actually *smaller* in gate area
+  than a 4-bit serial FSM with 8 state registers and loop overhead.
+  Write `TinyQVAluAsic` with a parallel barrel shifter and 32-bit adder, gated
+  behind `hasParallelAlu: Boolean` in `BorgConfig`. The FPGA target keeps the
+  nibble-serial path; the ASIC target uses the parallel one.
+  Gate: all TinyQV Chisel tests pass; GDS confirms ≥3% total area reduction.
+
+- **OPT-D: Remove iCE40 config guards and dead code paths** _(−2 to −3% area, very low risk, ~2 days)_
+
+  Several `when(config.hasFoo)` branches emit dead Verilog that Yosys prunes for
+  FPGA but OpenLane may not fully eliminate. Add a `BorgConfig.ASIC` variant that
+  sets `hasFlusher=true`, `hasDMA=true`, `hasSequencer=true`,
+  `hasImemMmio=false`, and removes pico-ice-only paths. Measure cell area before
+  and after. Even if purely cosmetic, it clarifies the ASIC target configuration.
+  Gate: GDS area ≤ baseline.
+
+---
+
 ### ⏳ ULX3S arrives
 
 - **ECP5 synthesis flow** — write `.lpf` pin constraints, add `nextpnr-ecp5` Makefile
