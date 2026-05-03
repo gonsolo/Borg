@@ -622,13 +622,19 @@ via `BorgSequencerTests.sequencer_full_triangle`.
   path. Uniform ping-pong page is local to the CPU fallback only.
   Gate: `m test-all` 12/12 green (Sim + FPGA). ✅
 
-### Step 31: Multi-Triangle Autonomous Rendering
+### Step 31: Multi-Triangle Autonomous Rendering ✅ (2026-05-03)
 
 Extend Step 30 to process a list of triangle descriptors from PSRAM without
-CPU involvement. The GPU reads the next descriptor, runs the full pipeline,
-and signals DONE after the last triangle. The CPU submits a draw call
-(base pointer + count) and waits.
-Verilator: PSRAM modelled by simulation model.
+CPU involvement. The GPU reads the next descriptor, runs the full pipeline
+(Vertex -> Setup -> Fragment), and signals DONE after the last triangle.
+The CPU submits a draw call (base pointer + count) and waits.
+
+- **Step 31.1: Infrastructure** — 128-byte descriptor layout + BBox storage.
+- **Step 31.2: Shader Reload** — Hardware-driven I-cache staging for stages.
+- **Step 31.3: Multi-Triangle Loop** — Sequential triangle processing.
+- **Step 31.4: Autonomous Tile Iteration** — Hardware-driven bounding box walk.
+
+Gate: `make test-chisel-borg` 100% Green; `test-cocotb-soc-borg-rtl` pixel-perfect. ✅
 
 ---
 
