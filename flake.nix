@@ -1,7 +1,11 @@
 {
   inputs = {
-    nixpkgs.url = "github:gonsolo/nixpkgs/librelane-opensta3-fix";
+    #nixpkgs.url = "github:gonsolo/nixpkgs/librelane-opensta3-fix";
     #nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # librelane 3.0.3
+    nixpkgs.url = "github:NixOS/nixpkgs/220a1d1bac3d8706a19e2cf715bf0dcdb6b1102c";
+
     alejandra.url = "github:kamadorueda/alejandra/4.0.0";
     alejandra.inputs.nixpkgs.follows = "nixpkgs";
   };
