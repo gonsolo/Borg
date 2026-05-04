@@ -13,6 +13,7 @@
 4. [Running on an FPGA](04_fpga.md) — pico-ice build, host communication, PIO
 5. [Generating the ASIC](05_asic.md) — RTL-to-GDS flow, configuration, verification
 6. [Simulation](06_simulation.md) — Verilator, Arcilator, and interactive viewing
+7. [Tile-Based Rendering](07_tbr.md) — Two-pass TBR, BorgBinner, BorgSequencer FSM, PSRAM layout
 
 ### Appendices
 

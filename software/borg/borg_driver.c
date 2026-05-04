@@ -767,30 +767,27 @@ static void borgBinRender(int frame) {
   (void)frame;
 }
 
-// Step 31.4: Autonomous GPU tile iteration.
-// Replaces CPU-side binning and iteration with a single sequencer trigger.
+// Step 32.3/32.4: Autonomous two-pass TBR rendering.
+// Pass 1 (geometry): sequencer runs vert+setup+bin+storeSetup for all triangles.
+// Pass 2 (tile render): sequencer iterates ALL tiles, reads bin lists from PSRAM,
+// loads setup uniforms per triangle, rasterizes, and flushes each tile to PSRAM.
+// Empty tiles are flushed with the clear color written in sClearTile — no CPU
+// pre-fill needed.
 static void borgBinRenderAutonomous(int frame) {
   int fb_offset = frame * FRAME_STRIDE;
   int tiles_per_row = borg_fb_width >> 2;
 
   uint32_t cc_lo = ((uint32_t)last_clear_color.b << 16) | FP16_MAX_DEPTH;
   uint32_t cc_hi = ((uint32_t)last_clear_color.r << 16) | last_clear_color.g;
-  
-  // TODO(Step 32+): The sequencer only clears tiles it actually touches. Empty
-  // tiles never receive a sClearTile pass, so we pre-clear the entire framebuffer
-  // here to ensure those tiles show the clear color.  For a 64×64 FB this is
-  // 4096 PSRAM_OUT writes (~8K QSPI operations) and is the dominant latency in
-  // this function.  Optimization: scan draw_calls bboxes, zero-fill only the
-  // complement set (tiles not covered by any triangle).
-  for (int i = 0; i < (borg_fb_width * borg_fb_height); i++) {
-     PSRAM_OUT(fb_offset + i * 2 + 0) = cc_lo;
-     PSRAM_OUT(fb_offset + i * 2 + 1) = cc_hi;
-  }
 
-  BORG_GPU->seq_fb_base = PSRAM_OUT_SPI(fb_offset);
+  BORG_GPU->seq_fb_base       = PSRAM_OUT_SPI(fb_offset);
   BORG_GPU->seq_tiles_per_row = tiles_per_row;
-  BORG_GPU->seq_clear_lo = cc_lo;
-  BORG_GPU->seq_clear_hi = cc_hi;
+  BORG_GPU->seq_clear_lo      = cc_lo;
+  BORG_GPU->seq_clear_hi      = cc_hi;
+  // Step 32.3: TBR geometry region registers
+  BORG_GPU->seq_bin_base      = tbr_bin_base;
+  BORG_GPU->seq_bin_row_bytes = TBR_BIN_ROW_BYTES;
+  BORG_GPU->seq_setup_base    = tbr_setup_base;
   // seq_rast_addr/len and seq_frag_addr/len are set once in
   // borgCreateGraphicsPipeline() with the correct PSRAM staging addresses.
   // Do NOT overwrite them here.

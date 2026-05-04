@@ -58,8 +58,8 @@
 // Base address written at runtime in borgCreateDevice() after the framebuffer.
 // #define TBR_BIN_BASE computed at runtime (depends on framebuffer size)
 
-// Per-triangle setup store: 64 bytes per triangle (u0–u11 = 12×FP16 = 24 B,
-// remaining 40 B reserved for future fields: UV interpolators, flags, etc.).
-// Stride is a power of 2 so address = TBR_SETUP_BASE + (tri << 6).
-#define TBR_SETUP_ENTRY_BYTES   64    // bytes per triangle
+// Per-triangle setup store: 128 bytes per triangle (31 uniforms × 4B = 124B,
+// padded to the next power-of-2 for simple shift addressing).
+// Hardware sStoreSetup uses: addr = setupBase + (triIdx << 7).
+#define TBR_SETUP_ENTRY_BYTES   128   // bytes per triangle (stride = tri << 7)
 // #define TBR_SETUP_BASE computed at runtime (after TBR_BIN region)

@@ -657,7 +657,7 @@ Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
 
 ---
 
-### Step 32: True TBR — Two-Pass Hardware Binning
+### ✅ Step 32: True TBR — Two-Pass Hardware Binning — 2026-05-04
 
 > **Motivation**: `vk_cube` renders 12 triangles with heavy face overlap. In the current
 > single-pass sequencer a tile in the centre of the screen is rasterised and flushed to
@@ -721,6 +721,7 @@ Restructured the sequencer into a true two-pass TBR (26 → 33 FSM states):
 **Pass 1 (geometry)**: for each triangle: vert+setup+bin → `sStageUniforms` → **`sStoreSetup`** (writes all 31 uniforms to PSRAM at `setupBase + triIdx*128`) → `sNextTriangle`.
 
 **Pass 2 (tile render)**: once after all triangles binned — rast+frag shaders loaded once → `sStartPass2` iterates ALL framebuffer tiles:
+
 - `sReadBinCount` / `sWaitBinCount`: query per-tile triangle count from binner's on-chip SRAM via new `countRead` port.
 - `sClearTile` → if count=0: `sWaitFlush` directly (empty tile, only clear color flushed).
 - Otherwise: `sReadBinEntry` (DMA 1 word, snoop) → `sWaitBinEntry` → `sLoadTriSetup` (DMA 31 uniforms from setupBase+tri*128) → `sEnqueueTile` → `sIteratePixels` → `sWaitRast` → `sNextBinTri` loop.
@@ -732,18 +733,15 @@ Restructured the sequencer into a true two-pass TBR (26 → 33 FSM states):
 **Arb mux**: binner + seq store unified as "geo engine" (DMA > Flusher > Geo > Rast).  
 `make test-all` green (23/23 Chisel tests).
 
-#### 32.4 Driver integration
+#### ✅ 32.4 Driver integration — 2026-05-04
 
-- `borgBinRenderAutonomous()` writes `seq_tri_count`, `seq_clear_lo`, `seq_clear_hi`,
-  then `seq_trigger = 1`; both passes run autonomously.
-- **Remove the CPU-side clear-fill loop entirely.** Clear color is now written into
-  the tile buffer at the start of each tile in Pass 2 (`sFillClear`), so no upfront
-  PSRAM write is needed. Total PSRAM writes = `numTiles × 16 pixels × 2 words`
-  regardless of geometry — same as the old clear-fill alone, with triangles now free.
-- Update `borg_mmio.py` with new MMIO constant `seq_pass` (read-only: 0=geo, 1=tile)
-  for debug.
-  Gate: vk_cube renders correctly; background correct on empty tiles; PSRAM write
-  count drops to exactly 1× per tile per frame.
+- **`borgBinRenderAutonomous()`** updated:
+  - Removed CPU full-framebuffer clear-fill loop (~16K PSRAM writes eliminated).
+  - Added three new MMIO writes before `seq_trigger`: `seq_bin_base`, `seq_bin_row_bytes`, `seq_setup_base`.
+  - Function now writes 7 MMIO regs + 1 trigger; both passes run fully autonomously.
+- **`TBR_SETUP_ENTRY_BYTES`**: `64` → `128` (31 uniforms × 4B = 124B, padded to 128B power-of-2; stride = `tri << 7`).
+- **Documentation**: Added `docs/07_tbr.md` — full TBR architecture chapter covering two-pass design, BorgBinner, FSM state table, PSRAM layout, hardware component diagram, driver API, and performance characteristics.
+- `make test-all` green (Verilator triangle + vkcube pixel-perfect); vk_cube renders correctly.
 
 ---
 
