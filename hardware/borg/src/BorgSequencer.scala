@@ -171,6 +171,22 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val flushBase     = Output(UInt(20.W))
   val flushTrigger  = Output(Bool())
   val flushBusy     = Input(Bool())
+
+  // --- Step 32.2: BorgBinner control (geometry pass binning) ---
+  /** One-cycle pulse to start binning the current triangle. */
+  val binnerStart      = Output(Bool())
+  /** Triangle index passed to the binner (latched from triIdx). */
+  val binnerTriIndex   = Output(UInt(16.W))
+  /** Tile-aligned bbox passed to the binner (from bboxMinX/Y/MaxX/Y). */
+  val binnerBbox       = Output(new Bbox(10))
+  /** One-cycle pulse to zero all per-tile counters at frame start. */
+  val binnerClearCounts = Output(Bool())
+  /** High while the binner FSM is processing or clearing counts. */
+  val binnerBusy       = Input(Bool())
+  /** PSRAM byte address of bin list region base. */
+  val binBase          = Input(UInt(20.W))
+  /** Bin list row size in bytes (= SEQ_MAX_TRI * TBR_BIN_ENTRY_SIZE). */
+  val binRowBytes      = Input(UInt(20.W))
 }
 
 /** BorgSequencer — vertex + setup + uniform staging sequencer (Step 29).
@@ -205,14 +221,15 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   // Step 31.2: sLoadRastShader, sLoadFragShader
   // Step 31.4: sLoadBBox, sInitTileLoop, sClearTile, sEnqueueTile, sIteratePixels, sWaitRast, sWaitFlush, sNextTile
   // Step 31.3: sNextTriangle
+  // Step 32.2: sBinTri, sWaitBinner
   // Shared terminal: sDone
-  val states = Enum(24)
+  val states = Enum(26)
   val (sIdle :: sLoadShader :: sWaitDMA :: sLoadVert :: sRunVert :: sWaitVert ::
        sWriteSetupInputs :: sLoadSetupShader :: sRunSetup :: sWaitSetup ::
        sLoadBBox :: sInitTileLoop :: Nil) = states.take(12)
   val (sClearTile :: sStageUniforms :: sLoadRastShader :: sLoadFragShader ::
        sEnqueueTile :: sIteratePixels :: sWaitRast :: sWaitFlush :: sWaitFlushSync :: sNextTile ::
-       sNextTriangle :: sDone :: Nil) = states.drop(12)
+       sNextTriangle :: sBinTri :: sWaitBinner :: sDone :: Nil) = states.drop(12)
   val state = RegInit(sIdle)
 
   // Which state to enter after DMA completes
@@ -316,6 +333,15 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val tileIndex = ((tileY >> 2) * io.tilesPerRow) + (tileX >> 2)
   io.flushBase := io.fbBase + (tileIndex << 7)
 
+  // --- Step 32.2: Binner output defaults ---
+  io.binnerStart       := false.B
+  io.binnerTriIndex    := triIdx
+  io.binnerBbox.min.x  := bboxMinX(9, 0)
+  io.binnerBbox.min.y  := bboxMinY(9, 0)
+  io.binnerBbox.max.x  := bboxMaxX(9, 0)
+  io.binnerBbox.max.y  := bboxMaxY(9, 0)
+  io.binnerClearCounts := false.B
+
 
 
   // --- FSM ---
@@ -332,6 +358,10 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         }.otherwise {
           triIdx  := 0.U
           vertIdx := 0.U
+          // Step 32.2: clear binner per-tile counts at the start of each frame.
+          // The binner's multi-cycle clearing runs in parallel with the first
+          // vertex shader DMA load, so it adds zero latency.
+          io.binnerClearCounts := true.B
           state   := sLoadShader
         }
       }
@@ -469,8 +499,21 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       io.dmaDesc   := desc
       io.dmaStart  := true.B
       writeIdx     := 0.U
-      nextAfterDMA := sStageUniforms
+      nextAfterDMA := sBinTri
       state        := sWaitDMA
+    }
+
+    // --- Step 32.2: Trigger BorgBinner for this triangle ---
+    is(sBinTri) {
+      io.binnerStart := true.B
+      state := sWaitBinner
+    }
+
+    // Wait for BorgBinner to finish writing all tile bins for this triangle.
+    is(sWaitBinner) {
+      when(!io.binnerBusy) {
+        state := sStageUniforms
+      }
     }
 
     // --- Step 29.3: Uniform staging ---

@@ -682,7 +682,6 @@ Define the two new regions that live after the existing framebuffer:
 > - Base addresses (`tbr_bin_base`, `tbr_setup_base`) are computed at runtime in `borgCreateDevice()` after the framebuffer size is known, so they automatically adjust to any resolution.
 > - Setup store stride is 64 B (power of 2) → address = `tbr_setup_base + (tri << 6)`, no multiplier needed in hardware.
 
-
 For vk_cube (12 tri, 10×8 tiles): 80 × 12 × 2 = 1.9 KB bin lists + 768 B setup store.\
 For 1 000 tri, 80 tiles: 160 KB bin lists + 64 KB setup store — well within 8 MB PSRAM.
 
@@ -698,27 +697,22 @@ New Chisel module `BorgBinner` (`BorgBinner.scala`):
 - FSM: `sIdle → sReadCount → sWaitCount → sWritePsram → sStoreCount → sNextTile → ...`
 - Output: `done` strobe when all tiles written.
 - Gated behind `hasBinner: Boolean` in `BorgConfig`; disabled on iCE40 (`PicoIce`).
-- Scaffolded in `Borg.scala` (`wireBinner()`): all inputs tied to idle defaults.
-  Step 32.2 replaces tie-offs with sequencer wires and adds GpuMem to the arb mux.
+- Wired in `Borg.scala` (`wireBinner()`): sequencer drives all inputs (Step 32.2);
+  binner GpuMem added to arb mux at lowest priority (DMA > Flusher > Binner > Rast).
 - Unit tests: 5/5 green (idle, single tile, 2×2 bbox, count increment, clear counts).
 
+#### ✅ 32.2 BorgSequencer: geometry pass (Pass 1) — 2026-05-04
 
-#### 32.2 BorgSequencer: geometry pass (Pass 1)
+Extended `BorgSequencer` FSM with per-triangle geometry pass:
 
-Extend `BorgSequencer` FSM with a new phase that iterates triangles without
-rasterising:
-
-```text
-sGeoPass: for tri in 0..triCount-1:
-  sLoadVertShader → sRunVertShader
-  sLoadSetupShader → sRunSetupShader
-  sStoreSetup   ← DMA-write u0..u11 to setupStore[tri] in PSRAM
-  sBinTri       ← trigger BorgBinner with tri index + bbox; wait done
-→ sRenderPass (when all triangles binned)
-```
-
-No rasteriser or tile flusher involvement in Pass 1.
-Gate: `m test-all` 12/12 green; Verilator trace shows correct PSRAM writes.
+- New states `sBinTri` / `sWaitBinner` inserted after bbox DMA (`sLoadBBox → sWaitDMA → sBinTri → sWaitBinner → sStageUniforms`).
+- `clearCounts` pulse fired on `triIdx==0` (frame start) in `sIdle` — runs in parallel
+  with the first vertex-shader DMA, adding zero latency.
+- New `BorgSequencerIO` ports: `binnerStart`, `binnerTriIndex`, `binnerBbox`,
+  `binnerClearCounts` (outputs); `binnerBusy`, `binBase`, `binRowBytes` (inputs).
+- Two new MMIO registers: `SEQ_BIN_BASE` (0x260), `SEQ_BIN_ROW_BYTES` (0x264).
+- FSM state count: 24 → 26.
+- `make test-all` green; lint clean (added `countMem*.sv` suppression).
 
 #### 32.3 BorgSequencer: tile render pass (Pass 2)
 

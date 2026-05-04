@@ -224,63 +224,88 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // Core state feedback
     rast.io.coreStatus <> core.io.status
 
-    // GPU memory port: arbitration (Step 25.3g).
-    // Priority: DMA > Flusher > Rast (texFetch).
+    // GPU memory port: arbitration (Step 25.3g, Step 32.2 binner addition).
+    // Priority: DMA > Flusher > Binner > Rast (texFetch).
     // In practice there is no contention: DMA runs between triangles,
-    // flusher runs after a tile is complete, texFetch runs during per-pixel
-    // rasterization.  The mux is for correctness, not performance.
+    // flusher runs after a tile is complete, binner runs during geometry pass,
+    // texFetch runs during per-pixel rasterization.  The mux is for correctness.
     //
     // Step 25.2: wr/wdata added for GPU write path.  DMA is read-only, so
-    // write signals come from flusher or rast (flusher takes priority).
+    // write signals come from flusher, binner, or rast (priority order).
+    val binnerBusy = binner.map(_.io.busy).getOrElse(false.B)
+    val binnerReq  = binner.map(_.io.gpuMem.req).getOrElse(false.B)
+    val binnerAddr = binner.map(_.io.gpuMem.addr).getOrElse(0.U)
+    val binnerWr   = binner.map(_.io.gpuMem.wr).getOrElse(false.B)
+    val binnerWdata = binner.map(_.io.gpuMem.wdata).getOrElse(0.U)
+
     (dma, flusher) match {
       case (Some(d), Some(f)) =>
-        // 3-way mux: DMA > Flusher > Rast
+        // 4-way mux: DMA > Flusher > Binner > Rast
         io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
                            Mux(f.io.busy, f.io.gpuMem.req,
-                               rast.io.gpuMem.req))
+                           Mux(binnerBusy, binnerReq,
+                               rast.io.gpuMem.req)))
         io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
                            Mux(f.io.busy, f.io.gpuMem.addr,
-                               rast.io.gpuMem.addr))
+                           Mux(binnerBusy, binnerAddr,
+                               rast.io.gpuMem.addr)))
         io.gpuMem.wr    := Mux(f.io.busy, f.io.gpuMem.wr,
-                               rast.io.gpuMem.wr)   // DMA never writes
+                           Mux(binnerBusy, binnerWr,
+                               rast.io.gpuMem.wr))   // DMA never writes
         io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
-                               rast.io.gpuMem.wdata)
+                           Mux(binnerBusy, binnerWdata,
+                               rast.io.gpuMem.wdata))
         rast.io.gpuMem.data     := io.gpuMem.data
-        rast.io.gpuMem.ready    := io.gpuMem.ready && !d.io.busy && !f.io.busy
+        rast.io.gpuMem.ready    := io.gpuMem.ready && !d.io.busy && !f.io.busy && !binnerBusy
         f.io.gpuMem.data  := io.gpuMem.data
         f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
         d.io.gpuMem.data        := io.gpuMem.data
         d.io.gpuMem.ready       := io.gpuMem.ready && d.io.busy
 
       case (Some(d), None) =>
-        // 2-way mux: DMA > Rast (no flusher on FPGA until Step 25.4)
-        io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req, rast.io.gpuMem.req)
-        io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr, rast.io.gpuMem.addr)
-        io.gpuMem.wr    := rast.io.gpuMem.wr       // DMA never writes
-        io.gpuMem.wdata := rast.io.gpuMem.wdata
+        // 3-way mux: DMA > Binner > Rast (no flusher on FPGA until Step 25.4)
+        io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
+                           Mux(binnerBusy, binnerReq,
+                               rast.io.gpuMem.req))
+        io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
+                           Mux(binnerBusy, binnerAddr,
+                               rast.io.gpuMem.addr))
+        io.gpuMem.wr    := Mux(binnerBusy, binnerWr,
+                               rast.io.gpuMem.wr)       // DMA never writes
+        io.gpuMem.wdata := Mux(binnerBusy, binnerWdata,
+                               rast.io.gpuMem.wdata)
         rast.io.gpuMem.data  := io.gpuMem.data
-        rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy
+        rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !binnerBusy
         d.io.gpuMem.data     := io.gpuMem.data
         d.io.gpuMem.ready    := io.gpuMem.ready && d.io.busy
 
       case (None, Some(f)) =>
-        // 2-way mux: Flusher > Rast (no DMA)
+        // 3-way mux: Flusher > Binner > Rast (no DMA)
         io.gpuMem.req   := Mux(f.io.busy, f.io.gpuMem.req,
-                               rast.io.gpuMem.req)
+                           Mux(binnerBusy, binnerReq,
+                               rast.io.gpuMem.req))
         io.gpuMem.addr  := Mux(f.io.busy, f.io.gpuMem.addr,
-                               rast.io.gpuMem.addr)
+                           Mux(binnerBusy, binnerAddr,
+                               rast.io.gpuMem.addr))
         io.gpuMem.wr    := Mux(f.io.busy, f.io.gpuMem.wr,
-                               rast.io.gpuMem.wr)
+                           Mux(binnerBusy, binnerWr,
+                               rast.io.gpuMem.wr))
         io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
-                               rast.io.gpuMem.wdata)
+                           Mux(binnerBusy, binnerWdata,
+                               rast.io.gpuMem.wdata))
         rast.io.gpuMem.data     := io.gpuMem.data
-        rast.io.gpuMem.ready    := io.gpuMem.ready && !f.io.busy
+        rast.io.gpuMem.ready    := io.gpuMem.ready && !f.io.busy && !binnerBusy
         f.io.gpuMem.data  := io.gpuMem.data
         f.io.gpuMem.ready := io.gpuMem.ready && f.io.busy
 
       case (None, None) =>
-        // Direct: Rast only (FPGA without DMA or flusher)
-        io.gpuMem <> rast.io.gpuMem
+        // 2-way mux: Binner > Rast (FPGA without DMA or flusher)
+        io.gpuMem.req   := Mux(binnerBusy, binnerReq, rast.io.gpuMem.req)
+        io.gpuMem.addr  := Mux(binnerBusy, binnerAddr, rast.io.gpuMem.addr)
+        io.gpuMem.wr    := Mux(binnerBusy, binnerWr, rast.io.gpuMem.wr)
+        io.gpuMem.wdata := Mux(binnerBusy, binnerWdata, rast.io.gpuMem.wdata)
+        rast.io.gpuMem.data  := io.gpuMem.data
+        rast.io.gpuMem.ready := io.gpuMem.ready && !binnerBusy
     }
 
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
@@ -628,6 +653,17 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         s.io.clearColorHi    := seqClearHiReg
         s.io.fbBase          := seqFbBaseReg
         s.io.tilesPerRow     := seqTilesPerRowReg
+        // Step 32.2: Binner PSRAM layout registers
+        val seqBinBaseReg     = RegInit(0.U(20.W))
+        val seqBinRowBytesReg = RegInit(0.U(20.W))
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_bin_base_offset) {
+          seqBinBaseReg := bus.data_in(19, 0)
+        }
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_bin_row_bytes_offset) {
+          seqBinRowBytesReg := bus.data_in(19, 0)
+        }
+        s.io.binBase         := seqBinBaseReg
+        s.io.binRowBytes     := seqBinRowBytesReg
         s.io.tileComplete    := rast.io.tileComplete
         s.io.autoRunStall    := rast.io.autoRunStall  // gates per-pixel advance pulses
 
@@ -645,34 +681,55 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     }
   }
 
-  /** Step 32.1: Wire BorgBinner — scaffolded for Step 32.2 sequencer integration.
+  /** Step 32.2: Wire BorgBinner — sequencer-driven geometry pass binning.
     *
-    * For now, all control inputs are tied to safe defaults (idle).
-    * In Step 32.2, the sequencer's geometry pass will drive:
-    *   - start, triIndex, bbox, clearCounts
-    * The binner's GpuMemIO write port will be added to the PSRAM
-    * arbitration mux in wireRasterizer() at that point.
+    * The sequencer drives the binner's start/triIndex/bbox/clearCounts
+    * during its new sBinTri state. When no sequencer is present (shouldn't
+    * happen in practice — hasBinner implies hasSequencer), inputs are tied
+    * to safe defaults.
+    *
+    * The binner's GpuMemIO write port is muxed into the PSRAM arbitration
+    * in wireRasterizer().
     */
   private def wireBinner(): Unit = {
     binner match {
       case Some(b) =>
-        // Scaffold tie-offs (Step 32.2 will replace these with sequencer wires)
-        b.io.start       := false.B
-        b.io.triIndex    := 0.U
-        b.io.bbox.min.x  := 0.U
-        b.io.bbox.min.y  := 0.U
-        b.io.bbox.max.x  := 0.U
-        b.io.bbox.max.y  := 0.U
-        b.io.binBase     := 0.U
-        b.io.binRowBytes := 0.U
-        b.io.tilesPerRow := 0.U
-        b.io.clearCounts := false.B
+        sequencer match {
+          case Some(s) =>
+            b.io.start       := s.io.binnerStart
+            b.io.triIndex    := s.io.binnerTriIndex
+            b.io.bbox        := s.io.binnerBbox
+            b.io.clearCounts := s.io.binnerClearCounts
+            b.io.binBase     := s.io.binBase
+            b.io.binRowBytes := s.io.binRowBytes
+            // tilesPerRow is shared with sequencer via the same MMIO register.
+            // We can't reference seqTilesPerRowReg here (it's local to wireSequencer),
+            // so route it from the sequencer's tilesPerRow input.
+            b.io.tilesPerRow := s.io.tilesPerRow
+            s.io.binnerBusy  := b.io.busy
+          case None =>
+            // hasBinner=true without hasSequencer: tie off to idle defaults.
+            b.io.start       := false.B
+            b.io.triIndex    := 0.U
+            b.io.bbox.min.x  := 0.U
+            b.io.bbox.min.y  := 0.U
+            b.io.bbox.max.x  := 0.U
+            b.io.bbox.max.y  := 0.U
+            b.io.binBase     := 0.U
+            b.io.binRowBytes := 0.U
+            b.io.tilesPerRow := 0.U
+            b.io.clearCounts := false.B
+        }
 
-        // GpuMem port: tie off for now; Step 32.2 will add to the arb mux.
-        b.io.gpuMem.data  := 0.U
-        b.io.gpuMem.ready := false.B
+        // GpuMem feedback from the arb mux (wireRasterizer handles the request side)
+        b.io.gpuMem.data  := io.gpuMem.data
+        b.io.gpuMem.ready := io.gpuMem.ready && b.io.busy &&
+                             !dma.map(_.io.busy).getOrElse(false.B) &&
+                             !flusher.map(_.io.busy).getOrElse(false.B)
 
-      case None => // hasBinner=false: nothing to wire
+      case None =>
+        // hasBinner=false: tie off sequencer's binnerBusy so it never stalls.
+        sequencer.foreach(_.io.binnerBusy := false.B)
     }
   }
 }

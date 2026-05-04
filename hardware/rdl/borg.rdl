@@ -699,6 +699,40 @@ reg seq_tiles_per_row_reg_t {
     } RSVD[22] = 0;
 };
 
+// --- Sequencer: TBR bin list base address (Step 32.2) ---
+reg seq_bin_base_reg_t {
+    name = "Sequencer Bin List Base Address";
+    desc = "20-bit PSRAM byte address of the TBR bin list region.
+            Each tile has a row of SEQ_MAX_TRI × 2-byte triangle indices.
+            Written by firmware at frame start.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 19:0: 20-bit PSRAM byte address of bin list base.";
+    } addr[20] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[12] = 0;
+};
+
+// --- Sequencer: TBR bin row bytes (Step 32.2) ---
+reg seq_bin_row_bytes_reg_t {
+    name = "Sequencer Bin Row Bytes";
+    desc = "Bin list row size in bytes (= SEQ_MAX_TRI × TBR_BIN_ENTRY_SIZE).
+            Each tile's bin list is this many bytes long in PSRAM.
+            Written by firmware at frame start.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 19:0: bin row size in bytes.";
+    } size[20] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[12] = 0;
+};
+
 // --- 16-bit FP register (stored in 32-bit word, upper bits ignored on write) ---
 reg gpr_reg_t {
     name = "General Purpose Register";
@@ -884,4 +918,12 @@ addrmap borg_gpu {
     // ---- Sequencer Tiles Per Row: 0x25C — nogen (Step 31.4) ----
     seq_tiles_per_row_reg_t seq_tiles_per_row;
     seq_tiles_per_row->nogen = true;
+
+    // ---- Sequencer Bin List Base: 0x260 — nogen (Step 32.2) ----
+    seq_bin_base_reg_t seq_bin_base;
+    seq_bin_base->nogen = true;
+
+    // ---- Sequencer Bin Row Bytes: 0x264 — nogen (Step 32.2) ----
+    seq_bin_row_bytes_reg_t seq_bin_row_bytes;
+    seq_bin_row_bytes->nogen = true;
 };
