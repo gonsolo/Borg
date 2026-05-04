@@ -231,81 +231,98 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // texFetch runs during per-pixel rasterization.  The mux is for correctness.
     //
     // Step 25.2: wr/wdata added for GPU write path.  DMA is read-only, so
-    // write signals come from flusher, binner, or rast (priority order).
-    val binnerBusy = binner.map(_.io.busy).getOrElse(false.B)
-    val binnerReq  = binner.map(_.io.gpuMem.req).getOrElse(false.B)
-    val binnerAddr = binner.map(_.io.gpuMem.addr).getOrElse(0.U)
-    val binnerWr   = binner.map(_.io.gpuMem.wr).getOrElse(false.B)
+    // write signals come from flusher, geo engine, or rast (priority order).
+    //
+    // Step 32.3: The "geo engine" combines BorgBinner's GpuMem (write-only,
+    // active during geometry pass binning) with the sequencer's setup store
+    // port (write-only, active during sStoreSetup). They are never active
+    // simultaneously: binner runs during sBinTri, store runs during sStoreSetup.
+    val seqStoreActive = sequencer.map(_.io.storeActive).getOrElse(false.B)
+    val seqStoreReq    = sequencer.map(_.io.storeReq).getOrElse(false.B)
+    val seqStoreAddr   = sequencer.map(_.io.storeAddr).getOrElse(0.U)
+    val seqStoreWdata  = sequencer.map(_.io.storeWdata).getOrElse(0.U)
+
+    val binnerBusy  = binner.map(_.io.busy).getOrElse(false.B)
+    val binnerReq   = binner.map(_.io.gpuMem.req).getOrElse(false.B)
+    val binnerAddr  = binner.map(_.io.gpuMem.addr).getOrElse(0.U)
+    val binnerWr    = binner.map(_.io.gpuMem.wr).getOrElse(false.B)
     val binnerWdata = binner.map(_.io.gpuMem.wdata).getOrElse(0.U)
+
+    // Unified "geo engine" signals: binner takes priority (but they never overlap)
+    val geoBusy  = binnerBusy || seqStoreActive
+    val geoReq   = Mux(binnerBusy, binnerReq, seqStoreReq)
+    val geoAddr  = Mux(binnerBusy, binnerAddr, seqStoreAddr)
+    val geoWr    = Mux(binnerBusy, binnerWr, true.B)  // store is always a write
+    val geoWdata = Mux(binnerBusy, binnerWdata, seqStoreWdata)
 
     (dma, flusher) match {
       case (Some(d), Some(f)) =>
-        // 4-way mux: DMA > Flusher > Binner > Rast
+        // 4-way mux: DMA > Flusher > Geo > Rast
         io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
                            Mux(f.io.busy, f.io.gpuMem.req,
-                           Mux(binnerBusy, binnerReq,
+                           Mux(geoBusy, geoReq,
                                rast.io.gpuMem.req)))
         io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
                            Mux(f.io.busy, f.io.gpuMem.addr,
-                           Mux(binnerBusy, binnerAddr,
+                           Mux(geoBusy, geoAddr,
                                rast.io.gpuMem.addr)))
         io.gpuMem.wr    := Mux(f.io.busy, f.io.gpuMem.wr,
-                           Mux(binnerBusy, binnerWr,
+                           Mux(geoBusy, geoWr,
                                rast.io.gpuMem.wr))   // DMA never writes
         io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
-                           Mux(binnerBusy, binnerWdata,
+                           Mux(geoBusy, geoWdata,
                                rast.io.gpuMem.wdata))
         rast.io.gpuMem.data     := io.gpuMem.data
-        rast.io.gpuMem.ready    := io.gpuMem.ready && !d.io.busy && !f.io.busy && !binnerBusy
+        rast.io.gpuMem.ready    := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy
         f.io.gpuMem.data  := io.gpuMem.data
         f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
         d.io.gpuMem.data        := io.gpuMem.data
         d.io.gpuMem.ready       := io.gpuMem.ready && d.io.busy
 
       case (Some(d), None) =>
-        // 3-way mux: DMA > Binner > Rast (no flusher on FPGA until Step 25.4)
+        // 3-way mux: DMA > Geo > Rast (no flusher on FPGA until Step 25.4)
         io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
-                           Mux(binnerBusy, binnerReq,
+                           Mux(geoBusy, geoReq,
                                rast.io.gpuMem.req))
         io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
-                           Mux(binnerBusy, binnerAddr,
+                           Mux(geoBusy, geoAddr,
                                rast.io.gpuMem.addr))
-        io.gpuMem.wr    := Mux(binnerBusy, binnerWr,
+        io.gpuMem.wr    := Mux(geoBusy, geoWr,
                                rast.io.gpuMem.wr)       // DMA never writes
-        io.gpuMem.wdata := Mux(binnerBusy, binnerWdata,
+        io.gpuMem.wdata := Mux(geoBusy, geoWdata,
                                rast.io.gpuMem.wdata)
         rast.io.gpuMem.data  := io.gpuMem.data
-        rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !binnerBusy
+        rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !geoBusy
         d.io.gpuMem.data     := io.gpuMem.data
         d.io.gpuMem.ready    := io.gpuMem.ready && d.io.busy
 
       case (None, Some(f)) =>
-        // 3-way mux: Flusher > Binner > Rast (no DMA)
+        // 3-way mux: Flusher > Geo > Rast (no DMA)
         io.gpuMem.req   := Mux(f.io.busy, f.io.gpuMem.req,
-                           Mux(binnerBusy, binnerReq,
+                           Mux(geoBusy, geoReq,
                                rast.io.gpuMem.req))
         io.gpuMem.addr  := Mux(f.io.busy, f.io.gpuMem.addr,
-                           Mux(binnerBusy, binnerAddr,
+                           Mux(geoBusy, geoAddr,
                                rast.io.gpuMem.addr))
         io.gpuMem.wr    := Mux(f.io.busy, f.io.gpuMem.wr,
-                           Mux(binnerBusy, binnerWr,
+                           Mux(geoBusy, geoWr,
                                rast.io.gpuMem.wr))
         io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
-                           Mux(binnerBusy, binnerWdata,
+                           Mux(geoBusy, geoWdata,
                                rast.io.gpuMem.wdata))
         rast.io.gpuMem.data     := io.gpuMem.data
-        rast.io.gpuMem.ready    := io.gpuMem.ready && !f.io.busy && !binnerBusy
+        rast.io.gpuMem.ready    := io.gpuMem.ready && !f.io.busy && !geoBusy
         f.io.gpuMem.data  := io.gpuMem.data
         f.io.gpuMem.ready := io.gpuMem.ready && f.io.busy
 
       case (None, None) =>
-        // 2-way mux: Binner > Rast (FPGA without DMA or flusher)
-        io.gpuMem.req   := Mux(binnerBusy, binnerReq, rast.io.gpuMem.req)
-        io.gpuMem.addr  := Mux(binnerBusy, binnerAddr, rast.io.gpuMem.addr)
-        io.gpuMem.wr    := Mux(binnerBusy, binnerWr, rast.io.gpuMem.wr)
-        io.gpuMem.wdata := Mux(binnerBusy, binnerWdata, rast.io.gpuMem.wdata)
+        // 2-way mux: Geo > Rast (FPGA without DMA or flusher)
+        io.gpuMem.req   := Mux(geoBusy, geoReq, rast.io.gpuMem.req)
+        io.gpuMem.addr  := Mux(geoBusy, geoAddr, rast.io.gpuMem.addr)
+        io.gpuMem.wr    := Mux(geoBusy, geoWr, rast.io.gpuMem.wr)
+        io.gpuMem.wdata := Mux(geoBusy, geoWdata, rast.io.gpuMem.wdata)
         rast.io.gpuMem.data  := io.gpuMem.data
-        rast.io.gpuMem.ready := io.gpuMem.ready && !binnerBusy
+        rast.io.gpuMem.ready := io.gpuMem.ready && !geoBusy
     }
 
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
@@ -664,6 +681,21 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         }
         s.io.binBase         := seqBinBaseReg
         s.io.binRowBytes     := seqBinRowBytesReg
+        // Step 32.3: Setup store base register
+        val seqSetupBaseReg   = RegInit(0.U(20.W))
+        when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_base_offset) {
+          seqSetupBaseReg := bus.data_in(19, 0)
+        }
+        s.io.setupBase       := seqSetupBaseReg
+        // Framebuffer dimensions in tiles (for Pass 2 full-screen iteration)
+        // Derived from tilesPerRow and total tile count. For now, expose as
+        // the same tilesPerRow value (width) and a new height.
+        // fbHeightTiles is computed as tilesPerRow * ratio, but it's simpler
+        // to just wire the same tilesPerRow as width and add a separate
+        // height register. For now, use a fixed 128/4 = 32 for Sim.
+        // TODO: Add seq_fb_height_tiles MMIO register.
+        s.io.fbWidthTiles    := seqTilesPerRowReg
+        s.io.fbHeightTiles   := seqTilesPerRowReg  // square framebuffer assumption
         s.io.tileComplete    := rast.io.tileComplete
         s.io.autoRunStall    := rast.io.autoRunStall  // gates per-pixel advance pulses
 
@@ -695,7 +727,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     binner match {
       case Some(b) =>
         sequencer match {
-          case Some(s) =>
+           case Some(s) =>
             b.io.start       := s.io.binnerStart
             b.io.triIndex    := s.io.binnerTriIndex
             b.io.bbox        := s.io.binnerBbox
@@ -707,6 +739,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
             // so route it from the sequencer's tilesPerRow input.
             b.io.tilesPerRow := s.io.tilesPerRow
             s.io.binnerBusy  := b.io.busy
+            // Step 32.3: Count read port — sequencer reads per-tile triangle counts
+            b.io.countReadAddr := s.io.countReadAddr
+            b.io.countReadEn   := s.io.countReadEn
+            s.io.countReadData := b.io.countReadData
           case None =>
             // hasBinner=true without hasSequencer: tie off to idle defaults.
             b.io.start       := false.B
@@ -719,6 +755,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
             b.io.binRowBytes := 0.U
             b.io.tilesPerRow := 0.U
             b.io.clearCounts := false.B
+            b.io.countReadAddr := 0.U
+            b.io.countReadEn   := false.B
         }
 
         // GpuMem feedback from the arb mux (wireRasterizer handles the request side)
@@ -729,7 +767,21 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
       case None =>
         // hasBinner=false: tie off sequencer's binnerBusy so it never stalls.
-        sequencer.foreach(_.io.binnerBusy := false.B)
+        sequencer.foreach { s =>
+          s.io.binnerBusy    := false.B
+          s.io.countReadData := 0.U
+        }
+    }
+
+    // Step 32.3: Setup store PSRAM write — wire storeReady from arb mux.
+    // The sequencer's store port is combined with the binner's GpuMem in the
+    // arb mux as a unified "geo engine". storeReady comes from gpuMem.ready
+    // when the sequencer's store is active (no higher-priority device busy).
+    sequencer.foreach { s =>
+      s.io.storeReady := io.gpuMem.ready && s.io.storeActive &&
+                         !dma.map(_.io.busy).getOrElse(false.B) &&
+                         !flusher.map(_.io.busy).getOrElse(false.B) &&
+                         !binner.map(_.io.busy).getOrElse(false.B)
     }
   }
 }

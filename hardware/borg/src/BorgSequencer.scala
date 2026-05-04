@@ -88,7 +88,7 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val seqShaderActive = Output(Bool())
 
   /** Debug: current FSM state value (for test diagnostics). */
-  val debugState = Output(UInt(5.W))
+  val debugState = Output(UInt(6.W))
   /** Debug: current tileCompleteLatch value. */
   val debugTileCompleteLatch = Output(Bool())
 
@@ -187,6 +187,33 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val binBase          = Input(UInt(20.W))
   /** Bin list row size in bytes (= SEQ_MAX_TRI * TBR_BIN_ENTRY_SIZE). */
   val binRowBytes      = Input(UInt(20.W))
+
+  // --- Step 32.3: TBR Pass 2 — tile render pass ---
+  /** PSRAM byte address of setup store region (stride 128B per triangle). */
+  val setupBase        = Input(UInt(20.W))
+
+  /** True during sStoreSetup when the sequencer is writing to PSRAM. */
+  val storeActive      = Output(Bool())
+  /** PSRAM write request during sStoreSetup. */
+  val storeReq         = Output(Bool())
+  /** PSRAM write address during sStoreSetup. */
+  val storeAddr        = Output(UInt(20.W))
+  /** PSRAM write data during sStoreSetup (32-bit, low 16 = uniform value). */
+  val storeWdata       = Output(UInt(32.W))
+  /** PSRAM write acknowledge from the arb mux. */
+  val storeReady       = Input(Bool())
+
+  /** Binner count read: tile index to query. */
+  val countReadAddr    = Output(UInt(10.W))
+  /** Binner count read: enable (assert 1 cycle, data valid next cycle). */
+  val countReadEn      = Output(Bool())
+  /** Binner count read: triangle count for the queried tile. */
+  val countReadData    = Input(UInt(10.W))
+
+  /** Framebuffer width in tiles (= fb_width / 4). For full-screen Pass 2 iteration. */
+  val fbWidthTiles     = Input(UInt(10.W))
+  /** Framebuffer height in tiles (= fb_height / 4). */
+  val fbHeightTiles    = Input(UInt(10.W))
 }
 
 /** BorgSequencer — vertex + setup + uniform staging sequencer (Step 29).
@@ -215,21 +242,25 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val io = IO(new BorgSequencerIO(cfg))
 
   // --- FSM states ---
-  // Step 29.1: sIdle, sLoadShader, sWaitDMA, sLoadVert, sRunVert, sWaitVert
-  // Step 29.2: sWriteSetupInputs, sLoadSetupShader, sRunSetup, sWaitSetup
-  // Step 29.3: sStageUniforms
-  // Step 31.2: sLoadRastShader, sLoadFragShader
-  // Step 31.4: sLoadBBox, sInitTileLoop, sClearTile, sEnqueueTile, sIteratePixels, sWaitRast, sWaitFlush, sNextTile
-  // Step 31.3: sNextTriangle
-  // Step 32.2: sBinTri, sWaitBinner
-  // Shared terminal: sDone
-  val states = Enum(26)
+  // Pass 1 (geometry): sIdle, sLoadShader, sWaitDMA, sLoadVert, sRunVert, sWaitVert,
+  //   sWriteSetupInputs, sLoadSetupShader, sRunSetup, sWaitSetup,
+  //   sLoadBBox, sBinTri, sWaitBinner, sStageUniforms, sStoreSetup, sNextTriangle
+  // Pass 2 (tile render): sLoadRastShader, sLoadFragShader, sStartPass2,
+  //   sReadBinCount, sWaitBinCount, sClearTile,
+  //   sReadBinEntry, sWaitBinEntry, sLoadTriSetup,
+  //   sEnqueueTile, sIteratePixels, sWaitRast, sWaitFlush, sWaitFlushSync,
+  //   sNextBinTri, sNextRenderTile
+  // Terminal: sDone
+  val nStates = 33
+  val states = Enum(nStates)
   val (sIdle :: sLoadShader :: sWaitDMA :: sLoadVert :: sRunVert :: sWaitVert ::
        sWriteSetupInputs :: sLoadSetupShader :: sRunSetup :: sWaitSetup ::
-       sLoadBBox :: sInitTileLoop :: Nil) = states.take(12)
-  val (sClearTile :: sStageUniforms :: sLoadRastShader :: sLoadFragShader ::
-       sEnqueueTile :: sIteratePixels :: sWaitRast :: sWaitFlush :: sWaitFlushSync :: sNextTile ::
-       sNextTriangle :: sBinTri :: sWaitBinner :: sDone :: Nil) = states.drop(12)
+       sLoadBBox :: sBinTri :: sWaitBinner :: sStageUniforms :: sStoreSetup :: sNextTriangle :: Nil) = states.take(16)
+  val (sLoadRastShader :: sLoadFragShader :: sStartPass2 ::
+       sReadBinCount :: sWaitBinCount :: sClearTile ::
+       sReadBinEntry :: sWaitBinEntry :: sLoadTriSetup ::
+       sEnqueueTile :: sIteratePixels :: sWaitRast :: sWaitFlush :: sWaitFlushSync ::
+       sNextBinTri :: sNextRenderTile :: sDone :: Nil) = states.drop(16)
   val state = RegInit(sIdle)
 
   // Which state to enter after DMA completes
@@ -241,13 +272,22 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   // Step 31.3: Current triangle index (0 to 15)
   val triIdx = RegInit(0.U(5.W))
 
-  // Step 31.4: Tile loop registers
+  // Step 31.4: Tile loop registers (reused for Pass 2 full-screen iteration)
   val tileX = RegInit(0.U(cfg.coordWidth.W))
   val tileY = RegInit(0.U(cfg.coordWidth.W))
   val bboxMinX = RegInit(0.U(16.W))
   val bboxMinY = RegInit(0.U(16.W))
   val bboxMaxX = RegInit(0.U(16.W))
   val bboxMaxY = RegInit(0.U(16.W))
+
+  // Step 32.3: Pass 2 registers
+  val binTriIdx   = RegInit(0.U(10.W))  // current index into tile's bin list
+  val binTriCount = RegInit(0.U(10.W))  // number of triangles in current tile's bin
+  val binEntryData = RegInit(0.U(16.W)) // triangle index read from PSRAM bin list
+  // storeWriteIdx: separate counter for sStoreSetup (shares same range as writeIdx)
+  val storeWriteIdx = RegInit(0.U(5.W))
+  // uDataReg: latched uniform value for PSRAM store (computed during sStageUniforms)
+  val uDataStore = RegInit(VecInit.fill(31)(0.U(16.W)))
 
   // General-purpose sequential write counter
   // - sWriteSetupInputs: 0-5 (6 uniform writes)
@@ -342,6 +382,13 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   io.binnerBbox.max.y  := bboxMaxY(9, 0)
   io.binnerClearCounts := false.B
 
+  // --- Step 32.3: Store + count read output defaults ---
+  io.storeActive    := state === sStoreSetup
+  io.storeReq       := false.B
+  io.storeAddr      := 0.U
+  io.storeWdata     := 0.U
+  io.countReadAddr  := 0.U
+  io.countReadEn    := false.B
 
 
   // --- FSM ---
@@ -569,16 +616,40 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       io.uniformWrite.addr := Cat(uniformPage, writeIdx(4, 0))
       io.uniformWrite.data := uData
 
-
+      // Step 32.3: Latch computed uniform into uDataStore for PSRAM write
+      uDataStore(writeIdx) := uData
 
       when(writeIdx === 30.U) {
-        state := sLoadRastShader
+        storeWriteIdx := 0.U
+        state := sStoreSetup
       }.otherwise {
         writeIdx := writeIdx + 1.U
       }
     }
 
-    // --- Step 31.2: Shader Reload ---
+    // --- Step 32.3: Store uniforms to PSRAM setup store ---
+    // Write all 31 uniform values (latched in uDataStore) to PSRAM at
+    // setupBase + triIdx * 128 + storeWriteIdx * 4.
+    // Each value is stored as a 32-bit word (low 16 bits = uniform, high = 0).
+    is(sStoreSetup) {
+      val psramAddr = io.setupBase + (triIdx << 7) + (storeWriteIdx << 2)
+      io.storeReq   := true.B
+      io.storeAddr  := psramAddr
+      io.storeWdata := uDataStore(storeWriteIdx)
+      when(io.storeReady) {
+        when(storeWriteIdx === 30.U) {
+          state := sNextTriangle
+        }.otherwise {
+          storeWriteIdx := storeWriteIdx + 1.U
+        }
+      }
+    }
+
+    // =====================================================================
+    //  Pass 2: Shader reload + full-screen tile render
+    // =====================================================================
+
+    // --- Shader Reload (once before Pass 2) ---
     // Load rast shader from PSRAM into IMEM via DMA
     is(sLoadRastShader) {
       val desc = Wire(new DMADescriptor)
@@ -605,18 +676,36 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       dmaDescReg   := desc
       io.dmaDesc   := desc
       io.dmaStart  := true.B
-      nextAfterDMA := sInitTileLoop
+      nextAfterDMA := sStartPass2
       state        := sWaitDMA
     }
 
-    // --- Step 31.4: Autonomous Tile Iteration ---
-    is(sInitTileLoop) {
-      tileX := bboxMinX
-      tileY := bboxMinY
-      state := sClearTile
-      writeIdx := 0.U
+    // --- Start Pass 2: iterate ALL framebuffer tiles ---
+    is(sStartPass2) {
+      tileX := 0.U
+      tileY := 0.U
+      // Issue count read for tile (0,0) = tile index 0
+      io.countReadAddr := 0.U
+      io.countReadEn   := true.B
+      state := sReadBinCount
     }
 
+    // Read the bin count for the current tile from binner's on-chip SRAM.
+    // The count read was issued in the previous state (sStartPass2 or sNextRenderTile).
+    // SyncReadMem has 1-cycle latency, so wait one cycle.
+    is(sReadBinCount) {
+      state := sWaitBinCount
+    }
+
+    // Latch the count data (available now after the 1-cycle SyncReadMem read).
+    is(sWaitBinCount) {
+      binTriCount := io.countReadData
+      binTriIdx   := 0.U
+      writeIdx    := 0.U
+      state       := sClearTile
+    }
+
+    // --- Tile clear (reused from Step 31.4) ---
     is(sClearTile) {
       // Pulse tileCtrlClear for exactly one cycle (writeIdx=0), then wait
       // for BorgTileBuffer to finish its 16-cycle BRAM clear sequence.
@@ -628,33 +717,87 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       }.elsewhen(writeIdx < 18.U) {
         writeIdx := writeIdx + 1.U
       }.otherwise {
-        state := sEnqueueTile
+        // After clear: if this tile has triangles, start the inner bin loop.
+        // Otherwise, flush the clear color directly.
+        when(binTriCount === 0.U) {
+          state := sWaitFlush
+        }.otherwise {
+          // Read first bin entry (triangle index) from PSRAM
+          // addr = binBase + tileLinearIndex * binRowBytes + binTriIdx * 2
+          state := sReadBinEntry
+        }
       }
     }
 
+    // --- Read triangle index from PSRAM bin list via DMA ---
+    is(sReadBinEntry) {
+      val tileLinear = ((tileY >> 2) * io.tilesPerRow) + (tileX >> 2)
+      val entryAddr  = io.binBase + (tileLinear * io.binRowBytes) + (binTriIdx << 1)
+      val desc = Wire(new DMADescriptor)
+      desc.baseAddr := entryAddr
+      desc.length   := 1.U  // 1 word (bin entry = uint16, stored in low half of 32b word)
+      desc.dest     := 2.U  // snoop only — data captured in DMA snoop handler below
+      desc.offset   := 0.U
+
+      dmaDescReg   := desc
+      io.dmaDesc   := desc
+      io.dmaStart  := true.B
+      nextAfterDMA := sWaitBinEntry
+      state        := sWaitDMA
+    }
+
+    // Bin entry has been snooped by the DMA handler into binEntryData.
+    // Now DMA-load the triangle's setup uniforms from PSRAM.
+    is(sWaitBinEntry) {
+      state := sLoadTriSetup
+    }
+
+    // DMA-load the triangle's 31 setup uniforms from PSRAM into the uniform buffer.
+    // addr = setupBase + binEntryData * 128
+    is(sLoadTriSetup) {
+      val desc = Wire(new DMADescriptor)
+      desc.baseAddr := io.setupBase + (binEntryData << 7)
+      desc.length   := 31.U  // 31 words
+      desc.dest     := Mux(uniformPage === 0.U, 1.U, 2.U)  // page 0 or 1
+      desc.offset   := 0.U
+
+      dmaDescReg   := desc
+      io.dmaDesc   := desc
+      io.dmaStart  := true.B
+      nextAfterDMA := sEnqueueTile
+      state        := sWaitDMA
+    }
+
+    // --- Per-triangle rasterization (reused from Step 31.4) ---
     is(sEnqueueTile) {
-      // Enqueue the tile command (one-shot — transition immediately).
-      // Pipeline-idle guard is in sWaitRast (!autoRunStall && !tileCompleteLatch);
-      // holding valid here for multiple cycles would inject duplicate commands.
       io.enqueueTile.valid := true.B
       state := sIteratePixels
     }
 
-    // Send the first advance pulse.  Immediately transition to sWaitRast which
-    // will gate subsequent pulses on !autoRunStall.
     is(sIteratePixels) {
       io.iteratePixels := true.B
       state := sWaitRast
     }
 
     is(sWaitRast) {
-      // Gate each advance pulse: only fire when the pipeline is idle AND the
-      // tile is not yet complete.  Use the registered tileComplete (tileCompleteLatch)
-      // to break the advance→tileComplete→iteratePixels→advance combinational loop.
       when(!io.autoRunStall && !tileCompleteLatch) {
         io.iteratePixels := true.B
       }
       when(tileCompleteLatch) {
+        state := sNextBinTri
+      }
+    }
+
+    // Advance to next triangle in this tile's bin list, or flush
+    is(sNextBinTri) {
+      val nextBinIdx = binTriIdx + 1.U
+      when(nextBinIdx < binTriCount) {
+        binTriIdx := nextBinIdx
+        clearTileComplete := true.B
+        writeIdx := 0.U
+        // Don't re-clear tile buffer — fragments accumulate on top of clear color
+        state := sReadBinEntry
+      }.otherwise {
         state := sWaitFlush
       }
     }
@@ -666,44 +809,50 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
     is(sWaitFlushSync) {
       when(!io.flushBusy) {
-        state := sNextTile
+        state := sNextRenderTile
       }
     }
 
-    is(sNextTile) {
-      // bboxMaxX/Y are exclusive ends (firmware writes bbox.x1/y1 which are
-      // already one-past-the-last-pixel, matching compute_bbox convention).
-      // Use >= so we stop *at* the exclusive boundary, not one tile past it.
-      val nextX = tileX + 4.U
-      when(nextX >= bboxMaxX) {
-        tileX := bboxMinX
-        val nextY = tileY + 4.U
-        when(nextY >= bboxMaxY) {
-          state := sNextTriangle
+    // Advance to next tile in full-screen iteration
+    is(sNextRenderTile) {
+      val nextTileX = (tileX >> 2) + 1.U
+      when(nextTileX >= io.fbWidthTiles) {
+        tileX := 0.U
+        val nextTileY = (tileY >> 2) + 1.U
+        when(nextTileY >= io.fbHeightTiles) {
+          state := sDone
         }.otherwise {
-          tileY := nextY
-          writeIdx := 0.U
-          state := sClearTile
+          tileY := nextTileY << 2
+          // Issue count read for the next tile
+          val nextTileLinear = nextTileY * io.tilesPerRow
+          io.countReadAddr := nextTileLinear(9, 0)
+          io.countReadEn   := true.B
+          state := sReadBinCount
         }
       }.otherwise {
-        tileX := nextX
-        writeIdx := 0.U
-        state := sClearTile
+        tileX := nextTileX << 2
+        // Issue count read for the next tile
+        val nextTileLinear = ((tileY >> 2) * io.tilesPerRow) + nextTileX
+        io.countReadAddr := nextTileLinear(9, 0)
+        io.countReadEn   := true.B
+        state := sReadBinCount
       }
     }
 
-    // Step 31.3: Advance to next triangle, or finish
+    // =====================================================================
+    //  Pass 1: Triangle loop
+    // =====================================================================
+
+    // Advance to next triangle, or start Pass 2
     is(sNextTriangle) {
       val nextIdx = triIdx + 1.U
-      // triCount represents the number of triangles to process (1 to 16).
-      // So if triCount is 0, we still process 1 (or we can just compare properly).
-      // Firmware should write triCount >= 1.
       when(nextIdx < io.triCount) {
         triIdx  := nextIdx
         vertIdx := 0.U
         state   := sLoadShader
       }.otherwise {
-        state   := sDone
+        // All triangles processed — start Pass 2 (shader reload + tile render)
+        state := sLoadRastShader
       }
     }
 
@@ -756,7 +905,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   when(state === sLoadBBox) {
     bboxWordIdx := 0.U
   }
-  when(io.dmaSnoop.valid && state === sWaitDMA && nextAfterDMA === sStageUniforms) {
+  when(io.dmaSnoop.valid && state === sWaitDMA && nextAfterDMA === sBinTri) {
     when(bboxWordIdx === 0.U) {
       bboxMinX := io.dmaSnoop.bits(15, 0)
       bboxMinY := io.dmaSnoop.bits(31, 16)
@@ -766,5 +915,12 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       bboxMaxY := io.dmaSnoop.bits(31, 16)
       bboxWordIdx := 2.U
     }
+  }
+
+  // --- Step 32.3: DMA snoop for bin entry data ---
+  // When DMA reads a bin list entry (1 word, snoop-only), capture the low 16 bits
+  // as the triangle index for sLoadTriSetup.
+  when(io.dmaSnoop.valid && state === sWaitDMA && nextAfterDMA === sWaitBinEntry) {
+    binEntryData := io.dmaSnoop.bits(15, 0)
   }
 }

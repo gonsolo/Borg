@@ -733,6 +733,23 @@ reg seq_bin_row_bytes_reg_t {
     } RSVD[12] = 0;
 };
 
+// --- Sequencer: TBR setup store base address (Step 32.3) ---
+reg seq_setup_base_reg_t {
+    name = "Sequencer Setup Store Base Address";
+    desc = "20-bit PSRAM byte address of the TBR setup store region.
+            Each triangle's 31 uniforms are stored at stride 128 bytes.
+            Written by firmware at frame start.  nogen: decoded in Borg.scala.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 19:0: 20-bit PSRAM byte address of setup store base.";
+    } addr[20] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[12] = 0;
+};
+
 // --- 16-bit FP register (stored in 32-bit word, upper bits ignored on write) ---
 reg gpr_reg_t {
     name = "General Purpose Register";
@@ -926,4 +943,8 @@ addrmap borg_gpu {
     // ---- Sequencer Bin Row Bytes: 0x264 — nogen (Step 32.2) ----
     seq_bin_row_bytes_reg_t seq_bin_row_bytes;
     seq_bin_row_bytes->nogen = true;
+
+    // ---- Sequencer Setup Store Base: 0x268 — nogen (Step 32.3) ----
+    seq_setup_base_reg_t seq_setup_base;
+    seq_setup_base->nogen = true;
 };

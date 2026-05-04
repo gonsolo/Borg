@@ -44,6 +44,14 @@ class BorgBinnerIO extends Bundle {
   /** One-cycle pulse to zero all per-tile counters. Assert once per frame
     * before the first triangle is binned. */
   val clearCounts = Input(Bool())
+
+  // --- Step 32.3: External count read port (for Pass 2 tile render) ---
+  /** Tile index to read the triangle count for. */
+  val countReadAddr = Input(UInt(10.W))
+  /** Read enable — assert for one cycle; data valid on next cycle. */
+  val countReadEn   = Input(Bool())
+  /** Triangle count for the tile addressed by countReadAddr (1-cycle latency). */
+  val countReadData = Output(UInt(10.W))
 }
 
 /** BorgBinner — per-tile bin list writer (Step 32.1).
@@ -119,7 +127,16 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
   // --- SRAM read port ---
   // SyncReadMem: issue the read in sReadCount; data is valid in sWaitCount.
   // The enable is gated to sReadCount so we don't issue spurious reads.
-  val countReadData = countMem.read(curTileIndex, state === sReadCount)
+  // Step 32.3: External read port shares the same SyncReadMem read port.
+  // During binning (state != sIdle), the binner's internal tile index drives reads.
+  // When idle, the external countReadAddr/countReadEn drives the read port
+  // so the sequencer can query per-tile counts for Pass 2.
+  val extReadEn = io.countReadEn && state === sIdle && !clearing
+  val intReadEn = state === sReadCount
+  val readAddr  = Mux(intReadEn, curTileIndex, io.countReadAddr)
+  val readEn    = intReadEn || extReadEn
+  val countReadData = countMem.read(readAddr, readEn)
+  io.countReadData := countReadData
 
   // --- Output defaults ---
   io.busy := state =/= sIdle || clearing

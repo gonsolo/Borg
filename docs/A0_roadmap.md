@@ -714,28 +714,23 @@ Extended `BorgSequencer` FSM with per-triangle geometry pass:
 - FSM state count: 24 → 26.
 - `make test-all` green; lint clean (added `countMem*.sv` suppression).
 
-#### 32.3 BorgSequencer: tile render pass (Pass 2)
+#### ✅ 32.3 BorgSequencer: tile render pass (Pass 2) — 2026-05-04
 
-Add second phase that iterates the framebuffer tile-by-tile:
+Restructured the sequencer into a true two-pass TBR (26 → 33 FSM states):
 
-```text
-sRenderPass: for tile in 0..numTiles-1:
-  sFillClear    ← write seq_clear_lo/hi into all 16 tile buffer slots
-  for each tri in binList[tile]:  (zero iterations if empty tile)
-    sLoadSetup  ← DMA-read setupStore[tri] → uniformMem[0..11]
-    sLoadRastShader → sLoadFragShader (already in IMEM if unchanged)
-    sEnqueueTile → sIteratePixels → sWaitRast
-  sWaitFlush    ← flush tile to PSRAM once (always — even empty tiles)
-→ sDone
-```
+**Pass 1 (geometry)**: for each triangle: vert+setup+bin → `sStageUniforms` → **`sStoreSetup`** (writes all 31 uniforms to PSRAM at `setupBase + triIdx*128`) → `sNextTriangle`.
 
-Empty tiles flush the clear color to PSRAM in one burst write.
-Non-empty tiles rasterize fragments on top of the clear-filled buffer.
-No tile is ever skipped — stale PSRAM from a previous frame is never visible.
+**Pass 2 (tile render)**: once after all triangles binned — rast+frag shaders loaded once → `sStartPass2` iterates ALL framebuffer tiles:
+- `sReadBinCount` / `sWaitBinCount`: query per-tile triangle count from binner's on-chip SRAM via new `countRead` port.
+- `sClearTile` → if count=0: `sWaitFlush` directly (empty tile, only clear color flushed).
+- Otherwise: `sReadBinEntry` (DMA 1 word, snoop) → `sWaitBinEntry` → `sLoadTriSetup` (DMA 31 uniforms from setupBase+tri*128) → `sEnqueueTile` → `sIteratePixels` → `sWaitRast` → `sNextBinTri` loop.
+- `sWaitFlush` / `sWaitFlushSync` → `sNextRenderTile` → `sDone`.
 
-Shader IMEM stays loaded across inner loop iterations (no reload if same triangle
-count); only setup uniforms change.
-Gate: `m test-all` 12/12 green; render output pixel-perfect vs. single-pass baseline.
+**New IO**: `setupBase`, `storeActive/Req/Addr/Wdata/Ready`, `countReadAddr/En/Data`, `fbWidthTiles`, `fbHeightTiles`.  
+**New MMIO**: `SEQ_SETUP_BASE` (0x268).  
+**BorgBinner**: added external `countRead` port (SyncReadMem shared between internal binning and sequencer queries).  
+**Arb mux**: binner + seq store unified as "geo engine" (DMA > Flusher > Geo > Rast).  
+`make test-all` green (23/23 Chisel tests).
 
 #### 32.4 Driver integration
 
