@@ -677,25 +677,31 @@ Define the two new regions that live after the existing framebuffer:
 > **Scalability notes (applied before hardware):**
 >
 > - Triangle indices are `uint16_t` (not `uint8_t`) — cap is 65 535, not 255.
-> - `SEQ_MAX_TRI = 1024` in `borg_layout.h` is the **single source of truth**; `BORG_MAX_DRAWS` in `borg_driver.c` is derived from it.
+> - `SEQ_MAX_TRI = 1024` in `borg_layout.h` is the **PSRAM layout constant** (bin list + setup store sizing). It does **not** allocate RAM.
+> - `BORG_MAX_DRAWS = 12` in `borg_driver.c` is the **in-RAM draw-call buffer**; it stays at 12 (constrained by the 0x600-byte PSRAM descriptor window). These two constants are intentionally decoupled.
 > - Base addresses (`tbr_bin_base`, `tbr_setup_base`) are computed at runtime in `borgCreateDevice()` after the framebuffer size is known, so they automatically adjust to any resolution.
 > - Setup store stride is 64 B (power of 2) → address = `tbr_setup_base + (tri << 6)`, no multiplier needed in hardware.
+
 
 For vk_cube (12 tri, 10×8 tiles): 80 × 12 × 2 = 1.9 KB bin lists + 768 B setup store.\
 For 1 000 tri, 80 tiles: 160 KB bin lists + 64 KB setup store — well within 8 MB PSRAM.
 
 Add constants to `borg_layout.h`; update `borg_driver.c` (`borgCreateDevice` computes bases).
 
-#### 32.1 BorgBinner — bin list writer
+#### 32.1 BorgBinner — bin list writer ✅ (2026-05-04)
 
-New small Chisel module `BorgBinner`:
+New Chisel module `BorgBinner` (`BorgBinner.scala`):
 
-- Inputs: triangle index, setup-phase bbox `{y0,x0,y1,x1}` (tiled), trigger.
+- Inputs: triangle index (`uint16`), setup-phase bbox `{y0,x0,y1,x1}` (tiled), trigger.
 - For each tile in bbox: DMA-write triangle index to `binList[tile][count[tile]++]`
-  in PSRAM. Count register per tile lives in a small SRAM (numTiles entries).
+  in PSRAM. Per-tile count lives in a `SyncReadMem` SRAM (maxTiles entries × 10 bits).
+- FSM: `sIdle → sReadCount → sWaitCount → sWritePsram → sStoreCount → sNextTile → ...`
 - Output: `done` strobe when all tiles written.
-- Gated behind `hasBinner: Boolean` in `BorgConfig`; invisible to FPGA iCE40 target.
-  Gate: Chisel unit test verifies correct bin list contents in Verilator simulation.
+- Gated behind `hasBinner: Boolean` in `BorgConfig`; disabled on iCE40 (`PicoIce`).
+- Scaffolded in `Borg.scala` (`wireBinner()`): all inputs tied to idle defaults.
+  Step 32.2 replaces tie-offs with sequencer wires and adds GpuMem to the arb mux.
+- Unit tests: 5/5 green (idle, single tile, 2×2 bbox, count increment, clear counts).
+
 
 #### 32.2 BorgSequencer: geometry pass (Pass 1)
 

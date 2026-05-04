@@ -27,7 +27,8 @@ case class BorgConfig(
     hasImemMmio: Boolean = true,
     hasDMA: Boolean = true,
     hasFlusher: Boolean = true,
-    hasSequencer: Boolean = true
+    hasSequencer: Boolean = true,
+    hasBinner: Boolean = true
 ) {
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
@@ -46,7 +47,8 @@ object BorgConfig {
     hasImemMmio  = true,  // reverted: hasDMA=false requires MMIO for shader loading
     hasDMA       = false, // ~327 LCs synthesised (2026-04-29); retry after LC budget cleared
     hasFlusher   = false, // costs +222 LCs at nextpnr (230 over budget); ULX3S milestone
-    hasSequencer = false  // LC budget: +45 LCs estimated; ULX3S/Sim only
+    hasSequencer = false, // LC budget: +45 LCs estimated; ULX3S/Sim only
+    hasBinner    = false  // Step 32.1: ULX3S/Sim only
   )
 
   /** ULX3S ECP5-85K stub — no hardware available yet (Step 27).
@@ -60,7 +62,8 @@ object BorgConfig {
     hasImemMmio  = false, // DMA used for shader loading on ECP5
     hasDMA       = true,  // ECP5 has ample headroom (+327 LCs is negligible)
     hasFlusher   = true,  // hardware tile flusher enabled
-    hasSequencer = true   // vertex/triangle setup sequencer (Step 29)
+    hasSequencer = true,  // vertex/triangle setup sequencer (Step 29)
+    hasBinner    = true   // Step 32.1: TBR bin list writer
   )
 
   /** Verilator / Arcilator simulation: no area constraint. */

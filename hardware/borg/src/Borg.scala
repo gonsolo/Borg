@@ -101,6 +101,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val dma = if (cfg.hasDMA) Some(Module(new BorgDMA)) else None
   val flusher = if (cfg.hasFlusher) Some(Module(new BorgTileFlusher())) else None
   val sequencer = if (cfg.hasSequencer) Some(Module(new BorgSequencer(cfg))) else None
+  val binner = if (cfg.hasBinner) Some(Module(new BorgBinner())) else None
 
   wireBus()
   wireRdlRegs()
@@ -109,8 +110,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   wireTileBuffer()
   wireFlusher()
   wireSequencer()
+  wireBinner()
   wireMmioRead()
   wireDMA()
+
 
   private def wireRdlRegs(): Unit = {
     rdlRegs.io.bus.address   := bus.address
@@ -641,4 +644,36 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         rdlRegs.io.hw.status_seq_busy := 0.U
     }
   }
+
+  /** Step 32.1: Wire BorgBinner — scaffolded for Step 32.2 sequencer integration.
+    *
+    * For now, all control inputs are tied to safe defaults (idle).
+    * In Step 32.2, the sequencer's geometry pass will drive:
+    *   - start, triIndex, bbox, clearCounts
+    * The binner's GpuMemIO write port will be added to the PSRAM
+    * arbitration mux in wireRasterizer() at that point.
+    */
+  private def wireBinner(): Unit = {
+    binner match {
+      case Some(b) =>
+        // Scaffold tie-offs (Step 32.2 will replace these with sequencer wires)
+        b.io.start       := false.B
+        b.io.triIndex    := 0.U
+        b.io.bbox.min.x  := 0.U
+        b.io.bbox.min.y  := 0.U
+        b.io.bbox.max.x  := 0.U
+        b.io.bbox.max.y  := 0.U
+        b.io.binBase     := 0.U
+        b.io.binRowBytes := 0.U
+        b.io.tilesPerRow := 0.U
+        b.io.clearCounts := false.B
+
+        // GpuMem port: tie off for now; Step 32.2 will add to the arb mux.
+        b.io.gpuMem.data  := 0.U
+        b.io.gpuMem.ready := false.B
+
+      case None => // hasBinner=false: nothing to wire
+    }
+  }
 }
+
