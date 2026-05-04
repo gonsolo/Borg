@@ -665,17 +665,26 @@ Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
 > geometry pass that bins all triangles to tiles, then a tile-render pass that flushes
 > each tile **exactly once per frame**, eliminating overdraw write bandwidth.
 
-#### 32.0 PSRAM memory layout
+#### 32.0 PSRAM memory layout ✅ (2026-05-04)
 
 Define the two new regions that live after the existing framebuffer:
 
-| Region | Size | Notes |
-| --- | --- | --- |
-| Per-tile bin lists | `maxTri × numTiles × 1 B` | triangle indices; fixed-size rows |
-| Per-triangle setup store | `maxTri × 64 B` | precomputed edge equations (u0–u11) |
+| Region | Entry size | Total (runtime) | Notes |
+| --- | --- | --- | --- |
+| Per-tile bin lists | **2 B** (`uint16_t` index) | `numTiles × SEQ_MAX_TRI × 2` | triangle indices; fixed-size rows |
+| Per-triangle setup store | 64 B | `SEQ_MAX_TRI × 64` | precomputed edge equations (u0–u11, 24 B) + 40 B reserved for future fields |
 
-For vk_cube: 12 triangles × (10×8) tiles = 960 B bin lists + 768 B setup store.
-Add constants to `borg_layout.h`; update `generate.py` and `borg_driver.c`.
+> **Scalability notes (applied before hardware):**
+>
+> - Triangle indices are `uint16_t` (not `uint8_t`) — cap is 65 535, not 255.
+> - `SEQ_MAX_TRI = 1024` in `borg_layout.h` is the **single source of truth**; `BORG_MAX_DRAWS` in `borg_driver.c` is derived from it.
+> - Base addresses (`tbr_bin_base`, `tbr_setup_base`) are computed at runtime in `borgCreateDevice()` after the framebuffer size is known, so they automatically adjust to any resolution.
+> - Setup store stride is 64 B (power of 2) → address = `tbr_setup_base + (tri << 6)`, no multiplier needed in hardware.
+
+For vk_cube (12 tri, 10×8 tiles): 80 × 12 × 2 = 1.9 KB bin lists + 768 B setup store.\
+For 1 000 tri, 80 tiles: 160 KB bin lists + 64 KB setup store — well within 8 MB PSRAM.
+
+Add constants to `borg_layout.h`; update `borg_driver.c` (`borgCreateDevice` computes bases).
 
 #### 32.1 BorgBinner — bin list writer
 

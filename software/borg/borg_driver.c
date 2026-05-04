@@ -29,9 +29,12 @@
 // Maximum tiles for the largest supported framebuffer (128×128 / 4×4 = 32×32
 // tiles).
 #define BORG_MAX_TILES 1024      // (128/4)*(128/4) = 1024
-#define BORG_MAX_DRAWS 12        // max draw calls per frame
-                                  // SEQ_DESC_BASE_ADDR(0x4A00) to TEX_START(0x5000) = 0x600 = 12 × 128B
-#define BORG_MAX_TRIS_PER_TILE 8 // max triangles that can touch one tile
+// BORG_MAX_DRAWS: in-RAM draw-call buffer.  Capped by the PSRAM descriptor
+// window: SEQ_DESC_BASE_ADDR(0x4A00)..TEX_START(0x5000) = 0x600 = 12×128B.
+// This is separate from SEQ_MAX_TRI (the PSRAM TBR layout capacity defined in
+// borg_layout.h). SEQ_MAX_TRI does NOT allocate RAM; BORG_MAX_DRAWS does.
+#define BORG_MAX_DRAWS 12           // max draw calls buffered in RAM per frame
+#define BORG_MAX_TRIS_PER_TILE 8    // max triangles that can touch one tile
 
 // Sequencer auto-detection (set in borgCreateGraphicsPipeline).
 // Sim/ULX3S: hasSequencer=true → autonomous uniform staging.
@@ -100,11 +103,15 @@ static const uint32_t seq_setup_shader[] = {
 };
 #define SEQ_SETUP_SHADER_LEN (sizeof(seq_setup_shader) / sizeof(seq_setup_shader[0]))
 
-// Per-tile triangle list (the "bin").
+// Per-tile triangle list (the in-RAM "bin").
 // bin_count[t] = number of draw calls touching tile t
 // bin_list[t][i] = index into draw_calls[] for the i-th triangle on tile t
+// uint8_t is sufficient: BORG_MAX_DRAWS = 12, indices are always 0..11.
+// The PSRAM bin list (Step 32.1 BorgBinner) uses uint16_t entries for
+// thousands of triangles — that is a separate, hardware-managed structure.
 static uint8_t bin_count[BORG_MAX_TILES];
 static uint8_t bin_list[BORG_MAX_TILES][BORG_MAX_TRIS_PER_TILE];
+
 
 typedef struct {
   int w, h;
@@ -121,6 +128,14 @@ int borg_fb_width;
 int borg_fb_height;
 static fp16_t fp16_half_width;
 static fp16_t pc_lut[BORG_MAX_FB_DIM];
+
+// Step 32.0: TBR PSRAM geometry region base addresses.
+// Computed in borgCreateDevice() after framebuffer size is known.
+// Layout (SPI byte addresses, sequential after the output framebuffer):
+//   tbr_bin_base:   per-tile bin lists  (num_tiles × TBR_BIN_ROW_BYTES)
+//   tbr_setup_base: per-triangle store  (SEQ_MAX_TRI × TBR_SETUP_ENTRY_BYTES)
+uint32_t tbr_bin_base   = 0;  // set in borgCreateDevice
+uint32_t tbr_setup_base = 0;  // set in borgCreateDevice
 
 // Integer bounding box (clamped to framebuffer).
 typedef struct {
@@ -255,6 +270,22 @@ void borgCreateDevice(void) {
   BORG_GPU->flush_width = log2_w;
 
   t_init_cycles = get_cycles() - t_init;
+
+  // Step 32.0: Compute TBR PSRAM geometry region base addresses.
+  // These regions live after the output framebuffer (PSRAM_OUT_OFFSET covers
+  // one frame of borg_fb_width × borg_fb_height pixels × 2 words × 4 bytes).
+  {
+    int num_tiles = (borg_fb_width >> 2) * (borg_fb_height >> 2);
+    // Framebuffer ends at PSRAM_SPI_BASE + PSRAM_OUT_OFFSET +
+    //   FRAME_STRIDE * sizeof(uint32_t).  We place TBR regions after that.
+    uint32_t fb_end_spi = (uint32_t)PSRAM_SPI_BASE + (uint32_t)PSRAM_OUT_OFFSET
+                        + (uint32_t)FRAME_STRIDE * 4u;
+    // Bin list: num_tiles rows, each TBR_BIN_ROW_BYTES wide.
+    tbr_bin_base   = fb_end_spi;
+    uint32_t bin_region_bytes = (uint32_t)num_tiles * TBR_BIN_ROW_BYTES;
+    // Setup store: SEQ_MAX_TRI entries, each TBR_SETUP_ENTRY_BYTES wide.
+    tbr_setup_base = tbr_bin_base + bin_region_bytes;
+  }
 }
 
 void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
@@ -541,6 +572,7 @@ static void borgBin(void) {
         int cnt = bin_count[tile_index];
         if (cnt < BORG_MAX_TRIS_PER_TILE) {
           bin_list[tile_index][cnt] = (uint8_t)dc;
+
           bin_count[tile_index] = cnt + 1;
         }
       }
