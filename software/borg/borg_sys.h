@@ -40,8 +40,8 @@
 #ifndef PSRAM_BASE
 #define PSRAM_BASE 0x01001000
 #endif
-#define PSRAM_IN(n)   (*(volatile uint32_t *)(PSRAM_BASE + (n) * 4))
-#define PSRAM_OUT(n)  (*(volatile uint32_t *)(PSRAM_BASE + PSRAM_OUT_OFFSET + (n) * 4))
+#define PSRAM_IN(n)   (*(volatile uint32_t *)(uintptr_t)(PSRAM_BASE + (n) * 4))
+#define PSRAM_OUT(n)  (*(volatile uint32_t *)(uintptr_t)(PSRAM_BASE + PSRAM_OUT_OFFSET + (n) * 4))
 // Companion to PSRAM_OUT: converts the same word-index n to the raw SPI byte
 // address used by the hardware flusher (gpuMem.addr in MemoryController).
 // PSRAM_OUT(n) and PSRAM_OUT_SPI(n) address the same physical PSRAM word;
@@ -50,7 +50,7 @@
 // Raw SPI byte address accessor: reads/writes a 32-bit word at an absolute SPI
 // byte address.  Used by the sequencer path to access shader/descriptor regions
 // at fixed addresses (Step 29.5).
-#define PSRAM_OUT_RAW(spi_addr) (*(volatile uint32_t *)(PSRAM_BASE - PSRAM_SPI_BASE + (spi_addr)))
+#define PSRAM_OUT_RAW(spi_addr) (*(volatile uint32_t *)(uintptr_t)(PSRAM_BASE - PSRAM_SPI_BASE + (spi_addr)))
 
 // --- Peripheral base addresses ---
 // These come from the SoC address map (soc.rdl).
@@ -66,7 +66,7 @@
 #endif
 
 // --- UART accessor macros ---
-#define UART_TX      (*(volatile uint32_t *)(UART_BASE + 0x0))
-#define UART_STATUS  (*(volatile uint32_t *)(UART_BASE + 0x4))
-#define UART_BAUD    (*(volatile uint32_t *)(UART_BASE + 0x8))
+#define UART_TX      (*(volatile uint32_t *)(uintptr_t)(UART_BASE + 0x0))
+#define UART_STATUS  (*(volatile uint32_t *)(uintptr_t)(UART_BASE + 0x4))
+#define UART_BAUD    (*(volatile uint32_t *)(uintptr_t)(UART_BASE + 0x8))
 

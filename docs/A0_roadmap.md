@@ -1,6 +1,6 @@
 # Borg GPU — Development Roadmap
 
-## Phase 1: Foundation & First Silicon (Grant Tasks 1-4) ✅
+## Phase 1: Foundation & First Silicon
 
 Target: March 2026 — TTIHP26a shuttle
 
@@ -13,7 +13,7 @@ Target: March 2026 — TTIHP26a shuttle
 - [x] Z-buffer (firmware, per-pixel depth testing)
 - [x] Texture mapping (firmware, UV interpolation + PSRAM sampling)
 - [x] FPGA validation on pico-ice
-- [x] GDS submission (4×2 tiles, IHP SG13G2)
+- [x] GDS submission (4×2 tiles, IHP SG13G2) — [TinyTapeout (tt06)](https://app.tinytapeout.com/projects/3645)
 - [x] 32-bit RISC-V instructions & 32-entry register file
 
 ## Phase 2: GPU Autonomy & Fidelity 🏃

@@ -60,6 +60,8 @@
         pkgs.gnumake
         pkgs.gnused
         pkgs.graphviz # dot binary for gen_hw_diagram.py
+        pkgs.ghostscript
+        pkgs.inkscape
         pkgs.iverilog
         pkgs.icestorm
         pkgs.jdk21
@@ -75,6 +77,7 @@
         pkgs.pandoc
         pkgs.pkg-config
         pkgs.scalafmt
+        pkgs.texlive.combined.scheme-full
         pkgs.tio
         pkgs.typst
         pkgs.verilator

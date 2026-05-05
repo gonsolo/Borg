@@ -1,0 +1,381 @@
+% Borg GPU — HPG 2026 Poster
+% A0 portrait, tikzposter  (HPG 2026 requires portrait)
+
+\documentclass[a0paper,portrait,20pt]{tikzposter}
+
+% ── Theme ──────────────────────────────────────────────────────────────────
+\usetheme{Simple}
+\useblockstyle{Basic}
+
+% ── Teal palette (derived from vkcube_00.png render) ───────────────────────
+\definecolorstyle{Mono}{
+  \definecolor{monoDeep}{HTML}{082830}   % near-black teal
+  \definecolor{monoDark}{HTML}{085868}   % dark teal
+  \definecolor{monoMid} {HTML}{2E6878}   % mid teal
+  \definecolor{monoLight}{HTML}{C8E8E8}  % very pale teal
+  \definecolor{vkbg}    {HTML}{323232}   % vkcube_00.png background
+}{
+  \colorlet{backgroundcolor}{vkbg}
+  \colorlet{framecolor}{black}
+  \colorlet{titlebgcolor}{monoDark}
+  \colorlet{titlefgcolor}{white}
+  \colorlet{blocktitlebgcolor}{monoDark}
+  \colorlet{blocktitlefgcolor}{white}
+  \colorlet{blockbodybgcolor}{monoLight}
+  \colorlet{blockbodyfgcolor}{black}
+  \colorlet{innerblocktitlebgcolor}{monoMid}
+  \colorlet{innerblocktitlefgcolor}{white}
+  \colorlet{innerblockbodybgcolor}{monoLight}
+  \colorlet{innerblockbodyfgcolor}{black}
+  \colorlet{notebgcolor}{monoLight}
+  \colorlet{notefgcolor}{monoDeep}
+  \colorlet{notefrcolor}{black}
+}
+\usecolorstyle{Mono}
+
+% ── Packages ───────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{positioning}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{url}
+\usepackage[final]{qrcode}
+\newcommand{\todo}[1]{\textcolor{red}{[#1]}}
+
+% ── Custom colours ─────────────────────────────────────────────────────────
+\definecolor{borgblue}{HTML}{085868}   % matches dark teal
+\definecolor{borgorange}{HTML}{E87722} % warm amber — complement to teal
+\definecolor{borggreen}{HTML}{1A9080}  % vivid teal-green for checkmarks
+
+% ── Custom block style ─────────────────────────────────────────────────────
+\newcommand{\done}{\textcolor{borggreen}{$\checkmark$}}
+\newcommand{\inprog}{{\textcolor{monoMid}{\textbf{[wip]}}}}
+
+% ── Title ──────────────────────────────────────────────────────────────────
+\title{\parbox{0.85\linewidth}{\centering \textbf{Borg} (\textbf{B}ring yer \textbf{O}wn \textbf{G}Raphics): \\
+  An Open-Source Tile-Based GPU with Silicon Tapeout}}
+\author{Andreas Wendleder}
+\institute{Independent Researcher, Landshut, Germany
+           \quad \texttt{andreas.wendleder@proton.me}
+           \quad \texttt{github.com/gonsolo/Borg}
+           \quad \texttt{orcid.org/0009-0008-8304-2818}}
+\date{HPG 2026, July 17--19, Los Angeles, CA}
+
+\makeatletter
+\settitle{ \vbox{ \centering
+  \color{titlefgcolor} {\bfseries \Huge \@title \par}
+  \vspace*{1em}
+  {\huge \@author \par} \vspace*{0.5em}
+  {\Large \@institute \par} \vspace*{0.5em}
+  {\Large \@date \par}
+} }
+\makeatother
+
+% ══════════════════════════════════════════════════════════════════════════
+\begin{document}
+\maketitle[titletotopverticalspace=4cm, titleverticalspace=2cm]
+
+% ── 3-column portrait layout ───────────────────────────────────────────────
+\begin{columns}
+
+% ════════════════════════════════
+%  COLUMN 1  (left)
+% ════════════════════════════════
+\column{0.333}
+
+\block{Motivation}{
+\begin{itemize}[leftmargin=*,nosep]
+  \item Every commercial GPU hides its microarchitecture behind NDAs
+  \item This blocks \textbf{reproducibility}, \textbf{teaching}, and
+        architectural experiments
+  \item \textbf{Concise:} Hardware (\textbf{1513 LoC} Scala), Compiler (\textbf{1600 LoC} Python), Firmware (\textbf{2000 LoC} C). Total stack \textbf{< 6k lines}.
+  \item Open GPU simulators exist — but \emph{no open GPU has reached silicon}
+\end{itemize}
+
+\medskip
+\textbf{Borg} is the fully open answer: a TBDR GPU \textbf{SoC} in Chisel,
+built with an open toolchain, and \textbf{taped out twice on real silicon}.
+Borg has contributed \textbf{68 patches upstream} to the open EDA ecosystem.
+Integrating the \textbf{TinyQV} RISC-V core (by Michael Bell), Borg provides
+a complete system-level open-source hardware reference.
+
+\medskip
+\begin{center}
+{\large\textcolor{borgorange}{\textbf{To our knowledge: the only open-source GPU\\
+with a completed ASIC tapeout.}}}
+\end{center}
+}
+
+\block{SoC \& TBDR Architecture}{
+Borg is a complete \textbf{RISC-V SoC} featuring the \textbf{TinyQV} core.
+The GPU follows the Tile-Based Deferred Rendering paradigm:
+
+\medskip
+\begin{center}
+  \includegraphics[width=\linewidth]{hw_diagram}\\[0.3em]
+  {\small\itshape Hardware module diagram (generated from Chisel sources)}
+\end{center}
+
+\medskip
+Geometry is processed tile-by-tile; shaded fragments are written to an
+on-chip tile buffer, minimising external memory bandwidth.
+}
+
+\block{FPGA Resource Budget (iCE40 UP5K)}{
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Resource} & \textbf{Used} & \textbf{Available} \\
+\midrule
+Logic Cells    & $\sim$5\,280  & 5\,280 \\
+BRAMs (4 kb)   & $\sim$14     & 30 \\
+DSPs           & 1            & 8 \\
+\bottomrule
+\end{tabular}
+\end{center}
+}
+
+\block{Open-Source Toolchain}{
+\centering
+\begin{tabular}{@{}ll@{}}
+\textbf{HDL}        & Chisel (Scala, \textbf{1513 lines}) \\
+\textbf{Synthesis}  & Yosys \\
+\textbf{P\&R}       & nextpnr-ice40 / \textbf{LibreLane} (Nix) \\
+\textbf{Simulation} & Verilator, cocotb, Arcilator \\
+\textbf{Compiler}   & SPIR-V $\to$ SPIR-B (\textbf{1600 lines} Python) \\
+\textbf{Firmware}   & 32-bit RISC-V (\textbf{2000 lines} C) \\
+\textbf{Reg.\ map}  & PeakRDL-chisel \\
+\textbf{Math Cores} & \textbf{Berkeley Hardfloat} (FMA) \\
+\textbf{PDKs}       & sky130A, gf180mcuD, ihp-sg13g2 \\
+\end{tabular}
+
+\medskip
+\centering
+\textbf{Reproducible Build:} \texttt{direnv} + \textbf{Nix} flakes. \\
+Zero-install setup for all 18+ EDA tools. \\
+\textbf{Ecosystem Impact:} Pioneers the first fully reproducible ASIC flow in \texttt{nixpkgs} (LibreLane merged Jan 2026).
+}
+
+\block{Comparison with Related Open GPUs}{
+\centering
+\begin{tabular}{@{}l@{\hskip 0.5em}c@{\hskip 0.5em}c@{\hskip 0.5em}c@{}}
+\toprule
+& \textbf{Borg} & \textbf{Nyuzi} & \textbf{Vortex} \\
+\midrule
+Architecture    & TBDR    & GPGPU   & RISC-V GPGPU \\
+ISA             & Custom  & Custom  & RV32\\
+Tapeout         & \done   & —       & — \\
+Open toolchain  & \done   & partial & partial \\
+Target          & iCE40   & Arria 5 & Xilinx \\
+\bottomrule
+\end{tabular}
+}
+
+% ════════════════════════════════
+%  COLUMN 2  (centre)
+% ════════════════════════════════
+\column{0.333}
+
+\block{Development Roadmap: Phases 1--6}{
+\begin{itemize}[leftmargin=*,nosep]
+  \item \textbf{Phase 1} \done\ — \textbf{Foundational Architecture} (2025)
+  \item \textbf{Phase 2} \done\ — \textbf{GPU Autonomy / 28-Day Sprint}
+  \item \textbf{Phase 3} — \textbf{Linux-Capable CPU} (M/A/MMU)
+  \item \textbf{Phase 4} — \textbf{Mesa Vulkan Driver} (NIR $\to$ SPIR-B)
+  \item \textbf{Phase 5} — \textbf{Hardware Extensions} (SIMD, Blending)
+  \item \textbf{Phase 6} — \textbf{Vulkan 1.0 Conformance}
+\end{itemize}
+
+\medskip
+\centering
+\begin{tabular}{@{}cl@{}}
+\toprule
+\textbf{Status} & \textbf{Key Phase 2 Milestones} \\
+\midrule
+\done & 32-bit RISC-V ISA + Perspective Proj.\ \\
+\done & Triangle Clipping + Fragment Interpolation \\
+\done & Pixel Iterator (Rasterizer) + Z-Buffer \\
+\done & Command FIFO + SystemRDL Register Map \\
+\done & Texture Fetch (PSRAM) + Shared Mem.\ Ctrl \\
+\done & GPU DMA Engine + Vertex Sequencer \\
+\bottomrule
+\end{tabular}
+}
+
+\block{ASIC Tapeouts (Tiny Tapeout)}{
+\centering \small
+\begin{tabular}{@{}llllr@{}}
+\toprule
+\textbf{Run} & \textbf{Process} & \textbf{Tiles} & \textbf{Content} & \textbf{Cost} \\
+\midrule
+TTIHP26a & IHP 130\,nm  & 8 tiles & FP peripheral & 515\,€ \\
+TTSKY26a & SKY 130\,nm  & 16 tiles & Rasteriser & 1235\,€ \\
+\bottomrule
+\end{tabular}
+
+\medskip
+\centering
+Chips for TTIHP26a expected July 2026.
+}
+
+\block{Current Demo}{
+Running on \textbf{pico-ice} (iCE40 UP5K, 5280 LCs):
+\begin{itemize}[leftmargin=*,nosep]
+  \item 12 textured triangles, 32$\times$32 framebuffer
+  \item Full pipeline: vertex shader $\to$ texture fetch $\to$ Z-buffer $\to$ output
+  \item Orchestrated by integrated \textbf{TinyQV} RISC-V core
+\end{itemize}
+
+  \medskip
+  \begin{center}
+    \includegraphics[width=0.85\linewidth]{vkcube_00}\\[0.4em]
+    {\small\itshape VkCube running in Verilator simulation (500$\times$500)}
+  \end{center}
+
+  \medskip \small
+  \textbf{Bandwidth note:} Current bottleneck is shared PSRAM access.
+  GPU DMA engine (Phase 3) will eliminate CPU involvement.
+}
+
+\block{Future Work \& Open Questions}{
+\begin{itemize}[leftmargin=*,nosep]
+  \item \textbf{VGA/HDMI Video Output} for direct display
+  \item ULX3S port for higher resolution rendering
+  \item BVH ray traversal ISA extensions (path tracing)
+  \item \textsc{Gonzales} path tracer integration
+\end{itemize}
+
+\medskip
+\textbf{Open questions — let's discuss!}
+\begin{itemize}[leftmargin=*,nosep]
+  \item Can a TBDR pipeline scale to multi-core tiles?
+  \item Minimal ISA for hardware BVH traversal?
+  \item How to best expose Borg via Mesa Vulkan?
+\end{itemize}
+}
+
+% ════════════════════════════════
+%  COLUMN 3  (right)
+% ════════════════════════════════
+\column{0.333}
+
+\block{Design Values}{
+\begin{description}[leftmargin=*,nosep]
+  \item[Transparency] No binary blobs, no hidden firmware.
+  \item[Accessibility] Runs on a \$20 FPGA; uses \$500 ASIC runs.
+  \item[Simplicity] Minimalist TBDR pipeline for maximum performance/area.
+\end{description}
+}
+
+\block{The Transparency Gap: Borg vs. Commercial}{
+\centering \small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Feature} & \textbf{Borg} & \textbf{Mobile} & \textbf{Desktop} \\
+\midrule
+RTL Source       & \textbf{Open}   & Proprietary & Proprietary \\
+EDA Toolchain    & \textbf{Libre}  & Proprietary & Proprietary \\
+Silicon Layout   & \textbf{Public} & Secret      & Secret \\
+ISA Specs        & \textbf{Public} & Often NDA   & Proprietary \\
+\bottomrule
+\end{tabular}
+
+\medskip
+\centering \normalsize
+\textbf{Borg} is the only design where researchers can
+inspect the layout and modify logic without NDAs.
+}
+
+\block{Chisel: Hardware as Code}{
+\begin{itemize}[leftmargin=*,nosep]
+  \item \textbf{High Productivity:} 28-day sprint made possible by Scala's
+        expressiveness compared to traditional Verilog/VHDL.
+  \item \textbf{Type Safety:} FIRRTL compiler catches wiring errors early.
+\end{itemize}
+
+\medskip
+\centering
+\itshape ``Borg proves that a single researcher can build a complete GPU pipeline in weeks.''}
+
+\block{Physical Design (GDSII)}{
+  \begin{center}
+    \includegraphics[width=0.95\linewidth]{gds_render_small}
+  \end{center}
+
+  \centering \small
+  \begin{tabular}{@{}ll@{}}
+  \toprule
+  \textbf{Metric} & \textbf{Value (TTSKY26a)} \\
+  \midrule
+  Logic Area      & $1.4 \times 1.4$\,mm (16 tiles) \\
+  Est.\ Gate Count & $\sim$180k (excluding BRAM) \\
+  Clock Target    & 50\,MHz (Standard Cell) \\
+  \bottomrule
+  \end{tabular}
+}
+
+\block{Funding}{
+\begin{center}
+\includegraphics[height=2.2cm]{figures/nlnet_logo}
+\qquad
+\includegraphics[height=2.2cm]{figures/ngi0_logo}
+\end{center}
+\medskip
+Borg is funded by the \textbf{NGI0 Commons Fund}, established by
+NLnet Foundation with financial support from the European Commission's
+Next Generation Internet programme
+(Grant Agreement No.~101135429, DG~CONNECT),
+and by the Swiss State Secretariat for Education, Research and Innovation (SERI).
+}
+
+\block{Selected References}{
+  \footnotesize
+  \begin{enumerate}[leftmargin=1.5em,nosep,label={[\arabic*]}]
+    \item \textbf{M. Bell}, \emph{TinyQV: A RISC-V Core for Tiny Tapeout}, GitHub, 2024.
+    \item \textbf{J. Bush}, \emph{Nyuzi Parallel Processor}, GPGPU-7, 2014.
+    \item \textbf{A. Taneja et al.}, \emph{Vortex: Open Source RISC-V GPGPU}, 2021.
+    \item \textbf{Woop et al.}, \emph{RPU: A Programmable Ray Unit}, SIGGRAPH, 2005.
+    \item \textbf{Bachrach et al.}, \emph{Chisel: Constructing HW in a Scala Embedded DSL}, 2012.
+    \item \textbf{C. Wolf}, \emph{Yosys Open SYnthesis Suite}, 2012.
+    \item \textbf{M. Venn}, \emph{Tiny Tapeout: Open Access Silicon}, tinytapeout.com, 2023.
+    \item \textbf{SkyWater/IHP}, \emph{Open Source 130\,nm PDKs}, 2020--2024.
+    \item \textbf{Berkeley HW Group}, \emph{Hardfloat: Chisel FPU Cores}, 2018.
+    \item \textbf{A. Wendleder}, \emph{LibreLane init in nixpkgs}, PR \#471712, 2026.
+  \end{enumerate}
+}
+
+\block{Learn More}{
+\begin{center}
+\begin{minipage}{0.45\linewidth}
+  \centering
+  \qrcode[height=5cm]{https://github.com/gonsolo/Borg}\\[0.4em]
+  {\small\textbf{Source Code}}
+\end{minipage}
+\hfill
+\begin{minipage}{0.45\linewidth}
+  \centering
+  \qrcode[height=5cm]{https://gonsolo.github.io/Borg}\\[0.4em]
+  {\small\textbf{Book / Docs}}
+\end{minipage}
+\end{center}
+
+\medskip
+\begin{center}
+  \texttt{andreas.wendleder@proton.me} \\
+  \texttt{orcid.org/0009-0008-8304-2818}
+\end{center}
+
+\medskip
+\centering \footnotesize
+Development supported by AI-augmented pair-programming.
+}
+
+\end{columns}
+
+\end{document}

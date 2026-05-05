@@ -118,6 +118,12 @@ def main():
             shutil.rmtree(BOOK_OUT / "images")
         shutil.copytree(DOCS / "images", BOOK_OUT / "images")
         print("  images/ -> book/images/")
+        
+    if (DOCS / "poster").exists():
+        if (BOOK_OUT / "poster").exists():
+            shutil.rmtree(BOOK_OUT / "poster")
+        shutil.copytree(DOCS / "poster", BOOK_OUT / "poster")
+        print("  poster/ -> book/poster/")
     for img in DOCS.glob("*.png"):
         shutil.copy(img, BOOK_OUT / img.name)
         print(f"  {img.name} -> book/{img.name}")

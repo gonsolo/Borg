@@ -1,8 +1,10 @@
 # Borg — An Open-Source GPU
 
+<!-- markdownlint-disable MD033 -->
 <p align="center">
   <img src="gds_render_small.png" alt="Borg GPU GDS Render">
 </p>
+<!-- markdownlint-enable MD033 -->
 
 ## Table of Contents
 
@@ -22,3 +24,4 @@
 3. [The TinyQV CPU](A3_tinyqv_cpu.md) — Nibble-serial RV32I architecture
 4. [Bibliography](A1_bibliography.md) — References and further reading
 5. [Architectural Tricks](A8_architectural_tricks.md) — 15 tricks for minimizing area
+6. [Project Poster](A9_poster.md) — Academic poster summarizing the Borg GPU architecture

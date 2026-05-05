@@ -218,7 +218,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // Single write() call so CIRCT generates a 1-write-port BRAM (avoids unused W1_clk).
     val mmioImemWrite = cfg.hasImemMmio.B &&
         io.bus.is_writing && io.bus.address >= BorgGpuRegs.imem_offset && io.bus.address < 352.U
-    if (cfg.hasDMA) {
+    if (cfg.isLarge) {
       val imemWen  = io.dmaImemWrite.en || mmioImemWrite
       val imemAddr = Mux(io.dmaImemWrite.en, io.dmaImemWrite.addr,
                          (io.bus.address - BorgGpuRegs.imem_offset) >> 2)
@@ -234,7 +234,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val mmioUnifWrite = cfg.hasImemMmio.B &&
         io.bus.is_writing && io.bus.address >= BorgGpuRegs.uniform_offset && io.bus.address < 496.U
     val unifIdx = (io.bus.address - BorgGpuRegs.uniform_offset) >> 2
-    if (cfg.hasDMA) {
+    if (cfg.isLarge) {
       val unifWen  = io.dmaUniformWrite.en || mmioUnifWrite
       val unifAddr = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.addr,
                          Cat(io.control.uniformWritePage, unifIdx(4, 0)))

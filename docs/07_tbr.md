@@ -30,7 +30,7 @@ many triangles overlap that tile. Depth testing is free (on-chip).
 
 ## Memory Layout
 
-```
+```text
 PSRAM address space:
 ─────────────────────────────────────────────────────────
   0x85000 +  framebuffer:   fb_width × fb_height pixels × 2 words (lo/hi)
@@ -55,7 +55,7 @@ sequencer queries them directly via the `countRead` port.
 
 For each triangle (driven by `BorgSequencer`):
 
-```
+```text
 sLoadShader → sRunVert (×3 vertices)
   sWriteSetupInputs → sLoadSetupShader → sRunSetup
     sLoadBBox → sBinTri → sWaitBinner
@@ -64,7 +64,7 @@ sLoadShader → sRunVert (×3 vertices)
 ```
 
 | State | What happens |
-|---|---|
+| --- | --- |
 | `sRunVert` | Vertex shader: NDC → screen-space position (×3 vertices) |
 | `sRunSetup` | Setup shader: edge vectors, signed area, inv_area |
 | `sLoadBBox` | DMA-read tile-aligned bounding box from descriptor |
@@ -80,7 +80,7 @@ After all triangles are processed, Pass 1 is complete. No rasterization occurs.
 Given a triangle index and its tile-aligned bounding box, it iterates over every
 tile in the bbox and writes the triangle's index to that tile's bin list in PSRAM.
 
-```
+```text
 sIdle → sReadCount → sWaitCount → sWritePsram → sStoreCount → sNextTile → ...
 ```
 
@@ -101,26 +101,13 @@ when the rasterizer and flusher are both idle — so contention never occurs.
 Once all triangles are binned, shaders are loaded once into IMEM and the sequencer
 iterates every framebuffer tile:
 
-```
+```text
 sStartPass2 → sReadBinCount → sWaitBinCount → sClearTile
   │  (binTriCount == 0)          └──────────→ sWaitFlush → sWaitFlushSync → sNextRenderTile
   │  (binTriCount > 0)
   └─ sReadBinEntry → sWaitBinEntry → sLoadTriSetup → sEnqueueTile
        → sIteratePixels → sWaitRast → sNextBinTri → (loop or sWaitFlush)
 ```
-
-| State | What happens |
-|---|---|
-| `sReadBinCount` | Query binner's on-chip SRAM for number of triangles in this tile |
-| `sClearTile` | Write clear color to all 16 slots of the on-chip tile buffer SRAM |
-| `sReadBinEntry` | DMA-read the next triangle index from PSRAM bin list (1 word, snooped) |
-| `sLoadTriSetup` | DMA-read 31 uniforms from PSRAM setup store → uniform buffer |
-| `sEnqueueTile` | Push tile (x, y) into dispatcher FIFO |
-| `sIteratePixels` | Send advance pulses; rasterizer+fragment shaders execute per pixel |
-| `sWaitRast` | Wait for `tileComplete` (all 16 pixels shaded) |
-| `sNextBinTri` | If more triangles for this tile: loop back to `sReadBinEntry` |
-| `sWaitFlush` | Trigger HW flusher: writes tile SRAM → PSRAM framebuffer (once per tile) |
-| `sNextRenderTile` | Advance to next tile; query its bin count |
 
 **Empty tiles** (binTriCount == 0) skip the inner triangle loop entirely and flush
 the clear-filled tile buffer directly. No stale data from a previous frame is ever
@@ -133,7 +120,7 @@ reload cost from Step 31.
 ## Sequencer FSM State Count
 
 | Step | States added | Total |
-|---|---|---|
+| --- | --- | --- |
 | 29: Vertex sequencer | sIdle … sWaitSetup (10) | 10 |
 | 29.3: Uniform staging | sStageUniforms | 11 |
 | 31.2: Shader reload | sLoadRastShader, sLoadFragShader | 13 |
@@ -142,9 +129,66 @@ reload cost from Step 31.
 | 32.2: Binning | sBinTri, sWaitBinner | 24 |
 | 32.3: Two-pass TBR | sStoreSetup, sStartPass2, sReadBinCount, sWaitBinCount, sReadBinEntry, sWaitBinEntry, sLoadTriSetup, sNextBinTri, sNextRenderTile | **33** |
 
+## Sequencer FSM States
+
+![BorgSequencer FSM](seq_diagram.svg)
+
+| State | Pass | Description |
+| --- | --- | --- |
+| `sIdle` | Pass 1 | Wait for MMIO trigger to begin rendering. |
+| `sLoadShader` | Pass 1 | Load vertex shader binary from PSRAM into IMEM via DMA |
+| `sWaitDMA` | Pass 1 | Wait for DMA transfer to complete |
+| `sLoadVert` | Pass 1 | Load full vertex data (8 FP16 words: x,y,z,r,g,b,u,v) from descriptor. Descriptor stride is 128 bytes. Vertex i is at descBase + triIdx*128 + i*32 bytes. DMA writes all 8 words to uniform[0..7] in uniform page 0. During the wait, sWaitDMA snoops uniform writes to colorRegs (see below). |
+| `sRunVert` | Pass 1 | Trigger vertex shader execution on BorgCore at PC=0 |
+| `sWaitVert` | Pass 1 | Wait for vertex shader to finish; snoop clip-space outputs (x,y into clipRegs) |
+| `sWriteSetupInputs` | Pass 1 | Write 6 screen-space coordinates from clipRegs into uniform buffer, plus inv_width as u6 for edge normalization (Step 30.1c). u0=v0.x, u1=v0.y, u2=v1.x, u3=v1.y, u4=v2.x, u5=v2.y, u6=inv_width |
+| `sLoadSetupShader` | Pass 1 | Load setup shader from PSRAM into IMEM via DMA |
+| `sRunSetup` | Pass 1 | Trigger setup shader execution on BorgCore at PC=0 |
+| `sWaitSetup` | Pass 1 | Wait for setup shader to finish; snoop outputs into setupRegs |
+| `sLoadBBox` | Pass 1 |  |
+| `sBinTri` | Pass 1 | Trigger BorgBinner for this triangle |
+| `sWaitBinner` | Pass 1 | Wait for BorgBinner to finish writing all tile bins for this triangle. |
+| `sStageUniforms` | Pass 1 | Write all 31 uniform registers (u0-u30) to replace setup_tile_uniforms(). Physical uniform indices match the fixed SPIRB layout: u0-u5:  scaled edge components from setupRegs[0..5] u6-u11: negated vertex positions from FNEG(clipRegs[v][c]) u12:    inv_area from setupRegs[7] u13-u21: colors in barycentric order (v1,v0,v2) × RGB u22-u24: z_vals (z of v1, v0, v2) u25-u30: 0 (UVs — not yet implemented) |
+| `sStoreSetup` | Pass 1 | Write all 31 uniform values (latched in uDataStore) to PSRAM at setupBase + triIdx *128 + storeWriteIdx* 4. Each value is stored as a 32-bit word (low 16 bits = uniform, high = 0). |
+| `sNextTriangle` | Pass 1 | Pass 1: Triangle loop Advance to next triangle, or start Pass 2 |
+| `sIdle` | Pass 2 | Wait for MMIO trigger to begin rendering. |
+| `sLoadShader` | Pass 2 | Load vertex shader binary from PSRAM into IMEM via DMA |
+| `sWaitDMA` | Pass 2 | Wait for DMA transfer to complete |
+| `sLoadVert` | Pass 2 | Load full vertex data (8 FP16 words: x,y,z,r,g,b,u,v) from descriptor. Descriptor stride is 128 bytes. Vertex i is at descBase + triIdx*128 + i*32 bytes. DMA writes all 8 words to uniform[0..7] in uniform page 0. During the wait, sWaitDMA snoops uniform writes to colorRegs (see below). |
+| `sRunVert` | Pass 2 | Trigger vertex shader execution on BorgCore at PC=0 |
+| `sWaitVert` | Pass 2 | Wait for vertex shader to finish; snoop clip-space outputs (x,y into clipRegs) |
+| `sWriteSetupInputs` | Pass 2 | Write 6 screen-space coordinates from clipRegs into uniform buffer, plus inv_width as u6 for edge normalization (Step 30.1c). u0=v0.x, u1=v0.y, u2=v1.x, u3=v1.y, u4=v2.x, u5=v2.y, u6=inv_width |
+| `sLoadSetupShader` | Pass 2 | Load setup shader from PSRAM into IMEM via DMA |
+| `sRunSetup` | Pass 2 | Trigger setup shader execution on BorgCore at PC=0 |
+| `sWaitSetup` | Pass 2 | Wait for setup shader to finish; snoop outputs into setupRegs |
+| `sLoadBBox` | Pass 2 |  |
+| `sBinTri` | Pass 2 | Trigger BorgBinner for this triangle |
+| `sWaitBinner` | Pass 2 | Wait for BorgBinner to finish writing all tile bins for this triangle. |
+| `sStageUniforms` | Pass 2 | Write all 31 uniform registers (u0-u30) to replace setup_tile_uniforms(). Physical uniform indices match the fixed SPIRB layout: u0-u5:  scaled edge components from setupRegs[0..5] u6-u11: negated vertex positions from FNEG(clipRegs[v][c]) u12:    inv_area from setupRegs[7] u13-u21: colors in barycentric order (v1,v0,v2) × RGB u22-u24: z_vals (z of v1, v0, v2) u25-u30: 0 (UVs — not yet implemented) |
+| `sStoreSetup` | Pass 2 | Write all 31 uniform values (latched in uDataStore) to PSRAM at setupBase + triIdx *128 + storeWriteIdx* 4. Each value is stored as a 32-bit word (low 16 bits = uniform, high = 0). |
+| `sNextTriangle` | Pass 2 | Pass 1: Triangle loop Advance to next triangle, or start Pass 2 |
+| `Nil) = states.take(16)
+  val (sLoadRastShader` | Pass 2 |  |
+| `sLoadFragShader` | Pass 2 | Load frag shader from PSRAM into IMEM via DMA |
+| `sStartPass2` | Pass 2 |  |
+| `sReadBinCount` | Pass 2 | Read the bin count for the current tile from binner's on-chip SRAM. The count read was issued in the previous state (sStartPass2 or sNextRenderTile). SyncReadMem has 1-cycle latency, so wait one cycle. |
+| `sWaitBinCount` | Pass 2 | Latch the count data (available now after the 1-cycle SyncReadMem read). |
+| `sClearTile` | Pass 2 | Pulse tileCtrlClear for 16-cycle BRAM clear sequence |
+| `sReadBinEntry` | Pass 2 |  |
+| `sWaitBinEntry` | Pass 2 | Bin entry has been snooped by the DMA handler into binEntryData. Now DMA-load the triangle's setup uniforms from PSRAM. |
+| `sLoadTriSetup` | Pass 2 | DMA-load the triangle's 31 setup uniforms from PSRAM into the uniform buffer. addr = setupBase + binEntryData * 128 |
+| `sEnqueueTile` | Pass 2 | Enqueue tile coordinates for rasterizer |
+| `sIteratePixels` | Pass 2 | Start rasterizer iteration over pixels |
+| `sWaitRast` | Pass 2 | Wait for tileComplete (all pixels shaded) |
+| `sWaitFlush` | Pass 2 | Trigger flusher: writes tile SRAM -> PSRAM |
+| `sWaitFlushSync` | Pass 2 | Wait for flusher to finish |
+| `sNextBinTri` | Pass 2 | Advance to next triangle in this tile's bin list, or flush |
+| `sNextRenderTile` | Pass 2 | Advance to next tile in full-screen iteration |
+| `sDone` | Pass 2 | Sequencer complete — pulse done for one cycle, return to idle |
+
 ## Hardware Components
 
-```
+```text
 BorgSequencer (FSM, 33 states)
   ├── BorgDMA          — PSRAM burst read/write (vertex descs, shaders, bin entries, uniforms)
   ├── BorgBinner       — triangle→tile mapping, PSRAM bin list writes
@@ -157,7 +201,7 @@ BorgSequencer (FSM, 33 states)
 
 PSRAM arbitration priority (highest → lowest):
 
-```
+```text
 DMA  >  Flusher  >  Geo (Binner + SeqStore)  >  Rasterizer
 ```
 
@@ -187,7 +231,7 @@ The CPU triggers once and waits. Both passes — geometry binning and tile rende
 For a 128×128 framebuffer with 32 tiles (8×4) and 12 triangles (vk_cube scene):
 
 | Metric | Immediate Mode | TBR |
-|---|---|---|
+| --- | --- | --- |
 | PSRAM writes per frame | O(overdraw × pixels) | O(tiles × 32 words) = 1024 |
 | Depth test cost | PSRAM round-trip | On-chip (free) |
 | CPU involvement in render | Per-tile loop | **Zero** (autonomous) |

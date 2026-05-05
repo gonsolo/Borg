@@ -54,166 +54,92 @@ import chisel3.util._
   * The setup shader outputs pre-scaled edge constants to r0-r5 (already
   * multiplied by inv_width = 1/64 for a 64-wide framebuffer).
   */
-class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
-  /** Single-pulse trigger from MMIO SEQ_TRIGGER write (bit 0). */
-  val start    = Input(Bool())
-
-  /** PSRAM byte address of the triangle descriptor, latched from SEQ_DESC_BASE. */
+class SeqMmioIO extends Bundle {
+  val start = Input(Bool())
   val descBase = Input(UInt(20.W))
-
-  /** PSRAM byte address of the vertex shader binary. */
   val vertShaderAddr = Input(UInt(20.W))
-
-  /** Length of vertex shader in 32-bit words (1–56). */
-  val vertShaderLen  = Input(UInt(6.W))
-
-  /** PSRAM byte address of the setup shader binary (Step 29.2). */
+  val vertShaderLen = Input(UInt(6.W))
   val setupShaderAddr = Input(UInt(20.W))
+  val setupShaderLen = Input(UInt(6.W))
+  val seqInvWidth = Input(UInt(16.W))
+  val triCount = Input(UInt(5.W))
+  val rastShaderAddr = Input(UInt(20.W))
+  val rastShaderLen = Input(UInt(6.W))
+  val fragShaderAddr = Input(UInt(20.W))
+  val fragShaderLen = Input(UInt(6.W))
+  val clearColorLo = Input(UInt(32.W))
+  val clearColorHi = Input(UInt(32.W))
+  val fbBase = Input(UInt(20.W))
+  val tilesPerRow = Input(UInt(10.W))
+  val binBase = Input(UInt(20.W))
+  val binRowBytes = Input(UInt(20.W))
+  val setupBase = Input(UInt(20.W))
+  val fbWidthTiles = Input(UInt(10.W))
+  val fbHeightTiles = Input(UInt(10.W))
+}
 
-  /** Length of setup shader in 32-bit words (1–56) (Step 29.2). */
-  val setupShaderLen  = Input(UInt(6.W))
+class SeqBinnerIO extends Bundle {
+  val start = Output(Bool())
+  val triIndex = Output(UInt(16.W))
+  val bbox = Output(new Bbox(10))
+  val clearCounts = Output(Bool())
+  val busy = Input(Bool())
+  val countReadAddr = Output(UInt(10.W))
+  val countReadEn = Output(Bool())
+  val countReadData = Input(UInt(10.W))
+}
 
-  /** FP16 value of 1/fb_width for edge normalization (Step 30.1c). */
-  val seqInvWidth     = Input(UInt(16.W))
+class SeqStoreIO extends Bundle {
+  val active = Output(Bool())
+  val req = Output(Bool())
+  val addr = Output(UInt(20.W))
+  val wdata = Output(UInt(32.W))
+  val ready = Input(Bool())
+}
 
-  /** True while the sequencer FSM is active.  Drives STATUS.seq_busy (bit 5). */
-  val busy     = Output(Bool())
+class SeqFlusherIO extends Bundle {
+  val base = Output(UInt(20.W))
+  val trigger = Output(Bool())
+  val busy = Input(Bool())
+}
 
-  /** One-cycle pulse on FSM completion. */
-  val done     = Output(Bool())
+class SeqIteratorIO(val coordWidth: Int) extends Bundle {
+  val clear = Output(Bool())
+  val enqueue = Valid(new Coord(coordWidth))
+  val iterate = Output(Bool())
+  val complete = Input(Bool())
+  val stall = Input(Bool())
+}
 
-  /** True when the sequencer is running its own shaders (vertex/setup) and
-    * the core should return 0 for r30/r31 instead of pixel coordinates.
-    * False during tile iteration when the dispatcher triggers rast/frag shaders. */
+class SeqDmaIO extends Bundle {
+  val start = Output(Bool())
+  val desc = Output(new DMADescriptor)
+  val busy = Input(Bool())
+  val snoop = Flipped(Valid(UInt(32.W)))
+  val uniformSnoop = Flipped(new MemWritePort(3, 16))
+}
+
+class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
+  val mmio = new SeqMmioIO
+  val binner = new SeqBinnerIO
+  val store = new SeqStoreIO
+  val flusher = new SeqFlusherIO
+  val iter = new SeqIteratorIO(cfg.coordWidth)
+  val dma = new SeqDmaIO
+
+  val busy = Output(Bool())
+  val done = Output(Bool())
   val seqShaderActive = Output(Bool())
-
-  /** Debug: current FSM state value (for test diagnostics). */
   val debugState = Output(UInt(6.W))
-  /** Debug: current tileCompleteLatch value. */
   val debugTileCompleteLatch = Output(Bool())
 
-  // --- DMA control (drives existing BorgDMA) ---
-  val dmaStart = Output(Bool())
-  val dmaDesc  = Output(new DMADescriptor)
-  val dmaBusy  = Input(Bool())
-
-  // --- Core trigger (shared with rasterizer — muxed in Borg.scala) ---
   val coreTrigger = new CoreTriggerIO
-
-  // --- Core status feedback ---
   val coreStatus = Flipped(new CoreStatusIO)
-
-  // --- Pipeline write-back snoop (to capture shader outputs) ---
   val pipeWrite = Flipped(new PipeWriteIO(cfg.totalBits))
-
-  // --- Uniform write port (to write setup inputs and staged uniforms) ---
-  // Step 29.2: writes clipRegs to u0-u5 as setup shader inputs.
-  // Step 29.3: writes 31 uniforms (u0-u30) after setup shader completes.
   val uniformWrite = new MemWritePort(6, 16)
-
-  // --- DMA uniform write snoop (to capture color/z from DMA stream) ---
-  // During vertex DMA, BorgCore's dmaUniformWrite is asserted by BorgDMA.
-  // The sequencer snoops these writes to populate colorRegs.
-  // Wired in Borg.scala from core.io.dmaUniformWrite (or DMA's uniformWrite).
-  val dmaUniformSnoop = Flipped(new MemWritePort(3, 16))
-
-  // --- DMA general snoop (for bounding box) ---
-  val dmaSnoop = Flipped(Valid(UInt(32.W)))
-
-  // --- Snooped clip-space vertex outputs (3 vertices × 4 components) ---
   val clipOut = Output(Vec(3, Vec(4, UInt(16.W))))
-
-  // --- Snooped setup shader outputs (Step 29.2) ---
-  // r0–r5 = scaled edge components (pre-multiplied by inv_width in setup shader)
-  // r6 = area, r7 = inv_area
   val setupOut = Output(Vec(8, UInt(16.W)))
-
-  // --- Staged uniform write page (for ping-pong) ---
-  // The sequencer drives uniformWritePage during sStageUniforms to select
-  // which uniform memory page the rasterizer will read from next frame.
   val uniformWritePage = Output(UInt(1.W))
-
-  // --- Step 31: Multi-triangle autonomous rendering ---
-  /** Number of triangle descriptors to process (1–16), from MMIO SEQ_TRI_COUNT. */
-  val triCount       = Input(UInt(5.W))
-
-  /** PSRAM byte address of the rasterizer shader binary. */
-  val rastShaderAddr = Input(UInt(20.W))
-
-  /** Length of rasterizer shader in 32-bit words (1–56). */
-  val rastShaderLen  = Input(UInt(6.W))
-
-  /** PSRAM byte address of the fragment shader binary. */
-  val fragShaderAddr = Input(UInt(20.W))
-
-  /** Length of fragment shader in 32-bit words (1–56). */
-  val fragShaderLen  = Input(UInt(6.W))
-
-  /** Packed {B[31:16], Z[15:0]} clear color for tile buffer pre-fill. */
-  val clearColorLo   = Input(UInt(32.W))
-
-  /** Packed {R[31:16], G[15:0]} clear color for tile buffer pre-fill. */
-  val clearColorHi   = Input(UInt(32.W))
-
-  // --- Step 31.4: Autonomous Tile Iteration ---
-  val fbBase        = Input(UInt(20.W))
-  val tilesPerRow   = Input(UInt(10.W))
-
-  // Control signals to/from Iterator/Rasterizer
-  val tileCtrlClear = Output(Bool())
-  val enqueueTile   = Valid(new Coord(cfg.coordWidth))
-  val iteratePixels = Output(Bool())
-  val tileComplete  = Input(Bool())
-  /** True while BorgShaderDispatcher is processing a pixel (set on advance, cleared on sIdle).
-    * The sequencer gates each advance pulse on !autoRunStall to avoid flooding
-    * the iterator before the pipeline has finished the previous pixel. */
-  val autoRunStall  = Input(Bool())
-  val flushBase     = Output(UInt(20.W))
-  val flushTrigger  = Output(Bool())
-  val flushBusy     = Input(Bool())
-
-  // --- Step 32.2: BorgBinner control (geometry pass binning) ---
-  /** One-cycle pulse to start binning the current triangle. */
-  val binnerStart      = Output(Bool())
-  /** Triangle index passed to the binner (latched from triIdx). */
-  val binnerTriIndex   = Output(UInt(16.W))
-  /** Tile-aligned bbox passed to the binner (from bboxMinX/Y/MaxX/Y). */
-  val binnerBbox       = Output(new Bbox(10))
-  /** One-cycle pulse to zero all per-tile counters at frame start. */
-  val binnerClearCounts = Output(Bool())
-  /** High while the binner FSM is processing or clearing counts. */
-  val binnerBusy       = Input(Bool())
-  /** PSRAM byte address of bin list region base. */
-  val binBase          = Input(UInt(20.W))
-  /** Bin list row size in bytes (= SEQ_MAX_TRI * TBR_BIN_ENTRY_SIZE). */
-  val binRowBytes      = Input(UInt(20.W))
-
-  // --- Step 32.3: TBR Pass 2 — tile render pass ---
-  /** PSRAM byte address of setup store region (stride 128B per triangle). */
-  val setupBase        = Input(UInt(20.W))
-
-  /** True during sStoreSetup when the sequencer is writing to PSRAM. */
-  val storeActive      = Output(Bool())
-  /** PSRAM write request during sStoreSetup. */
-  val storeReq         = Output(Bool())
-  /** PSRAM write address during sStoreSetup. */
-  val storeAddr        = Output(UInt(20.W))
-  /** PSRAM write data during sStoreSetup (32-bit, low 16 = uniform value). */
-  val storeWdata       = Output(UInt(32.W))
-  /** PSRAM write acknowledge from the arb mux. */
-  val storeReady       = Input(Bool())
-
-  /** Binner count read: tile index to query. */
-  val countReadAddr    = Output(UInt(10.W))
-  /** Binner count read: enable (assert 1 cycle, data valid next cycle). */
-  val countReadEn      = Output(Bool())
-  /** Binner count read: triangle count for the queried tile. */
-  val countReadData    = Input(UInt(10.W))
-
-  /** Framebuffer width in tiles (= fb_width / 4). For full-screen Pass 2 iteration. */
-  val fbWidthTiles     = Input(UInt(10.W))
-  /** Framebuffer height in tiles (= fb_height / 4). */
-  val fbHeightTiles    = Input(UInt(10.W))
 }
 
 /** BorgSequencer — vertex + setup + uniform staging sequencer (Step 29).
@@ -335,592 +261,670 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     tileCompleteLatch := false.B
     clearTileComplete := false.B
   }.otherwise {
-    tileCompleteLatch := io.tileComplete
+    tileCompleteLatch := io.iter.complete
   }
 
-  // --- Output defaults ---
-  io.busy := state =/= sIdle
-  io.done := false.B
-  // seqShaderActive: only true during vertex/setup shader execution states
-  // (where r30/r31 must be zero, not pixel coordinates).
-  io.seqShaderActive := state === sRunVert || state === sWaitVert ||
-                        state === sRunSetup || state === sWaitSetup
-  io.debugState := state
-  io.debugTileCompleteLatch := tileCompleteLatch
+  val bboxWordIdx = RegInit(0.U(2.W))
 
-  io.dmaStart := false.B
-  io.dmaDesc  := dmaDescReg
+  wireOutputDefaults()
+  wireFsm()
+  wireSnoops()
 
-  io.coreTrigger.valid := false.B
-  io.coreTrigger.pc    := 0.U
+  private def wireOutputDefaults(): Unit = {
+    // --- Output defaults ---
+    io.busy := state =/= sIdle
+    io.done := false.B
+    // seqShaderActive: only true during vertex/setup shader execution states
+    // (where r30/r31 must be zero, not pixel coordinates).
+    io.seqShaderActive := state === sRunVert || state === sWaitVert ||
+                          state === sRunSetup || state === sWaitSetup
+    io.debugState := state
+    io.debugTileCompleteLatch := tileCompleteLatch
 
-  io.uniformWrite.en   := false.B
-  io.uniformWrite.addr := 0.U
-  io.uniformWrite.data := 0.U
+    io.dma.start := false.B
+    io.dma.desc  := dmaDescReg
 
-  io.uniformWritePage := uniformPage
+    io.coreTrigger.valid := false.B
+    io.coreTrigger.pc    := 0.U
 
-  io.clipOut  := clipRegs
-  io.setupOut := setupRegs
+    io.uniformWrite.en   := false.B
+    io.uniformWrite.addr := 0.U
+    io.uniformWrite.data := 0.U
 
-  io.tileCtrlClear     := false.B
-  io.enqueueTile.valid := false.B
-  io.enqueueTile.bits.x := tileX
-  io.enqueueTile.bits.y := tileY
-  io.iteratePixels     := false.B
-  io.flushTrigger      := false.B
-  // tileBase = fbBase + ((tileY / 4) * tilesPerRow + (tileX / 4)) * 128
-  val tileIndex = ((tileY >> 2) * io.tilesPerRow) + (tileX >> 2)
-  io.flushBase := io.fbBase + (tileIndex << 7)
+    io.uniformWritePage := uniformPage
 
-  // --- Step 32.2: Binner output defaults ---
-  io.binnerStart       := false.B
-  io.binnerTriIndex    := triIdx
-  io.binnerBbox.min.x  := bboxMinX(9, 0)
-  io.binnerBbox.min.y  := bboxMinY(9, 0)
-  io.binnerBbox.max.x  := bboxMaxX(9, 0)
-  io.binnerBbox.max.y  := bboxMaxY(9, 0)
-  io.binnerClearCounts := false.B
+    io.clipOut  := clipRegs
+    io.setupOut := setupRegs
 
-  // --- Step 32.3: Store + count read output defaults ---
-  io.storeActive    := state === sStoreSetup
-  io.storeReq       := false.B
-  io.storeAddr      := 0.U
-  io.storeWdata     := 0.U
-  io.countReadAddr  := 0.U
-  io.countReadEn    := false.B
+    io.iter.clear     := false.B
+    io.iter.enqueue.valid := false.B
+    io.iter.enqueue.bits.x := tileX
+    io.iter.enqueue.bits.y := tileY
+    io.iter.iterate     := false.B
+    io.flusher.trigger      := false.B
+    // tileBase = fbBase + ((tileY / 4) * tilesPerRow + (tileX / 4)) * 128
+    val tileIndex = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
+    io.flusher.base := io.mmio.fbBase + (tileIndex << 7)
+
+    // --- Step 32.2: Binner output defaults ---
+    io.binner.start       := false.B
+    io.binner.triIndex    := triIdx
+    io.binner.bbox.min.x  := bboxMinX(9, 0)
+    io.binner.bbox.min.y  := bboxMinY(9, 0)
+    io.binner.bbox.max.x  := bboxMaxX(9, 0)
+    io.binner.bbox.max.y  := bboxMaxY(9, 0)
+    io.binner.clearCounts := false.B
+
+    // --- Step 32.3: Store + count read output defaults ---
+    io.store.active    := state === sStoreSetup
+    io.store.req       := false.B
+    io.store.addr      := 0.U
+    io.store.wdata     := 0.U
+    io.binner.countReadAddr  := 0.U
+    io.binner.countReadEn    := false.B
 
 
-  // --- FSM ---
-  switch(state) {
+  }
 
-    is(sIdle) {
-      when(io.start) {
-        when(io.triCount === 0.U) {
-          // No triangles — pulse busy and immediately finish.
-          // Used by firmware's sequencer detection probe (seq_trigger with
-          // tri_count=0). Without this guard, the full pipeline would run
-          // with garbage descriptors and the flusher would corrupt PSRAM.
-          state := sDone
-        }.otherwise {
-          triIdx  := 0.U
-          vertIdx := 0.U
-          // Step 32.2: clear binner per-tile counts at the start of each frame.
-          // The binner's multi-cycle clearing runs in parallel with the first
-          // vertex shader DMA load, so it adds zero latency.
-          io.binnerClearCounts := true.B
-          state   := sLoadShader
-        }
-      }
+  private def wireFsm(): Unit = {
+    // --- FSM ---
+    switch(state) {
+
+      is(sIdle) { handleIdle() }
+
+      // Load vertex shader binary from PSRAM into IMEM via DMA
+      is(sLoadShader) { handleLoadShader() }
+
+      // Wait for DMA transfer to complete
+      is(sWaitDMA) { handleWaitDMA() }
+
+      // Load full vertex data (8 FP16 words: x,y,z,r,g,b,u,v) from descriptor.
+      // Descriptor stride is 128 bytes. Vertex i is at descBase + triIdx*128 + i*32 bytes.
+      // DMA writes all 8 words to uniform[0..7] in uniform page 0.
+      // During the wait, sWaitDMA snoops uniform writes to colorRegs (see below).
+      is(sLoadVert) { handleLoadVert() }
+
+      // Trigger vertex shader execution on BorgCore at PC=0
+      is(sRunVert) { handleRunVert() }
+
+      // Wait for vertex shader to finish; snoop clip-space outputs (x,y into clipRegs)
+      is(sWaitVert) { handleWaitVert() }
+
+      // --- Step 29.2: Triangle setup ---
+
+      // Write 6 screen-space coordinates from clipRegs into uniform buffer,
+      // plus inv_width as u6 for edge normalization (Step 30.1c).
+      // u0=v0.x, u1=v0.y, u2=v1.x, u3=v1.y, u4=v2.x, u5=v2.y, u6=inv_width
+      is(sWriteSetupInputs) { handleWriteSetupInputs() }
+
+      // Load setup shader from PSRAM into IMEM via DMA
+      is(sLoadSetupShader) { handleLoadSetupShader() }
+
+      // Trigger setup shader execution on BorgCore at PC=0
+      is(sRunSetup) { handleRunSetup() }
+
+      // Wait for setup shader to finish; snoop outputs into setupRegs
+      is(sWaitSetup) { handleWaitSetup() }
+
+      // --- Step 31.4: Load Bounding Box ---
+      is(sLoadBBox) { handleLoadBBox() }
+
+      // --- Step 32.2: Trigger BorgBinner for this triangle ---
+      is(sBinTri) { handleBinTri() }
+
+      // Wait for BorgBinner to finish writing all tile bins for this triangle.
+      is(sWaitBinner) { handleWaitBinner() }
+
+      // --- Step 29.3: Uniform staging ---
+      // Write all 31 uniform registers (u0-u30) to replace setup_tile_uniforms().
+      // Physical uniform indices match the fixed SPIRB layout:
+      //   u0-u5:  scaled edge components from setupRegs[0..5]
+      //   u6-u11: negated vertex positions from FNEG(clipRegs[v][c])
+      //   u12:    inv_area from setupRegs[7]
+      //   u13-u21: colors in barycentric order (v1,v0,v2) × RGB
+      //   u22-u24: z_vals (z of v1, v0, v2)
+      //   u25-u30: 0 (UVs — not yet implemented)
+      is(sStageUniforms) { handleStageUniforms() }
+
+      // --- Step 32.3: Store uniforms to PSRAM setup store ---
+      // Write all 31 uniform values (latched in uDataStore) to PSRAM at
+      // setupBase + triIdx * 128 + storeWriteIdx * 4.
+      // Each value is stored as a 32-bit word (low 16 bits = uniform, high = 0).
+      is(sStoreSetup) { handleStoreSetup() }
+
+      // =====================================================================
+      //  Pass 2: Shader reload + full-screen tile render
+      // =====================================================================
+
+      // --- Shader Reload (once before Pass 2) ---
+      // Load rast shader from PSRAM into IMEM via DMA
+      is(sLoadRastShader) { handleLoadRastShader() }
+
+      // Load frag shader from PSRAM into IMEM via DMA
+      is(sLoadFragShader) { handleLoadFragShader() }
+
+      // --- Start Pass 2: iterate ALL framebuffer tiles ---
+      is(sStartPass2) { handleStartPass2() }
+
+      // Read the bin count for the current tile from binner's on-chip SRAM.
+      // The count read was issued in the previous state (sStartPass2 or sNextRenderTile).
+      // SyncReadMem has 1-cycle latency, so wait one cycle.
+      is(sReadBinCount) { handleReadBinCount() }
+
+      // Latch the count data (available now after the 1-cycle SyncReadMem read).
+      is(sWaitBinCount) { handleWaitBinCount() }
+
+      // --- Tile clear (reused from Step 31.4) ---
+      is(sClearTile) { handleClearTile() }
+
+      // --- Read triangle index from PSRAM bin list via DMA ---
+      is(sReadBinEntry) { handleReadBinEntry() }
+
+      // Bin entry has been snooped by the DMA handler into binEntryData.
+      // Now DMA-load the triangle's setup uniforms from PSRAM.
+      is(sWaitBinEntry) { handleWaitBinEntry() }
+
+      // DMA-load the triangle's 31 setup uniforms from PSRAM into the uniform buffer.
+      // addr = setupBase + binEntryData * 128
+      is(sLoadTriSetup) { handleLoadTriSetup() }
+
+      // --- Per-triangle rasterization (reused from Step 31.4) ---
+      is(sEnqueueTile) { handleEnqueueTile() }
+
+      is(sIteratePixels) { handleIteratePixels() }
+
+      is(sWaitRast) { handleWaitRast() }
+
+      // Advance to next triangle in this tile's bin list, or flush
+      is(sNextBinTri) { handleNextBinTri() }
+
+      is(sWaitFlush) { handleWaitFlush() }
+
+      is(sWaitFlushSync) { handleWaitFlushSync() }
+
+      // Advance to next tile in full-screen iteration
+      is(sNextRenderTile) { handleNextRenderTile() }
+
+      // =====================================================================
+      //  Pass 1: Triangle loop
+      // =====================================================================
+
+      // Advance to next triangle, or start Pass 2
+      is(sNextTriangle) { handleNextTriangle() }
+
+      // Sequencer complete — pulse done for one cycle, return to idle
+      is(sDone) { handleDone() }
     }
+  }
 
-    // Load vertex shader binary from PSRAM into IMEM via DMA
-    is(sLoadShader) {
-      val desc = Wire(new DMADescriptor)
-      desc.baseAddr := io.vertShaderAddr
-      desc.length   := io.vertShaderLen
-      desc.dest     := 0.U  // dest=0 → IMEM
-      desc.offset   := 0.U
-
-      dmaDescReg   := desc
-      io.dmaDesc   := desc
-      io.dmaStart  := true.B
-      nextAfterDMA := sLoadVert
-      state        := sWaitDMA
-    }
-
-    // Wait for DMA transfer to complete
-    is(sWaitDMA) {
-      when(!io.dmaBusy) {
-        state := nextAfterDMA
-      }
-    }
-
-    // Load full vertex data (8 FP16 words: x,y,z,r,g,b,u,v) from descriptor.
-    // Descriptor stride is 128 bytes. Vertex i is at descBase + triIdx*128 + i*32 bytes.
-    // DMA writes all 8 words to uniform[0..7] in uniform page 0.
-    // During the wait, sWaitDMA snoops uniform writes to colorRegs (see below).
-    is(sLoadVert) {
-      val desc = Wire(new DMADescriptor)
-      val triOffset = triIdx * 128.U
-      desc.baseAddr := io.descBase + triOffset + vertIdx * 32.U
-      desc.length   := 8.U   // 8 × 32-bit words (x,y,z,r,g,b,u,v)
-      // DMA dest encoding: 1=page0, 2=page1. Write to current uniformPage
-      // so vertex shader reads from the same page (Step 30.1c fix).
-      desc.dest     := Mux(uniformPage === 0.U, 1.U, 2.U)
-      desc.offset   := 0.U   // write to u0..u7
-
-
-
-      dmaDescReg   := desc
-      io.dmaDesc   := desc
-      io.dmaStart  := true.B
-      nextAfterDMA := sRunVert
-      state        := sWaitDMA
-    }
-
-    // Trigger vertex shader execution on BorgCore at PC=0
-    is(sRunVert) {
-      io.coreTrigger.valid := true.B
-      io.coreTrigger.pc    := 0.U
-      state                := sWaitVert
-    }
-
-    // Wait for vertex shader to finish; snoop clip-space outputs (x,y into clipRegs)
-    is(sWaitVert) {
-      when(core_just_finished) {
-        when(vertIdx === 2.U) {
-          // All 3 vertices done → proceed to triangle setup (Step 29.2)
-          writeIdx := 0.U
-          state    := sWriteSetupInputs
-
-        }.otherwise {
-          vertIdx := vertIdx + 1.U
-          state   := sLoadVert
-        }
-      }
-    }
-
-    // --- Step 29.2: Triangle setup ---
-
-    // Write 6 screen-space coordinates from clipRegs into uniform buffer,
-    // plus inv_width as u6 for edge normalization (Step 30.1c).
-    // u0=v0.x, u1=v0.y, u2=v1.x, u3=v1.y, u4=v2.x, u5=v2.y, u6=inv_width
-    is(sWriteSetupInputs) {
-      io.uniformWrite.en   := true.B
-      io.uniformWrite.addr := Cat(uniformPage, writeIdx(4, 0))
-      when(writeIdx < 6.U) {
-        val v = writeIdx(2, 1)  // writeIdx / 2 → vertex index (0, 1, 2)
-        val c = writeIdx(0)     // writeIdx % 2 → component (0=x, 1=y)
-        io.uniformWrite.data := clipRegs(v)(Cat(0.U(1.W), c))
+  private def handleIdle(): Unit = {
+    when(io.mmio.start) {
+      when(io.mmio.triCount === 0.U) {
+        // No triangles — pulse busy and immediately finish.
+        // Used by firmware's sequencer detection probe (seq_trigger with
+        // tri_count=0). Without this guard, the full pipeline would run
+        // with garbage descriptors and the flusher would corrupt PSRAM.
+        state := sDone
       }.otherwise {
-        // u6 = inv_width
-        io.uniformWrite.data := io.seqInvWidth
-      }
-      when(writeIdx === 6.U) {
-        state := sLoadSetupShader
-      }.otherwise {
-        writeIdx := writeIdx + 1.U
-      }
-    }
-
-    // Load setup shader from PSRAM into IMEM via DMA
-    is(sLoadSetupShader) {
-      val desc = Wire(new DMADescriptor)
-      desc.baseAddr := io.setupShaderAddr
-      desc.length   := io.setupShaderLen
-      desc.dest     := 0.U  // dest=0 → IMEM
-      desc.offset   := 0.U
-
-      dmaDescReg   := desc
-      io.dmaDesc   := desc
-      io.dmaStart  := true.B
-      nextAfterDMA := sRunSetup
-      state        := sWaitDMA
-    }
-
-    // Trigger setup shader execution on BorgCore at PC=0
-    is(sRunSetup) {
-      io.coreTrigger.valid := true.B
-      io.coreTrigger.pc    := 0.U
-      state                := sWaitSetup
-    }
-
-    // Wait for setup shader to finish; snoop outputs into setupRegs
-    is(sWaitSetup) {
-      when(core_just_finished) {
-        writeIdx    := 0.U
-        state       := sLoadBBox
+        triIdx  := 0.U
+        vertIdx := 0.U
+        // Step 32.2: clear binner per-tile counts at the start of each frame.
+        // The binner's multi-cycle clearing runs in parallel with the first
+        // vertex shader DMA load, so it adds zero latency.
+        io.binner.clearCounts := true.B
+        state   := sLoadShader
       }
     }
+  }
 
-    // --- Step 31.4: Load Bounding Box ---
-    is(sLoadBBox) {
-      val desc = Wire(new DMADescriptor)
-      desc.baseAddr := io.descBase + (triIdx * 128.U) + 96.U
-      desc.length   := 2.U  // 2 words
-      desc.dest     := 2.U  // 2 = snoop only
-      desc.offset   := 0.U
+  private def handleLoadShader(): Unit = {
+    val desc = Wire(new DMADescriptor)
+    desc.baseAddr := io.mmio.vertShaderAddr
+    desc.length   := io.mmio.vertShaderLen
+    desc.dest     := 0.U  // dest=0 → IMEM
+    desc.offset   := 0.U
 
-      dmaDescReg   := desc
-      io.dmaDesc   := desc
-      io.dmaStart  := true.B
-      writeIdx     := 0.U
-      nextAfterDMA := sBinTri
-      state        := sWaitDMA
+    dmaDescReg   := desc
+    io.dma.desc   := desc
+    io.dma.start  := true.B
+    nextAfterDMA := sLoadVert
+    state        := sWaitDMA
+  }
+
+  private def handleWaitDMA(): Unit = {
+    when(!io.dma.busy) {
+      state := nextAfterDMA
     }
+  }
 
-    // --- Step 32.2: Trigger BorgBinner for this triangle ---
-    is(sBinTri) {
-      io.binnerStart := true.B
-      state := sWaitBinner
-    }
+  private def handleLoadVert(): Unit = {
+    val desc = Wire(new DMADescriptor)
+    val triOffset = triIdx * 128.U
+    desc.baseAddr := io.mmio.descBase + triOffset + vertIdx * 32.U
+    desc.length   := 8.U   // 8 × 32-bit words (x,y,z,r,g,b,u,v)
+    // DMA dest encoding: 1=page0, 2=page1. Write to current uniformPage
+    // so vertex shader reads from the same page (Step 30.1c fix).
+    desc.dest     := Mux(uniformPage === 0.U, 1.U, 2.U)
+    desc.offset   := 0.U   // write to u0..u7
 
-    // Wait for BorgBinner to finish writing all tile bins for this triangle.
-    is(sWaitBinner) {
-      when(!io.binnerBusy) {
-        state := sStageUniforms
-      }
-    }
 
-    // --- Step 29.3: Uniform staging ---
-    // Write all 31 uniform registers (u0-u30) to replace setup_tile_uniforms().
-    // Physical uniform indices match the fixed SPIRB layout:
-    //   u0-u5:  scaled edge components from setupRegs[0..5]
-    //   u6-u11: negated vertex positions from FNEG(clipRegs[v][c])
-    //   u12:    inv_area from setupRegs[7]
-    //   u13-u21: colors in barycentric order (v1,v0,v2) × RGB
-    //   u22-u24: z_vals (z of v1, v0, v2)
-    //   u25-u30: 0 (UVs — not yet implemented)
-    is(sStageUniforms) {
-      val w = writeIdx
 
-      // Barycentric order: w0→v2, w1→v0, w2→v1
-      // color[1].r = v1.r, color[0].r = v0.r, color[2].r = v2.r
-      // Fragment uniforms 1-3: (v1, v0, v2) = colorRegs(1), (0), (2)
-      val baryV: Vec[UInt] = VecInit(1.U(2.W), 0.U(2.W), 2.U(2.W))  // bary index → vertex index
+    dmaDescReg   := desc
+    io.dma.desc   := desc
+    io.dma.start  := true.B
+    nextAfterDMA := sRunVert
+    state        := sWaitDMA
+  }
 
-      // Default: write zero (for UV slots 25-30)
-      val uData = WireDefault(0.U(16.W))
+  private def handleRunVert(): Unit = {
+    io.coreTrigger.valid := true.B
+    io.coreTrigger.pc    := 0.U
+    state                := sWaitVert
+  }
 
-      when(w < 6.U) {
-        // u0-u5: scaled edge components from setup shader outputs
-        uData := setupRegs(w(2, 0))
-      }.elsewhen(w < 12.U) {
-        // u6-u11: negated vertex positions (FNEG = flip bit 15)
-        // u6,u7 = -v0.x, -v0.y; u8,u9 = -v1.x, -v1.y; u10,u11 = -v2.x, -v2.y
-        val vIdx = (w - 6.U)(2, 1)  // vertex index 0,1,2
-        val cIdx = (w - 6.U)(0)     // component: 0=x, 1=y
-        val raw  = clipRegs(vIdx)(Cat(0.U(1.W), cIdx))
-        uData := raw ^ (1.U(16.W) << 15)  // flip sign bit = FNEG
-      }.elsewhen(w === 12.U) {
-        // u12: inv_area
-        uData := setupRegs(7)
-      }.elsewhen(w < 22.U) {
-        // u13-u21: 9 color values = 3 components (R,G,B) × 3 vertices (bary order)
-        // u13-u15 = R(v1,v0,v2), u16-u18 = G(v1,v0,v2), u19-u21 = B(v1,v0,v2)
-        val colorOff = (w - 13.U)(3, 0)         // 0-8, 4 bits
-        val comp     = (colorOff / 3.U)(1, 0)   // 0=R,1=G,2=B, 2 bits
-        val baryIdx  = (colorOff % 3.U)(1, 0)   // 0,1,2 → vertex baryV[baryIdx], 2 bits
-        val vIdx     = baryV(baryIdx)
-        uData := colorRegs(vIdx)(comp)
-      }.elsewhen(w < 25.U) {
-        // u22-u24: z values — z_vals[1], z_vals[0], z_vals[2] (bary order)
-        val zOff = (w - 22.U)(1, 0)  // 0,1,2 (2 bits)
-        val vIdx = baryV(zOff)
-        uData := colorRegs(vIdx)(3)  // index 3 = z component
-      }
-      // u25-u30: uData stays 0
-
-      io.uniformWrite.en   := true.B
-      io.uniformWrite.addr := Cat(uniformPage, writeIdx(4, 0))
-      io.uniformWrite.data := uData
-
-      // Step 32.3: Latch computed uniform into uDataStore for PSRAM write
-      uDataStore(writeIdx) := uData
-
-      when(writeIdx === 30.U) {
-        storeWriteIdx := 0.U
-        state := sStoreSetup
-      }.otherwise {
-        writeIdx := writeIdx + 1.U
-      }
-    }
-
-    // --- Step 32.3: Store uniforms to PSRAM setup store ---
-    // Write all 31 uniform values (latched in uDataStore) to PSRAM at
-    // setupBase + triIdx * 128 + storeWriteIdx * 4.
-    // Each value is stored as a 32-bit word (low 16 bits = uniform, high = 0).
-    is(sStoreSetup) {
-      val psramAddr = io.setupBase + (triIdx << 7) + (storeWriteIdx << 2)
-      io.storeReq   := true.B
-      io.storeAddr  := psramAddr
-      io.storeWdata := uDataStore(storeWriteIdx)
-      when(io.storeReady) {
-        when(storeWriteIdx === 30.U) {
-          state := sNextTriangle
-        }.otherwise {
-          storeWriteIdx := storeWriteIdx + 1.U
-        }
-      }
-    }
-
-    // =====================================================================
-    //  Pass 2: Shader reload + full-screen tile render
-    // =====================================================================
-
-    // --- Shader Reload (once before Pass 2) ---
-    // Load rast shader from PSRAM into IMEM via DMA
-    is(sLoadRastShader) {
-      val desc = Wire(new DMADescriptor)
-      desc.baseAddr := io.rastShaderAddr
-      desc.length   := io.rastShaderLen
-      desc.dest     := 0.U  // dest=0 -> IMEM
-      desc.offset   := 0.U  // BORG_IMEM_RAST_OFFSET
-
-      dmaDescReg   := desc
-      io.dmaDesc   := desc
-      io.dmaStart  := true.B
-      nextAfterDMA := sLoadFragShader
-      state        := sWaitDMA
-    }
-
-    // Load frag shader from PSRAM into IMEM via DMA
-    is(sLoadFragShader) {
-      val desc = Wire(new DMADescriptor)
-      desc.baseAddr := io.fragShaderAddr
-      desc.length   := io.fragShaderLen
-      desc.dest     := 0.U  // dest=0 -> IMEM
-      desc.offset   := 13.U // BORG_IMEM_FRAG_OFFSET
-
-      dmaDescReg   := desc
-      io.dmaDesc   := desc
-      io.dmaStart  := true.B
-      nextAfterDMA := sStartPass2
-      state        := sWaitDMA
-    }
-
-    // --- Start Pass 2: iterate ALL framebuffer tiles ---
-    is(sStartPass2) {
-      tileX := 0.U
-      tileY := 0.U
-      // Issue count read for tile (0,0) = tile index 0
-      io.countReadAddr := 0.U
-      io.countReadEn   := true.B
-      state := sReadBinCount
-    }
-
-    // Read the bin count for the current tile from binner's on-chip SRAM.
-    // The count read was issued in the previous state (sStartPass2 or sNextRenderTile).
-    // SyncReadMem has 1-cycle latency, so wait one cycle.
-    is(sReadBinCount) {
-      state := sWaitBinCount
-    }
-
-    // Latch the count data (available now after the 1-cycle SyncReadMem read).
-    is(sWaitBinCount) {
-      binTriCount := io.countReadData
-      binTriIdx   := 0.U
-      writeIdx    := 0.U
-      state       := sClearTile
-    }
-
-    // --- Tile clear (reused from Step 31.4) ---
-    is(sClearTile) {
-      // Pulse tileCtrlClear for exactly one cycle (writeIdx=0), then wait
-      // for BorgTileBuffer to finish its 16-cycle BRAM clear sequence.
-      // Total wait: 1 (pulse) + 16 (BRAM writes) + 1 (register pipeline) = 18 cycles.
-      when(writeIdx === 0.U) {
-        io.tileCtrlClear  := true.B
-        clearTileComplete := true.B  // flush any stale tileComplete from previous tile
-        writeIdx := writeIdx + 1.U
-      }.elsewhen(writeIdx < 18.U) {
-        writeIdx := writeIdx + 1.U
-      }.otherwise {
-        // After clear: if this tile has triangles, start the inner bin loop.
-        // Otherwise, flush the clear color directly.
-        when(binTriCount === 0.U) {
-          state := sWaitFlush
-        }.otherwise {
-          // Read first bin entry (triangle index) from PSRAM
-          // addr = binBase + tileLinearIndex * binRowBytes + binTriIdx * 2
-          state := sReadBinEntry
-        }
-      }
-    }
-
-    // --- Read triangle index from PSRAM bin list via DMA ---
-    is(sReadBinEntry) {
-      val tileLinear = ((tileY >> 2) * io.tilesPerRow) + (tileX >> 2)
-      val entryAddr  = io.binBase + (tileLinear * io.binRowBytes) + (binTriIdx << 1)
-      val desc = Wire(new DMADescriptor)
-      desc.baseAddr := entryAddr
-      desc.length   := 1.U  // 1 word (bin entry = uint16, stored in low half of 32b word)
-      desc.dest     := 2.U  // snoop only — data captured in DMA snoop handler below
-      desc.offset   := 0.U
-
-      dmaDescReg   := desc
-      io.dmaDesc   := desc
-      io.dmaStart  := true.B
-      nextAfterDMA := sWaitBinEntry
-      state        := sWaitDMA
-    }
-
-    // Bin entry has been snooped by the DMA handler into binEntryData.
-    // Now DMA-load the triangle's setup uniforms from PSRAM.
-    is(sWaitBinEntry) {
-      state := sLoadTriSetup
-    }
-
-    // DMA-load the triangle's 31 setup uniforms from PSRAM into the uniform buffer.
-    // addr = setupBase + binEntryData * 128
-    is(sLoadTriSetup) {
-      val desc = Wire(new DMADescriptor)
-      desc.baseAddr := io.setupBase + (binEntryData << 7)
-      desc.length   := 31.U  // 31 words
-      desc.dest     := Mux(uniformPage === 0.U, 1.U, 2.U)  // page 0 or 1
-      desc.offset   := 0.U
-
-      dmaDescReg   := desc
-      io.dmaDesc   := desc
-      io.dmaStart  := true.B
-      nextAfterDMA := sEnqueueTile
-      state        := sWaitDMA
-    }
-
-    // --- Per-triangle rasterization (reused from Step 31.4) ---
-    is(sEnqueueTile) {
-      io.enqueueTile.valid := true.B
-      state := sIteratePixels
-    }
-
-    is(sIteratePixels) {
-      io.iteratePixels := true.B
-      state := sWaitRast
-    }
-
-    is(sWaitRast) {
-      when(!io.autoRunStall && !tileCompleteLatch) {
-        io.iteratePixels := true.B
-      }
-      when(tileCompleteLatch) {
-        state := sNextBinTri
-      }
-    }
-
-    // Advance to next triangle in this tile's bin list, or flush
-    is(sNextBinTri) {
-      val nextBinIdx = binTriIdx + 1.U
-      when(nextBinIdx < binTriCount) {
-        binTriIdx := nextBinIdx
-        clearTileComplete := true.B
+  private def handleWaitVert(): Unit = {
+    when(core_just_finished) {
+      when(vertIdx === 2.U) {
+        // All 3 vertices done → proceed to triangle setup (Step 29.2)
         writeIdx := 0.U
-        // Don't re-clear tile buffer — fragments accumulate on top of clear color
-        state := sReadBinEntry
+        state    := sWriteSetupInputs
+
       }.otherwise {
+        vertIdx := vertIdx + 1.U
+        state   := sLoadVert
+      }
+    }
+  }
+
+  private def handleWriteSetupInputs(): Unit = {
+    io.uniformWrite.en   := true.B
+    io.uniformWrite.addr := Cat(uniformPage, writeIdx(4, 0))
+    when(writeIdx < 6.U) {
+      val v = writeIdx(2, 1)  // writeIdx / 2 → vertex index (0, 1, 2)
+      val c = writeIdx(0)     // writeIdx % 2 → component (0=x, 1=y)
+      io.uniformWrite.data := clipRegs(v)(Cat(0.U(1.W), c))
+    }.otherwise {
+      // u6 = inv_width
+      io.uniformWrite.data := io.mmio.seqInvWidth
+    }
+    when(writeIdx === 6.U) {
+      state := sLoadSetupShader
+    }.otherwise {
+      writeIdx := writeIdx + 1.U
+    }
+  }
+
+  private def handleLoadSetupShader(): Unit = {
+    val desc = Wire(new DMADescriptor)
+    desc.baseAddr := io.mmio.setupShaderAddr
+    desc.length   := io.mmio.setupShaderLen
+    desc.dest     := 0.U  // dest=0 → IMEM
+    desc.offset   := 0.U
+
+    dmaDescReg   := desc
+    io.dma.desc   := desc
+    io.dma.start  := true.B
+    nextAfterDMA := sRunSetup
+    state        := sWaitDMA
+  }
+
+  private def handleRunSetup(): Unit = {
+    io.coreTrigger.valid := true.B
+    io.coreTrigger.pc    := 0.U
+    state                := sWaitSetup
+  }
+
+  private def handleWaitSetup(): Unit = {
+    when(core_just_finished) {
+      writeIdx    := 0.U
+      state       := sLoadBBox
+    }
+  }
+
+  private def handleLoadBBox(): Unit = {
+    val desc = Wire(new DMADescriptor)
+    desc.baseAddr := io.mmio.descBase + (triIdx * 128.U) + 96.U
+    desc.length   := 2.U  // 2 words
+    desc.dest     := 2.U  // 2 = snoop only
+    desc.offset   := 0.U
+
+    dmaDescReg   := desc
+    io.dma.desc   := desc
+    io.dma.start  := true.B
+    writeIdx     := 0.U
+    nextAfterDMA := sBinTri
+    state        := sWaitDMA
+  }
+
+  private def handleBinTri(): Unit = {
+    io.binner.start := true.B
+    state := sWaitBinner
+  }
+
+  private def handleWaitBinner(): Unit = {
+    when(!io.binner.busy) {
+      state := sStageUniforms
+    }
+  }
+
+  private def handleStageUniforms(): Unit = {
+    val w = writeIdx
+
+    // Barycentric order: w0→v2, w1→v0, w2→v1
+    // color[1].r = v1.r, color[0].r = v0.r, color[2].r = v2.r
+    // Fragment uniforms 1-3: (v1, v0, v2) = colorRegs(1), (0), (2)
+    val baryV: Vec[UInt] = VecInit(1.U(2.W), 0.U(2.W), 2.U(2.W))  // bary index → vertex index
+
+    // Default: write zero (for UV slots 25-30)
+    val uData = WireDefault(0.U(16.W))
+
+    when(w < 6.U) {
+      // u0-u5: scaled edge components from setup shader outputs
+      uData := setupRegs(w(2, 0))
+    }.elsewhen(w < 12.U) {
+      // u6-u11: negated vertex positions (FNEG = flip bit 15)
+      // u6,u7 = -v0.x, -v0.y; u8,u9 = -v1.x, -v1.y; u10,u11 = -v2.x, -v2.y
+      val vIdx = (w - 6.U)(2, 1)  // vertex index 0,1,2
+      val cIdx = (w - 6.U)(0)     // component: 0=x, 1=y
+      val raw  = clipRegs(vIdx)(Cat(0.U(1.W), cIdx))
+      uData := raw ^ (1.U(16.W) << 15)  // flip sign bit = FNEG
+    }.elsewhen(w === 12.U) {
+      // u12: inv_area
+      uData := setupRegs(7)
+    }.elsewhen(w < 22.U) {
+      // u13-u21: 9 color values = 3 components (R,G,B) × 3 vertices (bary order)
+      // u13-u15 = R(v1,v0,v2), u16-u18 = G(v1,v0,v2), u19-u21 = B(v1,v0,v2)
+      val colorOff = (w - 13.U)(3, 0)         // 0-8, 4 bits
+      val comp     = (colorOff / 3.U)(1, 0)   // 0=R,1=G,2=B, 2 bits
+      val baryIdx  = (colorOff % 3.U)(1, 0)   // 0,1,2 → vertex baryV[baryIdx], 2 bits
+      val vIdx     = baryV(baryIdx)
+      uData := colorRegs(vIdx)(comp)
+    }.elsewhen(w < 25.U) {
+      // u22-u24: z values — z_vals[1], z_vals[0], z_vals[2] (bary order)
+      val zOff = (w - 22.U)(1, 0)  // 0,1,2 (2 bits)
+      val vIdx = baryV(zOff)
+      uData := colorRegs(vIdx)(3)  // index 3 = z component
+    }
+    // u25-u30: uData stays 0
+
+    io.uniformWrite.en   := true.B
+    io.uniformWrite.addr := Cat(uniformPage, writeIdx(4, 0))
+    io.uniformWrite.data := uData
+
+    // Step 32.3: Latch computed uniform into uDataStore for PSRAM write
+    uDataStore(writeIdx) := uData
+
+    when(writeIdx === 30.U) {
+      storeWriteIdx := 0.U
+      state := sStoreSetup
+    }.otherwise {
+      writeIdx := writeIdx + 1.U
+    }
+  }
+
+  private def handleStoreSetup(): Unit = {
+    val psramAddr = io.mmio.setupBase + (triIdx << 7) + (storeWriteIdx << 2)
+    io.store.req   := true.B
+    io.store.addr  := psramAddr
+    io.store.wdata := uDataStore(storeWriteIdx)
+    when(io.store.ready) {
+      when(storeWriteIdx === 30.U) {
+        state := sNextTriangle
+      }.otherwise {
+        storeWriteIdx := storeWriteIdx + 1.U
+      }
+    }
+  }
+
+  private def handleLoadRastShader(): Unit = {
+    val desc = Wire(new DMADescriptor)
+    desc.baseAddr := io.mmio.rastShaderAddr
+    desc.length   := io.mmio.rastShaderLen
+    desc.dest     := 0.U  // dest=0 -> IMEM
+    desc.offset   := 0.U  // BORG_IMEM_RAST_OFFSET
+
+    dmaDescReg   := desc
+    io.dma.desc   := desc
+    io.dma.start  := true.B
+    nextAfterDMA := sLoadFragShader
+    state        := sWaitDMA
+  }
+
+  private def handleLoadFragShader(): Unit = {
+    val desc = Wire(new DMADescriptor)
+    desc.baseAddr := io.mmio.fragShaderAddr
+    desc.length   := io.mmio.fragShaderLen
+    desc.dest     := 0.U  // dest=0 -> IMEM
+    desc.offset   := 13.U // BORG_IMEM_FRAG_OFFSET
+
+    dmaDescReg   := desc
+    io.dma.desc   := desc
+    io.dma.start  := true.B
+    nextAfterDMA := sStartPass2
+    state        := sWaitDMA
+  }
+
+  private def handleStartPass2(): Unit = {
+    tileX := 0.U
+    tileY := 0.U
+    // Issue count read for tile (0,0) = tile index 0
+    io.binner.countReadAddr := 0.U
+    io.binner.countReadEn   := true.B
+    state := sReadBinCount
+  }
+
+  private def handleReadBinCount(): Unit = {
+    state := sWaitBinCount
+  }
+
+  private def handleWaitBinCount(): Unit = {
+    binTriCount := io.binner.countReadData
+    binTriIdx   := 0.U
+    writeIdx    := 0.U
+    state       := sClearTile
+  }
+
+  private def handleClearTile(): Unit = {
+    // Pulse tileCtrlClear for exactly one cycle (writeIdx=0), then wait
+    // for BorgTileBuffer to finish its 16-cycle BRAM clear sequence.
+    // Total wait: 1 (pulse) + 16 (BRAM writes) + 1 (register pipeline) = 18 cycles.
+    when(writeIdx === 0.U) {
+      io.iter.clear  := true.B
+      clearTileComplete := true.B  // flush any stale tileComplete from previous tile
+      writeIdx := writeIdx + 1.U
+    }.elsewhen(writeIdx < 18.U) {
+      writeIdx := writeIdx + 1.U
+    }.otherwise {
+      // After clear: if this tile has triangles, start the inner bin loop.
+      // Otherwise, flush the clear color directly.
+      when(binTriCount === 0.U) {
         state := sWaitFlush
-      }
-    }
-
-    is(sWaitFlush) {
-      io.flushTrigger := true.B
-      state := sWaitFlushSync
-    }
-
-    is(sWaitFlushSync) {
-      when(!io.flushBusy) {
-        state := sNextRenderTile
-      }
-    }
-
-    // Advance to next tile in full-screen iteration
-    is(sNextRenderTile) {
-      val nextTileX = (tileX >> 2) + 1.U
-      when(nextTileX >= io.fbWidthTiles) {
-        tileX := 0.U
-        val nextTileY = (tileY >> 2) + 1.U
-        when(nextTileY >= io.fbHeightTiles) {
-          state := sDone
-        }.otherwise {
-          tileY := nextTileY << 2
-          // Issue count read for the next tile
-          val nextTileLinear = nextTileY * io.tilesPerRow
-          io.countReadAddr := nextTileLinear(9, 0)
-          io.countReadEn   := true.B
-          state := sReadBinCount
-        }
       }.otherwise {
-        tileX := nextTileX << 2
+        // Read first bin entry (triangle index) from PSRAM
+        // addr = binBase + tileLinearIndex * binRowBytes + binTriIdx * 2
+        state := sReadBinEntry
+      }
+    }
+  }
+
+  private def handleReadBinEntry(): Unit = {
+    val tileLinear = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
+    val entryAddr  = io.mmio.binBase + (tileLinear * io.mmio.binRowBytes) + (binTriIdx << 1)
+    val desc = Wire(new DMADescriptor)
+    desc.baseAddr := entryAddr
+    desc.length   := 1.U  // 1 word (bin entry = uint16, stored in low half of 32b word)
+    desc.dest     := 2.U  // snoop only — data captured in DMA snoop handler below
+    desc.offset   := 0.U
+
+    dmaDescReg   := desc
+    io.dma.desc   := desc
+    io.dma.start  := true.B
+    nextAfterDMA := sWaitBinEntry
+    state        := sWaitDMA
+  }
+
+  private def handleWaitBinEntry(): Unit = {
+    state := sLoadTriSetup
+  }
+
+  private def handleLoadTriSetup(): Unit = {
+    val desc = Wire(new DMADescriptor)
+    desc.baseAddr := io.mmio.setupBase + (binEntryData << 7)
+    desc.length   := 31.U  // 31 words
+    desc.dest     := Mux(uniformPage === 0.U, 1.U, 2.U)  // page 0 or 1
+    desc.offset   := 0.U
+
+    dmaDescReg   := desc
+    io.dma.desc   := desc
+    io.dma.start  := true.B
+    nextAfterDMA := sEnqueueTile
+    state        := sWaitDMA
+  }
+
+  private def handleEnqueueTile(): Unit = {
+    io.iter.enqueue.valid := true.B
+    state := sIteratePixels
+  }
+
+  private def handleIteratePixels(): Unit = {
+    io.iter.iterate := true.B
+    state := sWaitRast
+  }
+
+  private def handleWaitRast(): Unit = {
+    when(!io.iter.stall && !tileCompleteLatch) {
+      io.iter.iterate := true.B
+    }
+    when(tileCompleteLatch) {
+      state := sNextBinTri
+    }
+  }
+
+  private def handleNextBinTri(): Unit = {
+    val nextBinIdx = binTriIdx + 1.U
+    when(nextBinIdx < binTriCount) {
+      binTriIdx := nextBinIdx
+      clearTileComplete := true.B
+      writeIdx := 0.U
+      // Don't re-clear tile buffer — fragments accumulate on top of clear color
+      state := sReadBinEntry
+    }.otherwise {
+      state := sWaitFlush
+    }
+  }
+
+  private def handleWaitFlush(): Unit = {
+    io.flusher.trigger := true.B
+    state := sWaitFlushSync
+  }
+
+  private def handleWaitFlushSync(): Unit = {
+    when(!io.flusher.busy) {
+      state := sNextRenderTile
+    }
+  }
+
+  private def handleNextRenderTile(): Unit = {
+    val nextTileX = (tileX >> 2) + 1.U
+    when(nextTileX >= io.mmio.fbWidthTiles) {
+      tileX := 0.U
+      val nextTileY = (tileY >> 2) + 1.U
+      when(nextTileY >= io.mmio.fbHeightTiles) {
+        state := sDone
+      }.otherwise {
+        tileY := nextTileY << 2
         // Issue count read for the next tile
-        val nextTileLinear = ((tileY >> 2) * io.tilesPerRow) + nextTileX
-        io.countReadAddr := nextTileLinear(9, 0)
-        io.countReadEn   := true.B
+        val nextTileLinear = nextTileY * io.mmio.tilesPerRow
+        io.binner.countReadAddr := nextTileLinear(9, 0)
+        io.binner.countReadEn   := true.B
         state := sReadBinCount
       }
+    }.otherwise {
+      tileX := nextTileX << 2
+      // Issue count read for the next tile
+      val nextTileLinear = ((tileY >> 2) * io.mmio.tilesPerRow) + nextTileX
+      io.binner.countReadAddr := nextTileLinear(9, 0)
+      io.binner.countReadEn   := true.B
+      state := sReadBinCount
     }
+  }
 
-    // =====================================================================
-    //  Pass 1: Triangle loop
-    // =====================================================================
+  private def handleNextTriangle(): Unit = {
+    val nextIdx = triIdx + 1.U
+    when(nextIdx < io.mmio.triCount) {
+      triIdx  := nextIdx
+      vertIdx := 0.U
+      state   := sLoadShader
+    }.otherwise {
+      // All triangles processed — start Pass 2 (shader reload + tile render)
+      state := sLoadRastShader
+    }
+  }
 
-    // Advance to next triangle, or start Pass 2
-    is(sNextTriangle) {
-      val nextIdx = triIdx + 1.U
-      when(nextIdx < io.triCount) {
-        triIdx  := nextIdx
-        vertIdx := 0.U
-        state   := sLoadShader
-      }.otherwise {
-        // All triangles processed — start Pass 2 (shader reload + tile render)
-        state := sLoadRastShader
+  private def handleDone(): Unit = {
+    io.done := true.B
+    state   := sIdle
+  }
+
+  private def wireSnoops(): Unit = {
+    // --- Clip-space output snooping (Step 29.1) ---
+    // Vertex shader writes results to r0(x), r1(y) (passthrough of u0, u1).
+    when(io.pipeWrite.en && state === sWaitVert) {
+      for (comp <- 0 until 4) {
+        when(io.pipeWrite.addr === comp.U) {
+          clipRegs(vertIdx)(comp) := io.pipeWrite.data(15, 0)
+        }
       }
     }
 
-    // Sequencer complete — pulse done for one cycle, return to idle
-    is(sDone) {
-      io.done := true.B
-      state   := sIdle
+    // --- Color/z capture from DMA uniform write stream (Step 29.3) ---
+    // During vertex DMA (sWaitDMA with nextAfterDMA=sRunVert), BorgDMA writes
+    // 8 words to uniform[0..7]:
+    //   uniform[0]=x, [1]=y, [2]=z, [3]=r, [4]=g, [5]=b, [6]=u_tex, [7]=v_tex
+    // We snoop the DMA write stream to capture z(index=2), r(3), g(4), b(5).
+    when(io.dma.uniformSnoop.en && state === sWaitDMA &&
+         nextAfterDMA === sRunVert) {
+      val addr = io.dma.uniformSnoop.addr(2, 0)  // low 3 bits = offset 0-7
+      val data = io.dma.uniformSnoop.data
+      when(addr === 2.U) { colorRegs(vertIdx)(3) := data }  // z
+      when(addr === 3.U) { colorRegs(vertIdx)(0) := data }  // r
+      when(addr === 4.U) { colorRegs(vertIdx)(1) := data }  // g
+      when(addr === 5.U) { colorRegs(vertIdx)(2) := data }  // b
     }
-  }
 
-  // --- Clip-space output snooping (Step 29.1) ---
-  // Vertex shader writes results to r0(x), r1(y) (passthrough of u0, u1).
-  when(io.pipeWrite.en && state === sWaitVert) {
-    for (comp <- 0 until 4) {
-      when(io.pipeWrite.addr === comp.U) {
-        clipRegs(vertIdx)(comp) := io.pipeWrite.data(15, 0)
+    // --- Setup shader output snooping (Step 29.2) ---
+    // Setup shader writes: r0–r7 = scaled edge components + area + inv_area.
+    when(io.pipeWrite.en && state === sWaitSetup) {
+      for (i <- 0 until 8) {
+        when(io.pipeWrite.addr === i.U) {
+          setupRegs(i) := io.pipeWrite.data(15, 0)
+        }
       }
     }
-  }
 
-  // --- Color/z capture from DMA uniform write stream (Step 29.3) ---
-  // During vertex DMA (sWaitDMA with nextAfterDMA=sRunVert), BorgDMA writes
-  // 8 words to uniform[0..7]:
-  //   uniform[0]=x, [1]=y, [2]=z, [3]=r, [4]=g, [5]=b, [6]=u_tex, [7]=v_tex
-  // We snoop the DMA write stream to capture z(index=2), r(3), g(4), b(5).
-  when(io.dmaUniformSnoop.en && state === sWaitDMA &&
-       nextAfterDMA === sRunVert) {
-    val addr = io.dmaUniformSnoop.addr(2, 0)  // low 3 bits = offset 0-7
-    val data = io.dmaUniformSnoop.data
-    when(addr === 2.U) { colorRegs(vertIdx)(3) := data }  // z
-    when(addr === 3.U) { colorRegs(vertIdx)(0) := data }  // r
-    when(addr === 4.U) { colorRegs(vertIdx)(1) := data }  // g
-    when(addr === 5.U) { colorRegs(vertIdx)(2) := data }  // b
-  }
-
-  // --- Setup shader output snooping (Step 29.2) ---
-  // Setup shader writes: r0–r7 = scaled edge components + area + inv_area.
-  when(io.pipeWrite.en && state === sWaitSetup) {
-    for (i <- 0 until 8) {
-      when(io.pipeWrite.addr === i.U) {
-        setupRegs(i) := io.pipeWrite.data(15, 0)
+    // --- DMA snoop for Bounding Box (Step 31.4) ---
+    // Use a dedicated counter instead of writeIdx to avoid corrupting the
+    // sStageUniforms write index (which also starts from 0).
+    when(state === sLoadBBox) {
+      bboxWordIdx := 0.U
+    }
+    when(io.dma.snoop.valid && state === sWaitDMA && nextAfterDMA === sBinTri) {
+      when(bboxWordIdx === 0.U) {
+        bboxMinX := io.dma.snoop.bits(15, 0)
+        bboxMinY := io.dma.snoop.bits(31, 16)
+        bboxWordIdx := 1.U
+      }.elsewhen(bboxWordIdx === 1.U) {
+        bboxMaxX := io.dma.snoop.bits(15, 0)
+        bboxMaxY := io.dma.snoop.bits(31, 16)
+        bboxWordIdx := 2.U
       }
     }
-  }
 
-  // --- DMA snoop for Bounding Box (Step 31.4) ---
-  // Use a dedicated counter instead of writeIdx to avoid corrupting the
-  // sStageUniforms write index (which also starts from 0).
-  val bboxWordIdx = RegInit(0.U(2.W))
-  when(state === sLoadBBox) {
-    bboxWordIdx := 0.U
-  }
-  when(io.dmaSnoop.valid && state === sWaitDMA && nextAfterDMA === sBinTri) {
-    when(bboxWordIdx === 0.U) {
-      bboxMinX := io.dmaSnoop.bits(15, 0)
-      bboxMinY := io.dmaSnoop.bits(31, 16)
-      bboxWordIdx := 1.U
-    }.elsewhen(bboxWordIdx === 1.U) {
-      bboxMaxX := io.dmaSnoop.bits(15, 0)
-      bboxMaxY := io.dmaSnoop.bits(31, 16)
-      bboxWordIdx := 2.U
+    // --- Step 32.3: DMA snoop for bin entry data ---
+    // When DMA reads a bin list entry (1 word, snoop-only), capture the low 16 bits
+    // as the triangle index for sLoadTriSetup.
+    when(io.dma.snoop.valid && state === sWaitDMA && nextAfterDMA === sWaitBinEntry) {
+      binEntryData := io.dma.snoop.bits(15, 0)
     }
-  }
-
-  // --- Step 32.3: DMA snoop for bin entry data ---
-  // When DMA reads a bin list entry (1 word, snoop-only), capture the low 16 bits
-  // as the triangle index for sLoadTriSetup.
-  when(io.dmaSnoop.valid && state === sWaitDMA && nextAfterDMA === sWaitBinEntry) {
-    binEntryData := io.dmaSnoop.bits(15, 0)
   }
 }
