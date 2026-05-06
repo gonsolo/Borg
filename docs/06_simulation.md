@@ -58,3 +58,16 @@ The simulation generates several artifacts for debugging:
 - `trace.vcd`: (Verilator only) Waveform trace for logic analysis in GTKWave.
 - `state.json`: (Arcilator only) A snapshot of all internal registers and memory offsets.
 - `*.ppm`: Snapshots of the framebuffer taken at the end of rendering.
+## Hybrid Verification: The Bluespec Oracle
+
+A unique aspect of the Borg development process is the use of **Hybrid DSL Verification**. While the primary RTL is written in Chisel, certain complex arbitration and priority logic (like the QSPI bus arbiter in the `MemoryController`) proved difficult to debug using standard simulation and LLM-assisted coding alone.
+
+In one notable instance, a race condition in the memory priority chain stumped both human developers and advanced AI models (specifically Claude Opus). The solution was to leverage the formal power of **Bluespec SystemVerilog (BSV)**. 
+
+### The Methodology:
+1. **Export to BSV**: The problematic Chisel arbitration classes were exported to Bluespec.
+2. **Compiler-Guided Solution**: Bluespec's unique atomic rule-scheduling and `descending_urgency` primitives were used to redefine the priority chain (`CPU Read > CPU Write > GPU Write > GPU Read > Instr Fetch`). The Bluespec compiler, which acts as a static formal verification engine for rule conflicts, resolved the race conditions almost instantly.
+3. **Import to Chisel**: The resulting verified priority logic was then manually re-implemented back into Chisel.
+
+This "Cross-DSL" debugging technique ensured that the most critical part of the SoC—the memory arbiter—is mathematically sound, even if the implementation remains in Chisel for better integration with the rest of the project.
+
