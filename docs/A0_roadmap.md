@@ -756,58 +756,137 @@ Restructured the sequencer into a true two-pass TBR (26 → 33 FSM states):
 
 ---
 
-### Optional: ASIC Size Reduction (target: 4×4 = 16 tiles on Sky130)
+### Step 36 — ASIC Area Reduction & Tapeout (Target: TTIHP26b, September 2026)
 
-> **Background**: Current 8×4 (32 tiles) at ~49% utilisation ≈ 15.7 tile-equivalents
-> of logic. A 4×4 die (349,105 µm²) needs ≤65% utilisation to route reliably.
-> That requires cutting ~35% of area. All steps are optional; none affect FPGA targets.
->
-> **Sprint order** (8-day tapeout window, AI-assisted): start OPT-D immediately as a
-> trivial foundation, then OPT-B while the baseline GDS is still running — it needs the
-> most time to build and validate. Fill time between GDS runs with OPT-A. Skip OPT-C
-> if OPT-D+B+A lands at ≤65% utilisation on 4×4.
+> **Shuttle decision**: TTSKY26b closes 2026-05-11 (5 days). The design at 161%
+> utilisation on 8×4 cannot be fixed in time — Phase 1+2 reach ~79% (routing gamble)
+> and Phase 3 (custom FMA) alone takes 4–5 days. **Target TTIHP26b (Sep 2026)**
+> instead: 4 months to implement all phases, validate gate-level simulation, and
+> submit with confidence. IHP also provides silicon-proven 1024×8 SRAM macros.
+> The Phase 1+2 work begun now is 100% reusable for IHP.
 
-- **OPT-D: Add `BorgConfig.ASIC` — foundation for all other OPT steps** *(−0.5% area, very low risk, ~2–3 hours)*
+#### Background: Root Cause Analysis (2026-05-06)
 
-  `BorgConfig.Sim` already enables all hardware features (`hasDMA`, `hasFlusher`,
-  `hasSequencer` all default true). The only flag that differs on an ASIC target is
-  `hasImemMmio=false` (saves ~30 LCs on iCE40, ~0.5% on Sky130). Add a named
-  `BorgConfig.ASIC` object identical to `Sim` but with `hasImemMmio=false`, and
-  wire the Makefile `gds-sky130` target to use it. Required as a prerequisite for
-  OPT-A's `hasExplicitSRAM` guard and OPT-C's `hasParallelAlu` flag.
-  Gate: GDS build uses `BorgConfig.ASIC` without regression.
+Post-synthesis area: **1,104,576 µm²** (GPL placement). 8×4 usable: 685,137 µm².
+Current utilisation: **161%** — fails at global placement.
 
-- **OPT-B: Custom FP16 FMADD — strip IEEE-754 special cases** *(−15 to −25% area, medium risk, ~4–5 days with AI)*
+**73% of the design is `SyncReadMem` synthesised as DFF arrays** by LibreLane's
+`memory_map` pass. Sky130 TT has no SRAM macros; IHP has confirmed 1024×8 macros.
 
-  HardFloat's `MulAddRecFN_e5_s11` handles subnormals, NaN, ±∞, and all IEEE-754
-  rounding modes. The GPU pipeline never generates any of these — all values are
-  bounded screen-space coordinates. A stripped FP16 multiplier + adder targeting
-  normal numbers only (flush-to-zero on underflow, saturate on overflow) can be
-  2–3× smaller in gate count. This is the single largest area win.
-  Implementation: new `BorgFp16Fma` Chisel module replacing `MulAddRecFN`; keep
-  HardFloat behind a config flag for comparison. Validate against the existing
-  `BorgCoreTests` suite — pixel-perfect parity is the acceptance criterion.
-  Gate: `m test-all` 12/12 green; GDS shows ≥15% area reduction vs. baseline.
+| Memory | Bits | DFF Area | % of design |
+| --- | --- | --- | --- |
+| `coordLutX` (BorgCore) | 8,192 | 174K µm² | 15.8% |
+| `coordLutY` (BorgCore) | 8,192 | 174K µm² | 15.8% |
+| `countMem` (BorgBinner) | 10,240 | 218K µm² | 19.7% |
+| `instructionMemory` | 1,792 | 38K µm² | 3.5% |
+| `uniformMem`, `rgbzMem`, regFiles, rcp, etc. | 4,398 | 94K µm² | 8.5% |
+| **TOTAL memory** | **32,814** | **698K µm²** | **63.2%** |
 
-- **OPT-A: Explicit SRAM macros for small memories** *(−5 to −10% area, low risk, ~1–2 days with AI)*
+> **Die sizes**: IHP and Sky130 use **identical** 8×4 block dimensions on TT
+> (1724.16 × 710.64 µm, confirmed from `tt/tech/ihp-sg13g2/def/tt_block_8x4_pgvdd.def`).
+> IHP's advantage is SRAM macros and more relaxed timing, not a larger die.
 
-  OpenLane synthesises `SyncReadMem` below its SRAM threshold as flip-flop arrays
-  (very large). Replace `rcpLutA/B` (17×10), `uniformMem` (64×16), and
-  `instructionMemory` (56×32) with explicit `sky130_sram_1r1w` macro
-  instantiations via a Chisel `BlackBox`. Wrap the instantiation in a
-  `hasExplicitSRAM` guard (set in `BorgConfig.ASIC`) so FPGA targets are unaffected.
-  Interleaves well with OPT-B GDS runs.
-  Gate: GDS run shows ≥5% reduction in total cell area vs. baseline.
+#### Utilisation Projections
 
-- **OPT-C: TinyQV parallel rewrite for ASIC** *(−3 to −8% area, medium risk, ~3–5 days with AI — only if OPT-D+B+A insufficient)*
+| Step | Est. Area | 8×4 Util (Sky/IHP) |
+| --- | --- | --- |
+| Current | 1,104,576 µm² | 161% ✗ |
+| +OPT-1: coordLut → arithmetic | 756,424 µm² | 110% ✗ |
+| +OPT-2: countMem → PSRAM | 538,517 µm² | **79%** ✓ |
+| +OPT-3: custom FP16 FMA | 458,517 µm² | **67%** ✓ |
+| +OPT-4: ASIC config + cleanup | 438,517 µm² | **64%** ✓✓ |
+| +OPT-5: shrink IMEM/uniforms/regs/rcp | ~388,000 µm² | **57%** ✓✓ |
 
-  TinyQV uses nibble-serial (4-bit/cycle) ALU operations to minimise iCE40 LUT
-  count. On Sky130, a full 32-bit parallel ALU is actually *smaller* in gate area
-  than a 4-bit serial FSM with 8 state registers and loop overhead.
-  Write `TinyQVAluAsic` with a parallel barrel shifter and 32-bit adder, gated
-  behind `hasParallelAlu: Boolean` in `BorgConfig`. The FPGA target keeps the
-  nibble-serial path; the ASIC target uses the parallel one.
-  Gate: all TinyQV Chisel tests pass; GDS confirms ≥3% total area reduction.
+---
+
+- **OPT-1: Replace `coordLutX`/`coordLutY` with combinational arithmetic** *(−31.5% area, low risk, ~1 day)*
+
+  Both 512×16 `SyncReadMem` tables map pixel index `x` → FP16 pixel centre `x + 0.5`.
+  They were added to save ~100 FPGA LUTs but cost 348,152 µm² as DFFs on ASIC.
+  Replace with a 10-bit CLZ (count-leading-zeros) + 10-bit barrel shifter (verified
+  correct for all 512 entries):
+
+  ```scala
+  val = 2*x + 1            // odd integer 1..1023
+  msb = leading_one_pos(val)
+  fp16 = ((msb + 14) << 10) | ((val << (10 - msb)) & 0x3FF)
+  ```
+
+  New module `IntToFp16Coord` replaces both LUT instances; remove `lutInit` coord
+  write port from `BorgCore` IO (already tied off in `Borg.scala`).
+  Gate: `m test-all` green; `coordX`/`coordY` match LUT output for x ∈ 0..511.
+
+- **OPT-2: Move `countMem` write-pointers to PSRAM** *(−15 to −20% area, medium risk, ~1–2 days)*
+
+  `countMem` (1024×10 DFF array, 218K µm²) tracks how many triangle indices have
+  been written to each tile's PSRAM bin list. It acts as a write-pointer array for Pass 1.
+
+  **Universal approach:** Instead of storing the write-pointers on-chip as DFFs or
+  SRAM macros, allocate a 2 KB region at the start of the PSRAM binning area to
+  store the 1024 counts. When binning a triangle:
+  1. Read the tile's current count from PSRAM.
+  2. Write the triangle ID to the tile's bin list in PSRAM.
+  3. Write `count + 1` back to the PSRAM count region.
+
+  Pass 2 then reads the final counts from this exact same PSRAM region. This triples
+  the PSRAM bandwidth used by the binner, but completely eliminates the 218K µm²
+  array from the chip on *both* Sky130 and IHP PDKs.
+
+  Gate: `m test-all` green; binner integration test passes with correct per-tile counts.
+
+- **OPT-3: Custom FP16 FMA — strip IEEE-754 special cases** *(−7% area, medium risk, ~4–5 days)*
+
+  HardFloat `MulAddRecFN_e5_s11` implements full IEEE-754 (NaN, ±∞, subnormals,
+  all rounding modes). The GPU never generates these — all values are bounded
+  screen-space coordinates. A stripped FMA (normal numbers only, round-to-nearest,
+  flush-to-zero on underflow) should be 2–3× smaller.
+  New `BorgFp16Fma` Chisel module; keep HardFloat behind a config flag.
+  Gate: `m test-all` 100% green; pixel-perfect parity with `BorgCoreTests`.
+
+- **OPT-4: `BorgConfig.ASIC` + ASIC-specific cleanup** *(−2% area, low risk, ~2–3 hours)*
+
+  Add `BorgConfig.ASIC` (`hasImemMmio=false`, `hasCoordLutArith=true`,
+  `hasExplicitSRAM=true` for IHP). Wire `gds-sky130` / `gds-ihp` Makefile targets
+  to use it. Gate: GDS build uses `BorgConfig.ASIC` without regression.
+
+- **OPT-5: Shrink remaining small memories** *(−5% area, low risk, ~1 day)*
+
+  | Memory | Change | Savings |
+  | --- | --- | --- |
+  | `instructionMemory` (56×32) | Reduce to 32 entries | −16K µm² |
+  | `uniformMem` (64×16) | Reduce to 32 entries | −11K µm² |
+  | Register files A/B/C (32×16 each) | Reduce to 16 registers | −16K µm² |
+  | `rcpLutA/B` (17×10 each) | Replace with Newton-Raphson combinational | −7K µm² |
+
+  Gate: `m test-all` green; shaders using registers 0–15 unaffected.
+
+#### Utilisation After Each Step
+
+> Both PDKs (IHP and Sky130) have identical 8×4 die dimensions on TT. Because OPT-2 now moves `countMem` to PSRAM completely, the area footprints and savings are identical for both PDKs. ✓ = routable (≤80%), ✓✓ = safe (≤65%), ✗ = fails placement.
+
+| Step | Est. Area | 8×4 Util (Sky/IHP) |
+| --- | --- | --- |
+| Current | 1,104,576 µm² | 161% ✗ |
+| +OPT-1: coordLut → arithmetic | 756,424 µm² | 110% ✗ |
+| +OPT-2: countMem → PSRAM | 538,517 µm² | **79%** ✓ |
+| +OPT-3: custom FP16 FMA | 458,517 µm² | **67%** ✓ |
+| +OPT-4: ASIC config + cleanup | 438,517 µm² | **64%** ✓✓ |
+| +OPT-5: shrink IMEM/uniforms/regs/rcp | ~388,000 µm² | **57%** ✓✓ |
+
+Both PDKs reach the safe 8×4 threshold after OPT-4.
+
+#### Implementation Schedule
+
+```text
+Now (before May 11):  OPT-1 + OPT-2  →  m test-all  →  synth check
+                      (work reusable for IHP regardless of submission)
+
+Jun–Aug 2026:         OPT-3 (custom FMA)  →  m test-all  →  make gds-ihp
+                      OPT-4 (ASIC config) →  make gds-ihp  →  check util
+                      OPT-5 (shrink mems) →  m test-all  →  make gds-ihp
+
+Sep 2026:             Gate-level simulation  →  submit TTIHP26b 🚀
+```
 
 ---
 

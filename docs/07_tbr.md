@@ -28,6 +28,126 @@ TBR avoids this by splitting rendering into two passes:
 The key insight: PSRAM is only written once per tile per frame, regardless of how
 many triangles overlap that tile. Depth testing is free (on-chip).
 
+## Architecture and Data Flow
+
+The fully autonomous TBR architecture heavily leverages external PSRAM, while keeping depth-testing and pixel blending strictly on-chip.
+
+### 1. Timing & Data Flow (Sequence)
+
+This shows the step-by-step order of operations over time. Notice how heavily the GPU relies on PSRAM during Phases 1 and 2.
+
+```mermaid
+sequenceDiagram
+    participant C as Host CPU
+    participant G as Borg GPU
+    participant P as PSRAM (External Memory)
+    
+    rect rgb(40, 40, 40)
+    note right of C: PHASE 0: SETUP
+    C->>P: 1. Write 3D Vertices, Indices, Textures
+    C->>G: 2. Write MMIO config & trigger Start
+    end
+    
+    rect rgb(30, 45, 60)
+    note right of C: PHASE 1: GEOMETRY BINNING (Loops per Triangle)
+    loop For Every Triangle
+        G->>P: 3. Read 3 Indices & 3 Vertices
+        note over G: Vertex Shader transforms 3D → 2D
+        G->>P: 4. Write transformed 2D Uniforms (Staging)
+        note over G: Binner finds overlapping 4x4 tiles
+        G->>P: 5. Read/Write Tile Bin Lists & Triangle Counts
+    end
+    end
+    
+    rect rgb(60, 30, 30)
+    note right of C: PHASE 2 & 3: RASTERIZATION (Loops per 4x4 Tile)
+    loop For Every 4x4 Tile
+        G->>P: 6. Read Bin List for this tile
+        loop For Every Overlapping Triangle
+            G->>P: 7. Read 2D Uniforms (from Staging)
+            note over G: Rasterizer tests 16 pixels
+            opt If Texturing Enabled
+                G->>P: 8. Fetch Texels
+            end
+            note over G: Blend colors/depths into On-Chip Tile Buffer
+        end
+        note right of C: Phase 3: Tile Flush
+        G->>P: 9. DMA Write 16 finished pixels to Framebuffer
+    end
+    end
+```
+
+### 2. Architecture Layout
+
+This shows exactly which internal Borg GPU hardware blocks map to which physical regions in PSRAM.
+
+```mermaid
+graph TD
+    classDef memory fill:#1a365d,stroke:#63b3ed,stroke-width:2px,color:#fff;
+    classDef gpu fill:#2d3748,stroke:#a0aec0,stroke-width:2px,color:#fff;
+    classDef cpu fill:#742a2a,stroke:#fc8181,stroke-width:2px,color:#fff;
+
+    subgraph Host
+        CPU[Host CPU]:::cpu
+    end
+
+    subgraph External Memory
+        PSRAM[(PSRAM Chip)]:::memory
+        VBO[Vertex & Index Buffers]:::memory
+        TEX[Texture Data]:::memory
+        BIN[Bin Lists & Counts]:::memory
+        UNI[Staged 2D Uniforms]:::memory
+        FBO[Final Color/Z Framebuffer]:::memory
+        
+        PSRAM --- VBO & TEX & BIN & UNI & FBO
+    end
+
+    subgraph Borg GPU
+        SEQ[BorgSequencer]:::gpu
+        VSH[Vertex Shader]:::gpu
+        BINNER[BorgBinner]:::gpu
+        RAST[Rasterizer]:::gpu
+        TEXU[BorgTextureUnit]:::gpu
+        TBUF(On-Chip Tile Buffer):::gpu
+        FLUSH[BorgTileFlusher]:::gpu
+    end
+
+    %% Phase 0 - CPU
+    CPU -- "Writes" --> VBO
+    CPU -- "Writes" --> TEX
+    CPU -. "Configures MMIO" .-> SEQ
+
+    %% Phase 1 - GPU
+    SEQ -- "Reads (Pass 1)" --> VBO
+    SEQ -- "Feeds Data" --> VSH
+    VSH -- "Writes 2D Data" --> UNI
+    VSH -- "Passes Bounds" --> BINNER
+    BINNER -- "Reads/Writes Counts & IDs" --> BIN
+
+    %% Phase 2 - GPU
+    SEQ -- "Reads IDs (Pass 2)" --> BIN
+    SEQ -- "Reads 2D Data" --> UNI
+    SEQ -- "Feeds 2D Triangles" --> RAST
+    RAST -- "Requests" --> TEXU
+    TEXU -- "Fetches" --> TEX
+    TEXU -- "Returns RGB" --> RAST
+    RAST -- "Blends Pixels" --> TBUF
+
+    %% Phase 3 - GPU
+    FLUSH -- "Empties" --> TBUF
+    FLUSH -- "DMA Writes" --> FBO
+```
+
+**Legend of Components:**
+- **CPU (Phase 0 Only)**: The host processor that sets up 3D data and triggers the GPU. Once triggered, the CPU goes to sleep.
+- **SEQ (BorgSequencer, Phases 1-3)**: The master GPU hardware FSM that fetches memory and orchestrates the autonomous rendering passes.
+- **VSH (Vertex Shader)**: Executes `TinyQV` to transform 3D vertices into 2D screen coordinates.
+- **BINNER (BorgBinner)**: Determines which 4x4 tiles a triangle overlaps and updates PSRAM bin lists.
+- **RAST (Rasterizer)**: Evaluates edge equations for 16 pixels concurrently to determine triangle inclusion.
+- **TEXU (BorgTextureUnit)**: Fetches and filters texels from PSRAM for textured fragments.
+- **TBUF (BorgTileBuffer)**: On-chip SRAM holding the current 4x4 tile's Color and Z values for fast blending.
+- **FLUSH (BorgTileFlusher)**: Bursts the finished 16 pixels from TBUF to the PSRAM framebuffer.
+
 ## Memory Layout
 
 ```text
