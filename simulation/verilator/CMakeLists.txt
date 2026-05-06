@@ -39,6 +39,7 @@ target_include_directories(borg_sim PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/obj_dir 
     ${VERILATOR_ROOT}/include
     ${VERILATOR_ROOT}/include/vltstd
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common
 )
 
 # Optional optimisation flags

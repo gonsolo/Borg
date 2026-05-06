@@ -34,6 +34,7 @@ class TileReadIO(val dataBits: Int = 16) extends Bundle {
   * busy: high while clear is in progress
   */
 class TileClearIO extends Bundle {
-  val en   = Output(Bool())
-  val busy = Input(Bool())
+  val en    = Output(Bool())
+  val busy  = Input(Bool())
+  val color = Output(new ColorZ(16))  // clear color (Step 32.5: sequencer-driven)
 }

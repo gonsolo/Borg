@@ -578,7 +578,7 @@ static void setup_tile_uniforms(const draw_call_t *dc) {
 }
 
 // Bin a single draw call into the per-tile lists.
-static void borgBin(void) {
+static void __attribute__((unused)) borgBin(void) {
   int tiles_per_row = borg_fb_width >> 2;
   for (int dc = 0; dc < draw_call_count; dc++) {
     const bbox_t *bb = &draw_calls[dc].bb;
@@ -641,7 +641,7 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
 }
 
 // TBR tile-ordered render loop.
-static void borgBinRender(int frame) {
+static void __attribute__((unused)) borgBinRender(int frame) {
   int tiles_per_row = borg_fb_width >> 2;
   int tile_rows = borg_fb_height >> 2;
   int fb_offset = frame * FRAME_STRIDE;
@@ -761,7 +761,7 @@ static void borgBinRender(int frame) {
 // loads setup uniforms per triangle, rasterizes, and flushes each tile to PSRAM.
 // Empty tiles are flushed with the clear color written in sClearTile — no CPU
 // pre-fill needed.
-static void __attribute__((unused)) borgBinRenderAutonomous(int frame) {
+static void borgBinRenderAutonomous(int frame) {
   int fb_offset = frame * FRAME_STRIDE;
   int tiles_per_row = borg_fb_width >> 2;
 
@@ -784,17 +784,43 @@ static void __attribute__((unused)) borgBinRenderAutonomous(int frame) {
   // writes UV coords from the descriptor (pre-scaled by tex_w/tex_h in
   // record_draw_call). When has_uvs=false, UV descriptor words are zero;
   // FTEX returns white (texel(1,1,1) × vertexColor = vertexColor).
-  BORG_GPU->tex_config = (tex.psram_offset >= 0)
-      ? ((TEX_PSRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) | TEX_CONFIG_REG_T__EN_bm)
-      : 0;
+  // Scan draw calls: enable texture if ANY draw call uses a texture.
+  // The global 'tex' state may have been cleared by borg_clear_texture()
+  // between draw calls, but per-draw-call UVs are already recorded.
+  {
+    int any_textured = 0;
+    for (int i = 0; i < draw_call_count; i++) {
+      if (draw_calls[i].tex.psram_offset >= 0) { any_textured = 1; break; }
+    }
+    BORG_GPU->tex_config = any_textured
+        ? ((TEX_PSRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) | TEX_CONFIG_REG_T__EN_bm)
+        : 0;
+  }
   BORG_GPU->control = 0; // uniform page 0
 
+  // Critical: set frag_pc so the dispatcher chains to the fragment shader.
+  // Without this, fragPcReg stays 0 and the dispatcher guard
+  // (fragPcReg != 0) prevents any fragment shading — all pixels stay at
+  // clear color (the "black cube" bug).
+  BORG_GPU->frag_pc = BORG_IMEM_FRAG_OFFSET;
+
+  // Set tile_bz shadow register for the clear color (used by tile buffer clear).
+  BORG_GPU->tile_bz = cc_lo;
+
   if (draw_call_count > 0) {
+      puts_uart("A");
+      // Print count as digit (0-9 for small counts)
+      char c = '0' + (draw_call_count & 0xF);
+      putc_uart(c);
+      puts_uart("\r\n");
       BORG_GPU->seq_desc_base = SEQ_DESC_BASE_ADDR;
       BORG_GPU->seq_tri_count = draw_call_count;
       BORG_GPU->seq_trigger = 1;
       while (BORG_GPU->status & STATUS_REG_T__SEQ_BUSY_bm)
         ;
+      puts_uart("B\r\n");
+  } else {
+      puts_uart("Z\r\n");
   }
 }
 
@@ -936,12 +962,10 @@ void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
 void borg_present(int frame) {
   unsigned int t_wait = get_cycles();
 
-  // TODO: borgBinRenderAutonomous(frame) produces all-black output;
-  // use CPU-driven TBR until the autonomous path is debugged.
-  // The sequencer still accelerates per-tile uniform staging inside
-  // borgBinRender() when has_sequencer=1.
-  borgBin();
-  borgBinRender(frame);
+  // Fully autonomous two-pass TBR rendering (Step 32.3/32.4):
+  // Pass 1: sequencer runs vert+setup+bin for all triangles.
+  // Pass 2: sequencer iterates all tiles, loads bin lists, rasterizes, flushes.
+  borgBinRenderAutonomous(frame);
 
   // Wait for the GPU to finish the last tile flush.
   while (!(BORG_GPU->status & STATUS_REG_T__IDLE_bm))

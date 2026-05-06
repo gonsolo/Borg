@@ -84,13 +84,21 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     tile_max_reg.x      := io.cmdPop.bits.tileOrigin.x + 4.U
     tile_max_reg.y      := io.cmdPop.bits.tileOrigin.y + 4.U
     iter_reg            := io.cmdPop.bits.tileOrigin
+    printf("[ITER] cmdPop origin=(%d,%d) phaseIdle=%d iterValid=%d shaderIdx=%d\n",
+      io.cmdPop.bits.tileOrigin.x, io.cmdPop.bits.tileOrigin.y,
+      io.phaseIdle, iter_valid, tileIndex(shader_iter_reg))
   }
 
   // --- Pixel advance ---
+  // Gate on iter_valid: if no tile is loaded (exhausted or pre-pop), advance is a no-op.
+  // This prevents spurious tileComplete when the sequencer fires advance before
+  // the FIFO command has been popped into the iterator registers.
   val pixel_ready    = WireDefault(false.B)
   val tile_complete  = WireDefault(false.B)
-  when(io.advance) {
+  when(io.advance && iter_valid) {
     shader_iter_reg := iter_reg   // latch pre-advance position
+    printf("[ITER] advance iter=(%d,%d) shaderIdx=%d -> shaderIdx=%d\n",
+      iter_reg.x, iter_reg.y, tileIndex(shader_iter_reg), tileIndex(iter_reg))
     when(iter_reg.x + 1.U >= tile_max_reg.x) {
       iter_reg.x := tile_origin_reg.x
       val next_y = iter_reg.y + 1.U
@@ -98,11 +106,16 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       // Tile complete: y just stepped to or past tile_max.y
       when(next_y >= tile_max_reg.y) {
         tile_complete := true.B
+        printf("[ITER] tileComplete iter=(%d,%d)\n", iter_reg.x, iter_reg.y)
       }
     }.otherwise {
       iter_reg.x := iter_reg.x + 1.U
     }
     pixel_ready := true.B
+  }
+  when(io.advance && !iter_valid) {
+    printf("[ITER] advance IGNORED (iter_valid=0) iter=(%d,%d) max=(%d,%d)\n",
+      iter_reg.x, iter_reg.y, tile_max_reg.x, tile_max_reg.y)
   }
 
   // --- Tile index helper ---

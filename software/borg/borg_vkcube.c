@@ -160,8 +160,12 @@ static void compute_face_lighting(const fp16_t model[16], fp16_t face_light[6]) 
                    borg_fp16_mul(Ly, wy)),
                    borg_fp16_mul(Lz, wz));
 
-    // max(0, dot): clamp negative (sign bit set) to zero
-    face_light[f] = (dot & 0x8000) ? FP16_ZERO : dot;
+    // max(0.1, dot): ambient floor so back-faces are dim, not black.
+    // Khronos reference uses max(0, dot) — we add a small ambient for
+    // better visual appearance on the Borg's limited color depth.
+    #define FP16_AMBIENT 0x2E66  // 0.1 in FP16
+    fp16_t clamped = (dot & 0x8000) ? FP16_ZERO : dot;
+    face_light[f] = (clamped < FP16_AMBIENT) ? FP16_AMBIENT : clamped;
   }
 }
 

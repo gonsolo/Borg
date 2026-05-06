@@ -152,6 +152,8 @@ class MemoryController extends Module {
         start_write := true.B
       } .elsewhen(io.gpuMem.wr) {
         start_gpu_write := true.B
+        printf("[MEMCTRL] GPU WRITE start addr=0x%x wr=%d req=%d\n",
+          io.gpuMem.addr, io.gpuMem.wr, io.gpuMem.req)
       } .elsewhen(io.gpuMem.req) {
         start_gpu_read := true.B
       } .elsewhen(io.instrFetch.instr_fetch_restart) {
@@ -267,9 +269,18 @@ class MemoryController extends Module {
     // Write uses combinational data_req (not registered qspi_write_done) because
     // stop_txn clears gpu_write_active in the same cycle qspi_write_done is set,
     // so the registered version arrives 1 cycle too late.
-    io.gpuMem.ready := (gpu_active && qspi_data_ready && qspi_data_byte_idx === data_txn_len) ||
-                       (gpu_write_active && qspi_data_req && qspi_data_byte_idx === data_txn_len)
+    val gpuReadDone  = gpu_active && qspi_data_ready && qspi_data_byte_idx === data_txn_len
+    val gpuWriteDone = gpu_write_active && qspi_data_req && qspi_data_byte_idx === data_txn_len
+    io.gpuMem.ready := gpuReadDone || gpuWriteDone
     io.gpuMem.data  := assembleGpuData()
+
+    // Debug: log every GPU PSRAM transaction
+    when(gpuReadDone) {
+      printf("[PSRAM] RD addr=0x%x data=0x%x\n", io.gpuMem.addr, assembleGpuData())
+    }
+    when(gpuWriteDone) {
+      printf("[PSRAM] WR addr=0x%x data=0x%x\n", io.gpuMem.addr, io.gpuMem.wdata)
+    }
 
     io.debug_stall_txn := stall_txn
     io.debug_stop_txn  := stop_txn

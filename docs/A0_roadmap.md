@@ -748,6 +748,12 @@ Restructured the sequencer into a true two-pass TBR (26 → 33 FSM states):
 - **`vkcube` Lighting Fix**: Negated the light direction constants in `borg_vkcube.c` so the light correctly illuminates camera-facing faces instead of back-facing ones.
 - **PicoIce Excluded from CI**: Temporarily disabled PicoIce tests in `make test-all` and removed its `HAND_CHISEL` inclusion since `BorgTextureUnit` overflows the iCE40 5280 LCs limit. The primary target is now `BorgConfig.Large` (Sim/ULX3S).
 
+#### ✅ 32.6 Rendering Pipeline Synchronization & Simulator Parity — 2026-05-06
+
+- **Pipeline Drain Gating**: Wired `BorgRasterizer.io.dispatcherPhase` (idle state) back to `BorgSequencer` to fix race conditions. The flusher and DMA uniform loader now wait for `dispatcherIdle` to ensure in-flight shader writes finish before context switching.
+- **Lint Cleanups**: Fixed a Verilator `UNUSEDSIGNAL` in `BorgDMA.sv` (forced explicit 6-bit slice) and a Chisel `W004` index width mismatch in `BorgSequencer.scala`.
+- **Simulator Parity**: Extracted shared app settings into `simulation/common/sim_app_config.h`. Both Verilator and Arcilator now use identical camera rotation angles for `vkcube`, resulting in a 100% pixel-perfect output match between the two simulators and the golden reference.
+
 ---
 
 ### Optional: ASIC Size Reduction (target: 4×4 = 16 tiles on Sky130)

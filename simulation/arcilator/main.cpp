@@ -1,4 +1,5 @@
 #include "ArcBorgSimulator.h"
+#include "sim_app_config.h"
 #include <iostream>
 
 int main(int argc, char **argv) {
@@ -10,18 +11,13 @@ int main(int argc, char **argv) {
   std::string app_name = argv[2];
   uint32_t width = 32;
   uint32_t height = 32;
-  uint32_t tex_dim = (app_name == "vkcube" || app_name == "textest") ? 64 : 32;
 
   ArcBorgSimulator sim(firmware_path, width, height);
 
-  std::string tex_path = app_name == "vkcube"
-                             ? "../../software/borg/borg_texture_small.dat"
-                             : "../../software/borg/test_texture.dat";
-  sim.load_texture(tex_path, tex_dim);
-
-  if (app_name == "vkcube") {
-    sim.set_camera_angles(-0.4363f, 0.6109f);
-  }
+  AppConfig cfg = get_app_config(app_name);
+  sim.load_texture(cfg.tex_path, cfg.tex_dim);
+  if (cfg.has_camera)
+    sim.set_camera_angles(cfg.cam_angle_x, cfg.cam_angle_y);
   sim.backend_reset();
   std::cout << "[SIM] Starting simulation...\n";
 

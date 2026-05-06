@@ -306,7 +306,7 @@ object BorgSequencerTests extends TestSuite {
         val c2r = 0.0f; val c2g = 0.0f; val c2b = 1.0f  // v2 = blue
 
         val vertAddr = 0x1000; val setupAddr = 0x3000; val descAddr = 0x2000
-        val rastAddr = 0x4000; val fragAddr = 0x5000
+        val rastAddr = 0x4000; val fragAddr = 0x5000; val setupBase = 0x7000; val binBase = 0x6000
         val vertShader = vertPassthroughShader()
         val setup      = setupShader()
         val rast       = Seq(BigInt(0))  // HALT
@@ -316,11 +316,22 @@ object BorgSequencerTests extends TestSuite {
           Seq(v1x, v1y, v1z, c1r, c1g, c1b, 0.0f, 0.0f),
           Seq(v2x, v2y, v2z, c2r, c2g, c2b, 0.0f, 0.0f),
         )
+        // Pre-computed edge uniforms stored by sStoreSetup at setupBase.
+        // sLoadTriSetup (pass-2) reads these back — must match sStageUniforms output.
+        val e0dxBits = floatToBits16(v0x - v1x); val e0dyBits = floatToBits16(v1y - v0y)
+        val e1dxBits = floatToBits16(v1x - v2x); val e1dyBits = floatToBits16(v2y - v1y)
+        val e2dxBits = floatToBits16(v2x - v0x); val e2dyBits = floatToBits16(v0y - v2y)
+        val setupData: Map[Int, BigInt] = Map(
+          (setupBase + 0*4) -> e0dxBits, (setupBase + 1*4) -> e0dyBits,
+          (setupBase + 2*4) -> e1dxBits, (setupBase + 3*4) -> e1dyBits,
+          (setupBase + 4*4) -> e2dxBits, (setupBase + 5*4) -> e2dyBits,
+        )
         val psram = vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
                     setup.zipWithIndex.map      { case (w,i) => (setupAddr + i*4) -> w }.toMap ++
                     rast.zipWithIndex.map       { case (w,i) => (rastAddr + i*4) -> w }.toMap ++
                     frag.zipWithIndex.map       { case (w,i) => (fragAddr + i*4) -> w }.toMap ++
-                    buildDescriptor(descAddr, verts)
+                    buildDescriptor(descAddr, verts) ++
+                    setupData
 
         rawWrite(borg, BorgGpuRegs.seq_desc_base_offset.litValue.toInt,  descAddr)
         rawWrite(borg, BorgGpuRegs.seq_vert_addr_offset.litValue.toInt,  vertAddr)
@@ -331,6 +342,9 @@ object BorgSequencerTests extends TestSuite {
         rawWrite(borg, BorgGpuRegs.seq_rast_len_offset.litValue.toInt,   rast.size)
         rawWrite(borg, BorgGpuRegs.seq_frag_addr_offset.litValue.toInt,  fragAddr)
         rawWrite(borg, BorgGpuRegs.seq_frag_len_offset.litValue.toInt,   frag.size)
+        rawWrite(borg, BorgGpuRegs.seq_bin_base_offset.litValue.toInt,   binBase)
+        rawWrite(borg, BorgGpuRegs.seq_bin_row_bytes_offset.litValue.toInt, 2)
+        rawWrite(borg, BorgGpuRegs.seq_setup_base_offset.litValue.toInt, setupBase)
         rawWrite(borg, BorgGpuRegs.seq_tri_count_offset.litValue.toInt, 1)
         rawWrite(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt, 1)
 

@@ -75,6 +75,9 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val texR    = Output(UInt(16.W))
   val texG    = Output(UInt(16.W))
   val texB    = Output(UInt(16.W))
+
+  // Dispatcher FSM phase (exposed for sequencer pipeline drain)
+  val dispatcherPhase = Output(UInt(3.W))
 }
 
 class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
@@ -128,6 +131,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   io.iterValid    := iterator.io.iterValid
   io.tileComplete := iterator.io.tileComplete
   io.tileOrigin   := iterator.io.tileOrigin
+  io.dispatcherPhase := dispatcher.io.phase
 
   // --- Passthrough ---
   io.uniformPage  := io.uniformPageReg  // pass through from register

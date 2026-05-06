@@ -204,8 +204,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
                          Mux(f.io.busy, f.io.gpuMem.addr,
                          Mux(geoBusy, geoAddr, rast.io.gpuMem.addr)))
-      io.gpuMem.wr    := Mux(f.io.busy, f.io.gpuMem.wr,
-                         Mux(geoBusy, geoWr, rast.io.gpuMem.wr))
+      io.gpuMem.wr    := Mux(d.io.busy, false.B,  // DMA only reads — never assert wr
+                         Mux(f.io.busy, f.io.gpuMem.wr,
+                         Mux(geoBusy, geoWr, rast.io.gpuMem.wr)))
       io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
                          Mux(geoBusy, geoWdata, rast.io.gpuMem.wdata))
       rast.io.gpuMem.data  := io.gpuMem.data
@@ -221,7 +222,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
     rast.io.texConfig.baseAddr := rdlRegs.io.hw.tex_config_base_addr
-    rast.io.texConfig.en       := rdlRegs.io.hw.tex_config_en.asBool
+    // Per-triangle tex enable: when sequencer is busy, use its per-triangle
+    // has_uvs flag. When idle, use the MMIO register (legacy/CPU path).
+    rast.io.texConfig.en       := Mux(s.io.busy,
+      s.io.texEnOverride && rdlRegs.io.hw.tex_config_en.asBool,
+      rdlRegs.io.hw.tex_config_en.asBool)
 
     // frag_pc and uniform_page from dedicated registers
     rast.io.fragPcReg      := rdlRegs.io.hw.frag_pc_frag_pc
@@ -233,8 +238,23 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val ctrlWriting = bus.is_writing && bus.address === BorgGpuRegs.tile_ctrl_offset
     val tileReadIdx = rdlRegs.io.hw.tile_ctrl_read_idx
     
-    tile.io.clear.en := rdlRegs.io.hw.tile_ctrl_clear.asBool ||
-                        (if (cfg.isLarge) s.io.iter.clear else false.B)
+    val seqClear = if (cfg.isLarge) s.io.iter.clear else false.B
+    tile.io.clear.en := rdlRegs.io.hw.tile_ctrl_clear.asBool || seqClear
+
+    // Wire clear color: sequencer-driven or MMIO-driven (tile_bz shadow).
+    // Sequencer clear color format: lo = {B[31:16], Z[15:0]}, hi = {R[31:16], G[15:0]}.
+    if (cfg.isLarge) {
+      tile.io.clear.color.r := Mux(seqClear, s.io.mmio.clearColorHi(31, 16), 0.U)
+      tile.io.clear.color.g := Mux(seqClear, s.io.mmio.clearColorHi(15, 0), 0.U)
+      tile.io.clear.color.b := Mux(seqClear, s.io.mmio.clearColorLo(31, 16), 0.U)
+      tile.io.clear.color.z := Mux(seqClear, s.io.mmio.clearColorLo(15, 0), 0x7BFF.U(16.W))
+    } else {
+      // pico-ice: no sequencer, clear to black + max depth
+      tile.io.clear.color.r := 0.U
+      tile.io.clear.color.g := 0.U
+      tile.io.clear.color.b := 0.U
+      tile.io.clear.color.z := 0x7BFF.U(16.W)
+    }
 
     // Two-step protocol: shadow BZ written first, RG write triggers tile buffer write.
     // tile_bz_b/tile_bz_z are captured by the RDL (tile_bz_b_reg/tile_bz_z_reg) and
@@ -286,7 +306,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       }
 
       val flushPending = RegInit(false.B)
-      when(rast.io.tileComplete) { flushPending := true.B }
+      // Legacy per-tile flush: only active when sequencer is idle.
+      // When the sequencer is busy, it manages flushes via s.io.flusher.trigger.
+      when(rast.io.tileComplete && !s.io.busy) { flushPending := true.B }
 
       val seqFlushActive = s.io.flusher.trigger
 
@@ -510,6 +532,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       s.io.mmio.fbHeightTiles   := seqTilesPerRowReg  // square framebuffer assumption
       s.io.iter.complete        := rast.io.tileComplete
       s.io.iter.stall           := rast.io.autoRunStall
+      // Dispatcher pipeline idle — sequencer waits for this before flushing
+      // to prevent the "last pixel race" (flusher reads slot 15 before
+      // dispatcher writes it).
+      s.io.iter.dispatcherIdle  := rast.io.dispatcherPhase === 0.U  // sIdle = 0
 
       // CoreStatus and PipeWrite: broadcast snoop
       s.io.coreStatus.running        := core.io.status.running

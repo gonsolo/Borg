@@ -157,7 +157,9 @@ object BorgRasterizerTests extends TestSuite {
         utest.assert(initFlag)
         println("  Initial: insideFlag=true ✓")
 
-        // Enter sRast phase so snooping is active
+        // Enter sRast phase so snooping is active.
+        // Must load a tile first so iter_valid=true → pixelReady fires → dispatcher enters sRast.
+        setTileCommand(rast, 0, 0)
         rast.io.advance.poke(true.B)
         rast.clock.step(1)
         rast.io.advance.poke(false.B)

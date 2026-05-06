@@ -27,6 +27,12 @@ object BorgTileBufferTests extends TestSuite {
     tb.io.read.idx.poke(0.U)
     tb.io.read.en.poke(false.B)
     tb.io.clear.en.poke(false.B)
+    // Clear color: RGB=0, Z=FP16_MAX_DEPTH (0x7BFF).
+    // Hardware uses io.clear.color as the written value; caller must supply it.
+    tb.io.clear.color.r.poke(0.U)
+    tb.io.clear.color.g.poke(0.U)
+    tb.io.clear.color.b.poke(0.U)
+    tb.io.clear.color.z.poke(FP16_MAX_DEPTH.U)
   }
 
   /** Explicit reset pulse + wait for BRAM auto-clear (16 cycles). */

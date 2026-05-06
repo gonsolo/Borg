@@ -72,9 +72,11 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   //          adder — saves ~20 LCs (tileBase_reg FFs) + ~6 LCs (simpler adder).
   val addrReg  = RegInit(0.U(20.W))
   val word_idx = RegInit(0.U(6.W))   // 0..31: SRAM index (>> 1) + termination (== 32)
+  // Local copy of tile buffer entry — immune to dispatcher read port corruption.
+  val entryHeld = RegInit(0.U(64.W))
 
   // Default outputs
-  io.busy := (state =/= sIdle)
+  io.busy := (state =/= sIdle) || io.start
 
   io.read.idx := 0.U
   io.read.en  := false.B
@@ -98,6 +100,7 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
     is(sReadSram) {
       io.read.en  := true.B
       io.read.idx := word_idx >> 1.U
+      printf("[FLUSH] readSram slot=%d wordIdx=%d\n", word_idx >> 1.U, word_idx)
       state       := sWaitSram
     }
 
@@ -106,19 +109,22 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
       state := sWaitSram2
     }
 
-    // Cycle 2: readDataHeld captures rgbzRead → io.read.data now valid
+    // Cycle 2: readDataHeld captures rgbzRead → latch locally so
+    // a concurrent dispatcher Z-read can't corrupt our data.
     is(sWaitSram2) {
+      entryHeld := io.read.data.asUInt
+      printf("[FLUSH] dataHeld slot R=0x%x G=0x%x B=0x%x Z=0x%x\n",
+        io.read.data.r, io.read.data.g, io.read.data.b, io.read.data.z)
       state := sWriteLo
     }
 
     // Write low 32 bits ({b,z} = bits[31:0]) at current addrReg
-    // io.read.data is stable: readDataHeld holds until next read.en
-    // Chisel Bundle.asUInt: ColorZ(r,g,b,z) → {r,g,b,z} = bits[63:0]
+    // entryHeld is our local copy — immune to dispatcher reads.
     is(sWriteLo) {
       io.gpuMem.req   := true.B
       io.gpuMem.wr    := true.B
       io.gpuMem.addr  := addrReg
-      io.gpuMem.wdata := io.read.data.asUInt(31, 0)   // {b, z}
+      io.gpuMem.wdata := entryHeld(31, 0)   // {b, z}
       when(io.gpuMem.ready) {
         addrReg  := addrReg + 4.U
         word_idx := word_idx + 1.U
@@ -131,7 +137,7 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
       io.gpuMem.req   := true.B
       io.gpuMem.wr    := true.B
       io.gpuMem.addr  := addrReg
-      io.gpuMem.wdata := io.read.data.asUInt(63, 32)  // {r, g}
+      io.gpuMem.wdata := entryHeld(63, 32)  // {r, g}
       when(io.gpuMem.ready) {
         addrReg  := addrReg + 4.U
         val next_word = word_idx + 1.U

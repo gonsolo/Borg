@@ -1,4 +1,5 @@
 #include "BorgSimulator.h"
+#include "sim_app_config.h"
 
 int main(int argc, char** argv) {
     if (argc < 3) {
@@ -15,12 +16,10 @@ int main(int argc, char** argv) {
 
     VerBorgSimulator sim(firmware_path, width, height);
 
-    std::string tex_path = (app_name == "vkcube") ? "../../software/borg/borg_texture_small.dat" : "../../software/borg/test_texture.dat";
-    sim.load_texture(tex_path, tex_dim);
-
-    if (app_name == "vkcube") {
-        sim.set_camera_angles(0.5236f, 0.7854f);  // 30° X, +45° Y — lighting contrast
-    }
+    AppConfig cfg = get_app_config(app_name);
+    sim.load_texture(cfg.tex_path, cfg.tex_dim);
+    if (cfg.has_camera)
+        sim.set_camera_angles(cfg.cam_angle_x, cfg.cam_angle_y);
 
     std::cout << "[SIM] Starting simulation...\n";
 

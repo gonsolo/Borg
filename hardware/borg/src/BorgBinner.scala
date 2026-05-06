@@ -111,9 +111,20 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
   val clearIdx  = RegInit(0.U(log2Ceil(maxTiles + 1).W))
   val clearing  = RegInit(false.B)
 
+  // Pending start: latched when start fires during clearing.
+  // Auto-starts binning once clearing finishes.
+  val pendingStart = RegInit(false.B)
+  val pendBboxMinX = Reg(UInt(10.W))
+  val pendBboxMinY = Reg(UInt(10.W))
+  val pendBboxMaxX = Reg(UInt(10.W))
+  val pendBboxMaxY = Reg(UInt(10.W))
+  val pendTriIdx   = Reg(UInt(16.W))
+
   when(io.clearCounts && !clearing) {
     clearIdx := 0.U
     clearing := true.B
+    pendingStart := false.B  // new frame — cancel any stale pending
+    printf("[BIN] clearCounts pulse\n")
   }
   when(clearing) {
     countMem.write(clearIdx, 0.U)
@@ -121,6 +132,17 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
       clearing := false.B
     }.otherwise {
       clearIdx := clearIdx + 1.U
+    }
+    // Latch start during clearing
+    when(io.start) {
+      pendingStart := true.B
+      pendBboxMinX := io.bbox.min.x
+      pendBboxMinY := io.bbox.min.y
+      pendBboxMaxX := io.bbox.max.x
+      pendBboxMaxY := io.bbox.max.y
+      printf("[BIN] pendingStart latched bbox=(%d,%d)-(%d,%d) tri=%d\n",
+        io.bbox.min.x, io.bbox.min.y, io.bbox.max.x, io.bbox.max.y, io.triIndex)
+      pendTriIdx   := io.triIndex
     }
   }
 
@@ -137,9 +159,21 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
   val readEn    = intReadEn || extReadEn
   val countReadData = countMem.read(readAddr, readEn)
   io.countReadData := countReadData
+  when(extReadEn) {
+    printf("[BIN] extRead addr=%d state=%d clearing=%d pending=%d\n",
+      io.countReadAddr, state, clearing, pendingStart)
+  }
+  // Log the data one cycle later (SyncReadMem has 1-cycle latency)
+  val extReadEn_d = RegNext(extReadEn)
+  when(extReadEn_d) {
+    printf("[BIN] extRead data=%d\n", countReadData)
+  }
 
   // --- Output defaults ---
-  io.busy := state =/= sIdle || clearing
+  // Include pendingStart in busy: prevents a 1-cycle !busy gap between
+  // clearing and the auto-start, which would cause the sequencer to
+  // skip ahead before binning begins.
+  io.busy := state =/= sIdle || clearing || pendingStart
   io.done := false.B
 
   io.gpuMem.req   := false.B
@@ -151,15 +185,33 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
   switch(state) {
 
     is(sIdle) {
-      when(io.start && !clearing) {
-        // Latch inputs
-        bboxMinX  := io.bbox.min.x
-        bboxMinY  := io.bbox.min.y
-        bboxMaxX  := io.bbox.max.x
-        bboxMaxY  := io.bbox.max.y
-        triIdxReg := io.triIndex
-        tileX     := io.bbox.min.x
-        tileY     := io.bbox.min.y
+      // Accept start from either direct pulse or pending (latched during clear).
+      val doStart = (io.start && !clearing) || (pendingStart && !clearing)
+      when(doStart) {
+        printf("[BIN] doStart pending=%d bbox=(%d,%d)-(%d,%d)\n",
+          pendingStart, Mux(pendingStart, pendBboxMinX, io.bbox.min.x),
+          Mux(pendingStart, pendBboxMinY, io.bbox.min.y),
+          Mux(pendingStart, pendBboxMaxX, io.bbox.max.x),
+          Mux(pendingStart, pendBboxMaxY, io.bbox.max.y))
+        // Use pending inputs if start came during clearing; otherwise use live inputs.
+        when(pendingStart) {
+          bboxMinX  := pendBboxMinX
+          bboxMinY  := pendBboxMinY
+          bboxMaxX  := pendBboxMaxX
+          bboxMaxY  := pendBboxMaxY
+          triIdxReg := pendTriIdx
+          tileX     := pendBboxMinX
+          tileY     := pendBboxMinY
+          pendingStart := false.B
+        }.otherwise {
+          bboxMinX  := io.bbox.min.x
+          bboxMinY  := io.bbox.min.y
+          bboxMaxX  := io.bbox.max.x
+          bboxMaxY  := io.bbox.max.y
+          triIdxReg := io.triIndex
+          tileX     := io.bbox.min.x
+          tileY     := io.bbox.min.y
+        }
         state     := sReadCount
       }
     }
@@ -197,6 +249,7 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
     // Write incremented count back to SRAM.
     is(sStoreCount) {
       countMem.write(curTileIndex, curCount + 1.U)
+      printf("[BIN] sStoreCount tile=%d count=%d->%d\n", curTileIndex, curCount, curCount + 1.U)
       state := sNextTile
     }
 

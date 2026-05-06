@@ -53,32 +53,38 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
 
   io.clear.busy := clearing
 
-  // Clear value: Z=FP16_MAX_DEPTH, RGB=0
-  val clearColor = Wire(new ColorZ(dataBits))
-  clearColor.r := 0.U
-  clearColor.g := 0.U
-  clearColor.b := 0.U
-  clearColor.z := FP16_MAX_DEPTH
-  val clearWord = clearColor.asUInt
+  // Clear value: use color from clear port (driven by sequencer or MMIO)
+  val clearWord = io.clear.color.asUInt
 
   // --- Clear logic ---
   when(io.clear.en && !clearing) {
     clearCounter := 0.U
+    printf("[TBUF] CLEAR-START R=0x%x G=0x%x B=0x%x Z=0x%x\n",
+      io.clear.color.r, io.clear.color.g, io.clear.color.b, io.clear.color.z)
   }
 
   when(clearing) {
     rgbzMem.write(clearCounter, clearWord)
+    when(clearCounter === 0.U || clearCounter === 15.U) {
+      printf("[TBUF] CLEAR slot=%d raw=0x%x\n", clearCounter, clearWord)
+    }
     clearCounter := clearCounter + 1.U
   }
 
   // --- Write logic ---
   when(io.write.en && !clearing) {
     rgbzMem.write(io.write.idx, io.write.data.asUInt)
+    printf("[TBUF] WRITE slot=%d R=0x%x G=0x%x B=0x%x Z=0x%x\n",
+      io.write.idx, io.write.data.r, io.write.data.g, io.write.data.b, io.write.data.z)
   }
 
   // --- Read port ---
   val effectiveReadEn = io.read.en && !clearing
   val rgbzRead = rgbzMem.read(io.read.idx, effectiveReadEn)
+
+  when(effectiveReadEn) {
+    printf("[TBUF] READ-REQ slot=%d\n", io.read.idx)
+  }
 
   val readDataHeld = RegInit(0.U.asTypeOf(new ColorZ(dataBits)))
 
@@ -86,6 +92,9 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
   val readEnDel = RegNext(effectiveReadEn, false.B)
   when(readEnDel) {
     readDataHeld := rgbzRead.asTypeOf(new ColorZ(dataBits))
+    val parsed = rgbzRead.asTypeOf(new ColorZ(dataBits))
+    printf("[TBUF] READ-DATA R=0x%x G=0x%x B=0x%x Z=0x%x\n",
+      parsed.r, parsed.g, parsed.b, parsed.z)
   }
 
   io.read.data := readDataHeld
