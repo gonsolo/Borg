@@ -29,7 +29,18 @@ jobs:
           sudo apt-get install -y pandoc
           mkdir -p _site
 
-          echo '<script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs"; mermaid.initialize({ startOnLoad: true, theme: "dark" });</script>' > mermaid_init.html
+          cat > mermaid_init.html << 'EOF'
+          <script type="module">
+            import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+            document.addEventListener("DOMContentLoaded", () => {
+              document.querySelectorAll("pre.mermaid code").forEach(code => {
+                const pre = code.parentElement;
+                pre.textContent = code.innerText; // Automatically un-escapes &gt; to >
+              });
+              mermaid.initialize({ startOnLoad: true, theme: "dark" });
+            });
+          </script>
+          EOF
           for f in docs/book/*.md; do
             base=$(basename "$f" .md)
             pandoc "$f" -s --toc --metadata title="Borg GPU" \
