@@ -37,7 +37,9 @@ object Emit {
     val filelistPath = s"$targetDir/filelist.f"
     if (new java.io.File(filelistPath).exists()) {
       val lines = scala.io.Source.fromFile(filelistPath).getLines().toList
-      allFiles ++= lines.map(f => s"../$targetDir/$f")
+      allFiles ++= lines
+        .filterNot(_.startsWith("verification/"))  // probe/layer files: yosys cannot parse _layerCapture
+        .map(f => s"../$targetDir/$f")
     }
   }
   def emitFIRRTL(
