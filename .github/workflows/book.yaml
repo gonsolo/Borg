@@ -29,10 +29,11 @@ jobs:
           sudo apt-get install -y pandoc
           mkdir -p _site
 
+          echo '<script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs"; mermaid.initialize({ startOnLoad: true, theme: "dark" });</script>' > mermaid_init.html
           for f in docs/book/*.md; do
             base=$(basename "$f" .md)
             pandoc "$f" -s --toc --metadata title="Borg GPU" \
-              --css=style.css -o "_site/${base}.html"
+              --css=style.css -H mermaid_init.html -o "_site/${base}.html"
           done
           cp docs/triangle.png _site/ 2>/dev/null || true
           cp docs/hw_diagram.svg _site/ 2>/dev/null || true
