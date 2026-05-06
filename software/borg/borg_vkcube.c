@@ -107,16 +107,76 @@ static void mat4_translate_z(fp16_t m[16], float z) {
   m[14] = fp16_from_float(z);
 }
 
-static void draw_cube(const borg_draw_data_t *draw) {
+// Khronos vkcube light direction: negated normalize(0.6, 0.8, 1.0).
+// The original direction (+0.424, +0.566, +0.707) points toward Z+, but
+// with our MVP the camera looks from Z-, so the visible faces face Z-.
+// Negating the light vector ensures the camera-facing faces are illuminated.
+#define LIGHT_X 0xB6C9  // ≈ -0.424
+#define LIGHT_Y 0xB887  // ≈ -0.566
+#define LIGHT_Z 0xB9A8  // ≈ -0.707
+
+// Per-face object-space normals as FP16 {x, y, z}.
+// Axis-aligned: each normal has exactly one non-zero component (±1.0).
+static const fp16_t face_normal[6][3] = {
+    {FP16_ZERO, FP16_ZERO, FP16_N1},  // Face 0: Front  (Z-)
+    {FP16_P1,   FP16_ZERO, FP16_ZERO}, // Face 1: Right  (X+)
+    {FP16_ZERO, FP16_N1,   FP16_ZERO}, // Face 2: Top    (Y-)
+    {FP16_ZERO, FP16_ZERO, FP16_P1},  // Face 3: Back   (Z+)
+    {FP16_N1,   FP16_ZERO, FP16_ZERO}, // Face 4: Left   (X-)
+    {FP16_ZERO, FP16_P1,   FP16_ZERO}, // Face 5: Bottom (Y+)
+};
+
+// Compute lighting for all 6 faces using the model rotation matrix.
+// Transforms each face normal by the 3×3 rotation part of `model`, then
+// dots with lightDir.  Stores FP16 max(0, dot) into face_light[6].
+// Uses the hardware FPU — no soft-float.
+static void compute_face_lighting(const fp16_t model[16], fp16_t face_light[6]) {
+  const fp16_t Lx = LIGHT_X, Ly = LIGHT_Y, Lz = LIGHT_Z;
   for (int f = 0; f < 6; f++) {
+    // Rotate normal: Nw = M * N (3×3 upper-left of column-major matrix)
+    //   Nw.x = M[0]*Nx + M[4]*Ny + M[8]*Nz
+    //   Nw.y = M[1]*Nx + M[5]*Ny + M[9]*Nz
+    //   Nw.z = M[2]*Nx + M[6]*Ny + M[10]*Nz
+    fp16_t Nx = face_normal[f][0];
+    fp16_t Ny = face_normal[f][1];
+    fp16_t Nz = face_normal[f][2];
+
+    fp16_t wx = borg_fp16_add(borg_fp16_add(
+                  borg_fp16_mul(model[0], Nx),
+                  borg_fp16_mul(model[4], Ny)),
+                  borg_fp16_mul(model[8], Nz));
+    fp16_t wy = borg_fp16_add(borg_fp16_add(
+                  borg_fp16_mul(model[1], Nx),
+                  borg_fp16_mul(model[5], Ny)),
+                  borg_fp16_mul(model[9], Nz));
+    fp16_t wz = borg_fp16_add(borg_fp16_add(
+                  borg_fp16_mul(model[2], Nx),
+                  borg_fp16_mul(model[6], Ny)),
+                  borg_fp16_mul(model[10], Nz));
+
+    // dot(L, Nw)
+    fp16_t dot = borg_fp16_add(borg_fp16_add(
+                   borg_fp16_mul(Lx, wx),
+                   borg_fp16_mul(Ly, wy)),
+                   borg_fp16_mul(Lz, wz));
+
+    // max(0, dot): clamp negative (sign bit set) to zero
+    face_light[f] = (dot & 0x8000) ? FP16_ZERO : dot;
+  }
+}
+
+static void draw_cube(const borg_draw_data_t *draw, const fp16_t face_light[6]) {
+  for (int f = 0; f < 6; f++) {
+    fp16_t l = face_light[f];
+
     for (int t = 0; t < 2; t++) {
       borg_vertex_t tri[3];
       for (int v = 0; v < 3; v++) {
         const fp16_t *vp = cube_verts[cube_faces[f][quad_qi[t][v]]];
         tri[v] = (borg_vertex_t){
-            .pos = {vp[0], vp[1], vp[2]},
-            .color = {FP16_ONE, FP16_ONE, FP16_ONE},
-            .uv = {quad_uvs[t][v][0], quad_uvs[t][v][1]},
+            .pos   = {vp[0], vp[1], vp[2]},
+            .color = {l, l, l},
+            .uv    = {quad_uvs[t][v][0], quad_uvs[t][v][1]},
         };
       }
       borgCmdDraw(draw, tri, 0);
@@ -153,11 +213,13 @@ int main() {
     float rx_f = rot_x_reader.f;
     float ry_f = rot_y_reader.f;
 
-    // Default rotation when no angles set by host (headless / FPGA)
-    // Compare raw uint32 to avoid soft-float __eqsf2 (0x0 == IEEE 754 +0.0)
+    // Default rotation when no angles set by host (headless / FPGA).
+    // Compare raw uint32 to avoid soft-float __eqsf2 (0x0 == IEEE 754 +0.0).
+    // Note: the Verilator/Arcilator sim and viewer override these via
+    // set_camera_angles() — see simulation/verilator/main.cpp and viewer.py.
     if (rot_x_reader.u == 0 && rot_y_reader.u == 0) {
-      rx_f = -0.4363f;
-      ry_f =  0.6109f;
+      rx_f =  0.5236f;  //  30° down in X
+      ry_f =  0.7854f;  // +45° in Y
     }
 
     mat4_rotate_x(rx, rx_f);
@@ -172,7 +234,13 @@ int main() {
     // Khronos vkcube reference background: {0.2f, 0.2f, 0.2f} (FP16 0x3266)
     borg_clear_zbuffer(0, (rgb16_t){0x3266, 0x3266, 0x3266});
     borg_set_texture(TEX_WIDTH, TEX_HEIGHT);
-    draw_cube(&draw);
+
+    // Compute per-face lighting using the model rotation matrix (Rx · Ry).
+    // This transforms face normals to world space before dotting with lightDir.
+    fp16_t face_light[6];
+    compute_face_lighting(t1, face_light);
+
+    draw_cube(&draw, face_light);
     borg_present(0);
 
     // Wait until the host/viewer clears the DONE marker before rendering

@@ -743,6 +743,11 @@ Restructured the sequencer into a true two-pass TBR (26 → 33 FSM states):
 - **Documentation**: Added `docs/07_tbr.md` — full TBR architecture chapter covering two-pass design, BorgBinner, FSM state table, PSRAM layout, hardware component diagram, driver API, and performance characteristics.
 - `make test-all` green (Verilator triangle + vkcube pixel-perfect); vk_cube renders correctly.
 
+#### ✅ 32.5 vkcube Lighting Fix & PicoIce Updates — 2026-05-06
+
+- **`vkcube` Lighting Fix**: Negated the light direction constants in `borg_vkcube.c` so the light correctly illuminates camera-facing faces instead of back-facing ones.
+- **PicoIce Excluded from CI**: Temporarily disabled PicoIce tests in `make test-all` and removed its `HAND_CHISEL` inclusion since `BorgTextureUnit` overflows the iCE40 5280 LCs limit. The primary target is now `BorgConfig.Large` (Sim/ULX3S).
+
 ---
 
 ### Optional: ASIC Size Reduction (target: 4×4 = 16 tiles on Sky130)
@@ -797,6 +802,39 @@ Restructured the sequencer into a true two-pass TBR (26 → 33 FSM states):
   behind `hasParallelAlu: Boolean` in `BorgConfig`. The FPGA target keeps the
   nibble-serial path; the ASIC target uses the parallel one.
   Gate: all TinyQV Chisel tests pass; GDS confirms ≥3% total area reduction.
+
+---
+
+## Step 35 — BorgTextureUnit L2 Cache
+
+**Motivation**: The Step 34 FTEX implementation uses an `en` gate in
+`BorgShaderDispatcher` to return `(1.0, 1.0, 1.0)` for non-textured draws
+instead of fetching from PSRAM. This works but is architecturally unclean: it
+conflates a software binding policy with hardware fetch logic.
+
+The correct long-term design (standard for all real GPUs) is a **tiny L2 texture
+cache** in `BorgTextureUnit`. This makes even a "white default texture" approach
+free (100% hit rate for any constant-address access), and improves real texture
+fetch performance via Morton-locality hits. The `en` gate can then be retired.
+
+### Step 35.0 — Cache Design
+
+- **Direct-mapped, 4-entry** cache: 4 × (16-bit tag + 3 × 16-bit RGB) = 28 bytes
+  per entry → ~112 bytes total. Fits in FPGA logic (no dedicated BRAM needed).
+- Tag = Morton index bits [15:2] (4 entries indexed by bits [1:0]).
+- On hit: return cached RGB in 1 cycle (zero PSRAM overhead).
+- On miss: fetch from PSRAM, fill cache line.
+- Invalidate on `io.texConfig` change (new texture bound).
+
+### Step 35.1 — White Default Texture
+
+- Reserve `TEX_WHITE_ADDR` in PSRAM layout (4 bytes, initialized in `borgCreateDevice`).
+- `borg_clear_texture()`: points `tex_config` to `TEX_WHITE_ADDR` (en=true, 1×1).
+- Remove `en` gate from `BorgShaderDispatcher` — FTEX always goes through cache.
+- Non-textured draws: UV=0 → Morton=0 → cache hit → white → `vertexColor`.
+
+Gate: all hardware tests pass; `vkcube` and `triangle` render correctly;
+      Verilator shows ≥50% reduction in PSRAM reads for non-textured frames.
 
 ---
 
@@ -963,6 +1001,28 @@ controller, PCIe bridge) while the Borg SoC runs inside unchanged.
 ### Step 33: Fragment Interpolation (Hardware-Assisted)
 
 Optimize shader interpolation path to utilize the hardware edge-equation signals for perspective-correct barycentric weights.
+
+### Step 33.5: 2×2 Quad Execution (dFdx / dFdy support)
+
+Real mobile GPUs (Mali, Adreno, PowerVR) run the fragment shader on **2×2 pixel
+quads** simultaneously, enabling screen-space derivative instructions (`dFdx`,
+`dFdy`). The Khronos `vkcube` demo uses these to compute flat face normals from
+position derivatives without storing per-vertex normals.
+
+Borg currently processes one pixel at a time. Supporting quads requires:
+
+- **Pixel iterator**: emit 4 pixels per step (2×2 Morton-aligned block)
+- **Fragment shader**: run 4 instances per quad, share outputs between neighbours
+- **Derivative instruction**: new `FDFDX`/`DFDY` ISA opcode = subtract adjacent
+  GPR output across the quad boundary
+- **Helper invocations**: pixels outside the triangle still run (for derivative
+  correctness at edges), with their tile-buffer write suppressed
+
+Area impact: approximately 4× the register file width, or a 4-lane SIMD
+fragment path. Feasible on ECP5-85K (`BorgSize.Large`); out of budget on iCE40.
+
+Gate: `dFdx(frag_pos)` produces the same result as the CPU-precomputed face
+normal in the vkcube lighting test.
 
 ## Phase 5: Mobile GPU Fidelity (Steps 40–44)
 

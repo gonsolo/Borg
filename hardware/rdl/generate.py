@@ -190,6 +190,9 @@ def emit_python(path, rdl_consts):
         f.write("    return (0x10000000 | (funct3 << 12) | (rs1 << 15) | (rd << 7))\n")
         f.write("def encode_rv32_frcp(rs1=0, rd=1, funct3=0):\n")
         f.write("    return (0x14000000 | (funct3 << 12) | (rs1 << 15) | (rd << 7))\n")
+        f.write("def encode_rv32_ftex(rs1=0, rs2=1, rd=2, funct3=0):\n")
+        f.write("    # rd=texR, rd+1=texG, rd+2=texB (implicit); rs1=U, rs2=V\n")
+        f.write("    return (0x18000000 | (funct3 << 12) | (rs2 << 20) | (rs1 << 15) | (rd << 7))\n")
         f.write("def encode_rv32_halt(): return 0x00000000\n")
 
 

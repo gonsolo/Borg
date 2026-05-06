@@ -38,6 +38,7 @@ object Instructions {
   val FUNCT7_FNEG  = 0x06
   val FUNCT7_FSTEP = 0x08
   val FUNCT7_FRCP  = 0x0A
+  val FUNCT7_FTEX  = 0x0C  // Texture sample: FTEX rd, rs1(U), rs2(V) → rd=texR, rd+1=texG, rd+2=texB
   // @doc:end
 
   // --- Base Instruction Encoders ---
@@ -53,6 +54,7 @@ object Instructions {
   def FNEG(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FNEG, 0, rs1, rd, funct3)
   def FSTEP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FSTEP, 0, rs1, rd, funct3)
   def FRCP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FRCP, 0, rs1, rd, funct3)
+  def FTEX(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FTEX, rs2, rs1, rd, funct3)
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
   // @doc:end
 

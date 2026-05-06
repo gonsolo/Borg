@@ -55,9 +55,9 @@ class BorgTextureUnit extends Module {
   val frag_g = RegInit(0.U(16.W))
   val frag_b = RegInit(0.U(16.W))
 
-  // --- Base address (computed once on start, held stable across both reads) ---
-  // tex_base = baseAddr + (mortonIndex << 3)
-  val tex_base = io.texConfig.baseAddr +& (io.texConfig.mortonIndex << 3)
+  // --- Base address: latched on start so the FTEX mortonIndex override ---
+  // --- (valid for one cycle only) is captured for both PSRAM reads.     ---
+  val tex_base = RegInit(0.U(20.W))
 
   // --- Defaults ---
   io.gpuMem.req   := false.B
@@ -75,6 +75,7 @@ class BorgTextureUnit extends Module {
 
     is(sIdle) {
       when(io.start) {
+        tex_base := io.texConfig.baseAddr +& (io.texConfig.mortonIndex << 3)
         state := sReadB
       }
     }

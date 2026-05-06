@@ -36,7 +36,7 @@ fpga_host_dir = os.path.abspath(
 if fpga_host_dir not in sys.path:
     sys.path.insert(0, fpga_host_dir)
 
-from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd
+from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd, encode_rv32_ftex
 
 import struct
 def float_to_fp16(f: float) -> int:
@@ -46,9 +46,9 @@ def float_to_fp16(f: float) -> int:
 
 class BorgBackend:
     """
-    Lowers vert.s pseudo-assembly into host C code + Borg IMEM instructions.
+    Lowers vert.s / frag.s pseudo-assembly into host C code + Borg IMEM instructions.
     The host handles: li.s, flw, fsw, fsin, fcos, fneg, ret
-    Borg handles:     fmul.s, fmadd.s (as 32-bit RISC-V encoded instructions)
+    Borg handles:     fmul.s, fmadd.s, fadd.s, ftex.s (as 32-bit RISC-V encoded instructions)
     """
 
     def __init__(self, uniform_base=0):
@@ -147,6 +147,9 @@ class BorgBackend:
                 borg_vregs.update([rd, a, b, c])
                 # rs3 (accumulator) has full 5-bit field (BF_RS3 = BitField(31,27))
                 # No need to restrict to r0-r3
+            elif op == "ftex.s":
+                rd, rs1, rs2 = tokens[1], tokens[2], tokens[3]
+                borg_vregs.update([rd, rs1, rs2])
 
         # Pre-map hardware-fixed registers (coordLut pixel centers)
         for vreg in list(borg_vregs):
@@ -162,6 +165,8 @@ class BorgBackend:
         io_vregs = []
         output_vregs = set()
         uniform_vregs = set()
+        # ftex_rd -> (g_vreg, b_vreg) for consecutive-register enforcement
+        self._ftex_consecutive = {}  # rd_vreg -> [g_vreg, b_vreg]
         for line in lines:
             if line.startswith("# @borg "):
                 parts = line.split()
@@ -173,6 +178,18 @@ class BorgBackend:
                         if vreg not in io_vregs:
                             io_vregs.append(vreg)
                         output_vregs.add(vreg)
+                    elif parts[2] == "ftex":
+                        # @borg ftex texR <vreg>  — the FTEX rd register
+                        vreg = parts[4]
+                        if vreg not in io_vregs:
+                            io_vregs.append(vreg)
+                    elif parts[2] == "ftex_implicit":
+                        # @borg ftex_implicit texG/texB <vreg>
+                        # These must be allocated to rd+1, rd+2 respectively.
+                        # Collected here; consecutive constraint enforced in alloc.
+                        vreg = parts[4]
+                        if vreg not in io_vregs:
+                            io_vregs.append(vreg)
                     else:
                         vreg = parts[4]
                         if vreg not in io_vregs:
@@ -182,6 +199,22 @@ class BorgBackend:
                         elif parts[2] == "uniform":
                             uniform_vregs.add(vreg)
                             self.uniform_vreg_set.add(vreg)
+
+        # Build ftex consecutive map: ftex rd → [g_vreg, b_vreg] in order
+        ftex_rd = None
+        ftex_implicit_list = []
+        for line in lines:
+            if line.startswith("# @borg "):
+                parts = line.split()
+                if len(parts) == 5:
+                    if parts[2] == "ftex":
+                        ftex_rd = parts[4]
+                        ftex_implicit_list = []
+                    elif parts[2] == "ftex_implicit" and ftex_rd is not None:
+                        ftex_implicit_list.append(parts[4])
+                        if len(ftex_implicit_list) == 2:
+                            self._ftex_consecutive[ftex_rd] = list(ftex_implicit_list)
+
         return io_vregs, output_vregs, uniform_vregs
 
     def _pass_compute_live_intervals(self, lines, borg_vregs):
@@ -304,7 +337,30 @@ class BorgBackend:
             if not reg_pool:
                 raise RuntimeError(f"Out of Borg registers (max 30) for {vreg}")
 
-            preg = reg_pool.pop(0)
+            # FTEX consecutive constraint: texG must be rd+1, texB must be rd+2.
+            # When allocating a ftex_implicit vreg, force-assign the next slot
+            # after the already-allocated rd register.
+            forced_preg = None
+            for rd_vreg, implicit_list in self._ftex_consecutive.items():
+                if vreg in implicit_list:
+                    rd_preg = self.vreg_to_preg.get(rd_vreg)
+                    if rd_preg is not None:
+                        offset = implicit_list.index(vreg) + 1  # G=+1, B=+2
+                        forced_preg = rd_preg + offset
+                        break
+
+            if forced_preg is not None:
+                if forced_preg not in reg_pool:
+                    raise RuntimeError(
+                        f"FTEX consecutive register r{forced_preg} not available "
+                        f"for {vreg} (rd={rd_vreg}=r{self.vreg_to_preg[rd_vreg]}). "
+                        f"Pool: {reg_pool}"
+                    )
+                reg_pool.remove(forced_preg)
+                preg = forced_preg
+            else:
+                preg = reg_pool.pop(0)
+
             self.vreg_to_preg[vreg] = preg
             active.append((end, vreg))
             active.sort(key=lambda a: a[0])
@@ -480,6 +536,22 @@ class BorgBackend:
                 c_prefix = "u" if self._is_uniform(c) else "r"
                 self.borg_instrs.append(
                     (enc, f"fmadd r{prd}, {a_prefix}{pa}, {b_prefix}{pb}, {c_prefix}{pc}{f3_str}  // {comment}")
+                )
+
+            elif op == "ftex.s":
+                rd, rs1, rs2 = tokens[1], tokens[2], tokens[3]
+                prd  = self.vreg_to_preg[rd]
+                prs1 = self._get_reg_index(rs1)
+                prs2 = self._get_reg_index(rs2)
+                funct3 = self._compute_funct3([(rs1, "rs1"), (rs2, "rs2")])
+                enc = encode_rv32_ftex(prs1, prs2, prd, funct3=funct3)
+                f3_str = f" funct3={funct3}" if funct3 else ""
+                rs1_prefix = "u" if self._is_uniform(rs1) else "r"
+                rs2_prefix = "u" if self._is_uniform(rs2) else "r"
+                self.borg_instrs.append(
+                    (enc, f"ftex r{prd}(R), r{prd+1}(G), r{prd+2}(B) "
+                          f"<= {rs1_prefix}{prs1}(U), {rs2_prefix}{prs2}(V)"
+                          f"{f3_str}  // {comment}")
                 )
 
             elif op == "ret":

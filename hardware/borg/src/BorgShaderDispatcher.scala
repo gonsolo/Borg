@@ -58,6 +58,15 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val fragU        = Output(UInt(16.W))         // snooped U (r26) for Morton encoder
   val fragV        = Output(UInt(16.W))         // snooped V (r27) for Morton encoder
   val phase        = Output(UInt(3.W))          // current FSM state (debug observable)
+
+  // Step 34.5: FTEX inline texture fetch — core ↔ dispatcher ↔ texture unit
+  val texReq  = Input(Bool())         // core requests texture fetch (FTEX instruction)
+  val texU    = Input(UInt(16.W))     // U coordinate from core rs1
+  val texV    = Input(UInt(16.W))     // V coordinate from core rs2
+  val texDone = Output(Bool())        // texture unit completion pulse (to core)
+  val texR    = Output(UInt(16.W))    // fetched texel R (to core)
+  val texG    = Output(UInt(16.W))    // fetched texel G (to core)
+  val texB    = Output(UInt(16.W))    // fetched texel B (to core)
 }
 
 class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
@@ -105,6 +114,60 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
   texUnit.io.gpuMem    <> io.gpuMem
   texUnit.io.start     := false.B  // overridden in sTexFetch transition below
 
+  // Step 34.5: FTEX inline texture fetch — core drives texture unit directly
+  //
+  // When the core executes an FTEX instruction, it asserts texReq with U/V.
+  // The dispatcher computes Morton coordinates inline and starts the texture
+  // unit, bypassing the sTexFetch FSM state entirely. On completion, results
+  // are forwarded back to the core. The sTexFetch state is retained for
+  // backward compatibility with non-FTEX shaders.
+  //
+  // Single-shader textured/non-textured support:
+  // When tex_config.en=false, FTEX immediately returns (1.0, 1.0, 1.0).
+  // This means: texel(1,1,1) × vertexColor = vertexColor — pure interpolated
+  // color, no texture. The shader binary is identical for both paths.
+  val FP16_ONE_U = 0x3C00.U(16.W)
+
+  val ftexActive = RegInit(false.B)  // FTEX fetch in progress (tex enabled)
+  val ftexMortonIndex = Wire(UInt(16.W))
+  val ftex_u8 = Fp16ToUint8(io.texU)
+  val ftex_v8 = Fp16ToUint8(io.texV)
+  ftexMortonIndex := MortonEncode(ftex_u8, ftex_v8)
+
+  // Default FTEX response
+  io.texDone := false.B
+  io.texR    := 0.U
+  io.texG    := 0.U
+  io.texB    := 0.U
+
+  // FTEX start: when texture is enabled, start the texture unit
+  when(io.texReq && phase === sFrag) {
+    when(io.texConfig.en) {
+      // Texture enabled: start texture unit fetch
+      texUnit.io.start := true.B
+      texUnit.io.texConfig.mortonIndex := ftexMortonIndex
+      ftexActive := true.B
+    }.otherwise {
+      // Texture disabled: immediately return white (1.0, 1.0, 1.0)
+      // texel(1,1,1) × vertexColor = vertexColor (non-textured pass-through)
+      io.texDone := true.B
+      io.texR    := FP16_ONE_U
+      io.texG    := FP16_ONE_U
+      io.texB    := FP16_ONE_U
+    }
+  }
+
+  // FTEX completion: forward texUnit results to core (texture-enabled path)
+  when(ftexActive && texUnit.io.done) {
+    io.texDone := true.B
+    io.texR    := texUnit.io.fragColor.r
+    io.texG    := texUnit.io.fragColor.g
+    io.texB    := texUnit.io.fragColor.b
+    // Keep ftexActive=true so the sTexFetch gate at line 202 skips
+    // the legacy path for the remainder of this fragment shader execution.
+  }
+
+
   // Step 25.5C: tile read port defaults (no read)
   io.tileRead.en  := false.B
   io.tileRead.idx := io.shaderTileIndex
@@ -136,12 +199,15 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
   }
 
   when(phase === sFrag && core_just_finished) {
-    when(io.texConfig.en) {
+    // Skip sTexFetch when FTEX handled texturing inline (Step 34.5)
+    when(io.texConfig.en && !ftexActive) {
       phase := sTexFetch
       texUnit.io.start := true.B
     } .otherwise {
       phase := sZRead
     }
+    // Clear ftexActive for next pixel — FTEX was a one-shot for this frag invocation.
+    ftexActive := false.B
   }
 
   // --- sTexFetch: delegated to BorgTextureUnit (Step 25.3e) ---
@@ -188,9 +254,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
     // io.tileRead.data is held stable in BorgTileBuffer.readDataHeld.
     io.tileWrite.en := inside_flag && (frag_z < io.tileRead.data.z)
 
+
+
     phase := sIdle
     auto_run_stall := false.B
   }
+
 
 
 
@@ -245,7 +314,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
     when(io.pipeWrite.addr === 26.U) { frag_r := io.pipeWrite.data(15, 0) }
     when(io.pipeWrite.addr === 27.U) { frag_g := io.pipeWrite.data(15, 0) }
     when(io.pipeWrite.addr === 28.U) { frag_b := io.pipeWrite.data(15, 0) }
-    when(io.pipeWrite.addr === 29.U) { frag_z := io.pipeWrite.data(15, 0) }
+    when(io.pipeWrite.addr === 29.U) {
+      frag_z := io.pipeWrite.data(15, 0)
+    }
   }
 
   // --- Outputs ---

@@ -66,6 +66,15 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // When texturing, frag.s maps U→outR (r26) and V→outG (r27) via shader recompilation.
   val fragU      = Output(UInt(16.W))
   val fragV      = Output(UInt(16.W))
+
+  // Step 34.5: FTEX core ↔ dispatcher texture request/response
+  val texReq  = Input(Bool())
+  val texU    = Input(UInt(16.W))
+  val texV    = Input(UInt(16.W))
+  val texDone = Output(Bool())
+  val texR    = Output(UInt(16.W))
+  val texG    = Output(UInt(16.W))
+  val texB    = Output(UInt(16.W))
 }
 
 class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
@@ -103,6 +112,15 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   io.insideFlag   := dispatcher.io.insideFlag
   io.fragU        := dispatcher.io.fragU
   io.fragV        := dispatcher.io.fragV
+
+  // Step 34.5: FTEX core ↔ dispatcher forwarding
+  dispatcher.io.texReq := io.texReq
+  dispatcher.io.texU   := io.texU
+  dispatcher.io.texV   := io.texV
+  io.texDone           := dispatcher.io.texDone
+  io.texR              := dispatcher.io.texR
+  io.texG              := dispatcher.io.texG
+  io.texB              := dispatcher.io.texB
 
   // --- Forward iterator outputs ---
   io.iter         := iterator.io.iter

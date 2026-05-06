@@ -49,8 +49,8 @@ def main():
     running = True
     
     # Camera interaction state
-    rot_x = -0.4363
-    rot_y = 0.6109
+    rot_x =  0.5236  # 30° — shows top (dark) vs bottom (lit)
+    rot_y =  0.7854  # +45° — shows front (dark) vs right (lit)
     mouse_dragging = False
     last_mouse_pos = (0, 0)
 

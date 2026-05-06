@@ -47,6 +47,15 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // Step 30.1d: when sequencer is running vertex/setup shaders, r30/r31 must
   // return 0 (not coordX/coordY) because those shaders use r31 as zero.
   val seqBusy = Input(Bool())
+
+  // Step 34.4: FTEX texture sample request/response
+  val texReq  = Output(Bool())       // core requests texture fetch
+  val texU    = Output(UInt(16.W))   // U coordinate from rs1
+  val texV    = Output(UInt(16.W))   // V coordinate from rs2
+  val texDone = Input(Bool())        // texture unit completion pulse
+  val texR    = Input(UInt(16.W))    // fetched texel R
+  val texG    = Input(UInt(16.W))    // fetched texel G
+  val texB    = Input(UInt(16.W))    // fetched texel B
 }
 
 class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
@@ -122,6 +131,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     Mux(is_busy && busy_counter === 1.U, programCounter + 1.U, programCounter)
   val fetchedInstruction = instructionMemory.read(nextPC)
 
+  // FTEX resume delay: after FTEX writeback completes, the IMEM still
+  // holds the stale FTEX opcode (SyncReadMem, 1-cycle latency).  This
+  // flag suppresses pipeline restart for 1 cycle so the IMEM can fetch
+  // the correct next instruction.
+  val texResumeDelay = RegInit(false.B)
+  when(texResumeDelay) { texResumeDelay := false.B }
+
   // @doc:instruction-format
   // --- Instruction Decode ---
   val (regs, opFlags) = decode(fetchedInstruction)
@@ -129,7 +145,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
   // @doc:fetch-execute
   // --- Fetch & Execute FSM ---
-  val fma_start = running && !is_busy && fetchedInstruction =/= 0.U
+  val fma_start = running && !is_busy && !texResumeDelay && fetchedInstruction =/= 0.U
   runPipeline(fma_start)
 
   // --- Register File Read Ports ---
@@ -149,6 +165,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   io.status.running := running
   io.status.autoRunPending := auto_run_pending
   io.regReadData := mmio_reg_data
+
+  // Step 34.4: FTEX stall + multi-register writeback
+  wireTexStall(recA_raw, recB_raw)
   // @doc:end
 
   // =========================================================================
@@ -170,6 +189,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     flags.fneg  := !flags.fma && f7op === Instructions.FUNCT7_FNEG.U
     flags.fstep := !flags.fma && f7op === Instructions.FUNCT7_FSTEP.U
     flags.frcp  := !flags.fma && f7op === Instructions.FUNCT7_FRCP.U
+    flags.ftex  := !flags.fma && f7op === Instructions.FUNCT7_FTEX.U
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 
     (regs, flags)
@@ -177,7 +197,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
   /** Fetch/execute FSM: start pipeline, count down busy cycles, advance PC. */
   private def runPipeline(fma_start: Bool): Unit = {
-    when(running && !is_busy) {
+    when(running && !is_busy && !texResumeDelay) {
       when(fetchedInstruction === 0.U) {
         running := false.B
       }.otherwise {
@@ -454,4 +474,109 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       rf.io.wr.data := data
     }
   }
+
+  // @doc:ftex-stall
+  /** Step 34.4: FTEX texture-sample stall and 3-register write-back.
+    *
+    * When an FTEX instruction is decoded:
+    *   1. counter=4: latch recA_raw→texU, recB_raw→texV, assert texReq
+    *   2. Enter tex-stall: freeze busy_counter at 3, do NOT advance PC
+    *   3. On texDone: write texR→GPR[rd], texG→GPR[rd+1], texB→GPR[rd+2]
+    *      over 3 clock cycles (single write port)
+    *   4. Resume normal pipeline → advance PC
+    */
+  private def wireTexStall(recA_raw: UInt, recB_raw: UInt): Unit = {
+    // Latch FTEX flag through pipeline
+    val is_ftex_reg = RegInit(false.B)
+    when(running && !is_busy && fetchedInstruction =/= 0.U) {
+      is_ftex_reg := opFlags.ftex
+    }
+
+    // FSM states for texture stall
+    val sTexIdle :: sTexWait :: sTexWB0 :: sTexWB1 :: sTexWB2 :: Nil = Enum(5)
+    val texState = RegInit(sTexIdle)
+
+    // Latch rd for the 3-register writeback (rd, rd+1, rd+2)
+    val texRdReg = RegInit(0.U(5.W))
+    // Latch texel results from texture unit
+    val texResultR = RegInit(0.U(16.W))
+    val texResultG = RegInit(0.U(16.W))
+    val texResultB = RegInit(0.U(16.W))
+
+    // Default outputs
+    io.texReq := false.B
+    io.texU   := 0.U
+    io.texV   := 0.U
+
+    // --- Initiate FTEX at counter=4 (operands just became valid) ---
+    when(is_busy && busy_counter === 4.U && is_ftex_reg) {
+      io.texReq := true.B
+      io.texU   := recA_raw(15, 0)
+      io.texV   := recB_raw(15, 0)
+      texRdReg  := regs.rd
+      // Handle same-cycle texDone (tex disabled → immediate white response).
+      // texState is still sTexIdle this cycle, so the sTexWait check below
+      // won't match.  Latch results and go straight to writeback.
+      when(io.texDone) {
+        texResultR := io.texR
+        texResultG := io.texG
+        texResultB := io.texB
+        texState   := sTexWB0
+      }.otherwise {
+        texState := sTexWait
+      }
+    }
+
+    // --- Stall: freeze busy_counter while waiting for texture unit ---
+    when(texState === sTexWait) {
+      busy_counter := busy_counter  // hold — override the -1 in runPipeline
+    }
+
+    // --- texDone: latch results, start writeback ---
+    when(texState === sTexWait && io.texDone) {
+      texResultR := io.texR
+      texResultG := io.texG
+      texResultB := io.texB
+      texState   := sTexWB0
+    }
+
+    // --- 3-cycle writeback: write rd, rd+1, rd+2 ---
+    when(texState === sTexWB0) {
+      writeAllCopies(texRdReg, true.B, texResultR)
+      io.pipeWrite.en   := true.B
+      io.pipeWrite.addr := texRdReg
+      io.pipeWrite.data := texResultR
+      texState := sTexWB1
+    }
+    when(texState === sTexWB1) {
+      writeAllCopies(texRdReg + 1.U, true.B, texResultG)
+      io.pipeWrite.en   := true.B
+      io.pipeWrite.addr := texRdReg + 1.U
+      io.pipeWrite.data := texResultG
+      texState := sTexWB2
+    }
+    when(texState === sTexWB2) {
+      writeAllCopies(texRdReg + 2.U, true.B, texResultB)
+      io.pipeWrite.en   := true.B
+      io.pipeWrite.addr := texRdReg + 2.U
+      io.pipeWrite.data := texResultB
+      texState   := sTexIdle
+      is_ftex_reg := false.B
+      // Advance PC past the FTEX instruction and suppress pipeline
+      // restart for 1 cycle (texResumeDelay).  The IMEM is SyncReadMem
+      // with 1-cycle latency; without the delay the pipeline would
+      // re-decode the stale FTEX opcode and double-execute it.
+      // busy_counter=0 avoids the counter=1 drain cycle that would
+      // write FMA garbage to rd (clobbering the texture results).
+      busy_counter := 0.U
+      programCounter := programCounter + 1.U
+      texResumeDelay := true.B
+    }
+
+    // --- Stall during writeback (WB0 and WB1 only; WB2 zeroes the counter) ---
+    when(texState === sTexWB0 || texState === sTexWB1) {
+      busy_counter := busy_counter  // hold
+    }
+  }
+  // @doc:end
 }

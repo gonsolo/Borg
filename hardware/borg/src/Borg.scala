@@ -72,6 +72,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val sequencer = if (cfg.isLarge) Some(Module(new BorgSequencer(cfg))) else None
   val binner    = if (cfg.isLarge) Some(Module(new BorgBinner()))       else None
 
+  // Sticky done flag for sequencer detection (module-level so it's visible
+  // in the data_out MuxCase).  Set when the sequencer pulses io.done,
+  // cleared by the next seq_trigger write.
+  val seqDoneSticky = if (cfg.isLarge) Some(RegInit(false.B)) else None
+
   // Convenience accessors for Large mode (all 4 always co-present)
   private def d = dma.get
   private def f = flusher.get
@@ -162,6 +167,15 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       core.io.dmaUniformWrite.addr := 0.U
       core.io.dmaUniformWrite.data := 0.U
     }
+
+    // Step 34.6: FTEX core ↔ rasterizer texture request/response
+    rast.io.texReq  := core.io.texReq
+    rast.io.texU    := core.io.texU
+    rast.io.texV    := core.io.texV
+    core.io.texDone := rast.io.texDone
+    core.io.texR    := rast.io.texR
+    core.io.texG    := rast.io.texG
+    core.io.texB    := rast.io.texB
   }
 
   private def wireRasterizer(): Unit = {
@@ -362,7 +376,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       (read_addr_del < 128.U) -> core.io.regReadData,
       (read_addr_del === BorgGpuRegs.tile_rg_offset) -> Cat(tile.io.read.data.r, tile.io.read.data.g),
       (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.read.data.b, tile.io.read.data.z)
-    ))
+    ) ++ (if (cfg.isLarge) Seq(
+      // Repurpose the write-only SEQ_TRIGGER address for reading seqDoneSticky.
+      // Firmware reads this after triggering with triCount=0 to detect
+      // whether the sequencer hardware is present.
+      (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> seqDoneSticky.get.asUInt
+    ) else Seq.empty))
 
     val read_ready_del = RegNext(bus.is_reading, false.B)
     io.data_ready := Mux(rast.io.autoRunStall, false.B, (io.data_read_n === 3.U) || read_ready_del)
@@ -446,7 +465,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       val seqSetupBaseReg   = RegInit(0.U(20.W))
 
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_desc_base_offset)    { seqDescBaseReg := bus.data_in(19, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_trigger_offset)      { seqStartPulse := bus.data_in(0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_trigger_offset) {
+        seqStartPulse := bus.data_in(0)
+        seqDoneSticky.get := false.B   // clear sticky on new trigger
+      }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_addr_offset)    { seqVertAddrReg := bus.data_in(19, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_len_offset)     { seqVertLenReg := bus.data_in(5, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_addr_offset)   { seqSetupAddrReg := bus.data_in(19, 0) }
@@ -495,6 +517,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       s.io.pipeWrite.en   := core.io.pipeWrite.en
       s.io.pipeWrite.addr := core.io.pipeWrite.addr
       s.io.pipeWrite.data := core.io.pipeWrite.data
+
+      // Latch sticky done when sequencer pulses io.done
+      when(s.io.done) { seqDoneSticky.get := true.B }
 
       rdlRegs.io.hw.status_seq_busy := s.io.busy.asUInt
     } else {

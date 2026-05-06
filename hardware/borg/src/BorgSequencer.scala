@@ -43,13 +43,17 @@ import chisel3.util._
   *     u6  = -v0.x, u7 = -v0.y    (negated vertex 0 position)
   *     u8  = -v1.x, u9 = -v1.y    (negated vertex 1 position)
   *     u10 = -v2.x, u11 = -v2.y   (negated vertex 2 position)
-  *   Fragment shader (uniform_regs[0..18] = [12..30]):
+  *   Fragment shader (uniform_regs[0..18] = [12..30], FTEX layout):
   *     u12 = inv_area
-  *     u13 = colors[1].r, u14 = colors[0].r, u15 = colors[2].r
-  *     u16 = colors[1].g, u17 = colors[0].g, u18 = colors[2].g
-  *     u19 = colors[1].b, u20 = colors[0].b, u21 = colors[2].b
-  *     u22 = z_vals[1], u23 = z_vals[0], u24 = z_vals[2]
-  *     u25-u30 = 0 (UVs not yet implemented)
+  *     u13-u15 = UV.u of (v2, v1, v0)  — pre-scaled by tex_w in descriptor
+  *     u16-u18 = UV.v of (v2, v1, v0)  — pre-scaled by tex_h in descriptor
+  *     u19-u21 = color.R of (v2, v1, v0)
+  *     u22-u24 = color.G of (v2, v1, v0)
+  *     u25-u27 = color.B of (v2, v1, v0)
+  *     u28-u30 = z_val   of (v2, v1, v0)
+  *
+  *  When tex disabled (has_uvs=false): UV words are zero (Morton=0, white texel
+  *  returned by dispatcher), giving texel(1,1,1) × vertexColor = vertexColor.
   *
   * The setup shader outputs pre-scaled edge constants to r0-r5 (already
   * multiplied by inv_width = 1/64 for a 64-wide framebuffer).
@@ -228,9 +232,12 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   // DMA loads 8 words per vertex at descBase + v*32:
   //   uniform offset 0 = pos.x, 1 = pos.y, 2 = pos.z,
   //   uniform offset 3 = color.r, 4 = color.g, 5 = color.b,
-  //   uniform offset 6 = uv.u, 7 = uv.v  (not captured)
-  // We capture offsets 3,4,5 as r,g,b and offset 2 as z.
+  //   uniform offset 6 = uv.u, 7 = uv.v  (pre-scaled by tex dimensions in descriptor)
+  // We capture offsets 2(z), 3(r), 4(g), 5(b), 6(u), 7(v).
   val colorRegs = RegInit(VecInit.fill(3, 4)(0.U(16.W)))  // [v][r,g,b,z]
+  // UV per vertex — pre-scaled by tex_w/tex_h in the PSRAM descriptor.
+  // Offsets 6,7 from the DMA vertex stream (uniform[6]=u_tex, [7]=v_tex).
+  val uvRegs = RegInit(VecInit.fill(3, 2)(0.U(16.W)))     // [v][u,v]
 
   // Shadow registers for setup shader outputs (8 values)
   // r0-r5 = scaled edge components, r6 = area, r7 = inv_area
@@ -610,42 +617,50 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   private def handleStageUniforms(): Unit = {
     val w = writeIdx
 
-    // Barycentric order: w0→v2, w1→v0, w2→v1
-    // color[1].r = v1.r, color[0].r = v0.r, color[2].r = v2.r
-    // Fragment uniforms 1-3: (v1, v0, v2) = colorRegs(1), (0), (2)
-    val baryV: Vec[UInt] = VecInit(1.U(2.W), 0.U(2.W), 2.U(2.W))  // bary index → vertex index
+    // FTEX uniform layout (new, matching frag.s SPIRB output with uniform_base=12):
+    //   u0-u5:   scaled edge components (setupRegs[0..5])
+    //   u6-u11:  negated vertex positions FNEG(clipRegs)
+    //   u12:     inv_area (setupRegs[7])
+    //   u13-u15: U texture coord  (v2, v1, v0) — pre-scaled by tex_w in descriptor
+    //   u16-u18: V texture coord  (v2, v1, v0) — pre-scaled by tex_h in descriptor
+    //   u19-u21: color R          (v2, v1, v0)
+    //   u22-u24: color G          (v2, v1, v0)
+    //   u25-u27: color B          (v2, v1, v0)
+    //   u28-u30: z value          (v2, v1, v0)
+    // Within each group of 3: slot 0→vertex2, slot 1→vertex1, slot 2→vertex0
 
-    // Default: write zero (for UV slots 25-30)
     val uData = WireDefault(0.U(16.W))
 
+    // Helper: within a group of 3 starting at 'base', map to vertex index.
+    // Shader lists uniforms in reverse weight order (suffix 2, 1, 0).
+    // Barycentric mapping: weight2→v1, weight1→v0, weight0→v2.
+    // So: offset 0→v1, offset 1→v0, offset 2→v2.
+    def vertOf(base: Int): UInt =
+      Mux(w === base.U, 1.U(2.W), Mux(w === (base+1).U, 0.U(2.W), 2.U(2.W)))
+
     when(w < 6.U) {
-      // u0-u5: scaled edge components from setup shader outputs
       uData := setupRegs(w(2, 0))
     }.elsewhen(w < 12.U) {
-      // u6-u11: negated vertex positions (FNEG = flip bit 15)
-      // u6,u7 = -v0.x, -v0.y; u8,u9 = -v1.x, -v1.y; u10,u11 = -v2.x, -v2.y
-      val vIdx = (w - 6.U)(2, 1)  // vertex index 0,1,2
-      val cIdx = (w - 6.U)(0)     // component: 0=x, 1=y
+      val vIdx = (w - 6.U)(2, 1)
+      val cIdx = (w - 6.U)(0)
       val raw  = clipRegs(vIdx)(Cat(0.U(1.W), cIdx))
-      uData := raw ^ (1.U(16.W) << 15)  // flip sign bit = FNEG
+      uData := raw ^ (1.U(16.W) << 15)
     }.elsewhen(w === 12.U) {
-      // u12: inv_area
       uData := setupRegs(7)
+    }.elsewhen(w < 16.U) {
+      uData := uvRegs(vertOf(13))(0)          // u13-u15: U-coord
+    }.elsewhen(w < 19.U) {
+      uData := uvRegs(vertOf(16))(1)          // u16-u18: V-coord
     }.elsewhen(w < 22.U) {
-      // u13-u21: 9 color values = 3 components (R,G,B) × 3 vertices (bary order)
-      // u13-u15 = R(v1,v0,v2), u16-u18 = G(v1,v0,v2), u19-u21 = B(v1,v0,v2)
-      val colorOff = (w - 13.U)(3, 0)         // 0-8, 4 bits
-      val comp     = (colorOff / 3.U)(1, 0)   // 0=R,1=G,2=B, 2 bits
-      val baryIdx  = (colorOff % 3.U)(1, 0)   // 0,1,2 → vertex baryV[baryIdx], 2 bits
-      val vIdx     = baryV(baryIdx)
-      uData := colorRegs(vIdx)(comp)
+      uData := colorRegs(vertOf(19))(0)       // u19-u21: R
     }.elsewhen(w < 25.U) {
-      // u22-u24: z values — z_vals[1], z_vals[0], z_vals[2] (bary order)
-      val zOff = (w - 22.U)(1, 0)  // 0,1,2 (2 bits)
-      val vIdx = baryV(zOff)
-      uData := colorRegs(vIdx)(3)  // index 3 = z component
+      uData := colorRegs(vertOf(22))(1)       // u22-u24: G
+    }.elsewhen(w < 28.U) {
+      uData := colorRegs(vertOf(25))(2)       // u25-u27: B
+    }.otherwise {
+      uData := colorRegs(vertOf(28))(3)       // u28-u30: Z
     }
-    // u25-u30: uData stays 0
+    // (w > 30 cannot occur: writeIdx stops at 30)
 
     io.uniformWrite.en   := true.B
     io.uniformWrite.addr := Cat(uniformPage, writeIdx(4, 0))
@@ -890,6 +905,9 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       when(addr === 3.U) { colorRegs(vertIdx)(0) := data }  // r
       when(addr === 4.U) { colorRegs(vertIdx)(1) := data }  // g
       when(addr === 5.U) { colorRegs(vertIdx)(2) := data }  // b
+      // UV: pre-scaled by tex_w/tex_h in the PSRAM descriptor (record_draw_call)
+      when(addr === 6.U) { uvRegs(vertIdx)(0)    := data }  // u (scaled)
+      when(addr === 7.U) { uvRegs(vertIdx)(1)    := data }  // v (scaled)
     }
 
     // --- Setup shader output snooping (Step 29.2) ---

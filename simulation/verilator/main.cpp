@@ -19,7 +19,7 @@ int main(int argc, char** argv) {
     sim.load_texture(tex_path, tex_dim);
 
     if (app_name == "vkcube") {
-        sim.set_camera_angles(-0.4363f, 0.6109f);
+        sim.set_camera_angles(0.5236f, 0.7854f);  // 30° X, +45° Y — lighting contrast
     }
 
     std::cout << "[SIM] Starting simulation...\n";

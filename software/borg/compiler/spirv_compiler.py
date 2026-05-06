@@ -56,6 +56,7 @@ class TinySpirvCompiler:
         self.storage_classes = {}    # id -> "Input" / "Output" / "Uniform"
         self.struct_types = {}       # type_id -> [member_type_ids]
         self.var_types = {}          # var_id -> type_id
+        self.sampler_vars = set()    # variable IDs holding sampler/texture objects
 
     def get_reg(self, spirv_id):
         """Map a SPIR-V SSA ID to a virtual register name.
@@ -155,7 +156,7 @@ class TinySpirvCompiler:
             elif opcode == "OpVariable":
                 # Determine storage class from the raw line
                 storage = None
-                for kw in ["Input", "Output", "Uniform", "Function"]:
+                for kw in ["Input", "Output", "UniformConstant", "Uniform", "Function"]:
                     if kw in line.split(";")[0]:
                         storage = kw
                         break
@@ -173,7 +174,9 @@ class TinySpirvCompiler:
                     elif res_id == "%_":
                         self.ptr_map[res_id] = ("a4", 0)
                 elif self.shader_type == "fragment":
-                    if storage == "Uniform":
+                    if storage == "UniformConstant":
+                        self.sampler_vars.add(res_id)
+                    elif storage == "Uniform":
                         self.ptr_map[res_id] = ("uniform_block", 0)
             elif opcode in ("OpCompositeConstruct", "OpConstantComposite"):
                 self.composites[res_id] = [a for a in args[1:] if a.startswith('%')]
@@ -233,6 +236,11 @@ class TinySpirvCompiler:
 
             elif opcode == "OpLoad":
                 ptr_id = args[1]
+                if ptr_id in self.sampler_vars:
+                    # Loading a sampler/texture object — no code emission.
+                    # Track loaded value as sampler ref for OpImageSampleImplicitLod.
+                    self.sampler_vars.add(res_id)
+                    continue
                 if ptr_id in self.local_vars:
                     # Resolve SSA alias! (e.g., %28 = load %s)
                     src_val = self.local_vars[ptr_id]
@@ -381,6 +389,31 @@ class TinySpirvCompiler:
                     ra = flat_a[0]
                     rb = flat_b[0]
                     self.emit(f"fadd.s {reg}, {ra}, {rb}", f"{reg} = {ra} + {rb}")
+
+            elif opcode == "OpImageSampleImplicitLod":
+                # %result = OpImageSampleImplicitLod %v4float %sampler %uv_vec2
+                # Emit ftex.s and set up vec4 composite for component extraction.
+                uv_id = args[2]
+                uv_regs = self.resolve_flat(uv_id)
+                u_reg = uv_regs[0] if len(uv_regs) > 0 else "f_zero"
+                v_reg = uv_regs[1] if len(uv_regs) > 1 else "f_zero"
+                # Use separate IDs for all 4 components to avoid self-referential
+                # composite (resolve_flat's visited-set would skip res_id itself).
+                r_id = f"{res_id}_texR"
+                g_id = f"{res_id}_texG"
+                b_id = f"{res_id}_texB"
+                a_id = f"{res_id}_texA"
+                rd = self.get_reg(r_id)
+                self.get_reg(g_id)
+                self.get_reg(b_id)
+                self.reg_map[a_id] = "f_one"  # Alpha = 1.0 for RGB textures
+                self.composites[res_id] = [r_id, g_id, b_id, a_id]
+                self.emit(f"ftex.s {rd}, {u_reg}, {v_reg}",
+                          f"FTEX: {rd}=R, {self.reg_map[g_id]}=G, {self.reg_map[b_id]}=B")
+                # Annotation: backend must allocate rd, G, B to consecutive GPRs
+                self.borg_io.append(("ftex", "texR", rd))
+                self.borg_io.append(("ftex_implicit", "texG", self.reg_map[g_id]))
+                self.borg_io.append(("ftex_implicit", "texB", self.reg_map[b_id]))
 
             elif opcode == "OpCompositeExtract":
                 flat = self.resolve_flat(args[1])

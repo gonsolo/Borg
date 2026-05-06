@@ -11,5 +11,6 @@ class FpuOpFlags extends Bundle {
   val fneg   = Bool()
   val fstep  = Bool()
   val frcp   = Bool()
+  val ftex   = Bool()
   val funct3 = UInt(3.W)
 }

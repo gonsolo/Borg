@@ -93,6 +93,11 @@ object BorgCoreTests extends TestSuite {
   }
 
   def idleInputs(core: BorgCore): Unit = {
+    // Ensure module is properly reset (EphemeralSimulator may not auto-reset)
+    core.reset.poke(true.B)
+    core.clock.step(1)
+    core.reset.poke(false.B)
+
     core.io.bus.address.poke(0.U)
     core.io.bus.data_in.poke(0.U)
     core.io.bus.is_writing.poke(false.B)
@@ -110,6 +115,12 @@ object BorgCoreTests extends TestSuite {
     core.io.lutInit.isRcp.poke(false.B)
     core.io.lutInit.addr.poke(0.U)
     core.io.lutInit.data.poke(0.U)
+    // Step 34.4: FTEX texture response inputs — must be driven to avoid X propagation
+    core.io.texDone.poke(false.B)
+    core.io.texR.poke(0.U)
+    core.io.texG.poke(0.U)
+    core.io.texB.poke(0.U)
+    core.io.seqBusy.poke(false.B)
     core.clock.step(1)
   }
 

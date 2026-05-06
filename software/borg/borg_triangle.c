@@ -32,11 +32,11 @@ const borg_vertex_t front_tri[3] = {
 
 // Back triangle: larger, textured, at Z=0.8
 const borg_vertex_t back_tri[3] = {
-    { .pos = { FP16_ZERO,    FP16_NEG_120, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ZERO, FP16_ZERO },
+    { .pos = { FP16_ZERO,    FP16_NEG_120, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ONE, FP16_ONE },
       .uv = { FP16_HALF, FP16_ZERO } },
-    { .pos = { FP16_NEG_120, FP16_POS_120, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ZERO, FP16_ZERO },
+    { .pos = { FP16_NEG_120, FP16_POS_120, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ONE, FP16_ONE },
       .uv = { FP16_ZERO, FP16_ONE } },
-    { .pos = { FP16_POS_120, FP16_POS_120, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ZERO, FP16_ZERO },
+    { .pos = { FP16_POS_120, FP16_POS_120, FP16_Z_FAR }, .color = { FP16_ONE, FP16_ONE, FP16_ONE },
       .uv = { FP16_ONE, FP16_ONE } },
 };
 
@@ -57,10 +57,10 @@ int main() {
     borg_set_angle(&draw, fp16_from_float(0.6283f));  // 36 degrees
 
     borg_clear_zbuffer(0, (rgb16_t){FP16_ZERO, FP16_ZERO, FP16_ZERO});
-    borgCmdDraw(&draw, front_tri, 0);  // draw front (RGB) — no texture
     borg_set_texture(TEX_WIDTH, TEX_HEIGHT);
     borgCmdDraw(&draw, back_tri, 0);   // draw back (textured)
     borg_clear_texture();
+    borgCmdDraw(&draw, front_tri, 0);  // draw front (RGB vertex colors, no texture)
     borg_present(0);
 
     while (1)

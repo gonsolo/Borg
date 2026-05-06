@@ -50,10 +50,10 @@ fp16_t uint_to_fp16(int val);
 #define BORG_IMEM_VERT_OFFSET 0
 #define BORG_IMEM_RAST_OFFSET 0
 #define BORG_IMEM_FRAG_OFFSET 13
-#define BORG_IMEM_ADD_OFFSET  35
+#define BORG_IMEM_ADD_OFFSET  40
 
 // Instruction counts for hardware sequencer DMA shader reload (Step 31.2).
-// RAST occupies IMEM[0..12] (13 words), FRAG occupies IMEM[13..34] (22 words).
+// RAST occupies IMEM[0..12] (13 words), FRAG occupies IMEM[13..37] (25 words).
 #define BORG_IMEM_RAST_LEN  (BORG_IMEM_FRAG_OFFSET - BORG_IMEM_RAST_OFFSET)
 #define BORG_IMEM_FRAG_LEN  (BORG_IMEM_ADD_OFFSET  - BORG_IMEM_FRAG_OFFSET)
 
