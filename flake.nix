@@ -73,6 +73,7 @@
         pkgs.mpremote
         pkgs.netgen-vlsi
         pkgs.nextpnr
+        pkgs.openfpgaloader
         pkgs.openroad
         pkgs.pandoc
         pkgs.pkg-config
