@@ -1,32 +1,11 @@
-// sdram_test.v — Onboard SDRAM sanity-check for ULX3S
-//
-// Tests the IS42S16160G-7TL (32 MB, 16-bit wide, 4 banks) at 25 MHz / CL=2.
-// Writes a walking-1s pattern to 16 consecutive full-row addresses, then reads
-// back and compares.  Result visible on LEDs immediately after each read:
-//
-//   LED[7]   — heartbeat (toggles every ~0.67 s)
-//   LED[6]   — PASS: stays 1 after all reads complete without error
-//   LED[5:3] — saturating error count (0–7)
-//   LED[2:0] — current FSM state (for debugging)
-//
-// Press BTN_FIRE1 (btn[1]) to re-run the test from scratch.
-//
-// Timing at 25 MHz (40 ns/cycle), IS42S16160G-7TL spec:
-//   tRC  ≥ 60 ns  →  2 cycles (80 ns) ✓
-//   tRCD ≥ 15 ns  →  1 cycle  (40 ns) ✓  (we use 2 for safety)
-//   tRP  ≥ 15 ns  →  1 cycle  (40 ns) ✓  (we use 2 for safety)
-//   CL   = 2      →  data valid 2 cycles after CAS
-//   tREF = 64 ms / 8192 rows → one REFRESH every ~7.8 µs (195 cycles @ 25 MHz)
-//   We issue AUTO-REFRESH every 150 cycles to be safe.
-
+// Step 2: PLL + UART + SDRAM init check
 `default_nettype none
-
 module sdram_test (
     input  wire        clk_25mhz,
-    input  wire [6:0]  btn,          // btn[0]=PWRn, btn[1]=FIRE1
+    input  wire [6:0]  btn,
     output reg  [7:0]  led,
 
-    // SDRAM (IS42S16160G-7TL — 16-bit data bus, 4 banks, 13-bit row/col)
+    // SDRAM
     output wire        sdram_clk,
     output wire        sdram_cke,
     output wire        sdram_csn,
@@ -36,300 +15,216 @@ module sdram_test (
     output wire [12:0] sdram_a,
     output wire [1:0]  sdram_ba,
     output wire [1:0]  sdram_dqm,
-    inout  wire [15:0] sdram_d
+    inout  wire [15:0] sdram_d,
+
+    output wire        ftdi_rxd
 );
 
-// ---------------------------------------------------------------------------
-// Forward the system clock directly to SDRAM.  At 25 MHz we don't need a PLL.
-// ---------------------------------------------------------------------------
-assign sdram_clk = clk_25mhz;
+// ── PLL: 25→125 MHz ──
+wire [3:0] clk_o;
+wire pll_lock;
+wire clk = clk_o[0];
 
-// ---------------------------------------------------------------------------
-// Heartbeat
-// ---------------------------------------------------------------------------
-reg [24:0] hb_cnt;
-always @(posedge clk_25mhz) hb_cnt <= hb_cnt + 1;
+ecp5pll #(
+    .in_hz  ( 25_000_000),
+    .out0_hz(125_000_000), .out0_deg(0),
+    .out1_hz(125_000_000), .out1_deg(90)
+) pll_inst (
+    .clk_i(clk_25mhz), .clk_o(clk_o),
+    .reset(1'b0), .standby(1'b0),
+    .phasesel(2'b0), .phasedir(1'b0), .phasestep(1'b0), .phaseloadreg(1'b0),
+    .locked(pll_lock)
+);
 
-// ---------------------------------------------------------------------------
-// Button debounce / edge-detect for FIRE1 (active-high)
-// ---------------------------------------------------------------------------
-reg [2:0] btn1_sr;
-always @(posedge clk_25mhz) btn1_sr <= {btn1_sr[1:0], btn[1]};
-wire btn1_rise = (btn1_sr[2:1] == 2'b01);
+assign sdram_clk = clk_o[1]; // 90° shifted
+assign sdram_cke = 1'b1;
 
-// ---------------------------------------------------------------------------
-// SDRAM command encoding
-// ---------------------------------------------------------------------------
-// {CSn, RASn, CASn, WEn}
-localparam CMD_NOP       = 4'b1111;
-localparam CMD_ACTIVE    = 4'b0011;
-localparam CMD_READ      = 4'b0101;
-localparam CMD_WRITE     = 4'b0100;
-localparam CMD_PRECHARGE = 4'b0010;
-localparam CMD_REFRESH   = 4'b0001;
-localparam CMD_MRS       = 4'b0000; // Mode-Register Set
+// ── sdram_pnru instance ──
+wire       ram_rdy;
+// ram_rd, ram_wr, ram_ab, ram_di, ram_do, ram_ack declared in test FSM section
+sdram_pnru sdram_inst (
+    .sys_clk(clk),
+    .sys_rd(ram_rd), .sys_wr(ram_wr),
+    .sys_ab(ram_ab), .sys_di(ram_di),
+    .sys_do(ram_do),  .sys_rdy(ram_rdy), .sys_ack(ram_ack),
+    .sdr_ab(sdram_a), .sdr_db(sdram_d),  .sdr_ba(sdram_ba),
+    .sdr_n_CS_WE_RAS_CAS({sdram_csn, sdram_wen, sdram_rasn, sdram_casn}),
+    .sdr_dqm(sdram_dqm)
+);
 
-// ---------------------------------------------------------------------------
-// SDRAM control registers
-// ---------------------------------------------------------------------------
-reg        sdram_cke_r  = 1'b0;
-reg [3:0]  sdram_cmd_r  = CMD_NOP;
-reg [12:0] sdram_a_r    = 13'd0;
-reg [1:0]  sdram_ba_r   = 2'd0;
-reg [1:0]  sdram_dqm_r  = 2'b11;
-reg [15:0] sdram_din_r  = 16'd0;
-reg        sdram_oe     = 1'b0;  // drive data bus when writing
 
-assign sdram_cke  = sdram_cke_r;
-assign sdram_csn  = sdram_cmd_r[3];
-assign sdram_rasn = sdram_cmd_r[2];
-assign sdram_casn = sdram_cmd_r[1];
-assign sdram_wen  = sdram_cmd_r[0];
-assign sdram_a    = sdram_a_r;
-assign sdram_ba   = sdram_ba_r;
-assign sdram_dqm  = sdram_dqm_r;
-assign sdram_d    = sdram_oe ? sdram_din_r : 16'hzzzz;
+// ── UART TX ──
+reg [7:0]  tx_data  = 0;
+reg        tx_start = 0;
+wire       tx_busy;
 
-// ---------------------------------------------------------------------------
-// FSM states
-// ---------------------------------------------------------------------------
-localparam [3:0]
-    S_RESET      = 4'd0,   // power-up wait (200 µs)
-    S_PREALL     = 4'd1,   // PRECHARGE ALL
-    S_WAIT_PRE   = 4'd2,   // wait tRP
-    S_REFRESH1   = 4'd3,   // 1st AUTO-REFRESH
-    S_WAIT_REF1  = 4'd4,
-    S_REFRESH2   = 4'd5,   // 2nd AUTO-REFRESH
-    S_WAIT_REF2  = 4'd6,
-    S_MRS        = 4'd7,   // MODE REGISTER SET (CL=2, BL=1)
-    S_WAIT_MRS   = 4'd8,
-    S_WRITE      = 4'd9,   // write loop
-    S_WAIT_WRITE = 4'd10,
-    S_READ       = 4'd11,  // read loop
-    S_WAIT_READ  = 4'd12,
-    S_DONE       = 4'd13;  // pass/fail display
+reg [10:0] baud_cnt = 0;  // needs 11 bits: BAUD_DIV=1085 > 10-bit max 1023
+reg  [9:0] sr = 10'h3ff;
+reg  [3:0] bit_cnt = 0;
+reg        tx_out = 1;
+assign ftdi_rxd = tx_out;
 
-reg [3:0]  state     = S_RESET;
-reg [17:0] timer     = 0;     // general countdown timer
-reg [3:0]  loop_idx  = 0;     // 0..15 test addresses
-reg [2:0]  err_cnt   = 0;
-reg        pass      = 0;
+localparam BAUD_DIV = 125_000_000 / 115200; // 1085
 
-// Refresh counter — issue AUTO-REFRESH every 150 cycles when idle or in DONE
-reg [7:0]  ref_timer = 0;
-reg        do_ref    = 0;
+always @(posedge clk) begin
+    if (bit_cnt == 0) begin
+        if (tx_start) begin
+            sr       <= {1'b1, tx_data, 1'b0};
+            bit_cnt  <= 10;
+            baud_cnt <= 0;
+        end
+    end else begin
+        if (baud_cnt == BAUD_DIV - 1) begin
+            baud_cnt <= 0;
+            tx_out   <= sr[0];
+            sr       <= {1'b1, sr[9:1]};
+            bit_cnt  <= bit_cnt - 1;
+        end else
+            baud_cnt <= baud_cnt + 1;
+    end
+end
+assign tx_busy = (bit_cnt > 0);
 
-// ---------------------------------------------------------------------------
-// Test pattern: walking 1s (16 patterns for 16 writes)
-// ---------------------------------------------------------------------------
-function [15:0] pattern;
-    input [3:0] idx;
-    pattern = (16'd1 << idx);
+// ── Step 3: write 0xA5C3 to addr 4, read back, print PASS or FAIL ──
+localparam TEST_ADDR = 24'd4;
+localparam TEST_DATA = 16'hA5C3;
+localparam REPEAT_DLY = 250_000_000; // 2s @ 125MHz
+
+reg        ram_rd  = 0, ram_wr = 0;
+reg [23:0] ram_ab  = 0;
+reg [15:0] ram_di  = 0;
+wire[15:0] ram_do;
+wire       ram_ack = ~(ram_rd | ram_wr);
+
+// Connect SDRAM controller signals (override the tied-off ones above)
+// (sdram_pnru sys_rd/wr/ab/di/do/ack are already wired to these via
+//  the instance above — update that instance to use these regs)
+
+reg [15:0] got  = 0;
+reg        pass = 0;
+
+// hex nibble → ASCII (plain function, no array index)
+function [7:0] h;
+    input [3:0] n;
+    h = (n < 10) ? (8'h30 + {4'h0,n}) : (8'h41 + {4'h0,n} - 8'd10);
 endfunction
 
-// ---------------------------------------------------------------------------
-// Captured read-data (registered on rising edge, sampled 2 cycles after CAS)
-// ---------------------------------------------------------------------------
-reg [15:0] read_data_cap;
-reg        capture_en = 1'b0;
-always @(posedge clk_25mhz)
-    if (capture_en) read_data_cap <= sdram_d;
+// Send char by char; char_idx into current message
+// PASS\r\n              = 6 bytes
+// FAIL exp=XXXX got=XXXX\r\n = 26 bytes  (longest)
+reg [4:0]  char_idx   = 0;
+reg [1:0]  send_state = 0; // 0=idle 1=send 2=wait_busy
+reg [27:0] wait_ctr   = 0;
 
-// ---------------------------------------------------------------------------
-// Main FSM
-// ---------------------------------------------------------------------------
-// Power-up: need 200 µs = 5000 cycles @ 25 MHz.  Use 18-bit timer.
-localparam POWERUP_CYCLES = 18'd5100;
-
-always @(posedge clk_25mhz) begin
-    // defaults
-    sdram_cmd_r <= CMD_NOP;
-    sdram_oe    <= 1'b0;
-    capture_en  <= 1'b0;
-
-    // Refresh housekeeping (only in DONE state to avoid complicating the init
-    // FSM; during init we issue explicit refreshes)
-    if (state == S_DONE) begin
-        ref_timer <= ref_timer + 1;
-        if (ref_timer == 8'd150) begin
-            ref_timer <= 0;
-            do_ref    <= 1;
-        end
-    end
-
-    // Re-run on button press
-    if (btn1_rise) begin
-        state    <= S_RESET;
-        timer    <= 0;
-        loop_idx <= 0;
-        err_cnt  <= 0;
-        pass     <= 0;
-        do_ref   <= 0;
-        ref_timer<= 0;
+reg [7:0] send_char;
+always @(*) begin
+    if (pass) begin
+        case (char_idx)
+            5'd0: send_char="P"; 5'd1: send_char="A";
+            5'd2: send_char="S"; 5'd3: send_char="S";
+            5'd4: send_char=8'd13; 5'd5: send_char=8'd10;
+            default: send_char=8'd0;
+        endcase
     end else begin
-
-    case (state)
-
-    // ---- Power-up wait (200 µs, CKE low then high) -----------------------
-    S_RESET: begin
-        sdram_cke_r <= 1'b0;
-        timer <= timer + 1;
-        if (timer == POWERUP_CYCLES - 2) sdram_cke_r <= 1'b1;
-        if (timer == POWERUP_CYCLES) begin
-            timer <= 0;
-            state <= S_PREALL;
-        end
-    end
-
-    // ---- PRECHARGE ALL ---------------------------------------------------
-    S_PREALL: begin
-        sdram_cmd_r <= CMD_PRECHARGE;
-        sdram_a_r   <= 13'b0010000000000; // A10=1 → all banks
-        sdram_ba_r  <= 2'd0;
-        state       <= S_WAIT_PRE;
-        timer       <= 4;  // tRP = 2 cycles; wait 4 to be safe
-    end
-    S_WAIT_PRE: begin
-        timer <= timer - 1;
-        if (timer == 1) state <= S_REFRESH1;
-    end
-
-    // ---- AUTO-REFRESH x2 -------------------------------------------------
-    S_REFRESH1: begin
-        sdram_cmd_r <= CMD_REFRESH;
-        state       <= S_WAIT_REF1;
-        timer       <= 8;  // tRC min 2 cyc; use 8
-    end
-    S_WAIT_REF1: begin
-        timer <= timer - 1;
-        if (timer == 1) state <= S_REFRESH2;
-    end
-    S_REFRESH2: begin
-        sdram_cmd_r <= CMD_REFRESH;
-        state       <= S_WAIT_REF2;
-        timer       <= 8;
-    end
-    S_WAIT_REF2: begin
-        timer <= timer - 1;
-        if (timer == 1) state <= S_MRS;
-    end
-
-    // ---- MODE REGISTER SET: CL=2, BL=1 (single), Sequential -------------
-    // MR[6:4]=010(CL=2), MR[3]=0(sequential), MR[2:0]=000(BL=1)
-    S_MRS: begin
-        sdram_cmd_r <= CMD_MRS;
-        sdram_ba_r  <= 2'd0;
-        sdram_a_r   <= 13'b0000000100000; // CL=2, BL=1
-        state       <= S_WAIT_MRS;
-        timer       <= 4;
-    end
-    S_WAIT_MRS: begin
-        timer <= timer - 1;
-        if (timer == 1) begin
-            loop_idx <= 0;
-            state    <= S_WRITE;
-        end
-    end
-
-    // ---- WRITE LOOP ------------------------------------------------------
-    // Each test: bank=0, row=0, col=loop_idx
-    S_WRITE: begin
-        // Cycle 1: ACTIVE
-        sdram_cmd_r <= CMD_ACTIVE;
-        sdram_ba_r  <= 2'd0;
-        sdram_a_r   <= 13'd0;     // row 0
-        state       <= S_WAIT_WRITE;
-        timer       <= 5;         // sub-state counter
-    end
-    S_WAIT_WRITE: begin
-        timer <= timer - 1;
-        case (timer)
-            5: ; // NOP (tRCD)
-            4: begin
-                // WRITE with auto-precharge (A10=1)
-                sdram_cmd_r <= CMD_WRITE;
-                sdram_ba_r  <= 2'd0;
-                sdram_a_r   <= {3'b010, loop_idx[8:0]}; // A10=1, col=loop_idx
-                sdram_dqm_r <= 2'b00;
-                sdram_din_r <= pattern(loop_idx);
-                sdram_oe    <= 1'b1;
-            end
-            3: sdram_oe <= 1'b1;  // keep DQ driven during write latency
-            2: sdram_dqm_r <= 2'b11;
-            1: begin
-                // tRP after auto-precharge
-                if (loop_idx == 4'd15) begin
-                    loop_idx <= 0;
-                    state    <= S_READ;
-                end else begin
-                    loop_idx <= loop_idx + 1;
-                    state    <= S_WRITE;
-                end
-            end
+        // FAIL exp=XXXX got=XXXX\r\n
+        case (char_idx)
+            5'd0:  send_char="F"; 5'd1:  send_char="A";
+            5'd2:  send_char="I"; 5'd3:  send_char="L";
+            5'd4:  send_char=" "; 5'd5:  send_char="e";
+            5'd6:  send_char="x"; 5'd7:  send_char="p";
+            5'd8:  send_char="="; 5'd9:  send_char=h(TEST_DATA[15:12]);
+            5'd10: send_char=h(TEST_DATA[11:8]); 5'd11: send_char=h(TEST_DATA[7:4]);
+            5'd12: send_char=h(TEST_DATA[3:0]);  5'd13: send_char=" ";
+            5'd14: send_char="g"; 5'd15: send_char="o";
+            5'd16: send_char="t"; 5'd17: send_char="=";
+            5'd18: send_char=h(got[15:12]); 5'd19: send_char=h(got[11:8]);
+            5'd20: send_char=h(got[7:4]);   5'd21: send_char=h(got[3:0]);
+            5'd22: send_char=8'd13; 5'd23: send_char=8'd10;
+            default: send_char=8'd0;
         endcase
     end
-
-    // ---- READ LOOP -------------------------------------------------------
-    S_READ: begin
-        // Cycle 1: ACTIVE
-        sdram_cmd_r <= CMD_ACTIVE;
-        sdram_ba_r  <= 2'd0;
-        sdram_a_r   <= 13'd0;  // row 0
-        state       <= S_WAIT_READ;
-        timer       <= 7;
-    end
-    S_WAIT_READ: begin
-        timer <= timer - 1;
-        case (timer)
-            7: ; // tRCD NOP
-            6: begin
-                // READ with auto-precharge
-                sdram_cmd_r <= CMD_READ;
-                sdram_ba_r  <= 2'd0;
-                sdram_a_r   <= {3'b010, loop_idx[8:0]}; // A10=1
-                sdram_dqm_r <= 2'b00;
-            end
-            5: ; // CL=2: first NOP after CAS
-            4: capture_en <= 1'b1;  // sample data (CL=2 → data valid here)
-            3: begin
-                // Compare
-                if (read_data_cap !== pattern(loop_idx))
-                    err_cnt <= (err_cnt == 3'b111) ? 3'b111 : err_cnt + 1;
-            end
-            2: ; // tRP after auto-precharge
-            1: begin
-                if (loop_idx == 4'd15) begin
-                    pass  <= (err_cnt == 0);
-                    state <= S_DONE;
-                end else begin
-                    loop_idx <= loop_idx + 1;
-                    state    <= S_READ;
-                end
-            end
-        endcase
-    end
-
-    // ---- DONE: show result, handle periodic refresh ----------------------
-    S_DONE: begin
-        if (do_ref) begin
-            do_ref      <= 0;
-            sdram_cmd_r <= CMD_REFRESH;
-        end
-    end
-
-    default: state <= S_RESET;
-    endcase
-    end // !btn1_rise
-
-    // ---- LED output ------------------------------------------------------
-    led <= {
-        hb_cnt[24],            // D7: heartbeat
-        (state == S_DONE) & pass, // D6: PASS
-        err_cnt,               // D5:3: error count
-        state[2:0]             // D2:0: FSM state
-    };
-
 end
+
+// ── Test + print FSM ──────────────────────────────────────────────────────────
+localparam
+    S_WAIT_RDY  = 4'd0,  // wait for SDRAM idle after init
+    S_WR        = 4'd1,  // assert write
+    S_WR_LOW    = 4'd2,  // wait for rdy to go low (controller accepted)
+    S_WR_HIGH   = 4'd3,  // wait for rdy to go high (write done)
+    S_WR_DONE   = 4'd4,  // deassert wr
+    S_RD        = 4'd5,  // assert read
+    S_RD_LOW    = 4'd6,  // wait for rdy to go low
+    S_RD_HIGH   = 4'd7,  // wait for rdy to go high (read done, data valid)
+    S_RD_DONE   = 4'd8,  // deassert rd, latch data
+    S_PRINT     = 4'd9,  // send UART chars
+    S_WAIT_TX   = 4'd10, // wait for TX to start
+    S_PAUSE     = 4'd11; // wait 2s then repeat
+
+reg [3:0] state = S_WAIT_RDY;
+
+always @(posedge clk) begin
+    tx_start <= 0;
+    if (!pll_lock) begin
+        state <= S_WAIT_RDY; ram_rd <= 0; ram_wr <= 0;
+        char_idx <= 0; send_state <= 0;
+    end else case (state)
+
+    S_WAIT_RDY: if (ram_rdy) begin
+        state  <= S_WR;
+    end
+
+    S_WR: begin
+        ram_wr <= 1; ram_ab <= TEST_ADDR; ram_di <= TEST_DATA;
+        state  <= S_WR_LOW;
+    end
+    S_WR_LOW:  if (!ram_rdy) state <= S_WR_HIGH;
+    S_WR_HIGH: if ( ram_rdy) state <= S_WR_DONE;
+    S_WR_DONE: begin
+        ram_wr <= 0;  // deassert → sys_ack goes high → controller to IDLE
+        state  <= S_RD;
+    end
+
+    S_RD: begin
+        ram_rd <= 1; ram_ab <= TEST_ADDR;
+        state  <= S_RD_LOW;
+    end
+    S_RD_LOW:  if (!ram_rdy) state <= S_RD_HIGH;
+    S_RD_HIGH: if ( ram_rdy) state <= S_RD_DONE;
+    S_RD_DONE: begin
+        got    <= ram_do;
+        pass   <= (ram_do == TEST_DATA);
+        ram_rd <= 0;
+        char_idx <= 0;
+        state  <= S_PRINT;
+    end
+
+    S_PRINT: begin
+        if (send_char == 0) begin
+            wait_ctr <= 0;
+            state    <= S_PAUSE;
+        end else if (!tx_busy) begin
+            tx_data  <= send_char;
+            tx_start <= 1;
+            char_idx <= char_idx + 1;
+            state    <= S_WAIT_TX;
+        end
+    end
+    S_WAIT_TX: begin
+        tx_start <= 0;
+        if (tx_busy) state <= S_PRINT;
+    end
+
+    S_PAUSE: begin
+        wait_ctr <= wait_ctr + 1;
+        if (wait_ctr == REPEAT_DLY - 1) state <= S_WAIT_RDY;
+    end
+
+    endcase
+end
+
+// Heartbeat on LED
+reg [26:0] hb; always @(posedge clk) hb <= hb + 1;
+always @(posedge clk) led <= {hb[26], pass, 6'd0};
 
 endmodule
 `default_nettype wire

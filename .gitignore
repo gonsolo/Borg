@@ -35,3 +35,6 @@ tt_submission
 *.vcd
 .verilog_stamp
 fpga/picoice/.burned
+fpga/ulx3s/sdram_test/*.bit
+fpga/ulx3s/sdram_test/*.config
+fpga/ulx3s/sdram_test/*.json
