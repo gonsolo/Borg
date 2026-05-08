@@ -78,6 +78,7 @@
         pkgs.pandoc
         pkgs.pkg-config
         pkgs.scalafmt
+        pkgs.trellis
         pkgs.texlive.combined.scheme-full
         pkgs.tio
         pkgs.typst

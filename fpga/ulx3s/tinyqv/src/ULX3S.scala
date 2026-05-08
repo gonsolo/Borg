@@ -5,14 +5,19 @@ package soc
 
 import chisel3._
 import chisel3.util._
-import chisel3.experimental.Analog
-import chisel3.experimental.attach
+import chisel3.{ExtModule, StringParam}
+import chisel3.experimental.{Analog, attach}
 import borg.BorgConfig
 import memory.QspiBackend
 import _root_.circt.stage.ChiselStage
 
-/** ECP5 TRELLIS_IO bidirectional pad primitive. */
-class TRELLIS_IO extends ExtModule {
+/** ECP5 TRELLIS_IO primitive — bidirectional GPIO pad.
+  *
+  * Used for QSPI sd[3:0] data lines which switch direction per transaction phase.
+  *   T = 0 → drive I onto pad B
+  *   T = 1 → high-Z, pad value readable on O
+  */
+class TRELLIS_IO extends ExtModule(Map("DIR" -> StringParam("BIDIR"))) {
   val B = IO(Analog(1.W))    // bidirectional pad
   val T = IO(Input(Bool()))  // tristate: 0=drive, 1=high-Z
   val I = IO(Input(Bool()))  // data to pad
@@ -47,6 +52,8 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val rst_n     = IO(Input(Bool()))
 
   // QSPI PMOD on J2 GP/GN 21-24 — chip selects and clock are simple outputs
+  // Row 1 (GP): CS0, SD0, SD1, SCK  — PMOD pins 1-4
+  // Row 2 (GN): SD2, SD3, CS1, CS2  — PMOD pins 5-8
   val pmod_cs0  = IO(Output(Bool()))  // GP24 — CS0 Flash   (PMOD pin 1)
   val pmod_cs1  = IO(Output(Bool()))  // GN22 — CS1 PSRAM A (PMOD pin 7)
   val pmod_cs2  = IO(Output(Bool()))  // GN21 — CS2 PSRAM B (PMOD pin 8)
@@ -92,7 +99,7 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   pmod_sck := qspiBackend.io.qspiPins.clkOut
 
   // Bidirectional data: TRELLIS_IO for each bit
-  val pmod_sd_in  = Wire(Vec(4, Bool()))
+  val pmod_sd_in   = Wire(Vec(4, Bool()))
   val pmod_sd_pads = Seq(pmod_sd0, pmod_sd1, pmod_sd2, pmod_sd3)
   for (i <- 0 until 4) {
     val tio = Module(new TRELLIS_IO())

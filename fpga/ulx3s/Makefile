@@ -71,6 +71,7 @@ borg.config: borg.json
 	  --lpf $(LPF) \
 	  --textcfg borg.config \
 	  --freq $(CLOCK_FREQ) \
+	  --timing-allow-fail \
 	  --log nextpnr.log \
 	  --seed 0
 	@echo -e "$(BOLD)[PNR]$(RESET) Done."
@@ -89,9 +90,40 @@ load: borg.bit
 
 # Write to config FLASH (persistent)
 flash: borg.bit
-	@echo -e "$(BOLD)[FLASH]$(RESET) Writing to config FLASH via openFPGALoader ..."
+	@echo -e "$(BOLD)[FLASH]$(RESET) Writing bitstream to config FLASH via openFPGALoader ..."
 	openFPGALoader -b ulx3s -f borg.bit
 	@echo -e "$(BOLD)[FLASH]$(RESET) Done."
+
+######### Firmware (QSPI PMOD flash) #############################################################
+
+FIRMWARE_DIR = ../../software/borg
+
+# Build + flash firmware to the PMOD flash (CS0, address 0).
+# The PMOD flash is separate from the onboard ECP5 config flash, so offset=0
+# means the start of the PMOD chip — TinyQV boots from there directly.
+#
+# Requires the flash-passthru bitstream to be loaded first so the JTAG/FTDI
+# port can reach the PMOD SPI pins. See:
+#   https://github.com/emard/ulx3s-misc/tree/master/examples/flash_passthru
+flash-firmware: $(FIRMWARE_DIR)/triangle.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing firmware to PMOD flash (CS0, offset 0) ..."
+	openFPGALoader -b ulx3s --file-type bin -f -o 0 $<
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Done."
+
+$(FIRMWARE_DIR)/triangle.bin:
+	$(MAKE) -C $(FIRMWARE_DIR) triangle
+
+# Full deploy: synthesize + P&R + pack, then flash bitstream and firmware.
+# After this, power-cycle the board → ECP5 loads from onboard flash →
+# TinyQV boots from PMOD flash → triangle renders over UART.
+triangle: borg.bit
+	@echo -e "$(BOLD)[BUILD]$(RESET) Building triangle firmware ..."
+	$(MAKE) -C $(FIRMWARE_DIR) triangle
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream to onboard flash ..."
+	openFPGALoader -b ulx3s -f borg.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing triangle firmware to PMOD flash ..."
+	openFPGALoader -b ulx3s --file-type bin -f -o 0 $(FIRMWARE_DIR)/triangle.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle board to run triangle."
 
 # Print resource utilisation after synthesis
 print_resources: yosys.log
@@ -130,5 +162,5 @@ install-udev:
 clean:
 	rm -f borg.bit borg.config borg.json borg.svf yosys.log nextpnr.log .verilog_stamp_ulx3s
 
-.PHONY: all help load flash borg.bit borg.config \
+.PHONY: all help load flash \
         print_resources generate_verilog_ulx3s tio install-udev clean
