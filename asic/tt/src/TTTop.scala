@@ -7,6 +7,7 @@ import chisel3._
 import chisel3.util._
 import soc.SoCLogic
 import borg.BorgConfig
+import memory.QspiBackend
 
 /** Tiny Tapeout ASIC top-level module.
   *
@@ -33,23 +34,28 @@ class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
     RegNext(rst_n)
   }
   def soc_ui_in        = ui_in
-  def soc_qspi_data_in = Cat(uio_in(5, 4), uio_in(2, 1))
-
   // Wire up the SoC
   val uo_out_val = wireSoC()
 
-  // TT-specific QSPI I/O mapping — signals sourced from MemoryController via SoCLogic
+  // QSPI backend — bridges MemoryController to TT uio pad mux
+  val qspiBackend = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+    Module(new QspiBackend())
+  }
+  mem.io.backend               <> qspiBackend.io.backend
+  qspiBackend.io.qspiPins.dataIn := Cat(uio_in(5, 4), uio_in(2, 1))
+
+  // TT-specific QSPI I/O mapping
   uio_out := Cat(
-    qspi_ram_b_select,
-    qspi_ram_a_select,
-    qspi_data_out(3, 2),
-    qspi_clk_out,
-    qspi_data_out(1, 0),
-    qspi_flash_select
+    qspiBackend.io.qspiPins.ramBSelect,
+    qspiBackend.io.qspiPins.ramASelect,
+    qspiBackend.io.qspiPins.dataOut(3, 2),
+    qspiBackend.io.qspiPins.clkOut,
+    qspiBackend.io.qspiPins.dataOut(1, 0),
+    qspiBackend.io.qspiPins.flashSelect
   )
   uio_oe := Mux(
     rst_n,
-    Cat(3.U(2.W), qspi_data_oe(3, 2), 1.U(1.W), qspi_data_oe(1, 0), 1.U(1.W)),
+    Cat(3.U(2.W), qspiBackend.io.qspiPins.dataOe(3, 2), 1.U(1.W), qspiBackend.io.qspiPins.dataOe(1, 0), 1.U(1.W)),
     0.U(8.W)
   )
 

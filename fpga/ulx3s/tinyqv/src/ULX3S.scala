@@ -6,6 +6,7 @@ package soc
 import chisel3._
 import chisel3.util._
 import borg.BorgConfig
+import memory.QspiBackend
 import _root_.circt.stage.ChiselStage
 
 /** ULX3S (Lattice ECP5-85K) FPGA top-level — STUB (Step 27).
@@ -47,18 +48,23 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
     RegNext(rst_n)
   }
   def soc_ui_in       = ui_in
-  def soc_qspi_data_in = sd_in
 
   // Wire up the SoC
   val uo_out_val = wireSoC()
 
-  // Drive QSPI outputs — on real ECP5 these would go through TRELLIS_IO
-  flash_cs := qspi_flash_select
-  sck      := qspi_clk_out
-  ram_a_cs := qspi_ram_a_select
-  ram_b_cs := qspi_ram_b_select
-  sd_out   := qspi_data_out
-  sd_oe    := qspi_data_oe
+  // QSPI backend — on real ECP5 qspiPins would go through TRELLIS_IO
+  val qspiBackend = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+    Module(new QspiBackend())
+  }
+  mem.io.backend                 <> qspiBackend.io.backend
+  qspiBackend.io.qspiPins.dataIn := sd_in
+
+  flash_cs := qspiBackend.io.qspiPins.flashSelect
+  sck      := qspiBackend.io.qspiPins.clkOut
+  ram_a_cs := qspiBackend.io.qspiPins.ramASelect
+  ram_b_cs := qspiBackend.io.qspiPins.ramBSelect
+  sd_out   := qspiBackend.io.qspiPins.dataOut
+  sd_oe    := qspiBackend.io.qspiPins.dataOe
 
   uo_out := uo_out_val
 }

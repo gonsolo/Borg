@@ -7,7 +7,7 @@ package soc
 import chisel3._
 import chisel3.util._
 import chisel3.experimental.Analog
-
+import memory.QspiBackend
 import borg.BorgConfig
 
 /** pico-ice FPGA top-level module.
@@ -46,21 +46,13 @@ class tinyQV_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
     sbio
   }
 
-  // Read qspi_data_in from SB_IO D_IN_0 outputs
-  def soc_qspi_data_in = Cat(
-    qspi_data_io(3).D_IN_0,
-    qspi_data_io(2).D_IN_0,
-    qspi_data_io(1).D_IN_0,
-    qspi_data_io(0).D_IN_0
-  )
-
   // SB_IO instances for QSPI control pins — output only
   val controlPins = Seq(flash_cs, sck, ram_a_cs, ram_b_cs)
   val qspi_ctrl_io = controlPins.map { pin =>
     val sbio = Module(new SB_IO(pinType = 0x29, pullup = 0))  // 6'b101001
-    sbio.PACKAGE_PIN  <> pin
-    sbio.OUTPUT_CLK   := clk
-    sbio.INPUT_CLK    := clk
+    sbio.PACKAGE_PIN   <> pin
+    sbio.OUTPUT_CLK    := clk
+    sbio.INPUT_CLK     := clk
     sbio.OUTPUT_ENABLE := rst_n
     sbio
   }
@@ -68,18 +60,30 @@ class tinyQV_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // Wire up the SoC
   val uo_out_val = wireSoC()
 
-  // Connect QSPI data SB_IO outputs from SoC
+  // QSPI backend — bridges MemoryController to SB_IO primitives
+  val qspiBackend = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+    Module(new QspiBackend())
+  }
+  mem.io.backend <> qspiBackend.io.backend
+  qspiBackend.io.qspiPins.dataIn := Cat(
+    qspi_data_io(3).D_IN_0,
+    qspi_data_io(2).D_IN_0,
+    qspi_data_io(1).D_IN_0,
+    qspi_data_io(0).D_IN_0
+  )
+
+  // Connect QSPI data SB_IO outputs from QspiBackend
   for (i <- 0 until 4) {
-    qspi_data_io(i).OUTPUT_ENABLE := qspi_data_oe(i)
-    qspi_data_io(i).D_OUT_0      := qspi_data_out(i)
+    qspi_data_io(i).OUTPUT_ENABLE := qspiBackend.io.qspiPins.dataOe(i)
+    qspi_data_io(i).D_OUT_0      := qspiBackend.io.qspiPins.dataOut(i)
   }
 
-  // Connect QSPI control SB_IO outputs from SoC
+  // Connect QSPI control SB_IO outputs from QspiBackend
   // Order: flash_cs=0, sck=1, ram_a_cs=2, ram_b_cs=3
-  qspi_ctrl_io(0).D_OUT_0 := qspi_flash_select
-  qspi_ctrl_io(1).D_OUT_0 := qspi_clk_out
-  qspi_ctrl_io(2).D_OUT_0 := qspi_ram_a_select
-  qspi_ctrl_io(3).D_OUT_0 := qspi_ram_b_select
+  qspi_ctrl_io(0).D_OUT_0 := qspiBackend.io.qspiPins.flashSelect
+  qspi_ctrl_io(1).D_OUT_0 := qspiBackend.io.qspiPins.clkOut
+  qspi_ctrl_io(2).D_OUT_0 := qspiBackend.io.qspiPins.ramASelect
+  qspi_ctrl_io(3).D_OUT_0 := qspiBackend.io.qspiPins.ramBSelect
 
   uo_out := uo_out_val
 }

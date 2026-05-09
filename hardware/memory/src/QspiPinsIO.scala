@@ -5,8 +5,9 @@ package memory
 
 import chisel3._
 
-/** Physical QSPI pin bundle (from MemoryController's perspective).
-  * dataIn is the only Input; all outputs drive the physical bus.
+/** Physical QSPI pin bundle — used by [[QspiBackend]] to connect
+  * [[QspiController]] to the platform-specific pad mux.
+  * dataIn is the only Input; all other signals drive the physical bus.
   */
 class QspiPinsIO extends Bundle {
   val dataIn      = Input(UInt(4.W))

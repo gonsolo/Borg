@@ -11,11 +11,14 @@ import borg.GpuMemIO
 
 /** IO bundle for the SoC-level memory controller.
   *
-  * Arbitrates the QSPI bus between four requestors:
+  * Arbitrates the memory backend bus between four requestors:
   *   - CPU instruction fetch (via [[InstrFetchIO]])
   *   - CPU data read/write (loads, stores, PSRAM framebuffer)
   *   - GPU write (autonomous tile flush — Step 25.2)
   *   - GPU read (autonomous texel fetch — Step 19.2)
+  *
+  * Physical memory pins are NOT owned here; connect a [[QspiBackend]]
+  * (or future [[SdramBackend]]) to io.backend at the top level.
   */
 class MemoryControllerIO extends Bundle {
   // CPU instruction fetch interface
@@ -24,29 +27,26 @@ class MemoryControllerIO extends Bundle {
   // CPU data bus (QSPI region: addr[27:25] == 0 on the TinyQV side)
   val cpuData = Flipped(new MemBusIO)
 
-  // GPU read port (slave end — Flipped so Output/Input directions are from the GPU master's view)
+  // GPU read/write port (slave end)
   val gpuMem = Flipped(new GpuMemIO)
 
-  // SPI/QSPI pins — MemoryController is the sole owner of the physical bus;
-  // neither TinyQV nor Borg have any knowledge of QSPI.
-  val qspiPins = new QspiPinsIO
+  // Backend interface — connect to QspiBackend or SdramBackend at top level.
+  val backend = new MemBackendIO
 
   val debug_stall_txn = Output(Bool())
   val debug_stop_txn  = Output(Bool())
 }
 
-/** SoC-level memory controller — arbitrates the QSPI bus between the CPU and GPU.
+/** SoC-level memory controller — backend-agnostic arbiter.
   *
-  * Manages a single [[QspiController]] instance shared by:
-  *   - '''Instruction fetch:''' streaming 16-bit instruction words from flash
-  *   - '''CPU data read/write:''' byte/halfword/word PSRAM access for loads and stores
+  * Arbitrates between four requestors:
+  *   - '''Instruction fetch:''' streaming 16-bit instruction words
+  *   - '''CPU data read/write:''' byte/halfword/word access for loads and stores
   *   - '''GPU write:''' autonomous PSRAM writes (tile flush — Step 25.2)
   *   - '''GPU read:''' texel fetch from PSRAM (Step 19.2)
   *
-  * Data transactions take priority over instruction fetch. Multi-beat
-  * (continued) transactions are supported for load/store-multiple sequences.
-  * The controller reassembles byte-wide QSPI data into the CPU's 32-bit data
-  * bus and handles stall/stop signalling for instruction prefetch.
+  * The physical memory transport is provided by a separate backend module
+  * ([[QspiBackend]] or future [[SdramBackend]]) connected to io.backend.
   */
 class MemoryController extends Module {
   val io = IO(new MemoryControllerIO)
@@ -94,7 +94,7 @@ class MemoryController extends Module {
   // --- Core Wiring ---
   wireControlFsm()
   wireDataPath()
-  wireQspiController()
+  wireBackend()
   wireOutputs()
 
   // --- Helper Methods ---
@@ -224,29 +224,22 @@ class MemoryController extends Module {
     }
   }
 
-  private def wireQspiController(): Unit = {
-    val q_ctrl = Module(new QspiController())
-    q_ctrl.io.spi_data_in   := io.qspiPins.dataIn
-    io.qspiPins.dataOut     := q_ctrl.io.spi_data_out
-    io.qspiPins.dataOe      := q_ctrl.io.spi_data_oe
-    io.qspiPins.clkOut      := q_ctrl.io.spi_clk_out
-    io.qspiPins.flashSelect := q_ctrl.io.spi_flash_select
-    io.qspiPins.ramASelect  := q_ctrl.io.spi_ram_a_select
-    io.qspiPins.ramBSelect  := q_ctrl.io.spi_ram_b_select
-
-    q_ctrl.io.addr_in    := addr_in
-    q_ctrl.io.data_in    := qspi_data_buf(
-      qspi_data_byte_idx + Mux(q_ctrl.io.data_req, 1.U, 0.U)
+  private def wireBackend(): Unit = {
+    // Arbiter → Backend
+    io.backend.addrIn     := addr_in
+    io.backend.dataIn     := qspi_data_buf(
+      qspi_data_byte_idx + Mux(io.backend.dataReq, 1.U, 0.U)
     )
-    q_ctrl.io.start_read  := start_read || start_instr || start_gpu_read
-    q_ctrl.io.start_write := start_write || start_gpu_write  // Step 25.2
-    q_ctrl.io.stall_txn   := stall_txn || data_stall
-    q_ctrl.io.stop_txn    := stop_txn
+    io.backend.startRead  := start_read || start_instr || start_gpu_read
+    io.backend.startWrite := start_write || start_gpu_write
+    io.backend.stallTxn   := stall_txn || data_stall
+    io.backend.stopTxn    := stop_txn
 
-    qspi_data_out   := q_ctrl.io.data_out
-    qspi_data_req   := q_ctrl.io.data_req
-    qspi_data_ready := q_ctrl.io.data_ready
-    qspi_busy       := q_ctrl.io.busy
+    // Backend → Arbiter
+    qspi_data_out   := io.backend.dataOut
+    qspi_data_req   := io.backend.dataReq
+    qspi_data_ready := io.backend.dataReady
+    qspi_busy       := io.backend.busy
   }
 
   private def wireOutputs(): Unit = {

@@ -69,8 +69,8 @@ class CpuExtModule extends ExtModule(Map()) {
   *   - [[soc.ULX3S]]                  — ULX3S ECP5 FPGA   (fpga/ulx3s/)
   *
   * Each subclass must implement the abstract members: soc_clk, soc_rst_n,
-  * soc_rst_reg_n, soc_ui_in, soc_qspi_data_in. The trait exposes the QSPI
-  * output lazy vals and the uo_out computation via wireSoC().
+  * soc_rst_reg_n, soc_ui_in. Each subclass also instantiates a [[memory.QspiBackend]]
+  * (or future [[memory.SdramBackend]]) and wires mem.io.backend to it.
   */
 trait SoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
@@ -81,7 +81,6 @@ trait SoCLogic { self: RawModule =>
   def soc_rst_n: Bool
   def soc_rst_reg_n: Bool
   def soc_ui_in: UInt
-  def soc_qspi_data_in: UInt
 
   // --- Core and peripheral instantiation ---
   lazy val cpu = withClockAndReset(soc_clk, !soc_rst_reg_n) {
@@ -97,13 +96,7 @@ trait SoCLogic { self: RawModule =>
     Module(new tinyqv.peri.uart.UartTx(13))
   }
 
-  // --- QSPI outputs — sourced from MemoryController, not TinyQV ---
-  lazy val qspi_data_out:     UInt = mem.io.qspiPins.dataOut
-  lazy val qspi_data_oe:      UInt = mem.io.qspiPins.dataOe
-  lazy val qspi_clk_out:      Bool = mem.io.qspiPins.clkOut
-  lazy val qspi_flash_select: Bool = mem.io.qspiPins.flashSelect
-  lazy val qspi_ram_a_select: Bool = mem.io.qspiPins.ramASelect
-  lazy val qspi_ram_b_select: Bool = mem.io.qspiPins.ramBSelect
+
 
   /** Wire up the entire SoC. Call this from the top-level module body. */
   def wireSoC(): UInt = {
@@ -111,7 +104,7 @@ trait SoCLogic { self: RawModule =>
     // -------------------------------------------------------------------------
     // MemoryController wiring
     // -------------------------------------------------------------------------
-    mem.io.qspiPins.dataIn := soc_qspi_data_in
+    // io.backend must be connected by the subclass after calling wireSoC()
 
       // simple case: only real controller
       mem.io.instrFetch.instr_addr         := cpu.io.instr_addr
