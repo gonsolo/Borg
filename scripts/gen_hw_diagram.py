@@ -53,7 +53,7 @@ NODE_COLORS = {
 }
 
 # Modules we consider "top-level connectors" and want highlighted
-TOP_LEVEL = {"tt_um_gonsolo_borg", "tt_um_gonsolo_borg_sim", "Project", "Borg", "TinyQV", "Borg Driver", "TinyQV Firmware"}
+TOP_LEVEL = {"tt_um_gonsolo_borg", "Project", "Borg", "TinyQV", "Borg Driver", "TinyQV Firmware"}
 
 # Modules that are data-types / IO bundles — skip as nodes
 SKIP_PATTERNS = [

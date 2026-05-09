@@ -16,6 +16,7 @@ FIRMWARE_DIR ?= $(ROOT)/software/borg
 # Track Chisel sources so the .fir is regenerated when hardware changes
 CHISEL_SRCS = $(shell find $(ROOT)/hardware/borg/src $(ROOT)/hardware/soc/src \
                            $(ROOT)/hardware/tinyqv/src $(ROOT)/hardware/memory/src \
+                           $(ROOT)/asic/tt/src \
                            -name '*.scala' -not -path '*/generated/*' 2>/dev/null) \
               $(wildcard $(ROOT)/hardware/rdl/*.rdl)
 
@@ -24,12 +25,11 @@ CHISEL_SRCS = $(shell find $(ROOT)/hardware/borg/src $(ROOT)/hardware/soc/src \
 all: triangle vkcube
 
 # Step 0: Hardware Generation — reruns when any Chisel/RDL source changes
-# DEBUG: Using sim FIRRTL to test GPU read bypass via MemoryControllerSim
-$(ROOT)/out/hardware/borg/firrtl_sim/tt_um_gonsolo_borg.fir: $(CHISEL_SRCS)
+$(ROOT)/out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir: $(CHISEL_SRCS)
 	$(MAKE) -C $(ROOT) generate_verilog
 
 # Step 1: FIRRTL → HW MLIR
-borg.mlir: $(ROOT)/out/hardware/borg/firrtl_sim/tt_um_gonsolo_borg.fir
+borg.mlir: $(ROOT)/out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir
 	$(FIRTOOL) $< --disable-layers=Verification --ir-hw > $@
 
 # Step 2: HW MLIR → LLVM IR + state info  (single invocation produces both)

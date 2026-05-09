@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
-package borg
+package soc
 
 import chisel3._
 import chisel3.{ExtModule, IntParam}

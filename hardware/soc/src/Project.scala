@@ -55,18 +55,22 @@ class CpuExtModule extends ExtModule(Map()) {
   val io = FlatIO(new TinyQVIO)
 }
 
-/** Common SoC logic shared between TT ASIC and pico-ice FPGA top-level modules.
+/** Platform-independent SoC backbone shared by all target top-level modules.
   *
-  * Architecture: three peer components wired by this trait:
-  *   - [[TinyQV]]           — pure CPU; no QSPI knowledge
+  * Wires together the three peer components:
+  *   - [[TinyQV]]           — RISC-V CPU; no QSPI knowledge
   *   - [[MemoryController]] — owns SPI/QSPI pins; arbitrates CPU instr-fetch,
-  *                            CPU data, and GPU read (Step 19.2)
-  *   - [[Peripherals]] (Borg GPU + UART + GPIO) — no QSPI knowledge
+  *                            CPU data, and GPU read
+  *   - [[Peripherals]]      — Borg GPU + UART + GPIO; no QSPI knowledge
   *
-  * Subclasses must provide: soc_clk, soc_rst_n, soc_rst_reg_n, soc_ui_in,
-  * soc_qspi_data_in. The trait provides: QSPI outputs, uo_out value, and all
-  * internal SoC wiring.
+  * Target-specific top-level modules that mix in this trait live in:
+  *   - [[asic.tt.tt_um_gonsolo_borg]] — Tiny Tapeout ASIC (asic/tt/)
+  *   - [[soc.tinyQV_top]]             — pico-ice iCE40 FPGA (fpga/picoice/)
+  *   - [[soc.ULX3S]]                  — ULX3S ECP5 FPGA   (fpga/ulx3s/)
   *
+  * Each subclass must implement the abstract members: soc_clk, soc_rst_n,
+  * soc_rst_reg_n, soc_ui_in, soc_qspi_data_in. The trait exposes the QSPI
+  * output lazy vals and the uo_out computation via wireSoC().
   */
 trait SoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
@@ -276,53 +280,3 @@ trait SoCLogic { self: RawModule =>
   }
 }
 
-
-class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
-  val ui_in  = IO(Input(UInt(8.W)))
-  val uo_out = IO(Output(UInt(8.W)))
-  val uio_in  = IO(Input(UInt(8.W)))
-  val uio_out = IO(Output(UInt(8.W)))
-  val uio_oe  = IO(Output(UInt(8.W)))
-  val ena     = IO(Input(Bool()))
-  val clk     = IO(Input(Clock()))
-  val rst_n   = IO(Input(Bool()))
-
-  // Implement SoCLogic abstract members
-  def soc_clk = clk
-  def soc_rst_n = rst_n
-  lazy val soc_rst_reg_n: Bool = withClockAndReset((!clk.asBool).asClock, false.B) {
-    RegNext(rst_n)
-  }
-  def soc_ui_in = ui_in
-  def soc_qspi_data_in = Cat(uio_in(5, 4), uio_in(2, 1))
-
-  // Wire up the SoC
-  val uo_out_val = wireSoC()
-
-  // TT-specific QSPI I/O mapping — signals now sourced from MemoryController
-  uio_out := Cat(
-    qspi_ram_b_select,
-    qspi_ram_a_select,
-    qspi_data_out(3, 2),
-    qspi_clk_out,
-    qspi_data_out(1, 0),
-    qspi_flash_select
-  )
-  uio_oe := Mux(
-    rst_n,
-    Cat(3.U(2.W), qspi_data_oe(3, 2), 1.U(1.W), qspi_data_oe(1, 0), 1.U(1.W)),
-    0.U(8.W)
-  )
-
-  // Avoid warnings on unused inputs
-  val read_complete = cpu.io.data_read_complete
-  val unused = ena ^ uio_in(7) ^ uio_in(6) ^ uio_in(3) ^ uio_in(0) ^ read_complete
-
-  uo_out := Cat(uo_out_val(7, 1), uo_out_val(0) ^ unused ^ unused)
-}
-
-/** Simulation-only variant with fast memory array instance built-in. */
-class tt_um_gonsolo_borg_sim(override val CLOCK_MHZ: Int)
-    extends tt_um_gonsolo_borg(CLOCK_MHZ) {
-  override val desiredName = "tt_um_gonsolo_borg"
-}

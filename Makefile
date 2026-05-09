@@ -37,14 +37,14 @@ export CLOCK_MHZ = 4
 # To re-enable: add fpga/picoice/tinyqv/src back to the find paths below
 # and uncomment the picoice lines in .verilog_stamp.
 HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/src hardware/memory/src \
-                        fpga/ulx3s/tinyqv/src \
+                        fpga/ulx3s/tinyqv/src asic/tt/src \
                         -name '*.scala' -not -path '*/generated/*' 2>/dev/null)
 
 # Stamp target: only re-runs Mill when Scala or RDL sources actually change.
 # | rdl is an order-only dep so rdl always runs first (it is fast and idempotent)
 # but a re-run of rdl alone does not invalidate the stamp.
 .verilog_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
-	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) hardware.soc.runMain soc.Main
+	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) asic.tt.runMain asic.tt.TTMain
 	@# pico-ice (BorgConfig.Small) temporarily disabled — BorgConfig.Large is primary target.
 	@# To re-enable: uncomment the three lines below and fpga/picoice in HAND_CHISEL.
 	@#CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.picoice.tinyqv.runMain soc.FpgaMain

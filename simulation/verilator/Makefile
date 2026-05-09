@@ -9,27 +9,25 @@ V_SRCS = $(wildcard $(HW_DIR)/borg/verilog/*.v $(HW_DIR)/tinyqv/verilog/*.v)
 
 all: triangle vkcube
 
-# Hardware dependency: call generate_verilog when either asic_files.txt is missing
-$(HW_DIR)/borg/verilog/asic_files.txt $(HW_DIR)/borg/verilog_sim/asic_files.txt:
+$(HW_DIR)/borg/verilog/asic_files.txt:
 	$(MAKE) -C $(ROOT) generate_verilog
 
 # Verilator simulator depends on hardware generation and the actual verilog files
-# We use the verilog_sim directory because it includes the memSim RAM array logic!
-obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/asic_files.txt $(V_SRCS)
+obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog/asic_files.txt $(V_SRCS)
 	@rm -rf obj_dir
-	@SRC_FILES=$$(cat $(HW_DIR)/borg/verilog_sim/asic_files.txt $(shell test -f $(HW_DIR)/tinyqv/verilog/asic_files.txt && echo $(HW_DIR)/tinyqv/verilog/asic_files.txt) | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
+	@SRC_FILES=$$(cat $(HW_DIR)/borg/verilog/asic_files.txt $(shell test -f $(HW_DIR)/tinyqv/verilog/asic_files.txt && echo $(HW_DIR)/tinyqv/verilog/asic_files.txt) | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
 	echo "Building Verilator models..."; \
 	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall --build -j 0 \
 	-MAKEFLAGS "-s" \
-	-I$(HW_DIR)/borg/verilog_sim -I$(HW_DIR)/tinyqv/verilog \
-	-I$(HW_DIR)/borg/verilog_sim/verification/assert -I$(HW_DIR)/borg/verilog_sim/verification \
+	-I$(HW_DIR)/borg/verilog -I$(HW_DIR)/tinyqv/verilog \
+	-I$(HW_DIR)/borg/verilog/verification/assert -I$(HW_DIR)/borg/verilog/verification \
 	-I$(HW_DIR)/tinyqv/verilog/verification/assert -I$(HW_DIR)/tinyqv/verilog/verification \
 	--top-module tt_um_gonsolo_borg \
 	-CFLAGS "-fPIC" -CFLAGS "-I../../common" \
 	-DENABLE_INITIAL_MEM_ \
 	$(ROOT)/lint.vlt \
 	$$SRC_FILES \
-	$(wildcard $(HW_DIR)/borg/verilog_sim/verification/layers-*.sv) \
+	$(wildcard $(HW_DIR)/borg/verilog/verification/layers-*.sv) \
 	main.cpp \
 	../common/BorgSimulatorBase.cpp \
 	../common/texture_loader.cpp \

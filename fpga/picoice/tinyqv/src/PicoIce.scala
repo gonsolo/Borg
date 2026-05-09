@@ -7,7 +7,7 @@ package soc
 import chisel3._
 import chisel3.util._
 import chisel3.experimental.Analog
-import borg.SB_IO
+
 import borg.BorgConfig
 
 /** pico-ice FPGA top-level module.
