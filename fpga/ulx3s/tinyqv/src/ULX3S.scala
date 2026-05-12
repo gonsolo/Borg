@@ -162,7 +162,9 @@ object ULX3SPins {
     val writer = new java.io.PrintWriter(path)
     writer.println("# ULX3S (ECP5-85K) pin constraints")
     writer.println("# Sites from ulx3s_v20.lpf — https://github.com/emard/ulx3s")
-    writer.println("# QSPI PMOD on J2 GP/GN 24-27 (TinyTapeout QSPI PMOD)")
+    writer.println()
+    // Required for USRMCLK: hand flash SPI clock control to user logic after boot.
+    writer.println("SYSCONFIG MASTER_SPI_PORT=DISABLE;")
     writer.println()
     writer.println("BLOCK RESETPATHS;")
     writer.println("BLOCK ASYNCPATHS;")
