@@ -8,154 +8,218 @@ import chisel3.util._
 import chisel3.{ExtModule, StringParam}
 import chisel3.experimental.{Analog, attach}
 import borg.BorgConfig
-import memory.QspiBackend
+import memory.{Ecp5PllParams, Ecp5PllWrapper, FlashBootLoader, SdramBackend, Usrmclk}
 import _root_.circt.stage.ChiselStage
 
-/** ECP5 TRELLIS_IO primitive — bidirectional GPIO pad.
+/** ECP5 bidirectional buffer primitive (Lattice cell name: BB).
   *
-  * Used for QSPI sd[3:0] data lines which switch direction per transaction phase.
+  * Used for the SDRAM DQ bus — each bit can be driven (write phase) or
+  * sampled (read phase) depending on T:
   *   T = 0 → drive I onto pad B
-  *   T = 1 → high-Z, pad value readable on O
+  *   T = 1 → high-Z; pad voltage readable on O
   */
-class TRELLIS_IO extends ExtModule(Map("DIR" -> StringParam("BIDIR"))) {
-  val B = IO(Analog(1.W))    // bidirectional pad
-  val T = IO(Input(Bool()))  // tristate: 0=drive, 1=high-Z
-  val I = IO(Input(Bool()))  // data to pad
-  val O = IO(Output(Bool())) // data from pad
+class Ecp5BiDirBuf extends ExtModule {
+  override def desiredName = "BB"  // must match the Lattice/nextpnr cell name
+  val B = IO(Analog(1.W))
+  val T = IO(Input(Bool()))
+  val I = IO(Input(Bool()))
+  val O = IO(Output(Bool()))
 }
 
-/** ULX3S (Lattice ECP5-85K) FPGA top-level.
+/** ULX3S (Lattice ECP5-85K) top-level — SDRAM + flash boot.
   *
-  * All QSPI memory is provided by the TinyTapeout QSPI PMOD plugged into
-  * J2 GP/GN 21-24 (right-side header, pins 21-26 where 25-26 = GND/3.3V):
-  *   GP24 → CS0 (Flash): firmware at address 0, TinyQV boots here
-  *   GP23 → SD0 (MOSI/data[0])
-  *   GP22 → SD1 (MISO/data[1])
-  *   GP21 → SCK (QSPI clock — regular GPIO, not USRMCLK)
-  *   GN24 → SD2 (data[2])  — PMOD pin 5
-  *   GN23 → SD3 (data[3])  — PMOD pin 6
-  *   GN22 → CS1 (PSRAM A): framebuffer, stack, heap  — PMOD pin 7
-  *   GN21 → CS2 (PSRAM B): additional data  — PMOD pin 8
-  *
-  * The onboard Winbond flash is used only for FPGA configuration (bitstream).
-  * TinyQV never touches it. Firmware is written to the PMOD flash at offset 0
-  * via a passthrough bitstream + openFPGALoader (see Makefile flash-firmware).
-  *
-  * UART: ftdi_rxd (FPGA→host TX) = uo_out_val[6] = debug_uart_txd.
-  *       ftdi_txd (host→FPGA RX) = soc_ui_in[0] = UART RX.
+  * Clock: 25 MHz oscillator → Ecp5Pll → 125 MHz system clock.
+  * Memory: onboard SDRAM (IS42S16160G) via SdramBackend.
+  * Boot: FlashBootLoader copies firmware from flash 0x400000 → SDRAM 0x0.
+  *       TinyQV starts only after boot_done && pll_locked.
+  * UART: ftdi_rxd = FPGA→host TX (debug output at 115200 baud).
   */
 class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   override def BORG_CFG: BorgConfig = BorgConfig.ULX3S
 
-  // Clock and reset — 25 MHz oscillator; BTN_PWRn (active-low)
+  // ── Board clock and reset ──────────────────────────────────────────────────
   val clk_25mhz = IO(Input(Clock()))
-  val rst_n     = IO(Input(Bool()))
+  val rst_n      = IO(Input(Bool()))   // BTN_PWRn, active-low
 
-  // QSPI PMOD on J2 GP/GN 21-24 — chip selects and clock are simple outputs
-  // Row 1 (GP): CS0, SD0, SD1, SCK  — PMOD pins 1-4
-  // Row 2 (GN): SD2, SD3, CS1, CS2  — PMOD pins 5-8
-  val pmod_cs0  = IO(Output(Bool()))  // GP24 — CS0 Flash   (PMOD pin 1)
-  val pmod_cs1  = IO(Output(Bool()))  // GN22 — CS1 PSRAM A (PMOD pin 7)
-  val pmod_cs2  = IO(Output(Bool()))  // GN21 — CS2 PSRAM B (PMOD pin 8)
-  val pmod_sck  = IO(Output(Bool()))  // GP21 — SCK         (PMOD pin 4)
-  // Data lines are bidirectional — driven by TRELLIS_IO primitives
-  val pmod_sd0  = IO(Analog(1.W))     // GP23 — SD0         (PMOD pin 2)
-  val pmod_sd1  = IO(Analog(1.W))     // GP22 — SD1         (PMOD pin 3)
-  val pmod_sd2  = IO(Analog(1.W))     // GN24 — SD2         (PMOD pin 5)
-  val pmod_sd3  = IO(Analog(1.W))     // GN23 — SD3         (PMOD pin 6)
+  // ── SDRAM pins (IS42S16160G-7TL, 16-bit) ──────────────────────────────────
+  val sdram_clk  = IO(Output(Clock()))
+  val sdram_cke  = IO(Output(Bool()))
+  val sdram_csn  = IO(Output(Bool()))
+  val sdram_wen  = IO(Output(Bool()))
+  val sdram_rasn = IO(Output(Bool()))
+  val sdram_casn = IO(Output(Bool()))
+  val sdram_a    = IO(Output(UInt(13.W)))
+  val sdram_ba   = IO(Output(UInt(2.W)))
+  val sdram_dqm  = IO(Output(UInt(2.W)))
+  val sdram_d    = IO(Vec(16, Analog(1.W)))   // bidirectional DQ bus
 
-  // FT231X USB-serial — /dev/ttyUSB0
-  val ftdi_rxd = IO(Output(Bool()))   // FPGA → host (UART TX)
-  val ftdi_txd = IO(Input(Bool()))    // host → FPGA (UART RX)
+  // ── Onboard flash pins (Winbond W25Q128JV) ────────────────────────────────
+  // flash_clk is routed via the USRMCLK primitive — no IO port needed.
+  val flash_csn  = IO(Output(Bool()))
+  val flash_mosi = IO(Output(Bool()))
+  val flash_miso = IO(Input(Bool()))
 
-  // LEDs (active high) and user buttons
+  // ── UART ──────────────────────────────────────────────────────────────────
+  val ftdi_rxd = IO(Output(Bool()))   // FPGA → host TX
+  val ftdi_txd = IO(Input(Bool()))    // host → FPGA RX
+
+  // ── LEDs and buttons ──────────────────────────────────────────────────────
   val led = IO(Output(UInt(8.W)))
   val btn = IO(Input(UInt(6.W)))
 
-  // ---- SoCLogic abstract members ----
+  // ── PLL: 25 MHz → 125 MHz (0°) + 125 MHz (90°) for SDRAM clock ───────────
+  val pll = Module(new Ecp5PllWrapper(Ecp5PllParams(
+    inHz   = 25_000_000L,
+    out0Hz = 125_000_000L,
+    out1Hz = 125_000_000L, out1Deg = 90
+  )))
+  pll.io.clk_i   := clk_25mhz
+  val pllLocked  = pll.io.locked
+  val sysClock   = pll.io.clk_o(0)
+  val sdramClock = pll.io.clk_o(1)
 
-  def soc_clk   = clk_25mhz
-  def soc_rst_n = rst_n
-  lazy val soc_rst_reg_n: Bool = withClockAndReset((!clk_25mhz.asBool).asClock, false.B) {
-    RegNext(rst_n)
+  // Route 90°-shifted clock directly to the SDRAM clock pin
+  sdram_clk := sdramClock
+
+  // ── FlashBootLoader: copies firmware flash→SDRAM before TinyQV starts ─────
+  val flashBoot = withClockAndReset(sysClock, !rst_n) {
+    Module(new FlashBootLoader())
   }
 
-  // ui_in[0] = UART RX; ui_in[6:1] = btn[5:0]; ui_in[7] = 0
+  // Wire USRMCLK: route flashBoot SPI clock to the flash MCLK pin
+  val usrmclk = Module(new Usrmclk)
+  usrmclk.USRMCLKI  := flashBoot.io.spi_clk.asClock
+  usrmclk.USRMCLKTS := false.B   // always enabled (active-low tristate)
+
+  flash_csn  := flashBoot.io.flash_csn
+  flash_mosi := flashBoot.io.flash_mosi
+  flashBoot.io.flash_miso := flash_miso
+
+  // ── SoCLogic abstract members ──────────────────────────────────────────────
+  def soc_clk = sysClock
+  def soc_rst_n = pllLocked && flashBoot.io.boot_done && rst_n
+
+  lazy val soc_rst_reg_n: Bool = withClockAndReset((!sysClock.asBool).asClock, false.B) {
+    RegNext(soc_rst_n)
+  }
+
+  // ui_in[0]=UART RX; ui_in[6:1]=btn[5:0]; ui_in[7]=0
   def soc_ui_in = Cat(0.U(1.W), btn, ftdi_txd)
 
-  // ---- Wire up the SoC ----
+  // ── Wire the SoC ──────────────────────────────────────────────────────────
   val uo_out_val = wireSoC()
 
-  // ---- QSPI backend — bridges MemoryController to TRELLIS_IO pads ----
-  val qspiBackend = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new QspiBackend())
+  // ── SdramBackend: bridges MemoryController ↔ SdramController ─────────────
+  val sdramBackend = withClockAndReset(sysClock, !soc_rst_reg_n) {
+    Module(new SdramBackend())
   }
-  mem.io.backend <> qspiBackend.io.backend
 
-  // Chip selects and clock: simple outputs
-  pmod_cs0 := qspiBackend.io.qspiPins.flashSelect
-  pmod_cs1 := qspiBackend.io.qspiPins.ramASelect
-  pmod_cs2 := qspiBackend.io.qspiPins.ramBSelect
-  pmod_sck := qspiBackend.io.qspiPins.clkOut
+  // Mux backend: FlashBootLoader during boot, MemoryController after boot_done
+  val bootDone = flashBoot.io.boot_done
 
-  // Bidirectional data: TRELLIS_IO for each bit
-  val pmod_sd_in   = Wire(Vec(4, Bool()))
-  val pmod_sd_pads = Seq(pmod_sd0, pmod_sd1, pmod_sd2, pmod_sd3)
-  for (i <- 0 until 4) {
-    val tio = Module(new TRELLIS_IO())
-    tio.T := !qspiBackend.io.qspiPins.dataOe(i)  // T=1 → high-Z; T=0 → drive
-    tio.I := qspiBackend.io.qspiPins.dataOut(i)
-    pmod_sd_in(i) := tio.O
-    attach(pmod_sd_pads(i), tio.B)
+  // → SdramBackend inputs
+  sdramBackend.io.backend.addrIn     := Mux(bootDone, mem.io.backend.addrIn,    flashBoot.io.backend.addrIn)
+  sdramBackend.io.backend.dataIn     := Mux(bootDone, mem.io.backend.dataIn,    flashBoot.io.backend.dataIn)
+  sdramBackend.io.backend.startRead  := Mux(bootDone, mem.io.backend.startRead, false.B)
+  sdramBackend.io.backend.startWrite := Mux(bootDone, mem.io.backend.startWrite, flashBoot.io.backend.startWrite)
+  sdramBackend.io.backend.stallTxn   := Mux(bootDone, mem.io.backend.stallTxn, false.B)
+  sdramBackend.io.backend.stopTxn    := Mux(bootDone, mem.io.backend.stopTxn,  false.B)
+
+  // → MemoryController (only active after boot_done)
+  mem.io.backend.dataOut   := Mux(bootDone, sdramBackend.io.backend.dataOut,   0.U)
+  mem.io.backend.dataReq   := Mux(bootDone, sdramBackend.io.backend.dataReq,   false.B)
+  mem.io.backend.dataReady := Mux(bootDone, sdramBackend.io.backend.dataReady, false.B)
+  mem.io.backend.busy      := Mux(bootDone, sdramBackend.io.backend.busy,      false.B)
+
+  // → FlashBootLoader
+  flashBoot.io.backend.dataOut   := sdramBackend.io.backend.dataOut
+  flashBoot.io.backend.dataReq   := Mux(!bootDone, sdramBackend.io.backend.dataReq,   false.B)
+  flashBoot.io.backend.dataReady := false.B
+  flashBoot.io.backend.busy      := Mux(!bootDone, sdramBackend.io.backend.busy,       false.B)
+
+  // ── SDRAM physical pin wiring ──────────────────────────────────────────────
+  val pins = sdramBackend.io.sdramPins
+  sdram_cke  := pins.cke
+  sdram_csn  := pins.cs_n
+  sdram_wen  := pins.we_n
+  sdram_rasn := pins.ras_n
+  sdram_casn := pins.cas_n
+  sdram_a    := pins.addr
+  sdram_ba   := pins.ba
+  sdram_dqm  := pins.dqm
+
+  // Bidirectional DQ: one BB per bit
+  val dqIn = Wire(Vec(16, Bool()))
+  for (i <- 0 until 16) {
+    val bb = Module(new Ecp5BiDirBuf())
+    bb.T := !pins.dq_oe
+    bb.I := pins.dq_out(i)
+    dqIn(i) := bb.O
+    attach(sdram_d(i), bb.B)
   }
-  qspiBackend.io.qspiPins.dataIn := Cat(pmod_sd_in(3), pmod_sd_in(2), pmod_sd_in(1), pmod_sd_in(0))
+  pins.dq_in := dqIn.asUInt
 
-  // ---- Peripherals ----
-
-  // UART TX
+  // ── Peripherals ───────────────────────────────────────────────────────────
   ftdi_rxd := uo_out_val(6)
 
-  // LEDs: [7]=0, [6]=rst_n health, [5:0]=uo_out_val
-  led := Cat(0.U(1.W), rst_n, uo_out_val)
+  // LEDs: [7]=pll_locked, [6]=boot_done, [5:0]=uo_out_val[5:0]
+  led := Cat(pllLocked, bootDone, uo_out_val(5, 0))
 }
 
-/** ULX3S pin constraints — ECP5 sites from ulx3s_v20.lpf. */
+// ── Pin constraints ────────────────────────────────────────────────────────
+
 object ULX3SPins {
   case class PinDef(name: String, site: String, pull: String = "NONE",
-                    ioType: String = "LVCMOS33", drive: Int = 8)
+                    ioType: String = "LVCMOS33", drive: Int = 4)
 
   val pins: Seq[PinDef] = Seq(
     PinDef("clk_25mhz", "G2",  pull = "NONE", drive = 4),
-    PinDef("rst_n",     "D6",  pull = "UP",   drive = 4),
+    PinDef("rst_n",      "D6",  pull = "UP",   drive = 4),
 
-    // QSPI PMOD — J2 GP/GN 21-24
-    PinDef("pmod_cs0",  "C16", pull = "UP"),
-    PinDef("pmod_sck",  "C18", pull = "NONE"),
-    PinDef("pmod_sd0",  "B17", pull = "NONE"),
-    PinDef("pmod_sd1",  "B15", pull = "NONE"),
-    PinDef("pmod_sd2",  "D16", pull = "NONE"),
-    PinDef("pmod_sd3",  "C17", pull = "NONE"),
-    PinDef("pmod_cs1",  "C15", pull = "UP"),
-    PinDef("pmod_cs2",  "D17", pull = "UP"),
+    // Flash (clock via USRMCLK — no pin needed for flash_clk)
+    PinDef("flash_csn",  "R2",  pull = "UP"),
+    PinDef("flash_mosi", "W2",  pull = "UP"),
+    PinDef("flash_miso", "V2",  pull = "UP"),
 
-    PinDef("ftdi_rxd",  "L4",  pull = "UP",   drive = 4),
-    PinDef("ftdi_txd",  "M1",  pull = "UP",   drive = 4),
+    // SDRAM
+    PinDef("sdram_clk",    "F19", drive = 8),
+    PinDef("sdram_cke",    "F20"),
+    PinDef("sdram_csn",    "P20"),
+    PinDef("sdram_wen",    "T20"),
+    PinDef("sdram_rasn",   "R20"),
+    PinDef("sdram_casn",   "T19"),
+    PinDef("sdram_a[0]",   "M20"), PinDef("sdram_a[1]",  "M19"),
+    PinDef("sdram_a[2]",   "L20"), PinDef("sdram_a[3]",  "L19"),
+    PinDef("sdram_a[4]",   "K20"), PinDef("sdram_a[5]",  "K19"),
+    PinDef("sdram_a[6]",   "K18"), PinDef("sdram_a[7]",  "J20"),
+    PinDef("sdram_a[8]",   "J19"), PinDef("sdram_a[9]",  "H20"),
+    PinDef("sdram_a[10]",  "N19"), PinDef("sdram_a[11]", "G20"),
+    PinDef("sdram_a[12]",  "G19"),
+    PinDef("sdram_ba[0]",  "P19"), PinDef("sdram_ba[1]", "N20"),
+    PinDef("sdram_dqm[0]", "U19"), PinDef("sdram_dqm[1]","E20"),
+    PinDef("sdram_d_0",   "J16"), PinDef("sdram_d_1",  "L18"),
+    PinDef("sdram_d_2",   "M18"), PinDef("sdram_d_3",  "N18"),
+    PinDef("sdram_d_4",   "P18"), PinDef("sdram_d_5",  "T18"),
+    PinDef("sdram_d_6",   "T17"), PinDef("sdram_d_7",  "U20"),
+    PinDef("sdram_d_8",   "E19"), PinDef("sdram_d_9",  "D20"),
+    PinDef("sdram_d_10",  "D19"), PinDef("sdram_d_11", "C20"),
+    PinDef("sdram_d_12",  "E18"), PinDef("sdram_d_13", "F18"),
+    PinDef("sdram_d_14",  "J18"), PinDef("sdram_d_15", "J17"),
 
-    PinDef("led[0]",    "B2",  pull = "NONE", drive = 4),
-    PinDef("led[1]",    "C2",  pull = "NONE", drive = 4),
-    PinDef("led[2]",    "C1",  pull = "NONE", drive = 4),
-    PinDef("led[3]",    "D2",  pull = "NONE", drive = 4),
-    PinDef("led[4]",    "D1",  pull = "NONE", drive = 4),
-    PinDef("led[5]",    "E2",  pull = "NONE", drive = 4),
-    PinDef("led[6]",    "E1",  pull = "NONE", drive = 4),
-    PinDef("led[7]",    "H3",  pull = "NONE", drive = 4),
+    // UART
+    PinDef("ftdi_rxd",  "L4",  pull = "UP"),
+    PinDef("ftdi_txd",  "M1",  pull = "UP"),
 
-    PinDef("btn[0]",    "R1",  pull = "DOWN", drive = 4),
-    PinDef("btn[1]",    "T1",  pull = "DOWN", drive = 4),
-    PinDef("btn[2]",    "R18", pull = "DOWN", drive = 4),
-    PinDef("btn[3]",    "V1",  pull = "DOWN", drive = 4),
-    PinDef("btn[4]",    "U1",  pull = "DOWN", drive = 4),
-    PinDef("btn[5]",    "H16", pull = "DOWN", drive = 4),
+    // LEDs
+    PinDef("led[0]", "B2"), PinDef("led[1]", "C2"),
+    PinDef("led[2]", "C1"), PinDef("led[3]", "D2"),
+    PinDef("led[4]", "D1"), PinDef("led[5]", "E2"),
+    PinDef("led[6]", "E1"), PinDef("led[7]", "H3"),
+
+    // Buttons
+    PinDef("btn[0]", "R1",  pull = "DOWN"), PinDef("btn[1]", "T1",  pull = "DOWN"),
+    PinDef("btn[2]", "R18", pull = "DOWN"), PinDef("btn[3]", "V1",  pull = "DOWN"),
+    PinDef("btn[4]", "U1",  pull = "DOWN"), PinDef("btn[5]", "H16", pull = "DOWN"),
   )
 
   def emitLPF(path: String): Unit = {
@@ -185,7 +249,7 @@ object ULX3SPins {
 
 /** Emit Verilog + LPF for the ULX3S target. */
 object ULX3SMain extends App {
-  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "25").toInt
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "125").toInt
   val targetDir = "out/ulx3s/verilog"
   new java.io.File(targetDir).mkdirs()
 

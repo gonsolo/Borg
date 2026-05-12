@@ -53,6 +53,7 @@ MAX_DFF   = 83640
 borg.json: .verilog_stamp_ulx3s
 	@echo -e "$(BOLD)[SYNTH]$(RESET) Running Yosys for ECP5 ..."
 	yosys -p "read -sv $(SRC_FILES); \
+	           read_verilog -sv -lib $(CURDIR)/primitives/ecp5_prims.v; \
 	           synth_ecp5 -abc9 -top ulx3s_top -json borg.json; \
 	           stat -top ulx3s_top" \
 	      -DECP5 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ \
