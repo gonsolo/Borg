@@ -60,8 +60,8 @@ borg.json: .verilog_stamp_ulx3s
 	      > yosys.log
 	@echo -e "$(BOLD)[SYNTH]$(RESET) Done."
 
-# Clock frequency from ULX3SMain default (25 MHz oscillator)
-CLOCK_FREQ = 25
+# Clock frequency — 125 MHz (PLL output from 25 MHz oscillator)
+CLOCK_FREQ = 125
 
 # Place and Route — ECP5-85F, CABGA381 package
 borg.config: borg.json
