@@ -112,11 +112,7 @@ FIRMWARE_DIR = ../../software/borg
 # firmware_with_header.bin = [uint32_le size] + [firmware bytes]
 firmware_with_header.bin: $(FIRMWARE_DIR)/triangle.bin
 	@echo -e "$(BOLD)[FW-PACK]$(RESET) Prepending 4-byte size header to firmware ..."
-	@python3 -c "\
-import struct, sys; \
-d = open('$(FIRMWARE_DIR)/triangle.bin', 'rb').read(); \
-open('firmware_with_header.bin', 'wb').write(struct.pack('<I', len(d)) + d); \
-print(f'  Firmware: {len(d)} bytes -> firmware_with_header.bin ({4+len(d)} bytes total)')"
+	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/triangle.bin','rb').read(); open('firmware_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> firmware_with_header.bin')"
 
 $(FIRMWARE_DIR)/triangle.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) triangle
@@ -132,11 +128,7 @@ flash-firmware: firmware_with_header.bin
 # Boot LED[6] = boot_done lights up if FlashBootLoader completes successfully.
 minimal.bin:
 	@echo -e "$(BOLD)[FW-PACK]$(RESET) Building minimal boot-test firmware (4-byte infinite loop) ..."
-	@python3 -c "\
-import struct; \
-fw = bytes([0x6f, 0x00, 0x00, 0x00]); \
-open('minimal.bin', 'wb').write(struct.pack('<I', len(fw)) + fw); \
-print('  minimal.bin: 8 bytes (4-byte header + JAL x0,0)')"
+	@python3 -c "import struct; fw=bytes([0x6f,0x00,0x00,0x00]); open('minimal.bin','wb').write(struct.pack('<I',len(fw))+fw); print('  minimal.bin: 8 bytes (4-byte header + JAL x0,0)')"
 
 minimal-boot: borg.bit minimal.bin
 	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream ..."
