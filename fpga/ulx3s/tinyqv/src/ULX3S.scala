@@ -81,8 +81,13 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // Route 90°-shifted clock directly to the SDRAM clock pin
   sdram_clk := sdramClock
 
+  // FlashBootLoader and SdramBackend start as soon as the PLL locks.
+  // They must NOT be gated on boot_done — boot_done depends on SdramBackend
+  // completing a write, which requires SdramBackend to be out of reset.
+  val pllRst = !pllLocked
+
   // ── FlashBootLoader: copies firmware flash→SDRAM before TinyQV starts ─────
-  val flashBoot = withClockAndReset(sysClock, !rst_n) {
+  val flashBoot = withClockAndReset(sysClock, pllRst) {
     Module(new FlashBootLoader())
   }
 
@@ -110,7 +115,7 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val uo_out_val = wireSoC()
 
   // ── SdramBackend: bridges MemoryController ↔ SdramController ─────────────
-  val sdramBackend = withClockAndReset(sysClock, !soc_rst_reg_n) {
+  val sdramBackend = withClockAndReset(sysClock, pllRst) {
     Module(new SdramBackend())
   }
 

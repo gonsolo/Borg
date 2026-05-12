@@ -16,7 +16,15 @@ help:
 	@echo -e "$(BOLD)  flash:\t\t\tSynthesize, P&R and write bitstream to config FLASH.$(RESET)"
 	@echo -e "  borg.bit:\t\tGenerate the FPGA bitstream."
 	@echo -e "  borg.json:\t\tRun synthesis (Yosys)."
-	@echo -e "  borg.config:\t\tRun Place & Route (nextpnr-ecp5)."
+	@echo -e "  borg.config:\t\tRun Place \u0026 Route (nextpnr-ecp5)."
+	@echo ""
+	@echo -e "$(BOLD)Hardware programming:$(RESET)"
+	@echo -e "  flash:\t\tFlash ECP5 bitstream to onboard config flash."
+	@echo -e "  flash-firmware:\tFlash firmware (with size header) to flash offset 0x400000."
+	@echo -e "  minimal-boot:\t\tBuild + flash a minimal firmware — tests FlashBootLoader (D.3)."
+	@echo -e "  triangle:\t\tBuild + flash bitstream + triangle firmware. Power-cycle to run."
+	@echo ""
+	@echo -e "$(BOLD)Utilities:$(RESET)"
 	@echo -e "  print_resources:\tCheck LUT, DFF, BRAM usage."
 	@echo -e "  tio:\t\t\tConnect to the serial console (/dev/ttyUSB0)."
 	@echo -e "  install-udev:\t\tInstall udev rules (run once, needs sudo)."
@@ -89,42 +97,67 @@ load: borg.bit
 	openFPGALoader -b ulx3s borg.bit
 	@echo -e "$(BOLD)[LOAD]$(RESET) Done."
 
-# Write to config FLASH (persistent)
+# Write bitstream to onboard config flash (persistent, survives power cycle)
 flash: borg.bit
-	@echo -e "$(BOLD)[FLASH]$(RESET) Writing bitstream to config FLASH via openFPGALoader ..."
-	openFPGALoader -b ulx3s -f borg.bit
-	@echo -e "$(BOLD)[FLASH]$(RESET) Done."
+	@echo -e "$(BOLD)[FLASH]$(RESET) Writing ECP5 bitstream to onboard flash ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
+	@echo -e "$(BOLD)[FLASH]$(RESET) Bitstream flashed."
 
-######### Firmware (QSPI PMOD flash) #############################################################
+######### Firmware (onboard SDRAM boot flow) ######################################################
 
 FIRMWARE_DIR = ../../software/borg
 
-# Build + flash firmware to the PMOD flash (CS0, address 0).
-# The PMOD flash is separate from the onboard ECP5 config flash, so offset=0
-# means the start of the PMOD chip — TinyQV boots from there directly.
-#
-# Requires the flash-passthru bitstream to be loaded first so the JTAG/FTDI
-# port can reach the PMOD SPI pins. See:
-#   https://github.com/emard/ulx3s-misc/tree/master/examples/flash_passthru
-flash-firmware: $(FIRMWARE_DIR)/triangle.bin
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing firmware to PMOD flash (CS0, offset 0) ..."
-	openFPGALoader -b ulx3s --file-type bin -f -o 0 $<
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Done."
+# Flash firmware requires a 4-byte little-endian size header prepended.
+# The FlashBootLoader reads this header first to know how many bytes to copy.
+# firmware_with_header.bin = [uint32_le size] + [firmware bytes]
+firmware_with_header.bin: $(FIRMWARE_DIR)/triangle.bin
+	@echo -e "$(BOLD)[FW-PACK]$(RESET) Prepending 4-byte size header to firmware ..."
+	@python3 -c "\
+import struct, sys; \
+d = open('$(FIRMWARE_DIR)/triangle.bin', 'rb').read(); \
+open('firmware_with_header.bin', 'wb').write(struct.pack('<I', len(d)) + d); \
+print(f'  Firmware: {len(d)} bytes -> firmware_with_header.bin ({4+len(d)} bytes total)')"
 
 $(FIRMWARE_DIR)/triangle.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) triangle
 
-# Full deploy: synthesize + P&R + pack, then flash bitstream and firmware.
-# After this, power-cycle the board → ECP5 loads from onboard flash →
-# TinyQV boots from PMOD flash → triangle renders over UART.
-triangle: borg.bit
-	@echo -e "$(BOLD)[BUILD]$(RESET) Building triangle firmware ..."
-	$(MAKE) -C $(FIRMWARE_DIR) triangle
+# Flash firmware blob to onboard flash at 0x400000.
+# FlashBootLoader will copy it to SDRAM at boot.
+flash-firmware: firmware_with_header.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing firmware to onboard flash @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 firmware_with_header.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Firmware flashed at 0x400000."
+
+# Minimal boot test (D.3): tiny 4-byte RISC-V infinite loop + size header.
+# Boot LED[6] = boot_done lights up if FlashBootLoader completes successfully.
+minimal.bin:
+	@echo -e "$(BOLD)[FW-PACK]$(RESET) Building minimal boot-test firmware (4-byte infinite loop) ..."
+	@python3 -c "\
+import struct; \
+fw = bytes([0x6f, 0x00, 0x00, 0x00]); \
+open('minimal.bin', 'wb').write(struct.pack('<I', len(fw)) + fw); \
+print('  minimal.bin: 8 bytes (4-byte header + JAL x0,0)')"
+
+minimal-boot: borg.bit minimal.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing minimal firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 minimal.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle the board."
+	@echo -e "  LED[7] = pll_locked (lights immediately)"
+	@echo -e "  LED[6] = boot_done  (lights after ~1 ms — FlashBootLoader done)"
+
+# Full triangle deploy: synth + P&R + pack, flash bitstream + firmware.
+# After power-cycle: ECP5 loads bitstream -> FlashBootLoader copies firmware
+# to SDRAM -> TinyQV runs -> Borg renders triangle -> UART dumps pixels.
+triangle: borg.bit firmware_with_header.bin
 	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream to onboard flash ..."
-	openFPGALoader -b ulx3s -f borg.bit
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing triangle firmware to PMOD flash ..."
-	openFPGALoader -b ulx3s --file-type bin -f -o 0 $(FIRMWARE_DIR)/triangle.bin
-	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle board to run triangle."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing triangle firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 firmware_with_header.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Power-cycle board to run."
+	@echo -e "  LED[7] = pll_locked, LED[6] = boot_done"
+	@echo -e "  After boot: connect with 'make tio' to capture triangle pixels."
 
 # Print resource utilisation after synthesis
 print_resources: yosys.log
@@ -163,5 +196,5 @@ install-udev:
 clean:
 	rm -f borg.bit borg.config borg.json borg.svf yosys.log nextpnr.log .verilog_stamp_ulx3s
 
-.PHONY: all help load flash \
+.PHONY: all help load flash flash-firmware minimal-boot triangle \
         print_resources generate_verilog_ulx3s tio install-udev clean
