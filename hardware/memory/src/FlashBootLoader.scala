@@ -6,6 +6,15 @@ package memory
 import chisel3._
 import chisel3.util._
 
+object FlashBootState extends ChiselEnum {
+  val sWaitSdram, sSendCmd,
+      sSendAddr0, sSendAddr1, sSendAddr2,
+      sReadSize,
+      sReadByte0, sReadByte1,
+      sWrStart, sWrWaitDone,
+      sDone = Value
+}
+
 /** Physical flash + backend IO for the bootloader. */
 class FlashBootIO extends Bundle {
   val flash_csn  = Output(Bool())          // Winbond chip-select (active-low)
@@ -61,18 +70,7 @@ class FlashBootLoader(
     .otherwise           { bitCtr := bitCtr + 1.U; shiftOut := Cat(shiftOut(6, 0), 0.U(1.W)) }
   }
 
-  // ── FSM ────────────────────────────────────────────────────────────────────
-  val sWaitSdram  = 0.U(4.W)
-  val sSendCmd    = 1.U(4.W)
-  val sSendAddr0  = 2.U(4.W)
-  val sSendAddr1  = 3.U(4.W)
-  val sSendAddr2  = 4.U(4.W)
-  val sReadSize   = 5.U(4.W)
-  val sReadByte0  = 6.U(4.W)
-  val sReadByte1  = 7.U(4.W)
-  val sWrStart    = 8.U(4.W)
-  val sWrWaitDone = 9.U(4.W)
-  val sDone       = 10.U(4.W)
+  import FlashBootState._
 
   val state     = RegInit(sWaitSdram)
   val initCtr   = RegInit(0.U(15.W))
