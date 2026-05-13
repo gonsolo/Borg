@@ -1,7 +1,7 @@
 // ECP5 primitive blackboxes for Yosys synthesis.
 // These are opaque cells — synth_ecp5 maps them to actual primitives during P&R.
 
-(* blackbox *)
+(* blackbox, keep *)
 module Usrmclk (
   input USRMCLKI,
   input USRMCLKTS
