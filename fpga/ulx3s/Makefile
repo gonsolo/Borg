@@ -39,6 +39,7 @@ ULX3S_VERILOG_DIR = ../../out/ulx3s/verilog
 SRC_FILES = $$(find $(ULX3S_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
 
 CHISEL_SRCS = $(wildcard ../../hardware/borg/src/*.scala) \
+              $(wildcard ../../hardware/memory/src/*.scala) \
               $(wildcard ../../hardware/soc/src/*.scala) \
               $(wildcard ../../hardware/tinyqv/src/*.scala) \
               $(wildcard tinyqv/src/*.scala)

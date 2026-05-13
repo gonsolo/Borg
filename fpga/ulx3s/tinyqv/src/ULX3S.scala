@@ -167,8 +167,12 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // ── Peripherals ───────────────────────────────────────────────────────────
   ftdi_rxd := uo_out_val(6)
 
-  // LEDs: [7]=pll_locked, [6]=boot_done, [5:0]=uo_out_val[5:0]
-  led := Cat(pllLocked, bootDone, uo_out_val(5, 0))
+  // LEDs: [7]=pll_locked, [6]=boot_done
+  // While booting: [5:2]=FlashBootLoader FSM state, [1:0]=uo_out_val[1:0]
+  // After boot:    [5:0]=uo_out_val[5:0]
+  led := Cat(pllLocked, bootDone,
+             Mux(bootDone, uo_out_val(5, 2), flashBoot.io.debug_state),
+             uo_out_val(1, 0))
 }
 
 // ── Pin constraints ────────────────────────────────────────────────────────
@@ -233,7 +237,9 @@ object ULX3SPins {
     writer.println("# Sites from ulx3s_v20.lpf — https://github.com/emard/ulx3s")
     writer.println()
     // Required for USRMCLK: hand flash SPI clock control to user logic after boot.
-    writer.println("SYSCONFIG MASTER_SPI_PORT=DISABLE;")
+    // CONFIG_MODE=SPI_SERIAL: prevents ECP5 from leaving flash in QPI mode after boot.
+    // Without this, the flash ignores all standard 1-bit SPI commands from user logic.
+    writer.println("SYSCONFIG CONFIG_IOVOLTAGE=3.3 COMPRESS_CONFIG=ON MCCLK_FREQ=2.4 MASTER_SPI_PORT=DISABLE SLAVE_SPI_PORT=DISABLE SLAVE_PARALLEL_PORT=DISABLE CONFIG_MODE=SPI_SERIAL;");
     writer.println()
     writer.println("BLOCK RESETPATHS;")
     writer.println("BLOCK ASYNCPATHS;")

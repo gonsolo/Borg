@@ -20,14 +20,52 @@ $(TOP).bit: $(TOP).config
 	@echo -e "$(BOLD)[DONE]$(RESET) $(TOP).bit ready."
 
 flash: $(TOP).bit
-	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing $(TOP).bit ..."
+	@echo -e "$(BOLD)[FLASH]$(RESET) Writing to config flash (~2 min) ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash $(TOP).bit
-	@echo -e "Expected LEDs after power-cycle:"
-	@echo -e "  LED[7] = done     (always on if FSM ran)"
-	@echo -e "  LED[6] = ISSI OK  (on if manufacturer=0x9D)"
-	@echo -e "  LED[3,4] = cap    (on if capacity=0x18)"
 
-clean:
-	rm -f *.json *.config *.bit *.log
+# Fast: load into FPGA SRAM (~5s, lost on power cycle) — use for debug iteration
+load: $(TOP).bit
+	@echo -e "$(BOLD)[LOAD]$(RESET) Loading into SRAM (volatile) ..."
+	openFPGALoader -b ulx3s $(TOP).bit
+	@echo -e "$(BOLD)[DONE]$(RESET) Running. Expected LEDs:"
+	@echo -e "  LED[7] = done  (FSM completed)"
+	@echo -e "  LED[6] = ISSI  (manufacturer 0x9D OK)"
+	@echo -e "  LED[3,4] on = capacity 0x18 OK"
 
-.PHONY: all flash clean
+hdmi: hdmi_flash_id.bit
+
+HDMI_SRC = hdmi_flash_id.v ecp5pll.sv vga.v vga2dvid.v tmds_encoder.v
+
+hdmi_flash_id.json: $(HDMI_SRC)
+	@echo -e "$(BOLD)[SYNTH]$(RESET) hdmi_flash_id ..."
+	yosys -q -p "read -sv $(HDMI_SRC); synth_ecp5 -top hdmi_flash_id -json hdmi_flash_id.json"
+
+hdmi_flash_id.config: hdmi_flash_id.json
+	@echo -e "$(BOLD)[PNR]$(RESET) hdmi_flash_id ..."
+	nextpnr-ecp5 --85k --package CABGA381 --json hdmi_flash_id.json --lpf $(LPF) --textcfg hdmi_flash_id.config --timing-allow-fail --quiet
+
+hdmi_flash_id.bit: hdmi_flash_id.config
+	@echo -e "$(BOLD)[PACK]$(RESET) hdmi_flash_id ..."
+	ecppack hdmi_flash_id.config hdmi_flash_id.bit
+
+load-hdmi: hdmi_flash_id.bit
+	openFPGALoader -b ulx3s hdmi_flash_id.bit
+
+bare: bare_spi_test.bit
+
+bare_spi_test.json: bare_spi_test.v
+	@echo -e "$(BOLD)[SYNTH]$(RESET) bare_spi_test ..."
+	yosys -q -p "read_verilog bare_spi_test.v; synth_ecp5 -top bare_spi_test -json bare_spi_test.json"
+
+bare_spi_test.config: bare_spi_test.json
+	@echo -e "$(BOLD)[PNR]$(RESET) bare_spi_test ..."
+	nextpnr-ecp5 --85k --package CABGA381 --json bare_spi_test.json --lpf $(LPF) --textcfg bare_spi_test.config --timing-allow-fail --quiet
+
+bare_spi_test.bit: bare_spi_test.config
+	@echo -e "$(BOLD)[PACK]$(RESET) bare_spi_test ..."
+	ecppack bare_spi_test.config bare_spi_test.bit
+
+load-bare: bare_spi_test.bit
+	openFPGALoader -b ulx3s bare_spi_test.bit
+
+.PHONY: all flash load clean hdmi load-hdmi bare load-bare

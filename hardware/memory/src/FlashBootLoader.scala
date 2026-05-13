@@ -23,6 +23,7 @@ class FlashBootIO extends Bundle {
   val spi_clk    = Output(Bool())          // → Usrmclk.USRMCLKI via .asClock
   val backend    = new MemBackendIO        // master: FlashBootLoader drives the SDRAM
   val boot_done  = Output(Bool())
+  val debug_state = Output(UInt(4.W))      // FSM state for LED diagnostics
 }
 
 /** BRAM-resident SPI-flash → SDRAM bootloader.
@@ -46,7 +47,12 @@ class FlashBootLoader(
 
   val io = IO(new FlashBootIO)
 
+  // Declare csnReg early — needed by the gated clock block below.
+  val csnReg    = RegInit(true.B)
+
   // ── SPI clock generator ────────────────────────────────────────────────────
+  // Clock is GATED: only runs when CS is asserted (csnReg=false).
+  // This prevents bitCtr from advancing before any transaction begins.
   val HALF      = (SPI_CLK_DIV / 2).U(5.W)
   val FULL      = (SPI_CLK_DIV - 1).U(5.W)
   val clkDiv    = RegInit(0.U(5.W))
@@ -54,9 +60,15 @@ class FlashBootLoader(
   val spiRise   = WireDefault(false.B)
   val spiFall   = WireDefault(false.B)
 
-  clkDiv := clkDiv + 1.U
-  when(clkDiv === HALF - 1.U) { spiClkReg := true.B;  spiRise := true.B }
-  when(clkDiv === FULL)        { spiClkReg := false.B; spiFall := true.B; clkDiv := 0.U }
+  // Gate: reset divider when CS is deasserted; only count when CS is low.
+  when(csnReg) {
+    clkDiv    := 0.U
+    spiClkReg := false.B
+  } .otherwise {
+    clkDiv := clkDiv + 1.U
+    when(clkDiv === HALF - 1.U) { spiClkReg := true.B;  spiRise := true.B }
+    when(clkDiv === FULL)        { spiClkReg := false.B; spiFall := true.B; clkDiv := 0.U }
+  }
 
   // ── SPI shift registers ────────────────────────────────────────────────────
   val shiftOut = RegInit(0.U(8.W))
@@ -64,7 +76,9 @@ class FlashBootLoader(
   val bitCtr   = RegInit(0.U(3.W))
   val byteDone = WireDefault(false.B)
 
+  // Sample MISO on rising edge (SPI mode 0)
   when(spiRise) { shiftIn := Cat(shiftIn(6, 0), io.flash_miso) }
+  // On falling edge: check if byte is done, then shift out next bit
   when(spiFall) {
     when(bitCtr === 7.U) { bitCtr := 0.U; byteDone := true.B }
     .otherwise           { bitCtr := bitCtr + 1.U; shiftOut := Cat(shiftOut(6, 0), 0.U(1.W)) }
@@ -80,7 +94,6 @@ class FlashBootLoader(
   val sdramAddr = RegInit(0.U(25.W))
   val buf0      = RegInit(0.U(8.W))
   val buf1      = RegInit(0.U(8.W))
-  val csnReg    = RegInit(true.B)
 
   // Pre-compute address bytes (big-endian, MSB first)
   val addrB2 = ((FLASH_FIRMWARE_OFFSET >> 16) & 0xFF).U(8.W)
@@ -98,6 +111,7 @@ class FlashBootLoader(
   io.backend.stallTxn   := false.B
   io.backend.stopTxn    := false.B
   io.boot_done          := (state === sDone)
+  io.debug_state        := state.asUInt
 
   // ── FSM transitions ────────────────────────────────────────────────────────
   switch(state) {
@@ -157,9 +171,11 @@ class FlashBootLoader(
 
     is(sWrWaitDone) {
       // Keep buf1 on dataIn so SdramBackend (in sWrWord) can latch it.
-      // Write is complete when dataReq pulses with busy=false (backend returned to sIdle).
+      // Write is complete when dataReq pulses (SdramBackend asserts this in sWrWait
+      // when SDRAM rdy fires — busy is still true that same cycle, so we must NOT
+      // gate on !busy here).
       io.backend.dataIn := buf1
-      when(io.backend.dataReq && !io.backend.busy) {
+      when(io.backend.dataReq) {
         sdramAddr := sdramAddr + 2.U
         byteCtr   := byteCtr  + 2.U
         when(byteCtr + 2.U >= firmSize) { csnReg := true.B; state := sDone }
