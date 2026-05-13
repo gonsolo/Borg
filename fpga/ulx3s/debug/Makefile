@@ -68,4 +68,24 @@ bare_spi_test.bit: bare_spi_test.config
 load-bare: bare_spi_test.bit
 	openFPGALoader -b ulx3s bare_spi_test.bit
 
-.PHONY: all flash load clean hdmi load-hdmi bare load-bare
+uart: uart_test.bit
+
+uart_test.json: uart_test.v
+	@echo -e "$(BOLD)[SYNTH]$(RESET) uart_test ..."
+	yosys -q -p "read_verilog uart_test.v; synth_ecp5 -top uart_test -json uart_test.json"
+
+uart_test.config: uart_test.json
+	@echo -e "$(BOLD)[PNR]$(RESET) uart_test ..."
+	nextpnr-ecp5 --85k --package CABGA381 --json uart_test.json --lpf $(LPF) --textcfg uart_test.config --timing-allow-fail --quiet
+
+uart_test.bit: uart_test.config
+	@echo -e "$(BOLD)[PACK]$(RESET) uart_test ..."
+	ecppack uart_test.config uart_test.bit
+
+load-uart: uart_test.bit
+	@echo -e "$(BOLD)[LOAD]$(RESET) Loading uart_test into SRAM ..."
+	openFPGALoader -b ulx3s uart_test.bit
+	@echo -e "  Connect with: tio /dev/ttyUSB0"
+	@echo -e "  Expect:       HELLO repeated at 115200 baud"
+
+.PHONY: all flash load clean hdmi load-hdmi bare load-bare uart load-uart

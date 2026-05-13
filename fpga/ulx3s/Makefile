@@ -115,7 +115,8 @@ firmware_with_header.bin: $(FIRMWARE_DIR)/triangle.bin
 	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/triangle.bin','rb').read(); open('firmware_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> firmware_with_header.bin')"
 
 $(FIRMWARE_DIR)/triangle.bin:
-	$(MAKE) -C $(FIRMWARE_DIR) triangle
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=125 \
+		EXTRA_CFLAGS="-DUART_BASE=0x08000018" triangle
 
 # Flash firmware blob to onboard flash at 0x400000.
 # FlashBootLoader will copy it to SDRAM at boot.

@@ -69,4 +69,7 @@
 #define UART_TX      (*(volatile uint32_t *)(uintptr_t)(UART_BASE + 0x0))
 #define UART_STATUS  (*(volatile uint32_t *)(uintptr_t)(UART_BASE + 0x4))
 #define UART_BAUD    (*(volatile uint32_t *)(uintptr_t)(UART_BASE + 0x8))
+// SoC control region: GPIO_OUT_SEL at socPeriU(3)*4=0x0C from 0x08000000.
+// bits[7:6]=01 routes PeriUart TX (peri_out[6]) to uo_out[6] → ftdi_rxd.
+#define SOC_GPIO_OUT_SEL (*(volatile uint32_t *)(uintptr_t)0x0800000C)
 

@@ -21,6 +21,10 @@ unexport NIX_HARDENING_ENABLE
 
 TINYQV_SDK ?= ../tinyqv
 
+# Clock frequency — must match the FPGA PLL output. Override on the command
+# line: make triangle CLOCK_MHZ=125 (ULX3S) or leave as 4 (ASIC/TT).
+CLOCK_MHZ ?= 4
+
 PROJECT_NAME = triangle
 SHARED_SOURCES = borg_driver.c borg_fpu.c borg_raster.c borg_spirb.c borg_math.c
 PROJECT_SOURCES = borg_triangle.c $(SHARED_SOURCES)
@@ -57,7 +61,7 @@ $(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s
 	$(MAKE) -C $(TINYQV_SDK) $(notdir $@)
 
 %.o: %.c $(HEADERS)
-	@$(CC) -O2 -I$(TINYQV_SDK) -I$(RDL_C_OUT) -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc $(EXTRA_CFLAGS) -c $< -o $@
+	@$(CC) -O2 -I$(TINYQV_SDK) -I$(RDL_C_OUT) -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -DCLOCK_MHZ=$(CLOCK_MHZ) $(EXTRA_CFLAGS) -c $< -o $@
 
 %.o: %.s
 	@$(AS) -march=$(ARCH) -mabi=$(ABI) -I$(TINYQV_SDK) $< -o $@
