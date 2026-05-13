@@ -62,7 +62,7 @@ generate_verilog: .verilog_stamp info.yaml
 
 # ULX3S (ECP5-85K) Verilog emission stub — no synthesis flow yet (Step 27).
 generate_verilog_ulx3s: rdl
-	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.tinyqv.runMain soc.ULX3SMain
+	CLOCK_MHZ=125 $(MILL) fpga.ulx3s.tinyqv.runMain soc.ULX3SMain
 
 test-cocotb-soc-core-rtl: generate_verilog
 	$(TEST_SOC) core

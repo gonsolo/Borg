@@ -44,10 +44,9 @@ CHISEL_SRCS = $(wildcard ../../hardware/borg/src/*.scala) \
               $(wildcard ../../hardware/tinyqv/src/*.scala) \
               $(wildcard tinyqv/src/*.scala)
 
-# Stamp file — regenerates Verilog only when Chisel sources change.
-# generate_verilog_ulx3s is phony (always invokes mill) so without a stamp
-# every make invocation would retrigger Yosys unnecessarily.
-.verilog_stamp_ulx3s: $(CHISEL_SRCS)
+# Stamp file — regenerates Verilog only when Chisel sources OR Makefiles change.
+# Makefiles are included so CLOCK_MHZ changes don't silently use stale Verilog.
+.verilog_stamp_ulx3s: $(CHISEL_SRCS) Makefile ../../Makefile
 	$(MAKE) -C ../.. generate_verilog_ulx3s
 	@touch $@
 
