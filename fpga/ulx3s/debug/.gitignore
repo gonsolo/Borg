@@ -1,0 +1,14 @@
+# Build artifacts
+*.bit
+*.config
+*.json
+*.svf
+
+# Firmware blobs
+*.bin
+
+# Shared Verilog IP (copied in, not source-controlled here)
+ecp5pll.sv
+tmds_encoder.v
+vga.v
+vga2dvid.v

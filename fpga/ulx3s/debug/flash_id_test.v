@@ -18,15 +18,20 @@
 module flash_id_test (
   input        clk_25mhz,
   output [7:0] led,
-  output reg   flash_csn  = 1,
-  output reg   flash_mosi = 0,
-  input        flash_miso
+  output reg   flash_csn   = 1,
+  output reg   flash_mosi  = 0,
+  input        flash_miso,
+  output       flash_wpn,    // WP#   — must be HIGH for reads
+  output       flash_holdn   // HOLD# — must be HIGH to not pause flash
 );
+
+  assign flash_wpn   = 1;
+  assign flash_holdn = 1;
 
   // ── SPI clock: 25 MHz / 256 ≈ 98 kHz (very conservative) ────────────────
   reg [7:0] clk_div = 0;
   always @(posedge clk_25mhz) clk_div <= clk_div + 1;
-  wire spi_clk_raw = clk_div[7];
+  wire spi_clk_raw = clk_div[7] & ~flash_csn;  // idle when CS=1, run when CS=0
 
   // USRMCLK: route spi_clk_raw to flash MCLK pin.
   // USRMCLKTS=0 (always enabled) — SYSCONFIG MASTER_SPI_PORT=DISABLE must be
