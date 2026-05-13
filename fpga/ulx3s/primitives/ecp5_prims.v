@@ -2,7 +2,7 @@
 // These are opaque cells — synth_ecp5 maps them to actual primitives during P&R.
 
 (* blackbox, keep *)
-module Usrmclk (
+module USRMCLK (
   input USRMCLKI,
   input USRMCLKTS
 );

@@ -22,6 +22,8 @@ import chisel3._
   * }}}
   */
 class Usrmclk extends ExtModule {
+  override def desiredName = "USRMCLK"  // must match the Lattice/nextpnr primitive name exactly
+
   /** Clock input routed to MCLK. Toggle this as your SPI clock. */
   val USRMCLKI  = IO(Input(Clock()))
 
