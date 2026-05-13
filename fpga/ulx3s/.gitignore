@@ -2,6 +2,8 @@ borg.json
 borg.bit
 borg.config
 borg.svf
+*.bin
+borg.svf
 nextpnr.log
 yosys.log
 .verilog_stamp_ulx3s
