@@ -171,11 +171,14 @@ class FlashBootLoader(
 
     is(sWrWaitDone) {
       // Keep buf1 on dataIn so SdramBackend (in sWrWord) can latch it.
-      // Write is complete when dataReq pulses (SdramBackend asserts this in sWrWait
-      // when SDRAM rdy fires — busy is still true that same cycle, so we must NOT
-      // gate on !busy here).
+      // Write is complete when the backend returns to idle (busy=false).
+      // NOTE: Do NOT use dataReq here! dataReq fires TWICE per write:
+      //   1) sWrReq: requests second byte (buf1) — this is NOT completion!
+      //   2) sWrWait: SDRAM rdy fires — this IS completion, but so is !busy.
+      // Using dataReq caused the bootloader to advance prematurely on the
+      // sWrReq pulse, writing Cat(buf0,buf0) instead of Cat(buf1,buf0).
       io.backend.dataIn := buf1
-      when(io.backend.dataReq) {
+      when(!io.backend.busy) {
         sdramAddr := sdramAddr + 2.U
         byteCtr   := byteCtr  + 2.U
         when(byteCtr + 2.U >= firmSize) { csnReg := true.B; state := sDone }

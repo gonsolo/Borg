@@ -165,14 +165,61 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   pins.dq_in := dqIn.asUInt
 
   // ── Peripherals ───────────────────────────────────────────────────────────
-  ftdi_rxd := uo_out_val(6)
+
+  // DEBUG: hardware bypass UART — sends 'H' at 115200 from 125 MHz PLL.
+  // Set to true to verify pin wiring without any CPU involvement.
+  val DEBUG_UART_BYPASS = false
+
+  if (DEBUG_UART_BYPASS) {
+    val bypassUart = withClockAndReset(sysClock, pllRst) {
+      val CLKS = (125000000 / 115200)   // 1085
+      val baud = RegInit(0.U(11.W))
+      val bitIdx = RegInit(0.U(4.W))   // 0=idle, 1=start, 2-9=data, 10=stop
+      val gap = RegInit(0.U(24.W))
+      val tx = RegInit(true.B)
+      val data = "h48".U(8.W)   // 'H'
+
+      when(bitIdx === 0.U) {
+        tx := true.B
+        gap := gap + 1.U
+        when(gap(23)) {   // ~67ms gap
+          gap := 0.U
+          bitIdx := 1.U
+          baud := 0.U
+        }
+      }.otherwise {
+        baud := baud + 1.U
+        when(baud === (CLKS - 1).U) {
+          baud := 0.U
+          when(bitIdx === 1.U) { tx := false.B }            // start bit
+          .elsewhen(bitIdx <= 9.U) { tx := data(bitIdx - 2.U) } // data bits
+          .otherwise { tx := true.B }                        // stop bit
+          when(bitIdx === 10.U) { bitIdx := 0.U }
+          .otherwise { bitIdx := bitIdx + 1.U }
+        }
+      }
+      tx
+    }
+    ftdi_rxd := bypassUart
+  } else {
+    ftdi_rxd := uo_out_val(6)
+  }
 
   // LEDs: [7]=pll_locked, [6]=boot_done
   // While booting: [5:2]=FlashBootLoader FSM state, [1:0]=uo_out_val[1:0]
-  // After boot:    [5:0]=uo_out_val[5:0]
+  // After boot:    [5]=instr_fetch_restart, [4]=instr_ready (sticky),
+  //                [3:0]=backend FSM state
+  val stickyReady = withClockAndReset(sysClock, pllRst) { RegInit(false.B) }
+  withClockAndReset(sysClock, false.B) {
+    when(cpu.io.instr_ready) { stickyReady := true.B }
+  }
+
   led := Cat(pllLocked, bootDone,
-             Mux(bootDone, uo_out_val(5, 2), flashBoot.io.debug_state),
-             uo_out_val(1, 0))
+             Mux(bootDone,
+               Cat(cpu.io.instr_fetch_restart,
+                   stickyReady,
+                   sdramBackend.io.debug_be_state),
+               Cat(flashBoot.io.debug_state, uo_out_val(1), uo_out_val(0))))
 }
 
 // ── Pin constraints ────────────────────────────────────────────────────────
