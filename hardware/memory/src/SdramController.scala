@@ -28,6 +28,7 @@ class SdramSysIO extends Bundle {
   val ab  = Input(UInt(24.W))     // 24-bit word address
   val di  = Input(UInt(16.W))     // write data
   val do_ = Output(UInt(16.W))    // read data
+  val debug_state = Output(UInt(3.W))  // FSM state for debug
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +209,7 @@ class SdramController extends Module {
   // ── Output wiring ──
   io.sys.rdy  := sysRdy
   io.sys.do_  := sysDo
+  io.sys.debug_state := state
 
   io.pins.cs_n   := sdrCmd(3)
   io.pins.we_n   := sdrCmd(2)

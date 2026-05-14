@@ -52,6 +52,10 @@ class SdramPinsIO extends Bundle {
 class SdramBackendIO extends Bundle {
   val backend   = Flipped(new MemBackendIO)
   val sdramPins = new SdramPinsIO
+  val debug_be_state   = Output(UInt(4.W))  // SdramBackend FSM state
+  val debug_ctrl_state = Output(UInt(3.W))  // SdramController FSM state
+  val debug_ctrl_rdy   = Output(Bool())     // SdramController rdy
+  val debug_readWord   = Output(UInt(16.W)) // raw 16-bit read data
 }
 
 class SdramBackend extends Module {
@@ -84,6 +88,7 @@ class SdramBackend extends Module {
   val sWrWord = 5.U(4.W)   // latch byte 1, issue SDRAM write
   val sWrWait = 6.U(4.W)   // wait for SDRAM write rdy
   val sAck    = 7.U(4.W)   // drain any in-flight SDRAM txn
+  val sRdAck  = 8.U(4.W)   // deassert rd, then ack + present bytes
 
   val state    = RegInit(sIdle)
   val rdDelCtr = RegInit(0.U(2.W))  // counts 2 cycles to step past register latency
@@ -114,6 +119,12 @@ class SdramBackend extends Module {
   io.backend.dataReq   := false.B
   io.backend.dataReady := false.B
   io.backend.busy      := (state =/= sIdle)
+
+  // Debug ports
+  io.debug_be_state   := state
+  io.debug_ctrl_state := sdram.io.sys.debug_state
+  io.debug_ctrl_rdy   := sdram.io.sys.rdy
+  io.debug_readWord   := readWord
 
   switch(state) {
     is(sIdle) {
@@ -152,8 +163,7 @@ class SdramBackend extends Module {
       sdram.io.sys.ab := Cat(0.U(0.W), wordAddr)
       when(sdram.io.sys.rdy) {
         readWord := sdram.io.sys.do_     // latch the 16-bit word
-        sdram.io.sys.ack := true.B      // release SDRAM
-        state := sReadB
+        state := sRdAck  // deassert rd before ack
       }
       when(io.backend.stopTxn) { state := sAck }
     }
@@ -209,11 +219,16 @@ class SdramBackend extends Module {
       sdram.io.sys.ab := Cat(0.U(0.W), wordAddr)
       sdram.io.sys.di := writeWord
       when(sdram.io.sys.rdy) {
-        sdram.io.sys.ack := true.B
         io.backend.dataReq := true.B   // tells arbiter write is done
-        state := sIdle
+        state := sAck  // MUST deassert wr before ack (via sAck defaults)
       }
       when(io.backend.stopTxn) { state := sAck }
+    }
+
+    is(sRdAck) {
+      // rd is deasserted (default), now safely ack to release controller
+      sdram.io.sys.ack := true.B
+      state := sReadB
     }
 
     is(sAck) {
