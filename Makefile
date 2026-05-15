@@ -31,7 +31,9 @@ help:
 	@echo -e "  rdl:\t\t\t\tValidate SystemRDL and generate Chisel register block."
 	@echo -e "  clean-gh-runs:\t\tDelete all GitHub workflow runs except the last 8."
 
-export CLOCK_MHZ = 4
+# Clock frequencies: each target's Scala Main has its own default.
+# TT ASIC = 4 MHz, pico-ice = 4 MHz, ULX3S = 125 MHz.
+# Override via env var if needed: CLOCK_MHZ=50 make generate_verilog
 
 # pico-ice sources temporarily excluded from the build.
 # To re-enable: add fpga/picoice/tinyqv/src back to the find paths below
@@ -44,10 +46,10 @@ HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/sr
 # | rdl is an order-only dep so rdl always runs first (it is fast and idempotent)
 # but a re-run of rdl alone does not invalidate the stamp.
 .verilog_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
-	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) asic.tt.runMain asic.tt.TTMain
+	CLOCK_MHZ=4 $(MILL) asic.tt.runMain asic.tt.TTMain
 	@# pico-ice (BorgConfig.Small) temporarily disabled — BorgConfig.Large is primary target.
 	@# To re-enable: uncomment the three lines below and fpga/picoice in HAND_CHISEL.
-	@#CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.picoice.tinyqv.runMain soc.FpgaMain
+	@#CLOCK_MHZ=4 $(MILL) fpga.picoice.tinyqv.runMain soc.FpgaMain
 	@#ln -sf $(CURDIR)/hardware/borg/src/rcp_lut.hex   out/fpga/verilog/rcp_lut.hex
 	@#ln -sf $(CURDIR)/hardware/borg/src/coord_lut.hex out/fpga/verilog/coord_lut.hex
 	@touch $@
@@ -63,6 +65,10 @@ generate_verilog: .verilog_stamp info.yaml
 # ULX3S (ECP5-85K) Verilog emission stub — no synthesis flow yet (Step 27).
 generate_verilog_ulx3s: rdl
 	CLOCK_MHZ=125 $(MILL) fpga.ulx3s.tinyqv.runMain soc.ULX3SMain
+
+# Minimal CPU+SDRAM debug harness — fast iteration (~6s build)
+generate_verilog_cpu_sdram: rdl
+	CLOCK_MHZ=125 $(MILL) fpga.ulx3s.tinyqv.runMain soc.CpuSdramTestMain
 
 test-cocotb-soc-core-rtl: generate_verilog
 	$(TEST_SOC) core

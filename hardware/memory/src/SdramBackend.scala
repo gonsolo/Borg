@@ -58,11 +58,11 @@ class SdramBackendIO extends Bundle {
   val debug_readWord   = Output(UInt(16.W)) // raw 16-bit read data
 }
 
-class SdramBackend extends Module {
+class SdramBackend(clockMhz: Int = 125) extends Module {
   val io = IO(new SdramBackendIO)
 
   // ── SDRAM controller sub-module ──
-  val sdram = Module(new SdramController)
+  val sdram = Module(new SdramController(clockMhz))
 
   // ── Wire SDRAM physical pins ──
   // Outputs from controller → outside world
@@ -103,6 +103,8 @@ class SdramBackend extends Module {
   val readByteIdx = RegInit(0.U(1.W))
   // Accumulated write word
   val writeWord   = RegInit(0.U(16.W))
+  // Delay counter for write (like rdDelCtr, skips stale rdy)
+  val wrDelCtr    = RegInit(0.U(2.W))
 
   // Word address from byte address
   val wordAddr = byteAddr(24, 1)
@@ -151,7 +153,7 @@ class SdramBackend extends Module {
       sdram.io.sys.rd := true.B
       sdram.io.sys.ab := Cat(0.U(0.W), wordAddr)
       rdDelCtr := rdDelCtr + 1.U
-      when(rdDelCtr >= 1.U) {   // 2 cycles total: de-asserts stale rdy from IDLE
+      when(rdDelCtr >= 3.U) {   // 4 cycles total: drain input-reg + FSM pipeline
         state := sRdWait
       }
       when(io.backend.stopTxn) { state := sAck }
@@ -204,21 +206,28 @@ class SdramBackend extends Module {
     is(sWrWord) {
       // Latch the second byte from dataIn (which arbiter put there after dataReq)
       val secondByte = io.backend.dataIn
-      writeWord := Mux(!lane0,
+      val nextWriteWord = Mux(!lane0,
         Cat(secondByte, writeWord(7, 0)),    // even: byte 1 = high lane
         Cat(writeWord(15, 8), secondByte))   // odd:  byte 1 = low lane
-      // Kick off the SDRAM write
+      writeWord := nextWriteWord
+      // Kick off the SDRAM write with the COMBINATIONAL value.
+      // The register won't update until next cycle, so we must
+      // pass nextWriteWord directly to di.
       sdram.io.sys.wr := true.B
       sdram.io.sys.ab := Cat(0.U(0.W), wordAddr)
+      sdram.io.sys.di := nextWriteWord
+      wrDelCtr := 0.U
       state := sWrWait
     }
 
     is(sWrWait) {
-      // Hold wr high; wait for SDRAM rdy
+      // Hold wr high; first 2 cycles clear any stale rdy,
+      // then wait for actual rdy.
       sdram.io.sys.wr := true.B
       sdram.io.sys.ab := Cat(0.U(0.W), wordAddr)
       sdram.io.sys.di := writeWord
-      when(sdram.io.sys.rdy) {
+      wrDelCtr := wrDelCtr + 1.U
+      when(wrDelCtr >= 1.U && sdram.io.sys.rdy) {
         io.backend.dataReq := true.B   // tells arbiter write is done
         state := sAck  // MUST deassert wr before ack (via sAck defaults)
       }

@@ -67,11 +67,11 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val led = IO(Output(UInt(8.W)))
   val btn = IO(Input(UInt(6.W)))
 
-  // ── PLL: 25 MHz → 125 MHz (0°) + 125 MHz (90°) for SDRAM clock ───────────
+  // ── PLL: 25 MHz → CLOCK_MHZ (0°) + CLOCK_MHZ (90°) for SDRAM clock ──────
   val pll = Module(new Ecp5PllWrapper(Ecp5PllParams(
     inHz   = 25_000_000L,
-    out0Hz = 125_000_000L,
-    out1Hz = 125_000_000L, out1Deg = 90
+    out0Hz = CLOCK_MHZ.toLong * 1_000_000L,
+    out1Hz = CLOCK_MHZ.toLong * 1_000_000L, out1Deg = 90
   )))
   pll.io.clk_i   := clk_25mhz
   val pllLocked  = pll.io.locked
@@ -116,7 +116,7 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
 
   // ── SdramBackend: bridges MemoryController ↔ SdramController ─────────────
   val sdramBackend = withClockAndReset(sysClock, pllRst) {
-    Module(new SdramBackend())
+    Module(new SdramBackend(CLOCK_MHZ))
   }
 
   // Mux backend: FlashBootLoader during boot, MemoryController after boot_done
@@ -205,21 +205,12 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
     ftdi_rxd := uo_out_val(6)
   }
 
-  // LEDs: [7]=pll_locked, [6]=boot_done
-  // While booting: [5:2]=FlashBootLoader FSM state, [1:0]=uo_out_val[1:0]
-  // After boot:    [5]=instr_fetch_restart, [4]=instr_ready (sticky),
-  //                [3:0]=backend FSM state
-  val stickyReady = withClockAndReset(sysClock, pllRst) { RegInit(false.B) }
-  withClockAndReset(sysClock, false.B) {
-    when(cpu.io.instr_ready) { stickyReady := true.B }
-  }
-
+  // ── LEDs: max debug ────────────────────────────────────────────────────────
+  // [7]=pll [6]=boot_done [5:2]=FlashBootLoader_state [1]=backend_busy [0]=debug_uart_txd
   led := Cat(pllLocked, bootDone,
-             Mux(bootDone,
-               Cat(cpu.io.instr_fetch_restart,
-                   stickyReady,
-                   sdramBackend.io.debug_be_state),
-               Cat(flashBoot.io.debug_state, uo_out_val(1), uo_out_val(0))))
+             flashBoot.io.debug_state,
+             sdramBackend.io.backend.busy,
+             uo_out_val(6))
 }
 
 // ── Pin constraints ────────────────────────────────────────────────────────

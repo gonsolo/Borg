@@ -40,17 +40,17 @@ class SdramControllerIO extends Bundle {
   val pins = new SdramPinsIO
 }
 
-class SdramController extends Module {
+class SdramController(clockMhz: Int = 125) extends Module {
   val io = IO(new SdramControllerIO)
 
-  // ── SDRAM timing parameters (125 MHz clock) ──
-  val tRP  = 3
-  val tMRD = 2
-  val tRCD = 3
-  val tRC  = 9
-  val CL   = 3
-  val INITLEN = 12500   // 125 MHz × 100 µs
-  val RFTIME  = 975     // 125 MHz × 7.8 µs
+  // ── SDRAM timing parameters (scaled to actual clock) ──
+  val tRP  = math.max((clockMhz * 20  + 999) / 1000, 2) // tRP  = 20 ns min
+  val tMRD = 2                                           // tMRD = 2 cycles
+  val tRCD = math.max((clockMhz * 20  + 999) / 1000, 2) // tRCD = 20 ns min
+  val tRC  = math.max((clockMhz * 63  + 999) / 1000, 2) // tRC  = 63 ns min
+  val CL   = if (clockMhz > 100) 3 else 2                // CAS latency
+  val INITLEN = clockMhz * 100                           // 100 µs
+  val RFTIME  = (clockMhz * 7800 + 999) / 1000           // 7.8 µs
 
   // ── SDRAM command encodings: {nCS, nRAS, nCAS, nWE} ──
   val CMD_NOP      = "b1000".U(4.W)
@@ -61,8 +61,9 @@ class SdramController extends Module {
   val CMD_WRITE    = "b0010".U(4.W)
   val CMD_ACTIVATE = "b0101".U(4.W)
 
-  // ── SDRAM mode register: CL=3, burst length=1, sequential ──
-  val MODE = "b0001000110000".U(13.W) // 13'b000_1_00_011_0_000
+  // ── SDRAM mode register: CL=2 or 3, burst length=1, sequential ──
+  // Bits: 13'b000_1_00_CCC_0_000  where CCC = CAS latency
+  val MODE = Cat(0.U(3.W), 1.U(1.W), 0.U(2.W), CL.U(3.W), 0.U(1.W), 0.U(3.W))
 
   // ── FSM states ──
   val sIDLE   = 0.U(3.W)

@@ -127,6 +127,19 @@ flash-firmware: firmware_with_header.bin
 
 # Minimal boot test (D.3): tiny 4-byte RISC-V infinite loop + size header.
 # Boot LED[6] = boot_done lights up if FlashBootLoader completes successfully.
+# UART Hello firmware: sends 'Z' repeatedly via debug UART (0x08000018).
+uart_hello_fw.bin: uart_hello.s
+	@echo -e "$(BOLD)[FW]$(RESET) Assembling uart_hello.s ..."
+	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o uart_hello.o uart_hello.s
+	riscv64-unknown-elf-ld -melf32lriscv -Ttext=0x0 -o uart_hello.elf uart_hello.o
+	riscv64-unknown-elf-objcopy -O binary uart_hello.elf uart_hello_raw.bin
+	@python3 -c "import struct; d=open('uart_hello_raw.bin','rb').read(); open('uart_hello_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> uart_hello_fw.bin')"
+
+flash-uart-hello: uart_hello_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing uart_hello firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 uart_hello_fw.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Firmware flashed. Now run: make load && make tio"
+
 minimal.bin:
 	@echo -e "$(BOLD)[FW-PACK]$(RESET) Building minimal boot-test firmware (4-byte infinite loop) ..."
 	@python3 -c "import struct; fw=bytes([0x6f,0x00,0x00,0x00]); open('minimal.bin','wb').write(struct.pack('<I',len(fw))+fw); print('  minimal.bin: 8 bytes (4-byte header + JAL x0,0)')"

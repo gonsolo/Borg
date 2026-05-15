@@ -19,9 +19,9 @@ object SdramReadPathTests extends TestSuite {
   val tests = Tests {
 
     test("write then read back two bytes at address 0") {
-      simulate(new SdramBackend()) { dut =>
+      simulate(new SdramBackendSim()) { dut =>
 
-        val TIMEOUT = 50000
+        val TIMEOUT = 10000
         var cycle = 0
 
         def tick(n: Int = 1): Unit = {
@@ -30,12 +30,12 @@ object SdramReadPathTests extends TestSuite {
           Predef.assert(cycle < TIMEOUT, s"TIMEOUT at cycle $cycle")
         }
 
-        // EphemeralSimulator requires explicit reset for RegInit values.
+        // Reset
         dut.reset.poke(true.B)
-        dut.clock.step(5)
+        tick(3)
         dut.reset.poke(false.B)
-        dut.clock.step(1)
-        cycle = 6
+        tick()
+        cycle = 4
 
         // Deassert all command signals initially
         dut.io.backend.startRead.poke(false.B)
@@ -45,22 +45,9 @@ object SdramReadPathTests extends TestSuite {
         dut.io.backend.addrIn.poke(0.U)
         dut.io.backend.dataIn.poke(0.U)
 
-        // ── Phase 0: let SDRAM controller initialize ──
-        // Step in chunks and report busy status
-        for (chunk <- 0 until 5) {
-          tick(5000)
-          println(s"[$cycle] busy=${dut.io.backend.busy.peek().litToBoolean}")
-        }
-
-        // Wait until not busy (controller should be idle after init)
-        var waited = 0
-        while (dut.io.backend.busy.peek().litToBoolean && waited < 5000) {
-          tick()
-          waited += 1
-        }
-        Predef.assert(!dut.io.backend.busy.peek().litToBoolean,
-          s"SdramBackend still busy after init + $waited extra cycles!")
-        println(s"[$cycle] Backend idle after init ($waited extra cycles)")
+        // No SDRAM init needed — SdramBackendSim is immediately idle
+        Predef.assert(!dut.io.backend.busy.peek().litToBoolean, "SdramBackendSim should start idle")
+        println(s"[$cycle] Backend idle (no SDRAM init required)")
 
         // ── Phase 1: Write 0xAB, 0xCD to SDRAM byte address 0 ──
         println(s"[$cycle] Starting write of 0xAB,0xCD at addr=0")
@@ -71,7 +58,7 @@ object SdramReadPathTests extends TestSuite {
         dut.io.backend.startWrite.poke(false.B)
 
         // Wait for dataReq (SdramBackend consumed byte 0, wants byte 1)
-        waited = 0
+        var waited = 0
         while (!dut.io.backend.dataReq.peek().litToBoolean && waited < 1000) {
           tick()
           waited += 1

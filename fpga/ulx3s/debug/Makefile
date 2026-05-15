@@ -88,4 +88,38 @@ load-uart: uart_test.bit
 	@echo -e "  Connect with: tio /dev/ttyUSB0"
 	@echo -e "  Expect:       HELLO repeated at 115200 baud"
 
-.PHONY: all flash load clean hdmi load-hdmi bare load-bare uart load-uart
+.PHONY: all flash load clean hdmi load-hdmi bare load-bare uart load-uart cpu-sdram load-cpu-sdram
+
+# ── CPU + SDRAM minimal test (fast iteration, ~6s build) ────────────────────
+CPU_SDRAM_VDIR = $(abspath $(CURDIR)/../../..)/out/cpu_sdram_test/verilog
+
+cpu-sdram: cpu_sdram_test.bit
+
+.PHONY: gen-cpu-sdram
+gen-cpu-sdram:
+	@echo -e "$(BOLD)[GEN]$(RESET) Generating Verilog from CpuSdramTest ..."
+	$(MAKE) -C ../../.. generate_verilog_cpu_sdram
+
+cpu_sdram_test.json: gen-cpu-sdram
+	@echo -e "$(BOLD)[SYNTH]$(RESET) cpu_sdram_test ..."
+	yosys -q -p "read -sv $$(find $(CPU_SDRAM_VDIR) -maxdepth 1 -name '*.sv' | tr '\n' ' '); \
+	             read_verilog -sv -lib $(CURDIR)/../primitives/ecp5_prims.v; \
+	             synth_ecp5 -top CpuSdramTest -json cpu_sdram_test.json; \
+	             stat -top CpuSdramTest"
+
+cpu_sdram_test.config: cpu_sdram_test.json
+	@echo -e "$(BOLD)[PNR]$(RESET) cpu_sdram_test ..."
+	nextpnr-ecp5 --85k --package CABGA381 --json cpu_sdram_test.json \
+	             --lpf boot_uart_test.lpf --textcfg cpu_sdram_test.config \
+	             --timing-allow-fail --quiet
+
+cpu_sdram_test.bit: cpu_sdram_test.config
+	@echo -e "$(BOLD)[PACK]$(RESET) cpu_sdram_test ..."
+	ecppack cpu_sdram_test.config cpu_sdram_test.bit
+
+load-cpu-sdram: gen-cpu-sdram cpu_sdram_test.bit
+	@echo -e "$(BOLD)[LOAD]$(RESET) Loading cpu_sdram_test into SRAM ..."
+	openFPGALoader -b ulx3s cpu_sdram_test.bit
+	@echo -e "[7]=pll [6]=boot_done [5:3]=ctrl_state [2:0]=backend_state"
+	@echo -e "Ctrl: 0=IDLE 4=RDWR 5=RWRDY 6=ACKWT 7=WAIT"
+	@echo -e "Backend: 0=Idle 1=RdReq 2=RdWait 3=RdAck 4=ReadB"

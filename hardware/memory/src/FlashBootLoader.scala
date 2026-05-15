@@ -7,7 +7,9 @@ import chisel3._
 import chisel3.util._
 
 object FlashBootState extends ChiselEnum {
-  val sWaitSdram, sSendCmd,
+  val sWaitSdram,
+      sFlashRst0, sFlashRst1, sFlashRst2, sFlashRst3,
+      sSendCmd,
       sSendAddr0, sSendAddr1, sSendAddr2,
       sReadSize,
       sReadByte0, sReadByte1,
@@ -30,11 +32,13 @@ class FlashBootIO extends Bundle {
   *
   * Power-up sequence:
   *   1. Waits ~13 200 cycles for the SdramController to finish init.
-  *   2. Sends READ (0x03) + 24-bit [[FLASH_FIRMWARE_OFFSET]] to the flash.
-  *   3. Reads a 4-byte little-endian firmware-size header.
-  *   4. Copies exactly that many bytes to SDRAM byte-address 0, two bytes per
+  *   2. Sends flash software-reset (0x66 + 0x99) to recover from any
+  *      residual state left by the ECP5 configuration logic.
+  *   3. Sends READ (0x03) + 24-bit [[FLASH_FIRMWARE_OFFSET]] to the flash.
+  *   4. Reads a 4-byte little-endian firmware-size header.
+  *   5. Copies exactly that many bytes to SDRAM byte-address 0, two bytes per
   *      16-bit SDRAM word, using the [[MemBackendIO]] write protocol.
-  *   5. Deasserts flash CS and asserts [[io.boot_done]] forever.
+  *   6. Deasserts flash CS and asserts [[io.boot_done]] forever.
   *
   * SPI mode 0 (CPOL=0 CPHA=0), MSB-first.
   * SPI clock = system_clk / SPI_CLK_DIV ≈ 7.8 MHz at 125 MHz.
@@ -119,8 +123,45 @@ class FlashBootLoader(
     is(sWaitSdram) {
       initCtr := initCtr + 1.U
       when(initCtr === SDRAM_INIT_CYCLES.U) {
+        // Start flash software-reset: assert CS, send 0x66 (Enable Reset)
         csnReg   := false.B
-        shiftOut := 0x03.U(8.W)
+        shiftOut := 0x66.U(8.W)
+        bitCtr   := 0.U
+        state    := sFlashRst0
+      }
+    }
+
+    // ── Flash software reset sequence ──────────────────────────────────
+    // W25Q protocol: CS low → 0x66 → CS high → CS low → 0x99 → CS high
+    // Then wait ≥30 µs (tRST) before issuing READ.
+    is(sFlashRst0) {
+      // Send 0x66 (Enable Reset); when byte done, deassert CS
+      when(byteDone) { csnReg := true.B; initCtr := 0.U; state := sFlashRst1 }
+    }
+
+    is(sFlashRst1) {
+      // CS high gap (≥50 ns, a few SPI clocks); then assert CS for 0x99
+      initCtr := initCtr + 1.U
+      when(initCtr === 8.U) {
+        csnReg   := false.B
+        shiftOut := 0x99.U(8.W)
+        bitCtr   := 0.U
+        state    := sFlashRst2
+      }
+    }
+
+    is(sFlashRst2) {
+      // Send 0x99 (Reset Device); when done, deassert CS and wait tRST
+      when(byteDone) { csnReg := true.B; initCtr := 0.U; state := sFlashRst3 }
+    }
+
+    is(sFlashRst3) {
+      // Wait ≥30 µs for flash reset to complete (tRST).
+      // At 125 MHz, 4000 cycles ≈ 32 µs.
+      initCtr := initCtr + 1.U
+      when(initCtr === 4000.U) {
+        csnReg   := false.B
+        shiftOut := 0x03.U(8.W)     // READ command
         bitCtr   := 0.U
         state    := sSendCmd
       }
