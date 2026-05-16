@@ -196,7 +196,7 @@ class MemoryController extends Module {
     when(start_gpu_read) {
       data_txn_len := 3.U   // reads: 4 bytes (2 SDRAM words)
     } .elsewhen(start_gpu_write) {
-      data_txn_len := 1.U   // writes: 2 bytes (1 SDRAM word at a time)
+      data_txn_len := 1.U   // writes: 2 bytes (1 SDRAM word per transaction)
     } .elsewhen(start_read || start_write) {
       data_txn_len := Cat(data_txn_n(1), data_txn_n(1) | data_txn_n(0))
     }

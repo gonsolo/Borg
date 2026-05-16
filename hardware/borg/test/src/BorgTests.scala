@@ -1277,16 +1277,16 @@ object BorgTests extends TestSuite {
         for (_ <- 0 until 16) {
           // Trigger one auto-run step
           rawWrite(BorgGpuRegs.iter_offset.litValue.toInt, 1)
-          // Drain up to 60 cycles for this pixel; flusher fires on pixel 15
-          drainFlusher(60)
+          // Drain up to 120 cycles for this pixel; flusher fires on pixel 15
+          drainFlusher(120)
           // Check FLUSH_BUSY between pixels (safe: no flusher writes expected
           // during the first 15 pixels; after pixel 15, flusher may be active
-          // but drainFlusher(60) above should have captured all writes)
+          // but drainFlusher above should have captured all writes)
           if (peekFlushBusy()) flushBusySeen = true
         }
 
-        // Extra drain in case the flusher is still running
-        drainFlusher(400)
+        // Extra drain in case the flusher is still running (4 writes × 16 pixels)
+        drainFlusher(800)
 
         // Final FLUSH_BUSY check: must be clear after drain
         val flushBusyClear = !peekFlushBusy() && flushBusySeen
@@ -1299,41 +1299,55 @@ object BorgTests extends TestSuite {
         println(f"  FLUSH_BUSY cleared:   $flushBusyClear (expect true)")
         Predef.assert(flushBusyClear, "FLUSH_BUSY did not clear — flusher hung")
 
-        println(f"  Total PSRAM writes:   $writeCount (expect 32)")
-        Predef.assert(writeCount == 32, s"Expected 32 writes, got $writeCount")
+        println(f"  Total PSRAM writes:   $writeCount (expect 64)")
+        Predef.assert(writeCount == 64, s"Expected 64 writes, got $writeCount")
 
-        // Verify the first entry (i=0): lo at tileBase, hi at tileBase+4
-        val (addr0Lo, data0Lo) = writes(0)
-        val (addr0Hi, data0Hi) = writes(1)
-        val expAddr0Lo = tileBase
-        val expAddr0Hi = tileBase + 4
-        // BorgTileFlusher lo word = asUInt(31,0)  → {b[15:0], z[15:0]}
-        // hi word = asUInt(63,32) → {r[15:0], g[15:0]}
-        // ColorZ(r,g,b,z) Chisel Bundle: asUInt packs MSB-first in declaration order.
-        // BorgTileBuffer stores ColorZ; flusher slices [31:0] and [63:32].
+        // Verify the first entry (i=0): R at tileBase, G at +2, B at +4, Z at +6
+        val (addr0R, data0R) = writes(0)
+        val (addr0G, data0G) = writes(1)
+        val (addr0B, data0B) = writes(2)
+        val (addr0Z, data0Z) = writes(3)
+        val expAddr0R = tileBase
+        val expAddr0G = tileBase + 2
+        val expAddr0B = tileBase + 4
+        val expAddr0Z = tileBase + 6
+        // MemoryController writes wdata[15:0] only.
+        // Flusher sends entryHeld(15,0)=r, (31,16)=g, (47,32)=b, (63,48)=z
         // Entry 0: r=0x1000, g=0x2000, b=0x3000, z=0x4000
-        // lo  = bits[31:0]  = {b=0x3000, z=0x4000} (packed by Chisel MSB first)
-        // hi  = bits[63:32] = {r=0x1000, g=0x2000}
-        val expData0Lo = (0x3000L << 16) | 0x4000L
-        val expData0Hi = (0x1000L << 16) | 0x2000L
+        val expData0R = 0x1000L
+        val expData0G = 0x2000L
+        val expData0B = 0x3000L
+        val expData0Z = 0x4000L
 
-        println(f"  Write[0] addr=0x$addr0Lo%04X (exp 0x$expAddr0Lo%04X)  data=0x$data0Lo%08X (exp 0x$expData0Lo%08X)")
-        println(f"  Write[1] addr=0x$addr0Hi%04X (exp 0x$expAddr0Hi%04X)  data=0x$data0Hi%08X (exp 0x$expData0Hi%08X)")
-        Predef.assert(addr0Lo == expAddr0Lo, s"lo addr mismatch: got 0x${addr0Lo.toHexString}")
-        Predef.assert(addr0Hi == expAddr0Hi, s"hi addr mismatch: got 0x${addr0Hi.toHexString}")
-        Predef.assert(data0Lo == expData0Lo, s"lo data mismatch: got 0x${data0Lo.toHexString}")
-        Predef.assert(data0Hi == expData0Hi, s"hi data mismatch: got 0x${data0Hi.toHexString}")
+        println(f"  Write[0] addr=0x$addr0R%04X (exp 0x$expAddr0R%04X)  data=0x$data0R%08X (exp 0x$expData0R%08X)")
+        println(f"  Write[1] addr=0x$addr0G%04X (exp 0x$expAddr0G%04X)  data=0x$data0G%08X (exp 0x$expData0G%08X)")
+        println(f"  Write[2] addr=0x$addr0B%04X (exp 0x$expAddr0B%04X)  data=0x$data0B%08X (exp 0x$expData0B%08X)")
+        println(f"  Write[3] addr=0x$addr0Z%04X (exp 0x$expAddr0Z%04X)  data=0x$data0Z%08X (exp 0x$expData0Z%08X)")
+        Predef.assert(addr0R == expAddr0R, s"R addr mismatch: got 0x${addr0R.toHexString}")
+        Predef.assert(addr0G == expAddr0G, s"G addr mismatch: got 0x${addr0G.toHexString}")
+        Predef.assert(addr0B == expAddr0B, s"B addr mismatch: got 0x${addr0B.toHexString}")
+        Predef.assert(addr0Z == expAddr0Z, s"Z addr mismatch: got 0x${addr0Z.toHexString}")
+        Predef.assert(data0R == expData0R, s"R data mismatch: got 0x${data0R.toHexString}")
+        Predef.assert(data0G == expData0G, s"G data mismatch: got 0x${data0G.toHexString}")
+        Predef.assert(data0B == expData0B, s"B data mismatch: got 0x${data0B.toHexString}")
+        Predef.assert(data0Z == expData0Z, s"Z data mismatch: got 0x${data0Z.toHexString}")
 
-        // Verify address stride: lo[i] = tileBase + i*8, hi[i] = tileBase + i*8 + 4
+        // Verify address stride: 8 bytes per pixel (4 writes × 2 bytes each)
         for (i <- 0 until 16) {
-          val (aLo, _) = writes(i * 2)
-          val (aHi, _) = writes(i * 2 + 1)
-          val expLo = tileBase + i * 8
-          val expHi = tileBase + i * 8 + 4
-          Predef.assert(aLo == expLo, s"entry $i lo addr: got 0x${aLo.toHexString} exp 0x${expLo.toHexString}")
-          Predef.assert(aHi == expHi, s"entry $i hi addr: got 0x${aHi.toHexString} exp 0x${expHi.toHexString}")
+          val (aR, _) = writes(i * 4)
+          val (aG, _) = writes(i * 4 + 1)
+          val (aB, _) = writes(i * 4 + 2)
+          val (aZ, _) = writes(i * 4 + 3)
+          val expR = tileBase + i * 8
+          val expG = tileBase + i * 8 + 2
+          val expB = tileBase + i * 8 + 4
+          val expZ = tileBase + i * 8 + 6
+          Predef.assert(aR == expR, s"entry $i R addr: got 0x${aR.toHexString} exp 0x${expR.toHexString}")
+          Predef.assert(aG == expG, s"entry $i G addr: got 0x${aG.toHexString} exp 0x${expG.toHexString}")
+          Predef.assert(aB == expB, s"entry $i B addr: got 0x${aB.toHexString} exp 0x${expB.toHexString}")
+          Predef.assert(aZ == expZ, s"entry $i Z addr: got 0x${aZ.toHexString} exp 0x${expZ.toHexString}")
         }
-        println("  Address stride 8 bytes/entry ✓")
+        println("  Address stride 8 bytes/entry (4 writes × 2 bytes) ✓")
 
         // Verify data for all 16 entries
         for (i <- 0 until 16) {
@@ -1341,12 +1355,14 @@ object BorgTests extends TestSuite {
           val g = 0x2000 + i
           val b = 0x3000 + i
           val z = 0x4000 + i
-          val expLo = (b.toLong << 16) | z.toLong
-          val expHi = (r.toLong << 16) | g.toLong
-          val (_, gotLo) = writes(i * 2)
-          val (_, gotHi) = writes(i * 2 + 1)
-          Predef.assert(gotLo == expLo, s"entry $i lo data: got 0x${gotLo.toHexString} exp 0x${expLo.toHexString}")
-          Predef.assert(gotHi == expHi, s"entry $i hi data: got 0x${gotHi.toHexString} exp 0x${expHi.toHexString}")
+          val (_, gotR) = writes(i * 4)
+          val (_, gotG) = writes(i * 4 + 1)
+          val (_, gotB) = writes(i * 4 + 2)
+          val (_, gotZ) = writes(i * 4 + 3)
+          Predef.assert(gotR == r.toLong, s"entry $i R data: got 0x${gotR.toHexString} exp 0x${r.toHexString}")
+          Predef.assert(gotG == g.toLong, s"entry $i G data: got 0x${gotG.toHexString} exp 0x${g.toHexString}")
+          Predef.assert(gotB == b.toLong, s"entry $i B data: got 0x${gotB.toHexString} exp 0x${b.toHexString}")
+          Predef.assert(gotZ == z.toLong, s"entry $i Z data: got 0x${gotZ.toHexString} exp 0x${z.toHexString}")
         }
         println("  All 16 entry data values correct ✓")
 

@@ -62,16 +62,16 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   //   Cycle 1 (sWaitSram):  SyncReadMem output available (rgbzRead); readEnDel fires
   //   Cycle 2 (sWaitSram2): readDataHeld latches rgbzRead → io.read.data valid
   //   io.read.data stays stable until the next sReadSram triggers read.en again.
-  //   No local entry_lo/entry_hi needed: directly slice io.read.data in sWriteLo/sWriteHi.
-  val sIdle :: sReadSram :: sWaitSram :: sWaitSram2 :: sWriteLo :: sWriteHi :: Nil = Enum(6)
+  //   entryHeld latches the data locally so a concurrent dispatcher read can't corrupt it.
+  val sIdle :: sReadSram :: sWaitSram :: sWaitSram2 :: sWriteR :: sWriteG :: sWriteB :: sWriteZ :: Nil = Enum(8)
   val state = RegInit(0.U(3.W))   // 0 = sIdle
 
   // DMA state
-  // addrReg: running PSRAM byte address, starts at io.tileBase and advances +4
-  //          per write. Replaces tileBase_reg + (word_idx << 2) combinational
-  //          adder — saves ~20 LCs (tileBase_reg FFs) + ~6 LCs (simpler adder).
+  // addrReg: running PSRAM byte address, starts at io.tileBase and advances +2
+  //          per write (each write = 1 SDRAM word = 2 bytes).
+  //          4 writes per pixel × 16 pixels = 64 writes total.
   val addrReg  = RegInit(0.U(20.W))
-  val word_idx = RegInit(0.U(6.W))   // 0..31: SRAM index (>> 1) + termination (== 32)
+  val word_idx = RegInit(0.U(5.W))   // 0..15: pixel index, terminates at 16
   // Local copy of tile buffer entry — immune to dispatcher read port corruption.
   val entryHeld = RegInit(0.U(64.W))
 
@@ -99,8 +99,8 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
     // Cycle 0: assert read.en; tile SRAM latches idx on rising edge
     is(sReadSram) {
       io.read.en  := true.B
-      io.read.idx := word_idx >> 1.U
-      printf("[FLUSH] readSram slot=%d wordIdx=%d\n", word_idx >> 1.U, word_idx)
+      io.read.idx := word_idx
+      printf("[FLUSH] readSram slot=%d\n", word_idx)
       state       := sWaitSram
     }
 
@@ -115,34 +115,69 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
       entryHeld := io.read.data.asUInt
       printf("[FLUSH] dataHeld slot R=0x%x G=0x%x B=0x%x Z=0x%x\n",
         io.read.data.r, io.read.data.g, io.read.data.b, io.read.data.z)
-      state := sWriteLo
+      state := sWriteR
     }
 
-    // Write low 32 bits ({b,z} = bits[31:0]) at current addrReg
-    // entryHeld is our local copy — immune to dispatcher reads.
-    is(sWriteLo) {
+    // MemoryController writes 16 bits (1 SDRAM word) per GPU write transaction
+    // (data_txn_len=1).  Only wdata[15:0] reaches SDRAM.
+    // We write 4 channels × 16 bits each at stride +2 per channel.
+    //
+    // ColorZ.asUInt packing (Chisel: first declared field = MSBs):
+    //   entryHeld = { r[63:48], g[47:32], b[31:16], z[15:0] }
+    //
+    // SDRAM layout per pixel (byte address):
+    //   base + 0: r[15:0]
+    //   base + 2: g[15:0]
+    //   base + 4: b[15:0]
+    //   base + 6: z[15:0]
+
+    // Write R channel
+    is(sWriteR) {
       io.gpuMem.req   := true.B
       io.gpuMem.wr    := true.B
       io.gpuMem.addr  := addrReg
-      io.gpuMem.wdata := entryHeld(31, 0)   // {b, z}
+      io.gpuMem.wdata := entryHeld(63, 48)   // r
       when(io.gpuMem.ready) {
-        addrReg  := addrReg + 4.U
-        word_idx := word_idx + 1.U
-        state    := sWriteHi
+        addrReg := addrReg + 2.U
+        state   := sWriteG
       }
     }
 
-    // Write high 32 bits ({r,g} = bits[63:32]) at current addrReg
-    is(sWriteHi) {
+    // Write G channel
+    is(sWriteG) {
       io.gpuMem.req   := true.B
       io.gpuMem.wr    := true.B
       io.gpuMem.addr  := addrReg
-      io.gpuMem.wdata := entryHeld(63, 32)  // {r, g}
+      io.gpuMem.wdata := entryHeld(47, 32)   // g
       when(io.gpuMem.ready) {
-        addrReg  := addrReg + 4.U
+        addrReg := addrReg + 2.U
+        state   := sWriteB
+      }
+    }
+
+    // Write B channel
+    is(sWriteB) {
+      io.gpuMem.req   := true.B
+      io.gpuMem.wr    := true.B
+      io.gpuMem.addr  := addrReg
+      io.gpuMem.wdata := entryHeld(31, 16)   // b
+      when(io.gpuMem.ready) {
+        addrReg := addrReg + 2.U
+        state   := sWriteZ
+      }
+    }
+
+    // Write Z channel
+    is(sWriteZ) {
+      io.gpuMem.req   := true.B
+      io.gpuMem.wr    := true.B
+      io.gpuMem.addr  := addrReg
+      io.gpuMem.wdata := entryHeld(15, 0)    // z
+      when(io.gpuMem.ready) {
+        addrReg := addrReg + 2.U
         val next_word = word_idx + 1.U
         word_idx := next_word
-        when(next_word === 32.U) {
+        when(next_word === 16.U) {   // 16 pixels done
           state := sIdle
         } .otherwise {
           state := sReadSram

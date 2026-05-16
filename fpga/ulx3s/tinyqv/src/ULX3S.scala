@@ -63,6 +63,9 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val ftdi_rxd = IO(Output(Bool()))   // FPGA → host TX
   val ftdi_txd = IO(Input(Bool()))    // host → FPGA RX
 
+  // ── HDMI (GPDI) ───────────────────────────────────────────────────────────
+  val gpdi_dp = IO(Output(UInt(4.W)))
+
   // ── LEDs and buttons ──────────────────────────────────────────────────────
   val led = IO(Output(UInt(8.W)))
   val btn = IO(Input(UInt(6.W)))
@@ -205,8 +208,76 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
     ftdi_rxd := uo_out_val(6)
   }
 
+  // ── HDMI Scanout ──────────────────────────────────────────────────────────
+  val scanout = withClockAndReset(sysClock, pllRst) { Module(new HdmiScanoutTiled) }
+  scanout.io.enable := bootDone
+
+  // Mux scanout onto gpuMem after wireSoC() has already connected
+  // peripherals.io.gpuMem <> mem.io.gpuMem.
+  // Priority: Borg GPU (borgReq) > HDMI scanout.
+  // Re-drive mem.io.gpuMem fields to include scanout when GPU is idle.
+  locally {
+    val borgReq = peripherals.io.gpuMem.req
+    mem.io.gpuMem.req   := borgReq || scanout.io.gpuReq
+    mem.io.gpuMem.addr  := Mux(borgReq, peripherals.io.gpuMem.addr, scanout.io.gpuAddr)
+    mem.io.gpuMem.wr    := peripherals.io.gpuMem.wr
+    mem.io.gpuMem.wdata := peripherals.io.gpuMem.wdata
+    // GPU side: data/ready only when borgReq
+    peripherals.io.gpuMem.data  := mem.io.gpuMem.data
+    peripherals.io.gpuMem.ready := mem.io.gpuMem.ready && borgReq
+    // Scanout side: data/ready when GPU is idle
+    scanout.io.gpuData  := mem.io.gpuMem.data
+    scanout.io.gpuReady := mem.io.gpuMem.ready && !borgReq
+  }
+
+  // ── VGA timing (25 MHz pixel clock from 125 MHz / 5) ─────────────────────
+  val count = withClockAndReset(sysClock, pllRst) { RegInit(0.U(3.W)) }
+  val tick25 = (count === 4.U)
+  withClockAndReset(sysClock, pllRst) {
+    when(tick25) { count := 0.U } .otherwise { count := count + 1.U }
+  }
+  val hCount = withClockAndReset(sysClock, pllRst) { RegInit(0.U(10.W)) }
+  val vCount = withClockAndReset(sysClock, pllRst) { RegInit(0.U(10.W)) }
+  val hTotal = 800.U;  val vTotal = 525.U
+  val hActive = 640.U; val vActive = 480.U
+  val hFront = 16.U;   val hSync = 96.U
+  val vFront = 10.U;   val vSync = 2.U
+  withClockAndReset(sysClock, pllRst) {
+    when(tick25) {
+      when(hCount === hTotal - 1.U) {
+        hCount := 0.U
+        when(vCount === vTotal - 1.U) { vCount := 0.U }
+        .otherwise { vCount := vCount + 1.U }
+      } .otherwise { hCount := hCount + 1.U }
+    }
+  }
+  val de    = (hCount < hActive) && (vCount < vActive)
+  val hsync = (hCount >= (hActive + hFront)) && (hCount < (hActive + hFront + hSync))
+  val vsync = (vCount >= (vActive + vFront)) && (vCount < (vActive + vFront + vSync))
+  scanout.io.hCount := hCount; scanout.io.vCount := vCount
+  scanout.io.de := de; scanout.io.tick25 := tick25
+
+  // ── TMDS Encoders + Serializers ──────────────────────────────────────────
+  val encB = withClockAndReset(sysClock, pllRst) { Module(new TmdsEncoder) }
+  encB.io.en := tick25; encB.io.data := scanout.io.blue
+  encB.io.c := Cat(vsync, hsync); encB.io.de := de
+  val encG = withClockAndReset(sysClock, pllRst) { Module(new TmdsEncoder) }
+  encG.io.en := tick25; encG.io.data := scanout.io.green
+  encG.io.c := 0.U; encG.io.de := de
+  val encR = withClockAndReset(sysClock, pllRst) { Module(new TmdsEncoder) }
+  encR.io.en := tick25; encR.io.data := scanout.io.red
+  encR.io.c := 0.U; encR.io.de := de
+  val serB = withClockAndReset(sysClock, pllRst) { Module(new TmdsSerializer) }
+  serB.io.en := tick25; serB.io.tmds := encB.io.tmds
+  val serG = withClockAndReset(sysClock, pllRst) { Module(new TmdsSerializer) }
+  serG.io.en := tick25; serG.io.tmds := encG.io.tmds
+  val serR = withClockAndReset(sysClock, pllRst) { Module(new TmdsSerializer) }
+  serR.io.en := tick25; serR.io.tmds := encR.io.tmds
+  val serClk = withClockAndReset(sysClock, pllRst) { Module(new TmdsSerializer) }
+  serClk.io.en := tick25; serClk.io.tmds := "b0000011111".U
+  gpdi_dp := Cat(serClk.io.out, serR.io.out, serG.io.out, serB.io.out)
+
   // ── LEDs: max debug ────────────────────────────────────────────────────────
-  // [7]=pll [6]=boot_done [5:2]=FlashBootLoader_state [1]=backend_busy [0]=debug_uart_txd
   led := Cat(pllLocked, bootDone,
              flashBoot.io.debug_state,
              sdramBackend.io.backend.busy,
@@ -267,6 +338,11 @@ object ULX3SPins {
     PinDef("btn[0]", "R1",  pull = "DOWN"), PinDef("btn[1]", "T1",  pull = "DOWN"),
     PinDef("btn[2]", "R18", pull = "DOWN"), PinDef("btn[3]", "V1",  pull = "DOWN"),
     PinDef("btn[4]", "U1",  pull = "DOWN"), PinDef("btn[5]", "H16", pull = "DOWN"),
+    // GPDI (HDMI)
+    PinDef("gpdi_dp[0]", "A16", ioType = "LVCMOS33D"),
+    PinDef("gpdi_dp[1]", "A14", ioType = "LVCMOS33D"),
+    PinDef("gpdi_dp[2]", "A12", ioType = "LVCMOS33D"),
+    PinDef("gpdi_dp[3]", "A17", ioType = "LVCMOS33D"),
   )
 
   def emitLPF(path: String): Unit = {

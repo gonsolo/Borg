@@ -39,3 +39,10 @@ fpga/ulx3s/sdram_test/*.bit
 fpga/ulx3s/sdram_test/*.config
 fpga/ulx3s/sdram_test/*.json
 generated/
+
+# ULX3S build artifacts
+fpga/ulx3s/*.elf
+fpga/ulx3s/*.o
+fpga/ulx3s/*.s
+fpga/ulx3s/debug/*.hex
+fpga/ulx3s/debug/*_pnr.log
