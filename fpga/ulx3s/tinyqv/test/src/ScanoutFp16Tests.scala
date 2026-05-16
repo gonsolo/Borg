@@ -258,5 +258,137 @@ object ScanoutFp16Tests extends TestSuite {
         println(s"[$cycle] ✓ HdmiScanoutFp16 E2E test passed!")
       }
     }
+
+    utest.test("HdmiScanoutFp16: multi-tile cross-tile addressing") {
+      simulate(new ScanoutFp16Harness) { dut =>
+
+        val TIMEOUT = 500000
+        var cycle = 0
+        def tick(n: Int = 1): Unit = {
+          for (_ <- 0 until n) dut.clock.step()
+          cycle += n
+          Predef.assert(cycle < TIMEOUT, s"TIMEOUT at cycle $cycle")
+        }
+
+        dut.reset.poke(true.B); tick(5)
+        dut.reset.poke(false.B); tick(5)
+        cycle = 10
+
+        dut.io.gpuWr.poke(false.B)
+        dut.io.gpuReq.poke(false.B)
+        dut.io.gpuAddr.poke(0.U)
+        dut.io.gpuWdata.poke(0.U)
+        dut.io.hCount.poke(0.U)
+        dut.io.vCount.poke(0.U)
+        dut.io.de.poke(false.B)
+        dut.io.tick25.poke(false.B)
+        dut.io.enable.poke(false.B)
+
+        def gpuWrite16(addr: Int, data: Int): Unit = {
+          dut.io.gpuWr.poke(true.B)
+          dut.io.gpuAddr.poke(addr.U)
+          dut.io.gpuWdata.poke(data.U)
+          tick()
+          var waited = 0
+          while (!dut.io.gpuReady.peek().litToBoolean && waited < 200) {
+            tick(); waited += 1
+          }
+          Predef.assert(waited < 200, s"GPU write at 0x${addr.toHexString} timed out")
+          dut.io.gpuWr.poke(false.B)
+          tick()
+          waited = 0
+          while (dut.io.memBusy.peek().litToBoolean && waited < 200) {
+            tick(); waited += 1
+          }
+        }
+
+        // Helper: fill all 16 pixels in a tile with the same color
+        def fillTile(tileIndex: Int, r: Int, g: Int, b: Int): Unit = {
+          val tileAddr = 0x1000 + tileIndex * 128
+          for (pix <- 0 until 16) {
+            gpuWrite16(tileAddr + pix * 8 + 0, r)
+            gpuWrite16(tileAddr + pix * 8 + 2, g)
+            gpuWrite16(tileAddr + pix * 8 + 4, b)
+            gpuWrite16(tileAddr + pix * 8 + 6, 0)
+          }
+        }
+
+        // Helper: trigger prefetch for a given FB row
+        def prefetchRow(fbRow: Int): Unit = {
+          // overlay magnified 2×: startY=208
+          // nextOverlayV = startY + fbRow*2 → vCount = startY + fbRow*2 - 1
+          val vCount = 208 + fbRow * 2 - 1
+          dut.io.hCount.poke(640.U)
+          dut.io.vCount.poke(vCount.U)
+          dut.io.de.poke(false.B)
+          dut.io.tick25.poke(false.B)
+          tick()  // settle with new vCount/hCount before pulsing tick25
+          dut.io.tick25.poke(true.B)
+          tick()
+          dut.io.tick25.poke(false.B)
+          tick(2000)  // let FSM complete
+        }
+
+        // Helper: read RGB at a given FB pixel x during display of a given FB row
+        def readPixel(fbRow: Int, fbX: Int): (Int, Int, Int) = {
+          dut.io.vCount.poke((208 + fbRow * 2).U)
+          dut.io.de.poke(true.B)
+          dut.io.hCount.poke((288 + fbX * 2).U)
+          tick(2)
+          (dut.io.red.peek().litValue.toInt,
+           dut.io.green.peek().litValue.toInt,
+           dut.io.blue.peek().litValue.toInt)
+        }
+
+        // ── Fill 3 tiles with distinct colors ──
+        // 32×32 FB, tilesPerRow = 8
+        // Tile (col=0, row=0): index 0 → RED
+        // Tile (col=1, row=0): index 1 → GREEN
+        // Tile (col=0, row=1): index 8 → BLUE
+        println(s"[$cycle] Filling tile (0,0) = red")
+        fillTile(0, 0x3C00, 0x0000, 0x0000)
+        println(s"[$cycle] Filling tile (1,0) = green")
+        fillTile(1, 0x0000, 0x3C00, 0x0000)
+        println(s"[$cycle] Filling tile (0,1) = blue")
+        fillTile(8, 0x0000, 0x0000, 0x3C00)
+        println(s"[$cycle] Fill complete.")
+
+        dut.io.enable.poke(true.B)
+
+        // ── Scanline y=0: pixels 0-3 from tile(0,0)=red, pixels 4-7 from tile(1,0)=green ──
+        println(s"[$cycle] Prefetching row 0...")
+        prefetchRow(0)
+
+        val (r0, g0, b0) = readPixel(0, 0)   // tile (0,0) pixel (0,0)
+        println(s"[$cycle] FB(0,0): R=$r0 G=$g0 B=$b0 (expect red)")
+        Predef.assert(r0 == 255 && g0 == 0 && b0 == 0, s"FB(0,0) expected red, got ($r0,$g0,$b0)")
+
+        val (r3, g3, b3) = readPixel(0, 3)   // tile (0,0) pixel (3,0)
+        println(s"[$cycle] FB(3,0): R=$r3 G=$g3 B=$b3 (expect red)")
+        Predef.assert(r3 == 255 && g3 == 0 && b3 == 0, s"FB(3,0) expected red, got ($r3,$g3,$b3)")
+
+        val (r4, g4, b4) = readPixel(0, 4)   // tile (1,0) pixel (0,0) → green
+        println(s"[$cycle] FB(4,0): R=$r4 G=$g4 B=$b4 (expect green)")
+        Predef.assert(r4 == 0 && g4 == 255 && b4 == 0, s"FB(4,0) expected green, got ($r4,$g4,$b4)")
+
+        val (r7, g7, b7) = readPixel(0, 7)   // tile (1,0) pixel (3,0) → green
+        println(s"[$cycle] FB(7,0): R=$r7 G=$g7 B=$b7 (expect green)")
+        Predef.assert(r7 == 0 && g7 == 255 && b7 == 0, s"FB(7,0) expected green, got ($r7,$g7,$b7)")
+
+        // ── Scanline y=4: pixels 0-3 from tile(0,1)=blue ──
+        println(s"[$cycle] Prefetching row 4...")
+        prefetchRow(4)
+
+        val (r40, g40, b40) = readPixel(4, 0)  // tile (0,1) pixel (0,0) → blue
+        println(s"[$cycle] FB(0,4): R=$r40 G=$g40 B=$b40 (expect blue)")
+        Predef.assert(r40 == 0 && g40 == 0 && b40 == 255, s"FB(0,4) expected blue, got ($r40,$g40,$b40)")
+
+        val (r43, g43, b43) = readPixel(4, 3)  // tile (0,1) pixel (3,0) → blue
+        println(s"[$cycle] FB(3,4): R=$r43 G=$g43 B=$b43 (expect blue)")
+        Predef.assert(r43 == 0 && g43 == 0 && b43 == 255, s"FB(3,4) expected blue, got ($r43,$g43,$b43)")
+
+        println(s"[$cycle] ✓ Multi-tile cross-tile addressing test passed!")
+      }
+    }
   }
 }
