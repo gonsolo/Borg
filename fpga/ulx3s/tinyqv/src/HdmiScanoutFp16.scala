@@ -93,7 +93,7 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbWidth: Int = 32, fbHeight: Int =
   // For each pixel: 2 GPU reads (RG word, then BZ word).
   val sIdle :: sReqRG :: sWaitRG :: sReqBZ :: sWaitBZ :: sStore :: Nil = Enum(6)
   val state   = RegInit(sIdle)
-  val pixIdx  = RegInit(0.U(log2Ceil(fbWidth + 1).W))
+  val pixIdx  = RegInit(0.U(log2Ceil(fbWidth).W))
   val rgWord  = Reg(UInt(32.W))
 
   // Compute pixel address from (pixIdx, fetchRow)
