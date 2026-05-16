@@ -350,17 +350,7 @@ class CpuSdramHdmiTest(clockMhz: Int = 50) extends RawModule {
 
   gpdi_dp  := Cat(serClk.io.out, serR.io.out, serG.io.out, serB.io.out)
   ftdi_rxd := false.B
-  // ── Diagnostic: capture first GPU read word after fill ──
-  val readCount  = withClockAndReset(sysClock, pllRst) { RegInit(0.U(8.W)) }
-  val gpuWord0   = withClockAndReset(sysClock, pllRst) { RegInit(0.U(32.W)) }
-  withClockAndReset(sysClock, pllRst) {
-    when(fbFillDone && mem.io.gpuMem.ready && readCount < 1.U) {
-      gpuWord0  := mem.io.gpuMem.data
-      readCount := readCount + 1.U
-    }
-  }
-  // LED7=fbFillDone, LED[6:3]=gpuWord0(15:12), LED[2:0]=gpuWord0(10:8)
-  led := Cat(fbFillDone, gpuWord0(15, 12), gpuWord0(10, 8))
+  led := Cat(fbFillDone, 0.U(7.W))  // LED7 = framebuffer fill complete
 }
 
 object CpuSdramHdmiTestMain extends App {
