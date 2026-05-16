@@ -84,7 +84,7 @@ class MemoryController extends Module {
   val txn_len   = Mux(is_instr, 1.U(2.W), data_txn_len)
   val addr_in = WireDefault(io.cpuData.addr(24, 0))
   when(is_instr) { addr_in := Cat(0.U(1.W), io.instrFetch.instr_addr, 0.U(1.W)) }
-  when(is_gpu)   { addr_in := Cat(2.U(2.W), 0.U(3.W), io.gpuMem.addr) }
+  when(is_gpu)   { addr_in := io.gpuMem.addr }
 
   val stall_txn = instr_active &&
     io.instrFetch.instr_fetch_stall &&
@@ -194,8 +194,10 @@ class MemoryController extends Module {
 
     qspi_write_done := qspi_data_req && qspi_data_byte_idx === data_txn_len
 
-    when(start_gpu_read || start_gpu_write) {
-      data_txn_len := 3.U
+    when(start_gpu_read) {
+      data_txn_len := 3.U   // reads: 4 bytes (2 SDRAM words)
+    } .elsewhen(start_gpu_write) {
+      data_txn_len := 1.U   // writes: 2 bytes (1 SDRAM word at a time)
     } .elsewhen(start_read || start_write) {
       data_txn_len := Cat(data_txn_n(1), data_txn_n(1) | data_txn_n(0))
     }
@@ -227,8 +229,17 @@ class MemoryController extends Module {
   private def wireBackend(): Unit = {
     // Arbiter → Backend
     io.backend.addrIn     := addr_in
-    io.backend.dataIn     := qspi_data_buf(
-      qspi_data_byte_idx + Mux(io.backend.dataReq, 1.U, 0.U)
+    // On a start_write/start_gpu_write cycle, BOTH qspi_data_byte_idx AND
+    // qspi_data_buf hold stale values (register writes take effect next cycle).
+    // Bypass everything and present byte 0 directly from the data source.
+    io.backend.dataIn := Mux(start_write,
+      io.cpuData.dataOut(7, 0),
+      Mux(start_gpu_write,
+        io.gpuMem.wdata(7, 0),
+        qspi_data_buf(
+          qspi_data_byte_idx + Mux(io.backend.dataReq, 1.U, 0.U)
+        )
+      )
     )
     io.backend.startRead  := start_read || start_instr || start_gpu_read
     io.backend.startWrite := start_write || start_gpu_write

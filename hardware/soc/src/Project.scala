@@ -98,6 +98,11 @@ trait SoCLogic { self: RawModule =>
 
 
 
+  /** Wire the GPU memory port.  Default: direct Borg↔MemoryController. */
+  def wireGpuMem(): Unit = {
+    mem.io.gpuMem <> peripherals.io.gpuMem
+  }
+
   /** Wire up the entire SoC. Call this from the top-level module body. */
   def wireSoC(): UInt = {
 
@@ -118,8 +123,8 @@ trait SoCLogic { self: RawModule =>
       cpu.io.instr_data          := mem.io.instrFetch.instr_data
       cpu.io.instr_ready         := mem.io.instrFetch.instr_ready
 
-      // gpu read port — single controller
-      mem.io.gpuMem <> peripherals.io.gpuMem
+      // gpu read port — overridable so ULX3S can mux with HDMI scanout
+      wireGpuMem()
 
     // -------------------------------------------------------------------------
     // mmio peripheral bus (unchanged from before)

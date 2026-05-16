@@ -66,6 +66,18 @@ generate_verilog: .verilog_stamp info.yaml
 generate_verilog_ulx3s: rdl
 	CLOCK_MHZ=125 $(MILL) fpga.ulx3s.tinyqv.runMain soc.ULX3SMain
 
+# HDMI Test Pattern emission
+generate_hdmi_test: rdl
+	TARGET_DIR=out/ulx3s/hdmi_test $(MILL) fpga.ulx3s.tinyqv.runMain soc.HdmiTestMain
+
+# HDMI SDRAM Test emission
+generate_hdmi_sdram_test: rdl
+	TARGET_DIR=out/ulx3s/hdmi_sdram_test $(MILL) fpga.ulx3s.tinyqv.runMain soc.HdmiSdramTestMain
+
+# CPU SDRAM HDMI Test emission
+generate_cpu_sdram_hdmi_test: rdl
+	TARGET_DIR=out/ulx3s/cpu_sdram_hdmi_test $(MILL) fpga.ulx3s.tinyqv.runMain soc.CpuSdramHdmiTestMain
+
 # Minimal CPU+SDRAM debug harness — fast iteration (~6s build)
 generate_verilog_cpu_sdram: rdl
 	CLOCK_MHZ=125 $(MILL) fpga.ulx3s.tinyqv.runMain soc.CpuSdramTestMain

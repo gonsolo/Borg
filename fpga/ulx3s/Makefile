@@ -57,7 +57,7 @@ LPF = $(ULX3S_VERILOG_DIR)/ulx3s.lpf
 MAX_LUT4  = 83640
 MAX_DFF   = 83640
 
-# Synthesis — ECP5 target, DSP and ABC9 enabled
+# Synthesis — ECP5 target, ABC9 enabled
 borg.json: .verilog_stamp_ulx3s
 	@echo -e "$(BOLD)[SYNTH]$(RESET) Running Yosys for ECP5 ..."
 	yosys -p "read -sv $(SRC_FILES); \
@@ -138,6 +138,17 @@ uart_hello_fw.bin: uart_hello.s
 flash-uart-hello: uart_hello_fw.bin
 	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing uart_hello firmware @ 0x400000 ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 uart_hello_fw.bin
+
+sdram_fb_fw.bin: sdram_fb.s
+	@echo -e "$(BOLD)[FW]$(RESET) Assembling sdram_fb.s ..."
+	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o sdram_fb.o sdram_fb.s
+	riscv64-unknown-elf-ld -melf32lriscv -Ttext=0x0 -o sdram_fb.elf sdram_fb.o
+	riscv64-unknown-elf-objcopy -O binary sdram_fb.elf sdram_fb_raw.bin
+	@python3 -c "import struct; d=open('sdram_fb_raw.bin','rb').read(); open('sdram_fb_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> sdram_fb_fw.bin')"
+
+flash-sdram-fb: sdram_fb_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing sdram_fb firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 sdram_fb_fw.bin
 	@echo -e "$(BOLD)[DONE]$(RESET) Firmware flashed. Now run: make load && make tio"
 
 minimal.bin:
