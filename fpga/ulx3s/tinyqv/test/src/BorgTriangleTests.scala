@@ -43,12 +43,12 @@ class BorgSdramHarnessIO extends Bundle {
   val memBusy    = Output(Bool())
 }
 
-class BorgSdramHarness extends Module {
+class BorgSdramHarness(rdDelay: Int = 4, wrDelay: Int = 2) extends Module {
   val io = IO(new BorgSdramHarnessIO)
 
   val borg  = Module(new Borg(BorgConfig.Sim))
   val mem   = Module(new MemoryController)
-  val sdram = Module(new SdramBackendSim(words = 16384, rdDelay = 4, wrDelay = 2))
+  val sdram = Module(new SdramBackendSim(words = 16384, rdDelay = rdDelay, wrDelay = wrDelay))
 
   // ── MemoryController ↔ SdramBackendSim ──
   sdram.io.backend <> mem.io.backend
@@ -306,6 +306,127 @@ object BorgTriangleTests extends TestSuite {
 
         println(s"[$cycle] ✓ Borg GPU → SDRAM E2E triangle test passed!")
         println(s"[$cycle]   Pixel 0: R=FP16(1.0)=0x3C00 G=0x0000 B=0x0000 ✓")
+      }
+    }
+
+    // ── Worst-case SDRAM timing stress test ──
+    // Real SDRAM (sdram_pnru) can have row-miss latency: precharge(2) + activate(2) +
+    // CAS(3) = 7 cycles per access. Test with rdDelay=8, wrDelay=6 to exercise
+    // the pipeline under worst-case memory latency.
+    utest.test("Borg GPU → SDRAM E2E (slow SDRAM timing)") {
+      simulate(new BorgSdramHarness(rdDelay = 8, wrDelay = 6)) { dut =>
+
+        val TIMEOUT = 200000
+        var cycle = 0
+        def tick(n: Int = 1): Unit = {
+          for (_ <- 0 until n) dut.clock.step()
+          cycle += n
+          Predef.assert(cycle < TIMEOUT, s"TIMEOUT at cycle $cycle")
+        }
+        def borgWrite(addr: Int, data: BigInt): Unit = {
+          dut.io.borgAddr.poke(addr.U)
+          dut.io.borgDataIn.poke(data.U)
+          dut.io.borgWriteN.poke(2.U); tick()
+          dut.io.borgWriteN.poke(3.U); tick()
+        }
+        def borgRead(addr: Int): BigInt = {
+          dut.io.borgAddr.poke(addr.U)
+          dut.io.borgReadN.poke(2.U); tick(); tick()
+          val v = dut.io.borgDataOut.peek().litValue
+          dut.io.borgReadN.poke(3.U); tick()
+          v
+        }
+        import borg.BorgGpuRegs
+
+        // ── Reset (exact same as original) ──
+        dut.reset.poke(true.B)
+        dut.io.borgWriteN.poke(3.U)
+        dut.io.borgReadN.poke(3.U)
+        dut.io.rdReq.poke(false.B)
+        dut.io.rdAddr.poke(0.U)
+        tick(5)
+        dut.reset.poke(false.B)
+        tick(25)
+        cycle = 30
+
+        // ── (1) Flush config ──
+        val tileBase = 0x1000
+        borgWrite(BorgGpuRegs.flush_fb_base_offset.litValue.toInt, tileBase)
+        borgWrite(BorgGpuRegs.flush_width_offset.litValue.toInt, 5)  // log2(32)
+
+        // ── (2) Reset pipeline ──
+        borgWrite(BorgGpuRegs.control_offset.litValue.toInt, 2)
+        tick(5)
+
+        // ── (3) GPRs + Shaders (exact same as original) ──
+        borgWrite(7 * 4, fp16(1.0f))
+        borgWrite(6 * 4, fp16(0.0f))
+
+        borgWrite(128 + 0*4, encodeADD(rs1=7, rs2=6, rd=0))
+        borgWrite(128 + 1*4, encodeADD(rs1=7, rs2=6, rd=1))
+        borgWrite(128 + 2*4, encodeADD(rs1=7, rs2=6, rd=2))
+        borgWrite(128 + 3*4, 0) // halt
+
+        borgWrite(128 + 4*4, encodeADD(rs1=7, rs2=6, rd=26))
+        borgWrite(128 + 5*4, encodeADD(rs1=6, rs2=6, rd=27))
+        borgWrite(128 + 6*4, encodeADD(rs1=6, rs2=6, rd=28))
+        borgWrite(128 + 7*4, encodeADD(rs1=6, rs2=6, rd=29))
+        borgWrite(128 + 8*4, 0) // halt
+
+        borgWrite(BorgGpuRegs.frag_pc_offset.litValue.toInt, 4)
+
+        // ── (4) Enqueue tile ──
+        borgWrite(BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, 0)
+        tick(5)
+
+        // ── (5) 16 manual iterations (200cy spacing for slow SDRAM) ──
+        println(s"[$cycle] Running 16 pixel iterations (200cy spacing, slow SDRAM)...")
+        for (px <- 0 until 16) {
+          borgWrite(BorgGpuRegs.iter_offset.litValue.toInt, 1)
+          tick(200) // 200cy for slow SDRAM (vs 120cy normal)
+        }
+
+        // ── (6) Wait for flusher ──
+        println(s"[$cycle] Waiting for flusher (100000 cycles, slow SDRAM)...")
+        tick(100000)
+
+        // ── (7) Readback ──
+        var waited = 0
+        while (dut.io.memBusy.peek().litToBoolean && waited < 1000) {
+          tick(); waited += 1
+        }
+        dut.io.rdReq.poke(true.B)
+        dut.io.rdAddr.poke(tileBase.U)
+        tick()
+        waited = 0
+        while (!dut.io.rdReady.peek().litToBoolean && waited < 1000) {
+          tick(); waited += 1
+        }
+        Predef.assert(waited < 1000, "SDRAM readback timed out (slow)")
+        val loWord = dut.io.rdData.peek().litValue.toLong & 0xFFFFFFFFL
+        dut.io.rdReq.poke(false.B); tick(10)
+
+        dut.io.rdReq.poke(true.B)
+        dut.io.rdAddr.poke((tileBase + 4).U)
+        tick()
+        waited = 0
+        while (!dut.io.rdReady.peek().litToBoolean && waited < 1000) {
+          tick(); waited += 1
+        }
+        Predef.assert(waited < 1000, "SDRAM readback hi timed out (slow)")
+        val hiWord = dut.io.rdData.peek().litValue.toLong & 0xFFFFFFFFL
+        dut.io.rdReq.poke(false.B)
+
+        val rdR = loWord & 0xFFFFL
+        val rdG = (loWord >> 16) & 0xFFFFL
+        val rdB = hiWord & 0xFFFFL
+
+        println(s"[$cycle] R=0x${rdR.toHexString} G=0x${rdG.toHexString} B=0x${rdB.toHexString}")
+        Predef.assert(rdR == 0x3C00L, s"R mismatch: got 0x${rdR.toHexString}")
+        Predef.assert(rdG == 0x0000L, s"G mismatch: got 0x${rdG.toHexString}")
+        Predef.assert(rdB == 0x0000L, s"B mismatch: got 0x${rdB.toHexString}")
+
+        println(s"[$cycle] ✓ Slow SDRAM stress test passed! (rdDelay=8, wrDelay=6)")
       }
     }
   }
