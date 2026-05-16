@@ -208,8 +208,10 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
     ftdi_rxd := uo_out_val(6)
   }
 
-  // ── HDMI Scanout ──────────────────────────────────────────────────────────
-  val scanout = withClockAndReset(sysClock, pllRst) { Module(new HdmiScanoutTiled) }
+  // ── HDMI Scanout (reads Borg GPU tiled FP16 framebuffer) ─────────────────
+  val scanout = withClockAndReset(sysClock, pllRst) {
+    Module(new HdmiScanoutFp16(fbBase = 0x100000, fbWidth = 32, fbHeight = 32))
+  }
   scanout.io.enable := bootDone
 
   // Mux scanout onto gpuMem after wireSoC() has already connected
