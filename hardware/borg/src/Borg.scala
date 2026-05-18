@@ -5,19 +5,18 @@ package borg
 
 import chisel3.*
 import chisel3.util.*
+import hutt.HuttBus
 
 /** BorgIO defines the interface for the shading processor. It uses
   * memory-mapped I/O for register and instruction memory access.
+  *
+  * The MMIO port is a single-outstanding Decoupled req/resp bus over a 10-bit
+  * byte address space.  Read responses arrive one cycle after `req.fire` (the
+  * register file / RDL is RegNext'd).  Write responses ack the cycle after as
+  * well (resp.bits is don't-care for writes).
   */
 class BorgIO(val cfg: BorgConfig) extends Bundle {
-  val address = Input(
-    UInt(10.W)
-  ) // 1024-byte address space (byte-addressed internally by shifting)
-  val data_in = Input(UInt(32.W))  // 32-bit data for IMEM writes; register writes use low cfg.totalBits
-  val data_write_n = Input(UInt(2.W)) // 0b10 for write
-  val data_read_n = Input(UInt(2.W))
-  val data_out = Output(UInt(32.W))  // 32-bit: register reads, tile buffer reads are packed 32-bit
-  val data_ready = Output(Bool())
+  val mmio = Flipped(new HuttBus(10))
   val uo_out = Output(UInt(8.W))
   val user_interrupt = Output(Bool())
 
@@ -83,6 +82,16 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   private def s = sequencer.get
   private def b = binner.get
 
+  // -- MMIO handshake state (visible across multiple wire* methods) ---------
+  // respPending bridges the one-cycle gap between req.fire and the resp the
+  // CPU consumes via resp.fire.  rast.io.autoRunStall asserts when the
+  // rasterizer is auto-running and owns the bus.
+  // Declared before the wire* method calls because Scala val initialization
+  // is in declaration order and wireBus() consumes these fields.
+  val mmioRespPending = RegInit(false.B)
+  val mmioReqAddrReg  = RegEnable(io.mmio.req.bits.addr,  io.mmio.req.fire)
+  val mmioReqDataReg  = RegEnable(io.mmio.req.bits.data,  io.mmio.req.fire)
+
   wireBus()
   wireRdlRegs()
   wireCore()
@@ -103,10 +112,20 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   }
 
   private def wireBus(): Unit = {
-    bus.address    := io.address
-    bus.data_in    := io.data_in
-    bus.is_writing := io.data_write_n === 2.U && RegNext(io.data_write_n) =/= 2.U
-    bus.is_reading := io.data_read_n === 2.U
+    // Internal `bus` mirrors the request fields with the addr/data persisted
+    // for the cycle after req.fire so RegNext-based read-data paths see a
+    // stable address.
+    bus.address    := Mux(io.mmio.req.fire, io.mmio.req.bits.addr, mmioReqAddrReg)
+    bus.data_in    := Mux(io.mmio.req.fire, io.mmio.req.bits.data, mmioReqDataReg)
+    bus.is_writing := io.mmio.req.fire &&  io.mmio.req.bits.write
+    bus.is_reading := io.mmio.req.fire && !io.mmio.req.bits.write
+
+    // Single-outstanding: don't accept a new request while one is in flight or
+    // while the rasterizer owns the bus.
+    io.mmio.req.ready := !mmioRespPending && !rast.io.autoRunStall
+
+    when(io.mmio.req.fire) { mmioRespPending := true.B }
+    when(io.mmio.resp.fire) { mmioRespPending := false.B }
   }
 
   private def wireCore(): Unit = {
@@ -394,7 +413,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     val rdl_read_data = rdlRegs.io.bus.readData
     // tile_rg/tile_bz readback arms kept unconditionally: needed by the test harness
     // (readTilePixel) and by the CPU flush path (hasFlusher=false).
-    io.data_out := MuxCase(rdl_read_data, Seq(
+    val data_out = MuxCase(rdl_read_data, Seq(
       (read_addr_del < 128.U) -> core.io.regReadData,
       (read_addr_del === BorgGpuRegs.tile_rg_offset) -> Cat(tile.io.read.data.r, tile.io.read.data.g),
       (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.read.data.b, tile.io.read.data.z)
@@ -405,8 +424,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> seqDoneSticky.get.asUInt
     ) else Seq.empty))
 
-    val read_ready_del = RegNext(bus.is_reading, false.B)
-    io.data_ready := Mux(rast.io.autoRunStall, false.B, (io.data_read_n === 3.U) || read_ready_del)
+    // Resp drive: data_out is combinational from read_addr_del (= RegNext of
+    // bus.address), which is stable from the cycle after req.fire onward —
+    // exactly when mmioRespPending first asserts.
+    io.mmio.resp.valid := mmioRespPending && !rast.io.autoRunStall
+    io.mmio.resp.bits  := data_out
     io.uo_out := 0.U
     io.user_interrupt := false.B
   }

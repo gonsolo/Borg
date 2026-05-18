@@ -35,7 +35,7 @@ object BorgSequencerTests extends TestSuite {
 
   // --- Bus helpers ---
 
-  def rawWrite(borg: Borg, addr: Int, data: BigInt): Unit = {
+  def rawWrite(borg: BorgTestWrapper, addr: Int, data: BigInt): Unit = {
     borg.io.address.poke(addr.U)
     borg.io.data_in.poke(data.U)
     borg.io.data_write_n.poke(2.U)
@@ -44,7 +44,7 @@ object BorgSequencerTests extends TestSuite {
     borg.clock.step(1)
   }
 
-  def rawRead(borg: Borg, addr: Int): BigInt = {
+  def rawRead(borg: BorgTestWrapper, addr: Int): BigInt = {
     borg.io.address.poke(addr.U)
     borg.io.data_read_n.poke(2.U)
     borg.clock.step(1)
@@ -55,7 +55,7 @@ object BorgSequencerTests extends TestSuite {
     bits
   }
 
-  def resetAndWait(borg: Borg): Unit = {
+  def resetAndWait(borg: BorgTestWrapper): Unit = {
     borg.reset.poke(true.B)
     borg.clock.step(2)
     borg.reset.poke(false.B)
@@ -66,7 +66,7 @@ object BorgSequencerTests extends TestSuite {
     rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
   }
 
-  def servicePsram(borg: Borg, psram: Map[Int, BigInt]): Int = {
+  def servicePsram(borg: BorgTestWrapper, psram: Map[Int, BigInt]): Int = {
     if (borg.io.gpuMem.req.peek().litToBoolean) {
       if (!borg.io.gpuMem.wr.peek().litToBoolean) {
         // Read: return data from psram map
@@ -83,7 +83,7 @@ object BorgSequencerTests extends TestSuite {
     }
   }
 
-  def runSequencerUntilDone(borg: Borg, psram: Map[Int, BigInt],
+  def runSequencerUntilDone(borg: BorgTestWrapper, psram: Map[Int, BigInt],
                             maxCycles: Int = 5000): (Boolean, Boolean, Int) = {
     var seqBusySeen    = false
     var seqBusyCleared = false
@@ -196,7 +196,7 @@ object BorgSequencerTests extends TestSuite {
   val tests = Tests {
 
     utest.test("vertex_shader_run") {
-      simulate(new Borg(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Sim)) { borg =>
         println("\n=== BorgSequencerTests: vertex_shader_run ===")
         resetAndWait(borg)
 
@@ -231,7 +231,7 @@ object BorgSequencerTests extends TestSuite {
     }
 
     utest.test("triangle_setup") {
-      simulate(new Borg(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Sim)) { borg =>
         println("\n=== BorgSequencerTests: triangle_setup ===")
         resetAndWait(borg)
 
@@ -294,7 +294,7 @@ object BorgSequencerTests extends TestSuite {
       * Verifies all 31 physical uniform registers after a full sequencer run.
       */
     utest.test("sequencer_uniform_staging") {
-      simulate(new Borg(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Sim)) { borg =>
         println("\n=== BorgSequencerTests: sequencer_uniform_staging ===")
         resetAndWait(borg)
 
@@ -413,7 +413,7 @@ object BorgSequencerTests extends TestSuite {
       * reads staged color values, tile buffer receives correct RGBZ.
       */
     utest.test("sequencer_full_triangle") {
-      simulate(new Borg(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Sim)) { borg =>
         println("\n=== BorgSequencerTests: sequencer_full_triangle ===")
 
         // --- (0) Reset ---
@@ -485,7 +485,7 @@ object BorgSequencerTests extends TestSuite {
     }
 
     utest.test("multi_triangle_loop") {
-      simulate(new Borg(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Sim)) { borg =>
         println("\n=== BorgSequencerTests: multi_triangle_loop ===")
         resetAndWait(borg)
 
@@ -556,7 +556,7 @@ object BorgSequencerTests extends TestSuite {
       * writes contain the expected FP16 RGBZ values at the correct addresses.
       */
     utest.test("sequencer_flusher_e2e") {
-      simulate(new Borg(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Sim)) { borg =>
         println("\n=== BorgSequencerTests: sequencer_flusher_e2e ===")
 
         // --- Reset ---

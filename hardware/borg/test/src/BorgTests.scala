@@ -50,7 +50,7 @@ object BorgTests extends TestSuite {
 
   // --- Low-level bus helpers ---
 
-  def writeAddr(borg: Borg, addr: Int, data: BigInt): Unit = {
+  def writeAddr(borg: BorgTestWrapper, addr: Int, data: BigInt): Unit = {
     borg.io.address.poke(addr.U)
     borg.io.data_in.poke(data.U)
     borg.io.data_write_n.poke(2.U)
@@ -59,7 +59,7 @@ object BorgTests extends TestSuite {
     borg.clock.step(1)
   }
 
-  def readAddr(borg: Borg, addr: Int, config: FloatConfig): Float = {
+  def readAddr(borg: BorgTestWrapper, addr: Int, config: FloatConfig): Float = {
     borg.io.address.poke(addr.U)
     borg.io.data_read_n.poke(2.U)
     borg.clock.step(1)
@@ -98,7 +98,7 @@ object BorgTests extends TestSuite {
 
   // --- Execution helpers ---
 
-  def resetAndWait(borg: Borg): Unit = {
+  def resetAndWait(borg: BorgTestWrapper): Unit = {
     borg.reset.poke(true.B)
     borg.clock.step(2)
     borg.reset.poke(false.B)
@@ -108,7 +108,7 @@ object BorgTests extends TestSuite {
     writeAddr(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
   }
 
-  def waitForHalt(borg: Borg, maxCycles: Int = 1000): Unit = {
+  def waitForHalt(borg: BorgTestWrapper, maxCycles: Int = 1000): Unit = {
     var status: BigInt = 0
     var cycles = 0
     
@@ -130,7 +130,7 @@ object BorgTests extends TestSuite {
     utest.assert(cycles < maxCycles) // Ensure we didn't time out
   }
 
-  def startAndWaitForHalt(borg: Borg): Unit = {
+  def startAndWaitForHalt(borg: BorgTestWrapper): Unit = {
     writeAddr(borg, BorgGpuRegs.control_offset.litValue.toInt, 1)
     waitForHalt(borg)
   }
@@ -146,7 +146,7 @@ object BorgTests extends TestSuite {
 
   // --- Test runners ---
 
-  def runTest(borg: Borg, config: FloatConfig, op: Op, a: Float, b: Float, c: Float = 0f): Unit = {
+  def runTest(borg: BorgTestWrapper, config: FloatConfig, op: Op, a: Float, b: Float, c: Float = 0f): Unit = {
     resetAndWait(borg)
     // Load operands
     writeAddr(borg, 0, floatToBits(a, config))
@@ -214,7 +214,7 @@ object BorgTests extends TestSuite {
   val FP16_MAX = 65504f
 
   // Runs a batch of op/pairs on an already-open borg simulator instance
-  def runBatch(borg: Borg, config: FloatConfig, op: Op, pairs: Seq[(Float, Float)]): Unit = {
+  def runBatch(borg: BorgTestWrapper, config: FloatConfig, op: Op, pairs: Seq[(Float, Float)]): Unit = {
     val tag = s"${config.getClass.getSimpleName.replace("$", "")} ${op.getClass.getSimpleName.replace("$", "")}"
     println(s"\n--- Starting $tag Batch ---")
     pairs.foreach { case (a, b) =>
@@ -247,7 +247,7 @@ object BorgTests extends TestSuite {
 
     // All FP32 tests share one simulate() call — one Chisel compile
     utest.test("fp32_tests") {
-      simulate(new Borg(FloatConfig.FP32)) { borg =>
+      simulate(new BorgTestWrapper(FloatConfig.FP32)) { borg =>
         runBatch(borg, FloatConfig.FP32, ADD, pairs)
         runBatch(borg, FloatConfig.FP32, MUL, pairs)
         runBatch(borg, FloatConfig.FP32, FMA(3), pairs)
@@ -272,7 +272,7 @@ object BorgTests extends TestSuite {
     // All FP16 tests share one simulate() call — one Chisel compile
     utest.test("fp16_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         runBatch(borg, config, ADD, pairs)
         runBatch(borg, config, MUL, pairs)
         runBatch(borg, config, FMA(3), pairs)
@@ -381,7 +381,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("individual_instruction_fp16_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Individual Instruction FP16 Tests ===")
 
         // ADD: 1.0 + 2.0 = 3.0
@@ -423,7 +423,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("edge_case_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Edge Case Tests ===")
 
         // --- Zero behavior ---
@@ -478,7 +478,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("mmio_register_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== MMIO Register Tests ===")
 
         // --- Round-trip: write and read back all 8 registers ---
@@ -535,7 +535,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("pipeline_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Pipeline Tests ===")
 
         // --- Test 1: 3-instruction chain with data dependencies ---
@@ -646,7 +646,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("inside_flag_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Inside Flag Snoop Tests ===")
 
         def assertInside(expected: Boolean, label: String): Unit = {
@@ -716,6 +716,10 @@ object BorgTests extends TestSuite {
         writeAddr(borg, 132, 0)
         writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
         waitForHalt(borg)
+        // Match writeToReg's tail: dummy readAddr settles auto_run_stall before
+        // the iter-register read in assertInside.  Without this, iter_offset
+        // can be sampled before the rasterizer has latched the snoop result.
+        readAddr(borg, 4, config)
         assertInside(true, "r1 is -0.0 (rest 0.0)")
 
         println("=== Inside Flag Snoop Tests Passed ===\n")
@@ -729,7 +733,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("auto_run_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Auto-Run Tests ===")
 
         // --- Test 1: Auto-run triggers shader on BORG_ITER write ---
@@ -829,7 +833,7 @@ object BorgTests extends TestSuite {
     // This test only verifies the MMIO read path for r30/r31 works
     // without asserting specific values (BRAM is uninitialized in simulation).
     utest.test("coordlut_tests") {
-      simulate(new Borg(FloatConfig.FP16)) { borg =>
+      simulate(new BorgTestWrapper(FloatConfig.FP16)) { borg =>
         borg.reset.poke(true.B)
         borg.clock.step(5)
         borg.reset.poke(false.B)
@@ -888,7 +892,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("tile_buffer_mmio_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Tile Buffer MMIO Tests ===")
 
         // Helper: read raw 32-bit value from MMIO address
@@ -996,7 +1000,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("tex_fetch_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Texture Fetch Tests ===")
 
         // Reset and settle — ensures all RegInit values are applied before
@@ -1142,7 +1146,7 @@ object BorgTests extends TestSuite {
     utest.test("hw_flusher_autonomous") {
       val config = FloatConfig.FP16
       // Borg(config) uses BorgConfig.Sim which has hasFlusher=true
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Step 28: HW Flusher Autonomous Test ===")
 
         // ---- helpers (local to avoid name clashes) ----

@@ -26,7 +26,7 @@ object BorgTileBufferMmioTests extends TestSuite {
   // --- Low-level bus helpers (mirroring BorgTests) ---
 
   /** MMIO write: assert data_write_n=2 for one cycle. */
-  def mmioWrite(borg: Borg, addr: Int, data: BigInt): Unit = {
+  def mmioWrite(borg: BorgTestWrapper, addr: Int, data: BigInt): Unit = {
     borg.io.address.poke(addr.U)
     borg.io.data_in.poke(data.U)
     borg.io.data_write_n.poke(2.U)
@@ -38,7 +38,7 @@ object BorgTileBufferMmioTests extends TestSuite {
   /** MMIO read: assert data_read_n=2, wait for pipeline, peek data_out.
     * Returns the raw 32-bit value (not float-converted).
     */
-  def mmioReadRaw(borg: Borg, addr: Int): BigInt = {
+  def mmioReadRaw(borg: BorgTestWrapper, addr: Int): BigInt = {
     borg.io.address.poke(addr.U)
     borg.io.data_read_n.poke(2.U)
     borg.clock.step(1)
@@ -50,7 +50,7 @@ object BorgTileBufferMmioTests extends TestSuite {
   }
 
   /** Reset the Borg module and idle all bus signals. */
-  def resetAndIdle(borg: Borg): Unit = {
+  def resetAndIdle(borg: BorgTestWrapper): Unit = {
     borg.reset.poke(true.B)
     borg.clock.step(2)
     borg.reset.poke(false.B)
@@ -69,7 +69,7 @@ object BorgTileBufferMmioTests extends TestSuite {
     * a prior TILE_CTRL write). This mirrors the firmware behavior where
     * the CPU sets the index before writing pixel data.
     */
-  def writeTilePixel(borg: Borg, idx: Int, r: Int, g: Int, b: Int, z: Int): Unit = {
+  def writeTilePixel(borg: BorgTestWrapper, idx: Int, r: Int, g: Int, b: Int, z: Int): Unit = {
     // Set the write index via TILE_CTRL (bits 3:0 = read_idx)
     mmioWrite(borg, TILE_CTRL, idx)
     // Step 1: shadow B and Z  (use toLong to avoid Int overflow for values >= 0x8000)
@@ -88,7 +88,7 @@ object BorgTileBufferMmioTests extends TestSuite {
     *
     * Returns (R, G, B, Z) as 16-bit unsigned integers.
     */
-  def readTilePixel(borg: Borg, idx: Int): (Int, Int, Int, Int) = {
+  def readTilePixel(borg: BorgTestWrapper, idx: Int): (Int, Int, Int, Int) = {
     // Trigger BRAM read by writing TILE_CTRL with the index
     mmioWrite(borg, TILE_CTRL, idx)
     // Read RG (BRAM output is now available after the write cycle + 1)
@@ -110,7 +110,7 @@ object BorgTileBufferMmioTests extends TestSuite {
     // -----------------------------------------------------------------
     utest.test("mmio_tile_write_read_roundtrip") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n--- Step 25.3a: MMIO tile buffer write/read round-trip ---")
         resetAndIdle(borg)
 
@@ -140,7 +140,7 @@ object BorgTileBufferMmioTests extends TestSuite {
     // -----------------------------------------------------------------
     utest.test("mmio_tile_multi_index_independence") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n--- Step 25.3a: MMIO tile multi-index independence ---")
         resetAndIdle(borg)
 
@@ -173,7 +173,7 @@ object BorgTileBufferMmioTests extends TestSuite {
     // -----------------------------------------------------------------
     utest.test("mmio_tile_clear") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n--- Step 25.3a: MMIO tile clear ---")
         resetAndIdle(borg)
 
@@ -209,7 +209,7 @@ object BorgTileBufferMmioTests extends TestSuite {
     // -----------------------------------------------------------------
     utest.test("mmio_tile_repeated_read") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n--- Step 25.3a: MMIO tile repeated read ---")
         resetAndIdle(borg)
 
@@ -233,7 +233,7 @@ object BorgTileBufferMmioTests extends TestSuite {
     // -----------------------------------------------------------------
     utest.test("mmio_tile_full_readback") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n--- Step 25.3a: MMIO tile full 16-entry readback ---")
         resetAndIdle(borg)
 
