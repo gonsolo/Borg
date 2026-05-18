@@ -6,198 +6,176 @@ package soc
 import chisel3._
 import chisel3.util._
 import borg.{Borg, BorgConfig, GpuMemIO}
+import hutt.HuttBus
 
-// User peripheral address decode constants — inlined from the former PeriphDecode.scala.
+/** User peripheral address decode constants.
+  *
+  * Within the 12-bit user-peripheral address window, bits 11:10 select the
+  * peripheral and bits 9:0 are the sub-address within it.
+  */
 private[soc] object PeriphDecode {
-  // User peripheral selects (addr[10:9])
+  val USER_PERI_NONE = 0
   val USER_PERI_GPIO = 1
   val USER_PERI_UART = 2
   val USER_PERI_BORG = 3
 
-  // TinyQV bus idle sentinel
-  val BUS_IDLE = 3
-
-  // Address field positions within 12-bit addr_in
   val USER_PERI_SEL_HI   = 11
   val USER_PERI_SEL_LO   = 10
   val USER_SUB_ADDR_HI   = 9
   val USER_SUB_ADDR_LO   = 0
 
-  // GPIO non-standard address bit decoding
+  // GPIO non-standard address bit decoding (unchanged from TinyQV-era).
   val GPIO_FUNC_SEL_BIT    = 5
   val GPIO_FUNC_SEL_IDX_HI = 4
   val GPIO_FUNC_SEL_IDX_LO = 2
   val GPIO_OUT_OFFSET       = 0
   val GPIO_IN_OFFSET        = 4
 
-  def userPeriU(idx: Int): UInt = idx.U
+  def userPeriU(idx: Int): UInt = idx.U(2.W)
 }
 
 class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
-  val ui_in = Input(UInt(8.W))
+  val ui_in  = Input(UInt(8.W))
   val uo_out = Output(UInt(8.W))
-  val addr_in = Input(UInt(12.W))
-  val data_in = Input(UInt(32.W))
-  val data_write_n = Input(UInt(2.W))
-  val data_read_n = Input(UInt(2.W))
-  val data_out = Output(UInt(32.W))
-  val data_ready = Output(Bool())
-  val data_read_complete = Input(Bool())
+
+  /** CPU MMIO port — 12-bit byte address, Decoupled req/resp. */
+  val mmio = Flipped(new HuttBus(12))
+
   val user_interrupts = Output(UInt(14.W))
 
-  // GPU read port (Step 19.2: Borg → MemoryController)
+  // GPU read port — Borg.scanout etc. (Step 19.2: Borg → MemoryController)
   val gpuMem = new GpuMemIO
 }
 
+/** Routes the CPU MMIO bus to GPIO / UART / Borg based on addr[11:10].
+  *
+  * The protocol is single-outstanding: at most one request is in flight to
+  * one peripheral at a time.  `active` tracks which sub-bus owns the
+  * pending response so the resp mux can route it back to the CPU.
+  */
 class Peripherals(val CLOCK_MHZ: Int, val borgCfg: BorgConfig = BorgConfig.Sim) extends Module {
   val io = IO(new PeripheralsIO(CLOCK_MHZ))
-    // --- Address Decoding Variables ---
-    val PERI_GPIO = PeriphDecode.userPeriU(PeriphDecode.USER_PERI_GPIO)
-    val PERI_UART = PeriphDecode.userPeriU(PeriphDecode.USER_PERI_UART)
-    val PERI_BORG = PeriphDecode.userPeriU(PeriphDecode.USER_PERI_BORG)
 
-    val peri_sel = io.addr_in(PeriphDecode.USER_PERI_SEL_HI, PeriphDecode.USER_PERI_SEL_LO)
-    val is_gpio = peri_sel === PERI_GPIO
-    val is_uart = peri_sel === PERI_UART
-    val is_borg = peri_sel === PERI_BORG
+  import PeriphDecode._
+  val PERI_GPIO = userPeriU(USER_PERI_GPIO)
+  val PERI_UART = userPeriU(USER_PERI_UART)
+  val PERI_BORG = userPeriU(USER_PERI_BORG)
+  val PERI_NONE = userPeriU(USER_PERI_NONE)
 
-    // --- Data Bus Shared Wires ---
-    val data_from_peri = WireDefault(0.U(32.W))
-    val data_ready_from_peri = WireDefault(false.B)
-    val data_ready_r = RegInit(false.B)
-    val data_read_n_peri = io.data_read_n | Fill(2, data_ready_r)
+  // -- Submodules ------------------------------------------------------------
+  val i_uart = Module(new peri.uart.PeriUart(CLOCK_MHZ))
+  val borg   = Module(new Borg(borgCfg))
 
-    // --- Peripheral Outputs ---
-    val gpio_out = Wire(UInt(8.W))
-    val func_sel = Wire(Vec(8, UInt(6.W)))
-    
-    val uo_out_uart = Wire(UInt(8.W))
-    val interrupt_uart_0 = Wire(Bool())
-    val interrupt_uart_1 = Wire(Bool())
+  // -- Address decode --------------------------------------------------------
+  val reqBits  = io.mmio.req.bits
+  val peri_sel = reqBits.addr(USER_PERI_SEL_HI, USER_PERI_SEL_LO)
+  val sub_addr = reqBits.addr(USER_SUB_ADDR_HI, USER_SUB_ADDR_LO)
+  val is_gpio  = peri_sel === PERI_GPIO
+  val is_uart  = peri_sel === PERI_UART
+  val is_borg  = peri_sel === PERI_BORG
 
-    val uo_out_borg = Wire(UInt(8.W))
-    val interrupt_borg = Wire(Bool())
+  // -- Active-target latch (which peripheral owns the in-flight resp) -------
+  val active        = RegInit(PERI_NONE)
+  val activePending = RegInit(false.B)
 
-    // --- Instantiate Sub-Modules inside methods to organize logic ---
-    val i_uart = Module(new tinyqv.peri.uart.PeriUart(CLOCK_MHZ))
-    val borg = Module(new Borg(borgCfg))
+  // -- GPIO inline registers -------------------------------------------------
+  val gpio_out_reg  = RegInit(0.U(8.W))
+  val func_sel_reg  = RegInit(VecInit(
+    PERI_UART.pad(6), PERI_UART.pad(6),
+    PERI_GPIO.pad(6), PERI_GPIO.pad(6), PERI_GPIO.pad(6),
+    PERI_GPIO.pad(6), PERI_GPIO.pad(6), PERI_GPIO.pad(6)
+  ))
+  val gpio_resp_data = RegInit(0.U(32.W))
+  // GPIO responds the cycle after req.fire (matches UART/Borg single-cycle lat).
+  val gpioRespPending = RegInit(false.B)
 
-    // --- Wire Everything ---
-    wireDataBus()
-    wireGpio()
-    wireUart()
-    wireBorg()
-    wireOutputAndInterrupts()
+  // -- Sub-bus wiring -------------------------------------------------------
+  i_uart.io.ui_in              := io.ui_in
+  i_uart.io.mmio.req.valid     := io.mmio.req.valid && is_uart
+  i_uart.io.mmio.req.bits.addr := sub_addr(5, 0)
+  i_uart.io.mmio.req.bits.data := reqBits.data
+  i_uart.io.mmio.req.bits.write := reqBits.write
+  i_uart.io.mmio.req.bits.size := reqBits.size
+  i_uart.io.mmio.resp.ready    := io.mmio.resp.ready && (active === PERI_UART)
 
-    private def wireDataBus(): Unit = {
-      val data_out_r = RegInit(0.U(32.W))
-      val data_out_hold = RegInit(false.B)
-      val read_req = io.data_read_n =/= PeriphDecode.BUS_IDLE.U(2.W)
+  borg.io.mmio.req.valid       := io.mmio.req.valid && is_borg
+  borg.io.mmio.req.bits.addr   := sub_addr(9, 0)
+  borg.io.mmio.req.bits.data   := reqBits.data
+  borg.io.mmio.req.bits.write  := reqBits.write
+  borg.io.mmio.req.bits.size   := reqBits.size
+  borg.io.mmio.resp.ready      := io.mmio.resp.ready && (active === PERI_BORG)
+  borg.io.gpuMem               <> io.gpuMem
 
-      when(io.data_read_complete) {
-        data_out_hold := false.B
-      }
+  // -- req.ready muxing ------------------------------------------------------
+  // Don't accept a new request while one is in flight (single-outstanding).
+  val canAccept = !activePending
+  io.mmio.req.ready := canAccept && MuxCase(true.B, Seq(
+    is_uart -> i_uart.io.mmio.req.ready,
+    is_borg -> borg.io.mmio.req.ready,
+    is_gpio -> true.B   // GPIO always ready when not pending
+  ))
 
-      when(!data_out_hold && data_ready_from_peri && read_req) {
-        data_out_hold := true.B
-        data_out_r := data_from_peri
-      }
-      data_ready_r := read_req && data_ready_from_peri
+  // -- GPIO read/write -------------------------------------------------------
+  val isOutAddr = sub_addr === GPIO_OUT_OFFSET.U
+  val isInAddr  = sub_addr === GPIO_IN_OFFSET.U
+  val isFuncSel = sub_addr(GPIO_FUNC_SEL_BIT) === 1.U && sub_addr(1, 0) === 0.U
+  val funcSelIdx = sub_addr(GPIO_FUNC_SEL_IDX_HI, GPIO_FUNC_SEL_IDX_LO)
 
-      val write_req = io.data_write_n =/= PeriphDecode.BUS_IDLE.U(2.W)
-      val write_ready_r = RegNext(write_req && !(data_ready_r || RegNext(write_req)))
-      io.data_out := data_out_r
-      io.data_ready := data_ready_r || write_ready_r
+  when(io.mmio.req.fire && is_gpio) {
+    when(reqBits.write) {
+      when(isOutAddr)  { gpio_out_reg := reqBits.data(7, 0) }
+      when(isFuncSel)  { func_sel_reg(funcSelIdx) := reqBits.data(5, 0) }
     }
+    // Capture read data combinationally for the response.
+    gpio_resp_data := MuxCase(0.U, Seq(
+      isOutAddr -> Cat(0.U(24.W), gpio_out_reg),
+      isInAddr  -> Cat(0.U(24.W), io.ui_in)
+    ))
+  }
 
-    private def wireGpio(): Unit = {
-      val gpio_out_reg = RegInit(0.U(8.W))
-      val func_sel_reg = RegInit(VecInit(
-        PERI_UART.pad(6), PERI_UART.pad(6),
-        PERI_GPIO.pad(6), PERI_GPIO.pad(6), PERI_GPIO.pad(6),
-        PERI_GPIO.pad(6), PERI_GPIO.pad(6), PERI_GPIO.pad(6)
-      ))
+  // -- Activate / deactivate the in-flight slot -----------------------------
+  when(io.mmio.req.fire) {
+    active        := peri_sel
+    activePending := true.B
+    when(is_gpio) { gpioRespPending := true.B }
+  }
+  when(io.mmio.resp.fire) {
+    activePending  := false.B
+    gpioRespPending := false.B
+  }
 
-      gpio_out := gpio_out_reg
-      func_sel := func_sel_reg
+  // -- Response mux ---------------------------------------------------------
+  io.mmio.resp.valid := MuxCase(false.B, Seq(
+    (active === PERI_UART) -> i_uart.io.mmio.resp.valid,
+    (active === PERI_BORG) -> borg.io.mmio.resp.valid,
+    (active === PERI_GPIO) -> gpioRespPending
+  ))
+  io.mmio.resp.bits := MuxCase(0.U, Seq(
+    (active === PERI_UART) -> i_uart.io.mmio.resp.bits,
+    (active === PERI_BORG) -> borg.io.mmio.resp.bits,
+    (active === PERI_GPIO) -> gpio_resp_data
+  ))
 
-      when(is_gpio) {
-        when(io.addr_in(PeriphDecode.USER_SUB_ADDR_HI, PeriphDecode.USER_SUB_ADDR_LO) === PeriphDecode.GPIO_OUT_OFFSET.U && io.data_write_n =/= PeriphDecode.BUS_IDLE.U) {
-          gpio_out_reg := io.data_in(7, 0)
-        }
-        when(io.addr_in(PeriphDecode.GPIO_FUNC_SEL_BIT) === 1.U && io.addr_in(1, 0) === 0.U && io.data_write_n =/= PeriphDecode.BUS_IDLE.U) {
-          val sel_idx = io.addr_in(PeriphDecode.GPIO_FUNC_SEL_IDX_HI, PeriphDecode.GPIO_FUNC_SEL_IDX_LO)
-          func_sel_reg(sel_idx) := io.data_in(5, 0)
-        }
-      }
-
-      data_ready_from_peri := true.B
-      when(is_gpio) {
-        when(io.addr_in(PeriphDecode.USER_SUB_ADDR_HI, PeriphDecode.USER_SUB_ADDR_LO) === PeriphDecode.GPIO_OUT_OFFSET.U) {
-          data_from_peri := Cat(0.U(24.W), gpio_out_reg)
-        } .elsewhen(io.addr_in(PeriphDecode.USER_SUB_ADDR_HI, PeriphDecode.USER_SUB_ADDR_LO) === PeriphDecode.GPIO_IN_OFFSET.U) {
-          data_from_peri := Cat(0.U(24.W), io.ui_in)
-        } .otherwise {
-          data_from_peri := 0.U
-        }
-      }
+  // -- uo_out muxing (per-pin function select) ------------------------------
+  val uo_out_uart = i_uart.io.uo_out
+  val uo_out_borg = borg.io.uo_out
+  val uo_out_muxed = Wire(Vec(8, Bool()))
+  for (k <- 0 until 8) {
+    when(func_sel_reg(k) === PERI_UART) {
+      uo_out_muxed(k) := uo_out_uart(k)
+    } .elsewhen(func_sel_reg(k) === PERI_BORG) {
+      uo_out_muxed(k) := uo_out_borg(k)
+    } .otherwise {
+      uo_out_muxed(k) := gpio_out_reg(k)
     }
+  }
+  io.uo_out := uo_out_muxed.asUInt
 
-    private def wireUart(): Unit = {
-      i_uart.io.ui_in := io.ui_in
-      i_uart.io.address := io.addr_in(PeriphDecode.USER_SUB_ADDR_HI, PeriphDecode.USER_SUB_ADDR_LO)
-      i_uart.io.data_in := io.data_in
-      i_uart.io.data_write_n := io.data_write_n | Fill(2, !is_uart)
-      i_uart.io.data_read_n := data_read_n_peri | Fill(2, !is_uart)
-      
-      uo_out_uart := i_uart.io.uo_out
-      interrupt_uart_0 := i_uart.io.user_interrupt(0)
-      interrupt_uart_1 := i_uart.io.user_interrupt(1)
-
-      when(is_uart) {
-        data_from_peri := i_uart.io.data_out
-        data_ready_from_peri := i_uart.io.data_ready
-      }
-    }
-
-    private def wireBorg(): Unit = {
-      borg.io.address := io.addr_in(PeriphDecode.USER_SUB_ADDR_HI, PeriphDecode.USER_SUB_ADDR_LO)
-      borg.io.data_in := io.data_in
-      borg.io.data_write_n := io.data_write_n | Fill(2, !is_borg)
-      borg.io.data_read_n := data_read_n_peri | Fill(2, !is_borg)
-
-      uo_out_borg := borg.io.uo_out
-      interrupt_borg := borg.io.user_interrupt
-
-      // GPU read port passthrough (Step 19.2)
-      borg.io.gpuMem <> io.gpuMem
-
-      when(is_borg) {
-        data_from_peri := borg.io.data_out
-        data_ready_from_peri := borg.io.data_ready
-      }
-    }
-
-    private def wireOutputAndInterrupts(): Unit = {
-      val uo_out_muxed = Wire(Vec(8, Bool()))
-      for (k <- 0 until 8) {
-        when(func_sel(k) === PERI_UART) {
-          uo_out_muxed(k) := uo_out_uart(k)
-        } .elsewhen(func_sel(k) === PERI_BORG) {
-          uo_out_muxed(k) := uo_out_borg(k)
-        } .otherwise {
-          uo_out_muxed(k) := gpio_out(k)
-        }
-      }
-      io.uo_out := uo_out_muxed.asUInt
-
-      val interrupts = Wire(Vec(14, Bool()))
-      for (i <- 0 until 14) { interrupts(i) := false.B }
-      interrupts(0) := interrupt_uart_0
-      interrupts(1) := interrupt_uart_1
-      interrupts(2) := interrupt_borg
-      io.user_interrupts := interrupts.asUInt
-    }
+  // -- Interrupts -----------------------------------------------------------
+  val interrupts = Wire(Vec(14, Bool()))
+  for (i <- 0 until 14) { interrupts(i) := false.B }
+  interrupts(0) := i_uart.io.user_interrupt(0)
+  interrupts(1) := i_uart.io.user_interrupt(1)
+  interrupts(2) := borg.io.user_interrupt
+  io.user_interrupts := interrupts.asUInt
 }
-
-

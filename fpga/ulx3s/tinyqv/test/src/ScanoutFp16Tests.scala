@@ -50,14 +50,12 @@ class ScanoutFp16Harness extends Module {
   sdram.io.backend <> mem.io.backend
 
   // Tie off CPU ports
-  mem.io.instrFetch.instr_addr          := 0.U
-  mem.io.instrFetch.instr_fetch_restart := false.B
-  mem.io.instrFetch.instr_fetch_stall   := false.B
-  mem.io.cpuData.addr         := 0.U
-  mem.io.cpuData.dataOut      := 0.U
-  mem.io.cpuData.writeN       := 3.U
-  mem.io.cpuData.readN        := 3.U
-  mem.io.cpuData.dataContinue := false.B
+  mem.io.instr.req.valid    := false.B
+  mem.io.instr.req.bits     := 0.U
+  mem.io.instr.resp.ready   := true.B
+  mem.io.cpuData.req.valid  := false.B
+  mem.io.cpuData.req.bits   := 0.U.asTypeOf(mem.io.cpuData.req.bits)
+  mem.io.cpuData.resp.ready := true.B
 
   // GPU port mux: fill (write) or scanout (read)
   val filling = io.gpuWr

@@ -1,18 +1,17 @@
 // SPDX-FileCopyrightText: © 2024 Michael Bell
+// SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 package soc
 
 import chisel3._
 import chisel3.util._
-import tinyqv.cpu.{TinyQVIO, TinyQV}
+import hutt.{Hutt, HuttBus, HuttBusReq, HuttInstrBus}
 import memory.{MemoryController, MemoryControllerIO, QspiPinsIO}
 import borg.BorgConfig
 
-
 // ---------------------------------------------------------------------------
-// TinyQV bus decoder constants — inlined from the former MmioMap.scala.
-// These are Michael Bell's foundational address-decode choices and cannot
-// be expressed in SystemRDL.
+// SoC-internal bus decoder constants.  Inherited from Michael Bell's TinyQV
+// SoC address-decode scheme so existing firmware keeps working.
 // ---------------------------------------------------------------------------
 private[soc] object SoCDecode {
   // Magic comparison values for SoC vs User region detection
@@ -47,30 +46,18 @@ private[soc] object SoCDecode {
   def socPeriU(idx: Int): UInt = idx.U(4.W)
 }
 
-// CpuExtModule wraps the Chisel-generated TinyQV Verilog for SoC integration
-class CpuExtModule extends ExtModule(Map()) {
-  override val desiredName = "TinyQV"
-  val clock = IO(Input(Clock()))
-  val reset = IO(Input(Reset()))
-  val io = FlatIO(new TinyQVIO)
-}
-
 /** Platform-independent SoC backbone shared by all target top-level modules.
   *
   * Wires together the three peer components:
-  *   - [[TinyQV]]           — RISC-V CPU; no QSPI knowledge
+  *   - [[Hutt]]             — RV32I CPU; clean Decoupled buses
   *   - [[MemoryController]] — owns SPI/QSPI pins; arbitrates CPU instr-fetch,
-  *                            CPU data, and GPU read
-  *   - [[Peripherals]]      — Borg GPU + UART + GPIO; no QSPI knowledge
+  *                            CPU data, and GPU read/write
+  *   - [[Peripherals]]      — Borg GPU + UART + GPIO (user-peripheral region)
   *
-  * Target-specific top-level modules that mix in this trait live in:
-  *   - [[asic.tt.tt_um_gonsolo_borg]] — Tiny Tapeout ASIC (asic/tt/)
-  *   - [[soc.tinyQV_top]]             — pico-ice iCE40 FPGA (fpga/picoice/)
-  *   - [[soc.ULX3S]]                  — ULX3S ECP5 FPGA   (fpga/ulx3s/)
-  *
-  * Each subclass must implement the abstract members: soc_clk, soc_rst_n,
-  * soc_rst_reg_n, soc_ui_in. Each subclass also instantiates a [[memory.QspiBackend]]
-  * (or future [[memory.SdramBackend]]) and wires mem.io.backend to it.
+  * The CPU's single data bus is demuxed in this layer to three destinations:
+  *   - Memory region        (addr[27:25] == 0)        → MemoryController.cpuData
+  *   - SoC peripheral region (addr matches SOC_REGION_ID) → inline regs
+  *   - User peripheral region (addr matches USER_REGION_ID) → Peripherals.mmio
   */
 trait SoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
@@ -82,9 +69,9 @@ trait SoCLogic { self: RawModule =>
   def soc_rst_reg_n: Bool
   def soc_ui_in: UInt
 
-  // --- Core and peripheral instantiation ---
+  // --- Core + peripherals ---
   lazy val cpu = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new TinyQV())
+    Module(new Hutt())
   }
   lazy val mem = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new MemoryController())
@@ -93,10 +80,8 @@ trait SoCLogic { self: RawModule =>
     Module(new Peripherals(CLOCK_MHZ, BORG_CFG))
   }
   lazy val uartTx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new tinyqv.peri.uart.UartTx(13))
+    Module(new peri.uart.UartTx(13))
   }
-
-
 
   /** Wire the GPU memory port.  Default: direct Borg↔MemoryController. */
   def wireGpuMem(): Unit = {
@@ -107,160 +92,174 @@ trait SoCLogic { self: RawModule =>
   def wireSoC(): UInt = {
 
     // -------------------------------------------------------------------------
-    // MemoryController wiring
+    // Instruction fetch — direct CPU↔MemoryController.
     // -------------------------------------------------------------------------
-    // io.backend must be connected by the subclass after calling wireSoC()
-
-      // simple case: only real controller
-      mem.io.instrFetch.instr_addr         := cpu.io.instr_addr
-      mem.io.instrFetch.instr_fetch_restart := cpu.io.instr_fetch_restart
-      mem.io.instrFetch.instr_fetch_stall   := cpu.io.instr_fetch_stall
-
-      mem.io.cpuData <> cpu.io.memBus
-
-      cpu.io.instr_fetch_started := mem.io.instrFetch.instr_fetch_started
-      cpu.io.instr_fetch_stopped := mem.io.instrFetch.instr_fetch_stopped
-      cpu.io.instr_data          := mem.io.instrFetch.instr_data
-      cpu.io.instr_ready         := mem.io.instrFetch.instr_ready
-
-      // gpu read port — overridable so ULX3S can mux with HDMI scanout
-      wireGpuMem()
+    mem.io.instr <> cpu.io.instr
 
     // -------------------------------------------------------------------------
-    // mmio peripheral bus (unchanged from before)
+    // Synchronized ui_in for peripheral interrupts.
     // -------------------------------------------------------------------------
-    val addr            = cpu.io.data_addr
-    val write_n         = cpu.io.data_write_n
-    val read_n          = cpu.io.data_read_n
-    val read_complete   = cpu.io.data_read_complete
-    val data_to_write   = cpu.io.data_out
-
-    val data_ready      = Wire(Bool())
-    val data_from_read  = WireDefault(0.U(32.W))
-
-    cpu.io.data_ready := data_ready
-    cpu.io.data_in    := data_from_read
-
-    val peri_out         = peripherals.io.uo_out
-    val peri_data_out    = peripherals.io.data_out
-    val peri_data_ready  = peripherals.io.data_ready
-    val peri_interrupts  = peripherals.io.user_interrupts
-
-    // peripherals get synchronized ui_in
     val ui_in_sync0 = withClockAndReset(soc_clk, false.B) { RegNext(soc_ui_in) }
     val ui_in_sync  = withClockAndReset(soc_clk, false.B) { RegNext(ui_in_sync0) }
 
-    val interrupt_req = Cat(peri_interrupts, ui_in_sync(1, 0))
-    cpu.io.interrupt_req := interrupt_req
+    // -------------------------------------------------------------------------
+    // Data bus router — demux CPU data port to memory / SoC peri / user peri.
+    // -------------------------------------------------------------------------
+    val cpuData = cpu.io.data
+    val cpuAddr = cpuData.req.bits.addr  // 28-bit byte address
 
-    val time_pulse = Wire(Bool())
-    cpu.io.time_pulse := time_pulse
+    val isMem  = cpuAddr(27, 25) === 0.U
+    val isSoc  = SoCDecode.socRegion.matches(cpuAddr)
+    val isUser = SoCDecode.userRegion.matches(cpuAddr)
 
-    peripherals.io.ui_in             := ui_in_sync
-    peripherals.io.addr_in           := addr(11, 0)
-    peripherals.io.data_in           := data_to_write
-    peripherals.io.data_write_n      := write_n
-    peripherals.io.data_read_n       := read_n
-    peripherals.io.data_read_complete := read_complete
+    // Per-target req.valid gating
+    mem.io.cpuData.req.valid           := cpuData.req.valid && isMem
+    mem.io.cpuData.req.bits.addr       := cpuAddr(24, 0)
+    mem.io.cpuData.req.bits.write      := cpuData.req.bits.write
+    mem.io.cpuData.req.bits.size       := cpuData.req.bits.size
+    mem.io.cpuData.req.bits.data       := cpuData.req.bits.data
 
+    peripherals.io.mmio.req.valid      := cpuData.req.valid && isUser
+    peripherals.io.mmio.req.bits.addr  := cpuAddr(11, 0)
+    peripherals.io.mmio.req.bits.write := cpuData.req.bits.write
+    peripherals.io.mmio.req.bits.size  := cpuData.req.bits.size
+    peripherals.io.mmio.req.bits.data  := cpuData.req.bits.data
+    peripherals.io.ui_in               := ui_in_sync
+
+    // -------------------------------------------------------------------------
+    // SoC-internal MMIO: PERI_ID, DEBUG_UART, GPIO_OUT_SEL, TIME_LIMIT, ...
+    // -------------------------------------------------------------------------
     import SoCDecode._
-    val connect_peripheral = WireDefault(socPeriU(PERI_NONE))
+    val socPeri = SoCDecode.socRegion.index(cpuAddr)  // addr[5:2]
 
-    when(SoCDecode.socRegion.matches(addr)) {
-      connect_peripheral := SoCDecode.socRegion.index(addr)
-    } .elsewhen(SoCDecode.userRegion.matches(addr)) {
-      connect_peripheral := socPeriU(PERI_USER)
-    }
-
+    // Configuration registers
     val gpio_out_sel = withClockAndReset(soc_clk, !soc_rst_reg_n) {
       RegInit(Cat(!soc_ui_in(0), 0.U(1.W)))
     }
     val time_limit = withClockAndReset(soc_clk, !soc_rst_reg_n) {
       RegInit(math.max((CLOCK_MHZ / 4) - 1, 1).U(5.W))
     }
-
     val default_baud_divider = ((CLOCK_MHZ * 1000000) / 115200).U(13.W)
     val debug_baud_divider = withClockAndReset(soc_clk, !soc_rst_reg_n) {
       RegInit(default_baud_divider)
     }
+    val debug_register_data = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+      RegInit(soc_ui_in(1))
+    }
 
-    withClockAndReset(soc_clk, false.B) {
-      when(write_n =/= 3.U(2.W)) {
-        when(connect_peripheral === socPeriU(PERI_GPIO_OUT_SEL)) {
-          gpio_out_sel := data_to_write(7, 6)
-        }
-        when(connect_peripheral === socPeriU(PERI_TIME_LIMIT)) {
-          time_limit := data_to_write(6, 2)
-        }
-        when(connect_peripheral === socPeriU(PERI_DEBUG_UART_BAUD)) {
-          debug_baud_divider := data_to_write(12, 0)
-        }
+    val socFire = cpuData.req.fire && isSoc
+
+    when(socFire && cpuData.req.bits.write) {
+      switch(socPeri) {
+        is(socPeriU(PERI_GPIO_OUT_SEL))    { gpio_out_sel       := cpuData.req.bits.data(7, 6) }
+        is(socPeriU(PERI_TIME_LIMIT))      { time_limit         := cpuData.req.bits.data(6, 2) }
+        is(socPeriU(PERI_DEBUG_UART_BAUD)) { debug_baud_divider := cpuData.req.bits.data(12, 0) }
+        is(socPeriU(PERI_DEBUG))           { debug_register_data := cpuData.req.bits.data(0) }
       }
     }
 
     val debug_uart_tx_busy = uartTx.io.uart_tx_busy
-
-    data_from_read := "hffffffff".U(32.W)
-    switch(connect_peripheral) {
-      is(socPeriU(PERI_ID))             { data_from_read := 0x41.U(32.W) }
-      is(socPeriU(PERI_GPIO_OUT_SEL))   { data_from_read := Cat(0.U(24.W), gpio_out_sel, 0.U(6.W)) }
-      is(socPeriU(PERI_DEBUG_UART_STATUS)) { data_from_read := Cat(0.U(31.W), debug_uart_tx_busy) }
-      is(socPeriU(PERI_DEBUG_UART_BAUD))   { data_from_read := Cat(0.U(19.W), debug_baud_divider) }
-      is(socPeriU(PERI_TIME_LIMIT))     { data_from_read := Cat(0.U(25.W), time_limit, 3.U(2.W)) }
-      is(socPeriU(PERI_USER))           { data_from_read := peri_data_out }
+    val socReadData = WireDefault("hffffffff".U(32.W))
+    switch(socPeri) {
+      is(socPeriU(PERI_ID))                { socReadData := 0x41.U(32.W) }
+      is(socPeriU(PERI_GPIO_OUT_SEL))      { socReadData := Cat(0.U(24.W), gpio_out_sel, 0.U(6.W)) }
+      is(socPeriU(PERI_DEBUG_UART_STATUS)) { socReadData := Cat(0.U(31.W), debug_uart_tx_busy) }
+      is(socPeriU(PERI_DEBUG_UART_BAUD))   { socReadData := Cat(0.U(19.W), debug_baud_divider) }
+      is(socPeriU(PERI_TIME_LIMIT))        { socReadData := Cat(0.U(25.W), time_limit, 3.U(2.W)) }
     }
 
-    data_ready := Mux(connect_peripheral === socPeriU(PERI_USER), peri_data_ready, 1.U(1.W))
+    // SoC inline registers respond one cycle after req.fire (matches the
+    // single-outstanding pattern used by UART / Borg / Peripherals).
+    val socRespPending = RegInit(false.B)
+    val socRespData    = Reg(UInt(32.W))
+    when(socFire) {
+      socRespPending := true.B
+      when(!cpuData.req.bits.write) { socRespData := socReadData }
+        .otherwise                   { socRespData := 0.U }
+    }
 
-    val debug_uart_tx_start = (write_n =/= 3.U(2.W)) &&
-                              (connect_peripheral === socPeriU(PERI_DEBUG_UART))
-
+    // Debug UART TX write — special-cased so we can emit a byte without
+    // wiring the peripherals module to it.
+    val debug_uart_tx_start = socFire && cpuData.req.bits.write &&
+                              (socPeri === socPeriU(PERI_DEBUG_UART))
     val debug_uart_txd = uartTx.io.uart_txd
     uartTx.io.uart_tx_en   := debug_uart_tx_start
-    uartTx.io.uart_tx_data := data_to_write(7, 0)
+    uartTx.io.uart_tx_data := cpuData.req.bits.data(7, 0)
     uartTx.io.baud_divider := debug_baud_divider
 
+    // -------------------------------------------------------------------------
+    // CPU req.ready and resp muxing.
+    // -------------------------------------------------------------------------
+    // Track which target owns the current in-flight response so we route
+    // resp.valid/bits/ready correctly.
+    val activeMem  = RegInit(false.B)
+    val activeUser = RegInit(false.B)
+    val activeSoc  = RegInit(false.B)
+    val anyActive  = activeMem || activeUser || activeSoc
+
+    cpuData.req.ready := !anyActive && MuxCase(true.B, Seq(
+      isMem  -> mem.io.cpuData.req.ready,
+      isUser -> peripherals.io.mmio.req.ready,
+      isSoc  -> true.B
+      // Address outside any region → drop into "ready=true" so the CPU isn't
+      // stuck; resp returns 0xFFFFFFFF the next cycle via socRespData fallback.
+    ))
+
+    when(cpuData.req.fire) {
+      activeMem  := isMem
+      activeUser := isUser
+      activeSoc  := isSoc || (!isMem && !isUser)  // fallback: treat unknown as SoC
+    }
+    when(cpuData.resp.fire) {
+      activeMem  := false.B
+      activeUser := false.B
+      activeSoc  := false.B
+      socRespPending := false.B
+    }
+
+    mem.io.cpuData.resp.ready         := cpuData.resp.ready && activeMem
+    peripherals.io.mmio.resp.ready    := cpuData.resp.ready && activeUser
+
+    cpuData.resp.valid := MuxCase(false.B, Seq(
+      activeMem  -> mem.io.cpuData.resp.valid,
+      activeUser -> peripherals.io.mmio.resp.valid,
+      activeSoc  -> socRespPending
+    ))
+    cpuData.resp.bits := MuxCase(0.U, Seq(
+      activeMem  -> mem.io.cpuData.resp.bits,
+      activeUser -> peripherals.io.mmio.resp.bits,
+      activeSoc  -> socRespData
+    ))
+
+    // GPU port (overridable by ULX3S for scanout mux).
+    wireGpuMem()
+
+    // -------------------------------------------------------------------------
+    // Interrupt + timer.
+    // -------------------------------------------------------------------------
     val time_count = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(0.U(7.W)) }
+    val time_pulse = (time_count === Cat(time_limit, 3.U(2.W)))
     withClockAndReset(soc_clk, false.B) {
-      when(time_pulse) {
-        time_count := 0.U
-      } .otherwise {
-        time_count := time_count + 1.U
-      }
-    }
-    time_pulse := (time_count === Cat(time_limit, 3.U(2.W)))
-
-    val debug_register_data = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(soc_ui_in(1)) }
-    withClockAndReset(soc_clk, false.B) {
-      when(write_n =/= 3.U(2.W) && connect_peripheral === socPeriU(PERI_DEBUG)) {
-        debug_register_data := data_to_write(0)
-      }
+      when(time_pulse) { time_count := 0.U }
+        .otherwise    { time_count := time_count + 1.U }
     }
 
-    val debug_rd_r = withClockAndReset(soc_clk, false.B) { RegNext(cpu.io.debug_rd) }
+    // Hutt currently only consumes a single interrupt level; OR together
+    // peripheral interrupts and ui_in[1:0] (firmware can poll the time_pulse
+    // via a CSR or status register later).  For now this drives the level
+    // line; Hutt has no CSR/trap so it's a stub for future expansion.
+    val interrupt_req = Cat(peripherals.io.user_interrupts, ui_in_sync(1, 0))
+    cpu.io.interrupt := interrupt_req.orR
 
-    val debug_signals = Cat(
-      cpu.io.debug_instr_complete,
-      cpu.io.debug_instr_ready,
-      cpu.io.debug_instr_valid,
-      cpu.io.debug_fetch_restart,
-      read_n =/= 3.U(2.W),
-      write_n =/= 3.U(2.W),
-      cpu.io.debug_data_ready,
-      cpu.io.debug_interrupt_pending,
-      cpu.io.debug_branch,
-      cpu.io.debug_early_branch,
-      cpu.io.debug_ret,
-      cpu.io.debug_reg_wen,
-      cpu.io.debug_counter_0,
-      cpu.io.debug_data_continue,
-      mem.io.debug_stall_txn,  // now from memorycontroller, not tinyqv
-      mem.io.debug_stop_txn
-    )
+    // -------------------------------------------------------------------------
+    // uo_out construction.
+    // -------------------------------------------------------------------------
+    val peri_out = peripherals.io.uo_out
+    // Hutt has no debug_rd; just use zero placeholders for the lanes that
+    // TinyQV mapped to its debug register file.
+    val debug_rd_r = 0.U(4.W)
+    val debug_signal = false.B  // no Hutt debug signals exposed yet
 
-    val debug_signal = debug_signals(soc_ui_in(6, 3))
-
-    // build uo_out value
     val uo_out_val = Cat(
       Mux(gpio_out_sel(1), peri_out(7), debug_signal),
       Mux(gpio_out_sel(0), peri_out(6), debug_uart_txd),
@@ -272,9 +271,6 @@ trait SoCLogic { self: RawModule =>
       peri_out(0)
     )
 
-    // return read_complete for the unused signal xor in tt top-level
-    // (pico-ice doesn't need it)
     uo_out_val
   }
 }
-

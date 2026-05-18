@@ -14,7 +14,7 @@ package soc
 import chisel3._
 import chisel3.util._
 import chisel3.simulator.EphemeralSimulator._
-import borg.{Borg, BorgConfig, BorgGpuRegs, FloatConfig}
+import borg.{Borg, BorgConfig, BorgGpuRegs, BorgTestWrapper, FloatConfig}
 import memory.{MemoryController, SdramBackendSim}
 import utest._
 
@@ -46,7 +46,7 @@ class BorgSdramHarnessIO extends Bundle {
 class BorgSdramHarness(rdDelay: Int = 4, wrDelay: Int = 2) extends Module {
   val io = IO(new BorgSdramHarnessIO)
 
-  val borg  = Module(new Borg(BorgConfig.Sim))
+  val borg  = Module(new BorgTestWrapper(BorgConfig.Sim))
   val mem   = Module(new MemoryController)
   val sdram = Module(new SdramBackendSim(words = 16384, rdDelay = rdDelay, wrDelay = wrDelay))
 
@@ -54,14 +54,13 @@ class BorgSdramHarness(rdDelay: Int = 4, wrDelay: Int = 2) extends Module {
   sdram.io.backend <> mem.io.backend
 
   // ── CPU ports: tied off (no TinyQV here — testbench is the CPU) ──
-  mem.io.instrFetch.instr_addr          := 0.U
-  mem.io.instrFetch.instr_fetch_restart := false.B
-  mem.io.instrFetch.instr_fetch_stall   := false.B
-  mem.io.cpuData.addr         := 0.U
-  mem.io.cpuData.dataOut      := 0.U
-  mem.io.cpuData.writeN       := 3.U
-  mem.io.cpuData.readN        := 3.U
-  mem.io.cpuData.dataContinue := false.B
+  // CPU ports idle (testbench is the CPU)
+  mem.io.instr.req.valid    := false.B
+  mem.io.instr.req.bits     := 0.U
+  mem.io.instr.resp.ready   := true.B
+  mem.io.cpuData.req.valid  := false.B
+  mem.io.cpuData.req.bits   := 0.U.asTypeOf(mem.io.cpuData.req.bits)
+  mem.io.cpuData.resp.ready := true.B
 
   // ── Borg GPU MMIO ──
   borg.io.address     := io.borgAddr
@@ -470,7 +469,7 @@ class BorgScanoutContentionHarnessIO extends Bundle {
 class BorgScanoutContentionHarness extends Module {
   val io = IO(new BorgScanoutContentionHarnessIO)
 
-  val borg    = Module(new Borg(BorgConfig.Sim))
+  val borg    = Module(new BorgTestWrapper(BorgConfig.Sim))
   val mem     = Module(new MemoryController)
   val sdram   = Module(new SdramBackendSim(words = 16384, rdDelay = 4, wrDelay = 2))
   val scanout = Module(new HdmiScanoutFp16(fbBase = 0x1000, fbWidth = 32, fbHeight = 32))
@@ -478,14 +477,13 @@ class BorgScanoutContentionHarness extends Module {
   sdram.io.backend <> mem.io.backend
 
   // Tie off CPU ports
-  mem.io.instrFetch.instr_addr          := 0.U
-  mem.io.instrFetch.instr_fetch_restart := false.B
-  mem.io.instrFetch.instr_fetch_stall   := false.B
-  mem.io.cpuData.addr         := 0.U
-  mem.io.cpuData.dataOut      := 0.U
-  mem.io.cpuData.writeN       := 3.U
-  mem.io.cpuData.readN        := 3.U
-  mem.io.cpuData.dataContinue := false.B
+  // CPU ports idle (testbench is the CPU)
+  mem.io.instr.req.valid    := false.B
+  mem.io.instr.req.bits     := 0.U
+  mem.io.instr.resp.ready   := true.B
+  mem.io.cpuData.req.valid  := false.B
+  mem.io.cpuData.req.bits   := 0.U.asTypeOf(mem.io.cpuData.req.bits)
+  mem.io.cpuData.resp.ready := true.B
 
   // Borg MMIO
   borg.io.address      := io.borgAddr
