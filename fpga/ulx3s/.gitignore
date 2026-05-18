@@ -13,3 +13,10 @@ sdram_test.json
 sdram_test_chisel.lpf
 uart_hello.elf
 uart_hello.o
+borg-minimal.json
+borg-minimal.bit
+borg-minimal.config
+borg-minimal.svf
+nextpnr-minimal.log
+yosys-minimal.log
+.verilog_stamp_ulx3s_minimal
