@@ -70,16 +70,23 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val led = IO(Output(UInt(8.W)))
   val btn = IO(Input(UInt(6.W)))
 
-  // ── PLL: 25 MHz → CLOCK_MHZ (0°) + CLOCK_MHZ (90°) for SDRAM clock ──────
+  // ── PLL: 25 MHz → 25 MHz SoC + 25 MHz/90° SDRAM + 125 MHz HDMI ──────────
+  // SoC at 25 MHz keeps timing closure (Fmax ~16 MHz critical path in Borg
+  // core is bypassed since CPU only does MMIO writes at 25 MHz).
+  // HDMI serializer needs 125 MHz for DDR 10-bit TMDS at 25 MHz pixel rate.
+  val SOC_MHZ = 25
+  val HDMI_MHZ = 125
   val pll = Module(new Ecp5PllWrapper(Ecp5PllParams(
     inHz   = 25_000_000L,
-    out0Hz = CLOCK_MHZ.toLong * 1_000_000L,
-    out1Hz = CLOCK_MHZ.toLong * 1_000_000L, out1Deg = 90
+    out0Hz = SOC_MHZ.toLong * 1_000_000L,
+    out1Hz = SOC_MHZ.toLong * 1_000_000L, out1Deg = 90,
+    out2Hz = HDMI_MHZ.toLong * 1_000_000L
   )))
   pll.io.clk_i   := clk_25mhz
   val pllLocked  = pll.io.locked
-  val sysClock   = pll.io.clk_o(0)
-  val sdramClock = pll.io.clk_o(1)
+  val sysClock   = pll.io.clk_o(0)   // 25 MHz — CPU, SDRAM, Borg, scanout
+  val sdramClock = pll.io.clk_o(1)   // 25 MHz + 90° — SDRAM clock pin
+  val hdmiClock  = pll.io.clk_o(2)   // 125 MHz — TMDS serializer only
 
   // Route 90°-shifted clock directly to the SDRAM clock pin
   sdram_clk := sdramClock
@@ -119,7 +126,7 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
 
   // ── SdramBackend: bridges MemoryController ↔ SdramController ─────────────
   val sdramBackend = withClockAndReset(sysClock, pllRst) {
-    Module(new SdramBackend(CLOCK_MHZ))
+    Module(new SdramBackend(SOC_MHZ))
   }
 
   // Mux backend: FlashBootLoader during boot, MemoryController after boot_done
@@ -131,7 +138,7 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   sdramBackend.io.backend.startRead  := Mux(bootDone, mem.io.backend.startRead, false.B)
   sdramBackend.io.backend.startWrite := Mux(bootDone, mem.io.backend.startWrite, flashBoot.io.backend.startWrite)
   sdramBackend.io.backend.stallTxn   := Mux(bootDone, mem.io.backend.stallTxn, false.B)
-  sdramBackend.io.backend.stopTxn    := Mux(bootDone, mem.io.backend.stopTxn,  false.B)
+  sdramBackend.io.backend.stopTxn    := Mux(bootDone, mem.io.backend.stopTxn,  flashBoot.io.backend.stopTxn)
 
   // → MemoryController (only active after boot_done)
   mem.io.backend.dataOut   := Mux(bootDone, sdramBackend.io.backend.dataOut,   0.U)
@@ -208,36 +215,27 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
     ftdi_rxd := uo_out_val(6)
   }
 
+
+
   // ── HDMI Scanout (reads Borg GPU tiled FP16 framebuffer) ─────────────────
   val scanout = withClockAndReset(sysClock, pllRst) {
     Module(new HdmiScanoutFp16(fbBase = 0x100000, fbWidth = 32, fbHeight = 32))
   }
-  scanout.io.enable := bootDone
+  scanout.io.enable := false.B  // TEMPORARY: disable to test CPU without contention
 
-  // Mux scanout onto gpuMem after wireSoC() has already connected
-  // peripherals.io.gpuMem <> mem.io.gpuMem.
-  // Priority: Borg GPU (borgReq) > HDMI scanout.
-  // Re-drive mem.io.gpuMem fields to include scanout when GPU is idle.
+  // Scanout-only gpuMem wiring (Borg GPU disabled — no priority mux needed).
   locally {
-    val borgReq = peripherals.io.gpuMem.req
-    mem.io.gpuMem.req   := borgReq || scanout.io.gpuReq
-    mem.io.gpuMem.addr  := Mux(borgReq, peripherals.io.gpuMem.addr, scanout.io.gpuAddr)
-    mem.io.gpuMem.wr    := peripherals.io.gpuMem.wr
-    mem.io.gpuMem.wdata := peripherals.io.gpuMem.wdata
-    // GPU side: data/ready only when borgReq
-    peripherals.io.gpuMem.data  := mem.io.gpuMem.data
-    peripherals.io.gpuMem.ready := mem.io.gpuMem.ready && borgReq
-    // Scanout side: data/ready when GPU is idle
+    mem.io.gpuMem.req   := scanout.io.gpuReq
+    mem.io.gpuMem.addr  := scanout.io.gpuAddr
+    mem.io.gpuMem.wr    := false.B
+    mem.io.gpuMem.wdata := 0.U
     scanout.io.gpuData  := mem.io.gpuMem.data
-    scanout.io.gpuReady := mem.io.gpuMem.ready && !borgReq
+    scanout.io.gpuReady := mem.io.gpuMem.ready
   }
 
-  // ── VGA timing (25 MHz pixel clock from 125 MHz / 5) ─────────────────────
-  val count = withClockAndReset(sysClock, pllRst) { RegInit(0.U(3.W)) }
-  val tick25 = (count === 4.U)
-  withClockAndReset(sysClock, pllRst) {
-    when(tick25) { count := 0.U } .otherwise { count := count + 1.U }
-  }
+  // ── VGA timing (25 MHz pixel clock = sysClock directly) ───────────────────
+  // At 25 MHz SoC clock, every cycle IS a pixel tick — no divider needed.
+  val tick25 = true.B
   val hCount = withClockAndReset(sysClock, pllRst) { RegInit(0.U(10.W)) }
   val vCount = withClockAndReset(sysClock, pllRst) { RegInit(0.U(10.W)) }
   val hTotal = 800.U;  val vTotal = 525.U
@@ -245,13 +243,11 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val hFront = 16.U;   val hSync = 96.U
   val vFront = 10.U;   val vSync = 2.U
   withClockAndReset(sysClock, pllRst) {
-    when(tick25) {
-      when(hCount === hTotal - 1.U) {
-        hCount := 0.U
-        when(vCount === vTotal - 1.U) { vCount := 0.U }
-        .otherwise { vCount := vCount + 1.U }
-      } .otherwise { hCount := hCount + 1.U }
-    }
+    when(hCount === hTotal - 1.U) {
+      hCount := 0.U
+      when(vCount === vTotal - 1.U) { vCount := 0.U }
+      .otherwise { vCount := vCount + 1.U }
+    } .otherwise { hCount := hCount + 1.U }
   }
   val de    = (hCount < hActive) && (vCount < vActive)
   val hsync = (hCount >= (hActive + hFront)) && (hCount < (hActive + hFront + hSync))
@@ -259,24 +255,42 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   scanout.io.hCount := hCount; scanout.io.vCount := vCount
   scanout.io.de := de; scanout.io.tick25 := tick25
 
-  // ── TMDS Encoders + Serializers ──────────────────────────────────────────
-  val encB = withClockAndReset(sysClock, pllRst) { Module(new TmdsEncoder) }
-  encB.io.en := tick25; encB.io.data := scanout.io.blue
-  encB.io.c := Cat(vsync, hsync); encB.io.de := de
-  val encG = withClockAndReset(sysClock, pllRst) { Module(new TmdsEncoder) }
-  encG.io.en := tick25; encG.io.data := scanout.io.green
-  encG.io.c := 0.U; encG.io.de := de
-  val encR = withClockAndReset(sysClock, pllRst) { Module(new TmdsEncoder) }
-  encR.io.en := tick25; encR.io.data := scanout.io.red
-  encR.io.c := 0.U; encR.io.de := de
-  val serB = withClockAndReset(sysClock, pllRst) { Module(new TmdsSerializer) }
-  serB.io.en := tick25; serB.io.tmds := encB.io.tmds
-  val serG = withClockAndReset(sysClock, pllRst) { Module(new TmdsSerializer) }
-  serG.io.en := tick25; serG.io.tmds := encG.io.tmds
-  val serR = withClockAndReset(sysClock, pllRst) { Module(new TmdsSerializer) }
-  serR.io.en := tick25; serR.io.tmds := encR.io.tmds
-  val serClk = withClockAndReset(sysClock, pllRst) { Module(new TmdsSerializer) }
-  serClk.io.en := tick25; serClk.io.tmds := "b0000011111".U
+  // ── CDC: latch RGB8 + sync from 25 MHz → 125 MHz ─────────────────────────
+  // Pixel data changes once per 25 MHz cycle = 5× 125 MHz cycles.
+  // Single register stage is safe (data is stable for 5 fast clocks).
+  val hdmiRst = !pllLocked
+  val hdmiRed   = withClockAndReset(hdmiClock, hdmiRst) { RegNext(scanout.io.red) }
+  val hdmiGreen = withClockAndReset(hdmiClock, hdmiRst) { RegNext(scanout.io.green) }
+  val hdmiBlue  = withClockAndReset(hdmiClock, hdmiRst) { RegNext(scanout.io.blue) }
+  val hdmiHsync = withClockAndReset(hdmiClock, hdmiRst) { RegNext(hsync) }
+  val hdmiVsync = withClockAndReset(hdmiClock, hdmiRst) { RegNext(vsync) }
+  val hdmiDe    = withClockAndReset(hdmiClock, hdmiRst) { RegNext(de) }
+
+  // tick25 in the 125 MHz domain: fires every 5th cycle
+  val hdmiCount = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(3.W)) }
+  val hdmiTick25 = (hdmiCount === 4.U)
+  withClockAndReset(hdmiClock, hdmiRst) {
+    when(hdmiTick25) { hdmiCount := 0.U } .otherwise { hdmiCount := hdmiCount + 1.U }
+  }
+
+  // ── TMDS Encoders + Serializers (125 MHz domain) ─────────────────────────
+  val encB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
+  encB.io.en := hdmiTick25; encB.io.data := hdmiBlue
+  encB.io.c := Cat(hdmiVsync, hdmiHsync); encB.io.de := hdmiDe
+  val encG = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
+  encG.io.en := hdmiTick25; encG.io.data := hdmiGreen
+  encG.io.c := 0.U; encG.io.de := hdmiDe
+  val encR = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
+  encR.io.en := hdmiTick25; encR.io.data := hdmiRed
+  encR.io.c := 0.U; encR.io.de := hdmiDe
+  val serB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
+  serB.io.en := hdmiTick25; serB.io.tmds := encB.io.tmds
+  val serG = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
+  serG.io.en := hdmiTick25; serG.io.tmds := encG.io.tmds
+  val serR = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
+  serR.io.en := hdmiTick25; serR.io.tmds := encR.io.tmds
+  val serClk = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
+  serClk.io.en := hdmiTick25; serClk.io.tmds := "b0000011111".U
   gpdi_dp := Cat(serClk.io.out, serR.io.out, serG.io.out, serB.io.out)
 
   // ── LEDs: max debug ────────────────────────────────────────────────────────

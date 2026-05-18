@@ -68,8 +68,8 @@ borg.json: .verilog_stamp_ulx3s
 	      > yosys.log
 	@echo -e "$(BOLD)[SYNTH]$(RESET) Done."
 
-# Clock frequency — 125 MHz (PLL output from 25 MHz oscillator)
-CLOCK_FREQ = 125
+# Clock frequency — 25 MHz SoC clock (HDMI runs at 125 MHz separately)
+CLOCK_FREQ = 25
 
 # Place and Route — ECP5-85F, CABGA381 package
 borg.config: borg.json
@@ -115,7 +115,7 @@ firmware_with_header.bin: $(FIRMWARE_DIR)/triangle.bin
 	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/triangle.bin','rb').read(); open('firmware_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> firmware_with_header.bin')"
 
 $(FIRMWARE_DIR)/triangle.bin:
-	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=125 \
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=25 \
 		EXTRA_CFLAGS="-DUART_BASE=0x08000018" triangle
 
 # Flash firmware blob to onboard flash at 0x400000.
@@ -150,6 +150,25 @@ flash-sdram-fb: sdram_fb_fw.bin
 	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing sdram_fb firmware @ 0x400000 ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 sdram_fb_fw.bin
 	@echo -e "$(BOLD)[DONE]$(RESET) Firmware flashed. Now run: make load && make tio"
+
+hdmi_test_fw.bin: hdmi_test_fb.s
+	@echo -e "$(BOLD)[FW]$(RESET) Assembling hdmi_test_fb.s ..."
+	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o hdmi_test_fb.o hdmi_test_fb.s
+	riscv64-unknown-elf-ld -melf32lriscv -Ttext=0x0 -o hdmi_test_fb.elf hdmi_test_fb.o
+	riscv64-unknown-elf-objcopy -O binary hdmi_test_fb.elf hdmi_test_raw.bin
+	@python3 -c "import struct; d=open('hdmi_test_raw.bin','rb').read(); open('hdmi_test_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> hdmi_test_fw.bin')"
+
+flash-hdmi-test: hdmi_test_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing hdmi_test firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_test_fw.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Firmware flashed. Power-cycle and connect with: make tio"
+
+hdmi-test: borg.bit hdmi_test_fw.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing hdmi_test firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_test_fw.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle. Expect: red 32x32 overlay on HDMI, 'R' then 'D' on tio."
 
 minimal.bin:
 	@echo -e "$(BOLD)[FW-PACK]$(RESET) Building minimal boot-test firmware (4-byte infinite loop) ..."

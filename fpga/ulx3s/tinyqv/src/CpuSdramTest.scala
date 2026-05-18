@@ -137,7 +137,7 @@ class CpuSdramTest(clockMhz: Int = 125) extends RawModule {
   sdramBackend.io.backend.startRead  := Mux(bootDone, mem.io.backend.startRead, false.B)
   sdramBackend.io.backend.startWrite := Mux(bootDone, mem.io.backend.startWrite, flashBoot.io.backend.startWrite)
   sdramBackend.io.backend.stallTxn   := Mux(bootDone, mem.io.backend.stallTxn, false.B)
-  sdramBackend.io.backend.stopTxn    := Mux(bootDone, mem.io.backend.stopTxn,  false.B)
+  sdramBackend.io.backend.stopTxn    := Mux(bootDone, mem.io.backend.stopTxn,  flashBoot.io.backend.stopTxn)
 
   mem.io.backend.dataOut   := Mux(bootDone, sdramBackend.io.backend.dataOut,   0.U)
   mem.io.backend.dataReq   := Mux(bootDone, sdramBackend.io.backend.dataReq,   false.B)
@@ -174,7 +174,6 @@ class CpuSdramTest(clockMhz: Int = 125) extends RawModule {
     val inGap   = RegInit(true.B)
     val lastByte = RegInit(0x41.U(8.W))
 
-    // Latch CPU write data
     when(isDebugUartWrite) {
       lastByte := data_out(7, 0)
     }
@@ -221,39 +220,18 @@ class CpuSdramTest(clockMhz: Int = 125) extends RawModule {
 
   ftdi_rxd := txOut
 
-  // ── LEDs ─────────────────────────────────────────────────────────────────
-  // [7]=pll [6]=boot_done [5]=cpuRst_reg_n [4]=instrComplete_ever
-  // [3]=write_n_not3_ever [2]=isSocRegion_during_write [1]=isDebugUartWrite_ever [0]=instrReady_ever
-  val instrCompleteSeen = withClockAndReset(sysClock, pllRst) {
-    val seen = RegInit(false.B)
-    when(cpu.io.debug_instr_complete) { seen := true.B }
-    seen
-  }
-  // Has write_n from TinyQV MMIO port EVER gone non-3?
-  val writeNotThreeSeen = withClockAndReset(sysClock, pllRst) {
-    val seen = RegInit(false.B)
-    when(write_n =/= 3.U) { seen := true.B }
-    seen
-  }
-  // Was isSocRegion true during ANY write_n =/= 3?
-  val socRegionWriteSeen = withClockAndReset(sysClock, pllRst) {
-    val seen = RegInit(false.B)
-    when(isSocRegion && write_n =/= 3.U) { seen := true.B }
-    seen
-  }
-  // Full isDebugUartWrite ever?
-  val uartWriteSeen = withClockAndReset(sysClock, pllRst) {
-    val seen = RegInit(false.B)
-    when(isDebugUartWrite) { seen := true.B }
-    seen
-  }
-  val instrReadySeen = withClockAndReset(sysClock, pllRst) {
-    val seen = RegInit(false.B)
-    when(cpu.io.instr_ready) { seen := true.B }
-    seen
-  }
-  led := Cat(pllLocked, bootDone, cpuRst_reg_n, instrCompleteSeen, writeNotThreeSeen,
-             socRegionWriteSeen, uartWriteSeen, instrReadySeen)
+  // ── LEDs (boot / deadlock diagnostic) ────────────────────────────────────
+  // [7:4] = FlashBootLoader state (4 bits)
+  // [3:0] = SdramBackend state (4 bits)
+  //
+  // FlashBootState: 0=sWaitSdram 1..4=FlashRst 5=SendCmd 6..8=SendAddr
+  //                 9=ReadSize 10=ReadByte0 11=ReadByte1
+  //                 12=WrStart 13=WrWaitDone 14=Done
+  // SdramBackend:   0=sIdle 1=sRdReq 2=sRdWait 3=sReadB
+  //                 4=sWrReq 5=sWrWord 6=sWrWait 7=sAck
+  //                 8=sRdAck 9=sWrAck
+  // Healthy boot endpoint: led[7:0] = 1110_0000 = 0xE0 (FBL=sDone, BE=sIdle)
+  led := Cat(flashBoot.io.debug_state, sdramBackend.io.debug_be_state)
 }
 
 // ── Emit ──────────────────────────────────────────────────────────────────────

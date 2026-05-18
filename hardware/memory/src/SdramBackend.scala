@@ -89,6 +89,7 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
   val sWrWait = 6.U(4.W)   // wait for SDRAM write rdy
   val sAck    = 7.U(4.W)   // drain any in-flight SDRAM txn
   val sRdAck  = 8.U(4.W)   // deassert rd, then ack + present bytes
+  val sWrAck  = 9.U(4.W)
 
   val state    = RegInit(sIdle)
   val rdDelCtr = RegInit(0.U(2.W))  // counts 2 cycles to step past register latency
@@ -163,11 +164,13 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
       // Keep rd high; wait for the SDRAM to assert rdy (data valid)
       sdram.io.sys.rd := true.B
       sdram.io.sys.ab := Cat(0.U(0.W), wordAddr)
+      
+      when(io.backend.stopTxn) { state := sAck }
+      // rdy must take precedence over stopTxn to prevent getting stuck in sAck
       when(sdram.io.sys.rdy) {
         readWord := sdram.io.sys.do_     // latch the 16-bit word
         state := sRdAck  // deassert rd before ack
       }
-      when(io.backend.stopTxn) { state := sAck }
     }
 
     is(sReadB) {
@@ -222,16 +225,30 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
 
     is(sWrWait) {
       // Hold wr high; first 2 cycles clear any stale rdy,
-      // then wait for actual rdy.
+      // then wait for actual rdy. stopTxn must NOT be honored here:
+      // FlashBootLoader asserts stopTxn the entire time it is in sWrWaitDone,
+      // so cancelling here would abort the write after a single cycle and
+      // leave the SDRAM in a state where rdy never fires (deadlock in sAck).
+      // sWrAck is the safe place to honor stopTxn.
       sdram.io.sys.wr := true.B
       sdram.io.sys.ab := Cat(0.U(0.W), wordAddr)
       sdram.io.sys.di := writeWord
       wrDelCtr := wrDelCtr + 1.U
       when(wrDelCtr >= 1.U && sdram.io.sys.rdy) {
         io.backend.dataReq := true.B   // tells arbiter write is done
-        state := sAck  // MUST deassert wr before ack (via sAck defaults)
+        state := sWrAck
       }
-      when(io.backend.stopTxn) { state := sAck }
+    }
+
+    is(sWrAck) {
+      sdram.io.sys.ack := true.B
+      when(io.backend.stopTxn) {
+        state := sIdle
+      }.otherwise {
+        byteAddr := byteAddr + 2.U
+        writeWord := Cat(0.U(8.W), io.backend.dataIn) // latch byte 0 for next word
+        state := sWrReq
+      }
     }
 
     is(sRdAck) {
@@ -243,7 +260,9 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
     is(sAck) {
       // Drain any in-flight SDRAM transaction by asserting ack
       sdram.io.sys.ack := true.B
-      state := sIdle
+      when(sdram.io.sys.rdy) {
+        state := sIdle
+      }
     }
   }
 }

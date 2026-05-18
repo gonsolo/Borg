@@ -25,7 +25,9 @@ class FlashBootIO extends Bundle {
   val spi_clk    = Output(Bool())          // → Usrmclk.USRMCLKI via .asClock
   val backend    = new MemBackendIO        // master: FlashBootLoader drives the SDRAM
   val boot_done  = Output(Bool())
-  val debug_state = Output(UInt(4.W))      // FSM state for LED diagnostics
+  val debug_state    = Output(UInt(4.W))   // FSM state for LED diagnostics
+  val debug_sizeCtr  = Output(UInt(2.W))   // 0..3 — bytes of size header read so far
+  val debug_bitCtr   = Output(UInt(3.W))   // current SPI bit position
 }
 
 /** BRAM-resident SPI-flash → SDRAM bootloader.
@@ -113,9 +115,11 @@ class FlashBootLoader(
   io.backend.startRead  := false.B
   io.backend.startWrite := false.B
   io.backend.stallTxn   := false.B
-  io.backend.stopTxn    := false.B
+  io.backend.stopTxn    := (state === sWrWaitDone)
   io.boot_done          := (state === sDone)
   io.debug_state        := state.asUInt
+  io.debug_sizeCtr      := sizeCtr
+  io.debug_bitCtr       := bitCtr
 
   // ── FSM transitions ────────────────────────────────────────────────────────
   switch(state) {
