@@ -1,0 +1,5 @@
+package build.hardware.hutt
+import mill._, scalalib._
+import build.BorgModule
+
+object `package` extends BorgModule
