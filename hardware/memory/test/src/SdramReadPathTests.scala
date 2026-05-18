@@ -5,7 +5,7 @@
 // Writes two bytes to SDRAM address 0 via the backend write protocol,
 // then reads them back via the read protocol.
 // This directly simulates what FlashBootLoader (write) + MemoryController (read)
-// do during boot, without involving TinyQV.
+// do during boot, without involving the CPU.
 
 package memory
 

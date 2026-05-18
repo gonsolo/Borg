@@ -17,7 +17,7 @@ help:
 
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
-	@echo -e "  test-chisel-core:\t\tRun TinyQV tests (Chisel)."
+	@echo -e "  test-chisel-core:\t\tRun Hutt CPU tests (Chisel)."
 	@echo -e "  test-cocotb-soc-core-rtl:\tRun CPU core tests (cocotb)."
 	@echo -e "  test-cocotb-soc-borg-rtl:\tRun Borg peripheral tests (cocotb)."
 	@echo -e "  test-cocotb-soc-core-gl:\tRun Gate-Level core simulations (cocotb)."
@@ -38,7 +38,7 @@ help:
 # pico-ice sources temporarily excluded from the build.
 # To re-enable: add fpga/picoice/tinyqv/src back to the find paths below
 # and uncomment the picoice lines in .verilog_stamp.
-HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/src hardware/memory/src \
+HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/hutt/src hardware/memory/src \
                         fpga/ulx3s/tinyqv/src asic/tt/src \
                         -name '*.scala' -not -path '*/generated/*' 2>/dev/null)
 
@@ -109,7 +109,7 @@ lint: .verilog_stamp
 	verilator --lint-only -Wall -Iout/hardware/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $$(cat out/hardware/borg/verilog/asic_files.txt | sed 's|^\.\./||')
 
 test-chisel-core: rdl
-	$(MILL) hardware.tinyqv.test
+	$(MILL) hardware.hutt.test
 
 test-all:
 	@MILL_JOBS=$(MILL_JOBS) python3 scripts/test_runner.py
