@@ -170,12 +170,14 @@ trait SoCLogic { self: RawModule =>
 
     // SoC inline registers respond one cycle after req.fire (matches the
     // single-outstanding pattern used by UART / Borg / Peripherals).
-    val socRespPending = RegInit(false.B)
-    val socRespData    = Reg(UInt(32.W))
-    when(socFire) {
-      socRespPending := true.B
-      when(!cpuData.req.bits.write) { socRespData := socReadData }
-        .otherwise                   { socRespData := 0.U }
+    val socRespPending = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
+    val socRespData    = withClockAndReset(soc_clk, false.B)         { Reg(UInt(32.W)) }
+    withClockAndReset(soc_clk, false.B) {
+      when(socFire) {
+        socRespPending := true.B
+        when(!cpuData.req.bits.write) { socRespData := socReadData }
+          .otherwise                   { socRespData := 0.U }
+      }
     }
 
     // Debug UART TX write — special-cased so we can emit a byte without
@@ -192,9 +194,9 @@ trait SoCLogic { self: RawModule =>
     // -------------------------------------------------------------------------
     // Track which target owns the current in-flight response so we route
     // resp.valid/bits/ready correctly.
-    val activeMem  = RegInit(false.B)
-    val activeUser = RegInit(false.B)
-    val activeSoc  = RegInit(false.B)
+    val activeMem  = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
+    val activeUser = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
+    val activeSoc  = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
     val anyActive  = activeMem || activeUser || activeSoc
 
     cpuData.req.ready := !anyActive && MuxCase(true.B, Seq(
@@ -205,16 +207,18 @@ trait SoCLogic { self: RawModule =>
       // stuck; resp returns 0xFFFFFFFF the next cycle via socRespData fallback.
     ))
 
-    when(cpuData.req.fire) {
-      activeMem  := isMem
-      activeUser := isUser
-      activeSoc  := isSoc || (!isMem && !isUser)  // fallback: treat unknown as SoC
-    }
-    when(cpuData.resp.fire) {
-      activeMem  := false.B
-      activeUser := false.B
-      activeSoc  := false.B
-      socRespPending := false.B
+    withClockAndReset(soc_clk, false.B) {
+      when(cpuData.req.fire) {
+        activeMem  := isMem
+        activeUser := isUser
+        activeSoc  := isSoc || (!isMem && !isUser)  // fallback: treat unknown as SoC
+      }
+      when(cpuData.resp.fire) {
+        activeMem  := false.B
+        activeUser := false.B
+        activeSoc  := false.B
+        socRespPending := false.B
+      }
     }
 
     mem.io.cpuData.resp.ready         := cpuData.resp.ready && activeMem
@@ -238,7 +242,8 @@ trait SoCLogic { self: RawModule =>
     // Interrupt + timer.
     // -------------------------------------------------------------------------
     val time_count = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(0.U(7.W)) }
-    val time_pulse = (time_count === Cat(time_limit, 3.U(2.W)))
+    val time_pulse = Wire(Bool())
+    time_pulse := (time_count === Cat(time_limit, 3.U(2.W)))
     withClockAndReset(soc_clk, false.B) {
       when(time_pulse) { time_count := 0.U }
         .otherwise    { time_count := time_count + 1.U }
