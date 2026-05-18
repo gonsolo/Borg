@@ -218,6 +218,52 @@ generate_verilog_ulx3s:
 	@echo -e "$(BOLD)[CHISEL]$(RESET) Emitting ULX3S Verilog (BorgConfig.ULX3S) ..."
 	$(MAKE) -C ../.. generate_verilog_ulx3s
 
+######### Minimal SoC (Hutt + UART only) — fast iteration ##########################################
+
+ULX3S_MINIMAL_VERILOG_DIR = ../../out/ulx3s_minimal/verilog
+MIN_SRC_FILES = $$(find $(ULX3S_MINIMAL_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
+MIN_LPF = $(ULX3S_MINIMAL_VERILOG_DIR)/ulx3s.lpf
+
+.verilog_stamp_ulx3s_minimal: $(CHISEL_SRCS) Makefile ../../Makefile
+	$(MAKE) -C ../.. generate_verilog_ulx3s_minimal
+	@touch $@
+
+borg-minimal.json: .verilog_stamp_ulx3s_minimal
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Running Yosys for minimal SoC ..."
+	yosys -p "read -sv $(MIN_SRC_FILES); \
+	           read_verilog -sv -lib $(CURDIR)/primitives/ecp5_prims.v; \
+	           synth_ecp5 -abc9 -top ulx3s_minimal_top -json borg-minimal.json; \
+	           stat -top ulx3s_minimal_top" \
+	      -DECP5 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ \
+	      > yosys-minimal.log
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Done."
+
+borg-minimal.config: borg-minimal.json
+	@echo -e "$(BOLD)[PNR]$(RESET) Running nextpnr-ecp5 for minimal SoC ..."
+	nextpnr-ecp5 \
+	  --85k --package CABGA381 \
+	  --json borg-minimal.json \
+	  --lpf $(MIN_LPF) \
+	  --textcfg borg-minimal.config \
+	  --freq $(CLOCK_FREQ) \
+	  --timing-allow-fail \
+	  --log nextpnr-minimal.log \
+	  --seed 0
+	@echo -e "$(BOLD)[PNR]$(RESET) Done."
+
+borg-minimal.bit: borg-minimal.config
+	@echo -e "$(BOLD)[PACK]$(RESET) Packing minimal bitstream ..."
+	ecppack --svf borg-minimal.svf borg-minimal.config borg-minimal.bit
+	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-minimal.bit ready."
+
+# Combined target: flash minimal bitstream + uart_hello firmware.
+minimal-uart: borg-minimal.bit uart_hello_fw.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing minimal ECP5 bitstream ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg-minimal.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing uart_hello firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 uart_hello_fw.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle the board, then 'make tio'."
+
 # Catch debug output on the FT231X serial port
 tio:
 	tio /dev/ttyUSB0

@@ -1,0 +1,584 @@
+Info: constraining clock net 'clk_25mhz' to 25.00 MHz
+
+Info: Logic utilisation before packing:
+Info:     Total LUT4s:      6909/83640     8%
+Info:         logic LUTs:   6409/83640     7%
+Info:         carry LUTs:    500/83640     0%
+Info:           RAM LUTs:      0/10455     0%
+Info:          RAMW LUTs:      0/20910     0%
+
+Info:      Total DFFs:      1709/83640     2%
+
+Info: Packing IOs..
+Info: sdram_d_9 feeds TRELLIS_IO bb_9, removing $nextpnr_iobuf sdram_d_9.
+Info: pin 'bb_9' constrained to Bel 'X126/Y35/PIOC'.
+Info: sdram_d_8 feeds TRELLIS_IO bb_8, removing $nextpnr_iobuf sdram_d_8.
+Info: pin 'bb_8' constrained to Bel 'X126/Y35/PIOD'.
+Info: sdram_d_7 feeds TRELLIS_IO bb_7, removing $nextpnr_iobuf sdram_d_7.
+Info: pin 'bb_7' constrained to Bel 'X126/Y86/PIOD'.
+Info: sdram_d_6 feeds TRELLIS_IO bb_6, removing $nextpnr_iobuf sdram_d_6.
+Info: pin 'bb_6' constrained to Bel 'X126/Y92/PIOD'.
+Info: sdram_d_5 feeds TRELLIS_IO bb_5, removing $nextpnr_iobuf sdram_d_5.
+Info: pin 'bb_5' constrained to Bel 'X126/Y89/PIOD'.
+Info: sdram_d_4 feeds TRELLIS_IO bb_4, removing $nextpnr_iobuf sdram_d_4.
+Info: pin 'bb_4' constrained to Bel 'X126/Y83/PIOD'.
+Info: sdram_d_3 feeds TRELLIS_IO bb_3, removing $nextpnr_iobuf sdram_d_3.
+Info: pin 'bb_3' constrained to Bel 'X126/Y53/PIOC'.
+Info: sdram_d_2 feeds TRELLIS_IO bb_2, removing $nextpnr_iobuf sdram_d_2.
+Info: pin 'bb_2' constrained to Bel 'X126/Y50/PIOD'.
+Info: sdram_d_15 feeds TRELLIS_IO bb_15, removing $nextpnr_iobuf sdram_d_15.
+Info: pin 'bb_15' constrained to Bel 'X126/Y20/PIOC'.
+Info: sdram_d_14 feeds TRELLIS_IO bb_14, removing $nextpnr_iobuf sdram_d_14.
+Info: pin 'bb_14' constrained to Bel 'X126/Y41/PIOC'.
+Info: sdram_d_13 feeds TRELLIS_IO bb_13, removing $nextpnr_iobuf sdram_d_13.
+Info: pin 'bb_13' constrained to Bel 'X126/Y14/PIOD'.
+Info: sdram_d_12 feeds TRELLIS_IO bb_12, removing $nextpnr_iobuf sdram_d_12.
+Info: pin 'bb_12' constrained to Bel 'X126/Y14/PIOC'.
+Info: sdram_d_11 feeds TRELLIS_IO bb_11, removing $nextpnr_iobuf sdram_d_11.
+Info: pin 'bb_11' constrained to Bel 'X126/Y35/PIOA'.
+Info: sdram_d_10 feeds TRELLIS_IO bb_10, removing $nextpnr_iobuf sdram_d_10.
+Info: pin 'bb_10' constrained to Bel 'X126/Y35/PIOB'.
+Info: sdram_d_1 feeds TRELLIS_IO bb_1, removing $nextpnr_iobuf sdram_d_1.
+Info: pin 'bb_1' constrained to Bel 'X126/Y50/PIOC'.
+Info: sdram_d_0 feeds TRELLIS_IO bb, removing $nextpnr_iobuf sdram_d_0.
+Info: pin 'bb' constrained to Bel 'X126/Y20/PIOD'.
+Info: pin 'sdram_wen$tr_io' constrained to Bel 'X126/Y86/PIOC'.
+Info: pin 'sdram_rasn$tr_io' constrained to Bel 'X126/Y86/PIOB'.
+Info: pin 'sdram_dqm[1]$tr_io' constrained to Bel 'X126/Y38/PIOA'.
+Info: pin 'sdram_dqm[0]$tr_io' constrained to Bel 'X126/Y89/PIOC'.
+Info: pin 'sdram_csn$tr_io' constrained to Bel 'X126/Y86/PIOA'.
+Info: pin 'sdram_clk$tr_io' constrained to Bel 'X126/Y38/PIOB'.
+Info: pin 'sdram_cke$tr_io' constrained to Bel 'X126/Y38/PIOC'.
+Info: pin 'sdram_casn$tr_io' constrained to Bel 'X126/Y89/PIOA'.
+Info: pin 'sdram_ba[1]$tr_io' constrained to Bel 'X126/Y83/PIOB'.
+Info: pin 'sdram_ba[0]$tr_io' constrained to Bel 'X126/Y83/PIOC'.
+Info: pin 'sdram_a[12]$tr_io' constrained to Bel 'X126/Y41/PIOA'.
+Info: pin 'sdram_a[11]$tr_io' constrained to Bel 'X126/Y38/PIOD'.
+Info: pin 'sdram_a[10]$tr_io' constrained to Bel 'X126/Y83/PIOA'.
+Info: pin 'sdram_a[9]$tr_io' constrained to Bel 'X126/Y41/PIOB'.
+Info: pin 'sdram_a[8]$tr_io' constrained to Bel 'X126/Y44/PIOA'.
+Info: pin 'sdram_a[7]$tr_io' constrained to Bel 'X126/Y44/PIOC'.
+Info: pin 'sdram_a[6]$tr_io' constrained to Bel 'X126/Y41/PIOD'.
+Info: pin 'sdram_a[5]$tr_io' constrained to Bel 'X126/Y44/PIOB'.
+Info: pin 'sdram_a[4]$tr_io' constrained to Bel 'X126/Y44/PIOD'.
+Info: pin 'sdram_a[3]$tr_io' constrained to Bel 'X126/Y47/PIOC'.
+Info: pin 'sdram_a[2]$tr_io' constrained to Bel 'X126/Y47/PIOA'.
+Info: pin 'sdram_a[1]$tr_io' constrained to Bel 'X126/Y47/PIOD'.
+Info: pin 'sdram_a[0]$tr_io' constrained to Bel 'X126/Y47/PIOB'.
+Info: pin 'rst_n$tr_io' constrained to Bel 'X6/Y0/PIOB'.
+Info: pin 'led[7]$tr_io' constrained to Bel 'X0/Y41/PIOD'.
+Info: pin 'led[6]$tr_io' constrained to Bel 'X0/Y38/PIOD'.
+Info: pin 'led[5]$tr_io' constrained to Bel 'X0/Y44/PIOD'.
+Info: pin 'led[4]$tr_io' constrained to Bel 'X0/Y38/PIOB'.
+Info: pin 'led[3]$tr_io' constrained to Bel 'X0/Y38/PIOC'.
+Info: pin 'led[2]$tr_io' constrained to Bel 'X0/Y38/PIOA'.
+Info: pin 'led[1]$tr_io' constrained to Bel 'X0/Y35/PIOD'.
+Info: pin 'led[0]$tr_io' constrained to Bel 'X0/Y35/PIOC'.
+Info: pin 'gpdi_dp[3]$tr_io' constrained to Bel 'X116/Y0/PIOA'.
+Info: pin 'gpdi_dp[2]$tr_io' constrained to Bel 'X76/Y0/PIOA'.
+Info: pin 'gpdi_dp[1]$tr_io' constrained to Bel 'X83/Y0/PIOA'.
+Info: pin 'gpdi_dp[0]$tr_io' constrained to Bel 'X110/Y0/PIOA'.
+Info: pin 'ftdi_txd$tr_io' constrained to Bel 'X0/Y89/PIOB'.
+Info: pin 'ftdi_rxd$tr_io' constrained to Bel 'X0/Y56/PIOC'.
+Info: pin 'flash_mosi$tr_io' constrained to Bel 'X11/Y95/PIOB'.
+Info: pin 'flash_miso$tr_io' constrained to Bel 'X11/Y95/PIOA'.
+Info: pin 'flash_csn$tr_io' constrained to Bel 'X15/Y95/PIOA'.
+Info: pin 'clk_25mhz$tr_io' constrained to Bel 'X0/Y47/PIOA'.
+Info: pin 'btn[5]$tr_io' constrained to Bel 'X126/Y17/PIOD'.
+Info: pin 'btn[4]$tr_io' constrained to Bel 'X6/Y95/PIOA'.
+Info: pin 'btn[3]$tr_io' constrained to Bel 'X6/Y95/PIOB'.
+Info: pin 'btn[2]$tr_io' constrained to Bel 'X126/Y89/PIOB'.
+Info: pin 'btn[1]$tr_io' constrained to Bel 'X4/Y95/PIOB'.
+Info: pin 'btn[0]$tr_io' constrained to Bel 'X4/Y95/PIOA'.
+Info: Packing constants..
+Info: Packing carries...
+Info: Packing LUTs...
+Info: Packing LUT5-7s...
+Info: Packing FFs...
+Info:     378 FFs paired with LUTs.
+Info: Generating derived timing constraints...
+Info:     Input frequency of PLL 'pll.pll' is constrained to 25.0 MHz
+Info:     Derived frequency constraint of 25.0 MHz for net _pll_io_clk_o_0
+Info:     Derived frequency constraint of 25.0 MHz for net sdram_clk$TRELLIS_IO_OUT
+Info: Promoting globals...
+Info:     promoting clock net _pll_io_clk_o_0 to global network
+Info: Checksum: 0xe452c476
+
+Info: Device utilisation:
+Info: 	          TRELLIS_IO:      64/    365    17%
+Info: 	                DCCA:       1/     56     1%
+Info: 	              DP16KD:       0/    208     0%
+Info: 	          MULT18X18D:       0/    156     0%
+Info: 	              ALU54B:       0/     78     0%
+Info: 	             EHXPLLL:       1/      4    25%
+Info: 	             EXTREFB:       0/      2     0%
+Info: 	                DCUA:       0/      2     0%
+Info: 	           PCSCLKDIV:       0/      2     0%
+Info: 	             IOLOGIC:       0/    224     0%
+Info: 	            SIOLOGIC:       0/    141     0%
+Info: 	                 GSR:       0/      1     0%
+Info: 	               JTAGG:       0/      1     0%
+Info: 	                OSCG:       0/      1     0%
+Info: 	               SEDGA:       0/      1     0%
+Info: 	                 DTR:       0/      1     0%
+Info: 	             USRMCLK:       1/      1   100%
+Info: 	             CLKDIVF:       0/      4     0%
+Info: 	           ECLKSYNCB:       0/     10     0%
+Info: 	             DLLDELD:       0/      8     0%
+Info: 	              DDRDLL:       0/      4     0%
+Info: 	             DQSBUFM:       0/     14     0%
+Info: 	     TRELLIS_ECLKBUF:       0/      8     0%
+Info: 	        ECLKBRIDGECS:       0/      2     0%
+Info: 	                DCSC:       0/      2     0%
+Info: 	          TRELLIS_FF:    1709/  83640     2%
+Info: 	        TRELLIS_COMB:    6999/  83640     8%
+Info: 	        TRELLIS_RAMW:       0/  10455     0%
+
+Info: Placed 65 cells based on constraints.
+Info: Creating initial analytic placement for 4450 cells, random placement wirelen = 478758.
+Info:     at initial placer iter 0, wirelen = 6513
+Info:     at initial placer iter 1, wirelen = 4880
+Info:     at initial placer iter 2, wirelen = 4596
+Info:     at initial placer iter 3, wirelen = 4577
+Info: Running main analytical placer, max placement attempts per cell = 9625078.
+Info:     at iteration #1, type ALL: wirelen solved = 4453, spread = 57854, legal = 58904; time = 0.26s
+Info:     at iteration #2, type ALL: wirelen solved = 8031, spread = 46862, legal = 48044; time = 0.37s
+Info:     at iteration #3, type ALL: wirelen solved = 10135, spread = 45461, legal = 46561; time = 0.25s
+Info:     at iteration #4, type ALL: wirelen solved = 12651, spread = 46726, legal = 47598; time = 0.23s
+Info:     at iteration #5, type ALL: wirelen solved = 16701, spread = 40388, legal = 41388; time = 0.22s
+Info:     at iteration #6, type ALL: wirelen solved = 16806, spread = 41754, legal = 42750; time = 0.22s
+Info:     at iteration #7, type ALL: wirelen solved = 18689, spread = 41597, legal = 42482; time = 0.22s
+Info:     at iteration #8, type ALL: wirelen solved = 21125, spread = 39240, legal = 40200; time = 0.24s
+Info:     at iteration #9, type ALL: wirelen solved = 22377, spread = 43065, legal = 43612; time = 0.22s
+Info:     at iteration #10, type ALL: wirelen solved = 25724, spread = 40885, legal = 41661; time = 0.21s
+Info:     at iteration #11, type ALL: wirelen solved = 25586, spread = 40589, legal = 41447; time = 0.21s
+Info:     at iteration #12, type ALL: wirelen solved = 26203, spread = 38539, legal = 39544; time = 0.22s
+Info:     at iteration #13, type ALL: wirelen solved = 26545, spread = 38392, legal = 39555; time = 0.21s
+Info:     at iteration #14, type ALL: wirelen solved = 27422, spread = 38295, legal = 39573; time = 0.23s
+Info:     at iteration #15, type ALL: wirelen solved = 28658, spread = 38939, legal = 40130; time = 0.27s
+Info:     at iteration #16, type ALL: wirelen solved = 29510, spread = 39155, legal = 40377; time = 0.21s
+Info:     at iteration #17, type ALL: wirelen solved = 30046, spread = 39216, legal = 40596; time = 0.21s
+Info: HeAP Placer Time: 6.25s
+Info:   of which solving equations: 4.03s
+Info:   of which spreading cells: 0.42s
+Info:   of which strict legalisation: 0.21s
+
+Info: Running simulated annealing placer for refinement.
+Info:   at iteration #1: temp = 0.000000, timing cost = 5770, wirelen = 39544
+Info:   at iteration #5: temp = 0.000000, timing cost = 6026, wirelen = 34873
+Info:   at iteration #10: temp = 0.000000, timing cost = 5941, wirelen = 33610
+Info:   at iteration #15: temp = 0.000000, timing cost = 6585, wirelen = 33065
+Info:   at iteration #20: temp = 0.000000, timing cost = 6623, wirelen = 32951
+Info:   at iteration #25: temp = 0.000000, timing cost = 6504, wirelen = 32912
+Info:   at iteration #29: temp = 0.000000, timing cost = 6502, wirelen = 32891 
+Info: SA placement time 21.41s
+
+Info: Max frequency for clock '$glbnet$_pll_io_clk_o_0': 36.59 MHz (PASS at 25.00 MHz)
+
+Info: Max delay <async>                         -> posedge $glbnet$_pll_io_clk_o_0: 13.36 ns
+Info: Max delay <async>                         -> negedge $glbnet$_pll_io_clk_o_0: 6.80 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> <async>                        : 13.24 ns
+
+Info: Slack histogram:
+Info:  legend: * represents 9 endpoint(s)
+Info:          + represents [1,9) endpoint(s)
+Info: [ 10415,  11857) |*********+
+Info: [ 11857,  13299) |************ 
+Info: [ 13299,  14741) |******************************************+
+Info: [ 14741,  16183) |************************************************************ 
+Info: [ 16183,  17625) |************+
+Info: [ 17625,  19067) |******+
+Info: [ 19067,  20509) |*****+
+Info: [ 20509,  21951) |**********+
+Info: [ 21951,  23393) |********************************************************+
+Info: [ 23393,  24835) |****************************************+
+Info: [ 24835,  26277) |***********************+
+Info: [ 26277,  27719) |**********+
+Info: [ 27719,  29161) |******+
+Info: [ 29161,  30603) |**+
+Info: [ 30603,  32045) |********+
+Info: [ 32045,  33487) |****+
+Info: [ 33487,  34929) |*****+
+Info: [ 34929,  36371) |*******************+
+Info: [ 36371,  37813) |****************+
+Info: [ 37813,  39255) |***********+
+Info: Checksum: 0x7674c786
+Info: Routing globals...
+Info:     routing clock net $glbnet$_pll_io_clk_o_0 using global 0
+
+Info: Routing..
+Info: Setting up routing queue.
+Info: Routing 26289 arcs.
+Info:            |   (re-)routed arcs  |   delta    | remaining|       time spent     |
+Info:    IterCnt |  w/ripup   wo/ripup |  w/r  wo/r |      arcs| batch(sec) total(sec)|
+Info:       1000 |      316        683 |  316   683 |     25757|       0.62       0.62|
+Info:       2000 |      517       1482 |  201   799 |     25537|       0.24       0.86|
+Info:       3000 |      819       2180 |  302   698 |     25378|       0.28       1.14|
+Info:       4000 |     1096       2903 |  277   723 |     25163|       0.27       1.41|
+Info:       5000 |     1255       3744 |  159   841 |     25135|       0.26       1.68|
+Info:       6000 |     1430       4569 |  175   825 |     24947|       0.25       1.93|
+Info:       7000 |     1746       5253 |  316   684 |     24664|       0.31       2.23|
+Info:       8000 |     2080       5919 |  334   666 |     24605|       0.35       2.58|
+Info:       9000 |     2284       6715 |  204   796 |     24389|       0.34       2.92|
+Info:      10000 |     2477       7522 |  193   807 |     24249|       0.27       3.19|
+Info:      11000 |     2736       8263 |  259   741 |     24071|       0.36       3.55|
+Info:      12000 |     2906       9093 |  170   830 |     23792|       0.31       3.86|
+Info:      13000 |     3157       9842 |  251   749 |     23472|       0.33       4.19|
+Info:      14000 |     3375      10624 |  218   782 |     23216|       0.30       4.49|
+Info:      15000 |     3720      11279 |  345   655 |     22743|       0.33       4.83|
+Info:      16000 |     3947      12052 |  227   773 |     22647|       0.31       5.13|
+Info:      17000 |     4251      12748 |  304   696 |     22093|       0.31       5.45|
+Info:      18000 |     4535      13464 |  284   716 |     21720|       0.36       5.80|
+Info:      19000 |     4727      14272 |  192   808 |     21636|       0.31       6.11|
+Info:      20000 |     4904      15095 |  177   823 |     22053|       0.32       6.43|
+Info:      21000 |     4985      16014 |   81   919 |     21787|       0.31       6.74|
+Info:      22000 |     5237      16762 |  252   748 |     21344|       0.35       7.09|
+Info:      23000 |     5604      17395 |  367   633 |     20858|       0.31       7.40|
+Info:      24000 |     5818      18181 |  214   786 |     20528|       0.31       7.71|
+Info:      25000 |     6164      18835 |  346   654 |     20351|       0.39       8.10|
+Info:      26000 |     6419      19580 |  255   745 |     20193|       0.31       8.42|
+Info:      27000 |     6701      20298 |  282   718 |     19764|       0.31       8.73|
+Info:      28000 |     7050      20949 |  349   651 |     19293|       0.35       9.07|
+Info:      29000 |     7270      21729 |  220   780 |     19084|       0.30       9.38|
+Info:      30000 |     7567      22432 |  297   703 |     18830|       0.32       9.70|
+Info:      31000 |     7774      23225 |  207   793 |     18477|       0.30      10.00|
+Info:      32000 |     8092      23907 |  318   682 |     17992|       0.33      10.33|
+Info:      33000 |     8429      24570 |  337   663 |     17703|       0.32      10.65|
+Info:      34000 |     8738      25261 |  309   691 |     17486|       0.39      11.05|
+Info:      35000 |     9139      25860 |  401   599 |     17109|       0.33      11.37|
+Info:      36000 |     9405      26594 |  266   734 |     16679|       0.34      11.71|
+Info:      37000 |     9845      27154 |  440   560 |     16231|       0.33      12.04|
+Info:      38000 |    10212      27787 |  367   633 |     15866|       0.34      12.38|
+Info:      39000 |    10613      28386 |  401   599 |     15386|       0.39      12.77|
+Info:      40000 |    11054      28945 |  441   559 |     15009|       0.34      13.11|
+Info:      41000 |    11482      29517 |  428   572 |     14563|       0.37      13.48|
+Info:      42000 |    11869      30130 |  387   613 |     14291|       0.37      13.85|
+Info:      43000 |    12287      30712 |  418   582 |     13922|       0.40      14.24|
+Info:      44000 |    12694      31305 |  407   593 |     13446|       0.36      14.60|
+Info:      45000 |    13143      31856 |  449   551 |     13163|       0.34      14.95|
+Info:      46000 |    13568      32431 |  425   575 |     12737|       0.37      15.31|
+Info:      47000 |    14063      32936 |  495   505 |     12376|       0.35      15.66|
+Info:      48000 |    14490      33509 |  427   573 |     12052|       0.44      16.10|
+Info:      49000 |    14924      34075 |  434   566 |     11792|       0.49      16.58|
+Info:      50000 |    15262      34687 |  338   612 |     11439|       0.38      16.96|
+Info:      51000 |    15576      35294 |  314   607 |     10948|       0.33      17.29|
+Info:      52000 |    15957      35810 |  381   516 |     10446|       0.30      17.59|
+Info:      53000 |    16321      36342 |  364   532 |      9889|       0.27      17.86|
+Info:      54000 |    16654      36893 |  333   551 |      9272|       0.24      18.10|
+Info:      55000 |    16980      37445 |  326   552 |      8672|       0.24      18.34|
+Info:      56000 |    17278      38039 |  298   594 |      8052|       0.26      18.60|
+Info:      57000 |    17632      38574 |  354   535 |      7501|       0.31      18.92|
+Info:      58000 |    17970      39180 |  338   606 |      7136|       0.39      19.31|
+Info:      59000 |    18260      39838 |  290   658 |      7329|       0.38      19.69|
+Info:      60000 |    18589      40509 |  329   671 |      7043|       0.60      20.28|
+Info:      61000 |    18932      41166 |  343   657 |      6913|       0.55      20.84|
+Info:      62000 |    19244      41761 |  312   595 |      6317|       0.36      21.20|
+Info:      63000 |    19504      42416 |  260   655 |      5647|       0.28      21.48|
+Info:      64000 |    19921      42942 |  417   526 |      5174|       0.34      21.82|
+Info:      65000 |    20339      43513 |  418   571 |      4787|       0.41      22.22|
+Info:      66000 |    20796      44050 |  457   537 |      4391|       0.37      22.59|
+Info:      67000 |    21041      44775 |  245   725 |      3963|       0.37      22.97|
+Info:      68000 |    21166      45553 |  125   778 |      3148|       0.28      23.24|
+Info:      69000 |    21244      46369 |   78   816 |      2231|       0.23      23.47|
+Info:      70000 |    21388      47088 |  144   719 |      1473|       0.31      23.78|
+Info:      71000 |    21389      47419 |    1   331 |       474|       0.22      24.00|
+Info:      71477 |    21392      47587 |    3   168 |         0|       0.15      24.15|
+Info: Routing complete.
+Info: Router1 time 24.15s
+Info: Checksum: 0x4ead8182
+
+Info: Critical path report for clock '$glbnet$_pll_io_clk_o_0' (posedge -> posedge):
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source uo_out_val_mem_io_instr_cpu.instr_TRELLIS_FF_Q_10.Q
+Info:    routing  1.89  2.42 Net _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_SD_PFUMX_Z_1_C0_L6MUX21_Z_1_D0_PFUMX_Z_C0[2] (108,8) -> (93,13)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_L6MUX21_Z_SD_PFUMX_Z_C0_L6MUX21_Z_SD_LUT4_Z.C
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  2.65 Source uo_out_val_mem.io_cpuData_req_bits_data_L6MUX21_Z_SD_PFUMX_Z_C0_L6MUX21_Z_SD_LUT4_Z.F
+Info:    routing  1.52  4.17 Net _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_LUT4_Z_5_C_PFUMX_Z_C0_LUT4_Z_1_B_L6MUX21_Z_2_D0_PFUMX_Z_C0_L6MUX21_SD_Z_L6MUX21_Z_1_SD[5] (93,13) -> (104,12)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_L6MUX21_Z_SD_PFUMX_Z_C0_L6MUX21_Z_SD_LUT4_D_1.D
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  4.41 Source uo_out_val_mem.io_cpuData_req_bits_data_L6MUX21_Z_SD_PFUMX_Z_C0_L6MUX21_Z_SD_LUT4_D_1.F
+Info:    routing  2.37  6.78 Net uo_out_val_mem.io_cpuData_req_bits_data_L6MUX21_Z_4_SD_PFUMX_Z_2_C0_LUT4_Z_3_D[1] (104,12) -> (74,12)
+Info:                          Sink _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_SD_L6MUX21_Z_1_D0_PFUMX_Z_BLUT_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.40  7.18 Source _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_SD_L6MUX21_Z_1_D0_PFUMX_Z_BLUT_LUT4_Z.OFX
+Info:    routing  0.00  7.18 Net _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_SD_L6MUX21_Z_1_D0 (74,12) -> (74,12)
+Info:                          Sink _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_SD_L6MUX21_Z_1_D1_PFUMX_Z_ALUT_LUT4_Z.FXA
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:141.34-141.36
+Info:      logic  0.24  7.41 Source _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_SD_L6MUX21_Z_1_D1_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.63  8.05 Net _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_SD[4] (74,12) -> (74,13)
+Info:                          Sink _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_D1_L6MUX21_Z_D1_PFUMX_Z_BLUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  8.30 Source _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_D1_L6MUX21_Z_D1_PFUMX_Z_BLUT_LUT4_Z.OFX
+Info:    routing  0.00  8.30 Net _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_D1_L6MUX21_Z_D1 (74,13) -> (74,13)
+Info:                          Sink _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_D1_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.FXB
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:157.62-157.64
+Info:      logic  0.24  8.55 Source _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_D1_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.00  8.55 Net _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_D1 (74,13) -> (74,13)
+Info:                          Sink _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.FXB
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:157.70-157.72
+Info:      logic  0.24  8.79 Source _uo_out_val_mem_io_instr_cpu_io_data_req_bits_data_L6MUX21_Z_1_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  1.79  10.57 Net _uo_out_val_mem_io_instr_cpu_io_data_req_bits_addr_CCU2C_S0_2_A0[3] (74,13) -> (86,21)
+Info:                          Sink _uo_out_val_mem_io_instr_cpu_io_data_req_bits_addr_CCU2C_S0_2_A0_LUT4_C.D
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttRegFile.sv:7.17-7.27
+Info:      logic  0.24  10.81 Source _uo_out_val_mem_io_instr_cpu_io_data_req_bits_addr_CCU2C_S0_2_A0_LUT4_C.F
+Info:    routing  1.42  12.23 Net _uo_out_val_mem_io_instr_cpu_io_data_req_bits_addr_CCU2C_S0_2_A0_LUT4_C_Z[3] (86,21) -> (84,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.B
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  12.67 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  12.67 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (84,17) -> (84,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  12.67 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  12.67 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (84,17) -> (85,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttAlu.sv:17.21-17.32
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.74 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  12.74 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (85,17) -> (85,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  12.74 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  12.74 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (85,17) -> (85,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttAlu.sv:17.21-17.32
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.82 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  12.82 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (85,17) -> (85,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  12.82 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  12.82 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (85,17) -> (85,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttAlu.sv:17.21-17.32
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.89 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  12.89 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (85,17) -> (85,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  12.89 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  12.89 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN (85,17) -> (85,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttAlu.sv:17.21-17.32
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.96 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  12.96 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT$CCU2_FCI_INT (85,17) -> (85,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  12.96 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  12.96 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_CIN (85,17) -> (86,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttAlu.sv:17.21-17.32
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  13.03 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0$CCU2_COMB0.FCO
+Info:    routing  0.00  13.03 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0$CCU2_FCI_INT (86,17) -> (86,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0$CCU2_COMB1.FCI
+Info:      logic  0.00  13.03 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0$CCU2_COMB1.FCO
+Info:    routing  0.00  13.03 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT (86,17) -> (86,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttAlu.sv:17.21-17.32
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  13.10 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  13.10 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN$CCU2_FCI_INT (86,17) -> (86,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  13.10 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  13.10 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT (86,17) -> (86,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttAlu.sv:17.21-17.32
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  13.17 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  13.17 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (86,17) -> (86,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  13.17 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  13.17 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_9_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (86,17) -> (86,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttAlu.sv:17.21-17.32
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  13.24 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  13.24 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (86,17) -> (86,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  13.24 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  13.24 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT_CIN (86,17) -> (87,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttAlu.sv:17.21-17.32
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  13.31 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  13.31 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT$CCU2_FCI_INT (87,17) -> (87,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  13.31 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  13.31 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_CIN (87,17) -> (87,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttAlu.sv:17.21-17.32
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  13.38 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0$CCU2_COMB0.FCO
+Info:    routing  0.00  13.38 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0$CCU2_FCI_INT (87,17) -> (87,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0$CCU2_COMB1.FCI
+Info:      logic  0.00  13.38 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0$CCU2_COMB1.FCO
+Info:    routing  0.00  13.38 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT (87,17) -> (87,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttAlu.sv:17.21-17.32
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  13.45 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  13.45 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN$CCU2_FCI_INT (87,17) -> (87,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  13.45 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  13.45 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT (87,17) -> (87,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttAlu.sv:17.21-17.32
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  13.53 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  13.53 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (87,17) -> (87,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  13.53 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  13.53 Net $nextpnr_CCU2C_17$CIN (87,17) -> (88,17)
+Info:                          Sink $nextpnr_CCU2C_17$CCU2_COMB0.FCI
+Info:      logic  0.44  13.97 Source $nextpnr_CCU2C_17$CCU2_COMB0.F
+Info:    routing  0.83  14.80 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT[3] (88,17) -> (88,17)
+Info:                          Sink $nextpnr_CCU2C_17$CCU2_COMB1.A
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  15.24 Source $nextpnr_CCU2C_17$CCU2_COMB1.FCO
+Info:    routing  0.00  15.24 Net $nextpnr_CCU2C_17$COUT (88,17) -> (88,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_S1$CCU2_COMB0.FCI
+Info:      logic  0.07  15.32 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_S1$CCU2_COMB0.FCO
+Info:    routing  0.00  15.32 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_S1$CCU2_FCI_INT (88,17) -> (88,17)
+Info:                          Sink uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_S1$CCU2_COMB1.FCI
+Info:      logic  0.00  15.32 Source uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_S1$CCU2_COMB1.FCO
+Info:    routing  0.00  15.32 Net $nextpnr_CCU2C_18$CIN (88,17) -> (88,17)
+Info:                          Sink $nextpnr_CCU2C_18$CCU2_COMB0.FCI
+Info:      logic  0.44  15.76 Source $nextpnr_CCU2C_18$CCU2_COMB0.F
+Info:    routing  1.06  16.82 Net uo_out_val_mem.io_cpuData_req_bits_data_LUT4_Z_2_D_LUT4_D_Z_CCU2C_B0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT[4] (88,17) -> (92,16)
+Info:                          Sink uo_out_val_mem_io_instr_cpu.regFile.io_wData_LUT4_Z_3_A_LUT4_Z_B_CCU2C_S1_S0_LUT4_B_Z_LUT4_Z_C_LUT4_D_Z_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  17.08 Source uo_out_val_mem_io_instr_cpu.regFile.io_wData_LUT4_Z_3_A_LUT4_Z_B_CCU2C_S1_S0_LUT4_B_Z_LUT4_Z_C_LUT4_D_Z_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.84  17.91 Net uo_out_val_mem_io_instr_cpu.regFile.io_wData_LUT4_Z_3_A_LUT4_Z_B_CCU2C_S1_S0_LUT4_B_Z_LUT4_Z_C_LUT4_D_Z[1] (92,16) -> (92,15)
+Info:                          Sink uo_out_val_mem_io_instr_cpu.regFile.io_wData_PFUMX_Z_4_C0_PFUMX_Z_BLUT_LUT4_Z.B
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.40  18.31 Source uo_out_val_mem_io_instr_cpu.regFile.io_wData_PFUMX_Z_4_C0_PFUMX_Z_BLUT_LUT4_Z.OFX
+Info:    routing  1.62  19.93 Net uo_out_val_mem_io_instr_cpu.regFile.io_wData_PFUMX_Z_4_C0[4] (92,15) -> (96,6)
+Info:                          Sink uo_out_val_mem_io_instr_cpu.regFile.io_wData_PFUMX_Z_4_BLUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  20.19 Source uo_out_val_mem_io_instr_cpu.regFile.io_wData_PFUMX_Z_4_BLUT_LUT4_Z.OFX
+Info:    routing  0.99  21.17 Net uo_out_val_mem_io_instr_cpu.regFile.io_wData[0] (96,6) -> (97,3)
+Info:                          Sink uo_out_val_mem_io_instr_cpu.regFile.regs_10_TRELLIS_FF_Q_31.M
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/HuttRegFile.sv:10.17-10.25
+Info:      setup  0.00  21.17 Source uo_out_val_mem_io_instr_cpu.regFile.regs_10_TRELLIS_FF_Q_31.M
+Info: 6.23 ns logic, 14.94 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> 'posedge $glbnet$_pll_io_clk_o_0':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source ftdi_txd$tr_io.O
+Info:    routing  8.56  8.56 Net ftdi_txd$TRELLIS_IO_IN (0,89) -> (79,20)
+Info:                          Sink ftdi_txd_LUT4_B.B
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/ulx3s_minimal_top.sv:34.17-34.25
+Info:      logic  0.24  8.80 Source ftdi_txd_LUT4_B.F
+Info:    routing  0.13  8.93 Net ftdi_txd_LUT4_B_Z[1] (79,20) -> (79,20)
+Info:                          Sink uo_out_val_gpio_out_sel_TRELLIS_FF_Q.DI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/ulx3s_minimal_top.sv:129.3-180.6
+Info:      setup  0.00  8.93 Source uo_out_val_gpio_out_sel_TRELLIS_FF_Q.DI
+Info: 0.24 ns logic, 8.69 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> 'negedge $glbnet$_pll_io_clk_o_0':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source rst_n$tr_io.O
+Info:    routing  4.14  4.14 Net rst_n$TRELLIS_IO_IN (6,0) -> (66,6)
+Info:                          Sink rst_n_LUT4_B.B
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/ulx3s_minimal_top.sv:4.17-4.22
+Info:      logic  0.24  4.38 Source rst_n_LUT4_B.F
+Info:    routing  0.13  4.51 Net rst_n_LUT4_B_Z (66,6) -> (66,6)
+Info:                          Sink uo_out_val_soc_rst_reg_n_TRELLIS_FF_Q.DI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_minimal/verilog/ulx3s_minimal_top.sv:120.3-121.82
+Info:      setup  0.00  4.51 Source uo_out_val_soc_rst_reg_n_TRELLIS_FF_Q.DI
+Info: 0.24 ns logic, 4.28 ns routing
+
+Info: Critical path report for cross-domain path 'posedge $glbnet$_pll_io_clk_o_0' -> '<async>':
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source sdramBackend.state_TRELLIS_FF_Q_1.Q
+Info:    routing  0.63  1.15 Net sdramBackend.state[2] (117,39) -> (117,39)
+Info:                          Sink _sdramBackend_io_backend_busy_LUT4_Z_D_LUT4_Z_D_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  1.39 Source _sdramBackend_io_backend_busy_LUT4_Z_D_LUT4_Z_D_LUT4_Z.F
+Info:    routing  0.43  1.82 Net _sdramBackend_io_backend_busy_LUT4_Z_D_LUT4_Z_D[2] (117,39) -> (117,39)
+Info:                          Sink _sdramBackend_io_backend_busy_LUT4_Z_D_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  2.06 Source _sdramBackend_io_backend_busy_LUT4_Z_D_LUT4_Z.F
+Info:    routing  0.79  2.84 Net _sdramBackend_io_backend_busy_LUT4_Z_D[1] (117,39) -> (116,38)
+Info:                          Sink _sdramBackend_io_backend_busy_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  3.08 Source _sdramBackend_io_backend_busy_LUT4_Z.F
+Info:    routing  6.41  9.49 Net _sdramBackend_io_backend_busy (116,38) -> (0,35)
+Info:                          Sink led[1]$tr_io.I
+Info:                          Defined in:
+Info:                               /nix/store/26cgz59r0qz6d0y2malp3qs7198lbp21-yosys-0.62/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info: 1.23 ns logic, 8.26 ns routing
+
+Info: Max frequency for clock '$glbnet$_pll_io_clk_o_0': 47.23 MHz (PASS at 25.00 MHz)
+
+Info: Max delay <async>                         -> posedge $glbnet$_pll_io_clk_o_0: 8.93 ns
+Info: Max delay <async>                         -> negedge $glbnet$_pll_io_clk_o_0: 4.51 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> <async>                        : 9.49 ns
+
+Info: Slack histogram:
+Info:  legend: * represents 12 endpoint(s)
+Info:          + represents [1,12) endpoint(s)
+Info: [ 13564,  14839) |**********+
+Info: [ 14839,  16114) |+
+Info: [ 16114,  17389) |*+
+Info: [ 17389,  18664) | 
+Info: [ 18664,  19939) |****+
+Info: [ 19939,  21214) |*********************+
+Info: [ 21214,  22489) |************************************************************ 
+Info: [ 22489,  23764) |********+
+Info: [ 23764,  25039) |******+
+Info: [ 25039,  26314) |***********************************+
+Info: [ 26314,  27589) |*******************************************+
+Info: [ 27589,  28864) |****************+
+Info: [ 28864,  30139) |**********+
+Info: [ 30139,  31414) |***+
+Info: [ 31414,  32689) |****+
+Info: [ 32689,  33964) |*****+
+Info: [ 33964,  35239) |****+
+Info: [ 35239,  36514) |****************+
+Info: [ 36514,  37789) |******+
+Info: [ 37789,  39064) |*************+
+
+Info: Program finished normally.

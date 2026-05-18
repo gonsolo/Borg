@@ -66,6 +66,10 @@ generate_verilog: .verilog_stamp info.yaml
 generate_verilog_ulx3s: rdl
 	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.tinyqv.runMain soc.ULX3SMain
 
+# Minimal ULX3S Verilog — Hutt + UART only, no Borg.  Fast-iteration target.
+generate_verilog_ulx3s_minimal:
+	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.tinyqv.runMain soc.ULX3SMinimalMain
+
 # HDMI Test Pattern emission
 generate_hdmi_test: rdl
 	TARGET_DIR=out/ulx3s/hdmi_test $(MILL) fpga.ulx3s.tinyqv.runMain soc.HdmiTestMain

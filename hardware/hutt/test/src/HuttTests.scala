@@ -329,5 +329,35 @@ object HuttTests extends TestSuite {
       // x1 should hold pc+4 of the JAL = 0x08
       assert(got == BigInt(0x08))
     }
+
+    test("loop with store — mirrors uart_hello firmware shape") {
+      // Mirrors fpga/ulx3s/uart_hello.s but counts stores at a memory cell
+      // instead of writing to MMIO.  After ~3 outer-loop iterations we
+      // should see at least 3 increments at mem[0x80].
+      //
+      //    li    t0, 0x80                    // 0x00
+      //    addi  a0, x0, 0                   // 0x04  counter
+      // loop:
+      //    addi  a0, a0, 1                   // 0x08
+      //    sw    a0, 0(t0)                   // 0x0C  store counter
+      //    addi  t1, x0, 3                   // 0x10  inner delay 3 iters
+      // 1: addi  t1, t1, -1                  // 0x14
+      //    bne   t1, x0, -4                  // 0x18  loop back to 0x14
+      //    jal   x0, -20                     // 0x1C  loop back to 0x08
+      val program = Seq(
+        Asm.addi(5, 0, 0x80),
+        Asm.addi(10, 0, 0),
+        Asm.addi(10, 10, 1),
+        Asm.sw  (10, 0, 5),
+        Asm.addi(6, 0, 3),
+        Asm.addi(6, 6, -1),
+        Asm.bne (6, 0, -4),
+        Asm.jal (0, -20)
+      )
+      // Run long enough for the loop to iterate several times.
+      val got = runAndPeek(program, 0x80, maxCycles = 500)
+      // After many iterations the counter must be > 1.
+      assert(got > BigInt(1))
+    }
   }
 }
