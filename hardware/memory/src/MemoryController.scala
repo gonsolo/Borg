@@ -6,28 +6,34 @@ package memory
 
 import chisel3._
 import chisel3.util._
-import tinyqv.cpu.{InstrFetchIO, MemBusIO}
+import hutt.{HuttBus, HuttInstrBus}
 import borg.GpuMemIO
 
 /** IO bundle for the SoC-level memory controller.
   *
   * Arbitrates the memory backend bus between four requestors:
-  *   - CPU instruction fetch (via [[InstrFetchIO]])
-  *   - CPU data read/write (loads, stores)
+  *   - CPU instruction fetch ([[HuttInstrBus]], single 32-bit word per request)
+  *   - CPU data read/write ([[HuttBus]], Decoupled byte/halfword/word access)
   *   - GPU write (autonomous tile flush)
   *   - GPU read (scanout / texel fetch)
+  *
+  * The CPU-facing ports are Decoupled req/resp.  Internally the controller's
+  * arbiter FSM still uses the legacy [[InstrFetchIO]] / [[MemBusIO]] signaling
+  * to drive the backend; thin adapters at the IO boundary translate between
+  * Hutt's clean interface and the FSM's byte-serial streaming protocol.
   *
   * Physical memory pins are NOT owned here; connect a [[QspiBackend]]
   * or [[SdramBackend]] to io.backend at the top level.
   */
 class MemoryControllerIO extends Bundle {
-  // CPU instruction fetch interface
-  val instrFetch = Flipped(new InstrFetchIO)
+  // CPU instruction fetch — 32-bit word at word-aligned address.
+  // Word address width 23 = 32 MiB byte address space.
+  val instr = Flipped(new HuttInstrBus(23))
 
-  // CPU data bus
-  val cpuData = Flipped(new MemBusIO)
+  // CPU data bus — 25-bit byte address (32 MiB).
+  val cpuData = Flipped(new HuttBus(25))
 
-  // GPU read/write port (slave end)
+  // GPU read/write port (slave end) — unchanged.
   val gpuMem = Flipped(new GpuMemIO)
 
   // Backend interface — connect to QspiBackend or SdramBackend at top level.
@@ -51,6 +57,16 @@ class MemoryControllerIO extends Bundle {
 class MemoryController extends Module {
   val io = IO(new MemoryControllerIO)
 
+  // -- IO adapters ----------------------------------------------------------
+  // Internal legacy-style signals that the existing arbiter FSM consumes.
+  // The FSM body below is unchanged from its tinyqv-era form; the adapters
+  // translate at the boundaries.
+  val instrFetch = Wire(new InstrFetchIO)
+  val cpuData    = Wire(new MemBusIO)
+
+  wireInstrAdapter()
+  wireCpuDataAdapter()
+
   // Sequential State
   val instr_active       = RegInit(false.B)
   val gpu_active         = RegInit(false.B)
@@ -72,7 +88,7 @@ class MemoryController extends Module {
   val stop_txn    = Wire(Bool())
   val data_ready  = Wire(Bool())
 
-  val data_txn_n = io.cpuData.writeN & io.cpuData.readN
+  val data_txn_n = cpuData.writeN & cpuData.readN
 
   // Backend signals (directly wired from io.backend in wireBackend)
   val be_busy       = Wire(Bool())
@@ -83,12 +99,12 @@ class MemoryController extends Module {
   val is_instr  = instr_active || start_instr
   val is_gpu    = gpu_active || gpu_write_active || start_gpu_read || start_gpu_write
   val txn_len   = Mux(is_instr, 1.U(2.W), data_txn_len)
-  val addr_in = WireDefault(io.cpuData.addr(24, 0))
-  when(is_instr) { addr_in := Cat(0.U(1.W), io.instrFetch.instr_addr, 0.U(1.W)) }
+  val addr_in = WireDefault(cpuData.addr(24, 0))
+  when(is_instr) { addr_in := Cat(0.U(1.W), instrFetch.instr_addr, 0.U(1.W)) }
   when(is_gpu)   { addr_in := io.gpuMem.addr }
 
   val stall_txn = instr_active &&
-    io.instrFetch.instr_fetch_stall &&
+    instrFetch.instr_fetch_stall &&
     !be_data_ready &&
     (byte_idx === 1.U)
 
@@ -129,11 +145,11 @@ class MemoryController extends Module {
 
     when(be_busy || be_write_done) {
       when(instr_active) {
-        when(io.instrFetch.instr_fetch_restart && (!started || stall_txn)) {
+        when(instrFetch.instr_fetch_restart && (!started || stall_txn)) {
           stop_txn := true.B
         } .elsewhen(
           (be_data_ready && byte_idx === 1.U) ||
-          io.instrFetch.instr_fetch_stall
+          instrFetch.instr_fetch_stall
         ) {
           when(data_txn_n =/= 3.U || io.gpuMem.req || io.gpuMem.wr) { stop_txn := true.B }
         }
@@ -147,15 +163,15 @@ class MemoryController extends Module {
     } .otherwise {
       // Priority chain:
       //   CPU read > CPU write > GPU write > GPU read > instr fetch
-      when(io.cpuData.readN =/= 3.U) {
+      when(cpuData.readN =/= 3.U) {
         start_read := true.B
-      } .elsewhen(io.cpuData.writeN =/= 3.U) {
+      } .elsewhen(cpuData.writeN =/= 3.U) {
         start_write := true.B
       } .elsewhen(io.gpuMem.wr) {
         start_gpu_write := true.B
       } .elsewhen(io.gpuMem.req) {
         start_gpu_read := true.B
-      } .elsewhen(io.instrFetch.instr_fetch_restart) {
+      } .elsewhen(instrFetch.instr_fetch_restart) {
         start_instr := true.B
       }
     }
@@ -180,9 +196,9 @@ class MemoryController extends Module {
 
     when(be_data_ready) {
       data_buf(byte_idx) := be_data_out
-    } .elsewhen(io.cpuData.writeN =/= 3.U && (data_stall || start_write)) {
+    } .elsewhen(cpuData.writeN =/= 3.U && (data_stall || start_write)) {
       for (i <- 0 until 4) {
-        data_buf(i) := io.cpuData.dataOut(i * 8 + 7, i * 8)
+        data_buf(i) := cpuData.dataOut(i * 8 + 7, i * 8)
       }
     } .elsewhen(start_gpu_write) {
       // Load GPU write data into buffer
@@ -210,17 +226,17 @@ class MemoryController extends Module {
       } .elsewhen(
         data_stall &&
         byte_idx === 0.U &&
-        ((io.cpuData.readN =/= 3.U && !data_ready) || io.cpuData.writeN =/= 3.U)
+        ((cpuData.readN =/= 3.U && !data_ready) || cpuData.writeN =/= 3.U)
       ) {
         data_stall   := false.B
-        continue_txn := io.cpuData.dataContinue
+        continue_txn := cpuData.dataContinue
       }
     } .otherwise {
       data_stall := false.B
       when(start_gpu_read || start_gpu_write) {
         continue_txn := false.B
       } .elsewhen(start_write || start_read) {
-        continue_txn := io.cpuData.dataContinue
+        continue_txn := cpuData.dataContinue
       }
     }
   }
@@ -232,7 +248,7 @@ class MemoryController extends Module {
     // data_buf hold stale values (register writes take effect next cycle).
     // Bypass everything and present byte 0 directly from the data source.
     io.backend.dataIn := Mux(start_write,
-      io.cpuData.dataOut(7, 0),
+      cpuData.dataOut(7, 0),
       Mux(start_gpu_write,
         io.gpuMem.wdata(7, 0),
         data_buf(
@@ -254,18 +270,18 @@ class MemoryController extends Module {
 
   private def wireOutputs(): Unit = {
     // CPU Instruction Fetch Outputs
-    io.instrFetch.instr_fetch_started := started
-    io.instrFetch.instr_fetch_stopped := stopped
-    io.instrFetch.instr_data          := assembleInstrData()
-    io.instrFetch.instr_ready         := instr_active && be_data_ready && byte_idx === 1.U
+    instrFetch.instr_fetch_started := started
+    instrFetch.instr_fetch_stopped := stopped
+    instrFetch.instr_data          := assembleInstrData()
+    instrFetch.instr_ready         := instr_active && be_data_ready && byte_idx === 1.U
 
     // CPU Data Bus Outputs
     data_ready := !instr_active && !gpu_active && !gpu_write_active && (
       (be_data_ready && byte_idx === data_txn_len) ||
-      (io.cpuData.writeN =/= 3.U && ((data_stall && byte_idx === 0.U) || start_write))
+      (cpuData.writeN =/= 3.U && ((data_stall && byte_idx === 0.U) || start_write))
     )
-    io.cpuData.ready  := data_ready
-    io.cpuData.dataIn := assembleCpuDataIn()
+    cpuData.ready  := data_ready
+    cpuData.dataIn := assembleCpuDataIn()
 
     // GPU Port
     // ready pulses on read completion OR write completion.
@@ -279,5 +295,110 @@ class MemoryController extends Module {
 
     io.debug_stall_txn := stall_txn
     io.debug_stop_txn  := stop_txn
+  }
+
+  // -- Hutt ↔ legacy adapters ------------------------------------------------
+
+  /** Translate the Hutt instruction-fetch bus to the legacy streaming
+    * protocol.  Each Hutt req fetches one 32-bit word as two 16-bit halfwords
+    * from the legacy stream, then asserts resp.valid.
+    *
+    * Each Hutt request issues a fresh `instr_fetch_restart` to the FSM, even
+    * for sequential addresses.  This is wasteful but correct; future
+    * optimization can detect sequential addresses and ride the existing stream.
+    */
+  private def wireInstrAdapter(): Unit = {
+    val sIdle :: sFetch :: sResp :: Nil = Enum(3)
+    val state = RegInit(sIdle)
+    val halfAddrReg = Reg(UInt(23.W))
+    val halfwordLo  = Reg(UInt(16.W))
+    val halfwordHi  = Reg(UInt(16.W))
+    val halfIdx     = Reg(UInt(1.W))
+    val restartPending = RegInit(false.B)
+
+    io.instr.req.ready  := state === sIdle
+    io.instr.resp.valid := state === sResp
+    io.instr.resp.bits  := Cat(halfwordHi, halfwordLo)
+
+    when(io.instr.req.fire) {
+      // Convert Hutt word address → legacy 23-bit halfword address.
+      // word_addr * 2 = halfword_addr; truncate to 23 bits (matches the
+      // FSM's Cat(0, addr, 0) convention which forces the upper 16 MiB
+      // region to be unused).
+      halfAddrReg     := (io.instr.req.bits << 1)(22, 0)
+      halfIdx         := 0.U
+      restartPending  := true.B
+      state           := sFetch
+    }
+
+    when(restartPending && instrFetch.instr_fetch_started) {
+      restartPending := false.B
+    }
+
+    when(state === sFetch && instrFetch.instr_ready) {
+      when(halfIdx === 0.U) {
+        halfwordLo := instrFetch.instr_data
+        halfIdx    := 1.U
+      } .otherwise {
+        halfwordHi := instrFetch.instr_data
+        state      := sResp
+      }
+    }
+
+    when(io.instr.resp.fire) {
+      state := sIdle
+    }
+
+    instrFetch.instr_addr          := halfAddrReg
+    instrFetch.instr_fetch_restart := restartPending
+    // Stall the stream as soon as we have our second halfword (and forever
+    // outside of sFetch), so the backend stops feeding once we've collected.
+    instrFetch.instr_fetch_stall   := (state =/= sFetch) || (halfIdx === 1.U)
+  }
+
+  /** Translate the Hutt data bus to the legacy level-triggered protocol.
+    *
+    * Hutt's HuttSize encoding (0=byte, 1=half, 2=word) is intentionally
+    * identical to the legacy writeN/readN bit pattern (00/01/10), so the
+    * size field forwards as-is.
+    */
+  private def wireCpuDataAdapter(): Unit = {
+    val sIdle :: sActive :: sDone :: Nil = Enum(3)
+    val state    = RegInit(sIdle)
+    val isReadR  = Reg(Bool())
+    val sizeR    = Reg(UInt(2.W))
+    val addrR    = Reg(UInt(25.W))
+    val dataR    = Reg(UInt(32.W))
+    val resultR  = Reg(UInt(32.W))
+
+    io.cpuData.req.ready  := state === sIdle
+    io.cpuData.resp.valid := state === sDone
+    io.cpuData.resp.bits  := resultR
+
+    when(io.cpuData.req.fire) {
+      isReadR := !io.cpuData.req.bits.write
+      sizeR   := io.cpuData.req.bits.size
+      addrR   := io.cpuData.req.bits.addr
+      dataR   := io.cpuData.req.bits.data
+      state   := sActive
+    }
+
+    // Drive the legacy bus from the latched fields throughout sActive.
+    cpuData.addr         := addrR
+    cpuData.dataOut      := dataR
+    cpuData.dataContinue := false.B
+    cpuData.writeN       := Mux(state === sActive && !isReadR, sizeR, 3.U)
+    cpuData.readN        := Mux(state === sActive &&  isReadR, sizeR, 3.U)
+
+    // Transaction completes when the FSM raises cpuData.ready (driven below
+    // in wireOutputs).
+    when(state === sActive && cpuData.ready) {
+      resultR := cpuData.dataIn
+      state   := sDone
+    }
+
+    when(io.cpuData.resp.fire) {
+      state := sIdle
+    }
   }
 }

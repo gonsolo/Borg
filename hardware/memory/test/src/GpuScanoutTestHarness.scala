@@ -46,14 +46,13 @@ class GpuMemTestHarness extends Module {
   sdram.io.backend <> mem.io.backend
 
   // ── Tie off CPU ports (no CPU in this test) ──
-  mem.io.instrFetch.instr_addr          := 0.U
-  mem.io.instrFetch.instr_fetch_restart := false.B
-  mem.io.instrFetch.instr_fetch_stall   := false.B
-  mem.io.cpuData.addr         := 0.U
-  mem.io.cpuData.dataOut      := 0.U
-  mem.io.cpuData.writeN       := 3.U  // no CPU write
-  mem.io.cpuData.readN        := 3.U  // no CPU read
-  mem.io.cpuData.dataContinue := false.B
+  // Decoupled buses: just hold valid=false and ready=true on both ends.
+  mem.io.instr.req.valid   := false.B
+  mem.io.instr.req.bits    := 0.U
+  mem.io.instr.resp.ready  := true.B
+  mem.io.cpuData.req.valid := false.B
+  mem.io.cpuData.req.bits  := 0.U.asTypeOf(mem.io.cpuData.req.bits)
+  mem.io.cpuData.resp.ready := true.B
 
   // ── GPU memory port — directly exposed ──
   mem.io.gpuMem.req   := io.gpuReq
