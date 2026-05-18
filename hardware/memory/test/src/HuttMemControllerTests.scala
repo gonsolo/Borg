@@ -30,6 +30,38 @@ class HuttMemHarnessIO extends Bundle {
   val cpuDataFire    = Output(Bool())  // data port req.fire
 }
 
+/** Bare harness — MemoryController + SdramBackendSim, with cpuData exposed.
+  * Bypasses Hutt so we can drive writes/reads directly and verify the
+  * controller path in isolation.
+  */
+class CpuDataHarnessIO extends Bundle {
+  val cpuData = Flipped(new HuttBus(25))
+  val memBusy = Output(Bool())
+  val beState = Output(UInt(4.W))
+}
+
+class CpuDataHarness extends Module {
+  val io = IO(new CpuDataHarnessIO)
+
+  val mem   = Module(new MemoryController)
+  val sdram = Module(new SdramBackendSim(words = 16384, rdDelay = 4, wrDelay = 2))
+
+  sdram.io.backend <> mem.io.backend
+  mem.io.cpuData <> io.cpuData
+
+  // Tie off other ports
+  mem.io.instr.req.valid := false.B
+  mem.io.instr.req.bits  := 0.U
+  mem.io.instr.resp.ready := true.B
+  mem.io.gpuMem.req   := false.B
+  mem.io.gpuMem.wr    := false.B
+  mem.io.gpuMem.addr  := 0.U
+  mem.io.gpuMem.wdata := 0.U
+
+  io.memBusy := sdram.io.backend.busy
+  io.beState := sdram.io.debug_be_state
+}
+
 class HuttMemHarness extends Module {
   val io = IO(new HuttMemHarnessIO)
 
@@ -114,6 +146,104 @@ object HuttMemControllerTests extends TestSuite {
         // completed exactly 1 fetch then hung forever.
         Predef.assert(fetchFires > 10,
           s"Hutt only completed $fetchFires fetch fires; expected the adapter to allow multiple sequential fetches")
+      }
+    }
+
+    test("CPU word write to SDRAM then read back") {
+      // Bypass Hutt — drive mem.io.cpuData directly. Issue a SW (size=2),
+      // wait for resp, then issue a LW and verify the data.
+      simulate(new CpuDataHarness) { dut =>
+        dut.reset.poke(true.B)
+        dut.clock.step(2)
+        dut.reset.poke(false.B)
+
+        val addr = 0x100
+        val data = BigInt("12345678", 16)
+
+        // --- Issue write ---
+        dut.io.cpuData.req.valid.poke(true.B)
+        dut.io.cpuData.req.bits.write.poke(true.B)
+        dut.io.cpuData.req.bits.size.poke(2.U)
+        dut.io.cpuData.req.bits.addr.poke(addr.U)
+        dut.io.cpuData.req.bits.data.poke(data.U)
+        dut.io.cpuData.resp.ready.poke(true.B)
+
+        var writeAcked = false
+        var writeRespFired = false
+        // Track when req.fire happened so we deassert valid AFTER the step
+        // that latched it (not before — that would clear it at the same edge).
+        var deassertNext = false
+        for (i <- 0 until 200 if !writeRespFired) {
+          val reqReady = dut.io.cpuData.req.ready.peek().litToBoolean
+          val reqValid = dut.io.cpuData.req.valid.peek().litToBoolean
+          val respValid = dut.io.cpuData.resp.valid.peek().litToBoolean
+          val busy = dut.io.memBusy.peek().litToBoolean
+          val be = dut.io.beState.peek().litValue
+          if (i < 15) println(s"  cy$i: reqRdy=$reqReady reqVld=$reqValid respVld=$respValid busy=$busy be=$be")
+          val reqFire = reqReady && reqValid
+          if (reqFire && !writeAcked) {
+            writeAcked = true
+            deassertNext = true
+            println(s"  write req.fire at cycle $i")
+          }
+
+          val respFire = respValid &&
+                         dut.io.cpuData.resp.ready.peek().litToBoolean
+          if (respFire) {
+            writeRespFired = true
+            println(s"  write resp fired at cycle $i")
+          }
+          dut.clock.step(1)
+          // Deassert AFTER the step that latched the req.fire
+          if (deassertNext) {
+            dut.io.cpuData.req.valid.poke(false.B)
+            deassertNext = false
+          }
+        }
+        Predef.assert(writeAcked, "CPU write req never fired (req.ready never asserted)")
+        Predef.assert(writeRespFired, "CPU write resp never fired (write hung)")
+
+        // Allow the SDRAM write to fully complete behind the early ack.
+        dut.clock.step(20)
+
+        // --- Issue read of the same address ---
+        dut.io.cpuData.req.valid.poke(true.B)
+        dut.io.cpuData.req.bits.write.poke(false.B)
+        dut.io.cpuData.req.bits.size.poke(2.U)
+        dut.io.cpuData.req.bits.addr.poke(addr.U)
+        dut.io.cpuData.req.bits.data.poke(0.U)
+
+        var readAcked = false
+        var readData: BigInt = -1
+        var deassertNextR = false
+        for (i <- 0 until 200 if readData < 0) {
+          val reqReady = dut.io.cpuData.req.ready.peek().litToBoolean
+          val reqValid = dut.io.cpuData.req.valid.peek().litToBoolean
+          val respValid = dut.io.cpuData.resp.valid.peek().litToBoolean
+          if (i < 20) println(s"  R cy$i: reqRdy=$reqReady reqVld=$reqValid respVld=$respValid")
+          val reqFire = reqReady && reqValid
+          if (reqFire && !readAcked) {
+            readAcked = true
+            deassertNextR = true
+            println(s"  read req.fire at cycle $i")
+          }
+
+          val respFire = respValid &&
+                         dut.io.cpuData.resp.ready.peek().litToBoolean
+          if (respFire) {
+            readData = dut.io.cpuData.resp.bits.peek().litValue
+            println(s"  read resp at cycle $i: 0x${readData.toString(16)}")
+          }
+          dut.clock.step(1)
+          if (deassertNextR) {
+            dut.io.cpuData.req.valid.poke(false.B)
+            deassertNextR = false
+          }
+        }
+        Predef.assert(readAcked, "CPU read req never fired")
+        Predef.assert(readData >= 0, "CPU read resp never fired")
+        Predef.assert(readData == data,
+          s"Read mismatch: got 0x${readData.toString(16)}, expected 0x${data.toString(16)}")
       }
     }
   }

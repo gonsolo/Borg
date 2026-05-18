@@ -78,6 +78,14 @@ object SdramReadPathTests extends TestSuite {
         }
         println(s"[$cycle] Write complete (second dataReq after $waited cycles)")
 
+        // Terminate the write transaction.  The backend stays in its write
+        // loop until the caller raises stopTxn (real hardware: MemoryController
+        // arbiter / FlashBootLoader); asserting it at the second-dataReq cycle
+        // gets captured by the backend's wrStopPending latch.
+        dut.io.backend.stopTxn.poke(true.B)
+        tick()
+        dut.io.backend.stopTxn.poke(false.B)
+
         // Wait for busy to go low
         waited = 0
         while (dut.io.backend.busy.peek().litToBoolean && waited < 1000) {

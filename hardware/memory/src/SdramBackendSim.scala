@@ -48,6 +48,7 @@ class SdramBackendSim(
   val sWrReq  = 4.U(4.W)   // emit dataReq, waiting for byte 1
   val sWrWord = 5.U(4.W)   // latch byte 1, issue write
   val sWrWait = 6.U(4.W)   // wait for (simulated) write completion
+  val sWrAck  = 9.U(4.W)   // ack the halfword; continue or stop
   val sRdReq  = 1.U(4.W)   // issue read
   val sRdWait = 2.U(4.W)   // wait for read data
   val sReadB  = 3.U(4.W)   // present bytes one at a time
@@ -59,6 +60,10 @@ class SdramBackendSim(
   val writeWord  = RegInit(0.U(16.W))
   val readWord   = RegInit(0.U(16.W))
   val rdByteIdx  = RegInit(0.U(1.W))
+  // Captures the arbiter's one-cycle stopTxn pulse fired in sWrWait so that
+  // sWrAck (one cycle later) can honor it.  Without this the backend loops
+  // forever generating phantom halfwords on any multi-halfword CPU write.
+  val wrStopPending = RegInit(false.B)
 
   // ── Defaults ──────────────────────────────────────────────────────────────
   io.backend.dataOut   := 0.U
@@ -120,10 +125,28 @@ class SdramBackendSim(
     is(sWrWait) {
       counter := counter + 1.U
       when(counter >= wrDelay.U) {
-        io.backend.dataReq := true.B   // signals write complete to arbiter
-        state := sIdle
+        io.backend.dataReq := true.B   // signals halfword write complete to arbiter
+        // Sample stopTxn at the same cycle dataReq pulses — the arbiter's
+        // end-of-txn stop is combinational from be_data_req and gone next cycle.
+        wrStopPending := io.backend.stopTxn
+        state := sWrAck
       }
-      when(io.backend.stopTxn) { state := sIdle }
+    }
+
+    // ── Write ack: continue with next halfword or stop. Mirrors
+    //    SdramBackend.sWrAck so multi-byte CPU writes (e.g. 4-byte `sw`)
+    //    don't drop the second halfword on the floor.
+    is(sWrAck) {
+      when(wrStopPending || io.backend.stopTxn) {
+        wrStopPending := false.B
+        state := sIdle
+      }.otherwise {
+        byteAddr  := byteAddr + 2.U
+        // Continuation halfwords are always word-aligned: byte 0 → low lane.
+        writeWord := Cat(0.U(8.W), io.backend.dataIn)
+        lane0     := false.B
+        state     := sWrReq
+      }
     }
 
     // ── Read: issue address to SyncReadMem; wait rdDelay cycles ────────────

@@ -106,6 +106,11 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
   val writeWord   = RegInit(0.U(16.W))
   // Delay counter for write (like rdDelCtr, skips stale rdy)
   val wrDelCtr    = RegInit(0.U(2.W))
+  // Captures the arbiter's one-cycle stopTxn pulse fired in sWrWait so that
+  // sWrAck (one cycle later) can honor it.  Without this any multi-halfword
+  // CPU write (e.g. 4-byte `sw`) loops in sWrReq→sWrAck forever because the
+  // arbiter's combinational stop pulse is gone by the time sWrAck runs.
+  val wrStopPending = RegInit(false.B)
 
   // Word address from byte address
   val wordAddr = byteAddr(24, 1)
@@ -229,20 +234,24 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
       // FlashBootLoader asserts stopTxn the entire time it is in sWrWaitDone,
       // so cancelling here would abort the write after a single cycle and
       // leave the SDRAM in a state where rdy never fires (deadlock in sAck).
-      // sWrAck is the safe place to honor stopTxn.
+      // sWrAck is the safe place to honor stopTxn — but we must capture the
+      // arbiter's stopTxn here because for CPU writes it is a one-cycle pulse
+      // aligned with our dataReq, gone before sWrAck runs.
       sdram.io.sys.wr := true.B
       sdram.io.sys.ab := Cat(0.U(0.W), wordAddr)
       sdram.io.sys.di := writeWord
       wrDelCtr := wrDelCtr + 1.U
       when(wrDelCtr >= 1.U && sdram.io.sys.rdy) {
         io.backend.dataReq := true.B   // tells arbiter write is done
+        wrStopPending := io.backend.stopTxn
         state := sWrAck
       }
     }
 
     is(sWrAck) {
       sdram.io.sys.ack := true.B
-      when(io.backend.stopTxn) {
+      when(wrStopPending || io.backend.stopTxn) {
+        wrStopPending := false.B
         state := sIdle
       }.otherwise {
         byteAddr := byteAddr + 2.U
