@@ -300,42 +300,45 @@ class MemoryController extends Module {
   // -- Hutt ↔ legacy adapters ------------------------------------------------
 
   /** Translate the Hutt instruction-fetch bus to the legacy streaming
-    * protocol.  Each Hutt req fetches one 32-bit word as two 16-bit halfwords
-    * from the legacy stream, then asserts resp.valid.
+    * protocol.  Each Hutt req fetches one 32-bit word as two 16-bit halfwords.
     *
-    * Each Hutt request issues a fresh `instr_fetch_restart` to the FSM, even
-    * for sequential addresses.  This is wasteful but correct; future
-    * optimization can detect sequential addresses and ride the existing stream.
+    * Critical sequencing: the legacy FSM keeps streaming halfwords from the
+    * previous address even after a Hutt fetch completes.  If we immediately
+    * collected on a new req we'd capture stale halfwords from the old stream
+    * before the FSM has aborted and re-pointed at the new address.  So we
+    * gate halfword collection on `instr_fetch_started` pulsing — the FSM's
+    * acknowledgement that it has begun fetching at OUR new address.
+    *
+    * State machine:
+    *   sIdle    — no fetch pending; stall the legacy stream
+    *   sAbort   — Hutt req latched; hold restart, wait for FSM to ack via started
+    *   sCollect — capture two halfwords from the new (correctly-addressed) stream
+    *   sResp    — present the 32-bit word to Hutt, wait for resp.fire
     */
   private def wireInstrAdapter(): Unit = {
-    val sIdle :: sFetch :: sResp :: Nil = Enum(3)
+    val sIdle :: sAbort :: sCollect :: sResp :: Nil = Enum(4)
     val state = RegInit(sIdle)
     val halfAddrReg = Reg(UInt(23.W))
     val halfwordLo  = Reg(UInt(16.W))
     val halfwordHi  = Reg(UInt(16.W))
     val halfIdx     = Reg(UInt(1.W))
-    val restartPending = RegInit(false.B)
 
     io.instr.req.ready  := state === sIdle
     io.instr.resp.valid := state === sResp
     io.instr.resp.bits  := Cat(halfwordHi, halfwordLo)
 
     when(io.instr.req.fire) {
-      // Convert Hutt word address → legacy 23-bit halfword address.
-      // word_addr * 2 = halfword_addr; truncate to 23 bits (matches the
-      // FSM's Cat(0, addr, 0) convention which forces the upper 16 MiB
-      // region to be unused).
-      halfAddrReg     := (io.instr.req.bits << 1)(22, 0)
-      halfIdx         := 0.U
-      restartPending  := true.B
-      state           := sFetch
+      halfAddrReg := (io.instr.req.bits << 1)(22, 0)
+      halfIdx     := 0.U
+      state       := sAbort
     }
 
-    when(restartPending && instrFetch.instr_fetch_started) {
-      restartPending := false.B
+    // FSM has acknowledged the new fetch — switch to collecting halfwords.
+    when(state === sAbort && instrFetch.instr_fetch_started) {
+      state := sCollect
     }
 
-    when(state === sFetch && instrFetch.instr_ready) {
+    when(state === sCollect && instrFetch.instr_ready) {
       when(halfIdx === 0.U) {
         halfwordLo := instrFetch.instr_data
         halfIdx    := 1.U
@@ -350,10 +353,12 @@ class MemoryController extends Module {
     }
 
     instrFetch.instr_addr          := halfAddrReg
-    instrFetch.instr_fetch_restart := restartPending
-    // Stall the stream as soon as we have our second halfword (and forever
-    // outside of sFetch), so the backend stops feeding once we've collected.
-    instrFetch.instr_fetch_stall   := (state =/= sFetch) || (halfIdx === 1.U)
+    // Hold restart through sAbort until the FSM signals it has started.
+    instrFetch.instr_fetch_restart := state === sAbort
+    // Stall the stream outside of active collection AND once we have both
+    // halfwords — this discourages the FSM from over-streaming and helps
+    // the stall_txn → stop_txn path fire promptly during sAbort.
+    instrFetch.instr_fetch_stall   := (state =/= sCollect) || (halfIdx === 1.U)
   }
 
   /** Translate the Hutt data bus to the legacy level-triggered protocol.
