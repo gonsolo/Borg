@@ -264,6 +264,25 @@ minimal-uart: borg-minimal.bit uart_hello_fw.bin
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 uart_hello_fw.bin
 	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle the board, then 'make tio'."
 
+hdmi_tiled_fw.bin: hdmi_tiled_fw.s
+	@echo -e "$(BOLD)[FW]$(RESET) Assembling hdmi_tiled_fw.s ..."
+	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o hdmi_tiled_fw.o hdmi_tiled_fw.s
+	riscv64-unknown-elf-ld -melf32lriscv -Ttext=0x0 -o hdmi_tiled_fw.elf hdmi_tiled_fw.o
+	riscv64-unknown-elf-objcopy -O binary hdmi_tiled_fw.elf hdmi_tiled_fw_raw.bin
+	@python3 -c "import struct; d=open('hdmi_tiled_fw_raw.bin','rb').read(); open('hdmi_tiled_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> hdmi_tiled_fw.bin')"
+
+flash-hdmi-tiled: hdmi_tiled_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing hdmi_tiled firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_tiled_fw.bin
+
+# Combined target: flash minimal bitstream + HDMI tiled firmware.
+minimal-hdmi: borg-minimal.bit hdmi_tiled_fw.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing minimal ECP5 bitstream ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg-minimal.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing hdmi_tiled firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_tiled_fw.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle, connect HDMI. Expect: red 32x32 overlay. Run 'make tio' for 'R' confirmation."
+
 # Catch debug output on the FT231X serial port
 tio:
 	tio /dev/ttyUSB0
@@ -281,4 +300,5 @@ clean:
 	rm -f borg.bit borg.config borg.json borg.svf yosys.log nextpnr.log .verilog_stamp_ulx3s
 
 .PHONY: all help load flash flash-firmware minimal-boot triangle \
-        print_resources generate_verilog_ulx3s tio install-udev clean
+        print_resources generate_verilog_ulx3s tio install-udev clean \
+        flash-hdmi-tiled minimal-hdmi

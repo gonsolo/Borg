@@ -13,6 +13,10 @@ sdram_test.json
 sdram_test_chisel.lpf
 uart_hello.elf
 uart_hello.o
+hdmi_tiled_fw.bin
+hdmi_tiled_fw.elf
+hdmi_tiled_fw.o
+hdmi_tiled_fw_raw.bin
 borg-minimal.json
 borg-minimal.bit
 borg-minimal.config
