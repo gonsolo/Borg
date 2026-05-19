@@ -141,7 +141,7 @@ graph TD
 **Legend of Components:**
 - **CPU (Phase 0 Only)**: The host processor that sets up 3D data and triggers the GPU. Once triggered, the CPU goes to sleep.
 - **SEQ (BorgSequencer, Phases 1-3)**: The master GPU hardware FSM that fetches memory and orchestrates the autonomous rendering passes.
-- **VSH (Vertex Shader)**: Executes `TinyQV` to transform 3D vertices into 2D screen coordinates.
+- **VSH (Vertex Shader)**: Executes `Hutt` to transform 3D vertices into 2D screen coordinates.
 - **BINNER (BorgBinner)**: Determines which 4x4 tiles a triangle overlaps and updates PSRAM bin lists.
 - **RAST (Rasterizer)**: Evaluates edge equations for 16 pixels concurrently to determine triangle inclusion.
 - **TEXU (BorgTextureUnit)**: Fetches and filters texels from PSRAM for textured fragments.

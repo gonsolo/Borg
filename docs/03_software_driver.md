@@ -1,6 +1,6 @@
 # The Software Driver
 
-The firmware running on TinyQV provides a Vulkan-like API for rendering triangles.
+The firmware running on Hutt provides a Vulkan-like API for rendering triangles.
 It consists of a driver library (`borg_driver.c`, `borg_fpu.c`, `borg_raster.c`) and an application (`borg_triangle.c`).
 
 ## Memory-Mapped Hardware

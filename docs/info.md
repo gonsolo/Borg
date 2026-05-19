@@ -9,11 +9,11 @@ You can also include images in this folder and reference them in the markdown. E
 
 ## How it works
 
-Borg is a tiny GPU built around a RISC-V SoC (TinyQV). It renders a 10-frame animation of a rotating RGB triangle, fully self-contained in firmware — no host-side rendering needed.
+Borg is a tiny GPU built around a RISC-V SoC (Hutt). It renders a 10-frame animation of a rotating RGB triangle, fully self-contained in firmware — no host-side rendering needed.
 
 ### Architecture
 
-- **CPU**: TinyQV (RV32EC), runs the application and GPU driver firmware
+- **CPU**: Hutt (RV32I), runs the application and GPU driver firmware
 - **GPU core (Borg)**: FP16 FMA unit with 16 registers, 8-instruction IMEM, MMIO-accessible
 - **Shaders**: Compiled from GLSL → SPIR-V → SPIR-B (custom binary format), embedded in firmware
 
