@@ -42,7 +42,7 @@ SRC_FILES = $$(find $(FPGA_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
 
 CHISEL_SRCS = $(wildcard ../../hardware/borg/src/*.scala) \
               $(wildcard ../../hardware/soc/src/*.scala) \
-              $(wildcard ../../hardware/tinyqv/src/*.scala)
+              $(wildcard ../../hardware/hutt/src/*.scala)
 
 # Regenerate Verilog from Chisel when sources change
 $(FPGA_VERILOG_DIR)/tinyQV_top.sv: $(CHISEL_SRCS)

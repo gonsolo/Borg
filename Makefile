@@ -36,10 +36,10 @@ help:
 # Override via env var if needed: CLOCK_MHZ=50 make generate_verilog
 
 # pico-ice sources temporarily excluded from the build.
-# To re-enable: add fpga/picoice/tinyqv/src back to the find paths below
+# To re-enable: add fpga/picoice/soc/src back to the find paths below
 # and uncomment the picoice lines in .verilog_stamp.
 HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/hutt/src hardware/memory/src \
-                        fpga/ulx3s/tinyqv/src asic/tt/src \
+                        fpga/ulx3s/soc/src asic/tt/src \
                         -name '*.scala' -not -path '*/generated/*' 2>/dev/null)
 
 # Stamp target: only re-runs Mill when Scala or RDL sources actually change.
@@ -49,7 +49,7 @@ HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/hutt/src 
 	CLOCK_MHZ=4 $(MILL) asic.tt.runMain asic.tt.TTMain
 	@# pico-ice (BorgConfig.Small) temporarily disabled — BorgConfig.Large is primary target.
 	@# To re-enable: uncomment the three lines below and fpga/picoice in HAND_CHISEL.
-	@#CLOCK_MHZ=4 $(MILL) fpga.picoice.tinyqv.runMain soc.FpgaMain
+	@#CLOCK_MHZ=4 $(MILL) fpga.picoice.soc.runMain soc.FpgaMain
 	@#ln -sf $(CURDIR)/hardware/borg/src/rcp_lut.hex   out/fpga/verilog/rcp_lut.hex
 	@#ln -sf $(CURDIR)/hardware/borg/src/coord_lut.hex out/fpga/verilog/coord_lut.hex
 	@touch $@
@@ -64,28 +64,28 @@ generate_verilog: .verilog_stamp info.yaml
 
 # ULX3S (ECP5-85K) Verilog emission stub — no synthesis flow yet (Step 27).
 generate_verilog_ulx3s: rdl
-	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.tinyqv.runMain soc.ULX3SMain
+	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMain
 
 # Minimal ULX3S Verilog — Hutt + UART only, no Borg.  Fast-iteration target.
 generate_verilog_ulx3s_minimal:
-	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.tinyqv.runMain soc.ULX3SMinimalMain
+	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMinimalMain
 
 # HDMI Test Pattern emission
 generate_hdmi_test: rdl
-	TARGET_DIR=out/ulx3s/hdmi_test $(MILL) fpga.ulx3s.tinyqv.runMain soc.HdmiTestMain
+	TARGET_DIR=out/ulx3s/hdmi_test $(MILL) fpga.ulx3s.soc.runMain soc.HdmiTestMain
 
 # HDMI SDRAM Test emission
 generate_hdmi_sdram_test: rdl
-	TARGET_DIR=out/ulx3s/hdmi_sdram_test $(MILL) fpga.ulx3s.tinyqv.runMain soc.HdmiSdramTestMain
+	TARGET_DIR=out/ulx3s/hdmi_sdram_test $(MILL) fpga.ulx3s.soc.runMain soc.HdmiSdramTestMain
 
 # CPU SDRAM HDMI Test emission
 generate_cpu_sdram_hdmi_test: rdl
-	TARGET_DIR=out/ulx3s/cpu_sdram_hdmi_test $(MILL) fpga.ulx3s.tinyqv.runMain soc.CpuSdramHdmiTestMain
+	TARGET_DIR=out/ulx3s/cpu_sdram_hdmi_test $(MILL) fpga.ulx3s.soc.runMain soc.CpuSdramHdmiTestMain
 
 # Minimal CPU+SDRAM debug harness — fast iteration (~6s build)
 # Use 25 MHz to match what the full ulx3s design uses and stay within timing.
 generate_verilog_cpu_sdram: rdl
-	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.tinyqv.runMain soc.CpuSdramTestMain
+	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.CpuSdramTestMain
 
 test-cocotb-soc-core-rtl: generate_verilog
 	$(TEST_SOC) core

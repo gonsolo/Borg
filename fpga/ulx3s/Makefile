@@ -44,7 +44,7 @@ CHISEL_SRCS = $(wildcard ../../hardware/borg/src/*.scala) \
               $(wildcard ../../hardware/peri/src/*.scala) \
               $(wildcard ../../hardware/peri/src/uart/*.scala) \
               $(wildcard ../../hardware/soc/src/*.scala) \
-              $(wildcard tinyqv/src/*.scala)
+              $(wildcard soc/src/*.scala)
 
 # Stamp file — regenerates Verilog only when Chisel sources OR Makefiles change.
 # Makefiles are included so CLOCK_MHZ changes don't silently use stale Verilog.
@@ -159,6 +159,23 @@ flash-sdram-fb: sdram_fb_fw.bin
 	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing sdram_fb firmware @ 0x400000 ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 sdram_fb_fw.bin
 	@echo -e "$(BOLD)[DONE]$(RESET) Firmware flashed. Now run: make load && make tio"
+
+sdram_rw_test_fw.bin: sdram_rw_test.s
+	@echo -e "$(BOLD)[FW]$(RESET) Assembling sdram_rw_test.s ..."
+	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o sdram_rw_test.o sdram_rw_test.s
+	riscv64-unknown-elf-ld -melf32lriscv -Ttext=0x0 -o sdram_rw_test.elf sdram_rw_test.o
+	riscv64-unknown-elf-objcopy -O binary sdram_rw_test.elf sdram_rw_test_raw.bin
+	@python3 -c "import struct; d=open('sdram_rw_test_raw.bin','rb').read(); open('sdram_rw_test_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> sdram_rw_test_fw.bin')"
+
+flash-sdram-rw-test: sdram_rw_test_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing sdram_rw_test firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 sdram_rw_test_fw.bin
+
+minimal-sdram-rw-test: borg-minimal.bit sdram_rw_test_fw.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing minimal bitstream ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg-minimal.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing sdram_rw_test firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 sdram_rw_test_fw.bin
 
 hdmi_test_fw.bin: hdmi_test_fb.s
 	@echo -e "$(BOLD)[FW]$(RESET) Assembling hdmi_test_fb.s ..."

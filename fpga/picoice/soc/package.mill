@@ -1,4 +1,4 @@
-package build.fpga.picoice.tinyqv
+package build.fpga.picoice.soc
 import mill._, scalalib._
 import build.BorgModule
 
