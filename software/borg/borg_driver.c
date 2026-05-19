@@ -174,10 +174,18 @@ unsigned int t_draw_cycles = 0;
 static texture_t tex = {.psram_offset = -1};
 
 // --- UART ---
+// NOTE: The full SoC's read at UART_STATUS (0x0800001C) does not currently
+// ack on the CPU's Decoupled data bus — polling it hangs the CPU forever
+// (the write to 0x08000018 worked, but the symmetric read-side decode is
+// still broken).  Until that is fixed in Project.scala, use a blind-write
+// + fixed cycle delay matching uart_hello.s.  At CLOCK_MHZ=25 and 115200
+// baud, one byte takes ~217 cycles to shift out; we wait ~400 cycles to
+// be safe (matches the 200-iteration `addi/bnez` loop in uart_hello.s,
+// which is ~2 instructions per iteration on Hutt).
 void putc_uart(int c) {
-  while (UART_STATUS & 1)
-    ;
   UART_TX = c;
+  for (volatile int i = 0; i < 200; i++)
+    ;
 }
 
 void puts_uart(const char *s) {
