@@ -25,12 +25,17 @@ class HuttRegFileIO extends Bundle {
 class HuttRegFile extends Module {
   val io = IO(new HuttRegFileIO)
 
-  val regs = Reg(Vec(32, UInt(32.W)))
+  val regs = RegInit(VecInit(Seq.fill(32)(0.U(32.W))))
 
   io.rs1Data := Mux(io.rs1Addr === 0.U, 0.U, regs(io.rs1Addr))
   io.rs2Data := Mux(io.rs2Addr === 0.U, 0.U, regs(io.rs2Addr))
 
-  when(io.wen && io.wAddr =/= 0.U) {
-    regs(io.wAddr) := io.wData
+  // Explicit per-register writes force firtool to emit equality comparisons for
+  // all addresses, avoiding the all-bits-AND shorthand it generates for x31 with
+  // a Vec write, which Yosys synthesizes incorrectly on ECP5.
+  for (i <- 1 until 32) {
+    when(io.wen && io.wAddr === i.U) {
+      regs(i) := io.wData
+    }
   }
 }
