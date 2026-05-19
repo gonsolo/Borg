@@ -463,8 +463,8 @@ hierarchy supporting both pico-ice (iCE40 UP5K) and ULX3S (ECP5-85K).
   with `coordWidth=9`, `hasDMA=true`, `hasFlusher=true`, `hasImemMmio=false` (ECP5 has no LC
   budget pressure).
 - **Step 27.3: `BorgConfig.FPGA` → `BorgConfig.PicoIce` rename** ✅ — Updated in
-  `BorgConfig.scala` and `fpga/picoice/tinyqv/src/PicoIce.scala`.
-- **Step 27.4: `ulx3s_top` Chisel stub** ✅ — `fpga/ulx3s/tinyqv/src/ULX3S.scala`: compiles and
+  `BorgConfig.scala` and `fpga/picoice/soc/src/PicoIce.scala`.
+- **Step 27.4: `ulx3s_top` Chisel stub** ✅ — `fpga/ulx3s/soc/src/ULX3S.scala`: compiles and
   emits Verilog via `ULX3SMain` (`make generate_verilog_ulx3s`). Uses plain IO ports (not SB_IO);
   ECP5 TRELLIS_IO/BB primitives and LPF constraints deferred until hardware arrives.
 - **Step 27.5: `generate_verilog_ulx3s` target in root `Makefile`** ✅ — Runs `ULX3SMain` at
@@ -1150,7 +1150,7 @@ controller, PCIe bridge) while the Borg SoC runs inside unchanged.
 
 - `SoCLogic` trait (Project.scala:71) — all SoC wiring is platform-independent
 - `tt_um_gonsolo_borg` (Project.scala:338) — standardized 8+8+8 pin interface
-- `tinyQV_top` (`fpga/picoice/tinyqv/src/PicoIce.scala`) — shows how to wrap `SoCLogic` for a
+- `tinyQV_top` (`fpga/picoice/soc/src/PicoIce.scala`) — shows how to wrap `SoCLogic` for a
 
 ### Step 33: Fragment Interpolation (Hardware-Assisted)
 

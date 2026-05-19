@@ -10,12 +10,12 @@ Borg is an open-source GPU: a small RV32I CPU driving the **Borg FP16 shader pro
 - **pico-ice** FPGA (iCE40 UP5K) — `fpga/picoice/` (currently disabled in the top Makefile; `BorgConfig.Large` is the primary target)
 - **ULX3S** FPGA (Lattice ECP5-85K) — `fpga/ulx3s/`
 
-The CPU has been **rewritten from TinyQV to a new core called Hutt** (`hardware/hutt/src/`). The `hardware/tinyqv/` directory no longer exists; do not recreate it or its protocol. The `fpga/ulx3s/tinyqv/` directory keeps its legacy name but contains current ULX3S top modules and HDMI bring-up harnesses.
+The CPU has been **rewritten from TinyQV to a new core called Hutt** (`hardware/hutt/src/`). The `hardware/tinyqv/` directory no longer exists; do not recreate it or its protocol.
 
 ## Build system layout
 
 - **Top-level `Makefile`** orchestrates Chisel→Verilog emission, cocotb tests, lint, GDS, the docs book, and SystemRDL→Chisel register generation.
-- **Mill** (`build.mill` + per-directory `package.mill`) drives Scala/Chisel compilation. `BorgModule` (in `build.mill`) is the shared trait — Scala 2.13, Chisel 7.11. Modules are organized under `hardware/{borg,hutt,memory,peri,soc,hardfloat}`, `fpga/{picoice,ulx3s}/tinyqv`, and `asic/tt`.
+- **Mill** (`build.mill` + per-directory `package.mill`) drives Scala/Chisel compilation. `BorgModule` (in `build.mill`) is the shared trait — Scala 2.13, Chisel 7.11. Modules are organized under `hardware/{borg,hutt,memory,peri,soc,hardfloat}`, `fpga/{picoice,ulx3s}/soc`, and `asic/tt`.
 - **Nix** (`flake.nix`) provides the full reproducible toolchain (firtool, Yosys, nextpnr, OpenROAD/LibreLane, RISC-V GCC, cocotb, PeakRDL, etc.). Enter it with `nix develop` before running anything below.
 - **Per-board sub-Makefiles** (`fpga/picoice/Makefile`, `fpga/ulx3s/Makefile`, `simulation/{verilator,arcilator}/Makefile`, `test/soc/Makefile`, `software/Makefile`) own their flow. The top Makefile forwards to them.
 
@@ -94,7 +94,7 @@ If you add or change a register, edit the `.rdl`, then re-run `make rdl` (or any
 
 ### ULX3S bring-up harnesses (the recent active work)
 
-Multiple bitstream targets live in `fpga/ulx3s/tinyqv/src/`: `ULX3S.scala` (full SoC), `ULX3SMinimal.scala` (Hutt + UART, ~1.5 min build), `HdmiTestPattern.scala`, `HdmiSdramTest.scala`, `CpuSdramHdmiTest.scala`, `SdramTest.scala`, `BootUartTest.scala`, plus per-target `Main` objects emitted via `make generate_verilog_*` recipes. `fpga/ulx3s/debug/` holds further small fast-iteration bitstreams. Use these to isolate bring-up issues without paying the full SoC's ~10 min synthesis cost.
+Multiple bitstream targets live in `fpga/ulx3s/soc/src/`: `ULX3S.scala` (full SoC), `ULX3SMinimal.scala` (Hutt + UART, ~1.5 min build), `HdmiTestPattern.scala`, `HdmiSdramTest.scala`, `CpuSdramHdmiTest.scala`, `SdramTest.scala`, `BootUartTest.scala`, plus per-target `Main` objects emitted via `make generate_verilog_*` recipes. `fpga/ulx3s/debug/` holds further small fast-iteration bitstreams. Use these to isolate bring-up issues without paying the full SoC's ~10 min synthesis cost.
 
 ### Clock frequencies
 
@@ -104,4 +104,4 @@ Per-target Scala `Main` objects have their own defaults: **TT ASIC = 4 MHz**, **
 
 - Don't recreate the deleted TinyQV CPU or its nibble-serial QSPI protocol — Hutt's `Decoupled` buses are the current contract.
 - Always create new commits; don't amend or force-push without explicit user OK.
-- The top Makefile's `HAND_CHISEL` `find` paths list `hardware/tinyqv/src` and `fpga/picoice/tinyqv/src` — both are currently empty or excluded; the find tolerates missing paths.
+- The top Makefile's `HAND_CHISEL` `find` paths list `fpga/ulx3s/soc/src` and `asic/tt/src`; pico-ice (`fpga/picoice/soc/src`) is temporarily excluded.
