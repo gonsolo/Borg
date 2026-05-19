@@ -229,12 +229,17 @@ void borgCreateDevice(void) {
   puts_uart("Borg pipeline\r\n");
   unsigned int t_init = get_cycles();
 
-  // Read framebuffer dimensions from PSRAM (written by host)
-  borg_fb_width = PSRAM_IN(0);
+  // Read framebuffer dimensions from PSRAM (written by host on pico-ice/sim).
+  // On ULX3S there is no host — PSRAM_IN lives in firmware .text and returns
+  // garbage.  Validate: must be a non-zero power-of-2 in [4..128]; else fall
+  // back to 32×32.
+  borg_fb_width  = PSRAM_IN(0);
   borg_fb_height = PSRAM_IN(1);
-  if (borg_fb_width == 0)
+  if (borg_fb_width < 4 || borg_fb_width > 128 ||
+      (borg_fb_width & (borg_fb_width - 1)) != 0)
     borg_fb_width = 32;
-  if (borg_fb_height == 0)
+  if (borg_fb_height < 4 || borg_fb_height > 128 ||
+      (borg_fb_height & (borg_fb_height - 1)) != 0)
     borg_fb_height = 32;
 
   // Compute FP16 half-width for NDC→screen transform.

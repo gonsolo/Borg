@@ -77,3 +77,7 @@ void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int
 
 // Write DONE marker for a frame to PSRAM
 void borg_present(int frame);
+
+// Blocking UART byte transmit (defined in borg_driver.c).  Polls the SoC
+// debug-UART busy bit, then writes the byte to UART_TX.
+void putc_uart(int c);

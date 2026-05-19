@@ -217,21 +217,17 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
 
 
 
-  // ── HDMI Scanout (reads Borg GPU tiled FP16 framebuffer) ─────────────────
+  // ── HDMI Scanout (instantiated for HDMI signal but disabled) ─────────────
+  // GPU framebuffer writes use the default SoCLogic wireGpuMem (peripherals → mem).
+  // Scanout's GPU read port is tied off (enable=false ⇒ FSM idle, no reqs).
+  // When HDMI bring-up resumes, add a priority arbiter between GPU writes and
+  // scanout reads on mem.io.gpuMem, and align fbBase with PSRAM_OUT_SPI(0)=0x85000.
   val scanout = withClockAndReset(sysClock, pllRst) {
-    Module(new HdmiScanoutFp16(fbBase = 0x100000, fbWidth = 32, fbHeight = 32))
+    Module(new HdmiScanoutFp16(fbBase = 0x85000, fbWidth = 32, fbHeight = 32))
   }
-  scanout.io.enable := false.B  // TEMPORARY: disable to test CPU without contention
-
-  // Scanout-only gpuMem wiring (Borg GPU disabled — no priority mux needed).
-  locally {
-    mem.io.gpuMem.req   := scanout.io.gpuReq
-    mem.io.gpuMem.addr  := scanout.io.gpuAddr
-    mem.io.gpuMem.wr    := false.B
-    mem.io.gpuMem.wdata := 0.U
-    scanout.io.gpuData  := mem.io.gpuMem.data
-    scanout.io.gpuReady := mem.io.gpuMem.ready
-  }
+  scanout.io.enable   := false.B
+  scanout.io.gpuData  := 0.U
+  scanout.io.gpuReady := false.B
 
   // ── VGA timing (25 MHz pixel clock = sysClock directly) ───────────────────
   // At 25 MHz SoC clock, every cycle IS a pixel tick — no divider needed.
