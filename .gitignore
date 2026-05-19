@@ -1,5 +1,6 @@
 
 .bsp
+.claude/
 build/
 .cache/
 .cmd_output.txt
