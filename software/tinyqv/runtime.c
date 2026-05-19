@@ -8,7 +8,7 @@
 
 extern char __HeapLimit; /* Set by linker.  */
 extern char __HeapStart; /* Set by linker.  */
-char* __tinyqv_heap_end = &__HeapStart;
+char* __heap_end = &__HeapStart;
 
 extern uint32_t __bss_start__;
 extern uint32_t __bss_end__;
@@ -34,16 +34,16 @@ void __attribute__((section(".early_text"))) __runtime_init(void) {
 void *_sbrk(int incr) {
     char *prev_heap_end;
 
-    prev_heap_end = __tinyqv_heap_end;
-    char *next_heap_end = __tinyqv_heap_end + incr;
+    prev_heap_end = __heap_end;
+    char *next_heap_end = __heap_end + incr;
 
-    //uart_printf("SBRK: %p -> %p\r\n", __tinyqv_heap_end, next_heap_end);
+    //uart_printf("SBRK: %p -> %p\r\n", __heap_end, next_heap_end);
 
     if (next_heap_end > (&__HeapLimit)) {
         return (char *) -1;
     }
 
-    __tinyqv_heap_end = next_heap_end;
+    __heap_end = next_heap_end;
     return (void *) prev_heap_end;
 }
 

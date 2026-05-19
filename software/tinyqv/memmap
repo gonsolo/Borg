@@ -6,11 +6,8 @@ MEMORY
 }
 SECTIONS
 {
-    .boot : { *(.boot) 
-        KEEP (*(.boot)) 
-    } > rom
-    .vectors 0x200 : {
-        KEEP (*(.vectors))
+    .boot : { *(.boot)
+        KEEP (*(.boot))
     } > rom
     .srodata : { *(.srodata*) } > rom
     .early_text : { *(.early_text*) } > rom
@@ -27,22 +24,17 @@ SECTIONS
     } > ram_a AT> rom
     __peri_lma = LOADADDR(.peri);
 
-    /* Used for interrupt context */
-    .scratch 0x1000200 : {
-        . += 0x30;
-    } > ram_a
-
-    .data : { 
+    .data : {
         __data_start_unaligned__ = .;
         . = ALIGN(16);
         __data_start__ = .;
-        *(.sdata*) *(.data*) 
+        *(.sdata*) *(.data*)
         . = ALIGN(16);
         __data_end__ = .;
     } > ram_a AT> rom
     __data_lma = LOADADDR(.data) + __data_start__ - __data_start_unaligned__;
 
-    .bss (NOLOAD): { 
+    .bss (NOLOAD): {
         . = ALIGN(16);
         __bss_start__ = .;
         *(.sbss*) *(.bss*)
@@ -53,11 +45,6 @@ SECTIONS
     .uninitialized_data (NOLOAD): {
         . = ALIGN(16);
         *(.uninitialized_data*)
-
-        /* Interrupt stack */
-        . = ALIGN(16);
-        . += 0x1000;
-        __interrupt_stack_top = .;
     } > ram_a
 
     /* Mark the end of all firmware-owned PSRAM.  Hardware resources
@@ -75,7 +62,7 @@ SECTIONS
     __global_pointer$ = 0x1000400;
     __StackTop = ORIGIN(ram_a) + LENGTH(ram_a);
     __StackLimit = __StackTop - 0x1000;
-    ASSERT(__StackLimit >= __interrupt_stack_top, "region RAM overflowed")
+    ASSERT(__StackLimit >= __firmware_ram_end__, "region RAM overflowed")
 
     /* Guard: firmware RAM end must not reach the texture region.
        TEX_SPI_BYTE_ADDR is injected via -Wl,--defsym from borg_layout.h
