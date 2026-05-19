@@ -110,7 +110,13 @@ trait SoCLogic { self: RawModule =>
 
     val isMem  = cpuAddr(27, 25) === 0.U
     val isSoc  = SoCDecode.socRegion.matches(cpuAddr)
-    val isUser = SoCDecode.userRegion.matches(cpuAddr)
+    // The SoC inline-reg window is a strict subset of the user-peripheral
+    // window (same addr[27:12]=0x8000), so exclude isSoc from isUser to make
+    // the regions mutually exclusive.  Without this, a SoC write also fires
+    // peripherals, where addr[11:10]==0 (PERI_NONE) never produces a resp —
+    // bus locks waiting for an ack that never arrives.  Proved by
+    // hardware.soc.test SoCRoutingTests.
+    val isUser = SoCDecode.userRegion.matches(cpuAddr) && !isSoc
 
     // Per-target req.valid gating
     mem.io.cpuData.req.valid           := cpuData.req.valid && isMem
