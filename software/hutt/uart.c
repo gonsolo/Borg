@@ -1,16 +1,5 @@
 #include "uart.h"
 
-#define NANOPRINTF_USE_FIELD_WIDTH_FORMAT_SPECIFIERS 1
-#define NANOPRINTF_USE_PRECISION_FORMAT_SPECIFIERS 1
-#define NANOPRINTF_USE_LARGE_FORMAT_SPECIFIERS 0
-#define NANOPRINTF_USE_FLOAT_FORMAT_SPECIFIERS 1
-#define NANOPRINTF_USE_BINARY_FORMAT_SPECIFIERS 0
-#define NANOPRINTF_USE_WRITEBACK_FORMAT_SPECIFIERS 0
-#define NANOPRINTF_SNPRINTF_SAFE_TRIM_STRING_ON_OVERFLOW 1
-
-#define NANOPRINTF_IMPLEMENTATION
-#include "nanoprintf.h"
-
 /* Main UART (PeriUart, user peripheral region, sel=2):
  *   addr 0x00 = TX write / RX read
  *   addr 0x04 = status: bit0 = TX busy, bit1 = RX data available  */
@@ -70,36 +59,6 @@ void debug_uart_put_buffer(const char *c, int len) {
             debug_uart_putc('\r');
         debug_uart_putc(*c++);
     }
-}
-
-static void uart_putc2(int c, void *ctx) {
-    (void)ctx;
-    if (c == '\n')
-        uart_putc_polling('\r');
-    uart_putc_polling(c);
-}
-
-static void debug_uart_putc2(int c, void *ctx) {
-    (void)ctx;
-    if (c == '\n')
-        debug_uart_putc('\r');
-    debug_uart_putc(c);
-}
-
-int uart_printf(const char *fmt, ...) {
-    va_list val;
-    va_start(val, fmt);
-    int const rv = npf_vpprintf(&uart_putc2, NULL, fmt, val);
-    va_end(val);
-    return rv;
-}
-
-int debug_uart_printf(const char *fmt, ...) {
-    va_list val;
-    va_start(val, fmt);
-    int const rv = npf_vpprintf(&debug_uart_putc2, NULL, fmt, val);
-    va_end(val);
-    return rv;
 }
 
 /* Stubs retained for API compatibility; unused on Hutt (no interrupts). */
