@@ -178,10 +178,14 @@ class SdramController(clockMhz: Int = 125) extends Module {
         dly    := (tRP - 2).U
         next   := sRDWR
       }.otherwise {
-        // Row already open → issue read or write
+        // Row already open → issue read or write.
+        // dly := CL (not CL-1). The textbook CL-1 wait samples DQ one SOC
+        // cycle too early when the SDRAM clock is 90° behind the SOC clock
+        // (data isn't valid yet at the SOC rising edge). Adding one extra
+        // cycle gives a safe sample window.
         sdrCmd := Mux(rd, CMD_READ, CMD_WRITE)
         sdrAb  := Cat(0.U(4.W), col)
-        dly    := (CL - 1).U
+        dly    := CL.U
         next   := sRWRDY
         when(wr) {
           state := sRWRDY  // writes need no CAS latency wait

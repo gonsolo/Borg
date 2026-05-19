@@ -109,61 +109,47 @@ class SdramTest extends RawModule {
     // For reads: use SdramBackend byte protocol
     val sdramSys = sdramBackend.io  // need internal controller access
 
-    // Backend defaults (for read phase)
+    // Backend defaults — adapted to new 16-bit-word MemBackendIO (stub: this
+    // debug test isn't critical to ULX3SMinimal flow; functional fidelity
+    // not maintained here).
     sdramBackend.io.backend.startRead  := false.B
     sdramBackend.io.backend.startWrite := false.B
-    sdramBackend.io.backend.stallTxn   := false.B
-    sdramBackend.io.backend.stopTxn    := false.B
+    sdramBackend.io.backend.byteEnIn   := "b11".U
     sdramBackend.io.backend.addrIn     := 0.U
     sdramBackend.io.backend.dataIn     := 0.U
 
     switch(state) {
-      // Phase 1: Write directly through backend (write 0xAB then 0xCD)
       is(sWaitRdy) {
         when(!sdramBackend.io.backend.busy) { state := sWr }
       }
       is(sWr) {
-        sdramBackend.io.backend.addrIn     := 8.U  // byte addr 8 → word addr 4
-        sdramBackend.io.backend.dataIn     := 0xA5.U
+        sdramBackend.io.backend.addrIn     := 4.U
+        sdramBackend.io.backend.dataIn     := 0xC3A5.U
         sdramBackend.io.backend.startWrite := true.B
         state := sWrLow
       }
       is(sWrLow) {
-        sdramBackend.io.backend.dataIn := 0xC3.U
-        when(sdramBackend.io.backend.dataReq) { state := sWrHigh }
+        when(sdramBackend.io.backend.done) { state := sWrHigh }
       }
       is(sWrHigh) {
-        sdramBackend.io.backend.dataIn := 0xC3.U
         when(!sdramBackend.io.backend.busy) { state := sWrDone }
       }
-      is(sWrDone) {
-        // Small gap before read
-        state := sRead
-      }
+      is(sWrDone) { state := sRead }
 
-      // Phase 2: Read via backend
       is(sRead) {
-        sdramBackend.io.backend.addrIn    := 8.U  // same byte addr
+        sdramBackend.io.backend.addrIn    := 4.U
         sdramBackend.io.backend.startRead := true.B
         state := sRdWait
       }
       is(sRdWait) {
-        when(sdramBackend.io.backend.dataReady) {
-          byte0 := sdramBackend.io.backend.dataOut
-          state := sRdByte0
+        when(sdramBackend.io.backend.done) {
+          byte0 := sdramBackend.io.backend.dataOut(7, 0)
+          byte1 := sdramBackend.io.backend.dataOut(15, 8)
+          state := sDone
         }
       }
-      is(sRdByte0) {
-        when(sdramBackend.io.backend.dataReady) {
-          byte1 := sdramBackend.io.backend.dataOut
-          sdramBackend.io.backend.stopTxn := true.B
-          state := sRdByte1
-        }
-      }
-      is(sRdByte1) {
-        sdramBackend.io.backend.stopTxn := false.B
-        state := sDone
-      }
+      is(sRdByte0) { state := sDone }
+      is(sRdByte1) { state := sDone }
       is(sDone) {
         // Hold forever
       }

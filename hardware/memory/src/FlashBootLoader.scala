@@ -110,12 +110,13 @@ class FlashBootLoader(
   io.flash_csn          := csnReg
   io.flash_mosi         := shiftOut(7)
   io.spi_clk            := spiClkReg
-  io.backend.addrIn     := sdramAddr
-  io.backend.dataIn     := Mux(state === sWrWaitDone, buf1, buf0)
+  // Word address (24 bits): drop bit 0 of the byte address. The bootloader
+  // only ever writes halfword-aligned (advances sdramAddr by 2 each time).
+  io.backend.addrIn     := sdramAddr(24, 1)
+  io.backend.dataIn     := Cat(buf1, buf0)
+  io.backend.byteEnIn   := "b11".U
   io.backend.startRead  := false.B
-  io.backend.startWrite := false.B
-  io.backend.stallTxn   := false.B
-  io.backend.stopTxn    := (state === sWrWaitDone)
+  io.backend.startWrite := (state === sWrStart)
   io.boot_done          := (state === sDone)
   io.debug_state        := state.asUInt
   io.debug_sizeCtr      := sizeCtr
@@ -209,21 +210,14 @@ class FlashBootLoader(
     }
 
     is(sWrStart) {
-      // Pulse startWrite for one cycle; SdramBackend latches addrIn + dataIn (buf0)
-      io.backend.startWrite := true.B
+      // Pulse startWrite for one cycle (driven via the wiring above).
+      // Backend latches addrIn + dataIn (= Cat(buf1,buf0)).
       state := sWrWaitDone
     }
 
     is(sWrWaitDone) {
-      // Keep buf1 on dataIn so SdramBackend (in sWrWord) can latch it.
-      // Write is complete when the backend returns to idle (busy=false).
-      // NOTE: Do NOT use dataReq here! dataReq fires TWICE per write:
-      //   1) sWrReq: requests second byte (buf1) — this is NOT completion!
-      //   2) sWrWait: SDRAM rdy fires — this IS completion, but so is !busy.
-      // Using dataReq caused the bootloader to advance prematurely on the
-      // sWrReq pulse, writing Cat(buf0,buf0) instead of Cat(buf1,buf0).
-      io.backend.dataIn := buf1
-      when(!io.backend.busy) {
+      // Wait for backend.done — one-cycle pulse signalling write completion.
+      when(io.backend.done) {
         sdramAddr := sdramAddr + 2.U
         byteCtr   := byteCtr  + 2.U
         when(byteCtr + 2.U >= firmSize) { csnReg := true.B; state := sDone }

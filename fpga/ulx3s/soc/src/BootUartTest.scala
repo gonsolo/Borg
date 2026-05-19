@@ -114,13 +114,13 @@ class BootUartTest(clockMhz: Int = 125) extends RawModule {
       is(1.U) { st := 2.U }
       // Wait for byte 0
       is(2.U) {
-        when(backend.io.backend.dataReady) {
+        when(backend.io.backend.done) {
           rdByte := backend.io.backend.dataOut; st := 3.U
         }
       }
       // Wait for byte 1
       is(3.U) {
-        when(backend.io.backend.dataReady) {
+        when(backend.io.backend.done) {
           rdByte1 := backend.io.backend.dataOut
           sendB1 := false.B; nibIdx := 0.U; st := 4.U
         }
@@ -181,18 +181,16 @@ class BootUartTest(clockMhz: Int = 125) extends RawModule {
       }
     }
 
-    // ── Backend mux ──
-    backend.io.backend.addrIn     := Mux(bootDone, rdAddr, flashBoot.io.backend.addrIn)
-    backend.io.backend.dataIn     := Mux(bootDone, 0.U,    flashBoot.io.backend.dataIn)
+    // ── Backend mux (stubbed for new 16-bit-word MemBackendIO) ──
+    // Functional correctness of this debug bitstream not maintained here.
+    backend.io.backend.addrIn     := Mux(bootDone, rdAddr(24, 1), flashBoot.io.backend.addrIn)
+    backend.io.backend.dataIn     := Mux(bootDone, 0.U,           flashBoot.io.backend.dataIn)
+    backend.io.backend.byteEnIn   := "b11".U
     backend.io.backend.startRead  := Mux(bootDone, st === 1.U, false.B)
-    backend.io.backend.startWrite := Mux(bootDone, false.B, flashBoot.io.backend.startWrite)
-    backend.io.backend.stallTxn   := false.B
-    backend.io.backend.stopTxn    := Mux(bootDone,
-      (st === 3.U && backend.io.backend.dataReady), false.B)
-    flashBoot.io.backend.dataOut   := backend.io.backend.dataOut
-    flashBoot.io.backend.dataReq   := Mux(!bootDone, backend.io.backend.dataReq, false.B)
-    flashBoot.io.backend.dataReady := false.B
-    flashBoot.io.backend.busy      := Mux(!bootDone, backend.io.backend.busy, false.B)
+    backend.io.backend.startWrite := Mux(bootDone, false.B,    flashBoot.io.backend.startWrite)
+    flashBoot.io.backend.dataOut := backend.io.backend.dataOut
+    flashBoot.io.backend.done    := Mux(!bootDone, backend.io.backend.done, false.B)
+    flashBoot.io.backend.busy    := Mux(!bootDone, backend.io.backend.busy, false.B)
 
     led := Cat(pllLocked, bootDone, st(4, 3), flashBoot.io.debug_state)
     ftdi_rxd := txShift(0)

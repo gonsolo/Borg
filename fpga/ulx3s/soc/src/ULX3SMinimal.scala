@@ -110,20 +110,17 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLog
 
   sdramBackend.io.backend.addrIn     := Mux(bootDone, mem.io.backend.addrIn,     flashBoot.io.backend.addrIn)
   sdramBackend.io.backend.dataIn     := Mux(bootDone, mem.io.backend.dataIn,     flashBoot.io.backend.dataIn)
+  sdramBackend.io.backend.byteEnIn   := Mux(bootDone, mem.io.backend.byteEnIn,   flashBoot.io.backend.byteEnIn)
   sdramBackend.io.backend.startRead  := Mux(bootDone, mem.io.backend.startRead,  false.B)
   sdramBackend.io.backend.startWrite := Mux(bootDone, mem.io.backend.startWrite, flashBoot.io.backend.startWrite)
-  sdramBackend.io.backend.stallTxn   := Mux(bootDone, mem.io.backend.stallTxn,   false.B)
-  sdramBackend.io.backend.stopTxn    := Mux(bootDone, mem.io.backend.stopTxn,    flashBoot.io.backend.stopTxn)
 
-  mem.io.backend.dataOut   := Mux(bootDone, sdramBackend.io.backend.dataOut,   0.U)
-  mem.io.backend.dataReq   := Mux(bootDone, sdramBackend.io.backend.dataReq,   false.B)
-  mem.io.backend.dataReady := Mux(bootDone, sdramBackend.io.backend.dataReady, false.B)
-  mem.io.backend.busy      := Mux(bootDone, sdramBackend.io.backend.busy,      false.B)
+  mem.io.backend.dataOut := Mux(bootDone, sdramBackend.io.backend.dataOut, 0.U)
+  mem.io.backend.done    := Mux(bootDone, sdramBackend.io.backend.done,    false.B)
+  mem.io.backend.busy    := Mux(bootDone, sdramBackend.io.backend.busy,    false.B)
 
-  flashBoot.io.backend.dataOut   := sdramBackend.io.backend.dataOut
-  flashBoot.io.backend.dataReq   := Mux(!bootDone, sdramBackend.io.backend.dataReq, false.B)
-  flashBoot.io.backend.dataReady := false.B
-  flashBoot.io.backend.busy      := Mux(!bootDone, sdramBackend.io.backend.busy,    false.B)
+  flashBoot.io.backend.dataOut := sdramBackend.io.backend.dataOut
+  flashBoot.io.backend.done    := Mux(!bootDone, sdramBackend.io.backend.done, false.B)
+  flashBoot.io.backend.busy    := Mux(!bootDone, sdramBackend.io.backend.busy, false.B)
 
   // ── SDRAM physical pin wiring ──────────────────────────────────────────────
   val pins = sdramBackend.io.sdramPins

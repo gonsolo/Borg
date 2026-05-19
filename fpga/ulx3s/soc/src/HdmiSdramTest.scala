@@ -43,9 +43,8 @@ class HdmiScanout extends Module {
   io.backend.startRead  := (state === sReq)
   io.backend.startWrite := false.B
   io.backend.dataIn     := 0.U
-  io.backend.stallTxn   := false.B
-  io.backend.stopTxn    := (state === sRead && byteCount === 128.U)
-  io.backend.addrIn     := fbBase + ((nextV - startY) * fbWidth) * 2.U
+  io.backend.byteEnIn   := "b11".U
+  io.backend.addrIn     := (fbBase + ((nextV - startY) * fbWidth) * 2.U)(24, 1)
   
   val wrPortAddr = WireDefault(0.U(6.W))
   val wrPortData = WireDefault(0.U(16.W))
@@ -67,16 +66,12 @@ class HdmiScanout extends Module {
   } .elsewhen(state === sReq) {
     state := sRead
   } .otherwise {
-    when(io.backend.dataReady) {
-      when(byteCount(0) === 0.U) {
-        lowByte := io.backend.dataOut
-        byteCount := byteCount + 1.U
-      } .otherwise {
-        wrPortAddr := byteCount(6, 1)
-        wrPortData := Cat(io.backend.dataOut, lowByte)
-        wrPortEn   := true.B
-        byteCount := byteCount + 1.U
-      }
+    when(io.backend.done) {
+      // Stubbed: this scanout was byte-serial; not maintained for new protocol.
+      wrPortAddr := byteCount(6, 1)
+      wrPortData := io.backend.dataOut
+      wrPortEn   := true.B
+      byteCount := byteCount + 2.U
     }
     when(byteCount === 128.U) {
       state := sIdle
@@ -168,9 +163,8 @@ class BootFsmIO extends Bundle {
 
       io.backend.startRead  := false.B
       io.backend.startWrite := (state === sReq)
-      io.backend.stallTxn   := false.B
-      io.backend.stopTxn    := false.B
-      io.backend.addrIn     := addr
+      io.backend.byteEnIn   := "b11".U
+      io.backend.addrIn     := addr(24, 1)
       
       io.done := (state === sDone)
       
@@ -188,17 +182,13 @@ class BootFsmIO extends Bundle {
           state := sWriteWordWait
         }
         is(sWriteWordWait) {
-          when(io.backend.dataReq) {
-             when(reqCount === 0.U) {
-                reqCount := 1.U
-             } .otherwise {
-                when(addr >= fbStart + fbSize - 2.U) {
-                  state := sDone
-                } .otherwise {
-                  addr := addr + 2.U
-                  state := sIdle
-                }
-             }
+          when(io.backend.done) {
+            when(addr >= fbStart + fbSize - 2.U) {
+              state := sDone
+            } .otherwise {
+              addr := addr + 2.U
+              state := sIdle
+            }
           }
         }
       }
@@ -212,18 +202,17 @@ class BootFsmIO extends Bundle {
     sdramBackend.io.backend.dataIn     := Mux(bootDone, scanout.io.backend.dataIn, bootFsm.io.backend.dataIn)
     sdramBackend.io.backend.startRead  := Mux(bootDone, scanout.io.backend.startRead, bootFsm.io.backend.startRead)
     sdramBackend.io.backend.startWrite := Mux(bootDone, scanout.io.backend.startWrite, bootFsm.io.backend.startWrite)
-    sdramBackend.io.backend.stallTxn   := Mux(bootDone, scanout.io.backend.stallTxn, bootFsm.io.backend.stallTxn)
-    sdramBackend.io.backend.stopTxn    := Mux(bootDone, scanout.io.backend.stopTxn, bootFsm.io.backend.stopTxn)
+    sdramBackend.io.backend.byteEnIn   := "b11".U
+    // stopTxn removed
     
     scanout.io.backend.dataOut   := sdramBackend.io.backend.dataOut
-    scanout.io.backend.dataReq   := sdramBackend.io.backend.dataReq
-    scanout.io.backend.dataReady := sdramBackend.io.backend.dataReady
+    scanout.io.backend.done   := sdramBackend.io.backend.done
+    // dataReady removed
     scanout.io.backend.busy      := sdramBackend.io.backend.busy
     
-    bootFsm.io.backend.dataOut   := sdramBackend.io.backend.dataOut
-    bootFsm.io.backend.dataReq   := Mux(!bootDone, sdramBackend.io.backend.dataReq, false.B)
-    bootFsm.io.backend.dataReady := Mux(!bootDone, sdramBackend.io.backend.dataReady, false.B)
-    bootFsm.io.backend.busy      := Mux(!bootDone, sdramBackend.io.backend.busy, false.B)
+    bootFsm.io.backend.dataOut := sdramBackend.io.backend.dataOut
+    bootFsm.io.backend.done    := Mux(!bootDone, sdramBackend.io.backend.done, false.B)
+    bootFsm.io.backend.busy    := Mux(!bootDone, sdramBackend.io.backend.busy, false.B)
     
     val count = RegInit(0.U(3.W))
     val tick25 = (count === 4.U)
