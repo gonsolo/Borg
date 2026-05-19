@@ -1,12 +1,12 @@
-.PHONY: all clean test borg tinyqv
+.PHONY: all clean test borg hutt
 
-all: borg tinyqv
+all: borg hutt
 
 borg:
 	$(MAKE) -C borg
 
-tinyqv:
-	$(MAKE) -C tinyqv
+hutt:
+	$(MAKE) -C hutt
 
 test:
 	$(MAKE) -C borg/compiler test
@@ -14,4 +14,4 @@ test:
 
 clean:
 	$(MAKE) -C borg clean
-	$(MAKE) -C tinyqv clean
+	$(MAKE) -C hutt clean

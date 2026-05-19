@@ -5,7 +5,7 @@ AR = riscv32-none-elf-ar
 ARCH = rv32i
 ABI  = ilp32
 
-all: tinyQV.a start.o
+all: hutt.a start.o
 
 clean:
 	rm -f *.o *.a
@@ -16,5 +16,5 @@ clean:
 %.o: %.s
 	$(AS) -march=$(ARCH) -mabi=$(ABI) $< -o $@
 
-tinyQV.a: uart.o mul.o isqrt.o runtime.o
+hutt.a: uart.o mul.o isqrt.o runtime.o
 	$(AR) rcs $@ $^

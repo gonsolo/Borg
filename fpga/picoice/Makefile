@@ -165,7 +165,7 @@ reset: .burned
 clean:
 	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm vkcube*.ppm triangle*.bin vkcube*.bin .burned
 	$(MAKE) -C ../../software/borg clean
-	$(MAKE) -C ../../software/tinyqv clean
+	$(MAKE) -C ../../software/hutt clean
 
 # Install udev rules so usb_storage never deadlocks on pico-ice USB crashes.
 # Run once on each new workstation (requires sudo).

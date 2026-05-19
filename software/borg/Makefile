@@ -19,7 +19,7 @@ export HARDENING_DISABLE=all
 export NIX_HARDENING_ENABLE=
 unexport NIX_HARDENING_ENABLE
 
-TINYQV_SDK ?= ../tinyqv
+TINYQV_SDK ?= ../hutt
 
 # Clock frequency — must match the FPGA PLL output. Override on the command
 # line: make triangle CLOCK_MHZ=125 (ULX3S) or leave as 4 (ASIC/TT).
@@ -66,12 +66,12 @@ $(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s
 %.o: %.s
 	@$(AS) -march=$(ARCH) -mabi=$(ABI) -I$(TINYQV_SDK) $< -o $@
 
-.PHONY: $(TINYQV_SDK)/tinyQV.a
-$(TINYQV_SDK)/tinyQV.a:
+.PHONY: $(TINYQV_SDK)/hutt.a
+$(TINYQV_SDK)/hutt.a:
 	$(MAKE) -C $(TINYQV_SDK)
 
-$(PROJECT_NAME).elf: $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/tinyQV.a
-	@$(CC) -march=$(ARCH) -mabi=$(ABI) -nostartfiles -nostdlib -Wl,--gc-sections -Wl,--no-relax -Wl,--defsym,TEX_SPI_BYTE_ADDR=$(TEX_SPI_BYTE_ADDR) -T $(TINYQV_SDK)/memmap $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/tinyQV.a -lc -o $@
+$(PROJECT_NAME).elf: $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/hutt.a
+	@$(CC) -march=$(ARCH) -mabi=$(ABI) -nostartfiles -nostdlib -Wl,--gc-sections -Wl,--no-relax -Wl,--defsym,TEX_SPI_BYTE_ADDR=$(TEX_SPI_BYTE_ADDR) -T $(TINYQV_SDK)/memmap $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/hutt.a -lc -o $@
 
 $(PROJECT_NAME).bin: $(PROJECT_NAME).elf
 	@$(OBJCOPY) $< -O binary $@
