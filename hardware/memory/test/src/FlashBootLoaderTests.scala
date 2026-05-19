@@ -18,8 +18,7 @@ object FlashBootLoaderTests extends TestSuite {
         // Drive required inputs
         dut.io.flash_miso.poke(false.B)
         dut.io.backend.dataOut.poke(0.U)
-        dut.io.backend.dataReq.poke(false.B)
-        dut.io.backend.dataReady.poke(false.B)
+        dut.io.backend.done.poke(false.B)
         dut.io.backend.busy.poke(false.B)
 
         // Explicit reset
