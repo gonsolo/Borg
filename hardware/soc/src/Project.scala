@@ -244,23 +244,7 @@ trait SoCLogic { self: RawModule =>
     // GPU port (overridable by ULX3S for scanout mux).
     wireGpuMem()
 
-    // -------------------------------------------------------------------------
-    // Interrupt + timer.
-    // -------------------------------------------------------------------------
-    val time_count = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(0.U(7.W)) }
-    val time_pulse = Wire(Bool())
-    time_pulse := (time_count === Cat(time_limit, 3.U(2.W)))
-    withClockAndReset(soc_clk, false.B) {
-      when(time_pulse) { time_count := 0.U }
-        .otherwise    { time_count := time_count + 1.U }
-    }
-
-    // Hutt currently only consumes a single interrupt level; OR together
-    // peripheral interrupts and ui_in[1:0] (firmware can poll the time_pulse
-    // via a CSR or status register later).  For now this drives the level
-    // line; Hutt has no CSR/trap so it's a stub for future expansion.
-    val interrupt_req = Cat(peripherals.io.user_interrupts, ui_in_sync(1, 0))
-    cpu.io.interrupt := interrupt_req.orR
+    cpu.io.interrupt := false.B
 
     // -------------------------------------------------------------------------
     // uo_out construction.

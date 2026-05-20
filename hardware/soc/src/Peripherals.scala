@@ -41,8 +41,6 @@ class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
   /** CPU MMIO port — 12-bit byte address, Decoupled req/resp. */
   val mmio = Flipped(new HuttBus(12))
 
-  val user_interrupts = Output(UInt(14.W))
-
   // GPU read port — Borg.scanout etc. (Step 19.2: Borg → MemoryController)
   val gpuMem = new GpuMemIO
 }
@@ -171,11 +169,4 @@ class Peripherals(val CLOCK_MHZ: Int, val borgCfg: BorgConfig = BorgConfig.Sim) 
   }
   io.uo_out := uo_out_muxed.asUInt
 
-  // -- Interrupts -----------------------------------------------------------
-  val interrupts = Wire(Vec(14, Bool()))
-  for (i <- 0 until 14) { interrupts(i) := false.B }
-  interrupts(0) := i_uart.io.user_interrupt(0)
-  interrupts(1) := i_uart.io.user_interrupt(1)
-  interrupts(2) := borg.io.user_interrupt
-  io.user_interrupts := interrupts.asUInt
 }
