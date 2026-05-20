@@ -195,9 +195,7 @@ void puts_uart(const char *s) {
 
 // --- Timing and debug printing ---
 static inline unsigned int get_cycles(void) {
-  unsigned int cycles;
-  __asm__ volatile("csrr %0, cycle" : "=r"(cycles));
-  return cycles;
+  return 0;  // Hutt has no cycle CSR
 }
 
 // --- Shader globals ---
