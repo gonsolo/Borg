@@ -121,6 +121,39 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // ui_in[0]=UART RX; ui_in[6:1]=btn[5:0]; ui_in[7]=0
   def soc_ui_in = Cat(0.U(1.W), btn, ftdi_txd)
 
+  // ── HDMI Scanout — declared here so wireGpuMem() can reference it ─────────
+  val scanout = withClockAndReset(sysClock, pllRst) {
+    Module(new HdmiScanoutFp16(fbBase = 0x85000, fbWidth = 32, fbHeight = 32))
+  }
+
+  // ── GPU memory arbiter: Borg GPU writes/reads have priority over scanout ──
+  // scanoutOwns is registered so that once the scanout's request is accepted
+  // by the MemoryController, the ready pulse is always routed back to the
+  // scanout — even if gpuActive goes high while the transaction is in-flight.
+  override def wireGpuMem(): Unit = {
+    val gpuActive  = peripherals.io.gpuMem.req || peripherals.io.gpuMem.wr
+    val scanoutOwns = withClockAndReset(sysClock, pllRst) { RegInit(false.B) }
+
+    when(scanoutOwns) {
+      when(mem.io.gpuMem.ready) { scanoutOwns := false.B }
+    }.otherwise {
+      when(!gpuActive && scanout.io.gpuReq) { scanoutOwns := true.B }
+    }
+
+    val serveGpu = !scanoutOwns
+
+    mem.io.gpuMem.req   := Mux(serveGpu, peripherals.io.gpuMem.req,   scanout.io.gpuReq)
+    mem.io.gpuMem.addr  := Mux(serveGpu, peripherals.io.gpuMem.addr,  scanout.io.gpuAddr)
+    mem.io.gpuMem.wr    := Mux(serveGpu, peripherals.io.gpuMem.wr,    false.B)
+    mem.io.gpuMem.wdata := peripherals.io.gpuMem.wdata
+
+    peripherals.io.gpuMem.data  := mem.io.gpuMem.data
+    peripherals.io.gpuMem.ready := mem.io.gpuMem.ready && !scanoutOwns
+
+    scanout.io.gpuData  := mem.io.gpuMem.data
+    scanout.io.gpuReady := mem.io.gpuMem.ready && scanoutOwns
+  }
+
   // ── Wire the SoC ──────────────────────────────────────────────────────────
   val uo_out_val = wireSoC()
 
@@ -214,17 +247,8 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
 
 
 
-  // ── HDMI Scanout (instantiated for HDMI signal but disabled) ─────────────
-  // GPU framebuffer writes use the default SoCLogic wireGpuMem (peripherals → mem).
-  // Scanout's GPU read port is tied off (enable=false ⇒ FSM idle, no reqs).
-  // When HDMI bring-up resumes, add a priority arbiter between GPU writes and
-  // scanout reads on mem.io.gpuMem, and align fbBase with PSRAM_OUT_SPI(0)=0x85000.
-  val scanout = withClockAndReset(sysClock, pllRst) {
-    Module(new HdmiScanoutFp16(fbBase = 0x85000, fbWidth = 32, fbHeight = 32))
-  }
-  scanout.io.enable   := false.B
-  scanout.io.gpuData  := 0.U
-  scanout.io.gpuReady := false.B
+  // ── HDMI Scanout: enable — gpuData/gpuReady wired via wireGpuMem() above ──
+  scanout.io.enable := true.B
 
   // ── VGA timing (25 MHz pixel clock = sysClock directly) ───────────────────
   // At 25 MHz SoC clock, every cycle IS a pixel tick — no divider needed.

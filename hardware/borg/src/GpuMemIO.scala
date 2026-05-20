@@ -5,7 +5,7 @@ package borg
 
 import chisel3._
 
-/** GPU PSRAM read port — from the perspective of the bus master (GPU side).
+/** GPU VRAM read port — from the perspective of the bus master (GPU side).
   *
   * The GPU asserts [[req]] and presents [[addr]]; the memory controller
   * responds with [[data]] and pulses [[ready]] for one cycle when the word

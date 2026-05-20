@@ -124,7 +124,7 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
     clearIdx := 0.U
     clearing := true.B
     pendingStart := false.B  // new frame — cancel any stale pending
-    printf("[BIN] clearCounts pulse\n")
+    if (BorgDebug.trace) printf("[BIN] clearCounts pulse\n")
   }
   when(clearing) {
     countMem.write(clearIdx, 0.U)
@@ -140,7 +140,7 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
       pendBboxMinY := io.bbox.min.y
       pendBboxMaxX := io.bbox.max.x
       pendBboxMaxY := io.bbox.max.y
-      printf("[BIN] pendingStart latched bbox=(%d,%d)-(%d,%d) tri=%d\n",
+      if (BorgDebug.trace) printf("[BIN] pendingStart latched bbox=(%d,%d)-(%d,%d) tri=%d\n",
         io.bbox.min.x, io.bbox.min.y, io.bbox.max.x, io.bbox.max.y, io.triIndex)
       pendTriIdx   := io.triIndex
     }
@@ -160,13 +160,13 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
   val countReadData = countMem.read(readAddr, readEn)
   io.countReadData := countReadData
   when(extReadEn) {
-    printf("[BIN] extRead addr=%d state=%d clearing=%d pending=%d\n",
+    if (BorgDebug.trace) printf("[BIN] extRead addr=%d state=%d clearing=%d pending=%d\n",
       io.countReadAddr, state, clearing, pendingStart)
   }
   // Log the data one cycle later (SyncReadMem has 1-cycle latency)
   val extReadEn_d = RegNext(extReadEn)
   when(extReadEn_d) {
-    printf("[BIN] extRead data=%d\n", countReadData)
+    if (BorgDebug.trace) printf("[BIN] extRead data=%d\n", countReadData)
   }
 
   // --- Output defaults ---
@@ -188,7 +188,7 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
       // Accept start from either direct pulse or pending (latched during clear).
       val doStart = (io.start && !clearing) || (pendingStart && !clearing)
       when(doStart) {
-        printf("[BIN] doStart pending=%d bbox=(%d,%d)-(%d,%d)\n",
+        if (BorgDebug.trace) printf("[BIN] doStart pending=%d bbox=(%d,%d)-(%d,%d)\n",
           pendingStart, Mux(pendingStart, pendBboxMinX, io.bbox.min.x),
           Mux(pendingStart, pendBboxMinY, io.bbox.min.y),
           Mux(pendingStart, pendBboxMaxX, io.bbox.max.x),
@@ -249,7 +249,7 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
     // Write incremented count back to SRAM.
     is(sStoreCount) {
       countMem.write(curTileIndex, curCount + 1.U)
-      printf("[BIN] sStoreCount tile=%d count=%d->%d\n", curTileIndex, curCount, curCount + 1.U)
+      if (BorgDebug.trace) printf("[BIN] sStoreCount tile=%d count=%d->%d\n", curTileIndex, curCount, curCount + 1.U)
       state := sNextTile
     }
 

@@ -104,7 +104,7 @@ class BorgDMA extends Module {
           io.imemWrite.en   := true.B
           io.imemWrite.addr := destIdx
           io.imemWrite.data := io.gpuMem.data
-          printf("[DMA] imemWrite[%d]=0x%x\n", destIdx, io.gpuMem.data)
+          if (BorgDebug.trace) printf("[DMA] imemWrite[%d]=0x%x\n", destIdx, io.gpuMem.data)
         }.elsewhen(io.desc.dest === 1.U) {
           // Uniform buffer: low 16 bits; page from dest field
           val page = 0.U(1.W)
@@ -112,7 +112,7 @@ class BorgDMA extends Module {
           io.uniformWrite.addr := Cat(page, destIdx(4, 0))
           io.uniformWrite.data := io.gpuMem.data(15, 0)
           when(destIdx < 2.U || destIdx === 19.U || destIdx === 22.U || destIdx === 25.U) {
-            printf("[DMA] uniWrite idx=%d data=0x%x (raw32=0x%x)\n",
+            if (BorgDebug.trace) printf("[DMA] uniWrite idx=%d data=0x%x (raw32=0x%x)\n",
               destIdx, io.gpuMem.data(15, 0), io.gpuMem.data)
           }
         }.elsewhen(io.desc.dest === 2.U) {

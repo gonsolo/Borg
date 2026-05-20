@@ -77,7 +77,7 @@ class BorgTextureUnit extends Module {
       when(io.start) {
         val addr = io.texConfig.baseAddr +& (io.texConfig.mortonIndex << 3)
         tex_base := addr
-        printf("[TEX] START baseAddr=0x%x morton=%d texAddr=0x%x\n",
+        if (BorgDebug.trace) printf("[TEX] START baseAddr=0x%x morton=%d texAddr=0x%x\n",
           io.texConfig.baseAddr, io.texConfig.mortonIndex, addr)
         state := sReadB
       }
@@ -89,7 +89,7 @@ class BorgTextureUnit extends Module {
       io.gpuMem.addr := tex_base | 4.U
       when(io.gpuMem.ready) {
         frag_b := io.gpuMem.data(15, 0)
-        printf("[TEX] READ-B addr=0x%x data=0x%x B=0x%x\n",
+        if (BorgDebug.trace) printf("[TEX] READ-B addr=0x%x data=0x%x B=0x%x\n",
           tex_base | 4.U, io.gpuMem.data, io.gpuMem.data(15, 0))
         state  := sReadRG
       }
@@ -102,7 +102,7 @@ class BorgTextureUnit extends Module {
       when(io.gpuMem.ready) {
         frag_r := io.gpuMem.data(15, 0)
         frag_g := io.gpuMem.data(31, 16)
-        printf("[TEX] READ-RG addr=0x%x data=0x%x R=0x%x G=0x%x\n",
+        if (BorgDebug.trace) printf("[TEX] READ-RG addr=0x%x data=0x%x R=0x%x G=0x%x\n",
           tex_base, io.gpuMem.data, io.gpuMem.data(15, 0), io.gpuMem.data(31, 16))
         state  := sDone
       }
@@ -110,7 +110,7 @@ class BorgTextureUnit extends Module {
 
     is(sDone) {
       io.done := true.B
-      printf("[TEX] DONE R=0x%x G=0x%x B=0x%x\n", frag_r, frag_g, frag_b)
+      if (BorgDebug.trace) printf("[TEX] DONE R=0x%x G=0x%x B=0x%x\n", frag_r, frag_g, frag_b)
       state   := sIdle
     }
   }

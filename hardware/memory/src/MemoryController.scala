@@ -68,6 +68,11 @@ class MemoryController extends Module {
   val hw0Reg      = RegInit(0.U(16.W))  // first halfword read back
   val hw1Reg      = RegInit(0.U(16.W))  // second halfword read back
 
+  // PSRAM-region select: byte-address bit 24 (= QspiController addr_in(24)).
+  // gpuMem (GPU PSRAM port) addresses are PSRAM SPI-relative and must carry
+  // this bit so they alias the CPU's PSRAM_OUT_RAW accesses.
+  val VRAM_REGION_BIT = "h1000000".U(25.W)
+
   // ── Convenience signals ────────────────────────────────────────────────────
   // Word address (16-bit-word, 24 bits) for the SDRAM transaction.
   val baseWordAddr = reqByteAddr(24, 1)
@@ -121,7 +126,14 @@ class MemoryController extends Module {
   val instrRespBits = Cat(hw1Reg, hw0Reg)
 
   // ── Default IO ─────────────────────────────────────────────────────────────
-  io.instr.req.ready   := (state === sIdle)
+  // Instruction fetch is the LOWEST-priority requester (see sIdle arbitration).
+  // req.ready must therefore only assert when the controller will actually
+  // accept the fetch this cycle — i.e. no higher-priority requester (CPU data
+  // or GPU) is competing.  Otherwise the CPU's instr.req "fires" while the
+  // controller services the GPU instead, dropping the fetch and wedging the CPU
+  // in sFetchResp forever (manifests once the GPU is active).
+  io.instr.req.ready   := (state === sIdle) &&
+                          !io.cpuData.req.valid && !io.gpuMem.wr && !io.gpuMem.req
   io.instr.resp.valid  := (state === sRespond) && (rKind === rInstr)
   io.instr.resp.bits   := instrRespBits
 
@@ -156,7 +168,12 @@ class MemoryController extends Module {
         state       := sIssue
       }.elsewhen(io.gpuMem.wr) {
         rKind       := rGpuWrite
-        reqByteAddr := io.gpuMem.addr
+        // gpuMem is the GPU's PSRAM port: its addresses are PSRAM SPI-relative
+        // byte addresses (e.g. flush_fb_base, seq_*_addr).  The CPU reaches the
+        // same data via PSRAM_OUT_RAW, which adds the PSRAM base so byte bit 24
+        // is set.  Force bit 24 here so GPU and CPU accesses hit identical
+        // backend words (otherwise the GPU reads/writes the flash region).
+        reqByteAddr := io.gpuMem.addr | VRAM_REGION_BIT
         reqData     := io.gpuMem.wdata
         reqSize     := HuttSize.Word
         needTwo     := true.B
@@ -164,7 +181,7 @@ class MemoryController extends Module {
         state       := sIssue
       }.elsewhen(io.gpuMem.req) {
         rKind       := rGpuRead
-        reqByteAddr := io.gpuMem.addr
+        reqByteAddr := io.gpuMem.addr | VRAM_REGION_BIT
         reqSize     := HuttSize.Word
         needTwo     := true.B
         hwIdx       := 0.U

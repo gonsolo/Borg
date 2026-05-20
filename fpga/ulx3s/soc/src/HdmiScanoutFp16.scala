@@ -12,10 +12,20 @@
 //   Read at pixel_addr+0: {G[15:0], R[15:0]}
 //   Read at pixel_addr+4: {Z[15:0], B[15:0]}
 //
-// Prefetch: one 32-pixel scanline during hblank.
-//   32 pixels × 2 GPU reads = 64 reads × ~10cy = ~640cy < 800cy hblank budget.
+// Buffering strategy (Step: full-frame BRAM):
+//   The previous design prefetched one scanline per hblank, but at 25 MHz the
+//   SDRAM read latency (~10 cy/word, ×2 for the MemoryController's 2-halfword
+//   GPU read) means 32 pixels = 64 reads ≈ 1300–1900 cy — far over the ~450 cy
+//   line budget.  Only ~1/3 of each line got fetched ⇒ garbled output.
 //
-// Display: 32×32 framebuffer magnified 2× to 64×64 overlay centered on 640×480.
+//   Instead we hold the whole framebuffer (fbWidth×fbHeight px, RGB8) in a
+//   block RAM and fill it with a free-running FSM that walks every pixel and
+//   loops forever.  A full refill takes ~2 ms (≪ 16.7 ms frame), so for a
+//   static framebuffer the BRAM converges to the correct image within ~2
+//   frames.  Display reads the BRAM at pixel-clock rate (1-cycle latency), so
+//   there is no realtime SDRAM bandwidth pressure on the scanout path.
+//
+// Display: fbWidth×fbHeight framebuffer magnified 2× centered on 640×480.
 
 package soc
 
@@ -40,20 +50,20 @@ class HdmiScanoutFp16IO extends Bundle {
 class HdmiScanoutFp16(fbBase: Int = 0x100000, fbWidth: Int = 32, fbHeight: Int = 32) extends Module {
   val io = IO(new HdmiScanoutFp16IO)
 
-  val tilesPerRow = fbWidth / 4
+  val tilesPerRow  = fbWidth / 4
   val overlayScale = 2   // each pixel displayed 2×2
-  val overlayW = fbWidth * overlayScale
-  val overlayH = fbHeight * overlayScale
+  val overlayW     = fbWidth * overlayScale
+  val overlayH     = fbHeight * overlayScale
   val startX = ((640 - overlayW) / 2).U(10.W)
   val startY = ((480 - overlayH) / 2).U(10.W)
   val endX   = startX +& overlayW.U
   val endY   = startY +& overlayH.U
 
-  val inFbH = io.hCount >= startX && io.hCount < endX
-  val inFbV = io.vCount >= startY && io.vCount < endY
+  val numPixels = fbWidth * fbHeight
 
-  // ── Line buffer: fbWidth × 24-bit (RGB8) ──
-  val lineBuffer = RegInit(VecInit(Seq.fill(fbWidth)(0.U(24.W))))
+  // ── Frame buffer: numPixels × RGB8, mapped to block RAM ──
+  // Raster-indexed: pixel (col, row) lives at index row*fbWidth + col.
+  val frameBuf = SyncReadMem(numPixels, UInt(24.W))
 
   // ── FP16 → RGB8 conversion ──
   // FP16: 1 sign + 5 exponent (bias=15) + 10 mantissa
@@ -88,96 +98,74 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbWidth: Int = 32, fbHeight: Int =
     rgb8
   }
 
-  // ── Prefetch FSM ──
-  // Fetches one scanline of fbWidth pixels during hblank.
-  // For each pixel: 2 GPU reads (RG word, then BZ word).
-  val sIdle :: sReqRG :: sWaitRG :: sReqBZ :: sWaitBZ :: sStore :: Nil = Enum(6)
-  val state   = RegInit(sIdle)
-  val pixIdx  = RegInit(0.U(log2Ceil(fbWidth).W))
+  // ── Free-running fill FSM ──
+  // Walks every pixel (raster order), issuing 2 GPU reads each (RG then BZ),
+  // converting to RGB8 and writing the frame BRAM.  Loops forever.
+  val sReqRG :: sWaitRG :: sReqBZ :: sWaitBZ :: Nil = Enum(4)
+  val fstate  = RegInit(sReqRG)
+  val fillIdx = RegInit(0.U(log2Ceil(numPixels).W))
   val rgWord  = Reg(UInt(32.W))
 
-  // Compute pixel address from (pixIdx, fetchRow)
-  // pixel(x, y) in tiled FB:
-  //   tile_col   = x >> 2
-  //   tile_row   = y >> 2
-  //   local_x    = x & 3
-  //   local_y    = y & 3
-  //   tile_index = tile_row * tilesPerRow + tile_col
-  //   pix_index  = local_y * 4 + local_x
-  //   byte_addr  = fbBase + tile_index * 128 + pix_index * 8
-  val fetchRow = Reg(UInt(log2Ceil(fbHeight).W))
-
-  val tileCol   = pixIdx(log2Ceil(fbWidth) - 1, 2)
-  val tileRow   = fetchRow(log2Ceil(fbHeight) - 1, 2)
-  val localX    = pixIdx(1, 0)
-  val localY    = fetchRow(1, 0)
+  // Decompose the raster fill index into tiled SDRAM byte address.
+  val fillCol = fillIdx(log2Ceil(fbWidth) - 1, 0)
+  val fillRow = fillIdx(log2Ceil(numPixels) - 1, log2Ceil(fbWidth))
+  val tileCol = fillCol(log2Ceil(fbWidth) - 1, 2)
+  val tileRow = fillRow(log2Ceil(fbHeight) - 1, 2)
+  val localX  = fillCol(1, 0)
+  val localY  = fillRow(1, 0)
   val tileIndex = tileRow * tilesPerRow.U +& tileCol
-  val pixIndex  = Cat(localY, localX)  // local_y * 4 + local_x
+  val pixIndex  = Cat(localY, localX)            // local_y * 4 + local_x
   val pixAddr   = fbBase.U(25.W) +& (tileIndex << 7) +& (pixIndex << 3)
 
-  // Determine which framebuffer row to prefetch next
-  val nextOverlayV = Mux(io.vCount >= endY - 1.U, startY, io.vCount + 1.U)
-  val nextFbRow    = (nextOverlayV - startY) >> log2Ceil(overlayScale).U
-  val fetchNextV   = nextOverlayV >= startY && nextOverlayV < endY
-  val triggerFetch = io.tick25 && io.hCount === 640.U && fetchNextV
+  io.gpuReq  := io.enable && (fstate === sReqRG || fstate === sWaitRG ||
+                              fstate === sReqBZ || fstate === sWaitBZ)
+  io.gpuAddr := Mux(fstate === sReqBZ || fstate === sWaitBZ, pixAddr + 4.U, pixAddr)
 
-  io.gpuReq  := state === sReqRG || state === sWaitRG ||
-                state === sReqBZ || state === sWaitBZ
-  io.gpuAddr := Mux(state === sReqBZ || state === sWaitBZ,
-                    pixAddr + 4.U,
-                    pixAddr)
+  val wrEn   = WireDefault(false.B)
+  val wrData = WireDefault(0.U(24.W))
+  when(wrEn) { frameBuf.write(fillIdx, wrData) }
 
-  switch(state) {
-    is(sIdle) {
-      when(triggerFetch && io.enable) {
-        state    := sReqRG
-        pixIdx   := 0.U
-        fetchRow := nextFbRow(log2Ceil(fbHeight) - 1, 0)
+  when(io.enable) {
+    switch(fstate) {
+      is(sReqRG) { fstate := sWaitRG }
+      is(sWaitRG) {
+        when(io.gpuReady) {
+          rgWord := io.gpuData    // {G[15:0], R[15:0]}
+          fstate := sReqBZ
+        }
       }
-    }
-    is(sReqRG) {
-      state := sWaitRG
-    }
-    is(sWaitRG) {
-      when(io.gpuReady) {
-        rgWord := io.gpuData   // {G[15:0], R[15:0]}
-        state  := sReqBZ
-      }
-    }
-    is(sReqBZ) {
-      state := sWaitBZ
-    }
-    is(sWaitBZ) {
-      when(io.gpuReady) {
-        // gpuData = {Z[15:0], B[15:0]}
-        val rFp16 = rgWord(15, 0)
-        val gFp16 = rgWord(31, 16)
-        val bFp16 = io.gpuData(15, 0)
-
-        val r8 = fp16ToRgb8(rFp16)
-        val g8 = fp16ToRgb8(gFp16)
-        val b8 = fp16ToRgb8(bFp16)
-
-        lineBuffer(pixIdx) := Cat(r8, g8, b8)
-
-        when(pixIdx === (fbWidth - 1).U) {
-          state := sIdle
-        }.otherwise {
-          pixIdx := pixIdx + 1.U
-          state  := sReqRG
+      is(sReqBZ) { fstate := sWaitBZ }
+      is(sWaitBZ) {
+        when(io.gpuReady) {
+          // gpuData = {Z[15:0], B[15:0]}
+          val r8 = fp16ToRgb8(rgWord(15, 0))
+          val g8 = fp16ToRgb8(rgWord(31, 16))
+          val b8 = fp16ToRgb8(io.gpuData(15, 0))
+          wrEn    := true.B
+          wrData  := Cat(r8, g8, b8)
+          fillIdx := Mux(fillIdx === (numPixels - 1).U, 0.U, fillIdx + 1.U)
+          fstate  := sReqRG
         }
       }
     }
   }
 
-  // ── Display: read from line buffer, magnified 2× ──
-  val fbX    = ((io.hCount - startX) >> log2Ceil(overlayScale).U)(log2Ceil(fbWidth) - 1, 0)
-  val pixel  = lineBuffer(fbX)
-  val dispR  = pixel(23, 16)
-  val dispG  = pixel(15, 8)
-  val dispB  = pixel(7, 0)
+  // ── Display: read frame BRAM (1-cycle latency), magnified 2× ──
+  // The BRAM read returns data one cycle after the address is presented, so
+  // the gating signal is registered to match — this delays the whole overlay
+  // by a single pixel, which is imperceptible.
+  val inFbH = io.hCount >= startX && io.hCount < endX
+  val inFbV = io.vCount >= startY && io.vCount < endY
+  val show  = io.de && inFbH && inFbV
 
-  io.red   := Mux(io.de && inFbH && inFbV, dispR, 0.U)
-  io.green := Mux(io.de && inFbH && inFbV, dispG, 0.U)
-  io.blue  := Mux(io.de && inFbH && inFbV, dispB, 0.U)
+  val fbX = ((io.hCount - startX) >> log2Ceil(overlayScale).U)(log2Ceil(fbWidth) - 1, 0)
+  val fbY = ((io.vCount - startY) >> log2Ceil(overlayScale).U)(log2Ceil(fbHeight) - 1, 0)
+  val dispIdx = Cat(fbY, fbX)   // row*fbWidth + col
+
+  val pixel = frameBuf.read(dispIdx)
+  val showD = RegNext(show, false.B)
+
+  io.red   := Mux(showD, pixel(23, 16), 0.U)
+  io.green := Mux(showD, pixel(15, 8),  0.U)
+  io.blue  := Mux(showD, pixel(7, 0),   0.U)
 }

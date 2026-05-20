@@ -100,7 +100,7 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
     is(sReadSram) {
       io.read.en  := true.B
       io.read.idx := word_idx
-      printf("[FLUSH] readSram slot=%d\n", word_idx)
+      if (BorgDebug.trace) printf("[FLUSH] readSram slot=%d\n", word_idx)
       state       := sWaitSram
     }
 
@@ -113,7 +113,7 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
     // a concurrent dispatcher Z-read can't corrupt our data.
     is(sWaitSram2) {
       entryHeld := io.read.data.asUInt
-      printf("[FLUSH] dataHeld slot R=0x%x G=0x%x B=0x%x Z=0x%x\n",
+      if (BorgDebug.trace) printf("[FLUSH] dataHeld slot R=0x%x G=0x%x B=0x%x Z=0x%x\n",
         io.read.data.r, io.read.data.g, io.read.data.b, io.read.data.z)
       state := sWriteR
     }

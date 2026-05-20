@@ -62,6 +62,14 @@ info.yaml: .verilog_stamp
 # Still declared phony so `make generate_verilog` always checks deps explicitly.
 generate_verilog: .verilog_stamp info.yaml
 
+# Verilator simulation Verilog — flat MemBackendIO top (no QSPI), into
+# out/hardware/borg/verilog_sim/.  Used by simulation/verilator.
+.verilog_sim_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
+	CLOCK_MHZ=4 $(MILL) asic.tt.runMain asic.tt.BorgSimMain
+	@touch $@
+
+generate_verilog_sim: .verilog_sim_stamp
+
 # ULX3S (ECP5-85K) Verilog emission stub — no synthesis flow yet (Step 27).
 generate_verilog_ulx3s: rdl
 	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMain
@@ -156,7 +164,7 @@ rdl: $(RDL_SRC)
 	@sed -i '/#include <assert.h>/d; s/static_assert(/_Static_assert(/g' $(RDL_C_OUT)/borg_regs.h
 
 clean:
-	rm -f src/config_merged.json src/user_config.json .verilog_stamp
+	rm -f src/config_merged.json src/user_config.json .verilog_stamp .verilog_sim_stamp
 	rm -rf $(RDL_C_OUT)
 	rm -rf $(RDL_SCALA_OUT)
 	rm -rf out/
@@ -168,7 +176,7 @@ clean:
 clean-gh-runs:
 	gh run list --limit 200 --json databaseId --jq '.[8:] | .[].databaseId' | xargs -I {} gh run delete {}
 
-.PHONY: all generate_verilog generate_verilog_ulx3s help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book clean-gh-runs scripts/test_summary.sh

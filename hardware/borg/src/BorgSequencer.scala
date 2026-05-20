@@ -492,7 +492,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         // The binner's multi-cycle clearing runs in parallel with the first
         // vertex shader DMA load, so it adds zero latency.
         io.binner.clearCounts := true.B
-        printf("[SEQ] Pass1 start triCount=%d\n", io.mmio.triCount)
+        if (BorgDebug.trace) printf("[SEQ] Pass1 start triCount=%d\n", io.mmio.triCount)
         state   := sLoadShader
       }
     }
@@ -619,14 +619,14 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
   private def handleBinTri(): Unit = {
     io.binner.start := true.B
-    printf("[SEQ] sBinTri triIdx=%d bbox=(%d,%d)-(%d,%d) binnerBusy=%d\n",
+    if (BorgDebug.trace) printf("[SEQ] sBinTri triIdx=%d bbox=(%d,%d)-(%d,%d) binnerBusy=%d\n",
       triIdx, bboxMinX, bboxMinY, bboxMaxX, bboxMaxY, io.binner.busy)
     state := sWaitBinner
   }
 
   private def handleWaitBinner(): Unit = {
     when(!io.binner.busy) {
-      printf("[SEQ] sWaitBinner done\n")
+      if (BorgDebug.trace) printf("[SEQ] sWaitBinner done\n")
       state := sStageUniforms
     }
   }
@@ -685,7 +685,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
     // Debug: dump uniform values during staging
     when(writeIdx === 0.U || writeIdx === 19.U || writeIdx === 22.U || writeIdx === 25.U) {
-      printf("[SEQ] stageU tri=%d u%d=0x%x\n", triIdx, writeIdx, uData)
+      if (BorgDebug.trace) printf("[SEQ] stageU tri=%d u%d=0x%x\n", triIdx, writeIdx, uData)
     }
 
     // Step 32.3: Latch computed uniform into uDataStore for PSRAM write
@@ -709,7 +709,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     io.store.wdata := Mux(storeWriteIdx === 31.U, triHasUvs.asUInt, uDataStore(storeWriteIdx(4, 0)))
     when(io.store.ready) {
       when(storeWriteIdx < 2.U || storeWriteIdx === 19.U || storeWriteIdx === 22.U || storeWriteIdx === 25.U || storeWriteIdx === 31.U) {
-        printf("[SEQ] storeSetup triIdx=%d [%d] addr=0x%x data=0x%x\n",
+        if (BorgDebug.trace) printf("[SEQ] storeSetup triIdx=%d [%d] addr=0x%x data=0x%x\n",
           triIdx, storeWriteIdx, psramAddr,
           Mux(storeWriteIdx === 31.U, triHasUvs.asUInt, uDataStore(storeWriteIdx(4, 0))))
       }
@@ -752,11 +752,11 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   private def handleStartPass2(): Unit = {
     tileX := 0.U
     tileY := 0.U
-    printf("[SEQ] Pass2 start\n")
+    if (BorgDebug.trace) printf("[SEQ] Pass2 start\n")
     // Issue count read for tile (0,0) = tile index 0
     io.binner.countReadAddr := 0.U
     io.binner.countReadEn   := true.B
-    printf("[SEQ] issuing countRead addr=0 binnerBusy=%d\n", io.binner.busy)
+    if (BorgDebug.trace) printf("[SEQ] issuing countRead addr=0 binnerBusy=%d\n", io.binner.busy)
     state := sReadBinCount
   }
 
@@ -765,7 +765,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // sStartPass2/sNextRenderTile). Capture it immediately — the output
     // goes undefined on the next cycle when readEn drops.
     binTriCount := io.binner.countReadData
-    printf("[SEQ] tile(%d,%d) binCount=%d\n",
+    if (BorgDebug.trace) printf("[SEQ] tile(%d,%d) binCount=%d\n",
       tileX >> 2, tileY >> 2, io.binner.countReadData)
     binTriIdx   := 0.U
     writeIdx    := 0.U
@@ -825,7 +825,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     desc.dest     := Mux(uniformPage === 0.U, 1.U, 2.U)  // page 0 or 1
     desc.offset   := 0.U
 
-    printf("[SEQ] loadTriSetup triIdx=%d addr=0x%x dest=%d\n",
+    if (BorgDebug.trace) printf("[SEQ] loadTriSetup triIdx=%d addr=0x%x dest=%d\n",
       binEntryData, io.mmio.setupBase + (binEntryData << 7),
       Mux(uniformPage === 0.U, 1.U, 2.U))
 
@@ -840,26 +840,26 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
 
   private def handleEnqueueTile(): Unit = {
     io.iter.enqueue.valid := true.B
-    printf("[SEQ] sEnqueueTile tileX=%d tileY=%d\n", tileX, tileY)
+    if (BorgDebug.trace) printf("[SEQ] sEnqueueTile tileX=%d tileY=%d\n", tileX, tileY)
     state := sIteratePixels
   }
 
   private def handleIteratePixels(): Unit = {
     io.iter.iterate := true.B
-    printf("[SEQ] sIteratePixels -> sWaitRast (first advance)\n")
+    if (BorgDebug.trace) printf("[SEQ] sIteratePixels -> sWaitRast (first advance)\n")
     state := sWaitRast
   }
 
   private def handleWaitRast(): Unit = {
     when(!io.iter.stall && !tileCompleteLatch) {
       io.iter.iterate := true.B
-      printf("[SEQ] sWaitRast iterate (stall=0 latch=0)\n")
+      if (BorgDebug.trace) printf("[SEQ] sWaitRast iterate (stall=0 latch=0)\n")
     }
     when(io.iter.stall && !tileCompleteLatch) {
-      printf("[SEQ] sWaitRast STALLED (stall=1 latch=0)\n")
+      if (BorgDebug.trace) printf("[SEQ] sWaitRast STALLED (stall=1 latch=0)\n")
     }
     when(tileCompleteLatch) {
-      printf("[SEQ] tileCompleteLatch -> sNextBinTri\n")
+      if (BorgDebug.trace) printf("[SEQ] tileCompleteLatch -> sNextBinTri\n")
       state := sNextBinTri
     }
   }
@@ -870,18 +870,18 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // in the shader pipeline, reading from the uniform buffer. If the DMA
     // overwrites uniforms now, the shader gets corrupted data ("slot 15 race").
     when(!io.iter.dispatcherIdle) {
-      printf("[SEQ] sNextBinTri: waiting for dispatcher drain\n")
+      if (BorgDebug.trace) printf("[SEQ] sNextBinTri: waiting for dispatcher drain\n")
     }.otherwise {
       val nextBinIdx = binTriIdx + 1.U
       when(nextBinIdx < binTriCount) {
         binTriIdx := nextBinIdx
         clearTileComplete := true.B
         writeIdx := 0.U
-        printf("[SEQ] sNextBinTri -> sReadBinEntry (binTriIdx=%d/%d)\n", nextBinIdx, binTriCount)
+        if (BorgDebug.trace) printf("[SEQ] sNextBinTri -> sReadBinEntry (binTriIdx=%d/%d)\n", nextBinIdx, binTriCount)
         // Don't re-clear tile buffer — fragments accumulate on top of clear color
         state := sReadBinEntry
       }.otherwise {
-        printf("[SEQ] sNextBinTri -> sWaitFlush (all tris done for tile)\n")
+        if (BorgDebug.trace) printf("[SEQ] sNextBinTri -> sWaitFlush (all tris done for tile)\n")
         state := sWaitFlush
       }
     }
@@ -893,20 +893,22 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // reads slot 15 before the dispatcher writes it (the "last pixel race").
     when(io.iter.dispatcherIdle) {
       io.flusher.trigger := true.B
-      printf("[SEQ] flush base=0x%x setupBase=0x%x\n", io.flusher.base, io.mmio.setupBase)
+      if (BorgDebug.trace) printf("[SEQ] flush base=0x%x setupBase=0x%x\n", io.flusher.base, io.mmio.setupBase)
       state := sWaitFlushSync
     }.otherwise {
-      printf("[SEQ] sWaitFlush: waiting for dispatcher drain\n")
+      if (BorgDebug.trace) printf("[SEQ] sWaitFlush: waiting for dispatcher drain\n")
     }
   }
 
   private def handleWaitFlushSync(): Unit = {
+    if (BorgDebug.trace) printf("[SEQ] sWaitFlushSync flusherBusy=%d\n", io.flusher.busy)
     when(!io.flusher.busy) {
       state := sNextRenderTile
     }
   }
 
   private def handleNextRenderTile(): Unit = {
+    if (BorgDebug.trace) printf("[SEQ] sNextRenderTile tileX=%d tileY=%d\n", tileX, tileY)
     val nextTileX = (tileX >> 2) + 1.U
     when(nextTileX >= io.mmio.fbWidthTiles) {
       tileX := 0.U
@@ -944,6 +946,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   }
 
   private def handleDone(): Unit = {
+    if (BorgDebug.trace) printf("[SEQ] sDone -> sIdle\n")
     io.done := true.B
     state   := sIdle
   }
@@ -971,15 +974,15 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       when(addr === 2.U) { colorRegs(vertIdx)(3) := data }  // z
       when(addr === 3.U) {
         colorRegs(vertIdx)(0) := data   // r
-        printf("[SEQ] colorSnoop vert=%d R=0x%x\n", vertIdx, data)
+        if (BorgDebug.trace) printf("[SEQ] colorSnoop vert=%d R=0x%x\n", vertIdx, data)
       }
       when(addr === 4.U) {
         colorRegs(vertIdx)(1) := data   // g
-        printf("[SEQ] colorSnoop vert=%d G=0x%x\n", vertIdx, data)
+        if (BorgDebug.trace) printf("[SEQ] colorSnoop vert=%d G=0x%x\n", vertIdx, data)
       }
       when(addr === 5.U) {
         colorRegs(vertIdx)(2) := data   // b
-        printf("[SEQ] colorSnoop vert=%d B=0x%x\n", vertIdx, data)
+        if (BorgDebug.trace) printf("[SEQ] colorSnoop vert=%d B=0x%x\n", vertIdx, data)
       }
       // UV: pre-scaled by tex_w/tex_h in the PSRAM descriptor (record_draw_call)
       when(addr === 6.U) { uvRegs(vertIdx)(0)    := data }  // u (scaled)
@@ -1013,7 +1016,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
         bboxWordIdx := 2.U
       }.elsewhen(bboxWordIdx === 2.U) {
         triHasUvs := io.dma.snoop.bits(0)
-        printf("[SEQ] hasUvs triIdx=%d flag=%d\n", triIdx, io.dma.snoop.bits(0))
+        if (BorgDebug.trace) printf("[SEQ] hasUvs triIdx=%d flag=%d\n", triIdx, io.dma.snoop.bits(0))
         bboxWordIdx := 3.U
       }
     }
@@ -1033,7 +1036,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       setupLoadIdx := setupLoadIdx + 1.U
       when(setupLoadIdx === 31.U) {
         triHasUvs := io.dma.uniformSnoop.data(0)
-        printf("[SEQ] pass2 hasUvs triIdx=%d flag=%d\n", binEntryData, io.dma.uniformSnoop.data(0))
+        if (BorgDebug.trace) printf("[SEQ] pass2 hasUvs triIdx=%d flag=%d\n", binEntryData, io.dma.uniformSnoop.data(0))
       }
     }
   }
