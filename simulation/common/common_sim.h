@@ -201,23 +201,21 @@ inline void save_ppm(const std::string& app_name, uint32_t width, uint32_t heigh
 
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            // Step 25.4.2 Option A: tiled framebuffer layout.
-            // tile_index = (y/4) * tiles_per_row + (x/4)
-            // tile_idx   = (x&3) | ((y&3) << 2)
-            // Each tile  = 32 PSRAM words (16 entries × 2 words each).
-            // Chisel Bundle.asUInt: first field = MSB.
-            //   ColorZ(r,g,b,z) → {r[63:48], g[47:32], b[31:16], z[15:0]}
-            //   hi word = bits[63:32] = {r, g}
-            //   lo word = bits[31:0]  = {b, z}
+            // Step 25.4.2 Option A: tiled framebuffer layout, 2 words/pixel.
+            // BorgTileFlusher writes each pixel as 4 halfwords at byte offsets:
+            //   +0: r, +2: g, +4: b, +6: z   (matches the ULX3S HDMI scanout).
+            // So the two 32-bit words are:
+            //   word_off+0 = {g[31:16], r[15:0]}
+            //   word_off+1 = {z[31:16], b[15:0]}
             uint32_t tiles_per_row = width >> 2;
             uint32_t tile_index    = (y >> 2) * tiles_per_row + (x >> 2);
             uint32_t tile_idx      = (x & 3) | ((y & 3) << 2);
             uint32_t word_off      = out_base_word + tile_index * 32 + tile_idx * 2;
-            uint32_t lo            = psram_words_out[word_off + 0];  // {b, z}
-            uint32_t hi            = psram_words_out[word_off + 1];  // {r, g}
-            uint16_t r = (uint16_t)(hi >> 16);
-            uint16_t g = (uint16_t)(hi & 0xFFFF);
-            uint16_t b = (uint16_t)(lo >> 16);
+            uint32_t lo            = psram_words_out[word_off + 0];  // {g, r}
+            uint32_t hi            = psram_words_out[word_off + 1];  // {z, b}
+            uint16_t r = (uint16_t)(lo & 0xFFFF);
+            uint16_t g = (uint16_t)(lo >> 16);
+            uint16_t b = (uint16_t)(hi & 0xFFFF);
 
             int r_b = std::max(0, std::min(255, (int)(fp16_to_float(r) * 255)));
             int g_b = std::max(0, std::min(255, (int)(fp16_to_float(g) * 255)));
