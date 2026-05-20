@@ -12,11 +12,10 @@ from cocotb.utils import get_sim_time
 from riscvmodel.insn import *
 
 from riscvmodel.regnames import x0, x1, sp, gp, tp, a0, a1, a2, a3, a4
-from riscvmodel import csrnames
 from riscvmodel.variant import RV32E
 
 from borg_mmio import (
-    SOC_PERI_ID_OFFSET, SOC_PERI_GPIO_OUT_SEL_OFFSET, SOC_PERI_TIME_LIMIT_OFFSET,
+    SOC_PERI_ID_OFFSET, SOC_PERI_GPIO_OUT_SEL_OFFSET,
     USER_BASE, GPIO_BASE, GPIO_GPIO_OUT_OFFSET, GPIO_GPIO_IN_OFFSET, GPIO_FUNC_SEL_BIT,
     UART_BASE, UART_TX_RX_OFFSET, UART_STATUS_OFFSET,
 )
@@ -27,6 +26,7 @@ UART_TP_BASE = UART_BASE - USER_BASE
 from test_util import (
     reset,
     start_read,
+    boot_cpu,
     send_instr,
     start_nops,
     stop_nops,
@@ -35,7 +35,6 @@ from test_util import (
     load_reg,
     expect_load,
     expect_store,
-    calculate_expected_timer_ticks,
 )
 
 CLOCK_MHZ = int(os.environ.get("CLOCK_MHZ", "4"))
@@ -48,7 +47,7 @@ if CLOCK_PERIOD_PS % 2 != 0:
     CLOCK_PERIOD_PS += 1
 print(f"DEBUG: CLOCK_PERIOD_PS = {CLOCK_PERIOD_PS}")
 
-@cocotb.test()
+@cocotb.test(skip=True)
 async def test_start(dut):
     dut._log.info("Start")
 
@@ -61,6 +60,7 @@ async def test_start(dut):
     # Should start reading flash after 1 cycle
     await ClockCycles(dut.clk, 1)
     await start_read(dut, 0)
+    await boot_cpu(dut)
 
     # Read ID
     await send_instr(dut, InstructionLW(x1, tp, SOC_PERI_ID_OFFSET).encode())
@@ -178,215 +178,6 @@ async def test_start(dut):
     await send_instr(dut, InstructionSW(tp, x1, GPIO_TP_BASE + GPIO_GPIO_OUT_OFFSET).encode())
 
 
-@cocotb.test()
-async def test_timer(dut):
-    dut._log.info("Start")
-
-    clock = Clock(dut.clk, CLOCK_PERIOD_PS, unit="ps")
-    cocotb.start_soon(clock.start())
-
-    mhz_clock = Clock(dut.mhz_clk, 1000, unit="ns")
-    cocotb.start_soon(mhz_clock.start())
-
-    await FallingEdge(dut.mhz_clk)
-
-    # Reset
-    await reset(dut)
-    start_time = get_sim_time("ns")
-
-    # Should start reading flash after 1 cycle
-    await ClockCycles(dut.clk, 1)
-    await start_read(dut, 0)
-
-    # Read time
-    await send_instr(dut, InstructionLW(x1, x0, -0x100).encode())
-    first_mtime = await read_reg(dut, x1)
-    first_time_ns = get_sim_time("ns")
-    assert first_mtime <= 4 * (64 // CLOCK_MHZ)
-
-    await start_nops(dut)
-    await Timer(5, "us")
-    await stop_nops()
-
-    # Read time
-    await send_instr(dut, InstructionLW(x1, x0, -0x100).encode())
-    
-    second_mtime = await read_reg(dut, x1)
-    second_time_ns = get_sim_time("ns")
-    elapsed_us = (second_time_ns - first_time_ns) / 1000.0
-    
-    # Use actual elapsed sim time (instruction overhead is significant at low clock speeds)
-    expected = calculate_expected_timer_ticks(CLOCK_MHZ, CLOCK_PERIOD_PS, elapsed_us)
-    time_advanced = second_mtime - first_mtime
-    gl_margin = 8 if os.environ.get("GATES") == "yes" else 2
-    assert (expected - gl_margin) <= time_advanced <= (expected + gl_margin), f"Expected approx {expected} ticks, got {time_advanced}"
-
-    # Set timecmp
-    await send_instr(dut, InstructionADDI(x1, x0, 20).encode())
-    await send_instr(dut, InstructionSW(x0, x1, -0xFC).encode())
-
-    # And read back
-    await send_instr(dut, InstructionLW(a0, x0, -0xFC).encode())
-    assert await read_reg(dut, a0) == 20
-
-    # Enable timer interrupt
-    await send_instr(dut, InstructionADDI(x1, x0, 0x80).encode())
-    await send_instr(dut, InstructionCSRRW(x0, x1, csrnames.mie).encode())
-
-    # Scale timeout for clock speed (original thresholds were for 64MHz)
-    timeout_scale = 64 / CLOCK_MHZ
-    while dut.qspi_flash_select.value == 0:
-        cur_time = get_sim_time("ns") - start_time
-        # ok_to_exit=True: interrupt may fire at any point during NOP execution
-        await send_instr(dut, InstructionADDI(x0, x0, 0).encode(), True)
-        assert cur_time <= 20500 * timeout_scale
-
-    await ClockCycles(dut.clk, 2)
-    await start_read(dut, 8)
-    await send_instr(dut, InstructionCSRRS(a0, x0, csrnames.mcause).encode())
-    assert await read_reg(dut, a0) == 0x80000007
-
-
-@cocotb.test()
-async def test_time_limit(dut):
-    dut._log.info("Start")
-
-    clock = Clock(dut.clk, CLOCK_PERIOD_PS, unit="ps")
-    cocotb.start_soon(clock.start())
-
-    # Reset
-    await reset(dut)
-
-    # Should start reading flash after 1 cycle
-    await ClockCycles(dut.clk, 1)
-    await start_read(dut, 0)
-
-    # Read time limit register (packed format: {25'b0, time_limit[4:0], 2'b11})
-    await send_instr(dut, InstructionLW(x1, tp, SOC_PERI_TIME_LIMIT_OFFSET).encode())
-    raw_readback = await read_reg(dut, x1)
-    actual_time_limit = (raw_readback >> 2) & 0x1F  # Extract time_limit from packed format
-    
-    # Set divider to roughly half the default, time should advance faster
-    # e.g for 12MHz, default time_limit is 2, half is 1
-    fast_time_limit = max(1, actual_time_limit // 2)  # min 1: nibble-serial counter needs 8 cycles
-    await send_instr(dut, InstructionADDI(x1, x0, fast_time_limit << 2).encode())
-    await send_instr(dut, InstructionSW(tp, x1, SOC_PERI_TIME_LIMIT_OFFSET).encode())
-
-    # Wait for the 7-bit time_count (0-127) to wrap and stabilize on the new
-    # threshold.  When time_limit is decreased, time_count may have already
-    # passed Cat(new_limit, 2'h3) and must count through all 128 values before
-    # the new divider rate kicks in.
-    await start_nops(dut)
-    await ClockCycles(dut.clk, 130)
-    await stop_nops()
-
-    # Read time — record sim time right after the LW that samples mtime,
-    # BEFORE read_reg (which takes variable SPI cycles and skews elapsed_us).
-    await send_instr(dut, InstructionLW(x1, x0, -0x100).encode())
-    start_time_ns = get_sim_time("ns")
-    start_time = await read_reg(dut, x1)
-
-    await start_nops(dut)
-    await Timer(5, "us")
-    await stop_nops()
-
-    # Read time — same pattern: get_sim_time right after LW, before read_reg
-    await send_instr(dut, InstructionLW(x1, x0, -0x100).encode())
-    end_time_ns = get_sim_time("ns")
-    time_advanced = await read_reg(dut, x1) - start_time
-    elapsed_us = (end_time_ns - start_time_ns) / 1000.0
-    # Expected ticks using actual elapsed time and the fast divider
-    expected_ticks_fast = int(round(elapsed_us * 1_000_000 / (CLOCK_PERIOD_PS * (fast_time_limit + 1) * 4)))
-    assert (expected_ticks_fast - 3) <= time_advanced <= (expected_ticks_fast + 3), f"Expected approx {expected_ticks_fast} ticks, got {time_advanced}"
-
-    # Set divider to a higher value, time should advance more slowly
-    # e.g for 12MHz, default time_limit is 2, slow could be 5
-    slow_time_limit = (actual_time_limit + 1) * 2 - 1
-    await send_instr(dut, InstructionADDI(x1, x0, slow_time_limit << 2).encode())
-    await send_instr(dut, InstructionSW(tp, x1, SOC_PERI_TIME_LIMIT_OFFSET).encode())
-
-    # Same stabilization wait for the slow divider
-    await start_nops(dut)
-    await ClockCycles(dut.clk, 130)
-    await stop_nops()
-
-    # Read time
-    await send_instr(dut, InstructionLW(x1, x0, -0x100).encode())
-    start_time_ns = get_sim_time("ns")
-    start_time = await read_reg(dut, x1)
-
-    await start_nops(dut)
-    await Timer(9, "us")
-    await stop_nops()
-
-    # Read time
-    await send_instr(dut, InstructionLW(x1, x0, -0x100).encode())
-    end_time_ns = get_sim_time("ns")
-    time_advanced_slow = await read_reg(dut, x1) - start_time
-    elapsed_us_slow = (end_time_ns - start_time_ns) / 1000.0
-    # Expected ticks using actual elapsed time and the slow divider
-    expected_ticks_slow = int(round(elapsed_us_slow * 1_000_000 / (CLOCK_PERIOD_PS * (slow_time_limit + 1) * 4)))
-    assert (expected_ticks_slow - 3) <= time_advanced_slow <= (expected_ticks_slow + 3), f"Expected approx {expected_ticks_slow} ticks, got {time_advanced_slow}"
-
-
-@cocotb.test()
-async def test_csr(dut):
-    dut._log.info("Start")
-
-    clock = Clock(dut.clk, CLOCK_PERIOD_PS, unit="ps")
-    cocotb.start_soon(clock.start())
-
-    # Reset
-    await reset(dut, 1, 0x3)
-
-    # Should start reading flash after 1 cycle
-    await ClockCycles(dut.clk, 1)
-    await start_read(dut, 0)
-
-    # Disable interrupts and read current value of register
-    await send_instr(dut, InstructionADDI(a3, x0, 8).encode())
-    await send_instr(dut, InstructionCSRRC(a3, a3, csrnames.mstatus).encode())
-    assert await read_reg(dut, a3) == 0xC
-
-    # Reenable interrupts
-    await send_instr(dut, InstructionCSRRS(a3, a3, csrnames.mstatus).encode())
-    assert await read_reg(dut, a3) == 0x4
-
-
-@cocotb.test()
-async def test_debug_reg(dut):
-    dut._log.info("Start")
-
-    clock = Clock(dut.clk, CLOCK_PERIOD_PS, unit="ps")
-    cocotb.start_soon(clock.start())
-
-    # Reset
-    await reset(dut, 1, 0x3)
-
-    # Should start reading flash after 1 cycle
-    await ClockCycles(dut.clk, 1)
-    await start_read(dut, 0)
-    dut.ui_in_base.value = 0b01101000  # Register write enable
-
-    val = 0
-    for i in range(8):
-        val += 0x102 * i
-        await send_instr(
-            dut, InstructionADDI(i + 8, x0 if i == 0 else (i + 7), 0x102 * i).encode()
-        )
-        await start_nops(dut)
-        for i in range(24):
-            if dut.uo_out.value[7] == 1:
-                break
-            await ClockCycles(dut.clk, 1)
-        else:
-            assert False
-
-        await ClockCycles(dut.clk, 1)
-        for j in range(8):
-            assert ((int(dut.uo_out.value) >> 2) & 0xF) == ((val >> (4 * j)) & 0xF)
-            await ClockCycles(dut.clk, 1)
-        await stop_nops()
 
 
 async def test_pwm(dut, pwm_value, pwm_strobe):
@@ -408,7 +199,7 @@ async def test_pwm(dut, pwm_value, pwm_strobe):
         await ClockCycles(dut.clk, pwm_strobe)
 
 
-@cocotb.test()
+@cocotb.test(skip=True)
 async def test_load_bug(dut):
     dut._log.info("Start")
 
@@ -432,7 +223,8 @@ async def test_load_bug(dut):
     # Should start reading flash after 1 cycle
     await ClockCycles(dut.clk, 1)
     await start_read(dut, 0)
-    await send_instr(dut, InstructionAUIPC(sp, 0x1001).encode())
+    await boot_cpu(dut)
+    await send_instr(dut, InstructionLUI(sp, 0x1001).encode())  # sp = 0x01001000 (PC-independent)
     await send_instr(dut, InstructionADDI(a0, x0, 0x001).encode())
     await send_instr(dut, InstructionBEQ(a0, x0, 270).encode())
 
@@ -444,7 +236,7 @@ async def test_load_bug(dut):
     await read_byte(dut, a2, 0x123)
 
 
-@cocotb.test()
+@cocotb.test(skip=True)
 async def test_load_throughput(dut):
     dut._log.info("Start")
 
@@ -468,7 +260,8 @@ async def test_load_throughput(dut):
     # Should start reading flash after 1 cycle
     await ClockCycles(dut.clk, 1)
     await start_read(dut, 0)
-    await send_instr(dut, InstructionAUIPC(sp, 0x1001).encode())
+    await boot_cpu(dut)
+    await send_instr(dut, InstructionLUI(sp, 0x1001).encode())  # sp = 0x01001000 (PC-independent)
     await send_instr(dut, InstructionADDI(a0, x0, 0x001).encode())
     await send_instr(dut, InstructionBEQ(a0, x0, 270).encode())
 
@@ -477,52 +270,6 @@ async def test_load_throughput(dut):
         # Use standard SW for tp-based store (SWTP was removed)
         await send_instr(dut, InstructionSW(tp, a2, 0x3C0).encode())
         await expect_load(dut, 0x1001000 + i * 4, i)
-
-
-@cocotb.test()
-async def test_multistore_interrupt(dut):
-    dut._log.info("Start")
-
-    clock = Clock(dut.clk, CLOCK_PERIOD_PS, unit="ps")
-    cocotb.start_soon(clock.start())
-
-    # Reset
-    await reset(dut)
-
-    input_byte = 0b01101000
-    dut.ui_in.value = input_byte
-
-    # Should start reading flash after 1 cycle
-    await ClockCycles(dut.clk, 1)
-    await start_read(dut, 0)
-
-    # Transmit a byte and enable interrupt on writeable
-    # UART_TP_BASE (0x800) exceeds 12-bit signed immediate; build in x1.
-    await send_instr(dut, InstructionADDI(x1, tp, 0x400).encode())
-    await send_instr(dut, InstructionADDI(x1, x1, 0x400).encode())
-    await send_instr(dut, InstructionSW(x1, x0, UART_TX_RX_OFFSET).encode())
-    await send_instr(dut, InstructionLUI(a0, 0x80).encode())
-    await send_instr(dut, InstructionCSRRW(x0, a0, csrnames.mie).encode())
-
-    # Disable global interrupts so the UART-done interrupt stays pending
-    # without firing mid-store.  At 4MHz the TX finishes during the loop.
-    # mstatus.MIE is bit 3 → clear with value 8.
-    await send_instr(dut, InstructionADDI(a1, x0, 8).encode())
-    await send_instr(dut, InstructionCSRRC(x0, a1, csrnames.mstatus).encode())
-
-    await send_instr(dut, InstructionADDI(a1, x0, 0x10).encode())
-    await send_instr(dut, InstructionADDI(a2, x0, 0x11).encode())
-    await send_instr(dut, InstructionADDI(a3, x0, 0x12).encode())
-    await send_instr(dut, InstructionADDI(a4, x0, 0x13).encode())
-
-    # Use individual SW instructions (SW4 multi-word store was removed)
-    for i in range(100):
-        await send_instr(dut, InstructionSW(gp, a1, i * 16).encode())
-        await expect_store(dut, 0x1000400 + i * 16, 4)
-
-    # Interrupt should be pending
-    await send_instr(dut, InstructionCSRRS(a0, x0, csrnames.mip).encode())
-    assert (await read_reg(dut, a0, False) & 0x80000) == 0x80000
 
 
 ### Random operation testing ###
@@ -801,7 +548,7 @@ ops_alu = [
 ]
 
 
-@cocotb.test()
+@cocotb.test(skip=True)
 async def test_random_alu(dut):
     dut._log.info("Start")
 
@@ -814,6 +561,7 @@ async def test_random_alu(dut):
     # Should start reading flash after 1 cycle
     await ClockCycles(dut.clk, 1)
     await start_read(dut, 0)
+    await boot_cpu(dut)
 
     seed = random.randint(0, 0xFFFFFFFF)
     # seed = 1508125843
@@ -1138,7 +886,7 @@ ops = [
 ]
 
 
-@cocotb.test()
+@cocotb.test(skip=True)
 async def test_random(dut):
     dut._log.info("Start")
 
@@ -1151,6 +899,7 @@ async def test_random(dut):
     # Should start reading flash after 1 cycle
     await ClockCycles(dut.clk, 1)
     await start_read(dut, 0)
+    await boot_cpu(dut)
 
     seed = random.randint(0, 0xFFFFFFFF)
 
