@@ -289,6 +289,80 @@ class BootFsmIO extends Bundle {
   }
 }
 
+// ── RGB565 scanout via GpuMemIO ─────────────────────────────────────────────
+// Fetches one 64-pixel scanline per hblank via the MemoryController gpuMem
+// port.  Each GpuMem read returns 32 bits = 2 RGB565 pixels; 32 reads per line.
+class HdmiScanoutRgb565IO extends Bundle {
+  val gpuReq   = Output(Bool())
+  val gpuAddr  = Output(UInt(25.W))
+  val gpuData  = Input(UInt(32.W))
+  val gpuReady = Input(Bool())
+  val hCount   = Input(UInt(10.W))
+  val vCount   = Input(UInt(10.W))
+  val de       = Input(Bool())
+  val red      = Output(UInt(8.W))
+  val green    = Output(UInt(8.W))
+  val blue     = Output(UInt(8.W))
+}
+
+class HdmiScanoutRgb565(fbBase: Int = 0x100000, fbWidth: Int = 64, fbHeight: Int = 64) extends Module {
+  val io = IO(new HdmiScanoutRgb565IO)
+
+  val startX = ((640 - fbWidth) / 2).U(10.W)
+  val startY = ((480 - fbHeight) / 2).U(10.W)
+  val inFbH  = io.hCount >= startX && io.hCount < (startX + fbWidth.U)
+  val inFbV  = io.vCount >= startY && io.vCount < (startY + fbHeight.U)
+
+  val lineBuffer = RegInit(VecInit(Seq.fill(fbWidth)(0.U(16.W))))
+
+  val wordsPerLine = fbWidth / 2  // 32 reads × 4 bytes = 64 pixels
+
+  val nextV        = Mux(io.vCount === 524.U, 0.U, io.vCount + 1.U)
+  val fetchNextV   = nextV >= startY && nextV < (startY + fbHeight.U)
+  val triggerFetch = io.hCount === 640.U && fetchNextV
+
+  val sIdle :: sReq :: sWait :: Nil = Enum(3)
+  val state    = RegInit(sIdle)
+  val wordIdx  = RegInit(0.U(6.W))
+  val fetchRow = Reg(UInt(10.W))
+
+  val lineStart = fbBase.U(25.W) + fetchRow * (fbWidth * 2).U
+  io.gpuReq  := state === sReq || state === sWait
+  io.gpuAddr := (lineStart + wordIdx * 4.U)(24, 0)
+
+  switch(state) {
+    is(sIdle) {
+      when(triggerFetch) {
+        state    := sReq
+        wordIdx  := 0.U
+        fetchRow := nextV - startY
+      }
+    }
+    is(sReq) { state := sWait }
+    is(sWait) {
+      when(io.gpuReady) {
+        lineBuffer((wordIdx * 2.U)(5, 0))       := io.gpuData(15, 0)
+        lineBuffer((wordIdx * 2.U + 1.U)(5, 0)) := io.gpuData(31, 16)
+        when(wordIdx === (wordsPerLine - 1).U) {
+          state := sIdle
+        }.otherwise {
+          wordIdx := wordIdx + 1.U
+          state   := sReq
+        }
+      }
+    }
+  }
+
+  val pixel = lineBuffer((io.hCount - startX)(5, 0))
+  val r5 = pixel(15, 11);  val g6 = pixel(10, 5);  val b5 = pixel(4, 0)
+  val r8 = Cat(r5, r5(4, 2))
+  val g8 = Cat(g6, g6(5, 4))
+  val b8 = Cat(b5, b5(4, 2))
+  io.red   := Mux(io.de && inFbH && inFbV, r8, 0.U)
+  io.green := Mux(io.de && inFbH && inFbV, g8, 0.U)
+  io.blue  := Mux(io.de && inFbH && inFbV, b8, 0.U)
+}
+
 object HdmiSdramTestMain extends App {
   val targetDir = sys.env.getOrElse("TARGET_DIR", "out/ulx3s/hdmi_sdram_test")
   new java.io.File(targetDir).mkdirs()
