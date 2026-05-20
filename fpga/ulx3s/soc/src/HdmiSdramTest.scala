@@ -37,19 +37,20 @@ class HdmiScanout extends Module {
   
   val sIdle :: sWaitBusy :: sReq :: sRead :: Nil = Enum(4)
   val state = RegInit(sIdle)
-  val byteCount = RegInit(0.U(8.W)) // up to 128
-  val lowByte = RegInit(0.U(8.W))
-  
+  val wordCount = RegInit(0.U(7.W))
+
+  val lineWordBase = (fbBase + ((nextV - startY) * fbWidth) * 2.U)(24, 1)
+
   io.backend.startRead  := (state === sReq)
   io.backend.startWrite := false.B
   io.backend.dataIn     := 0.U
   io.backend.byteEnIn   := "b11".U
-  io.backend.addrIn     := (fbBase + ((nextV - startY) * fbWidth) * 2.U)(24, 1)
-  
+  io.backend.addrIn     := lineWordBase + wordCount
+
   val wrPortAddr = WireDefault(0.U(6.W))
   val wrPortData = WireDefault(0.U(16.W))
   val wrPortEn   = WireDefault(false.B)
-  
+
   when(wrPortEn) {
     lineBuffer.write(wrPortAddr, wrPortData)
   }
@@ -57,24 +58,25 @@ class HdmiScanout extends Module {
   when(state === sIdle) {
     when(triggerFetch) {
       state := sWaitBusy
+      wordCount := 0.U
     }
   } .elsewhen(state === sWaitBusy) {
     when(!io.backend.busy) {
       state := sReq
-      byteCount := 0.U
     }
   } .elsewhen(state === sReq) {
     state := sRead
   } .otherwise {
     when(io.backend.done) {
-      // Stubbed: this scanout was byte-serial; not maintained for new protocol.
-      wrPortAddr := byteCount(6, 1)
+      wrPortAddr := wordCount(5, 0)
       wrPortData := io.backend.dataOut
       wrPortEn   := true.B
-      byteCount := byteCount + 2.U
-    }
-    when(byteCount === 128.U) {
-      state := sIdle
+      when(wordCount === 63.U) {
+        state := sIdle
+      } .otherwise {
+        wordCount := wordCount + 1.U
+        state := sReq
+      }
     }
   }
   
@@ -158,24 +160,19 @@ class BootFsmIO extends Bundle {
       val addr = RegInit(0x100000.U(25.W))
       val sIdle :: sReq :: sWriteWordWait :: sDone :: Nil = Enum(4)
       val state = RegInit(sIdle)
-      val redLow = 0x00.U(8.W)
-      val redHigh = 0xF8.U(8.W)
 
       io.backend.startRead  := false.B
       io.backend.startWrite := (state === sReq)
       io.backend.byteEnIn   := "b11".U
       io.backend.addrIn     := addr(24, 1)
-      
+      io.backend.dataIn     := 0xF800.U(16.W)
+
       io.done := (state === sDone)
-      
-      val reqCount = RegInit(0.U(1.W))
-      io.backend.dataIn := Mux(reqCount === 0.U, redLow, redHigh)
 
       switch(state) {
         is(sIdle) {
           when(!io.backend.busy) {
              state := sReq
-             reqCount := 0.U
           }
         }
         is(sReq) {
