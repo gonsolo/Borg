@@ -24,7 +24,7 @@ private[soc] object PeriphDecode {
   val USER_SUB_ADDR_HI   = 9
   val USER_SUB_ADDR_LO   = 0
 
-  // GPIO non-standard address bit decoding (unchanged from TinyQV-era).
+  // GPIO non-standard address bit decoding (unchanged from original SoC design).
   val GPIO_FUNC_SEL_BIT    = 5
   val GPIO_FUNC_SEL_IDX_HI = 4
   val GPIO_FUNC_SEL_IDX_LO = 2

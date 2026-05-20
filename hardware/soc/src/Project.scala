@@ -10,8 +10,8 @@ import memory.{MemoryController, MemoryControllerIO, QspiPinsIO}
 import borg.BorgConfig
 
 // ---------------------------------------------------------------------------
-// SoC-internal bus decoder constants.  Inherited from Michael Bell's TinyQV
-// SoC address-decode scheme so existing firmware keeps working.
+// SoC-internal bus decoder constants.  Inherited from the original SoC
+// address-decode scheme so existing firmware keeps working.
 // ---------------------------------------------------------------------------
 private[soc] object SoCDecode {
   // Magic comparison values for SoC vs User region detection
@@ -251,7 +251,7 @@ trait SoCLogic { self: RawModule =>
     // -------------------------------------------------------------------------
     val peri_out = peripherals.io.uo_out
     // Hutt has no debug_rd; just use zero placeholders for the lanes that
-    // TinyQV mapped to its debug register file.
+    // Old CPU mapped to its debug register file; Hutt uses zero placeholders.
     val debug_rd_r = 0.U(4.W)
     val debug_signal = false.B  // no Hutt debug signals exposed yet
 

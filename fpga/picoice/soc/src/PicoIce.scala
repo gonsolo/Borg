@@ -15,7 +15,7 @@ import borg.BorgConfig
   * Functionally equivalent to the TT ASIC top-level (tt_um_gonsolo_borg),
   * but with direct FPGA I/O and SB_IO primitives for tri-state QSPI.
   */
-class tinyQV_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
+class HuttTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   override def BORG_CFG: BorgConfig = BorgConfig.PicoIce
   val clk      = IO(Input(Clock()))
   val rst_n    = IO(Input(Bool()))
@@ -91,7 +91,7 @@ class tinyQV_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
 /** pico-ice board pin mapping and PCF generation.
   *
   * Pin numbers are physical properties of the pico-ice PCB.
-  * Signal names are derived from tinyQV_top's Chisel IO to stay in sync.
+  * Signal names are derived from HuttTop's Chisel IO to stay in sync.
   */
 object PicoIcePins {
   // (signal_name, pin_number) — order matches the PCB schematic sections

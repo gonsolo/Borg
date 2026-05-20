@@ -45,16 +45,16 @@ CHISEL_SRCS = $(wildcard ../../hardware/borg/src/*.scala) \
               $(wildcard ../../hardware/hutt/src/*.scala)
 
 # Regenerate Verilog from Chisel when sources change
-$(FPGA_VERILOG_DIR)/tinyQV_top.sv: $(CHISEL_SRCS)
+$(FPGA_VERILOG_DIR)/HuttTop.sv: $(CHISEL_SRCS)
 	$(MAKE) -C ../.. generate_verilog
 
 # Hardware limits
 MAX_LUTS = 5280
 MAX_DFFS = 5280
 
-borg.json: $(FPGA_VERILOG_DIR)/tinyQV_top.sv
+borg.json: $(FPGA_VERILOG_DIR)/HuttTop.sv
 	@echo "Building netlist"
-	@yosys -p "read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top tinyQV_top -json borg.json; stat -top tinyQV_top" -DICE40 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ > yosys.log
+	@yosys -p "read -sv $(SRC_FILES); synth_ice40 -dsp -abc9 -device u -top HuttTop -json borg.json; stat -top HuttTop" -DICE40 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ > yosys.log
 
 # Place and Route (P&R) — freq derived from MmioMap.CLOCK_MHZ via generated header
 CLOCK_FREQ = $(shell grep -m1 'define CLOCK_MHZ' ../../software/borg/borg_sys.h | awk '{print $$3}')
@@ -160,7 +160,7 @@ tio:
 
 # Reset FPGA
 reset: .burned
-	$(MPREMOTE) 60 mount .. + exec "import sys; sys.path.extend(['common/host', '/']); import run_tinyqv; run_tinyqv.run(query=False, stop=False)"
+	$(MPREMOTE) 60 mount .. + exec "import sys; sys.path.extend(['common/host', '/']); import run_hutt; run_hutt.run(query=False, stop=False)"
 
 clean:
 	rm -f borg.bin borg.json borg.asc yosys.log nextpnr.log triangle*.ppm vkcube*.ppm triangle*.bin vkcube*.bin .burned

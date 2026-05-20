@@ -456,7 +456,7 @@ hierarchy supporting both pico-ice (iCE40 UP5K) and ULX3S (ECP5-85K).
 - **Step 27.1: Subdirectory-based target separation** ✅ — Split `fpga/` into
   `fpga/picoice/` (board-specific build: Makefile, host scripts, PCF, firmware
   cache), `fpga/ulx3s/` (stub for ECP5), and `fpga/common/` (shared host
-  scripts: `render.py`, `run_tinyqv.py`, `usb_recover.sh`, etc.). Top-level
+  scripts: `render.py`, `run_hutt.py`, `usb_recover.sh`, etc.). Top-level
   `fpga/Makefile` is now a dispatcher that forwards `triangle`, `vkcube`,
   `burn`, `borg.bin`, and `clean` to the appropriate board subdirectory.
 - **Step 27.2: `BorgConfig.ULX3S` stub** ✅ — `hardware/borg/src/BorgConfig.scala`: new config
@@ -1150,7 +1150,7 @@ controller, PCIe bridge) while the Borg SoC runs inside unchanged.
 
 - `SoCLogic` trait (Project.scala:71) — all SoC wiring is platform-independent
 - `tt_um_gonsolo_borg` (Project.scala:338) — standardized 8+8+8 pin interface
-- `tinyQV_top` (`fpga/picoice/soc/src/PicoIce.scala`) — shows how to wrap `SoCLogic` for a
+- `HuttTop` (`fpga/picoice/soc/src/PicoIce.scala`) — shows how to wrap `SoCLogic` for a
 
 ### Step 33: Fragment Interpolation (Hardware-Assisted)
 

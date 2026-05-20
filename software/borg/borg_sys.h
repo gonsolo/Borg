@@ -15,7 +15,7 @@
 #define FPGA_CLOCK_HZ (CLOCK_MHZ * 1000000)
 #define UART_BAUD_DEFAULT (FPGA_CLOCK_HZ / 115200)
 
-// --- Bus idle sentinel (TinyQV convention) ---
+// --- Bus idle sentinel ---
 #define BUS_IDLE 3
 
 // --- PSRAM layout constants ---

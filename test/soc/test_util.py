@@ -251,10 +251,7 @@ async def expect_load(dut, addr, val, bytes=4):
     for i in range(8):
         await ClockCycles(dut.clk, 1)
         if dut.qspi_flash_select.value == 0:
-            if hasattr(dut.user_project, "uo_out_val_i_tinyqv"):
-                await start_read(dut, dut.user_project.uo_out_val_i_tinyqv.instr_addr.value.to_unsigned() * 2)
-            else:
-                await start_read(dut, None)
+            await start_read(dut, None)
             break
     else:
         assert False
@@ -362,10 +359,7 @@ async def expect_store(dut, addr, bytes=4, allow_long_delay=False):
     for i in range(8):
         await ClockCycles(dut.clk, 1)
         if dut.qspi_flash_select.value == 0:
-            if hasattr(dut.user_project, "uo_out_val_i_tinyqv"):
-                await start_read(dut, dut.user_project.uo_out_val_i_tinyqv.instr_addr.value.to_unsigned() * 2)
-            else:
-                await start_read(dut, None)
+            await start_read(dut, None)
             break
     else:
         assert False

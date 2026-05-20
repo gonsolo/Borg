@@ -6,8 +6,8 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** Test-only wrapper that exposes the pre-refactor TinyQV-style MMIO surface
-  * on top of the new [[Borg]] core whose production IO is [[hutt.HuttBus]]
+/** Test-only wrapper that exposes a word-addressed MMIO surface
+  * on top of [[Borg]] whose production IO is [[hutt.HuttBus]]
   * Decoupled req/resp.  Lets the existing 130+ test pokes keep working
   * unchanged while the production Borg presents a clean Decoupled bus.
   *

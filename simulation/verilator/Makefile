@@ -5,7 +5,7 @@ FIRMWARE_DIR ?= $(ROOT)/software/borg
 
 # Lazily evaluate SRC_FILES, avoiding failures if asic_files.txt doesn't exist yet
 # Use `wildcard` to trigger rebuilds if ANY verilog file changes in the output dir
-V_SRCS = $(wildcard $(HW_DIR)/borg/verilog/*.v $(HW_DIR)/tinyqv/verilog/*.v)
+V_SRCS = $(wildcard $(HW_DIR)/borg/verilog/*.v)
 
 all: triangle vkcube
 
@@ -15,13 +15,12 @@ $(HW_DIR)/borg/verilog/asic_files.txt:
 # Verilator simulator depends on hardware generation and the actual verilog files
 obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog/asic_files.txt $(V_SRCS)
 	@rm -rf obj_dir
-	@SRC_FILES=$$(cat $(HW_DIR)/borg/verilog/asic_files.txt $(shell test -f $(HW_DIR)/tinyqv/verilog/asic_files.txt && echo $(HW_DIR)/tinyqv/verilog/asic_files.txt) | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
+	@SRC_FILES=$$(cat $(HW_DIR)/borg/verilog/asic_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
 	echo "Building Verilator models..."; \
 	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall --build -j 0 \
 	-MAKEFLAGS "-s" \
-	-I$(HW_DIR)/borg/verilog -I$(HW_DIR)/tinyqv/verilog \
+	-I$(HW_DIR)/borg/verilog \
 	-I$(HW_DIR)/borg/verilog/verification/assert -I$(HW_DIR)/borg/verilog/verification \
-	-I$(HW_DIR)/tinyqv/verilog/verification/assert -I$(HW_DIR)/tinyqv/verilog/verification \
 	--top-module tt_um_gonsolo_borg \
 	-CFLAGS "-fPIC" -CFLAGS "-I../../common" \
 	-DENABLE_INITIAL_MEM_ \

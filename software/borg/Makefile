@@ -19,7 +19,7 @@ export HARDENING_DISABLE=all
 export NIX_HARDENING_ENABLE=
 unexport NIX_HARDENING_ENABLE
 
-TINYQV_SDK ?= ../hutt
+HUTT_SDK ?= ../hutt
 
 # Clock frequency — must match the FPGA PLL output. Override on the command
 # line: make triangle CLOCK_MHZ=125 (ULX3S) or leave as 4 (ASIC/TT).
@@ -57,21 +57,21 @@ clean:
 	$(MAKE) -C compiler clean
 	$(MAKE) -C python clean
 
-$(TINYQV_SDK)/%.o: $(TINYQV_SDK)/%.s
-	$(MAKE) -C $(TINYQV_SDK) $(notdir $@)
+$(HUTT_SDK)/%.o: $(HUTT_SDK)/%.s
+	$(MAKE) -C $(HUTT_SDK) $(notdir $@)
 
 %.o: %.c $(HEADERS)
-	@$(CC) -O2 -I$(TINYQV_SDK) -I$(RDL_C_OUT) -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -DCLOCK_MHZ=$(CLOCK_MHZ) $(EXTRA_CFLAGS) -c $< -o $@
+	@$(CC) -O2 -I$(HUTT_SDK) -I$(RDL_C_OUT) -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -DCLOCK_MHZ=$(CLOCK_MHZ) $(EXTRA_CFLAGS) -c $< -o $@
 
 %.o: %.s
-	@$(AS) -march=$(ARCH) -mabi=$(ABI) -I$(TINYQV_SDK) $< -o $@
+	@$(AS) -march=$(ARCH) -mabi=$(ABI) -I$(HUTT_SDK) $< -o $@
 
-.PHONY: $(TINYQV_SDK)/hutt.a
-$(TINYQV_SDK)/hutt.a:
-	$(MAKE) -C $(TINYQV_SDK)
+.PHONY: $(HUTT_SDK)/hutt.a
+$(HUTT_SDK)/hutt.a:
+	$(MAKE) -C $(HUTT_SDK)
 
-$(PROJECT_NAME).elf: $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/hutt.a
-	@$(CC) -march=$(ARCH) -mabi=$(ABI) -nostartfiles -nostdlib -Wl,--gc-sections -Wl,--no-relax -Wl,--defsym,TEX_SPI_BYTE_ADDR=$(TEX_SPI_BYTE_ADDR) -T $(TINYQV_SDK)/memmap $(TINYQV_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(TINYQV_SDK)/hutt.a -lc -o $@
+$(PROJECT_NAME).elf: $(HUTT_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(HUTT_SDK)/hutt.a
+	@$(CC) -march=$(ARCH) -mabi=$(ABI) -nostartfiles -nostdlib -Wl,--gc-sections -Wl,--no-relax -Wl,--defsym,TEX_SPI_BYTE_ADDR=$(TEX_SPI_BYTE_ADDR) -T $(HUTT_SDK)/memmap $(HUTT_SDK)/start.o $(PROJECT_SOURCES:.c=.o) $(HUTT_SDK)/hutt.a -lc -o $@
 
 $(PROJECT_NAME).bin: $(PROJECT_NAME).elf
 	@$(OBJCOPY) $< -O binary $@

@@ -112,8 +112,8 @@ def emit_python(path, rdl_consts):
         f.write("\n")
 
         # --- Static constants (bus decode, system, ISA) ---
-        # These are TinyQV bus-decoder mechanics that cannot come from RDL.
-        f.write("# --- TinyQV bus decoder constants ---\n")
+        # These are Hutt/SoC bus-decoder mechanics that cannot come from RDL.
+        f.write("# --- Hutt bus decoder constants ---\n")
         f.write("USER_BASE = 0x08000000\n")
         f.write("BUS_IDLE = 3\n")
         f.write("USER_PERI_GPIO = 1\n")

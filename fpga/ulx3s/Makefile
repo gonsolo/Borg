@@ -211,7 +211,7 @@ minimal-boot: borg.bit minimal.bin
 
 # Full triangle deploy: synth + P&R + pack, flash bitstream + firmware.
 # After power-cycle: ECP5 loads bitstream -> FlashBootLoader copies firmware
-# to SDRAM -> TinyQV runs -> Borg renders triangle -> UART dumps pixels.
+# to SDRAM -> Hutt runs -> Borg renders triangle -> UART dumps pixels.
 triangle: borg.bit firmware_with_header.bin
 	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream to onboard flash ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit

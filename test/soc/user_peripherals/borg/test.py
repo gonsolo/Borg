@@ -7,7 +7,7 @@ import struct
 import numpy as np
 import cocotb
 from cocotb.clock import Clock
-from tqv import TinyQV
+from tqv import Hutt
 from borg_mmio import BORG_IMEM_OFFSET
 from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd, encode_rv32_fneg
 
@@ -17,7 +17,7 @@ PERIPHERAL_NUM = 3
 
 class BorgDriver:
     """
-    Driver to abstract TinyQV bus transactions into Borg-specific actions.
+    Driver to abstract Hutt bus transactions into Borg-specific actions.
     """
 
     def __init__(self, dut, tqv, is_fp16=True):
@@ -158,7 +158,7 @@ async def test_borg_shader_math_batch(dut):
     clock = Clock(dut.clk, 100, unit="ns")
     cocotb.start_soon(clock.start())
 
-    tqv = TinyQV(dut, PERIPHERAL_NUM)
+    tqv = Hutt(dut, PERIPHERAL_NUM)
     driver = BorgDriver(dut, tqv)
     await driver.reset()
 
@@ -189,7 +189,7 @@ async def test_borg_rotation_shader(dut):
     clock = Clock(dut.clk, 100, unit="ns")
     cocotb.start_soon(clock.start())
 
-    tqv = TinyQV(dut, PERIPHERAL_NUM)
+    tqv = Hutt(dut, PERIPHERAL_NUM)
     driver = BorgDriver(dut, tqv)
     await driver.reset()
 

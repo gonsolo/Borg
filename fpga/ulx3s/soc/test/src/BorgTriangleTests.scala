@@ -53,7 +53,7 @@ class BorgSdramHarness(rdDelay: Int = 4, wrDelay: Int = 2) extends Module {
   // ── MemoryController ↔ SdramBackendSim ──
   sdram.io.backend <> mem.io.backend
 
-  // ── CPU ports: tied off (no TinyQV here — testbench is the CPU) ──
+  // ── CPU ports: tied off (no Hutt here — testbench is the CPU) ──
   // CPU ports idle (testbench is the CPU)
   mem.io.instr.req.valid    := false.B
   mem.io.instr.req.bits     := 0.U

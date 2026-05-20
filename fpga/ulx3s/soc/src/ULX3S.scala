@@ -31,7 +31,7 @@ class Ecp5BiDirBuf extends ExtModule {
   * Clock: 25 MHz oscillator → Ecp5Pll → 125 MHz system clock.
   * Memory: onboard SDRAM (IS42S16160G) via SdramBackend.
   * Boot: FlashBootLoader copies firmware from flash 0x400000 → SDRAM 0x0.
-  *       TinyQV starts only after boot_done && pll_locked.
+  *       Hutt starts only after boot_done && pll_locked.
   * UART: ftdi_rxd = FPGA→host TX (debug output at 115200 baud).
   */
 class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
@@ -96,7 +96,7 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // completing a write, which requires SdramBackend to be out of reset.
   val pllRst = !pllLocked
 
-  // ── FlashBootLoader: copies firmware flash→SDRAM before TinyQV starts ─────
+  // ── FlashBootLoader: copies firmware flash→SDRAM before Hutt starts ────────
   val flashBoot = withClockAndReset(sysClock, pllRst) {
     Module(new FlashBootLoader())
   }

@@ -12,7 +12,7 @@ _IMM12_MAX = 2047
 _IMM12_MIN = -2048
 
 # This class provides access to the peripheral's registers.
-class TinyQV:
+class Hutt:
 
     # The peripheral number must be provided.
     def __init__(self, dut, peripheral_num):
@@ -54,7 +54,7 @@ class TinyQV:
 
         return a0, 0
 
-    # Reset the design, this reset will initialize TinyQV and connect
+    # Reset the design, this reset will initialize Hutt and connect
     # all inputs and outputs to your peripheral.
     async def reset(self, initial_ui_in=0):
         # Ensure any previously running test is cleaned up
