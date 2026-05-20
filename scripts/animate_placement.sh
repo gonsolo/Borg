@@ -3,7 +3,7 @@
 #
 # Colors match the hardware diagram from gen_hw_diagram.py:
 #   GPU (Borg):     #10b981 (green)
-#   CPU (TinyQV):   #8b5cf6 (purple)
+#   CPU (Hutt):     #8b5cf6 (purple)
 #   Memory:         #0ea5e9 (sky blue)
 #   Peripherals:    #3b82f6 (blue)
 #   Other:          #64748b (gray)

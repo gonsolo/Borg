@@ -2,7 +2,7 @@
 # scripts/test_summary.sh — parallel Borg test runner with live display.
 #
 # Parallelisation strategy (Threadripper 1920x):
-#   Wave 1 (all parallel): lint · chisel:borg · chisel:tinyqv · software
+#   Wave 1 (all parallel): lint · chisel:borg · chisel:hutt · software
 #   Wave 2 (sequential):   cocotb:soc-core → cocotb:soc-borg
 #     (cocotb tests share test/soc/ build artefacts, kept sequential)
 #
@@ -29,7 +29,7 @@ SUITE_LABELS=(
     "setup  › generate_verilog"
     "lint"
     "chisel › borg"
-    "chisel › tinyqv"
+    "chisel › hutt"
     "software"
     "cocotb › soc-core (rtl)"
     "cocotb › soc-borg  (rtl)"
@@ -38,7 +38,7 @@ SUITE_CMDS=(
     "cd '$ROOT' && make generate_verilog"
     "cd '$ROOT' && make lint"
     "cd '$ROOT' && $MILL hardware.borg.test"
-    "cd '$ROOT' && $MILL hardware.tinyqv.test"
+    "cd '$ROOT' && $MILL hardware.hutt.test"
     "cd '$ROOT' && make -C software test"
     "cd '$ROOT' && $TEST_SOC core"
     "cd '$ROOT' && $TEST_SOC borg"

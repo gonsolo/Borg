@@ -5,7 +5,7 @@ scripts/test_runner.py — Borg parallel test runner with live display.
 Execution order:
   Sequential setup:  generate_verilog → lint  (lint re-runs generate_verilog
                      via make PHONY, so serialise it to avoid mill lock contention)
-  Parallel:          chisel:borg · chisel:tinyqv · software · cocotb:soc-core
+  Parallel:          chisel:borg · chisel:hutt · software · cocotb:soc-core
   After soc-core:    cocotb:soc-borg  (shares test/soc/ dir with soc-core)
 """
 
@@ -82,8 +82,8 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
         # avoid "Another Mill process is running" lock contention.
         Suite("chisel › borg",
               f"cd '{root}' && {mill} hardware.borg.test"),
-        Suite("chisel › tinyqv",
-              f"cd '{root}' && {mill} hardware.tinyqv.test",
+        Suite("chisel › hutt",
+              f"cd '{root}' && {mill} hardware.hutt.test",
               depends_on="chisel › borg"),
         Suite("software",
               f"cd '{root}' && make -C software test"),
@@ -196,8 +196,8 @@ def _append_mill_worker_logs(suite: Suite, root: Path) -> None:
     # Determine which hardware module to look at
     if "borg" in suite.label:
         pattern = root / "out" / "hardware" / "borg" / "test" / "testForked.dest"
-    elif "tinyqv" in suite.label:
-        pattern = root / "out" / "hardware" / "tinyqv" / "test" / "testForked.dest"
+    elif "hutt" in suite.label:
+        pattern = root / "out" / "hardware" / "hutt" / "test" / "testForked.dest"
     else:
         return
 

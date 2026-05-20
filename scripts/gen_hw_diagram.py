@@ -37,7 +37,7 @@ GROUPS = {
     "soc":       {"label": "SoC (Top Level)",       "color": "#1a1a2e", "fontcolor": "#e2e8f0", "fillcolor": "#16213e"},
     "memory":    {"label": "Memory Subsystem",       "color": "#1e3a5f", "fontcolor": "#e2e8f0", "fillcolor": "#1e3a5f"},
     "borg":      {"label": "Borg GPU",               "color": "#0f3460", "fontcolor": "#e2e8f0", "fillcolor": "#0f3460"},
-    "tinyqv":    {"label": "TinyQV RISC-V CPU",     "color": "#533483", "fontcolor": "#e2e8f0", "fillcolor": "#533483"},
+    "hutt":      {"label": "Hutt RISC-V CPU",        "color": "#533483", "fontcolor": "#e2e8f0", "fillcolor": "#533483"},
     "hardfloat": {"label": "Berkeley HardFloat FPU","color": "#833471", "fontcolor": "#e2e8f0", "fillcolor": "#833471"},
     "rdl":       {"label": "Register Descriptions",  "color": "#2d6a4f", "fontcolor": "#e2e8f0", "fillcolor": "#2d6a4f"},
 }
@@ -47,13 +47,13 @@ NODE_COLORS = {
     "soc":       {"style": "filled,rounded", "fillcolor": "#1e3a5f", "fontcolor": "#93c5fd", "color": "#3b82f6"},
     "memory":    {"style": "filled,rounded", "fillcolor": "#1a3a4f", "fontcolor": "#7dd3fc", "color": "#0ea5e9"},
     "borg":      {"style": "filled,rounded", "fillcolor": "#1e3a5f", "fontcolor": "#6ee7b7", "color": "#10b981"},
-    "tinyqv":    {"style": "filled,rounded", "fillcolor": "#2d1b69", "fontcolor": "#c4b5fd", "color": "#8b5cf6"},
+    "hutt":      {"style": "filled,rounded", "fillcolor": "#2d1b69", "fontcolor": "#c4b5fd", "color": "#8b5cf6"},
     "hardfloat": {"style": "filled,rounded", "fillcolor": "#4a1841", "fontcolor": "#f9a8d4", "color": "#ec4899"},
     "rdl":       {"style": "filled,rounded", "fillcolor": "#064e3b", "fontcolor": "#6ee7b7", "color": "#10b981"},
 }
 
 # Modules we consider "top-level connectors" and want highlighted
-TOP_LEVEL = {"tt_um_gonsolo_borg", "Project", "Borg", "TinyQV", "Borg Driver", "TinyQV Firmware"}
+TOP_LEVEL = {"tt_um_gonsolo_borg", "Project", "Borg", "Hutt", "Borg Driver", "Hutt Firmware"}
 
 # Modules that are data-types / IO bundles — skip as nodes
 SKIP_PATTERNS = [
@@ -107,7 +107,7 @@ def parse_scala_file(path: Path) -> dict:
                 instantiates.add(name)
 
 
-    # import tinyqv.cpu.{TinyQV, ...} — track cross-package imports
+    # import hutt.{Hutt, ...} — track cross-package imports
     imports = set()
     for m in re.finditer(r"import\s+([\w.]+)\.\{([^}]+)\}", text):
         pkg = m.group(1)
@@ -191,8 +191,8 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
     # Add Software pseudo-nodes
     module_to_group["Borg Driver"] = "software"
     all_defined["software"].add("Borg Driver")
-    module_to_group["TinyQV Firmware"] = "software"
-    all_defined["software"].add("TinyQV Firmware")
+    module_to_group["Hutt Firmware"] = "software"
+    all_defined["software"].add("Hutt Firmware")
 
     # Pre-compute edges so we can filter orphan nodes
     # (done early; draw_edges() below re-uses this set)
@@ -221,9 +221,9 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
     for sw, rdl_file in [
         ("Borg Driver", "borg"),
         ("Borg Driver", "psram"),
-        ("TinyQV Firmware", "soc"),
-        ("TinyQV Firmware", "gpio"),
-        ("TinyQV Firmware", "uart"),
+        ("Hutt Firmware", "soc"),
+        ("Hutt Firmware", "gpio"),
+        ("Hutt Firmware", "uart"),
     ]:
         if rdl_file in rdl_nodes and sw in module_to_group:
             edges.add((sw, rdl_file, "software uses regs"))
@@ -323,7 +323,7 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
 
     # Force hierarchy layout (user request: soc > gpu/cpu > fpu)
     dot.edge("Project", "Borg", style="invis", weight="100")
-    dot.edge("Project", "TinyQV", style="invis", weight="100")
+    dot.edge("Project", "Hutt", style="invis", weight="100")
     dot.edge("Borg", "MulAddRecFN", style="invis", weight="100")
 
     # (Legend removed as per user request)
