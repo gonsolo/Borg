@@ -14,7 +14,8 @@ help:
 	@echo "commands: "
 	@echo -e "$(BOLD)  gds-sky130:\t\t\tGenerate Sky130 GDS II file for Tinytapeout.$(RESET)"
 	@echo -e "$(BOLD)  gds-ihp:\t\t\tGenerate IHP SG13G2 GDS II file for Tinytapeout.$(RESET)"
-
+	@echo -e "  ------------------------------------------------------------------------------"
+	@echo -e "  rdl:\t\t\t\tValidate SystemRDL."
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
 	@echo -e "  test-chisel-core:\t\tRun Hutt CPU tests (Chisel)."
@@ -22,14 +23,13 @@ help:
 	@echo -e "  test-cocotb-soc-borg-rtl:\tRun Borg peripheral tests (cocotb)."
 	@echo -e "  test-cocotb-soc-core-gl:\tRun Gate-Level core simulations (cocotb)."
 	@echo -e "  test-cocotb-soc-borg-gl:\tRun Gate-Level borg simulations (cocotb)."
-	@echo -e "  test-all:\t\t\tRun all tests (quiet summary with ✓/✗ per suite)."
+	@echo -e "  test-all:\t\t\tRun all tests."
 	@echo -e "  datasheet.pdf:\t\tGenerate datasheet for Tinytapeout."
-	@echo -e "  user_config:\t\t\tGenerate user config for tapeout."
+	@echo -e "  user_config-*:\t\tGenerate user config for tapeout."
 	@echo -e "  print_stats:\t\t\tPrint statistics about tile usage."
 	@echo -e "  book:\t\t\t\tBuild the documentation book."
 	@echo -e "  clean:\t\t\tRemove all build artifacts."
-	@echo -e "  rdl:\t\t\t\tValidate SystemRDL and generate Chisel register block."
-	@echo -e "  clean-gh-runs:\t\tDelete all GitHub workflow runs except the last 8."
+	@echo -e "  clean-gh-runs:\t\tClean up GitHub workflow runs."
 
 # Clock frequencies: each target's Scala Main has its own default.
 # TT ASIC = 4 MHz, pico-ice = 4 MHz, ULX3S = 125 MHz.
