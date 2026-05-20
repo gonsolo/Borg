@@ -65,7 +65,11 @@ class Hutt:
         # Should start reading flash after 1 cycle
         await ClockCycles(self.dut.clk, 1)
         await test_util.start_read(self.dut, 0)
-        
+
+        # Hutt starts with all registers = 0; initialise tp and gp so that
+        # peripheral addressing (tp = USER_BASE = 0x08000000) works correctly.
+        await test_util.boot_cpu(self.dut)
+
         await test_util.set_all_outputs_to_peripheral(self.dut, self.peripheral_num)
 
         await test_util.start_nops(self.dut)
