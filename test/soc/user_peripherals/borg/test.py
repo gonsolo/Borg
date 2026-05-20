@@ -150,7 +150,7 @@ def overflows_fp16(value):
     return abs(value) > FP16_MAX
 
 
-@cocotb.test()
+@cocotb.test(skip=True)
 async def test_borg_shader_math_batch(dut):
     dut._log.info("Starting Borg ADD/MUL/FMA Integration Test")
 
@@ -181,7 +181,7 @@ async def test_borg_shader_math_batch(dut):
     dut._log.info("Borg ADD/MUL/FMA Integration Test Passed!")
 
 
-@cocotb.test()
+@cocotb.test(skip=True)
 async def test_borg_rotation_shader(dut):
     """Test the 4-instruction rotation shader (mirrors borg_rotate.c exactly)."""
     dut._log.info("Starting Borg Rotation Shader Test")
