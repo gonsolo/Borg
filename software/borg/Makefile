@@ -41,9 +41,9 @@ triangle: python
 vkcube: python
 	@$(MAKE) -C compiler all
 	@bear -- $(MAKE) -s PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" \
-		EXTRA_CFLAGS="$(if $(LARGE_TEX),,-DUSE_SMALL_TEXTURE)" vkcube.bin vkcube.hex || \
+		EXTRA_CFLAGS="$(EXTRA_CFLAGS) $(if $(LARGE_TEX),,-DUSE_SMALL_TEXTURE)" vkcube.bin vkcube.hex || \
 		$(MAKE) -s PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" \
-		EXTRA_CFLAGS="$(if $(LARGE_TEX),,-DUSE_SMALL_TEXTURE)" vkcube.bin vkcube.hex
+		EXTRA_CFLAGS="$(EXTRA_CFLAGS) $(if $(LARGE_TEX),,-DUSE_SMALL_TEXTURE)" vkcube.bin vkcube.hex
 
 python:
 	$(MAKE) -C python

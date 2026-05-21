@@ -204,15 +204,37 @@ int main() {
   mat4_scale(s, 0.5f);
   mat4_translate_z(tz, 0.5f);
 
-  extern void puts_uart(const char *s); // already implemented in borg_driver.c
-
   // Read shared parameters from PSRAM (offset 2 and 3 -> PSRAM base + 8 and 12)
   union {
     uint32_t u;
     float f;
   } rot_x_reader, rot_y_reader;
 
+#ifdef TARGET_ULX3S
+  // Animated Y-rotation angles, 16 steps over 2π.  A const table of compile-time
+  // float literals avoids runtime soft-float (no __addsf3/__gtsf2 — the firmware
+  // links -nostdlib without libgcc); each entry is just a word load, and
+  // fp16_from_float() is pure bit-twiddling so a runtime float arg is fine.
+  static const float spin_table[16] = {
+    0.0000f, 0.3927f, 0.7854f, 1.1781f, 1.5708f, 1.9635f, 2.3562f, 2.7489f,
+    3.1416f, 3.5343f, 3.9270f, 4.3197f, 4.7124f, 5.1051f, 5.4978f, 5.8905f
+  };
+  int spin_idx = 0;
+#endif
+
   while (1) {
+#ifdef TARGET_ULX3S
+    // On hardware there is no host to write PSRAM_IN, and uninitialized SDRAM is
+    // NOT reliably zero (PSRAM_IN(3) was observed reading 0x00003C00), so the
+    // "== 0 ⇒ use defaults" guard fails and the garbage decodes to a ~0 float ⇒
+    // identity rotation ⇒ un-rotated cube.  Drive the rotation ourselves and
+    // animate the spin instead of trusting PSRAM_IN.
+    float rx_f = 0.5236f;  // fixed 30° tilt so the top face stays visible
+    float ry_f = spin_table[spin_idx];
+    spin_idx = (spin_idx + 1) & 15;
+    (void)rot_x_reader;
+    (void)rot_y_reader;
+#else
     // Read the rotation angles from the host (shared via PSRAM_IN)
     rot_x_reader.u = PSRAM_IN(2);
     rot_y_reader.u = PSRAM_IN(3);
@@ -228,6 +250,7 @@ int main() {
       rx_f =  0.5236f;  //  30° down in X
       ry_f =  0.7854f;  // +45° in Y
     }
+#endif
 
     mat4_rotate_x(rx, rx_f);
     mat4_rotate_y(ry, ry_f);
@@ -250,13 +273,15 @@ int main() {
     draw_cube(&draw, face_light);
     borg_present(0);
 
-    // Wait until the host/viewer clears the DONE marker before rendering
-    // the next frame.  On FPGA the marker is never cleared, so the firmware
-    // spins here preserving the framebuffer.  The interactive simulation
-    // viewer clears it in get_framebuffer() to request a new frame.
+#ifndef TARGET_ULX3S
+    // Wait until the host/viewer clears the DONE marker before rendering the
+    // next frame.  The interactive simulation viewer clears it in
+    // get_framebuffer() to request a new frame.  On hardware we skip this and
+    // free-run, re-rendering each frame to animate the spin.
     int done_offset = BORG_FB_WIDTH * BORG_FB_HEIGHT * 2; // TBR tiled: 2 words/pixel, no ZB
     while (PSRAM_OUT(done_offset) == DONE_MARKER)
       ;
+#endif
   }
   return 0;
 }
