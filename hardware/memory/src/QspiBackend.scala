@@ -40,11 +40,18 @@ class QspiBackend extends Module {
   val byteLo = RegInit(0.U(8.W))
   val byteHi = RegInit(0.U(8.W))
   val dataReg = RegInit(0.U(16.W))
-  val byteAddr = RegInit(0.U(25.W))
+  // Combinational: QspiCtrl only reads addr_in once (at IDLE→CMD), so the
+  // address must be valid at the cycle start_read/start_write is asserted,
+  // not one cycle later (which a register would cause).
+  val byteAddr = Wire(UInt(25.W))
+  byteAddr := Cat(io.backend.addrIn, 0.U(1.W))
 
   // QspiController inputs
   q.io.addr_in     := byteAddr
-  q.io.data_in     := Mux(state === sWrB0, dataReg(7, 0), dataReg(15, 8))
+  // Switch to high byte immediately when data_req fires: QspiCtrl samples
+  // data_in on the same cycle data_req is asserted, but the state register
+  // only transitions to sWrB1 after that clock edge.
+  q.io.data_in     := Mux(state === sWrB0 && !q.io.data_req, dataReg(7, 0), dataReg(15, 8))
   q.io.start_read  := (state === sIdle && io.backend.startRead)
   q.io.start_write := (state === sIdle && io.backend.startWrite)
   q.io.stall_txn   := false.B
@@ -67,13 +74,10 @@ class QspiBackend extends Module {
   switch(state) {
     is(sIdle) {
       when(io.backend.startRead) {
-        // Use byte address (low bit = 0 since addrIn is word addr).
-        byteAddr := Cat(io.backend.addrIn, 0.U(1.W))
-        state    := sRdB0
+        state := sRdB0
       }.elsewhen(io.backend.startWrite) {
-        byteAddr := Cat(io.backend.addrIn, 0.U(1.W))
-        dataReg  := io.backend.dataIn
-        state    := sWrB0
+        dataReg := io.backend.dataIn
+        state   := sWrB0
       }
     }
 
