@@ -34,11 +34,20 @@
     for (volatile int i = 0; i < STARTUP_DELAY_CYCLES; i++) ; \
   } while (0)
 
-// --- PSRAM accessor macros ---
-// PSRAM_BASE is defined in the RDL-generated headers (from soc.rdl).
-// If not available (e.g. native test builds), provide a fallback.
+// --- "PSRAM" (GPU memory) accessor macros ---
+// NB: the PSRAM_* names are the retained firmware ABI; on ULX3S there is NO
+// PSRAM — that target's GPU memory is SDRAM (VRAM).  Single source of truth,
+// selected by the one -DTARGET_* macro (no -DPSRAM_BASE=... literal in any
+// Makefile).  Full PSRAM→VRAM rename is still pending.
+//   TARGET_ULX3S: SDRAM is direct-mapped at 0 with no SPI controller, so the
+//     CPU sees the GPU's raw SPI byte addresses directly → base == SPI base.
+//   default (ASIC / pico-ice): real PSRAM, CPU-mapped at 0x01001000.
 #ifndef PSRAM_BASE
+#if defined(TARGET_ULX3S)
+#define PSRAM_BASE PSRAM_SPI_BASE
+#else
 #define PSRAM_BASE 0x01001000
+#endif
 #endif
 #define PSRAM_IN(n)   (*(volatile uint32_t *)(uintptr_t)(PSRAM_BASE + (n) * 4))
 #define PSRAM_OUT(n)  (*(volatile uint32_t *)(uintptr_t)(PSRAM_BASE + PSRAM_OUT_OFFSET + (n) * 4))
@@ -58,8 +67,18 @@
 #ifndef GPIO_BASE
 #define GPIO_BASE 0x08000400
 #endif
+// UART_BASE — single source of truth, selected by one target macro.
+// Targets pass exactly one -DTARGET_* (see each board Makefile); the actual
+// address lives ONLY here, never duplicated as a -DUART_BASE=... literal.
+//   TARGET_ULX3S: the full SoC's user-region UART read-side decode is broken,
+//                 so firmware writes the SoC debug UART at 0x08000018 (blind).
+//   default (ASIC / sim / pico-ice): the user-region UART at 0x08000800.
 #ifndef UART_BASE
+#if defined(TARGET_ULX3S)
+#define UART_BASE 0x08000018
+#else
 #define UART_BASE 0x08000800
+#endif
 #endif
 #ifndef BORG_BASE
 #define BORG_BASE 0x08000C00

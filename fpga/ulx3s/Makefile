@@ -116,16 +116,15 @@ firmware_with_header.bin: $(FIRMWARE_DIR)/triangle.bin
 	@echo -e "$(BOLD)[FW-PACK]$(RESET) Prepending 4-byte size header to firmware ..."
 	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/triangle.bin','rb').read(); open('firmware_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> firmware_with_header.bin')"
 
-# PSRAM_BASE=0x001000 = PSRAM_SPI_BASE so CPU-visible PSRAM_OUT addresses are
-# identical to the GPU's SPI byte addresses on ULX3S, where SDRAM is direct-
-# mapped at 0 (no SPI controller intermediating).  This makes PSRAM_OUT(0)
-# resolve to SDRAM 0x85000 — the same byte the GPU flusher writes to.
-# Always invoke the sub-make so EXTRA_CFLAGS changes propagate; the inner
-# Makefile handles its own incremental builds.
+# -DTARGET_ULX3S selects the entire ULX3S address map in borg_sys.h
+# (UART_BASE = SoC debug UART; PSRAM_BASE = SDRAM/VRAM base, since ULX3S has no
+# PSRAM and SDRAM is direct-mapped at 0).  All address literals live in the
+# header — never duplicated here.  The firmware Makefile rebuilds its objects
+# whenever these flags change (.cflags_stamp), so no stale-object surprises.
 .PHONY: $(FIRMWARE_DIR)/triangle.bin
 $(FIRMWARE_DIR)/triangle.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=25 \
-		EXTRA_CFLAGS="-DUART_BASE=0x08000018 -DPSRAM_BASE=0x001000" triangle
+		EXTRA_CFLAGS="-DTARGET_ULX3S" triangle
 
 # Flash firmware blob to onboard flash at 0x400000.
 # FlashBootLoader will copy it to SDRAM at boot.

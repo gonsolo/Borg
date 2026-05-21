@@ -53,15 +53,31 @@ test-native: test_raster.c borg_raster.c borg_math.c
 	./test_raster
 
 clean:
-	rm -f *.o *.elf *.bin *.hex *.asm test_raster
+	rm -f *.o *.elf *.bin *.hex *.asm test_raster .cflags_stamp
 	$(MAKE) -C compiler clean
 	$(MAKE) -C python clean
 
 $(HUTT_SDK)/%.o: $(HUTT_SDK)/%.s
 	$(MAKE) -C $(HUTT_SDK) $(notdir $@)
 
-%.o: %.c $(HEADERS)
-	@$(CC) -O2 -I$(HUTT_SDK) -I$(RDL_C_OUT) -march=$(ARCH) -mabi=$(ABI) -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -DCLOCK_MHZ=$(CLOCK_MHZ) $(EXTRA_CFLAGS) -c $< -o $@
+# Firmware compile flags, factored into one variable so a change to ANY of them
+# — notably EXTRA_CFLAGS / CLOCK_MHZ, which differ per target (sim vs ULX3S) —
+# forces a rebuild of every object via the .cflags_stamp dep below.  Without
+# this, switching targets silently reuses stale objects compiled with the wrong
+# address map (e.g. UART_BASE), which breaks the firmware on hardware.
+CFLAGS_FW = -O2 -I$(HUTT_SDK) -I$(RDL_C_OUT) -march=$(ARCH) -mabi=$(ABI) \
+            -fomit-frame-pointer -mno-strict-align -nostdlib -nostartfiles \
+            -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror \
+            -lc -DCLOCK_MHZ=$(CLOCK_MHZ) $(EXTRA_CFLAGS)
+
+# Stamp holding the current flags; rewritten ONLY when they actually change
+# (cmp), so objects rebuild exactly when — and only when — the flags differ.
+.PHONY: force_cflags_check
+.cflags_stamp: force_cflags_check
+	@printf '%s' '$(CFLAGS_FW)' | cmp -s - $@ 2>/dev/null || printf '%s' '$(CFLAGS_FW)' > $@
+
+%.o: %.c $(HEADERS) .cflags_stamp
+	@$(CC) $(CFLAGS_FW) -c $< -o $@
 
 %.o: %.s
 	@$(AS) -march=$(ARCH) -mabi=$(ABI) -I$(HUTT_SDK) $< -o $@
