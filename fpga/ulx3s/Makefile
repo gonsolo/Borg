@@ -46,10 +46,18 @@ CHISEL_SRCS = $(wildcard ../../hardware/borg/src/*.scala) \
               $(wildcard ../../hardware/soc/src/*.scala) \
               $(wildcard soc/src/*.scala)
 
+# ── Single source of truth for the ULX3S clock (MHz) ────────────────────────
+# Drives the PLL SoC output (SOC_MHZ = CLOCK_MHZ in ULX3S.scala), the debug-UART
+# baud divider (SoCLogic), AND the firmware's CLOCK_MHZ — set it here only.
+# Pixel clock == SoC clock, so this also sets the HDMI pixel rate (25 MHz =
+# 640×480-ish VGA timing). If the Borg FPU can't close timing at 25 MHz on
+# hardware, the fix is to decouple the compute clock from the pixel clock.
+ULX3S_MHZ ?= 25
+
 # Stamp file — regenerates Verilog only when Chisel sources OR Makefiles change.
 # Makefiles are included so CLOCK_MHZ changes don't silently use stale Verilog.
 .verilog_stamp_ulx3s: $(CHISEL_SRCS) Makefile ../../Makefile
-	$(MAKE) -C ../.. generate_verilog_ulx3s
+	$(MAKE) -C ../.. generate_verilog_ulx3s ULX3S_CLOCK_MHZ=$(ULX3S_MHZ)
 	@touch $@
 
 # LPF emitted alongside the Verilog by ULX3SMain
@@ -123,7 +131,7 @@ firmware_with_header.bin: $(FIRMWARE_DIR)/triangle.bin
 # whenever these flags change (.cflags_stamp), so no stale-object surprises.
 .PHONY: $(FIRMWARE_DIR)/triangle.bin
 $(FIRMWARE_DIR)/triangle.bin:
-	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=25 \
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
 		EXTRA_CFLAGS="-DTARGET_ULX3S" triangle
 
 # Flash firmware blob to onboard flash at 0x400000.
@@ -239,7 +247,7 @@ print_resources: yosys.log
 
 generate_verilog_ulx3s:
 	@echo -e "$(BOLD)[CHISEL]$(RESET) Emitting ULX3S Verilog (BorgConfig.ULX3S) ..."
-	$(MAKE) -C ../.. generate_verilog_ulx3s
+	$(MAKE) -C ../.. generate_verilog_ulx3s ULX3S_CLOCK_MHZ=$(ULX3S_MHZ)
 
 ######### Minimal SoC (Hutt + UART only) — fast iteration ##########################################
 

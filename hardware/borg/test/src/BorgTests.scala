@@ -1122,7 +1122,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     // Step 28: Fully Autonomous Hardware Iteration
     //
-    // Validates that BorgConfig.Sim (hasFlusher=true) triggers the HW
+    // Validates that BorgConfig.Default (hasFlusher=true) triggers the HW
     // BorgTileFlusher autonomously after a tile is complete:
     //   1. Write a known 4-channel pixel pattern into all 16 tile SRAM slots
     //      via the TILE_CTRL / TILE_RG / TILE_BZ MMIO interface.
@@ -1141,11 +1141,11 @@ object BorgTests extends TestSuite {
     //      e. FLUSH_BUSY returns to 0 after all 32 writes.
     //
     // This is a pure Chisel/simulation test — no hardware required.
-    // BorgConfig.Sim has hasFlusher=true and hasDMA=true by default.
+    // BorgConfig.Default has hasFlusher=true and hasDMA=true by default.
     // =====================================================================
     utest.test("hw_flusher_autonomous") {
       val config = FloatConfig.FP16
-      // Borg(config) uses BorgConfig.Sim which has hasFlusher=true
+      // Borg(config) uses BorgConfig.Default which has hasFlusher=true
       simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Step 28: HW Flusher Autonomous Test ===")
 

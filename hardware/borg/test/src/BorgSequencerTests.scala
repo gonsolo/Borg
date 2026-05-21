@@ -196,7 +196,7 @@ object BorgSequencerTests extends TestSuite {
   val tests = Tests {
 
     utest.test("vertex_shader_run") {
-      simulate(new BorgTestWrapper(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
         println("\n=== BorgSequencerTests: vertex_shader_run ===")
         resetAndWait(borg)
 
@@ -231,7 +231,7 @@ object BorgSequencerTests extends TestSuite {
     }
 
     utest.test("triangle_setup") {
-      simulate(new BorgTestWrapper(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
         println("\n=== BorgSequencerTests: triangle_setup ===")
         resetAndWait(borg)
 
@@ -294,7 +294,7 @@ object BorgSequencerTests extends TestSuite {
       * Verifies all 31 physical uniform registers after a full sequencer run.
       */
     utest.test("sequencer_uniform_staging") {
-      simulate(new BorgTestWrapper(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
         println("\n=== BorgSequencerTests: sequencer_uniform_staging ===")
         resetAndWait(borg)
 
@@ -413,7 +413,7 @@ object BorgSequencerTests extends TestSuite {
       * reads staged color values, tile buffer receives correct RGBZ.
       */
     utest.test("sequencer_full_triangle") {
-      simulate(new BorgTestWrapper(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
         println("\n=== BorgSequencerTests: sequencer_full_triangle ===")
 
         // --- (0) Reset ---
@@ -485,7 +485,7 @@ object BorgSequencerTests extends TestSuite {
     }
 
     utest.test("multi_triangle_loop") {
-      simulate(new BorgTestWrapper(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
         println("\n=== BorgSequencerTests: multi_triangle_loop ===")
         resetAndWait(borg)
 
@@ -556,7 +556,7 @@ object BorgSequencerTests extends TestSuite {
       * writes contain the expected FP16 RGBZ values at the correct addresses.
       */
     utest.test("sequencer_flusher_e2e") {
-      simulate(new BorgTestWrapper(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
         println("\n=== BorgSequencerTests: sequencer_flusher_e2e ===")
 
         // --- Reset ---

@@ -69,7 +69,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val texB    = Output(UInt(16.W))    // fetched texel B (to core)
 }
 
-class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgShaderDispatcherIO(cfg))
 
   private val config = cfg.fp  // shorthand for FP arithmetic

@@ -48,34 +48,19 @@ case class BorgConfig(
 }
 
 object BorgConfig {
-  /** pico-ice iCE40 UP5K: 5280 LCs, 30 BRAMs, 4 MHz.
-    * Small size: no DMA, flusher, sequencer, or binner.
-    */
-  val PicoIce = BorgConfig(
-    fp          = FloatConfig.FP16,
-    size        = Small,
-    coordWidth  = 6,   // max 64×64 framebuffer
-    fifoDepth   = 1,
-    hasImemMmio = true  // required: hasDMA=false, so MMIO needed for shader loading
-  )
-
-  /** ULX3S ECP5-85K: 84,480 LUT4s, all features enabled.
-    * Large size: DMA, flusher, sequencer, and binner all synthesised.
-    */
-  val ULX3S = BorgConfig(
-    fp          = FloatConfig.FP16,
-    size        = Large,
-    coordWidth  = 9,   // max 512×512 framebuffer
-    fifoDepth   = 2,
-    hasImemMmio = false // DMA used for shader loading on ECP5
-  )
-
-  /** Verilator / Arcilator simulation: no area constraint. */
-  val Sim = BorgConfig(
+  // ONE configuration for sim, ULX3S, and ASIC — they are bit-for-bit identical
+  // so the simulator faithfully models hardware.  pico-ice is retired (the full
+  // GPU no longer fits the iCE40), so the per-target variants (PicoIce/ULX3S)
+  // are gone.  A divergent ULX3S config (hasImemMmio=false) once shipped a
+  // HW-only bug: the firmware loads FPU instructions/shaders into IMEM via MMIO
+  // (borg_fpu.c), so hasImemMmio MUST be true and the sim must exercise it.
+  // (The size/isLarge machinery below is now always Large — vestigial pico-ice
+  // generality, slated for removal in a follow-up.)
+  val Default = BorgConfig(
     fp          = FloatConfig.FP16,
     size        = Large,
     coordWidth  = 9,   // max 512×512 framebuffer (covers 500×500)
     fifoDepth   = 2,
-    hasImemMmio = true  // always true in sim: tests poke IMEM via MMIO
+    hasImemMmio = true
   )
 }

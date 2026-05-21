@@ -46,7 +46,7 @@ class BorgSdramHarnessIO extends Bundle {
 class BorgSdramHarness(rdDelay: Int = 4, wrDelay: Int = 2) extends Module {
   val io = IO(new BorgSdramHarnessIO)
 
-  val borg  = Module(new BorgTestWrapper(BorgConfig.Sim))
+  val borg  = Module(new BorgTestWrapper(BorgConfig.Default))
   val mem   = Module(new MemoryController)
   val sdram = Module(new SdramBackendSim(words = 16384, rdDelay = rdDelay, wrDelay = wrDelay))
 
@@ -469,7 +469,7 @@ class BorgScanoutContentionHarnessIO extends Bundle {
 class BorgScanoutContentionHarness extends Module {
   val io = IO(new BorgScanoutContentionHarnessIO)
 
-  val borg    = Module(new BorgTestWrapper(BorgConfig.Sim))
+  val borg    = Module(new BorgTestWrapper(BorgConfig.Default))
   val mem     = Module(new MemoryController)
   val sdram   = Module(new SdramBackendSim(words = 16384, rdDelay = 4, wrDelay = 2))
   val scanout = Module(new HdmiScanoutFp16(fbBase = 0x1000, fbWidth = 32, fbHeight = 32))

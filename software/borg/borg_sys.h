@@ -42,12 +42,15 @@
 //   TARGET_ULX3S: SDRAM is direct-mapped at 0 with no SPI controller, so the
 //     CPU sees the GPU's raw SPI byte addresses directly → base == SPI base.
 //   default (ASIC / pico-ice): real PSRAM, CPU-mapped at 0x01001000.
+// CPU-mapped PSRAM/VRAM base = PSRAM_SPI_BASE + 0x1000000.  The +0x1000000 makes
+// the CPU's PSRAM_OUT/PSRAM_OUT_RAW byte addresses carry bit 24 — the region bit
+// the MemoryController forces onto the GPU's gpuMem port (VRAM_REGION_BIT) — so
+// CPU and GPU point at the SAME SDRAM words for the framebuffer, geometry,
+// shaders, and texture.  Identical on ULX3S and sim/ASIC: a prior ULX3S-only
+// PSRAM_BASE=PSRAM_SPI_BASE made them disagree by 16 MB, so the GPU DMA'd
+// geometry from an empty region and rendered black.
 #ifndef PSRAM_BASE
-#if defined(TARGET_ULX3S)
-#define PSRAM_BASE PSRAM_SPI_BASE
-#else
 #define PSRAM_BASE 0x01001000
-#endif
 #endif
 #define PSRAM_IN(n)   (*(volatile uint32_t *)(uintptr_t)(PSRAM_BASE + (n) * 4))
 #define PSRAM_OUT(n)  (*(volatile uint32_t *)(uintptr_t)(PSRAM_BASE + PSRAM_OUT_OFFSET + (n) * 4))

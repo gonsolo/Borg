@@ -42,8 +42,8 @@ class BorgTestWrapperIO(val cfg: BorgConfig) extends Bundle {
   val gpuMem         = new GpuMemIO
 }
 
-class BorgTestWrapper(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
-  def this(fp: FloatConfig) = this(BorgConfig.Sim.copy(fp = fp))
+class BorgTestWrapper(val cfg: BorgConfig = BorgConfig.Default) extends Module {
+  def this(fp: FloatConfig) = this(BorgConfig.Default.copy(fp = fp))
 
   val io = IO(new BorgTestWrapperIO(cfg))
 

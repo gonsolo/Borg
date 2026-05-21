@@ -35,7 +35,10 @@ class Ecp5BiDirBuf extends ExtModule {
   * UART: ftdi_rxd = FPGA→host TX (debug output at 115200 baud).
   */
 class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
-  override def BORG_CFG: BorgConfig = BorgConfig.ULX3S
+  // Use the SAME Borg config as the simulator — they MUST be identical so the
+  // sim faithfully models hardware. A divergent ULX3S config (hasImemMmio=false)
+  // previously shipped a HW-only bug the sim couldn't see. (pico-ice retired.)
+  override def BORG_CFG: BorgConfig = BorgConfig.Default
 
   // ── Board clock and reset ──────────────────────────────────────────────────
   val clk_25mhz = IO(Input(Clock()))
@@ -70,11 +73,14 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val led = IO(Output(UInt(8.W)))
   val btn = IO(Input(UInt(6.W)))
 
-  // ── PLL: 25 MHz → 25 MHz SoC + 25 MHz/90° SDRAM + 125 MHz HDMI ──────────
-  // SoC at 25 MHz keeps timing closure (Fmax ~16 MHz critical path in Borg
-  // core is bypassed since CPU only does MMIO writes at 25 MHz).
-  // HDMI serializer needs 125 MHz for DDR 10-bit TMDS at 25 MHz pixel rate.
-  val SOC_MHZ = 25
+  // ── PLL: 25 MHz osc → SoC + SoC/90° SDRAM + 125 MHz HDMI ──────────
+  // SoC clock = the build's CLOCK_MHZ.  SINGLE SOURCE OF TRUTH is ULX3S_MHZ in
+  // fpga/ulx3s/Makefile — it drives this PLL clock, the debug-UART baud divider
+  // (SoCLogic), AND the firmware's CLOCK_MHZ together.  NB the HDMI pixel clock
+  // == SoC clock, so this also sets the video pixel rate.  Kept BELOW the Borg
+  // FPU's ~16 MHz Fmax until the FPU timing is fixed: the FPU is used by CPU
+  // geometry via MMIO (borg_fpu.c) — NOT bypassed — and returns 0 above Fmax.
+  val SOC_MHZ = CLOCK_MHZ
   val HDMI_MHZ = 125
   val pll = Module(new Ecp5PllWrapper(Ecp5PllParams(
     inHz   = 25_000_000L,

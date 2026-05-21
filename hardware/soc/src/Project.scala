@@ -61,7 +61,7 @@ private[soc] object SoCDecode {
   */
 trait SoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
-  def BORG_CFG: BorgConfig = BorgConfig.Sim
+  def BORG_CFG: BorgConfig = BorgConfig.Default
 
   // --- Abstract members provided by each top-level ---
   def soc_clk: Clock

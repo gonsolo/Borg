@@ -51,7 +51,7 @@ class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
   * one peripheral at a time.  `active` tracks which sub-bus owns the
   * pending response so the resp mux can route it back to the CPU.
   */
-class Peripherals(val CLOCK_MHZ: Int, val borgCfg: BorgConfig = BorgConfig.Sim) extends Module {
+class Peripherals(val CLOCK_MHZ: Int, val borgCfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new PeripheralsIO(CLOCK_MHZ))
 
   import PeriphDecode._

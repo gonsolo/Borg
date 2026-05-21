@@ -58,7 +58,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val texB    = Input(UInt(16.W))    // fetched texel B
 }
 
-class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgCoreIO(cfg))
 
   private val config = cfg.fp  // shorthand for FP config used in arithmetic

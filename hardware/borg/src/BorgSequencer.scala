@@ -174,7 +174,7 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   *   22-24: colorRegs[v][3]                   (z_vals per vertex)
   *   25-30: 0                                 (UVs — future work)
   */
-class BorgSequencer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgSequencerIO(cfg))
 
   // --- FSM states ---

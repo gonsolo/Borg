@@ -16,7 +16,9 @@ import borg.BorgConfig
   * but with direct FPGA I/O and SB_IO primitives for tri-state QSPI.
   */
 class HuttTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
-  override def BORG_CFG: BorgConfig = BorgConfig.PicoIce
+  // pico-ice is retired (the full GPU no longer fits the iCE40). This target is
+  // not built; it references the single shared config only so the tree compiles.
+  override def BORG_CFG: BorgConfig = BorgConfig.Default
   val clk      = IO(Input(Clock()))
   val rst_n    = IO(Input(Bool()))
 

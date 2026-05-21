@@ -45,15 +45,15 @@ class BorgIO(val cfg: BorgConfig) extends Bundle {
   */
 object Borg {
   /** Allow tests to instantiate [[Borg]] with a [[FloatConfig]] directly,
-    * e.g. `new Borg(FloatConfig.FP16)`.  Maps to [[BorgConfig.Sim]] with the
+    * e.g. `new Borg(FloatConfig.FP16)`.  Maps to [[BorgConfig.Default]] with the
     * requested float format and simulation-appropriate defaults.
     */
-  def apply(fp: FloatConfig): Borg = new Borg(BorgConfig.Sim.copy(fp = fp))
+  def apply(fp: FloatConfig): Borg = new Borg(BorgConfig.Default.copy(fp = fp))
 }
 
-class Borg(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** Auxiliary constructor: allows `new Borg(FloatConfig.FP16)` in tests. */
-  def this(fp: FloatConfig) = this(BorgConfig.Sim.copy(fp = fp))
+  def this(fp: FloatConfig) = this(BorgConfig.Default.copy(fp = fp))
 
   val io = IO(new BorgIO(cfg))
   dontTouch(io)

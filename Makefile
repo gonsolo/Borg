@@ -71,8 +71,11 @@ generate_verilog: .verilog_stamp info.yaml
 generate_verilog_sim: .verilog_sim_stamp
 
 # ULX3S (ECP5-85K) Verilog emission stub — no synthesis flow yet (Step 27).
+# ULX3S SoC clock (MHz). Single source of truth is ULX3S_MHZ in
+# fpga/ulx3s/Makefile, which passes it here as ULX3S_CLOCK_MHZ.
+ULX3S_CLOCK_MHZ ?= 25
 generate_verilog_ulx3s: rdl
-	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMain
+	CLOCK_MHZ=$(ULX3S_CLOCK_MHZ) $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMain
 
 # Minimal ULX3S Verilog — Hutt + UART only, no Borg.  Fast-iteration target.
 generate_verilog_ulx3s_minimal:

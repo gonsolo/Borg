@@ -63,7 +63,7 @@ class BorgIteratorIO(val cfg: BorgConfig) extends Bundle {
   val tileOrigin = Output(new Coord(cfg.coordWidth))
 }
 
-class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+class BorgIterator(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgIteratorIO(cfg))
 
   // --- Registers ---

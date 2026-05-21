@@ -119,7 +119,7 @@ object BorgShaderDispatcherTests extends TestSuite {
     // =========================================================================
 
     utest.test("pixel_ready_triggers_rast_shader") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Sim)) { d =>
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
         println("\n--- BorgShaderDispatcher: pixel_ready_triggers_rast_shader ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
@@ -147,7 +147,7 @@ object BorgShaderDispatcherTests extends TestSuite {
     }
 
     utest.test("outside_pixel_releases_stall_without_frag") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Sim)) { d =>
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
         println("\n--- BorgShaderDispatcher: outside_pixel_releases_stall_without_frag ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
@@ -179,7 +179,7 @@ object BorgShaderDispatcherTests extends TestSuite {
     // =========================================================================
 
     utest.test("inside_pixel_chains_to_frag_then_tile_write") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Sim)) { d =>
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
         println("\n--- BorgShaderDispatcher: inside_pixel_chains_to_frag_then_tile_write ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
@@ -262,7 +262,7 @@ object BorgShaderDispatcherTests extends TestSuite {
     // =========================================================================
 
     utest.test("stall_held_across_all_phases") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Sim)) { d =>
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
         println("\n--- BorgShaderDispatcher: stall_held_across_all_phases ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
@@ -299,7 +299,7 @@ object BorgShaderDispatcherTests extends TestSuite {
     // =========================================================================
 
     utest.test("frag_pc_zero_disables_chain") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Sim)) { d =>
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
         println("\n--- BorgShaderDispatcher: frag_pc_zero_disables_chain ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
@@ -327,7 +327,7 @@ object BorgShaderDispatcherTests extends TestSuite {
     // =========================================================================
 
     utest.test("negative_zero_fp16_is_inside") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Sim)) { d =>
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
         println("\n--- BorgShaderDispatcher: negative_zero_fp16_is_inside ---")
         println("  ⚠ FP16 -0.0 (0x8000): sign_bit=1, magnitude=0 → NOT outside → inside")
         pokeIdle(d)
@@ -356,7 +356,7 @@ object BorgShaderDispatcherTests extends TestSuite {
     // =========================================================================
 
     utest.test("texture_path_b_first_then_rg") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Sim)) { d =>
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
         println("\n--- BorgShaderDispatcher: texture_path_b_first_then_rg ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
@@ -452,7 +452,7 @@ object BorgShaderDispatcherTests extends TestSuite {
     // =========================================================================
 
     utest.test("tile_index_uses_shader_tile_index") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Sim)) { d =>
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
         println("\n--- BorgShaderDispatcher: tile_index_uses_shader_tile_index ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
@@ -479,7 +479,7 @@ object BorgShaderDispatcherTests extends TestSuite {
     // =========================================================================
 
     utest.test("phase_observable_at_every_step") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Sim)) { d =>
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
         println("\n--- BorgShaderDispatcher: phase_observable_at_every_step ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
@@ -539,7 +539,7 @@ object BorgShaderDispatcherTests extends TestSuite {
     // (regression check on the guard itself).
 
     utest.test("inside_flag_guard_blocks_tile_write") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Sim)) { d =>
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
         println("\n--- BorgShaderDispatcher: inside_flag_guard_blocks_tile_write ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
