@@ -141,7 +141,9 @@ $(FIRMWARE_DIR)/triangle.bin:
 flash-firmware: firmware_with_header.bin
 	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing firmware to onboard flash @ 0x400000 ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 firmware_with_header.bin
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Firmware flashed at 0x400000."
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Firmware flashed. Resetting FPGA ..."
+	openFPGALoader -b ulx3s -r
+	@echo -e "$(BOLD)[DONE]$(RESET) Board is rebooting — attach tio now."
 
 # Minimal boot test (D.3): tiny 4-byte RISC-V infinite loop + size header.
 # Boot LED[6] = boot_done lights up if FlashBootLoader completes successfully.
@@ -230,7 +232,9 @@ $(FIRMWARE_DIR)/vkcube.bin:
 flash-vkcube: vkcube_with_header.bin
 	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing vkcube firmware to onboard flash @ 0x400000 ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 vkcube_with_header.bin
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) vkcube firmware flashed at 0x400000."
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) vkcube firmware flashed. Resetting FPGA ..."
+	openFPGALoader -b ulx3s -r
+	@echo -e "$(BOLD)[DONE]$(RESET) Board is rebooting — attach tio now."
 
 # Full vkcube deploy: synth + P&R + pack, flash bitstream + vkcube firmware.
 vkcube: borg.bit vkcube_with_header.bin
