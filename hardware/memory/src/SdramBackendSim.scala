@@ -18,6 +18,15 @@ class SdramBackendSimIO extends Bundle {
   val debug_readWord   = Output(UInt(16.W))
 }
 
+/** Host backdoor port for verilator-sim load/readback (gated by `dbg`). */
+class SdramDbgIO extends Bundle {
+  val we    = Input(Bool())
+  val waddr = Input(UInt(24.W))
+  val wdata = Input(UInt(16.W))
+  val raddr = Input(UInt(24.W))
+  val rdata = Output(UInt(16.W))
+}
+
 /** Behavioral SDRAM model.
   *
   * @param words   Number of 16-bit words backing the memory (default 4096 = 8 KB).
@@ -27,13 +36,24 @@ class SdramBackendSimIO extends Bundle {
 class SdramBackendSim(
   words:   Int = 4096,
   rdDelay: Int = 4,
-  wrDelay: Int = 2
+  wrDelay: Int = 2,
+  dbg:     Boolean = false   // expose a host backdoor port (verilator sim load/readback)
 ) extends Module {
 
   val io = IO(new SdramBackendSimIO)
 
+  // Optional host backdoor: lets the verilator harness preload firmware/texture
+  // and read back the framebuffer without going through the MemBackendIO bus.
+  // Gated by `dbg` so cocotb users (default) get no extra ports.
+  val dbgIO: Option[SdramDbgIO] = if (dbg) Some(IO(new SdramDbgIO)) else None
+
   val mem      = SyncReadMem(words, UInt(16.W))
   val wordBits = log2Up(words)
+
+  dbgIO.foreach { d =>
+    when(d.we) { mem.write(d.waddr(wordBits - 1, 0), d.wdata) }
+    d.rdata := mem.read(d.raddr(wordBits - 1, 0))
+  }
 
   val sIdle :: sRd :: sWr :: sDone :: Nil = Enum(4)
   val state = RegInit(sIdle)

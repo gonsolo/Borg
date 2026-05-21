@@ -65,5 +65,5 @@ public:
     void load_texture(const std::string& tex_path, uint32_t tex_dim = 32);
     void set_camera_angles(float rx, float ry);
     void save_ppm(const std::string& name);
-    bool step(uint32_t cycles_to_run);
+    virtual bool step(uint32_t cycles_to_run);
 };

@@ -246,5 +246,80 @@ object HuttMemControllerTests extends TestSuite {
           s"Read mismatch: got 0x${readData.toString(16)}, expected 0x${data.toString(16)}")
       }
     }
+
+    test("CPU byte write does not clobber neighbour byte (RMW)") {
+      // Regression for the ULX3S garbled-render bug: dqm-less backends (the real
+      // SdramController, QSPI PSRAM, and SdramBackendSim) write the full 16-bit
+      // lane regardless of byteEnIn.  The MemoryController must therefore turn
+      // each byte write into a read-modify-write so a `sb` only changes its byte.
+      // Before the fix, a byte store clobbered the adjacent byte (replicated the
+      // value into both lanes), corrupting firmware data → 0 draw calls.
+      simulate(new CpuDataHarness) { dut =>
+        dut.reset.poke(true.B)
+        dut.clock.step(2)
+        dut.reset.poke(false.B)
+        dut.io.cpuData.resp.ready.poke(true.B)
+
+        def doWrite(addr: Int, size: Int, data: BigInt): Unit = {
+          dut.io.cpuData.req.valid.poke(true.B)
+          dut.io.cpuData.req.bits.write.poke(true.B)
+          dut.io.cpuData.req.bits.size.poke(size.U)
+          dut.io.cpuData.req.bits.addr.poke(addr.U)
+          dut.io.cpuData.req.bits.data.poke(data.U)
+          var fired, done, deassert = false
+          var i = 0
+          while (!done && i < 300) {
+            val reqFire = dut.io.cpuData.req.ready.peek().litToBoolean &&
+                          dut.io.cpuData.req.valid.peek().litToBoolean
+            if (reqFire && !fired) { fired = true; deassert = true }
+            if (dut.io.cpuData.resp.valid.peek().litToBoolean) done = true
+            dut.clock.step(1)
+            if (deassert) { dut.io.cpuData.req.valid.poke(false.B); deassert = false }
+            i += 1
+          }
+          Predef.assert(done, s"write to 0x${addr.toHexString} (size $size) never completed")
+          dut.clock.step(20) // let the SDRAM write settle behind the early ack
+        }
+
+        def doReadWord(addr: Int): BigInt = {
+          dut.io.cpuData.req.valid.poke(true.B)
+          dut.io.cpuData.req.bits.write.poke(false.B)
+          dut.io.cpuData.req.bits.size.poke(2.U)
+          dut.io.cpuData.req.bits.addr.poke(addr.U)
+          dut.io.cpuData.req.bits.data.poke(0.U)
+          var data: BigInt = -1
+          var deassert = false
+          var i = 0
+          while (data < 0 && i < 300) {
+            val reqFire = dut.io.cpuData.req.ready.peek().litToBoolean &&
+                          dut.io.cpuData.req.valid.peek().litToBoolean
+            if (reqFire) deassert = true
+            if (dut.io.cpuData.resp.valid.peek().litToBoolean)
+              data = dut.io.cpuData.resp.bits.peek().litValue
+            dut.clock.step(1)
+            if (deassert) { dut.io.cpuData.req.valid.poke(false.B); deassert = false }
+            i += 1
+          }
+          Predef.assert(data >= 0, s"read of 0x${addr.toHexString} never completed")
+          data
+        }
+
+        // Seed a known word: bytes [0x100..0x103] = FF AB? no — EE FF DD CC →
+        // little-endian word 0xCCDDEEFF.
+        doWrite(0x100, 2, BigInt("CCDDEEFF", 16))
+
+        // Overwrite the odd-lane byte at 0x101 (was 0xEE) with 0xAB.
+        doWrite(0x101, 0, BigInt("AB", 16))
+        val w1 = doReadWord(0x100)
+        Predef.assert(w1 == BigInt("CCDDABFF", 16),
+          s"odd-lane byte write clobbered a neighbour: got 0x${w1.toString(16)}, expected 0xccddabff")
+
+        // Overwrite the even-lane byte at 0x102 (was 0xDD) with 0x12.
+        doWrite(0x102, 0, BigInt("12", 16))
+        val w2 = doReadWord(0x100)
+        Predef.assert(w2 == BigInt("CC12ABFF", 16),
+          s"even-lane byte write clobbered a neighbour: got 0x${w2.toString(16)}, expected 0xcc12abff")
+      }
+    }
   }
 }

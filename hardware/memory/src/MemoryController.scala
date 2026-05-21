@@ -68,6 +68,14 @@ class MemoryController extends Module {
   val hw0Reg      = RegInit(0.U(16.W))  // first halfword read back
   val hw1Reg      = RegInit(0.U(16.W))  // second halfword read back
 
+  // Byte-write read-modify-write.  dqm-less backends (the real SdramController,
+  // QSPI PSRAM) and the behavioral SdramBackendSim write the full 16-bit lane
+  // regardless of byteEnIn, so a naive byte write clobbers its neighbour byte.
+  // To stay backend-agnostic we turn each byte write into READ-merge-WRITE:
+  // read the existing halfword, splice in the new byte, write the halfword back.
+  val rmwBg          = RegInit(0.U(16.W))  // existing halfword captured for the merge
+  val rmwReadPending = RegInit(false.B)    // byte write still owes its RMW read
+
   // PSRAM-region select: byte-address bit 24 (= QspiController addr_in(24)).
   // gpuMem (GPU PSRAM port) addresses are PSRAM SPI-relative and must carry
   // this bit so they alias the CPU's PSRAM_OUT_RAW accesses.
@@ -81,19 +89,18 @@ class MemoryController extends Module {
   // For writes: which halfword of reqData are we sending now.
   val currentWriteHw = Mux(hwIdx === 0.U, reqData(15, 0), reqData(31, 16))
 
-  // byteEn for the current halfword. For full halfword/word writes this is
-  // "11". For byte writes (size = byte), only one lane is active, chosen by
-  // bit 0 of the byte address.
-  val currentByteEn = Mux(
-    reqSize === HuttSize.Byte,
-    Mux(reqByteAddr(0), "b10".U(2.W), "b01".U(2.W)),
-    "b11".U(2.W)
-  )
+  // Always write the full halfword.  Byte writes now carry a merged value
+  // (see byteWriteHw + the RMW read), so we never rely on backend lane masking.
+  val currentByteEn = "b11".U(2.W)
 
-  // For byte writes we replicate the byte into both lanes so the active lane
-  // (per byteEn) has the correct value. Even-addressed byte → low lane;
-  // odd-addressed byte → high lane.
-  val byteWriteHw = Cat(reqData(7, 0), reqData(7, 0))
+  // Byte write: splice the new byte into the correct lane of the existing
+  // halfword (rmwBg, captured by the RMW read). Even-addressed byte → low lane,
+  // odd-addressed byte → high lane; the other lane preserves memory.
+  val byteWriteHw = Mux(
+    reqByteAddr(0),
+    Cat(reqData(7, 0), rmwBg(7, 0)),
+    Cat(rmwBg(15, 8), reqData(7, 0))
+  )
   val halfwordWriteHw = reqData(15, 0)
   val wordWriteHw = currentWriteHw   // depends on hwIdx
 
@@ -105,12 +112,17 @@ class MemoryController extends Module {
 
   val isReadReq = (rKind === rInstr) || (rKind === rCpuRead) || (rKind === rGpuRead)
 
+  // A byte write's FIRST backend transaction is the RMW read, even though
+  // rKind is rCpuWrite. txIsRead drives the backend startRead/startWrite.
+  val doingRmwRead = (rKind === rCpuWrite) && rmwReadPending
+  val txIsRead     = isReadReq || doingRmwRead
+
   // ── Backend wiring ─────────────────────────────────────────────────────────
   io.backend.addrIn     := currentWordAddr
   io.backend.dataIn     := txWriteHw
   io.backend.byteEnIn   := currentByteEn
-  io.backend.startRead  := (state === sIssue) &&  isReadReq
-  io.backend.startWrite := (state === sIssue) && !isReadReq
+  io.backend.startRead  := (state === sIssue) &&  txIsRead
+  io.backend.startWrite := (state === sIssue) && !txIsRead
 
   // ── Response presentation ──────────────────────────────────────────────────
   // For lb/lh/lw: assemble the result. For byte/halfword reads, only hw0 is
@@ -149,6 +161,7 @@ class MemoryController extends Module {
   // ── FSM ────────────────────────────────────────────────────────────────────
   switch(state) {
     is(sIdle) {
+      rmwReadPending := false.B  // default; only byte writes (below) set it true
       // Priority: CPU read > CPU write > GPU write > GPU read > instr fetch.
       // Each branch latches the request and goes to sIssue.
       when(io.cpuData.req.valid && !io.cpuData.req.bits.write) {
@@ -164,6 +177,8 @@ class MemoryController extends Module {
         reqData     := io.cpuData.req.bits.data
         reqSize     := io.cpuData.req.bits.size
         needTwo     := io.cpuData.req.bits.size === HuttSize.Word
+        // Byte writes need a read-modify-write; read the existing halfword first.
+        rmwReadPending := io.cpuData.req.bits.size === HuttSize.Byte
         hwIdx       := 0.U
         state       := sIssue
       }.elsewhen(io.gpuMem.wr) {
@@ -204,15 +219,23 @@ class MemoryController extends Module {
 
     is(sWait) {
       when(io.backend.done) {
-        when(isReadReq) {
-          when(hwIdx === 0.U) { hw0Reg := io.backend.dataOut }
-            .otherwise        { hw1Reg := io.backend.dataOut }
-        }
-        when(needTwo && hwIdx === 0.U) {
-          hwIdx := 1.U
-          state := sIssue
+        when(doingRmwRead) {
+          // Byte-write RMW read complete: capture the existing halfword and
+          // re-issue the same access as a (now merged) write.
+          rmwBg          := io.backend.dataOut
+          rmwReadPending := false.B
+          state          := sIssue
         }.otherwise {
-          state := sRespond
+          when(isReadReq) {
+            when(hwIdx === 0.U) { hw0Reg := io.backend.dataOut }
+              .otherwise        { hw1Reg := io.backend.dataOut }
+          }
+          when(needTwo && hwIdx === 0.U) {
+            hwIdx := 1.U
+            state := sIssue
+          }.otherwise {
+            state := sRespond
+          }
         }
       }
     }
