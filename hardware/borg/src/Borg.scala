@@ -66,21 +66,21 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val rast = Module(new BorgRasterizer(cfg))
   val tile = Module(new BorgTileBuffer())
   val rdlRegs = Module(new BorgGpuRegs()) // Auto-generated RDL register block
-  val dma       = if (cfg.isLarge) Some(Module(new BorgDMA))           else None
-  val flusher   = if (cfg.isLarge) Some(Module(new BorgTileFlusher()))  else None
-  val sequencer = if (cfg.isLarge) Some(Module(new BorgSequencer(cfg))) else None
-  val binner    = if (cfg.isLarge) Some(Module(new BorgBinner()))       else None
+  val dma       = Module(new BorgDMA)
+  val flusher   = Module(new BorgTileFlusher())
+  val sequencer = Module(new BorgSequencer(cfg))
+  val binner    = Module(new BorgBinner())
 
   // Sticky done flag for sequencer detection (module-level so it's visible
   // in the data_out MuxCase).  Set when the sequencer pulses io.done,
   // cleared by the next seq_trigger write.
-  val seqDoneSticky = if (cfg.isLarge) Some(RegInit(false.B)) else None
+  val seqDoneSticky = RegInit(false.B)
 
-  // Convenience accessors for Large mode (all 4 always co-present)
-  private def d = dma.get
-  private def f = flusher.get
-  private def s = sequencer.get
-  private def b = binner.get
+  // Convenience aliases
+  private def d = dma
+  private def f = flusher
+  private def s = sequencer
+  private def b = binner
 
   // -- MMIO handshake state (visible across multiple wire* methods) ---------
   // respPending bridges the one-cycle gap between req.fire and the resp the
@@ -134,26 +134,18 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // CoreTrigger mux: sequencer takes priority ONLY when it is actively
     // asserting coreTrigger.valid (sRunVert, sRunSetup).
-    if (cfg.isLarge) {
-      core.io.coreTrigger.valid := Mux(s.io.coreTrigger.valid, true.B,
-                                                  rast.io.coreTrigger.valid)
-      core.io.coreTrigger.pc    := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.pc,
-                                                  rast.io.coreTrigger.pc)
-    } else {
-      core.io.coreTrigger <> rast.io.coreTrigger
-    }
+    core.io.coreTrigger.valid := Mux(s.io.coreTrigger.valid, true.B,
+                                                rast.io.coreTrigger.valid)
+    core.io.coreTrigger.pc    := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.pc,
+                                                rast.io.coreTrigger.pc)
 
     core.io.control.start            := rdlRegs.io.hw.control_start
     core.io.control.reset            := rdlRegs.io.hw.control_reset_pipeline
     core.io.control.startPC          := rdlRegs.io.hw.control_start_pc
     // Step 29.3: uniformWritePage mux — sequencer > MMIO.
-    if (cfg.isLarge) {
-      core.io.control.uniformWritePage := Mux(s.io.busy,
-                                              s.io.uniformWritePage,
-                                              rdlRegs.io.hw.control_uniform_write_page)
-    } else {
-      core.io.control.uniformWritePage := rdlRegs.io.hw.control_uniform_write_page
-    }
+    core.io.control.uniformWritePage := Mux(s.io.busy,
+                                            s.io.uniformWritePage,
+                                            rdlRegs.io.hw.control_uniform_write_page)
 
     // CoordLut/RcpLut init port — only used during simulation; synthesis uses $readmemh
     core.io.lutInit.en    := false.B
@@ -161,31 +153,22 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     core.io.lutInit.addr  := 0.U
     core.io.lutInit.data  := 0.U
 
-    // DMA write ports (Step 22.1) — only wired when Large.
+    // DMA write ports (Step 22.1).
     // Uniform write port is shared between DMA and sequencer;
     // sequencer takes priority (they never contend in practice).
-    if (cfg.isLarge) {
-      core.io.dmaImemWrite <> d.io.imemWrite
-      core.io.dmaUniformWrite.en   := d.io.uniformWrite.en || s.io.uniformWrite.en
-      core.io.dmaUniformWrite.addr := Mux(s.io.uniformWrite.en,
-                                          s.io.uniformWrite.addr,
-                                          d.io.uniformWrite.addr)
-      core.io.dmaUniformWrite.data := Mux(s.io.uniformWrite.en,
-                                          s.io.uniformWrite.data,
-                                          d.io.uniformWrite.data)
-      // Snoop: sequencer observes what DMA writes to the uniform buffer
-      s.io.dma.uniformSnoop.en   := d.io.uniformWrite.en
-      s.io.dma.uniformSnoop.addr := d.io.uniformWrite.addr(2, 0)
-      s.io.dma.uniformSnoop.data := d.io.uniformWrite.data
-      s.io.dma.snoop             := d.io.snoop
-    } else {
-      core.io.dmaImemWrite.en   := false.B
-      core.io.dmaImemWrite.addr := 0.U
-      core.io.dmaImemWrite.data := 0.U
-      core.io.dmaUniformWrite.en   := false.B
-      core.io.dmaUniformWrite.addr := 0.U
-      core.io.dmaUniformWrite.data := 0.U
-    }
+    core.io.dmaImemWrite <> d.io.imemWrite
+    core.io.dmaUniformWrite.en   := d.io.uniformWrite.en || s.io.uniformWrite.en
+    core.io.dmaUniformWrite.addr := Mux(s.io.uniformWrite.en,
+                                        s.io.uniformWrite.addr,
+                                        d.io.uniformWrite.addr)
+    core.io.dmaUniformWrite.data := Mux(s.io.uniformWrite.en,
+                                        s.io.uniformWrite.data,
+                                        d.io.uniformWrite.data)
+    // Snoop: sequencer observes what DMA writes to the uniform buffer
+    s.io.dma.uniformSnoop.en   := d.io.uniformWrite.en
+    s.io.dma.uniformSnoop.addr := d.io.uniformWrite.addr(2, 0)
+    s.io.dma.uniformSnoop.data := d.io.uniformWrite.data
+    s.io.dma.snoop             := d.io.snoop
 
     // Step 34.6: FTEX core ↔ rasterizer texture request/response
     rast.io.texReq  := core.io.texReq
@@ -199,7 +182,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private def wireRasterizer(): Unit = {
     rast.io.advance   := (bus.is_writing && bus.address === BorgGpuRegs.iter_offset) ||
-                         (if (cfg.isLarge) s.io.iter.iterate else false.B)
+                         s.io.iter.iterate
 
     // Pipeline write-back snoop
     rast.io.pipeWrite <> core.io.pipeWrite
@@ -209,35 +192,30 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // GPU memory port: arbitration.
     // Priority: DMA > Flusher > Geo (Binner+Store) > Rast (texFetch).
-    if (cfg.isLarge) {
-      val geoBusy  = b.io.busy || s.io.store.active
-      val geoReq   = Mux(b.io.busy, b.io.gpuMem.req,   s.io.store.req)
-      val geoAddr  = Mux(b.io.busy, b.io.gpuMem.addr,  s.io.store.addr)
-      val geoWr    = Mux(b.io.busy, b.io.gpuMem.wr,    true.B)
-      val geoWdata = Mux(b.io.busy, b.io.gpuMem.wdata, s.io.store.wdata)
+    val geoBusy  = b.io.busy || s.io.store.active
+    val geoReq   = Mux(b.io.busy, b.io.gpuMem.req,   s.io.store.req)
+    val geoAddr  = Mux(b.io.busy, b.io.gpuMem.addr,  s.io.store.addr)
+    val geoWr    = Mux(b.io.busy, b.io.gpuMem.wr,    true.B)
+    val geoWdata = Mux(b.io.busy, b.io.gpuMem.wdata, s.io.store.wdata)
 
-      // 4-way mux: DMA > Flusher > Geo > Rast
-      io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
-                         Mux(f.io.busy, f.io.gpuMem.req,
-                         Mux(geoBusy, geoReq, rast.io.gpuMem.req)))
-      io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
-                         Mux(f.io.busy, f.io.gpuMem.addr,
-                         Mux(geoBusy, geoAddr, rast.io.gpuMem.addr)))
-      io.gpuMem.wr    := Mux(d.io.busy, false.B,  // DMA only reads — never assert wr
-                         Mux(f.io.busy, f.io.gpuMem.wr,
-                         Mux(geoBusy, geoWr, rast.io.gpuMem.wr)))
-      io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
-                         Mux(geoBusy, geoWdata, rast.io.gpuMem.wdata))
-      rast.io.gpuMem.data  := io.gpuMem.data
-      rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy
-      f.io.gpuMem.data  := io.gpuMem.data
-      f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
-      d.io.gpuMem.data  := io.gpuMem.data
-      d.io.gpuMem.ready := io.gpuMem.ready && d.io.busy
-    } else {
-      // Small: rast is the only PSRAM consumer
-      io.gpuMem <> rast.io.gpuMem
-    }
+    // 4-way mux: DMA > Flusher > Geo > Rast
+    io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
+                       Mux(f.io.busy, f.io.gpuMem.req,
+                       Mux(geoBusy, geoReq, rast.io.gpuMem.req)))
+    io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
+                       Mux(f.io.busy, f.io.gpuMem.addr,
+                       Mux(geoBusy, geoAddr, rast.io.gpuMem.addr)))
+    io.gpuMem.wr    := Mux(d.io.busy, false.B,  // DMA only reads — never assert wr
+                       Mux(f.io.busy, f.io.gpuMem.wr,
+                       Mux(geoBusy, geoWr, rast.io.gpuMem.wr)))
+    io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
+                       Mux(geoBusy, geoWdata, rast.io.gpuMem.wdata))
+    rast.io.gpuMem.data  := io.gpuMem.data
+    rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy
+    f.io.gpuMem.data  := io.gpuMem.data
+    f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
+    d.io.gpuMem.data  := io.gpuMem.data
+    d.io.gpuMem.ready := io.gpuMem.ready && d.io.busy
 
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
     rast.io.texConfig.baseAddr := rdlRegs.io.hw.tex_config_base_addr
@@ -257,23 +235,15 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val ctrlWriting = bus.is_writing && bus.address === BorgGpuRegs.tile_ctrl_offset
     val tileReadIdx = rdlRegs.io.hw.tile_ctrl_read_idx
     
-    val seqClear = if (cfg.isLarge) s.io.iter.clear else false.B
+    val seqClear = s.io.iter.clear
     tile.io.clear.en := rdlRegs.io.hw.tile_ctrl_clear.asBool || seqClear
 
     // Wire clear color: sequencer-driven or MMIO-driven (tile_bz shadow).
     // Sequencer clear color format: lo = {B[31:16], Z[15:0]}, hi = {R[31:16], G[15:0]}.
-    if (cfg.isLarge) {
-      tile.io.clear.color.r := Mux(seqClear, s.io.mmio.clearColorHi(31, 16), 0.U)
-      tile.io.clear.color.g := Mux(seqClear, s.io.mmio.clearColorHi(15, 0), 0.U)
-      tile.io.clear.color.b := Mux(seqClear, s.io.mmio.clearColorLo(31, 16), 0.U)
-      tile.io.clear.color.z := Mux(seqClear, s.io.mmio.clearColorLo(15, 0), 0x7BFF.U(16.W))
-    } else {
-      // pico-ice: no sequencer, clear to black + max depth
-      tile.io.clear.color.r := 0.U
-      tile.io.clear.color.g := 0.U
-      tile.io.clear.color.b := 0.U
-      tile.io.clear.color.z := 0x7BFF.U(16.W)
-    }
+    tile.io.clear.color.r := Mux(seqClear, s.io.mmio.clearColorHi(31, 16), 0.U)
+    tile.io.clear.color.g := Mux(seqClear, s.io.mmio.clearColorHi(15, 0), 0.U)
+    tile.io.clear.color.b := Mux(seqClear, s.io.mmio.clearColorLo(31, 16), 0.U)
+    tile.io.clear.color.z := Mux(seqClear, s.io.mmio.clearColorLo(15, 0), 0x7BFF.U(16.W))
 
     // Two-step protocol: shadow BZ written first, RG write triggers tile buffer write.
     // tile_bz_b/tile_bz_z are captured by the RDL (tile_bz_b_reg/tile_bz_z_reg) and
@@ -293,16 +263,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Read port: flusher > dispatcher depth-test > MMIO CTRL.
     // Flusher and dispatcher never fire simultaneously (flusher waits for
     // autoRunStall to drop).  Mux required for correctness.
-    if (cfg.isLarge) {
-      tile.io.read.idx := Mux(f.io.read.en, f.io.read.idx,
-                             Mux(rast.io.tileRead.en, rast.io.tileRead.idx,
-                                Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx)))
-      tile.io.read.en  := f.io.read.en || rast.io.tileRead.en || ctrlWriting
-    } else {
-      tile.io.read.idx := Mux(rast.io.tileRead.en, rast.io.tileRead.idx,
-                             Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx))
-      tile.io.read.en  := rast.io.tileRead.en || ctrlWriting
-    }
+    tile.io.read.idx := Mux(f.io.read.en, f.io.read.idx,
+                           Mux(rast.io.tileRead.en, rast.io.tileRead.idx,
+                              Mux(ctrlWriting, bus.data_in(3, 0), tileReadIdx)))
+    tile.io.read.en  := f.io.read.en || rast.io.tileRead.en || ctrlWriting
 
     // Feed tile read data back to both flusher and dispatcher.
     rast.io.tileRead.data := tile.io.read.data
@@ -318,36 +282,32 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * - tile read port: muxed in wireTileBuffer() above.
     */
   private def wireFlusher(): Unit = {
-    if (cfg.isLarge) {
-      val flushTileBaseReg = RegInit(0.U(20.W))
-      when(bus.is_writing && bus.address === BorgGpuRegs.flush_fb_base_offset) {
-        flushTileBaseReg := bus.data_in(19, 0)
-      }
-
-      val flushPending = RegInit(false.B)
-      // Legacy per-tile flush: only active when sequencer is idle.
-      // When the sequencer is busy, it manages flushes via s.io.flusher.trigger.
-      when(rast.io.tileComplete && !s.io.busy) { flushPending := true.B }
-
-      val seqFlushActive = s.io.flusher.trigger
-
-      when(flushPending && !rast.io.autoRunStall && !seqFlushActive) {
-        f.io.start   := true.B
-        flushPending := false.B
-      }.elsewhen(seqFlushActive) {
-        f.io.start   := true.B
-        when(flushPending) { flushPending := false.B }
-      }.otherwise {
-        f.io.start := false.B
-      }
-
-      f.io.read.data := tile.io.read.data
-      f.io.tileBase  := Mux(seqFlushActive, s.io.flusher.base, flushTileBaseReg)
-      s.io.flusher.busy := f.io.busy
-      rdlRegs.io.hw.status_flush_busy := (flushPending || f.io.busy).asUInt
-    } else {
-      rdlRegs.io.hw.status_flush_busy := 0.U
+    val flushTileBaseReg = RegInit(0.U(20.W))
+    when(bus.is_writing && bus.address === BorgGpuRegs.flush_fb_base_offset) {
+      flushTileBaseReg := bus.data_in(19, 0)
     }
+
+    val flushPending = RegInit(false.B)
+    // Legacy per-tile flush: only active when sequencer is idle.
+    // When the sequencer is busy, it manages flushes via s.io.flusher.trigger.
+    when(rast.io.tileComplete && !s.io.busy) { flushPending := true.B }
+
+    val seqFlushActive = s.io.flusher.trigger
+
+    when(flushPending && !rast.io.autoRunStall && !seqFlushActive) {
+      f.io.start   := true.B
+      flushPending := false.B
+    }.elsewhen(seqFlushActive) {
+      f.io.start   := true.B
+      when(flushPending) { flushPending := false.B }
+    }.otherwise {
+      f.io.start := false.B
+    }
+
+    f.io.read.data := tile.io.read.data
+    f.io.tileBase  := Mux(seqFlushActive, s.io.flusher.base, flushTileBaseReg)
+    s.io.flusher.busy := f.io.busy
+    rdlRegs.io.hw.status_flush_busy := (flushPending || f.io.busy).asUInt
   }
 
   // @doc:mmio
@@ -357,25 +317,14 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val writeCmd = bus.is_writing && bus.address === BorgGpuRegs.cmd_enqueue_offset
     val isEnqueue = RegNext(writeCmd, false.B)
     
-    if (cfg.isLarge) {
-      val seqEnqueue = s.io.iter.enqueue.valid
-      fifo.io.enq.valid := isEnqueue || seqEnqueue
-      fifo.io.enq.bits.tileOrigin.x := Mux(seqEnqueue, s.io.iter.enqueue.bits.x, rdlRegs.io.hw.cmd_enqueue_tile_x(cfg.coordWidth - 1, 0))
-      fifo.io.enq.bits.tileOrigin.y := Mux(seqEnqueue, s.io.iter.enqueue.bits.y, rdlRegs.io.hw.cmd_enqueue_tile_y(cfg.coordWidth - 1, 0))
-    } else {
-      fifo.io.enq.valid := isEnqueue
-      fifo.io.enq.bits.tileOrigin.x := rdlRegs.io.hw.cmd_enqueue_tile_x(cfg.coordWidth - 1, 0)
-      fifo.io.enq.bits.tileOrigin.y := rdlRegs.io.hw.cmd_enqueue_tile_y(cfg.coordWidth - 1, 0)
-    }
+    val seqEnqueue = s.io.iter.enqueue.valid
+    fifo.io.enq.valid := isEnqueue || seqEnqueue
+    fifo.io.enq.bits.tileOrigin.x := Mux(seqEnqueue, s.io.iter.enqueue.bits.x, rdlRegs.io.hw.cmd_enqueue_tile_x(cfg.coordWidth - 1, 0))
+    fifo.io.enq.bits.tileOrigin.y := Mux(seqEnqueue, s.io.iter.enqueue.bits.y, rdlRegs.io.hw.cmd_enqueue_tile_y(cfg.coordWidth - 1, 0))
 
     rast.io.cmdPop <> fifo.io.deq
-    if (cfg.isLarge) {
-      core.io.uniformPage := Mux(s.io.busy, s.io.uniformWritePage, rast.io.uniformPage)
-      core.io.seqBusy     := s.io.seqShaderActive
-    } else {
-      core.io.uniformPage := rast.io.uniformPage
-      core.io.seqBusy     := false.B
-    }
+    core.io.uniformPage := Mux(s.io.busy, s.io.uniformWritePage, rast.io.uniformPage)
+    core.io.seqBusy     := s.io.seqShaderActive
 
     // O8: use RDL's internal readAddr (RegNext of address) instead of a duplicate register.
     val read_addr_del = RegNext(bus.address)
@@ -416,13 +365,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val data_out = MuxCase(rdl_read_data, Seq(
       (read_addr_del < 128.U) -> core.io.regReadData,
       (read_addr_del === BorgGpuRegs.tile_rg_offset) -> Cat(tile.io.read.data.r, tile.io.read.data.g),
-      (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.read.data.b, tile.io.read.data.z)
-    ) ++ (if (cfg.isLarge) Seq(
+      (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.read.data.b, tile.io.read.data.z),
       // Repurpose the write-only SEQ_TRIGGER address for reading seqDoneSticky.
       // Firmware reads this after triggering with triCount=0 to detect
       // whether the sequencer hardware is present.
-      (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> seqDoneSticky.get.asUInt
-    ) else Seq.empty))
+      (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> seqDoneSticky.asUInt
+    ))
 
     // Resp drive: data_out is combinational from read_addr_del (= RegNext of
     // bus.address), which is stable from the cycle after req.fire onward —
@@ -435,37 +383,33 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // @doc:end
 
   private def wireDMA(): Unit = {
-    if (cfg.isLarge) {
-      val dmaBaseReg   = RegInit(0.U(20.W))
-      val dmaLenReg    = RegInit(0.U(6.W))
-      val dmaDestReg   = RegInit(0.U(2.W))
-      val dmaOffsetReg = RegInit(0.U(6.W))
-      val dmaStartPulse = WireDefault(false.B)
+    val dmaBaseReg   = RegInit(0.U(20.W))
+    val dmaLenReg    = RegInit(0.U(6.W))
+    val dmaDestReg   = RegInit(0.U(2.W))
+    val dmaOffsetReg = RegInit(0.U(6.W))
+    val dmaStartPulse = WireDefault(false.B)
 
-      when(bus.is_writing && bus.address === BorgGpuRegs.dma_psram_offset) {
-        dmaBaseReg := bus.data_in(19, 0)
-      }
-      when(bus.is_writing && bus.address === BorgGpuRegs.dma_config_offset) {
-        dmaLenReg    := bus.data_in(6, 1)
-        dmaDestReg   := bus.data_in(8, 7)
-        dmaOffsetReg := bus.data_in(14, 9)
-        dmaStartPulse := bus.data_in(0)
-      }
-
-      val mmioDesc = Wire(new DMADescriptor)
-      mmioDesc.baseAddr := dmaBaseReg
-      mmioDesc.length   := dmaLenReg
-      mmioDesc.dest     := dmaDestReg
-      mmioDesc.offset   := dmaOffsetReg
-
-      // DMA mux: sequencer > MMIO
-      d.io.start     := Mux(s.io.busy, s.io.dma.start, dmaStartPulse)
-      d.io.desc      := Mux(s.io.busy, s.io.dma.desc,  mmioDesc)
-      s.io.dma.busy  := d.io.busy
-      rdlRegs.io.hw.status_dma_busy := d.io.busy.asUInt
-    } else {
-      rdlRegs.io.hw.status_dma_busy := 0.U
+    when(bus.is_writing && bus.address === BorgGpuRegs.dma_psram_offset) {
+      dmaBaseReg := bus.data_in(19, 0)
     }
+    when(bus.is_writing && bus.address === BorgGpuRegs.dma_config_offset) {
+      dmaLenReg    := bus.data_in(6, 1)
+      dmaDestReg   := bus.data_in(8, 7)
+      dmaOffsetReg := bus.data_in(14, 9)
+      dmaStartPulse := bus.data_in(0)
+    }
+
+    val mmioDesc = Wire(new DMADescriptor)
+    mmioDesc.baseAddr := dmaBaseReg
+    mmioDesc.length   := dmaLenReg
+    mmioDesc.dest     := dmaDestReg
+    mmioDesc.offset   := dmaOffsetReg
+
+    // DMA mux: sequencer > MMIO
+    d.io.start     := Mux(s.io.busy, s.io.dma.start, dmaStartPulse)
+    d.io.desc      := Mux(s.io.busy, s.io.dma.desc,  mmioDesc)
+    s.io.dma.busy  := d.io.busy
+    rdlRegs.io.hw.status_dma_busy := d.io.busy.asUInt
   }
 
   /** Step 29.0/29.1/29.2: Wire BorgSequencer MMIO decode, status bit, and
@@ -487,8 +431,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * - Uniform write port muxed in wireCore() (sequencer > DMA).
     */
   private def wireSequencer(): Unit = {
-    if (cfg.isLarge) {
-      val seqDescBaseReg   = RegInit(0.U(20.W))
+    val seqDescBaseReg   = RegInit(0.U(20.W))
       val seqVertAddrReg   = RegInit(0.U(20.W))
       val seqVertLenReg    = RegInit(0.U(6.W))
       val seqSetupAddrReg  = RegInit(0.U(20.W))
@@ -511,7 +454,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_desc_base_offset)    { seqDescBaseReg := bus.data_in(19, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_trigger_offset) {
         seqStartPulse := bus.data_in(0)
-        seqDoneSticky.get := false.B   // clear sticky on new trigger
+        seqDoneSticky := false.B   // clear sticky on new trigger
       }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_addr_offset)    { seqVertAddrReg := bus.data_in(19, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_len_offset)     { seqVertLenReg := bus.data_in(5, 0) }
@@ -567,12 +510,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.pipeWrite.data := core.io.pipeWrite.data
 
       // Latch sticky done when sequencer pulses io.done
-      when(s.io.done) { seqDoneSticky.get := true.B }
+      when(s.io.done) { seqDoneSticky := true.B }
 
       rdlRegs.io.hw.status_seq_busy := s.io.busy.asUInt
-    } else {
-      rdlRegs.io.hw.status_seq_busy := 0.U
-    }
   }
 
   /** Step 32.2: Wire BorgBinner — sequencer-driven geometry pass binning.
@@ -586,26 +526,24 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * in wireRasterizer().
     */
   private def wireBinner(): Unit = {
-    if (cfg.isLarge) {
-      b.io.start       := s.io.binner.start
-      b.io.triIndex    := s.io.binner.triIndex
-      b.io.bbox        := s.io.binner.bbox
-      b.io.clearCounts := s.io.binner.clearCounts
-      b.io.binBase     := s.io.mmio.binBase
-      b.io.binRowBytes := s.io.mmio.binRowBytes
-      b.io.tilesPerRow := s.io.mmio.tilesPerRow
-      s.io.binner.busy := b.io.busy
-      b.io.countReadAddr := s.io.binner.countReadAddr
-      b.io.countReadEn   := s.io.binner.countReadEn
-      s.io.binner.countReadData := b.io.countReadData
+    b.io.start       := s.io.binner.start
+    b.io.triIndex    := s.io.binner.triIndex
+    b.io.bbox        := s.io.binner.bbox
+    b.io.clearCounts := s.io.binner.clearCounts
+    b.io.binBase     := s.io.mmio.binBase
+    b.io.binRowBytes := s.io.mmio.binRowBytes
+    b.io.tilesPerRow := s.io.mmio.tilesPerRow
+    s.io.binner.busy := b.io.busy
+    b.io.countReadAddr := s.io.binner.countReadAddr
+    b.io.countReadEn   := s.io.binner.countReadEn
+    s.io.binner.countReadData := b.io.countReadData
 
-      // GpuMem feedback
-      b.io.gpuMem.data  := io.gpuMem.data
-      b.io.gpuMem.ready := io.gpuMem.ready && b.io.busy && !d.io.busy && !f.io.busy
+    // GpuMem feedback
+    b.io.gpuMem.data  := io.gpuMem.data
+    b.io.gpuMem.ready := io.gpuMem.ready && b.io.busy && !d.io.busy && !f.io.busy
 
-      // Store ready
-      s.io.store.ready := io.gpuMem.ready && s.io.store.active &&
-                          !d.io.busy && !f.io.busy && !b.io.busy
-    }
+    // Store ready
+    s.io.store.ready := io.gpuMem.ready && s.io.store.active &&
+                        !d.io.busy && !f.io.busy && !b.io.busy
   }
 }

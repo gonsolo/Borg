@@ -238,36 +238,23 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Single write() call so CIRCT generates a 1-write-port BRAM (avoids unused W1_clk).
     val mmioImemWrite = cfg.hasImemMmio.B &&
         io.bus.is_writing && io.bus.address >= BorgGpuRegs.imem_offset && io.bus.address < 352.U
-    if (cfg.isLarge) {
-      val imemWen  = io.dmaImemWrite.en || mmioImemWrite
-      val imemAddr = Mux(io.dmaImemWrite.en, io.dmaImemWrite.addr,
-                         (io.bus.address - BorgGpuRegs.imem_offset) >> 2)
-      val imemData = Mux(io.dmaImemWrite.en, io.dmaImemWrite.data, io.bus.data_in)
-      when(imemWen) { instructionMemory.write(imemAddr, imemData) }
-    } else {
-      when(mmioImemWrite) {
-        instructionMemory.write((io.bus.address - BorgGpuRegs.imem_offset) >> 2, io.bus.data_in)
-      }
-    }
+    val imemWen  = io.dmaImemWrite.en || mmioImemWrite
+    val imemAddr = Mux(io.dmaImemWrite.en, io.dmaImemWrite.addr,
+                       (io.bus.address - BorgGpuRegs.imem_offset) >> 2)
+    val imemData = Mux(io.dmaImemWrite.en, io.dmaImemWrite.data, io.bus.data_in)
+    when(imemWen) { instructionMemory.write(imemAddr, imemData) }
 
     // Uniform write: same single-port pattern.
     val mmioUnifWrite = cfg.hasImemMmio.B &&
         io.bus.is_writing && io.bus.address >= BorgGpuRegs.uniform_offset && io.bus.address < 496.U
     val unifIdx = (io.bus.address - BorgGpuRegs.uniform_offset) >> 2
-    if (cfg.isLarge) {
-      val unifWen  = io.dmaUniformWrite.en || mmioUnifWrite
-      val unifAddr = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.addr,
-                         Cat(io.control.uniformWritePage, unifIdx(4, 0)))
-      val unifData = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.data,
-                         io.bus.data_in(config.totalBits - 1, 0))
-      when(unifWen) {
-        uniformMem.write(unifAddr, unifData)
-      }
-    } else {
-      when(mmioUnifWrite) {
-        uniformMem.write(Cat(io.control.uniformWritePage, unifIdx(4, 0)),
-                         io.bus.data_in(config.totalBits - 1, 0))
-      }
+    val unifWen  = io.dmaUniformWrite.en || mmioUnifWrite
+    val unifAddr = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.addr,
+                       Cat(io.control.uniformWritePage, unifIdx(4, 0)))
+    val unifData = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.data,
+                       io.bus.data_in(config.totalBits - 1, 0))
+    when(unifWen) {
+      uniformMem.write(unifAddr, unifData)
     }
   }
 
