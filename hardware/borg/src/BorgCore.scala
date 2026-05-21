@@ -31,7 +31,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // CoordLut/RcpLut initialization (for simulation — synthesis uses loadMemoryFromFileInline)
   val lutInit = Input(new LutInitIO(9, cfg.totalBits))
 
-  // DMA write ports (Step 22.1): used instead of MMIO on FPGA (cfg.hasImemMmio=false)
+  // DMA write ports (Step 22.1): DMA takes priority over MMIO writes
   val dmaImemWrite    = Flipped(new MemWritePort(6, 32))
   val dmaUniformWrite = Flipped(new MemWritePort(6, 16))
 
@@ -234,9 +234,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       auto_run_pending := false.B
     }
 
-    // IMEM write: DMA has priority when hasDMA=true; MMIO gated by cfg.hasImemMmio (Step 22.0).
+    // IMEM write: DMA has priority; MMIO always present (firmware uses MMIO for scalar FPU ops).
     // Single write() call so CIRCT generates a 1-write-port BRAM (avoids unused W1_clk).
-    val mmioImemWrite = cfg.hasImemMmio.B &&
+    val mmioImemWrite =
         io.bus.is_writing && io.bus.address >= BorgGpuRegs.imem_offset && io.bus.address < 352.U
     val imemWen  = io.dmaImemWrite.en || mmioImemWrite
     val imemAddr = Mux(io.dmaImemWrite.en, io.dmaImemWrite.addr,
@@ -245,7 +245,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     when(imemWen) { instructionMemory.write(imemAddr, imemData) }
 
     // Uniform write: same single-port pattern.
-    val mmioUnifWrite = cfg.hasImemMmio.B &&
+    val mmioUnifWrite =
         io.bus.is_writing && io.bus.address >= BorgGpuRegs.uniform_offset && io.bus.address < 496.U
     val unifIdx = (io.bus.address - BorgGpuRegs.uniform_offset) >> 2
     val unifWen  = io.dmaUniformWrite.en || mmioUnifWrite

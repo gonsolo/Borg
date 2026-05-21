@@ -35,9 +35,6 @@ class Ecp5BiDirBuf extends ExtModule {
   * UART: ftdi_rxd = FPGA→host TX (debug output at 115200 baud).
   */
 class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
-  // Use the SAME Borg config as the simulator — they MUST be identical so the
-  // sim faithfully models hardware. A divergent ULX3S config (hasImemMmio=false)
-  // previously shipped a HW-only bug the sim couldn't see. (pico-ice retired.)
   override def BORG_CFG: BorgConfig = BorgConfig.Default
 
   // ── Board clock and reset ──────────────────────────────────────────────────
