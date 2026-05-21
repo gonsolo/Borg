@@ -27,8 +27,8 @@ Verilog emission is gated by a stamp file (`.verilog_stamp`, `.verilog_stamp_ulx
 # Tests
 make test-all                   # quiet runner with ✓/✗ per suite (scripts/test_runner.py)
 make test-chisel-borg           # Chisel unit tests for Borg FPU/pipeline
-make test-chisel-core           # Chisel CPU tests (currently expects hardware.tinyqv — stale after Hutt rename)
-make test-cocotb-soc-core-rtl   # cocotb RTL tests for the CPU SoC
+make test-chisel-core           # Chisel CPU tests — runs mill hardware.hutt.test (the Hutt core)
+make test-cocotb-soc-core-rtl   # cocotb RTL tests for the CPU SoC — all 5 currently @skip=True (stale: built on the deleted TinyQV nibble-streaming protocol; need a rewrite for Hutt's QspiBackend)
 make test-cocotb-soc-borg-rtl   # cocotb RTL tests for the Borg peripheral
 make test-cocotb-soc-core-gl    # gate-level (post-synth) variants
 make test-cocotb-soc-borg-gl
