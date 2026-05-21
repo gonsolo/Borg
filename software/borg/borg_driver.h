@@ -71,6 +71,12 @@ void borg_set_texture(int tex_width, int tex_height);
 // Disable texturing for subsequent draw calls
 void borg_clear_texture(void);
 
+// Upload a row-major RGB-FP16 texture (dim×dim, 6 bytes/texel) into the GPU
+// texture region, Morton-encoded into the hardware's 2-word layout.  Needed on
+// targets with no host to preload SDRAM (e.g. ULX3S); mirrors the simulator's
+// load_texture_to_psram().
+void borg_upload_texture(const uint8_t *rgb_fp16, int dim);
+
 // Render a triangle: vertex shade → rasterize → z-test → fragment shade → framebuffer.
 // Mirrors vkCmdDraw().
 void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame);

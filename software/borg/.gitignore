@@ -9,3 +9,4 @@ borg_psram.asm
 borg_mmio.h
 test_raster
 .cflags_stamp
+texture_blob.h

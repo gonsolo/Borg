@@ -10,6 +10,7 @@
 #include "borg_sys.h"
 #include "borg_isa.h"
 #include "compiler/shader_blobs.h"
+#include "texture_blob.h"   // test_texture_dat[] — 32×32 RGB-FP16 source texture
 
 // FP16 vertex position constants (can't use fp16_from_float in const initializers)
 #define FP16_POS_055  0x38CD  //  0.55
@@ -79,6 +80,9 @@ int main() {
     borg_set_angle(&draw, fp16_from_float(0.6283f));  // 36 degrees
 
     borg_clear_zbuffer(0, (rgb16_t){FP16_ZERO, FP16_ZERO, FP16_ZERO});
+    // ULX3S has no host to preload the GPU texture region, so the CPU writes
+    // the embedded texture into SDRAM itself (Morton-encoded to match sim).
+    borg_upload_texture(test_texture_dat, TEX_WIDTH);
     borg_set_texture(TEX_WIDTH, TEX_HEIGHT);
     borgCmdDraw(&draw, back_tri, 0);   // draw back (textured)
     borg_clear_texture();

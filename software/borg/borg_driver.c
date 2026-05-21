@@ -424,6 +424,29 @@ void borg_clear_texture(void) {
   BORG_GPU->tex_config = 0;
 }
 
+// Upload a row-major RGB-FP16 texture (6 bytes/texel: R, G, B each one FP16
+// halfword) into the GPU texture region at TEX_PSRAM_BYTE_ADDR_FIXED, Morton-
+// encoded into the 2-word (8-byte) layout the hardware sTexFetch reads:
+//   word0 = { G[15:0], R[15:0] }    word1 = { 0, B[15:0] }
+// This mirrors the simulator's load_texture_to_psram() byte-for-byte so the
+// hardware framebuffer matches sim.  In sim the host preloads PSRAM; on ULX3S
+// there is no host, so the CPU writes the texels into SDRAM itself.  Writes are
+// full 32-bit words on 8-byte-aligned addresses, so no byte-write RMW occurs.
+void borg_upload_texture(const uint8_t *rgb_fp16, int dim) {
+  for (int y = 0; y < dim; y++) {
+    for (int x = 0; x < dim; x++) {
+      int src = y * dim + x;
+      uint32_t dst = morton_encode((uint32_t)x, (uint32_t)y);
+      uint16_t r = rgb_fp16[(src * 3 + 0) * 2] | (rgb_fp16[(src * 3 + 0) * 2 + 1] << 8);
+      uint16_t g = rgb_fp16[(src * 3 + 1) * 2] | (rgb_fp16[(src * 3 + 1) * 2 + 1] << 8);
+      uint16_t b = rgb_fp16[(src * 3 + 2) * 2] | (rgb_fp16[(src * 3 + 2) * 2 + 1] << 8);
+      uint32_t byte_addr = TEX_PSRAM_BYTE_ADDR_FIXED + dst * 8;
+      PSRAM_OUT_RAW(byte_addr)     = (uint32_t)r | ((uint32_t)g << 16);
+      PSRAM_OUT_RAW(byte_addr + 4) = (uint32_t)b;
+    }
+  }
+}
+
 // --- Triangle Clipping (Step 6) ---
 
 // Linearly interpolate between two clip vertices: result = a + t * (b - a)

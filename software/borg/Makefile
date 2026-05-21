@@ -53,7 +53,7 @@ test-native: test_raster.c borg_raster.c borg_math.c
 	./test_raster
 
 clean:
-	rm -f *.o *.elf *.bin *.hex *.asm test_raster .cflags_stamp
+	rm -f *.o *.elf *.bin *.hex *.asm test_raster .cflags_stamp texture_blob.h
 	$(MAKE) -C compiler clean
 	$(MAKE) -C python clean
 
@@ -75,6 +75,19 @@ CFLAGS_FW = -O2 -I$(HUTT_SDK) -I$(RDL_C_OUT) -march=$(ARCH) -mabi=$(ABI) \
 .PHONY: force_cflags_check
 .cflags_stamp: force_cflags_check
 	@printf '%s' '$(CFLAGS_FW)' | cmp -s - $@ 2>/dev/null || printf '%s' '$(CFLAGS_FW)' > $@
+
+# Embed the triangle's 32×32 RGB-FP16 texture as a C array (xxd → test_texture_dat[]).
+# The firmware Morton-encodes it into SDRAM at boot via borg_upload_texture(),
+# since on ULX3S there is no host to preload the GPU texture region.
+texture_blob.h: test_texture.dat
+	@echo "// Auto-generated: embedded RGB-FP16 source texture (row-major, 6 B/texel)" > $@
+	@echo "#pragma once" >> $@
+	@echo "#include <stdint.h>" >> $@
+	@echo "" >> $@
+	@xxd -i test_texture.dat >> $@
+
+# borg_triangle.c #includes the generated texture blob.
+borg_triangle.o: texture_blob.h
 
 %.o: %.c $(HEADERS) .cflags_stamp
 	@$(CC) $(CFLAGS_FW) -c $< -o $@
