@@ -9,9 +9,9 @@ import utest._
 
 /** Unit tests for BorgTileFlusher (Step 25.4.2 Option A — DMA architecture).
   *
-  * The flusher is now a 5-state DMA engine: reads 16 tile SRAM entries and
-  * writes 32 PSRAM words (2 per entry: lo=R|G, hi=B|Z).
-  * No depth test, no per-pixel address arithmetic.
+  * The flusher is an 8-state DMA engine: reads 16 tile SRAM entries and
+  * writes 64 PSRAM words (4 per entry: R, G, B, Z channels individually at
+  * stride +2 bytes each).
   */
 object BorgTileFlusherTests extends TestSuite {
 
@@ -32,9 +32,21 @@ object BorgTileFlusherTests extends TestSuite {
     d.clock.step(1)
   }
 
+  // Drive one full entry through: 3 setup steps then 4 ready pulses (R/G/B/Z).
+  def driveEntry(d: BorgTileFlusher): Unit = {
+    d.clock.step(1)  // sReadSram → sWaitSram
+    d.clock.step(1)  // sWaitSram → sWaitSram2
+    d.clock.step(1)  // sWaitSram2 → sWriteR
+    for (_ <- 0 until 4) {
+      d.io.gpuMem.ready.poke(true.B)
+      d.clock.step(1)
+      d.io.gpuMem.ready.poke(false.B)
+    }
+  }
+
   val tests = Tests {
 
-    // Test: idle → busy on start, returns to idle after 32 writes
+    // Test: idle → busy on start, returns to idle after 64 writes
     utest.test("start_busy_handshake") {
       simulate(new BorgTileFlusher) { d =>
         println("\n--- BorgTileFlusher: start_busy_handshake ---")
@@ -50,8 +62,7 @@ object BorgTileFlusherTests extends TestSuite {
         println(f"  After start: busy=$busy (expect true)")
         utest.assert(busy)
 
-        // Drive ready for all 32 writes (2 per entry × 16 entries).
-        // Each entry: sReadSram(1) + sWaitSram(1) + sWriteLo(1+) + sWriteHi(1+) ≥ 4 cycles.
+        // Drive ready for all 64 writes (4 per entry × 16 entries).
         var done = false
         for (_ <- 0 until 200) {
           if (d.io.gpuMem.wr.peek().litToBoolean) {
@@ -109,18 +120,27 @@ object BorgTileFlusherTests extends TestSuite {
           utest.assert(en)
           utest.assert(idx == expected_idx)
 
-          // sReadSram → sWaitSram → sWaitSram2 → sLatchData → sWriteLo (4 plain steps)
+          // sReadSram → sWaitSram → sWaitSram2 → sWriteR (3 plain steps)
           d.clock.step(1)  // → sWaitSram
           d.clock.step(1)  // → sWaitSram2
-          d.clock.step(1)  // → sLatchData
-          d.clock.step(1)  // → sWriteLo
+          d.clock.step(1)  // → sWriteR
 
-          // sWriteLo: ready → sWriteHi
+          // sWriteR: ready → sWriteG
           d.io.gpuMem.ready.poke(true.B)
           d.clock.step(1)
           d.io.gpuMem.ready.poke(false.B)
 
-          // sWriteHi: ready → sReadSram (next entry) or sIdle (last)
+          // sWriteG: ready → sWriteB
+          d.io.gpuMem.ready.poke(true.B)
+          d.clock.step(1)
+          d.io.gpuMem.ready.poke(false.B)
+
+          // sWriteB: ready → sWriteZ
+          d.io.gpuMem.ready.poke(true.B)
+          d.clock.step(1)
+          d.io.gpuMem.ready.poke(false.B)
+
+          // sWriteZ: ready → sReadSram (next entry) or sIdle (last)
           d.io.gpuMem.ready.poke(true.B)
           d.clock.step(1)
           d.io.gpuMem.ready.poke(false.B)
@@ -133,10 +153,10 @@ object BorgTileFlusherTests extends TestSuite {
 
 
     // Test: PSRAM write addresses are correct
-    // tileBase=0x100, entry 0: lo at 0x100, hi at 0x104
-    //                  entry 1: lo at 0x108, hi at 0x10C
+    // tileBase=0x100, entry 0: R=0x100, G=0x102, B=0x104, Z=0x106
+    //                  entry 1: R=0x108, G=0x10A, B=0x10C, Z=0x10E
     //                  ...
-    //                  entry 15: lo at 0x178, hi at 0x17C
+    //                  entry 15: R=0x178, G=0x17A, B=0x17C, Z=0x17E
     utest.test("write_addresses") {
       simulate(new BorgTileFlusher) { d =>
         println("\n--- BorgTileFlusher: write_addresses ---")
@@ -152,25 +172,43 @@ object BorgTileFlusherTests extends TestSuite {
         // Now in sReadSram (entry 0)
 
         for (entry <- 0 until 16) {
-          // sReadSram → sWaitSram → sWaitSram2 → sLatchData → sWriteLo (4 plain steps)
+          // sReadSram → sWaitSram → sWaitSram2 → sWriteR (3 plain steps)
           d.clock.step(1)  // → sWaitSram
           d.clock.step(1)  // → sWaitSram2
-          d.clock.step(1)  // → sLatchData
-          d.clock.step(1)  // → sWriteLo
-          // Now in sWriteLo: check address
-          val addrLo = d.io.gpuMem.addr.peek().litValue.toInt
-          val expLo  = tileBase + entry * 8
-          println(f"  entry $entry lo: addr=0x$addrLo%X (expect 0x$expLo%X)")
-          utest.assert(addrLo == expLo)
+          d.clock.step(1)  // → sWriteR
+
+          // sWriteR: R at tileBase + entry*8
+          val addrR = d.io.gpuMem.addr.peek().litValue.toInt
+          val expR  = tileBase + entry * 8
+          println(f"  entry $entry R: addr=0x$addrR%X (expect 0x$expR%X)")
+          utest.assert(addrR == expR)
           d.io.gpuMem.ready.poke(true.B)
           d.clock.step(1)
           d.io.gpuMem.ready.poke(false.B)
 
-          // Now in sWriteHi: check address
-          val addrHi = d.io.gpuMem.addr.peek().litValue.toInt
-          val expHi  = tileBase + entry * 8 + 4
-          println(f"  entry $entry hi: addr=0x$addrHi%X (expect 0x$expHi%X)")
-          utest.assert(addrHi == expHi)
+          // sWriteG: G at tileBase + entry*8 + 2
+          val addrG = d.io.gpuMem.addr.peek().litValue.toInt
+          val expG  = tileBase + entry * 8 + 2
+          println(f"  entry $entry G: addr=0x$addrG%X (expect 0x$expG%X)")
+          utest.assert(addrG == expG)
+          d.io.gpuMem.ready.poke(true.B)
+          d.clock.step(1)
+          d.io.gpuMem.ready.poke(false.B)
+
+          // sWriteB: B at tileBase + entry*8 + 4
+          val addrB = d.io.gpuMem.addr.peek().litValue.toInt
+          val expB  = tileBase + entry * 8 + 4
+          println(f"  entry $entry B: addr=0x$addrB%X (expect 0x$expB%X)")
+          utest.assert(addrB == expB)
+          d.io.gpuMem.ready.poke(true.B)
+          d.clock.step(1)
+          d.io.gpuMem.ready.poke(false.B)
+
+          // sWriteZ: Z at tileBase + entry*8 + 6
+          val addrZ = d.io.gpuMem.addr.peek().litValue.toInt
+          val expZ  = tileBase + entry * 8 + 6
+          println(f"  entry $entry Z: addr=0x$addrZ%X (expect 0x$expZ%X)")
+          utest.assert(addrZ == expZ)
           d.io.gpuMem.ready.poke(true.B)
           d.clock.step(1)
           d.io.gpuMem.ready.poke(false.B)
@@ -182,13 +220,12 @@ object BorgTileFlusherTests extends TestSuite {
     }
 
 
-    // Test: write data matches tile SRAM entry (lo=R|G, hi=B|Z)
+    // Test: write data matches tile SRAM entry (R, G, B, Z as individual 16-bit words)
     utest.test("write_data_matches_sram") {
       simulate(new BorgTileFlusher) { d =>
         println("\n--- BorgTileFlusher: write_data_matches_sram ---")
         resetDut(d)
 
-        // Poke specific values into tile SRAM read port
         val r = 0x3C00; val g = 0x4000; val b = 0x4200; val z = 0x1234
         d.io.read.data.r.poke(r.U)
         d.io.read.data.g.poke(g.U)
@@ -198,26 +235,44 @@ object BorgTileFlusherTests extends TestSuite {
         d.io.start.poke(true.B)
         d.clock.step(1)
         d.io.start.poke(false.B)
-        // sReadSram → sWaitSram → sWaitSram2 → sLatchData → sWriteLo (4 plain steps)
+        // sReadSram → sWaitSram → sWaitSram2 → sWriteR (3 plain steps)
         d.clock.step(1)  // → sWaitSram
         d.clock.step(1)  // → sWaitSram2
-        d.clock.step(1)  // → sLatchData
-        d.clock.step(1)  // → sWriteLo
-        // Now in sWriteLo
-        val wdataLo = d.io.gpuMem.wdata.peek().litValue.toLong
-        println(f"  sWriteLo wdata=0x$wdataLo%08X")
+        d.clock.step(1)  // → sWriteR
+
+        val wdataR = d.io.gpuMem.wdata.peek().litValue.toLong
+        println(f"  sWriteR wdata=0x$wdataR%X (expect 0x${r.toLong}%X)")
         utest.assert(d.io.gpuMem.wr.peek().litToBoolean)
+        utest.assert(wdataR == r.toLong)
         d.io.gpuMem.ready.poke(true.B)
         d.clock.step(1)
         d.io.gpuMem.ready.poke(false.B)
 
-        val wdataHi = d.io.gpuMem.wdata.peek().litValue.toLong
-        println(f"  sWriteHi wdata=0x$wdataHi%08X")
+        val wdataG = d.io.gpuMem.wdata.peek().litValue.toLong
+        println(f"  sWriteG wdata=0x$wdataG%X (expect 0x${g.toLong}%X)")
         utest.assert(d.io.gpuMem.wr.peek().litToBoolean)
+        utest.assert(wdataG == g.toLong)
         d.io.gpuMem.ready.poke(true.B)
         d.clock.step(1)
         d.io.gpuMem.ready.poke(false.B)
-        println("  Write data parity check ✓")
+
+        val wdataB = d.io.gpuMem.wdata.peek().litValue.toLong
+        println(f"  sWriteB wdata=0x$wdataB%X (expect 0x${b.toLong}%X)")
+        utest.assert(d.io.gpuMem.wr.peek().litToBoolean)
+        utest.assert(wdataB == b.toLong)
+        d.io.gpuMem.ready.poke(true.B)
+        d.clock.step(1)
+        d.io.gpuMem.ready.poke(false.B)
+
+        val wdataZ = d.io.gpuMem.wdata.peek().litValue.toLong
+        println(f"  sWriteZ wdata=0x$wdataZ%X (expect 0x${z.toLong}%X)")
+        utest.assert(d.io.gpuMem.wr.peek().litToBoolean)
+        utest.assert(wdataZ == z.toLong)
+        d.io.gpuMem.ready.poke(true.B)
+        d.clock.step(1)
+        d.io.gpuMem.ready.poke(false.B)
+
+        println("  Write data channel check ✓")
         println("  PASSED")
       }
     }
@@ -231,12 +286,11 @@ object BorgTileFlusherTests extends TestSuite {
         d.io.start.poke(true.B)
         d.clock.step(1)
         d.io.start.poke(false.B)
-        // sReadSram → sWaitSram → sWaitSram2 → sLatchData → sWriteLo (4 plain steps)
+        // sReadSram → sWaitSram → sWaitSram2 → sWriteR (3 plain steps)
         d.clock.step(1)  // → sWaitSram
         d.clock.step(1)  // → sWaitSram2
-        d.clock.step(1)  // → sLatchData
-        d.clock.step(1)  // → sWriteLo: hold ready=false for 5 cycles
-        for (i <- 0 until 5) {
+        d.clock.step(1)  // → sWriteR: hold ready=false for 5 cycles
+        for (_ <- 0 until 5) {
           utest.assert(d.io.gpuMem.wr.peek().litToBoolean)
           utest.assert(d.io.busy.peek().litToBoolean)
           d.clock.step(1)
@@ -283,10 +337,10 @@ object BorgTileFlusherTests extends TestSuite {
       }
     }
 
-    // Test: exactly 32 PSRAM writes per flush
-    utest.test("write_count_32") {
+    // Test: exactly 64 PSRAM writes per flush (4 channels × 16 entries)
+    utest.test("write_count_64") {
       simulate(new BorgTileFlusher) { d =>
-        println("\n--- BorgTileFlusher: write_count_32 ---")
+        println("\n--- BorgTileFlusher: write_count_64 ---")
         resetDut(d)
 
         d.io.start.poke(true.B)
@@ -310,8 +364,8 @@ object BorgTileFlusherTests extends TestSuite {
           }
         }
         d.io.gpuMem.ready.poke(false.B)
-        println(f"  Total PSRAM writes: $writeCount (expect 32)")
-        utest.assert(writeCount == 32)
+        println(f"  Total PSRAM writes: $writeCount (expect 64)")
+        utest.assert(writeCount == 64)
         println("  PASSED")
       }
     }

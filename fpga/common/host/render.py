@@ -12,7 +12,7 @@ import rp2
 import machine
 from machine import Pin, SPI
 
-import run_tinyqv
+import run_hutt
 
 from borg_mmio import PSRAM_IO_SPI_ADDR, PSRAM_OUT_OFFSET, TEX_PSRAM_BYTE_OFFSET, DONE_MARKER, FPGA_CLOCK_HZ
 
@@ -260,7 +260,7 @@ def fpga_teardown(clk_pwm, ice_creset_b):
     for p in QSPI_PINS:
         Pin(p, Pin.IN, pull=None)
     Pin(12, Pin.IN, pull=Pin.PULL_DOWN)
-    run_tinyqv.setup_ram()
+    run_hutt.setup_ram()
 
 
 
@@ -281,7 +281,7 @@ def render_all_frames(app_name='triangle', firmware_bin='firmware_cache/triangle
 
     # --- Write framebuffer dimensions to PSRAM for firmware ---
     t_psram = time.ticks_ms()
-    run_tinyqv.setup_ram()
+    run_hutt.setup_ram()
 
     # --- Upload texture data to PSRAM (before framebuffer, at fixed byte address) ---
     # Texture SPI base = PSRAM_IO_SPI_ADDR + TEX_PSRAM_BYTE_OFFSET (= 0x1080)
@@ -463,11 +463,11 @@ def run_animation(firmware_bin='firmware_cache/triangle.bin'):
     ice_creset_b.value(0)
 
     t_prog = time.ticks_ms()
-    run_tinyqv.program_firmware.program(firmware_bin)
+    run_hutt.program_firmware.program(firmware_bin)
     print("Firmware programmed in %d ms" % time.ticks_diff(time.ticks_ms(), t_prog))
 
     t_flash = time.ticks_ms()
-    run_tinyqv.setup_flash()
+    run_hutt.setup_flash()
     print("Flash setup in %d ms" % time.ticks_diff(time.ticks_ms(), t_flash))
 
     # Derive app name from firmware binary (e.g. 'firmware/vkcube.bin' -> 'vkcube')

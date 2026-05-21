@@ -91,6 +91,10 @@ async def start_read(dut, addr):
     else:
         select = dut.qspi_flash_select
     
+    for _ in range(200):
+        if select.value == 0:
+            break
+        await ClockCycles(dut.clk, 1, False)
     assert select.value == 0
     assert dut.qspi_flash_select.value == (0 if dut.qspi_flash_select == select else 1)
     assert dut.qspi_ram_a_select.value == (0 if dut.qspi_ram_a_select == select else 1)
@@ -145,6 +149,13 @@ async def start_read(dut, addr):
         await ClockCycles(dut.clk, 1, False)
         assert select.value == 0
         assert dut.qspi_clk_out.value == 0
+
+
+async def boot_cpu(dut):
+    """Inject tp/gp init instructions (Hutt starts with all regs = 0)."""
+    await send_instr(dut, InstructionLUI(tp, 0x8000).encode())    # tp = 0x08000000
+    await send_instr(dut, InstructionLUI(gp, 0x1000).encode())    # gp = 0x01000000
+    await send_instr(dut, InstructionADDI(gp, gp, 0x400).encode()) # gp = 0x01000400
 
 
 async def start_write(dut, addr):
@@ -240,10 +251,7 @@ async def expect_load(dut, addr, val, bytes=4):
     for i in range(8):
         await ClockCycles(dut.clk, 1)
         if dut.qspi_flash_select.value == 0:
-            if hasattr(dut.user_project, "uo_out_val_i_tinyqv"):
-                await start_read(dut, dut.user_project.uo_out_val_i_tinyqv.instr_addr.value.to_unsigned() * 2)
-            else:
-                await start_read(dut, None)
+            await start_read(dut, None)
             break
     else:
         assert False
@@ -351,10 +359,7 @@ async def expect_store(dut, addr, bytes=4, allow_long_delay=False):
     for i in range(8):
         await ClockCycles(dut.clk, 1)
         if dut.qspi_flash_select.value == 0:
-            if hasattr(dut.user_project, "uo_out_val_i_tinyqv"):
-                await start_read(dut, dut.user_project.uo_out_val_i_tinyqv.instr_addr.value.to_unsigned() * 2)
-            else:
-                await start_read(dut, None)
+            await start_read(dut, None)
             break
     else:
         assert False

@@ -43,6 +43,28 @@ const borg_vertex_t back_tri[3] = {
 #define TEX_WIDTH  32
 #define TEX_HEIGHT 32
 
+// Stream the rendered 32×32 framebuffer over UART so the workstation can
+// recover the pixels independently of HDMI.  Sync framing: 4-byte magic
+// "FBFB" (0x46 0x42 0x46 0x42) + 2-byte width LE + 2-byte height LE +
+// W*H*8 bytes of FP16 R/G/B/Z per pixel in tile-major order (matches
+// HdmiScanoutFp16's address arithmetic).  Trailer: 4-byte magic "ENDB".
+static void dump_fb_uart(int w, int h) {
+    // Read the FB at the CPU-mapped PSRAM/VRAM address (PSRAM_OUT_RAW), which
+    // carries bit 24 — the region bit the GPU flusher's gpuMem writes go through
+    // (VRAM_REGION_BIT).  Reading the raw SPI address instead lands in a
+    // different SDRAM region (16 MB away) and shows garbage, not the FB.
+    volatile uint8_t *fb =
+        (volatile uint8_t *)(uintptr_t)(PSRAM_BASE - PSRAM_SPI_BASE + PSRAM_OUT_SPI(0));
+    int n = w * h * 8;   // bytes per frame (FP16 R+G+B+Z = 8 B/pixel)
+
+    putc_uart('F'); putc_uart('B'); putc_uart('F'); putc_uart('B');
+    putc_uart(w & 0xFF); putc_uart((w >> 8) & 0xFF);
+    putc_uart(h & 0xFF); putc_uart((h >> 8) & 0xFF);
+    for (int i = 0; i < n; i++)
+        putc_uart(fb[i]);
+    putc_uart('E'); putc_uart('N'); putc_uart('D'); putc_uart('B');
+}
+
 int main() {
     PSRAM_OUT(0) = 0x1234;
     borgCreateDevice();
@@ -63,8 +85,15 @@ int main() {
     borgCmdDraw(&draw, front_tri, 0);  // draw front (RGB vertex colors, no texture)
     borg_present(0);
 
-    while (1)
-        ;
+    // borg_present() polls STATUS_REG_T__IDLE so the GPU has finished
+    // flushing all tiles to SDRAM before we read them back here.
+    // Re-dump in a loop so the workstation can connect at any time without
+    // missing the (single) post-render frame.
+    while (1) {
+        dump_fb_uart(borg_fb_width, borg_fb_height);
+        for (volatile int i = 0; i < 2000000; i++)  // ~0.5 s pause @ 25 MHz
+            ;
+    }
     return 0;
 }
 // @doc:end

@@ -50,7 +50,7 @@ object BorgTests extends TestSuite {
 
   // --- Low-level bus helpers ---
 
-  def writeAddr(borg: Borg, addr: Int, data: BigInt): Unit = {
+  def writeAddr(borg: BorgTestWrapper, addr: Int, data: BigInt): Unit = {
     borg.io.address.poke(addr.U)
     borg.io.data_in.poke(data.U)
     borg.io.data_write_n.poke(2.U)
@@ -59,7 +59,7 @@ object BorgTests extends TestSuite {
     borg.clock.step(1)
   }
 
-  def readAddr(borg: Borg, addr: Int, config: FloatConfig): Float = {
+  def readAddr(borg: BorgTestWrapper, addr: Int, config: FloatConfig): Float = {
     borg.io.address.poke(addr.U)
     borg.io.data_read_n.poke(2.U)
     borg.clock.step(1)
@@ -98,7 +98,7 @@ object BorgTests extends TestSuite {
 
   // --- Execution helpers ---
 
-  def resetAndWait(borg: Borg): Unit = {
+  def resetAndWait(borg: BorgTestWrapper): Unit = {
     borg.reset.poke(true.B)
     borg.clock.step(2)
     borg.reset.poke(false.B)
@@ -108,7 +108,7 @@ object BorgTests extends TestSuite {
     writeAddr(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
   }
 
-  def waitForHalt(borg: Borg, maxCycles: Int = 1000): Unit = {
+  def waitForHalt(borg: BorgTestWrapper, maxCycles: Int = 1000): Unit = {
     var status: BigInt = 0
     var cycles = 0
     
@@ -130,7 +130,7 @@ object BorgTests extends TestSuite {
     utest.assert(cycles < maxCycles) // Ensure we didn't time out
   }
 
-  def startAndWaitForHalt(borg: Borg): Unit = {
+  def startAndWaitForHalt(borg: BorgTestWrapper): Unit = {
     writeAddr(borg, BorgGpuRegs.control_offset.litValue.toInt, 1)
     waitForHalt(borg)
   }
@@ -146,7 +146,7 @@ object BorgTests extends TestSuite {
 
   // --- Test runners ---
 
-  def runTest(borg: Borg, config: FloatConfig, op: Op, a: Float, b: Float, c: Float = 0f): Unit = {
+  def runTest(borg: BorgTestWrapper, config: FloatConfig, op: Op, a: Float, b: Float, c: Float = 0f): Unit = {
     resetAndWait(borg)
     // Load operands
     writeAddr(borg, 0, floatToBits(a, config))
@@ -214,7 +214,7 @@ object BorgTests extends TestSuite {
   val FP16_MAX = 65504f
 
   // Runs a batch of op/pairs on an already-open borg simulator instance
-  def runBatch(borg: Borg, config: FloatConfig, op: Op, pairs: Seq[(Float, Float)]): Unit = {
+  def runBatch(borg: BorgTestWrapper, config: FloatConfig, op: Op, pairs: Seq[(Float, Float)]): Unit = {
     val tag = s"${config.getClass.getSimpleName.replace("$", "")} ${op.getClass.getSimpleName.replace("$", "")}"
     println(s"\n--- Starting $tag Batch ---")
     pairs.foreach { case (a, b) =>
@@ -247,7 +247,7 @@ object BorgTests extends TestSuite {
 
     // All FP32 tests share one simulate() call — one Chisel compile
     utest.test("fp32_tests") {
-      simulate(new Borg(FloatConfig.FP32)) { borg =>
+      simulate(new BorgTestWrapper(FloatConfig.FP32)) { borg =>
         runBatch(borg, FloatConfig.FP32, ADD, pairs)
         runBatch(borg, FloatConfig.FP32, MUL, pairs)
         runBatch(borg, FloatConfig.FP32, FMA(3), pairs)
@@ -272,7 +272,7 @@ object BorgTests extends TestSuite {
     // All FP16 tests share one simulate() call — one Chisel compile
     utest.test("fp16_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         runBatch(borg, config, ADD, pairs)
         runBatch(borg, config, MUL, pairs)
         runBatch(borg, config, FMA(3), pairs)
@@ -381,7 +381,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("individual_instruction_fp16_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Individual Instruction FP16 Tests ===")
 
         // ADD: 1.0 + 2.0 = 3.0
@@ -423,7 +423,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("edge_case_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Edge Case Tests ===")
 
         // --- Zero behavior ---
@@ -478,7 +478,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("mmio_register_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== MMIO Register Tests ===")
 
         // --- Round-trip: write and read back all 8 registers ---
@@ -535,7 +535,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("pipeline_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Pipeline Tests ===")
 
         // --- Test 1: 3-instruction chain with data dependencies ---
@@ -646,7 +646,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("inside_flag_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Inside Flag Snoop Tests ===")
 
         def assertInside(expected: Boolean, label: String): Unit = {
@@ -716,6 +716,10 @@ object BorgTests extends TestSuite {
         writeAddr(borg, 132, 0)
         writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
         waitForHalt(borg)
+        // Match writeToReg's tail: dummy readAddr settles auto_run_stall before
+        // the iter-register read in assertInside.  Without this, iter_offset
+        // can be sampled before the rasterizer has latched the snoop result.
+        readAddr(borg, 4, config)
         assertInside(true, "r1 is -0.0 (rest 0.0)")
 
         println("=== Inside Flag Snoop Tests Passed ===\n")
@@ -729,7 +733,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("auto_run_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Auto-Run Tests ===")
 
         // --- Test 1: Auto-run triggers shader on BORG_ITER write ---
@@ -829,7 +833,7 @@ object BorgTests extends TestSuite {
     // This test only verifies the MMIO read path for r30/r31 works
     // without asserting specific values (BRAM is uninitialized in simulation).
     utest.test("coordlut_tests") {
-      simulate(new Borg(FloatConfig.FP16)) { borg =>
+      simulate(new BorgTestWrapper(FloatConfig.FP16)) { borg =>
         borg.reset.poke(true.B)
         borg.clock.step(5)
         borg.reset.poke(false.B)
@@ -888,7 +892,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("tile_buffer_mmio_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Tile Buffer MMIO Tests ===")
 
         // Helper: read raw 32-bit value from MMIO address
@@ -996,7 +1000,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     utest.test("tex_fetch_tests") {
       val config = FloatConfig.FP16
-      simulate(new Borg(config)) { borg =>
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Texture Fetch Tests ===")
 
         // Reset and settle — ensures all RegInit values are applied before
@@ -1118,7 +1122,7 @@ object BorgTests extends TestSuite {
     // =====================================================================
     // Step 28: Fully Autonomous Hardware Iteration
     //
-    // Validates that BorgConfig.Sim (hasFlusher=true) triggers the HW
+    // Validates that BorgConfig.Default (hasFlusher=true) triggers the HW
     // BorgTileFlusher autonomously after a tile is complete:
     //   1. Write a known 4-channel pixel pattern into all 16 tile SRAM slots
     //      via the TILE_CTRL / TILE_RG / TILE_BZ MMIO interface.
@@ -1137,12 +1141,12 @@ object BorgTests extends TestSuite {
     //      e. FLUSH_BUSY returns to 0 after all 32 writes.
     //
     // This is a pure Chisel/simulation test — no hardware required.
-    // BorgConfig.Sim has hasFlusher=true and hasDMA=true by default.
+    // BorgConfig.Default has hasFlusher=true and hasDMA=true by default.
     // =====================================================================
     utest.test("hw_flusher_autonomous") {
       val config = FloatConfig.FP16
-      // Borg(config) uses BorgConfig.Sim which has hasFlusher=true
-      simulate(new Borg(config)) { borg =>
+      // Borg(config) uses BorgConfig.Default which has hasFlusher=true
+      simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Step 28: HW Flusher Autonomous Test ===")
 
         // ---- helpers (local to avoid name clashes) ----
@@ -1277,16 +1281,16 @@ object BorgTests extends TestSuite {
         for (_ <- 0 until 16) {
           // Trigger one auto-run step
           rawWrite(BorgGpuRegs.iter_offset.litValue.toInt, 1)
-          // Drain up to 60 cycles for this pixel; flusher fires on pixel 15
-          drainFlusher(60)
+          // Drain up to 120 cycles for this pixel; flusher fires on pixel 15
+          drainFlusher(120)
           // Check FLUSH_BUSY between pixels (safe: no flusher writes expected
           // during the first 15 pixels; after pixel 15, flusher may be active
-          // but drainFlusher(60) above should have captured all writes)
+          // but drainFlusher above should have captured all writes)
           if (peekFlushBusy()) flushBusySeen = true
         }
 
-        // Extra drain in case the flusher is still running
-        drainFlusher(400)
+        // Extra drain in case the flusher is still running (4 writes × 16 pixels)
+        drainFlusher(800)
 
         // Final FLUSH_BUSY check: must be clear after drain
         val flushBusyClear = !peekFlushBusy() && flushBusySeen
@@ -1299,41 +1303,55 @@ object BorgTests extends TestSuite {
         println(f"  FLUSH_BUSY cleared:   $flushBusyClear (expect true)")
         Predef.assert(flushBusyClear, "FLUSH_BUSY did not clear — flusher hung")
 
-        println(f"  Total PSRAM writes:   $writeCount (expect 32)")
-        Predef.assert(writeCount == 32, s"Expected 32 writes, got $writeCount")
+        println(f"  Total PSRAM writes:   $writeCount (expect 64)")
+        Predef.assert(writeCount == 64, s"Expected 64 writes, got $writeCount")
 
-        // Verify the first entry (i=0): lo at tileBase, hi at tileBase+4
-        val (addr0Lo, data0Lo) = writes(0)
-        val (addr0Hi, data0Hi) = writes(1)
-        val expAddr0Lo = tileBase
-        val expAddr0Hi = tileBase + 4
-        // BorgTileFlusher lo word = asUInt(31,0)  → {b[15:0], z[15:0]}
-        // hi word = asUInt(63,32) → {r[15:0], g[15:0]}
-        // ColorZ(r,g,b,z) Chisel Bundle: asUInt packs MSB-first in declaration order.
-        // BorgTileBuffer stores ColorZ; flusher slices [31:0] and [63:32].
+        // Verify the first entry (i=0): R at tileBase, G at +2, B at +4, Z at +6
+        val (addr0R, data0R) = writes(0)
+        val (addr0G, data0G) = writes(1)
+        val (addr0B, data0B) = writes(2)
+        val (addr0Z, data0Z) = writes(3)
+        val expAddr0R = tileBase
+        val expAddr0G = tileBase + 2
+        val expAddr0B = tileBase + 4
+        val expAddr0Z = tileBase + 6
+        // MemoryController writes wdata[15:0] only.
+        // Flusher sends entryHeld(15,0)=r, (31,16)=g, (47,32)=b, (63,48)=z
         // Entry 0: r=0x1000, g=0x2000, b=0x3000, z=0x4000
-        // lo  = bits[31:0]  = {b=0x3000, z=0x4000} (packed by Chisel MSB first)
-        // hi  = bits[63:32] = {r=0x1000, g=0x2000}
-        val expData0Lo = (0x3000L << 16) | 0x4000L
-        val expData0Hi = (0x1000L << 16) | 0x2000L
+        val expData0R = 0x1000L
+        val expData0G = 0x2000L
+        val expData0B = 0x3000L
+        val expData0Z = 0x4000L
 
-        println(f"  Write[0] addr=0x$addr0Lo%04X (exp 0x$expAddr0Lo%04X)  data=0x$data0Lo%08X (exp 0x$expData0Lo%08X)")
-        println(f"  Write[1] addr=0x$addr0Hi%04X (exp 0x$expAddr0Hi%04X)  data=0x$data0Hi%08X (exp 0x$expData0Hi%08X)")
-        Predef.assert(addr0Lo == expAddr0Lo, s"lo addr mismatch: got 0x${addr0Lo.toHexString}")
-        Predef.assert(addr0Hi == expAddr0Hi, s"hi addr mismatch: got 0x${addr0Hi.toHexString}")
-        Predef.assert(data0Lo == expData0Lo, s"lo data mismatch: got 0x${data0Lo.toHexString}")
-        Predef.assert(data0Hi == expData0Hi, s"hi data mismatch: got 0x${data0Hi.toHexString}")
+        println(f"  Write[0] addr=0x$addr0R%04X (exp 0x$expAddr0R%04X)  data=0x$data0R%08X (exp 0x$expData0R%08X)")
+        println(f"  Write[1] addr=0x$addr0G%04X (exp 0x$expAddr0G%04X)  data=0x$data0G%08X (exp 0x$expData0G%08X)")
+        println(f"  Write[2] addr=0x$addr0B%04X (exp 0x$expAddr0B%04X)  data=0x$data0B%08X (exp 0x$expData0B%08X)")
+        println(f"  Write[3] addr=0x$addr0Z%04X (exp 0x$expAddr0Z%04X)  data=0x$data0Z%08X (exp 0x$expData0Z%08X)")
+        Predef.assert(addr0R == expAddr0R, s"R addr mismatch: got 0x${addr0R.toHexString}")
+        Predef.assert(addr0G == expAddr0G, s"G addr mismatch: got 0x${addr0G.toHexString}")
+        Predef.assert(addr0B == expAddr0B, s"B addr mismatch: got 0x${addr0B.toHexString}")
+        Predef.assert(addr0Z == expAddr0Z, s"Z addr mismatch: got 0x${addr0Z.toHexString}")
+        Predef.assert(data0R == expData0R, s"R data mismatch: got 0x${data0R.toHexString}")
+        Predef.assert(data0G == expData0G, s"G data mismatch: got 0x${data0G.toHexString}")
+        Predef.assert(data0B == expData0B, s"B data mismatch: got 0x${data0B.toHexString}")
+        Predef.assert(data0Z == expData0Z, s"Z data mismatch: got 0x${data0Z.toHexString}")
 
-        // Verify address stride: lo[i] = tileBase + i*8, hi[i] = tileBase + i*8 + 4
+        // Verify address stride: 8 bytes per pixel (4 writes × 2 bytes each)
         for (i <- 0 until 16) {
-          val (aLo, _) = writes(i * 2)
-          val (aHi, _) = writes(i * 2 + 1)
-          val expLo = tileBase + i * 8
-          val expHi = tileBase + i * 8 + 4
-          Predef.assert(aLo == expLo, s"entry $i lo addr: got 0x${aLo.toHexString} exp 0x${expLo.toHexString}")
-          Predef.assert(aHi == expHi, s"entry $i hi addr: got 0x${aHi.toHexString} exp 0x${expHi.toHexString}")
+          val (aR, _) = writes(i * 4)
+          val (aG, _) = writes(i * 4 + 1)
+          val (aB, _) = writes(i * 4 + 2)
+          val (aZ, _) = writes(i * 4 + 3)
+          val expR = tileBase + i * 8
+          val expG = tileBase + i * 8 + 2
+          val expB = tileBase + i * 8 + 4
+          val expZ = tileBase + i * 8 + 6
+          Predef.assert(aR == expR, s"entry $i R addr: got 0x${aR.toHexString} exp 0x${expR.toHexString}")
+          Predef.assert(aG == expG, s"entry $i G addr: got 0x${aG.toHexString} exp 0x${expG.toHexString}")
+          Predef.assert(aB == expB, s"entry $i B addr: got 0x${aB.toHexString} exp 0x${expB.toHexString}")
+          Predef.assert(aZ == expZ, s"entry $i Z addr: got 0x${aZ.toHexString} exp 0x${expZ.toHexString}")
         }
-        println("  Address stride 8 bytes/entry ✓")
+        println("  Address stride 8 bytes/entry (4 writes × 2 bytes) ✓")
 
         // Verify data for all 16 entries
         for (i <- 0 until 16) {
@@ -1341,12 +1359,14 @@ object BorgTests extends TestSuite {
           val g = 0x2000 + i
           val b = 0x3000 + i
           val z = 0x4000 + i
-          val expLo = (b.toLong << 16) | z.toLong
-          val expHi = (r.toLong << 16) | g.toLong
-          val (_, gotLo) = writes(i * 2)
-          val (_, gotHi) = writes(i * 2 + 1)
-          Predef.assert(gotLo == expLo, s"entry $i lo data: got 0x${gotLo.toHexString} exp 0x${expLo.toHexString}")
-          Predef.assert(gotHi == expHi, s"entry $i hi data: got 0x${gotHi.toHexString} exp 0x${expHi.toHexString}")
+          val (_, gotR) = writes(i * 4)
+          val (_, gotG) = writes(i * 4 + 1)
+          val (_, gotB) = writes(i * 4 + 2)
+          val (_, gotZ) = writes(i * 4 + 3)
+          Predef.assert(gotR == r.toLong, s"entry $i R data: got 0x${gotR.toHexString} exp 0x${r.toHexString}")
+          Predef.assert(gotG == g.toLong, s"entry $i G data: got 0x${gotG.toHexString} exp 0x${g.toHexString}")
+          Predef.assert(gotB == b.toLong, s"entry $i B data: got 0x${gotB.toHexString} exp 0x${b.toHexString}")
+          Predef.assert(gotZ == z.toLong, s"entry $i Z data: got 0x${gotZ.toHexString} exp 0x${z.toHexString}")
         }
         println("  All 16 entry data values correct ✓")
 

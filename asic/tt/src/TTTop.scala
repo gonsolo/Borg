@@ -59,9 +59,10 @@ class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
     0.U(8.W)
   )
 
-  // Suppress warnings on unused inputs
-  val read_complete = cpu.io.data_read_complete
-  val unused = ena ^ uio_in(7) ^ uio_in(6) ^ uio_in(3) ^ uio_in(0) ^ read_complete
+  // Suppress warnings on unused inputs.  (The old CPU had a `data_read_complete`
+  // output we XOR'd into uo_out as a signal-keeper; Hutt has no equivalent,
+  // so we use a static zero stand-in.)
+  val unused = ena ^ uio_in(7) ^ uio_in(6) ^ uio_in(3) ^ uio_in(0)
 
   uo_out := Cat(uo_out_val(7, 1), uo_out_val(0) ^ unused ^ unused)
 }

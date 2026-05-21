@@ -86,15 +86,10 @@ public:
         uint8_t data_in = 0;
         if (!active) {
             active = true;
-            if (is_flash) {
-                state = ADDR;
-                nibbles_left = 6;
-                addr_reg = 0;
-            } else {
-                state = CMD;
-                nibbles_left = 2;
-                cmd_reg = 0;
-            }
+            state = CMD;
+            nibbles_left = 2;
+            cmd_reg = 0;
+            addr_reg = 0;
         }
 
         // Output data during DATA_READ
@@ -131,17 +126,13 @@ public:
                 addr_reg = (addr_reg << 4) | data_out;
                 nibbles_left--;
                 if (nibbles_left == 0) {
-                    if (is_flash) {
+                    if (cmd_reg == 0x0B) {
+                        // Read: QspiCtrl uses DUMMY2(4) for flash, DUMMY1(2)+DUMMY2(4)=6 for PSRAM
                         state = DUMMY;
-                        nibbles_left = 6;
-                    } else {
-                        if (cmd_reg == 0x0B) {
-                            state = DUMMY;
-                            nibbles_left = 4;
-                        } else if (cmd_reg == 0x02) {
-                            state = DATA_WRITE;
-                            wrote_half_byte = false;
-                        }
+                        nibbles_left = is_flash ? 4 : 6;
+                    } else if (cmd_reg == 0x02) {
+                        state = DATA_WRITE;
+                        wrote_half_byte = false;
                     }
                 }
             } else if (state == DUMMY) {
@@ -174,6 +165,32 @@ public:
 
 // fp16_to_float is now in borg_math.h
 
+// ── Flat MemBackendIO memory access ─────────────────────────────────────────
+// The verilator sim drives the MemoryController backend bus directly (no QSPI).
+// The 24-bit word address selects flash vs PSRAM exactly as QspiBackend does:
+//   QspiBackend: byteAddr = Cat(addrIn, 0)  → addr_in(24) = addrIn bit 23
+//   QspiController: flash when addr_in(24)==0, PSRAM otherwise
+// Per-chip byte address = (addrIn & 0x7FFFFF) << 1.  The flash/psram vectors
+// are indexed by this byte address, identical to the old QSPIMemory model, so
+// firmware load and framebuffer readback continue to work unchanged.
+inline uint16_t flat_read16(QSPIMemory* flash, QSPIMemory* psram, uint32_t addrIn) {
+    bool is_psram = (addrIn >> 23) & 1;
+    uint32_t spi_byte = (addrIn & 0x7FFFFF) << 1;
+    QSPIMemory* m = is_psram ? psram : flash;
+    if (spi_byte + 1 >= m->mem.size()) return 0;
+    return (uint16_t)m->mem[spi_byte] | ((uint16_t)m->mem[spi_byte + 1] << 8);
+}
+
+inline void flat_write16(QSPIMemory* flash, QSPIMemory* psram,
+                         uint32_t addrIn, uint16_t data, uint8_t byteEn) {
+    bool is_psram = (addrIn >> 23) & 1;
+    uint32_t spi_byte = (addrIn & 0x7FFFFF) << 1;
+    QSPIMemory* m = is_psram ? psram : flash;
+    if (spi_byte + 1 >= m->mem.size()) return;
+    if (byteEn & 0x1) m->mem[spi_byte]     = data & 0xFF;
+    if (byteEn & 0x2) m->mem[spi_byte + 1] = (data >> 8) & 0xFF;
+}
+
 inline void save_ppm(const std::string& app_name, uint32_t width, uint32_t height, uint32_t out_base_word, const std::vector<uint8_t>& mem) {
     char ppm_name[256];
     snprintf(ppm_name, sizeof(ppm_name), "%s_00.ppm", app_name.c_str());
@@ -184,23 +201,21 @@ inline void save_ppm(const std::string& app_name, uint32_t width, uint32_t heigh
 
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            // Step 25.4.2 Option A: tiled framebuffer layout.
-            // tile_index = (y/4) * tiles_per_row + (x/4)
-            // tile_idx   = (x&3) | ((y&3) << 2)
-            // Each tile  = 32 PSRAM words (16 entries × 2 words each).
-            // Chisel Bundle.asUInt: first field = MSB.
-            //   ColorZ(r,g,b,z) → {r[63:48], g[47:32], b[31:16], z[15:0]}
-            //   hi word = bits[63:32] = {r, g}
-            //   lo word = bits[31:0]  = {b, z}
+            // Step 25.4.2 Option A: tiled framebuffer layout, 2 words/pixel.
+            // BorgTileFlusher writes each pixel as 4 halfwords at byte offsets:
+            //   +0: r, +2: g, +4: b, +6: z   (matches the ULX3S HDMI scanout).
+            // So the two 32-bit words are:
+            //   word_off+0 = {g[31:16], r[15:0]}
+            //   word_off+1 = {z[31:16], b[15:0]}
             uint32_t tiles_per_row = width >> 2;
             uint32_t tile_index    = (y >> 2) * tiles_per_row + (x >> 2);
             uint32_t tile_idx      = (x & 3) | ((y & 3) << 2);
             uint32_t word_off      = out_base_word + tile_index * 32 + tile_idx * 2;
-            uint32_t lo            = psram_words_out[word_off + 0];  // {b, z}
-            uint32_t hi            = psram_words_out[word_off + 1];  // {r, g}
-            uint16_t r = (uint16_t)(hi >> 16);
-            uint16_t g = (uint16_t)(hi & 0xFFFF);
-            uint16_t b = (uint16_t)(lo >> 16);
+            uint32_t lo            = psram_words_out[word_off + 0];  // {g, r}
+            uint32_t hi            = psram_words_out[word_off + 1];  // {z, b}
+            uint16_t r = (uint16_t)(lo & 0xFFFF);
+            uint16_t g = (uint16_t)(lo >> 16);
+            uint16_t b = (uint16_t)(hi & 0xFFFF);
 
             int r_b = std::max(0, std::min(255, (int)(fp16_to_float(r) * 255)));
             int g_b = std::max(0, std::min(255, (int)(fp16_to_float(g) * 255)));

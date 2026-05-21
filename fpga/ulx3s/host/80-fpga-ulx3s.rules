@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: © 2026 Andreas Wendleder
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# ULX3S udev rules — allow members of the "dialout" group to access
+# the onboard FT231X USB-serial/JTAG chip without root.
+#
+# Install with:  make install-udev   (from fpga/ulx3s/)
+# Or manually:   sudo cp 80-fpga-ulx3s.rules /etc/udev/rules.d/
+#                sudo udevadm control --reload-rules && sudo udevadm trigger
+# Then replug the board.
+
+# USB-serial TTY device (/dev/ttyUSB0)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", \
+  MODE="664", GROUP="dialout"
+
+# Raw libusb access for openFPGALoader JTAG programming
+ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", \
+  GROUP="dialout", MODE="666"

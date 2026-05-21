@@ -456,15 +456,15 @@ hierarchy supporting both pico-ice (iCE40 UP5K) and ULX3S (ECP5-85K).
 - **Step 27.1: Subdirectory-based target separation** ✅ — Split `fpga/` into
   `fpga/picoice/` (board-specific build: Makefile, host scripts, PCF, firmware
   cache), `fpga/ulx3s/` (stub for ECP5), and `fpga/common/` (shared host
-  scripts: `render.py`, `run_tinyqv.py`, `usb_recover.sh`, etc.). Top-level
+  scripts: `render.py`, `run_hutt.py`, `usb_recover.sh`, etc.). Top-level
   `fpga/Makefile` is now a dispatcher that forwards `triangle`, `vkcube`,
   `burn`, `borg.bin`, and `clean` to the appropriate board subdirectory.
 - **Step 27.2: `BorgConfig.ULX3S` stub** ✅ — `hardware/borg/src/BorgConfig.scala`: new config
   with `coordWidth=9`, `hasDMA=true`, `hasFlusher=true`, `hasImemMmio=false` (ECP5 has no LC
   budget pressure).
 - **Step 27.3: `BorgConfig.FPGA` → `BorgConfig.PicoIce` rename** ✅ — Updated in
-  `BorgConfig.scala` and `fpga/picoice/tinyqv/src/PicoIce.scala`.
-- **Step 27.4: `ulx3s_top` Chisel stub** ✅ — `fpga/ulx3s/tinyqv/src/ULX3S.scala`: compiles and
+  `BorgConfig.scala` and `fpga/picoice/soc/src/PicoIce.scala`.
+- **Step 27.4: `ulx3s_top` Chisel stub** ✅ — `fpga/ulx3s/soc/src/ULX3S.scala`: compiles and
   emits Verilog via `ULX3SMain` (`make generate_verilog_ulx3s`). Uses plain IO ports (not SB_IO);
   ECP5 TRELLIS_IO/BB primitives and LPF constraints deferred until hardware arrives.
 - **Step 27.5: `generate_verilog_ulx3s` target in root `Makefile`** ✅ — Runs `ULX3SMain` at
@@ -923,25 +923,94 @@ Gate: all hardware tests pass; `vkcube` and `triangle` render correctly;
 
 ---
 
-### ⏳ ULX3S arrives
+### ⏳ ULX3S Hardware Bringup
 
-- **ECP5 synthesis flow** — write `.lpf` pin constraints, add `nextpnr-ecp5` Makefile
-  target, verify Yosys elaboration compiles cleanly for ECP5.
-
-- **HDMI display engine** — integrate the ECP5 HDMI PHY module (e.g.
-  `fpga-odysseus hdmi_video.v`) for scanout; wire to framebuffer PSRAM read path.
+- **ECP5 synthesis flow** ✅ — `.lpf` pin constraints, `nextpnr-ecp5` Makefile target,
+  Yosys elaboration clean for ECP5.
 
 - **~~Enable DMA~~** ✅ — `hasDMA=true` + `hasImemMmio=false` already set in `BorgConfig.ULX3S`
   (Step 27.2). Firmware DMA wrappers (`dma_load_shader`/`dma_load_uniforms`) ready (Step 26.4).
 
 - **~~Enable HW Flusher~~** ✅ — `hasFlusher=true` already set in `BorgConfig.ULX3S` (Step 27.2).
   Firmware auto-detects via `FLUSH_BUSY` bit — no code change needed.
-  Milestone: CPU no longer touches tile buffer or PSRAM write path during rendering.
-
-- **Migrate shader load to DMA** — replace `borg_load_spirb_shader_at()` in
-  `borg_driver.c` with `dma_load_shader()`. Requires shaders pre-staged in PSRAM.
 
 - **Hardware validation of Steps 28–31** on ECP5.
+
+---
+
+### Step ULX3S-1: Onboard SDRAM Verification ✅ (2026-05-08)
+
+The ULX3S v3.1.8 carries an **IS42S16160G-7TL** (32 MB, 16-bit wide, −7 speed grade).
+Verified using the `sdram_pnru` controller from `ulx3s-misc` with the `ecp5pll` wrapper
+(25 MHz in → 125 MHz core / 125 MHz @90° for SDRAM clock).
+
+- **PLL + UART baseline** ✅ — 125 MHz PLL lock confirmed; `HELLO` printed over FTDI UART.
+- **SDRAM init** ✅ — `sdram_pnru` completes 100 µs init sequence; `READY` confirmed over UART.
+- **Single write/read** ✅ — Write `0xA5C3` to addr 4, read back: `PASS` confirmed over UART.
+- Test source: `fpga/ulx3s/sdram_test/`
+
+---
+
+### Step ULX3S-2: SDRAM Stress Test
+
+Walking-1s pattern across all 16 data bits and multiple row/bank addresses.
+Verify that the SDRAM is reliable enough to serve as a GPU framebuffer.
+
+- 16-address walking-1s write pass, then read-verify pass
+- Report per-address `PASS` / `FAIL exp=XXXX got=XXXX` over UART
+- Repeat continuously; zero errors required across 1 million cycles
+
+---
+
+### Step ULX3S-3: SDRAM Framebuffer Integration
+
+Replace the QSPI PMOD memory path with onboard SDRAM for the ULX3S demo.
+The tapeout design retains QSPI; this affects only `BorgConfig.ULX3S`.
+
+**Memory map (SDRAM, 32 MB):**
+
+| Region | Size | Notes |
+| --- | --- | --- |
+| Framebuffer (640×480 RGB565) | 614 KB | 2 bytes/pixel |
+| Tile lists (TBR binner) | 2 MB | bin_base |
+| Triangle setup store | 128 KB | setup_base |
+| Shader / descriptor area | 64 KB | vert/frag/setup shaders |
+| Free | ~29 MB | — |
+
+**CPU boot code:** embedded in BRAM as a hardcoded ROM (no QSPI needed at boot).
+Small enough for demo firmware; full Linux boot still uses flash (Step 44).
+
+- Update `BorgConfig.ULX3S` memory base addresses to point at SDRAM
+- Replace `MemoryController` QSPI path with `sdram_pnru` arbiter
+- SDRAM arbiter: round-robin between GPU write port and scanout read port
+- Gate: `make vkcube` renders correctly in Verilator; SDRAM stress test passes on hardware
+
+---
+
+### Step ULX3S-4: HDMI/DVI Scanout via GPDI
+
+Drive the ULX3S GPDI connector (HDMI-pinout DVI-D output) with a
+TMDS scanout engine reading the SDRAM framebuffer.
+
+**Pixel clock:** 25.175 MHz for 640×480@60Hz (standard VGA timing).
+**TMDS:** 10× pixel clock = 251.75 MHz via ECP5 ODDRX2 LVDS DDR output.
+**Source:** adapt proven ECP5 HDMI core (e.g. `hdmi.v` from `ulx3s-misc`).
+
+- SDRAM arbiter: scanout gets priority during active scan; GPU fills during blanking
+- Display timing: standard 640×480@60Hz (800×525 total, 25.175 MHz pixel clock)
+- TMDS encoder: 8b/10b + differential output on 4 ECP5 LVDS pairs (3 data + clock)
+- Gate: solid-color test pattern visible on monitor before wiring to framebuffer
+
+---
+
+### Step ULX3S-5: Borg GPU Live Demo on Monitor
+
+Full end-to-end: Borg GPU renders `vkcube` → SDRAM framebuffer → HDMI → monitor.
+No host PC required after flashing the bitstream.
+
+- GPU renders autonomously (Steps 30–32 sequencer)
+- Scanout engine streams framebuffer to HDMI at 60 Hz
+- `vkcube` spins in real time on the monitor
 
 ### Step 32: Real-Time VGA Output — pico-ice only (TT VGA PMOD)
 
@@ -1081,7 +1150,7 @@ controller, PCIe bridge) while the Borg SoC runs inside unchanged.
 
 - `SoCLogic` trait (Project.scala:71) — all SoC wiring is platform-independent
 - `tt_um_gonsolo_borg` (Project.scala:338) — standardized 8+8+8 pin interface
-- `tinyQV_top` (`fpga/picoice/tinyqv/src/PicoIce.scala`) — shows how to wrap `SoCLogic` for a
+- `HuttTop` (`fpga/picoice/soc/src/PicoIce.scala`) — shows how to wrap `SoCLogic` for a
 
 ### Step 33: Fragment Interpolation (Hardware-Assisted)
 

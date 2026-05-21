@@ -26,8 +26,8 @@ advances in low-cost chip manufacturing to make individual tape-outs feasible fo
 
 ## Architecture
 
-The design is a **TinyQV RISC-V SoC** with the **Borg FP16 shader processor** as a memory-mapped peripheral,
-targeting both iCE40 FPGAs (pico-ice) and ASIC (IHP SG13G2 via Tiny Tapeout).
+The design is a **Hutt RISC-V SoC** with the **Borg FP16 shader processor** as a memory-mapped peripheral,
+targeting ECP5 FPGAs (ULX3S), iCE40 FPGAs (pico-ice), and ASIC (IHP SG13G2 via Tiny Tapeout).
 
 ### Borg Shader Processor
 
@@ -63,9 +63,9 @@ The MMIO architecture is generated automatically via the Accellera **SystemRDL**
 
 It features an asynchronous 2-entry **Command FIFO** so the CPU can pack and queue asynchronous drawing packets while the GPU handles geometry and rasterization in the background.
 
-### TinyQV CPU
+### Hutt CPU
 
-Based on Michael Bell's [TinyQV](https://github.com/MichaelBell/tinyQV), an RV32I RISC-V core with nibble-serial processing designed for Tiny Tapeout. The original Verilog was **rewritten in Chisel** and heavily modified — including expanded register file support (RV32E → RV32I), integrated Borg peripheral bus, and adapted pipeline for QSPI flash/PSRAM and UART.
+A clean multi-cycle **RV32I** RISC-V core written in Chisel with fully **Decoupled** instruction and data buses. Hutt integrates seamlessly with the `MemoryController` (arbitrating QSPI flash and SDRAM) and routes MMIO via `SoCDecode` to inline SoC registers, the user peripheral router, and the Borg peripheral bus. Verified on ULX3S hardware.
 
 ## Prerequisites
 
@@ -85,7 +85,7 @@ make test-all
 
 ```bash
 make test-chisel-borg          # Borg FPU unit tests (Chisel)
-make test-chisel-core          # TinyQV CPU tests (Chisel)
+make test-chisel-core          # Hutt CPU tests (Chisel)
 make test-cocotb-soc-core-rtl  # CPU SoC integration tests (cocotb)
 make test-cocotb-soc-borg-rtl  # Borg peripheral tests (cocotb)
 ```
@@ -99,7 +99,18 @@ make -C simulation/verilator vkcube_gui # Run vkcube in the interactive Verilato
 make -C simulation/arcilator vkcube_gui  # Run in the faster Arcilator viewer
 ```
 
-### FPGA (pico-ice)
+### FPGA (ULX3S — ECP5)
+
+Prerequisites: ULX3S board.
+
+```bash
+cd fpga/ulx3s
+make load           # Synth + P&R + load to SRAM
+make flash          # Write to config flash
+make tio            # Open serial console on /dev/ttyUSB0
+```
+
+### FPGA (pico-ice — iCE40)
 
 Prerequisites: pico-ice FPGA + Raspberry Pi debug probe.
 
@@ -123,7 +134,7 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 
 | Milestone | Status |
 | --- | --- |
-| FPU integrated into TinyQV SoC | ✅ Done |
+| FPU integrated into Hutt SoC | ✅ Done |
 | Vertex shader on FPGA | ✅ Done |
 | Triangle rasterization + fragment shading | ✅ Done |
 | SPIR-B runtime shader loading | ✅ Done |
@@ -143,7 +154,7 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | Component | Description | License |
 | --- | --- | --- |
 | [Chisel](https://github.com/chipsalliance/chisel) | Hardware construction language (Scala → Verilog) | Apache-2.0 |
-| [TinyQV](https://github.com/MichaelBell/tinyQV) | RV32I RISC-V CPU core (rewritten in Chisel) | Apache-2.0 |
+| Hutt | RV32I RISC-V CPU core (multi-cycle, Chisel, Decoupled buses) | CERN-OHL-S-2.0 |
 | [Berkeley HardFloat](https://github.com/ucb-bar/berkeley-hardfloat) | IEEE-754 floating-point units (FMA) | BSD-3-Clause |
 | [LibreLane](https://github.com/efabless/librelane) | RTL-to-GDS ASIC flow orchestrator | Apache-2.0 |
 | [Yosys](https://github.com/YosysHQ/yosys) | RTL synthesis | ISC |

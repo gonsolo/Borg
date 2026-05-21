@@ -174,10 +174,18 @@ unsigned int t_draw_cycles = 0;
 static texture_t tex = {.psram_offset = -1};
 
 // --- UART ---
+// NOTE: The full SoC's read at UART_STATUS (0x0800001C) does not currently
+// ack on the CPU's Decoupled data bus — polling it hangs the CPU forever
+// (the write to 0x08000018 worked, but the symmetric read-side decode is
+// still broken).  Until that is fixed in Project.scala, use a blind-write
+// + fixed cycle delay matching uart_hello.s.  At CLOCK_MHZ=25 and 115200
+// baud, one byte takes ~217 cycles to shift out; we wait ~400 cycles to
+// be safe (matches the 200-iteration `addi/bnez` loop in uart_hello.s,
+// which is ~2 instructions per iteration on Hutt).
 void putc_uart(int c) {
-  while (UART_STATUS & 1)
-    ;
   UART_TX = c;
+  for (volatile int i = 0; i < 200; i++)
+    ;
 }
 
 void puts_uart(const char *s) {
@@ -187,9 +195,7 @@ void puts_uart(const char *s) {
 
 // --- Timing and debug printing ---
 static inline unsigned int get_cycles(void) {
-  unsigned int cycles;
-  __asm__ volatile("csrr %0, cycle" : "=r"(cycles));
-  return cycles;
+  return 0;  // Hutt has no cycle CSR
 }
 
 // --- Shader globals ---
@@ -229,12 +235,17 @@ void borgCreateDevice(void) {
   puts_uart("Borg pipeline\r\n");
   unsigned int t_init = get_cycles();
 
-  // Read framebuffer dimensions from PSRAM (written by host)
-  borg_fb_width = PSRAM_IN(0);
+  // Read framebuffer dimensions from PSRAM (written by host on pico-ice/sim).
+  // On ULX3S there is no host — PSRAM_IN lives in firmware .text and returns
+  // garbage.  Validate: must be a non-zero power-of-2 in [4..128]; else fall
+  // back to 32×32.
+  borg_fb_width  = PSRAM_IN(0);
   borg_fb_height = PSRAM_IN(1);
-  if (borg_fb_width == 0)
+  if (borg_fb_width < 4 || borg_fb_width > 128 ||
+      (borg_fb_width & (borg_fb_width - 1)) != 0)
     borg_fb_width = 32;
-  if (borg_fb_height == 0)
+  if (borg_fb_height < 4 || borg_fb_height > 128 ||
+      (borg_fb_height & (borg_fb_height - 1)) != 0)
     borg_fb_height = 32;
 
   // Compute FP16 half-width for NDC→screen transform.

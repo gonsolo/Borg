@@ -49,7 +49,7 @@ The viewer uses **Pygame** to display the simulated framebuffer in real-time. It
 
 To maintain 100% parity with the FPGA, the simulators:
 1. **Reset Sequence**: Execute the same multi-cycle reset protocol as the hardware.
-2. **UART Logic**: Capture and decode UART output from the TinyQV CPU for console logging.
+2. **UART Logic**: Capture and decode UART output from the Hutt CPU for console logging.
 3. **BRAM Initialization**: Manually initialize internal hardware BRAMs (like coordinate LUTs) from `.hex` files, mirroring the `$readmemh` behavior of FPGA synthesis tools.
 
 ## Debugging

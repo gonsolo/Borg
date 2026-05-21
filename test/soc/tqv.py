@@ -12,7 +12,7 @@ _IMM12_MAX = 2047
 _IMM12_MIN = -2048
 
 # This class provides access to the peripheral's registers.
-class TinyQV:
+class Hutt:
 
     # The peripheral number must be provided.
     def __init__(self, dut, peripheral_num):
@@ -54,7 +54,7 @@ class TinyQV:
 
         return a0, 0
 
-    # Reset the design, this reset will initialize TinyQV and connect
+    # Reset the design, this reset will initialize Hutt and connect
     # all inputs and outputs to your peripheral.
     async def reset(self, initial_ui_in=0):
         # Ensure any previously running test is cleaned up
@@ -65,7 +65,11 @@ class TinyQV:
         # Should start reading flash after 1 cycle
         await ClockCycles(self.dut.clk, 1)
         await test_util.start_read(self.dut, 0)
-        
+
+        # Hutt starts with all registers = 0; initialise tp and gp so that
+        # peripheral addressing (tp = USER_BASE = 0x08000000) works correctly.
+        await test_util.boot_cpu(self.dut)
+
         await test_util.set_all_outputs_to_peripheral(self.dut, self.peripheral_num)
 
         await test_util.start_nops(self.dut)

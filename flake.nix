@@ -73,10 +73,12 @@
         pkgs.mpremote
         pkgs.netgen-vlsi
         pkgs.nextpnr
+        pkgs.openfpgaloader
         pkgs.openroad
         pkgs.pandoc
         pkgs.pkg-config
         pkgs.scalafmt
+        pkgs.trellis
         pkgs.texlive.combined.scheme-full
         pkgs.tio
         pkgs.typst

@@ -14,40 +14,42 @@ help:
 	@echo "commands: "
 	@echo -e "$(BOLD)  gds-sky130:\t\t\tGenerate Sky130 GDS II file for Tinytapeout.$(RESET)"
 	@echo -e "$(BOLD)  gds-ihp:\t\t\tGenerate IHP SG13G2 GDS II file for Tinytapeout.$(RESET)"
-
+	@echo -e "  ------------------------------------------------------------------------------"
+	@echo -e "  rdl:\t\t\t\tValidate SystemRDL."
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
-	@echo -e "  test-chisel-core:\t\tRun TinyQV tests (Chisel)."
+	@echo -e "  test-chisel-core:\t\tRun Hutt CPU tests (Chisel)."
 	@echo -e "  test-cocotb-soc-core-rtl:\tRun CPU core tests (cocotb)."
 	@echo -e "  test-cocotb-soc-borg-rtl:\tRun Borg peripheral tests (cocotb)."
 	@echo -e "  test-cocotb-soc-core-gl:\tRun Gate-Level core simulations (cocotb)."
 	@echo -e "  test-cocotb-soc-borg-gl:\tRun Gate-Level borg simulations (cocotb)."
-	@echo -e "  test-all:\t\t\tRun all tests (quiet summary with ✓/✗ per suite)."
+	@echo -e "  test-all:\t\t\tRun all tests."
 	@echo -e "  datasheet.pdf:\t\tGenerate datasheet for Tinytapeout."
-	@echo -e "  user_config:\t\t\tGenerate user config for tapeout."
+	@echo -e "  user_config-*:\t\tGenerate user config for tapeout."
 	@echo -e "  print_stats:\t\t\tPrint statistics about tile usage."
 	@echo -e "  book:\t\t\t\tBuild the documentation book."
 	@echo -e "  clean:\t\t\tRemove all build artifacts."
-	@echo -e "  rdl:\t\t\t\tValidate SystemRDL and generate Chisel register block."
-	@echo -e "  clean-gh-runs:\t\tDelete all GitHub workflow runs except the last 8."
+	@echo -e "  clean-gh-runs:\t\tClean up GitHub workflow runs."
 
-export CLOCK_MHZ = 4
+# Clock frequencies: each target's Scala Main has its own default.
+# TT ASIC = 4 MHz, pico-ice = 4 MHz, ULX3S = 125 MHz.
+# Override via env var if needed: CLOCK_MHZ=50 make generate_verilog
 
 # pico-ice sources temporarily excluded from the build.
-# To re-enable: add fpga/picoice/tinyqv/src back to the find paths below
+# To re-enable: add fpga/picoice/soc/src back to the find paths below
 # and uncomment the picoice lines in .verilog_stamp.
-HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/tinyqv/src hardware/memory/src \
-                        fpga/ulx3s/tinyqv/src asic/tt/src \
+HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/hutt/src hardware/memory/src \
+                        fpga/ulx3s/soc/src asic/tt/src \
                         -name '*.scala' -not -path '*/generated/*' 2>/dev/null)
 
 # Stamp target: only re-runs Mill when Scala or RDL sources actually change.
 # | rdl is an order-only dep so rdl always runs first (it is fast and idempotent)
 # but a re-run of rdl alone does not invalidate the stamp.
 .verilog_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
-	CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) asic.tt.runMain asic.tt.TTMain
+	CLOCK_MHZ=4 $(MILL) asic.tt.runMain asic.tt.TTMain
 	@# pico-ice (BorgConfig.Small) temporarily disabled — BorgConfig.Large is primary target.
 	@# To re-enable: uncomment the three lines below and fpga/picoice in HAND_CHISEL.
-	@#CLOCK_MHZ=$(CLOCK_MHZ) $(MILL) fpga.picoice.tinyqv.runMain soc.FpgaMain
+	@#CLOCK_MHZ=4 $(MILL) fpga.picoice.soc.runMain soc.FpgaMain
 	@#ln -sf $(CURDIR)/hardware/borg/src/rcp_lut.hex   out/fpga/verilog/rcp_lut.hex
 	@#ln -sf $(CURDIR)/hardware/borg/src/coord_lut.hex out/fpga/verilog/coord_lut.hex
 	@touch $@
@@ -60,9 +62,41 @@ info.yaml: .verilog_stamp
 # Still declared phony so `make generate_verilog` always checks deps explicitly.
 generate_verilog: .verilog_stamp info.yaml
 
+# Verilator simulation Verilog — flat MemBackendIO top (no QSPI), into
+# out/hardware/borg/verilog_sim/.  Used by simulation/verilator.
+.verilog_sim_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
+	CLOCK_MHZ=4 $(MILL) asic.tt.runMain asic.tt.BorgSimMain
+	@touch $@
+
+generate_verilog_sim: .verilog_sim_stamp
+
 # ULX3S (ECP5-85K) Verilog emission stub — no synthesis flow yet (Step 27).
+# ULX3S SoC clock (MHz). Single source of truth is ULX3S_MHZ in
+# fpga/ulx3s/Makefile, which passes it here as ULX3S_CLOCK_MHZ.
+ULX3S_CLOCK_MHZ ?= 25
 generate_verilog_ulx3s: rdl
-	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.tinyqv.runMain soc.ULX3SMain
+	CLOCK_MHZ=$(ULX3S_CLOCK_MHZ) $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMain
+
+# Minimal ULX3S Verilog — Hutt + UART only, no Borg.  Fast-iteration target.
+generate_verilog_ulx3s_minimal:
+	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMinimalMain
+
+# HDMI Test Pattern emission
+generate_hdmi_test: rdl
+	TARGET_DIR=out/ulx3s/hdmi_test $(MILL) fpga.ulx3s.soc.runMain soc.HdmiTestMain
+
+# HDMI SDRAM Test emission
+generate_hdmi_sdram_test: rdl
+	TARGET_DIR=out/ulx3s/hdmi_sdram_test $(MILL) fpga.ulx3s.soc.runMain soc.HdmiSdramTestMain
+
+# CPU SDRAM HDMI Test emission
+generate_cpu_sdram_hdmi_test: rdl
+	TARGET_DIR=out/ulx3s/cpu_sdram_hdmi_test $(MILL) fpga.ulx3s.soc.runMain soc.CpuSdramHdmiTestMain
+
+# Minimal CPU+SDRAM debug harness — fast iteration (~6s build)
+# Use 25 MHz to match what the full ulx3s design uses and stay within timing.
+generate_verilog_cpu_sdram: rdl
+	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.CpuSdramTestMain
 
 test-cocotb-soc-core-rtl: generate_verilog
 	$(TEST_SOC) core
@@ -86,7 +120,7 @@ lint: .verilog_stamp
 	verilator --lint-only -Wall -Iout/hardware/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $$(cat out/hardware/borg/verilog/asic_files.txt | sed 's|^\.\./||')
 
 test-chisel-core: rdl
-	$(MILL) hardware.tinyqv.test
+	$(MILL) hardware.hutt.test
 
 test-all:
 	@MILL_JOBS=$(MILL_JOBS) python3 scripts/test_runner.py
@@ -133,7 +167,7 @@ rdl: $(RDL_SRC)
 	@sed -i '/#include <assert.h>/d; s/static_assert(/_Static_assert(/g' $(RDL_C_OUT)/borg_regs.h
 
 clean:
-	rm -f src/config_merged.json src/user_config.json .verilog_stamp
+	rm -f src/config_merged.json src/user_config.json .verilog_stamp .verilog_sim_stamp
 	rm -rf $(RDL_C_OUT)
 	rm -rf $(RDL_SCALA_OUT)
 	rm -rf out/
@@ -145,7 +179,7 @@ clean:
 clean-gh-runs:
 	gh run list --limit 200 --json databaseId --jq '.[8:] | .[].databaseId' | xargs -I {} gh run delete {}
 
-.PHONY: all generate_verilog generate_verilog_ulx3s help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book clean-gh-runs scripts/test_summary.sh

@@ -69,7 +69,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val texB    = Output(UInt(16.W))    // fetched texel B (to core)
 }
 
-class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgShaderDispatcherIO(cfg))
 
   private val config = cfg.fp  // shorthand for FP arithmetic
@@ -181,7 +181,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
     phase := sRast
     io.coreTrigger.valid := true.B
     io.coreTrigger.pc    := 0.U
-    printf("[DISP] pixelReady tileIdx=%d\n", io.shaderTileIndex)
+    if (BorgDebug.trace) printf("[DISP] pixelReady tileIdx=%d\n", io.shaderTileIndex)
   }
 
   // --- Shader chaining FSM ---
@@ -189,17 +189,17 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
   val core_just_finished = core_was_active && !io.coreStatus.running && !io.coreStatus.autoRunPending
 
   when(phase === sRast && core_just_finished) {
-    printf("[DISP] rast done e0out=%d e1out=%d e2out=%d inside=%d fragPc=%d\n",
+    if (BorgDebug.trace) printf("[DISP] rast done e0out=%d e1out=%d e2out=%d inside=%d fragPc=%d\n",
       e0_outside, e1_outside, e2_outside, inside_flag, io.fragPcReg)
     when(inside_flag && io.fragPcReg =/= 0.U) {
       phase := sFrag
       io.coreTrigger.valid := true.B
       io.coreTrigger.pc    := io.fragPcReg
-      printf("[DISP] -> sFrag pc=%d\n", io.fragPcReg)
+      if (BorgDebug.trace) printf("[DISP] -> sFrag pc=%d\n", io.fragPcReg)
     }.otherwise {
       phase := sIdle
       auto_run_stall := false.B
-      printf("[DISP] -> sIdle (outside or no frag)\n")
+      if (BorgDebug.trace) printf("[DISP] -> sIdle (outside or no frag)\n")
     }
   }
 
@@ -259,7 +259,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
     // io.tileRead.data is held stable in BorgTileBuffer.readDataHeld.
     val zPass = inside_flag && (frag_z < io.tileRead.data.z)
     io.tileWrite.en := zPass
-    printf("[DISP] tileWrite idx=%d R=0x%x G=0x%x B=0x%x Z=0x%x zOld=0x%x pass=%d\n",
+    if (BorgDebug.trace) printf("[DISP] tileWrite idx=%d R=0x%x G=0x%x B=0x%x Z=0x%x zOld=0x%x pass=%d\n",
       io.shaderTileIndex, frag_r, frag_g, frag_b, frag_z,
       io.tileRead.data.z, zPass)
 
@@ -310,15 +310,15 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
   when(io.pipeWrite.en && phase === sRast) {
     when(io.pipeWrite.addr === 0.U) {
       e0_outside := isOutside(io.pipeWrite.data)
-      printf("[DISP] edge0=0x%x outside=%d\n", io.pipeWrite.data, isOutside(io.pipeWrite.data))
+      if (BorgDebug.trace) printf("[DISP] edge0=0x%x outside=%d\n", io.pipeWrite.data, isOutside(io.pipeWrite.data))
     }
     when(io.pipeWrite.addr === 1.U) {
       e1_outside := isOutside(io.pipeWrite.data)
-      printf("[DISP] edge1=0x%x outside=%d\n", io.pipeWrite.data, isOutside(io.pipeWrite.data))
+      if (BorgDebug.trace) printf("[DISP] edge1=0x%x outside=%d\n", io.pipeWrite.data, isOutside(io.pipeWrite.data))
     }
     when(io.pipeWrite.addr === 2.U) {
       e2_outside := isOutside(io.pipeWrite.data)
-      printf("[DISP] edge2=0x%x outside=%d\n", io.pipeWrite.data, isOutside(io.pipeWrite.data))
+      if (BorgDebug.trace) printf("[DISP] edge2=0x%x outside=%d\n", io.pipeWrite.data, isOutside(io.pipeWrite.data))
     }
   }
   // @doc:end
@@ -327,19 +327,19 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Sim) extends Module 
   when(io.pipeWrite.en && phase === sFrag) {
     when(io.pipeWrite.addr === 26.U) {
       frag_r := io.pipeWrite.data(15, 0)
-      printf("[DISP] fragR=0x%x\n", io.pipeWrite.data(15, 0))
+      if (BorgDebug.trace) printf("[DISP] fragR=0x%x\n", io.pipeWrite.data(15, 0))
     }
     when(io.pipeWrite.addr === 27.U) {
       frag_g := io.pipeWrite.data(15, 0)
-      printf("[DISP] fragG=0x%x\n", io.pipeWrite.data(15, 0))
+      if (BorgDebug.trace) printf("[DISP] fragG=0x%x\n", io.pipeWrite.data(15, 0))
     }
     when(io.pipeWrite.addr === 28.U) {
       frag_b := io.pipeWrite.data(15, 0)
-      printf("[DISP] fragB=0x%x\n", io.pipeWrite.data(15, 0))
+      if (BorgDebug.trace) printf("[DISP] fragB=0x%x\n", io.pipeWrite.data(15, 0))
     }
     when(io.pipeWrite.addr === 29.U) {
       frag_z := io.pipeWrite.data(15, 0)
-      printf("[DISP] fragZ=0x%x\n", io.pipeWrite.data(15, 0))
+      if (BorgDebug.trace) printf("[DISP] fragZ=0x%x\n", io.pipeWrite.data(15, 0))
     }
   }
 

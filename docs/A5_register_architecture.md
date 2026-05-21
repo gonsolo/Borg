@@ -136,6 +136,12 @@ Expanding to 64 registers:
 
 ### 3.2 FPGA Prototyping (pico-ice, iCE40 UP5K)
 
+> **Note**: The primary FPGA development target is now the **ULX3S (Lattice
+> ECP5-85K)**, which has vastly more resources than the iCE40. The constraints
+> below were the binding ones at the time this document was written and remain
+> relevant for the Tiny Tapeout ASIC companion target. The BRAM analysis still
+> drives the uniform buffer decision since it informs ASIC area, not FPGA fit.
+
 - **LUTs**: 5,280
 - **BRAMs**: 30 (each 256×16-bit, single-port with 1R + 1W)
 - **DSP**: 8 blocks
@@ -163,7 +169,7 @@ and requiring a fully custom instruction format.
 RISC-V compatibility is a nice-to-have, not a hard requirement. But
 preserving it has genuine practical value:
 
-- The TinyQV CPU (which drives the GPU) is itself RISC-V.
+- The Hutt CPU (which drives the GPU) is itself RISC-V.
 - Future integration with standard toolchains (GCC, LLVM) becomes
   easier if the shader ISA resembles standard RISC-V.
 - The Mesa/NIR shader compiler backend (Phase 4, step 23) benefits
@@ -1052,7 +1058,7 @@ can be added in Phase 5 without changing the ISA.
 
 ### 12.6 Considerations for the RISC-V CPU
 
-The TinyQV RISC-V CPU that drives Borg could potentially share
+The Hutt RISC-V CPU that drives Borg could potentially share
 the uniform buffer infrastructure. If the CPU needs to pass small
 constant arrays to the GPU (e.g., bone matrices for skeletal
 animation), the uniform buffer provides a natural, low-overhead

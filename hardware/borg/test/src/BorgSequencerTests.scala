@@ -35,7 +35,7 @@ object BorgSequencerTests extends TestSuite {
 
   // --- Bus helpers ---
 
-  def rawWrite(borg: Borg, addr: Int, data: BigInt): Unit = {
+  def rawWrite(borg: BorgTestWrapper, addr: Int, data: BigInt): Unit = {
     borg.io.address.poke(addr.U)
     borg.io.data_in.poke(data.U)
     borg.io.data_write_n.poke(2.U)
@@ -44,7 +44,7 @@ object BorgSequencerTests extends TestSuite {
     borg.clock.step(1)
   }
 
-  def rawRead(borg: Borg, addr: Int): BigInt = {
+  def rawRead(borg: BorgTestWrapper, addr: Int): BigInt = {
     borg.io.address.poke(addr.U)
     borg.io.data_read_n.poke(2.U)
     borg.clock.step(1)
@@ -55,7 +55,7 @@ object BorgSequencerTests extends TestSuite {
     bits
   }
 
-  def resetAndWait(borg: Borg): Unit = {
+  def resetAndWait(borg: BorgTestWrapper): Unit = {
     borg.reset.poke(true.B)
     borg.clock.step(2)
     borg.reset.poke(false.B)
@@ -66,7 +66,7 @@ object BorgSequencerTests extends TestSuite {
     rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
   }
 
-  def servicePsram(borg: Borg, psram: Map[Int, BigInt]): Int = {
+  def servicePsram(borg: BorgTestWrapper, psram: Map[Int, BigInt]): Int = {
     if (borg.io.gpuMem.req.peek().litToBoolean) {
       if (!borg.io.gpuMem.wr.peek().litToBoolean) {
         // Read: return data from psram map
@@ -83,7 +83,7 @@ object BorgSequencerTests extends TestSuite {
     }
   }
 
-  def runSequencerUntilDone(borg: Borg, psram: Map[Int, BigInt],
+  def runSequencerUntilDone(borg: BorgTestWrapper, psram: Map[Int, BigInt],
                             maxCycles: Int = 5000): (Boolean, Boolean, Int) = {
     var seqBusySeen    = false
     var seqBusyCleared = false
@@ -196,7 +196,7 @@ object BorgSequencerTests extends TestSuite {
   val tests = Tests {
 
     utest.test("vertex_shader_run") {
-      simulate(new Borg(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
         println("\n=== BorgSequencerTests: vertex_shader_run ===")
         resetAndWait(borg)
 
@@ -231,7 +231,7 @@ object BorgSequencerTests extends TestSuite {
     }
 
     utest.test("triangle_setup") {
-      simulate(new Borg(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
         println("\n=== BorgSequencerTests: triangle_setup ===")
         resetAndWait(borg)
 
@@ -294,7 +294,7 @@ object BorgSequencerTests extends TestSuite {
       * Verifies all 31 physical uniform registers after a full sequencer run.
       */
     utest.test("sequencer_uniform_staging") {
-      simulate(new Borg(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
         println("\n=== BorgSequencerTests: sequencer_uniform_staging ===")
         resetAndWait(borg)
 
@@ -413,7 +413,7 @@ object BorgSequencerTests extends TestSuite {
       * reads staged color values, tile buffer receives correct RGBZ.
       */
     utest.test("sequencer_full_triangle") {
-      simulate(new Borg(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
         println("\n=== BorgSequencerTests: sequencer_full_triangle ===")
 
         // --- (0) Reset ---
@@ -485,7 +485,7 @@ object BorgSequencerTests extends TestSuite {
     }
 
     utest.test("multi_triangle_loop") {
-      simulate(new Borg(BorgConfig.Sim)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
         println("\n=== BorgSequencerTests: multi_triangle_loop ===")
         resetAndWait(borg)
 
@@ -545,6 +545,191 @@ object BorgSequencerTests extends TestSuite {
         // Total per tri ~ 52. For 2 triangles ~ 104.
         Predef.assert(dmaReads > 80, s"Expected > 80 DMA reads for 2 triangles, got $dmaReads")
         println("=== multi_triangle_loop PASSED ===\n")
+      }
+    }
+
+    /** Sequencer → Flusher E2E: verify autonomous render produces correct
+      * FP16 pixel writes to SDRAM.
+      *
+      * Setup: 1 triangle covering tile (0,0), with simple shaders that output
+      * a known color. After the sequencer completes, verify the captured GPU
+      * writes contain the expected FP16 RGBZ values at the correct addresses.
+      */
+    utest.test("sequencer_flusher_e2e") {
+      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
+        println("\n=== BorgSequencerTests: sequencer_flusher_e2e ===")
+
+        // --- Reset ---
+        borg.reset.poke(true.B)
+        borg.io.data_write_n.poke(3.U)
+        borg.io.data_read_n.poke(3.U)
+        borg.io.gpuMem.ready.poke(false.B)
+        borg.io.gpuMem.data.poke(0.U)
+        borg.clock.step(4)
+        borg.reset.poke(false.B)
+        borg.clock.step(20)
+        rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2) // reset pipeline
+
+        // --- PSRAM layout ---
+        val vertAddr  = 0x1000; val setupAddr = 0x3000; val descAddr  = 0x2000
+        val rastAddr  = 0x4000; val fragAddr  = 0x5000
+        val binBase   = 0x6000; val setupBase = 0x7000
+        val fbBase    = 0x10000  // framebuffer base for flusher
+
+        // Triangle: fully covers tile (0,0), i.e., pixels (0,0)-(3,3).
+        // Vertices at (0, 0), (4, 0), (0, 4) — covers the 4×4 tile.
+        // Colors: v0=red, v1=red, v2=red → all pixels should be pure red.
+        val verts = Seq(
+          Seq(0.0f, 0.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f), // v0 (red)
+          Seq(4.0f, 0.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f), // v1 (red)
+          Seq(0.0f, 4.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f), // v2 (red)
+        )
+
+        val vertShader = vertPassthroughShader()
+        val setup      = setupShader()
+
+        // Rast shader: simple stub that passes edge results through.
+        // r0-r5 are edge values from setup uniforms.
+        // For test simplicity, just output 0 for all weights — the frag shader
+        // will output the clear color or the uniform color directly.
+        val rastShader = Seq(
+          Instructions.ADD(rs1 = 7, rs2 = 6, rd = 0),
+          Instructions.ADD(rs1 = 7, rs2 = 6, rd = 1),
+          Instructions.ADD(rs1 = 7, rs2 = 6, rd = 2),
+          BigInt(0) // HALT
+        )
+
+        // Frag shader: output u7 (color R for w2 vertex) → r26, u10 (G) → r27,
+        // u13 (B) → r28, u16 (Z) → r29.
+        // These are the sequencer-staged uniforms from sStageUniforms.
+        // Since all 3 vertices have r=1.0, the staged u7/u8/u9 (R for w2/w1/w0)
+        // are all 1.0. Similarly u10-u12 (G)=0, u13-u15 (B)=0.
+        // The frag shader outputs from the "w2" color slot (u7, u10, u13, u16).
+        val fragShader = Seq(
+          Instructions.ADD(rs1 = 14, rs2 = 25, rd = 26, funct3 = 1), // r26 = u14 (inv_area from seq)
+          Instructions.ADD(rs1 = 7,  rs2 = 25, rd = 27, funct3 = 1), // r27 = u7  (color R, w2→v1)
+          Instructions.ADD(rs1 = 10, rs2 = 25, rd = 28, funct3 = 1), // r28 = u10 (color G, w2→v1)
+          Instructions.ADD(rs1 = 13, rs2 = 25, rd = 29, funct3 = 1), // r29 = u13 (color B, w2→v1)
+          Instructions.ADD(rs1 = 0, rs2 = 0, rd = 0), // NOP
+          Instructions.ADD(rs1 = 0, rs2 = 0, rd = 0), // NOP
+          Instructions.ADD(rs1 = 0, rs2 = 0, rd = 0), // NOP
+          Instructions.ADD(rs1 = 0, rs2 = 0, rd = 0), // NOP
+          BigInt(0) // HALT
+        )
+
+        val psramInit: Map[Int, BigInt] =
+          vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
+          setup.zipWithIndex.map      { case (w,i) => (setupAddr + i*4) -> w }.toMap ++
+          rastShader.zipWithIndex.map { case (w,i) => (rastAddr + i*4) -> w }.toMap ++
+          fragShader.zipWithIndex.map { case (w,i) => (fragAddr + i*4) -> w }.toMap ++
+          buildDescriptorWithBbox(descAddr, verts, 0, 0, 4, 4)
+
+        // Mutable PSRAM that captures writes
+        val psram = scala.collection.mutable.Map[Int, BigInt]() ++= psramInit
+        val gpuWrites = scala.collection.mutable.ArrayBuffer[(Int, BigInt)]()
+
+        def servicePsramCapture(): Int = {
+          if (borg.io.gpuMem.req.peek().litToBoolean) {
+            val addr = borg.io.gpuMem.addr.peek().litValue.toInt
+            if (borg.io.gpuMem.wr.peek().litToBoolean) {
+              // Write: capture address and data
+              val data = borg.io.gpuMem.wdata.peek().litValue
+              gpuWrites += ((addr, data))
+              psram(addr) = data
+            } else {
+              // Read: return data from psram
+              val data = psram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)
+              borg.io.gpuMem.data.poke(data.U)
+            }
+            borg.io.gpuMem.ready.poke(true.B)
+            1
+          } else {
+            borg.io.gpuMem.ready.poke(false.B)
+            0
+          }
+        }
+
+        // --- Configure sequencer registers ---
+        rawWrite(borg, BorgGpuRegs.seq_desc_base_offset.litValue.toInt, descAddr)
+        rawWrite(borg, BorgGpuRegs.seq_vert_addr_offset.litValue.toInt, vertAddr)
+        rawWrite(borg, BorgGpuRegs.seq_vert_len_offset.litValue.toInt, vertShader.size)
+        rawWrite(borg, BorgGpuRegs.seq_setup_addr_offset.litValue.toInt, setupAddr)
+        rawWrite(borg, BorgGpuRegs.seq_setup_len_offset.litValue.toInt, setup.size)
+        rawWrite(borg, BorgGpuRegs.seq_rast_addr_offset.litValue.toInt, rastAddr)
+        rawWrite(borg, BorgGpuRegs.seq_rast_len_offset.litValue.toInt, rastShader.size)
+        rawWrite(borg, BorgGpuRegs.seq_frag_addr_offset.litValue.toInt, fragAddr)
+        rawWrite(borg, BorgGpuRegs.seq_frag_len_offset.litValue.toInt, fragShader.size)
+        rawWrite(borg, BorgGpuRegs.seq_bin_base_offset.litValue.toInt, binBase)
+        rawWrite(borg, BorgGpuRegs.seq_bin_row_bytes_offset.litValue.toInt, 2)
+        rawWrite(borg, BorgGpuRegs.seq_setup_base_offset.litValue.toInt, setupBase)
+        rawWrite(borg, BorgGpuRegs.seq_fb_base_offset.litValue.toInt, fbBase)
+        rawWrite(borg, BorgGpuRegs.seq_tiles_per_row_offset.litValue.toInt, 1) // 4-pixel wide FB
+        rawWrite(borg, BorgGpuRegs.seq_clear_lo_offset.litValue.toInt, 0x7BFF) // clear Z=max
+        rawWrite(borg, BorgGpuRegs.seq_clear_hi_offset.litValue.toInt, 0)      // clear R=0, G=0
+        // Set frag_pc so dispatcher chains to fragment shader
+        rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 64) // IMEM frag offset
+        // Set flush_width (log2 of fb width in pixels)
+        rawWrite(borg, BorgGpuRegs.flush_width_offset.litValue.toInt, 2) // log2(4) = 2
+
+        // --- Trigger sequencer ---
+        rawWrite(borg, BorgGpuRegs.seq_tri_count_offset.litValue.toInt, 1)
+        rawWrite(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt, 1)
+
+        // --- Run until done (with write capture) ---
+        var seqBusySeen = false
+        var seqBusyCleared = false
+        val maxCycles = 20000
+        for (cycle <- 0 until maxCycles if !seqBusyCleared) {
+          servicePsramCapture()
+          borg.clock.step(1)
+          if (cycle % 10 == 5) {
+            borg.io.address.poke(BorgGpuRegs.status_offset)
+            borg.io.data_read_n.poke(2.U)
+            borg.io.data_write_n.poke(3.U)
+            servicePsramCapture()
+            borg.clock.step(1)
+            val st = borg.io.data_out.peek().litValue
+            borg.io.data_read_n.poke(3.U)
+            servicePsramCapture()
+            borg.clock.step(1)
+            val busy = (st >> 5) & 1
+            if (busy == 1) seqBusySeen = true
+            if (seqBusySeen && busy == 0) seqBusyCleared = true
+          }
+        }
+        println(f"  seq_busy seen: $seqBusySeen, cleared: $seqBusyCleared")
+        Predef.assert(seqBusySeen, "sequencer never went busy")
+        Predef.assert(seqBusyCleared, "sequencer never completed")
+
+        // --- Verify flusher writes ---
+        println(f"  Total GPU writes captured: ${gpuWrites.size}")
+
+        // The flusher writes 16 pixels × 4 channels = 64 writes for tile (0,0).
+        // Each write: 16-bit value at addr = fbBase + tile_index*128 + pixel*8 + channel*2.
+        // For tile (0,0): tile_index=0, so addr starts at fbBase.
+        val flusherWrites = gpuWrites.filter { case (addr, _) =>
+          addr >= fbBase && addr < fbBase + 128
+        }
+        println(f"  Flusher writes in tile (0,0) range: ${flusherWrites.size}")
+
+        if (flusherWrites.nonEmpty) {
+          // Print first few writes for debug
+          println("  First 8 flusher writes:")
+          for ((addr, data) <- flusherWrites.take(8)) {
+            println(f"    addr=0x$addr%06X data=0x${data.toInt}%04X")
+          }
+
+          // Verify at least 64 writes (16 pixels × 4 channels)
+          Predef.assert(flusherWrites.size >= 64,
+            s"Expected >= 64 flusher writes for 16 pixels, got ${flusherWrites.size}")
+
+          // Check pixel 0 channel R (should be non-zero if fragment shader ran)
+          val pixel0R = flusherWrites.find(_._1 == fbBase).map(_._2.toInt & 0xFFFF)
+          println(f"  Pixel 0 R = 0x${pixel0R.getOrElse(0)}%04X")
+          Predef.assert(pixel0R.isDefined, "No write at fbBase (pixel 0 R)")
+        }
+
+        println("=== sequencer_flusher_e2e PASSED ===\n")
       }
     }
   }

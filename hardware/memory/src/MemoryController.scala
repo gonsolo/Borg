@@ -1,281 +1,255 @@
 // Copyright Michael Bell 2024
 // Conversion to Chisel Copyright © 2026 Andreas Wendleder
+// Rewrite for 16-bit-word MemBackendIO © 2026 Andreas Wendleder
 // SPDX-License-Identifier: Apache-2.0
 
 package memory
 
 import chisel3._
 import chisel3.util._
-import tinyqv.cpu.{InstrFetchIO, MemBusIO}
+import hutt.{HuttBus, HuttInstrBus, HuttSize}
 import borg.GpuMemIO
 
 /** IO bundle for the SoC-level memory controller.
   *
   * Arbitrates the memory backend bus between four requestors:
-  *   - CPU instruction fetch (via [[InstrFetchIO]])
-  *   - CPU data read/write (loads, stores, PSRAM framebuffer)
-  *   - GPU write (autonomous tile flush — Step 25.2)
-  *   - GPU read (autonomous texel fetch — Step 19.2)
+  *   - CPU instruction fetch ([[HuttInstrBus]], single 32-bit word per request)
+  *   - CPU data read/write ([[HuttBus]], byte/halfword/word access)
+  *   - GPU write (autonomous tile flush)
+  *   - GPU read (scanout / texel fetch)
   *
-  * Physical memory pins are NOT owned here; connect a [[QspiBackend]]
-  * (or future [[SdramBackend]]) to io.backend at the top level.
+  * Physical memory pins are NOT owned here; connect a [[QspiBackend]] or
+  * [[SdramBackend]] to io.backend at the top level.
   */
 class MemoryControllerIO extends Bundle {
-  // CPU instruction fetch interface
-  val instrFetch = Flipped(new InstrFetchIO)
-
-  // CPU data bus (QSPI region: addr[27:25] == 0 on the TinyQV side)
-  val cpuData = Flipped(new MemBusIO)
-
-  // GPU read/write port (slave end)
-  val gpuMem = Flipped(new GpuMemIO)
-
-  // Backend interface — connect to QspiBackend or SdramBackend at top level.
+  val instr   = Flipped(new HuttInstrBus(23))
+  val cpuData = Flipped(new HuttBus(25))
+  val gpuMem  = Flipped(new GpuMemIO)
   val backend = new MemBackendIO
 
-  val debug_stall_txn = Output(Bool())
-  val debug_stop_txn  = Output(Bool())
+  val debug_state = Output(UInt(3.W))
 }
 
 /** SoC-level memory controller — backend-agnostic arbiter.
   *
-  * Arbitrates between four requestors:
-  *   - '''Instruction fetch:''' streaming 16-bit instruction words
-  *   - '''CPU data read/write:''' byte/halfword/word access for loads and stores
-  *   - '''GPU write:''' autonomous PSRAM writes (tile flush — Step 25.2)
-  *   - '''GPU read:''' texel fetch from PSRAM (Step 19.2)
+  * Each CPU/GPU access is decomposed into one or two halfword transactions on
+  * the [[MemBackendIO]] interface:
+  *   - Byte/halfword: 1 halfword transaction.
+  *   - Word: 2 back-to-back halfword transactions.
   *
-  * The physical memory transport is provided by a separate backend module
-  * ([[QspiBackend]] or future [[SdramBackend]]) connected to io.backend.
+  * Byte-write granularity uses byteEnIn to mask the inactive lane. (Note: the
+  * current SdramController ignores dqm during normal R/W — byte writes will
+  * clobber the adjacent byte until SdramController gets a dqm input.)
   */
 class MemoryController extends Module {
   val io = IO(new MemoryControllerIO)
 
-  // Sequential State
-  val instr_active       = RegInit(false.B)
-  val gpu_active         = RegInit(false.B)
-  val gpu_write_active   = RegInit(false.B)  // Step 25.2: GPU write transaction in flight
-  val started            = RegInit(false.B)
-  val stopped            = RegInit(false.B)
-  val qspi_write_done    = RegInit(false.B)
-  val qspi_data_buf      = RegInit(VecInit(Seq.fill(4)(0.U(8.W))))
-  val qspi_data_byte_idx = RegInit(0.U(2.W))
-  val data_txn_len       = RegInit(3.U(2.W))
-  val continue_txn       = RegInit(false.B)
-  val data_stall         = RegInit(false.B)
+  // ── FSM ────────────────────────────────────────────────────────────────────
+  // sIdle    — accepting new requests
+  // sIssue   — pulse startRead/startWrite for one cycle
+  // sWait    — wait for backend.done; capture read data
+  // sRespond — deliver result to requester; advance to next halfword if
+  //            needTwo and we've only done halfword 0, else back to sIdle.
+  val sIdle :: sIssue :: sWait :: sRespond :: Nil = Enum(4)
+  val state = RegInit(sIdle)
 
-  val start_instr     = Wire(Bool())
-  val start_read      = Wire(Bool())
-  val start_write     = Wire(Bool())
-  val start_gpu_write = Wire(Bool())  // Step 25.2
-  val start_gpu_read  = Wire(Bool())
-  val stop_txn    = Wire(Bool())
-  val data_ready  = Wire(Bool())
+  // Requester kind
+  val rInstr :: rCpuRead :: rCpuWrite :: rGpuRead :: rGpuWrite :: Nil = Enum(5)
+  val rKind = RegInit(rInstr)
 
-  val data_txn_n = io.cpuData.writeN & io.cpuData.readN
+  // Halfword tracking
+  val hwIdx   = RegInit(0.U(1.W))  // 0 or 1 within current CPU/GPU access
+  val needTwo = RegInit(false.B)   // true when the request needs 2 halfwords
 
-  val qspi_busy       = Wire(Bool())
-  val qspi_data_req   = Wire(Bool())
-  val qspi_data_ready = Wire(Bool())
-  val qspi_data_out   = Wire(UInt(8.W))
+  // Latched request fields
+  val reqByteAddr = RegInit(0.U(25.W))
+  val reqData     = RegInit(0.U(32.W))
+  val reqSize     = RegInit(HuttSize.Word)
+  val hw0Reg      = RegInit(0.U(16.W))  // first halfword read back
+  val hw1Reg      = RegInit(0.U(16.W))  // second halfword read back
 
-  val is_instr  = instr_active || start_instr
-  val is_gpu    = gpu_active || gpu_write_active || start_gpu_read || start_gpu_write
-  val txn_len   = Mux(is_instr, 1.U(2.W), data_txn_len)
-  val addr_in = WireDefault(io.cpuData.addr(24, 0))
-  when(is_instr) { addr_in := Cat(0.U(1.W), io.instrFetch.instr_addr, 0.U(1.W)) }
-  when(is_gpu)   { addr_in := Cat(2.U(2.W), 0.U(3.W), io.gpuMem.addr) }
+  // Byte-write read-modify-write.  dqm-less backends (the real SdramController,
+  // QSPI PSRAM) and the behavioral SdramBackendSim write the full 16-bit lane
+  // regardless of byteEnIn, so a naive byte write clobbers its neighbour byte.
+  // To stay backend-agnostic we turn each byte write into READ-merge-WRITE:
+  // read the existing halfword, splice in the new byte, write the halfword back.
+  val rmwBg          = RegInit(0.U(16.W))  // existing halfword captured for the merge
+  val rmwReadPending = RegInit(false.B)    // byte write still owes its RMW read
 
-  val stall_txn = instr_active &&
-    io.instrFetch.instr_fetch_stall &&
-    !qspi_data_ready &&
-    (qspi_data_byte_idx === 1.U)
+  // PSRAM-region select: byte-address bit 24 (= QspiController addr_in(24)).
+  // gpuMem (GPU PSRAM port) addresses are PSRAM SPI-relative and must carry
+  // this bit so they alias the CPU's PSRAM_OUT_RAW accesses.
+  val VRAM_REGION_BIT = "h1000000".U(25.W)
 
-  // --- Core Wiring ---
-  wireControlFsm()
-  wireDataPath()
-  wireBackend()
-  wireOutputs()
+  // ── Convenience signals ────────────────────────────────────────────────────
+  // Word address (16-bit-word, 24 bits) for the SDRAM transaction.
+  val baseWordAddr = reqByteAddr(24, 1)
+  val currentWordAddr = baseWordAddr + hwIdx
 
-  // --- Helper Methods ---
+  // For writes: which halfword of reqData are we sending now.
+  val currentWriteHw = Mux(hwIdx === 0.U, reqData(15, 0), reqData(31, 16))
 
-  private def assembleInstrData(): UInt = Cat(qspi_data_out, qspi_data_buf(0))
+  // Always write the full halfword.  Byte writes now carry a merged value
+  // (see byteWriteHw + the RMW read), so we never rely on backend lane masking.
+  val currentByteEn = "b11".U(2.W)
 
-  private def assembleCpuDataIn(): UInt = {
-    Mux(
-      data_ready,
-      Cat(
-        qspi_data_out,
-        qspi_data_buf(2),
-        Mux(data_txn_len === 1.U, qspi_data_out, qspi_data_buf(1)),
-        Mux(data_txn_len === 0.U, qspi_data_out, qspi_data_buf(0))
-      ),
-      qspi_data_buf.asUInt
-    )
-  }
+  // Byte write: splice the new byte into the correct lane of the existing
+  // halfword (rmwBg, captured by the RMW read). Even-addressed byte → low lane,
+  // odd-addressed byte → high lane; the other lane preserves memory.
+  val byteWriteHw = Mux(
+    reqByteAddr(0),
+    Cat(reqData(7, 0), rmwBg(7, 0)),
+    Cat(rmwBg(15, 8), reqData(7, 0))
+  )
+  val halfwordWriteHw = reqData(15, 0)
+  val wordWriteHw = currentWriteHw   // depends on hwIdx
 
-  private def assembleGpuData(): UInt = Cat(qspi_data_out, qspi_data_buf(2), qspi_data_buf(1), qspi_data_buf(0))
+  val txWriteHw = MuxLookup(reqSize, wordWriteHw)(Seq(
+    HuttSize.Byte -> byteWriteHw,
+    HuttSize.Half -> halfwordWriteHw,
+    HuttSize.Word -> wordWriteHw
+  ))
 
-  // --- Implementation Methods ---
+  val isReadReq = (rKind === rInstr) || (rKind === rCpuRead) || (rKind === rGpuRead)
 
-  private def wireControlFsm(): Unit = {
-    start_instr     := false.B
-    start_read      := false.B
-    start_write     := false.B
-    start_gpu_write := false.B
-    start_gpu_read  := false.B
-    stop_txn        := false.B
+  // A byte write's FIRST backend transaction is the RMW read, even though
+  // rKind is rCpuWrite. txIsRead drives the backend startRead/startWrite.
+  val doingRmwRead = (rKind === rCpuWrite) && rmwReadPending
+  val txIsRead     = isReadReq || doingRmwRead
 
-    when(qspi_busy || qspi_write_done) {
-      when(instr_active) {
-        when(io.instrFetch.instr_fetch_restart && (!started || stall_txn)) {
-          stop_txn := true.B
-        } .elsewhen(
-          (qspi_data_ready && qspi_data_byte_idx === 1.U) ||
-          io.instrFetch.instr_fetch_stall
-        ) {
-          when(data_txn_n =/= 3.U || io.gpuMem.req || io.gpuMem.wr) { stop_txn := true.B }
+  // ── Backend wiring ─────────────────────────────────────────────────────────
+  io.backend.addrIn     := currentWordAddr
+  io.backend.dataIn     := txWriteHw
+  io.backend.byteEnIn   := currentByteEn
+  io.backend.startRead  := (state === sIssue) &&  txIsRead
+  io.backend.startWrite := (state === sIssue) && !txIsRead
+
+  // ── Response presentation ──────────────────────────────────────────────────
+  // For lb/lh/lw: assemble the result. For byte/halfword reads, only hw0 is
+  // valid; the top 16 bits of the resp are zero (CPU sign-extends from byte
+  // or halfword fields). For word reads, hw1:hw0.
+  val cpuRespBits = MuxLookup(reqSize, Cat(hw1Reg, hw0Reg))(Seq(
+    HuttSize.Byte -> Cat(0.U(24.W), Mux(reqByteAddr(0), hw0Reg(15, 8), hw0Reg(7, 0))),
+    HuttSize.Half -> Cat(0.U(16.W), hw0Reg),
+    HuttSize.Word -> Cat(hw1Reg, hw0Reg)
+  ))
+
+  val gpuRespBits = Cat(hw1Reg, hw0Reg)
+  val instrRespBits = Cat(hw1Reg, hw0Reg)
+
+  // ── Default IO ─────────────────────────────────────────────────────────────
+  // Instruction fetch is the LOWEST-priority requester (see sIdle arbitration).
+  // req.ready must therefore only assert when the controller will actually
+  // accept the fetch this cycle — i.e. no higher-priority requester (CPU data
+  // or GPU) is competing.  Otherwise the CPU's instr.req "fires" while the
+  // controller services the GPU instead, dropping the fetch and wedging the CPU
+  // in sFetchResp forever (manifests once the GPU is active).
+  io.instr.req.ready   := (state === sIdle) &&
+                          !io.cpuData.req.valid && !io.gpuMem.wr && !io.gpuMem.req
+  io.instr.resp.valid  := (state === sRespond) && (rKind === rInstr)
+  io.instr.resp.bits   := instrRespBits
+
+  io.cpuData.req.ready := (state === sIdle)
+  io.cpuData.resp.valid := (state === sRespond) && (rKind === rCpuRead || rKind === rCpuWrite)
+  io.cpuData.resp.bits  := cpuRespBits
+
+  io.gpuMem.data  := gpuRespBits
+  io.gpuMem.ready := (state === sRespond) && (rKind === rGpuRead || rKind === rGpuWrite)
+
+  io.debug_state := state
+
+  // ── FSM ────────────────────────────────────────────────────────────────────
+  switch(state) {
+    is(sIdle) {
+      rmwReadPending := false.B  // default; only byte writes (below) set it true
+      // Priority: CPU read > CPU write > GPU write > GPU read > instr fetch.
+      // Each branch latches the request and goes to sIssue.
+      when(io.cpuData.req.valid && !io.cpuData.req.bits.write) {
+        rKind       := rCpuRead
+        reqByteAddr := io.cpuData.req.bits.addr
+        reqSize     := io.cpuData.req.bits.size
+        needTwo     := io.cpuData.req.bits.size === HuttSize.Word
+        hwIdx       := 0.U
+        state       := sIssue
+      }.elsewhen(io.cpuData.req.valid && io.cpuData.req.bits.write) {
+        rKind       := rCpuWrite
+        reqByteAddr := io.cpuData.req.bits.addr
+        reqData     := io.cpuData.req.bits.data
+        reqSize     := io.cpuData.req.bits.size
+        needTwo     := io.cpuData.req.bits.size === HuttSize.Word
+        // Byte writes need a read-modify-write; read the existing halfword first.
+        rmwReadPending := io.cpuData.req.bits.size === HuttSize.Byte
+        hwIdx       := 0.U
+        state       := sIssue
+      }.elsewhen(io.gpuMem.wr) {
+        rKind       := rGpuWrite
+        // gpuMem is the GPU's PSRAM port: its addresses are PSRAM SPI-relative
+        // byte addresses (e.g. flush_fb_base, seq_*_addr).  The CPU reaches the
+        // same data via PSRAM_OUT_RAW, which adds the PSRAM base so byte bit 24
+        // is set.  Force bit 24 here so GPU and CPU accesses hit identical
+        // backend words (otherwise the GPU reads/writes the flash region).
+        reqByteAddr := io.gpuMem.addr | VRAM_REGION_BIT
+        reqData     := io.gpuMem.wdata
+        reqSize     := HuttSize.Word
+        needTwo     := true.B
+        hwIdx       := 0.U
+        state       := sIssue
+      }.elsewhen(io.gpuMem.req) {
+        rKind       := rGpuRead
+        reqByteAddr := io.gpuMem.addr | VRAM_REGION_BIT
+        reqSize     := HuttSize.Word
+        needTwo     := true.B
+        hwIdx       := 0.U
+        state       := sIssue
+      }.elsewhen(io.instr.req.valid) {
+        rKind       := rInstr
+        // instr.req.bits is a 23-bit word address. Convert to 25-bit byte addr.
+        reqByteAddr := Cat(io.instr.req.bits, 0.U(2.W))
+        reqSize     := HuttSize.Word
+        needTwo     := true.B
+        hwIdx       := 0.U
+        state       := sIssue
+      }
+    }
+
+    is(sIssue) {
+      // startRead/startWrite is pulsed via the wiring above. Move to wait.
+      state := sWait
+    }
+
+    is(sWait) {
+      when(io.backend.done) {
+        when(doingRmwRead) {
+          // Byte-write RMW read complete: capture the existing halfword and
+          // re-issue the same access as a (now merged) write.
+          rmwBg          := io.backend.dataOut
+          rmwReadPending := false.B
+          state          := sIssue
+        }.otherwise {
+          when(isReadReq) {
+            when(hwIdx === 0.U) { hw0Reg := io.backend.dataOut }
+              .otherwise        { hw1Reg := io.backend.dataOut }
+          }
+          when(needTwo && hwIdx === 0.U) {
+            hwIdx := 1.U
+            state := sIssue
+          }.otherwise {
+            state := sRespond
+          }
         }
-      } .elsewhen(
-        (qspi_data_ready || qspi_data_req) &&
-        qspi_data_byte_idx === data_txn_len &&
-        !continue_txn
-      ) {
-        stop_txn := true.B
-      }
-    } .otherwise {
-      // Priority chain — mirrors BSV descending_urgency:
-      //   CPU read > CPU write > GPU write > GPU read > instr fetch
-      when(io.cpuData.readN =/= 3.U) {
-        start_read := true.B
-      } .elsewhen(io.cpuData.writeN =/= 3.U) {
-        start_write := true.B
-      } .elsewhen(io.gpuMem.wr) {
-        start_gpu_write := true.B
-        printf("[MEMCTRL] GPU WRITE start addr=0x%x wr=%d req=%d\n",
-          io.gpuMem.addr, io.gpuMem.wr, io.gpuMem.req)
-      } .elsewhen(io.gpuMem.req) {
-        start_gpu_read := true.B
-      } .elsewhen(io.instrFetch.instr_fetch_restart) {
-        start_instr := true.B
       }
     }
 
-    instr_active     := Mux(stop_txn, false.B, Mux(qspi_busy, instr_active, start_instr))
-    gpu_active       := Mux(stop_txn, false.B, Mux(qspi_busy, gpu_active, start_gpu_read))
-    gpu_write_active := Mux(stop_txn, false.B, Mux(qspi_busy, gpu_write_active, start_gpu_write))
-    started          := start_instr
-    stopped          := stop_txn
-  }
-
-  private def wireDataPath(): Unit = {
-    when(start_instr || start_read || start_write || start_gpu_read || start_gpu_write) {
-      qspi_data_byte_idx := 0.U
-    } .otherwise {
-      when(qspi_data_ready || qspi_data_req) {
-        qspi_data_byte_idx := Mux(
-          qspi_data_byte_idx === txn_len, 0.U, qspi_data_byte_idx + 1.U
-        )
+    is(sRespond) {
+      // Wait for the matching ready/fire. For the GPU's `ready` we just pulse
+      // it for one cycle and assume the GPU latches synchronously.
+      when((rKind === rInstr   && io.instr.resp.fire) ||
+           (rKind === rCpuRead && io.cpuData.resp.fire) ||
+           (rKind === rCpuWrite && io.cpuData.resp.fire) ||
+           (rKind === rGpuRead) ||
+           (rKind === rGpuWrite)) {
+        state := sIdle
       }
     }
-
-    when(qspi_data_ready) {
-      qspi_data_buf(qspi_data_byte_idx) := qspi_data_out
-    } .elsewhen(io.cpuData.writeN =/= 3.U && (data_stall || start_write)) {
-      for (i <- 0 until 4) {
-        qspi_data_buf(i) := io.cpuData.dataOut(i * 8 + 7, i * 8)
-      }
-    } .elsewhen(start_gpu_write) {
-      // Step 25.2: load GPU write data into QSPI buffer
-      for (i <- 0 until 4) {
-        qspi_data_buf(i) := io.gpuMem.wdata(i * 8 + 7, i * 8)
-      }
-    }
-
-    qspi_write_done := qspi_data_req && qspi_data_byte_idx === data_txn_len
-
-    when(start_gpu_read || start_gpu_write) {
-      data_txn_len := 3.U
-    } .elsewhen(start_read || start_write) {
-      data_txn_len := Cat(data_txn_n(1), data_txn_n(1) | data_txn_n(0))
-    }
-
-    when(continue_txn) {
-      when(
-        (qspi_data_req   && qspi_data_byte_idx + 1.U === data_txn_len) ||
-        (qspi_data_ready && qspi_data_byte_idx       === data_txn_len)
-      ) {
-        data_stall := true.B
-      } .elsewhen(
-        data_stall &&
-        qspi_data_byte_idx === 0.U &&
-        ((io.cpuData.readN =/= 3.U && !data_ready) || io.cpuData.writeN =/= 3.U)
-      ) {
-        data_stall   := false.B
-        continue_txn := io.cpuData.dataContinue
-      }
-    } .otherwise {
-      data_stall := false.B
-      when(start_gpu_read || start_gpu_write) {
-        continue_txn := false.B
-      } .elsewhen(start_write || start_read) {
-        continue_txn := io.cpuData.dataContinue
-      }
-    }
-  }
-
-  private def wireBackend(): Unit = {
-    // Arbiter → Backend
-    io.backend.addrIn     := addr_in
-    io.backend.dataIn     := qspi_data_buf(
-      qspi_data_byte_idx + Mux(io.backend.dataReq, 1.U, 0.U)
-    )
-    io.backend.startRead  := start_read || start_instr || start_gpu_read
-    io.backend.startWrite := start_write || start_gpu_write
-    io.backend.stallTxn   := stall_txn || data_stall
-    io.backend.stopTxn    := stop_txn
-
-    // Backend → Arbiter
-    qspi_data_out   := io.backend.dataOut
-    qspi_data_req   := io.backend.dataReq
-    qspi_data_ready := io.backend.dataReady
-    qspi_busy       := io.backend.busy
-  }
-
-  private def wireOutputs(): Unit = {
-    // CPU Instruction Fetch Outputs
-    io.instrFetch.instr_fetch_started := started
-    io.instrFetch.instr_fetch_stopped := stopped
-    io.instrFetch.instr_data          := assembleInstrData()
-    io.instrFetch.instr_ready         := instr_active && qspi_data_ready && qspi_data_byte_idx === 1.U
-
-    // CPU Data Bus Outputs
-    data_ready := !instr_active && !gpu_active && !gpu_write_active && (
-      (qspi_data_ready && qspi_data_byte_idx === data_txn_len) ||
-      (io.cpuData.writeN =/= 3.U && ((data_stall && qspi_data_byte_idx === 0.U) || start_write))
-    )
-    io.cpuData.ready  := data_ready
-    io.cpuData.dataIn := assembleCpuDataIn()
-
-    // GPU Port — arbiter wired in Step 19.2, write path added Step 25.2
-    // ready pulses on read completion OR write completion.
-    // Write uses combinational data_req (not registered qspi_write_done) because
-    // stop_txn clears gpu_write_active in the same cycle qspi_write_done is set,
-    // so the registered version arrives 1 cycle too late.
-    val gpuReadDone  = gpu_active && qspi_data_ready && qspi_data_byte_idx === data_txn_len
-    val gpuWriteDone = gpu_write_active && qspi_data_req && qspi_data_byte_idx === data_txn_len
-    io.gpuMem.ready := gpuReadDone || gpuWriteDone
-    io.gpuMem.data  := assembleGpuData()
-
-    // Debug: log every GPU PSRAM transaction
-    when(gpuReadDone) {
-      printf("[PSRAM] RD addr=0x%x data=0x%x\n", io.gpuMem.addr, assembleGpuData())
-    }
-    when(gpuWriteDone) {
-      printf("[PSRAM] WR addr=0x%x data=0x%x\n", io.gpuMem.addr, io.gpuMem.wdata)
-    }
-
-    io.debug_stall_txn := stall_txn
-    io.debug_stop_txn  := stop_txn
   }
 }

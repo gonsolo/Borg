@@ -7,9 +7,9 @@ import struct
 import numpy as np
 import cocotb
 from cocotb.clock import Clock
-from tqv import TinyQV
+from tqv import Hutt
 from borg_mmio import BORG_IMEM_OFFSET
-from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd, encode_rv32_fneg
+from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd, encode_rv32_fneg, encode_rv32_fstep, encode_rv32_frcp
 
 FP16_MAX = 65504
 PERIPHERAL_NUM = 3
@@ -17,7 +17,7 @@ PERIPHERAL_NUM = 3
 
 class BorgDriver:
     """
-    Driver to abstract TinyQV bus transactions into Borg-specific actions.
+    Driver to abstract Hutt bus transactions into Borg-specific actions.
     """
 
     def __init__(self, dut, tqv, is_fp16=True):
@@ -158,7 +158,7 @@ async def test_borg_shader_math_batch(dut):
     clock = Clock(dut.clk, 100, unit="ns")
     cocotb.start_soon(clock.start())
 
-    tqv = TinyQV(dut, PERIPHERAL_NUM)
+    tqv = Hutt(dut, PERIPHERAL_NUM)
     driver = BorgDriver(dut, tqv)
     await driver.reset()
 
@@ -189,7 +189,7 @@ async def test_borg_rotation_shader(dut):
     clock = Clock(dut.clk, 100, unit="ns")
     cocotb.start_soon(clock.start())
 
-    tqv = TinyQV(dut, PERIPHERAL_NUM)
+    tqv = Hutt(dut, PERIPHERAL_NUM)
     driver = BorgDriver(dut, tqv)
     await driver.reset()
 
@@ -262,4 +262,69 @@ async def test_borg_rotation_shader(dut):
         assert driver.is_close(float(ry), tc["exp_ry"]), f"ry mismatch: got {float(ry)}, expected {tc['exp_ry']}"
 
     dut._log.info("Borg Rotation Shader Test Passed!")
+
+
+@cocotb.test()
+async def test_borg_fstep(dut):
+    """Test FSTEP: output is 1.0 for x >= 0, 0.0 for x < 0."""
+    dut._log.info("Starting Borg FSTEP Test")
+
+    clock = Clock(dut.clk, 100, unit="ns")
+    cocotb.start_soon(clock.start())
+
+    tqv = Hutt(dut, PERIPHERAL_NUM)
+    driver = BorgDriver(dut, tqv)
+    await driver.reset()
+
+    instr = encode_rv32_fstep(rs1=0, rd=1)
+
+    cases = [
+        ( 1.0,  1.0),
+        ( 0.5,  1.0),
+        ( 0.0,  1.0),
+        (-0.5,  0.0),
+        (-1.0,  0.0),
+    ]
+
+    for val, expected in cases:
+        result = await driver.run_program([(0, val)], instr, rd_idx=1)
+        assert driver.is_close(float(result), expected), \
+            f"FSTEP({val}) = {float(result)}, expected {expected}"
+        dut._log.info(f"FSTEP({val:6.2f}) -> {float(result):.1f}  (exp {expected:.1f})")
+
+    dut._log.info("Borg FSTEP Test Passed!")
+
+
+@cocotb.test()
+async def test_borg_frcp(dut):
+    """Test FRCP (hardware reciprocal via LUT + linear interp); tolerance 0.5%."""
+    dut._log.info("Starting Borg FRCP Test")
+
+    clock = Clock(dut.clk, 100, unit="ns")
+    cocotb.start_soon(clock.start())
+
+    tqv = Hutt(dut, PERIPHERAL_NUM)
+    driver = BorgDriver(dut, tqv)
+    await driver.reset()
+
+    instr = encode_rv32_frcp(rs1=0, rd=1)
+
+    # (input, expected_reciprocal) — exact FP16 representable values
+    cases = [
+        (1.0,  1.0),
+        (2.0,  0.5),
+        (4.0,  0.25),
+        (0.5,  2.0),
+        (0.25, 4.0),
+    ]
+
+    for val, expected in cases:
+        bits = await driver.run_program([(0, val)], instr, rd_idx=1)
+        result = float(bits)
+        rel_err = abs(result - expected) / abs(expected) if expected != 0 else abs(result)
+        assert rel_err < 0.005, \
+            f"FRCP({val}) = {result}, expected ~{expected}, rel_err={rel_err:.4f}"
+        dut._log.info(f"FRCP({val:6.3f}) -> {result:.4f}  (exp {expected:.4f}, err {rel_err*100:.3f}%)")
+
+    dut._log.info("Borg FRCP Test Passed!")
 

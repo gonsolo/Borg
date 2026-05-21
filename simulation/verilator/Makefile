@@ -3,31 +3,32 @@ RDL_C_OUT ?= $(ROOT)/out/hardware/borg/rdl
 HW_DIR    ?= $(ROOT)/out/hardware
 FIRMWARE_DIR ?= $(ROOT)/software/borg
 
-# Lazily evaluate SRC_FILES, avoiding failures if asic_files.txt doesn't exist yet
+# Lazily evaluate SRC_FILES, avoiding failures if sim_files.txt doesn't exist yet
 # Use `wildcard` to trigger rebuilds if ANY verilog file changes in the output dir
-V_SRCS = $(wildcard $(HW_DIR)/borg/verilog/*.v $(HW_DIR)/tinyqv/verilog/*.v)
+V_SRCS = $(wildcard $(HW_DIR)/borg/verilog_sim/*.sv)
 
 all: triangle vkcube
 
-$(HW_DIR)/borg/verilog/asic_files.txt:
-	$(MAKE) -C $(ROOT) generate_verilog
+$(HW_DIR)/borg/verilog_sim/sim_files.txt:
+	$(MAKE) -C $(ROOT) generate_verilog_sim
 
-# Verilator simulator depends on hardware generation and the actual verilog files
-obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog/asic_files.txt $(V_SRCS)
+# Verilator simulator depends on hardware generation and the actual verilog files.
+# Uses the flat-MemBackendIO top (BorgSimTop) — no QSPI protocol; the C++ harness
+# models a flat memory directly on the backend bus.
+obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/sim_files.txt $(V_SRCS)
 	@rm -rf obj_dir
-	@SRC_FILES=$$(cat $(HW_DIR)/borg/verilog/asic_files.txt $(shell test -f $(HW_DIR)/tinyqv/verilog/asic_files.txt && echo $(HW_DIR)/tinyqv/verilog/asic_files.txt) | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
+	@SRC_FILES=$$(cat $(HW_DIR)/borg/verilog_sim/sim_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
 	echo "Building Verilator models..."; \
-	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall --build -j 0 \
+	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall -Wno-UNUSEDSIGNAL --build -j 0 \
 	-MAKEFLAGS "-s" \
-	-I$(HW_DIR)/borg/verilog -I$(HW_DIR)/tinyqv/verilog \
-	-I$(HW_DIR)/borg/verilog/verification/assert -I$(HW_DIR)/borg/verilog/verification \
-	-I$(HW_DIR)/tinyqv/verilog/verification/assert -I$(HW_DIR)/tinyqv/verilog/verification \
-	--top-module tt_um_gonsolo_borg \
+	-I$(HW_DIR)/borg/verilog_sim \
+	-I$(HW_DIR)/borg/verilog_sim/verification/assert -I$(HW_DIR)/borg/verilog_sim/verification \
+	--top-module BorgSimTop \
 	-CFLAGS "-fPIC" -CFLAGS "-I../../common" \
 	-DENABLE_INITIAL_MEM_ \
 	$(ROOT)/lint.vlt \
 	$$SRC_FILES \
-	$(wildcard $(HW_DIR)/borg/verilog/verification/layers-*.sv) \
+	$(wildcard $(HW_DIR)/borg/verilog_sim/verification/layers-*.sv) \
 	main.cpp \
 	../common/BorgSimulatorBase.cpp \
 	../common/texture_loader.cpp \
@@ -35,7 +36,7 @@ obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog/asic_files.txt $(V_SRCS)
 	-o verilator_sim
 
 # Software dependency (implicitly requires hardware mmio mappings)
-$(FIRMWARE_DIR)/%.bin: $(HW_DIR)/borg/verilog/asic_files.txt
+$(FIRMWARE_DIR)/%.bin: $(HW_DIR)/borg/verilog_sim/sim_files.txt
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
 # Simulation targets

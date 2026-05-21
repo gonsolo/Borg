@@ -58,7 +58,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val texB    = Input(UInt(16.W))    // fetched texel B
 }
 
-class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgCoreIO(cfg))
 
   private val config = cfg.fp  // shorthand for FP config used in arithmetic
@@ -491,7 +491,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     when(running && !is_busy && fetchedInstruction =/= 0.U) {
       is_ftex_reg := opFlags.ftex
       when(opFlags.ftex) {
-        printf("[CORE] FTEX-DECODE pc=%d inst=0x%x\n", programCounter, fetchedInstruction)
+        if (BorgDebug.trace) printf("[CORE] FTEX-DECODE pc=%d inst=0x%x\n", programCounter, fetchedInstruction)
       }
     }
 
@@ -514,7 +514,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     // --- Initiate FTEX at counter=4 (operands just became valid) ---
     when(is_busy && busy_counter === 4.U && is_ftex_reg) {
       io.texReq := true.B
-      printf("[CORE] FTEX texReq=1 U=0x%x V=0x%x texDone=%d\n", recA_raw(15, 0), recB_raw(15, 0), io.texDone)
+      if (BorgDebug.trace) printf("[CORE] FTEX texReq=1 U=0x%x V=0x%x texDone=%d\n", recA_raw(15, 0), recB_raw(15, 0), io.texDone)
       io.texU   := recA_raw(15, 0)
       io.texV   := recB_raw(15, 0)
       texRdReg  := regs.rd

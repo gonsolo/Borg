@@ -80,9 +80,9 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val dispatcherPhase = Output(UInt(3.W))
 }
 
-class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** Auxiliary constructor: allows `new BorgRasterizer(FloatConfig.FP16)` in tests. */
-  def this(fp: FloatConfig) = this(BorgConfig.Sim.copy(fp = fp))
+  def this(fp: FloatConfig) = this(BorgConfig.Default.copy(fp = fp))
 
   val io = IO(new BorgRasterizerIO(cfg))
 

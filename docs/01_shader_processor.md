@@ -1,7 +1,7 @@
 # The Borg Shader Processor
 
 The Borg is a minimal programmable shader unit designed for FP16 graphics
-operations. It operates as a memory-mapped peripheral within the TinyQV RISC-V
+operations. It operates as a memory-mapped peripheral within the Hutt RISC-V
 SoC: the CPU writes a small program into the shader's instruction memory,
 fills its registers with input data, and then tells it to run. A few clock
 cycles later the results appear in the register file, ready to be read back.

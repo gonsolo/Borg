@@ -1,0 +1,7 @@
+package build.fpga.ulx3s.soc
+import mill._, scalalib._
+import build.BorgModule
+
+object `package` extends BorgModule {
+  override def moduleDeps = Seq(build.hardware.soc)
+}

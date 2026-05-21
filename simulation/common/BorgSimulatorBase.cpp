@@ -18,6 +18,11 @@ void BorgSimulatorBase::save_ppm(const std::string& name) {
     ::save_ppm(name, width, height, out_base_word, psram->mem);
 }
 
+// Backend handshake latency (cycles from observing a start pulse to driving
+// `done`).  MemoryController parks in its sWait state until `done` arrives, so
+// any value >= 1 is correct; 2 gives a small safety margin.
+static const int BE_DELAY = 2;
+
 bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
     uint32_t* psram_words = (uint32_t*)psram->mem.data();
 
@@ -28,34 +33,35 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
     set_ui_in(0x80); // Hold UART RXD (ui_in(7)) high (idle)
 
     for (uint32_t c = 0; c < cycles_to_run; c++) {
-        // Phase 1 (Clock Low)
+        // --- Drive backend INPUT ports so they are stable across the posedge.
+        //     `done` is pulsed for one cycle when the latency counter hits 0;
+        //     the MemoryController samples it while parked in its sWait state.
+        bool drive_done = (be_delay == 0);
+        set_backend_done(drive_done);
+        set_backend_dataOut(drive_done ? be_data : 0);
+        set_backend_busy(be_delay >= 0);
+
+        // Two-phase eval: clock_high() is the posedge that advances the design
+        // and at which the MemoryController samples done/dataOut.
         clock_low();
-
-        uint8_t uio_out = get_uio_out();
-        bool spi_clk = get_spi_clk(uio_out);
-        bool flash_cs = get_flash_cs(uio_out);
-        bool ram_a_cs = get_ram_a_cs(uio_out);
-        uint8_t mosi = decode_spi_data_out(uio_out);
-
-        uint8_t f_data = flash->tick(flash_cs, spi_clk, mosi);
-        psram->sim_cycle = c;
-        uint8_t r_data = psram->tick(ram_a_cs, spi_clk, mosi);
-        uint8_t miso = !flash_cs ? f_data : (!ram_a_cs ? r_data : 0);
-        set_uio_in(encode_spi_data_in(miso));
-
-        // Phase 2 (Clock High)
         clock_high();
 
-        uio_out = get_uio_out();
-        spi_clk = get_spi_clk(uio_out);
-        flash_cs = get_flash_cs(uio_out);
-        ram_a_cs = get_ram_a_cs(uio_out);
-        mosi = decode_spi_data_out(uio_out);
+        // --- After the posedge: retire a completed transaction, then latch a
+        //     newly-issued one (back-to-back word accesses re-enter sIssue).
+        if (be_delay == 0)      be_delay = -1;   // done consumed → idle
+        else if (be_delay > 0)  be_delay--;
 
-        f_data = flash->tick(flash_cs, spi_clk, mosi);
-        r_data = psram->tick(ram_a_cs, spi_clk, mosi);
-        miso = !flash_cs ? f_data : (!ram_a_cs ? r_data : 0);
-        set_uio_in(encode_spi_data_in(miso));
+        if (be_delay < 0) {
+            uint32_t a = get_backend_addrIn();
+            if (get_backend_startRead()) {
+                be_data  = flat_read16(flash, psram, a);
+                be_delay = BE_DELAY;
+            } else if (get_backend_startWrite()) {
+                flat_write16(flash, psram, a, get_backend_dataIn(), get_backend_byteEnIn());
+                be_data  = 0;
+                be_delay = BE_DELAY;
+            }
+        }
 
         fast_sim_snoop(); // Subclass hook for writing to memory arrays in fast mode
 

@@ -8,10 +8,11 @@ entirely open-source tools.
 
 ## The Flow
 
-The ASIC build is a single command:
+The ASIC build comes in two flavours:
 
 ```
-make gds
+make gds-sky130   # Sky130 via LibreLane/OpenROAD
+make gds-ihp      # IHP SG13G2 via LibreLane/OpenROAD
 ```
 
 This invokes [LibreLane](https://github.com/efabless/librelane), which
@@ -36,7 +37,7 @@ During the Global Placement phase, the OpenROAD placement algorithms dynamically
   <em>Frame 44 of the global placement process, annotated with the functional modules. Colors reflect the Chisel design blocks.</em>
 </p>
 
-The dense connectivity of the GPU datapath forces the Tile Buffer, Rasterizer Math, and Texture Unit into tight clusters on the left. The Command FIFO naturally acts as a physical bridge, dropping directly into the center between the TinyQV CPU core and the GPU. The Memory Controller is pulled toward the top-right to interface with the external SPI pins.
+The dense connectivity of the GPU datapath forces the Tile Buffer, Rasterizer Math, and Texture Unit into tight clusters on the left. The Command FIFO naturally acts as a physical bridge, dropping directly into the center between the Hutt CPU core and the GPU. The Memory Controller is pulled toward the top-right to interface with the external SPI pins.
 
 ## Configuration
 
@@ -61,7 +62,7 @@ memory, and pipeline state.
 
 The design is verified at multiple levels before tape-out:
 
-- **Chisel unit tests** — functional correctness of Borg FPU and TinyQV
+- **Chisel unit tests** — functional correctness of Borg FPU and Hutt
 - **cocotb RTL simulation** — full SoC integration tests
 - **Verilator lint** — static analysis of the generated Verilog
 - **FPGA validation** — real hardware testing on pico-ice

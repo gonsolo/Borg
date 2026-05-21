@@ -103,9 +103,9 @@ class QspiController extends Module {
         data_req_reg := false.B
         when (fsm_state === State.IDLE) {
           when ((io.start_read || io.start_write) && !ram_a_block && !ram_b_block) {
-            fsm_state := Mux(io.addr_in(24), State.CMD, State.ADDR)
-            is_writing := !io.start_read && io.addr_in(24)
-            nibbles_remaining := Mux(io.addr_in(24), 1.U, 5.U)
+            fsm_state := State.CMD   // always send a command byte (0x02 write / 0x0B read)
+            is_writing := io.start_write
+            nibbles_remaining := 1.U
             spi_data_oe_reg := "hf".U
             spi_clk_pos := false.B
             spi_flash_select_reg := io.addr_in(24)

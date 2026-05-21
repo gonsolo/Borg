@@ -1,23 +1,335 @@
 # SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# ULX3S (Lattice ECP5-85K) build stub — hardware not yet available (Step 27).
-# This Makefile will be filled in when the board arrives.
-# See roadmap section "⏳ ULX3S arrives" for the planned flow.
+# ULX3S (Lattice ECP5-85K) build — openFPGALoader programming flow.
+# Board connects via US1 (FT231X) on /dev/ttyUSB0.
 
-.PHONY: all borg.bit clean synth_ulx3s generate_verilog_ulx3s
+.NOTPARALLEL:
+
+BOLD  := \033[1m
+RESET := \033[0m
+
+all: help
+help:
+	@echo "commands:"
+	@echo -e "$(BOLD)  load:\t\t\tSynthesize, P&R and load bitstream to FPGA SRAM.$(RESET)"
+	@echo -e "$(BOLD)  flash:\t\t\tSynthesize, P&R and write bitstream to config FLASH.$(RESET)"
+	@echo -e "  borg.bit:\t\tGenerate the FPGA bitstream."
+	@echo -e "  borg.json:\t\tRun synthesis (Yosys)."
+	@echo -e "  borg.config:\t\tRun Place \u0026 Route (nextpnr-ecp5)."
+	@echo ""
+	@echo -e "$(BOLD)Hardware programming:$(RESET)"
+	@echo -e "  flash:\t\tFlash ECP5 bitstream to onboard config flash."
+	@echo -e "  flash-firmware:\tFlash firmware (with size header) to flash offset 0x400000."
+	@echo -e "  minimal-boot:\t\tBuild + flash a minimal firmware — tests FlashBootLoader (D.3)."
+	@echo -e "  triangle:\t\tBuild + flash bitstream + triangle firmware. Power-cycle to run."
+	@echo ""
+	@echo -e "$(BOLD)Utilities:$(RESET)"
+	@echo -e "  print_resources:\tCheck LUT, DFF, BRAM usage."
+	@echo -e "  tio:\t\t\tConnect to the serial console (/dev/ttyUSB0)."
+	@echo -e "  install-udev:\t\tInstall udev rules (run once, needs sudo)."
+	@echo -e "  generate_verilog_ulx3s: Regenerate Verilog from Chisel."
+	@echo -e "  clean:\t\tRemove build artifacts."
+
+######### Build hardware ###########################################################################
 
 ULX3S_VERILOG_DIR = ../../out/ulx3s/verilog
 
-generate_verilog_ulx3s:
-	@echo "Emitting ULX3S Verilog (BorgConfig.ULX3S, stub)"
-	$(MAKE) -C ../.. generate_verilog_ulx3s
+# All ECP5 SystemVerilog emitted by ULX3SMain into out/ulx3s/verilog/
+SRC_FILES = $$(find $(ULX3S_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
 
-synth_ulx3s all borg.bit:
-	@echo "ERROR: ULX3S hardware not available yet (Step 27 stub)."
-	@echo "       nextpnr-ecp5 synthesis + .lpf flow will be added when board arrives."
-	@echo "       See roadmap section '⏳ ULX3S arrives'."
-	@exit 1
+CHISEL_SRCS = $(wildcard ../../hardware/borg/src/*.scala) \
+              $(wildcard ../../hardware/hutt/src/*.scala) \
+              $(wildcard ../../hardware/memory/src/*.scala) \
+              $(wildcard ../../hardware/peri/src/*.scala) \
+              $(wildcard ../../hardware/peri/src/uart/*.scala) \
+              $(wildcard ../../hardware/soc/src/*.scala) \
+              $(wildcard soc/src/*.scala)
+
+# ── Single source of truth for the ULX3S clock (MHz) ────────────────────────
+# Drives the PLL SoC output (SOC_MHZ = CLOCK_MHZ in ULX3S.scala), the debug-UART
+# baud divider (SoCLogic), AND the firmware's CLOCK_MHZ — set it here only.
+# Pixel clock == SoC clock, so this also sets the HDMI pixel rate (25 MHz =
+# 640×480-ish VGA timing). If the Borg FPU can't close timing at 25 MHz on
+# hardware, the fix is to decouple the compute clock from the pixel clock.
+ULX3S_MHZ ?= 25
+
+# Stamp file — regenerates Verilog only when Chisel sources OR Makefiles change.
+# Makefiles are included so CLOCK_MHZ changes don't silently use stale Verilog.
+.verilog_stamp_ulx3s: $(CHISEL_SRCS) Makefile ../../Makefile
+	$(MAKE) -C ../.. generate_verilog_ulx3s ULX3S_CLOCK_MHZ=$(ULX3S_MHZ)
+	@touch $@
+
+# LPF emitted alongside the Verilog by ULX3SMain
+LPF = $(ULX3S_VERILOG_DIR)/ulx3s.lpf
+
+# ECP5-85K resource limits
+MAX_LUT4  = 83640
+MAX_DFF   = 83640
+
+# Synthesis — ECP5 target, ABC9 enabled
+borg.json: .verilog_stamp_ulx3s
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Running Yosys for ECP5 ..."
+	yosys -p "read -sv $(SRC_FILES); \
+	           read_verilog -sv -lib $(CURDIR)/primitives/ecp5_prims.v; \
+	           synth_ecp5 -abc9 -top ulx3s_top -json borg.json; \
+	           stat -top ulx3s_top" \
+	      -DECP5 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ \
+	      > yosys.log
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Done."
+
+# Clock frequency — 25 MHz SoC clock (HDMI runs at 125 MHz separately)
+CLOCK_FREQ = 25
+
+# Place and Route — ECP5-85F, CABGA381 package
+borg.config: borg.json
+	@echo -e "$(BOLD)[PNR]$(RESET) Running nextpnr-ecp5 ..."
+	nextpnr-ecp5 \
+	  --85k --package CABGA381 \
+	  --json borg.json \
+	  --lpf $(LPF) \
+	  --textcfg borg.config \
+	  --freq $(CLOCK_FREQ) \
+	  --timing-allow-fail \
+	  --log nextpnr.log \
+	  --seed 0
+	@echo -e "$(BOLD)[PNR]$(RESET) Done."
+
+# Generate bitstream
+borg.bit: borg.config
+	@echo -e "$(BOLD)[PACK]$(RESET) Packing bitstream ..."
+	ecppack --svf borg.svf borg.config borg.bit
+	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg.bit ready."
+
+# Load to FPGA SRAM (volatile, lost on power cycle)
+load: borg.bit
+	@echo -e "$(BOLD)[LOAD]$(RESET) Programming FPGA SRAM via openFPGALoader ..."
+	openFPGALoader -b ulx3s borg.bit
+	@echo -e "$(BOLD)[LOAD]$(RESET) Done."
+
+# Write bitstream to onboard config flash (persistent, survives power cycle)
+flash: borg.bit
+	@echo -e "$(BOLD)[FLASH]$(RESET) Writing ECP5 bitstream to onboard flash ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
+	@echo -e "$(BOLD)[FLASH]$(RESET) Bitstream flashed."
+
+######### Firmware (onboard SDRAM boot flow) ######################################################
+
+FIRMWARE_DIR = ../../software/borg
+
+# Flash firmware requires a 4-byte little-endian size header prepended.
+# The FlashBootLoader reads this header first to know how many bytes to copy.
+# firmware_with_header.bin = [uint32_le size] + [firmware bytes]
+firmware_with_header.bin: $(FIRMWARE_DIR)/triangle.bin
+	@echo -e "$(BOLD)[FW-PACK]$(RESET) Prepending 4-byte size header to firmware ..."
+	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/triangle.bin','rb').read(); open('firmware_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> firmware_with_header.bin')"
+
+# -DTARGET_ULX3S selects the entire ULX3S address map in borg_sys.h
+# (UART_BASE = SoC debug UART; PSRAM_BASE = SDRAM/VRAM base, since ULX3S has no
+# PSRAM and SDRAM is direct-mapped at 0).  All address literals live in the
+# header — never duplicated here.  The firmware Makefile rebuilds its objects
+# whenever these flags change (.cflags_stamp), so no stale-object surprises.
+.PHONY: $(FIRMWARE_DIR)/triangle.bin
+$(FIRMWARE_DIR)/triangle.bin:
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
+		EXTRA_CFLAGS="-DTARGET_ULX3S" triangle
+
+# Flash firmware blob to onboard flash at 0x400000.
+# FlashBootLoader will copy it to SDRAM at boot.
+flash-firmware: firmware_with_header.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing firmware to onboard flash @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 firmware_with_header.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Firmware flashed at 0x400000."
+
+# Minimal boot test (D.3): tiny 4-byte RISC-V infinite loop + size header.
+# Boot LED[6] = boot_done lights up if FlashBootLoader completes successfully.
+# UART Hello firmware: sends 'Z' repeatedly via debug UART (0x08000018).
+uart_hello_fw.bin: uart_hello.s
+	@echo -e "$(BOLD)[FW]$(RESET) Assembling uart_hello.s ..."
+	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o uart_hello.o uart_hello.s
+	riscv64-unknown-elf-ld -melf32lriscv -Ttext=0x0 -o uart_hello.elf uart_hello.o
+	riscv64-unknown-elf-objcopy -O binary uart_hello.elf uart_hello_raw.bin
+	@python3 -c "import struct; d=open('uart_hello_raw.bin','rb').read(); open('uart_hello_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> uart_hello_fw.bin')"
+
+flash-uart-hello: uart_hello_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing uart_hello firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 uart_hello_fw.bin
+
+sdram_fb_fw.bin: sdram_fb.s
+	@echo -e "$(BOLD)[FW]$(RESET) Assembling sdram_fb.s ..."
+	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o sdram_fb.o sdram_fb.s
+	riscv64-unknown-elf-ld -melf32lriscv -Ttext=0x0 -o sdram_fb.elf sdram_fb.o
+	riscv64-unknown-elf-objcopy -O binary sdram_fb.elf sdram_fb_raw.bin
+	@python3 -c "import struct; d=open('sdram_fb_raw.bin','rb').read(); open('sdram_fb_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> sdram_fb_fw.bin')"
+
+flash-sdram-fb: sdram_fb_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing sdram_fb firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 sdram_fb_fw.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Firmware flashed. Now run: make load && make tio"
+
+sdram_rw_test_fw.bin: sdram_rw_test.s
+	@echo -e "$(BOLD)[FW]$(RESET) Assembling sdram_rw_test.s ..."
+	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o sdram_rw_test.o sdram_rw_test.s
+	riscv64-unknown-elf-ld -melf32lriscv -Ttext=0x0 -o sdram_rw_test.elf sdram_rw_test.o
+	riscv64-unknown-elf-objcopy -O binary sdram_rw_test.elf sdram_rw_test_raw.bin
+	@python3 -c "import struct; d=open('sdram_rw_test_raw.bin','rb').read(); open('sdram_rw_test_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> sdram_rw_test_fw.bin')"
+
+flash-sdram-rw-test: sdram_rw_test_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing sdram_rw_test firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 sdram_rw_test_fw.bin
+
+minimal-sdram-rw-test: borg-minimal.bit sdram_rw_test_fw.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing minimal bitstream ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg-minimal.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing sdram_rw_test firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 sdram_rw_test_fw.bin
+
+hdmi_test_fw.bin: hdmi_test_fb.s
+	@echo -e "$(BOLD)[FW]$(RESET) Assembling hdmi_test_fb.s ..."
+	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o hdmi_test_fb.o hdmi_test_fb.s
+	riscv64-unknown-elf-ld -melf32lriscv -Ttext=0x0 -o hdmi_test_fb.elf hdmi_test_fb.o
+	riscv64-unknown-elf-objcopy -O binary hdmi_test_fb.elf hdmi_test_raw.bin
+	@python3 -c "import struct; d=open('hdmi_test_raw.bin','rb').read(); open('hdmi_test_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> hdmi_test_fw.bin')"
+
+flash-hdmi-test: hdmi_test_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing hdmi_test firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_test_fw.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Firmware flashed. Power-cycle and connect with: make tio"
+
+hdmi-test: borg.bit hdmi_test_fw.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing hdmi_test firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_test_fw.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle. Expect: red 32x32 overlay on HDMI, 'R' then 'D' on tio."
+
+minimal.bin:
+	@echo -e "$(BOLD)[FW-PACK]$(RESET) Building minimal boot-test firmware (4-byte infinite loop) ..."
+	@python3 -c "import struct; fw=bytes([0x6f,0x00,0x00,0x00]); open('minimal.bin','wb').write(struct.pack('<I',len(fw))+fw); print('  minimal.bin: 8 bytes (4-byte header + JAL x0,0)')"
+
+minimal-boot: borg.bit minimal.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing minimal firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 minimal.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle the board."
+	@echo -e "  LED[7] = pll_locked (lights immediately)"
+	@echo -e "  LED[6] = boot_done  (lights after ~1 ms — FlashBootLoader done)"
+
+# Full triangle deploy: synth + P&R + pack, flash bitstream + firmware.
+# After power-cycle: ECP5 loads bitstream -> FlashBootLoader copies firmware
+# to SDRAM -> Hutt runs -> Borg renders triangle -> UART dumps pixels.
+triangle: borg.bit firmware_with_header.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream to onboard flash ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing triangle firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 firmware_with_header.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Power-cycle board to run."
+	@echo -e "  LED[7] = pll_locked, LED[6] = boot_done"
+	@echo -e "  After boot: connect with 'make tio' to capture triangle pixels."
+
+# Print resource utilisation after synthesis
+print_resources: yosys.log
+	@LUTS=$$(grep -E '^\s+[0-9]+ +LUT4$$' yosys.log | tail -n1 | awk '{print $$1}'); \
+	DFFS=$$(grep -E '^\s+[0-9]+ +TRELLIS_FF$$' yosys.log | tail -n1 | awk '{print $$1}'); \
+	BRAM=$$(grep -E '^\s+[0-9]+ +DP16KD$$' yosys.log | tail -n1 | awk '{print $$1}'); \
+	printf "Synthesis Estimate (Yosys / ECP5-85K):\n"; \
+	printf "  LUT4:       %6d / %d (%3d%%)\n" $$LUTS $(MAX_LUT4) $$((LUTS * 100 / $(MAX_LUT4))); \
+	printf "  TRELLIS_FF: %6d / %d (%3d%%)\n" $$DFFS $(MAX_DFF) $$((DFFS * 100 / $(MAX_DFF))); \
+	printf "  BRAM (DP16KD): %3d / 208\n" $$BRAM; \
+	if [ -f nextpnr.log ]; then \
+		PNR_LUT=$$(sed -n 's/.*TRELLIS_SLICE:[[:space:]]*\([0-9]*\)\/.*/\1/p' nextpnr.log | tail -n1); \
+		if [ -n "$$PNR_LUT" ]; then \
+			printf "Final Utilization (nextpnr):\n"; \
+			printf "  Slices:     %6d / %d (%3d%%)\n" $$PNR_LUT $(MAX_LUT4) $$((PNR_LUT * 100 / $(MAX_LUT4))); \
+		fi; \
+	fi
+
+generate_verilog_ulx3s:
+	@echo -e "$(BOLD)[CHISEL]$(RESET) Emitting ULX3S Verilog (BorgConfig.ULX3S) ..."
+	$(MAKE) -C ../.. generate_verilog_ulx3s ULX3S_CLOCK_MHZ=$(ULX3S_MHZ)
+
+######### Minimal SoC (Hutt + UART only) — fast iteration ##########################################
+
+ULX3S_MINIMAL_VERILOG_DIR = ../../out/ulx3s_minimal/verilog
+MIN_SRC_FILES = $$(find $(ULX3S_MINIMAL_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
+MIN_LPF = $(ULX3S_MINIMAL_VERILOG_DIR)/ulx3s.lpf
+
+.verilog_stamp_ulx3s_minimal: $(CHISEL_SRCS) Makefile ../../Makefile
+	$(MAKE) -C ../.. generate_verilog_ulx3s_minimal
+	@touch $@
+
+borg-minimal.json: .verilog_stamp_ulx3s_minimal
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Running Yosys for minimal SoC ..."
+	yosys -p "read -sv $(MIN_SRC_FILES); \
+	           read_verilog -sv -lib $(CURDIR)/primitives/ecp5_prims.v; \
+	           synth_ecp5 -abc9 -top ulx3s_minimal_top -json borg-minimal.json; \
+	           stat -top ulx3s_minimal_top" \
+	      -DECP5 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ \
+	      > yosys-minimal.log
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Done."
+
+borg-minimal.config: borg-minimal.json
+	@echo -e "$(BOLD)[PNR]$(RESET) Running nextpnr-ecp5 for minimal SoC ..."
+	nextpnr-ecp5 \
+	  --85k --package CABGA381 \
+	  --json borg-minimal.json \
+	  --lpf $(MIN_LPF) \
+	  --textcfg borg-minimal.config \
+	  --freq $(CLOCK_FREQ) \
+	  --timing-allow-fail \
+	  --log nextpnr-minimal.log \
+	  --seed 0
+	@echo -e "$(BOLD)[PNR]$(RESET) Done."
+
+borg-minimal.bit: borg-minimal.config
+	@echo -e "$(BOLD)[PACK]$(RESET) Packing minimal bitstream ..."
+	ecppack --svf borg-minimal.svf borg-minimal.config borg-minimal.bit
+	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-minimal.bit ready."
+
+# Combined target: flash minimal bitstream + uart_hello firmware.
+minimal-uart: borg-minimal.bit uart_hello_fw.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing minimal ECP5 bitstream ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg-minimal.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing uart_hello firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 uart_hello_fw.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle the board, then 'make tio'."
+
+hdmi_tiled_fw.bin: hdmi_tiled_fw.s
+	@echo -e "$(BOLD)[FW]$(RESET) Assembling hdmi_tiled_fw.s ..."
+	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o hdmi_tiled_fw.o hdmi_tiled_fw.s
+	riscv64-unknown-elf-ld -melf32lriscv -Ttext=0x0 -o hdmi_tiled_fw.elf hdmi_tiled_fw.o
+	riscv64-unknown-elf-objcopy -O binary hdmi_tiled_fw.elf hdmi_tiled_fw_raw.bin
+	@python3 -c "import struct; d=open('hdmi_tiled_fw_raw.bin','rb').read(); open('hdmi_tiled_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> hdmi_tiled_fw.bin')"
+
+flash-hdmi-tiled: hdmi_tiled_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing hdmi_tiled firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_tiled_fw.bin
+
+# Combined target: flash minimal bitstream + HDMI tiled firmware.
+minimal-hdmi: borg-minimal.bit hdmi_tiled_fw.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing minimal ECP5 bitstream ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg-minimal.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing hdmi_tiled firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_tiled_fw.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle, connect HDMI. Expect: red 32x32 overlay. Run 'make tio' for 'R' confirmation."
+
+# Catch debug output on the FT231X serial port
+tio:
+	tio /dev/ttyUSB0
+
+# Install udev rules so non-root users can access the FT231X programmer.
+# Run once on each new workstation (requires sudo).
+install-udev:
+	@echo -e "Installing /etc/udev/rules.d/80-fpga-ulx3s.rules ..."
+	sudo cp host/80-fpga-ulx3s.rules /etc/udev/rules.d/
+	sudo udevadm control --reload-rules
+	sudo udevadm trigger
+	@echo -e "Done. Replug the ULX3S to apply."
 
 clean:
-	@echo "(ulx3s: nothing to clean yet)"
+	rm -f borg.bit borg.config borg.json borg.svf yosys.log nextpnr.log .verilog_stamp_ulx3s
+
+.PHONY: all help load flash flash-firmware minimal-boot triangle \
+        print_resources generate_verilog_ulx3s tio install-udev clean \
+        flash-hdmi-tiled minimal-hdmi

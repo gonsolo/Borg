@@ -63,7 +63,7 @@ class BorgIteratorIO(val cfg: BorgConfig) extends Bundle {
   val tileOrigin = Output(new Coord(cfg.coordWidth))
 }
 
-class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
+class BorgIterator(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgIteratorIO(cfg))
 
   // --- Registers ---
@@ -84,7 +84,7 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     tile_max_reg.x      := io.cmdPop.bits.tileOrigin.x + 4.U
     tile_max_reg.y      := io.cmdPop.bits.tileOrigin.y + 4.U
     iter_reg            := io.cmdPop.bits.tileOrigin
-    printf("[ITER] cmdPop origin=(%d,%d) phaseIdle=%d iterValid=%d shaderIdx=%d\n",
+    if (BorgDebug.trace) printf("[ITER] cmdPop origin=(%d,%d) phaseIdle=%d iterValid=%d shaderIdx=%d\n",
       io.cmdPop.bits.tileOrigin.x, io.cmdPop.bits.tileOrigin.y,
       io.phaseIdle, iter_valid, tileIndex(shader_iter_reg))
   }
@@ -97,7 +97,7 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
   val tile_complete  = WireDefault(false.B)
   when(io.advance && iter_valid) {
     shader_iter_reg := iter_reg   // latch pre-advance position
-    printf("[ITER] advance iter=(%d,%d) shaderIdx=%d -> shaderIdx=%d\n",
+    if (BorgDebug.trace) printf("[ITER] advance iter=(%d,%d) shaderIdx=%d -> shaderIdx=%d\n",
       iter_reg.x, iter_reg.y, tileIndex(shader_iter_reg), tileIndex(iter_reg))
     when(iter_reg.x + 1.U >= tile_max_reg.x) {
       iter_reg.x := tile_origin_reg.x
@@ -106,7 +106,7 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
       // Tile complete: y just stepped to or past tile_max.y
       when(next_y >= tile_max_reg.y) {
         tile_complete := true.B
-        printf("[ITER] tileComplete iter=(%d,%d)\n", iter_reg.x, iter_reg.y)
+        if (BorgDebug.trace) printf("[ITER] tileComplete iter=(%d,%d)\n", iter_reg.x, iter_reg.y)
       }
     }.otherwise {
       iter_reg.x := iter_reg.x + 1.U
@@ -114,7 +114,7 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Sim) extends Module {
     pixel_ready := true.B
   }
   when(io.advance && !iter_valid) {
-    printf("[ITER] advance IGNORED (iter_valid=0) iter=(%d,%d) max=(%d,%d)\n",
+    if (BorgDebug.trace) printf("[ITER] advance IGNORED (iter_valid=0) iter=(%d,%d) max=(%d,%d)\n",
       iter_reg.x, iter_reg.y, tile_max_reg.x, tile_max_reg.y)
   }
 
