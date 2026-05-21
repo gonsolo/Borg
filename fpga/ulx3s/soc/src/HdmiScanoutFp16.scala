@@ -25,7 +25,7 @@
 //   frames.  Display reads the BRAM at pixel-clock rate (1-cycle latency), so
 //   there is no realtime SDRAM bandwidth pressure on the scanout path.
 //
-// Display: fbWidth×fbHeight framebuffer magnified 2× centered on 640×480.
+// Display: fbWidth×fbHeight framebuffer magnified 15× (480×480) centered on 640×480.
 
 package soc
 
@@ -51,7 +51,7 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbWidth: Int = 32, fbHeight: Int =
   val io = IO(new HdmiScanoutFp16IO)
 
   val tilesPerRow  = fbWidth / 4
-  val overlayScale = 2   // each pixel displayed 2×2
+  val overlayScale = 15  // 32×15 = 480 — fills screen height on 640×480
   val overlayW     = fbWidth * overlayScale
   val overlayH     = fbHeight * overlayScale
   val startX = ((640 - overlayW) / 2).U(10.W)
@@ -158,8 +158,8 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbWidth: Int = 32, fbHeight: Int =
   val inFbV = io.vCount >= startY && io.vCount < endY
   val show  = io.de && inFbH && inFbV
 
-  val fbX = ((io.hCount - startX) >> log2Ceil(overlayScale).U)(log2Ceil(fbWidth) - 1, 0)
-  val fbY = ((io.vCount - startY) >> log2Ceil(overlayScale).U)(log2Ceil(fbHeight) - 1, 0)
+  val fbX = ((io.hCount - startX) / overlayScale.U)(log2Ceil(fbWidth) - 1, 0)
+  val fbY = ((io.vCount - startY) / overlayScale.U)(log2Ceil(fbHeight) - 1, 0)
   val dispIdx = Cat(fbY, fbX)   // row*fbWidth + col
 
   val pixel = frameBuf.read(dispIdx)

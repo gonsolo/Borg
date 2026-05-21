@@ -201,7 +201,7 @@ int main() {
   borg_upload_texture(borg_texture_small_dat, TEX_WIDTH);
 
   fp16_t s[16], rx[16], ry[16], tz[16], t1[16], t2[16];
-  mat4_scale(s, 0.25f);
+  mat4_scale(s, 0.5f);
   mat4_translate_z(tz, 0.5f);
 
   extern void puts_uart(const char *s); // already implemented in borg_driver.c
