@@ -11,6 +11,7 @@
 #include "borg_math.h"
 #include "borg_sys.h"
 #include "compiler/shader_blobs.h"
+#include "vkcube_texture_blob.h"
 
 #define FP16_N1 0xBC00 // -1.0 in FP16
 #define FP16_P1 0x3C00 //  1.0 in FP16
@@ -196,6 +197,8 @@ int main() {
   borgCreateShaderModule(&rast, rasterize_borg, sizeof(rasterize_borg));
   borgCreateShaderModule(&frag, frag_borg, sizeof(frag_borg));
   borgCreateGraphicsPipeline(&vert, &rast, &frag);
+
+  borg_upload_texture(borg_texture_small_dat, TEX_WIDTH);
 
   fp16_t s[16], rx[16], ry[16], tz[16], t1[16], t2[16];
   mat4_scale(s, 0.25f);

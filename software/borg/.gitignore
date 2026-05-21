@@ -10,3 +10,4 @@ borg_mmio.h
 test_raster
 .cflags_stamp
 texture_blob.h
+vkcube_texture_blob.h

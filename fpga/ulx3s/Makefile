@@ -21,8 +21,10 @@ help:
 	@echo -e "$(BOLD)Hardware programming:$(RESET)"
 	@echo -e "  flash:\t\tFlash ECP5 bitstream to onboard config flash."
 	@echo -e "  flash-firmware:\tFlash firmware (with size header) to flash offset 0x400000."
+	@echo -e "  flash-vkcube:\t\tFlash vkcube firmware to flash offset 0x400000."
 	@echo -e "  minimal-boot:\t\tBuild + flash a minimal firmware — tests FlashBootLoader (D.3)."
 	@echo -e "  triangle:\t\tBuild + flash bitstream + triangle firmware. Power-cycle to run."
+	@echo -e "  vkcube:\t\tBuild + flash bitstream + vkcube firmware. Power-cycle to run."
 	@echo ""
 	@echo -e "$(BOLD)Utilities:$(RESET)"
 	@echo -e "  print_resources:\tCheck LUT, DFF, BRAM usage."
@@ -216,6 +218,29 @@ minimal-boot: borg.bit minimal.bin
 	@echo -e "  LED[7] = pll_locked (lights immediately)"
 	@echo -e "  LED[6] = boot_done  (lights after ~1 ms — FlashBootLoader done)"
 
+vkcube_with_header.bin: $(FIRMWARE_DIR)/vkcube.bin
+	@echo -e "$(BOLD)[FW-PACK]$(RESET) Prepending 4-byte size header to vkcube firmware ..."
+	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/vkcube.bin','rb').read(); open('vkcube_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> vkcube_with_header.bin')"
+
+.PHONY: $(FIRMWARE_DIR)/vkcube.bin
+$(FIRMWARE_DIR)/vkcube.bin:
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
+		EXTRA_CFLAGS="-DTARGET_ULX3S -DUSE_SMALL_TEXTURE" vkcube
+
+flash-vkcube: vkcube_with_header.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing vkcube firmware to onboard flash @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 vkcube_with_header.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) vkcube firmware flashed at 0x400000."
+
+# Full vkcube deploy: synth + P&R + pack, flash bitstream + vkcube firmware.
+vkcube: borg.bit vkcube_with_header.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream to onboard flash ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing vkcube firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 vkcube_with_header.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Power-cycle board to run."
+	@echo -e "  LED[7] = pll_locked, LED[6] = boot_done"
+
 # Full triangle deploy: synth + P&R + pack, flash bitstream + firmware.
 # After power-cycle: ECP5 loads bitstream -> FlashBootLoader copies firmware
 # to SDRAM -> Hutt runs -> Borg renders triangle -> UART dumps pixels.
@@ -330,6 +355,6 @@ install-udev:
 clean:
 	rm -f borg.bit borg.config borg.json borg.svf yosys.log nextpnr.log .verilog_stamp_ulx3s
 
-.PHONY: all help load flash flash-firmware minimal-boot triangle \
+.PHONY: all help load flash flash-firmware flash-vkcube minimal-boot triangle vkcube \
         print_resources generate_verilog_ulx3s tio install-udev clean \
         flash-hdmi-tiled minimal-hdmi
