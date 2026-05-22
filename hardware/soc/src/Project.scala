@@ -39,6 +39,7 @@ private[soc] object SoCDecode {
   val PERI_DEBUG_UART        = 0x6
   val PERI_DEBUG_UART_STATUS = 0x7
   val PERI_DEBUG_UART_BAUD   = 0x8
+  val PERI_FB_SELECT         = 0x9
   val PERI_TIME_LIMIT        = 0xB
   val PERI_DEBUG             = 0xC
   val PERI_USER              = 0xF
@@ -82,6 +83,11 @@ trait SoCLogic { self: RawModule =>
   lazy val uartTx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new peri.uart.UartTx(13))
   }
+
+  // fb_select register — populated by wireSoC().  Concrete targets (e.g. ULX3S)
+  // that need to read it after wireSoC() returns access it here.
+  protected var _fbSelectReg: Bool = null.asInstanceOf[Bool]
+  def fbSelectReg: Bool = _fbSelectReg
 
   /** Wire the GPU memory port.  Default: direct Borg↔MemoryController. */
   def wireGpuMem(): Unit = {
@@ -142,6 +148,8 @@ trait SoCLogic { self: RawModule =>
     val gpio_out_sel = withClockAndReset(soc_clk, !soc_rst_reg_n) {
       RegInit(Cat(!soc_ui_in(0), 0.U(1.W)))
     }
+    val fb_select = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
+    _fbSelectReg = fb_select
     val time_limit = withClockAndReset(soc_clk, !soc_rst_reg_n) {
       RegInit(math.max((CLOCK_MHZ / 4) - 1, 1).U(5.W))
     }
@@ -160,6 +168,7 @@ trait SoCLogic { self: RawModule =>
         is(socPeriU(PERI_GPIO_OUT_SEL))    { gpio_out_sel       := cpuData.req.bits.data(7, 6) }
         is(socPeriU(PERI_TIME_LIMIT))      { time_limit         := cpuData.req.bits.data(6, 2) }
         is(socPeriU(PERI_DEBUG_UART_BAUD)) { debug_baud_divider := cpuData.req.bits.data(12, 0) }
+        is(socPeriU(PERI_FB_SELECT))       { fb_select          := cpuData.req.bits.data(0) }
         is(socPeriU(PERI_DEBUG))           { debug_register_data := cpuData.req.bits.data(0) }
       }
     }
@@ -171,6 +180,7 @@ trait SoCLogic { self: RawModule =>
       is(socPeriU(PERI_GPIO_OUT_SEL))      { socReadData := Cat(0.U(24.W), gpio_out_sel, 0.U(6.W)) }
       is(socPeriU(PERI_DEBUG_UART_STATUS)) { socReadData := Cat(0.U(31.W), debug_uart_tx_busy) }
       is(socPeriU(PERI_DEBUG_UART_BAUD))   { socReadData := Cat(0.U(19.W), debug_baud_divider) }
+      is(socPeriU(PERI_FB_SELECT))         { socReadData := Cat(0.U(31.W), fb_select) }
       is(socPeriU(PERI_TIME_LIMIT))        { socReadData := Cat(0.U(25.W), time_limit, 3.U(2.W)) }
     }
 

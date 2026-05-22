@@ -126,7 +126,7 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
 
   // ── HDMI Scanout — declared here so wireGpuMem() can reference it ─────────
   val scanout = withClockAndReset(sysClock, pllRst) {
-    Module(new HdmiScanoutFp16(fbBase = 0x85000, fbWidth = 32, fbHeight = 32))
+    Module(new HdmiScanoutFp16(fbBase = 0x85000, fbBase1 = 0xA5004, fbWidth = 128, fbHeight = 128))
   }
 
   // ── GPU memory arbiter: Borg GPU writes/reads have priority over scanout ──
@@ -250,8 +250,9 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
 
 
 
-  // ── HDMI Scanout: enable — gpuData/gpuReady wired via wireGpuMem() above ──
-  scanout.io.enable := true.B
+  // ── HDMI Scanout: enable + front-buffer select ────────────────────────────
+  scanout.io.enable   := true.B
+  scanout.io.frontBuf := fbSelectReg
 
   // ── VGA timing (25 MHz pixel clock = sysClock directly) ───────────────────
   // At 25 MHz SoC clock, every cycle IS a pixel tick — no divider needed.

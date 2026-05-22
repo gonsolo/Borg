@@ -25,7 +25,8 @@
 //   frames.  Display reads the BRAM at pixel-clock rate (1-cycle latency), so
 //   there is no realtime SDRAM bandwidth pressure on the scanout path.
 //
-// Display: fbWidth×fbHeight framebuffer magnified 15× (480×480) centered on 640×480.
+// Display: fbWidth×fbHeight framebuffer at 1:1 pixel mapping, centered on 640×480.
+// Note: at 128×128 the fill FSM takes ~33 ms per refill (> 1 frame) — expect ~1-frame lag.
 
 package soc
 
@@ -42,16 +43,17 @@ class HdmiScanoutFp16IO extends Bundle {
   val de       = Input(Bool())
   val tick25   = Input(Bool())
   val enable   = Input(Bool())
+  val frontBuf = Input(Bool())   // 0 = read fbBase, 1 = read fbBase1
   val red      = Output(UInt(8.W))
   val green    = Output(UInt(8.W))
   val blue     = Output(UInt(8.W))
 }
 
-class HdmiScanoutFp16(fbBase: Int = 0x100000, fbWidth: Int = 32, fbHeight: Int = 32) extends Module {
+class HdmiScanoutFp16(fbBase: Int = 0x100000, fbBase1: Int = 0x120004, fbWidth: Int = 32, fbHeight: Int = 32) extends Module {
   val io = IO(new HdmiScanoutFp16IO)
 
   val tilesPerRow  = fbWidth / 4
-  val overlayScale = 15  // 32×15 = 480 — fills screen height on 640×480
+  val overlayScale = 1   // 1:1 — no scaling
   val overlayW     = fbWidth * overlayScale
   val overlayH     = fbHeight * overlayScale
   val startX = ((640 - overlayW) / 2).U(10.W)
@@ -115,7 +117,11 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbWidth: Int = 32, fbHeight: Int =
   val localY  = fillRow(1, 0)
   val tileIndex = tileRow * tilesPerRow.U +& tileCol
   val pixIndex  = Cat(localY, localX)            // local_y * 4 + local_x
-  val pixAddr   = fbBase.U(25.W) +& (tileIndex << 7) +& (pixIndex << 3)
+  // Double-buffer: latch frontBuf at the start of each fill loop (fillIdx==0).
+  val activeBuf = RegInit(false.B)
+  when(fstate === sReqRG && fillIdx === 0.U) { activeBuf := io.frontBuf }
+  val baseAddr  = Mux(activeBuf, fbBase1.U(25.W), fbBase.U(25.W))
+  val pixAddr   = baseAddr +& (tileIndex << 7) +& (pixIndex << 3)
 
   io.gpuReq  := io.enable && (fstate === sReqRG || fstate === sWaitRG ||
                               fstate === sReqBZ || fstate === sWaitBZ)

@@ -41,6 +41,11 @@
 // PicoIce:   hasSequencer=false → CPU setup_tile_uniforms() fallback.
 static int has_sequencer = 0;
 
+// Double-buffering: back_buf is the buffer the GPU renders to next.
+// Starts at 1 so the first render goes to buffer 1 while the scanout
+// shows buffer 0 (black), giving a clean first frame.
+static int back_buf = 1;
+
 // Step 30.1b: Sequencer shader ROM constants.
 //
 // Identity vertex shader (3 instructions):
@@ -243,10 +248,10 @@ void borgCreateDevice(void) {
   borg_fb_height = PSRAM_IN(1);
   if (borg_fb_width < 4 || borg_fb_width > 128 ||
       (borg_fb_width & (borg_fb_width - 1)) != 0)
-    borg_fb_width = 32;
+    borg_fb_width = 128;
   if (borg_fb_height < 4 || borg_fb_height > 128 ||
       (borg_fb_height & (borg_fb_height - 1)) != 0)
-    borg_fb_height = 32;
+    borg_fb_height = 128;
 
   // Compute FP16 half-width for NDC→screen transform.
   // Must encode both exponent AND mantissa to handle non-power-of-2 widths.
@@ -287,10 +292,9 @@ void borgCreateDevice(void) {
   // one frame of borg_fb_width × borg_fb_height pixels × 2 words × 4 bytes).
   {
     int num_tiles = (borg_fb_width >> 2) * (borg_fb_height >> 2);
-    // Framebuffer ends at PSRAM_SPI_BASE + PSRAM_OUT_OFFSET +
-    //   FRAME_STRIDE * sizeof(uint32_t).  We place TBR regions after that.
+    // Two framebuffers (double-buffering): TBR starts after both.
     uint32_t fb_end_spi = (uint32_t)PSRAM_SPI_BASE + (uint32_t)PSRAM_OUT_OFFSET
-                        + (uint32_t)FRAME_STRIDE * 4u;
+                        + 2u * (uint32_t)FRAME_STRIDE * 4u;
     // Bin list: num_tiles rows, each TBR_BIN_ROW_BYTES wide.
     tbr_bin_base   = fb_end_spi;
     uint32_t bin_region_bytes = (uint32_t)num_tiles * TBR_BIN_ROW_BYTES;
@@ -994,19 +998,20 @@ void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
 }
 
 void borg_present(int frame) {
+  (void)frame;
   unsigned int t_wait = get_cycles();
 
   // Fully autonomous two-pass TBR rendering (Step 32.3/32.4):
   // Pass 1: sequencer runs vert+setup+bin for all triangles.
   // Pass 2: sequencer iterates all tiles, loads bin lists, rasterizes, flushes.
-  borgBinRenderAutonomous(frame);
+  borgBinRenderAutonomous(back_buf);
 
   // Wait for the GPU to finish the last tile flush.
   while (!(BORG_GPU->status & STATUS_REG_T__IDLE_bm))
     ;
   t_draw_cycles += get_cycles() - t_wait;
 
-  int base = frame * FRAME_STRIDE + FRAME_FB_SIZE;
+  int base = back_buf * FRAME_STRIDE + FRAME_FB_SIZE;
   PSRAM_OUT(base) = DONE_MARKER;
   PSRAM_OUT(base + 1) = t_init_cycles & 0xFFFF;
   PSRAM_OUT(base + 2) = (t_init_cycles >> 16) & 0xFFFF;
@@ -1014,4 +1019,8 @@ void borg_present(int frame) {
   PSRAM_OUT(base + 4) = (t_clear_cycles >> 16) & 0xFFFF;
   PSRAM_OUT(base + 5) = t_draw_cycles & 0xFFFF;
   PSRAM_OUT(base + 6) = (t_draw_cycles >> 16) & 0xFFFF;
+
+  // Swap: tell scanout to display the just-rendered buffer, then flip back_buf.
+  *(volatile uint32_t *)0x08000024u = (uint32_t)back_buf;
+  back_buf ^= 1;
 }
