@@ -117,11 +117,13 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbBase1: Int = 0x120004, fbWidth: 
   val localY  = fillRow(1, 0)
   val tileIndex = tileRow * tilesPerRow.U +& tileCol
   val pixIndex  = Cat(localY, localX)            // local_y * 4 + local_x
-  // Double-buffer: latch frontBuf at the start of each fill loop (fillIdx==0).
-  val activeBuf = RegInit(false.B)
-  when(fstate === sReqRG && fillIdx === 0.U) { activeBuf := io.frontBuf }
-  val baseAddr  = Mux(activeBuf, fbBase1.U(25.W), fbBase.U(25.W))
-  val pixAddr   = baseAddr +& (tileIndex << 7) +& (pixIndex << 3)
+  // Double-buffer: capture the front-buffer base address at the wrap point
+  // (last pixel of each loop, inside sWaitBZ) so it is stable from the very
+  // first cycle of the next loop through sReqRG/sWaitRG/sReqBZ/sWaitBZ.
+  // Latching in sReqRG (first state of next loop) would set it one cycle too
+  // late: gpuAddr is combinatorial from baseAddr, so it would change mid-request.
+  val baseAddr = RegInit(fbBase.U(25.W))
+  val pixAddr  = baseAddr +& (tileIndex << 7) +& (pixIndex << 3)
 
   io.gpuReq  := io.enable && (fstate === sReqRG || fstate === sWaitRG ||
                               fstate === sReqBZ || fstate === sWaitBZ)
@@ -149,8 +151,14 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbBase1: Int = 0x120004, fbWidth: 
           val b8 = fp16ToRgb8(io.gpuData(15, 0))
           wrEn    := true.B
           wrData  := Cat(r8, g8, b8)
-          fillIdx := Mux(fillIdx === (numPixels - 1).U, 0.U, fillIdx + 1.U)
+          val wrap = fillIdx === (numPixels - 1).U
+          fillIdx := Mux(wrap, 0.U, fillIdx + 1.U)
           fstate  := sReqRG
+          // Latch the new front-buffer base at the wrap boundary so it is
+          // stable for all of the next loop (sReqRG through sWaitBZ).
+          when(wrap) {
+            baseAddr := Mux(io.frontBuf, fbBase1.U(25.W), fbBase.U(25.W))
+          }
         }
       }
     }
