@@ -75,12 +75,19 @@ static void mat4_mul(fp16_t out[16], const fp16_t a[16], const fp16_t b[16]) {
   }
 }
 
-static void mat4_scale(fp16_t m[16], float s) {
+// Anisotropic scale: `sxy` scales screen-plane X/Y, `sz` scales depth.
+// The projection is orthographic (gl_Position.w stays 1), so the on-screen
+// image depends only on X/Y — Z is used purely for the z-buffer and for the
+// fixed clip box z∈[0,1] (near at z=0, far at z=w=1).  We therefore keep XY
+// large (the cube fills the framebuffer) but compress Z independently so a
+// rotated cube never pokes through the near/far planes.  A rotated corner
+// reaches sz·√3 in depth about the z=0.5 center, so sz≤0.5/√3≈0.288 keeps it
+// inside [0,1]; sz=0.25 leaves margin.  Compressing Z is invisible on screen.
+static void mat4_scale(fp16_t m[16], float sxy, float sz) {
   mat4_identity(m);
-  fp16_t v = fp16_from_float(s);
-  m[0] = v;
-  m[5] = v;
-  m[10] = v;
+  m[0] = fp16_from_float(sxy);
+  m[5] = fp16_from_float(sxy);
+  m[10] = fp16_from_float(sz);
 }
 
 static void mat4_rotate_x(fp16_t m[16], float radians) {
@@ -201,7 +208,7 @@ int main() {
   borg_upload_texture(borg_texture_small_dat, TEX_WIDTH);
 
   fp16_t s[16], rx[16], ry[16], tz[16], t1[16], t2[16];
-  mat4_scale(s, 0.5f);
+  mat4_scale(s, 0.5f, 0.25f);  // big on screen (XY), depth compressed to fit z∈[0,1]
   mat4_translate_z(tz, 0.5f);
 
   // Read shared parameters from PSRAM (offset 2 and 3 -> PSRAM base + 8 and 12)
