@@ -44,6 +44,7 @@ class HdmiScanoutFp16IO extends Bundle {
   val tick25   = Input(Bool())
   val enable   = Input(Bool())
   val frontBuf = Input(Bool())   // 0 = read fbBase, 1 = read fbBase1
+  val curBuf   = Output(Bool())  // buffer currently being read (latched at wrap)
   val red      = Output(UInt(8.W))
   val green    = Output(UInt(8.W))
   val blue     = Output(UInt(8.W))
@@ -124,6 +125,9 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbBase1: Int = 0x120004, fbWidth: 
   // late: gpuAddr is combinatorial from baseAddr, so it would change mid-request.
   val baseAddr = RegInit(fbBase.U(25.W))
   val pixAddr  = baseAddr +& (tileIndex << 7) +& (pixIndex << 3)
+  // Report which buffer is currently being read so the CPU can synchronize the
+  // double-buffer swap (wait until the scanout has released the back buffer).
+  io.curBuf := baseAddr === fbBase1.U(25.W)
 
   io.gpuReq  := io.enable && (fstate === sReqRG || fstate === sWaitRG ||
                               fstate === sReqBZ || fstate === sWaitBZ)

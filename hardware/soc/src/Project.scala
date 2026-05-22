@@ -89,6 +89,11 @@ trait SoCLogic { self: RawModule =>
   protected var _fbSelectReg: Bool = null.asInstanceOf[Bool]
   def fbSelectReg: Bool = _fbSelectReg
 
+  // Buffer the scanout is currently displaying.  Overridden by targets with a
+  // double-buffered scanout; read back via PERI_FB_SELECT so firmware can wait
+  // for the scanout to release the back buffer before the GPU re-renders it.
+  def scanoutCurBuf: Bool = false.B
+
   /** Wire the GPU memory port.  Default: direct Borg↔MemoryController. */
   def wireGpuMem(): Unit = {
     mem.io.gpuMem <> peripherals.io.gpuMem
@@ -180,7 +185,7 @@ trait SoCLogic { self: RawModule =>
       is(socPeriU(PERI_GPIO_OUT_SEL))      { socReadData := Cat(0.U(24.W), gpio_out_sel, 0.U(6.W)) }
       is(socPeriU(PERI_DEBUG_UART_STATUS)) { socReadData := Cat(0.U(31.W), debug_uart_tx_busy) }
       is(socPeriU(PERI_DEBUG_UART_BAUD))   { socReadData := Cat(0.U(19.W), debug_baud_divider) }
-      is(socPeriU(PERI_FB_SELECT))         { socReadData := Cat(0.U(31.W), fb_select) }
+      is(socPeriU(PERI_FB_SELECT))         { socReadData := Cat(0.U(31.W), scanoutCurBuf) }
       is(socPeriU(PERI_TIME_LIMIT))        { socReadData := Cat(0.U(25.W), time_limit, 3.U(2.W)) }
     }
 

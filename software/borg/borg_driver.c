@@ -1011,6 +1011,11 @@ void borg_present(int frame) {
     ;
   t_draw_cycles += get_cycles() - t_wait;
 
+#ifndef TARGET_ULX3S
+  // DONE_MARKER + timing for the sim/host viewer.  Skipped on ULX3S: the marker
+  // is never read back (the present-wait below is hardware-side), and the
+  // timing words at FRAME_FB_SIZE+1.. would land in the *other* buffer's first
+  // pixels (FRAME_STRIDE = FRAME_FB_SIZE+1), corrupting the displayed frame.
   int base = back_buf * FRAME_STRIDE + FRAME_FB_SIZE;
   PSRAM_OUT(base) = DONE_MARKER;
   PSRAM_OUT(base + 1) = t_init_cycles & 0xFFFF;
@@ -1019,8 +1024,20 @@ void borg_present(int frame) {
   PSRAM_OUT(base + 4) = (t_clear_cycles >> 16) & 0xFFFF;
   PSRAM_OUT(base + 5) = t_draw_cycles & 0xFFFF;
   PSRAM_OUT(base + 6) = (t_draw_cycles >> 16) & 0xFFFF;
+#endif
 
-  // Swap: tell scanout to display the just-rendered buffer, then flip back_buf.
-  *(volatile uint32_t *)0x08000024u = (uint32_t)back_buf;
+  // Double-buffer swap with scanout synchronization.
+  //   PERI_FB_SELECT write (0x08000024) = which buffer the scanout displays.
+  //   PERI_FB_SELECT read  (0x08000024) = which buffer the scanout is actually
+  //     reading right now (it switches at its fill-loop wrap, ~one frame).
+  // After presenting the just-rendered buffer we flip back_buf to the OLD front
+  // buffer, then block until the scanout has switched to the new front buffer.
+  // That guarantees the scanout has finished reading (released) the buffer the
+  // GPU is about to render into — without this the free-running GPU laps the
+  // ~33 ms scanout and overwrites the frame mid-display (tearing, partial tris).
+  int front = back_buf;
+  *(volatile uint32_t *)0x08000024u = (uint32_t)front;
   back_buf ^= 1;
+  while ((*(volatile uint32_t *)0x08000024u & 1u) != (uint32_t)front)
+    ;
 }
