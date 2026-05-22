@@ -27,7 +27,7 @@ class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
   //   word[2*i+1] = entry[i] bits[63:32] (B|Z)
   // Firmware computes: tileBase = fbBase + tile_index * 128
   //   where tile_index = (ty >> 2) * tiles_per_row + (tx >> 2)
-  val tileBase  = Input(UInt(20.W))
+  val tileBase  = Input(UInt(25.W))
 }
 
 /** BorgTileFlusher — bulk DMA from tile SRAM to PSRAM (Step 25.4.2 Option A).
@@ -70,7 +70,7 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   // addrReg: running PSRAM byte address, starts at io.tileBase and advances +2
   //          per write (each write = 1 SDRAM word = 2 bytes).
   //          4 writes per pixel × 16 pixels = 64 writes total.
-  val addrReg  = RegInit(0.U(20.W))
+  val addrReg  = RegInit(0.U(25.W))
   val word_idx = RegInit(0.U(5.W))   // 0..15: pixel index, terminates at 16
   // Local copy of tile buffer entry — immune to dispatcher read port corruption.
   val entryHeld = RegInit(0.U(64.W))

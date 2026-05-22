@@ -282,9 +282,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * - tile read port: muxed in wireTileBuffer() above.
     */
   private def wireFlusher(): Unit = {
-    val flushTileBaseReg = RegInit(0.U(20.W))
+    val flushTileBaseReg = RegInit(0.U(25.W))
     when(bus.is_writing && bus.address === BorgGpuRegs.flush_fb_base_offset) {
-      flushTileBaseReg := bus.data_in(19, 0)
+      flushTileBaseReg := bus.data_in(24, 0)
     }
 
     val flushPending = RegInit(false.B)
@@ -445,11 +445,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       val seqFragLenReg    = RegInit(0.U(6.W))
       val seqClearLoReg    = RegInit(0.U(32.W))
       val seqClearHiReg    = RegInit(0.U(32.W))
-      val seqFbBaseReg     = RegInit(0.U(20.W))
+      val seqFbBaseReg     = RegInit(0.U(25.W))
       val seqTilesPerRowReg = RegInit(0.U(10.W))
-      val seqBinBaseReg     = RegInit(0.U(20.W))
+      val seqBinBaseReg     = RegInit(0.U(25.W))
       val seqBinRowBytesReg = RegInit(0.U(20.W))
-      val seqSetupBaseReg   = RegInit(0.U(20.W))
+      val seqSetupBaseReg   = RegInit(0.U(25.W))
 
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_desc_base_offset)    { seqDescBaseReg := bus.data_in(19, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_trigger_offset) {
@@ -468,11 +468,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_frag_len_offset)     { seqFragLenReg := bus.data_in(5, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_clear_lo_offset)     { seqClearLoReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_clear_hi_offset)     { seqClearHiReg := bus.data_in }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_fb_base_offset)      { seqFbBaseReg := bus.data_in(19, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_fb_base_offset)      { seqFbBaseReg := bus.data_in(24, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_tiles_per_row_offset){ seqTilesPerRowReg := bus.data_in(9, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_bin_base_offset)     { seqBinBaseReg := bus.data_in(19, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_bin_base_offset)     { seqBinBaseReg := bus.data_in(24, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_bin_row_bytes_offset){ seqBinRowBytesReg := bus.data_in(19, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_base_offset)   { seqSetupBaseReg := bus.data_in(19, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_base_offset)   { seqSetupBaseReg := bus.data_in(24, 0) }
 
       s.io.mmio.start           := seqStartPulse
       s.io.mmio.descBase        := seqDescBaseReg

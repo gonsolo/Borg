@@ -30,8 +30,8 @@ class BorgBinnerIO extends Bundle {
   val bbox        = Input(new Bbox(10))
 
   // --- PSRAM layout parameters ---
-  /** PSRAM byte address of the bin list region base (from tbr_bin_base). */
-  val binBase     = Input(UInt(20.W))
+  /** GPU memory byte address of the bin list region base (from tbr_bin_base); 25b = 32 MB. */
+  val binBase     = Input(UInt(25.W))
   /** Bin list row size in bytes (= SEQ_MAX_TRI * TBR_BIN_ENTRY_SIZE). */
   val binRowBytes = Input(UInt(20.W))
   /** Number of tiles per framebuffer row (= fb_width / 4). */

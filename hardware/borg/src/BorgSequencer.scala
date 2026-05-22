@@ -73,11 +73,11 @@ class SeqMmioIO extends Bundle {
   val fragShaderLen = Input(UInt(6.W))
   val clearColorLo = Input(UInt(32.W))
   val clearColorHi = Input(UInt(32.W))
-  val fbBase = Input(UInt(20.W))
+  val fbBase = Input(UInt(25.W))   // 25b = 32 MB GPU memory address space
   val tilesPerRow = Input(UInt(10.W))
-  val binBase = Input(UInt(20.W))
-  val binRowBytes = Input(UInt(20.W))
-  val setupBase = Input(UInt(20.W))
+  val binBase = Input(UInt(25.W))
+  val binRowBytes = Input(UInt(20.W))  // stride (bytes/tile), not an address
+  val setupBase = Input(UInt(25.W))
   val fbWidthTiles = Input(UInt(10.W))
   val fbHeightTiles = Input(UInt(10.W))
 }
@@ -96,13 +96,13 @@ class SeqBinnerIO extends Bundle {
 class SeqStoreIO extends Bundle {
   val active = Output(Bool())
   val req = Output(Bool())
-  val addr = Output(UInt(20.W))
+  val addr = Output(UInt(25.W))   // 25b = 32 MB GPU memory address space
   val wdata = Output(UInt(32.W))
   val ready = Input(Bool())
 }
 
 class SeqFlusherIO extends Bundle {
-  val base = Output(UInt(20.W))
+  val base = Output(UInt(25.W))   // 25b = 32 MB GPU memory address space
   val trigger = Output(Bool())
   val busy = Input(Bool())
 }
