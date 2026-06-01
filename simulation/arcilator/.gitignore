@@ -2,9 +2,11 @@ arc.h
 arc.ll
 *.o
 borg.mlir
+borg_trace.mlir
 borg_yosys.fir
 borg_yosys.mlir
 state.json
+state_trace.json
 yosys.log
 arcilator_sim
 *.ppm
