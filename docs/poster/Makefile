@@ -7,8 +7,11 @@ all: poster abstract
 
 poster: poster.pdf
 
-hw_diagram.pdf: ../hw_diagram.svg
-	inkscape --export-type=pdf --export-filename=hw_diagram.pdf ../hw_diagram.svg
+../poster_diagram.svg: ../../scripts/gen_poster_diagram.py
+	cd ../.. && python3 scripts/gen_poster_diagram.py --output docs/poster_diagram
+
+hw_diagram.pdf: ../poster_diagram.svg
+	inkscape --export-type=pdf --export-filename=hw_diagram.pdf ../poster_diagram.svg
 
 poster.pdf: poster.tex hw_diagram.pdf
 	-$(PDFLATEX) -interaction=nonstopmode poster.tex

@@ -1,0 +1,68 @@
+<svg width="2752pt" height="860pt" viewBox="0 0 2752 860" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="6"
+          refX="7" refY="3" orient="auto">
+    <polygon points="0 0, 8 3, 0 6"
+             fill="#085868"/>
+  </marker>
+</defs>
+<rect x="0" y="0" width="2752" height="860" rx="8" ry="8" fill="#C8E8E8" stroke="#C8E8E8" stroke-width="2"/>
+<rect x="50" y="50" width="618" height="256" rx="8" ry="8" fill="#d0e8e8" stroke="#085868" stroke-width="2"/>
+<rect x="50" y="50" width="618" height="88" rx="8" ry="8" fill="#085868" stroke="#085868" stroke-width="2"/>
+<text x="359" y="94" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="32" font-weight="bold" fill="#ffffff" text-anchor="middle" dominant-baseline="central">Software</text>
+<rect x="52" y="148" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="359" y="185" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">Borg Driver</text>
+<rect x="52" y="232" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="359" y="269" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">Hutt Firmware</text>
+<rect x="728" y="50" width="618" height="508" rx="8" ry="8" fill="#dde8f4" stroke="#085868" stroke-width="2"/>
+<rect x="728" y="50" width="618" height="88" rx="8" ry="8" fill="#085868" stroke="#085868" stroke-width="2"/>
+<text x="1037" y="94" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="32" font-weight="bold" fill="#ffffff" text-anchor="middle" dominant-baseline="central">SoC · CPU · Memory</text>
+<rect x="730" y="148" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="1037" y="185" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">Project</text>
+<rect x="730" y="232" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="1037" y="269" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">Hutt</text>
+<rect x="730" y="316" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="1037" y="353" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">Peripherals</text>
+<rect x="730" y="400" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="1037" y="437" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">MemoryController</text>
+<rect x="730" y="484" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="1037" y="521" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">SdramBackend</text>
+<rect x="1406" y="50" width="618" height="424" rx="8" ry="8" fill="#e4e0f4" stroke="#085868" stroke-width="2"/>
+<rect x="1406" y="50" width="618" height="88" rx="8" ry="8" fill="#085868" stroke="#085868" stroke-width="2"/>
+<text x="1715" y="94" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="32" font-weight="bold" fill="#ffffff" text-anchor="middle" dominant-baseline="central">GPU</text>
+<rect x="1408" y="148" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="1715" y="185" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">Borg</text>
+<rect x="1408" y="232" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="1715" y="269" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">BorgCommandFIFO</text>
+<rect x="1408" y="316" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="1715" y="353" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">BorgCore</text>
+<rect x="1408" y="400" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="1715" y="437" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">BorgSequencer</text>
+<rect x="2084" y="50" width="618" height="760" rx="8" ry="8" fill="#ddf0e4" stroke="#085868" stroke-width="2"/>
+<rect x="2084" y="50" width="618" height="88" rx="8" ry="8" fill="#085868" stroke="#085868" stroke-width="2"/>
+<text x="2393" y="94" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="32" font-weight="bold" fill="#ffffff" text-anchor="middle" dominant-baseline="central">GPU Pipeline</text>
+<rect x="2086" y="148" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="2393" y="185" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">BorgBinner</text>
+<rect x="2086" y="232" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="2393" y="269" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">BorgTileFlusher</text>
+<rect x="2086" y="316" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="2393" y="353" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">BorgRasterizer</text>
+<rect x="2086" y="400" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="2393" y="437" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">BorgTextureUnit</text>
+<rect x="2086" y="484" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="2393" y="521" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">BorgTileBuffer</text>
+<rect x="2086" y="568" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="2393" y="605" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">BorgDMA</text>
+<rect x="2086" y="652" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="2393" y="689" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">BorgIterator</text>
+<rect x="2086" y="736" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
+<text x="2393" y="773" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">BorgShaderDispatcher</text>
+<path d="M668,185 H698 V353 H728" fill="none" stroke="#085868" stroke-width="3" marker-end="url(#arrowhead)"/>
+<path d="M668,269 H698 V269 H728" fill="none" stroke="#085868" stroke-width="3" marker-end="url(#arrowhead)"/>
+<path d="M1346,353 H1376 V185 H1406" fill="none" stroke="#085868" stroke-width="3" marker-end="url(#arrowhead)"/>
+<path d="M1346,437 H1376 V185 H1406" fill="none" stroke="#085868" stroke-width="3" marker-end="url(#arrowhead)"/>
+<path d="M2024,185 H2054 V185 H2084" fill="none" stroke="#085868" stroke-width="3" marker-end="url(#arrowhead)"/>
+<path d="M2024,185 H2054 V269 H2084" fill="none" stroke="#085868" stroke-width="3" marker-end="url(#arrowhead)"/>
+<path d="M2024,437 H2054 V353 H2084" fill="none" stroke="#085868" stroke-width="3" marker-end="url(#arrowhead)"/>
+<path d="M2024,353 H2054 V773 H2084" fill="none" stroke="#085868" stroke-width="3" marker-end="url(#arrowhead)"/>
+</svg>
