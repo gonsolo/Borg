@@ -224,6 +224,11 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val storeWriteIdx = RegInit(0.U(6.W))
   // setupLoadIdx: tracks DMA word count during pass 2 sLoadTriSetup (for has_uvs snoop)
   val setupLoadIdx = RegInit(0.U(6.W))
+  // Uniform cache: last triangle index whose setup uniforms were DMA-loaded into
+  // the uniform buffer.  If the next tile's bin entry matches, skip the DMA entirely
+  // — the uniforms are still valid from the previous load.  Invalidated at frame start.
+  // 0xFFFF is used as "invalid" since triangle indices are < SEQ_MAX_TRI (≤ 1024).
+  val lastLoadedTri = RegInit("hFFFF".U(16.W))
   // uDataReg: latched uniform value for PSRAM store (computed during sStageUniforms)
   val uDataStore = RegInit(VecInit.fill(31)(0.U(16.W)))
 
@@ -486,8 +491,9 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         // with garbage descriptors and the flusher would corrupt PSRAM.
         state := sDone
       }.otherwise {
-        triIdx  := 0.U
-        vertIdx := 0.U
+        triIdx       := 0.U
+        vertIdx      := 0.U
+        lastLoadedTri := "hFFFF".U  // invalidate uniform cache for new frame
         // Step 32.2: clear binner per-tile counts at the start of each frame.
         // The binner's multi-cycle clearing runs in parallel with the first
         // vertex shader DMA load, so it adds zero latency.
@@ -819,23 +825,32 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   private def handleLoadTriSetup(): Unit = {
-    val desc = Wire(new DMADescriptor)
-    desc.baseAddr := io.mmio.setupBase + (binEntryData << 7)
-    desc.length   := 32.U  // 31 uniforms + 1 has_uvs flag
-    desc.dest     := Mux(uniformPage === 0.U, 1.U, 2.U)  // page 0 or 1
-    desc.offset   := 0.U
+    // Uniform cache: if this triangle's uniforms were loaded for the previous
+    // tile, skip the DMA — the uniform buffer still holds valid data.
+    // triHasUvs was set during that earlier load and is still correct.
+    when(binEntryData === lastLoadedTri) {
+      if (BorgDebug.trace) printf("[SEQ] loadTriSetup CACHE HIT triIdx=%d\n", binEntryData)
+      state := sEnqueueTile
+    }.otherwise {
+      val desc = Wire(new DMADescriptor)
+      desc.baseAddr := io.mmio.setupBase + (binEntryData << 7)
+      desc.length   := 32.U  // 31 uniforms + 1 has_uvs flag
+      desc.dest     := Mux(uniformPage === 0.U, 1.U, 2.U)  // page 0 or 1
+      desc.offset   := 0.U
 
-    if (BorgDebug.trace) printf("[SEQ] loadTriSetup triIdx=%d addr=0x%x dest=%d\n",
-      binEntryData, io.mmio.setupBase + (binEntryData << 7),
-      Mux(uniformPage === 0.U, 1.U, 2.U))
+      if (BorgDebug.trace) printf("[SEQ] loadTriSetup MISS triIdx=%d addr=0x%x dest=%d\n",
+        binEntryData, io.mmio.setupBase + (binEntryData << 7),
+        Mux(uniformPage === 0.U, 1.U, 2.U))
 
-    dmaDescReg   := desc
-    io.dma.desc   := desc
-    io.dma.start  := true.B
-    nextAfterDMA := sEnqueueTile
-    // Track word count for has_uvs snoop (word 31)
-    setupLoadIdx := 0.U
-    state        := sWaitDMA
+      lastLoadedTri := binEntryData
+      dmaDescReg    := desc
+      io.dma.desc   := desc
+      io.dma.start  := true.B
+      nextAfterDMA  := sEnqueueTile
+      // Track word count for has_uvs snoop (word 31)
+      setupLoadIdx  := 0.U
+      state         := sWaitDMA
+    }
   }
 
   private def handleEnqueueTile(): Unit = {
