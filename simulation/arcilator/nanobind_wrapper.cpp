@@ -9,9 +9,8 @@ namespace nb = nanobind;
 class SimulatorWrapper {
     ArcBorgSimulator* sim;
     std::vector<uint8_t> fb_rgb;
-    bool reset_done;
 public:
-    SimulatorWrapper(const std::string& firmware_path, uint32_t width = 32, uint32_t height = 32) : reset_done(false) {
+    SimulatorWrapper(const std::string& firmware_path, uint32_t width = 32, uint32_t height = 32) {
         sim = new ArcBorgSimulator(firmware_path, width, height);
     }
     
@@ -24,10 +23,6 @@ public:
     }
     
     bool step(uint32_t cycles) {
-        if (!reset_done) {
-            sim->backend_reset();
-            reset_done = true;
-        }
         return sim->step(cycles);
     }
     
@@ -44,7 +39,7 @@ public:
         }
 
         uint32_t* psram_words = (uint32_t*)sim->psram->mem.data();
-        
+
         for (uint32_t y = 0; y < sim->height; y++) {
             for (uint32_t x = 0; x < sim->width; x++) {
                 // Tiled layout: tile_index = (y/4)*tiles_per_row + (x/4)
@@ -53,11 +48,11 @@ public:
                 uint32_t tile_index = (y >> 2) * tiles_per_row + (x >> 2);
                 uint32_t tile_idx   = (x & 3) | ((y & 3) << 2);
                 uint32_t word_off   = sim->out_base_word + tile_index * 32 + tile_idx * 2;
-                uint32_t lo = psram_words[word_off + 0];  // {b, z}
-                uint32_t hi = psram_words[word_off + 1];  // {r, g}
-                uint16_t r_fp16 = (uint16_t)(hi >> 16);
-                uint16_t g_fp16 = (uint16_t)(hi & 0xFFFF);
-                uint16_t b_fp16 = (uint16_t)(lo >> 16);
+                uint32_t lo = psram_words[word_off + 0];  // {g, r}
+                uint32_t hi = psram_words[word_off + 1];  // {z, b}
+                uint16_t r_fp16 = (uint16_t)(lo & 0xFFFF);
+                uint16_t g_fp16 = (uint16_t)(lo >> 16);
+                uint16_t b_fp16 = (uint16_t)(hi & 0xFFFF);
                 
                 uint8_t r_b = std::max(0, std::min(255, (int)(::fp16_to_float(r_fp16) * 255)));
                 uint8_t g_b = std::max(0, std::min(255, (int)(::fp16_to_float(g_fp16) * 255)));

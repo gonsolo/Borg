@@ -20,16 +20,16 @@ CHISEL_SRCS = $(shell find $(ROOT)/hardware/borg/src $(ROOT)/hardware/soc/src \
                            -name '*.scala' -not -path '*/generated/*' 2>/dev/null) \
               $(wildcard $(ROOT)/hardware/rdl/*.rdl)
 
-.PHONY: all clean triangle vkcube $(FIRMWARE_DIR)/%.bin
+.PHONY: all clean triangle vkcube vkcube_gui
 
 all: triangle vkcube
 
 # Step 0: Hardware Generation — reruns when any Chisel/RDL source changes
-$(ROOT)/out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir: $(CHISEL_SRCS)
-	$(MAKE) -C $(ROOT) generate_verilog
+$(ROOT)/out/hardware/borg/firrtl_sim/BorgArcSimTop.fir: $(CHISEL_SRCS)
+	$(MAKE) -C $(ROOT) generate_verilog_sim
 
 # Step 1: FIRRTL → HW MLIR
-borg.mlir: $(ROOT)/out/hardware/borg/firrtl/tt_um_gonsolo_borg.fir
+borg.mlir: $(ROOT)/out/hardware/borg/firrtl_sim/BorgArcSimTop.fir
 	$(FIRTOOL) $< --disable-layers=Verification --ir-hw > $@
 
 # Step 2: HW MLIR → LLVM IR + state info  (single invocation produces both)
@@ -64,8 +64,14 @@ main.o: main.cpp arc.h arcilator-runtime.h ../common/texture_loader.h ArcBorgSim
 arcilator_sim: main.o arc.o texture_loader.o uart_decoder.o BorgSimulatorBase.o ArcBorgSimulator.o
 	$(CLANG) -O3 main.o arc.o texture_loader.o uart_decoder.o BorgSimulatorBase.o ArcBorgSimulator.o -o $@
 
-# Dependency on firmware binaries
-$(FIRMWARE_DIR)/%.bin:
+# Track firmware sources so .bin is rebuilt when any C/H/linker file changes,
+# regardless of whether the user runs `make triangle` or invokes arcilator_sim
+# directly.  The firmware Makefile still owns the actual build recipe.
+FW_SRCS = $(shell find $(FIRMWARE_DIR) $(ROOT)/software/hutt \
+                       -maxdepth 1 \( -name '*.c' -o -name '*.h' -o -name '*.s' \) 2>/dev/null) \
+          $(ROOT)/software/hutt/memmap
+
+$(FIRMWARE_DIR)/%.bin: $(FW_SRCS)
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
 triangle: arcilator_sim $(FIRMWARE_DIR)/triangle.bin
@@ -73,6 +79,9 @@ triangle: arcilator_sim $(FIRMWARE_DIR)/triangle.bin
 
 vkcube: arcilator_sim $(FIRMWARE_DIR)/vkcube.bin
 	./arcilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube
+
+vkcube_gui: python_extension $(FIRMWARE_DIR)/vkcube.bin
+	python3 arc_viewer.py
 
 textest: arcilator_sim $(FIRMWARE_DIR)/textest.bin
 	./arcilator_sim $(FIRMWARE_DIR)/textest.bin textest

@@ -43,6 +43,10 @@ class BorgSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   }
   def soc_ui_in = ui_in
 
+  // Immediately reflect fb_select writes back as scanoutCurBuf so the firmware's
+  // PERI_FB_SELECT sync loop exits on the first read (no real scanout in the sim).
+  override def scanoutCurBuf: Bool = fbSelectReg
+
   // Wire up the SoC.
   val uo_out_val = wireSoC()
 

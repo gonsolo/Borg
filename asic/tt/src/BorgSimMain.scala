@@ -27,4 +27,8 @@ object BorgSimMain extends App {
   val fw = new java.io.PrintWriter(new java.io.File(s"$targetDir/sim_files.txt"))
   allFiles.toList.sorted.foreach(fw.println)
   fw.close()
+
+  // Emit FIRRTL for the arcilator sim top (flat MemBackendIO, no SdramBackendSim).
+  val firrtlSimTargetDir = "out/hardware/borg/firrtl_sim"
+  Emit.emitFIRRTL(new BorgArcSimTop(clockMhz), firrtlSimTargetDir)
 }

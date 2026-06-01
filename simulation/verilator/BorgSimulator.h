@@ -20,6 +20,9 @@ class VerBorgSimulator : public BorgSimulatorBase {
 public:
     VBorgSimTop* model;
     bool booted = false;
+    int      cur_back_buf         = 1;  // mirrors firmware's static back_buf (starts at 1)
+    uint32_t frame_tile_size_words = 0;
+    uint32_t out_base_word_buf0    = 0;  // buf=0 FB base (constant after construction)
 
     VerBorgSimulator(const std::string& firmware_path, uint32_t w = 32, uint32_t h = 32) {
         model = new VBorgSimTop;
@@ -32,6 +35,8 @@ public:
         out_base_word = psram_spi_word_offset + (PSRAM_OUT_OFFSET / 4);
         uint32_t frame_tile_size = width * height * 2;
         marker_offset_word = out_base_word + frame_tile_size;
+        frame_tile_size_words = frame_tile_size;
+        out_base_word_buf0    = out_base_word;
 
         flash->load_bin(firmware_path);
 
@@ -97,17 +102,34 @@ public:
         if (!booted) { boot(); booted = true; }
         set_ui_in(0x80); // UART RXD idle
 
-        uint32_t marker_word = (marker_offset_word * 2) | 0x800000;
+        // FRAME_STRIDE = frame_tile_size_words + 1 (FB + 1 marker word per buffer).
+        // back_buf=0 marker is at out_base_word_buf0 + frame_tile_size_words.
+        // back_buf=1 marker is at out_base_word_buf0 + 2*frame_tile_size_words + 1.
+        uint32_t cur_marker_off =
+            cur_back_buf == 0
+            ? frame_tile_size_words
+            : 2 * frame_tile_size_words + 1;
+        uint32_t sdram_marker_addr = ((out_base_word_buf0 + cur_marker_off) * 2) | 0x800000;
+
         for (uint32_t c = 0; c < cycles_to_run; c++) {
-            model->dbg_raddr = marker_word;  // continuously poll the DONE marker
+            model->dbg_raddr = sdram_marker_addr;
             clock_low(); clock_high();
 
             uint8_t uo_out = model->uo_out;
             if (uart.tick((uo_out >> get_uart_bit_pos()) & 1))
                 std::cout << (char)uart.byte() << std::flush;
 
-            if (model->dbg_rdata == 0x0000DEAD) {   // low halfword of 0x0000DEAD
+            if (model->dbg_rdata == 0x0000DEAD) {
+                // Point out_base_word and marker_offset_word at the rendered buffer.
+                uint32_t buf_fb_off =
+                    cur_back_buf == 0 ? 0 : frame_tile_size_words + 1;
+                out_base_word      = out_base_word_buf0 + buf_fb_off;
+                marker_offset_word = out_base_word_buf0 + cur_marker_off;
                 readback_framebuffer();
+                // Clear the SDRAM marker so the firmware's done-wait loop can exit.
+                dbg_write(sdram_marker_addr,     0);
+                dbg_write(sdram_marker_addr + 1, 0);
+                cur_back_buf ^= 1;
                 return true;
             }
         }
@@ -117,10 +139,17 @@ public:
     virtual void host_write_psram_word(uint32_t word_addr, uint32_t value) override {
         uint32_t byte_addr = word_addr * 4;
         if (byte_addr + 3 < psram->mem.size()) {
-            psram->mem[byte_addr] = value & 0xFF;
+            psram->mem[byte_addr]   = value & 0xFF;
             psram->mem[byte_addr+1] = (value >> 8) & 0xFF;
             psram->mem[byte_addr+2] = (value >> 16) & 0xFF;
             psram->mem[byte_addr+3] = (value >> 24) & 0xFF;
+        }
+        if (booted) {
+            // Push the update into the live SDRAM model so running firmware sees it.
+            // psram byte P → SDRAM 16-bit word (P>>1) | 0x800000.
+            uint32_t sdram_lo = (byte_addr >> 1) | 0x800000;
+            dbg_write(sdram_lo,     (uint16_t)(value & 0xFFFF));
+            dbg_write(sdram_lo + 1, (uint16_t)(value >> 16));
         }
     }
 };

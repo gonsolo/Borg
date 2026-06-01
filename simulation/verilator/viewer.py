@@ -76,16 +76,16 @@ def main():
                 if mouse_dragging:
                     dx = event.pos[0] - last_mouse_pos[0]
                     dy = event.pos[1] - last_mouse_pos[1]
-                    # Sensitivity scaling
                     rot_y += dx * 0.01
                     rot_x += dy * 0.01
                     last_mouse_pos = event.pos
-                    # Update the simulator PSRAM
                     sim.set_camera_angles(rot_x, rot_y)
-                
-        # 1. Update uniforms (to be implemented: send new MVP matrix based on rotation)
-        # sim.set_uniforms(...)
         
+        # Auto-spin when not dragging (matches ULX3S spin_table step of 2π/16 ≈ 0.3927 rad/frame)
+        if not mouse_dragging:
+            rot_y += 0.3927
+            sim.set_camera_angles(rot_x, rot_y)
+
         # 2. Render frame via hardware simulation (Chunked to prevent OS window hangs)
         # Advance the C++ hardware engine by 200,000 cycles per tick.
         # This keeps the 60FPS UI perfectly responsive while the background simulator churns.

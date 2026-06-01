@@ -33,7 +33,10 @@ class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   lazy val soc_rst_reg_n: Bool = withClockAndReset((!clk.asBool).asClock, false.B) {
     RegNext(rst_n)
   }
-  def soc_ui_in        = ui_in
+  def soc_ui_in = ui_in
+  // No scanout on TT: immediately reflect fb_select writes so the firmware's
+  // PERI_FB_SELECT sync loop exits on the first read.
+  override def scanoutCurBuf: Bool = fbSelectReg
   // Wire up the SoC
   val uo_out_val = wireSoC()
 

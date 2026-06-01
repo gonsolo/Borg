@@ -22,6 +22,13 @@ public:
     int      be_delay = -1;
     uint16_t be_data  = 0;   // captured read result presented on `done`
 
+    // Double-buffer tracking: mirrors firmware's static back_buf (starts at 1).
+    // frame_tile_size_words and out_base_word_buf0 must be set by the subclass
+    // constructor before step() is called.
+    int      cur_back_buf          = 1;
+    uint32_t frame_tile_size_words = 0;
+    uint32_t out_base_word_buf0    = 0;
+
     BorgSimulatorBase() 
         : flash(nullptr), psram(nullptr), width(0), height(0),
           psram_spi_word_offset(0), out_base_word(0), marker_offset_word(0) {}

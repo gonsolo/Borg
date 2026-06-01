@@ -26,9 +26,14 @@ static const int BE_DELAY = 2;
 bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
     uint32_t* psram_words = (uint32_t*)psram->mem.data();
 
-    if (psram_words[marker_offset_word] == 0x0000DEAD) {
-        psram_words[marker_offset_word] = 0;
-    }
+    // FRAME_STRIDE = frame_tile_size_words + 1.
+    // back_buf=0 marker: out_base_word_buf0 + frame_tile_size_words.
+    // back_buf=1 marker: out_base_word_buf0 + 2*frame_tile_size_words + 1.
+    uint32_t cur_marker_off =
+        cur_back_buf == 0
+        ? frame_tile_size_words
+        : 2 * frame_tile_size_words + 1;
+    uint32_t cur_marker_word = out_base_word_buf0 + cur_marker_off;
 
     set_ui_in(0x80); // Hold UART RXD (ui_in(7)) high (idle)
 
@@ -71,8 +76,13 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
             std::cout << (char)uart.byte() << std::flush;
         }
 
-        // Check completion marker
-        if (psram_words[marker_offset_word] == 0x0000DEAD) {
+        // Check completion marker in the current back-buffer's slot.
+        if (psram_words[cur_marker_word] == 0x0000DEAD) {
+            uint32_t buf_fb_off = cur_back_buf == 0 ? 0 : frame_tile_size_words + 1;
+            out_base_word      = out_base_word_buf0 + buf_fb_off;
+            marker_offset_word = cur_marker_word;
+            psram_words[cur_marker_word] = 0;  // clear for firmware's done-wait loop
+            cur_back_buf ^= 1;
             return true;
         }
     }

@@ -2,143 +2,92 @@
 #include "ArcBorgSimulator.h"
 #include <iostream>
 #include <fstream>
-#include <sstream>
 
 ArcBorgSimulator::ArcBorgSimulator(const std::string& firmware_path, uint32_t w, uint32_t h) {
-    model = new tt_um_gonsolo_borg;
-    flash = new QSPIMemory(1024 * 1024, true); // 1MB flash
-    psram = new QSPIMemory(8 * 1024 * 1024, false); // 8MB PSRAM
-    
+    model = new BorgArcSimTop;
+    flash = new QSPIMemory(1024 * 1024, true);
+    psram = new QSPIMemory(8 * 1024 * 1024, false);
+
     width = w;
     height = h;
     psram_spi_word_offset = 0x1000 / 4;
     out_base_word = psram_spi_word_offset + (PSRAM_OUT_OFFSET / 4);
-    
-    // Step 25.4.2 Option A: tiled layout = 2 PSRAM words per pixel (lo={B,Z}, hi={R,G}).
-    uint32_t frame_tile_size = width * height * 2;   // words
-    marker_offset_word = out_base_word + frame_tile_size;
-    
+    uint32_t frame_tile_size = width * height * 2;
+    marker_offset_word    = out_base_word + frame_tile_size;
+    frame_tile_size_words = frame_tile_size;
+    out_base_word_buf0    = out_base_word;
+
     flash->load_bin(firmware_path);
-    
+
     uint32_t* psram_init_words = (uint32_t*)psram->mem.data();
     psram_init_words[psram_spi_word_offset + 0] = width;
     psram_init_words[psram_spi_word_offset + 1] = height;
-}
 
-ArcBorgSimulator::~ArcBorgSimulator() {
-    delete model;
-}
-
-void ArcBorgSimulator::clock_low() {
-    model->view.clk = 0;
-    model->eval();
-}
-
-void ArcBorgSimulator::clock_high() {
-    model->view.clk = 1;
-    model->eval();
-}
-
-uint8_t ArcBorgSimulator::get_uio_out() {
-    return model->view.uio_out;
-}
-
-uint8_t ArcBorgSimulator::get_uo_out() {
-    return model->view.uo_out;
-}
-
-void ArcBorgSimulator::set_uio_in(uint8_t val) {
-    model->view.uio_in = val;
-}
-
-void ArcBorgSimulator::set_ui_in(uint8_t val) {
-    model->view.ui_in = val;
-}
-
-int ArcBorgSimulator::get_uart_bit_pos() const {
-    return 0; // uo_out >> 0
-}
-
-void ArcBorgSimulator::host_write_psram_word(uint32_t word_addr, uint32_t value) {
-    uint32_t byte_addr = word_addr * 4;
-    if (byte_addr + 3 < psram->mem.size()) {
-        psram->mem[byte_addr] = value & 0xFF;
-        psram->mem[byte_addr+1] = (value >> 8) & 0xFF;
-        psram->mem[byte_addr+2] = (value >> 16) & 0xFF;
-        psram->mem[byte_addr+3] = (value >> 24) & 0xFF;
-    }
-}
-
-int ArcBorgSimulator::find_memory_offset(const std::string &pattern) {
-    std::ifstream f("state.json");
-    if (!f) return -1;
-    std::string line;
-    int last_offset = -1;
-    bool in_name = false;
-    while (std::getline(f, line)) {
-        auto np = line.find("\"name\"");
-        if (np != std::string::npos && line.find(pattern) != std::string::npos) {
-            in_name = true;
-            continue;
-        }
-        if (in_name) {
-            auto op = line.find("\"offset\"");
-            if (op != std::string::npos) {
-                auto colon = line.find(':', op);
-                if (colon != std::string::npos) {
-                    last_offset = std::atoi(line.c_str() + colon + 1);
-                }
-                in_name = false;
-            }
-        }
-    }
-    return last_offset;
-}
-
-void ArcBorgSimulator::backend_reset() {
-    // Reset Sequence
-    model->view.clk = 0;
+    // Reset sequence — leave rst_n=0 until first step() call.
+    model->view.clk   = 0;
     model->view.rst_n = 0;
-    model->view.ena = 1;
+    model->view.ena   = 1;
     model->view.ui_in = 0;
-    model->view.uio_in = 0;
+    model->eval();
 
-    for (int i = 0; i < 10; i++) {
-        model->eval();
-        model->view.clk = 1;
-        model->eval();
-        model->view.clk = 0;
+    // Arcilator does not process the RTL's $readmemh LUT init — load them here.
+    load_luts();
+}
+
+ArcBorgSimulator::~ArcBorgSimulator() { delete model; }
+
+void ArcBorgSimulator::clock_low()  { model->view.clk = 0; model->eval(); }
+void ArcBorgSimulator::clock_high() { model->view.clk = 1; model->eval(); }
+
+uint8_t ArcBorgSimulator::get_uo_out()       { return model->view.uo_out; }
+void    ArcBorgSimulator::set_ui_in(uint8_t v) { model->view.ui_in = v; }
+int     ArcBorgSimulator::get_uart_bit_pos() const { return 0; }
+
+uint32_t ArcBorgSimulator::get_backend_addrIn()     { return model->view.be_addrIn; }
+bool     ArcBorgSimulator::get_backend_startRead()  { return model->view.be_startRead; }
+bool     ArcBorgSimulator::get_backend_startWrite() { return model->view.be_startWrite; }
+uint16_t ArcBorgSimulator::get_backend_dataIn()     { return model->view.be_dataIn; }
+uint8_t  ArcBorgSimulator::get_backend_byteEnIn()   { return model->view.be_byteEnIn; }
+void ArcBorgSimulator::set_backend_dataOut(uint16_t v) { model->view.be_dataOut = v; }
+void ArcBorgSimulator::set_backend_done(bool v)        { model->view.be_done = v; }
+void ArcBorgSimulator::set_backend_busy(bool v)        { model->view.be_busy = v; }
+
+// Arcilator does NOT honor the RTL's $readmemh / loadMemoryFromFileInline, so
+// the coord/reciprocal LUTs (initialized from .hex in BorgCore) come up all-zero.
+// All-zero coordLut makes every pixel's r30/r31 = 0, so the rasterizer evaluates
+// every edge at the origin and classifies all pixels "outside" (black frame).
+// We replicate the RTL's init here by loading the same .hex files into the
+// arcilator-observed memories.  (Verilator gets this for free via $readmemh.)
+static int load_hex_into(const char* path, uint16_t* out, int max_entries) {
+    std::ifstream f(path);
+    if (!f) { fprintf(stderr, "[SIM] WARNING: could not open LUT %s\n", path); return 0; }
+    std::string line;
+    int i = 0;
+    while (std::getline(f, line) && i < max_entries) {
+        if (line.empty()) continue;
+        out[i++] = (uint16_t)std::stoul(line, nullptr, 16);
     }
-    model->view.rst_n = 1;
+    return i;
+}
 
-    // Initialize coordLut BRAMs
-    auto load_hex = [&](const std::string& path, int offset1, int offset2, int depth) {
-        if (offset1 < 0 || offset2 < 0) return;
-        std::ifstream f(path);
-        if (!f) {
-            std::cerr << "Warning: Could not open " << path << "\n";
-            return;
-        }
-        std::string line;
-        int i = 0;
-        while (std::getline(f, line) && i < depth) {
-            if (line.empty()) continue;
-            uint16_t val = std::stoi(line, nullptr, 16);
-            *(uint16_t*)(model->storage.data() + offset1 + i * 2) = val;
-            *(uint16_t*)(model->storage.data() + offset2 + i * 2) = val;
-            i++;
-        }
-        std::cout << "[SIM] Loaded " << i << " entries from " << path << " (offsets " << offset1 << ", " << offset2 << ").\n";
-    };
+void ArcBorgSimulator::load_luts() {
+    auto& core = model->view.internal.uo_out_val_peripherals.borg.core;
+    uint16_t coord[512];
+    int nc = load_hex_into("../../hardware/borg/src/coord_lut.hex", coord, 512);
+    for (int i = 0; i < nc; i++) {
+        core.coordLutX_ext.words[i].data = coord[i];
+        core.coordLutY_ext.words[i].data = coord[i];
+    }
+    uint16_t rcp[17];
+    int nr = load_hex_into("../../hardware/borg/src/rcp_lut.hex", rcp, 17);
+    for (int i = 0; i < nr; i++) {
+        core.rcpLutA_ext.words[i].data = rcp[i];
+        core.rcpLutB_ext.words[i].data = rcp[i];
+    }
+    fprintf(stderr, "[SIM] Loaded LUTs: coord=%d rcp=%d entries\n", nc, nr);
+}
 
-    int COORD_LUT_X_OFFSET = find_memory_offset("coordLutX_ext");
-    int COORD_LUT_Y_OFFSET = find_memory_offset("coordLutY_ext");
-    load_hex("../../hardware/borg/src/coord_lut.hex", COORD_LUT_X_OFFSET, COORD_LUT_Y_OFFSET, 512);
-
-    int RCP_LUT_A_OFFSET = find_memory_offset("rcpLutA_ext");
-    int RCP_LUT_B_OFFSET = find_memory_offset("rcpLutB_ext");
-    load_hex("../../hardware/borg/src/rcp_lut.hex", RCP_LUT_A_OFFSET, RCP_LUT_B_OFFSET, 17);
-
-    // Fast simulation bypasses (sim_flash_ext, sim_psram_ext) removed.
-    // Simulator now operates strictly via the QSPI pin interface.
+bool ArcBorgSimulator::step(uint32_t cycles_to_run) {
+    if (!booted) { model->view.rst_n = 1; booted = true; }
+    return BorgSimulatorBase::step(cycles_to_run);
 }

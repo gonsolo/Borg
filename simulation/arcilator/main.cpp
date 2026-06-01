@@ -18,7 +18,6 @@ int main(int argc, char **argv) {
   sim.load_texture(cfg.tex_path, cfg.tex_dim);
   if (cfg.has_camera)
     sim.set_camera_angles(cfg.cam_angle_x, cfg.cam_angle_y);
-  sim.backend_reset();
   std::cout << "[SIM] Starting simulation...\n";
 
   uint64_t total_cycles = 0;
