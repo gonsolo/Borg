@@ -12,10 +12,7 @@ advances in low-cost chip manufacturing to make individual tape-outs feasible fo
 
 📖 Read the [Borg GPU Book](https://gonsolo.github.io/Borg/) for detailed documentation.
 
-<!-- markdownlint-disable MD033 -->
-<p align="center">
-  <img src="docs/vkcube.500x500.png" alt="vkcube rendered by the Borg GPU">
-</p>
+![Borg Vkcube on ULX3S](docs/images/BorgVkcubeULX3S.gif)
 
 ### ASIC Global Placement Evolution
 
