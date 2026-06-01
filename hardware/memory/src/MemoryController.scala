@@ -190,8 +190,12 @@ class MemoryController extends Module {
         // backend words (otherwise the GPU reads/writes the flash region).
         reqByteAddr := io.gpuMem.addr | VRAM_REGION_BIT
         reqData     := io.gpuMem.wdata
-        reqSize     := HuttSize.Word
-        needTwo     := true.B
+        // GPU writes are always 16-bit (BorgTileFlusher writes R/G/B/Z each as
+        // one FP16 halfword; BorgBinner writes 16-bit triangle indices).
+        // Using HuttSize.Half avoids a wasted second SDRAM transaction per write,
+        // halving the tile-flush SDRAM bandwidth.
+        reqSize     := HuttSize.Half
+        needTwo     := false.B
         hwIdx       := 0.U
         state       := sIssue
       }.elsewhen(io.gpuMem.req) {
