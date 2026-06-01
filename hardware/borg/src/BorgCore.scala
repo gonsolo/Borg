@@ -82,18 +82,16 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val uniformMem = SyncReadMem(64, UInt(config.totalBits.W))
 
   // --- Coordinate Expansion LUT (BRAM) ---
-  // Maps 9-bit integer pixel coordinates (0-511) to float16 pixel centers (+0.5)
-  // Two BRAM copies: one for X coord reads, one for Y — allows simultaneous access.
-  // Saves ~100 LUTs vs. the previous VecInit combinational ROM.
-  val coordLutX = SyncReadMem(512, UInt(config.totalBits.W))
-  val coordLutY = SyncReadMem(512, UInt(config.totalBits.W))
-  loadMemoryFromFileInline(coordLutX, "coord_lut.hex")
-  loadMemoryFromFileInline(coordLutY, "coord_lut.hex")
-
-  // CoordLut write port (for simulation initialization — tied off in synthesis)
-  when(io.lutInit.en && !io.lutInit.isRcp) {
-    coordLutX.write(io.lutInit.addr, io.lutInit.data)
-    coordLutY.write(io.lutInit.addr, io.lutInit.data)
+  // Converts a 9-bit integer pixel coordinate i to FP16(i + 0.5) combinationally.
+  // Replaces two 512×16-bit SyncReadMem tables that synthesised to ~16k flip-flops on ASIC.
+  // i + 0.5 = (2i+1) × 2^-1; find leading-bit position n of (2i+1), then:
+  //   biased_exp = n + 14,  fraction = (2i+1) << (10−n), take bits [9:0]
+  def pixelToFP16Half(i: UInt): UInt = {
+    val x    = Cat(i, 1.U(1.W))              // 10-bit 2i+1, always odd
+    val n    = Log2(x)                        // position of leading 1 (0..9)
+    val exp  = (n +& 14.U)(4, 0)             // biased FP16 exponent (5 bits)
+    val frac = (x << (10.U - n))(9, 0)       // 10 mantissa bits after implicit 1
+    Cat(0.U(1.W), exp, frac)
   }
   // @doc:end
 
@@ -120,11 +118,15 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val busy_counter = RegInit(0.U(3.W))
   val is_busy = busy_counter > 0.U
 
-  // Shared BRAM reads: all 3 register ports use the same pixel coordinates
-  // (must be after busy_counter/is_busy to avoid forward reference)
+  // Shared coord reads: register the combinational result to match the 1-cycle
+  // SyncReadMem latency that downstream pipeline stages expect.
   val coordReadEn = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
-  val coordX = coordLutX.read(io.iter.x, coordReadEn)
-  val coordY = coordLutY.read(io.iter.y, coordReadEn)
+  val coordX = Reg(UInt(config.totalBits.W))
+  val coordY = Reg(UInt(config.totalBits.W))
+  when(coordReadEn) {
+    coordX := pixelToFP16Half(io.iter.x)
+    coordY := pixelToFP16Half(io.iter.y)
+  }
 
   // --- Instruction Fetch ---
   val nextPC =
