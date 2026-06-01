@@ -1,6 +1,6 @@
 # Borg - Tiny Open Source Graphics Processing Unit
 
-![GDS Sky130](../../workflows/gds-sky130/badge.svg) ![GDS IHP](../../workflows/gds-ihp/badge.svg) ![Book](../../workflows/book/badge.svg) ![Test](../../workflows/test/badge.svg) ![FPGA](../../workflows/fpga/badge.svg)
+![GDS IHP](../../workflows/gds-ihp/badge.svg) ![Book](../../workflows/book/badge.svg) ![Test](../../workflows/test/badge.svg) ![FPGA](../../workflows/fpga/badge.svg)
 
 ## Foundational workflow for an open-source GPU
 
@@ -193,7 +193,7 @@ If you use the Borg GPU in your research or project, please cite it using the fo
   url = {https://github.com/gonsolo/Borg},
   version = {0.1.0},
   year = {2026},
-  note = {Funded by NLnet NGI0 Commons Fund. SkyWater 130nm and IHP SG13G2 Tapeouts}
+  note = {Funded by NLnet NGI0 Commons Fund. IHP SG13G2 Tapeouts}
 }
 ```
 
