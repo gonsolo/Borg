@@ -48,6 +48,15 @@ class SdramController(clockMhz: Int = 125) extends Module {
   val tMRD = 2                                           // tMRD = 2 cycles
   val tRCD = math.max((clockMhz * 20  + 999) / 1000, 2) // tRCD = 20 ns min
   val tRC  = math.max((clockMhz * 63  + 999) / 1000, 2) // tRC  = 63 ns min
+  // tWR = write-recovery (data-in to precharge). The datasheet minimum is
+  // ~2 clocks (≈14 ns), but we size it generously so a write followed by a
+  // row-change access (precharge → activate → read/write) cannot truncate
+  // the just-issued write, and so the DQ bus has time to turn around before
+  // a following read.  The old 2-halfword GPU write path provided this
+  // spacing implicitly; single-halfword writes (MemoryController) must add it
+  // explicitly, otherwise sporadic writes are lost at tile/quad boundaries
+  // (manifested as green streaks on the ULX3S HDMI output).
+  val tWR  = math.max((clockMhz * 30  + 999) / 1000, 3) // ~30 ns / ≥3 cycles
   val CL   = if (clockMhz > 100) 3 else 2                // CAS latency
   val INITLEN = clockMhz * 100                           // 100 µs
   val RFTIME  = (clockMhz * 7800 + 999) / 1000           // 7.8 µs
@@ -194,13 +203,26 @@ class SdramController(clockMhz: Int = 125) extends Module {
     }
 
     is(sRWRDY) {
-      // Latch read data or present write data
-      sysRdy := true.B
-      when(rd) { sysDo := io.pins.dq_in }
-      state := sACKWT
+      // Reads: latch DQ and signal ready immediately (CL already waited).
+      // Writes: data is driven on DQ this cycle (dqOe). Defer completion by
+      // tWR cycles of write recovery before signalling ready, so a following
+      // precharge/read can't truncate the write and the DQ bus releases
+      // (dqOe drops outside sRWRDY) before any read turns the bus around.
+      when(rd) {
+        sysDo  := io.pins.dq_in
+        sysRdy := true.B
+        state  := sACKWT
+      }.otherwise {
+        dly   := (tWR - 2).U
+        next  := sACKWT
+        state := sWAIT
+      }
     }
 
     is(sACKWT) {
+      // Signal ready (no-op for reads, which already asserted it in sRWRDY;
+      // for writes this is the post-tWR completion edge).
+      sysRdy := true.B
       // Wait for system to acknowledge the transfer
       state := Mux(ack, sIDLE, sACKWT)
     }
