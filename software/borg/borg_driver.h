@@ -87,3 +87,6 @@ void borg_present(int frame);
 // Blocking UART byte transmit (defined in borg_driver.c).  Polls the SoC
 // debug-UART busy bit, then writes the byte to UART_TX.
 void putc_uart(int c);
+void puts_uart(const char *s);
+int  uart_rx_ready(void);
+int  getc_uart(void);

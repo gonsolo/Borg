@@ -122,8 +122,10 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
     RegNext(soc_rst_n)
   }
 
-  // ui_in[0]=UART RX; ui_in[6:1]=btn[5:0]; ui_in[7]=0
-  def soc_ui_in = Cat(0.U(1.W), btn, ftdi_txd)
+  // ui_in[7]=ftdi_txd (UART RX from host); ui_in[6:1]=btn[5:0]; ui_in[0]=0
+  // ftdi_txd at bit 7 feeds PeriUart's default uart_rxd (ui_in(7)), enabling
+  // UART receive.  Debug UART TX still routes to ftdi_rxd via gpio_out_sel(0)=0.
+  def soc_ui_in = Cat(ftdi_txd, btn, 0.U(1.W))
 
   // ── HDMI Scanout — declared here so wireGpuMem() can reference it ─────────
   val scanout = withClockAndReset(sysClock, pllRst) {

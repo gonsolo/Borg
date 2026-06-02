@@ -95,3 +95,12 @@
 // bits[7:6]=01 routes PeriUart TX (peri_out[6]) to uo_out[6] → ftdi_rxd.
 #define SOC_GPIO_OUT_SEL (*(volatile uint32_t *)(uintptr_t)0x0800000C)
 
+// User-peripheral UART (PeriUart) at 0x08000800 — RX-capable on ULX3S once
+// ftdi_txd is routed to ui_in[7] in ULX3S.scala.
+// addr 0x0: read = received byte (clears rx_buffered); write = TX byte
+// addr 0x4: bit 1 = rx_ready (uart_rx_buffered), bit 0 = tx_busy
+#define USER_UART_BASE     0x08000800u
+#define USER_UART_RX_DATA  (*(volatile uint32_t *)(uintptr_t)(USER_UART_BASE + 0x0))
+#define USER_UART_STATUS   (*(volatile uint32_t *)(uintptr_t)(USER_UART_BASE + 0x4))
+#define USER_UART_RX_READY ((USER_UART_STATUS >> 1) & 1u)
+

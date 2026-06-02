@@ -40,6 +40,8 @@
       p.riscv-model
       p.systemrdl-compiler
       p.nanobind
+      p.evdev
+      p.pyserial
     ]);
   in {
     devShells.${system}.default = pkgs.mkShell {

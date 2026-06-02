@@ -198,6 +198,24 @@ void puts_uart(const char *s) {
     putc_uart(*s++);
 }
 
+// Returns non-zero if a received byte is waiting in the UART RX buffer.
+int uart_rx_ready(void) {
+#if defined(TARGET_ULX3S)
+  return (int)USER_UART_RX_READY;
+#else
+  return (int)((UART_STATUS >> 1) & 1u);
+#endif
+}
+
+// Read one received byte (caller must verify uart_rx_ready() first).
+int getc_uart(void) {
+#if defined(TARGET_ULX3S)
+  return (int)(USER_UART_RX_DATA & 0xFFu);
+#else
+  return (int)(UART_TX & 0xFFu);
+#endif
+}
+
 // --- Timing and debug printing ---
 static inline unsigned int get_cycles(void) {
   return 0;  // Hutt has no cycle CSR

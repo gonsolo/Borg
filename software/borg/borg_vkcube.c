@@ -218,27 +218,36 @@ int main() {
   } rot_x_reader, rot_y_reader;
 
 #ifdef TARGET_ULX3S
-  // Animated Y-rotation angles, 16 steps over 2π.  A const table of compile-time
-  // float literals avoids runtime soft-float (no __addsf3/__gtsf2 — the firmware
-  // links -nostdlib without libgcc); each entry is just a word load, and
-  // fp16_from_float() is pure bit-twiddling so a runtime float arg is fine.
-  static const float spin_table[16] = {
-    0.0000f, 0.3927f, 0.7854f, 1.1781f, 1.5708f, 1.9635f, 2.3562f, 2.7489f,
-    3.1416f, 3.5343f, 3.9270f, 4.3197f, 4.7124f, 5.1051f, 5.4978f, 5.8905f
-  };
-  int spin_idx = 0;
+  // UART-driven rotation: host sends 9-byte packets [0xAB][ry:4 LE float][rx:4 LE float].
+  // Busy-wait up to ~4000 cycles between bytes so a full packet drains per frame.
+  static float rx_f = 0.5236f;   // 30° initial X tilt
+  static float ry_f = 0.0f;
+  static uint8_t pkt_buf[9];
+  static int pkt_pos = 0;
 #endif
 
   while (1) {
 #ifdef TARGET_ULX3S
-    // On hardware there is no host to write PSRAM_IN, and uninitialized SDRAM is
-    // NOT reliably zero (PSRAM_IN(3) was observed reading 0x00003C00), so the
-    // "== 0 ⇒ use defaults" guard fails and the garbage decodes to a ~0 float ⇒
-    // identity rotation ⇒ un-rotated cube.  Drive the rotation ourselves and
-    // animate the spin instead of trusting PSRAM_IN.
-    float rx_f = 0.5236f;  // fixed 30° tilt so the top face stays visible
-    float ry_f = spin_table[spin_idx];
-    spin_idx = (spin_idx + 1) & 15;
+    // Drain up to one full 9-byte rotation packet from the user-peripheral UART.
+    // Brief busy-wait between bytes (≤1 baud period at 25 MHz/115200) so we can
+    // receive all 9 bytes without blocking across frames.
+    for (int tries = 0; tries < 9; tries++) {
+      for (volatile int t = 4000; !uart_rx_ready() && t > 0; t--) ;
+      if (!uart_rx_ready()) break;
+      uint8_t b = (uint8_t)getc_uart();
+      if (pkt_pos == 0 && b != 0xAB) continue;
+      pkt_buf[pkt_pos++] = b;
+      if (pkt_pos == 9) {
+        union { uint32_t u; float f; } conv;
+        conv.u = (uint32_t)pkt_buf[1]         | ((uint32_t)pkt_buf[2] << 8) |
+                 ((uint32_t)pkt_buf[3] << 16)  | ((uint32_t)pkt_buf[4] << 24);
+        ry_f = conv.f;
+        conv.u = (uint32_t)pkt_buf[5]         | ((uint32_t)pkt_buf[6] << 8) |
+                 ((uint32_t)pkt_buf[7] << 16)  | ((uint32_t)pkt_buf[8] << 24);
+        rx_f = conv.f;
+        pkt_pos = 0;
+      }
+    }
     (void)rot_x_reader;
     (void)rot_y_reader;
 #else
