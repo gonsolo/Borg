@@ -73,8 +73,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val regFileB = Module(new RegFileCopy(config.totalBits, "regFileB"))
   val regFileC = Module(new RegFileCopy(config.totalBits, "regFileC"))
 
-  val instructionMemory = SyncReadMem(56, UInt(32.W))
-  val programCounter = RegInit(0.U(log2Ceil(56).W))
+  val instructionMemory = SyncReadMem(cfg.maxInstructions, UInt(32.W))
+  val programCounter = RegInit(0.U(log2Ceil(cfg.maxInstructions).W))
   val running = RegInit(false.B)
   val auto_run_pending = RegInit(false.B)
   val running_by_rasterizer = RegInit(false.B)
