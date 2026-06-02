@@ -5,7 +5,7 @@
 Target: March 2026 — TTIHP26a shuttle
 
 - [x] Borg FP16 shader processor (ADD, MUL, FMA, FNEG, FSTEP)
-- [x] TinyQV RV32I CPU (Chisel rewrite)
+- [x] RV32I CPU (Chisel rewrite) — original TinyQV-derived core, **since replaced by the Hutt core**
 - [x] Triangle rendering pipeline (vertex/rasterize/fragment)
 - [x] SPIR-B runtime shader loading
 - [x] Per-vertex color interpolation
@@ -16,7 +16,7 @@ Target: March 2026 — TTIHP26a shuttle
 - [x] GDS submission (4×2 tiles, IHP SG13G2) — [TinyTapeout (tt06)](https://app.tinytapeout.com/projects/3645)
 - [x] 32-bit RISC-V instructions & 32-entry register file
 
-## Phase 2: GPU Autonomy & Fidelity 🏃
+## Phase 2: GPU Autonomy & Fidelity ✅ (largely complete)
 
 Target: **~June 2026** — move the rendering inner loop from firmware into
 hardware, step by step. Each step produces a measurable speed-up, can be
@@ -24,7 +24,7 @@ tested against the existing `triangle.py` golden image, and fits on iCE40.
 
 ### Current Architecture
 
-TinyQV drives every pixel: ~7–9 `borg_run()` MMIO round-trips per pixel
+The CPU drives every pixel: ~7–9 `borg_run()` MMIO round-trips per pixel
 (3 edge tests + 3–6 fragment channels). Dominated by MMIO overhead, not
 compute.
 
@@ -799,7 +799,7 @@ Current utilisation: **161%** — fails at global placement.
 
 ---
 
-- **OPT-1: Replace `coordLutX`/`coordLutY` with combinational arithmetic** *(−31.5% area, low risk, ~1 day)*
+- **OPT-1: Replace `coordLutX`/`coordLutY` with combinational arithmetic** ✅ (2026-06-01, `0e1519b`) *(`pixelToFP16Half` in `BorgCore.scala`; −31.5% area)*
 
   Both 512×16 `SyncReadMem` tables map pixel index `x` → FP16 pixel centre `x + 0.5`.
   They were added to save ~100 FPGA LUTs but cost 348,152 µm² as DFFs on ASIC.
@@ -962,10 +962,18 @@ Verify that the SDRAM is reliable enough to serve as a GPU framebuffer.
 
 ---
 
-### Step ULX3S-3: SDRAM Framebuffer Integration
+### Step ULX3S-3: SDRAM Framebuffer Integration ✅ (2026-05-21)
 
 Replace the QSPI PMOD memory path with onboard SDRAM for the ULX3S demo.
 The tapeout design retains QSPI; this affects only `BorgConfig.ULX3S`.
+
+> **As built** (diverged from the plan below): onboard SDRAM is driven by
+> `SdramBackend` behind the existing `MemoryController` (no separate `sdram_pnru`
+> module); the GPU/scanout arbiter is **priority-based** (`scanoutOwns`, GPU
+> first) rather than round-robin; boot uses `FlashBootLoader` (flash 0x400000 →
+> SDRAM 0x0), not a BRAM ROM; the framebuffer is **128×128 FP16, double-buffered**
+> (bufs at SPI 0x85000 / 0xA5004), not 640×480 RGB565. `vkcube` renders correctly
+> from SDRAM on hardware — proven by the live HDMI demo (Phase 3).
 
 **Memory map (SDRAM, 32 MB):**
 
@@ -987,7 +995,7 @@ Small enough for demo firmware; full Linux boot still uses flash (Step 44).
 
 ---
 
-### Step ULX3S-4: HDMI/DVI Scanout via GPDI
+### Step ULX3S-4: HDMI/DVI Scanout via GPDI ✅ (2026-05-21)
 
 Drive the ULX3S GPDI connector (HDMI-pinout DVI-D output) with a
 TMDS scanout engine reading the SDRAM framebuffer.
@@ -996,6 +1004,12 @@ TMDS scanout engine reading the SDRAM framebuffer.
 **TMDS:** 10× pixel clock = 251.75 MHz via ECP5 ODDRX2 LVDS DDR output.
 **Source:** adapt proven ECP5 HDMI core (e.g. `hdmi.v` from `ulx3s-misc`).
 
+> **As built:** `HdmiScanoutFp16` drives GPDI TMDS at a 25 MHz pixel clock
+> (sysClock, 640×480 timing), with the 125 MHz TMDS clock from the PLL. The
+> framebuffer is read via a free-running **full-frame BRAM fill** from SDRAM
+> rather than the planned "scanout-priority-during-scan / GPU-fills-in-blanking"
+> arbiter (that scheme was superseded; the GPU/scanout arbiter is GPU-priority).
+
 - SDRAM arbiter: scanout gets priority during active scan; GPU fills during blanking
 - Display timing: standard 640×480@60Hz (800×525 total, 25.175 MHz pixel clock)
 - TMDS encoder: 8b/10b + differential output on 4 ECP5 LVDS pairs (3 data + clock)
@@ -1003,7 +1017,7 @@ TMDS scanout engine reading the SDRAM framebuffer.
 
 ---
 
-### Step ULX3S-5: Borg GPU Live Demo on Monitor
+### Step ULX3S-5: Borg GPU Live Demo on Monitor ✅ (2026-05-22)
 
 Full end-to-end: Borg GPU renders `vkcube` → SDRAM framebuffer → HDMI → monitor.
 No host PC required after flashing the bitstream.
@@ -1012,38 +1026,8 @@ No host PC required after flashing the bitstream.
 - Scanout engine streams framebuffer to HDMI at 60 Hz
 - `vkcube` spins in real time on the monitor
 
-### Step 32: Real-Time VGA Output — pico-ice only (TT VGA PMOD)
-
-> **pico-ice specific.** ULX3S has HDMI output — covered in the ULX3S bringup section.
-
-Drive the Tiny Tapeout VGA PMOD directly from the pico-ice FPGA for
-real-time display — the hardware equivalent of `make vkcube_gui`.
-No host PC needed; the GPU renders to a monitor in real time.
-
-| `uo_out` pin | VGA Function |
-| --- | --- |
-| `uo_out[0]` | R1 |
-| `uo_out[1]` | G1 |
-| `uo_out[2]` | B1 |
-| `uo_out[3]` | VSync |
-| `uo_out[4]` | R0 |
-| `uo_out[5]` | G0 |
-| `uo_out[6]` | B0 |
-| `uo_out[7]` | HSync |
-
-| Resolution | SPRAM usage | VGA upscale | Pixels/frame |
-| --- | --- | --- | --- |
-| 32×32 | 2 KB (6%) | 20×15 pixel blocks | 1,024 |
-| 64×64 | 8 KB (25%) | 10×7 pixel blocks | 4,096 |
-| 128×96 | 24 KB (75%) | 5×5 pixel blocks | 12,288 |
-
-- **Step 32.1: VGA timing generator** (+30 LCs)
-
-- **Step 32.2: SPRAM framebuffer** (+20 LCs)
-
-- **Step 32.3: FP16→RGB222 scanout** (+15 LCs)
-
-- **Step 32.4: `make fpga_vga` target** (+0 LCs)
+> Live cube on HDMI landed 2026-05-22 (`41c314f`); interactive **mouse** control
+> was added 2026-06-02 (`1ea9ad4`) — see Phase 3 (HPG demo).
 
 ### Step Dependencies
 
@@ -1178,7 +1162,144 @@ fragment path. Feasible on ECP5-85K (`BorgSize.Large`); out of budget on iCE40.
 Gate: `dFdx(frag_pos)` produces the same result as the CPU-precomputed face
 normal in the vkcube lighting test.
 
-## Phase 5: Mobile GPU Fidelity (Steps 40–44)
+## Phase 3: HPG 2026 Demo
+
+Target: **June – July 14, 2026** — High Performance Graphics 2026 runs July 17;
+the flight departs July 14, so all demo work must land by **July 14, 2026**.
+
+**Deliverable:** the Borg GPU rendering an interactive `vkcube` on a monitor over
+HDMI from the ULX3S, rotation driven live by mouse, no host PC in the render
+loop. ✅ *Working* — mouse-controlled rotating textured cube, committed
+2026-06-02 (`scripts/mouse_rotation.py` → UART → ULX3S).
+
+**Goal:** take the demo from a 2.8 fps proof-of-life to a smooth, presentable
+real-time demo, and bank the CPU memory-subsystem groundwork the roadmap was
+missing (it doubles as Linux-arc prerequisite work for Phase 4).
+
+### Measured baseline (2026-06-02, ULX3S @ 25 MHz, 128×128 fb)
+
+Per-frame phase breakdown via UART markers (`scripts/measure_fps.py`):
+
+| Phase | Time | Cause |
+| ----- | ---- | ----- |
+| matrix (2 rotate + 3× `mat4_mul`) | ~140 ms | scalar FP16 via per-op GPU round-trip |
+| clear + texture + lighting | ~74 ms | same |
+| `draw_cube` (12 tris, CPU transform) | ~155 ms | vertex shader + perspective divide per vertex |
+| present (GPU autonomous render) | ~66 ms | the only well-optimized stage |
+| **frame total** | **~355 ms → 2.8 fps** | **CPU FP16 is ~82% of the frame** |
+
+Root cause: every scalar FP16 op (`borg_fp16_mul/add/fmadd`) is a full GPU launch
+(IMEM rewrite + pipeline reset + double busy-poll + ~6 MMIO round-trips). The
+RV32I Hutt CPU has no hardware multiply and no cache, so it is *also* instruction-
+starved by the free-running scanout fill on the shared SDRAM port. Phase 2 moved
+the *per-pixel* loop into hardware; the bottleneck has since moved to the **CPU
+geometry/transform** stage, which no earlier roadmap step covered.
+
+### Step H1 — Firmware op-count reduction (firmware-only, low risk, ~1–2 days)
+
+Specialize the constant scale (`s`) and translate (`tz`) matrix multiplies
+(sparse: ~12 and ~4 ops vs 64 each); precompute `tz·s` once outside the loop.
+Transform the 8 unique cube vertices once per frame instead of 36 (12 tris × 3).
+Expected: matrix ~140→~50 ms, draw ~155→~60 ms → ~5 fps. No bitstream rebuild.
+
+### Step H2 — FPU call optimization (touches shared `borg_fpu.c`, ~1 day)
+
+Preload FADD/FMUL/FMADD/FRCP once into the free IMEM region (offset 40+), one PC
+per op; the per-op path becomes write-operands → START → poll → read, dropping
+the per-op `RESET_PIPELINE`. Validate against the sim/golden image.
+Expected: ~1.3–1.6× on every remaining FP16 op (helps all CPU phases).
+
+### Step H3 — CPU L1 instruction cache (bitstream, ~3–5 days) ⭐
+
+Small direct-mapped I-cache (1–4 KB) in the Hutt fetch path / `MemoryController`.
+Removes the CPU as a per-cycle SDRAM requester → fixes instruction starvation and
+decouples it from the scanout fill. Fills a roadmap gap (no CPU cache was
+previously planned) and is prerequisite-grade work for the Linux arc (Phase 4).
+
+### Step H4 — Scanout QoS / rate-limiter (bitstream, ~2–3 days)
+
+Replace the full-frame BRAM fill's continuous `gpuMem.req` with a credit/budget so
+it consumes *bounded* SDRAM bandwidth and yields to CPU + GPU; pair with a
+priority reorder (instruction fetch above the soft display traffic). The
+principled redo of the 2026-06-02 hold-off hack that broke the scanout handshake.
+
+### Step H5 — GPU vertex-transform offload (architectural, stretch)
+
+Move the MVP × vertex transform from the CPU into the sequencer's vertex shader so
+the CPU only uploads the matrix uniform + raw vertices (the mobile-GPU approach).
+Biggest single win — eliminates most of matrix + `draw_cube` — but the largest
+change. Do only if H1–H4 land with time to spare.
+
+### Stretch / nice-to-have for the talk
+
+- [ ] Larger or higher-res framebuffer once bandwidth allows
+- [ ] Bilinear texture filtering ([Step 34](#step-34-bilinear-texture-filtering)) if time permits
+
+**Fallback:** the demo already works at 2.8 fps. H1 + H2 are firmware-only (no
+bitstream risk) and alone should reach a presentable frame rate, so the demo is
+safe to show even if the hardware steps (H3–H5) slip.
+
+## Phase 4: Linux-Capable CPU
+
+Target: **~Sept 2026** — expand the Hutt CPU to RV32IMA. Sequential after the HPG demo (Phase 3).
+
+*Velocity note: Steps 1–20 completed in 27 days (Mar 19 – Apr 14). Phase 2
+adds ~7 steps of medium-hard complexity (FPGA at 99%). Phase 4's bottleneck
+is the Sv32 MMU (3–4 weeks alone). Dates assume current solo-dev pace.*
+
+### Step 40: M Extension (Integer Multiply/Divide)
+
+Add dedicated integer multiplier for MUL/MULH/DIV/REM.
+Estimate: 1 week.
+
+### Step 41: A Extension (Atomics)
+
+LR.W / SC.W for Linux `futex` and spinlocks. Reservation register (32-bit
+address + valid bit). ~100 LUTs. Reference KianV implementation.
+Estimate: 3–5 days.
+
+### Step 42: Boot no-MMU Linux
+
+Intermediate milestone before full MMU. Estimate: 1 week.
+
+### Step 43: MMU (Sv32)
+
+Two-level page table walker, 4–8 entry TLB, `satp`/`mstatus` CSRs.
+Intermediate milestone: boot no-MMU Linux first (~1 week).
+~800–1200 LUTs — the most expensive single addition.
+Estimate: 3–4 weeks.
+
+### Step 44: Boot Full Linux
+
+Kernel, device tree, rootfs on QSPI PSRAM (8 MB). Estimate: 1–2 weeks.
+
+## Phase 5: Mesa Vulkan Driver
+
+Target: **~Nov–Dec 2026** (~8–10 weeks). Write a Mesa Vulkan ICD for the
+Borg GPU. This is a domain shift — Mesa/NIR/SPIR-V are a new codebase.
+Expect 2–3 weeks ramp-up on top of implementation time.
+
+### Step 45: Minimal `vk_device` + `wsi_headless`
+
+Headless rendering, no window system needed. Estimate: 1–2 weeks.
+
+### Step 46: Shader Compiler (NIR → SPIR-B)
+
+NIR backend generating Borg instructions. Estimate: 2–3 weeks.
+
+### Step 47: Draw Path (`vkCmdDraw`)
+
+Vertex + fragment shader dispatch to hardware. Estimate: 1–2 weeks.
+
+### Step 48: Texture Sampling (Software)
+
+CPU-side sampling, spec-compliant but slow. Estimate: 1 week.
+
+### Step 49: Vulkan CTS Subset
+
+Run conformance tests, fix failures. Estimate: 1–2 weeks.
+
+## Phase 6: Mobile GPU Fidelity (Steps 34–39)
 
 Target: **~Jan–Feb 2027**. Transition from "Autonomous Renderer" to a feature-complete
 "Mobile-Class GPU" (Bilinear, Z-Buffer, Blending).
@@ -1217,67 +1338,7 @@ higher resolutions on ULX3S/Nitefury.
 4×4 or 4×5 tile, Linux + Vulkan capable, with full hardware fidelity suite.
 Estimate: 1 week.
 
-## Phase 3: Linux-Capable CPU
-
-Target: **~Sept 2026** — expand TinyQV to RV32IMA. Sequential after Phase 2.
-
-*Velocity note: Steps 1–20 completed in 27 days (Mar 19 – Apr 14). Phase 2
-adds ~7 steps of medium-hard complexity (FPGA at 99%). Phase 3's bottleneck
-is the Sv32 MMU (3–4 weeks alone). Dates assume current solo-dev pace.*
-
-### Step 40: M Extension (Integer Multiply/Divide)
-
-Add dedicated integer multiplier for MUL/MULH/DIV/REM.
-Estimate: 1 week.
-
-### Step 41: A Extension (Atomics)
-
-LR.W / SC.W for Linux `futex` and spinlocks. Reservation register (32-bit
-address + valid bit). ~100 LUTs. Reference KianV implementation.
-Estimate: 3–5 days.
-
-### Step 42: Boot no-MMU Linux
-
-Intermediate milestone before full MMU. Estimate: 1 week.
-
-### Step 43: MMU (Sv32)
-
-Two-level page table walker, 4–8 entry TLB, `satp`/`mstatus` CSRs.
-Intermediate milestone: boot no-MMU Linux first (~1 week).
-~800–1200 LUTs — the most expensive single addition.
-Estimate: 3–4 weeks.
-
-### Step 44: Boot Full Linux
-
-Kernel, device tree, rootfs on QSPI PSRAM (8 MB). Estimate: 1–2 weeks.
-
-## Phase 4: Mesa Vulkan Driver
-
-Target: **~Nov–Dec 2026** (~8–10 weeks). Write a Mesa Vulkan ICD for the
-Borg GPU. This is a domain shift — Mesa/NIR/SPIR-V are a new codebase.
-Expect 2–3 weeks ramp-up on top of implementation time.
-
-### Step 45: Minimal `vk_device` + `wsi_headless`
-
-Headless rendering, no window system needed. Estimate: 1–2 weeks.
-
-### Step 46: Shader Compiler (NIR → SPIR-B)
-
-NIR backend generating Borg instructions. Estimate: 2–3 weeks.
-
-### Step 47: Draw Path (`vkCmdDraw`)
-
-Vertex + fragment shader dispatch to hardware. Estimate: 1–2 weeks.
-
-### Step 48: Texture Sampling (Software)
-
-CPU-side sampling, spec-compliant but slow. Estimate: 1 week.
-
-### Step 49: Vulkan CTS Subset
-
-Run conformance tests, fix failures. Estimate: 1–2 weeks.
-
-## Phase 5: Vulkan 1.0 Conformance
+## Phase 7: Vulkan 1.0 Conformance
 
 Target: **~Mar–Apr 2027**. Full CTS pass (~3–4 weeks); Mesa handles most
 complexity. Khronos conformance submission (~2 weeks): documentation + test
@@ -1289,15 +1350,15 @@ results.
 | ------------- | ----- | ---- | -------- |
 | Phase 1 (RV32I + Borg FP16 ALU) | 4×2 (8) | 515€ | Current tapeout |
 | Phase 2 only (RV32I + autonomous GPU) | 4×3 (12) | 715€ | GPU autonomy, no Linux |
-| Phase 2 + 3 (RV32IMA + autonomous GPU) | 4×5 (20) | 1115€ | Linux + GPU, target |
-| Comfortable (room for Phase 5) | 4×6 (24) | 1315€ | Full Vulkan + extensions |
+| Phase 2 + 4 (RV32IMA + autonomous GPU) | 4×5 (20) | 1115€ | Linux + GPU, target |
+| Comfortable (room for Phase 6+) | 4×6 (24) | 1315€ | Full Vulkan + extensions |
 | **Full Vulkan (FP32 + multicore)** | **4×8 (32)** | **1715€** | **Vulkan conformance target** |
 
 ## Hardware Resources
 
 - **QSPI PSRAM**: 64 Mbit (8 MB) — sufficient for Linux + Mesa runtime
 - **QSPI Flash**: 128 Mbit (16 MB) — kernel + rootfs + Mesa libraries
-- **Display**: RP2040 reads framebuffer from PSRAM, no KMS/DRM needed
+- **Display**: pico-ice → RP2040 reads framebuffer from PSRAM; ULX3S → direct HDMI/GPDI scanout from SDRAM (no host in the render loop)
 
 ## Build Configurations
 
