@@ -3,6 +3,7 @@
 
 package asic.tt
 
+import borg.BorgConfig
 import soc.{Emit, Peripherals}
 
 /** Verilog emission entry point for the Tiny Tapeout ASIC target.
@@ -21,7 +22,9 @@ object TTMain extends App {
   val allAsicFiles = collection.mutable.Set[String]()
 
   Emit.emitAndCollect(new tt_um_gonsolo_borg(clockMhz), targetDir, allAsicFiles)
-  Emit.emitAndCollect(new Peripherals(clockMhz), targetDir, allAsicFiles)
+  // Emit Peripherals with the same ASIC config so BorgBinner uses maxBinTiles=16,
+  // not the Default 1024 (which would clobber BorgBinner.sv with the wrong size).
+  Emit.emitAndCollect(new Peripherals(clockMhz, BorgConfig.Asic), targetDir, allAsicFiles)
 
   val firrtlTargetDir = "out/hardware/borg/firrtl"
   Emit.emitFIRRTL(new tt_um_gonsolo_borg(clockMhz), firrtlTargetDir)

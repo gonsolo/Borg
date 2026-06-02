@@ -18,6 +18,9 @@ import memory.QspiBackend
   * by the [[soc.SoCLogic]] trait.
   */
 class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
+  // Fit the IHP 8×4 tile: reduce BorgBinner's count SRAM from 1024 to 16 tiles.
+  override def BORG_CFG: BorgConfig = BorgConfig.Asic
+
   val ui_in   = IO(Input(UInt(8.W)))
   val uo_out  = IO(Output(UInt(8.W)))
   val uio_in  = IO(Input(UInt(8.W)))

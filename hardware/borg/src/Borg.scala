@@ -69,7 +69,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val dma       = Module(new BorgDMA)
   val flusher   = Module(new BorgTileFlusher())
   val sequencer = Module(new BorgSequencer(cfg))
-  val binner    = Module(new BorgBinner())
+  val binner    = Module(new BorgBinner(cfg.maxBinTiles))
 
   // Sticky done flag for sequencer detection (module-level so it's visible
   // in the data_out MuxCase).  Set when the sequencer pulses io.done,
