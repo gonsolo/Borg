@@ -32,7 +32,7 @@ COLUMNS = [
             "Hutt",
             "Peripherals",
             "MemoryController",
-            "SdramBackend",
+            "MemBackend",
         ],
     },
     {

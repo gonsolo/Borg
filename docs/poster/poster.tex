@@ -77,6 +77,7 @@
 } }
 \makeatother
 
+\tikzposterlatexaffectionproofoff
 % ══════════════════════════════════════════════════════════════════════════
 \begin{document}
 \maketitle[titletotopverticalspace=4cm, titleverticalspace=2cm]
@@ -94,7 +95,7 @@ The GPU follows the Tile-Based Deferred Rendering paradigm:
 \medskip
 Geometry is binned tile-by-tile; shaded fragments are written to an
 on-chip tile buffer (4$\times$4 pixels, FP16 RGBZ), minimising external memory bandwidth.
-The tile buffer is flushed to SDRAM only after all triangles covering that tile are rendered.
+The tile buffer is flushed to external memory only after all triangles covering that tile are rendered.
 }
 
 % ── Three columns below the SoC diagram ───────────────────────────────────
@@ -110,16 +111,15 @@ The tile buffer is flushed to SDRAM only after all triangles covering that tile 
   \item Every commercial GPU hides its microarchitecture behind NDAs
   \item This blocks \textbf{reproducibility}, \textbf{teaching}, and
         architectural experiments
-  \item \textbf{Concise:} Hardware (\textbf{1513 LoC} Scala), Compiler
-        (\textbf{1600 LoC} Python), Firmware (\textbf{2000 LoC} C).
-        Total stack \textbf{< 6k lines}.
+  \item \textbf{Concise:} GPU pipeline (\textbf{4.4k LoC} Chisel),
+        Compiler (\textbf{1.6k LoC} Python), Firmware (\textbf{3k LoC} C).
   \item Open GPU simulators exist — but \emph{no open GPU has reached silicon}
 \end{itemize}
 
 \medskip
 \textbf{Borg} is the fully open answer: a TBDR GPU \textbf{SoC} in Chisel,
 built with an open toolchain, and \textbf{submitted for ASIC tapeout}.
-Borg has contributed \textbf{68 patches upstream} to the open EDA ecosystem.
+Borg has contributed \textbf{75 patches upstream} to the open EDA ecosystem.
 
 \medskip
 \begin{center}
@@ -148,7 +148,7 @@ Running on \textbf{ULX3S} (ECP5-85K) with \textbf{HDMI output}:
 \toprule
 \textbf{Run} & \textbf{Process} & \textbf{Tiles} & \textbf{Content} & \textbf{Cost} \\
 \midrule
-TTIHP26a & IHP 130\,nm  & 8 tiles  & FP peripheral & 515\,€ \\
+TTIHP26a & IHP 130\,nm  & 8$\times$4 & GPU SoC & 515\,€ \\
 \bottomrule
 \end{tabular}
 
@@ -203,12 +203,12 @@ European Commission, Grant No.~101135429) and Swiss SERI.
 \block{Open-Source Toolchain}{
 \centering
 \begin{tabular}{@{}ll@{}}
-\textbf{HDL}        & Chisel (Scala, \textbf{1513 lines}) \\
+\textbf{HDL}        & Chisel (Scala, \textbf{$\sim$15k lines}) \\
 \textbf{Synthesis}  & Yosys \\
 \textbf{P\&R}       & nextpnr-ecp5 / \textbf{LibreLane} (Nix) \\
 \textbf{Simulation} & Verilator, cocotb, Arcilator \\
-\textbf{Compiler}   & SPIR-V $\to$ SPIR-B (\textbf{1600 lines} Python) \\
-\textbf{Firmware}   & 32-bit RISC-V (\textbf{2000 lines} C) \\
+\textbf{Compiler}   & SPIR-V $\to$ SPIR-B (\textbf{1.6k lines} Python) \\
+\textbf{Firmware}   & 32-bit RISC-V (\textbf{$\sim$3k lines} C) \\
 \textbf{Reg.\ map}  & PeakRDL-chisel \\
 \textbf{Math Cores} & \textbf{Berkeley Hardfloat} (FMA) \\
 \textbf{PDKs}       & sky130A, gf180mcuD, ihp-sg13g2 \\
@@ -240,7 +240,7 @@ Target          & ECP5    & Arria 5 & Xilinx \\
 \block{Design Values}{
 \begin{description}[leftmargin=*,nosep]
   \item[Transparency] No binary blobs, no hidden firmware.
-  \item[Accessibility] Runs on a \$20 FPGA; uses \$500 ASIC runs.
+  \item[Accessibility] Runs on a \$100 FPGA; uses \$500 ASIC runs.
   \item[Simplicity] Minimalist TBDR pipeline for maximum performance/area.
 \end{description}
 }
@@ -287,7 +287,7 @@ inspect the layout and modify logic without NDAs.
 
 \block{Physical Design (GDSII)}{
   \begin{center}
-    \includegraphics[width=0.95\linewidth]{gds_render_small}
+    \includegraphics[width=0.75\linewidth]{gds_render_small}
   \end{center}
   \centering \small
   \begin{tabular}{@{}ll@{}}

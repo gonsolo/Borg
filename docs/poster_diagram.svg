@@ -26,7 +26,7 @@
 <rect x="730" y="400" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
 <text x="1037" y="437" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">MemoryController</text>
 <rect x="730" y="484" width="614" height="74" rx="8" ry="8" fill="#ffffff" stroke="#085868" stroke-width="2"/>
-<text x="1037" y="521" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">SdramBackend</text>
+<text x="1037" y="521" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="normal" fill="#082830" text-anchor="middle" dominant-baseline="central">MemBackend</text>
 <rect x="1406" y="50" width="618" height="424" rx="8" ry="8" fill="#e4e0f4" stroke="#085868" stroke-width="2"/>
 <rect x="1406" y="50" width="618" height="88" rx="8" ry="8" fill="#085868" stroke="#085868" stroke-width="2"/>
 <text x="1715" y="94" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="32" font-weight="bold" fill="#ffffff" text-anchor="middle" dominant-baseline="central">GPU</text>
