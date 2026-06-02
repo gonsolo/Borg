@@ -50,6 +50,13 @@ class Hutt(
   val pc    = RegInit(resetVector.U(32.W))
   val instr = RegInit(0.U(32.W))
 
+  // Free-running cycle counter for the RISC-V `cycle`/`mcycle` CSR (rdcycle).
+  // 32-bit: wraps at 2^32 cycles (~171 s at 25 MHz) — ample for per-frame deltas.
+  // The high half (cycleh/mcycleh) reads 0 until a 64-bit counter is needed for
+  // Linux (Phase 4).  Read-only: CSR writes are ignored.
+  val cycleCounter = RegInit(0.U(32.W))
+  cycleCounter := cycleCounter + 1.U
+
   val regFile = Module(new HuttRegFile)
   val alu     = Module(new HuttAlu)
 
@@ -93,6 +100,16 @@ class Hutt(
   when(d.isJal)                   { pcNext := jalTgt }
   when(d.isJalr)                  { pcNext := jalrTgt }
 
+  // CSR read (rdcycle / rdcycleh, mcycle / mcycleh).  Read-only counters; the
+  // CSR write side (CSRRW/S/C set/clear) is ignored since rdcycle uses rs1=x0.
+  val csrAddr = instr(31, 20)
+  val csrReadData = MuxLookup(csrAddr, 0.U(32.W))(Seq(
+    "hC00".U -> cycleCounter,        // cycle
+    "hB00".U -> cycleCounter,        // mcycle
+    "hC80".U -> 0.U(32.W),           // cycleh  (low 32-bit counter → high is 0)
+    "hB80".U -> 0.U(32.W)            // mcycleh
+  ))
+
   // Writeback value (for non-load instructions)
   val wbAlu     = alu.io.out
   val wbLink    = pcPlus4                        // JAL/JALR link register
@@ -102,10 +119,11 @@ class Hutt(
     d.isJal   -> wbLink,
     d.isJalr  -> wbLink,
     d.isLui   -> wbUpper,
-    d.isAuipc -> wbAuipc
+    d.isAuipc -> wbAuipc,
+    d.isCsr   -> csrReadData
   ))
 
-  val wbExecEn  = (d.isOp || d.isOpImm || d.isJal || d.isJalr || d.isLui || d.isAuipc) && (d.rd =/= 0.U)
+  val wbExecEn  = (d.isOp || d.isOpImm || d.isJal || d.isJalr || d.isLui || d.isAuipc || d.isCsr) && (d.rd =/= 0.U)
 
   // -- Memory access support -------------------------------------------------
   // Effective byte address for loads/stores = rs1 + (load? iImm : sImm)

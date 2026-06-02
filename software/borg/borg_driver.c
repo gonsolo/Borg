@@ -218,7 +218,9 @@ int getc_uart(void) {
 
 // --- Timing and debug printing ---
 static inline unsigned int get_cycles(void) {
-  return 0;  // Hutt has no cycle CSR
+  unsigned int c;
+  __asm__ volatile("csrr %0, cycle" : "=r"(c));  // Hutt free-running cycle CSR (0xC00)
+  return c;
 }
 
 // --- Shader globals ---
@@ -1056,6 +1058,9 @@ void borg_present(int frame) {
   int front = back_buf;
   *(volatile uint32_t *)0x08000024u = (uint32_t)front;
   back_buf ^= 1;
-  while ((*(volatile uint32_t *)0x08000024u & 1u) != (uint32_t)front)
-    ;
+  // DIAGNOSTIC: flip-wait disabled to measure whether scanout sync is the
+  // frame-rate bottleneck.  Expect tearing.  If fps barely changes, the cost
+  // is CPU/GPU compute, not this wait.  Restore after measuring.
+  // while ((*(volatile uint32_t *)0x08000024u & 1u) != (uint32_t)front)
+  //   ;
 }

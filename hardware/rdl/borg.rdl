@@ -750,6 +750,22 @@ reg seq_setup_base_reg_t {
     } RSVD[12] = 0;
 };
 
+// --- Performance counter (present-phase decomposition) ---
+// 32-bit free-running cycle counter.  Counter logic lives in Borg.scala
+// (wirePerf): reset at the rising edge of sequencer-busy, accumulated while its
+// gate is high during the render, frozen when the sequencer goes idle — so SW
+// reads the previous frame's exact cycle breakdown.  sw=r/hw=w exposes the
+// Borg-side counter value to MMIO read, mirroring the status register.
+reg perf_counter_reg_t {
+    name = "Performance Counter";
+    desc = "32-bit GPU cycle counter for present-phase decomposition.";
+
+    field {
+        sw = r; hw = w;
+        desc = "32-bit cycle count (gate-dependent, per sequencer run).";
+    } value[32] = 0;
+};
+
 // --- 16-bit FP register (stored in 32-bit word, upper bits ignored on write) ---
 reg gpr_reg_t {
     name = "General Purpose Register";
@@ -947,4 +963,12 @@ addrmap borg_gpu {
     // ---- Sequencer Setup Store Base: 0x268 — nogen (Step 32.3) ----
     seq_setup_base_reg_t seq_setup_base;
     seq_setup_base->nogen = true;
+
+    // ---- Performance counters: present-phase decomposition ----
+    // Fully generated (hw=w → Borg drives io.hw.perf_*_value, SW reads).
+    perf_counter_reg_t perf_total;   // 0x26C: sequencer-active cycles (present total)
+    perf_counter_reg_t perf_frag;    // 0x270: shader core running (vert+setup+frag)
+    perf_counter_reg_t perf_flush;   // 0x274: tile flusher active (SDRAM writes)
+    perf_counter_reg_t perf_stall;   // 0x278: gpuMem.req && !ready (SDRAM stall)
+    perf_counter_reg_t perf_dma;     // 0x27C: DMA active (bin/descriptor reads)
 };

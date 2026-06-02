@@ -90,3 +90,10 @@ void putc_uart(int c);
 void puts_uart(const char *s);
 int  uart_rx_ready(void);
 int  getc_uart(void);
+
+// Read the RISC-V free-running cycle counter (Hutt `cycle` CSR, 0xC00).
+static inline unsigned int rdcycle(void) {
+  unsigned int c;
+  __asm__ volatile("csrr %0, cycle" : "=r"(c));
+  return c;
+}

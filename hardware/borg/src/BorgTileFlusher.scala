@@ -63,13 +63,18 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   //   Cycle 2 (sWaitSram2): readDataHeld latches rgbzRead → io.read.data valid
   //   io.read.data stays stable until the next sReadSram triggers read.en again.
   //   entryHeld latches the data locally so a concurrent dispatcher read can't corrupt it.
-  val sIdle :: sReadSram :: sWaitSram :: sWaitSram2 :: sWriteR :: sWriteG :: sWriteB :: sWriteZ :: Nil = Enum(8)
+  val sIdle :: sReadSram :: sWaitSram :: sWaitSram2 :: sWriteR :: sWriteG :: sWriteB :: Nil = Enum(7)
   val state = RegInit(0.U(3.W))   // 0 = sIdle
 
   // DMA state
   // addrReg: running PSRAM byte address, starts at io.tileBase and advances +2
   //          per write (each write = 1 SDRAM word = 2 bytes).
-  //          4 writes per pixel × 16 pixels = 64 writes total.
+  //          3 writes per pixel (R,G,B) × 16 pixels = 48 writes total.  Z is NOT
+  //          flushed to SDRAM: depth testing uses the on-chip tile buffer and the
+  //          scanout reads only B from the {Z,B} word (Z half ignored), so the
+  //          SDRAM Z slot at +6 is dead.  After B (+4) addrReg jumps +4 to the
+  //          next pixel's R (+8), leaving +6 unwritten.  ~25% fewer flush writes
+  //          → directly cuts the dominant `present` phase (~65% of the frame).
   val addrReg  = RegInit(0.U(25.W))
   val word_idx = RegInit(0.U(5.W))   // 0..15: pixel index, terminates at 16
   // Local copy of tile buffer entry — immune to dispatcher read port corruption.
@@ -155,26 +160,15 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
       }
     }
 
-    // Write B channel
+    // Write B channel — final write per pixel.  Z is intentionally NOT written
+    // (the +6 slot is dead, see addrReg note); skip straight to the next pixel.
     is(sWriteB) {
       io.gpuMem.req   := true.B
       io.gpuMem.wr    := true.B
       io.gpuMem.addr  := addrReg
       io.gpuMem.wdata := entryHeld(31, 16)   // b
       when(io.gpuMem.ready) {
-        addrReg := addrReg + 2.U
-        state   := sWriteZ
-      }
-    }
-
-    // Write Z channel
-    is(sWriteZ) {
-      io.gpuMem.req   := true.B
-      io.gpuMem.wr    := true.B
-      io.gpuMem.addr  := addrReg
-      io.gpuMem.wdata := entryHeld(15, 0)    // z
-      when(io.gpuMem.ready) {
-        addrReg := addrReg + 2.U
+        addrReg := addrReg + 4.U   // skip dead Z slot (+6); next pixel's R is at +8
         val next_word = word_idx + 1.U
         word_idx := next_word
         when(next_word === 16.U) {   // 16 pixels done

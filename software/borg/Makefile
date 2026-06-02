@@ -7,7 +7,9 @@ RDL_C_OUT ?= $(shell git rev-parse --show-toplevel)/out/hardware/borg/rdl
 TEX_SPI_BYTE_ADDR := $(shell sed -n 's/.*TEX_PSRAM_BYTE_ADDR_FIXED[[:space:]]\+\(0x[0-9a-fA-F]\+\).*/\1/p' borg_layout.h)
 
 CC = riscv32-none-elf-gcc
-ARCH = rv32i
+# _zicsr enables CSR instructions (rdcycle) — Hutt implements the cycle/mcycle
+# read-side counter; the rest of the ISA is still pure RV32I.
+ARCH = rv32i_zicsr
 ABI  = ilp32
 AS = riscv32-none-elf-as
 AR = riscv32-none-elf-ar

@@ -102,6 +102,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   wireBinner()
   wireMmioRead()
   wireDMA()
+  wirePerf()
 
 
   private def wireRdlRegs(): Unit = {
@@ -109,6 +110,29 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rdlRegs.io.bus.writeData := bus.data_in
     rdlRegs.io.bus.writeEn   := bus.is_writing
     rdlRegs.io.bus.readEn    := bus.is_reading
+  }
+
+  // Performance counters — present-phase decomposition (read at perf_* MMIO).
+  // The sequencer-busy window IS the present phase.  Each counter resets on the
+  // rising edge of that window, accumulates while its gate is high, and freezes
+  // when the window ends — so firmware reads the just-completed frame's exact
+  // cycle breakdown.  Counters overlap intentionally (e.g. flush cycles that
+  // stall on SDRAM count in both perf_flush and perf_stall).
+  private def wirePerf(): Unit = {
+    val running = s.io.busy
+    val runPrev = RegNext(running, false.B)
+    val start   = running && !runPrev   // rising edge → zero the counters
+    def counter(gate: Bool): UInt = {
+      val c = RegInit(0.U(32.W))
+      when(start)                       { c := 0.U }
+        .elsewhen(running && gate)      { c := c + 1.U }
+      c
+    }
+    rdlRegs.io.hw.perf_total_value := counter(true.B)
+    rdlRegs.io.hw.perf_frag_value  := counter(core.io.status.running)
+    rdlRegs.io.hw.perf_flush_value := counter(f.io.busy)
+    rdlRegs.io.hw.perf_stall_value := counter(io.gpuMem.req && !io.gpuMem.ready)
+    rdlRegs.io.hw.perf_dma_value   := counter(d.io.busy)
   }
 
   private def wireBus(): Unit = {

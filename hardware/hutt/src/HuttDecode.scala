@@ -56,7 +56,8 @@ class HuttDecoded extends Bundle {
   val isStore  = Bool()
   val isOpImm  = Bool()
   val isOp     = Bool()
-  val isNop    = Bool()   // FENCE/SYSTEM treated as nop
+  val isNop    = Bool()   // FENCE/ECALL/EBREAK treated as nop
+  val isCsr    = Bool()   // SYSTEM with funct3 != 0 → CSR read (rdcycle etc.)
 }
 
 object HuttDecode {
@@ -89,7 +90,11 @@ object HuttDecode {
     d.isStore  := d.opcode === Opcode.Store
     d.isOpImm  := d.opcode === Opcode.OpImm
     d.isOp     := d.opcode === Opcode.Op
-    d.isNop    := (d.opcode === Opcode.MiscMem) || (d.opcode === Opcode.System)
+    // CSR ops (CSRRW/S/C[I]) are SYSTEM with funct3 != 0; ECALL/EBREAK use
+    // funct3 == 0 and stay nops.  We only implement the read side (rdcycle).
+    d.isCsr    := (d.opcode === Opcode.System) && (d.funct3 =/= 0.U)
+    d.isNop    := (d.opcode === Opcode.MiscMem) ||
+                  ((d.opcode === Opcode.System) && (d.funct3 === 0.U))
 
     d
   }

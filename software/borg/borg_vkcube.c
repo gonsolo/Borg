@@ -75,6 +75,21 @@ static void mat4_mul(fp16_t out[16], const fp16_t a[16], const fp16_t b[16]) {
   }
 }
 
+// MVP = TS · R for the constant projection TS = scale(sxy,sxy,sz)·translate_z(z).
+// Only ts[0]=ts[5]=sxy, ts[10]=sz, ts[14]=z, ts[15]=1 are nonzero, so this needs
+// 12 muls + 4 fmadds instead of the 64 muls + 48 adds of a full mat4_mul (H1).
+// Mathematically identical to mat4_mul(out, ts, r) since TS is sparse.
+static void mat4_mul_ts(fp16_t out[16], const fp16_t ts[16], const fp16_t r[16]) {
+  fp16_t sxy = ts[0], sz = ts[10], tz = ts[14];
+  for (int col = 0; col < 4; col++) {
+    out[col * 4 + 0] = borg_fp16_mul(sxy, r[col * 4 + 0]);
+    out[col * 4 + 1] = borg_fp16_mul(sxy, r[col * 4 + 1]);
+    out[col * 4 + 2] = borg_fp16_fmadd(sz, r[col * 4 + 2],
+                                       borg_fp16_mul(tz, r[col * 4 + 3]));
+    out[col * 4 + 3] = r[col * 4 + 3];
+  }
+}
+
 // Anisotropic scale: `sxy` scales screen-plane X/Y, `sz` scales depth.
 // The projection is orthographic (gl_Position.w stays 1), so the on-screen
 // image depends only on X/Y — Z is used purely for the z-buffer and for the
@@ -108,11 +123,6 @@ static void mat4_rotate_y(fp16_t m[16], float radians) {
   m[8] = s;
   m[2] = fp16_neg(s);
   m[10] = c;
-}
-
-static void mat4_translate_z(fp16_t m[16], float z) {
-  mat4_identity(m);
-  m[14] = fp16_from_float(z);
 }
 
 // Khronos vkcube light direction: negated normalize(0.6, 0.8, 1.0).
@@ -196,6 +206,22 @@ static void draw_cube(const borg_draw_data_t *draw, const fp16_t face_light[6]) 
   }
 }
 
+// MEASUREMENT: report exact per-phase cycle counts (Hutt `cycle` CSR) once per
+// frame.  The counter is read at phase boundaries, so the UART print cost lands
+// OUTSIDE the measured phases — unlike the old busy-wait markers, this perturbs
+// nothing.  Host: scripts/measure_fps.py parses the hex counts.  REMOVE later.
+static void put_hex32(unsigned int v) {
+  for (int i = 28; i >= 0; i -= 4) {
+    int nib = (v >> i) & 0xF;
+    putc_uart(nib < 10 ? '0' + nib : 'a' + nib - 10);
+  }
+}
+static void report_phase(char tag, unsigned int cyc) {
+  putc_uart(tag);
+  put_hex32(cyc);
+  putc_uart(' ');
+}
+
 int main() {
   borgCreateDevice();
 
@@ -207,9 +233,12 @@ int main() {
 
   borg_upload_texture(borg_texture_small_dat, TEX_WIDTH);
 
-  fp16_t s[16], rx[16], ry[16], tz[16], t1[16], t2[16];
-  mat4_scale(s, 0.5f, 0.25f);  // big on screen (XY), depth compressed to fit z∈[0,1]
-  mat4_translate_z(tz, 0.5f);
+  fp16_t ts[16], rx[16], ry[16], t1[16];
+  // Constant projection TS = scale(0.5,0.5,0.25) · translate_z(0.5).  Tz·S is
+  // just the scale with the z-translate term in [14]; precompute it once (H1)
+  // so the per-frame path is only Rx·Ry + one sparse TS multiply.
+  mat4_scale(ts, 0.5f, 0.25f);  // big on screen (XY), depth compressed to z∈[0,1]
+  ts[14] = fp16_from_float(0.5f);
 
   // Read shared parameters from PSRAM (offset 2 and 3 -> PSRAM base + 8 and 12)
   union {
@@ -267,15 +296,17 @@ int main() {
       ry_f =  0.7854f;  // +45° in Y
     }
 #endif
+    unsigned int c0 = rdcycle();
 
     mat4_rotate_x(rx, rx_f);
     mat4_rotate_y(ry, ry_f);
 
-    // MVP = Translate · Scale · Rx · Ry
+    // MVP = TS · (Rx · Ry)
     borg_draw_data_t draw;
     mat4_mul(t1, rx, ry);
-    mat4_mul(t2, s, t1);
-    mat4_mul(draw.uniforms, tz, t2);
+    mat4_mul_ts(draw.uniforms, ts, t1);  // MVP = TS·(Rx·Ry): sparse, 16 ops vs 112
+
+    unsigned int c1 = rdcycle();  // M = matrix
 
     // Khronos vkcube reference background: {0.2f, 0.2f, 0.2f} (FP16 0x3266)
     borg_clear_zbuffer(0, (rgb16_t){0x3266, 0x3266, 0x3266});
@@ -286,8 +317,27 @@ int main() {
     fp16_t face_light[6];
     compute_face_lighting(t1, face_light);
 
+    unsigned int c2 = rdcycle();  // C = clear + texture + lighting
     draw_cube(&draw, face_light);
+    unsigned int c3 = rdcycle();  // D = draw_cube (CPU transform + record draws)
     borg_present(0);
+    unsigned int c4 = rdcycle();  // P = present (GPU autonomous render)
+
+    // Per-frame exact cycle report (hex).  Printed AFTER all phases so the UART
+    // cost is not inside any measured interval.
+    report_phase('M', c1 - c0);
+    report_phase('C', c2 - c1);
+    report_phase('D', c3 - c2);
+    report_phase('P', c4 - c3);
+    // HW perf counters: present-phase decomposition (frozen at last seq run).
+    // t=total g=frag(core) h=flush l=stall(gpuMem wait) a=dma
+    report_phase('t', BORG_GPU->perf_total);
+    report_phase('g', BORG_GPU->perf_frag);
+    report_phase('h', BORG_GPU->perf_flush);
+    report_phase('l', BORG_GPU->perf_stall);
+    report_phase('a', BORG_GPU->perf_dma);
+    putc_uart('\r');
+    putc_uart('\n');
 
 #ifndef TARGET_ULX3S
     // Wait until the host/viewer clears the DONE marker before rendering the
