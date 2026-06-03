@@ -866,19 +866,14 @@ static void borgBinRenderAutonomous(int frame) {
   BORG_GPU->tile_bz = cc_lo;
 
   if (draw_call_count > 0) {
-      puts_uart("A");
-      // Print count as digit (0-9 for small counts)
-      char c = '0' + (draw_call_count & 0xF);
-      putc_uart(c);
-      puts_uart("\r\n");
+      // (Removed per-frame "A<n>"/"B" debug UART: ~7 blind-write putc/frame, each
+      // ~2 ms while the CPU is instruction-starved during render → ~13 ms/frame
+      // of pure debug overhead counted in `present`.)
       BORG_GPU->seq_desc_base = SEQ_DESC_BASE_ADDR;
       BORG_GPU->seq_tri_count = draw_call_count;
       BORG_GPU->seq_trigger = 1;
       while (BORG_GPU->status & STATUS_REG_T__SEQ_BUSY_bm)
         ;
-      puts_uart("B\r\n");
-  } else {
-      puts_uart("Z\r\n");
   }
 }
 
