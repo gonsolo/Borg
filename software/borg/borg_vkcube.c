@@ -335,21 +335,28 @@ int main() {
     borg_present(0);
     unsigned int c4 = rdcycle();  // P = present (GPU autonomous render)
 
-    // Per-frame exact cycle report (hex).  Printed AFTER all phases so the UART
-    // cost is not inside any measured interval.
-    report_phase('M', c1 - c0);
-    report_phase('C', c2 - c1);
-    report_phase('D', c3 - c2);
-    report_phase('P', c4 - c3);
-    // HW perf counters: present-phase decomposition (frozen at last seq run).
-    // t=total g=frag(core) h=flush l=stall(gpuMem wait) a=dma
-    report_phase('t', BORG_GPU->perf_total);
-    report_phase('g', BORG_GPU->perf_frag);
-    report_phase('h', BORG_GPU->perf_flush);
-    report_phase('l', BORG_GPU->perf_stall);
-    report_phase('a', BORG_GPU->perf_dma);
-    putc_uart('\r');
-    putc_uart('\n');
+    // Exact cycle report (hex), printed AFTER all phases so the UART cost is not
+    // inside any measured interval.  Throttled to 1 frame in 16: at ~83 chars ×
+    // ~2 ms (instruction-starved blind-write putc) the report would otherwise add
+    // ~166 ms to every frame, slowing the *visible* demo to ~2.4 fps even though
+    // compute is ~3.95 fps.  Reporting every 16th frame keeps the cube near full
+    // speed while staying measurable.  (Remove the whole report before shipping.)
+    static unsigned int frame_no = 0;
+    if ((frame_no++ & 15) == 0) {
+      report_phase('M', c1 - c0);
+      report_phase('C', c2 - c1);
+      report_phase('D', c3 - c2);
+      report_phase('P', c4 - c3);
+      // HW perf counters: present-phase decomposition (frozen at last seq run).
+      // t=total g=frag(core) h=flush l=stall(gpuMem wait) a=dma
+      report_phase('t', BORG_GPU->perf_total);
+      report_phase('g', BORG_GPU->perf_frag);
+      report_phase('h', BORG_GPU->perf_flush);
+      report_phase('l', BORG_GPU->perf_stall);
+      report_phase('a', BORG_GPU->perf_dma);
+      putc_uart('\r');
+      putc_uart('\n');
+    }
 
 #ifndef TARGET_ULX3S
     // Wait until the host/viewer clears the DONE marker before rendering the
