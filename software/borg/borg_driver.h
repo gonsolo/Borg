@@ -80,6 +80,9 @@ void borg_upload_texture(const uint8_t *rgb_fp16, int dim);
 // Render a triangle: vertex shade → rasterize → z-test → fragment shade → framebuffer.
 // Mirrors vkCmdDraw().
 void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame);
+// Vertex-dedup fast path: transform unique positions once, draw by index.
+void borgTransformVerts(const borg_draw_data_t *d, const fp16_t *positions, int count);
+void borgCmdDrawIndexed(const int idx[3], const borg_vertex_t vertices[3], int frame);
 
 // Write DONE marker for a frame to PSRAM
 void borg_present(int frame);

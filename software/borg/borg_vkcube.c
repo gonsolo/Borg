@@ -188,20 +188,32 @@ static void compute_face_lighting(const fp16_t model[16], fp16_t face_light[6]) 
 }
 
 static void draw_cube(const borg_draw_data_t *draw, const fp16_t face_light[6]) {
+  // HPG perf: transform the 8 UNIQUE cube positions once (vs 36 = 12 tris × 3),
+  // then draw each triangle by index into the cached transforms.  Bit-identical
+  // geometry (same MVP·position), so perf_frag is unchanged.
+  fp16_t pos8[8 * 3];
+  for (int i = 0; i < 8; i++) {
+    pos8[i * 3 + 0] = cube_verts[i][0];
+    pos8[i * 3 + 1] = cube_verts[i][1];
+    pos8[i * 3 + 2] = cube_verts[i][2];
+  }
+  borgTransformVerts(draw, pos8, 8);
+
   for (int f = 0; f < 6; f++) {
     fp16_t l = face_light[f];
 
     for (int t = 0; t < 2; t++) {
+      int idx[3];
       borg_vertex_t tri[3];
       for (int v = 0; v < 3; v++) {
-        const fp16_t *vp = cube_verts[cube_faces[f][quad_qi[t][v]]];
+        int ci = cube_faces[f][quad_qi[t][v]];
+        idx[v] = ci;
         tri[v] = (borg_vertex_t){
-            .pos   = {vp[0], vp[1], vp[2]},
             .color = {l, l, l},
             .uv    = {quad_uvs[t][v][0], quad_uvs[t][v][1]},
         };
       }
-      borgCmdDraw(draw, tri, 0);
+      borgCmdDrawIndexed(idx, tri, 0);
     }
   }
 }
