@@ -14,6 +14,14 @@ import hardfloat._
   * instruction memory, coordinate LUT, and all MMIO decode logic
   * except rasterizer-specific registers (bbox/iter).
   * This module can be independently unit-tested for FPU correctness.
+  *
+  * Pipeline timing (busy_counter counts 4→0):
+  *   4..2: Stage 1 — preMul + integer multiply (combinatorial, ~29 ns)
+  *            register data available (async DPRAM); op-type flags latched
+  *   2→1:  Pipeline register captures preMul.toPostMul + mulAddResult
+  *   1:    Stage 2 — postMul + rounding (~28 ns); register file WRITTEN;
+  *            pipeWrite.en/addr/data exposed
+  *   0:    (idle — next instruction can start)
   */
 
 class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
@@ -340,6 +348,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   /** Wire FMA unit: mux operands for ADD/MUL/FMA/FNEG.
     * Returns (fma_result, is_fstep_reg, is_frcp_reg).
+    *
+    * Two-stage pipelined FMA to eliminate the 57 ns critical path:
+    *   Stage 1 (busy_counter=4..2): preMul + integer multiply  (~29 ns)
+    *   Stage 2 (busy_counter=1):    postMul + rounding          (~28 ns)
+    * A pipeline register fires at busy_counter==2, capturing preMul outputs
+    * and mulAddResult so that postMul sees registered (fast) inputs.
     */
   private def wireFma(
       recA_raw: UInt, recB_raw: UInt, recC_raw: UInt, start: Bool
@@ -367,19 +381,40 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
 
     // @doc:fma-muxing
-    val fma = Module(new MulAddRecFN(config.exp, config.sig))
+    // Stage 1: preMul (combinatorial) — inputs valid at busy_counter=4,3,2
+    val preMul = Module(new MulAddRecFNToRaw_preMul(config.exp, config.sig))
     // ADD:  1.0 * rs1 + rs2       MUL: rs1 * rs2 + 0.0
     // FMA:  rs1 * rs2 + rs3       FNEG: -(1.0 * rs1) + 0.0
-    fma.io.op := Mux(is_fneg_reg, 2.U, 0.U)
-    fma.io.a := Mux(is_mul_reg || is_fma_reg, recA, recOne)
-    fma.io.b := Mux(is_mul_reg || is_fma_reg, recB, recA)
-    fma.io.c := Mux(is_fma_reg, recC, Mux(is_mul_reg || is_fneg_reg, recZero, recB))
-    fma.io.roundingMode := 0.U
-    fma.io.detectTininess := 1.U
-    fma.io.valid := start
+    preMul.io.op := Mux(is_fneg_reg, 2.U, 0.U)
+    preMul.io.a  := Mux(is_mul_reg || is_fma_reg, recA, recOne)
+    preMul.io.b  := Mux(is_mul_reg || is_fma_reg, recB, recA)
+    preMul.io.c  := Mux(is_fma_reg, recC, Mux(is_mul_reg || is_fneg_reg, recZero, recB))
+
+    val mulAddResult = (preMul.io.mulAddA * preMul.io.mulAddB) +& preMul.io.mulAddC
+
+    // Pipeline register: capture at the busy_counter=3→2 clock edge.
+    // Breaks the 57 ns path (memory-reads + preMul + postMul) into two ~29 ns stages.
+    // At busy_counter=2, recA/B/C are still valid (op_en includes counter>=2),
+    // so preMul has had two full cycles to settle before we register its output.
+    val pipe_stage = is_busy && busy_counter === 2.U
+    val toPostMul_reg    = RegEnable(preMul.io.toPostMul,  pipe_stage)
+    val mulAddResult_reg = RegEnable(mulAddResult,          pipe_stage)
+
+    // Stage 2: postMul + rounding — runs at busy_counter=1 from registered inputs
+    val postMul = Module(new MulAddRecFNToRaw_postMul(config.exp, config.sig))
+    postMul.io.fromPreMul   := toPostMul_reg
+    postMul.io.mulAddResult := mulAddResult_reg
+    postMul.io.roundingMode := 0.U
+
+    val round = Module(new RoundRawFNToRecFN(config.exp, config.sig, 0))
+    round.io.invalidExc    := postMul.io.invalidExc
+    round.io.infiniteExc   := false.B
+    round.io.in            := postMul.io.rawOut
+    round.io.roundingMode  := 0.U
+    round.io.detectTininess := 1.U
     // @doc:end
 
-    (fNFromRecFN(config.exp, config.sig, fma.io.out), is_fstep_reg, is_frcp_reg)
+    (fNFromRecFN(config.exp, config.sig, round.io.out), is_fstep_reg, is_frcp_reg)
   }
 
   // @doc:fstep
@@ -447,12 +482,14 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         Mux(is_frcp_reg, frcp_result, fma_result)),
       io.bus.data_in(config.totalBits - 1, 0))
 
-    // Expose write-back for rasterizer snooping
+    writeAllCopies(w_addr, w_en, w_data)
+
+    // pipeWrite at busy_counter=1 (same cycle as register file write).
+    // wireTexStall overrides these three signals for FTEX writeback via
+    // last-connect semantics (wireTexStall is called after wireWriteBack).
     io.pipeWrite.en   := pipe_write
     io.pipeWrite.addr := w_addr
     io.pipeWrite.data := w_data
-
-    writeAllCopies(w_addr, w_en, w_data)
   }
 
   /** Write the same addr/en/data to all three register file copies. */

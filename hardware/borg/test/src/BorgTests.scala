@@ -1269,6 +1269,7 @@ object BorgTests extends TestSuite {
               writes += ((borg.io.gpuMem.addr.peek().litValue.toInt,
                           borg.io.gpuMem.wdata.peek().litValue.toLong))
               writeCount += 1
+              flushBusySeen = true  // flusher active (wr=1 implies FLUSH_BUSY)
               borg.io.gpuMem.ready.poke(true.B)
             } else {
               borg.io.gpuMem.ready.poke(false.B)
@@ -1303,70 +1304,58 @@ object BorgTests extends TestSuite {
         println(f"  FLUSH_BUSY cleared:   $flushBusyClear (expect true)")
         Predef.assert(flushBusyClear, "FLUSH_BUSY did not clear — flusher hung")
 
-        println(f"  Total PSRAM writes:   $writeCount (expect 64)")
-        Predef.assert(writeCount == 64, s"Expected 64 writes, got $writeCount")
+        // BorgTileFlusher writes R, G, B only (3 per pixel); Z is on-chip only.
+        // Pixel stride in SDRAM is 8 bytes (R+2+G+2+B+2+skip2), so addresses
+        // are: R at base+i*8, G at +2, B at +4; the +6 slot is dead.
+        println(f"  Total PSRAM writes:   $writeCount (expect 48)")
+        Predef.assert(writeCount == 48, s"Expected 48 writes (3×16), got $writeCount")
 
-        // Verify the first entry (i=0): R at tileBase, G at +2, B at +4, Z at +6
+        // Verify the first entry (i=0): R at tileBase, G at +2, B at +4
         val (addr0R, data0R) = writes(0)
         val (addr0G, data0G) = writes(1)
         val (addr0B, data0B) = writes(2)
-        val (addr0Z, data0Z) = writes(3)
         val expAddr0R = tileBase
         val expAddr0G = tileBase + 2
         val expAddr0B = tileBase + 4
-        val expAddr0Z = tileBase + 6
-        // MemoryController writes wdata[15:0] only.
-        // Flusher sends entryHeld(15,0)=r, (31,16)=g, (47,32)=b, (63,48)=z
-        // Entry 0: r=0x1000, g=0x2000, b=0x3000, z=0x4000
         val expData0R = 0x1000L
         val expData0G = 0x2000L
         val expData0B = 0x3000L
-        val expData0Z = 0x4000L
 
         println(f"  Write[0] addr=0x$addr0R%04X (exp 0x$expAddr0R%04X)  data=0x$data0R%08X (exp 0x$expData0R%08X)")
         println(f"  Write[1] addr=0x$addr0G%04X (exp 0x$expAddr0G%04X)  data=0x$data0G%08X (exp 0x$expData0G%08X)")
         println(f"  Write[2] addr=0x$addr0B%04X (exp 0x$expAddr0B%04X)  data=0x$data0B%08X (exp 0x$expData0B%08X)")
-        println(f"  Write[3] addr=0x$addr0Z%04X (exp 0x$expAddr0Z%04X)  data=0x$data0Z%08X (exp 0x$expData0Z%08X)")
         Predef.assert(addr0R == expAddr0R, s"R addr mismatch: got 0x${addr0R.toHexString}")
         Predef.assert(addr0G == expAddr0G, s"G addr mismatch: got 0x${addr0G.toHexString}")
         Predef.assert(addr0B == expAddr0B, s"B addr mismatch: got 0x${addr0B.toHexString}")
-        Predef.assert(addr0Z == expAddr0Z, s"Z addr mismatch: got 0x${addr0Z.toHexString}")
         Predef.assert(data0R == expData0R, s"R data mismatch: got 0x${data0R.toHexString}")
         Predef.assert(data0G == expData0G, s"G data mismatch: got 0x${data0G.toHexString}")
         Predef.assert(data0B == expData0B, s"B data mismatch: got 0x${data0B.toHexString}")
-        Predef.assert(data0Z == expData0Z, s"Z data mismatch: got 0x${data0Z.toHexString}")
 
-        // Verify address stride: 8 bytes per pixel (4 writes × 2 bytes each)
+        // Verify address stride: 3 writes per pixel, 8-byte stride (Z slot skipped)
         for (i <- 0 until 16) {
-          val (aR, _) = writes(i * 4)
-          val (aG, _) = writes(i * 4 + 1)
-          val (aB, _) = writes(i * 4 + 2)
-          val (aZ, _) = writes(i * 4 + 3)
+          val (aR, _) = writes(i * 3)
+          val (aG, _) = writes(i * 3 + 1)
+          val (aB, _) = writes(i * 3 + 2)
           val expR = tileBase + i * 8
           val expG = tileBase + i * 8 + 2
           val expB = tileBase + i * 8 + 4
-          val expZ = tileBase + i * 8 + 6
           Predef.assert(aR == expR, s"entry $i R addr: got 0x${aR.toHexString} exp 0x${expR.toHexString}")
           Predef.assert(aG == expG, s"entry $i G addr: got 0x${aG.toHexString} exp 0x${expG.toHexString}")
           Predef.assert(aB == expB, s"entry $i B addr: got 0x${aB.toHexString} exp 0x${expB.toHexString}")
-          Predef.assert(aZ == expZ, s"entry $i Z addr: got 0x${aZ.toHexString} exp 0x${expZ.toHexString}")
         }
-        println("  Address stride 8 bytes/entry (4 writes × 2 bytes) ✓")
+        println("  Address stride 8 bytes/pixel, 3 writes (R/G/B, Z skipped) ✓")
 
         // Verify data for all 16 entries
         for (i <- 0 until 16) {
           val r = 0x1000 + i
           val g = 0x2000 + i
           val b = 0x3000 + i
-          val z = 0x4000 + i
-          val (_, gotR) = writes(i * 4)
-          val (_, gotG) = writes(i * 4 + 1)
-          val (_, gotB) = writes(i * 4 + 2)
-          val (_, gotZ) = writes(i * 4 + 3)
+          val (_, gotR) = writes(i * 3)
+          val (_, gotG) = writes(i * 3 + 1)
+          val (_, gotB) = writes(i * 3 + 2)
           Predef.assert(gotR == r.toLong, s"entry $i R data: got 0x${gotR.toHexString} exp 0x${r.toHexString}")
           Predef.assert(gotG == g.toLong, s"entry $i G data: got 0x${gotG.toHexString} exp 0x${g.toHexString}")
           Predef.assert(gotB == b.toLong, s"entry $i B data: got 0x${gotB.toHexString} exp 0x${b.toHexString}")
-          Predef.assert(gotZ == z.toLong, s"entry $i Z data: got 0x${gotZ.toHexString} exp 0x${z.toHexString}")
         }
         println("  All 16 entry data values correct ✓")
 
