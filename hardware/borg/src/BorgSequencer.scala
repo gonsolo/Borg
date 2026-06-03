@@ -284,7 +284,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     tileCompleteLatch := io.iter.complete
   }
 
-  val bboxWordIdx = RegInit(0.U(2.W))
+  // bboxWordIdx removed — bbox now computed from GPU clipRegs in handleWaitVert.
   val binnerStarted = RegInit(false.B)  // tracks whether binner accepted start
   // Per-triangle has_uvs flag from descriptor metadata (offset 104).
   val triHasUvs = RegInit(false.B)
@@ -393,7 +393,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // Wait for setup shader to finish; snoop outputs into setupRegs
       is(sWaitSetup) { handleWaitSetup() }
 
-      // --- Step 31.4: Load Bounding Box ---
+      // --- Step 31.4: Bbox (GPU-computed) + has_uvs DMA ---
       is(sLoadBBox) { handleLoadBBox() }
 
       // --- Step 32.2: Trigger BorgBinner for this triangle ---
@@ -569,13 +569,42 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     state                := sWaitVert
   }
 
+  // FP16 positive → 10-bit integer pixel coordinate.
+  // Unsigned integer comparison on positive FP16 is monotone (IEEE 754 property).
+  // Negative inputs (off-screen left/top) are clamped to 0.
+  private def fp16ToPixelInt(fp: UInt): UInt = {
+    val e    = fp(14, 10)       // biased exponent (0..30)
+    val m    = fp(9, 0)         // mantissa
+    val norm = Cat(1.U(1.W), m) // 11-bit implicit-1 representation
+    Mux(e < 15.U, 0.U(10.W),
+    Mux(e >= 25.U, 1023.U(10.W),
+      (norm >> (10.U - (e - 15.U)))(9, 0)
+    ))
+  }
+
   private def handleWaitVert(): Unit = {
     when(core_just_finished) {
       when(vertIdx === 2.U) {
-        // All 3 vertices done → proceed to triangle setup (Step 29.2)
+        // All 3 vertices done — compute bbox from GPU clip-space outputs in clipRegs.
+        // FP16 positive values compare correctly as unsigned integers (IEEE 754).
+        // Clamp negatives (off-screen) to 0.
+        def pos(fp: UInt): UInt = Mux(fp(15), 0.U(16.W), fp)
+        val x0 = pos(clipRegs(0)(0)); val x1 = pos(clipRegs(1)(0)); val x2 = pos(clipRegs(2)(0))
+        val y0 = pos(clipRegs(0)(1)); val y1 = pos(clipRegs(1)(1)); val y2 = pos(clipRegs(2)(1))
+        def fp16Min(a: UInt, b: UInt): UInt = Mux(a <= b, a, b)
+        def fp16Max(a: UInt, b: UInt): UInt = Mux(a >= b, a, b)
+        val minXpix = fp16ToPixelInt(fp16Min(fp16Min(x0, x1), x2))
+        val maxXpix = fp16ToPixelInt(fp16Max(fp16Max(x0, x1), x2))
+        val minYpix = fp16ToPixelInt(fp16Min(fp16Min(y0, y1), y2))
+        val maxYpix = fp16ToPixelInt(fp16Max(fp16Max(y0, y1), y2))
+        bboxMinX := Cat(0.U(6.W), minXpix(9, 2), 0.U(2.W))  // round down to 4-pixel tile boundary
+        bboxMaxX := Cat(0.U(6.W), maxXpix)
+        bboxMinY := Cat(0.U(6.W), minYpix(9, 2), 0.U(2.W))
+        bboxMaxY := Cat(0.U(6.W), maxYpix)
+        if (BorgDebug.trace) printf("[SEQ] gpuBbox (%d,%d)-(%d,%d)\n", minXpix, minYpix, maxXpix, maxYpix)
+
         writeIdx := 0.U
         state    := sWriteSetupInputs
-
       }.otherwise {
         vertIdx := vertIdx + 1.U
         state   := sLoadVert
@@ -629,10 +658,12 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   private def handleLoadBBox(): Unit = {
+    // Bbox is now computed from GPU clipRegs (Phase 2).  Only read the 1-word
+    // has_uvs flag from descriptor + SEQ_META_OFFSET + 8 = desc + 168.
     val desc = Wire(new DMADescriptor)
-    desc.baseAddr := io.mmio.descBase + (triIdx * 256.U) + 160.U  // SEQ_META_OFFSET
-    desc.length   := 3.U  // 3 words: bbox_min, bbox_max, flags (has_uvs)
-    desc.dest     := 2.U  // 2 = snoop only
+    desc.baseAddr := io.mmio.descBase + (triIdx * 256.U) + 168.U  // SEQ_META_OFFSET+8 = has_uvs
+    desc.length   := 1.U  // 1 word: has_uvs flag
+    desc.dest     := 2.U  // snoop only
     desc.offset   := 0.U
 
     dmaDescReg   := desc
@@ -1034,26 +1065,11 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     }
 
-    // --- DMA snoop for Bounding Box (Step 31.4) ---
-    // Use a dedicated counter instead of writeIdx to avoid corrupting the
-    // sStageUniforms write index (which also starts from 0).
-    when(state === sLoadBBox) {
-      bboxWordIdx := 0.U
-    }
+    // --- DMA snoop for has_uvs flag (Phase 2: bbox computed from GPU clipRegs) ---
+    // handleLoadBBox now DMAs 1 word (has_uvs) from desc+168.
     when(io.dma.snoop.valid && state === sWaitDMA && nextAfterDMA === sBinTri) {
-      when(bboxWordIdx === 0.U) {
-        bboxMinX := io.dma.snoop.bits(15, 0)
-        bboxMinY := io.dma.snoop.bits(31, 16)
-        bboxWordIdx := 1.U
-      }.elsewhen(bboxWordIdx === 1.U) {
-        bboxMaxX := io.dma.snoop.bits(15, 0)
-        bboxMaxY := io.dma.snoop.bits(31, 16)
-        bboxWordIdx := 2.U
-      }.elsewhen(bboxWordIdx === 2.U) {
-        triHasUvs := io.dma.snoop.bits(0)
-        if (BorgDebug.trace) printf("[SEQ] hasUvs triIdx=%d flag=%d\n", triIdx, io.dma.snoop.bits(0))
-        bboxWordIdx := 3.U
-      }
+      triHasUvs := io.dma.snoop.bits(0)
+      if (BorgDebug.trace) printf("[SEQ] hasUvs triIdx=%d flag=%d\n", triIdx, io.dma.snoop.bits(0))
     }
 
     // --- Step 32.3: DMA snoop for bin entry data ---
