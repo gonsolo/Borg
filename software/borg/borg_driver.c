@@ -1063,63 +1063,34 @@ void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
   t_draw_cycles += get_cycles() - t_start;
 }
 
-// --- Vertex-dedup fast path (HPG perf) ---------------------------------------
-// Transform up to BORG_MAX_UNIQUE_VERTS unique positions in ONE vertex-shader
-// load, caching the clip-space outputs; then draw triangles by INDEX into that
-// cache.  A mesh with shared vertices (cube: 8 unique positions, 12 triangles)
-// pays 8 vertex-shader runs + 1 shader load instead of 36 runs + 12 loads.
-// Geometry is bit-identical to the per-triangle path (same uniforms, positions
-// and shader), so perf_frag is unchanged — only the CPU draw cost drops.
-static fp16_t vout_cache[BORG_MAX_UNIQUE_VERTS * SPIRB_MAX_REGS];
-static int    vout_cache_stride = 0;
-
 void borgTransformVerts(const borg_draw_data_t *d, const fp16_t *positions,
                         int count) {
-  const spirb_shader_t *s = &vert_shader;
-  vout_cache_stride = s->num_outputs;
-  // Save raw model positions and TS-baked MVP for GPU descriptor writes.
+  // GPU handles vertex transform via sequencer. Cache MVP and raw positions.
   cache_ts_mvp(d);
   for (int v = 0; v < count; v++) {
     raw_pos_cache[v*3+0] = positions[v*3+0];
     raw_pos_cache[v*3+1] = positions[v*3+1];
     raw_pos_cache[v*3+2] = positions[v*3+2];
   }
-  borg_load_spirb_shader(s);
-  for (int i = 0; i < s->num_uniforms; i++)
-    BORG_GPU->uniform[s->uniform_regs[i]] = d->uniforms[i];
-  for (int v = 0; v < count; v++) {
-    BORG_GPU->control = CONTROL_REG_T__RESET_PIPELINE_bm;
-    for (int i = 0; i < s->num_uniforms; i++)
-      BORG_GPU->uniform[s->uniform_regs[i]] = d->uniforms[i];
-    for (int i = 0; i < s->num_attributes; i++)
-      BORG_GPU->gpr[s->attribute_regs[i]] = positions[v * s->num_attributes + i];
-    for (int i = 0; i < s->num_consts; i++)
-      BORG_GPU->gpr[s->const_regs[i]] = s->const_vals[i];
-    borg_run(BORG_IMEM_VERT_OFFSET);
-    for (int i = 0; i < s->num_outputs; i++)
-      vout_cache[v * vout_cache_stride + i] =
-          BORG_GPU->gpr[s->output_regs[i]] & 0xFFFF;
-  }
 }
 
-// Draw one triangle using cached transformed positions (idx into vout_cache)
+// Draw one triangle from cached raw positions (idx into raw_pos_cache)
 // plus per-call color/uv from `vertices`.  Call borgTransformVerts() first.
 void borgCmdDrawIndexed(const int idx[3], const borg_vertex_t vertices[3],
                         int frame) {
   unsigned int t_start = get_cycles();
-  // Set raw model positions for this triangle's GPU descriptor.
   for (int v = 0; v < 3; v++) {
     g_current_raw_verts[v*3+0] = raw_pos_cache[idx[v]*3+0];
     g_current_raw_verts[v*3+1] = raw_pos_cache[idx[v]*3+1];
     g_current_raw_verts[v*3+2] = raw_pos_cache[idx[v]*3+2];
   }
-  fp16_t vout3[3 * SPIRB_MAX_REGS];
-  for (int v = 0; v < 3; v++)
-    for (int k = 0; k < vout_cache_stride; k++)
-      vout3[v * vout_cache_stride + k] = vout_cache[idx[v] * vout_cache_stride + k];
-  clip_vertex_t clip_in[3];
-  build_clip_vertices(vout3, vout_cache_stride, vertices, clip_in);
-  clip_and_rasterize(clip_in, &tex, frame);
+  triangle_t tri;
+  tri.has_uvs = (tex.psram_offset >= 0);
+  for (int v = 0; v < 3; v++) {
+    tri.colors.v[v] = (rgb16_t){vertices[v].color[0], vertices[v].color[1], vertices[v].color[2]};
+    tri.uvs.v[v]    = (uv16_t){vertices[v].uv[0], vertices[v].uv[1]};
+  }
+  record_draw_call(&tri, &tex, frame);
   t_draw_cycles += get_cycles() - t_start;
 }
 
