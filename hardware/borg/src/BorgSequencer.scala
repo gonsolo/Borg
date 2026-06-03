@@ -739,7 +739,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }.elsewhen(w < 28.U) {
       uData := colorRegs(vertOf(25))(2)       // u25-u27: B
     }.otherwise {
-      uData := colorRegs(vertOf(28))(3)       // u28-u30: Z
+      uData := clipRegs(vertOf(28))(2)        // u28-u30: Z from vertex shader r2 (projected depth)
     }
     // (w > 30 cannot occur: writeIdx stops at 30)
 

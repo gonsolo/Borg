@@ -74,6 +74,12 @@ static const uint32_t seq_vert_shader[] = {
   BORG_INSTR_FMADD( 1, 24,  9,  1, 2),   // r1 += r24*u9  (x * M10*hw)
   BORG_INSTR_FMADD( 1, 25, 13,  1, 2),   // r1 += r25*u13 (y * M11*hw)
   BORG_INSTR_FMADD( 1, 26, 17,  1, 2),   // r1 += r26*u17 (z * M12*hw)
+  // screen_z = u22 + x*u10 + y*u14 + z*u18  (projected NDC depth, snooped into clipRegs[v][2])
+  // u22=M[2][3]=tz=0.5, u10=M[2][0], u14=M[2][1], u18=M[2][2] — gives z in [0.25,0.75]
+  BORG_INSTR_FADD( 2, 22, 30, 1),        // r2 = u22 (z-translation = tz = 0.5)
+  BORG_INSTR_FMADD( 2, 24, 10,  2, 2),   // r2 += r24*u10 (x * M[2][0])
+  BORG_INSTR_FMADD( 2, 25, 14,  2, 2),   // r2 += r25*u14 (y * M[2][1])
+  BORG_INSTR_FMADD( 2, 26, 18,  2, 2),   // r2 += r26*u18 (z * M[2][2])
   BORG_INSTR_HALT,
 };
 #define SEQ_VERT_SHADER_LEN (sizeof(seq_vert_shader) / sizeof(seq_vert_shader[0]))
