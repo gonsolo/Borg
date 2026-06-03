@@ -652,8 +652,15 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private def handleWaitSetup(): Unit = {
     when(core_just_finished) {
-      writeIdx    := 0.U
-      state       := sLoadBBox
+      writeIdx := 0.U
+      // Screen y-down: front-facing (CW in screen) → area < 0 → r6 = -area/W > 0 (sign 0).
+      // Back-facing → r6 < 0 (sign 1) → skip.
+      when(setupRegs(6)(15)) {
+        if (BorgDebug.trace) printf("[SEQ] cull triIdx=%d r6=0x%x\n", triIdx, setupRegs(6))
+        state := sNextTriangle
+      }.otherwise {
+        state := sLoadBBox
+      }
     }
   }
 
