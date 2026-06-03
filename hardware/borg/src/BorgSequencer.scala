@@ -178,7 +178,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgSequencerIO(cfg))
 
   // --- FSM states ---
-  // Pass 1 (geometry): sIdle, sLoadShader, sWaitDMA, sLoadVert, sRunVert, sWaitVert,
+  // Pass 1 (geometry): sIdle, sLoadShader, sWaitDMA, sLoadMVP, sLoadVert, sRunVert, sWaitVert,
   //   sWriteSetupInputs, sLoadSetupShader, sRunSetup, sWaitSetup,
   //   sLoadBBox, sBinTri, sWaitBinner, sStageUniforms, sStoreSetup, sNextTriangle
   // Pass 2 (tile render): sLoadRastShader, sLoadFragShader, sStartPass2,
@@ -187,16 +187,16 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   //   sEnqueueTile, sIteratePixels, sWaitRast, sWaitFlush, sWaitFlushSync,
   //   sNextBinTri, sNextRenderTile
   // Terminal: sDone
-  val nStates = 33
+  val nStates = 34
   val states = Enum(nStates)
-  val (sIdle :: sLoadShader :: sWaitDMA :: sLoadVert :: sRunVert :: sWaitVert ::
+  val (sIdle :: sLoadShader :: sWaitDMA :: sLoadMVP :: sLoadVert :: sRunVert :: sWaitVert ::
        sWriteSetupInputs :: sLoadSetupShader :: sRunSetup :: sWaitSetup ::
-       sLoadBBox :: sBinTri :: sWaitBinner :: sStageUniforms :: sStoreSetup :: sNextTriangle :: Nil) = states.take(16)
+       sLoadBBox :: sBinTri :: sWaitBinner :: sStageUniforms :: sStoreSetup :: sNextTriangle :: Nil) = states.take(17)
   val (sLoadRastShader :: sLoadFragShader :: sStartPass2 ::
        sReadBinCount :: sWaitBinCount :: sClearTile ::
        sReadBinEntry :: sWaitBinEntry :: sLoadTriSetup ::
        sEnqueueTile :: sIteratePixels :: sWaitRast :: sWaitFlush :: sWaitFlushSync ::
-       sNextBinTri :: sNextRenderTile :: sDone :: Nil) = states.drop(16)
+       sNextBinTri :: sNextRenderTile :: sDone :: Nil) = states.drop(17)
   val state = RegInit(sIdle)
 
   // Which state to enter after DMA completes
@@ -362,8 +362,11 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // Wait for DMA transfer to complete
       is(sWaitDMA) { handleWaitDMA() }
 
+      // Load TS-baked MVP (16 words) from descriptor+96 into uniform[8..23].
+      is(sLoadMVP) { handleLoadMVP() }
+
       // Load full vertex data (8 FP16 words: x,y,z,r,g,b,u,v) from descriptor.
-      // Descriptor stride is 128 bytes. Vertex i is at descBase + triIdx*128 + i*32 bytes.
+      // Descriptor stride is 256 bytes. Vertex i is at descBase + triIdx*256 + i*32 bytes.
       // DMA writes all 8 words to uniform[0..7] in uniform page 0.
       // During the wait, sWaitDMA snoops uniform writes to colorRegs (see below).
       is(sLoadVert) { handleLoadVert() }
@@ -514,6 +517,23 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     dmaDescReg   := desc
     io.dma.desc   := desc
     io.dma.start  := true.B
+    nextAfterDMA := sLoadMVP   // load MVP uniforms before first vertex
+    state        := sWaitDMA
+  }
+
+  private def handleLoadMVP(): Unit = {
+    // DMA 16 TS-baked MVP words from descriptor+SEQ_MVP_OFFSET into uniform[8..23].
+    // Descriptor stride is 256 bytes (SEQ_DESC_STRIDE).  MVP is at offset 96.
+    val desc = Wire(new DMADescriptor)
+    val triOffset = triIdx * 256.U
+    desc.baseAddr := io.mmio.descBase + triOffset + 96.U  // SEQ_MVP_OFFSET
+    desc.length   := 16.U  // 16 FP16 words
+    desc.dest     := 1.U   // uniformPage is always 0 → page 0
+    desc.offset   := 8.U   // write to u8..u23
+
+    dmaDescReg   := desc
+    io.dma.desc   := desc
+    io.dma.start  := true.B
     nextAfterDMA := sLoadVert
     state        := sWaitDMA
   }
@@ -526,7 +546,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private def handleLoadVert(): Unit = {
     val desc = Wire(new DMADescriptor)
-    val triOffset = triIdx * 128.U
+    val triOffset = triIdx * 256.U  // SEQ_DESC_STRIDE = 256
     desc.baseAddr := io.mmio.descBase + triOffset + vertIdx * 32.U
     desc.length   := 8.U   // 8 × 32-bit words (x,y,z,r,g,b,u,v)
     // DMA dest encoding: 1=page0, 2=page1. Write to current uniformPage
@@ -610,7 +630,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private def handleLoadBBox(): Unit = {
     val desc = Wire(new DMADescriptor)
-    desc.baseAddr := io.mmio.descBase + (triIdx * 128.U) + 96.U
+    desc.baseAddr := io.mmio.descBase + (triIdx * 256.U) + 160.U  // SEQ_META_OFFSET
     desc.length   := 3.U  // 3 words: bbox_min, bbox_max, flags (has_uvs)
     desc.dest     := 2.U  // 2 = snoop only
     desc.offset   := 0.U

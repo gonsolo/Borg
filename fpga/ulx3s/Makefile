@@ -109,11 +109,17 @@ load: borg.bit
 	openFPGALoader -b ulx3s borg.bit
 	@echo -e "$(BOLD)[LOAD]$(RESET) Done."
 
-# Write bitstream to onboard config flash (persistent, survives power cycle)
+# Write bitstream to onboard config flash (persistent, survives power cycle).
+# Does NOT reset — run 'make reset' (with tio already open) to boot the new image.
 flash: borg.bit
 	@echo -e "$(BOLD)[FLASH]$(RESET) Writing ECP5 bitstream to onboard flash ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
-	@echo -e "$(BOLD)[FLASH]$(RESET) Bitstream flashed."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset borg.bit
+	@echo -e "$(BOLD)[FLASH]$(RESET) Bitstream flashed. Start tio, then: make reset"
+
+# Reset board from flash — run with tio already open to capture boot output.
+.PHONY: reset
+reset:
+	openFPGALoader -b ulx3s -r
 
 ######### Firmware (onboard SDRAM boot flow) ######################################################
 
@@ -231,18 +237,17 @@ $(FIRMWARE_DIR)/vkcube.bin:
 
 flash-vkcube: vkcube_with_header.bin
 	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing vkcube firmware to onboard flash @ 0x400000 ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 vkcube_with_header.bin
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) vkcube firmware flashed. Resetting FPGA ..."
-	openFPGALoader -b ulx3s -r
-	@echo -e "$(BOLD)[DONE]$(RESET) Board is rebooting — attach tio now."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 vkcube_with_header.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) vkcube firmware flashed. Start tio, then: make reset"
 
 # Full vkcube deploy: synth + P&R + pack, flash bitstream + vkcube firmware.
+# Does NOT reset — run 'make reset' (with tio already open) to boot the new image.
 vkcube: borg.bit vkcube_with_header.bin
 	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream to onboard flash ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset borg.bit
 	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing vkcube firmware @ 0x400000 ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 vkcube_with_header.bin
-	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Power-cycle board to run."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 vkcube_with_header.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Start tio, then: make reset"
 	@echo -e "  LED[7] = pll_locked, LED[6] = boot_done"
 
 # Full triangle deploy: synth + P&R + pack, flash bitstream + firmware.

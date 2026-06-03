@@ -36,7 +36,9 @@
 #define SEQ_RAST_SHADER_ADDR  0x4900  // SPI byte addr for rast shader (Step 31, max 224B)
 #define SEQ_FRAG_SHADER_ADDR  0x4980  // SPI byte addr for frag shader (Step 31, max 224B)
 #define SEQ_DESC_BASE_ADDR    0x4A00  // SPI byte addr for vertex descriptors
-#define SEQ_DESC_STRIDE       128     // 3 vertices × 8 words × 4 bytes + 32B metadata (Step 31)
+#define SEQ_DESC_STRIDE       256     // 3 verts × 32B + 64B MVP + 32B metadata
+#define SEQ_MVP_OFFSET         96     // byte offset within descriptor for 16 MVP FP16 words (64B)
+#define SEQ_META_OFFSET       160     // byte offset within descriptor for bbox + flags (32B)
 
 // --- TBR geometry data (Step 32.0) ---
 // Placed after the framebuffer (PSRAM_OUT_OFFSET + framebuffer region).

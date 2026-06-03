@@ -52,9 +52,30 @@ static int back_buf = 1;
 //   The sequencer's pipeWrite snoop captures r0=x, r1=y during sWaitVert.
 //   u0=screen_x, u1=screen_y per vertex (loaded by DMA from descriptor).
 //   Output r0=x, r1=y so sWaitVert snoops them into clipRegs[v][0:1].
+// GPU MVP vertex shader (Phase 1):
+//   u0..u2   = raw model pos x,y,z  (loaded by vertex DMA from descriptor)
+//   u8..u23  = TS-baked MVP 16 values column-major (loaded by MVP DMA)
+//              u8=M00*hw  u9=M10*hw  u10=M20  u11=M30
+//              u12=M01*hw u13=M11*hw u14=M21  u15=M31
+//              u16=M02*hw u17=M12*hw u18=M22  u19=M32
+//              u20=M03*hw+hw  u21=M13*hw+hw  u22=M23  u23=M33
+//   r0=screen_x, r1=screen_y (snooped by sequencer into clipRegs)
+//   r30,r31 = 0 when seqBusy=true (special BorgCore registers)
 static const uint32_t seq_vert_shader[] = {
-  BORG_INSTR_FADD(0, 0, 31, 1),  // r0 = u0 + 0 = screen x
-  BORG_INSTR_FADD(1, 1, 31, 1),  // r1 = u1 + 0 = screen y
+  // Load model coords from uniform memory into working registers
+  BORG_INSTR_FADD(24, 0, 30, 1),         // r24 = u0 (model x)
+  BORG_INSTR_FADD(25, 1, 30, 1),         // r25 = u1 (model y)
+  BORG_INSTR_FADD(26, 2, 30, 1),         // r26 = u2 (model z)
+  // screen_x = u20 + x*u8 + y*u12 + z*u16
+  BORG_INSTR_FADD( 0, 20, 30, 1),        // r0 = u20 (x-translation: M03*hw + hw)
+  BORG_INSTR_FMADD( 0, 24,  8,  0, 2),   // r0 += r24*u8  (x * M00*hw)
+  BORG_INSTR_FMADD( 0, 25, 12,  0, 2),   // r0 += r25*u12 (y * M01*hw)
+  BORG_INSTR_FMADD( 0, 26, 16,  0, 2),   // r0 += r26*u16 (z * M02*hw)
+  // screen_y = u21 + x*u9 + y*u13 + z*u17
+  BORG_INSTR_FADD( 1, 21, 30, 1),        // r1 = u21 (y-translation: M13*hw + hw)
+  BORG_INSTR_FMADD( 1, 24,  9,  1, 2),   // r1 += r24*u9  (x * M10*hw)
+  BORG_INSTR_FMADD( 1, 25, 13,  1, 2),   // r1 += r25*u13 (y * M11*hw)
+  BORG_INSTR_FMADD( 1, 26, 17,  1, 2),   // r1 += r26*u17 (z * M12*hw)
   BORG_INSTR_HALT,
 };
 #define SEQ_VERT_SHADER_LEN (sizeof(seq_vert_shader) / sizeof(seq_vert_shader[0]))
@@ -116,7 +137,6 @@ static const uint32_t seq_setup_shader[] = {
 // thousands of triangles — that is a separate, hardware-managed structure.
 static uint8_t bin_count[BORG_MAX_TILES];
 static uint8_t bin_list[BORG_MAX_TILES][BORG_MAX_TRIS_PER_TILE];
-
 
 typedef struct {
   int w, h;
@@ -654,6 +674,11 @@ static void __attribute__((unused)) borgBin(void) {
   }
 }
 
+// Forward declarations for GPU vertex transform state (defined with borgCmdDraw).
+#define BORG_MAX_UNIQUE_VERTS 16
+static fp16_t g_current_raw_verts[9];
+static fp16_t g_ts_mvp_cache[16];
+
 // Record a draw call for later TBR rendering.
 static void record_draw_call(const triangle_t *tri, const texture_t *t,
                              int frame) {
@@ -668,16 +693,16 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
       .frame = frame,
   };
 
-  // Write extended vertex descriptor to PSRAM for the sequencer (Step 31).
-  // Layout: 96B vertex data + 32B metadata = 128 bytes per descriptor.
+  // Write vertex descriptor to PSRAM for the sequencer.
+  // Layout (Phase 1): 96B model-space verts + 64B TS-baked MVP + 32B metadata = 256 bytes.
   uint32_t desc_base = SEQ_DESC_BASE_ADDR + (uint32_t)idx * SEQ_DESC_STRIDE;
 
-  // Vertex data (unchanged): 3 vertices × 8 FP16 words × 4 bytes = 96 bytes
+  // Vertex data: model-space positions (GPU will transform), plus color/uv unchanged.
   for (int v = 0; v < 3; v++) {
     uint32_t vbase = desc_base + (uint32_t)v * 32;
-    PSRAM_OUT_RAW(vbase + 0)  = tri->screen_pos.v[v].x;
-    PSRAM_OUT_RAW(vbase + 4)  = tri->screen_pos.v[v].y;
-    PSRAM_OUT_RAW(vbase + 8)  = tri->z_vals.v[v];
+    PSRAM_OUT_RAW(vbase + 0)  = g_current_raw_verts[v*3+0];  // model.x
+    PSRAM_OUT_RAW(vbase + 4)  = g_current_raw_verts[v*3+1];  // model.y
+    PSRAM_OUT_RAW(vbase + 8)  = g_current_raw_verts[v*3+2];  // model.z (also depth)
     PSRAM_OUT_RAW(vbase + 12) = tri->colors.v[v].r;
     PSRAM_OUT_RAW(vbase + 16) = tri->colors.v[v].g;
     PSRAM_OUT_RAW(vbase + 20) = tri->colors.v[v].b;
@@ -687,13 +712,14 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
         ? (uint32_t)borg_fp16_mul(tri->uvs.v[v].v, t->h_fp16) : (uint32_t)FP16_ZERO;
   }
 
-  // Step 31 metadata (offset 0x60 = 96 bytes from desc_base):
-  //   bbox: tile-aligned integers, packed {x[15:0], y[15:0]}
-  //   flags: bit 0 = has_uvs
-  PSRAM_OUT_RAW(desc_base + 96)  = ((uint32_t)(bb.y0 & ~3) << 16) | (uint32_t)(bb.x0 & ~3);
-  PSRAM_OUT_RAW(desc_base + 100) = ((uint32_t)(bb.y1) << 16) | (uint32_t)(bb.x1);
-  PSRAM_OUT_RAW(desc_base + 104) = tri->has_uvs ? 1u : 0u;
-  // Padding (offsets 108..124) left uninitialized — sequencer ignores them.
+  // TS-baked MVP at SEQ_MVP_OFFSET (96): 16 FP16 values, column-major.
+  for (int i = 0; i < 16; i++)
+    PSRAM_OUT_RAW(desc_base + SEQ_MVP_OFFSET + (uint32_t)i * 4) = g_ts_mvp_cache[i];
+
+  // Metadata at SEQ_META_OFFSET (160): bbox + flags.
+  PSRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 0) = ((uint32_t)(bb.y0 & ~3) << 16) | (uint32_t)(bb.x0 & ~3);
+  PSRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 4) = ((uint32_t)(bb.y1) << 16) | (uint32_t)(bb.x1);
+  PSRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 8) = tri->has_uvs ? 1u : 0u;
 
   draw_call_count++;
 }
@@ -990,6 +1016,23 @@ static void clip_and_rasterize(const clip_vertex_t clip_in[3],
   }
 }
 
+// raw_pos_cache: model-space positions saved by borgTransformVerts for indexed draws.
+static fp16_t raw_pos_cache[BORG_MAX_UNIQUE_VERTS * 3];
+
+// Build TS-baked MVP once per borgTransformVerts / borgCmdDraw call.
+static void cache_ts_mvp(const borg_draw_data_t *d) {
+  fp16_t hw = fp16_half_width;
+  for (int col = 0; col < 4; col++) {
+    g_ts_mvp_cache[col*4+0] = borg_fp16_mul(d->uniforms[col*4+0], hw);
+    g_ts_mvp_cache[col*4+1] = borg_fp16_mul(d->uniforms[col*4+1], hw);
+    g_ts_mvp_cache[col*4+2] = d->uniforms[col*4+2];
+    g_ts_mvp_cache[col*4+3] = d->uniforms[col*4+3];
+  }
+  // Translation column (col 3), rows 0 and 1: add hw for the +hw viewport term
+  g_ts_mvp_cache[12] = borg_fp16_add(g_ts_mvp_cache[12], hw);
+  g_ts_mvp_cache[13] = borg_fp16_add(g_ts_mvp_cache[13], hw);
+}
+
 void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
                  int frame) {
   unsigned int t_start = get_cycles();
@@ -999,6 +1042,14 @@ void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
     attrs[v * 3 + 0] = vertices[v].pos[0];
     attrs[v * 3 + 1] = vertices[v].pos[1];
     attrs[v * 3 + 2] = vertices[v].pos[2];
+  }
+
+  // Save raw model positions and TS-baked MVP for GPU descriptor.
+  cache_ts_mvp(d);
+  for (int v = 0; v < NUM_VERTICES; v++) {
+    g_current_raw_verts[v*3+0] = vertices[v].pos[0];
+    g_current_raw_verts[v*3+1] = vertices[v].pos[1];
+    g_current_raw_verts[v*3+2] = vertices[v].pos[2];
   }
 
   fp16_t vout[NUM_VERTICES * SPIRB_MAX_REGS];
@@ -1019,7 +1070,6 @@ void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
 // pays 8 vertex-shader runs + 1 shader load instead of 36 runs + 12 loads.
 // Geometry is bit-identical to the per-triangle path (same uniforms, positions
 // and shader), so perf_frag is unchanged — only the CPU draw cost drops.
-#define BORG_MAX_UNIQUE_VERTS 16
 static fp16_t vout_cache[BORG_MAX_UNIQUE_VERTS * SPIRB_MAX_REGS];
 static int    vout_cache_stride = 0;
 
@@ -1027,6 +1077,13 @@ void borgTransformVerts(const borg_draw_data_t *d, const fp16_t *positions,
                         int count) {
   const spirb_shader_t *s = &vert_shader;
   vout_cache_stride = s->num_outputs;
+  // Save raw model positions and TS-baked MVP for GPU descriptor writes.
+  cache_ts_mvp(d);
+  for (int v = 0; v < count; v++) {
+    raw_pos_cache[v*3+0] = positions[v*3+0];
+    raw_pos_cache[v*3+1] = positions[v*3+1];
+    raw_pos_cache[v*3+2] = positions[v*3+2];
+  }
   borg_load_spirb_shader(s);
   for (int i = 0; i < s->num_uniforms; i++)
     BORG_GPU->uniform[s->uniform_regs[i]] = d->uniforms[i];
@@ -1050,6 +1107,12 @@ void borgTransformVerts(const borg_draw_data_t *d, const fp16_t *positions,
 void borgCmdDrawIndexed(const int idx[3], const borg_vertex_t vertices[3],
                         int frame) {
   unsigned int t_start = get_cycles();
+  // Set raw model positions for this triangle's GPU descriptor.
+  for (int v = 0; v < 3; v++) {
+    g_current_raw_verts[v*3+0] = raw_pos_cache[idx[v]*3+0];
+    g_current_raw_verts[v*3+1] = raw_pos_cache[idx[v]*3+1];
+    g_current_raw_verts[v*3+2] = raw_pos_cache[idx[v]*3+2];
+  }
   fp16_t vout3[3 * SPIRB_MAX_REGS];
   for (int v = 0; v < 3; v++)
     for (int k = 0; k < vout_cache_stride; k++)

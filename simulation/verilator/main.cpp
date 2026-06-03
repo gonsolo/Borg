@@ -24,10 +24,15 @@ int main(int argc, char** argv) {
     std::cout << "[SIM] Starting simulation...\n";
 
     uint64_t total_cycles = 0;
+    uint64_t max_cycles = argc > 6 ? (uint64_t)std::atoll(argv[6]) : 0;
     while (!sim.step(100000)) {
         total_cycles += 100000;
         if (total_cycles % 1000000 == 0) {
-            std::cout << "[SIM] " << (total_cycles / 1000000) << " million cycles\n";
+            std::cout << "[SIM] " << (total_cycles / 1000000) << " million cycles\n" << std::flush;
+        }
+        if (max_cycles && total_cycles >= max_cycles) {
+            std::cout << "[SIM] MAX CYCLES REACHED (" << max_cycles << ")\n";
+            return 1;
         }
     }
     std::cout << "[SIM] Frame complete! DONE_MARKER detected.\n";
