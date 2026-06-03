@@ -29,11 +29,9 @@
 // Maximum tiles for the largest supported framebuffer (128×128 / 4×4 = 32×32
 // tiles).
 #define BORG_MAX_TILES 1024      // (128/4)*(128/4) = 1024
-// BORG_MAX_DRAWS: in-RAM draw-call buffer.  Capped by the PSRAM descriptor
-// window: SEQ_DESC_BASE_ADDR(0x4A00)..TEX_START(0x5000) = 0x600 = 12×128B.
-// This is separate from SEQ_MAX_TRI (the PSRAM TBR layout capacity defined in
-// borg_layout.h). SEQ_MAX_TRI does NOT allocate RAM; BORG_MAX_DRAWS does.
-#define BORG_MAX_DRAWS 12           // max draw calls buffered in RAM per frame
+// In-RAM draw-call buffer — mirrors SEQ_MAX_DRAWS from borg_layout.h which
+// also sizes the PSRAM descriptor window (SEQ_MAX_DRAWS × SEQ_DESC_STRIDE).
+#define BORG_MAX_DRAWS SEQ_MAX_DRAWS
 #define BORG_MAX_TRIS_PER_TILE 8    // max triangles that can touch one tile
 
 // Sequencer auto-detection (set in borgCreateGraphicsPipeline).

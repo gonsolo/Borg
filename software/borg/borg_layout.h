@@ -4,64 +4,86 @@
 // Borg PSRAM layout — pure arithmetic macros shared between firmware and
 // simulator.  No MMIO, no hardware registers, no volatile pointers.
 //
+// All address constants are DERIVED from the base anchors below — edit the
+// anchors, not the derived values, so nothing drifts out of sync.
+//
 // Memory map (PSRAM SPI byte addresses):
 //   0x0000 .. 0x0FFF  (reserved: SPI address 0 maps to CPU PSRAM_BASE)
 //   0x1000 .. 0x100F  PSRAM_IN parameters (width, height, rot_x, rot_y)
 //   0x0000 .. 0x4260  Firmware .data/.bss/.uninitialized_data (linker-placed)
-//   0x5000 .. 0x85000 Texture data (256×256 Morton-packed, 512 KB)
-//   0x85000 .. end    Framebuffer, Z-buffer, DONE marker  (PSRAM_OUT)
-//
-// The texture is placed AFTER the firmware BSS section (ends ~0x4260) so
-// the C runtime's BSS zeroing doesn't overwrite texture data.
+//   0x4800 .. 0x49FF  Sequencer shaders (vert, setup, rast, frag — 4×128B)
+//   SEQ_DESC_BASE_ADDR .. SEQ_DESC_END  Sequencer descriptors (SEQ_MAX_DRAWS × SEQ_DESC_STRIDE)
+//   TEX_PSRAM_BYTE_ADDR_FIXED .. +TEX_REGION_BYTES  Texture (Morton-packed FP16)
+//   PSRAM_OUT_BASE_SPI ..         Framebuffer, Z-buffer, DONE marker (PSRAM_OUT)
 
 #pragma once
 
-// --- PSRAM address constants ---
-#define PSRAM_SPI_BASE    0x001000    // 24-bit SPI/QSPI address
+// -------------------------------------------------------------------------
+// Anchor constants — change these when the layout shifts.
+// -------------------------------------------------------------------------
 
-// Texture starts at SPI 0x5000, safely past the firmware BSS end (~0x4260).
-// Texture occupies up to 256×256 × 8 bytes = 524288 bytes.
-#define TEX_PSRAM_BYTE_ADDR_FIXED  0x5000
+#define PSRAM_SPI_BASE        0x001000  // 24-bit SPI byte address of PSRAM word 0
 
-// Framebuffer starts after the texture region.
-// 0x5000 + 524288 (0x80000) = 0x85000.
-#define PSRAM_OUT_OFFSET  0x84000   // Byte offset from PSRAM_SPI_BASE: 0x85000 - 0x1000
+// Maximum triangles buffered per frame.  This drives the descriptor window size
+// and therefore the texture start address — change it and everything else
+// (TEX_PSRAM_BYTE_ADDR_FIXED, PSRAM_OUT_OFFSET) adjusts automatically.
+#define SEQ_MAX_DRAWS         12        // max draw calls / triangles per frame
 
-// --- Sequencer PSRAM layout (Step 29.5) ---
-// Placed between BSS end (~0x4260) and texture start (0x5000).
-// The sequencer needs: vert shader, setup shader, and per-draw-call vertex
-// descriptors (3 vertices × 8 FP16 words × 4 bytes = 96 bytes each).
-#define SEQ_VERT_SHADER_ADDR  0x4800  // SPI byte addr for vertex shader (max 224B)
-#define SEQ_SETUP_SHADER_ADDR 0x4880  // SPI byte addr for setup shader (max 224B)
-#define SEQ_RAST_SHADER_ADDR  0x4900  // SPI byte addr for rast shader (Step 31, max 224B)
-#define SEQ_FRAG_SHADER_ADDR  0x4980  // SPI byte addr for frag shader (Step 31, max 224B)
-#define SEQ_DESC_BASE_ADDR    0x4A00  // SPI byte addr for vertex descriptors
-#define SEQ_DESC_STRIDE       256     // 3 verts × 32B + 64B MVP + 32B metadata
-#define SEQ_MVP_OFFSET         96     // byte offset within descriptor for 16 MVP FP16 words (64B)
-#define SEQ_META_OFFSET       160     // byte offset within descriptor for bbox + flags (32B)
+// -------------------------------------------------------------------------
+// Sequencer PSRAM layout (Step 29.5)
+// -------------------------------------------------------------------------
 
-// --- TBR geometry data (Step 32.0) ---
-// Placed after the framebuffer (PSRAM_OUT_OFFSET + framebuffer region).
-//
-// Triangle indices are uint16_t (2 bytes each) — supports up to 65 535 triangles.
-// (A uint8_t cap of 255 would not be future-proof for thousands of triangles.)
-//
-// SEQ_MAX_TRI is the compile-time triangle capacity.  All size macros are derived
-// from it so there is a single source of truth.
-#define SEQ_MAX_TRI             1024  // max triangles per frame (uint16-safe: 0..65535)
-#define SEQ_MAX_TILES           1024  // max tiles per frame (matches BORG_MAX_TILES)
+#define SEQ_VERT_SHADER_ADDR  0x4800   // SPI byte addr for vertex shader  (max 128B)
+#define SEQ_SETUP_SHADER_ADDR 0x4880   // SPI byte addr for setup shader   (max 128B)
+#define SEQ_RAST_SHADER_ADDR  0x4900   // SPI byte addr for rast shader    (max 128B)
+#define SEQ_FRAG_SHADER_ADDR  0x4980   // SPI byte addr for frag shader    (max 128B)
+#define SEQ_DESC_BASE_ADDR    0x4A00   // SPI byte addr for descriptor 0
+
+// Descriptor layout: 3 verts × 32B + 64B MVP + 32B metadata = 256B each.
+#define SEQ_DESC_STRIDE       256
+#define SEQ_MVP_OFFSET        96       // byte offset to 16 MVP FP16 words (64B)
+#define SEQ_META_OFFSET       160      // byte offset to bbox + flags (32B)
+
+// End of descriptor region (exclusive) — derived, do not edit.
+#define SEQ_DESC_END          (SEQ_DESC_BASE_ADDR + SEQ_MAX_DRAWS * SEQ_DESC_STRIDE)
+
+// -------------------------------------------------------------------------
+// Texture region — starts immediately after descriptors.
+// -------------------------------------------------------------------------
+
+// TEX_PSRAM_BYTE_ADDR_FIXED is DERIVED from SEQ_DESC_END.
+// Currently: 0x4A00 + 12 × 256 = 0x4A00 + 0xC00 = 0x5600.
+#define TEX_PSRAM_BYTE_ADDR_FIXED  SEQ_DESC_END
+
+// Maximum texture size (256×256 texels, 8 bytes each = 2×FP16 words/texel).
+#define TEX_REGION_BYTES      (256 * 256 * 8)   // 0x80000 = 512 KB
+
+// -------------------------------------------------------------------------
+// Framebuffer region — starts immediately after texture.
+// -------------------------------------------------------------------------
+
+// PSRAM_OUT_BASE_SPI = TEX_PSRAM_BYTE_ADDR_FIXED + TEX_REGION_BYTES.
+// Currently: 0x5600 + 0x80000 = 0x85600.
+#define PSRAM_OUT_BASE_SPI    (TEX_PSRAM_BYTE_ADDR_FIXED + TEX_REGION_BYTES)
+
+// PSRAM_OUT(n) / PSRAM_OUT_SPI(n) use this byte offset from PSRAM_SPI_BASE.
+// Currently: 0x85600 - 0x1000 = 0x84600.
+#define PSRAM_OUT_OFFSET      (PSRAM_OUT_BASE_SPI - PSRAM_SPI_BASE)
+
+// -------------------------------------------------------------------------
+// TBR geometry data (Step 32.0) — placed AFTER the framebuffer at runtime.
+// -------------------------------------------------------------------------
+
+// Triangle indices are uint16_t so the bin-list can address up to 65535 triangles.
+#define SEQ_MAX_TRI           1024  // compile-time triangle capacity
+#define SEQ_MAX_TILES         1024  // max tiles per frame (matches BORG_MAX_TILES)
 
 // Per-tile bin list: one row of SEQ_MAX_TRI uint16_t entries per tile.
-//   Total = SEQ_MAX_TRI * SEQ_MAX_TILES * 2 bytes = 2 MB at 1024×1024.
-//   Practical configs are much smaller (e.g. 12 tri × 80 tiles = 1.9 KB).
-//   The hardware reads only bin_count[tile] entries; the rest are never accessed.
-#define TBR_BIN_ENTRY_SIZE      2     // sizeof(uint16_t) — triangle index
-#define TBR_BIN_ROW_BYTES       (SEQ_MAX_TRI * TBR_BIN_ENTRY_SIZE)  // bytes per tile
-// Base address written at runtime in borgCreateDevice() after the framebuffer.
-// #define TBR_BIN_BASE computed at runtime (depends on framebuffer size)
+#define TBR_BIN_ENTRY_SIZE    2                              // sizeof(uint16_t)
+#define TBR_BIN_ROW_BYTES     (SEQ_MAX_TRI * TBR_BIN_ENTRY_SIZE)
 
-// Per-triangle setup store: 128 bytes per triangle (31 uniforms × 4B = 124B,
-// padded to the next power-of-2 for simple shift addressing).
-// Hardware sStoreSetup uses: addr = setupBase + (triIdx << 7).
-#define TBR_SETUP_ENTRY_BYTES   128   // bytes per triangle (stride = tri << 7)
-// #define TBR_SETUP_BASE computed at runtime (after TBR_BIN region)
+// Per-triangle setup store: 128 bytes per triangle (31 uniforms × 4B, rounded up).
+// Hardware sStoreSetup: addr = setupBase + (triIdx << 7).
+#define TBR_SETUP_ENTRY_BYTES 128
+
+// TBR_BIN_BASE and TBR_SETUP_BASE are computed at runtime (depend on fb size).

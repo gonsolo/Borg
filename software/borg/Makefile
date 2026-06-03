@@ -2,9 +2,12 @@
 # Exported by the top-level Makefile; derive via git for standalone invocations.
 RDL_C_OUT ?= $(shell git rev-parse --show-toplevel)/out/hardware/borg/rdl
 
-# Texture PSRAM byte address — single source of truth is borg_layout.h.
-# Extracted here and passed to the linker so memmap ASSERT stays in sync.
-TEX_SPI_BYTE_ADDR := $(shell sed -n 's/.*TEX_PSRAM_BYTE_ADDR_FIXED[[:space:]]\+\(0x[0-9a-fA-F]\+\).*/\1/p' borg_layout.h)
+# Texture PSRAM byte address — derived from borg_layout.h anchors so it
+# stays in sync when SEQ_MAX_DRAWS or SEQ_DESC_STRIDE changes.
+_desc_base   := $(shell sed -n 's/.*SEQ_DESC_BASE_ADDR[[:space:]]\+\(0x[0-9a-fA-F]\+\).*/\1/p' borg_layout.h)
+_max_draws   := $(shell sed -n 's/.*SEQ_MAX_DRAWS[[:space:]]\+\([0-9]\+\).*/\1/p' borg_layout.h)
+_desc_stride := $(shell sed -n 's/.*SEQ_DESC_STRIDE[[:space:]]\+\([0-9]\+\).*/\1/p' borg_layout.h)
+TEX_SPI_BYTE_ADDR := $(shell printf '%d' $$(( $(_desc_base) + $(_max_draws) * $(_desc_stride) )))
 
 CC = riscv32-none-elf-gcc
 # _zicsr enables CSR instructions (rdcycle) — Hutt implements the cycle/mcycle
