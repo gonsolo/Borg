@@ -129,7 +129,7 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
 
   // ── HDMI Scanout — declared here so wireGpuMem() can reference it ─────────
   val scanout = withClockAndReset(sysClock, pllRst) {
-    Module(new HdmiScanoutFp16(fbBase = 0x85000, fbBase1 = 0xA5004, fbWidth = 128, fbHeight = 128))
+    Module(new HdmiScanoutFp16(fbBase = 0x85600, fbBase1 = 0xA5604, fbWidth = 128, fbHeight = 128))
   }
 
   // ── GPU memory arbiter: Borg GPU writes/reads have priority over scanout ──
