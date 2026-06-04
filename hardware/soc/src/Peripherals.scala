@@ -43,6 +43,9 @@ class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
 
   // GPU read port — Borg.scanout etc. (Step 19.2: Borg → MemoryController)
   val gpuMem = new GpuMemIO
+
+  // High while sequencer is actively rendering (for scanout QoS)
+  val seqBusy = Output(Bool())
 }
 
 /** Routes the CPU MMIO bus to GPIO / UART / Borg based on addr[11:10].
@@ -103,6 +106,7 @@ class Peripherals(val CLOCK_MHZ: Int, val borgCfg: BorgConfig = BorgConfig.Defau
   borg.io.mmio.req.bits.size   := reqBits.size
   borg.io.mmio.resp.ready      := io.mmio.resp.ready && (active === PERI_BORG)
   borg.io.gpuMem               <> io.gpuMem
+  io.seqBusy                   := borg.io.seqBusy
 
   // -- req.ready muxing ------------------------------------------------------
   // Don't accept a new request while one is in flight (single-outstanding).

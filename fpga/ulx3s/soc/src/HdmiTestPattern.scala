@@ -26,29 +26,40 @@ class TmdsEncoderIO extends Bundle {
 class TmdsEncoder extends Module {
   val io = IO(new TmdsEncoderIO)
 
-  val ones = PopCount(io.data)
+  // ── Stage 1: parallel q_m (breaks the 8-deep serial XOR chain) ───────────
+  // Mathematical identity: q_m(i) = XOR(data[0..i]) XOR (use_xnor if i odd)
+  // Proof: q_m(i) = q_m(i-1) XOR data(i) XOR use_xnor, unrolled gives a
+  // prefix XOR where each use_xnor term cancels at even positions.
+  // This reduces depth from O(n) serial to O(log n) prefix tree.
+  val ones     = PopCount(io.data)
   val use_xnor = (ones > 4.U) || (ones === 4.U && io.data(0) === 0.U)
 
   val q_m = Wire(Vec(9, Bool()))
-  q_m(0) := io.data(0)
-  for (i <- 1 to 7) {
-    q_m(i) := Mux(use_xnor, q_m(i-1) === io.data(i), q_m(i-1) =/= io.data(i))
+  for (i <- 0 to 7) {
+    val prefixXor = (0 to i).map(j => io.data(j)).reduce(_ ^ _)
+    val ux        = if (i % 2 == 1) use_xnor else false.B
+    q_m(i) := prefixXor ^ ux
   }
   q_m(8) := !use_xnor
 
-  val q_m_uint = q_m.asUInt
+  // Pipeline register: cuts the path before the disparity/PopCount logic
+  val q_m_reg = RegNext(q_m.asUInt)
+  val de_reg  = RegNext(io.de,    false.B)
+  val c_reg   = RegNext(io.c,     0.U)
+  val en_reg  = RegNext(io.en,    false.B)
 
-  val disp = RegInit(0.S(5.W))
-  val ones_q_m = PopCount(q_m_uint(7, 0))
+  // ── Stage 2: disparity → output ──────────────────────────────────────────
+  val ones_q_m  = PopCount(q_m_reg(7, 0))
   val zeros_q_m = 8.U - ones_q_m
-  val diff_q_m = ones_q_m.zext - zeros_q_m.zext
+  val diff_q_m  = ones_q_m.zext - zeros_q_m.zext
 
-  val out = WireDefault(0.U(10.W))
+  val disp      = RegInit(0.S(5.W))
+  val out       = WireDefault(0.U(10.W))
   val disp_next = WireDefault(disp)
 
-  when(!io.de) {
+  when(!de_reg) {
     disp_next := 0.S
-    switch(io.c) {
+    switch(c_reg) {
       is(0.U) { out := "b1101010100".U }
       is(1.U) { out := "b0010101011".U }
       is(2.U) { out := "b0101010100".U }
@@ -56,26 +67,22 @@ class TmdsEncoder extends Module {
     }
   } .otherwise {
     when(disp === 0.S || ones_q_m === zeros_q_m) {
-      out := Cat(!q_m(8), q_m(8), Mux(q_m(8), q_m_uint(7, 0), ~q_m_uint(7, 0)))
-      disp_next := disp + Mux(q_m(8), diff_q_m, -diff_q_m)
+      out := Cat(!q_m_reg(8), q_m_reg(8), Mux(q_m_reg(8), q_m_reg(7, 0), ~q_m_reg(7, 0)))
+      disp_next := disp + Mux(q_m_reg(8), diff_q_m, -diff_q_m)
     } .otherwise {
       val disp_is_pos = disp > 0.S
       val diff_is_pos = ones_q_m > zeros_q_m
-      
       when(disp_is_pos === diff_is_pos) {
-        out := Cat(true.B, q_m(8), ~q_m_uint(7, 0))
-        disp_next := disp + Mux(q_m(8), 2.S, 0.S) - diff_q_m
+        out := Cat(true.B,  q_m_reg(8), ~q_m_reg(7, 0))
+        disp_next := disp + Mux(q_m_reg(8), 2.S, 0.S) - diff_q_m
       } .otherwise {
-        out := Cat(false.B, q_m(8), q_m_uint(7, 0))
-        disp_next := disp - Mux(q_m(8), 0.S, 2.S) + diff_q_m
+        out := Cat(false.B, q_m_reg(8),  q_m_reg(7, 0))
+        disp_next := disp - Mux(q_m_reg(8), 0.S, 2.S) + diff_q_m
       }
     }
   }
 
-  when(io.en) {
-    disp := disp_next
-  }
-
+  when(en_reg) { disp := disp_next }
   io.tmds := out
 }
 
