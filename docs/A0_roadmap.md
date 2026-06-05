@@ -1340,6 +1340,45 @@ Target: **~Nov–Dec 2026** (~8–10 weeks). Write a Mesa Vulkan ICD for the
 Borg GPU. This is a domain shift — Mesa/NIR/SPIR-V are a new codebase.
 Expect 2–3 weeks ramp-up on top of implementation time.
 
+### Implementation notes (2026-06-05, from a Mesa source study)
+
+Mesa checked out at `/home/gonsolo/src/mesa/src`. Three findings shape the work:
+
+1. **You write ~10 % of a Vulkan driver.** `vulkan/runtime` (~52k LOC) is free: all the
+   `vk_*` base objects (instance/device/queue/command_buffer/pipeline/image/render_pass),
+   entrypoint dispatch, sync (`vk_sync`/fence/semaphore/drm_syncobj), WSI swapchain/present,
+   and **`vk_meta`** (generic clears/copies/blits via shaders). You subclass ~15 `vk_`
+   objects + fill hardware hooks. Driver-specific surface ≈ **2–4k LOC** C + the shader
+   backend.
+
+2. **Model on `v3dv` (Broadcom/RPi V3D), not `panvk` or `nvk`.** v3dv is small (~17k LOC TBR
+   core), single-generation, and tile-based: it serializes a Binning Control List + Render
+   Control List at driver time and submits with one ioctl, then the GPU runs per-tile and
+   stores the tile buffer. **Borg already does exactly this** (sequencer descriptors →
+   autonomous TBR → tile flush), so the GPU command-buffer model is the literal `borgvk`
+   submit path. Key files to mirror: `broadcom/vulkan/v3dvx_cmd_buffer.c`
+   (`job_emit_binning_prolog` + per-tile RCL), `v3dv_cmd_buffer.h`, `v3dv_pass.h`,
+   `v3dv_cl.h`, `v3dv_queue.c`. Avoid panvk (multi-gen genxml + CSF GPU-firmware command
+   streams — antithetical to Borg's CPU-canned model) and nvk (NVIDIA immediate-mode).
+
+3. **`nir_to_borg` (Step 46) is the long pole, ~5–7k LOC.** `spirv_to_nir` is free
+   (`compiler/spirv` via `vulkan/runtime/vk_nir.c`). Reuse ~90 common `nir_lower_*` passes
+   (`nir_lower_to_scalar` is key for the scalar FP16 ISA) + 2–4 custom; then isel (NIR-walk)
+   + linear-scan RA (32 regs, trivial) + a simple scheduler + emit. Model on
+   `src/broadcom/compiler` (scalar; simpler than asahi). `software/borg/compiler/borg_backend.py`
+   is a head start. The target is `nir_to_borg`, not the hand-written SPIR-B.
+
+**Strategic reorder — no Linux-on-Borg needed for first Vulkan.** Don't gate Vulkan on
+booting Linux on the soft Hutt CPU. Run Mesa + `borgvk` on the **host PC** and submit command
+buffers to the FPGA over **USB** (ULX3S is USB-connected, like the pico-ice RP2040 host) —
+Borg as an external Vulkan accelerator. Mesa's in-tree **`drm-shim`** runs a driver with no
+kernel; point it at a USB transport (or the Verilator/Arcilator sim first). Milestones:
+(1) `nir_to_borg` compiles vkcube's SPIR-V; (2) `borgvk` + drm-shim → simulator renders
+vkcube; (3) drm-shim → FPGA over USB → **Vulkan vkcube on the board with Mesa on the host**
+— the real demo, needing none of the Phase 4 Linux CPU work; (4, later) a real DRM/KMS
+kernel driver + Linux on the upgraded Hutt for on-device vkcube. So Steps 45–49 below are
+better done host-side first, with the kernel/on-device path as a separate later arc.
+
 ### Step 45: Minimal `vk_device` + `wsi_headless`
 
 Headless rendering, no window system needed. Estimate: 1–2 weeks.
