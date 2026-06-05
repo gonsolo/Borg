@@ -55,7 +55,7 @@ class SdramBackendSim(
     d.rdata := mem.read(d.raddr(wordBits - 1, 0))
   }
 
-  val sIdle :: sRd :: sWr :: sDone :: Nil = Enum(4)
+  val sIdle :: sRd :: sWr :: sWrBeat :: sDone :: Nil = Enum(5)
   val state = RegInit(sIdle)
 
   val isWrite = RegInit(false.B)
@@ -63,12 +63,17 @@ class SdramBackendSim(
   val dataReg = RegInit(0.U(16.W))
   val readReg = RegInit(0.U(16.W))
   val counter = RegInit(0.U(8.W))
+  val lenReg  = RegInit(1.U(7.W))   // burst word count latched at startWrite
+  val beatReg = RegInit(0.U(7.W))   // words written so far this burst
 
   // Synchronous read port — issue address now, data available next cycle.
   val rdAddrWire = WireDefault(0.U(wordBits.W))
   val rdData     = mem.read(rdAddrWire)
 
+  val acceptW = WireDefault(false.B)   // burst-beat pull: present next word next cycle
+
   io.backend.dataOut := readReg
+  io.backend.accept  := acceptW
   io.backend.done    := state === sDone
   io.backend.busy    := state =/= sIdle
 
@@ -86,7 +91,9 @@ class SdramBackendSim(
         state   := sRd
       }.elsewhen(io.backend.startWrite) {
         addrReg := io.backend.addrIn
-        dataReg := io.backend.dataIn
+        dataReg := io.backend.dataIn   // first burst word
+        lenReg  := io.backend.lenIn
+        beatReg := 0.U
         isWrite := true.B
         counter := 0.U
         state   := sWr
@@ -102,10 +109,31 @@ class SdramBackendSim(
       }
     }
 
+    // First burst word: pay the full write latency.
     is(sWr) {
       counter := counter + 1.U
       when(counter >= wrDelay.U) {
         mem.write(addrReg(wordBits - 1, 0), dataReg)
+        when(beatReg + 1.U < lenReg) {
+          acceptW := true.B            // pull next word; arbiter presents it next cycle
+          beatReg := beatReg + 1.U
+          addrReg := addrReg + 1.U
+          state   := sWrBeat
+        }.otherwise {
+          state := sDone
+        }
+      }
+    }
+
+    // Subsequent burst words: open row, one word per cycle straight from dataIn.
+    is(sWrBeat) {
+      mem.write(addrReg(wordBits - 1, 0), io.backend.dataIn)
+      when(beatReg + 1.U < lenReg) {
+        acceptW := true.B
+        beatReg := beatReg + 1.U
+        addrReg := addrReg + 1.U
+        state   := sWrBeat
+      }.otherwise {
         state := sDone
       }
     }

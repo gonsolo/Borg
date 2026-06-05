@@ -68,6 +68,7 @@ class QspiBackend extends Module {
 
   // Backend outputs
   io.backend.dataOut := Cat(byteHi, byteLo)
+  io.backend.accept  := false.B   // single-transaction backend (no burst streaming yet)
   io.backend.done    := (state === sRdDone) || (state === sWrDone)
   io.backend.busy    := (state =/= sIdle)
 

@@ -19,12 +19,14 @@ import chisel3.util._
 
 class GpuMemTestHarnessIO extends Bundle {
   // GPU memory port (directly exposed)
-  val gpuReq   = Input(Bool())
-  val gpuWr    = Input(Bool())
-  val gpuAddr  = Input(UInt(25.W))
-  val gpuWdata = Input(UInt(32.W))
-  val gpuReady = Output(Bool())
-  val gpuData  = Output(UInt(32.W))
+  val gpuReq     = Input(Bool())
+  val gpuWr      = Input(Bool())
+  val gpuAddr    = Input(UInt(25.W))
+  val gpuWdata   = Input(UInt(32.W))
+  val gpuWlen    = Input(UInt(7.W))    // burst word count (1 = single word)
+  val gpuReady   = Output(Bool())
+  val gpuWaccept = Output(Bool())      // controller pulled current word; present next
+  val gpuData    = Output(UInt(32.W))
 
   // Debug
   val memBusy      = Output(Bool())
@@ -59,7 +61,9 @@ class GpuMemTestHarness extends Module {
   mem.io.gpuMem.wr    := io.gpuWr
   mem.io.gpuMem.addr  := io.gpuAddr
   mem.io.gpuMem.wdata := io.gpuWdata
+  mem.io.gpuMem.wlen  := io.gpuWlen
   io.gpuReady         := mem.io.gpuMem.ready
+  io.gpuWaccept       := mem.io.gpuMem.waccept
   io.gpuData          := mem.io.gpuMem.data
 
   // ── Debug ──

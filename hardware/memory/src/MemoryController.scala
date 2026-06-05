@@ -61,6 +61,13 @@ class MemoryController extends Module {
   val hwIdx   = RegInit(0.U(1.W))  // 0 or 1 within current CPU/GPU access
   val needTwo = RegInit(false.B)   // true when the request needs 2 halfwords
 
+  // GPU write burst (BorgTileFlusher streams a whole tile in one transaction).
+  // burst=true streams `lenReg` consecutive words: the backend auto-increments
+  // the address and pulses `accept` per word; we forward that to gpuMem.waccept
+  // so the flusher presents the next word.  Single-word writers leave wlen===1.
+  val burst   = RegInit(false.B)
+  val lenReg  = RegInit(1.U(7.W))
+
   // Latched request fields
   val reqByteAddr = RegInit(0.U(25.W))
   val reqData     = RegInit(0.U(32.W))
@@ -118,9 +125,13 @@ class MemoryController extends Module {
   val txIsRead     = isReadReq || doingRmwRead
 
   // ── Backend wiring ─────────────────────────────────────────────────────────
+  // During a GPU write burst, stream the flusher's live word straight through and
+  // tell the backend how many words to expect; otherwise the existing single-word
+  // (and 2-halfword CPU) behaviour is unchanged (lenIn === 1).
   io.backend.addrIn     := currentWordAddr
-  io.backend.dataIn     := txWriteHw
+  io.backend.dataIn     := Mux(burst, io.gpuMem.wdata(15, 0), txWriteHw)
   io.backend.byteEnIn   := currentByteEn
+  io.backend.lenIn      := Mux(burst, lenReg, 1.U)
   io.backend.startRead  := (state === sIssue) &&  txIsRead
   io.backend.startWrite := (state === sIssue) && !txIsRead
 
@@ -155,6 +166,9 @@ class MemoryController extends Module {
 
   io.gpuMem.data  := gpuRespBits
   io.gpuMem.ready := (state === sRespond) && (rKind === rGpuRead || rKind === rGpuWrite)
+  // Burst write: forward the backend's per-word pull to the flusher so it presents
+  // the next word.  Never asserts outside a burst (accept stays low there).
+  io.gpuMem.waccept := burst && io.backend.accept
 
   io.debug_state := state
 
@@ -162,6 +176,7 @@ class MemoryController extends Module {
   switch(state) {
     is(sIdle) {
       rmwReadPending := false.B  // default; only byte writes (below) set it true
+      burst          := false.B  // default; only GPU burst writes (below) set it true
       // Priority: CPU read > CPU write > GPU write > GPU read > instr fetch.
       // Each branch latches the request and goes to sIssue.
       when(io.cpuData.req.valid && !io.cpuData.req.bits.write) {
@@ -197,6 +212,9 @@ class MemoryController extends Module {
         reqSize     := HuttSize.Half
         needTwo     := false.B
         hwIdx       := 0.U
+        // Burst when the master asks for >1 word (the flusher streams a tile).
+        burst       := io.gpuMem.wlen > 1.U
+        lenReg      := io.gpuMem.wlen
         state       := sIssue
       }.elsewhen(io.gpuMem.req) {
         rKind       := rGpuRead

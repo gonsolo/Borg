@@ -91,6 +91,7 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
 
   // Backend → Arbiter
   io.backend.dataOut := readDataReg
+  io.backend.accept  := false.B   // single-transaction backend (no burst streaming yet)
   io.backend.done    := state === sDone
   io.backend.busy    := state =/= sIdle
 

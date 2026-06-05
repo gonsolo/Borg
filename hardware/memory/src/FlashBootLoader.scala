@@ -115,6 +115,7 @@ class FlashBootLoader(
   io.backend.addrIn     := sdramAddr(24, 1)
   io.backend.dataIn     := Cat(buf1, buf0)
   io.backend.byteEnIn   := "b11".U
+  io.backend.lenIn      := 1.U     // single-word writes (bootloader, no burst)
   io.backend.startRead  := false.B
   io.backend.startWrite := (state === sWrStart)
   io.boot_done          := (state === sDone)

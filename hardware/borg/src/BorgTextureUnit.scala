@@ -64,6 +64,7 @@ class BorgTextureUnit extends Module {
   io.gpuMem.addr  := 0.U
   io.gpuMem.wr    := false.B
   io.gpuMem.wdata := 0.U
+  io.gpuMem.wlen  := 1.U   // texture unit only reads
   io.done         := false.B
 
   io.fragColor.r := frag_r

@@ -57,6 +57,7 @@ class CpuDataHarness extends Module {
   mem.io.gpuMem.wr    := false.B
   mem.io.gpuMem.addr  := 0.U
   mem.io.gpuMem.wdata := 0.U
+  mem.io.gpuMem.wlen  := 1.U
 
   io.memBusy := sdram.io.backend.busy
   io.beState := sdram.io.debug_be_state
@@ -79,6 +80,7 @@ class HuttMemHarness extends Module {
   mem.io.gpuMem.wr    := false.B
   mem.io.gpuMem.addr  := 0.U
   mem.io.gpuMem.wdata := 0.U
+  mem.io.gpuMem.wlen  := 1.U
 
   io.gpuReady := mem.io.gpuMem.ready
   io.memBusy  := sdram.io.backend.busy

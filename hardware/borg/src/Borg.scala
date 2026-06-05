@@ -233,12 +233,18 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                        Mux(geoBusy, geoWr, rast.io.gpuMem.wr)))
     io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
                        Mux(geoBusy, geoWdata, rast.io.gpuMem.wdata))
+    // Burst length: only the flusher streams whole tiles; everyone else is 1 word.
+    io.gpuMem.wlen  := Mux(f.io.busy, f.io.gpuMem.wlen, 1.U)
     rast.io.gpuMem.data  := io.gpuMem.data
     rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy
+    rast.io.gpuMem.waccept := false.B
     f.io.gpuMem.data  := io.gpuMem.data
     f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
+    // Per-word burst pull goes only to the flusher (the sole burst master).
+    f.io.gpuMem.waccept := io.gpuMem.waccept && f.io.busy
     d.io.gpuMem.data  := io.gpuMem.data
     d.io.gpuMem.ready := io.gpuMem.ready && d.io.busy
+    d.io.gpuMem.waccept := false.B
 
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
     rast.io.texConfig.baseAddr := rdlRegs.io.hw.tex_config_base_addr
@@ -564,6 +570,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // GpuMem feedback
     b.io.gpuMem.data  := io.gpuMem.data
     b.io.gpuMem.ready := io.gpuMem.ready && b.io.busy && !d.io.busy && !f.io.busy
+    b.io.gpuMem.waccept := false.B   // binner writes single words, never bursts
 
     // Store ready
     s.io.store.ready := io.gpuMem.ready && s.io.store.active &&

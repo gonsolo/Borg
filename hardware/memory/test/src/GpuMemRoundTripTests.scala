@@ -41,6 +41,7 @@ object GpuMemRoundTripTests extends TestSuite {
         dut.io.gpuWr.poke(false.B)
         dut.io.gpuAddr.poke(0.U)
         dut.io.gpuWdata.poke(0.U)
+        dut.io.gpuWlen.poke(1.U)   // single-word writes
 
         // Wait for backend idle
         var waited = 0
@@ -122,6 +123,95 @@ object GpuMemRoundTripTests extends TestSuite {
         println(s"\n[$cycle] ══ Result: $errors errors out of $numWords reads ══")
         Predef.assert(errors == 0, s"$errors GPU read mismatches!")
         println(s"[$cycle] ✓ All GPU write/read round-trips passed!")
+      }
+    }
+
+    utest.test("GPU burst write (64 words in one transaction) then read back") {
+      simulate(new GpuMemTestHarness) { dut =>
+        val TIMEOUT = 200000
+        var cycle = 0
+        def tick(n: Int = 1): Unit = {
+          for (_ <- 0 until n) dut.clock.step()
+          cycle += n
+          Predef.assert(cycle < TIMEOUT, s"TIMEOUT at cycle $cycle")
+        }
+
+        dut.reset.poke(true.B);  tick(5)
+        dut.reset.poke(false.B); tick(5)
+        cycle = 10
+
+        dut.io.gpuReq.poke(false.B)
+        dut.io.gpuWr.poke(false.B)
+        dut.io.gpuAddr.poke(0.U)
+        dut.io.gpuWdata.poke(0.U)
+        dut.io.gpuWlen.poke(1.U)
+
+        var waited = 0
+        while (dut.io.memBusy.peek().litToBoolean && waited < 1000) { tick(); waited += 1 }
+
+        val baseAddr = 0x1000
+        val burstLen = 64
+        // Distinct per-word values so a mis-ordered/dropped beat is caught.
+        def word(i: Int): Long = (0xA000 | i).toLong & 0xFFFFL
+
+        // ── Burst write: one transaction streams all 64 words ──
+        dut.io.gpuWr.poke(true.B)
+        dut.io.gpuAddr.poke(baseAddr.U)
+        dut.io.gpuWlen.poke(burstLen.U)
+        dut.io.gpuWdata.poke(word(0).U)   // first word
+
+        var wordIdx = 0
+        val startCycle = cycle
+        waited = 0
+        // Model a REGISTERED producer (like the real flusher): a waccept at cycle T
+        // advances wdata so the next word appears at T+1.  So sample waccept, tick,
+        // THEN poke the next word — never present it in the same cycle it's pulled.
+        while (!dut.io.gpuReady.peek().litToBoolean && waited < 4000) {
+          val acc = dut.io.gpuWaccept.peek().litToBoolean
+          tick(); waited += 1
+          if (acc) {
+            wordIdx += 1
+            if (wordIdx < burstLen) dut.io.gpuWdata.poke(word(wordIdx).U)
+          }
+        }
+        val burstCycles = cycle - startCycle
+        Predef.assert(waited < 4000, "burst write never completed (gpuReady)")
+        Predef.assert(wordIdx == burstLen - 1,
+          s"flusher advanced $wordIdx times, expected ${burstLen - 1} waccept pulses")
+
+        dut.io.gpuWr.poke(false.B)
+        dut.io.gpuWlen.poke(1.U)
+        tick()
+        waited = 0
+        while (dut.io.memBusy.peek().litToBoolean && waited < 500) { tick(); waited += 1 }
+
+        println(s"[$cycle] ── Burst of $burstLen words wrote in $burstCycles cycles " +
+                f"(${burstCycles.toDouble / burstLen}%.1f cyc/word) ──")
+
+        // ── Read back as 32-bit words; verify each beat landed at the right addr ──
+        val numWords = burstLen / 2
+        var errors = 0
+        for (i <- 0 until numWords) {
+          val addr = baseAddr + i * 4
+          dut.io.gpuReq.poke(true.B)
+          dut.io.gpuAddr.poke(addr.U)
+          tick()
+          waited = 0
+          while (!dut.io.gpuReady.peek().litToBoolean && waited < 500) { tick(); waited += 1 }
+          val readData = dut.io.gpuData.peek().litValue.toLong & 0xFFFFFFFFL
+          dut.io.gpuReq.poke(false.B)
+          tick()
+          waited = 0
+          while (dut.io.memBusy.peek().litToBoolean && waited < 500) { tick(); waited += 1 }
+
+          val expected = (word(2 * i + 1) << 16) | word(2 * i)
+          if (readData != expected) {
+            println(f"[$cycle] ✗ read $i: addr=0x${addr.toHexString} got=0x${readData.toHexString} exp=0x${expected.toHexString}")
+            errors += 1
+          }
+        }
+        Predef.assert(errors == 0, s"$errors burst read mismatches!")
+        println(s"[$cycle] ✓ Burst write/read round-trip passed ($burstCycles cyc vs ~441 single-word baseline)")
       }
     }
   }

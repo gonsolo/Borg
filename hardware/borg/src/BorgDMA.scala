@@ -63,6 +63,7 @@ class BorgDMA extends Module {
   io.gpuMem.addr  := 0.U
   io.gpuMem.wr    := false.B
   io.gpuMem.wdata := 0.U
+  io.gpuMem.wlen  := 1.U   // DMA only reads
 
   io.snoop.valid  := false.B
   io.snoop.bits   := 0.U

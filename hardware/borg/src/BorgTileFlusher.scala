@@ -90,6 +90,7 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   io.gpuMem.addr  := 0.U
   io.gpuMem.wr    := false.B
   io.gpuMem.wdata := 0.U
+  io.gpuMem.wlen  := 1.U   // single-word default (Step 2 overrides with a tile burst)
 
   switch(state) {
 

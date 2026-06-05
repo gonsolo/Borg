@@ -27,6 +27,12 @@ class GpuMemIO extends Bundle {
   val data  = Input(UInt(32.W))
   val ready = Input(Bool())
   // Step 25.2: GPU write path
-  val wr    = Output(Bool())      // assert to start a 4-byte QSPI write
-  val wdata = Output(UInt(32.W)) // data word to write
+  val wr    = Output(Bool())      // assert to start a write
+  val wdata = Output(UInt(32.W)) // data word to write (current burst beat, low 16 bits)
+  // Burst write: a master asserts `wr` with `wlen` words; it presents the first
+  // word on `wdata` and advances to the next word whenever the controller pulses
+  // `waccept`.  `ready` pulses once when the whole burst is done.  wlen === 1 is a
+  // plain single-word write (the existing behaviour).
+  val wlen    = Output(UInt(7.W))   // burst word count (1..64)
+  val waccept = Input(Bool())       // controller pulled the current word; present next
 }

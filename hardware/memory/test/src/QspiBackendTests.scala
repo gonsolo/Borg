@@ -37,6 +37,7 @@ class QspiBackendHarness extends Module {
   dut.io.backend.addrIn     := io.addrIn
   dut.io.backend.dataIn     := io.dataIn
   dut.io.backend.byteEnIn   := io.byteEnIn
+  dut.io.backend.lenIn      := 1.U   // single-word backend test
   dut.io.backend.startRead  := io.startRead
   dut.io.backend.startWrite := io.startWrite
   dut.io.qspiPins.dataIn    := io.spiDataIn

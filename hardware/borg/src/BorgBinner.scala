@@ -180,6 +180,7 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
   io.gpuMem.addr  := 0.U
   io.gpuMem.wr    := false.B
   io.gpuMem.wdata := 0.U
+  io.gpuMem.wlen  := 1.U   // binner writes single 16-bit indices
 
   // --- FSM ---
   switch(state) {
