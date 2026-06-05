@@ -255,14 +255,15 @@ Target          & ECP5    & Arria 5 & Xilinx \\
   \item \textbf{800$\times$480 HDMI} native resolution (DDC/EDID)
   \item Higher fps via SDRAM burst writes and uniform caching
   \item SIMD-2 FMA for 2$\times$ fragment shader throughput
-  \item BVH ray traversal ISA extensions (path tracing)
+  \item BVH ray traversal ISA extensions --- \textbf{Gonzales},
+        an open-source Mojo wavefront path tracer (31/33 Bitterli
+        scenes), drives this hardware work
 \end{itemize}
-\medskip
 \textbf{Open questions:}
 \begin{itemize}[leftmargin=*,nosep]
   \item Can a TBDR pipeline scale to multi-core tiles?
   \item Minimal ISA for hardware BVH traversal?
-  \item How to best expose Borg via Mesa Vulkan?
+  \item How to best expose Borg via a Mesa Vulkan ICD over USB?
 \end{itemize}
 }
 
@@ -287,7 +288,7 @@ inspect the layout and modify logic without NDAs.
 
 \block{Physical Design (GDSII)}{
   \begin{center}
-    \includegraphics[width=0.75\linewidth]{gds_render_small}
+    \includegraphics[width=0.58\linewidth]{gds_render_small}
   \end{center}
   \centering \small
   \begin{tabular}{@{}ll@{}}
@@ -306,7 +307,7 @@ inspect the layout and modify logic without NDAs.
 
 \block{Selected References \& Learn More}{
 \footnotesize
-\begin{enumerate}[leftmargin=1.5em,nosep,label={[\arabic*]}]
+\begin{enumerate}[leftmargin=1.5em,nosep,topsep=0pt,label={[\arabic*]}]
   \item \textbf{M. Bell}, \emph{TinyQV: A RISC-V Core for Tiny Tapeout}, 2024.
   \item \textbf{J. Bush}, \emph{Nyuzi Parallel Processor}, GPGPU-7, 2014.
   \item \textbf{A. Taneja et al.}, \emph{Vortex: Open Source RISC-V GPGPU}, 2021.
