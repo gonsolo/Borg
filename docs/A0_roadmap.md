@@ -1239,6 +1239,67 @@ change. Do only if H1–H4 land with time to spare.
 bitstream risk) and alone should reach a presentable frame rate, so the demo is
 safe to show even if the hardware steps (H3–H5) slip.
 
+### Status update (2026-06-05) — burst-SDRAM done, H4 abandoned, reprioritized for Vulkan
+
+Actual progress since the H1–H5 plan was written:
+
+- **H5 (GPU vertex-transform offload): DONE.** The MVP×vertex transform now runs in
+  the sequencer; the CPU only uploads the matrix + raw vertices.
+- **H4 (Scanout QoS): ABANDONED.** Gating the scanout fill deadlocks the gpuMem
+  handshake (→ Borg `mmio.req.ready` sticks → CPU freezes) **and** has ~zero upside:
+  the priority arbiter already grants the scanout SDRAM only when the GPU isn't
+  requesting, so it never causes the stall. The "stall" is the GPU waiting on its
+  **own** flush + dma SDRAM traffic, not scanout contention.
+- **Burst-SDRAM (new, the real lever): DONE & HW-verified.** The flusher now streams a
+  whole tile as one burst write instead of 48 single-word writes that each paid a full
+  `req→ready` round-trip. Result on the board: **flush 62→30 ms, stall 103→44 ms,
+  present 207→150 ms, 3.93→5.06 fps (+29%)**, zero pin-timing risk.
+
+#### Realistic ULX3S fps ceiling: ~10–15 fps @ 128×128
+
+Stacking the full optimization set: command-buffer record-once + I-cache + M (CPU
+47→~14 ms) → burst-reads + back-to-back flush → ~2 frag cores (frag 81→~50 ms) →
+clock 25→~33 MHz → H5/double-buffer overlap ≈ **~13 fps**. Three hard walls cap it:
+
+1. **Area** — each frag core is an FP16 FMA + HardFloat; the single-core GDS was ~107k
+   instances vs the ECP5-85K's ~84k LUTs, so **~2 frag cores is the practical max**.
+   That caps the biggest lever (frag is 54 % of present).
+2. **Clock** — FPU Fmax ≈ 34 MHz post the FMA-pipeline fix; ~30–33 MHz is nearly free,
+   but going higher needs deeper FPU pipelining.
+3. **Per-pixel work is fixed** — only parallelism (cores) and clock move it.
+
+**800×480 is display-only**, not an fps target: ~23× the pixels of 128×128 → frag ~23× →
+fractions of an fps for shaded content. The smooth rotating-cube demo lives at 128×128.
+Past ~15 fps needs a bigger FPGA / pipelined FPU / host CPU — a different board.
+
+#### Vulkan-aligned next steps (each an fps win **and** a roadmap step)
+
+The target is **Vulkan** Mesa + Linux, which reorders the levers:
+
+1. **GPU command-buffer / queue-submit model** ⭐ — Vulkan *is* command buffers; the
+   sequencer's descriptor list (`seq_desc_base`) is already proto-this / proto-DRM-submit.
+   Make the GPU consume a full command buffer from SDRAM (CPU writes a pointer + kicks).
+   Biggest CPU fps win too: the firmware re-records `draw_cube` (29 ms) **every** frame,
+   but geometry is static and the GPU does the transform — so **record once, update only
+   the MVP uniform per frame** → `draw_cube` ~29→~5 ms. Same change = fps win + the literal
+   Vulkan/DRM submit shape.
+2. **I-cache (H3)** — required by both the Mesa Vulkan driver and Linux; supports the above.
+3. **M ext → D-cache → pipeline → CSRs → Sv32 MMU** — the Linux-boot ladder (Phase 4), each
+   also a CPU fps gain.
+4. **`nir_to_borg` backend + DRM kernel driver** — Vulkan ships SPIR-V; Mesa's `spirv_to_nir`
+   feeds a driver NIR→Borg-ISA backend (the "SPIR-B" format is the seed). The long pole for
+   "Vulkan runs" (Phases 4/5).
+5. **~2 frag cores** — the fps ceiling lever; area-limited, large effort, SDRAM contention.
+
+**Skip:** back-to-back-flush controller change (only ~+7 % now that flush isn't the
+bottleneck — a roadmap dead-end) and any hand-tuning of the firmware vkcube (thrown away
+once Mesa renders the real one).
+
+**Reality check:** Mesa-Vulkan on a soft RV32 @ ~30 MHz is slow regardless — the Linux/Mesa
+milestone is "runs standard Vulkan," not an fps number. But Vulkan's explicit command-buffer
+model is far lighter per-frame than OpenGL, so it's more viable on a soft CPU. The fps demo
+stays bare-metal; both goals share the same command-buffer + CPU investments.
+
 ## Phase 4: Linux-Capable CPU
 
 Target: **~Sept 2026** — expand the Hutt CPU to RV32IMA. Sequential after the HPG demo (Phase 3).
