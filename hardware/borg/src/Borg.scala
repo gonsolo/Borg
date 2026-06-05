@@ -22,9 +22,6 @@ class BorgIO(val cfg: BorgConfig) extends Bundle {
 
   // GPU read port (Step 19.2: sTexFetch → MemoryController)
   val gpuMem = new GpuMemIO
-
-  // High while the sequencer is actively rendering (for scanout QoS)
-  val seqBusy = Output(Bool())
 }
 
 /** Borg — minimal FP16 shading processor with 4-cycle FMA pipeline.
@@ -106,8 +103,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   wireMmioRead()
   wireDMA()
   wirePerf()
-  io.seqBusy := s.io.busy
-
 
   private def wireRdlRegs(): Unit = {
     rdlRegs.io.bus.address   := bus.address
