@@ -70,13 +70,21 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
   sdram.io.pins.dq_in := io.sdramPins.dq_in
 
   // ── FSM ──
-  val sIdle :: sHold :: sAck :: sDone :: Nil = Enum(4)
+  // Burst write streams `lenReg` words through the (unchanged) single-word
+  // SdramController: each word is one open-row write; between words we ack the
+  // controller, pull the next word (accept), and re-issue.  This keeps the
+  // MemoryController in its burst (no per-word re-arbitration) and is correct
+  // on real hardware with zero change to the SDRAM pin timing.  A faster
+  // back-to-back controller (tWR only at burst end) is a later step.
+  val sIdle :: sHold :: sAck :: sLoad :: sDone :: Nil = Enum(5)
   val state = RegInit(sIdle)
 
   val isWrite     = RegInit(false.B)
   val addrReg     = RegInit(0.U(24.W))
   val dataReg     = RegInit(0.U(16.W))
   val readDataReg = RegInit(0.U(16.W))
+  val lenReg      = RegInit(1.U(7.W))   // burst word count latched at startWrite
+  val beatReg     = RegInit(0.U(7.W))   // words completed so far
 
   // Rising-edge detector on sdram.io.sys.rdy.
   val rdyPrev   = RegNext(sdram.io.sys.rdy, false.B)
@@ -89,9 +97,11 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
   sdram.io.sys.ab  := addrReg
   sdram.io.sys.di  := dataReg
 
+  val acceptW = WireDefault(false.B)   // burst-beat pull: present next word next cycle
+
   // Backend → Arbiter
   io.backend.dataOut := readDataReg
-  io.backend.accept  := false.B   // single-transaction backend (no burst streaming yet)
+  io.backend.accept  := acceptW
   io.backend.done    := state === sDone
   io.backend.busy    := state =/= sIdle
 
@@ -106,11 +116,15 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
       when(io.backend.startRead) {
         addrReg := io.backend.addrIn
         isWrite := false.B
+        lenReg  := 1.U
+        beatReg := 0.U
         state   := sHold
       }.elsewhen(io.backend.startWrite) {
         addrReg := io.backend.addrIn
         dataReg := io.backend.dataIn
         isWrite := true.B
+        lenReg  := io.backend.lenIn
+        beatReg := 0.U
         state   := sHold
       }
     }
@@ -125,7 +139,22 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
     }
 
     is(sAck) {
-      state := sDone
+      // Controller is acked here (returns to sIDLE).  If this is a burst write
+      // with more words to go, pull the next word and re-issue; else finish.
+      when(isWrite && (beatReg + 1.U) < lenReg) {
+        acceptW := true.B          // arbiter presents the next word next cycle
+        addrReg := addrReg + 1.U
+        beatReg := beatReg + 1.U
+        state   := sLoad
+      }.otherwise {
+        state := sDone
+      }
+    }
+
+    is(sLoad) {
+      // The arbiter advanced its word register on accept; latch the next word.
+      dataReg := io.backend.dataIn
+      state   := sHold
     }
 
     is(sDone) {

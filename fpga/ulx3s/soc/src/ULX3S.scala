@@ -152,9 +152,13 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
     mem.io.gpuMem.addr  := Mux(serveGpu, peripherals.io.gpuMem.addr,  scanout.io.gpuAddr)
     mem.io.gpuMem.wr    := Mux(serveGpu, peripherals.io.gpuMem.wr,    false.B)
     mem.io.gpuMem.wdata := peripherals.io.gpuMem.wdata
+    // Burst length: only the GPU writes (and bursts); the scanout only reads.
+    mem.io.gpuMem.wlen  := Mux(serveGpu, peripherals.io.gpuMem.wlen, 1.U)
 
-    peripherals.io.gpuMem.data  := mem.io.gpuMem.data
-    peripherals.io.gpuMem.ready := mem.io.gpuMem.ready && !scanoutOwns
+    peripherals.io.gpuMem.data    := mem.io.gpuMem.data
+    peripherals.io.gpuMem.ready   := mem.io.gpuMem.ready && !scanoutOwns
+    // Forward the burst per-word pull to the GPU only while it owns the bus.
+    peripherals.io.gpuMem.waccept := mem.io.gpuMem.waccept && serveGpu
 
     scanout.io.gpuData  := mem.io.gpuMem.data
     scanout.io.gpuReady := mem.io.gpuMem.ready && scanoutOwns
@@ -177,14 +181,17 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   sdramBackend.io.backend.byteEnIn   := Mux(bootDone, mem.io.backend.byteEnIn,   flashBoot.io.backend.byteEnIn)
   sdramBackend.io.backend.startRead  := Mux(bootDone, mem.io.backend.startRead,  false.B)
   sdramBackend.io.backend.startWrite := Mux(bootDone, mem.io.backend.startWrite, flashBoot.io.backend.startWrite)
+  sdramBackend.io.backend.lenIn      := Mux(bootDone, mem.io.backend.lenIn,      flashBoot.io.backend.lenIn)
 
   // → MemoryController (only active after boot_done)
   mem.io.backend.dataOut := Mux(bootDone, sdramBackend.io.backend.dataOut, 0.U)
+  mem.io.backend.accept  := Mux(bootDone, sdramBackend.io.backend.accept,  false.B)
   mem.io.backend.done    := Mux(bootDone, sdramBackend.io.backend.done,    false.B)
   mem.io.backend.busy    := Mux(bootDone, sdramBackend.io.backend.busy,    false.B)
 
-  // → FlashBootLoader
+  // → FlashBootLoader (single-word; never bursts, so accept is unused there)
   flashBoot.io.backend.dataOut := sdramBackend.io.backend.dataOut
+  flashBoot.io.backend.accept  := Mux(!bootDone, sdramBackend.io.backend.accept, false.B)
   flashBoot.io.backend.done    := Mux(!bootDone, sdramBackend.io.backend.done, false.B)
   flashBoot.io.backend.busy    := Mux(!bootDone, sdramBackend.io.backend.busy, false.B)
 

@@ -112,5 +112,69 @@ object SdramBackendTests extends TestSuite {
         }
       }
     }
+
+    // Burst write (lenIn > 1): one startWrite streams N words to consecutive
+    // word addresses through the single-word controller.  Observe the SDRAM
+    // WRITE commands on the pins to confirm N writes at base, base+1, … with the
+    // streamed data, exactly one `done`, and `lenIn-1` `accept` pulses.
+    test("WB_burst_write") {
+      simulate(new SdramBackend) { dut =>
+        initBackend(dut)
+
+        val base = 0x20
+        val n    = 4
+        def word(i: Int): Int = 0xAA00 + i
+
+        def isWriteCmd: Boolean =
+          dut.io.sdramPins.cs_n.peek().litValue  == 0 &&
+          dut.io.sdramPins.ras_n.peek().litValue == 1 &&
+          dut.io.sdramPins.cas_n.peek().litValue == 0 &&
+          dut.io.sdramPins.we_n.peek().litValue  == 0
+
+        // Issue the burst: present word 0, len = n.
+        dut.io.backend.addrIn.poke(base.U)
+        dut.io.backend.lenIn.poke(n.U)
+        dut.io.backend.dataIn.poke(word(0).U)
+        dut.io.backend.startWrite.poke(true.B)
+        dut.clock.step(1)
+        dut.io.backend.startWrite.poke(false.B)
+
+        val cols = scala.collection.mutable.ArrayBuffer[Int]()
+        val data = scala.collection.mutable.ArrayBuffer[Int]()
+        var accepts = 0
+        var wordIdx = 0
+        var gotDone = false
+        var guard   = 0
+        // Registered producer: advance the word AFTER the step on which accept fired.
+        while (!gotDone && guard < 400) {
+          if (isWriteCmd) {
+            cols += dut.io.sdramPins.addr.peek().litValue.toInt
+            data += dut.io.sdramPins.dq_out.peek().litValue.toInt
+          }
+          val acc = dut.io.backend.accept.peek().litValue == 1
+          if (dut.io.backend.done.peek().litValue == 1) gotDone = true
+          dut.clock.step(1)
+          if (acc) {
+            accepts += 1
+            wordIdx += 1
+            if (wordIdx < n) dut.io.backend.dataIn.poke(word(wordIdx).U)
+          }
+          guard += 1
+        }
+
+        println(s"WB: cols=${cols.map(c => f"0x$c%X").mkString(",")} " +
+                s"data=${data.map(d => f"0x$d%X").mkString(",")} accepts=$accepts done=$gotDone")
+        Predef.assert(gotDone, "burst never produced done")
+        Predef.assert(accepts == n - 1, s"expected ${n - 1} accept pulses, got $accepts")
+        Predef.assert(cols.length == n, s"expected $n WRITE commands, got ${cols.length}")
+        for (i <- 0 until n) {
+          Predef.assert(cols(i) == base + i, s"write $i col: got 0x${cols(i).toHexString} exp 0x${(base+i).toHexString}")
+          Predef.assert(data(i) == word(i),  s"write $i data: got 0x${data(i).toHexString} exp 0x${word(i).toHexString}")
+        }
+        dut.clock.step(2)
+        assert(dut.io.backend.busy.peek().litValue == 0)
+        println("WB: 4-word burst wrote consecutive columns with correct data ✓")
+      }
+    }
   }
 }
