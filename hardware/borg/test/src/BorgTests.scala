@@ -1243,15 +1243,15 @@ object BorgTests extends TestSuite {
         // we don't observe (resulting in only 16 captures instead of 32).
         // Instead: capture writes with a single-step loop; check FLUSH_BUSY
         // separately between pixel iterations and after the drain.
-        println("  Running 16 iterator steps (driving gpuMem.ready)...")
-        var writeCount = 0
-        var flushBusySeen  = false
-        val writes = scala.collection.mutable.ArrayBuffer[(Int, Long)]()  // (addr, data)
+        println("  Running 16 iterator steps, then capturing the tile burst...")
+        var flushBusySeen = false
+        val burstWords = scala.collection.mutable.ArrayBuffer[Long]()
+        var burstAddr   = -1
 
-        // Single-cycle FLUSH_BUSY check: steps clock exactly once, does NOT
-        // assert gpuMem.ready (called only between pixel iterations).
+        // Single-cycle FLUSH_BUSY check (does NOT advance the burst).
         def peekFlushBusy(): Boolean = {
           borg.io.gpuMem.ready.poke(false.B)
+          borg.io.gpuMem.waccept.poke(false.B)
           borg.io.address.poke(BorgGpuRegs.status_offset)
           borg.io.data_read_n.poke(2.U)
           borg.io.data_write_n.poke(3.U)
@@ -1262,102 +1262,74 @@ object BorgTests extends TestSuite {
           (v & 0x10) != 0
         }
 
-        // Tight capture loop: only peek/poke gpuMem signals + step once per iter
-        def drainFlusher(cycles: Int): Unit = {
-          for (_ <- 0 until cycles) {
-            if (borg.io.gpuMem.wr.peek().litToBoolean) {
-              writes += ((borg.io.gpuMem.addr.peek().litValue.toInt,
-                          borg.io.gpuMem.wdata.peek().litValue.toLong))
-              writeCount += 1
-              flushBusySeen = true  // flusher active (wr=1 implies FLUSH_BUSY)
-              borg.io.gpuMem.ready.poke(true.B)
-            } else {
-              borg.io.gpuMem.ready.poke(false.B)
-            }
-            borg.clock.step(1)
-          }
+        def idleStep(): Unit = {
           borg.io.gpuMem.ready.poke(false.B)
+          borg.io.gpuMem.waccept.poke(false.B)
+          borg.clock.step(1)
         }
 
+        // Rasterize the tile: give each pixel iteration time to run the shader.
+        // The flusher only fires after the 16th pixel completes the tile; no
+        // gpuMem writes happen during the pixel iterations (Z stays on-chip).
         for (_ <- 0 until 16) {
-          // Trigger one auto-run step
           rawWrite(BorgGpuRegs.iter_offset.litValue.toInt, 1)
-          // Drain up to 120 cycles for this pixel; flusher fires on pixel 15
-          drainFlusher(120)
-          // Check FLUSH_BUSY between pixels (safe: no flusher writes expected
-          // during the first 15 pixels; after pixel 15, flusher may be active
-          // but drainFlusher above should have captured all writes)
-          if (peekFlushBusy()) flushBusySeen = true
+          for (_ <- 0 until 120) idleStep()
         }
 
-        // Extra drain in case the flusher is still running (4 writes × 16 pixels)
-        drainFlusher(800)
+        // Tile complete → the flusher issues ONE 64-word burst (R,G,B,Z × 16).
+        var guard = 0
+        while (!(borg.io.gpuMem.wr.peek().litToBoolean &&
+                 borg.io.gpuMem.wlen.peek().litValue.toInt == 64) && guard < 2000) {
+          idleStep(); guard += 1
+        }
+        Predef.assert(guard < 2000, "flush burst never started")
+        flushBusySeen = true
+        burstAddr = borg.io.gpuMem.addr.peek().litValue.toInt
 
-        // Final FLUSH_BUSY check: must be clear after drain
+        // Play the MemoryController: collect each word, pulse waccept to advance.
+        for (w <- 0 until 64) {
+          Predef.assert(borg.io.gpuMem.wr.peek().litToBoolean, s"wr dropped at burst word $w")
+          burstWords += (borg.io.gpuMem.wdata.peek().litValue.toLong & 0xFFFFL)
+          if (w < 63) {
+            borg.io.gpuMem.waccept.poke(true.B)
+            borg.clock.step(1)
+            borg.io.gpuMem.waccept.poke(false.B)
+          }
+        }
+        // End the burst.
+        borg.io.gpuMem.ready.poke(true.B)
+        borg.clock.step(1)
+        borg.io.gpuMem.ready.poke(false.B)
+        borg.clock.step(1)
+
         val flushBusyClear = !peekFlushBusy() && flushBusySeen
 
         // ---- Assertions ----
-
         println(f"  FLUSH_BUSY seen high: $flushBusySeen (expect true)")
         Predef.assert(flushBusySeen, "FLUSH_BUSY never went high — flusher not triggered")
-
         println(f"  FLUSH_BUSY cleared:   $flushBusyClear (expect true)")
         Predef.assert(flushBusyClear, "FLUSH_BUSY did not clear — flusher hung")
 
-        // BorgTileFlusher writes R, G, B only (3 per pixel); Z is on-chip only.
-        // Pixel stride in SDRAM is 8 bytes (R+2+G+2+B+2+skip2), so addresses
-        // are: R at base+i*8, G at +2, B at +4; the +6 slot is dead.
-        println(f"  Total PSRAM writes:   $writeCount (expect 48)")
-        Predef.assert(writeCount == 48, s"Expected 48 writes (3×16), got $writeCount")
+        // One burst of 64 words; base address held at tileBase (controller increments).
+        println(f"  Burst words: ${burstWords.size} (expect 64), base 0x${burstAddr.toHexString} (expect 0x${tileBase.toHexString})")
+        Predef.assert(burstWords.size == 64, s"Expected 64 burst words, got ${burstWords.size}")
+        Predef.assert(burstAddr == tileBase, s"burst base addr: got 0x${burstAddr.toHexString} exp 0x${tileBase.toHexString}")
 
-        // Verify the first entry (i=0): R at tileBase, G at +2, B at +4
-        val (addr0R, data0R) = writes(0)
-        val (addr0G, data0G) = writes(1)
-        val (addr0B, data0B) = writes(2)
-        val expAddr0R = tileBase
-        val expAddr0G = tileBase + 2
-        val expAddr0B = tileBase + 4
-        val expData0R = 0x1000L
-        val expData0G = 0x2000L
-        val expData0B = 0x3000L
-
-        println(f"  Write[0] addr=0x$addr0R%04X (exp 0x$expAddr0R%04X)  data=0x$data0R%08X (exp 0x$expData0R%08X)")
-        println(f"  Write[1] addr=0x$addr0G%04X (exp 0x$expAddr0G%04X)  data=0x$data0G%08X (exp 0x$expData0G%08X)")
-        println(f"  Write[2] addr=0x$addr0B%04X (exp 0x$expAddr0B%04X)  data=0x$data0B%08X (exp 0x$expData0B%08X)")
-        Predef.assert(addr0R == expAddr0R, s"R addr mismatch: got 0x${addr0R.toHexString}")
-        Predef.assert(addr0G == expAddr0G, s"G addr mismatch: got 0x${addr0G.toHexString}")
-        Predef.assert(addr0B == expAddr0B, s"B addr mismatch: got 0x${addr0B.toHexString}")
-        Predef.assert(data0R == expData0R, s"R data mismatch: got 0x${data0R.toHexString}")
-        Predef.assert(data0G == expData0G, s"G data mismatch: got 0x${data0G.toHexString}")
-        Predef.assert(data0B == expData0B, s"B data mismatch: got 0x${data0B.toHexString}")
-
-        // Verify address stride: 3 writes per pixel, 8-byte stride (Z slot skipped)
-        for (i <- 0 until 16) {
-          val (aR, _) = writes(i * 3)
-          val (aG, _) = writes(i * 3 + 1)
-          val (aB, _) = writes(i * 3 + 2)
-          val expR = tileBase + i * 8
-          val expG = tileBase + i * 8 + 2
-          val expB = tileBase + i * 8 + 4
-          Predef.assert(aR == expR, s"entry $i R addr: got 0x${aR.toHexString} exp 0x${expR.toHexString}")
-          Predef.assert(aG == expG, s"entry $i G addr: got 0x${aG.toHexString} exp 0x${expG.toHexString}")
-          Predef.assert(aB == expB, s"entry $i B addr: got 0x${aB.toHexString} exp 0x${expB.toHexString}")
+        // Word w = pixel(w/4), channel(w%4): R=0x1000+p G=0x2000+p B=0x3000+p Z=0x4000+p
+        def expWord(w: Int): Long = {
+          val p = w / 4
+          (w % 4) match { case 0 => 0x1000L + p; case 1 => 0x2000L + p
+                          case 2 => 0x3000L + p; case _ => 0x4000L + p }
         }
-        println("  Address stride 8 bytes/pixel, 3 writes (R/G/B, Z skipped) ✓")
-
-        // Verify data for all 16 entries
-        for (i <- 0 until 16) {
-          val r = 0x1000 + i
-          val g = 0x2000 + i
-          val b = 0x3000 + i
-          val (_, gotR) = writes(i * 3)
-          val (_, gotG) = writes(i * 3 + 1)
-          val (_, gotB) = writes(i * 3 + 2)
-          Predef.assert(gotR == r.toLong, s"entry $i R data: got 0x${gotR.toHexString} exp 0x${r.toHexString}")
-          Predef.assert(gotG == g.toLong, s"entry $i G data: got 0x${gotG.toHexString} exp 0x${g.toHexString}")
-          Predef.assert(gotB == b.toLong, s"entry $i B data: got 0x${gotB.toHexString} exp 0x${b.toHexString}")
+        var errs = 0
+        for (w <- 0 until 64) {
+          if (burstWords(w) != expWord(w)) {
+            println(f"  word $w%2d: got 0x${burstWords(w).toHexString} exp 0x${expWord(w).toHexString}")
+            errs += 1
+          }
         }
-        println("  All 16 entry data values correct ✓")
+        Predef.assert(errs == 0, s"$errs burst word mismatches")
+        println("  All 64 burst words (R,G,B,Z × 16) correct ✓")
 
         println("=== Step 28: HW Flusher Autonomous Test PASSED ===\n")
       }

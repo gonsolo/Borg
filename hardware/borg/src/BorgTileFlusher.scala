@@ -30,153 +30,112 @@ class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
   val tileBase  = Input(UInt(25.W))
 }
 
-/** BorgTileFlusher — bulk DMA from tile SRAM to PSRAM (Step 25.4.2 Option A).
+/** BorgTileFlusher — bulk DMA from tile SRAM to PSRAM, one burst per tile.
   *
-  * Replaces the 10-state pixel-by-pixel scatter FSM with a 6-state sequential
-  * DMA engine:
+  * Reads all 16 tile-buffer entries ({R:16, G:16, B:16, Z:16} each) into a local
+  * buffer, then streams the whole tile to SDRAM as ONE 64-word burst write:
   *
   * {{{
-  *   sIdle      → sReadSram (latch tileBase, word_idx=0)
-  *   sReadSram  → sWaitSram (assert read.en, read.idx = word_idx >> 1)
-  *   sWaitSram  → sWaitSram2 (SyncReadMem pipeline bubble; data arrives next cycle)
-  *   sWaitSram2 → sWriteLo  (readDataHeld stable; data valid on io.read.data)
-  *   sWriteLo   → sWriteHi  (write entry bits[31:0]; wait for gpuMem.ready)
-  *   sWriteHi   → sReadSram (write entry bits[63:32]; wait for gpuMem.ready;
-  *                            word_idx += 2; if word_idx == 32 → sIdle)
+  *   sIdle  → sRead (latch tileBase, fillIdx=0)
+  *   sRead/sReadWait/sReadWait2 — read entry[fillIdx] (2-cycle BRAM latency) into
+  *     wordBuf; loop 16 times, then → sBurst
+  *   sBurst — assert gpuMem.wr with wlen=64 and present words R,G,B,Z of each pixel
+  *     in raster order (64 contiguous words = 128 bytes); advance on gpuMem.waccept;
+  *     finish on gpuMem.ready.
   * }}}
   *
-  * `io.read.data` is driven by BorgTileBuffer.readDataHeld, which holds its
-  * value stable from the cycle after readEnDel fires until the next read.en.
-  * No local entry_lo/entry_hi buffers are needed — saves ~64 LCs (Step 26.1).
-  * No tileBase_reg + adder needed — running addrReg saves ~18 LCs (Step 26.2).
+  * One burst pays the MemoryController/backend round-trip ONCE instead of per word,
+  * cutting the per-tile flush from ~336 cycles (48 single-word writes) to ~110.
+  * The dead Z slot (+6) is now written too so the 64 words are contiguous — the
+  * scanout still ignores Z (reads only B from the {Z,B} word), so the SDRAM layout
+  * (R@+0 G@+2 B@+4 Z@+6 per pixel) is unchanged.
   *
-  * Each tile SRAM entry is 64 bits: {R:16, G:16, B:16, Z:16} packed by Chisel.
-  * Two PSRAM writes per entry → 32 writes total per tile.
+  * wordBuf holds the whole tile in flops (16×64 b); a future area optimisation could
+  * prefetch entries during the stream instead, but a flat buffer is unambiguously
+  * correct and the burst itself is the win.
   */
 class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   val io = IO(new BorgTileFlusherIO(dataBits))
 
-  // FSM
-  // BorgTileBuffer read latency: 2 cycles after read.en:
-  //   Cycle 0 (sReadSram): assert read.en → SyncReadMem latches idx
-  //   Cycle 1 (sWaitSram):  SyncReadMem output available (rgbzRead); readEnDel fires
-  //   Cycle 2 (sWaitSram2): readDataHeld latches rgbzRead → io.read.data valid
-  //   io.read.data stays stable until the next sReadSram triggers read.en again.
-  //   entryHeld latches the data locally so a concurrent dispatcher read can't corrupt it.
-  val sIdle :: sReadSram :: sWaitSram :: sWaitSram2 :: sWriteR :: sWriteG :: sWriteB :: Nil = Enum(7)
-  val state = RegInit(0.U(3.W))   // 0 = sIdle
+  // BorgTileBuffer read latency: io.read.data is valid 2 cycles after read.en.
+  val sIdle :: sRead :: sReadWait :: sReadWait2 :: sBurst :: Nil = Enum(5)
+  val state = RegInit(sIdle)
 
-  // DMA state
-  // addrReg: running PSRAM byte address, starts at io.tileBase and advances +2
-  //          per write (each write = 1 SDRAM word = 2 bytes).
-  //          3 writes per pixel (R,G,B) × 16 pixels = 48 writes total.  Z is NOT
-  //          flushed to SDRAM: depth testing uses the on-chip tile buffer and the
-  //          scanout reads only B from the {Z,B} word (Z half ignored), so the
-  //          SDRAM Z slot at +6 is dead.  After B (+4) addrReg jumps +4 to the
-  //          next pixel's R (+8), leaving +6 unwritten.  ~25% fewer flush writes
-  //          → directly cuts the dominant `present` phase (~65% of the frame).
-  val addrReg  = RegInit(0.U(25.W))
-  val word_idx = RegInit(0.U(5.W))   // 0..15: pixel index, terminates at 16
-  // Local copy of tile buffer entry — immune to dispatcher read port corruption.
-  val entryHeld = RegInit(0.U(64.W))
+  // Whole-tile buffer: 16 entries × {R,G,B,Z} = 64 b each, captured up front so a
+  // concurrent dispatcher read on the tile-buffer port cannot corrupt the burst.
+  val wordBuf = Reg(Vec(16, UInt(64.W)))
+  val baseReg = RegInit(0.U(25.W))
+  val fillIdx = RegInit(0.U(5.W))   // 0..15 during read-in
+  val wordIdx = RegInit(0.U(7.W))   // 0..63 during the burst
 
   // Default outputs
   io.busy := (state =/= sIdle) || io.start
 
-  io.read.idx := 0.U
+  io.read.idx := fillIdx
   io.read.en  := false.B
 
   io.gpuMem.req   := false.B
   io.gpuMem.addr  := 0.U
   io.gpuMem.wr    := false.B
   io.gpuMem.wdata := 0.U
-  io.gpuMem.wlen  := 1.U   // single-word default (Step 2 overrides with a tile burst)
+  io.gpuMem.wlen  := 1.U
+
+  // Burst word source: 4 words per entry, in SDRAM byte order R(+0) G(+2) B(+4) Z(+6).
+  // ColorZ.asUInt packs first field in the MSBs → entry = {r[63:48],g,b,z[15:0]}.
+  val curEntry = wordBuf(wordIdx(5, 2))   // pixel index 0..15 (4 bits)
+  val curWord  = MuxLookup(wordIdx(1, 0), curEntry(63, 48))(Seq(
+    0.U -> curEntry(63, 48),   // R
+    1.U -> curEntry(47, 32),   // G
+    2.U -> curEntry(31, 16),   // B
+    3.U -> curEntry(15, 0)     // Z
+  ))
 
   switch(state) {
 
     is(sIdle) {
       when(io.start) {
-        addrReg  := io.tileBase   // initialize running address directly
-        word_idx := 0.U
-        state    := sReadSram
+        baseReg := io.tileBase
+        fillIdx := 0.U
+        wordIdx := 0.U
+        state   := sRead
       }
     }
 
-    // Cycle 0: assert read.en; tile SRAM latches idx on rising edge
-    is(sReadSram) {
+    // ── Read all 16 entries into wordBuf (3-cycle BRAM read per entry) ──
+    is(sRead) {
       io.read.en  := true.B
-      io.read.idx := word_idx
-      if (BorgDebug.trace) printf("[FLUSH] readSram slot=%d\n", word_idx)
-      state       := sWaitSram
+      io.read.idx := fillIdx
+      state       := sReadWait
     }
-
-    // Cycle 1: SyncReadMem output (rgbzRead) available; readEnDel fires
-    is(sWaitSram) {
-      state := sWaitSram2
+    is(sReadWait) {
+      state := sReadWait2
     }
-
-    // Cycle 2: readDataHeld captures rgbzRead → latch locally so
-    // a concurrent dispatcher Z-read can't corrupt our data.
-    is(sWaitSram2) {
-      entryHeld := io.read.data.asUInt
-      if (BorgDebug.trace) printf("[FLUSH] dataHeld slot R=0x%x G=0x%x B=0x%x Z=0x%x\n",
-        io.read.data.r, io.read.data.g, io.read.data.b, io.read.data.z)
-      state := sWriteR
-    }
-
-    // MemoryController writes 16 bits (1 SDRAM word) per GPU write transaction
-    // (data_txn_len=1).  Only wdata[15:0] reaches SDRAM.
-    // We write 4 channels × 16 bits each at stride +2 per channel.
-    //
-    // ColorZ.asUInt packing (Chisel: first declared field = MSBs):
-    //   entryHeld = { r[63:48], g[47:32], b[31:16], z[15:0] }
-    //
-    // SDRAM layout per pixel (byte address):
-    //   base + 0: r[15:0]
-    //   base + 2: g[15:0]
-    //   base + 4: b[15:0]
-    //   base + 6: z[15:0]
-
-    // Write R channel
-    is(sWriteR) {
-      io.gpuMem.req   := true.B
-      io.gpuMem.wr    := true.B
-      io.gpuMem.addr  := addrReg
-      io.gpuMem.wdata := entryHeld(63, 48)   // r
-      when(io.gpuMem.ready) {
-        addrReg := addrReg + 2.U
-        state   := sWriteG
+    is(sReadWait2) {
+      wordBuf(fillIdx(3, 0)) := io.read.data.asUInt
+      if (BorgDebug.trace) printf("[FLUSH] fill entry=%d R=0x%x G=0x%x B=0x%x Z=0x%x\n",
+        fillIdx, io.read.data.r, io.read.data.g, io.read.data.b, io.read.data.z)
+      when(fillIdx === 15.U) {
+        state := sBurst
+      }.otherwise {
+        fillIdx := fillIdx + 1.U
+        state   := sRead
       }
     }
 
-    // Write G channel
-    is(sWriteG) {
-      io.gpuMem.req   := true.B
+    // ── Stream the whole tile as one 64-word burst write ──
+    // The MemoryController latches the base address and auto-increments per word;
+    // we just present successive words and advance on waccept (registered producer:
+    // a waccept this cycle makes wordIdx — and thus curWord — update next cycle).
+    is(sBurst) {
       io.gpuMem.wr    := true.B
-      io.gpuMem.addr  := addrReg
-      io.gpuMem.wdata := entryHeld(47, 32)   // g
-      when(io.gpuMem.ready) {
-        addrReg := addrReg + 2.U
-        state   := sWriteB
+      io.gpuMem.addr  := baseReg
+      io.gpuMem.wdata := curWord
+      io.gpuMem.wlen  := 64.U
+      when(io.gpuMem.waccept) {
+        wordIdx := wordIdx + 1.U
       }
-    }
-
-    // Write B channel — final write per pixel.  Z is intentionally NOT written
-    // (the +6 slot is dead, see addrReg note); skip straight to the next pixel.
-    is(sWriteB) {
-      io.gpuMem.req   := true.B
-      io.gpuMem.wr    := true.B
-      io.gpuMem.addr  := addrReg
-      io.gpuMem.wdata := entryHeld(31, 16)   // b
       when(io.gpuMem.ready) {
-        addrReg := addrReg + 4.U   // skip dead Z slot (+6); next pixel's R is at +8
-        val next_word = word_idx + 1.U
-        word_idx := next_word
-        when(next_word === 16.U) {   // 16 pixels done
-          state := sIdle
-        } .otherwise {
-          state := sReadSram
-        }
+        state := sIdle
       }
     }
   }
