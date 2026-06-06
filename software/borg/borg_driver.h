@@ -84,6 +84,12 @@ void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int
 void borgTransformVerts(const borg_draw_data_t *d, const fp16_t *positions, int count);
 void borgCmdDrawIndexed(const int idx[3], const borg_vertex_t vertices[3], int frame);
 
+// Invalidate the recorded command buffer, forcing a full PSRAM descriptor
+// re-write on the next draw.  Call when geometry (vertex positions or UVs)
+// changes.  Mirrors the Vulkan pattern: record a new VkCommandBuffer instead
+// of reusing the old one.
+void borgInvalidateCommandBuffer(void);
+
 // Write DONE marker for a frame to PSRAM
 void borg_present(int frame);
 

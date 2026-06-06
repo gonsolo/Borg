@@ -184,6 +184,12 @@ static int draw_call_count = 0;
 static rgb16_t
     last_clear_color; // saved by borgBinReset, used for empty-tile fill
 
+// Command-buffer record-once: static geometry (positions, UVs, metadata) is
+// written to PSRAM descriptors on the first frame and never again.  Only
+// dynamic state (MVP + vertex colors) is rewritten each frame.
+// Set to 0 to force a full re-record (e.g. after a pipeline change).
+static int g_cmdbuf_valid = 0;
+
 #define NUM_VERTICES 3
 #define MAX_CLIP_VERTS 4 // Clipping one triangle can produce at most a quad
 
@@ -447,6 +453,8 @@ static void borgBinReset(rgb16_t cc) {
   last_clear_color = cc;
 }
 
+void borgInvalidateCommandBuffer(void) { g_cmdbuf_valid = 0; }
+
 void borg_clear_zbuffer(int frame, rgb16_t clear_color) {
   unsigned int t_start = get_cycles();
   borgBinReset(clear_color);
@@ -701,29 +709,34 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
   // Layout (Phase 1): 96B model-space verts + 64B TS-baked MVP + 32B metadata = 256 bytes.
   uint32_t desc_base = SEQ_DESC_BASE_ADDR + (uint32_t)idx * SEQ_DESC_STRIDE;
 
-  // Vertex data: model-space positions (GPU will transform), plus color/uv unchanged.
+  if (!g_cmdbuf_valid) {
+    // Static geometry — model-space positions, pre-scaled UVs, and metadata.
+    // Written once on the first frame; never changes between frames.
+    for (int v = 0; v < 3; v++) {
+      uint32_t vbase = desc_base + (uint32_t)v * 32;
+      PSRAM_OUT_RAW(vbase + 0) = g_current_raw_verts[v*3+0];  // model.x
+      PSRAM_OUT_RAW(vbase + 4) = g_current_raw_verts[v*3+1];  // model.y
+      PSRAM_OUT_RAW(vbase + 8) = g_current_raw_verts[v*3+2];  // model.z
+      PSRAM_OUT_RAW(vbase + 24) = tri->has_uvs
+          ? (uint32_t)borg_fp16_mul(tri->uvs.v[v].u, t->w_fp16) : (uint32_t)FP16_ZERO;
+      PSRAM_OUT_RAW(vbase + 28) = tri->has_uvs
+          ? (uint32_t)borg_fp16_mul(tri->uvs.v[v].v, t->h_fp16) : (uint32_t)FP16_ZERO;
+    }
+    PSRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 0) = ((uint32_t)(bb.y0 & ~3) << 16) | (uint32_t)(bb.x0 & ~3);
+    PSRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 4) = ((uint32_t)(bb.y1) << 16) | (uint32_t)(bb.x1);
+    PSRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 8) = tri->has_uvs ? 1u : 0u;
+  }
+
+  // Dynamic state — MVP and vertex colors change every frame (rotation + lighting).
   for (int v = 0; v < 3; v++) {
     uint32_t vbase = desc_base + (uint32_t)v * 32;
-    PSRAM_OUT_RAW(vbase + 0)  = g_current_raw_verts[v*3+0];  // model.x
-    PSRAM_OUT_RAW(vbase + 4)  = g_current_raw_verts[v*3+1];  // model.y
-    PSRAM_OUT_RAW(vbase + 8)  = g_current_raw_verts[v*3+2];  // model.z (also depth)
     PSRAM_OUT_RAW(vbase + 12) = tri->colors.v[v].r;
     PSRAM_OUT_RAW(vbase + 16) = tri->colors.v[v].g;
     PSRAM_OUT_RAW(vbase + 20) = tri->colors.v[v].b;
-    PSRAM_OUT_RAW(vbase + 24) = tri->has_uvs
-        ? (uint32_t)borg_fp16_mul(tri->uvs.v[v].u, t->w_fp16) : (uint32_t)FP16_ZERO;
-    PSRAM_OUT_RAW(vbase + 28) = tri->has_uvs
-        ? (uint32_t)borg_fp16_mul(tri->uvs.v[v].v, t->h_fp16) : (uint32_t)FP16_ZERO;
   }
-
   // TS-baked MVP at SEQ_MVP_OFFSET (96): 16 FP16 values, column-major.
   for (int i = 0; i < 16; i++)
     PSRAM_OUT_RAW(desc_base + SEQ_MVP_OFFSET + (uint32_t)i * 4) = g_ts_mvp_cache[i];
-
-  // Metadata at SEQ_META_OFFSET (160): bbox + flags.
-  PSRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 0) = ((uint32_t)(bb.y0 & ~3) << 16) | (uint32_t)(bb.x0 & ~3);
-  PSRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 4) = ((uint32_t)(bb.y1) << 16) | (uint32_t)(bb.x1);
-  PSRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 8) = tri->has_uvs ? 1u : 0u;
 
   draw_call_count++;
 }
@@ -904,6 +917,7 @@ static void borgBinRenderAutonomous(int frame) {
       BORG_GPU->seq_trigger = 1;
       while (BORG_GPU->status & STATUS_REG_T__SEQ_BUSY_bm)
         ;
+      g_cmdbuf_valid = 1;
   }
 }
 
