@@ -41,7 +41,7 @@ void ArcBorgSimulator::clock_high() { model->view.clk = 1; model->eval(); }
 
 uint8_t ArcBorgSimulator::get_uo_out()       { return model->view.uo_out; }
 void    ArcBorgSimulator::set_ui_in(uint8_t v) { model->view.ui_in = v; }
-int     ArcBorgSimulator::get_uart_bit_pos() const { return 0; }
+int     ArcBorgSimulator::get_uart_bit_pos() const { return 6; }
 
 uint32_t ArcBorgSimulator::get_backend_addrIn()     { return model->view.be_addrIn; }
 bool     ArcBorgSimulator::get_backend_startRead()  { return model->view.be_startRead; }

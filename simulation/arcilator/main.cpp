@@ -20,15 +20,20 @@ int main(int argc, char **argv) {
     sim.set_camera_angles(cfg.cam_angle_x, cfg.cam_angle_y);
   std::cout << "[SIM] Starting simulation...\n";
 
+  const int NUM_FRAMES = 8;  // run 8 frames: frame 1 includes startup, frames 2+ give steady state
   uint64_t total_cycles = 0;
-  while (!sim.step(100000)) {
-    total_cycles += 100000;
-    if (total_cycles % 1000000 == 0) {
-      std::cout << "[SIM] " << (total_cycles / 1000000) << " million cycles\n";
+  for (int frame = 0; frame < NUM_FRAMES; frame++) {
+    uint64_t frame_start = total_cycles;
+    while (!sim.step(100000)) {
+      total_cycles += 100000;
+      if (total_cycles % 5000000 == 0) {
+        std::cout << "[SIM] " << (total_cycles / 1000000) << "M cycles (frame " << (frame+1) << ")\n";
+      }
     }
+    uint64_t frame_cycles = total_cycles - frame_start;
+    std::cout << "[SIM] Frame " << (frame+1) << " done: " << frame_cycles << " cycles"
+              << "  (est fps @ 25MHz: " << (25000000.0 / frame_cycles) << ")\n";
   }
-  std::cout << "[SIM] Frame complete! DONE_MARKER detected.\n";
-  std::cout << "Total Sim Cycles:  " << total_cycles << " cycles.\n";
   sim.save_ppm(app_name);
   return 0;
 }
