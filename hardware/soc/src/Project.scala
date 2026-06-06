@@ -103,9 +103,11 @@ trait SoCLogic { self: RawModule =>
   def wireSoC(): UInt = {
 
     // -------------------------------------------------------------------------
-    // Instruction fetch — direct CPU↔MemoryController.
+    // Instruction fetch — via InstrCache.
     // -------------------------------------------------------------------------
-    mem.io.instr <> cpu.io.instr
+    val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23)) }
+    iCache.io.cpu <> cpu.io.instr
+    iCache.io.mem <> mem.io.instr
 
     // -------------------------------------------------------------------------
     // Synchronized ui_in for peripheral interrupts.

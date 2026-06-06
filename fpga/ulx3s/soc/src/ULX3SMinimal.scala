@@ -90,12 +90,14 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLog
   val scanout = withClockAndReset(sysClock, pllRst) {
     Module(new HdmiScanoutFp16(fbBase = 0x100000, fbWidth = 32, fbHeight = 32))
   }
+  scanout.io.frontBuf := false.B   // minimal SoC has no Borg; always read fbBase
 
   override def wireGpuMem(): Unit = {
     mem.io.gpuMem.req   := scanout.io.gpuReq
     mem.io.gpuMem.addr  := scanout.io.gpuAddr
     mem.io.gpuMem.wr    := false.B
     mem.io.gpuMem.wdata := 0.U
+    mem.io.gpuMem.wlen  := 1.U
     scanout.io.gpuData  := mem.io.gpuMem.data
     scanout.io.gpuReady := mem.io.gpuMem.ready
   }
@@ -111,16 +113,19 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLog
   sdramBackend.io.backend.addrIn     := Mux(bootDone, mem.io.backend.addrIn,     flashBoot.io.backend.addrIn)
   sdramBackend.io.backend.dataIn     := Mux(bootDone, mem.io.backend.dataIn,     flashBoot.io.backend.dataIn)
   sdramBackend.io.backend.byteEnIn   := Mux(bootDone, mem.io.backend.byteEnIn,   flashBoot.io.backend.byteEnIn)
+  sdramBackend.io.backend.lenIn      := Mux(bootDone, mem.io.backend.lenIn,      1.U)
   sdramBackend.io.backend.startRead  := Mux(bootDone, mem.io.backend.startRead,  false.B)
   sdramBackend.io.backend.startWrite := Mux(bootDone, mem.io.backend.startWrite, flashBoot.io.backend.startWrite)
 
   mem.io.backend.dataOut := Mux(bootDone, sdramBackend.io.backend.dataOut, 0.U)
   mem.io.backend.done    := Mux(bootDone, sdramBackend.io.backend.done,    false.B)
   mem.io.backend.busy    := Mux(bootDone, sdramBackend.io.backend.busy,    false.B)
+  mem.io.backend.accept  := Mux(bootDone, sdramBackend.io.backend.accept,  false.B)
 
   flashBoot.io.backend.dataOut := sdramBackend.io.backend.dataOut
-  flashBoot.io.backend.done    := Mux(!bootDone, sdramBackend.io.backend.done, false.B)
-  flashBoot.io.backend.busy    := Mux(!bootDone, sdramBackend.io.backend.busy, false.B)
+  flashBoot.io.backend.done    := Mux(!bootDone, sdramBackend.io.backend.done,   false.B)
+  flashBoot.io.backend.busy    := Mux(!bootDone, sdramBackend.io.backend.busy,   false.B)
+  flashBoot.io.backend.accept  := Mux(!bootDone, sdramBackend.io.backend.accept, false.B)
 
   // ── SDRAM physical pin wiring ──────────────────────────────────────────────
   val pins = sdramBackend.io.sdramPins

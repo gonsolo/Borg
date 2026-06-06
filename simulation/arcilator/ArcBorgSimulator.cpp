@@ -48,9 +48,11 @@ bool     ArcBorgSimulator::get_backend_startRead()  { return model->view.be_star
 bool     ArcBorgSimulator::get_backend_startWrite() { return model->view.be_startWrite; }
 uint16_t ArcBorgSimulator::get_backend_dataIn()     { return model->view.be_dataIn; }
 uint8_t  ArcBorgSimulator::get_backend_byteEnIn()   { return model->view.be_byteEnIn; }
+uint8_t  ArcBorgSimulator::get_backend_lenIn()      { return model->view.be_lenIn; }
 void ArcBorgSimulator::set_backend_dataOut(uint16_t v) { model->view.be_dataOut = v; }
 void ArcBorgSimulator::set_backend_done(bool v)        { model->view.be_done = v; }
 void ArcBorgSimulator::set_backend_busy(bool v)        { model->view.be_busy = v; }
+void ArcBorgSimulator::set_backend_accept(bool v)      { model->view.be_accept = v; }
 
 // Arcilator does NOT honor the RTL's $readmemh / loadMemoryFromFileInline, so
 // the coord/reciprocal LUTs (initialized from .hex in BorgCore) come up all-zero.
@@ -72,19 +74,14 @@ static int load_hex_into(const char* path, uint16_t* out, int max_entries) {
 
 void ArcBorgSimulator::load_luts() {
     auto& core = model->view.internal.uo_out_val_peripherals.borg.core;
-    uint16_t coord[512];
-    int nc = load_hex_into("../../hardware/borg/src/coord_lut.hex", coord, 512);
-    for (int i = 0; i < nc; i++) {
-        core.coordLutX_ext.words[i].data = coord[i];
-        core.coordLutY_ext.words[i].data = coord[i];
-    }
+    // coordLutX/Y replaced by combinational pixelToFP16Half — no loading needed.
     uint16_t rcp[17];
     int nr = load_hex_into("../../hardware/borg/src/rcp_lut.hex", rcp, 17);
     for (int i = 0; i < nr; i++) {
         core.rcpLutA_ext.words[i].data = rcp[i];
         core.rcpLutB_ext.words[i].data = rcp[i];
     }
-    fprintf(stderr, "[SIM] Loaded LUTs: coord=%d rcp=%d entries\n", nc, nr);
+    fprintf(stderr, "[SIM] Loaded LUTs: rcp=%d entries\n", nr);
 }
 
 bool ArcBorgSimulator::step(uint32_t cycles_to_run) {

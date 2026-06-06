@@ -32,7 +32,9 @@ public:
   virtual bool     get_backend_startWrite() override;
   virtual uint16_t get_backend_dataIn()     override;
   virtual uint8_t  get_backend_byteEnIn()   override;
+  virtual uint8_t  get_backend_lenIn()      override;
   virtual void set_backend_dataOut(uint16_t v) override;
   virtual void set_backend_done(bool v)        override;
   virtual void set_backend_busy(bool v)        override;
+  virtual void set_backend_accept(bool v)      override;
 };

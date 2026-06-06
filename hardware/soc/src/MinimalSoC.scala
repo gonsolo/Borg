@@ -48,12 +48,15 @@ trait MinimalSoCLogic { self: RawModule =>
     mem.io.gpuMem.wr    := false.B
     mem.io.gpuMem.addr  := 0.U
     mem.io.gpuMem.wdata := 0.U
+    mem.io.gpuMem.wlen  := 1.U
   }
 
   def wireSoC(): UInt = {
     import SoCDecode._
 
-    mem.io.instr <> cpu.io.instr
+    val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23)) }
+    iCache.io.cpu <> cpu.io.instr
+    iCache.io.mem <> mem.io.instr
 
     val cpuData = cpu.io.data
     val cpuAddr = cpuData.req.bits.addr

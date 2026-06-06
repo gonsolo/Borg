@@ -27,10 +27,12 @@ class BorgArcSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val be_startWrite = IO(Output(Bool()))
   val be_dataIn     = IO(Output(UInt(16.W)))
   val be_byteEnIn   = IO(Output(UInt(2.W)))
+  val be_lenIn      = IO(Output(UInt(7.W)))   // burst word count (1..64)
   // C++ (backend) → MemoryController (arbiter):
   val be_dataOut = IO(Input(UInt(16.W)))
   val be_done    = IO(Input(Bool()))
   val be_busy    = IO(Input(Bool()))
+  val be_accept  = IO(Input(Bool()))          // burst: consumed dataIn, present next word
 
   def soc_clk   = clk
   def soc_rst_n = rst_n
@@ -50,9 +52,11 @@ class BorgArcSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   be_startWrite := mem.io.backend.startWrite
   be_dataIn     := mem.io.backend.dataIn
   be_byteEnIn   := mem.io.backend.byteEnIn
+  be_lenIn      := mem.io.backend.lenIn
   mem.io.backend.dataOut := be_dataOut
   mem.io.backend.done    := be_done
   mem.io.backend.busy    := be_busy
+  mem.io.backend.accept  := be_accept
 
   uo_out := uo_out_val
 }

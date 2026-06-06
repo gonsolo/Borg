@@ -68,16 +68,30 @@ object BorgSequencerTests extends TestSuite {
 
   def servicePsram(borg: BorgTestWrapper, psram: Map[Int, BigInt]): Int = {
     if (borg.io.gpuMem.req.peek().litToBoolean) {
-      if (!borg.io.gpuMem.wr.peek().litToBoolean) {
-        // Read: return data from psram map
-        val addr = borg.io.gpuMem.addr.peek().litValue.toInt
-        val data = psram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)
-        borg.io.gpuMem.data.poke(data.U)
-      }
-      // Both reads and writes: pulse ready (flusher writes need this to complete)
+      // Read request: provide data and pulse ready.
+      val addr = borg.io.gpuMem.addr.peek().litValue.toInt
+      val data = psram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)
+      borg.io.gpuMem.data.poke(data.U)
+      borg.io.gpuMem.waccept.poke(false.B)
       borg.io.gpuMem.ready.poke(true.B)
       1
+    } else if (borg.io.gpuMem.wr.peek().litToBoolean) {
+      // Write request.  For a burst (wlen>1) consume words via waccept until
+      // all are transferred, then pulse ready.  For a single write just pulse ready.
+      val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
+      if (wlen > 1) {
+        // Consume words 1..wlen-1 via waccept (word 0 already presented).
+        for (_ <- 0 until wlen - 1) {
+          borg.io.gpuMem.waccept.poke(true.B)
+          borg.io.gpuMem.ready.poke(false.B)
+          borg.clock.step(1)
+        }
+        borg.io.gpuMem.waccept.poke(false.B)
+      }
+      borg.io.gpuMem.ready.poke(true.B)
+      wlen
     } else {
+      borg.io.gpuMem.waccept.poke(false.B)
       borg.io.gpuMem.ready.poke(false.B)
       0
     }
@@ -630,20 +644,38 @@ object BorgSequencerTests extends TestSuite {
 
         def servicePsramCapture(): Int = {
           if (borg.io.gpuMem.req.peek().litToBoolean) {
+            // Read: provide data from psram
             val addr = borg.io.gpuMem.addr.peek().litValue.toInt
-            if (borg.io.gpuMem.wr.peek().litToBoolean) {
-              // Write: capture address and data
-              val data = borg.io.gpuMem.wdata.peek().litValue
-              gpuWrites += ((addr, data))
-              psram(addr) = data
-            } else {
-              // Read: return data from psram
-              val data = psram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)
-              borg.io.gpuMem.data.poke(data.U)
-            }
+            val data = psram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)
+            borg.io.gpuMem.data.poke(data.U)
+            borg.io.gpuMem.waccept.poke(false.B)
             borg.io.gpuMem.ready.poke(true.B)
             1
+          } else if (borg.io.gpuMem.wr.peek().litToBoolean) {
+            // Write (burst or single): capture each word at its byte address.
+            // The flusher holds addr=baseAddr fixed; MemoryController increments
+            // by 2 bytes per halfword.  We simulate that increment here.
+            val baseAddr = borg.io.gpuMem.addr.peek().litValue.toInt
+            val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
+            val d0 = borg.io.gpuMem.wdata.peek().litValue & BigInt(0xFFFF)
+            gpuWrites += ((baseAddr, d0))
+            psram(baseAddr) = d0
+            if (wlen > 1) {
+              for (i <- 1 until wlen) {
+                borg.io.gpuMem.waccept.poke(true.B)
+                borg.io.gpuMem.ready.poke(false.B)
+                borg.clock.step(1)
+                val wordAddr = baseAddr + i * 2
+                val d = borg.io.gpuMem.wdata.peek().litValue & BigInt(0xFFFF)
+                gpuWrites += ((wordAddr, d))
+                psram(wordAddr) = d
+              }
+              borg.io.gpuMem.waccept.poke(false.B)
+            }
+            borg.io.gpuMem.ready.poke(true.B)
+            wlen
           } else {
+            borg.io.gpuMem.waccept.poke(false.B)
             borg.io.gpuMem.ready.poke(false.B)
             0
           }

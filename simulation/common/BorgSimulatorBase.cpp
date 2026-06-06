@@ -39,32 +39,54 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
 
     for (uint32_t c = 0; c < cycles_to_run; c++) {
         // --- Drive backend INPUT ports so they are stable across the posedge.
-        //     `done` is pulsed for one cycle when the latency counter hits 0;
-        //     the MemoryController samples it while parked in its sWait state.
-        bool drive_done = (be_delay == 0);
+        //     During a burst: accept is pulsed every cycle until all words are
+        //     consumed; the model advances its dataIn on each posedge that sees
+        //     accept=true.  done fires once after the last word is written.
+        bool in_burst = (be_burst_rem > 0);
+        bool drive_done = (be_delay == 0 && !in_burst);
+        set_backend_accept(in_burst);
         set_backend_done(drive_done);
         set_backend_dataOut(drive_done ? be_data : 0);
-        set_backend_busy(be_delay >= 0);
+        set_backend_busy(be_delay >= 0 || in_burst);
 
         // Two-phase eval: clock_high() is the posedge that advances the design
-        // and at which the MemoryController samples done/dataOut.
+        // and at which the MemoryController samples done/dataOut/accept.
         clock_low();
         clock_high();
 
-        // --- After the posedge: retire a completed transaction, then latch a
-        //     newly-issued one (back-to-back word accesses re-enter sIssue).
-        if (be_delay == 0)      be_delay = -1;   // done consumed → idle
-        else if (be_delay > 0)  be_delay--;
+        // --- After the posedge: handle burst streaming, then retire/latch.
+        if (in_burst) {
+            // The model has advanced dataIn in response to accept.  Write the
+            // current word and decrement the burst counter.
+            flat_write16(flash, psram, be_burst_waddr, get_backend_dataIn(), 3);
+            be_burst_waddr++;
+            be_burst_rem--;
+            if (be_burst_rem == 0) {
+                be_delay = 0;  // fire done next cycle
+            }
+            // be_delay stays < 0 while streaming; do NOT check for new transactions.
+        } else {
+            if (be_delay == 0)      be_delay = -1;   // done consumed → idle
+            else if (be_delay > 0)  be_delay--;
 
-        if (be_delay < 0) {
-            uint32_t a = get_backend_addrIn();
-            if (get_backend_startRead()) {
-                be_data  = flat_read16(flash, psram, a);
-                be_delay = BE_DELAY;
-            } else if (get_backend_startWrite()) {
-                flat_write16(flash, psram, a, get_backend_dataIn(), get_backend_byteEnIn());
-                be_data  = 0;
-                be_delay = BE_DELAY;
+            if (be_delay < 0) {
+                uint32_t a = get_backend_addrIn();
+                if (get_backend_startRead()) {
+                    be_data  = flat_read16(flash, psram, a);
+                    be_delay = BE_DELAY;
+                } else if (get_backend_startWrite()) {
+                    int len = get_backend_lenIn();
+                    flat_write16(flash, psram, a, get_backend_dataIn(), get_backend_byteEnIn());
+                    if (len > 1) {
+                        // Burst: stream remaining len-1 words via accept/dataIn.
+                        be_burst_waddr = a + 1;
+                        be_burst_rem   = len - 1;
+                        // be_delay stays -1; burst drives accept immediately next cycle.
+                    } else {
+                        be_data  = 0;
+                        be_delay = BE_DELAY;
+                    }
+                }
             }
         }
 

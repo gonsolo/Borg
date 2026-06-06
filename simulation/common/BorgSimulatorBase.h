@@ -22,6 +22,12 @@ public:
     int      be_delay = -1;
     uint16_t be_data  = 0;   // captured read result presented on `done`
 
+    // Burst write state: be_burst_rem > 0 means we are streaming words.
+    // accept is pulsed each cycle while burst is active; the model advances
+    // its dataIn register and we read/write each word to memory.
+    int      be_burst_rem  = 0;
+    uint32_t be_burst_waddr = 0;  // next burst write word address
+
     // Double-buffer tracking: mirrors firmware's static back_buf (starts at 1).
     // frame_tile_size_words and out_base_word_buf0 must be set by the subclass
     // constructor before step() is called.
@@ -60,9 +66,11 @@ public:
     virtual bool     get_backend_startWrite() { return false; }
     virtual uint16_t get_backend_dataIn()     { return 0; }
     virtual uint8_t  get_backend_byteEnIn()   { return 0; }
+    virtual uint8_t  get_backend_lenIn()      { return 1; }
     virtual void set_backend_dataOut(uint16_t /*v*/) {}
     virtual void set_backend_done(bool /*v*/)        {}
     virtual void set_backend_busy(bool /*v*/)        {}
+    virtual void set_backend_accept(bool /*v*/)      {}
 
     // Optional: Backends can override this to implement custom memory snooping
     virtual void fast_sim_snoop() {}
