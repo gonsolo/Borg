@@ -3,9 +3,12 @@
 scripts/test_runner.py — Borg parallel test runner with live display.
 
 Execution order:
-  Sequential setup:  generate_verilog → lint  (lint re-runs generate_verilog
-                     via make PHONY, so serialise it to avoid mill lock contention)
-  Parallel:          chisel:borg · chisel:hutt · software · cocotb:soc-core
+  Sequential setup:  generate_verilog → generate_verilog_sim → lint
+                     Both generate steps must finish before the parallel phase so
+                     that render suites (which call generate_verilog_sim via make)
+                     do not race Mill against the chisel suites.
+  Parallel:          chisel:borg · chisel:hutt · software · cocotb:soc-core ·
+                     render:verilator:triangle (stamp already exists, no Mill call)
   After soc-core:    cocotb:soc-borg  (shares test/soc/ dir with soc-core)
 """
 
@@ -73,10 +76,15 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
         Suite("setup  › generate_verilog",
               f"cd '{root}' && make generate_verilog",
               sequential=True),
+        Suite("setup  › generate_verilog_sim",
+              f"cd '{root}' && make generate_verilog_sim",
+              sequential=True),          # must run before chisel/render parallel phase to
+                                         # pre-stamp .verilog_sim_stamp; render suites call
+                                         # make generate_verilog_sim internally and would
+                                         # otherwise race Mill against mill hardware.borg.test
         Suite("lint",
               f"cd '{root}' && make lint",
-              sequential=True),          # depends on generate_verilog being done;
-                                         # serialised here to avoid mill contention
+              sequential=True),
         # ── Parallel (no inter-dependencies) ─────────────────────────────────
         # NOTE: chisel suites share the Mill build server — serialise them to
         # avoid "Another Mill process is running" lock contention.

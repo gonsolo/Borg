@@ -101,20 +101,24 @@ async def start_read(dut, addr):
     assert dut.qspi_ram_b_select.value == (0 if dut.qspi_ram_b_select == select else 1)
     assert dut.qspi_clk_out.value == 0
 
-    if dut.qspi_flash_select != select:
-        # Command
-        cmd = 0x0B
-        assert dut.qspi_data_oe.value == 0xF    # Command
-        for i in range(2):
-            await ClockCycles(dut.clk, 1, False)
-            assert select.value == 0
-            assert dut.qspi_clk_out.value == 1
-            assert dut.qspi_data_out.value == (cmd & 0xF0) >> 4
-            assert dut.qspi_data_oe.value == 0xF
-            cmd <<= 4
-            await ClockCycles(dut.clk, 1, False)
-            assert select.value == 0
-            assert dut.qspi_clk_out.value == 0
+    # Command byte (0x0B for both flash and PSRAM reads).  Always consume it.
+    # Previously gated on `dut.qspi_flash_select != select`, which is always
+    # False for flash reads (select IS qspi_flash_select), so the command was
+    # silently skipped.  With InstrCache adding 2 cycles of pipeline latency,
+    # QspiCtrl is still in CMD phase when start_read enters the address loop,
+    # causing the address assertions to fail on command nibbles.
+    cmd = 0x0B
+    assert dut.qspi_data_oe.value == 0xF    # Command
+    for i in range(2):
+        await ClockCycles(dut.clk, 1, False)
+        assert select.value == 0
+        assert dut.qspi_clk_out.value == 1
+        assert dut.qspi_data_out.value == (cmd & 0xF0) >> 4
+        assert dut.qspi_data_oe.value == 0xF
+        cmd <<= 4
+        await ClockCycles(dut.clk, 1, False)
+        assert select.value == 0
+        assert dut.qspi_clk_out.value == 0
 
     # Address
     assert dut.qspi_data_oe.value == 0xF
