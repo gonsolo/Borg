@@ -22,14 +22,14 @@ jobs:
           echo "=== nixpkgs rev (from flake.lock) ==="
           nix flake metadata --json | python3 -c "import sys,json; m=json.load(sys.stdin); print(m['locks']['nodes']['nixpkgs']['locked']['rev'])"
           echo "=== Tool versions ==="
-          nix develop --command bash -c "nextpnr-ice40 --version; yosys --version"
+          nix develop --command bash -c "nextpnr-ecp5 --version; yosys --version"
 
-      - name: Create FPGA bitstream
-        run: nix develop --command bash -c "make generate_verilog && make -C fpga borg.bin"
+      - name: Generate ULX3S Verilog (full SoC — Hutt + Borg + MemoryController)
+        run: nix develop --command bash -c "make generate_verilog_ulx3s"
 
-      - name: Upload bitstream
+      - name: Upload generated Verilog
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: fpga_bitstream
-          path: fpga/borg.bin
+          name: fpga_verilog
+          path: out/ulx3s/verilog/
