@@ -103,11 +103,15 @@ trait SoCLogic { self: RawModule =>
   def wireSoC(): UInt = {
 
     // -------------------------------------------------------------------------
-    // Instruction fetch — via InstrCache.
+    // Instruction fetch — via InstrCache (bypassed when icacheLines == 0).
     // -------------------------------------------------------------------------
-    val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23, BORG_CFG.icacheLines)) }
-    iCache.io.cpu <> cpu.io.instr
-    iCache.io.mem <> mem.io.instr
+    if (BORG_CFG.icacheLines > 0) {
+      val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23, BORG_CFG.icacheLines)) }
+      iCache.io.cpu <> cpu.io.instr
+      iCache.io.mem <> mem.io.instr
+    } else {
+      cpu.io.instr <> mem.io.instr
+    }
 
     // -------------------------------------------------------------------------
     // Synchronized ui_in for peripheral interrupts.

@@ -48,13 +48,15 @@ object BorgConfig {
   // ASIC (IHP SG13G2, TT 8×4 tile).
   //   countMem_1024x10 alone was ~920 kµm² (50 % of die) → reduced to 16 tiles (~14 kµm²).
   //   instructionMemory_56x32 was ~145 kµm² → reduced to 32 entries (~83 kµm²).
-  //   Total savings: ~968 kµm², target utilisation ≈ 69 %.
+  //   icacheLines=0: I-cache bypassed — at 4 MHz QSPI latency is trivial; cache saves
+  //   ~55 kµm² that the design needs to stay under DPL density limits.
+  //   Total savings vs original: ~968 kµm², target utilisation ≈ 69 %.
   val Asic = BorgConfig(
     fp              = FloatConfig.FP16,
     coordWidth      = 9,
     fifoDepth       = 2,
     maxBinTiles     = 16,
     maxInstructions = 32,
-    icacheLines     = 32
+    icacheLines     = 0
   )
 }
