@@ -53,6 +53,12 @@ HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/hutt/src 
 	@#ln -sf $(CURDIR)/hardware/borg/src/rcp_lut.hex   out/fpga/verilog/rcp_lut.hex
 	@#ln -sf $(CURDIR)/hardware/borg/src/coord_lut.hex out/fpga/verilog/coord_lut.hex
 	@python3 scripts/init_bram_zero.py out/hardware/borg/verilog
+	@# firtool appends a tab+source-location to "// synthesis translate_on" lines.
+	@# yowasp-yosys (used by tt_tool.py for port-read) does not recognise the
+	@# augmented form and fails to exit translate-off mode, causing a parse error
+	@# on the very next token.  Strip the trailing annotation here so the files
+	@# are compatible with both yowasp-yosys and native Yosys.
+	@sed -i 's|// synthesis translate_on\t.*|// synthesis translate_on|g' out/hardware/borg/verilog/*.sv
 	@touch $@
 
 .PHONY: info.yaml
