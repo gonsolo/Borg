@@ -28,13 +28,23 @@ class QspiBackend extends Module {
 
   // ── FSM ────────────────────────────────────────────────────────────────────
   // sIdle  — wait for start pulse from arbiter.
+  // sRdReq — hold start_read until QspiController accepts (leaves IDLE).
   // sRdB0  — QSPI read in progress; wait for first byte (data_ready).
   // sRdB1  — wait for second byte; assemble halfword.
   // sRdDone — pulse done (one cycle).
+  // sWrReq — hold start_write until QspiController accepts (leaves IDLE).
   // sWrB0  — drive byte 0 to QSPI; wait for data_req then drive byte 1.
   // sWrB1  — wait for QSPI write complete.
   // sWrDone — pulse done.
-  val sIdle :: sRdB0 :: sRdB1 :: sRdDone :: sWrB0 :: sWrB1 :: sWrDone :: Nil = Enum(7)
+  //
+  // sRdReq/sWrReq fix a back-to-back transaction race.  The arbiter's start
+  // pulse is one cycle wide, but QspiController refuses a new transaction for
+  // ~1 cycle after a PSRAM CS deassert (`ram_a_block` enforces the mandatory
+  // CS-high gap between PSRAM commands).  When a 32-bit word's second-halfword
+  // start landed on that blocked cycle the pulse was silently dropped and the
+  // upper halfword never reached the wire.  Holding start_read/start_write
+  // until the controller goes busy guarantees the second halfword issues.
+  val sIdle :: sRdReq :: sRdB0 :: sRdB1 :: sRdDone :: sWrReq :: sWrB0 :: sWrB1 :: sWrDone :: Nil = Enum(9)
   val state = RegInit(sIdle)
 
   val byteLo = RegInit(0.U(8.W))
@@ -52,8 +62,10 @@ class QspiBackend extends Module {
   // data_in on the same cycle data_req is asserted, but the state register
   // only transitions to sWrB1 after that clock edge.
   q.io.data_in     := Mux(state === sWrB0 && !q.io.data_req, dataReg(7, 0), dataReg(15, 8))
-  q.io.start_read  := (state === sIdle && io.backend.startRead)
-  q.io.start_write := (state === sIdle && io.backend.startWrite)
+  // Assert start until the controller accepts it (held through sRdReq/sWrReq so
+  // a start that lands on a ram_*_block cycle is retried, not dropped).
+  q.io.start_read  := (state === sIdle && io.backend.startRead) || (state === sRdReq)
+  q.io.start_write := (state === sIdle && io.backend.startWrite) || (state === sWrReq)
   q.io.stall_txn   := false.B
   q.io.stop_txn    := (state === sRdDone) || (state === sWrDone)
 
@@ -75,11 +87,19 @@ class QspiBackend extends Module {
   switch(state) {
     is(sIdle) {
       when(io.backend.startRead) {
-        state := sRdB0
+        state := sRdReq
       }.elsewhen(io.backend.startWrite) {
         dataReg := io.backend.dataIn
-        state   := sWrB0
+        state   := sWrReq
       }
+    }
+
+    // Wait for the controller to actually begin (busy) before tracking bytes.
+    is(sRdReq) {
+      when(q.io.busy) { state := sRdB0 }
+    }
+    is(sWrReq) {
+      when(q.io.busy) { state := sWrB0 }
     }
 
     is(sRdB0) {

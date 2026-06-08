@@ -91,7 +91,7 @@ async def start_read(dut, addr):
     else:
         select = dut.qspi_flash_select
     
-    for _ in range(200):
+    for _ in range(700):  # 512 InstrCache flush + startup latency + margin
         if select.value == 0:
             break
         await ClockCycles(dut.clk, 1, False)
@@ -212,7 +212,8 @@ async def send_instr(dut, data, ok_to_exit=False, allow_long_delay=False):
         for _ in range(400 if allow_long_delay else 80):
             if ok_to_exit and dut.qspi_flash_select.value == 1:
                 return
-            if dut.qspi_flash_select.value == 0 and dut.qspi_clk_out.value == 1:
+            if (dut.qspi_flash_select.value == 0 and dut.qspi_clk_out.value == 1
+                    and dut.qspi_data_oe.value == 0 and dut.qspi_data_out.value == 0xF):
                 break
             await ClockCycles(dut.clk, 1, False)
         assert dut.qspi_clk_out.value == 1
@@ -261,7 +262,7 @@ async def expect_load(dut, addr, val, bytes=4):
         assert False
 
 async def load_reg(dut, reg, value):
-    offset = random.randint(-0x400, 0x3FF)
+    offset = random.randint(-0x100, 0xFF) * 4  # LW requires 4-byte alignment
     instr = InstructionLW(reg, gp, offset).encode()
     await send_instr(dut, instr)
 
@@ -332,26 +333,44 @@ async def expect_store(dut, addr, bytes=4, allow_long_delay=False):
     else:
         assert False
 
+    # The MemoryController decomposes each CPU access into one or two halfword
+    # QSPI write transactions (byte/halfword → 1, word → 2 back-to-back).  Each
+    # halfword is a self-contained transaction: CMD + ADDR + 4 data nibbles,
+    # then select deasserts.  A 32-bit store therefore appears on the wire as
+    # two CMD/ADDR/DATA bursts to addr and addr+2, not one continuous burst.
     val = 0
+    num_halfwords = (bytes + 1) // 2          # 1 for byte/half, 2 for word
     for i in range(100):
         if select.value == 0:
-            await start_write(dut, addr)
-            for j in range(bytes*2):
-                await ClockCycles(dut.clk, 1, False)
-                assert select.value == 0
-                if j > 0 and (j % 8) == 0:
+            for hw in range(num_halfwords):
+                # Each halfword transaction starts with its own CMD + ADDR
+                # phase targeting the next 16-bit-aligned address.
+                await start_write(dut, addr + hw * 2)
+                nibbles = min(4, bytes * 2 - hw * 4)
+                for k in range(nibbles):
+                    j = hw * 4 + k
                     await ClockCycles(dut.clk, 1, False)
                     assert select.value == 0
-                    assert dut.qspi_clk_out.value == 0
+                    assert dut.qspi_clk_out.value == 1
+                    assert dut.qspi_data_oe.value == 0xF
+                    val |= dut.qspi_data_out.value.to_unsigned() << (nibble_shift_order[j % 8])
                     await ClockCycles(dut.clk, 1, False)
-                assert dut.qspi_clk_out.value == 1
-                assert dut.qspi_data_oe.value == 0xF
-                val |= dut.qspi_data_out.value.to_unsigned() << (nibble_shift_order[j % 8])
-                await ClockCycles(dut.clk, 1, False)
-                assert select.value == (1 if j == bytes*2-1 else 0)
-                assert dut.qspi_clk_out.value == 0
-            await ClockCycles(dut.clk, 1, False)
-            assert select.value == 1
+                    assert dut.qspi_clk_out.value == 0
+                # The backend emits a trailing clock or two before deasserting
+                # select; poll for the deassert rather than assuming an exact
+                # cycle (instruction-fetch timing shifts the alignment).
+                for _ in range(8):
+                    if select.value == 1:
+                        break
+                    await ClockCycles(dut.clk, 1, False)
+                assert select.value == 1
+                # If a second halfword follows, wait for select to re-assert.
+                if hw < num_halfwords - 1:
+                    for _ in range(20):
+                        if select.value == 0:
+                            break
+                        await ClockCycles(dut.clk, 1, False)
+                    assert select.value == 0
             break
         elif dut.qspi_flash_select.value == 0:
             await send_instr(dut, 0x00000013, True, allow_long_delay)
@@ -371,7 +390,7 @@ async def expect_store(dut, addr, bytes=4, allow_long_delay=False):
     return val
 
 async def read_reg(dut, reg, allow_long_delay=False):
-    offset = random.randint(-0x400, 0x3FF)
+    offset = random.randint(-0x100, 0xFF) * 4  # SW requires 4-byte alignment
     instr = InstructionSW(gp, reg, offset).encode()
     await send_instr(dut, instr)
 
