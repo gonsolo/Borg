@@ -52,6 +52,7 @@ HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/hutt/src 
 	@#CLOCK_MHZ=4 $(MILL) fpga.picoice.soc.runMain soc.FpgaMain
 	@#ln -sf $(CURDIR)/hardware/borg/src/rcp_lut.hex   out/fpga/verilog/rcp_lut.hex
 	@#ln -sf $(CURDIR)/hardware/borg/src/coord_lut.hex out/fpga/verilog/coord_lut.hex
+	@python3 scripts/init_bram_zero.py out/hardware/borg/verilog
 	@touch $@
 
 .PHONY: info.yaml

@@ -27,10 +27,9 @@ class InstrCacheIO(val wordAddrWidth: Int) extends Bundle {
   val mem = new HuttInstrBus(wordAddrWidth)           // MemoryController side
 }
 
-class InstrCache(val wordAddrWidth: Int = 23) extends Module {
-  val numLines  = 512
-  val indexBits = log2Ceil(numLines)           // 9
-  val tagBits   = wordAddrWidth - indexBits    // 14
+class InstrCache(val wordAddrWidth: Int = 23, val numLines: Int = 512) extends Module {
+  val indexBits = log2Ceil(numLines)
+  val tagBits   = wordAddrWidth - indexBits
 
   val io = IO(new InstrCacheIO(wordAddrWidth))
 

@@ -27,7 +27,8 @@ case class BorgConfig(
     coordWidth: Int = 9,
     fifoDepth: Int = 2,
     maxBinTiles: Int = 1024,
-    maxInstructions: Int = 56
+    maxInstructions: Int = 56,
+    icacheLines: Int = 512
 ) {
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
@@ -53,6 +54,7 @@ object BorgConfig {
     coordWidth      = 9,
     fifoDepth       = 2,
     maxBinTiles     = 16,
-    maxInstructions = 32
+    maxInstructions = 32,
+    icacheLines     = 32
   )
 }

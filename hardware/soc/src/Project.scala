@@ -105,7 +105,7 @@ trait SoCLogic { self: RawModule =>
     // -------------------------------------------------------------------------
     // Instruction fetch — via InstrCache.
     // -------------------------------------------------------------------------
-    val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23)) }
+    val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23, BORG_CFG.icacheLines)) }
     iCache.io.cpu <> cpu.io.instr
     iCache.io.mem <> mem.io.instr
 
