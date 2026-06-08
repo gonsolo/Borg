@@ -45,10 +45,27 @@ class CacheTestHarness extends Module {
 }
 
 object InstrCacheTests extends TestSuite {
+  // InstrCache starts in sFlush and invalidates all 512 entries before
+  // accepting requests.  EphemeralSimulator does not assert reset on its own,
+  // so each test must drive reset explicitly (RegInit only takes effect while
+  // reset is asserted) and then wait for the flush to finish before fetching.
+  val FLUSH_WAIT = 514  // 512 flush cycles + 2 setup cycles
+
   val tests = Tests {
+
+    // Assert reset (so RegInit puts the FSM into sFlush) then let the cache
+    // run through its 512-cycle invalidation before any fetch is issued.
+    def resetAndFlush(dut: CacheTestHarness): Unit = {
+      dut.io.fetch.poke(false.B)
+      dut.reset.poke(true.B)
+      dut.clock.step(2)
+      dut.reset.poke(false.B)
+      dut.clock.step(FLUSH_WAIT)
+    }
 
     // Issue one fetch and count clock steps until valid is asserted.
     // Returns (steps, data).  Leaves the cache in sIdle (consumes resp).
+    // Call only after resetAndFlush has run (cache in sIdle).
     def fetchCycles(dut: CacheTestHarness, addr: Int): (Int, Int) = {
       dut.io.fetch.poke(true.B)
       dut.io.addr.poke(addr.U)
@@ -59,6 +76,8 @@ object InstrCacheTests extends TestSuite {
         count += 1
         if (dut.io.valid.peek().litToBoolean) done = true
         else dut.io.fetch.poke(false.B)  // drop fetch after the first step
+        if (count > 2000)
+          throw new RuntimeException(s"fetchCycles never saw valid after $count steps")
       }
       dut.io.fetch.poke(false.B)
       val data = dut.io.data.peek().litValue.toInt
@@ -68,8 +87,7 @@ object InstrCacheTests extends TestSuite {
 
     test("cold miss is slower than hit") {
       simulate(new CacheTestHarness) { dut =>
-        dut.io.fetch.poke(false.B)
-        dut.clock.step(2)
+        resetAndFlush(dut)
 
         val (miss, _) = fetchCycles(dut, 0x42)
         val (hit, _)  = fetchCycles(dut, 0x42)
@@ -81,8 +99,7 @@ object InstrCacheTests extends TestSuite {
 
     test("different indices don't evict each other") {
       simulate(new CacheTestHarness) { dut =>
-        dut.io.fetch.poke(false.B)
-        dut.clock.step(2)
+        resetAndFlush(dut)
 
         fetchCycles(dut, 0x00)
         fetchCycles(dut, 0x01)
@@ -95,8 +112,7 @@ object InstrCacheTests extends TestSuite {
 
     test("same index different tag causes eviction") {
       simulate(new CacheTestHarness) { dut =>
-        dut.io.fetch.poke(false.B)
-        dut.clock.step(2)
+        resetAndFlush(dut)
 
         val addr0 = 0          // tag=0, index=0
         val addr1 = 1 << 9     // tag=1, index=0 (same index, different tag)
@@ -110,8 +126,7 @@ object InstrCacheTests extends TestSuite {
 
     test("data is correct on hit") {
       simulate(new CacheTestHarness) { dut =>
-        dut.io.fetch.poke(false.B)
-        dut.clock.step(2)
+        resetAndFlush(dut)
 
         val addr = 0x1F
         fetchCycles(dut, addr)                // cold miss, fill cache

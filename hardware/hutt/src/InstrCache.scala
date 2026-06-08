@@ -34,11 +34,17 @@ class InstrCache(val wordAddrWidth: Int = 23, val numLines: Int = 512) extends M
   val io = IO(new InstrCacheIO(wordAddrWidth))
 
   // BRAM storage: tag[tagBits-1:0] packed with valid flag in the MSB.
+  // tagMem width = tagBits + 1 (valid bit is MSB).
   val tagMem  = SyncReadMem(numLines, UInt((tagBits + 1).W))
   val dataMem = SyncReadMem(numLines, UInt(32.W))
 
-  val sIdle :: sCheck :: sMissReq :: sMissWait :: Nil = Enum(4)
-  val state = RegInit(sIdle)
+  // sFlush: on every reset, iterate through all entries and write the
+  // "invalid" pattern (0) into tagMem so stale valid bits don't survive
+  // resets between cocotb test cases.  Takes numLines cycles; negligible
+  // at any realistic clock frequency.
+  val sFlush :: sIdle :: sCheck :: sMissReq :: sMissWait :: Nil = Enum(5)
+  val state    = RegInit(sFlush)
+  val flushIdx = RegInit(0.U(indexBits.W))
 
   val addrReg = RegInit(0.U(wordAddrWidth.W))
 
@@ -65,6 +71,13 @@ class InstrCache(val wordAddrWidth: Int = 23, val numLines: Int = 512) extends M
   io.mem.resp.ready := false.B
 
   switch(state) {
+
+    is(sFlush) {
+      // Invalidate all cache lines at reset (one per cycle).
+      tagMem.write(flushIdx, 0.U)
+      flushIdx := flushIdx + 1.U
+      when(flushIdx === (numLines - 1).U) { state := sIdle }
+    }
 
     is(sIdle) {
       io.cpu.req.ready := true.B
