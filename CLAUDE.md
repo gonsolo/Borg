@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Borg is an open-source GPU: a small RV32I CPU driving the **Borg FP16 shader processor** as an MMIO peripheral. The same Chisel source targets three back ends:
 
-- **ASIC** via Tiny Tapeout (Sky130 and IHP SG13G2) — `asic/tt/`
+- **ASIC** via Tiny Tapeout (IHP SG13G2) — `asic/tt/`
 - **pico-ice** FPGA (iCE40 UP5K) — `fpga/picoice/` (currently disabled in the top Makefile; `BorgConfig.Large` is the primary target)
 - **ULX3S** FPGA (Lattice ECP5-85K) — `fpga/ulx3s/`
 

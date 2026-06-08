@@ -3,16 +3,29 @@ message: "If you use this software, please cite it as below."
 authors:
 - family-names: "Wendleder"
   given-names: "Andreas"
-title: "Borg - Tiny GPU"
-abstract: "A RISC-V SoC with a GPU featuring vertex shading, rasterization, and RGB fragment shading, targeting both iCE40 FPGAs and ASICs. Funded by NLnet NGI0 Commons Fund (SkyWater 130nm and IHP SG13G2 Tapeouts)."
+title: "Borg (Bring yer Own GRaphics): An Open-Source Tile-Based GPU with Silicon Tapeout"
+abstract: "A RISC-V SoC with a tile-based GPU featuring vertex shading, rasterization, and FP16 fragment shading, targeting ECP5 FPGAs and ASIC (IHP SG13G2 tapeout). Funded by NLnet NGI0 Commons Fund."
 version: 0.1.0
-date-released: 2026-04-29
+date-released: 2026-07-17
 url: "https://github.com/gonsolo/Borg"
 license: "CERN-OHL-S-2.0"
+preferred-citation:
+  type: conference-paper
+  authors:
+  - family-names: "Wendleder"
+    given-names: "Andreas"
+  title: "Borg (Bring yer Own GRaphics): An Open-Source Tile-Based GPU with Silicon Tapeout"
+  collection-title: "High-Performance Graphics (HPG) 2026"
+  year: 2026
+  month: 7
+  location:
+    name: "Los Angeles, CA"
+  url: "https://github.com/gonsolo/Borg"
 keywords:
   - "GPU"
   - "RISC-V"
   - "Chisel"
   - "Open Source Hardware"
   - "Tiny Tapeout"
-  - "iCE40"
+  - "ECP5"
+  - "High-Performance Graphics"

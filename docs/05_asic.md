@@ -11,7 +11,6 @@ entirely open-source tools.
 The ASIC build comes in two flavours:
 
 ```
-make gds-sky130   # Sky130 via LibreLane/OpenROAD
 make gds-ihp      # IHP SG13G2 via LibreLane/OpenROAD
 ```
 
