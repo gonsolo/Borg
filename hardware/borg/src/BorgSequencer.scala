@@ -614,7 +614,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private def handleWriteSetupInputs(): Unit = {
     io.uniformWrite.en   := true.B
-    io.uniformWrite.addr := Cat(uniformPage, writeIdx(4, 0))
+    io.uniformWrite.addr := (if (cfg.maxUniforms > 32) Cat(uniformPage, writeIdx(4, 0)) else writeIdx(4, 0))
     when(writeIdx < 6.U) {
       val v = writeIdx(2, 1)  // writeIdx / 2 → vertex index (0, 1, 2)
       val c = writeIdx(0)     // writeIdx % 2 → component (0=x, 1=y)
@@ -744,7 +744,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // (w > 30 cannot occur: writeIdx stops at 30)
 
     io.uniformWrite.en   := true.B
-    io.uniformWrite.addr := Cat(uniformPage, writeIdx(4, 0))
+    io.uniformWrite.addr := (if (cfg.maxUniforms > 32) Cat(uniformPage, writeIdx(4, 0)) else writeIdx(4, 0))
     io.uniformWrite.data := uData
 
     // Debug: dump uniform values during staging

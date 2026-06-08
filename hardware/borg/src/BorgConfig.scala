@@ -21,6 +21,12 @@ package borg
   * @param maxInstructions Shader instruction memory depth.  Each entry is 32 bits.
   *                        56 entries ≈ 145 kµm²; 32 entries ≈ 83 kµm² (saves 62 kµm²).
   *                        ASIC uses 32 — the demo shader fits comfortably.
+  * @param maxUniforms  Uniform memory depth.  64 = two 32-entry pages (double-buffered
+  *                     for CPU/GPU overlap); 32 = single page (saves ~25 kµm² on ASIC
+  *                     where the sequencer always writes page 0).
+  * @param hasPerfCounters Wire up the 5×32-bit GPU performance counters (total/frag/
+  *                     flush/stall/dma).  Useful for fps profiling on ULX3S; omitted
+  *                     on ASIC to save ~18 kµm².
   */
 case class BorgConfig(
     fp: FloatConfig = FloatConfig.FP16,
@@ -28,7 +34,9 @@ case class BorgConfig(
     fifoDepth: Int = 2,
     maxBinTiles: Int = 1024,
     maxInstructions: Int = 56,
-    icacheLines: Int = 512
+    icacheLines: Int = 512,
+    maxUniforms: Int = 64,
+    hasPerfCounters: Boolean = true
 ) {
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
@@ -48,15 +56,17 @@ object BorgConfig {
   // ASIC (IHP SG13G2, TT 8×4 tile).
   //   countMem_1024x10 alone was ~920 kµm² (50 % of die) → reduced to 16 tiles (~14 kµm²).
   //   instructionMemory_56x32 was ~145 kµm² → reduced to 32 entries (~83 kµm²).
-  //   icacheLines=0: I-cache bypassed — at 4 MHz QSPI latency is trivial; cache saves
-  //   ~55 kµm² that the design needs to stay under DPL density limits.
-  //   Total savings vs original: ~968 kµm², target utilisation ≈ 69 %.
+  //   icacheLines=0: I-cache bypassed — at 4 MHz QSPI latency is trivial; saves ~55 kµm².
+  //   maxUniforms=32: single-page uniforms — sequencer always writes page 0; saves ~25 kµm².
+  //   hasPerfCounters=false: 5×32-bit counters not needed for silicon demo; saves ~18 kµm².
   val Asic = BorgConfig(
-    fp              = FloatConfig.FP16,
-    coordWidth      = 9,
-    fifoDepth       = 2,
-    maxBinTiles     = 16,
-    maxInstructions = 32,
-    icacheLines     = 0
+    fp               = FloatConfig.FP16,
+    coordWidth       = 9,
+    fifoDepth        = 2,
+    maxBinTiles      = 16,
+    maxInstructions  = 32,
+    icacheLines      = 0,
+    maxUniforms      = 32,
+    hasPerfCounters  = false
   )
 }

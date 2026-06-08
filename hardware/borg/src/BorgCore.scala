@@ -87,7 +87,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val auto_run_pending = RegInit(false.B)
   val running_by_rasterizer = RegInit(false.B)
 
-  val uniformMem = SyncReadMem(64, UInt(config.totalBits.W))
+  val uniformMem = SyncReadMem(cfg.maxUniforms, UInt(config.totalBits.W))
 
   // --- Coordinate Expansion LUT (BRAM) ---
   // Converts a 9-bit integer pixel coordinate i to FP16(i + 0.5) combinationally.
@@ -259,8 +259,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         io.bus.is_writing && io.bus.address >= BorgGpuRegs.uniform_offset && io.bus.address < 496.U
     val unifIdx = (io.bus.address - BorgGpuRegs.uniform_offset) >> 2
     val unifWen  = io.dmaUniformWrite.en || mmioUnifWrite
-    val unifAddr = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.addr,
-                       Cat(io.control.uniformWritePage, unifIdx(4, 0)))
+    val unifAddr = if (cfg.maxUniforms > 32)
+      Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.addr,
+          Cat(io.control.uniformWritePage, unifIdx(4, 0)))
+    else
+      Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.addr(4, 0), unifIdx(4, 0))
     val unifData = Mux(io.dmaUniformWrite.en, io.dmaUniformWrite.data,
                        io.bus.data_in(config.totalBits - 1, 0))
     when(unifWen) {
@@ -281,8 +284,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val uniform_addr = Mux(opFlags.funct3 === 1.U, regs.rs1,
                        Mux(opFlags.funct3 === 2.U, regs.rs2, regs.rs3))
     
-    val read_page = Mux(running_by_rasterizer, io.uniformPage, io.control.uniformWritePage)
-    val read_data = uniformMem.read(Cat(read_page, uniform_addr(4, 0)), op_en)
+    val unifReadAddr = if (cfg.maxUniforms > 32) {
+      val read_page = Mux(running_by_rasterizer, io.uniformPage, io.control.uniformWritePage)
+      Cat(read_page, uniform_addr(4, 0))
+    } else {
+      uniform_addr(4, 0)
+    }
+    val read_data = uniformMem.read(unifReadAddr, op_en)
     val uniform_data = Mux(op_en_del, read_data, 0.U)
 
 
