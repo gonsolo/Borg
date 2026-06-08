@@ -99,7 +99,13 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
               f"cd '{root}' && {test_soc} core"),
         # NOTE: verilator triangle/vkcube share obj_dir — serialise to prevent
         # parallel 'rm -rf obj_dir' races that corrupt the verilator_sim build.
-        Suite("render › verilator › triangle", verilator_render("triangle")),
+        # Also gate the whole render chain behind the chisel (Mill) suites: the
+        # render Makefile invokes `make generate_verilog_sim` (a Mill build), and
+        # two Mill clients hitting the server at once corrupts it
+        # (xsbt.CompilerInterface ClassNotFound) — the cause of the chisel/render
+        # cascade failures in CI.  Serialising trades wall-clock for reliability.
+        Suite("render › verilator › triangle", verilator_render("triangle"),
+              depends_on="chisel › hutt"),
         Suite("render › verilator › vkcube",   verilator_render("vkcube"),
               depends_on="render › verilator › triangle"),
         # NOTE: arcilator triangle/vkcube share arcilator_sim — same reason.
