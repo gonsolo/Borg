@@ -20,11 +20,7 @@ int main(int argc, char **argv) {
     sim.set_camera_angles(cfg.cam_angle_x, cfg.cam_angle_y);
   std::cout << "[SIM] Starting simulation...\n";
 
-  // 2 frames is enough for a correctness check: frame 1 absorbs startup, frame
-  // 2 is the steady-state image saved to the PPM (matches the golden).  The
-  // longer 8-frame run was only for fps measurement, which CI does not need and
-  // which dominated test-all wall-clock (~8x slower than a single frame).
-  const int NUM_FRAMES = 2;
+  const int NUM_FRAMES = cfg.num_frames;
   uint64_t total_cycles = 0;
   for (int frame = 0; frame < NUM_FRAMES; frame++) {
     uint64_t frame_start = total_cycles;

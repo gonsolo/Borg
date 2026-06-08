@@ -14,6 +14,7 @@ struct AppConfig {
     bool        has_camera;
     float       cam_angle_x;
     float       cam_angle_y;
+    int         num_frames;  // frames to simulate before saving PPM
 };
 
 inline AppConfig get_app_config(const std::string& app_name) {
@@ -24,15 +25,18 @@ inline AppConfig get_app_config(const std::string& app_name) {
             true,
             0.5236f,   // 30° X
             0.7854f,   // 45° Y — lighting contrast
+            2,         // frame 1 = startup, frame 2 = steady state
         };
     } else {
-        // triangle, textest, and any other app
+        // triangle renders exactly one frame then enters a UART dump loop,
+        // so NUM_FRAMES=1 is both correct and necessary to avoid a hang.
         return {
             "../../software/borg/test_texture.dat",
             32,
             false,
             0.0f,
             0.0f,
+            1,
         };
     }
 }
