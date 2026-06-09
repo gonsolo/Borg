@@ -42,6 +42,8 @@
       p.nanobind
       p.evdev
       p.pyserial
+      p.mako # Mesa build (code generation)
+      p.pyyaml # Mesa build
     ]);
   in {
     devShells.${system}.default = pkgs.mkShell {
@@ -72,6 +74,11 @@
         pkgs.magic-vlsi
         pkgs.metals
         pkgs.mill
+        pkgs.meson # Mesa/borgvk build
+        pkgs.ninja # Mesa/borgvk build
+        pkgs.bison # Mesa build
+        pkgs.flex # Mesa build
+        pkgs.vulkan-tools # vulkaninfo (borgvk enumeration gate)
         pkgs.mpremote
         pkgs.netgen-vlsi
         pkgs.nextpnr
@@ -91,6 +98,30 @@
         pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
         pkgs.pkgsCross.riscv32-embedded.buildPackages.binutils
         pythonEnv
+      ];
+
+      # Library dependencies for the Mesa "borgvk" Vulkan driver. Kept in
+      # buildInputs so pkg-config picks up their headers/.pc files. X11/xcb are
+      # for hosting unmodified Vulkan-Tools/cube.c (--wsi xcb); the real output
+      # is the ULX3S HDMI, so wayland is intentionally omitted (build -Dplatforms=x11).
+      buildInputs = [
+        pkgs.vulkan-headers
+        pkgs.vulkan-loader
+        pkgs.libdrm
+        pkgs.spirv-headers
+        pkgs.spirv-tools
+        pkgs.expat
+        pkgs.zlib
+        pkgs.zstd
+        pkgs.libffi
+        pkgs.libxml2
+        pkgs.libxcb
+        pkgs.libx11
+        pkgs.libxext
+        pkgs.libxrandr
+        pkgs.libxfixes
+        pkgs.libxshmfence
+        pkgs.libxcb-keysyms
       ];
 
       shellHook = ''

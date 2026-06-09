@@ -100,6 +100,15 @@ Multiple bitstream targets live in `fpga/ulx3s/soc/src/`: `ULX3S.scala` (full So
 
 Per-target Scala `Main` objects have their own defaults: **TT ASIC = 4 MHz**, **pico-ice = 4 MHz**, **ULX3S = 25 MHz (SoC) / 125 MHz (HDMI)**. Override via the `CLOCK_MHZ` env var (e.g. `CLOCK_MHZ=50 make generate_verilog`).
 
+### Host Vulkan driver — `borgvk` (work in progress)
+
+A real Mesa Vulkan driver (native ICD, modeled on v3dv) that runs the **unmodified** Khronos `Vulkan-Tools/cube.c` on a Linux host and renders it on the ULX3S over the existing serial-over-USB link (`/dev/ttyUSB0` @115200). Two new git submodules at the repo root, same pattern as `tt`/`PeakRDL-chisel`:
+
+- `Vulkan-Tools/` — upstream KhronosGroup, pinned; source of `cube/cube.c` (kept unmodified).
+- `mesa/` — the `gonsolo/mesa` fork, branch `borg`; the driver lives in-tree under `src/borg/vulkan/` (added post-restart once the toolchain is in `flake.nix`).
+
+The driver intercepts `vkQueueSubmit` (via Mesa runtime's `vk_queue.driver_submit`), reads the per-frame MVP from the bound uniform buffer, and ships it over serial to `borg_vkcube.c` firmware, which renders the existing cube+texture via the autonomous TBR sequencer. No NIR→Borg compiler is needed for the cube (its shaders are already hand-compiled to SPIR-B in the firmware as `vert_borg`/`frag_borg`); that compiler + drm-shim are post-July work. The current custom-firmware `mouse_rotation.py` demo stays working as a fallback. Full plan: `~/.claude/plans/atomic-questing-stream.md`. `flake.nix` carries the Mesa/Vulkan build deps (meson, ninja, vulkan-loader/headers, libdrm, spirv-tools, x11/xcb).
+
 ## Conventions to know
 
 - Don't recreate the deleted TinyQV CPU or its nibble-serial QSPI protocol — Hutt's `Decoupled` buses are the current contract.
