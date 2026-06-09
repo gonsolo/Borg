@@ -366,15 +366,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def wireFma(
       recA_raw: UInt, recB_raw: UInt, recC_raw: UInt, start: Bool
   ): (UInt, Bool, Bool) = {
-    val recA = recFNFromFN(config.exp, config.sig, recA_raw)
-    val recB = recFNFromFN(config.exp, config.sig, recB_raw)
-    val recC = recFNFromFN(config.exp, config.sig, recC_raw)
-
     val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
-    val recOne = recFNFromFN(config.exp, config.sig, one_fn)
-    val recZero = recFNFromFN(config.exp, config.sig, 0.U(config.totalBits.W))
 
-    // Latch op type for the 4-cycle pipeline
+    // Latch op type for the 4-cycle pipeline (shared by both FMA implementations)
     val is_mul_reg = RegInit(false.B)
     val is_fma_reg = RegInit(false.B)
     val is_fneg_reg = RegInit(false.B)
@@ -388,41 +382,63 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_frcp_reg := opFlags.frcp
     }
 
-    // @doc:fma-muxing
-    // Stage 1: preMul (combinatorial) — inputs valid at busy_counter=4,3,2
-    val preMul = Module(new MulAddRecFNToRaw_preMul(config.exp, config.sig))
-    // ADD:  1.0 * rs1 + rs2       MUL: rs1 * rs2 + 0.0
-    // FMA:  rs1 * rs2 + rs3       FNEG: -(1.0 * rs1) + 0.0
-    preMul.io.op := Mux(is_fneg_reg, 2.U, 0.U)
-    preMul.io.a  := Mux(is_mul_reg || is_fma_reg, recA, recOne)
-    preMul.io.b  := Mux(is_mul_reg || is_fma_reg, recB, recA)
-    preMul.io.c  := Mux(is_fma_reg, recC, Mux(is_mul_reg || is_fneg_reg, recZero, recB))
-
-    val mulAddResult = (preMul.io.mulAddA * preMul.io.mulAddB) +& preMul.io.mulAddC
-
-    // Pipeline register: capture at the busy_counter=3→2 clock edge.
-    // Breaks the 57 ns path (memory-reads + preMul + postMul) into two ~29 ns stages.
-    // At busy_counter=2, recA/B/C are still valid (op_en includes counter>=2),
-    // so preMul has had two full cycles to settle before we register its output.
+    // Pipeline register fires at the busy_counter=3→2 clock edge, splitting the
+    // ~57 ns FMA path into two ~29 ns stages.  At busy_counter=2 recA/B/C are
+    // still valid (op_en includes counter>=2), so stage 1 has settled.
     val pipe_stage = is_busy && busy_counter === 2.U
-    val toPostMul_reg    = RegEnable(preMul.io.toPostMul,  pipe_stage)
-    val mulAddResult_reg = RegEnable(mulAddResult,          pipe_stage)
 
-    // Stage 2: postMul + rounding — runs at busy_counter=1 from registered inputs
-    val postMul = Module(new MulAddRecFNToRaw_postMul(config.exp, config.sig))
-    postMul.io.fromPreMul   := toPostMul_reg
-    postMul.io.mulAddResult := mulAddResult_reg
-    postMul.io.roundingMode := 0.U
+    // @doc:fma-muxing
+    // Operand muxing (shared semantics for both FMA cores):
+    //   ADD:  1.0 * rs1 + rs2       MUL: rs1 * rs2 + 0.0
+    //   FMA:  rs1 * rs2 + rs3       FNEG: -(1.0 * rs1) + 0.0
+    val fma_result =
+      if (cfg.useCustomFma) {
+        // In-tree FP16 FMA on standard IEEE values (no recode), CERN-OHL-S.
+        val fma = Module(new BorgFp16Fma(cfg))
+        fma.io.a := Mux(is_mul_reg || is_fma_reg, recA_raw, one_fn)
+        fma.io.b := Mux(is_mul_reg || is_fma_reg, recB_raw, recA_raw)
+        fma.io.c := Mux(is_fma_reg, recC_raw,
+                        Mux(is_mul_reg || is_fneg_reg, 0.U(config.totalBits.W), recB_raw))
+        fma.io.negate := is_fneg_reg
+        fma.io.pipeEn := pipe_stage
+        fma.io.out
+      } else {
+        // Berkeley HardFloat MulAddRecFN (recoded format, full IEEE-754).
+        val recA = recFNFromFN(config.exp, config.sig, recA_raw)
+        val recB = recFNFromFN(config.exp, config.sig, recB_raw)
+        val recC = recFNFromFN(config.exp, config.sig, recC_raw)
+        val recOne = recFNFromFN(config.exp, config.sig, one_fn)
+        val recZero = recFNFromFN(config.exp, config.sig, 0.U(config.totalBits.W))
 
-    val round = Module(new RoundRawFNToRecFN(config.exp, config.sig, 0))
-    round.io.invalidExc    := postMul.io.invalidExc
-    round.io.infiniteExc   := false.B
-    round.io.in            := postMul.io.rawOut
-    round.io.roundingMode  := 0.U
-    round.io.detectTininess := 1.U
+        // Stage 1: preMul (combinatorial) — inputs valid at busy_counter=4,3,2
+        val preMul = Module(new MulAddRecFNToRaw_preMul(config.exp, config.sig))
+        preMul.io.op := Mux(is_fneg_reg, 2.U, 0.U)
+        preMul.io.a  := Mux(is_mul_reg || is_fma_reg, recA, recOne)
+        preMul.io.b  := Mux(is_mul_reg || is_fma_reg, recB, recA)
+        preMul.io.c  := Mux(is_fma_reg, recC, Mux(is_mul_reg || is_fneg_reg, recZero, recB))
+
+        val mulAddResult = (preMul.io.mulAddA * preMul.io.mulAddB) +& preMul.io.mulAddC
+        val toPostMul_reg    = RegEnable(preMul.io.toPostMul,  pipe_stage)
+        val mulAddResult_reg = RegEnable(mulAddResult,          pipe_stage)
+
+        // Stage 2: postMul + rounding — runs at busy_counter=1 from registered inputs
+        val postMul = Module(new MulAddRecFNToRaw_postMul(config.exp, config.sig))
+        postMul.io.fromPreMul   := toPostMul_reg
+        postMul.io.mulAddResult := mulAddResult_reg
+        postMul.io.roundingMode := 0.U
+
+        val round = Module(new RoundRawFNToRecFN(config.exp, config.sig, 0))
+        round.io.invalidExc    := postMul.io.invalidExc
+        round.io.infiniteExc   := false.B
+        round.io.in            := postMul.io.rawOut
+        round.io.roundingMode  := 0.U
+        round.io.detectTininess := 1.U
+
+        fNFromRecFN(config.exp, config.sig, round.io.out)
+      }
     // @doc:end
 
-    (fNFromRecFN(config.exp, config.sig, round.io.out), is_fstep_reg, is_frcp_reg)
+    (fma_result, is_fstep_reg, is_frcp_reg)
   }
 
   // @doc:fstep

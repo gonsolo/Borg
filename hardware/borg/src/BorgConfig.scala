@@ -27,6 +27,15 @@ package borg
   * @param hasPerfCounters Wire up the 5×32-bit GPU performance counters (total/frag/
   *                     flush/stall/dma).  Useful for fps profiling on ULX3S; omitted
   *                     on ASIC to save ~18 kµm².
+  * @param useCustomFma Select the FP16 fused-multiply-add implementation.  false =
+  *                     Berkeley HardFloat MulAddRecFN (full IEEE-754, proven); true =
+  *                     in-tree BorgFp16Fma (GPU domain, round-to-nearest-even, CERN-OHL-S).
+  *                     The custom unit is smaller and shorter critical-path (enables a
+  *                     clock bump) and is the per-lane datapath for SIMT.
+  * @param fragLanes  Fragment-shader SIMT width.  1 = scalar (one pixel per shader pass,
+  *                     the current behaviour); 4 = a 2×2 pixel quad per pass (4× shader
+  *                     throughput, lays the architecture for dFdx/dFdy).  Only the
+  *                     ULX3S/sim targets use 4; pico-ice/ASIC stay at 1 (area).
   */
 case class BorgConfig(
     fp: FloatConfig = FloatConfig.FP16,
@@ -36,8 +45,11 @@ case class BorgConfig(
     maxInstructions: Int = 56,
     icacheLines: Int = 512,
     maxUniforms: Int = 64,
-    hasPerfCounters: Boolean = true
+    hasPerfCounters: Boolean = true,
+    useCustomFma: Boolean = false,
+    fragLanes: Int = 1
 ) {
+  require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
   def sig: Int = fp.sig

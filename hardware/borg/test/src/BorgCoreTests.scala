@@ -488,5 +488,54 @@ object BorgCoreTests extends TestSuite {
         println("  PASSED")
       }
     }
+
+    // --- Custom FMA path (cfg.useCustomFma=true) — same ops, BorgFp16Fma core ---
+    utest.test("custom_fma_path") {
+      val customCfg = config.copy(useCustomFma = true)
+      simulate(new BorgCore(customCfg)) { core =>
+        println("\n--- BorgCore: custom_fma_path (useCustomFma=true) ---")
+        idleInputs(core)
+        resetCore(core)
+
+        def runOp(instr: BigInt, setup: => Unit): Float = {
+          setup
+          writeImem(core, 0, instr)
+          writeImem(core, 1, 0)
+          resetCore(core)
+          startAndWait(core)
+          fp16BitsToFloat(readReg(core, 2))
+        }
+
+        val add = runOp(Instructions.ADD(0, 1, 2), {
+          writeReg(core, 0, floatToFp16Bits(2.0f)); writeReg(core, 1, floatToFp16Bits(3.0f))
+        })
+        println(f"  add(2,3)=$add%.3f"); utest.assert(math.abs(add - 5.0f) < 0.01f)
+
+        val mul = runOp(Instructions.MUL(0, 1, 2), {
+          writeReg(core, 0, floatToFp16Bits(3.0f)); writeReg(core, 1, floatToFp16Bits(4.0f))
+        })
+        println(f"  mul(3,4)=$mul%.3f"); utest.assert(math.abs(mul - 12.0f) < 0.01f)
+
+        val fma = runOp(Instructions.FMA(0, 1, 3, 2), {
+          writeReg(core, 0, floatToFp16Bits(2.0f)); writeReg(core, 1, floatToFp16Bits(3.0f))
+          writeReg(core, 3, floatToFp16Bits(1.0f))
+        })
+        println(f"  fma(2,3,1)=$fma%.3f"); utest.assert(math.abs(fma - 7.0f) < 0.01f)
+
+        val neg = runOp(Instructions.FNEG(0, 2), {
+          writeReg(core, 0, floatToFp16Bits(2.5f))
+        })
+        println(f"  neg(2.5)=$neg%.3f"); utest.assert(math.abs(neg + 2.5f) < 0.01f)
+
+        // a non-trivial fractional case: 0.333*3 + 0.5 ≈ 1.5
+        val mixed = runOp(Instructions.FMA(0, 1, 3, 2), {
+          writeReg(core, 0, floatToFp16Bits(0.3333f)); writeReg(core, 1, floatToFp16Bits(3.0f))
+          writeReg(core, 3, floatToFp16Bits(0.5f))
+        })
+        println(f"  fma(0.333,3,0.5)=$mixed%.3f"); utest.assert(math.abs(mixed - 1.5f) < 0.02f)
+
+        println("  PASSED")
+      }
+    }
   }
 }
