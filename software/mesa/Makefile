@@ -50,9 +50,8 @@ enumtest: build
 	@VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" \
 		$(BUILD_DIR)/borgvk_enum_test
 
-# Run the system vulkaninfo against the borg driver. NOTE: full vulkaninfo
-# creates a VkDevice and will crash until Phase 2 implements CreateDevice.
-vulkaninfo:
+# Run the system vulkaninfo against the borg driver (lists "Borg (ULX3S)").
+vulkaninfo: build
 	VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" vulkaninfo --summary
 
 clean:
