@@ -66,11 +66,24 @@ public:
     void load_bin(const std::string& path) {
         std::ifstream f(path, std::ios::binary | std::ios::ate);
         if (!f) {
-            std::cerr << "[SIM] Failed to open " << path << "\n";
-            return;
+            // Fail loudly: running with empty flash makes the CPU never render and
+            // never write the completion marker, which the watchdog reports as a
+            // bogus "render hang" (e.g. 573/1024 px wrong) that looks like an RTL or
+            // codegen bug.  Build the firmware first (`make triangle`/`make vkcube`).
+            // See docs/arcilator_custom_fma_bug.md.
+            std::cerr << "[SIM] FATAL: could not open firmware '" << path << "'.\n"
+                      << "[SIM]   The firmware .bin is a build artifact — run "
+                         "`make triangle` / `make vkcube` (which build it) instead of\n"
+                      << "[SIM]   invoking the simulator binary directly with a stale "
+                         "or missing path.\n";
+            std::exit(2);
         }
         size_t size = f.tellg();
         f.seekg(0, std::ios::beg);
+        if (size == 0) {
+            std::cerr << "[SIM] FATAL: firmware '" << path << "' is empty (0 bytes).\n";
+            std::exit(2);
+        }
         if (size > mem.size()) size = mem.size();
         f.read((char*)mem.data(), size);
         std::cout << "[SIM] Loaded " << size << " bytes from " << path << "\n";

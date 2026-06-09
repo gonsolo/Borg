@@ -57,12 +57,19 @@ case class BorgConfig(
 
 object BorgConfig {
   // Default: sim + ULX3S — full 1024-tile bin table, 56-instruction shader memory.
+  // useCustomFma=true: the in-tree BorgFp16Fma is bit-verified vs HardFloat (30k+
+  // co-sim cases) and renders correctly in verilator AND arcilator AND on ULX3S
+  // hardware; it is smaller and shorter-critical-path.  (The "arcilator miscompile"
+  // once attributed to it was a missing-firmware misdiagnosis — see
+  // docs/arcilator_custom_fma_bug.md.)  The Asic config below stays on HardFloat so
+  // the already-validated/taped-out GDS is unaffected.
   val Default = BorgConfig(
     fp              = FloatConfig.FP16,
     coordWidth      = 9,
     fifoDepth       = 2,
     maxBinTiles     = 1024,
-    maxInstructions = 56
+    maxInstructions = 56,
+    useCustomFma    = true
   )
 
   // ASIC (IHP SG13G2, TT 8×4 tile).
@@ -79,6 +86,7 @@ object BorgConfig {
     maxInstructions  = 32,
     icacheLines      = 0,
     maxUniforms      = 32,
-    hasPerfCounters  = false
+    hasPerfCounters  = false,
+    useCustomFma     = false  // explicit: keep HardFloat for the validated/taped-out GDS
   )
 }

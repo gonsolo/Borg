@@ -2,6 +2,38 @@
 
 Written 2026-06-09. Standalone brief for a fresh debugging session.
 
+> ## ⚠️ RESOLVED 2026-06-09 — THIS WAS NOT AN ARCILATOR BUG (read this first)
+>
+> The custom-FMA full SoC **renders correctly in arcilator**. With firmware properly
+> built and loaded, `useCustomFma=true` + arcilator passes the triangle golden (frame
+> done in ~1M cycles) and runs vkcube to completion (~1.6M cycles) — verified 3/3
+> deterministic in a clean worktree at HEAD `8969501`, using this dossier's *exact*
+> `./arcilator_sim ../../software/borg/triangle.bin triangle` command.
+>
+> **Root cause of the false signature:** the repro below runs `make arcilator_sim`
+> (which does **not** build the firmware) and then a *manual* `./arcilator_sim
+> ../../software/borg/triangle.bin`. `triangle.bin` is a **gitignored build artifact**.
+> When it is absent (or stale), flash is empty → the CPU never renders → the
+> `0x0000DEAD` completion marker is never written → the 12M-cycle watchdog aborts and
+> dumps a partial framebuffer, which differs from the golden by **exactly** `573/1024
+> px, worst=255 at (25,1)`. Pointing the *passing* custom-FMA binary at a nonexistent
+> firmware path reproduces this signature precisely. The verilator "control" used
+> `make triangle`, which **does** build firmware → PASS. That asymmetric methodology —
+> not the FMA — created the apparent arcilator/verilator discrepancy.
+>
+> Everything else falls out of this: the "invariance" to the FMA's logic/value/
+> structure is exactly what a firmware-independent hang predicts, and the standalone
+> harnesses (`fma_cosim`, `core_harness`) passed because they drive operands via
+> C++/MMIO and need no firmware.
+>
+> **Takeaways:** (1) always build firmware before a manual `./arcilator_sim` — use
+> `make triangle` / `make vkcube`, which build the `.bin` as a dependency; (2) a
+> 12M-cycle abort + `573/(25,1)` means **empty flash**, not a codegen bug; (3)
+> arcilator is safe to use for custom-FMA simulation. The historical investigation
+> notes below are kept for the record only.
+>
+> ---
+
 ## TL;DR
 
 The Borg SoC, built with `BorgConfig.useCustomFma = true` (use the in-tree
