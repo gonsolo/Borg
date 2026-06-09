@@ -104,7 +104,7 @@ int main(void)
    VkSampler samp;
    CHECK("vkCreateSampler", vkCreateSampler(dev, &sci, 0, &samp));
 
-   /* --- common: shader module, pipeline layout/cache, render pass --- */
+   /* --- common: shader module, pipeline layout/cache --- */
    static const uint32_t dummy_spirv[] = { 0x07230203, 0x00010000, 0, 1, 0 };
    VkShaderModuleCreateInfo smci = {
       .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -120,6 +120,65 @@ int main(void)
    VkPipelineCacheCreateInfo pcci = { .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
    VkPipelineCache pc;
    CHECK("vkCreatePipelineCache", vkCreatePipelineCache(dev, &pcci, 0, &pc));
+
+   /* --- descriptor set layout + pool + set + update (cube.c style) --- */
+   VkDescriptorSetLayoutBinding binds[2] = {
+      { .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_VERTEX_BIT },
+      { .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT },
+   };
+   VkDescriptorSetLayoutCreateInfo dslci = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+      .bindingCount = 2, .pBindings = binds,
+   };
+   VkDescriptorSetLayout dsl;
+   CHECK("vkCreateDescriptorSetLayout", vkCreateDescriptorSetLayout(dev, &dslci, 0, &dsl));
+
+   VkDescriptorPoolSize psizes[2] = {
+      { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 },
+      { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 },
+   };
+   VkDescriptorPoolCreateInfo dpci = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+      .maxSets = 1, .poolSizeCount = 2, .pPoolSizes = psizes,
+   };
+   VkDescriptorPool dpool;
+   CHECK("vkCreateDescriptorPool", vkCreateDescriptorPool(dev, &dpci, 0, &dpool));
+
+   VkDescriptorSetAllocateInfo dsai = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+      .descriptorPool = dpool, .descriptorSetCount = 1, .pSetLayouts = &dsl,
+   };
+   VkDescriptorSet dset;
+   CHECK("vkAllocateDescriptorSets", vkAllocateDescriptorSets(dev, &dsai, &dset));
+
+   VkDescriptorBufferInfo dbi = { .buffer = buf, .offset = 0, .range = VK_WHOLE_SIZE };
+   VkWriteDescriptorSet write = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = dset,
+      .dstBinding = 0, .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .pBufferInfo = &dbi,
+   };
+   vkUpdateDescriptorSets(dev, 1, &write, 0, 0);
+   printf("  %-34s done\n", "vkUpdateDescriptorSets");
+
+   /* --- pipeline (stub) --- */
+   VkPipelineShaderStageCreateInfo stage = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = sm, .pName = "main",
+   };
+   VkPipelineVertexInputStateCreateInfo vi = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+   VkPipelineInputAssemblyStateCreateInfo ia = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+      .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+   };
+   VkGraphicsPipelineCreateInfo gpci = {
+      .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+      .stageCount = 1, .pStages = &stage, .pVertexInputState = &vi,
+      .pInputAssemblyState = &ia, .layout = pl,
+   };
+   VkPipeline pipe;
+   CHECK("vkCreateGraphicsPipelines", vkCreateGraphicsPipelines(dev, pc, 1, &gpci, 0, &pipe));
 
    /* --- command pool + buffer --- */
    VkCommandPoolCreateInfo cpci = {
