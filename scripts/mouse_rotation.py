@@ -16,13 +16,18 @@ Usage:
 
 import sys
 import math
+import select
 import struct
+import time
 import serial
 import evdev
 
-SERIAL_PORT = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyUSB0"
-BAUD        = 115200
-SENSITIVITY = 0.005   # radians per raw mouse count
+SERIAL_PORT        = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyUSB0"
+BAUD               = 115200
+SENSITIVITY        = 0.005   # radians per raw mouse count
+AUTO_ROTATE_DELAY  = 5.0     # seconds of inactivity before auto-rotate
+AUTO_ROTATE_SPEED  = 0.03    # radians per 50ms tick (~1 rev / 10 s)
+SELECT_TIMEOUT     = 0.05    # seconds between auto-rotate ticks
 
 
 def find_mouse():
@@ -52,20 +57,35 @@ def main() -> None:
     TWO_PI = 2.0 * math.pi
     dx = 0.0
     dy = 0.0
+    last_move = time.monotonic()
+    auto_rotating = False
 
-    for event in mouse.read_loop():
-        if event.type == evdev.ecodes.EV_REL:
-            if event.code == evdev.ecodes.REL_X:
-                dx += event.value
-            elif event.code == evdev.ecodes.REL_Y:
-                dy += event.value
-        elif event.type == evdev.ecodes.EV_SYN and event.code == evdev.ecodes.SYN_REPORT:
-            if dx != 0.0 or dy != 0.0:
-                ry = (ry + dx * SENSITIVITY) % TWO_PI
-                rx = max(-1.4, min(1.4, rx + dy * SENSITIVITY))
+    while True:
+        readable, _, _ = select.select([mouse.fd], [], [], SELECT_TIMEOUT)
+
+        if readable:
+            for event in mouse.read():
+                if event.type == evdev.ecodes.EV_REL:
+                    if event.code == evdev.ecodes.REL_X:
+                        dx += event.value
+                    elif event.code == evdev.ecodes.REL_Y:
+                        dy += event.value
+                elif event.type == evdev.ecodes.EV_SYN and event.code == evdev.ecodes.SYN_REPORT:
+                    if dx != 0.0 or dy != 0.0:
+                        ry = (ry + dx * SENSITIVITY) % TWO_PI
+                        rx = max(-1.4, min(1.4, rx + dy * SENSITIVITY))
+                        ser.write(pack_packet(ry, rx))
+                        dx = 0.0
+                        dy = 0.0
+                        last_move = time.monotonic()
+                        auto_rotating = False
+        else:
+            # No mouse event this tick — advance auto-rotation if idle long enough.
+            if not auto_rotating and time.monotonic() - last_move >= AUTO_ROTATE_DELAY:
+                auto_rotating = True
+            if auto_rotating:
+                ry = (ry + AUTO_ROTATE_SPEED) % TWO_PI
                 ser.write(pack_packet(ry, rx))
-                dx = 0.0
-                dy = 0.0
 
 
 if __name__ == "__main__":
