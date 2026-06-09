@@ -50,6 +50,14 @@ enumtest: build
 	@VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" \
 		$(BUILD_DIR)/borgvk_enum_test
 
+# Phase 2 init harness: exercises resource creation (memory/buffer/image/...).
+inittest: build
+	@gcc borgvk_init_test.c -o $(BUILD_DIR)/borgvk_init_test \
+		$$(pkg-config --cflags --libs vulkan)
+	@echo "--- borgvk init harness ---"
+	@VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" \
+		$(BUILD_DIR)/borgvk_init_test
+
 # Run the system vulkaninfo against the borg driver (lists "Borg (ULX3S)").
 vulkaninfo: build
 	VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" vulkaninfo --summary
