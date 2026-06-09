@@ -10,5 +10,5 @@
 	url = https://github.com/KhronosGroup/Vulkan-Tools.git
 [submodule "mesa"]
 	path = mesa
-	url = git@github.com:gonsolo/mesa.git
+	url = https://github.com/gonsolo/mesa.git
 	branch = borg
