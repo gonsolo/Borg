@@ -26,8 +26,8 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // MMIO bus
   val bus = Flipped(new BorgBusIO())
 
-  // Rasterizer interface
-  val iter               = Input(new Coord(cfg.coordWidth))
+  // Rasterizer interface — per-lane pixel coordinates (2×2 quad at fragLanes=4)
+  val iter               = Input(Vec(cfg.fragLanes, new Coord(cfg.coordWidth)))
   val coreTrigger       = Flipped(new CoreTriggerIO)  // pulse from rasterizer: trigger shader
   val uniformPage        = Input(UInt(1.W))      // which 32-entry uniform page the GPU reads from
 
@@ -41,8 +41,8 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val dmaImemWrite    = Flipped(new MemWritePort(6, 32))
   val dmaUniformWrite = Flipped(new MemWritePort(6, 16))
 
-  // Pipeline write-back snoop (exposed to rasterizer)
-  val pipeWrite = new PipeWriteIO(cfg.totalBits)
+  // Pipeline write-back snoop, per lane (exposed to rasterizer + sequencer)
+  val pipeWrite = Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits))
 
   // Status outputs (exposed to rasterizer and top-level read mux)
   val status = new CoreStatusIO
@@ -119,11 +119,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     lane.io.bus.is_writing := io.bus.is_writing
     lane.io.bus.is_reading := io.bus.is_reading
   }
-  // Per-lane pixel coordinate (Phase 4 will fan out a 2×2 quad; today N=1).
-  lanes.foreach { _.io.iter := io.iter }
+  // Per-lane pixel coordinate (2×2 quad fanned out by the iterator).
+  lanes.zipWithIndex.foreach { case (lane, i) => lane.io.iter := io.iter(i) }
 
-  // Lane 0 drives the scalar outputs (MMIO read + write-back snoop).
-  io.pipeWrite   := lanes(0).io.pipeWrite
+  // Each lane exposes its own write-back snoop; lane 0 drives the MMIO read.
+  lanes.zipWithIndex.foreach { case (lane, i) => io.pipeWrite(i) := lane.io.pipeWrite }
   io.regReadData := lanes(0).io.regReadData
   io.status.running := running
   io.status.autoRunPending := auto_run_pending

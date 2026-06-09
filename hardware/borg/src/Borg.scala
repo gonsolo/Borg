@@ -542,9 +542,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // CoreStatus and PipeWrite: broadcast snoop
       s.io.coreStatus.running        := core.io.status.running
       s.io.coreStatus.autoRunPending := core.io.status.autoRunPending
-      s.io.pipeWrite.en   := core.io.pipeWrite.en
-      s.io.pipeWrite.addr := core.io.pipeWrite.addr
-      s.io.pipeWrite.data := core.io.pipeWrite.data
+      // Sequencer snoops lane 0 (vertex/setup shaders are scalar, single-lane).
+      s.io.pipeWrite.en   := core.io.pipeWrite(0).en
+      s.io.pipeWrite.addr := core.io.pipeWrite(0).addr
+      s.io.pipeWrite.data := core.io.pipeWrite(0).data
 
       // Latch sticky done when sequencer pulses io.done
       when(s.io.done) { seqDoneSticky := true.B }

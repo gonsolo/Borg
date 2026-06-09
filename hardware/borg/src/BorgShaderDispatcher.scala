@@ -29,11 +29,11 @@ import chisel3.util._
   */
 class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // --- Inputs from BorgIterator ---
-  val pixelReady     = Input(Bool())            // one-cycle pulse: new pixel ready
-  val shaderTileIndex = Input(UInt(4.W))        // pre-advance tile index for sTileWrite
+  val pixelReady     = Input(Bool())            // one-cycle pulse: new quad ready
+  val shaderTileIndex = Input(Vec(cfg.fragLanes, UInt(4.W)))  // per-lane pre-advance tile slots
 
-  // --- Inputs from BorgCore (snooping) ---
-  val pipeWrite  = Flipped(new PipeWriteIO(cfg.totalBits))
+  // --- Inputs from BorgCore (snooping), per lane ---
+  val pipeWrite  = Flipped(Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits)))
   val coreStatus = Flipped(new CoreStatusIO)
 
   // --- Inputs from MMIO registers ---
@@ -82,23 +82,26 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // --- Texture unit (Step 25.3e) ---
   val texUnit = Module(new BorgTextureUnit)
 
-  // --- Edge-sign state ---
-  val e0_outside = RegInit(false.B)
-  val e1_outside = RegInit(false.B)
-  val e2_outside = RegInit(false.B)
-  val inside_flag = !e0_outside && !e1_outside && !e2_outside
+  private val N = cfg.fragLanes
+
+  // --- Per-lane edge-sign state (one 2×2 quad lane each) ---
+  val e0_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
+  val e1_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
+  val e2_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
+  val inside_flag = VecInit((0 until N).map(i => !e0_outside(i) && !e1_outside(i) && !e2_outside(i)))
+  val any_inside  = inside_flag.reduce(_ || _)
 
   // --- Stall ---
   val auto_run_stall = RegInit(false.B)
 
-  // --- Fragment output snooping registers (Hardware ABI: R=r26, G=r27, B=r28, Z=r29) ---
-  // Always 16-bit to match Tile Buffer capacity (if core is FP32, it sends FP16 in low bits)
-  // Note: frag_r/g/b are owned by BorgTextureUnit when texturing; we read them back
-  // from texUnit.io.fragColor.  frag_r/g/b here are only used for the non-textured path.
-  val frag_r = RegInit(0.U(16.W))
-  val frag_g = RegInit(0.U(16.W))
-  val frag_b = RegInit(0.U(16.W))
-  val frag_z = RegInit(0.U(16.W))
+  // --- Per-lane fragment output snoop (Hardware ABI: R=r26, G=r27, B=r28, Z=r29) ---
+  val frag_r = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
+  val frag_g = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
+  val frag_b = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
+  val frag_z = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
+
+  // Lane counter for the serialized Z-read / tile-write loop (single-port tile buffer).
+  val laneCtr = RegInit(0.U(log2Ceil(N + 1).W))
 
   // --- Trigger outputs (directly driven, no register delay) ---
   io.coreTrigger.valid := false.B
@@ -106,7 +109,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   // Tile buffer write default (no write)
   io.tileWrite.en   := false.B
-  io.tileWrite.idx  := io.shaderTileIndex
+  io.tileWrite.idx  := io.shaderTileIndex(0)
   io.tileWrite.data := 0.U.asTypeOf(new ColorZ(16))
 
   // GPU memory port: forwarded from BorgTextureUnit (Step 25.3e)
@@ -170,18 +173,21 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   // Step 25.5C: tile read port defaults (no read)
   io.tileRead.en  := false.B
-  io.tileRead.idx := io.shaderTileIndex
+  io.tileRead.idx := io.shaderTileIndex(0)
 
-  // --- React to pixelReady from BorgIterator ---
+  // --- React to pixelReady from BorgIterator (one quad) ---
   when(io.pixelReady) {
-    e0_outside := false.B
-    e1_outside := false.B
-    e2_outside := false.B
+    for (i <- 0 until N) {
+      e0_outside(i) := false.B
+      e1_outside(i) := false.B
+      e2_outside(i) := false.B
+    }
+    laneCtr := 0.U
     auto_run_stall := true.B
     phase := sRast
     io.coreTrigger.valid := true.B
     io.coreTrigger.pc    := 0.U
-    if (BorgDebug.trace) printf("[DISP] pixelReady tileIdx=%d\n", io.shaderTileIndex)
+    if (BorgDebug.trace) printf("[DISP] pixelReady tileIdx0=%d\n", io.shaderTileIndex(0))
   }
 
   // --- Shader chaining FSM ---
@@ -189,21 +195,22 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val core_just_finished = core_was_active && !io.coreStatus.running && !io.coreStatus.autoRunPending
 
   when(phase === sRast && core_just_finished) {
-    if (BorgDebug.trace) printf("[DISP] rast done e0out=%d e1out=%d e2out=%d inside=%d fragPc=%d\n",
-      e0_outside, e1_outside, e2_outside, inside_flag, io.fragPcReg)
-    when(inside_flag && io.fragPcReg =/= 0.U) {
+    // Run the fragment shader if ANY lane is inside (outside lanes run as helper
+    // invocations and are masked off at tile-write time — required SIMT semantics).
+    when(any_inside && io.fragPcReg =/= 0.U) {
       phase := sFrag
       io.coreTrigger.valid := true.B
       io.coreTrigger.pc    := io.fragPcReg
-      if (BorgDebug.trace) printf("[DISP] -> sFrag pc=%d\n", io.fragPcReg)
+      if (BorgDebug.trace) printf("[DISP] -> sFrag pc=%d any_inside=%d\n", io.fragPcReg, any_inside)
     }.otherwise {
       phase := sIdle
       auto_run_stall := false.B
-      if (BorgDebug.trace) printf("[DISP] -> sIdle (outside or no frag)\n")
+      if (BorgDebug.trace) printf("[DISP] -> sIdle (no lane inside or no frag)\n")
     }
   }
 
   when(phase === sFrag && core_just_finished) {
+    laneCtr := 0.U
     // Skip sTexFetch when FTEX handled texturing inline (Step 34.5)
     when(io.texConfig.en && !ftexActive) {
       phase := sTexFetch
@@ -211,15 +218,15 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     } .otherwise {
       phase := sZRead
     }
-    // Clear ftexActive for next pixel — FTEX was a one-shot for this frag invocation.
+    // Clear ftexActive for next quad — FTEX was a one-shot for this frag invocation.
     ftexActive := false.B
   }
 
-  // --- sTexFetch: delegated to BorgTextureUnit (Step 25.3e) ---
+  // --- sTexFetch (legacy autonomous fetch; lane 0 — modern shaders use FTEX-inline) ---
   when(phase === sTexFetch && texUnit.io.done) {
-    frag_r := texUnit.io.fragColor.r
-    frag_g := texUnit.io.fragColor.g
-    frag_b := texUnit.io.fragColor.b
+    frag_r(0) := texUnit.io.fragColor.r
+    frag_g(0) := texUnit.io.fragColor.g
+    frag_b(0) := texUnit.io.fragColor.b
     phase  := sZRead
   }
 
@@ -234,9 +241,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   //   Cycle 3 (sTileWrite): compare frag_z vs io.tileRead.data.z
   //   (readDataHeld is held stable until next read.en pulse — no latch needed)
 
+  // Serialized over laneCtr: each lane reads its tile slot's Z, then conditionally
+  // writes.  The single-port tile buffer forces one lane per 4-cycle pass; at
+  // fragLanes=1 this is exactly the original single sZRead→…→sTileWrite sequence.
   when(phase === sZRead) {
     io.tileRead.en  := true.B
-    io.tileRead.idx := io.shaderTileIndex
+    io.tileRead.idx := io.shaderTileIndex(laneCtr)
     phase := sZWait1
   }
 
@@ -249,22 +259,26 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   }
 
   when(phase === sTileWrite) {
-    io.tileWrite.idx := io.shaderTileIndex
-    io.tileWrite.data.r := frag_r
-    io.tileWrite.data.g := frag_g
-    io.tileWrite.data.b := frag_b
-    io.tileWrite.data.z := frag_z
-    // Step 25.5C depth test: write only if inside AND closer.
-    // FP16 Z is non-negative in NDC; unsigned < comparison is valid.
-    // io.tileRead.data is held stable in BorgTileBuffer.readDataHeld.
-    val zPass = inside_flag && (frag_z < io.tileRead.data.z)
+    io.tileWrite.idx := io.shaderTileIndex(laneCtr)
+    io.tileWrite.data.r := frag_r(laneCtr)
+    io.tileWrite.data.g := frag_g(laneCtr)
+    io.tileWrite.data.b := frag_b(laneCtr)
+    io.tileWrite.data.z := frag_z(laneCtr)
+    // Depth test: write only if this lane is inside AND closer.  FP16 Z is
+    // non-negative in NDC; unsigned < comparison is valid.
+    val zPass = inside_flag(laneCtr) && (frag_z(laneCtr) < io.tileRead.data.z)
     io.tileWrite.en := zPass
-    if (BorgDebug.trace) printf("[DISP] tileWrite idx=%d R=0x%x G=0x%x B=0x%x Z=0x%x zOld=0x%x pass=%d\n",
-      io.shaderTileIndex, frag_r, frag_g, frag_b, frag_z,
-      io.tileRead.data.z, zPass)
+    if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d idx=%d Z=0x%x zOld=0x%x pass=%d\n",
+      laneCtr, io.shaderTileIndex(laneCtr), frag_z(laneCtr), io.tileRead.data.z, zPass)
 
-    phase := sIdle
-    auto_run_stall := false.B
+    when(laneCtr === (N - 1).U) {
+      laneCtr := 0.U
+      phase := sIdle
+      auto_run_stall := false.B
+    }.otherwise {
+      laneCtr := laneCtr + 1.U
+      phase := sZRead   // next lane
+    }
   }
 
 
@@ -307,46 +321,31 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     sign_bit && magn_non_zero
   }
 
-  when(io.pipeWrite.en && phase === sRast) {
-    when(io.pipeWrite.addr === 0.U) {
-      e0_outside := isOutside(io.pipeWrite.data)
-      if (BorgDebug.trace) printf("[DISP] edge0=0x%x outside=%d\n", io.pipeWrite.data, isOutside(io.pipeWrite.data))
-    }
-    when(io.pipeWrite.addr === 1.U) {
-      e1_outside := isOutside(io.pipeWrite.data)
-      if (BorgDebug.trace) printf("[DISP] edge1=0x%x outside=%d\n", io.pipeWrite.data, isOutside(io.pipeWrite.data))
-    }
-    when(io.pipeWrite.addr === 2.U) {
-      e2_outside := isOutside(io.pipeWrite.data)
-      if (BorgDebug.trace) printf("[DISP] edge2=0x%x outside=%d\n", io.pipeWrite.data, isOutside(io.pipeWrite.data))
+  // Per-lane edge snoop: each lane runs the rast shader in lockstep and writes
+  // its own r0/r1/r2 via its own pipeWrite port.
+  for (i <- 0 until N) {
+    when(io.pipeWrite(i).en && phase === sRast) {
+      when(io.pipeWrite(i).addr === 0.U) { e0_outside(i) := isOutside(io.pipeWrite(i).data) }
+      when(io.pipeWrite(i).addr === 1.U) { e1_outside(i) := isOutside(io.pipeWrite(i).data) }
+      when(io.pipeWrite(i).addr === 2.U) { e2_outside(i) := isOutside(io.pipeWrite(i).data) }
     }
   }
   // @doc:end
 
-  // Snoop fragment shader output (Hardware ABI: R=r26, G=r27, B=r28, Z=r29)
-  when(io.pipeWrite.en && phase === sFrag) {
-    when(io.pipeWrite.addr === 26.U) {
-      frag_r := io.pipeWrite.data(15, 0)
-      if (BorgDebug.trace) printf("[DISP] fragR=0x%x\n", io.pipeWrite.data(15, 0))
-    }
-    when(io.pipeWrite.addr === 27.U) {
-      frag_g := io.pipeWrite.data(15, 0)
-      if (BorgDebug.trace) printf("[DISP] fragG=0x%x\n", io.pipeWrite.data(15, 0))
-    }
-    when(io.pipeWrite.addr === 28.U) {
-      frag_b := io.pipeWrite.data(15, 0)
-      if (BorgDebug.trace) printf("[DISP] fragB=0x%x\n", io.pipeWrite.data(15, 0))
-    }
-    when(io.pipeWrite.addr === 29.U) {
-      frag_z := io.pipeWrite.data(15, 0)
-      if (BorgDebug.trace) printf("[DISP] fragZ=0x%x\n", io.pipeWrite.data(15, 0))
+  // Per-lane fragment output snoop (Hardware ABI: R=r26, G=r27, B=r28, Z=r29)
+  for (i <- 0 until N) {
+    when(io.pipeWrite(i).en && phase === sFrag) {
+      when(io.pipeWrite(i).addr === 26.U) { frag_r(i) := io.pipeWrite(i).data(15, 0) }
+      when(io.pipeWrite(i).addr === 27.U) { frag_g(i) := io.pipeWrite(i).data(15, 0) }
+      when(io.pipeWrite(i).addr === 28.U) { frag_b(i) := io.pipeWrite(i).data(15, 0) }
+      when(io.pipeWrite(i).addr === 29.U) { frag_z(i) := io.pipeWrite(i).data(15, 0) }
     }
   }
 
   // --- Outputs ---
   io.autoRunStall := auto_run_stall
-  io.insideFlag   := inside_flag
-  io.fragU        := frag_r   // snooped U (mapped into r26 slot when texturing)
-  io.fragV        := frag_g   // snooped V (mapped into r27 slot when texturing)
+  io.insideFlag   := any_inside
+  io.fragU        := frag_r(0)   // snooped U (lane 0; legacy Morton path)
+  io.fragV        := frag_g(0)   // snooped V (lane 0; legacy Morton path)
   io.phase        := phase    // debug: FSM state visible from parent
 }

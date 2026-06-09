@@ -28,8 +28,8 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // Iterator advance (from MMIO write to BORG_ITER)
   val advance     = Input(Bool())
 
-  // Pipeline write-back snoop (from BorgCore)
-  val pipeWrite = Flipped(new PipeWriteIO(cfg.totalBits))
+  // Pipeline write-back snoop (from BorgCore), per lane
+  val pipeWrite = Flipped(Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits)))
 
   // Core state feedback (needed for stall clearing)
   val coreStatus = Flipped(new CoreStatusIO)
@@ -40,7 +40,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
 
   // Outputs
   val iter          = Output(new Coord(cfg.coordWidth))
-  val shaderIter    = Output(new Coord(cfg.coordWidth))  // latched pre-advance position for coordLut
+  val shaderIter    = Output(Vec(cfg.fragLanes, new Coord(cfg.coordWidth)))  // per-lane pre-advance positions
   val insideFlag    = Output(Bool())
   val iterValid     = Output(Bool())
   val uniformPage   = Output(UInt(1.W)) // Expose to BorgCore
@@ -100,9 +100,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Wire BorgShaderDispatcher inputs ---
   dispatcher.io.pixelReady     := iterator.io.pixelReady
-  // Phase 4: iterator emits per-lane Vecs; the scalar dispatcher consumes lane 0
-  // for now (Phase 5 makes the dispatcher collect all lanes).
-  dispatcher.io.shaderTileIndex := iterator.io.shaderTileIndex(0)
+  dispatcher.io.shaderTileIndex := iterator.io.shaderTileIndex   // per-lane Vec
   dispatcher.io.pipeWrite      <> io.pipeWrite
   dispatcher.io.coreStatus     <> io.coreStatus
   dispatcher.io.fragPcReg      := io.fragPcReg
@@ -129,7 +127,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Forward iterator outputs ---
   io.iter         := iterator.io.iter
-  io.shaderIter   := iterator.io.shaderIter(0)   // lane 0 (Phase 5/6 fans out the quad)
+  io.shaderIter   := iterator.io.shaderIter      // per-lane Vec → BorgCore per-lane coords
   io.iterValid    := iterator.io.iterValid
   io.tileComplete := iterator.io.tileComplete
   io.tileOrigin   := iterator.io.tileOrigin
