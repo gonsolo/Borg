@@ -41,5 +41,19 @@ install: build
 icd-path:
 	@echo $(ICD)
 
+# Enumerate-only smoke test: lists the Borg physical device via the loader.
+# (Does NOT create a VkDevice, so it works before Phase 2's CreateDevice.)
+enumtest: build
+	@gcc borgvk_enum_test.c -o $(BUILD_DIR)/borgvk_enum_test \
+		$$(pkg-config --cflags --libs vulkan)
+	@echo "--- borgvk physical-device enumeration ---"
+	@VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" \
+		$(BUILD_DIR)/borgvk_enum_test
+
+# Run the system vulkaninfo against the borg driver. NOTE: full vulkaninfo
+# creates a VkDevice and will crash until Phase 2 implements CreateDevice.
+vulkaninfo:
+	VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" vulkaninfo --summary
+
 clean:
 	rm -rf $(BUILD_DIR)
