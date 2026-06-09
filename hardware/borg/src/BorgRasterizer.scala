@@ -100,7 +100,9 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Wire BorgShaderDispatcher inputs ---
   dispatcher.io.pixelReady     := iterator.io.pixelReady
-  dispatcher.io.shaderTileIndex := iterator.io.shaderTileIndex
+  // Phase 4: iterator emits per-lane Vecs; the scalar dispatcher consumes lane 0
+  // for now (Phase 5 makes the dispatcher collect all lanes).
+  dispatcher.io.shaderTileIndex := iterator.io.shaderTileIndex(0)
   dispatcher.io.pipeWrite      <> io.pipeWrite
   dispatcher.io.coreStatus     <> io.coreStatus
   dispatcher.io.fragPcReg      := io.fragPcReg
@@ -127,7 +129,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Forward iterator outputs ---
   io.iter         := iterator.io.iter
-  io.shaderIter   := iterator.io.shaderIter
+  io.shaderIter   := iterator.io.shaderIter(0)   // lane 0 (Phase 5/6 fans out the quad)
   io.iterValid    := iterator.io.iterValid
   io.tileComplete := iterator.io.tileComplete
   io.tileOrigin   := iterator.io.tileOrigin
