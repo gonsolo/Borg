@@ -35,10 +35,10 @@ import chisel3.util._
   * dropping the high-fanout pipeEn3 enable net to the 16-bit output register.
   * Same arithmetic as the single-register version — purely register placement.
   *
-  * NOTE: this deep pipeline hangs arcilator at any depth >1 (a CIRCT/arcilator
-  * codegen quirk — chisel-sim N=1 AND verilator N=4 render goldens both pass it), so
-  * the arcilator CI sim runs HardFloat via [[BorgConfig.ArcSim]]; the custom FMA is
-  * covered by the co-sims + verilator goldens (the exact Simt config the ULX3S ships).
+  * Renders correctly in chisel-sim, verilator (N=1 and N=4 goldens), arcilator, and
+  * on ULX3S hardware.  (The deeper pipeline grows BorgLane past arcilator's --inline
+  * threshold, so the per-lane rcp LUT moves from core.rcpLutA_ext to
+  * core.lanes_0.rcpLutA_ext — ArcBorgSimulator.cpp load_luts() pokes the new path.)
   *
   * @doc:custom-fma
   */
