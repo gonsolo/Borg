@@ -38,8 +38,10 @@ class BorgIteratorIO(val cfg: BorgConfig) extends Bundle {
   // Current iterator position (goes to MMIO iter_x/iter_y and coordLut)
   val iter        = Output(new Coord(cfg.coordWidth))
 
-  // Pre-advance position latched before stepping (used by shader r30/r31)
-  val shaderIter  = Output(new Coord(cfg.coordWidth))
+  // Pre-advance position latched before stepping (used by shader r30/r31).
+  // Per-lane: at fragLanes==1 a single pixel; at fragLanes==4 the 2×2 quad
+  // (TL/TR/BL/BR = lane 0/1/2/3) rooted at the latched quad origin.
+  val shaderIter  = Output(Vec(cfg.fragLanes, new Coord(cfg.coordWidth)))
 
   // True while y has not reached tile_max.y
   val iterValid   = Output(Bool())
@@ -47,8 +49,8 @@ class BorgIteratorIO(val cfg: BorgConfig) extends Bundle {
   // 4-bit tile-local index: x[1:0] | y[1:0]<<2  (current position)
   val tileIndex        = Output(UInt(4.W))
 
-  // 4-bit tile-local index based on pre-advance (shader_iter_reg) — used by sTileWrite
-  val shaderTileIndex  = Output(UInt(4.W))
+  // 4-bit tile-local index per lane (pre-advance) — used by sTileWrite
+  val shaderTileIndex  = Output(Vec(cfg.fragLanes, UInt(4.W)))
 
   // One-cycle pulse: advance was processed, rasterizer should start sRast
   val pixelReady  = Output(Bool())
@@ -65,6 +67,11 @@ class BorgIteratorIO(val cfg: BorgConfig) extends Bundle {
 
 class BorgIterator(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgIteratorIO(cfg))
+
+  // SIMT quad geometry: fragLanes==4 emits a 2×2 quad per advance (step 2 in each
+  // axis → four quads tile the 4×4); fragLanes==1 is the scalar single-pixel walk.
+  private val qdim = if (cfg.fragLanes == 4) 2 else 1   // quad edge (pixels)
+  private val step = qdim                               // advance stride per axis
 
   // --- Registers ---
   val iter_reg        = RegInit(0.U.asTypeOf(new Coord(cfg.coordWidth)))
@@ -99,9 +106,9 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     shader_iter_reg := iter_reg   // latch pre-advance position
     if (BorgDebug.trace) printf("[ITER] advance iter=(%d,%d) shaderIdx=%d -> shaderIdx=%d\n",
       iter_reg.x, iter_reg.y, tileIndex(shader_iter_reg), tileIndex(iter_reg))
-    when(iter_reg.x + 1.U >= tile_max_reg.x) {
+    when(iter_reg.x + step.U >= tile_max_reg.x) {
       iter_reg.x := tile_origin_reg.x
-      val next_y = iter_reg.y + 1.U
+      val next_y = iter_reg.y + step.U
       iter_reg.y := next_y
       // Tile complete: y just stepped to or past tile_max.y
       when(next_y >= tile_max_reg.y) {
@@ -109,7 +116,7 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         if (BorgDebug.trace) printf("[ITER] tileComplete iter=(%d,%d)\n", iter_reg.x, iter_reg.y)
       }
     }.otherwise {
-      iter_reg.x := iter_reg.x + 1.U
+      iter_reg.x := iter_reg.x + step.U
     }
     pixel_ready := true.B
   }
@@ -123,11 +130,19 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Outputs ---
   io.iter            := iter_reg
-  io.shaderIter      := shader_iter_reg
   io.iterValid       := iter_valid
   io.tileIndex       := tileIndex(iter_reg)
-  io.shaderTileIndex := tileIndex(shader_iter_reg)
   io.pixelReady      := pixel_ready
   io.tileComplete    := tile_complete
   io.tileOrigin      := tile_origin_reg
+
+  // Per-lane pre-advance positions: lane i sits at (qx + i%qdim, qy + i/qdim)
+  // of the latched quad origin.  At fragLanes==1 this is just shader_iter_reg.
+  for (i <- 0 until cfg.fragLanes) {
+    val lx = shader_iter_reg.x + (i % qdim).U
+    val ly = shader_iter_reg.y + (i / qdim).U
+    io.shaderIter(i).x   := lx
+    io.shaderIter(i).y   := ly
+    io.shaderTileIndex(i) := lx(1, 0) | (ly(1, 0) << 2.U)
+  }
 }

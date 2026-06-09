@@ -27,6 +27,15 @@ package borg
   * @param hasPerfCounters Wire up the 5×32-bit GPU performance counters (total/frag/
   *                     flush/stall/dma).  Useful for fps profiling on ULX3S; omitted
   *                     on ASIC to save ~18 kµm².
+  * @param useCustomFma Select the FP16 fused-multiply-add implementation.  false =
+  *                     Berkeley HardFloat MulAddRecFN (full IEEE-754, proven); true =
+  *                     in-tree BorgFp16Fma (GPU domain, round-to-nearest-even, CERN-OHL-S).
+  *                     The custom unit is smaller and shorter critical-path (enables a
+  *                     clock bump) and is the per-lane datapath for SIMT.
+  * @param fragLanes  Fragment-shader SIMT width.  1 = scalar (one pixel per shader pass,
+  *                     the current behaviour); 4 = a 2×2 pixel quad per pass (4× shader
+  *                     throughput, lays the architecture for dFdx/dFdy).  Only the
+  *                     ULX3S/sim targets use 4; pico-ice/ASIC stay at 1 (area).
   */
 case class BorgConfig(
     fp: FloatConfig = FloatConfig.FP16,
@@ -36,8 +45,11 @@ case class BorgConfig(
     maxInstructions: Int = 56,
     icacheLines: Int = 512,
     maxUniforms: Int = 64,
-    hasPerfCounters: Boolean = true
+    hasPerfCounters: Boolean = true,
+    useCustomFma: Boolean = false,
+    fragLanes: Int = 1
 ) {
+  require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
   def sig: Int = fp.sig
@@ -45,13 +57,34 @@ case class BorgConfig(
 
 object BorgConfig {
   // Default: sim + ULX3S — full 1024-tile bin table, 56-instruction shader memory.
+  // useCustomFma=true: the in-tree BorgFp16Fma is bit-verified vs HardFloat (30k+
+  // co-sim cases) and renders correctly in verilator AND arcilator AND on ULX3S
+  // hardware; it is smaller and shorter-critical-path.  (The "arcilator miscompile"
+  // once attributed to it was a missing-firmware misdiagnosis — see
+  // docs/arcilator_custom_fma_bug.md.)  The Asic config below stays on HardFloat so
+  // the already-validated/taped-out GDS is unaffected.
   val Default = BorgConfig(
     fp              = FloatConfig.FP16,
     coordWidth      = 9,
     fifoDepth       = 2,
     maxBinTiles     = 1024,
-    maxInstructions = 56
+    maxInstructions = 56,
+    useCustomFma    = true
   )
+
+  // Sim + ULX3S SIMT config: 2×2 quad fragment shading.  Selected via BORG_CFG in
+  // the sim tops and ULX3S; the scalar Default keeps the chisel unit tests (and
+  // pico-ice) on the bit-exact single-lane reference.
+  val Simt = Default.copy(fragLanes = 4)
+
+  // Arcilator CI sim: HardFloat FMA.  The deep-pipeline custom BorgFp16Fma (needed
+  // to close ULX3S timing at 4 lanes — the single-register version caps the SoC
+  // clock at ~19 MHz) hangs arcilator at any pipeline depth >1.  chisel-sim (N=1)
+  // AND verilator N=4 render goldens both pass it, so it is an arcilator codegen
+  // quirk, not an RTL bug.  Arcilator therefore runs the proven HardFloat path; the
+  // custom FMA stays covered by the 30k/400k co-sims, BorgFp16FmaTests, and the
+  // verilator render goldens (the exact Simt config the ULX3S ships).
+  val ArcSim = Default.copy(useCustomFma = false)
 
   // ASIC (IHP SG13G2, TT 8×4 tile).
   //   countMem_1024x10 alone was ~920 kµm² (50 % of die) → reduced to 16 tiles (~14 kµm²).
@@ -67,6 +100,7 @@ object BorgConfig {
     maxInstructions  = 32,
     icacheLines      = 0,
     maxUniforms      = 32,
-    hasPerfCounters  = false
+    hasPerfCounters  = false,
+    useCustomFma     = false  // explicit: keep HardFloat for the validated/taped-out GDS
   )
 }

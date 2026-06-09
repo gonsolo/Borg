@@ -20,9 +20,9 @@ object BorgRasterizerTests extends TestSuite {
   def pokeIdle(rast: BorgRasterizer): Unit = {
     rast.io.cmdPop.valid.poke(false.B)
     rast.io.advance.poke(false.B)
-    rast.io.pipeWrite.en.poke(false.B)
-    rast.io.pipeWrite.addr.poke(0.U)
-    rast.io.pipeWrite.data.poke(0.U)
+    rast.io.pipeWrite(0).en.poke(false.B)
+    rast.io.pipeWrite(0).addr.poke(0.U)
+    rast.io.pipeWrite(0).data.poke(0.U)
     rast.io.coreStatus.running.poke(false.B)
     rast.io.coreStatus.autoRunPending.poke(false.B)
     // Step 19.2 GPU read-port defaults
@@ -165,44 +165,44 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.advance.poke(false.B)
 
         // Write a negative (outside) value to edge 0: -1.0 FP16 = 0xBC00
-        rast.io.pipeWrite.en.poke(true.B)
-        rast.io.pipeWrite.addr.poke(0.U)
-        rast.io.pipeWrite.data.poke(0xBC00.U)
+        rast.io.pipeWrite(0).en.poke(true.B)
+        rast.io.pipeWrite(0).addr.poke(0.U)
+        rast.io.pipeWrite(0).data.poke(0xBC00.U)
         rast.clock.step(1)
-        rast.io.pipeWrite.en.poke(false.B)
+        rast.io.pipeWrite(0).en.poke(false.B)
         rast.clock.step(1)
 
         utest.assert(!rast.io.insideFlag.peek().litToBoolean)
         println("  After e0=-1.0: insideFlag=false ✓")
 
         // Write a positive (inside) value to edge 0: +1.0 FP16 = 0x3C00
-        rast.io.pipeWrite.en.poke(true.B)
-        rast.io.pipeWrite.addr.poke(0.U)
-        rast.io.pipeWrite.data.poke(0x3C00.U)
+        rast.io.pipeWrite(0).en.poke(true.B)
+        rast.io.pipeWrite(0).addr.poke(0.U)
+        rast.io.pipeWrite(0).data.poke(0x3C00.U)
         rast.clock.step(1)
-        rast.io.pipeWrite.en.poke(false.B)
+        rast.io.pipeWrite(0).en.poke(false.B)
         rast.clock.step(1)
 
         utest.assert(rast.io.insideFlag.peek().litToBoolean)
         println("  After e0=+1.0: insideFlag=true ✓")
 
         // Write negative to edge 1
-        rast.io.pipeWrite.en.poke(true.B)
-        rast.io.pipeWrite.addr.poke(1.U)
-        rast.io.pipeWrite.data.poke(0xC000.U)  // -2.0
+        rast.io.pipeWrite(0).en.poke(true.B)
+        rast.io.pipeWrite(0).addr.poke(1.U)
+        rast.io.pipeWrite(0).data.poke(0xC000.U)  // -2.0
         rast.clock.step(1)
-        rast.io.pipeWrite.en.poke(false.B)
+        rast.io.pipeWrite(0).en.poke(false.B)
         rast.clock.step(1)
 
         utest.assert(!rast.io.insideFlag.peek().litToBoolean)
         println("  After e1=-2.0: insideFlag=false ✓")
 
         // Zero should count as inside (sign=0, magnitude=0 → not outside)
-        rast.io.pipeWrite.en.poke(true.B)
-        rast.io.pipeWrite.addr.poke(1.U)
-        rast.io.pipeWrite.data.poke(0.U)
+        rast.io.pipeWrite(0).en.poke(true.B)
+        rast.io.pipeWrite(0).addr.poke(1.U)
+        rast.io.pipeWrite(0).data.poke(0.U)
         rast.clock.step(1)
-        rast.io.pipeWrite.en.poke(false.B)
+        rast.io.pipeWrite(0).en.poke(false.B)
         rast.clock.step(1)
 
         utest.assert(rast.io.insideFlag.peek().litToBoolean)
@@ -279,11 +279,11 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.advance.poke(false.B)  // must de-assert before pipeWrite: advance resets edge flags every cycle it is high
 
         // Set edge 0 to outside (negative sign)
-        rast.io.pipeWrite.en.poke(true.B)
-        rast.io.pipeWrite.addr.poke(0.U)
-        rast.io.pipeWrite.data.poke(0xBC00.U)  // -1.0
+        rast.io.pipeWrite(0).en.poke(true.B)
+        rast.io.pipeWrite(0).addr.poke(0.U)
+        rast.io.pipeWrite(0).data.poke(0xBC00.U)  // -1.0
         rast.clock.step(1)
-        rast.io.pipeWrite.en.poke(false.B)
+        rast.io.pipeWrite(0).en.poke(false.B)
         rast.clock.step(1)
         utest.assert(!rast.io.insideFlag.peek().litToBoolean)
 
@@ -329,12 +329,12 @@ object BorgRasterizerTests extends TestSuite {
 
         // Write edges inside
         for (i <- 0 until 3) {
-          rast.io.pipeWrite.en.poke(true.B)
-          rast.io.pipeWrite.addr.poke(i.U)
-          rast.io.pipeWrite.data.poke(0x3C00.U)  // +1.0
+          rast.io.pipeWrite(0).en.poke(true.B)
+          rast.io.pipeWrite(0).addr.poke(i.U)
+          rast.io.pipeWrite(0).data.poke(0x3C00.U)  // +1.0
           rast.clock.step(1)
         }
-        rast.io.pipeWrite.en.poke(false.B)
+        rast.io.pipeWrite(0).en.poke(false.B)
 
         utest.assert(rast.io.insideFlag.peek().litToBoolean)
         
@@ -404,12 +404,12 @@ object BorgRasterizerTests extends TestSuite {
         rast.io.coreStatus.autoRunPending.poke(false.B)
         rast.io.coreStatus.running.poke(true.B)
         for (i <- 0 until 3) {
-          rast.io.pipeWrite.en.poke(true.B)
-          rast.io.pipeWrite.addr.poke(i.U)
-          rast.io.pipeWrite.data.poke(0x3C00.U)
+          rast.io.pipeWrite(0).en.poke(true.B)
+          rast.io.pipeWrite(0).addr.poke(i.U)
+          rast.io.pipeWrite(0).data.poke(0x3C00.U)
           rast.clock.step(1)
         }
-        rast.io.pipeWrite.en.poke(false.B)
+        rast.io.pipeWrite(0).en.poke(false.B)
         rast.clock.step(1)
         rast.io.coreStatus.running.poke(false.B)
 
@@ -488,12 +488,12 @@ object BorgRasterizerTests extends TestSuite {
 
         // Set all edges inside
         for (i <- 0 until 3) {
-          rast.io.pipeWrite.en.poke(true.B)
-          rast.io.pipeWrite.addr.poke(i.U)
-          rast.io.pipeWrite.data.poke(0x3C00.U)
+          rast.io.pipeWrite(0).en.poke(true.B)
+          rast.io.pipeWrite(0).addr.poke(i.U)
+          rast.io.pipeWrite(0).data.poke(0x3C00.U)
           rast.clock.step(1)
         }
-        rast.io.pipeWrite.en.poke(false.B)
+        rast.io.pipeWrite(0).en.poke(false.B)
         rast.clock.step(1)
 
         // Simulate rast shader

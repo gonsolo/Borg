@@ -50,10 +50,10 @@ object BorgShaderDispatcherTests extends TestSuite {
   /** Set all inputs to safe idle defaults (no clock step). */
   def pokeIdle(d: BorgShaderDispatcher): Unit = {
     d.io.pixelReady.poke(false.B)
-    d.io.shaderTileIndex.poke(0.U)
-    d.io.pipeWrite.en.poke(false.B)
-    d.io.pipeWrite.addr.poke(0.U)
-    d.io.pipeWrite.data.poke(0.U)
+    d.io.shaderTileIndex(0).poke(0.U)
+    d.io.pipeWrite(0).en.poke(false.B)
+    d.io.pipeWrite(0).addr.poke(0.U)
+    d.io.pipeWrite(0).data.poke(0.U)
     d.io.coreStatus.running.poke(false.B)
     d.io.coreStatus.autoRunPending.poke(false.B)
     d.io.fragPcReg.poke(0.U)
@@ -80,7 +80,7 @@ object BorgShaderDispatcherTests extends TestSuite {
   def firePixelReady(d: BorgShaderDispatcher, fragPc: Int = 13, tileIdx: Int = 5): Unit = {
     d.io.pixelReady.poke(true.B)
     d.io.fragPcReg.poke(fragPc.U)
-    d.io.shaderTileIndex.poke(tileIdx.U)
+    d.io.shaderTileIndex(0).poke(tileIdx.U)
     d.clock.step(1)
     d.io.pixelReady.poke(false.B)
   }
@@ -98,11 +98,11 @@ object BorgShaderDispatcherTests extends TestSuite {
 
   /** Write a single edge-function result via pipeline snoop. */
   def pokeEdge(d: BorgShaderDispatcher, reg: Int, value: Int): Unit = {
-    d.io.pipeWrite.en.poke(true.B)
-    d.io.pipeWrite.addr.poke(reg.U)
-    d.io.pipeWrite.data.poke(value.U)
+    d.io.pipeWrite(0).en.poke(true.B)
+    d.io.pipeWrite(0).addr.poke(reg.U)
+    d.io.pipeWrite(0).data.poke(value.U)
     d.clock.step(1)
-    d.io.pipeWrite.en.poke(false.B)
+    d.io.pipeWrite(0).en.poke(false.B)
   }
 
   /** Write all three edge values and check resulting insideFlag. */
@@ -217,12 +217,12 @@ object BorgShaderDispatcherTests extends TestSuite {
         d.io.coreStatus.running.poke(true.B)
         // Write fragment outputs (r26=R, r27=G, r28=B, r29=Z)
         for ((reg, value) <- Seq((26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
-          d.io.pipeWrite.en.poke(true.B)
-          d.io.pipeWrite.addr.poke(reg.U)
-          d.io.pipeWrite.data.poke(value.U)
+          d.io.pipeWrite(0).en.poke(true.B)
+          d.io.pipeWrite(0).addr.poke(reg.U)
+          d.io.pipeWrite(0).data.poke(value.U)
           d.clock.step(1)
         }
-        d.io.pipeWrite.en.poke(false.B)
+        d.io.pipeWrite(0).en.poke(false.B)
         d.io.coreStatus.running.poke(false.B)
         d.clock.step(1)
 

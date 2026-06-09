@@ -102,8 +102,8 @@ object BorgCoreTests extends TestSuite {
     core.io.bus.data_in.poke(0.U)
     core.io.bus.is_writing.poke(false.B)
     core.io.bus.is_reading.poke(false.B)
-    core.io.iter.x.poke(0.U)
-    core.io.iter.y.poke(0.U)
+    core.io.iter(0).x.poke(0.U)
+    core.io.iter(0).y.poke(0.U)
     core.io.coreTrigger.valid.poke(false.B)
     core.io.coreTrigger.pc.poke(0.U)
     core.io.uniformPage.poke(0.U)
@@ -259,8 +259,8 @@ object BorgCoreTests extends TestSuite {
         resetCore(core)
 
         // Set iterX=5, iterY=10 (pixel centers: 5.5, 10.5)
-        core.io.iter.x.poke(5.U)
-        core.io.iter.y.poke(10.U)
+        core.io.iter(0).x.poke(5.U)
+        core.io.iter(0).y.poke(10.U)
 
         // fadd r2, r30, r31 → r2 = coordLut[5] + coordLut[10] = 5.5 + 10.5 = 16.0
         writeReg(core, 0, 0)
@@ -484,6 +484,55 @@ object BorgCoreTests extends TestSuite {
         testFrcp(10.0f, 0.1f,       "rcp(10.0)")
         testFrcp(-2.0f, -0.5f,      "rcp(-2.0)")
         testFrcp(1.5f,  1.0f/1.5f,  "rcp(1.5)")
+
+        println("  PASSED")
+      }
+    }
+
+    // --- Custom FMA path (cfg.useCustomFma=true) — same ops, BorgFp16Fma core ---
+    utest.test("custom_fma_path") {
+      val customCfg = config.copy(useCustomFma = true)
+      simulate(new BorgCore(customCfg)) { core =>
+        println("\n--- BorgCore: custom_fma_path (useCustomFma=true) ---")
+        idleInputs(core)
+        resetCore(core)
+
+        def runOp(instr: BigInt, setup: => Unit): Float = {
+          setup
+          writeImem(core, 0, instr)
+          writeImem(core, 1, 0)
+          resetCore(core)
+          startAndWait(core)
+          fp16BitsToFloat(readReg(core, 2))
+        }
+
+        val add = runOp(Instructions.ADD(0, 1, 2), {
+          writeReg(core, 0, floatToFp16Bits(2.0f)); writeReg(core, 1, floatToFp16Bits(3.0f))
+        })
+        println(f"  add(2,3)=$add%.3f"); utest.assert(math.abs(add - 5.0f) < 0.01f)
+
+        val mul = runOp(Instructions.MUL(0, 1, 2), {
+          writeReg(core, 0, floatToFp16Bits(3.0f)); writeReg(core, 1, floatToFp16Bits(4.0f))
+        })
+        println(f"  mul(3,4)=$mul%.3f"); utest.assert(math.abs(mul - 12.0f) < 0.01f)
+
+        val fma = runOp(Instructions.FMA(0, 1, 3, 2), {
+          writeReg(core, 0, floatToFp16Bits(2.0f)); writeReg(core, 1, floatToFp16Bits(3.0f))
+          writeReg(core, 3, floatToFp16Bits(1.0f))
+        })
+        println(f"  fma(2,3,1)=$fma%.3f"); utest.assert(math.abs(fma - 7.0f) < 0.01f)
+
+        val neg = runOp(Instructions.FNEG(0, 2), {
+          writeReg(core, 0, floatToFp16Bits(2.5f))
+        })
+        println(f"  neg(2.5)=$neg%.3f"); utest.assert(math.abs(neg + 2.5f) < 0.01f)
+
+        // a non-trivial fractional case: 0.333*3 + 0.5 ≈ 1.5
+        val mixed = runOp(Instructions.FMA(0, 1, 3, 2), {
+          writeReg(core, 0, floatToFp16Bits(0.3333f)); writeReg(core, 1, floatToFp16Bits(3.0f))
+          writeReg(core, 3, floatToFp16Bits(0.5f))
+        })
+        println(f"  fma(0.333,3,0.5)=$mixed%.3f"); utest.assert(math.abs(mixed - 1.5f) < 0.02f)
 
         println("  PASSED")
       }
