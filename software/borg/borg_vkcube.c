@@ -329,12 +329,13 @@ int main() {
     mat4_rotate_x(rx, rx_f);
     mat4_rotate_y(ry, ry_f);
 
-    // MVP = TS · (Ry · Rx)
-    // Ry applied last keeps the horizontal spin in screen space at all tilt
-    // angles; Rx·Ry would invert the spin direction when rx approaches ±90°.
+    // MVP = TS · (Rx · Ry)
+    // Ry spins around world Y first, then Rx tilts the result — standard
+    // turntable order.  Gimbal lock at rx ≈ ±90° is acceptable given the
+    // clamped tilt range of ±1.4 rad; full fix would require quaternions.
     borg_draw_data_t draw;
-    mat4_mul(t1, ry, rx);
-    mat4_mul_ts(draw.uniforms, ts, t1);  // MVP = TS·(Ry·Rx): sparse, 16 ops vs 112
+    mat4_mul(t1, rx, ry);
+    mat4_mul_ts(draw.uniforms, ts, t1);  // MVP = TS·(Rx·Ry): sparse, 16 ops vs 112
 
     unsigned int c1 = rdcycle();  // M = matrix
 
