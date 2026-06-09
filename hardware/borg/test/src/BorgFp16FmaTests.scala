@@ -23,10 +23,12 @@ class FmaCompareIO(cfg: BorgConfig) extends Bundle {
 
 class FmaCompare(cfg: BorgConfig) extends Module {
   val io = IO(new FmaCompareIO(cfg))
-  // Custom unit (one internal pipeline register; pipeEn held high).
+  // Custom unit: regA/regB enabled, regC free-running; enables tied high here
+  // (operands held stable, so the pipeline just streams the captured result).
   val cust = Module(new BorgFp16Fma(cfg))
   cust.io.a := io.a; cust.io.b := io.b; cust.io.c := io.c
-  cust.io.negate := io.negate; cust.io.pipeEn := true.B
+  cust.io.negate := io.negate
+  cust.io.pipeEn1 := true.B; cust.io.pipeEn2 := true.B
   io.outCustom := cust.io.out
 
   // HardFloat reference: op(1)=negate product.  Computes (negate?-(a*b):a*b)+c.
@@ -39,7 +41,8 @@ class FmaCompare(cfg: BorgConfig) extends Module {
   hf.io.detectTininess := 1.U
   hf.io.valid := true.B
   // Register HF output one cycle to align with the custom unit's pipe register.
-  io.outHf := RegNext(fNFromRecFN(cfg.exp, cfg.sig, hf.io.out))
+  // 3-cycle latency to align with the custom unit's 3-register pipeline.
+  io.outHf := RegNext(RegNext(RegNext(fNFromRecFN(cfg.exp, cfg.sig, hf.io.out))))
 }
 
 /** Phase 1: Standalone verification of BorgFp16Fma vs an exact-arithmetic oracle.
@@ -142,8 +145,8 @@ object BorgFp16FmaTests extends TestSuite {
     dut.io.b.poke(b.U)
     dut.io.c.poke(c.U)
     dut.io.negate.poke(negate.B)
-    dut.io.pipeEn.poke(true.B)
-    dut.clock.step(1)        // capture stage1 → pipeline register
+    dut.io.pipeEn1.poke(true.B); dut.io.pipeEn2.poke(true.B)
+    dut.clock.step(3)        // 3 internal registers (regA → regB → regC)
     dut.io.out.peek().litValue.toInt & 0xffff
   }
 
@@ -179,7 +182,7 @@ object BorgFp16FmaTests extends TestSuite {
     // DEFINITIVE: compare BorgFp16Fma directly against HardFloat RTL (not the oracle).
     utest.test("vs_hardfloat") {
       simulate(new FmaCompare(BorgConfig.Default)) { dut =>
-        dut.clock.step(1)  // prime the RegNext alignment
+        dut.clock.step(3)  // prime the 3-cycle pipeline alignment
         val rng = new scala.util.Random(0x5A5A5A)
         var fails = 0
         var n = 0
@@ -309,33 +312,30 @@ object BorgFp16FmaTests extends TestSuite {
       }
     }
 
-    // Pipeline-timing test: in the real core pipeEn is a 1-cycle PULSE, with the
-    // result read on a later cycle while inputs may change.  Verify the held
-    // result survives input changes after the capture edge.
-    utest.test("pipeline_hold") {
+    // Pipeline-timing test: mirror the real core's operand window — the free-running
+    // 3-register pipeline sees stable operands from counter==4 through counter==1
+    // (4 cycles), and io.out at counter==1 must equal the FMA of those operands.
+    utest.test("pipeline_window") {
       simulate(new BorgFp16Fma()) { dut =>
         val rng = new scala.util.Random(0xABCDE)
         var fails = 0
         for (_ <- 0 until 5000) {
           val a = rng.nextInt(0x10000); val b = rng.nextInt(0x10000); val c = rng.nextInt(0x10000)
           if (!isSpecial(a) && !isSpecial(b) && !isSpecial(c)) {
-            // Capture cycle: inputs valid, pipeEn pulses high.
+            // counter==4: operands valid; hold them stable through the pipeline.
             dut.io.a.poke(a.U); dut.io.b.poke(b.U); dut.io.c.poke(c.U)
-            dut.io.negate.poke(false.B); dut.io.pipeEn.poke(true.B)
-            dut.clock.step(1)
-            // Subsequent cycles: pipeEn low, inputs change to garbage; held result must stand.
-            dut.io.a.poke(0x7777.U); dut.io.b.poke(0x1234.U); dut.io.c.poke(0x4321.U)
-            dut.io.pipeEn.poke(false.B)
-            dut.clock.step(1)
+            dut.io.negate.poke(false.B)
+            dut.io.pipeEn1.poke(true.B); dut.io.pipeEn2.poke(true.B)
+            dut.clock.step(3)   // regA → regB → regC; result ready at counter==1
             val got = dut.io.out.peek().litValue.toInt & 0xffff
             val exp = trueFma(a, b, c, false)
             if (got != exp) {
-              if (fails < 20) println(s"HOLD MISMATCH a=${fmt(a)} b=${fmt(b)} c=${fmt(c)} : got=${fmt(got)} exp=${fmt(exp)}")
+              if (fails < 20) println(s"WINDOW MISMATCH a=${fmt(a)} b=${fmt(b)} c=${fmt(c)} : got=${fmt(got)} exp=${fmt(exp)}")
               fails += 1
             }
           }
         }
-        if (fails > 0) println(s"pipeline_hold: $fails mismatches")
+        if (fails > 0) println(s"pipeline_window: $fails mismatches")
         utest.assert(fails == 0)
       }
     }

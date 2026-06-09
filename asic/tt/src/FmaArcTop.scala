@@ -22,7 +22,6 @@ class FmaArcTopIO(cfg: BorgConfig) extends Bundle {
   val b = Input(UInt(cfg.totalBits.W))
   val c = Input(UInt(cfg.totalBits.W))
   val negate = Input(Bool())
-  val pipeEn = Input(Bool())
   val outCustom = Output(UInt(cfg.totalBits.W))
   val outHf     = Output(UInt(cfg.totalBits.W))
 }
@@ -33,10 +32,11 @@ class FmaArcTop extends Module {
 
   val cust = Module(new BorgFp16Fma(cfg))
   cust.io.a := io.a; cust.io.b := io.b; cust.io.c := io.c
-  cust.io.negate := io.negate; cust.io.pipeEn := io.pipeEn
+  cust.io.negate := io.negate
+  cust.io.pipeEn1 := true.B; cust.io.pipeEn2 := true.B
   io.outCustom := cust.io.out
 
-  // HardFloat reference, registered with the SAME pulsed enable as the custom unit.
+  // HardFloat reference, delayed 3 cycles to match the free-running FMA latency.
   val hf = Module(new MulAddRecFN(cfg.exp, cfg.sig))
   hf.io.op := Mux(io.negate, 2.U, 0.U)
   hf.io.a  := recFNFromFN(cfg.exp, cfg.sig, io.a)
@@ -45,7 +45,7 @@ class FmaArcTop extends Module {
   hf.io.roundingMode := 0.U
   hf.io.detectTininess := 1.U
   hf.io.valid := true.B
-  io.outHf := RegEnable(fNFromRecFN(cfg.exp, cfg.sig, hf.io.out), io.pipeEn)
+  io.outHf := RegNext(RegNext(RegNext(fNFromRecFN(cfg.exp, cfg.sig, hf.io.out))))
 }
 
 object FmaArcMain extends App {

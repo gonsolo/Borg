@@ -196,7 +196,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         fma.io.c := Mux(is_fma_reg, recC_raw,
                         Mux(is_mul_reg || is_fneg_reg, 0.U(config.totalBits.W), recB_raw))
         fma.io.negate := is_fneg_reg
-        fma.io.pipeEn := pipe_stage
+        // 4-stage custom FMA: regA@4, regB@3 (enabled → hold during non-busy, no X
+        // churn); regC free-runs (no pipeEn3) to drop its high-fanout enable net.
+        // Registered result ready for write-back/snoop at counter==1.
+        fma.io.pipeEn1 := is_busy && busy_counter === 4.U
+        fma.io.pipeEn2 := is_busy && busy_counter === 3.U
         fma.io.out
       } else {
         val recA = recFNFromFN(config.exp, config.sig, recA_raw)

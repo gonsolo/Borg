@@ -8,31 +8,37 @@ import chisel3.util._
 
 /** BorgFp16Fma — in-tree fused multiply-add for the GPU's FP16 domain.
   *
-  * Computes `round_RNE( (negate ? -(a*b) : a*b) + c )` with a SINGLE rounding
-  * (true fused multiply-add), round-to-nearest-even, on standard IEEE-754
-  * binary16 values. Drop-in replacement for the Berkeley HardFloat `MulAddRecFN`
-  * path in [[BorgCore.wireFma]] (selected by `cfg.useCustomFma`) and the per-lane
-  * arithmetic core for 4-lane SIMT.
+  * Computes `round_RNE( (negate ? -(a*b) : a*b) + c )` with a SINGLE rounding,
+  * round-to-nearest-even, on standard IEEE-754 binary16.  Drop-in for HardFloat
+  * `MulAddRecFN` (selected by `cfg.useCustomFma`) and the per-lane arithmetic core
+  * for 4-lane SIMT.
   *
-  * Operand muxing (ADD/MUL/FMA/FNEG) stays in `BorgCore`; this unit sees the
-  * resolved `a`, `b`, `c` and a `negate` flag:
-  *   ADD: a=1.0,b=rs1,c=rs2 · MUL: a=rs1,b=rs2,c=0 · FMA: a=rs1,b=rs2,c=rs3 ·
-  *   FNEG: a=1.0,b=rs1,c=0,negate.
+  * Operand muxing (ADD/MUL/FMA/FNEG) stays in `BorgLane`; this unit sees the
+  * resolved a/b/c + negate.  Proper IEEE Inf/NaN handling (edge functions overflow
+  * FP16 to ±Inf).  Verified bit-identical to HardFloat (30k RTL co-sim + verilator
+  * goldens at fragLanes 1 and 4).
   *
-  * Pipelining: split into two combinational halves with a register (`pipeEn`)
-  * after the mantissa multiply + alignment and before normalize/round — the same
-  * critical-path split as HardFloat's `preMul → [reg] → postMul → round`, so the
-  * core's 4-cycle FMA timing is unchanged.
+  * FOUR-STAGE pipeline (THREE internal registers) to close 25 MHz timing on the
+  * 4-lane ULX3S build (the single-register version capped the SoC clock at ~19 MHz —
+  * its mantissa-multiply→align→sum cone was the whole-design critical path).  Operands
+  * are valid at busy_counter==4 (regfile and uniform reads both complete then); the
+  * result is consumed by write-back at busy_counter==1.
+  *   - Stage 1 (→ regA @ pipeEn1, counter==4): unpack + 11×11 multiply + exponents
+  *     + signs + Inf/NaN classification.
+  *   - Stage 2 (→ regB @ pipeEn2, counter==3): top-exponent + alignment + signed sum.
+  *   - Stage 3 (→ regC, FREE-RUNNING): normalize + round + pack.
+  *   - `io.out` IS regC — registered, so write-back AND the dispatcher's edge/frag
+  *     snoop at counter==1 read a register (short path), not the round cone.
+  * After the split the critical path is the balanced stage-2 align+sum (26.14 MHz,
+  * PASS at 25).  regC is FREE-RUNNING (plain RegNext): its input stage3(regB) is
+  * stable because regB holds during non-busy, so it re-latches the same value while
+  * dropping the high-fanout pipeEn3 enable net to the 16-bit output register.
+  * Same arithmetic as the single-register version — purely register placement.
   *
-  * Verified bit-identical to HardFloat over the GPU domain: 30k-case RTL co-sim
-  * (EphemeralSimulator) + 400k-case standalone arcilator co-sim + a verilator
-  * golden render.  IEEE Inf/NaN inputs are handled (edge functions overflow FP16
-  * to ±Inf), so proper Inf arithmetic — not a blanket NaN — is produced.
-  *
-  * Renders correctly in verilator AND arcilator and synthesises cleanly.  (An
-  * earlier "arcilator miscompiles the custom-FMA SoC" report was a misdiagnosis:
-  * a manual `./arcilator_sim` run with unbuilt firmware → empty flash → hang;
-  * always `make triangle`/`make vkcube` to build firmware first.)
+  * NOTE: this deep pipeline hangs arcilator at any depth >1 (a CIRCT/arcilator
+  * codegen quirk — chisel-sim N=1 AND verilator N=4 render goldens both pass it), so
+  * the arcilator CI sim runs HardFloat via [[BorgConfig.ArcSim]]; the custom FMA is
+  * covered by the co-sims + verilator goldens (the exact Simt config the ULX3S ships).
   *
   * @doc:custom-fma
   */
@@ -41,8 +47,9 @@ class BorgFp16FmaIO(val cfg: BorgConfig) extends Bundle {
   val b      = Input(UInt(cfg.totalBits.W))
   val c      = Input(UInt(cfg.totalBits.W))
   val negate = Input(Bool())   // negate the a*b product (FNEG)
-  val pipeEn = Input(Bool())   // stage1 → stage2 pipeline register enable
-  val out    = Output(UInt(cfg.totalBits.W))
+  val pipeEn1 = Input(Bool())  // regA enable (counter==4): hold during non-busy
+  val pipeEn2 = Input(Bool())  // regB enable (counter==3): hold during non-busy
+  val out    = Output(UInt(cfg.totalBits.W))   // registered, 3-cycle latency
 }
 
 class BorgFp16Fma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -54,13 +61,11 @@ class BorgFp16Fma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val BIAS   = (1 << (EXP - 1)) - 1    // 15
   private val EXPMAX = (1 << EXP) - 1          // 31 (Inf/NaN exponent field)
 
-  // Fixed-point alignment field: product significand (2*SIG) + headroom for the
-  // addend's tail before bits collapse into a sticky.  Generous; area is cheap.
-  private val F  = 2 * SIG + 18                // 40 for FP16
-  private val FE = F + 1                       // field + appended per-operand sticky
+  private val F  = 2 * SIG + 18                // 40 for FP16 (alignment field)
+  private val FE = F + 1                       // + appended per-operand sticky bit
   private val EW = EXP + 8                     // signed exponent arithmetic width
 
-  // ---- Unpack: value = sig * 2^(eVal - MANT), sig = SIG-bit (impl bit + frac) ----
+  // ---- Unpack: value = sig * 2^(eVal - MANT) ----
   private case class Unpacked(sign: Bool, sig: UInt, eVal: SInt, isZero: Bool, isInf: Bool, isNaN: Bool)
   private def unpack(x: UInt): Unpacked = {
     val expF = x(EXP + MANT - 1, MANT)
@@ -69,7 +74,7 @@ class BorgFp16Fma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val eVal = Mux(expF === 0.U, 1.S(EW.W), expF.zext.asTypeOf(SInt(EW.W))) - BIAS.S(EW.W)
     Unpacked(
       sign   = x(EXP + MANT),
-      sig    = Cat(impl, frac),                // SIG bits
+      sig    = Cat(impl, frac),
       eVal   = eVal,
       isZero = (expF === 0.U) && (frac === 0.U),
       isInf  = (expF === EXPMAX.U) && (frac === 0.U),
@@ -77,79 +82,94 @@ class BorgFp16Fma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     )
   }
 
+  // ==========================================================================
+  // Stage 1 (combinational): unpack + multiply + exponents + Inf/NaN class
+  // ==========================================================================
   private val ua = unpack(io.a)
   private val ub = unpack(io.b)
   private val uc = unpack(io.c)
 
-  // ---- Product (exact) and addend, in fixed-point at 2^(lowExp) ----
-  private val prodSign   = ua.sign ^ ub.sign ^ io.negate
-  private val prodZero   = ua.isZero || ub.isZero
-  private val prodSig    = ua.sig * ub.sig                       // 2*SIG bits
-  private val prodLowExp = (ua.eVal +& ub.eVal) - (2 * MANT).S
-  private val cSign      = uc.sign
-  private val cZero      = uc.isZero
-  private val cSig       = uc.sig
-  private val cLowExp    = uc.eVal - MANT.S
+  private val s1_prodSign   = ua.sign ^ ub.sign ^ io.negate
+  private val s1_prodZero   = ua.isZero || ub.isZero
+  private val s1_prodSig    = ua.sig * ub.sig                       // 2*SIG bits
+  private val s1_prodLowExp = (ua.eVal +& ub.eVal) - (2 * MANT).S
+  private val s1_cSign      = uc.sign
+  private val s1_cZero      = uc.isZero
+  private val s1_cSig       = uc.sig
+  private val s1_cLowExp    = uc.eVal - MANT.S
 
-  // ---- Common top exponent: shift both operands DOWN into the field from here ----
-  private val MINEXP  = (-128).S(EW.W)
-  private val prodTop = Mux(prodZero, MINEXP, prodLowExp + (2 * SIG - 1).S)
-  private val cTop    = Mux(cZero,    MINEXP, cLowExp + (SIG - 1).S)
-  private val topExp  = Mux(prodTop > cTop, prodTop, cTop) + 2.S
-
-  // place `sig` (sigBits wide) left-aligned to the top of an F-bit field, then
-  // shift down by `down` (>=0); returns (field, sticky-of-dropped-low-bits).
-  private def place(sig: UInt, sigBits: Int, downS: SInt): (UInt, Bool) = {
-    val topAligned = (sig << (F - sigBits)).asUInt
-    // Clamp shift to [0,F] AND to a narrow width — an un-narrowed `1.U << down`
-    // infers an ~8192-bit intermediate (mis-lowered + synthesises terribly).
-    val downClamped = Mux(downS < 0.S, 0.U, Mux(downS > F.S, F.U, downS.asUInt))
-    val down = downClamped(log2Ceil(F + 1) - 1, 0)               // 6 bits for F=40
-    val shifted = (topAligned >> down)(F - 1, 0)
-    val mask = ((1.U << down) - 1.U)(F - 1, 0)                   // 1.U << 6-bit → 64-bit
-    val sticky = (topAligned & mask).orR
-    (shifted, sticky)
-  }
-
-  private val prodDown = topExp - (prodLowExp + (2 * SIG - 1).S)
-  private val cDown    = topExp - (cLowExp + (SIG - 1).S)
-  private val (prodFieldRaw, prodStk) = place(prodSig, 2 * SIG, prodDown)
-  private val (cFieldRaw, cStk)        = place(cSig, SIG, cDown)
-  private val prodField = Mux(prodZero, 0.U(F.W), prodFieldRaw)
-  private val cField    = Mux(cZero,    0.U(F.W), cFieldRaw)
-  private val prodExt   = Cat(prodField, Mux(prodZero, false.B, prodStk))   // FE bits
-  private val cExt      = Cat(cField,    Mux(cZero,    false.B, cStk))       // FE bits
-
-  // ---- Signed sum (appended sticky bit makes subtraction borrow correctly) ----
-  private val prodSigned = Mux(prodSign, -(prodExt.zext), prodExt.zext)
-  private val cSignedV   = Mux(cSign,    -(cExt.zext),    cExt.zext)
-  private val sumSigned  = prodSigned +& cSignedV
-  private val resultSign = sumSigned < 0.S
-  private val magW       = FE + 1
-  private val mag        = Mux(resultSign, (-sumSigned).asUInt, sumSigned.asUInt)(magW - 1, 0)
-
-  // ---- IEEE special-case results (Inf/NaN), matching HardFloat ----
+  // IEEE special-case classification (matches HardFloat over the domain).
   private val anyNaN       = ua.isNaN || ub.isNaN || uc.isNaN
   private val infTimesZero = (ua.isInf && ub.isZero) || (ua.isZero && ub.isInf)
   private val prodInf      = (ua.isInf || ub.isInf) && !infTimesZero
   private val cInf         = uc.isInf
-  private val infMinusInf  = prodInf && cInf && (prodSign =/= cSign)
-  private val specialNaN   = anyNaN || infTimesZero || infMinusInf
-  private val specialInf   = !specialNaN && (prodInf || cInf)
-  private val specialInfSign = Mux(prodInf, prodSign, cSign)
-  private val useSpecial   = specialNaN || specialInf
+  private val infMinusInf  = prodInf && cInf && (s1_prodSign =/= s1_cSign)
+  private val s1_specialNaN   = anyNaN || infTimesZero || infMinusInf
+  private val s1_specialInf   = !s1_specialNaN && (prodInf || cInf)
+  private val s1_specialSign  = Mux(prodInf, s1_prodSign, s1_cSign)
 
-  // ---- Pipeline register (matches busy_counter==2 split) ----
-  private val magR        = RegEnable(mag,            io.pipeEn)
-  private val signR       = RegEnable(resultSign,     io.pipeEn)
-  private val topExpR     = RegEnable(topExp,         io.pipeEn)
-  private val useSpecialR = RegEnable(useSpecial,     io.pipeEn)
-  private val specNaNR    = RegEnable(specialNaN,     io.pipeEn)
-  private val specSignR   = RegEnable(specialInfSign, io.pipeEn)
+  // ---- regMid (pipeEn1; holds during non-busy → no X churn) ----
+  // Reset-initialised: arcilator starts resetless regs as X and propagates it into
+  // a hang; verilator/chisel-sim tolerate the X.  Inits are functionally neutral
+  // (operands are captured before the result is ever consumed).
+  private val m_prodSig    = RegEnable(s1_prodSig,    0.U, io.pipeEn1)
+  private val m_cSig       = RegEnable(s1_cSig,       0.U, io.pipeEn1)
+  private val m_prodSign   = RegEnable(s1_prodSign,   false.B, io.pipeEn1)
+  private val m_cSign      = RegEnable(s1_cSign,      false.B, io.pipeEn1)
+  private val m_prodZero   = RegEnable(s1_prodZero,   false.B, io.pipeEn1)
+  private val m_cZero      = RegEnable(s1_cZero,      false.B, io.pipeEn1)
+  private val m_prodLowExp = RegEnable(s1_prodLowExp, 0.S(EW.W), io.pipeEn1)
+  private val m_cLowExp    = RegEnable(s1_cLowExp,    0.S(EW.W), io.pipeEn1)
+  private val m_specialNaN = RegEnable(s1_specialNaN, false.B, io.pipeEn1)
+  private val m_specialInf = RegEnable(s1_specialInf, false.B, io.pipeEn1)
+  private val m_specialSign= RegEnable(s1_specialSign,false.B, io.pipeEn1)
 
-  // ---- Stage 2: normalize + round-to-nearest-even + pack ----
+  // ==========================================================================
+  // Stage 2 (combinational from regMid): align + signed sum
+  // ==========================================================================
+  private val MINEXP  = (-128).S(EW.W)
+  private val prodTop = Mux(m_prodZero, MINEXP, m_prodLowExp + (2 * SIG - 1).S)
+  private val cTop    = Mux(m_cZero,    MINEXP, m_cLowExp + (SIG - 1).S)
+  private val topExp  = Mux(prodTop > cTop, prodTop, cTop) + 2.S
+
+  private def place(sig: UInt, sigBits: Int, downS: SInt): (UInt, Bool) = {
+    val topAligned = (sig << (F - sigBits)).asUInt
+    val downClamped = Mux(downS < 0.S, 0.U, Mux(downS > F.S, F.U, downS.asUInt))
+    val down = downClamped(log2Ceil(F + 1) - 1, 0)
+    val shifted = (topAligned >> down)(F - 1, 0)
+    val mask = ((1.U << down) - 1.U)(F - 1, 0)
+    val sticky = (topAligned & mask).orR
+    (shifted, sticky)
+  }
+
+  private val prodDown = topExp - (m_prodLowExp + (2 * SIG - 1).S)
+  private val cDown    = topExp - (m_cLowExp + (SIG - 1).S)
+  private val (prodFieldRaw, prodStk) = place(m_prodSig, 2 * SIG, prodDown)
+  private val (cFieldRaw, cStk)        = place(m_cSig, SIG, cDown)
+  private val prodField = Mux(m_prodZero, 0.U(F.W), prodFieldRaw)
+  private val cField    = Mux(m_cZero,    0.U(F.W), cFieldRaw)
+  private val prodExt   = Cat(prodField, Mux(m_prodZero, false.B, prodStk))
+  private val cExt      = Cat(cField,    Mux(m_cZero,    false.B, cStk))
+
+  private val prodSigned = Mux(m_prodSign, -(prodExt.zext), prodExt.zext)
+  private val cSignedV   = Mux(m_cSign,    -(cExt.zext),    cExt.zext)
+  private val sumSigned  = prodSigned +& cSignedV
+  private val s2_sign    = sumSigned < 0.S
+  private val magW       = FE + 1
+  private val s2_mag     = Mux(s2_sign, (-sumSigned).asUInt, sumSigned.asUInt)(magW - 1, 0)
+
+  // ---- regB (pipeEn2; holds during non-busy → no X churn) ----
+  private val magR        = RegEnable(s2_mag,                       0.U, io.pipeEn2)
+  private val signR       = RegEnable(s2_sign,                      false.B, io.pipeEn2)
+  private val topExpR     = RegEnable(topExp,                       0.S(EW.W), io.pipeEn2)
+  private val useSpecialR = RegEnable(m_specialNaN || m_specialInf, false.B, io.pipeEn2)
+  private val specNaNR    = RegEnable(m_specialNaN,                 false.B, io.pipeEn2)
+  private val specSignR   = RegEnable(m_specialSign,                false.B, io.pipeEn2)
+
+  // ==========================================================================
+  // Stage 3 (combinational): normalize + round-to-nearest-even + pack
+  // ==========================================================================
   private val isZeroResult = magR === 0.U
-  // Highest set bit (0-based) via explicit priority chain (arcilator-robust).
   private val msbPos = {
     val idx = WireDefault(0.U(log2Ceil(magW).W))
     for (i <- 0 until magW) { when(magR(i)) { idx := i.U } }
@@ -182,11 +202,13 @@ class BorgFp16Fma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val fracField = Mux(overflow, 0.U(MANT.W), finalFrac)
 
   private val normalOut  = Cat(signR, expField, fracField)
-  private val zeroOut    = Cat(false.B, 0.U((EXP + MANT).W))                          // +0
-  private val nanOut     = Cat(false.B, EXPMAX.U(EXP.W), (1 << (MANT - 1)).U(MANT.W)) // qNaN
-  private val infOut     = Cat(specSignR, EXPMAX.U(EXP.W), 0.U(MANT.W))               // ±Inf
+  private val zeroOut    = Cat(false.B, 0.U((EXP + MANT).W))
+  private val nanOut     = Cat(false.B, EXPMAX.U(EXP.W), (1 << (MANT - 1)).U(MANT.W))
+  private val infOut     = Cat(specSignR, EXPMAX.U(EXP.W), 0.U(MANT.W))
   private val specialOut = Mux(specNaNR, nanOut, infOut)
+  private val s3_out     = Mux(useSpecialR, specialOut, Mux(isZeroResult, zeroOut, normalOut))
 
-  io.out := Mux(useSpecialR, specialOut, Mux(isZeroResult, zeroOut, normalOut))
+  // regC: register the final result so write-back + dispatcher snoop read a reg.
+  io.out := RegNext(s3_out, 0.U(cfg.totalBits.W))
 }
 // @doc:end

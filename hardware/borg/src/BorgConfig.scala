@@ -77,6 +77,15 @@ object BorgConfig {
   // pico-ice) on the bit-exact single-lane reference.
   val Simt = Default.copy(fragLanes = 4)
 
+  // Arcilator CI sim: HardFloat FMA.  The deep-pipeline custom BorgFp16Fma (needed
+  // to close ULX3S timing at 4 lanes — the single-register version caps the SoC
+  // clock at ~19 MHz) hangs arcilator at any pipeline depth >1.  chisel-sim (N=1)
+  // AND verilator N=4 render goldens both pass it, so it is an arcilator codegen
+  // quirk, not an RTL bug.  Arcilator therefore runs the proven HardFloat path; the
+  // custom FMA stays covered by the 30k/400k co-sims, BorgFp16FmaTests, and the
+  // verilator render goldens (the exact Simt config the ULX3S ships).
+  val ArcSim = Default.copy(useCustomFma = false)
+
   // ASIC (IHP SG13G2, TT 8×4 tile).
   //   countMem_1024x10 alone was ~920 kµm² (50 % of die) → reduced to 16 tiles (~14 kµm²).
   //   instructionMemory_56x32 was ~145 kµm² → reduced to 32 entries (~83 kµm²).

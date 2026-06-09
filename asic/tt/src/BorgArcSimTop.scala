@@ -46,7 +46,10 @@ class BorgArcSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // loads the rcp LUT into one memory (verilator gets all lanes via $readmemh),
   // so the 4-lane SIMT config hangs here pending a per-lane load_luts.  4-lane is
   // validated by the verilator goldens + ULX3S; arcilator remains the fast N=1 sim.
-  override def BORG_CFG: BorgConfig = BorgConfig.Default
+  // ArcSim also pins HardFloat (useCustomFma=false): the deep-pipeline custom FMA
+  // that closes ULX3S timing hangs arcilator (codegen quirk; passes chisel-sim +
+  // verilator N=4 goldens).  See BorgConfig.ArcSim.
+  override def BORG_CFG: BorgConfig = BorgConfig.ArcSim
 
   // No scanout: immediately reflect fb_select writes so the firmware's
   // PERI_FB_SELECT sync loop exits on the first read.
