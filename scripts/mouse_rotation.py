@@ -3,9 +3,11 @@
 Send mouse rotation to vkcube running on ULX3S via UART.
 
 Protocol: 37-byte packets  [0xAC] [m00..m22: 9 × 4-byte LE float]
-  9 floats are the column-major 3×3 rotation matrix derived from a unit
-  quaternion.  Mouse X rotates around world Y; mouse Y rotates around the
-  current right vector (trackball — no gimbal lock).
+  Column-major 3×3 rotation matrix derived from a unit quaternion (the FPGA
+  CPU has no soft-float, so the matrix is computed here).  The firmware
+  rejects any packet with an out-of-range entry (corruption/mis-sync guard).
+  Mouse X rotates around world Y; mouse Y rotates around the current right
+  vector (trackball — no gimbal lock).
 
 Requirements:
   pip install evdev pyserial
@@ -27,8 +29,12 @@ SERIAL_PORT        = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyUSB0"
 BAUD               = 115200
 SENSITIVITY        = 0.005   # radians per raw mouse count
 AUTO_ROTATE_DELAY  = 5.0     # seconds of inactivity before auto-rotate
-AUTO_ROTATE_SPEED  = 0.03    # radians per 50ms tick (~1 rev / 10 s)
-SELECT_TIMEOUT     = 0.05    # seconds between auto-rotate ticks
+AUTO_ROTATE_RATE   = 0.6     # radians/second (~1 rev / 10 s), time-based
+# Tick fast during auto-rotate so packets stream densely (every ~4 ms).  The
+# firmware drains UART once per frame with only a ~12 ms catch window; a sparse
+# (50 ms) sender phase-locks into that window's gaps and stalls.  A dense stream
+# guarantees a 0xAC is always in flight when the firmware drains.
+SELECT_TIMEOUT     = 0.004   # seconds between poll/auto-rotate ticks
 
 
 # --- Quaternion helpers (w, x, y, z) ---
@@ -78,6 +84,7 @@ def apply_rotation(q, dx, dy):
     return q
 
 def pack_packet(q):
+    # [0xAC][m00..m22] — firmware sanity-checks each entry and uses the matrix directly.
     return struct.pack("<B9f", 0xAC, *quat_to_col_mat3(q))
 
 
@@ -103,9 +110,9 @@ def main() -> None:
     q = quat_from_axis_angle(1.0, 0.0, 0.0, 0.5236)
     dx = 0.0
     dy = 0.0
-    last_move    = time.monotonic()
+    last_move     = time.monotonic()
     auto_rotating = False
-    auto_dq      = quat_from_axis_angle(0.0, 1.0, 0.0, AUTO_ROTATE_SPEED)
+    last_auto     = last_move
 
     while True:
         readable, _, _ = select.select([mouse.fd], [], [], SELECT_TIMEOUT)
@@ -126,10 +133,17 @@ def main() -> None:
                         last_move     = time.monotonic()
                         auto_rotating = False
         else:
-            if not auto_rotating and time.monotonic() - last_move >= AUTO_ROTATE_DELAY:
+            now = time.monotonic()
+            if not auto_rotating and now - last_move >= AUTO_ROTATE_DELAY:
                 auto_rotating = True
+                last_auto     = now
             if auto_rotating:
-                q = quat_normalize(quat_mul(auto_dq, q))
+                # Time-based step keeps the spin speed constant regardless of
+                # tick jitter; the dense tick keeps the UART stream continuous.
+                dt = now - last_auto
+                last_auto = now
+                dq = quat_from_axis_angle(0.0, 1.0, 0.0, AUTO_ROTATE_RATE * dt)
+                q = quat_normalize(quat_mul(dq, q))
                 ser.write(pack_packet(q))
 
 

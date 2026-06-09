@@ -255,11 +255,16 @@ int main() {
   } rot_x_reader, rot_y_reader;
 
 #ifdef TARGET_ULX3S
-  // Quaternion-based rotation: host sends 37-byte packets
-  // [0xAC][m00..m22: 9 × 4-byte LE float] (column-major 3×3 rotation matrix).
+  // Rotation: host sends 37-byte packets
+  // [0xAC][m00..m22: 9 × 4-byte LE float] — column-major 3×3 rotation matrix.
+  // The matrix is computed host-side (the CPU has no soft-float).  Corrupted /
+  // mis-synced packets are rejected by an integer-only sanity check: every
+  // entry of a rotation matrix is in [-1,1], so any float with magnitude >= 2
+  // (raw bits, no FP needed) means the packet is garbage.
   static uint8_t pkt_buf[37];
   static int pkt_pos = 0;
-  // Initial orientation: 30° X tilt (cos=0.866, sin=0.5); matches script init.
+  // Initial orientation: 30° X tilt as a column-major 3×3 matrix
+  // (cos=0.866, sin=0.5); matches the script's initial quaternion.
   static float rot_mat[9] = {
     1.0f,   0.0f,    0.0f,    // col 0: [m00, m10, m20]
     0.0f,   0.866f,  0.5f,    // col 1: [m01, m11, m21]
@@ -269,37 +274,48 @@ int main() {
 
   while (1) {
 #ifdef TARGET_ULX3S
-    // Drain rotation packets from UART.  The HW has a 1-byte buffer; bytes
+    // Drain one rotation packet from UART.  The HW has a 1-byte buffer; bytes
     // arriving during borg_present() (~100ms) are mostly dropped.  Strategy:
-    //   1. Wait up to ~12 ms for the 0xAC start byte (covers one full 10ms
-    //      mouse-poll period so we reliably catch the next packet in flight).
-    //   2. Chain-read the remaining 36 payload bytes with a short timeout
-    //      (≤1 baud period at 115200; bytes arrive every ~87 µs = 2175 cycles).
-    //   3. After a complete packet, greedily drain any further immediately-
-    //      available packets (no wait) to keep rot_mat as fresh as possible.
+    //   1. Wait up to ~12 ms for the 0xAC start byte so we catch a packet in
+    //      flight at the frame boundary.
+    //   2. Chain-read the remaining 16 payload bytes with a short per-byte
+    //      timeout (bytes arrive every ~87 µs = ~2175 cycles at 115200 baud;
+    //      4000-cycle window is ample).  Hard safety cap prevents any infinite
+    //      loop; reset pkt_pos on timeout so the 12 ms wait fires again next
+    //      frame (re-syncs to the packet boundary).
+    //   3. Decode 9 floats; ACCEPT only if every entry has magnitude < 2 (an
+    //      integer-only check on the raw IEEE-754 bits — the CPU has no
+    //      soft-float).  Rejects mis-synced / corrupted packets so the cube
+    //      never jitters on garbage.
     {
-      // Step 1: wait up to 12 ms for 0xAC.
+      // Step 1: wait up to 12 ms for 0xAC start byte (skipped mid-packet).
       if (pkt_pos == 0) {
         for (volatile int t = 300000; !uart_rx_ready() && t > 0; t--) ;
       }
-      // Step 2+3: assemble packets; after each complete one, keep draining.
-      int keep_going = 1;
-      while (keep_going) {
+      // Step 2: assemble one complete 37-byte packet; break immediately after.
+      for (int safety = 96; safety > 0; safety--) {
         for (volatile int t = 4000; !uart_rx_ready() && t > 0; t--) ;
-        if (!uart_rx_ready()) break;
+        if (!uart_rx_ready()) { pkt_pos = 0; break; }  // timeout — reset for next frame
         uint8_t b = (uint8_t)getc_uart();
-        if (pkt_pos == 0 && b != 0xAC) continue;
+        if (pkt_pos == 0 && b != 0xAC) continue;       // discard until marker found
         pkt_buf[pkt_pos++] = b;
         if (pkt_pos == 37) {
-          union { uint32_t u; float f; } conv;
+          uint32_t raw[9];
+          int valid = 1;
           for (int i = 0; i < 9; i++) {
             int base = 1 + i * 4;
-            conv.u = (uint32_t)pkt_buf[base]         | ((uint32_t)pkt_buf[base+1] << 8) |
+            raw[i] = (uint32_t)pkt_buf[base]          | ((uint32_t)pkt_buf[base+1] << 8) |
                      ((uint32_t)pkt_buf[base+2] << 16) | ((uint32_t)pkt_buf[base+3] << 24);
-            rot_mat[i] = conv.f;
+            // |value| >= 2.0  <=>  (bits & 0x7FFFFFFF) >= 0x40000000.
+            // Also catches +/-inf and NaN (exponent 0xFF).  No FP used.
+            if ((raw[i] & 0x7FFFFFFF) >= 0x40000000u) valid = 0;
           }
           pkt_pos = 0;
-          keep_going = uart_rx_ready();
+          if (valid) {
+            union { uint32_t u; float f; } conv;
+            for (int i = 0; i < 9; i++) { conv.u = raw[i]; rot_mat[i] = conv.f; }
+          }
+          break;  // one packet per frame — exit; don't attempt greedy drain
         }
       }
     }
