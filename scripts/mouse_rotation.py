@@ -50,14 +50,22 @@ def main() -> None:
     ry: float = 0.0
     rx: float = 0.5236   # 30° initial tilt (matches firmware default)
     TWO_PI = 2.0 * math.pi
+    dx = 0.0
+    dy = 0.0
 
     for event in mouse.read_loop():
         if event.type == evdev.ecodes.EV_REL:
             if event.code == evdev.ecodes.REL_X:
-                ry = (ry + event.value * SENSITIVITY) % TWO_PI
+                dx += event.value
             elif event.code == evdev.ecodes.REL_Y:
-                rx = max(-1.4, min(1.4, rx + event.value * SENSITIVITY))
-            ser.write(pack_packet(ry, rx))
+                dy += event.value
+        elif event.type == evdev.ecodes.EV_SYN and event.code == evdev.ecodes.SYN_REPORT:
+            if dx != 0.0 or dy != 0.0:
+                ry = (ry + dx * SENSITIVITY) % TWO_PI
+                rx = max(-1.4, min(1.4, rx + dy * SENSITIVITY))
+                ser.write(pack_packet(ry, rx))
+                dx = 0.0
+                dy = 0.0
 
 
 if __name__ == "__main__":

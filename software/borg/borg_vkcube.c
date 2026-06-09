@@ -269,24 +269,40 @@ int main() {
 
   while (1) {
 #ifdef TARGET_ULX3S
-    // Drain up to one full 9-byte rotation packet from the user-peripheral UART.
-    // Brief busy-wait between bytes (≤1 baud period at 25 MHz/115200) so we can
-    // receive all 9 bytes without blocking across frames.
-    for (int tries = 0; tries < 9; tries++) {
-      for (volatile int t = 4000; !uart_rx_ready() && t > 0; t--) ;
-      if (!uart_rx_ready()) break;
-      uint8_t b = (uint8_t)getc_uart();
-      if (pkt_pos == 0 && b != 0xAB) continue;
-      pkt_buf[pkt_pos++] = b;
-      if (pkt_pos == 9) {
-        union { uint32_t u; float f; } conv;
-        conv.u = (uint32_t)pkt_buf[1]         | ((uint32_t)pkt_buf[2] << 8) |
-                 ((uint32_t)pkt_buf[3] << 16)  | ((uint32_t)pkt_buf[4] << 24);
-        ry_f = conv.f;
-        conv.u = (uint32_t)pkt_buf[5]         | ((uint32_t)pkt_buf[6] << 8) |
-                 ((uint32_t)pkt_buf[7] << 16)  | ((uint32_t)pkt_buf[8] << 24);
-        rx_f = conv.f;
-        pkt_pos = 0;
+    // Drain rotation packets from UART.  The HW has a 1-byte buffer; bytes
+    // arriving during borg_present() (~100ms) are mostly dropped.  Strategy:
+    //   1. Wait up to ~12 ms for the 0xAB start byte (covers one full 10ms
+    //      mouse-poll period so we reliably catch the next packet in flight).
+    //   2. Chain-read the remaining 8 payload bytes with a short timeout
+    //      (≤1 baud period at 115200; bytes arrive every ~87 µs = 2175 cycles).
+    //   3. After a complete packet, greedily drain any further immediately-
+    //      available packets (no wait) to keep the angles as fresh as possible.
+    {
+      // Step 1: wait up to 12 ms for 0xAB.
+      if (pkt_pos == 0) {
+        for (volatile int t = 300000; !uart_rx_ready() && t > 0; t--) ;
+      }
+      // Step 2+3: assemble packets; after each complete one, keep draining.
+      int keep_going = 1;
+      while (keep_going) {
+        // Short per-byte timeout for intra-packet chaining.
+        for (volatile int t = 4000; !uart_rx_ready() && t > 0; t--) ;
+        if (!uart_rx_ready()) break;
+        uint8_t b = (uint8_t)getc_uart();
+        if (pkt_pos == 0 && b != 0xAB) continue;
+        pkt_buf[pkt_pos++] = b;
+        if (pkt_pos == 9) {
+          union { uint32_t u; float f; } conv;
+          conv.u = (uint32_t)pkt_buf[1]        | ((uint32_t)pkt_buf[2] << 8) |
+                   ((uint32_t)pkt_buf[3] << 16) | ((uint32_t)pkt_buf[4] << 24);
+          ry_f = conv.f;
+          conv.u = (uint32_t)pkt_buf[5]        | ((uint32_t)pkt_buf[6] << 8) |
+                   ((uint32_t)pkt_buf[7] << 16) | ((uint32_t)pkt_buf[8] << 24);
+          rx_f = conv.f;
+          pkt_pos = 0;
+          // Check immediately for another packet without waiting.
+          keep_going = uart_rx_ready();
+        }
       }
     }
     (void)rot_x_reader;
@@ -313,10 +329,12 @@ int main() {
     mat4_rotate_x(rx, rx_f);
     mat4_rotate_y(ry, ry_f);
 
-    // MVP = TS · (Rx · Ry)
+    // MVP = TS · (Ry · Rx)
+    // Ry applied last keeps the horizontal spin in screen space at all tilt
+    // angles; Rx·Ry would invert the spin direction when rx approaches ±90°.
     borg_draw_data_t draw;
-    mat4_mul(t1, rx, ry);
-    mat4_mul_ts(draw.uniforms, ts, t1);  // MVP = TS·(Rx·Ry): sparse, 16 ops vs 112
+    mat4_mul(t1, ry, rx);
+    mat4_mul_ts(draw.uniforms, ts, t1);  // MVP = TS·(Ry·Rx): sparse, 16 ops vs 112
 
     unsigned int c1 = rdcycle();  // M = matrix
 
