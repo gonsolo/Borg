@@ -1,40 +1,28 @@
-# Arcilator miscompiles the custom-FMA full SoC (debugging dossier)
+# Arcilator + custom-FMA SoC (debugging dossier)
 
-Written 2026-06-09. Standalone brief for a fresh debugging session.
+> **RESOLVED 2026-06-09 — there is NO arcilator bug. This was a misdiagnosis.**
+> The custom-FMA full SoC renders **correctly** in arcilator (triangle: frame done
+> ~1M cyc, golden PASS; vkcube: ~1.6M cyc), verified 3/3 in a clean worktree at the
+> committed HEAD. The apparent failure came from the repro **methodology**: the
+> arcilator runs used `make arcilator_sim` (which does **not** build firmware) plus a
+> manual `./arcilator_sim ../../software/borg/triangle.bin` — and `triangle.bin` is a
+> gitignored build artifact. With empty/stale flash the CPU never renders → never
+> writes the `0x0000DEAD` marker → 12M-cycle watchdog abort → the partial framebuffer
+> gives *exactly* `573/1024 px differ, worst=255 at (25,1)`. The verilator "control"
+> used `make triangle`, which **does** build firmware → PASS. That asymmetry, not the
+> FMA, created the phantom; the "invariance" to FMA logic is exactly what a
+> firmware-independent hang predicts.
+>
+> **Lesson:** always build firmware before a manual `./arcilator_sim`
+> (`make triangle`/`make vkcube` do it). A `12M-cycle abort + 573/(25,1)` signature
+> means **empty flash**, not a codegen bug. Arcilator is safe for custom-FMA sim.
+>
+> The original (incorrect) investigation is kept below as a record; the standalone
+> harnesses in `simulation/arcilator/debug/` remain useful tooling.
 
-> ## ⚠️ RESOLVED 2026-06-09 — THIS WAS NOT AN ARCILATOR BUG (read this first)
->
-> The custom-FMA full SoC **renders correctly in arcilator**. With firmware properly
-> built and loaded, `useCustomFma=true` + arcilator passes the triangle golden (frame
-> done in ~1M cycles) and runs vkcube to completion (~1.6M cycles) — verified 3/3
-> deterministic in a clean worktree at HEAD `8969501`, using this dossier's *exact*
-> `./arcilator_sim ../../software/borg/triangle.bin triangle` command.
->
-> **Root cause of the false signature:** the repro below runs `make arcilator_sim`
-> (which does **not** build the firmware) and then a *manual* `./arcilator_sim
-> ../../software/borg/triangle.bin`. `triangle.bin` is a **gitignored build artifact**.
-> When it is absent (or stale), flash is empty → the CPU never renders → the
-> `0x0000DEAD` completion marker is never written → the 12M-cycle watchdog aborts and
-> dumps a partial framebuffer, which differs from the golden by **exactly** `573/1024
-> px, worst=255 at (25,1)`. Pointing the *passing* custom-FMA binary at a nonexistent
-> firmware path reproduces this signature precisely. The verilator "control" used
-> `make triangle`, which **does** build firmware → PASS. That asymmetric methodology —
-> not the FMA — created the apparent arcilator/verilator discrepancy.
->
-> Everything else falls out of this: the "invariance" to the FMA's logic/value/
-> structure is exactly what a firmware-independent hang predicts, and the standalone
-> harnesses (`fma_cosim`, `core_harness`) passed because they drive operands via
-> C++/MMIO and need no firmware.
->
-> **Takeaways:** (1) always build firmware before a manual `./arcilator_sim` — use
-> `make triangle` / `make vkcube`, which build the `.bin` as a dependency; (2) a
-> 12M-cycle abort + `573/(25,1)` means **empty flash**, not a codegen bug; (3)
-> arcilator is safe to use for custom-FMA simulation. The historical investigation
-> notes below are kept for the record only.
->
-> ---
+---
 
-## TL;DR
+## TL;DR (original, now known to be wrong)
 
 The Borg SoC, built with `BorgConfig.useCustomFma = true` (use the in-tree
 `BorgFp16Fma` instead of Berkeley HardFloat `MulAddRecFN`), **renders wrong and
