@@ -62,23 +62,9 @@ static void mat4_identity(fp16_t m[16]) {
   m[15] = FP16_ONE;
 }
 
-static void mat4_mul(fp16_t out[16], const fp16_t a[16], const fp16_t b[16]) {
-  for (int col = 0; col < 4; col++) {
-    for (int row = 0; row < 4; row++) {
-      fp16_t sum = FP16_ZERO;
-      for (int k = 0; k < 4; k++) {
-        fp16_t term = borg_fp16_mul(a[k * 4 + row], b[col * 4 + k]);
-        sum = borg_fp16_add(sum, term);
-      }
-      out[col * 4 + row] = sum;
-    }
-  }
-}
-
 // MVP = TS · R for the constant projection TS = scale(sxy,sxy,sz)·translate_z(z).
 // Only ts[0]=ts[5]=sxy, ts[10]=sz, ts[14]=z, ts[15]=1 are nonzero, so this needs
 // 12 muls + 4 fmadds instead of the 64 muls + 48 adds of a full mat4_mul (H1).
-// Mathematically identical to mat4_mul(out, ts, r) since TS is sparse.
 static void mat4_mul_ts(fp16_t out[16], const fp16_t ts[16], const fp16_t r[16]) {
   fp16_t sxy = ts[0], sz = ts[10], tz = ts[14];
   for (int col = 0; col < 4; col++) {
@@ -90,19 +76,25 @@ static void mat4_mul_ts(fp16_t out[16], const fp16_t ts[16], const fp16_t r[16])
   }
 }
 
-// Anisotropic scale: `sxy` scales screen-plane X/Y, `sz` scales depth.
-// The projection is orthographic (gl_Position.w stays 1), so the on-screen
-// image depends only on X/Y — Z is used purely for the z-buffer and for the
-// fixed clip box z∈[0,1] (near at z=0, far at z=w=1).  We therefore keep XY
-// large (the cube fills the framebuffer) but compress Z independently so a
-// rotated cube never pokes through the near/far planes.  A rotated corner
-// reaches sz·√3 in depth about the z=0.5 center, so sz≤0.5/√3≈0.288 keeps it
-// inside [0,1]; sz=0.25 leaves margin.  Compressing Z is invisible on screen.
 static void mat4_scale(fp16_t m[16], float sxy, float sz) {
   mat4_identity(m);
   m[0] = fp16_from_float(sxy);
   m[5] = fp16_from_float(sxy);
   m[10] = fp16_from_float(sz);
+}
+
+#ifndef TARGET_ULX3S
+static void mat4_mul(fp16_t out[16], const fp16_t a[16], const fp16_t b[16]) {
+  for (int col = 0; col < 4; col++) {
+    for (int row = 0; row < 4; row++) {
+      fp16_t sum = FP16_ZERO;
+      for (int k = 0; k < 4; k++) {
+        fp16_t term = borg_fp16_mul(a[k * 4 + row], b[col * 4 + k]);
+        sum = borg_fp16_add(sum, term);
+      }
+      out[col * 4 + row] = sum;
+    }
+  }
 }
 
 static void mat4_rotate_x(fp16_t m[16], float radians) {
@@ -124,6 +116,7 @@ static void mat4_rotate_y(fp16_t m[16], float radians) {
   m[2] = fp16_neg(s);
   m[10] = c;
 }
+#endif // !TARGET_ULX3S
 
 // Khronos vkcube light direction: negated normalize(0.6, 0.8, 1.0).
 // The original direction (+0.424, +0.566, +0.707) points toward Z+, but
@@ -245,7 +238,10 @@ int main() {
 
   borg_upload_texture(borg_texture_small_dat, TEX_WIDTH);
 
-  fp16_t ts[16], rx[16], ry[16], t1[16];
+  fp16_t ts[16], t1[16];
+#ifndef TARGET_ULX3S
+  fp16_t rx[16], ry[16];
+#endif
   // Constant projection TS = scale(0.5,0.5,0.25) · translate_z(0.5).  Tz·S is
   // just the scale with the z-translate term in [14]; precompute it once (H1)
   // so the per-frame path is only Rx·Ry + one sparse TS multiply.
@@ -259,48 +255,50 @@ int main() {
   } rot_x_reader, rot_y_reader;
 
 #ifdef TARGET_ULX3S
-  // UART-driven rotation: host sends 9-byte packets [0xAB][ry:4 LE float][rx:4 LE float].
-  // Busy-wait up to ~4000 cycles between bytes so a full packet drains per frame.
-  static float rx_f = 0.5236f;   // 30° initial X tilt
-  static float ry_f = 0.0f;
-  static uint8_t pkt_buf[9];
+  // Quaternion-based rotation: host sends 37-byte packets
+  // [0xAC][m00..m22: 9 × 4-byte LE float] (column-major 3×3 rotation matrix).
+  static uint8_t pkt_buf[37];
   static int pkt_pos = 0;
+  // Initial orientation: 30° X tilt (cos=0.866, sin=0.5); matches script init.
+  static float rot_mat[9] = {
+    1.0f,   0.0f,    0.0f,    // col 0: [m00, m10, m20]
+    0.0f,   0.866f,  0.5f,    // col 1: [m01, m11, m21]
+    0.0f,  -0.5f,    0.866f,  // col 2: [m02, m12, m22]
+  };
 #endif
 
   while (1) {
 #ifdef TARGET_ULX3S
     // Drain rotation packets from UART.  The HW has a 1-byte buffer; bytes
     // arriving during borg_present() (~100ms) are mostly dropped.  Strategy:
-    //   1. Wait up to ~12 ms for the 0xAB start byte (covers one full 10ms
+    //   1. Wait up to ~12 ms for the 0xAC start byte (covers one full 10ms
     //      mouse-poll period so we reliably catch the next packet in flight).
-    //   2. Chain-read the remaining 8 payload bytes with a short timeout
+    //   2. Chain-read the remaining 36 payload bytes with a short timeout
     //      (≤1 baud period at 115200; bytes arrive every ~87 µs = 2175 cycles).
     //   3. After a complete packet, greedily drain any further immediately-
-    //      available packets (no wait) to keep the angles as fresh as possible.
+    //      available packets (no wait) to keep rot_mat as fresh as possible.
     {
-      // Step 1: wait up to 12 ms for 0xAB.
+      // Step 1: wait up to 12 ms for 0xAC.
       if (pkt_pos == 0) {
         for (volatile int t = 300000; !uart_rx_ready() && t > 0; t--) ;
       }
       // Step 2+3: assemble packets; after each complete one, keep draining.
       int keep_going = 1;
       while (keep_going) {
-        // Short per-byte timeout for intra-packet chaining.
         for (volatile int t = 4000; !uart_rx_ready() && t > 0; t--) ;
         if (!uart_rx_ready()) break;
         uint8_t b = (uint8_t)getc_uart();
-        if (pkt_pos == 0 && b != 0xAB) continue;
+        if (pkt_pos == 0 && b != 0xAC) continue;
         pkt_buf[pkt_pos++] = b;
-        if (pkt_pos == 9) {
+        if (pkt_pos == 37) {
           union { uint32_t u; float f; } conv;
-          conv.u = (uint32_t)pkt_buf[1]        | ((uint32_t)pkt_buf[2] << 8) |
-                   ((uint32_t)pkt_buf[3] << 16) | ((uint32_t)pkt_buf[4] << 24);
-          ry_f = conv.f;
-          conv.u = (uint32_t)pkt_buf[5]        | ((uint32_t)pkt_buf[6] << 8) |
-                   ((uint32_t)pkt_buf[7] << 16) | ((uint32_t)pkt_buf[8] << 24);
-          rx_f = conv.f;
+          for (int i = 0; i < 9; i++) {
+            int base = 1 + i * 4;
+            conv.u = (uint32_t)pkt_buf[base]         | ((uint32_t)pkt_buf[base+1] << 8) |
+                     ((uint32_t)pkt_buf[base+2] << 16) | ((uint32_t)pkt_buf[base+3] << 24);
+            rot_mat[i] = conv.f;
+          }
           pkt_pos = 0;
-          // Check immediately for another packet without waiting.
           keep_going = uart_rx_ready();
         }
       }
@@ -326,16 +324,19 @@ int main() {
 #endif
     unsigned int c0 = rdcycle();
 
+#ifdef TARGET_ULX3S
+    // Build t1 from the quaternion-derived 3×3 rotation matrix received over UART.
+    mat4_identity(t1);
+    t1[0] = fp16_from_float(rot_mat[0]); t1[1] = fp16_from_float(rot_mat[1]); t1[2]  = fp16_from_float(rot_mat[2]);
+    t1[4] = fp16_from_float(rot_mat[3]); t1[5] = fp16_from_float(rot_mat[4]); t1[6]  = fp16_from_float(rot_mat[5]);
+    t1[8] = fp16_from_float(rot_mat[6]); t1[9] = fp16_from_float(rot_mat[7]); t1[10] = fp16_from_float(rot_mat[8]);
+#else
     mat4_rotate_x(rx, rx_f);
     mat4_rotate_y(ry, ry_f);
-
-    // MVP = TS · (Rx · Ry)
-    // Ry spins around world Y first, then Rx tilts the result — standard
-    // turntable order.  Gimbal lock at rx ≈ ±90° is acceptable given the
-    // clamped tilt range of ±1.4 rad; full fix would require quaternions.
-    borg_draw_data_t draw;
     mat4_mul(t1, rx, ry);
-    mat4_mul_ts(draw.uniforms, ts, t1);  // MVP = TS·(Rx·Ry): sparse, 16 ops vs 112
+#endif
+    borg_draw_data_t draw;
+    mat4_mul_ts(draw.uniforms, ts, t1);  // MVP = TS · rotation: sparse, 16 ops vs 112
 
     unsigned int c1 = rdcycle();  // M = matrix
 
