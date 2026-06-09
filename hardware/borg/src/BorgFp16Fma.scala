@@ -29,11 +29,10 @@ import chisel3.util._
   * golden render.  IEEE Inf/NaN inputs are handled (edge functions overflow FP16
   * to ±Inf), so proper Inf arithmetic — not a blanket NaN — is produced.
   *
-  * NOTE (arcilator): the full SoC render works in verilator and synthesises
-  * correctly, but arcilator's CIRCT backend mis-schedules the custom-FMA design
-  * shape (the failure is invariant to this module's logic/value/structure — even
-  * a constant or passthrough fails identically — and is absent with HardFloat).
-  * Use verilator for custom-FMA simulation until the arcilator issue is resolved.
+  * Renders correctly in verilator AND arcilator and synthesises cleanly.  (An
+  * earlier "arcilator miscompiles the custom-FMA SoC" report was a misdiagnosis:
+  * a manual `./arcilator_sim` run with unbuilt firmware → empty flash → hang;
+  * always `make triangle`/`make vkcube` to build firmware first.)
   *
   * @doc:custom-fma
   */
