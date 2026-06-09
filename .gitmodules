@@ -8,3 +8,7 @@
 [submodule "Vulkan-Tools"]
 	path = Vulkan-Tools
 	url = https://github.com/KhronosGroup/Vulkan-Tools.git
+[submodule "mesa"]
+	path = mesa
+	url = git@github.com:gonsolo/mesa.git
+	branch = borg
