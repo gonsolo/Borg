@@ -129,7 +129,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.status.autoRunPending := auto_run_pending
 
   // --- FTEX FSM (shared): drives each lane's texWrite, uses lane 0's operands ---
-  wireTexStall(lanes(0).io.recARaw, lanes(0).io.recBRaw, lanes.map(_.io.texWrite))
+  wireTexStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.texWrite))
 
   // =========================================================================
   // Helper functions
@@ -243,35 +243,53 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** Step 34.4: FTEX texture-sample stall and 3-register write-back.  Shared FSM:
     * latches operands → texReq, freezes busy_counter while waiting, then writes
     * texR/G/B to rd/rd+1/rd+2 via each lane's texWrite port over 3 cycles. */
-  private def wireTexStall(recA_raw: UInt, recB_raw: UInt, texWrites: Seq[MemWritePort]): Unit = {
+  private def wireTexStall(recAs: Seq[UInt], recBs: Seq[UInt], texWrites: Seq[MemWritePort]): Unit = {
+    val N = cfg.fragLanes
     val is_ftex_reg = RegInit(false.B)
     when(running && !is_busy && fetchedInstruction =/= 0.U) {
       is_ftex_reg := opFlags.ftex
     }
 
-    val sTexIdle :: sTexWait :: sTexWB0 :: sTexWB1 :: sTexWB2 :: Nil = Enum(5)
+    // One texture unit, serialized over lanes: request lane → wait → write that
+    // lane's rd/rd+1/rd+2 → next lane.  At fragLanes=1 this is the original path.
+    val sTexIdle :: sTexReq :: sTexWait :: sTexWB0 :: sTexWB1 :: sTexWB2 :: Nil = Enum(6)
     val texState = RegInit(sTexIdle)
+    val texLane  = RegInit(0.U(log2Ceil(N + 1).W))
 
     val texRdReg = RegInit(0.U(5.W))
     val texResultR = RegInit(0.U(16.W))
     val texResultG = RegInit(0.U(16.W))
     val texResultB = RegInit(0.U(16.W))
 
+    // Active lane's U/V operands (read ports stay valid while busy_counter is held).
+    val curA = VecInit(recAs)(texLane)
+    val curB = VecInit(recBs)(texLane)
+
     // Defaults
     io.texReq := false.B
     io.texU   := 0.U
     io.texV   := 0.U
-    def driveTexWrite(en: Bool, addr: UInt, data: UInt): Unit =
-      texWrites.foreach { tw => tw.en := en; tw.addr := addr; tw.data := data }
-    driveTexWrite(false.B, 0.U, 0.U)
+    // Lane-selective write: only the active lane's register file is written.
+    def driveTexWriteLane(lane: UInt, en: Bool, addr: UInt, data: UInt): Unit =
+      texWrites.zipWithIndex.foreach { case (tw, i) =>
+        tw.en := en && (i.U === lane); tw.addr := addr; tw.data := data
+      }
+    driveTexWriteLane(0.U, false.B, 0.U, 0.U)
 
-    // Initiate FTEX at counter=4 (operands valid)
+    // Initiate FTEX at counter=4 (operands valid): start with lane 0.
     when(is_busy && busy_counter === 4.U && is_ftex_reg) {
+      texRdReg := regs.rd
+      texLane  := 0.U
+      texState := sTexReq
+    }
+
+    // Request the active lane's texel.
+    when(texState === sTexReq) {
+      busy_counter := busy_counter            // hold operands stable
       io.texReq := true.B
-      io.texU   := recA_raw(15, 0)
-      io.texV   := recB_raw(15, 0)
-      texRdReg  := regs.rd
-      when(io.texDone) {
+      io.texU   := curA(15, 0)
+      io.texV   := curB(15, 0)
+      when(io.texDone) {                      // same-cycle (e.g. texture disabled → white)
         texResultR := io.texR; texResultG := io.texG; texResultB := io.texB
         texState   := sTexWB0
       }.otherwise {
@@ -279,30 +297,36 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     }
 
-    when(texState === sTexWait) { busy_counter := busy_counter }      // hold
-
-    when(texState === sTexWait && io.texDone) {
-      texResultR := io.texR; texResultG := io.texG; texResultB := io.texB
-      texState   := sTexWB0
+    when(texState === sTexWait) {
+      busy_counter := busy_counter            // hold
+      when(io.texDone) {
+        texResultR := io.texR; texResultG := io.texG; texResultB := io.texB
+        texState   := sTexWB0
+      }
     }
 
     when(texState === sTexWB0) {
-      driveTexWrite(true.B, texRdReg, texResultR); texState := sTexWB1
+      busy_counter := busy_counter
+      driveTexWriteLane(texLane, true.B, texRdReg, texResultR); texState := sTexWB1
     }
     when(texState === sTexWB1) {
-      driveTexWrite(true.B, texRdReg + 1.U, texResultG); texState := sTexWB2
+      busy_counter := busy_counter
+      driveTexWriteLane(texLane, true.B, texRdReg + 1.U, texResultG); texState := sTexWB2
     }
     when(texState === sTexWB2) {
-      driveTexWrite(true.B, texRdReg + 2.U, texResultB)
-      texState   := sTexIdle
-      is_ftex_reg := false.B
-      busy_counter := 0.U
-      programCounter := programCounter + 1.U
-      texResumeDelay := true.B
-    }
-
-    when(texState === sTexWB0 || texState === sTexWB1) {
-      busy_counter := busy_counter  // hold
+      driveTexWriteLane(texLane, true.B, texRdReg + 2.U, texResultB)
+      when(texLane === (N - 1).U) {
+        // All lanes textured — resume the fragment shader past the FTEX op.
+        texState   := sTexIdle
+        is_ftex_reg := false.B
+        busy_counter := 0.U
+        programCounter := programCounter + 1.U
+        texResumeDelay := true.B
+      }.otherwise {
+        texLane := texLane + 1.U
+        texState := sTexReq                   // fetch the next lane's texel
+        busy_counter := busy_counter
+      }
     }
   }
   // @doc:end

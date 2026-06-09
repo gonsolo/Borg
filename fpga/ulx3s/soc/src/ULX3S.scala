@@ -35,7 +35,7 @@ class Ecp5BiDirBuf extends ExtModule {
   * UART: ftdi_rxd = FPGA→host TX (debug output at 115200 baud).
   */
 class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
-  override def BORG_CFG: BorgConfig = BorgConfig.Default
+  override def BORG_CFG: BorgConfig = BorgConfig.Simt   // 2×2 quad SIMT fragment shading
   override def scanoutCurBuf: Bool = scanout.io.curBuf
 
   // ── Board clock and reset ──────────────────────────────────────────────────

@@ -5,6 +5,7 @@ package asic.tt
 
 import chisel3._
 import soc.SoCLogic
+import borg.BorgConfig
 
 /** Arcilator simulation top-level module.
   *
@@ -40,6 +41,12 @@ class BorgArcSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
     RegNext(rst_n)
   }
   def soc_ui_in = ui_in
+
+  // Arcilator stays on the scalar (fragLanes=1) config: its C++ harness manually
+  // loads the rcp LUT into one memory (verilator gets all lanes via $readmemh),
+  // so the 4-lane SIMT config hangs here pending a per-lane load_luts.  4-lane is
+  // validated by the verilator goldens + ULX3S; arcilator remains the fast N=1 sim.
+  override def BORG_CFG: BorgConfig = BorgConfig.Default
 
   // No scanout: immediately reflect fb_select writes so the firmware's
   // PERI_FB_SELECT sync loop exits on the first read.

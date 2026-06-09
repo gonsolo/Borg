@@ -6,6 +6,7 @@ package asic.tt
 import chisel3._
 import soc.SoCLogic
 import memory.SdramBackendSim
+import borg.BorgConfig
 
 /** Verilator-only top-level module.
   *
@@ -42,6 +43,9 @@ class BorgSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
     RegNext(rst_n)
   }
   def soc_ui_in = ui_in
+
+  // 2×2 quad SIMT fragment shading (sim).
+  override def BORG_CFG: BorgConfig = BorgConfig.Simt
 
   // Immediately reflect fb_select writes back as scanoutCurBuf so the firmware's
   // PERI_FB_SELECT sync loop exits on the first read (no real scanout in the sim).

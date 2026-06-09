@@ -72,6 +72,11 @@ object BorgConfig {
     useCustomFma    = true
   )
 
+  // Sim + ULX3S SIMT config: 2×2 quad fragment shading.  Selected via BORG_CFG in
+  // the sim tops and ULX3S; the scalar Default keeps the chisel unit tests (and
+  // pico-ice) on the bit-exact single-lane reference.
+  val Simt = Default.copy(fragLanes = 4)
+
   // ASIC (IHP SG13G2, TT 8×4 tile).
   //   countMem_1024x10 alone was ~920 kµm² (50 % of die) → reduced to 16 tiles (~14 kµm²).
   //   instructionMemory_56x32 was ~145 kµm² → reduced to 32 entries (~83 kµm²).
