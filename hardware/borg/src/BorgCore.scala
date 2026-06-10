@@ -157,6 +157,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.imul  := !flags.fma && f7op === Instructions.FUNCT7_IMUL.U
     flags.i2f   := !flags.fma && f7op === Instructions.FUNCT7_I2F.U
     flags.f2i   := !flags.fma && f7op === Instructions.FUNCT7_F2I.U
+    flags.frsq  := !flags.fma && f7op === Instructions.FUNCT7_FRSQ.U
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 
     (regs, flags)

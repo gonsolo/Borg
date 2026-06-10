@@ -19,5 +19,6 @@ class FpuOpFlags extends Bundle {
   val imul   = Bool()
   val i2f    = Bool()
   val f2i    = Bool()
+  val frsq   = Bool()
   val funct3 = UInt(3.W)
 }
