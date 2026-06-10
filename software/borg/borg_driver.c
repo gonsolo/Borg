@@ -1197,9 +1197,13 @@ void borg_present(int frame) {
   int front = back_buf;
   *(volatile uint32_t *)0x08000024u = (uint32_t)front;
   back_buf ^= 1;
-  // DIAGNOSTIC: flip-wait disabled to measure whether scanout sync is the
-  // frame-rate bottleneck.  Expect tearing.  If fps barely changes, the cost
-  // is CPU/GPU compute, not this wait.  Restore after measuring.
-  // while ((*(volatile uint32_t *)0x08000024u & 1u) != (uint32_t)front)
-  //   ;
+  // Wait until the scanout has actually switched to displaying the new front
+  // buffer (it flips at its fill-loop wrap, i.e. the next frame boundary). This
+  // both eliminates tearing and guarantees the scanout has released the buffer
+  // the GPU is about to render into, so the free-running GPU never overwrites a
+  // frame mid-display. The cube renders slower than the scanout refresh, so this
+  // wait is essentially free (it is not the frame-rate bottleneck — that is
+  // CPU/GPU compute).
+  while ((*(volatile uint32_t *)0x08000024u & 1u) != (uint32_t)front)
+    ;
 }
