@@ -25,6 +25,16 @@
 // rd = texel R; texG written to rd+1, texB to rd+2 (implicit, by hardware).
 #define BORG_INSTR_FTEX(rd, rs1, rs2, funct3)    (0x18000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
 
+// --- R-type: integer ALU (16-bit, on the raw register bits) ---
+#define BORG_INSTR_IADD(rd, rs1, rs2, funct3)    (0x1C000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
+#define BORG_INSTR_ISHL(rd, rs1, rs2, funct3)    (0x20000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
+#define BORG_INSTR_ISHR(rd, rs1, rs2, funct3)    (0x24000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
+#define BORG_INSTR_IMUL(rd, rs1, rs2, funct3)    (0x28000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
+
+// --- R1-type (unary): integer↔fp16 conversions ---
+#define BORG_INSTR_I2F(rd, rs1, funct3)          (0x2C000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
+#define BORG_INSTR_F2I(rd, rs1, funct3)          (0x30000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
+
 // --- Special: HALT ---
 #define BORG_INSTR_HALT                           0x00000000U
 
