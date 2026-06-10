@@ -69,7 +69,7 @@ static int back_buf = 1;
 //   exactly to the previous orthographic behaviour (0xAC / 0xAD demos unchanged).
 //   r0=screen_x, r1=screen_y, r2=ndc_z (snooped by the sequencer into clipRegs).
 //   r30,r31 = 0 when seqBusy=true (special BorgCore registers).
-static const uint32_t seq_vert_shader[] = {
+static const uint32_t __attribute__((unused)) seq_vert_shader[] = {
   // Load model coords from uniform memory into working registers
   BORG_INSTR_FADD(24, 0, 30, 1),         // r24 = u0 (model x)
   BORG_INSTR_FADD(25, 1, 30, 1),         // r25 = u1 (model y)
@@ -102,6 +102,27 @@ static const uint32_t seq_vert_shader[] = {
   BORG_INSTR_HALT,
 };
 #define SEQ_VERT_SHADER_LEN (sizeof(seq_vert_shader) / sizeof(seq_vert_shader[0]))
+
+#ifdef USE_BORGC_VERT_SHADER
+// borgc-compiled cube.c vertex shader — the EXACT 24 words emitted by borgvk's
+// NIR→Borg backend (borgc) from cube.c's unmodified SPIR-V (BORGC_DUMP_ISA).
+// A drop-in for seq_vert_shader above: same firmware ABI — u0..u2 = model pos
+// (pos.w folded to the constant 1.0, so u3=color.r is never read), u8..u23 =
+// viewport-baked column-major MVP, r0/r1/r2 = screen x/y/ndc_z snooped by the
+// sequencer. Structure: 3 position pre-loads, col3 loaded as a direct bias, the
+// column-major MVP·pos FMADD chain, then FRCP + 3 FMUL perspective divide + HALT.
+// Sim-validated bit-for-bit by BorgCoreTests.borgc_vertex_shader_mvp.
+// Enable with EXTRA_CFLAGS=-DUSE_BORGC_VERT_SHADER to A/B against the hand shader.
+static const uint32_t borgc_vert_shader[] = {
+  0x01e11c00, 0x01e09c80, 0x01e01d00, 0x01ea1280,
+  0x01ea9300, 0x01eb1380, 0x01eb9400, 0x29881484,
+  0x31889284, 0x39891304, 0x41899384, 0x49961404,
+  0x29969484, 0x31971284, 0x39979304, 0x41a41004,
+  0x49a49084, 0x29a51104, 0x31a59184, 0x14018200,
+  0x08400000, 0x08408080, 0x08410100, 0x00000000,
+};
+#define BORGC_VERT_SHADER_LEN (sizeof(borgc_vert_shader) / sizeof(borgc_vert_shader[0]))
+#endif
 
 // Triangle setup shader (31 instructions, with edge normalization for Step 30.1c):
 //   u0-u5 = screen coords of all 3 vertices (written by sWriteSetupInputs).
@@ -380,13 +401,23 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
   spirb_parse(frag->code, &frag_shader);
 
   // Step 30.1b: Stage sequencer shaders to PSRAM and auto-detect hardware.
+#ifdef USE_BORGC_VERT_SHADER
+  // Use the borgc-compiled cube.c vertex shader instead of the hand-written one.
+  for (int i = 0; i < (int)BORGC_VERT_SHADER_LEN; i++)
+    PSRAM_OUT_RAW(SEQ_VERT_SHADER_ADDR + (uint32_t)i * 4) = borgc_vert_shader[i];
+#else
   for (int i = 0; i < (int)SEQ_VERT_SHADER_LEN; i++)
     PSRAM_OUT_RAW(SEQ_VERT_SHADER_ADDR + (uint32_t)i * 4) = seq_vert_shader[i];
+#endif
   for (int i = 0; i < (int)SEQ_SETUP_SHADER_LEN; i++)
     PSRAM_OUT_RAW(SEQ_SETUP_SHADER_ADDR + (uint32_t)i * 4) = seq_setup_shader[i];
 
   BORG_GPU->seq_vert_addr  = SEQ_VERT_SHADER_ADDR;
+#ifdef USE_BORGC_VERT_SHADER
+  BORG_GPU->seq_vert_len   = BORGC_VERT_SHADER_LEN;
+#else
   BORG_GPU->seq_vert_len   = SEQ_VERT_SHADER_LEN;
+#endif
   BORG_GPU->seq_setup_addr = SEQ_SETUP_SHADER_ADDR;
   BORG_GPU->seq_setup_len  = SEQ_SETUP_SHADER_LEN;
 
