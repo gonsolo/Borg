@@ -53,6 +53,25 @@ static const fp16_t quad_uvs[2][3][2] = {
     {{FP16_ZERO, FP16_ZERO}, {FP16_ONE, FP16_ONE}, {FP16_ONE, FP16_ZERO}},
 };
 
+// ---- Host-uploaded geometry (Phase B) -----------------------------------
+// The borgvk Mesa driver can ship the app's REAL geometry over serial (a 0xAE
+// packet): a deduplicated set of model-space vertices + an indexed triangle
+// list with per-triangle-vertex UVs.  When present, this replaces the hardcoded
+// cube above so unmodified cube.c renders its own mesh.  Fixed max size keeps
+// the 0xAE packet a constant length for the UART drain.
+#define RX_GEOM_MAX_VERTS 16
+#define RX_GEOM_MAX_TRIS  16
+// 0xAE payload after the marker: nverts, ntris, verts(3*fp16), idx(3*u8 per tri),
+// uv(3*2*fp16 per tri), checksum.
+#define RX_GEOM_PKT_LEN \
+  (1 + 2 + RX_GEOM_MAX_VERTS * 6 + RX_GEOM_MAX_TRIS * 3 + RX_GEOM_MAX_TRIS * 12 + 1)
+static fp16_t  rx_geom_pos[RX_GEOM_MAX_VERTS * 3];
+static uint8_t rx_geom_idx[RX_GEOM_MAX_TRIS * 3];
+static fp16_t  rx_geom_uv[RX_GEOM_MAX_TRIS * 3 * 2];
+static int     rx_geom_nverts = 0;
+static int     rx_geom_ntris  = 0;
+static int     rx_have_geom   = 0;
+
 static void mat4_identity(fp16_t m[16]) {
   for (int i = 0; i < 16; i++)
     m[i] = FP16_ZERO;
@@ -211,6 +230,24 @@ static void draw_cube(const borg_draw_data_t *draw, const fp16_t face_light[6]) 
   }
 }
 
+// Draw host-uploaded geometry (Phase B): the app's real mesh, textured only
+// (cube.c has no per-vertex lighting), so vertex color is white.
+static void draw_received_geom(const borg_draw_data_t *draw) {
+  borgTransformVerts(draw, rx_geom_pos, rx_geom_nverts);
+  for (int t = 0; t < rx_geom_ntris; t++) {
+    int idx[3];
+    borg_vertex_t tri[3];
+    for (int v = 0; v < 3; v++) {
+      idx[v] = rx_geom_idx[t * 3 + v];
+      tri[v] = (borg_vertex_t){
+          .color = {FP16_ONE, FP16_ONE, FP16_ONE},
+          .uv    = {rx_geom_uv[(t * 3 + v) * 2 + 0], rx_geom_uv[(t * 3 + v) * 2 + 1]},
+      };
+    }
+    borgCmdDrawIndexed(idx, tri, 0);
+  }
+}
+
 // MEASUREMENT: report exact per-phase cycle counts (Hutt `cycle` CSR) once per
 // frame.  The counter is read at phase boundaries, so the UART print cost lands
 // OUTSIDE the measured phases — unlike the old busy-wait markers, this perturbs
@@ -270,7 +307,7 @@ int main() {
   //          MVP entries aren't bounded to [-1,1], so the checksum (not a
   //          magnitude range) guards against corruption.  Sent by the borgvk
   //          Mesa driver (mesa/src/borg/vulkan/borgvk_queue.c).
-  static uint8_t pkt_buf[66];
+  static uint8_t pkt_buf[RX_GEOM_PKT_LEN];
   static int pkt_pos = 0;
   static int pkt_marker = 0;   // marker of the in-progress packet (0xAC / 0xAD)
   // Initial orientation: 30° X tilt as a column-major 3×3 matrix
@@ -326,7 +363,8 @@ int main() {
       for (volatile int t = 375000; !uart_rx_ready() && t > 0; t--) ;
       if (uart_rx_ready()) {
         pkt_marker = (uint8_t)getc_uart();
-        int need = (pkt_marker == 0xAC) ? 37 : (pkt_marker == 0xAD) ? 66 : 0;
+        int need = (pkt_marker == 0xAC) ? 37 : (pkt_marker == 0xAD) ? 66 :
+                   (pkt_marker == 0xAE) ? RX_GEOM_PKT_LEN : 0;
         if (need) {
           pkt_buf[0] = pkt_marker;
           pkt_pos = 1;
@@ -367,6 +405,30 @@ int main() {
             }
             // Checksum mismatch / truncated payload: drop the packet silently and
             // keep the previous MVP (gap-sync makes mis-framing rare anyway).
+          } else if (ok && pkt_marker == 0xAE) {
+            // Host-uploaded geometry: fixed-offset regions (padded to max size).
+            //   [1]=nverts [2]=ntris  verts@3  idx@(3+MAXV*6)  uv@(idx+MAXT*3)
+            uint8_t csum = 0;
+            for (int i = 1; i < RX_GEOM_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
+            int nv = pkt_buf[1], nt = pkt_buf[2];
+            if (csum == pkt_buf[RX_GEOM_PKT_LEN - 1] &&
+                nv >= 1 && nv <= RX_GEOM_MAX_VERTS &&
+                nt >= 1 && nt <= RX_GEOM_MAX_TRIS) {
+              int vbase = 3;
+              int ibase = vbase + RX_GEOM_MAX_VERTS * 6;
+              int ubase = ibase + RX_GEOM_MAX_TRIS * 3;
+              for (int i = 0; i < nv * 3; i++)
+                rx_geom_pos[i] = (uint16_t)pkt_buf[vbase + i*2] |
+                                 ((uint16_t)pkt_buf[vbase + i*2 + 1] << 8);
+              for (int i = 0; i < nt * 3; i++)
+                rx_geom_idx[i] = pkt_buf[ibase + i];
+              for (int i = 0; i < nt * 6; i++)
+                rx_geom_uv[i] = (uint16_t)pkt_buf[ubase + i*2] |
+                                ((uint16_t)pkt_buf[ubase + i*2 + 1] << 8);
+              rx_geom_nverts = nv;
+              rx_geom_ntris  = nt;
+              rx_have_geom   = 1;
+            }
           }
         }
       }
@@ -434,7 +496,10 @@ int main() {
     compute_face_lighting(t1, face_light);
 
     unsigned int c2 = rdcycle();  // C = clear + texture + lighting
-    draw_cube(&draw, face_light);
+    if (rx_have_geom)
+      draw_received_geom(&draw);  // Phase B: the app's real mesh (cube.c)
+    else
+      draw_cube(&draw, face_light);
     unsigned int c3 = rdcycle();  // D = draw_cube (CPU transform + record draws)
     borg_present(0);
     unsigned int c4 = rdcycle();  // P = present (GPU autonomous render)
