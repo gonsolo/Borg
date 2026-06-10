@@ -22,7 +22,7 @@ MESON_OPTS := -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms=x11 \
 # Devenv ICD manifest (points at the in-tree .so; for use via VK_DRIVER_FILES).
 ICD := $(BUILD_DIR)/src/borg/vulkan/borg_devenv_icd.$(shell uname -m).json
 
-.PHONY: all configure build install clean icd-path enumtest
+.PHONY: all configure build install clean icd-path enumtest inittest submittest vulkaninfo
 
 all: build
 
@@ -57,6 +57,16 @@ inittest: build
 	@echo "--- borgvk init harness ---"
 	@VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" \
 		$(BUILD_DIR)/borgvk_init_test
+
+# Phase 3 submit harness: records a frame and submits it, then checks the driver
+# pulled the MVP from the bound uniform buffer and emitted the 0xAD serial packet.
+# Pure host-side (BORGVK_SERIAL → temp file); no FPGA needed.
+submittest: build
+	@gcc borgvk_submit_test.c -o $(BUILD_DIR)/borgvk_submit_test \
+		$$(pkg-config --cflags --libs vulkan)
+	@echo "--- borgvk submit harness ---"
+	@VK_LOADER_LAYERS_DISABLE='*' VK_DRIVER_FILES="$(ICD)" \
+		$(BUILD_DIR)/borgvk_submit_test
 
 # Run the system vulkaninfo against the borg driver (lists "Borg (ULX3S)").
 vulkaninfo: build
