@@ -287,77 +287,90 @@ int main() {
   while (1) {
 #ifdef TARGET_ULX3S
     // Drain one packet from UART.  The HW has a 1-byte buffer; bytes arriving
-    // during borg_present() (~100ms) are mostly dropped.  Strategy:
-    //   1. Wait up to ~12 ms for a start byte (0xAC or 0xAD) so we catch a
-    //      packet in flight at the frame boundary.
-    //   2. Chain-read the payload with a short per-byte timeout (bytes arrive
-    //      every ~87 µs = ~2175 cycles at 115200 baud; 4000-cycle window is
-    //      ample).  Hard safety cap prevents any infinite loop; reset pkt_pos
-    //      on timeout so the 12 ms wait fires again next frame (re-syncs to the
-    //      packet boundary).
-    //   3. Decode per marker: 0xAC -> 9 floats, accepted only if every entry has
-    //      magnitude < 2 (integer-only check on the raw IEEE-754 bits — no
-    //      soft-float); 0xAD -> 16 floats, accepted only if the XOR checksum
-    //      over the 64 payload bytes matches.  Rejects mis-synced / corrupted
-    //      packets so the cube never jitters on garbage.
+    // during borg_present() are dropped, so a frame's drain restarts at a random
+    // byte offset.  Scanning for a marker byte is unsafe: a float payload byte
+    // can equal 0xAD/0xAC and cause a false mid-packet lock (mis-aligned window,
+    // wrong/garbage decode).  Instead we sync on the inter-packet IDLE GAP: the
+    // host streams each packet as a contiguous burst (bytes ~87 µs apart)
+    // separated by a gap, so once the line has been idle for GAP_CYCLES the next
+    // byte is GUARANTEED to be a genuine marker.  Then we read a fixed-length,
+    // aligned payload (no marker search) and validate it.
+    //   0xAC -> 37 B, 9 floats, accepted if every entry has magnitude < 2
+    //           (integer-only check on the raw IEEE-754 bits — no soft-float).
+    //   0xAD -> 66 B, 16 floats, accepted if the XOR checksum matches.
     {
-      // Step 1: wait up to 12 ms for a start byte (skipped mid-packet).
-      if (pkt_pos == 0) {
-        for (volatile int t = 300000; !uart_rx_ready() && t > 0; t--) ;
+      // Measure idle time in REAL cycles via rdcycle() (not loop iterations —
+      // this loop's body is far heavier than a bare volatile decrement and the
+      // CPU is multi-cycle, so iteration counts don't map to wall time).  At
+      // 25 MHz: inter-byte = 87 µs = 2175 cyc, mouse 0xAC gap = 0.8 ms = 20000
+      // cyc, 0xAD gap = 6.3 ms.  300 µs = 7500 cyc sits cleanly between the
+      // inter-byte time and the smallest inter-packet gap, so it works for both.
+      const unsigned GAP_CYCLES   = 7500;      // ~300 µs
+      const unsigned GUARD_CYCLES = 4000000;   // ~160 ms hard cap
+
+      // Step 1: advance to a packet boundary — discard bytes until the line has
+      // been idle for GAP_CYCLES of real time (resetting the idle timer on every
+      // byte seen).  The guard bounds a continuously busy line so the frame
+      // never hangs.
+      {
+        unsigned t0 = rdcycle();        // idle-window start
+        unsigned tg = t0;               // guard start
+        while ((unsigned)(rdcycle() - t0) < GAP_CYCLES) {
+          if (uart_rx_ready()) { (void)getc_uart(); t0 = rdcycle(); }
+          if ((unsigned)(rdcycle() - tg) >= GUARD_CYCLES) break;
+        }
       }
-      // Step 2: assemble one complete packet; break immediately after.  The
-      // safety cap covers the longer 66-byte 0xAD packet plus marker skipping.
-      for (int safety = 160; safety > 0; safety--) {
-        for (volatile int t = 4000; !uart_rx_ready() && t > 0; t--) ;
-        if (!uart_rx_ready()) { pkt_pos = 0; break; }  // timeout — reset for next frame
-        uint8_t b = (uint8_t)getc_uart();
-        if (pkt_pos == 0) {
-          if (b == 0xAC || b == 0xAD) {       // lock onto a known marker
-            pkt_marker = b;
-            pkt_buf[pkt_pos++] = b;
-          }
-          continue;                            // discard bytes until a marker
-        }
-        pkt_buf[pkt_pos++] = b;
 
-        if (pkt_marker == 0xAC && pkt_pos == 37) {
-          uint32_t raw[9];
-          int valid = 1;
-          for (int i = 0; i < 9; i++) {
-            int base = 1 + i * 4;
-            raw[i] = (uint32_t)pkt_buf[base]          | ((uint32_t)pkt_buf[base+1] << 8) |
-                     ((uint32_t)pkt_buf[base+2] << 16) | ((uint32_t)pkt_buf[base+3] << 24);
-            // |value| >= 2.0  <=>  (bits & 0x7FFFFFFF) >= 0x40000000.
-            // Also catches +/-inf and NaN (exponent 0xFF).  No FP used.
-            if ((raw[i] & 0x7FFFFFFF) >= 0x40000000u) valid = 0;
+      // Step 2: wait up to ~15 ms for the next packet's marker.  If none comes,
+      // keep the previous transform for this frame.
+      for (volatile int t = 375000; !uart_rx_ready() && t > 0; t--) ;
+      if (uart_rx_ready()) {
+        pkt_marker = (uint8_t)getc_uart();
+        int need = (pkt_marker == 0xAC) ? 37 : (pkt_marker == 0xAD) ? 66 : 0;
+        if (need) {
+          pkt_buf[0] = pkt_marker;
+          pkt_pos = 1;
+          int ok = 1;
+          // Aligned read of the fixed-length payload (short per-byte timeout).
+          while (pkt_pos < need) {
+            for (volatile int t = 4000; !uart_rx_ready() && t > 0; t--) ;
+            if (!uart_rx_ready()) { ok = 0; break; }  // byte dropped mid-packet
+            pkt_buf[pkt_pos++] = (uint8_t)getc_uart();
           }
-          pkt_pos = 0;
-          if (valid) {
-            union { uint32_t u; float f; } conv;
-            for (int i = 0; i < 9; i++) { conv.u = raw[i]; rot_mat[i] = conv.f; }
-            have_mvp = 0;  // a 0xAC packet reverts to the TS-bake rotation path
-          }
-          break;  // one packet per frame — exit; don't attempt greedy drain
-        }
 
-        if (pkt_marker == 0xAD && pkt_pos == 66) {
-          // XOR checksum over the 64 payload bytes (no FP needed).
-          uint8_t csum = 0;
-          for (int i = 1; i <= 64; i++) csum ^= pkt_buf[i];
-          pkt_pos = 0;
-          if (csum == pkt_buf[65]) {
-            union { uint32_t u; float f; } conv;
-            for (int i = 0; i < 16; i++) {
+          if (ok && pkt_marker == 0xAC) {
+            uint32_t raw[9];
+            int valid = 1;
+            for (int i = 0; i < 9; i++) {
               int base = 1 + i * 4;
-              conv.u = (uint32_t)pkt_buf[base]          | ((uint32_t)pkt_buf[base+1] << 8) |
+              raw[i] = (uint32_t)pkt_buf[base]          | ((uint32_t)pkt_buf[base+1] << 8) |
                        ((uint32_t)pkt_buf[base+2] << 16) | ((uint32_t)pkt_buf[base+3] << 24);
-              host_mvp[i] = conv.f;
+              if ((raw[i] & 0x7FFFFFFF) >= 0x40000000u) valid = 0;
             }
-            have_mvp = 1;
+            if (valid) {
+              union { uint32_t u; float f; } conv;
+              for (int i = 0; i < 9; i++) { conv.u = raw[i]; rot_mat[i] = conv.f; }
+              have_mvp = 0;  // a 0xAC packet reverts to the TS-bake rotation path
+            }
+          } else if (ok && pkt_marker == 0xAD) {
+            uint8_t csum = 0;
+            for (int i = 1; i <= 64; i++) csum ^= pkt_buf[i];
+            if (csum == pkt_buf[65]) {
+              union { uint32_t u; float f; } conv;
+              for (int i = 0; i < 16; i++) {
+                int base = 1 + i * 4;
+                conv.u = (uint32_t)pkt_buf[base]          | ((uint32_t)pkt_buf[base+1] << 8) |
+                         ((uint32_t)pkt_buf[base+2] << 16) | ((uint32_t)pkt_buf[base+3] << 24);
+                host_mvp[i] = conv.f;
+              }
+              have_mvp = 1;
+            }
+            // Checksum mismatch / truncated payload: drop the packet silently and
+            // keep the previous MVP (gap-sync makes mis-framing rare anyway).
           }
-          break;  // one packet per frame
         }
       }
+      pkt_pos = 0;
     }
     (void)rot_x_reader;
     (void)rot_y_reader;
