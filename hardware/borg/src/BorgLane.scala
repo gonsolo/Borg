@@ -269,22 +269,56 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_ishl_reg = RegInit(false.B)
     val is_ishr_reg = RegInit(false.B)
     val is_imul_reg = RegInit(false.B)
+    val is_i2f_reg  = RegInit(false.B)
+    val is_f2i_reg  = RegInit(false.B)
     when(start) {
       is_iadd_reg := opFlags.iadd
       is_ishl_reg := opFlags.ishl
       is_ishr_reg := opFlags.ishr
       is_imul_reg := opFlags.imul
+      is_i2f_reg  := opFlags.i2f
+      is_f2i_reg  := opFlags.f2i
     }
-    val w = config.totalBits
+    val w     = config.totalBits          // 16
+    val mantN = config.sig - 1            // 10 stored mantissa bits
+    val bias  = (1 << (config.exp - 1)) - 1   // 15
+
     val shamt = recB_raw(3, 0)
     val iadd = (recA_raw +& recB_raw)(w - 1, 0)
     val ishl = (recA_raw << shamt)(w - 1, 0)
     val ishr = (recA_raw.asSInt >> shamt).asUInt(w - 1, 0)
     val imul = (recA_raw * recB_raw)(w - 1, 0)
+
+    // i2f: signed int16 → fp16. |a|, normalize: MSB → implicit 1, exp = msb+bias,
+    // mantissa = the mantN bits below the MSB. Truncates for |a| >= 2^(mantN+1).
+    val sgnI    = recA_raw(w - 1)
+    val mag     = Mux(sgnI, (~recA_raw).asUInt + 1.U, recA_raw)(w - 1, 0)
+    val msb     = Log2(mag)
+    val expI    = (msb +& bias.U)(config.exp - 1, 0)
+    val shifted = (mag << ((w - 1).U - msb))(w - 1, 0)   // MSB at bit w-1
+    val mantI   = shifted(w - 2, w - 1 - mantN)          // mantN bits below MSB
+    val i2f     = Mux(mag === 0.U, 0.U(w.W), Cat(sgnI, expI, mantI))
+
+    // f2i: fp16 → signed int16, truncate toward zero. value = signif * 2^(e-mantN).
+    val sgnF    = recA_raw(w - 1)
+    val expF    = recA_raw(w - 2, mantN)                 // exponent field
+    // 1.mant, zero-padded to w bits so the shifts index cleanly.
+    val signif  = Cat(0.U((w - mantN - 1).W), 1.U(1.W), recA_raw(mantN - 1, 0))
+    val e       = expF.zext - bias.S
+    val magF    = Mux(e < 0.S, 0.U(w.W),
+                  Mux(e >= mantN.S, (signif << (e - mantN.S).asUInt)(w - 1, 0),
+                      (signif >> (mantN.S - e).asUInt)(w - 1, 0)))
+    val f2i     = Mux(expF === 0.U, 0.U(w.W),
+                      Mux(sgnF, (~magF).asUInt + 1.U, magF)(w - 1, 0))
+
     val result = Mux(is_iadd_reg, iadd,
                  Mux(is_ishl_reg, ishl,
-                 Mux(is_ishr_reg, ishr, imul)))
-    (result, is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg)
+                 Mux(is_ishr_reg, ishr,
+                 Mux(is_imul_reg, imul,
+                 Mux(is_i2f_reg,  i2f, f2i)))))
+    val is_int = is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg ||
+                 is_i2f_reg || is_f2i_reg
+    (result, is_int)
   }
 
   private def wireWriteBack(

@@ -47,6 +47,8 @@ object Instructions {
   val FUNCT7_ISHL  = 0x10  // rd = rs1 << (rs2 & 15)
   val FUNCT7_ISHR  = 0x12  // rd = rs1 >> (rs2 & 15) (arithmetic)
   val FUNCT7_IMUL  = 0x14  // rd = (rs1 * rs2)[15:0]
+  val FUNCT7_I2F   = 0x16  // rd = fp16(signed int16 rs1)  (unary)
+  val FUNCT7_F2I   = 0x18  // rd = signed int16(fp16 rs1)  (unary, truncate)
   // @doc:end
 
   // --- Base Instruction Encoders ---
@@ -67,6 +69,8 @@ object Instructions {
   def ISHL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISHL, rs2, rs1, rd, funct3)
   def ISHR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISHR, rs2, rs1, rd, funct3)
   def IMUL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_IMUL, rs2, rs1, rd, funct3)
+  def I2F(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_I2F, 0, rs1, rd, funct3)
+  def F2I(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_F2I, 0, rs1, rd, funct3)
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
   // @doc:end
 

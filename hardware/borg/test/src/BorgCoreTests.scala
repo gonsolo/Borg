@@ -251,6 +251,46 @@ object BorgCoreTests extends TestSuite {
       }
     }
 
+    utest.test("i2f_int16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: i2f_int16 ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 35)              // int 35
+        writeReg(core, 1, 0xFFFB)          // int -5 (two's complement)
+        writeImem(core, 0, Instructions.I2F(0, 2))
+        writeImem(core, 1, Instructions.I2F(1, 3))
+        writeImem(core, 2, 0)
+        startAndWait(core)
+        val pos = fp16BitsToFloat(readReg(core, 2))
+        val neg = fp16BitsToFloat(readReg(core, 3))
+        println(f"  i2f(35) = $pos%.2f, i2f(-5) = $neg%.2f")
+        utest.assert(math.abs(pos - 35.0f) < 0.01f)
+        utest.assert(math.abs(neg + 5.0f) < 0.01f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("f2i_int16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: f2i_int16 ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, floatToFp16Bits(35.0f))
+        writeReg(core, 1, floatToFp16Bits(-5.0f))
+        writeImem(core, 0, Instructions.F2I(0, 2))
+        writeImem(core, 1, Instructions.F2I(1, 3))
+        writeImem(core, 2, 0)
+        startAndWait(core)
+        val pos = readReg(core, 2).toInt
+        val neg = readReg(core, 3).toInt & 0xFFFF
+        println(s"  f2i(35.0) = $pos, f2i(-5.0) = 0x${neg.toHexString} (expect 0xfffb)")
+        utest.assert(pos == 35)
+        utest.assert(neg == 0xFFFB)
+        println("  PASSED")
+      }
+    }
+
     utest.test("fmul_fp16") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: fmul_fp16 ---")
