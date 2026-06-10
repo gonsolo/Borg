@@ -44,6 +44,12 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val uniformData = Input(UInt(cfg.totalBits.W)) // op_en_del-gated read result
   val funct3Del   = Input(UInt(3.W))             // delayed funct3 selecting uniform operand
 
+  // --- Cross-lane quad-derivative operands (broadcast by BorgCore for DDX/DDY) ---
+  // crossA = neighbour lane's rs1 (lane1 for ddx, lane2 for ddy); crossC = -lane0's
+  // rs1 (already fp16-negated). The lane's FMA then computes crossA + crossC.
+  val crossA      = Input(UInt(cfg.totalBits.W))
+  val crossC      = Input(UInt(cfg.totalBits.W))
+
   // --- MMIO bus (broadcast; GPR read/write) ---
   val bus         = Flipped(new BorgBusIO())
 
@@ -205,6 +211,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_frcp_reg = RegInit(false.B)
     val is_frsq_reg = RegInit(false.B)
     val is_fsrgb_reg = RegInit(false.B)
+    val is_deriv_reg = RegInit(false.B) // DDX/DDY: FMA computes crossA + crossC
     when(start) {
       is_mul_reg := opFlags.mul
       is_fma_reg := opFlags.fma
@@ -213,6 +220,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_frcp_reg := opFlags.frcp
       is_frsq_reg := opFlags.frsq
       is_fsrgb_reg := opFlags.fsrgb
+      is_deriv_reg := opFlags.ddx || opFlags.ddy
     }
 
     val pipe_stage = is_busy && busy_counter === 2.U
@@ -220,10 +228,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val fma_result =
       if (cfg.useCustomFma) {
         val fma = Module(new BorgFp16Fma(cfg))
-        fma.io.a := Mux(is_mul_reg || is_fma_reg, recA_raw, one_fn)
-        fma.io.b := Mux(is_mul_reg || is_fma_reg, recB_raw, recA_raw)
-        fma.io.c := Mux(is_fma_reg, recC_raw,
-                        Mux(is_mul_reg || is_fneg_reg, 0.U(config.totalBits.W), recB_raw))
+        fma.io.a := Mux(is_deriv_reg, io.crossA, Mux(is_mul_reg || is_fma_reg, recA_raw, one_fn))
+        fma.io.b := Mux(is_deriv_reg, one_fn,     Mux(is_mul_reg || is_fma_reg, recB_raw, recA_raw))
+        fma.io.c := Mux(is_deriv_reg, io.crossC,
+                        Mux(is_fma_reg, recC_raw,
+                        Mux(is_mul_reg || is_fneg_reg, 0.U(config.totalBits.W), recB_raw)))
         fma.io.negate := is_fneg_reg
         // 4-stage custom FMA: regA@4, regB@3 (enabled → hold during non-busy, no X
         // churn); regC free-runs (no pipeEn3) to drop its high-fanout enable net.
@@ -238,11 +247,13 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         val recOne = recFNFromFN(config.exp, config.sig, one_fn)
         val recZero = recFNFromFN(config.exp, config.sig, 0.U(config.totalBits.W))
 
+        val recCrossA = recFNFromFN(config.exp, config.sig, io.crossA)
+        val recCrossC = recFNFromFN(config.exp, config.sig, io.crossC)
         val preMul = Module(new MulAddRecFNToRaw_preMul(config.exp, config.sig))
         preMul.io.op := Mux(is_fneg_reg, 2.U, 0.U)
-        preMul.io.a  := Mux(is_mul_reg || is_fma_reg, recA, recOne)
-        preMul.io.b  := Mux(is_mul_reg || is_fma_reg, recB, recA)
-        preMul.io.c  := Mux(is_fma_reg, recC, Mux(is_mul_reg || is_fneg_reg, recZero, recB))
+        preMul.io.a  := Mux(is_deriv_reg, recCrossA, Mux(is_mul_reg || is_fma_reg, recA, recOne))
+        preMul.io.b  := Mux(is_deriv_reg, recOne,     Mux(is_mul_reg || is_fma_reg, recB, recA))
+        preMul.io.c  := Mux(is_deriv_reg, recCrossC,  Mux(is_fma_reg, recC, Mux(is_mul_reg || is_fneg_reg, recZero, recB)))
 
         val mulAddResult = (preMul.io.mulAddA * preMul.io.mulAddB) +& preMul.io.mulAddC
         val toPostMul_reg    = RegEnable(preMul.io.toPostMul,  pipe_stage)

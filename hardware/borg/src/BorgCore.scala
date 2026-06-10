@@ -131,6 +131,24 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // --- FTEX FSM (shared): drives each lane's texWrite, uses lane 0's operands ---
   wireTexStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.texWrite))
 
+  // --- Quad derivatives (DDX/DDY): broadcast cross-lane operands to every lane.
+  //   ddx = lane1 - lane0, ddy = lane2 - lane0 (constant across a flat 2×2 quad:
+  //   lane0=TL, lane1=TR, lane2=BL, lane3=BR — see BorgIterator).  Each lane's FMA
+  //   computes crossA + crossC where crossC = -lane0 (fp16-negated), so the result
+  //   is the neighbour difference.  At fragLanes=1 the neighbours fall back to lane0
+  //   → derivative 0 (DDX/DDY are only emitted for the 4-lane fragment core). */
+  {
+    val recAvec = VecInit(lanes.map(_.io.recARaw))
+    def pick(i: Int): UInt = if (i < cfg.fragLanes) recAvec(i) else recAvec(0)
+    val lane0      = pick(0)
+    val crossHi    = Mux(opFlags.ddy, pick(2), pick(1))
+    val crossLoNeg = Cat(~lane0(cfg.totalBits - 1), lane0(cfg.totalBits - 2, 0))
+    lanes.foreach { lane =>
+      lane.io.crossA := crossHi
+      lane.io.crossC := crossLoNeg
+    }
+  }
+
   // =========================================================================
   // Helper functions
   // =========================================================================
@@ -159,6 +177,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.f2i   := !flags.fma && f7op === Instructions.FUNCT7_F2I.U
     flags.frsq  := !flags.fma && f7op === Instructions.FUNCT7_FRSQ.U
     flags.fsrgb := !flags.fma && f7op === Instructions.FUNCT7_FSRGB.U
+    flags.ddx   := !flags.fma && f7op === Instructions.FUNCT7_DDX.U
+    flags.ddy   := !flags.fma && f7op === Instructions.FUNCT7_DDY.U
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 
     (regs, flags)

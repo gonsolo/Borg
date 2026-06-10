@@ -21,5 +21,7 @@ class FpuOpFlags extends Bundle {
   val f2i    = Bool()
   val frsq   = Bool()
   val fsrgb  = Bool()
+  val ddx    = Bool() // quad derivative d/dx (cross-lane: lane1 - lane0)
+  val ddy    = Bool() // quad derivative d/dy (cross-lane: lane2 - lane0)
   val funct3 = UInt(3.W)
 }

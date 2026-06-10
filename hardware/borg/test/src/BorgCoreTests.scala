@@ -677,6 +677,45 @@ object BorgCoreTests extends TestSuite {
       }
     }
 
+    utest.test("ddx_ddy_quad") {
+      // 4-lane SIMT cross-lane quad derivatives. Zero existing coverage for the
+      // Simt config — this harness drives the 2×2 quad and checks ddx/ddy of both
+      // the per-lane coordinate registers and a computed GPR.
+      simulate(new BorgCore(BorgConfig.Simt)) { core =>
+        println("\n--- BorgCore: ddx_ddy_quad (4-lane SIMT) ---")
+        idleInputs(core)
+        // 2×2 quad: lane0=(4,4) TL, lane1=(5,4) TR, lane2=(4,5) BL, lane3=(5,5) BR.
+        val qx = Seq(4, 5, 4, 5); val qy = Seq(4, 4, 5, 5)
+        for (i <- 0 until 4) { core.io.iter(i).x.poke(qx(i).U); core.io.iter(i).y.poke(qy(i).U) }
+        core.io.seqBusy.poke(false.B) // r30/r31 = per-lane pixel centre (x+0.5, y+0.5)
+        resetCore(core)
+
+        writeReg(core, 6, floatToFp16Bits(3.0f)) // broadcast constant 3.0
+
+        // r1 = coordX·3 (differs per lane), then derivatives.
+        writeImem(core, 0, Instructions.MUL(rs1 = 30, rs2 = 6, rd = 1)) // r1 = coordX*3
+        writeImem(core, 1, Instructions.DDX(rs1 = 1,  rd = 7))          // ddx(coordX*3) = 3
+        writeImem(core, 2, Instructions.DDX(rs1 = 30, rd = 2))          // ddx(coordX)   = 1
+        writeImem(core, 3, Instructions.DDY(rs1 = 31, rd = 3))          // ddy(coordY)   = 1
+        writeImem(core, 4, Instructions.DDX(rs1 = 31, rd = 4))          // ddx(coordY)   = 0
+        writeImem(core, 5, Instructions.DDY(rs1 = 30, rd = 5))          // ddy(coordX)   = 0
+        writeImem(core, 6, 0)                                            // halt
+        startAndWait(core)
+
+        def chk(reg: Int, exp: Float, label: String): Unit = {
+          val got = fp16BitsToFloat(readReg(core, reg))
+          println(f"  $label = $got%.3f (expected $exp%.3f)")
+          utest.assert(math.abs(got - exp) < 0.01f)
+        }
+        chk(7, 3.0f, "ddx(coordX*3)")
+        chk(2, 1.0f, "ddx(coordX)")
+        chk(3, 1.0f, "ddy(coordY)")
+        chk(4, 0.0f, "ddx(coordY)")
+        chk(5, 0.0f, "ddy(coordX)")
+        println("  PASSED")
+      }
+    }
+
     utest.test("fsrgb_fp16") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: fsrgb_fp16 ---")

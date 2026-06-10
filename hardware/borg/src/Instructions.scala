@@ -51,6 +51,8 @@ object Instructions {
   val FUNCT7_F2I   = 0x18  // rd = signed int16(fp16 rs1)  (unary, truncate)
   val FUNCT7_FRSQ  = 0x1A  // rd = 1/sqrt(rs1)             (unary, LUT)
   val FUNCT7_FSRGB = 0x1C  // rd = linearToSrgb(rs1)       (unary, LUT)
+  val FUNCT7_DDX   = 0x1E  // rd = dFdx(rs1)  (cross-lane: lane1 - lane0)
+  val FUNCT7_DDY   = 0x20  // rd = dFdy(rs1)  (cross-lane: lane2 - lane0)
   // @doc:end
 
   // --- Base Instruction Encoders ---
@@ -75,6 +77,8 @@ object Instructions {
   def F2I(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_F2I, 0, rs1, rd, funct3)
   def FRSQ(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FRSQ, 0, rs1, rd, funct3)
   def FSRGB(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FSRGB, 0, rs1, rd, funct3)
+  def DDX(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_DDX, 0, rs1, rd, funct3)
+  def DDY(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_DDY, 0, rs1, rd, funct3)
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
   // @doc:end
 
