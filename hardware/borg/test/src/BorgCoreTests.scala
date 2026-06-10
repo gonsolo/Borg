@@ -660,15 +660,16 @@ object BorgCoreTests extends TestSuite {
         def writeUniform(idx: Int, bits: BigInt): Unit =
           writeCore(core, 368 + idx * 4, bits)
 
-        // The exact program borgc emits from cube.c's SPIR-V: 4 position pre-loads
-        // (FADD r24..r27 = u3..u0), 16-op column-major MVP·pos accumulation, then
+        // The exact program borgc emits from cube.c's SPIR-V: 3 position pre-loads
+        // (FADD r24..r26 = u2..u0; pos.w folded to the constant 1.0), 16-op
+        // column-major MVP·pos accumulation (col3 loaded as the direct bias), then
         // the 5-word epilogue FRCP r4,r3 / FMUL r0/r1/r2 *= r4 / HALT.
         val prog = Seq(
-          0x01e19c00L, 0x01e11c80L, 0x01e09d00L, 0x01e01d80L,
-          0x098a1280L, 0x098a9300L, 0x098b1380L, 0x098b9400L,
-          0x29981484L, 0x31989284L, 0x39991304L, 0x41999384L,
-          0x49a61404L, 0x29a69484L, 0x31a71284L, 0x39a79304L,
-          0x41b41004L, 0x49b49084L, 0x29b51104L, 0x31b59184L,
+          0x01e11c00L, 0x01e09c80L, 0x01e01d00L,
+          0x01ea1280L, 0x01ea9300L, 0x01eb1380L, 0x01eb9400L,
+          0x29881484L, 0x31889284L, 0x39891304L, 0x41899384L,
+          0x49961404L, 0x29969484L, 0x31971284L, 0x39979304L,
+          0x41a41004L, 0x49a49084L, 0x29a51104L, 0x31a59184L,
           0x14018200L, 0x08400000L, 0x08408080L, 0x08410100L,
           0x00000000L)
         for ((w, i) <- prog.zipWithIndex) writeImem(core, i, BigInt(w))
@@ -676,11 +677,13 @@ object BorgCoreTests extends TestSuite {
         // r30/r31 read 0 only when seqBusy — the position pre-loads (u + r30) need it.
         core.io.seqBusy.poke(true.B)
 
-        // position (u0..u3) = (1, 2, 3, 1); pos.w in u3.
+        // position (u0..u2) = (1, 2, 3); pos.w is folded to 1.0 by the compiler, so
+        // u3 is NOT read — set it to garbage (on real HW u3 holds color.r) to prove
+        // the shader is independent of it.
         writeUniform(0, floatToFp16Bits(1.0f))
         writeUniform(1, floatToFp16Bits(2.0f))
         writeUniform(2, floatToFp16Bits(3.0f))
-        writeUniform(3, floatToFp16Bits(1.0f))
+        writeUniform(3, floatToFp16Bits(7.0f)) // garbage — must not affect the result
 
         // Viewport-baked MVP, column-major in u8..u23 (u = 8 + col*4 + row):
         //   col0=[1,0,0,0] col1=[0,1,0,0] col2=[0,0,1,0] col3=[0,0,0,2]
