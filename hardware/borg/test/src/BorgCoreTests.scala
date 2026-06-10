@@ -183,6 +183,74 @@ object BorgCoreTests extends TestSuite {
       }
     }
 
+    utest.test("iadd_int16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: iadd_int16 ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 100)
+        writeReg(core, 1, 200)
+        writeImem(core, 0, Instructions.IADD(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2).toInt
+        println(s"  iadd(100, 200) = $r (expected 300)")
+        utest.assert(r == 300)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("ishl_int16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: ishl_int16 ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 5)
+        writeReg(core, 1, 3)
+        writeImem(core, 0, Instructions.ISHL(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2).toInt
+        println(s"  ishl(5, 3) = $r (expected 40)")
+        utest.assert(r == 40)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("ishr_int16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: ishr_int16 ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 40)
+        writeReg(core, 1, 3)
+        writeImem(core, 0, Instructions.ISHR(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2).toInt
+        println(s"  ishr(40, 3) = $r (expected 5)")
+        utest.assert(r == 5)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("imul_int16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: imul_int16 ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 6)
+        writeReg(core, 1, 7)
+        writeImem(core, 0, Instructions.IMUL(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2).toInt
+        println(s"  imul(6, 7) = $r (expected 42)")
+        utest.assert(r == 42)
+        println("  PASSED")
+      }
+    }
+
     utest.test("fmul_fp16") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: fmul_fp16 ---")

@@ -25,8 +25,10 @@ object Instructions {
   val BF_FUNCT3 = BitField(14, 12)
   val BF_FUNCT7 = BitField(31, 25)
 
-  // Custom hardware decode boundaries
-  val BF_F7_OP = BitField(28, 25)
+  // Custom hardware decode boundaries. The funct7 sub-op uses the full 7 bits
+  // (31:25); the original FP ops only set bits 28:25 (so widening this is
+  // backward compatible), while the integer ops below use the upper bits too.
+  val BF_F7_OP = BitField(31, 25)
   val BITS_OPCODE_FMA_BIT = 2
 
   // --- Opcodes ---
@@ -39,6 +41,12 @@ object Instructions {
   val FUNCT7_FSTEP = 0x08
   val FUNCT7_FRCP  = 0x0A
   val FUNCT7_FTEX  = 0x0C  // Texture sample: FTEX rd, rs1(U), rs2(V) → rd=texR, rd+1=texG, rd+2=texB
+  // Integer ops (16-bit, operate on the raw register bits). Use the widened
+  // 7-bit funct7 field; the upper bits keep them distinct from the FP ops.
+  val FUNCT7_IADD  = 0x0E  // rd = rs1 + rs2        (16-bit wrap)
+  val FUNCT7_ISHL  = 0x10  // rd = rs1 << (rs2 & 15)
+  val FUNCT7_ISHR  = 0x12  // rd = rs1 >> (rs2 & 15) (arithmetic)
+  val FUNCT7_IMUL  = 0x14  // rd = (rs1 * rs2)[15:0]
   // @doc:end
 
   // --- Base Instruction Encoders ---
@@ -55,6 +63,10 @@ object Instructions {
   def FSTEP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FSTEP, 0, rs1, rd, funct3)
   def FRCP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FRCP, 0, rs1, rd, funct3)
   def FTEX(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FTEX, rs2, rs1, rd, funct3)
+  def IADD(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_IADD, rs2, rs1, rd, funct3)
+  def ISHL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISHL, rs2, rs1, rd, funct3)
+  def ISHR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISHR, rs2, rs1, rd, funct3)
+  def IMUL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_IMUL, rs2, rs1, rd, funct3)
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
   // @doc:end
 

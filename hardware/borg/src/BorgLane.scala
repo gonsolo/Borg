@@ -116,9 +116,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val (fma_result, is_fstep_reg, is_frcp_reg) = wireFma(recA_raw, recB_raw, recC_raw, io.fmaStart)
   val fstep_result = computeFstep(recA_raw)
   val frcp_result  = computeFrcp(recA_raw)
+  val (int_result, is_int_reg) = wireIntAlu(recA_raw, recB_raw, io.fmaStart)
 
   // --- Write-back (+ FTEX override) ---
-  wireWriteBack(fma_result, fstep_result, frcp_result, is_fstep_reg, is_frcp_reg, mmioD)
+  wireWriteBack(fma_result, fstep_result, frcp_result, is_fstep_reg, is_frcp_reg,
+                int_result, is_int_reg, mmioD)
 
   io.regReadData := mmioD
 
@@ -259,16 +261,44 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     else rcp.io.out
   }
 
+  /** Integer ALU (16-bit, on the raw register bits). Flags latch at `start` like
+    * the FP ops; results are combinational on the operands, valid at write-back
+    * (busy_counter==1), same as fstep/frcp. Returns (result, is_integer_op). */
+  private def wireIntAlu(recA_raw: UInt, recB_raw: UInt, start: Bool): (UInt, Bool) = {
+    val is_iadd_reg = RegInit(false.B)
+    val is_ishl_reg = RegInit(false.B)
+    val is_ishr_reg = RegInit(false.B)
+    val is_imul_reg = RegInit(false.B)
+    when(start) {
+      is_iadd_reg := opFlags.iadd
+      is_ishl_reg := opFlags.ishl
+      is_ishr_reg := opFlags.ishr
+      is_imul_reg := opFlags.imul
+    }
+    val w = config.totalBits
+    val shamt = recB_raw(3, 0)
+    val iadd = (recA_raw +& recB_raw)(w - 1, 0)
+    val ishl = (recA_raw << shamt)(w - 1, 0)
+    val ishr = (recA_raw.asSInt >> shamt).asUInt(w - 1, 0)
+    val imul = (recA_raw * recB_raw)(w - 1, 0)
+    val result = Mux(is_iadd_reg, iadd,
+                 Mux(is_ishl_reg, ishl,
+                 Mux(is_ishr_reg, ishr, imul)))
+    (result, is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg)
+  }
+
   private def wireWriteBack(
       fma_result: UInt, fstep_result: UInt, frcp_result: UInt,
-      is_fstep_reg: Bool, is_frcp_reg: Bool, mmio_reg_data: UInt
+      is_fstep_reg: Bool, is_frcp_reg: Bool,
+      int_result: UInt, is_int_reg: Bool, mmio_reg_data: UInt
   ): Unit = {
     val mmio_write = io.bus.is_writing && io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
     val pipe_write = running && is_busy && busy_counter === 1.U
     val w_en = mmio_write || pipe_write
     val w_addr = Mux(pipe_write, regs.rd, (io.bus.address - BorgGpuRegs.gpr_offset) >> 2)
     val w_data = Mux(pipe_write,
-      Mux(is_fstep_reg, fstep_result, Mux(is_frcp_reg, frcp_result, fma_result)),
+      Mux(is_int_reg, int_result,
+        Mux(is_fstep_reg, fstep_result, Mux(is_frcp_reg, frcp_result, fma_result))),
       io.bus.data_in(config.totalBits - 1, 0))
 
     writeAllCopies(w_addr, w_en, w_data)
