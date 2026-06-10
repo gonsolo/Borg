@@ -114,6 +114,7 @@ object BorgCoreTests extends TestSuite {
     core.io.lutInit.en.poke(false.B)
     core.io.lutInit.isRcp.poke(false.B)
     core.io.lutInit.isFrsq.poke(false.B)
+    core.io.lutInit.isFsrgb.poke(false.B)
     core.io.lutInit.addr.poke(0.U)
     core.io.lutInit.data.poke(0.U)
     // Step 34.4: FTEX texture response inputs — must be driven to avoid X propagation
@@ -176,6 +177,31 @@ object BorgCoreTests extends TestSuite {
     }
     core.io.lutInit.en.poke(false.B)
     core.io.lutInit.isFrsq.poke(false.B)
+    core.clock.step(1)
+  }
+
+  // Linear→sRGB encode (the cube.frag linearToSrgb curve).
+  def linearToSrgb(x: Float): Float = {
+    val c = math.max(0.0, math.min(1.0, x.toDouble))
+    (if (c <= 0.0031308) c * 12.92 else 1.055 * math.pow(c, 1.0 / 2.4) - 0.055).toFloat
+  }
+
+  // 256-entry direct fp16→fp16 sRGB table: idx=(exp-1)*16+mant[9:6] for exp 1..15;
+  // computed here (mirrors srgb_lut.hex) so the sim doesn't depend on the file.
+  def initFsrgbLut(core: BorgCore): Unit = {
+    core.io.lutInit.isFsrgb.poke(true.B)
+    for (i <- 0 until 256) {
+      val exp = i / 16 + 1; val mtop = i % 16
+      val out =
+        if (exp <= 15) linearToSrgb(fp16BitsToFloat(BigInt((exp << 10) | (mtop * 64))))
+        else 1.0f
+      core.io.lutInit.en.poke(true.B)
+      core.io.lutInit.addr.poke(i.U)
+      core.io.lutInit.data.poke(floatToFp16Bits(out).U)
+      core.clock.step(1)
+    }
+    core.io.lutInit.en.poke(false.B)
+    core.io.lutInit.isFsrgb.poke(false.B)
     core.clock.step(1)
   }
 
@@ -646,6 +672,37 @@ object BorgCoreTests extends TestSuite {
         testFrsq(16.0f,  0.25f,       "rsqrt(16.0)")
         testFrsq(100.0f, 0.1f,        "rsqrt(100.0)")
         testFrsq(0.5f,   1.414214f,   "rsqrt(0.5)")
+
+        println("  PASSED")
+      }
+    }
+
+    utest.test("fsrgb_fp16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: fsrgb_fp16 ---")
+        idleInputs(core)
+        initFsrgbLut(core)
+        resetCore(core)
+
+        def testSrgb(input: Float, label: String): Unit = {
+          resetCore(core)
+          writeReg(core, 0, floatToFp16Bits(input))
+          writeImem(core, 0, Instructions.FSRGB(rs1 = 0, rd = 2))
+          writeImem(core, 1, 0) // halt
+          startAndWait(core)
+          val result = fp16BitsToFloat(readReg(core, 2))
+          val expected = linearToSrgb(input)
+          println(f"  $label: srgb($input%.4f) actual=$result%.5f expected=$expected%.5f")
+          utest.assert(math.abs(result - expected) < 0.01f) // < ~2.5/255
+        }
+
+        testSrgb(0.0f,       "srgb(0)")
+        testSrgb(0.0031308f, "srgb(linear-knee)")
+        testSrgb(0.05f,      "srgb(0.05)")
+        testSrgb(0.2f,       "srgb(0.2)")
+        testSrgb(0.5f,       "srgb(0.5)")
+        testSrgb(0.8f,       "srgb(0.8)")
+        testSrgb(1.0f,       "srgb(1.0)")
 
         println("  PASSED")
       }

@@ -90,6 +90,16 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     frsqLutB.write(io.lutInit.addr(5, 0), io.lutInit.data(9, 0))
   }
 
+  // --- Linear→sRGB LUT (BRAM, 256 fp16-output entries; direct function table) ---
+  val srgbLutA = SyncReadMem(256, UInt(16.W))
+  val srgbLutB = SyncReadMem(256, UInt(16.W))
+  chisel3.util.experimental.loadMemoryFromFileInline(srgbLutA, "srgb_lut.hex")
+  chisel3.util.experimental.loadMemoryFromFileInline(srgbLutB, "srgb_lut.hex")
+  when(io.lutInit.en && io.lutInit.isFsrgb) {
+    srgbLutA.write(io.lutInit.addr(7, 0), io.lutInit.data(15, 0))
+    srgbLutB.write(io.lutInit.addr(7, 0), io.lutInit.data(15, 0))
+  }
+
   private val busy_counter = io.busyCounter
   private val is_busy      = io.isBusy
   private val running      = io.running
@@ -123,14 +133,16 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.recBRaw := recB_raw
 
   // --- ALU ---
-  val (fma_result, is_fstep_reg, is_frcp_reg, is_frsq_reg) = wireFma(recA_raw, recB_raw, recC_raw, io.fmaStart)
+  val (fma_result, is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg) = wireFma(recA_raw, recB_raw, recC_raw, io.fmaStart)
   val fstep_result = computeFstep(recA_raw)
   val frcp_result  = computeFrcp(recA_raw)
   val frsq_result  = computeFrsq(recA_raw)
+  val fsrgb_result = computeFsrgb(recA_raw)
   val (int_result, is_int_reg) = wireIntAlu(recA_raw, recB_raw, io.fmaStart)
 
   // --- Write-back (+ FTEX override) ---
-  wireWriteBack(fma_result, fstep_result, frcp_result, frsq_result, is_fstep_reg, is_frcp_reg, is_frsq_reg,
+  wireWriteBack(fma_result, fstep_result, frcp_result, frsq_result, fsrgb_result,
+                is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg,
                 int_result, is_int_reg, mmioD)
 
   io.regReadData := mmioD
@@ -183,7 +195,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     (Mux(rs3_en_del, resolved_data, 0.U), addr_del, Mux(mmio_en_del, resolved_data, 0.U))
   }
 
-  private def wireFma(recA_raw: UInt, recB_raw: UInt, recC_raw: UInt, start: Bool): (UInt, Bool, Bool, Bool) = {
+  private def wireFma(recA_raw: UInt, recB_raw: UInt, recC_raw: UInt, start: Bool): (UInt, Bool, Bool, Bool, Bool) = {
     val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
 
     val is_mul_reg = RegInit(false.B)
@@ -192,6 +204,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_fstep_reg = RegInit(false.B)
     val is_frcp_reg = RegInit(false.B)
     val is_frsq_reg = RegInit(false.B)
+    val is_fsrgb_reg = RegInit(false.B)
     when(start) {
       is_mul_reg := opFlags.mul
       is_fma_reg := opFlags.fma
@@ -199,6 +212,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_fstep_reg := opFlags.fstep
       is_frcp_reg := opFlags.frcp
       is_frsq_reg := opFlags.frsq
+      is_fsrgb_reg := opFlags.fsrgb
     }
 
     val pipe_stage = is_busy && busy_counter === 2.U
@@ -249,7 +263,26 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         fNFromRecFN(config.exp, config.sig, round.io.out)
       }
 
-    (fma_result, is_fstep_reg, is_frcp_reg, is_frsq_reg)
+    (fma_result, is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg)
+  }
+
+  /** Linear→sRGB via the 256-entry direct fp16→fp16 table (Fp16Srgb). Indexed by
+    * (exp-1, mant[9:6]); same prefetch timing as the rcp/rsqrt LUTs. */
+  private def computeFsrgb(recA_raw: UInt): UInt = {
+    val exp  = recA_raw(14, 10)
+    val mant = recA_raw(9, 0)
+    val idx  = Cat((exp - 1.U)(3, 0), mant(9, 6)) // 8-bit
+    val en   = is_busy && busy_counter >= 2.U
+    val rawVal  = srgbLutA.read(idx, en)
+    val rawNext = srgbLutB.read(idx +& 1.U, en)
+    val valReg  = RegEnable(rawVal,  is_busy && busy_counter === 3.U)
+    val nextReg = RegEnable(rawNext, is_busy && busy_counter === 3.U)
+    val srgb = Module(new Fp16Srgb)
+    srgb.io.in      := recA_raw(15, 0)
+    srgb.io.lutVal  := valReg
+    srgb.io.lutNext := nextReg
+    if (config.totalBits > 16) Cat(0.U((config.totalBits - 16).W), srgb.io.out)
+    else srgb.io.out
   }
 
   /** Reciprocal square root via the 34-entry parity-split LUT (companion of
@@ -355,8 +388,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   private def wireWriteBack(
-      fma_result: UInt, fstep_result: UInt, frcp_result: UInt, frsq_result: UInt,
-      is_fstep_reg: Bool, is_frcp_reg: Bool, is_frsq_reg: Bool,
+      fma_result: UInt, fstep_result: UInt, frcp_result: UInt, frsq_result: UInt, fsrgb_result: UInt,
+      is_fstep_reg: Bool, is_frcp_reg: Bool, is_frsq_reg: Bool, is_fsrgb_reg: Bool,
       int_result: UInt, is_int_reg: Bool, mmio_reg_data: UInt
   ): Unit = {
     val mmio_write = io.bus.is_writing && io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
@@ -366,7 +399,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val w_data = Mux(pipe_write,
       Mux(is_int_reg, int_result,
         Mux(is_fstep_reg, fstep_result,
-          Mux(is_frcp_reg, frcp_result, Mux(is_frsq_reg, frsq_result, fma_result)))),
+          Mux(is_frcp_reg, frcp_result,
+            Mux(is_frsq_reg, frsq_result, Mux(is_fsrgb_reg, fsrgb_result, fma_result))))),
       io.bus.data_in(config.totalBits - 1, 0))
 
     writeAllCopies(w_addr, w_en, w_data)
