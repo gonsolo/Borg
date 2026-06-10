@@ -78,6 +78,14 @@
         pkgs.ninja # Mesa/borgvk build
         pkgs.bison # Mesa build
         pkgs.flex # Mesa build
+        # Rust toolchain for the borgvk NIR->Borg shader compiler (Phase C),
+        # modeled on Mesa's NAK. Mesa requires bindgen >= 0.71.1 (have 0.72.1)
+        # for its NIR Rust bindings (src/compiler/rust), plus rustc/cargo/rustfmt.
+        pkgs.rustc
+        pkgs.cargo
+        pkgs.rustfmt
+        pkgs.rust-bindgen
+        pkgs.rust-cbindgen
         pkgs.vulkan-tools # vulkaninfo (borgvk enumeration gate)
         pkgs.mpremote
         pkgs.netgen-vlsi
@@ -138,6 +146,9 @@
 
         # 2. Point to the JDK21 home so Java apps don't have to search the PATH
         export JAVA_HOME=${pkgs.jdk21}
+
+        # 3. bindgen (Mesa NIR Rust bindings) needs libclang to parse C headers.
+        export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
 
         echo "Entering $GONSOLO_PROJECT development shell..."
 
