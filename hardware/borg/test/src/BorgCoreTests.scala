@@ -645,5 +645,62 @@ object BorgCoreTests extends TestSuite {
         println("  PASSED")
       }
     }
+
+    // End-to-end validation of the borgc-compiled cube.c vertex shader: load the
+    // EXACT 25-word program borgc emits (BORGC_DUMP_ISA) and confirm it computes a
+    // column-major MVP·position + perspective divide, landing screen coords in
+    // r0/r1/r2. This catches data-flow bugs that structural checks miss.
+    utest.test("borgc_vertex_shader_mvp") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: borgc_vertex_shader_mvp (compiled cube.c vertex shader) ---")
+        idleInputs(core)
+        initRcpLut(core) // FRCP epilogue needs the reciprocal LUT
+        resetCore(core)
+
+        def writeUniform(idx: Int, bits: BigInt): Unit =
+          writeCore(core, 368 + idx * 4, bits)
+
+        // The exact program borgc emits from cube.c's SPIR-V: 4 position pre-loads
+        // (FADD r24..r27 = u3..u0), 16-op column-major MVP·pos accumulation, then
+        // the 5-word epilogue FRCP r4,r3 / FMUL r0/r1/r2 *= r4 / HALT.
+        val prog = Seq(
+          0x01e19c00L, 0x01e11c80L, 0x01e09d00L, 0x01e01d80L,
+          0x098a1280L, 0x098a9300L, 0x098b1380L, 0x098b9400L,
+          0x29981484L, 0x31989284L, 0x39991304L, 0x41999384L,
+          0x49a61404L, 0x29a69484L, 0x31a71284L, 0x39a79304L,
+          0x41b41004L, 0x49b49084L, 0x29b51104L, 0x31b59184L,
+          0x14018200L, 0x08400000L, 0x08408080L, 0x08410100L,
+          0x00000000L)
+        for ((w, i) <- prog.zipWithIndex) writeImem(core, i, BigInt(w))
+
+        // r30/r31 read 0 only when seqBusy — the position pre-loads (u + r30) need it.
+        core.io.seqBusy.poke(true.B)
+
+        // position (u0..u3) = (1, 2, 3, 1); pos.w in u3.
+        writeUniform(0, floatToFp16Bits(1.0f))
+        writeUniform(1, floatToFp16Bits(2.0f))
+        writeUniform(2, floatToFp16Bits(3.0f))
+        writeUniform(3, floatToFp16Bits(1.0f))
+
+        // Viewport-baked MVP, column-major in u8..u23 (u = 8 + col*4 + row):
+        //   col0=[1,0,0,0] col1=[0,1,0,0] col2=[0,0,1,0] col3=[0,0,0,2]
+        // → identity on x/y/z, clip_w = 2·pos.w (a power of two → exact 1/w).
+        val mvp = Array(
+          1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 2f)
+        for (i <- 0 until 16) writeUniform(8 + i, floatToFp16Bits(mvp(i)))
+
+        startAndWait(core)
+
+        val sx = fp16BitsToFloat(readReg(core, 0))
+        val sy = fp16BitsToFloat(readReg(core, 1))
+        val sz = fp16BitsToFloat(readReg(core, 2))
+        // clip = MVP·pos = (1, 2, 3, 2); inv_w = 0.5; screen = (0.5, 1.0, 1.5).
+        println(f"  screen = ($sx%.3f, $sy%.3f, $sz%.3f)  expected (0.5, 1.0, 1.5)")
+        utest.assert(math.abs(sx - 0.5f) < 0.02f)
+        utest.assert(math.abs(sy - 1.0f) < 0.03f)
+        utest.assert(math.abs(sz - 1.5f) < 0.04f)
+        println("  PASSED")
+      }
+    }
   }
 }
