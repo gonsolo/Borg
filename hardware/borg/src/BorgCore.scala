@@ -222,7 +222,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // IMEM write: DMA has priority; MMIO always present.
     val mmioImemWrite =
-        io.bus.is_writing && io.bus.address >= BorgGpuRegs.imem_offset && io.bus.address < 352.U
+        io.bus.is_writing && io.bus.address >= BorgGpuRegs.imem_offset && io.bus.address < 416.U // 128 + 72*4
     val imemWen  = io.dmaImemWrite.en || mmioImemWrite
     val imemAddr = Mux(io.dmaImemWrite.en, io.dmaImemWrite.addr,
                        (io.bus.address - BorgGpuRegs.imem_offset) >> 2)
@@ -231,7 +231,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // Uniform write: same single-port pattern.
     val mmioUnifWrite =
-        io.bus.is_writing && io.bus.address >= BorgGpuRegs.uniform_offset && io.bus.address < 496.U
+        io.bus.is_writing && io.bus.address >= BorgGpuRegs.uniform_offset && io.bus.address < 560.U // 432 + 128
     val unifIdx = (io.bus.address - BorgGpuRegs.uniform_offset) >> 2
     val unifWen  = io.dmaUniformWrite.en || mmioUnifWrite
     val unifAddr = if (cfg.maxUniforms > 32)

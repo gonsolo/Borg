@@ -461,7 +461,7 @@ object BorgCoreTests extends TestSuite {
 
     /** Write a uniform entry via MMIO. */
     def writeUniform(core: BorgCore, idx: Int, bits: BigInt): Unit =
-      writeCore(core, 368 + idx * 4, bits)
+      writeCore(core, 432 + idx * 4, bits)
 
     utest.test("uniform_funct3_01_rs1") {
       simulate(new BorgCore(config)) { core =>
@@ -733,7 +733,7 @@ object BorgCoreTests extends TestSuite {
         core.io.seqBusy.poke(false.B) // r30/r31 = per-lane pixel centre
         resetCore(core)
 
-        def wu(idx: Int, f: Float): Unit = writeCore(core, 368 + idx * 4, floatToFp16Bits(f))
+        def wu(idx: Int, f: Float): Unit = writeCore(core, 432 + idx * 4, floatToFp16Bits(f))
         wu(4, 0.424f); wu(5, 0.566f); wu(6, 0.707f) // lightDir
         wu(12, 1.0f)                                  // inv_area
         for (u <- 13 to 18) wu(u, 0.5f)               // texcoord (unused — constant texel)
@@ -783,11 +783,10 @@ object BorgCoreTests extends TestSuite {
         for (v <- Seq(r1, g1, b1, r2, g2, b2)) utest.assert(!v.isNaN && v >= -0.02f && v <= 1.02f)
         utest.assert(math.abs(r1 - 0.53f) < 0.06f && math.abs(g1 - 0.53f) < 0.06f && math.abs(b1 - 0.53f) < 0.06f)
         utest.assert(math.abs(r2 - 0.73f) < 0.06f && math.abs(g2 - 0.73f) < 0.06f && math.abs(b2 - 0.73f) < 0.06f)
-        // NB: the 3-instr preamble + 56-word fragment = 59 instructions, but this
-        // config's IMEM is only 56 deep, so the final z-interp ops overflow IMEM and
-        // don't load — z here is therefore not validated (it needs IMEM≥59, i.e. the
-        // M5 growth to 64). The colour ops (within IMEM) are exact, as checked above.
-        println("  PASSED — faithful cube.frag lighting+texture+sRGB bit-correct")
+        // z-interp output (now that IMEM is 72-deep, the full 59-instruction program
+        // loads): z = 0.5·Σwᵢ = 0.5·(4.5+4.5+9.0) = 9.0 with these synthetic edges.
+        utest.assert(math.abs(z1 - 9.0f) < 0.05f)
+        println("  PASSED — faithful cube.frag lighting+texture+sRGB+depth bit-correct")
       }
     }
 
@@ -883,7 +882,7 @@ object BorgCoreTests extends TestSuite {
         resetCore(core)
 
         def writeUniform(idx: Int, bits: BigInt): Unit =
-          writeCore(core, 368 + idx * 4, bits)
+          writeCore(core, 432 + idx * 4, bits)
 
         // The exact program borgc emits from cube.c's SPIR-V: 3 position pre-loads
         // (FADD r24..r26 = u2..u0; pos.w folded to the constant 1.0), 16-op

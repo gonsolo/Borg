@@ -68,7 +68,7 @@ object BorgConfig {
     coordWidth      = 9,
     fifoDepth       = 2,
     maxBinTiles     = 1024,
-    maxInstructions = 56,
+    maxInstructions = 72, // M5 step 1: grow IMEM (rast 13 + frag ~56 co-resident)
     useCustomFma    = true
   )
 
