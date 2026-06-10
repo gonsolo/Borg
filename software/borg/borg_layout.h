@@ -36,8 +36,9 @@
 #define SEQ_VERT_SHADER_ADDR  0x4800   // SPI byte addr for vertex shader  (max 128B)
 #define SEQ_SETUP_SHADER_ADDR 0x4880   // SPI byte addr for setup shader   (max 128B)
 #define SEQ_RAST_SHADER_ADDR  0x4900   // SPI byte addr for rast shader    (max 128B)
-#define SEQ_FRAG_SHADER_ADDR  0x4980   // SPI byte addr for frag shader    (max 128B)
-#define SEQ_DESC_BASE_ADDR    0x4A00   // SPI byte addr for descriptor 0
+#define SEQ_FRAG_SHADER_ADDR  0x4980   // SPI byte addr for frag shader    (max 256B = 64 words)
+#define SEQ_DESC_BASE_ADDR    0x4A80   // SPI byte addr for descriptor 0 (moved +0x80 for the
+                                       // borgc 56-word frag; TEX/PSRAM_OUT derive from here)
 
 // Descriptor layout: 3 verts × 32B + 64B MVP + 32B metadata = 256B each.
 #define SEQ_DESC_STRIDE       256

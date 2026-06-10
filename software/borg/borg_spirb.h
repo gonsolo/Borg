@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#define SPIRB_MAX_INSTRS 32
+#define SPIRB_MAX_INSTRS 72  // IMEM grew to 72 for the borgc-compiled fragment
 #define SPIRB_MAX_REGS   32
 
 // Parsed in-memory representation of a SPIR-B shader blob.
