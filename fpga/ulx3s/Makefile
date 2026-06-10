@@ -235,7 +235,7 @@ vkcube_with_header.bin: $(FIRMWARE_DIR)/vkcube.bin
 .PHONY: $(FIRMWARE_DIR)/vkcube.bin
 $(FIRMWARE_DIR)/vkcube.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
-		EXTRA_CFLAGS="-DTARGET_ULX3S -DUSE_SMALL_TEXTURE $(if $(BORGC),-DUSE_BORGC_VERT_SHADER)" vkcube
+		EXTRA_CFLAGS="-DTARGET_ULX3S -DUSE_SMALL_TEXTURE $(if $(BORGC),-DUSE_BORGC_VERT_SHADER -DUSE_BORGC_FRAG_SHADER)" vkcube
 
 flash-vkcube: vkcube_with_header.bin
 	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing vkcube firmware to onboard flash @ 0x400000 ..."

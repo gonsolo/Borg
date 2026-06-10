@@ -124,6 +124,35 @@ static const uint32_t borgc_vert_shader[] = {
 #define BORGC_VERT_SHADER_LEN (sizeof(borgc_vert_shader) / sizeof(borgc_vert_shader[0]))
 #endif
 
+#ifdef USE_BORGC_FRAG_SHADER
+// borgc-compiled cube.frag — the EXACT 56 words emitted by borgvk's NIR→Borg
+// backend from cube.c's unmodified fragment SPIR-V. Faithful lighting+texture
+// +sRGB: dFdx/dFdy(frag_pos) → normalize(cross()) → max(0,dot(lightDir,n)) →
+// FSRGB(light·texture).  Reads barycentric edges from r0/r1/r2, inv_area+UV+
+// frag_pos+z from u12-30 (sequencer-staged), texel from FTEX, lightDir from the
+// reserved GPRs r17/18/19 (firmware-written each frame, see lightDir below).
+// Outputs r26/27/28 = sRGB colour, r29 = interpolated depth.  Last word = HALT.
+// Sim-validated bit-for-bit by BorgCoreTests.borgc_fragment_cube (colour
+// 0.532/0.728, depth 9.0).  Enable with EXTRA_CFLAGS=-DUSE_BORGC_FRAG_SHADER.
+static const uint32_t borgc_frag_shader[] = {
+  0x08c02180, 0x08c0a280, 0x08c12300, 0x0951a380, 0x3942a404, 0x41332384,
+  0x0981a400, 0x4172a484, 0x49632404, 0x09b1a480, 0x49a2a504, 0x51932484,
+  0x3c038500, 0x3c040580, 0x3c048600, 0x40038680, 0x40040380, 0x40048400,
+  0x08760480, 0x08850700, 0x08d58780, 0x0c048800, 0x0c070480, 0x0c078700,
+  0x80858784, 0x48d60804, 0x70750484, 0x09080700, 0x70948384, 0x38f78704,
+  0x34070380, 0x08778700, 0x08780780, 0x08748800, 0x08f90380, 0x39098784,
+  0x78e88384, 0x10038780, 0x08f38700, 0x08f1a780, 0x78e2a384, 0x38d32784,
+  0x0921a380, 0x3912a804, 0x81032384, 0x18778a00, 0x08ea0380, 0x08ea8800,
+  0x08eb0780, 0x38038d00, 0x38080d80, 0x38078e00, 0x09e1a780, 0x79d2a184,
+  0x19c32e84, 0x00000000,
+};
+#define BORGC_FRAG_SHADER_LEN (sizeof(borgc_frag_shader) / sizeof(borgc_frag_shader[0]))
+// lightDir = (0.424, 0.566, 0.707) as FP16, pinned to reserved GPRs r17-19.
+#define BORGC_LIGHTDIR_R17 0x36c8  // fp16(0.424)
+#define BORGC_LIGHTDIR_R18 0x3887  // fp16(0.566)
+#define BORGC_LIGHTDIR_R19 0x39a7  // fp16(0.707)
+#endif
+
 // Triangle setup shader (31 instructions, with edge normalization for Step 30.1c):
 //   u0-u5 = screen coords of all 3 vertices (written by sWriteSetupInputs).
 //   u6    = inv_width = 1/fb_width (written by sWriteSetupInputs, Step 30.1c).
@@ -427,14 +456,25 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
     PSRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)i * 4) = rast_shader.instrs[i];
   // HALT sentinel
   PSRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)rast_shader.num_instrs * 4) = 0;
+#ifdef USE_BORGC_FRAG_SHADER
+  // Stage the borgc-compiled cube.frag (already HALT-terminated) instead of the
+  // hand-written fragment.  lightDir is written to the reserved GPRs per frame.
+  for (int i = 0; i < (int)BORGC_FRAG_SHADER_LEN; i++)
+    PSRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)i * 4) = borgc_frag_shader[i];
+#else
   for (int i = 0; i < (int)frag_shader.num_instrs; i++)
     PSRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)i * 4) = frag_shader.instrs[i];
   PSRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)frag_shader.num_instrs * 4) = 0;
+#endif
 
   BORG_GPU->seq_rast_addr = SEQ_RAST_SHADER_ADDR;
   BORG_GPU->seq_rast_len  = rast_shader.num_instrs + 1;  // +1 for HALT
   BORG_GPU->seq_frag_addr = SEQ_FRAG_SHADER_ADDR;
+#ifdef USE_BORGC_FRAG_SHADER
+  BORG_GPU->seq_frag_len  = BORGC_FRAG_SHADER_LEN;       // blob is HALT-terminated
+#else
   BORG_GPU->seq_frag_len  = frag_shader.num_instrs + 1;  // +1 for HALT
+#endif
 
   // Step 30.1c: Precompute 1/fb_width as exact FP16 (fb_width is a power of 2).
   // fp16(2^n) has exp = n+15, so fp16(2^-n) has exp = 15-n = 30 - exp_of_width.
@@ -979,6 +1019,14 @@ static void borgBinRenderAutonomous(int frame) {
       // (Removed per-frame "A<n>"/"B" debug UART: ~7 blind-write putc/frame, each
       // ~2 ms while the CPU is instruction-starved during render → ~13 ms/frame
       // of pure debug overhead counted in `present`.)
+#ifdef USE_BORGC_FRAG_SHADER
+      // lightDir → reserved GPRs r17-19, written each frame before the autonomous
+      // render.  r17-19 are untouched by the vertex/setup/rast stages (which use
+      // r0-11 and r24-26), so they persist through to the borgc fragment.
+      BORG_GPU->gpr[17] = BORGC_LIGHTDIR_R17;
+      BORG_GPU->gpr[18] = BORGC_LIGHTDIR_R18;
+      BORG_GPU->gpr[19] = BORGC_LIGHTDIR_R19;
+#endif
       BORG_GPU->seq_desc_base = SEQ_DESC_BASE_ADDR;
       BORG_GPU->seq_tri_count = draw_call_count;
       BORG_GPU->seq_trigger = 1;
