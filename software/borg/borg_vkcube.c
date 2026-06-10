@@ -72,6 +72,16 @@ static int     rx_geom_nverts = 0;
 static int     rx_geom_ntris  = 0;
 static int     rx_have_geom   = 0;
 
+// 0xAF texture-row packet (Phase B): the host streams the app's texture one row
+// at a time as RGB-FP16 (6 B/texel) at the firmware's texture dimension.
+//   marker, y, dim texels (dim*6 B), checksum.
+#define RX_TEX_DIM       TEX_WIDTH
+#define RX_TEX_PKT_LEN   (1 + 1 + RX_TEX_DIM * 6 + 1)
+
+// The shared drain buffer must hold the largest packet.
+#define RX_PKT_BUF_LEN \
+  (RX_GEOM_PKT_LEN > RX_TEX_PKT_LEN ? RX_GEOM_PKT_LEN : RX_TEX_PKT_LEN)
+
 static void mat4_identity(fp16_t m[16]) {
   for (int i = 0; i < 16; i++)
     m[i] = FP16_ZERO;
@@ -307,7 +317,7 @@ int main() {
   //          MVP entries aren't bounded to [-1,1], so the checksum (not a
   //          magnitude range) guards against corruption.  Sent by the borgvk
   //          Mesa driver (mesa/src/borg/vulkan/borgvk_queue.c).
-  static uint8_t pkt_buf[RX_GEOM_PKT_LEN];
+  static uint8_t pkt_buf[RX_PKT_BUF_LEN];
   static int pkt_pos = 0;
   static int pkt_marker = 0;   // marker of the in-progress packet (0xAC / 0xAD)
   // Initial orientation: 30° X tilt as a column-major 3×3 matrix
@@ -364,7 +374,8 @@ int main() {
       if (uart_rx_ready()) {
         pkt_marker = (uint8_t)getc_uart();
         int need = (pkt_marker == 0xAC) ? 37 : (pkt_marker == 0xAD) ? 66 :
-                   (pkt_marker == 0xAE) ? RX_GEOM_PKT_LEN : 0;
+                   (pkt_marker == 0xAE) ? RX_GEOM_PKT_LEN :
+                   (pkt_marker == 0xAF) ? RX_TEX_PKT_LEN : 0;
         if (need) {
           pkt_buf[0] = pkt_marker;
           pkt_pos = 1;
@@ -428,6 +439,15 @@ int main() {
               rx_geom_nverts = nv;
               rx_geom_ntris  = nt;
               rx_have_geom   = 1;
+            }
+          } else if (ok && pkt_marker == 0xAF) {
+            // Host-uploaded texture row: [1]=y, then RX_TEX_DIM texels RGB-FP16.
+            uint8_t csum = 0;
+            for (int i = 1; i < RX_TEX_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
+            int yrow = pkt_buf[1];
+            if (csum == pkt_buf[RX_TEX_PKT_LEN - 1] &&
+                yrow >= 0 && yrow < RX_TEX_DIM) {
+              borg_upload_texture_row(&pkt_buf[2], yrow, RX_TEX_DIM);
             }
           }
         }

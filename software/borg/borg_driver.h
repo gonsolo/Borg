@@ -76,6 +76,8 @@ void borg_clear_texture(void);
 // targets with no host to preload SDRAM (e.g. ULX3S); mirrors the simulator's
 // load_texture_to_psram().
 void borg_upload_texture(const uint8_t *rgb_fp16, int dim);
+// Upload one texture row (host streams the texture row-by-row over serial).
+void borg_upload_texture_row(const uint8_t *row, int y, int dim);
 
 // Render a triangle: vertex shade → rasterize → z-test → fragment shade → framebuffer.
 // Mirrors vkCmdDraw().

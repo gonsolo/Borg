@@ -522,6 +522,23 @@ void borg_upload_texture(const uint8_t *rgb_fp16, int dim) {
   }
 }
 
+// Upload a single texture row (Phase B): the host (borgvk) streams the app's
+// texture one row at a time so no large assembly buffer is needed.  `row` is
+// `dim` texels of RGB-FP16 (6 bytes each) for the given y, written Morton-encoded
+// like borg_upload_texture above.
+void borg_upload_texture_row(const uint8_t *row, int y, int dim) {
+  for (int x = 0; x < dim; x++) {
+    int src = x;
+    uint32_t dst = morton_encode((uint32_t)x, (uint32_t)y);
+    uint16_t r = row[(src * 3 + 0) * 2] | (row[(src * 3 + 0) * 2 + 1] << 8);
+    uint16_t g = row[(src * 3 + 1) * 2] | (row[(src * 3 + 1) * 2 + 1] << 8);
+    uint16_t b = row[(src * 3 + 2) * 2] | (row[(src * 3 + 2) * 2 + 1] << 8);
+    uint32_t byte_addr = TEX_PSRAM_BYTE_ADDR_FIXED + dst * 8;
+    PSRAM_OUT_RAW(byte_addr)     = (uint32_t)r | ((uint32_t)g << 16);
+    PSRAM_OUT_RAW(byte_addr + 4) = (uint32_t)b;
+  }
+}
+
 // --- Triangle Clipping (Step 6) ---
 
 // Linearly interpolate between two clip vertices: result = a + t * (b - a)
