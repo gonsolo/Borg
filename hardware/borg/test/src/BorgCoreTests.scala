@@ -734,11 +734,14 @@ object BorgCoreTests extends TestSuite {
         resetCore(core)
 
         def wu(idx: Int, f: Float): Unit = writeCore(core, 432 + idx * 4, floatToFp16Bits(f))
-        // lightDir → reserved GPRs r23/24/25 (firmware writes these via MMIO; the
-        // rast kernel uses only r0-11 and the frag reserves them, so they persist).
-        writeReg(core, 23, floatToFp16Bits(0.424f))
-        writeReg(core, 24, floatToFp16Bits(0.566f))
-        writeReg(core, 25, floatToFp16Bits(0.707f))
+        // lightDir → reserved GPRs r17/18/19 (firmware writes these via MMIO before
+        // the autonomous render).  They must survive the WHOLE pipeline: the vertex
+        // shaders use r24/25/26 and setup/rast use r0-11, so r17-19 is the safe home
+        // (r23-25 would be clobbered by the vertex pass — invisible to this isolated
+        // fragment test, caught by decoding the vertex shaders' register use).
+        writeReg(core, 17, floatToFp16Bits(0.424f))
+        writeReg(core, 18, floatToFp16Bits(0.566f))
+        writeReg(core, 19, floatToFp16Bits(0.707f))
         wu(12, 1.0f)                                  // inv_area
         for (u <- 13 to 18) wu(u, 0.5f)               // texcoord (unused — constant texel)
         // frag_pos per vertex, (v2,v1,v0): x=u19-21, y=u22-24, z=u25-27.
@@ -758,8 +761,8 @@ object BorgCoreTests extends TestSuite {
           0x3c038500L, 0x3c040580L, 0x3c048600L, 0x40038680L, 0x40040380L, 0x40048400L,
           0x08760480L, 0x08850700L, 0x08d58780L, 0x0c048800L, 0x0c070480L, 0x0c078700L,
           0x80858784L, 0x48d60804L, 0x70750484L, 0x09080700L, 0x70948384L, 0x38f78704L,
-          0x34070380L, 0x08778700L, 0x08780780L, 0x08748800L, 0x08fc0380L, 0x390c8784L,
-          0x78eb8384L, 0x10038780L, 0x08f38700L, 0x08f1a780L, 0x78e2a384L, 0x38d32784L,
+          0x34070380L, 0x08778700L, 0x08780780L, 0x08748800L, 0x08f90380L, 0x39098784L,
+          0x78e88384L, 0x10038780L, 0x08f38700L, 0x08f1a780L, 0x78e2a384L, 0x38d32784L,
           0x0921a380L, 0x3912a804L, 0x81032384L, 0x18778a00L, 0x08ea0380L, 0x08ea8800L,
           0x08eb0780L, 0x38038d00L, 0x38080d80L, 0x38078e00L, 0x09e1a780L, 0x79d2a184L,
           0x19c32e84L, 0x00000000L)
