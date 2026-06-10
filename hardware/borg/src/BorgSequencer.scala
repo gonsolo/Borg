@@ -47,10 +47,10 @@ import chisel3.util._
   *     u12 = inv_area
   *     u13-u15 = UV.u of (v2, v1, v0)  — pre-scaled by tex_w in descriptor
   *     u16-u18 = UV.v of (v2, v1, v0)  — pre-scaled by tex_h in descriptor
-  *     u19-u21 = color.R of (v2, v1, v0)
-  *     u22-u24 = color.G of (v2, v1, v0)
-  *     u25-u27 = color.B of (v2, v1, v0)
-  *     u28-u30 = z_val   of (v2, v1, v0)
+  *     u19-u21 = frag_pos.x of (v2, v1, v0)  — model position (borgc lighting)
+  *     u22-u24 = frag_pos.y of (v2, v1, v0)
+  *     u25-u27 = frag_pos.z of (v2, v1, v0)
+  *     u28-u30 = z_val      of (v2, v1, v0)  — projected depth for z-interp
   *
   *  When tex disabled (has_uvs=false): UV words are zero (Morton=0, white texel
   *  returned by dispatcher), giving texel(1,1,1) × vertexColor = vertexColor.
@@ -248,6 +248,11 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   //   uniform offset 6 = uv.u, 7 = uv.v  (pre-scaled by tex dimensions in descriptor)
   // We capture offsets 2(z), 3(r), 4(g), 5(b), 6(u), 7(v).
   val colorRegs = RegInit(VecInit.fill(3, 4)(0.U(16.W)))  // [v][r,g,b,z]
+  // Per-vertex MODEL position (x,y,z) — captured from DMA uniform offsets 0,1,2.
+  // borgc's cube.frag reads frag_pos (= gl_Position.xyz) for dFdx/dFdy lighting;
+  // we approximate it with the affine model position (the cleanest per-vertex
+  // 3-vector in the descriptor), staged into u19-27 in place of vertex colour.
+  val posRegs = RegInit(VecInit.fill(3, 3)(0.U(16.W)))    // [v][x,y,z]
   // UV per vertex — pre-scaled by tex_w/tex_h in the PSRAM descriptor.
   // Offsets 6,7 from the DMA vertex stream (uniform[6]=u_tex, [7]=v_tex).
   val uvRegs = RegInit(VecInit.fill(3, 2)(0.U(16.W)))     // [v][u,v]
@@ -704,10 +709,10 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     //   u12:     inv_area (setupRegs[7])
     //   u13-u15: U texture coord  (v2, v1, v0) — pre-scaled by tex_w in descriptor
     //   u16-u18: V texture coord  (v2, v1, v0) — pre-scaled by tex_h in descriptor
-    //   u19-u21: color R          (v2, v1, v0)
-    //   u22-u24: color G          (v2, v1, v0)
-    //   u25-u27: color B          (v2, v1, v0)
-    //   u28-u30: z value          (v2, v1, v0)
+    //   u19-u21: frag_pos.x       (v2, v1, v0) — model position (borgc lighting)
+    //   u22-u24: frag_pos.y       (v2, v1, v0)
+    //   u25-u27: frag_pos.z       (v2, v1, v0)
+    //   u28-u30: z value          (v2, v1, v0) — projected depth for z-interp
     // Within each group of 3: slot 0→vertex2, slot 1→vertex1, slot 2→vertex0
 
     val uData = WireDefault(0.U(16.W))
@@ -733,11 +738,11 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }.elsewhen(w < 19.U) {
       uData := uvRegs(vertOf(16))(1)          // u16-u18: V-coord
     }.elsewhen(w < 22.U) {
-      uData := colorRegs(vertOf(19))(0)       // u19-u21: R
+      uData := posRegs(vertOf(19))(0)         // u19-u21: frag_pos.x (model x)
     }.elsewhen(w < 25.U) {
-      uData := colorRegs(vertOf(22))(1)       // u22-u24: G
+      uData := posRegs(vertOf(22))(1)         // u22-u24: frag_pos.y (model y)
     }.elsewhen(w < 28.U) {
-      uData := colorRegs(vertOf(25))(2)       // u25-u27: B
+      uData := posRegs(vertOf(25))(2)         // u25-u27: frag_pos.z (model z)
     }.otherwise {
       uData := clipRegs(vertOf(28))(2)        // u28-u30: Z from vertex shader r2 (projected depth)
     }
@@ -1044,7 +1049,12 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
          nextAfterDMA === sRunVert) {
       val addr = io.dma.uniformSnoop.addr(2, 0)  // low 3 bits = offset 0-7
       val data = io.dma.uniformSnoop.data
-      when(addr === 2.U) { colorRegs(vertIdx)(3) := data }  // z
+      when(addr === 0.U) { posRegs(vertIdx)(0) := data }    // model x → frag_pos.x
+      when(addr === 1.U) { posRegs(vertIdx)(1) := data }    // model y → frag_pos.y
+      when(addr === 2.U) {
+        colorRegs(vertIdx)(3) := data                       // z (projected depth source)
+        posRegs(vertIdx)(2)   := data                       // model z → frag_pos.z
+      }
       when(addr === 3.U) {
         colorRegs(vertIdx)(0) := data   // r
         if (BorgDebug.trace) printf("[SEQ] colorSnoop vert=%d R=0x%x\n", vertIdx, data)

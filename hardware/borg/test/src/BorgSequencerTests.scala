@@ -416,6 +416,12 @@ object BorgSequencerTests extends TestSuite {
         assertClose("u4(e2dx)", gprs(4), e2dx)
         assertClose("u5(e2dy)", gprs(5), e2dy)
 
+        // NOTE: u19-27 now stage per-vertex MODEL position (frag_pos for the borgc
+        // cube.frag) instead of vertex colour (M6).  They cannot be observed via
+        // this post-run readout (Pass 2 re-stages only u0-5; u6+ read back stale —
+        // the same reason this test only asserts u0-5).  The frag_pos staging is
+        // validated on hardware at M7 (lit cube on HDMI).
+
         println("=== sequencer_uniform_staging PASSED ===\n")
       }
     }
