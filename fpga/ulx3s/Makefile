@@ -230,10 +230,12 @@ vkcube_with_header.bin: $(FIRMWARE_DIR)/vkcube.bin
 	@echo -e "$(BOLD)[FW-PACK]$(RESET) Prepending 4-byte size header to vkcube firmware ..."
 	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/vkcube.bin','rb').read(); open('vkcube_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> vkcube_with_header.bin')"
 
+# BORGC=1 swaps in the borgc-compiled (Mesa NIR→Borg) cube.c vertex shader
+# instead of the hand-written seq_vert_shader — for A/B testing on HDMI.
 .PHONY: $(FIRMWARE_DIR)/vkcube.bin
 $(FIRMWARE_DIR)/vkcube.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
-		EXTRA_CFLAGS="-DTARGET_ULX3S -DUSE_SMALL_TEXTURE" vkcube
+		EXTRA_CFLAGS="-DTARGET_ULX3S -DUSE_SMALL_TEXTURE $(if $(BORGC),-DUSE_BORGC_VERT_SHADER)" vkcube
 
 flash-vkcube: vkcube_with_header.bin
 	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing vkcube firmware to onboard flash @ 0x400000 ..."
