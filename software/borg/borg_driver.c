@@ -50,36 +50,55 @@ static int back_buf = 1;
 //   The sequencer's pipeWrite snoop captures r0=x, r1=y during sWaitVert.
 //   u0=screen_x, u1=screen_y per vertex (loaded by DMA from descriptor).
 //   Output r0=x, r1=y so sWaitVert snoops them into clipRegs[v][0:1].
-// GPU MVP vertex shader (Phase 1):
+// GPU MVP vertex shader with HARDWARE PERSPECTIVE DIVIDE:
 //   u0..u2   = raw model pos x,y,z  (loaded by vertex DMA from descriptor)
-//   u8..u23  = TS-baked MVP 16 values column-major (loaded by MVP DMA)
-//              u8=M00*hw  u9=M10*hw  u10=M20  u11=M30
-//              u12=M01*hw u13=M11*hw u14=M21  u15=M31
-//              u16=M02*hw u17=M12*hw u18=M22  u19=M32
-//              u20=M03*hw+hw  u21=M13*hw+hw  u22=M23  u23=M33
-//   r0=screen_x, r1=screen_y (snooped by sequencer into clipRegs)
-//   r30,r31 = 0 when seqBusy=true (special BorgCore registers)
+//   u8..u23  = viewport-baked MVP, 16 values column-major (from cache_ts_mvp):
+//              x' row = hw*(M0row + M3row)   — folds the +1 viewport translate
+//              y' row = hw*(M1row + M3row)
+//              z  row = M2row (raw)          — clip-space depth
+//              w  row = M3row (raw)          — clip-space w
+//              u8 =x'00 u9 =y'00 u10=z00 u11=w00   (col 0)
+//              u12=x'01 u13=y'01 u14=z01 u15=w01   (col 1)
+//              u16=x'02 u17=y'02 u18=z02 u19=w02   (col 2)
+//              u20=x'03 u21=y'03 u22=z03 u23=w03   (col 3)
+//   The shader computes clip'_x, clip'_y, clip_z, clip_w (4 dot products), then
+//   inv_w = 1/clip_w and screen = clip' * inv_w.  Because x'/y' already carry
+//   hw*(Mrow+M3row), screen_x = clip'_x/w = hw*(clip_x/w + 1) = hw*ndc_x + hw —
+//   the full viewport transform, with no extra hw uniform.  AFFINE MVPs (M3 row
+//   = [0,0,0,1]) give clip_w = 1, so the divide is a no-op and this reduces
+//   exactly to the previous orthographic behaviour (0xAC / 0xAD demos unchanged).
+//   r0=screen_x, r1=screen_y, r2=ndc_z (snooped by the sequencer into clipRegs).
+//   r30,r31 = 0 when seqBusy=true (special BorgCore registers).
 static const uint32_t seq_vert_shader[] = {
   // Load model coords from uniform memory into working registers
   BORG_INSTR_FADD(24, 0, 30, 1),         // r24 = u0 (model x)
   BORG_INSTR_FADD(25, 1, 30, 1),         // r25 = u1 (model y)
   BORG_INSTR_FADD(26, 2, 30, 1),         // r26 = u2 (model z)
-  // screen_x = u20 + x*u8 + y*u12 + z*u16
-  BORG_INSTR_FADD( 0, 20, 30, 1),        // r0 = u20 (x-translation: M03*hw + hw)
-  BORG_INSTR_FMADD( 0, 24,  8,  0, 2),   // r0 += r24*u8  (x * M00*hw)
-  BORG_INSTR_FMADD( 0, 25, 12,  0, 2),   // r0 += r25*u12 (y * M01*hw)
-  BORG_INSTR_FMADD( 0, 26, 16,  0, 2),   // r0 += r26*u16 (z * M02*hw)
-  // screen_y = u21 + x*u9 + y*u13 + z*u17
-  BORG_INSTR_FADD( 1, 21, 30, 1),        // r1 = u21 (y-translation: M13*hw + hw)
-  BORG_INSTR_FMADD( 1, 24,  9,  1, 2),   // r1 += r24*u9  (x * M10*hw)
-  BORG_INSTR_FMADD( 1, 25, 13,  1, 2),   // r1 += r25*u13 (y * M11*hw)
-  BORG_INSTR_FMADD( 1, 26, 17,  1, 2),   // r1 += r26*u17 (z * M12*hw)
-  // screen_z = u22 + x*u10 + y*u14 + z*u18  (projected NDC depth, snooped into clipRegs[v][2])
-  // u22=M[2][3]=tz=0.5, u10=M[2][0], u14=M[2][1], u18=M[2][2] — gives z in [0.25,0.75]
-  BORG_INSTR_FADD( 2, 22, 30, 1),        // r2 = u22 (z-translation = tz = 0.5)
-  BORG_INSTR_FMADD( 2, 24, 10,  2, 2),   // r2 += r24*u10 (x * M[2][0])
-  BORG_INSTR_FMADD( 2, 25, 14,  2, 2),   // r2 += r25*u14 (y * M[2][1])
-  BORG_INSTR_FMADD( 2, 26, 18,  2, 2),   // r2 += r26*u18 (z * M[2][2])
+  // clip'_x = u20 + x*u8 + y*u12 + z*u16   (x' row carries hw*(M0+M3))
+  BORG_INSTR_FADD( 0, 20, 30, 1),
+  BORG_INSTR_FMADD( 0, 24,  8,  0, 2),
+  BORG_INSTR_FMADD( 0, 25, 12,  0, 2),
+  BORG_INSTR_FMADD( 0, 26, 16,  0, 2),
+  // clip'_y = u21 + x*u9 + y*u13 + z*u17   (y' row carries hw*(M1+M3))
+  BORG_INSTR_FADD( 1, 21, 30, 1),
+  BORG_INSTR_FMADD( 1, 24,  9,  1, 2),
+  BORG_INSTR_FMADD( 1, 25, 13,  1, 2),
+  BORG_INSTR_FMADD( 1, 26, 17,  1, 2),
+  // clip_z = u22 + x*u10 + y*u14 + z*u18   (z row = M2row, raw)
+  BORG_INSTR_FADD( 2, 22, 30, 1),
+  BORG_INSTR_FMADD( 2, 24, 10,  2, 2),
+  BORG_INSTR_FMADD( 2, 25, 14,  2, 2),
+  BORG_INSTR_FMADD( 2, 26, 18,  2, 2),
+  // clip_w = u23 + x*u11 + y*u15 + z*u19   (w row = M3row, raw)
+  BORG_INSTR_FADD( 3, 23, 30, 1),
+  BORG_INSTR_FMADD( 3, 24, 11,  3, 2),
+  BORG_INSTR_FMADD( 3, 25, 15,  3, 2),
+  BORG_INSTR_FMADD( 3, 26, 19,  3, 2),
+  // Perspective divide: inv_w = 1/clip_w, screen = clip' * inv_w
+  BORG_INSTR_FRCP( 4, 3, 0),             // r4 = 1 / clip_w
+  BORG_INSTR_FMUL( 0, 0, 4, 0),          // screen_x = clip'_x * inv_w
+  BORG_INSTR_FMUL( 1, 1, 4, 0),          // screen_y = clip'_y * inv_w
+  BORG_INSTR_FMUL( 2, 2, 4, 0),          // ndc_z    = clip_z  * inv_w
   BORG_INSTR_HALT,
 };
 #define SEQ_VERT_SHADER_LEN (sizeof(seq_vert_shader) / sizeof(seq_vert_shader[0]))
@@ -1037,18 +1056,26 @@ static void clip_and_rasterize(const clip_vertex_t clip_in[3],
 // raw_pos_cache: model-space positions saved by borgTransformVerts for indexed draws.
 static fp16_t raw_pos_cache[BORG_MAX_UNIQUE_VERTS * 3];
 
-// Build TS-baked MVP once per borgTransformVerts / borgCmdDraw call.
+// Bake the viewport transform into the MVP for the GPU vertex shader's hardware
+// perspective divide (see seq_vert_shader).  The shader computes clip'_x,
+// clip'_y, clip_z, clip_w then screen = clip' / clip_w, so we fold hw and the +1
+// viewport translate into the x'/y' rows: x' = hw*(M0row + M3row), giving
+// screen_x = clip'_x/w = hw*(clip_x/w + 1) = hw*ndc_x + hw with no separate hw
+// uniform.  z and w rows stay raw.  Column-major: d->uniforms[col*4+row]=M[row][col].
+// Affine MVPs (M3 row = [0,0,0,1]) → clip_w = 1, divide is a no-op, and this
+// reduces exactly to the previous orthographic baking.
 static void cache_ts_mvp(const borg_draw_data_t *d) {
   fp16_t hw = fp16_half_width;
   for (int col = 0; col < 4; col++) {
-    g_ts_mvp_cache[col*4+0] = borg_fp16_mul(d->uniforms[col*4+0], hw);
-    g_ts_mvp_cache[col*4+1] = borg_fp16_mul(d->uniforms[col*4+1], hw);
-    g_ts_mvp_cache[col*4+2] = d->uniforms[col*4+2];
-    g_ts_mvp_cache[col*4+3] = d->uniforms[col*4+3];
+    fp16_t m0 = d->uniforms[col*4+0];  // M[0][col]
+    fp16_t m1 = d->uniforms[col*4+1];  // M[1][col]
+    fp16_t m2 = d->uniforms[col*4+2];  // M[2][col]
+    fp16_t m3 = d->uniforms[col*4+3];  // M[3][col]
+    g_ts_mvp_cache[col*4+0] = borg_fp16_mul(hw, borg_fp16_add(m0, m3)); // x' = hw*(M0+M3)
+    g_ts_mvp_cache[col*4+1] = borg_fp16_mul(hw, borg_fp16_add(m1, m3)); // y' = hw*(M1+M3)
+    g_ts_mvp_cache[col*4+2] = m2;                                       // z  (raw)
+    g_ts_mvp_cache[col*4+3] = m3;                                       // w  (raw)
   }
-  // Translation column (col 3), rows 0 and 1: add hw for the +hw viewport term
-  g_ts_mvp_cache[12] = borg_fp16_add(g_ts_mvp_cache[12], hw);
-  g_ts_mvp_cache[13] = borg_fp16_add(g_ts_mvp_cache[13], hw);
 }
 
 void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
