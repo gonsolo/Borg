@@ -10,9 +10,9 @@ import chisel3.util._
 /** DMA descriptor latched from MMIO at trigger time. */
 class DMADescriptor extends Bundle {
   val baseAddr = UInt(25.W) // GPU memory byte address (PSRAM/SDRAM, 4-byte aligned); 25b = 32 MB
-  val length   = UInt(6.W)  // number of 32-bit PSRAM words to transfer (1–56)
+  val length   = UInt(7.W)  // number of 32-bit PSRAM words to transfer (1–72)
   val dest     = UInt(2.W)  // 0=IMEM, 1=Uniform-page0, 2=Uniform-page1
-  val offset   = UInt(6.W)  // starting word index in the destination buffer
+  val offset   = UInt(7.W)  // starting word index in the destination buffer (IMEM up to 72)
 }
 
 class BorgDMAIO extends Bundle {
@@ -20,7 +20,7 @@ class BorgDMAIO extends Bundle {
   val desc         = Input(new DMADescriptor)
   val busy         = Output(Bool())
   val gpuMem      = new GpuMemIO
-  val imemWrite    = new MemWritePort(6, 32)
+  val imemWrite    = new MemWritePort(7, 32)
   val uniformWrite = new MemWritePort(6, 16)
   // 32-bit snoop port for sequencer (valid when gpuMem.ready)
   val snoop        = Output(Valid(UInt(32.W)))
@@ -95,7 +95,7 @@ class BorgDMA extends Module {
         // Explicitly truncate to 6 bits — Chisel's + on two 6-bit UInts
         // infers a 7-bit result; the top bit is never used and causes
         // a Verilator UNUSEDSIGNAL warning.
-        val destIdx = (io.desc.offset + countReg)(5, 0)
+        val destIdx = (io.desc.offset + countReg)(6, 0)
 
         io.snoop.valid := true.B
         io.snoop.bits  := io.gpuMem.data

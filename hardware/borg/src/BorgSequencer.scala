@@ -70,7 +70,7 @@ class SeqMmioIO extends Bundle {
   val rastShaderAddr = Input(UInt(20.W))
   val rastShaderLen = Input(UInt(6.W))
   val fragShaderAddr = Input(UInt(20.W))
-  val fragShaderLen = Input(UInt(6.W))
+  val fragShaderLen = Input(UInt(7.W))
   val clearColorLo = Input(UInt(32.W))
   val clearColorHi = Input(UInt(32.W))
   val fbBase = Input(UInt(25.W))   // 25b = 32 MB GPU memory address space
