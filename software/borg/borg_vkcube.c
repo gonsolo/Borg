@@ -255,14 +255,24 @@ int main() {
   } rot_x_reader, rot_y_reader;
 
 #ifdef TARGET_ULX3S
-  // Rotation: host sends 37-byte packets
-  // [0xAC][m00..m22: 9 × 4-byte LE float] — column-major 3×3 rotation matrix.
-  // The matrix is computed host-side (the CPU has no soft-float).  Corrupted /
-  // mis-synced packets are rejected by an integer-only sanity check: every
-  // entry of a rotation matrix is in [-1,1], so any float with magnitude >= 2
-  // (raw bits, no FP needed) means the packet is garbage.
-  static uint8_t pkt_buf[37];
+  // The host streams one packet per frame, in one of two formats sharing the
+  // drain below (the marker byte selects length + decode):
+  //
+  //   0xAC : 37 bytes = marker + 9 LE float32 (column-major 3×3 rotation).
+  //          Computed host-side (the CPU has no soft-float).  Validated by an
+  //          integer-only magnitude check (every entry of a rotation matrix is
+  //          in [-1,1], so |value| >= 2 on the raw bits means garbage).  The
+  //          firmware bakes MVP = TS · rotation.  Sent by mouse_rotation.py.
+  //
+  //   0xAD : 66 bytes = marker + 16 LE float32 (column-major 4×4 MVP) + 1 XOR
+  //          checksum byte.  cube.c already applied projection·view·model, so
+  //          this is used DIRECTLY as draw.uniforms, bypassing the TS bake.
+  //          MVP entries aren't bounded to [-1,1], so the checksum (not a
+  //          magnitude range) guards against corruption.  Sent by the borgvk
+  //          Mesa driver (mesa/src/borg/vulkan/borgvk_queue.c).
+  static uint8_t pkt_buf[66];
   static int pkt_pos = 0;
+  static int pkt_marker = 0;   // marker of the in-progress packet (0xAC / 0xAD)
   // Initial orientation: 30° X tilt as a column-major 3×3 matrix
   // (cos=0.866, sin=0.5); matches the script's initial quaternion.
   static float rot_mat[9] = {
@@ -270,36 +280,47 @@ int main() {
     0.0f,   0.866f,  0.5f,    // col 1: [m01, m11, m21]
     0.0f,  -0.5f,    0.866f,  // col 2: [m02, m12, m22]
   };
+  static float host_mvp[16];  // last full MVP from a valid 0xAD packet
+  static int have_mvp = 0;    // 1 once a 0xAD MVP has been received
 #endif
 
   while (1) {
 #ifdef TARGET_ULX3S
-    // Drain one rotation packet from UART.  The HW has a 1-byte buffer; bytes
-    // arriving during borg_present() (~100ms) are mostly dropped.  Strategy:
-    //   1. Wait up to ~12 ms for the 0xAC start byte so we catch a packet in
-    //      flight at the frame boundary.
-    //   2. Chain-read the remaining 16 payload bytes with a short per-byte
-    //      timeout (bytes arrive every ~87 µs = ~2175 cycles at 115200 baud;
-    //      4000-cycle window is ample).  Hard safety cap prevents any infinite
-    //      loop; reset pkt_pos on timeout so the 12 ms wait fires again next
-    //      frame (re-syncs to the packet boundary).
-    //   3. Decode 9 floats; ACCEPT only if every entry has magnitude < 2 (an
-    //      integer-only check on the raw IEEE-754 bits — the CPU has no
-    //      soft-float).  Rejects mis-synced / corrupted packets so the cube
-    //      never jitters on garbage.
+    // Drain one packet from UART.  The HW has a 1-byte buffer; bytes arriving
+    // during borg_present() (~100ms) are mostly dropped.  Strategy:
+    //   1. Wait up to ~12 ms for a start byte (0xAC or 0xAD) so we catch a
+    //      packet in flight at the frame boundary.
+    //   2. Chain-read the payload with a short per-byte timeout (bytes arrive
+    //      every ~87 µs = ~2175 cycles at 115200 baud; 4000-cycle window is
+    //      ample).  Hard safety cap prevents any infinite loop; reset pkt_pos
+    //      on timeout so the 12 ms wait fires again next frame (re-syncs to the
+    //      packet boundary).
+    //   3. Decode per marker: 0xAC -> 9 floats, accepted only if every entry has
+    //      magnitude < 2 (integer-only check on the raw IEEE-754 bits — no
+    //      soft-float); 0xAD -> 16 floats, accepted only if the XOR checksum
+    //      over the 64 payload bytes matches.  Rejects mis-synced / corrupted
+    //      packets so the cube never jitters on garbage.
     {
-      // Step 1: wait up to 12 ms for 0xAC start byte (skipped mid-packet).
+      // Step 1: wait up to 12 ms for a start byte (skipped mid-packet).
       if (pkt_pos == 0) {
         for (volatile int t = 300000; !uart_rx_ready() && t > 0; t--) ;
       }
-      // Step 2: assemble one complete 37-byte packet; break immediately after.
-      for (int safety = 96; safety > 0; safety--) {
+      // Step 2: assemble one complete packet; break immediately after.  The
+      // safety cap covers the longer 66-byte 0xAD packet plus marker skipping.
+      for (int safety = 160; safety > 0; safety--) {
         for (volatile int t = 4000; !uart_rx_ready() && t > 0; t--) ;
         if (!uart_rx_ready()) { pkt_pos = 0; break; }  // timeout — reset for next frame
         uint8_t b = (uint8_t)getc_uart();
-        if (pkt_pos == 0 && b != 0xAC) continue;       // discard until marker found
+        if (pkt_pos == 0) {
+          if (b == 0xAC || b == 0xAD) {       // lock onto a known marker
+            pkt_marker = b;
+            pkt_buf[pkt_pos++] = b;
+          }
+          continue;                            // discard bytes until a marker
+        }
         pkt_buf[pkt_pos++] = b;
-        if (pkt_pos == 37) {
+
+        if (pkt_marker == 0xAC && pkt_pos == 37) {
           uint32_t raw[9];
           int valid = 1;
           for (int i = 0; i < 9; i++) {
@@ -314,8 +335,27 @@ int main() {
           if (valid) {
             union { uint32_t u; float f; } conv;
             for (int i = 0; i < 9; i++) { conv.u = raw[i]; rot_mat[i] = conv.f; }
+            have_mvp = 0;  // a 0xAC packet reverts to the TS-bake rotation path
           }
           break;  // one packet per frame — exit; don't attempt greedy drain
+        }
+
+        if (pkt_marker == 0xAD && pkt_pos == 66) {
+          // XOR checksum over the 64 payload bytes (no FP needed).
+          uint8_t csum = 0;
+          for (int i = 1; i <= 64; i++) csum ^= pkt_buf[i];
+          pkt_pos = 0;
+          if (csum == pkt_buf[65]) {
+            union { uint32_t u; float f; } conv;
+            for (int i = 0; i < 16; i++) {
+              int base = 1 + i * 4;
+              conv.u = (uint32_t)pkt_buf[base]          | ((uint32_t)pkt_buf[base+1] << 8) |
+                       ((uint32_t)pkt_buf[base+2] << 16) | ((uint32_t)pkt_buf[base+3] << 24);
+              host_mvp[i] = conv.f;
+            }
+            have_mvp = 1;
+          }
+          break;  // one packet per frame
         }
       }
     }
@@ -340,19 +380,34 @@ int main() {
 #endif
     unsigned int c0 = rdcycle();
 
+    borg_draw_data_t draw;
 #ifdef TARGET_ULX3S
-    // Build t1 from the quaternion-derived 3×3 rotation matrix received over UART.
-    mat4_identity(t1);
-    t1[0] = fp16_from_float(rot_mat[0]); t1[1] = fp16_from_float(rot_mat[1]); t1[2]  = fp16_from_float(rot_mat[2]);
-    t1[4] = fp16_from_float(rot_mat[3]); t1[5] = fp16_from_float(rot_mat[4]); t1[6]  = fp16_from_float(rot_mat[5]);
-    t1[8] = fp16_from_float(rot_mat[6]); t1[9] = fp16_from_float(rot_mat[7]); t1[10] = fp16_from_float(rot_mat[8]);
+    if (have_mvp) {
+      // 0xAD: the host (borgvk / cube.c) already computed the full
+      // projection·view·model MVP.  Both it and draw.uniforms are column-major,
+      // so convert straight to FP16 — no TS bake, no per-frame matrix multiply.
+      for (int i = 0; i < 16; i++)
+        draw.uniforms[i] = fp16_from_float(host_mvp[i]);
+      // Per-face lighting wants the model rotation, which isn't separable from a
+      // baked MVP.  Approximate with the MVP's upper-left 3×3 so faces still
+      // differentiate and track the spin.  (A future packet field could ship the
+      // model matrix or a precomputed face_light[] for exact lighting.)
+      for (int i = 0; i < 16; i++)
+        t1[i] = draw.uniforms[i];
+    } else {
+      // 0xAC: build t1 from the quaternion-derived 3×3 rotation, then MVP = TS·t1.
+      mat4_identity(t1);
+      t1[0] = fp16_from_float(rot_mat[0]); t1[1] = fp16_from_float(rot_mat[1]); t1[2]  = fp16_from_float(rot_mat[2]);
+      t1[4] = fp16_from_float(rot_mat[3]); t1[5] = fp16_from_float(rot_mat[4]); t1[6]  = fp16_from_float(rot_mat[5]);
+      t1[8] = fp16_from_float(rot_mat[6]); t1[9] = fp16_from_float(rot_mat[7]); t1[10] = fp16_from_float(rot_mat[8]);
+      mat4_mul_ts(draw.uniforms, ts, t1);  // MVP = TS · rotation: sparse, 16 ops vs 112
+    }
 #else
     mat4_rotate_x(rx, rx_f);
     mat4_rotate_y(ry, ry_f);
     mat4_mul(t1, rx, ry);
-#endif
-    borg_draw_data_t draw;
     mat4_mul_ts(draw.uniforms, ts, t1);  // MVP = TS · rotation: sparse, 16 ops vs 112
+#endif
 
     unsigned int c1 = rdcycle();  // M = matrix
 
