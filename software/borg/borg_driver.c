@@ -125,8 +125,9 @@ static const uint32_t borgc_vert_shader[] = {
 #endif
 
 #ifdef USE_BORGC_FRAG_SHADER
-// borgc-compiled cube.frag — the EXACT 56 words emitted by borgvk's NIR→Borg
-// backend from cube.c's unmodified fragment SPIR-V. Faithful lighting+texture
+// borgc-compiled cube.frag — the EXACT 59 words emitted by borgvk's NIR→Borg
+// backend from cube.c's unmodified fragment SPIR-V (BORGC_DUMP_ISA). Faithful
+// lighting+texture
 // +sRGB: dFdx/dFdy(frag_pos) → normalize(cross()) → max(0,dot(lightDir,n)) →
 // FSRGB(light·texture).  Reads barycentric edges from r0/r1/r2, inv_area+UV+
 // frag_pos+z from u12-30 (sequencer-staged), texel from FTEX, lightDir from the
@@ -134,23 +135,39 @@ static const uint32_t borgc_vert_shader[] = {
 // Outputs r26/27/28 = sRGB colour, r29 = interpolated depth.  Last word = HALT.
 // Sim-validated bit-for-bit by BorgCoreTests.borgc_fragment_cube (colour
 // 0.532/0.728, depth 9.0).  Enable with EXTRA_CFLAGS=-DUSE_BORGC_FRAG_SHADER.
+//
+// FP16-underflow rescale (the "white cube" fix): at fb 128×128 the screen-space
+// derivatives of frag_pos are ~0.03/px, so |cross(ddx,ddy)|² ≈ 2e-6 — BELOW the
+// FP16 minimum normal (6.1e-5).  Fp16Rsq returns +Inf for subnormal inputs →
+// normal=Inf → diffuse saturates → every lit pixel pure white (and the squares
+// inside the dot lose most of their bits even when they don't flush).  Fix
+// (emitted by borgc, see mesa src/borg/compiler/lib.rs): the three DDX results
+// are scaled by 32 right after they are produced — cross() is bilinear so
+// cross(32a,b)=32·cross(a,b), and normalize(32v)=normalize(v) EXACTLY (both
+// the dot and the post-FRSQ multiply see the same scale), so no downstream
+// compensation is needed.  The 32.0 constant lives in u31, the one uniform
+// slot the DMA/sequencer never write (RTL-gated in Borg.scala); the firmware
+// writes it to both pages before each render.  The rescale words are the 3
+// FMUL ·u31 (0x09f5..../0x09f6....) right after the 3 DDX ops.
 static const uint32_t borgc_frag_shader[] = {
   0x08c02180, 0x08c0a280, 0x08c12300, 0x0951a380, 0x3942a404, 0x41332384,
   0x0981a400, 0x4172a484, 0x49632404, 0x09b1a480, 0x49a2a504, 0x51932484,
-  0x3c038500, 0x3c040580, 0x3c048600, 0x40038680, 0x40040380, 0x40048400,
-  0x08760480, 0x08850700, 0x08d58780, 0x0c048800, 0x0c070480, 0x0c078700,
-  0x80858784, 0x48d60804, 0x70750484, 0x09080700, 0x70948384, 0x38f78704,
-  0x34070380, 0x08778700, 0x08780780, 0x08748800, 0x08f90380, 0x39098784,
-  0x78e88384, 0x10038780, 0x08f38700, 0x08f1a780, 0x78e2a384, 0x38d32784,
-  0x0921a380, 0x3912a804, 0x81032384, 0x18778a00, 0x08ea0380, 0x08ea8800,
-  0x08eb0780, 0x38038d00, 0x38080d80, 0x38078e00, 0x09e1a780, 0x79d2a184,
-  0x19c32e84, 0x00000000,
+  0x3c038500, 0x3c040580, 0x3c048600, 0x09f52680, 0x09f5a500, 0x09f62580,
+  0x40038600, 0x40040380, 0x40048400, 0x08758480, 0x08868700, 0x08c50780,
+  0x0c048800, 0x0c070480, 0x0c078700, 0x80850784, 0x48c58804, 0x70768484,
+  0x09080700, 0x70948384, 0x38f78704, 0x34070380, 0x08778700, 0x08780780,
+  0x08748800, 0x08f90380, 0x39098784, 0x78e88384, 0x10038780, 0x08f38700,
+  0x08f1a780, 0x78e2a384, 0x38d32784, 0x0921a380, 0x3912a804, 0x81032384,
+  0x18778a00, 0x08ea0380, 0x08ea8800, 0x08eb0780, 0x38038d00, 0x38080d80,
+  0x38078e00, 0x09e1a780, 0x79d2a184, 0x19c32e84, 0x00000000,
 };
 #define BORGC_FRAG_SHADER_LEN (sizeof(borgc_frag_shader) / sizeof(borgc_frag_shader[0]))
 // lightDir = (0.424, 0.566, 0.707) as FP16, pinned to reserved GPRs r17-19.
 #define BORGC_LIGHTDIR_R17 0x36c8  // fp16(0.424)
 #define BORGC_LIGHTDIR_R18 0x3887  // fp16(0.566)
 #define BORGC_LIGHTDIR_R19 0x39a7  // fp16(0.707)
+// 32.0 for the DDX rescale FMULs, pinned to uniform u31 (both pages).
+#define BORGC_DDXSCALE_U31 0x5000  // fp16(32.0)
 #endif
 
 // Triangle setup shader (31 instructions, with edge normalization for Step 30.1c):
@@ -1043,6 +1060,14 @@ static void borgBinRenderAutonomous(int frame) {
       BORG_GPU->gpr[17] = BORGC_LIGHTDIR_R17;
       BORG_GPU->gpr[18] = BORGC_LIGHTDIR_R18;
       BORG_GPU->gpr[19] = BORGC_LIGHTDIR_R19;
+      // 32.0 → u31 on BOTH uniform pages for the DDX rescale FMULs.  The
+      // sequencer ping-pongs the page per triangle but stages only u0-30, so
+      // u31 persists on each page once written.
+      BORG_GPU->control = 0;  // uniform write page 0
+      BORG_GPU->uniform[31] = BORGC_DDXSCALE_U31;
+      BORG_GPU->control = CONTROL_REG_T__UNIFORM_WRITE_PAGE_bm;
+      BORG_GPU->uniform[31] = BORGC_DDXSCALE_U31;
+      BORG_GPU->control = 0;  // restore page 0 (matches the staging default)
 #endif
       BORG_GPU->seq_desc_base = SEQ_DESC_BASE_ADDR;
       BORG_GPU->seq_tri_count = draw_call_count;

@@ -749,23 +749,28 @@ object BorgCoreTests extends TestSuite {
         wu(22, 1.0f); wu(23, 2.0f); wu(24, 0.0f)      // y: v2=1, v1=2, v0=0
         wu(25, 0.0f); wu(26, 0.0f); wu(27, 1.0f)      // z: v2=0, v1=0, v0=1
         for (u <- 28 to 30) wu(u, 0.5f)               // z varying
+        wu(31, 32.0f)                                 // DDX rescale constant (firmware ABI)
         writeReg(core, 4, 0)                          // preamble zero scratch (r4 reserved)
 
         // Preamble → per-lane edges in r0/r1/r2.
         writeImem(core, 0, Instructions.ADD(30, 4, 0))  // r0 = coordX
         writeImem(core, 1, Instructions.ADD(31, 4, 1))  // r1 = coordY
         writeImem(core, 2, Instructions.ADD(30, 31, 2)) // r2 = coordX+coordY
+        // The EXACT 59 words emitted by borgc (BORGC_DUMP_ISA), including the
+        // 3 DDX-rescale FMULs (×u31=32.0, right after the 3 DDX ops) — the
+        // FP16-underflow fix; must match borgc_frag_shader in
+        // software/borg/borg_driver.c word-for-word.
         val frag = Seq(
           0x08c02180L, 0x08c0a280L, 0x08c12300L, 0x0951a380L, 0x3942a404L, 0x41332384L,
           0x0981a400L, 0x4172a484L, 0x49632404L, 0x09b1a480L, 0x49a2a504L, 0x51932484L,
-          0x3c038500L, 0x3c040580L, 0x3c048600L, 0x40038680L, 0x40040380L, 0x40048400L,
-          0x08760480L, 0x08850700L, 0x08d58780L, 0x0c048800L, 0x0c070480L, 0x0c078700L,
-          0x80858784L, 0x48d60804L, 0x70750484L, 0x09080700L, 0x70948384L, 0x38f78704L,
-          0x34070380L, 0x08778700L, 0x08780780L, 0x08748800L, 0x08f90380L, 0x39098784L,
-          0x78e88384L, 0x10038780L, 0x08f38700L, 0x08f1a780L, 0x78e2a384L, 0x38d32784L,
-          0x0921a380L, 0x3912a804L, 0x81032384L, 0x18778a00L, 0x08ea0380L, 0x08ea8800L,
-          0x08eb0780L, 0x38038d00L, 0x38080d80L, 0x38078e00L, 0x09e1a780L, 0x79d2a184L,
-          0x19c32e84L, 0x00000000L)
+          0x3c038500L, 0x3c040580L, 0x3c048600L, 0x09f52680L, 0x09f5a500L, 0x09f62580L,
+          0x40038600L, 0x40040380L, 0x40048400L, 0x08758480L, 0x08868700L, 0x08c50780L,
+          0x0c048800L, 0x0c070480L, 0x0c078700L, 0x80850784L, 0x48c58804L, 0x70768484L,
+          0x09080700L, 0x70948384L, 0x38f78704L, 0x34070380L, 0x08778700L, 0x08780780L,
+          0x08748800L, 0x08f90380L, 0x39098784L, 0x78e88384L, 0x10038780L, 0x08f38700L,
+          0x08f1a780L, 0x78e2a384L, 0x38d32784L, 0x0921a380L, 0x3912a804L, 0x81032384L,
+          0x18778a00L, 0x08ea0380L, 0x08ea8800L, 0x08eb0780L, 0x38038d00L, 0x38080d80L,
+          0x38078e00L, 0x09e1a780L, 0x79d2a184L, 0x19c32e84L, 0x00000000L)
         for ((w, i) <- frag.zipWithIndex) writeImem(core, 3 + i, BigInt(w))
 
         def runFrag(texel: Float): (Float, Float, Float, Float) = {
@@ -790,9 +795,22 @@ object BorgCoreTests extends TestSuite {
         for (v <- Seq(r1, g1, b1, r2, g2, b2)) utest.assert(!v.isNaN && v >= -0.02f && v <= 1.02f)
         utest.assert(math.abs(r1 - 0.53f) < 0.06f && math.abs(g1 - 0.53f) < 0.06f && math.abs(b1 - 0.53f) < 0.06f)
         utest.assert(math.abs(r2 - 0.73f) < 0.06f && math.abs(g2 - 0.73f) < 0.06f && math.abs(b2 - 0.73f) < 0.06f)
-        // z-interp output (now that IMEM is 72-deep, the full 59-instruction program
+        // z-interp output (now that IMEM is 72-deep, the full 62-instruction program
         // loads): z = 0.5·Σwᵢ = 0.5·(4.5+4.5+9.0) = 9.0 with these synthetic edges.
         utest.assert(math.abs(z1 - 9.0f) < 0.05f)
+
+        // Small-derivative regression (the 128×128 "white cube" bug): shrink the
+        // frag_pos vertex values ×1/32 so |cross(ddx,ddy)|² lands in the FP16
+        // SUBNORMAL range (≈2.6e-5 < 6.1e-5).  Without the DDX-rescale FMULs the
+        // FRSQ sees a subnormal and returns +Inf → colour saturates to 1.0; with
+        // them the result must match the large-derivative case (normalize is
+        // scale-invariant).
+        wu(19, 2.0f / 32); wu(20, 1.0f / 32); wu(21, 0.0f)
+        wu(22, 1.0f / 32); wu(23, 2.0f / 32); wu(24, 0.0f)
+        wu(25, 0.0f);      wu(26, 0.0f);      wu(27, 1.0f / 32)
+        val (r3, g3, b3, _) = runFrag(0.5f)
+        println(f"  texel=0.5, frag_pos/32 → colour=($r3%.3f, $g3%.3f, $b3%.3f) (expect ~0.53, NOT 1.0)")
+        utest.assert(math.abs(r3 - 0.53f) < 0.06f && math.abs(g3 - 0.53f) < 0.06f && math.abs(b3 - 0.53f) < 0.06f)
         println("  PASSED — faithful cube.frag lighting+texture+sRGB+depth bit-correct")
       }
     }

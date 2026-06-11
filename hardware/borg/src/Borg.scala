@@ -190,7 +190,13 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Uniform write port is shared between DMA and sequencer;
     // sequencer takes priority (they never contend in practice).
     core.io.dmaImemWrite <> d.io.imemWrite
-    core.io.dmaUniformWrite.en   := d.io.uniformWrite.en || s.io.uniformWrite.en
+    // u31 is FIRMWARE-OWNED (holds the borgc fragment's DDX-rescale constant,
+    // written via MMIO before each render).  The Pass-2 setup reload DMAs 32
+    // words — word 31 is the has_uvs flag, needed only by the sequencer's
+    // uniformSnoop below — so the DMA must never write uniform slot 31.  The
+    // sequencer's own staging stops at u30 and is unaffected.
+    val dmaUniWriteEn = d.io.uniformWrite.en && d.io.uniformWrite.addr(4, 0) =/= 31.U
+    core.io.dmaUniformWrite.en   := dmaUniWriteEn || s.io.uniformWrite.en
     core.io.dmaUniformWrite.addr := Mux(s.io.uniformWrite.en,
                                         s.io.uniformWrite.addr,
                                         d.io.uniformWrite.addr)
