@@ -45,19 +45,26 @@ arc.h: state.json
 	python3 arcilator-header-cpp.py $< > $@
 
 # Step 5: Build test harness
-texture_loader.o: ../common/texture_loader.cpp ../common/texture_loader.h
+# Harness sources bake in the firmware memory map via common_sim.h ->
+# software/borg/borg_layout.h (TEX_PSRAM_BYTE_ADDR_FIXED, PSRAM_OUT_OFFSET, …).
+# List those headers so a layout change rebuilds the harness — otherwise stale
+# objects keep an old PSRAM map and the firmware reads/writes garbage (silent
+# render hang).  Wildcard the firmware headers so any of them triggers a rebuild.
+LAYOUT_HDRS = ../common/common_sim.h $(wildcard $(FIRMWARE_DIR)/*.h)
+
+texture_loader.o: ../common/texture_loader.cpp ../common/texture_loader.h $(LAYOUT_HDRS)
 	$(CLANG) -O3 -c ../common/texture_loader.cpp -I../common -I$(RDL_C_OUT) -o $@
 
 uart_decoder.o: ../common/uart_decoder.cpp ../common/uart_decoder.h
 	$(CLANG) -O3 -c ../common/uart_decoder.cpp -I../common -o $@
 
-BorgSimulatorBase.o: ../common/BorgSimulatorBase.cpp ../common/BorgSimulatorBase.h
+BorgSimulatorBase.o: ../common/BorgSimulatorBase.cpp ../common/BorgSimulatorBase.h $(LAYOUT_HDRS)
 	$(CLANG) -O3 -c ../common/BorgSimulatorBase.cpp -I../common -o $@
 
-ArcBorgSimulator.o: ArcBorgSimulator.cpp ArcBorgSimulator.h
+ArcBorgSimulator.o: ArcBorgSimulator.cpp ArcBorgSimulator.h $(LAYOUT_HDRS)
 	$(CLANG) -O3 -c ArcBorgSimulator.cpp -I../common -o $@
 
-main.o: main.cpp arc.h arcilator-runtime.h ../common/texture_loader.h ArcBorgSimulator.h ../common/BorgSimulatorBase.h
+main.o: main.cpp arc.h arcilator-runtime.h ../common/texture_loader.h ArcBorgSimulator.h ../common/BorgSimulatorBase.h $(LAYOUT_HDRS)
 	$(CLANG) -O3 -c main.cpp -I../common -o $@
 
 # Step 6: Link
