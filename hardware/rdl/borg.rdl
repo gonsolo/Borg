@@ -108,14 +108,16 @@ reg control_reg_t {
 
     field {
         sw = w; hw = r;
-        desc = "Bits 10:5: Shader start PC (6-bit program counter offset into
-                IMEM).  Coincides with uniform_write_page at bit 5 — in hardware
-                the CONTROL write decodes both fields simultaneously.";
-    } start_pc[6] = 0;
+        desc = "Bits 12:6: Shader start PC (7-bit program counter offset into
+                IMEM).  Widened 6->7 bits for IMEM=72 (the scalar-FPU helper
+                program lives at IMEM[70], past the 56-word borgc fragment); a
+                6-bit field truncated PC>=64 to PC&0x3F, silently mis-starting
+                borg_fp16_mul/add/fmadd/rcp and zeroing all CPU-side fp16 math.";
+    } start_pc[7] = 0;
 
     field {
         sw = w; hw = na;
-    } RSVD_hi[20] = 0;
+    } RSVD_hi[19] = 0;
 };
 
 // --- Status register (read path at same address as CONTROL) ---

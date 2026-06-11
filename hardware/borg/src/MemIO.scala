@@ -24,7 +24,7 @@ class MemWritePort(val addrWidth: Int, val dataWidth: Int) extends Bundle {
 class CoreControlIO extends Bundle {
   val start       = Output(Bool())
   val reset       = Output(Bool())
-  val startPC          = Output(UInt(6.W))
+  val startPC          = Output(UInt(7.W))  // 7-bit: IMEM=72, scalar-FPU helper at PC 70
   val uniformWritePage = Output(UInt(1.W))
 }
 
