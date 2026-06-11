@@ -1000,9 +1000,17 @@ static void borgBinRenderAutonomous(int frame) {
     for (int i = 0; i < draw_call_count; i++) {
       if (draw_calls[i].tex.psram_offset >= 0) { any_textured = 1; break; }
     }
-    BORG_GPU->tex_config = any_textured
+    // Fragment uniform-staging mode (u19-u27): the hand frag.s reads vertex
+    // colour there (bit=0), the borgc cube.frag reads model frag_pos (bit=1).
+    // OR it into every tex_config write (incl. the non-textured branch) so the
+    // sequencer always knows which the loaded fragment expects.
+    uint32_t frag_mode = 0;
+#ifdef USE_BORGC_FRAG_SHADER
+    frag_mode = TEX_CONFIG_REG_T__FRAG_USES_FRAGPOS_bm;
+#endif
+    BORG_GPU->tex_config = (any_textured
         ? ((TEX_PSRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) | TEX_CONFIG_REG_T__EN_bm)
-        : 0;
+        : 0) | frag_mode;
   }
   BORG_GPU->control = 0; // uniform page 0
 

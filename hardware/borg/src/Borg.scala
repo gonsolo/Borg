@@ -534,6 +534,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.mmio.setupBase       := seqSetupBaseReg
       s.io.mmio.fbWidthTiles    := seqTilesPerRowReg
       s.io.mmio.fbHeightTiles   := seqTilesPerRowReg  // square framebuffer assumption
+      s.io.mmio.fragUsesFragPos := rdlRegs.io.hw.tex_config_frag_uses_fragpos
       s.io.iter.complete        := rast.io.tileComplete
       s.io.iter.stall           := rast.io.autoRunStall
       // Dispatcher pipeline idle — sequencer waits for this before flushing

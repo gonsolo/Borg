@@ -350,8 +350,17 @@ reg tex_config_reg_t {
     } en[1] = 0;
 
     field {
+        sw = rw; hw = r;
+        desc = "Bit 17: Fragment uniform-staging mode for u19-u27.  0 = vertex
+                colour R/G/B (the hand-written frag.s, outColor = texel*color);
+                1 = per-vertex model position frag_pos.x/y/z (the borgc cube.frag,
+                which derives the normal via dFdx/dFdy(frag_pos)).  Set by the
+                firmware to match the loaded fragment shader.";
+    } frag_uses_fragpos[1] = 0;
+
+    field {
         sw = rw; hw = na;
-    } RSVD[15] = 0;
+    } RSVD[14] = 0;
 };
 
 // --- Texture address (computed by hardware) ---

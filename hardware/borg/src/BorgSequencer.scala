@@ -80,6 +80,9 @@ class SeqMmioIO extends Bundle {
   val setupBase = Input(UInt(25.W))
   val fbWidthTiles = Input(UInt(10.W))
   val fbHeightTiles = Input(UInt(10.W))
+  // Fragment uniform-staging mode (tex_config.frag_uses_fragpos): 0 = vertex
+  // colour at u19-u27 (hand frag.s), 1 = model frag_pos (borgc cube.frag).
+  val fragUsesFragPos = Input(Bool())
 }
 
 class SeqBinnerIO extends Bundle {
@@ -738,11 +741,12 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }.elsewhen(w < 19.U) {
       uData := uvRegs(vertOf(16))(1)          // u16-u18: V-coord
     }.elsewhen(w < 22.U) {
-      uData := posRegs(vertOf(19))(0)         // u19-u21: frag_pos.x (model x)
+      // u19-u21: vertex colour R (hand frag) OR frag_pos.x (borgc frag), per mode.
+      uData := Mux(io.mmio.fragUsesFragPos, posRegs(vertOf(19))(0), colorRegs(vertOf(19))(0))
     }.elsewhen(w < 25.U) {
-      uData := posRegs(vertOf(22))(1)         // u22-u24: frag_pos.y (model y)
+      uData := Mux(io.mmio.fragUsesFragPos, posRegs(vertOf(22))(1), colorRegs(vertOf(22))(1))
     }.elsewhen(w < 28.U) {
-      uData := posRegs(vertOf(25))(2)         // u25-u27: frag_pos.z (model z)
+      uData := Mux(io.mmio.fragUsesFragPos, posRegs(vertOf(25))(2), colorRegs(vertOf(25))(2))
     }.otherwise {
       uData := clipRegs(vertOf(28))(2)        // u28-u30: Z from vertex shader r2 (projected depth)
     }
