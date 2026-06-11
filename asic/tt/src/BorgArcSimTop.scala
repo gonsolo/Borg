@@ -42,12 +42,11 @@ class BorgArcSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   }
   def soc_ui_in = ui_in
 
-  // Arcilator stays on the scalar (fragLanes=1) config: its C++ harness manually
-  // pokes the rcp LUT (arcilator ignores $readmemh) at a single lane, so the 4-lane
-  // SIMT config needs a per-lane load_luts (deferred).  4-lane is validated by the
-  // verilator goldens + ULX3S; arcilator remains the fast N=1 sim — running the
-  // real custom FMA (Default.useCustomFma=true), same as ULX3S ships.
-  override def BORG_CFG: BorgConfig = BorgConfig.Default
+  // Unified 2×2 quad SIMT config, matching the verilator BorgSimTop and ULX3S.
+  // Arcilator ignores $readmemh, so its C++ harness pokes the per-lane LUTs into
+  // all 4 lanes (see ArcBorgSimulator::load_luts).  One config everywhere keeps
+  // sim == hardware.
+  override def BORG_CFG: BorgConfig = BorgConfig.Simt
 
   // No scanout: immediately reflect fb_select writes so the firmware's
   // PERI_FB_SELECT sync loop exits on the first read.

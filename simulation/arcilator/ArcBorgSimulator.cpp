@@ -73,22 +73,28 @@ static int load_hex_into(const char* path, uint16_t* out, int max_entries) {
 }
 
 void ArcBorgSimulator::load_luts() {
-    // The FRCP reciprocal LUT lives in BorgLane (per-lane datapath).  Arcilator
-    // ignores $readmemh, so we poke it from C++.  The struct path tracks arcilator's
-    // --inline decision: with the single-register FMA the lane inlined into the core
-    // (core.rcpLutA_ext); the deeper 3-register FMA pushes BorgLane past the inline
-    // threshold, so the LUT is under core.lanes_0.  (At N=4 each lanes_i has its own —
-    // arcilator stays pinned to N=1/Default, so only lanes_0 exists here.)  A path
-    // mismatch is a loud compile error, not a silent FRCP-garbage hang.
-    auto& lane = model->view.internal.uo_out_val_peripherals.borg.core.lanes_0;
-    // coordLutX/Y replaced by combinational pixelToFP16Half — no loading needed.
-    uint16_t rcp[17];
-    int nr = load_hex_into("../../hardware/borg/src/rcp_lut.hex", rcp, 17);
-    for (int i = 0; i < nr; i++) {
-        lane.rcpLutA_ext.words[i].data = rcp[i];
-        lane.rcpLutB_ext.words[i].data = rcp[i];
-    }
-    fprintf(stderr, "[SIM] Loaded LUTs: rcp=%d entries\n", nr);
+    // The FRCP/FRSQ/FSRGB LUTs live per-lane in BorgLane.  Arcilator ignores the
+    // RTL's $readmemh, so we poke them from C++.  The unified SIMT config has 4
+    // lanes (lanes_0..3), each with its own A/B copy of every LUT — all must be
+    // loaded or that lane's FRCP returns garbage (black/hung frame).  A struct-path
+    // mismatch here is a loud compile error, not a silent runtime hang.
+    // (coordLutX/Y were replaced by combinational pixelToFP16Half — no load needed.)
+    uint16_t rcp[17], frsq[34], srgb[256];
+    int nr = load_hex_into("../../hardware/borg/src/rcp_lut.hex",  rcp,  17);
+    int nf = load_hex_into("../../hardware/borg/src/frsq_lut.hex", frsq, 34);
+    int ns = load_hex_into("../../hardware/borg/src/srgb_lut.hex", srgb, 256);
+
+    auto loadLane = [&](auto& lane) {
+        for (int i = 0; i < nr; i++) { lane.rcpLutA_ext.words[i].data  = rcp[i];  lane.rcpLutB_ext.words[i].data  = rcp[i];  }
+        for (int i = 0; i < nf; i++) { lane.frsqLutA_ext.words[i].data = frsq[i]; lane.frsqLutB_ext.words[i].data = frsq[i]; }
+        for (int i = 0; i < ns; i++) { lane.srgbLutA_ext.words[i].data = srgb[i]; lane.srgbLutB_ext.words[i].data = srgb[i]; }
+    };
+    auto& core = model->view.internal.uo_out_val_peripherals.borg.core;
+    loadLane(core.lanes_0);
+    loadLane(core.lanes_1);
+    loadLane(core.lanes_2);
+    loadLane(core.lanes_3);
+    fprintf(stderr, "[SIM] Loaded LUTs ×4 lanes: rcp=%d frsq=%d srgb=%d\n", nr, nf, ns);
 }
 
 bool ArcBorgSimulator::step(uint32_t cycles_to_run) {
