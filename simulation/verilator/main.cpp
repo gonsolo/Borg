@@ -31,7 +31,8 @@ int main(int argc, char** argv) {
             std::cout << "[SIM] " << (total_cycles / 1000000) << " million cycles\n" << std::flush;
         }
         if (max_cycles && total_cycles >= max_cycles) {
-            std::cout << "[SIM] MAX CYCLES REACHED (" << max_cycles << ")\n";
+            std::cout << "[SIM] MAX CYCLES REACHED (" << max_cycles << ") — saving partial framebuffer\n";
+            sim.save_ppm(app_name);
             return 1;
         }
     }

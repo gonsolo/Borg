@@ -189,30 +189,42 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
       // Accept start from either direct pulse or pending (latched during clear).
       val doStart = (io.start && !clearing) || (pendingStart && !clearing)
       when(doStart) {
-        if (BorgDebug.trace) printf("[BIN] doStart pending=%d bbox=(%d,%d)-(%d,%d)\n",
-          pendingStart, Mux(pendingStart, pendBboxMinX, io.bbox.min.x),
-          Mux(pendingStart, pendBboxMinY, io.bbox.min.y),
-          Mux(pendingStart, pendBboxMaxX, io.bbox.max.x),
-          Mux(pendingStart, pendBboxMaxY, io.bbox.max.y))
-        // Use pending inputs if start came during clearing; otherwise use live inputs.
-        when(pendingStart) {
-          bboxMinX  := pendBboxMinX
-          bboxMinY  := pendBboxMinY
-          bboxMaxX  := pendBboxMaxX
-          bboxMaxY  := pendBboxMaxY
-          triIdxReg := pendTriIdx
-          tileX     := pendBboxMinX
-          tileY     := pendBboxMinY
-          pendingStart := false.B
-        }.otherwise {
-          bboxMinX  := io.bbox.min.x
-          bboxMinY  := io.bbox.min.y
-          bboxMaxX  := io.bbox.max.x
-          bboxMaxY  := io.bbox.max.y
-          triIdxReg := io.triIndex
-          tileX     := io.bbox.min.x
-          tileY     := io.bbox.min.y
-        }
+        // Select the live or pending-latched bbox/triIdx.
+        val rawMinX = Mux(pendingStart, pendBboxMinX, io.bbox.min.x)
+        val rawMinY = Mux(pendingStart, pendBboxMinY, io.bbox.min.y)
+        val rawMaxX = Mux(pendingStart, pendBboxMaxX, io.bbox.max.x)
+        val rawMaxY = Mux(pendingStart, pendBboxMaxY, io.bbox.max.y)
+        val triId   = Mux(pendingStart, pendTriIdx,   io.triIndex)
+
+        // --- SAFETY CLAMP to the framebuffer tile grid ---
+        // A degenerate/garbage triangle (e.g. a bad vertex transform projecting
+        // every vertex to the FP16 saturation corner ~1023) yields a bbox that
+        // spans the whole 1024-pixel coordinate space.  Unclamped, the tile walk
+        // would iterate ~(1024/4)² tiles per triangle — effectively a hang, with
+        // out-of-range tile indices clobbering the count SRAM / bin PSRAM.  Clamp
+        // the bbox to the real grid so the walk is always bounded and in-range,
+        // regardless of upstream bugs.  Square fb (width==height) is assumed, as
+        // on every current target; the bound is the fb width in pixels.
+        val fbDim   = (io.tilesPerRow << 2).asUInt        // fb extent in pixels (exclusive max)
+        val lastTl  = Mux(fbDim >= 4.U, fbDim - 4.U, 0.U) // first pixel of the last tile
+        def clampMin(v: UInt): UInt = Mux(v > lastTl, lastTl, v)(9, 0)
+        def clampMax(v: UInt): UInt = Mux(v > fbDim, fbDim, v)(9, 0)
+        val minX = clampMin(rawMinX)
+        val minY = clampMin(rawMinY)
+        val maxX = clampMax(rawMaxX)
+        val maxY = clampMax(rawMaxY)
+
+        if (BorgDebug.trace) printf("[BIN] doStart pending=%d raw=(%d,%d)-(%d,%d) clamped=(%d,%d)-(%d,%d)\n",
+          pendingStart, rawMinX, rawMinY, rawMaxX, rawMaxY, minX, minY, maxX, maxY)
+
+        bboxMinX  := minX
+        bboxMinY  := minY
+        bboxMaxX  := maxX
+        bboxMaxY  := maxY
+        triIdxReg := triId
+        tileX     := minX
+        tileY     := minY
+        pendingStart := false.B
         state     := sReadCount
       }
     }
