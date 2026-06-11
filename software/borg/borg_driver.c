@@ -158,7 +158,9 @@ static const uint32_t borgc_frag_shader[] = {
 //   u6    = inv_width = 1/fb_width (written by sWriteSetupInputs, Step 30.1c).
 //   Outputs r0-r5 = normalized edge components (divided by fb_width).
 //   Output  r7    = inv_area = W/area (matching CPU path convention).
-//   r8-r21 are working registers (intermediate positions).
+//   r8-r16, r20-r24 are working registers (intermediate positions).
+//   r17-r19 are RESERVED: they carry the borgc fragment's lightDir from the
+//   firmware (written before seq_trigger) through to Pass 2 — do not clobber.
 static const uint32_t seq_setup_shader[] = {
   // Copy screen coords from uniforms u0-u5 into working regs r8-r13
   BORG_INSTR_FADD( 8, 0, 31, 1),  // r8  = v0.x
@@ -174,12 +176,19 @@ static const uint32_t seq_setup_shader[] = {
   BORG_INSTR_FADD( 1, 11, 15, 0), // r1  = v1.y - v0.y  (e0.dy)
   BORG_INSTR_FNEG(16, 12, 0),     // r16 = -v2.x
   BORG_INSTR_FADD( 2, 10, 16, 0), // r2  = v1.x - v2.x  (e1.dx)
-  BORG_INSTR_FNEG(17, 11, 0),     // r17 = -v1.y
-  BORG_INSTR_FADD( 3, 13, 17, 0), // r3  = v2.y - v1.y  (e1.dy)
-  BORG_INSTR_FNEG(18,  8, 0),     // r18 = -v0.x
-  BORG_INSTR_FADD( 4, 12, 18, 0), // r4  = v2.x - v0.x  (e2.dx)
-  BORG_INSTR_FNEG(19, 13, 0),     // r19 = -v2.y
-  BORG_INSTR_FADD( 5,  9, 19, 0), // r5  = v0.y - v2.y  (e2.dy)
+  // NOTE: scratch deliberately SKIPS r17-r19 — those hold the borgc fragment's
+  // lightDir, written by the firmware ONCE before seq_trigger and read in Pass 2.
+  // The original r17/r18/r19 scratch overwrote lightDir with negated screen
+  // coords (|v|≈fb_width), so diffuse = dot(±100-ish, normal) saturated → every
+  // face shaded pure white or black.  r22-r24 are dead at this point in every
+  // stage (FTEX writes r20-22 only during the frag; vertex writes r24-26 before
+  // setup runs and setup writes-before-reads).
+  BORG_INSTR_FNEG(22, 11, 0),     // r22 = -v1.y
+  BORG_INSTR_FADD( 3, 13, 22, 0), // r3  = v2.y - v1.y  (e1.dy)
+  BORG_INSTR_FNEG(23,  8, 0),     // r23 = -v0.x
+  BORG_INSTR_FADD( 4, 12, 23, 0), // r4  = v2.x - v0.x  (e2.dx)
+  BORG_INSTR_FNEG(24, 13, 0),     // r24 = -v2.y
+  BORG_INSTR_FADD( 5,  9, 24, 0), // r5  = v0.y - v2.y  (e2.dy)
   // Area = e0.dx * e2.dy + e2.dx * (-e0.dy)
   BORG_INSTR_FMUL(20,  0,  5, 0), // r20 = e0.dx * e2.dy
   BORG_INSTR_FNEG(21,  1, 0),     // r21 = -e0.dy
