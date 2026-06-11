@@ -180,17 +180,18 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbBase1: Int = 0x120004, fbWidth: 
   val fbY = ((io.vCount - startY) / overlayScale.U)(log2Ceil(fbHeight) - 1, 0)
   val dispIdx = Cat(fbY, fbX)   // row*fbWidth + col
 
-  // Pixel (0,0) is the one framebuffer slot the fill loop both writes (fillIdx
-  // wraps to 0) and the display reads at the loop boundary — a read/during-write
-  // collision on frameBuf that surfaces as a lone blinking corner pixel on
-  // hardware (the cycle-accurate sims dump PSRAM directly and never show it).
-  // Substitute its right neighbour (1,0) — visually seamless, one corner pixel.
-  val dispIdxSafe = Mux(dispIdx === 0.U, 1.U, dispIdx)
+  // Guard against ECP5 BRAM read-during-write collisions: when the fill FSM
+  // writes to the same address the display is reading, the BRAM output is
+  // undefined (write-first or read-first depending on synthesis config).
+  // Detect the collision one cycle ahead and hold the last clean pixel instead.
+  val pixel     = frameBuf.read(dispIdx)
+  val prevPixel = RegNext(pixel)
+  val collision = wrEn && (fillIdx === dispIdx)
+  val pixelSafe = Mux(RegNext(collision, false.B), prevPixel, pixel)
 
-  val pixel = frameBuf.read(dispIdxSafe)
   val showD = RegNext(show, false.B)
 
-  io.red   := Mux(showD, pixel(23, 16), 0.U)
-  io.green := Mux(showD, pixel(15, 8),  0.U)
-  io.blue  := Mux(showD, pixel(7, 0),   0.U)
+  io.red   := Mux(showD, pixelSafe(23, 16), 0.U)
+  io.green := Mux(showD, pixelSafe(15, 8),  0.U)
+  io.blue  := Mux(showD, pixelSafe(7, 0),   0.U)
 }
