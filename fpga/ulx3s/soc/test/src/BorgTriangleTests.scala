@@ -472,7 +472,7 @@ class BorgScanoutContentionHarness extends Module {
   val borg    = Module(new BorgTestWrapper(BorgConfig.Default))
   val mem     = Module(new MemoryController)
   val sdram   = Module(new SdramBackendSim(words = 16384, rdDelay = 4, wrDelay = 2))
-  val scanout = Module(new HdmiScanoutFp16(fbBase = 0x1000, fbWidth = 32, fbHeight = 32))
+  val scanout = Module(new HdmiScanoutFp16(fbWidth = 32, fbHeight = 32))
 
   sdram.io.backend <> mem.io.backend
 
@@ -522,6 +522,9 @@ class BorgScanoutContentionHarness extends Module {
   scanout.io.de     := io.de
   scanout.io.tick25 := io.tick25
   scanout.io.enable := io.scanoutEnable
+  scanout.io.frontBuf := false.B
+  scanout.io.fbBase   := 0x1000.U
+  scanout.io.fbBase1  := 0x1000.U
 
   // Output
   io.red     := scanout.io.red

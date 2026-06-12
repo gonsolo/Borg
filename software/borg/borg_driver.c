@@ -421,6 +421,15 @@ void borgCreateDevice(void) {
   // Step 25.4.1: Configure hardware tile flusher base address.
   // Actual per-tile base is set dynamically in borgBinRender.
   BORG_GPU->flush_fb_base = PSRAM_OUT_SPI(0 * FRAME_STRIDE);
+
+#ifdef TARGET_ULX3S
+  // Program the HDMI scanout's framebuffer bases from the SAME layout constants
+  // that drive the GPU flush/render base, so the display engine and the GPU can
+  // never drift apart (a 0x80 drift here was the blinking green corner pixel).
+  //   PERI_SCANOUT_FB0 @ 0x08000010, PERI_SCANOUT_FB1 @ 0x08000028.
+  *(volatile uint32_t *)0x08000010u = PSRAM_OUT_SPI(0 * FRAME_STRIDE);
+  *(volatile uint32_t *)0x08000028u = PSRAM_OUT_SPI(1 * FRAME_STRIDE);
+#endif
   // log2(fbWidth) — fbWidth is always a power of 2
   unsigned int log2_w = 0;
   unsigned int w = (unsigned int)borg_fb_width;

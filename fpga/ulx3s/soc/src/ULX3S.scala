@@ -128,8 +128,13 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   def soc_ui_in = Cat(ftdi_txd, btn, 0.U(1.W))
 
   // ── HDMI Scanout — declared here so wireGpuMem() can reference it ─────────
+  // The framebuffer bases are NOT hardcoded here: firmware programs them via the
+  // PERI_SCANOUT_FB0/FB1 registers (scanoutFbBase0/1), from the SAME borg_layout.h
+  // constants that drive the GPU flush base — so the scanout and the GPU cannot
+  // drift apart (a 0x80 drift here previously caused the blinking green corner
+  // pixel).  Wired below once the SoC registers exist.
   val scanout = withClockAndReset(sysClock, pllRst) {
-    Module(new HdmiScanoutFp16(fbBase = 0x85600, fbBase1 = 0xA5604, fbWidth = 128, fbHeight = 128))
+    Module(new HdmiScanoutFp16(fbWidth = 128, fbHeight = 128))
   }
 
   // ── GPU memory arbiter: Borg GPU writes/reads have priority over scanout ──
@@ -263,6 +268,9 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // ── HDMI Scanout: enable + front-buffer select ────────────────────────────
   scanout.io.enable   := true.B
   scanout.io.frontBuf := fbSelectReg
+  // Firmware-programmed framebuffer bases (single source of truth, no drift).
+  scanout.io.fbBase   := scanoutFbBase0
+  scanout.io.fbBase1  := scanoutFbBase1
 
   // ── VGA timing (25 MHz pixel clock = sysClock directly) ───────────────────
   // At 25 MHz SoC clock, every cycle IS a pixel tick — no divider needed.

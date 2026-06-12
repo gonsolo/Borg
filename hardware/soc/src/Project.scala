@@ -39,7 +39,9 @@ private[soc] object SoCDecode {
   val PERI_DEBUG_UART        = 0x6
   val PERI_DEBUG_UART_STATUS = 0x7
   val PERI_DEBUG_UART_BAUD   = 0x8
+  val PERI_SCANOUT_FB0       = 0x4   // scanout framebuffer base (buffer 0), firmware-programmed
   val PERI_FB_SELECT         = 0x9
+  val PERI_SCANOUT_FB1       = 0xA   // scanout framebuffer base (buffer 1), firmware-programmed
   val PERI_TIME_LIMIT        = 0xB
   val PERI_DEBUG             = 0xC
   val PERI_USER              = 0xF
@@ -93,6 +95,14 @@ trait SoCLogic { self: RawModule =>
   // double-buffered scanout; read back via PERI_FB_SELECT so firmware can wait
   // for the scanout to release the back buffer before the GPU re-renders it.
   def scanoutCurBuf: Bool = false.B
+
+  // Scanout framebuffer base registers — written by firmware (from the same
+  // borg_layout.h constants that drive the GPU flush base) so the scanout and the
+  // GPU can never drift apart.  Exposed to the board top (ULX3S) via these vars.
+  protected var _scanoutFbBase0: UInt = null
+  protected var _scanoutFbBase1: UInt = null
+  def scanoutFbBase0: UInt = _scanoutFbBase0
+  def scanoutFbBase1: UInt = _scanoutFbBase1
 
   /** Wire the GPU memory port.  Default: direct Borg↔MemoryController. */
   def wireGpuMem(): Unit = {
@@ -161,6 +171,12 @@ trait SoCLogic { self: RawModule =>
     }
     val fb_select = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
     _fbSelectReg = fb_select
+    // Scanout framebuffer bases — firmware writes these from PSRAM_OUT_SPI(0) and
+    // PSRAM_OUT_SPI(FRAME_STRIDE); power-on default 0 (blank) until programmed.
+    val scanout_fb_base0 = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(0.U(25.W)) }
+    val scanout_fb_base1 = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(0.U(25.W)) }
+    _scanoutFbBase0 = scanout_fb_base0
+    _scanoutFbBase1 = scanout_fb_base1
     val time_limit = withClockAndReset(soc_clk, !soc_rst_reg_n) {
       RegInit(math.max((CLOCK_MHZ / 4) - 1, 1).U(5.W))
     }
@@ -180,6 +196,8 @@ trait SoCLogic { self: RawModule =>
         is(socPeriU(PERI_TIME_LIMIT))      { time_limit         := cpuData.req.bits.data(6, 2) }
         is(socPeriU(PERI_DEBUG_UART_BAUD)) { debug_baud_divider := cpuData.req.bits.data(12, 0) }
         is(socPeriU(PERI_FB_SELECT))       { fb_select          := cpuData.req.bits.data(0) }
+        is(socPeriU(PERI_SCANOUT_FB0))     { scanout_fb_base0   := cpuData.req.bits.data(24, 0) }
+        is(socPeriU(PERI_SCANOUT_FB1))     { scanout_fb_base1   := cpuData.req.bits.data(24, 0) }
         is(socPeriU(PERI_DEBUG))           { debug_register_data := cpuData.req.bits.data(0) }
       }
     }
@@ -192,6 +210,8 @@ trait SoCLogic { self: RawModule =>
       is(socPeriU(PERI_DEBUG_UART_STATUS)) { socReadData := Cat(0.U(31.W), debug_uart_tx_busy) }
       is(socPeriU(PERI_DEBUG_UART_BAUD))   { socReadData := Cat(0.U(19.W), debug_baud_divider) }
       is(socPeriU(PERI_FB_SELECT))         { socReadData := Cat(0.U(31.W), scanoutCurBuf) }
+      is(socPeriU(PERI_SCANOUT_FB0))       { socReadData := Cat(0.U(7.W), scanout_fb_base0) }
+      is(socPeriU(PERI_SCANOUT_FB1))       { socReadData := Cat(0.U(7.W), scanout_fb_base1) }
       is(socPeriU(PERI_TIME_LIMIT))        { socReadData := Cat(0.U(25.W), time_limit, 3.U(2.W)) }
     }
 

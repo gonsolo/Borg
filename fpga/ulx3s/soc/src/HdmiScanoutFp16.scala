@@ -44,13 +44,25 @@ class HdmiScanoutFp16IO extends Bundle {
   val tick25   = Input(Bool())
   val enable   = Input(Bool())
   val frontBuf = Input(Bool())   // 0 = read fbBase, 1 = read fbBase1
+  // Framebuffer base addresses, programmed by firmware over MMIO so the scanout
+  // and the GPU flusher derive from the SAME source (borg_layout.h) and cannot
+  // drift apart (the cause of the green-corner-pixel bug).  Power-on default is 0
+  // (blank) until the firmware writes them at init.
+  val fbBase   = Input(UInt(25.W))
+  val fbBase1  = Input(UInt(25.W))
   val curBuf   = Output(Bool())  // buffer currently being read (latched at wrap)
   val red      = Output(UInt(8.W))
   val green    = Output(UInt(8.W))
   val blue     = Output(UInt(8.W))
+  // Sim-only observability: the last RGB value the fill FSM wrote to frameBuf[0].
+  // Left unconnected in synthesis (optimised away); used by the SDRAM co-sim.
+  val dbgFill0 = Output(UInt(24.W))
 }
 
-class HdmiScanoutFp16(fbBase: Int = 0x100000, fbBase1: Int = 0x120004, fbWidth: Int = 32, fbHeight: Int = 32) extends Module {
+// fbBase/fbBase1 are runtime inputs (io.fbBase/io.fbBase1), programmed by
+// firmware — NOT constructor constants — so the scanout cannot drift from the
+// GPU's framebuffer layout.
+class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32) extends Module {
   val io = IO(new HdmiScanoutFp16IO)
 
   val tilesPerRow  = fbWidth / 4
@@ -123,11 +135,19 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbBase1: Int = 0x120004, fbWidth: 
   // first cycle of the next loop through sReqRG/sWaitRG/sReqBZ/sWaitBZ.
   // Latching in sReqRG (first state of next loop) would set it one cycle too
   // late: gpuAddr is combinatorial from baseAddr, so it would change mid-request.
-  val baseAddr = RegInit(fbBase.U(25.W))
-  val pixAddr  = baseAddr +& (tileIndex << 7) +& (pixIndex << 3)
+  // Front-buffer base for the whole fill loop.  After the first loop it is the
+  // value latched at the previous wrap (stable across the loop, no mid-request
+  // change).  Before the first wrap there is nothing latched yet, so the first
+  // loop uses io.fbBase directly — the firmware programs it before rendering, so
+  // it is stable (worst case a one-loop boot transient if it is reprogrammed
+  // mid-loop).  This keeps the base valid from the very first read.
+  val baseAddr   = RegInit(0.U(25.W))
+  val baseLoaded = RegInit(false.B)
+  val effBase    = Mux(baseLoaded, baseAddr, io.fbBase)
+  val pixAddr    = effBase +& (tileIndex << 7) +& (pixIndex << 3)
   // Report which buffer is currently being read so the CPU can synchronize the
   // double-buffer swap (wait until the scanout has released the back buffer).
-  io.curBuf := baseAddr === fbBase1.U(25.W)
+  io.curBuf := effBase === io.fbBase1
 
   io.gpuReq  := io.enable && (fstate === sReqRG || fstate === sWaitRG ||
                               fstate === sReqBZ || fstate === sWaitBZ)
@@ -136,6 +156,11 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbBase1: Int = 0x120004, fbWidth: 
   val wrEn   = WireDefault(false.B)
   val wrData = WireDefault(0.U(24.W))
   when(wrEn) { frameBuf.write(fillIdx, wrData) }
+
+  // sim observability: snapshot the value the fill wrote to frameBuf index 0.
+  val dbgFill0Reg = RegInit(0.U(24.W))
+  when(wrEn && fillIdx === 0.U) { dbgFill0Reg := wrData }
+  io.dbgFill0 := dbgFill0Reg
 
   when(io.enable) {
     switch(fstate) {
@@ -161,7 +186,8 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbBase1: Int = 0x120004, fbWidth: 
           // Latch the new front-buffer base at the wrap boundary so it is
           // stable for all of the next loop (sReqRG through sWaitBZ).
           when(wrap) {
-            baseAddr := Mux(io.frontBuf, fbBase1.U(25.W), fbBase.U(25.W))
+            baseAddr   := Mux(io.frontBuf, io.fbBase1, io.fbBase)
+            baseLoaded := true.B
           }
         }
       }
@@ -180,20 +206,15 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbBase1: Int = 0x120004, fbWidth: 
   val fbY = ((io.vCount - startY) / overlayScale.U)(log2Ceil(fbHeight) - 1, 0)
   val dispIdx = Cat(fbY, fbX)   // row*fbWidth + col
 
-  // Guard against ECP5 BRAM read-during-write collisions: when the fill FSM
-  // writes the same index the display is reading, the BRAM output is undefined.
+  // Defensive guard against an ECP5 BRAM read-during-write collision: when the
+  // fill FSM writes the same index the display port is reading in the same cycle,
+  // the BRAM read output is implementation-defined.  Forward the write data (the
+  // correct new value for that pixel) instead.  NOTE: this was NOT the cause of
+  // the historical green corner pixel — that was a stale scanout fbBase (fixed by
+  // programming fbBase/fbBase1 from firmware) — but the guard is cheap and correct
+  // insurance against a genuine same-address read/write hazard on coloured pixels.
   val pixel     = frameBuf.read(dispIdx)
   val collision = wrEn && (fillIdx === dispIdx)
-
-  // Forward the WRITE data on a collision.  When the fill FSM writes the index
-  // being read, the BRAM read is garbage, but wrData IS the correct new value
-  // for that pixel — so display it directly.  This fixes the blinking (0,0)
-  // pixel: the fill FSM rewrites index 0 every loop and intermittently collides
-  // with the display's read of (0,0).  The framebuffer in SDRAM is clean
-  // (verified by CPU read-back), so the speck was pure read-side corruption; in
-  // sim the zeroed BRAM read equals the (zero) write data, so it never showed.
-  // Write-forwarding is correct for every pixel — it replaces the old prevPixel
-  // "hold the previous pixel" hack, which used a stale blanking read at (0,0).
   val collisionD = RegNext(collision, false.B)
   val wrDataD    = RegNext(wrData)
   val pixelSafe  = Mux(collisionD, wrDataD, pixel)
