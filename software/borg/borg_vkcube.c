@@ -72,6 +72,15 @@ static int     rx_geom_nverts = 0;
 static int     rx_geom_ntris  = 0;
 static int     rx_have_geom   = 0;
 
+// Phase-B upload instrumentation (measure HW packet absorption; remove later).
+// 32-bit-only: the freestanding firmware has no libgcc 64-bit/popcount helpers.
+static unsigned int rx_geom_pkts     = 0; // valid 0xAE packets applied
+static unsigned int rx_tex_pkts      = 0; // valid 0xAF packets applied (incl. dups)
+static unsigned int rx_csum_fail     = 0; // 0xAE/0xAF checksum mismatches
+static unsigned int rx_tex_distinct  = 0; // distinct rows seen (of 64)
+static unsigned int rx_tex_mask_lo   = 0; // rows 0..31
+static unsigned int rx_tex_mask_hi   = 0; // rows 32..63
+
 // 0xAF texture-row packet (Phase B): the host streams the app's texture one row
 // at a time as RGB-FP16 (6 B/texel) at the firmware's texture dimension.
 //   marker, y, dim texels (dim*6 B), checksum.
@@ -345,7 +354,15 @@ int main() {
     //   0xAC -> 37 B, 9 floats, accepted if every entry has magnitude < 2
     //           (integer-only check on the raw IEEE-754 bits — no soft-float).
     //   0xAD -> 66 B, 16 floats, accepted if the XOR checksum matches.
-    {
+    //
+    // Greedy texture drain: the firmware otherwise catches only ~1 packet per
+    // ~300 ms render, so the host's 64-row texture upload finishes only ~30%
+    // (measured R=20/64).  Keep re-draining while 0xAF rows keep arriving so a
+    // whole burst is absorbed in one frame's drain window; break on anything
+    // else (MVP/geom/idle) so the normal one-packet-per-frame behaviour and the
+    // smooth spin are unchanged once the texture has uploaded.
+    for (int drain_iter = 0; drain_iter < 16; drain_iter++) {
+      int got_tex_row = 0;
       // Measure idle time in REAL cycles via rdcycle() (not loop iterations —
       // this loop's body is far heavier than a bare volatile decrement and the
       // CPU is multi-cycle, so iteration counts don't map to wall time).  At
@@ -439,6 +456,9 @@ int main() {
               rx_geom_nverts = nv;
               rx_geom_ntris  = nt;
               rx_have_geom   = 1;
+              rx_geom_pkts++;
+            } else {
+              rx_csum_fail++;
             }
           } else if (ok && pkt_marker == 0xAF) {
             // Host-uploaded texture row: [1]=y, then RX_TEX_DIM texels RGB-FP16.
@@ -448,11 +468,22 @@ int main() {
             if (csum == pkt_buf[RX_TEX_PKT_LEN - 1] &&
                 yrow >= 0 && yrow < RX_TEX_DIM) {
               borg_upload_texture_row(&pkt_buf[2], yrow, RX_TEX_DIM);
+              rx_tex_pkts++;
+              got_tex_row = 1;
+              unsigned int bit = 1u << (yrow & 31);
+              if (yrow < 32) {
+                if (!(rx_tex_mask_lo & bit)) { rx_tex_mask_lo |= bit; rx_tex_distinct++; }
+              } else {
+                if (!(rx_tex_mask_hi & bit)) { rx_tex_mask_hi |= bit; rx_tex_distinct++; }
+              }
+            } else {
+              rx_csum_fail++;
             }
           }
         }
       }
       pkt_pos = 0;
+      if (!got_tex_row) break;  // not a texture row → stop draining, render this frame
     }
     (void)rot_x_reader;
     (void)rot_y_reader;
@@ -543,6 +574,12 @@ int main() {
       report_phase('h', BORG_GPU->perf_flush);
       report_phase('l', BORG_GPU->perf_stall);
       report_phase('a', BORG_GPU->perf_dma);
+      // Phase-B upload telemetry: G=valid geom pkts, X=valid tex pkts,
+      // R=distinct tex rows (of 64), F=checksum failures.
+      report_phase('G', rx_geom_pkts);
+      report_phase('X', rx_tex_pkts);
+      report_phase('R', rx_tex_distinct);
+      report_phase('F', rx_csum_fail);
       putc_uart('\r');
       putc_uart('\n');
     }
