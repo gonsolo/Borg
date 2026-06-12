@@ -53,12 +53,19 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
 
   io.clear.busy := clearing
 
-  // Clear value: use color from clear port (driven by sequencer or MMIO)
-  val clearWord = io.clear.color.asUInt
+  // Clear value: LATCH the color at clear-start.  The sequencer drives
+  // io.clear.color through a mux gated on io.iter.clear, which is only a
+  // 1-cycle pulse — but the BRAM clear writes span the following 16 cycles.
+  // Sampling io.clear.color combinationally during those writes would read the
+  // mux's fall-through default (black), painting the whole background black.
+  // Latching at clear-start keeps the color stable across the entire sequence.
+  val clearWordReg = RegInit(0.U(PACKED_BITS.W))
+  val clearWord = clearWordReg
 
   // --- Clear logic ---
   when(io.clear.en && !clearing) {
     clearCounter := 0.U
+    clearWordReg := io.clear.color.asUInt
     if (BorgDebug.trace) printf("[TBUF] CLEAR-START R=0x%x G=0x%x B=0x%x Z=0x%x\n",
       io.clear.color.r, io.clear.color.g, io.clear.color.b, io.clear.color.z)
   }
