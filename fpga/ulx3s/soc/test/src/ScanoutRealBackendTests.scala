@@ -35,6 +35,14 @@ class ScanoutRealBackendHarnessIO extends Bundle {
   val corrupt = Output(UInt(24.W))   // sticky non-gray fill write to frameBuf[0]
   val fill0    = Output(UInt(24.W))
   val ctrlInit = Output(Bool())      // SDRAM init complete (dqm==0)
+  // Display port — drive a raster sweep and read back the displayed RGB so a
+  // test can capture exactly what the monitor would show (TMDS-equivalent).
+  val hCount   = Input(UInt(10.W))
+  val vCount   = Input(UInt(10.W))
+  val de       = Input(Bool())
+  val red      = Output(UInt(8.W))
+  val green    = Output(UInt(8.W))
+  val blue     = Output(UInt(8.W))
 }
 
 class ScanoutRealBackendHarness(fbW: Int = 8, fbH: Int = 8, clockMhz: Int = 25,
@@ -83,14 +91,17 @@ class ScanoutRealBackendHarness(fbW: Int = 8, fbH: Int = 8, clockMhz: Int = 25,
   io.gwAccept := mem.io.gpuMem.waccept && serveGpu
   io.gwReady  := mem.io.gpuMem.ready && serveGpu
 
-  scanout.io.hCount   := 0.U
-  scanout.io.vCount   := 0.U
-  scanout.io.de       := false.B
+  scanout.io.hCount   := io.hCount
+  scanout.io.vCount   := io.vCount
+  scanout.io.de       := io.de
   scanout.io.tick25   := false.B
   scanout.io.enable   := io.run
   scanout.io.frontBuf := false.B
   scanout.io.fbBase   := fbBase.U
   scanout.io.fbBase1  := fbBase.U
+  io.red   := scanout.io.red
+  io.green := scanout.io.green
+  io.blue  := scanout.io.blue
 
   io.fill0    := scanout.io.dbgFill0
   io.ctrlInit := backend.io.sdramPins.dqm === 0.U
@@ -213,6 +224,81 @@ object ScanoutRealBackendTests extends TestSuite {
         println(f"[wpath] base=0x$base%04x ($al%-14s) write+read → frameBuf[0] = $tag")
         if ((base & 7) != 0 && c != 0) println("[wpath] ✓✓ misaligned base reproduces green via the REAL write+read path")
       }
+    }
+
+    // ── Display capture: render exactly what the monitor would show into a PPM ──
+    // Fills a framebuffer through the REAL SDRAM path, then sweeps the scanout's
+    // display raster and reads back the post-conversion RGB, writing the image to
+    // a .ppm.  This is the "see what the monitor shows" capability — display-path
+    // corruption (e.g. the green corner pixel from a flusher/scanout base
+    // mismatch) appears directly in the captured image.
+    utest.test("display capture → PPM through the real SDRAM path") {
+      val fbW = 32; val fbH = 32; val VRAM = 0x1000000; val MASK = (1 << 22) - 1
+      // 4-quadrant colour pattern (fp16): TL red, TR green, BL blue, BR white;
+      // Z=max in every pixel's Z slot (the value that leaks to green on a +4 skew).
+      def quadColor(col: Int, row: Int): (Int, Int, Int) = {
+        val one = 0x3C00; val zero = 0x0000
+        (if (col < fbW / 2) (if (row < fbH / 2) (one, zero, zero) else (zero, zero, one))
+         else               (if (row < fbH / 2) (zero, one, zero) else (one, one, one)))
+      }
+      // Returns (ppmPath, cornerRGB) for flusher writing at flusherBase, scanout
+      // reading at scanoutBase.
+      def capture(tag: String, flusherBase: Int, scanoutBase: Int): (Int, Int, Int) = {
+        var corner = (0, 0, 0)
+        val img = Array.ofDim[Int](fbH, fbW, 3)
+        simulate(new ScanoutRealBackendHarness(fbW = fbW, fbH = fbH, fbBase = scanoutBase)) { dut =>
+          dut.reset.poke(true.B); dut.clock.step(3); dut.reset.poke(false.B)
+          dut.io.run.poke(false.B); dut.io.preWe.poke(false.B); dut.io.gwWr.poke(false.B)
+          dut.io.de.poke(false.B); dut.io.hCount.poke(0.U); dut.io.vCount.poke(0.U)
+          var n = 0
+          while (dut.io.ctrlInit.peek().litValue == 0 && n < 8000) { dut.clock.step(1); n += 1 }
+          dut.clock.step(50)
+          // Preload the pattern at flusherBase via the chip backdoor.
+          for (row <- 0 until fbH; col <- 0 until fbW) {
+            val (r, g, b) = quadColor(col, row)
+            val wbase = ((pixByteAddr(flusherBase, fbW, col, row) | VRAM) >> 1) & MASK
+            val hw = Seq(r, g, b, 0x7bff)
+            for (h <- 0 until 4) {
+              dut.io.preWe.poke(true.B); dut.io.preAddr.poke((wbase + h).U)
+              dut.io.preData.poke(hw(h).U); dut.clock.step(1)
+            }
+          }
+          dut.io.preWe.poke(false.B)
+          // Run the fill until the BRAM framebuffer converges (full 32x32 refill).
+          dut.io.run.poke(true.B)
+          dut.clock.step(40000)
+          // Raster-sweep the centered display window and read back RGB.
+          val startX = (640 - fbW) / 2; val startY = (480 - fbH) / 2
+          dut.io.de.poke(true.B)
+          for (row <- 0 until fbH; col <- 0 until fbW) {
+            dut.io.hCount.poke((startX + col).U); dut.io.vCount.poke((startY + row).U)
+            dut.clock.step(1)
+            img(row)(col)(0) = dut.io.red.peek().litValue.toInt
+            img(row)(col)(1) = dut.io.green.peek().litValue.toInt
+            img(row)(col)(2) = dut.io.blue.peek().litValue.toInt
+          }
+          dut.io.de.poke(false.B)
+          corner = (img(0)(0)(0), img(0)(0)(1), img(0)(0)(2))
+        }
+        // Write a PPM (P3).
+        val path = s"/tmp/scanout_$tag.ppm"
+        val sb = new StringBuilder
+        sb.append(s"P3\n$fbW $fbH\n255\n")
+        for (row <- 0 until fbH; col <- 0 until fbW)
+          sb.append(s"${img(row)(col)(0)} ${img(row)(col)(1)} ${img(row)(col)(2)}\n")
+        java.nio.file.Files.write(java.nio.file.Paths.get(path), sb.toString.getBytes)
+        println(f"[ppm] $tag%-8s → $path  corner(0,0)=(${corner._1},${corner._2},${corner._3})")
+        corner
+      }
+
+      val good = capture("good", 0x2000, 0x2000)   // flusher==scanout: correct image
+      val bad  = capture("bad",  0x2000, 0x2004)   // +4 skew: green corner appears
+      // The good corner is the TL-quadrant red (R≈255,G=0,B=0); the +4 skew leaks
+      // Z (0x7bff) into green at (0,0).
+      println(f"[ppm] good corner green=${good._2}, bad corner green=${bad._2}")
+      Predef.assert(good._2 == 0)            // correct image: no green at the red corner
+      Predef.assert(bad._2 == 255)          // skew: Z saturates green at the corner
+      println("[ppm] ✓ display capture shows the monitor image; +4 skew → green corner, fix → clean")
     }
   }
 }
