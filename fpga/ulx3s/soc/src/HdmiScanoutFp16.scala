@@ -181,26 +181,24 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbBase1: Int = 0x120004, fbWidth: 
   val dispIdx = Cat(fbY, fbX)   // row*fbWidth + col
 
   // Guard against ECP5 BRAM read-during-write collisions: when the fill FSM
-  // writes to the same address the display is reading, the BRAM output is
-  // undefined (write-first or read-first depending on synthesis config).
-  // Detect the collision one cycle ahead and hold the last clean pixel instead.
+  // writes the same index the display is reading, the BRAM output is undefined.
   val pixel     = frameBuf.read(dispIdx)
-  val prevPixel = RegNext(pixel)
   val collision = wrEn && (fillIdx === dispIdx)
 
-  // The collision fallback holds the PREVIOUS displayed pixel (prevPixel).  That
-  // is only a valid neighbour when the previous pixel was itself in the active
-  // region.  At the first active pixel of a frame — (0,0), right after vertical
-  // blanking — prevPixel is a blanking-region BRAM read: a stale, unrelated
-  // framebuffer index.  In sim that index reads 0 (clean), but on real hardware
-  // it holds arbitrary data, so holding it paints a blinking coloured speck at
-  // (0,0).  Gate the hold on the previous pixel having been active (show two
-  // cycles ago); at (0,0) this falls through to `pixel` (the colliding read of
-  // addr 0, which is pixel 0's own value), fixing the corner with no change to
-  // any other pixel.
-  val showD  = RegNext(show, false.B)
-  val showDD = RegNext(showD, false.B)   // show two cycles ago = prev pixel active?
-  val pixelSafe = Mux(RegNext(collision, false.B) && showDD, prevPixel, pixel)
+  // Forward the WRITE data on a collision.  When the fill FSM writes the index
+  // being read, the BRAM read is garbage, but wrData IS the correct new value
+  // for that pixel — so display it directly.  This fixes the blinking (0,0)
+  // pixel: the fill FSM rewrites index 0 every loop and intermittently collides
+  // with the display's read of (0,0).  The framebuffer in SDRAM is clean
+  // (verified by CPU read-back), so the speck was pure read-side corruption; in
+  // sim the zeroed BRAM read equals the (zero) write data, so it never showed.
+  // Write-forwarding is correct for every pixel — it replaces the old prevPixel
+  // "hold the previous pixel" hack, which used a stale blanking read at (0,0).
+  val collisionD = RegNext(collision, false.B)
+  val wrDataD    = RegNext(wrData)
+  val pixelSafe  = Mux(collisionD, wrDataD, pixel)
+
+  val showD = RegNext(show, false.B)
 
   io.red   := Mux(showD, pixelSafe(23, 16), 0.U)
   io.green := Mux(showD, pixelSafe(15, 8),  0.U)
