@@ -187,9 +187,20 @@ class HdmiScanoutFp16(fbBase: Int = 0x100000, fbBase1: Int = 0x120004, fbWidth: 
   val pixel     = frameBuf.read(dispIdx)
   val prevPixel = RegNext(pixel)
   val collision = wrEn && (fillIdx === dispIdx)
-  val pixelSafe = Mux(RegNext(collision, false.B), prevPixel, pixel)
 
-  val showD = RegNext(show, false.B)
+  // The collision fallback holds the PREVIOUS displayed pixel (prevPixel).  That
+  // is only a valid neighbour when the previous pixel was itself in the active
+  // region.  At the first active pixel of a frame — (0,0), right after vertical
+  // blanking — prevPixel is a blanking-region BRAM read: a stale, unrelated
+  // framebuffer index.  In sim that index reads 0 (clean), but on real hardware
+  // it holds arbitrary data, so holding it paints a blinking coloured speck at
+  // (0,0).  Gate the hold on the previous pixel having been active (show two
+  // cycles ago); at (0,0) this falls through to `pixel` (the colliding read of
+  // addr 0, which is pixel 0's own value), fixing the corner with no change to
+  // any other pixel.
+  val showD  = RegNext(show, false.B)
+  val showDD = RegNext(showD, false.B)   // show two cycles ago = prev pixel active?
+  val pixelSafe = Mux(RegNext(collision, false.B) && showDD, prevPixel, pixel)
 
   io.red   := Mux(showD, pixelSafe(23, 16), 0.U)
   io.green := Mux(showD, pixelSafe(15, 8),  0.U)
