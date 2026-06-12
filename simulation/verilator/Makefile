@@ -53,8 +53,45 @@ python_extension: obj_dir/verilator_sim
 	@mkdir -p build && cd build && cmake .. -DCMAKE_CXX_COMPILER=g++ -DPython_EXECUTABLE=$$(which python3) -DVERILATOR_ROOT=$$(dirname $$(dirname $$(which verilator)))/share/verilator -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null && $(MAKE) -s
 	@ln -sf build/compile_commands.json compile_commands.json
 
-.PHONY: all triangle vkcube vkcube_gui clean
+# ── Full-SoC HDMI sim: renders THROUGH the scanout and captures the displayed
+# ── frame (what the monitor shows) instead of reading SDRAM back directly. ──
+HDMI_DIR  = $(HW_DIR)/borg/verilog_hdmi_sim
+HDMI_SRCS = $(wildcard $(HDMI_DIR)/*.sv)
+APP  ?= vkcube
+FBW  ?= 128
+FBH  ?= 128
+TEXD ?= 64
+
+$(HDMI_DIR)/sim_files.txt:
+	cd $(ROOT) && CLOCK_MHZ=25 FB_W=$(FBW) FB_H=$(FBH) mill fpga.ulx3s.soc.runMain soc.BorgHdmiSimMain
+
+obj_dir_hdmi/verilator_hdmi: main_hdmi.cpp BorgHdmiSimulator.h $(HDMI_DIR)/sim_files.txt $(HDMI_SRCS)
+	@rm -rf obj_dir_hdmi
+	@SRC_FILES=$$(cat $(HDMI_DIR)/sim_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
+	echo "Building HDMI Verilator model..."; \
+	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall -Wno-UNUSEDSIGNAL --build -j 0 \
+	-MAKEFLAGS "-s" --Mdir obj_dir_hdmi \
+	-I$(HDMI_DIR) \
+	-I$(HDMI_DIR)/verification/assert -I$(HDMI_DIR)/verification \
+	--top-module BorgHdmiSimTop \
+	-CFLAGS "-fPIC" -CFLAGS "-I../../common" \
+	-DENABLE_INITIAL_MEM_ \
+	$(ROOT)/lint.vlt \
+	$$SRC_FILES \
+	$(wildcard $(HDMI_DIR)/verification/layers-*.sv) \
+	main_hdmi.cpp \
+	../common/BorgSimulatorBase.cpp \
+	../common/texture_loader.cpp \
+	../common/uart_decoder.cpp \
+	-o verilator_hdmi
+
+# make hdmi APP=triangle FBW=32 FBH=32 TEXD=32   (fast)
+# make hdmi APP=vkcube   FBW=128 FBH=128 TEXD=64 (full)
+hdmi: obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin
+	./obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin $(APP) $(FBW) $(FBH) $(TEXD)
+
+.PHONY: all triangle vkcube vkcube_gui hdmi clean
 
 clean:
-	rm -rf obj_dir build verilator_sim *.ppm *.so
+	rm -rf obj_dir obj_dir_hdmi build verilator_sim verilator_hdmi *.ppm *.so
 
