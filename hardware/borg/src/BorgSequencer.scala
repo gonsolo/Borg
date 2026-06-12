@@ -742,11 +742,17 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       uData := uvRegs(vertOf(16))(1)          // u16-u18: V-coord
     }.elsewhen(w < 22.U) {
       // u19-u21: vertex colour R (hand frag) OR frag_pos.x (borgc frag), per mode.
-      uData := Mux(io.mmio.fragUsesFragPos, posRegs(vertOf(19))(0), colorRegs(vertOf(19))(0))
+      // borgc cube.frag computes its normal from dFdx/dFdy(frag_pos), and
+      // cube.vert sets frag_pos = gl_Position.xyz — the TRANSFORMED position.
+      // Feed the per-vertex transformed position (clipRegs = screen-space x,y,
+      // projected z) so the derivative-normal rotates with the cube; staging the
+      // model-space posRegs here makes the per-face normal constant and the light
+      // appear glued to the cube.
+      uData := Mux(io.mmio.fragUsesFragPos, clipRegs(vertOf(19))(0), colorRegs(vertOf(19))(0))
     }.elsewhen(w < 25.U) {
-      uData := Mux(io.mmio.fragUsesFragPos, posRegs(vertOf(22))(1), colorRegs(vertOf(22))(1))
+      uData := Mux(io.mmio.fragUsesFragPos, clipRegs(vertOf(22))(1), colorRegs(vertOf(22))(1))
     }.elsewhen(w < 28.U) {
-      uData := Mux(io.mmio.fragUsesFragPos, posRegs(vertOf(25))(2), colorRegs(vertOf(25))(2))
+      uData := Mux(io.mmio.fragUsesFragPos, clipRegs(vertOf(25))(2), colorRegs(vertOf(25))(2))
     }.otherwise {
       uData := clipRegs(vertOf(28))(2)        // u28-u30: Z from vertex shader r2 (projected depth)
     }
