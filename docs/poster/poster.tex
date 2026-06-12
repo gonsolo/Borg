@@ -83,9 +83,9 @@
 \maketitle[titletotopverticalspace=4cm, titleverticalspace=2cm]
 
 % ── Full-width SoC diagram (outside columns) ──────────────────────────────
-\block{SoC \& TBDR Architecture}{
+\block{SoC \& TBR Architecture}{
 Borg is a complete \textbf{RISC-V SoC} featuring the \textbf{Hutt} core.
-The GPU follows the Tile-Based Deferred Rendering paradigm:
+The GPU follows the Tile-Based Rendering paradigm:
 
 \medskip
 \begin{center}
@@ -111,13 +111,13 @@ The tile buffer is flushed to external memory only after all triangles covering 
   \item Every commercial GPU hides its microarchitecture behind NDAs
   \item This blocks \textbf{reproducibility}, \textbf{teaching}, and
         architectural experiments
-  \item \textbf{Concise:} GPU pipeline (\textbf{4.4k LoC} Chisel),
-        Compiler (\textbf{1.6k LoC} Python), Firmware (\textbf{3k LoC} C).
+  \item \textbf{Concise:} GPU pipeline (\textbf{5.5k LoC} Chisel),
+        Compiler (\textbf{1.6k LoC} Python), Firmware (\textbf{5k LoC} C).
   \item Open GPU simulators exist — but \emph{no open GPU has reached silicon}
 \end{itemize}
 
 \medskip
-\textbf{Borg} is the fully open answer: a TBDR GPU \textbf{SoC} in Chisel,
+\textbf{Borg} is the fully open answer: a TBR GPU \textbf{SoC} in Chisel,
 built with an open toolchain, and \textbf{submitted for ASIC tapeout}.
 Borg has contributed \textbf{75 patches upstream} to the open EDA ecosystem.
 
@@ -134,6 +134,7 @@ Running on \textbf{ULX3S} (ECP5-85K) with \textbf{HDMI output}:
   \item 12 textured triangles, 128$\times$128 framebuffer, double-buffered
   \item Full pipeline: vertex shader $\to$ texture fetch $\to$ Z-buffer $\to$ HDMI
   \item Orchestrated by integrated \textbf{Hutt} RISC-V core
+  \item Native \textbf{Mesa Vulkan ICD} (\texttt{borgvk}): unmodified Khronos \texttt{vkcube} renders on ULX3S over USB
 \end{itemize}
 \medskip
 \begin{center}
@@ -174,14 +175,15 @@ European Commission, Grant No.~101135429) and Swiss SERI.
 % ════════════════════════════════
 \column{0.333}
 
-\block{Development Roadmap: Phases 1--6}{
+\block{Development Roadmap: Phases 1--7}{
 \begin{itemize}[leftmargin=*,nosep]
   \item \textbf{Phase 1} \done\ — \textbf{Foundational Architecture} (2025)
   \item \textbf{Phase 2} \done\ — \textbf{GPU Autonomy / 28-Day Sprint}
-  \item \textbf{Phase 3} — \textbf{Linux-Capable CPU} (M/A/MMU)
-  \item \textbf{Phase 4} — \textbf{Mesa Vulkan Driver} (NIR $\to$ SPIR-B)
-  \item \textbf{Phase 5} — \textbf{Hardware Extensions} (SIMD, Blending)
-  \item \textbf{Phase 6} — \textbf{Vulkan 1.0 Conformance}
+  \item \textbf{Phase 3} \done\ — \textbf{HPG 2026 Demo} (borgvk, 4-lane SIMT, GPU vertex transform)
+  \item \textbf{Phase 4} \inprog\ — \textbf{Linux-Capable CPU} (M/A/MMU)
+  \item \textbf{Phase 5} \inprog\ — \textbf{Mesa Vulkan Driver} (\texttt{borgc} NIR $\to$ SPIR-B)
+  \item \textbf{Phase 6} — \textbf{Mobile GPU Fidelity}
+  \item \textbf{Phase 7} — \textbf{Vulkan 1.0 Conformance}
 \end{itemize}
 
 \medskip
@@ -203,14 +205,14 @@ European Commission, Grant No.~101135429) and Swiss SERI.
 \block{Open-Source Toolchain}{
 \centering
 \begin{tabular}{@{}ll@{}}
-\textbf{HDL}        & Chisel (Scala, \textbf{$\sim$15k lines}) \\
+\textbf{HDL}        & Chisel (Scala, \textbf{$\sim$19k lines}) \\
 \textbf{Synthesis}  & Yosys \\
 \textbf{P\&R}       & nextpnr-ecp5 / \textbf{LibreLane} (Nix) \\
 \textbf{Simulation} & Verilator, cocotb, Arcilator \\
 \textbf{Compiler}   & SPIR-V $\to$ SPIR-B (\textbf{1.6k lines} Python) \\
-\textbf{Firmware}   & 32-bit RISC-V (\textbf{$\sim$3k lines} C) \\
+\textbf{Firmware}   & 32-bit RISC-V (\textbf{$\sim$5k lines} C) \\
 \textbf{Reg.\ map}  & PeakRDL-chisel \\
-\textbf{Math Cores} & \textbf{Berkeley Hardfloat} (FMA) \\
+\textbf{Math Cores} & \textbf{Custom FP16 FMA} pipeline \\
 \textbf{PDK}        & ihp-sg13g2 \\
 \end{tabular}
 
@@ -228,7 +230,7 @@ in \texttt{nixpkgs} (LibreLane merged Jan 2026).
 \toprule
 & \textbf{Borg} & \textbf{Nyuzi} & \textbf{Vortex} \\
 \midrule
-Architecture    & TBDR    & GPGPU   & RISC-V GPGPU \\
+Architecture    & TBR    & GPGPU   & RISC-V GPGPU \\
 ISA             & Custom  & Custom  & RV32\\
 Tapeout         & submitted & —       & — \\
 Open toolchain  & \done   & partial & partial \\
@@ -240,8 +242,8 @@ Target          & ECP5    & Arria 5 & Xilinx \\
 \block{Design Values}{
 \begin{description}[leftmargin=*,nosep]
   \item[Transparency] No binary blobs, no hidden firmware.
-  \item[Accessibility] Runs on a \$100 FPGA; uses \$500 ASIC runs.
-  \item[Simplicity] Minimalist TBDR pipeline for maximum performance/area.
+  \item[Accessibility] Runs on a \$100 FPGA; uses \$1200 ASIC runs.
+  \item[Simplicity] Minimalist TBR pipeline for maximum performance/area.
 \end{description}
 }
 
@@ -254,16 +256,14 @@ Target          & ECP5    & Arria 5 & Xilinx \\
 \begin{itemize}[leftmargin=*,nosep]
   \item \textbf{800$\times$480 HDMI} native resolution (DDC/EDID)
   \item Higher fps via SDRAM burst writes and uniform caching
-  \item SIMD-2 FMA for 2$\times$ fragment shader throughput
-  \item BVH ray traversal ISA extensions --- \textbf{Gonzales},
-        an open-source Mojo wavefront path tracer (31/33 Bitterli
-        scenes), drives this hardware work
+  \item \textbf{4-lane SIMT} fragment shading — hardware-verified on ULX3S (1.67$\times$ fps)
+  \item BVH ray traversal ISA extensions for future RT support
 \end{itemize}
 \textbf{Open questions:}
 \begin{itemize}[leftmargin=*,nosep]
-  \item Can a TBDR pipeline scale to multi-core tiles?
+  \item Can a TBR pipeline scale to multi-core tiles?
   \item Minimal ISA for hardware BVH traversal?
-  \item How to best expose Borg via a Mesa Vulkan ICD over USB?
+  \item DRM kernel driver + Linux boot for full Vulkan conformance path?
 \end{itemize}
 }
 
