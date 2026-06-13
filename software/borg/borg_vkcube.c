@@ -78,8 +78,8 @@ static unsigned int rx_geom_pkts     = 0; // valid 0xAE packets applied
 static unsigned int rx_tex_pkts      = 0; // valid 0xAF packets applied (incl. dups)
 static unsigned int rx_csum_fail     = 0; // 0xAE/0xAF checksum mismatches
 static unsigned int rx_tex_distinct  = 0; // distinct rows seen (of 64)
-static unsigned int rx_tex_mask_lo   = 0; // rows 0..31
-static unsigned int rx_tex_mask_hi   = 0; // rows 32..63
+static unsigned int rx_tex_mask_lo   __attribute__((unused)) = 0; // rows 0..31
+static unsigned int rx_tex_mask_hi   __attribute__((unused)) = 0; // rows 32..63
 
 // 0xAF texture-row packet (Phase B): the host streams the app's texture one row
 // at a time as RGB-FP16 (6 B/texel) at the firmware's texture dimension.

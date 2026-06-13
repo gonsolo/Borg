@@ -67,5 +67,45 @@ class BorgSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   d.raddr   := dbg_raddr
   dbg_rdata := d.rdata
 
+  // ── SDRAM bandwidth instrumentation (sim-only) ─────────────────────────────
+  // Count backend read/write *beats* bucketed by address region, exposed as
+  // outputs the C++ harness reads at the end of the run.  This is the real
+  // SDRAM traffic the GPU/CPU generate (the SDRAM model is internal to this
+  // top, so C++ flat_* counting can't see it).  Region = 16-bit-word offset
+  // within the chip (spi_byte>>1), boundaries from borg_layout.h:
+  //   code/cpu <0x2540 | desc <0x2B40 | texture <0x42B40 | fb <0x62B40 | other
+  val rb_code  = IO(Output(UInt(32.W)));  val wb_code  = IO(Output(UInt(32.W)))
+  val rb_desc  = IO(Output(UInt(32.W)));  val wb_desc  = IO(Output(UInt(32.W)))
+  val rb_tex   = IO(Output(UInt(32.W)));  val wb_tex   = IO(Output(UInt(32.W)))
+  val rb_fb    = IO(Output(UInt(32.W)));  val wb_fb    = IO(Output(UInt(32.W)))
+  val rb_bin   = IO(Output(UInt(32.W)));  val wb_bin   = IO(Output(UInt(32.W)))
+  val rb_setup = IO(Output(UInt(32.W)));  val wb_setup = IO(Output(UInt(32.W)))
+  val rb_stack = IO(Output(UInt(32.W)));  val wb_stack = IO(Output(UInt(32.W)))
+  withClockAndReset(clk, !soc_rst_reg_n) {
+    val be   = mem.io.backend
+    val isP  = be.addrIn(23)
+    val wOff = be.addrIn(22, 0)
+    // 128×128 layout (word offsets = spi_byte>>1): code <0x2540 | desc <0x2B40 |
+    // tex <0x42B40 | fb <0x62B40 | bin <0x162B40 (2MB, SEQ_MAX_TRI=1024) |
+    // setup <0x172B40 (128KB) | above = stack/heap.
+    val region = Wire(UInt(3.W))
+    when(!isP)                     { region := 0.U }   // flash → code bucket
+      .elsewhen(wOff < 0x2540.U)   { region := 0.U }   // code/cpu/instr/stack-lo
+      .elsewhen(wOff < 0x2B40.U)   { region := 1.U }   // descriptors
+      .elsewhen(wOff < 0x42B40.U)  { region := 2.U }   // texture
+      .elsewhen(wOff < 0x62B40.U)  { region := 3.U }   // framebuffer
+      .elsewhen(wOff < 0x162B40.U) { region := 4.U }   // bin lists (2MB region)
+      .elsewhen(wOff < 0x172B40.U) { region := 5.U }   // per-triangle setup
+      .otherwise                   { region := 6.U }   // stack/heap (high)
+    val rb = RegInit(VecInit(Seq.fill(7)(0.U(32.W))))
+    val wb = RegInit(VecInit(Seq.fill(7)(0.U(32.W))))
+    when(be.startRead)  { rb(region) := rb(region) + 1.U }
+    when(be.startWrite) { wb(region) := wb(region) + be.lenIn }
+    rb_code := rb(0); rb_desc := rb(1); rb_tex := rb(2); rb_fb := rb(3)
+    rb_bin  := rb(4); rb_setup := rb(5); rb_stack := rb(6)
+    wb_code := wb(0); wb_desc := wb(1); wb_tex := wb(2); wb_fb := wb(3)
+    wb_bin  := wb(4); wb_setup := wb(5); wb_stack := wb(6)
+  }
+
   uo_out := uo_out_val
 }

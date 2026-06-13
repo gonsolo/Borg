@@ -136,6 +136,33 @@ public:
         return false;
     }
 
+    void report_bandwidth() override {
+        struct R { const char* n; uint64_t r, w; };
+        R reg[7] = {
+            {"code/cpu/instr", model->rb_code,  model->wb_code},
+            {"descriptors   ", model->rb_desc,  model->wb_desc},
+            {"texture       ", model->rb_tex,   model->wb_tex},
+            {"framebuffer   ", model->rb_fb,    model->wb_fb},
+            {"bin lists     ", model->rb_bin,   model->wb_bin},
+            {"setup (per-tri)", model->rb_setup, model->wb_setup},
+            {"stack/heap    ", model->rb_stack, model->wb_stack},
+        };
+        uint64_t tr = 0, tw = 0;
+        for (auto& x : reg) { tr += x.r; tw += x.w; }
+        uint64_t tot = tr + tw;
+        if (!tot) { std::cout << "[BW] no SDRAM beats counted\n"; return; }
+        std::cout << "\n=== SDRAM bandwidth DEMAND (16-bit beats; reads vs writes by region) ===\n";
+        for (auto& x : reg) {
+            uint64_t s = x.r + x.w;
+            if (!s) continue;
+            printf("  %s  read %8llu  write %8llu  = %5.1f%% of traffic\n",
+                   x.n, (unsigned long long)x.r, (unsigned long long)x.w, 100.0 * s / tot);
+        }
+        printf("  TOTAL  read %llu (%.1f%%)  write %llu (%.1f%%)  beats=%llu = %llu KB\n",
+               (unsigned long long)tr, 100.0 * tr / tot, (unsigned long long)tw,
+               100.0 * tw / tot, (unsigned long long)tot, (unsigned long long)(tot * 2 / 1024));
+    }
+
     virtual void host_write_psram_word(uint32_t word_addr, uint32_t value) override {
         uint32_t byte_addr = word_addr * 4;
         if (byte_addr + 3 < psram->mem.size()) {

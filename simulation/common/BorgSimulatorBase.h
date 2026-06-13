@@ -81,4 +81,8 @@ public:
     void set_camera_angles(float rx, float ry);
     void save_ppm(const std::string& name);
     virtual bool step(uint32_t cycles_to_run);
+
+    // Print the SDRAM bandwidth-demand histogram (read/write beats by region),
+    // read from the RTL beat-counters.  No-op unless the backend exposes them.
+    virtual void report_bandwidth() {}
 };

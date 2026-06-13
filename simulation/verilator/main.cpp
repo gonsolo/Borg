@@ -33,6 +33,7 @@ int main(int argc, char** argv) {
         if (max_cycles && total_cycles >= max_cycles) {
             std::cout << "[SIM] MAX CYCLES REACHED (" << max_cycles << ") — saving partial framebuffer\n";
             sim.save_ppm(app_name);
+            sim.report_bandwidth();
             return 1;
         }
     }
@@ -40,6 +41,7 @@ int main(int argc, char** argv) {
     std::cout << "Total Sim Cycles:  " << total_cycles << " cycles.\n";
 
     sim.save_ppm(app_name);
+    sim.report_bandwidth();
 
     return 0;
 }
