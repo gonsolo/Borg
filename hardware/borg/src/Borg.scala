@@ -195,6 +195,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // words — word 31 is the has_uvs flag, needed only by the sequencer's
     // uniformSnoop below — so the DMA must never write uniform slot 31.  The
     // sequencer's own staging stops at u30 and is unaffected.
+    // Route the sequencer's active uniform page to the DMA so a dest=1 setup
+    // load fills the correct page of the 2-entry cache (was hardcoded page 0).
+    d.io.uniformWritePage := s.io.uniformWritePage
     val dmaUniWriteEn = d.io.uniformWrite.en && d.io.uniformWrite.addr(4, 0) =/= 31.U
     core.io.dmaUniformWrite.en   := dmaUniWriteEn || s.io.uniformWrite.en
     core.io.dmaUniformWrite.addr := Mux(s.io.uniformWrite.en,

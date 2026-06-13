@@ -18,6 +18,9 @@ class DMADescriptor extends Bundle {
 class BorgDMAIO extends Bundle {
   val start        = Input(Bool())
   val desc         = Input(new DMADescriptor)
+  // Which uniform page (0/1) a dest=1 uniform DMA writes to.  Driven by the
+  // sequencer's active page so the 2-entry setup cache can fill either page.
+  val uniformWritePage = Input(UInt(1.W))
   val busy         = Output(Bool())
   val gpuMem      = new GpuMemIO
   val imemWrite    = new MemWritePort(7, 32)
@@ -107,8 +110,9 @@ class BorgDMA extends Module {
           io.imemWrite.data := io.gpuMem.data
           if (BorgDebug.trace) printf("[DMA] imemWrite[%d]=0x%x\n", destIdx, io.gpuMem.data)
         }.elsewhen(io.desc.dest === 1.U) {
-          // Uniform buffer: low 16 bits; page from dest field
-          val page = 0.U(1.W)
+          // Uniform buffer: low 16 bits; page selected by the sequencer (2-entry
+          // setup cache) rather than hardcoded — was always page 0 before.
+          val page = io.uniformWritePage
           io.uniformWrite.en   := true.B
           io.uniformWrite.addr := Cat(page, destIdx(4, 0))
           io.uniformWrite.data := io.gpuMem.data(15, 0)

@@ -227,11 +227,16 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val storeWriteIdx = RegInit(0.U(6.W))
   // setupLoadIdx: tracks DMA word count during pass 2 sLoadTriSetup (for has_uvs snoop)
   val setupLoadIdx = RegInit(0.U(6.W))
-  // Uniform cache: last triangle index whose setup uniforms were DMA-loaded into
-  // the uniform buffer.  If the next tile's bin entry matches, skip the DMA entirely
-  // — the uniforms are still valid from the previous load.  Invalidated at frame start.
-  // 0xFFFF is used as "invalid" since triangle indices are < SEQ_MAX_TRI (≤ 1024).
-  val lastLoadedTri = RegInit("hFFFF".U(16.W))
+  // 2-entry associative setup cache over the two existing uniform pages.  Pass 2
+  // re-reads each triangle's 128B setup once per tile it covers; the old 1-entry
+  // cache (lastLoadedTri + page always 0) missed the tile-major A,B,A interleaving
+  // (page 1 was idle).  Now each page caches one triangle: tagReg(p) = the triangle
+  // index resident in page p (0xFFFF=invalid), uvsReg(p) = its has_uvs flag,
+  // cacheVictim = round-robin replacement pointer (2-way ⇒ == LRU).  Invalidated at
+  // frame start.  0xFFFF is "invalid" since triangle indices are < SEQ_MAX_TRI (≤1024).
+  val tagReg      = RegInit(VecInit(Seq.fill(2)("hFFFF".U(16.W))))
+  val uvsReg      = RegInit(VecInit(Seq.fill(2)(false.B)))
+  val cacheVictim = RegInit(0.U(1.W))
   // uDataReg: latched uniform value for PSRAM store (computed during sStageUniforms)
   val uDataStore = RegInit(VecInit.fill(31)(0.U(16.W)))
 
@@ -504,7 +509,10 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }.otherwise {
         triIdx       := 0.U
         vertIdx      := 0.U
-        lastLoadedTri := "hFFFF".U  // invalidate uniform cache for new frame
+        tagReg(0)    := "hFFFF".U    // invalidate 2-entry setup cache for new frame
+        tagReg(1)    := "hFFFF".U
+        cacheVictim  := 0.U
+        uniformPage  := 0.U          // Pass-1 uniform staging must use page 0
         // Step 32.2: clear binner per-tile counts at the start of each frame.
         // The binner's multi-cycle clearing runs in parallel with the first
         // vertex shader DMA load, so it adds zero latency.
@@ -898,31 +906,42 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   private def handleLoadTriSetup(): Unit = {
-    // Uniform cache: if this triangle's uniforms were loaded for the previous
-    // tile, skip the DMA — the uniform buffer still holds valid data.
-    // triHasUvs was set during that earlier load and is still correct.
-    when(binEntryData === lastLoadedTri) {
-      if (BorgDebug.trace) printf("[SEQ] loadTriSetup CACHE HIT triIdx=%d\n", binEntryData)
-      state := sEnqueueTile
+    // 2-entry associative setup cache: if this triangle's setup is resident in
+    // either uniform page, point the frag at that page (uniformPage drives the
+    // core's uniform read page while the sequencer is busy) and skip the DMA.
+    // This catches the tile-major A,B,A interleaving the old 1-entry cache missed.
+    // On a miss, DMA into the round-robin victim page and update its tag.
+    when(binEntryData === tagReg(0)) {
+      if (BorgDebug.trace) printf("[SEQ] loadTriSetup HIT page0 triIdx=%d\n", binEntryData)
+      uniformPage := 0.U
+      triHasUvs   := uvsReg(0)
+      state       := sEnqueueTile
+    }.elsewhen(binEntryData === tagReg(1)) {
+      if (BorgDebug.trace) printf("[SEQ] loadTriSetup HIT page1 triIdx=%d\n", binEntryData)
+      uniformPage := 1.U
+      triHasUvs   := uvsReg(1)
+      state       := sEnqueueTile
     }.otherwise {
+      val victim = cacheVictim
       val desc = Wire(new DMADescriptor)
       desc.baseAddr := io.mmio.setupBase + (binEntryData << 7)
       desc.length   := 32.U  // 31 uniforms + 1 has_uvs flag
-      desc.dest     := Mux(uniformPage === 0.U, 1.U, 2.U)  // page 0 or 1
+      desc.dest     := 1.U   // uniform write; page = uniformPage(:=victim) via DMA
       desc.offset   := 0.U
 
-      if (BorgDebug.trace) printf("[SEQ] loadTriSetup MISS triIdx=%d addr=0x%x dest=%d\n",
-        binEntryData, io.mmio.setupBase + (binEntryData << 7),
-        Mux(uniformPage === 0.U, 1.U, 2.U))
+      if (BorgDebug.trace) printf("[SEQ] loadTriSetup MISS triIdx=%d -> page%d addr=0x%x\n",
+        binEntryData, victim, io.mmio.setupBase + (binEntryData << 7))
 
-      lastLoadedTri := binEntryData
-      dmaDescReg    := desc
-      io.dma.desc   := desc
-      io.dma.start  := true.B
-      nextAfterDMA  := sEnqueueTile
+      tagReg(victim) := binEntryData
+      uniformPage    := victim        // frag reads from the victim page
+      cacheVictim    := ~victim       // round-robin replacement (2-way == LRU)
+      dmaDescReg     := desc
+      io.dma.desc    := desc
+      io.dma.start   := true.B
+      nextAfterDMA   := sEnqueueTile
       // Track word count for has_uvs snoop (word 31)
-      setupLoadIdx  := 0.U
-      state         := sWaitDMA
+      setupLoadIdx   := 0.U
+      state          := sWaitDMA
     }
   }
 
@@ -1114,6 +1133,9 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       setupLoadIdx := setupLoadIdx + 1.U
       when(setupLoadIdx === 31.U) {
         triHasUvs := io.dma.uniformSnoop.data(0)
+        // Remember has_uvs for the page just loaded (= current uniformPage) so a
+        // later cache hit on this triangle restores it without re-reading setup.
+        uvsReg(uniformPage) := io.dma.uniformSnoop.data(0)
         if (BorgDebug.trace) printf("[SEQ] pass2 hasUvs triIdx=%d flag=%d\n", binEntryData, io.dma.uniformSnoop.data(0))
       }
     }
