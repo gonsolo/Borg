@@ -10,16 +10,14 @@ date-released: 2026-07-17
 url: "https://github.com/gonsolo/Borg"
 license: "CERN-OHL-S-2.0"
 preferred-citation:
-  type: conference-paper
+  type: generic
   authors:
   - family-names: "Wendleder"
     given-names: "Andreas"
   title: "Borg (Bring yer Own GRaphics): An Open-Source Tile-Based GPU with Silicon Tapeout"
-  collection-title: "High-Performance Graphics (HPG) 2026"
+  notes: "Poster presented at High-Performance Graphics (HPG) 2026"
   year: 2026
   month: 7
-  location:
-    name: "Los Angeles, CA"
   url: "https://github.com/gonsolo/Borg"
 keywords:
   - "GPU"

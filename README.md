@@ -182,15 +182,13 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 If you use the Borg GPU in your research or project, please cite the HPG 2026 poster:
 
 ```bibtex
-@inproceedings{Wendleder_Borg_HPG_2026,
+@misc{Wendleder_Borg_2026,
   author    = {Wendleder, Andreas},
   title     = {{Borg (Bring yer Own GRaphics): An Open-Source Tile-Based GPU with Silicon Tapeout}},
-  booktitle = {High-Performance Graphics (HPG) 2026},
-  year      = {2026},
+  howpublished = {Poster presented at High-Performance Graphics (HPG) 2026},
   month     = jul,
-  address   = {Los Angeles, CA},
+  year      = {2026},
   url       = {https://github.com/gonsolo/Borg},
-  note      = {Funded by NLnet NGI0 Commons Fund}
 }
 ```
 
