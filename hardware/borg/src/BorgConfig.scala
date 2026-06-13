@@ -27,11 +27,6 @@ package borg
   * @param hasPerfCounters Wire up the 5×32-bit GPU performance counters (total/frag/
   *                     flush/stall/dma).  Useful for fps profiling on ULX3S; omitted
   *                     on ASIC to save ~18 kµm².
-  * @param useCustomFma Select the FP16 fused-multiply-add implementation.  false =
-  *                     Berkeley HardFloat MulAddRecFN (full IEEE-754, proven); true =
-  *                     in-tree BorgFp16Fma (GPU domain, round-to-nearest-even, CERN-OHL-S).
-  *                     The custom unit is smaller and shorter critical-path (enables a
-  *                     clock bump) and is the per-lane datapath for SIMT.
   * @param fragLanes  Fragment-shader SIMT width.  1 = scalar (one pixel per shader pass,
   *                     the current behaviour); 4 = a 2×2 pixel quad per pass (4× shader
   *                     throughput, lays the architecture for dFdx/dFdy).  Only the
@@ -46,7 +41,6 @@ case class BorgConfig(
     icacheLines: Int = 512,
     maxUniforms: Int = 64,
     hasPerfCounters: Boolean = true,
-    useCustomFma: Boolean = false,
     fragLanes: Int = 1
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
@@ -57,19 +51,15 @@ case class BorgConfig(
 
 object BorgConfig {
   // Default: sim + ULX3S — full 1024-tile bin table, 56-instruction shader memory.
-  // useCustomFma=true: the in-tree BorgFp16Fma is bit-verified vs HardFloat (30k+
-  // co-sim cases) and renders correctly in verilator AND arcilator AND on ULX3S
-  // hardware; it is smaller and shorter-critical-path.  (The "arcilator miscompile"
-  // once attributed to it was a missing-firmware misdiagnosis — see
-  // docs/arcilator_custom_fma_bug.md.)  The Asic config below stays on HardFloat so
-  // the already-validated/taped-out GDS is unaffected.
+  // The in-tree BorgFp16Fma (CERN-OHL-S, round-to-nearest-even) is the sole FP16 FMA
+  // across ALL targets — historically bit-verified vs IEEE/HardFloat (30k+ co-sim),
+  // renders correctly in verilator/arcilator/ULX3S, smaller + shorter critical path.
   val Default = BorgConfig(
     fp              = FloatConfig.FP16,
     coordWidth      = 9,
     fifoDepth       = 2,
     maxBinTiles     = 1024,
-    maxInstructions = 72, // M5 step 1: grow IMEM (rast 13 + frag ~56 co-resident)
-    useCustomFma    = true
+    maxInstructions = 72 // M5 step 1: grow IMEM (rast 13 + frag ~56 co-resident)
   )
 
   // Sim + ULX3S SIMT config: 2×2 quad fragment shading.  Selected via BORG_CFG in
@@ -91,7 +81,6 @@ object BorgConfig {
     maxInstructions  = 32,
     icacheLines      = 0,
     maxUniforms      = 32,
-    hasPerfCounters  = false,
-    useCustomFma     = false  // explicit: keep HardFloat for the validated/taped-out GDS
+    hasPerfCounters  = false
   )
 }

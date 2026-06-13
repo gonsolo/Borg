@@ -20,6 +20,6 @@ object BorgCoreArcMain extends App {
   println("ENC MUL(0,1,2)=0x"   + borg.Instructions.MUL(0, 1, 2).toString(16))
   println("ENC FMA(0,1,3,2)=0x" + borg.Instructions.FMA(0, 1, 3, 2).toString(16))
   println("ENC FNEG(0,2)=0x"    + borg.Instructions.FNEG(0, 2).toString(16))
-  soc.Emit.emitFIRRTL(new BorgCore(BorgConfig.Default.copy(useCustomFma = true)),
+  soc.Emit.emitFIRRTL(new BorgCore(BorgConfig.Default),
                       "out/hardware/borg/firrtl_corearc")
 }

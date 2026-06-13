@@ -5,7 +5,6 @@ package borg
 
 import chisel3._
 import chisel3.util._
-import hardfloat._
 
 /** BorgLane — the per-lane datapath of the shader core.
   *
@@ -223,10 +222,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_deriv_reg := opFlags.ddx || opFlags.ddy
     }
 
-    val pipe_stage = is_busy && busy_counter === 2.U
-
-    val fma_result =
-      if (cfg.useCustomFma) {
+    val fma_result = {
         val fma = Module(new BorgFp16Fma(cfg))
         fma.io.a := Mux(is_deriv_reg, io.crossA, Mux(is_mul_reg || is_fma_reg, recA_raw, one_fn))
         fma.io.b := Mux(is_deriv_reg, one_fn,     Mux(is_mul_reg || is_fma_reg, recB_raw, recA_raw))
@@ -240,38 +236,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         fma.io.pipeEn1 := is_busy && busy_counter === 4.U
         fma.io.pipeEn2 := is_busy && busy_counter === 3.U
         fma.io.out
-      } else {
-        val recA = recFNFromFN(config.exp, config.sig, recA_raw)
-        val recB = recFNFromFN(config.exp, config.sig, recB_raw)
-        val recC = recFNFromFN(config.exp, config.sig, recC_raw)
-        val recOne = recFNFromFN(config.exp, config.sig, one_fn)
-        val recZero = recFNFromFN(config.exp, config.sig, 0.U(config.totalBits.W))
-
-        val recCrossA = recFNFromFN(config.exp, config.sig, io.crossA)
-        val recCrossC = recFNFromFN(config.exp, config.sig, io.crossC)
-        val preMul = Module(new MulAddRecFNToRaw_preMul(config.exp, config.sig))
-        preMul.io.op := Mux(is_fneg_reg, 2.U, 0.U)
-        preMul.io.a  := Mux(is_deriv_reg, recCrossA, Mux(is_mul_reg || is_fma_reg, recA, recOne))
-        preMul.io.b  := Mux(is_deriv_reg, recOne,     Mux(is_mul_reg || is_fma_reg, recB, recA))
-        preMul.io.c  := Mux(is_deriv_reg, recCrossC,  Mux(is_fma_reg, recC, Mux(is_mul_reg || is_fneg_reg, recZero, recB)))
-
-        val mulAddResult = (preMul.io.mulAddA * preMul.io.mulAddB) +& preMul.io.mulAddC
-        val toPostMul_reg    = RegEnable(preMul.io.toPostMul,  pipe_stage)
-        val mulAddResult_reg = RegEnable(mulAddResult,          pipe_stage)
-
-        val postMul = Module(new MulAddRecFNToRaw_postMul(config.exp, config.sig))
-        postMul.io.fromPreMul   := toPostMul_reg
-        postMul.io.mulAddResult := mulAddResult_reg
-        postMul.io.roundingMode := 0.U
-
-        val round = Module(new RoundRawFNToRecFN(config.exp, config.sig, 0))
-        round.io.invalidExc    := postMul.io.invalidExc
-        round.io.infiniteExc   := false.B
-        round.io.in            := postMul.io.rawOut
-        round.io.roundingMode  := 0.U
-        round.io.detectTininess := 1.U
-
-        fNFromRecFN(config.exp, config.sig, round.io.out)
       }
 
     (fma_result, is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg)

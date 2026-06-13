@@ -9,9 +9,8 @@ import chisel3.util._
 /** BorgFp16Fma — in-tree fused multiply-add for the GPU's FP16 domain.
   *
   * Computes `round_RNE( (negate ? -(a*b) : a*b) + c )` with a SINGLE rounding,
-  * round-to-nearest-even, on standard IEEE-754 binary16.  Drop-in for HardFloat
-  * `MulAddRecFN` (selected by `cfg.useCustomFma`) and the per-lane arithmetic core
-  * for 4-lane SIMT.
+  * round-to-nearest-even, on standard IEEE-754 binary16.  The sole FP16 FMA across
+  * all targets and the per-lane arithmetic core for 4-lane SIMT.
   *
   * Operand muxing (ADD/MUL/FMA/FNEG) stays in `BorgLane`; this unit sees the
   * resolved a/b/c + negate.  Proper IEEE Inf/NaN handling (edge functions overflow
