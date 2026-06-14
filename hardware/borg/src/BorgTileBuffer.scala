@@ -5,6 +5,7 @@ package borg
 
 import chisel3._
 import chisel3.util._
+import chisel3.experimental.BundleLiterals._
 
 /** BorgTileBuffer — 4×4 on-chip tile buffer for RGB + Z.
   *
@@ -47,7 +48,8 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
 
   // --- Clear state machine ---
   // BRAM needs sequential writes (1 entry per cycle).
-  // Init to 0 → auto-clear on reset (BRAM has no initial values unlike RegInit).
+  // clearCounter starts at 0 → clearing is true for the first 16 cycles after
+  // reset, so the BRAM (which has no RegInit semantics) is auto-cleared.
   val clearCounter = RegInit(0.U(5.W))
   val clearing = clearCounter < TILE_SIZE.U
 
@@ -59,7 +61,15 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
   // Sampling io.clear.color combinationally during those writes would read the
   // mux's fall-through default (black), painting the whole background black.
   // Latching at clear-start keeps the color stable across the entire sequence.
-  val clearWordReg = RegInit(0.U(PACKED_BITS.W))
+  //
+  // RegInit defaults the latch to RGB=0, Z=FP16_MAX_DEPTH so the *reset*
+  // auto-clear establishes the far-plane depth convention (Z=0x7BFF).  A reset
+  // value of Z=0 would be the near plane and reject every fragment until the
+  // first explicit clear.
+  val clearInit = (new ColorZ(dataBits)).Lit(
+    _.r -> 0.U, _.g -> 0.U, _.b -> 0.U, _.z -> FP16_MAX_DEPTH
+  )
+  val clearWordReg = RegInit(clearInit.asUInt)
   val clearWord = clearWordReg
 
   // --- Clear logic ---
