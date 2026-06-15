@@ -3,16 +3,15 @@
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <firmware.bin> <app_name> [width] [height] [tex_dim]\n";
+        std::cerr << "Usage: " << argv[0] << " <firmware.bin> <app_name> [width] [height]\n";
         return 1;
     }
     Verilated::commandArgs(argc, argv);
     std::string firmware_path = argv[1];
     std::string app_name = argv[2];
 
-    uint32_t width = argc > 3 ? std::atoi(argv[3]) : 32;
+    uint32_t width  = argc > 3 ? std::atoi(argv[3]) : 32;
     uint32_t height = argc > 4 ? std::atoi(argv[4]) : 32;
-    uint32_t tex_dim = argc > 5 ? std::atoi(argv[5]) : 32;
 
     VerBorgSimulator sim(firmware_path, width, height);
 
@@ -23,25 +22,29 @@ int main(int argc, char** argv) {
 
     std::cout << "[SIM] Starting simulation...\n";
 
+    const int NUM_FRAMES = cfg.num_frames;
+    const uint64_t MAX_CYCLES_PER_FRAME = 12000000ULL;
     uint64_t total_cycles = 0;
-    uint64_t max_cycles = argc > 6 ? (uint64_t)std::atoll(argv[6]) : 0;
-    while (!sim.step(100000)) {
-        total_cycles += 100000;
-        if (total_cycles % 1000000 == 0) {
-            std::cout << "[SIM] " << (total_cycles / 1000000) << " million cycles\n" << std::flush;
+    for (int frame = 0; frame < NUM_FRAMES; frame++) {
+        uint64_t frame_start = total_cycles;
+        while (!sim.step(100000)) {
+            total_cycles += 100000;
+            if (total_cycles - frame_start > MAX_CYCLES_PER_FRAME) {
+                std::cerr << "[SIM] ERROR: frame " << (frame + 1) << " exceeded "
+                          << (MAX_CYCLES_PER_FRAME / 1000000) << "M cycles with no completion "
+                          << "marker — aborting (likely a render hang).\n";
+                sim.save_ppm(app_name);
+                sim.report_bandwidth();
+                return 2;
+            }
+            if (total_cycles % 5000000 == 0)
+                std::cout << "[SIM] " << (total_cycles / 1000000) << "M cycles (frame " << (frame+1) << ")\n";
         }
-        if (max_cycles && total_cycles >= max_cycles) {
-            std::cout << "[SIM] MAX CYCLES REACHED (" << max_cycles << ") — saving partial framebuffer\n";
-            sim.save_ppm(app_name);
-            sim.report_bandwidth();
-            return 1;
-        }
+        uint64_t frame_cycles = total_cycles - frame_start;
+        std::cout << "[SIM] Frame " << (frame+1) << " done: " << frame_cycles << " cycles"
+                  << "  (est fps @ 25MHz: " << (25000000.0 / frame_cycles) << ")\n";
     }
-    std::cout << "[SIM] Frame complete! DONE_MARKER detected.\n";
-    std::cout << "Total Sim Cycles:  " << total_cycles << " cycles.\n";
-
     sim.save_ppm(app_name);
     sim.report_bandwidth();
-
     return 0;
 }
