@@ -39,6 +39,11 @@ lint_off -rule UNUSEDSIGNAL -file "*Fp16Rsq.sv"
 lint_off -rule UNUSEDSIGNAL -file "*Fp16Srgb.sv"
 lint_off -rule UNDRIVEN     -file "*frsqLut*.sv"
 lint_off -rule UNDRIVEN     -file "*srgbLut*.sv"
+// Async-read Mem LUTs (rcp/frsq/srgb) emit per-read-port R0_clk/R1_clk that a
+// combinational read does not use — firtool emits the clock port regardless.
+lint_off -rule UNUSEDSIGNAL -file "*rcpLut*.sv"
+lint_off -rule UNUSEDSIGNAL -file "*frsqLut*.sv"
+lint_off -rule UNUSEDSIGNAL -file "*srgbLut*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*BorgTileFlusher.sv"
 lint_off -rule UNUSEDSIGNAL -file "*BorgSequencer.sv"
 lint_off -rule UNUSEDSIGNAL -file "*BorgBinner.sv"
