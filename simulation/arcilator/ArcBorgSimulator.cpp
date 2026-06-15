@@ -1,7 +1,5 @@
 #include "arc.h"
 #include "ArcBorgSimulator.h"
-#include <iostream>
-#include <fstream>
 
 ArcBorgSimulator::ArcBorgSimulator(const std::string& firmware_path, uint32_t w, uint32_t h) {
     model = new BorgArcSimTop;
