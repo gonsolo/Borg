@@ -52,9 +52,6 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // --- MMIO bus (broadcast; GPR read/write) ---
   val bus         = Flipped(new BorgBusIO())
 
-  // --- RcpLut init (simulation) ---
-  val lutInit     = Input(new LutInitIO(9, cfg.totalBits))
-
   // --- FTEX write-back from the shared FTEX FSM (en/addr/data) ---
   val texWrite    = Flipped(new MemWritePort(5, 16))
 
@@ -75,26 +72,10 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val regFileB = Module(new RegFileCopy(config.totalBits, "regFileB"))
   val regFileC = Module(new RegFileCopy(config.totalBits, "regFileC"))
 
-  // --- Reciprocal LUT (async read: single copy serves both idx and idx+1 reads) ---
-  val rcpLut = Mem(17, UInt(10.W))
-  chisel3.util.experimental.loadMemoryFromFileInline(rcpLut, "rcp_lut.hex")
-  when(io.lutInit.en && io.lutInit.isRcp) {
-    rcpLut.write(io.lutInit.addr(4, 0), io.lutInit.data(9, 0))
-  }
-
-  // --- Reciprocal-sqrt LUT (async read, 34 entries = 2 parity regions of 17) ---
-  val frsqLut = Mem(34, UInt(10.W))
-  chisel3.util.experimental.loadMemoryFromFileInline(frsqLut, "frsq_lut.hex")
-  when(io.lutInit.en && io.lutInit.isFrsq) {
-    frsqLut.write(io.lutInit.addr(5, 0), io.lutInit.data(9, 0))
-  }
-
-  // --- Linear→sRGB LUT (async read, 256 fp16-output entries; direct function table) ---
-  val srgbLut = Mem(256, UInt(16.W))
-  chisel3.util.experimental.loadMemoryFromFileInline(srgbLut, "srgb_lut.hex")
-  when(io.lutInit.en && io.lutInit.isFsrgb) {
-    srgbLut.write(io.lutInit.addr(7, 0), io.lutInit.data(15, 0))
-  }
+  // --- FP16 special-function ROMs (purely combinational VecInit — zero FFs, zero clock load) ---
+  private val rcpRom  = VecInit(BorgLutTables.rcpLut.map(_.U(10.W)))
+  private val frsqRom = VecInit(BorgLutTables.frsqLut.map(_.U(10.W)))
+  private val srgbRom = VecInit(BorgLutTables.srgbLut.map(_.U(16.W)))
 
   private val busy_counter = io.busyCounter
   private val is_busy      = io.isBusy
@@ -233,13 +214,13 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   /** Linear→sRGB via the 256-entry direct fp16→fp16 table (Fp16Srgb). Indexed by
-    * (exp-1, mant[9:6]); async read so a single Mem serves both idx and idx+1. */
+    * (exp-1, mant[9:6]); combinational ROM so idx and idx+1 read in the same cycle. */
   private def computeFsrgb(recA_raw: UInt): UInt = {
     val exp  = recA_raw(14, 10)
     val mant = recA_raw(9, 0)
     val idx  = Cat((exp - 1.U)(3, 0), mant(9, 6)) // 8-bit
-    val rawVal  = srgbLut.read(idx)
-    val rawNext = srgbLut.read(idx +& 1.U)
+    val rawVal  = srgbRom(idx)
+    val rawNext = srgbRom((idx +& 1.U)(7, 0))
     val valReg  = RegEnable(rawVal,  is_busy && busy_counter === 3.U)
     val nextReg = RegEnable(rawNext, is_busy && busy_counter === 3.U)
     val srgb = Module(new Fp16Srgb)
@@ -250,15 +231,15 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     else srgb.io.out
   }
 
-  /** Reciprocal square root via the 34-entry parity-split LUT (companion of
-    * computeFrcp). Parity (exp LSB) selects the LUT region; async read. */
+  /** Reciprocal square root via the 34-entry parity-split ROM (companion of
+    * computeFrcp). Parity (exp LSB) selects the ROM region; combinational. */
   private def computeFrsq(recA_raw: UInt): UInt = {
     val exp      = recA_raw(14, 10)
     val mant     = recA_raw(9, 0)
     val parity   = !exp(0)
     val baseAddr = Mux(parity, 17.U(6.W), 0.U(6.W)) + mant(9, 6)
-    val rsqLutRawVal  = frsqLut.read(baseAddr)
-    val rsqLutRawNext = frsqLut.read(baseAddr +& 1.U)
+    val rsqLutRawVal  = frsqRom(baseAddr)
+    val rsqLutRawNext = frsqRom((baseAddr +& 1.U)(5, 0))
     val rsqLutValReg  = RegEnable(rsqLutRawVal,  is_busy && busy_counter === 3.U)
     val rsqLutNextReg = RegEnable(rsqLutRawNext, is_busy && busy_counter === 3.U)
     val rsq = Module(new Fp16Rsq)
@@ -278,8 +259,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def computeFrcp(recA_raw: UInt): UInt = {
     val rcpMant = recA_raw(9, 0)
     val rcpLutIdx = rcpMant(9, 6)
-    val rcpLutRawVal  = rcpLut.read(rcpLutIdx)
-    val rcpLutRawNext = rcpLut.read(rcpLutIdx +& 1.U)
+    val rcpLutRawVal  = rcpRom(rcpLutIdx)
+    val rcpLutRawNext = rcpRom((rcpLutIdx +& 1.U)(4, 0))
     val rcpLutValReg  = RegEnable(rcpLutRawVal,  is_busy && busy_counter === 3.U)
     val rcpLutNextReg = RegEnable(rcpLutRawNext, is_busy && busy_counter === 3.U)
     val rcp = Module(new Fp16Rcp)

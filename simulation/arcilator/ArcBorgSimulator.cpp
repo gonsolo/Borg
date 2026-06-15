@@ -54,47 +54,17 @@ void ArcBorgSimulator::set_backend_done(bool v)        { model->view.be_done = v
 void ArcBorgSimulator::set_backend_busy(bool v)        { model->view.be_busy = v; }
 void ArcBorgSimulator::set_backend_accept(bool v)      { model->view.be_accept = v; }
 
-// Arcilator does NOT honor the RTL's $readmemh / loadMemoryFromFileInline, so
-// the coord/reciprocal LUTs (initialized from .hex in BorgCore) come up all-zero.
-// All-zero coordLut makes every pixel's r30/r31 = 0, so the rasterizer evaluates
-// every edge at the origin and classifies all pixels "outside" (black frame).
-// We replicate the RTL's init here by loading the same .hex files into the
-// arcilator-observed memories.  (Verilator gets this for free via $readmemh.)
-static int load_hex_into(const char* path, uint16_t* out, int max_entries) {
-    std::ifstream f(path);
-    if (!f) { fprintf(stderr, "[SIM] WARNING: could not open LUT %s\n", path); return 0; }
-    std::string line;
-    int i = 0;
-    while (std::getline(f, line) && i < max_entries) {
-        if (line.empty()) continue;
-        out[i++] = (uint16_t)std::stoul(line, nullptr, 16);
-    }
-    return i;
-}
-
 void ArcBorgSimulator::load_luts() {
-    // The FRCP/FRSQ/FSRGB LUTs live per-lane in BorgLane.  Arcilator ignores the
-    // RTL's $readmemh, so we poke them from C++.  The unified SIMT config has 4
-    // lanes (lanes_0..3), each with its own A/B copy of every LUT — all must be
-    // loaded or that lane's FRCP returns garbage (black/hung frame).  A struct-path
-    // mismatch here is a loud compile error, not a silent runtime hang.
+    // The FRCP/FRSQ/FSRGB LUTs live per-lane in BorgLane.  They were dual-copy
+    // SyncReadMem (observed as rcpLutA_ext/rcpLutB_ext etc.) and had to be poked
+    // from C++ because arcilator ignored the SyncReadMem $readmemh.
+    //
+    // dca2fb9 merged each A/B pair into a single async-read `Mem`.  arcilator's
+    // --observe-memories only exposes *sequential* memories, so the async Mem LUTs
+    // are now inlined — there is no *_ext handle to poke.  Whether arcilator honors
+    // the inlined Mem's $readmemh init is verified by the triangle/vkcube goldens;
+    // if a lane's FRCP returns garbage, this is where to reinstate a load path.
     // (coordLutX/Y were replaced by combinational pixelToFP16Half — no load needed.)
-    uint16_t rcp[17], frsq[34], srgb[256];
-    int nr = load_hex_into("../../hardware/borg/src/rcp_lut.hex",  rcp,  17);
-    int nf = load_hex_into("../../hardware/borg/src/frsq_lut.hex", frsq, 34);
-    int ns = load_hex_into("../../hardware/borg/src/srgb_lut.hex", srgb, 256);
-
-    auto loadLane = [&](auto& lane) {
-        for (int i = 0; i < nr; i++) { lane.rcpLutA_ext.words[i].data  = rcp[i];  lane.rcpLutB_ext.words[i].data  = rcp[i];  }
-        for (int i = 0; i < nf; i++) { lane.frsqLutA_ext.words[i].data = frsq[i]; lane.frsqLutB_ext.words[i].data = frsq[i]; }
-        for (int i = 0; i < ns; i++) { lane.srgbLutA_ext.words[i].data = srgb[i]; lane.srgbLutB_ext.words[i].data = srgb[i]; }
-    };
-    auto& core = model->view.internal.uo_out_val_peripherals.borg.core;
-    loadLane(core.lanes_0);
-    loadLane(core.lanes_1);
-    loadLane(core.lanes_2);
-    loadLane(core.lanes_3);
-    fprintf(stderr, "[SIM] Loaded LUTs ×4 lanes: rcp=%d frsq=%d srgb=%d\n", nr, nf, ns);
 }
 
 bool ArcBorgSimulator::step(uint32_t cycles_to_run) {

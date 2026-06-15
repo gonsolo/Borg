@@ -34,9 +34,6 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // Control signals from SystemRDL register block
   val control = Input(new CoreControlIO)
 
-  // CoordLut/RcpLut initialization (for simulation — synthesis uses loadMemoryFromFileInline)
-  val lutInit = Input(new LutInitIO(9, cfg.totalBits))
-
   // DMA write ports (Step 22.1): DMA takes priority over MMIO writes
   val dmaImemWrite    = Flipped(new MemWritePort(7, 32)) // 7-bit: IMEM up to 72 entries
   val dmaUniformWrite = Flipped(new MemWritePort(6, 16))
@@ -112,7 +109,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     lane.io.seqBusy     := io.seqBusy
     lane.io.uniformData := uniform_data
     lane.io.funct3Del   := funct3_del
-    lane.io.lutInit     := io.lutInit
     // MMIO bus is broadcast (all lanes are slaves seeing the same transaction).
     lane.io.bus.address    := io.bus.address
     lane.io.bus.data_in    := io.bus.data_in

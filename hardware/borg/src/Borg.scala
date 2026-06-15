@@ -178,14 +178,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                                             s.io.uniformWritePage,
                                             rdlRegs.io.hw.control_uniform_write_page)
 
-    // CoordLut/RcpLut init port — only used during simulation; synthesis uses $readmemh
-    core.io.lutInit.en    := false.B
-    core.io.lutInit.isRcp := false.B
-    core.io.lutInit.isFrsq := false.B
-    core.io.lutInit.isFsrgb := false.B
-    core.io.lutInit.addr  := 0.U
-    core.io.lutInit.data  := 0.U
-
     // DMA write ports (Step 22.1).
     // Uniform write port is shared between DMA and sequencer;
     // sequencer takes priority (they never contend in practice).

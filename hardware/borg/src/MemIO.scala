@@ -28,13 +28,4 @@ class CoreControlIO extends Bundle {
   val uniformWritePage = Output(UInt(1.W))
 }
 
-/** Simulation-only LUT initialization port. */
-class LutInitIO(val addrWidth: Int, val dataWidth: Int) extends Bundle {
-  val en     = Output(Bool())
-  val isRcp  = Output(Bool())
-  val isFrsq = Output(Bool()) // selects the reciprocal-sqrt LUT (34 entries)
-  val isFsrgb = Output(Bool()) // selects the linear→sRGB LUT (256 entries)
-  val addr   = Output(UInt(addrWidth.W))
-  val data   = Output(UInt(dataWidth.W))
-}
 
