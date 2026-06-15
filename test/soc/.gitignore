@@ -2,3 +2,9 @@ __pycache__
 tb.vcd
 tb.vcd.hier
 borg_mmio.py
+sim_build
+results.xml
+# FP16 LUT ROM init hex, staged from hardware/borg/src by the `luts` make target
+rcp_lut.hex
+frsq_lut.hex
+srgb_lut.hex

@@ -8,7 +8,11 @@ import numpy as np
 import cocotb
 from cocotb.clock import Clock
 from tqv import Hutt
-from borg_mmio import BORG_IMEM_OFFSET
+from borg_mmio import (
+    BORG_IMEM_OFFSET,
+    BORG_CONTROL_OFFSET,
+    BORG_STATUS_OFFSET,
+)
 from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd, encode_rv32_fneg, encode_rv32_fstep, encode_rv32_frcp
 
 FP16_MAX = 65504
@@ -24,9 +28,14 @@ class BorgDriver:
         self.dut = dut
         self.tqv = tqv
         self.is_fp16 = is_fp16
-        self.ADDR_STATUS = 364
+        # Register offsets come from the RDL-generated borg_mmio (single source of
+        # truth).  These MUST NOT be hardcoded: the IMEM array grew to 56 entries
+        # for the Phase-D borgc fragment, which pushed CONTROL 0x168->0x1A8 and
+        # STATUS 0x16C->0x1AC.  Stale hardcoded 360/364 wrote "start" into a dead
+        # address, so the GPU never ran and wait_for_halt spun forever (19-min hang).
+        self.ADDR_STATUS = BORG_STATUS_OFFSET
         self.ADDR_IMEM = BORG_IMEM_OFFSET
-        self.ADDR_CONTROL = 360
+        self.ADDR_CONTROL = BORG_CONTROL_OFFSET
 
     def is_close(self, actual, expected):
         rel_eps = 1e-3 if self.is_fp16 else 1e-6
@@ -58,12 +67,22 @@ class BorgDriver:
         val = 1 | (2 if reset_pc else 0)
         await self.tqv.write_word_reg(self.ADDR_CONTROL, val)
 
-    async def wait_for_halt(self):
-        while True:
+    async def wait_for_halt(self, max_polls=256):
+        # Poll STATUS.idle (bit 1).  Bounded so a register-map or trigger
+        # regression fails fast with a diagnostic instead of hanging the suite
+        # (each poll is a full QSPI MMIO read transaction, so 256 is generous for
+        # any real shader yet still terminates in seconds of wall-clock).
+        for _ in range(max_polls):
             status = await self.tqv.read_word_reg(self.ADDR_STATUS)
             if status & 2:
-                break
+                return
             await cocotb.triggers.Timer(100, unit="ns")
+        status = await self.tqv.read_word_reg(self.ADDR_STATUS)
+        raise AssertionError(
+            f"GPU never went idle after {max_polls} polls "
+            f"(STATUS@0x{self.ADDR_STATUS:X} = 0x{status:08X}, idle bit still 0). "
+            f"Check CONTROL@0x{self.ADDR_CONTROL:X} start trigger and register map."
+        )
 
     async def read_register(self, reg_idx):
         bits = await self.tqv.read_word_reg(reg_idx * 4)
@@ -266,7 +285,12 @@ async def test_borg_rotation_shader(dut):
 
 @cocotb.test()
 async def test_borg_fstep(dut):
-    """Test FSTEP: output is 1.0 for x >= 0, 0.0 for x < 0."""
+    """Test FSTEP: output is 1.0 for x > 0, 0.0 for x <= 0.
+
+    Boundary semantics match the hardware (BorgLane.computeFstep) and the Chisel
+    oracle (BorgTests.scala: `if (a_eff > 0.0f) 1.0f else 0.0f`): the step is
+    *strictly* greater than zero, so FSTEP(0.0) == 0.0 (the sign-or-zero test
+    treats +0.0 as not-positive)."""
     dut._log.info("Starting Borg FSTEP Test")
 
     clock = Clock(dut.clk, 100, unit="ns")
@@ -281,7 +305,7 @@ async def test_borg_fstep(dut):
     cases = [
         ( 1.0,  1.0),
         ( 0.5,  1.0),
-        ( 0.0,  1.0),
+        ( 0.0,  0.0),  # strictly x > 0: +0.0 -> 0.0 (matches HW + Chisel oracle)
         (-0.5,  0.0),
         (-1.0,  0.0),
     ]

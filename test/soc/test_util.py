@@ -233,18 +233,43 @@ async def expect_load(dut, addr, val, bytes=4):
     else:
         assert False # Load from flash not currently supported in this test
 
+    # The MemoryController decomposes each CPU access into one or two halfword
+    # QSPI read transactions (byte/halfword → 1, word → 2 back-to-back to addr and
+    # addr+2).  Each halfword is a self-contained CMD+ADDR+dummy phase (consumed by
+    # start_read) followed by 4 data nibbles, with select deasserting between
+    # halfwords.  Mirror expect_store's per-halfword loop, but drive qspi_data_in
+    # (read direction) instead of sampling qspi_data_out.
+    num_halfwords = (bytes + 1) // 2          # 1 for byte/half, 2 for word
     for i in range(100):
         if select.value == 0:
-            await start_read(dut, addr)
-            dut.qspi_data_in.value = (val >> (nibble_shift_order[0])) & 0xF
-            for j in range(1,bytes*2):
-                await ClockCycles(dut.clk, 1, False)
-                assert select.value == 0
-                assert dut.qspi_clk_out.value == 1
-                assert dut.qspi_data_oe.value == 0
-                await ClockCycles(dut.clk, 1, False)
-                assert dut.qspi_clk_out.value == 0
-                dut.qspi_data_in.value = (val >> (nibble_shift_order[j])) & 0xF
+            for hw in range(num_halfwords):
+                # start_read consumes this halfword's CMD + ADDR + dummy phase and
+                # leaves the bus in the data-listen (oe=0) phase.
+                await start_read(dut, addr + hw * 2)
+                nibbles = min(4, bytes * 2 - hw * 4)
+                for k in range(nibbles):
+                    j = hw * 4 + k
+                    # Present the nibble before the rising edge the DUT samples on.
+                    dut.qspi_data_in.value = (val >> nibble_shift_order[j % 8]) & 0xF
+                    await ClockCycles(dut.clk, 1, False)
+                    assert select.value == 0
+                    assert dut.qspi_clk_out.value == 1
+                    assert dut.qspi_data_oe.value == 0
+                    await ClockCycles(dut.clk, 1, False)
+                    assert dut.qspi_clk_out.value == 0
+                # Wait for select to deassert at the end of this halfword.
+                for _ in range(8):
+                    if select.value == 1:
+                        break
+                    await ClockCycles(dut.clk, 1, False)
+                assert select.value == 1
+                # If a second halfword follows, wait for select to re-assert.
+                if hw < num_halfwords - 1:
+                    for _ in range(20):
+                        if select.value == 0:
+                            break
+                        await ClockCycles(dut.clk, 1, False)
+                    assert select.value == 0
             break
         elif dut.qspi_flash_select.value == 0:
             await send_instr(dut, 0x00000013, True)
@@ -278,6 +303,9 @@ async def nops_loop(dut):
 
 async def start_nops(dut):
     global send_nops, nop_task
+    # Drop any handle left over from a previous test before starting a fresh nop
+    # loop.  cocotb cancels per-test tasks at teardown, so a leaked handle in this
+    # module global may reference a dead task — never reuse it.
     send_nops = True
     nop_task = cocotb.start_soon(nops_loop(dut))
 
@@ -287,9 +315,18 @@ async def start_nops(dut):
 async def stop_nops():
     global send_nops, nop_task
     send_nops = False
-    if nop_task is not None:
-        await nop_task
+    task = nop_task
     nop_task = None
+    # Only drain a task that is still live in THIS test.  Across test boundaries
+    # cocotb cancels the nop loop but the module global still points at the dead
+    # task; awaiting that handle would terminate the new test early (a silent
+    # false PASS with zero sim-time advance).  Skip done tasks and swallow any
+    # cancellation from a stale handle.
+    if task is not None and not task.done():
+        try:
+            await task
+        except BaseException:
+            pass
 
 async def read_byte(dut, reg, expected_val):
   await send_instr(dut, InstructionSW(tp, reg, SOC_PERI_DEBUG_UART_OFFSET).encode())

@@ -22,7 +22,12 @@ MODULE ?= test
 all: sim
 
 # --- 3. COMPILATION ARGUMENTS ---
-COMPILE_ARGS += -I$(SRC_DIR) -I$(CURDIR)/../../out/hardware/borg/verilog -DSIM
+# -DENABLE_INITIAL_MEM_ makes firtool's $readmemh ROM initializers (the Borg FP16
+# LUTs: rcp/frsq/srgb) compile in — without it the LUT memories stay X and FRCP/
+# FRSQ/FSRGB read back undefined.  The hex files are staged into this dir by the
+# `luts` target (relative-path $readmemh resolves against the vvp CWD).  Matches
+# the verilator/ulx3s/picoice flows, which all define this macro.
+COMPILE_ARGS += -I$(SRC_DIR) -I$(CURDIR)/../../out/hardware/borg/verilog -DSIM -DENABLE_INITIAL_MEM_
 export PYTHONPATH := $(CURDIR):../../out/hardware/borg/rdl:../../:$(PYTHONPATH)
 
 # Icarus Verilog specific flags
@@ -88,15 +93,29 @@ debug_sources:
 	@echo "Netlist being used: $(GL_NETLIST)"
 	@echo "PDK_ROOT: $(PDK_ROOT)"
 
+# --- LUT hex initialization ---
+# The generated Verilog initializes the Borg FP16 LUT ROMs with relative-path
+# $readmemh("rcp_lut.hex"/"frsq_lut.hex"/"srgb_lut.hex").  Icarus resolves those
+# against the process CWD (this directory), so the canonical copies in
+# hardware/borg/src must be staged here before vvp runs — otherwise the LUTs are
+# X and FRCP/FRSQ/FSRGB read back as undefined bits.
+BORG_SRC = $(CURDIR)/../../hardware/borg/src
+LUT_HEX  = rcp_lut.hex frsq_lut.hex srgb_lut.hex
+
+$(LUT_HEX): %.hex: $(BORG_SRC)/%.hex
+	cp $< $@
+
+luts: $(LUT_HEX)
+
 # Run the default simulation
-core:
+core: luts
 	$(MAKE) sim
 
 # Run the borg specific test
-borg:
+borg: luts
 	MODULE=user_peripherals.borg.test $(MAKE) sim
 
 # Clean up build artifacts
 clean::
-	rm -rf sim_build results.xml tb.vcd tb.vcd.hier
+	rm -rf sim_build results.xml tb.vcd tb.vcd.hier $(LUT_HEX)
 

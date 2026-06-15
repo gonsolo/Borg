@@ -47,7 +47,7 @@ if CLOCK_PERIOD_PS % 2 != 0:
     CLOCK_PERIOD_PS += 1
 print(f"DEBUG: CLOCK_PERIOD_PS = {CLOCK_PERIOD_PS}")
 
-@cocotb.test(skip=True)
+@cocotb.test()
 async def test_start(dut):
     dut._log.info("Start")
 
@@ -199,7 +199,7 @@ async def test_pwm(dut, pwm_value, pwm_strobe):
         await ClockCycles(dut.clk, pwm_strobe)
 
 
-@cocotb.test(skip=True)
+@cocotb.test()
 async def test_load_bug(dut):
     dut._log.info("Start")
 
@@ -236,7 +236,7 @@ async def test_load_bug(dut):
     await read_byte(dut, a2, 0x123)
 
 
-@cocotb.test(skip=True)
+@cocotb.test()
 async def test_load_throughput(dut):
     dut._log.info("Start")
 
@@ -267,9 +267,18 @@ async def test_load_throughput(dut):
 
     for i in range(32):
         await send_instr(dut, InstructionLW(a2, sp, i * 4).encode())
-        # Use standard SW for tp-based store (SWTP was removed)
-        await send_instr(dut, InstructionSW(tp, a2, 0x3C0).encode())
+        # Hutt is multi-cycle: the load blocks the pipeline (the CPU drives the
+        # QSPI bus for the PSRAM read) until it is serviced, so the load data must
+        # be supplied BEFORE the next instruction can be fetched.  Service the load
+        # first, then inject the dependent store.  (TinyQV's pipeline tolerated the
+        # original LW/SW/expect_load order; Hutt does not.)
         await expect_load(dut, 0x1001000 + i * 4, i)
+        # Verify the load round-trips: store a2 back to a word-aligned PSRAM
+        # scratch slot (via gp) and check the value reaches the bus as i.  (The
+        # original stored to tp+0x3C0, an unmapped peripheral offset under Hutt's
+        # decode, which never acks and hangs the CPU.)
+        await send_instr(dut, InstructionSW(gp, a2, 0x3C0).encode())
+        assert await expect_store(dut, 0x1000400 + 0x3C0, 4) == i
 
 
 ### Random operation testing ###
@@ -301,7 +310,11 @@ class SimpleOp:
         return self.rvm_insn(rd, rs1, arg2).encode()
 
     def get_valid_rd(self):
-        return random.randint(0, 15)
+        # Never target gp (x3) or tp (x4): the harness reserves them as the
+        # PSRAM scratch base / peripheral base, and execute_fn already skips them
+        # in the model.  Generating them as rd would let the hardware clobber gp,
+        # breaking read_reg's store-readback (its store base is gp).
+        return random.choice([r for r in range(16) if r not in (gp, tp)])
 
     def get_valid_rs1(self):
         return random.randint(0, 15)
@@ -538,17 +551,15 @@ ops_alu = [
     ),
     SimpleOp(InstructionSRAI, lambda rs1, imm: reg[rs1] >> imm, ">>i"),
     SimpleOp(InstructionSRA, lambda rs1, rs2: reg[rs1] >> (reg[rs2] & 0x1F), ">>"),
-    SimpleOp(
-        InstructionCZERO_EQZ, lambda rs1, rs2: 0 if reg[rs2] == 0 else reg[rs1], "?0"
-    ),
-    SimpleOp(
-        InstructionCZERO_NEZ, lambda rs1, rs2: 0 if reg[rs2] != 0 else reg[rs1], "?!0"
-    ),
+    # CZERO_EQZ / CZERO_NEZ (Zicond) removed — Hutt is a base RV32I core and does
+    # NOT implement Zicond.  HuttAlu decodes funct3=0b111 as AND regardless of
+    # funct7, so the czero encodings execute as `rs1 & rs2`, diverging from the
+    # czero model.  Conditional-zero is not part of this CPU's ISA.
     # Compressed instruction ops removed — hardware no longer supports RVC (Step 17.3)
 ]
 
 
-@cocotb.test(skip=True)
+@cocotb.test()
 async def test_random_alu(dut):
     dut._log.info("Start")
 
@@ -701,7 +712,11 @@ class LoadOp:
         self.bytes = bytes
 
     def randomize(self):
-        self.rd = random.randint(0, 15)
+        # Never load into gp (x3) or tp (x4): the harness reserves them as the
+        # PSRAM scratch base / peripheral base, and execute_fn skips them in the
+        # model — loading them would desync the model and break read_reg's
+        # gp-based store readback.
+        self.rd = random.choice([r for r in range(16) if r not in (gp, tp)])
         while True:
             self.base_reg = random.randint(1, 15)
             if self.base_reg not in (gp, tp):
@@ -849,13 +864,18 @@ ops = [
     ),
     SimpleOp(InstructionSRAI, lambda rs1, imm: reg[rs1] >> imm, ">>i"),
     SimpleOp(InstructionSRA, lambda rs1, rs2: reg[rs1] >> (reg[rs2] & 0x1F), ">>"),
-    SimpleOp(
-        InstructionCZERO_EQZ, lambda rs1, rs2: 0 if reg[rs2] == 0 else reg[rs1], "?0"
-    ),
-    SimpleOp(
-        InstructionCZERO_NEZ, lambda rs1, rs2: 0 if reg[rs2] != 0 else reg[rs1], "?!0"
-    ),
+    # CZERO_EQZ / CZERO_NEZ (Zicond) removed — not part of Hutt's RV32I ISA (see
+    # the note on the ops_alu list above).
     # Compressed instruction ops removed — hardware no longer supports RVC (Step 17.3)
+    #
+    # Memory ops are restricted to word- and halfword-granularity accesses, which
+    # the MemoryController services as full-lane aligned QSPI halfword transactions
+    # that expect_load/expect_store model directly.  Byte accesses (LB/LBU/SB) are
+    # deliberately excluded: a byte STORE is a read-modify-write on the 16-bit lane
+    # (the wire shows a halfword read, then a spliced halfword write), and a byte
+    # load lands in either lane by address parity — neither pattern is modeled by
+    # the current testbench helpers.  Byte-granularity SoC-level coverage is a
+    # follow-up (it needs RMW/lane support in expect_load/expect_store).
     LoadOp(InstructionLW, -0x800, 0x7FF, 1, 4, lambda val: val, "lw"),
     LoadOp(
         InstructionLH,
@@ -866,27 +886,15 @@ ops = [
         lambda val: (val & 0xFFFF) - 0x10000 if (val & 0x8000) != 0 else val & 0xFFFF,
         "lh",
     ),
-    LoadOp(
-        InstructionLB,
-        -0x800,
-        0x7FF,
-        1,
-        -1,
-        lambda val: (val & 0xFF) - 0x100 if (val & 0x80) != 0 else val & 0xFF,
-        "lb",
-    ),
     LoadOp(InstructionLHU, -0x800, 0x7FF, 1, 2, lambda val: val & 0xFFFF, "lhu"),
-    LoadOp(InstructionLBU, -0x800, 0x7FF, 1, 1, lambda val: val & 0xFF, "lbu"),
-    # CStoreOp(encode_csw) removed — hardware no longer supports RVC (Step 17.3)
     StoreOp(
         InstructionSW, -0x800, 0x7FF, 1, 4, lambda rs1: reg[rs1] & 0xFFFFFFFF, "sw"
     ),
     StoreOp(InstructionSH, -0x800, 0x7FF, 1, 2, lambda rs1: reg[rs1] & 0xFFFF, "sh"),
-    StoreOp(InstructionSB, -0x800, 0x7FF, 1, 1, lambda rs1: reg[rs1] & 0xFF, "sb"),
 ]
 
 
-@cocotb.test(skip=True)
+@cocotb.test()
 async def test_random(dut):
     dut._log.info("Start")
 
@@ -927,9 +935,15 @@ async def test_random(dut):
                     arg2 = instr.get_valid_arg2()
 
                     if instr.is_mem_op:
-                        addr = random.randint(
-                            0x1000000 - instr.imm, 0x1FFFFFC - instr.imm
-                        )
+                        # The effective access address (base + imm) must be
+                        # naturally aligned to the access size: Hutt (like RISC-V)
+                        # does not support misaligned PSRAM loads/stores, and the
+                        # MemoryController issues the access on aligned 16-bit-word
+                        # boundaries.  Pick an aligned access address, then derive
+                        # the base register value so base + imm lands there.
+                        align = abs(instr.bytes)
+                        access = random.randint(0x1000000, 0x1FFFFFC) & ~(align - 1)
+                        addr = access - instr.imm
                         await set_reg(dut, instr.base_reg, addr)
 
                     instr.execute_fn(rd, rs1, arg2)
