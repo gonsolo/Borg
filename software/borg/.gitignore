@@ -8,6 +8,7 @@ borg_psram
 borg_psram.asm
 borg_mmio.h
 test_raster
+test_spirb
 .cflags_stamp
 texture_blob.h
 vkcube_texture_blob.h
