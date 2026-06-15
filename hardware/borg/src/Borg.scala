@@ -62,12 +62,17 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val bus = Wire(new BorgBusIO())
 
   // --- Sub-modules ---
-  val core = Module(new BorgCore(cfg))
-  val rast = Module(new BorgRasterizer(cfg))
-  val tile = Module(new BorgTileBuffer())
-  val rdlRegs = Module(new BorgGpuRegs()) // Auto-generated RDL register block
+  // NOTE: flusher is declared before tile so that arcilator evaluates flusher
+  // first in the compiled MLIR.  The pipelined sBurst makes flusher.io_read_en
+  // a combinational function of io_gpuMem_waccept; tile.io_read_en depends on
+  // flusher.io_read_en.  Arcilator processes hw.instance calls in declaration
+  // order, so flusher must precede tile or tile sees a one-cycle-stale read_en.
+  val core      = Module(new BorgCore(cfg))
+  val rast      = Module(new BorgRasterizer(cfg))
+  val flusher   = Module(new BorgTileFlusher())   // before tile — see note above
+  val tile      = Module(new BorgTileBuffer())
+  val rdlRegs   = Module(new BorgGpuRegs()) // Auto-generated RDL register block
   val dma       = Module(new BorgDMA)
-  val flusher   = Module(new BorgTileFlusher())
   val sequencer = Module(new BorgSequencer(cfg))
   val binner    = Module(new BorgBinner(cfg.maxBinTiles))
 
@@ -252,7 +257,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     f.io.gpuMem.data  := io.gpuMem.data
     f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
     // Per-word burst pull goes only to the flusher (the sole burst master).
-    f.io.gpuMem.waccept := io.gpuMem.waccept && f.io.busy
+    // No f.io.busy guard needed: waccept=1 only during the flusher's own burst;
+    // gating on f.io.busy creates a circular combinational path through io_read_en
+    // that arcilator mishandles (use-before-def in MLIR evaluation order).
+    f.io.gpuMem.waccept := io.gpuMem.waccept
     d.io.gpuMem.data  := io.gpuMem.data
     d.io.gpuMem.ready := io.gpuMem.ready && d.io.busy
     d.io.gpuMem.waccept := false.B

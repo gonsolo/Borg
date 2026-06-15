@@ -36,16 +36,33 @@ object BorgTileFlusherTests extends TestSuite {
     utest.test("flusher streams 64 words (R,G,B,Z x 16) in one burst, correct order") {
       simulate(new BorgTileFlusher) { dut =>
         var cycle = 0
-        // Mock the tile-buffer read: io.read.data is a combinational ROM keyed by idx.
-        def mockRead(): Unit = {
-          val idx = dut.io.read.idx.peek().litValue.toInt
-          dut.io.read.data.r.poke(entR(idx).U)
-          dut.io.read.data.g.poke(entG(idx).U)
-          dut.io.read.data.b.poke(entB(idx).U)
-          dut.io.read.data.z.poke(entZ(idx).U)
-        }
+
+        // BorgTileBuffer has a 2-cycle read latency:
+        //   cycle T  : flusher drives io.read.en=1, io.read.idx=N
+        //   cycle T+1: SyncReadMem output valid; readDataHeld latches it
+        //   cycle T+2: io.read.data = readDataHeld holds the result
+        //
+        // Model this with a 2-stage shift register so the test drives
+        // io.read.data with the right entry at the right cycle.
+        var pipe0: Option[Int] = None  // request issued this cycle
+        var pipe1: Option[Int] = None  // request from 1 cycle ago (readDataHeld)
+
         def step(n: Int = 1): Unit = for (_ <- 0 until n) {
-          mockRead(); dut.clock.step(); cycle += 1
+          // Drive io.read.data from whatever is in the hold-register stage.
+          pipe1.foreach { i =>
+            dut.io.read.data.r.poke(entR(i).U)
+            dut.io.read.data.g.poke(entG(i).U)
+            dut.io.read.data.b.poke(entB(i).U)
+            dut.io.read.data.z.poke(entZ(i).U)
+          }
+          // Sample the flusher's current read request (combinational output).
+          val en  = dut.io.read.en.peek().litToBoolean
+          val idx = dut.io.read.idx.peek().litValue.toInt
+          // Advance pipeline: stage1 ← stage0 ← new request.
+          pipe1 = pipe0
+          pipe0 = if (en) Some(idx) else None
+          dut.clock.step()
+          cycle += 1
           Predef.assert(cycle < 5000, "TIMEOUT")
         }
 
