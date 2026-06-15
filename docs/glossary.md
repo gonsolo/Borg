@@ -33,7 +33,7 @@ the same thing, the **bold** term is preferred in technical writing.
 |------|---------|
 | **TBR** | Tile-Based Rendering: split the frame into tiles, bin triangles per tile (Pass 1), then render tile-by-tile in on-chip SRAM (Pass 2), flushing to PSRAM/SDRAM between tiles. |
 | **tile** | A 4×4 pixel region. The tile buffer holds one tile worth of RGBZ. |
-| **PSRAM** | Pseudo-SRAM: the 8 MB external memory used for the framebuffer and firmware data on pico-ice. On ULX3S, SDRAM is used instead. |
+| **PSRAM** | Pseudo-SRAM: the 8 MB external memory used for the framebuffer and firmware data (original pico-ice target). The ULX3S uses SDRAM instead. |
 | **SDRAM** | 32 MB external SDRAM on the ULX3S board; used for framebuffer, firmware, and texture storage. |
 | **flat MemBackendIO** | The word-wide memory bus that the verilator/arcilator simulator drives directly, bypassing QSPI. The MemoryController exposes this as its backend interface. |
 

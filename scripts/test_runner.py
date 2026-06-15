@@ -119,8 +119,7 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
         Suite("cocotb › soc-borg  (rtl)",
               f"cd '{root}' && {test_soc} borg",
               depends_on="cocotb › soc-core (rtl)"),
-        # pico-ice (BorgConfig.Small) temporarily disabled — BorgConfig.Large is primary target.
-        # To re-enable: uncomment the Suite below and re-enable picoice in Makefile.
+        # Hardware render test (ULX3S): requires a connected board.
         # Suite("render › fpga  (hw)",
         #       f"bash '{root}/scripts/fpga_render_test.sh'"),
     ]

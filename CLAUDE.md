@@ -7,7 +7,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Borg is an open-source GPU: a small RV32I CPU driving the **Borg FP16 shader processor** as an MMIO peripheral. The same Chisel source targets three back ends:
 
 - **ASIC** via Tiny Tapeout (IHP SG13G2) — `asic/tt/`
-- **pico-ice** FPGA (iCE40 UP5K) — `fpga/picoice/` (currently disabled in the top Makefile; `BorgConfig.Large` is the primary target)
 - **ULX3S** FPGA (Lattice ECP5-85K) — `fpga/ulx3s/`
 
 The CPU has been **rewritten from TinyQV to a new core called Hutt** (`hardware/hutt/src/`). The `hardware/tinyqv/` directory no longer exists; do not recreate it or its protocol.
@@ -15,9 +14,9 @@ The CPU has been **rewritten from TinyQV to a new core called Hutt** (`hardware/
 ## Build system layout
 
 - **Top-level `Makefile`** orchestrates Chisel→Verilog emission, cocotb tests, lint, GDS, the docs book, and SystemRDL→Chisel register generation.
-- **Mill** (`build.mill` + per-directory `package.mill`) drives Scala/Chisel compilation. `BorgModule` (in `build.mill`) is the shared trait — Scala 2.13, Chisel 7.11. Modules are organized under `hardware/{borg,hutt,memory,peri,soc,hardfloat}`, `fpga/{picoice,ulx3s}/soc`, and `asic/tt`.
+- **Mill** (`build.mill` + per-directory `package.mill`) drives Scala/Chisel compilation. `BorgModule` (in `build.mill`) is the shared trait — Scala 2.13, Chisel 7.11. Modules are organized under `hardware/{borg,hutt,memory,peri,soc,hardfloat}`, `fpga/ulx3s/soc`, and `asic/tt`.
 - **Nix** (`flake.nix`) provides the full reproducible toolchain (firtool, Yosys, nextpnr, OpenROAD/LibreLane, RISC-V GCC, cocotb, PeakRDL, etc.). Enter it with `nix develop` before running anything below.
-- **Per-board sub-Makefiles** (`fpga/picoice/Makefile`, `fpga/ulx3s/Makefile`, `simulation/{verilator,arcilator}/Makefile`, `test/soc/Makefile`, `software/Makefile`) own their flow. The top Makefile forwards to them.
+- **Per-board sub-Makefiles** (`fpga/ulx3s/Makefile`, `simulation/{verilator,arcilator}/Makefile`, `test/soc/Makefile`, `software/Makefile`) own their flow. The top Makefile forwards to them.
 
 Verilog emission is gated by a stamp file (`.verilog_stamp`, `.verilog_stamp_ulx3s`) — Mill only re-runs when Scala/RDL sources change.
 
@@ -28,7 +27,7 @@ Verilog emission is gated by a stamp file (`.verilog_stamp`, `.verilog_stamp_ulx
 make test-all                   # quiet runner with ✓/✗ per suite (scripts/test_runner.py)
 make test-chisel-borg           # Chisel unit tests for Borg FPU/pipeline
 make test-chisel-core           # Chisel CPU tests — runs mill hardware.hutt.test (the Hutt core)
-make test-cocotb-soc-core-rtl   # cocotb RTL tests for the CPU SoC — all 5 currently @skip=True (stale: built on the deleted TinyQV nibble-streaming protocol; need a rewrite for Hutt's QspiBackend)
+make test-cocotb-soc-core-rtl   # cocotb RTL tests for the CPU SoC — 5 tests, all passing (commit 1681e55)
 make test-cocotb-soc-borg-rtl   # cocotb RTL tests for the Borg peripheral
 make test-cocotb-soc-core-gl    # gate-level (post-synth) variants
 make test-cocotb-soc-borg-gl
@@ -53,10 +52,6 @@ make gds-ihp                    # IHP SG13G2
 # Simulation (cycle-accurate C++ with Pygame UI)
 make -C simulation/verilator vkcube_gui
 make -C simulation/arcilator vkcube_gui   # faster (CIRCT arcilator backend)
-
-# FPGA — pico-ice (top-level convenience)
-cd fpga && make burn            # synth + upload bitstream
-cd fpga && make triangle        # build + flash triangle firmware
 
 # FPGA — ULX3S (use the board-specific Makefile)
 cd fpga/ulx3s && make load           # synth + P&R + load to SRAM (openFPGALoader)
@@ -90,7 +85,7 @@ If you add or change a register, edit the `.rdl`, then re-run `make rdl` (or any
 
 ### Firmware
 
-`software/tinyqv/` is the runtime/startup/UART/printf for the on-CPU firmware (`start.s`, `runtime.c`, `nanoprintf.h`, `tinyQV.a` archive). `software/borg/` contains the GPU driver, SPIR-B shader format, math, rasterizer, and the demo programs (`borg_triangle.c`, `borg_vkcube.c`). The host-side (RP2040) pieces for pico-ice display sit in `fpga/picoice/host/`.
+`software/tinyqv/` is the runtime/startup/UART/printf for the on-CPU firmware (`start.s`, `runtime.c`, `nanoprintf.h`, `tinyQV.a` archive). `software/borg/` contains the GPU driver, SPIR-B shader format, math, rasterizer, and the demo programs (`borg_triangle.c`, `borg_vkcube.c`).
 
 ### ULX3S bring-up harnesses (the recent active work)
 
@@ -98,7 +93,7 @@ Multiple bitstream targets live in `fpga/ulx3s/soc/src/`: `ULX3S.scala` (full So
 
 ### Clock frequencies
 
-Per-target Scala `Main` objects have their own defaults: **TT ASIC = 4 MHz**, **pico-ice = 4 MHz**, **ULX3S = 25 MHz (SoC) / 125 MHz (HDMI)**. Override via the `CLOCK_MHZ` env var (e.g. `CLOCK_MHZ=50 make generate_verilog`).
+Per-target Scala `Main` objects have their own defaults: **TT ASIC = 4 MHz**, **ULX3S = 25 MHz (SoC) / 125 MHz (HDMI)**. Override via the `CLOCK_MHZ` env var (e.g. `CLOCK_MHZ=50 make generate_verilog`).
 
 ### Host Vulkan driver — `borgvk` (work in progress)
 
@@ -113,4 +108,4 @@ The driver intercepts `vkQueueSubmit` (via Mesa runtime's `vk_queue.driver_submi
 
 - Don't recreate the deleted TinyQV CPU or its nibble-serial QSPI protocol — Hutt's `Decoupled` buses are the current contract.
 - Always create new commits; don't amend or force-push without explicit user OK.
-- The top Makefile's `HAND_CHISEL` `find` paths list `fpga/ulx3s/soc/src` and `asic/tt/src`; pico-ice (`fpga/picoice/soc/src`) is temporarily excluded.
+- The top Makefile's `HAND_CHISEL` `find` paths list `fpga/ulx3s/soc/src` and `asic/tt/src`.

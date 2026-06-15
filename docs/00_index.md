@@ -6,6 +6,36 @@
 </p>
 <!-- markdownlint-enable MD033 -->
 
+## Quick Start
+
+```bash
+# Clone and enter the reproducible toolchain:
+git clone --recurse-submodules <repo>
+cd Borg
+nix develop          # or: direnv allow (if using direnv)
+
+# Run all unit tests (~2 min):
+make test-all
+
+# Cycle-accurate simulation (arcilator is fastest):
+make -C simulation/arcilator vkcube_headless   # headless, checks golden
+make -C simulation/arcilator vkcube_gui        # interactive Pygame window
+
+# Build and flash the ULX3S FPGA:
+cd fpga/ulx3s && make load   # ~10 min first run; subsequent: ~3 min
+```
+
+## Known Issues / Limitations
+
+- **Resolution**: the current demo renders at 128×128. 800×480 HDMI is wired but
+  the SDRAM bandwidth at 25 MHz tops out at ~15–20 fps at that resolution; the
+  demo targets 128×128 for the HPG 2026 deadline.
+- **pico-ice target removed**: `fpga/picoice/` is excluded from the build;
+  `BorgConfig.Default` (ULX3S) is the primary FPGA target.
+- **cocotb gate-level tests**: `test-cocotb-soc-core-gl` and
+  `test-cocotb-soc-borg-gl` require a synthesized netlist; they are skipped in CI
+  unless `make gds-ihp` has been run first.
+
 ## Reading Order
 
 The chapters are largely self-contained, but some paths work better than others
@@ -28,7 +58,7 @@ depending on your goal:
 1. [The Borg Shader Processor](01_shader_processor.md) — FP16 FMA, registers, instruction memory
 2. [The Shader Compiler](02_compiler.md) — SPIR-V → pseudo-assembly → SPIR-B pipeline
 3. [The Software Driver](03_software_driver.md) — Shader pipeline, z-buffer, texturing
-4. [Running on an FPGA](04_fpga.md) — pico-ice build, host communication, PIO
+4. [Running on an FPGA](04_fpga.md) — pico-ice history, ULX3S FPGA target
 5. [Generating the ASIC](05_asic.md) — RTL-to-GDS flow, configuration, verification
 6. [Simulation](06_simulation.md) — Verilator, Arcilator, and interactive viewing
 7. [Tile-Based Rendering](07_tbr.md) — Two-pass TBR, BorgBinner, BorgSequencer FSM, PSRAM layout

@@ -6,6 +6,8 @@
 #include "borg_spirb.h"
 
 int spirb_parse(const uint8_t *blob, spirb_shader_t *s) {
+  if (!blob || !s) return -1;
+
   const uint8_t *p = blob;
 
   s->num_instrs     = *p++;
@@ -14,6 +16,12 @@ int spirb_parse(const uint8_t *blob, spirb_shader_t *s) {
   s->num_outputs    = *p++;
   s->num_consts     = *p++;
   p++; // reserved
+
+  if (s->num_instrs   > SPIRB_MAX_INSTRS) return -1;
+  if (s->num_uniforms > SPIRB_MAX_REGS)   return -1;
+  if (s->num_attributes > SPIRB_MAX_REGS) return -1;
+  if (s->num_outputs  > SPIRB_MAX_REGS)   return -1;
+  if (s->num_consts   > SPIRB_MAX_REGS)   return -1;
 
   for (int i = 0; i < s->num_instrs; i++) {
     s->instrs[i] = p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);

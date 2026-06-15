@@ -32,12 +32,9 @@ help:
 	@echo -e "  clean-gh-runs:\t\tClean up GitHub workflow runs."
 
 # Clock frequencies: each target's Scala Main has its own default.
-# TT ASIC = 4 MHz, pico-ice = 4 MHz, ULX3S = 125 MHz.
+# TT ASIC = 4 MHz, ULX3S = 25 MHz (SoC) / 125 MHz (HDMI).
 # Override via env var if needed: CLOCK_MHZ=50 make generate_verilog
 
-# pico-ice sources temporarily excluded from the build.
-# To re-enable: add fpga/picoice/soc/src back to the find paths below
-# and uncomment the picoice lines in .verilog_stamp.
 HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/hutt/src hardware/memory/src \
                         fpga/ulx3s/soc/src asic/tt/src \
                         -name '*.scala' -not -path '*/generated/*' 2>/dev/null)
@@ -47,11 +44,6 @@ HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/hutt/src 
 # but a re-run of rdl alone does not invalidate the stamp.
 .verilog_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
 	CLOCK_MHZ=4 $(MILL) asic.tt.runMain asic.tt.TTMain
-	@# pico-ice (BorgConfig.Small) temporarily disabled — BorgConfig.Large is primary target.
-	@# To re-enable: uncomment the three lines below and fpga/picoice in HAND_CHISEL.
-	@#CLOCK_MHZ=4 $(MILL) fpga.picoice.soc.runMain soc.FpgaMain
-	@#ln -sf $(CURDIR)/hardware/borg/src/rcp_lut.hex   out/fpga/verilog/rcp_lut.hex
-	@#ln -sf $(CURDIR)/hardware/borg/src/coord_lut.hex out/fpga/verilog/coord_lut.hex
 	@python3 scripts/init_bram_zero.py out/hardware/borg/verilog
 	@# firtool appends a tab+source-location to "// synthesis translate_on" lines.
 	@# yowasp-yosys (used by tt_tool.py for port-read) does not recognise the

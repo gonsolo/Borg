@@ -690,5 +690,121 @@ object HuttTests extends TestSuite {
       )
       assert(runAndPeek(program, 0x84, maxCycles = 200) == BigInt("55555555", 16))
     }
+
+    // -------------------------------------------------------------------------
+    //  Pipeline hazard & multi-cycle correctness tests
+    // -------------------------------------------------------------------------
+
+    test("JALR to dynamically computed address") {
+      // auipc captures PC, addi adds offset to get target → tests indirect dispatch.
+      // auipc at PC=4 → x1=4; addi x1,x1,24 → x1=28; jalr jumps to PC=28 (index 7).
+      // Indices 4,5,6 are dead code that must NOT execute.
+      val program = Seq(            //  idx  PC
+        Asm.addi (5, 0, 0x80),     //   0   0   x5 = 0x80 (result addr)
+        Asm.auipc(1, 0),            //   1   4   x1 = 4 (current PC)
+        Asm.addi (1, 1, 24),        //   2   8   x1 = 28 (index 7)
+        Asm.jalr (0, 1, 0),         //   3  12   jump to x1=28
+        Asm.addi (3, 0, 0xDE),      //   4  16   (dead) must NOT execute
+        Asm.sw   (3, 0, 5),         //   5  20   (dead)
+        Asm.park(),                 //   6  24   (dead)
+        Asm.addi (3, 0, 0xAB),      //   7  28   target ← jalr lands here
+        Asm.sw   (3, 0, 5),         //   8  32   mem[0x80] = 0xAB
+        Asm.park()                  //   9  36
+      )
+      assert(runAndPeek(program, 0x80, maxCycles = 200) == BigInt(0xAB))
+    }
+
+    test("JALR indirect jump with non-zero immediate offset") {
+      // Jump to (base + imm) where imm != 0, verifying JALR's offset arithmetic.
+      // base = PC of park; imm = +4 jumps one instruction further.
+      // Layout: jal to func; func: addi x3, x0, 0xAB; sw; jalr x0, x1, 0.
+      val program = Seq(          //  idx  PC
+        Asm.addi(5, 0, 0x80),    //   0   0   x5 = 0x80
+        Asm.jal (1, 16),         //   1   4   call func (PC→20, x1=8)
+        Asm.sw  (3, 0, 5),       //   2   8   store result after return
+        Asm.park(),              //   3  12
+        Asm.park(),              //   4  16
+        Asm.addi(3, 0, 0xAB),   //   5  20   func: x3 = 0xAB
+        Asm.jalr(0, 1, 0),       //   6  24   return to x1=8
+        Asm.park()               //   7  28
+      )
+      assert(runAndPeek(program, 0x80, maxCycles = 200) == BigInt(0xAB))
+    }
+
+    test("nested function calls preserve link registers") {
+      // main → func1 → func2; each level uses a different link register.
+      // func2 sets x3=0xCD; func1 passes it through; main stores it.
+      val program = Seq(            //  idx  PC
+        Asm.addi(5, 0, 0x80),      //   0   0   result addr
+        Asm.jal (1, 28),           //   1   4   call func1 (PC→32, x1=8)
+        Asm.sw  (3, 0, 5),         //   2   8   store x3 after func1 returns
+        Asm.park(),                //   3  12
+        Asm.park(),                //   4  16
+        Asm.park(),                //   5  20
+        Asm.park(),                //   6  24
+        Asm.park(),                //   7  28
+        Asm.jal (2, 16),           //   8  32   func1: call func2 (PC→48, x2=36)
+        Asm.jalr(0, 1, 0),         //   9  36   func1 return → x1=8
+        Asm.park(),                //  10  40
+        Asm.park(),                //  11  44
+        Asm.addi(3, 0, 0xCD),      //  12  48   func2: x3 = 0xCD
+        Asm.jalr(0, 2, 0),         //  13  52   func2 return → x2=36
+        Asm.park()                 //  14  56
+      )
+      assert(runAndPeek(program, 0x80, maxCycles = 300) == BigInt(0xCD))
+    }
+
+    test("load-use hazard — value used in immediately following instruction") {
+      // lw x3, 0(x2) followed directly by addi x3, x3, imm — the CPU must
+      // stall or forward the load result before the ALU consumes it.
+      val program = Seq(
+        Asm.addi(1, 0, 0x42),        // x1 = 0x42
+        Asm.addi(2, 0, 0x80),        // x2 = 0x80
+        Asm.sw  (1, 0, 2),           // mem[0x80] = 0x42
+        Asm.lw  (3, 0, 2),           // x3 = mem[0x80] = 0x42  ← load
+        Asm.addi(3, 3, 0x10),        // x3 = x3 + 0x10         ← immediate use
+        Asm.sw  (3, 4, 2),           // mem[0x84] = 0x52
+        Asm.park()
+      )
+      assert(runAndPeek(program, 0x84, maxCycles = 200) == BigInt(0x52))
+    }
+
+    test("50-iteration accumulator loop") {
+      // Counts to 50 using bne; verifies branch-taken path and loop termination.
+      // bne at PC=16 with offset −8 → loops back to PC=8 (index 2).
+      val program = Seq(            //  idx  PC
+        Asm.addi(1, 0, 0),         //   0   0   x1 = 0 (accumulator)
+        Asm.addi(2, 0, 50),        //   1   4   x2 = 50 (count)
+        Asm.addi(1, 1, 1),         //   2   8   x1++
+        Asm.addi(2, 2, -1),        //   3  12   x2--
+        Asm.bne (2, 0, -8),        //   4  16   if x2≠0 goto PC=8
+        Asm.addi(3, 0, 0x80),      //   5  20   result addr
+        Asm.sw  (1, 0, 3),         //   6  24   mem[0x80] = 50
+        Asm.park()                 //   7  28
+      )
+      assert(runAndPeek(program, 0x80, maxCycles = 1200) == BigInt(50))
+    }
+
+    test("consecutive stores followed by loads — memory coherence") {
+      // Three independent stores then three loads; verifies no store-to-load
+      // forwarding confusion and correct memory ordering.
+      val program = Seq(
+        Asm.addi(2, 0, 0x80),       // base addr
+        Asm.addi(1, 0, 0xAA),
+        Asm.addi(3, 0, 0xBB),
+        Asm.addi(4, 0, 0xCC),
+        Asm.sw  (1, 0,  2),         // mem[0x80] = 0xAA
+        Asm.sw  (3, 4,  2),         // mem[0x84] = 0xBB
+        Asm.sw  (4, 8,  2),         // mem[0x88] = 0xCC
+        Asm.lw  (6, 0,  2),         // x6 = 0xAA
+        Asm.lw  (7, 4,  2),         // x7 = 0xBB
+        Asm.lw  (8, 8,  2),         // x8 = 0xCC
+        Asm.add (9, 6, 7),           // x9 = 0xAA + 0xBB = 0x165
+        Asm.add (9, 9, 8),           // x9 = 0x165 + 0xCC = 0x231
+        Asm.sw  (9, 12, 2),          // mem[0x8C] = 0x231
+        Asm.park()
+      )
+      assert(runAndPeek(program, 0x8C, maxCycles = 300) == BigInt(0x231))
+    }
   }
 }
