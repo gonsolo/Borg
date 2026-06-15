@@ -1,26 +1,15 @@
+include ../common.mk
+
 ARCILATOR = arcilator
-FIRTOOL = firtool
-LLC = llc
-CLANG = clang++
-CIRCT_TOOLS = $(shell dirname $(shell which arcilator))
+FIRTOOL   = firtool
+LLC       = llc
 
 # Disable Nixpkgs compiler wrapper hardening flags which pollute bare-metal linking
 export HARDENING_DISABLE=all
 export NIX_HARDENING_ENABLE=
 unexport NIX_HARDENING_ENABLE
 
-ROOT      := $(shell git rev-parse --show-toplevel)
-RDL_C_OUT ?= $(ROOT)/out/hardware/borg/rdl
-FIRMWARE_DIR ?= $(ROOT)/software/borg
-
-# Track Chisel sources so the .fir is regenerated when hardware changes
-CHISEL_SRCS = $(shell find $(ROOT)/hardware/borg/src $(ROOT)/hardware/soc/src \
-                           $(ROOT)/hardware/hutt/src $(ROOT)/hardware/memory/src \
-                           $(ROOT)/asic/tt/src \
-                           -name '*.scala' -not -path '*/generated/*' 2>/dev/null) \
-              $(wildcard $(ROOT)/hardware/rdl/*.rdl)
-
-.PHONY: all clean triangle vkcube vkcube_gui
+.PHONY: all clean triangle vkcube vkcube_gui textest
 
 all: triangle vkcube
 
@@ -44,40 +33,31 @@ arc.o: arc.ll
 arc.h: state.json
 	python3 arcilator-header-cpp.py $< > $@
 
-# Step 5: Build test harness
-# Harness sources bake in the firmware memory map via common_sim.h ->
-# software/borg/borg_layout.h (TEX_PSRAM_BYTE_ADDR_FIXED, PSRAM_OUT_OFFSET, …).
-# List those headers so a layout change rebuilds the harness — otherwise stale
-# objects keep an old PSRAM map and the firmware reads/writes garbage (silent
-# render hang).  Wildcard the firmware headers so any of them triggers a rebuild.
-LAYOUT_HDRS = ../common/common_sim.h $(wildcard $(FIRMWARE_DIR)/*.h)
+# Step 5: Build harness objects.
+# Harness sources bake in the firmware memory map via common_sim.h →
+# software/borg/borg_layout.h.  Wildcard firmware headers so a layout change
+# triggers a rebuild (prevents stale-object render hangs).
 
 texture_loader.o: ../common/texture_loader.cpp ../common/texture_loader.h $(LAYOUT_HDRS)
-	$(CLANG) -O3 -c ../common/texture_loader.cpp -I../common -I$(RDL_C_OUT) -o $@
+	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
 
 uart_decoder.o: ../common/uart_decoder.cpp ../common/uart_decoder.h
-	$(CLANG) -O3 -c ../common/uart_decoder.cpp -I../common -o $@
+	$(CLANG) -O3 -I../common -c $< -o $@
 
 BorgSimulatorBase.o: ../common/BorgSimulatorBase.cpp ../common/BorgSimulatorBase.h $(LAYOUT_HDRS)
-	$(CLANG) -O3 -c ../common/BorgSimulatorBase.cpp -I../common -o $@
+	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
 
 ArcBorgSimulator.o: ArcBorgSimulator.cpp ArcBorgSimulator.h $(LAYOUT_HDRS)
-	$(CLANG) -O3 -c ArcBorgSimulator.cpp -I../common -o $@
+	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
 
 main.o: main.cpp arc.h arcilator-runtime.h ../common/texture_loader.h ArcBorgSimulator.h ../common/BorgSimulatorBase.h $(LAYOUT_HDRS)
-	$(CLANG) -O3 -c main.cpp -I../common -o $@
+	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
 
 # Step 6: Link
 arcilator_sim: main.o arc.o texture_loader.o uart_decoder.o BorgSimulatorBase.o ArcBorgSimulator.o
-	$(CLANG) -O3 main.o arc.o texture_loader.o uart_decoder.o BorgSimulatorBase.o ArcBorgSimulator.o -o $@
+	$(CLANG) -O3 $^ -o $@
 
-# Track firmware sources so .bin is rebuilt when any C/H/linker file changes,
-# regardless of whether the user runs `make triangle` or invokes arcilator_sim
-# directly.  The firmware Makefile still owns the actual build recipe.
-FW_SRCS = $(shell find $(FIRMWARE_DIR) $(ROOT)/software/hutt \
-                       -maxdepth 1 \( -name '*.c' -o -name '*.h' -o -name '*.s' \) 2>/dev/null) \
-          $(ROOT)/software/hutt/memmap
-
+# Firmware binaries — rebuild when firmware C/H/ASM sources change.
 $(FIRMWARE_DIR)/%.bin: $(FW_SRCS)
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 

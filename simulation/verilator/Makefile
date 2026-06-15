@@ -1,42 +1,58 @@
-ROOT      := $(shell git rev-parse --show-toplevel)
-RDL_C_OUT ?= $(ROOT)/out/hardware/borg/rdl
-HW_DIR    ?= $(ROOT)/out/hardware
-FIRMWARE_DIR ?= $(ROOT)/software/borg
+include ../common.mk
 
-# Lazily evaluate SRC_FILES, avoiding failures if sim_files.txt doesn't exist yet
-# Use `wildcard` to trigger rebuilds if ANY verilog file changes in the output dir
-V_SRCS = $(wildcard $(HW_DIR)/borg/verilog_sim/*.sv)
+HW_DIR    ?= $(ROOT)/out/hardware
+HDMI_DIR   = $(HW_DIR)/borg/verilog_hdmi_sim
+
+# Lazily evaluated: wildcard triggers rebuilds if any verilog file changes.
+V_SRCS      = $(wildcard $(HW_DIR)/borg/verilog_sim/*.sv)
+HDMI_SRCS   = $(wildcard $(HDMI_DIR)/*.sv)
+
+APP  ?= vkcube
+FBW  ?= 128
+FBH  ?= 128
+TEXD ?= 64
+
+.PHONY: all triangle vkcube vkcube_gui hdmi clean
 
 all: triangle vkcube
 
+# Hardware generation
 $(HW_DIR)/borg/verilog_sim/sim_files.txt:
 	$(MAKE) -C $(ROOT) generate_verilog_sim
 
-# Verilator simulator depends on hardware generation and the actual verilog files.
-# Uses the flat-MemBackendIO top (BorgSimTop) — no QSPI protocol; the C++ harness
-# models a flat memory directly on the backend bus.
-obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/sim_files.txt $(V_SRCS)
-	@rm -rf obj_dir
-	@SRC_FILES=$$(cat $(HW_DIR)/borg/verilog_sim/sim_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
-	echo "Building Verilator models..."; \
+$(HDMI_DIR)/sim_files.txt:
+	cd $(ROOT) && CLOCK_MHZ=25 FB_W=$(FBW) FB_H=$(FBH) mill fpga.ulx3s.soc.runMain soc.BorgHdmiSimMain
+
+# Common verilator invocation — avoids repeating 18 flags for the HDMI variant.
+# $(1)=output-dir  $(2)=sv-dir  $(3)=top-module  $(4)=main-cpp  $(5)=binary-name
+define VERILATE
+	@rm -rf $(1)
+	@SRC_FILES=$$(cat $(2)/sim_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
+	echo "Building Verilator model [$(3)]..."; \
 	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall -Wno-UNUSEDSIGNAL --build -j 0 \
-	-MAKEFLAGS "-s" \
-	-I$(HW_DIR)/borg/verilog_sim \
-	-I$(HW_DIR)/borg/verilog_sim/verification/assert -I$(HW_DIR)/borg/verilog_sim/verification \
-	--top-module BorgSimTop \
+	-MAKEFLAGS "-s" --Mdir $(1) \
+	-I$(2) -I$(2)/verification/assert -I$(2)/verification \
+	--top-module $(3) \
 	-CFLAGS "-fPIC" -CFLAGS "-I../../common" \
 	-DENABLE_INITIAL_MEM_ \
 	$(ROOT)/lint.vlt \
 	$$SRC_FILES \
-	$(wildcard $(HW_DIR)/borg/verilog_sim/verification/layers-*.sv) \
-	main.cpp \
+	$$(wildcard $(2)/verification/layers-*.sv) \
+	$(4) \
 	../common/BorgSimulatorBase.cpp \
 	../common/texture_loader.cpp \
 	../common/uart_decoder.cpp \
-	-o verilator_sim
+	-o $(5)
+endef
 
-# Software dependency (implicitly requires hardware mmio mappings)
-$(FIRMWARE_DIR)/%.bin: $(HW_DIR)/borg/verilog_sim/sim_files.txt
+obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/sim_files.txt $(V_SRCS)
+	$(call VERILATE,obj_dir,$(HW_DIR)/borg/verilog_sim,BorgSimTop,main.cpp,verilator_sim)
+
+obj_dir_hdmi/verilator_hdmi: main_hdmi.cpp $(HDMI_DIR)/sim_files.txt $(HDMI_SRCS)
+	$(call VERILATE,obj_dir_hdmi,$(HDMI_DIR),BorgHdmiSimTop,main_hdmi.cpp,verilator_hdmi)
+
+# Firmware binaries — also depend on hardware generation so borg_regs.h is current.
+$(FIRMWARE_DIR)/%.bin: $(HW_DIR)/borg/verilog_sim/sim_files.txt $(FW_SRCS)
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
 # Simulation targets
@@ -49,49 +65,14 @@ vkcube: obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin
 vkcube_gui: python_extension $(FIRMWARE_DIR)/vkcube.bin
 	python3 viewer.py
 
+# make hdmi APP=triangle FBW=32 FBH=32 TEXD=32   (fast)
+# make hdmi APP=vkcube   FBW=128 FBH=128 TEXD=64  (full)
+hdmi: obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin
+	./obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin $(APP) $(FBW) $(FBH) $(TEXD)
+
 python_extension: obj_dir/verilator_sim
 	@mkdir -p build && cd build && cmake .. -DCMAKE_CXX_COMPILER=g++ -DPython_EXECUTABLE=$$(which python3) -DVERILATOR_ROOT=$$(dirname $$(dirname $$(which verilator)))/share/verilator -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null && $(MAKE) -s
 	@ln -sf build/compile_commands.json compile_commands.json
 
-# ── Full-SoC HDMI sim: renders THROUGH the scanout and captures the displayed
-# ── frame (what the monitor shows) instead of reading SDRAM back directly. ──
-HDMI_DIR  = $(HW_DIR)/borg/verilog_hdmi_sim
-HDMI_SRCS = $(wildcard $(HDMI_DIR)/*.sv)
-APP  ?= vkcube
-FBW  ?= 128
-FBH  ?= 128
-TEXD ?= 64
-
-$(HDMI_DIR)/sim_files.txt:
-	cd $(ROOT) && CLOCK_MHZ=25 FB_W=$(FBW) FB_H=$(FBH) mill fpga.ulx3s.soc.runMain soc.BorgHdmiSimMain
-
-obj_dir_hdmi/verilator_hdmi: main_hdmi.cpp BorgHdmiSimulator.h $(HDMI_DIR)/sim_files.txt $(HDMI_SRCS)
-	@rm -rf obj_dir_hdmi
-	@SRC_FILES=$$(cat $(HDMI_DIR)/sim_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
-	echo "Building HDMI Verilator model..."; \
-	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall -Wno-UNUSEDSIGNAL --build -j 0 \
-	-MAKEFLAGS "-s" --Mdir obj_dir_hdmi \
-	-I$(HDMI_DIR) \
-	-I$(HDMI_DIR)/verification/assert -I$(HDMI_DIR)/verification \
-	--top-module BorgHdmiSimTop \
-	-CFLAGS "-fPIC" -CFLAGS "-I../../common" \
-	-DENABLE_INITIAL_MEM_ \
-	$(ROOT)/lint.vlt \
-	$$SRC_FILES \
-	$(wildcard $(HDMI_DIR)/verification/layers-*.sv) \
-	main_hdmi.cpp \
-	../common/BorgSimulatorBase.cpp \
-	../common/texture_loader.cpp \
-	../common/uart_decoder.cpp \
-	-o verilator_hdmi
-
-# make hdmi APP=triangle FBW=32 FBH=32 TEXD=32   (fast)
-# make hdmi APP=vkcube   FBW=128 FBH=128 TEXD=64 (full)
-hdmi: obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin
-	./obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin $(APP) $(FBW) $(FBH) $(TEXD)
-
-.PHONY: all triangle vkcube vkcube_gui hdmi clean
-
 clean:
 	rm -rf obj_dir obj_dir_hdmi build verilator_sim verilator_hdmi *.ppm *.so
-
