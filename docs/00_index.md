@@ -6,6 +6,22 @@
 </p>
 <!-- markdownlint-enable MD033 -->
 
+## Reading Order
+
+The chapters are largely self-contained, but some paths work better than others
+depending on your goal:
+
+- **"I want to understand the architecture"** — Read [07_tbr](07_tbr.md) first
+  (the two-pass TBR gives the big picture), then [01_shader_processor](01_shader_processor.md),
+  then [03_software_driver](03_software_driver.md).
+- **"I want to build or modify the hardware"** — Start with [CLAUDE.md](../CLAUDE.md)
+  (build system) and [A0_roadmap](A0_roadmap.md) (where things stand), then
+  dive into the relevant chapter.
+- **"I want to understand the compiler"** — Read [02_compiler](02_compiler.md),
+  which assumes familiarity with [01_shader_processor](01_shader_processor.md).
+- **"I'm unfamiliar with the terminology"** — See the [Glossary](glossary.md)
+  for canonical names (BorgCore, tile buffer, SPIR-B, etc.).
+
 ## Table of Contents
 
 0. [Introduction](00_introduction.md) — Motivation and project overview
@@ -25,3 +41,4 @@
 4. [Bibliography](A1_bibliography.md) — References and further reading
 5. [Architectural Tricks](A8_architectural_tricks.md) — 15 tricks for minimizing area
 6. [Project Poster](A9_poster.md) — Academic poster summarizing the Borg GPU architecture
+7. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools

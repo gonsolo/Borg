@@ -1,4 +1,5 @@
 #include "BorgSimulatorBase.h"
+#include <cassert>
 #include <iostream>
 
 void BorgSimulatorBase::load_texture(const std::string& tex_path, uint32_t tex_dim) {
@@ -18,17 +19,54 @@ void BorgSimulatorBase::save_ppm(const std::string& name) {
     ::save_ppm(name, width, height, out_base_word, psram->mem);
 }
 
-// Backend handshake latency (cycles from observing a start pulse to driving
-// `done`).  MemoryController parks in its sWait state until `done` arrives, so
-// any value >= 1 is correct; 2 gives a small safety margin.
+// ── MemBackendIO handshake protocol ─────────────────────────────────────────
+//
+// The MemoryController exposes a flat, word-wide bus (MemBackendIO) instead of
+// QSPI pins.  The simulator drives the *input* ports (dataOut, done, busy,
+// accept) and reads the *output* ports (addrIn, startRead, startWrite, dataIn,
+// byteEnIn, lenIn).
+//
+// Single-word read:
+//   cycle 0: MC asserts startRead=1 with addrIn.
+//   cycle 1: simulator latches addrIn, sets be_delay = BE_DELAY, sets busy=1.
+//   cycle BE_DELAY: simulator drives done=1, dataOut=fetched word.
+//   cycle BE_DELAY+1: done de-asserts, be_delay → -1 (idle).
+//
+// Single-word write:
+//   cycle 0: MC asserts startWrite=1 with addrIn, dataIn, byteEnIn.
+//   simulator writes the word immediately, sets be_delay = BE_DELAY.
+//   (done fires BE_DELAY cycles later, same as a read.)
+//
+// Burst write (lenIn > 1):
+//   cycle 0: startWrite latched; first word written; be_burst_rem = lenIn-1.
+//   cycles 1..rem: simulator pulses accept=1 each cycle; MC advances dataIn on
+//     each posedge that sees accept.  Simulator writes each word to memory.
+//   After last word: be_delay = 0, done fires the next cycle.
+//   During the burst be_delay stays < 0; no new transactions are accepted.
+//
+// BE_DELAY = 2: MemoryController parks in sWait until done arrives, so any
+// value ≥ 1 is protocol-correct.  2 gives a one-cycle margin for rounding.
+//
+// Double-buffer PSRAM layout (set by subclass constructors):
+//   FRAME_STRIDE = frame_tile_size_words + 1          (tile data + one marker word)
+//   buf 0 pixel data: [out_base_word_buf0 .. +tile_size)
+//   buf 0 marker:      out_base_word_buf0 + frame_tile_size_words
+//   buf 1 pixel data: [out_base_word_buf0 + STRIDE .. +tile_size)
+//   buf 1 marker:      out_base_word_buf0 + 2*frame_tile_size_words + 1
+//   Firmware writes 0x0000DEAD to the current back-buffer marker when the frame
+//   is complete; step() detects this and returns true.
+//
+// Subclass constructor MUST set frame_tile_size_words and out_base_word_buf0
+// before calling step().
+
 static const int BE_DELAY = 2;
 
 bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
+    assert(frame_tile_size_words > 0 &&
+           "subclass constructor must set frame_tile_size_words before step()");
+
     uint32_t* psram_words = (uint32_t*)psram->mem.data();
 
-    // FRAME_STRIDE = frame_tile_size_words + 1.
-    // back_buf=0 marker: out_base_word_buf0 + frame_tile_size_words.
-    // back_buf=1 marker: out_base_word_buf0 + 2*frame_tile_size_words + 1.
     uint32_t cur_marker_off =
         cur_back_buf == 0
         ? frame_tile_size_words

@@ -95,6 +95,8 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
               depends_on="chisel › borg"),
         Suite("software",
               f"cd '{root}' && make -C software test"),
+        Suite("simulation › common",
+              f"make -C '{root}/simulation' test-sim-common"),
         Suite("cocotb › soc-core (rtl)",
               f"cd '{root}' && {test_soc} core"),
         # NOTE: verilator triangle/vkcube share obj_dir — serialise to prevent
