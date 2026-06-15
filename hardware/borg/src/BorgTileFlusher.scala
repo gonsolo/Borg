@@ -30,48 +30,46 @@ class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
   val tileBase  = Input(UInt(25.W))
 }
 
-/** BorgTileFlusher — bulk DMA from tile SRAM to PSRAM, one burst per tile.
+/** BorgTileFlusher -- bulk DMA from tile SRAM to PSRAM, one burst per tile.
   *
-  * Reads all 16 tile-buffer entries ({R:16, G:16, B:16, Z:16} each) into a local
-  * buffer, then streams the whole tile to SDRAM as ONE 64-word burst write:
+  * Streams all 16 tile-buffer entries to SDRAM as ONE 64-word burst write.
+  * TileBuffer reads are pipelined into the burst: entry[i+1] is pre-fetched
+  * during the stream of entry[i], so the 48-cycle sequential fill phase is
+  * eliminated entirely.
   *
   * {{{
-  *   sIdle  → sRead (latch tileBase, fillIdx=0)
-  *   sRead/sReadWait/sReadWait2 — read entry[fillIdx] (2-cycle BRAM latency) into
-  *     wordBuf; loop 16 times, then → sBurst
-  *   sBurst — assert gpuMem.wr with wlen=64 and present words R,G,B,Z of each pixel
-  *     in raster order (64 contiguous words = 128 bytes); advance on gpuMem.waccept;
-  *     finish on gpuMem.ready.
+  *   sIdle   -- issue TileBuffer read for entry 0; latch tileBase
+  *   sPrime1 -- cycle 1 of 2-cycle TileBuffer latency
+  *   sPrime2 -- cycle 2; entry 0 valid; capture into entryReg; start burst
+  *   sBurst  -- stream R/G/B/Z of entryReg; at wordSub==1 pre-fetch next entry
+  *              (data arrives at wordSub==3); repeat for all 16 entries (64 words)
   * }}}
   *
-  * One burst pays the MemoryController/backend round-trip ONCE instead of per word,
-  * cutting the per-tile flush from ~336 cycles (48 single-word writes) to ~110.
-  * The dead Z slot (+6) is now written too so the 64 words are contiguous — the
-  * scanout still ignores Z (reads only B from the {Z,B} word), so the SDRAM layout
-  * (R@+0 G@+2 B@+4 Z@+6 per pixel) is unchanged.
+  * Pre-fetch timing (2-cycle TileBuffer read latency):
+  *   wordSub==1: io.read.en=1 for nextFill
+  *   wordSub==2: SyncReadMem latches address (cycle 1 of 2)
+  *   wordSub==3: readDataHeld valid; entryReg := io.read.data
   *
-  * wordBuf holds the whole tile in flops (16×64 b); a future area optimisation could
-  * prefetch entries during the stream instead, but a flat buffer is unambiguously
-  * correct and the burst itself is the win.
+  * Total flush = 2 (prime) + 64 (burst) = 66 cycles vs 112 cycles previously.
+  * Area: 1 x 64-b staging register instead of 16 x 64-b wordBuf (~960 fewer FFs).
   */
 class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   val io = IO(new BorgTileFlusherIO(dataBits))
 
-  // BorgTileBuffer read latency: io.read.data is valid 2 cycles after read.en.
-  val sIdle :: sRead :: sReadWait :: sReadWait2 :: sBurst :: Nil = Enum(5)
+  val sIdle :: sPrime1 :: sPrime2 :: sBurst :: Nil = Enum(4)
   val state = RegInit(sIdle)
 
-  // Whole-tile buffer: 16 entries × {R,G,B,Z} = 64 b each, captured up front so a
-  // concurrent dispatcher read on the tile-buffer port cannot corrupt the burst.
-  val wordBuf = Reg(Vec(16, UInt(64.W)))
-  val baseReg = RegInit(0.U(25.W))
-  val fillIdx = RegInit(0.U(5.W))   // 0..15 during read-in
-  val wordIdx = RegInit(0.U(7.W))   // 0..63 during the burst
+  // 1-entry staging buffer: 64 FFs replacing the 1024-FF 16-entry wordBuf.
+  val entryReg  = Reg(UInt(64.W))
+  val baseReg   = RegInit(0.U(25.W))
+  val fillIdx   = RegInit(0.U(4.W))  // entry currently being streamed (0..15)
+  val nextFill  = RegInit(0.U(4.W))  // next entry to pre-fetch (starts at 1)
+  val wordSub   = RegInit(0.U(2.W))  // word within current entry: 0=R 1=G 2=B 3=Z
 
   // Default outputs
   io.busy := (state =/= sIdle) || io.start
 
-  io.read.idx := fillIdx
+  io.read.idx := 0.U
   io.read.en  := false.B
 
   io.gpuMem.req   := false.B
@@ -80,60 +78,69 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   io.gpuMem.wdata := 0.U
   io.gpuMem.wlen  := 1.U
 
-  // Burst word source: 4 words per entry, in SDRAM byte order R(+0) G(+2) B(+4) Z(+6).
-  // ColorZ.asUInt packs first field in the MSBs → entry = {r[63:48],g,b,z[15:0]}.
-  val curEntry = wordBuf(wordIdx(5, 2))   // pixel index 0..15 (4 bits)
-  val curWord  = MuxLookup(wordIdx(1, 0), curEntry(63, 48))(Seq(
-    0.U -> curEntry(63, 48),   // R
-    1.U -> curEntry(47, 32),   // G
-    2.U -> curEntry(31, 16),   // B
-    3.U -> curEntry(15, 0)     // Z
+  // ColorZ.asUInt packs first field in MSBs: {r[63:48], g[47:32], b[31:16], z[15:0]}.
+  val curWord = MuxLookup(wordSub, entryReg(63, 48))(Seq(
+    0.U -> entryReg(63, 48),  // R
+    1.U -> entryReg(47, 32),  // G
+    2.U -> entryReg(31, 16),  // B
+    3.U -> entryReg(15, 0)    // Z
   ))
 
   switch(state) {
 
     is(sIdle) {
       when(io.start) {
-        baseReg := io.tileBase
-        fillIdx := 0.U
-        wordIdx := 0.U
-        state   := sRead
+        baseReg  := io.tileBase
+        fillIdx  := 0.U
+        nextFill := 1.U
+        wordSub  := 0.U
+        // Issue TileBuffer read for entry 0; data valid in sPrime2 (2 cycles later).
+        io.read.en  := true.B
+        io.read.idx := 0.U
+        state := sPrime1
       }
     }
 
-    // ── Read all 16 entries into wordBuf (3-cycle BRAM read per entry) ──
-    is(sRead) {
-      io.read.en  := true.B
-      io.read.idx := fillIdx
-      state       := sReadWait
-    }
-    is(sReadWait) {
-      state := sReadWait2
-    }
-    is(sReadWait2) {
-      wordBuf(fillIdx(3, 0)) := io.read.data.asUInt
-      if (BorgDebug.trace) printf("[FLUSH] fill entry=%d R=0x%x G=0x%x B=0x%x Z=0x%x\n",
-        fillIdx, io.read.data.r, io.read.data.g, io.read.data.b, io.read.data.z)
-      when(fillIdx === 15.U) {
-        state := sBurst
-      }.otherwise {
-        fillIdx := fillIdx + 1.U
-        state   := sRead
-      }
+    is(sPrime1) {
+      // SyncReadMem address latched; wait for readDataHeld to capture.
+      state := sPrime2
     }
 
-    // ── Stream the whole tile as one 64-word burst write ──
-    // The MemoryController latches the base address and auto-increments per word;
-    // we just present successive words and advance on waccept (registered producer:
-    // a waccept this cycle makes wordIdx — and thus curWord — update next cycle).
+    is(sPrime2) {
+      // Entry 0 data valid on io.read.data; capture and begin burst.
+      entryReg := io.read.data.asUInt
+      state    := sBurst
+    }
+
+    // Stream all 64 words (16 entries x 4 words each).
+    // Pre-fetch at wordSub==1 overlaps with the 2-cycle TileBuffer latency so
+    // the next entry is always ready in entryReg by wordSub==3.
     is(sBurst) {
       io.gpuMem.wr    := true.B
       io.gpuMem.addr  := baseReg
       io.gpuMem.wdata := curWord
       io.gpuMem.wlen  := 64.U
+
       when(io.gpuMem.waccept) {
-        wordIdx := wordIdx + 1.U
+        wordSub := wordSub + 1.U
+
+        // Pre-fetch next entry at word 1 (G): 2-cycle latency delivers data at word 3 (Z).
+        when(wordSub === 1.U && nextFill < 16.U) {
+          io.read.en  := true.B
+          io.read.idx := nextFill
+          nextFill    := nextFill + 1.U
+        }
+
+        // At word 3 (Z), capture pre-fetched data and advance to next pixel.
+        when(wordSub === 3.U) {
+          if (BorgDebug.trace) printf("[FLUSH] entry=%d R=0x%x G=0x%x B=0x%x Z=0x%x\n",
+            fillIdx, entryReg(63, 48), entryReg(47, 32), entryReg(31, 16), entryReg(15, 0))
+          entryReg := io.read.data.asUInt
+          fillIdx  := fillIdx + 1.U
+          wordSub  := 0.U
+        }
       }
+
       when(io.gpuMem.ready) {
         state := sIdle
       }
