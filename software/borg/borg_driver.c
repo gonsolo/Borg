@@ -573,17 +573,21 @@ void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
 // TBR: Reset binning state. No PSRAM clearing needed —
 // clear color is written to empty tiles during borgBinRender.
 static void borgBinReset(rgb16_t cc) {
-  if (!g_cmdbuf_valid) {
-    for (int i = 0; i < BORG_MAX_TILES; i++)
-      bin_count[i] = 0;
-    draw_call_count = 0;
-  }
+  for (int i = 0; i < BORG_MAX_TILES; i++)
+    bin_count[i] = 0;
+  draw_call_count = 0;
   last_clear_color = cc;
 }
 
 void borgInvalidateCommandBuffer(void) { g_cmdbuf_valid = 0; }
 
 int borgCommandBufferValid(void) { return g_cmdbuf_valid; }
+
+// Fast-path frame begin: update clear color only, do NOT reset draw_call_count.
+// Called instead of borg_clear_zbuffer when re-recording geometry is skipped.
+void borgFastFrameBegin(rgb16_t clear_color) {
+  last_clear_color = clear_color;
+}
 
 void borg_clear_zbuffer(int frame, rgb16_t clear_color) {
   unsigned int t_start = get_cycles();

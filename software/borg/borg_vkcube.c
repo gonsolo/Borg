@@ -71,6 +71,9 @@ static fp16_t  rx_geom_uv[RX_GEOM_MAX_TRIS * 3 * 2];
 static int     rx_geom_nverts = 0;
 static int     rx_geom_ntris  = 0;
 static int     rx_have_geom   = 0;
+// True once draw_received_geom has successfully rendered a frame (so the
+// descriptor has white vertex colors, not stale face_light from draw_cube).
+static int     g_geom_recorded = 0;
 
 // Phase-B upload instrumentation (measure HW packet absorption; remove later).
 // 32-bit-only: the freestanding firmware has no libgcc 64-bit/popcount helpers.
@@ -537,28 +540,36 @@ int main() {
 
     unsigned int c1 = rdcycle();  // M = matrix
 
-    // Khronos vkcube reference background: {0.2f, 0.2f, 0.2f} (FP16 0x3266)
-    borg_clear_zbuffer(0, (rgb16_t){0x3266, 0x3266, 0x3266});
-
     unsigned int c2, c3;
-    if (rx_have_geom && borgCommandBufferValid()) {
-      // Command-buffer record-once: geometry is already in PSRAM.
-      // Only update the MVP across all descriptor slots — skip full re-recording.
+    if (rx_have_geom && g_geom_recorded) {
+      // Command-buffer record-once: geometry is already in PSRAM with white
+      // vertex colors (from draw_received_geom).  Update only clear color + MVP.
+      borgFastFrameBegin((rgb16_t){0x3266, 0x3266, 0x3266});
       c2 = rdcycle();
       borgUpdateUniforms(&draw);
       c3 = rdcycle();
     } else {
+      borg_clear_zbuffer(0, (rgb16_t){0x3266, 0x3266, 0x3266});
       borg_set_texture(TEX_WIDTH, TEX_HEIGHT);
       fp16_t face_light[6];
       compute_face_lighting(t1, face_light);
       c2 = rdcycle();  // C = clear + texture + lighting
-      if (rx_have_geom)
+      if (rx_have_geom) {
+        // Force full re-recording so borgvk positions/UVs/white colors land in PSRAM
+        // (avoids using stale draw_cube descriptor data after g_cmdbuf_valid=1).
+        if (!g_geom_recorded)
+          borgInvalidateCommandBuffer();
         draw_received_geom(&draw);  // Phase B: the app's real mesh (cube.c)
-      else
+      } else {
+        g_geom_recorded = 0;  // draw_cube uses face_light colors, not compatible with fast path
         draw_cube(&draw, face_light);
-      c3 = rdcycle();  // D = draw_cube (CPU transform + record draws)
+      }
+      c3 = rdcycle();  // D = draw_cube / draw_received_geom
     }
     borg_present(0);
+    // Set g_geom_recorded after present (borgCommandBufferValid updated in borgBinRenderAutonomous).
+    if (rx_have_geom && borgCommandBufferValid())
+      g_geom_recorded = 1;
     unsigned int c4 = rdcycle();  // P = present (GPU autonomous render)
 
     // Exact cycle report (hex), printed AFTER all phases so the UART cost is not

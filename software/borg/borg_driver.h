@@ -96,6 +96,10 @@ void borgInvalidateCommandBuffer(void);
 // are already in PSRAM from a previous frame.
 int borgCommandBufferValid(void);
 
+// Fast-path frame begin: update clear color only, skip bin reset and draw_call_count reset.
+// Call instead of borg_clear_zbuffer when taking the fast path (borgUpdateUniforms).
+void borgFastFrameBegin(rgb16_t clear_color);
+
 // Update only the TS-baked MVP in every active descriptor slot, without
 // re-recording geometry.  Call each frame instead of borgCmdDraw* when
 // geometry is static and only the uniform (rotation matrix) changes.
