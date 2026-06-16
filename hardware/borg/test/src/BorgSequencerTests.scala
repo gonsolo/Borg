@@ -742,11 +742,11 @@ object BorgSequencerTests extends TestSuite {
         // --- Verify flusher writes ---
         println(f"  Total GPU writes captured: ${gpuWrites.size}")
 
-        // The flusher writes 16 pixels × 4 channels = 64 writes for tile (0,0).
-        // Each write: 16-bit value at addr = fbBase + tile_index*128 + pixel*8 + channel*2.
+        // The flusher writes 16 pixels × 1 RGB565 word = 16 writes for tile (0,0).
+        // Each write: 16-bit RGB565 value at addr = fbBase + tile_index*32 + pixel*2.
         // For tile (0,0): tile_index=0, so addr starts at fbBase.
         val flusherWrites = gpuWrites.filter { case (addr, _) =>
-          addr >= fbBase && addr < fbBase + 128
+          addr >= fbBase && addr < fbBase + 32
         }
         println(f"  Flusher writes in tile (0,0) range: ${flusherWrites.size}")
 
@@ -757,14 +757,14 @@ object BorgSequencerTests extends TestSuite {
             println(f"    addr=0x$addr%06X data=0x${data.toInt}%04X")
           }
 
-          // Verify at least 64 writes (16 pixels × 4 channels)
-          Predef.assert(flusherWrites.size >= 64,
-            s"Expected >= 64 flusher writes for 16 pixels, got ${flusherWrites.size}")
+          // Verify 16 writes (16 pixels × 1 RGB565 word)
+          Predef.assert(flusherWrites.size >= 16,
+            s"Expected >= 16 flusher writes for 16 pixels, got ${flusherWrites.size}")
 
-          // Check pixel 0 channel R (should be non-zero if fragment shader ran)
-          val pixel0R = flusherWrites.find(_._1 == fbBase).map(_._2.toInt & 0xFFFF)
-          println(f"  Pixel 0 R = 0x${pixel0R.getOrElse(0)}%04X")
-          Predef.assert(pixel0R.isDefined, "No write at fbBase (pixel 0 R)")
+          // Check pixel 0 (RGB565): red cube color → R5=31 → 0xF800 high bits set.
+          val pixel0 = flusherWrites.find(_._1 == fbBase).map(_._2.toInt & 0xFFFF)
+          println(f"  Pixel 0 RGB565 = 0x${pixel0.getOrElse(0)}%04X")
+          Predef.assert(pixel0.isDefined, "No write at fbBase (pixel 0)")
         }
 
         println("=== sequencer_flusher_e2e PASSED ===\n")

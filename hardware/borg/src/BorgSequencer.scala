@@ -355,9 +355,10 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.iter.enqueue.bits.y := tileY
     io.iter.iterate     := false.B
     io.flusher.trigger      := false.B
-    // tileBase = fbBase + ((tileY / 4) * tilesPerRow + (tileX / 4)) * 128
+    // tileBase = fbBase + ((tileY / 4) * tilesPerRow + (tileX / 4)) * 32
+    // (RGB565: 16 pixels x 2 bytes = 32 bytes per tile)
     val tileIndex = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
-    io.flusher.base := io.mmio.fbBase + (tileIndex << 7)
+    io.flusher.base := io.mmio.fbBase + (tileIndex << 5)
 
     // --- Step 32.2: Binner output defaults ---
     io.binner.start       := false.B

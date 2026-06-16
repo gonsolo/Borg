@@ -214,25 +214,26 @@ inline void save_ppm(const std::string& app_name, uint32_t width, uint32_t heigh
 
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
-            // Step 25.4.2 Option A: tiled framebuffer layout, 2 words/pixel.
-            // BorgTileFlusher writes each pixel as 4 halfwords at byte offsets:
-            //   +0: r, +2: g, +4: b, +6: z   (matches the ULX3S HDMI scanout).
-            // So the two 32-bit words are:
-            //   word_off+0 = {g[31:16], r[15:0]}
-            //   word_off+1 = {z[31:16], b[15:0]}
+            // RGB565 tiled framebuffer: BorgTileFlusher writes one 16-bit
+            // halfword per pixel (R[15:11] G[10:5] B[4:0]).  Tile stride = 32
+            // bytes = 8 32-bit words; two pixels share each 32-bit word.
+            //   pixel byte = tile_index*32 + tile_idx*2
+            //   word_off   = out_base_word + tile_index*8 + (tile_idx >> 1)
+            //   halfword   = tile_idx & 1
             uint32_t tiles_per_row = width >> 2;
             uint32_t tile_index    = (y >> 2) * tiles_per_row + (x >> 2);
             uint32_t tile_idx      = (x & 3) | ((y & 3) << 2);
-            uint32_t word_off      = out_base_word + tile_index * 32 + tile_idx * 2;
-            uint32_t lo            = psram_words_out[word_off + 0];  // {g, r}
-            uint32_t hi            = psram_words_out[word_off + 1];  // {z, b}
-            uint16_t r = (uint16_t)(lo & 0xFFFF);
-            uint16_t g = (uint16_t)(lo >> 16);
-            uint16_t b = (uint16_t)(hi & 0xFFFF);
-
-            int r_b = std::max(0, std::min(255, (int)(fp16_to_float(r) * 255)));
-            int g_b = std::max(0, std::min(255, (int)(fp16_to_float(g) * 255)));
-            int b_b = std::max(0, std::min(255, (int)(fp16_to_float(b) * 255)));
+            uint32_t word_off      = out_base_word + tile_index * 8 + (tile_idx >> 1);
+            uint32_t word          = psram_words_out[word_off];
+            uint16_t px            = (tile_idx & 1) ? (uint16_t)(word >> 16)
+                                                    : (uint16_t)(word & 0xFFFF);
+            // RGB565 -> RGB888 (replicate high bits, matching the HDMI scanout).
+            int r5 = (px >> 11) & 0x1F;
+            int g6 = (px >> 5)  & 0x3F;
+            int b5 =  px        & 0x1F;
+            int r_b = (r5 << 3) | (r5 >> 2);
+            int g_b = (g6 << 2) | (g6 >> 4);
+            int b_b = (b5 << 3) | (b5 >> 2);
 
             out << r_b << " " << g_b << " " << b_b << " ";
         }

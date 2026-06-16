@@ -46,18 +46,21 @@ public:
         uint32_t* psram_words = (uint32_t*)sim->psram->mem.data();
         for (uint32_t y = 0; y < sim->height; y++) {
             for (uint32_t x = 0; x < sim->width; x++) {
+                // RGB565 tiled framebuffer (tile stride 32 bytes = 8 words,
+                // two pixels per 32-bit word).
                 uint32_t tiles_per_row = sim->width >> 2;
                 uint32_t tile_index = (y >> 2) * tiles_per_row + (x >> 2);
                 uint32_t tile_idx   = (x & 3) | ((y & 3) << 2);
-                uint32_t word_off   = sim->out_base_word + tile_index * 32 + tile_idx * 2;
-                uint32_t lo = psram_words[word_off + 0];  // {g, r}
-                uint32_t hi = psram_words[word_off + 1];  // {z, b}
-                uint16_t r_fp16 = (uint16_t)(lo & 0xFFFF);
-                uint16_t g_fp16 = (uint16_t)(lo >> 16);
-                uint16_t b_fp16 = (uint16_t)(hi & 0xFFFF);
-                uint8_t r_b = std::max(0, std::min(255, (int)(::fp16_to_float(r_fp16) * 255)));
-                uint8_t g_b = std::max(0, std::min(255, (int)(::fp16_to_float(g_fp16) * 255)));
-                uint8_t b_b = std::max(0, std::min(255, (int)(::fp16_to_float(b_fp16) * 255)));
+                uint32_t word_off   = sim->out_base_word + tile_index * 8 + (tile_idx >> 1);
+                uint32_t word = psram_words[word_off];
+                uint16_t px = (tile_idx & 1) ? (uint16_t)(word >> 16)
+                                             : (uint16_t)(word & 0xFFFF);
+                int r5 = (px >> 11) & 0x1F;
+                int g6 = (px >> 5)  & 0x3F;
+                int b5 =  px        & 0x1F;
+                uint8_t r_b = (uint8_t)((r5 << 3) | (r5 >> 2));
+                uint8_t g_b = (uint8_t)((g6 << 2) | (g6 >> 4));
+                uint8_t b_b = (uint8_t)((b5 << 3) | (b5 >> 2));
                 uint32_t out_idx = (y * sim->width + x) * 3;
                 fb_rgb[out_idx + 0] = r_b;
                 fb_rgb[out_idx + 1] = g_b;

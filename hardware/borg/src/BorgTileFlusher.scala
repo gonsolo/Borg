@@ -22,55 +22,53 @@ class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
   val gpuMem    = new GpuMemIO
 
   // Tile base address: absolute PSRAM byte address of this tile's region.
-  // Layout: 16 entries × 8 bytes = 128 bytes per tile.
-  //   word[2*i]   = entry[i] bits[31:0]  (R|G)
-  //   word[2*i+1] = entry[i] bits[63:32] (B|Z)
-  // Firmware computes: tileBase = fbBase + tile_index * 128
+  // Layout (RGB565): 16 entries × 2 bytes = 32 bytes per tile.
+  //   word[i] = RGB565(entry[i])   (R[15:11] | G[10:5] | B[4:0])
+  // Z is not written — depth lives only in the on-chip tile buffer (TBR renders
+  // each tile fully on-chip, so PSRAM never needs the depth value).
+  // Firmware computes: tileBase = fbBase + tile_index * 32
   //   where tile_index = (ty >> 2) * tiles_per_row + (tx >> 2)
   val tileBase  = Input(UInt(25.W))
 }
 
 /** BorgTileFlusher -- bulk DMA from tile SRAM to PSRAM, one burst per tile.
   *
-  * Streams all 16 tile-buffer entries to SDRAM as ONE 64-word burst write.
-  * TileBuffer reads are pipelined into the burst: entry[i+1] is pre-fetched
-  * during the stream of entry[i], so the 48-cycle sequential fill phase is
-  * eliminated entirely.
+  * Streams all 16 tile-buffer entries to SDRAM as ONE 16-word RGB565 burst.
+  * Each pixel becomes a single 16-bit word (R5|G6|B5); depth is dropped (the
+  * TBR renders each tile fully on-chip, so PSRAM never needs the Z value).
+  * This halves the flush bandwidth vs the previous 64-word FP16 R/G/B/Z burst.
   *
-  * io.read.en/idx are REGISTERED outputs (set one cycle before they appear
-  * on the wire) so that arcilator can evaluate them from the state array
-  * without circular combinational dependencies through the tile instance.
+  * Two phases:
+  *   sFill  -- read all 16 tile entries (pipelined), convert FP16->RGB565,
+  *             stash into rgbVec.  The 2-cycle TileBuffer read latency is hidden
+  *             by issuing one read per cycle and capturing 3 cycles later.
+  *   sBurst -- stream the 16 RGB565 words from rgbVec as one burst.  rgbVec is
+  *             a plain register read (no latency), so the word for the next beat
+  *             is ready the cycle after `waccept` -- exactly when the controller
+  *             samples it.  No burst-time read race.
   *
-  * {{{
-  *   sIdle   -- set readEnReg for entry 0; latch tileBase
-  *   sPrime1 -- io.read.en visible (from reg); cycle 1 of 2-cycle TileBuffer latency
-  *   sPrime2 -- cycle 2 of TileBuffer latency
-  *   sPrime3 -- entry 0 valid; capture into entryReg; start burst
-  *   sBurst  -- stream R/G/B/Z of entryReg; at wordSub==0 set readEnReg for next entry
-  *              (io.read.en appears at wordSub==1; data arrives at wordSub==3); repeat
-  * }}}
+  * io.read.en/idx are REGISTERED outputs (set one cycle before they appear on
+  * the wire) so arcilator can evaluate them from the state array without
+  * circular combinational dependencies through the tile instance.
   *
-  * Pre-fetch timing (2-cycle TileBuffer read latency):
-  *   wordSub==0: readEnReg := true (register set; wire goes high next cycle)
-  *   wordSub==1: io.read.en=1 for nextFill (register visible)
-  *   wordSub==2: SyncReadMem latches address (cycle 1 of 2)
-  *   wordSub==3: readDataHeld valid; entryReg := io.read.data
-  *
-  * Total flush = 3 (prime) + 64 (burst) = 67 cycles vs 112 cycles previously.
-  * Area: 1 x 64-b staging register instead of 16 x 64-b wordBuf (~960 fewer FFs).
+  * Fill pipeline (mirrors the 3-cycle issue->data latency):
+  *   cycle N:   readEnReg := true (register set; wire goes high next cycle)
+  *   cycle N+1: io.read.en=1 visible; SyncReadMem latches address
+  *   cycle N+2: SyncReadMem output travels through readDataHeld (cycle 2 of 2)
+  *   cycle N+3: io.read.data valid; capture RGB565 into rgbVec
   */
 class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   val io = IO(new BorgTileFlusherIO(dataBits))
 
-  val sIdle :: sPrime1 :: sPrime2 :: sPrime3 :: sBurst :: Nil = Enum(5)
+  val sIdle :: sFill :: sBurst :: Nil = Enum(3)
   val state = RegInit(sIdle)
 
-  // 1-entry staging buffer: 64 FFs replacing the 1024-FF 16-entry wordBuf.
-  val entryReg   = Reg(UInt(64.W))
-  val baseReg    = RegInit(0.U(25.W))
-  val fillIdx    = RegInit(0.U(4.W))  // entry currently being streamed (0..15)
-  val nextFill   = RegInit(0.U(4.W))  // next entry to pre-fetch (starts at 1)
-  val wordSub    = RegInit(0.U(2.W))  // word within current entry: 0=R 1=G 2=B 3=Z
+  // 16 RGB565 pixels staged before the burst (256 FFs).
+  val rgbVec   = Reg(Vec(16, UInt(16.W)))
+  val baseReg  = RegInit(0.U(25.W))
+  val issueIdx = RegInit(0.U(5.W))  // next entry to issue a read for (0..16)
+  val capIdx   = RegInit(0.U(5.W))  // next entry to capture into rgbVec (0..16)
+  val burstIdx = RegInit(0.U(5.W))  // entry currently being streamed (0..15)
 
   // Registered read-port outputs: set one cycle early so arcilator reads them
   // from the state array (always up-to-date), avoiding comb ordering issues.
@@ -92,74 +90,92 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   // Auto-clear the read-enable register each cycle; overridden below when needed.
   readEnReg := false.B
 
+  // FP16 [0,1] -> unsigned N-bit channel (top N bits of an 8-bit conversion).
+  // FP16: 1 sign + 5 exponent (bias=15) + 10 mantissa.  Clamp negatives to 0,
+  // >=1.0 to all-ones; matches the scanout's old fp16ToRgb8 mapping.
+  def fp16ToUnorm(fp16: UInt, bits: Int): UInt = {
+    val sign = fp16(15)
+    val exp  = fp16(14, 10)
+    val mant = fp16(9, 0)
+    val full = Cat(1.U(1.W), mant)  // 11-bit: 1.mantissa
+    val rgb8 = Wire(UInt(8.W))
+    when(sign || exp < 7.U) {
+      rgb8 := 0.U
+    }.elsewhen(exp >= 15.U) {
+      rgb8 := 255.U
+    }.otherwise {
+      rgb8 := MuxLookup(exp, 0.U(8.W))(Seq(
+        14.U -> full(10, 3),
+        13.U -> Cat(0.U(1.W), full(10, 4)),
+        12.U -> Cat(0.U(2.W), full(10, 5)),
+        11.U -> Cat(0.U(3.W), full(10, 6)),
+        10.U -> Cat(0.U(4.W), full(10, 7)),
+         9.U -> Cat(0.U(5.W), full(10, 8)),
+         8.U -> Cat(0.U(6.W), full(10, 9)),
+         7.U -> Cat(0.U(7.W), full(10))
+      ))
+    }
+    rgb8(7, 8 - bits)
+  }
+
   // ColorZ.asUInt packs first field in MSBs: {r[63:48], g[47:32], b[31:16], z[15:0]}.
-  val curWord = MuxLookup(wordSub, entryReg(63, 48))(Seq(
-    0.U -> entryReg(63, 48),  // R
-    1.U -> entryReg(47, 32),  // G
-    2.U -> entryReg(31, 16),  // B
-    3.U -> entryReg(15, 0)    // Z
-  ))
+  def toRgb565(entry: UInt): UInt = {
+    val r5 = fp16ToUnorm(entry(63, 48), 5)
+    val g6 = fp16ToUnorm(entry(47, 32), 6)
+    val b5 = fp16ToUnorm(entry(31, 16), 5)
+    Cat(r5, g6, b5)
+  }
+
+  // Fill-pipeline valid tracking: a read issued this cycle yields data 3 cycles
+  // later.  issueValid marks the issue; v3 marks the matching data-valid cycle.
+  val issueValid = WireDefault(false.B)
+  val v1 = RegNext(issueValid, false.B)
+  val v2 = RegNext(v1, false.B)
+  val v3 = RegNext(v2, false.B)
+  when(v3) {
+    rgbVec(capIdx(3, 0)) := toRgb565(io.read.data.asUInt)
+    capIdx := capIdx + 1.U
+  }
 
   switch(state) {
 
     is(sIdle) {
       when(io.start) {
-        baseReg    := io.tileBase
-        fillIdx    := 0.U
-        nextFill   := 1.U
-        wordSub    := 0.U
-        // Stage the read for entry 0; io.read.en goes high next cycle (sPrime1).
-        readEnReg  := true.B
-        readIdxReg := 0.U
-        state      := sPrime1
+        baseReg  := io.tileBase
+        issueIdx := 0.U
+        capIdx   := 0.U
+        burstIdx := 0.U
+        state    := sFill
       }
     }
 
-    is(sPrime1) {
-      // io.read.en=1 visible this cycle; SyncReadMem latches address.
-      state := sPrime2
+    // Issue one read per cycle for entries 0..15; captures land via v3 above.
+    // Advance to the burst once all 16 entries are captured.
+    is(sFill) {
+      when(issueIdx < 16.U) {
+        readEnReg  := true.B
+        readIdxReg := issueIdx(3, 0)
+        issueValid := true.B
+        issueIdx   := issueIdx + 1.U
+      }
+      when(capIdx === 16.U) {
+        state := sBurst
+      }
     }
 
-    is(sPrime2) {
-      // SyncReadMem output travels through readDataHeld (cycle 2 of 2).
-      state := sPrime3
-    }
-
-    is(sPrime3) {
-      // Entry 0 data valid on io.read.data; capture and begin burst.
-      entryReg := io.read.data.asUInt
-      state    := sBurst
-    }
-
-    // Stream all 64 words (16 entries x 4 words each).
-    // Pre-fetch at wordSub==0 (register set) so io.read.en appears at wordSub==1,
-    // overlapping the 2-cycle TileBuffer latency so the next entry is in entryReg
-    // by wordSub==3.
+    // Stream all 16 RGB565 words as one burst.  wdata is a register read of
+    // rgbVec(burstIdx): when waccept advances burstIdx, the next word is ready
+    // the following cycle, exactly when the controller samples it.
     is(sBurst) {
       io.gpuMem.wr    := true.B
       io.gpuMem.addr  := baseReg
-      io.gpuMem.wdata := curWord
-      io.gpuMem.wlen  := 64.U
+      io.gpuMem.wdata := rgbVec(burstIdx(3, 0))
+      io.gpuMem.wlen  := 16.U
 
       when(io.gpuMem.waccept) {
-        wordSub := wordSub + 1.U
-
-        // Stage pre-fetch at word 0 (R): io.read.en appears at word 1 (G),
-        // delivering data at word 3 (Z) with 2-cycle TileBuffer latency.
-        when(wordSub === 0.U && nextFill < 16.U) {
-          readEnReg  := true.B
-          readIdxReg := nextFill
-          nextFill   := nextFill + 1.U
-        }
-
-        // At word 3 (Z), capture pre-fetched data and advance to next pixel.
-        when(wordSub === 3.U) {
-          if (BorgDebug.trace) printf("[FLUSH] entry=%d R=0x%x G=0x%x B=0x%x Z=0x%x\n",
-            fillIdx, entryReg(63, 48), entryReg(47, 32), entryReg(31, 16), entryReg(15, 0))
-          entryReg := io.read.data.asUInt
-          fillIdx  := fillIdx + 1.U
-          wordSub  := 0.U
-        }
+        if (BorgDebug.trace) printf("[FLUSH] entry=%d RGB565=0x%x\n",
+          burstIdx, rgbVec(burstIdx(3, 0)))
+        burstIdx := burstIdx + 1.U
       }
 
       when(io.gpuMem.ready) {

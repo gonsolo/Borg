@@ -33,7 +33,7 @@ public:
         height = h;
         psram_spi_word_offset = 0x1000 / 4;
         out_base_word = psram_spi_word_offset + (PSRAM_OUT_OFFSET / 4);
-        uint32_t frame_tile_size = width * height * 2;
+        uint32_t frame_tile_size = width * height / 2;  // RGB565: 2 px / 32-bit word
         marker_offset_word = out_base_word + frame_tile_size;
         frame_tile_size_words = frame_tile_size;
         out_base_word_buf0    = out_base_word;

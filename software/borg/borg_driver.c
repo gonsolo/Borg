@@ -19,10 +19,10 @@
 #define FP16_SIXTEEN 0x4C00
 
 // --- PSRAM frame layout (tiled: 2 words per pixel) ---
-// Each pixel: lo word = {B[15:0], Z[15:0]} packed, hi word = {unused, R[15:0],
-// G[15:0]} Actually: lo = R|Z packed by flusher, hi = G|B packed by flusher.
-// FRAME_FB_SIZE = W*H*2 words (tiled layout, no separate Z buffer).
-#define FRAME_FB_SIZE (BORG_FB_WIDTH * BORG_FB_HEIGHT * 2)
+// RGB565 tiled framebuffer: the flusher writes one 16-bit RGB565 halfword per
+// pixel (R[15:11] G[10:5] B[4:0]); depth lives only in the on-chip tile buffer.
+// FRAME_FB_SIZE = W*H/2 32-bit words (2 bytes/pixel, 2 pixels per 32-bit word).
+#define FRAME_FB_SIZE (BORG_FB_WIDTH * BORG_FB_HEIGHT / 2)
 #define FRAME_ZB_SIZE 0
 #define FRAME_STRIDE (FRAME_FB_SIZE + 1) // FB + DONE marker
 
@@ -893,6 +893,9 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
 }
 
 // TBR tile-ordered render loop.
+// NOTE: dead code (CPU software TBR path, pico-ice only — removed).  Its tile
+// strides (tile_index * 32 / * 128) are stale for the RGB565 framebuffer; the
+// live path is borgBinRenderAutonomous (hardware sequencer + flusher).
 static void __attribute__((unused)) borgBinRender(int frame) {
   int tiles_per_row = borg_fb_width >> 2;
   int tile_rows = borg_fb_height >> 2;

@@ -1,16 +1,17 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 //
-// HdmiScanoutFp16 — reads Borg GPU tiled FP16 framebuffer from SDRAM.
+// HdmiScanoutFp16 — reads Borg GPU tiled RGB565 framebuffer from SDRAM.
 //
 // The Borg flusher writes 4×4 tiles to SDRAM in tiled order:
-//   tile_addr = fbBase + tile_index × 128
-//   pixel_addr = tile_addr + pixel_index × 8
-//   pixel layout: R(+0) G(+2) B(+4) Z(+6), each FP16 (16 bits)
+//   tile_addr = fbBase + tile_index × 32
+//   pixel_addr = tile_addr + pixel_index × 2
+//   pixel layout: one RGB565 halfword per pixel (R[15:11] G[10:5] B[4:0])
 //
-// MemoryController GPU read returns 4 bytes (2 SDRAM words):
-//   Read at pixel_addr+0: {G[15:0], R[15:0]}
-//   Read at pixel_addr+4: {Z[15:0], B[15:0]}
+// MemoryController GPU read returns 4 bytes (2 SDRAM halfwords); the scanout
+// reads at pixel_addr and uses the low 16 bits (this pixel); the high 16 bits
+// are the next pixel and are ignored (1 read per pixel keeps the addressing
+// trivial — the fill loop is not bandwidth-critical).
 //
 // Buffering strategy (Step: full-frame BRAM):
 //   The previous design prefetched one scanline per hblank, but at 25 MHz the
@@ -80,46 +81,24 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32) extends Module {
   // Raster-indexed: pixel (col, row) lives at index row*fbWidth + col.
   val frameBuf = SyncReadMem(numPixels, UInt(24.W))
 
-  // ── FP16 → RGB8 conversion ──
-  // FP16: 1 sign + 5 exponent (bias=15) + 10 mantissa
-  // For color [0..1]: clamp negatives to 0, ≥1.0 to 255.
-  def fp16ToRgb8(fp16: UInt): UInt = {
-    val sign = fp16(15)
-    val exp  = fp16(14, 10)
-    val mant = fp16(9, 0)
-    val full = Cat(1.U(1.W), mant)  // 11-bit: 1.mantissa
-
-    // value × 256 ≈ full >> (17 - exp)
-    // For exp in [7..14]: result fits in 8 bits
-    // For exp >= 15: clamp to 255
-    // For exp < 7 or sign=1: 0
-    val rgb8 = Wire(UInt(8.W))
-    when(sign || exp < 7.U) {
-      rgb8 := 0.U
-    }.elsewhen(exp >= 15.U) {
-      rgb8 := 255.U
-    }.otherwise {
-      rgb8 := MuxLookup(exp, 0.U)(Seq(
-        14.U -> full(10, 3),
-        13.U -> Cat(0.U(1.W), full(10, 4)),
-        12.U -> Cat(0.U(2.W), full(10, 5)),
-        11.U -> Cat(0.U(3.W), full(10, 6)),
-        10.U -> Cat(0.U(4.W), full(10, 7)),
-         9.U -> Cat(0.U(5.W), full(10, 8)),
-         8.U -> Cat(0.U(6.W), full(10, 9)),
-         7.U -> Cat(0.U(7.W), full(10))
-      ))
-    }
-    rgb8
+  // ── RGB565 → RGB888 expansion ──
+  // Replicate the high bits into the low bits so full-scale maps to 0xFF.
+  def rgb565ToRgb8(px: UInt): (UInt, UInt, UInt) = {
+    val r5 = px(15, 11)
+    val g6 = px(10, 5)
+    val b5 = px(4, 0)
+    val r8 = Cat(r5, r5(4, 2))   // 5 -> 8 bits
+    val g8 = Cat(g6, g6(5, 4))   // 6 -> 8 bits
+    val b8 = Cat(b5, b5(4, 2))   // 5 -> 8 bits
+    (r8, g8, b8)
   }
 
   // ── Free-running fill FSM ──
-  // Walks every pixel (raster order), issuing 2 GPU reads each (RG then BZ),
-  // converting to RGB8 and writing the frame BRAM.  Loops forever.
-  val sReqRG :: sWaitRG :: sReqBZ :: sWaitBZ :: Nil = Enum(4)
-  val fstate  = RegInit(sReqRG)
+  // Walks every pixel (raster order), issuing 1 GPU read each, expanding the
+  // RGB565 halfword to RGB8 and writing the frame BRAM.  Loops forever.
+  val sReq :: sWait :: Nil = Enum(2)
+  val fstate  = RegInit(sReq)
   val fillIdx = RegInit(0.U(log2Ceil(numPixels).W))
-  val rgWord  = Reg(UInt(32.W))
 
   // Decompose the raster fill index into tiled SDRAM byte address.
   val fillCol = fillIdx(log2Ceil(fbWidth) - 1, 0)
@@ -131,9 +110,9 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32) extends Module {
   val tileIndex = tileRow * tilesPerRow.U +& tileCol
   val pixIndex  = Cat(localY, localX)            // local_y * 4 + local_x
   // Double-buffer: capture the front-buffer base address at the wrap point
-  // (last pixel of each loop, inside sWaitBZ) so it is stable from the very
-  // first cycle of the next loop through sReqRG/sWaitRG/sReqBZ/sWaitBZ.
-  // Latching in sReqRG (first state of next loop) would set it one cycle too
+  // (last pixel of each loop, inside sWait) so it is stable from the very
+  // first cycle of the next loop through sReq/sWait.
+  // Latching in sReq (first state of next loop) would set it one cycle too
   // late: gpuAddr is combinatorial from baseAddr, so it would change mid-request.
   // Front-buffer base for the whole fill loop.  After the first loop it is the
   // value latched at the previous wrap (stable across the loop, no mid-request
@@ -144,14 +123,13 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32) extends Module {
   val baseAddr   = RegInit(0.U(25.W))
   val baseLoaded = RegInit(false.B)
   val effBase    = Mux(baseLoaded, baseAddr, io.fbBase)
-  val pixAddr    = effBase +& (tileIndex << 7) +& (pixIndex << 3)
+  val pixAddr    = effBase +& (tileIndex << 5) +& (pixIndex << 1)
   // Report which buffer is currently being read so the CPU can synchronize the
   // double-buffer swap (wait until the scanout has released the back buffer).
   io.curBuf := effBase === io.fbBase1
 
-  io.gpuReq  := io.enable && (fstate === sReqRG || fstate === sWaitRG ||
-                              fstate === sReqBZ || fstate === sWaitBZ)
-  io.gpuAddr := Mux(fstate === sReqBZ || fstate === sWaitBZ, pixAddr + 4.U, pixAddr)
+  io.gpuReq  := io.enable && (fstate === sReq || fstate === sWait)
+  io.gpuAddr := pixAddr
 
   val wrEn   = WireDefault(false.B)
   val wrData = WireDefault(0.U(24.W))
@@ -164,27 +142,18 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32) extends Module {
 
   when(io.enable) {
     switch(fstate) {
-      is(sReqRG) { fstate := sWaitRG }
-      is(sWaitRG) {
+      is(sReq) { fstate := sWait }
+      is(sWait) {
         when(io.gpuReady) {
-          rgWord := io.gpuData    // {G[15:0], R[15:0]}
-          fstate := sReqBZ
-        }
-      }
-      is(sReqBZ) { fstate := sWaitBZ }
-      is(sWaitBZ) {
-        when(io.gpuReady) {
-          // gpuData = {Z[15:0], B[15:0]}
-          val r8 = fp16ToRgb8(rgWord(15, 0))
-          val g8 = fp16ToRgb8(rgWord(31, 16))
-          val b8 = fp16ToRgb8(io.gpuData(15, 0))
+          // gpuData low 16 bits = this pixel's RGB565 halfword.
+          val (r8, g8, b8) = rgb565ToRgb8(io.gpuData(15, 0))
           wrEn    := true.B
           wrData  := Cat(r8, g8, b8)
           val wrap = fillIdx === (numPixels - 1).U
           fillIdx := Mux(wrap, 0.U, fillIdx + 1.U)
-          fstate  := sReqRG
+          fstate  := sReq
           // Latch the new front-buffer base at the wrap boundary so it is
-          // stable for all of the next loop (sReqRG through sWaitBZ).
+          // stable for all of the next loop (sReq through sWait).
           when(wrap) {
             baseAddr   := Mux(io.frontBuf, io.fbBase1, io.fbBase)
             baseLoaded := true.B

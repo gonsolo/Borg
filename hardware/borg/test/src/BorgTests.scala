@@ -48,6 +48,19 @@ object BorgTests extends TestSuite {
     math.abs(actual - expected) < tolerance
   }
 
+  // --- RGB565 reference, mirroring BorgTileFlusher.fp16ToUnorm / toRgb565 ---
+  def fp16ToUnorm(h: Int, bits: Int): Int = {
+    val sign = (h >> 15) & 1
+    val exp  = (h >> 10) & 0x1f
+    val mant = h & 0x3ff
+    val full = (1 << 10) | mant
+    if (sign == 1 || exp < 7) 0
+    else if (exp >= 15) (1 << bits) - 1
+    else (full >> (17 - exp)) >> (8 - bits)
+  }
+  def toRgb565(r: Int, g: Int, b: Int): Int =
+    (fp16ToUnorm(r, 5) << 11) | (fp16ToUnorm(g, 6) << 5) | fp16ToUnorm(b, 5)
+
   // --- Low-level bus helpers ---
 
   def writeAddr(borg: BorgTestWrapper, addr: Int, data: BigInt): Unit = {
@@ -1133,12 +1146,11 @@ object BorgTests extends TestSuite {
     //      accepting every write in one cycle).
     //   5. Assert:
     //      a. FLUSH_BUSY goes high after tileComplete.
-    //      b. Exactly 32 PSRAM writes are issued.
-    //      c. The first lo-word address is tileBase, consecutive writes
-    //         advance by 4 bytes (lo at base+8*i, hi at base+8*i+4).
-    //      d. The lo word of entry 0 matches {b[15:0], z[15:0]} and the
-    //         hi word matches {r[15:0], g[15:0]} as packed by BorgTileFlusher.
-    //      e. FLUSH_BUSY returns to 0 after all 32 writes.
+    //      b. Exactly 16 PSRAM writes are issued (one RGB565 word per pixel).
+    //      c. The burst base address is tileBase (controller increments).
+    //      d. Each word matches RGB565(r,g,b) as packed by BorgTileFlusher
+    //         (Z dropped — depth stays on-chip).
+    //      e. FLUSH_BUSY returns to 0 after all 16 writes.
     //
     // This is a pure Chisel/simulation test — no hardware required.
     // BorgConfig.Default has hasFlusher=true and hasDMA=true by default.
@@ -1186,13 +1198,18 @@ object BorgTests extends TestSuite {
         borg.clock.step(20)   // tile buffer auto-clear (16 cycles + margin)
 
         // ---- (1) Write known pixel data to all 16 tile SRAM slots ----
-        // Pixel i: R = 0x1000+i, G = 0x2000+i, B = 0x3000+i, Z = 0x4000+i
+        // Distinct FP16 colours per pixel so a reorder/drop shows in RGB565:
+        //   R ramps up, G ramps down, B constant.  Z is arbitrary (dropped).
         println("  Writing 16 tile pixels via MMIO...")
-        for (i <- 0 until 16) {
-          val r = 0x1000 + i
-          val g = 0x2000 + i
-          val b = 0x3000 + i
+        def px(i: Int): (Int, Int, Int, Int) = {
+          val r = floatToBits(i / 16.0f, config).toInt
+          val g = floatToBits((15 - i) / 16.0f, config).toInt
+          val b = floatToBits(0.5f, config).toInt
           val z = 0x4000 + i
+          (r, g, b, z)
+        }
+        for (i <- 0 until 16) {
+          val (r, g, b, z) = px(i)
           // Protocol: CTRL=idx, BZ={B<<16|Z}, RG={R<<16|G} (RG write fires)
           rawWrite(BorgGpuRegs.tile_ctrl_offset.litValue.toInt, i & 0xF)
           rawWrite(BorgGpuRegs.tile_bz_offset.litValue.toInt,
@@ -1276,10 +1293,10 @@ object BorgTests extends TestSuite {
           for (_ <- 0 until 120) idleStep()
         }
 
-        // Tile complete → the flusher issues ONE 64-word burst (R,G,B,Z × 16).
+        // Tile complete → the flusher issues ONE 16-word RGB565 burst.
         var guard = 0
         while (!(borg.io.gpuMem.wr.peek().litToBoolean &&
-                 borg.io.gpuMem.wlen.peek().litValue.toInt == 64) && guard < 2000) {
+                 borg.io.gpuMem.wlen.peek().litValue.toInt == 16) && guard < 2000) {
           idleStep(); guard += 1
         }
         Predef.assert(guard < 2000, "flush burst never started")
@@ -1287,10 +1304,10 @@ object BorgTests extends TestSuite {
         burstAddr = borg.io.gpuMem.addr.peek().litValue.toInt
 
         // Play the MemoryController: collect each word, pulse waccept to advance.
-        for (w <- 0 until 64) {
+        for (w <- 0 until 16) {
           Predef.assert(borg.io.gpuMem.wr.peek().litToBoolean, s"wr dropped at burst word $w")
           burstWords += (borg.io.gpuMem.wdata.peek().litValue.toLong & 0xFFFFL)
-          if (w < 63) {
+          if (w < 15) {
             borg.io.gpuMem.waccept.poke(true.B)
             borg.clock.step(1)
             borg.io.gpuMem.waccept.poke(false.B)
@@ -1310,26 +1327,25 @@ object BorgTests extends TestSuite {
         println(f"  FLUSH_BUSY cleared:   $flushBusyClear (expect true)")
         Predef.assert(flushBusyClear, "FLUSH_BUSY did not clear — flusher hung")
 
-        // One burst of 64 words; base address held at tileBase (controller increments).
-        println(f"  Burst words: ${burstWords.size} (expect 64), base 0x${burstAddr.toHexString} (expect 0x${tileBase.toHexString})")
-        Predef.assert(burstWords.size == 64, s"Expected 64 burst words, got ${burstWords.size}")
+        // One burst of 16 RGB565 words; base address held at tileBase.
+        println(f"  Burst words: ${burstWords.size} (expect 16), base 0x${burstAddr.toHexString} (expect 0x${tileBase.toHexString})")
+        Predef.assert(burstWords.size == 16, s"Expected 16 burst words, got ${burstWords.size}")
         Predef.assert(burstAddr == tileBase, s"burst base addr: got 0x${burstAddr.toHexString} exp 0x${tileBase.toHexString}")
 
-        // Word w = pixel(w/4), channel(w%4): R=0x1000+p G=0x2000+p B=0x3000+p Z=0x4000+p
+        // Word w = RGB565 of pixel w (R ramp up, G ramp down, B constant).
         def expWord(w: Int): Long = {
-          val p = w / 4
-          (w % 4) match { case 0 => 0x1000L + p; case 1 => 0x2000L + p
-                          case 2 => 0x3000L + p; case _ => 0x4000L + p }
+          val (r, g, b, _) = px(w)
+          toRgb565(r, g, b).toLong & 0xFFFFL
         }
         var errs = 0
-        for (w <- 0 until 64) {
+        for (w <- 0 until 16) {
           if (burstWords(w) != expWord(w)) {
             println(f"  word $w%2d: got 0x${burstWords(w).toHexString} exp 0x${expWord(w).toHexString}")
             errs += 1
           }
         }
         Predef.assert(errs == 0, s"$errs burst word mismatches")
-        println("  All 64 burst words (R,G,B,Z × 16) correct ✓")
+        println("  All 16 RGB565 burst words correct ✓")
 
         println("=== Step 28: HW Flusher Autonomous Test PASSED ===\n")
       }
