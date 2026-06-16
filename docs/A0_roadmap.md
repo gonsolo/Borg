@@ -1195,40 +1195,47 @@ starved by the free-running scanout fill on the shared SDRAM port. Phase 2 moved
 the *per-pixel* loop into hardware; the bottleneck has since moved to the **CPU
 geometry/transform** stage, which no earlier roadmap step covered.
 
-### Step H1 — Firmware op-count reduction (firmware-only, low risk, ~1–2 days)
+### Step H1 — Firmware op-count reduction ✅ DONE
 
 Specialize the constant scale (`s`) and translate (`tz`) matrix multiplies
 (sparse: ~12 and ~4 ops vs 64 each); precompute `tz·s` once outside the loop.
 Transform the 8 unique cube vertices once per frame instead of 36 (12 tris × 3).
-Expected: matrix ~140→~50 ms, draw ~155→~60 ms → ~5 fps. No bitstream rebuild.
+Implemented in `borg_vkcube.c`: `mat4_mul_ts()` (sparse 16-op path), `cube_verts[8]`
+dedup, and `ts` precomputed once at startup.
 
-### Step H2 — FPU call optimization (touches shared `borg_fpu.c`, ~1 day)
+### Step H2 — FPU call optimization (touches shared `borg_fpu.c`) — SUPERSEDED
 
 Preload FADD/FMUL/FMADD/FRCP once into the free IMEM region (offset 40+), one PC
 per op; the per-op path becomes write-operands → START → poll → read, dropping
-the per-op `RESET_PIPELINE`. Validate against the sim/golden image.
-Expected: ~1.3–1.6× on every remaining FP16 op (helps all CPU phases).
+the per-op `RESET_PIPELINE`.
+**Status:** not implemented — `borg_fpu.c` still rewrites the IMEM slot on every
+call. However H5 (GPU vertex transform) eliminated the vast majority of scalar FPU
+calls; the remaining matrix work is the sparse 16-op `mat4_mul_ts`. Impact is now
+small (~1–2 ms), so this step is superseded and not worth the risk.
 
-### Step H3 — CPU L1 instruction cache (bitstream, ~3–5 days) ⭐
+### Step H3 — CPU L1 instruction cache ✅ DONE
 
-Small direct-mapped I-cache (1–4 KB) in the Hutt fetch path / `MemoryController`.
+Small direct-mapped I-cache in the Hutt fetch path / `MemoryController`.
 Removes the CPU as a per-cycle SDRAM requester → fixes instruction starvation and
-decouples it from the scanout fill. Fills a roadmap gap (no CPU cache was
-previously planned) and is prerequisite-grade work for the Linux arc (Phase 4).
+decouples it from the scanout fill. Prerequisite for the Linux arc (Phase 4).
+**Implemented:** `InstrCache.scala` (512-line direct-mapped cache), wired in
+`Project.scala` and `MinimalSoC.scala`. `BorgConfig.Default` sets `icacheLines=512`.
 
-### Step H4 — Scanout QoS / rate-limiter (bitstream, ~2–3 days)
+### Step H4 — Scanout QoS / rate-limiter ❌ ABANDONED
 
 Replace the full-frame BRAM fill's continuous `gpuMem.req` with a credit/budget so
-it consumes *bounded* SDRAM bandwidth and yields to CPU + GPU; pair with a
-priority reorder (instruction fetch above the soft display traffic). The
-principled redo of the 2026-06-02 hold-off hack that broke the scanout handshake.
+it consumes *bounded* SDRAM bandwidth and yields to CPU + GPU.
+**Abandoned:** ~6 attempts all deadlock the `gpuMem→Borg mmio.req.ready→CPU` path,
+and the upside is zero: the priority arbiter already keeps scanout off the GPU's
+SDRAM port. The stall is the GPU waiting on its *own* flush traffic, not scanout.
 
-### Step H5 — GPU vertex-transform offload (architectural, stretch)
+### Step H5 — GPU vertex-transform offload ✅ DONE
 
 Move the MVP × vertex transform from the CPU into the sequencer's vertex shader so
 the CPU only uploads the matrix uniform + raw vertices (the mobile-GPU approach).
-Biggest single win — eliminates most of matrix + `draw_cube` — but the largest
-change. Do only if H1–H4 land with time to spare.
+**Implemented:** all 4 phases + depth fix committed; sequencer runs `seq_vert_shader`
+per vertex, depth uses projected z in `clipRegs[v][2]`. Sim: 5.8 M cycles, correct
+3-face silhouette. HW-verified on ULX3S.
 
 ### Stretch / nice-to-have for the talk
 
@@ -1241,8 +1248,6 @@ safe to show even if the hardware steps (H3–H5) slip.
 
 ### Status update (2026-06-05) — burst-SDRAM done, H4 abandoned, reprioritized for Vulkan
 
-Actual progress since the H1–H5 plan was written:
-
 - **H5 (GPU vertex-transform offload): DONE.** The MVP×vertex transform now runs in
   the sequencer; the CPU only uploads the matrix + raw vertices.
 - **H4 (Scanout QoS): ABANDONED.** Gating the scanout fill deadlocks the gpuMem
@@ -1254,6 +1259,27 @@ Actual progress since the H1–H5 plan was written:
   whole tile as one burst write instead of 48 single-word writes that each paid a full
   `req→ready` round-trip. Result on the board: **flush 62→30 ms, stall 103→44 ms,
   present 207→150 ms, 3.93→5.06 fps (+29%)**, zero pin-timing risk.
+
+### Status update (2026-06-16) — borgvk working end-to-end, 8.1 fps measured
+
+- **4-lane SIMT: DONE & HW-verified.** 2×2 quad fragment core (`fragLanes=4`),
+  Phases 1–6 on `feat/custom-fp16-fma`; verilator-validated (triangle + vkcube
+  goldens). ULX3S synth + flash confirmed working. Was 2.8 fps pre-SIMT.
+- **Setup cache: DONE & HW-verified.** +17% fps by caching per-frame setup that
+  doesn't change between frames.
+- **borgc (nir_to_borg compiler): DONE.** 1028-line Rust compiler lowering Mesa NIR
+  to Borg ISA: instruction selection, linear-scan register allocation, SPIR-B blob
+  serialization. Wired into `borgvk_pipeline.c` at `vkCreateGraphicsPipeline`.
+  vkcube shaders are compiled from SPIR-V at pipeline-create time — not hand-coded.
+- **borgvk Phase A+B: DONE.** Unmodified `cube.c` (Khronos Vulkan-Tools) renders
+  real geometry + LunarG texture + world-fixed lighting + gray background on ULX3S
+  HDMI via the Mesa native ICD. Mouse rotation works via `scripts/run-vkcube.sh`.
+- **H3 (I-cache): DONE.** `InstrCache.scala` wired into `Project.scala`; 512-line
+  direct-mapped cache active in `BorgConfig.Default`.
+- **H1 (sparse matrix + 8-unique verts): DONE.** See above.
+- **pico-ice target: REMOVED** (2026-06-16). ULX3S is the sole active FPGA target;
+  pico-ice scripts preserved in git history at tag `TinyTapeoutIHP26a`.
+- **Measured: 8.1 fps** (2026-06-13, borgvk Vulkan path, ULX3S @ 25 MHz, 128×128).
 
 #### Realistic ULX3S fps ceiling: ~10–15 fps @ 128×128
 
@@ -1276,24 +1302,24 @@ Past ~15 fps needs a bigger FPGA / pipelined FPU / host CPU — a different boar
 
 The target is **Vulkan** Mesa + Linux, which reorders the levers:
 
-1. **GPU command-buffer / queue-submit model** ⭐ — Vulkan *is* command buffers; the
-   sequencer's descriptor list (`seq_desc_base`) is already proto-this / proto-DRM-submit.
-   Make the GPU consume a full command buffer from SDRAM (CPU writes a pointer + kicks).
-   Biggest CPU fps win too: the firmware re-records `draw_cube` (29 ms) **every** frame,
-   but geometry is static and the GPU does the transform — so **record once, update only
-   the MVP uniform per frame** → `draw_cube` ~29→~5 ms. Same change = fps win + the literal
-   Vulkan/DRM submit shape.
-2. **I-cache (H3)** — required by both the Mesa Vulkan driver and Linux; supports the above.
-3. **M ext → D-cache → pipeline → CSRs → Sv32 MMU** — the Linux-boot ladder (Phase 4), each
-   also a CPU fps gain.
-4. **`nir_to_borg` backend + DRM kernel driver** — Vulkan ships SPIR-V; Mesa's `spirv_to_nir`
-   feeds a driver NIR→Borg-ISA backend (the "SPIR-B" format is the seed). The long pole for
-   "Vulkan runs" (Phases 4/5).
-5. **~2 frag cores** — the fps ceiling lever; area-limited, large effort, SDRAM contention.
+1. ✅ **I-cache (H3): DONE.** 512-line direct-mapped cache in `BorgConfig.Default`.
+2. ✅ **`nir_to_borg` backend (borgc): DONE.** Rust compiler wired into borgvk pipeline;
+   compiles vkcube SPIR-V at `vkCreateGraphicsPipeline` time.
+3. ✅ **borgvk end-to-end: DONE.** Unmodified `cube.c` renders via Mesa ICD on ULX3S HDMI.
+4. **GPU command-buffer record-once** ⭐ — `draw_cube()` still re-records the full
+   descriptor list every frame (~29 ms). Geometry is static; only the MVP uniform changes
+   per frame. **Record once at startup, kick with updated uniform only** → `draw_cube`
+   ~29→~5 ms. This is also the literal shape of `vkQueueSubmit` / DRM submit. Firmware-only,
+   no bitstream change. (~1–2 days)
+5. **RGB565 framebuffer** — halve SDRAM flush bandwidth (2 bytes/pixel instead of 4).
+   Present is the bottleneck (SDRAM stall ~41 ms/frame); RGB565 directly attacks it.
+   Requires bitstream + firmware change. (~1–2 days, ~10–15% fps gain)
+6. **~2 frag cores** — the fps ceiling lever (frag is ~54% of present); area-limited,
+   large effort, SDRAM contention. Post-HPG.
+7. **M ext → D-cache → pipeline → CSRs → Sv32 MMU** — the Linux-boot ladder (Phase 4).
 
-**Skip:** back-to-back-flush controller change (only ~+7 % now that flush isn't the
-bottleneck — a roadmap dead-end) and any hand-tuning of the firmware vkcube (thrown away
-once Mesa renders the real one).
+**Skip:** back-to-back-flush controller change (only ~+7% now that flush isn't the
+bottleneck) and H2 FPU preload (superseded by H5 GPU vertex transform).
 
 **Reality check:** Mesa-Vulkan on a soft RV32 @ ~30 MHz is slow regardless — the Linux/Mesa
 milestone is "runs standard Vulkan," not an fps number. But Vulkan's explicit command-buffer
