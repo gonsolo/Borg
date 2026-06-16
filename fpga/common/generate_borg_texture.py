@@ -6,7 +6,7 @@
 
 Output format: 256×256 pixels, each pixel = 3 × uint16 little-endian (R, G, B as
 IEEE 754 half-precision floats in [0..1]).  Linear row-major order — Morton
-reordering is handled by the host upload script (render.py).
+reordering is handled by the firmware texture-upload path (borg_upload_texture).
 """
 
 import sys
