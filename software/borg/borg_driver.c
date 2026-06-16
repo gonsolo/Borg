@@ -573,13 +573,17 @@ void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
 // TBR: Reset binning state. No PSRAM clearing needed —
 // clear color is written to empty tiles during borgBinRender.
 static void borgBinReset(rgb16_t cc) {
-  for (int i = 0; i < BORG_MAX_TILES; i++)
-    bin_count[i] = 0;
-  draw_call_count = 0;
+  if (!g_cmdbuf_valid) {
+    for (int i = 0; i < BORG_MAX_TILES; i++)
+      bin_count[i] = 0;
+    draw_call_count = 0;
+  }
   last_clear_color = cc;
 }
 
 void borgInvalidateCommandBuffer(void) { g_cmdbuf_valid = 0; }
+
+int borgCommandBufferValid(void) { return g_cmdbuf_valid; }
 
 void borg_clear_zbuffer(int frame, rgb16_t clear_color) {
   unsigned int t_start = get_cycles();
@@ -1223,6 +1227,17 @@ static void cache_ts_mvp(const borg_draw_data_t *d) {
     g_ts_mvp_cache[col*4+1] = borg_fp16_mul(hw, borg_fp16_add(m1, m3)); // y' = hw*(M1+M3)
     g_ts_mvp_cache[col*4+2] = m2;                                       // z  (raw)
     g_ts_mvp_cache[col*4+3] = m3;                                       // w  (raw)
+  }
+}
+
+// Update the TS-baked MVP in every active descriptor slot.  Called each frame
+// instead of re-recording when geometry is static (command-buffer record-once).
+void borgUpdateUniforms(const borg_draw_data_t *d) {
+  cache_ts_mvp(d);
+  for (int i = 0; i < draw_call_count; i++) {
+    uint32_t desc_base = SEQ_DESC_BASE_ADDR + (uint32_t)i * SEQ_DESC_STRIDE;
+    for (int j = 0; j < 16; j++)
+      PSRAM_OUT_RAW(desc_base + SEQ_MVP_OFFSET + (uint32_t)j * 4) = g_ts_mvp_cache[j];
   }
 }
 

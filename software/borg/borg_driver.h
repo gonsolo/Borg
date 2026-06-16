@@ -92,6 +92,15 @@ void borgCmdDrawIndexed(const int idx[3], const borg_vertex_t vertices[3], int f
 // of reusing the old one.
 void borgInvalidateCommandBuffer(void);
 
+// Returns non-zero when the command buffer is valid and geometry descriptors
+// are already in PSRAM from a previous frame.
+int borgCommandBufferValid(void);
+
+// Update only the TS-baked MVP in every active descriptor slot, without
+// re-recording geometry.  Call each frame instead of borgCmdDraw* when
+// geometry is static and only the uniform (rotation matrix) changes.
+void borgUpdateUniforms(const borg_draw_data_t *d);
+
 // Write DONE marker for a frame to PSRAM
 void borg_present(int frame);
 

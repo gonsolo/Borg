@@ -539,19 +539,25 @@ int main() {
 
     // Khronos vkcube reference background: {0.2f, 0.2f, 0.2f} (FP16 0x3266)
     borg_clear_zbuffer(0, (rgb16_t){0x3266, 0x3266, 0x3266});
-    borg_set_texture(TEX_WIDTH, TEX_HEIGHT);
 
-    // Compute per-face lighting using the model rotation matrix (Rx · Ry).
-    // This transforms face normals to world space before dotting with lightDir.
-    fp16_t face_light[6];
-    compute_face_lighting(t1, face_light);
-
-    unsigned int c2 = rdcycle();  // C = clear + texture + lighting
-    if (rx_have_geom)
-      draw_received_geom(&draw);  // Phase B: the app's real mesh (cube.c)
-    else
-      draw_cube(&draw, face_light);
-    unsigned int c3 = rdcycle();  // D = draw_cube (CPU transform + record draws)
+    unsigned int c2, c3;
+    if (rx_have_geom && borgCommandBufferValid()) {
+      // Command-buffer record-once: geometry is already in PSRAM.
+      // Only update the MVP across all descriptor slots — skip full re-recording.
+      c2 = rdcycle();
+      borgUpdateUniforms(&draw);
+      c3 = rdcycle();
+    } else {
+      borg_set_texture(TEX_WIDTH, TEX_HEIGHT);
+      fp16_t face_light[6];
+      compute_face_lighting(t1, face_light);
+      c2 = rdcycle();  // C = clear + texture + lighting
+      if (rx_have_geom)
+        draw_received_geom(&draw);  // Phase B: the app's real mesh (cube.c)
+      else
+        draw_cube(&draw, face_light);
+      c3 = rdcycle();  // D = draw_cube (CPU transform + record draws)
+    }
     borg_present(0);
     unsigned int c4 = rdcycle();  // P = present (GPU autonomous render)
 
