@@ -302,6 +302,22 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // Per-triangle has_uvs flag from descriptor metadata (offset 104).
   val triHasUvs = RegInit(false.B)
 
+  // Per-tile dirty-bit tracking for skip-empty-tile flush optimisation.
+  // Double-buffer aware: indexed by [bufIdx][tileLinear].
+  // bufIdx alternates each completed frame (toggled in handleDone); it tracks
+  // which framebuffer the GPU is rendering into so each buffer maintains its
+  // own dirty history independently.
+  // tileWasDirty(b)(i): tile i had content last time buffer b was rendered.
+  // tileIsDirty(b)(i):  tile i has content in the current render of buffer b.
+  // Initialised all-true so every tile is flushed the first time each buffer
+  // is rendered (SDRAM uninitialised at reset).
+  // lastClearColorBuf(b): clear colour used when buffer b was last rendered;
+  // sentinel ~0 forces a full-flush on the first render of each buffer.
+  val tileWasDirty     = RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(1024)(true.B)))))
+  val tileIsDirty      = RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(1024)(false.B)))))
+  val lastClearColorBuf = RegInit(VecInit(Seq.fill(2)(~0.U(64.W))))
+  val curBufIdx        = RegInit(0.U(1.W))
+
   wireOutputDefaults()
   wireFsm()
   wireSnoops()
@@ -839,7 +855,19 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def handleStartPass2(): Unit = {
     tileX := 0.U
     tileY := 0.U
-    if (BorgDebug.trace) printf("[SEQ] Pass2 start\n")
+    if (BorgDebug.trace) printf("[SEQ] Pass2 start buf=%d\n", curBufIdx)
+    // Rotate per-buffer dirty-bit arrays for the buffer being rendered now.
+    // curBufIdx tracks which framebuffer we are rendering into this frame; it
+    // was toggled in handleDone() at the end of the previous frame.
+    // If the clear colour changed vs the last time THIS buffer was rendered,
+    // treat ALL tiles as dirty so every empty tile picks up the new colour.
+    val clearColor   = io.mmio.clearColorHi ## io.mmio.clearColorLo
+    val colorChanged = clearColor =/= lastClearColorBuf(curBufIdx)
+    lastClearColorBuf(curBufIdx) := clearColor
+    for (i <- 0 until 1024) {
+      tileWasDirty(curBufIdx)(i) := tileIsDirty(curBufIdx)(i) || colorChanged
+      tileIsDirty(curBufIdx)(i)  := false.B
+    }
     // Issue count read for tile (0,0) = tile index 0
     io.binner.countReadAddr := 0.U
     io.binner.countReadEn   := true.B
@@ -874,12 +902,20 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }.otherwise {
       clearTileComplete := false.B
       // After clear: if this tile has triangles, start the inner bin loop.
-      // Otherwise, flush the clear color directly.
+      // Otherwise, only flush the clear colour if the tile was dirty last frame
+      // (had rendered content) — clean empty tiles already hold the right value
+      // in PSRAM, so we can skip the 64-word SDRAM write entirely.
+      val tileLinearCC = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
       when(binTriCount === 0.U) {
-        state := sWaitFlush
+        when(tileWasDirty(curBufIdx)(tileLinearCC(9, 0))) {
+          state := sWaitFlush        // was dirty: must write clear colour to PSRAM
+        }.otherwise {
+          state := sNextRenderTile   // already clean: skip flush
+        }
       }.otherwise {
         // Read first bin entry (triangle index) from PSRAM
         // addr = binBase + tileLinearIndex * binRowBytes + binTriIdx * 2
+        tileIsDirty(curBufIdx)(tileLinearCC(9, 0)) := true.B  // mark tile dirty in current buffer
         state := sReadBinEntry
       }
     }
@@ -1054,8 +1090,9 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private def handleDone(): Unit = {
     if (BorgDebug.trace) printf("[SEQ] sDone -> sIdle\n")
-    io.done := true.B
-    state   := sIdle
+    io.done    := true.B
+    curBufIdx  := curBufIdx ^ 1.U  // advance to the other framebuffer for the next render
+    state      := sIdle
   }
 
   private def wireSnoops(): Unit = {
