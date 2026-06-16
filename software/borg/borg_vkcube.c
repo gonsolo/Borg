@@ -280,7 +280,7 @@ static void put_hex32(unsigned int v) {
     putc_uart(nib < 10 ? '0' + nib : 'a' + nib - 10);
   }
 }
-static void report_phase(char tag, unsigned int cyc) {
+static void __attribute__((unused)) report_phase(char tag, unsigned int cyc) {
   putc_uart(tag);
   put_hex32(cyc);
   putc_uart(' ');
@@ -578,6 +578,13 @@ int main() {
     // ~166 ms to every frame, slowing the *visible* demo to ~2.4 fps even though
     // compute is ~3.95 fps.  Reporting every 16th frame keeps the cube near full
     // speed while staying measurable.  (Remove the whole report before shipping.)
+    // Per-frame cycle/perf telemetry (M C D P t g h l a G X R F).  Each report is
+    // ~83 blind-write putc chars at ~2 ms each while the CPU is instruction-
+    // starved → ~170 ms; at ~13 fps the every-16th-frame report froze the cube
+    // for ~170 ms about once a second (the "stops every second or so" stutter).
+    // Off by default for a smooth demo; build with -DBORG_FRAME_REPORT (and run
+    // scripts/measure_fps.py) to re-enable measurement.
+#ifdef BORG_FRAME_REPORT
     static unsigned int frame_no = 0;
     if ((frame_no++ & 15) == 0) {
       report_phase('M', c1 - c0);
@@ -600,6 +607,9 @@ int main() {
       putc_uart('\r');
       putc_uart('\n');
     }
+#else
+    (void)c0; (void)c1; (void)c2; (void)c3; (void)c4;
+#endif
 
 #ifndef TARGET_ULX3S
     // Wait until the host/viewer clears the DONE marker before rendering the
