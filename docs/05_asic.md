@@ -64,7 +64,7 @@ The design is verified at multiple levels before tape-out:
 - **Chisel unit tests** — functional correctness of Borg FPU and Hutt
 - **cocotb RTL simulation** — full SoC integration tests
 - **Verilator lint** — static analysis of the generated Verilog
-- **FPGA validation** — real hardware testing on pico-ice
+- **FPGA validation** — real hardware testing on ULX3S
 - **Gate-level simulation** — post-synthesis simulation with IHP standard cells
 
 ```

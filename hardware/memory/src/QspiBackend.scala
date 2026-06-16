@@ -12,9 +12,9 @@ import chisel3.util._
   * [[QspiController]]. The QspiController's internal protocol is byte-serial,
   * so this wrapper buffers 2 bytes per halfword transaction.
   *
-  * NOTE: this is a quick rewrite to match the new MemBackendIO. The pico-ice /
-  * ASIC build paths are not currently exercised by the ULX3S debugging
-  * session, so deeper testing is deferred.
+  * NOTE: this is a quick rewrite to match the new MemBackendIO. The ASIC
+  * build path is not currently exercised by the ULX3S debugging session,
+  * so deeper testing is deferred.
   */
 class QspiBackendIO extends Bundle {
   val backend  = Flipped(new MemBackendIO)

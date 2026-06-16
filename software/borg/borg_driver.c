@@ -385,7 +385,7 @@ void borgCreateDevice(void) {
   puts_uart("Borg pipeline\r\n");
   unsigned int t_init = get_cycles();
 
-  // Read framebuffer dimensions from PSRAM (written by host on pico-ice/sim).
+  // Read framebuffer dimensions from PSRAM (written by host on sim).
   // On ULX3S there is no host — PSRAM_IN lives in firmware .text and returns
   // garbage.  Validate: must be a non-zero power-of-2 in [4..128]; else fall
   // back to 32×32.
@@ -742,7 +742,7 @@ static bbox_t compute_bbox(const xy16x3_t *pos) {
 }
 
 // CPU fallback: load all uniforms for a draw call into the hardware pipeline.
-// Used on pico-ice (no sequencer). Sequencer path replaces this on Sim/ULX3S.
+// Used when hasSequencer=false. Sequencer path replaces this on Sim/ULX3S.
 static void setup_tile_uniforms(const draw_call_t *dc) {
   const triangle_t *tri = &dc->tri;
   const texture_t *t = &dc->tex;
@@ -946,7 +946,7 @@ static void __attribute__((unused)) borgBinRender(int frame) {
           // uniform-staging-only sequencer mode is added.
           setup_tile_uniforms(dc);
         } else {
-          // CPU fallback (pico-ice, no sequencer).
+          // CPU fallback (no sequencer).
           setup_tile_uniforms(dc);
         }
 
@@ -972,13 +972,13 @@ static void __attribute__((unused)) borgBinRender(int frame) {
 
         // --- Tile flush ---
         // Auto-detect HW flusher: FLUSH_BUSY goes high right after tileComplete
-        // when hasFlusher=true (Sim / ULX3S).  On pico-ice (hasFlusher=false) it
+        // when hasFlusher=true (Sim / ULX3S).  When hasFlusher=false it
         // is hardwired 0 → always takes the CPU flush path below.
         if (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm) {
           // HW flusher active — wait for it to finish writing to PSRAM.
           while (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm);
         } else {
-          // CPU tile flush (pico-ice fallback, hasFlusher=false):
+          // CPU tile flush (hasFlusher=false):
           // read 16 tile-buffer pixels from BRAM and write to PSRAM.
           int base = fb_offset + tile_index * 32;
           for (int tile_idx = 0; tile_idx < 16; tile_idx++) {

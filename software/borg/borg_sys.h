@@ -41,7 +41,7 @@
 // Makefile).  Full PSRAM→VRAM rename is still pending.
 //   TARGET_ULX3S: SDRAM is direct-mapped at 0 with no SPI controller, so the
 //     CPU sees the GPU's raw SPI byte addresses directly → base == SPI base.
-//   default (ASIC / pico-ice): real PSRAM, CPU-mapped at 0x01001000.
+//   default (ASIC / sim): real PSRAM, CPU-mapped at 0x01001000.
 // CPU-mapped PSRAM/VRAM base = PSRAM_SPI_BASE + 0x1000000.  The +0x1000000 makes
 // the CPU's PSRAM_OUT/PSRAM_OUT_RAW byte addresses carry bit 24 — the region bit
 // the MemoryController forces onto the GPU's gpuMem port (VRAM_REGION_BIT) — so
@@ -75,7 +75,7 @@
 // address lives ONLY here, never duplicated as a -DUART_BASE=... literal.
 //   TARGET_ULX3S: the full SoC's user-region UART read-side decode is broken,
 //                 so firmware writes the SoC debug UART at 0x08000018 (blind).
-//   default (ASIC / sim / pico-ice): the user-region UART at 0x08000800.
+//   default (ASIC / sim): the user-region UART at 0x08000800.
 #ifndef UART_BASE
 #if defined(TARGET_ULX3S)
 #define UART_BASE 0x08000018

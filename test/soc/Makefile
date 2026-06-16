@@ -26,7 +26,7 @@ all: sim
 # LUTs: rcp/frsq/srgb) compile in — without it the LUT memories stay X and FRCP/
 # FRSQ/FSRGB read back undefined.  The hex files are staged into this dir by the
 # `luts` target (relative-path $readmemh resolves against the vvp CWD).  Matches
-# the verilator/ulx3s/picoice flows, which all define this macro.
+# the verilator/ulx3s flows, which all define this macro.
 COMPILE_ARGS += -I$(SRC_DIR) -I$(CURDIR)/../../out/hardware/borg/verilog -DSIM -DENABLE_INITIAL_MEM_
 export PYTHONPATH := $(CURDIR):../../out/hardware/borg/rdl:../../:$(PYTHONPATH)
 

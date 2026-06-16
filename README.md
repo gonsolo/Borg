@@ -24,7 +24,7 @@ advances in low-cost chip manufacturing to make individual tape-outs feasible fo
 ## Architecture
 
 The design is a **Hutt RISC-V SoC** with the **Borg FP16 shader processor** as a memory-mapped peripheral,
-targeting ECP5 FPGAs (ULX3S), iCE40 FPGAs (pico-ice), and ASIC (IHP SG13G2 via Tiny Tapeout).
+targeting ECP5 FPGAs (ULX3S) and ASIC (IHP SG13G2 via Tiny Tapeout).
 
 ### Borg Shader Processor
 
@@ -105,16 +105,6 @@ cd fpga/ulx3s
 make load           # Synth + P&R + load to SRAM
 make flash          # Write to config flash
 make tio            # Open serial console on /dev/ttyUSB0
-```
-
-### FPGA (pico-ice — iCE40)
-
-Prerequisites: pico-ice FPGA + Raspberry Pi debug probe.
-
-```bash
-cd fpga
-make burn           # Build bitstream and upload to FPGA
-make triangle       # Run triangle rendering (vertex shader on FPGA, display on RP2040)
 ```
 
 ### ASIC (Tiny Tapeout)

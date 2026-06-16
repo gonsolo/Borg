@@ -60,4 +60,4 @@ This programs the firmware, boots the FPGA, waits for all 10 frames to render, t
 ## External hardware
 
 - QSPI PMOD from the Tiny Tapeout store
-- For FPGA development: pico-ice board and Raspberry Pi Debug Probe
+- For FPGA development: ULX3S board (Lattice ECP5-85K)

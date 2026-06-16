@@ -134,13 +134,12 @@ Expanding to 64 registers:
 
 - 64 registers × 16 bits × 3 copies = **3,072 flip-flops** (+100%)
 
-### 3.2 FPGA Prototyping (pico-ice, iCE40 UP5K)
+### 3.2 FPGA Prototyping (ASIC iCE40 UP5K constraints)
 
-> **Note**: The primary FPGA development target is now the **ULX3S (Lattice
-> ECP5-85K)**, which has vastly more resources than the iCE40. The constraints
-> below were the binding ones at the time this document was written and remain
-> relevant for the Tiny Tapeout ASIC companion target. The BRAM analysis still
-> drives the uniform buffer decision since it informs ASIC area, not FPGA fit.
+> **Note**: The primary FPGA development target is the **ULX3S (Lattice
+> ECP5-85K)**. The constraints below were originally binding for the iCE40
+> ASIC companion target and remain relevant since the BRAM analysis informs
+> ASIC area, not FPGA fit.
 
 - **LUTs**: 5,280
 - **BRAMs**: 30 (each 256×16-bit, single-port with 1R + 1W)

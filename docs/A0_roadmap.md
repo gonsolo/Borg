@@ -1129,12 +1129,12 @@ controller, PCIe bridge) while the Borg SoC runs inside unchanged.
 | `uio[3]` (SCK) | QSPI PSRAM emulator clock |
 | `uio[6]` (RAM A CS) | QSPI PSRAM emulator select A |
 | `uio[7]` (RAM B CS) | QSPI PSRAM emulator select B |
-| `clk` | LiteX system clock (24 MHz, matching pico-ice) |
+| `clk` | LiteX system clock (24 MHz) |
 | `rst_n` | LiteX reset controller |
 
 - `SoCLogic` trait (Project.scala:71) — all SoC wiring is platform-independent
 - `tt_um_gonsolo_borg` (Project.scala:338) — standardized 8+8+8 pin interface
-- `HuttTop` (`fpga/picoice/soc/src/PicoIce.scala`) — shows how to wrap `SoCLogic` for a
+- `HuttTop` — shows how to wrap `SoCLogic` for a
 
 ### Step 33: Fragment Interpolation (Hardware-Assisted)
 
@@ -1458,56 +1458,43 @@ results.
 
 - **QSPI PSRAM**: 64 Mbit (8 MB) — sufficient for Linux + Mesa runtime
 - **QSPI Flash**: 128 Mbit (16 MB) — kernel + rootfs + Mesa libraries
-- **Display**: pico-ice → RP2040 reads framebuffer from PSRAM; ULX3S → direct HDMI/GPDI scanout from SDRAM (no host in the render loop)
+- **Display**: ULX3S → direct HDMI/GPDI scanout from SDRAM (no host in the render loop)
 
 ## Build Configurations
 
-The design will use build-time Chisel parameters so that a **$40
-pico-ice** can still build and play with a working GPU, even after the full
-roadmap is implemented. Features will be opt-in — the iCE40 "lite" config
-will strip everything that doesn't fit, while larger FPGAs enable the full stack.
+The design uses build-time Chisel parameters to select features per target.
+The ULX3S (ECP5-85K) is the primary FPGA target; the TT ASIC is the
+tapeout target.
 
 ### Configuration Profiles (Planned)
 
 A future `BorgConfig` case class will parameterize feature inclusion at
 build time. The envisioned API:
 
-| | 🔰 Lite (pico-ice) | 🔧 Developer (ULX3S) | 🚀 Full Vulkan (TT/Nitefury) |
-| --- | --- | --- | --- |
-| **FPGA** | iCE40 UP5K | ECP5-85K | XC7A200T / ASIC |
-| **Cost** | ~$40 | ~$60 | ~$200 / 1715€ |
-| GPU core | ✅ FP16 | ✅ FP16 | ✅ FP32 |
-| Rasterizer | ✅ | ✅ | ✅ |
-| Fragment shader | ✅ | ✅ | ✅ |
-| Tile buffer | ✅ | ✅ | ✅ |
-| Texture fetch | ❌ | ✅ | ✅ |
-| DMA engine | ❌ | ✅ | ✅ |
-| Auto sequencer | ❌ | ✅ | ✅ |
-| GPU PSRAM write | ❌ | ✅ | ✅ |
-| Blending | ❌ | ❌ | ✅ |
-| CPU ISA | RV32I | RV32IMA | RV32IMA |
-| C extension | ❌ | ✅ | ✅ |
-| MMU | ❌ | ✅ | ✅ |
-| Linux | ❌ | ✅ | ✅ |
-| Vulkan conformant | ❌ | ❌ | ✅ |
-| **Est. LCs** | **~4,800** | **~8,000** | **~36,000** |
-| **Fits?** | ✅ (91%) | ✅ (9%) | ✅ |
-
-### Lite Profile — What You Can Do
-
-With just a pico-ice ($40) and the lite config, a user gets:
-
-- **Hardware-accelerated triangle rendering** — the CPU submits per-tile
-- **Vertex-colored 3D cube** — the `vkcube` demo works with CPU-driven
-- **FP16 shader programming** — write fragment shaders in SPIR-B assembly,
-- **Full source code** — Chisel RTL, C firmware, Python tools, all open-source
+| | 🔧 Developer (ULX3S) | 🚀 Full Vulkan (TT/Nitefury) |
+| --- | --- | --- |
+| **FPGA** | ECP5-85K | XC7A200T / ASIC |
+| **Cost** | ~$60 | ~$200 / 1715€ |
+| GPU core | ✅ FP16 | ✅ FP32 |
+| Rasterizer | ✅ | ✅ |
+| Fragment shader | ✅ | ✅ |
+| Tile buffer | ✅ | ✅ |
+| Texture fetch | ✅ | ✅ |
+| DMA engine | ✅ | ✅ |
+| Auto sequencer | ✅ | ✅ |
+| GPU PSRAM write | ✅ | ✅ |
+| Blending | ❌ | ✅ |
+| CPU ISA | RV32I | RV32IMA |
+| C extension | ✅ | ✅ |
+| MMU | ✅ | ✅ |
+| Linux | ✅ | ✅ |
+| Vulkan conformant | ❌ | ✅ |
+| **Est. LCs** | **~8,000** | **~36,000** |
+| **Fits?** | ✅ (9%) | ✅ |
 
 ### How to Select a Configuration
 
 ```bash
-# Lite config (pico-ice, iCE40)
-make fpga CONFIG=lite
-
 # Developer config (ULX3S, ECP5)
 make fpga-ulx3s CONFIG=developer
 
@@ -1518,9 +1505,9 @@ make asic CONFIG=full
 ## Design Principles
 
 1. **One thing at a time.** Each step produces bit-exact golden output.
-2. **Area-first, configurable.** Reuse the FMA; don't duplicate ALUs. iCE40
-   is the minimum target — features that don't fit are build-time optional.
+2. **Area-first, configurable.** Reuse the FMA; don't duplicate ALUs. Features
+   that don't fit are build-time optional.
 3. **Firmware fallback.** Hardware fast path for common case; CPU for edge cases.
 4. **Free software only.** All tools are open-source: Yosys, nextpnr, OpenLane,
    Chisel, Mill. No vendor-locked toolchains.
-5. **Accessible.** Anyone with a $40 pico-ice can build and run the GPU.
+5. **Accessible.** ULX3S (~$60) is the entry-level target.
