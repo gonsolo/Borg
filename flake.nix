@@ -109,9 +109,9 @@
       ];
 
       # Library dependencies for the Mesa "borgvk" Vulkan driver. Kept in
-      # buildInputs so pkg-config picks up their headers/.pc files. X11/xcb are
-      # for hosting unmodified Vulkan-Tools/cube.c (--wsi xcb); the real output
-      # is the ULX3S HDMI, so wayland is intentionally omitted (build -Dplatforms=x11).
+      # buildInputs so pkg-config picks up their headers/.pc files. X11/xcb
+      # and Wayland are for hosting unmodified Vulkan-Tools/cube.c; the real
+      # output is the ULX3S HDMI (build -Dplatforms=x11,wayland).
       buildInputs = [
         pkgs.vulkan-headers
         pkgs.vulkan-loader
@@ -130,6 +130,9 @@
         pkgs.libxfixes
         pkgs.libxshmfence
         pkgs.libxcb-keysyms
+        pkgs.wayland.dev
+        pkgs.wayland-protocols
+        pkgs.wayland-scanner
       ];
 
       shellHook = ''
