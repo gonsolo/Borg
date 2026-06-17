@@ -163,6 +163,15 @@
 
         # Ensure our shim is at the front of the PATH
         export PATH="$HOME/bin:$PATH"
+
+        # Wayland: Nix splits wayland.xml into wayland-scanner (not wayland-client).
+        # cmake's BUILD_WSI_WAYLAND_SUPPORT queries wayland-client pkgdatadir for
+        # wayland.xml but finds an empty dir.  Override with a local .pc that
+        # redirects pkgdatadir to the scanner's share/wayland — no upstream patch needed.
+        _wl_pc=$(mktemp -d)
+        sed 's|pkgdatadir=.*|pkgdatadir=${pkgs.wayland-scanner}/share/wayland|' \
+          ${pkgs.wayland.dev}/lib/pkgconfig/wayland-client.pc > "$_wl_pc/wayland-client.pc"
+        export PKG_CONFIG_PATH="$_wl_pc''${PKG_CONFIG_PATH:+:''${PKG_CONFIG_PATH}}"
       '';
     };
 
