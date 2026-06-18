@@ -17,7 +17,8 @@ export CC  := gcc
 export CXX := g++
 
 MESON_OPTS := -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms=x11 \
-              -Dllvm=disabled -Dglx=disabled --prefix=$(PREFIX)
+              -Dllvm=disabled -Dglx=disabled -Dtools=drm-shim \
+              --prefix=$(PREFIX)
 
 # Devenv ICD manifest (points at the in-tree .so; for use via VK_DRIVER_FILES).
 ICD := $(BUILD_DIR)/src/borg/vulkan/borg_devenv_icd.$(shell uname -m).json

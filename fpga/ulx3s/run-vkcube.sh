@@ -16,6 +16,14 @@ export LD_LIBRARY_PATH="$LOADER:$LIBWAYLAND:${LD_LIBRARY_PATH:-}"
 # Point the loader at the in-tree (build-tree) borgvk driver, not the installed one:
 export VK_DRIVER_FILES="$REPO/mesa/build-borg/src/borg/vulkan/borg_devenv_icd.x86_64.json"
 
+# Preload the Borg DRM shim if it has been built. With the shim, all GEM buffer
+# allocations and submit ioctls go through the shim (which manages serial
+# transport). Without it the driver falls back to malloc+serial (legacy path).
+BORG_DRM_SHIM="$REPO/mesa/build-borg/src/borg/drm/libborg_drm_shim.so"
+if [[ -f "$BORG_DRM_SHIM" ]]; then
+  export LD_PRELOAD="${LD_PRELOAD:-}${LD_PRELOAD:+:}$BORG_DRM_SHIM"
+fi
+
 # Steady frame pacing: cube.c spins a CONSTANT angle per frame, so without this
 # the host emits ~60 constant-angle MVPs/sec while the FPGA shows ~15 — an
 # irregular subsample that makes the rotation judder.  Holding each host frame to
