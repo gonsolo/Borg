@@ -609,6 +609,7 @@ int main() {
     }
 #else
     (void)c0; (void)c1; (void)c2; (void)c3; (void)c4;
+    (void)rx_geom_pkts; (void)rx_tex_pkts; (void)rx_tex_distinct; (void)rx_csum_fail;
 #endif
 
 #ifndef TARGET_ULX3S
