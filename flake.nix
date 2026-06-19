@@ -45,8 +45,32 @@
       p.mako # Mesa build (code generation)
       p.pyyaml # Mesa build
     ]);
+
+    # Curated TeX Live for the HPG poster (docs/poster: poster.tex + abstract.tex)
+    # only.  The full scheme (scheme-full) pulled thousands of obscure packages
+    # (e.g. qualitype, lpform) whose cache.nixos.org artifacts are corrupt/hash-
+    # mismatched, breaking every CI job that enters the dev shell.  We list just
+    # what the poster needs — texlive.combine resolves each package's deps — and
+    # keep it OUT of the default shell so CI never fetches it.
+    borgTexlive = pkgs.texlive.combine {
+      inherit (pkgs.texlive)
+        scheme-small   # latex + pdflatex + latexmk + common (collection-latexrecommended)
+        latexmk
+        biber          # biber tool + biblatex backend
+        biblatex
+        acmart         # abstract.tex documentclass (+deps)
+        tikzposter     # poster.tex documentclass (+deps)
+        qrcode
+        microtype
+        enumitem
+        booktabs
+        pgf            # tikz
+        xcolor
+        lm;            # Latin Modern (lmodern)
+    };
   in {
-    devShells.${system}.default = pkgs.mkShell {
+    devShells.${system} = {
+    default = pkgs.mkShell {
       # Use nativeBuildInputs for tools that provide executables
       nativeBuildInputs = [
         pkgs.bash-completion
@@ -96,7 +120,6 @@
         pkgs.pkg-config
         pkgs.scalafmt
         pkgs.trellis
-        pkgs.texlive.combined.scheme-full
         pkgs.tio
         pkgs.typst
         pkgs.verilator
@@ -207,6 +230,15 @@ cpu = 'riscv64'
 endian = 'little'
 CROSSEOF
       '';
+    };
+
+    # Poster shell: everything in the default shell PLUS the curated TeX Live,
+    # for building docs/poster.  Use `nix develop .#poster --command make -C docs/poster`.
+    # Kept separate so CI (which uses the default shell) never fetches texlive.
+    poster = pkgs.mkShell {
+      inputsFrom = [ self.devShells.${system}.default ];
+      nativeBuildInputs = [ borgTexlive ];
+    };
     };
 
     formatter.${system} = alejandra.defaultPackage.${system};
