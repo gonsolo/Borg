@@ -137,29 +137,30 @@ exercised by the official Khronos Conformance Test Suite,
 
 ```bash
 make vulkan-cts
-# ==> borgvk: passed 5936 of 1647405 mandatory Vulkan CTS tests = 0.360%
+# ==> borgvk: passed 6887 of 1647405 mandatory Vulkan CTS tests = 0.418%
 ```
 
-By default the target runs the `dEQP-VK.api.info.*` query class (~8,200 cases —
-device, format, limit and feature enumeration), of which borgvk passes **5,936**
-(72.5% of the slice, **0 failures**).
+The default target runs five `dEQP-VK.api.*` classes (~9,276 cases combined):
+
+| Test class | Pass | Total | 0 failures? | What it validates |
+|---|---|---|---|---|
+| `api.info.*` | 5,936 | 8,182 | ✅ | Device/format/limit/feature reporting |
+| `api.format_feature_flags2.*` | 184 | 184 | ✅ | `VkFormatProperties3` / 64-bit feature flags |
+| `api.device_init.*` | 224 | 236 | ✅ | `VkDevice` creation and property queries |
+| `api.null_handle.*` | 23 | 24 | ✅ | `destroy(VK_NULL_HANDLE)` no-op behaviour |
+| `api.granularity.*` | 520 | 650 | ✅ | Image/buffer granularity queries |
+| **Total** | **6,887** | **9,276** | ✅ | |
+
 borgvk is intentionally narrow — it renders a single hand-compiled cube over the
 serial link, not arbitrary geometry — so the cases that pass are the
 **query/setup** ones that read back the driver's reported capabilities or create
-Vulkan objects, never rendering. Examples:
-
-| Test class | What it validates |
-|------|-------------------|
-| `dEQP-VK.api.info.*`                           | Device/format/limit/feature reporting (5,936 pass) |
-| `dEQP-VK.api.device_init.create_device.basic`  | Brings up a conformant `VkDevice` |
-| `dEQP-VK.api.smoke.create_sampler` / `create_shader` | Object creation |
-
-These exercise borgvk's instance/device/object-creation paths through the Mesa
-runtime *without* touching the serial→FPGA pipeline, so the Khronos harness
-returns a genuine `Pass`. Rendering classes (`dEQP-VK.draw.*`, `.pipeline.*`,
+Vulkan objects, never rendering. Rendering classes (`dEQP-VK.draw.*`, `.pipeline.*`,
 `api.smoke.triangle`, …) drive the cube-only serial path and therefore fail;
 this is an honest "the Vulkan API surface works" data point, **not** a
 conformance claim.
+
+Run a specific slice with `make vulkan-cts VK_CTS_CASE='dEQP-VK.api.granularity.*'`;
+`VK_CTS_CASE` accepts comma-separated globs (deqp-vk `--deqp-case` syntax).
 
 ### Bugs the CTS caught
 
@@ -170,14 +171,20 @@ shim. Implementing it (Borg has no sparse residency, so it reports zero
 properties) turned the `api.info.sparse_image_format_properties2.*` group from a
 crash into ~1,500 passing cases.
 
-A subsequent pass targeted the remaining ~4,200 failures and fixed:
-`VkFormatProperties3` pNext propagation (~1,849 cases), YCbCr format feature
-restrictions, `VK_FORMAT_UNDEFINED` handling, 3D image `maxArrayLayers=1`,
-`textureCompressionBC`, `R32_SINT`/`R32_UINT` storage atomics, MSAA `sampleCounts`
-consistency for 2D-optimal/cube-compatible/YCbCr images, and the full set of
-required Vulkan 1.0–1.3 limits (descriptor counts, compute workgroup, sample count
-flags, multiview, timeline semaphore, inline uniform). Result: **5,936 passing, 0
-failing** out of the 8,182-case `api.info.*` slice.
+A second pass fixed `VkFormatProperties3` pNext propagation (~1,849 cases),
+YCbCr format feature restrictions, `VK_FORMAT_UNDEFINED` handling, 3D image
+`maxArrayLayers=1`, `textureCompressionBC`, `R32_SINT`/`R32_UINT` storage atomics,
+MSAA `sampleCounts` consistency for 2D-optimal/cube-compatible/YCbCr images, and
+the full set of required Vulkan 1.0–1.3 limits. Result: **5,936** passing the
+`api.info.*` slice.
+
+A third pass added `VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT` for
+depth formats in the `VkFormatProperties3` path, and implemented the missing
+`CreateBufferView`/`DestroyBufferView`, `CreateEvent`/`DestroyEvent`/`GetEventStatus`/
+`SetEvent`/`ResetEvent`, and `GetDescriptorSetLayoutSupport` dispatch entries — all
+were weak-NULL symbols that crashed on any call. These fixes unlocked the
+`format_feature_flags2`, `null_handle`, `device_init`, and `granularity` classes,
+bringing the total to **6,887 passing, 0 failing**.
 
 ### Building the test runner
 

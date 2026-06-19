@@ -93,24 +93,34 @@ The host Vulkan driver, **borgvk**, runs against the official Khronos
 [VK-GL-CTS](https://github.com/KhronosGroup/VK-GL-CTS) (`dEQP-VK`):
 
 ```bash
-make vulkan-cts   # → "borgvk: passed 5936 of 1647405 mandatory Vulkan CTS tests = 0.360%"
+make vulkan-cts   # → "borgvk: passed 6887 of 1647405 mandatory Vulkan CTS tests = 0.418%"
 ```
 
-By default this runs the `dEQP-VK.api.info.*` query class (~8,200 cases), of which
-borgvk passes **5,936** (72.5%) with **0 failures**. borgvk is a narrow driver — it
-renders one hand-compiled cube over serial to the FPGA — so the cases that pass are
-the **query/setup** ones (device/format/limit/format-properties enumeration, object
-creation) that exercise borgvk's instance/device paths through the Mesa runtime
-without touching the serial→FPGA pipeline. Rendering classes (`dEQP-VK.draw.*`, …)
-fail. It is an honest "the API surface works" data point, not a conformance claim.
+By default this runs five `dEQP-VK.api.*` classes (~9,276 cases combined), of which
+borgvk passes **6,887** (74.2%) with **0 failures**:
+
+| Test class | Pass | Total | What it covers |
+|---|---|---|---|
+| `api.info.*` | 5,936 | 8,182 | Device/format/limit/feature enumeration |
+| `api.format_feature_flags2.*` | 184 | 184 | `VkFormatProperties3` / 64-bit feature flags |
+| `api.device_init.*` | 224 | 236 | `VkDevice` creation and properties |
+| `api.null_handle.*` | 23 | 24 | `destroy(VK_NULL_HANDLE)` no-op behaviour |
+| `api.granularity.*` | 520 | 650 | Image/buffer granularity queries |
+
+borgvk is a narrow driver — it renders one hand-compiled cube over serial to the
+FPGA — so the cases that pass are the **query/setup** ones that exercise borgvk's
+instance/device paths through the Mesa runtime without touching the serial→FPGA
+pipeline. Rendering classes (`dEQP-VK.draw.*`, …) fail. It is an honest "the API
+surface works" data point, not a conformance claim.
 
 Running CTS also surfaces real driver bugs: it caught a `NULL`-dispatch segfault in
 `vkGetPhysicalDeviceSparseImageFormatProperties2`, whose fix turned the
 `api.info.sparse_image_format_properties2.*` group from a crash into ~1,500 passes.
-A second pass fixed `VkFormatProperties3` pNext propagation, YCbCr format feature
-restrictions, `VK_FORMAT_UNDEFINED` handling, 3D image `maxArrayLayers`, MSAA
-`sampleCounts` consistency, and missing Vulkan 1.0–1.3 required limits — moving the
-score from ~4,000 to 5,936.
+Subsequent passes fixed `VkFormatProperties3` pNext propagation, YCbCr format
+feature restrictions, `VK_FORMAT_UNDEFINED` handling, 3D image `maxArrayLayers`,
+MSAA `sampleCounts` consistency, missing Vulkan 1.0–1.3 required limits, and
+`NULL`-dispatch crashes in buffer-view, event, and descriptor-set-layout-support
+entry points — moving the score from ~4,000 to 6,887.
 
 Requires a built `deqp-vk` and the borgvk ICD; see
 [The Software Driver](docs/03_software_driver.md) for the one-time build steps.

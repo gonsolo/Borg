@@ -5,13 +5,18 @@
 # borgvk is a narrow driver (it renders the one hand-compiled cube over serial to
 # the FPGA), so the cases that pass are the query/setup ones that exercise
 # borgvk's instance/device/object paths through the Mesa runtime without touching
-# the serial→FPGA pipeline.  The default slice is the dEQP-VK.api.info.* class
-# (device/format/limit enumeration) — a good audit of borgvk's reporting paths.
+# the serial→FPGA pipeline.  The default slice runs five dEQP-VK.api.* classes
+# that borgvk passes with 0 failures:
+#   info.*                  — device/format/limit/feature enumeration
+#   format_feature_flags2.* — VkFormatProperties3 / 64-bit feature flags
+#   device_init.*           — VkDevice creation and properties
+#   null_handle.*           — destroy(VK_NULL_HANDLE) no-op behaviour
+#   granularity.*           — image/buffer granularity queries
 #
 # Env overrides:
 #   VK_GL_CTS     path to the VK-GL-CTS checkout (default: $HOME/src/VK-GL-CTS)
-#   VK_CTS_CASE   case GLOB to run         (default: dEQP-VK.api.info.*)
-#   VK_CTS_CASES  explicit newline list    (takes precedence over VK_CTS_CASE)
+#   VK_CTS_CASE   case GLOB to run  (comma-separated; overrides the default set)
+#   VK_CTS_CASES  explicit newline list             (takes precedence over VK_CTS_CASE)
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,7 +24,9 @@ VK_GL_CTS="${VK_GL_CTS:-$HOME/src/VK-GL-CTS}"
 DEQP_VK="$VK_GL_CTS/build/external/vulkancts/modules/vulkan/deqp-vk"
 ICD="$REPO/mesa/build-borg/src/borg/vulkan/borg_devenv_icd.x86_64.json"
 SHIM="$REPO/mesa/build-borg/src/borg/drm/libborg_drm_shim.so"
-VK_CTS_CASE="${VK_CTS_CASE:-dEQP-VK.api.info.*}"
+# Default: all five api.* classes that borgvk passes cleanly (0 failures).
+DEFAULT_CASES="dEQP-VK.api.info.*,dEQP-VK.api.format_feature_flags2.*,dEQP-VK.api.device_init.*,dEQP-VK.api.null_handle.*,dEQP-VK.api.granularity.*"
+VK_CTS_CASE="${VK_CTS_CASE:-$DEFAULT_CASES}"
 
 if [[ ! -x "$DEQP_VK" ]]; then
   echo "deqp-vk not built at: $DEQP_VK"
