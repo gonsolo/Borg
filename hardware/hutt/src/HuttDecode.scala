@@ -17,13 +17,17 @@ object Opcode {
   val Store  = "b0100011".U(7.W)
   val OpImm  = "b0010011".U(7.W)
   val Op     = "b0110011".U(7.W)
+  val OpImm32 = "b0011011".U(7.W)  // RV64 ADDIW/SLLIW/SRLIW/SRAIW
+  val Op32    = "b0111011".U(7.W)  // RV64 ADDW/SUBW/SLLW/SRLW/SRAW
   val MiscMem = "b0001111".U(7.W)  // FENCE / FENCE.I — treated as nop
   val System  = "b1110011".U(7.W)  // ECALL / EBREAK / CSR — treated as nop in this RV32I-only core
 }
 
-/** ALU operation selector. */
+/** ALU operation selector.  The `*W` variants are RV64 word ops (32-bit result
+  * sign-extended to 64); never selected on RV32. */
 object AluOp extends ChiselEnum {
-  val Add, Sub, Sll, Slt, Sltu, Xor, Srl, Sra, Or, And = Value
+  val Add, Sub, Sll, Slt, Sltu, Xor, Srl, Sra, Or, And,
+      AddW, SubW, SllW, SrlW, SraW = Value
 }
 
 /** Decoded instruction fields and control signals.
@@ -31,7 +35,7 @@ object AluOp extends ChiselEnum {
   * Combinationally derived from the 32-bit instruction word — held by the EXEC
   * state of the Hutt FSM via Mux/wire reads, no explicit pipeline registers.
   */
-class HuttDecoded extends Bundle {
+class HuttDecoded(val xlen: Int = 32) extends Bundle {
   val opcode = UInt(7.W)
   val rd     = UInt(5.W)
   val rs1    = UInt(5.W)
@@ -39,12 +43,12 @@ class HuttDecoded extends Bundle {
   val funct3 = UInt(3.W)
   val funct7 = UInt(7.W)
 
-  // Pre-computed immediates (sign-extended to 32 bits)
-  val iImm = UInt(32.W)
-  val sImm = UInt(32.W)
-  val bImm = UInt(32.W)
-  val uImm = UInt(32.W)
-  val jImm = UInt(32.W)
+  // Pre-computed immediates (sign-extended to XLEN bits)
+  val iImm = UInt(xlen.W)
+  val sImm = UInt(xlen.W)
+  val bImm = UInt(xlen.W)
+  val uImm = UInt(xlen.W)
+  val jImm = UInt(xlen.W)
 
   // Convenience flags
   val isLui    = Bool()
@@ -56,15 +60,17 @@ class HuttDecoded extends Bundle {
   val isStore  = Bool()
   val isOpImm  = Bool()
   val isOp     = Bool()
+  val isOpImm32 = Bool()  // RV64 ADDIW/SLLIW/SRLIW/SRAIW
+  val isOp32    = Bool()  // RV64 ADDW/SUBW/SLLW/SRLW/SRAW
   val isNop    = Bool()   // FENCE/ECALL/EBREAK treated as nop
   val isCsr    = Bool()   // SYSTEM with funct3 != 0 → CSR read (rdcycle etc.)
 }
 
 object HuttDecode {
 
-  /** Pure combinational decoder. */
-  def apply(instr: UInt): HuttDecoded = {
-    val d = Wire(new HuttDecoded)
+  /** Pure combinational decoder.  `xlen` sets immediate sign-extension width. */
+  def apply(instr: UInt, xlen: Int = 32): HuttDecoded = {
+    val d = Wire(new HuttDecoded(xlen))
 
     d.opcode := instr(6, 0)
     d.rd     := instr(11, 7)
@@ -73,13 +79,16 @@ object HuttDecode {
     d.rs2    := instr(24, 20)
     d.funct7 := instr(31, 25)
 
-    // Sign-extended immediates per the RV32I encoding.
+    // Sign-extended immediates per the RISC-V base encoding (to XLEN bits).
     val signBit = instr(31)
-    d.iImm := Cat(Fill(20, signBit), instr(31, 20))
-    d.sImm := Cat(Fill(20, signBit), instr(31, 25), instr(11, 7))
-    d.bImm := Cat(Fill(19, signBit), instr(31), instr(7), instr(30, 25), instr(11, 8), 0.U(1.W))
-    d.uImm := Cat(instr(31, 12), 0.U(12.W))
-    d.jImm := Cat(Fill(11, signBit), instr(31), instr(19, 12), instr(20), instr(30, 21), 0.U(1.W))
+    d.iImm := Cat(Fill(xlen - 12, signBit), instr(31, 20))
+    d.sImm := Cat(Fill(xlen - 12, signBit), instr(31, 25), instr(11, 7))
+    d.bImm := Cat(Fill(xlen - 13, signBit), instr(31), instr(7), instr(30, 25), instr(11, 8), 0.U(1.W))
+    // LUI/AUIPC: the 20-bit upper immediate sits at bits [31:12]; on RV64 it is
+    // sign-extended above bit 31.
+    d.uImm := (if (xlen <= 32) Cat(instr(31, 12), 0.U(12.W))
+               else Cat(Fill(xlen - 32, instr(31)), instr(31, 12), 0.U(12.W)))
+    d.jImm := Cat(Fill(xlen - 21, signBit), instr(31), instr(19, 12), instr(20), instr(30, 21), 0.U(1.W))
 
     d.isLui    := d.opcode === Opcode.Lui
     d.isAuipc  := d.opcode === Opcode.Auipc
@@ -90,6 +99,8 @@ object HuttDecode {
     d.isStore  := d.opcode === Opcode.Store
     d.isOpImm  := d.opcode === Opcode.OpImm
     d.isOp     := d.opcode === Opcode.Op
+    d.isOpImm32 := d.opcode === Opcode.OpImm32
+    d.isOp32    := d.opcode === Opcode.Op32
     // CSR ops (CSRRW/S/C[I]) are SYSTEM with funct3 != 0; ECALL/EBREAK use
     // funct3 == 0 and stay nops.  We only implement the read side (rdcycle).
     d.isCsr    := (d.opcode === Opcode.System) && (d.funct3 =/= 0.U)

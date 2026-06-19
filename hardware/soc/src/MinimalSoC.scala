@@ -9,7 +9,7 @@ package soc
 
 import chisel3._
 import chisel3.util._
-import hutt.{Hutt, HuttBus, HuttBusReq, HuttInstrBus}
+import hutt.{Hutt, HuttBus, HuttBusReq, HuttDataWidthAdapter, HuttInstrBus}
 import memory.MemoryController
 
 /** Slimmed-down SoCLogic — same address map as the full version but with no
@@ -23,6 +23,7 @@ import memory.MemoryController
   */
 trait MinimalSoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
+  def xlen: Int = 32   // 32 = RV32I, 64 = RV64I — override with def, not val (init-order safe)
 
   // Abstract — provided by the top module.
   def soc_clk: Clock
@@ -31,7 +32,7 @@ trait MinimalSoCLogic { self: RawModule =>
   def soc_ui_in: UInt
 
   lazy val cpu = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new Hutt())
+    Module(new Hutt(xlen = xlen))
   }
   lazy val mem = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new MemoryController())
@@ -58,7 +59,17 @@ trait MinimalSoCLogic { self: RawModule =>
     iCache.io.cpu <> cpu.io.instr
     iCache.io.mem <> mem.io.instr
 
-    val cpuData = cpu.io.data
+    // For RV64: bridge the 64-bit CPU bus through HuttDataWidthAdapter so the
+    // 32-bit fabric (MemoryController, SoC regs, UART) is unaffected.
+    val cpuData: HuttBus = if (xlen > 32) {
+      val adapter = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+        Module(new HuttDataWidthAdapter(28))
+      }
+      adapter.io.cpu <> cpu.io.data
+      adapter.io.mem
+    } else {
+      cpu.io.data
+    }
     val cpuAddr = cpuData.req.bits.addr
 
     val isMem  = cpuAddr(27, 25) === 0.U

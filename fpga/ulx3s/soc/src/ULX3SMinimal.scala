@@ -227,6 +227,26 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLog
              uo_out_val(6))
 }
 
+/** RV64 variant: Hutt xlen=64 → HuttDataWidthAdapter → 32-bit MinimalSoC fabric. */
+class ulx3s_minimal_rv64_top(clockMhz: Int) extends ulx3s_minimal_top(clockMhz) {
+  override def xlen: Int = 64
+}
+
+/** Emit Verilog + LPF for the minimal RV64 ULX3S target. */
+object ULX3SMinimalRv64Main extends App {
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "25").toInt
+  val targetDir = "out/ulx3s_minimal_rv64/verilog"
+  new java.io.File(targetDir).mkdirs()
+
+  ChiselStage.emitSystemVerilogFile(
+    gen         = new ulx3s_minimal_rv64_top(clockMhz),
+    args        = Array("--target-dir", targetDir),
+    firtoolOpts = Emit.firtoolOpts
+  )
+
+  ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
+}
+
 /** Emit Verilog + LPF for the minimal ULX3S target. */
 object ULX3SMinimalMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "25").toInt
