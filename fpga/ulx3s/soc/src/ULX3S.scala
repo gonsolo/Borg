@@ -36,7 +36,6 @@ class Ecp5BiDirBuf extends ExtModule {
   */
 class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   override def BORG_CFG: BorgConfig = BorgConfig.Simt   // 2×2 quad SIMT fragment shading
-  override def xlen: Int = 64
   override def scanoutCurBuf: Bool = scanout.io.curBuf
 
   // ── Board clock and reset ──────────────────────────────────────────────────
