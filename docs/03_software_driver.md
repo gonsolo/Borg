@@ -137,11 +137,12 @@ exercised by the official Khronos Conformance Test Suite,
 
 ```bash
 make vulkan-cts
-# ==> borgvk: passed ~4000 of 1647405 mandatory Vulkan CTS tests = ~0.25%
+# ==> borgvk: passed 5936 of 1647405 mandatory Vulkan CTS tests = 0.360%
 ```
 
 By default the target runs the `dEQP-VK.api.info.*` query class (~8,200 cases —
-device, format, limit and feature enumeration), of which borgvk passes **~4,000**.
+device, format, limit and feature enumeration), of which borgvk passes **5,936**
+(72.5% of the slice, **0 failures**).
 borgvk is intentionally narrow — it renders a single hand-compiled cube over the
 serial link, not arbitrary geometry — so the cases that pass are the
 **query/setup** ones that read back the driver's reported capabilities or create
@@ -149,7 +150,7 @@ Vulkan objects, never rendering. Examples:
 
 | Test class | What it validates |
 |------|-------------------|
-| `dEQP-VK.api.info.*`                           | Device/format/limit/feature reporting (~4,000 pass) |
+| `dEQP-VK.api.info.*`                           | Device/format/limit/feature reporting (5,936 pass) |
 | `dEQP-VK.api.device_init.create_device.basic`  | Brings up a conformant `VkDevice` |
 | `dEQP-VK.api.smoke.create_sampler` / `create_shader` | Object creation |
 
@@ -158,8 +159,7 @@ runtime *without* touching the serial→FPGA pipeline, so the Khronos harness
 returns a genuine `Pass`. Rendering classes (`dEQP-VK.draw.*`, `.pipeline.*`,
 `api.smoke.triangle`, …) drive the cube-only serial path and therefore fail;
 this is an honest "the Vulkan API surface works" data point, **not** a
-conformance claim. (A handful of `api.info` cases are flaky against the serial
-device, so the exact count varies by a few hundred between runs.)
+conformance claim.
 
 ### Bugs the CTS caught
 
@@ -168,7 +168,16 @@ bug: `vkGetPhysicalDeviceSparseImageFormatProperties2` was an unimplemented
 (`NULL`) dispatch entry, so *any* call segfaulted inside the Mesa runtime's common
 shim. Implementing it (Borg has no sparse residency, so it reports zero
 properties) turned the `api.info.sparse_image_format_properties2.*` group from a
-crash into ~1,500 passing cases — the single biggest jump in the `api.info` score.
+crash into ~1,500 passing cases.
+
+A subsequent pass targeted the remaining ~4,200 failures and fixed:
+`VkFormatProperties3` pNext propagation (~1,849 cases), YCbCr format feature
+restrictions, `VK_FORMAT_UNDEFINED` handling, 3D image `maxArrayLayers=1`,
+`textureCompressionBC`, `R32_SINT`/`R32_UINT` storage atomics, MSAA `sampleCounts`
+consistency for 2D-optimal/cube-compatible/YCbCr images, and the full set of
+required Vulkan 1.0–1.3 limits (descriptor counts, compute workgroup, sample count
+flags, multiview, timeline semaphore, inline uniform). Result: **5,936 passing, 0
+failing** out of the 8,182-case `api.info.*` slice.
 
 ### Building the test runner
 
