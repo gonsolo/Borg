@@ -46,11 +46,7 @@ static int back_buf = 1;
 
 // Step 30.1b: Sequencer shader ROM constants.
 //
-// Identity vertex shader (3 instructions):
-//   The sequencer's pipeWrite snoop captures r0=x, r1=y during sWaitVert.
-//   u0=screen_x, u1=screen_y per vertex (loaded by DMA from descriptor).
-//   Output r0=x, r1=y so sWaitVert snoops them into clipRegs[v][0:1].
-// GPU MVP vertex shader with HARDWARE PERSPECTIVE DIVIDE:
+// GPU MVP vertex shader ABI (borgc-compiled, uploaded at runtime by borgvk):
 //   u0..u2   = raw model pos x,y,z  (loaded by vertex DMA from descriptor)
 //   u8..u23  = viewport-baked MVP, 16 values column-major (from cache_ts_mvp):
 //              x' row = hw*(M0row + M3row)   — folds the +1 viewport translate
@@ -69,106 +65,12 @@ static int back_buf = 1;
 //   exactly to the previous orthographic behaviour (0xAC / 0xAD demos unchanged).
 //   r0=screen_x, r1=screen_y, r2=ndc_z (snooped by the sequencer into clipRegs).
 //   r30,r31 = 0 when seqBusy=true (special BorgCore registers).
-static const uint32_t __attribute__((unused)) seq_vert_shader[] = {
-  // Load model coords from uniform memory into working registers
-  BORG_INSTR_FADD(24, 0, 30, 1),         // r24 = u0 (model x)
-  BORG_INSTR_FADD(25, 1, 30, 1),         // r25 = u1 (model y)
-  BORG_INSTR_FADD(26, 2, 30, 1),         // r26 = u2 (model z)
-  // clip'_x = u20 + x*u8 + y*u12 + z*u16   (x' row carries hw*(M0+M3))
-  BORG_INSTR_FADD( 0, 20, 30, 1),
-  BORG_INSTR_FMADD( 0, 24,  8,  0, 2),
-  BORG_INSTR_FMADD( 0, 25, 12,  0, 2),
-  BORG_INSTR_FMADD( 0, 26, 16,  0, 2),
-  // clip'_y = u21 + x*u9 + y*u13 + z*u17   (y' row carries hw*(M1+M3))
-  BORG_INSTR_FADD( 1, 21, 30, 1),
-  BORG_INSTR_FMADD( 1, 24,  9,  1, 2),
-  BORG_INSTR_FMADD( 1, 25, 13,  1, 2),
-  BORG_INSTR_FMADD( 1, 26, 17,  1, 2),
-  // clip_z = u22 + x*u10 + y*u14 + z*u18   (z row = M2row, raw)
-  BORG_INSTR_FADD( 2, 22, 30, 1),
-  BORG_INSTR_FMADD( 2, 24, 10,  2, 2),
-  BORG_INSTR_FMADD( 2, 25, 14,  2, 2),
-  BORG_INSTR_FMADD( 2, 26, 18,  2, 2),
-  // clip_w = u23 + x*u11 + y*u15 + z*u19   (w row = M3row, raw)
-  BORG_INSTR_FADD( 3, 23, 30, 1),
-  BORG_INSTR_FMADD( 3, 24, 11,  3, 2),
-  BORG_INSTR_FMADD( 3, 25, 15,  3, 2),
-  BORG_INSTR_FMADD( 3, 26, 19,  3, 2),
-  // Perspective divide: inv_w = 1/clip_w, screen = clip' * inv_w
-  BORG_INSTR_FRCP( 4, 3, 0),             // r4 = 1 / clip_w
-  BORG_INSTR_FMUL( 0, 0, 4, 0),          // screen_x = clip'_x * inv_w
-  BORG_INSTR_FMUL( 1, 1, 4, 0),          // screen_y = clip'_y * inv_w
-  BORG_INSTR_FMUL( 2, 2, 4, 0),          // ndc_z    = clip_z  * inv_w
-  BORG_INSTR_HALT,
-};
-#define SEQ_VERT_SHADER_LEN (sizeof(seq_vert_shader) / sizeof(seq_vert_shader[0]))
-
-#ifdef USE_BORGC_VERT_SHADER
-// borgc-compiled cube.c vertex shader — the EXACT 24 words emitted by borgvk's
-// NIR→Borg backend (borgc) from cube.c's unmodified SPIR-V (BORGC_DUMP_ISA).
-// A drop-in for seq_vert_shader above: same firmware ABI — u0..u2 = model pos
-// (pos.w folded to the constant 1.0, so u3=color.r is never read), u8..u23 =
-// viewport-baked column-major MVP, r0/r1/r2 = screen x/y/ndc_z snooped by the
-// sequencer. Structure: 3 position pre-loads, col3 loaded as a direct bias, the
-// column-major MVP·pos FMADD chain, then FRCP + 3 FMUL perspective divide + HALT.
-// Sim-validated bit-for-bit by BorgCoreTests.borgc_vertex_shader_mvp.
-// Enable with EXTRA_CFLAGS=-DUSE_BORGC_VERT_SHADER to A/B against the hand shader.
-static const uint32_t borgc_vert_shader[] = {
-  0x01e11c00, 0x01e09c80, 0x01e01d00, 0x01ea1280,
-  0x01ea9300, 0x01eb1380, 0x01eb9400, 0x29881484,
-  0x31889284, 0x39891304, 0x41899384, 0x49961404,
-  0x29969484, 0x31971284, 0x39979304, 0x41a41004,
-  0x49a49084, 0x29a51104, 0x31a59184, 0x14018200,
-  0x08400000, 0x08408080, 0x08410100, 0x00000000,
-};
-#define BORGC_VERT_SHADER_LEN (sizeof(borgc_vert_shader) / sizeof(borgc_vert_shader[0]))
-#endif
-
-#ifdef USE_BORGC_FRAG_SHADER
-// borgc-compiled cube.frag — the EXACT 59 words emitted by borgvk's NIR→Borg
-// backend from cube.c's unmodified fragment SPIR-V (BORGC_DUMP_ISA). Faithful
-// lighting+texture
-// +sRGB: dFdx/dFdy(frag_pos) → normalize(cross()) → max(0,dot(lightDir,n)) →
-// FSRGB(light·texture).  Reads barycentric edges from r0/r1/r2, inv_area+UV+
-// frag_pos+z from u12-30 (sequencer-staged), texel from FTEX, lightDir from the
-// reserved GPRs r17/18/19 (firmware-written each frame, see lightDir below).
-// Outputs r26/27/28 = sRGB colour, r29 = interpolated depth.  Last word = HALT.
-// Sim-validated bit-for-bit by BorgCoreTests.borgc_fragment_cube (colour
-// 0.532/0.728, depth 9.0).  Enable with EXTRA_CFLAGS=-DUSE_BORGC_FRAG_SHADER.
-//
-// FP16-underflow rescale (the "white cube" fix): at fb 128×128 the screen-space
-// derivatives of frag_pos are ~0.03/px, so |cross(ddx,ddy)|² ≈ 2e-6 — BELOW the
-// FP16 minimum normal (6.1e-5).  Fp16Rsq returns +Inf for subnormal inputs →
-// normal=Inf → diffuse saturates → every lit pixel pure white (and the squares
-// inside the dot lose most of their bits even when they don't flush).  Fix
-// (emitted by borgc, see mesa src/borg/compiler/lib.rs): the three DDX results
-// are scaled by 32 right after they are produced — cross() is bilinear so
-// cross(32a,b)=32·cross(a,b), and normalize(32v)=normalize(v) EXACTLY (both
-// the dot and the post-FRSQ multiply see the same scale), so no downstream
-// compensation is needed.  The 32.0 constant lives in u31, the one uniform
-// slot the DMA/sequencer never write (RTL-gated in Borg.scala); the firmware
-// writes it to both pages before each render.  The rescale words are the 3
-// FMUL ·u31 (0x09f5..../0x09f6....) right after the 3 DDX ops.
-static const uint32_t borgc_frag_shader[] = {
-  0x08c02180, 0x08c0a280, 0x08c12300, 0x0951a380, 0x3942a404, 0x41332384,
-  0x0981a400, 0x4172a484, 0x49632404, 0x09b1a480, 0x49a2a504, 0x51932484,
-  0x3c038500, 0x3c040580, 0x3c048600, 0x09f52680, 0x09f5a500, 0x09f62580,
-  0x40038600, 0x40040380, 0x40048400, 0x08758480, 0x08868700, 0x08c50780,
-  0x0c048800, 0x0c070480, 0x0c078700, 0x80850784, 0x48c58804, 0x70768484,
-  0x09080700, 0x70948384, 0x38f78704, 0x34070380, 0x08778700, 0x08780780,
-  0x08748800, 0x08f90380, 0x39098784, 0x78e88384, 0x10038780, 0x08f38700,
-  0x08f1a780, 0x78e2a384, 0x38d32784, 0x0921a380, 0x3912a804, 0x81032384,
-  0x18778a00, 0x08ea0380, 0x08ea8800, 0x08eb0780, 0x38038d00, 0x38080d80,
-  0x38078e00, 0x09e1a780, 0x79d2a184, 0x19c32e84, 0x00000000,
-};
-#define BORGC_FRAG_SHADER_LEN (sizeof(borgc_frag_shader) / sizeof(borgc_frag_shader[0]))
 // lightDir = (0.424, 0.566, 0.707) as FP16, pinned to reserved GPRs r17-19.
 #define BORGC_LIGHTDIR_R17 0x36c8  // fp16(0.424)
 #define BORGC_LIGHTDIR_R18 0x3887  // fp16(0.566)
 #define BORGC_LIGHTDIR_R19 0x39a7  // fp16(0.707)
 // 32.0 for the DDX rescale FMULs, pinned to uniform u31 (both pages).
 #define BORGC_DDXSCALE_U31 0x5000  // fp16(32.0)
-#endif
 
 // Triangle setup shader (31 instructions, with edge normalization for Step 30.1c):
 //   u0-u5 = screen coords of all 3 vertices (written by sWriteSetupInputs).
@@ -524,24 +426,12 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
   spirb_parse(rast->code, &rast_shader);
   spirb_parse(frag->code, &frag_shader);
 
-  // Step 30.1b: Stage sequencer shaders to PSRAM and auto-detect hardware.
-#ifdef USE_BORGC_VERT_SHADER
-  // Use the borgc-compiled cube.c vertex shader instead of the hand-written one.
-  for (int i = 0; i < (int)BORGC_VERT_SHADER_LEN; i++)
-    PSRAM_OUT_RAW(SEQ_VERT_SHADER_ADDR + (uint32_t)i * 4) = borgc_vert_shader[i];
-#else
-  for (int i = 0; i < (int)SEQ_VERT_SHADER_LEN; i++)
-    PSRAM_OUT_RAW(SEQ_VERT_SHADER_ADDR + (uint32_t)i * 4) = seq_vert_shader[i];
-#endif
+  // Step 30.1b: Stage setup shader to PSRAM.
+  // Vertex and fragment shaders are uploaded at runtime by borgvk via borg_stage_shader.
   for (int i = 0; i < (int)SEQ_SETUP_SHADER_LEN; i++)
     PSRAM_OUT_RAW(SEQ_SETUP_SHADER_ADDR + (uint32_t)i * 4) = seq_setup_shader[i];
 
   BORG_GPU->seq_vert_addr  = SEQ_VERT_SHADER_ADDR;
-#ifdef USE_BORGC_VERT_SHADER
-  BORG_GPU->seq_vert_len   = BORGC_VERT_SHADER_LEN;
-#else
-  BORG_GPU->seq_vert_len   = SEQ_VERT_SHADER_LEN;
-#endif
   BORG_GPU->seq_setup_addr = SEQ_SETUP_SHADER_ADDR;
   BORG_GPU->seq_setup_len  = SEQ_SETUP_SHADER_LEN;
 
@@ -551,25 +441,9 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
     PSRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)i * 4) = rast_shader.instrs[i];
   // HALT sentinel
   PSRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)rast_shader.num_instrs * 4) = 0;
-#ifdef USE_BORGC_FRAG_SHADER
-  // Stage the borgc-compiled cube.frag (already HALT-terminated) instead of the
-  // hand-written fragment.  lightDir is written to the reserved GPRs per frame.
-  for (int i = 0; i < (int)BORGC_FRAG_SHADER_LEN; i++)
-    PSRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)i * 4) = borgc_frag_shader[i];
-#else
-  for (int i = 0; i < (int)frag_shader.num_instrs; i++)
-    PSRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)i * 4) = frag_shader.instrs[i];
-  PSRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)frag_shader.num_instrs * 4) = 0;
-#endif
-
   BORG_GPU->seq_rast_addr = SEQ_RAST_SHADER_ADDR;
   BORG_GPU->seq_rast_len  = rast_shader.num_instrs + 1;  // +1 for HALT
   BORG_GPU->seq_frag_addr = SEQ_FRAG_SHADER_ADDR;
-#ifdef USE_BORGC_FRAG_SHADER
-  BORG_GPU->seq_frag_len  = BORGC_FRAG_SHADER_LEN;       // blob is HALT-terminated
-#else
-  BORG_GPU->seq_frag_len  = frag_shader.num_instrs + 1;  // +1 for HALT
-#endif
 
   // Step 30.1c: Precompute 1/fb_width as exact FP16 (fb_width is a power of 2).
   // fp16(2^n) has exp = n+15, so fp16(2^-n) has exp = 15-n = 30 - exp_of_width.
@@ -603,12 +477,11 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   // 6-byte header, then num_instrs little-endian u32 instruction words.  Only the
   // instruction words need staging — the sequencer re-DMAs them into IMEM each
   // render; the fragment's lightDir (r17-19) and u31=32.0 consts are written
-  // separately in the render path (they match the blob's const values).  borgc
-  // HALT-terminates the blob, so seq_*_len = num_instrs (no +1), matching the
-  // baked USE_BORGC_*_SHADER path.
+  // separately in the render path.  borgc HALT-terminates the blob, so
+  // seq_*_len = num_instrs (no +1).
   uint32_t n = blob[0];
   // IMEM-slot bounds: vertex PSRAM slot is 128 B (32 words); fragment occupies
-  // IMEM[13..71] (59 words).  Reject oversized blobs and keep the baked shader.
+  // IMEM[13..71] (59 words).  Reject oversized blobs.
   if (stage == 0 && n > 32) return;
   if (stage == 1 && n > 59) return;
 
@@ -1146,10 +1019,7 @@ static void borgBinRenderAutonomous(int frame) {
     // colour there (bit=0), the borgc cube.frag reads model frag_pos (bit=1).
     // OR it into every tex_config write (incl. the non-textured branch) so the
     // sequencer always knows which the loaded fragment expects.
-    uint32_t frag_mode = 0;
-#ifdef USE_BORGC_FRAG_SHADER
-    frag_mode = TEX_CONFIG_REG_T__FRAG_USES_FRAGPOS_bm;
-#endif
+    uint32_t frag_mode = TEX_CONFIG_REG_T__FRAG_USES_FRAGPOS_bm;
     BORG_GPU->tex_config = (any_textured
         ? ((TEX_PSRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) | TEX_CONFIG_REG_T__EN_bm)
         : 0) | frag_mode;
@@ -1169,22 +1039,14 @@ static void borgBinRenderAutonomous(int frame) {
       // (Removed per-frame "A<n>"/"B" debug UART: ~7 blind-write putc/frame, each
       // ~2 ms while the CPU is instruction-starved during render → ~13 ms/frame
       // of pure debug overhead counted in `present`.)
-#ifdef USE_BORGC_FRAG_SHADER
-      // lightDir → reserved GPRs r17-19, written each frame before the autonomous
-      // render.  r17-19 are untouched by the vertex/setup/rast stages (which use
-      // r0-11 and r24-26), so they persist through to the borgc fragment.
       BORG_GPU->gpr[17] = BORGC_LIGHTDIR_R17;
       BORG_GPU->gpr[18] = BORGC_LIGHTDIR_R18;
       BORG_GPU->gpr[19] = BORGC_LIGHTDIR_R19;
-      // 32.0 → u31 on BOTH uniform pages for the DDX rescale FMULs.  The
-      // sequencer ping-pongs the page per triangle but stages only u0-30, so
-      // u31 persists on each page once written.
       BORG_GPU->control = 0;  // uniform write page 0
       BORG_GPU->uniform[31] = BORGC_DDXSCALE_U31;
       BORG_GPU->control = CONTROL_REG_T__UNIFORM_WRITE_PAGE_bm;
       BORG_GPU->uniform[31] = BORGC_DDXSCALE_U31;
       BORG_GPU->control = 0;  // restore page 0 (matches the staging default)
-#endif
       BORG_GPU->seq_desc_base = SEQ_DESC_BASE_ADDR;
       BORG_GPU->seq_tri_count = draw_call_count;
       BORG_GPU->seq_trigger = 1;
@@ -1311,7 +1173,7 @@ static void clip_and_rasterize(const clip_vertex_t clip_in[3],
 static fp16_t raw_pos_cache[BORG_MAX_UNIQUE_VERTS * 3];
 
 // Bake the viewport transform into the MVP for the GPU vertex shader's hardware
-// perspective divide (see seq_vert_shader).  The shader computes clip'_x,
+// perspective divide.  The shader computes clip'_x,
 // clip'_y, clip_z, clip_w then screen = clip' / clip_w, so we fold hw and the +1
 // viewport translate into the x'/y' rows: x' = hw*(M0row + M3row), giving
 // screen_x = clip'_x/w = hw*(clip_x/w + 1) = hw*ndc_x + hw with no separate hw
