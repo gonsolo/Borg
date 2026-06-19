@@ -5,7 +5,7 @@ package soc
 
 import chisel3._
 import chisel3.util._
-import hutt.{Hutt, HuttBus, HuttBusReq, HuttInstrBus}
+import hutt.{Hutt, HuttBus, HuttBusReq, HuttDataWidthAdapter, HuttInstrBus}
 import memory.{MemoryController, MemoryControllerIO, QspiPinsIO}
 import borg.BorgConfig
 
@@ -70,6 +70,7 @@ private[soc] object SoCDecode {
 trait SoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
   def BORG_CFG: BorgConfig = BorgConfig.Default
+  def xlen: Int = 32   // 32 = RV32I, 64 = RV64I (override with def, not val)
 
   // --- Abstract members provided by each top-level ---
   def soc_clk: Clock
@@ -79,7 +80,7 @@ trait SoCLogic { self: RawModule =>
 
   // --- Core + peripherals ---
   lazy val cpu = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new Hutt())
+    Module(new Hutt(xlen = xlen))
   }
   lazy val mem = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new MemoryController())
@@ -144,7 +145,15 @@ trait SoCLogic { self: RawModule =>
     // -------------------------------------------------------------------------
     // Data bus router — demux CPU data port to memory / SoC peri / user peri.
     // -------------------------------------------------------------------------
-    val cpuData = cpu.io.data
+    val cpuData: HuttBus = if (xlen > 32) {
+      val adapter = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+        Module(new HuttDataWidthAdapter(28))
+      }
+      adapter.io.cpu <> cpu.io.data
+      adapter.io.mem
+    } else {
+      cpu.io.data
+    }
     val cpuAddr = cpuData.req.bits.addr  // 28-bit byte address
 
     val isMem  = cpuAddr(27, 25) === 0.U
