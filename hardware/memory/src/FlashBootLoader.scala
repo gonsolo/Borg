@@ -14,6 +14,9 @@ object FlashBootState extends ChiselEnum {
       sReadSize,
       sReadByte0, sReadByte1,
       sWrStart, sWrWaitDone,
+      // Warm-reload path: SDRAM scratch → SDRAM 0 copy (no flash, no SPI).
+      sWarmSz0, sWarmSz0W, sWarmSz1, sWarmSz1W,
+      sWarmRd, sWarmRdW, sWarmWr, sWarmWrW,
       sDone = Value
 }
 
@@ -24,6 +27,13 @@ class FlashBootIO extends Bundle {
   val flash_miso = Input(Bool())           // SPI data in
   val spi_clk    = Output(Bool())          // → Usrmclk.USRMCLKI via .asClock
   val backend    = new MemBackendIO        // master: FlashBootLoader drives the SDRAM
+  // Warm reload: when high at FSM start, skip the flash READ and instead copy the
+  // firmware image from the SDRAM scratch region (see WARM_SCRATCH_WORD) to
+  // SDRAM word 0.  The host streams a fresh image into scratch over serial; the
+  // firmware then pulses a warm reset that restarts this FSM with warmBoot=1.
+  // Keeping the video/scanout clock domain out of that reset means the HDMI
+  // monitor never loses sync across a firmware reload.
+  val warmBoot   = Input(Bool())
   val boot_done  = Output(Bool())
   val debug_state    = Output(UInt(4.W))   // FSM state for LED diagnostics
   val debug_sizeCtr  = Output(UInt(2.W))   // 0..3 — bytes of size header read so far
@@ -48,7 +58,16 @@ class FlashBootIO extends Bundle {
 class FlashBootLoader(
     val FLASH_FIRMWARE_OFFSET: Long = 0x400000L,
     val SPI_CLK_DIV:           Int  = 16,
-    val SDRAM_INIT_CYCLES:     Int  = 13200
+    val SDRAM_INIT_CYCLES:     Int  = 13200,
+    // Warm-reload scratch: SDRAM 16-bit-WORD address of the image header the host
+    // streams in (byte 0x800000 → word 0x400000).  Lives high in the otherwise
+    // unused upper half of the ROM region (firmware is ~37 KB at byte 0), so it
+    // never collides with code, data/stack, texture, or the framebuffer (ram_a at
+    // 16 MB+).  Layout at scratch: [u32 size LE][image bytes…].
+    val WARM_SCRATCH_WORD:     Long = 0x400000L,
+    // Safety cap so a spurious warm boot with garbage in scratch can't run the
+    // copy loop forever — far above any real firmware image (~37 KB).
+    val WARM_MAX_BYTES:        Long = 0x80000L
 ) extends Module {
 
   val io = IO(new FlashBootIO)
@@ -101,6 +120,15 @@ class FlashBootLoader(
   val buf0      = RegInit(0.U(8.W))
   val buf1      = RegInit(0.U(8.W))
 
+  // ── Warm-reload (SDRAM scratch → SDRAM 0) registers ────────────────────────
+  val rdAddr    = RegInit(0.U(24.W))   // scratch read pointer (16-bit-word addr)
+  val wrAddr    = RegInit(0.U(24.W))   // destination write pointer (word addr 0..)
+  val sizeLo    = RegInit(0.U(16.W))   // low halfword of the 32-bit size header
+  val wordData  = RegInit(0.U(16.W))   // halfword currently being copied
+
+  val warmReadState  = (state === sWarmSz0) || (state === sWarmSz1) || (state === sWarmRd)
+  val warmWriteState = (state === sWarmWr)
+
   // Pre-compute address bytes (big-endian, MSB first)
   val addrB2 = ((FLASH_FIRMWARE_OFFSET >> 16) & 0xFF).U(8.W)
   val addrB1 = ((FLASH_FIRMWARE_OFFSET >>  8) & 0xFF).U(8.W)
@@ -112,14 +140,19 @@ class FlashBootLoader(
   io.spi_clk            := spiClkReg
   // Word address (24 bits): drop bit 0 of the byte address. The bootloader
   // only ever writes halfword-aligned (advances sdramAddr by 2 each time).
-  io.backend.addrIn     := sdramAddr(24, 1)
-  io.backend.dataIn     := Cat(buf1, buf0)
+  // Word address (24 bits): flash path uses sdramAddr; warm path uses the
+  // scratch read pointer (reads) or the destination pointer (writes).
+  io.backend.addrIn     := Mux(warmReadState,  rdAddr,
+                           Mux(warmWriteState, wrAddr, sdramAddr(24, 1)))
+  io.backend.dataIn     := Mux(warmWriteState, wordData, Cat(buf1, buf0))
   io.backend.byteEnIn   := "b11".U
   io.backend.lenIn      := 1.U     // single-word writes (bootloader, no burst)
-  io.backend.startRead  := false.B
-  io.backend.startWrite := (state === sWrStart)
+  // Warm reads/writes pulse start once, gated on !busy so consecutive backend
+  // transactions never overlap.
+  io.backend.startRead  := warmReadState && !io.backend.busy
+  io.backend.startWrite := (state === sWrStart) || (warmWriteState && !io.backend.busy)
   io.boot_done          := (state === sDone)
-  io.debug_state        := state.asUInt
+  io.debug_state        := state.asUInt(3, 0)
   io.debug_sizeCtr      := sizeCtr
   io.debug_bitCtr       := bitCtr
 
@@ -127,13 +160,21 @@ class FlashBootLoader(
   switch(state) {
 
     is(sWaitSdram) {
-      initCtr := initCtr + 1.U
-      when(initCtr === SDRAM_INIT_CYCLES.U) {
-        // Start flash software-reset: assert CS, send 0x66 (Enable Reset)
-        csnReg   := false.B
-        shiftOut := 0x66.U(8.W)
-        bitCtr   := 0.U
-        state    := sFlashRst0
+      when(io.warmBoot) {
+        // Warm reload: SDRAM is already initialised (its clock domain was never
+        // reset), so skip the init wait AND the flash reset/READ entirely and go
+        // straight to copying the host-streamed image from scratch → 0.
+        rdAddr := WARM_SCRATCH_WORD.U
+        state  := sWarmSz0
+      } .otherwise {
+        initCtr := initCtr + 1.U
+        when(initCtr === SDRAM_INIT_CYCLES.U) {
+          // Start flash software-reset: assert CS, send 0x66 (Enable Reset)
+          csnReg   := false.B
+          shiftOut := 0x66.U(8.W)
+          bitCtr   := 0.U
+          state    := sFlashRst0
+        }
       }
     }
 
@@ -223,6 +264,46 @@ class FlashBootLoader(
         byteCtr   := byteCtr  + 2.U
         when(byteCtr + 2.U >= firmSize) { csnReg := true.B; state := sDone }
         .otherwise                      {                    state := sReadByte0 }
+      }
+    }
+
+    // ── Warm-reload copy: SDRAM scratch → SDRAM word 0 ─────────────────────
+    // rdAddr walks the scratch region: word 0 = size[15:0], word 1 = size[31:16],
+    // words 2.. = image halfwords.  wrAddr walks the destination from word 0.
+    is(sWarmSz0)  { when(!io.backend.busy) { state := sWarmSz0W } }
+    is(sWarmSz0W) {
+      when(io.backend.done) {
+        sizeLo := io.backend.dataOut
+        rdAddr := rdAddr + 1.U
+        state  := sWarmSz1
+      }
+    }
+    is(sWarmSz1)  { when(!io.backend.busy) { state := sWarmSz1W } }
+    is(sWarmSz1W) {
+      when(io.backend.done) {
+        val full = Cat(io.backend.dataOut, sizeLo)            // 32-bit size
+        firmSize := Mux(full > WARM_MAX_BYTES.U, WARM_MAX_BYTES.U, full)
+        rdAddr   := rdAddr + 1.U                              // first image word
+        wrAddr   := 0.U
+        byteCtr  := 0.U
+        state    := sWarmRd
+      }
+    }
+    is(sWarmRd)  { when(!io.backend.busy) { state := sWarmRdW } }
+    is(sWarmRdW) {
+      when(io.backend.done) {
+        wordData := io.backend.dataOut
+        state    := sWarmWr
+      }
+    }
+    is(sWarmWr)  { when(!io.backend.busy) { state := sWarmWrW } }
+    is(sWarmWrW) {
+      when(io.backend.done) {
+        rdAddr  := rdAddr + 1.U
+        wrAddr  := wrAddr + 1.U
+        byteCtr := byteCtr + 2.U
+        when(byteCtr + 2.U >= firmSize) { state := sDone }
+        .otherwise                      { state := sWarmRd }
       }
     }
 

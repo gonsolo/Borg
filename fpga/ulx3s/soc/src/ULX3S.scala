@@ -100,10 +100,26 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // completing a write, which requires SdramBackend to be out of reset.
   val pllRst = !pllLocked
 
+  // ── Warm-reset controller (serial firmware reload) ─────────────────────────
+  // Firmware streams a new image into SDRAM scratch, then writes WARM_RESET_MAGIC
+  // to PERI_WARM_RESET → wireSoC() raises `warmReset`.  We latch a persistent
+  // `warmBootReg` (cleared only by a cold/PLL reset) and pulse `warmRst` for a
+  // few cycles.  `warmRst` resets ONLY the bootloader + (via boot_done) the
+  // CPU/icache/MemoryController — NOT the PLL, SDRAM backend, scanout, or VGA
+  // timing.  So the bootloader re-runs in warm-copy mode (scratch→0) and the CPU
+  // reboots with a freshly-flushed icache, while the HDMI sync generator keeps
+  // running and the monitor never loses signal.
+  // Declared as a Wire because flashBoot's reset needs it, but its value derives
+  // from warmReset which wireSoC() produces further below.
+  val warmRst     = Wire(Bool())
+  val warmBootReg = withClockAndReset(sysClock, pllRst) { RegInit(false.B) }
+
   // ── FlashBootLoader: copies firmware flash→SDRAM before Hutt starts ────────
-  val flashBoot = withClockAndReset(sysClock, pllRst) {
+  // Reset on pllRst (cold) OR warmRst (warm reload). warmBoot selects scratch→0.
+  val flashBoot = withClockAndReset(sysClock, pllRst || warmRst) {
     Module(new FlashBootLoader())
   }
+  flashBoot.io.warmBoot := warmBootReg
 
   // Wire USRMCLK: route flashBoot SPI clock to the flash MCLK pin
   val usrmclk = Module(new Usrmclk)
@@ -172,6 +188,19 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // ── Wire the SoC ──────────────────────────────────────────────────────────
   val uo_out_val = wireSoC()
 
+  // ── Warm-reset controller logic (uses `warmReset` produced by wireSoC) ─────
+  // On a warm-reset request: latch warmBootReg (so the re-run bootloader picks
+  // the scratch→0 copy) and hold warmRst for a handful of cycles to fully reset
+  // the bootloader + CPU.  warmBootReg persists until the next cold/PLL reset.
+  val warmRstCtr = withClockAndReset(sysClock, pllRst) { RegInit(0.U(5.W)) }
+  when(warmReset) {
+    warmBootReg := true.B
+    warmRstCtr  := 16.U
+  } .elsewhen(warmRstCtr =/= 0.U) {
+    warmRstCtr := warmRstCtr - 1.U
+  }
+  warmRst := warmRstCtr =/= 0.U
+
   // ── SdramBackend: bridges MemoryController ↔ SdramController ─────────────
   val sdramBackend = withClockAndReset(sysClock, pllRst) {
     Module(new SdramBackend(SOC_MHZ))
@@ -184,7 +213,9 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   sdramBackend.io.backend.addrIn     := Mux(bootDone, mem.io.backend.addrIn,     flashBoot.io.backend.addrIn)
   sdramBackend.io.backend.dataIn     := Mux(bootDone, mem.io.backend.dataIn,     flashBoot.io.backend.dataIn)
   sdramBackend.io.backend.byteEnIn   := Mux(bootDone, mem.io.backend.byteEnIn,   flashBoot.io.backend.byteEnIn)
-  sdramBackend.io.backend.startRead  := Mux(bootDone, mem.io.backend.startRead,  false.B)
+  // During boot the bootloader owns the backend.  The cold path never reads, but
+  // the warm-reload path DOES (scratch→0 copy), so route flashBoot's startRead.
+  sdramBackend.io.backend.startRead  := Mux(bootDone, mem.io.backend.startRead,  flashBoot.io.backend.startRead)
   sdramBackend.io.backend.startWrite := Mux(bootDone, mem.io.backend.startWrite, flashBoot.io.backend.startWrite)
   sdramBackend.io.backend.lenIn      := Mux(bootDone, mem.io.backend.lenIn,      flashBoot.io.backend.lenIn)
 

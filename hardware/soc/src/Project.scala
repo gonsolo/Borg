@@ -44,9 +44,14 @@ private[soc] object SoCDecode {
   val PERI_SCANOUT_FB1       = 0xA   // scanout framebuffer base (buffer 1), firmware-programmed
   val PERI_TIME_LIMIT        = 0xB
   val PERI_DEBUG             = 0xC
+  val PERI_WARM_RESET        = 0x5   // write WARM_RESET_MAGIC → pulse warm reset (serial firmware reload)
   val PERI_USER              = 0xF
 
   def socPeriU(idx: Int): UInt = idx.U(4.W)
+
+  // Magic value the firmware writes to PERI_WARM_RESET to request a warm reboot.
+  // A non-trivial constant so a stray store can't accidentally reset the SoC.
+  val WARM_RESET_MAGIC: Long = 0x0B16B007L
 }
 
 /** Platform-independent SoC backbone shared by all target top-level modules.
@@ -103,6 +108,13 @@ trait SoCLogic { self: RawModule =>
   protected var _scanoutFbBase1: UInt = null
   def scanoutFbBase0: UInt = _scanoutFbBase0
   def scanoutFbBase1: UInt = _scanoutFbBase1
+
+  // One-cycle pulse: firmware wrote WARM_RESET_MAGIC to PERI_WARM_RESET, asking
+  // the board top to warm-reboot the CPU/bootloader (for serial firmware reload)
+  // without disturbing the video clock domain.  Populated by wireSoC(); targets
+  // that don't implement warm reload simply ignore it.
+  protected var _warmReset: Bool = null
+  def warmReset: Bool = if (_warmReset != null) _warmReset else false.B
 
   /** Wire the GPU memory port.  Default: direct Borg↔MemoryController. */
   def wireGpuMem(): Unit = {
@@ -190,6 +202,12 @@ trait SoCLogic { self: RawModule =>
 
     val socFire = cpuData.req.fire && isSoc
 
+    // Warm-reset request: 1-cycle pulse when firmware writes the magic value to
+    // PERI_WARM_RESET.  Routed to the board top (ULX3S) which holds the bootloader
+    // + CPU in reset just long enough to re-copy the serial-streamed image.
+    val warm_reset_pulse = WireDefault(false.B)
+    _warmReset = warm_reset_pulse
+
     when(socFire && cpuData.req.bits.write) {
       switch(socPeri) {
         is(socPeriU(PERI_GPIO_OUT_SEL))    { gpio_out_sel       := cpuData.req.bits.data(7, 6) }
@@ -199,6 +217,7 @@ trait SoCLogic { self: RawModule =>
         is(socPeriU(PERI_SCANOUT_FB0))     { scanout_fb_base0   := cpuData.req.bits.data(24, 0) }
         is(socPeriU(PERI_SCANOUT_FB1))     { scanout_fb_base1   := cpuData.req.bits.data(24, 0) }
         is(socPeriU(PERI_DEBUG))           { debug_register_data := cpuData.req.bits.data(0) }
+        is(socPeriU(PERI_WARM_RESET))      { warm_reset_pulse   := (cpuData.req.bits.data === WARM_RESET_MAGIC.U) }
       }
     }
 

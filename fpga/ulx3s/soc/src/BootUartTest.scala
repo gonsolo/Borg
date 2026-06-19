@@ -44,6 +44,7 @@ class BootUartTest(clockMhz: Int = 125) extends RawModule {
   flash_csn  := flashBoot.io.flash_csn
   flash_mosi := flashBoot.io.flash_mosi
   flashBoot.io.flash_miso := flash_miso
+  flashBoot.io.warmBoot   := false.B   // no warm reload in this bring-up bitstream
 
   val backend = withClockAndReset(sysClock, pllRst) { Module(new SdramBackend()) }
   val bootDone = flashBoot.io.boot_done

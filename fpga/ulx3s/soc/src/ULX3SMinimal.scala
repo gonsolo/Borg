@@ -77,6 +77,7 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLog
   flash_csn  := flashBoot.io.flash_csn
   flash_mosi := flashBoot.io.flash_mosi
   flashBoot.io.flash_miso := flash_miso
+  flashBoot.io.warmBoot   := false.B   // minimal SoC: cold flash boot only
 
   // ── MinimalSoCLogic abstract members ─────────────────────────────────────
   def soc_clk = sysClock
