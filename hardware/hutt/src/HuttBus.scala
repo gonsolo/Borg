@@ -7,23 +7,25 @@ import chisel3._
 import chisel3.util._
 
 /** Access size encoding shared by data and peripheral buses.
-  *  0 = byte, 1 = halfword, 2 = word.  Size 3 reserved.
+  *  0 = byte, 1 = halfword, 2 = word, 3 = doubleword (RV64 LD/SD).
   */
 object HuttSize {
-  val Byte = 0.U(2.W)
-  val Half = 1.U(2.W)
-  val Word = 2.U(2.W)
+  val Byte   = 0.U(2.W)
+  val Half   = 1.U(2.W)
+  val Word   = 2.U(2.W)
+  val Double = 3.U(2.W)
 }
 
 /** Read/write request payload.
   *
   * @param addrWidth byte-address width (24 for memory, 28 for peripherals).
+  * @param dataWidth data width (XLEN: 32 for RV32, 64 for RV64).
   */
-class HuttBusReq(val addrWidth: Int) extends Bundle {
+class HuttBusReq(val addrWidth: Int, val dataWidth: Int = 32) extends Bundle {
   val addr  = UInt(addrWidth.W)
   val write = Bool()
   val size  = UInt(2.W)
-  val data  = UInt(32.W)
+  val data  = UInt(dataWidth.W)
 }
 
 /** Single-outstanding Decoupled req/resp bus.
@@ -31,10 +33,12 @@ class HuttBusReq(val addrWidth: Int) extends Bundle {
   * Producer drives `req` (Decoupled out).  Consumer drives `resp` (Decoupled in
   * from this side, out from the consumer).  Reads complete when `resp.fire`;
   * writes complete the same way (data field on resp is don't-care).
+  *
+  * @param dataWidth data width (XLEN: 32 for RV32, 64 for RV64).
   */
-class HuttBus(val addrWidth: Int) extends Bundle {
-  val req  = Decoupled(new HuttBusReq(addrWidth))
-  val resp = Flipped(Decoupled(UInt(32.W)))
+class HuttBus(val addrWidth: Int, val dataWidth: Int = 32) extends Bundle {
+  val req  = Decoupled(new HuttBusReq(addrWidth, dataWidth))
+  val resp = Flipped(Decoupled(UInt(dataWidth.W)))
 }
 
 /** Instruction fetch bus — read-only, word-aligned.
