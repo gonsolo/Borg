@@ -127,3 +127,51 @@ RGBW test pattern:
 The front triangle's color-interpolated RGB appears in the center,
 while the back triangle's RGBW texture is visible around the edges.
 The z-buffer ensures correct occlusion regardless of draw order.
+
+## Vulkan Conformance (CTS)
+
+The host-side Vulkan driver **borgvk** (a native Mesa ICD that runs the
+unmodified Khronos `cube.c` and ships each frame to the FPGA over serial) is
+exercised by the official Khronos Conformance Test Suite,
+[VK-GL-CTS](https://github.com/KhronosGroup/VK-GL-CTS) (`dEQP-VK`):
+
+```bash
+make vulkan-cts
+# ==> borgvk: passed 3 of 1647405 mandatory Vulkan CTS tests (ran 3)
+```
+
+borgvk is intentionally narrow — it renders a single hand-compiled cube over the
+serial link, not arbitrary geometry — so the only CTS cases that survive are the
+**setup-only** ones that create Vulkan objects but never render:
+
+| Test | What it validates |
+|------|-------------------|
+| `dEQP-VK.api.device_init.create_device.basic` | Brings up a conformant `VkDevice` |
+| `dEQP-VK.api.smoke.create_sampler`             | Instance + device + sampler creation |
+| `dEQP-VK.api.smoke.create_shader`              | Shader-module creation |
+
+These exercise borgvk's instance/device/object-creation paths through the Mesa
+runtime *without* touching the serial→FPGA pipeline, so the Khronos harness
+returns a genuine `Pass`. Rendering classes (`dEQP-VK.draw.*`, `.pipeline.*`,
+`api.smoke.triangle`, …) drive the cube-only serial path and therefore fail;
+this is an honest "the Vulkan API surface works" data point, **not** a
+conformance claim.
+
+### Building the test runner
+
+`deqp-vk` is built once from a VK-GL-CTS checkout. Two things to note: force the
+native compiler (the riscv64 cross toolchain is the default `CC`/`CXX` inside the
+Nix shell), and select the headless Vulkan target (no GL/X11/EGL dependencies):
+
+```bash
+cd $VK_GL_CTS                              # default: ~/src/VK-GL-CTS
+python3 external/fetch_sources.py
+CC=gcc CXX=g++ cmake -S . -B build -GNinja -DCMAKE_BUILD_TYPE=Release \
+     -DDEQP_TARGET=vulkan_headless -DSELECTED_BUILD_TARGETS=deqp-vk
+cmake --build build --target deqp-vk
+```
+
+`make vulkan-cts` then sets up the Vulkan loader, points `VK_DRIVER_FILES` at the
+borgvk ICD, preloads the DRM shim, runs the survivor case list, and prints the
+`passed N of <mandatory total>` summary. Override the checkout location with
+`make vulkan-cts VK_GL_CTS=/path/to/VK-GL-CTS`.

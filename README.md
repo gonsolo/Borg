@@ -87,6 +87,25 @@ make test-cocotb-soc-core-rtl  # CPU SoC integration tests (cocotb)
 make test-cocotb-soc-borg-rtl  # Borg peripheral tests (cocotb)
 ```
 
+### Vulkan Conformance (CTS)
+
+The host Vulkan driver, **borgvk**, runs against the official Khronos
+[VK-GL-CTS](https://github.com/KhronosGroup/VK-GL-CTS) (`dEQP-VK`):
+
+```bash
+make vulkan-cts        # → "borgvk: passed 3 of 1647405 mandatory Vulkan CTS tests"
+```
+
+borgvk is a narrow driver — it renders one hand-compiled cube over serial to the
+FPGA — so the cases that pass are the **setup-only** ones (device, sampler and
+shader-module creation) that exercise borgvk's instance/device paths through the
+Mesa runtime without touching the serial→FPGA pipeline. It is an honest
+"the API surface works" data point, not a conformance claim.
+
+Requires a built `deqp-vk` and the borgvk ICD; see
+[The Software Driver](docs/03_software_driver.md) for the one-time build steps.
+Point the target at a checkout elsewhere with `make vulkan-cts VK_GL_CTS=/path/to/VK-GL-CTS`.
+
 ### Cycle-Accurate C++ Simulation & Interactive Pygame UI
 
 Fast C++ simulators for RTL validation, capable of rendering frames locally without an FPGA, featuring a real-time cycle-accurate interactive view.

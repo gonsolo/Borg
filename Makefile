@@ -24,6 +24,7 @@ help:
 	@echo -e "  test-cocotb-soc-core-gl:\tRun Gate-Level core simulations (cocotb)."
 	@echo -e "  test-cocotb-soc-borg-gl:\tRun Gate-Level borg simulations (cocotb)."
 	@echo -e "  test-all:\t\t\tRun all tests."
+	@echo -e "  vulkan-cts:\t\t\tRun the Vulkan CTS survivor slice against borgvk."
 	@echo -e "  datasheet.pdf:\t\tGenerate datasheet for Tinytapeout."
 	@echo -e "  user_config-*:\t\tGenerate user config for tapeout."
 	@echo -e "  print_stats:\t\t\tPrint statistics about tile usage."
@@ -124,6 +125,13 @@ test-chisel-core: rdl
 test-all:
 	@MILL_JOBS=$(MILL_JOBS) python3 scripts/test_runner.py
 
+# Run the Vulkan CTS (dEQP-VK) "survivor" slice against the borgvk driver and
+# report "passed N of <mandatory total>".  Requires a built deqp-vk (see
+# docs/03_software_driver.md) and the borgvk ICD (make -C software/mesa).
+# Override the CTS checkout with VK_GL_CTS=/path/to/VK-GL-CTS.
+vulkan-cts:
+	@bash scripts/run_vulkan_cts.sh
+
 datasheet.pdf: generate_verilog
 	$(TT_TOOL) --create-pdf
 user_config-sky130: export PDK=sky130A
@@ -181,5 +189,5 @@ clean-gh-runs:
 .PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
-	book clean-gh-runs scripts/test_summary.sh
+	book clean-gh-runs scripts/test_summary.sh vulkan-cts
 
