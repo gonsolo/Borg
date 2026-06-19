@@ -137,25 +137,38 @@ exercised by the official Khronos Conformance Test Suite,
 
 ```bash
 make vulkan-cts
-# ==> borgvk: passed 3 of 1647405 mandatory Vulkan CTS tests (ran 3)
+# ==> borgvk: passed ~4000 of 1647405 mandatory Vulkan CTS tests (ran 8182: dEQP-VK.api.info.*)
 ```
 
+By default the target runs the `dEQP-VK.api.info.*` query class (~8,200 cases —
+device, format, limit and feature enumeration), of which borgvk passes **~4,000**.
 borgvk is intentionally narrow — it renders a single hand-compiled cube over the
-serial link, not arbitrary geometry — so the only CTS cases that survive are the
-**setup-only** ones that create Vulkan objects but never render:
+serial link, not arbitrary geometry — so the cases that pass are the
+**query/setup** ones that read back the driver's reported capabilities or create
+Vulkan objects, never rendering. Examples:
 
-| Test | What it validates |
+| Test class | What it validates |
 |------|-------------------|
-| `dEQP-VK.api.device_init.create_device.basic` | Brings up a conformant `VkDevice` |
-| `dEQP-VK.api.smoke.create_sampler`             | Instance + device + sampler creation |
-| `dEQP-VK.api.smoke.create_shader`              | Shader-module creation |
+| `dEQP-VK.api.info.*`                           | Device/format/limit/feature reporting (~4,000 pass) |
+| `dEQP-VK.api.device_init.create_device.basic`  | Brings up a conformant `VkDevice` |
+| `dEQP-VK.api.smoke.create_sampler` / `create_shader` | Object creation |
 
 These exercise borgvk's instance/device/object-creation paths through the Mesa
 runtime *without* touching the serial→FPGA pipeline, so the Khronos harness
 returns a genuine `Pass`. Rendering classes (`dEQP-VK.draw.*`, `.pipeline.*`,
 `api.smoke.triangle`, …) drive the cube-only serial path and therefore fail;
 this is an honest "the Vulkan API surface works" data point, **not** a
-conformance claim.
+conformance claim. (A handful of `api.info` cases are flaky against the serial
+device, so the exact count varies by a few hundred between runs.)
+
+### Bugs the CTS caught
+
+Pointing a real conformance harness at the driver immediately surfaced a genuine
+bug: `vkGetPhysicalDeviceSparseImageFormatProperties2` was an unimplemented
+(`NULL`) dispatch entry, so *any* call segfaulted inside the Mesa runtime's common
+shim. Implementing it (Borg has no sparse residency, so it reports zero
+properties) turned the `api.info.sparse_image_format_properties2.*` group from a
+crash into ~1,500 passing cases — the single biggest jump in the `api.info` score.
 
 ### Building the test runner
 
@@ -172,6 +185,7 @@ cmake --build build --target deqp-vk
 ```
 
 `make vulkan-cts` then sets up the Vulkan loader, points `VK_DRIVER_FILES` at the
-borgvk ICD, preloads the DRM shim, runs the survivor case list, and prints the
-`passed N of <mandatory total>` summary. Override the checkout location with
-`make vulkan-cts VK_GL_CTS=/path/to/VK-GL-CTS`.
+borgvk ICD, preloads the DRM shim, runs the slice, and prints the
+`passed N of <mandatory total>` summary. Run a different slice with
+`make vulkan-cts VK_CTS_CASE='dEQP-VK.api.device_init.*'` (any case glob), or point
+at a checkout elsewhere with `make vulkan-cts VK_GL_CTS=/path/to/VK-GL-CTS`.

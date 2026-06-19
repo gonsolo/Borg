@@ -93,18 +93,25 @@ The host Vulkan driver, **borgvk**, runs against the official Khronos
 [VK-GL-CTS](https://github.com/KhronosGroup/VK-GL-CTS) (`dEQP-VK`):
 
 ```bash
-make vulkan-cts        # → "borgvk: passed 3 of 1647405 mandatory Vulkan CTS tests"
+make vulkan-cts   # → "borgvk: passed ~4000 of 1647405 mandatory Vulkan CTS tests (ran 8182: dEQP-VK.api.info.*)"
 ```
 
-borgvk is a narrow driver — it renders one hand-compiled cube over serial to the
-FPGA — so the cases that pass are the **setup-only** ones (device, sampler and
-shader-module creation) that exercise borgvk's instance/device paths through the
-Mesa runtime without touching the serial→FPGA pipeline. It is an honest
+By default this runs the `dEQP-VK.api.info.*` query class (~8,200 cases), of which
+borgvk passes **~4,000**. borgvk is a narrow driver — it renders one hand-compiled
+cube over serial to the FPGA — so the cases that pass are the **query/setup** ones
+(device/format/limit enumeration, object creation) that exercise borgvk's
+instance/device paths through the Mesa runtime without touching the serial→FPGA
+pipeline. Rendering classes (`dEQP-VK.draw.*`, …) fail. It is an honest
 "the API surface works" data point, not a conformance claim.
+
+Running CTS also surfaces real driver bugs: it caught a `NULL`-dispatch segfault in
+`vkGetPhysicalDeviceSparseImageFormatProperties2`, whose fix turned the
+`api.info.sparse_image_format_properties2.*` group from a crash into ~1,500 passes.
 
 Requires a built `deqp-vk` and the borgvk ICD; see
 [The Software Driver](docs/03_software_driver.md) for the one-time build steps.
-Point the target at a checkout elsewhere with `make vulkan-cts VK_GL_CTS=/path/to/VK-GL-CTS`.
+Run a different slice with `make vulkan-cts VK_CTS_CASE='dEQP-VK.api.device_init.*'`,
+or point at a checkout elsewhere with `make vulkan-cts VK_GL_CTS=/path/to/VK-GL-CTS`.
 
 ### Cycle-Accurate C++ Simulation & Interactive Pygame UI
 
