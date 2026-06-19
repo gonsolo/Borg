@@ -105,6 +105,11 @@ object Rv64Asm {
   def slliw(rd: Int, rs1: Int, sh: Int): BigInt  = iType(0x1b, 0x1, rd, rs1, sh & 0x1f)
   def addw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x0, 0x00, rd, rs1, rs2)
   def subw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x0, 0x20, rd, rs1, rs2)
+  def sllw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x1, 0x00, rd, rs1, rs2)
+  def srlw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x5, 0x00, rd, rs1, rs2)
+  def sraw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x5, 0x20, rd, rs1, rs2)
+  def srliw(rd: Int, rs1: Int, sh: Int): BigInt  = iType(0x1b, 0x5, rd, rs1, sh & 0x1f)
+  def sraiw(rd: Int, rs1: Int, sh: Int): BigInt  = iType(0x1b, 0x5, rd, rs1, 0x400 | (sh & 0x1f))
   // RV64 shift-immediates use a 6-bit shamt (funct6).
   def slli64(rd: Int, rs1: Int, sh: Int): BigInt = iType(0x13, 0x1, rd, rs1, sh & 0x3f)
   def srli64(rd: Int, rs1: Int, sh: Int): BigInt = iType(0x13, 0x5, rd, rs1, sh & 0x3f)
@@ -186,6 +191,61 @@ object HuttRv64Tests extends TestSuite {
         Rv64Asm.sd(2, 0, 0),
         park())
       assert(runPeek(prog, 0) == BigInt("80000000", 16))
+    }
+
+    // SUBW: (0 - 1) mod 2^32 = 0xFFFF_FFFF, sign-extended → all ones.
+    test("subw wraps and sign-extends") {
+      val prog = Seq(
+        addi(2, 0, 1),
+        Rv64Asm.subw(3, 0, 2),        // 0 - 1
+        Rv64Asm.sd(3, 0, 0),
+        park())
+      assert(runPeek(prog, 0) == mask64)
+    }
+
+    // SLLW: (1 << 31) as a 32-bit result, sign-extended → 0xFFFF_FFFF_8000_0000.
+    test("sllw sign-extends bit 31 result") {
+      val prog = Seq(
+        addi(1, 0, 1),
+        addi(4, 0, 31),
+        Rv64Asm.sllw(2, 1, 4),
+        Rv64Asm.sd(2, 0, 0),
+        park())
+      assert(runPeek(prog, 0) == BigInt("FFFFFFFF80000000", 16))
+    }
+
+    // SRAW: arithmetic shift of the low 32 bits, sign-extended.
+    // low32 = 0x8000_0000 (negative) >>a 4 = 0xF800_0000 → 0xFFFF_FFFF_F800_0000.
+    test("sraw arithmetic shift of word") {
+      val prog = Seq(
+        addi(1, 0, 1),
+        Rv64Asm.slli64(1, 1, 31),     // x1 low32 = 0x8000_0000
+        addi(4, 0, 4),
+        Rv64Asm.sraw(2, 1, 4),
+        Rv64Asm.sd(2, 0, 0),
+        park())
+      assert(runPeek(prog, 0) == BigInt("FFFFFFFFF8000000", 16))
+    }
+
+    // SRAI (64-bit): -2^63 >>a 60 = -8 = 0xFFFF_FFFF_FFFF_FFF8.
+    test("srai64 arithmetic shift > 32") {
+      val prog = Seq(
+        addi(1, 0, 1),
+        Rv64Asm.slli64(1, 1, 63),     // x1 = 0x8000_0000_0000_0000
+        Rv64Asm.srai64(2, 1, 60),
+        Rv64Asm.sd(2, 0, 0),
+        park())
+      assert(runPeek(prog, 0) == BigInt("FFFFFFFFFFFFFFF8", 16))
+    }
+
+    // ADDIW with a negative immediate: (5 - 10) as 32-bit, sign-extended.
+    test("addiw negative immediate") {
+      val prog = Seq(
+        addi(1, 0, 5),
+        Rv64Asm.addiw(2, 1, -10),     // 0xFFFF_FFFB → 0xFFFF_FFFF_FFFF_FFFB
+        Rv64Asm.sd(2, 0, 0),
+        park())
+      assert(runPeek(prog, 0) == (mask64 - 4))
     }
   }
 }
