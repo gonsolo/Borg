@@ -164,7 +164,7 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | Cycle-accurate C++ simulation (Arcilator & Verilator) | ✅ Done |
 | Interactive UI Viewer (zero-copy Pygame) | ✅ Done |
 | Test manufactured chip | ⏳ Pending |
-| Vulkan driver | 📋 Planned |
+| Vulkan driver (borgvk) | 🚧 In progress |
 
 ## Software Bill of Materials
 
