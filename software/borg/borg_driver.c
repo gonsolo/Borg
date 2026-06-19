@@ -341,6 +341,65 @@ int getc_uart(void) {
 #endif
 }
 
+// Blocking UART read with a cycle timeout.  Returns the byte (0..255) or -1 if no
+// byte arrived within `timeout` free-running cycles.
+static int reload_getc(unsigned timeout) {
+  unsigned start = rdcycle();
+  while (!uart_rx_ready()) {
+    if ((unsigned)(rdcycle() - start) > timeout) return -1;
+  }
+  return getc_uart();
+}
+
+// Serial firmware reload (0xB1).  Streams a fresh firmware image from the host
+// into the SDRAM scratch region, then pulses a warm reset so the bootloader
+// re-copies it to address 0 and the CPU reboots — all without resetting the
+// video clock domain, so the HDMI monitor never loses sync.
+//
+// Wire format after the 0xB1 marker:
+//   size (4 B LE) | image[size] | xor8(image)
+//
+// On any framing/timeout/checksum error this returns WITHOUT resetting, so a
+// botched transfer can't brick the running firmware — the caller resumes its
+// normal render loop and the host can retry.
+void borg_serial_reload(void) {
+  // ~80 ms/byte at 25 MHz — generous for host scheduling hiccups mid-stream.
+  const unsigned TO = 2000000u;
+
+  uint32_t sz = 0;
+  for (int b = 0; b < 4; b++) {
+    int c = reload_getc(TO);
+    if (c < 0) { puts_uart("B1: size timeout\r\n"); return; }
+    sz |= (uint32_t)(c & 0xFF) << (b * 8);
+  }
+  if (sz == 0 || sz > BORG_RELOAD_MAX) { puts_uart("B1: bad size\r\n"); return; }
+
+  // Image bytes → scratch+4 as word stores (avoids per-byte read-modify-write).
+  volatile uint32_t *dst = (volatile uint32_t *)(uintptr_t)(BORG_RELOAD_SCRATCH + 4);
+  uint8_t xsum = 0;
+  uint32_t i = 0, w = 0;
+  while (i < sz) {
+    uint32_t word = 0;
+    for (int b = 0; b < 4 && i < sz; b++, i++) {
+      int c = reload_getc(TO);
+      if (c < 0) { puts_uart("B1: data timeout\r\n"); return; }
+      xsum ^= (uint8_t)c;
+      word |= (uint32_t)(c & 0xFF) << (b * 8);
+    }
+    dst[w++] = word;   // last word is zero-padded if sz % 4 != 0
+  }
+
+  int ck = reload_getc(TO);
+  if (ck < 0 || (uint8_t)ck != xsum) { puts_uart("B1: csum fail\r\n"); return; }
+
+  // Commit the size header the bootloader reads first, announce, then warm-reset.
+  *(volatile uint32_t *)(uintptr_t)BORG_RELOAD_SCRATCH = sz;
+  puts_uart("FW: reload OK, warm reset\r\n");
+  for (volatile int d = 0; d < 200000; d++) { }   // let the UART TX drain first
+  SOC_WARM_RESET = SOC_WARM_RESET_MAGIC;            // CPU + bootloader reboot
+  for (;;) { }                                      // wait for the reset to hit
+}
+
 // --- Timing and debug printing ---
 static inline unsigned int get_cycles(void) {
   unsigned int c;
@@ -536,6 +595,42 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
     puts_uart("SEQ: hw\r\n");
   } else {
     puts_uart("SEQ: cpu\r\n");
+  }
+}
+
+void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
+  // .borg blob layout (spirb_parse / emit_blob): byte 0 = num_instrs, then a
+  // 6-byte header, then num_instrs little-endian u32 instruction words.  Only the
+  // instruction words need staging — the sequencer re-DMAs them into IMEM each
+  // render; the fragment's lightDir (r17-19) and u31=32.0 consts are written
+  // separately in the render path (they match the blob's const values).  borgc
+  // HALT-terminates the blob, so seq_*_len = num_instrs (no +1), matching the
+  // baked USE_BORGC_*_SHADER path.
+  uint32_t n = blob[0];
+  // IMEM-slot bounds: vertex PSRAM slot is 128 B (32 words); fragment occupies
+  // IMEM[13..71] (59 words).  Reject oversized blobs and keep the baked shader.
+  if (stage == 0 && n > 32) return;
+  if (stage == 1 && n > 59) return;
+
+  const uint8_t *w = blob + 6;
+  uint32_t addr = (stage == 0) ? SEQ_VERT_SHADER_ADDR : SEQ_FRAG_SHADER_ADDR;
+  for (uint32_t i = 0; i < n; i++) {
+    uint32_t word = (uint32_t)w[i * 4]            | ((uint32_t)w[i * 4 + 1] << 8) |
+                    ((uint32_t)w[i * 4 + 2] << 16) | ((uint32_t)w[i * 4 + 3] << 24);
+    PSRAM_OUT_RAW(addr + i * 4) = word;
+  }
+  // NOTE: no UART print here.  The host streams the vert and frag 0xB0 packets
+  // back-to-back (USB-CDC buffering absorbs the inter-packet usleep into vert's
+  // own ~45 ms wire time, so frag immediately follows vert with no gap).  A
+  // blocking puts_uart between the two stages would drop frag's leading bytes
+  // from the shallow UART FIFO.  The drain loop prints a deferred confirmation
+  // after the whole burst is absorbed instead.
+  if (stage == 0) {
+    BORG_GPU->seq_vert_addr = SEQ_VERT_SHADER_ADDR;
+    BORG_GPU->seq_vert_len  = n;
+  } else {
+    BORG_GPU->seq_frag_addr = SEQ_FRAG_SHADER_ADDR;
+    BORG_GPU->seq_frag_len  = n;
   }
 }
 

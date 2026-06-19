@@ -95,6 +95,23 @@
 // bits[7:6]=01 routes PeriUart TX (peri_out[6]) to uo_out[6] → ftdi_rxd.
 #define SOC_GPIO_OUT_SEL (*(volatile uint32_t *)(uintptr_t)0x0800000C)
 
+// Warm-reset trigger: SoC register PERI_WARM_RESET = index 5 → 5*4 = 0x14.
+// Writing SOC_WARM_RESET_MAGIC pulses a warm reboot of the CPU + bootloader
+// WITHOUT resetting the PLL / SDRAM / scanout / HDMI sync — so the firmware can
+// be reloaded over serial while the monitor keeps its signal.  The bootloader
+// then copies a host-streamed image from BORG_RELOAD_SCRATCH → SDRAM 0.
+// Must match Project.scala PERI_WARM_RESET (0x5) and WARM_RESET_MAGIC.
+#define SOC_WARM_RESET       (*(volatile uint32_t *)(uintptr_t)0x08000014)
+#define SOC_WARM_RESET_MAGIC 0x0B16B007u
+
+// Serial-reload scratch: CPU byte address whose SDRAM word (0x800000 >> 1 =
+// 0x400000) matches the bootloader's WARM_SCRATCH_WORD.  Lives high in the
+// otherwise-unused upper ROM region — clear of firmware code (~37 KB at 0),
+// data/stack/texture/framebuffer (ram_a at 16 MB+).  Layout: [u32 size LE][image].
+// Must match FlashBootLoader.WARM_SCRATCH_WORD.
+#define BORG_RELOAD_SCRATCH  0x00800000u
+#define BORG_RELOAD_MAX      0x00080000u   // 512 KB cap (matches WARM_MAX_BYTES)
+
 // User-peripheral UART (PeriUart) at 0x08000800 — RX-capable on ULX3S once
 // ftdi_txd is routed to ui_in[7] in ULX3S.scala.
 // addr 0x0: read = received byte (clears rx_buffered); write = TX byte

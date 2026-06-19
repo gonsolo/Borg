@@ -59,6 +59,18 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
                                 const BorgShaderModule *rast,
                                 const BorgShaderModule *frag);
 
+// Runtime shader upload: re-stage a borgc-compiled .borg blob (spirb_parse
+// format) into the sequencer's PSRAM slot for `stage` (0 = vertex, 1 = fragment),
+// replacing the baked borgc_vert/frag_shader[].  Used by the borgvk Mesa driver's
+// 0xB0 serial packet so the app's own compiled shaders run at runtime.
+void borg_stage_shader(uint8_t stage, const uint8_t *blob);
+
+// Serial firmware reload (0xB1 marker): stream a new firmware image from the host
+// into SDRAM scratch, then warm-reset so the bootloader re-copies it to 0 and the
+// CPU reboots — without resetting the HDMI video domain (monitor keeps its
+// signal).  Returns (without resetting) on any framing/checksum/timeout error.
+void borg_serial_reload(void);
+
 // Set up draw data from a rotation angle (FP16 radians)
 void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16);
 

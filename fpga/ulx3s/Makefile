@@ -242,6 +242,18 @@ flash-vkcube: vkcube_with_header.bin
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 vkcube_with_header.bin
 	@echo -e "$(BOLD)[DONE]$(RESET) vkcube firmware flashed. Start tio, then: make reset"
 
+# Serial firmware reload — NO reflash, NO FPGA reconfig, so the HDMI monitor
+# never loses sync.  Rebuilds vkcube.bin (BORGC=1) and streams it to the running
+# firmware over /dev/ttyUSB0; the firmware warm-resets and reboots into it.
+# Requires firmware already running with the 0xB1 handler + warm-reset bitstream.
+.PHONY: reload
+reload:
+	@echo -e "$(BOLD)[RELOAD]$(RESET) Rebuilding vkcube.bin (BORGC=1) ..."
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
+		EXTRA_CFLAGS="-DTARGET_ULX3S -DUSE_SMALL_TEXTURE -DUSE_BORGC_VERT_SHADER -DUSE_BORGC_FRAG_SHADER" vkcube
+	@echo -e "$(BOLD)[RELOAD]$(RESET) Streaming vkcube.bin over serial (no reflash) ..."
+	python3 host/reload.py /dev/ttyUSB0 $(FIRMWARE_DIR)/vkcube.bin
+
 # Full vkcube deploy: synth + P&R + pack, flash bitstream + vkcube firmware.
 # Does NOT reset — run 'make reset' (with tio already open) to boot the new image.
 vkcube: borg.bit vkcube_with_header.bin

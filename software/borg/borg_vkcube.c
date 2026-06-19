@@ -79,7 +79,8 @@ static int     g_geom_recorded = 0;
 // 32-bit-only: the freestanding firmware has no libgcc 64-bit/popcount helpers.
 static unsigned int rx_geom_pkts     = 0; // valid 0xAE packets applied
 static unsigned int rx_tex_pkts      = 0; // valid 0xAF packets applied (incl. dups)
-static unsigned int rx_csum_fail     = 0; // 0xAE/0xAF checksum mismatches
+static unsigned int rx_csum_fail     = 0; // 0xAE/0xAF/0xB0 checksum mismatches
+static unsigned int rx_shader_pkts   = 0; // valid 0xB0 shader uploads applied
 static unsigned int rx_tex_distinct  = 0; // distinct rows seen (of 64)
 static unsigned int rx_tex_mask_lo   __attribute__((unused)) = 0; // rows 0..31
 static unsigned int rx_tex_mask_hi   __attribute__((unused)) = 0; // rows 32..63
@@ -90,9 +91,17 @@ static unsigned int rx_tex_mask_hi   __attribute__((unused)) = 0; // rows 32..63
 #define RX_TEX_DIM       TEX_WIDTH
 #define RX_TEX_PKT_LEN   (1 + 1 + RX_TEX_DIM * 6 + 1)
 
-// The shared drain buffer must hold the largest packet.
+// 0xB0 shader upload (borgvk Mesa driver): marker, stage(1B), len(2B LE), blob
+// padded to RX_SHADER_MAX, checksum.  RX_SHADER_MAX must match the host
+// BORG_SHADER_MAX (mesa borg_drm.h) / BORGVK_SHADER_BLOB_MAX.
+#define RX_SHADER_MAX     512
+#define RX_SHADER_PKT_LEN (1 + 1 + 2 + RX_SHADER_MAX + 1)
+
+// The shared drain buffer must hold the largest packet (geom / tex / shader).
 #define RX_PKT_BUF_LEN \
-  (RX_GEOM_PKT_LEN > RX_TEX_PKT_LEN ? RX_GEOM_PKT_LEN : RX_TEX_PKT_LEN)
+  (RX_GEOM_PKT_LEN > RX_TEX_PKT_LEN \
+     ? (RX_GEOM_PKT_LEN > RX_SHADER_PKT_LEN ? RX_GEOM_PKT_LEN : RX_SHADER_PKT_LEN) \
+     : (RX_TEX_PKT_LEN  > RX_SHADER_PKT_LEN ? RX_TEX_PKT_LEN  : RX_SHADER_PKT_LEN))
 
 static void mat4_identity(fp16_t m[16]) {
   for (int i = 0; i < 16; i++)
@@ -364,8 +373,17 @@ int main() {
     // whole burst is absorbed in one frame's drain window; break on anything
     // else (MVP/geom/idle) so the normal one-packet-per-frame behaviour and the
     // smooth spin are unchanged once the texture has uploaded.
+    // Deferred shader-upload confirmation: the host streams the vert+frag 0xB0
+    // packets back-to-back, so we cannot print between them (a blocking puts_uart
+    // would drop the next packet's leading bytes).  Record what was staged and
+    // print once the burst has been fully absorbed, below the drain loop.
+    int staged_vert = 0, staged_frag = 0;
+    // After a fully-read shader packet the next packet's marker is the very next
+    // byte on the wire (no gap), so skip the gap-resync step for that iteration.
+    int skip_gap = 0;
     for (int drain_iter = 0; drain_iter < 16; drain_iter++) {
       int got_tex_row = 0;
+      int got_shader_pkt = 0;
       // Measure idle time in REAL cycles via rdcycle() (not loop iterations —
       // this loop's body is far heavier than a bare volatile decrement and the
       // CPU is multi-cycle, so iteration counts don't map to wall time).  At
@@ -378,8 +396,9 @@ int main() {
       // Step 1: advance to a packet boundary — discard bytes until the line has
       // been idle for GAP_CYCLES of real time (resetting the idle timer on every
       // byte seen).  The guard bounds a continuously busy line so the frame
-      // never hangs.
-      {
+      // never hangs.  Skipped right after a shader packet: the next packet on the
+      // wire is contiguous, so resyncing here would discard it.
+      if (!skip_gap) {
         unsigned t0 = rdcycle();        // idle-window start
         unsigned tg = t0;               // guard start
         while ((unsigned)(rdcycle() - t0) < GAP_CYCLES) {
@@ -387,15 +406,21 @@ int main() {
           if ((unsigned)(rdcycle() - tg) >= GUARD_CYCLES) break;
         }
       }
+      skip_gap = 0;
 
       // Step 2: wait up to ~15 ms for the next packet's marker.  If none comes,
       // keep the previous transform for this frame.
       for (volatile int t = 375000; !uart_rx_ready() && t > 0; t--) ;
       if (uart_rx_ready()) {
         pkt_marker = (uint8_t)getc_uart();
+        // 0xB1 = serial firmware reload: a large variable-length stream handled
+        // directly (not via the fixed pkt_buf path).  On success it warm-resets
+        // and never returns; on error it returns and we resume rendering.
+        if (pkt_marker == 0xB1) { borg_serial_reload(); break; }
         int need = (pkt_marker == 0xAC) ? 37 : (pkt_marker == 0xAD) ? 66 :
                    (pkt_marker == 0xAE) ? RX_GEOM_PKT_LEN :
-                   (pkt_marker == 0xAF) ? RX_TEX_PKT_LEN : 0;
+                   (pkt_marker == 0xAF) ? RX_TEX_PKT_LEN :
+                   (pkt_marker == 0xB0) ? RX_SHADER_PKT_LEN : 0;
         if (need) {
           pkt_buf[0] = pkt_marker;
           pkt_pos = 1;
@@ -482,12 +507,38 @@ int main() {
             } else {
               rx_csum_fail++;
             }
+          } else if (pkt_marker == 0xB0) {
+            // Host-uploaded borgc shader blob.  Check ok first so we can emit a
+            // distinct diagnostic when the inner read loop timed out mid-packet.
+            if (!ok) {
+              puts_uart("B0:short\r\n");  /* inner loop timed out = USB gap? */
+              rx_csum_fail++;
+            } else {
+              uint8_t csum = 0;
+              for (int i = 1; i < RX_SHADER_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
+              uint8_t stage = pkt_buf[1];
+              uint32_t blen = (uint32_t)pkt_buf[2] | ((uint32_t)pkt_buf[3] << 8);
+              if (csum == pkt_buf[RX_SHADER_PKT_LEN - 1] && stage <= 1 &&
+                  blen >= 6 && blen <= RX_SHADER_MAX) {
+                borg_stage_shader(stage, &pkt_buf[4]);
+                rx_shader_pkts++;
+                got_shader_pkt = 1;
+                skip_gap = 1;  // next packet (frag / geom) is contiguous on wire
+                if (stage == 0) staged_vert = 1; else staged_frag = 1;
+              } else {
+                puts_uart("B0:csum\r\n");  /* checksum or bounds check failed */
+                rx_csum_fail++;
+              }
+            }
           }
         }
       }
       pkt_pos = 0;
-      if (!got_tex_row) break;  // not a texture row → stop draining, render this frame
+      if (!got_tex_row && !got_shader_pkt) break;  // not a texture row or shader → stop draining, render this frame
     }
+    // Deferred: print shader-upload confirmations now the burst is fully drained.
+    if (staged_vert) puts_uart("FW: vert shader uploaded\r\n");
+    if (staged_frag) puts_uart("FW: frag shader uploaded\r\n");
     (void)rot_x_reader;
     (void)rot_y_reader;
 #else
@@ -603,6 +654,7 @@ int main() {
       report_phase('G', rx_geom_pkts);
       report_phase('X', rx_tex_pkts);
       report_phase('R', rx_tex_distinct);
+      report_phase('S', rx_shader_pkts);
       report_phase('F', rx_csum_fail);
       putc_uart('\r');
       putc_uart('\n');
