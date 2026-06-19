@@ -93,7 +93,7 @@ The host Vulkan driver, **borgvk**, runs against the official Khronos
 [VK-GL-CTS](https://github.com/KhronosGroup/VK-GL-CTS) (`dEQP-VK`):
 
 ```bash
-make vulkan-cts   # → "borgvk: passed ~4000 of 1647405 mandatory Vulkan CTS tests (ran 8182: dEQP-VK.api.info.*)"
+make vulkan-cts   # → "borgvk: passed ~4000 of 1647405 mandatory Vulkan CTS tests = ~0.25%"
 ```
 
 By default this runs the `dEQP-VK.api.info.*` query class (~8,200 cases), of which

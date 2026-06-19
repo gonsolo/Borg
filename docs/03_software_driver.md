@@ -137,7 +137,7 @@ exercised by the official Khronos Conformance Test Suite,
 
 ```bash
 make vulkan-cts
-# ==> borgvk: passed ~4000 of 1647405 mandatory Vulkan CTS tests (ran 8182: dEQP-VK.api.info.*)
+# ==> borgvk: passed ~4000 of 1647405 mandatory Vulkan CTS tests = ~0.25%
 ```
 
 By default the target runs the `dEQP-VK.api.info.*` query class (~8,200 cases —

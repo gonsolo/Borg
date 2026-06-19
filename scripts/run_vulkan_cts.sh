@@ -56,15 +56,21 @@ else
   desc="$VK_CTS_CASE"
 fi
 
-echo "Running '$desc' against borgvk ..."
+echo "Running '$desc' against borgvk (a few minutes; full log: /tmp/borgvk-cts.log) ..."
 cd "$(dirname "$DEQP_VK")"
+# Send the per-case chatter to the log; we only surface the summary below.
 LD_LIBRARY_PATH="${LOADER_DIR:+$LOADER_DIR:}${LD_LIBRARY_PATH:-}" \
 VK_DRIVER_FILES="$ICD" \
 LD_PRELOAD="${SHIM}${LD_PRELOAD:+:$LD_PRELOAD}" \
   ./deqp-vk "${selector[@]}" --deqp-log-filename=/tmp/borgvk-cts.qpa \
-    2>&1 | tee /tmp/borgvk-cts.log || true   # deqp-vk exits non-zero on expected fails
+    > /tmp/borgvk-cts.log 2>&1 || true   # deqp-vk exits non-zero on expected fails
+
+# Quiet output: just the run-totals block, then the headline.
+sed -n '/Test run totals:/,/Waived:/p' /tmp/borgvk-cts.log || true
 
 PASS="$(grep -oP 'Passed:\s+\K[0-9]+' /tmp/borgvk-cts.log | head -1 || echo 0)"
 RAN="$(grep -oP 'Passed:\s+[0-9]+/\K[0-9]+' /tmp/borgvk-cts.log | head -1 || echo '?')"
+# Percentage of the full mandatory suite (the ~1.6M conformance denominator).
+PCT_ALL="$(awk -v p="${PASS:-0}" -v t="$TOTAL" 'BEGIN{ if (t+0>0) printf "%.3f", p*100.0/t; else printf "?" }')"
 echo
-echo "==> borgvk: passed ${PASS:-0} of ${TOTAL} mandatory Vulkan CTS tests (ran ${RAN}: ${desc})"
+echo "==> borgvk: passed ${PASS:-0} of ${TOTAL} mandatory Vulkan CTS tests = ${PCT_ALL}%"
