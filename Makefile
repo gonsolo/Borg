@@ -81,10 +81,6 @@ generate_verilog_ulx3s: rdl
 generate_verilog_ulx3s_minimal:
 	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMinimalMain
 
-# RV64 minimal ULX3S — Hutt xlen=64 + HuttDataWidthAdapter + UART.
-generate_verilog_ulx3s_rv64:
-	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMinimalRv64Main
-
 # HDMI Test Pattern emission
 generate_hdmi_test: rdl
 	TARGET_DIR=out/ulx3s/hdmi_test $(MILL) fpga.ulx3s.soc.runMain soc.HdmiTestMain
