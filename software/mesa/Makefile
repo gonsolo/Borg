@@ -23,9 +23,25 @@ MESON_OPTS := -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms=x11 \
 # Devenv ICD manifest (points at the in-tree .so; for use via VK_DRIVER_FILES).
 ICD := $(BUILD_DIR)/src/borg/vulkan/borg_devenv_icd.$(shell uname -m).json
 
-.PHONY: all configure build install clean icd-path enumtest inittest submittest vulkaninfo
+.PHONY: all configure build install clean icd-path enumtest inittest submittest vulkaninfo cross-rv64
 
 all: build
+
+# Gate 2: cross-build the borgvk driver for the future RV64 Hutt Linux target.
+# Proves the driver compiles + links for riscv64 (the genuine unknown for the
+# on-Hutt Linux stack); the host build is unaffected.  Uses the meson cross file
+# emitted by the dev-shell shellHook (mesa/riscv64-cross.txt) and target libs
+# from pkgsCross.riscv64.  No X11/Wayland on the target (KMS later) → platforms=.
+CROSS_BUILD_DIR  := $(MESA_SRC)/build-borg-rv64
+CROSS_FILE       := $(MESA_SRC)/riscv64-cross.txt
+CROSS_MESON_OPTS := -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms= \
+                    -Dllvm=disabled -Dglx=disabled -Dtools= -Dvideo-codecs= \
+                    --prefix=$(REPO_ROOT)/out/mesa-rv64
+cross-rv64:
+	meson setup $(CROSS_BUILD_DIR) $(MESA_SRC) --cross-file $(CROSS_FILE) $(CROSS_MESON_OPTS)
+	ninja -C $(CROSS_BUILD_DIR) src/borg/vulkan/libvulkan_borg.so
+	@echo "=== Gate 2: borgvk cross-built for riscv64 ==="
+	@file $(CROSS_BUILD_DIR)/src/borg/vulkan/libvulkan_borg.so
 
 configure: $(BUILD_DIR)/build.ninja
 $(BUILD_DIR)/build.ninja:

@@ -105,6 +105,12 @@
         pkgs.z3
         pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
         pkgs.pkgsCross.riscv32-embedded.buildPackages.binutils
+        # riscv64 Linux cross toolchain — Gate 2: cross-build borgvk for the
+        # future RV64 Hutt Linux target.  Confirms the driver is RV64 + soft-float
+        # (lp64) clean.  Buildroot will own the final rootfs ABI; this just gates
+        # the code.  ($CROSS64 below names the binutils/gcc prefix.)
+        pkgs.pkgsCross.riscv64.buildPackages.gcc
+        pkgs.pkgsCross.riscv64.buildPackages.binutils
         pythonEnv
       ];
 
@@ -137,6 +143,9 @@
 
       shellHook = ''
         export GONSOLO_PROJECT="borg_tinyqv"
+
+        # Gate 2: riscv64 Linux cross toolchain prefix (borgvk RV64 cross-build).
+        export CROSS64=riscv64-unknown-linux-gnu
 
         # PURE MODE COMPATIBILITY:
         # 1. Mill/Java require a HOME to write lockfiles and caches.
@@ -172,6 +181,31 @@
         sed 's|pkgdatadir=.*|pkgdatadir=${pkgs.wayland-scanner}/share/wayland|' \
           ${pkgs.wayland.dev}/lib/pkgconfig/wayland-client.pc > "$_wl_pc/wayland-client.pc"
         export PKG_CONFIG_PATH="$_wl_pc''${PKG_CONFIG_PATH:+:''${PKG_CONFIG_PATH}}"
+
+        # Gate 2: emit a meson cross file for the riscv64 Linux target so we can
+        # cross-build the borgvk driver (proves it links for RV64; the unknown for
+        # the future on-Hutt Linux stack).  Toolchain ABI is rv64gc/lp64d (the
+        # pkgsCross default); Buildroot owns the final soft-float lp64 rootfs.
+        # pkg_config_path points at riscv64-cross target libs (libdrm/expat/zlib/
+        # zstd), kept out of the native PKG_CONFIG_PATH so host builds are unaffected.
+        export BORG_RV64_PCPATH="${pkgs.pkgsCross.riscv64.libdrm.dev}/lib/pkgconfig:${pkgs.pkgsCross.riscv64.expat.dev}/lib/pkgconfig:${pkgs.pkgsCross.riscv64.zlib.dev}/lib/pkgconfig:${pkgs.pkgsCross.riscv64.zstd.dev}/lib/pkgconfig"
+        cat > "$(pwd)/mesa/riscv64-cross.txt" <<CROSSEOF
+[binaries]
+c = '${pkgs.pkgsCross.riscv64.buildPackages.gcc}/bin/riscv64-unknown-linux-gnu-gcc'
+cpp = '${pkgs.pkgsCross.riscv64.buildPackages.gcc}/bin/riscv64-unknown-linux-gnu-g++'
+ar = '${pkgs.pkgsCross.riscv64.buildPackages.binutils}/bin/riscv64-unknown-linux-gnu-ar'
+strip = '${pkgs.pkgsCross.riscv64.buildPackages.binutils}/bin/riscv64-unknown-linux-gnu-strip'
+pkg-config = '${pkgs.pkg-config}/bin/pkg-config'
+
+[built-in options]
+pkg_config_path = '$BORG_RV64_PCPATH'
+
+[host_machine]
+system = 'linux'
+cpu_family = 'riscv64'
+cpu = 'riscv64'
+endian = 'little'
+CROSSEOF
       '';
     };
 
