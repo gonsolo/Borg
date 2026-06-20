@@ -48,11 +48,11 @@ The firmware implements a full triangle rendering pipeline:
 4. **Fragment Shader** — Unified pass (compiled via linear scan allocator) performing barycentric interpolation for RGB, Z, and UV simultaneously
 5. **Hardware Z-Buffer** — Per-pixel depth testing in the hardware tile buffer
 6. **Hardware Texturing** — Morton-encoded texel fetch with snooped fragment coordinates
-7. **Framebuffer Output** — Results written to PSRAM, read by host (RP2040) for display
+7. **Framebuffer Output** — Results written to DRAM, read by host (RP2040) for display
 
 ### SPIR-B Shader Format
 
-Shaders are compiled from GLSL-like source to a compact binary format (SPIR-B) and loaded at runtime from PSRAM — no firmware reflash needed to change shaders.
+Shaders are compiled from GLSL-like source to a compact binary format (SPIR-B) and loaded at runtime from DRAM — no firmware reflash needed to change shaders.
 
 ### SystemRDL & Hardware Command FIFO
 

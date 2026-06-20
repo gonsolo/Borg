@@ -60,7 +60,7 @@ depending on your goal:
 4. [Running on an FPGA](04_fpga.md) — ULX3S FPGA target
 5. [Generating the ASIC](05_asic.md) — RTL-to-GDS flow, configuration, verification
 6. [Simulation](06_simulation.md) — Verilator, Arcilator, and interactive viewing
-7. [Tile-Based Rendering](07_tbr.md) — Two-pass TBR, BorgBinner, BorgSequencer FSM, PSRAM layout
+7. [Tile-Based Rendering](07_tbr.md) — Two-pass TBR, BorgBinner, BorgSequencer FSM, DRAM layout
 
 ### Appendices
 

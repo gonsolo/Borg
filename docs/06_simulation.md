@@ -10,7 +10,7 @@ Rather than maintaining separate ad-hoc simulators for each backend, Borg uses a
 classDiagram
     BorgSimulatorBase <|-- VerBorgSimulator
     BorgSimulatorBase <|-- ArcBorgSimulator
-    BorgSimulatorBase : +psram QSPIMemory
+    BorgSimulatorBase : +flat QSPIMemory
     BorgSimulatorBase : +flash QSPIMemory
     BorgSimulatorBase : +step(cycles)
     VerBorgSimulator : -Vtt_um_gonsolo_borg* model
@@ -19,7 +19,7 @@ classDiagram
 
 All simulators share the same cycle-accurate model of the **QSPI bus**, including:
 - 1MB Flash (read-only instruction storage)
-- 8MB PSRAM (framebuffer, z-buffer, textures)
+- 8MB DRAM (framebuffer, z-buffer, textures)
 
 This ensures that any software that runs in simulation will run identically on the physical FPGA hardware, as the CPU must use the same QSPI protocol to access memory in both environments.
 
@@ -43,7 +43,7 @@ The C++ simulators are wrapped with **nanobind**, allowing them to be driven by 
 make -C simulation/verilator vkcube_gui
 ```
 
-The viewer uses **Pygame** to display the simulated framebuffer in real-time. It runs the simulation in chunks (e.g., 200,000 cycles per UI frame) to keep the window responsive while the simulated GPU renders. It also supports mouse-driven rotation by snooping the PSRAM uniform memory and updating the camera's MVP matrix.
+The viewer uses **Pygame** to display the simulated framebuffer in real-time. It runs the simulation in chunks (e.g., 200,000 cycles per UI frame) to keep the window responsive while the simulated GPU renders. It also supports mouse-driven rotation by snooping the DRAM uniform memory and updating the camera's MVP matrix.
 
 ## Hardware Parity
 

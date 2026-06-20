@@ -11,7 +11,7 @@ Target: March 2026 — TTIHP26a shuttle
 - [x] Per-vertex color interpolation
 - [x] Dynamic framebuffer resolution
 - [x] Z-buffer (firmware, per-pixel depth testing)
-- [x] Texture mapping (firmware, UV interpolation + PSRAM sampling)
+- [x] Texture mapping (firmware, UV interpolation + DRAM sampling)
 - [x] FPGA validation on pico-ice
 - [x] GDS submission (4×2 tiles, IHP SG13G2) — [TinyTapeout (tt06)](https://app.tinytapeout.com/projects/3645)
 - [x] 32-bit RISC-V instructions & 32-entry register file
@@ -28,9 +28,9 @@ The CPU drives every pixel: ~7–9 `borg_run()` MMIO round-trips per pixel
 (3 edge tests + 3–6 fragment channels). Dominated by MMIO overhead, not
 compute.
 
-### PSRAM Access by Step
+### DRAM Access by Step
 
-| Step | CPU → PSRAM | GPU → PSRAM | Contention |
+| Step | CPU → DRAM | GPU → DRAM | Contention |
 | ---- | ----------- | ----------- | ---------- |
 | Current | R/W every pixel | None | Low (CPU is sole user) |
 | 0–10 | R/W every pixel (unchanged) | None | Low |
@@ -154,12 +154,12 @@ instead of driving every pixel. **This is the key transition from
   - **10.6.7: Cross-Language Structural Reflection** ✅ (2026-04-06)
 
   - *Step 10 (now)*: CPU → MMIO writes → on-chip buffer (32 entries, scaffolding)
-  - *Step 21 (GPU DMA)*: GPU fetches uniforms, IMEM, and registers from PSRAM autonomously
+  - *Step 21 (GPU DMA)*: GPU fetches uniforms, IMEM, and registers from DRAM autonomously
 
 ### Step 11: On-Chip Tile Buffer (BRAM)
 
 4×4 pixel tile buffer in Block RAM (RGB + Z). Rasterizer writes on-chip; a
-burst flush writes the completed tile to PSRAM. Eliminates per-pixel PSRAM
+burst flush writes the completed tile to DRAM. Eliminates per-pixel DRAM
 round-trips. Tile-based approach matches mobile GPU architecture (Mali,
 PowerVR, Adreno). Estimate: 1–2 weeks.
 
@@ -180,7 +180,7 @@ of firmware. 2-cycle read→compare→conditional-write state machine inside
 `BorgTileBuffer`. Unsigned integer comparison (valid for positive FP16).
 Rasterizer's `sTileWrite` phase asserts `zTestEn` and waits for `zTestBusy`.
 Firmware `shade_and_write_pixel` no longer does per-pixel negative-Z guard
-(hardware handles it). PSRAM Z-buffer write retained for cross-triangle ordering.
+(hardware handles it). DRAM Z-buffer write retained for cross-triangle ordering.
 Verified: all Chisel tests, Verilator + Arcilator triangle rendering.
 
 ### Step 13: Command FIFO ✅ (2026-04-08)
@@ -214,14 +214,14 @@ Estimate: 1 week.
 
 ### Step 15: Interactive Viewer ✅ (2026-04-10)
 
-Implement a workstation-side UI runner that embeds the C++ Verilator simulation. Bridges the simulation's PSRAM output securely to an SDL2/Pygame window, enabling instantaneous visualization and WASD/mouse manipulation of the hardware engine in real-time.
+Implement a workstation-side UI runner that embeds the C++ Verilator simulation. Bridges the simulation's DRAM output securely to an SDL2/Pygame window, enabling instantaneous visualization and WASD/mouse manipulation of the hardware engine in real-time.
 
 - **Step 15.1: Pygame Binding & UI Rotation** ✅ (2026-04-09): Setup zero-copy nanobind bridge, cleared SPI deadlocks, and successfully bound mouse movement to dynamic hardware rotation rendering.
 - **Step 15.2: Fast Memory Simulation** ✅ (2026-04-10): Bypass the QSPI serialization in the simulator by directly hooking the C++ memory models onto the TinyQV memory bus using a fast `TinyQVMemCtrlSim`, accelerating simulation cycles by ~11x (from >20M to 1.75M cycles per frame) for smoother interactive UI framerates.
 
 ### Step 16: Texture Fetch Unit ✅ (2026-04-13)
 
-UV-to-texel conversion, Morton addressing, and PSRAM texel read inside the
+UV-to-texel conversion, Morton addressing, and DRAM texel read inside the
 pixel iterator. By this step the CPU is out of the inner loop, so there is no
 bus contention — the failure mode of the earlier texture cache experiment.
 
@@ -257,7 +257,7 @@ and `tinyqv` (CPU). This must happen before Step 19 adds new SoC-level files.
 ### Step 19: Shared Memory Controller ✅ (2026-04-14)
 
 Extract `TinyQVMemCtrl` to SoC level and add a GPU read port, making Borg an
-autonomous bus master for PSRAM reads. This follows the universal GPU memory
+autonomous bus master for DRAM reads. This follows the universal GPU memory
 architecture pattern: every GPU that shares memory with a CPU is a bus master
 issuing its own read/write transactions through a shared interconnect with an
 arbiter. The closest existing architecture is Broadcom VideoCore IV (RPi):
@@ -347,10 +347,10 @@ This step closes that gap structurally. Estimate: 3–5 days.
 Unified the memory subsystem by removing the unreliable `MemoryControllerSim` and adopting a single, cycle-accurate `MemoryController` for both FPGA and simulation.
 
 - **Step 24.1: Unified Logic ✅** — SoC uses one `MemoryController` with a clean byte-addressed interface (no base offsets).
-- **Step 24.2: QSPI Parity ✅** — Simulators (Verilator/Arcilator) now use high-fidelity QSPI pin simulation, ensuring 100% hardware parity for Flash and PSRAM.
+- **Step 24.2: QSPI Parity ✅** — Simulators (Verilator/Arcilator) now use high-fidelity QSPI pin simulation, ensuring 100% hardware parity for Flash and DRAM.
 - **Step 24.3: Verification ✅** — Verified pixel-perfect rendering using the new unified path.
 
-### Step 25: PSRAM Write Path + Architecture Decoupling ✅ (2026-04-29)
+### Step 25: DRAM Write Path + Architecture Decoupling ✅ (2026-04-29)
 
 - **Step 25.1: `GpuMemIO` write signals ✅** (rename done 2026-04-23)
 
@@ -405,14 +405,14 @@ Unified the memory subsystem by removing the unreliable `MemoryControllerSim` an
 
   - **Step 25.4.1: Single-Pixel Hardware Flush ✅** (2026-04-29)
     - Integrated `BorgTileFlusher` hardware path with read-before-write depth-test logic.
-    - Unified address arithmetic for hardware and software paths using `PSRAM_OUT_SPI`.
+    - Unified address arithmetic for hardware and software paths using `DRAM_OUT_SPI`.
     - Resolved firmware build issues (assert.h stub, header include paths).
     - Validated rendering parity across Verilator and FPGA targets.
 
   - **Step 25.4.2: Full 16-Pixel Tile Flush ✅** (2026-04-29)
-    - `BorgTileFlusher` flushes all 16 tile pixels to PSRAM per tile-complete signal (Sim/Verilator/Arcilator).
-    - FPGA CPU-fallback path: firmware reads all 16 pixels via `TILE_CTRL`/`TILE_BZ`/`TILE_RG` MMIO and writes to PSRAM when `FLUSH_BUSY=0` (HW flusher absent).
-    - Fixed `generate.py` to parse `borg_layout.h` for `PSRAM_OUT_OFFSET` and `TEX_PSRAM_BYTE_OFFSET` instead of hardcoded stale values (was `0x80100`/`0x80`, now `0x84000`/`0x4000`).
+    - `BorgTileFlusher` flushes all 16 tile pixels to DRAM per tile-complete signal (Sim/Verilator/Arcilator).
+    - FPGA CPU-fallback path: firmware reads all 16 pixels via `TILE_CTRL`/`TILE_BZ`/`TILE_RG` MMIO and writes to DRAM when `FLUSH_BUSY=0` (HW flusher absent).
+    - Fixed `generate.py` to parse `borg_layout.h` for `DRAM_OUT_OFFSET` and `TEX_DRAM_BYTE_OFFSET` instead of hardcoded stale values (was `0x80100`/`0x80`, now `0x84000`/`0x4000`).
     - Updated `fpga/common/host/render.py` and `scripts/postprocess.py` to decode TBR tiled layout (2 words/pixel, 4×4 tile addressing, `lo={B,Z}` / `hi={R,G}`).
     - Fixed arcilator `marker_offset_word` to use tiled layout (2 words/pixel vs old 4).
     - All 12/12 test suites pass including `render › fpga (hw)`. ✓
@@ -436,7 +436,7 @@ hardware tile flusher. The DMA hardware (`BorgDMA.scala`) is already built
   wired directly in `sRead` — firmware holds them stable during transfer. All 195/195 tests pass.
 
 - **Step 26.4: Firmware DMA wrapper** ✅ (2026-04-29) — `dma_load_shader()` and
-  `dma_load_uniforms()` added to `borg_fpu.c`/`borg_fpu.h`. Programs `DMA_PSRAM` +
+  `dma_load_uniforms()` added to `borg_fpu.c`/`borg_fpu.h`. Programs `DMA_DRAM` +
   `DMA_CONFIG` (START|LENGTH|DEST|OFFSET) and polls `STATUS_REG_T__DMA_BUSY_bm`.
 
 - **Step 26.5: Remove duplicate tile_bz shadow registers** ✅ (2026-04-30) — `tileShadowB`/
@@ -480,13 +480,13 @@ hierarchy supporting both pico-ice (iCE40 UP5K) and ULX3S (ECP5-85K).
 `BorgConfig.Sim` already has `hasFlusher=true` — development and validation fully possible in
 Verilator today. ULX3S provides final hardware confirmation only.
 
-With the hardware flusher active, the CPU no longer touches the tile buffer or PSRAM write path
+With the hardware flusher active, the CPU no longer touches the tile buffer or DRAM write path
 during rendering. Full autonomy milestone.
 
 - **Step 28.1: `hw_flusher_autonomous` Chisel integration test** ✅ — Added to `BorgTests.scala`.
   Writes a known 16-pixel pattern via MMIO, runs a rast shader through all 16 tile pixels so
   `tileComplete` fires autonomously, drives `io.gpuMem.ready`, and verifies: `FLUSH_BUSY` goes
-  high then clears, exactly 32 PSRAM writes issued at correct byte addresses (`tileBase + i*8`
+  high then clears, exactly 32 DRAM writes issued at correct byte addresses (`tileBase + i*8`
   stride), and all lo/hi word data matches `{B,Z}` / `{R,G}` packing. Tests: 1/1 ✓.
 
 ### Step 29: Integrated Vertex + Triangle Setup Sequencer ✅ (2026-05-01)
@@ -499,7 +499,7 @@ the ULX3S arrives. `hasSequencer=true` on Sim and ULX3S; `false` on PicoIce (LC 
 Reuses the existing `BorgDMA` engine and `BorgCore` FPU pipeline — no new arithmetic hardware.
 Triangle setup is shader-based (per `docs/A1_bibliography.md`).
 
-**PSRAM descriptor layout (Option A — 25 FP16 words = 50 bytes):**
+**DRAM descriptor layout (Option A — 25 FP16 words = 50 bytes):**
 `pos[3×3] | color[3×3] | uv[3×2] | flags` — post-clip, post-perspective-divide screen triangles.
 Clipping remains on CPU (variable-length polygon output is not FSM-friendly).
 Evolution path: Option B (VBO + stride) in Step 31; Option C (index buffer) in Phase 2.
@@ -550,7 +550,7 @@ Evolution path: Option B (VBO + stride) in Step 31; Option C (index buffer) in P
   Gate: `BorgSequencerTests.sequencer_uniform_staging` — 198/198 tests pass. ✓
 
 - **Step 29.4: Integration test** ✅ (2026-05-01) — `sequencer_full_triangle` verifies
-  the complete pipeline: PSRAM descriptor → vertex shader → setup shader → sStageUniforms
+  the complete pipeline: DRAM descriptor → vertex shader → setup shader → sStageUniforms
   → rasterizer (trivial "always inside") → fragment shader reads staged uniform u14
   (color[0].r = 1.0) → tile buffer pixel RGBZ all match expected values.
   Bug fix: sStageUniforms uniform write address must include `uniformPage` bit
@@ -561,11 +561,11 @@ Evolution path: Option B (VBO + stride) in Step 31; Option C (index buffer) in P
 - **Step 29.5: Firmware auto-detection + golden image** ✅ (2026-05-01) — `borgCmdDraw()` auto-detects
   sequencer via `STATUS.seq_busy` (trigger dummy run during `borgCreateGraphicsPipeline()`).
   When detected, `borgBinRender()` replaces `setup_tile_uniforms()` with sequencer trigger:
-  writes vertex descriptor to PSRAM per draw call, triggers `SEQ_TRIGGER`, polls `seq_busy`,
+  writes vertex descriptor to DRAM per draw call, triggers `SEQ_TRIGGER`, polls `seq_busy`,
   reloads rast+frag shaders to IMEM (sequencer overwrites with setup shader).
-  New PSRAM layout: `SEQ_VERT_SHADER_ADDR` (0x4800), `SEQ_SETUP_SHADER_ADDR` (0x4880),
+  New DRAM layout: `SEQ_VERT_SHADER_ADDR` (0x4800), `SEQ_SETUP_SHADER_ADDR` (0x4880),
   `SEQ_DESC_BASE_ADDR` (0x4900, 96-byte stride per draw call).
-  Added `PSRAM_OUT_RAW(spi_addr)` macro for raw SPI byte address access.
+  Added `DRAM_OUT_RAW(spi_addr)` macro for raw SPI byte address access.
   PicoIce path unchanged (`has_sequencer=0` → CPU `setup_tile_uniforms()` fallback).
   Gate: `make triangle` + `make vkcube` golden images match baseline; 199/199 Chisel tests pass. ✓
 
@@ -581,7 +581,7 @@ via `BorgSequencerTests.sequencer_full_triangle`.
 
 - **Step 30.1: Embed setup shader + enable sequencer path** ✅ (2026-05-02) — Hard-coded the
   22-instruction triangle-setup shader in `borg_driver.c`, embedded identity vert
-  shader in PSRAM, enabled the sequencer auto-detection path.  The sequencer FSM
+  shader in DRAM, enabled the sequencer auto-detection path.  The sequencer FSM
   and DMA pipeline are now exercised on every draw call; uniforms are still
   overwritten by the CPU path pending edge normalization.
   Gate: `m test-all` 12/12 green with `has_sequencer=1` active. ✅
@@ -623,7 +623,7 @@ via `BorgSequencerTests.sequencer_full_triangle`.
 
 ### Step 31: Multi-Triangle Autonomous Rendering ✅ (2026-05-03)
 
-Extend Step 30 to process a list of triangle descriptors from PSRAM without
+Extend Step 30 to process a list of triangle descriptors from DRAM without
 CPU involvement. The GPU reads the next descriptor, runs the full pipeline
 (Vertex -> Setup -> Fragment), and signals DONE after the last triangle.
 The CPU submits a draw call (base pointer + count) and waits.
@@ -632,14 +632,14 @@ The CPU submits a draw call (base pointer + count) and waits.
   32B metadata with tile-aligned bbox) + BBox storage registers in sequencer.
 
 - **Step 31.2: Shader Reload** ✅ — Hardware-driven IMEM staging: sequencer
-  DMA-loads rast/frag shaders from pre-staged PSRAM between setup and tile
-  iteration. Firmware stages shaders via `PSRAM_OUT_RAW` in
+  DMA-loads rast/frag shaders from pre-staged DRAM between setup and tile
+  iteration. Firmware stages shaders via `DRAM_OUT_RAW` in
   `borgCreateGraphicsPipeline()`.
 
 - **Step 31.3: Multi-Triangle Loop** ✅ — Sequential triangle processing via
   `sNextTriangle`. `triCount=0` guard in `sIdle` prevents the firmware's
   sequencer detection probe from running the full pipeline with garbage data
-  (which corrupted the PSRAM firmware binary via tile flushing to `fbBase=0`).
+  (which corrupted the DRAM firmware binary via tile flushing to `fbBase=0`).
 
 - **Step 31.4: Autonomous Tile Iteration** ✅ (2026-05-03) — Hardware-driven
   bounding box walk with `sClearTile → sEnqueueTile → sIteratePixels →
@@ -661,11 +661,11 @@ Gate: `m test-all` 12/12 green; both triangles pixel-perfect (max_diff=0). ✅
 
 > **Motivation**: `vk_cube` renders 12 triangles with heavy face overlap. In the current
 > single-pass sequencer a tile in the centre of the screen is rasterised and flushed to
-> PSRAM once per triangle that covers it — up to 8×. A true TBR replaces this with a
+> DRAM once per triangle that covers it — up to 8×. A true TBR replaces this with a
 > geometry pass that bins all triangles to tiles, then a tile-render pass that flushes
 > each tile **exactly once per frame**, eliminating overdraw write bandwidth.
 
-#### 32.0 PSRAM memory layout ✅ (2026-05-04)
+#### 32.0 DRAM memory layout ✅ (2026-05-04)
 
 Define the two new regions that live after the existing framebuffer:
 
@@ -677,13 +677,13 @@ Define the two new regions that live after the existing framebuffer:
 > **Scalability notes (applied before hardware):**
 >
 > - Triangle indices are `uint16_t` (not `uint8_t`) — cap is 65 535, not 255.
-> - `SEQ_MAX_TRI = 1024` in `borg_layout.h` is the **PSRAM layout constant** (bin list + setup store sizing). It does **not** allocate RAM.
-> - `BORG_MAX_DRAWS = 12` in `borg_driver.c` is the **in-RAM draw-call buffer**; it stays at 12 (constrained by the 0x600-byte PSRAM descriptor window). These two constants are intentionally decoupled.
+> - `SEQ_MAX_TRI = 1024` in `borg_layout.h` is the **DRAM layout constant** (bin list + setup store sizing). It does **not** allocate RAM.
+> - `BORG_MAX_DRAWS = 12` in `borg_driver.c` is the **in-RAM draw-call buffer**; it stays at 12 (constrained by the 0x600-byte DRAM descriptor window). These two constants are intentionally decoupled.
 > - Base addresses (`tbr_bin_base`, `tbr_setup_base`) are computed at runtime in `borgCreateDevice()` after the framebuffer size is known, so they automatically adjust to any resolution.
 > - Setup store stride is 64 B (power of 2) → address = `tbr_setup_base + (tri << 6)`, no multiplier needed in hardware.
 
 For vk_cube (12 tri, 10×8 tiles): 80 × 12 × 2 = 1.9 KB bin lists + 768 B setup store.\
-For 1 000 tri, 80 tiles: 160 KB bin lists + 64 KB setup store — well within 8 MB PSRAM.
+For 1 000 tri, 80 tiles: 160 KB bin lists + 64 KB setup store — well within 8 MB DRAM.
 
 Add constants to `borg_layout.h`; update `borg_driver.c` (`borgCreateDevice` computes bases).
 
@@ -693,8 +693,8 @@ New Chisel module `BorgBinner` (`BorgBinner.scala`):
 
 - Inputs: triangle index (`uint16`), setup-phase bbox `{y0,x0,y1,x1}` (tiled), trigger.
 - For each tile in bbox: DMA-write triangle index to `binList[tile][count[tile]++]`
-  in PSRAM. Per-tile count lives in a `SyncReadMem` SRAM (maxTiles entries × 10 bits).
-- FSM: `sIdle → sReadCount → sWaitCount → sWritePsram → sStoreCount → sNextTile → ...`
+  in DRAM. Per-tile count lives in a `SyncReadMem` SRAM (maxTiles entries × 10 bits).
+- FSM: `sIdle → sReadCount → sWaitCount → sWriteDram → sStoreCount → sNextTile → ...`
 - Output: `done` strobe when all tiles written.
 - Gated behind `hasBinner: Boolean` in `BorgConfig`; disabled on iCE40 (`PicoIce`).
 - Wired in `Borg.scala` (`wireBinner()`): sequencer drives all inputs (Step 32.2);
@@ -718,7 +718,7 @@ Extended `BorgSequencer` FSM with per-triangle geometry pass:
 
 Restructured the sequencer into a true two-pass TBR (26 → 33 FSM states):
 
-**Pass 1 (geometry)**: for each triangle: vert+setup+bin → `sStageUniforms` → **`sStoreSetup`** (writes all 31 uniforms to PSRAM at `setupBase + triIdx*128`) → `sNextTriangle`.
+**Pass 1 (geometry)**: for each triangle: vert+setup+bin → `sStageUniforms` → **`sStoreSetup`** (writes all 31 uniforms to DRAM at `setupBase + triIdx*128`) → `sNextTriangle`.
 
 **Pass 2 (tile render)**: once after all triangles binned — rast+frag shaders loaded once → `sStartPass2` iterates ALL framebuffer tiles:
 
@@ -736,11 +736,11 @@ Restructured the sequencer into a true two-pass TBR (26 → 33 FSM states):
 #### ✅ 32.4 Driver integration — 2026-05-04
 
 - **`borgBinRenderAutonomous()`** updated:
-  - Removed CPU full-framebuffer clear-fill loop (~16K PSRAM writes eliminated).
+  - Removed CPU full-framebuffer clear-fill loop (~16K DRAM writes eliminated).
   - Added three new MMIO writes before `seq_trigger`: `seq_bin_base`, `seq_bin_row_bytes`, `seq_setup_base`.
   - Function now writes 7 MMIO regs + 1 trigger; both passes run fully autonomously.
 - **`TBR_SETUP_ENTRY_BYTES`**: `64` → `128` (31 uniforms × 4B = 124B, padded to 128B power-of-2; stride = `tri << 7`).
-- **Documentation**: Added `docs/07_tbr.md` — full TBR architecture chapter covering two-pass design, BorgBinner, FSM state table, PSRAM layout, hardware component diagram, driver API, and performance characteristics.
+- **Documentation**: Added `docs/07_tbr.md` — full TBR architecture chapter covering two-pass design, BorgBinner, FSM state table, DRAM layout, hardware component diagram, driver API, and performance characteristics.
 - `make test-all` green (Verilator triangle + vkcube pixel-perfect); vk_cube renders correctly.
 
 #### ✅ 32.5 vkcube Lighting Fix & PicoIce Updates — 2026-05-06
@@ -792,7 +792,7 @@ Current utilisation: **161%** — fails at global placement.
 | --- | --- | --- |
 | Current | 1,104,576 µm² | 161% ✗ |
 | +OPT-1: coordLut → arithmetic | 756,424 µm² | 110% ✗ |
-| +OPT-2: countMem → PSRAM | 538,517 µm² | **79%** ✓ |
+| +OPT-2: countMem → DRAM | 538,517 µm² | **79%** ✓ |
 | +OPT-3: custom FP16 FMA | 458,517 µm² | **67%** ✓ |
 | +OPT-4: ASIC config + cleanup | 438,517 µm² | **64%** ✓✓ |
 | +OPT-5: shrink IMEM/uniforms/regs/rcp | ~388,000 µm² | **57%** ✓✓ |
@@ -816,20 +816,20 @@ Current utilisation: **161%** — fails at global placement.
   write port from `BorgCore` IO (already tied off in `Borg.scala`).
   Gate: `m test-all` green; `coordX`/`coordY` match LUT output for x ∈ 0..511.
 
-- **OPT-2: Move `countMem` write-pointers to PSRAM** *(−15 to −20% area, medium risk, ~1–2 days)*
+- **OPT-2: Move `countMem` write-pointers to DRAM** *(−15 to −20% area, medium risk, ~1–2 days)*
 
   `countMem` (1024×10 DFF array, 218K µm²) tracks how many triangle indices have
-  been written to each tile's PSRAM bin list. It acts as a write-pointer array for Pass 1.
+  been written to each tile's DRAM bin list. It acts as a write-pointer array for Pass 1.
 
   **Universal approach:** Instead of storing the write-pointers on-chip as DFFs or
-  SRAM macros, allocate a 2 KB region at the start of the PSRAM binning area to
+  SRAM macros, allocate a 2 KB region at the start of the DRAM binning area to
   store the 1024 counts. When binning a triangle:
-  1. Read the tile's current count from PSRAM.
-  2. Write the triangle ID to the tile's bin list in PSRAM.
-  3. Write `count + 1` back to the PSRAM count region.
+  1. Read the tile's current count from DRAM.
+  2. Write the triangle ID to the tile's bin list in DRAM.
+  3. Write `count + 1` back to the DRAM count region.
 
-  Pass 2 then reads the final counts from this exact same PSRAM region. This triples
-  the PSRAM bandwidth used by the binner, but completely eliminates the 218K µm²
+  Pass 2 then reads the final counts from this exact same DRAM region. This triples
+  the DRAM bandwidth used by the binner, but completely eliminates the 218K µm²
   array from the chip on *both* Sky130 and IHP PDKs.
 
   Gate: `m test-all` green; binner integration test passes with correct per-tile counts.
@@ -862,13 +862,13 @@ Current utilisation: **161%** — fails at global placement.
 
 #### Utilisation After Each Step
 
-> Both PDKs (IHP and Sky130) have identical 8×4 die dimensions on TT. Because OPT-2 now moves `countMem` to PSRAM completely, the area footprints and savings are identical for both PDKs. ✓ = routable (≤80%), ✓✓ = safe (≤65%), ✗ = fails placement.
+> Both PDKs (IHP and Sky130) have identical 8×4 die dimensions on TT. Because OPT-2 now moves `countMem` to DRAM completely, the area footprints and savings are identical for both PDKs. ✓ = routable (≤80%), ✓✓ = safe (≤65%), ✗ = fails placement.
 
 | Step | Est. Area | 8×4 Util (Sky/IHP) |
 | --- | --- | --- |
 | Current | 1,104,576 µm² | 161% ✗ |
 | +OPT-1: coordLut → arithmetic | 756,424 µm² | 110% ✗ |
-| +OPT-2: countMem → PSRAM | 538,517 µm² | **79%** ✓ |
+| +OPT-2: countMem → DRAM | 538,517 µm² | **79%** ✓ |
 | +OPT-3: custom FP16 FMA | 458,517 µm² | **67%** ✓ |
 | +OPT-4: ASIC config + cleanup | 438,517 µm² | **64%** ✓✓ |
 | +OPT-5: shrink IMEM/uniforms/regs/rcp | ~388,000 µm² | **57%** ✓✓ |
@@ -894,7 +894,7 @@ Sep 2026:             Gate-level simulation  →  submit TTIHP26b 🚀
 
 **Motivation**: The Step 34 FTEX implementation uses an `en` gate in
 `BorgShaderDispatcher` to return `(1.0, 1.0, 1.0)` for non-textured draws
-instead of fetching from PSRAM. This works but is architecturally unclean: it
+instead of fetching from DRAM. This works but is architecturally unclean: it
 conflates a software binding policy with hardware fetch logic.
 
 The correct long-term design (standard for all real GPUs) is a **tiny L2 texture
@@ -907,19 +907,19 @@ fetch performance via Morton-locality hits. The `en` gate can then be retired.
 - **Direct-mapped, 4-entry** cache: 4 × (16-bit tag + 3 × 16-bit RGB) = 28 bytes
   per entry → ~112 bytes total. Fits in FPGA logic (no dedicated BRAM needed).
 - Tag = Morton index bits [15:2] (4 entries indexed by bits [1:0]).
-- On hit: return cached RGB in 1 cycle (zero PSRAM overhead).
-- On miss: fetch from PSRAM, fill cache line.
+- On hit: return cached RGB in 1 cycle (zero DRAM overhead).
+- On miss: fetch from DRAM, fill cache line.
 - Invalidate on `io.texConfig` change (new texture bound).
 
 ### Step 35.1 — White Default Texture
 
-- Reserve `TEX_WHITE_ADDR` in PSRAM layout (4 bytes, initialized in `borgCreateDevice`).
+- Reserve `TEX_WHITE_ADDR` in DRAM layout (4 bytes, initialized in `borgCreateDevice`).
 - `borg_clear_texture()`: points `tex_config` to `TEX_WHITE_ADDR` (en=true, 1×1).
 - Remove `en` gate from `BorgShaderDispatcher` — FTEX always goes through cache.
 - Non-textured draws: UV=0 → Morton=0 → cache hit → white → `vertexColor`.
 
 Gate: all hardware tests pass; `vkcube` and `triangle` render correctly;
-      Verilator shows ≥50% reduction in PSRAM reads for non-textured frames.
+      Verilator shows ≥50% reduction in DRAM reads for non-textured frames.
 
 ---
 
@@ -1508,7 +1508,7 @@ build time. The envisioned API:
 | Texture fetch | ✅ | ✅ |
 | DMA engine | ✅ | ✅ |
 | Auto sequencer | ✅ | ✅ |
-| GPU PSRAM write | ✅ | ✅ |
+| GPU DRAM write | ✅ | ✅ |
 | Blending | ❌ | ✅ |
 | CPU ISA | RV32I | RV32IMA |
 | C extension | ✅ | ✅ |

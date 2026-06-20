@@ -12,7 +12,7 @@ values, and control execution:
 {{snippet:software/borg/borg_driver.c:mmio-map}}
 
 The Borg peripheral occupies 16 words starting at `0x080000C0`: 8 FP16 registers
-(r0–r7), 6 instruction memory words, and a control/status register. PSRAM
+(r0–r7), 6 instruction memory words, and a control/status register. DRAM
 provides shared memory between the CPU and the RP2040 host.
 
 ## FPU Helper Functions
@@ -58,7 +58,7 @@ For pixels inside the triangle, the hardware FSM auto-chains to the fragment sha
 
 ## Tile Buffer and Z-Buffer
 
-To reduce PSRAM bandwidth, Borg includes a 16-pixel **Hardware Tile Buffer**.
+To reduce DRAM bandwidth, Borg includes a 16-pixel **Hardware Tile Buffer**.
 Each pixel in the buffer stores both RGB color and a 16-bit Z-depth value.
 
 During rasterization, the fragment shader computes the Z-depth for the current
@@ -67,8 +67,8 @@ stored in the tile buffer. If the new pixel is closer, the color and depth are
 updated in the buffer.
 
 Once a tile (typically 4×4 or 16×1 pixels) is complete, the CPU or DMA engine
-flushes the buffer to PSRAM in a single burst write. This avoids the "read-modify-write"
-penalty of performing depth testing directly in PSRAM.
+flushes the buffer to DRAM in a single burst write. This avoids the "read-modify-write"
+penalty of performing depth testing directly in DRAM.
 
 ```c
 // Accessing the tile buffer via MMIO
@@ -80,12 +80,12 @@ uint32_t bz = BorgGpuRegs.tile_bz;
 ## Texturing
 
 Borg supports **hardware-assisted texture mapping**. While the final texel
-fetch still happens in firmware (to avoid complex PSRAM controller logic),
+fetch still happens in firmware (to avoid complex DRAM controller logic),
 the hardware handles the most expensive part of the coordinate calculation.
 
 ### Morton Encoding
 
-Textures are stored in PSRAM using a **Morton order** (Z-order curve) layout.
+Textures are stored in DRAM using a **Morton order** (Z-order curve) layout.
 This significantly improves cache locality compared to a linear scanline layout.
 The hardware `MortonEncode` unit automatically converts interpolated `U` and `V`
 coordinates into a linear memory offset:
@@ -95,13 +95,13 @@ coordinates into a linear memory offset:
 ### Texel Lookup
 
 The firmware simply reads the pre-calculated `tex_addr_morton` from the MMIO
-status registers and uses it as an offset into the texture data in PSRAM:
+status registers and uses it as an offset into the texture data in DRAM:
 
 ```c
 uint16_t offset = BorgGpuRegs.tex_addr_morton;
-r = PSRAM_IN(tex_base + offset * 3 + 0);
-g = PSRAM_IN(tex_base + offset * 3 + 1);
-b = PSRAM_IN(tex_base + offset * 3 + 2);
+r = DRAM_IN(tex_base + offset * 3 + 0);
+g = DRAM_IN(tex_base + offset * 3 + 1);
+b = DRAM_IN(tex_base + offset * 3 + 2);
 ```
 
 ### Performance
@@ -113,7 +113,7 @@ Hardware acceleration reduces the per-pixel cost significantly:
 | UV Interpolation         | Fragment Shader| 0 extra cycles |
 | Morton Encoding          | **Hardware**   | 0 extra cycles |
 | Depth Test               | **Hardware**   | 0 extra cycles |
-| Texel Read               | Firmware       | 3 PSRAM reads |
+| Texel Read               | Firmware       | 3 DRAM reads |
 
 ## The Triangle Application
 

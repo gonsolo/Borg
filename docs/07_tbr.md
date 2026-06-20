@@ -9,38 +9,38 @@ rendering passes without CPU intervention.
 ## Why Tile-Based?
 
 The naive approach to 3D rendering is **immediate mode**: process each triangle
-in submission order, rasterize its pixels directly into the framebuffer in PSRAM,
+in submission order, rasterize its pixels directly into the framebuffer in DRAM,
 and perform depth testing with a read-modify-write on every pixel.
 
-This is expensive. PSRAM access is slow (QSPI, ~20× slower than on-chip SRAM)
+This is expensive. DRAM access is slow (QSPI, ~20× slower than on-chip SRAM)
 and every depth test requires a round-trip: read the stored Z, compare, write
 back if closer. For a 128×128 framebuffer at 4× overdraw (a typical scene), that
-means ~65,000 PSRAM accesses *per frame* just for depth testing.
+means ~65,000 DRAM accesses *per frame* just for depth testing.
 
 TBR avoids this by splitting rendering into two passes:
 
 1. **Geometry pass** — process all triangles, bin them by which screen tiles they
-   overlap. Store pre-computed per-triangle data in PSRAM.
+   overlap. Store pre-computed per-triangle data in DRAM.
 2. **Tile render pass** — render one tile at a time. All rasterization and depth
    testing happens in a small, fast on-chip SRAM buffer. The result is flushed to
-   PSRAM *once* per tile when complete.
+   DRAM *once* per tile when complete.
 
-The key insight: PSRAM is only written once per tile per frame, regardless of how
+The key insight: DRAM is only written once per tile per frame, regardless of how
 many triangles overlap that tile. Depth testing is free (on-chip).
 
 ## Architecture and Data Flow
 
-The fully autonomous TBR architecture heavily leverages external PSRAM, while keeping depth-testing and pixel blending strictly on-chip.
+The fully autonomous TBR architecture heavily leverages external DRAM, while keeping depth-testing and pixel blending strictly on-chip.
 
 ### 1. Timing & Data Flow (Sequence)
 
-This shows the step-by-step order of operations over time. Notice how heavily the GPU relies on PSRAM during Phases 1 and 2.
+This shows the step-by-step order of operations over time. Notice how heavily the GPU relies on DRAM during Phases 1 and 2.
 
 ```mermaid
 sequenceDiagram
     participant C as Host CPU
     participant G as Borg GPU
-    participant P as PSRAM (External Memory)
+    participant P as DRAM (External Memory)
     
     rect rgb(40, 40, 40)
     note right of C: PHASE 0: SETUP
@@ -79,7 +79,7 @@ sequenceDiagram
 
 ### 2. Architecture Layout
 
-This shows exactly which internal Borg GPU hardware blocks map to which physical regions in PSRAM.
+This shows exactly which internal Borg GPU hardware blocks map to which physical regions in DRAM.
 
 ```mermaid
 graph TD
@@ -92,14 +92,14 @@ graph TD
     end
 
     subgraph External Memory
-        PSRAM[(PSRAM Chip)]:::memory
+        DRAM[(DRAM Chip)]:::memory
         VBO[Vertex & Index Buffers]:::memory
         TEX[Texture Data]:::memory
         BIN[Bin Lists & Counts]:::memory
         UNI[Staged 2D Uniforms]:::memory
         FBO[Final Color/Z Framebuffer]:::memory
         
-        PSRAM --- VBO & TEX & BIN & UNI & FBO
+        DRAM --- VBO & TEX & BIN & UNI & FBO
     end
 
     subgraph Borg GPU
@@ -142,16 +142,16 @@ graph TD
 - **CPU (Phase 0 Only)**: The host processor that sets up 3D data and triggers the GPU. Once triggered, the CPU goes to sleep.
 - **SEQ (BorgSequencer, Phases 1-3)**: The master GPU hardware FSM that fetches memory and orchestrates the autonomous rendering passes.
 - **VSH (Vertex Shader)**: Executes `Hutt` to transform 3D vertices into 2D screen coordinates.
-- **BINNER (BorgBinner)**: Determines which 4x4 tiles a triangle overlaps and updates PSRAM bin lists.
+- **BINNER (BorgBinner)**: Determines which 4x4 tiles a triangle overlaps and updates DRAM bin lists.
 - **RAST (Rasterizer)**: Evaluates edge equations for 16 pixels concurrently to determine triangle inclusion.
-- **TEXU (BorgTextureUnit)**: Fetches and filters texels from PSRAM for textured fragments.
+- **TEXU (BorgTextureUnit)**: Fetches and filters texels from DRAM for textured fragments.
 - **TBUF (BorgTileBuffer)**: On-chip SRAM holding the current 4x4 tile's Color and Z values for fast blending.
-- **FLUSH (BorgTileFlusher)**: Bursts the finished 16 pixels from TBUF to the PSRAM framebuffer.
+- **FLUSH (BorgTileFlusher)**: Bursts the finished 16 pixels from TBUF to the DRAM framebuffer.
 
 ## Memory Layout
 
 ```text
-PSRAM address space:
+DRAM address space:
 ─────────────────────────────────────────────────────────
   0x85000 +  framebuffer:   fb_width × fb_height pixels × 2 words (lo/hi)
            ├─ lo word:      { B[31:16], Z[15:0] }
@@ -168,7 +168,7 @@ PSRAM address space:
 ```
 
 Per-tile triangle counts live in an **on-chip `SyncReadMem`** inside `BorgBinner`
-(up to 1024 tiles × 10-bit counter). They are never written to PSRAM — the
+(up to 1024 tiles × 10-bit counter). They are never written to DRAM — the
 sequencer queries them directly via the `countRead` port.
 
 ## Pass 1: Geometry Pass
@@ -188,9 +188,9 @@ sLoadShader → sRunVert (×3 vertices)
 | `sRunVert` | Vertex shader: NDC → screen-space position (×3 vertices) |
 | `sRunSetup` | Setup shader: edge vectors, signed area, inv_area |
 | `sLoadBBox` | DMA-read tile-aligned bounding box from descriptor |
-| `sBinTri` | Trigger `BorgBinner`: writes triangle index to PSRAM bin list for every tile in bbox |
+| `sBinTri` | Trigger `BorgBinner`: writes triangle index to DRAM bin list for every tile in bbox |
 | `sStageUniforms` | Compute 31 uniforms (edge constants, vertex positions, colors, z) → write to uniform buffer |
-| `sStoreSetup` | DMA-write all 31 uniforms to PSRAM setup store at `setupBase + tri × 128` |
+| `sStoreSetup` | DMA-write all 31 uniforms to DRAM setup store at `setupBase + tri × 128` |
 
 After all triangles are processed, Pass 1 is complete. No rasterization occurs.
 
@@ -198,21 +198,21 @@ After all triangles are processed, Pass 1 is complete. No rasterization occurs.
 
 `BorgBinner` is a small autonomous FSM that runs once per triangle during Pass 1.
 Given a triangle index and its tile-aligned bounding box, it iterates over every
-tile in the bbox and writes the triangle's index to that tile's bin list in PSRAM.
+tile in the bbox and writes the triangle's index to that tile's bin list in DRAM.
 
 ```text
-sIdle → sReadCount → sWaitCount → sWritePsram → sStoreCount → sNextTile → ...
+sIdle → sReadCount → sWaitCount → sWriteDram → sStoreCount → sNextTile → ...
 ```
 
 - **sReadCount**: reads the current triangle count for the tile from on-chip SRAM.
-- **sWritePsram**: writes `triIdx` (uint16) to `binBase + tile × binRowBytes + count × 2`.
+- **sWriteDram**: writes `triIdx` (uint16) to `binBase + tile × binRowBytes + count × 2`.
 - **sStoreCount**: increments and stores the count back to on-chip SRAM.
 
 Per-tile counts are stored in a `SyncReadMem(1024, UInt(10.W))` — 10 bits supports
 up to 1023 triangles per tile. Counts are zeroed once per frame at `sIdle` via the
 `clearCounts` pulse.
 
-The binner has **lowest PSRAM priority** in the arbitration mux
+The binner has **lowest DRAM priority** in the arbitration mux
 (DMA > Flusher > Geo > Rast), but in practice it only runs during geometry pass
 when the rasterizer and flusher are both idle — so contention never occurs.
 
@@ -234,7 +234,7 @@ the clear-filled tile buffer directly. No stale data from a previous frame is ev
 visible — every tile is flushed every frame.
 
 **Shader IMEM** stays loaded across all tile iterations. Only the 31 setup uniforms
-change per triangle (loaded from the PSRAM setup store). This avoids the IMEM
+change per triangle (loaded from the DRAM setup store). This avoids the IMEM
 reload cost from Step 31.
 
 ## Sequencer FSM State Count
@@ -256,51 +256,51 @@ reload cost from Step 31.
 | State | Pass | Description |
 | --- | --- | --- |
 | `sIdle` | Pass 1 | Wait for MMIO trigger to begin rendering. |
-| `sLoadShader` | Pass 1 | Load vertex shader binary from PSRAM into IMEM via DMA |
+| `sLoadShader` | Pass 1 | Load vertex shader binary from DRAM into IMEM via DMA |
 | `sWaitDMA` | Pass 1 | Wait for DMA transfer to complete |
 | `sLoadVert` | Pass 1 | Load full vertex data (8 FP16 words: x,y,z,r,g,b,u,v) from descriptor. Descriptor stride is 128 bytes. Vertex i is at descBase + triIdx*128 + i*32 bytes. DMA writes all 8 words to uniform[0..7] in uniform page 0. During the wait, sWaitDMA snoops uniform writes to colorRegs (see below). |
 | `sRunVert` | Pass 1 | Trigger vertex shader execution on BorgCore at PC=0 |
 | `sWaitVert` | Pass 1 | Wait for vertex shader to finish; snoop clip-space outputs (x,y into clipRegs) |
 | `sWriteSetupInputs` | Pass 1 | Write 6 screen-space coordinates from clipRegs into uniform buffer, plus inv_width as u6 for edge normalization (Step 30.1c). u0=v0.x, u1=v0.y, u2=v1.x, u3=v1.y, u4=v2.x, u5=v2.y, u6=inv_width |
-| `sLoadSetupShader` | Pass 1 | Load setup shader from PSRAM into IMEM via DMA |
+| `sLoadSetupShader` | Pass 1 | Load setup shader from DRAM into IMEM via DMA |
 | `sRunSetup` | Pass 1 | Trigger setup shader execution on BorgCore at PC=0 |
 | `sWaitSetup` | Pass 1 | Wait for setup shader to finish; snoop outputs into setupRegs |
 | `sLoadBBox` | Pass 1 |  |
 | `sBinTri` | Pass 1 | Trigger BorgBinner for this triangle |
 | `sWaitBinner` | Pass 1 | Wait for BorgBinner to finish writing all tile bins for this triangle. |
 | `sStageUniforms` | Pass 1 | Write all 31 uniform registers (u0-u30) to replace setup_tile_uniforms(). Physical uniform indices match the fixed SPIRB layout: u0-u5:  scaled edge components from setupRegs[0..5] u6-u11: negated vertex positions from FNEG(clipRegs[v][c]) u12:    inv_area from setupRegs[7] u13-u21: colors in barycentric order (v1,v0,v2) × RGB u22-u24: z_vals (z of v1, v0, v2) u25-u30: 0 (UVs — not yet implemented) |
-| `sStoreSetup` | Pass 1 | Write all 31 uniform values (latched in uDataStore) to PSRAM at setupBase + triIdx *128 + storeWriteIdx* 4. Each value is stored as a 32-bit word (low 16 bits = uniform, high = 0). |
+| `sStoreSetup` | Pass 1 | Write all 31 uniform values (latched in uDataStore) to DRAM at setupBase + triIdx *128 + storeWriteIdx* 4. Each value is stored as a 32-bit word (low 16 bits = uniform, high = 0). |
 | `sNextTriangle` | Pass 1 | Pass 1: Triangle loop Advance to next triangle, or start Pass 2 |
 | `sIdle` | Pass 2 | Wait for MMIO trigger to begin rendering. |
-| `sLoadShader` | Pass 2 | Load vertex shader binary from PSRAM into IMEM via DMA |
+| `sLoadShader` | Pass 2 | Load vertex shader binary from DRAM into IMEM via DMA |
 | `sWaitDMA` | Pass 2 | Wait for DMA transfer to complete |
 | `sLoadVert` | Pass 2 | Load full vertex data (8 FP16 words: x,y,z,r,g,b,u,v) from descriptor. Descriptor stride is 128 bytes. Vertex i is at descBase + triIdx*128 + i*32 bytes. DMA writes all 8 words to uniform[0..7] in uniform page 0. During the wait, sWaitDMA snoops uniform writes to colorRegs (see below). |
 | `sRunVert` | Pass 2 | Trigger vertex shader execution on BorgCore at PC=0 |
 | `sWaitVert` | Pass 2 | Wait for vertex shader to finish; snoop clip-space outputs (x,y into clipRegs) |
 | `sWriteSetupInputs` | Pass 2 | Write 6 screen-space coordinates from clipRegs into uniform buffer, plus inv_width as u6 for edge normalization (Step 30.1c). u0=v0.x, u1=v0.y, u2=v1.x, u3=v1.y, u4=v2.x, u5=v2.y, u6=inv_width |
-| `sLoadSetupShader` | Pass 2 | Load setup shader from PSRAM into IMEM via DMA |
+| `sLoadSetupShader` | Pass 2 | Load setup shader from DRAM into IMEM via DMA |
 | `sRunSetup` | Pass 2 | Trigger setup shader execution on BorgCore at PC=0 |
 | `sWaitSetup` | Pass 2 | Wait for setup shader to finish; snoop outputs into setupRegs |
 | `sLoadBBox` | Pass 2 |  |
 | `sBinTri` | Pass 2 | Trigger BorgBinner for this triangle |
 | `sWaitBinner` | Pass 2 | Wait for BorgBinner to finish writing all tile bins for this triangle. |
 | `sStageUniforms` | Pass 2 | Write all 31 uniform registers (u0-u30) to replace setup_tile_uniforms(). Physical uniform indices match the fixed SPIRB layout: u0-u5:  scaled edge components from setupRegs[0..5] u6-u11: negated vertex positions from FNEG(clipRegs[v][c]) u12:    inv_area from setupRegs[7] u13-u21: colors in barycentric order (v1,v0,v2) × RGB u22-u24: z_vals (z of v1, v0, v2) u25-u30: 0 (UVs — not yet implemented) |
-| `sStoreSetup` | Pass 2 | Write all 31 uniform values (latched in uDataStore) to PSRAM at setupBase + triIdx *128 + storeWriteIdx* 4. Each value is stored as a 32-bit word (low 16 bits = uniform, high = 0). |
+| `sStoreSetup` | Pass 2 | Write all 31 uniform values (latched in uDataStore) to DRAM at setupBase + triIdx *128 + storeWriteIdx* 4. Each value is stored as a 32-bit word (low 16 bits = uniform, high = 0). |
 | `sNextTriangle` | Pass 2 | Pass 1: Triangle loop Advance to next triangle, or start Pass 2 |
 | `Nil) = states.take(16)
   val (sLoadRastShader` | Pass 2 |  |
-| `sLoadFragShader` | Pass 2 | Load frag shader from PSRAM into IMEM via DMA |
+| `sLoadFragShader` | Pass 2 | Load frag shader from DRAM into IMEM via DMA |
 | `sStartPass2` | Pass 2 |  |
 | `sReadBinCount` | Pass 2 | Read the bin count for the current tile from binner's on-chip SRAM. The count read was issued in the previous state (sStartPass2 or sNextRenderTile). SyncReadMem has 1-cycle latency, so wait one cycle. |
 | `sWaitBinCount` | Pass 2 | Latch the count data (available now after the 1-cycle SyncReadMem read). |
 | `sClearTile` | Pass 2 | Pulse tileCtrlClear for 16-cycle BRAM clear sequence |
 | `sReadBinEntry` | Pass 2 |  |
-| `sWaitBinEntry` | Pass 2 | Bin entry has been snooped by the DMA handler into binEntryData. Now DMA-load the triangle's setup uniforms from PSRAM. |
-| `sLoadTriSetup` | Pass 2 | DMA-load the triangle's 31 setup uniforms from PSRAM into the uniform buffer. addr = setupBase + binEntryData * 128 |
+| `sWaitBinEntry` | Pass 2 | Bin entry has been snooped by the DMA handler into binEntryData. Now DMA-load the triangle's setup uniforms from DRAM. |
+| `sLoadTriSetup` | Pass 2 | DMA-load the triangle's 31 setup uniforms from DRAM into the uniform buffer. addr = setupBase + binEntryData * 128 |
 | `sEnqueueTile` | Pass 2 | Enqueue tile coordinates for rasterizer |
 | `sIteratePixels` | Pass 2 | Start rasterizer iteration over pixels |
 | `sWaitRast` | Pass 2 | Wait for tileComplete (all pixels shaded) |
-| `sWaitFlush` | Pass 2 | Trigger flusher: writes tile SRAM -> PSRAM |
+| `sWaitFlush` | Pass 2 | Trigger flusher: writes tile SRAM -> DRAM |
 | `sWaitFlushSync` | Pass 2 | Wait for flusher to finish |
 | `sNextBinTri` | Pass 2 | Advance to next triangle in this tile's bin list, or flush |
 | `sNextRenderTile` | Pass 2 | Advance to next tile in full-screen iteration |
@@ -310,16 +310,16 @@ reload cost from Step 31.
 
 ```text
 BorgSequencer (FSM, 33 states)
-  ├── BorgDMA          — PSRAM burst read/write (vertex descs, shaders, bin entries, uniforms)
-  ├── BorgBinner       — triangle→tile mapping, PSRAM bin list writes
+  ├── BorgDMA          — DRAM burst read/write (vertex descs, shaders, bin entries, uniforms)
+  ├── BorgBinner       — triangle→tile mapping, DRAM bin list writes
   │     └── countMem   — SyncReadMem(1024, 10.W): per-tile triangle counts (on-chip)
   ├── BorgCore         — FP16 FMA shader processor (vertex + setup shaders in Pass 1)
   ├── BorgRasterizer   — edge-function iterator (fragment shading in Pass 2)
   ├── BorgTileBuffer   — 16-pixel on-chip SRAM (clear fill + depth test in Pass 2)
-  └── BorgFlusher      — DMA tile SRAM → PSRAM (once per tile in Pass 2)
+  └── BorgFlusher      — DMA tile SRAM → DRAM (once per tile in Pass 2)
 ```
 
-PSRAM arbitration priority (highest → lowest):
+DRAM arbitration priority (highest → lowest):
 
 ```text
 DMA  >  Flusher  >  Geo (Binner + SeqStore)  >  Rasterizer
@@ -335,9 +335,9 @@ tbr_bin_base   = fb_end_spi;
 tbr_setup_base = tbr_bin_base + num_tiles * TBR_BIN_ROW_BYTES;
 
 // In borg_present() → borgBinRenderAutonomous():
-BORG_GPU->seq_bin_base      = tbr_bin_base;    // PSRAM addr of bin lists
+BORG_GPU->seq_bin_base      = tbr_bin_base;    // DRAM addr of bin lists
 BORG_GPU->seq_bin_row_bytes = TBR_BIN_ROW_BYTES; // bytes per tile row
-BORG_GPU->seq_setup_base    = tbr_setup_base;  // PSRAM addr of setup store
+BORG_GPU->seq_setup_base    = tbr_setup_base;  // DRAM addr of setup store
 BORG_GPU->seq_tri_count     = draw_call_count;
 BORG_GPU->seq_trigger       = 1;               // both passes run autonomously
 while (BORG_GPU->status & STATUS_REG_T__SEQ_BUSY_bm);
@@ -352,10 +352,10 @@ For a 128×128 framebuffer with 32 tiles (8×4) and 12 triangles (vk_cube scene)
 
 | Metric | Immediate Mode | TBR |
 | --- | --- | --- |
-| PSRAM writes per frame | O(overdraw × pixels) | O(tiles × 32 words) = 1024 |
-| Depth test cost | PSRAM round-trip | On-chip (free) |
+| DRAM writes per frame | O(overdraw × pixels) | O(tiles × 32 words) = 1024 |
+| Depth test cost | DRAM round-trip | On-chip (free) |
 | CPU involvement in render | Per-tile loop | **Zero** (autonomous) |
-| Clear-fill PSRAM writes | `fb_w × fb_h × 2` | **0** (sClearTile on-chip) |
+| Clear-fill DRAM writes | `fb_w × fb_h × 2` | **0** (sClearTile on-chip) |
 
 The clear-fill loop that previously dominated `borgBinRenderAutonomous()` (16,384
-PSRAM writes for a 64×64 framebuffer) is now completely eliminated.
+DRAM writes for a 64×64 framebuffer) is now completely eliminated.

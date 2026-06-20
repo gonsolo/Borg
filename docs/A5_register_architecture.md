@@ -974,8 +974,8 @@ in order of increasing capacity and decreasing speed:
 | --- | --- | --- |
 | Push constants | Uniform buffer (direct write) | 64 bytes (32 × FP16) |
 | UBO (small) | Uniform buffer (driver loads) | 64 bytes |
-| UBO (large) | Uniform buffer + memory fetch | limited by PSRAM |
-| SSBO | PSRAM + memory load/store (Phase 5) | 8 MB |
+| UBO (large) | Uniform buffer + memory fetch | limited by DRAM |
+| SSBO | DRAM + memory load/store (Phase 5) | 8 MB |
 
 For the simple shaders Borg targets (vertex transform, fragment
 interpolation, color output), 32 uniform entries (64 bytes of FP16

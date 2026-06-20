@@ -37,7 +37,7 @@ Modern GPUs have massive fixed-function blocks just for setting up triangles (co
 
 ## 7. Tile-Based Rendering (No Color/Depth Caches)
 
-Standard GPUs write pixels to an external frame buffer, which requires massive, complex L1/L2 Color and Z-Depth caches to hide the memory latency. Borg renders small 4x4 (or 4x6) "tiles" exclusively into an internal, on-chip BRAM `TileBuffer`. It only writes to the slow external PSRAM once the entire tile is completely finished. This completely eliminates the need for any cache controllers, cache tag RAMs, or eviction logic.
+Standard GPUs write pixels to an external frame buffer, which requires massive, complex L1/L2 Color and Z-Depth caches to hide the memory latency. Borg renders small 4x4 (or 4x6) "tiles" exclusively into an internal, on-chip BRAM `TileBuffer`. It only writes to the slow external DRAM once the entire tile is completely finished. This completely eliminates the need for any cache controllers, cache tag RAMs, or eviction logic.
 
 ## 8. Tiny, Cacheless Instruction Memory (IMEM)
 
@@ -49,7 +49,7 @@ Usually, reading from a "Uniform" buffer (constants like transformation matrices
 
 ## 10. Barebones MMIO & Shared Bus (No AXI)
 
-Commercial IP cores use complex, standardized buses like AXI4 or Avalon, which require massive state machines just to handle handshakes, burst transfers, and backpressure. Borg uses a hyper-minimalist, flat memory-mapped interface (`address`, `data_in`, `write_en`). Furthermore, it arbitrates access to the external PSRAM (`GpuMemIO`) through a dead-simple multiplexer shared between the CPU, the Tile Flusher, and the Texture Fetcher, avoiding the need for a complex memory crossbar switch.
+Commercial IP cores use complex, standardized buses like AXI4 or Avalon, which require massive state machines just to handle handshakes, burst transfers, and backpressure. Borg uses a hyper-minimalist, flat memory-mapped interface (`address`, `data_in`, `write_en`). Furthermore, it arbitrates access to the external DRAM (`GpuMemIO`) through a dead-simple multiplexer shared between the CPU, the Tile Flusher, and the Texture Fetcher, avoiding the need for a complex memory crossbar switch.
 
 ## 11. Zero-Overhead Memory Access (No Load/Store Unit)
 
@@ -65,7 +65,7 @@ Rather than hand-writing the Control and Status Register (CSR) decode logic in C
 
 ## 14. Burst-Optimized External Memory (No Complex DDR)
 
-Instead of a massive, power-hungry DDR memory controller, Borg uses simple SPI/QSPI PSRAM. Because PSRAM has high initial latency but is very fast for sequential reads/writes, Borg's `BorgTileFlusher` and `BorgDMA` are specifically built to *only* do linear burst transfers. This extracts maximum bandwidth from a cheap, low-pin-count memory chip without needing a complex, logic-heavy memory controller.
+Instead of a massive, power-hungry DDR memory controller, Borg uses simple SPI/QSPI PSRAM. Because DRAM has high initial latency but is very fast for sequential reads/writes, Borg's `BorgTileFlusher` and `BorgDMA` are specifically built to *only* do linear burst transfers. This extracts maximum bandwidth from a cheap, low-pin-count memory chip without needing a complex, logic-heavy memory controller.
 
 ## 15. Hardcoded FSMs over Microcode
 

@@ -23,7 +23,7 @@ Borg is a tiny GPU built around a RISC-V SoC (Hutt). It renders a 10-frame anima
 2. **Triangle setup** — computes edge vectors and 1/area (Newton-Raphson reciprocal on the FPU)
 3. **Rasterization** — evaluates edge functions per pixel to determine coverage
 4. **Fragment shader** — interpolates per-vertex RGB colors using barycentric coordinates (runs 3× per pixel, once per channel)
-5. **Framebuffer** — 16×16 RGB (FP16), written to PSRAM for host readback
+5. **Framebuffer** — 16×16 RGB (FP16), written to DRAM for host readback
 
 ### Software Stack
 

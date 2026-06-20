@@ -66,7 +66,7 @@ fits; full MMU likely requires the ASIC tapeout (4×5 tile target).
 | Step | LUTs | BRAM | SPRAM | DSP | Notes |
 | --- | --- | --- | --- | --- | --- |
 | 28: Integer ALU | +50-100 | — | — | — | Comparison, bitwise |
-| 29: Memory Load/Store | +100-150 | — | +1 | — | Shader PSRAM access |
+| 29: Memory Load/Store | +100-150 | — | +1 | — | Shader DRAM access |
 | 30: Framebuffer Blend | +50-80 | — | — | — | Alpha blend unit |
 | 31: Multi-Lane SIMD | +200-400 | +4-8 | — | +2-4 | 2-4 parallel FMAs |
 

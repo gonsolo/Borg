@@ -30,9 +30,9 @@ Offset  Size       Field
 The instruction list does **not** include the implicit halt word (0x0000);
 the firmware appends it when loading IMEM.
 
-## PSRAM transport
+## DRAM transport
 
-The host writes shader blobs to PSRAM before the vertex/uniform payload.
+The host writes shader blobs to DRAM before the vertex/uniform payload.
 Each shader blob is preceded by a 2-byte little-endian length prefix:
 
 ```text
@@ -40,7 +40,7 @@ Each shader blob is preceded by a 2-byte little-endian length prefix:
 ```
 
 The firmware reads `blob_len`, parses the blob, then processes the
-remaining PSRAM data using the register maps from the parsed shader.
+remaining DRAM data using the register maps from the parsed shader.
 
 ## Examples
 
@@ -70,5 +70,5 @@ XX XX XX XX
 |-------------------|------------|--------------|
 | `spirv_compiler`  | `.vert`    | `.spvasm`    |
 | `borg_backend.py` | `.s`       | `.borg` / `.borg.h` |
-| host `triangle.py`| `.borg`    | PSRAM write  |
-| firmware          | PSRAM read | Borg IMEM + regs |
+| host `triangle.py`| `.borg`    | DRAM write  |
+| firmware          | DRAM read | Borg IMEM + regs |

@@ -18,7 +18,7 @@ Already have:
 
 | Feature | Status |
 | --------- | -------- |
-| Texture mapping | ✅ UV interpolation + PSRAM sampling |
+| Texture mapping | ✅ UV interpolation + DRAM sampling |
 | Z-buffer | ✅ Per-pixel depth testing |
 | Vertex transformation | ✅ Matrix via FPU |
 
@@ -50,7 +50,7 @@ Architectural gaps (need hardware or major rework):
 | Bilinear filtering | 4 texel reads + 3 lerps per pixel |
 | Alpha blending | Read-modify-write framebuffer + sort order |
 | Skinned animation | Bone matrix palette per vertex |
-| Real-time display | Need VGA/SPI LCD output instead of PSRAM dump |
+| Real-time display | Need VGA/SPI LCD output instead of DRAM dump |
 
 ## "No Graphics API" Gap Analysis
 
@@ -73,7 +73,7 @@ Gaps relative to the idealized hardware:
 | Feature | Gap |
 | ------- | --- |
 | 64-bit GPU pointers | Borg has no pointer model — shaders read only from registers loaded by firmware |
-| Bindless texture heap | No texture hardware — sampling is firmware-driven from PSRAM |
+| Bindless texture heap | No texture hardware — sampling is firmware-driven from DRAM |
 | Compute shader dispatch | No general compute — shader core is rasterization-only |
 | Barriers / fences | Not needed yet — single-threaded firmware serializes everything |
 | Command buffers | No concept — firmware issues MMIO writes directly |
@@ -99,7 +99,7 @@ differences Borg doesn't have.
 | -------------- | --- |
 | `vkCmdDraw` / `vkCmdDrawIndexed` | Core draw path — maps to `borg_run()` loop |
 | NIR → SPIR-B shader compiler | Aaltonen's "shader = kernel" — just emit FMA/ADD/MUL ops |
-| `VK_EXT_headless_surface` / `wsi_headless` | No display hardware — render to PSRAM buffer |
+| `VK_EXT_headless_surface` / `wsi_headless` | No display hardware — render to DRAM buffer |
 | Push constants | Maps directly to Borg register loads — zero binding overhead |
 | Single `VkQueue`, single `VkCommandBuffer` | Borg is single-threaded — no synchronization needed |
 | `vkCmdPipelineBarrier` (no-op) | Firmware serializes everything — barriers are free |
@@ -110,7 +110,7 @@ differences Borg doesn't have.
 | Vulkan Feature | Why Defer |
 | -------------- | --------- |
 | Descriptor sets / pools | Aaltonen says skip these — use push constants or direct MMIO |
-| Multiple render passes | Single render target to PSRAM is sufficient initially |
+| Multiple render passes | Single render target to DRAM is sufficient initially |
 | Multisampling (MSAA) | No hardware support — would need firmware supersampling |
 | Dynamic state (`VK_DYNAMIC_STATE_*`) | No PSO permutations — Borg has no baked state to vary |
 | `VkFence` / `VkSemaphore` (real sync) | Single-threaded — `vkQueueWaitIdle` is sufficient |
