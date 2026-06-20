@@ -21,5 +21,7 @@ clean:
 # mul.s provides RV64-correct soft __mulsi3/__muldi3 (the Hutt has no M ext, and
 # the rv64imafdc libgcc ships no __muldi3).  It was rewritten for lp64 — the old
 # RV32 version corrupted 64-bit multiplies and clobbered s0/s1 on RV64.
-hutt.a: uart.o mul.o isqrt.o runtime.o
+# mem.o: byte-loop memcpy/memset/memmove overriding newlib's (which are built
+# rv64imafdc and use compressed instructions the no-C Hutt can't decode).
+hutt.a: uart.o mul.o mem.o isqrt.o runtime.o
 	$(AR) rcs $@ $^
