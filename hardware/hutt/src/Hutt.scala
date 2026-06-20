@@ -25,13 +25,20 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   * M-mode CSRs: mstatus, mtvec, mscratch, mepc, mcause, mtval, mie, mip,
   *              medeleg, mideleg, mhartid, misa.
   * S-mode CSRs: sstatus (mstatus view), stvec, sscratch, sepc, scause, stval,
-  *              sie (mie view), sip (mip view).
+  *              sie (mie view), sip (mip view), satp.
   *
-  * Traps: ECALL (cause 8/9/11 by privilege), EBREAK (cause 3), M/S timer IRQs.
+  * Traps: ECALL (cause 8/9/11 by privilege), EBREAK (cause 3), M/S timer IRQs,
+  *        page faults (cause 12/13/15).
   * Returns: MRET restores from MPP; SRET restores from SPP.
   * Delegation: medeleg/mideleg route exceptions/interrupts to S-mode.
   *
-  * No MMU (Sv39 = Phase 3).  No compressed instructions.
+  * MMU (xlen=64 only): Sv39 — 3-level page table, 16-entry direct-mapped TLB.
+  *   satp.MODE=8 enables translation in S/U mode.  SFENCE.VMA flushes TLB.
+  *   Note: TLB hits skip permission re-check (safe for RWX mappings; X-only
+  *   pages may mis-allow data access — acceptable for Phase 3 / OpenSBI).
+  *   mstatus.MPRV not yet implemented.
+  *
+  * No compressed instructions.
   *
   * @param resetVector word-aligned byte address of the first instruction
   */
@@ -79,6 +86,29 @@ class Hutt(
   val sepc     = RegInit(0.U(xlen.W))
   val scause   = RegInit(0.U(xlen.W))
   val stval    = RegInit(0.U(xlen.W))
+  // satp: Sv39 address-translation CSR (0x180).  Meaningful only for xlen=64.
+  //   MODE[63:60]=8 → Sv39; ASID[59:44]; PPN[43:0] of root page table.
+  val satp     = RegInit(0.U(xlen.W))
+
+  // -- Sv39 TLB (16-entry direct-mapped; xlen=64 only) ----------------------
+  val TLB_ENTRIES = 16
+  val TLB_BITS    = 4   // log2(TLB_ENTRIES)
+  val tlbValid = RegInit(VecInit(Seq.fill(TLB_ENTRIES)(false.B)))
+  val tlbVPN   = Reg(Vec(TLB_ENTRIES, UInt(27.W)))  // VA[38:12]
+  val tlbPPN   = Reg(Vec(TLB_ENTRIES, UInt(44.W)))  // PA page (4KB granularity)
+  val tlbFlags = Reg(Vec(TLB_ENTRIES, UInt(8.W)))   // PTE[7:0]
+
+  // -- Page-table walker state (xlen=64 only) --------------------------------
+  val ptwVA      = Reg(UInt(xlen.W))   // virtual address being translated
+  val ptwLevel   = Reg(UInt(2.W))      // PTW level (2=root, 0=leaf)
+  val ptwA       = Reg(UInt(xlen.W))   // current page-table base (byte address)
+  val ptwIsInstr = RegInit(false.B)    // true = instruction fetch, false = data
+  val ptwIsWrite = RegInit(false.B)    // true = store (for fault cause)
+  val dataPhysAddr = Reg(UInt(xlen.W)) // physical address for data access
+
+  // mmuEnabled: Sv39 translation active (xlen=64, non-M-mode, MODE=8).
+  val mmuEnabled: Bool =
+    if (xlen == 64) (satp(63, 60) === 8.U && privLevel =/= 3.U) else false.B
 
   // -- CSR masks -------------------------------------------------------------
   // sstatus: S-mode visible bits of mstatus (MXR=19, SUM=18, SPP=8, SPIE=5, SIE=1).
@@ -92,7 +122,7 @@ class Hutt(
   val alu     = Module(new HuttAlu(xlen))
 
   // -- FSM -------------------------------------------------------------------
-  val sFetchReq :: sFetchResp :: sExec :: sMemReq :: sMemResp :: Nil = Enum(5)
+  val sFetchReq :: sFetchResp :: sExec :: sMemReq :: sMemResp :: sPtwReq :: sPtwResp :: Nil = Enum(7)
   val state = RegInit(sFetchReq)
 
   // -- Decode (combinational over current `instr` register) ------------------
@@ -137,6 +167,7 @@ class Hutt(
     "h142".U -> scause,
     "h143".U -> stval,
     "h144".U -> (mip     & SIE_SIP_MASK),  // sip
+    "h180".U -> satp,
     // M-mode CSRs
     "h300".U -> mstatus,
     "h301".U -> misa,
@@ -297,8 +328,32 @@ class Hutt(
         pc        := sTrapPC
         privLevel := 1.U
       }.otherwise {
-        io.instr.req.valid := true.B
-        when(io.instr.req.fire) { state := sFetchResp }
+        if (xlen == 64) {
+          when(mmuEnabled) {
+            val tlbIdx = pc(TLB_BITS + 11, 12)
+            when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === pc(38, 12))) {
+              // TLB hit: issue fetch using physical address.
+              val physFetch = Cat(tlbPPN(tlbIdx), pc(11, 0))
+              io.instr.req.valid := true.B
+              io.instr.req.bits  := physFetch(instrAddrWidth + 1, 2)
+              when(io.instr.req.fire) { state := sFetchResp }
+            }.otherwise {
+              // TLB miss: start 3-level Sv39 page-table walk for instruction.
+              ptwVA      := pc
+              ptwIsInstr := true.B
+              ptwIsWrite := false.B
+              ptwLevel   := 2.U
+              ptwA       := Cat(0.U((xlen - 56).W), satp(43, 0), 0.U(12.W))
+              state      := sPtwReq
+            }
+          }.otherwise {
+            io.instr.req.valid := true.B
+            when(io.instr.req.fire) { state := sFetchResp }
+          }
+        } else {
+          io.instr.req.valid := true.B
+          when(io.instr.req.fire) { state := sFetchResp }
+        }
       }
     }
 
@@ -316,7 +371,29 @@ class Hutt(
         loadFunct3 := d.funct3
         loadRd     := d.rd
         isLoadOp   := d.isLoad
-        state      := sMemReq
+        if (xlen == 64) {
+          when(mmuEnabled) {
+            val tlbIdx = memAddr(TLB_BITS + 11, 12)
+            when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === memAddr(38, 12))) {
+              // TLB hit: form physical address and proceed directly to sMemReq.
+              dataPhysAddr := Cat(tlbPPN(tlbIdx), memAddr(11, 0))
+              state        := sMemReq
+            }.otherwise {
+              // TLB miss: 3-level Sv39 page-table walk for data.
+              ptwVA      := memAddr
+              ptwIsInstr := false.B
+              ptwIsWrite := d.isStore
+              ptwLevel   := 2.U
+              ptwA       := Cat(0.U((xlen - 56).W), satp(43, 0), 0.U(12.W))
+              state      := sPtwReq
+            }
+          }.otherwise {
+            dataPhysAddr := memAddr
+            state        := sMemReq
+          }
+        } else {
+          state := sMemReq
+        }
 
       }.elsewhen(d.isEcall) {
         // Delegation: S-mode ECALL (cause 9) → medeleg[9]; U-mode → medeleg[8].
@@ -353,6 +430,11 @@ class Hutt(
         privLevel := Cat(0.U(1.W), mstatus(8))  // SPP → S(1) or U(0)
         state     := sFetchReq
 
+      }.elsewhen(d.isSfenceVma) {
+        if (xlen == 64) { for (i <- 0 until TLB_ENTRIES) { tlbValid(i) := false.B } }
+        pc    := pcNext
+        state := sFetchReq
+
       }.otherwise {
         when(d.isCsr) {
           switch(csrAddr) {
@@ -365,6 +447,7 @@ class Hutt(
             is("h142".U) { scause   := csrNewVal }
             is("h143".U) { stval    := csrNewVal }
             is("h144".U) { mip_sw   := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR) }
+            is("h180".U) { satp     := csrNewVal }
             // M-mode CSR writes
             is("h300".U) { mstatus  := csrNewVal }
             is("h302".U) { medeleg  := csrNewVal }
@@ -386,6 +469,7 @@ class Hutt(
 
     is(sMemReq) {
       io.data.req.valid := true.B
+      if (xlen == 64) { io.data.req.bits.addr := dataPhysAddr(dataAddrWidth - 1, 0) }
       when(io.data.req.fire) { state := sMemResp }
     }
 
@@ -399,6 +483,100 @@ class Hutt(
         }
         pc    := pcNext
         state := sFetchReq
+      }
+    }
+
+    // -- Sv39 page-table walker (xlen=64 only) --------------------------------
+    is(sPtwReq) {
+      if (xlen == 64) {
+        val vpn2   = ptwVA(38, 30)
+        val vpn1   = ptwVA(29, 21)
+        val vpn0   = ptwVA(20, 12)
+        val curVPN = MuxLookup(ptwLevel, vpn0)(Seq(2.U -> vpn2, 1.U -> vpn1))
+        // PTE byte address = page-table base + VPN-for-this-level * 8
+        io.data.req.valid      := true.B
+        io.data.req.bits.addr  := (ptwA + (curVPN << 3))(dataAddrWidth - 1, 0)
+        io.data.req.bits.write := false.B
+        io.data.req.bits.size  := 3.U   // 64-bit doubleword
+        io.data.req.bits.data  := 0.U
+        when(io.data.req.fire) { state := sPtwResp }
+      }
+    }
+
+    is(sPtwResp) {
+      if (xlen == 64) {
+        io.data.resp.ready := true.B
+        when(io.data.resp.fire) {
+          val pte  = io.data.resp.bits
+          val pteV = pte(0); val pteR = pte(1); val pteW = pte(2); val pteX = pte(3)
+
+          val isLeaf = pteV && (pteR || pteX)
+
+          // Permission check for leaf PTEs.
+          val permOk = Mux(ptwIsInstr, pteX,
+                       Mux(ptwIsWrite, pteW && pteR, pteR))
+
+          // TLB PPN (44 bits) respecting superpage levels.
+          val pte_ppn  = pte(53, 10)
+          val tlbPpnSel = MuxLookup(ptwLevel, pte_ppn)(Seq(
+            2.U -> Cat(pte(53, 28), ptwVA(29, 12)),  // 1 GB: top-26 PPN + VA[29:12]
+            1.U -> Cat(pte(53, 19), ptwVA(20, 12))   // 2 MB: top-35 PPN + VA[20:12]
+          ))
+
+          // Physical byte address of the fault/access.
+          val physAddr = Cat(tlbPpnSel, ptwVA(11, 0))
+
+          // Page-fault cause and delegation bit.
+          val faultCause = Mux(ptwIsInstr, 12.U(xlen.W),
+                           Mux(ptwIsWrite, 15.U(xlen.W), 13.U(xlen.W)))
+          val faultDeleg = Mux(ptwIsInstr, medeleg(12),
+                           Mux(ptwIsWrite, medeleg(15), medeleg(13)))
+
+          def doFault(): Unit = {
+            when(faultDeleg && (privLevel =/= 3.U)) {
+              sepc := pc; scause := faultCause; stval := ptwVA
+              mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
+            }.otherwise {
+              mepc := pc; mcause := faultCause; mtval := ptwVA
+              mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
+            }
+            state := sFetchReq
+          }
+
+          // TLB index (direct-mapped by VA[TLB_BITS+11:12]).
+          val tlbIdx = ptwVA(TLB_BITS + 11, 12)
+
+          when(!pteV || (pteW && !pteR)) {
+            // Invalid PTE or reserved encoding.
+            doFault()
+          }.elsewhen(isLeaf) {
+            when(!permOk) {
+              doFault()
+            }.otherwise {
+              // Install TLB entry and continue execution.
+              tlbValid(tlbIdx) := true.B
+              tlbVPN(tlbIdx)   := ptwVA(38, 12)
+              tlbPPN(tlbIdx)   := tlbPpnSel
+              tlbFlags(tlbIdx) := pte(7, 0)
+              when(ptwIsInstr) {
+                // Re-enter sFetchReq — TLB will hit this time.
+                state := sFetchReq
+              }.otherwise {
+                dataPhysAddr := physAddr
+                state        := sMemReq
+              }
+            }
+          }.otherwise {
+            // Non-leaf PTE: descend to next level or fault at level 0.
+            when(ptwLevel === 0.U) {
+              doFault()   // all 3 levels exhausted without finding a leaf
+            }.otherwise {
+              ptwLevel := ptwLevel - 1.U
+              ptwA     := Cat(0.U((xlen - 56).W), pte(53, 10), 0.U(12.W))
+              state    := sPtwReq
+            }
+          }
+        }
       }
     }
   }
