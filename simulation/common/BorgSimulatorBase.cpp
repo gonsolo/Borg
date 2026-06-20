@@ -73,9 +73,9 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
         : 2 * frame_tile_size_words + 1;
     uint32_t cur_marker_word = out_base_word_buf0 + cur_marker_off;
 
-    set_ui_in(0x80); // Hold UART RXD (ui_in(7)) high (idle)
-
     for (uint32_t c = 0; c < cycles_to_run; c++) {
+        uint8_t rxd_bit = uart_tx.tick();
+        set_ui_in((uint8_t)(0x00 | (rxd_bit << 7)));
         // --- Drive backend INPUT ports so they are stable across the posedge.
         //     During a burst: accept is pulsed every cycle until all words are
         //     consumed; the model advances its dataIn on each posedge that sees

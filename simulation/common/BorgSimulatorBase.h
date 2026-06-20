@@ -3,6 +3,7 @@
 #include "common_sim.h"
 #include "texture_loader.h"
 #include "uart_decoder.h"
+#include "uart_tx.h"
 #include <string>
 
 class BorgSimulatorBase {
@@ -10,6 +11,7 @@ public:
     QSPIMemory* flash;
     QSPIMemory* psram;
     UartDecoder uart;
+    UartTx      uart_tx;
     
     uint32_t width;
     uint32_t height;

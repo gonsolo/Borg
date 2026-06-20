@@ -47,7 +47,7 @@ uart_decoder.o: ../common/uart_decoder.cpp ../common/uart_decoder.h
 BorgSimulatorBase.o: ../common/BorgSimulatorBase.cpp ../common/BorgSimulatorBase.h $(LAYOUT_HDRS)
 	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
 
-ArcBorgSimulator.o: ArcBorgSimulator.cpp ArcBorgSimulator.h $(LAYOUT_HDRS)
+ArcBorgSimulator.o: ArcBorgSimulator.cpp ArcBorgSimulator.h ../common/BorgSimulatorBase.h ../common/uart_tx.h $(LAYOUT_HDRS)
 	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
 
 main.o: main.cpp arc.h arcilator-runtime.h ../common/texture_loader.h ArcBorgSimulator.h ../common/BorgSimulatorBase.h $(LAYOUT_HDRS)
