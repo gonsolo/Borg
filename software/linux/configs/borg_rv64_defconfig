@@ -1,0 +1,110 @@
+# Borg SoC — minimal RV64 Linux kernel config
+#
+# Target: Hutt RV64IMAC core on ULX3S (ECP5-85K)
+#
+# ISA:  RV64IMAC — no FPU (no F/D extension).  Userspace uses soft-float
+#       (lp64 ABI, emulated by glibc libgcc).  No vector, no Zba/Zbb.
+#
+# Memory: 32 MB SDRAM at 0x0.  Kernel at 0x200000 (after OpenSBI).
+#         Initramfs at 0x800000 (~2 MB; holds busybox init + minimal rootfs).
+#
+# Console: SBI ecall (earlycon=sbi).  No native UART driver needed for
+#          Phase 4; add a simple UART driver (ns16550 or custom) in Phase 5.
+#
+# No MMC, USB, PCIe, audio, video, networking, or modules in this config.
+# Keep the image small enough to flash together with OpenSBI in ~32 MB.
+
+CONFIG_SYSVIPC=y
+CONFIG_POSIX_MQUEUE=y
+
+#
+# Architecture: RISC-V 64-bit, Sv39 MMU, no FPU
+#
+CONFIG_RISCV=y
+CONFIG_64BIT=y
+CONFIG_RISCV_ISA_C=y
+# CONFIG_FPU is not set
+CONFIG_NONPORTABLE=y
+CONFIG_PAGE_OFFSET=0xffffffe000000000
+CONFIG_ARCH_RV64I=y
+
+#
+# SBI (supervisor binary interface — our console path)
+#
+CONFIG_RISCV_SBI=y
+CONFIG_RISCV_SBI_V01=y
+CONFIG_HVC_RISCV_SBI=y
+CONFIG_SERIAL_EARLYCON_RISCV_SBI=y
+
+#
+# Timer + interrupt controller
+#
+CONFIG_CLINT_TIMER=y
+CONFIG_RISCV_INTC=y
+CONFIG_RISCV_ACLINT=y
+
+#
+# Memory + paging
+#
+CONFIG_MMU=y
+CONFIG_SPARSEMEM=y
+CONFIG_SMP=n
+CONFIG_NR_CPUS=1
+
+#
+# Process / scheduler (trim unused classes)
+#
+CONFIG_HZ=100
+CONFIG_PREEMPT_NONE=y
+# CONFIG_PREEMPT is not set
+
+#
+# Block / storage — initramfs-only boot, no real block device
+#
+CONFIG_BLK_DEV=y
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_INITRAMFS_SOURCE=""
+# CONFIG_BLK_DEV_SD is not set
+# CONFIG_ATA is not set
+# CONFIG_MMC is not set
+
+#
+# Filesystems — just the basics for a shell
+#
+CONFIG_EXT4_FS=y
+CONFIG_TMPFS=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+# CONFIG_NETWORK_FILESYSTEMS is not set
+
+#
+# Networking — disabled for minimal footprint
+#
+# CONFIG_NET is not set
+# CONFIG_INET is not set
+
+#
+# Serial / TTY
+#
+CONFIG_TTY=y
+CONFIG_SERIAL_CORE=y
+# Enable SBI console as a proper tty so userspace can read/write /dev/hvc0
+CONFIG_HVC_DRIVER=y
+
+#
+# Kernel features
+#
+CONFIG_PRINTK=y
+CONFIG_EARLY_PRINTK=y
+CONFIG_KALLSYMS=y
+# CONFIG_MODULES is not set
+CONFIG_BINFMT_ELF=y
+
+#
+# Debugging — light touch
+#
+# CONFIG_DEBUG_FS is not set
+# CONFIG_FTRACE is not set
+CONFIG_PANIC_TIMEOUT=5

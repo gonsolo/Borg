@@ -1,0 +1,92 @@
+// SPDX-FileCopyrightText: © 2026 Andreas Wendleder
+// SPDX-License-Identifier: CERN-OHL-S-2.0
+//
+// Device tree for the Borg SoC running on the ULX3S (Lattice ECP5-85K).
+//
+// Physical memory map:
+//   0x00000000  SDRAM (32 MB, flat — CPU byte addr = SDRAM byte offset)
+//   0x02000000  CLINT (mtime/mtimecmp, 25 MHz timebase)
+//   0x08000018  Debug UART TX (write-only, 115200 baud)
+//   0x0800001C  Debug UART STATUS (bit 0 = busy)
+//
+// Boot flow:
+//   FlashBootLoader reads SPI-flash[0x400000..] → SDRAM[0x0]
+//   OpenSBI starts at PC=0x0 (M-mode)
+//   Linux kernel at 0x200000 (S-mode, Sv39 MMU)
+//
+// console: earlycon=sbi (SBI ecall → OpenSBI → debug UART)
+
+/dts-v1/;
+
+/ {
+    #address-cells = <2>;
+    #size-cells    = <2>;
+    model          = "Borg SoC on ULX3S";
+    compatible     = "borg,ulx3s";
+
+    chosen {
+        // SBI console: OpenSBI forwards putchar to the debug UART.
+        // earlycon= must come before console= so kernel gets output
+        // before the serial driver initialises (which needs a driver anyway).
+        bootargs = "earlycon=sbi console=ttyS0,115200n8 rootwait root=/dev/ram0 rw";
+        linux,initrd-start = <0x0 0x00800000>;
+        linux,initrd-end   = <0x0 0x00A00000>;  // 2 MB initramfs
+    };
+
+    cpus {
+        #address-cells = <1>;
+        #size-cells    = <0>;
+        timebase-frequency = <25000000>;  // mtime increments at 25 MHz (ULX3S)
+
+        cpu@0 {
+            device_type  = "cpu";
+            reg          = <0>;
+            status       = "okay";
+            compatible   = "riscv";
+            riscv,isa    = "rv64imac_zicsr_zifencei";
+            mmu-type     = "riscv,sv39";
+
+            interrupt-controller {
+                #interrupt-cells = <1>;
+                compatible = "riscv,cpu-intc";
+                interrupt-controller;
+            };
+        };
+    };
+
+    // 32 MB SDRAM.  Linux is given the full range; OpenSBI automatically
+    // reserves its own region via the SBI memory-region mechanism.
+    memory@0 {
+        device_type = "memory";
+        reg = <0x0 0x00000000 0x0 0x02000000>;
+    };
+
+    soc {
+        #address-cells = <2>;
+        #size-cells    = <2>;
+        compatible     = "simple-bus";
+        ranges;
+
+        // CLINT — Core-Local Interruptor (mtime + mtimecmp + MSIP).
+        // Addressed as: 0x02000000
+        //   +0x0: mtime_lo  +0x4: mtime_hi
+        //   +0x8: mtimecmp_lo  +0xC: mtimecmp_hi
+        // timebase-frequency is in /cpus (per RISC-V DTS convention).
+        clint@2000000 {
+            compatible = "riscv,clint0";
+            reg        = <0x0 0x02000000 0x0 0x10000>;
+            interrupts-extended = <&{/cpus/cpu@0/interrupt-controller} 3
+                                   &{/cpus/cpu@0/interrupt-controller} 7>;
+        };
+
+        // Borg debug UART (write-only; RX not wired to this path).
+        // Linux uses SBI console (earlycon=sbi) for output — no native UART
+        // driver is needed for minimal boot.  A full ns16550-style driver
+        // (matching the PeriUart register interface) is a post-Phase-4 item.
+        borg-uart@8000018 {
+            compatible = "borg,debug-uart";
+            reg        = <0x0 0x08000018 0x0 0x10>;
+            status     = "disabled";  // only used by OpenSBI M-mode directly
+        };
+    };
+};

@@ -31,6 +31,9 @@ help:
 	@echo -e "  book:\t\t\t\tBuild the documentation book."
 	@echo -e "  clean:\t\t\tRemove all build artifacts."
 	@echo -e "  clean-gh-runs:\t\tClean up GitHub workflow runs."
+	@echo -e "  opensbi:\t\t\tBuild OpenSBI FW_PAYLOAD for Borg (requires ext/opensbi + linux Image)."
+	@echo -e "  linux:\t\t\tBuild Linux kernel for Borg (requires ext/linux)."
+	@echo -e "  flash-linux:\t\t\tWrap + flash OpenSBI+Linux payload to SPI flash @ 0x400000."
 
 # Clock frequencies: each target's Scala Main has its own default.
 # TT ASIC = 4 MHz, ULX3S = 25 MHz (SoC) / 125 MHz (HDMI).
@@ -186,8 +189,23 @@ clean:
 clean-gh-runs:
 	gh run list --limit 200 --json databaseId --jq '.[8:] | .[].databaseId' | xargs -I {} gh run delete {}
 
+# ---------------------------------------------------------------------------
+# Linux-on-Borg targets — delegate to software/Makefile.
+# Upstream source trees are expected at ext/opensbi and ext/linux.
+# Override with OPENSBI_SRC=/path and LINUX_SRC=/path.
+# ---------------------------------------------------------------------------
+opensbi:
+	$(MAKE) -C software opensbi
+
+linux:
+	$(MAKE) -C software linux
+
+flash-linux:
+	$(MAKE) -C software flash-linux
+
 .PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
-	book clean-gh-runs scripts/test_summary.sh vulkan-cts
+	book clean-gh-runs scripts/test_summary.sh vulkan-cts \
+	opensbi linux flash-linux
 
