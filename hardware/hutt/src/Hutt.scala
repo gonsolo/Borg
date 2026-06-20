@@ -11,9 +11,9 @@ import chisel3.util._
   * @param instrAddrWidth word-address width on the instruction fetch port
   * @param dataAddrWidth  byte-address width on the data port
   */
-class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int) extends Bundle {
-  val instr     = new HuttInstrBus(instrAddrWidth)
-  val data      = new HuttBus(dataAddrWidth)
+class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32) extends Bundle {
+  val instr     = new HuttInstrBus(instrAddrWidth)       // instructions are always 32-bit
+  val data      = new HuttBus(dataAddrWidth, xlen)       // data path is XLEN-wide
   val interrupt = Input(Bool())  // optional level-sensitive IRQ (currently unused)
 }
 
@@ -41,31 +41,31 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int) extends Bundle {
 class Hutt(
     val instrAddrWidth: Int = 23,
     val dataAddrWidth: Int  = 28,
-    val resetVector: BigInt = 0
+    val resetVector: BigInt = 0,
+    val xlen: Int = 32          // 32 = RV32I, 64 = RV64I
 ) extends Module {
 
-  val io = IO(new HuttIO(instrAddrWidth, dataAddrWidth))
+  val io = IO(new HuttIO(instrAddrWidth, dataAddrWidth, xlen))
 
   // -- Architectural state ---------------------------------------------------
-  val pc    = RegInit(resetVector.U(32.W))
-  val instr = RegInit(0.U(32.W))
+  val pc    = RegInit(resetVector.U(xlen.W))
+  val instr = RegInit(0.U(32.W))   // instruction word — always 32-bit
 
   // Free-running cycle counter for the RISC-V `cycle`/`mcycle` CSR (rdcycle).
-  // 32-bit: wraps at 2^32 cycles (~171 s at 25 MHz) — ample for per-frame deltas.
-  // The high half (cycleh/mcycleh) reads 0 until a 64-bit counter is needed for
-  // Linux (Phase 4).  Read-only: CSR writes are ignored.
-  val cycleCounter = RegInit(0.U(32.W))
+  // XLEN-wide: on RV64 a single 64-bit `cycle` CSR; on RV32 it is the low half
+  // and cycleh/mcycleh read 0.  Read-only: CSR writes are ignored.
+  val cycleCounter = RegInit(0.U(xlen.W))
   cycleCounter := cycleCounter + 1.U
 
-  val regFile = Module(new HuttRegFile)
-  val alu     = Module(new HuttAlu)
+  val regFile = Module(new HuttRegFile(xlen))
+  val alu     = Module(new HuttAlu(xlen))
 
   // -- FSM -------------------------------------------------------------------
   val sFetchReq :: sFetchResp :: sExec :: sMemReq :: sMemResp :: Nil = Enum(5)
   val state = RegInit(sFetchReq)
 
   // -- Decode (combinational over current `instr` register) ------------------
-  val d = HuttDecode(instr)
+  val d = HuttDecode(instr, xlen)
 
   // Register file read ports
   regFile.io.rs1Addr := d.rs1
@@ -74,7 +74,7 @@ class Hutt(
   val rs2Val = regFile.io.rs2Data
 
   // ALU operand muxing
-  val aluUseImm = d.isOpImm || d.isLoad || d.isStore || d.isJalr
+  val aluUseImm = d.isOpImm || d.isOpImm32 || d.isLoad || d.isStore || d.isJalr
   val aluImm = MuxCase(d.iImm, Seq(
     d.isStore -> d.sImm
   ))
@@ -82,8 +82,11 @@ class Hutt(
   alu.io.b := Mux(aluUseImm, aluImm, rs2Val)
 
   alu.io.op := MuxCase(AluOp.Add, Seq(
-    d.isOp     -> HuttAluDecode(d.funct3, d.funct7(5), isOpReg = true.B),
-    d.isOpImm  -> HuttAluDecode(d.funct3, d.funct7(5), isOpReg = false.B)
+    d.isOp      -> HuttAluDecode(d.funct3, d.funct7(5), isOpReg = true.B),
+    d.isOpImm   -> HuttAluDecode(d.funct3, d.funct7(5), isOpReg = false.B),
+    // RV64 word ops (ADDW/SUBW/SLLW/SRLW/SRAW and ADDIW/SLLIW/SRLIW/SRAIW).
+    d.isOp32    -> HuttAluDecode(d.funct3, d.funct7(5), isOpReg = true.B,  isWord = true.B),
+    d.isOpImm32 -> HuttAluDecode(d.funct3, d.funct7(5), isOpReg = false.B, isWord = true.B)
     // Load/Store/JALR all use ADD for address calculation — default.
   ))
 
@@ -93,7 +96,7 @@ class Hutt(
   val pcPlus4    = pc + 4.U
   val branchTgt  = pc + d.bImm
   val jalTgt     = pc + d.jImm
-  val jalrTgt    = (rs1Val + d.iImm) & "hFFFFFFFE".U(32.W)  // clear LSB per RV32I spec
+  val jalrTgt    = Cat((rs1Val + d.iImm)(xlen - 1, 1), 0.U(1.W))  // clear LSB per spec
 
   val pcNext = WireDefault(pcPlus4)
   when(d.isBranch && branchTaken) { pcNext := branchTgt }
@@ -103,11 +106,11 @@ class Hutt(
   // CSR read (rdcycle / rdcycleh, mcycle / mcycleh).  Read-only counters; the
   // CSR write side (CSRRW/S/C set/clear) is ignored since rdcycle uses rs1=x0.
   val csrAddr = instr(31, 20)
-  val csrReadData = MuxLookup(csrAddr, 0.U(32.W))(Seq(
-    "hC00".U -> cycleCounter,        // cycle
+  val csrReadData = MuxLookup(csrAddr, 0.U(xlen.W))(Seq(
+    "hC00".U -> cycleCounter,        // cycle  (full XLEN on RV64)
     "hB00".U -> cycleCounter,        // mcycle
-    "hC80".U -> 0.U(32.W),           // cycleh  (low 32-bit counter → high is 0)
-    "hB80".U -> 0.U(32.W)            // mcycleh
+    "hC80".U -> 0.U(xlen.W),         // cycleh  (RV32-only high half → 0)
+    "hB80".U -> 0.U(xlen.W)          // mcycleh
   ))
 
   // Writeback value (for non-load instructions)
@@ -123,7 +126,7 @@ class Hutt(
     d.isCsr   -> csrReadData
   ))
 
-  val wbExecEn  = (d.isOp || d.isOpImm || d.isJal || d.isJalr || d.isLui || d.isAuipc || d.isCsr) && (d.rd =/= 0.U)
+  val wbExecEn  = (d.isOp || d.isOpImm || d.isOp32 || d.isOpImm32 || d.isJal || d.isJalr || d.isLui || d.isAuipc || d.isCsr) && (d.rd =/= 0.U)
 
   // -- Memory access support -------------------------------------------------
   // Effective byte address for loads/stores = rs1 + (load? iImm : sImm)
@@ -134,20 +137,22 @@ class Hutt(
   val loadRd     = Reg(UInt(5.W))
   val isLoadOp   = Reg(Bool())   // distinguishes load vs store in sMemResp
 
-  // Sign/zero-extend the memory response to a 32-bit register value.
-  //   funct3: 000 LB, 001 LH, 010 LW, 100 LBU, 101 LHU
+  // Sign/zero-extend the memory response to an XLEN-bit register value.
+  //   funct3: 000 LB, 001 LH, 010 LW, 011 LD(RV64), 100 LBU, 101 LHU, 110 LWU(RV64)
   // Contract: memory ctrl returns the addressed bytes in the low bits of resp.
   def extendLoad(funct3: UInt, raw: UInt): UInt = {
-    val bSigned = Cat(Fill(24, raw(7)),  raw(7, 0))
-    val hSigned = Cat(Fill(16, raw(15)), raw(15, 0))
-    val bUnsign = Cat(0.U(24.W), raw(7, 0))
-    val hUnsign = Cat(0.U(16.W), raw(15, 0))
+    def sext(from: Int): UInt =
+      if (xlen <= from) raw(xlen - 1, 0) else Cat(Fill(xlen - from, raw(from - 1)), raw(from - 1, 0))
+    def zext(from: Int): UInt =
+      if (xlen <= from) raw(xlen - 1, 0) else Cat(0.U((xlen - from).W), raw(from - 1, 0))
     MuxLookup(funct3, raw)(Seq(
-      "b000".U -> bSigned,
-      "b001".U -> hSigned,
-      "b010".U -> raw,
-      "b100".U -> bUnsign,
-      "b101".U -> hUnsign
+      "b000".U -> sext(8),    // LB
+      "b001".U -> sext(16),   // LH
+      "b010".U -> sext(32),   // LW (sign-extend to XLEN)
+      "b011".U -> raw,        // LD (RV64; full width)
+      "b100".U -> zext(8),    // LBU
+      "b101".U -> zext(16),   // LHU
+      "b110".U -> zext(32)    // LWU (RV64)
     ))
   }
 
