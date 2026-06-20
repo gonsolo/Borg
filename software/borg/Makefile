@@ -9,15 +9,20 @@ _max_draws   := $(shell sed -n 's/.*SEQ_MAX_DRAWS[[:space:]]\+\([0-9]\+\).*/\1/p
 _desc_stride := $(shell sed -n 's/.*SEQ_DESC_STRIDE[[:space:]]\+\([0-9]\+\).*/\1/p' borg_layout.h)
 TEX_SPI_BYTE_ADDR := $(shell printf '%d' $$(( $(_desc_base) + $(_max_draws) * $(_desc_stride) )))
 
-CC = riscv32-none-elf-gcc
+# RV64 bare-metal firmware: the ULX3S Hutt core is RV64I + Zicsr (no M/F/D —
+# multiply/divide and float are soft, via libgcc).  Matches the sim tops, which
+# now run xlen=64.  ABI lp64 (soft-float).  Toolchain: riscv64-unknown-elf
+# (newlib bare-metal).  Override with TOOLCHAIN64= if your prefix differs.
+TOOLCHAIN64 ?= riscv64-unknown-elf
+CC = $(TOOLCHAIN64)-gcc
 # _zicsr enables CSR instructions (rdcycle) — Hutt implements the cycle/mcycle
-# read-side counter; the rest of the ISA is still pure RV32I.
-ARCH = rv32i_zicsr
-ABI  = ilp32
-AS = riscv32-none-elf-as
-AR = riscv32-none-elf-ar
-LD = riscv32-none-elf-ld
-OBJCOPY = riscv32-none-elf-objcopy
+# read-side counter; the rest of the ISA is still pure RV64I.
+ARCH = rv64ifd_zicsr
+ABI  = lp64d
+AS = $(TOOLCHAIN64)-as
+AR = $(TOOLCHAIN64)-ar
+LD = $(TOOLCHAIN64)-ld
+OBJCOPY = $(TOOLCHAIN64)-objcopy
 
 # Disable Nixpkgs compiler wrapper hardening flags which pollute bare-metal linking
 export HARDENING_DISABLE=all

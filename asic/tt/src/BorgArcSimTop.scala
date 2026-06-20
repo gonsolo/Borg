@@ -42,6 +42,9 @@ class BorgArcSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   }
   def soc_ui_in = ui_in
 
+  // Match ULX3S hardware: RV64IMAC Hutt core.
+  override def xlen: Int = 64
+
   // Unified 2×2 quad SIMT config, matching the verilator BorgSimTop and ULX3S.
   // Arcilator ignores $readmemh, so its C++ harness pokes the per-lane LUTs into
   // all 4 lanes (see ArcBorgSimulator::load_luts).  One config everywhere keeps

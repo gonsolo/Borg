@@ -1,9 +1,11 @@
-CC = riscv32-none-elf-gcc
-AS = riscv32-none-elf-as
-AR = riscv32-none-elf-ar
+# RV64 bare-metal: matches software/borg (RV64I + Zicsr, soft-float lp64).
+TOOLCHAIN64 ?= riscv64-unknown-elf
+CC = $(TOOLCHAIN64)-gcc
+AS = $(TOOLCHAIN64)-as
+AR = $(TOOLCHAIN64)-ar
 
-ARCH = rv32i
-ABI  = ilp32
+ARCH = rv64ifd_zicsr
+ABI  = lp64d
 
 all: hutt.a start.o
 

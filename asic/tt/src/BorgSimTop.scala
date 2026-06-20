@@ -44,6 +44,9 @@ class BorgSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   }
   def soc_ui_in = ui_in
 
+  // Match ULX3S hardware: RV64IMAC Hutt core.
+  override def xlen: Int = 64
+
   // 2×2 quad SIMT fragment shading (sim).
   override def BORG_CFG: BorgConfig = BorgConfig.Simt
 
