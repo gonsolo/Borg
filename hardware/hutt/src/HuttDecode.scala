@@ -64,9 +64,10 @@ class HuttDecoded(val xlen: Int = 32) extends Bundle {
   val isOp32    = Bool()  // RV64 ADDW/SUBW/SLLW/SRLW/SRAW
   val isNop    = Bool()   // FENCE/WFI/unknown-SYSTEM treated as nop
   val isCsr    = Bool()   // SYSTEM with funct3 != 0 → CSR read/write
-  val isEcall  = Bool()   // ECALL — triggers M-mode trap (cause 11)
-  val isEbreak = Bool()   // EBREAK — triggers M-mode trap (cause 3)
+  val isEcall  = Bool()   // ECALL — trap; cause depends on privilege level
+  val isEbreak = Bool()   // EBREAK — trap; cause 3
   val isMret   = Bool()   // MRET — return from M-mode trap
+  val isSret   = Bool()   // SRET — return from S-mode trap
 }
 
 object HuttDecode {
@@ -112,9 +113,10 @@ object HuttDecode {
     d.isEcall  := isSystem0 && (funct12 === "h000".U)
     d.isEbreak := isSystem0 && (funct12 === "h001".U)
     d.isMret   := isSystem0 && (funct12 === "h302".U)
+    d.isSret   := isSystem0 && (funct12 === "h102".U)
     // FENCE, WFI, and unknown SYSTEM+funct3=0 are harmless NOPs.
     d.isNop    := (d.opcode === Opcode.MiscMem) ||
-                  (isSystem0 && !d.isEcall && !d.isEbreak && !d.isMret)
+                  (isSystem0 && !d.isEcall && !d.isEbreak && !d.isMret && !d.isSret)
 
     d
   }
