@@ -1,5 +1,6 @@
-#include "ArcBorgSimulator.h"
+#include "ArcBorgSimulator.h"   // → BorgSimulatorBase.h → common_sim.h → borg_layout.h
 #include "sim_app_config.h"
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -7,44 +8,77 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-// CTS headless mode: run one frame, dump raw RGB888 pixels to stdout.
-// Invoked as: arcilator_sim --cts-uart <uart_bytes.bin> <firmware.bin> <W> <H>
-// The uart_bytes.bin file is the exact byte stream borgvk would send over serial
-// (0xB0 shader upload, 0xAD MVP, 0xAE geometry, etc.).  The sim queues them as
-// UART TX before the first clock cycle, then runs until the completion marker.
-static int run_cts(const char *uart_file, const char *fw_path,
-                   uint32_t width, uint32_t height)
-{
-    ArcBorgSimulator sim(fw_path, width, height);
+// ---- fp16 + PSRAM mailbox helpers (host side of the CTS draw path) --------
 
-    // Pre-queue all UART bytes so the firmware receives them from cycle 0.
-    std::ifstream f(uart_file, std::ios::binary | std::ios::ate);
-    if (!f) {
-        std::cerr << "[CTS] Cannot open uart file: " << uart_file << "\n";
-        return 1;
+// Round-to-nearest-even float → IEEE-754 half (fp16).
+static uint16_t f32_to_f16(float f) {
+    uint32_t x;
+    std::memcpy(&x, &f, 4);
+    uint32_t sign = (x >> 16) & 0x8000u;
+    int32_t  exp  = (int32_t)((x >> 23) & 0xFF) - 127 + 15;
+    uint32_t mant = x & 0x7FFFFFu;
+    if (exp <= 0) {
+        if (exp < -10) return (uint16_t)sign;           // underflow → ±0
+        mant |= 0x800000u;
+        uint32_t shift = (uint32_t)(14 - exp);
+        uint32_t half = (mant + (1u << (shift - 1))) >> shift;
+        return (uint16_t)(sign | half);
     }
-    std::streamsize sz = f.tellg();
-    f.seekg(0);
-    std::vector<uint8_t> uart_bytes((size_t)sz);
-    f.read((char *)uart_bytes.data(), sz);
-    // Delay byte injection until after the firmware's first drain-loop gap-wait.
-    // The firmware discards bytes arriving before the gap-wait finds GAP_CYCLES
-    // (7500) of idle. At 4 MHz the firmware boots in ~100K cycles; 700K gives a
-    // wide margin so that when bytes start arriving the firmware is already in
-    // Step 2 (waiting for the first marker byte, 2M+ cycle window).
-    sim.uart_tx.enqueue_gap(700000);
-    sim.uart_tx.enqueue(uart_bytes.data(), (size_t)sz);
+    if (exp >= 0x1F) return (uint16_t)(sign | 0x7C00u); // overflow → ±inf
+    uint16_t h = (uint16_t)(sign | ((uint32_t)exp << 10) | (mant >> 13));
+    if (mant & 0x1000u) h++;                             // round to nearest even
+    return h;
+}
 
-    // Firmware UART output goes to stdout inside BorgSimulatorBase.  Save the
-    // real stdout (pipe to borgvk, or terminal/file in standalone mode), then
-    // redirect fd 1 → /dev/null for the duration of the sim so firmware prints
-    // don't pollute the pixel stream.  Pixels are written to the saved fd via
-    // write(2) afterwards, bypassing stdio buffering.
-    int pixel_fd = dup(STDOUT_FILENO);
-    int devnull  = open("/dev/null", O_WRONLY);
+// Write one 32-bit word into PSRAM at an SPI byte address (little-endian),
+// matching the firmware's PSRAM_OUT_RAW word access.
+static void psram_write_word(ArcBorgSimulator &sim, uint32_t spi_byte, uint32_t v) {
+    uint8_t *m = sim.psram->mem.data();
+    m[spi_byte+0] = v & 0xFF;        m[spi_byte+1] = (v >> 8)  & 0xFF;
+    m[spi_byte+2] = (v >> 16) & 0xFF; m[spi_byte+3] = (v >> 24) & 0xFF;
+}
+static void mb_word(ArcBorgSimulator &sim, uint32_t word_idx, uint32_t v) {
+    psram_write_word(sim, BORG_CTS_MAILBOX_SPI + word_idx * 4, v);
+}
+
+// Fill the whole texture region with white (fp16 1.0 = 0x3C00) so the baked
+// frag's `texel × vertex_color` modulation passes vertex color through.
+static void fill_white_texture(ArcBorgSimulator &sim) {
+    uint8_t *m = sim.psram->mem.data();
+    for (uint32_t a = TEX_PSRAM_BYTE_ADDR_FIXED;
+         a + 1 < TEX_PSRAM_BYTE_ADDR_FIXED + TEX_REGION_BYTES; a += 2) {
+        m[a] = 0x00; m[a+1] = 0x3C;   // 0x3C00 = 1.0
+    }
+}
+
+// Write a draw command (positions, per-vertex colors, indices, MVP) into the
+// PSRAM mailbox and lay down a white texture.  pos/col are float xyz/rgb.
+static void write_mailbox_draw(ArcBorgSimulator &sim,
+                               const float *pos, const float *col, int nverts,
+                               const uint8_t *idx, int ntris,
+                               const float mvp[16]) {
+    fill_white_texture(sim);
+    mb_word(sim, BORG_CTS_OFF_NVERTS, (uint32_t)nverts);
+    mb_word(sim, BORG_CTS_OFF_NTRIS,  (uint32_t)ntris);
+    for (int i = 0; i < 16; i++)
+        mb_word(sim, BORG_CTS_OFF_MVP + i, f32_to_f16(mvp[i]));
+    for (int i = 0; i < nverts * 3; i++) {
+        mb_word(sim, BORG_CTS_OFF_POS   + i, f32_to_f16(pos[i]));
+        mb_word(sim, BORG_CTS_OFF_COLOR + i, f32_to_f16(col[i]));
+    }
+    for (int i = 0; i < ntris * 3; i++)
+        mb_word(sim, BORG_CTS_OFF_IDX + i, (uint32_t)idx[i]);
+    // Magic written LAST so a reader never sees a half-built command.
+    mb_word(sim, BORG_CTS_OFF_MAGIC, BORG_CTS_MAGIC);
+}
+
+// Run until the completion marker (or watchdog), then decode the RGB565 tiled
+// framebuffer to RGB888 and write it to `pixel_fd`.  Returns 0 on success.
+static int run_and_dump(ArcBorgSimulator &sim, uint32_t width, uint32_t height,
+                        int pixel_fd) {
+    int devnull = open(getenv("CTS_DBG") ? "/dev/stderr" : "/dev/null", O_WRONLY);
     if (devnull >= 0) dup2(devnull, STDOUT_FILENO);
 
-    // Run until frame complete (or watchdog).
     const uint64_t MAX_CYCLES = 15000000ULL;
     uint64_t cycles = 0;
     while (!sim.step(10000)) {
@@ -59,7 +93,6 @@ static int run_cts(const char *uart_file, const char *fw_path,
     }
     if (devnull >= 0) { close(devnull); devnull = -1; }
 
-    // Decode RGB565 tiled framebuffer → raw RGB888, write to stdout (fd 1 = pipe/file).
     const uint32_t *words = (const uint32_t *)sim.psram->mem.data();
     uint32_t base = sim.out_base_word;
     std::vector<uint8_t> rgb_buf(width * height * 3);
@@ -90,6 +123,76 @@ static int run_cts(const char *uart_file, const char *fw_path,
     return 0;
 }
 
+// Checkpoint test: render a hardcoded RGB triangle via the PSRAM mailbox.
+// arcilator_sim --cts-tri <firmware.bin> <W> <H>
+static int run_cts_tri(const char *fw_path, uint32_t width, uint32_t height) {
+    ArcBorgSimulator sim(fw_path, width, height);
+    // NDC triangle with red/green/blue corners (Vulkan y-down screen space).
+    const float pos[9] = {
+        -0.9f, -0.9f, 0.5f,
+         0.9f, -0.9f, 0.5f,
+         0.0f,  0.9f, 0.5f,
+    };
+    const float col[9] = {
+        1.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 1.0f,
+    };
+    const uint8_t idx[3] = {0, 1, 2};
+    const float identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+    write_mailbox_draw(sim, pos, col, 3, idx, 1, identity);
+
+    if (getenv("CTS_DBG")) {
+        const uint32_t *w = (const uint32_t *)(sim.psram->mem.data() + BORG_CTS_MAILBOX_SPI);
+        std::cerr << "[CTS] mailbox after write: magic=" << std::hex << w[BORG_CTS_OFF_MAGIC]
+                  << " nverts=" << std::dec << w[BORG_CTS_OFF_NVERTS]
+                  << " pos0=" << std::hex << w[BORG_CTS_OFF_POS] << std::dec << "\n";
+    }
+
+    int pixel_fd = dup(STDOUT_FILENO);
+    int rc = run_and_dump(sim, width, height, pixel_fd);
+    if (getenv("CTS_DBG")) {
+        const uint32_t *w = (const uint32_t *)(sim.psram->mem.data() + BORG_CTS_MAILBOX_SPI);
+        std::cerr << "[CTS] mailbox after run:   magic=" << std::hex << w[BORG_CTS_OFF_MAGIC]
+                  << std::dec << "\n";
+    }
+    return rc;
+}
+
+// CTS headless mode: run one frame, dump raw RGB888 pixels to stdout.
+// Invoked as: arcilator_sim --cts-uart <uart_bytes.bin> <firmware.bin> <W> <H>
+// The uart_bytes.bin file is the exact byte stream borgvk would send over serial
+// (0xB0 shader upload, 0xAD MVP, 0xAE geometry, etc.).  The sim queues them as
+// UART TX before the first clock cycle, then runs until the completion marker.
+static int run_cts(const char *uart_file, const char *fw_path,
+                   uint32_t width, uint32_t height)
+{
+    ArcBorgSimulator sim(fw_path, width, height);
+
+    // Pre-queue all UART bytes so the firmware receives them from cycle 0.
+    std::ifstream f(uart_file, std::ios::binary | std::ios::ate);
+    if (!f) {
+        std::cerr << "[CTS] Cannot open uart file: " << uart_file << "\n";
+        return 1;
+    }
+    std::streamsize sz = f.tellg();
+    f.seekg(0);
+    std::vector<uint8_t> uart_bytes((size_t)sz);
+    f.read((char *)uart_bytes.data(), sz);
+    // Delay byte injection until after the firmware's first drain-loop gap-wait.
+    // The firmware discards bytes arriving before the gap-wait finds GAP_CYCLES
+    // (7500) of idle. At 4 MHz the firmware boots in ~100K cycles; 700K gives a
+    // wide margin so that when bytes start arriving the firmware is already in
+    // Step 2 (waiting for the first marker byte, 2M+ cycle window).
+    sim.uart_tx.enqueue_gap(700000);
+    sim.uart_tx.enqueue(uart_bytes.data(), (size_t)sz);
+
+    // Save the real stdout (pipe to borgvk, or terminal/file standalone); pixels
+    // are written there by run_and_dump after redirecting fd 1 → /dev/null.
+    int pixel_fd = dup(STDOUT_FILENO);
+    return run_and_dump(sim, width, height, pixel_fd);
+}
+
 int main(int argc, char **argv) {
     // CTS headless mode.
     if (argc >= 2 && strcmp(argv[1], "--cts-uart") == 0) {
@@ -101,6 +204,18 @@ int main(int argc, char **argv) {
         uint32_t w = (uint32_t)atoi(argv[4]);
         uint32_t h = (uint32_t)atoi(argv[5]);
         return run_cts(argv[2], argv[3], w, h);
+    }
+
+    // CTS mailbox checkpoint test: hardcoded RGB triangle, no UART.
+    if (argc >= 2 && strcmp(argv[1], "--cts-tri") == 0) {
+        if (argc < 5) {
+            std::cerr << "Usage: " << argv[0]
+                      << " --cts-tri <firmware.bin> <W> <H>\n";
+            return 1;
+        }
+        uint32_t w = (uint32_t)atoi(argv[3]);
+        uint32_t h = (uint32_t)atoi(argv[4]);
+        return run_cts_tri(argv[2], w, h);
     }
 
     // Normal interactive mode.

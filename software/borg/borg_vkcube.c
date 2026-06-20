@@ -68,6 +68,11 @@ static const fp16_t quad_uvs[2][3][2] = {
 static fp16_t  rx_geom_pos[RX_GEOM_MAX_VERTS * 3];
 static uint8_t rx_geom_idx[RX_GEOM_MAX_TRIS * 3];
 static fp16_t  rx_geom_uv[RX_GEOM_MAX_TRIS * 3 * 2];
+// Per-vertex RGB (CTS / host-mailbox path).  When rx_have_color is set,
+// draw_received_geom uses these instead of white, so a flat passthrough frag
+// (white texture × vertex color) reproduces Gouraud-shaded geometry.
+static fp16_t  rx_geom_color[RX_GEOM_MAX_VERTS * 3];
+static int     rx_have_color  = 0;
 static int     rx_geom_nverts = 0;
 static int     rx_geom_ntris  = 0;
 static int     rx_have_geom   = 0;
@@ -263,15 +268,63 @@ static void draw_cube(const borg_draw_data_t *draw, const fp16_t face_light[6]) 
 
 // Draw host-uploaded geometry (Phase B): the app's real mesh, textured only
 // (cube.c has no per-vertex lighting), so vertex color is white.
+// ---- Host draw mailbox (CTS / DRM shim) ---------------------------------
+// A transport-independent path: the host writes one frame's geometry + colors
+// + MVP into a fixed PSRAM region (see borg_layout.h).  The firmware reads it
+// at the top of the render loop, so the sim needs no UART drain.  On the FPGA
+// the magic is simply never set (until a future DRM shim writes it), so this
+// is compiled unconditionally and costs one PSRAM read per frame when idle.
+#define CTS_MB(n) PSRAM_OUT_RAW(BORG_CTS_MAILBOX_SPI + (n) * 4)
+
+static int cts_mailbox_present(void) {
+  return CTS_MB(BORG_CTS_OFF_MAGIC) == BORG_CTS_MAGIC;
+}
+
+// Populate rx_geom_* + the per-frame MVP from the mailbox.  Returns 1 on a
+// valid command.  Positions, colors and MVP are fp16 stored one-per-word.
+static int cts_load_mailbox(fp16_t mvp_out[16]) {
+  if (!cts_mailbox_present())
+    return 0;
+  int nv = (int)CTS_MB(BORG_CTS_OFF_NVERTS);
+  int nt = (int)CTS_MB(BORG_CTS_OFF_NTRIS);
+  if (nv < 1 || nv > RX_GEOM_MAX_VERTS || nt < 1 || nt > RX_GEOM_MAX_TRIS)
+    return 0;
+  for (int i = 0; i < 16; i++)
+    mvp_out[i] = (fp16_t)(CTS_MB(BORG_CTS_OFF_MVP + i) & 0xFFFF);
+  for (int i = 0; i < nv * 3; i++) {
+    rx_geom_pos[i]   = (fp16_t)(CTS_MB(BORG_CTS_OFF_POS   + i) & 0xFFFF);
+    rx_geom_color[i] = (fp16_t)(CTS_MB(BORG_CTS_OFF_COLOR + i) & 0xFFFF);
+  }
+  for (int i = 0; i < nt * 3; i++) {
+    rx_geom_idx[i]        = (uint8_t)CTS_MB(BORG_CTS_OFF_IDX + i);
+    rx_geom_uv[i * 2 + 0] = FP16_ZERO;   // CTS is flat-shaded (white texture)
+    rx_geom_uv[i * 2 + 1] = FP16_ZERO;
+  }
+  rx_geom_nverts = nv;
+  rx_geom_ntris  = nt;
+  rx_have_geom   = 1;
+  rx_have_color  = 1;
+  return 1;
+}
+
 static void draw_received_geom(const borg_draw_data_t *draw) {
   borgTransformVerts(draw, rx_geom_pos, rx_geom_nverts);
   for (int t = 0; t < rx_geom_ntris; t++) {
     int idx[3];
     borg_vertex_t tri[3];
     for (int v = 0; v < 3; v++) {
-      idx[v] = rx_geom_idx[t * 3 + v];
+      int vi = rx_geom_idx[t * 3 + v];
+      idx[v] = vi;
+      // White vertex colors for the textured cube (color modulates the texel);
+      // real per-vertex RGB for the CTS / host-mailbox flat-shaded path.
+      fp16_t cr = FP16_ONE, cg = FP16_ONE, cb = FP16_ONE;
+      if (rx_have_color) {
+        cr = rx_geom_color[vi * 3 + 0];
+        cg = rx_geom_color[vi * 3 + 1];
+        cb = rx_geom_color[vi * 3 + 2];
+      }
       tri[v] = (borg_vertex_t){
-          .color = {FP16_ONE, FP16_ONE, FP16_ONE},
+          .color = {cr, cg, cb},
           .uv    = {rx_geom_uv[(t * 3 + v) * 2 + 0], rx_geom_uv[(t * 3 + v) * 2 + 1]},
       };
     }
@@ -304,7 +357,12 @@ int main() {
   borgCreateShaderModule(&frag, frag_borg, sizeof(frag_borg));
   borgCreateGraphicsPipeline(&vert, &rast, &frag);
 
-  borg_upload_texture(borg_texture_small_dat, TEX_WIDTH);
+  // Host-mailbox (CTS) path: the harness has filled the texture region with
+  // white so the frag's texel×color modulation passes vertex color through —
+  // so DON'T overwrite it with the cube texture.  Normal runs upload the cube.
+  const int cts_active = cts_mailbox_present();
+  if (!cts_active)
+    borg_upload_texture(borg_texture_small_dat, TEX_WIDTH);
 
   fp16_t ts[16], t1[16];
 #ifndef TARGET_ULX3S
@@ -588,6 +646,16 @@ int main() {
     mat4_mul(t1, rx, ry);
     mat4_mul_ts(draw.uniforms, ts, t1);  // MVP = TS · rotation: sparse, 16 ops vs 112
 #endif
+
+    // Host-mailbox draw (CTS): override geometry + MVP with the host's command.
+    // borgvk ships positions already in clip space with an identity MVP, so this
+    // replaces the cube's rotation matrix for the CTS frame.
+    if (cts_active) {
+      fp16_t cts_mvp[16];
+      if (cts_load_mailbox(cts_mvp))
+        for (int i = 0; i < 16; i++)
+          draw.uniforms[i] = cts_mvp[i];
+    }
 
     unsigned int c1 = rdcycle();  // M = matrix
 
