@@ -47,7 +47,13 @@ uart_decoder.o: ../common/uart_decoder.cpp ../common/uart_decoder.h
 BorgSimulatorBase.o: ../common/BorgSimulatorBase.cpp ../common/BorgSimulatorBase.h $(LAYOUT_HDRS)
 	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
 
-ArcBorgSimulator.o: ArcBorgSimulator.cpp ArcBorgSimulator.h ../common/BorgSimulatorBase.h ../common/uart_tx.h $(LAYOUT_HDRS)
+# NOTE: arc.h is a generated dependency — it carries BorgArcSimTopLayout::
+# numStateBytes, which the BorgArcSimTop ctor (inlined here via `new
+# BorgArcSimTop`) uses to size the state buffer.  If arc.h regenerates with a
+# larger state (e.g. after widening the CPU to RV64) but this object is NOT
+# rebuilt, the ctor under-allocates while the freshly built arc.o writes the
+# full state → heap overflow into the adjacent `flat` QSPIMemory → segfault.
+ArcBorgSimulator.o: ArcBorgSimulator.cpp ArcBorgSimulator.h arc.h ../common/BorgSimulatorBase.h ../common/uart_tx.h $(LAYOUT_HDRS)
 	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
 
 main.o: main.cpp arc.h arcilator-runtime.h ../common/texture_loader.h ArcBorgSimulator.h ../common/BorgSimulatorBase.h $(LAYOUT_HDRS)

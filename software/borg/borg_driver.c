@@ -72,6 +72,41 @@ static int back_buf = 1;
 // 32.0 for the DDX rescale FMULs, pinned to uniform u31 (both pages).
 #define BORGC_DDXSCALE_U31 0x5000  // fp16(32.0)
 
+// Hand-written GPU MVP vertex shader with HARDWARE PERSPECTIVE DIVIDE.  Used by
+// the self-contained firmware (triangle/vkcube, headless sims) when no host
+// uploads a borgc vertex shader at runtime.  ABI:
+//   u0..u2   = raw model pos x,y,z (loaded by vertex DMA from the descriptor)
+//   u8..u23  = viewport-baked MVP (16 values, column-major)
+//   r30/r31  = 0 when seqBusy=true (special BorgCore registers)
+//   r0=screen_x, r1=screen_y, r2=ndc_z (snooped by the sequencer into clipRegs).
+static const uint32_t seq_vert_shader[] = {
+  BORG_INSTR_FADD(24, 0, 30, 1),         // r24 = u0 (model x)
+  BORG_INSTR_FADD(25, 1, 30, 1),         // r25 = u1 (model y)
+  BORG_INSTR_FADD(26, 2, 30, 1),         // r26 = u2 (model z)
+  BORG_INSTR_FADD( 0, 20, 30, 1),
+  BORG_INSTR_FMADD( 0, 24,  8,  0, 2),
+  BORG_INSTR_FMADD( 0, 25, 12,  0, 2),
+  BORG_INSTR_FMADD( 0, 26, 16,  0, 2),
+  BORG_INSTR_FADD( 1, 21, 30, 1),
+  BORG_INSTR_FMADD( 1, 24,  9,  1, 2),
+  BORG_INSTR_FMADD( 1, 25, 13,  1, 2),
+  BORG_INSTR_FMADD( 1, 26, 17,  1, 2),
+  BORG_INSTR_FADD( 2, 22, 30, 1),
+  BORG_INSTR_FMADD( 2, 24, 10,  2, 2),
+  BORG_INSTR_FMADD( 2, 25, 14,  2, 2),
+  BORG_INSTR_FMADD( 2, 26, 18,  2, 2),
+  BORG_INSTR_FADD( 3, 23, 30, 1),
+  BORG_INSTR_FMADD( 3, 24, 11,  3, 2),
+  BORG_INSTR_FMADD( 3, 25, 15,  3, 2),
+  BORG_INSTR_FMADD( 3, 26, 19,  3, 2),
+  BORG_INSTR_FRCP( 4, 3, 0),             // r4 = 1 / clip_w
+  BORG_INSTR_FMUL( 0, 0, 4, 0),          // screen_x = clip'_x * inv_w
+  BORG_INSTR_FMUL( 1, 1, 4, 0),          // screen_y = clip'_y * inv_w
+  BORG_INSTR_FMUL( 2, 2, 4, 0),          // ndc_z    = clip_z  * inv_w
+  BORG_INSTR_HALT,
+};
+#define SEQ_VERT_SHADER_LEN (sizeof(seq_vert_shader) / sizeof(seq_vert_shader[0]))
+
 // Triangle setup shader (31 instructions, with edge normalization for Step 30.1c):
 //   u0-u5 = screen coords of all 3 vertices (written by sWriteSetupInputs).
 //   u6    = inv_width = 1/fb_width (written by sWriteSetupInputs, Step 30.1c).
@@ -426,12 +461,24 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
   spirb_parse(rast->code, &rast_shader);
   spirb_parse(frag->code, &frag_shader);
 
-  // Step 30.1b: Stage setup shader to DRAM.
-  // Vertex and fragment shaders are uploaded at runtime by borgvk via borg_stage_shader.
+  // Stage all four sequencer shader stages (vertex/setup/rast/frag) to DRAM.  This
+  // makes the pipeline self-contained: the standalone triangle/vkcube firmware
+  // (and the headless sims, which have no host) get working shaders here.  borgvk
+  // overrides the vertex+fragment stages at runtime via borg_stage_shader (same
+  // DRAM addresses), so the live serial path is unaffected.
+  //
+  // Vertex: the hand-written MVP+perspective-divide shader (seq_vert_shader), which
+  // is HALT-terminated, so seq_vert_len = SEQ_VERT_SHADER_LEN (no +1).  The setup
+  // shader is likewise the baked seq_setup_shader.  rast+frag are taken from the
+  // caller's spirb_parse'd blobs (NOT HALT-terminated → append a 0 + report +1).
+  for (int i = 0; i < (int)SEQ_VERT_SHADER_LEN; i++)
+    DRAM_OUT_RAW(SEQ_VERT_SHADER_ADDR + (uint32_t)i * 4) = seq_vert_shader[i];
+
   for (int i = 0; i < (int)SEQ_SETUP_SHADER_LEN; i++)
     DRAM_OUT_RAW(SEQ_SETUP_SHADER_ADDR + (uint32_t)i * 4) = seq_setup_shader[i];
 
   BORG_GPU->seq_vert_addr  = SEQ_VERT_SHADER_ADDR;
+  BORG_GPU->seq_vert_len   = SEQ_VERT_SHADER_LEN;
   BORG_GPU->seq_setup_addr = SEQ_SETUP_SHADER_ADDR;
   BORG_GPU->seq_setup_len  = SEQ_SETUP_SHADER_LEN;
 
@@ -441,9 +488,13 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
     DRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)i * 4) = rast_shader.instrs[i];
   // HALT sentinel
   DRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)rast_shader.num_instrs * 4) = 0;
+  for (int i = 0; i < (int)frag_shader.num_instrs; i++)
+    DRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)i * 4) = frag_shader.instrs[i];
+  DRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)frag_shader.num_instrs * 4) = 0;
   BORG_GPU->seq_rast_addr = SEQ_RAST_SHADER_ADDR;
   BORG_GPU->seq_rast_len  = rast_shader.num_instrs + 1;  // +1 for HALT
   BORG_GPU->seq_frag_addr = SEQ_FRAG_SHADER_ADDR;
+  BORG_GPU->seq_frag_len  = frag_shader.num_instrs + 1;  // +1 for HALT
 
   // Step 30.1c: Precompute 1/fb_width as exact FP16 (fb_width is a power of 2).
   // fp16(2^n) has exp = n+15, so fp16(2^-n) has exp = 15-n = 30 - exp_of_width.
