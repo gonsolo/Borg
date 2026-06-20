@@ -9,8 +9,9 @@ import chisel3.simulator.EphemeralSimulator._
 import utest._
 
 class HuttTestHarnessIO(instrAddrWidth: Int, dataAddrWidth: Int) extends Bundle {
-  val peekAddr = Input(UInt(dataAddrWidth.W))
-  val peekData = Output(UInt(32.W))
+  val peekAddr  = Input(UInt(dataAddrWidth.W))
+  val peekData  = Output(UInt(32.W))
+  val interrupt = Input(Bool())   // drives cpu.io.interrupt (timer IRQ from CLINT)
 }
 
 class HuttTestHarness(
@@ -21,7 +22,7 @@ class HuttTestHarness(
   val io = IO(new HuttTestHarnessIO(instrAddrWidth, dataAddrWidth))
 
   val cpu = Module(new Hutt(instrAddrWidth, dataAddrWidth))
-  cpu.io.interrupt := false.B
+  cpu.io.interrupt := io.interrupt
 
   val iMemDepth = 1 << instrAddrWidth
   val iMemInit = VecInit(

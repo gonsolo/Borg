@@ -34,7 +34,9 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   *     already extracted to low bits; CPU performs sign/zero-extension based
   *     on funct3.
   *
-  * No RV32IM, no CSRs, no traps, no compressed insns — pure base RV32I.
+  * M-mode CSRs + traps: mstatus/mtvec/mepc/mcause/mtval/mscratch/mie/mip/mhartid/misa.
+  * ECALL → cause 11, EBREAK → cause 3, MRET restores MIE.  Timer IRQ via io.interrupt.
+  * No S/U-mode, no MMU, no compressed insns.
   *
   * @param resetVector word-aligned byte address of the first instruction
   */
@@ -52,10 +54,23 @@ class Hutt(
   val instr = RegInit(0.U(32.W))   // instruction word — always 32-bit
 
   // Free-running cycle counter for the RISC-V `cycle`/`mcycle` CSR (rdcycle).
-  // XLEN-wide: on RV64 a single 64-bit `cycle` CSR; on RV32 it is the low half
-  // and cycleh/mcycleh read 0.  Read-only: CSR writes are ignored.
   val cycleCounter = RegInit(0.U(xlen.W))
   cycleCounter := cycleCounter + 1.U
+
+  // -- M-mode CSRs -----------------------------------------------------------
+  // mstatus: bit 3=MIE, bit 7=MPIE, bits 12:11=MPP.
+  val mstatus  = RegInit(0.U(xlen.W))
+  val mtvec    = RegInit(0.U(xlen.W))
+  val mscratch = RegInit(0.U(xlen.W))
+  val mepc     = RegInit(0.U(xlen.W))
+  val mcause   = RegInit(0.U(xlen.W))
+  val mtval    = RegInit(0.U(xlen.W))
+  val mie      = RegInit(0.U(xlen.W))
+  // mip.MTIP (bit 7) is driven from io.interrupt (CLINT timer); other bits 0.
+  val mip      = Cat(0.U((xlen - 8).W), io.interrupt, 0.U(7.W))
+  // misa: MXL field + I-extension.
+  val misaMxl  = if (xlen == 64) 2.U(2.W) else 1.U(2.W)
+  val misa     = Cat(misaMxl, 0.U((xlen - 28).W), (1 << ('I' - 'A')).U(26.W))
 
   val regFile = Module(new HuttRegFile(xlen))
   val alu     = Module(new HuttAlu(xlen))
@@ -103,15 +118,61 @@ class Hutt(
   when(d.isJal)                   { pcNext := jalTgt }
   when(d.isJalr)                  { pcNext := jalrTgt }
 
-  // CSR read (rdcycle / rdcycleh, mcycle / mcycleh).  Read-only counters; the
-  // CSR write side (CSRRW/S/C set/clear) is ignored since rdcycle uses rs1=x0.
+  // CSR read/write.
   val csrAddr = instr(31, 20)
   val csrReadData = MuxLookup(csrAddr, 0.U(xlen.W))(Seq(
-    "hC00".U -> cycleCounter,        // cycle  (full XLEN on RV64)
-    "hB00".U -> cycleCounter,        // mcycle
-    "hC80".U -> 0.U(xlen.W),         // cycleh  (RV32-only high half → 0)
+    "h300".U -> mstatus,
+    "h301".U -> misa,
+    "h302".U -> 0.U(xlen.W),         // medeleg: no delegation in M-mode-only core
+    "h303".U -> 0.U(xlen.W),         // mideleg
+    "h304".U -> mie,
+    "h305".U -> mtvec,
+    "h340".U -> mscratch,
+    "h341".U -> mepc,
+    "h342".U -> mcause,
+    "h343".U -> mtval,
+    "h344".U -> mip,
+    "hF11".U -> 0.U(xlen.W),         // mvendorid
+    "hF12".U -> 0.U(xlen.W),         // marchid
+    "hF13".U -> 0.U(xlen.W),         // mimpid
+    "hF14".U -> 0.U(xlen.W),         // mhartid
+    "hC00".U -> cycleCounter,         // cycle
+    "hB00".U -> cycleCounter,         // mcycle
+    "hC80".U -> 0.U(xlen.W),         // cycleh  (high half → 0)
     "hB80".U -> 0.U(xlen.W)          // mcycleh
   ))
+
+  // CSR write: CSRRW/I → newVal = src; CSRRS/I → set bits; CSRRC/I → clear bits.
+  // funct3[2]=1 means immediate form (zimm = zero-extend rs1 field).
+  val csrZimm   = Cat(0.U((xlen - 5).W), d.rs1)
+  val csrSrc    = Mux(d.funct3(2), csrZimm, rs1Val)
+  val csrNewVal = MuxCase(csrSrc, Seq(
+    (d.funct3(1, 0) === "b10".U) -> (csrReadData | csrSrc),
+    (d.funct3(1, 0) === "b11".U) -> (csrReadData & ~csrSrc)
+  ))
+
+  // Trap helpers: next mstatus after a trap entry and after MRET.
+  // mstatus layout (RV32/64): bit 3=MIE, bit 7=MPIE, bits 12:11=MPP.
+  val mstatusTrap = Cat(
+    mstatus(xlen - 1, 13),
+    "b11".U(2.W),      // MPP ← M-mode (11)
+    mstatus(10, 8),
+    mstatus(3),        // MPIE ← MIE
+    mstatus(6, 4),
+    false.B,           // MIE ← 0
+    mstatus(2, 0)
+  )
+  val mstatusMret = Cat(
+    mstatus(xlen - 1, 13),
+    "b00".U(2.W),      // MPP ← 0 (U-mode target)
+    mstatus(10, 8),
+    true.B,            // MPIE ← 1
+    mstatus(6, 4),
+    mstatus(7),        // MIE ← MPIE
+    mstatus(2, 0)
+  )
+  // Trap vector (direct mode: mtvec[1:0] ignored, must be 0 for direct).
+  val trapPC = Cat(mtvec(xlen - 1, 2), 0.U(2.W))
 
   // Writeback value (for non-load instructions)
   val wbAlu     = alu.io.out
@@ -176,8 +237,20 @@ class Hutt(
   switch(state) {
 
     is(sFetchReq) {
-      io.instr.req.valid := true.B
-      when(io.instr.req.fire) { state := sFetchResp }
+      // Check for a pending machine timer interrupt before issuing fetch.
+      // Interrupt is taken only when: MIE=1 && MTIE=1 && MTIP=1.
+      val timerPending = mstatus(3) && mie(7) && mip(7)
+      when(timerPending) {
+        mepc    := pc
+        mcause  := Cat(true.B, 0.U((xlen - 4).W), 7.U(3.W))  // interrupt, cause=7
+        mtval   := 0.U(xlen.W)
+        mstatus := mstatusTrap
+        pc      := trapPC
+        // stay in sFetchReq — will fetch the trap handler next cycle
+      }.otherwise {
+        io.instr.req.valid := true.B
+        when(io.instr.req.fire) { state := sFetchResp }
+      }
     }
 
     is(sFetchResp) {
@@ -190,14 +263,43 @@ class Hutt(
 
     is(sExec) {
       when(d.isLoad || d.isStore) {
-        // Capture context that EXEC-time wires will lose by the time MEM_RESP fires.
         loadAddrLo := memAddr(1, 0)
         loadFunct3 := d.funct3
         loadRd     := d.rd
         isLoadOp   := d.isLoad
         state      := sMemReq
+      }.elsewhen(d.isEcall) {
+        mepc    := pc
+        mcause  := 11.U(xlen.W)   // environment call from M-mode
+        mtval   := 0.U(xlen.W)
+        mstatus := mstatusTrap
+        pc      := trapPC
+        state   := sFetchReq
+      }.elsewhen(d.isEbreak) {
+        mepc    := pc
+        mcause  := 3.U(xlen.W)    // breakpoint
+        mtval   := pc
+        mstatus := mstatusTrap
+        pc      := trapPC
+        state   := sFetchReq
+      }.elsewhen(d.isMret) {
+        mstatus := mstatusMret
+        pc      := mepc
+        state   := sFetchReq
       }.otherwise {
-        // Single-cycle commit: writeback (if any) + advance PC.
+        // Single-cycle commit: ALU / branch / CSR / NOP.
+        when(d.isCsr) {
+          // Write the new CSR value; also perform the register writeback below.
+          switch(csrAddr) {
+            is("h300".U) { mstatus  := csrNewVal }
+            is("h304".U) { mie      := csrNewVal }
+            is("h305".U) { mtvec    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }
+            is("h340".U) { mscratch := csrNewVal }
+            is("h341".U) { mepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W)) }
+            is("h342".U) { mcause   := csrNewVal }
+            is("h343".U) { mtval    := csrNewVal }
+          }
+        }
         regFile.io.wen := wbExecEn
         pc    := pcNext
         state := sFetchReq

@@ -156,15 +156,24 @@ trait SoCLogic { self: RawModule =>
     }
     val cpuAddr = cpuData.req.bits.addr  // 28-bit byte address
 
-    val isMem  = cpuAddr(27, 25) === 0.U
-    val isSoc  = SoCDecode.socRegion.matches(cpuAddr)
+    val isMem   = cpuAddr(27, 25) === 0.U
+    val isClint = cpuAddr(27, 24) === 2.U   // 0x02000000–0x02FFFFFF: CLINT (mtime/mtimecmp)
+    val isSoc   = SoCDecode.socRegion.matches(cpuAddr)
     // The SoC inline-reg window is a strict subset of the user-peripheral
     // window (same addr[27:12]=0x8000), so exclude isSoc from isUser to make
     // the regions mutually exclusive.  Without this, a SoC write also fires
     // peripherals, where addr[11:10]==0 (PERI_NONE) never produces a resp —
     // bus locks waiting for an ack that never arrives.  Proved by
     // hardware.soc.test SoCRoutingTests.
-    val isUser = SoCDecode.userRegion.matches(cpuAddr) && !isSoc
+    val isUser  = SoCDecode.userRegion.matches(cpuAddr) && !isSoc
+
+    // CLINT instance — mtime / mtimecmp at 0x02000000–0x0200000F.
+    val clint = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Clint) }
+    clint.io.mmio.req.valid      := cpuData.req.valid && isClint
+    clint.io.mmio.req.bits.addr  := cpuAddr(23, 0)
+    clint.io.mmio.req.bits.write := cpuData.req.bits.write
+    clint.io.mmio.req.bits.size  := cpuData.req.bits.size
+    clint.io.mmio.req.bits.data  := cpuData.req.bits.data(31, 0)
 
     // Per-target req.valid gating
     mem.io.cpuData.req.valid           := cpuData.req.valid && isMem
@@ -269,51 +278,58 @@ trait SoCLogic { self: RawModule =>
     // -------------------------------------------------------------------------
     // Track which target owns the current in-flight response so we route
     // resp.valid/bits/ready correctly.
-    val activeMem  = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
-    val activeUser = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
-    val activeSoc  = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
-    val anyActive  = activeMem || activeUser || activeSoc
+    val activeMem   = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
+    val activeUser  = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
+    val activeSoc   = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
+    val activeClint = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
+    val anyActive   = activeMem || activeUser || activeSoc || activeClint
 
     cpuData.req.ready := !anyActive && MuxCase(true.B, Seq(
-      isMem  -> mem.io.cpuData.req.ready,
-      isUser -> peripherals.io.mmio.req.ready,
-      isSoc  -> true.B
+      isMem   -> mem.io.cpuData.req.ready,
+      isClint -> clint.io.mmio.req.ready,
+      isUser  -> peripherals.io.mmio.req.ready,
+      isSoc   -> true.B
       // Address outside any region → drop into "ready=true" so the CPU isn't
       // stuck; resp returns 0xFFFFFFFF the next cycle via socRespData fallback.
     ))
 
     withClockAndReset(soc_clk, false.B) {
       when(cpuData.req.fire) {
-        activeMem  := isMem
-        activeUser := isUser
-        activeSoc  := isSoc || (!isMem && !isUser)  // fallback: treat unknown as SoC
+        activeMem   := isMem
+        activeClint := isClint
+        activeUser  := isUser
+        activeSoc   := isSoc || (!isMem && !isClint && !isUser)  // fallback: treat unknown as SoC
       }
       when(cpuData.resp.fire) {
-        activeMem  := false.B
-        activeUser := false.B
-        activeSoc  := false.B
+        activeMem   := false.B
+        activeUser  := false.B
+        activeSoc   := false.B
+        activeClint := false.B
         socRespPending := false.B
       }
     }
 
-    mem.io.cpuData.resp.ready         := cpuData.resp.ready && activeMem
-    peripherals.io.mmio.resp.ready    := cpuData.resp.ready && activeUser
+    mem.io.cpuData.resp.ready      := cpuData.resp.ready && activeMem
+    peripherals.io.mmio.resp.ready := cpuData.resp.ready && activeUser
+    clint.io.mmio.resp.ready       := cpuData.resp.ready && activeClint
 
     cpuData.resp.valid := MuxCase(false.B, Seq(
-      activeMem  -> mem.io.cpuData.resp.valid,
-      activeUser -> peripherals.io.mmio.resp.valid,
-      activeSoc  -> socRespPending
+      activeMem   -> mem.io.cpuData.resp.valid,
+      activeUser  -> peripherals.io.mmio.resp.valid,
+      activeClint -> clint.io.mmio.resp.valid,
+      activeSoc   -> socRespPending
     ))
     cpuData.resp.bits := MuxCase(0.U, Seq(
-      activeMem  -> mem.io.cpuData.resp.bits,
-      activeUser -> peripherals.io.mmio.resp.bits,
-      activeSoc  -> socRespData
+      activeMem   -> mem.io.cpuData.resp.bits,
+      activeUser  -> peripherals.io.mmio.resp.bits,
+      activeClint -> clint.io.mmio.resp.bits,
+      activeSoc   -> socRespData
     ))
 
     // GPU port (overridable by ULX3S for scanout mux).
     wireGpuMem()
 
-    cpu.io.interrupt := false.B
+    cpu.io.interrupt := clint.io.timerIrq
 
     // -------------------------------------------------------------------------
     // uo_out construction.

@@ -62,8 +62,11 @@ class HuttDecoded(val xlen: Int = 32) extends Bundle {
   val isOp     = Bool()
   val isOpImm32 = Bool()  // RV64 ADDIW/SLLIW/SRLIW/SRAIW
   val isOp32    = Bool()  // RV64 ADDW/SUBW/SLLW/SRLW/SRAW
-  val isNop    = Bool()   // FENCE/ECALL/EBREAK treated as nop
-  val isCsr    = Bool()   // SYSTEM with funct3 != 0 → CSR read (rdcycle etc.)
+  val isNop    = Bool()   // FENCE/WFI/unknown-SYSTEM treated as nop
+  val isCsr    = Bool()   // SYSTEM with funct3 != 0 → CSR read/write
+  val isEcall  = Bool()   // ECALL — triggers M-mode trap (cause 11)
+  val isEbreak = Bool()   // EBREAK — triggers M-mode trap (cause 3)
+  val isMret   = Bool()   // MRET — return from M-mode trap
 }
 
 object HuttDecode {
@@ -101,11 +104,17 @@ object HuttDecode {
     d.isOp     := d.opcode === Opcode.Op
     d.isOpImm32 := d.opcode === Opcode.OpImm32
     d.isOp32    := d.opcode === Opcode.Op32
-    // CSR ops (CSRRW/S/C[I]) are SYSTEM with funct3 != 0; ECALL/EBREAK use
-    // funct3 == 0 and stay nops.  We only implement the read side (rdcycle).
+    // CSR ops: SYSTEM + funct3 != 0.  ECALL/EBREAK/MRET use funct3=0 and are
+    // distinguished by funct12 (instr[31:20]).
     d.isCsr    := (d.opcode === Opcode.System) && (d.funct3 =/= 0.U)
+    val funct12 = instr(31, 20)
+    val isSystem0 = (d.opcode === Opcode.System) && (d.funct3 === 0.U)
+    d.isEcall  := isSystem0 && (funct12 === "h000".U)
+    d.isEbreak := isSystem0 && (funct12 === "h001".U)
+    d.isMret   := isSystem0 && (funct12 === "h302".U)
+    // FENCE, WFI, and unknown SYSTEM+funct3=0 are harmless NOPs.
     d.isNop    := (d.opcode === Opcode.MiscMem) ||
-                  ((d.opcode === Opcode.System) && (d.funct3 === 0.U))
+                  (isSystem0 && !d.isEcall && !d.isEbreak && !d.isMret)
 
     d
   }
