@@ -18,5 +18,8 @@ clean:
 %.o: %.s
 	$(AS) -march=$(ARCH) -mabi=$(ABI) $< -o $@
 
+# mul.s provides RV64-correct soft __mulsi3/__muldi3 (the Hutt has no M ext, and
+# the rv64imafdc libgcc ships no __muldi3).  It was rewritten for lp64 — the old
+# RV32 version corrupted 64-bit multiplies and clobbered s0/s1 on RV64.
 hutt.a: uart.o mul.o isqrt.o runtime.o
 	$(AR) rcs $@ $^

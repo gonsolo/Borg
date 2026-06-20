@@ -1,74 +1,54 @@
-# Software multiply routines for TinyQV (no hardware multiplier)
-# Uses shift-and-add algorithm
+# Software multiply routines for the Hutt core (RV64I — no M extension).
+#
+# The riscv64 toolchain's libgcc is built for rv64imafdc (hardware MUL), so it
+# does NOT ship __muldi3 (and its __mulsi3 assumes MUL).  The FPU/MUL-less Hutt
+# needs soft shift-and-add versions.  These MUST be RV64-correct: the previous
+# RV32 (ilp32) versions treated 64-bit args as register pairs and saved s0/s1
+# with 32-bit sw/lw, corrupting every 64-bit multiply and clobbering callee-
+# saved registers on RV64.  RV64 lp64: each integer arg is one 64-bit register.
 
 .section .text
 
-# 32-bit multiply: a0 = a0 * a1
+# 32-bit multiply (SImode): a0 = (int)a0 * (int)a1, sign-extended to 64 bits.
+# Zero-extend the multiplier to 32 bits first so a negative operand does not make
+# the shift loop run the full 64 iterations; the low 32 bits of the product are
+# identical regardless, and sext.w yields the canonical SImode result.
 .globl mul32x32
 .globl __mulsi3
 mul32x32:
 __mulsi3:
-    mv a2, a0          # a2 = multiplicand
-    li a0, 0           # a0 = result = 0
-    beqz a1, .Lmul32_done
-.Lmul32_loop:
-    andi a3, a1, 1     # test LSB of multiplier
-    beqz a3, .Lmul32_skip
-    add a0, a0, a2     # result += multiplicand
-.Lmul32_skip:
-    slli a2, a2, 1     # multiplicand <<= 1
-    srli a1, a1, 1     # multiplier >>= 1
-    bnez a1, .Lmul32_loop
-.Lmul32_done:
+    slli a1, a1, 32
+    srli a1, a1, 32        # a1 = zext32(multiplier)
+    mv   a2, a0            # a2 = multiplicand
+    li   a0, 0             # a0 = result
+    beqz a1, .Lsi_done
+.Lsi_loop:
+    andi a3, a1, 1
+    beqz a3, .Lsi_skip
+    add  a0, a0, a2
+.Lsi_skip:
+    slli a2, a2, 1
+    srli a1, a1, 1
+    bnez a1, .Lsi_loop
+.Lsi_done:
+    sext.w a0, a0
     ret
 
-# 64-bit multiply: (a1:a0) = (a1:a0) * (a3:a2)
-# Result: low 32 bits in a0, high 32 bits in a1
-# Uses only RV32E-compatible registers (x0-x15)
+# 64-bit multiply (DImode): a0 = a0 * a1 (low 64 bits).  RV64: both operands are
+# full 64-bit registers; slli/srli are 64-bit shifts.  No callee-saved regs used,
+# so nothing to spill.
 .globl __muldi3
 __muldi3:
-    # Save callee-saved registers
-    addi sp, sp, -8
-    sw s0, 0(sp)
-    sw s1, 4(sp)
-
-    # s0:s1 = multiplicand (a1:a0)
-    mv s0, a0
-    mv s1, a1
-    # a2:a3 = multiplier (already in place)
-    li a0, 0            # result low
-    li a1, 0            # result high
-
-.Lmul64_loop:
-    # Check if multiplier is zero (both halves)
-    or t0, a2, a3
-    beqz t0, .Lmul64_done
-
-    andi t0, a2, 1      # test LSB of multiplier low
-    beqz t0, .Lmul64_skip
-    add a0, a0, s0      # result_low += multiplicand_low
-    sltu t0, a0, s0     # carry
-    add a1, a1, s1      # result_high += multiplicand_high
-    add a1, a1, t0      # result_high += carry
-
-.Lmul64_skip:
-    # Shift multiplicand left by 1 (64-bit)
-    srli t0, s0, 31     # carry from low to high
-    slli s0, s0, 1
-    slli s1, s1, 1
-    or s1, s1, t0
-
-    # Shift multiplier right by 1 (64-bit)
-    slli t0, a3, 31     # carry from high to low
-    srli a2, a2, 1
-    or a2, a2, t0
-    srli a3, a3, 1
-
-    j .Lmul64_loop
-
-.Lmul64_done:
-    lw s0, 0(sp)
-    lw s1, 4(sp)
-    addi sp, sp, 8
+    mv   a2, a0            # a2 = multiplicand
+    li   a0, 0             # a0 = result
+    beqz a1, .Ldi_done
+.Ldi_loop:
+    andi a3, a1, 1
+    beqz a3, .Ldi_skip
+    add  a0, a0, a2
+.Ldi_skip:
+    slli a2, a2, 1
+    srli a1, a1, 1
+    bnez a1, .Ldi_loop
+.Ldi_done:
     ret
-
