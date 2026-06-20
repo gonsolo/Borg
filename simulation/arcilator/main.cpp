@@ -45,9 +45,11 @@ static void mb_word(ArcBorgSimulator &sim, uint32_t word_idx, uint32_t v) {
 // frag's `texel × vertex_color` modulation passes vertex color through.
 static void fill_white_texture(ArcBorgSimulator &sim) {
     uint8_t *m = sim.flat->mem.data();
+    // White (R=G=B=1.0=0x3C00) per 6-byte texel so frag texel×color = color.
     for (uint32_t a = TEX_DRAM_BYTE_ADDR_FIXED;
-         a + 1 < TEX_DRAM_BYTE_ADDR_FIXED + TEX_REGION_BYTES; a += 2) {
-        m[a] = 0x00; m[a+1] = 0x3C;   // 0x3C00 = 1.0
+         a + 5 < TEX_DRAM_BYTE_ADDR_FIXED + TEX_REGION_BYTES; a += 6) {
+        m[a]=0x00; m[a+1]=0x3C; m[a+2]=0x00;
+        m[a+3]=0x3C; m[a+4]=0x00; m[a+5]=0x3C;
     }
 }
 
@@ -138,7 +140,7 @@ static int run_cts_tri(const char *fw_path, uint32_t width, uint32_t height) {
         0.0f, 1.0f, 0.0f,
         0.0f, 0.0f, 1.0f,
     };
-    const uint8_t idx[3] = {0, 1, 2};
+    const uint8_t idx[3] = {0, 2, 1};  // reversed winding (cull test)
     const float identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
     write_mailbox_draw(sim, pos, col, 3, idx, 1, identity);
 

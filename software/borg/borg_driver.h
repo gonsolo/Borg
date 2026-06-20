@@ -79,6 +79,11 @@ void borg_clear_zbuffer(int frame, rgb16_t clear_color);
 // Set texture for subsequent draw calls (dimensions only; address is fixed)
 void borg_set_texture(int tex_width, int tex_height);
 
+// Select what the fragment's u19-u27 uniforms carry: per-vertex COLOR (enable=1,
+// for CTS out_color=in_color / flat shading) vs model frag_pos (enable=0, default,
+// borgc cube.frag lighting).  Drives TEX_CONFIG.FRAG_USES_FRAGPOS.
+void borg_set_frag_vertex_color(int enable);
+
 // Disable texturing for subsequent draw calls
 void borg_clear_texture(void);
 

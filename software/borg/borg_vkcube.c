@@ -361,8 +361,14 @@ int main() {
   // white so the frag's texel×color modulation passes vertex color through —
   // so DON'T overwrite it with the cube texture.  Normal runs upload the cube.
   const int cts_active = cts_mailbox_present();
-  if (!cts_active)
+  if (!cts_active) {
     borg_upload_texture(borg_texture_small_dat, TEX_WIDTH);
+  } else {
+    // CTS flat-shaded path: the frag outputs interpolated per-vertex color
+    // (texel×color with a white texture), so the sequencer must stage vertex
+    // COLOR into u19-u27, not model frag_pos.
+    borg_set_frag_vertex_color(1);
+  }
 
   fp16_t ts[16], t1[16];
 #ifndef TARGET_ULX3S

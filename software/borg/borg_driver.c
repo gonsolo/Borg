@@ -188,6 +188,16 @@ typedef struct {
 int borg_fb_width;
 int borg_fb_height;
 static fp16_t fp16_half_width;
+
+// Fragment uniform-staging mode for u19-u27 (see record_draw_call / BorgSequencer):
+//   0 (default) = the frag reads model frag_pos there (borgc cube.frag lighting
+//                 via dFdx/dFdy) → sequencer loads clipRegs.  FRAG_USES_FRAGPOS=1.
+//   1           = the frag reads interpolated per-vertex COLOR there (CTS
+//                 out_color=in_color / flat-shaded) → sequencer loads colorRegs.
+//                 FRAG_USES_FRAGPOS=0.
+// Set via borg_set_frag_vertex_color() before borg_present().
+int borg_frag_vertex_color = 0;
+void borg_set_frag_vertex_color(int enable) { borg_frag_vertex_color = enable; }
 static fp16_t pc_lut[BORG_MAX_FB_DIM];
 
 // Step 32.0: TBR DRAM geometry region base addresses.
@@ -1070,7 +1080,8 @@ static void borgBinRenderAutonomous(int frame) {
     // colour there (bit=0), the borgc cube.frag reads model frag_pos (bit=1).
     // OR it into every tex_config write (incl. the non-textured branch) so the
     // sequencer always knows which the loaded fragment expects.
-    uint32_t frag_mode = TEX_CONFIG_REG_T__FRAG_USES_FRAGPOS_bm;
+    uint32_t frag_mode = borg_frag_vertex_color
+        ? 0 : TEX_CONFIG_REG_T__FRAG_USES_FRAGPOS_bm;
     BORG_GPU->tex_config = (any_textured
         ? ((TEX_DRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) | TEX_CONFIG_REG_T__EN_bm)
         : 0) | frag_mode;
