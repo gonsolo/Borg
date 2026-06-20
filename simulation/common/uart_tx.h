@@ -11,6 +11,7 @@ class UartTx {
 
     std::vector<uint8_t> queue;
     size_t head = 0;
+    uint32_t pending_gap = 0;  // idle cycles to hold before starting queued bytes
 
     enum State { IDLE, START, DATA, STOP } state = IDLE;
     int  cycle_count = 0;
@@ -24,11 +25,18 @@ public:
     }
     void enqueue(uint8_t b) { queue.push_back(b); }
 
-    bool empty() const { return head >= queue.size() && state == IDLE; }
+    // Hold the line idle for `cycles` before consuming the byte queue.
+    // Bytes enqueued AFTER this call are not affected by the gap.
+    // Call before enqueue() to create a leading idle period (e.g. to let
+    // the firmware's gap-wait complete before data arrives).
+    void enqueue_gap(uint32_t cycles) { pending_gap += cycles; }
+
+    bool empty() const { return head >= queue.size() && state == IDLE && pending_gap == 0; }
 
     // Call once per sim clock cycle.  Returns the current RXD bit value.
     uint8_t tick() {
         if (state == IDLE) {
+            if (pending_gap > 0) { pending_gap--; return 1; }
             if (head >= queue.size()) return 1;
             current = queue[head++];
             state = START;

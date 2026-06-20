@@ -3,6 +3,9 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <vector>
+#include <fcntl.h>
+#include <unistd.h>
 
 // CTS headless mode: run one frame, dump raw RGB888 pixels to stdout.
 // Invoked as: arcilator_sim --cts-uart <uart_bytes.bin> <firmware.bin> <W> <H>
@@ -24,23 +27,42 @@ static int run_cts(const char *uart_file, const char *fw_path,
     f.seekg(0);
     std::vector<uint8_t> uart_bytes((size_t)sz);
     f.read((char *)uart_bytes.data(), sz);
+    // Delay byte injection until after the firmware's first drain-loop gap-wait.
+    // The firmware discards bytes arriving before the gap-wait finds GAP_CYCLES
+    // (7500) of idle. At 4 MHz the firmware boots in ~100K cycles; 700K gives a
+    // wide margin so that when bytes start arriving the firmware is already in
+    // Step 2 (waiting for the first marker byte, 2M+ cycle window).
+    sim.uart_tx.enqueue_gap(700000);
     sim.uart_tx.enqueue(uart_bytes.data(), (size_t)sz);
 
+    // Firmware UART output goes to stdout inside BorgSimulatorBase.  Save the
+    // real stdout (pipe to borgvk, or terminal/file in standalone mode), then
+    // redirect fd 1 → /dev/null for the duration of the sim so firmware prints
+    // don't pollute the pixel stream.  Pixels are written to the saved fd via
+    // write(2) afterwards, bypassing stdio buffering.
+    int pixel_fd = dup(STDOUT_FILENO);
+    int devnull  = open("/dev/null", O_WRONLY);
+    if (devnull >= 0) dup2(devnull, STDOUT_FILENO);
+
     // Run until frame complete (or watchdog).
-    const uint64_t MAX_CYCLES = 12000000ULL;
+    const uint64_t MAX_CYCLES = 15000000ULL;
     uint64_t cycles = 0;
     while (!sim.step(10000)) {
         cycles += 10000;
         if (cycles > MAX_CYCLES) {
             std::cerr << "[CTS] Watchdog: frame not complete after "
                       << MAX_CYCLES << " cycles\n";
+            if (devnull >= 0) close(devnull);
+            if (pixel_fd >= 0) close(pixel_fd);
             return 2;
         }
     }
+    if (devnull >= 0) { close(devnull); devnull = -1; }
 
-    // Decode RGB565 tiled framebuffer → raw RGB888 to stdout.
+    // Decode RGB565 tiled framebuffer → raw RGB888, write to stdout (fd 1 = pipe/file).
     const uint32_t *words = (const uint32_t *)sim.psram->mem.data();
     uint32_t base = sim.out_base_word;
+    std::vector<uint8_t> rgb_buf(width * height * 3);
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
             uint32_t tiles_per_row = width >> 2;
@@ -53,13 +75,18 @@ static int run_cts(const char *uart_file, const char *fw_path,
             uint8_t r = (uint8_t)(((px >> 11) & 0x1F) << 3);
             uint8_t g = (uint8_t)(((px >>  5) & 0x3F) << 2);
             uint8_t b = (uint8_t)(( px        & 0x1F) << 3);
-            // Replicate high bits (matches save_ppm / HDMI scanout).
             r |= r >> 5; g |= g >> 6; b |= b >> 5;
-            uint8_t rgb[3] = {r, g, b};
-            fwrite(rgb, 1, 3, stdout);
+            size_t off = ((size_t)y * width + x) * 3;
+            rgb_buf[off] = r; rgb_buf[off+1] = g; rgb_buf[off+2] = b;
         }
     }
-    fflush(stdout);
+    size_t total = rgb_buf.size(), written = 0;
+    while (written < total && pixel_fd >= 0) {
+        ssize_t n = write(pixel_fd, rgb_buf.data() + written, total - written);
+        if (n <= 0) break;
+        written += (size_t)n;
+    }
+    if (pixel_fd >= 0) close(pixel_fd);
     return 0;
 }
 
