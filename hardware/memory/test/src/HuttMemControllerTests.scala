@@ -251,7 +251,7 @@ object HuttMemControllerTests extends TestSuite {
 
     test("CPU byte write does not clobber neighbour byte (RMW)") {
       // Regression for the ULX3S garbled-render bug: dqm-less backends (the real
-      // SdramController, QSPI PSRAM, and SdramBackendSim) write the full 16-bit
+      // SdramController, QSPI DRAM, and SdramBackendSim) write the full 16-bit
       // lane regardless of byteEnIn.  The MemoryController must therefore turn
       // each byte write into a read-modify-write so a `sb` only changes its byte.
       // Before the fix, a byte store clobbered the adjacent byte (replicated the

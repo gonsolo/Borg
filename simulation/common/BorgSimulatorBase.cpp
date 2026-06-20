@@ -3,20 +3,20 @@
 #include <iostream>
 
 void BorgSimulatorBase::load_texture(const std::string& tex_path, uint32_t tex_dim) {
-    load_texture_to_psram(psram->mem.data(), tex_path, tex_dim, TEX_PSRAM_BYTE_ADDR_FIXED);
+    load_texture_to_flat(flat->mem.data(), tex_path, tex_dim, TEX_DRAM_BYTE_ADDR_FIXED);
 }
 
 void BorgSimulatorBase::set_camera_angles(float rx, float ry) {
-    uint32_t* psram_words = (uint32_t*)psram->mem.data();
-    float* psram_floats = (float*)&psram_words[psram_spi_word_offset];
-    psram_floats[2] = rx;
-    psram_floats[3] = ry;
-    host_write_psram_word(psram_spi_word_offset + 2, psram_words[psram_spi_word_offset + 2]);
-    host_write_psram_word(psram_spi_word_offset + 3, psram_words[psram_spi_word_offset + 3]);
+    uint32_t* flat_words = (uint32_t*)flat->mem.data();
+    float* flat_floats = (float*)&flat_words[flat_spi_word_offset];
+    flat_floats[2] = rx;
+    flat_floats[3] = ry;
+    host_write_flat_word(flat_spi_word_offset + 2, flat_words[flat_spi_word_offset + 2]);
+    host_write_flat_word(flat_spi_word_offset + 3, flat_words[flat_spi_word_offset + 3]);
 }
 
 void BorgSimulatorBase::save_ppm(const std::string& name) {
-    ::save_ppm(name, width, height, out_base_word, psram->mem);
+    ::save_ppm(name, width, height, out_base_word, flat->mem);
 }
 
 // ── MemBackendIO handshake protocol ─────────────────────────────────────────
@@ -47,7 +47,7 @@ void BorgSimulatorBase::save_ppm(const std::string& name) {
 // BE_DELAY = 2: MemoryController parks in sWait until done arrives, so any
 // value ≥ 1 is protocol-correct.  2 gives a one-cycle margin for rounding.
 //
-// Double-buffer PSRAM layout (set by subclass constructors):
+// Double-buffer DRAM layout (set by subclass constructors):
 //   FRAME_STRIDE = frame_tile_size_words + 1          (tile data + one marker word)
 //   buf 0 pixel data: [out_base_word_buf0 .. +tile_size)
 //   buf 0 marker:      out_base_word_buf0 + frame_tile_size_words
@@ -65,7 +65,7 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
     assert(frame_tile_size_words > 0 &&
            "subclass constructor must set frame_tile_size_words before step()");
 
-    uint32_t* psram_words = (uint32_t*)psram->mem.data();
+    uint32_t* flat_words = (uint32_t*)flat->mem.data();
 
     uint32_t cur_marker_off =
         cur_back_buf == 0
@@ -96,7 +96,7 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
         if (in_burst) {
             // The model has advanced dataIn in response to accept.  Write the
             // current word and decrement the burst counter.
-            flat_write16(flash, psram, be_burst_waddr, get_backend_dataIn(), 3);
+            flat_write16(flash, flat, be_burst_waddr, get_backend_dataIn(), 3);
             be_burst_waddr++;
             be_burst_rem--;
             if (be_burst_rem == 0) {
@@ -110,11 +110,11 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
             if (be_delay < 0) {
                 uint32_t a = get_backend_addrIn();
                 if (get_backend_startRead()) {
-                    be_data  = flat_read16(flash, psram, a);
+                    be_data  = flat_read16(flash, flat, a);
                     be_delay = BE_DELAY;
                 } else if (get_backend_startWrite()) {
                     int len = get_backend_lenIn();
-                    flat_write16(flash, psram, a, get_backend_dataIn(), get_backend_byteEnIn());
+                    flat_write16(flash, flat, a, get_backend_dataIn(), get_backend_byteEnIn());
                     if (len > 1) {
                         // Burst: stream remaining len-1 words via accept/dataIn.
                         be_burst_waddr = a + 1;
@@ -137,11 +137,11 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
         }
 
         // Check completion marker in the current back-buffer's slot.
-        if (psram_words[cur_marker_word] == 0x0000DEAD) {
+        if (flat_words[cur_marker_word] == 0x0000DEAD) {
             uint32_t buf_fb_off = cur_back_buf == 0 ? 0 : frame_tile_size_words + 1;
             out_base_word      = out_base_word_buf0 + buf_fb_off;
             marker_offset_word = cur_marker_word;
-            psram_words[cur_marker_word] = 0;  // clear for firmware's done-wait loop
+            flat_words[cur_marker_word] = 0;  // clear for firmware's done-wait loop
             cur_back_buf ^= 1;
             return true;
         }

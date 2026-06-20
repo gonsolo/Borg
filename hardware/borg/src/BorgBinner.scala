@@ -8,7 +8,7 @@ import chisel3.util._
 
 /** IO bundle for [[BorgBinner]] (Step 32.1).
   *
-  * The binner writes triangle indices into per-tile bin lists in PSRAM.
+  * The binner writes triangle indices into per-tile bin lists in DRAM.
   * It is triggered once per triangle during the geometry pass and iterates
   * over all tiles in the triangle's bounding box.
   */
@@ -22,14 +22,14 @@ class BorgBinnerIO extends Bundle {
   val done        = Output(Bool())
 
   // --- Triangle metadata ---
-  /** Index of the current triangle (0..SEQ_MAX_TRI-1), written as uint16 to PSRAM. */
+  /** Index of the current triangle (0..SEQ_MAX_TRI-1), written as uint16 to DRAM. */
   val triIndex    = Input(UInt(16.W))
   /** Tile-aligned bounding box: {minX, minY, maxX, maxY} in pixel coordinates.
     * minX/minY are inclusive; maxX/maxY are exclusive (one past the last pixel).
     * All values must be 4-pixel-aligned (tile size = 4×4). */
   val bbox        = Input(new Bbox(10))
 
-  // --- PSRAM layout parameters ---
+  // --- DRAM layout parameters ---
   /** GPU memory byte address of the bin list region base (from tbr_bin_base); 25b = 32 MB. */
   val binBase     = Input(UInt(25.W))
   /** Bin list row size in bytes (= SEQ_MAX_TRI * TBR_BIN_ENTRY_SIZE). */
@@ -37,7 +37,7 @@ class BorgBinnerIO extends Bundle {
   /** Number of tiles per framebuffer row (= fb_width / 4). */
   val tilesPerRow = Input(UInt(10.W))
 
-  // --- PSRAM write port ---
+  // --- DRAM write port ---
   val gpuMem      = new GpuMemIO
 
   // --- Per-tile count reset (for frame start) ---
@@ -58,8 +58,8 @@ class BorgBinnerIO extends Bundle {
   *
   * For each tile in the triangle's bounding box, the binner:
   *   1. Reads the current count for that tile from on-chip SRAM.
-  *   2. Computes the PSRAM byte address: `binBase + tile_index * binRowBytes + count * 2`.
-  *   3. Writes the 16-bit triangle index to PSRAM via `GpuMemIO`.
+  *   2. Computes the DRAM byte address: `binBase + tile_index * binRowBytes + count * 2`.
+  *   3. Writes the 16-bit triangle index to DRAM via `GpuMemIO`.
   *   4. Increments and stores the updated count back to SRAM.
   *
   * Per-tile counts are stored in a small `SyncReadMem` (maxTiles entries × 10 bits).
@@ -67,7 +67,7 @@ class BorgBinnerIO extends Bundle {
   *
   * FSM:
   * {{{
-  *   sIdle → sReadCount → sWaitCount → sWritePsram → sStoreCount → sNextTile → ...
+  *   sIdle → sReadCount → sWaitCount → sWriteDram → sStoreCount → sNextTile → ...
   *   sNextTile → sReadCount (more tiles) | sIdle (bbox exhausted)
   * }}}
   *
@@ -84,7 +84,7 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
   val countMem = SyncReadMem(maxTiles, UInt(10.W))
 
   // --- FSM ---
-  val sIdle :: sReadCount :: sWaitCount :: sWritePsram :: sStoreCount :: sNextTile :: Nil = Enum(6)
+  val sIdle :: sReadCount :: sWaitCount :: sWriteDram :: sStoreCount :: sNextTile :: Nil = Enum(6)
   val state = RegInit(sIdle)
 
   // --- Tile iteration registers ---
@@ -201,7 +201,7 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
         // every vertex to the FP16 saturation corner ~1023) yields a bbox that
         // spans the whole 1024-pixel coordinate space.  Unclamped, the tile walk
         // would iterate ~(1024/4)² tiles per triangle — effectively a hang, with
-        // out-of-range tile indices clobbering the count SRAM / bin PSRAM.  Clamp
+        // out-of-range tile indices clobbering the count SRAM / bin DRAM.  Clamp
         // the bbox to the real grid so the walk is always bounded and in-range,
         // regardless of upstream bugs.  Square fb (width==height) is assumed, as
         // on every current target; the bound is the fb width in pixels.
@@ -238,20 +238,20 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
     // Cycle 1: SyncReadMem data is now valid. Capture it.
     is(sWaitCount) {
       curCount := countReadData
-      state    := sWritePsram
+      state    := sWriteDram
     }
 
-    // Write triangle index to PSRAM:
+    // Write triangle index to DRAM:
     //   addr = binBase + tileIndex * binRowBytes + count * 2
     // The 16-bit triangle index is zero-extended to 32 bits for the write.
-    is(sWritePsram) {
-      val psramAddr = io.binBase +
+    is(sWriteDram) {
+      val dramAddr = io.binBase +
         (curTileIndex * io.binRowBytes) +
         (curCount << 1)
 
       io.gpuMem.req   := true.B
       io.gpuMem.wr    := true.B
-      io.gpuMem.addr  := psramAddr
+      io.gpuMem.addr  := dramAddr
       io.gpuMem.wdata := triIdxReg  // zero-extended uint16 → uint32
 
       when(io.gpuMem.ready) {

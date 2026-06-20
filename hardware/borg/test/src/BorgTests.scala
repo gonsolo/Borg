@@ -1142,11 +1142,11 @@ object BorgTests extends TestSuite {
     //   2. Set flush_fb_base to a known byte address (tileBase = 0x200).
     //   3. Run a minimal rast+frag shader so tileComplete fires, which
     //      triggers flushPending → flusher.start.
-    //   4. Drive io.gpuMem.ready=1 whenever gpuMem.wr=1 (model the PSRAM
+    //   4. Drive io.gpuMem.ready=1 whenever gpuMem.wr=1 (model the DRAM
     //      accepting every write in one cycle).
     //   5. Assert:
     //      a. FLUSH_BUSY goes high after tileComplete.
-    //      b. Exactly 16 PSRAM writes are issued (one RGB565 word per pixel).
+    //      b. Exactly 16 DRAM writes are issued (one RGB565 word per pixel).
     //      c. The burst base address is tileBase (controller increments).
     //      d. Each word matches RGB565(r,g,b) as packed by BorgTileFlusher
     //         (Z dropped — depth stays on-chip).
@@ -1220,7 +1220,7 @@ object BorgTests extends TestSuite {
         borg.clock.step(4)
 
         // ---- (2) Configure flush base address ----
-        val tileBase = 0x200   // arbitrary PSRAM byte offset
+        val tileBase = 0x200   // arbitrary DRAM byte offset
         rawWrite(BorgGpuRegs.flush_fb_base_offset.litValue.toInt, tileBase)
         rawWrite(BorgGpuRegs.flush_width_offset.litValue.toInt,   5)  // log2(32) = 5
 

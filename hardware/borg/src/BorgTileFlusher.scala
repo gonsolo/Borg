@@ -18,24 +18,24 @@ class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
   // Tile SRAM read port (flusher drives idx/en, reads data)
   val read      = new TileReadIO(dataBits)
 
-  // PSRAM write port
+  // DRAM write port
   val gpuMem    = new GpuMemIO
 
-  // Tile base address: absolute PSRAM byte address of this tile's region.
+  // Tile base address: absolute DRAM byte address of this tile's region.
   // Layout (RGB565): 16 entries × 2 bytes = 32 bytes per tile.
   //   word[i] = RGB565(entry[i])   (R[15:11] | G[10:5] | B[4:0])
   // Z is not written — depth lives only in the on-chip tile buffer (TBR renders
-  // each tile fully on-chip, so PSRAM never needs the depth value).
+  // each tile fully on-chip, so DRAM never needs the depth value).
   // Firmware computes: tileBase = fbBase + tile_index * 32
   //   where tile_index = (ty >> 2) * tiles_per_row + (tx >> 2)
   val tileBase  = Input(UInt(25.W))
 }
 
-/** BorgTileFlusher -- bulk DMA from tile SRAM to PSRAM, one burst per tile.
+/** BorgTileFlusher -- bulk DMA from tile SRAM to DRAM, one burst per tile.
   *
   * Streams all 16 tile-buffer entries to SDRAM as ONE 16-word RGB565 burst.
   * Each pixel becomes a single 16-bit word (R5|G6|B5); depth is dropped (the
-  * TBR renders each tile fully on-chip, so PSRAM never needs the Z value).
+  * TBR renders each tile fully on-chip, so DRAM never needs the Z value).
   * This halves the flush bandwidth vs the previous 64-word FP16 R/G/B/Z burst.
   *
   * Two phases:

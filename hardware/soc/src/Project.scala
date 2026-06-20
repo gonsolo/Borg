@@ -201,8 +201,8 @@ trait SoCLogic { self: RawModule =>
     }
     val fb_select = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
     _fbSelectReg = fb_select
-    // Scanout framebuffer bases — firmware writes these from PSRAM_OUT_SPI(0) and
-    // PSRAM_OUT_SPI(FRAME_STRIDE); power-on default 0 (blank) until programmed.
+    // Scanout framebuffer bases — firmware writes these from DRAM_OUT_SPI(0) and
+    // DRAM_OUT_SPI(FRAME_STRIDE); power-on default 0 (blank) until programmed.
     val scanout_fb_base0 = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(0.U(25.W)) }
     val scanout_fb_base1 = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(0.U(25.W)) }
     _scanoutFbBase0 = scanout_fb_base0

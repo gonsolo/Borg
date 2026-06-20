@@ -4,12 +4,12 @@
 ArcBorgSimulator::ArcBorgSimulator(const std::string& firmware_path, uint32_t w, uint32_t h) {
     model = new BorgArcSimTop;
     flash = new QSPIMemory(1024 * 1024, true);
-    psram = new QSPIMemory(8 * 1024 * 1024, false);
+    flat = new QSPIMemory(8 * 1024 * 1024, false);
 
     width = w;
     height = h;
-    psram_spi_word_offset = 0x1000 / 4;
-    out_base_word = psram_spi_word_offset + (PSRAM_OUT_OFFSET / 4);
+    flat_spi_word_offset = 0x1000 / 4;
+    out_base_word = flat_spi_word_offset + (DRAM_OUT_OFFSET / 4);
     uint32_t frame_tile_size = width * height / 2;  // RGB565: 2 px / 32-bit word
     marker_offset_word    = out_base_word + frame_tile_size;
     frame_tile_size_words = frame_tile_size;
@@ -17,9 +17,9 @@ ArcBorgSimulator::ArcBorgSimulator(const std::string& firmware_path, uint32_t w,
 
     flash->load_bin(firmware_path);
 
-    uint32_t* psram_init_words = (uint32_t*)psram->mem.data();
-    psram_init_words[psram_spi_word_offset + 0] = width;
-    psram_init_words[psram_spi_word_offset + 1] = height;
+    uint32_t* flat_init_words = (uint32_t*)flat->mem.data();
+    flat_init_words[flat_spi_word_offset + 0] = width;
+    flat_init_words[flat_spi_word_offset + 1] = height;
 
     // Reset sequence — leave rst_n=0 until first step() call.
     model->view.clk   = 0;

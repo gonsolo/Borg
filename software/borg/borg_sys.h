@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Borg system constants — clock, PSRAM layout, sentinels.
+// Borg system constants — clock, DRAM layout, sentinels.
 //
 // These are system-level constants that don't fit in SystemRDL register
 // descriptions (they are not hardware registers).
@@ -18,12 +18,12 @@
 // --- Bus idle sentinel ---
 #define BUS_IDLE 3
 
-// --- PSRAM layout constants ---
+// --- DRAM layout constants ---
 // Pure arithmetic layout macros live in borg_layout.h (shared with simulator).
 #include "borg_layout.h"
 
-// Fixed PSRAM byte address for texture data — defined in borg_layout.h as
-// TEX_PSRAM_BYTE_ADDR_FIXED.  Always fits in the 16-bit TEX_CONFIG register.
+// Fixed DRAM byte address for texture data — defined in borg_layout.h as
+// TEX_DRAM_BYTE_ADDR_FIXED.  Always fits in the 16-bit TEX_CONFIG register.
 
 // --- Frame completion sentinel ---
 #define DONE_MARKER       0xDEAD
@@ -34,35 +34,37 @@
     for (volatile int i = 0; i < STARTUP_DELAY_CYCLES; i++) ; \
   } while (0)
 
-// --- "PSRAM" (GPU memory) accessor macros ---
-// NB: the PSRAM_* names are the retained firmware ABI; on ULX3S there is NO
-// PSRAM — that target's GPU memory is SDRAM (VRAM).  Single source of truth,
-// selected by the one -DTARGET_* macro (no -DPSRAM_BASE=... literal in any
-// Makefile).  Full PSRAM→VRAM rename is still pending.
+// --- DRAM (GPU main memory) accessor macros ---
+// DRAM is the technology-general name for the GPU's large read/write store: it
+// is SDRAM on ULX3S, QSPI PSRAM on the ASIC, and a flat memory model in the
+// verilator/arcilator sims.  The firmware is portable across all three, so it
+// uses the general DRAM_* names; the concrete base is the single source of
+// truth, selected by the one -DTARGET_* macro (no -DDRAM_BASE=... literal in
+// any Makefile).
 //   TARGET_ULX3S: SDRAM is direct-mapped at 0 with no SPI controller, so the
 //     CPU sees the GPU's raw SPI byte addresses directly → base == SPI base.
-//   default (ASIC / sim): real PSRAM, CPU-mapped at 0x01001000.
-// CPU-mapped PSRAM/VRAM base = PSRAM_SPI_BASE + 0x1000000.  The +0x1000000 makes
-// the CPU's PSRAM_OUT/PSRAM_OUT_RAW byte addresses carry bit 24 — the region bit
+//   default (ASIC / sim): CPU-mapped at 0x01001000.
+// CPU-mapped DRAM base = DRAM_SPI_BASE + 0x1000000.  The +0x1000000 makes
+// the CPU's DRAM_OUT/DRAM_OUT_RAW byte addresses carry bit 24 — the region bit
 // the MemoryController forces onto the GPU's gpuMem port (VRAM_REGION_BIT) — so
 // CPU and GPU point at the SAME SDRAM words for the framebuffer, geometry,
 // shaders, and texture.  Identical on ULX3S and sim/ASIC: a prior ULX3S-only
-// PSRAM_BASE=PSRAM_SPI_BASE made them disagree by 16 MB, so the GPU DMA'd
+// DRAM_BASE=DRAM_SPI_BASE made them disagree by 16 MB, so the GPU DMA'd
 // geometry from an empty region and rendered black.
-#ifndef PSRAM_BASE
-#define PSRAM_BASE 0x01001000
+#ifndef DRAM_BASE
+#define DRAM_BASE 0x01001000
 #endif
-#define PSRAM_IN(n)   (*(volatile uint32_t *)(uintptr_t)(PSRAM_BASE + (n) * 4))
-#define PSRAM_OUT(n)  (*(volatile uint32_t *)(uintptr_t)(PSRAM_BASE + PSRAM_OUT_OFFSET + (n) * 4))
-// Companion to PSRAM_OUT: converts the same word-index n to the raw SPI byte
+#define DRAM_IN(n)   (*(volatile uint32_t *)(uintptr_t)(DRAM_BASE + (n) * 4))
+#define DRAM_OUT(n)  (*(volatile uint32_t *)(uintptr_t)(DRAM_BASE + DRAM_OUT_OFFSET + (n) * 4))
+// Companion to DRAM_OUT: converts the same word-index n to the raw SPI byte
 // address used by the hardware flusher (gpuMem.addr in MemoryController).
-// PSRAM_OUT(n) and PSRAM_OUT_SPI(n) address the same physical PSRAM word;
-// the only difference is PSRAM_BASE (CPU-mapped) vs PSRAM_SPI_BASE (raw SPI).
-#define PSRAM_OUT_SPI(n) (PSRAM_SPI_BASE + PSRAM_OUT_OFFSET + (uint32_t)(n) * 4u)
+// DRAM_OUT(n) and DRAM_OUT_SPI(n) address the same physical DRAM word;
+// the only difference is DRAM_BASE (CPU-mapped) vs DRAM_SPI_BASE (raw SPI).
+#define DRAM_OUT_SPI(n) (DRAM_SPI_BASE + DRAM_OUT_OFFSET + (uint32_t)(n) * 4u)
 // Raw SPI byte address accessor: reads/writes a 32-bit word at an absolute SPI
 // byte address.  Used by the sequencer path to access shader/descriptor regions
 // at fixed addresses (Step 29.5).
-#define PSRAM_OUT_RAW(spi_addr) (*(volatile uint32_t *)(uintptr_t)(PSRAM_BASE - PSRAM_SPI_BASE + (spi_addr)))
+#define DRAM_OUT_RAW(spi_addr) (*(volatile uint32_t *)(uintptr_t)(DRAM_BASE - DRAM_SPI_BASE + (spi_addr)))
 
 // --- Peripheral base addresses ---
 // These come from the SoC address map (soc.rdl).

@@ -66,11 +66,11 @@ object BorgSequencerTests extends TestSuite {
     rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
   }
 
-  def servicePsram(borg: BorgTestWrapper, psram: Map[Int, BigInt]): Int = {
+  def serviceDram(borg: BorgTestWrapper, dram: Map[Int, BigInt]): Int = {
     if (borg.io.gpuMem.req.peek().litToBoolean) {
       // Read request: provide data and pulse ready.
       val addr = borg.io.gpuMem.addr.peek().litValue.toInt
-      val data = psram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)
+      val data = dram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)
       borg.io.gpuMem.data.poke(data.U)
       borg.io.gpuMem.waccept.poke(false.B)
       borg.io.gpuMem.ready.poke(true.B)
@@ -97,7 +97,7 @@ object BorgSequencerTests extends TestSuite {
     }
   }
 
-  def runSequencerUntilDone(borg: BorgTestWrapper, psram: Map[Int, BigInt],
+  def runSequencerUntilDone(borg: BorgTestWrapper, dram: Map[Int, BigInt],
                             maxCycles: Int = 5000): (Boolean, Boolean, Int) = {
     var seqBusySeen    = false
     var seqBusyCleared = false
@@ -105,7 +105,7 @@ object BorgSequencerTests extends TestSuite {
     var prevDmaReads   = 0
     var dmaStallCycle  = -1
     for (cycle <- 0 until maxCycles if !seqBusyCleared) {
-      dmaReads += servicePsram(borg, psram)
+      dmaReads += serviceDram(borg, dram)
       borg.clock.step(1)
       // Detect when DMA ops stop increasing (possible hang)
       if (dmaReads > prevDmaReads) {
@@ -116,11 +116,11 @@ object BorgSequencerTests extends TestSuite {
         borg.io.address.poke(BorgGpuRegs.status_offset)
         borg.io.data_read_n.poke(2.U)
         borg.io.data_write_n.poke(3.U)
-        dmaReads += servicePsram(borg, psram)
+        dmaReads += serviceDram(borg, dram)
         borg.clock.step(1)
         val st = borg.io.data_out.peek().litValue
         borg.io.data_read_n.poke(3.U)
-        dmaReads += servicePsram(borg, psram)
+        dmaReads += serviceDram(borg, dram)
         borg.clock.step(1)
         val busy = (st >> 5) & 1
         if (busy == 1) seqBusySeen = true
@@ -172,7 +172,7 @@ object BorgSequencerTests extends TestSuite {
     BigInt(0)
   )
 
-  /** Build a stride-32 PSRAM descriptor for 3 vertices with a zero-extent bbox.
+  /** Build a stride-32 DRAM descriptor for 3 vertices with a zero-extent bbox.
     * The zero bbox (min=max=0) causes the sequencer's tile loop to exit
     * immediately (0 >= 0), so tests that only verify uniform staging
     * don't need to simulate 16 pixel iterations.
@@ -221,7 +221,7 @@ object BorgSequencerTests extends TestSuite {
           Seq(4.0f, 5.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f),
           Seq(7.0f, 8.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f),
         )
-        val psram = vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
+        val dram = vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
                     buildDescriptor(descAddr, verts)
 
         rawWrite(borg, BorgGpuRegs.seq_desc_base_offset.litValue.toInt,  descAddr)
@@ -235,7 +235,7 @@ object BorgSequencerTests extends TestSuite {
         rawWrite(borg, BorgGpuRegs.seq_tri_count_offset.litValue.toInt, 1)
         rawWrite(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt, 1)
 
-        val (seen, cleared, dmaReads) = runSequencerUntilDone(borg, psram)
+        val (seen, cleared, dmaReads) = runSequencerUntilDone(borg, dram)
         println(f"  seq_busy seen: $seen, cleared: $cleared, DMA reads: $dmaReads")
         Predef.assert(seen,    "seq_busy never went high")
         Predef.assert(cleared, "seq_busy never cleared")
@@ -261,7 +261,7 @@ object BorgSequencerTests extends TestSuite {
           Seq(v1x, v1y, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f),
           Seq(v2x, v2y, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f),
         )
-        val psram = vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
+        val dram = vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
                     setup.zipWithIndex.map      { case (w,i) => (setupAddr + i*4) -> w }.toMap ++
                     buildDescriptor(descAddr, verts)
 
@@ -273,7 +273,7 @@ object BorgSequencerTests extends TestSuite {
         rawWrite(borg, BorgGpuRegs.seq_tri_count_offset.litValue.toInt, 1)
         rawWrite(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt, 1)
 
-        val (seen, cleared, dmaReads) = runSequencerUntilDone(borg, psram)
+        val (seen, cleared, dmaReads) = runSequencerUntilDone(borg, dram)
         println(f"  seq_busy seen: $seen, cleared: $cleared, DMA reads: $dmaReads")
         Predef.assert(seen,    "seq_busy never went high")
         Predef.assert(cleared, "seq_busy never cleared — hung")
@@ -340,7 +340,7 @@ object BorgSequencerTests extends TestSuite {
           (setupBase + 2*4) -> e1dxBits, (setupBase + 3*4) -> e1dyBits,
           (setupBase + 4*4) -> e2dxBits, (setupBase + 5*4) -> e2dyBits,
         )
-        val psram = vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
+        val dram = vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
                     setup.zipWithIndex.map      { case (w,i) => (setupAddr + i*4) -> w }.toMap ++
                     rast.zipWithIndex.map       { case (w,i) => (rastAddr + i*4) -> w }.toMap ++
                     frag.zipWithIndex.map       { case (w,i) => (fragAddr + i*4) -> w }.toMap ++
@@ -362,7 +362,7 @@ object BorgSequencerTests extends TestSuite {
         rawWrite(borg, BorgGpuRegs.seq_tri_count_offset.litValue.toInt, 1)
         rawWrite(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt, 1)
 
-        val (seen, cleared, dmaReads) = runSequencerUntilDone(borg, psram)
+        val (seen, cleared, dmaReads) = runSequencerUntilDone(borg, dram)
         println(f"  seq_busy seen: $seen, cleared: $cleared, DMA reads: $dmaReads")
         Predef.assert(seen,    "seq_busy never went high")
         Predef.assert(cleared, "seq_busy never cleared — hung")
@@ -428,7 +428,7 @@ object BorgSequencerTests extends TestSuite {
 
     /** Step 29.4 gate: sequencer_full_triangle
       *
-      * Full integration: sequencer stages uniforms from PSRAM descriptor,
+      * Full integration: sequencer stages uniforms from DRAM descriptor,
       * then rasterizer iterates a tile using those uniforms, fragment shader
       * reads staged color values, tile buffer receives correct RGBZ.
       */
@@ -447,7 +447,7 @@ object BorgSequencerTests extends TestSuite {
         borg.clock.step(20)
         rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
 
-        // --- (1) PSRAM setup ---
+        // --- (1) DRAM setup ---
         val vertAddr = 0x1000; val setupAddr = 0x3000; val descAddr = 0x2000
         val c0r = 1.0f; val c0g = 0.0f; val c0b = 0.0f
         val verts = Seq(
@@ -475,7 +475,7 @@ object BorgSequencerTests extends TestSuite {
           Instructions.ADD(rs1 = 0, rs2 = 0, rd = 0), // NOP 4
           BigInt(0)
         )
-        val psram: Map[Int, BigInt] =
+        val dram: Map[Int, BigInt] =
           vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
           setup.zipWithIndex.map      { case (w,i) => (setupAddr + i*4) -> w }.toMap ++
           rastShader.zipWithIndex.map { case (w,i) => (rastAddr + i*4) -> w }.toMap ++
@@ -494,7 +494,7 @@ object BorgSequencerTests extends TestSuite {
         rawWrite(borg, BorgGpuRegs.seq_frag_len_offset.litValue.toInt, fragShader.size)
         rawWrite(borg, BorgGpuRegs.seq_tri_count_offset.litValue.toInt, 1)
         rawWrite(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt, 1)
-        val (seen, cleared, dmaReads) = runSequencerUntilDone(borg, psram)
+        val (seen, cleared, dmaReads) = runSequencerUntilDone(borg, dram)
         println(f"  seq_busy seen: $seen, cleared: $cleared, DMA reads: $dmaReads")
         Predef.assert(seen,    "sequencer never went busy")
         Predef.assert(cleared, "sequencer never completed (hung in tile loop)")
@@ -529,7 +529,7 @@ object BorgSequencerTests extends TestSuite {
 
         // Now that the coreTrigger mux is fixed, use real bbox descriptors
         // to exercise the full tile iteration loop for each triangle.
-        val psram = vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
+        val dram = vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
                     setup.zipWithIndex.map      { case (w,i) => (setupAddr + i*4) -> w }.toMap ++
                     rast.zipWithIndex.map       { case (w,i) => (rastAddr + i*4) -> w }.toMap ++
                     frag.zipWithIndex.map       { case (w,i) => (fragAddr + i*4) -> w }.toMap ++
@@ -551,7 +551,7 @@ object BorgSequencerTests extends TestSuite {
         Predef.assert(((statusPre >> 5) & 1) == 0, "seq_busy should be 0 before trigger")
         rawWrite(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt, 1)
 
-        val (seen, cleared, dmaReads) = runSequencerUntilDone(borg, psram, maxCycles = 10000)
+        val (seen, cleared, dmaReads) = runSequencerUntilDone(borg, dram, maxCycles = 10000)
         println(f"  seq_busy seen: $seen, cleared: $cleared, DMA reads: $dmaReads")
         Predef.assert(seen,    "seq_busy never went high")
         Predef.assert(cleared, "seq_busy never cleared")
@@ -590,7 +590,7 @@ object BorgSequencerTests extends TestSuite {
         borg.clock.step(20)
         rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2) // reset pipeline
 
-        // --- PSRAM layout ---
+        // --- DRAM layout ---
         val vertAddr  = 0x1000; val setupAddr = 0x3000; val descAddr  = 0x2000
         val rastAddr  = 0x4000; val fragAddr  = 0x5000
         val binBase   = 0x6000; val setupBase = 0x7000
@@ -637,22 +637,22 @@ object BorgSequencerTests extends TestSuite {
           BigInt(0) // HALT
         )
 
-        val psramInit: Map[Int, BigInt] =
+        val dramInit: Map[Int, BigInt] =
           vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
           setup.zipWithIndex.map      { case (w,i) => (setupAddr + i*4) -> w }.toMap ++
           rastShader.zipWithIndex.map { case (w,i) => (rastAddr + i*4) -> w }.toMap ++
           fragShader.zipWithIndex.map { case (w,i) => (fragAddr + i*4) -> w }.toMap ++
           buildDescriptorWithBbox(descAddr, verts, 0, 0, 4, 4)
 
-        // Mutable PSRAM that captures writes
-        val psram = scala.collection.mutable.Map[Int, BigInt]() ++= psramInit
+        // Mutable DRAM that captures writes
+        val dram = scala.collection.mutable.Map[Int, BigInt]() ++= dramInit
         val gpuWrites = scala.collection.mutable.ArrayBuffer[(Int, BigInt)]()
 
-        def servicePsramCapture(): Int = {
+        def serviceDramCapture(): Int = {
           if (borg.io.gpuMem.req.peek().litToBoolean) {
-            // Read: provide data from psram
+            // Read: provide data from dram
             val addr = borg.io.gpuMem.addr.peek().litValue.toInt
-            val data = psram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)
+            val data = dram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)
             borg.io.gpuMem.data.poke(data.U)
             borg.io.gpuMem.waccept.poke(false.B)
             borg.io.gpuMem.ready.poke(true.B)
@@ -665,7 +665,7 @@ object BorgSequencerTests extends TestSuite {
             val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
             val d0 = borg.io.gpuMem.wdata.peek().litValue & BigInt(0xFFFF)
             gpuWrites += ((baseAddr, d0))
-            psram(baseAddr) = d0
+            dram(baseAddr) = d0
             if (wlen > 1) {
               for (i <- 1 until wlen) {
                 borg.io.gpuMem.waccept.poke(true.B)
@@ -674,7 +674,7 @@ object BorgSequencerTests extends TestSuite {
                 val wordAddr = baseAddr + i * 2
                 val d = borg.io.gpuMem.wdata.peek().litValue & BigInt(0xFFFF)
                 gpuWrites += ((wordAddr, d))
-                psram(wordAddr) = d
+                dram(wordAddr) = d
               }
               borg.io.gpuMem.waccept.poke(false.B)
             }
@@ -718,17 +718,17 @@ object BorgSequencerTests extends TestSuite {
         var seqBusyCleared = false
         val maxCycles = 20000
         for (cycle <- 0 until maxCycles if !seqBusyCleared) {
-          servicePsramCapture()
+          serviceDramCapture()
           borg.clock.step(1)
           if (cycle % 10 == 5) {
             borg.io.address.poke(BorgGpuRegs.status_offset)
             borg.io.data_read_n.poke(2.U)
             borg.io.data_write_n.poke(3.U)
-            servicePsramCapture()
+            serviceDramCapture()
             borg.clock.step(1)
             val st = borg.io.data_out.peek().litValue
             borg.io.data_read_n.poke(3.U)
-            servicePsramCapture()
+            serviceDramCapture()
             borg.clock.step(1)
             val busy = (st >> 5) & 1
             if (busy == 1) seqBusySeen = true

@@ -15,7 +15,7 @@ rdlc = systemrdl.RDLCompiler()
 rdl_files = [
     os.path.join(rdl_dir, "gpio.rdl"),
     os.path.join(rdl_dir, "uart.rdl"),
-    os.path.join(rdl_dir, "psram.rdl"),
+    os.path.join(rdl_dir, "dram.rdl"),
     os.path.join(rdl_dir, "borg.rdl"),
     os.path.join(rdl_dir, "soc.rdl"),
 ]

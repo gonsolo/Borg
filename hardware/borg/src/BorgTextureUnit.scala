@@ -25,11 +25,11 @@ class BorgTextureUnitIO extends Bundle {
   val start     = Input(Bool())           // one-cycle trigger from dispatcher
   val done      = Output(Bool())          // one-cycle completion pulse
   val texConfig = new TexConfigIO         // mortonIndex, baseAddr, en
-  val gpuMem    = new GpuMemIO            // PSRAM read port
+  val gpuMem    = new GpuMemIO            // DRAM read port
   val fragColor = Output(new ColorZ(16))  // fetched R/G/B; Z is always zero here
 }
 
-/** Autonomous PSRAM texel fetch unit (Step 25.3e).
+/** Autonomous DRAM texel fetch unit (Step 25.3e).
   *
   * Issues two sequential read requests over [[GpuMemIO]], assembles the
   * 16-bit R, G, B channels, and pulses [[done]] for one cycle when finished.
@@ -56,7 +56,7 @@ class BorgTextureUnit extends Module {
   val frag_b = RegInit(0.U(16.W))
 
   // --- Base address: latched on start so the FTEX mortonIndex override ---
-  // --- (valid for one cycle only) is captured for both PSRAM reads.     ---
+  // --- (valid for one cycle only) is captured for both DRAM reads.     ---
   val tex_base = RegInit(0.U(20.W))
 
   // --- Defaults ---

@@ -8,7 +8,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-// ---- fp16 + PSRAM mailbox helpers (host side of the CTS draw path) --------
+// ---- fp16 + DRAM mailbox helpers (host side of the CTS draw path) --------
 
 // Round-to-nearest-even float → IEEE-754 half (fp16).
 static uint16_t f32_to_f16(float f) {
@@ -30,29 +30,29 @@ static uint16_t f32_to_f16(float f) {
     return h;
 }
 
-// Write one 32-bit word into PSRAM at an SPI byte address (little-endian),
-// matching the firmware's PSRAM_OUT_RAW word access.
-static void psram_write_word(ArcBorgSimulator &sim, uint32_t spi_byte, uint32_t v) {
-    uint8_t *m = sim.psram->mem.data();
+// Write one 32-bit word into DRAM at an SPI byte address (little-endian),
+// matching the firmware's DRAM_OUT_RAW word access.
+static void flat_write_word(ArcBorgSimulator &sim, uint32_t spi_byte, uint32_t v) {
+    uint8_t *m = sim.flat->mem.data();
     m[spi_byte+0] = v & 0xFF;        m[spi_byte+1] = (v >> 8)  & 0xFF;
     m[spi_byte+2] = (v >> 16) & 0xFF; m[spi_byte+3] = (v >> 24) & 0xFF;
 }
 static void mb_word(ArcBorgSimulator &sim, uint32_t word_idx, uint32_t v) {
-    psram_write_word(sim, BORG_CTS_MAILBOX_SPI + word_idx * 4, v);
+    flat_write_word(sim, BORG_CTS_MAILBOX_SPI + word_idx * 4, v);
 }
 
 // Fill the whole texture region with white (fp16 1.0 = 0x3C00) so the baked
 // frag's `texel × vertex_color` modulation passes vertex color through.
 static void fill_white_texture(ArcBorgSimulator &sim) {
-    uint8_t *m = sim.psram->mem.data();
-    for (uint32_t a = TEX_PSRAM_BYTE_ADDR_FIXED;
-         a + 1 < TEX_PSRAM_BYTE_ADDR_FIXED + TEX_REGION_BYTES; a += 2) {
+    uint8_t *m = sim.flat->mem.data();
+    for (uint32_t a = TEX_DRAM_BYTE_ADDR_FIXED;
+         a + 1 < TEX_DRAM_BYTE_ADDR_FIXED + TEX_REGION_BYTES; a += 2) {
         m[a] = 0x00; m[a+1] = 0x3C;   // 0x3C00 = 1.0
     }
 }
 
 // Write a draw command (positions, per-vertex colors, indices, MVP) into the
-// PSRAM mailbox and lay down a white texture.  pos/col are float xyz/rgb.
+// DRAM mailbox and lay down a white texture.  pos/col are float xyz/rgb.
 static void write_mailbox_draw(ArcBorgSimulator &sim,
                                const float *pos, const float *col, int nverts,
                                const uint8_t *idx, int ntris,
@@ -93,7 +93,7 @@ static int run_and_dump(ArcBorgSimulator &sim, uint32_t width, uint32_t height,
     }
     if (devnull >= 0) { close(devnull); devnull = -1; }
 
-    const uint32_t *words = (const uint32_t *)sim.psram->mem.data();
+    const uint32_t *words = (const uint32_t *)sim.flat->mem.data();
     uint32_t base = sim.out_base_word;
     std::vector<uint8_t> rgb_buf(width * height * 3);
     for (uint32_t y = 0; y < height; y++) {
@@ -123,7 +123,7 @@ static int run_and_dump(ArcBorgSimulator &sim, uint32_t width, uint32_t height,
     return 0;
 }
 
-// Checkpoint test: render a hardcoded RGB triangle via the PSRAM mailbox.
+// Checkpoint test: render a hardcoded RGB triangle via the DRAM mailbox.
 // arcilator_sim --cts-tri <firmware.bin> <W> <H>
 static int run_cts_tri(const char *fw_path, uint32_t width, uint32_t height) {
     ArcBorgSimulator sim(fw_path, width, height);
@@ -143,7 +143,7 @@ static int run_cts_tri(const char *fw_path, uint32_t width, uint32_t height) {
     write_mailbox_draw(sim, pos, col, 3, idx, 1, identity);
 
     if (getenv("CTS_DBG")) {
-        const uint32_t *w = (const uint32_t *)(sim.psram->mem.data() + BORG_CTS_MAILBOX_SPI);
+        const uint32_t *w = (const uint32_t *)(sim.flat->mem.data() + BORG_CTS_MAILBOX_SPI);
         std::cerr << "[CTS] mailbox after write: magic=" << std::hex << w[BORG_CTS_OFF_MAGIC]
                   << " nverts=" << std::dec << w[BORG_CTS_OFF_NVERTS]
                   << " pos0=" << std::hex << w[BORG_CTS_OFF_POS] << std::dec << "\n";
@@ -152,7 +152,7 @@ static int run_cts_tri(const char *fw_path, uint32_t width, uint32_t height) {
     int pixel_fd = dup(STDOUT_FILENO);
     int rc = run_and_dump(sim, width, height, pixel_fd);
     if (getenv("CTS_DBG")) {
-        const uint32_t *w = (const uint32_t *)(sim.psram->mem.data() + BORG_CTS_MAILBOX_SPI);
+        const uint32_t *w = (const uint32_t *)(sim.flat->mem.data() + BORG_CTS_MAILBOX_SPI);
         std::cerr << "[CTS] mailbox after run:   magic=" << std::hex << w[BORG_CTS_OFF_MAGIC]
                   << std::dec << "\n";
     }

@@ -49,7 +49,7 @@ static inline void borgCreateShaderModule(BorgShaderModule *module,
     module->codeSize = codeSize;
 }
 
-// Initialize hardware: UART, PSRAM resolution, LUTs.
+// Initialize hardware: UART, DRAM resolution, LUTs.
 // Mirrors vkCreateDevice().
 void borgCreateDevice(void);
 
@@ -60,7 +60,7 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
                                 const BorgShaderModule *frag);
 
 // Runtime shader upload: stage a borgc-compiled .borg blob (spirb_parse format)
-// into the sequencer's PSRAM slot for `stage` (0 = vertex, 1 = fragment).
+// into the sequencer's DRAM slot for `stage` (0 = vertex, 1 = fragment).
 // Called by the borgvk Mesa driver's DRM ioctl / 0xB0 serial packet.
 void borg_stage_shader(uint8_t stage, const uint8_t *blob);
 
@@ -85,7 +85,7 @@ void borg_clear_texture(void);
 // Upload a row-major RGB-FP16 texture (dim×dim, 6 bytes/texel) into the GPU
 // texture region, Morton-encoded into the hardware's 2-word layout.  Needed on
 // targets with no host to preload SDRAM (e.g. ULX3S); mirrors the simulator's
-// load_texture_to_psram().
+// load_texture_to_dram().
 void borg_upload_texture(const uint8_t *rgb_fp16, int dim);
 // Upload one texture row (host streams the texture row-by-row over serial).
 void borg_upload_texture_row(const uint8_t *row, int y, int dim);
@@ -97,14 +97,14 @@ void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int
 void borgTransformVerts(const borg_draw_data_t *d, const fp16_t *positions, int count);
 void borgCmdDrawIndexed(const int idx[3], const borg_vertex_t vertices[3], int frame);
 
-// Invalidate the recorded command buffer, forcing a full PSRAM descriptor
+// Invalidate the recorded command buffer, forcing a full DRAM descriptor
 // re-write on the next draw.  Call when geometry (vertex positions or UVs)
 // changes.  Mirrors the Vulkan pattern: record a new VkCommandBuffer instead
 // of reusing the old one.
 void borgInvalidateCommandBuffer(void);
 
 // Returns non-zero when the command buffer is valid and geometry descriptors
-// are already in PSRAM from a previous frame.
+// are already in DRAM from a previous frame.
 int borgCommandBufferValid(void);
 
 // Fast-path frame begin: update clear color only, skip bin reset and draw_call_count reset.
@@ -116,7 +116,7 @@ void borgFastFrameBegin(rgb16_t clear_color);
 // geometry is static and only the uniform (rotation matrix) changes.
 void borgUpdateUniforms(const borg_draw_data_t *d);
 
-// Write DONE marker for a frame to PSRAM
+// Write DONE marker for a frame to DRAM
 void borg_present(int frame);
 
 // Blocking UART byte transmit (defined in borg_driver.c).  Polls the SoC

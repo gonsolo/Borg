@@ -28,7 +28,7 @@ def classify_by_net(nets_str):
         return "hardfloat"
     if '_cpu' in nets or 'instrfetch' in nets or 'hutt' in nets:
         return "cpu"
-    if 'qspi' in nets or 'psram' in nets or '_mem_' in nets or 'q_ctrl' in nets:
+    if 'qspi' in nets or 'dram' in nets or '_mem_' in nets or 'q_ctrl' in nets:
         return "memory"
     if 'uart' in nets or 'gpio' in nets or 'peripheral' in nets:
         return "peripherals"

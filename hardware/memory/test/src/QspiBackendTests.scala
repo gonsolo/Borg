@@ -58,21 +58,21 @@ object QspiBackendTests extends TestSuite {
   // Address helpers:
   //   QspiBackend: byteAddr = Cat(addrIn_24bit, 0) → 25-bit byte address
   //   QspiCtrl: flash_select when byteAddr(24) = 0; ram_a_select when byteAddr(24:23) = 2
-  //   PSRAM-A: byteAddr(24:23) = 10 → addrIn(23:22) = 10 → addrIn >= 0x800000
+  //   DRAM-A: byteAddr(24:23) = 10 → addrIn(23:22) = 10 → addrIn >= 0x800000
   //   Flash:   byteAddr(24) = 0    → addrIn(23)   = 0  → addrIn <  0x800000
-  private val psramWordAddr: Int = 0x800042  // selects PSRAM-A
+  private val dramWordAddr: Int = 0x800042  // selects DRAM-A
   private val flashWordAddr: Int = 0x000042  // selects flash
 
   val tests = Tests {
 
-    test("PSRAM write completes and asserts RAM chip select") {
+    test("DRAM write completes and asserts RAM chip select") {
       simulate(new QspiBackendHarness) { dut =>
         dut.io.spiDataIn.poke(0.U)
         dut.reset.poke(true.B)
         dut.clock.step(2)
         dut.reset.poke(false.B)
 
-        dut.io.addrIn.poke(psramWordAddr.U)
+        dut.io.addrIn.poke(dramWordAddr.U)
         dut.io.dataIn.poke(0xabcd.U)
         dut.io.byteEnIn.poke(3.U)
         dut.io.startWrite.poke(true.B)
@@ -86,15 +86,15 @@ object QspiBackendTests extends TestSuite {
           if (dut.io.done.peek().litToBoolean)     done = true
           dut.clock.step(1)
         }
-        Predef.assert(done, "PSRAM write never completed (done never fired in 300 cycles)")
-        Predef.assert(ramSelected, "PSRAM-A chip select never asserted during write")
+        Predef.assert(done, "DRAM write never completed (done never fired in 300 cycles)")
+        Predef.assert(ramSelected, "DRAM-A chip select never asserted during write")
       }
     }
 
-    test("PSRAM write sends 0x02 command followed by correct address nibbles") {
+    test("DRAM write sends 0x02 command followed by correct address nibbles") {
       // Expected nibble sequence on rising SPI clock edges (OE=1):
       //   [0x0, 0x2]               CMD   = 0x02
-      //   [0x0, 0x0, 0x0, 0x0, 0x8, 0x4]  ADDR  = 0x000084 (Cat(psramWordAddr,0)[23:0])
+      //   [0x0, 0x0, 0x0, 0x0, 0x8, 0x4]  ADDR  = 0x000084 (Cat(dramWordAddr,0)[23:0])
       //   [0xC, 0xD]               DATA  byte0 = 0xCD (low byte of 0xABCD)
       //   [0xA, 0xB]               DATA  byte1 = 0xAB (high byte of 0xABCD)
       simulate(new QspiBackendHarness) { dut =>
@@ -103,7 +103,7 @@ object QspiBackendTests extends TestSuite {
         dut.clock.step(2)
         dut.reset.poke(false.B)
 
-        dut.io.addrIn.poke(psramWordAddr.U)
+        dut.io.addrIn.poke(dramWordAddr.U)
         dut.io.dataIn.poke(0xabcd.U)
         dut.io.byteEnIn.poke(3.U)
         dut.io.startWrite.poke(true.B)
@@ -125,7 +125,7 @@ object QspiBackendTests extends TestSuite {
           dut.clock.step(1)
         }
 
-        Predef.assert(done, s"PSRAM write never completed; captured ${nibbles.length} nibbles: ${nibbles.mkString(",")}")
+        Predef.assert(done, s"DRAM write never completed; captured ${nibbles.length} nibbles: ${nibbles.mkString(",")}")
         Predef.assert(nibbles.length >= 10,
           s"Expected ≥10 nibbles (2 CMD + 6 ADDR + 2 DATA), got ${nibbles.length}: ${nibbles.mkString(",")}")
 
@@ -148,7 +148,7 @@ object QspiBackendTests extends TestSuite {
       }
     }
 
-    test("PSRAM read completes and returns correct data") {
+    test("DRAM read completes and returns correct data") {
       // Hold spi_data_in = 0xA throughout; each nibble reads 0xA → each byte = 0xAA → dataOut = 0xAAAA
       simulate(new QspiBackendHarness) { dut =>
         dut.io.spiDataIn.poke(0.U)  // delay_cycles_cfg = 0 during reset
@@ -157,7 +157,7 @@ object QspiBackendTests extends TestSuite {
         dut.reset.poke(false.B)
 
         dut.io.spiDataIn.poke(0xA.U)  // slave holds 0xA on all data lines
-        dut.io.addrIn.poke(psramWordAddr.U)
+        dut.io.addrIn.poke(dramWordAddr.U)
         dut.io.dataIn.poke(0.U)
         dut.io.byteEnIn.poke(0.U)
         dut.io.startRead.poke(true.B)
@@ -174,9 +174,9 @@ object QspiBackendTests extends TestSuite {
           dut.clock.step(1)
         }
 
-        Predef.assert(done, "PSRAM read never completed in 300 cycles")
+        Predef.assert(done, "DRAM read never completed in 300 cycles")
         Predef.assert(readData == 0xAAAA,
-          s"PSRAM read: expected 0xAAAA, got 0x${readData.toString(16)}")
+          s"DRAM read: expected 0xAAAA, got 0x${readData.toString(16)}")
       }
     }
 

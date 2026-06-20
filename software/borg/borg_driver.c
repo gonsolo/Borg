@@ -18,7 +18,7 @@
 
 #define FP16_SIXTEEN 0x4C00
 
-// --- PSRAM frame layout (tiled: 2 words per pixel) ---
+// --- DRAM frame layout (tiled: 2 words per pixel) ---
 // RGB565 tiled framebuffer: the flusher writes one 16-bit RGB565 halfword per
 // pixel (R[15:11] G[10:5] B[4:0]); depth lives only in the on-chip tile buffer.
 // FRAME_FB_SIZE = W*H/2 32-bit words (2 bytes/pixel, 2 pixels per 32-bit word).
@@ -30,7 +30,7 @@
 // tiles).
 #define BORG_MAX_TILES 1024      // (128/4)*(128/4) = 1024
 // In-RAM draw-call buffer — mirrors SEQ_MAX_DRAWS from borg_layout.h which
-// also sizes the PSRAM descriptor window (SEQ_MAX_DRAWS × SEQ_DESC_STRIDE).
+// also sizes the DRAM descriptor window (SEQ_MAX_DRAWS × SEQ_DESC_STRIDE).
 #define BORG_MAX_DRAWS SEQ_MAX_DRAWS
 #define BORG_MAX_TRIS_PER_TILE 8    // max triangles that can touch one tile
 
@@ -134,7 +134,7 @@ static const uint32_t seq_setup_shader[] = {
 // bin_count[t] = number of draw calls touching tile t
 // bin_list[t][i] = index into draw_calls[] for the i-th triangle on tile t
 // uint8_t is sufficient: BORG_MAX_DRAWS = 12, indices are always 0..11.
-// The PSRAM bin list (Step 32.1 BorgBinner) uses uint16_t entries for
+// The DRAM bin list (Step 32.1 BorgBinner) uses uint16_t entries for
 // thousands of triangles — that is a separate, hardware-managed structure.
 static uint8_t bin_count[BORG_MAX_TILES];
 static uint8_t bin_list[BORG_MAX_TILES][BORG_MAX_TRIS_PER_TILE];
@@ -144,7 +144,7 @@ typedef struct {
 } dim2_t;
 
 typedef struct {
-  int psram_offset;        // -1 = no texture
+  int dram_offset;        // -1 = no texture
   dim2_t size;             // integer dimensions
   uint16_t w_fp16, h_fp16; // FP16 dimensions for Borg FPU
 } texture_t;
@@ -155,7 +155,7 @@ int borg_fb_height;
 static fp16_t fp16_half_width;
 static fp16_t pc_lut[BORG_MAX_FB_DIM];
 
-// Step 32.0: TBR PSRAM geometry region base addresses.
+// Step 32.0: TBR DRAM geometry region base addresses.
 // Computed in borgCreateDevice() after framebuffer size is known.
 // Layout (SPI byte addresses, sequential after the output framebuffer):
 //   tbr_bin_base:   per-tile bin lists  (num_tiles × TBR_BIN_ROW_BYTES)
@@ -182,7 +182,7 @@ static rgb16_t
     last_clear_color; // saved by borgBinReset, used for empty-tile fill
 
 // Command-buffer record-once: static geometry (positions, UVs, metadata) is
-// written to PSRAM descriptors on the first frame and never again.  Only
+// written to DRAM descriptors on the first frame and never again.  Only
 // dynamic state (MVP + vertex colors) is rewritten each frame.
 // Set to 0 to force a full re-record (e.g. after a pipeline change).
 static int g_cmdbuf_valid = 0;
@@ -203,7 +203,7 @@ unsigned int t_clear_cycles = 0;
 unsigned int t_draw_cycles = 0;
 
 // --- Texture state ---
-static texture_t tex = {.psram_offset = -1};
+static texture_t tex = {.dram_offset = -1};
 
 // --- UART ---
 // NOTE: The full SoC's read at UART_STATUS (0x0800001C) does not currently
@@ -346,12 +346,12 @@ void borgCreateDevice(void) {
   puts_uart("Borg pipeline\r\n");
   unsigned int t_init = get_cycles();
 
-  // Read framebuffer dimensions from PSRAM (written by host on sim).
-  // On ULX3S there is no host — PSRAM_IN lives in firmware .text and returns
+  // Read framebuffer dimensions from DRAM (written by host on sim).
+  // On ULX3S there is no host — DRAM_IN lives in firmware .text and returns
   // garbage.  Validate: must be a non-zero power-of-2 in [4..128]; else fall
   // back to 32×32.
-  borg_fb_width  = PSRAM_IN(0);
-  borg_fb_height = PSRAM_IN(1);
+  borg_fb_width  = DRAM_IN(0);
+  borg_fb_height = DRAM_IN(1);
   if (borg_fb_width < 4 || borg_fb_width > 128 ||
       (borg_fb_width & (borg_fb_width - 1)) != 0)
     borg_fb_width = 128;
@@ -381,7 +381,7 @@ void borgCreateDevice(void) {
 
   // Step 25.4.1: Configure hardware tile flusher base address.
   // Actual per-tile base is set dynamically in borgBinRender.
-  BORG_GPU->flush_fb_base = PSRAM_OUT_SPI(0 * FRAME_STRIDE);
+  BORG_GPU->flush_fb_base = DRAM_OUT_SPI(0 * FRAME_STRIDE);
 
   // Program the HDMI scanout's framebuffer bases from the SAME layout constants
   // that drive the GPU flush/render base, so the display engine and the GPU can
@@ -390,8 +390,8 @@ void borgCreateDevice(void) {
   // Unconditional: these SoC registers exist on every target (Project.scala);
   // on targets with no scanout the writes are harmless no-ops.  This keeps the
   // firmware self-consistent across ULX3S and the BorgHdmiSimTop verilator sim.
-  *(volatile uint32_t *)0x08000010u = PSRAM_OUT_SPI(0 * FRAME_STRIDE);
-  *(volatile uint32_t *)0x08000028u = PSRAM_OUT_SPI(1 * FRAME_STRIDE);
+  *(volatile uint32_t *)0x08000010u = DRAM_OUT_SPI(0 * FRAME_STRIDE);
+  *(volatile uint32_t *)0x08000028u = DRAM_OUT_SPI(1 * FRAME_STRIDE);
   // log2(fbWidth) — fbWidth is always a power of 2
   unsigned int log2_w = 0;
   unsigned int w = (unsigned int)borg_fb_width;
@@ -403,13 +403,13 @@ void borgCreateDevice(void) {
 
   t_init_cycles = get_cycles() - t_init;
 
-  // Step 32.0: Compute TBR PSRAM geometry region base addresses.
-  // These regions live after the output framebuffer (PSRAM_OUT_OFFSET covers
+  // Step 32.0: Compute TBR DRAM geometry region base addresses.
+  // These regions live after the output framebuffer (DRAM_OUT_OFFSET covers
   // one frame of borg_fb_width × borg_fb_height pixels × 2 words × 4 bytes).
   {
     int num_tiles = (borg_fb_width >> 2) * (borg_fb_height >> 2);
     // Two framebuffers (double-buffering): TBR starts after both.
-    uint32_t fb_end_spi = (uint32_t)PSRAM_SPI_BASE + (uint32_t)PSRAM_OUT_OFFSET
+    uint32_t fb_end_spi = (uint32_t)DRAM_SPI_BASE + (uint32_t)DRAM_OUT_OFFSET
                         + 2u * (uint32_t)FRAME_STRIDE * 4u;
     // Bin list: num_tiles rows, each TBR_BIN_ROW_BYTES wide.
     tbr_bin_base   = fb_end_spi;
@@ -426,21 +426,21 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
   spirb_parse(rast->code, &rast_shader);
   spirb_parse(frag->code, &frag_shader);
 
-  // Step 30.1b: Stage setup shader to PSRAM.
+  // Step 30.1b: Stage setup shader to DRAM.
   // Vertex and fragment shaders are uploaded at runtime by borgvk via borg_stage_shader.
   for (int i = 0; i < (int)SEQ_SETUP_SHADER_LEN; i++)
-    PSRAM_OUT_RAW(SEQ_SETUP_SHADER_ADDR + (uint32_t)i * 4) = seq_setup_shader[i];
+    DRAM_OUT_RAW(SEQ_SETUP_SHADER_ADDR + (uint32_t)i * 4) = seq_setup_shader[i];
 
   BORG_GPU->seq_vert_addr  = SEQ_VERT_SHADER_ADDR;
   BORG_GPU->seq_setup_addr = SEQ_SETUP_SHADER_ADDR;
   BORG_GPU->seq_setup_len  = SEQ_SETUP_SHADER_LEN;
 
-  // Step 31: Stage rast+frag shaders to PSRAM for autonomous re-DMA.
+  // Step 31: Stage rast+frag shaders to DRAM for autonomous re-DMA.
   // After vertex+setup, the sequencer needs to reload IMEM with rast+frag.
   for (int i = 0; i < (int)rast_shader.num_instrs; i++)
-    PSRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)i * 4) = rast_shader.instrs[i];
+    DRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)i * 4) = rast_shader.instrs[i];
   // HALT sentinel
-  PSRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)rast_shader.num_instrs * 4) = 0;
+  DRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)rast_shader.num_instrs * 4) = 0;
   BORG_GPU->seq_rast_addr = SEQ_RAST_SHADER_ADDR;
   BORG_GPU->seq_rast_len  = rast_shader.num_instrs + 1;  // +1 for HALT
   BORG_GPU->seq_frag_addr = SEQ_FRAG_SHADER_ADDR;
@@ -480,7 +480,7 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   // separately in the render path.  borgc HALT-terminates the blob, so
   // seq_*_len = num_instrs (no +1).
   uint32_t n = blob[0];
-  // IMEM-slot bounds: vertex PSRAM slot is 128 B (32 words); fragment occupies
+  // IMEM-slot bounds: vertex DRAM slot is 128 B (32 words); fragment occupies
   // IMEM[13..71] (59 words).  Reject oversized blobs.
   if (stage == 0 && n > 32) return;
   if (stage == 1 && n > 59) return;
@@ -490,7 +490,7 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   for (uint32_t i = 0; i < n; i++) {
     uint32_t word = (uint32_t)w[i * 4]            | ((uint32_t)w[i * 4 + 1] << 8) |
                     ((uint32_t)w[i * 4 + 2] << 16) | ((uint32_t)w[i * 4 + 3] << 24);
-    PSRAM_OUT_RAW(addr + i * 4) = word;
+    DRAM_OUT_RAW(addr + i * 4) = word;
   }
   // NOTE: no UART print here.  The host streams the vert and frag 0xB0 packets
   // back-to-back (USB-CDC buffering absorbs the inter-packet usleep into vert's
@@ -538,7 +538,7 @@ void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
   d->uniforms[15] = FP16_ONE;
 }
 
-// TBR: Reset binning state. No PSRAM clearing needed —
+// TBR: Reset binning state. No DRAM clearing needed —
 // clear color is written to empty tiles during borgBinRender.
 static void borgBinReset(rgb16_t cc) {
   for (int i = 0; i < BORG_MAX_TILES; i++)
@@ -564,30 +564,30 @@ void borg_clear_zbuffer(int frame, rgb16_t clear_color) {
 }
 
 void borg_set_texture(int tex_width, int tex_height) {
-  tex = (texture_t){.psram_offset = 0, // unused, texture at fixed PSRAM addr
+  tex = (texture_t){.dram_offset = 0, // unused, texture at fixed DRAM addr
                     .size = {tex_width, tex_height},
                     .w_fp16 = uint_to_fp16(tex_width),
                     .h_fp16 = uint_to_fp16(tex_height)};
   // Step 21.2: Enable hardware sTexFetch via TEX_CONFIG MMIO register.
-  // Texture lives at TEX_PSRAM_BYTE_ADDR_FIXED (defined in borg_layout.h),
+  // Texture lives at TEX_DRAM_BYTE_ADDR_FIXED (defined in borg_layout.h),
   // BEFORE the framebuffer, so it always fits in the 16-bit base_addr field.
   BORG_GPU->tex_config =
-      (TEX_PSRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
+      (TEX_DRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
       TEX_CONFIG_REG_T__EN_bm;
 }
 
 void borg_clear_texture(void) {
-  tex.psram_offset = -1;
+  tex.dram_offset = -1;
   // Step 21.2: Disable hardware sTexFetch.
   BORG_GPU->tex_config = 0;
 }
 
 // Upload a row-major RGB-FP16 texture (6 bytes/texel: R, G, B each one FP16
-// halfword) into the GPU texture region at TEX_PSRAM_BYTE_ADDR_FIXED, Morton-
+// halfword) into the GPU texture region at TEX_DRAM_BYTE_ADDR_FIXED, Morton-
 // encoded into the 2-word (8-byte) layout the hardware sTexFetch reads:
 //   word0 = { G[15:0], R[15:0] }    word1 = { 0, B[15:0] }
-// This mirrors the simulator's load_texture_to_psram() byte-for-byte so the
-// hardware framebuffer matches sim.  In sim the host preloads PSRAM; on ULX3S
+// This mirrors the simulator's load_texture_to_dram() byte-for-byte so the
+// hardware framebuffer matches sim.  In sim the host preloads DRAM; on ULX3S
 // there is no host, so the CPU writes the texels into SDRAM itself.  Writes are
 // full 32-bit words on 8-byte-aligned addresses, so no byte-write RMW occurs.
 void borg_upload_texture(const uint8_t *rgb_fp16, int dim) {
@@ -598,9 +598,9 @@ void borg_upload_texture(const uint8_t *rgb_fp16, int dim) {
       uint16_t r = rgb_fp16[(src * 3 + 0) * 2] | (rgb_fp16[(src * 3 + 0) * 2 + 1] << 8);
       uint16_t g = rgb_fp16[(src * 3 + 1) * 2] | (rgb_fp16[(src * 3 + 1) * 2 + 1] << 8);
       uint16_t b = rgb_fp16[(src * 3 + 2) * 2] | (rgb_fp16[(src * 3 + 2) * 2 + 1] << 8);
-      uint32_t byte_addr = TEX_PSRAM_BYTE_ADDR_FIXED + dst * 8;
-      PSRAM_OUT_RAW(byte_addr)     = (uint32_t)r | ((uint32_t)g << 16);
-      PSRAM_OUT_RAW(byte_addr + 4) = (uint32_t)b;
+      uint32_t byte_addr = TEX_DRAM_BYTE_ADDR_FIXED + dst * 8;
+      DRAM_OUT_RAW(byte_addr)     = (uint32_t)r | ((uint32_t)g << 16);
+      DRAM_OUT_RAW(byte_addr + 4) = (uint32_t)b;
     }
   }
 }
@@ -616,9 +616,9 @@ void borg_upload_texture_row(const uint8_t *row, int y, int dim) {
     uint16_t r = row[(src * 3 + 0) * 2] | (row[(src * 3 + 0) * 2 + 1] << 8);
     uint16_t g = row[(src * 3 + 1) * 2] | (row[(src * 3 + 1) * 2 + 1] << 8);
     uint16_t b = row[(src * 3 + 2) * 2] | (row[(src * 3 + 2) * 2 + 1] << 8);
-    uint32_t byte_addr = TEX_PSRAM_BYTE_ADDR_FIXED + dst * 8;
-    PSRAM_OUT_RAW(byte_addr)     = (uint32_t)r | ((uint32_t)g << 16);
-    PSRAM_OUT_RAW(byte_addr + 4) = (uint32_t)b;
+    uint32_t byte_addr = TEX_DRAM_BYTE_ADDR_FIXED + dst * 8;
+    DRAM_OUT_RAW(byte_addr)     = (uint32_t)r | ((uint32_t)g << 16);
+    DRAM_OUT_RAW(byte_addr + 4) = (uint32_t)b;
   }
 }
 
@@ -779,7 +779,7 @@ static void setup_tile_uniforms(const draw_call_t *dc) {
   // Enable/disable texture for this draw call
   if (tri->has_uvs) {
     BORG_GPU->tex_config =
-        (TEX_PSRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
+        (TEX_DRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
         TEX_CONFIG_REG_T__EN_bm;
   } else {
     BORG_GPU->tex_config = 0;
@@ -824,7 +824,7 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
       .frame = frame,
   };
 
-  // Write vertex descriptor to PSRAM for the sequencer.
+  // Write vertex descriptor to DRAM for the sequencer.
   // Layout (Phase 1): 96B model-space verts + 64B TS-baked MVP + 32B metadata = 256 bytes.
   uint32_t desc_base = SEQ_DESC_BASE_ADDR + (uint32_t)idx * SEQ_DESC_STRIDE;
 
@@ -833,29 +833,29 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
     // Written once on the first frame; never changes between frames.
     for (int v = 0; v < 3; v++) {
       uint32_t vbase = desc_base + (uint32_t)v * 32;
-      PSRAM_OUT_RAW(vbase + 0) = g_current_raw_verts[v*3+0];  // model.x
-      PSRAM_OUT_RAW(vbase + 4) = g_current_raw_verts[v*3+1];  // model.y
-      PSRAM_OUT_RAW(vbase + 8) = g_current_raw_verts[v*3+2];  // model.z
-      PSRAM_OUT_RAW(vbase + 24) = tri->has_uvs
+      DRAM_OUT_RAW(vbase + 0) = g_current_raw_verts[v*3+0];  // model.x
+      DRAM_OUT_RAW(vbase + 4) = g_current_raw_verts[v*3+1];  // model.y
+      DRAM_OUT_RAW(vbase + 8) = g_current_raw_verts[v*3+2];  // model.z
+      DRAM_OUT_RAW(vbase + 24) = tri->has_uvs
           ? (uint32_t)borg_fp16_mul(tri->uvs.v[v].u, t->w_fp16) : (uint32_t)FP16_ZERO;
-      PSRAM_OUT_RAW(vbase + 28) = tri->has_uvs
+      DRAM_OUT_RAW(vbase + 28) = tri->has_uvs
           ? (uint32_t)borg_fp16_mul(tri->uvs.v[v].v, t->h_fp16) : (uint32_t)FP16_ZERO;
     }
-    PSRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 0) = ((uint32_t)(bb.y0 & ~3) << 16) | (uint32_t)(bb.x0 & ~3);
-    PSRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 4) = ((uint32_t)(bb.y1) << 16) | (uint32_t)(bb.x1);
-    PSRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 8) = tri->has_uvs ? 1u : 0u;
+    DRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 0) = ((uint32_t)(bb.y0 & ~3) << 16) | (uint32_t)(bb.x0 & ~3);
+    DRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 4) = ((uint32_t)(bb.y1) << 16) | (uint32_t)(bb.x1);
+    DRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 8) = tri->has_uvs ? 1u : 0u;
   }
 
   // Dynamic state — MVP and vertex colors change every frame (rotation + lighting).
   for (int v = 0; v < 3; v++) {
     uint32_t vbase = desc_base + (uint32_t)v * 32;
-    PSRAM_OUT_RAW(vbase + 12) = tri->colors.v[v].r;
-    PSRAM_OUT_RAW(vbase + 16) = tri->colors.v[v].g;
-    PSRAM_OUT_RAW(vbase + 20) = tri->colors.v[v].b;
+    DRAM_OUT_RAW(vbase + 12) = tri->colors.v[v].r;
+    DRAM_OUT_RAW(vbase + 16) = tri->colors.v[v].g;
+    DRAM_OUT_RAW(vbase + 20) = tri->colors.v[v].b;
   }
   // TS-baked MVP at SEQ_MVP_OFFSET (96): 16 FP16 values, column-major.
   for (int i = 0; i < 16; i++)
-    PSRAM_OUT_RAW(desc_base + SEQ_MVP_OFFSET + (uint32_t)i * 4) = g_ts_mvp_cache[i];
+    DRAM_OUT_RAW(desc_base + SEQ_MVP_OFFSET + (uint32_t)i * 4) = g_ts_mvp_cache[i];
 
   draw_call_count++;
 }
@@ -893,19 +893,19 @@ static void __attribute__((unused)) borgBinRender(int frame) {
       int ty = tile_row << 2;
 
       if (count == 0) {
-        // Empty tile: write clear color directly to PSRAM (32 words = 16 pixels
+        // Empty tile: write clear color directly to DRAM (32 words = 16 pixels
         // × 2).
         int base = fb_offset + tile_index * 32;
         for (int tile_idx = 0; tile_idx < 16; tile_idx++) {
-          PSRAM_OUT(base + tile_idx * 2 + 0) = cc_lo;
-          PSRAM_OUT(base + tile_idx * 2 + 1) = cc_hi;
+          DRAM_OUT(base + tile_idx * 2 + 0) = cc_lo;
+          DRAM_OUT(base + tile_idx * 2 + 1) = cc_hi;
         }
         continue;
       }
 
       // tileBase: written once per tile (same for all triangles on this tile).
       uint32_t tile_base_spi =
-          PSRAM_OUT_SPI(0 * FRAME_STRIDE) + (uint32_t)tile_index * 128;
+          DRAM_OUT_SPI(0 * FRAME_STRIDE) + (uint32_t)tile_index * 128;
       BORG_GPU->flush_fb_base = tile_base_spi;
 
       // Pre-fill all 16 tile SRAM pixels with {clear_color.RGB, Z=max}.
@@ -954,11 +954,11 @@ static void __attribute__((unused)) borgBinRender(int frame) {
         // when hasFlusher=true (Sim / ULX3S).  When hasFlusher=false it
         // is hardwired 0 → always takes the CPU flush path below.
         if (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm) {
-          // HW flusher active — wait for it to finish writing to PSRAM.
+          // HW flusher active — wait for it to finish writing to DRAM.
           while (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm);
         } else {
           // CPU tile flush (hasFlusher=false):
-          // read 16 tile-buffer pixels from BRAM and write to PSRAM.
+          // read 16 tile-buffer pixels from BRAM and write to DRAM.
           int base = fb_offset + tile_index * 32;
           for (int tile_idx = 0; tile_idx < 16; tile_idx++) {
             BORG_GPU->tile_ctrl = (uint32_t)tile_idx;  // trigger BRAM read
@@ -967,8 +967,8 @@ static void __attribute__((unused)) borgBinRender(int frame) {
             __asm__ volatile("nop"); __asm__ volatile("nop");
             uint32_t bz = BORG_GPU->tile_bz;   // {B[31:16], Z[15:0]}
             uint32_t rg = BORG_GPU->tile_rg;   // {R[31:16], G[15:0]}
-            PSRAM_OUT(base + tile_idx * 2 + 0) = bz;
-            PSRAM_OUT(base + tile_idx * 2 + 1) = rg;
+            DRAM_OUT(base + tile_idx * 2 + 0) = bz;
+            DRAM_OUT(base + tile_idx * 2 + 1) = rg;
           }
         }
 
@@ -980,8 +980,8 @@ static void __attribute__((unused)) borgBinRender(int frame) {
 
 // Step 32.3/32.4: Autonomous two-pass TBR rendering.
 // Pass 1 (geometry): sequencer runs vert+setup+bin+storeSetup for all triangles.
-// Pass 2 (tile render): sequencer iterates ALL tiles, reads bin lists from PSRAM,
-// loads setup uniforms per triangle, rasterizes, and flushes each tile to PSRAM.
+// Pass 2 (tile render): sequencer iterates ALL tiles, reads bin lists from DRAM,
+// loads setup uniforms per triangle, rasterizes, and flushes each tile to DRAM.
 // Empty tiles are flushed with the clear color written in sClearTile — no CPU
 // pre-fill needed.
 static void borgBinRenderAutonomous(int frame) {
@@ -991,7 +991,7 @@ static void borgBinRenderAutonomous(int frame) {
   uint32_t cc_lo = ((uint32_t)last_clear_color.b << 16) | FP16_MAX_DEPTH;
   uint32_t cc_hi = ((uint32_t)last_clear_color.r << 16) | last_clear_color.g;
 
-  BORG_GPU->seq_fb_base       = PSRAM_OUT_SPI(fb_offset);
+  BORG_GPU->seq_fb_base       = DRAM_OUT_SPI(fb_offset);
   BORG_GPU->seq_tiles_per_row = tiles_per_row;
   BORG_GPU->seq_clear_lo      = cc_lo;
   BORG_GPU->seq_clear_hi      = cc_hi;
@@ -1000,7 +1000,7 @@ static void borgBinRenderAutonomous(int frame) {
   BORG_GPU->seq_bin_row_bytes = TBR_BIN_ROW_BYTES;
   BORG_GPU->seq_setup_base    = tbr_setup_base;
   // seq_rast_addr/len and seq_frag_addr/len are set once in
-  // borgCreateGraphicsPipeline() with the correct PSRAM staging addresses.
+  // borgCreateGraphicsPipeline() with the correct DRAM staging addresses.
   // Do NOT overwrite them here.
 
   // Texture config: set once per frame. The sequencer's sStageUniforms now
@@ -1013,7 +1013,7 @@ static void borgBinRenderAutonomous(int frame) {
   {
     int any_textured = 0;
     for (int i = 0; i < draw_call_count; i++) {
-      if (draw_calls[i].tex.psram_offset >= 0) { any_textured = 1; break; }
+      if (draw_calls[i].tex.dram_offset >= 0) { any_textured = 1; break; }
     }
     // Fragment uniform-staging mode (u19-u27): the hand frag.s reads vertex
     // colour there (bit=0), the borgc cube.frag reads model frag_pos (bit=1).
@@ -1021,7 +1021,7 @@ static void borgBinRenderAutonomous(int frame) {
     // sequencer always knows which the loaded fragment expects.
     uint32_t frag_mode = TEX_CONFIG_REG_T__FRAG_USES_FRAGPOS_bm;
     BORG_GPU->tex_config = (any_textured
-        ? ((TEX_PSRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) | TEX_CONFIG_REG_T__EN_bm)
+        ? ((TEX_DRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) | TEX_CONFIG_REG_T__EN_bm)
         : 0) | frag_mode;
   }
   BORG_GPU->control = 0; // uniform page 0
@@ -1126,7 +1126,7 @@ static void rasterize_clipped_triangle(const clip_vertex_t *cv,
     tri.uvs.v[v] = (uv16_t){cv[v].u, cv[v].v};
   }
   tri.z_vals = (fp16x3_t){{ndc[0][2], ndc[1][2], ndc[2][2]}};
-  tri.has_uvs = (t->psram_offset >= 0);
+  tri.has_uvs = (t->dram_offset >= 0);
 
   // TBR: record for tile-ordered rendering instead of immediate
   // shade.
@@ -1201,7 +1201,7 @@ void borgUpdateUniforms(const borg_draw_data_t *d) {
   for (int i = 0; i < draw_call_count; i++) {
     uint32_t desc_base = SEQ_DESC_BASE_ADDR + (uint32_t)i * SEQ_DESC_STRIDE;
     for (int j = 0; j < 16; j++)
-      PSRAM_OUT_RAW(desc_base + SEQ_MVP_OFFSET + (uint32_t)j * 4) = g_ts_mvp_cache[j];
+      DRAM_OUT_RAW(desc_base + SEQ_MVP_OFFSET + (uint32_t)j * 4) = g_ts_mvp_cache[j];
   }
 }
 
@@ -1257,7 +1257,7 @@ void borgCmdDrawIndexed(const int idx[3], const borg_vertex_t vertices[3],
     g_current_raw_verts[v*3+2] = raw_pos_cache[idx[v]*3+2];
   }
   triangle_t tri;
-  tri.has_uvs = (tex.psram_offset >= 0);
+  tri.has_uvs = (tex.dram_offset >= 0);
   for (int v = 0; v < 3; v++) {
     tri.colors.v[v] = (rgb16_t){vertices[v].color[0], vertices[v].color[1], vertices[v].color[2]};
     tri.uvs.v[v]    = (uv16_t){vertices[v].uv[0], vertices[v].uv[1]};
@@ -1286,13 +1286,13 @@ void borg_present(int frame) {
   // timing words at FRAME_FB_SIZE+1.. would land in the *other* buffer's first
   // pixels (FRAME_STRIDE = FRAME_FB_SIZE+1), corrupting the displayed frame.
   int base = back_buf * FRAME_STRIDE + FRAME_FB_SIZE;
-  PSRAM_OUT(base) = DONE_MARKER;
-  PSRAM_OUT(base + 1) = t_init_cycles & 0xFFFF;
-  PSRAM_OUT(base + 2) = (t_init_cycles >> 16) & 0xFFFF;
-  PSRAM_OUT(base + 3) = t_clear_cycles & 0xFFFF;
-  PSRAM_OUT(base + 4) = (t_clear_cycles >> 16) & 0xFFFF;
-  PSRAM_OUT(base + 5) = t_draw_cycles & 0xFFFF;
-  PSRAM_OUT(base + 6) = (t_draw_cycles >> 16) & 0xFFFF;
+  DRAM_OUT(base) = DONE_MARKER;
+  DRAM_OUT(base + 1) = t_init_cycles & 0xFFFF;
+  DRAM_OUT(base + 2) = (t_init_cycles >> 16) & 0xFFFF;
+  DRAM_OUT(base + 3) = t_clear_cycles & 0xFFFF;
+  DRAM_OUT(base + 4) = (t_clear_cycles >> 16) & 0xFFFF;
+  DRAM_OUT(base + 5) = t_draw_cycles & 0xFFFF;
+  DRAM_OUT(base + 6) = (t_draw_cycles >> 16) & 0xFFFF;
 #endif
 
   // Double-buffer swap with scanout synchronization.

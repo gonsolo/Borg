@@ -11,7 +11,7 @@
 //   GPIO:  select=1 → 0x08000400
 //   UART:  select=2 → 0x08000800
 //   Borg:  select=3 → 0x08000C00
-//   PSRAM: separate region at 0x01001000
+//   DRAM: separate region at 0x01001000
 
 addrmap soc {
     name = "Borg SoC";
@@ -21,5 +21,5 @@ addrmap soc {
     gpio_map gpio @ 0x08000400;
     uart_map uart @ 0x08000800;
     borg_gpu borg @ 0x08000C00;
-    psram_map psram @ 0x01001000;
+    dram_map dram @ 0x01001000;
 };

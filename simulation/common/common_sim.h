@@ -140,7 +140,7 @@ public:
                 nibbles_left--;
                 if (nibbles_left == 0) {
                     if (cmd_reg == 0x0B) {
-                        // Read: QspiCtrl uses DUMMY2(4) for flash, DUMMY1(2)+DUMMY2(4)=6 for PSRAM
+                        // Read: QspiCtrl uses DUMMY2(4) for flash, DUMMY1(2)+DUMMY2(4)=6 for DRAM
                         state = DUMMY;
                         nibbles_left = is_flash ? 4 : 6;
                     } else if (cmd_reg == 0x02) {
@@ -180,25 +180,25 @@ public:
 
 // ── Flat MemBackendIO memory access ─────────────────────────────────────────
 // The verilator sim drives the MemoryController backend bus directly (no QSPI).
-// The 24-bit word address selects flash vs PSRAM exactly as QspiBackend does:
+// The 24-bit word address selects flash vs DRAM exactly as QspiBackend does:
 //   QspiBackend: byteAddr = Cat(addrIn, 0)  → addr_in(24) = addrIn bit 23
-//   QspiController: flash when addr_in(24)==0, PSRAM otherwise
-// Per-chip byte address = (addrIn & 0x7FFFFF) << 1.  The flash/psram vectors
+//   QspiController: flash when addr_in(24)==0, DRAM otherwise
+// Per-chip byte address = (addrIn & 0x7FFFFF) << 1.  The flash/flat vectors
 // are indexed by this byte address, identical to the old QSPIMemory model, so
 // firmware load and framebuffer readback continue to work unchanged.
-inline uint16_t flat_read16(QSPIMemory* flash, QSPIMemory* psram, uint32_t addrIn) {
-    bool is_psram = (addrIn >> 23) & 1;
+inline uint16_t flat_read16(QSPIMemory* flash, QSPIMemory* flat, uint32_t addrIn) {
+    bool is_flat = (addrIn >> 23) & 1;
     uint32_t spi_byte = (addrIn & 0x7FFFFF) << 1;
-    QSPIMemory* m = is_psram ? psram : flash;
+    QSPIMemory* m = is_flat ? flat : flash;
     if (spi_byte + 1 >= m->mem.size()) return 0;
     return (uint16_t)m->mem[spi_byte] | ((uint16_t)m->mem[spi_byte + 1] << 8);
 }
 
-inline void flat_write16(QSPIMemory* flash, QSPIMemory* psram,
+inline void flat_write16(QSPIMemory* flash, QSPIMemory* flat,
                          uint32_t addrIn, uint16_t data, uint8_t byteEn) {
-    bool is_psram = (addrIn >> 23) & 1;
+    bool is_flat = (addrIn >> 23) & 1;
     uint32_t spi_byte = (addrIn & 0x7FFFFF) << 1;
-    QSPIMemory* m = is_psram ? psram : flash;
+    QSPIMemory* m = is_flat ? flat : flash;
     if (spi_byte + 1 >= m->mem.size()) return;
     if (byteEn & 0x1) m->mem[spi_byte]     = data & 0xFF;
     if (byteEn & 0x2) m->mem[spi_byte + 1] = (data >> 8) & 0xFF;
@@ -210,7 +210,7 @@ inline void save_ppm(const std::string& app_name, uint32_t width, uint32_t heigh
     std::ofstream out(ppm_name);
     out << "P3\n" << width << " " << height << "\n255\n";
 
-    uint32_t* psram_words_out = (uint32_t*)mem.data();
+    uint32_t* flat_words_out = (uint32_t*)mem.data();
 
     for (uint32_t y = 0; y < height; y++) {
         for (uint32_t x = 0; x < width; x++) {
@@ -224,7 +224,7 @@ inline void save_ppm(const std::string& app_name, uint32_t width, uint32_t heigh
             uint32_t tile_index    = (y >> 2) * tiles_per_row + (x >> 2);
             uint32_t tile_idx      = (x & 3) | ((y & 3) << 2);
             uint32_t word_off      = out_base_word + tile_index * 8 + (tile_idx >> 1);
-            uint32_t word          = psram_words_out[word_off];
+            uint32_t word          = flat_words_out[word_off];
             uint16_t px            = (tile_idx & 1) ? (uint16_t)(word >> 16)
                                                     : (uint16_t)(word & 0xFFFF);
             // RGB565 -> RGB888 (replicate high bits, matching the HDMI scanout).

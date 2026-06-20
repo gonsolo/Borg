@@ -9,7 +9,7 @@ import utest._
 
 /** Unit tests for BorgTextureUnit (Step 25.3e).
   *
-  * Tests the 2-word PSRAM texel fetch in complete isolation.  GpuMemIO is
+  * Tests the 2-word DRAM texel fetch in complete isolation.  GpuMemIO is
   * driven directly — no BorgShaderDispatcher or BorgRasterizer context needed.
   *
   * Coverage:
@@ -19,7 +19,7 @@ import utest._
   *   - done pulses for exactly one cycle then deasserts
   *   - No req asserted while idle (gpuMem port is quiet between fetches)
   *   - Second fetch after done works correctly (no stale state)
-  *   - PSRAM stall: gpuMem.ready de-asserted for multiple cycles before response
+  *   - DRAM stall: gpuMem.ready de-asserted for multiple cycles before response
   *   - start ignored while a fetch is already in progress (no restart glitch)
   */
 object BorgTextureUnitTests extends TestSuite {
@@ -42,10 +42,10 @@ object BorgTextureUnitTests extends TestSuite {
     d.clock.step(1)
   }
 
-  /** Drive a single PSRAM read response.
+  /** Drive a single DRAM read response.
     * Asserts ready for one cycle with the given data word.
     */
-  def respondPsram(d: BorgTextureUnit, data: Long): Unit = {
+  def respondDram(d: BorgTextureUnit, data: Long): Unit = {
     d.io.gpuMem.data.poke(data.U)
     d.io.gpuMem.ready.poke(true.B)
     d.clock.step(1)
@@ -55,7 +55,7 @@ object BorgTextureUnitTests extends TestSuite {
 
   /** Run a complete fetch: start pulse → B read → RG read → done cycle.
     * Returns (r, g, b) from fragColor on the done cycle.
-    * Accepts optional stall cycles before each PSRAM response.
+    * Accepts optional stall cycles before each DRAM response.
     */
   def runFetch(
     d: BorgTextureUnit,
@@ -79,7 +79,7 @@ object BorgTextureUnitTests extends TestSuite {
     utest.assert(d.io.gpuMem.req.peek().litToBoolean)  // req must be asserted in sReadB
     utest.assert(addrB == bAddr(base, idx))             // B word: offset +4
 
-    respondPsram(d, bWord)
+    respondDram(d, bWord)
 
     // Wait for RG-word read (sReadRG): optional stall
     d.clock.step(stallRG)
@@ -87,7 +87,7 @@ object BorgTextureUnitTests extends TestSuite {
     utest.assert(d.io.gpuMem.req.peek().litToBoolean)  // req must be asserted in sReadRG
     utest.assert(addrRG == rgAddr(base, idx))            // RG word: offset +0
 
-    respondPsram(d, rgWord)
+    respondDram(d, rgWord)
 
     // sDone: done should pulse this cycle
     val done = d.io.done.peek().litToBoolean
@@ -130,7 +130,7 @@ object BorgTextureUnitTests extends TestSuite {
         utest.assert(reqB)
         utest.assert(addrB == bAddr(base, idx))
 
-        respondPsram(d, 0x00005555L)
+        respondDram(d, 0x00005555L)
 
         // In sReadRG: check address
         val addrRG = d.io.gpuMem.addr.peek().litValue.toInt
@@ -200,12 +200,12 @@ object BorgTextureUnitTests extends TestSuite {
     }
 
     // =========================================================================
-    // PSRAM stall: ready de-asserted for multiple cycles before response
+    // DRAM stall: ready de-asserted for multiple cycles before response
     // =========================================================================
 
-    utest.test("psram_stall_multiple_cycles") {
+    utest.test("dram_stall_multiple_cycles") {
       simulate(new BorgTextureUnit) { d =>
-        println("\n--- BorgTextureUnit: psram_stall_multiple_cycles ---")
+        println("\n--- BorgTextureUnit: dram_stall_multiple_cycles ---")
         reset(d)
 
         // 3-cycle stall before each response
@@ -278,8 +278,8 @@ object BorgTextureUnitTests extends TestSuite {
         utest.assert(addrB == bAddr(base, idx))
 
         // Complete the fetch normally
-        respondPsram(d, 0x00005555L)
-        respondPsram(d, 0x22221111L)
+        respondDram(d, 0x00005555L)
+        respondDram(d, 0x22221111L)
         val done = d.io.done.peek().litToBoolean
         utest.assert(done)
         println("  No restart glitch; fetch completed normally ✓")

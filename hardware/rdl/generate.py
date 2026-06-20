@@ -25,7 +25,7 @@ peripherals = [
     {"name": "borg",  "rdl": "borg.rdl", "chisel": True},
     {"name": "gpio",  "rdl": "gpio.rdl", "chisel": False},
     {"name": "uart",  "rdl": "uart.rdl", "chisel": False},
-    {"name": "psram", "rdl": "psram.rdl", "chisel": False},
+    {"name": "dram", "rdl": "dram.rdl", "chisel": False},
 ]
 
 for p in peripherals:
@@ -45,7 +45,7 @@ for p in peripherals:
 
 # Also compile the full SoC for the combined C header (has base addresses)
 rdlc_soc = systemrdl.RDLCompiler()
-for f in [os.path.join(rdl_dir, n) for n in ["gpio.rdl", "uart.rdl", "psram.rdl", "borg.rdl", "soc.rdl"]]:
+for f in [os.path.join(rdl_dir, n) for n in ["gpio.rdl", "uart.rdl", "dram.rdl", "borg.rdl", "soc.rdl"]]:
     rdlc_soc.compile_file(f)
 root_soc = rdlc_soc.elaborate()
 for child in root_soc.children():
@@ -154,9 +154,9 @@ def emit_python(path, rdl_consts):
         f.write("UART_BAUD_DEFAULT = FPGA_CLOCK_HZ // 115200\n")
         f.write("DONE_MARKER = 0x0000DEAD\n")
         f.write("STARTUP_DELAY_CYCLES = 10000\n")
-        f.write("PSRAM_SPI_BASE = 0x00001000\n")
-        f.write("PSRAM_IO_SPI_ADDR = PSRAM_SPI_BASE\n")
-        # Parse PSRAM layout from borg_layout.h (single source of truth)
+        f.write("DRAM_SPI_BASE = 0x00001000\n")
+        f.write("DRAM_IO_SPI_ADDR = DRAM_SPI_BASE\n")
+        # Parse DRAM layout from borg_layout.h (single source of truth)
         layout_h = os.path.join(rdl_dir, "..", "..", "software", "borg", "borg_layout.h")
         layout_vals = {}
         with open(layout_h) as lh:
@@ -165,12 +165,12 @@ def emit_python(path, rdl_consts):
                 m = re.match(r'#define\s+(\w+)\s+(0x[\da-fA-F]+|\d+)', line)
                 if m:
                     layout_vals[m.group(1)] = int(m.group(2), 0)
-        psram_out_off = layout_vals.get("PSRAM_OUT_OFFSET", 0x84000)
-        tex_byte_addr = layout_vals.get("TEX_PSRAM_BYTE_ADDR_FIXED", 0x5000)
-        psram_spi_base = layout_vals.get("PSRAM_SPI_BASE", 0x1000)
-        tex_byte_offset = tex_byte_addr - psram_spi_base
-        f.write(f"PSRAM_OUT_OFFSET = {psram_out_off}\n")  # from borg_layout.h
-        f.write(f"TEX_PSRAM_BYTE_OFFSET = {tex_byte_offset}\n")  # TEX_PSRAM_BYTE_ADDR_FIXED - PSRAM_SPI_BASE
+        dram_out_off = layout_vals.get("DRAM_OUT_OFFSET", 0x84000)
+        tex_byte_addr = layout_vals.get("TEX_DRAM_BYTE_ADDR_FIXED", 0x5000)
+        dram_spi_base = layout_vals.get("DRAM_SPI_BASE", 0x1000)
+        tex_byte_offset = tex_byte_addr - dram_spi_base
+        f.write(f"DRAM_OUT_OFFSET = {dram_out_off}\n")  # from borg_layout.h
+        f.write(f"TEX_DRAM_BYTE_OFFSET = {tex_byte_offset}\n")  # TEX_DRAM_BYTE_ADDR_FIXED - DRAM_SPI_BASE
         f.write("\n")
         
         f.write("# --- SPIR-B Format Constants ---\n")

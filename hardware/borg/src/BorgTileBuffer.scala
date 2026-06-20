@@ -11,7 +11,7 @@ import chisel3.experimental.BundleLiterals._
   *
   * Stores fragment results on-chip during rasterization of a 4×4 tile.
   * After all pixels in the tile are processed, the CPU flushes the buffer
-  * to PSRAM in a batch, eliminating per-pixel PSRAM round-trips.
+  * to DRAM in a batch, eliminating per-pixel DRAM round-trips.
   *
   * Storage: All 4 channels packed into a single 64-bit SyncReadMem (1 EBR).
   * This avoids the ~256 FF cost of register-based Z storage.

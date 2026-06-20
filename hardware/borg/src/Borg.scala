@@ -320,10 +320,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rast.io.tileRead.data := tile.io.read.data
   }
 
-  /** Step 25.4.1: Wire BorgTileFlusher with real PSRAM writes.
+  /** Step 25.4.1: Wire BorgTileFlusher with real DRAM writes.
     *
     * - `start`        : driven by `rast.io.tileComplete`.
-    * - `fbBase`/`zbBase` : absolute PSRAM byte addresses (decoded from nogen regs).
+    * - `fbBase`/`zbBase` : absolute DRAM byte addresses (decoded from nogen regs).
     * - `fbWidthLog2`  : log2(width) stored in the lower 4 bits of FLUSH_WIDTH reg.
     *                    Firmware writes `__builtin_ctz(BORG_FB_WIDTH)`.
     * - `status_flush_busy` : fed back into STATUS bit 4.
@@ -437,7 +437,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val dmaOffsetReg = RegInit(0.U(6.W))
     val dmaStartPulse = WireDefault(false.B)
 
-    when(bus.is_writing && bus.address === BorgGpuRegs.dma_psram_offset) {
+    when(bus.is_writing && bus.address === BorgGpuRegs.dma_dram_offset) {
       dmaBaseReg := bus.data_in(19, 0)
     }
     when(bus.is_writing && bus.address === BorgGpuRegs.dma_config_offset) {
@@ -464,11 +464,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * core/pipeline snoop interfaces.
     *
     * MMIO registers (all nogen — decoded directly from bus):
-    * - `seq_desc_base`   (0x220): 20-bit PSRAM descriptor address.
+    * - `seq_desc_base`   (0x220): 20-bit DRAM descriptor address.
     * - `seq_trigger`     (0x224): singlepulse start (bit 0).
-    * - `seq_vert_addr`   (0x228): 20-bit PSRAM address of vertex shader binary.
+    * - `seq_vert_addr`   (0x228): 20-bit DRAM address of vertex shader binary.
     * - `seq_vert_len`    (0x22C): vertex shader length in 32-bit words (6 bits).
-    * - `seq_setup_addr`  (0x230): 20-bit PSRAM address of setup shader (Step 29.2).
+    * - `seq_setup_addr`  (0x230): 20-bit DRAM address of setup shader (Step 29.2).
     * - `seq_setup_len`   (0x234): setup shader length in 32-bit words (Step 29.2).
     *
     * Step 29.1 additions:
@@ -572,7 +572,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * happen in practice — hasBinner implies hasSequencer), inputs are tied
     * to safe defaults.
     *
-    * The binner's GpuMemIO write port is muxed into the PSRAM arbitration
+    * The binner's GpuMemIO write port is muxed into the DRAM arbitration
     * in wireRasterizer().
     */
   private def wireBinner(): Unit = {

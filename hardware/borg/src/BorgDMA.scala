@@ -9,8 +9,8 @@ import chisel3.util._
 
 /** DMA descriptor latched from MMIO at trigger time. */
 class DMADescriptor extends Bundle {
-  val baseAddr = UInt(25.W) // GPU memory byte address (PSRAM/SDRAM, 4-byte aligned); 25b = 32 MB
-  val length   = UInt(7.W)  // number of 32-bit PSRAM words to transfer (1–72)
+  val baseAddr = UInt(25.W) // GPU memory byte address (DRAM/SDRAM, 4-byte aligned); 25b = 32 MB
+  val length   = UInt(7.W)  // number of 32-bit DRAM words to transfer (1–72)
   val dest     = UInt(2.W)  // 0=IMEM, 1=Uniform-page0, 2=Uniform-page1
   val offset   = UInt(7.W)  // starting word index in the destination buffer (IMEM up to 72)
 }
@@ -29,7 +29,7 @@ class BorgDMAIO extends Bundle {
   val snoop        = Output(Valid(UInt(32.W)))
 }
 
-/** BorgDMA — bulk PSRAM→IMEM/Uniform DMA engine (Step 22.1).
+/** BorgDMA — bulk DRAM→IMEM/Uniform DMA engine (Step 22.1).
   *
   * Drives the same [[GpuMemIO]] port used by sTexFetch. Arbitration is
   * handled externally in Borg.scala; DMA only runs when the rasterizer is
@@ -42,8 +42,8 @@ class BorgDMAIO extends Bundle {
   *
   * dest encoding:
   *   0 = IMEM        (32-bit words, direct)
-  *   1 = Uniform page 0 (low 16 bits of each PSRAM word)
-  *   2 = Uniform page 1 (low 16 bits of each PSRAM word)
+  *   1 = Uniform page 0 (low 16 bits of each DRAM word)
+  *   2 = Uniform page 1 (low 16 bits of each DRAM word)
   *
   * Protocol: io.desc fields (baseAddr, length, dest, offset) must remain
   * stable from the start pulse until busy deasserts. They are driven

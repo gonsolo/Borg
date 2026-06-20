@@ -43,7 +43,7 @@ public:
         if (fb_rgb.size() != sim->width * sim->height * 3)
             fb_rgb.resize(sim->width * sim->height * 3);
 
-        uint32_t* psram_words = (uint32_t*)sim->psram->mem.data();
+        uint32_t* flat_words = (uint32_t*)sim->flat->mem.data();
         for (uint32_t y = 0; y < sim->height; y++) {
             for (uint32_t x = 0; x < sim->width; x++) {
                 // RGB565 tiled framebuffer (tile stride 32 bytes = 8 words,
@@ -52,7 +52,7 @@ public:
                 uint32_t tile_index = (y >> 2) * tiles_per_row + (x >> 2);
                 uint32_t tile_idx   = (x & 3) | ((y & 3) << 2);
                 uint32_t word_off   = sim->out_base_word + tile_index * 8 + (tile_idx >> 1);
-                uint32_t word = psram_words[word_off];
+                uint32_t word = flat_words[word_off];
                 uint16_t px = (tile_idx & 1) ? (uint16_t)(word >> 16)
                                              : (uint16_t)(word & 0xFFFF);
                 int r5 = (px >> 11) & 0x1F;
@@ -68,7 +68,7 @@ public:
             }
         }
         // Clear the DONE_MARKER so the next frame can be rendered.
-        psram_words[sim->marker_offset_word] = 0;
+        flat_words[sim->marker_offset_word] = 0;
 
         size_t shape[3] = { (size_t)sim->height, (size_t)sim->width, 3 };
         return nb::ndarray<nb::numpy, uint8_t, nb::shape<-1, -1, 3>, nb::c_contig>(

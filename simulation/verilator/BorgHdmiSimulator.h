@@ -26,20 +26,20 @@ public:
     VerBorgHdmiSimulator(const std::string& firmware_path, uint32_t w = 128, uint32_t h = 128) {
         model = new VBorgHdmiSimTop;
         flash = new QSPIMemory(1024 * 1024, true);
-        psram = new QSPIMemory(8 * 1024 * 1024, false);
+        flat = new QSPIMemory(8 * 1024 * 1024, false);
 
         width = w; height = h;
-        psram_spi_word_offset = 0x1000 / 4;
-        out_base_word = psram_spi_word_offset + (PSRAM_OUT_OFFSET / 4);
+        flat_spi_word_offset = 0x1000 / 4;
+        out_base_word = flat_spi_word_offset + (DRAM_OUT_OFFSET / 4);
         uint32_t frame_tile_size = width * height / 2;  // RGB565: 2 px / 32-bit word
         marker_offset_word = out_base_word + frame_tile_size;
         frame_tile_size_words = frame_tile_size;
         out_base_word_buf0    = out_base_word;
 
         flash->load_bin(firmware_path);
-        uint32_t* pw = (uint32_t*)psram->mem.data();
-        pw[psram_spi_word_offset + 0] = width;
-        pw[psram_spi_word_offset + 1] = height;
+        uint32_t* pw = (uint32_t*)flat->mem.data();
+        pw[flat_spi_word_offset + 0] = width;
+        pw[flat_spi_word_offset + 1] = height;
 
         model->dbg_we = 0; model->dbg_waddr = 0; model->dbg_wdata = 0; model->dbg_raddr = 0;
         model->clk = 0; model->rst_n = 0; model->ena = 1; model->ui_in = 0;
@@ -69,14 +69,14 @@ public:
     }
     void boot() {
         load_region(flash->mem, 0, 0x20000, 0);
-        load_region(psram->mem, 0, 0x20000, 0x800000);
+        load_region(flat->mem, 0, 0x20000, 0x800000);
         model->rst_n = 1;
     }
-    virtual void host_write_psram_word(uint32_t word_addr, uint32_t value) override {
+    virtual void host_write_flat_word(uint32_t word_addr, uint32_t value) override {
         uint32_t ba = word_addr * 4;
-        if (ba + 3 < psram->mem.size()) {
-            psram->mem[ba]=value&0xFF; psram->mem[ba+1]=(value>>8)&0xFF;
-            psram->mem[ba+2]=(value>>16)&0xFF; psram->mem[ba+3]=(value>>24)&0xFF;
+        if (ba + 3 < flat->mem.size()) {
+            flat->mem[ba]=value&0xFF; flat->mem[ba+1]=(value>>8)&0xFF;
+            flat->mem[ba+2]=(value>>16)&0xFF; flat->mem[ba+3]=(value>>24)&0xFF;
         }
         if (booted) {
             uint32_t lo = (ba >> 1) | 0x800000;

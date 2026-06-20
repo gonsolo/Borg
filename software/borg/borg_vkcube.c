@@ -270,11 +270,11 @@ static void draw_cube(const borg_draw_data_t *draw, const fp16_t face_light[6]) 
 // (cube.c has no per-vertex lighting), so vertex color is white.
 // ---- Host draw mailbox (CTS / DRM shim) ---------------------------------
 // A transport-independent path: the host writes one frame's geometry + colors
-// + MVP into a fixed PSRAM region (see borg_layout.h).  The firmware reads it
+// + MVP into a fixed DRAM region (see borg_layout.h).  The firmware reads it
 // at the top of the render loop, so the sim needs no UART drain.  On the FPGA
 // the magic is simply never set (until a future DRM shim writes it), so this
-// is compiled unconditionally and costs one PSRAM read per frame when idle.
-#define CTS_MB(n) PSRAM_OUT_RAW(BORG_CTS_MAILBOX_SPI + (n) * 4)
+// is compiled unconditionally and costs one DRAM read per frame when idle.
+#define CTS_MB(n) DRAM_OUT_RAW(BORG_CTS_MAILBOX_SPI + (n) * 4)
 
 static int cts_mailbox_present(void) {
   return CTS_MB(BORG_CTS_OFF_MAGIC) == BORG_CTS_MAGIC;
@@ -374,7 +374,7 @@ int main() {
   mat4_scale(ts, 0.5f, 0.25f);  // big on screen (XY), depth compressed to z∈[0,1]
   ts[14] = fp16_from_float(0.5f);
 
-  // Read shared parameters from PSRAM (offset 2 and 3 -> PSRAM base + 8 and 12)
+  // Read shared parameters from DRAM (offset 2 and 3 -> DRAM base + 8 and 12)
   union {
     uint32_t u;
     float f;
@@ -600,9 +600,9 @@ int main() {
     (void)rot_x_reader;
     (void)rot_y_reader;
 #else
-    // Read the rotation angles from the host (shared via PSRAM_IN)
-    rot_x_reader.u = PSRAM_IN(2);
-    rot_y_reader.u = PSRAM_IN(3);
+    // Read the rotation angles from the host (shared via DRAM_IN)
+    rot_x_reader.u = DRAM_IN(2);
+    rot_y_reader.u = DRAM_IN(3);
 
     float rx_f = rot_x_reader.f;
     float ry_f = rot_y_reader.f;
@@ -661,7 +661,7 @@ int main() {
 
     unsigned int c2, c3;
     if (rx_have_geom && g_geom_recorded) {
-      // Command-buffer record-once: geometry is already in PSRAM with white
+      // Command-buffer record-once: geometry is already in DRAM with white
       // vertex colors (from draw_received_geom).  Update only clear color + MVP.
       borgFastFrameBegin((rgb16_t){0x3266, 0x3266, 0x3266});
       c2 = rdcycle();
@@ -674,7 +674,7 @@ int main() {
       compute_face_lighting(t1, face_light);
       c2 = rdcycle();  // C = clear + texture + lighting
       if (rx_have_geom) {
-        // Force full re-recording so borgvk positions/UVs/white colors land in PSRAM
+        // Force full re-recording so borgvk positions/UVs/white colors land in DRAM
         // (avoids using stale draw_cube descriptor data after g_cmdbuf_valid=1).
         if (!g_geom_recorded)
           borgInvalidateCommandBuffer();
@@ -738,7 +738,7 @@ int main() {
     // get_framebuffer() to request a new frame.  On hardware we skip this and
     // free-run, re-rendering each frame to animate the spin.
     int done_offset = BORG_FB_WIDTH * BORG_FB_HEIGHT * 2; // TBR tiled: 2 words/pixel, no ZB
-    while (PSRAM_OUT(done_offset) == DONE_MARKER)
+    while (DRAM_OUT(done_offset) == DONE_MARKER)
       ;
 #endif
   }

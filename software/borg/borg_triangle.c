@@ -50,12 +50,12 @@ const borg_vertex_t back_tri[3] = {
 // W*H*8 bytes of FP16 R/G/B/Z per pixel in tile-major order (matches
 // HdmiScanoutFp16's address arithmetic).  Trailer: 4-byte magic "ENDB".
 static void dump_fb_uart(int w, int h) {
-    // Read the FB at the CPU-mapped PSRAM/VRAM address (PSRAM_OUT_RAW), which
+    // Read the FB at the CPU-mapped DRAM/VRAM address (DRAM_OUT_RAW), which
     // carries bit 24 — the region bit the GPU flusher's gpuMem writes go through
     // (VRAM_REGION_BIT).  Reading the raw SPI address instead lands in a
     // different SDRAM region (16 MB away) and shows garbage, not the FB.
     volatile uint8_t *fb =
-        (volatile uint8_t *)(uintptr_t)(PSRAM_BASE - PSRAM_SPI_BASE + PSRAM_OUT_SPI(0));
+        (volatile uint8_t *)(uintptr_t)(DRAM_BASE - DRAM_SPI_BASE + DRAM_OUT_SPI(0));
     int n = w * h * 8;   // bytes per frame (FP16 R+G+B+Z = 8 B/pixel)
 
     putc_uart('F'); putc_uart('B'); putc_uart('F'); putc_uart('B');
@@ -67,7 +67,7 @@ static void dump_fb_uart(int w, int h) {
 }
 
 int main() {
-    PSRAM_OUT(0) = 0x1234;
+    DRAM_OUT(0) = 0x1234;
     borgCreateDevice();
 
     BorgShaderModule vert, rast, frag;

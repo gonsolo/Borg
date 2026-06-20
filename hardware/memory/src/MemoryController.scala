@@ -83,9 +83,9 @@ class MemoryController extends Module {
   val rmwBg          = RegInit(0.U(16.W))  // existing halfword captured for the merge
   val rmwReadPending = RegInit(false.B)    // byte write still owes its RMW read
 
-  // PSRAM-region select: byte-address bit 24 (= QspiController addr_in(24)).
-  // gpuMem (GPU PSRAM port) addresses are PSRAM SPI-relative and must carry
-  // this bit so they alias the CPU's PSRAM_OUT_RAW accesses.
+  // DRAM-region select: byte-address bit 24 (= QspiController addr_in(24)).
+  // gpuMem (GPU DRAM port) addresses are DRAM SPI-relative and must carry
+  // this bit so they alias the CPU's DRAM_OUT_RAW accesses.
   val VRAM_REGION_BIT = "h1000000".U(25.W)
 
   // ── Convenience signals ────────────────────────────────────────────────────
@@ -198,9 +198,9 @@ class MemoryController extends Module {
         state       := sIssue
       }.elsewhen(io.gpuMem.wr) {
         rKind       := rGpuWrite
-        // gpuMem is the GPU's PSRAM port: its addresses are PSRAM SPI-relative
+        // gpuMem is the GPU's DRAM port: its addresses are DRAM SPI-relative
         // byte addresses (e.g. flush_fb_base, seq_*_addr).  The CPU reaches the
-        // same data via PSRAM_OUT_RAW, which adds the PSRAM base so byte bit 24
+        // same data via DRAM_OUT_RAW, which adds the DRAM base so byte bit 24
         // is set.  Force bit 24 here so GPU and CPU accesses hit identical
         // backend words (otherwise the GPU reads/writes the flash region).
         reqByteAddr := io.gpuMem.addr | VRAM_REGION_BIT

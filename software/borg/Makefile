@@ -2,7 +2,7 @@
 # Exported by the top-level Makefile; derive via git for standalone invocations.
 RDL_C_OUT ?= $(shell git rev-parse --show-toplevel)/out/hardware/borg/rdl
 
-# Texture PSRAM byte address — derived from borg_layout.h anchors so it
+# Texture DRAM byte address — derived from borg_layout.h anchors so it
 # stays in sync when SEQ_MAX_DRAWS or SEQ_DESC_STRIDE changes.
 _desc_base   := $(shell sed -n 's/.*SEQ_DESC_BASE_ADDR[[:space:]]\+\(0x[0-9a-fA-F]\+\).*/\1/p' borg_layout.h)
 _max_draws   := $(shell sed -n 's/.*SEQ_MAX_DRAWS[[:space:]]\+\([0-9]\+\).*/\1/p' borg_layout.h)

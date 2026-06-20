@@ -11,7 +11,7 @@ import utest._
   *
   * Tests verify:
   *   - Idle/busy handshake
-  *   - Correct PSRAM write addresses and data for a simple bbox
+  *   - Correct DRAM write addresses and data for a simple bbox
   *   - Per-tile count increment across multiple triangles
   *   - Count clearing
   *   - Edge case: single-tile bbox
@@ -70,7 +70,7 @@ object BorgBinnerTests extends TestSuite {
       }
     }
 
-    // Test: single-tile bbox — one PSRAM write
+    // Test: single-tile bbox — one DRAM write
     utest.test("single_tile") {
       simulate(new BorgBinner(TestMaxTiles)) { d =>
         println("\n--- BorgBinner: single_tile ---")
@@ -98,7 +98,7 @@ object BorgBinnerTests extends TestSuite {
 
         utest.assert(d.io.busy.peek().litToBoolean)
 
-        // Wait for PSRAM write (sWritePsram)
+        // Wait for DRAM write (sWriteDram)
         var writeCount = 0
         var writtenAddr = -1L
         var writtenData = -1L
@@ -129,7 +129,7 @@ object BorgBinnerTests extends TestSuite {
       }
     }
 
-    // Test: 2×2 tile bbox — four PSRAM writes
+    // Test: 2×2 tile bbox — four DRAM writes
     utest.test("two_by_two_bbox") {
       simulate(new BorgBinner(TestMaxTiles)) { d =>
         println("\n--- BorgBinner: two_by_two_bbox ---")
@@ -155,7 +155,7 @@ object BorgBinnerTests extends TestSuite {
         d.clock.step(1)
         d.io.start.poke(false.B)
 
-        // Collect all PSRAM writes
+        // Collect all DRAM writes
         var writes = List[(Long, Long)]()
         for (_ <- 0 until 60) {
           if (d.io.gpuMem.wr.peek().litToBoolean) {

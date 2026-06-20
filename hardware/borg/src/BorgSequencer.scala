@@ -10,20 +10,20 @@ import chisel3.util._
   *
   * The sequencer orchestrates autonomous vertex shading, triangle setup, and
   * uniform staging by:
-  *   1. Loading the vertex shader binary from PSRAM into IMEM via DMA.
+  *   1. Loading the vertex shader binary from DRAM into IMEM via DMA.
   *   2. For each of 3 vertices: loading 8 vertex words (pos+color+uv) into
   *      the uniform buffer via DMA, then triggering BorgCore to run the
   *      vertex shader, snooping clip-space outputs from PipeWriteIO, and
   *      capturing color/z from the DMA write stream into colorRegs.
   *   3. Writing snooped screen-space coordinates into the uniform buffer.
-  *   4. Loading the setup shader from PSRAM into IMEM via DMA.
+  *   4. Loading the setup shader from DRAM into IMEM via DMA.
   *   5. Running the setup shader to compute scaled edge vectors and inv_area.
   *   6. Staging all 31 uniform registers for the rasterizer and fragment
   *      shaders (sStageUniforms, replacing CPU's setup_tile_uniforms()).
   *
-  * Descriptor layout in PSRAM (3 × borg_vertex_t, stride = 32 bytes):
+  * Descriptor layout in DRAM (3 × borg_vertex_t, stride = 32 bytes):
   *   vertex i at descBase + i*32:
-  *     offset  0: pos.x  (FP16 in bits[15:0] of 32-bit PSRAM word)
+  *     offset  0: pos.x  (FP16 in bits[15:0] of 32-bit DRAM word)
   *     offset  4: pos.y
   *     offset  8: pos.z
   *     offset 12: color.r
@@ -222,7 +222,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // Step 32.3: Pass 2 registers
   val binTriIdx   = RegInit(0.U(10.W))  // current index into tile's bin list
   val binTriCount = RegInit(0.U(10.W))  // number of triangles in current tile's bin
-  val binEntryData = RegInit(0.U(16.W)) // triangle index read from PSRAM bin list
+  val binEntryData = RegInit(0.U(16.W)) // triangle index read from DRAM bin list
   // storeWriteIdx: separate counter for sStoreSetup (shares same range as writeIdx)
   val storeWriteIdx = RegInit(0.U(6.W))
   // setupLoadIdx: tracks DMA word count during pass 2 sLoadTriSetup (for has_uvs snoop)
@@ -237,7 +237,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val tagReg      = RegInit(VecInit(Seq.fill(2)("hFFFF".U(16.W))))
   val uvsReg      = RegInit(VecInit(Seq.fill(2)(false.B)))
   val cacheVictim = RegInit(0.U(1.W))
-  // uDataReg: latched uniform value for PSRAM store (computed during sStageUniforms)
+  // uDataReg: latched uniform value for DRAM store (computed during sStageUniforms)
   val uDataStore = RegInit(VecInit.fill(31)(0.U(16.W)))
 
   // General-purpose sequential write counter
@@ -261,7 +261,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // we approximate it with the affine model position (the cleanest per-vertex
   // 3-vector in the descriptor), staged into u19-27 in place of vertex colour.
   val posRegs = RegInit(VecInit.fill(3, 3)(0.U(16.W)))    // [v][x,y,z]
-  // UV per vertex — pre-scaled by tex_w/tex_h in the PSRAM descriptor.
+  // UV per vertex — pre-scaled by tex_w/tex_h in the DRAM descriptor.
   // Offsets 6,7 from the DMA vertex stream (uniform[6]=u_tex, [7]=v_tex).
   val uvRegs = RegInit(VecInit.fill(3, 2)(0.U(16.W)))     // [v][u,v]
 
@@ -386,7 +386,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
       is(sIdle) { handleIdle() }
 
-      // Load vertex shader binary from PSRAM into IMEM via DMA
+      // Load vertex shader binary from DRAM into IMEM via DMA
       is(sLoadShader) { handleLoadShader() }
 
       // Wait for DMA transfer to complete
@@ -414,7 +414,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // u0=v0.x, u1=v0.y, u2=v1.x, u3=v1.y, u4=v2.x, u5=v2.y, u6=inv_width
       is(sWriteSetupInputs) { handleWriteSetupInputs() }
 
-      // Load setup shader from PSRAM into IMEM via DMA
+      // Load setup shader from DRAM into IMEM via DMA
       is(sLoadSetupShader) { handleLoadSetupShader() }
 
       // Trigger setup shader execution on BorgCore at PC=0
@@ -443,8 +443,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       //   u25-u30: 0 (UVs — not yet implemented)
       is(sStageUniforms) { handleStageUniforms() }
 
-      // --- Step 32.3: Store uniforms to PSRAM setup store ---
-      // Write all 31 uniform values (latched in uDataStore) to PSRAM at
+      // --- Step 32.3: Store uniforms to DRAM setup store ---
+      // Write all 31 uniform values (latched in uDataStore) to DRAM at
       // setupBase + triIdx * 128 + storeWriteIdx * 4.
       // Each value is stored as a 32-bit word (low 16 bits = uniform, high = 0).
       is(sStoreSetup) { handleStoreSetup() }
@@ -454,10 +454,10 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // =====================================================================
 
       // --- Shader Reload (once before Pass 2) ---
-      // Load rast shader from PSRAM into IMEM via DMA
+      // Load rast shader from DRAM into IMEM via DMA
       is(sLoadRastShader) { handleLoadRastShader() }
 
-      // Load frag shader from PSRAM into IMEM via DMA
+      // Load frag shader from DRAM into IMEM via DMA
       is(sLoadFragShader) { handleLoadFragShader() }
 
       // --- Start Pass 2: iterate ALL framebuffer tiles ---
@@ -475,14 +475,14 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // --- Tile clear (reused from Step 31.4) ---
       is(sClearTile) { handleClearTile() }
 
-      // --- Read triangle index from PSRAM bin list via DMA ---
+      // --- Read triangle index from DRAM bin list via DMA ---
       is(sReadBinEntry) { handleReadBinEntry() }
 
       // Bin entry has been snooped by the DMA handler into binEntryData.
-      // Now DMA-load the triangle's setup uniforms from PSRAM.
+      // Now DMA-load the triangle's setup uniforms from DRAM.
       is(sWaitBinEntry) { handleWaitBinEntry() }
 
-      // DMA-load the triangle's 31 setup uniforms from PSRAM into the uniform buffer.
+      // DMA-load the triangle's 31 setup uniforms from DRAM into the uniform buffer.
       // addr = setupBase + binEntryData * 128
       is(sLoadTriSetup) { handleLoadTriSetup() }
 
@@ -521,7 +521,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         // No triangles — pulse busy and immediately finish.
         // Used by firmware's sequencer detection probe (seq_trigger with
         // tri_count=0). Without this guard, the full pipeline would run
-        // with garbage descriptors and the flusher would corrupt PSRAM.
+        // with garbage descriptors and the flusher would corrupt DRAM.
         state := sDone
       }.otherwise {
         triIdx       := 0.U
@@ -792,7 +792,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       if (BorgDebug.trace) printf("[SEQ] stageU tri=%d u%d=0x%x\n", triIdx, writeIdx, uData)
     }
 
-    // Step 32.3: Latch computed uniform into uDataStore for PSRAM write
+    // Step 32.3: Latch computed uniform into uDataStore for DRAM write
     uDataStore(writeIdx) := uData
 
     when(writeIdx === 30.U) {
@@ -804,9 +804,9 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   private def handleStoreSetup(): Unit = {
-    val psramAddr = io.mmio.setupBase + (triIdx << 7) + (storeWriteIdx << 2)
+    val dramAddr = io.mmio.setupBase + (triIdx << 7) + (storeWriteIdx << 2)
     io.store.req   := true.B
-    io.store.addr  := psramAddr
+    io.store.addr  := dramAddr
     // Word 31 = has_uvs flag (for pass 2 recovery)
     // storeWriteIdx is 6-bit; guard uDataStore access with (4,0) slice
     // (only reached when storeWriteIdx < 31, so top bit is always 0).
@@ -814,7 +814,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     when(io.store.ready) {
       when(storeWriteIdx < 2.U || storeWriteIdx === 19.U || storeWriteIdx === 22.U || storeWriteIdx === 25.U || storeWriteIdx === 31.U) {
         if (BorgDebug.trace) printf("[SEQ] storeSetup triIdx=%d [%d] addr=0x%x data=0x%x\n",
-          triIdx, storeWriteIdx, psramAddr,
+          triIdx, storeWriteIdx, dramAddr,
           Mux(storeWriteIdx === 31.U, triHasUvs.asUInt, uDataStore(storeWriteIdx(4, 0))))
       }
       when(storeWriteIdx === 31.U) {
@@ -905,16 +905,16 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // After clear: if this tile has triangles, start the inner bin loop.
       // Otherwise, only flush the clear colour if the tile was dirty last frame
       // (had rendered content) — clean empty tiles already hold the right value
-      // in PSRAM, so we can skip the 64-word SDRAM write entirely.
+      // in DRAM, so we can skip the 64-word SDRAM write entirely.
       val tileLinearCC = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
       when(binTriCount === 0.U) {
         when(tileWasDirty(curBufIdx)(tileLinearCC(9, 0))) {
-          state := sWaitFlush        // was dirty: must write clear colour to PSRAM
+          state := sWaitFlush        // was dirty: must write clear colour to DRAM
         }.otherwise {
           state := sNextRenderTile   // already clean: skip flush
         }
       }.otherwise {
-        // Read first bin entry (triangle index) from PSRAM
+        // Read first bin entry (triangle index) from DRAM
         // addr = binBase + tileLinearIndex * binRowBytes + binTriIdx * 2
         tileIsDirty(curBufIdx)(tileLinearCC(9, 0)) := true.B  // mark tile dirty in current buffer
         state := sReadBinEntry
@@ -1134,7 +1134,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         colorRegs(vertIdx)(2) := data   // b
         if (BorgDebug.trace) printf("[SEQ] colorSnoop vert=%d B=0x%x\n", vertIdx, data)
       }
-      // UV: pre-scaled by tex_w/tex_h in the PSRAM descriptor (record_draw_call)
+      // UV: pre-scaled by tex_w/tex_h in the DRAM descriptor (record_draw_call)
       when(addr === 6.U) { uvRegs(vertIdx)(0)    := data }  // u (scaled)
       when(addr === 7.U) { uvRegs(vertIdx)(1)    := data }  // v (scaled)
     }

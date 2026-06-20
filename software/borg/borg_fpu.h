@@ -68,7 +68,7 @@ void borg_load_add_shader(void);
 fp16_t borg_fp16_sub_raw(fp16_t a, fp16_t b);
 
 // --- DMA shader/uniform loaders (Step 26.4, hasDMA=true path) ---
-// Firmware must hold psram_byte_addr / num / offset stable; caller ensures GPU is idle.
-void dma_load_shader(uint32_t psram_byte_addr, int num_instrs, int imem_offset);
-void dma_load_uniforms(uint32_t psram_byte_addr, int num_uniforms,
+// Firmware must hold dram_byte_addr / num / offset stable; caller ensures GPU is idle.
+void dma_load_shader(uint32_t dram_byte_addr, int num_instrs, int imem_offset);
+void dma_load_uniforms(uint32_t dram_byte_addr, int num_uniforms,
                        int uniform_offset, int page);

@@ -70,23 +70,23 @@ void borg_load_spirb_shader_at(const spirb_shader_t *s, int offset) {
   BORG_GPU->imem[offset + s->num_instrs] = BORG_INSTR_HALT;
 }
 
-/** dma_load_shader — bulk-copy shader instructions from PSRAM to IMEM via DMA.
+/** dma_load_shader — bulk-copy shader instructions from DRAM to IMEM via DMA.
  *
- * @param psram_byte_addr  4-byte-aligned PSRAM source address of the shader blob
+ * @param dram_byte_addr  4-byte-aligned DRAM source address of the shader blob
  *                         (num_instrs 32-bit words; HALT is written separately below)
  * @param num_instrs       number of 32-bit instruction words to DMA
  * @param imem_offset      destination word index in IMEM (0 = start of IMEM)
  *
  * Caller must ensure no GPU core is running (STATUS.idle == 1).
- * DMA_PSRAM holds only the data words; the HALT terminator is pre-written via
+ * DMA_DRAM holds only the data words; the HALT terminator is pre-written via
  * MMIO before triggering the DMA so it is in place when execution starts.
  */
-void dma_load_shader(uint32_t psram_byte_addr, int num_instrs, int imem_offset) {
+void dma_load_shader(uint32_t dram_byte_addr, int num_instrs, int imem_offset) {
   /* Pre-write the HALT terminator — DMA does not cover it */
   BORG_GPU->imem[imem_offset + num_instrs] = BORG_INSTR_HALT;
 
-  /* DMA_PSRAM: 20-bit byte-aligned base address */
-  BORG_GPU->dma_psram = psram_byte_addr & DMA_PSRAM_REG_T_NOGEN_T__BASE_bm;
+  /* DMA_DRAM: 20-bit byte-aligned base address */
+  BORG_GPU->dma_dram = dram_byte_addr & DMA_DRAM_REG_T_NOGEN_T__BASE_bm;
 
   /* DMA_CONFIG: length[6:1] | dest=0(IMEM)[8:7] | offset[14:9] | start[0] */
   BORG_GPU->dma_config =
@@ -100,20 +100,20 @@ void dma_load_shader(uint32_t psram_byte_addr, int num_instrs, int imem_offset) 
     ;
 }
 
-/** dma_load_uniforms — bulk-copy FP16 uniforms from PSRAM to uniform buffer.
+/** dma_load_uniforms — bulk-copy FP16 uniforms from DRAM to uniform buffer.
  *
- * @param psram_byte_addr  4-byte-aligned PSRAM source address
- *                         Each PSRAM word holds one FP16 value in bits[15:0].
+ * @param dram_byte_addr  4-byte-aligned DRAM source address
+ *                         Each DRAM word holds one FP16 value in bits[15:0].
  * @param num_uniforms     number of FP16 uniform values to transfer
  * @param uniform_offset   starting index in the uniform buffer (0..31)
  * @param page             uniform buffer page: 0 or 1
  */
-void dma_load_uniforms(uint32_t psram_byte_addr, int num_uniforms,
+void dma_load_uniforms(uint32_t dram_byte_addr, int num_uniforms,
                        int uniform_offset, int page) {
   /* dest encoding: page 0 → 1, page 1 → 2 */
   uint32_t dest = (page == 0) ? 1U : 2U;
 
-  BORG_GPU->dma_psram = psram_byte_addr & DMA_PSRAM_REG_T_NOGEN_T__BASE_bm;
+  BORG_GPU->dma_dram = dram_byte_addr & DMA_DRAM_REG_T_NOGEN_T__BASE_bm;
 
   BORG_GPU->dma_config =
       ((uint32_t)num_uniforms   << DMA_CONFIG_REG_T_NOGEN_T__LENGTH_bp) |

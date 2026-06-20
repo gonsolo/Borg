@@ -145,14 +145,14 @@ reg status_reg_t {
     field {
         sw = r; hw = w;
         desc = "Bit 3: DMA busy — 1 while the DMA engine is transferring data
-                from PSRAM to IMEM or the uniform buffer.";
+                from DRAM to IMEM or the uniform buffer.";
     } dma_busy[1] = 0;
 
     field {
         sw = r; hw = w;
         desc = "Bit 4: Flush busy — 1 while BorgTileFlusher is writing tile
-                pixels to PSRAM.  Firmware polls this bit instead of doing
-                manual PSRAM writes (Step 25.3h).";
+                pixels to DRAM.  Firmware polls this bit instead of doing
+                manual DRAM writes (Step 25.3h).";
     } flush_busy[1] = 0;
 
     field {
@@ -185,15 +185,15 @@ reg frag_pc_reg_t {
     } RSVD[26] = 0;
 };
 
-// --- DMA PSRAM base address (Step 22.1) ---
-reg dma_psram_reg_t {
-    name = "DMA PSRAM Base Address";
-    desc = "PSRAM byte address of the first word to transfer.  Must be
+// --- DMA DRAM base address (Step 22.1) ---
+reg dma_dram_reg_t {
+    name = "DMA DRAM Base Address";
+    desc = "DRAM byte address of the first word to transfer.  Must be
             4-byte aligned.  Write before triggering DMA_CONFIG.start.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit PSRAM byte address.";
+        desc = "Bits 19:0: 20-bit DRAM byte address.";
     } base[20] = 0;
 
     field {
@@ -204,7 +204,7 @@ reg dma_psram_reg_t {
 // --- DMA transfer config + trigger (Step 22.1) ---
 reg dma_config_reg_t {
     name = "DMA Configuration";
-    desc = "Configures and triggers a bulk DMA transfer from PSRAM into
+    desc = "Configures and triggers a bulk DMA transfer from DRAM into
             IMEM or the uniform buffer.  Write DMA_ADDR first, then write
             this register with start=1 to launch the transfer.  Poll
             STATUS.dma_busy (bit 3) for completion.";
@@ -331,7 +331,7 @@ reg cmd_enqueue_reg_t {
 // tex_uv_reg_t removed: hardware now uses rasterizer UV snoop; firmware never writes this register.
 
 // --- Texture configuration (Step 21.2) ---
-// Write: set texture PSRAM base address and enable hardware texel fetch.
+// Write: set texture DRAM base address and enable hardware texel fetch.
 reg tex_config_reg_t {
     name = "Texture Configuration";
     desc = "Configures the hardware sTexFetch path.  Write base_addr and en
@@ -341,7 +341,7 @@ reg tex_config_reg_t {
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 15:0: PSRAM base address of the texture (16-bit word index).";
+        desc = "Bits 15:0: DRAM base address of the texture (16-bit word index).";
     } base_addr[16] = 0;
 
     field {
@@ -389,13 +389,13 @@ reg tex_addr_reg_t {
 // --- Tile flusher framebuffer base address (Step 25.3h) ---
 reg flush_fb_base_reg_t {
     name = "Flush Framebuffer Base Address";
-    desc = "20-bit PSRAM byte address of the framebuffer base.
+    desc = "20-bit DRAM byte address of the framebuffer base.
             Written by firmware at startup; read by BorgTileFlusher on every
             tile flush.  nogen: decoded from the raw bus by Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit PSRAM byte address of framebuffer base.";
+        desc = "Bits 19:0: 20-bit DRAM byte address of framebuffer base.";
     } fb_base[20] = 0;
 
     field {
@@ -406,13 +406,13 @@ reg flush_fb_base_reg_t {
 // --- Tile flusher Z-buffer base address (Step 25.3h) ---
 reg flush_zb_base_reg_t {
     name = "Flush Z-buffer Base Address";
-    desc = "20-bit PSRAM byte address of the Z-buffer base.
+    desc = "20-bit DRAM byte address of the Z-buffer base.
             Written by firmware at startup; read by BorgTileFlusher on every
             tile flush.  nogen: decoded from the raw bus by Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit PSRAM byte address of Z-buffer base.";
+        desc = "Bits 19:0: 20-bit DRAM byte address of Z-buffer base.";
     } zb_base[20] = 0;
 
     field {
@@ -425,7 +425,7 @@ reg flush_width_reg_t {
     name = "Flush Framebuffer Width";
     desc = "9-bit framebuffer width in pixels (max 512).
             Written by firmware at startup; used by BorgTileFlusher to compute
-            per-pixel PSRAM addresses.  nogen: decoded from the raw bus.";
+            per-pixel DRAM addresses.  nogen: decoded from the raw bus.";
 
     field {
         sw = rw; hw = r;
@@ -439,16 +439,16 @@ reg flush_width_reg_t {
 
 
 
-// --- Vertex Sequencer: descriptor PSRAM base address (Step 29) ---
+// --- Vertex Sequencer: descriptor DRAM base address (Step 29) ---
 reg seq_desc_base_reg_t {
     name = "Sequencer Descriptor Base Address";
-    desc = "20-bit PSRAM byte address of the triangle descriptor (Option A layout:
+    desc = "20-bit DRAM byte address of the triangle descriptor (Option A layout:
             25 FP16 words = pos[3×3] | color[3×3] | uv[3×2] | flags).
             Write before triggering SEQ_TRIGGER.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit PSRAM byte address of triangle descriptor.";
+        desc = "Bits 19:0: 20-bit DRAM byte address of triangle descriptor.";
     } base[20] = 0;
 
     field {
@@ -474,16 +474,16 @@ reg seq_trigger_reg_t {
     } RSVD[31] = 0;
 };
 
-// --- Vertex Sequencer: vertex shader PSRAM address (Step 29.1) ---
+// --- Vertex Sequencer: vertex shader DRAM address (Step 29.1) ---
 reg seq_vert_addr_reg_t {
     name = "Sequencer Vertex Shader Address";
-    desc = "20-bit PSRAM byte address of the vertex shader binary.
+    desc = "20-bit DRAM byte address of the vertex shader binary.
             The sequencer DMA-loads this shader into IMEM before running
             vertex transformations.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit PSRAM byte address of vertex shader.";
+        desc = "Bits 19:0: 20-bit DRAM byte address of vertex shader.";
     } addr[20] = 0;
 
     field {
@@ -494,7 +494,7 @@ reg seq_vert_addr_reg_t {
 // --- Vertex Sequencer: vertex shader length (Step 29.1) ---
 reg seq_vert_len_reg_t {
     name = "Sequencer Vertex Shader Length";
-    desc = "Length of vertex shader binary in 32-bit PSRAM words (1–56).
+    desc = "Length of vertex shader binary in 32-bit DRAM words (1–56).
             The sequencer passes this to BorgDMA as the transfer length.
             nogen: decoded in Borg.scala.";
 
@@ -508,16 +508,16 @@ reg seq_vert_len_reg_t {
     } RSVD[26] = 0;
 };
 
-// --- Vertex Sequencer: setup shader PSRAM address (Step 29.2) ---
+// --- Vertex Sequencer: setup shader DRAM address (Step 29.2) ---
 reg seq_setup_addr_reg_t {
     name = "Sequencer Setup Shader Address";
-    desc = "20-bit PSRAM byte address of the triangle setup shader binary.
+    desc = "20-bit DRAM byte address of the triangle setup shader binary.
             The sequencer DMA-loads this shader into IMEM after vertex shading
             to compute edge vectors and inv_area.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit PSRAM byte address of setup shader.";
+        desc = "Bits 19:0: 20-bit DRAM byte address of setup shader.";
     } addr[20] = 0;
 
     field {
@@ -528,7 +528,7 @@ reg seq_setup_addr_reg_t {
 // --- Vertex Sequencer: setup shader length (Step 29.2) ---
 reg seq_setup_len_reg_t {
     name = "Sequencer Setup Shader Length";
-    desc = "Length of setup shader binary in 32-bit PSRAM words (1–56).
+    desc = "Length of setup shader binary in 32-bit DRAM words (1–56).
             nogen: decoded in Borg.scala.";
 
     field {
@@ -575,16 +575,16 @@ reg seq_tri_count_reg_t {
     } RSVD[27] = 0;
 };
 
-// --- Sequencer: rast shader PSRAM address (Step 31) ---
+// --- Sequencer: rast shader DRAM address (Step 31) ---
 reg seq_rast_addr_reg_t {
     name = "Sequencer Rast Shader Address";
-    desc = "20-bit PSRAM byte address of the rasterizer shader binary.
+    desc = "20-bit DRAM byte address of the rasterizer shader binary.
             The sequencer DMA-loads this shader into IMEM after triangle setup
             to prepare for tile iteration.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit PSRAM byte address of rast shader.";
+        desc = "Bits 19:0: 20-bit DRAM byte address of rast shader.";
     } addr[20] = 0;
 
     field {
@@ -595,7 +595,7 @@ reg seq_rast_addr_reg_t {
 // --- Sequencer: rast shader length (Step 31) ---
 reg seq_rast_len_reg_t {
     name = "Sequencer Rast Shader Length";
-    desc = "Length of rast shader binary in 32-bit PSRAM words (1–56).
+    desc = "Length of rast shader binary in 32-bit DRAM words (1–56).
             nogen: decoded in Borg.scala.";
 
     field {
@@ -608,16 +608,16 @@ reg seq_rast_len_reg_t {
     } RSVD[26] = 0;
 };
 
-// --- Sequencer: frag shader PSRAM address (Step 31) ---
+// --- Sequencer: frag shader DRAM address (Step 31) ---
 reg seq_frag_addr_reg_t {
     name = "Sequencer Frag Shader Address";
-    desc = "20-bit PSRAM byte address of the fragment shader binary.
+    desc = "20-bit DRAM byte address of the fragment shader binary.
             The sequencer DMA-loads this shader into IMEM after the rast shader
             to prepare for fragment shading.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit PSRAM byte address of frag shader.";
+        desc = "Bits 19:0: 20-bit DRAM byte address of frag shader.";
     } addr[20] = 0;
 
     field {
@@ -628,7 +628,7 @@ reg seq_frag_addr_reg_t {
 // --- Sequencer: frag shader length (Step 31) ---
 reg seq_frag_len_reg_t {
     name = "Sequencer Frag Shader Length";
-    desc = "Length of frag shader binary in 32-bit PSRAM words (1–56).
+    desc = "Length of frag shader binary in 32-bit DRAM words (1–56).
             nogen: decoded in Borg.scala.";
 
     field {
@@ -679,13 +679,13 @@ reg seq_clear_hi_reg_t {
 // --- Sequencer: Framebuffer base address (Step 31.4) ---
 reg seq_fb_base_reg_t {
     name = "Sequencer Framebuffer Base Address";
-    desc = "20-bit PSRAM byte address of the framebuffer.
+    desc = "20-bit DRAM byte address of the framebuffer.
             Used by the sequencer to dynamically compute the flush base address
             during autonomous tile iteration.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit PSRAM byte address of framebuffer.";
+        desc = "Bits 19:0: 20-bit DRAM byte address of framebuffer.";
     } addr[20] = 0;
 
     field {
@@ -713,13 +713,13 @@ reg seq_tiles_per_row_reg_t {
 // --- Sequencer: TBR bin list base address (Step 32.2) ---
 reg seq_bin_base_reg_t {
     name = "Sequencer Bin List Base Address";
-    desc = "20-bit PSRAM byte address of the TBR bin list region.
+    desc = "20-bit DRAM byte address of the TBR bin list region.
             Each tile has a row of SEQ_MAX_TRI × 2-byte triangle indices.
             Written by firmware at frame start.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit PSRAM byte address of bin list base.";
+        desc = "Bits 19:0: 20-bit DRAM byte address of bin list base.";
     } addr[20] = 0;
 
     field {
@@ -731,7 +731,7 @@ reg seq_bin_base_reg_t {
 reg seq_bin_row_bytes_reg_t {
     name = "Sequencer Bin Row Bytes";
     desc = "Bin list row size in bytes (= SEQ_MAX_TRI × TBR_BIN_ENTRY_SIZE).
-            Each tile's bin list is this many bytes long in PSRAM.
+            Each tile's bin list is this many bytes long in DRAM.
             Written by firmware at frame start.  nogen: decoded in Borg.scala.";
 
     field {
@@ -747,13 +747,13 @@ reg seq_bin_row_bytes_reg_t {
 // --- Sequencer: TBR setup store base address (Step 32.3) ---
 reg seq_setup_base_reg_t {
     name = "Sequencer Setup Store Base Address";
-    desc = "20-bit PSRAM byte address of the TBR setup store region.
+    desc = "20-bit DRAM byte address of the TBR setup store region.
             Each triangle's 31 uniforms are stored at stride 128 bytes.
             Written by firmware at frame start.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit PSRAM byte address of setup store base.";
+        desc = "Bits 19:0: 20-bit DRAM byte address of setup store base.";
     } addr[20] = 0;
 
     field {
@@ -879,9 +879,9 @@ addrmap borg_gpu {
     // ---- Fragment Shader Start PC: 0x20C ----
     frag_pc_reg_t frag_pc;
 
-    // ---- DMA PSRAM Base Address: 0x210 — nogen on FPGA (hasDMA=false) ----
-    dma_psram_reg_t dma_psram;
-    dma_psram->nogen = true;
+    // ---- DMA DRAM Base Address: 0x210 — nogen on FPGA (hasDMA=false) ----
+    dma_dram_reg_t dma_dram;
+    dma_dram->nogen = true;
 
     // ---- DMA Configuration + Trigger: 0x214 — nogen on FPGA (hasDMA=false) ----
     dma_config_reg_t dma_config;

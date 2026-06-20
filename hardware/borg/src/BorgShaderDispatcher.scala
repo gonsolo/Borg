@@ -13,7 +13,7 @@ import chisel3.util._
   *   2. Triggers the rasterizer (edge) shader at PC=0.
   *   3. Snoops edge-sign results from pipeline write-back to determine inside/outside.
   *   4. If inside: chains to fragment shader at `fragPcReg`.
-  *   5. If texturing enabled: performs autonomous PSRAM texel fetch (2-word read).
+  *   5. If texturing enabled: performs autonomous DRAM texel fetch (2-word read).
   *   6. Pushes snooped fragment RGBZ to the tile buffer.
   *   7. Releases the CPU stall.
   *
@@ -49,7 +49,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val tileWrite  = new TileWriteIO              // tile buffer push
   val tileRead   = new TileReadIO(16)           // Step 25.5C: depth test read port
 
-  // --- Outputs to MemoryController (PSRAM) ---
+  // --- Outputs to MemoryController (DRAM) ---
   val gpuMem     = new GpuMemIO                 // texel read port
 
   // --- Outputs (status / debug) ---

@@ -213,14 +213,14 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
         ("Project", "soc"),
         ("Peripherals", "gpio"),
         ("Peripherals", "uart"),
-        ("MemoryController", "psram"),
+        ("MemoryController", "dram"),
     ]:
         if rdl_file in rdl_nodes and consumer in module_to_group:
             edges.add((rdl_file, consumer, "generated regs"))
 
     for sw, rdl_file in [
         ("Borg Driver", "borg"),
-        ("Borg Driver", "psram"),
+        ("Borg Driver", "dram"),
         ("Hutt Firmware", "soc"),
         ("Hutt Firmware", "gpio"),
         ("Hutt Firmware", "uart"),

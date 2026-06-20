@@ -26,7 +26,7 @@ static inline uint32_t morton_encode(uint32_t x, uint32_t y) {
     return morton_interleave(x) | (morton_interleave(y) << 1);
 }
 
-void load_texture_to_psram(uint8_t* psram_mem,
+void load_texture_to_flat(uint8_t* flat_mem,
                            const std::string& path,
                            uint32_t tex_dim,
                            uint32_t tex_byte_base) {
@@ -60,18 +60,18 @@ void load_texture_to_psram(uint8_t* psram_mem,
             uint32_t word1 = static_cast<uint32_t>(b);
 
             uint32_t byte_addr = tex_byte_base + dst_idx * 8;
-            psram_mem[byte_addr + 0] = word0 & 0xFF;
-            psram_mem[byte_addr + 1] = (word0 >> 8) & 0xFF;
-            psram_mem[byte_addr + 2] = (word0 >> 16) & 0xFF;
-            psram_mem[byte_addr + 3] = (word0 >> 24) & 0xFF;
-            psram_mem[byte_addr + 4] = word1 & 0xFF;
-            psram_mem[byte_addr + 5] = (word1 >> 8) & 0xFF;
-            psram_mem[byte_addr + 6] = (word1 >> 16) & 0xFF;
-            psram_mem[byte_addr + 7] = (word1 >> 24) & 0xFF;
+            flat_mem[byte_addr + 0] = word0 & 0xFF;
+            flat_mem[byte_addr + 1] = (word0 >> 8) & 0xFF;
+            flat_mem[byte_addr + 2] = (word0 >> 16) & 0xFF;
+            flat_mem[byte_addr + 3] = (word0 >> 24) & 0xFF;
+            flat_mem[byte_addr + 4] = word1 & 0xFF;
+            flat_mem[byte_addr + 5] = (word1 >> 8) & 0xFF;
+            flat_mem[byte_addr + 6] = (word1 >> 16) & 0xFF;
+            flat_mem[byte_addr + 7] = (word1 >> 24) & 0xFF;
         }
     }
 
     std::cout << "[SIM] Texture loaded: " << path
-              << " at PSRAM byte 0x" << std::hex << tex_byte_base
+              << " at DRAM byte 0x" << std::hex << tex_byte_base
               << " (" << std::dec << tex_dim << "x" << tex_dim << ")\n";
 }

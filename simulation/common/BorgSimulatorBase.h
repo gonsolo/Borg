@@ -9,13 +9,13 @@
 class BorgSimulatorBase {
 public:
     QSPIMemory* flash;
-    QSPIMemory* psram;
+    QSPIMemory* flat;
     UartDecoder uart;
     UartTx      uart_tx;
     
     uint32_t width;
     uint32_t height;
-    uint32_t psram_spi_word_offset;
+    uint32_t flat_spi_word_offset;
     uint32_t out_base_word;
     uint32_t marker_offset_word;
 
@@ -38,12 +38,12 @@ public:
     uint32_t out_base_word_buf0    = 0;
 
     BorgSimulatorBase() 
-        : flash(nullptr), psram(nullptr), width(0), height(0),
-          psram_spi_word_offset(0), out_base_word(0), marker_offset_word(0) {}
+        : flash(nullptr), flat(nullptr), width(0), height(0),
+          flat_spi_word_offset(0), out_base_word(0), marker_offset_word(0) {}
           
     virtual ~BorgSimulatorBase() {
         if (flash) delete flash;
-        if (psram) delete psram;
+        if (flat) delete flat;
     }
 
     // Abstract hardware interface to be implemented by verilator/arcilator backends
@@ -76,7 +76,7 @@ public:
 
     // Optional: Backends can override this to implement custom memory snooping
     virtual void fast_sim_snoop() {}
-    virtual void host_write_psram_word(uint32_t word_addr, uint32_t value) {}
+    virtual void host_write_flat_word(uint32_t word_addr, uint32_t value) {}
     
     // Shared methods (step() will be moved here in Step 3.2)
     void load_texture(const std::string& tex_path, uint32_t tex_dim = 32);
