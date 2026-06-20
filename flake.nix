@@ -52,6 +52,18 @@
     # mismatched, breaking every CI job that enters the dev shell.  We list just
     # what the poster needs — texlive.combine resolves each package's deps — and
     # keep it OUT of the default shell so CI never fetches it.
+    # OpenSBI source — pkgs.opensbi.src is already an unpacked directory
+    # (nixpkgs fetches it via fetchFromGitHub).  Pinned at v1.8.1 by nixpkgs.
+    opensbiSrc = pkgs.opensbi.src;
+
+    # Linux kernel source — pkgs.linux.src is a .tar.xz; unpack it into a
+    # derivation so the Makefile can do `make -C $LINUX_SRC`.
+    # Pinned at 6.12.x LTS by the nixpkgs commit in flake.nix.
+    linuxSrc = pkgs.runCommand "linux-${pkgs.linux.version}-src" {} ''
+      mkdir $out
+      tar -xJf ${pkgs.linux.src} -C $out --strip-components=1
+    '';
+
     borgTexlive = pkgs.texlive.combine {
       inherit (pkgs.texlive)
         scheme-small   # latex + pdflatex + latexmk + common (collection-latexrecommended)
@@ -74,9 +86,11 @@
       # Use nativeBuildInputs for tools that provide executables
       nativeBuildInputs = [
         pkgs.bash-completion
+        pkgs.bc           # Linux kernel build scripts
         pkgs.bear
         pkgs.bitwuzla
         pkgs.bzip2
+        pkgs.dtc          # device tree compiler (borg.dts → borg.dtb)
         pkgs.circt
         pkgs.circt.llvm
         pkgs.cmake
@@ -167,7 +181,13 @@
       shellHook = ''
         export GONSOLO_PROJECT="borg_tinyqv"
 
+        # OpenSBI + Linux kernel sources (pinned via nixpkgs; no manual hashes).
+        export OPENSBI_SRC="${opensbiSrc}"
+        export LINUX_SRC="${linuxSrc}"
+
         # Gate 2: riscv64 Linux cross toolchain prefix (borgvk RV64 cross-build).
+        # Also used for OpenSBI — riscv64-unknown-linux-gnu-gcc can build freestanding
+        # firmware with -march=rv64imac_zicsr -mabi=lp64 (set in config.mk).
         export CROSS64=riscv64-unknown-linux-gnu
 
         # PURE MODE COMPATIBILITY:

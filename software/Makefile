@@ -37,11 +37,13 @@ clean:
 # Toolchain: riscv64-unknown-elf-gcc (bare-metal, provided by Nix flake).
 # ---------------------------------------------------------------------------
 
-OPENSBI_SRC  ?= $(CURDIR)/../ext/opensbi
+# OPENSBI_SRC and LINUX_SRC are exported by the Nix dev shell (flake.nix).
+# They point to read-only Nix store paths — do not write into them.
+OPENSBI_SRC  ?= $(error OPENSBI_SRC not set — enter the Nix dev shell first)
 OPENSBI_OUT  ?= $(CURDIR)/../out/software/opensbi
 BORG_PLATFORM := $(CURDIR)/opensbi/platform/borg
 
-LINUX_SRC    ?= $(CURDIR)/../ext/linux
+LINUX_SRC    ?= $(error LINUX_SRC not set — enter the Nix dev shell first)
 LINUX_OUT    ?= $(CURDIR)/../out/software/linux
 
 # DTS lives in software/linux/; dtc is provided by the Nix flake.
@@ -53,7 +55,7 @@ LINUX_IMAGE  ?= $(LINUX_OUT)/arch/riscv/boot/Image
 opensbi: $(BORG_DTB) $(LINUX_IMAGE)
 	@echo "[opensbi] building FW_PAYLOAD with Borg platform..."
 	$(MAKE) -C $(OPENSBI_SRC) \
-	    CROSS_COMPILE=riscv64-unknown-elf- \
+	    CROSS_COMPILE=$(CROSS64)- \
 	    PLATFORM=borg \
 	    PLATFORM_DIR=$(BORG_PLATFORM) \
 	    FW_TEXT_START=0x00000000 \
