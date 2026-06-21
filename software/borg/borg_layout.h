@@ -112,8 +112,14 @@
 #define BORG_CTS_OFF_MAGIC    0
 #define BORG_CTS_OFF_NVERTS   1
 #define BORG_CTS_OFF_NTRIS    2
+#define BORG_CTS_OFF_FLAGS    3   // render flags (see BORG_CTS_FLAG_*)
 #define BORG_CTS_OFF_MVP      16                                       // 16 fp16 words
 #define BORG_CTS_OFF_POS      32                                       // nverts*3 fp16
 #define BORG_CTS_OFF_COLOR    (BORG_CTS_OFF_POS   + BORG_CTS_MAX_VERTS * 3)  // 80
 #define BORG_CTS_OFF_IDX      (BORG_CTS_OFF_COLOR + BORG_CTS_MAX_VERTS * 3)  // 128
 #define BORG_CTS_WORDS        (BORG_CTS_OFF_IDX   + BORG_CTS_MAX_TRIS  * 3)  // 176
+
+// Render flags for BORG_CTS_OFF_FLAGS.
+// NO_CULL: the firmware submits each triangle twice (normal + reversed winding)
+// so the hardware culler lets both front- and back-facing triangles through.
+#define BORG_CTS_FLAG_NO_CULL  (1u << 0)

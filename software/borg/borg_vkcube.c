@@ -669,12 +669,14 @@ int main() {
     if (rx_have_geom && g_geom_recorded) {
       // Command-buffer record-once: geometry is already in DRAM with white
       // vertex colors (from draw_received_geom).  Update only clear color + MVP.
-      borgFastFrameBegin((rgb16_t){0x3266, 0x3266, 0x3266});
+      rgb16_t bg = cts_active ? (rgb16_t){0,0,0} : (rgb16_t){0x3266, 0x3266, 0x3266};
+      borgFastFrameBegin(bg);
       c2 = rdcycle();
       borgUpdateUniforms(&draw);
       c3 = rdcycle();
     } else {
-      borg_clear_zbuffer(0, (rgb16_t){0x3266, 0x3266, 0x3266});
+      rgb16_t bg = cts_active ? (rgb16_t){0,0,0} : (rgb16_t){0x3266, 0x3266, 0x3266};
+      borg_clear_zbuffer(0, bg);
       borg_set_texture(TEX_WIDTH, TEX_HEIGHT);
       fp16_t face_light[6];
       compute_face_lighting(t1, face_light);

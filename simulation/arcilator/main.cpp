@@ -161,6 +161,59 @@ static int run_cts_tri(const char *fw_path, uint32_t width, uint32_t height) {
     return rc;
 }
 
+// Draw a host-supplied mesh via the DRAM mailbox.  Geometry comes from a binary
+// file written by borgvk (or any host):
+//   uint32 magic = 0x42475254 ("BGRT")
+//   uint32 nverts, uint32 ntris
+//   float  mvp[16]
+//   float  pos[nverts*3]   (clip/NDC xyz)
+//   float  col[nverts*3]   (rgb 0..1)
+//   uint32 idx[ntris*3]
+// Invoked as: arcilator_sim --cts-draw <geom.bin> <firmware.bin> <W> <H>
+static int run_cts_draw(const char *geom_file, const char *fw_path,
+                        uint32_t width, uint32_t height) {
+    std::ifstream f(geom_file, std::ios::binary);
+    if (!f) {
+        std::cerr << "[CTS] Cannot open geom file: " << geom_file << "\n";
+        return 1;
+    }
+    uint32_t magic = 0, nverts = 0, ntris = 0;
+    f.read((char *)&magic, 4);
+    f.read((char *)&nverts, 4);
+    f.read((char *)&ntris, 4);
+    if (magic != 0x42475254u) {
+        std::cerr << "[CTS] bad geom magic: " << std::hex << magic << "\n";
+        return 1;
+    }
+    if (nverts < 1 || nverts > BORG_CTS_MAX_VERTS ||
+        ntris  < 1 || ntris  > BORG_CTS_MAX_TRIS) {
+        std::cerr << "[CTS] geom out of range: nverts=" << nverts
+                  << " ntris=" << ntris << "\n";
+        return 1;
+    }
+    float mvp[16];
+    f.read((char *)mvp, sizeof(mvp));
+    std::vector<float> pos(nverts * 3), col(nverts * 3);
+    f.read((char *)pos.data(), pos.size() * 4);
+    f.read((char *)col.data(), col.size() * 4);
+    std::vector<uint32_t> idx32(ntris * 3);
+    f.read((char *)idx32.data(), idx32.size() * 4);
+    if (!f) {
+        std::cerr << "[CTS] short read on geom file\n";
+        return 1;
+    }
+    std::vector<uint8_t> idx(ntris * 3);
+    for (size_t i = 0; i < idx.size(); i++)
+        idx[i] = (uint8_t)idx32[i];
+
+    ArcBorgSimulator sim(fw_path, width, height);
+    write_mailbox_draw(sim, pos.data(), col.data(), (int)nverts,
+                       idx.data(), (int)ntris, mvp);
+
+    int pixel_fd = dup(STDOUT_FILENO);
+    return run_and_dump(sim, width, height, pixel_fd);
+}
+
 // CTS headless mode: run one frame, dump raw RGB888 pixels to stdout.
 // Invoked as: arcilator_sim --cts-uart <uart_bytes.bin> <firmware.bin> <W> <H>
 // The uart_bytes.bin file is the exact byte stream borgvk would send over serial
@@ -206,6 +259,18 @@ int main(int argc, char **argv) {
         uint32_t w = (uint32_t)atoi(argv[4]);
         uint32_t h = (uint32_t)atoi(argv[5]);
         return run_cts(argv[2], argv[3], w, h);
+    }
+
+    // CTS draw from host geometry file (borgvk sim path).
+    if (argc >= 2 && strcmp(argv[1], "--cts-draw") == 0) {
+        if (argc < 6) {
+            std::cerr << "Usage: " << argv[0]
+                      << " --cts-draw <geom.bin> <firmware.bin> <W> <H>\n";
+            return 1;
+        }
+        uint32_t w = (uint32_t)atoi(argv[4]);
+        uint32_t h = (uint32_t)atoi(argv[5]);
+        return run_cts_draw(argv[2], argv[3], w, h);
     }
 
     // CTS mailbox checkpoint test: hardcoded RGB triangle, no UART.

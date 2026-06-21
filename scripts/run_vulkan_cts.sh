@@ -27,7 +27,7 @@ VK_CTS_CASE="${VK_CTS_CASE:-dEQP-VK.api.info.*}"
 
 # Sim / parallel settings
 BORGVK_SIM="${BORGVK_SIM:-}"
-BORGVK_SIM_FW="${BORGVK_SIM_FW:-}"
+BORGVK_SIM_FW="${BORGVK_SIM_FW:-$REPO/software/borg/vkcube.bin}"
 if [[ -n "$BORGVK_SIM" ]]; then
     BORGVK_PARALLEL="${BORGVK_PARALLEL:-$(nproc 2>/dev/null || echo 4)}"
 else
