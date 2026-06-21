@@ -63,8 +63,11 @@ main.o: main.cpp arc.h arcilator-runtime.h ../common/texture_loader.h ArcBorgSim
 arcilator_sim: main.o arc.o texture_loader.o uart_decoder.o BorgSimulatorBase.o ArcBorgSimulator.o
 	$(CLANG) -O3 $^ -o $@
 
-# Firmware binaries — rebuild when firmware C/H/ASM sources change.
-$(FIRMWARE_DIR)/%.bin: $(FW_SRCS)
+# Firmware binaries — always invoke the firmware Makefile so its cflags_stamp
+# check detects flag changes (e.g. TARGET_ULX3S from a board build) that a
+# timestamp check on $(FW_SRCS) alone would miss.
+.PHONY: $(FIRMWARE_DIR)/triangle.bin $(FIRMWARE_DIR)/vkcube.bin $(FIRMWARE_DIR)/textest.bin
+$(FIRMWARE_DIR)/%.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
 triangle: arcilator_sim $(FIRMWARE_DIR)/triangle.bin

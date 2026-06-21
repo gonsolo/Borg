@@ -51,8 +51,11 @@ obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/sim_files.txt $(V_SRC
 obj_dir_hdmi/verilator_hdmi: main_hdmi.cpp $(HDMI_DIR)/sim_files.txt $(HDMI_SRCS)
 	$(call VERILATE,obj_dir_hdmi,$(HDMI_DIR),BorgHdmiSimTop,main_hdmi.cpp,verilator_hdmi)
 
-# Firmware binaries — also depend on hardware generation so borg_regs.h is current.
-$(FIRMWARE_DIR)/%.bin: $(HW_DIR)/borg/verilog_sim/sim_files.txt $(FW_SRCS)
+# Firmware binaries — always invoke the firmware Makefile so its cflags_stamp
+# check detects flag changes (e.g. TARGET_ULX3S from a board build) that a
+# timestamp check on $(FW_SRCS) alone would miss.
+.PHONY: $(FIRMWARE_DIR)/triangle.bin $(FIRMWARE_DIR)/vkcube.bin $(FIRMWARE_DIR)/textest.bin
+$(FIRMWARE_DIR)/%.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
 # Simulation targets
