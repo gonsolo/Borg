@@ -91,7 +91,7 @@ class SeqBinnerIO extends Bundle {
   val bbox = Output(new Bbox(10))
   val clearCounts = Output(Bool())
   val busy = Input(Bool())
-  val countReadAddr = Output(UInt(10.W))
+  val countReadAddr = Output(UInt(13.W))  // tile index — up to 8192 tiles (512×512 @ 4×4)
   val countReadEn = Output(Bool())
   val countReadData = Input(UInt(10.W))
 }
@@ -313,8 +313,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // is rendered (SDRAM uninitialised at reset).
   // lastClearColorBuf(b): clear colour used when buffer b was last rendered;
   // sentinel ~0 forces a full-flush on the first render of each buffer.
-  val tileWasDirty     = RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(1024)(true.B)))))
-  val tileIsDirty      = RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(1024)(false.B)))))
+  val tileWasDirty     = RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(cfg.maxBinTiles)(true.B)))))
+  val tileIsDirty      = RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(cfg.maxBinTiles)(false.B)))))
   val lastClearColorBuf = RegInit(VecInit(Seq.fill(2)(~0.U(64.W))))
   val curBufIdx        = RegInit(0.U(1.W))
 
@@ -865,7 +865,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val clearColor   = io.mmio.clearColorHi ## io.mmio.clearColorLo
     val colorChanged = clearColor =/= lastClearColorBuf(curBufIdx)
     lastClearColorBuf(curBufIdx) := clearColor
-    for (i <- 0 until 1024) {
+    for (i <- 0 until cfg.maxBinTiles) {
       tileWasDirty(curBufIdx)(i) := tileIsDirty(curBufIdx)(i) || colorChanged
       tileIsDirty(curBufIdx)(i)  := false.B
     }
@@ -908,7 +908,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // in DRAM, so we can skip the 64-word SDRAM write entirely.
       val tileLinearCC = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
       when(binTriCount === 0.U) {
-        when(tileWasDirty(curBufIdx)(tileLinearCC(9, 0))) {
+        when(tileWasDirty(curBufIdx)(tileLinearCC(log2Ceil(cfg.maxBinTiles) - 1, 0))) {
           state := sWaitFlush        // was dirty: must write clear colour to DRAM
         }.otherwise {
           state := sNextRenderTile   // already clean: skip flush
@@ -916,7 +916,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }.otherwise {
         // Read first bin entry (triangle index) from DRAM
         // addr = binBase + tileLinearIndex * binRowBytes + binTriIdx * 2
-        tileIsDirty(curBufIdx)(tileLinearCC(9, 0)) := true.B  // mark tile dirty in current buffer
+        tileIsDirty(curBufIdx)(tileLinearCC(log2Ceil(cfg.maxBinTiles) - 1, 0)) := true.B  // mark tile dirty in current buffer
         state := sReadBinEntry
       }
     }
@@ -1063,7 +1063,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         tileY := nextTileY << 2
         // Issue count read for the next tile
         val nextTileLinear = nextTileY * io.mmio.tilesPerRow
-        io.binner.countReadAddr := nextTileLinear(9, 0)
+        io.binner.countReadAddr := nextTileLinear(log2Ceil(cfg.maxBinTiles) - 1, 0)
         io.binner.countReadEn   := true.B
         state := sReadBinCount
       }
@@ -1071,7 +1071,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       tileX := nextTileX << 2
       // Issue count read for the next tile
       val nextTileLinear = ((tileY >> 2) * io.mmio.tilesPerRow) + nextTileX
-      io.binner.countReadAddr := nextTileLinear(9, 0)
+      io.binner.countReadAddr := nextTileLinear(log2Ceil(cfg.maxBinTiles) - 1, 0)
       io.binner.countReadEn   := true.B
       state := sReadBinCount
     }

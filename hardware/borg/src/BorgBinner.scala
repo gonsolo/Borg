@@ -47,7 +47,7 @@ class BorgBinnerIO extends Bundle {
 
   // --- Step 32.3: External count read port (for Pass 2 tile render) ---
   /** Tile index to read the triangle count for. */
-  val countReadAddr = Input(UInt(10.W))
+  val countReadAddr = Input(UInt(13.W))  // up to 8192 tiles (512×512 @ 4×4)
   /** Read enable — assert for one cycle; data valid on next cycle. */
   val countReadEn   = Input(Bool())
   /** Triangle count for the tile addressed by countReadAddr (1-cycle latency). */

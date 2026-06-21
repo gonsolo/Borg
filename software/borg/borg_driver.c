@@ -393,14 +393,14 @@ void borgCreateDevice(void) {
 
   // Read framebuffer dimensions from DRAM (written by host on sim).
   // On ULX3S there is no host — DRAM_IN lives in firmware .text and returns
-  // garbage.  Validate: must be a non-zero power-of-2 in [4..128]; else fall
-  // back to 32×32.
+  // garbage.  Validate: must be a non-zero power-of-2 in [4..256]; else fall
+  // back to 128×128.  256 is the headless-CTS max (4096 tiles, see SEQ_MAX_TILES).
   borg_fb_width  = DRAM_IN(0);
   borg_fb_height = DRAM_IN(1);
-  if (borg_fb_width < 4 || borg_fb_width > 128 ||
+  if (borg_fb_width < 4 || borg_fb_width > 256 ||
       (borg_fb_width & (borg_fb_width - 1)) != 0)
     borg_fb_width = 128;
-  if (borg_fb_height < 4 || borg_fb_height > 128 ||
+  if (borg_fb_height < 4 || borg_fb_height > 256 ||
       (borg_fb_height & (borg_fb_height - 1)) != 0)
     borg_fb_height = 128;
 

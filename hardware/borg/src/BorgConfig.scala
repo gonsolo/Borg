@@ -64,8 +64,10 @@ object BorgConfig {
 
   // Sim + ULX3S SIMT config: 2×2 quad fragment shading.  Selected via BORG_CFG in
   // the sim tops and ULX3S; the scalar Default keeps the chisel unit tests on
-  // the bit-exact single-lane reference.
-  val Simt = Default.copy(fragLanes = 4)
+  // the bit-exact single-lane reference.  maxBinTiles=4096 covers a full 256×256
+  // render (64×64 tiles @ 4×4) for the headless CTS path; ~5 KB extra BRAM on
+  // ULX3S, negligible.  (128×128 only uses the first 1024 entries.)
+  val Simt = Default.copy(fragLanes = 4, maxBinTiles = 4096)
 
   // ASIC (IHP SG13G2, TT 8×4 tile).
   //   countMem_1024x10 alone was ~920 kµm² (50 % of die) → reduced to 16 tiles (~14 kµm²).

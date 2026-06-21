@@ -76,8 +76,11 @@
 // -------------------------------------------------------------------------
 
 // Triangle indices are uint16_t so the bin-list can address up to 65535 triangles.
-#define SEQ_MAX_TRI           1024  // compile-time triangle capacity
-#define SEQ_MAX_TILES         1024  // max tiles per frame (matches BORG_MAX_TILES)
+// Per-tile bin-list capacity (triangles indexable per tile).  Reduced from 1024
+// so the bin region (num_tiles × SEQ_MAX_TRI × 2 B) fits PSRAM at 256×256
+// (4096 tiles × 256 × 2 = 2 MB).  Ample for the cube (12) and CTS (≤45 tris).
+#define SEQ_MAX_TRI           256
+#define SEQ_MAX_TILES         4096  // max tiles per frame (64×64 @ 4×4 = 256×256)
 
 // Per-tile bin list: one row of SEQ_MAX_TRI uint16_t entries per tile.
 #define TBR_BIN_ENTRY_SIZE    2                              // sizeof(uint16_t)
