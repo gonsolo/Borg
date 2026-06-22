@@ -565,6 +565,12 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   } else {
     BORG_GPU->seq_frag_addr = SEQ_FRAG_SHADER_ADDR;
     BORG_GPU->seq_frag_len  = n;
+    // A host-uploaded fragment is borgc-compiled (e.g. cube.frag), which reads
+    // model frag_pos via dFdx/dFdy — so the sequencer must stage frag_pos into
+    // u19-u27 (FRAG_USES_FRAGPOS=1).  The standalone firmware sets vertex-color
+    // mode for its baked texel×color frag; override it back here so the live
+    // borgvk serial path renders correctly with the same firmware image.
+    borg_frag_vertex_color = 0;
   }
 }
 

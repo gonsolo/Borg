@@ -357,17 +357,21 @@ int main() {
   borgCreateShaderModule(&frag, frag_borg, sizeof(frag_borg));
   borgCreateGraphicsPipeline(&vert, &rast, &frag);
 
+  // The baked frag_borg (compiled from shader.frag) is a texel×vertex_color
+  // Gouraud shader, so the sequencer must stage interpolated per-vertex COLOR
+  // into u19-u27 (FRAG_USES_FRAGPOS=0).  This is correct for every path that
+  // runs the BAKED frag: standalone firmware, headless sims, and the CTS
+  // flat-shade harness.  borgvk overrides this when it uploads its own borgc
+  // cube.frag at runtime — borg_stage_shader() resets the mode back to frag_pos
+  // (=1) on the fragment upload, so the live serial path stays correct.
+  borg_set_frag_vertex_color(1);
+
   // Host-mailbox (CTS) path: the harness has filled the texture region with
   // white so the frag's texel×color modulation passes vertex color through —
   // so DON'T overwrite it with the cube texture.  Normal runs upload the cube.
   const int cts_active = cts_mailbox_present();
   if (!cts_active) {
     borg_upload_texture(borg_texture_small_dat, TEX_WIDTH);
-  } else {
-    // CTS flat-shaded path: the frag outputs interpolated per-vertex color
-    // (texel×color with a white texture), so the sequencer must stage vertex
-    // COLOR into u19-u27, not model frag_pos.
-    borg_set_frag_vertex_color(1);
   }
 
   fp16_t ts[16], t1[16];

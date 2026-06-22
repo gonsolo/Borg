@@ -76,6 +76,13 @@ int main() {
     borgCreateShaderModule(&frag, frag_borg, sizeof(frag_borg));
     borgCreateGraphicsPipeline(&vert, &rast, &frag);
 
+    // The baked frag_borg (compiled from shader.frag) is a texel×vertex_color
+    // Gouraud shader, so the sequencer must stage interpolated per-vertex COLOR
+    // into u19-u27 (FRAG_USES_FRAGPOS=0).  The default is frag_pos staging
+    // (=1), which the borgc cube.frag wants — but this standalone firmware has
+    // no host uploading a borgc frag, so select vertex-color mode explicitly.
+    borg_set_frag_vertex_color(1);
+
     borg_draw_data_t draw;
     borg_set_angle(&draw, fp16_from_float(0.6283f));  // 36 degrees
 
