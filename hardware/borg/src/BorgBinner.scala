@@ -127,7 +127,6 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
     if (BorgDebug.trace) printf("[BIN] clearCounts pulse\n")
   }
   when(clearing) {
-    countMem.write(clearIdx, 0.U)
     when(clearIdx === (maxTiles - 1).U) {
       clearing := false.B
     }.otherwise {
@@ -144,6 +143,19 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
         io.bbox.min.x, io.bbox.min.y, io.bbox.max.x, io.bbox.max.y, io.triIndex)
       pendTriIdx   := io.triIndex
     }
+  }
+
+  // --- Single-write-port count SRAM write ---
+  // Merge clearing and increment into one write() call so firtool emits a single
+  // write port. Two separate write() calls produce two write ports, which prevents
+  // Yosys from inferring DP16KD BRAM and forces a costly LUT-based implementation.
+  // Clearing takes priority; simultaneous firing only occurs if clearCounts arrives
+  // mid-binning, which is out-of-spec (sequencer clears at frame start before binning).
+  val countMemWriteEn   = clearing || (state === sStoreCount)
+  val countMemWriteAddr = Mux(clearing, clearIdx, curTileIndex)
+  val countMemWriteData = Mux(clearing, 0.U(10.W), curCount + 1.U)
+  when(countMemWriteEn) {
+    countMem.write(countMemWriteAddr, countMemWriteData)
   }
 
   // --- SRAM read port ---
@@ -259,9 +271,8 @@ class BorgBinner(val maxTiles: Int = 1024) extends Module {
       }
     }
 
-    // Write incremented count back to SRAM.
+    // Write incremented count back to SRAM (handled by single-port write above).
     is(sStoreCount) {
-      countMem.write(curTileIndex, curCount + 1.U)
       if (BorgDebug.trace) printf("[BIN] sStoreCount tile=%d count=%d->%d\n", curTileIndex, curCount, curCount + 1.U)
       state := sNextTile
     }

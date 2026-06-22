@@ -25,17 +25,16 @@ class HuttRegFileIO(val xlen: Int = 32) extends Bundle {
 class HuttRegFile(val xlen: Int = 32) extends Module {
   val io = IO(new HuttRegFileIO(xlen))
 
-  val regs = RegInit(VecInit(Seq.fill(32)(0.U(xlen.W))))
+  // Async-read, sync-write Mem → Yosys infers TRELLIS_DPR16X4 on ECP5,
+  // saving ~4-6 K logic LUT4s vs Reg(Vec) + explicit write loop.
+  // Initialises to 0 on FPGA (TRELLIS_DPR16X4 default) and in sim
+  // (Verilator -x-initial fast).
+  val mem = Mem(32, UInt(xlen.W))
 
-  io.rs1Data := Mux(io.rs1Addr === 0.U, 0.U, regs(io.rs1Addr))
-  io.rs2Data := Mux(io.rs2Addr === 0.U, 0.U, regs(io.rs2Addr))
+  io.rs1Data := Mux(io.rs1Addr === 0.U, 0.U, mem(io.rs1Addr))
+  io.rs2Data := Mux(io.rs2Addr === 0.U, 0.U, mem(io.rs2Addr))
 
-  // Explicit per-register writes force firtool to emit equality comparisons for
-  // all addresses, avoiding the all-bits-AND shorthand it generates for x31 with
-  // a Vec write, which Yosys synthesizes incorrectly on ECP5.
-  for (i <- 1 until 32) {
-    when(io.wen && io.wAddr === i.U) {
-      regs(i) := io.wData
-    }
+  when(io.wen && io.wAddr =/= 0.U) {
+    mem.write(io.wAddr, io.wData)
   }
 }
