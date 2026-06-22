@@ -100,7 +100,6 @@ public:
 
     virtual bool step(uint32_t cycles_to_run) override {
         if (!booted) { boot(); booted = true; }
-        set_ui_in(0x80); // UART RXD idle
 
         // FRAME_STRIDE = frame_tile_size_words + 1 (FB + 1 marker word per buffer).
         // back_buf=0 marker is at out_base_word_buf0 + frame_tile_size_words.
@@ -112,6 +111,8 @@ public:
         uint32_t sdram_marker_addr = ((out_base_word_buf0 + cur_marker_off) * 2) | 0x800000;
 
         for (uint32_t c = 0; c < cycles_to_run; c++) {
+            // Drive UART RXD (ui_in[7]) per cycle; idle=1, uart_tx drives start/data/stop.
+            set_ui_in((uint8_t)(uart_tx.tick() << 7));
             model->dbg_raddr = sdram_marker_addr;
             clock_low(); clock_high();
 
