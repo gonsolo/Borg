@@ -60,7 +60,7 @@ static const fp16_t quad_uvs[2][3][2] = {
 // cube above so unmodified cube.c renders its own mesh.  Fixed max size keeps
 // the 0xAE packet a constant length for the UART drain.
 #define RX_GEOM_MAX_VERTS 16
-#define RX_GEOM_MAX_TRIS  16
+#define RX_GEOM_MAX_TRIS  12
 // 0xAE payload after the marker: nverts, ntris, verts(3*fp16), idx(3*u8 per tri),
 // uv(3*2*fp16 per tri), checksum.
 #define RX_GEOM_PKT_LEN \
