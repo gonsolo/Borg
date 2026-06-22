@@ -71,6 +71,13 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
             f"{compare} '{arcilator_dir}/{ppm}' '{golden}/{ppm}' --max-diff 1 --max-fail-pixels 2"
         )
 
+    def cts_uart_render(sim_dir: Path, sim_make_target: str) -> str:
+        ppm = "vkcube_cts_uart_00.ppm"
+        return (
+            f"cd '{sim_dir}' && make {sim_make_target} && "
+            f"{compare} '{sim_dir}/{ppm}' '{golden}/{ppm}' --max-diff 1 --max-fail-pixels 2"
+        )
+
     return [
         # ── Sequential setup ──────────────────────────────────────────────────
         Suite("setup  › generate_verilog",
@@ -115,6 +122,13 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
               depends_on="render › verilator › vkcube"),
         Suite("render › arcilator › vkcube",   arcilator_render("vkcube"),
               depends_on="render › arcilator › triangle"),
+        # CTS UART path: borgvk-style 0xAD MVP packet → firmware via --cts-uart
+        Suite("render › arcilator › vkcube-cts-uart",
+              cts_uart_render(arcilator_dir, "cts-uart"),
+              depends_on="render › arcilator › vkcube"),
+        Suite("render › verilator › vkcube-cts-uart",
+              cts_uart_render(verilator_dir, "cts-uart"),
+              depends_on="render › arcilator › vkcube-cts-uart"),
         # ── Starts only after soc-core (shared test/soc/ dir) ────────────────
         Suite("cocotb › soc-borg  (rtl)",
               f"cd '{root}' && {test_soc} borg",

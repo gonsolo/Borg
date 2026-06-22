@@ -9,7 +9,7 @@ export HARDENING_DISABLE=all
 export NIX_HARDENING_ENABLE=
 unexport NIX_HARDENING_ENABLE
 
-.PHONY: all clean triangle vkcube vkcube_gui textest
+.PHONY: all clean triangle vkcube vkcube_gui textest cts-uart cts-uart-golden
 
 all: triangle vkcube
 
@@ -81,6 +81,13 @@ vkcube_gui: python_extension $(FIRMWARE_DIR)/vkcube.bin
 
 textest: arcilator_sim $(FIRMWARE_DIR)/textest.bin
 	./arcilator_sim $(FIRMWARE_DIR)/textest.bin textest
+
+# CTS UART path: borgvk-style 0xAD MVP packet → firmware → RGB565 framebuffer
+cts-uart: arcilator_sim $(FIRMWARE_DIR)/vkcube.bin
+	python3 '$(ROOT)/scripts/cts_uart_render.py' ./arcilator_sim '$(FIRMWARE_DIR)/vkcube.bin' vkcube_cts_uart_00.ppm 128 128
+
+cts-uart-golden: arcilator_sim $(FIRMWARE_DIR)/vkcube.bin
+	python3 '$(ROOT)/scripts/cts_uart_render.py' ./arcilator_sim '$(FIRMWARE_DIR)/vkcube.bin' '$(ROOT)/simulation/golden/vkcube_cts_uart_00.ppm' 128 128
 
 clean:
 	rm -f arc.h arc.ll borg.mlir state.json *.o arcilator_sim *.ppm
