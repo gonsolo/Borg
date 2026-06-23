@@ -16,7 +16,7 @@ PREFIX    := $(REPO_ROOT)/out/mesa
 export CC  := gcc
 export CXX := g++
 
-MESON_OPTS := -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms=x11 \
+MESON_OPTS := -Dvulkan-drivers=borg -Dgallium-drivers= -Dplatforms=x11,wayland \
               -Dllvm=disabled -Dglx=disabled -Dtools=drm-shim \
               --prefix=$(PREFIX)
 

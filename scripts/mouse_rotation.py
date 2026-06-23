@@ -25,9 +25,10 @@ import time
 import serial
 import evdev
 
-SERIAL_PORT        = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyUSB0"
+DEBUG              = "--debug" in sys.argv
+SERIAL_PORT        = next((a for a in sys.argv[1:] if not a.startswith("-")), "/dev/ttyUSB0")
 BAUD               = 115200
-SENSITIVITY        = 0.005   # radians per raw mouse count
+SENSITIVITY        = 0.005   # radians per raw count (mouse); touchpad uses same but ABS range is ~5000 units
 AUTO_ROTATE_DELAY  = 5.0     # seconds of inactivity before auto-rotate
 AUTO_ROTATE_RATE   = 0.6     # radians/second (~1 rev / 10 s), time-based
 # Tick fast during auto-rotate so packets stream densely (every ~4 ms).  The
@@ -88,23 +89,54 @@ def pack_packet(q):
     return struct.pack("<B9f", 0xAC, *quat_to_col_mat3(q))
 
 
-def find_mouse():
-    for path in evdev.list_devices():
-        dev = evdev.InputDevice(path)
+def find_input_device():
+    """Return (device, is_touchpad).
+
+    Prefer a genuine external mouse (REL axes, no sibling Touchpad device).
+    Fall back to an ABS multitouch touchpad.  Touchpad-emulation "Mouse"
+    nodes share a base name with a "Touchpad" node — we skip those because
+    their REL stream doesn't fire from normal finger movement.
+    """
+    all_devs = [evdev.InputDevice(p) for p in evdev.list_devices()]
+    touchpad_bases = {
+        dev.name.replace(" Touchpad", "").replace(" touchpad", "")
+        for dev in all_devs
+        if "touchpad" in dev.name.lower()
+    }
+
+    touchpad = None
+    for dev in all_devs:
         caps = dev.capabilities()
         if evdev.ecodes.EV_REL in caps:
             rel = caps[evdev.ecodes.EV_REL]
             if evdev.ecodes.REL_X in rel and evdev.ecodes.REL_Y in rel:
-                return dev
-    raise RuntimeError("No relative-axis mouse found in /dev/input/event*")
+                base = dev.name.replace(" Mouse", "").replace(" mouse", "")
+                if base not in touchpad_bases:
+                    return dev, False      # genuine external mouse
+        if evdev.ecodes.EV_ABS in caps and touchpad is None:
+            abs_axes = caps[evdev.ecodes.EV_ABS]
+            codes = [a[0] if isinstance(a, tuple) else a for a in abs_axes]
+            if evdev.ecodes.ABS_MT_POSITION_X in codes and evdev.ecodes.ABS_MT_POSITION_Y in codes:
+                touchpad = dev
+    if touchpad is not None:
+        return touchpad, True
+    raise RuntimeError("No mouse or touchpad found in /dev/input/event*")
 
 
 def main() -> None:
-    mouse = find_mouse()
-    print(f"Mouse : {mouse.name}  ({mouse.path})")
+    device, is_touchpad = find_input_device()
+    device.grab()
+    kind = "Touchpad" if is_touchpad else "Mouse"
+    print(f"{kind} : {device.name}  ({device.path})")
+    if DEBUG:
+        print("DEBUG mode — printing raw events, not sending to serial")
+        for event in device.read_loop():
+            if event.type != evdev.ecodes.EV_SYN:
+                print(evdev.categorize(event))
+        return
     ser = serial.Serial(SERIAL_PORT, BAUD, timeout=0)
     print(f"Serial: {SERIAL_PORT} @ {BAUD} baud")
-    print("Move mouse to rotate cube. Ctrl-C to quit.")
+    print("Move mouse/finger to rotate cube. Ctrl-C to quit.")
 
     # Initial orientation: 30° tilt around X (matches firmware default)
     q = quat_from_axis_angle(1.0, 0.0, 0.0, 0.5236)
@@ -114,24 +146,62 @@ def main() -> None:
     auto_rotating = False
     last_auto     = last_move
 
+    # Touchpad absolute-position tracking
+    tp_x: float | None = None
+    tp_y: float | None = None
+    pending_x: float | None = None
+    pending_y: float | None = None
+
     while True:
-        readable, _, _ = select.select([mouse.fd], [], [], SELECT_TIMEOUT)
+        readable, _, _ = select.select([device.fd], [], [], SELECT_TIMEOUT)
 
         if readable:
-            for event in mouse.read():
-                if event.type == evdev.ecodes.EV_REL:
-                    if event.code == evdev.ecodes.REL_X:
-                        dx += event.value
-                    elif event.code == evdev.ecodes.REL_Y:
-                        dy += event.value
-                elif event.type == evdev.ecodes.EV_SYN and event.code == evdev.ecodes.SYN_REPORT:
-                    if dx != 0.0 or dy != 0.0:
-                        q = apply_rotation(q, dx, dy)
-                        ser.write(pack_packet(q))
-                        dx = 0.0
-                        dy = 0.0
-                        last_move     = time.monotonic()
-                        auto_rotating = False
+            for event in device.read():
+                if not is_touchpad:
+                    # External mouse: read REL events directly
+                    if event.type == evdev.ecodes.EV_REL:
+                        if event.code == evdev.ecodes.REL_X:
+                            dx += event.value
+                        elif event.code == evdev.ecodes.REL_Y:
+                            dy += event.value
+                    elif event.type == evdev.ecodes.EV_SYN and event.code == evdev.ecodes.SYN_REPORT:
+                        if dx != 0.0 or dy != 0.0:
+                            q = apply_rotation(q, dx, dy)
+                            ser.write(pack_packet(q))
+                            dx = 0.0
+                            dy = 0.0
+                            last_move     = time.monotonic()
+                            auto_rotating = False
+                else:
+                    # Touchpad: multitouch protocol (ABS_MT_POSITION_X/Y).
+                    # The tracking ID fires only on lift (value -1) — reset
+                    # last position then so the next touch has no jump.
+                    if event.type == evdev.ecodes.EV_ABS:
+                        if event.code == evdev.ecodes.ABS_MT_TRACKING_ID and event.value == -1:
+                            tp_x = None
+                            tp_y = None
+                        elif event.code == evdev.ecodes.ABS_MT_POSITION_X:
+                            pending_x = event.value
+                        elif event.code == evdev.ecodes.ABS_MT_POSITION_Y:
+                            pending_y = event.value
+                    elif event.type == evdev.ecodes.EV_SYN and event.code == evdev.ecodes.SYN_REPORT:
+                        if pending_x is not None and tp_x is not None:
+                            dx += pending_x - tp_x
+                        if pending_y is not None and tp_y is not None:
+                            dy += pending_y - tp_y
+                        if pending_x is not None:
+                            tp_x = pending_x
+                        if pending_y is not None:
+                            tp_y = pending_y
+                        pending_x = None
+                        pending_y = None
+                        if dx != 0.0 or dy != 0.0:
+                            q = apply_rotation(q, dx, dy)
+                            ser.write(pack_packet(q))
+                            dx = 0.0
+                            dy = 0.0
+                            last_move     = time.monotonic()
+                            auto_rotating = False
         else:
             now = time.monotonic()
             if not auto_rotating and now - last_move >= AUTO_ROTATE_DELAY:
