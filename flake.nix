@@ -142,6 +142,10 @@
         pkgs.z3
         pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
         pkgs.pkgsCross.riscv32-embedded.buildPackages.binutils
+        # riscv64 bare-metal toolchain — firmware build (software/borg, software/hutt).
+        # Provides riscv64-none-elf-gcc/as/ld/objcopy.
+        pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc
+        pkgs.pkgsCross.riscv64-embedded.buildPackages.binutils
         # riscv64 Linux cross toolchain — Gate 2: cross-build borgvk for the
         # future RV64 Hutt Linux target.  Confirms the driver is RV64 + soft-float
         # (lp64) clean.  Buildroot will own the final rootfs ABI; this just gates

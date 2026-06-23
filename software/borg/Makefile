@@ -11,9 +11,10 @@ TEX_SPI_BYTE_ADDR := $(shell printf '%d' $$(( $(_desc_base) + $(_max_draws) * $(
 
 # RV64 bare-metal firmware: the ULX3S Hutt core is RV64I + Zicsr (no M/F/D —
 # multiply/divide and float are soft, via libgcc).  Matches the sim tops, which
-# now run xlen=64.  ABI lp64 (soft-float).  Toolchain: riscv64-unknown-elf
-# (newlib bare-metal).  Override with TOOLCHAIN64= if your prefix differs.
-TOOLCHAIN64 ?= riscv64-unknown-elf
+# now run xlen=64.  ABI lp64 (soft-float).  Toolchain: riscv64-none-elf
+# (newlib bare-metal, from pkgsCross.riscv64-embedded in flake.nix).
+# Override with TOOLCHAIN64= if your prefix differs.
+TOOLCHAIN64 ?= riscv64-none-elf
 CC = $(TOOLCHAIN64)-gcc
 # _zicsr enables CSR instructions (rdcycle) — Hutt implements the cycle/mcycle
 # read-side counter; the rest of the ISA is still pure RV64I.

@@ -1,5 +1,5 @@
 # RV64 bare-metal: matches software/borg (RV64I + Zicsr, soft-float lp64).
-TOOLCHAIN64 ?= riscv64-unknown-elf
+TOOLCHAIN64 ?= riscv64-none-elf
 CC = $(TOOLCHAIN64)-gcc
 AS = $(TOOLCHAIN64)-as
 AR = $(TOOLCHAIN64)-ar
