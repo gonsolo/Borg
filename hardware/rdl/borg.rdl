@@ -359,8 +359,16 @@ reg tex_config_reg_t {
     } frag_uses_fragpos[1] = 0;
 
     field {
+        sw = rw; hw = r;
+        desc = "Bits 21:18: log2 of the texture dimension (e.g. 6 for 64×64,
+                8 for 256×256).  Used by the hardware to clamp tex_x and tex_y
+                to [0, 2^log2_dim − 1], preventing UV=1.0 from sampling beyond
+                the last texture row/column.  Set to 0 to disable clamping.";
+    } log2_dim[4] = 0;
+
+    field {
         sw = rw; hw = na;
-    } RSVD[14] = 0;
+    } RSVD[10] = 0;
 };
 
 // --- Texture address (computed by hardware) ---

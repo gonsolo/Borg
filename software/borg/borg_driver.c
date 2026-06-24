@@ -189,6 +189,9 @@ int borg_fb_width;
 int borg_fb_height;
 static fp16_t fp16_half_width;
 
+// log2 of the current texture dimension (set by borg_set_texture; 0 = no clamp).
+static uint8_t tex_log2_dim = 0;
+
 // Fragment uniform-staging mode for u19-u27 (see record_draw_call / BorgSequencer):
 //   0 (default) = the frag reads model frag_pos there (borgc cube.frag lighting
 //                 via dFdx/dFdy) → sequencer loads clipRegs.  FRAG_USES_FRAGPOS=1.
@@ -635,12 +638,17 @@ void borg_set_texture(int tex_width, int tex_height) {
                     .size = {tex_width, tex_height},
                     .w_fp16 = uint_to_fp16(tex_width),
                     .h_fp16 = uint_to_fp16(tex_height)};
+  // Compute log2(tex_width) for the hardware UV clamp (tex_width is power-of-2).
+  tex_log2_dim = 0;
+  for (int d = tex_width; d > 1; d >>= 1)
+    tex_log2_dim++;
   // Step 21.2: Enable hardware sTexFetch via TEX_CONFIG MMIO register.
   // Texture lives at TEX_DRAM_BYTE_ADDR_FIXED (defined in borg_layout.h),
   // BEFORE the framebuffer, so it always fits in the 16-bit base_addr field.
   BORG_GPU->tex_config =
       (TEX_DRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
-      TEX_CONFIG_REG_T__EN_bm;
+      TEX_CONFIG_REG_T__EN_bm |
+      ((uint32_t)tex_log2_dim << TEX_CONFIG_REG_T__LOG2_DIM_bp);
 }
 
 void borg_clear_texture(void) {
@@ -1088,9 +1096,10 @@ static void borgBinRenderAutonomous(int frame) {
     // sequencer always knows which the loaded fragment expects.
     uint32_t frag_mode = borg_frag_vertex_color
         ? 0 : TEX_CONFIG_REG_T__FRAG_USES_FRAGPOS_bm;
+    uint32_t log2_bits = (uint32_t)tex_log2_dim << TEX_CONFIG_REG_T__LOG2_DIM_bp;
     BORG_GPU->tex_config = (any_textured
         ? ((TEX_DRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) | TEX_CONFIG_REG_T__EN_bm)
-        : 0) | frag_mode;
+        : 0) | frag_mode | log2_bits;
   }
   BORG_GPU->control = 0; // uniform page 0
 
