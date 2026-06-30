@@ -6,9 +6,7 @@ nibble-serial design to give the Borg SoC a full 32-bit datapath and a simple
 Decoupled bus interface that the memory controller and peripheral fabric can
 integrate against directly.
 
-Hutt implements the base RV32I instruction set only — no M extension, no
-compressed (RV32C) instructions, no CSRs, no traps. FENCE and SYSTEM
-instructions are treated as no-ops.
+Hutt implements the base RV32I/RV64I instruction set (xlen parameter selects 32 or 64). No M extension, no compressed (RV32C) instructions. FENCE is a no-op. Privilege levels: M-mode (reset) and S-mode. CSRs and traps are fully implemented: ECALL (cause 8/9/11 by privilege), EBREAK (cause 3), M/S timer IRQs, page faults (cause 12/13/15). M-mode CSRs: mstatus, mtvec, mscratch, mepc, mcause, mtval, mie, mip, medeleg, mideleg, mhartid, misa. S-mode CSRs: sstatus, stvec, sscratch, sepc, scause, stval, sie, sip, satp. MRET and SRET restore privilege from MPP/SPP. SFENCE.VMA flushes the TLB. An Sv39 MMU (3-level page table, 16-entry direct-mapped TLB) is active in the xlen=64 build when satp.MODE=8.
 
 ## Module Hierarchy
 
@@ -58,26 +56,28 @@ Bus contract:
 
 Default `dataAddrWidth` is 28, covering the full SoC address space.
 
-## Five-State FSM
+## Seven-State FSM
 
-Each RV32I instruction executes in a fixed sequence of FSM states:
+Each instruction executes in a fixed sequence of FSM states:
 
 ```
-sFetchReq → sFetchResp → sExec ─┬─ ALU/branch/JAL/LUI/AUIPC → sFetchReq
-                                 └─ load/store → sMemReq → sMemResp → sFetchReq
+sFetchReq → sFetchResp → sExec ─┬─ ALU/branch/JAL/JALR/LUI/AUIPC/CSR → sFetchReq
+                                 └─ load/store ─┬─ TLB hit  → sMemReq → sMemResp → sFetchReq
+                                                └─ TLB miss → sPtwReq → sPtwResp ─┬─ leaf PTE → sMemReq / sFetchReq
+                                                                                   └─ non-leaf → sPtwReq (loop)
 ```
 
 | State | Action |
 |-------|--------|
-| `sFetchReq` | Assert `instr.req.valid`; advance on `req.fire` |
+| `sFetchReq` | Check interrupts; assert `instr.req.valid` (via TLB if MMU enabled); advance on `req.fire` |
 | `sFetchResp` | Assert `instr.resp.ready`; latch instruction word on `resp.fire` |
-| `sExec` | Decode, compute results; if load/store capture context and go to `sMemReq`; otherwise writeback + advance PC |
+| `sExec` | Decode, compute results; handle ECALL/EBREAK/MRET/SRET/SFENCE.VMA/CSR; if load/store go to `sMemReq` (or `sPtwReq` on TLB miss); otherwise writeback + advance PC |
 | `sMemReq` | Assert `data.req.valid`; advance on `req.fire` |
 | `sMemResp` | Assert `data.resp.ready`; on `resp.fire`: sign/zero-extend and writeback load result, advance PC |
+| `sPtwReq` | Assert `data.req.valid` to read a PTE from the page table (xlen=64 only) |
+| `sPtwResp` | On PTE response: install TLB entry and proceed to fetch/data, descend to next level, or raise a page fault |
 
-ALU instructions, branches, JAL, JALR, LUI, and AUIPC all complete in
-`sExec` — three FSM cycles after the start of the instruction. Loads and
-stores add two more cycles (`sMemReq` + `sMemResp`).
+ALU instructions, branches, JAL, JALR, LUI, AUIPC, and CSR instructions all complete in `sExec` — three FSM cycles after the start of the instruction. Loads and stores add two more cycles (`sMemReq` + `sMemResp`), plus two more per page-table level on a TLB miss (`sPtwReq` + `sPtwResp`).
 
 ## Combinational Decoder (`HuttDecode`)
 
@@ -113,9 +113,7 @@ as the default.
 
 ## Register File (`HuttRegFile`)
 
-32 entries × 32 bits. Both read ports (`rs1`, `rs2`) are asynchronous.
-Writes are synchronous on the rising clock edge when `wen` is asserted.
-`x0` is hardwired to zero: writes are silently dropped, reads always return 0.
+32 entries × XLEN bits (32 bits for RV32I, 64 bits for RV64I). Both read ports (`rs1`, `rs2`) are asynchronous (inferred as TRELLIS_DPR16X4 on ECP5 to save LUTs). Writes are synchronous on the rising clock edge when `wen` is asserted. `x0` is hardwired to zero: writes are silently dropped, reads always return 0.
 
 ## Writeback and PC Advance
 
@@ -130,7 +128,13 @@ Non-memory instructions commit in `sExec`:
 | AUIPC | PC + U-imm | PC + 4 |
 | Branch (not taken) | — | PC + 4 |
 | Branch (taken) | — | PC + B-imm |
-| FENCE / SYSTEM | — | PC + 4 |
+| FENCE / unknown SYSTEM | — | PC + 4 |
+| CSR (CSRRW/CSRRS/CSRRC/…) | csrReadData | PC + 4 |
+| ECALL | — | mtvec or stvec (trap) |
+| EBREAK | — | mtvec or stvec (trap) |
+| MRET | — | mepc (restore from M-mode trap) |
+| SRET | — | sepc (restore from S-mode trap) |
+| SFENCE.VMA | — | PC + 4 (flushes TLB) |
 
 Load writeback happens in `sMemResp` after sign/zero extension:
 

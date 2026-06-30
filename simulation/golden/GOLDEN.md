@@ -16,8 +16,8 @@ Run the simulation to produce the new PPM, then verify the change is intentional
 
 ```bash
 # Re-generate a golden (arcilator is faster):
-make -C simulation/arcilator vkcube_headless
-cp simulation/arcilator/build/vkcube_00.ppm simulation/golden/vkcube_00.ppm
+make -C simulation/arcilator vkcube
+cp simulation/arcilator/vkcube_00.ppm simulation/golden/vkcube_00.ppm
 
 # Inspect the diff:
 python3 scripts/compare_ppm.py simulation/golden/vkcube_00.ppm <old_golden>

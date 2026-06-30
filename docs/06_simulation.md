@@ -13,15 +13,15 @@ classDiagram
     BorgSimulatorBase : +flat QSPIMemory
     BorgSimulatorBase : +flash QSPIMemory
     BorgSimulatorBase : +step(cycles)
-    VerBorgSimulator : -Vtt_um_gonsolo_borg* model
+    VerBorgSimulator : -VBorgSimTop* model
     ArcBorgSimulator : -ArcContext* ctx
 ```
 
-All simulators share the same cycle-accurate model of the **QSPI bus**, including:
+All simulators share the same cycle-accurate models of the flash and DRAM memories, including:
 - 1MB Flash (read-only instruction storage)
 - 8MB DRAM (framebuffer, z-buffer, textures)
 
-This ensures that any software that runs in simulation will run identically on the physical FPGA hardware, as the CPU must use the same QSPI protocol to access memory in both environments.
+This ensures that any software that runs in simulation will run identically on the physical FPGA hardware. The Hutt CPU accesses memory via Decoupled buses (HuttInstrBus/HuttBus); the MemoryController translates these to the QSPI backend. The verilator simulator exposes the MemoryController's flat MemBackendIO bus directly (no QSPI pins required).
 
 ## Backends
 
@@ -58,16 +58,6 @@ The simulation generates several artifacts for debugging:
 - `trace.vcd`: (Verilator only) Waveform trace for logic analysis in GTKWave.
 - `state.json`: (Arcilator only) A snapshot of all internal registers and memory offsets.
 - `*.ppm`: Snapshots of the framebuffer taken at the end of rendering.
-## Hybrid Verification: The Bluespec Oracle
 
-A unique aspect of the Borg development process is the use of **Hybrid DSL Verification**. While the primary RTL is written in Chisel, certain complex arbitration and priority logic (like the QSPI bus arbiter in the `MemoryController`) proved difficult to debug using standard simulation and LLM-assisted coding alone.
 
-In one notable instance, a race condition in the memory priority chain stumped both human developers and advanced AI models (specifically Claude Opus). The solution was to leverage the formal power of **Bluespec SystemVerilog (BSV)**. 
-
-### The Methodology:
-1. **Export to BSV**: The problematic Chisel arbitration classes were exported to Bluespec.
-2. **Compiler-Guided Solution**: Bluespec's unique atomic rule-scheduling and `descending_urgency` primitives were used to redefine the priority chain (`CPU Read > CPU Write > GPU Write > GPU Read > Instr Fetch`). The Bluespec compiler, which acts as a static formal verification engine for rule conflicts, resolved the race conditions almost instantly.
-3. **Import to Chisel**: The resulting verified priority logic was then manually re-implemented back into Chisel.
-
-This "Cross-DSL" debugging technique ensured that the most critical part of the SoC—the memory arbiter—is mathematically sound, even if the implementation remains in Chisel for better integration with the rest of the project.
 

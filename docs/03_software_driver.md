@@ -11,9 +11,7 @@ values, and control execution:
 
 {{snippet:software/borg/borg_driver.c:mmio-map}}
 
-The Borg peripheral occupies 16 words starting at `0x080000C0`: 8 FP16 registers
-(r0–r7), 6 instruction memory words, and a control/status register. DRAM
-provides shared memory between the CPU and the RP2040 host.
+The Borg peripheral is accessed at `0x08000C00` (BORG_BASE). It exposes 32 FP16 general-purpose registers (r0–r31), 31 usable instruction memory words, a control/status register, and a full RDL-generated register block covering tile buffer, texture, sequencer, DMA, and flush control. DRAM provides shared memory between the Hutt CPU and the GPU.
 
 ## FPU Helper Functions
 
@@ -98,7 +96,7 @@ The firmware simply reads the pre-calculated `tex_addr_morton` from the MMIO
 status registers and uses it as an offset into the texture data in DRAM:
 
 ```c
-uint16_t offset = BorgGpuRegs.tex_addr_morton;
+uint16_t offset = BORG_GPU->tex_addr & 0xFFFF; /* bits [15:0] = Morton index */
 r = DRAM_IN(tex_base + offset * 3 + 0);
 g = DRAM_IN(tex_base + offset * 3 + 1);
 b = DRAM_IN(tex_base + offset * 3 + 2);

@@ -538,8 +538,7 @@ iCE40 BRAMs)
 - Doubles register file area on ASIC (+100%)
 - Breaks RISC-V instruction encoding (6-bit fields required)
 - Custom instruction format needed
-- MMIO address space overflow (64×4 + 64×4 = 512 bytes, no room
-  for control registers in the 9-bit address space)
+- MMIO address space overflow concern is resolved by the 10-bit (1024-byte) address space now in use
 - Treats a constant-data problem as a register-count problem
 
 **Verdict**: ❌ Rejected. Expensive on ASIC, breaks RISC-V, and
@@ -739,9 +738,7 @@ The GPR file has ample room at 16 of 30 entries.
 **Uniform buffer**: A 32-entry × 16-bit memory. Implementation
 depends on target:
 
-- **iCE40 FPGA**: One `SyncReadMem(32, UInt(16.W))` = one BRAM.
-  Single read port, single write port. Since we need only one read
-  per cycle (one uniform operand per instruction), one BRAM suffices.
+- **ULX3S FPGA (Lattice ECP5-85K)**: One `SyncReadMem(32, UInt(16.W))` = one BRAM. Single read port, single write port. Since we need only one read per cycle (one uniform operand per instruction), one BRAM suffices.
 
 - **IHP SG13G2 ASIC**: For minimum area, implement as a register-based
   memory (`Vec(32, Reg(UInt(16.W)))`) = 512 flip-flops. This gives
@@ -754,9 +751,7 @@ data to the correct operand slot (rs1, rs2, or rs3) based on the
 funct3 decode.
 
 **MMIO interface**: A new address range (`BORG_UNIFORM_OFFSET`) for
-the CPU to write uniform values. This fits easily in the existing
-9-bit address space (the uniform buffer occupies 32 × 4 = 128 bytes
-if word-addressed, or 32 × 2 = 64 bytes if half-word addressed).
+the CPU to write uniform values. This fits easily in the 10-bit (1024-byte) address space (the uniform buffer occupies 32 × 4 = 128 bytes if word-addressed, or 32 × 2 = 64 bytes if half-word addressed).
 
 ### 8.2 Pipeline Integration
 
@@ -792,22 +787,14 @@ reshuffling:
 | Region | Offset | Size | Description |
 | --- | --- | --- | --- |
 | Registers (r0–r31) | 0 | 128 bytes | GPR file (32 × 4) |
-| IMEM | 128 | 256 bytes | 64 instruction slots |
+| IMEM | 128 | 288 bytes | 72 instruction slots |
 | Iterator BBOX | 384 | 4 bytes | Bounding box |
 | Iterator | 388 | 4 bytes | Advance / read position |
 | Control | 392 | 4 bytes | Start / reset / status |
 | Frag PC | 396 | 4 bytes | Fragment shader start PC |
 | **Uniform buffer** | **400** | **128 bytes** | **32 × 4 uniform slots** |
 
-Total: 528 bytes. Exceeds 512... so we can either:
-
-1. Use 2-byte addressing for uniforms (32 × 2 = 64 bytes → total 464)
-2. Reduce IMEM from 64 to 48 slots (saves 64 bytes → total 464)
-3. Expand to 10-bit address space (requires bus decoder change)
-
-Option 1 is cleanest: since uniforms are FP16 values (16 bits), there's
-no need for 32-bit word addressing. The CPU writes 16-bit values
-directly.
+The address space is 10-bit (1024 bytes), so all registers fit without overflow. Uniform values are FP16 (16 bits) but are written as 32-bit words with the upper bits ignored, matching the 32-bit bus.
 
 ---
 
@@ -891,7 +878,7 @@ The uniform buffer maps directly to Vulkan's uniform buffer concept:
 | Component | Entries | Copies | Bits | Flip-flops |
 | --- | --- | --- | --- | --- |
 | GPR file (FP16) | 32 | 3 | 16 | 1,536 |
-| IMEM | 64 | 1 | 32 | 2,048 |
+| IMEM | 72 | 1 | 32 | 2,304 |
 | Coord LUT | 64 | 1 | 16 | 1,024 |
 | Control regs | ~10 | 1 | various | ~200 |
 | **Total storage** | - | - | - | **~4,808** |
@@ -1117,7 +1104,7 @@ This replaces the original plan to expand the GPR file from 32 to
 ### What Stays the Same
 
 - 32-entry GPR file with 3 BRAM copies (FPGA) / triplicated (ASIC)
-- 64-entry IMEM
+- 72-entry IMEM
 - 4-cycle FMA pipeline
 - Hardware shader chaining FSM
 - coordLut at r30/r31

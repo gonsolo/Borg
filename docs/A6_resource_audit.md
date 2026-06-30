@@ -1,8 +1,10 @@
-# A6: iCE40 UP5K Resource Audit
+# A6: Resource Audit (STALE — originally iCE40 UP5K; current FPGA target is ECP5-85K/ULX3S)
 
 Last updated: 2026-04-07 (after Step 12 optimization)
 
-## Current State
+⚠ This document describes the iCE40 UP5K (pico-ice) which is no longer a supported target. The active FPGA target is ULX3S (Lattice ECP5-85K) with ~84k LUTs. Numbers below are iCE40 UP5K only.
+
+## Current State (iCE40 UP5K — HISTORICAL)
 
 | Resource | Used | Available | Free | Unit Size |
 | --- | --- | --- | --- | --- |
@@ -24,7 +26,7 @@ Last updated: 2026-04-07 (after Step 12 optimization)
 | Ports | Dual (1R + 1W simultaneous) | Single (read OR write per cycle) |
 | Init values | Yes (preloaded at config time) | No (undefined at power-on) |
 | Latency | 1 cycle | 1 cycle |
-| Chisel | `SyncReadMem` → Yosys infers automatically | Needs explicit `SB_SPRAM256KA` blackbox |
+| Chisel | `SyncReadMem` → Yosys infers automatically | Needs explicit `SB_SPRAM256KA` blackbox (iCE40 only; not valid on ECP5 or IHP ASIC) |
 | Best for | Register files, FIFOs, small ROMs | Runtime caches, DMA buffers |
 
 ## Current BRAM Allocation (10/30 used)
@@ -58,8 +60,8 @@ Last updated: 2026-04-07 (after Step 12 optimization)
 | 19: A Extension | +100 | LR.W/SC.W |
 | 21: MMU (Sv32) | +800-1200 | ⚠ Likely exceeds UP5K |
 
-Phase 3 with MMU pushes to ~5400 LUTs ≈ 102%. No-MMU Linux (Step 20)
-fits; full MMU likely requires the ASIC tapeout (4×5 tile target).
+Phase 3 with MMU pushes to ~5400 LUTs ≈ 102% of the iCE40 UP5K ceiling. No-MMU Linux (Step 20)
+fits; full MMU likely requires the ASIC tapeout. (Note: actual ASIC submission was 4×2 tiles on IHP SG13G2, not a 4×5 tile target.)
 
 ## Phase 5 (ASIC only)
 
@@ -80,4 +82,4 @@ Phase 5 is explicitly "only makes sense on a larger tile or ASIC."
 | Store FIFOs/buffers in BRAM | 20 EBRs free; each saves 64–256 FFs |
 | Use SPRAM for runtime caches | 128 KB free; texture/DMA natural fit |
 | Use DSP for multiplies | 7 DSPs free; each saves ~100 LUTs |
-| Monitor packed LCs after every step | `make -C fpga borg.asc` is the real test |
+| Monitor packed LCs after every step | `cd fpga/ulx3s && make` (ECP5 target; iCE40 `borg.asc` no longer exists) |

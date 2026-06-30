@@ -15,9 +15,7 @@ fragment shading, and eventually a Vulkan driver.
 ## The Approach
 
 Rather than designing a traditional fixed-function GPU, Borg is a **programmable
-shader processor** attached to a small RISC-V CPU. The CPU handles control flow
-(draw calls, rasterization loops) while the shader processor handles the
-floating-point math (vertex transformations, color interpolation).
+shader processor** attached to a small RISC-V CPU. The CPU handles control flow (draw calls, tile dispatch) while the shader processor handles the floating-point math (vertex transformations, color interpolation); hardware rasterization is performed inside Borg by its built-in rasterizer.
 
 The design is written in [Chisel](https://www.chisel-lang.org/), a hardware
 construction language embedded in Scala. Chisel generates synthesizable Verilog

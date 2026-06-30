@@ -18,9 +18,9 @@ and a program counter. The entire state fits in a handful of flip-flops:
 {{snippet:hardware/borg/src/BorgCore.scala:storage}}
 
 The register file holds 32 FP16 values that the CPU can read and write via MMIO.
-The instruction memory stores up to 32 shader instructions — enough for full
+The instruction memory stores up to 72 shader instructions — enough for full
 4×4 MVP matrix multiplies and complex fragment shading.  An all-zero instruction
-word acts as a halt sentinel, so the longest useful program is 31 instructions
+word acts as a halt sentinel, so the longest useful program is 71 instructions
 plus the implicit stop.
 
 ## Instruction Format
@@ -53,7 +53,7 @@ If the fetched instruction is zero, the processor halts instead of executing.
 
 {{snippet:hardware/borg/src/BorgCore.scala:fetch-execute}}
 
-The control register at MMIO address 60 lets the CPU start execution (bit 0)
+The control register at MMIO address 0x1A8 lets the CPU start execution (bit 0)
 or reset the processor (bit 1). A reset clears the program counter and stops
 execution immediately.
 
@@ -129,17 +129,17 @@ which `MmioMap.scala` then emits as C macros and Python functions:
 ## Talking to the CPU
 
 The CPU sees the shader processor as a set of memory addresses. Writing to an
-address loads data; reading from one retrieves it. Rather than maintaining manual offsets, the address map is exclusively managed via **SystemRDL** (see `borg_gpu.rdl`) which automatically generates both the Chisel `BorgGpuRegs` layout and the C-headers mapping (`borg_regs.h`).
+address loads data; reading from one retrieves it. Rather than maintaining manual offsets, the address map is exclusively managed via **SystemRDL** (see `hardware/rdl/borg.rdl`) which automatically generates both the Chisel `BorgGpuRegs` layout and the C-headers mapping (`borg_regs.h`).
 
 The address map is logically grouped into:
 
 | Address Offset | Function |
 | --- | --- |
 | `0x000`–`0x07C` | Register file (r0–r31) |
-| `0x080`–`0x15C` | Instruction memory (56 slots) |
-| `0x164`–`0x16C` | Status, Pipeline Control |
-| `0x170`–`0x1EC` | Uniform Memory (32 entries per page) |
-| `0x1F0`–`0x214` | Tile Buffer, Command FIFO, Texture Config |
+| `0x080`–`0x19C` | Instruction memory (72 slots) |
+| `0x1A8`–`0x1AC` | Status, Pipeline Control |
+| `0x1B0`–`0x22C` | Uniform Memory (32 entries per page) |
+| `0x230`–`0x248` | Tile Buffer, Command FIFO, Texture Config |
 
 A typical workflow looks like this: the CPU writes a shader program into the
 instruction memory, fills the input uniforms, and instead of blocking, queues asynchronous rendering descriptors to the 2-entry **Command FIFO**. The FIFO then handles passing the commands (like rasterization iterator values and shader PC triggers) to the GPU hardware logic while the CPU computes the next triangle.

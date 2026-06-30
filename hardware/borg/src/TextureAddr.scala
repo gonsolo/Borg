@@ -42,7 +42,7 @@ object Fp16ToUint8 {
   }
 }
 
-/** Keep Fp16ToUint6 for backward compatibility (used in tests). */
+/** Keep Fp16ToUint6 for backward compatibility. */
 object Fp16ToUint6 {
   def apply(fp16: UInt): UInt = {
     Fp16ToUint8(fp16)(5, 0)  // Just use lower 6 bits

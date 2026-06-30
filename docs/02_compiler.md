@@ -5,24 +5,7 @@ blobs that run on the FP16 hardware. The pipeline has four stages.
 
 ## Pipeline Overview
 
-```text
-shader.vert / shader.frag
-        │
-        ▼  glslangValidator -V
-    shader.spv          (SPIR-V binary, Khronos standard)
-        │
-        ▼  spirv-dis
-    shader.spvasm        (SPIR-V text disassembly)
-        │
-        ▼  spirv_compiler.py   ← semantic translation
-    shader.s             (Borg pseudo-assembly)
-        │
-        ▼  borg_backend.py     ← mechanical lowering
-    shader.borg          (SPIR-B binary blob)
-```
-
-The first two steps use standard Khronos tools. The last two are
-Borg-specific and described below.
+The canonical compiler for vert/frag shaders is now **borgc** (Rust), located at `mesa/src/borg/compiler/lib.rs`. It lowers Mesa NIR (from SPIR-V via the Mesa SPIR-V→NIR frontend) directly to Borg ISA and runs at borgvk submit time rather than firmware build time. The Python scripts `spirv_compiler.py` and `borg_backend.py` that formerly implemented this pipeline have been removed.
 
 ## Stage 1 vs Stage 2 — What Each Script Does
 
@@ -170,26 +153,18 @@ the register maps to bind shader inputs/outputs before each invocation.
 
 ## Build Integration
 
-The shader compiler runs as part of `make` in `software/borg/compiler/`.
-The three `.borg` files (vert, frag, rasterize) are embedded into the
-firmware binary via `xxd -i`, making the shaders part of the ROM image
-with no filesystem needed.
+`shader_blobs.h` is a checked-in static artifact in `software/borg/compiler/`. The Python shader-build pipeline has been removed; the vert and frag blobs are now compiled at borgvk submit time by borgc (`mesa/src/borg/compiler/lib.rs`). The rasterize blob is hand-written Borg ISA and kept for reference but is not rebuilt automatically. The three `.borg` blobs are embedded into the firmware binary via `xxd -i`, making the shaders part of the ROM image with no filesystem needed.
 
 ## Three Shaders
 
 The cube demo uses three shaders:
 
-**Vertex shader** (`shader.vert`) — Applies a 2D rotation matrix to
-vertex positions using sin/cos uniforms. Produces 5 IMEM instructions
-and 26 bytes of SPIR-B.
+**Vertex shader** — Applies a full 4×4 MVP matrix to vertex positions (3 input attributes x/y/z; 16 MVP uniforms; 4 clip-space outputs rx/ry/rz/rw). Produces 16 IMEM instructions and 96 bytes of SPIR-B.
 
-**Rasterize shader** (`rasterize.s`) — Evaluates one edge function per
-call. Hand-written in pseudo-assembly (not compiled from GLSL) since the
-edge test is a single dot product. Produces 2 IMEM instructions and
-15 bytes of SPIR-B.
+**Rasterize shader** (`rasterize.s`) — Evaluates all three edge functions (e0, e1, e2) in a single call. Uses hardware-injected pixel centers in r30 (px+0.5) and r31 (py+0.5). Hand-written in Borg ISA. Produces 12 IMEM instructions and 69 bytes of SPIR-B.
 
 **Fragment shader** (`shader.frag`) — Computes barycentric weights from
 edge values, interpolates UV coordinates and per-face vertex color
 (lighting factor), samples the texture via `ftex` (`OpImageSampleImplicitLod`),
 and modulates: `outRGB = texel.rgb × vertexColor.rgb`. Also interpolates
-depth (Z) for the tile-buffer Z-test. Produces ~15 IMEM instructions.
+depth (Z) for the tile-buffer Z-test. Produces 25 IMEM instructions.

@@ -30,17 +30,19 @@ Offset  Size       Field
 The instruction list does **not** include the implicit halt word (0x0000);
 the firmware appends it when loading IMEM.
 
-## DRAM transport
+## Shader transport
 
-The host writes shader blobs to DRAM before the vertex/uniform payload.
-Each shader blob is preceded by a 2-byte little-endian length prefix:
+Two paths exist depending on the use case:
 
-```text
-[blob_len (uint16_le)] [blob bytes ...] [shader data ...]
-```
+**Standalone firmware** (`borg_triangle.c`, `borg_vkcube.c`): shader blobs are
+embedded as static byte arrays in `compiler/shader_blobs.h`. The firmware calls
+`spirb_parse(code, &shader)` directly with a pointer to the embedded blob.
 
-The firmware reads `blob_len`, parses the blob, then processes the
-remaining DRAM data using the register maps from the parsed shader.
+**borgvk driver** (`mesa/src/borg/vulkan/`): `borgc` compiles shaders at
+Vulkan submit time and sends each blob via a serial packet (marker `0xB0`):
+`marker(1B) + stage(1B) + len(2B LE) + blob padded to BORGVK_SHADER_BLOB_MAX + checksum`.
+The firmware in `borg_vkcube.c` drains this fixed-length packet and calls
+`spirb_parse()` on the received blob.
 
 ## Examples
 

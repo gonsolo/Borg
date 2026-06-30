@@ -11,7 +11,7 @@ the same thing, the **bold** term is preferred in technical writing.
 |------|---------|
 | **Borg** | The project; the whole GPU system (hardware + firmware + driver). |
 | **Borg GPU** | The GPU hardware implemented in Chisel — the FPGA/ASIC portion. Use when distinguishing it from the host-side software stack. |
-| **BorgCore** | The shader execution unit: FP16 FMA pipeline, 32-entry register file, 32-slot instruction memory. The Scala class name; use in technical/RTL contexts. *Synonym (prose only):* "shader processor". |
+| **BorgCore** | The shader execution unit: FP16 FMA pipeline, 32-entry register file, configurable instruction memory (72 entries default, 32 on ASIC). The Scala class name; use in technical/RTL contexts. *Synonym (prose only):* "shader processor". |
 | **BorgSequencer** | The tile-based rendering orchestrator. Drives BorgCore and BorgRasterizer across two passes (bin + render). |
 | **BorgRasterizer** | Hardware edge-function unit. Evaluates coverage and invokes BorgCore for each covered pixel. |
 | **tile buffer** | The 16-pixel on-chip SRAM (BorgTileBuffer) that holds RGBZ during rasterization. *Not* "on-chip SRAM buffer". |
@@ -23,7 +23,7 @@ the same thing, the **bold** term is preferred in technical writing.
 
 | Term | Meaning |
 |------|---------|
-| **SPIR-B** | Borg's binary shader format (analogous to SPIR-V). Produced by `spirv_compiler.py` or borgc. Loaded at runtime by `borg_spirb.c`. *Not* "SPIR-V" — Borg uses its own encoding. |
+| **SPIR-B** | Borg's binary shader format (analogous to SPIR-V). Produced by borgc (the Mesa NIR→Borg compiler). Loaded at runtime by `borg_spirb.c`. *Not* "SPIR-V" — Borg uses its own encoding. |
 | **borgc** | The Rust NIR→Borg compiler in-tree under `mesa/src/borg/compiler/`. Compiles Vulkan SPIR-V shaders to SPIR-B for the Mesa driver. |
 | **SPIR-V** | Khronos standard IR. Mesa's `vk_spirv_to_nir` converts SPIR-V to NIR; borgc then lowers NIR to SPIR-B. |
 

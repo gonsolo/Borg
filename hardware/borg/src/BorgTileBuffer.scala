@@ -13,7 +13,7 @@ import chisel3.experimental.BundleLiterals._
   * After all pixels in the tile are processed, the CPU flushes the buffer
   * to DRAM in a batch, eliminating per-pixel DRAM round-trips.
   *
-  * Storage: All 4 channels packed into a single 64-bit SyncReadMem (1 EBR).
+  * Storage: All 4 channels packed into a single 64-bit SyncReadMem (1 BRAM).
   * This avoids the ~256 FF cost of register-based Z storage.
   * Z comparison for Step 11.5 will use a 1-cycle BRAM read in the FSM.
   *
@@ -43,7 +43,7 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
   val TILE_SIZE = 16  // 4×4
   val PACKED_BITS = new ColorZ(dataBits).getWidth  // 64 bits
 
-  // --- RGBZ buffer: single BRAM (16 × 64-bit = 1024 bits, fits in 1 iCE40 EBR) ---
+  // --- RGBZ buffer: single BRAM (16 × 64-bit = 1024 bits, fits in 1 ECP5 DP16KD) ---
   val rgbzMem = SyncReadMem(TILE_SIZE, UInt(PACKED_BITS.W))
 
   // --- Clear state machine ---

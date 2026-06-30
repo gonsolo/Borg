@@ -42,8 +42,8 @@ The dense connectivity of the GPU datapath forces the Tile Buffer, Rasterizer Ma
 
 The build is configured through `src/config.json`:
 
-- `PL_TARGET_DENSITY_PCT` — maximum cell density (65% for this design)
-- `CLOCK_PERIOD` — synthesis timing constraint in nanoseconds (40ns = 25 MHz)
+- `PL_TARGET_DENSITY_PCT` — maximum cell density (60% for this design)
+- `CLOCK_PERIOD` — synthesis timing constraint in nanoseconds (250ns = 4 MHz)
 - `PL_RESIZER_HOLD_SLACK_MARGIN` — slack margin for hold time repair
 
 These parameters control the tradeoff between area utilization and timing closure.
@@ -53,7 +53,7 @@ repair, which in turn reduces area.
 ## Tile Size
 
 The design occupies a 4×2 tile (8 tiles) on the TTIHP26a shuttle, providing
-approximately 260,000 µm² of usable area. At 65% target density, the design
+approximately 260,000 µm² of usable area. At 60% target density, the design
 uses about 160,000 µm² — primarily flip-flops for the register files, instruction
 memory, and pipeline state.
 

@@ -207,7 +207,7 @@ specification. This eliminates the recurring class of bugs where hardware MMIO
 offsets drift out of sync with firmware `#define`s.
 Estimate: 1 week.
 
-- **Step 14.1: RDL Specification** ✅ (2026-04-08): Wrote `hardware/borg/rdl/borg_gpu.rdl`
+- **Step 14.1: RDL Specification** ✅ (2026-04-08): Wrote `hardware/rdl/borg.rdl`
 - **Step 14.2: PeakRDL-chisel Exporter** ✅ (2026-04-08): Developed the custom Scala/Chisel backend publisher plugin for `PeakRDL` (<https://github.com/gonsolo/PeakRDL-chisel>) to directly emit synthesizable Chisel `Module` register blocks from the `.rdl`.
 - **Step 14.3: RTL Integration** ✅ (2026-04-08): Wired the generated Chisel module block (`BorgGpuRegs`) into the `BorgBusIO` interface, replacing all manual address decoders and manual Flip-Flops in `Borg.scala` with PeakRDL's register nodes.
 - **Step 14.4: Firmware/Backend Integration** ✅ (2026-04-08): Integrated `PeakRDL-cheader` to emit `borg_regs.h` (C headers) and a custom Python emit for `borg_mmio.py`. Completely deleted `MmioMap.scala`. Validated SystemRDL outputs against FPGA LC constraints (5113 LCs) via tied-off read-ports and verified the complete cocotb/Verilator/Arcilator/FPGA software stack.
@@ -1067,17 +1067,16 @@ No host PC required after flashing the bitstream.
 | regFileA/B/C | GPR copies (rs1/rs2/rs3) | 32×16-bit | 3 |
 | instructionMemory | Shader IMEM | 56×32-bit | 1 |
 | uniformMem | Uniform buffer (2 pages) | 64×16-bit | 1 |
-| coordLutX/Y | Pixel → FP16 | 64×16-bit | 2 |
 | rcpLutA/B | Reciprocal LUT | 17×10-bit | 2 |
 | rgbzMem | Tile buffer | 16×64-bit | 1 |
-| **Total** | | | **10 / 30** |
+| **Total** | | | **8 / 30** |
 
 ### Development Platform Strategy
 
 | Phase | Platform | Reason |
 | --- | --- | --- |
-| Phase 2 (Steps 21–27) | **pico-ice** (iCE40 UP5K) | TT-compatible pinout, forces area discipline |
-| Phase 3 (Steps 28–31) | **pico-ice** (GPU=off) or **ULX3S** (ECP5-85K) | CPU-only fits at 75%; ECP5 for full design |
+| Phase 2 (Steps 21–27) | **ULX3S** (ECP5-85K) | pico-ice removed 2026-06-16; ULX3S is sole active FPGA target |
+| Phase 3 (Steps 28–31) | **ULX3S** (ECP5-85K) | Full design with GPU enabled |
 | Phase 4–5 (Steps 32–41) | **ULX3S** or **Nitefury II** (Artix-7) | FP32 GPU, Vulkan conformance, DDR3/PCIe |
 | Tapeout | **Tiny Tapeout** (IHP SG13G2, 32 tiles) | Full SoC fits in ~14 tiles |
 

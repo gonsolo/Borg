@@ -14,7 +14,7 @@ Borg is a tiny GPU built around a RISC-V SoC (Hutt). It renders a 10-frame anima
 ### Architecture
 
 - **CPU**: Hutt (RV32I), runs the application and GPU driver firmware
-- **GPU core (Borg)**: FP16 FMA unit with 16 registers, 8-instruction IMEM, MMIO-accessible
+- **GPU core (Borg)**: FP16 FMA pipeline with 32 FP16 registers, MMIO-accessible
 - **Shaders**: Compiled from GLSL → SPIR-V → SPIR-B (custom binary format), embedded in firmware
 
 ### Rendering Pipeline
@@ -49,7 +49,7 @@ int main() {
 
 ## How to test
 
-In `./fpga`:
+In `./fpga/ulx3s`:
 
 ```
 make triangle

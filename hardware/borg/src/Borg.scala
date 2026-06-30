@@ -26,8 +26,10 @@ class BorgIO(val cfg: BorgConfig) extends Bundle {
 
 /** Borg — minimal FP16 shading processor with 4-cycle FMA pipeline.
   *
-  * This is a thin integration wrapper that composes BorgCore (FPU pipeline)
-  * and BorgRasterizer (pixel iterator) and wires the top-level MMIO read mux.
+  * This is an integration wrapper that composes BorgCore (FPU pipeline),
+  * BorgRasterizer (pixel iterator), BorgTileFlusher, BorgTileBuffer,
+  * BorgGpuRegs (RDL-generated MMIO register block), BorgDMA, BorgSequencer,
+  * BorgBinner, and BorgCommandFIFO.
   *
   * Instruction encoding is defined in [[Instructions]].
   *
@@ -39,9 +41,13 @@ class BorgIO(val cfg: BorgConfig) extends Bundle {
   *
   * == MMIO Interface ==
   *
-  *   - Registers 0–124 (32 words): read/write register file r0–r31
-  *   - IMEM 128–248 (31 usable words): write instruction memory (32-bit)
-  *   - Control/Status 252: write bit 0 = start, bit 1 = reset; read bit 1 = idle
+  *   - Registers 0x000–0x07C (32 words): read/write register file r0–r31
+  *   - IMEM / upper MMIO: write via MMIO or DMA (BorgDMA)
+  *   - RDL-generated register block (BorgGpuRegs): named control/status/tex/seq
+  *     fields — see hardware/rdl/borg.rdl for the authoritative address map.
+  *     Key fields: control_start, control_reset_pipeline, control_start_pc,
+  *     control_uniform_write_page; status_idle, status_flush_busy,
+  *     status_fifo_full, status_dma_busy, status_seq_busy.
   */
 object Borg {
   /** Allow tests to instantiate [[Borg]] with a [[FloatConfig]] directly,

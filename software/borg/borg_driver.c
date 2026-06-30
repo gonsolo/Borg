@@ -855,7 +855,8 @@ static void setup_tile_uniforms(const draw_call_t *dc) {
   if (tri->has_uvs) {
     BORG_GPU->tex_config =
         (TEX_DRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
-        TEX_CONFIG_REG_T__EN_bm;
+        TEX_CONFIG_REG_T__EN_bm |
+        ((uint32_t)tex_log2_dim << TEX_CONFIG_REG_T__LOG2_DIM_bp);
   } else {
     BORG_GPU->tex_config = 0;
   }

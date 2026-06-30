@@ -17,9 +17,10 @@ import chisel3.util._
   *   Word 1 [offset +4]: { pad[15:0], B[15:0] }  — B only
   *
   * Read order: B first (offset +4), then RG (offset +0).
-  * Reason: fragU/fragV are wired from frag_r/frag_g in the dispatcher, so
-  * writing frag_r/g mid-fetch would change mortonIndex.  Reading B first
-  * (which is NOT part of the Morton path) keeps the address stable.
+  * The texture address (baseAddr + mortonIndex×8) is latched into tex_base
+  * when io.start fires (sIdle state), so DRAM reads always use the stable
+  * tex_base value — the B-first order is preserved for historical reasons
+  * but is no longer required for address stability.
   */
 class BorgTextureUnitIO extends Bundle {
   val start     = Input(Bool())           // one-cycle trigger from dispatcher

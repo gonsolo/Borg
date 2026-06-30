@@ -22,7 +22,7 @@ To run gatelevel simulation:
 make -B GATES=yes
 ```
 
-This simulation automatically detects the IHP PDK and the gate-level netlist in standard local output directories (like `runs/wokwi` or `tt_submission`).
+This simulation automatically detects the IHP PDK and the gate-level netlist. For CI it looks for `../gate_level_netlist.v`; for local LibreLane/OpenROAD runs you must set `LOCAL_NETLIST` in the Makefile to the actual netlist path produced by `make gds-ihp` (e.g. `runs/<run_tag>/final/nl/tt_um_gonsolo_borg.nl.v`).
 
 If you wish to save the waveform in VCD format instead of FST format, edit tb.v to use `$dumpfile("tb.vcd");` and then run:
 

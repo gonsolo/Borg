@@ -192,10 +192,10 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | [cocotb](https://github.com/cocotb/cocotb) | Python-based RTL simulation and testing | BSD-3-Clause |
 | [Icarus Verilog](https://github.com/steveicarus/iverilog) | Verilog simulation (cocotb backend) | GPL-2.0 |
 | [Verilator](https://github.com/verilator/verilator) | Verilog linting and simulation | LGPL-3.0 |
-| [nextpnr](https://github.com/YosysHQ/nextpnr) | FPGA place and route (iCE40) | ISC |
-| [IceStorm](https://github.com/YosysHQ/icestorm) | iCE40 FPGA bitstream tools | ISC |
+| [nextpnr](https://github.com/YosysHQ/nextpnr) | FPGA place and route (ECP5) | ISC |
+| [Project Trellis](https://github.com/YosysHQ/prjtrellis) | ECP5 FPGA bitstream tools | ISC |
 | [Netgen](https://github.com/RTimothyEdwards/netgen) | LVS (Layout vs. Schematic) | MIT |
-| [GCC](https://gcc.gnu.org/) | RISC-V cross-compiler (`riscv32-embedded`) | GPL-3.0 |
+| [GCC](https://gcc.gnu.org/) | RISC-V cross-compiler (`riscv64-none-elf`) | GPL-3.0 |
 | [Mill](https://github.com/com-lihaoyi/mill) | Scala build tool | MIT |
 | [Tiny Tapeout Tools](https://github.com/TinyTapeout/tt-support-tools) | Build and submission orchestrator | Apache-2.0 |
 | [Nix](https://github.com/NixOS/nix) | Reproducible development environment | LGPL-2.1 |

@@ -18,7 +18,7 @@ nix develop          # or: direnv allow (if using direnv)
 make test-all
 
 # Cycle-accurate simulation (arcilator is fastest):
-make -C simulation/arcilator vkcube_headless   # headless, checks golden
+make -C simulation/arcilator vkcube            # headless run
 make -C simulation/arcilator vkcube_gui        # interactive Pygame window
 
 # Build and flash the ULX3S FPGA:

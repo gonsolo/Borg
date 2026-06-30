@@ -29,8 +29,8 @@ import chisel3.util._
   *     offset 12: color.r
   *     offset 16: color.g
   *     offset 20: color.b
-  *     offset 24: uv.u  (for future UV support)
-  *     offset 28: uv.v
+  *     offset 24: uv.u  (pre-scaled by tex_w in the descriptor)
+  *     offset 28: uv.v  (pre-scaled by tex_h in the descriptor)
   *
   * Physical uniform register map (from SPIRB blob parse of shader_blobs.h):
   *   Rasterizer shader (uniform_regs[0..11] = [0..11]):
@@ -47,7 +47,7 @@ import chisel3.util._
   *     u12 = inv_area
   *     u13-u15 = UV.u of (v2, v1, v0)  — pre-scaled by tex_w in descriptor
   *     u16-u18 = UV.v of (v2, v1, v0)  — pre-scaled by tex_h in descriptor
-  *     u19-u21 = frag_pos.x of (v2, v1, v0)  — model position (borgc lighting)
+  *     u19-u21 = frag_pos.x of (v2, v1, v0)  — screen-space/transformed position (borgc lighting)
   *     u22-u24 = frag_pos.y of (v2, v1, v0)
   *     u25-u27 = frag_pos.z of (v2, v1, v0)
   *     u28-u30 = z_val      of (v2, v1, v0)  — projected depth for z-interp
@@ -173,9 +173,12 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   *   0-5:   setupRegs[writeIdx]               (scaled edge components)
   *   6-11:  FNEG(clipRegs[v][c])              (negated vertex positions)
   *   12:    setupRegs[7]                       (inv_area)
-  *   13-21: colorRegs[v][c] (r,g,b per vertex in barycentric order)
-  *   22-24: colorRegs[v][3]                   (z_vals per vertex)
-  *   25-30: 0                                 (UVs — future work)
+  *   13-15: uvRegs[v][0]                       (UV.u per vertex, pre-scaled by tex_w)
+  *   16-18: uvRegs[v][1]                       (UV.v per vertex, pre-scaled by tex_h)
+  *   19-21: clipRegs[v][0] or colorRegs[v][0]  (frag_pos.x or color.R, per fragUsesFragPos)
+  *   22-24: clipRegs[v][1] or colorRegs[v][1]  (frag_pos.y or color.G)
+  *   25-27: clipRegs[v][2] or colorRegs[v][2]  (frag_pos.z or color.B)
+  *   28-30: clipRegs[v][2]                     (z_val per vertex, projected depth)
   */
 class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgSequencerIO(cfg))
@@ -438,9 +441,12 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       //   u0-u5:  scaled edge components from setupRegs[0..5]
       //   u6-u11: negated vertex positions from FNEG(clipRegs[v][c])
       //   u12:    inv_area from setupRegs[7]
-      //   u13-u21: colors in barycentric order (v1,v0,v2) × RGB
-      //   u22-u24: z_vals (z of v1, v0, v2)
-      //   u25-u30: 0 (UVs — not yet implemented)
+      //   u13-u15: UV.u per vertex (v2,v1,v0), pre-scaled by tex_w
+      //   u16-u18: UV.v per vertex (v2,v1,v0), pre-scaled by tex_h
+      //   u19-u21: frag_pos.x or color.R per vertex (per fragUsesFragPos)
+      //   u22-u24: frag_pos.y or color.G per vertex
+      //   u25-u27: frag_pos.z or color.B per vertex
+      //   u28-u30: z_vals (projected depth, from clipRegs r2)
       is(sStageUniforms) { handleStageUniforms() }
 
       // --- Step 32.3: Store uniforms to DRAM setup store ---
