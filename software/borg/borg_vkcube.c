@@ -11,7 +11,6 @@
 #include "borg_math.h"
 #include "borg_sys.h"
 #include "compiler/shader_blobs.h"
-#include "vkcube_texture_blob.h"
 
 #define FP16_N1 0xBC00 // -1.0 in FP16
 #define FP16_P1 0x3C00 //  1.0 in FP16
@@ -367,12 +366,8 @@ int main() {
   borg_set_frag_vertex_color(1);
 
   // Host-mailbox (CTS) path: the harness has filled the texture region with
-  // white so the frag's texel×color modulation passes vertex color through —
-  // so DON'T overwrite it with the cube texture.  Normal runs upload the cube.
+  // white so the frag's texel×color modulation passes vertex color through.
   const int cts_active = cts_mailbox_present();
-  if (!cts_active) {
-    borg_upload_texture(borg_texture_small_dat, TEX_WIDTH);
-  }
 
   fp16_t ts[16], t1[16];
 #ifndef TARGET_ULX3S

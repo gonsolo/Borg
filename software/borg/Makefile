@@ -66,7 +66,7 @@ test-native: test_raster.c borg_raster.c borg_math.c test_spirb.c borg_spirb.c
 	./test_spirb
 
 clean:
-	rm -f *.o *.elf *.bin *.hex *.asm test_raster test_spirb .cflags_stamp texture_blob.h vkcube_texture_blob.h
+	rm -f *.o *.elf *.bin *.hex *.asm test_raster test_spirb .cflags_stamp texture_blob.h
 	$(MAKE) -C compiler clean
 	$(MAKE) -C python clean
 
@@ -102,15 +102,6 @@ texture_blob.h: test_texture.dat
 # borg_triangle.c #includes the generated texture blob.
 borg_triangle.o: texture_blob.h
 
-# Embed the vkcube's 64×64 RGB-FP16 texture as a C array (xxd → borg_texture_small_dat[]).
-vkcube_texture_blob.h: borg_texture_small.dat
-	@echo "// Auto-generated: embedded RGB-FP16 vkcube texture (row-major, 6 B/texel)" > $@
-	@echo "#pragma once" >> $@
-	@echo "#include <stdint.h>" >> $@
-	@echo "" >> $@
-	@xxd -i borg_texture_small.dat | sed 's/^unsigned char/static const uint8_t/' >> $@
-
-borg_vkcube.o: vkcube_texture_blob.h
 
 %.o: %.c $(HEADERS) .cflags_stamp
 	@$(CC) $(CFLAGS_FW) -c $< -o $@
