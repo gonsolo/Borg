@@ -36,25 +36,18 @@ HUTT_SDK ?= ../hutt
 # line: make triangle CLOCK_MHZ=125 (ULX3S) or leave as 4 (ASIC/TT).
 CLOCK_MHZ ?= 4
 
-PROJECT_NAME = triangle
+PROJECT_NAME = kernel
 SHARED_SOURCES = borg_driver.c borg_fpu.c borg_raster.c borg_spirb.c borg_math.c
-PROJECT_SOURCES = borg_triangle.c $(SHARED_SOURCES)
+PROJECT_SOURCES = borg_kernel.c $(SHARED_SOURCES)
 HEADERS = $(wildcard *.h)
 
-all: python triangle
+all: python kernel
 
-.PHONY: all triangle vkcube python test-native clean
+.PHONY: all kernel python test-native clean
 
-triangle: python
+kernel: python
 	@$(MAKE) -C compiler all
 	@bear -- $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex || $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex
-
-vkcube: python
-	@$(MAKE) -C compiler all
-	@bear -- $(MAKE) -s PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" \
-		EXTRA_CFLAGS="$(EXTRA_CFLAGS) $(if $(LARGE_TEX),,-DUSE_SMALL_TEXTURE)" vkcube.bin vkcube.hex || \
-		$(MAKE) -s PROJECT_NAME=vkcube PROJECT_SOURCES="borg_vkcube.c $(SHARED_SOURCES)" \
-		EXTRA_CFLAGS="$(EXTRA_CFLAGS) $(if $(LARGE_TEX),,-DUSE_SMALL_TEXTURE)" vkcube.bin vkcube.hex
 
 python:
 	$(MAKE) -C python
@@ -66,7 +59,7 @@ test-native: test_raster.c borg_raster.c borg_math.c test_spirb.c borg_spirb.c
 	./test_spirb
 
 clean:
-	rm -f *.o *.elf *.bin *.hex *.asm test_raster test_spirb .cflags_stamp texture_blob.h
+	rm -f *.o *.elf *.bin *.hex *.asm test_raster test_spirb .cflags_stamp
 	$(MAKE) -C compiler clean
 	$(MAKE) -C python clean
 
@@ -88,19 +81,6 @@ CFLAGS_FW = -O2 -I$(HUTT_SDK) -I$(RDL_C_OUT) -march=$(ARCH) -mabi=$(ABI) \
 .PHONY: force_cflags_check
 .cflags_stamp: force_cflags_check
 	@printf '%s' '$(CFLAGS_FW)' | cmp -s - $@ 2>/dev/null || printf '%s' '$(CFLAGS_FW)' > $@
-
-# Embed the triangle's 32×32 RGB-FP16 texture as a C array (xxd → test_texture_dat[]).
-# The firmware Morton-encodes it into SDRAM at boot via borg_upload_texture(),
-# since on ULX3S there is no host to preload the GPU texture region.
-texture_blob.h: test_texture.dat
-	@echo "// Auto-generated: embedded RGB-FP16 source texture (row-major, 6 B/texel)" > $@
-	@echo "#pragma once" >> $@
-	@echo "#include <stdint.h>" >> $@
-	@echo "" >> $@
-	@xxd -i test_texture.dat | sed 's/^unsigned char/static const uint8_t/' >> $@
-
-# borg_triangle.c #includes the generated texture blob.
-borg_triangle.o: texture_blob.h
 
 
 %.o: %.c $(HEADERS) .cflags_stamp

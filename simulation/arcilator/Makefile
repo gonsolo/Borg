@@ -66,28 +66,25 @@ arcilator_sim: main.o arc.o texture_loader.o uart_decoder.o BorgSimulatorBase.o 
 # Firmware binaries — always invoke the firmware Makefile so its cflags_stamp
 # check detects flag changes (e.g. TARGET_ULX3S from a board build) that a
 # timestamp check on $(FW_SRCS) alone would miss.
-.PHONY: $(FIRMWARE_DIR)/triangle.bin $(FIRMWARE_DIR)/vkcube.bin $(FIRMWARE_DIR)/textest.bin
+.PHONY: $(FIRMWARE_DIR)/kernel.bin $(FIRMWARE_DIR)/textest.bin
 $(FIRMWARE_DIR)/%.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
-triangle: arcilator_sim $(FIRMWARE_DIR)/triangle.bin
-	./arcilator_sim $(FIRMWARE_DIR)/triangle.bin triangle
+kernel: arcilator_sim $(FIRMWARE_DIR)/kernel.bin
+	./arcilator_sim $(FIRMWARE_DIR)/kernel.bin kernel
 
-vkcube: arcilator_sim $(FIRMWARE_DIR)/vkcube.bin
-	./arcilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube
-
-vkcube_gui: python_extension $(FIRMWARE_DIR)/vkcube.bin
+vkcube_gui: python_extension $(FIRMWARE_DIR)/kernel.bin
 	python3 arc_viewer.py
 
 textest: arcilator_sim $(FIRMWARE_DIR)/textest.bin
 	./arcilator_sim $(FIRMWARE_DIR)/textest.bin textest
 
 # CTS UART path: borgvk-style 0xAD MVP packet → firmware → RGB565 framebuffer
-cts-uart: arcilator_sim $(FIRMWARE_DIR)/vkcube.bin
-	python3 '$(ROOT)/scripts/cts_uart_render.py' ./arcilator_sim '$(FIRMWARE_DIR)/vkcube.bin' vkcube_cts_uart_00.ppm 128 128
+cts-uart: arcilator_sim $(FIRMWARE_DIR)/kernel.bin
+	python3 '$(ROOT)/scripts/cts_uart_render.py' ./arcilator_sim '$(FIRMWARE_DIR)/kernel.bin' kernel_cts_uart_00.ppm 128 128
 
-cts-uart-golden: arcilator_sim $(FIRMWARE_DIR)/vkcube.bin
-	python3 '$(ROOT)/scripts/cts_uart_render.py' ./arcilator_sim '$(FIRMWARE_DIR)/vkcube.bin' '$(ROOT)/simulation/golden/vkcube_cts_uart_00.ppm' 128 128
+cts-uart-golden: arcilator_sim $(FIRMWARE_DIR)/kernel.bin
+	python3 '$(ROOT)/scripts/cts_uart_render.py' ./arcilator_sim '$(FIRMWARE_DIR)/kernel.bin' '$(ROOT)/simulation/golden/vkcube_cts_uart_00.ppm' 128 128
 
 clean:
 	rm -f arc.h arc.ll borg.mlir state.json *.o arcilator_sim *.ppm

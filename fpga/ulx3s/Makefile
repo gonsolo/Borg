@@ -128,19 +128,16 @@ FIRMWARE_DIR = ../../software/borg
 # Flash firmware requires a 4-byte little-endian size header prepended.
 # The FlashBootLoader reads this header first to know how many bytes to copy.
 # firmware_with_header.bin = [uint32_le size] + [firmware bytes]
-firmware_with_header.bin: $(FIRMWARE_DIR)/triangle.bin
+firmware_with_header.bin: $(FIRMWARE_DIR)/kernel.bin
 	@echo -e "$(BOLD)[FW-PACK]$(RESET) Prepending 4-byte size header to firmware ..."
-	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/triangle.bin','rb').read(); open('firmware_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> firmware_with_header.bin')"
+	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/kernel.bin','rb').read(); open('firmware_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> firmware_with_header.bin')"
 
-# -DTARGET_ULX3S selects the entire ULX3S address map in borg_sys.h
-# (UART_BASE = SoC debug UART; DRAM_BASE = SDRAM base, since ULX3S has no
-# PSRAM module and SDRAM is direct-mapped at 0).  All address literals live in the
-# header — never duplicated here.  The firmware Makefile rebuilds its objects
-# whenever these flags change (.cflags_stamp), so no stale-object surprises.
-.PHONY: $(FIRMWARE_DIR)/triangle.bin
-$(FIRMWARE_DIR)/triangle.bin:
+# -DTARGET_ULX3S selects the ULX3S address map (UART_BASE = SoC debug UART,
+# DRAM_BASE = SDRAM) and disables the simulation done-wait in borg_kernel.c.
+.PHONY: $(FIRMWARE_DIR)/kernel.bin
+$(FIRMWARE_DIR)/kernel.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
-		EXTRA_CFLAGS="-DTARGET_ULX3S" triangle
+		EXTRA_CFLAGS="-DTARGET_ULX3S" kernel
 
 # Flash firmware blob to onboard flash at 0x400000.
 # FlashBootLoader will copy it to SDRAM at boot.
@@ -226,33 +223,25 @@ minimal-boot: borg.bit minimal.bin
 	@echo -e "  LED[7] = pll_locked (lights immediately)"
 	@echo -e "  LED[6] = boot_done  (lights after ~1 ms — FlashBootLoader done)"
 
-vkcube_with_header.bin: $(FIRMWARE_DIR)/vkcube.bin
-	@echo -e "$(BOLD)[FW-PACK]$(RESET) Prepending 4-byte size header to vkcube firmware ..."
-	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/vkcube.bin','rb').read(); open('vkcube_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> vkcube_with_header.bin')"
+kernel_with_header.bin: $(FIRMWARE_DIR)/kernel.bin
+	@echo -e "$(BOLD)[FW-PACK]$(RESET) Prepending 4-byte size header to kernel firmware ..."
+	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/kernel.bin','rb').read(); open('kernel_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> kernel_with_header.bin')"
 
-# BORGC=1 swaps in the borgc-compiled (Mesa NIR→Borg) cube.c vertex shader
-# instead of the hand-written seq_vert_shader — for A/B testing on HDMI.
-.PHONY: $(FIRMWARE_DIR)/vkcube.bin
-$(FIRMWARE_DIR)/vkcube.bin:
-	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
-		EXTRA_CFLAGS="-DTARGET_ULX3S -DUSE_SMALL_TEXTURE $(if $(BORGC),-DUSE_BORGC_VERT_SHADER -DUSE_BORGC_FRAG_SHADER)" vkcube
-
-flash-vkcube: vkcube_with_header.bin
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing vkcube firmware to onboard flash @ 0x400000 ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 vkcube_with_header.bin
-	@echo -e "$(BOLD)[DONE]$(RESET) vkcube firmware flashed. Start tio, then: make reset"
+flash-kernel: kernel_with_header.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing kernel firmware to onboard flash @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 kernel_with_header.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Kernel firmware flashed. Start tio, then: make reset"
 
 # Serial firmware reload — NO reflash, NO FPGA reconfig, so the HDMI monitor
-# never loses sync.  Rebuilds vkcube.bin (BORGC=1) and streams it to the running
-# firmware over /dev/ttyUSB0; the firmware warm-resets and reboots into it.
-# Requires firmware already running with the 0xB1 handler + warm-reset bitstream.
+# never loses sync.  Rebuilds kernel.bin and streams it to the running firmware
+# over /dev/ttyUSB0; the firmware warm-resets and reboots into it.
 .PHONY: reload
 reload:
-	@echo -e "$(BOLD)[RELOAD]$(RESET) Rebuilding vkcube.bin (BORGC=1) ..."
+	@echo -e "$(BOLD)[RELOAD]$(RESET) Rebuilding kernel.bin ..."
 	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
-		EXTRA_CFLAGS="-DTARGET_ULX3S -DUSE_SMALL_TEXTURE -DUSE_BORGC_VERT_SHADER -DUSE_BORGC_FRAG_SHADER" vkcube
-	@echo -e "$(BOLD)[RELOAD]$(RESET) Streaming vkcube.bin over serial (no reflash) ..."
-	python3 host/reload.py /dev/ttyUSB0 $(FIRMWARE_DIR)/vkcube.bin
+		EXTRA_CFLAGS="-DTARGET_ULX3S" kernel
+	@echo -e "$(BOLD)[RELOAD]$(RESET) Streaming kernel.bin over serial (no reflash) ..."
+	python3 host/reload.py /dev/ttyUSB0 $(FIRMWARE_DIR)/kernel.bin
 
 # Full vkcube deploy: synth + P&R + pack, flash bitstream + vkcube firmware.
 # Does NOT reset — run 'make reset' (with tio already open) to boot the new image.
@@ -264,17 +253,17 @@ vkcube: borg.bit vkcube_with_header.bin
 	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Start tio, then: make reset"
 	@echo -e "  LED[7] = pll_locked, LED[6] = boot_done"
 
-# Full triangle deploy: synth + P&R + pack, flash bitstream + firmware.
-# After power-cycle: ECP5 loads bitstream -> FlashBootLoader copies firmware
-# to SDRAM -> Hutt runs -> Borg renders triangle -> UART dumps pixels.
-triangle: borg.bit firmware_with_header.bin
+# Full kernel deploy: synth + P&R + pack, flash bitstream + firmware.
+# After power-cycle: ECP5 loads bitstream → FlashBootLoader copies firmware
+# to SDRAM → Hutt boots → kernel waits for borgvk → cube.c renders via GPU.
+deploy: borg.bit firmware_with_header.bin
 	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream to onboard flash ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg.bit
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing triangle firmware @ 0x400000 ..."
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing kernel firmware @ 0x400000 ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 firmware_with_header.bin
 	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Power-cycle board to run."
 	@echo -e "  LED[7] = pll_locked, LED[6] = boot_done"
-	@echo -e "  After boot: connect with 'make tio' to capture triangle pixels."
+	@echo -e "  After boot: run cube with BORGVK_SERIAL=/dev/ttyUSB0 ./cube"
 
 # Print resource utilisation after synthesis
 print_resources: yosys.log

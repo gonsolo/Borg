@@ -54,31 +54,27 @@ obj_dir_hdmi/verilator_hdmi: main_hdmi.cpp $(HDMI_DIR)/sim_files.txt $(HDMI_SRCS
 # Firmware binaries — always invoke the firmware Makefile so its cflags_stamp
 # check detects flag changes (e.g. TARGET_ULX3S from a board build) that a
 # timestamp check on $(FW_SRCS) alone would miss.
-.PHONY: $(FIRMWARE_DIR)/triangle.bin $(FIRMWARE_DIR)/vkcube.bin $(FIRMWARE_DIR)/textest.bin
+.PHONY: $(FIRMWARE_DIR)/kernel.bin $(FIRMWARE_DIR)/textest.bin
 $(FIRMWARE_DIR)/%.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) $*
 
 # Simulation targets
-triangle: obj_dir/verilator_sim $(FIRMWARE_DIR)/triangle.bin
-	./obj_dir/verilator_sim $(FIRMWARE_DIR)/triangle.bin triangle 32 32
+kernel: obj_dir/verilator_sim $(FIRMWARE_DIR)/kernel.bin
+	./obj_dir/verilator_sim $(FIRMWARE_DIR)/kernel.bin kernel 32 32
 
-vkcube: obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin
-	./obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin vkcube 32 32
-
-vkcube_gui: python_extension $(FIRMWARE_DIR)/vkcube.bin
+vkcube_gui: python_extension $(FIRMWARE_DIR)/kernel.bin
 	python3 viewer.py
 
-# make hdmi APP=triangle FBW=32 FBH=32 TEXD=32   (fast)
-# make hdmi APP=vkcube   FBW=128 FBH=128 TEXD=64  (full)
+# make hdmi APP=kernel FBW=32 FBH=32
 hdmi: obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin
 	./obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin $(APP) $(FBW) $(FBH) $(TEXD)
 
 # CTS UART path: borgvk-style 0xAD MVP packet → firmware → RGB565 framebuffer
-cts-uart: obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin
-	python3 '$(ROOT)/scripts/cts_uart_render.py' ./obj_dir/verilator_sim '$(FIRMWARE_DIR)/vkcube.bin' vkcube_cts_uart_00.ppm 128 128
+cts-uart: obj_dir/verilator_sim $(FIRMWARE_DIR)/kernel.bin
+	python3 '$(ROOT)/scripts/cts_uart_render.py' ./obj_dir/verilator_sim '$(FIRMWARE_DIR)/kernel.bin' kernel_cts_uart_00.ppm 128 128
 
-cts-uart-golden: obj_dir/verilator_sim $(FIRMWARE_DIR)/vkcube.bin
-	python3 '$(ROOT)/scripts/cts_uart_render.py' ./obj_dir/verilator_sim '$(FIRMWARE_DIR)/vkcube.bin' '$(ROOT)/simulation/golden/vkcube_cts_uart_00.ppm' 128 128
+cts-uart-golden: obj_dir/verilator_sim $(FIRMWARE_DIR)/kernel.bin
+	python3 '$(ROOT)/scripts/cts_uart_render.py' ./obj_dir/verilator_sim '$(FIRMWARE_DIR)/kernel.bin' '$(ROOT)/simulation/golden/vkcube_cts_uart_00.ppm' 128 128
 
 python_extension: obj_dir/verilator_sim
 	@mkdir -p build && cd build && cmake .. -DCMAKE_CXX_COMPILER=g++ -DPython_EXECUTABLE=$$(which python3) -DVERILATOR_ROOT=$$(dirname $$(dirname $$(which verilator)))/share/verilator -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null && $(MAKE) -s

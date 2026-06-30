@@ -85,7 +85,7 @@ If you add or change a register, edit the `.rdl`, then re-run `make rdl` (or any
 
 ### Firmware
 
-`software/tinyqv/` is the runtime/startup/UART/printf for the on-CPU firmware (`start.s`, `runtime.c`, `nanoprintf.h`, `tinyQV.a` archive). `software/borg/` contains the GPU driver, SPIR-B shader format, math, rasterizer, and the demo programs (`borg_triangle.c`, `borg_vkcube.c`).
+`software/tinyqv/` is the runtime/startup/UART/printf for the on-CPU firmware (`start.s`, `runtime.c`, `nanoprintf.h`, `tinyQV.a` archive). `software/borg/` contains the GPU driver, SPIR-B shader format, math, rasterizer, and `borg_kernel.c` — a thin render kernel that boots, drains borgvk wire packets (0xAD MVP / 0xAE geometry / 0xAF texture / 0xB0 shaders), and drives the autonomous TBR hardware. No hardcoded geometry, shaders, or texture; all content is uploaded at runtime by borgvk / cube.c.
 
 ### ULX3S bring-up harnesses (the recent active work)
 
@@ -102,7 +102,7 @@ A real Mesa Vulkan driver (native ICD, modeled on v3dv) that runs the **unmodifi
 - `Vulkan-Tools/` — upstream KhronosGroup, pinned; source of `cube/cube.c` (kept unmodified).
 - `mesa/` — the `gonsolo/mesa` fork, branch `borg`; the driver lives in-tree under `src/borg/vulkan/` (added post-restart once the toolchain is in `flake.nix`).
 
-The driver intercepts `vkQueueSubmit` (via Mesa runtime's `vk_queue.driver_submit`), reads the per-frame MVP from the bound uniform buffer, and ships it over serial to `borg_vkcube.c` firmware, which renders the existing cube+texture via the autonomous TBR sequencer. No NIR→Borg compiler is needed for the cube (its shaders are already hand-compiled to SPIR-B in the firmware as `vert_borg`/`frag_borg`); that compiler + drm-shim are post-July work. The current custom-firmware `mouse_rotation.py` demo stays working as a fallback. Full plan: `~/.claude/plans/atomic-questing-stream.md`. `flake.nix` carries the Mesa/Vulkan build deps (meson, ninja, vulkan-loader/headers, libdrm, spirv-tools, x11/xcb).
+The driver intercepts `vkQueueSubmit` (via Mesa runtime's `vk_queue.driver_submit`), reads the per-frame MVP from the bound uniform buffer, and ships it over serial to the `borg_kernel.c` firmware (wire protocol: 0xAD MVP, 0xAE geometry, 0xAF texture rows, 0xB0 borgc shaders). The kernel renders the frame via the autonomous TBR sequencer. No NIR→Borg compiler is needed for the cube demo (borgvk ships borgc-compiled shaders from Mesa's `src/borg/compiler/`). Full plan: `~/.claude/plans/atomic-questing-stream.md`. `flake.nix` carries the Mesa/Vulkan build deps (meson, ninja, vulkan-loader/headers, libdrm, spirv-tools, x11/xcb).
 
 ## Conventions to know
 
