@@ -21,11 +21,29 @@ ArcBorgSimulator::ArcBorgSimulator(const std::string& firmware_path, uint32_t w,
     flat_init_words[flat_spi_word_offset + 0] = width;
     flat_init_words[flat_spi_word_offset + 1] = height;
 
-    // Reset sequence — leave rst_n=0 until first step() call.
+    // Reset sequence — leave rst_n=0 until first step() call.  Pre-cycle the
+    // clock several times with ui_in held at the UART-idle value (bit7=1,
+    // matching PeriUart's rxd_select default -> io.ui_in(7)) so the SoC's
+    // 2-stage input synchronizer (Project.scala: ui_in_sync0/ui_in_sync)
+    // settles to idle=1 BEFORE the UART RX FSM starts evaluating transitions.
+    // Without this, the FSM sees the synchronizer's reset-default 0 as a
+    // spurious START bit on the very first real cycle, receives a bogus byte,
+    // and latches it into the PeriUart wrapper's one-deep RX buffer
+    // (uart_rx_buffered), which then never clears — permanently blocking the
+    // wrapper from capturing any real byte for the rest of the run, even
+    // though the low-level FSM keeps correctly receiving each one into
+    // recieved_data.  VerBorgSimulator's constructor gets this settling for
+    // free via 10 clock cycles it already runs while held in reset.
     model->view.clk   = 0;
     model->view.rst_n = 0;
     model->view.ena   = 1;
-    model->view.ui_in = 0;
+    model->view.ui_in = 0x80;
+    for (int i = 0; i < 10; i++) {
+        model->eval();
+        model->view.clk = 1;
+        model->eval();
+        model->view.clk = 0;
+    }
     model->eval();
 
     // Arcilator does not process the RTL's $readmemh LUT init — load them here.
