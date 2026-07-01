@@ -137,9 +137,9 @@ Running on \textbf{ULX3S} (ECP5-85K) with \textbf{HDMI output}:
   \item Native \textbf{Mesa Vulkan ICD} (\texttt{borgvk}): unmodified Khronos \texttt{vkcube} renders on ULX3S over USB
   \item \textbf{Vulkan CTS}: 6{,}888 tests passing, \textbf{0 failures} (of 1.6M total \texttt{dEQP-VK})
 \end{itemize}
-\medskip
+\smallskip
 \begin{center}
-  \includegraphics[width=0.55\linewidth]{ulx3s_vkcube}\\[0.4em]
+  \includegraphics[width=0.46\linewidth]{ulx3s_vkcube}\\[0.3em]
   {\small\itshape VkCube running on ULX3S hardware with HDMI output}
 \end{center}
 }
@@ -161,11 +161,11 @@ Submitted; chips expected September 2026.
 
 \block{Funding}{
 \begin{center}
-\includegraphics[height=2.2cm]{figures/nlnet_logo}
+\includegraphics[height=1.8cm]{figures/nlnet_logo}
 \qquad
-\includegraphics[height=2.2cm]{figures/ngi0_logo}
+\includegraphics[height=1.8cm]{figures/ngi0_logo}
 \end{center}
-\medskip
+\smallskip
 \footnotesize
 Borg is funded by the \textbf{NGI0 Commons Fund} (NLnet Foundation /
 European Commission, Grant No.~101135429) and Swiss SERI.
@@ -210,8 +210,8 @@ European Commission, Grant No.~101135429) and Swiss SERI.
 \textbf{Synthesis}  & Yosys \\
 \textbf{P\&R}       & nextpnr-ecp5 / \textbf{LibreLane} (Nix) \\
 \textbf{Simulation} & Verilator, cocotb, Arcilator \\
-\textbf{Compiler}   & SPIR-V $\to$ SPIR-B (\textbf{1.6k lines} Python) \\
-\textbf{Firmware}   & 32-bit RISC-V (\textbf{$\sim$5k lines} C) \\
+\textbf{Compiler}   & \texttt{borgc} NIR $\to$ SPIR-B (\textbf{$\sim$1k lines} Rust) \\
+\textbf{Firmware}   & 64-bit RISC-V (\textbf{$\sim$5k lines} C) \\
 \textbf{Reg.\ map}  & PeakRDL-chisel \\
 \textbf{Math Cores} & \textbf{Custom FP16 FMA} pipeline \\
 \textbf{PDK}        & ihp-sg13g2 \\
