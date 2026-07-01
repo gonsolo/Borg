@@ -118,6 +118,15 @@ int main() {
   static uint8_t pkt_buf[RX_PKT_BUF_LEN];
   static float host_mvp[16];
   static int have_mvp = 0;
+  // Persists ACROSS while(1) iterations (not just within one drain-loop call):
+  // a burst's packets stream back-to-back with no idle gap, so when a call
+  // ends because a non-shader/non-texture-row packet succeeded (e.g. geometry,
+  // which intentionally ends the batch to let rendering/other work happen),
+  // the NEXT call must still skip the gap-sync for the packet immediately
+  // following on the wire — otherwise the still-arriving bytes get silently
+  // eaten as "idle padding" by the gap-sync loop below and the rest of the
+  // burst is lost with no error printed at all.
+  int skip_gap = 0;
 
   while (1) {
     // Drain borgvk packets from the UART.  Gap-sync: consume bytes until the
@@ -128,7 +137,6 @@ int main() {
     // Greedy loop: keep draining while texture or shader bursts keep arriving;
     // break on any other packet type so we render once per MVP packet.
     int staged_vert = 0, staged_frag = 0;
-    int skip_gap = 0;
     int pending_len = 0;  // bytes of a resync-recovered marker+payload already in pkt_buf
     for (int drain_iter = 0; drain_iter < 16; drain_iter++) {
       int got_tex_row = 0;

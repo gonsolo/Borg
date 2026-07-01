@@ -23,6 +23,11 @@ public:
     int      cur_back_buf         = 1;  // mirrors firmware's static back_buf (starts at 1)
     uint32_t frame_tile_size_words = 0;
     uint32_t out_base_word_buf0    = 0;  // buf=0 FB base (constant after construction)
+    // uart_rts sampled from uo_out at the END of the previous cycle (one-cycle
+    // lag from the clock edge that produced it) — gates whether uart_tx may
+    // START a new byte this cycle.  Defaults clear (matches UartRx.scala's
+    // reset state: fsm_state=IDLE -> uart_rts=false).
+    bool uart_cts = true;
 
     VerBorgSimulator(const std::string& firmware_path, uint32_t w = 32, uint32_t h = 32) {
         model = new VBorgSimTop;
@@ -112,11 +117,17 @@ public:
 
         for (uint32_t c = 0; c < cycles_to_run; c++) {
             // Drive UART RXD (ui_in[7]) per cycle; idle=1, uart_tx drives start/data/stop.
-            set_ui_in((uint8_t)(uart_tx.tick() << 7));
+            // Gated by uart_cts (sampled from uo_out's rts bit at the end of the
+            // PREVIOUS cycle) so a new byte never starts while UartRx.scala is
+            // still parked in FSM_READY holding an unread one.
+            set_ui_in((uint8_t)(uart_tx.tick(uart_cts) << 7));
             model->dbg_raddr = sdram_marker_addr;
             clock_low(); clock_high();
 
             uint8_t uo_out = model->uo_out;
+            // uo_out := Fill(4, Cat(uart_rts, uart_txd)) (PeriUart.scala) — txd at
+            // bit0 (get_uart_bit_pos()), rts at the adjacent bit1.
+            uart_cts = !((uo_out >> 1) & 1);
             if (uart.tick((uo_out >> get_uart_bit_pos()) & 1))
                 std::cout << (char)uart.byte() << std::flush;
 

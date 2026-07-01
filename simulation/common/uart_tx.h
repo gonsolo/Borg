@@ -48,10 +48,18 @@ public:
     bool empty() const { return head >= queue.size() && state == IDLE && pending_gap == 0; }
 
     // Call once per sim clock cycle.  Returns the current RXD bit value.
-    uint8_t tick() {
+    // `cts` (clear-to-send) gates only the IDLE->START decision — i.e. whether a
+    // NEW byte may begin this cycle.  A byte already in flight always finishes;
+    // real UART flow control (and this receiver's uart_rts) only ever holds off
+    // the START of the next byte, never aborts one mid-transmission.  Ignoring
+    // cts entirely (the historical default) races the receiver: UartRx.scala
+    // parks in FSM_READY (deaf to the wire) until the CPU polls it out, so a
+    // byte arriving while cts is deasserted is silently dropped.
+    uint8_t tick(bool cts = true) {
         if (state == IDLE) {
             if (pending_gap > 0) { pending_gap--; return 1; }
             if (head >= queue.size()) return 1;
+            if (!cts) return 1;
             current = queue[head++];
             state = START;
             cycle_count = 0;

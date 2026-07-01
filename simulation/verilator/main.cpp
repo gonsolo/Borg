@@ -15,7 +15,14 @@ static int run_and_dump(VerBorgSimulator &sim, uint32_t width, uint32_t height,
     int devnull = open(getenv("CTS_DBG") ? "/dev/stderr" : "/dev/null", O_WRONLY);
     if (devnull >= 0) dup2(devnull, STDOUT_FILENO);
 
-    const uint64_t MAX_CYCLES = 50000000ULL;
+    // Default sized for small/legacy captures.  A full borgvk burst (2 shaders +
+    // geometry + up to RX_TEX_DIM texture rows + MVP, tens of KB) takes ~2170
+    // sim-cycles/byte at real UART pacing — e.g. 26 KB needs ~57M cycles just for
+    // the wire transfer, before any render time.  Override via CTS_MAX_CYCLES for
+    // large captures rather than bumping the default (keeps small-test runs fast
+    // to fail).
+    uint64_t MAX_CYCLES = 50000000ULL;
+    if (const char *ov = getenv("CTS_MAX_CYCLES")) MAX_CYCLES = strtoull(ov, nullptr, 10);
     uint64_t cycles = 0;
     while (!sim.step(10000)) {
         cycles += 10000;
