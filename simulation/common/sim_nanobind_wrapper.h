@@ -15,6 +15,7 @@
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
 #include <cstring>
+#include <vector>
 
 #include SIM_INCLUDE  // expands to the backend header defined by the includer
 
@@ -30,13 +31,31 @@ public:
     }
     ~SimulatorWrapper() { delete sim; }
 
-    void load_texture(const std::string& tex_path, uint32_t tex_dim = 32) {
-        sim->load_texture(tex_path, tex_dim);
-    }
     bool step(uint32_t cycles)               { return sim->step(cycles); }
-    void set_camera_angles(float rx, float ry) { sim->set_camera_angles(rx, ry); }
     uint32_t width()  const { return sim->width; }
     uint32_t height() const { return sim->height; }
+
+    // Inject raw bytes into the UART RXD line (as if sent by the firmware's
+    // serial peer — borgvk in production, test harness in CI).
+    void uart_inject(nb::bytes data) {
+        sim->uart_tx.enqueue(
+            reinterpret_cast<const uint8_t*>(data.c_str()), data.size());
+    }
+    // Insert `cycles` idle cycles into the uart_tx stream before queued bytes.
+    // Use once at startup (~3.5M cycles) so the firmware finishes booting before
+    // the first borgvk packet arrives.
+    void uart_inject_gap(uint32_t cycles) {
+        sim->uart_tx.enqueue_gap(cycles);
+    }
+    // Set the RXD bit period (sim cycles/bit) — must match the firmware's own
+    // UART_BAUD divisor (a function of the CLOCK_MHZ it was built with).
+    // Call once, before any uart_inject(), and before the firmware boots.
+    // Also updates the debug-print TX decoder so boot/status messages stay
+    // readable (functionally independent of the RXD injection path).
+    void uart_set_cycles_per_bit(int cycles_per_bit) {
+        sim->uart_tx.set_cycles_per_bit(cycles_per_bit);
+        sim->uart.set_cycles_per_bit(cycles_per_bit);
+    }
 
     nb::ndarray<nb::numpy, uint8_t, nb::shape<-1, -1, 3>, nb::c_contig>
     get_framebuffer() {
@@ -82,10 +101,10 @@ NB_MODULE(NB_MODULE_NAME, m) {
     nb::class_<SimulatorWrapper>(m, "BorgSimulator")
         .def(nb::init<const std::string&, uint32_t, uint32_t>(),
              nb::arg("firmware_path"), nb::arg("width") = 32, nb::arg("height") = 32)
-        .def("load_texture",        &SimulatorWrapper::load_texture,
-             nb::arg("tex_path"), nb::arg("tex_dim") = 32)
         .def("step",                &SimulatorWrapper::step)
-        .def("set_camera_angles",   &SimulatorWrapper::set_camera_angles)
+        .def("uart_inject",         &SimulatorWrapper::uart_inject)
+        .def("uart_inject_gap",     &SimulatorWrapper::uart_inject_gap)
+        .def("uart_set_cycles_per_bit", &SimulatorWrapper::uart_set_cycles_per_bit)
         .def("get_framebuffer",     &SimulatorWrapper::get_framebuffer)
         .def_prop_ro("width",       &SimulatorWrapper::width)
         .def_prop_ro("height",      &SimulatorWrapper::height);

@@ -35,8 +35,9 @@ add_subdirectory(../../software/borg/python borg_python_build)
 target_link_libraries(borg_sim PRIVATE borgsim ${VERILATOR_OBJS})
 
 # Verilator headers
-target_include_directories(borg_sim PRIVATE 
-    ${CMAKE_CURRENT_SOURCE_DIR}/obj_dir 
+target_include_directories(borg_sim PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/obj_dir
     ${VERILATOR_ROOT}/include
     ${VERILATOR_ROOT}/include/vltstd
     ${CMAKE_CURRENT_SOURCE_DIR}/../common

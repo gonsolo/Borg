@@ -132,12 +132,16 @@ int main() {
     for (int drain_iter = 0; drain_iter < 16; drain_iter++) {
       int got_tex_row = 0;
       int got_shader_pkt = 0;
-      // At 25 MHz: inter-byte = 87 µs = 2175 cyc; smallest inter-packet gap
-      // (0xAD) ≈ 6.3 ms.  300 µs = 7500 cyc sits safely between the two.
-      const unsigned GAP_CYCLES   = 7500;
-      const unsigned GUARD_CYCLES = 4000000;  // ~160 ms hard cap
-
+      // Gap-sync: consume bytes until the line has been idle for GAP_CYCLES
+      // (a packet boundary), avoiding mid-packet false framing from UART drops
+      // during borg_present() (the FIFO is only 1 byte deep).  The sender
+      // (borgvk, on both the real serial port and the sim socket transport)
+      // paces packets with a real idle gap for exactly this reason.
+      // At 25 MHz: inter-byte = 87 µs = 2175 cyc; 0xAD gap ≈ 6.3 ms.
+      // 300 µs = 7500 cyc sits safely between the two.
       if (!skip_gap) {
+        const unsigned GAP_CYCLES   = 7500;
+        const unsigned GUARD_CYCLES = 4000000;  // ~160 ms hard cap
         unsigned t0 = rdcycle();
         unsigned tg = t0;
         while ((unsigned)(rdcycle() - t0) < GAP_CYCLES) {
@@ -276,8 +280,10 @@ int main() {
 
 #ifndef TARGET_ULX3S
     // Simulation sync: poll until the viewer has consumed the framebuffer and
-    // cleared the done marker, then start the next drain/render cycle.
-    int done_offset = BORG_FB_WIDTH * BORG_FB_HEIGHT * 2;
+    // cleared the done marker, then start the next drain/render cycle.  The
+    // marker's double-buffer slot alternates every present, so ask the driver
+    // for the address rather than recomputing it (it doesn't track back_buf).
+    int done_offset = borg_last_present_marker_offset();
     while (DRAM_OUT(done_offset) == DONE_MARKER)
       ;
 #endif

@@ -44,6 +44,10 @@ static int has_sequencer = 0;
 // shows buffer 0 (black), giving a clean first frame.
 static int back_buf = 1;
 
+// DRAM_OUT() word offset of the DONE_MARKER written by the most recent
+// borg_present() call — see borg_last_present_marker_offset().
+static int last_present_marker_offset = 0;
+
 // Step 30.1b: Sequencer shader ROM constants.
 //
 // GPU MVP vertex shader ABI (borgc-compiled, uploaded at runtime by borgvk):
@@ -1364,6 +1368,7 @@ void borg_present(int frame) {
   // timing words at FRAME_FB_SIZE+1.. would land in the *other* buffer's first
   // pixels (FRAME_STRIDE = FRAME_FB_SIZE+1), corrupting the displayed frame.
   int base = back_buf * FRAME_STRIDE + FRAME_FB_SIZE;
+  last_present_marker_offset = base;
   DRAM_OUT(base) = DONE_MARKER;
   DRAM_OUT(base + 1) = t_init_cycles & 0xFFFF;
   DRAM_OUT(base + 2) = (t_init_cycles >> 16) & 0xFFFF;
@@ -1394,4 +1399,12 @@ void borg_present(int frame) {
   // CPU/GPU compute).
   while ((*(volatile uint32_t *)0x08000024u & 1u) != (uint32_t)front)
     ;
+}
+
+// DRAM_OUT() word offset of the DONE_MARKER from the most recent borg_present()
+// call.  The sim/host viewer polls this address (via DRAM_OUT) to detect frame
+// completion and to know when to clear the marker for the next frame — the
+// double-buffer slot alternates every present, so callers must not hardcode it.
+int borg_last_present_marker_offset(void) {
+  return last_present_marker_offset;
 }

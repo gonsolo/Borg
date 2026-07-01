@@ -234,11 +234,14 @@ static int run_cts(const char *uart_file, const char *fw_path,
     f.seekg(0);
     std::vector<uint8_t> uart_bytes((size_t)sz);
     f.read((char *)uart_bytes.data(), sz);
+    // kernel.bin is built at CLOCK_MHZ=25 (matching ULX3S) so the borgvk UART
+    // drain loop's software polling has enough cycles/bit margin — see
+    // borg_kernel.c and simulation/common/uart_tx.h.  115200 baud @ 25 MHz ≈
+    // 217 sim-cycles/bit; must match the firmware's own UART_BAUD divisor.
+    sim.uart_tx.set_cycles_per_bit(217);
     // Delay byte injection until after the firmware's first drain-loop gap-wait.
     // The firmware discards bytes arriving before the gap-wait finds GAP_CYCLES
-    // (7500) of idle. At 4 MHz the firmware boots in ~100K cycles; 700K gives a
-    // wide margin so that when bytes start arriving the firmware is already in
-    // Step 2 (waiting for the first marker byte, 2M+ cycle window).
+    // (7500) of idle; 700K cycles gives a wide margin for boot to complete first.
     sim.uart_tx.enqueue_gap(700000);
     sim.uart_tx.enqueue(uart_bytes.data(), (size_t)sz);
 

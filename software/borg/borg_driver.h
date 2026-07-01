@@ -124,6 +124,11 @@ void borgUpdateUniforms(const borg_draw_data_t *d);
 // Write DONE marker for a frame to DRAM
 void borg_present(int frame);
 
+// DRAM_OUT() word offset of the DONE_MARKER written by the most recent
+// borg_present() — the double-buffer slot alternates every present, so the
+// sim/host viewer's done-wait poll must call this rather than hardcode it.
+int borg_last_present_marker_offset(void);
+
 // Blocking UART byte transmit (defined in borg_driver.c).  Polls the SoC
 // debug-UART busy bit, then writes the byte to UART_TX.
 void putc_uart(int c);

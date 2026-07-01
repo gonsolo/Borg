@@ -76,10 +76,14 @@ static int run_cts(const char *uart_file, const char *fw_path,
     f.seekg(0);
     std::vector<uint8_t> uart_bytes((size_t)sz);
     f.read((char *)uart_bytes.data(), sz);
-    // The verilator uses the same 4 MHz firmware (35 sim-cycles per UART bit) as
-    // arcilator but the SDRAM model adds per-access latency, so use a wider gap
-    // (3.5M vs 700K) to ensure the firmware has finished booting and is waiting
-    // in its drain-loop before the first byte arrives.
+    // kernel.bin is built at CLOCK_MHZ=25 (matching ULX3S) so the borgvk UART
+    // drain loop's software polling has enough cycles/bit margin — see
+    // borg_kernel.c and simulation/common/uart_tx.h.  115200 baud @ 25 MHz ≈
+    // 217 sim-cycles/bit; must match the firmware's own UART_BAUD divisor.
+    sim.uart_tx.set_cycles_per_bit(217);
+    // The SDRAM model adds per-access latency beyond raw instruction cycles, so
+    // use a wider gap than arcilator's to ensure the firmware has finished
+    // booting and is waiting in its drain-loop before the first byte arrives.
     sim.uart_tx.enqueue_gap(3500000);
     sim.uart_tx.enqueue(uart_bytes.data(), (size_t)sz);
 

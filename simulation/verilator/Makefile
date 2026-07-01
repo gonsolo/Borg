@@ -54,9 +54,13 @@ obj_dir_hdmi/verilator_hdmi: main_hdmi.cpp $(HDMI_DIR)/sim_files.txt $(HDMI_SRCS
 # Firmware binaries — always invoke the firmware Makefile so its cflags_stamp
 # check detects flag changes (e.g. TARGET_ULX3S from a board build) that a
 # timestamp check on $(FW_SRCS) alone would miss.
+# CLOCK_MHZ=25 (matching ULX3S) — the borgvk UART drain loop's software
+# polling needs the cycles/bit margin that gives; see borg_kernel.c and
+# simulation/common/uart_tx.h (UartTx::set_cycles_per_bit, matched to 217 in
+# main.cpp/viewer.py). CLOCK_MHZ=4 does not leave enough slack and drops bytes.
 .PHONY: $(FIRMWARE_DIR)/kernel.bin $(FIRMWARE_DIR)/textest.bin
 $(FIRMWARE_DIR)/%.bin:
-	$(MAKE) -C $(FIRMWARE_DIR) $*
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=25 $*
 
 # Simulation targets
 kernel: obj_dir/verilator_sim $(FIRMWARE_DIR)/kernel.bin
