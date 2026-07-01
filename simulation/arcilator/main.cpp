@@ -81,7 +81,14 @@ static int run_and_dump(ArcBorgSimulator &sim, uint32_t width, uint32_t height,
     int devnull = open(getenv("CTS_DBG") ? "/dev/stderr" : "/dev/null", O_WRONLY);
     if (devnull >= 0) dup2(devnull, STDOUT_FILENO);
 
-    const uint64_t MAX_CYCLES = 15000000ULL;
+    // Default sized for small/legacy captures.  A full borgvk burst (2 shaders +
+    // geometry + up to RX_TEX_DIM texture rows + MVP, tens of KB) takes ~2170
+    // sim-cycles/byte at real UART pacing — e.g. 26 KB needs ~57M cycles just for
+    // the wire transfer, before any render time.  Override via CTS_MAX_CYCLES for
+    // large captures rather than bumping the default (keeps small-test runs fast
+    // to fail).
+    uint64_t MAX_CYCLES = 15000000ULL;
+    if (const char *ov = getenv("CTS_MAX_CYCLES")) MAX_CYCLES = strtoull(ov, nullptr, 10);
     uint64_t cycles = 0;
     while (!sim.step(10000)) {
         cycles += 10000;
@@ -239,6 +246,7 @@ static int run_cts(const char *uart_file, const char *fw_path,
     // borg_kernel.c and simulation/common/uart_tx.h.  115200 baud @ 25 MHz ≈
     // 217 sim-cycles/bit; must match the firmware's own UART_BAUD divisor.
     sim.uart_tx.set_cycles_per_bit(217);
+    sim.uart.set_cycles_per_bit(217);
     // Delay byte injection until after the firmware's first drain-loop gap-wait.
     // The firmware discards bytes arriving before the gap-wait finds GAP_CYCLES
     // (7500) of idle; 700K cycles gives a wide margin for boot to complete first.

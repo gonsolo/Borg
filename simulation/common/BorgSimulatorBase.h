@@ -37,6 +37,11 @@ public:
     uint32_t frame_tile_size_words = 0;
     uint32_t out_base_word_buf0    = 0;
 
+    // uart_rts sampled from get_uo_out() at the end of the previous cycle —
+    // gates whether uart_tx may START a new byte (see step()).  Defaults clear
+    // (matches UartRx.scala's reset state: fsm_state=IDLE -> uart_rts=false).
+    bool uart_cts = true;
+
     BorgSimulatorBase() 
         : flash(nullptr), flat(nullptr), width(0), height(0),
           flat_spi_word_offset(0), out_base_word(0), marker_offset_word(0) {}

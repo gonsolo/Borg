@@ -74,7 +74,11 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
     uint32_t cur_marker_word = out_base_word_buf0 + cur_marker_off;
 
     for (uint32_t c = 0; c < cycles_to_run; c++) {
-        uint8_t rxd_bit = uart_tx.tick();
+        // Gated by uart_cts (sampled from get_uo_out()'s rts bit at the end of
+        // the previous cycle) so a new byte never starts while UartRx.scala is
+        // still parked in FSM_READY holding an unread one — otherwise the byte
+        // is silently dropped (the receiver is deaf to the wire in that state).
+        uint8_t rxd_bit = uart_tx.tick(uart_cts);
         set_ui_in((uint8_t)(0x00 | (rxd_bit << 7)));
         // --- Drive backend INPUT ports so they are stable across the posedge.
         //     During a burst: accept is pulsed every cycle until all words are
@@ -134,6 +138,22 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
         uint8_t uo_out = get_uo_out();
         if (uart.tick((uo_out >> get_uart_bit_pos()) & 1)) {
             std::cout << (char)uart.byte() << std::flush;
+        }
+        // uo_out := Fill(4, Cat(uart_rts, uart_txd)) (PeriUart.scala) — rts sits
+        // at the bit immediately above txd in every 2-bit replica.
+        uart_cts = !((uo_out >> (get_uart_bit_pos() + 1)) & 1);
+
+        static const bool uart_dbg = getenv("CTS_UART_DBG") != nullptr;
+        if (uart_dbg) {
+            static uint64_t dbgcyc = 0;
+            dbgcyc++;
+            if (dbgcyc % 500000 == 0) {
+                std::cerr << "[UARTDBG] cyc=" << dbgcyc
+                          << " cts=" << uart_cts
+                          << " tx_empty=" << uart_tx.empty()
+                          << " uo_out=0x" << std::hex << (int)uo_out << std::dec
+                          << std::endl;
+            }
         }
 
         // Check completion marker in the current back-buffer's slot.

@@ -4,6 +4,12 @@ import socket as socket_module
 import struct
 import sys
 import threading
+import time
+
+# BORG_VIEWER_PROFILE=1 prints periodic step()/tick() timing breakdown to
+# stderr — use to see where outer-loop wall time actually goes before tuning
+# the cycles-per-frame budget or the clock.tick() cap.
+PROFILE = os.environ.get("BORG_VIEWER_PROFILE")
 
 # Force Pygame to connect to XWayland to bypass broken native Nix Wayland libraries
 os.environ["SDL_VIDEODRIVER"] = "x11"
@@ -110,7 +116,15 @@ def main():
     cycles_simulated = 0
     running = True
 
+    if PROFILE:
+        prof_t_step = 0.0
+        prof_t_other = 0.0
+        prof_cycles = 0
+        prof_last = time.monotonic()
+
     while running:
+        t0 = time.monotonic() if PROFILE else None
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -124,6 +138,8 @@ def main():
         while byte_deque:
             sim.uart_inject(byte_deque.popleft())
 
+        t1 = time.monotonic() if PROFILE else None
+
         frame_done = False
         for _ in range(5):
             if sim.step(50000):
@@ -132,12 +148,30 @@ def main():
                 break
             cycles_simulated += 50000
 
+        t2 = time.monotonic() if PROFILE else None
+
         if not frame_done:
             pygame.display.flip()
             clock.tick(60)
             pygame.display.set_caption(
                 f"Borg GPU | Waiting for borgvk... {cycles_simulated/1000000:.1f}M cycles"
             )
+            if PROFILE:
+                t3 = time.monotonic()
+                prof_t_other += (t1 - t0) + (t3 - t2)
+                prof_t_step += t2 - t1
+                prof_cycles += 250000
+                if t3 - prof_last > 2.0:
+                    dt = t3 - prof_last
+                    print(
+                        f"[profile] {prof_cycles/dt/1e6:.2f}M cyc/s  "
+                        f"step={prof_t_step/dt*100:.0f}%  "
+                        f"other(events+inject+flip/tick)={prof_t_other/dt*100:.0f}%",
+                        file=sys.stderr,
+                    )
+                    prof_t_step = prof_t_other = 0.0
+                    prof_cycles = 0
+                    prof_last = t3
             continue
 
         fb_array = sim.get_framebuffer()
