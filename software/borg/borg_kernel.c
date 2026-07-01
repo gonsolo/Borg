@@ -129,40 +129,54 @@ int main() {
     // break on any other packet type so we render once per MVP packet.
     int staged_vert = 0, staged_frag = 0;
     int skip_gap = 0;
+    int pending_len = 0;  // bytes of a resync-recovered marker+payload already in pkt_buf
     for (int drain_iter = 0; drain_iter < 16; drain_iter++) {
       int got_tex_row = 0;
       int got_shader_pkt = 0;
-      // Gap-sync: consume bytes until the line has been idle for GAP_CYCLES
-      // (a packet boundary), avoiding mid-packet false framing from UART drops
-      // during borg_present() (the FIFO is only 1 byte deep).  The sender
-      // (borgvk, on both the real serial port and the sim socket transport)
-      // paces packets with a real idle gap for exactly this reason.
-      // At 25 MHz: inter-byte = 87 µs = 2175 cyc; 0xAD gap ≈ 6.3 ms.
-      // 300 µs = 7500 cyc sits safely between the two.
-      if (!skip_gap) {
-        const unsigned GAP_CYCLES   = 7500;
-        const unsigned GUARD_CYCLES = 4000000;  // ~160 ms hard cap
-        unsigned t0 = rdcycle();
-        unsigned tg = t0;
-        while ((unsigned)(rdcycle() - t0) < GAP_CYCLES) {
-          if (uart_rx_ready()) { (void)getc_uart(); t0 = rdcycle(); }
-          if ((unsigned)(rdcycle() - tg) >= GUARD_CYCLES) break;
-        }
-      }
-      skip_gap = 0;
+      int pkt_marker, pkt_pos;
 
-      // Wait up to ~15 ms for the next packet's marker byte.
-      for (volatile int t = 375000; !uart_rx_ready() && t > 0; t--) ;
-      if (uart_rx_ready()) {
-        int pkt_marker = (uint8_t)getc_uart();
-        if (pkt_marker == 0xB1) { borg_serial_reload(); break; }
-        int need = (pkt_marker == 0xAD) ? 66 :
-                   (pkt_marker == 0xAE) ? RX_GEOM_PKT_LEN :
-                   (pkt_marker == 0xAF) ? RX_TEX_PKT_LEN :
-                   (pkt_marker == 0xB0) ? RX_SHADER_PKT_LEN : 0;
-        if (need) {
-          pkt_buf[0] = (uint8_t)pkt_marker;
-          int pkt_pos = 1;
+      if (pending_len > 0) {
+        // Recovered below from a prior packet's checksum failure: since the
+        // sender streams every packet in a burst back-to-back with no idle
+        // gap, the tail of a corrupted read can already hold the START of the
+        // next real packet — resume from there instead of waiting on the wire.
+        pkt_marker = pkt_buf[0];
+        pkt_pos = pending_len;
+        pending_len = 0;
+      } else {
+        // Gap-sync: consume bytes until the line has been idle for GAP_CYCLES
+        // (a packet boundary), avoiding mid-packet false framing from UART drops
+        // during borg_present() (the FIFO is only 1 byte deep).  The sender
+        // (borgvk, on both the real serial port and the sim socket transport)
+        // paces packets with a real idle gap for exactly this reason.
+        // At 25 MHz: inter-byte = 87 µs = 2175 cyc; 0xAD gap ≈ 6.3 ms.
+        // 300 µs = 7500 cyc sits safely between the two.
+        if (!skip_gap) {
+          const unsigned GAP_CYCLES   = 7500;
+          const unsigned GUARD_CYCLES = 4000000;  // ~160 ms hard cap
+          unsigned t0 = rdcycle();
+          unsigned tg = t0;
+          while ((unsigned)(rdcycle() - t0) < GAP_CYCLES) {
+            if (uart_rx_ready()) { (void)getc_uart(); t0 = rdcycle(); }
+            if ((unsigned)(rdcycle() - tg) >= GUARD_CYCLES) break;
+          }
+        }
+        skip_gap = 0;
+
+        // Wait up to ~15 ms for the next packet's marker byte.
+        for (volatile int t = 375000; !uart_rx_ready() && t > 0; t--) ;
+        if (!uart_rx_ready()) break;
+        pkt_marker = (uint8_t)getc_uart();
+        pkt_buf[0] = (uint8_t)pkt_marker;
+        pkt_pos = 1;
+      }
+
+      if (pkt_marker == 0xB1) { borg_serial_reload(); break; }
+      int need = (pkt_marker == 0xAD) ? 66 :
+                 (pkt_marker == 0xAE) ? RX_GEOM_PKT_LEN :
+                 (pkt_marker == 0xAF) ? RX_TEX_PKT_LEN :
+                 (pkt_marker == 0xB0) ? RX_SHADER_PKT_LEN : 0;
+      if (need) {
           int ok = 1;
           while (pkt_pos < need) {
             for (volatile int t = 4000; !uart_rx_ready() && t > 0; t--) ;
@@ -170,6 +184,7 @@ int main() {
             pkt_buf[pkt_pos++] = (uint8_t)getc_uart();
           }
 
+          int success = 0;
           if (ok && pkt_marker == 0xAD) {
             // Full 4×4 MVP from borgvk: 16 LE float32 + 1 XOR checksum.
             uint8_t csum = 0;
@@ -185,6 +200,7 @@ int main() {
                 host_mvp[i] = conv.f;
               }
               have_mvp = 1;
+              success = 1;
             }
           } else if (ok && pkt_marker == 0xAE) {
             // Host geometry: fixed-offset regions padded to max size.
@@ -209,6 +225,8 @@ int main() {
               rx_geom_ntris  = nt;
               rx_have_geom   = 1;
               rx_have_color  = 0;
+              success = 1;
+              skip_gap = 1;  // texture rows immediately follow geometry on the wire
             }
           } else if (ok && pkt_marker == 0xAF) {
             // Texture row: [1]=y, then RX_TEX_DIM texels as RGB-FP16.
@@ -219,6 +237,8 @@ int main() {
                 yrow >= 0 && yrow < RX_TEX_DIM) {
               borg_upload_texture_row(&pkt_buf[2], yrow, RX_TEX_DIM);
               got_tex_row = 1;
+              success = 1;
+              skip_gap = 1;  // next texture row (or the closing MVP) immediately follows
             }
           } else if (pkt_marker == 0xB0) {
             if (!ok) {
@@ -234,14 +254,34 @@ int main() {
                 got_shader_pkt = 1;
                 skip_gap = 1;  // frag immediately follows vert on the wire
                 if (stage == 0) staged_vert = 1; else staged_frag = 1;
+                success = 1;
               } else {
                 puts_uart("B0:csum\r\n");
               }
             }
           }
-        }
+
+          // Resync: a checksum failure (or short read) means the framing
+          // slipped — most likely the CPU missed a poll window mid-burst and
+          // the RX FIFO (only 1 byte deep) silently dropped the intervening
+          // bytes.  Because every packet in a burst streams back-to-back with
+          // no idle gap, the true start of the NEXT packet is often still
+          // sitting in the tail of what we just (mis-)read.  Scan for it
+          // instead of treating one bad packet as fatal for the whole burst.
+          if (!success && pkt_marker != 0xB1) {
+            for (int q = 1; q < pkt_pos; q++) {
+              uint8_t m = pkt_buf[q];
+              if (m == 0xAD || m == 0xAE || m == 0xAF || m == 0xB0) {
+                int rem = pkt_pos - q;
+                for (int i = 0; i < rem; i++) pkt_buf[i] = pkt_buf[q + i];
+                pending_len = rem;
+                skip_gap = 1;
+                break;
+              }
+            }
+          }
       }
-      if (!got_tex_row && !got_shader_pkt) break;
+      if (!got_tex_row && !got_shader_pkt && pending_len == 0) break;
     }
     if (staged_vert) puts_uart("FW: vert shader uploaded\r\n");
     if (staged_frag) puts_uart("FW: frag shader uploaded\r\n");
