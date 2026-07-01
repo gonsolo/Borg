@@ -39,7 +39,13 @@ void ArcBorgSimulator::clock_high() { model->view.clk = 1; model->eval(); }
 
 uint8_t ArcBorgSimulator::get_uo_out()       { return model->view.uo_out; }
 void    ArcBorgSimulator::set_ui_in(uint8_t v) { model->view.ui_in = v; }
-int     ArcBorgSimulator::get_uart_bit_pos() const { return 6; }
+// uo_out[6] is Mux(gpio_out_sel(0), peri_out(6), debug_uart_txd) (Project.scala)
+// — it only carries the user PeriUart TX (what putc_uart()/UART_TX write to)
+// once firmware writes SOC_GPIO_OUT_SEL, which nothing does; it defaults to
+// the SoC debug UART instead (only reachable via the raw 0x08000018 writes in
+// software/hutt/start.s). uo_out[0] == peri_out(0) is unconditional — same
+// bit Verilator's BorgSimTop reads — so use that instead of fighting the mux.
+int     ArcBorgSimulator::get_uart_bit_pos() const { return 0; }
 
 uint32_t ArcBorgSimulator::get_backend_addrIn()     { return model->view.be_addrIn; }
 bool     ArcBorgSimulator::get_backend_startRead()  { return model->view.be_startRead; }

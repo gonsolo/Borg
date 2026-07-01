@@ -262,13 +262,22 @@ static texture_t tex = {.dram_offset = -1};
 // ack on the CPU's Decoupled data bus — polling it hangs the CPU forever
 // (the write to 0x08000018 worked, but the symmetric read-side decode is
 // still broken).  Until that is fixed in Project.scala, use a blind-write
-// + fixed cycle delay matching uart_hello.s.  At CLOCK_MHZ=25 and 115200
-// baud, one byte takes ~217 cycles to shift out; we wait ~400 cycles to
-// be safe (matches the 200-iteration `addi/bnez` loop in uart_hello.s,
-// which is ~2 instructions per iteration on Hutt).
+// + fixed cycle delay matching uart_hello.s.  The peripheral has no TX FIFO,
+// so a delay shorter than one byte's real shift-out time lets the NEXT
+// putc_uart() overwrite UART_TX mid-transmission, silently dropping bytes.
+// Derived from CLOCK_MHZ (already known at compile time — see Makefile)
+// rather than a fixed constant: a value tuned for one clock (e.g. the 4 MHz
+// ASIC target) silently under-delays at another (25 MHz sim/ULX3S needs
+// ~2170 cycles/byte vs ASIC's ~347) — this was the actual bug.
+#define UART_BAUD_RATE       115200  // distinct from UART_BAUD (the MMIO register)
+#define UART_CYCLES_PER_BIT  ((CLOCK_MHZ * 1000000) / UART_BAUD_RATE)
+#define UART_CYCLES_PER_BYTE (UART_CYCLES_PER_BIT * 10)  // start + 8 data + stop
+// The busy-wait loop costs ~2 cycles/iteration (addi+bnez) on the
+// multi-cycle Hutt core (empirical, see uart_hello.s); scale with margin.
+#define UART_TX_DELAY_ITERS  (UART_CYCLES_PER_BYTE * 3 / 4)
 void putc_uart(int c) {
   UART_TX = c;
-  for (volatile int i = 0; i < 200; i++)
+  for (volatile int i = 0; i < UART_TX_DELAY_ITERS; i++)
     ;
 }
 

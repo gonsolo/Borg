@@ -136,6 +136,7 @@ static int run_and_dump(ArcBorgSimulator &sim, uint32_t width, uint32_t height,
 // arcilator_sim --cts-tri <firmware.bin> <W> <H>
 static int run_cts_tri(const char *fw_path, uint32_t width, uint32_t height) {
     ArcBorgSimulator sim(fw_path, width, height);
+    sim.uart.set_cycles_per_bit(217);
     // NDC triangle with red/green/blue corners (Vulkan y-down screen space).
     const float pos[9] = {
         -0.9f, -0.9f, 0.5f,
@@ -214,6 +215,7 @@ static int run_cts_draw(const char *geom_file, const char *fw_path,
         idx[i] = (uint8_t)idx32[i];
 
     ArcBorgSimulator sim(fw_path, width, height);
+    sim.uart.set_cycles_per_bit(217);
     write_mailbox_draw(sim, pos.data(), col.data(), (int)nverts,
                        idx.data(), (int)ntris, mvp);
 

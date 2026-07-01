@@ -146,11 +146,14 @@ bool BorgSimulatorBase::step(uint32_t cycles_to_run) {
         static const bool uart_dbg = getenv("CTS_UART_DBG") != nullptr;
         if (uart_dbg) {
             static uint64_t dbgcyc = 0;
+            static uint64_t mem_activity = 0;
             dbgcyc++;
+            if (get_backend_startRead() || get_backend_startWrite()) mem_activity++;
             if (dbgcyc % 500000 == 0) {
                 std::cerr << "[UARTDBG] cyc=" << dbgcyc
                           << " cts=" << uart_cts
                           << " tx_empty=" << uart_tx.empty()
+                          << " mem_activity=" << mem_activity
                           << " uo_out=0x" << std::hex << (int)uo_out << std::dec
                           << std::endl;
             }

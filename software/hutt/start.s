@@ -10,7 +10,10 @@ _start:
     li t0, 0x08000018
     li t1, 'a'
     sw t1, 0(t0)
-    li t2, 200
+    # 1500 iters * ~2 cyc/iter ~= 3000 cycles > one byte's ~2170-cycle shift-out
+    # at 217 cycles/bit (25 MHz/115200 baud) — the debug UART has no TX FIFO,
+    # so a shorter delay lets the next beacon overwrite this one mid-shift.
+    li t2, 1500
 1:  addi t2, t2, -1
     bnez t2, 1b
 
@@ -21,7 +24,10 @@ _start:
     li t0, 0x08000018
     li t1, 'b'
     sw t1, 0(t0)
-    li t2, 200
+    # 1500 iters * ~2 cyc/iter ~= 3000 cycles > one byte's ~2170-cycle shift-out
+    # at 217 cycles/bit (25 MHz/115200 baud) — the debug UART has no TX FIFO,
+    # so a shorter delay lets the next beacon overwrite this one mid-shift.
+    li t2, 1500
 1:  addi t2, t2, -1
     bnez t2, 1b
 
@@ -30,7 +36,10 @@ _start:
     li t0, 0x08000018
     li t1, 'c'
     sw t1, 0(t0)
-    li t2, 200
+    # 1500 iters * ~2 cyc/iter ~= 3000 cycles > one byte's ~2170-cycle shift-out
+    # at 217 cycles/bit (25 MHz/115200 baud) — the debug UART has no TX FIFO,
+    # so a shorter delay lets the next beacon overwrite this one mid-shift.
+    li t2, 1500
 1:  addi t2, t2, -1
     bnez t2, 1b
 
