@@ -249,10 +249,15 @@ static int run_cts(const char *uart_file, const char *fw_path,
     // 217 sim-cycles/bit; must match the firmware's own UART_BAUD divisor.
     sim.uart_tx.set_cycles_per_bit(217);
     sim.uart.set_cycles_per_bit(217);
-    // Delay byte injection until after the firmware's first drain-loop gap-wait.
-    // The firmware discards bytes arriving before the gap-wait finds GAP_CYCLES
-    // (7500) of idle; 700K cycles gives a wide margin for boot to complete first.
-    sim.uart_tx.enqueue_gap(700000);
+    // Delay byte injection until after firmware has booted (shader modules,
+    // pipeline, mailbox check, ...) and reached its first drain-loop gap-wait.
+    // Measured boot takes ~2.3M cycles before the first UART poll; bytes
+    // arriving before firmware is polling sit safely in the 1-deep hardware
+    // RX buffer (CTS-gated, see BorgSimulatorBase::step), but the firmware's
+    // own gap-sync heuristic — which assumes a genuinely idle line — misreads
+    // an already-arrived burst as stale "padding" and desyncs on it if it
+    // starts polling mid-burst.  8M cycles gives a solid margin over boot.
+    sim.uart_tx.enqueue_gap(8000000);
     sim.uart_tx.enqueue(uart_bytes.data(), (size_t)sz);
 
     // Save the real stdout (pipe to borgvk, or terminal/file standalone); pixels

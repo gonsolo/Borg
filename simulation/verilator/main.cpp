@@ -89,10 +89,13 @@ static int run_cts(const char *uart_file, const char *fw_path,
     // 217 sim-cycles/bit; must match the firmware's own UART_BAUD divisor.
     sim.uart_tx.set_cycles_per_bit(217);
     sim.uart.set_cycles_per_bit(217);
-    // The SDRAM model adds per-access latency beyond raw instruction cycles, so
-    // use a wider gap than arcilator's to ensure the firmware has finished
-    // booting and is waiting in its drain-loop before the first byte arrives.
-    sim.uart_tx.enqueue_gap(3500000);
+    // Delay byte injection until after firmware has booted and reached its
+    // first drain-loop gap-wait — see arcilator/main.cpp's twin of this for
+    // why: an already-arrived burst is misread as stale "padding" by the
+    // gap-sync heuristic if it starts polling mid-burst.  8M cycles covers
+    // Verilator's boot time (SDRAM model adds latency beyond raw instruction
+    // cycles) with a solid margin.
+    sim.uart_tx.enqueue_gap(8000000);
     sim.uart_tx.enqueue(uart_bytes.data(), (size_t)sz);
 
     int pixel_fd = dup(STDOUT_FILENO);
