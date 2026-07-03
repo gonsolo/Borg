@@ -102,6 +102,24 @@ static int run_and_dump(ArcBorgSimulator &sim, uint32_t width, uint32_t height,
     }
     if (devnull >= 0) { close(devnull); devnull = -1; }
 
+    // Optional: dump the hardware perf counters borg_present() writes to a
+    // DRAM scratch region right after the frame completes (see borg_driver.c
+    // and sim_nanobind_wrapper.h's get_perf_counters() for the Python path).
+    if (getenv("ARC_TIMING_DBG")) {
+        const uint32_t *w = (const uint32_t *)sim.flat->mem.data();
+        uint32_t perf_total = w[sim.out_base_word_buf0 + 300020];
+        uint32_t perf_frag  = w[sim.out_base_word_buf0 + 300021];
+        uint32_t perf_flush = w[sim.out_base_word_buf0 + 300022];
+        uint32_t perf_stall = w[sim.out_base_word_buf0 + 300023];
+        uint32_t perf_dma   = w[sim.out_base_word_buf0 + 300024];
+        auto pct = [&](uint32_t v) { return perf_total ? 100.0 * v / perf_total : 0.0; };
+        std::cerr << "[PERF] total=" << perf_total
+                  << " frag(vert+setup+frag)=" << perf_frag << " (" << pct(perf_frag) << "%)"
+                  << " flush=" << perf_flush << " (" << pct(perf_flush) << "%)"
+                  << " stall=" << perf_stall << " (" << pct(perf_stall) << "%)"
+                  << " dma=" << perf_dma << " (" << pct(perf_dma) << "%)\n";
+    }
+
     const uint32_t *words = (const uint32_t *)sim.flat->mem.data();
     uint32_t base = sim.out_base_word;
     std::vector<uint8_t> rgb_buf(width * height * 3);

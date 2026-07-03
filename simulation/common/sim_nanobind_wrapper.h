@@ -93,6 +93,16 @@ public:
         return nb::ndarray<nb::numpy, uint8_t, nb::shape<-1, -1, 3>, nb::c_contig>(
             fb_rgb.data(), 3, shape);
     }
+
+    // Hardware perf-counter snapshot written by borg_present() at
+    // DRAM_OUT(300020..300024) — see borg_driver.c.
+    // (total, frag[vert+setup+frag], flush, stall, dma).
+    nb::tuple get_perf_counters() {
+        const uint32_t* w = (const uint32_t*)sim->flat->mem.data();
+        uint32_t b = sim->out_base_word_buf0;
+        return nb::make_tuple(w[b + 300020], w[b + 300021], w[b + 300022],
+                               w[b + 300023], w[b + 300024]);
+    }
 };
 
 // NB_MODULE takes the module name as a raw token; the preprocessor expands
@@ -106,6 +116,7 @@ NB_MODULE(NB_MODULE_NAME, m) {
         .def("uart_inject_gap",     &SimulatorWrapper::uart_inject_gap)
         .def("uart_set_cycles_per_bit", &SimulatorWrapper::uart_set_cycles_per_bit)
         .def("get_framebuffer",     &SimulatorWrapper::get_framebuffer)
+        .def("get_perf_counters",   &SimulatorWrapper::get_perf_counters)
         .def_prop_ro("width",       &SimulatorWrapper::width)
         .def_prop_ro("height",      &SimulatorWrapper::height);
 }

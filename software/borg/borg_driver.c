@@ -1371,6 +1371,14 @@ void borg_present(int frame) {
     ;
   t_draw_cycles += get_cycles() - t_wait;
 
+  // Hardware perf-counter snapshot at a safe DRAM offset (300020+, clear
+  // of the TBR bin/setup regions) for sim tooling to read back.
+  DRAM_OUT(300020) = BORG_GPU->perf_total;
+  DRAM_OUT(300021) = BORG_GPU->perf_frag;
+  DRAM_OUT(300022) = BORG_GPU->perf_flush;
+  DRAM_OUT(300023) = BORG_GPU->perf_stall;
+  DRAM_OUT(300024) = BORG_GPU->perf_dma;
+
 #ifndef TARGET_ULX3S
   // DONE_MARKER + timing for the sim/host viewer.  Skipped on ULX3S: the marker
   // is never read back (the present-wait below is hardware-side), and the
