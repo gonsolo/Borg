@@ -1,7 +1,7 @@
 # The Software Driver
 
 The firmware running on Hutt provides a Vulkan-like API for rendering triangles.
-It consists of a driver library (`borg_driver.c`, `borg_fpu.c`, `borg_raster.c`) and an application (`borg_triangle.c`).
+It consists of a driver library (`borg_driver.c`, `borg_fpu.c`, `borg_raster.c`) and a thin kernel (`borg_kernel.c`) that drains geometry, textures, and shaders streamed at runtime by the borgvk Mesa driver over serial, rather than rendering baked demo content.
 
 ## Memory-Mapped Hardware
 
@@ -113,18 +113,22 @@ Hardware acceleration reduces the per-pixel cost significantly:
 | Depth Test               | **Hardware**   | 0 extra cycles |
 | Texel Read               | Firmware       | 3 DRAM reads |
 
-## The Triangle Application
+## The borgvk Kernel
 
-The application renders two overlapping triangles to demonstrate
-texturing and z-buffering. The front triangle uses per-vertex color
-interpolation, while the back triangle is textured with a 32×32
-RGBW test pattern:
+Earlier firmware revisions baked a standalone two-triangle demo
+(`borg_triangle.c`, since removed) directly into the image: a
+per-vertex-color-interpolated front triangle over a textured back
+triangle, exercising z-buffering and hardware texturing with no host
+involved.
 
-{{snippet:software/borg/borg_triangle.c:triangle-app}}
-
-The front triangle's color-interpolated RGB appears in the center,
-while the back triangle's RGBW texture is visible around the edges.
-The z-buffer ensures correct occlusion regardless of draw order.
+`borg_kernel.c` replaces that with a thin runtime driven entirely by
+the borgvk Mesa driver over serial: it drains 0xAD (MVP)/0xAE
+(geometry)/0xAF (texture rows)/0xB0 (borgc-compiled shaders) packets
+and feeds the autonomous TBR sequencer, so real, unmodified Vulkan
+applications (e.g. Khronos's `cube.c`) render on the hardware instead
+of a fixed demo scene. The z-buffer, texturing, and per-vertex
+interpolation this exercised are unchanged — they're now driven by
+whatever geometry and textures the host application uploads.
 
 ## Vulkan Conformance (CTS)
 
