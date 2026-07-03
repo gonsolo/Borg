@@ -8,12 +8,14 @@ package borg
 // Source: the mathematically-derived hex tables in test/soc/*.hex.
 private[borg] object BorgLutTables {
 
+  // @doc:rcp-lut
   // rcp_lut: 17 entries x 10 bits -- mantissa correction for FP16 reciprocal.
   val rcpLut: Seq[Int] = Seq(
     0x03FF, 0x0388, 0x031C, 0x02BD, 0x0266, 0x0218, 0x01D1, 0x0191,
     0x0155, 0x011F, 0x00EC, 0x00BE, 0x0092, 0x006A, 0x0044, 0x0021,
     0x0000
   )
+  // @doc:end
 
   // frsq_lut: 34 entries x 10 bits -- mantissa correction for FP16 rsqrt.
   // Split into two parity regions of 17 (even/odd binade).

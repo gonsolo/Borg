@@ -66,6 +66,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private val config = cfg.fp  // shorthand for FP config used in arithmetic
 
+  // @doc:storage
   // --- Shared storage ---
   val instructionMemory = SyncReadMem(cfg.maxInstructions, UInt(32.W))
   val programCounter = RegInit(0.U(log2Ceil(cfg.maxInstructions).W))
@@ -74,6 +75,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val running_by_rasterizer = RegInit(false.B)
 
   val uniformMem = SyncReadMem(cfg.maxUniforms, UInt(config.totalBits.W))
+  // @doc:end
 
   // --- Pipeline Control ---
   val busy_counter = RegInit(0.U(3.W))
@@ -149,6 +151,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // Helper functions
   // =========================================================================
 
+  // @doc:instruction-format
   /** Decode a 32-bit RISC-V instruction into register indices and op flags. */
   private def decode(instr: UInt) = {
     val regs = Wire(new RegIndices())
@@ -179,9 +182,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     (regs, flags)
   }
+  // @doc:end
 
   /** Fetch/execute FSM: start pipeline, count down busy cycles, advance PC. */
   private def runPipeline(fma_start: Bool): Unit = {
+    // @doc:fetch-execute
     when(running && !is_busy && !texResumeDelay) {
       when(fetchedInstruction === 0.U) {
         running := false.B
@@ -204,6 +209,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       running := false.B
       busy_counter := 0.U
     }
+    // @doc:end
 
     when(io.coreTrigger.valid) {
       programCounter := io.coreTrigger.pc

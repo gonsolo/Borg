@@ -194,6 +194,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_deriv_reg := opFlags.ddx || opFlags.ddy
     }
 
+    // @doc:fma-muxing
     val fma_result = {
         val fma = Module(new BorgFp16Fma(cfg))
         fma.io.a := Mux(is_deriv_reg, io.crossA, Mux(is_mul_reg || is_fma_reg, recA_raw, one_fn))
@@ -209,6 +210,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         fma.io.pipeEn2 := is_busy && busy_counter === 3.U
         fma.io.out
       }
+    // @doc:end
 
     (fma_result, is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg)
   }
@@ -250,12 +252,15 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     else rsq.io.out
   }
 
+  // @doc:fstep
   private def computeFstep(recA_raw: UInt): UInt = {
     val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
     val neg_or_zero = recA_raw(config.totalBits - 1) || (recA_raw === 0.U)
     Mux(neg_or_zero, 0.U(config.totalBits.W), one_fn)
   }
+  // @doc:end
 
+  // @doc:frcp
   private def computeFrcp(recA_raw: UInt): UInt = {
     val rcpMant = recA_raw(9, 0)
     val rcpLutIdx = rcpMant(9, 6)
@@ -270,6 +275,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     if (config.totalBits > 16) Cat(0.U((config.totalBits - 16).W), rcp.io.out)
     else rcp.io.out
   }
+  // @doc:end
 
   /** Integer ALU (16-bit, on the raw register bits). Flags latch at `start` like
     * the FP ops; results are combinational on the operands, valid at write-back

@@ -13,15 +13,20 @@ the CPU communicates with it over MMIO.
 ## Storage
 
 At the heart of the processor are a small register file, an instruction memory,
-and a program counter. The entire state fits in a handful of flip-flops:
+and a program counter. The entire state fits in a handful of flip-flops.
+Instruction memory, program counter, and the uniform RAM are **shared** —
+`BorgCore` owns one copy each, since every lane executes the same fetched
+instruction in lockstep:
 
 {{snippet:hardware/borg/src/BorgCore.scala:storage}}
 
-The register file holds 32 FP16 values that the CPU can read and write via MMIO.
-The instruction memory stores up to 72 shader instructions — enough for full
-4×4 MVP matrix multiplies and complex fragment shading.  An all-zero instruction
-word acts as a halt sentinel, so the longest useful program is 71 instructions
-plus the implicit stop.
+The **register file is per-lane**: `BorgCore` instantiates `cfg.fragLanes`
+copies of `BorgLane` (1 lane in the scalar/vertex configuration, 4 lanes for
+2×2-quad fragment SIMT), each with its own independent 32×FP16 register file
+that the CPU reads and writes via MMIO. The instruction memory stores up to
+72 shader instructions — enough for full 4×4 MVP matrix multiplies and complex
+fragment shading. An all-zero instruction word acts as a halt sentinel, so the
+longest useful program is 71 instructions plus the implicit stop.
 
 ## Instruction Format
 
@@ -75,19 +80,19 @@ This "one unit, many operations" trick saves a huge amount of silicon — instea
 of separate adder, multiplier, and negation circuits, we reuse one FMA datapath
 for everything:
 
-{{snippet:hardware/borg/src/BorgCore.scala:fma-muxing}}
+{{snippet:hardware/borg/src/BorgLane.scala:fma-muxing}}
 
 The fifth operation, **FSTEP**, doesn't use the FMA at all.  It implements a
 step function used during rasterization to test whether a pixel is inside a
 triangle edge.  The result is simply 1.0 for positive inputs and 0.0 otherwise:
 
-{{snippet:hardware/borg/src/BorgCore.scala:fstep}}
+{{snippet:hardware/borg/src/BorgLane.scala:fstep}}
 
 The sixth operation, **FRCP**, provides hardware FP16 reciprocal (1/x) via a
 17-entry LUT with linear interpolation.  It enables single-instruction
 perspective division (W-divide) in the vertex shader:
 
-{{snippet:hardware/borg/src/BorgCore.scala:frcp}}
+{{snippet:hardware/borg/src/BorgLane.scala:frcp}}
 
 ### Inside the RCP Unit
 
@@ -100,7 +105,7 @@ remaining mantissa bits.
 The LUT stores 17 values (16 intervals + 1 sentinel), each 10 bits wide — a
 total of just 170 bits of ROM:
 
-{{snippet:hardware/borg/src/BorgCore.scala:rcp-lut}}
+{{snippet:hardware/borg/src/BorgLutTables.scala:rcp-lut}}
 
 The interpolation uses only a 7×6-bit multiply and a subtraction —
 no full multiplier is needed:
