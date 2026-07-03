@@ -113,6 +113,24 @@ int main() {
   // frag_pos instead.  borg_stage_shader() resets the mode when frag is uploaded.
   borg_set_frag_vertex_color(1);
 
+  // Pre-fill the texture region with white before any borgvk upload arrives.
+  // The RX drain loop below recovers from a dropped/corrupted 0xAF texture-row
+  // packet by discarding just that row (see the resync comment below) — the
+  // affected texel then keeps whatever was in DRAM before, which without this
+  // fill is uninitialized SDRAM (visible as stray colored pixels, moving with
+  // the textured geometry since it's fixed in UV space). White keeps a missed
+  // row visually unobtrusive instead.
+  {
+    static uint8_t white_row[RX_TEX_DIM * 6];
+    for (int i = 0; i < RX_TEX_DIM; i++) {
+      white_row[i * 6 + 0] = 0x00; white_row[i * 6 + 1] = 0x3C;  // R=1.0 fp16
+      white_row[i * 6 + 2] = 0x00; white_row[i * 6 + 3] = 0x3C;  // G=1.0 fp16
+      white_row[i * 6 + 4] = 0x00; white_row[i * 6 + 5] = 0x3C;  // B=1.0 fp16
+    }
+    for (int y = 0; y < RX_TEX_DIM; y++)
+      borg_upload_texture_row(white_row, y, RX_TEX_DIM);
+  }
+
   const int cts_active = cts_mailbox_present();
 
   static uint8_t pkt_buf[RX_PKT_BUF_LEN];
@@ -138,9 +156,26 @@ int main() {
     // break on any other packet type so we render once per MVP packet.
     int staged_vert = 0, staged_frag = 0;
     int pending_len = 0;  // bytes of a resync-recovered marker+payload already in pkt_buf
-    for (int drain_iter = 0; drain_iter < 16; drain_iter++) {
+    // Bound must cover a full burst (2 shaders + geometry + 64 texture rows +
+    // MVP ≈ 68): a smaller bound forces a round-trip through the outer
+    // while(1) (cts_mailbox_present() + condition checks) between finishing
+    // one packet and polling for the next marker byte — the same risk this
+    // loop's geometry-packet handling above was just fixed for, but recurring
+    // every time the bound is hit mid-burst instead of only once.
+    for (int drain_iter = 0; drain_iter < 80; drain_iter++) {
       int got_tex_row = 0;
       int got_shader_pkt = 0;
+      // Geometry (0xAE) used to fall through to the generic break below like
+      // MVP does, forcing a round-trip through the outer while(1) (a
+      // cts_mailbox_present() call + condition checks) before the firmware
+      // resumes polling for the next byte — right at the one point where the
+      // host is already streaming continuously into the first texture-row
+      // packet. If that marker byte is lost in the gap, the receiver loses
+      // framing sync and has to resync somewhere later in the texture data,
+      // corrupting a whole contiguous run of rows — confirmed on real
+      // hardware. Track it like a tex-row/shader packet so the loop keeps
+      // draining without leaving this tight loop.
+      int got_geom_pkt = 0;
       int pkt_marker, pkt_pos;
 
       if (pending_len > 0) {
@@ -234,6 +269,7 @@ int main() {
               rx_have_geom   = 1;
               rx_have_color  = 0;
               success = 1;
+              got_geom_pkt = 1;
               skip_gap = 1;  // texture rows immediately follow geometry on the wire
             }
           } else if (ok && pkt_marker == 0xAF) {
@@ -289,7 +325,7 @@ int main() {
             }
           }
       }
-      if (!got_tex_row && !got_shader_pkt && pending_len == 0) break;
+      if (!got_tex_row && !got_shader_pkt && !got_geom_pkt && pending_len == 0) break;
     }
     if (staged_vert) puts_uart("FW: vert shader uploaded\r\n");
     if (staged_frag) puts_uart("FW: frag shader uploaded\r\n");
