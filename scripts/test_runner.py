@@ -163,7 +163,10 @@ def count_tests(log: str) -> int:
     return 0
 
 # ── Display ───────────────────────────────────────────────────────────────────
-LABEL_W = 30
+# Must be >= the longest Suite() label below (currently "render › verilator ›
+# vkcube-cts-uart" = 36 chars) or ljust() silently no-ops and every column
+# after the label shifts right for that row.
+LABEL_W = 38
 BAR_W   = 22
 
 def _render(suites: list, frame: int, total_done: int, lines_printed: list) -> None:
