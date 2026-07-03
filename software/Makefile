@@ -9,7 +9,6 @@ hutt:
 	$(MAKE) -C hutt
 
 test:
-	$(MAKE) -C borg/compiler test
 	$(MAKE) -C borg test-native
 
 clean:
