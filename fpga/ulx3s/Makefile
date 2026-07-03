@@ -243,16 +243,6 @@ reload:
 	@echo -e "$(BOLD)[RELOAD]$(RESET) Streaming kernel.bin over serial (no reflash) ..."
 	python3 host/reload.py /dev/ttyUSB0 $(FIRMWARE_DIR)/kernel.bin
 
-# Full vkcube deploy: synth + P&R + pack, flash bitstream + vkcube firmware.
-# Does NOT reset — run 'make reset' (with tio already open) to boot the new image.
-vkcube: borg.bit vkcube_with_header.bin
-	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing ECP5 bitstream to onboard flash ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset borg.bit
-	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing vkcube firmware @ 0x400000 ..."
-	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 vkcube_with_header.bin
-	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Start tio, then: make reset"
-	@echo -e "  LED[7] = pll_locked, LED[6] = boot_done"
-
 # Full kernel deploy: synth + P&R + pack, flash bitstream + firmware.
 # After power-cycle: ECP5 loads bitstream → FlashBootLoader copies firmware
 # to SDRAM → Hutt boots → kernel waits for borgvk → cube.c renders via GPU.
@@ -367,6 +357,6 @@ install-udev:
 clean:
 	rm -f borg.bit borg.config borg.json borg.svf yosys.log nextpnr.log .verilog_stamp_ulx3s
 
-.PHONY: all help load flash flash-firmware flash-vkcube minimal-boot triangle vkcube \
+.PHONY: all help load flash flash-firmware minimal-boot \
         print_resources generate_verilog_ulx3s tio install-udev clean \
         flash-hdmi-tiled minimal-hdmi

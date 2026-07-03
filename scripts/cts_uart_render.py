@@ -2,18 +2,28 @@
 # SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
-cts_uart_render.py — Generate a minimal borgvk UART stream and render via sim.
+cts_uart_render.py — Replay a borgvk UART stream and render via sim.
 
-Builds a 0xAD (MVP) packet using the firmware's default camera angles
-(rx=30°, ry=45°) then invokes <sim_bin> --cts-uart.  The sim's RGB888
-stdout is converted to a P3 PPM and written to <out.ppm>.
+borg_kernel.c (the current firmware) bakes in no geometry/shaders/texture —
+everything arrives from borgvk at runtime (0xAD MVP / 0xAE geometry / 0xAF
+texture / 0xB0 shaders), so rendering anything requires replaying a full
+captured burst, not just an MVP packet.
 
 Usage:
-    python3 scripts/cts_uart_render.py <sim_bin> <firmware.bin> <out.ppm> [W] [H]
+    python3 scripts/cts_uart_render.py <sim_bin> <firmware.bin> <out.ppm> [W] [H] [--capture FILE]
+
+--capture FILE   Replay a pre-captured borgvk UART burst (0xAE/0xAF/0xB0/0xAD
+                 packets) instead of synthesizing a bare MVP packet. Required
+                 for kernel.bin, which renders nothing on MVP alone. A real
+                 burst is tens of KB and needs ~2170 sim-cycles/byte just for
+                 the wire transfer (CTS_MAX_CYCLES is bumped accordingly here).
+                 See simulation/golden/borgvk_capture.bin.
+
+Without --capture, a bare 0xAD (MVP) packet is sent using the firmware's
+default camera angles (rx=30°, ry=45°) — only useful against firmware with
+baked shaders/geometry (the old vkcube.bin; not the current kernel.bin).
 
 The sim binary must support --cts-uart (both arcilator_sim and verilator_sim do).
-Firmware should be vkcube.bin; the baked vert_borg/frag_borg shaders are used
-because no 0xB0 packets are sent.
 """
 
 import math, os, struct, subprocess, sys, tempfile
@@ -116,18 +126,34 @@ def rgb888_to_p3(rgb, w, h):
 # ---------------------------------------------------------------------------
 
 def main():
-    if len(sys.argv) < 4:
-        print('Usage: cts_uart_render.py <sim_bin> <firmware.bin> <out.ppm> [W] [H]',
+    args = sys.argv[1:]
+    capture_path = None
+    if '--capture' in args:
+        i = args.index('--capture')
+        capture_path = args[i + 1]
+        del args[i:i + 2]
+
+    if len(args) < 3:
+        print('Usage: cts_uart_render.py <sim_bin> <firmware.bin> <out.ppm> [W] [H] [--capture FILE]',
               file=sys.stderr)
         sys.exit(1)
 
-    sim_bin  = sys.argv[1]
-    fw_bin   = sys.argv[2]
-    out_ppm  = sys.argv[3]
-    w        = int(sys.argv[4]) if len(sys.argv) > 4 else 128
-    h        = int(sys.argv[5]) if len(sys.argv) > 5 else 128
+    sim_bin  = args[0]
+    fw_bin   = args[1]
+    out_ppm  = args[2]
+    w        = int(args[3]) if len(args) > 3 else 128
+    h        = int(args[4]) if len(args) > 4 else 128
 
-    stream = build_0xad(build_mvp())
+    env = os.environ.copy()
+    if capture_path:
+        with open(capture_path, 'rb') as f:
+            stream = f.read()
+        # A real burst is tens of KB at ~2170 sim-cycles/byte for the wire
+        # transfer alone, plus the enqueue_gap(8000000) boot delay and render
+        # time — see run_and_dump's CTS_MAX_CYCLES comment in main.cpp.
+        env.setdefault('CTS_MAX_CYCLES', '100000000')
+    else:
+        stream = build_0xad(build_mvp())
 
     with tempfile.NamedTemporaryFile(suffix='.bin', delete=False) as tmp:
         tmp.write(stream)
@@ -136,7 +162,7 @@ def main():
     try:
         result = subprocess.run(
             [sim_bin, '--cts-uart', uart_tmp, fw_bin, str(w), str(h)],
-            capture_output=True
+            capture_output=True, env=env
         )
         if result.returncode != 0:
             sys.stderr.buffer.write(result.stderr)

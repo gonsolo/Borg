@@ -9,9 +9,13 @@ export HARDENING_DISABLE=all
 export NIX_HARDENING_ENABLE=
 unexport NIX_HARDENING_ENABLE
 
-.PHONY: all clean triangle vkcube vkcube_gui textest cts-uart cts-uart-golden
+.PHONY: all clean vkcube_gui textest cts-uart cts-uart-golden
 
-all: triangle vkcube
+# The old triangle/vkcube app-config render targets are gone — content is no
+# longer baked into firmware (see borg_kernel.c); it arrives from borgvk at
+# runtime, driving the unmodified Vulkan-Tools cube.c.  cts-uart replays a
+# captured borgvk UART burst and is the render smoke test now.
+all: cts-uart
 
 # Step 0: Hardware Generation — reruns when any Chisel/RDL source changes
 $(ROOT)/out/hardware/borg/firrtl_sim/BorgArcSimTop.fir: $(CHISEL_SRCS)
@@ -83,12 +87,14 @@ vkcube_gui: python_extension $(FIRMWARE_DIR)/kernel.bin
 textest: arcilator_sim $(FIRMWARE_DIR)/textest.bin
 	./arcilator_sim $(FIRMWARE_DIR)/textest.bin textest
 
-# CTS UART path: borgvk-style 0xAD MVP packet → firmware → RGB565 framebuffer
+# CTS UART path: replay a captured borgvk burst (geometry+shaders+texture+MVP)
+# → firmware → RGB565 framebuffer.  kernel.bin bakes in no content, so a bare
+# MVP packet renders nothing — see scripts/cts_uart_render.py.
 cts-uart: arcilator_sim $(FIRMWARE_DIR)/kernel.bin
-	python3 '$(ROOT)/scripts/cts_uart_render.py' ./arcilator_sim '$(FIRMWARE_DIR)/kernel.bin' kernel_cts_uart_00.ppm 128 128
+	python3 '$(ROOT)/scripts/cts_uart_render.py' ./arcilator_sim '$(FIRMWARE_DIR)/kernel.bin' kernel_cts_uart_00.ppm 128 128 --capture '$(ROOT)/simulation/golden/borgvk_capture.bin'
 
 cts-uart-golden: arcilator_sim $(FIRMWARE_DIR)/kernel.bin
-	python3 '$(ROOT)/scripts/cts_uart_render.py' ./arcilator_sim '$(FIRMWARE_DIR)/kernel.bin' '$(ROOT)/simulation/golden/vkcube_cts_uart_00.ppm' 128 128
+	python3 '$(ROOT)/scripts/cts_uart_render.py' ./arcilator_sim '$(FIRMWARE_DIR)/kernel.bin' '$(ROOT)/simulation/golden/vkcube_cts_uart_00.ppm' 128 128 --capture '$(ROOT)/simulation/golden/borgvk_capture.bin'
 
 clean:
 	rm -f arc.h arc.ll borg.mlir state.json *.o arcilator_sim *.ppm

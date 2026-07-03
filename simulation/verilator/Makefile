@@ -12,9 +12,13 @@ FBW  ?= 128
 FBH  ?= 128
 TEXD ?= 64
 
-.PHONY: all triangle vkcube vkcube_gui hdmi clean cts-uart cts-uart-golden
+.PHONY: all vkcube_gui hdmi clean cts-uart cts-uart-golden
 
-all: triangle vkcube
+# The old triangle/vkcube app-config render targets are gone — content is no
+# longer baked into firmware (see borg_kernel.c); it arrives from borgvk at
+# runtime, driving the unmodified Vulkan-Tools cube.c.  cts-uart replays a
+# captured borgvk UART burst and is the render smoke test now.
+all: cts-uart
 
 # Hardware generation
 $(HW_DIR)/borg/verilog_sim/sim_files.txt:
@@ -73,12 +77,14 @@ vkcube_gui: python_extension $(FIRMWARE_DIR)/kernel.bin
 hdmi: obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin
 	./obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin $(APP) $(FBW) $(FBH) $(TEXD)
 
-# CTS UART path: borgvk-style 0xAD MVP packet → firmware → RGB565 framebuffer
+# CTS UART path: replay a captured borgvk burst (geometry+shaders+texture+MVP)
+# → firmware → RGB565 framebuffer.  kernel.bin bakes in no content, so a bare
+# MVP packet renders nothing — see scripts/cts_uart_render.py.
 cts-uart: obj_dir/verilator_sim $(FIRMWARE_DIR)/kernel.bin
-	python3 '$(ROOT)/scripts/cts_uart_render.py' ./obj_dir/verilator_sim '$(FIRMWARE_DIR)/kernel.bin' kernel_cts_uart_00.ppm 128 128
+	python3 '$(ROOT)/scripts/cts_uart_render.py' ./obj_dir/verilator_sim '$(FIRMWARE_DIR)/kernel.bin' kernel_cts_uart_00.ppm 128 128 --capture '$(ROOT)/simulation/golden/borgvk_capture.bin'
 
 cts-uart-golden: obj_dir/verilator_sim $(FIRMWARE_DIR)/kernel.bin
-	python3 '$(ROOT)/scripts/cts_uart_render.py' ./obj_dir/verilator_sim '$(FIRMWARE_DIR)/kernel.bin' '$(ROOT)/simulation/golden/vkcube_cts_uart_00.ppm' 128 128
+	python3 '$(ROOT)/scripts/cts_uart_render.py' ./obj_dir/verilator_sim '$(FIRMWARE_DIR)/kernel.bin' '$(ROOT)/simulation/golden/vkcube_cts_uart_00.ppm' 128 128 --capture '$(ROOT)/simulation/golden/borgvk_capture.bin'
 
 python_extension: obj_dir/verilator_sim
 	@mkdir -p build && cd build && cmake .. -DCMAKE_CXX_COMPILER=g++ -DPython_EXECUTABLE=$$(which python3) -DVERILATOR_ROOT=$$(dirname $$(dirname $$(which verilator)))/share/verilator -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null && $(MAKE) -s

@@ -8,7 +8,7 @@ Execution order:
                      that render suites (which call generate_verilog_sim via make)
                      do not race Mill against the chisel suites.
   Parallel:          chisel:borg · chisel:hutt · software · cocotb:soc-core ·
-                     render:verilator:triangle (stamp already exists, no Mill call)
+                     render:arcilator:vkcube-cts-uart (stamp already exists, no Mill call)
   After soc-core:    cocotb:soc-borg  (shares test/soc/ dir with soc-core)
 """
 
@@ -57,25 +57,14 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
     verilator_dir = root / "simulation" / "verilator"
     arcilator_dir = root / "simulation" / "arcilator"
 
-    def verilator_render(app: str) -> str:
-        ppm = f"{app}_00.ppm"
-        return (
-            f"cd '{verilator_dir}' && make {app} && "
-            f"{compare} '{verilator_dir}/{ppm}' '{golden}/{ppm}' --max-diff 1 --max-fail-pixels 2"
-        )
-
-    def arcilator_render(app: str) -> str:
-        ppm = f"{app}_00.ppm"
-        return (
-            f"cd '{arcilator_dir}' && make {app} && "
-            f"{compare} '{arcilator_dir}/{ppm}' '{golden}/{ppm}' --max-diff 1 --max-fail-pixels 2"
-        )
-
     def cts_uart_render(sim_dir: Path, sim_make_target: str) -> str:
-        ppm = "vkcube_cts_uart_00.ppm"
+        # The Makefile's cts-uart target (unlike cts-uart-golden) writes to
+        # kernel_cts_uart_00.ppm — the golden itself is vkcube_cts_uart_00.ppm.
+        out_ppm = "kernel_cts_uart_00.ppm"
+        golden_ppm = "vkcube_cts_uart_00.ppm"
         return (
             f"cd '{sim_dir}' && make {sim_make_target} && "
-            f"{compare} '{sim_dir}/{ppm}' '{golden}/{ppm}' --max-diff 1 --max-fail-pixels 2"
+            f"{compare} '{sim_dir}/{out_ppm}' '{golden}/{golden_ppm}' --max-diff 1 --max-fail-pixels 2"
         )
 
     return [
@@ -106,26 +95,19 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
               f"make -C '{root}/simulation' test-sim-common"),
         Suite("cocotb › soc-core (rtl)",
               f"cd '{root}' && {test_soc} core"),
-        # NOTE: verilator triangle/vkcube share obj_dir — serialise to prevent
-        # parallel 'rm -rf obj_dir' races that corrupt the verilator_sim build.
-        # Also gate the whole render chain behind the chisel (Mill) suites: the
-        # render Makefile invokes `make generate_verilog_sim` (a Mill build), and
-        # two Mill clients hitting the server at once corrupts it
+        # Gate the render chain behind the chisel (Mill) suites: the render
+        # Makefile invokes `make generate_verilog_sim` (a Mill build), and two
+        # Mill clients hitting the server at once corrupts it
         # (xsbt.CompilerInterface ClassNotFound) — the cause of the chisel/render
         # cascade failures in CI.  Serialising trades wall-clock for reliability.
-        Suite("render › verilator › triangle", verilator_render("triangle"),
-              depends_on="chisel › hutt"),
-        Suite("render › verilator › vkcube",   verilator_render("vkcube"),
-              depends_on="render › verilator › triangle"),
-        # NOTE: arcilator triangle/vkcube share arcilator_sim — same reason.
-        Suite("render › arcilator › triangle", arcilator_render("triangle"),
-              depends_on="render › verilator › vkcube"),
-        Suite("render › arcilator › vkcube",   arcilator_render("vkcube"),
-              depends_on="render › arcilator › triangle"),
+        # NOTE: arcilator/verilator vkcube-cts-uart share their respective sim
+        # binaries with nothing else now (triangle/vkcube app-config renders were
+        # removed — content is no longer baked into firmware, see borg_kernel.c),
+        # but are kept serialised relative to each other for the same reason.
         # CTS UART path: borgvk-style 0xAD MVP packet → firmware via --cts-uart
         Suite("render › arcilator › vkcube-cts-uart",
               cts_uart_render(arcilator_dir, "cts-uart"),
-              depends_on="render › arcilator › vkcube"),
+              depends_on="chisel › hutt"),
         Suite("render › verilator › vkcube-cts-uart",
               cts_uart_render(verilator_dir, "cts-uart"),
               depends_on="render › arcilator › vkcube-cts-uart"),
