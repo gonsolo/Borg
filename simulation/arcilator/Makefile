@@ -74,9 +74,16 @@ arcilator_sim: main.o arc.o texture_loader.o uart_decoder.o BorgSimulatorBase.o 
 # polling needs the cycles/bit margin that gives; see borg_kernel.c and
 # simulation/common/uart_tx.h (UartTx::set_cycles_per_bit, matched to 217 in
 # main.cpp/viewer.py). CLOCK_MHZ=4 does not leave enough slack and drops bytes.
+# NOTE: these must be explicit rules, not a %.bin pattern rule — GNU Make
+# never applies an implicit/pattern rule to a target listed in .PHONY (it
+# silently reports "nothing to be done" instead), so on a fresh checkout
+# with no pre-existing kernel.bin the recipe below would never run.
 .PHONY: $(FIRMWARE_DIR)/kernel.bin $(FIRMWARE_DIR)/textest.bin
-$(FIRMWARE_DIR)/%.bin:
-	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=25 $*
+$(FIRMWARE_DIR)/kernel.bin:
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=25 kernel
+
+$(FIRMWARE_DIR)/textest.bin:
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=25 textest
 
 kernel: arcilator_sim $(FIRMWARE_DIR)/kernel.bin
 	./arcilator_sim $(FIRMWARE_DIR)/kernel.bin kernel
