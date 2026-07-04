@@ -1333,6 +1333,18 @@ Target: **~Sept 2026** — expand the Hutt CPU to RV32IMA. Sequential after the 
 adds ~7 steps of medium-hard complexity (FPGA at 99%). Phase 4's bottleneck
 is the Sv32 MMU (3–4 weeks alone). Dates assume current solo-dev pace.*
 
+**2026-07-04 update — plan diverged from what was actually built.** Steps
+40–44 below describe the *original* plan (RV32IMA + Sv32). What's actually
+on `main` today is different: Hutt gained `xlen=64` support instead of the
+M/A extensions — M-mode traps/CLINT, S-mode privilege, and an **Sv39** MMU
+(not Sv32), all on RV64I (no M or A extension yet; see `docs/A3_hutt_cpu.md`
+for the exact CSR/trap inventory). OpenSBI platform files + a Linux
+defconfig + `make linux`/`make opensbi`/`make flash-linux` build targets
+also landed. No boot had actually been attempted, though — first real
+attempt started on branch `feat/linux-boot-attempt` (worktree
+`Borg-linux`), which surfaced (and fixed) several from-scratch build bugs
+in the existing OpenSBI/Linux scaffolding that nobody had hit yet.
+
 ### Step 40: M Extension (Integer Multiply/Divide)
 
 Add dedicated integer multiplier for MUL/MULH/DIV/REM.

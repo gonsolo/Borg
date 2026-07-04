@@ -66,7 +66,7 @@ depending on your goal:
 
 1. [Development Roadmap](A0_roadmap.md) — Phases, tile budget, hardware resources
 2. [Gap Analysis and Vulkan Strategy](A2_gap_analysis.md) — vkcube, SuperTuxKart, "No Graphics API", Vulkan ICD plan
-3. [The Hutt CPU](A3_hutt_cpu.md) — Multi-cycle RV32I core with Decoupled buses
+3. [The Hutt CPU](A3_hutt_cpu.md) — Multi-cycle RV32I/RV64I core with Decoupled buses
 4. [Bibliography](A1_bibliography.md) — References and further reading
 5. [Architectural Tricks](A8_architectural_tricks.md) — 15 tricks for minimizing area
 6. [Project Poster](A9_poster.md) — Academic poster summarizing the Borg GPU architecture

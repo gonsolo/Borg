@@ -16,7 +16,7 @@ the same thing, the **bold** term is preferred in technical writing.
 | **BorgRasterizer** | Hardware edge-function unit. Evaluates coverage and invokes BorgCore for each covered pixel. |
 | **tile buffer** | The 16-pixel on-chip SRAM (BorgTileBuffer) that holds RGBZ during rasterization. *Not* "on-chip SRAM buffer". |
 | **BorgBinner** | Pass-1 hardware: counts triangles per tile and stores them in the binner's on-chip SRAM. |
-| **Hutt** | The RV32I CPU core (replaced TinyQV in 2026-03). Runs firmware; communicates with BorgCore via MMIO. |
+| **Hutt** | The RV32I/RV64I CPU core (replaced TinyQV in 2026-03), parameterized by XLEN — RV32I on ASIC/TT, RV64I on ULX3S. Runs firmware; communicates with BorgCore via MMIO. |
 | **MemoryController** | Arbitrates the CPU instruction port, CPU data port, and GPU memory port across QspiBackend (flash/PSRAM) and SdramBackend (SDRAM). |
 
 ## Shader formats

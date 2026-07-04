@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Borg is an open-source GPU: a small RV32I CPU driving the **Borg FP16 shader processor** as an MMIO peripheral. The same Chisel source targets three back ends:
+Borg is an open-source GPU: a small RISC-V CPU driving the **Borg FP16 shader processor** as an MMIO peripheral. The same Chisel source targets three back ends:
 
 - **ASIC** via Tiny Tapeout (IHP SG13G2) — `asic/tt/`
 - **ULX3S** FPGA (Lattice ECP5-85K) — `fpga/ulx3s/`
@@ -66,7 +66,7 @@ When a build needs the SystemRDL-generated register block, the top Makefile runs
 
 ### CPU ↔ peripheral fabric (Hutt + MemoryController + SoC)
 
-`hardware/hutt/Hutt.scala` is a clean multi-cycle RV32I core with **Decoupled** instruction and data buses (`HuttInstrBus`, `HuttBus` in `HuttBus.scala`). It is wired up in `hardware/soc/src/MinimalSoC.scala` (the slim Hutt + UART + MemoryController harness used for ULX3S/HDMI/UART bring-up) and in the full SoC alongside Borg. The CPU's data bus is decoded against `SoCDecode` constants to route MMIO between SoC inline registers, the user peripheral router, and the Borg peripheral bus.
+`hardware/hutt/Hutt.scala` is a clean multi-cycle RV32I/RV64I core (parameterized via the `xlen` constructor arg, default 32) with **Decoupled** instruction and data buses (`HuttInstrBus`, `HuttBus` in `HuttBus.scala`). **Current split by target:** the ASIC/TT tapeout (`asic/tt/src/TTTop.scala`) uses the RV32I default; the ULX3S FPGA path (`fpga/ulx3s/soc/src/ULX3S.scala`, the active demo target) overrides `xlen = 64` — RV64IMAC with M-mode/S-mode privilege levels, Sv39 MMU, and CLINT, laying groundwork for a Linux boot (not yet attempted; see `software/opensbi/`, `software/linux/`). `hardware/soc/src/MinimalSoC.scala` (the slim Hutt + UART + MemoryController harness used for ULX3S/HDMI/UART bring-up) still instantiates Hutt at its RV32I default. The CPU's data bus is decoded against `SoCDecode` constants to route MMIO between SoC inline registers, the user peripheral router, and the Borg peripheral bus.
 
 `hardware/memory/src/MemoryController.scala` arbitrates the instruction port, the CPU data port, and the GPU's `gpuMem` port across QSPI flash (`QspiBackend`) and SDRAM (`SdramBackend`) backends, with a `FlashBootLoader` for cold-boot copy-in. The GPU port can be tied off (default in `MinimalSoCLogic.wireGpuMem`) or driven by HDMI scanout in bring-up harnesses.
 

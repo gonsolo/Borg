@@ -66,7 +66,7 @@ It features an asynchronous 2-entry **Command FIFO** so the CPU can pack and que
 
 ### Hutt CPU
 
-A clean multi-cycle **RV32I** RISC-V core written in Chisel with fully **Decoupled** instruction and data buses. Hutt integrates seamlessly with the `MemoryController` (arbitrating QSPI flash and SDRAM) and routes MMIO via `SoCDecode` to inline SoC registers, the user peripheral router, and the Borg peripheral bus. Verified on ULX3S hardware.
+A clean multi-cycle **RV32I/RV64I** RISC-V core written in Chisel with fully **Decoupled** instruction and data buses, parameterized by XLEN. The ASIC/Tiny Tapeout target uses RV32I; the ULX3S FPGA target runs RV64IMAC with M-mode/S-mode privilege levels and an Sv39 MMU, laying groundwork for Linux. Hutt integrates seamlessly with the `MemoryController` (arbitrating QSPI flash and SDRAM) and routes MMIO via `SoCDecode` to inline SoC registers, the user peripheral router, and the Borg peripheral bus. Verified on ULX3S hardware.
 
 ## Prerequisites
 
@@ -185,7 +185,7 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | Component | Description | License |
 | --- | --- | --- |
 | [Chisel](https://github.com/chipsalliance/chisel) | Hardware construction language (Scala → Verilog) | Apache-2.0 |
-| Hutt | RV32I RISC-V CPU core (multi-cycle, Chisel, Decoupled buses) | CERN-OHL-S-2.0 |
+| Hutt | RV32I/RV64I RISC-V CPU core (multi-cycle, Chisel, Decoupled buses) | CERN-OHL-S-2.0 |
 | [Berkeley HardFloat](https://github.com/ucb-bar/berkeley-hardfloat) | IEEE-754 floating-point units (FMA) | BSD-3-Clause |
 | [LibreLane](https://github.com/efabless/librelane) | RTL-to-GDS ASIC flow orchestrator | Apache-2.0 |
 | [Yosys](https://github.com/YosysHQ/yosys) | RTL synthesis | ISC |

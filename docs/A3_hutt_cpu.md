@@ -1,10 +1,14 @@
 # The Hutt CPU
 
 Hutt (**H**ave **U** **T**ried **T**urning it off and on again?) is a clean
-multi-cycle RV32I processor written in Chisel. It replaced the older TinyQV
-nibble-serial design to give the Borg SoC a full 32-bit datapath and a simple
-Decoupled bus interface that the memory controller and peripheral fabric can
-integrate against directly.
+multi-cycle RV32I/RV64I processor written in Chisel, parameterized by XLEN.
+It replaced the older TinyQV nibble-serial design to give the Borg SoC a
+full-width datapath and a simple Decoupled bus interface that the memory
+controller and peripheral fabric can integrate against directly. The
+ASIC/Tiny Tapeout target instantiates it at the RV32I default; the ULX3S
+FPGA target overrides `xlen = 64`, running RV64IMAC with the MMU described
+below (Linux boot groundwork, not yet attempted — see `software/opensbi/`
+and `software/linux/`).
 
 Hutt implements the base RV32I/RV64I instruction set (xlen parameter selects 32 or 64). No M extension, no compressed (RV32C) instructions. FENCE is a no-op. Privilege levels: M-mode (reset) and S-mode. CSRs and traps are fully implemented: ECALL (cause 8/9/11 by privilege), EBREAK (cause 3), M/S timer IRQs, page faults (cause 12/13/15). M-mode CSRs: mstatus, mtvec, mscratch, mepc, mcause, mtval, mie, mip, medeleg, mideleg, mhartid, misa. S-mode CSRs: sstatus, stvec, sscratch, sepc, scause, stval, sie, sip, satp. MRET and SRET restore privilege from MPP/SPP. SFENCE.VMA flushes the TLB. An Sv39 MMU (3-level page table, 16-entry direct-mapped TLB) is active in the xlen=64 build when satp.MODE=8.
 
@@ -12,8 +16,8 @@ Hutt implements the base RV32I/RV64I instruction set (xlen parameter selects 32 
 
 ```text
 Hutt
-├── HuttRegFile  — 32 × 32-bit integer register file
-├── HuttAlu      — combinational RV32I ALU
+├── HuttRegFile  — 32 × XLEN-bit integer register file
+├── HuttAlu      — combinational RV32I/RV64I ALU
 └── HuttDecode   — combinational instruction decoder (inline, stateless)
 ```
 
@@ -92,7 +96,7 @@ after `sFetchResp` has latched the instruction.
 
 ## ALU (`HuttAlu`)
 
-A full 32-bit combinational ALU supporting all ten RV32I operations:
+A full XLEN-bit combinational ALU supporting all ten RV32I operations:
 
 | `AluOp` | Operation |
 |---------|-----------|
