@@ -41,7 +41,7 @@ define VERILATE
 	-DENABLE_INITIAL_MEM_ \
 	$(ROOT)/lint.vlt \
 	$$SRC_FILES \
-	$$(wildcard $(2)/verification/layers-*.sv) \
+	$(wildcard $(2)/verification/*.sv) \
 	$(4) \
 	../common/BorgSimulatorBase.cpp \
 	../common/texture_loader.cpp \

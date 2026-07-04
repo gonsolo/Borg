@@ -1,6 +1,7 @@
 #include "BorgSimulator.h"
 #include "sim_app_config.h"
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <vector>
@@ -136,7 +137,10 @@ int main(int argc, char** argv) {
     std::cout << "[SIM] Starting simulation...\n";
 
     const int NUM_FRAMES = cfg.num_frames;
-    const uint64_t MAX_CYCLES_PER_FRAME = 12000000ULL;
+    uint64_t MAX_CYCLES_PER_FRAME = 12000000ULL;
+    if (const char* envMax = std::getenv("MAX_CYCLES_PER_FRAME")) {
+        MAX_CYCLES_PER_FRAME = strtoull(envMax, nullptr, 10);
+    }
     uint64_t total_cycles = 0;
     for (int frame = 0; frame < NUM_FRAMES; frame++) {
         uint64_t frame_start = total_cycles;

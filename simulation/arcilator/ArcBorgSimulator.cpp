@@ -3,7 +3,7 @@
 
 ArcBorgSimulator::ArcBorgSimulator(const std::string& firmware_path, uint32_t w, uint32_t h) {
     model = new BorgArcSimTop;
-    flash = new QSPIMemory(1024 * 1024, true);
+    flash = new QSPIMemory(8 * 1024 * 1024, true);
     flat = new QSPIMemory(8 * 1024 * 1024, false);
 
     width = w;

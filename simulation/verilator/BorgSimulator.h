@@ -31,7 +31,7 @@ public:
 
     VerBorgSimulator(const std::string& firmware_path, uint32_t w = 32, uint32_t h = 32) {
         model = new VBorgSimTop;
-        flash = new QSPIMemory(1024 * 1024, true);
+        flash = new QSPIMemory(8 * 1024 * 1024, true);
         flat = new QSPIMemory(8 * 1024 * 1024, false);
 
         width = w;
