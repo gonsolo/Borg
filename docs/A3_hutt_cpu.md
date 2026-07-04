@@ -6,11 +6,11 @@ It replaced the older TinyQV nibble-serial design to give the Borg SoC a
 full-width datapath and a simple Decoupled bus interface that the memory
 controller and peripheral fabric can integrate against directly. The
 ASIC/Tiny Tapeout target instantiates it at the RV32I default; the ULX3S
-FPGA target overrides `xlen = 64`, running RV64IMAC with the MMU described
-below (Linux boot groundwork, not yet attempted — see `software/opensbi/`
-and `software/linux/`).
+FPGA target overrides `xlen = 64`, running RV64IA with the MMU described
+below (Linux boot groundwork — see `software/opensbi/` and
+`software/linux/`).
 
-Hutt implements the base RV32I/RV64I instruction set (xlen parameter selects 32 or 64). No M extension, no compressed (RV32C) instructions. FENCE is a no-op. Privilege levels: M-mode (reset) and S-mode. CSRs and traps are fully implemented: ECALL (cause 8/9/11 by privilege), EBREAK (cause 3), M/S timer IRQs, page faults (cause 12/13/15). M-mode CSRs: mstatus, mtvec, mscratch, mepc, mcause, mtval, mie, mip, medeleg, mideleg, mhartid, misa. S-mode CSRs: sstatus, stvec, sscratch, sepc, scause, stval, sie, sip, satp. MRET and SRET restore privilege from MPP/SPP. SFENCE.VMA flushes the TLB. An Sv39 MMU (3-level page table, 16-entry direct-mapped TLB) is active in the xlen=64 build when satp.MODE=8.
+Hutt implements the base RV32I/RV64I instruction set (xlen parameter selects 32 or 64), plus the full A extension (LR/SC + all nine AMO* ops) on xlen=64 builds — required for OpenSBI, whose sbi library needs real atomics to compile at all. No M extension, no compressed (RV32C/RV64C) instructions: GCC must be told `-march=...` *without* `c`, or it emits compressed forms by default, which desyncs Hutt's fixed 4-byte fetch/PC-increment and silently misexecutes everything after the first one (found the hard way debugging the first OpenSBI boot attempt — see `software/opensbi/platform/borg/objects.mk`). FENCE is a no-op. Privilege levels: M-mode (reset) and S-mode. CSRs and traps are fully implemented: ECALL (cause 8/9/11 by privilege), EBREAK (cause 3), M/S timer IRQs, page faults (cause 12/13/15). M-mode CSRs: mstatus, mtvec, mscratch, mepc, mcause, mtval, mie, mip, medeleg, mideleg, mhartid, misa. S-mode CSRs: sstatus, stvec, sscratch, sepc, scause, stval, sie, sip, satp. MRET and SRET restore privilege from MPP/SPP. SFENCE.VMA flushes the TLB. An Sv39 MMU (3-level page table, 16-entry direct-mapped TLB) is active in the xlen=64 build when satp.MODE=8. LR/SC use a single-hart reservation (valid bit + address register, no snooping) — correct on this SoC since only one hart exists and Hutt is non-pipelined, but would need real coherence if a second bus master (e.g. Borg) ever raced on the same address.
 
 ## Module Hierarchy
 

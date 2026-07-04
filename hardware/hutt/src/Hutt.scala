@@ -106,6 +106,19 @@ class Hutt(
   val ptwIsWrite = RegInit(false.B)    // true = store (for fault cause)
   val dataPhysAddr = Reg(UInt(xlen.W)) // physical address for data access
 
+  // -- A extension: LR/SC/AMO* (xlen=64 only) --------------------------------
+  // amoPending tells the PTW's data-fault-resolved redirect which state to
+  // continue into once translation completes: 0=plain load/store (sMemReq),
+  // 1=AMO/LR read phase (sAmoLoadReq), 2=AMO/SC write phase (sAmoStoreReq).
+  val amoPending = RegInit(0.U(2.W))
+  val amoOldVal  = Reg(UInt(xlen.W))   // value loaded in the read phase (old value for rd)
+  val amoNewVal  = Reg(UInt(xlen.W))   // value to write in the store phase
+  // Single-hart reservation: valid+address set by LR, checked+cleared by SC.
+  // No other bus master can interleave within one hart's own instruction
+  // execution, so this is sufficient for correctness on this SoC.
+  val lrValid = RegInit(false.B)
+  val lrAddr  = Reg(UInt(xlen.W))
+
   // mmuEnabled: Sv39 translation active (xlen=64, non-M-mode, MODE=8).
   val mmuEnabled: Bool =
     if (xlen == 64) (satp(63, 60) === 8.U && privLevel =/= 3.U) else false.B
@@ -122,7 +135,7 @@ class Hutt(
   val alu     = Module(new HuttAlu(xlen))
 
   // -- FSM -------------------------------------------------------------------
-  val sFetchReq :: sFetchResp :: sExec :: sMemReq :: sMemResp :: sPtwReq :: sPtwResp :: Nil = Enum(7)
+  val sFetchReq :: sFetchResp :: sExec :: sMemReq :: sMemResp :: sPtwReq :: sPtwResp :: sAmoLoadReq :: sAmoLoadResp :: sAmoStoreReq :: sAmoStoreResp :: Nil = Enum(11)
   val state = RegInit(sFetchReq)
 
   // -- Decode (combinational over current `instr` register) ------------------
@@ -138,10 +151,10 @@ class Hutt(
   alu.io.a := rs1Val
   alu.io.b := Mux(aluUseImm, aluImm, rs2Val)
   alu.io.op := MuxCase(AluOp.Add, Seq(
-    d.isOp      -> HuttAluDecode(d.funct3, d.funct7(5), isOpReg = true.B),
-    d.isOpImm   -> HuttAluDecode(d.funct3, d.funct7(5), isOpReg = false.B),
-    d.isOp32    -> HuttAluDecode(d.funct3, d.funct7(5), isOpReg = true.B,  isWord = true.B),
-    d.isOpImm32 -> HuttAluDecode(d.funct3, d.funct7(5), isOpReg = false.B, isWord = true.B)
+    d.isOp      -> HuttAluDecode(d.funct3, d.funct7, isOpReg = true.B),
+    d.isOpImm   -> HuttAluDecode(d.funct3, d.funct7, isOpReg = false.B),
+    d.isOp32    -> HuttAluDecode(d.funct3, d.funct7, isOpReg = true.B,  isWord = true.B),
+    d.isOpImm32 -> HuttAluDecode(d.funct3, d.funct7, isOpReg = false.B, isWord = true.B)
   ))
 
   val branchTaken = HuttBranchTaken(d.funct3, rs1Val, rs2Val)
@@ -320,6 +333,7 @@ class Hutt(
         mstatus   := mstatusTrap
         pc        := mTrapPC
         privLevel := 3.U
+        lrValid   := false.B
       }.elsewhen(sTimerPend) {
         sepc      := pc
         scause    := Cat(true.B, 0.U((xlen - 4).W), 5.U(3.W))
@@ -327,6 +341,7 @@ class Hutt(
         mstatus   := mstatusStrap
         pc        := sTrapPC
         privLevel := 1.U
+        lrValid   := false.B
       }.otherwise {
         if (xlen == 64) {
           when(mmuEnabled) {
@@ -366,11 +381,16 @@ class Hutt(
     }
 
     is(sExec) {
+      if (HuttDebug.trace) printf("[HUTT] pc=0x%x instr=0x%x priv=%d mstatus=0x%x mepc=0x%x mcause=0x%x mtvec=0x%x\n",
+        pc, instr, privLevel, mstatus, mepc, mcause, mtvec)
+      if (HuttDebug.trace) printf("[HUTT-REG] rs1=%d rs2=%d rd=%d rs1Val=0x%x rs2Val=0x%x wbExec=0x%x wbExecEn=%d wen=%d wAddr=%d wData=0x%x\n",
+        d.rs1, d.rs2, d.rd, rs1Val, rs2Val, wbExec, wbExecEn, regFile.io.wen, regFile.io.wAddr, regFile.io.wData)
       when(d.isLoad || d.isStore) {
         loadAddrLo := memAddr(1, 0)
         loadFunct3 := d.funct3
         loadRd     := d.rd
         isLoadOp   := d.isLoad
+        amoPending := 0.U
         if (xlen == 64) {
           when(mmuEnabled) {
             val tlbIdx = memAddr(TLB_BITS + 11, 12)
@@ -395,6 +415,68 @@ class Hutt(
           state := sMemReq
         }
 
+      }.elsewhen(d.isAmo) {
+        if (xlen == 64) {
+          // A-extension addressing has no immediate offset: address = rs1.
+          val amoAddr = rs1Val
+          when(d.isSc) {
+            // SC only touches the bus if the reservation is live and matches;
+            // a mismatch fails immediately with no side effects.
+            when(lrValid && (lrAddr === amoAddr)) {
+              amoPending := 2.U
+              amoNewVal  := rs2Val
+              when(mmuEnabled) {
+                val tlbIdx = amoAddr(TLB_BITS + 11, 12)
+                when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === amoAddr(38, 12))) {
+                  dataPhysAddr := Cat(tlbPPN(tlbIdx), amoAddr(11, 0))
+                  state        := sAmoStoreReq
+                }.otherwise {
+                  ptwVA      := amoAddr
+                  ptwIsInstr := false.B
+                  ptwIsWrite := true.B
+                  ptwLevel   := 2.U
+                  ptwA       := Cat(0.U((xlen - 56).W), satp(43, 0), 0.U(12.W))
+                  state      := sPtwReq
+                }
+              }.otherwise {
+                dataPhysAddr := amoAddr
+                state        := sAmoStoreReq
+              }
+            }.otherwise {
+              regFile.io.wAddr := d.rd
+              regFile.io.wData := 1.U(xlen.W)   // failure
+              regFile.io.wen   := (d.rd =/= 0.U)
+              lrValid := false.B
+              pc    := pcNext
+              state := sFetchReq
+            }
+          }.otherwise {
+            // LR and true AMO* both start with a read phase.
+            amoPending := 1.U
+            when(mmuEnabled) {
+              val tlbIdx = amoAddr(TLB_BITS + 11, 12)
+              when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === amoAddr(38, 12))) {
+                dataPhysAddr := Cat(tlbPPN(tlbIdx), amoAddr(11, 0))
+                state        := sAmoLoadReq
+              }.otherwise {
+                ptwVA      := amoAddr
+                ptwIsInstr := false.B
+                ptwIsWrite := false.B
+                ptwLevel   := 2.U
+                ptwA       := Cat(0.U((xlen - 56).W), satp(43, 0), 0.U(12.W))
+                state      := sPtwReq
+              }
+            }.otherwise {
+              dataPhysAddr := amoAddr
+              state        := sAmoLoadReq
+            }
+          }
+        } else {
+          // A extension is only decoded for xlen=64 builds.
+          pc    := pcNext
+          state := sFetchReq
+        }
+
       }.elsewhen(d.isEcall) {
         // Delegation: S-mode ECALL (cause 9) → medeleg[9]; U-mode → medeleg[8].
         val ecallDeleg = Mux(privLevel === 1.U, medeleg(9),
@@ -406,6 +488,7 @@ class Hutt(
           mepc := pc; mcause := ecallCause; mtval := 0.U(xlen.W)
           mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
         }
+        lrValid := false.B
         state := sFetchReq
 
       }.elsewhen(d.isEbreak) {
@@ -416,6 +499,7 @@ class Hutt(
           mepc := pc; mcause := 3.U(xlen.W); mtval := pc
           mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
         }
+        lrValid := false.B
         state := sFetchReq
 
       }.elsewhen(d.isMret) {
@@ -470,16 +554,24 @@ class Hutt(
     is(sMemReq) {
       io.data.req.valid := true.B
       if (xlen == 64) { io.data.req.bits.addr := dataPhysAddr(dataAddrWidth - 1, 0) }
+      if (HuttDebug.trace) printf("[HUTT-MEM] sMemReq addr=0x%x write=%d size=%d data=0x%x req.ready=%d req.fire=%d\n",
+        io.data.req.bits.addr, io.data.req.bits.write, io.data.req.bits.size, io.data.req.bits.data,
+        io.data.req.ready, io.data.req.fire)
       when(io.data.req.fire) { state := sMemResp }
     }
 
     is(sMemResp) {
       io.data.resp.ready := true.B
+      if (HuttDebug.trace) printf("[HUTT-MEM] sMemResp resp.valid=%d resp.fire=%d resp.bits=0x%x\n",
+        io.data.resp.valid, io.data.resp.fire, io.data.resp.bits)
       when(io.data.resp.fire) {
         when(isLoadOp && (loadRd =/= 0.U)) {
           regFile.io.wAddr := loadRd
           regFile.io.wData := extendLoad(loadFunct3, io.data.resp.bits)
           regFile.io.wen   := true.B
+        }.elsewhen(!isLoadOp) {
+          // A plain store to the reserved address invalidates an LR reservation.
+          when(lrValid && (lrAddr === memAddr)) { lrValid := false.B }
         }
         pc    := pcNext
         state := sFetchReq
@@ -563,7 +655,12 @@ class Hutt(
                 state := sFetchReq
               }.otherwise {
                 dataPhysAddr := physAddr
-                state        := sMemReq
+                // Redirect per the operation that triggered this walk: plain
+                // load/store (sMemReq), or the read/write phase of an AMO/LR/SC.
+                state := MuxLookup(amoPending, sMemReq)(Seq(
+                  1.U -> sAmoLoadReq,
+                  2.U -> sAmoStoreReq
+                ))
               }
             }
           }.otherwise {
@@ -576,6 +673,89 @@ class Hutt(
               state    := sPtwReq
             }
           }
+        }
+      }
+    }
+
+    // -- A extension: LR/SC/AMO* read-modify-write (xlen=64 only) -------------
+    // LR uses only the read phase (sAmoLoadReq/sAmoLoadResp); SC uses only the
+    // write phase (sAmoStoreReq/sAmoStoreResp, gated on a live reservation in
+    // sExec before ever reaching here); true AMO* ops use both phases in
+    // sequence. Single-hart, non-pipelined execution makes the read-modify-
+    // write inherently atomic from this hart's own perspective.
+    is(sAmoLoadReq) {
+      if (xlen == 64) {
+        io.data.req.valid      := true.B
+        io.data.req.bits.addr  := dataPhysAddr(dataAddrWidth - 1, 0)
+        io.data.req.bits.write := false.B
+        io.data.req.bits.size  := d.funct3(1, 0)
+        io.data.req.bits.data  := 0.U
+        when(io.data.req.fire) { state := sAmoLoadResp }
+      }
+    }
+
+    is(sAmoLoadResp) {
+      if (xlen == 64) {
+        io.data.resp.ready := true.B
+        when(io.data.resp.fire) {
+          val loadedVal = extendLoad(d.funct3, io.data.resp.bits)
+          amoOldVal := loadedVal
+          when(d.isLr) {
+            regFile.io.wAddr := d.rd
+            regFile.io.wData := loadedVal
+            regFile.io.wen   := (d.rd =/= 0.U)
+            lrValid := true.B
+            lrAddr  := rs1Val
+            pc    := pcNext
+            state := sFetchReq
+          }.otherwise {
+            val amoOp2 = rs2Val
+            amoNewVal := MuxLookup(d.amoFunct5, loadedVal)(Seq(
+              AmoFunct5.Swap -> amoOp2,
+              AmoFunct5.Add  -> (loadedVal + amoOp2),
+              AmoFunct5.Xor  -> (loadedVal ^ amoOp2),
+              AmoFunct5.And  -> (loadedVal & amoOp2),
+              AmoFunct5.Or   -> (loadedVal | amoOp2),
+              AmoFunct5.Min  -> Mux(loadedVal.asSInt < amoOp2.asSInt, loadedVal, amoOp2),
+              AmoFunct5.Max  -> Mux(loadedVal.asSInt > amoOp2.asSInt, loadedVal, amoOp2),
+              AmoFunct5.Minu -> Mux(loadedVal < amoOp2, loadedVal, amoOp2),
+              AmoFunct5.Maxu -> Mux(loadedVal > amoOp2, loadedVal, amoOp2)
+            ))
+            state := sAmoStoreReq
+          }
+        }
+      }
+    }
+
+    is(sAmoStoreReq) {
+      if (xlen == 64) {
+        io.data.req.valid      := true.B
+        io.data.req.bits.addr  := dataPhysAddr(dataAddrWidth - 1, 0)
+        io.data.req.bits.write := true.B
+        io.data.req.bits.size  := d.funct3(1, 0)
+        io.data.req.bits.data  := amoNewVal
+        when(io.data.req.fire) { state := sAmoStoreResp }
+      }
+    }
+
+    is(sAmoStoreResp) {
+      if (xlen == 64) {
+        io.data.resp.ready := true.B
+        when(io.data.resp.fire) {
+          when(d.isSc) {
+            regFile.io.wAddr := d.rd
+            regFile.io.wData := 0.U(xlen.W)   // success
+            regFile.io.wen   := (d.rd =/= 0.U)
+            lrValid := false.B
+          }.otherwise {
+            regFile.io.wAddr := d.rd
+            regFile.io.wData := amoOldVal
+            regFile.io.wen   := (d.rd =/= 0.U)
+            // A true-AMO write invalidates a matching outstanding reservation.
+            when(lrValid && (lrAddr === rs1Val)) { lrValid := false.B }
+          }
+          pc    := pcNext
+          state := sFetchReq
         }
       }
     }
