@@ -22,8 +22,8 @@
 #include <sbi/sbi_platform.h>
 #include <sbi/sbi_scratch.h>
 #include <sbi/sbi_types.h>
+#include <sbi_utils/fdt/fdt_driver.h>
 #include <sbi_utils/fdt/fdt_helper.h>
-#include <sbi_utils/irqchip/fdt_ipi.h>
 #include <sbi_utils/serial/fdt_serial.h>
 #include <sbi_utils/timer/fdt_timer.h>
 
@@ -64,12 +64,17 @@ static int borg_final_init(bool cold_boot)
         return 0;
 
     // FDT-based drivers discover CLINT (timer + IPI) from the embedded DTB.
-    // No manual CLINT setup is required here.
-    return fdt_serial_init() ?: fdt_timer_init() ?: fdt_ipi_init();
+    // No manual CLINT setup is required here. IPI (aclint-mswi) has no
+    // standalone fdt_ipi_init() in this OpenSBI version — it registers into
+    // the shared "early drivers" table instead, dispatched generically via
+    // fdt_driver_init_all() (same pattern platform/generic/platform.c uses).
+    const void *fdt = fdt_get_address();
+
+    return fdt_serial_init(fdt) ?: fdt_timer_init() ?: fdt_driver_init_all(fdt, fdt_early_drivers);
 }
 
-static int borg_early_exit(void) { return 0; }
-static int borg_final_exit(void) { return 0; }
+static void borg_early_exit(void) { }
+static void borg_final_exit(void) { }
 
 // ---------------------------------------------------------------------------
 // Platform descriptor

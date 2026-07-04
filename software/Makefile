@@ -40,7 +40,18 @@ clean:
 # They point to read-only Nix store paths — do not write into them.
 OPENSBI_SRC  ?= $(error OPENSBI_SRC not set — enter the Nix dev shell first)
 OPENSBI_OUT  ?= $(CURDIR)/../out/software/opensbi
-BORG_PLATFORM := $(CURDIR)/opensbi/platform/borg
+# Pass the PARENT of platform/borg (not platform/borg itself) together with
+# an explicit PLATFORM=borg below. OpenSBI's own Makefile derives PLATFORM
+# via a lazily-expanded `PLATFORM=$(shell basename $(platform_dir_path))`
+# when PLATFORM_DIR is given without PLATFORM — since that's a recursive
+# (`=`) assignment, it re-shells-out on every reference to $(PLATFORM)
+# throughout the build (once per compiled file), which is slow and, if
+# platform_dir_path is ever empty on that expansion, prints spurious
+# "basename: missing operand" warnings. Passing PLATFORM explicitly makes
+# it a plain literal — no repeated shell-outs — and also avoids doubling
+# the path (platform_parent_dir = PLATFORM_DIR itself when PLATFORM is set,
+# so PLATFORM_DIR must be the parent dir here, not platform/borg).
+BORG_PLATFORM_PARENT := $(CURDIR)/opensbi/platform
 
 LINUX_SRC    ?= $(error LINUX_SRC not set — enter the Nix dev shell first)
 LINUX_OUT    ?= $(CURDIR)/../out/software/linux
@@ -51,12 +62,12 @@ BORG_DTB     := $(LINUX_OUT)/borg.dtb
 
 LINUX_IMAGE  ?= $(LINUX_OUT)/arch/riscv/boot/Image
 
-opensbi: $(BORG_DTB) $(LINUX_IMAGE)
+opensbi: $(BORG_DTB) linux
 	@echo "[opensbi] building FW_PAYLOAD with Borg platform..."
 	$(MAKE) -C $(OPENSBI_SRC) \
 	    CROSS_COMPILE=$(CROSS64)- \
+	    PLATFORM_DIR=$(BORG_PLATFORM_PARENT) \
 	    PLATFORM=borg \
-	    PLATFORM_DIR=$(BORG_PLATFORM) \
 	    FW_TEXT_START=0x00000000 \
 	    FW_PAYLOAD_OFFSET=0x00200000 \
 	    FW_FDT_PATH=$(BORG_DTB) \
