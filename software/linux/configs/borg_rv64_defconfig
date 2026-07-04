@@ -22,7 +22,9 @@ CONFIG_POSIX_MQUEUE=y
 #
 CONFIG_RISCV=y
 CONFIG_64BIT=y
-CONFIG_RISCV_ISA_C=y
+# CONFIG_RISCV_ISA_C is not set — Hutt has no compressed-instruction support
+# (see docs/A3_hutt_cpu.md); a compressed instr desyncs Hutt's fixed 4-byte
+# fetch/PC-increment, silently misexecuting everything after it.
 # CONFIG_FPU is not set
 CONFIG_NONPORTABLE=y
 CONFIG_PAGE_OFFSET=0xffffffe000000000

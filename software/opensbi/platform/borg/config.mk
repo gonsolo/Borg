@@ -4,7 +4,8 @@
 # Borg SoC OpenSBI platform configuration.
 #
 # Hardware facts:
-#   CPU:       Hutt RV64IMAC, 1 hart, hartid=0
+#   CPU:       Hutt RV64I + Zicsr/Zifencei only, 1 hart, hartid=0
+#              (no M/A/C extensions — see docs/A3_hutt_cpu.md)
 #   SDRAM:     32MB at physical 0x00000000 (flat, mapped at CPU addr 0)
 #   CLINT:     0x02000000, mtime increments at 25 MHz
 #   Debug UART 0x08000018 (write-only, 115200 baud at 25 MHz)
@@ -20,13 +21,14 @@
 #
 # The DTB is embedded at link time via FW_FDT_PATH; pass an absolute path:
 #   make ... FW_FDT_PATH=/path/to/borg.dtb
-
-platform-cflags-y   = -march=rv64imac_zicsr -mabi=lp64
-platform-cppflags-y =
-
-PLATFORM_RISCV_XLEN = 64
-PLATFORM_RISCV_ISA  = rv64imac_zicsr_zifencei
-PLATFORM_RISCV_ABI  = lp64
+#
+# NOTE: this file is NOT included by OpenSBI's top-level Makefile (only
+# objects.mk files get globbed via `find -iname "objects.mk"`) — it exists
+# purely as documentation. platform-cflags-y and PLATFORM_RISCV_ISA are set
+# in objects.mk (the file that's actually read); setting them here has no
+# effect and previously masked a real bug (OpenSBI's build fell back to its
+# own default rv64imafdc_zicsr_zifencei, whose compressed instructions
+# desynced Hutt's fixed 4-byte fetch and hung the CPU on a wild pointer).
 
 # FW_PAYLOAD mode: OpenSBI binary + embedded Linux kernel in one image.
 # Flash image layout:
