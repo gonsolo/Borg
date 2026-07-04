@@ -5,6 +5,7 @@
 #include <VBorgSimTop.h>
 #include <VBorgSimTop___024root.h>
 #include <verilated.h>
+#include <cstdlib>
 #include <iostream>
 
 // VerBorgSimulator drives BorgSimTop, whose MemoryController backend is a real
@@ -62,7 +63,17 @@ public:
 
     virtual uint8_t get_uo_out() override { return model->uo_out; }
     virtual void set_ui_in(uint8_t val) override { model->ui_in = val; }
-    virtual int get_uart_bit_pos() const override { return 0; }
+    // uo_out bit assignment is per-SoC-variant, not fixed: the full SoC
+    // (Project.scala's uo_out_val) puts peripherals.io.uo_out's UART (used by
+    // borg_kernel.c/borgvk) at bit 0, but the SoC-inline debug console UART
+    // (BORG_UART_TX at 0x08000018, used by OpenSBI/Linux firmware) at bit 6 —
+    // see Project.scala:345 `Mux(gpio_out_sel(0), peri_out(6), debug_uart_txd)`.
+    // Override via UART_BIT_POS for firmware that uses the debug console
+    // instead of the borgvk peripheral UART.
+    virtual int get_uart_bit_pos() const override {
+        if (const char* ov = std::getenv("UART_BIT_POS")) return atoi(ov);
+        return 0;
+    }
 
     void dbg_write(uint32_t word, uint16_t data) {
         model->dbg_we = 1; model->dbg_waddr = word & 0xFFFFFF; model->dbg_wdata = data;
@@ -85,8 +96,16 @@ public:
     }
 
     void boot() {
-        // Firmware/boot image: flash byte F → SDRAM word F>>1.
-        load_region(flash->mem, 0, 0x20000, 0);
+        // Firmware/boot image: flash byte F → SDRAM word F>>1.  Copy exactly what
+        // load_bin() actually loaded (rounded up to an even byte count for the
+        // 16-bit word copy) — NOT a fixed 0x20000 (128KB). That fixed size was a
+        // leftover from when firmware was always tiny (~11-40KB); a multi-MB
+        // OpenSBI/Linux image would silently have everything past 128KB read back
+        // as zero (uninitialized SDRAM) instead of its real content — found via
+        // simulation: an sbi_platform struct field read back as 0 instead of the
+        // value actually compiled into the image, because it sat past the old cutoff.
+        uint32_t flashLen = (uint32_t)((flash->loaded_size + 1) & ~1u);
+        load_region(flash->mem, 0, flashLen, 0);
         // Config + texture: flat byte P → SDRAM word (P>>1)|0x800000.
         load_region(flat->mem, 0, 0x20000, 0x800000);
         // Release reset — CPU now boots from the loaded image.
