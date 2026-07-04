@@ -21,13 +21,34 @@ object Opcode {
   val Op32    = "b0111011".U(7.W)  // RV64 ADDW/SUBW/SLLW/SRLW/SRAW
   val MiscMem = "b0001111".U(7.W)  // FENCE / FENCE.I — treated as nop
   val System  = "b1110011".U(7.W)  // ECALL / EBREAK / CSR — treated as nop in this RV32I-only core
+  val Amo     = "b0101111".U(7.W)  // A extension: LR/SC/AMO* (xlen=64 only)
+}
+
+/** A-extension funct5 selectors (instr[31:27]). */
+object AmoFunct5 {
+  val Add  = "b00000".U(5.W)
+  val Swap = "b00001".U(5.W)
+  val Lr   = "b00010".U(5.W)
+  val Sc   = "b00011".U(5.W)
+  val Xor  = "b00100".U(5.W)
+  val Or   = "b01000".U(5.W)
+  val And  = "b01100".U(5.W)
+  val Min  = "b10000".U(5.W)
+  val Max  = "b10100".U(5.W)
+  val Minu = "b11000".U(5.W)
+  val Maxu = "b11100".U(5.W)
 }
 
 /** ALU operation selector.  The `*W` variants are RV64 word ops (32-bit result
-  * sign-extended to 64); never selected on RV32. */
+  * sign-extended to 64); never selected on RV32.  The Mul/Div/Rem family (M
+  * extension) and their `*W` forms are only implemented in hardware for
+  * xlen=64 builds (see HuttAlu) — required for OpenSBI/Linux, whose own
+  * source unconditionally uses integer divide. */
 object AluOp extends ChiselEnum {
   val Add, Sub, Sll, Slt, Sltu, Xor, Srl, Sra, Or, And,
-      AddW, SubW, SllW, SrlW, SraW = Value
+      AddW, SubW, SllW, SrlW, SraW,
+      Mul, Mulh, Mulhsu, Mulhu, Div, Divu, Rem, Remu,
+      MulW, DivW, DivuW, RemW, RemuW = Value
 }
 
 /** Decoded instruction fields and control signals.
@@ -69,6 +90,10 @@ class HuttDecoded(val xlen: Int = 32) extends Bundle {
   val isMret      = Bool()   // MRET — return from M-mode trap
   val isSret      = Bool()   // SRET — return from S-mode trap
   val isSfenceVma = Bool()   // SFENCE.VMA — supervisor TLB flush
+  val isAmo    = Bool()   // A extension: LR/SC/AMO* (xlen=64 only)
+  val isLr     = Bool()   // LR.W/LR.D
+  val isSc     = Bool()   // SC.W/SC.D
+  val amoFunct5 = UInt(5.W)  // AMO op selector (instr[31:27]); valid when isAmo
 }
 
 object HuttDecode {
@@ -119,6 +144,12 @@ object HuttDecode {
     // FENCE, WFI, and unknown SYSTEM+funct3=0 are harmless NOPs.
     d.isNop    := (d.opcode === Opcode.MiscMem) ||
                   (isSystem0 && !d.isEcall && !d.isEbreak && !d.isMret && !d.isSret && !d.isSfenceVma)
+
+    // A extension: opcode 0101111, funct3 010=word/011=doubleword, funct5=instr[31:27].
+    d.amoFunct5 := instr(31, 27)
+    d.isAmo := d.opcode === Opcode.Amo
+    d.isLr  := d.isAmo && (d.amoFunct5 === AmoFunct5.Lr)
+    d.isSc  := d.isAmo && (d.amoFunct5 === AmoFunct5.Sc)
 
     d
   }
