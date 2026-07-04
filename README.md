@@ -1,6 +1,10 @@
 # Borg - Tiny Open Source Graphics Processing Unit
 
-![GDS IHP](../../workflows/gds-ihp/badge.svg) ![Book](../../workflows/book/badge.svg) ![Test](../../workflows/test/badge.svg) ![FPGA](../../workflows/fpga/badge.svg)
+![GDS IHP](../../workflows/gds-ihp/badge.svg)
+![Book](../../workflows/book/badge.svg)
+![Test](../../workflows/test/badge.svg)
+![FPGA](../../workflows/fpga/badge.svg)
+[![DOI](https://zenodo.org/badge/1117680435.svg)](https://doi.org/10.5281/zenodo.21189252)
 
 ## Foundational workflow for an open-source GPU
 
