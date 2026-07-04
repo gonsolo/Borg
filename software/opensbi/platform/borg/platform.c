@@ -24,7 +24,6 @@
 #include <sbi/sbi_types.h>
 #include <sbi_utils/fdt/fdt_driver.h>
 #include <sbi_utils/fdt/fdt_helper.h>
-#include <sbi_utils/serial/fdt_serial.h>
 #include <sbi_utils/timer/fdt_timer.h>
 
 // ---------------------------------------------------------------------------
@@ -55,22 +54,37 @@ static int borg_early_init(bool cold_boot)
     if (!cold_boot)
         return 0;
     sbi_console_set_device(&borg_console);
-    return 0;
-}
-
-static int borg_final_init(bool cold_boot)
-{
-    if (!cold_boot)
-        return 0;
 
     // FDT-based drivers discover CLINT (timer + IPI) from the embedded DTB.
     // No manual CLINT setup is required here. IPI (aclint-mswi) has no
     // standalone fdt_ipi_init() in this OpenSBI version — it registers into
     // the shared "early drivers" table instead, dispatched generically via
     // fdt_driver_init_all() (same pattern platform/generic/platform.c uses).
+    // Both calls MUST happen in early_init, not final_init: they register
+    // MMIO regions with sbi_domain_root_add_memrange(), and sbi_init.c calls
+    // sbi_domain_finalize() between early_init and final_init — after that,
+    // every root_add_memregion() call is rejected outright (domain_finalized
+    // check in lib/sbi/sbi_domain.c), which silently manifested as SBI_EINVAL
+    // (-3) from both fdt_timer_init() and fdt_driver_init_all() and a hang in
+    // sbi_hart_hang(). Found via simulation trace + sbi_domain_dump_all(),
+    // then confirmed by reading platform/generic/platform.c's early_init.
+    //
+    // Deliberately NOT calling fdt_serial_init() here: our console is already
+    // registered directly above (sbi_console_set_device), and the borg-uart
+    // DTS node is status="disabled" with a custom compatible string no driver
+    // recognizes — fdt_serial_init() falls back to scanning the whole DT for
+    // a match, finds none, and returns SBI_ENODEV, which is fatal here.
     const void *fdt = fdt_get_address();
 
-    return fdt_serial_init(fdt) ?: fdt_timer_init() ?: fdt_driver_init_all(fdt, fdt_early_drivers);
+    int rc_timer = fdt_timer_init();
+    if (rc_timer)
+        return rc_timer;
+    return fdt_driver_init_all(fdt, fdt_early_drivers);
+}
+
+static int borg_final_init(bool cold_boot)
+{
+    return 0;
 }
 
 static void borg_early_exit(void) { }
