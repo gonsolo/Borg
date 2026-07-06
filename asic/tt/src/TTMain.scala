@@ -18,7 +18,7 @@ object TTMain extends App {
   println(s"Generating Verilog with CLOCK_MHZ = $clockMhz")
 
   val targetDir = "out/hardware/borg/verilog"
-  new java.io.File(targetDir).mkdirs()
+  Emit.cleanTargetDir(targetDir)
   val allAsicFiles = collection.mutable.Set[String]()
 
   Emit.emitAndCollect(new tt_um_gonsolo_borg(clockMhz), targetDir, allAsicFiles)

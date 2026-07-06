@@ -13,6 +13,26 @@ import circt.stage.ChiselStage
   * Verilog output.
   */
 object Emit {
+
+  /** Recursively delete targetDir, then recreate it empty.
+    *
+    * firtool's --split-verilog only writes the files a given elaboration
+    * produces — it never prunes files a *previous* run left behind. A
+    * conditional emission (e.g. Chisel debug printfs gated by an env var)
+    * can therefore leave stale .sv files under verification/ referencing
+    * signals that no longer exist in the freshly emitted design, which downstream
+    * tools (verilator) then glob in and fail to elaborate against the new
+    * Verilog. Wipe the directory before each Main object's emission run.
+    */
+  def cleanTargetDir(dir: String): Unit = {
+    def deleteRecursively(f: java.io.File): Unit = {
+      if (f.isDirectory) f.listFiles().foreach(deleteRecursively)
+      f.delete()
+    }
+    deleteRecursively(new java.io.File(dir))
+    new java.io.File(dir).mkdirs()
+  }
+
   val firtoolOpts = Array(
     "-O=release",
     "--split-verilog",

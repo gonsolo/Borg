@@ -19,7 +19,7 @@ object BorgSimMain extends App {
   println(s"Generating sim Verilog with CLOCK_MHZ = $clockMhz")
 
   val targetDir = "out/hardware/borg/verilog_sim"
-  new java.io.File(targetDir).mkdirs()
+  Emit.cleanTargetDir(targetDir)
   val allFiles = collection.mutable.Set[String]()
 
   Emit.emitAndCollect(new BorgSimTop(clockMhz), targetDir, allFiles)

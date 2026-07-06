@@ -19,7 +19,7 @@ object BorgHdmiSimMain extends App {
   println(s"Generating HDMI-sim Verilog: CLOCK_MHZ=$clockMhz fb=${fbW}x${fbH}")
 
   val targetDir = "out/hardware/borg/verilog_hdmi_sim"
-  new java.io.File(targetDir).mkdirs()
+  Emit.cleanTargetDir(targetDir)
   val allFiles = collection.mutable.Set[String]()
 
   Emit.emitAndCollect(new BorgHdmiSimTop(clockMhz, fbW, fbH), targetDir, allFiles)
