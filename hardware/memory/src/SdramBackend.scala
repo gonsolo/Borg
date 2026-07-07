@@ -90,6 +90,24 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
   val rdyPrev   = RegNext(sdram.io.sys.rdy, false.B)
   val rdyRising = sdram.io.sys.rdy && !rdyPrev
 
+  // SdramController's sIDLE state sets sysRdy=true any cycle it sees no
+  // pending rd/wr — including the transient idle cycle(s) between an
+  // auto-refresh finishing and our own rd/wr being registered (one-cycle
+  // input-registration delay; see SdramController's "Cross-clock-domain
+  // input registers" comment), or simply the steady "nothing to do" state.
+  // A naive rdyRising detector (rdy 0->1) can be fooled by *this* blip
+  // instead of our request's real completion — e.g. a refresh cycle
+  // (sRFRSH1/sWAIT/sRFRSH2/sWAIT) drops rdy and brings it back up before the
+  // controller ever registers our rd/wr, satisfying a "saw rdy go low once"
+  // check without our request having been serviced at all.
+  //
+  // The controller's sRDWR state is the one unambiguous signal that it has
+  // actually registered and is dispatching *our* read/write (activate/
+  // precharge/issue-command) — it's never entered by refresh or idle. Only
+  // trust rdyRising once we've seen the controller pass through sRDWR since
+  // we asserted rd/wr.
+  val seenRdwr = RegInit(false.B)
+
   // SDRAM sys interface
   sdram.io.sys.rd  := (state === sHold) && !isWrite
   sdram.io.sys.wr  := (state === sHold) &&  isWrite
@@ -119,6 +137,7 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
         lenReg  := 1.U
         beatReg := 0.U
         state   := sHold
+        seenRdwr := false.B
       }.elsewhen(io.backend.startWrite) {
         addrReg := io.backend.addrIn
         dataReg := io.backend.dataIn
@@ -126,11 +145,13 @@ class SdramBackend(clockMhz: Int = 125) extends Module {
         lenReg  := io.backend.lenIn
         beatReg := 0.U
         state   := sHold
+        seenRdwr := false.B
       }
     }
 
     is(sHold) {
-      when(rdyRising) {
+      when(sdram.io.sys.debug_state === 4.U) { seenRdwr := true.B }  // sRDWR
+      when(rdyRising && seenRdwr) {
         when(!isWrite) {
           readDataReg := sdram.io.sys.do_
         }

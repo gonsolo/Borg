@@ -1,0 +1,64 @@
+// SPDX-FileCopyrightText: © 2026 Andreas Wendleder
+// SPDX-License-Identifier: CERN-OHL-S-2.0
+
+package soc
+
+import chisel3._
+import memory.SdramBackendSim
+
+/** Verilator-only top-level module for booting real firmware (OpenSBI/Linux)
+  * against the Borg-free MinimalSoC — the counterpart of asic/tt's
+  * BorgSimTop, but for MinimalSoCLogic instead of the full SoCLogic.
+  *
+  * Exists to answer a question the ULX3S hardware silent-boot investigation
+  * couldn't answer by itself: is a genuine full-chip timing-closure/logic
+  * bug in the CPU (Hutt), or is it specific to MinimalSoCLogic's own
+  * UART/CLINT/MemoryController wiring (untested end-to-end anywhere before
+  * this) — vs. something that only shows up on real silicon. A behavioral
+  * SdramBackendSim (same MemBackendIO contract as real hardware) plus a
+  * host debug backdoor lets the C++ harness preload firmware directly
+  * (bypassing FlashBootLoader's slow byte-serial SPI read, which the real
+  * hardware LEDs already showed completing — boot_done=1) and just watch
+  * whether OpenSBI/Linux actually executes and produces UART output.
+  */
+class MinimalSocSimTop(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLogic {
+  val ui_in  = IO(Input(UInt(8.W)))
+  val uo_out = IO(Output(UInt(8.W)))
+  val ena    = IO(Input(Bool()))
+  val clk    = IO(Input(Clock()))
+  val rst_n  = IO(Input(Bool()))
+
+  // Host backdoor into the behavioral SDRAM (firmware preload + readback).
+  val dbg_we    = IO(Input(Bool()))
+  val dbg_waddr = IO(Input(UInt(24.W)))
+  val dbg_wdata = IO(Input(UInt(16.W)))
+  val dbg_raddr = IO(Input(UInt(24.W)))
+  val dbg_rdata = IO(Output(UInt(16.W)))
+
+  // MinimalSoCLogic abstract members.
+  def soc_clk   = clk
+  def soc_rst_n = rst_n
+  lazy val soc_rst_reg_n: Bool = withClockAndReset((!clk.asBool).asClock, false.B) {
+    RegNext(rst_n)
+  }
+  def soc_ui_in = ui_in
+
+  // Match ULX3S hardware: RV64IMAC Hutt core, no Borg.
+  override def xlen: Int = 64
+
+  val uo_out_val = wireSoC()
+
+  val sdram = withClockAndReset(clk, !soc_rst_reg_n) {
+    Module(new SdramBackendSim(words = 0x1000000, rdDelay = 4, wrDelay = 2, dbg = true))
+  }
+  sdram.io.backend <> mem.io.backend
+
+  val d = sdram.dbgIO.get
+  d.we      := dbg_we
+  d.waddr   := dbg_waddr
+  d.wdata   := dbg_wdata
+  d.raddr   := dbg_raddr
+  dbg_rdata := d.rdata
+
+  uo_out := uo_out_val
+}
