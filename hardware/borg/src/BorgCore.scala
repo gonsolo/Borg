@@ -284,7 +284,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // lane's rd/rd+1/rd+2 → next lane.  At fragLanes=1 this is the original path.
     val sTexIdle :: sTexReq :: sTexWait :: sTexWB0 :: sTexWB1 :: sTexWB2 :: Nil = Enum(6)
     val texState = RegInit(sTexIdle)
-    val texLane  = RegInit(0.U(log2Ceil(N + 1).W))
+    // Ranges over [0, N-1] only (wraps at N-1, never reaches N) — log2Ceil(N)
+    // bits, not N+1: see BorgShaderDispatcher's laneCtr for the same bug and
+    // its Yosys/ABC9 synthesis-blowup consequence.
+    val texLane  = RegInit(0.U(log2Ceil(N).W))
 
     val texRdReg = RegInit(0.U(5.W))
     val texResultR = RegInit(0.U(16.W))

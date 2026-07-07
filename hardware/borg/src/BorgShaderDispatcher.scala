@@ -101,7 +101,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val frag_z = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
 
   // Lane counter for the serialized Z-read / tile-write loop (single-port tile buffer).
-  val laneCtr = RegInit(0.U(log2Ceil(N + 1).W))
+  // Ranges over [0, N-1] only (wraps at N-1, never reaches N) — log2Ceil(N) bits,
+  // not N+1: the extra bit made this a 3-bit index into the 4-entry (2-bit) frag_*/
+  // inside_flag Vecs, which triggered pathological blowup in Yosys/ABC9 synthesis
+  // for the full ULX3S SoC (a 3-bit dynamic index into a 4-element Vec forces
+  // hardware for 8 selector values instead of 4).
+  val laneCtr = RegInit(0.U(log2Ceil(N).W))
 
   // --- Trigger outputs (directly driven, no register delay) ---
   io.coreTrigger.valid := false.B
