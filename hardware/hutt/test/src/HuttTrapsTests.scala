@@ -142,6 +142,30 @@ object HuttTrapsTests extends TestSuite {
       assert(run(prog) == 3)
     }
 
+    test("reading unimplemented AIA CSR mtopi (0xFB0) traps illegal instruction") {
+      // Regression test: OpenSBI's sbi_hart.c detects the Smaia extension by
+      // reading CSR_MTOPI and checking whether it traps. If Hutt silently
+      // returns 0 instead, OpenSBI wrongly believes Smaia is present and
+      // dispatches M-mode interrupts via `while (csr_read(CSR_MTOPI)) {...}`
+      // instead of checking mip/mie directly — since mtopi always reads 0,
+      // that loop body (which clears MIE.MTIP / raises mip.STIP) never runs,
+      // so the M-mode timer interrupt keeps re-firing every cycle forever.
+      import Asm._
+      val HANDLER = 0x20
+      val CSR_MTOPI = 0xFB0
+      val prog = Seq(
+        addi(3, 0, HANDLER),
+        csrrw(0, CSR_MTVEC, 3),        // mtvec = 0x20
+        csrrs(1, CSR_MTOPI, 0),        // PC 0x08 → must trap; mcause = 2 (illegal)
+        park(), park(), park(), park(), park(),
+        // PC 0x20 (word 8)
+        csrrs(1, CSR_MCAUSE, 0),
+        sw(1, RESULT_ADDR, 0),
+        park()
+      )
+      assert(run(prog) == 2)
+    }
+
     test("MRET returns execution to mepc") {
       import Asm._
       // ECALL → handler (word 8, PC=0x20) sets mepc=0x30 (TARGET) → MRET → target stores 0x42

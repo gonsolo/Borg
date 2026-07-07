@@ -67,16 +67,29 @@
         compatible     = "simple-bus";
         ranges;
 
-        // CLINT — Core-Local Interruptor (mtime + mtimecmp + MSIP).
-        // Addressed as: 0x02000000
+        // CLINT MTIMER — Core-Local Interruptor timer (mtime + mtimecmp).
+        //
+        // Uses the modern, non-quirked ACLINT MTIMER binding with explicit
+        // reg-names so OpenSBI uses these addresses directly. The legacy
+        // "riscv,clint0" compatible makes OpenSBI apply the SiFive CLINT
+        // offset quirk (mtimecmp @ base+0x4000, mtime @ base+0xBFF8) — that
+        // layout doesn't exist in this hardware; OpenSBI's timer-arm writes
+        // silently landed on mtime_lo/hi instead of mtimecmp (word offset
+        // (0x4000>>2)&0x3 == 0), so the CLINT interrupt could never fire and
+        // Linux hung forever waiting for jiffies to advance.
+        //
+        // Hutt's CLINT has no MSIP register, so no MSWI/IPI node is declared
+        // (this is single-hart; IPI is unused) — only the machine-timer-
+        // interrupt line (hwirq 7) is wired.
         //   +0x0: mtime_lo  +0x4: mtime_hi
         //   +0x8: mtimecmp_lo  +0xC: mtimecmp_hi
         // timebase-frequency is in /cpus (per RISC-V DTS convention).
-        clint@2000000 {
-            compatible = "riscv,clint0";
-            reg        = <0x0 0x02000000 0x0 0x10000>;
-            interrupts-extended = <&{/cpus/cpu@0/interrupt-controller} 3
-                                   &{/cpus/cpu@0/interrupt-controller} 7>;
+        timer@2000000 {
+            compatible = "riscv,aclint-mtimer";
+            reg-names  = "mtime", "mtimecmp";
+            reg        = <0x0 0x02000000 0x0 0x8>,
+                         <0x0 0x02000008 0x0 0x8>;
+            interrupts-extended = <&{/cpus/cpu@0/interrupt-controller} 7>;
         };
 
         // Borg debug UART (write-only; RX not wired to this path).
