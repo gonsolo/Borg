@@ -200,8 +200,41 @@ class Hutt(
     "hC00".U -> cycleCounter,   // cycle
     "hB00".U -> cycleCounter,   // mcycle
     "hC80".U -> 0.U(xlen.W),   // cycleh (hi half)
-    "hB80".U -> 0.U(xlen.W)    // mcycleh
+    "hB80".U -> 0.U(xlen.W),   // mcycleh
+    // time (unprivileged read-only view of the mtimer, mandated by the
+    // privileged spec to be readable from S/U mode without an M-mode trap).
+    // cycleCounter free-runs every cycle from reset in the same clock domain
+    // as CLINT's mtime, so it's numerically identical — no new wiring needed.
+    // Without this, `rdtime`/get_cycles64() silently read 0 (unimplemented
+    // CSRs default to 0 here), so Linux's timer clockevent computed
+    // next_event = 0 + delta instead of real_mtime + delta: an
+    // already-expired mtimecmp that fired the M-mode timer trap on every
+    // single cycle forever, starving S-mode of any forward progress.
+    "hC01".U -> cycleCounter   // time
   ))
+
+  // A handful of specific unimplemented CSRs must raise an illegal-instruction
+  // exception rather than silently no-op like other unimplemented CSRs, because
+  // OpenSBI's hart-feature probing (sbi_hart.c's __check_ext_csr) treats "did
+  // reading this CSR trap?" as "is the extension present?" — a non-trapping
+  // phantom register makes OpenSBI wrongly believe real hardware exists:
+  //   - stimecmp/stimecmph (Sstc, 0x14D/0x15D): sbi_timer_event_start() writes
+  //     this believed-real CSR instead of arming CLINT's mtimecmp MMIO
+  //     register, so the timer interrupt never fires.
+  //   - mtopi/stopi (Smaia/Ssaia, 0xFB0/0xDB0): sbi_trap_handler() dispatches
+  //     M-mode interrupts via `while (csr_read(CSR_MTOPI)) {...}` instead of
+  //     checking mip/mie directly; since mtopi always reads 0, the loop body
+  //     (which calls sbi_timer_process()/sbi_ipi_process(), the code that
+  //     actually clears MIE.MTIP or asserts mip.STIP) never runs at all — the
+  //     M-mode timer trap then re-fires every single cycle forever, since
+  //     mtimecmp is level-triggered and nothing ever rearms or masks it.
+  // Both combined previously hung Linux forever waiting for jiffies to
+  // advance. Other unimplemented CSRs (mcounteren, menvcfg, mstateen0, ...)
+  // stay silently accepted: OpenSBI/Linux tolerate those false-detected
+  // extensions fine, and blanket-trapping every unrecognized address (tried
+  // first) broke priv-version detection itself.
+  val csrForcesIllegal = Seq("h14D", "h15D", "hFB0", "hDB0")
+    .map(_.U(12.W)).map(_ === csrAddr).reduce(_ || _)
 
   // -- CSR write value -------------------------------------------------------
   val csrZimm   = Cat(0.U((xlen - 5).W), d.rs1)
@@ -327,6 +360,8 @@ class Hutt(
         Mux(privLevel === 1.U, mstatus(1), true.B)
 
       when(mTimerPend) {
+        if (HuttDebug.timerTrace) printf("[HUTT-TIMER] M-mode timer trap taken pc=0x%x priv=%d mie=0x%x mip=0x%x\n",
+          pc, privLevel, mie, mip)
         mepc      := pc
         mcause    := Cat(true.B, 0.U((xlen - 4).W), 7.U(3.W))
         mtval     := 0.U(xlen.W)
@@ -335,6 +370,8 @@ class Hutt(
         privLevel := 3.U
         lrValid   := false.B
       }.elsewhen(sTimerPend) {
+        if (HuttDebug.timerTrace) printf("[HUTT-TIMER] S-mode timer trap taken pc=0x%x priv=%d mie=0x%x mip=0x%x\n",
+          pc, privLevel, mie, mip)
         sepc      := pc
         scause    := Cat(true.B, 0.U((xlen - 4).W), 5.U(3.W))
         stval     := 0.U(xlen.W)
@@ -478,6 +515,17 @@ class Hutt(
         }
 
       }.elsewhen(d.isEcall) {
+        if (HuttDebug.timerTrace) {
+          // SBI calling convention: a7=x17=extension ID, a6=x16=function ID.
+          // ecall itself decodes rs1=rs2=0, so temporarily steal the regfile's
+          // read ports (unused elsewhere in this branch) to observe them.
+          regFile.io.rs1Addr := 17.U
+          regFile.io.rs2Addr := 16.U
+          when(privLevel === 1.U) {
+            printf("[HUTT-TIMER] S-mode ecall a7(ext)=0x%x a6(fid)=0x%x pc=0x%x\n",
+              regFile.io.rs1Data, regFile.io.rs2Data, pc)
+          }
+        }
         // Delegation: S-mode ECALL (cause 9) → medeleg[9]; U-mode → medeleg[8].
         val ecallDeleg = Mux(privLevel === 1.U, medeleg(9),
                           Mux(privLevel === 0.U, medeleg(8), false.B))
@@ -520,33 +568,64 @@ class Hutt(
         state := sFetchReq
 
       }.otherwise {
-        when(d.isCsr) {
+        val csrIllegal = d.isCsr && csrForcesIllegal
+        when(csrIllegal) {
+          if (HuttDebug.timerTrace) printf("[HUTT-TIMER] illegal CSR (stimecmp) trap pc=0x%x priv=%d medeleg=0x%x\n",
+            pc, privLevel, medeleg)
+          // Illegal instruction (cause 2): delegate to S-mode per medeleg[2],
+          // same pattern as isEcall/isEbreak above.
+          when((privLevel =/= 3.U) && medeleg(2)) {
+            sepc := pc; scause := 2.U(xlen.W); stval := instr
+            mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
+          }.otherwise {
+            mepc := pc; mcause := 2.U(xlen.W); mtval := instr
+            mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
+          }
+          lrValid := false.B
+        }.elsewhen(d.isCsr) {
           switch(csrAddr) {
             // S-mode CSR writes
             is("h100".U) { mstatus  := (mstatus & ~SSTATUS_MASK) | (csrNewVal & SSTATUS_MASK) }
-            is("h104".U) { mie      := (mie & ~SIE_SIP_MASK)     | (csrNewVal & SIE_SIP_MASK) }
+            is("h104".U) {
+              mie := (mie & ~SIE_SIP_MASK) | (csrNewVal & SIE_SIP_MASK)
+              if (HuttDebug.timerTrace) printf("[HUTT-TIMER] sie write csrNewVal=0x%x -> mie=0x%x\n",
+                csrNewVal, (mie & ~SIE_SIP_MASK) | (csrNewVal & SIE_SIP_MASK))
+            }
             is("h105".U) { stvec    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }
             is("h140".U) { sscratch := csrNewVal }
             is("h141".U) { sepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W)) }
             is("h142".U) { scause   := csrNewVal }
             is("h143".U) { stval    := csrNewVal }
-            is("h144".U) { mip_sw   := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR) }
+            is("h144".U) {
+              mip_sw := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR)
+              if (HuttDebug.timerTrace) printf("[HUTT-TIMER] sip write csrNewVal=0x%x -> mip_sw=0x%x\n",
+                csrNewVal, (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR))
+            }
             is("h180".U) { satp     := csrNewVal }
             // M-mode CSR writes
             is("h300".U) { mstatus  := csrNewVal }
             is("h302".U) { medeleg  := csrNewVal }
             is("h303".U) { mideleg  := csrNewVal }
-            is("h304".U) { mie      := csrNewVal }
+            is("h304".U) {
+              mie := csrNewVal
+              if (HuttDebug.timerTrace) printf("[HUTT-TIMER] mie write -> 0x%x\n", csrNewVal)
+            }
             is("h305".U) { mtvec    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }
             is("h340".U) { mscratch := csrNewVal }
             is("h341".U) { mepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W)) }
             is("h342".U) { mcause   := csrNewVal }
             is("h343".U) { mtval    := csrNewVal }
-            is("h344".U) { mip_sw   := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR) }
+            is("h344".U) {
+              mip_sw := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR)
+              if (HuttDebug.timerTrace) printf("[HUTT-TIMER] mip write csrNewVal=0x%x -> mip_sw=0x%x\n",
+                csrNewVal, (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR))
+            }
           }
         }
-        regFile.io.wen := wbExecEn
-        pc    := pcNext
+        when(!csrIllegal) {
+          regFile.io.wen := wbExecEn
+          pc    := pcNext
+        }
         state := sFetchReq
       }
     }

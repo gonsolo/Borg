@@ -13,4 +13,11 @@ package hutt
   */
 object HuttDebug {
   val trace: Boolean = sys.env.contains("HUTT_TRACE")
+
+  /** Sparse timer-interrupt tracing: CLINT mtimecmp writes + M/S timer trap
+    * edges only (a handful of lines over a multi-hundred-million-cycle Linux
+    * boot), unlike `trace` which dumps every instruction. Set `HUTT_TIMER_TRACE`
+    * at Verilog-generation time.
+    */
+  val timerTrace: Boolean = sys.env.contains("HUTT_TIMER_TRACE")
 }

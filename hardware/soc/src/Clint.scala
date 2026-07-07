@@ -5,7 +5,7 @@ package soc
 
 import chisel3._
 import chisel3.util._
-import hutt.HuttBus
+import hutt.{HuttBus, HuttDebug}
 
 /** Core-Local Interruptor (CLINT) — 64-bit mtime counter + mtimecmp compare.
   *
@@ -32,6 +32,16 @@ class Clint extends Module {
   mtime := mtime + 1.U
   io.timerIrq := (mtime >= mtimecmp)
 
+  if (HuttDebug.timerTrace) {
+    val timerIrqPrev = RegNext(io.timerIrq, false.B)
+    when(io.timerIrq && !timerIrqPrev) {
+      printf("[CLINT] timerIrq RISE mtime=0x%x mtimecmp=0x%x\n", mtime, mtimecmp)
+    }
+    when(!io.timerIrq && timerIrqPrev) {
+      printf("[CLINT] timerIrq FALL mtime=0x%x mtimecmp=0x%x\n", mtime, mtimecmp)
+    }
+  }
+
   val addr = io.mmio.req.bits.addr(3, 2)  // 2-bit word selector within CLINT
 
   val respPending = RegInit(false.B)
@@ -46,8 +56,14 @@ class Clint extends Module {
       switch(addr) {
         is(0.U) { mtime    := Cat(mtime(63, 32),    io.mmio.req.bits.data(31, 0)) }
         is(1.U) { mtime    := Cat(io.mmio.req.bits.data(31, 0), mtime(31, 0)) }
-        is(2.U) { mtimecmp := Cat(mtimecmp(63, 32), io.mmio.req.bits.data(31, 0)) }
-        is(3.U) { mtimecmp := Cat(io.mmio.req.bits.data(31, 0), mtimecmp(31, 0)) }
+        is(2.U) {
+          mtimecmp := Cat(mtimecmp(63, 32), io.mmio.req.bits.data(31, 0))
+          if (HuttDebug.timerTrace) printf("[CLINT] mtimecmp_lo write 0x%x (mtime=0x%x)\n", io.mmio.req.bits.data, mtime)
+        }
+        is(3.U) {
+          mtimecmp := Cat(io.mmio.req.bits.data(31, 0), mtimecmp(31, 0))
+          if (HuttDebug.timerTrace) printf("[CLINT] mtimecmp_hi write 0x%x (mtime=0x%x)\n", io.mmio.req.bits.data, mtime)
+        }
       }
       respData := 0.U
     }.otherwise {
