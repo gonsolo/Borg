@@ -135,7 +135,11 @@ class Hutt(
   val alu     = Module(new HuttAlu(xlen))
 
   // -- FSM -------------------------------------------------------------------
-  val sFetchReq :: sFetchResp :: sExec :: sMemReq :: sMemResp :: sPtwReq :: sPtwResp :: sAmoLoadReq :: sAmoLoadResp :: sAmoStoreReq :: sAmoStoreResp :: Nil = Enum(11)
+  // sCsrSel: second cycle of a CSR read, see the "-- CSR read --" comment
+  // below for why this needs its own pipeline stage.
+  // sDivExec: multi-cycle DIV/DIVU/REM/REMU (+ *W forms), see HuttAlu/
+  // HuttDivider — waits for the shared shift-subtract divider to finish.
+  val sFetchReq :: sFetchResp :: sExec :: sCsrSel :: sDivExec :: sMemReq :: sMemResp :: sPtwReq :: sPtwResp :: sAmoLoadReq :: sAmoLoadResp :: sAmoStoreReq :: sAmoStoreResp :: Nil = Enum(13)
   val state = RegInit(sFetchReq)
 
   // -- Decode (combinational over current `instr` register) ------------------
@@ -156,6 +160,10 @@ class Hutt(
     d.isOp32    -> HuttAluDecode(d.funct3, d.funct7, isOpReg = true.B,  isWord = true.B),
     d.isOpImm32 -> HuttAluDecode(d.funct3, d.funct7, isOpReg = false.B, isWord = true.B)
   ))
+  alu.io.divStart := false.B
+  val isDivOp = Seq(AluOp.Div, AluOp.Divu, AluOp.Rem, AluOp.Remu,
+                     AluOp.DivW, AluOp.DivuW, AluOp.RemW, AluOp.RemuW)
+    .map(_ === alu.io.op).reduce(_ || _)
 
   val branchTaken = HuttBranchTaken(d.funct3, rs1Val, rs2Val)
   val pcPlus4   = pc + 4.U
@@ -170,37 +178,60 @@ class Hutt(
 
   // -- CSR read --------------------------------------------------------------
   val csrAddr = instr(31, 20)
-  val csrReadData = MuxLookup(csrAddr, 0.U(xlen.W))(Seq(
+  // A flat ~20-way select over the full 64-bit CSR set doesn't map cleanly
+  // to ECP5: MuxLookup/MuxCase (cascaded Mux chain) and chisel3.util.Mux1H
+  // (SeqUtils.oneHotMux's `masked.reduceLeft(_ | _)`, a left fold despite
+  // independent compares) both measured ~180ns of pure logic delay in
+  // nextpnr (max ~2.25 MHz vs. the 25 MHz ULX3S clock) — confirmed
+  // MuxLookup->Mux1H changed the critical path by under 1ns, i.e. no real
+  // improvement, since both reduce sequentially. Rewriting as a genuine
+  // balanced-tree OR-reduce (Vec.reduceTree) *also* didn't move the number
+  // (179ns), because firtool's canonicalizer flattens any associative `|`
+  // tree back into one flat expression before Verilog is even emitted —
+  // the Chisel-level structure is invisible to yosys/abc9 either way.
+  // yosys's own `ltp` (longest topological path, register-bounded) on this
+  // flat expression showed ~8000 logic levels, almost entirely a serial
+  // CCU2C carry chain that scales with (term count x value width), not a
+  // width-independent decode. `-cmp2softlogic`/`-noccu2` synth flags cut
+  // that by 30%/44% respectively but neither gets remotely close to the
+  // ~5x reduction needed.
+  //
+  // The real fix, mirroring how real CPUs (Rocket/BOOM's CSRFile, ibex,
+  // CVA6) handle this: split the wide select into independent narrow
+  // groups with a genuine register boundary in between, so neither half's
+  // combinational depth needs the full budget alone. Stage 1 (here, cycle
+  // N, alongside sExec's other combinational work): 4 small ~6-term OR
+  // groups computed in parallel, plus a narrow (2-bit) group-select decode
+  // — a 2-bit-wide result over the same ~22 compares is far cheaper than a
+  // 64-bit-wide one, since the carry-chain cost scales with output width.
+  // Stage 2 (cycle N+1, state sCsrSel below): a trivial 4-way pick among
+  // the now-REGISTERED group values. Each stage only needs to close timing
+  // on its own (much shallower) logic, not the original monolithic select.
+  val csrEntries: Seq[(String, UInt)] = Seq(
     // S-mode CSRs
-    "h100".U -> (mstatus & SSTATUS_MASK),  // sstatus = mstatus masked
-    "h104".U -> (mie     & SIE_SIP_MASK),  // sie
-    "h105".U -> stvec,
-    "h140".U -> sscratch,
-    "h141".U -> sepc,
-    "h142".U -> scause,
-    "h143".U -> stval,
-    "h144".U -> (mip     & SIE_SIP_MASK),  // sip
-    "h180".U -> satp,
+    "h100" -> (mstatus & SSTATUS_MASK),  // sstatus = mstatus masked
+    "h104" -> (mie     & SIE_SIP_MASK),  // sie
+    "h105" -> stvec,
+    "h140" -> sscratch,
+    "h141" -> sepc,
+    "h142" -> scause,
+    "h143" -> stval,
+    "h144" -> (mip     & SIE_SIP_MASK),  // sip
+    "h180" -> satp,
     // M-mode CSRs
-    "h300".U -> mstatus,
-    "h301".U -> misa,
-    "h302".U -> medeleg,
-    "h303".U -> mideleg,
-    "h304".U -> mie,
-    "h305".U -> mtvec,
-    "h340".U -> mscratch,
-    "h341".U -> mepc,
-    "h342".U -> mcause,
-    "h343".U -> mtval,
-    "h344".U -> mip,
-    "hF11".U -> 0.U(xlen.W),   // mvendorid
-    "hF12".U -> 0.U(xlen.W),   // marchid
-    "hF13".U -> 0.U(xlen.W),   // mimpid
-    "hF14".U -> 0.U(xlen.W),   // mhartid
-    "hC00".U -> cycleCounter,   // cycle
-    "hB00".U -> cycleCounter,   // mcycle
-    "hC80".U -> 0.U(xlen.W),   // cycleh (hi half)
-    "hB80".U -> 0.U(xlen.W),   // mcycleh
+    "h300" -> mstatus,
+    "h301" -> misa,
+    "h302" -> medeleg,
+    "h303" -> mideleg,
+    "h304" -> mie,
+    "h305" -> mtvec,
+    "h340" -> mscratch,
+    "h341" -> mepc,
+    "h342" -> mcause,
+    "h343" -> mtval,
+    "h344" -> mip,
+    "hC00" -> cycleCounter,   // cycle
+    "hB00" -> cycleCounter,   // mcycle
     // time (unprivileged read-only view of the mtimer, mandated by the
     // privileged spec to be readable from S/U mode without an M-mode trap).
     // cycleCounter free-runs every cycle from reset in the same clock domain
@@ -210,8 +241,28 @@ class Hutt(
     // next_event = 0 + delta instead of real_mtime + delta: an
     // already-expired mtimecmp that fired the M-mode timer trap on every
     // single cycle forever, starving S-mode of any forward progress.
-    "hC01".U -> cycleCounter   // time
-  ))
+    "hC01" -> cycleCounter   // time
+    // mvendorid/marchid/mimpid/mhartid/cycleh/mcycleh and everything else
+    // deliberately fall through to the implicit all-zero default (all
+    // compares false → all terms masked to 0 → OR-reduce yields 0).
+  )
+  val csrGroups: Seq[Seq[(String, UInt)]] = csrEntries.grouped(6).toSeq
+
+  // Stage 1 (combinational, computed during sExec): narrow per-group ORs
+  // and a narrow (2-bit) group-select — cheap regardless of term count.
+  val csrGroupValComb = VecInit(csrGroups.map { terms =>
+    terms.map { case (addrHex, value) => Mux(csrAddr === addrHex.U, value, 0.U(xlen.W)) }
+         .reduce(_ | _)
+  })
+  val csrGroupSelComb = MuxCase(0.U(2.W), csrGroups.zipWithIndex.flatMap { case (terms, gi) =>
+    terms.map { case (addrHex, _) => (csrAddr === addrHex.U) -> gi.U(2.W) }
+  })
+
+  // Stage 2 (registered at the sExec -> sCsrSel transition below): a
+  // trivial 4-way pick among the now-latched group values.
+  val csrGroupValReg = Reg(Vec(csrGroups.size, UInt(xlen.W)))
+  val csrGroupSelReg = Reg(UInt(2.W))
+  val csrReadData    = csrGroupValReg(csrGroupSelReg)
 
   // A handful of specific unimplemented CSRs must raise an illegal-instruction
   // exception rather than silently no-op like other unimplemented CSRs, because
@@ -582,9 +633,53 @@ class Hutt(
             mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
           }
           lrValid := false.B
+          state := sFetchReq
         }.elsewhen(d.isCsr) {
+          // Stage 1 -> stage 2 handoff (see "-- CSR read --" above): latch
+          // the narrow per-group values + narrow group-select computed
+          // combinationally alongside everything else this cycle, then
+          // finish the write + regfile commit in sCsrSel next cycle.
+          csrGroupValReg := csrGroupValComb
+          csrGroupSelReg := csrGroupSelComb
+          state := sCsrSel
+        }.elsewhen(isDivOp) {
+          // DIV/DIVU/REM/REMU (+ *W forms): hand off to the shared
+          // multi-cycle divider (see HuttAlu/HuttDivider) instead of
+          // completing this cycle. alu.io.a/b/op stay stable (driven from
+          // the still-held `instr`) for the whole wait.
+          alu.io.divStart := true.B
+          state := sDivExec
+        }.otherwise {
+          regFile.io.wen := wbExecEn
+          pc    := pcNext
+          state := sFetchReq
+        }
+      }
+    }
+
+    is(sDivExec) {
+      when(alu.io.divDone) {
+        regFile.io.wen := wbExecEn
+        pc    := pcNext
+        state := sFetchReq
+      }
+    }
+
+    is(sCsrSel) {
+      // Same disease as the read side (see "-- CSR read --" above), same
+      // fix: a flat 19-case switch(csrAddr){...} write decode measured as
+      // the dominant ~185ns bottleneck even AFTER the read-side and
+      // regFile fixes closed their own (verified via critical-path hop
+      // counts: read select down to 31 hops, regFile down to 6, yet
+      // overall frequency stayed at ~2.27 MHz — this switch was the
+      // untouched third culprit). Gating on the already-registered,
+      // already-cheap csrGroupSelReg first (same grouping as the read
+      // side) turns one 19-way decode into a 4-way outer pick + a ~5-way
+      // inner switch, instead of yosys/abc9 building one shared decoder
+      // across all 19 targets.
+      switch(csrGroupSelReg) {
+        is(0.U) {
           switch(csrAddr) {
-            // S-mode CSR writes
             is("h100".U) { mstatus  := (mstatus & ~SSTATUS_MASK) | (csrNewVal & SSTATUS_MASK) }
             is("h104".U) {
               mie := (mie & ~SIE_SIP_MASK) | (csrNewVal & SIE_SIP_MASK)
@@ -595,6 +690,10 @@ class Hutt(
             is("h140".U) { sscratch := csrNewVal }
             is("h141".U) { sepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W)) }
             is("h142".U) { scause   := csrNewVal }
+          }
+        }
+        is(1.U) {
+          switch(csrAddr) {
             is("h143".U) { stval    := csrNewVal }
             is("h144".U) {
               mip_sw := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR)
@@ -602,9 +701,12 @@ class Hutt(
                 csrNewVal, (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR))
             }
             is("h180".U) { satp     := csrNewVal }
-            // M-mode CSR writes
             is("h300".U) { mstatus  := csrNewVal }
             is("h302".U) { medeleg  := csrNewVal }
+          }
+        }
+        is(2.U) {
+          switch(csrAddr) {
             is("h303".U) { mideleg  := csrNewVal }
             is("h304".U) {
               mie := csrNewVal
@@ -614,6 +716,10 @@ class Hutt(
             is("h340".U) { mscratch := csrNewVal }
             is("h341".U) { mepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W)) }
             is("h342".U) { mcause   := csrNewVal }
+          }
+        }
+        is(3.U) {
+          switch(csrAddr) {
             is("h343".U) { mtval    := csrNewVal }
             is("h344".U) {
               mip_sw := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR)
@@ -622,12 +728,10 @@ class Hutt(
             }
           }
         }
-        when(!csrIllegal) {
-          regFile.io.wen := wbExecEn
-          pc    := pcNext
-        }
-        state := sFetchReq
       }
+      regFile.io.wen := wbExecEn
+      pc    := pcNext
+      state := sFetchReq
     }
 
     is(sMemReq) {

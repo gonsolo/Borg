@@ -11,9 +11,21 @@ class HuttAluIO(val xlen: Int = 32) extends Bundle {
   val a   = Input(UInt(xlen.W))
   val b   = Input(UInt(xlen.W))
   val out = Output(UInt(xlen.W))
+  // Multi-cycle DIV/DIVU/REM/REMU (+ RV64 *W forms) handshake. For every
+  // other op, `out` is valid combinationally the same cycle as `op`/`a`/`b`
+  // and divBusy/divDone stay low — the caller only needs to drive divStart
+  // and wait for divDone when `op` is one of the eight divide variants.
+  val divStart = Input(Bool())
+  val divBusy  = Output(Bool())
+  val divDone  = Output(Bool())
 }
 
-/** Purely combinational RV32I/RV64I ALU.
+/** RV32I/RV64I ALU. All ops except DIV/DIVU/REM/REMU (+ *W forms) are purely
+  * combinational. Those eight are multi-cycle (see HuttDivider) — a `/`/`%`
+  * on 64-bit operands synthesizes a full combinational divider (no FPGA has
+  * native division hardware), which measured at ~50K LUTs across the eight
+  * variants this ALU needs — roughly half of a full RV64+MMU Hutt SoC's
+  * total logic, for instructions that are rare on any real workload.
   *
   * Full-width shifts use `b[log2(xlen)-1:0]` (b[4:0] for RV32, b[5:0] for RV64).
   * The `*W` ops (RV64 word forms: ADDW/SUBW/SLLW/SRLW/SRAW and the I-immediate
@@ -52,6 +64,9 @@ class HuttAlu(val xlen: Int = 32) extends Module {
     AluOp.SraW -> sextW((aw.asSInt >> shamtW).asUInt)
   )
 
+  io.divBusy := false.B
+  io.divDone := false.B
+
   // M extension (MUL/DIV/REM + *W forms) — hardware only exists for xlen=64
   // builds (RV32/ASIC never emits these; see docs/A3_hutt_cpu.md). Required
   // for OpenSBI/Linux: lib/sbi/sbi_init.c unconditionally uses integer
@@ -64,36 +79,75 @@ class HuttAlu(val xlen: Int = 32) extends Module {
     val prodUU = io.a * io.b                               // 2*xlen-bit unsigned product
     val prodSU = io.a.asSInt * Cat(0.U(1.W), io.b).asSInt  // signed(a) * unsigned(b)
 
-    val minInt      = (-(BigInt(1) << (xlen - 1))).S(xlen.W)
-    val divZero     = io.b === 0.U
-    val divOverflow = (io.a.asSInt === minInt) && (io.b.asSInt === -1.S(xlen.W))
-    val divS = Mux(divZero, -1.S(xlen.W), Mux(divOverflow, minInt, io.a.asSInt / io.b.asSInt))
-    val remS = Mux(divZero, io.a.asSInt, Mux(divOverflow, 0.S(xlen.W), io.a.asSInt % io.b.asSInt))
-    val divU = Mux(divZero, ((BigInt(1) << xlen) - 1).U(xlen.W), io.a / io.b)
-    val remU = Mux(divZero, io.a, io.a % io.b)
+    // -- Multi-cycle divider, shared by DIV/DIVU/REM/REMU and the *W forms.
+    val isWordOp = io.op === AluOp.DivW || io.op === AluOp.DivuW ||
+                    io.op === AluOp.RemW || io.op === AluOp.RemuW
+    val isSignedOp = io.op === AluOp.Div || io.op === AluOp.DivW ||
+                      io.op === AluOp.Rem || io.op === AluOp.RemW
+    val isRemOp = io.op === AluOp.Rem || io.op === AluOp.Remu ||
+                  io.op === AluOp.RemW || io.op === AluOp.RemuW
 
-    val minIntW      = (-(BigInt(1) << 31)).S(32.W)
-    val divZeroW     = bw === 0.U
-    val divOverflowW = (aw.asSInt === minIntW) && (bw.asSInt === -1.S(32.W))
-    val divSW = Mux(divZeroW, -1.S(32.W), Mux(divOverflowW, minIntW, aw.asSInt / bw.asSInt))
-    val remSW = Mux(divZeroW, aw.asSInt, Mux(divOverflowW, 0.S(32.W), aw.asSInt % bw.asSInt))
-    val divUW = Mux(divZeroW, ((BigInt(1) << 32) - 1).U(32.W), aw / bw)
-    val remUW = Mux(divZeroW, aw, aw % bw)
+    // Operand widened to xlen: sign-extended for signed *W ops (so negating
+    // it below recovers the correct 32-bit magnitude), zero-extended for
+    // unsigned *W ops, passed through unchanged for the full-width forms.
+    val opA64 = Mux(isWordOp, Mux(isSignedOp, sextW(aw), Cat(0.U(32.W), aw)), io.a)
+    val opB64 = Mux(isWordOp, Mux(isSignedOp, sextW(bw), Cat(0.U(32.W), bw)), io.b)
+    val negA  = isSignedOp && opA64(xlen - 1)
+    val negB  = isSignedOp && opB64(xlen - 1)
+    val magA  = Mux(negA, -opA64, opA64)
+    val magB  = Mux(negB, -opB64, opB64)
+
+    val divider = Module(new HuttDivider(xlen))
+    divider.io.start    := io.divStart
+    divider.io.dividend := magA
+    divider.io.divisor  := magB
+    io.divBusy := divider.io.busy
+    io.divDone := divider.io.done
+
+    // RISC-V special cases: div-by-zero always short-circuits (checked
+    // against the actual, possibly-word-extended operand — sign doesn't
+    // matter here); MIN_INT/-1 signed overflow only applies to the signed
+    // forms, checked at the relevant width.
+    val divZero = opB64 === 0.U
+    val divOverflowFull = isSignedOp && !isWordOp &&
+      (opA64 === (BigInt(1) << (xlen - 1)).U(xlen.W)) && (opB64 === ~(0.U(xlen.W)))
+    val divOverflowWord = isSignedOp && isWordOp &&
+      (opA64(31, 0) === (BigInt(1) << 31).U(32.W)) && (opB64(31, 0) === ~(0.U(32.W)))
+    val divOverflow = Mux(isWordOp, divOverflowWord, divOverflowFull)
+
+    // Quotient is negative iff exactly one operand was negative; remainder
+    // takes the dividend's sign (RISC-V's truncating division).
+    val quoNeg = isSignedOp && (negA =/= negB)
+    val remNeg = isSignedOp && negA
+    val rawQuotient  = Mux(quoNeg, -divider.io.quotient,  divider.io.quotient)
+    val rawRemainder = Mux(remNeg, -divider.io.remainder, divider.io.remainder)
+
+    // The overflow quotient is MIN_INT at the OPERATION's own width: bit 31
+    // for the *W forms (bit 63 would land outside the low-32-bit slice that
+    // divResultOut re-extracts and sign-extends below, wrongly yielding 0).
+    val minIntPattern = Mux(isWordOp, (BigInt(1) << 31).U(xlen.W), (BigInt(1) << (xlen - 1)).U(xlen.W))
+    val divResult = Mux(isRemOp,
+      Mux(divZero, opA64, Mux(divOverflow, 0.U(xlen.W), rawRemainder)),
+      Mux(divZero, ~(0.U(xlen.W)), Mux(divOverflow, minIntPattern, rawQuotient))
+    )
+    // *W results are always sign-extended from the low 32 bits, regardless
+    // of whether the operation itself was signed (RISC-V ISA quirk).
+    val divResultOut = Mux(isWordOp, sextW(divResult(31, 0)), divResult)
 
     Seq(
       AluOp.Mul    -> (io.a * io.b)(xlen - 1, 0),
       AluOp.Mulh   -> prodSS.asUInt(2 * xlen - 1, xlen),
       AluOp.Mulhsu -> prodSU.asUInt(2 * xlen - 1, xlen),
       AluOp.Mulhu  -> prodUU(2 * xlen - 1, xlen),
-      AluOp.Div    -> divS.asUInt,
-      AluOp.Divu   -> divU,
-      AluOp.Rem    -> remS.asUInt,
-      AluOp.Remu   -> remU,
+      AluOp.Div    -> divResultOut,
+      AluOp.Divu   -> divResultOut,
+      AluOp.Rem    -> divResultOut,
+      AluOp.Remu   -> divResultOut,
       AluOp.MulW   -> sextW((aw * bw)(31, 0)),
-      AluOp.DivW   -> sextW(divSW.asUInt),
-      AluOp.DivuW  -> sextW(divUW),
-      AluOp.RemW   -> sextW(remSW.asUInt),
-      AluOp.RemuW  -> sextW(remUW)
+      AluOp.DivW   -> divResultOut,
+      AluOp.DivuW  -> divResultOut,
+      AluOp.RemW   -> divResultOut,
+      AluOp.RemuW  -> divResultOut
     )
   } else {
     Seq.empty

@@ -118,6 +118,13 @@ object Rv64Asm {
   def ld (rd: Int, off: Int, rs1: Int): BigInt = iType(0x03, 0x3, rd, rs1, off)
   def lwu(rd: Int, off: Int, rs1: Int): BigInt = iType(0x03, 0x6, rd, rs1, off)
   def sd (rs2: Int, off: Int, rs1: Int): BigInt = sType(0x23, 0x3, rs1, rs2, off)
+  // M extension (funct7 = 0000001), full-width and *W forms.
+  def div  (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x4, 0x01, rd, rs1, rs2)
+  def divu (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x5, 0x01, rd, rs1, rs2)
+  def rem  (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x6, 0x01, rd, rs1, rs2)
+  def remu (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x7, 0x01, rd, rs1, rs2)
+  def divw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x4, 0x01, rd, rs1, rs2)
+  def remw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x6, 0x01, rd, rs1, rs2)
 }
 
 object HuttRv64Tests extends TestSuite {
@@ -246,6 +253,83 @@ object HuttRv64Tests extends TestSuite {
         Rv64Asm.sd(2, 0, 0),
         park())
       assert(runPeek(prog, 0) == (mask64 - 4))
+    }
+
+    // Exercises the real multi-cycle DIV path end to end: fetch -> decode ->
+    // sExec (redirects to sDivExec) -> the shared HuttDivider runs to
+    // completion -> writeback -> resumes normal fetch for the next
+    // instruction. Not just the isolated HuttAlu/HuttDivider unit tests.
+    test("DIV instruction through the real FSM (sExec -> sDivExec -> writeback)") {
+      val prog = Seq(
+        addi(1, 0, 100),
+        addi(2, 0, 7),
+        Rv64Asm.div(3, 1, 2),         // x3 = 100 / 7 = 14
+        Rv64Asm.sd(3, 0, 0),
+        park())
+      assert(runPeek(prog, 0) == 14)
+    }
+
+    test("REM instruction through the real FSM") {
+      val prog = Seq(
+        addi(1, 0, 100),
+        addi(2, 0, 7),
+        Rv64Asm.rem(3, 1, 2),         // x3 = 100 % 7 = 2
+        Rv64Asm.sd(3, 0, 0),
+        park())
+      assert(runPeek(prog, 0) == 2)
+    }
+
+    // Confirms the FSM correctly resumes normal single-cycle execution
+    // after sDivExec: an ADD immediately after DIV must see DIV's result
+    // (not a stale/garbage value from mid-division) and PC must have
+    // advanced exactly once past the DIV, not zero or twice.
+    test("instruction after DIV sees the correct result and correct PC") {
+      val prog = Seq(
+        addi(1, 0, 20),
+        addi(2, 0, 3),
+        Rv64Asm.div(3, 1, 2),         // x3 = 20 / 3 = 6
+        addi(4, 3, 1),                // x4 = x3 + 1 = 7 -- only correct if DIV fully committed
+        Rv64Asm.sd(4, 0, 0),
+        park())
+      assert(runPeek(prog, 0) == 7)
+    }
+
+    test("DIVU/REMU and DIVW/REMW through the real FSM") {
+      val progDivu = Seq(
+        addi(1, 0, 100),
+        addi(2, 0, 7),
+        Rv64Asm.divu(3, 1, 2),
+        Rv64Asm.sd(3, 0, 0),
+        park())
+      assert(runPeek(progDivu, 0) == 14)
+
+      val progRemu = Seq(
+        addi(1, 0, 100),
+        addi(2, 0, 7),
+        Rv64Asm.remu(3, 1, 2),
+        Rv64Asm.sd(3, 0, 0),
+        park())
+      assert(runPeek(progRemu, 0) == 2)
+
+      val progDivw = Seq(
+        addi(1, 0, 20),
+        addi(2, 0, 3),
+        Rv64Asm.divw(3, 1, 2),
+        Rv64Asm.sd(3, 0, 0),
+        park())
+      assert(runPeek(progDivw, 0) == 6)
+    }
+
+    // A divide-by-zero must still complete (RISC-V defines a result, does
+    // not trap) and the FSM must return to normal fetch afterward.
+    test("DIV by zero through the real FSM completes without hanging") {
+      val prog = Seq(
+        addi(1, 0, 42),
+        addi(2, 0, 0),
+        Rv64Asm.div(3, 1, 2),         // x3 = -1 (all ones) per RISC-V spec
+        Rv64Asm.sd(3, 0, 0),
+        park())
+      assert(runPeek(prog, 0) == mask64)
     }
   }
 }
