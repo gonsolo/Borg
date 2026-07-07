@@ -25,16 +25,30 @@ class HuttRegFileIO(val xlen: Int = 32) extends Bundle {
 class HuttRegFile(val xlen: Int = 32) extends Module {
   val io = IO(new HuttRegFileIO(xlen))
 
-  // Async-read, sync-write Mem → Yosys infers TRELLIS_DPR16X4 on ECP5,
-  // saving ~4-6 K logic LUT4s vs Reg(Vec) + explicit write loop.
-  // Initialises to 0 on FPGA (TRELLIS_DPR16X4 default) and in sim
-  // (Verilator -x-initial fast).
-  val mem = Mem(32, UInt(xlen.W))
+  // Two explicit 16-entry halves (matching ECP5's native TRELLIS_DPR16X4
+  // primitive depth) instead of one Mem(32, ...). A single Mem(32, ...)
+  // needs yosys's memory_libmap to synthesize the depth-combine (2 halves
+  // -> address bit 4 picks one) itself; measured on real hardware this
+  // produced a ~189ns wide carry-chain in the write-data routing
+  // (regFile.mem_ext), matching in size the CSR-read pathology fixed in
+  // Hutt.scala. Splitting explicitly and combining with a plain Chisel
+  // Mux keeps the depth-select a single, cheap 2-way pick instead of
+  // something yosys has to infer. Each 16-entry half still needs no
+  // width-combine logic: xlen/4 DPR16X4 primitives in parallel at the
+  // same address, entirely independent of each other.
+  val memLo = Mem(16, UInt(xlen.W))
+  val memHi = Mem(16, UInt(xlen.W))
 
-  io.rs1Data := Mux(io.rs1Addr === 0.U, 0.U, mem(io.rs1Addr))
-  io.rs2Data := Mux(io.rs2Addr === 0.U, 0.U, mem(io.rs2Addr))
+  def readPort(addr: UInt): UInt = Mux(addr(4), memHi(addr(3, 0)), memLo(addr(3, 0)))
+
+  io.rs1Data := Mux(io.rs1Addr === 0.U, 0.U, readPort(io.rs1Addr))
+  io.rs2Data := Mux(io.rs2Addr === 0.U, 0.U, readPort(io.rs2Addr))
 
   when(io.wen && io.wAddr =/= 0.U) {
-    mem.write(io.wAddr, io.wData)
+    when(io.wAddr(4)) {
+      memHi.write(io.wAddr(3, 0), io.wData)
+    }.otherwise {
+      memLo.write(io.wAddr(3, 0), io.wData)
+    }
   }
 }
