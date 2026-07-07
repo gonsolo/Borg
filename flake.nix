@@ -52,30 +52,6 @@
     # mismatched, breaking every CI job that enters the dev shell.  We list just
     # what the poster needs — texlive.combine resolves each package's deps — and
     # keep it OUT of the default shell so CI never fetches it.
-    # yosys with an unreleased fix for AutonamePass's O(iterations x module
-    # size) full-rescan, which blows up to 40+ GB RSS / OOM-kills on our
-    # fully-flattened full-SoC synth (YosysHQ/yosys#6022, not yet merged).
-    # Vendored as a full-file drop-in (nix/patches/yosys-6022-autoname.cc)
-    # rather than a unified diff — v0.62 and the PR's base commit have
-    # drifted enough that the diff's context hunks don't apply cleanly,
-    # even though the resulting file is identical either way.
-    # ccache-wrapped stdenv, scoped to patchedYosys only (not the whole
-    # nixpkgs closure) so unrelated packages keep using cache.nixos.org
-    # substitutes instead of rebuilding under a different stdenv hash.
-    ccacheStdenv = pkgs.overrideCC pkgs.stdenv (pkgs.ccacheWrapper.override {
-      extraConfig = ''
-        export CCACHE_COMPRESS=1
-        export CCACHE_DIR="/nix/var/cache/ccache"
-        export CCACHE_UMASK=007
-      '';
-    });
-
-    patchedYosys = ((pkgs.yosys.override { stdenv = ccacheStdenv; }).overrideAttrs (old: {
-      postPatch = (old.postPatch or "") + ''
-        cp ${./nix/patches/yosys-6022-autoname.cc} passes/cmds/autoname.cc
-      '';
-      doCheck = false;
-    }));
 
     # OpenSBI source — pkgs.opensbi.src is already an unpacked directory
     # (nixpkgs fetches it via fetchFromGitHub).  Pinned at v1.8.1 by nixpkgs.
@@ -88,6 +64,20 @@
       mkdir $out
       tar -xJf ${pkgs.linux.src} -C $out --strip-components=1
     '';
+
+    # nixpkgs' pinned yosys (0.62) has an O(iterations x module size) blowup
+    # in the `autoname` pass (full module rescan every round) that made the
+    # full Hutt+Borg SoC synthesis take 49GB+/never complete. Upstream issues:
+    # https://github.com/YosysHQ/yosys/issues/5394, 4509, 2816. Fixed upstream
+    # via https://github.com/YosysHQ/yosys/pull/6003; patched here in the
+    # meantime with a persistent-worklist rewrite that reaches the identical
+    # fixed point without the full rescan (verified: same output on yosys's
+    # own tests/various/autoname.ys AND on this design — 49GB+/never-complete
+    # -> ~1.6GB/~9.5min, using yosys's default abc9 script, no other changes
+    # needed).
+    yosysFixed = pkgs.yosys.overrideAttrs (old: {
+      patches = (old.patches or []) ++ [ ./nix/patches/yosys-autoname-quadratic-fix.patch ];
+    });
 
     borgTexlive = pkgs.texlive.combine {
       inherit (pkgs.texlive)
@@ -163,7 +153,7 @@
         pkgs.typst
         pkgs.verilator
         pkgs.which
-        patchedYosys
+        yosysFixed
         pkgs.z3
         pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
         pkgs.pkgsCross.riscv32-embedded.buildPackages.binutils
@@ -240,7 +230,7 @@
         mkdir -p $HOME/bin
 
         # Link native yosys to the name the python script is looking for
-        ln -sf ${patchedYosys}/bin/yosys $HOME/bin/yowasp-yosys
+        ln -sf ${yosysFixed}/bin/yosys $HOME/bin/yowasp-yosys
 
         # Ensure our shim is at the front of the PATH
         export PATH="$HOME/bin:$PATH"
@@ -290,7 +280,9 @@ CROSSEOF
     };
     };
 
-    packages.${system}.yosys = patchedYosys;
+    packages.${system} = {
+      inherit yosysFixed;
+    };
 
     formatter.${system} = alejandra.defaultPackage.${system};
   };
