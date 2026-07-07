@@ -85,6 +85,13 @@ generate_verilog_ulx3s: rdl
 generate_verilog_ulx3s_minimal:
 	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMinimalMain
 
+# Minimal ULX3S Verilog, RV64 + CLINT — Hutt without Borg, for isolating
+# whether a Linux/OpenSBI boot that's silent on real hardware (despite
+# working in simulation) is a full-SoC timing-closure issue rather than a
+# logic bug.
+generate_verilog_ulx3s_minimal_linux:
+	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMinimalLinuxMain
+
 # HDMI Test Pattern emission
 generate_hdmi_test: rdl
 	TARGET_DIR=out/ulx3s/hdmi_test $(MILL) fpga.ulx3s.soc.runMain soc.HdmiTestMain

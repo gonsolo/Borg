@@ -341,6 +341,51 @@ minimal-hdmi: borg-minimal.bit hdmi_tiled_fw.bin
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_tiled_fw.bin
 	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle, connect HDMI. Expect: red 32x32 overlay. Run 'make tio' for 'R' confirmation."
 
+######### Minimal SoC, RV64 + CLINT (Hutt without Borg, Linux boot isolation) #######################
+
+ULX3S_MINIMAL_LINUX_VERILOG_DIR = ../../out/ulx3s_minimal_linux/verilog
+MIN_LINUX_SRC_FILES = $$(find $(ULX3S_MINIMAL_LINUX_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
+MIN_LINUX_LPF = $(ULX3S_MINIMAL_LINUX_VERILOG_DIR)/ulx3s.lpf
+
+.verilog_stamp_ulx3s_minimal_linux: $(CHISEL_SRCS) Makefile ../../Makefile
+	$(MAKE) -C ../.. generate_verilog_ulx3s_minimal_linux
+	@touch $@
+
+borg-minimal-linux.json: .verilog_stamp_ulx3s_minimal_linux
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Running Yosys for minimal RV64 SoC ..."
+	yosys -p "read -sv $(MIN_LINUX_SRC_FILES); \
+	           read_verilog -sv -lib $(CURDIR)/primitives/ecp5_prims.v; \
+	           synth_ecp5 -abc9 -top ulx3s_minimal_top -json borg-minimal-linux.json; \
+	           stat -top ulx3s_minimal_top" \
+	      -DECP5 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ \
+	      > yosys-minimal-linux.log
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Done."
+
+borg-minimal-linux.config: borg-minimal-linux.json
+	@echo -e "$(BOLD)[PNR]$(RESET) Running nextpnr-ecp5 for minimal RV64 SoC ..."
+	nextpnr-ecp5 \
+	  --85k --package CABGA381 \
+	  --json borg-minimal-linux.json \
+	  --lpf $(MIN_LINUX_LPF) \
+	  --textcfg borg-minimal-linux.config \
+	  --freq $(CLOCK_FREQ) \
+	  --timing-allow-fail \
+	  --log nextpnr-minimal-linux.log \
+	  --seed 0
+	@echo -e "$(BOLD)[PNR]$(RESET) Done."
+
+borg-minimal-linux.bit: borg-minimal-linux.config
+	@echo -e "$(BOLD)[PACK]$(RESET) Packing minimal RV64 bitstream ..."
+	ecppack --svf borg-minimal-linux.svf borg-minimal-linux.config borg-minimal-linux.bit
+	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-minimal-linux.bit ready."
+
+# Flash minimal RV64 bitstream only (does NOT reset — flash firmware next, or
+# 'make reset' to boot with whatever firmware is already at 0x400000).
+flash-minimal-linux: borg-minimal-linux.bit
+	@echo -e "$(BOLD)[FLASH]$(RESET) Writing minimal RV64 bitstream to onboard flash ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset borg-minimal-linux.bit
+	@echo -e "$(BOLD)[FLASH]$(RESET) Bitstream flashed. Flash firmware @ 0x400000, then: make reset"
+
 # Catch debug output on the FT231X serial port
 tio:
 	tio /dev/ttyUSB0

@@ -20,8 +20,14 @@ import _root_.circt.stage.ChiselStage
 
 /** ULX3S top — minimal SoC variant.  Same pinout as `ulx3s_top`.
   * Hutt + UART + HDMI scanout; no Borg GPU.
+  *
+  * @param xlen 32 = RV32I (default, e.g. uart_hello bring-up), 64 = RV64I
+  *             with CLINT — used to test OpenSBI/Linux boot without Borg's
+  *             SDRAM contention and dense synthesis in the loop, isolating
+  *             whether a full-SoC timing-closure issue is the cause of a
+  *             hardware boot that's silent despite working in simulation.
   */
-class ulx3s_minimal_top(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLogic {
+class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32) extends RawModule with MinimalSoCLogic {
   // ── Board pins (subset of full ULX3S) ─────────────────────────────────────
   val clk_25mhz = IO(Input(Clock()))
   val rst_n     = IO(Input(Bool()))
@@ -235,6 +241,26 @@ object ULX3SMinimalMain extends App {
 
   ChiselStage.emitSystemVerilogFile(
     gen         = new ulx3s_minimal_top(clockMhz),
+    args        = Array("--target-dir", targetDir),
+    firtoolOpts = Emit.firtoolOpts
+  )
+
+  // Reuse the full pin definitions; unused pins are harmless to constrain.
+  ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
+}
+
+/** Emit Verilog + LPF for the minimal ULX3S target, RV64 + CLINT — Hutt
+  * without Borg, for isolating whether a Linux/OpenSBI boot that's silent
+  * on real hardware (despite working in simulation) is caused by the full
+  * SoC's timing-closure margin rather than a logic bug.
+  */
+object ULX3SMinimalLinuxMain extends App {
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "25").toInt
+  val targetDir = "out/ulx3s_minimal_linux/verilog"
+  new java.io.File(targetDir).mkdirs()
+
+  ChiselStage.emitSystemVerilogFile(
+    gen         = new ulx3s_minimal_top(clockMhz, xlen = 64),
     args        = Array("--target-dir", targetDir),
     firtoolOpts = Emit.firtoolOpts
   )

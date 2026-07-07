@@ -9,7 +9,7 @@ package soc
 
 import chisel3._
 import chisel3.util._
-import hutt.{Hutt, HuttBus, HuttBusReq, HuttInstrBus}
+import hutt.{Hutt, HuttBus, HuttBusReq, HuttDataWidthAdapter, HuttInstrBus}
 import memory.MemoryController
 
 /** Slimmed-down SoCLogic — same address map as the full version but with no
@@ -23,6 +23,7 @@ import memory.MemoryController
   */
 trait MinimalSoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
+  def xlen: Int = 32   // 32 = RV32I, 64 = RV64I (override with def, not val)
 
   // Abstract — provided by the top module.
   def soc_clk: Clock
@@ -31,7 +32,7 @@ trait MinimalSoCLogic { self: RawModule =>
   def soc_ui_in: UInt
 
   lazy val cpu = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new Hutt())
+    Module(new Hutt(xlen = xlen))
   }
   lazy val mem = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new MemoryController())
@@ -58,12 +59,29 @@ trait MinimalSoCLogic { self: RawModule =>
     iCache.io.cpu <> cpu.io.instr
     iCache.io.mem <> mem.io.instr
 
-    val cpuData = cpu.io.data
+    val cpuData: HuttBus = if (xlen > 32) {
+      val adapter = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+        Module(new HuttDataWidthAdapter(28))
+      }
+      adapter.io.cpu <> cpu.io.data
+      adapter.io.mem
+    } else {
+      cpu.io.data
+    }
     val cpuAddr = cpuData.req.bits.addr
 
-    val isMem  = cpuAddr(27, 25) === 0.U
-    val isSoc  = SoCDecode.socRegion.matches(cpuAddr)
-    val isUser = SoCDecode.userRegion.matches(cpuAddr)
+    val isMem   = cpuAddr(27, 25) === 0.U
+    val isClint = cpuAddr(27, 24) === 2.U   // 0x02000000–0x02FFFFFF: CLINT (mtime/mtimecmp)
+    val isSoc   = SoCDecode.socRegion.matches(cpuAddr)
+    val isUser  = SoCDecode.userRegion.matches(cpuAddr)
+
+    // CLINT instance — mtime / mtimecmp at 0x02000000–0x0200000F.
+    val clint = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Clint) }
+    clint.io.mmio.req.valid      := cpuData.req.valid && isClint
+    clint.io.mmio.req.bits.addr  := cpuAddr(23, 0)
+    clint.io.mmio.req.bits.write := cpuData.req.bits.write
+    clint.io.mmio.req.bits.size  := cpuData.req.bits.size
+    clint.io.mmio.req.bits.data  := cpuData.req.bits.data(31, 0)
 
     // Memory port from CPU.
     mem.io.cpuData.req.valid           := cpuData.req.valid && isMem
@@ -125,43 +143,49 @@ trait MinimalSoCLogic { self: RawModule =>
     uartTx.io.uart_tx_data := cpuData.req.bits.data(7, 0)
     uartTx.io.baud_divider := debug_baud_divider
 
-    val activeMem = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
-    val activeSoc = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
-    val anyActive = activeMem || activeSoc
+    val activeMem   = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
+    val activeSoc   = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
+    val activeClint = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
+    val anyActive   = activeMem || activeSoc || activeClint
 
     // User-region reads/writes get auto-acked with 0xFFFFFFFF (treated as SoC).
     cpuData.req.ready := !anyActive && MuxCase(true.B, Seq(
-      isMem -> mem.io.cpuData.req.ready,
-      isSoc -> true.B
+      isMem   -> mem.io.cpuData.req.ready,
+      isClint -> clint.io.mmio.req.ready,
+      isSoc   -> true.B
     ))
 
     withClockAndReset(soc_clk, false.B) {
       when(cpuData.req.fire) {
-        activeMem := isMem
-        activeSoc := !isMem  // SoC OR user → treat as SoC for response
+        activeMem   := isMem
+        activeClint := isClint
+        activeSoc   := !isMem && !isClint  // SoC OR user → treat as SoC for response
       }
       when(cpuData.resp.fire) {
-        activeMem := false.B
-        activeSoc := false.B
+        activeMem   := false.B
+        activeSoc   := false.B
+        activeClint := false.B
         socRespPending := false.B
       }
     }
 
     mem.io.cpuData.resp.ready := cpuData.resp.ready && activeMem
+    clint.io.mmio.resp.ready  := cpuData.resp.ready && activeClint
 
     cpuData.resp.valid := MuxCase(false.B, Seq(
-      activeMem -> mem.io.cpuData.resp.valid,
-      activeSoc -> socRespPending
+      activeMem   -> mem.io.cpuData.resp.valid,
+      activeClint -> clint.io.mmio.resp.valid,
+      activeSoc   -> socRespPending
     ))
     cpuData.resp.bits := MuxCase(0.U, Seq(
-      activeMem -> mem.io.cpuData.resp.bits,
-      activeSoc -> socRespData
+      activeMem   -> mem.io.cpuData.resp.bits,
+      activeClint -> clint.io.mmio.resp.bits,
+      activeSoc   -> socRespData
     ))
 
     wireGpuMem()
 
-    // Hutt has a single-level interrupt port; tie low for now.
-    cpu.io.interrupt := false.B
+    cpu.io.interrupt := clint.io.timerIrq
 
     // uo_out: bit 6 = debug UART TX (consumed by the ULX3S top to drive ftdi_rxd).
     val uo_out_val = Cat(0.U(1.W), debug_uart_txd, 0.U(6.W))
