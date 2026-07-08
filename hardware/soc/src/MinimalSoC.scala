@@ -40,6 +40,7 @@ trait MinimalSoCLogic { self: RawModule =>
   lazy val uartTx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new peri.uart.UartTx(13))
   }
+  lazy val clint = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Clint) }
 
   /** GPU port tied off — no scanout / no Borg.  Overridable by the top for
     * HDMI bring-up (where scanout owns the gpuMem port).
@@ -76,7 +77,6 @@ trait MinimalSoCLogic { self: RawModule =>
     val isUser  = SoCDecode.userRegion.matches(cpuAddr)
 
     // CLINT instance — mtime / mtimecmp at 0x02000000–0x0200000F.
-    val clint = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Clint) }
     clint.io.mmio.req.valid      := cpuData.req.valid && isClint
     clint.io.mmio.req.bits.addr  := cpuAddr(23, 0)
     clint.io.mmio.req.bits.write := cpuData.req.bits.write

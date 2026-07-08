@@ -22,7 +22,8 @@ class HuttRv64HarnessIO(val dataAddrWidth: Int) extends Bundle {
 class HuttRv64Harness(
     val program: Seq[BigInt],
     val instrAddrWidth: Int = 10,
-    val dataAddrWidth: Int  = 10
+    val dataAddrWidth: Int  = 10,
+    val fetchLatency: Int = 0  // extra cycles of instruction-fetch delay (real SDRAM is much slower than this idealized 1-cycle default)
 ) extends Module {
   val io = IO(new HuttRv64HarnessIO(dataAddrWidth))
 
@@ -36,9 +37,17 @@ class HuttRv64Harness(
   val iReqHeld   = RegInit(false.B)
   val iRespValid = RegInit(false.B)
   val iRespData  = Reg(UInt(32.W))
+  val iDelayCnt  = RegInit(0.U(16.W))
   cpu.io.instr.req.ready := !iReqHeld
   when(cpu.io.instr.req.fire) {
-    iReqHeld := true.B; iRespData := iMemInit(cpu.io.instr.req.bits); iRespValid := true.B
+    iReqHeld := true.B; iRespData := iMemInit(cpu.io.instr.req.bits)
+    if (fetchLatency == 0) { iRespValid := true.B } else { iDelayCnt := fetchLatency.U }
+  }
+  if (fetchLatency != 0) {
+    when(iReqHeld && !iRespValid) {
+      when(iDelayCnt === 0.U) { iRespValid := true.B }
+        .otherwise { iDelayCnt := iDelayCnt - 1.U }
+    }
   }
   cpu.io.instr.resp.valid := iRespValid
   cpu.io.instr.resp.bits  := iRespData
@@ -133,6 +142,17 @@ object HuttRv64Tests extends TestSuite {
   def runPeek(program: Seq[BigInt], peekAddr: Int, maxCycles: Int = 300): BigInt = {
     var result: BigInt = -1
     simulate(new HuttRv64Harness(program)) { dut =>
+      dut.reset.poke(true.B); dut.io.peekAddr.poke(0.U); dut.clock.step(2)
+      dut.reset.poke(false.B); dut.clock.step(maxCycles)
+      dut.io.peekAddr.poke(peekAddr.U); dut.clock.step(1)
+      result = dut.io.peekData.peek().litValue
+    }
+    result
+  }
+
+  def runPeekLatency(program: Seq[BigInt], peekAddr: Int, fetchLatency: Int, maxCycles: Int = 3000): BigInt = {
+    var result: BigInt = -1
+    simulate(new HuttRv64Harness(program, fetchLatency = fetchLatency)) { dut =>
       dut.reset.poke(true.B); dut.io.peekAddr.poke(0.U); dut.clock.step(2)
       dut.reset.poke(false.B); dut.clock.step(maxCycles)
       dut.io.peekAddr.poke(peekAddr.U); dut.clock.step(1)
@@ -330,6 +350,39 @@ object HuttRv64Tests extends TestSuite {
         Rv64Asm.sd(3, 0, 0),
         park())
       assert(runPeek(prog, 0) == mask64)
+    }
+
+    // Reproduces OpenSBI's `lla a4,_fw_start` idiom at RV64 — auipc(imm=0)
+    // followed immediately by addi subtracting the same PC-relative offset
+    // back out, which must net to exactly the auipc instruction's own PC
+    // (not PC+4). Passes at PC=0, at a nonzero PC, and under artificially
+    // slow (SDRAM-like) fetch latency — regression coverage for this idiom
+    // specifically, since it's exactly what a real OpenSBI boot depends on.
+    test("RV64 auipc+addi nets to the auipc instruction's own PC at PC=0") {
+      val prog = Seq(
+        auipc(1, 0),               // PC=0: x1 = 0 (own PC)
+        addi (1, 1, 0),            // PC=4: x1 += 0 -> still 0
+        Rv64Asm.sd(1, 0, 0),       // PC=8: mem[0] = x1
+        park())
+      assert(runPeek(prog, 0) == 0)
+    }
+
+    test("RV64 auipc+addi nets to the auipc instruction's own PC at nonzero PC, under slow fetch latency") {
+      val prog = Seq(
+        addi(2, 0, 1),   // PC=0
+        addi(2, 0, 1),   // PC=4
+        addi(2, 0, 1),   // PC=8
+        addi(2, 0, 1),   // PC=12
+        addi(2, 0, 1),   // PC=16
+        addi(2, 0, 1),   // PC=20
+        auipc(1, 0),     // PC=24: x1 = 24 (own PC)
+        addi (1, 1, -24),// PC=28: x1 = 0
+        Rv64Asm.sd(1, 0, 0),
+        park())
+      assert(runPeek(prog, 0) == 0)
+      for (latency <- Seq(5, 15, 30, 50)) {
+        assert(runPeekLatency(prog, 0, fetchLatency = latency, maxCycles = 3000) == 0)
+      }
     }
   }
 }

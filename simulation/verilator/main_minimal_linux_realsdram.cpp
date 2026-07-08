@@ -33,11 +33,31 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Cannot open firmware file: %s\n", fw_path.c_str());
         return 1;
     }
-    size_t fw_size = (size_t)f.tellg();
+    size_t file_size = (size_t)f.tellg();
     f.seekg(0);
-    std::vector<uint8_t> fw(fw_size);
-    f.read((char*)fw.data(), fw_size);
-    fprintf(stderr, "Loaded firmware: %zu bytes\n", fw_size);
+    std::vector<uint8_t> raw(file_size);
+    f.read((char*)raw.data(), file_size);
+
+    // Auto-detect FlashBootLoader's wrapped format (4-byte LE length header +
+    // payload) vs. a bare fw_payload.bin — see main_minimal_linux.cpp for the
+    // full story (loading a wrapped file unstripped shifts the whole image 4
+    // bytes from where it truly belongs, which OpenSBI's own fw_start
+    // relocation sanity check correctly, if misleadingly, flags as a fault).
+    size_t fw_size;
+    const uint8_t* fw_data;
+    uint32_t header_len = file_size >= 4
+        ? (raw[0] | (raw[1] << 8) | (raw[2] << 16) | (raw[3] << 24)) : 0;
+    if (file_size >= 4 && header_len == file_size - 4) {
+        fw_size = file_size - 4;
+        fw_data = raw.data() + 4;
+        fprintf(stderr, "Loaded wrapped firmware: %zu bytes total, stripped 4-byte header, %zu bytes payload\n",
+                file_size, fw_size);
+    } else {
+        fw_size = file_size;
+        fw_data = raw.data();
+        fprintf(stderr, "Loaded firmware: %zu bytes\n", fw_size);
+    }
+    std::vector<uint8_t> fw(fw_data, fw_data + fw_size);
 
     auto* top = new VMinimalSocRealSdramSimTop;
 

@@ -19,8 +19,11 @@ import hutt.{HuttBus, HuttDebug}
   * On reset mtimecmp = 0xFFFF_FFFF_FFFF_FFFF so no interrupt fires at boot.
   */
 class ClintIO extends Bundle {
-  val mmio     = Flipped(new HuttBus(24))
-  val timerIrq = Output(Bool())
+  val mmio               = Flipped(new HuttBus(24))
+  val timerIrq           = Output(Bool())
+  val dbgMtime           = Output(UInt(64.W))
+  val dbgMtimecmp        = Output(UInt(64.W))
+  val dbgMtimecmpWriteSeq = Output(UInt(32.W))
 }
 
 class Clint extends Module {
@@ -31,6 +34,10 @@ class Clint extends Module {
 
   mtime := mtime + 1.U
   io.timerIrq := (mtime >= mtimecmp)
+  io.dbgMtime    := mtime
+  io.dbgMtimecmp := mtimecmp
+  val mtimecmpWriteSeq = RegInit(0.U(32.W))
+  io.dbgMtimecmpWriteSeq := mtimecmpWriteSeq
 
   if (HuttDebug.timerTrace) {
     val timerIrqPrev = RegNext(io.timerIrq, false.B)
@@ -58,10 +65,12 @@ class Clint extends Module {
         is(1.U) { mtime    := Cat(io.mmio.req.bits.data(31, 0), mtime(31, 0)) }
         is(2.U) {
           mtimecmp := Cat(mtimecmp(63, 32), io.mmio.req.bits.data(31, 0))
+          mtimecmpWriteSeq := mtimecmpWriteSeq + 1.U
           if (HuttDebug.timerTrace) printf("[CLINT] mtimecmp_lo write 0x%x (mtime=0x%x)\n", io.mmio.req.bits.data, mtime)
         }
         is(3.U) {
           mtimecmp := Cat(io.mmio.req.bits.data(31, 0), mtimecmp(31, 0))
+          mtimecmpWriteSeq := mtimecmpWriteSeq + 1.U
           if (HuttDebug.timerTrace) printf("[CLINT] mtimecmp_hi write 0x%x (mtime=0x%x)\n", io.mmio.req.bits.data, mtime)
         }
       }
