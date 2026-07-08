@@ -17,6 +17,20 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   val data      = new HuttBus(dataAddrWidth, xlen)
   val interrupt = Input(Bool())  // CLINT machine timer (MTIP)
   val dbgPc     = Output(UInt(xlen.W))
+  // Temporary: chasing a mallocng NULL-deref (group->meta reads 0 in free()
+  // despite malloc() having written it) -- trace every TLB fill (VA->PPN,
+  // to see if the same VA ever gets remapped to a different PPN) and every
+  // physical store (to see if the group->meta write actually lands and with
+  // what data/address).
+  val dbgPtwFillSeq  = Output(UInt(32.W))
+  val dbgPtwFillVA   = Output(UInt(xlen.W))
+  val dbgPtwFillPPN  = Output(UInt(44.W))
+  val dbgPtwFillLevel = Output(UInt(2.W))
+  val dbgStoreSeq    = Output(UInt(32.W))
+  val dbgStorePc     = Output(UInt(xlen.W))
+  val dbgStorePhysAddr = Output(UInt(dataAddrWidth.W))
+  val dbgStoreVA     = Output(UInt(xlen.W))
+  val dbgStoreData   = Output(UInt(xlen.W))
 }
 
 /** Hutt — a simple multi-cycle RV32I/RV64I CPU.
@@ -108,6 +122,7 @@ class Hutt(
   val ptwIsInstr = RegInit(false.B)    // true = instruction fetch, false = data
   val ptwIsWrite = RegInit(false.B)    // true = store (for fault cause)
   val dataPhysAddr = Reg(UInt(xlen.W)) // physical address for data access
+  val dataVAReg    = Reg(UInt(xlen.W)) // debug: virtual address mirror of dataPhysAddr (plain load/store paths only)
 
   // -- A extension: LR/SC/AMO* (xlen=64 only) --------------------------------
   // amoPending tells the PTW's data-fault-resolved redirect which state to
@@ -136,6 +151,25 @@ class Hutt(
 
   val regFile = Module(new HuttRegFile(xlen))
   val alu     = Module(new HuttAlu(xlen))
+
+  val dbgPtwFillSeqReg   = RegInit(0.U(32.W))
+  val dbgPtwFillVAReg    = RegInit(0.U(xlen.W))
+  val dbgPtwFillPPNReg   = RegInit(0.U(44.W))
+  val dbgPtwFillLevelReg = RegInit(0.U(2.W))
+  val dbgStoreSeqReg       = RegInit(0.U(32.W))
+  val dbgStorePcReg        = RegInit(0.U(xlen.W))
+  val dbgStorePhysAddrReg  = RegInit(0.U(dataAddrWidth.W))
+  val dbgStoreVAReg2       = RegInit(0.U(xlen.W))
+  val dbgStoreDataReg      = RegInit(0.U(xlen.W))
+  io.dbgPtwFillSeq   := dbgPtwFillSeqReg
+  io.dbgPtwFillVA    := dbgPtwFillVAReg
+  io.dbgPtwFillPPN   := dbgPtwFillPPNReg
+  io.dbgPtwFillLevel := dbgPtwFillLevelReg
+  io.dbgStoreSeq       := dbgStoreSeqReg
+  io.dbgStorePc        := dbgStorePcReg
+  io.dbgStorePhysAddr  := dbgStorePhysAddrReg
+  io.dbgStoreVA        := dbgStoreVAReg2
+  io.dbgStoreData      := dbgStoreDataReg
 
   // -- FSM -------------------------------------------------------------------
   // sCsrSel: second cycle of a CSR read, see the "-- CSR read --" comment
@@ -488,6 +522,7 @@ class Hutt(
             when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === memAddr(38, 12))) {
               // TLB hit: form physical address and proceed directly to sMemReq.
               dataPhysAddr := Cat(tlbPPN(tlbIdx), memAddr(11, 0))
+              dataVAReg    := memAddr
               state        := sMemReq
             }.otherwise {
               // TLB miss: 3-level Sv39 page-table walk for data.
@@ -500,6 +535,7 @@ class Hutt(
             }
           }.otherwise {
             dataPhysAddr := memAddr
+            dataVAReg    := memAddr
             state        := sMemReq
           }
         } else {
@@ -743,7 +779,16 @@ class Hutt(
       if (HuttDebug.trace) printf("[HUTT-MEM] sMemReq addr=0x%x write=%d size=%d data=0x%x req.ready=%d req.fire=%d\n",
         io.data.req.bits.addr, io.data.req.bits.write, io.data.req.bits.size, io.data.req.bits.data,
         io.data.req.ready, io.data.req.fire)
-      when(io.data.req.fire) { state := sMemResp }
+      when(io.data.req.fire) {
+        when(io.data.req.bits.write) {
+          dbgStoreSeqReg      := dbgStoreSeqReg + 1.U
+          dbgStorePcReg       := pc
+          dbgStorePhysAddrReg := io.data.req.bits.addr
+          dbgStoreVAReg2      := dataVAReg
+          dbgStoreDataReg     := io.data.req.bits.data
+        }
+        state := sMemResp
+      }
     }
 
     is(sMemResp) {
@@ -836,11 +881,16 @@ class Hutt(
               tlbVPN(tlbIdx)   := ptwVA(38, 12)
               tlbPPN(tlbIdx)   := tlbPpnSel
               tlbFlags(tlbIdx) := pte(7, 0)
+              dbgPtwFillSeqReg   := dbgPtwFillSeqReg + 1.U
+              dbgPtwFillVAReg    := ptwVA
+              dbgPtwFillPPNReg   := tlbPpnSel
+              dbgPtwFillLevelReg := ptwLevel
               when(ptwIsInstr) {
                 // Re-enter sFetchReq — TLB will hit this time.
                 state := sFetchReq
               }.otherwise {
                 dataPhysAddr := physAddr
+                dataVAReg    := ptwVA
                 // Redirect per the operation that triggered this walk: plain
                 // load/store (sMemReq), or the read/write phase of an AMO/LR/SC.
                 state := MuxLookup(amoPending, sMemReq)(Seq(
