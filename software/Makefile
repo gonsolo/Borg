@@ -1,4 +1,4 @@
-.PHONY: all clean test borg hutt opensbi linux flash-linux
+.PHONY: all clean test borg hutt opensbi linux flash-linux rootfs
 
 all: borg hutt
 
@@ -15,6 +15,10 @@ clean:
 	$(MAKE) -C borg clean
 	$(MAKE) -C hutt clean
 	rm -rf $(OPENSBI_OUT) $(LINUX_OUT)
+
+# rootfs/toolchain build products are large (musl+compiler-rt+busybox source
+# trees); not removed by plain `clean` above. Use `make -C rootfs clean` (or
+# distclean, which also drops the downloaded tarballs) explicitly.
 
 # ---------------------------------------------------------------------------
 # OpenSBI — FW_PAYLOAD mode: loads Linux kernel directly.
@@ -81,18 +85,28 @@ $(BORG_DTB): $(BORG_DTS)
 	dtc -I dts -O dtb -o $@ $<
 
 # ---------------------------------------------------------------------------
+# rootfs — the busybox+musl initramfs embedded via CONFIG_INITRAMFS_SOURCE
+# below. See software/rootfs/Makefile's own header for the full story; kept
+# as a separate sub-make (its own toolchain, versions, and build graph)
+# rather than inlined here.
+# ---------------------------------------------------------------------------
+
+rootfs:
+	$(MAKE) -C rootfs rootfs
+
+# ---------------------------------------------------------------------------
 # Linux kernel — minimal RV64 build using borg_rv64_defconfig.
 #
-# CONFIG_INITRAMFS_SOURCE can be overridden to point at a built buildroot
-# rootfs cpio archive; for minimal smoke-test pass empty string (no rootfs,
-# kernel panics after mounting initrd, but OpenSBI+MMU are exercised).
+# CONFIG_INITRAMFS_SOURCE (in borg_rv64_defconfig) points at the rootfs
+# built above; the kernel build fails outright if that tree doesn't exist
+# yet, hence the order-only dependency on `rootfs` below.
 #
 # Toolchain: riscv64-unknown-linux-gnu-gcc (Linux ABI, provided by Nix flake).
 # ---------------------------------------------------------------------------
 
 LINUX_DEFCONFIG := $(CURDIR)/linux/configs/borg_rv64_defconfig
 
-linux: $(LINUX_OUT)/.config
+linux: $(LINUX_OUT)/.config | rootfs
 	@echo "[linux] building kernel..."
 	$(MAKE) -C $(LINUX_SRC) \
 	    ARCH=riscv \
