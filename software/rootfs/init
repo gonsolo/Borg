@@ -1,0 +1,17 @@
+#!/bin/sh
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t devtmpfs none /dev 2>/dev/null || mount -t tmpfs none /dev
+
+# The kernel logs "unable to open an initial console" on this platform (no
+# /dev/console alias for the SBI hvc console at the point kernel_init()
+# tries to open it), so PID 1 inherits closed/unusable stdio -- /bin/sh
+# would read immediate EOF and exit, panicking with "Attempted to kill
+# init!". Attach explicitly to the real console device instead.
+exec </dev/hvc0 >/dev/hvc0 2>&1
+
+echo ""
+echo "Borg/Hutt Linux initramfs — welcome."
+echo ""
+
+exec /bin/sh
