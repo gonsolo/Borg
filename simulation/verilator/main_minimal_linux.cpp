@@ -193,6 +193,28 @@ int main(int argc, char** argv) {
                     (unsigned long long)top->dbg_x1_write_pc, (unsigned long long)top->dbg_x1_write_val,
                     (unsigned long long)top->dbg_satp, (int)top->dbg_priv_level);
         }
+
+        // epc=-2 at the crash is the sepc CSR, not a GPR -- trace every
+        // sepc write (both trap-entry auto-saves and the kernel's own
+        // explicit `csrw sepc, ...` on trap exit) to find where it becomes
+        // -2, and every load (address+value) to see what feeds it (e.g.
+        // `REG_L a2, PT_EPC(sp)` reading -2 out of the kernel stack).
+        static uint32_t last_sepc_write_seq = 0xFFFFFFFFu;
+        if (top->dbg_sepc_write_seq != last_sepc_write_seq && cyc >= 1'183'000'000ULL && cyc <= 1'186'000'000ULL) {
+            last_sepc_write_seq = top->dbg_sepc_write_seq;
+            fprintf(stderr, "[SEPC-WRITE cyc %llu seq=%u] pc=0x%llx val=0x%llx\n",
+                    (unsigned long long)cyc, top->dbg_sepc_write_seq,
+                    (unsigned long long)top->dbg_sepc_write_pc, (unsigned long long)top->dbg_sepc_write_val);
+        }
+        static uint32_t last_load_seq = 0xFFFFFFFFu;
+        if (top->dbg_load_seq != last_load_seq && cyc >= 1'183'000'000ULL && cyc <= 1'186'000'000ULL) {
+            last_load_seq = top->dbg_load_seq;
+            fprintf(stderr, "[LOAD cyc %llu seq=%u] pc=0x%llx va=0x%llx paddr=0x%llx rd=%u val=0x%llx\n",
+                    (unsigned long long)cyc, top->dbg_load_seq,
+                    (unsigned long long)top->dbg_load_pc, (unsigned long long)top->dbg_load_va,
+                    (unsigned long long)top->dbg_load_phys_addr, (unsigned)top->dbg_load_rd,
+                    (unsigned long long)top->dbg_load_val);
+        }
     }
 
     fprintf(stderr, "\nDone: %llu cycles simulated, no more output expected within budget.\n",

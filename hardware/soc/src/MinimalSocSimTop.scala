@@ -104,4 +104,24 @@ class MinimalSocSimTop(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLogi
   dbg_x1_write_val := cpu.io.dbgX1WriteVal
   dbg_satp         := cpu.io.dbgSatp
   dbg_priv_level   := cpu.io.dbgPrivLevel
+
+  val dbg_sepc_write_seq = IO(Output(UInt(32.W)))
+  val dbg_sepc_write_pc  = IO(Output(UInt(64.W)))
+  val dbg_sepc_write_val = IO(Output(UInt(64.W)))
+  dbg_sepc_write_seq := cpu.io.dbgSepcWriteSeq
+  dbg_sepc_write_pc  := cpu.io.dbgSepcWritePc
+  dbg_sepc_write_val := cpu.io.dbgSepcWriteVal
+
+  val dbg_load_seq        = IO(Output(UInt(32.W)))
+  val dbg_load_pc         = IO(Output(UInt(64.W)))
+  val dbg_load_va         = IO(Output(UInt(64.W)))
+  val dbg_load_phys_addr  = IO(Output(UInt(64.W)))
+  val dbg_load_rd         = IO(Output(UInt(5.W)))
+  val dbg_load_val        = IO(Output(UInt(64.W)))
+  dbg_load_seq       := cpu.io.dbgLoadSeq
+  dbg_load_pc        := cpu.io.dbgLoadPc
+  dbg_load_va        := cpu.io.dbgLoadVA
+  dbg_load_phys_addr := cpu.io.dbgLoadPhysAddr
+  dbg_load_rd        := cpu.io.dbgLoadRd
+  dbg_load_val       := cpu.io.dbgLoadVal
 }

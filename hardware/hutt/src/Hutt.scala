@@ -39,6 +39,22 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   val dbgX1WriteVal  = Output(UInt(xlen.W))
   val dbgSatp        = Output(UInt(xlen.W))
   val dbgPrivLevel   = Output(UInt(2.W))
+  // Every write to sepc, from ANY site (trap-entry auto-save OR the
+  // kernel's own explicit `csrw sepc, ...` on trap exit) -- epc=-2 at the
+  // crash is a CSR value, not a GPR, so the X1-write tracer above can't see
+  // it. Looking for where sepc itself becomes -2.
+  val dbgSepcWriteSeq = Output(UInt(32.W))
+  val dbgSepcWritePc  = Output(UInt(xlen.W))
+  val dbgSepcWriteVal = Output(UInt(xlen.W))
+  // Every load that actually writes a destination register (rd != 0), to
+  // trace what address/value REG_L a2, PT_EPC(sp)-style kernel restores
+  // are reading.
+  val dbgLoadSeq      = Output(UInt(32.W))
+  val dbgLoadPc       = Output(UInt(xlen.W))
+  val dbgLoadVA       = Output(UInt(xlen.W))
+  val dbgLoadPhysAddr = Output(UInt(xlen.W))
+  val dbgLoadRd       = Output(UInt(5.W))
+  val dbgLoadVal      = Output(UInt(xlen.W))
 }
 
 /** Hutt — a simple multi-cycle RV32I/RV64I CPU.
@@ -169,6 +185,24 @@ class Hutt(
   val dbgStorePhysAddrReg  = RegInit(0.U(dataAddrWidth.W))
   val dbgStoreVAReg2       = RegInit(0.U(xlen.W))
   val dbgStoreDataReg      = RegInit(0.U(xlen.W))
+  val dbgSepcWriteSeqReg = RegInit(0.U(32.W))
+  val dbgSepcWritePcReg  = RegInit(0.U(xlen.W))
+  val dbgSepcWriteValReg = RegInit(0.U(xlen.W))
+  io.dbgSepcWriteSeq := dbgSepcWriteSeqReg
+  io.dbgSepcWritePc  := dbgSepcWritePcReg
+  io.dbgSepcWriteVal := dbgSepcWriteValReg
+  val dbgLoadSeqReq      = RegInit(0.U(32.W))
+  val dbgLoadPcReg       = RegInit(0.U(xlen.W))
+  val dbgLoadVAReg       = RegInit(0.U(xlen.W))
+  val dbgLoadPhysAddrReg = RegInit(0.U(xlen.W))
+  val dbgLoadRdReg       = RegInit(0.U(5.W))
+  val dbgLoadValReg      = RegInit(0.U(xlen.W))
+  io.dbgLoadSeq      := dbgLoadSeqReq
+  io.dbgLoadPc       := dbgLoadPcReg
+  io.dbgLoadVA       := dbgLoadVAReg
+  io.dbgLoadPhysAddr := dbgLoadPhysAddrReg
+  io.dbgLoadRd       := dbgLoadRdReg
+  io.dbgLoadVal      := dbgLoadValReg
   io.dbgPtwFillSeq   := dbgPtwFillSeqReg
   io.dbgPtwFillVA    := dbgPtwFillVAReg
   io.dbgPtwFillPPN   := dbgPtwFillPPNReg
@@ -469,6 +503,7 @@ class Hutt(
         if (HuttDebug.timerTrace) printf("[HUTT-TIMER] S-mode timer trap taken pc=0x%x priv=%d mie=0x%x mip=0x%x\n",
           pc, privLevel, mie, mip)
         sepc      := pc
+        dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
         scause    := Cat(true.B, 0.U((xlen - 4).W), 5.U(3.W))
         stval     := 0.U(xlen.W)
         mstatus   := mstatusStrap
@@ -629,6 +664,7 @@ class Hutt(
                           Mux(privLevel === 0.U, medeleg(8), false.B))
         when(ecallDeleg) {
           sepc := pc; scause := ecallCause; stval := 0.U(xlen.W)
+          dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
           mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
         }.otherwise {
           mepc := pc; mcause := ecallCause; mtval := 0.U(xlen.W)
@@ -640,6 +676,7 @@ class Hutt(
       }.elsewhen(d.isEbreak) {
         when((privLevel =/= 3.U) && medeleg(3)) {
           sepc := pc; scause := 3.U(xlen.W); stval := pc
+          dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
           mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
         }.otherwise {
           mepc := pc; mcause := 3.U(xlen.W); mtval := pc
@@ -674,6 +711,7 @@ class Hutt(
           // same pattern as isEcall/isEbreak above.
           when((privLevel =/= 3.U) && medeleg(2)) {
             sepc := pc; scause := 2.U(xlen.W); stval := instr
+            dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
             mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
           }.otherwise {
             mepc := pc; mcause := 2.U(xlen.W); mtval := instr
@@ -735,7 +773,12 @@ class Hutt(
             }
             is("h105".U) { stvec    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }
             is("h140".U) { sscratch := csrNewVal }
-            is("h141".U) { sepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W)) }
+            is("h141".U) {
+              sepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
+              dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U
+              dbgSepcWritePcReg  := pc
+              dbgSepcWriteValReg := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
+            }
             is("h142".U) { scause   := csrNewVal }
           }
         }
@@ -822,6 +865,12 @@ class Hutt(
           regFile.io.wAddr := loadRd
           regFile.io.wData := extendLoad(loadFunct3, io.data.resp.bits)
           regFile.io.wen   := true.B
+          dbgLoadSeqReq       := dbgLoadSeqReq + 1.U
+          dbgLoadPcReg        := pc
+          dbgLoadVAReg        := dataVAReg
+          dbgLoadPhysAddrReg  := dataPhysAddr
+          dbgLoadRdReg        := loadRd
+          dbgLoadValReg       := extendLoad(loadFunct3, io.data.resp.bits)
         }.elsewhen(!isLoadOp) {
           // A plain store to the reserved address invalidates an LR reservation.
           when(lrValid && (lrAddr === memAddr)) { lrValid := false.B }
@@ -880,6 +929,7 @@ class Hutt(
           def doFault(): Unit = {
             when(faultDeleg && (privLevel =/= 3.U)) {
               sepc := pc; scause := faultCause; stval := ptwVA
+              dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
               mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
             }.otherwise {
               mepc := pc; mcause := faultCause; mtval := ptwVA
