@@ -73,4 +73,24 @@ class MinimalSocSimTop(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLogi
   dbg_mtimecmp  := clint.io.dbgMtimecmp
   dbg_timer_irq := clint.io.timerIrq
   dbg_mtimecmp_write_seq := clint.io.dbgMtimecmpWriteSeq
+
+  val dbg_ptw_fill_seq   = IO(Output(UInt(32.W)))
+  val dbg_ptw_fill_va    = IO(Output(UInt(64.W)))
+  val dbg_ptw_fill_ppn   = IO(Output(UInt(44.W)))
+  val dbg_ptw_fill_level = IO(Output(UInt(2.W)))
+  dbg_ptw_fill_seq   := cpu.io.dbgPtwFillSeq
+  dbg_ptw_fill_va    := cpu.io.dbgPtwFillVA
+  dbg_ptw_fill_ppn   := cpu.io.dbgPtwFillPPN
+  dbg_ptw_fill_level := cpu.io.dbgPtwFillLevel
+
+  val dbg_store_seq        = IO(Output(UInt(32.W)))
+  val dbg_store_pc         = IO(Output(UInt(64.W)))
+  val dbg_store_phys_addr  = IO(Output(UInt(28.W)))
+  val dbg_store_va         = IO(Output(UInt(64.W)))
+  val dbg_store_data       = IO(Output(UInt(64.W)))
+  dbg_store_seq       := cpu.io.dbgStoreSeq
+  dbg_store_pc        := cpu.io.dbgStorePc
+  dbg_store_phys_addr := cpu.io.dbgStorePhysAddr
+  dbg_store_va        := cpu.io.dbgStoreVA
+  dbg_store_data       := cpu.io.dbgStoreData
 }
