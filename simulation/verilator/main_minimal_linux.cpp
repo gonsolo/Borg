@@ -149,6 +149,14 @@ int main(int argc, char** argv) {
         // to a different PPN, and every physical store in the tail of the
         // run (bounded window to avoid an unbounded log) to see whether the
         // group-header write actually lands and with what data/address.
+        // PTW-FILL/STORE logging below is gated off by default (DEBUG_VA_TRACE)
+        // -- unconditional PTW-FILL logging alone produces multi-GB logs over
+        // a 1B+ cycle run and makes the sim I/O-bound. Flip this on and set
+        // the VA page filter(s) below to the addresses relevant to whatever
+        // is being chased next; see the mallocng-SIGSEGV investigation
+        // (2026-07-08 session) for the methodology this was built for.
+#define DEBUG_VA_TRACE 0
+#if DEBUG_VA_TRACE
         static uint32_t last_ptw_fill_seq = 0xFFFFFFFFu;
         if (top->dbg_ptw_fill_seq != last_ptw_fill_seq) {
             last_ptw_fill_seq = top->dbg_ptw_fill_seq;
@@ -162,21 +170,28 @@ int main(int argc, char** argv) {
             last_store_seq = top->dbg_store_seq;
             uint64_t va = (unsigned long long)top->dbg_store_va;
             uint64_t vpage = va >> 12;
-            // Physical-address filtering was confounded by physical-page
-            // reuse across many unrelated allocations (the same ppn backs
-            // many different groups over the process's lifetime). Filter by
-            // VIRTUAL address instead -- unambiguous within one process's
-            // single address space. Watch the crashing group's own base
-            // page (VA 0x3f94ce8000, where meta lives at offset 0) and the
-            // crashing free()'s own stack page (VA 0x3fd84f3000) to find the
-            // caller's saved ra at sp+40.
-            if (vpage == 0x3f94ce8ULL || vpage == 0x3fd84f3ULL) {
+            // Set to whatever VA page(s) matter for the current investigation.
+            if (false) {
                 fprintf(stderr, "[STORE cyc %llu seq=%u] pc=0x%llx va=0x%llx paddr=0x%llx data=0x%llx\n",
                         (unsigned long long)cyc, top->dbg_store_seq,
                         (unsigned long long)top->dbg_store_pc, va,
                         (unsigned long long)top->dbg_store_phys_addr,
                         (unsigned long long)top->dbg_store_data);
             }
+        }
+#endif
+
+        // Chasing a child-process crash immediately after fork() with
+        // garbage ra/pc (epc=-2, ra=-1). Log every write to x1 (ra) plus
+        // satp/privLevel, windowed around the known crash cycle for this
+        // build, to find the exact instruction where ra becomes -1.
+        static uint32_t last_x1_write_seq = 0xFFFFFFFFu;
+        if (top->dbg_x1_write_seq != last_x1_write_seq && cyc >= 1'183'000'000ULL && cyc <= 1'186'000'000ULL) {
+            last_x1_write_seq = top->dbg_x1_write_seq;
+            fprintf(stderr, "[X1-WRITE cyc %llu seq=%u] pc=0x%llx val=0x%llx satp=0x%llx priv=%d\n",
+                    (unsigned long long)cyc, top->dbg_x1_write_seq,
+                    (unsigned long long)top->dbg_x1_write_pc, (unsigned long long)top->dbg_x1_write_val,
+                    (unsigned long long)top->dbg_satp, (int)top->dbg_priv_level);
         }
     }
 
