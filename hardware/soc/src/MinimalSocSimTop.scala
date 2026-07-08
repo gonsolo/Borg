@@ -61,4 +61,16 @@ class MinimalSocSimTop(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLogi
   dbg_rdata := d.rdata
 
   uo_out := uo_out_val
+
+  val dbg_pc = IO(Output(UInt(64.W)))
+  dbg_pc := cpu.io.dbgPc
+
+  val dbg_mtime     = IO(Output(UInt(64.W)))
+  val dbg_mtimecmp  = IO(Output(UInt(64.W)))
+  val dbg_timer_irq = IO(Output(Bool()))
+  val dbg_mtimecmp_write_seq = IO(Output(UInt(32.W)))
+  dbg_mtime     := clint.io.dbgMtime
+  dbg_mtimecmp  := clint.io.dbgMtimecmp
+  dbg_timer_irq := clint.io.timerIrq
+  dbg_mtimecmp_write_seq := clint.io.dbgMtimecmpWriteSeq
 }

@@ -16,6 +16,7 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   val instr     = new HuttInstrBus(instrAddrWidth)
   val data      = new HuttBus(dataAddrWidth, xlen)
   val interrupt = Input(Bool())  // CLINT machine timer (MTIP)
+  val dbgPc     = Output(UInt(xlen.W))
 }
 
 /** Hutt — a simple multi-cycle RV32I/RV64I CPU.
@@ -54,6 +55,8 @@ class Hutt(
   // -- Architectural state ---------------------------------------------------
   val pc    = RegInit(resetVector.U(xlen.W))
   val instr = RegInit(0.U(32.W))
+
+  io.dbgPc := pc
 
   val cycleCounter = RegInit(0.U(xlen.W))
   cycleCounter := cycleCounter + 1.U
@@ -943,4 +946,5 @@ class Hutt(
       }
     }
   }
+
 }

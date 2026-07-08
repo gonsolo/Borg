@@ -28,9 +28,16 @@
         // SBI console: OpenSBI forwards putchar to the debug UART.
         // earlycon= must come before console= so kernel gets output
         // before the serial driver initialises (which needs a driver anyway).
-        bootargs = "earlycon=sbi console=ttyS0,115200n8 rootwait root=/dev/ram0 rw";
-        linux,initrd-start = <0x0 0x00800000>;
-        linux,initrd-end   = <0x0 0x00A00000>;  // 2 MB initramfs
+        // No root=/rootwait/initrd-start-end: the initramfs is embedded
+        // directly in the kernel Image (CONFIG_INITRAMFS_SOURCE) and becomes
+        // the root filesystem automatically once unpacked.
+        // console=hvc0: this platform has no real serial driver
+        // (CONFIG_SERIAL_8250 is not set), so "console=ttyS0" never matches
+        // any registered console. CONFIG_HVC_RISCV_SBI *is* enabled though,
+        // registering a proper late console ("hvc0") over the same SBI DBCN
+        // ecall the earlycon uses -- name it explicitly instead of the
+        // nonexistent ttyS0.
+        bootargs = "earlycon=sbi console=hvc0";
     };
 
     cpus {
@@ -54,11 +61,33 @@
         };
     };
 
-    // 32 MB SDRAM.  Linux is given the full range; OpenSBI automatically
-    // reserves its own region via the SBI memory-region mechanism.
+    // 32 MB SDRAM.
     memory@0 {
         device_type = "memory";
         reg = <0x0 0x00000000 0x0 0x02000000>;
+    };
+
+    // Reserve OpenSBI's own firmware footprint (PC=0x0, M-mode) so Linux's
+    // early allocators never hand this range out as free RAM.  The comment
+    // this replaced claimed OpenSBI "automatically reserves its own region
+    // via the SBI memory-region mechanism" -- that fixup (fdt_reserved_memory
+    // in generic platform init) is NOT firing for this custom platform, and
+    // without it the kernel treats [0, kernel_start) as ordinary free memory.
+    // Confirmed by hardware trace: during initramfs unpacking (a bulk memcpy)
+    // the kernel wrote sequentially into OpenSBI's own .text starting at byte
+    // 0x1d500 (inside mtimer_event_start), corrupting it; the next periodic
+    // timer tick's SBI call fetched the clobbered code and crashed with a
+    // garbage PC. Kernel is linked to start at 0x200000 (see
+    // borg_rv64_defconfig), so [0, 0x200000) is exactly OpenSBI's region.
+    reserved-memory {
+        #address-cells = <2>;
+        #size-cells    = <2>;
+        ranges;
+
+        opensbi@0 {
+            reg = <0x0 0x00000000 0x0 0x00200000>;
+            no-map;
+        };
     };
 
     soc {
