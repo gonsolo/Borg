@@ -31,6 +31,14 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   val dbgStorePhysAddr = Output(UInt(dataAddrWidth.W))
   val dbgStoreVA     = Output(UInt(xlen.W))
   val dbgStoreData   = Output(UInt(xlen.W))
+  // Chasing a child-process crash immediately after fork(): every write to
+  // x1 (ra), plus continuously-observable satp/privLevel, to find the exact
+  // instruction/moment ra becomes the -1 sentinel seen at the crash site.
+  val dbgX1WriteSeq  = Output(UInt(32.W))
+  val dbgX1WritePc   = Output(UInt(xlen.W))
+  val dbgX1WriteVal  = Output(UInt(xlen.W))
+  val dbgSatp        = Output(UInt(xlen.W))
+  val dbgPrivLevel   = Output(UInt(2.W))
 }
 
 /** Hutt — a simple multi-cycle RV32I/RV64I CPU.
@@ -739,7 +747,21 @@ class Hutt(
               if (HuttDebug.timerTrace) printf("[HUTT-TIMER] sip write csrNewVal=0x%x -> mip_sw=0x%x\n",
                 csrNewVal, (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR))
             }
-            is("h180".U) { satp     := csrNewVal }
+            is("h180".U) {
+              satp := csrNewVal
+              // The TLB has no ASID field (tlbVPN/tlbPPN/tlbFlags match on
+              // VA bits only) -- but Linux relies on the Sv39 spec's ASID
+              // semantics to safely SKIP an explicit sfence.vma on most
+              // context switches, trusting hardware to keep different
+              // address spaces isolated in the TLB. Without this flush, a
+              // VA cached from one process's mapping gets silently served
+              // to a completely different process after satp changes,
+              // corrupting memory (root-caused via a child process crashing
+              // immediately after fork() with garbage ra/pc — the child's
+              // own stack writes were being satisfied by a stale TLB entry
+              // still pointing at a DIFFERENT process's physical page).
+              if (xlen == 64) { for (i <- 0 until TLB_ENTRIES) { tlbValid(i) := false.B } }
+            }
             is("h300".U) { mstatus  := csrNewVal }
             is("h302".U) { medeleg  := csrNewVal }
           }
@@ -997,4 +1019,20 @@ class Hutt(
     }
   }
 
+  // Debug: trace every write to x1 (ra) -- placed after the switch so it
+  // observes the FINAL resolved regFile.io.{wen,wAddr,wData} for this cycle,
+  // regardless of which FSM state produced it.
+  val dbgX1WriteSeqReg = RegInit(0.U(32.W))
+  val dbgX1WritePcReg  = RegInit(0.U(xlen.W))
+  val dbgX1WriteValReg = RegInit(0.U(xlen.W))
+  when(regFile.io.wen && regFile.io.wAddr === 1.U) {
+    dbgX1WriteSeqReg := dbgX1WriteSeqReg + 1.U
+    dbgX1WritePcReg  := pc
+    dbgX1WriteValReg := regFile.io.wData
+  }
+  io.dbgX1WriteSeq := dbgX1WriteSeqReg
+  io.dbgX1WritePc  := dbgX1WritePcReg
+  io.dbgX1WriteVal := dbgX1WriteValReg
+  io.dbgSatp        := satp
+  io.dbgPrivLevel   := privLevel
 }
