@@ -74,7 +74,7 @@ obj_dir_minlinux/minimal_linux_sim: main_minimal_linux.cpp $(MINLINUX_DIR)/sim_f
 	@SRC_FILES=$$(cat $(MINLINUX_DIR)/sim_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
 	echo "Building Verilator model [MinimalSocSimTop]..."; \
 	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall -Wno-UNUSEDSIGNAL --build -j 0 \
-	--trace-fst --trace-structs \
+	--trace-fst --trace-structs --savable \
 	-MAKEFLAGS "-s" --Mdir obj_dir_minlinux \
 	-I$(MINLINUX_DIR) \
 	--top-module MinimalSocSimTop \
