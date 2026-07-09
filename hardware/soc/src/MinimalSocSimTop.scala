@@ -124,4 +124,9 @@ class MinimalSocSimTop(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLogi
   dbg_load_phys_addr := cpu.io.dbgLoadPhysAddr
   dbg_load_rd        := cpu.io.dbgLoadRd
   dbg_load_val       := cpu.io.dbgLoadVal
+
+  val dbg_sfence_seq = IO(Output(UInt(32.W)))
+  val dbg_sfence_pc  = IO(Output(UInt(64.W)))
+  dbg_sfence_seq := cpu.io.dbgSfenceSeq
+  dbg_sfence_pc  := cpu.io.dbgSfencePc
 }

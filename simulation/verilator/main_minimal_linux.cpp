@@ -209,11 +209,116 @@ int main(int argc, char** argv) {
         static uint32_t last_load_seq = 0xFFFFFFFFu;
         if (top->dbg_load_seq != last_load_seq && cyc >= 1'183'000'000ULL && cyc <= 1'186'000'000ULL) {
             last_load_seq = top->dbg_load_seq;
-            fprintf(stderr, "[LOAD cyc %llu seq=%u] pc=0x%llx va=0x%llx paddr=0x%llx rd=%u val=0x%llx\n",
-                    (unsigned long long)cyc, top->dbg_load_seq,
-                    (unsigned long long)top->dbg_load_pc, (unsigned long long)top->dbg_load_va,
-                    (unsigned long long)top->dbg_load_phys_addr, (unsigned)top->dbg_load_rd,
-                    (unsigned long long)top->dbg_load_val);
+            if (inWindow) {
+                fprintf(stderr, "[LOAD cyc %llu seq=%u] pc=0x%llx va=0x%llx paddr=0x%llx rd=%u val=0x%llx\n",
+                        (unsigned long long)cyc, top->dbg_load_seq,
+                        (unsigned long long)top->dbg_load_pc, (unsigned long long)top->dbg_load_va,
+                        (unsigned long long)top->dbg_load_phys_addr, (unsigned)top->dbg_load_rd,
+                        (unsigned long long)top->dbg_load_val);
+            }
+            // The exact crashing LOAD identified earlier: userspace pc=0xb8310,
+            // rd=1 (ra), reading -1 from what should be a valid saved return
+            // address. Print unconditionally (full run, no window) WITH satp,
+            // to compare its address-space (page-table root) against the
+            // COW-fault event that populated this physical page, and settle
+            // whether they're the same mm (pre-exec fork child still running)
+            // or genuinely different mms (post-execve, meaning the new stack
+            // wrongly aliased a stale physical page).
+            if (top->dbg_load_pc == 0xb8310ULL && top->dbg_load_rd == 1) {
+                fprintf(stderr, "[CRASH-LOAD cyc %llu seq=%u] pc=0x%llx va=0x%llx paddr=0x%llx val=0x%llx satp=0x%llx priv=%d\n",
+                        (unsigned long long)cyc, top->dbg_load_seq,
+                        (unsigned long long)top->dbg_load_pc, (unsigned long long)top->dbg_load_va,
+                        (unsigned long long)top->dbg_load_phys_addr, (unsigned long long)top->dbg_load_val,
+                        (unsigned long long)top->dbg_satp, (int)top->dbg_priv_level);
+            }
+        }
+        static uint32_t last_store_seq2 = 0xFFFFFFFFu;
+        if (top->dbg_store_seq != last_store_seq2) {
+            last_store_seq2 = top->dbg_store_seq;
+            if (inWindow) {
+                fprintf(stderr, "[STORE cyc %llu seq=%u] pc=0x%llx va=0x%llx paddr=0x%llx data=0x%llx\n",
+                        (unsigned long long)cyc, top->dbg_store_seq,
+                        (unsigned long long)top->dbg_store_pc, (unsigned long long)top->dbg_store_va,
+                        (unsigned long long)top->dbg_store_phys_addr,
+                        (unsigned long long)top->dbg_store_data);
+            }
+        }
+
+        // Root cause found (2026-07-09): the crashing LOAD is
+        // [LOAD cyc 1182828224 seq=8315926] pc=0xb8310 va=0x3ff3775648
+        // paddr=0x608648 rd=1 val=0xffffffffffffffff -- pure userspace
+        // (priv=0), an ordinary function-epilogue `ld ra, ...(sp)` reading
+        // -1 out of what should be a valid saved return address on the new
+        // process's stack, 8 bytes below the crash dump's reported sp
+        // (0x3ff3775650). That -1 register value is what later becomes the
+        // jalr `ret`'s target, masked to epc=-2 on the fault. Question: was
+        // this exact word EVER legitimately written before this load, or is
+        // it uninitialized SDRAM content (never-zeroed page)? Full-run
+        // (unconditional, no cycle-window gate -- this is the whole reason
+        // for --save-at/--load checkpointing) search for any store landing
+        // in this physical word, +/- a few words for alignment slop.
+        static uint32_t last_store_seq3 = 0xFFFFFFFFu;
+        if (top->dbg_store_seq != last_store_seq3) {
+            last_store_seq3 = top->dbg_store_seq;
+            uint64_t sp = (unsigned long long)top->dbg_store_phys_addr;
+            // Destination page (0x608xxx, the eventual crash page) AND the
+            // memcpy's SOURCE page (0x60exxx, the parent's saved pt_regs) --
+            // asking the same "was this word ever legitimately written"
+            // question one level further back in the same run. Widened to
+            // the FULL 4KB page (not just the 128-byte frame slice) to catch
+            // a write landing at an unexpected offset within the same page.
+            if ((sp >= 0x608000ULL && sp <= 0x608FFFULL) ||
+                (sp >= 0x60e000ULL && sp <= 0x60eFFFULL)) {
+                fprintf(stderr, "[STACKWORD-STORE cyc %llu seq=%u] pc=0x%llx va=0x%llx paddr=0x%llx data=0x%llx satp=0x%llx priv=%d\n",
+                        (unsigned long long)cyc, top->dbg_store_seq,
+                        (unsigned long long)top->dbg_store_pc, (unsigned long long)top->dbg_store_va,
+                        (unsigned long long)top->dbg_store_phys_addr,
+                        (unsigned long long)top->dbg_store_data,
+                        (unsigned long long)top->dbg_satp, (int)top->dbg_priv_level);
+            }
+        }
+
+        // Musl fork()'s own prologue/epilogue, identified via the unstripped
+        // busybox build: pc=0xb8190 is `sd ra,184(sp)` (saving the address
+        // of whoever called fork()), pc=0xb8310 is `ld ra,184(sp)` in the
+        // SAME function's epilogue. _Fork() (the clone syscall) runs
+        // in between, in the same function body. Trace EVERY fork() call's
+        // prologue store and epilogue load system-wide (unconditional, full
+        // run -- these are individually rare) to see what physical address
+        // each actually targets and whether the crash's satp
+        // (0x80002000000009f4) has a matching, correctly-written prologue.
+        static uint32_t last_store_seq4 = 0xFFFFFFFFu;
+        if (top->dbg_store_seq != last_store_seq4) {
+            last_store_seq4 = top->dbg_store_seq;
+            if (top->dbg_store_pc == 0xb8190ULL) {
+                fprintf(stderr, "[FORK-PROLOGUE-STORE cyc %llu seq=%u] va=0x%llx paddr=0x%llx data=0x%llx satp=0x%llx\n",
+                        (unsigned long long)cyc, top->dbg_store_seq,
+                        (unsigned long long)top->dbg_store_va, (unsigned long long)top->dbg_store_phys_addr,
+                        (unsigned long long)top->dbg_store_data, (unsigned long long)top->dbg_satp);
+            }
+        }
+        static uint32_t last_load_seq2 = 0xFFFFFFFFu;
+        if (top->dbg_load_seq != last_load_seq2) {
+            last_load_seq2 = top->dbg_load_seq;
+            if (top->dbg_load_pc == 0xb8310ULL) {
+                fprintf(stderr, "[FORK-EPILOGUE-LOAD cyc %llu seq=%u] va=0x%llx paddr=0x%llx val=0x%llx satp=0x%llx priv=%d\n",
+                        (unsigned long long)cyc, top->dbg_load_seq,
+                        (unsigned long long)top->dbg_load_va, (unsigned long long)top->dbg_load_phys_addr,
+                        (unsigned long long)top->dbg_load_val, (unsigned long long)top->dbg_satp, (int)top->dbg_priv_level);
+            }
+        }
+        // Chasing whether the kernel ever flushes Hutt's TLB (sfence.vma)
+        // between the parent's fork()-prologue write (correct) and its own
+        // later illegitimate direct write to the same shared page -- a
+        // stale writable TLB entry surviving a COW read-only downgrade
+        // would explain the parent writing straight through without a
+        // fault. Unconditional, full run -- sfence.vma is individually rare.
+        static uint32_t last_sfence_seq = 0xFFFFFFFFu;
+        if (top->dbg_sfence_seq != last_sfence_seq) {
+            last_sfence_seq = top->dbg_sfence_seq;
+            fprintf(stderr, "[SFENCE-VMA cyc %llu seq=%u] pc=0x%llx satp=0x%llx priv=%d\n",
+                    (unsigned long long)cyc, top->dbg_sfence_seq,
+                    (unsigned long long)top->dbg_sfence_pc, (unsigned long long)top->dbg_satp, (int)top->dbg_priv_level);
         }
     }
 

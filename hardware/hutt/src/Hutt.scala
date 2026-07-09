@@ -52,6 +52,13 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   val dbgLoadSeq      = Output(UInt(32.W))
   val dbgLoadPc       = Output(UInt(xlen.W))
   val dbgLoadVA       = Output(UInt(xlen.W))
+  // Every sfence.vma execution -- chasing whether the kernel actually
+  // flushes the TLB when downgrading a parent's PTE to read-only during
+  // fork()'s COW setup (a stale writable entry surviving that downgrade
+  // would let the parent write straight through a page that should have
+  // triggered its own COW fault).
+  val dbgSfenceSeq    = Output(UInt(32.W))
+  val dbgSfencePc     = Output(UInt(xlen.W))
   val dbgLoadPhysAddr = Output(UInt(xlen.W))
   val dbgLoadRd       = Output(UInt(5.W))
   val dbgLoadVal      = Output(UInt(xlen.W))
@@ -188,6 +195,10 @@ class Hutt(
   val dbgSepcWriteSeqReg = RegInit(0.U(32.W))
   val dbgSepcWritePcReg  = RegInit(0.U(xlen.W))
   val dbgSepcWriteValReg = RegInit(0.U(xlen.W))
+  val dbgSfenceSeqReg = RegInit(0.U(32.W))
+  val dbgSfencePcReg  = RegInit(0.U(xlen.W))
+  io.dbgSfenceSeq := dbgSfenceSeqReg
+  io.dbgSfencePc  := dbgSfencePcReg
   io.dbgSepcWriteSeq := dbgSepcWriteSeqReg
   io.dbgSepcWritePc  := dbgSepcWritePcReg
   io.dbgSepcWriteVal := dbgSepcWriteValReg
@@ -514,7 +525,11 @@ class Hutt(
         if (xlen == 64) {
           when(mmuEnabled) {
             val tlbIdx = pc(TLB_BITS + 11, 12)
-            when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === pc(38, 12))) {
+            // TLB hit requires BOTH a VPN match AND the cached PTE's X bit
+            // (tlbFlags(3)) -- a page cached read-only/non-executable by an
+            // earlier access must still fault on fetch here, not silently
+            // reuse whatever permission the ORIGINAL caching access had.
+            when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === pc(38, 12)) && tlbFlags(tlbIdx)(3)) {
               // TLB hit: issue fetch using physical address.
               val physFetch = Cat(tlbPPN(tlbIdx), pc(11, 0))
               io.instr.req.valid := true.B
@@ -562,7 +577,16 @@ class Hutt(
         if (xlen == 64) {
           when(mmuEnabled) {
             val tlbIdx = memAddr(TLB_BITS + 11, 12)
-            when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === memAddr(38, 12))) {
+            // TLB hit requires the cached PTE's permission bits to actually
+            // allow this access: R (tlbFlags(1)) for a load, W&&R
+            // (tlbFlags(2,1)) for a store -- mirrors the PTW's own permOk
+            // check (`Mux(ptwIsWrite, pteW && pteR, pteR)`). Without this, a
+            // page cached read-only by an earlier LOAD (e.g. right after a
+            // COW-triggering sfence.vma flush) would let a later STORE
+            // write straight through on the TLB-hit fast path, silently
+            // bypassing copy-on-write protection entirely.
+            val tlbPermOk = Mux(d.isStore, tlbFlags(tlbIdx)(2) && tlbFlags(tlbIdx)(1), tlbFlags(tlbIdx)(1))
+            when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === memAddr(38, 12)) && tlbPermOk) {
               // TLB hit: form physical address and proceed directly to sMemReq.
               dataPhysAddr := Cat(tlbPPN(tlbIdx), memAddr(11, 0))
               dataVAReg    := memAddr
@@ -597,7 +621,11 @@ class Hutt(
               amoNewVal  := rs2Val
               when(mmuEnabled) {
                 val tlbIdx = amoAddr(TLB_BITS + 11, 12)
-                when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === amoAddr(38, 12))) {
+                // SC is a write -- same permission requirement as a plain
+                // store TLB hit above (W&&R), matching this site's own
+                // miss-path ptwIsWrite=true.
+                when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === amoAddr(38, 12)) &&
+                     tlbFlags(tlbIdx)(2) && tlbFlags(tlbIdx)(1)) {
                   dataPhysAddr := Cat(tlbPPN(tlbIdx), amoAddr(11, 0))
                   state        := sAmoStoreReq
                 }.otherwise {
@@ -625,7 +653,12 @@ class Hutt(
             amoPending := 1.U
             when(mmuEnabled) {
               val tlbIdx = amoAddr(TLB_BITS + 11, 12)
-              when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === amoAddr(38, 12))) {
+              // LR/AMO's initial read phase -- R only, matching this site's
+              // own miss-path ptwIsWrite=false. (The write-back half of a
+              // true AMO reuses dataPhysAddr from this read without its own
+              // permission recheck in either the hit or miss path -- a
+              // pre-existing gap, not introduced by this fix, left as-is.)
+              when(tlbValid(tlbIdx) && (tlbVPN(tlbIdx) === amoAddr(38, 12)) && tlbFlags(tlbIdx)(1)) {
                 dataPhysAddr := Cat(tlbPPN(tlbIdx), amoAddr(11, 0))
                 state        := sAmoLoadReq
               }.otherwise {
@@ -699,6 +732,7 @@ class Hutt(
 
       }.elsewhen(d.isSfenceVma) {
         if (xlen == 64) { for (i <- 0 until TLB_ENTRIES) { tlbValid(i) := false.B } }
+        dbgSfenceSeqReg := dbgSfenceSeqReg + 1.U; dbgSfencePcReg := pc
         pc    := pcNext
         state := sFetchReq
 
