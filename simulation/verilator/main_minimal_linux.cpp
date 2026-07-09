@@ -365,9 +365,11 @@ int main(int argc, char** argv) {
             // Destination page (0x608xxx, the eventual crash page) AND the
             // memcpy's SOURCE page (0x60exxx, the parent's saved pt_regs) --
             // asking the same "was this word ever legitimately written"
-            // question one level further back in the same run.
-            if ((sp >= 0x608600ULL && sp <= 0x608680ULL) ||
-                (sp >= 0x60e600ULL && sp <= 0x60e680ULL)) {
+            // question one level further back in the same run. Widened to
+            // the FULL 4KB page (not just the 128-byte frame slice) to catch
+            // a write landing at an unexpected offset within the same page.
+            if ((sp >= 0x608000ULL && sp <= 0x608FFFULL) ||
+                (sp >= 0x60e000ULL && sp <= 0x60eFFFULL)) {
                 fprintf(stderr, "[STACKWORD-STORE cyc %llu seq=%u] pc=0x%llx va=0x%llx paddr=0x%llx data=0x%llx satp=0x%llx priv=%d\n",
                         (unsigned long long)cyc, top->dbg_store_seq,
                         (unsigned long long)top->dbg_store_pc, (unsigned long long)top->dbg_store_va,
@@ -375,6 +377,49 @@ int main(int argc, char** argv) {
                         (unsigned long long)top->dbg_store_data,
                         (unsigned long long)top->dbg_satp, (int)top->dbg_priv_level);
             }
+        }
+
+        // Musl fork()'s own prologue/epilogue, identified via the unstripped
+        // busybox build: pc=0xb8190 is `sd ra,184(sp)` (saving the address
+        // of whoever called fork()), pc=0xb8310 is `ld ra,184(sp)` in the
+        // SAME function's epilogue. _Fork() (the clone syscall) runs
+        // in between, in the same function body. Trace EVERY fork() call's
+        // prologue store and epilogue load system-wide (unconditional, full
+        // run -- these are individually rare) to see what physical address
+        // each actually targets and whether the crash's satp
+        // (0x80002000000009f4) has a matching, correctly-written prologue.
+        static uint32_t last_store_seq4 = 0xFFFFFFFFu;
+        if (top->dbg_store_seq != last_store_seq4) {
+            last_store_seq4 = top->dbg_store_seq;
+            if (top->dbg_store_pc == 0xb8190ULL) {
+                fprintf(stderr, "[FORK-PROLOGUE-STORE cyc %llu seq=%u] va=0x%llx paddr=0x%llx data=0x%llx satp=0x%llx\n",
+                        (unsigned long long)cyc, top->dbg_store_seq,
+                        (unsigned long long)top->dbg_store_va, (unsigned long long)top->dbg_store_phys_addr,
+                        (unsigned long long)top->dbg_store_data, (unsigned long long)top->dbg_satp);
+            }
+        }
+        static uint32_t last_load_seq2 = 0xFFFFFFFFu;
+        if (top->dbg_load_seq != last_load_seq2) {
+            last_load_seq2 = top->dbg_load_seq;
+            if (top->dbg_load_pc == 0xb8310ULL) {
+                fprintf(stderr, "[FORK-EPILOGUE-LOAD cyc %llu seq=%u] va=0x%llx paddr=0x%llx val=0x%llx satp=0x%llx priv=%d\n",
+                        (unsigned long long)cyc, top->dbg_load_seq,
+                        (unsigned long long)top->dbg_load_va, (unsigned long long)top->dbg_load_phys_addr,
+                        (unsigned long long)top->dbg_load_val, (unsigned long long)top->dbg_satp, (int)top->dbg_priv_level);
+            }
+        }
+        // Chasing whether the kernel ever flushes Hutt's TLB (sfence.vma)
+        // between the parent's fork()-prologue write (correct) and its own
+        // later illegitimate direct write to the same shared page -- a
+        // stale writable TLB entry surviving a COW read-only downgrade
+        // would explain the parent writing straight through without a
+        // fault. Unconditional, full run -- sfence.vma is individually rare.
+        static uint32_t last_sfence_seq = 0xFFFFFFFFu;
+        if (top->dbg_sfence_seq != last_sfence_seq) {
+            last_sfence_seq = top->dbg_sfence_seq;
+            fprintf(stderr, "[SFENCE-VMA cyc %llu seq=%u] pc=0x%llx satp=0x%llx priv=%d\n",
+                    (unsigned long long)cyc, top->dbg_sfence_seq,
+                    (unsigned long long)top->dbg_sfence_pc, (unsigned long long)top->dbg_satp, (int)top->dbg_priv_level);
         }
     }
 
