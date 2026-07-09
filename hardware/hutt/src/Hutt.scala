@@ -17,6 +17,13 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   val data      = new HuttBus(dataAddrWidth, xlen)
   val interrupt = Input(Bool())  // CLINT machine timer (MTIP)
   val dbgPc     = Output(UInt(xlen.W))
+  // Free-running cycle counter, also readable as the `time` CSR -- exposed
+  // directly to check whether it's genuinely advancing during the
+  // real-SDRAM co-sim's misaligned-access-calibration hang (task #15),
+  // where the kernel's own 8ms ktime_get_mono_fast_ns()-bounded busy-wait
+  // never seems to see its timeout, despite this register being an
+  // unconditional per-cycle increment with zero SDRAM/bus dependency.
+  val dbgCycleCounter = Output(UInt(xlen.W))
   // Temporary: chasing a mallocng NULL-deref (group->meta reads 0 in free()
   // despite malloc() having written it) -- trace every TLB fill (VA->PPN,
   // to see if the same VA ever gets remapped to a different PPN) and every
@@ -105,6 +112,7 @@ class Hutt(
 
   val cycleCounter = RegInit(0.U(xlen.W))
   cycleCounter := cycleCounter + 1.U
+  io.dbgCycleCounter := cycleCounter
 
   // -- Privilege level: 3=M, 1=S, 0=U.  Reset to M-mode. -------------------
   val privLevel = RegInit(3.U(2.W))

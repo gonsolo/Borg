@@ -102,4 +102,14 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
   dbg_data_req_data     := cpu.io.data.req.bits.data
   dbg_data_resp_valid   := cpu.io.data.resp.valid
   dbg_data_resp_data    := cpu.io.data.resp.bits
+
+  // Chasing task #15's real-SDRAM-co-sim-only hang (kernel's misaligned-
+  // access calibration never sees its own 8ms timeout): directly expose
+  // Hutt's free-running cycleCounter (backing the `time` CSR) and CLINT's
+  // independent mtime, to check whether either is genuinely advancing
+  // during the stuck loop.
+  val dbg_cycle_counter = IO(Output(UInt(64.W)))
+  val dbg_mtime         = IO(Output(UInt(64.W)))
+  dbg_cycle_counter := cpu.io.dbgCycleCounter
+  dbg_mtime         := clint.io.dbgMtime
 }
