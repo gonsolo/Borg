@@ -44,6 +44,14 @@ generated/
 fpga/ulx3s/*.elf
 fpga/ulx3s/*.o
 fpga/ulx3s/*.s
+fpga/ulx3s/*.bit
+fpga/ulx3s/*.config
+fpga/ulx3s/*.json
+fpga/ulx3s/*.svf
+fpga/ulx3s/*.log
+fpga/ulx3s/.verilog_stamp_*
 fpga/ulx3s/debug/*.hex
 fpga/ulx3s/debug/*_pnr.log
 .verilog_sim_stamp
+result
+simulation/verilator/obj_dir_*
