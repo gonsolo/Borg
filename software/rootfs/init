@@ -14,4 +14,21 @@ echo ""
 echo "Borg/Hutt Linux initramfs — welcome."
 echo ""
 
+# Bisecting a real-hardware-only hang. Round 1 found: plain `ls /bin`
+# (no args) hangs with ZERO output -- not even one entry -- unlike
+# `ls -la /`, which prints "total 4" (implying a full readdir already
+# succeeded) before hanging. Plain `ls` queries terminal width via
+# ioctl(TIOCGWINSZ) before printing anything (for column layout); `-la`
+# mode doesn't need it (one entry per line). ash's own earlier "can't
+# access tty; job control turned off" message already hints /dev/hvc0's
+# tty-ioctl support is incomplete. Testing whether THAT ioctl is the
+# actual hang point: piping ls's stdout makes isatty() return false,
+# skipping the width query/column-layout path entirely.
+echo "=== T1: ls /bin | cat (piped -- stdout not a tty, skips width ioctl) ==="
+ls /bin | cat
+echo "=== T1 end ==="
+echo "=== T2: ls /bin (direct to console -- the known hang point, for direct comparison) ==="
+ls /bin
+echo "=== T2 end ==="
+
 exec /bin/sh

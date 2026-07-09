@@ -103,6 +103,7 @@ obj_dir_minlinux_realsdram/minimal_linux_realsdram_sim: main_minimal_linux_reals
 	@SRC_FILES=$$(cat $(MINLINUX_REALSDRAM_DIR)/sim_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
 	echo "Building Verilator model [MinimalSocRealSdramSimTop]..."; \
 	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall -Wno-UNUSEDSIGNAL --build -j 0 \
+	--trace-fst --trace-structs \
 	-MAKEFLAGS "-s" --Mdir obj_dir_minlinux_realsdram \
 	-I$(MINLINUX_REALSDRAM_DIR) \
 	--top-module MinimalSocRealSdramSimTop \
