@@ -40,6 +40,31 @@ class SdramChipModel(addrBits: Int = 22, readLatency: Int = 2) extends Module {
   // Optional host backdoor for preload/readback (sim only).
   val dbg = IO(new SdramChipDbgIO)
 
+  // Debug (task #15): expose the chip's own address reconstruction and
+  // read-command decode so a corrupted read can be checked against the
+  // hand-computed expected ba/row/col instead of inferred from the
+  // controller's own (possibly-also-wrong) view.
+  val dbgIsRead   = IO(Output(Bool()))
+  val dbgIsAct    = IO(Output(Bool()))
+  val dbgBa       = IO(Output(UInt(2.W)))
+  val dbgAddrPin  = IO(Output(UInt(13.W)))
+  val dbgCol      = IO(Output(UInt(9.W)))
+  val dbgOpenRow  = IO(Output(UInt(13.W)))  // openRow(io.ba), the bank being accessed
+  val dbgAccAddr  = IO(Output(UInt(addrBits.W)))
+  val dbgRdData   = IO(Output(UInt(16.W)))
+
+  // Debug (task #15): the read at word 0x470 (byte 0x8e0) came back wrong
+  // with a CORRECTLY-reconstructed accAddr, meaning the stored content
+  // itself was already bad -- yet hundreds of earlier reads of the same
+  // word (cyc 8.8M-48.7M) were correct. That means something WROTE over
+  // legitimate code between those reads and the corrupted one. Latch every
+  // write event (seq-counted, like InstrCache's fill tracer) so the host can
+  // filter for any write landing on this address across the whole run.
+  val dbgWriteSeq     = IO(Output(UInt(32.W)))
+  val dbgWriteAccAddr = IO(Output(UInt(addrBits.W)))
+  val dbgWriteData    = IO(Output(UInt(16.W)))
+  val dbgWriteDqm     = IO(Output(UInt(2.W)))
+
   // ── Command decode.  Bit order MUST match SdramController's sdrCmd encoding:
   // sdrCmd(3)=cs_n, sdrCmd(2)=we_n, sdrCmd(1)=ras_n, sdrCmd(0)=cas_n.
   val cmd = Cat(io.cs_n, io.we_n, io.ras_n, io.cas_n)
@@ -62,12 +87,25 @@ class SdramChipModel(addrBits: Int = 22, readLatency: Int = 2) extends Module {
   val accAddr = Cat(openRow(io.ba), io.ba, col)(addrBits - 1, 0)
 
   // ── Write: store dq_out, honouring per-byte dqm masks ──
+  val dbgWriteSeqReg = RegInit(0.U(32.W))
+  val dbgWriteAccAddrReg = RegInit(0.U(addrBits.W))
+  val dbgWriteDataReg    = RegInit(0.U(16.W))
+  val dbgWriteDqmReg     = RegInit(0.U(2.W))
   when(isWrite) {
     val old = mem.read(accAddr)
     val lo  = Mux(io.dqm(0), old(7, 0),   io.dq_out(7, 0))
     val hi  = Mux(io.dqm(1), old(15, 8),  io.dq_out(15, 8))
-    mem.write(accAddr, Cat(hi, lo))
+    val written = Cat(hi, lo)
+    mem.write(accAddr, written)
+    dbgWriteSeqReg     := dbgWriteSeqReg + 1.U
+    dbgWriteAccAddrReg := accAddr
+    dbgWriteDataReg    := written
+    dbgWriteDqmReg     := io.dqm
   }
+  dbgWriteSeq     := dbgWriteSeqReg
+  dbgWriteAccAddr := dbgWriteAccAddrReg
+  dbgWriteData    := dbgWriteDataReg
+  dbgWriteDqm     := dbgWriteDqmReg
 
   // ── Read: drive dq_in `readLatency` cycles after the READ command ──
   val rdShift = Reg(Vec(readLatency, UInt(16.W)))
@@ -79,4 +117,13 @@ class SdramChipModel(addrBits: Int = 22, readLatency: Int = 2) extends Module {
   // ── Host backdoor ──
   when(dbg.we) { mem.write(dbg.waddr(addrBits - 1, 0), dbg.wdata) }
   dbg.rdata := mem.read(dbg.raddr(addrBits - 1, 0))
+
+  dbgIsRead  := isRead
+  dbgIsAct   := isAct
+  dbgBa      := io.ba
+  dbgAddrPin := io.addr
+  dbgCol     := col
+  dbgOpenRow := openRow(io.ba)
+  dbgAccAddr := accAddr
+  dbgRdData  := rdData
 }

@@ -25,6 +25,19 @@ import chisel3.util._
 class InstrCacheIO(val wordAddrWidth: Int) extends Bundle {
   val cpu = Flipped(new HuttInstrBus(wordAddrWidth))  // Hutt CPU side
   val mem = new HuttInstrBus(wordAddrWidth)           // MemoryController side
+
+  // Debug (task #15): expose the cache's own hit/miss decision and fill
+  // events so a corrupted word can be traced back to the exact historical
+  // fill that wrote it, rather than assumed to be a live SDRAM race on every
+  // hit -- a direct-mapped cache serves hits from BRAM in 2 cycles, far
+  // faster than the real SDRAM path, so what looks like a fast/racy fetch at
+  // the CPU is very often just a hit on a line filled long before.
+  val dbgState        = Output(UInt(3.W))
+  val dbgAddrReg       = Output(UInt(wordAddrWidth.W))
+  val dbgIsHit         = Output(Bool())
+  val dbgFillSeq       = Output(UInt(32.W))
+  val dbgFillWordAddr  = Output(UInt(wordAddrWidth.W))
+  val dbgFillData      = Output(UInt(32.W))
 }
 
 class InstrCache(val wordAddrWidth: Int = 23, val numLines: Int = 512) extends Module {
@@ -69,6 +82,17 @@ class InstrCache(val wordAddrWidth: Int = 23, val numLines: Int = 512) extends M
   io.mem.req.valid  := false.B
   io.mem.req.bits   := addrReg
   io.mem.resp.ready := false.B
+
+  io.dbgState  := state
+  io.dbgAddrReg := addrReg
+  io.dbgIsHit   := isHit
+
+  val dbgFillSeqReg      = RegInit(0.U(32.W))
+  val dbgFillWordAddrReg = RegInit(0.U(wordAddrWidth.W))
+  val dbgFillDataReg     = RegInit(0.U(32.W))
+  io.dbgFillSeq      := dbgFillSeqReg
+  io.dbgFillWordAddr := dbgFillWordAddrReg
+  io.dbgFillData     := dbgFillDataReg
 
   switch(state) {
 
@@ -116,6 +140,9 @@ class InstrCache(val wordAddrWidth: Int = 23, val numLines: Int = 512) extends M
           addrReg(indexBits - 1, 0),
           Cat(true.B, addrReg(wordAddrWidth - 1, indexBits))
         )
+        dbgFillSeqReg      := dbgFillSeqReg + 1.U
+        dbgFillWordAddrReg := addrReg
+        dbgFillDataReg     := io.mem.resp.bits
         state := sIdle
       }
     }
