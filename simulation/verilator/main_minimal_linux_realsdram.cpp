@@ -10,60 +10,93 @@
 // Usage: ./minimal_linux_realsdram_sim <firmware.bin> [max_cycles] [trace_start] [trace_end]
 // Passing trace_start/trace_end dumps an FST waveform (waveform.fst) for that
 // cycle window (see main_minimal_linux.cpp for the same convention).
+//
+// Checkpointing (same convention as main_minimal_linux.cpp -- avoids re-paying
+// the ~minutes-long boot-to-160M-cycles cost on every rerun when only the
+// logging window needs to move while chasing task #15's instruction-fetch
+// corruption bug): pass `--save-at CYCLE --save-path PATH` to serialize full
+// DUT state once `cyc` reaches CYCLE, then exit. Later, pass `--load PATH
+// --start-cycle CYCLE` to restore and resume the eval loop from there,
+// skipping reset/preload entirely -- firmware.bin is not needed in that mode.
 
 #include "../common/uart_decoder.h"
 #include <VMinimalSocRealSdramSimTop.h>
 #include <verilated.h>
 #include <verilated_fst_c.h>
+#include <verilated_save.h>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <vector>
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <firmware.bin> [max_cycles] [trace_start] [trace_end]\n", argv[0]);
-        return 1;
+    std::string fw_path;
+    std::string load_path, save_path;
+    uint64_t start_cycle = 0;
+    uint64_t save_at = (uint64_t)-1;
+    std::vector<std::string> positional;
+
+    for (int i = 1; i < argc; i++) {
+        std::string a = argv[i];
+        if (a == "--load" && i + 1 < argc) { load_path = argv[++i]; }
+        else if (a == "--start-cycle" && i + 1 < argc) { start_cycle = strtoull(argv[++i], nullptr, 10); }
+        else if (a == "--save-at" && i + 1 < argc) { save_at = strtoull(argv[++i], nullptr, 10); }
+        else if (a == "--save-path" && i + 1 < argc) { save_path = argv[++i]; }
+        else { positional.push_back(a); }
     }
+
+    size_t posIdx = 0;
+    if (load_path.empty()) {
+        if (positional.empty()) {
+            fprintf(stderr, "Usage: %s <firmware.bin> [max_cycles] [trace_start] [trace_end] "
+                             "[--save-at CYCLE --save-path PATH]\n", argv[0]);
+            fprintf(stderr, "   or: %s --load PATH --start-cycle CYCLE [max_cycles] [trace_start] [trace_end]\n", argv[0]);
+            return 1;
+        }
+        fw_path = positional[posIdx++];
+    }
+    uint64_t max_cycles = positional.size() > posIdx ? strtoull(positional[posIdx++].c_str(), nullptr, 10) : 20'000'000ULL;
+    uint64_t trace_start = positional.size() > posIdx ? strtoull(positional[posIdx++].c_str(), nullptr, 10) : (uint64_t)-1;
+    uint64_t trace_end   = positional.size() > posIdx ? strtoull(positional[posIdx++].c_str(), nullptr, 10) : (uint64_t)-1;
+
     Verilated::commandArgs(argc, argv);
     Verilated::traceEverOn(true);
 
-    std::string fw_path = argv[1];
-    uint64_t max_cycles = argc > 2 ? strtoull(argv[2], nullptr, 10) : 20'000'000ULL;
-    uint64_t trace_start = argc > 3 ? strtoull(argv[3], nullptr, 10) : (uint64_t)-1;
-    uint64_t trace_end   = argc > 4 ? strtoull(argv[4], nullptr, 10) : (uint64_t)-1;
+    std::vector<uint8_t> fw;
+    size_t fw_size = 0;
+    if (load_path.empty()) {
+        std::ifstream f(fw_path, std::ios::binary | std::ios::ate);
+        if (!f) {
+            fprintf(stderr, "Cannot open firmware file: %s\n", fw_path.c_str());
+            return 1;
+        }
+        size_t file_size = (size_t)f.tellg();
+        f.seekg(0);
+        std::vector<uint8_t> raw(file_size);
+        f.read((char*)raw.data(), file_size);
 
-    std::ifstream f(fw_path, std::ios::binary | std::ios::ate);
-    if (!f) {
-        fprintf(stderr, "Cannot open firmware file: %s\n", fw_path.c_str());
-        return 1;
+        // Auto-detect FlashBootLoader's wrapped format (4-byte LE length header +
+        // payload) vs. a bare fw_payload.bin — see main_minimal_linux.cpp for the
+        // full story (loading a wrapped file unstripped shifts the whole image 4
+        // bytes from where it truly belongs, which OpenSBI's own fw_start
+        // relocation sanity check correctly, if misleadingly, flags as a fault).
+        const uint8_t* fw_data;
+        uint32_t header_len = file_size >= 4
+            ? (raw[0] | (raw[1] << 8) | (raw[2] << 16) | (raw[3] << 24)) : 0;
+        if (file_size >= 4 && header_len == file_size - 4) {
+            fw_size = file_size - 4;
+            fw_data = raw.data() + 4;
+            fprintf(stderr, "Loaded wrapped firmware: %zu bytes total, stripped 4-byte header, %zu bytes payload\n",
+                    file_size, fw_size);
+        } else {
+            fw_size = file_size;
+            fw_data = raw.data();
+            fprintf(stderr, "Loaded firmware: %zu bytes\n", fw_size);
+        }
+        fw.assign(fw_data, fw_data + fw_size);
     }
-    size_t file_size = (size_t)f.tellg();
-    f.seekg(0);
-    std::vector<uint8_t> raw(file_size);
-    f.read((char*)raw.data(), file_size);
-
-    // Auto-detect FlashBootLoader's wrapped format (4-byte LE length header +
-    // payload) vs. a bare fw_payload.bin — see main_minimal_linux.cpp for the
-    // full story (loading a wrapped file unstripped shifts the whole image 4
-    // bytes from where it truly belongs, which OpenSBI's own fw_start
-    // relocation sanity check correctly, if misleadingly, flags as a fault).
-    size_t fw_size;
-    const uint8_t* fw_data;
-    uint32_t header_len = file_size >= 4
-        ? (raw[0] | (raw[1] << 8) | (raw[2] << 16) | (raw[3] << 24)) : 0;
-    if (file_size >= 4 && header_len == file_size - 4) {
-        fw_size = file_size - 4;
-        fw_data = raw.data() + 4;
-        fprintf(stderr, "Loaded wrapped firmware: %zu bytes total, stripped 4-byte header, %zu bytes payload\n",
-                file_size, fw_size);
-    } else {
-        fw_size = file_size;
-        fw_data = raw.data();
-        fprintf(stderr, "Loaded firmware: %zu bytes\n", fw_size);
-    }
-    std::vector<uint8_t> fw(fw_data, fw_data + fw_size);
 
     auto* top = new VMinimalSocRealSdramSimTop;
 
@@ -77,39 +110,64 @@ int main(int argc, char** argv) {
     }
     uint64_t vtime = 0;
 
-    top->dbg_we = 0; top->dbg_waddr = 0; top->dbg_wdata = 0; top->dbg_raddr = 0;
-    top->clk = 0; top->rst_n = 0; top->ena = 1; top->ui_in = 0;
-    for (int i = 0; i < 10; i++) { top->eval(); top->clk = 1; top->eval(); top->clk = 0; }
+    if (!load_path.empty()) {
+        fprintf(stderr, "Restoring checkpoint from %s (resuming at cyc %llu)...\n",
+                load_path.c_str(), (unsigned long long)start_cycle);
+        VerilatedRestore is;
+        is.open(load_path.c_str());
+        is >> *top;
+        is.close();
+        fprintf(stderr, "Checkpoint restored.\n");
+    } else {
+        top->dbg_we = 0; top->dbg_waddr = 0; top->dbg_wdata = 0; top->dbg_raddr = 0;
+        top->clk = 0; top->rst_n = 0; top->ena = 1; top->ui_in = 0;
+        for (int i = 0; i < 10; i++) { top->eval(); top->clk = 1; top->eval(); top->clk = 0; }
 
-    // Preload: flash byte F -> SDRAM word F>>1 (2 bytes per 16-bit word),
-    // matching FlashBootLoader's own byte-serial copy target layout exactly.
-    fprintf(stderr, "Preloading firmware into SDRAM via debug backdoor...\n");
-    uint32_t evenLen = (uint32_t)((fw_size + 1) & ~1u);
-    for (uint32_t b = 0; b < evenLen; b += 2) {
-        uint16_t lo = fw[b];
-        uint16_t hi = (b + 1 < fw_size) ? fw[b + 1] : 0;
-        uint16_t d = lo | (hi << 8);
-        top->dbg_we = 1; top->dbg_waddr = (b >> 1) & 0xFFFFFF; top->dbg_wdata = d;
-        top->clk = 0; top->eval(); top->clk = 1; top->eval();
+        // Preload: flash byte F -> SDRAM word F>>1 (2 bytes per 16-bit word),
+        // matching FlashBootLoader's own byte-serial copy target layout exactly.
+        fprintf(stderr, "Preloading firmware into SDRAM via debug backdoor...\n");
+        uint32_t evenLen = (uint32_t)((fw_size + 1) & ~1u);
+        for (uint32_t b = 0; b < evenLen; b += 2) {
+            uint16_t lo = fw[b];
+            uint16_t hi = (b + 1 < fw_size) ? fw[b + 1] : 0;
+            uint16_t d = lo | (hi << 8);
+            top->dbg_we = 1; top->dbg_waddr = (b >> 1) & 0xFFFFFF; top->dbg_wdata = d;
+            top->clk = 0; top->eval(); top->clk = 1; top->eval();
+        }
+        top->dbg_we = 0;
+        fprintf(stderr, "Preload done (%u words). Releasing reset.\n", evenLen >> 1);
+
+        top->rst_n = 1;
     }
-    top->dbg_we = 0;
-    fprintf(stderr, "Preload done (%u words). Releasing reset.\n", evenLen >> 1);
-
-    top->rst_n = 1;
 
     UartDecoder dec;
     dec.set_cycles_per_bit(217);  // 25 MHz / 115200 baud
 
     std::string line_buf;
-    uint64_t last_report = 0;
+    uint64_t last_report = start_cycle;
     uint32_t last_instr_addr = 0xFFFFFFFF;
-    uint64_t last_progress_cyc = 0;
-    for (uint64_t cyc = 0; cyc < max_cycles; cyc++) {
+    uint64_t last_progress_cyc = start_cycle;
+    uint32_t last_trap_seq = 0;
+    uint32_t last_x18_write_seq = 0;
+    for (uint64_t cyc = start_cycle; cyc < max_cycles; cyc++) {
         bool tracing = tfp && cyc >= trace_start && cyc <= trace_end;
         top->clk = 0; top->eval();
         if (tracing) { tfp->dump(vtime++); }
         top->clk = 1; top->eval();
         if (tracing) { tfp->dump(vtime++); }
+
+        if (cyc >= save_at && !save_path.empty()) {
+            fprintf(stderr, "[CHECKPOINT] saving state at cyc %llu -> %s\n",
+                    (unsigned long long)cyc, save_path.c_str());
+            VerilatedSave os;
+            os.open(save_path.c_str());
+            os << *top;
+            os.close();
+            fprintf(stderr, "[CHECKPOINT] saved. Exiting.\n");
+            if (tfp) { tfp->close(); delete tfp; }
+            delete top;
+            return 0;
+        }
 
         uint8_t txd = (top->uo_out >> 6) & 1;
         if (dec.tick(txd)) {
@@ -124,7 +182,195 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (top->dbg_trap_seq != last_trap_seq) {
+            fprintf(stderr,
+                "[TRAP seq=%u cyc %llu] from_pc=0x%llx cause=0x%llx to_priv=%d target_pc=0x%llx "
+                "mtvec=0x%llx stvec=0x%llx\n",
+                top->dbg_trap_seq, (unsigned long long)cyc,
+                (unsigned long long)top->dbg_trap_from_pc, (unsigned long long)top->dbg_trap_cause,
+                top->dbg_trap_to_priv, (unsigned long long)top->dbg_trap_target_pc,
+                (unsigned long long)top->dbg_trap_mtvec, (unsigned long long)top->dbg_trap_stvec);
+            last_trap_seq = top->dbg_trap_seq;
+        }
+
+        if (top->dbg_x18_write_seq != last_x18_write_seq) {
+            fprintf(stderr,
+                "[X18-WRITE seq=%u cyc %llu] pc=0x%llx val=0x%llx\n",
+                top->dbg_x18_write_seq, (unsigned long long)cyc,
+                (unsigned long long)top->dbg_x18_write_pc,
+                (unsigned long long)top->dbg_x18_write_val);
+            last_x18_write_seq = top->dbg_x18_write_seq;
+        }
+
+        // Task #15 (2026-07-10, extended): the corrupted nputs+0x2c fetch
+        // (word addr 0x238, byte 0x8e0) turned out to be an InstrCache HIT
+        // (2-cycle BRAM read), not a live SDRAM race -- see the REGW trace
+        // below. That means the bad word 0x00800900 was written into the
+        // cache at some EARLIER fill and has been served ever since. Log
+        // every fill to this cache line's INDEX (0x038, so this also catches
+        // any aliasing address that maps to the same line: 0x038, 0x238,
+        // 0x438, ...) across the FULL run, unconditional -- fills are rare
+        // relative to total cycles, so this stays small, and it finds the
+        // exact historical fill event (and whether the data was already
+        // corrupt AT fill time, implicating the real SDRAM path, or the
+        // fill was correct and something else clobbers the BRAM afterward)
+        // in one run instead of bisecting backward with checkpoints.
+        // Task #15 (2026-07-10, latest pivot): SdramChipModel's own accAddr
+        // reconstruction is CORRECT for the corrupted word-0x470 read
+        // (matches hand-computed 0x000470 exactly) yet the stored data
+        // itself is already wrong -- and hundreds of EARLIER reads of this
+        // same word (cyc 8.8M-48.7M, see ICACHE-FILL trace) were correct.
+        // That means something WROTE over this address between the last
+        // good read and the corrupted one -- not a read-path bug at all.
+        // Unconditional, full-run trace of every chip write landing on word
+        // 0x470 or 0x471 (byte 0x8e0-0x8e3, the corrupted instruction) to
+        // find the culprit write's cycle/data in one run.
+        // Task #15: narrow window bracketing the two CHIP-WRITE events found
+        // in the prior run (cyc 52,465,968 / 52,465,979) -- prints every CPU
+        // store in that window to identify the exact instruction (PC) and
+        // the address/data IT thought it was writing, to see whether this is
+        // an address-computation bug (writing to a wrong-but-plausible
+        // location) or something stranger.
+        static uint32_t last_store_seq_win = 0;
+        if (top->dbg_store_seq != last_store_seq_win) {
+            last_store_seq_win = top->dbg_store_seq;
+            if (cyc >= 52'465'900ULL && cyc <= 52'466'050ULL) {
+                fprintf(stderr,
+                    "[STORE seq=%u cyc %llu] pc=0x%llx phys_addr=0x%llx data=0x%llx\n",
+                    top->dbg_store_seq, (unsigned long long)cyc,
+                    (unsigned long long)top->dbg_store_pc,
+                    (unsigned long long)top->dbg_store_phys_addr,
+                    (unsigned long long)top->dbg_store_data);
+            }
+        }
+
+        static uint32_t last_chip_write_seq = 0;
+        if (top->dbg_chip_write_seq != last_chip_write_seq) {
+            last_chip_write_seq = top->dbg_chip_write_seq;
+            if (top->dbg_chip_write_acc_addr == 0x470u || top->dbg_chip_write_acc_addr == 0x471u) {
+                fprintf(stderr,
+                    "[CHIP-WRITE seq=%u cyc %llu] acc_addr=0x%06x data=0x%04x dqm=0x%x\n",
+                    top->dbg_chip_write_seq, (unsigned long long)cyc,
+                    top->dbg_chip_write_acc_addr, top->dbg_chip_write_data, (unsigned)top->dbg_chip_write_dqm);
+            }
+        }
+
+        static uint32_t last_ic_fill_seq = 0;
+        if (top->dbg_ic_fill_seq != last_ic_fill_seq) {
+            last_ic_fill_seq = top->dbg_ic_fill_seq;
+            if ((top->dbg_ic_fill_word_addr & 0x1FFu) == 0x038u) {
+                fprintf(stderr,
+                    "[ICACHE-FILL seq=%u cyc %llu] word_addr=0x%x (byte=0x%x) data=0x%08x\n",
+                    top->dbg_ic_fill_seq, (unsigned long long)cyc,
+                    top->dbg_ic_fill_word_addr, top->dbg_ic_fill_word_addr << 2,
+                    top->dbg_ic_fill_data);
+            }
+        }
+
+        // Task #15 (2026-07-10, isolated the exact corruption event): the
+        // ICACHE-FILL trace above found the corrupted fill for word_addr
+        // 0x238 (byte 0x8e0) happens exactly once, at cyc 52,676,975 -- every
+        // fill before that (hundreds) correctly returned 0x00058913; this one
+        // returned 0x00800900 and every later access was a cache HIT
+        // replaying that bad word. Unconditional dump of the real
+        // MemoryController/SdramBackend/SdramController state around that
+        // exact cycle (already-wired signals -- no new probes needed) to see
+        // the actual bad SDRAM transaction's shape, not diluted by hundreds
+        // of innocent cache hits like the cyc-159M window was.
+        if (cyc >= 52'676'900ULL && cyc <= 52'677'050ULL) {
+            fprintf(stderr,
+                "[SDRAM cyc %llu] mem_state=%d be_state=%d ctrl_state=%d ctrl_rdy=%d | "
+                "instr(req_v=%d req_r=%d resp_v=%d addr=0x%x) | "
+                "ic_state=%d ic_addr_reg=0x%x ic_is_hit=%d ic_fill_seq=%u | "
+                "dq_in=0x%04x be_readword=0x%04x mem_hw0=0x%04x mem_hw1=0x%04x\n",
+                (unsigned long long)cyc,
+                top->dbg_mem_state, top->dbg_be_state, top->dbg_ctrl_state, top->dbg_ctrl_rdy,
+                top->dbg_instr_req_valid, top->dbg_instr_req_ready, top->dbg_instr_resp_valid,
+                top->dbg_instr_addr,
+                top->dbg_ic_state, top->dbg_ic_addr_reg, top->dbg_ic_is_hit, top->dbg_ic_fill_seq,
+                top->dbg_dq_in, top->dbg_be_readword, top->dbg_mem_hw0, top->dbg_mem_hw1);
+        }
+
+        // Task #15 (further localizing the confirmed dq_in-level
+        // corruption): SdramChipModel's own address-reconstruction/read
+        // decode, printed on every cycle its READ or ACTIVATE command is
+        // asserted (rare -- one cycle per command, so unconditional in this
+        // window is fine) so the chip's ba/row/col can be checked against
+        // hand-computed expectations (halfword 0 = word addr 0x470 ->
+        // ba=2,row=0,col=0x70; halfword 1 = word addr 0x471 -> col=0x71).
+        if (cyc >= 52'676'900ULL && cyc <= 52'677'050ULL &&
+            (top->dbg_chip_is_read || top->dbg_chip_is_act)) {
+            fprintf(stderr,
+                "[CHIP cyc %llu] %s ba=%u addr_pin=0x%03x col=0x%02x open_row=0x%03x "
+                "acc_addr=0x%06x rd_data=0x%04x\n",
+                (unsigned long long)cyc,
+                top->dbg_chip_is_act ? "ACT " : "READ",
+                (unsigned)top->dbg_chip_ba, (unsigned)top->dbg_chip_addr_pin,
+                (unsigned)top->dbg_chip_col, (unsigned)top->dbg_chip_open_row,
+                (unsigned)top->dbg_chip_acc_addr, (unsigned)top->dbg_chip_rd_data);
+        }
+
+        // Task #15: unconditional, every-cycle (not just on fetch-address
+        // change) dump of pc/regfile-write-bus, narrowly windowed around one
+        // occurrence of nputs+0x2c (`mv s2,a1`, byte 0x8e0) during the known
+        // hang loop -- to see whether wen ever asserts with wAddr=18 there at
+        // all, since the FSM may take multiple cycles per instruction and
+        // the address-change-gated FINE print above can miss the exact cycle.
+        //
+        // Extended (2026-07-10, same investigation): the prior REGW-only trace
+        // showed the CORRUPTED fetch (pc=0x8e0) completing its Hutt-side
+        // sFetchReq->sFetchResp->sExec handshake in just TWO cycles -- far
+        // faster than MemoryController's real-SDRAM FSM should ever allow for
+        // a fresh 2-halfword fetch (the preceding LD at 0x8d8 needed ~18
+        // cycles in sMemResp for ONE halfword-equivalent access). That means
+        // either the fetch wasn't a fresh transaction at all (stale
+        // req/resp.fire), or MemoryController/backend/controller genuinely
+        // raced through their FSMs abnormally fast. Add the already-wired
+        // MemoryController/SdramBackend/SdramController state signals
+        // (dbg_mem_state/be_state/ctrl_state/ctrl_rdy plus the instr
+        // req/resp handshake bits) to see exactly what those layers were
+        // doing, cycle by cycle, through this exact window.
+        if (cyc >= 159'978'440ULL && cyc <= 159'978'500ULL) {
+            fprintf(stderr,
+                "[REGW cyc %llu] pc=0x%llx wen=%d waddr=%llu wdata=0x%llx state=%d wbExecEn=%d d.rd=%llu instr=0x%08x | "
+                "mem_state=%d be_state=%d ctrl_state=%d ctrl_rdy=%d instr(req_v=%d req_r=%d resp_v=%d addr=0x%x) | "
+                "ic_state=%d ic_addr_reg=0x%x ic_is_hit=%d\n",
+                (unsigned long long)cyc, (unsigned long long)top->dbg_pc,
+                top->dbg_reg_wen, (unsigned long long)top->dbg_reg_waddr,
+                (unsigned long long)top->dbg_reg_wdata, top->dbg_state,
+                top->dbg_wbexec_en, (unsigned long long)top->dbg_d_rd,
+                (unsigned int)top->dbg_instr,
+                top->dbg_mem_state, top->dbg_be_state, top->dbg_ctrl_state, top->dbg_ctrl_rdy,
+                top->dbg_instr_req_valid, top->dbg_instr_req_ready, top->dbg_instr_resp_valid,
+                top->dbg_instr_addr,
+                top->dbg_ic_state, top->dbg_ic_addr_reg, top->dbg_ic_is_hit);
+        }
+
         if (top->dbg_instr_addr != last_instr_addr) {
+            // PC-gated: fires every time the fetch address BECOMES
+            // print+0x394's `add s2,s2,a0` (word addr 0x500 = byte 0x1400),
+            // showing a0/s2/s3 at that exact instant -- settles whether
+            // nputs()'s return value genuinely reaches print() as 1
+            // (software-visible data issue elsewhere) or arrives as
+            // something else (Hutt call/return-value correctness bug).
+            static uint32_t add_s2_hits = 0;
+            if (top->dbg_instr_addr == 0x500 && cyc >= 50'000'000ULL && add_s2_hits < 200) {
+                fprintf(stderr, "[ADD-S2 hit=%u cyc %llu] a0=0x%llx s2(before)=0x%llx s3=0x%llx\n",
+                        add_s2_hits, (unsigned long long)cyc, (unsigned long long)top->dbg_a0,
+                        (unsigned long long)top->dbg_s2, (unsigned long long)top->dbg_s3);
+                add_s2_hits++;
+            }
+            // Same idea, but at nputs()'s OWN `ret` (word addr 0x261 = byte
+            // 0x984) -- if a0 is already 0 HERE, the bug is inside nputs()
+            // itself (or the call into it), not in anything print() does
+            // afterward (nothing executes between the two probe points).
+            static uint32_t nputs_ret_hits = 0;
+            if (top->dbg_instr_addr == 0x261 && cyc >= 50'000'000ULL && nputs_ret_hits < 200) {
+                fprintf(stderr, "[NPUTS-RET hit=%u cyc %llu] a0=0x%llx s2=0x%llx s5=0x%llx\n",
+                        nputs_ret_hits, (unsigned long long)cyc, (unsigned long long)top->dbg_a0,
+                        (unsigned long long)top->dbg_s2, (unsigned long long)top->dbg_s5);
+                nputs_ret_hits++;
+            }
             if (cyc < 20000 || cyc - last_progress_cyc > 500000) {
                 fprintf(stderr, "[cyc %llu] instr fetch addr changed: 0x%x -> 0x%x\n",
                         (unsigned long long)cyc, last_instr_addr, top->dbg_instr_addr);
@@ -134,15 +380,13 @@ int main(int argc, char** argv) {
             // period, to see the exact cycle-level sequence (no rate
             // limiting -- this is what tells us whether e.g. ctrl_rdy just
             // never asserts, or a req/resp handshake never completes).
-            if (cyc >= 158'800'000ULL && cyc <= 159'000'000ULL) {
+            if (cyc >= 159'977'800ULL && cyc <= 159'980'300ULL) {
                 fprintf(stderr,
-                    "[FINE cyc %llu] addr 0x%x -> 0x%x | mem_state=%d be_state=%d ctrl_state=%d ctrl_rdy=%d | "
-                    "instr(req_v=%d req_r=%d resp_v=%d) data(req_v=%d req_r=%d write=%d resp_v=%d)\n",
+                    "[FINE cyc %llu] addr 0x%x -> 0x%x | s1=0x%llx a5=0x%llx s3=0x%llx s5=0x%llx s2=0x%llx a0=0x%llx\n",
                     (unsigned long long)cyc, last_instr_addr, top->dbg_instr_addr,
-                    top->dbg_mem_state, top->dbg_be_state, top->dbg_ctrl_state, top->dbg_ctrl_rdy,
-                    top->dbg_instr_req_valid, top->dbg_instr_req_ready, top->dbg_instr_resp_valid,
-                    top->dbg_data_req_valid, top->dbg_data_req_ready, top->dbg_data_req_write,
-                    top->dbg_data_resp_valid);
+                    (unsigned long long)top->dbg_s1, (unsigned long long)top->dbg_a5,
+                    (unsigned long long)top->dbg_s3, (unsigned long long)top->dbg_s5,
+                    (unsigned long long)top->dbg_s2, (unsigned long long)top->dbg_a0);
             }
             last_instr_addr = top->dbg_instr_addr;
             last_progress_cyc = cyc;
@@ -154,9 +398,16 @@ int main(int argc, char** argv) {
         // directly see whether either free-running counter ever stalls.
         static uint64_t last_ctr_print = 0;
         if (cyc >= 40'000'000ULL && cyc <= 160'000'000ULL && cyc - last_ctr_print >= 100'000ULL) {
-            fprintf(stderr, "[CTR cyc %llu] cycleCounter=%llu mtime=%llu instr_addr=0x%x\n",
+            fprintf(stderr,
+                    "[CTR cyc %llu] cycleCounter=%llu mtime=%llu instr_addr=0x%x | "
+                    "s1=0x%llx a5=0x%llx s3=0x%llx s5=0x%llx s2=0x%llx (s5-s1=%lld) (s3-s2=%lld)\n",
                     (unsigned long long)cyc, (unsigned long long)top->dbg_cycle_counter,
-                    (unsigned long long)top->dbg_mtime, top->dbg_instr_addr);
+                    (unsigned long long)top->dbg_mtime, top->dbg_instr_addr,
+                    (unsigned long long)top->dbg_s1, (unsigned long long)top->dbg_a5,
+                    (unsigned long long)top->dbg_s3, (unsigned long long)top->dbg_s5,
+                    (unsigned long long)top->dbg_s2,
+                    (long long)(top->dbg_s5 - top->dbg_s1),
+                    (long long)(top->dbg_s3 - top->dbg_s2));
             last_ctr_print = cyc;
         }
 
@@ -193,6 +444,40 @@ int main(int argc, char** argv) {
 
     fprintf(stderr, "\nDone: %llu cycles simulated, no more output expected within budget.\n",
             (unsigned long long)max_cycles);
+
+    fprintf(stderr, "\nFinal s2 (flush-loop progress counter) = 0x%llx, s3 (flush length) = 0x%llx\n",
+            (unsigned long long)top->dbg_s2, (unsigned long long)top->dbg_s3);
+
+    // Dump OpenSBI's console_tbuf itself (fixed address 0x42108, per
+    // sbi_console.c / the fw_payload.elf disassembly at print+0x328) via
+    // the same debug backdoor used for firmware preload, to see what's
+    // actually buffered and being (endlessly) flushed.
+    {
+        uint64_t dumpStart = 0x42100;
+        fprintf(stderr, "Memory dump [0x%llx, 0x%llx) (console_out_lock/console_tbuf_len/console_tbuf):\n",
+                (unsigned long long)dumpStart, (unsigned long long)(dumpStart + 128));
+        for (uint64_t base = dumpStart; base < dumpStart + 128; base += 16) {
+            fprintf(stderr, "  0x%06llx: ", (unsigned long long)base);
+            unsigned char bytes[16];
+            for (int i = 0; i < 16; i += 2) {
+                uint64_t byteAddr = base + i;
+                uint32_t wordAddr = (uint32_t)(byteAddr >> 1) & 0xFFFFFF;
+                top->dbg_raddr = wordAddr;
+                top->eval();
+                uint16_t d = top->dbg_rdata;
+                bytes[i]     = d & 0xFF;
+                bytes[i + 1] = (d >> 8) & 0xFF;
+            }
+            for (int i = 0; i < 16; i++) fprintf(stderr, "%02x ", bytes[i]);
+            fprintf(stderr, " |");
+            for (int i = 0; i < 16; i++) {
+                unsigned char c = bytes[i];
+                fprintf(stderr, "%c", (c >= 0x20 && c < 0x7f) ? c : '.');
+            }
+            fprintf(stderr, "|\n");
+        }
+    }
+
     if (tfp) { tfp->close(); delete tfp; }
     delete top;
     return 0;

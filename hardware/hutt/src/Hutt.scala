@@ -44,6 +44,18 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   val dbgX1WriteSeq  = Output(UInt(32.W))
   val dbgX1WritePc   = Output(UInt(xlen.W))
   val dbgX1WriteVal  = Output(UInt(xlen.W))
+  // Same as above but for x18 (s2) -- task #15's real-SDRAM-cosim hang.
+  val dbgX18WriteSeq = Output(UInt(32.W))
+  val dbgX18WritePc  = Output(UInt(xlen.W))
+  val dbgX18WriteVal = Output(UInt(xlen.W))
+  // Raw continuous regfile write bus (see wiring at bottom of the module).
+  val dbgRegWen   = Output(Bool())
+  val dbgRegWAddr = Output(UInt(5.W))
+  val dbgRegWData = Output(UInt(xlen.W))
+  val dbgState    = Output(UInt(4.W))
+  val dbgWbExecEn = Output(Bool())
+  val dbgDRd      = Output(UInt(5.W))
+  val dbgInstr    = Output(UInt(32.W))
   val dbgSatp        = Output(UInt(xlen.W))
   val dbgPrivLevel   = Output(UInt(2.W))
   // Every write to sepc, from ANY site (trap-entry auto-save OR the
@@ -69,6 +81,36 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   val dbgLoadPhysAddr = Output(UInt(xlen.W))
   val dbgLoadRd       = Output(UInt(5.W))
   val dbgLoadVal      = Output(UInt(xlen.W))
+  // Chasing task #15's real-SDRAM-cosim hang: originally added to inspect
+  // OpenSBI's nputs() loop GPRs; that theory is superseded (see dbgTrap*
+  // below) but the ports are cheap and harmless to keep wired for now.
+  val dbgS1 = Output(UInt(xlen.W))
+  val dbgA5 = Output(UInt(xlen.W))
+  val dbgS3 = Output(UInt(xlen.W))
+  val dbgS5 = Output(UInt(xlen.W))
+  // The observed loop is confined to print()'s tiny console_tbuf flush
+  // loop (fw_payload.elf 0x13f4-0x1404): nputs(buf+s2,s3-s2); s2+=a0;
+  // loop while s2<s3. s3=x19 already reads 1; s2=x18 is the progress
+  // counter -- if it never advances despite nputs() returning normally,
+  // that's the exact mechanism of the infinite loop.
+  val dbgS2 = Output(UInt(xlen.W))
+  // nputs()'s actual return value (a0=x10) -- checking whether it's really
+  // 1 (as nputs's own disassembly implies) when print+0x388's `add
+  // s2,s2,a0` runs, to distinguish a data bug from a genuine Hutt
+  // call/return-value correctness bug.
+  val dbgA0 = Output(UInt(xlen.W))
+  // Chasing task #15's real-SDRAM-cosim hang -- verified NOT a boot/reset
+  // loop (that theory was retracted same day). Kept as reusable, low-risk
+  // infrastructure: latch every trap-taken event (all 6 sites: M/S timer, ecall, ebreak,
+  // illegal-instruction, page-fault) so the exact cause/target driving each
+  // restart can be read directly instead of inferred from a PC census.
+  val dbgTrapSeq    = Output(UInt(32.W))
+  val dbgTrapFromPc = Output(UInt(xlen.W))
+  val dbgTrapCause  = Output(UInt(xlen.W))
+  val dbgTrapToPriv = Output(UInt(2.W))
+  val dbgTrapMtvec  = Output(UInt(xlen.W))
+  val dbgTrapStvec  = Output(UInt(xlen.W))
+  val dbgTrapTargetPc = Output(UInt(xlen.W))
 }
 
 /** Hutt — a simple multi-cycle RV32I/RV64I CPU.
@@ -190,6 +232,33 @@ class Hutt(
 
   val regFile = Module(new HuttRegFile(xlen))
   val alu     = Module(new HuttAlu(xlen))
+
+  io.dbgS1 := regFile.io.dbgS1
+  io.dbgA5 := regFile.io.dbgA5
+  io.dbgS3 := regFile.io.dbgS3
+  io.dbgS5 := regFile.io.dbgS5
+  io.dbgS2 := regFile.io.dbgS2
+  io.dbgA0 := regFile.io.dbgA0
+
+  val dbgTrapSeqReg      = RegInit(0.U(32.W))
+  val dbgTrapFromPcReg   = RegInit(0.U(xlen.W))
+  val dbgTrapCauseReg    = RegInit(0.U(xlen.W))
+  val dbgTrapToPrivReg   = RegInit(0.U(2.W))
+  val dbgTrapTargetPcReg = RegInit(0.U(xlen.W))
+  io.dbgTrapSeq      := dbgTrapSeqReg
+  io.dbgTrapFromPc   := dbgTrapFromPcReg
+  io.dbgTrapCause    := dbgTrapCauseReg
+  io.dbgTrapToPriv   := dbgTrapToPrivReg
+  io.dbgTrapTargetPc := dbgTrapTargetPcReg
+  io.dbgTrapMtvec := mtvec
+  io.dbgTrapStvec := stvec
+  def dbgTrapLatch(fromPc: UInt, cause: UInt, toPriv: UInt, targetPc: UInt): Unit = {
+    dbgTrapSeqReg      := dbgTrapSeqReg + 1.U
+    dbgTrapFromPcReg   := fromPc
+    dbgTrapCauseReg    := cause
+    dbgTrapToPrivReg   := toPriv
+    dbgTrapTargetPcReg := targetPc
+  }
 
   val dbgPtwFillSeqReg   = RegInit(0.U(32.W))
   val dbgPtwFillVAReg    = RegInit(0.U(xlen.W))
@@ -518,6 +587,7 @@ class Hutt(
         pc        := mTrapPC
         privLevel := 3.U
         lrValid   := false.B
+        dbgTrapLatch(pc, Cat(true.B, 0.U((xlen - 4).W), 7.U(3.W)), 3.U, mTrapPC)
       }.elsewhen(sTimerPend) {
         if (HuttDebug.timerTrace) printf("[HUTT-TIMER] S-mode timer trap taken pc=0x%x priv=%d mie=0x%x mip=0x%x\n",
           pc, privLevel, mie, mip)
@@ -526,6 +596,7 @@ class Hutt(
         scause    := Cat(true.B, 0.U((xlen - 4).W), 5.U(3.W))
         stval     := 0.U(xlen.W)
         mstatus   := mstatusStrap
+        dbgTrapLatch(pc, Cat(true.B, 0.U((xlen - 4).W), 5.U(3.W)), 1.U, sTrapPC)
         pc        := sTrapPC
         privLevel := 1.U
         lrValid   := false.B
@@ -707,9 +778,11 @@ class Hutt(
           sepc := pc; scause := ecallCause; stval := 0.U(xlen.W)
           dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
           mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
+          dbgTrapLatch(pc, ecallCause, 1.U, sTrapPC)
         }.otherwise {
           mepc := pc; mcause := ecallCause; mtval := 0.U(xlen.W)
           mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
+          dbgTrapLatch(pc, ecallCause, 3.U, mTrapPC)
         }
         lrValid := false.B
         state := sFetchReq
@@ -719,9 +792,11 @@ class Hutt(
           sepc := pc; scause := 3.U(xlen.W); stval := pc
           dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
           mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
+          dbgTrapLatch(pc, 3.U(xlen.W), 1.U, sTrapPC)
         }.otherwise {
           mepc := pc; mcause := 3.U(xlen.W); mtval := pc
           mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
+          dbgTrapLatch(pc, 3.U(xlen.W), 3.U, mTrapPC)
         }
         lrValid := false.B
         state := sFetchReq
@@ -755,9 +830,11 @@ class Hutt(
             sepc := pc; scause := 2.U(xlen.W); stval := instr
             dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
             mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
+            dbgTrapLatch(pc, 2.U(xlen.W), 1.U, sTrapPC)
           }.otherwise {
             mepc := pc; mcause := 2.U(xlen.W); mtval := instr
             mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
+            dbgTrapLatch(pc, 2.U(xlen.W), 3.U, mTrapPC)
           }
           lrValid := false.B
           state := sFetchReq
@@ -973,9 +1050,11 @@ class Hutt(
               sepc := pc; scause := faultCause; stval := ptwVA
               dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
               mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
+              dbgTrapLatch(pc, faultCause, 1.U, sTrapPC)
             }.otherwise {
               mepc := pc; mcause := faultCause; mtval := ptwVA
               mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
+              dbgTrapLatch(pc, faultCause, 3.U, mTrapPC)
             }
             state := sFetchReq
           }
@@ -1125,6 +1204,40 @@ class Hutt(
   io.dbgX1WriteSeq := dbgX1WriteSeqReg
   io.dbgX1WritePc  := dbgX1WritePcReg
   io.dbgX1WriteVal := dbgX1WriteValReg
+
+  // Debug: same as the x1 tracer above, but for x18 (s2) -- chasing task #15's
+  // real-SDRAM-cosim hang, where s2 reads back 0 inside nputs() despite no
+  // instruction in its disassembly ever writing it. Catches the exact PC/value
+  // of whichever write actually reaches the regfile for x18.
+  val dbgX18WriteSeqReg = RegInit(0.U(32.W))
+  val dbgX18WritePcReg  = RegInit(0.U(xlen.W))
+  val dbgX18WriteValReg = RegInit(0.U(xlen.W))
+  when(regFile.io.wen && regFile.io.wAddr === 18.U) {
+    dbgX18WriteSeqReg := dbgX18WriteSeqReg + 1.U
+    dbgX18WritePcReg  := pc
+    dbgX18WriteValReg := regFile.io.wData
+  }
+  io.dbgX18WriteSeq := dbgX18WriteSeqReg
+  io.dbgX18WritePc  := dbgX18WritePcReg
+  io.dbgX18WriteVal := dbgX18WriteValReg
+
+  // Debug: raw, continuous (not latched) regfile write bus -- to see, cycle
+  // by cycle, whether `mv s2,a1` at nputs+0x2c ever asserts wen with
+  // wAddr=18 at all (decode/FSM never issuing the writeback) versus issuing
+  // it with the wrong wAddr (a decode bug) versus issuing it correctly but
+  // the regfile storage itself not retaining it (a HuttRegFile bug).
+  io.dbgRegWen   := regFile.io.wen
+  io.dbgRegWAddr := regFile.io.wAddr
+  io.dbgRegWData := regFile.io.wData
+
+  // Debug: raw FSM state + wbExecEn + rd, to pinpoint exactly which term of
+  // `wbExecEn` (or which FSM branch) is suppressing the writeback for one
+  // specific instruction (nputs+0x2c, `mv s2,a1`) while an adjacent,
+  // structurally-identical ADDI (nputs+0x28, `mv s1,a0`) writes back fine.
+  io.dbgState     := state.asUInt
+  io.dbgWbExecEn  := wbExecEn
+  io.dbgDRd       := d.rd
+  io.dbgInstr     := instr
   io.dbgSatp        := satp
   io.dbgPrivLevel   := privLevel
 }

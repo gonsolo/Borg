@@ -28,6 +28,13 @@ class MemoryControllerIO extends Bundle {
   val backend = new MemBackendIO
 
   val debug_state = Output(UInt(3.W))
+
+  // Debug (task #15): the two halfword-read capture registers, so a
+  // corrupted 32-bit instr/data word can be split back into which HALF
+  // (backend transaction) actually carried the bad bits vs. the raw dq_in
+  // the backend/controller sampled off the chip.
+  val debug_hw0 = Output(UInt(16.W))
+  val debug_hw1 = Output(UInt(16.W))
 }
 
 /** SoC-level memory controller — backend-agnostic arbiter.
@@ -171,6 +178,8 @@ class MemoryController extends Module {
   io.gpuMem.waccept := burst && io.backend.accept
 
   io.debug_state := state
+  io.debug_hw0   := hw0Reg
+  io.debug_hw1   := hw1Reg
 
   // ── FSM ────────────────────────────────────────────────────────────────────
   switch(state) {

@@ -41,6 +41,7 @@ trait MinimalSoCLogic { self: RawModule =>
     Module(new peri.uart.UartTx(13))
   }
   lazy val clint = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Clint) }
+  lazy val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23)) }
 
   /** GPU port tied off — no scanout / no Borg.  Overridable by the top for
     * HDMI bring-up (where scanout owns the gpuMem port).
@@ -56,7 +57,6 @@ trait MinimalSoCLogic { self: RawModule =>
   def wireSoC(): UInt = {
     import SoCDecode._
 
-    val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23)) }
     iCache.io.cpu <> cpu.io.instr
     iCache.io.mem <> mem.io.instr
 

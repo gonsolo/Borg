@@ -15,6 +15,31 @@ class HuttRegFileIO(val xlen: Int = 32) extends Bundle {
   val wen   = Input(Bool())
   val wAddr = Input(UInt(5.W))
   val wData = Input(UInt(xlen.W))
+
+  // Debug-only: chasing task #15's real-SDRAM-cosim hang, now traced to
+  // OpenSBI's nputs() looping forever -- expose the 4 GPRs its loop uses
+  // (s1=x9 current ptr, a5=x15 device-struct/putc-fn ptr, s3=x19
+  // device-struct base, s5=x21 end ptr) so a corrupted `len` (s5-s1) can be
+  // read directly instead of inferred from PC census. Only wired up from
+  // debug-only sim harnesses; never present in a synthesized ASIC/FPGA build.
+  val dbgS1 = Output(UInt(xlen.W))
+  val dbgA5 = Output(UInt(xlen.W))
+  val dbgS3 = Output(UInt(xlen.W))
+  val dbgS5 = Output(UInt(xlen.W))
+  // The observed loop never actually visits print()'s literal-character
+  // walk (dbgS10=x26 read back as 0, confirming it's untouched) -- it's
+  // confined to print()'s tiny console_tbuf flush loop (fw_payload.elf
+  // 0x13f4-0x1404): `nputs(buf+s2,s3-s2); s2+=returned_count; loop while
+  // s2<s3`. s3=x19 (already probed) reads 1; s2=x18 is the progress
+  // counter incremented by nputs()'s return value -- if it's not actually
+  // advancing, that alone explains the infinite loop.
+  val dbgS2 = Output(UInt(xlen.W))
+  // a0=x10 -- nputs()'s actual return value register, read continuously to
+  // check whether it genuinely holds 1 (as nputs's own disassembly implies
+  // it must) right when print+0x388's `add s2,s2,a0` executes, or whether
+  // something clobbers/never-sets it -- distinguishes a software-visible
+  // data bug from a genuine Hutt call/return-value correctness bug.
+  val dbgA0 = Output(UInt(xlen.W))
 }
 
 /** 32-entry x XLEN-bit RISC-V integer register file (RV32I: xlen=32, RV64I: 64).
@@ -43,6 +68,12 @@ class HuttRegFile(val xlen: Int = 32) extends Module {
 
   io.rs1Data := Mux(io.rs1Addr === 0.U, 0.U, readPort(io.rs1Addr))
   io.rs2Data := Mux(io.rs2Addr === 0.U, 0.U, readPort(io.rs2Addr))
+  io.dbgS1 := readPort(9.U)
+  io.dbgA5 := readPort(15.U)
+  io.dbgS3 := readPort(19.U)
+  io.dbgS5 := readPort(21.U)
+  io.dbgS2 := readPort(18.U)
+  io.dbgA0 := readPort(10.U)
 
   when(io.wen && io.wAddr =/= 0.U) {
     when(io.wAddr(4)) {
