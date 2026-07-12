@@ -38,6 +38,29 @@
         // ecall the earlycon uses -- name it explicitly instead of the
         // nonexistent ttyS0.
         bootargs = "earlycon=sbi console=hvc0";
+
+        // Task #15 (2026-07-11): without a hardware RNG (no CONFIG_HW_RANDOM,
+        // no RISC-V Zkr `seed` CSR support) the kernel's CSPRNG can only be
+        // seeded via interrupt-timing jitter, which is either completely
+        // absent (bit-exact deterministic Verilator sim) or scarce/slow (real
+        // ULX3S hardware, whose FPGA PLL clock is unusually clean/low-jitter).
+        // Confirmed via live probe: crng_init sticks at 0 forever, and
+        // anything blocking on wait_for_random_bytes()/get_random_bytes_wait()
+        // (e.g. ASLR/stack-canary setup around the first execve()) then waits
+        // indefinitely -- this is Bug A. drivers/of/fdt.c reads this rng-seed
+        // property and calls add_bootloader_randomness(), which credits it
+        // immediately since the kernel's `trust_bootloader` early_param
+        // defaults to true (drivers/char/random.c) -- no defconfig change
+        // needed. 32 bytes (256 bits) exactly meets POOL_READY_BITS, so this
+        // alone should make crng_init ready right at boot.
+        //
+        // Regenerated fresh at each firmware build from the host's
+        // /dev/urandom (see `make -C software opensbi`); NOT a persistent
+        // per-boot seed (this platform has no persistent storage to save an
+        // entropy pool across boots), so randomness is only as fresh as the
+        // last firmware build -- acceptable for a GPU demo/bring-up board,
+        // not a production security posture.
+        rng-seed = [aa 50 b4 c3 9d 61 b2 1a 43 5f 88 85 6a 2d 75 74 c2 9e 32 df b5 a5 1b 9d 4a e2 46 2a b3 1e 76 aa];
     };
 
     cpus {
