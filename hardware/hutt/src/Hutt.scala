@@ -99,6 +99,9 @@ class HuttIO(val instrAddrWidth: Int, val dataAddrWidth: Int, val xlen: Int = 32
   // s2,s2,a0` runs, to distinguish a data bug from a genuine Hutt
   // call/return-value correctness bug.
   val dbgA0 = Output(UInt(xlen.W))
+  // ra=x1 -- see HuttRegFile.scala's dbgRa comment (task #15 Bug A
+  // scheduler-stall investigation).
+  val dbgRa = Output(UInt(xlen.W))
   // Chasing task #15's real-SDRAM-cosim hang -- verified NOT a boot/reset
   // loop (that theory was retracted same day). Kept as reusable, low-risk
   // infrastructure: latch every trap-taken event (all 6 sites: M/S timer, ecall, ebreak,
@@ -239,6 +242,7 @@ class Hutt(
   io.dbgS5 := regFile.io.dbgS5
   io.dbgS2 := regFile.io.dbgS2
   io.dbgA0 := regFile.io.dbgA0
+  io.dbgRa := regFile.io.dbgRa
 
   val dbgTrapSeqReg      = RegInit(0.U(32.W))
   val dbgTrapFromPcReg   = RegInit(0.U(xlen.W))

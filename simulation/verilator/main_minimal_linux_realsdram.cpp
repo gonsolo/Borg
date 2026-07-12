@@ -185,15 +185,21 @@ int main(int argc, char** argv) {
         if (top->dbg_trap_seq != last_trap_seq) {
             fprintf(stderr,
                 "[TRAP seq=%u cyc %llu] from_pc=0x%llx cause=0x%llx to_priv=%d target_pc=0x%llx "
-                "mtvec=0x%llx stvec=0x%llx\n",
+                "mtvec=0x%llx stvec=0x%llx ra=0x%llx\n",
                 top->dbg_trap_seq, (unsigned long long)cyc,
                 (unsigned long long)top->dbg_trap_from_pc, (unsigned long long)top->dbg_trap_cause,
                 top->dbg_trap_to_priv, (unsigned long long)top->dbg_trap_target_pc,
-                (unsigned long long)top->dbg_trap_mtvec, (unsigned long long)top->dbg_trap_stvec);
+                (unsigned long long)top->dbg_trap_mtvec, (unsigned long long)top->dbg_trap_stvec,
+                (unsigned long long)top->dbg_ra);
             last_trap_seq = top->dbg_trap_seq;
         }
 
-        if (top->dbg_x18_write_seq != last_x18_write_seq) {
+        // Superseded by the fetch-corruption finding below (x18 was never
+        // actually the bug, just a decode artifact of the corrupted
+        // instruction) -- disabled for long unattended runs, since it fires
+        // unconditionally on every x18 write with no rate limit (thousands
+        // of events within the first 20M cycles alone).
+        if (getenv("SIM_X18_TRACE") && top->dbg_x18_write_seq != last_x18_write_seq) {
             fprintf(stderr,
                 "[X18-WRITE seq=%u cyc %llu] pc=0x%llx val=0x%llx\n",
                 top->dbg_x18_write_seq, (unsigned long long)cyc,
@@ -258,7 +264,13 @@ int main(int argc, char** argv) {
         static uint32_t last_ic_fill_seq = 0;
         if (top->dbg_ic_fill_seq != last_ic_fill_seq) {
             last_ic_fill_seq = top->dbg_ic_fill_seq;
-            if ((top->dbg_ic_fill_word_addr & 0x1FFu) == 0x038u) {
+            // Matches ANY address aliasing to this cache-line index (not just
+            // the one specific corrupted address from the earlier
+            // investigation), so this fires very frequently across a large
+            // kernel's code footprint -- gated off by default for long
+            // unattended runs to avoid runaway log volume (~100M+ events
+            // extrapolated over a 20B-cycle run).
+            if (getenv("SIM_ICACHE_TRACE") && (top->dbg_ic_fill_word_addr & 0x1FFu) == 0x038u) {
                 fprintf(stderr,
                     "[ICACHE-FILL seq=%u cyc %llu] word_addr=0x%x (byte=0x%x) data=0x%08x\n",
                     top->dbg_ic_fill_seq, (unsigned long long)cyc,
@@ -330,6 +342,203 @@ int main(int argc, char** argv) {
         // (dbg_mem_state/be_state/ctrl_state/ctrl_rdy plus the instr
         // req/resp handshake bits) to see exactly what those layers were
         // doing, cycle by cycle, through this exact window.
+        // Task #15 (2026-07-11): the real-SDRAM sim independently reproduces
+        // the real-hardware hang using the SAME plain firmware, first
+        // observed stalled from cyc ~898,666,662 onward (right after "printk:
+        // legacy bootconsole [sbi0] disabled" -- matches real hardware's
+        // exact stall line). Checkpointed at cyc 910,000,000 (well inside the
+        // stall). This traces the literal PC sequence executed during the
+        // stall to see whether it's a tight fixed-PC spin (software
+        // wait-condition bug) or varied work each attempt (points toward a
+        // scheduler/RCU/interrupt-delivery stall instead).
+        static uint64_t last_pc_trace = 0xffffffffffffffffULL;
+        if (cyc >= 910'000'000ULL && cyc <= 910'050'000ULL && top->dbg_pc != last_pc_trace) {
+            fprintf(stderr, "[PCTRACE cyc %llu] pc=0x%llx instr=0x%08x wen=%d waddr=%llu wdata=0x%llx\n",
+                    (unsigned long long)cyc, (unsigned long long)top->dbg_pc,
+                    (unsigned int)top->dbg_instr, top->dbg_reg_wen,
+                    (unsigned long long)top->dbg_reg_waddr, (unsigned long long)top->dbg_reg_wdata);
+            last_pc_trace = top->dbg_pc;
+        }
+
+        // Task #15 (2026-07-11, follow-up): the PC trace above showed only
+        // normal timer-tick housekeeping (timekeeping_update_from_shadow,
+        // task_tick_fair/update_curr) during the stall -- no lockup, no spin
+        // loop. Widened window (910M-916M, ~6M cycles/~2.4s hw-equivalent),
+        // watching entry PCs of the actual scheduling-decision functions to
+        // see whether __schedule/pick_next_task_fair are ever invoked at all
+        // during the stall (vs. only the tick's accounting running, which
+        // would point at a wake-up/need_resched bug rather than a "keeps
+        // rescheduling idle" bug).
+        static uint32_t sched_entry_hits = 0;
+        static uint64_t last_sched_pc = 0xffffffffffffffffULL;
+        if (cyc <= 916'000'000ULL && top->dbg_pc != last_sched_pc) {
+            uint64_t pc = top->dbg_pc;
+            const char* fn = nullptr;
+            if (pc == 0xffffffff802d5ac8ULL) fn = "__schedule";
+            else if (pc == 0xffffffff80047a4cULL) fn = "pick_next_task_fair";
+            else if (pc == 0xffffffff8003dbecULL) fn = "try_to_wake_up";
+            else if (pc == 0xffffffff8003df74ULL) fn = "wake_up_process";
+            else if (pc == 0xffffffff802d62e4ULL) fn = "schedule_idle";
+            else if (pc == 0xffffffff8004bb0cULL) fn = "do_idle";
+            else if (pc == 0xffffffff8003bfc8ULL) fn = "resched_curr";
+            else if (pc == 0xffffffff8003c048ULL) fn = "resched_cpu";
+            else if (pc == 0xffffffff8003c008ULL) fn = "resched_curr_lazy";
+            else if (pc == 0xffffffff8003c474ULL) fn = "wakeup_preempt";
+            else if (pc == 0xffffffff800481e0ULL) fn = "wakeup_preempt_idle";
+            else if (pc == 0xffffffff802d6284ULL) fn = "__cond_resched";
+            else if (pc == 0xffffffff802d60f0ULL) fn = "schedule";
+            else if (pc == 0xffffffff80270244ULL) fn = "khvcd";
+            else if (pc == 0xffffffff8026ff50ULL) fn = "__hvc_poll";
+            if (fn) {
+                fprintf(stderr, "[SCHED-ENTRY hit=%u cyc %llu] %s a0=0x%llx\n",
+                        sched_entry_hits, (unsigned long long)cyc, fn,
+                        (unsigned long long)top->dbg_a0);
+                sched_entry_hits++;
+            }
+            last_sched_pc = pc;
+        }
+
+        // Task #15 (2026-07-11, follow-up #2): __schedule/try_to_wake_up/
+        // wake_up_process never fire cyc 910M-916M (see SCHED-ENTRY above).
+        // Since the checkpoint starts AT 910M (already mid-stall), it can't
+        // show whether the wake-up call for pid 22 (or synchronize_srcu's
+        // grace-period completion) happened BEFORE the stall began -- this
+        // probe runs unconditionally across the WHOLE run (cheap: these are
+        // rare one-shot events, not per-tick) from cycle 0 up to 916M to
+        // find out whether wake_up_new_task/complete/complete_all/
+        // swake_up_one are ever called at all before the stall, and if so,
+        // exactly when (their last-seen cycle vs. the stall's cyc ~898.6M
+        // onset pins down whether the wake-up call is missing entirely or
+        // happens but has no effect).
+        static uint32_t wake_entry_hits = 0;
+        static uint64_t last_wake_pc = 0xffffffffffffffffULL;
+        if (cyc <= 916'000'000ULL && top->dbg_pc != last_wake_pc) {
+            uint64_t pc = top->dbg_pc;
+            const char* fn = nullptr;
+            if (pc == 0xffffffff8003e490ULL) fn = "wake_up_new_task";
+            else if (pc == 0xffffffff80053b04ULL) fn = "complete";
+            else if (pc == 0xffffffff80053b8cULL) fn = "complete_all";
+            else if (pc == 0xffffffff80054184ULL) fn = "swake_up_one";
+            if (fn) {
+                fprintf(stderr, "[WAKE-ENTRY hit=%u cyc %llu] %s a0=0x%llx\n",
+                        wake_entry_hits, (unsigned long long)cyc, fn,
+                        (unsigned long long)top->dbg_a0);
+                wake_entry_hits++;
+            }
+            last_wake_pc = pc;
+        }
+
+        // Task #15 (2026-07-11, follow-up #3, most targeted probe): do_idle's
+        // OWN entry PC (0x...bb0c) is a one-time hit (function entered once
+        // at boot, loops internally) so it never refires -- the REAL
+        // repeated check happens inside the loop body at 0x...bb30 ("ld
+        // a5,0(tp); andi a5,a5,16; bnez a5,...bb98" -- testing bit 4 (value
+        // 16) of thread_info->flags, loaded via tp at offset 0, branching to
+        // schedule_idle if set). If TIF_NEED_RESCHED truly is being set
+        // (per resched_curr_lazy's continuous firing + the is_idle_task
+        // promotion-to-urgent logic in __resched_curr), this check MUST see
+        // it and branch away -- if it doesn't, this is the exact broken
+        // link. Watch entry to this specific loop-check PC and read x15
+        // (a5) as the VERY NEXT regfile write after it, to see the actual
+        // loaded+masked flags value live during the stall.
+        static uint32_t idle_check_hits = 0;
+        if (cyc <= 916'000'000ULL && top->dbg_pc >= 0xffffffff8004bb0cULL &&
+            top->dbg_pc <= 0xffffffff8004bb9cULL &&
+            top->dbg_reg_wen && top->dbg_reg_waddr == 15) {
+            fprintf(stderr, "[IDLE-CHECK hit=%u cyc %llu] pc=0x%llx a5=0x%llx\n",
+                    idle_check_hits, (unsigned long long)cyc,
+                    (unsigned long long)top->dbg_pc,
+                    (unsigned long long)top->dbg_reg_wdata);
+            idle_check_hits++;
+        }
+
+        // Task #15 (2026-07-11, follow-up #4): the 910M-3.5B extension
+        // showed the system permanently cycling among just 4 kernel
+        // threads (swapper/0=pid1, kworker/u4:0, kworker/u4:1,
+        // ksoftirqd/0) with ZERO further kernel_clone() calls across 2.59B
+        // cycles, and the two dominant interrupted-PCs are
+        // finish_task_switch (scheduler thrashing) and crng_make_state
+        // (random.c). crng_make_state's disassembly reads the global
+        // `crng_init` state variable (0xffffffff80541c44) at
+        // 0x...79234 (`lw a2,...<crng_init>`) and branches on it -- if
+        // crng_init never reaches 2 ("ready"), anything blocked on
+        // wait_for_random_bytes()/get_random_bytes_wait() could stall
+        // indefinitely (a well-known real-world Linux boot-hang class on
+        // platforms lacking a hardware RNG, worsened by a deterministic
+        // cycle-accurate simulator's lack of real interrupt-timing
+        // jitter to credit as entropy). Watch the regfile writeback of
+        // that exact `lw a2,<crng_init>` to see its live value over time.
+        static uint32_t crng_init_hits = 0;
+        static uint64_t last_crng_init_val = 0xffffffffffffffffULL;
+        if (top->dbg_pc >= 0xffffffff80279220ULL && top->dbg_pc <= 0xffffffff80279260ULL &&
+            top->dbg_reg_wen && top->dbg_reg_waddr == 12) {
+            uint64_t val = (unsigned long long)top->dbg_reg_wdata;
+            if (val != last_crng_init_val || (crng_init_hits % 50) == 0) {
+                fprintf(stderr, "[CRNG-INIT hit=%u cyc %llu] pc=0x%llx crng_init_or_a2=%llu\n",
+                        crng_init_hits, (unsigned long long)cyc,
+                        (unsigned long long)top->dbg_pc, (unsigned long long)val);
+            }
+            last_crng_init_val = val;
+            crng_init_hits++;
+        }
+
+        // Task #15 (2026-07-12): now that the rng-seed fix gets boot past
+        // the crng_init stall, T1 ("ls /bin | cat") itself hangs -- matching
+        // /init's own comment that T1 was written to bisect task #15's
+        // documented real-hardware-only race in vfs_statx's path-walk
+        // (filename_lookup). Watch entry into both functions (unconditional,
+        // whole run) to see whether the stall is BEFORE vfs_statx is ever
+        // reached (exec/pipe/fork setup) or WITHIN the path walk itself.
+        static uint32_t vfs_statx_hits = 0;
+        static uint32_t filename_lookup_hits = 0;
+        if (top->dbg_pc == 0xffffffff800f9704ULL) {
+            fprintf(stderr, "[VFS-STATX hit=%u cyc %llu]\n", vfs_statx_hits, (unsigned long long)cyc);
+            vfs_statx_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff80104e84ULL) {
+            fprintf(stderr, "[FILENAME-LOOKUP hit=%u cyc %llu]\n", filename_lookup_hits, (unsigned long long)cyc);
+            filename_lookup_hits++;
+        }
+        // Follow-up: vfs_statx is called exactly 3x (cyc ~4569M/4870M/4876M)
+        // then never again through 6B cycles -- ls never gets to actually
+        // list /bin's ~87 entries. Narrow further: is the stall before
+        // getdents64/iterate_dir/dcache_readdir are ever reached, or within?
+        static uint32_t getdents_hits = 0, iterdir_hits = 0, dcachedir_hits = 0;
+        if (top->dbg_pc == 0xffffffff8010a454ULL) {
+            fprintf(stderr, "[GETDENTS64 hit=%u cyc %llu]\n", getdents_hits, (unsigned long long)cyc);
+            getdents_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff80109ce0ULL) {
+            fprintf(stderr, "[ITERATE-DIR hit=%u cyc %llu]\n", iterdir_hits, (unsigned long long)cyc);
+            iterdir_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff80125e64ULL) {
+            fprintf(stderr, "[DCACHE-READDIR hit=%u cyc %llu]\n", dcachedir_hits, (unsigned long long)cyc);
+            dcachedir_hits++;
+        }
+        // Follow-up 2: getdents64/iterate_dir/dcache_readdir are NEVER
+        // reached (0 hits through 7B cycles) even though vfs_statx fires
+        // exactly 3x then stops -- so the stall is upstream of directory
+        // reading. Check whether the shell ever forks+execs ls and cat, and
+        // sets up their pipe, at all.
+        static uint32_t clone_hits = 0, execve_hits = 0, pipe_hits = 0, wait_hits = 0;
+        if (top->dbg_pc == 0xffffffff800140e0ULL) {
+            fprintf(stderr, "[KERNEL-CLONE hit=%u cyc %llu]\n", clone_hits, (unsigned long long)cyc);
+            clone_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff800fa650ULL) {
+            fprintf(stderr, "[BPRM-EXECVE hit=%u cyc %llu]\n", execve_hits, (unsigned long long)cyc);
+            execve_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff800fe5d0ULL) {
+            fprintf(stderr, "[DO-PIPE2 hit=%u cyc %llu]\n", pipe_hits, (unsigned long long)cyc);
+            pipe_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff80017bb0ULL) {
+            fprintf(stderr, "[DO-WAIT hit=%u cyc %llu]\n", wait_hits, (unsigned long long)cyc);
+            wait_hits++;
+        }
+
         if (cyc >= 159'978'440ULL && cyc <= 159'978'500ULL) {
             fprintf(stderr,
                 "[REGW cyc %llu] pc=0x%llx wen=%d waddr=%llu wdata=0x%llx state=%d wbExecEn=%d d.rd=%llu instr=0x%08x | "

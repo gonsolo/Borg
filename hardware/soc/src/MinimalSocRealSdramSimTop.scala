@@ -142,6 +142,10 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
   val dbg_a0 = IO(Output(UInt(64.W)))
   dbg_a0 := cpu.io.dbgA0
 
+  // ra=x1 (see Hutt.scala's dbgRa, task #15 Bug A scheduler-stall).
+  val dbg_ra = IO(Output(UInt(64.W)))
+  dbg_ra := cpu.io.dbgRa
+
   // Trap-event tracer (see Hutt.scala's dbgTrap*) -- kept as reusable
   // infrastructure (the "boot/reset loop" theory it was added to test has
   // since been retracted, but it's cheap, event-counted, and useful for any
