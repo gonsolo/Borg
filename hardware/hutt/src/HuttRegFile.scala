@@ -40,6 +40,11 @@ class HuttRegFileIO(val xlen: Int = 32) extends Bundle {
   // something clobbers/never-sets it -- distinguishes a software-visible
   // data bug from a genuine Hutt call/return-value correctness bug.
   val dbgA0 = Output(UInt(xlen.W))
+  // ra=x1 -- chasing task #15's Bug A scheduler-stall: __sbi_ecall's own
+  // trap from_pc is always its own address (the ecall instruction), never
+  // the caller's; ra at the exact ecall-trapping cycle identifies who's
+  // actually making the repeated SBI calls seen during the stall.
+  val dbgRa = Output(UInt(xlen.W))
 }
 
 /** 32-entry x XLEN-bit RISC-V integer register file (RV32I: xlen=32, RV64I: 64).
@@ -74,6 +79,7 @@ class HuttRegFile(val xlen: Int = 32) extends Module {
   io.dbgS5 := readPort(21.U)
   io.dbgS2 := readPort(18.U)
   io.dbgA0 := readPort(10.U)
+  io.dbgRa := readPort(1.U)
 
   when(io.wen && io.wAddr =/= 0.U) {
     when(io.wAddr(4)) {

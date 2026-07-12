@@ -14,16 +14,15 @@ echo ""
 echo "Borg/Hutt Linux initramfs — welcome."
 echo ""
 
-# Bisecting a real-hardware-only hang. Round 1 found: plain `ls /bin`
-# (no args) hangs with ZERO output -- not even one entry -- unlike
-# `ls -la /`, which prints "total 4" (implying a full readdir already
-# succeeded) before hanging. Plain `ls` queries terminal width via
-# ioctl(TIOCGWINSZ) before printing anything (for column layout); `-la`
-# mode doesn't need it (one entry per line). ash's own earlier "can't
-# access tty; job control turned off" message already hints /dev/hvc0's
-# tty-ioctl support is incomplete. Testing whether THAT ioctl is the
-# actual hang point: piping ls's stdout makes isatty() return false,
-# skipping the width query/column-layout path entirely.
+# Bisecting a real-hardware-only hang (task #15, Bug A). Deep printk
+# bisection localized the race to vfs_statx's path-walk, triggerable on
+# essentially any qualifying path lookup. ftrace was tried and abandoned
+# as a debugging tool here (5 straight attempts across 2 sessions all
+# hung during ftrace's OWN setup; the one attempt that reached the
+# function_graph tracer switch caused a harder, whole-system freeze --
+# likely a separate ftrace/icache-coherency bug, not Bug A itself). This
+# plain version carries no ftrace/printk instrumentation at all, for
+# statistical repeat-boot characterization of the real hang rate.
 echo "=== T1: ls /bin | cat (piped -- stdout not a tty, skips width ioctl) ==="
 ls /bin | cat
 echo "=== T1 end ==="
