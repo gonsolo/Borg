@@ -1345,6 +1345,27 @@ attempt started on branch `feat/linux-boot-attempt` (worktree
 `Borg-linux`), which surfaced (and fixed) several from-scratch build bugs
 in the existing OpenSBI/Linux scaffolding that nobody had hit yet.
 
+**2026-07-13 update — Linux boots.** `feat/linux-boot-attempt` reached an
+interactive shell prompt on real ULX3S hardware and in the Verilator
+simulator (cross-validated at matching cycle counts), closing out the
+original goal of Step 44 without ever needing the RV32IMA/Sv32 path Steps
+40–43 below describe (RV64IA + Sv39, already on `main`, turned out to be
+sufficient). Root cause of the boot hang: no hardware RNG on this
+platform means the kernel's CSPRNG had no entropy source and stalled
+indefinitely; fixed by seeding it from a device-tree `rng-seed` property
+(`software/linux/borg.dts`), which the kernel already trusts by default —
+no kernel config change needed. See `docs/A3_hutt_cpu.md` for the fix
+mechanism and a related performance characteristic (`execve()` is slow on
+this platform — VMA/page-table management under real SDRAM latency, not a
+bug — while steady-state syscalls like `getpid()`/`mmap()` are cheap
+enough for interactive use). This directly unblocks the "(4, later) a real
+DRM/KMS kernel driver + Linux on the upgraded Hutt for on-device vkcube"
+item noted in Phase 5's strategic reorder below — the Linux-capable SoC
+build used for this boot is currently Hutt-only (no Borg/HDMI, an
+isolation build for bring-up); merging Borg + HDMI into the same
+Linux-capable SoC config is the next concrete step toward that driver
+work, not yet started.
+
 ### Step 40: M Extension (Integer Multiply/Divide)
 
 Add dedicated integer multiplier for MUL/MULH/DIV/REM.

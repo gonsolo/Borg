@@ -66,7 +66,9 @@ It features an asynchronous 2-entry **Command FIFO** so the CPU can pack and que
 
 ### Hutt CPU
 
-A clean multi-cycle **RV32I/RV64I** RISC-V core written in Chisel with fully **Decoupled** instruction and data buses, parameterized by XLEN. The ASIC/Tiny Tapeout target uses RV32I; the ULX3S FPGA target runs RV64IMAC with M-mode/S-mode privilege levels and an Sv39 MMU, laying groundwork for Linux. Hutt integrates seamlessly with the `MemoryController` (arbitrating QSPI flash and SDRAM) and routes MMIO via `SoCDecode` to inline SoC registers, the user peripheral router, and the Borg peripheral bus. Verified on ULX3S hardware.
+A clean multi-cycle **RV32I/RV64I** RISC-V core written in Chisel with fully **Decoupled** instruction and data buses, parameterized by XLEN. The ASIC/Tiny Tapeout target uses RV32I; the ULX3S FPGA target runs RV64IMAC with M-mode/S-mode privilege levels and an Sv39 MMU. Hutt integrates seamlessly with the `MemoryController` (arbitrating QSPI flash and SDRAM) and routes MMIO via `SoCDecode` to inline SoC registers, the user peripheral router, and the Borg peripheral bus. Verified on ULX3S hardware.
+
+**Linux boots on Hutt.** OpenSBI + a mainline Linux kernel (device-tree only, no config patches) boot to an interactive shell on real ULX3S hardware and in the cycle-accurate Verilator simulator, cross-validated at matching cycle counts. This unblocks the path to a native, on-device Linux DRM/KMS kernel driver for Borg (see [The Hutt CPU](docs/A3_hutt_cpu.md) and the [roadmap](docs/A0_roadmap.md#phase-4-linux-capable-cpu)).
 
 ## Prerequisites
 
@@ -177,8 +179,10 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | Hardware FP16 reciprocal (FRCP) | ✅ Done |
 | Cycle-accurate C++ simulation (Arcilator & Verilator) | ✅ Done |
 | Interactive UI Viewer (zero-copy Pygame) | ✅ Done |
+| Linux boot on Hutt (RV64 + Sv39 MMU, ULX3S + Verilator) | ✅ Done |
 | Test manufactured chip | ⏳ Pending |
 | Vulkan driver (borgvk) | 🚧 In progress |
+| Native Linux DRM/KMS kernel driver for Borg | ⏳ Pending |
 
 ## Software Bill of Materials
 

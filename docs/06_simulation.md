@@ -52,6 +52,22 @@ To maintain 100% parity with the FPGA, the simulators:
 2. **UART Logic**: Capture and decode UART output from the Hutt CPU for console logging.
 3. **BRAM Initialization**: Manually initialize internal hardware BRAMs (like coordinate LUTs) from `.hex` files, mirroring the `$readmemh` behavior of FPGA synthesis tools.
 
+## Linux Boot Harness
+
+A separate, standalone Verilator harness
+(`simulation/verilator/main_minimal_linux_realsdram.cpp`, target
+`MinimalSocRealSdramSimTop` — Hutt + CLINT only, no Borg/HDMI) boots
+OpenSBI + Linux against the real (not idealized) SdramBackend/
+SdramController/SdramChipModel JEDEC co-sim, for hardware-faithful
+Linux bring-up debugging. It supports checkpointing
+(`--save-at CYCLE --save-path PATH` / `--load PATH --start-cycle CYCLE`)
+so a multi-billion-cycle boot doesn't need to be re-simulated from cycle
+zero on every run, plus a family of harness-only debug probes (register
+writeback tracing, task_struct field reads via a debug memory backdoor,
+per-syscall entry tracing) that don't require a Chisel rebuild to add or
+change. This is what found and confirmed the CSPRNG entropy-seeding fix
+described in `docs/A3_hutt_cpu.md`.
+
 ## Debugging
 
 The simulation generates several artifacts for debugging:
