@@ -146,6 +146,12 @@ class MinimalSocRealSdramSimTop(val CLOCK_MHZ: Int) extends RawModule with Minim
   val dbg_ra = IO(Output(UInt(64.W)))
   dbg_ra := cpu.io.dbgRa
 
+  // Continuous privilege level (0=U,1=S,3=M) -- distinguishes real U-mode
+  // (userspace) execution from M-mode OpenSBI trap-vector code, both of
+  // which can show low dbg_pc values (task #15 post-fork stall probing).
+  val dbg_priv = IO(Output(UInt(2.W)))
+  dbg_priv := cpu.io.dbgPrivLevel
+
   // Trap-event tracer (see Hutt.scala's dbgTrap*) -- kept as reusable
   // infrastructure (the "boot/reset loop" theory it was added to test has
   // since been retracted, but it's cheap, event-counted, and useful for any

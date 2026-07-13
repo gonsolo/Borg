@@ -30,4 +30,15 @@ echo "=== T2: ls /bin (direct to console -- the known hang point, for direct com
 ls /bin
 echo "=== T2 end ==="
 
+# Task #15 follow-up: now that boot completes (Bug A fixed) and T1/T2's
+# slowness is understood to be execve()'s own address-space-teardown cost
+# (not a hang), check whether STEADY-STATE syscalls on an already-running
+# process (getpid, mmap/munmap -- shaped like what a DRM ioctl/GEM-mmap
+# workload would look like) are similarly slow, or whether execve()'s cost
+# is a one-time outlier. This directly informs whether a native Linux DRM
+# driver on this platform is viable before investing in writing one.
+echo "=== T3: /bin/bench (steady-state getpid/mmap syscall cost, not execve) ==="
+/bin/bench
+echo "=== T3 end ==="
+
 exec /bin/sh

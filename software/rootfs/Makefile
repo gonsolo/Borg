@@ -226,6 +226,16 @@ $(BB_STRIPPED): $(BB_SRC)/.config $(WRAPPER)
 	$(MAKE) -C $(BB_SRC) CC=$(WRAPPER) STRIP=riscv64-none-elf-strip -j$$(nproc) busybox
 
 # ---------------------------------------------------------------------------
+# bench — steady-state syscall-latency sanity check (task #15 follow-up),
+# run by /init as T3. Static, same wrapper/ISA as busybox.
+# ---------------------------------------------------------------------------
+BENCH := $(ROOTFS)/bin/bench
+
+$(BENCH): bench.c $(WRAPPER)
+	mkdir -p $(ROOTFS)/bin
+	$(WRAPPER) $(ARCH_FLAGS) -static -O2 -o $@ bench.c
+
+# ---------------------------------------------------------------------------
 # rootfs — busybox's OWN install mechanism (applets/install.sh --symlinks)
 # produces correctly RELATIVE symlinks (bin/foo -> busybox, sbin/foo ->
 # ../bin/busybox, etc.) — do NOT hand-roll this with a shell loop again:
@@ -237,7 +247,7 @@ $(BB_STRIPPED): $(BB_SRC)/.config $(WRAPPER)
 # for why (kernel_init() can't open an initial console on this platform, so
 # PID 1 inherits unusable stdio without this).
 # ---------------------------------------------------------------------------
-rootfs: $(BB_STRIPPED)
+rootfs: $(BB_STRIPPED) $(BENCH)
 	mkdir -p $(ROOTFS)
 	$(MAKE) -C $(BB_SRC) CC=$(WRAPPER) CONFIG_PREFIX=$(ROOTFS) install
 	mkdir -p $(ROOTFS)/proc $(ROOTFS)/sys $(ROOTFS)/dev $(ROOTFS)/tmp \

@@ -140,6 +140,68 @@ int main(int argc, char** argv) {
         top->rst_n = 1;
     }
 
+    // Task #15 follow-up: read a task_struct's scheduling-entity fields
+    // directly out of SDRAM via the debug backdoor, to test the EEVDF-
+    // eligibility hypothesis for the post-fork/pre-execve slow path.
+    // Offsets from `pahole -C task_struct/sched_entity` on a debug-info
+    // build of this exact kernel (6.18.26, Sv39, RV64): __state=72,
+    // se=192, se.deadline=40 (task_struct+232), se.vruntime=120
+    // (task_struct+312), se.vlag=128 (task_struct+320), comm=1496.
+    // PAGE_OFFSET (Sv39, arch/riscv/include/asm/page.h) = 0xffffffd600000000;
+    // task_struct is SLUB-allocated so it's direct-mapped: phys = virt - PAGE_OFFSET.
+    auto readMemBytes = [&](uint64_t physAddr, uint8_t* buf, int len) {
+        for (int i = 0; i < len; i += 2) {
+            uint32_t wordAddr = (uint32_t)((physAddr + i) >> 1) & 0xFFFFFF;
+            top->dbg_raddr = wordAddr;
+            top->eval();
+            uint16_t d = top->dbg_rdata;
+            buf[i] = d & 0xFF;
+            if (i + 1 < len) buf[i + 1] = (d >> 8) & 0xFF;
+        }
+    };
+    uint64_t simTaskVirtAddr = 0;
+    if (const char* taskPtrEnv = getenv("SIM_TASK_PTR")) {
+        simTaskVirtAddr = strtoull(taskPtrEnv, nullptr, 0);
+    }
+    auto takeTaskSnapshot = [&](uint64_t atCyc) {
+        if (!simTaskVirtAddr) return;
+        uint64_t physAddr = simTaskVirtAddr - 0xffffffd600000000ULL;
+        uint8_t buf[16];
+        char comm[17] = {0};
+        readMemBytes(physAddr + 1496, (uint8_t*)comm, 16);
+        readMemBytes(physAddr + 72, buf, 4);
+        uint32_t state = buf[0] | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24);
+        readMemBytes(physAddr + 936, buf, 4);
+        int32_t exit_state = (int32_t)(buf[0] | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24));
+        readMemBytes(physAddr + 1040, buf, 4);
+        int32_t pid = (int32_t)(buf[0] | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24));
+        readMemBytes(physAddr + 1044, buf, 4);
+        int32_t tgid = (int32_t)(buf[0] | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24));
+        readMemBytes(physAddr + 232, buf, 8);
+        uint64_t deadline = 0; for (int i = 0; i < 8; i++) deadline |= (uint64_t)buf[i] << (8 * i);
+        readMemBytes(physAddr + 312, buf, 8);
+        uint64_t vruntime = 0; for (int i = 0; i < 8; i++) vruntime |= (uint64_t)buf[i] << (8 * i);
+        readMemBytes(physAddr + 320, buf, 8);
+        uint64_t vlag = 0; for (int i = 0; i < 8; i++) vlag |= (uint64_t)buf[i] << (8 * i);
+        // sched_entity.sum_exec_runtime (pahole offset 104 within se, se at
+        // task_struct+192) -- total actual CPU time ever given to this
+        // task. If identical across two snapshots, it received ZERO CPU
+        // time in between, regardless of __state/comm.
+        readMemBytes(physAddr + 296, buf, 8);
+        uint64_t sum_exec_runtime = 0; for (int i = 0; i < 8; i++) sum_exec_runtime |= (uint64_t)buf[i] << (8 * i);
+        // sched_entity.on_rq (offset 88 within se -> task_struct+280): is
+        // this task actually enqueued on a runqueue right now?
+        readMemBytes(physAddr + 280, buf, 1);
+        uint8_t on_rq = buf[0];
+        fprintf(stderr, "[TASK-SNAPSHOT cyc %llu] task_struct=0x%llx pid=%d tgid=%d comm=\"%s\" __state=%u exit_state=%d "
+                "se.deadline=0x%llx se.vruntime=0x%llx se.vlag=0x%llx(%lld) se.sum_exec_runtime=0x%llx se.on_rq=%u\n",
+                (unsigned long long)atCyc, (unsigned long long)simTaskVirtAddr, pid, tgid, comm, state, exit_state,
+                (unsigned long long)deadline, (unsigned long long)vruntime,
+                (unsigned long long)vlag, (long long)vlag,
+                (unsigned long long)sum_exec_runtime, on_rq);
+    };
+    takeTaskSnapshot(start_cycle);
+
     UartDecoder dec;
     dec.set_cycles_per_bit(217);  // 25 MHz / 115200 baud
 
@@ -248,6 +310,49 @@ int main(int argc, char** argv) {
                     (unsigned long long)top->dbg_store_phys_addr,
                     (unsigned long long)top->dbg_store_data);
             }
+        }
+
+        // Task #15 follow-up (2026-07-12): now know the post-fork/pre-execve
+        // stall RESOLVES on its own after ~338 real-world seconds (~8.5B
+        // cycles) with the CPU doing nothing but routine periodic-timer-tick
+        // housekeeping the entire time (verified: uniform trap density,
+        // dominant PCs are only __sbi_ecall/finish_task_switch, no busy
+        // loop). Watch every store to CLINT mtimecmp (borg.dts: reg =
+        // <0x0 0x02000008 0x0 0x8>) to see if a wait-queue timeout gets
+        // armed with a huge/wrong deadline right after close() (~cyc
+        // 4.197B) -- the raw value written would likely reveal the exact
+        // miscalculation if this is a units/scaling bug.
+        static uint32_t mtimecmp_hits = 0;
+        if (top->dbg_store_seq != 0 &&
+            (top->dbg_store_phys_addr == 0x02000008ULL || top->dbg_store_phys_addr == 0x0200000cULL)) {
+            static uint32_t last_mtimecmp_store_seq = 0;
+            if (top->dbg_store_seq != last_mtimecmp_store_seq) {
+                last_mtimecmp_store_seq = top->dbg_store_seq;
+                long long delta = (long long)top->dbg_store_data - (long long)top->dbg_mtime;
+                fprintf(stderr, "[MTIMECMP-WRITE seq=%u cyc %llu] pc=0x%llx phys_addr=0x%llx data=0x%llx mtime=0x%llx delta=%lld\n",
+                        mtimecmp_hits, (unsigned long long)cyc,
+                        (unsigned long long)top->dbg_store_pc,
+                        (unsigned long long)top->dbg_store_phys_addr,
+                        (unsigned long long)top->dbg_store_data,
+                        (unsigned long long)top->dbg_mtime, delta);
+                mtimecmp_hits++;
+            }
+        }
+
+        // Follow-up: mtimecmp writes near close() never exceed ~105K delta
+        // (routine short tick) -- no huge CLINT deadline is armed there.
+        // Try the canonical sleep-with-timeout arming functions instead;
+        // a0 at entry typically carries the timeout/duration argument.
+        static uint32_t hrtimer_hits = 0, schedtimeout_hits = 0;
+        if (top->dbg_pc == 0xffffffff80075a7cULL) {
+            fprintf(stderr, "[HRTIMER-START hit=%u cyc %llu] a0=0x%llx\n",
+                    hrtimer_hits, (unsigned long long)cyc, (unsigned long long)top->dbg_a0);
+            hrtimer_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff802dbb7cULL) {
+            fprintf(stderr, "[SCHEDULE-TIMEOUT hit=%u cyc %llu] a0=0x%llx\n",
+                    schedtimeout_hits, (unsigned long long)cyc, (unsigned long long)top->dbg_a0);
+            schedtimeout_hits++;
         }
 
         static uint32_t last_chip_write_seq = 0;
@@ -529,6 +634,68 @@ int main(int argc, char** argv) {
         if (top->dbg_pc == 0xffffffff800fa650ULL) {
             fprintf(stderr, "[BPRM-EXECVE hit=%u cyc %llu]\n", execve_hits, (unsigned long long)cyc);
             execve_hits++;
+            takeTaskSnapshot(cyc);
+        }
+        // bprm_execve shows ZERO hits in the whole 8B-12B window where our
+        // tracked pid=22's comm actually flips from "init" to "ls" -- it
+        // must be inlined away or bypassed for this path. Probe the actual
+        // rename function and the top-level execveat dispatcher instead.
+        static uint32_t setcomm_hits = 0, execveat_hits = 0;
+        if (top->dbg_pc == 0xffffffff800fba40ULL) {
+            fprintf(stderr, "[SET-TASK-COMM hit=%u cyc %llu]\n", setcomm_hits, (unsigned long long)cyc);
+            setcomm_hits++;
+            takeTaskSnapshot(cyc);
+        }
+        if (top->dbg_pc == 0xffffffff800fb858ULL) {
+            fprintf(stderr, "[DO-EXECVEAT-COMMON hit=%u cyc %llu]\n", execveat_hits, (unsigned long long)cyc);
+            execveat_hits++;
+            takeTaskSnapshot(cyc);
+        }
+        // Still zero hits for bprm_execve/__set_task_comm/do_execveat_common
+        // across the whole 8B-12B window where comm demonstrably changes --
+        // likely all got inlined into their callers by the compiler (dead
+        // out-of-line copies never actually jumped to). The ONE thing that
+        // truly cannot be inlined away is the syscall table entry point
+        // itself (its address must be a stable, taken function pointer).
+        static uint32_t sysexecve_hits = 0, sysexecveat_hits = 0;
+        if (top->dbg_pc == 0xffffffff800fc54cULL) {
+            fprintf(stderr, "[SYS-EXECVE hit=%u cyc %llu] a0(path)=0x%llx\n",
+                    sysexecve_hits, (unsigned long long)cyc, (unsigned long long)top->dbg_a0);
+            sysexecve_hits++;
+            takeTaskSnapshot(cyc);
+        }
+        if (top->dbg_pc == 0xffffffff800fc598ULL) {
+            fprintf(stderr, "[SYS-EXECVEAT hit=%u cyc %llu]\n", sysexecveat_hits, (unsigned long long)cyc);
+            sysexecveat_hits++;
+            takeTaskSnapshot(cyc);
+        }
+        static uint32_t beginnewexec_hits = 0;
+        if (top->dbg_pc == 0xffffffff800fbc64ULL) {
+            fprintf(stderr, "[BEGIN-NEW-EXEC hit=%u cyc %llu]\n", beginnewexec_hits, (unsigned long long)cyc);
+            beginnewexec_hits++;
+            takeTaskSnapshot(cyc);
+        }
+        // comm demonstrably flips "init"->"ls" inside [10B,11B] yet ZERO
+        // exec-path functions ever fire there -- busybox has a well-known
+        // NOFORK/NOEXEC applet optimization where some commands fork but
+        // skip the real execve(), just calling the internal applet
+        // function directly and renaming themselves via
+        // prctl(PR_SET_NAME) for cosmetic /proc purposes. Test that.
+        static uint32_t prctl_hits = 0;
+        if (top->dbg_pc == 0xffffffff80028160ULL) {
+            fprintf(stderr, "[SYS-PRCTL hit=%u cyc %llu] a0(option)=0x%llx\n",
+                    prctl_hits, (unsigned long long)cyc, (unsigned long long)top->dbg_a0);
+            prctl_hits++;
+            takeTaskSnapshot(cyc);
+        }
+        // prctl also zero hits. Last remaining known comm-rename path:
+        // writing directly to /proc/self/comm (bypasses both execve and
+        // prctl(PR_SET_NAME)).
+        static uint32_t commwrite_hits = 0;
+        if (top->dbg_pc == 0xffffffff8015c0d4ULL) {
+            fprintf(stderr, "[COMM-WRITE hit=%u cyc %llu]\n", commwrite_hits, (unsigned long long)cyc);
+            commwrite_hits++;
+            takeTaskSnapshot(cyc);
         }
         if (top->dbg_pc == 0xffffffff800fe5d0ULL) {
             fprintf(stderr, "[DO-PIPE2 hit=%u cyc %llu]\n", pipe_hits, (unsigned long long)cyc);
@@ -537,6 +704,133 @@ int main(int argc, char** argv) {
         if (top->dbg_pc == 0xffffffff80017bb0ULL) {
             fprintf(stderr, "[DO-WAIT hit=%u cyc %llu]\n", wait_hits, (unsigned long long)cyc);
             wait_hits++;
+        }
+        // Follow-up 3: one kernel_clone then one do_wait then permanent
+        // idle, with bprm_execve NEVER reached -- does the forked child
+        // ever actually get marked runnable/scheduled at all?
+        static uint32_t wakenew_hits = 0, schedtail_hits = 0, retforkuser_hits = 0;
+        if (top->dbg_pc == 0xffffffff8003e450ULL) {
+            fprintf(stderr, "[WAKE-NEW-TASK hit=%u cyc %llu] task_struct(a0)=0x%llx\n",
+                    wakenew_hits, (unsigned long long)cyc, (unsigned long long)top->dbg_a0);
+            wakenew_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff8003e6f0ULL) {
+            fprintf(stderr, "[SCHEDULE-TAIL hit=%u cyc %llu]\n", schedtail_hits, (unsigned long long)cyc);
+            schedtail_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff8000a524ULL) {
+            fprintf(stderr, "[RET-FROM-FORK-USER hit=%u cyc %llu]\n", retforkuser_hits, (unsigned long long)cyc);
+            retforkuser_hits++;
+        }
+        // Follow-up 4: neither forked child (ls @ ~3.99B, cat @ ~5.182B)
+        // ever reaches bprm_execve. Both return to userspace fine and then
+        // go silent forever, with zero userspace PCs ever sampled at trap
+        // time -- so each is blocked/asleep, not spinning. The standard
+        // shell pipeline child does dup2()+close() on the pipe fds before
+        // execve(); watch those syscalls to see which (if any) is reached.
+        static uint32_t dup3_hits = 0, dup2_hits = 0, close_hits = 0, closerange_hits = 0;
+        if (top->dbg_pc == 0xffffffff80116508ULL) {
+            fprintf(stderr, "[SYS-DUP3 hit=%u cyc %llu]\n", dup3_hits, (unsigned long long)cyc);
+            dup3_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff8011652cULL) {
+            fprintf(stderr, "[SYS-DUP2 hit=%u cyc %llu]\n", dup2_hits, (unsigned long long)cyc);
+            dup2_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff800f0618ULL) {
+            fprintf(stderr, "[SYS-CLOSE hit=%u cyc %llu] fd(a0)=%lld\n", close_hits,
+                    (unsigned long long)cyc, (long long)top->dbg_a0);
+            close_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff80115d08ULL) {
+            fprintf(stderr, "[SYS-CLOSE-RANGE hit=%u cyc %llu]\n", closerange_hits, (unsigned long long)cyc);
+            closerange_hits++;
+        }
+        // Follow-up 5: neither dup2 nor dup3 ever fires around the pipe
+        // setup window -- check plain dup() (classic close(1);dup(pipefd)
+        // idiom exploiting lowest-available-fd reuse) and fcntl(F_DUPFD).
+        static uint32_t dup_hits = 0, fcntl_hits = 0;
+        if (top->dbg_pc == 0xffffffff8011660cULL) {
+            fprintf(stderr, "[SYS-DUP hit=%u cyc %llu]\n", dup_hits, (unsigned long long)cyc);
+            dup_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff801080a4ULL) {
+            fprintf(stderr, "[SYS-FCNTL hit=%u cyc %llu]\n", fcntl_hits, (unsigned long long)cyc);
+            fcntl_hits++;
+        }
+        // Follow-up 7 (2026-07-12): named-function-entry probing hit
+        // diminishing returns -- ls's forked child does sigprocmask x2 +
+        // close() x1 after returning to userspace (cyc ~3.99B) then never
+        // calls execve, with every SAMPLED trap PC landing in kernel
+        // scheduler code (never userspace) through 7B cycles. But trap
+        // sampling only catches ~1 PC per 100-200K cycles -- too coarse to
+        // see brief userspace execution between close() and the next
+        // syscall. Full unconditional PC trace (every distinct dbg_pc, not
+        // just at trap time) for a window right after the close() cluster
+        // (cyc 4,196,864,107) to see EXACTLY what runs next, including any
+        // userspace addresses (would show as PCs well outside the kernel's
+        // 0xffffffff8xxxxxxx range).
+        // Correction: the naive "low address = userspace" filter was wrong
+        // -- OpenSBI's M-mode firmware itself lives at low physical
+        // addresses (0x418 is the fixed mtvec/stvec trap-vector target seen
+        // in every trap record all session), so M-mode trap handling on
+        // every periodic timer tick ALSO shows up as low dbg_pc values.
+        // Use the now-wired continuous dbg_priv (0=U/1=S/3=M) to find
+        // genuine U-mode (userspace) execution instead of guessing by
+        // address range.
+        static uint64_t pcfull_last = 0xffffffffffffffffULL;
+        static uint8_t pcfull_last_priv = 0xFF;
+        static uint64_t pcfullWinLo = getenv("PCFULL_LO") ? strtoull(getenv("PCFULL_LO"), nullptr, 0) : 10'687'500'000ULL;
+        static uint64_t pcfullWinHi = getenv("PCFULL_HI") ? strtoull(getenv("PCFULL_HI"), nullptr, 0) : 10'689'500'000ULL;
+        if (cyc >= pcfullWinLo && cyc <= pcfullWinHi &&
+            (top->dbg_pc != pcfull_last || top->dbg_priv != pcfull_last_priv)) {
+            fprintf(stderr, "[PCFULL cyc %llu] pc=0x%llx priv=%u\n",
+                    (unsigned long long)cyc, (unsigned long long)top->dbg_pc,
+                    (unsigned)top->dbg_priv);
+            pcfull_last = top->dbg_pc;
+            pcfull_last_priv = top->dbg_priv;
+        }
+        // Find-first-U-mode: run from FIND_UMODE_FROM onward and exit the
+        // instant dbg_priv==0 (U-mode) is observed anywhere -- pinpoints
+        // the next syscall boundary without guessing narrow windows.
+        if (const char* fu = getenv("FIND_UMODE_FROM")) {
+            uint64_t fuFrom = strtoull(fu, nullptr, 0);
+            if (cyc >= fuFrom && top->dbg_priv == 0) {
+                fprintf(stderr, "[FIRST-UMODE cyc %llu] pc=0x%llx\n",
+                        (unsigned long long)cyc, (unsigned long long)top->dbg_pc);
+                if (tfp) { tfp->close(); delete tfp; }
+                delete top;
+                return 0;
+            }
+        }
+
+        // Follow-up 6: no dup/dup2/dup3/fcntl ever follows the lone
+        // close() at ~4.197B either -- /init's own earlier comment noted
+        // ash reporting "can't access tty; job control turned off" on
+        // /dev/hvc0, hinting incomplete tty-ioctl support. Pipeline
+        // children commonly call setpgid()/tcsetpgrp() (a tty ioctl) for
+        // job control right after fork, before exec -- check if that's
+        // where this blocks.
+        static uint32_t setpgid_hits = 0, ioctl_hits = 0, jobctl_hits = 0, sigprocmask_hits = 0, sigaction_hits = 0;
+        if (top->dbg_pc == 0xffffffff80027424ULL) {
+            fprintf(stderr, "[SYS-SETPGID hit=%u cyc %llu]\n", setpgid_hits, (unsigned long long)cyc);
+            setpgid_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff80108fb0ULL) {
+            fprintf(stderr, "[SYS-IOCTL hit=%u cyc %llu]\n", ioctl_hits, (unsigned long long)cyc);
+            ioctl_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff8025d8b8ULL) {
+            fprintf(stderr, "[TTY-JOBCTL-IOCTL hit=%u cyc %llu]\n", jobctl_hits, (unsigned long long)cyc);
+            jobctl_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff80021bdcULL) {
+            fprintf(stderr, "[SYS-SIGPROCMASK hit=%u cyc %llu]\n", sigprocmask_hits, (unsigned long long)cyc);
+            sigprocmask_hits++;
+        }
+        if (top->dbg_pc == 0xffffffff80024ec4ULL) {
+            fprintf(stderr, "[SYS-SIGACTION hit=%u cyc %llu]\n", sigaction_hits, (unsigned long long)cyc);
+            sigaction_hits++;
         }
 
         if (cyc >= 159'978'440ULL && cyc <= 159'978'500ULL) {
