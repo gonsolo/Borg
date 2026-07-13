@@ -1,40 +1,45 @@
 #!/usr/bin/env python3
 """
-Send mouse rotation to vkcube running on ULX3S via UART.
+Feed mouse/touchpad rotation into vkcube running on the ULX3S, via a shared
+file read by the borgvk DRM shim (mesa/src/borg/drm/borg_shim.c) — NOT over
+UART.  cube.c free-spins on its own internal timer with no input hooks, and
+the firmware now always renders host-supplied geometry with a host-supplied
+full MVP (no local model to swap a rotation into), so there is no meaningful
+firmware-side packet for this anymore (the old 0xAC packet was retired along
+with the hardcoded-geometry TS-bake it depended on).  Instead this script
+writes its column-major 3×3 rotation matrix (9 × 4-byte LE float, no marker
+byte) to MOUSE_ROTATION_PATH; borg_shim.c right-multiplies it into cube.c's
+already-computed MVP right before shipping the 0xAD serial packet, so it
+layers a trackball nudge on top of (rather than replacing) cube's auto-spin.
+Written via write-to-temp + rename so the shim never sees a torn write.
 
-Protocol: 37-byte packets  [0xAC] [m00..m22: 9 × 4-byte LE float]
-  Column-major 3×3 rotation matrix derived from a unit quaternion (the FPGA
-  CPU has no soft-float, so the matrix is computed here).  The firmware
-  rejects any packet with an out-of-range entry (corruption/mis-sync guard).
-  Mouse X rotates around world Y; mouse Y rotates around the current right
-  vector (trackball — no gimbal lock).
+Mouse X rotates around world Y; mouse Y rotates around the current right
+vector (trackball — no gimbal lock).
 
 Requirements:
-  pip install evdev pyserial
+  pip install evdev
   sudo usermod -aG input $USER   (then re-login, or run with sudo)
 
 Usage:
-  python3 scripts/mouse_rotation.py [/dev/ttyUSB0]
+  python3 scripts/mouse_rotation.py
 """
 
+import os
 import sys
 import math
 import select
 import struct
+import tempfile
 import time
-import serial
 import evdev
 
 DEBUG              = "--debug" in sys.argv
-SERIAL_PORT        = next((a for a in sys.argv[1:] if not a.startswith("-")), "/dev/ttyUSB0")
-BAUD               = 115200
+MOUSE_ROTATION_PATH = "/tmp/borg_mouse_rotation.bin"
 SENSITIVITY        = 0.005   # radians per raw count (mouse); touchpad uses same but ABS range is ~5000 units
 AUTO_ROTATE_DELAY  = 5.0     # seconds of inactivity before auto-rotate
 AUTO_ROTATE_RATE   = 0.6     # radians/second (~1 rev / 10 s), time-based
-# Tick fast during auto-rotate so packets stream densely (every ~4 ms).  The
-# firmware drains UART once per frame with only a ~12 ms catch window; a sparse
-# (50 ms) sender phase-locks into that window's gaps and stalls.  A dense stream
-# guarantees a 0xAC is always in flight when the firmware drains.
+# Tick fast so auto-rotate steps and the on-disk rotation file both stay
+# smooth/responsive; the shim just reads whatever is most recently written.
 SELECT_TIMEOUT     = 0.004   # seconds between poll/auto-rotate ticks
 
 
@@ -84,9 +89,17 @@ def apply_rotation(q, dx, dy):
         q = quat_normalize(quat_mul(dq, q))
     return q
 
-def pack_packet(q):
-    # [0xAC][m00..m22] — firmware sanity-checks each entry and uses the matrix directly.
-    return struct.pack("<B9f", 0xAC, *quat_to_col_mat3(q))
+def write_rotation(q):
+    # Write-to-temp + rename so borg_shim.c (read_mouse_rotation()) never
+    # observes a torn write — rename() is atomic within the same directory.
+    data = struct.pack("<9f", *quat_to_col_mat3(q))
+    d = os.path.dirname(MOUSE_ROTATION_PATH) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=d)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+    os.rename(tmp_path, MOUSE_ROTATION_PATH)
 
 
 def find_input_device():
@@ -129,14 +142,13 @@ def main() -> None:
     kind = "Touchpad" if is_touchpad else "Mouse"
     print(f"{kind} : {device.name}  ({device.path})")
     if DEBUG:
-        print("DEBUG mode — printing raw events, not sending to serial")
+        print("DEBUG mode — printing raw events, not writing the rotation file")
         for event in device.read_loop():
             if event.type != evdev.ecodes.EV_SYN:
                 print(evdev.categorize(event))
         return
-    ser = serial.Serial(SERIAL_PORT, BAUD, timeout=0)
-    print(f"Serial: {SERIAL_PORT} @ {BAUD} baud")
-    print("Move mouse/finger to rotate cube. Ctrl-C to quit.")
+    print(f"Rotation file: {MOUSE_ROTATION_PATH} (read by borg_shim.c)")
+    print("Move mouse/finger to rotate cube. Requires run-vkcube.sh to be running. Ctrl-C to quit.")
 
     # Initial orientation: 30° tilt around X (matches firmware default)
     q = quat_from_axis_angle(1.0, 0.0, 0.0, 0.5236)
@@ -167,7 +179,7 @@ def main() -> None:
                     elif event.type == evdev.ecodes.EV_SYN and event.code == evdev.ecodes.SYN_REPORT:
                         if dx != 0.0 or dy != 0.0:
                             q = apply_rotation(q, dx, dy)
-                            ser.write(pack_packet(q))
+                            write_rotation(q)
                             dx = 0.0
                             dy = 0.0
                             last_move     = time.monotonic()
@@ -197,7 +209,7 @@ def main() -> None:
                         pending_y = None
                         if dx != 0.0 or dy != 0.0:
                             q = apply_rotation(q, dx, dy)
-                            ser.write(pack_packet(q))
+                            write_rotation(q)
                             dx = 0.0
                             dy = 0.0
                             last_move     = time.monotonic()
@@ -208,13 +220,12 @@ def main() -> None:
                 auto_rotating = True
                 last_auto     = now
             if auto_rotating:
-                # Time-based step keeps the spin speed constant regardless of
-                # tick jitter; the dense tick keeps the UART stream continuous.
+                # Time-based step keeps the spin speed constant regardless of tick jitter.
                 dt = now - last_auto
                 last_auto = now
                 dq = quat_from_axis_angle(0.0, 1.0, 0.0, AUTO_ROTATE_RATE * dt)
                 q = quat_normalize(quat_mul(dq, q))
-                ser.write(pack_packet(q))
+                write_rotation(q)
 
 
 if __name__ == "__main__":
