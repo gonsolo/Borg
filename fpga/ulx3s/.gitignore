@@ -24,3 +24,5 @@ borg-minimal.svf
 nextpnr-minimal.log
 yosys-minimal.log
 .verilog_stamp_ulx3s_minimal
+sdram_torture/*.o
+sdram_torture/*.elf
