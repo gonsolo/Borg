@@ -112,7 +112,7 @@ The tile buffer is flushed to external memory only after all triangles covering 
   \item This blocks \textbf{reproducibility}, \textbf{teaching}, and
         architectural experiments
   \item \textbf{Concise:} GPU pipeline (\textbf{5.5k LoC} Chisel),
-        Compiler (\textbf{1.6k LoC} Python), Firmware (\textbf{5k LoC} C).
+        Compiler (\textbf{1.2k LoC} Rust), Firmware (\textbf{5k LoC} C).
   \item Open GPU simulators exist — but \emph{no open GPU has reached silicon}
 \end{itemize}
 
@@ -135,7 +135,7 @@ Running on \textbf{ULX3S} (ECP5-85K) with \textbf{HDMI output}:
   \item Full pipeline: vertex shader $\to$ texture fetch $\to$ Z-buffer $\to$ HDMI
   \item Orchestrated by integrated \textbf{Hutt} RISC-V core
   \item Native \textbf{Mesa Vulkan ICD} (\texttt{borgvk}): unmodified Khronos \texttt{vkcube} renders on ULX3S over USB
-  \item \textbf{Vulkan CTS}: 6{,}888 tests passing, \textbf{0 failures} (of 1.6M total \texttt{dEQP-VK})
+  \item \textbf{Vulkan CTS}: 6{,}887 tests passing, \textbf{0 failures} (of 1.6M total \texttt{dEQP-VK})
 \end{itemize}
 \smallskip
 \begin{center}
