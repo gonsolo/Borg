@@ -1463,6 +1463,12 @@ higher resolutions on ULX3S/Nitefury.
 4×4 or 4×5 tile, Linux + Vulkan capable, with full hardware fidelity suite.
 Estimate: 1 week.
 
+**Target shuttle: TTIHP26b (IHP SG13G2) — submission deadline September 2026,
+delivery expected April 2027.** Effective working time is tighter than the
+raw calendar gap suggests due to a three-week planned absence in August
+2026 — worth tracking closely rather than assuming the full ~2 months are
+available.
+
 ## Phase 7: Vulkan 1.0 Conformance
 
 Target: **~Mar–Apr 2027**. Full CTS pass (~3–4 weeks); Mesa handles most
