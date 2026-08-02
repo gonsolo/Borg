@@ -191,6 +191,40 @@ minimal-sdram-rw-test: borg-minimal.bit sdram_rw_test_fw.bin
 	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing sdram_rw_test firmware @ 0x400000 ..."
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 sdram_rw_test_fw.bin
 
+# Bare-metal RV64 SDRAM torture test (task #15 "Bug A" diagnostic — see
+# sdram_torture/sdram_torture.c's header for the full writeup and project
+# memory for the investigation). No OpenSBI/Linux/MMU: FlashBootLoader
+# copies this straight to SDRAM address 0 and jumps there in M-mode, same
+# entry convention OpenSBI itself uses. Needs the RV64+CLINT minimal-linux
+# bitstream already loaded (`make generate_verilog_ulx3s_minimal_linux` in
+# the top Makefile, then the normal ULX3S synth/PnR/load flow) — this
+# firmware alone does not configure the FPGA.
+#
+# Conclusion as of the 2026-07-10 investigation (bare-metal test, before
+# the real Bug A root cause — a CSPRNG entropy-wait, see [[project_hutt_linux_status]]
+# — was found): the raw SDRAM/MemoryController/interrupt-arbitration path
+# is robust under dense synthetic stress (sequential+random addressing,
+# mixed access sizes, forced icache misses, async CLINT interrupts) —
+# 20+ iterations, 337,000+ interrupts, zero corruption/hangs. Kept as a
+# reusable regression tool for future real-SDRAM-path changes, not as an
+# open investigation.
+SDRAM_TORTURE_DIR := sdram_torture
+SDRAM_TORTURE_ARCH := rv64ima_zicsr_zifencei
+
+sdram_torture_fw.bin: $(SDRAM_TORTURE_DIR)/sdram_torture.c $(SDRAM_TORTURE_DIR)/start.s $(SDRAM_TORTURE_DIR)/trap.s $(SDRAM_TORTURE_DIR)/link.ld
+	@echo -e "$(BOLD)[FW]$(RESET) Building sdram_torture (RV64IMA, M-mode, no OpenSBI) ..."
+	riscv64-unknown-elf-gcc -march=$(SDRAM_TORTURE_ARCH) -mabi=lp64 -mcmodel=medany -O2 -ffreestanding -nostdlib -Wall -Wextra \
+		-c -o sdram_torture.o $(SDRAM_TORTURE_DIR)/sdram_torture.c
+	riscv64-unknown-elf-as -march=$(SDRAM_TORTURE_ARCH) -mabi=lp64 -o start.o $(SDRAM_TORTURE_DIR)/start.s
+	riscv64-unknown-elf-as -march=$(SDRAM_TORTURE_ARCH) -mabi=lp64 -o trap.o $(SDRAM_TORTURE_DIR)/trap.s
+	riscv64-unknown-elf-ld -T $(SDRAM_TORTURE_DIR)/link.ld -o sdram_torture.elf start.o trap.o sdram_torture.o
+	riscv64-unknown-elf-objcopy -O binary sdram_torture.elf sdram_torture_raw.bin
+	@python3 -c "import struct; d=open('sdram_torture_raw.bin','rb').read(); open('sdram_torture_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> sdram_torture_fw.bin')"
+
+flash-sdram-torture: sdram_torture_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing sdram_torture firmware @ 0x400000 (needs the RV64+CLINT minimal-linux bitstream already loaded) ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 sdram_torture_fw.bin
+
 hdmi_test_fw.bin: hdmi_test_fb.s
 	@echo -e "$(BOLD)[FW]$(RESET) Assembling hdmi_test_fb.s ..."
 	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o hdmi_test_fb.o hdmi_test_fb.s
