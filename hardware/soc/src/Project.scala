@@ -87,27 +87,6 @@ trait SoCLogic { self: RawModule =>
   // timing-closed target (ULX3S @ 25MHz); override false only for a target
   // whose clock is slow enough to not need the split (e.g. TT ASIC @ 4MHz).
   def pipelinedCsrRead: Boolean = true
-  // See Hutt's constructor doc. Default true matches ULX3S/Linux; override
-  // false only for a target with no S-mode software (e.g. TT ASIC's
-  // bare-metal firmware, which never leaves M-mode).
-  def hasSupervisorMode: Boolean = true
-  // CLINT (mtime/mtimecmp, timer interrupts) is Linux/OpenSBI-only --
-  // software/borg's bare-metal firmware never sets mtvec and never takes
-  // an interrupt (Hutt's own free-running cycleCounter backs the `cycle`
-  // CSR it does read). Default true matches ULX3S/Linux; override false
-  // for a target with no interrupt-driven software.
-  def hasClint: Boolean = true
-  // Hutt's store/load/trap/sfence/x1/x18 debug trace registers, plus
-  // HuttRegFile's forensic register-read taps -- observed only by ULX3S/
-  // sim debug harnesses, never by Hutt itself. Default true preserves
-  // ULX3S debug capability; the ASIC has no such harness to observe them.
-  def hasDebugPorts: Boolean = true
-  // Which physical arrangement drives Borg's mmio/gpuMem: local instantiation
-  // (every target so far), the FPGA-only bridge loopback (rung A of the
-  // wafer.space Borg-only bridge's on-hardware ladder), or the real link out
-  // to pads. See BorgMode's doc.
-  def borgMode: BorgMode = BorgDirect
-  def linkParams: LinkParams = LinkParams()
 
   // --- Abstract members provided by each top-level ---
   def soc_clk: Clock
@@ -117,7 +96,7 @@ trait SoCLogic { self: RawModule =>
 
   // --- Core + peripherals ---
   lazy val cpu = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new Hutt(xlen = xlen))
+    Module(new Hutt(xlen = xlen, pipelinedCsrRead = pipelinedCsrRead))
   }
   lazy val mem = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new MemoryController())

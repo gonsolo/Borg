@@ -144,7 +144,15 @@ class Hutt(
     val instrAddrWidth: Int = 23,
     val dataAddrWidth: Int  = 28,
     val resetVector: BigInt = 0,
-    val xlen: Int = 32
+    val xlen: Int = 32,
+    // Split CSR read/write into two pipeline stages (sExec + a dedicated
+    // sCsrSel cycle) instead of one -- see the "-- CSR read --" comment
+    // below. This is purely an ECP5-25MHz timing workaround; a slower
+    // target (e.g. the 4MHz ASIC/TT clock, 6x the period) doesn't need it
+    // and pays for the extra stage's registers + duplicated select logic
+    // for nothing. Default true preserves the exact, already timing-closed
+    // ULX3S behavior; the ASIC top overrides this to false.
+    val pipelinedCsrRead: Boolean = true
 ) extends Module {
 
   val io = IO(new HuttIO(instrAddrWidth, dataAddrWidth, xlen))
@@ -430,10 +438,16 @@ class Hutt(
   })
 
   // Stage 2 (registered at the sExec -> sCsrSel transition below): a
-  // trivial 4-way pick among the now-latched group values.
-  val csrGroupValReg = Reg(Vec(csrGroups.size, UInt(xlen.W)))
-  val csrGroupSelReg = Reg(UInt(2.W))
-  val csrReadData    = csrGroupValReg(csrGroupSelReg)
+  // trivial 4-way pick among the now-latched group values. Skipped
+  // entirely when !pipelinedCsrRead (see the constructor param doc) --
+  // csrReadData then reads Stage 1's combinational groups directly, in
+  // the same cycle, with no extra registers or FSM state.
+  val csrPipeRegs: Option[(Vec[UInt], UInt)] =
+    if (pipelinedCsrRead) Some((Reg(Vec(csrGroups.size, UInt(xlen.W))), Reg(UInt(2.W)))) else None
+  val csrReadData: UInt = csrPipeRegs match {
+    case Some((valReg, selReg)) => valReg(selReg)
+    case None                   => csrGroupValComb(csrGroupSelComb)
+  }
 
   // A handful of specific unimplemented CSRs must raise an illegal-instruction
   // exception rather than silently no-op like other unimplemented CSRs, because
@@ -465,6 +479,86 @@ class Hutt(
     (d.funct3(1, 0) === "b10".U) -> (csrReadData | csrSrc),
     (d.funct3(1, 0) === "b11".U) -> (csrReadData & ~csrSrc)
   ))
+
+  // CSR write decode, gated on the same narrow group-select as the read
+  // side (see "-- CSR read --" above) instead of one flat ~19-way
+  // switch(csrAddr) -- extracted so both the pipelined path (sCsrSel,
+  // reading the registered group-select) and the non-pipelined path
+  // (inline in sExec, reading the combinational one) share this exact
+  // logic instead of duplicating it.
+  def csrWriteDecode(groupSel: UInt): Unit = {
+    switch(groupSel) {
+      is(0.U) {
+        switch(csrAddr) {
+          is("h100".U) { mstatus  := (mstatus & ~SSTATUS_MASK) | (csrNewVal & SSTATUS_MASK) }
+          is("h104".U) {
+            mie := (mie & ~SIE_SIP_MASK) | (csrNewVal & SIE_SIP_MASK)
+            if (HuttDebug.timerTrace) printf("[HUTT-TIMER] sie write csrNewVal=0x%x -> mie=0x%x\n",
+              csrNewVal, (mie & ~SIE_SIP_MASK) | (csrNewVal & SIE_SIP_MASK))
+          }
+          is("h105".U) { stvec    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }
+          is("h140".U) { sscratch := csrNewVal }
+          is("h141".U) {
+            sepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
+            dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U
+            dbgSepcWritePcReg  := pc
+            dbgSepcWriteValReg := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
+          }
+          is("h142".U) { scause   := csrNewVal }
+        }
+      }
+      is(1.U) {
+        switch(csrAddr) {
+          is("h143".U) { stval    := csrNewVal }
+          is("h144".U) {
+            mip_sw := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR)
+            if (HuttDebug.timerTrace) printf("[HUTT-TIMER] sip write csrNewVal=0x%x -> mip_sw=0x%x\n",
+              csrNewVal, (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR))
+          }
+          is("h180".U) {
+            satp := csrNewVal
+            // The TLB has no ASID field (tlbVPN/tlbPPN/tlbFlags match on
+            // VA bits only) -- but Linux relies on the Sv39 spec's ASID
+            // semantics to safely SKIP an explicit sfence.vma on most
+            // context switches, trusting hardware to keep different
+            // address spaces isolated in the TLB. Without this flush, a
+            // VA cached from one process's mapping gets silently served
+            // to a completely different process after satp changes,
+            // corrupting memory (root-caused via a child process crashing
+            // immediately after fork() with garbage ra/pc — the child's
+            // own stack writes were being satisfied by a stale TLB entry
+            // still pointing at a DIFFERENT process's physical page).
+            if (xlen == 64) { for (i <- 0 until TLB_ENTRIES) { tlbValid(i) := false.B } }
+          }
+          is("h300".U) { mstatus  := csrNewVal }
+          is("h302".U) { medeleg  := csrNewVal }
+        }
+      }
+      is(2.U) {
+        switch(csrAddr) {
+          is("h303".U) { mideleg  := csrNewVal }
+          is("h304".U) {
+            mie := csrNewVal
+            if (HuttDebug.timerTrace) printf("[HUTT-TIMER] mie write -> 0x%x\n", csrNewVal)
+          }
+          is("h305".U) { mtvec    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }
+          is("h340".U) { mscratch := csrNewVal }
+          is("h341".U) { mepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W)) }
+          is("h342".U) { mcause   := csrNewVal }
+        }
+      }
+      is(3.U) {
+        switch(csrAddr) {
+          is("h343".U) { mtval    := csrNewVal }
+          is("h344".U) {
+            mip_sw := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR)
+            if (HuttDebug.timerTrace) printf("[HUTT-TIMER] mip write csrNewVal=0x%x -> mip_sw=0x%x\n",
+              csrNewVal, (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR))
+          }
+        }
+      }
+    }
+  }
 
   // -- mstatus update helpers ------------------------------------------------
   // M-mode trap entry: MPP←privLevel, MPIE←MIE, MIE←0; S-mode bits unchanged.
@@ -843,13 +937,26 @@ class Hutt(
           lrValid := false.B
           state := sFetchReq
         }.elsewhen(d.isCsr) {
-          // Stage 1 -> stage 2 handoff (see "-- CSR read --" above): latch
-          // the narrow per-group values + narrow group-select computed
-          // combinationally alongside everything else this cycle, then
-          // finish the write + regfile commit in sCsrSel next cycle.
-          csrGroupValReg := csrGroupValComb
-          csrGroupSelReg := csrGroupSelComb
-          state := sCsrSel
+          if (pipelinedCsrRead) {
+            // Stage 1 -> stage 2 handoff (see "-- CSR read --" above): latch
+            // the narrow per-group values + narrow group-select computed
+            // combinationally alongside everything else this cycle, then
+            // finish the write + regfile commit in sCsrSel next cycle.
+            val (valReg, selReg) = csrPipeRegs.get
+            valReg := csrGroupValComb
+            selReg := csrGroupSelComb
+            state := sCsrSel
+          } else {
+            // Single-cycle CSR read+write (see the constructor's
+            // pipelinedCsrRead doc) -- same csrWriteDecode as the pipelined
+            // path's sCsrSel state, just reading the combinational
+            // group-select directly instead of a registered one, and
+            // completing in this same cycle like any other instruction.
+            csrWriteDecode(csrGroupSelComb)
+            regFile.io.wen := wbExecEn
+            pc    := pcNext
+            state := sFetchReq
+          }
         }.elsewhen(isDivOp) {
           // DIV/DIVU/REM/REMU (+ *W forms): hand off to the shared
           // multi-cycle divider (see HuttAlu/HuttDivider) instead of
@@ -874,91 +981,29 @@ class Hutt(
     }
 
     is(sCsrSel) {
-      // Same disease as the read side (see "-- CSR read --" above), same
-      // fix: a flat 19-case switch(csrAddr){...} write decode measured as
-      // the dominant ~185ns bottleneck even AFTER the read-side and
-      // regFile fixes closed their own (verified via critical-path hop
-      // counts: read select down to 31 hops, regFile down to 6, yet
-      // overall frequency stayed at ~2.27 MHz — this switch was the
-      // untouched third culprit). Gating on the already-registered,
-      // already-cheap csrGroupSelReg first (same grouping as the read
-      // side) turns one 19-way decode into a 4-way outer pick + a ~5-way
-      // inner switch, instead of yosys/abc9 building one shared decoder
-      // across all 19 targets.
-      switch(csrGroupSelReg) {
-        is(0.U) {
-          switch(csrAddr) {
-            is("h100".U) { mstatus  := (mstatus & ~SSTATUS_MASK) | (csrNewVal & SSTATUS_MASK) }
-            is("h104".U) {
-              mie := (mie & ~SIE_SIP_MASK) | (csrNewVal & SIE_SIP_MASK)
-              if (HuttDebug.timerTrace) printf("[HUTT-TIMER] sie write csrNewVal=0x%x -> mie=0x%x\n",
-                csrNewVal, (mie & ~SIE_SIP_MASK) | (csrNewVal & SIE_SIP_MASK))
-            }
-            is("h105".U) { stvec    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }
-            is("h140".U) { sscratch := csrNewVal }
-            is("h141".U) {
-              sepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
-              dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U
-              dbgSepcWritePcReg  := pc
-              dbgSepcWriteValReg := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
-            }
-            is("h142".U) { scause   := csrNewVal }
-          }
-        }
-        is(1.U) {
-          switch(csrAddr) {
-            is("h143".U) { stval    := csrNewVal }
-            is("h144".U) {
-              mip_sw := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR)
-              if (HuttDebug.timerTrace) printf("[HUTT-TIMER] sip write csrNewVal=0x%x -> mip_sw=0x%x\n",
-                csrNewVal, (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR))
-            }
-            is("h180".U) {
-              satp := csrNewVal
-              // The TLB has no ASID field (tlbVPN/tlbPPN/tlbFlags match on
-              // VA bits only) -- but Linux relies on the Sv39 spec's ASID
-              // semantics to safely SKIP an explicit sfence.vma on most
-              // context switches, trusting hardware to keep different
-              // address spaces isolated in the TLB. Without this flush, a
-              // VA cached from one process's mapping gets silently served
-              // to a completely different process after satp changes,
-              // corrupting memory (root-caused via a child process crashing
-              // immediately after fork() with garbage ra/pc — the child's
-              // own stack writes were being satisfied by a stale TLB entry
-              // still pointing at a DIFFERENT process's physical page).
-              if (xlen == 64) { for (i <- 0 until TLB_ENTRIES) { tlbValid(i) := false.B } }
-            }
-            is("h300".U) { mstatus  := csrNewVal }
-            is("h302".U) { medeleg  := csrNewVal }
-          }
-        }
-        is(2.U) {
-          switch(csrAddr) {
-            is("h303".U) { mideleg  := csrNewVal }
-            is("h304".U) {
-              mie := csrNewVal
-              if (HuttDebug.timerTrace) printf("[HUTT-TIMER] mie write -> 0x%x\n", csrNewVal)
-            }
-            is("h305".U) { mtvec    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }
-            is("h340".U) { mscratch := csrNewVal }
-            is("h341".U) { mepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W)) }
-            is("h342".U) { mcause   := csrNewVal }
-          }
-        }
-        is(3.U) {
-          switch(csrAddr) {
-            is("h343".U) { mtval    := csrNewVal }
-            is("h344".U) {
-              mip_sw := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR)
-              if (HuttDebug.timerTrace) printf("[HUTT-TIMER] mip write csrNewVal=0x%x -> mip_sw=0x%x\n",
-                csrNewVal, (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR))
-            }
-          }
-        }
+      // Unreachable (dead state) when !pipelinedCsrRead -- the sExec ->
+      // sCsrSel transition above only happens in the pipelined case, CSR
+      // ops complete entirely within sExec otherwise. Body stays inside
+      // this `if`, not around the `is()` call itself: chisel3's switch
+      // macro requires every direct child of a switch{} block to be a
+      // literal is() application, not a Scala-conditional one.
+      if (pipelinedCsrRead) {
+        // Same disease as the read side (see "-- CSR read --" above), same
+        // fix: a flat 19-case switch(csrAddr){...} write decode measured as
+        // the dominant ~185ns bottleneck even AFTER the read-side and
+        // regFile fixes closed their own (verified via critical-path hop
+        // counts: read select down to 31 hops, regFile down to 6, yet
+        // overall frequency stayed at ~2.27 MHz — this switch was the
+        // untouched third culprit). Gating on the already-registered,
+        // already-cheap group-select first (same grouping as the read
+        // side) turns one 19-way decode into a 4-way outer pick + a ~5-way
+        // inner switch, instead of yosys/abc9 building one shared decoder
+        // across all 19 targets. See csrWriteDecode above.
+        csrWriteDecode(csrPipeRegs.get._2)
+        regFile.io.wen := wbExecEn
+        pc    := pcNext
+        state := sFetchReq
       }
-      regFile.io.wen := wbExecEn
-      pc    := pcNext
-      state := sFetchReq
     }
 
     is(sMemReq) {
