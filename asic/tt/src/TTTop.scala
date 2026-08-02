@@ -27,6 +27,12 @@ class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // "fix" this by lowering PL_TARGET_DENSITY or requesting a larger tile
   // allocation; the floorplan is fixed and the fix is real area reduction.
   override def xlen: Int = 64
+  // Hutt's CSR read/write is split into two pipeline stages purely to
+  // close ECP5's 25MHz timing (see Hutt.scala's constructor doc). TT's
+  // sign-off clock is 250ns/4MHz (src/config.json CLOCK_PERIOD) -- 6x the
+  // period the split exists for -- so skip it and save the extra stage's
+  // registers + duplicated select logic.
+  override def pipelinedCsrRead: Boolean = false
 
   val ui_in   = IO(Input(UInt(8.W)))
   val uo_out  = IO(Output(UInt(8.W)))
