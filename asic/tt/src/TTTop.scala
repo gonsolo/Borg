@@ -20,6 +20,13 @@ import memory.QspiBackend
 class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // Fit the IHP 8×4 tile: reduce BorgBinner's count SRAM from 1024 to 16 tiles.
   override def BORG_CFG: BorgConfig = BorgConfig.Asic
+  // TTIHP26b targets the RV64 Hutt core (the same CPU the ULX3S/Linux work
+  // uses), not RV32I. As of this override, `make gds-ihp` does not yet fit
+  // the fixed 8x4 tile floorplan at RV64 -- area-reduction work is ongoing
+  // (see HuttAlu.scala's shared-multiplier fix for the first pass). Do not
+  // "fix" this by lowering PL_TARGET_DENSITY or requesting a larger tile
+  // allocation; the floorplan is fixed and the fix is real area reduction.
+  override def xlen: Int = 64
 
   val ui_in   = IO(Input(UInt(8.W)))
   val uo_out  = IO(Output(UInt(8.W)))
