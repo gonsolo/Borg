@@ -1030,15 +1030,20 @@ class Hutt(
         io.data.resp.valid, io.data.resp.fire, io.data.resp.bits)
       when(io.data.resp.fire) {
         when(isLoadOp && (loadRd =/= 0.U)) {
+          // Computed once and reused for both the real writeback and the
+          // debug tap -- extendLoad is a plain Scala function (not a
+          // Module), so calling it twice previously re-elaborated its
+          // whole 7-term MuxLookup a second time for nothing.
+          val loadExtended = extendLoad(loadFunct3, io.data.resp.bits)
           regFile.io.wAddr := loadRd
-          regFile.io.wData := extendLoad(loadFunct3, io.data.resp.bits)
+          regFile.io.wData := loadExtended
           regFile.io.wen   := true.B
           dbgLoadSeqReq       := dbgLoadSeqReq + 1.U
           dbgLoadPcReg        := pc
           dbgLoadVAReg        := dataVAReg
           dbgLoadPhysAddrReg  := dataPhysAddr
           dbgLoadRdReg        := loadRd
-          dbgLoadValReg       := extendLoad(loadFunct3, io.data.resp.bits)
+          dbgLoadValReg       := loadExtended
         }.elsewhen(!isLoadOp) {
           // A plain store to the reserved address invalidates an LR reservation.
           when(lrValid && (lrAddr === memAddr)) { lrValid := false.B }

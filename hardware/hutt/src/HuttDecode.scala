@@ -146,8 +146,16 @@ object HuttDecode {
                   (isSystem0 && !d.isEcall && !d.isEbreak && !d.isMret && !d.isSret && !d.isSfenceVma)
 
     // A extension: opcode 0101111, funct3 010=word/011=doubleword, funct5=instr[31:27].
+    // xlen=64 only (RV32/ASIC never emits these -- GCC needs -march=...a to
+    // even encode them). Hardwiring isAmo/isLr/isSc to Chisel-level false.B
+    // for xlen=32 (rather than just relying on the opcode never appearing
+    // in practice) lets yosys's constant-propagation prove Hutt's entire
+    // AMO/LR/SC FSM (sAmoLoadReq/sAmoLoadResp/sAmoStoreReq/sAmoStoreResp,
+    // the reservation registers, the 9-term amoNewVal ALU) unreachable and
+    // eliminate it -- a runtime-only "instructions never appear" guarantee
+    // is data-dependent and can't be constant-folded by synthesis at all.
     d.amoFunct5 := instr(31, 27)
-    d.isAmo := d.opcode === Opcode.Amo
+    d.isAmo := (if (xlen == 64) d.opcode === Opcode.Amo else false.B)
     d.isLr  := d.isAmo && (d.amoFunct5 === AmoFunct5.Lr)
     d.isSc  := d.isAmo && (d.amoFunct5 === AmoFunct5.Sc)
 
