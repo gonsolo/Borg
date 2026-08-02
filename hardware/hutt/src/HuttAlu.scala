@@ -75,9 +75,23 @@ class HuttAlu(val xlen: Int = 32) extends Module {
   // (DIV/DIVU) or the dividend unchanged (REM/REMU); MIN_INT/-1 overflow
   // returns MIN_INT (DIV) or 0 (REM).
   val mulDivOps: Seq[(AluOp.Type, UInt)] = if (xlen == 64) {
-    val prodSS = io.a.asSInt * io.b.asSInt                 // 2*xlen-bit signed product
-    val prodUU = io.a * io.b                               // 2*xlen-bit unsigned product
-    val prodSU = io.a.asSInt * Cat(0.U(1.W), io.b).asSInt  // signed(a) * unsigned(b)
+    // Single shared (xlen+1)-bit signed multiplier for MUL/MULH/MULHSU/MULHU,
+    // instead of one full xlen*xlen multiplier per variant (previously 4
+    // separate full-width multiplies -- prodSS/prodUU/prodSU plus a 4th
+    // redundant `io.a * io.b` for MUL -- computed combinationally every
+    // cycle regardless of which op, if any, was actually a multiply. This
+    // was the single largest contributor to HuttAlu's synthesized area
+    // (measured ~46K cells post-synth, larger than the entire Borg GPU
+    // combined). Only MULHU treats `a` as unsigned; only MULHU/MULHSU treat
+    // `b` as unsigned -- extending each operand by one sign/zero bit and
+    // sharing one multiplier is exact for all four ops (MUL's low xlen bits
+    // are signedness-independent in two's complement, so any extension
+    // choice is valid for it too).
+    val aSigned = io.op =/= AluOp.Mulhu
+    val bSigned = io.op =/= AluOp.Mulhu && io.op =/= AluOp.Mulhsu
+    val aExt = Cat(Mux(aSigned, io.a(xlen - 1), 0.U(1.W)), io.a).asSInt
+    val bExt = Cat(Mux(bSigned, io.b(xlen - 1), 0.U(1.W)), io.b).asSInt
+    val prod = (aExt * bExt).asUInt  // 2*(xlen+1) bits
 
     // -- Multi-cycle divider, shared by DIV/DIVU/REM/REMU and the *W forms.
     val isWordOp = io.op === AluOp.DivW || io.op === AluOp.DivuW ||
@@ -135,10 +149,10 @@ class HuttAlu(val xlen: Int = 32) extends Module {
     val divResultOut = Mux(isWordOp, sextW(divResult(31, 0)), divResult)
 
     Seq(
-      AluOp.Mul    -> (io.a * io.b)(xlen - 1, 0),
-      AluOp.Mulh   -> prodSS.asUInt(2 * xlen - 1, xlen),
-      AluOp.Mulhsu -> prodSU.asUInt(2 * xlen - 1, xlen),
-      AluOp.Mulhu  -> prodUU(2 * xlen - 1, xlen),
+      AluOp.Mul    -> prod(xlen - 1, 0),
+      AluOp.Mulh   -> prod(2 * xlen - 1, xlen),
+      AluOp.Mulhsu -> prod(2 * xlen - 1, xlen),
+      AluOp.Mulhu  -> prod(2 * xlen - 1, xlen),
       AluOp.Div    -> divResultOut,
       AluOp.Divu   -> divResultOut,
       AluOp.Rem    -> divResultOut,
