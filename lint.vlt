@@ -53,4 +53,10 @@ lint_off -rule UNUSEDSIGNAL -file "*Hutt.sv"
 lint_off -rule UNUSEDSIGNAL -file "*HuttAlu.sv"
 lint_off -rule PINCONNECTEMPTY -file "*Peripherals.sv"
 lint_off -rule UNUSEDSIGNAL -file "*Clint.sv"
-lint_off -rule UNUSEDSIGNAL -file "*mem_32x32*.sv"
+// HuttRegFile's register file: two 16-entry Mem halves (matching ECP5's
+// native TRELLIS_DPR16X4 primitive depth) instead of one Mem(32, ...) --
+// same async-read-clock-port-unused pattern as the LUTs above. Generated
+// blackbox name depends on xlen (mem_16x32 for RV32 ASIC/TT, mem_16x64
+// for RV64 ULX3S).
+lint_off -rule UNUSEDSIGNAL -file "*mem_16x32*.sv"
+lint_off -rule UNUSEDSIGNAL -file "*mem_16x64*.sv"
