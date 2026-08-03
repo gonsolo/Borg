@@ -152,7 +152,15 @@ class Hutt(
     // and pays for the extra stage's registers + duplicated select logic
     // for nothing. Default true preserves the exact, already timing-closed
     // ULX3S behavior; the ASIC top overrides this to false.
-    val pipelinedCsrRead: Boolean = true
+    val pipelinedCsrRead: Boolean = true,
+    // S-mode privilege level, its CSRs (sstatus/sie/stvec/sscratch/sepc/
+    // scause/stval/sip), and trap delegation (medeleg/mideleg) -- default
+    // true preserves ULX3S/Linux exactly. The ASIC's bare-metal firmware
+    // (software/borg, software/hutt) never leaves M-mode: no ecall/mret/
+    // sret anywhere, mtvec is never set, the only CSR touched is the
+    // read-only `cycle` counter. Every S-mode-specific register and code
+    // path is dead weight there.
+    val hasSupervisorMode: Boolean = true
 ) extends Module {
 
   val io = IO(new HuttIO(instrAddrWidth, dataAddrWidth, xlen))
@@ -179,8 +187,9 @@ class Hutt(
   val mcause   = RegInit(0.U(xlen.W))
   val mtval    = RegInit(0.U(xlen.W))
   val mie      = RegInit(0.U(xlen.W))
-  val medeleg  = RegInit(0.U(xlen.W))
-  val mideleg  = RegInit(0.U(xlen.W))
+  // Delegation registers -- only meaningful with S-mode to delegate to.
+  val medelegOpt: Option[UInt] = if (hasSupervisorMode) Some(RegInit(0.U(xlen.W))) else None
+  val midelegOpt: Option[UInt] = if (hasSupervisorMode) Some(RegInit(0.U(xlen.W))) else None
   // mip: bit 7 MTIP is hardware (CLINT); bits 5/1 STIP/SSIP are software-set.
   val mip_sw  = RegInit(0.U(xlen.W))
   val mip     = Cat(0.U((xlen - 8).W), io.interrupt, 0.U(7.W)) | mip_sw
@@ -189,12 +198,16 @@ class Hutt(
   val misa    = Cat(misaMxl, 0.U((xlen - 28).W),
                     ((1 << ('I' - 'A')) | (1 << ('S' - 'A'))).U(26.W))
 
-  // -- S-mode CSRs -----------------------------------------------------------
-  val stvec    = RegInit(0.U(xlen.W))
-  val sscratch = RegInit(0.U(xlen.W))
-  val sepc     = RegInit(0.U(xlen.W))
-  val scause   = RegInit(0.U(xlen.W))
-  val stval    = RegInit(0.U(xlen.W))
+  // -- S-mode CSRs (Option: None when !hasSupervisorMode) --------------------
+  def optReg(): Option[UInt] = if (hasSupervisorMode) Some(RegInit(0.U(xlen.W))) else None
+  val stvecOpt    = optReg()
+  val sscratchOpt = optReg()
+  val sepcOpt     = optReg()
+  val scauseOpt   = optReg()
+  val stvalOpt    = optReg()
+  // Reads as 0 when the register doesn't exist -- used by the few remaining
+  // combinational sites (sTrapPC) that need a value regardless of config.
+  def rd(o: Option[UInt]): UInt = o.getOrElse(0.U(xlen.W))
   // satp: Sv39 address-translation CSR (0x180).  Meaningful only for xlen=64.
   //   MODE[63:60]=8 → Sv39; ASID[59:44]; PPN[43:0] of root page table.
   val satp     = RegInit(0.U(xlen.W))
@@ -263,7 +276,7 @@ class Hutt(
   io.dbgTrapToPriv   := dbgTrapToPrivReg
   io.dbgTrapTargetPc := dbgTrapTargetPcReg
   io.dbgTrapMtvec := mtvec
-  io.dbgTrapStvec := stvec
+  io.dbgTrapStvec := rd(stvecOpt)
   def dbgTrapLatch(fromPc: UInt, cause: UInt, toPriv: UInt, targetPc: UInt): Unit = {
     dbgTrapSeqReg      := dbgTrapSeqReg + 1.U
     dbgTrapFromPcReg   := fromPc
@@ -386,22 +399,26 @@ class Hutt(
   // Stage 2 (cycle N+1, state sCsrSel below): a trivial 4-way pick among
   // the now-REGISTERED group values. Each stage only needs to close timing
   // on its own (much shallower) logic, not the original monolithic select.
-  val csrEntries: Seq[(String, UInt)] = Seq(
-    // S-mode CSRs
+  // S-mode entries (sstatus/sie/stvec/sscratch/sepc/scause/stval/sip) exist
+  // only when hasSupervisorMode -- see the constructor doc. satp stays
+  // unconditional (cheap, and tied to xlen/MMU rather than privilege).
+  val sModeCsrEntries: Seq[(String, UInt)] = if (hasSupervisorMode) Seq(
     "h100" -> (mstatus & SSTATUS_MASK),  // sstatus = mstatus masked
     "h104" -> (mie     & SIE_SIP_MASK),  // sie
-    "h105" -> stvec,
-    "h140" -> sscratch,
-    "h141" -> sepc,
-    "h142" -> scause,
-    "h143" -> stval,
+    "h105" -> stvecOpt.get,
+    "h140" -> sscratchOpt.get,
+    "h141" -> sepcOpt.get,
+    "h142" -> scauseOpt.get,
+    "h143" -> stvalOpt.get,
     "h144" -> (mip     & SIE_SIP_MASK),  // sip
+    "h302" -> medelegOpt.get,
+    "h303" -> midelegOpt.get
+  ) else Seq.empty
+  val csrEntries: Seq[(String, UInt)] = sModeCsrEntries ++ Seq(
     "h180" -> satp,
     // M-mode CSRs
     "h300" -> mstatus,
     "h301" -> misa,
-    "h302" -> medeleg,
-    "h303" -> mideleg,
     "h304" -> mie,
     "h305" -> mtvec,
     "h340" -> mscratch,
@@ -480,80 +497,86 @@ class Hutt(
     (d.funct3(1, 0) === "b11".U) -> (csrReadData & ~csrSrc)
   ))
 
-  // CSR write decode, gated on the same narrow group-select as the read
-  // side (see "-- CSR read --" above) instead of one flat ~19-way
-  // switch(csrAddr) -- extracted so both the pipelined path (sCsrSel,
-  // reading the registered group-select) and the non-pipelined path
-  // (inline in sExec, reading the combinational one) share this exact
-  // logic instead of duplicating it.
+  // Write actions, keyed by CSR address, for every WRITABLE CSR (misa and
+  // the cycle/mcycle/time trio are read-only -- no entry). Generated (not
+  // hand-grouped) from the exact same csrGroups the read side uses, so the
+  // group-select value csrWriteDecode receives always means the same thing
+  // it meant on the read side -- previously this was two hand-maintained
+  // parallel structures (a literal is(0.U)/is(1.U)/is(2.U)/is(3.U) block
+  // here, csrEntries.grouped(6) there) that had to be kept in sync by hand;
+  // reordering csrEntries (as hasSupervisorMode's read-side gating does)
+  // silently desyncs a hand-written copy without any compile-time signal.
+  val csrWriters: Map[String, () => Unit] = (
+    (if (hasSupervisorMode) Seq[(String, () => Unit)](
+      "h100" -> (() => { mstatus := (mstatus & ~SSTATUS_MASK) | (csrNewVal & SSTATUS_MASK) }),
+      "h104" -> (() => {
+        mie := (mie & ~SIE_SIP_MASK) | (csrNewVal & SIE_SIP_MASK)
+        if (HuttDebug.timerTrace) printf("[HUTT-TIMER] sie write csrNewVal=0x%x -> mie=0x%x\n",
+          csrNewVal, (mie & ~SIE_SIP_MASK) | (csrNewVal & SIE_SIP_MASK))
+      }),
+      "h105" -> (() => { stvecOpt.get    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }),
+      "h140" -> (() => { sscratchOpt.get := csrNewVal }),
+      "h141" -> (() => {
+        sepcOpt.get        := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
+        dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U
+        dbgSepcWritePcReg  := pc
+        dbgSepcWriteValReg := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
+      }),
+      "h142" -> (() => { scauseOpt.get := csrNewVal }),
+      "h143" -> (() => { stvalOpt.get  := csrNewVal }),
+      "h144" -> (() => {
+        mip_sw := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR)
+        if (HuttDebug.timerTrace) printf("[HUTT-TIMER] sip write csrNewVal=0x%x -> mip_sw=0x%x\n",
+          csrNewVal, (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR))
+      }),
+      "h302" -> (() => { medelegOpt.get := csrNewVal }),
+      "h303" -> (() => { midelegOpt.get := csrNewVal })
+    ) else Seq.empty[(String, () => Unit)]) ++
+    Seq[(String, () => Unit)](
+      "h180" -> (() => {
+        satp := csrNewVal
+        // The TLB has no ASID field (tlbVPN/tlbPPN/tlbFlags match on VA
+        // bits only) -- but Linux relies on the Sv39 spec's ASID semantics
+        // to safely SKIP an explicit sfence.vma on most context switches,
+        // trusting hardware to keep different address spaces isolated in
+        // the TLB. Without this flush, a VA cached from one process's
+        // mapping gets silently served to a completely different process
+        // after satp changes, corrupting memory (root-caused via a child
+        // process crashing immediately after fork() with garbage ra/pc --
+        // the child's own stack writes were being satisfied by a stale
+        // TLB entry still pointing at a DIFFERENT process's physical page).
+        if (xlen == 64) { for (i <- 0 until TLB_ENTRIES) { tlbValid(i) := false.B } }
+      }),
+      "h300" -> (() => { mstatus  := csrNewVal }),
+      "h304" -> (() => {
+        mie := csrNewVal
+        if (HuttDebug.timerTrace) printf("[HUTT-TIMER] mie write -> 0x%x\n", csrNewVal)
+      }),
+      "h305" -> (() => { mtvec    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }),
+      "h340" -> (() => { mscratch := csrNewVal }),
+      "h341" -> (() => { mepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W)) }),
+      "h342" -> (() => { mcause   := csrNewVal }),
+      "h343" -> (() => { mtval    := csrNewVal }),
+      "h344" -> (() => {
+        mip_sw := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR)
+        if (HuttDebug.timerTrace) printf("[HUTT-TIMER] mip write csrNewVal=0x%x -> mip_sw=0x%x\n",
+          csrNewVal, (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR))
+      })
+    )
+  ).toMap
+
+  // Plain when()-chains, not switch/is: chisel3's switch macro requires its
+  // block's direct children to be literal is() calls, which a generated
+  // (for/foreach-produced) sequence of cases can't satisfy -- confirmed by
+  // trying it ("Cannot include blocks that do not begin with is() in
+  // switch"). when() has no such restriction; since csrAddr/groupSel values
+  // are mutually exclusive across entries, this is semantically identical.
   def csrWriteDecode(groupSel: UInt): Unit = {
-    switch(groupSel) {
-      is(0.U) {
-        switch(csrAddr) {
-          is("h100".U) { mstatus  := (mstatus & ~SSTATUS_MASK) | (csrNewVal & SSTATUS_MASK) }
-          is("h104".U) {
-            mie := (mie & ~SIE_SIP_MASK) | (csrNewVal & SIE_SIP_MASK)
-            if (HuttDebug.timerTrace) printf("[HUTT-TIMER] sie write csrNewVal=0x%x -> mie=0x%x\n",
-              csrNewVal, (mie & ~SIE_SIP_MASK) | (csrNewVal & SIE_SIP_MASK))
-          }
-          is("h105".U) { stvec    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }
-          is("h140".U) { sscratch := csrNewVal }
-          is("h141".U) {
-            sepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
-            dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U
-            dbgSepcWritePcReg  := pc
-            dbgSepcWriteValReg := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
-          }
-          is("h142".U) { scause   := csrNewVal }
-        }
-      }
-      is(1.U) {
-        switch(csrAddr) {
-          is("h143".U) { stval    := csrNewVal }
-          is("h144".U) {
-            mip_sw := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR)
-            if (HuttDebug.timerTrace) printf("[HUTT-TIMER] sip write csrNewVal=0x%x -> mip_sw=0x%x\n",
-              csrNewVal, (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR))
-          }
-          is("h180".U) {
-            satp := csrNewVal
-            // The TLB has no ASID field (tlbVPN/tlbPPN/tlbFlags match on
-            // VA bits only) -- but Linux relies on the Sv39 spec's ASID
-            // semantics to safely SKIP an explicit sfence.vma on most
-            // context switches, trusting hardware to keep different
-            // address spaces isolated in the TLB. Without this flush, a
-            // VA cached from one process's mapping gets silently served
-            // to a completely different process after satp changes,
-            // corrupting memory (root-caused via a child process crashing
-            // immediately after fork() with garbage ra/pc — the child's
-            // own stack writes were being satisfied by a stale TLB entry
-            // still pointing at a DIFFERENT process's physical page).
-            if (xlen == 64) { for (i <- 0 until TLB_ENTRIES) { tlbValid(i) := false.B } }
-          }
-          is("h300".U) { mstatus  := csrNewVal }
-          is("h302".U) { medeleg  := csrNewVal }
-        }
-      }
-      is(2.U) {
-        switch(csrAddr) {
-          is("h303".U) { mideleg  := csrNewVal }
-          is("h304".U) {
-            mie := csrNewVal
-            if (HuttDebug.timerTrace) printf("[HUTT-TIMER] mie write -> 0x%x\n", csrNewVal)
-          }
-          is("h305".U) { mtvec    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }
-          is("h340".U) { mscratch := csrNewVal }
-          is("h341".U) { mepc     := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W)) }
-          is("h342".U) { mcause   := csrNewVal }
-        }
-      }
-      is(3.U) {
-        switch(csrAddr) {
-          is("h343".U) { mtval    := csrNewVal }
-          is("h344".U) {
-            mip_sw := (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR)
-            if (HuttDebug.timerTrace) printf("[HUTT-TIMER] mip write csrNewVal=0x%x -> mip_sw=0x%x\n",
-              csrNewVal, (mip_sw & ~MIP_SW_WR) | (csrNewVal & MIP_SW_WR))
+    csrGroups.zipWithIndex.foreach { case (group, idx) =>
+      when(groupSel === idx.U) {
+        group.foreach { case (addrHex, _) =>
+          csrWriters.get(addrHex).foreach { writer =>
+            when(csrAddr === addrHex.U) { writer() }
           }
         }
       }
@@ -603,7 +626,7 @@ class Hutt(
   )
   // Trap target addresses (direct mode only: bits[1:0] forced to 0).
   val mTrapPC = Cat(mtvec(xlen - 1, 2), 0.U(2.W))
-  val sTrapPC = Cat(stvec(xlen - 1, 2), 0.U(2.W))
+  val sTrapPC = Cat(rd(stvecOpt)(xlen - 1, 2), 0.U(2.W))
 
   // ECALL cause = f(privilege level): U→8, S→9, M→11.
   val ecallCause = MuxLookup(privLevel, 11.U(xlen.W))(Seq(
@@ -611,6 +634,23 @@ class Hutt(
     1.U -> 9.U(xlen.W),
     3.U -> 11.U(xlen.W)
   ))
+
+  // Shared M-mode trap-entry body (ecall/ebreak/illegal-CSR all fall back to
+  // this when not delegated to S-mode -- or unconditionally, when
+  // !hasSupervisorMode, since there's nowhere else to go).
+  def trapToM(cause: UInt, tval: UInt): Unit = {
+    mepc := pc; mcause := cause; mtval := tval
+    mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
+    dbgTrapLatch(pc, cause, 3.U, mTrapPC)
+  }
+  // Shared S-mode trap-entry body -- only ever called from within an
+  // `if (hasSupervisorMode)` guard (references sepcOpt.get etc.).
+  def trapToS(cause: UInt, tval: UInt): Unit = {
+    sepcOpt.get := pc; scauseOpt.get := cause; stvalOpt.get := tval
+    dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
+    mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
+    dbgTrapLatch(pc, cause, 1.U, sTrapPC)
+  }
 
   // -- Writeback logic -------------------------------------------------------
   val wbAlu    = alu.io.out
@@ -675,7 +715,13 @@ class Hutt(
       val sTimerPend = mie(5) && mip(5) && (privLevel =/= 3.U) &&
         Mux(privLevel === 1.U, mstatus(1), true.B)
 
-      when(mTimerPend) {
+      // Chisel's when/elsewhen/otherwise are chainable method calls, not a
+      // macro that needs literal syntax like switch/is -- so the S-mode
+      // timer branch (references sepcOpt.get etc., which would throw at
+      // elaboration if !hasSupervisorMode) can be conditionally omitted
+      // from the chain at the Scala level while still building one real
+      // when/otherwise chain for the hardware.
+      val timerAfterM = when(mTimerPend) {
         if (HuttDebug.timerTrace) printf("[HUTT-TIMER] M-mode timer trap taken pc=0x%x priv=%d mie=0x%x mip=0x%x\n",
           pc, privLevel, mie, mip)
         mepc      := pc
@@ -686,19 +732,23 @@ class Hutt(
         privLevel := 3.U
         lrValid   := false.B
         dbgTrapLatch(pc, Cat(true.B, 0.U((xlen - 4).W), 7.U(3.W)), 3.U, mTrapPC)
-      }.elsewhen(sTimerPend) {
-        if (HuttDebug.timerTrace) printf("[HUTT-TIMER] S-mode timer trap taken pc=0x%x priv=%d mie=0x%x mip=0x%x\n",
-          pc, privLevel, mie, mip)
-        sepc      := pc
-        dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
-        scause    := Cat(true.B, 0.U((xlen - 4).W), 5.U(3.W))
-        stval     := 0.U(xlen.W)
-        mstatus   := mstatusStrap
-        dbgTrapLatch(pc, Cat(true.B, 0.U((xlen - 4).W), 5.U(3.W)), 1.U, sTrapPC)
-        pc        := sTrapPC
-        privLevel := 1.U
-        lrValid   := false.B
-      }.otherwise {
+      }
+      val timerAfterS = if (hasSupervisorMode) {
+        timerAfterM.elsewhen(sTimerPend) {
+          if (HuttDebug.timerTrace) printf("[HUTT-TIMER] S-mode timer trap taken pc=0x%x priv=%d mie=0x%x mip=0x%x\n",
+            pc, privLevel, mie, mip)
+          sepcOpt.get := pc
+          dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
+          scauseOpt.get := Cat(true.B, 0.U((xlen - 4).W), 5.U(3.W))
+          stvalOpt.get  := 0.U(xlen.W)
+          mstatus   := mstatusStrap
+          dbgTrapLatch(pc, Cat(true.B, 0.U((xlen - 4).W), 5.U(3.W)), 1.U, sTrapPC)
+          pc        := sTrapPC
+          privLevel := 1.U
+          lrValid   := false.B
+        }
+      } else timerAfterM
+      timerAfterS.otherwise {
         if (xlen == 64) {
           when(mmuEnabled) {
             val tlbIdx = pc(TLB_BITS + 11, 12)
@@ -870,31 +920,24 @@ class Hutt(
           }
         }
         // Delegation: S-mode ECALL (cause 9) → medeleg[9]; U-mode → medeleg[8].
-        val ecallDeleg = Mux(privLevel === 1.U, medeleg(9),
-                          Mux(privLevel === 0.U, medeleg(8), false.B))
-        when(ecallDeleg) {
-          sepc := pc; scause := ecallCause; stval := 0.U(xlen.W)
-          dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
-          mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
-          dbgTrapLatch(pc, ecallCause, 1.U, sTrapPC)
-        }.otherwise {
-          mepc := pc; mcause := ecallCause; mtval := 0.U(xlen.W)
-          mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
-          dbgTrapLatch(pc, ecallCause, 3.U, mTrapPC)
+        // Only meaningful with S-mode to delegate to; straight to M otherwise.
+        if (hasSupervisorMode) {
+          val ecallDeleg = Mux(privLevel === 1.U, medelegOpt.get(9),
+                            Mux(privLevel === 0.U, medelegOpt.get(8), false.B))
+          when(ecallDeleg) { trapToS(ecallCause, 0.U(xlen.W)) }
+            .otherwise      { trapToM(ecallCause, 0.U(xlen.W)) }
+        } else {
+          trapToM(ecallCause, 0.U(xlen.W))
         }
         lrValid := false.B
         state := sFetchReq
 
       }.elsewhen(d.isEbreak) {
-        when((privLevel =/= 3.U) && medeleg(3)) {
-          sepc := pc; scause := 3.U(xlen.W); stval := pc
-          dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
-          mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
-          dbgTrapLatch(pc, 3.U(xlen.W), 1.U, sTrapPC)
-        }.otherwise {
-          mepc := pc; mcause := 3.U(xlen.W); mtval := pc
-          mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
-          dbgTrapLatch(pc, 3.U(xlen.W), 3.U, mTrapPC)
+        if (hasSupervisorMode) {
+          when((privLevel =/= 3.U) && medelegOpt.get(3)) { trapToS(3.U(xlen.W), pc) }
+            .otherwise                                    { trapToM(3.U(xlen.W), pc) }
+        } else {
+          trapToM(3.U(xlen.W), pc)
         }
         lrValid := false.B
         state := sFetchReq
@@ -906,10 +949,19 @@ class Hutt(
         state     := sFetchReq
 
       }.elsewhen(d.isSret) {
-        mstatus   := mstatusSret
-        pc        := sepc
-        privLevel := Cat(0.U(1.W), mstatus(8))  // SPP → S(1) or U(0)
-        state     := sFetchReq
+        // d.isSret itself isn't gated by hasSupervisorMode (SRET decode is
+        // real regardless) -- only the body is, since it's what references
+        // sepcOpt.get and would fail to elaborate if None. ASIC firmware
+        // never emits SRET; if !hasSupervisorMode, treat a stray one as a
+        // safe no-op rather than an undefined/hung state.
+        if (hasSupervisorMode) {
+          mstatus   := mstatusSret
+          pc        := sepcOpt.get
+          privLevel := Cat(0.U(1.W), mstatus(8))  // SPP → S(1) or U(0)
+        } else {
+          pc := pcNext
+        }
+        state := sFetchReq
 
       }.elsewhen(d.isSfenceVma) {
         if (xlen == 64) { for (i <- 0 until TLB_ENTRIES) { tlbValid(i) := false.B } }
@@ -920,19 +972,15 @@ class Hutt(
       }.otherwise {
         val csrIllegal = d.isCsr && csrForcesIllegal
         when(csrIllegal) {
-          if (HuttDebug.timerTrace) printf("[HUTT-TIMER] illegal CSR (stimecmp) trap pc=0x%x priv=%d medeleg=0x%x\n",
-            pc, privLevel, medeleg)
+          if (HuttDebug.timerTrace) printf("[HUTT-TIMER] illegal CSR (stimecmp) trap pc=0x%x priv=%d\n", pc, privLevel)
           // Illegal instruction (cause 2): delegate to S-mode per medeleg[2],
-          // same pattern as isEcall/isEbreak above.
-          when((privLevel =/= 3.U) && medeleg(2)) {
-            sepc := pc; scause := 2.U(xlen.W); stval := instr
-            dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
-            mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
-            dbgTrapLatch(pc, 2.U(xlen.W), 1.U, sTrapPC)
-          }.otherwise {
-            mepc := pc; mcause := 2.U(xlen.W); mtval := instr
-            mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
-            dbgTrapLatch(pc, 2.U(xlen.W), 3.U, mTrapPC)
+          // same pattern as isEcall/isEbreak above. Only meaningful with
+          // S-mode to delegate to; straight to M otherwise.
+          if (hasSupervisorMode) {
+            when((privLevel =/= 3.U) && medelegOpt.get(2)) { trapToS(2.U(xlen.W), instr) }
+              .otherwise                                    { trapToM(2.U(xlen.W), instr) }
+          } else {
+            trapToM(2.U(xlen.W), instr)
           }
           lrValid := false.B
           state := sFetchReq
@@ -1096,19 +1144,21 @@ class Hutt(
           // Page-fault cause and delegation bit.
           val faultCause = Mux(ptwIsInstr, 12.U(xlen.W),
                            Mux(ptwIsWrite, 15.U(xlen.W), 13.U(xlen.W)))
-          val faultDeleg = Mux(ptwIsInstr, medeleg(12),
-                           Mux(ptwIsWrite, medeleg(15), medeleg(13)))
+          // Sv39 MMU inherently implies S-mode (translation is meaningless
+          // without S/U privilege levels to translate for) -- this whole PTW
+          // block already only exists when xlen==64, and every xlen==64
+          // config in this codebase (ULX3S) also has hasSupervisorMode=true,
+          // so .get here is safe in every real configuration. A hypothetical
+          // xlen=64+!hasSupervisorMode build (not used anywhere today) would
+          // fail loudly at elaboration rather than silently misbehave.
+          val faultDeleg = Mux(ptwIsInstr, medelegOpt.get(12),
+                           Mux(ptwIsWrite, medelegOpt.get(15), medelegOpt.get(13)))
 
           def doFault(): Unit = {
             when(faultDeleg && (privLevel =/= 3.U)) {
-              sepc := pc; scause := faultCause; stval := ptwVA
-              dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
-              mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
-              dbgTrapLatch(pc, faultCause, 1.U, sTrapPC)
+              trapToS(faultCause, ptwVA)
             }.otherwise {
-              mepc := pc; mcause := faultCause; mtval := ptwVA
-              mstatus := mstatusTrap; pc := mTrapPC; privLevel := 3.U
-              dbgTrapLatch(pc, faultCause, 3.U, mTrapPC)
+              trapToM(faultCause, ptwVA)
             }
             state := sFetchReq
           }

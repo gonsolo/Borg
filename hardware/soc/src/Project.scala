@@ -75,6 +75,10 @@ trait SoCLogic { self: RawModule =>
   // timing-closed target (ULX3S @ 25MHz); override false only for a target
   // whose clock is slow enough to not need the split (e.g. TT ASIC @ 4MHz).
   def pipelinedCsrRead: Boolean = true
+  // See Hutt's constructor doc. Default true matches ULX3S/Linux; override
+  // false only for a target with no S-mode software (e.g. TT ASIC's
+  // bare-metal firmware, which never leaves M-mode).
+  def hasSupervisorMode: Boolean = true
 
   // --- Abstract members provided by each top-level ---
   def soc_clk: Clock
@@ -84,7 +88,7 @@ trait SoCLogic { self: RawModule =>
 
   // --- Core + peripherals ---
   lazy val cpu = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new Hutt(xlen = xlen, pipelinedCsrRead = pipelinedCsrRead))
+    Module(new Hutt(xlen = xlen, pipelinedCsrRead = pipelinedCsrRead, hasSupervisorMode = hasSupervisorMode))
   }
   lazy val mem = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new MemoryController())
