@@ -20,19 +20,30 @@ import memory.QspiBackend
 class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // Fit the IHP 8×4 tile: reduce BorgBinner's count SRAM from 1024 to 16 tiles.
   override def BORG_CFG: BorgConfig = BorgConfig.Asic
-  // TTIHP26b targets the RV64 Hutt core (the same CPU the ULX3S/Linux work
-  // uses), not RV32I. As of this override, `make gds-ihp` does not yet fit
-  // the fixed 8x4 tile floorplan at RV64 -- area-reduction work is ongoing
-  // (see HuttAlu.scala's shared-multiplier fix for the first pass). Do not
-  // "fix" this by lowering PL_TARGET_DENSITY or requesting a larger tile
-  // allocation; the floorplan is fixed and the fix is real area reduction.
-  override def xlen: Int = 64
+  // TTIHP26b targets RV32I (Hutt's default -- no override needed). RV64 +
+  // Linux was investigated and measured: Linux+Borg needs ~2.3 mm^2 of core
+  // (8x8 tiles), 1.9x the 8x4 TT-IHP maximum -- not reachable without either
+  // a bigger die (not offered by TT-IHP at any tile size) or gutting Borg to
+  // make room, which isn't the right trade for a GPU tapeout. That RV64/area
+  // campaign is tracked separately as a future-shuttle goal; September ships
+  // RV32 + Borg, no Linux.
+  //
   // Hutt's CSR read/write is split into two pipeline stages purely to
   // close ECP5's 25MHz timing (see Hutt.scala's constructor doc). TT's
   // sign-off clock is 250ns/4MHz (src/config.json CLOCK_PERIOD) -- 6x the
   // period the split exists for -- so skip it and save the extra stage's
   // registers + duplicated select logic.
   override def pipelinedCsrRead: Boolean = false
+  // S-mode/CSR delegation machinery (sstatus/sie/stvec/sscratch/sepc/scause/
+  // stval/sip, medeleg/mideleg) exists only to support Linux -- see Hutt's
+  // constructor doc. software/borg's bare-metal firmware never leaves
+  // M-mode: no ecall/mret/sret anywhere, mtvec is never set, the only CSR
+  // touched at all is the read-only `cycle` counter (borg_driver.c:369).
+  // Recovers ~117k um^2 of the regression the Linux merge introduced on
+  // this target (main went from 843,556 um^2, TTIHP26a's proven-good
+  // synthesis area, to 960,127 -- which is why make gds-ihp started failing
+  // detailed placement even at RV32, before any of the RV64 work).
+  override def hasSupervisorMode: Boolean = false
 
   val ui_in   = IO(Input(UInt(8.W)))
   val uo_out  = IO(Output(UInt(8.W)))
