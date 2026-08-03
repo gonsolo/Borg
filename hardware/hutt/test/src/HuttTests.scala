@@ -18,11 +18,13 @@ class HuttTestHarness(
     val program: Seq[BigInt],
     val instrAddrWidth: Int = 10,
     val dataAddrWidth: Int  = 10,
-    val pipelinedCsrRead: Boolean = true
+    val pipelinedCsrRead: Boolean = true,
+    val hasSupervisorMode: Boolean = true
 ) extends Module {
   val io = IO(new HuttTestHarnessIO(instrAddrWidth, dataAddrWidth))
 
-  val cpu = Module(new Hutt(instrAddrWidth, dataAddrWidth, pipelinedCsrRead = pipelinedCsrRead))
+  val cpu = Module(new Hutt(instrAddrWidth, dataAddrWidth,
+    pipelinedCsrRead = pipelinedCsrRead, hasSupervisorMode = hasSupervisorMode))
   cpu.io.interrupt := io.interrupt
 
   val iMemDepth = 1 << instrAddrWidth
