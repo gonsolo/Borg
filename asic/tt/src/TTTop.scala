@@ -39,11 +39,15 @@ class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // constructor doc. software/borg's bare-metal firmware never leaves
   // M-mode: no ecall/mret/sret anywhere, mtvec is never set, the only CSR
   // touched at all is the read-only `cycle` counter (borg_driver.c:369).
-  // Recovers ~117k um^2 of the regression the Linux merge introduced on
-  // this target (main went from 843,556 um^2, TTIHP26a's proven-good
-  // synthesis area, to 960,127 -- which is why make gds-ihp started failing
-  // detailed placement even at RV32, before any of the RV64 work).
+  // Measured: 960,127 -> 926,861 um^2 (-3.5%) -- real, but well short of
+  // the full regression vs TTIHP26a's proven-good 843,556 um^2 baseline,
+  // so make gds-ihp still fails detailed placement on its own. The rest of
+  // the gap is elsewhere (see hasClint below, and the still-open area
+  // campaign in project memory).
   override def hasSupervisorMode: Boolean = false
+  // CLINT (mtime/mtimecmp, timer interrupts): same story as S-mode --
+  // Linux/OpenSBI-only, and this firmware never takes an interrupt.
+  override def hasClint: Boolean = false
 
   val ui_in   = IO(Input(UInt(8.W)))
   val uo_out  = IO(Output(UInt(8.W)))
