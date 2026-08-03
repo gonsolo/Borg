@@ -52,7 +52,7 @@ class HuttRegFileIO(val xlen: Int = 32) extends Bundle {
   * x0 is hardwired to zero: writes are silently dropped, reads always return 0.
   * Both read ports are asynchronous; write happens on rising clock when `wen`.
   */
-class HuttRegFile(val xlen: Int = 32) extends Module {
+class HuttRegFile(val xlen: Int = 32, val hasDebugPorts: Boolean = true) extends Module {
   val io = IO(new HuttRegFileIO(xlen))
 
   // Two explicit 16-entry halves (matching ECP5's native TRELLIS_DPR16X4
@@ -73,13 +73,16 @@ class HuttRegFile(val xlen: Int = 32) extends Module {
 
   io.rs1Data := Mux(io.rs1Addr === 0.U, 0.U, readPort(io.rs1Addr))
   io.rs2Data := Mux(io.rs2Addr === 0.U, 0.U, readPort(io.rs2Addr))
-  io.dbgS1 := readPort(9.U)
-  io.dbgA5 := readPort(15.U)
-  io.dbgS3 := readPort(19.U)
-  io.dbgS5 := readPort(21.U)
-  io.dbgS2 := readPort(18.U)
-  io.dbgA0 := readPort(10.U)
-  io.dbgRa := readPort(1.U)
+  // Each of these is its own read-port mux against the register array --
+  // real area (measured), not free. Tied to 0 (not connected to the array
+  // at all) when !hasDebugPorts.
+  io.dbgS1 := (if (hasDebugPorts) readPort(9.U)  else 0.U)
+  io.dbgA5 := (if (hasDebugPorts) readPort(15.U) else 0.U)
+  io.dbgS3 := (if (hasDebugPorts) readPort(19.U) else 0.U)
+  io.dbgS5 := (if (hasDebugPorts) readPort(21.U) else 0.U)
+  io.dbgS2 := (if (hasDebugPorts) readPort(18.U) else 0.U)
+  io.dbgA0 := (if (hasDebugPorts) readPort(10.U) else 0.U)
+  io.dbgRa := (if (hasDebugPorts) readPort(1.U)  else 0.U)
 
   when(io.wen && io.wAddr =/= 0.U) {
     when(io.wAddr(4)) {

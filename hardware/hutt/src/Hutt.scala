@@ -160,7 +160,14 @@ class Hutt(
     // sret anywhere, mtvec is never set, the only CSR touched is the
     // read-only `cycle` counter. Every S-mode-specific register and code
     // path is dead weight there.
-    val hasSupervisorMode: Boolean = true
+    val hasSupervisorMode: Boolean = true,
+    // Debug trace registers accumulated across the ULX3S/Linux boot
+    // investigation (store/load/trap/sfence tracers, x1/x18 write-tracking,
+    // and the register-file forensic taps in HuttRegFile) -- pure hardware
+    // debug state, observed only by simulation harnesses and never read by
+    // any Hutt-internal logic. Default true preserves ULX3S debug
+    // capability; the ASIC has no such harness to observe these pins.
+    val hasDebugPorts: Boolean = true
 ) extends Module {
 
   val io = IO(new HuttIO(instrAddrWidth, dataAddrWidth, xlen))
@@ -208,6 +215,14 @@ class Hutt(
   // Reads as 0 when the register doesn't exist -- used by the few remaining
   // combinational sites (sTrapPC) that need a value regardless of config.
   def rd(o: Option[UInt]): UInt = o.getOrElse(0.U(xlen.W))
+  // Width-generic version, for the debug registers below (32-bit sequence
+  // counters, 2-bit privilege fields, 5-bit register addresses, etc. --
+  // not all xlen-wide).
+  def rdW(o: Option[UInt], w: Int): UInt = o.getOrElse(0.U(w.W))
+  // A debug register: None (and its would-be writes skipped entirely) when
+  // !hasDebugPorts. `w` defaults to xlen for the common case.
+  def dbgReg(w: Int = xlen): Option[UInt] =
+    if (hasDebugPorts) Some(RegInit(0.U(w.W))) else None
   // satp: Sv39 address-translation CSR (0x180).  Meaningful only for xlen=64.
   //   MODE[63:60]=8 → Sv39; ASID[59:44]; PPN[43:0] of root page table.
   val satp     = RegInit(0.U(xlen.W))
@@ -254,9 +269,12 @@ class Hutt(
   // mip software-writable bits: STIP(5), SSIP(1).
   val MIP_SW_WR    = 0x22L.U(xlen.W)
 
-  val regFile = Module(new HuttRegFile(xlen))
+  val regFile = Module(new HuttRegFile(xlen, hasDebugPorts = hasDebugPorts))
   val alu     = Module(new HuttAlu(xlen))
 
+  // HuttRegFile itself ties these to 0 internally when !hasDebugPorts (no
+  // read-port mux cost there either), so connecting unconditionally here
+  // is fine either way.
   io.dbgS1 := regFile.io.dbgS1
   io.dbgA5 := regFile.io.dbgA5
   io.dbgS3 := regFile.io.dbgS3
@@ -265,66 +283,73 @@ class Hutt(
   io.dbgA0 := regFile.io.dbgA0
   io.dbgRa := regFile.io.dbgRa
 
-  val dbgTrapSeqReg      = RegInit(0.U(32.W))
-  val dbgTrapFromPcReg   = RegInit(0.U(xlen.W))
-  val dbgTrapCauseReg    = RegInit(0.U(xlen.W))
-  val dbgTrapToPrivReg   = RegInit(0.U(2.W))
-  val dbgTrapTargetPcReg = RegInit(0.U(xlen.W))
-  io.dbgTrapSeq      := dbgTrapSeqReg
-  io.dbgTrapFromPc   := dbgTrapFromPcReg
-  io.dbgTrapCause    := dbgTrapCauseReg
-  io.dbgTrapToPriv   := dbgTrapToPrivReg
-  io.dbgTrapTargetPc := dbgTrapTargetPcReg
+  // Debug trace registers below (store/load/trap/sfence/x1/x18 tracers,
+  // accumulated across the ULX3S/Linux boot investigation): pure hardware
+  // debug state, read only by simulation harnesses, never by Hutt itself.
+  // None (and every write site skipped) when !hasDebugPorts -- see dbgReg's
+  // doc above and the constructor's hasDebugPorts doc.
+  val dbgTrapSeqReg      = dbgReg(32)
+  val dbgTrapFromPcReg   = dbgReg()
+  val dbgTrapCauseReg    = dbgReg()
+  val dbgTrapToPrivReg   = dbgReg(2)
+  val dbgTrapTargetPcReg = dbgReg()
+  io.dbgTrapSeq      := rdW(dbgTrapSeqReg, 32)
+  io.dbgTrapFromPc   := rd(dbgTrapFromPcReg)
+  io.dbgTrapCause    := rd(dbgTrapCauseReg)
+  io.dbgTrapToPriv   := rdW(dbgTrapToPrivReg, 2)
+  io.dbgTrapTargetPc := rd(dbgTrapTargetPcReg)
   io.dbgTrapMtvec := mtvec
   io.dbgTrapStvec := rd(stvecOpt)
   def dbgTrapLatch(fromPc: UInt, cause: UInt, toPriv: UInt, targetPc: UInt): Unit = {
-    dbgTrapSeqReg      := dbgTrapSeqReg + 1.U
-    dbgTrapFromPcReg   := fromPc
-    dbgTrapCauseReg    := cause
-    dbgTrapToPrivReg   := toPriv
-    dbgTrapTargetPcReg := targetPc
+    if (hasDebugPorts) {
+      dbgTrapSeqReg.get      := dbgTrapSeqReg.get + 1.U
+      dbgTrapFromPcReg.get   := fromPc
+      dbgTrapCauseReg.get    := cause
+      dbgTrapToPrivReg.get   := toPriv
+      dbgTrapTargetPcReg.get := targetPc
+    }
   }
 
-  val dbgPtwFillSeqReg   = RegInit(0.U(32.W))
-  val dbgPtwFillVAReg    = RegInit(0.U(xlen.W))
-  val dbgPtwFillPPNReg   = RegInit(0.U(44.W))
-  val dbgPtwFillLevelReg = RegInit(0.U(2.W))
-  val dbgStoreSeqReg       = RegInit(0.U(32.W))
-  val dbgStorePcReg        = RegInit(0.U(xlen.W))
-  val dbgStorePhysAddrReg  = RegInit(0.U(dataAddrWidth.W))
-  val dbgStoreVAReg2       = RegInit(0.U(xlen.W))
-  val dbgStoreDataReg      = RegInit(0.U(xlen.W))
-  val dbgSepcWriteSeqReg = RegInit(0.U(32.W))
-  val dbgSepcWritePcReg  = RegInit(0.U(xlen.W))
-  val dbgSepcWriteValReg = RegInit(0.U(xlen.W))
-  val dbgSfenceSeqReg = RegInit(0.U(32.W))
-  val dbgSfencePcReg  = RegInit(0.U(xlen.W))
-  io.dbgSfenceSeq := dbgSfenceSeqReg
-  io.dbgSfencePc  := dbgSfencePcReg
-  io.dbgSepcWriteSeq := dbgSepcWriteSeqReg
-  io.dbgSepcWritePc  := dbgSepcWritePcReg
-  io.dbgSepcWriteVal := dbgSepcWriteValReg
-  val dbgLoadSeqReq      = RegInit(0.U(32.W))
-  val dbgLoadPcReg       = RegInit(0.U(xlen.W))
-  val dbgLoadVAReg       = RegInit(0.U(xlen.W))
-  val dbgLoadPhysAddrReg = RegInit(0.U(xlen.W))
-  val dbgLoadRdReg       = RegInit(0.U(5.W))
-  val dbgLoadValReg      = RegInit(0.U(xlen.W))
-  io.dbgLoadSeq      := dbgLoadSeqReq
-  io.dbgLoadPc       := dbgLoadPcReg
-  io.dbgLoadVA       := dbgLoadVAReg
-  io.dbgLoadPhysAddr := dbgLoadPhysAddrReg
-  io.dbgLoadRd       := dbgLoadRdReg
-  io.dbgLoadVal      := dbgLoadValReg
-  io.dbgPtwFillSeq   := dbgPtwFillSeqReg
-  io.dbgPtwFillVA    := dbgPtwFillVAReg
-  io.dbgPtwFillPPN   := dbgPtwFillPPNReg
-  io.dbgPtwFillLevel := dbgPtwFillLevelReg
-  io.dbgStoreSeq       := dbgStoreSeqReg
-  io.dbgStorePc        := dbgStorePcReg
-  io.dbgStorePhysAddr  := dbgStorePhysAddrReg
-  io.dbgStoreVA        := dbgStoreVAReg2
-  io.dbgStoreData      := dbgStoreDataReg
+  val dbgPtwFillSeqReg   = dbgReg(32)
+  val dbgPtwFillVAReg    = dbgReg()
+  val dbgPtwFillPPNReg   = dbgReg(44)
+  val dbgPtwFillLevelReg = dbgReg(2)
+  val dbgStoreSeqReg       = dbgReg(32)
+  val dbgStorePcReg        = dbgReg()
+  val dbgStorePhysAddrReg  = dbgReg(dataAddrWidth)
+  val dbgStoreVAReg2       = dbgReg()
+  val dbgStoreDataReg      = dbgReg()
+  val dbgSepcWriteSeqReg = dbgReg(32)
+  val dbgSepcWritePcReg  = dbgReg()
+  val dbgSepcWriteValReg = dbgReg()
+  val dbgSfenceSeqReg = dbgReg(32)
+  val dbgSfencePcReg  = dbgReg()
+  io.dbgSfenceSeq := rdW(dbgSfenceSeqReg, 32)
+  io.dbgSfencePc  := rd(dbgSfencePcReg)
+  io.dbgSepcWriteSeq := rdW(dbgSepcWriteSeqReg, 32)
+  io.dbgSepcWritePc  := rd(dbgSepcWritePcReg)
+  io.dbgSepcWriteVal := rd(dbgSepcWriteValReg)
+  val dbgLoadSeqReq      = dbgReg(32)
+  val dbgLoadPcReg       = dbgReg()
+  val dbgLoadVAReg       = dbgReg()
+  val dbgLoadPhysAddrReg = dbgReg()
+  val dbgLoadRdReg       = dbgReg(5)
+  val dbgLoadValReg      = dbgReg()
+  io.dbgLoadSeq      := rdW(dbgLoadSeqReq, 32)
+  io.dbgLoadPc       := rd(dbgLoadPcReg)
+  io.dbgLoadVA       := rd(dbgLoadVAReg)
+  io.dbgLoadPhysAddr := rd(dbgLoadPhysAddrReg)
+  io.dbgLoadRd       := rdW(dbgLoadRdReg, 5)
+  io.dbgLoadVal      := rd(dbgLoadValReg)
+  io.dbgPtwFillSeq   := rdW(dbgPtwFillSeqReg, 32)
+  io.dbgPtwFillVA    := rd(dbgPtwFillVAReg)
+  io.dbgPtwFillPPN   := rdW(dbgPtwFillPPNReg, 44)
+  io.dbgPtwFillLevel := rdW(dbgPtwFillLevelReg, 2)
+  io.dbgStoreSeq       := rdW(dbgStoreSeqReg, 32)
+  io.dbgStorePc        := rd(dbgStorePcReg)
+  io.dbgStorePhysAddr  := rdW(dbgStorePhysAddrReg, dataAddrWidth)
+  io.dbgStoreVA        := rd(dbgStoreVAReg2)
+  io.dbgStoreData      := rd(dbgStoreDataReg)
 
   // -- FSM -------------------------------------------------------------------
   // sCsrSel: second cycle of a CSR read, see the "-- CSR read --" comment
@@ -517,10 +542,12 @@ class Hutt(
       "h105" -> (() => { stvecOpt.get    := Cat(csrNewVal(xlen - 1, 2), 0.U(2.W)) }),
       "h140" -> (() => { sscratchOpt.get := csrNewVal }),
       "h141" -> (() => {
-        sepcOpt.get        := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
-        dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U
-        dbgSepcWritePcReg  := pc
-        dbgSepcWriteValReg := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
+        sepcOpt.get := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
+        if (hasDebugPorts) {
+          dbgSepcWriteSeqReg.get := dbgSepcWriteSeqReg.get + 1.U
+          dbgSepcWritePcReg.get  := pc
+          dbgSepcWriteValReg.get := Cat(csrNewVal(xlen - 1, 1), 0.U(1.W))
+        }
       }),
       "h142" -> (() => { scauseOpt.get := csrNewVal }),
       "h143" -> (() => { stvalOpt.get  := csrNewVal }),
@@ -647,7 +674,11 @@ class Hutt(
   // `if (hasSupervisorMode)` guard (references sepcOpt.get etc.).
   def trapToS(cause: UInt, tval: UInt): Unit = {
     sepcOpt.get := pc; scauseOpt.get := cause; stvalOpt.get := tval
-    dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
+    if (hasDebugPorts) {
+      dbgSepcWriteSeqReg.get := dbgSepcWriteSeqReg.get + 1.U
+      dbgSepcWritePcReg.get  := pc
+      dbgSepcWriteValReg.get := pc
+    }
     mstatus := mstatusStrap; pc := sTrapPC; privLevel := 1.U
     dbgTrapLatch(pc, cause, 1.U, sTrapPC)
   }
@@ -738,7 +769,11 @@ class Hutt(
           if (HuttDebug.timerTrace) printf("[HUTT-TIMER] S-mode timer trap taken pc=0x%x priv=%d mie=0x%x mip=0x%x\n",
             pc, privLevel, mie, mip)
           sepcOpt.get := pc
-          dbgSepcWriteSeqReg := dbgSepcWriteSeqReg + 1.U; dbgSepcWritePcReg := pc; dbgSepcWriteValReg := pc
+          if (hasDebugPorts) {
+            dbgSepcWriteSeqReg.get := dbgSepcWriteSeqReg.get + 1.U
+            dbgSepcWritePcReg.get  := pc
+            dbgSepcWriteValReg.get := pc
+          }
           scauseOpt.get := Cat(true.B, 0.U((xlen - 4).W), 5.U(3.W))
           stvalOpt.get  := 0.U(xlen.W)
           mstatus   := mstatusStrap
@@ -965,7 +1000,7 @@ class Hutt(
 
       }.elsewhen(d.isSfenceVma) {
         if (xlen == 64) { for (i <- 0 until TLB_ENTRIES) { tlbValid(i) := false.B } }
-        dbgSfenceSeqReg := dbgSfenceSeqReg + 1.U; dbgSfencePcReg := pc
+        if (hasDebugPorts) { dbgSfenceSeqReg.get := dbgSfenceSeqReg.get + 1.U; dbgSfencePcReg.get := pc }
         pc    := pcNext
         state := sFetchReq
 
@@ -1062,11 +1097,13 @@ class Hutt(
         io.data.req.ready, io.data.req.fire)
       when(io.data.req.fire) {
         when(io.data.req.bits.write) {
-          dbgStoreSeqReg      := dbgStoreSeqReg + 1.U
-          dbgStorePcReg       := pc
-          dbgStorePhysAddrReg := io.data.req.bits.addr
-          dbgStoreVAReg2      := dataVAReg
-          dbgStoreDataReg     := io.data.req.bits.data
+          if (hasDebugPorts) {
+            dbgStoreSeqReg.get      := dbgStoreSeqReg.get + 1.U
+            dbgStorePcReg.get       := pc
+            dbgStorePhysAddrReg.get := io.data.req.bits.addr
+            dbgStoreVAReg2.get      := dataVAReg
+            dbgStoreDataReg.get     := io.data.req.bits.data
+          }
         }
         state := sMemResp
       }
@@ -1086,12 +1123,14 @@ class Hutt(
           regFile.io.wAddr := loadRd
           regFile.io.wData := loadExtended
           regFile.io.wen   := true.B
-          dbgLoadSeqReq       := dbgLoadSeqReq + 1.U
-          dbgLoadPcReg        := pc
-          dbgLoadVAReg        := dataVAReg
-          dbgLoadPhysAddrReg  := dataPhysAddr
-          dbgLoadRdReg        := loadRd
-          dbgLoadValReg       := loadExtended
+          if (hasDebugPorts) {
+            dbgLoadSeqReq.get      := dbgLoadSeqReq.get + 1.U
+            dbgLoadPcReg.get       := pc
+            dbgLoadVAReg.get       := dataVAReg
+            dbgLoadPhysAddrReg.get := dataPhysAddr
+            dbgLoadRdReg.get       := loadRd
+            dbgLoadValReg.get      := loadExtended
+          }
         }.elsewhen(!isLoadOp) {
           // A plain store to the reserved address invalidates an LR reservation.
           when(lrValid && (lrAddr === memAddr)) { lrValid := false.B }
@@ -1178,10 +1217,12 @@ class Hutt(
               tlbVPN(tlbIdx)   := ptwVA(38, 12)
               tlbPPN(tlbIdx)   := tlbPpnSel
               tlbFlags(tlbIdx) := pte(7, 0)
-              dbgPtwFillSeqReg   := dbgPtwFillSeqReg + 1.U
-              dbgPtwFillVAReg    := ptwVA
-              dbgPtwFillPPNReg   := tlbPpnSel
-              dbgPtwFillLevelReg := ptwLevel
+              if (hasDebugPorts) {
+                dbgPtwFillSeqReg.get   := dbgPtwFillSeqReg.get + 1.U
+                dbgPtwFillVAReg.get    := ptwVA
+                dbgPtwFillPPNReg.get   := tlbPpnSel
+                dbgPtwFillLevelReg.get := ptwLevel
+              }
               when(ptwIsInstr) {
                 // Re-enter sFetchReq — TLB will hit this time.
                 state := sFetchReq
@@ -1296,34 +1337,40 @@ class Hutt(
 
   // Debug: trace every write to x1 (ra) -- placed after the switch so it
   // observes the FINAL resolved regFile.io.{wen,wAddr,wData} for this cycle,
-  // regardless of which FSM state produced it.
-  val dbgX1WriteSeqReg = RegInit(0.U(32.W))
-  val dbgX1WritePcReg  = RegInit(0.U(xlen.W))
-  val dbgX1WriteValReg = RegInit(0.U(xlen.W))
-  when(regFile.io.wen && regFile.io.wAddr === 1.U) {
-    dbgX1WriteSeqReg := dbgX1WriteSeqReg + 1.U
-    dbgX1WritePcReg  := pc
-    dbgX1WriteValReg := regFile.io.wData
+  // regardless of which FSM state produced it. Task #15-era investigation
+  // tooling (see project memory); kept for future debugging, gated off the
+  // ASIC build like every other debug register.
+  val dbgX1WriteSeqReg = dbgReg(32)
+  val dbgX1WritePcReg  = dbgReg()
+  val dbgX1WriteValReg = dbgReg()
+  if (hasDebugPorts) {
+    when(regFile.io.wen && regFile.io.wAddr === 1.U) {
+      dbgX1WriteSeqReg.get := dbgX1WriteSeqReg.get + 1.U
+      dbgX1WritePcReg.get  := pc
+      dbgX1WriteValReg.get := regFile.io.wData
+    }
   }
-  io.dbgX1WriteSeq := dbgX1WriteSeqReg
-  io.dbgX1WritePc  := dbgX1WritePcReg
-  io.dbgX1WriteVal := dbgX1WriteValReg
+  io.dbgX1WriteSeq := rdW(dbgX1WriteSeqReg, 32)
+  io.dbgX1WritePc  := rd(dbgX1WritePcReg)
+  io.dbgX1WriteVal := rd(dbgX1WriteValReg)
 
   // Debug: same as the x1 tracer above, but for x18 (s2) -- chasing task #15's
   // real-SDRAM-cosim hang, where s2 reads back 0 inside nputs() despite no
   // instruction in its disassembly ever writing it. Catches the exact PC/value
   // of whichever write actually reaches the regfile for x18.
-  val dbgX18WriteSeqReg = RegInit(0.U(32.W))
-  val dbgX18WritePcReg  = RegInit(0.U(xlen.W))
-  val dbgX18WriteValReg = RegInit(0.U(xlen.W))
-  when(regFile.io.wen && regFile.io.wAddr === 18.U) {
-    dbgX18WriteSeqReg := dbgX18WriteSeqReg + 1.U
-    dbgX18WritePcReg  := pc
-    dbgX18WriteValReg := regFile.io.wData
+  val dbgX18WriteSeqReg = dbgReg(32)
+  val dbgX18WritePcReg  = dbgReg()
+  val dbgX18WriteValReg = dbgReg()
+  if (hasDebugPorts) {
+    when(regFile.io.wen && regFile.io.wAddr === 18.U) {
+      dbgX18WriteSeqReg.get := dbgX18WriteSeqReg.get + 1.U
+      dbgX18WritePcReg.get  := pc
+      dbgX18WriteValReg.get := regFile.io.wData
+    }
   }
-  io.dbgX18WriteSeq := dbgX18WriteSeqReg
-  io.dbgX18WritePc  := dbgX18WritePcReg
-  io.dbgX18WriteVal := dbgX18WriteValReg
+  io.dbgX18WriteSeq := rdW(dbgX18WriteSeqReg, 32)
+  io.dbgX18WritePc  := rd(dbgX18WritePcReg)
+  io.dbgX18WriteVal := rd(dbgX18WriteValReg)
 
   // Debug: raw, continuous (not latched) regfile write bus -- to see, cycle
   // by cycle, whether `mv s2,a1` at nputs+0x2c ever asserts wen with
