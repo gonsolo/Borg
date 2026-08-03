@@ -85,6 +85,11 @@ trait SoCLogic { self: RawModule =>
   // CSR it does read). Default true matches ULX3S/Linux; override false
   // for a target with no interrupt-driven software.
   def hasClint: Boolean = true
+  // Hutt's store/load/trap/sfence/x1/x18 debug trace registers, plus
+  // HuttRegFile's forensic register-read taps -- observed only by ULX3S/
+  // sim debug harnesses, never by Hutt itself. Default true preserves
+  // ULX3S debug capability; the ASIC has no such harness to observe them.
+  def hasDebugPorts: Boolean = true
 
   // --- Abstract members provided by each top-level ---
   def soc_clk: Clock
@@ -94,7 +99,8 @@ trait SoCLogic { self: RawModule =>
 
   // --- Core + peripherals ---
   lazy val cpu = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new Hutt(xlen = xlen, pipelinedCsrRead = pipelinedCsrRead, hasSupervisorMode = hasSupervisorMode))
+    Module(new Hutt(xlen = xlen, pipelinedCsrRead = pipelinedCsrRead,
+      hasSupervisorMode = hasSupervisorMode, hasDebugPorts = hasDebugPorts))
   }
   lazy val mem = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new MemoryController())

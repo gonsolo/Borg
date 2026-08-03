@@ -48,6 +48,11 @@ class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // CLINT (mtime/mtimecmp, timer interrupts): same story as S-mode --
   // Linux/OpenSBI-only, and this firmware never takes an interrupt.
   override def hasClint: Boolean = false
+  // Hutt's ~31 debug trace registers (store/load/trap/sfence/x1/x18
+  // tracers) plus HuttRegFile's 7 forensic register-read taps -- all
+  // accumulated during the ULX3S/Linux boot investigation, observed only
+  // by simulation harnesses. No such harness exists for the ASIC.
+  override def hasDebugPorts: Boolean = false
 
   val ui_in   = IO(Input(UInt(8.W)))
   val uo_out  = IO(Output(UInt(8.W)))
