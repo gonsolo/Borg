@@ -15,8 +15,13 @@ import chisel3.util.*
   * times.  At `fragLanes==1` (current default) a single lane reproduces the
   * original monolithic core bit-for-bit.
   *
-  * Pipeline timing (busy_counter counts 4→0):
-  *   4..2: Stage 1 — operand reads valid; op-type flags latched (in the lane)
+  * Pipeline timing (busy_counter counts 7→0):
+  *   7..5: rs1/rs2/rs3 read serially, one per cycle, off the lane's single
+  *         register-file port (was 3 parallel ports/copies -- see BorgLane's
+  *         `regFile` doc comment for the area rationale); each result is
+  *         captured into a hold register the cycle after it's issued.
+  *   4..2: Stage 1 — operand reads valid (now held, not live); op-type flags
+  *         latched (in the lane) at decode
   *   2→1:  Lane pipeline register captures the FMA mid-result
   *   1:    Stage 2 — round; register file written; pipeWrite exposed
   *   0:    idle — next instruction can start
@@ -191,7 +196,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(fetchedInstruction === 0.U) {
         running := false.B
       }.otherwise {
-        busy_counter := 4.U
+        busy_counter := 7.U
       }
     }.elsewhen(is_busy) {
       busy_counter := busy_counter - 1.U

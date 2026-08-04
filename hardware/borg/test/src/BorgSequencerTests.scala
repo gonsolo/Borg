@@ -394,7 +394,11 @@ object BorgSequencerTests extends TestSuite {
         // CONTROL register: bit0=start, bit5=uniform_write_page, bits[10:5]=start_pc.
         rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 0)              // uniformWritePage=0
         rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 1)              // start + page=0
-        borg.clock.step(80)
+        // 12 ADD instructions x 8 cycles/instruction (BorgCore's busy_counter
+        // pipeline, widened 4->7 by the register-file read serialization --
+        // see BorgLane's `regFile` doc comment) = 96 cycles, + start/halt
+        // detection margin.
+        borg.clock.step(160)
 
         val gprs = (0 until 12).map { i => bitsToFloat16(rawRead(borg, BorgGpuRegs.gpr_offset.litValue.toInt + i * 4) & 0xFFFF) }
         println(f"  r0-r5  (u0-u5 edges):   ${gprs.take(6).map(v => f"$v%.3f").mkString(" ")}")

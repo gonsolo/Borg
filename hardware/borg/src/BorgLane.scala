@@ -67,10 +67,15 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private val config = cfg.fp
 
-  // --- Storage: triplicated register file (rs1/rs2/rs3+MMIO read ports) ---
-  val regFileA = Module(new RegFileCopy(config.totalBits, "regFileA"))
-  val regFileB = Module(new RegFileCopy(config.totalBits, "regFileB"))
-  val regFileC = Module(new RegFileCopy(config.totalBits, "regFileC"))
+  // --- Storage: single-ported register file, time-multiplexed across rs1/rs2/
+  // rs3/MMIO reads (was triplicated -- one physical copy per simultaneous read
+  // port). A 32-entry x 16-bit SyncReadMem's read mux dominates its own area
+  // (measured ~44,000 um^2 each; the 3x copy was ~132,000 um^2, the single
+  // largest structural cost found in the whole ASIC area campaign). Serializing
+  // the 3 reads over 3 extra pipeline cycles trades cycles -- free at the
+  // ASIC's 4MHz -- for ~88,000 um^2. See wireGprReads() and BorgCore's
+  // busy_counter doc comment (countdown widened 4->7 to make room).
+  val regFile = Module(new RegFileCopy(config.totalBits, "regFile"))
 
   // --- FP16 special-function ROMs (purely combinational VecInit — zero FFs, zero clock load) ---
   private val rcpRom  = VecInit(BorgLutTables.rcpLut.map(_.U(10.W)))
@@ -100,9 +105,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   // --- Register reads + uniform operand mux ---
-  val (recA, _)        = wirePortA()
-  val (recB, _)        = wirePortB()
-  val (recC, _, mmioD) = wirePortC()
+  val (recA, recB, recC, mmioD) = wireGprReads()
   private val recA_raw = Mux(io.funct3Del === 1.U, io.uniformData, recA)
   private val recB_raw = Mux(io.funct3Del === 2.U, io.uniformData, recB)
   private val recC_raw = Mux(io.funct3Del === 3.U, io.uniformData, recC)
@@ -128,48 +131,61 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // Helpers (moved verbatim from BorgCore; shared signals come from io.*)
   // =========================================================================
 
-  private def wirePortA(): (UInt, UInt) = {
-    val en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
-    val en_del = RegNext(en, false.B)
-    val rs1_idx_del = RegEnable(regs.rs1, en)
-    regFileA.io.rd.addr := regs.rs1
-    regFileA.io.rd.en := en
-    val is_coord_reg_A = rs1_idx_del === 30.U || rs1_idx_del === 31.U
-    val resolved_data = Mux(is_coord_reg_A,
-                        Mux(!io.seqBusy, Mux(rs1_idx_del === 30.U, coordX, coordY), 0.U),
-                        regFileA.io.rd.data)
-    (Mux(en_del, resolved_data, 0.U), rs1_idx_del)
+  /** Resolve a register-file read result, substituting the pixel-coordinate
+    * pseudo-registers r30/r31 (same special-case for every port, GPR or MMIO). */
+  private def resolveCoordReg(raw: UInt, idx: UInt): UInt = {
+    val isCoordReg = idx === 30.U || idx === 31.U
+    Mux(isCoordReg, Mux(!io.seqBusy, Mux(idx === 30.U, coordX, coordY), 0.U), raw)
   }
 
-  private def wirePortB(): (UInt, UInt) = {
-    val en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
-    val en_del = RegNext(en, false.B)
-    val rs2_idx_del = RegEnable(regs.rs2, en)
-    regFileB.io.rd.addr := regs.rs2
-    regFileB.io.rd.en := en
-    val is_coord_reg_B = rs2_idx_del === 30.U || rs2_idx_del === 31.U
-    val resolved_data = Mux(is_coord_reg_B,
-                        Mux(!io.seqBusy, Mux(rs2_idx_del === 30.U, coordX, coordY), 0.U),
-                        regFileB.io.rd.data)
-    (Mux(en_del, resolved_data, 0.U), rs2_idx_del)
-  }
+  /** Single read port, time-multiplexed across rs1/rs2/rs3/MMIO (was 3
+    * physical register-file copies, one per simultaneously-needed operand --
+    * see the `regFile` declaration above for the area rationale).
+    *
+    * Shader execution needs rs1/rs2/rs3 all valid by busy_counter==4 (when the
+    * FMA/frcp/frsq/fsrgb/int-ALU pipeline captures them -- unchanged from the
+    * original 3-port design). With one port, SyncReadMem's 1-cycle read
+    * latency means the 3 reads must be issued on 3 *different* prior cycles:
+    *   decode (rs1) -> busy_counter==7 (rs2, + rs1's result now ready) ->
+    *   busy_counter==6 (rs3, + rs2's result now ready) -> busy_counter==5
+    *   (rs3's result now ready) -> busy_counter==4 (all 3 held, pipeline
+    *   starts, same trigger value as before the retiming).
+    * Each result is captured into its own hold register the cycle it becomes
+    * ready and stays stable from then on (regs.rs1/rs2/rs3 don't change
+    * during a single instruction's execution, so re-reading was always
+    * redundant -- BorgCore only advances the PC at busy_counter==1).
+    *
+    * MMIO reads (software register access while idle) reuse the same port;
+    * mutually exclusive with the shader-execution window by construction
+    * (`running` is false while MMIO can read GPRs).
+    */
+  private def wireGprReads(): (UInt, UInt, UInt, UInt) = {
+    val mmioEn = !running && !is_busy && (io.bus.is_reading || io.bus.is_writing) &&
+                 io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
+    val mmioAddr = (io.bus.address - BorgGpuRegs.gpr_offset) >> 2
 
-  private def wirePortC(): (UInt, UInt, UInt) = {
-    val mmio_en = !running && !is_busy && (io.bus.is_reading || io.bus.is_writing) &&
-                  io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
-    val rs3_en = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
-    val addr = Mux(running || is_busy, regs.rs3, (io.bus.address - BorgGpuRegs.gpr_offset) >> 2)
-    val en = mmio_en || rs3_en
-    val mmio_en_del = RegNext(mmio_en && io.bus.is_reading, false.B)
-    val rs3_en_del = RegNext(rs3_en, false.B)
-    val addr_del = RegEnable(addr, en)
-    regFileC.io.rd.addr := addr
-    regFileC.io.rd.en := en
-    val is_coord_reg_C = addr_del === 30.U || addr_del === 31.U
-    val resolved_data = Mux(is_coord_reg_C,
-                        Mux(!io.seqBusy, Mux(addr_del === 30.U, coordX, coordY), 0.U),
-                        regFileC.io.rd.data)
-    (Mux(rs3_en_del, resolved_data, 0.U), addr_del, Mux(mmio_en_del, resolved_data, 0.U))
+    // Issue cycles: rs1 at decode, rs2 at busy==7, rs3 at busy==6.
+    val atDecode = running && !is_busy
+    val atC7 = is_busy && busy_counter === 7.U
+    val atC6 = is_busy && busy_counter === 6.U
+
+    regFile.io.rd.addr := Mux(mmioEn, mmioAddr, Mux(atDecode, regs.rs1, Mux(atC7, regs.rs2, regs.rs3)))
+    regFile.io.rd.en   := mmioEn || atDecode || atC7 || atC6
+
+    val mmioEnDel   = RegNext(mmioEn && io.bus.is_reading, false.B)
+    val mmioAddrDel = RegEnable(mmioAddr, mmioEn)
+
+    // Capture cycles: one cycle after each issue (SyncReadMem's read latency)
+    // -- rs1's result lands at busy==7, rs2's at busy==6, rs3's at busy==5.
+    val rs1IdxDel = RegEnable(regs.rs1, atDecode)
+    val rs2IdxDel = RegEnable(regs.rs2, atC7)
+    val rs3IdxDel = RegEnable(regs.rs3, atC6)
+    val holdA = RegEnable(resolveCoordReg(regFile.io.rd.data, rs1IdxDel), 0.U(config.totalBits.W), atC7)
+    val holdB = RegEnable(resolveCoordReg(regFile.io.rd.data, rs2IdxDel), 0.U(config.totalBits.W), atC6)
+    val holdC = RegEnable(resolveCoordReg(regFile.io.rd.data, rs3IdxDel), 0.U(config.totalBits.W), is_busy && busy_counter === 5.U)
+    val mmioD = Mux(mmioEnDel, resolveCoordReg(regFile.io.rd.data, mmioAddrDel), 0.U)
+
+    (holdA, holdB, holdC, mmioD)
   }
 
   private def wireFma(recA_raw: UInt, recB_raw: UInt, recC_raw: UInt, start: Bool): (UInt, Bool, Bool, Bool, Bool) = {
@@ -353,7 +369,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
             Mux(is_frsq_reg, frsq_result, Mux(is_fsrgb_reg, fsrgb_result, fma_result))))),
       io.bus.data_in(config.totalBits - 1, 0))
 
-    writeAllCopies(w_addr, w_en, w_data)
+    writeReg(w_addr, w_en, w_data)
     io.pipeWrite.en   := pipe_write
     io.pipeWrite.addr := w_addr
     io.pipeWrite.data := w_data
@@ -361,18 +377,16 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // FTEX write-back override (shared FSM drives texWrite; last-connect wins,
     // matching the original wireTexStall-after-wireWriteBack ordering).
     when(io.texWrite.en) {
-      writeAllCopies(io.texWrite.addr, true.B, io.texWrite.data)
+      writeReg(io.texWrite.addr, true.B, io.texWrite.data)
       io.pipeWrite.en   := true.B
       io.pipeWrite.addr := io.texWrite.addr
       io.pipeWrite.data := io.texWrite.data
     }
   }
 
-  private def writeAllCopies(addr: UInt, en: Bool, data: UInt): Unit = {
-    for (rf <- Seq(regFileA, regFileB, regFileC)) {
-      rf.io.wr.addr := addr
-      rf.io.wr.en := en
-      rf.io.wr.data := data
-    }
+  private def writeReg(addr: UInt, en: Bool, data: UInt): Unit = {
+    regFile.io.wr.addr := addr
+    regFile.io.wr.en := en
+    regFile.io.wr.data := data
   }
 }
