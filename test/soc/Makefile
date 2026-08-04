@@ -115,6 +115,14 @@ core: luts
 borg: luts
 	MODULE=user_peripherals.borg.test $(MAKE) sim
 
+# Run real compiled RV32 firmware (software/borg/kernel.bin) through the real
+# QSPI flash-read protocol (Python flash server in test_rv32_boot.py, built on
+# test_util.py's proven start_read/send_instr primitives -- NOT sim_qspi_pmod,
+# which turned out to have multiple bugs of its own and was abandoned) --
+# verifies the RV32 firmware build actually boots, not just compiles.
+rv32boot: luts
+	MODULE=test_rv32_boot $(MAKE) sim
+
 # Clean up build artifacts
 clean::
 	rm -rf sim_build results.xml tb.vcd tb.vcd.hier $(LUT_HEX)

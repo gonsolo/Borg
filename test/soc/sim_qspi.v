@@ -79,7 +79,7 @@ module sim_qspi_pmod (
                     reading <= 1;
                     reading_dummy <= 0;
                 end
-            end else if (!error && start_count == (qspi_flash_select ? 8 : 6)) begin
+            end else if (!error && start_count == (!qspi_flash_select ? 8 : 6)) begin
                 addr[ROM_BITS:1] <= cmd[ROM_BITS-1:0];
                 addr[0] <= 0;
                 if (!qspi_flash_select || cmd[31:24] == 8'h0B)
