@@ -12,7 +12,11 @@ import chisel3.util._
   * It is triggered once per triangle during the geometry pass and iterates
   * over all tiles in the triangle's bounding box.
   */
-class BorgBinnerIO extends Bundle {
+class BorgBinnerIO(maxTiles: Int = 1024) extends Bundle {
+  // See BorgSequencer.SeqMmioIO's tileRowWidth comment -- same invariant,
+  // same formula, so this and BorgSequencer's tilesPerRow always agree in
+  // width when both are constructed from the same cfg.maxBinTiles.
+  private val tileRowWidth = math.min(10, log2Ceil(maxTiles + 1))
   // --- Trigger interface ---
   /** One-cycle pulse to start binning a triangle. */
   val start       = Input(Bool())
@@ -35,7 +39,7 @@ class BorgBinnerIO extends Bundle {
   /** Bin list row size in bytes (= SEQ_MAX_TRI * TBR_BIN_ENTRY_SIZE). */
   val binRowBytes = Input(UInt(20.W))
   /** Number of tiles per framebuffer row (= fb_width / 4). */
-  val tilesPerRow = Input(UInt(10.W))
+  val tilesPerRow = Input(UInt(tileRowWidth.W))
 
   // --- DRAM write port ---
   val gpuMem      = new GpuMemIO
@@ -77,7 +81,7 @@ class BorgBinnerIO extends Bundle {
   * @param maxTiles Maximum number of tiles (default 1024 = 32×32 for 128×128 @ 4×4).
   */
 class BorgBinner(val maxTiles: Int = 1024) extends Module {
-  val io = IO(new BorgBinnerIO)
+  val io = IO(new BorgBinnerIO(maxTiles))
 
   // --- Per-tile count SRAM ---
   // 10-bit count per tile: supports up to 1023 triangles per tile.
