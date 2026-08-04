@@ -58,7 +58,17 @@ import chisel3.util._
   * The setup shader outputs pre-scaled edge constants to r0-r5 (already
   * multiplied by inv_width = 1/64 for a 64-wide framebuffer).
   */
-class SeqMmioIO extends Bundle {
+class SeqMmioIO(cfg: BorgConfig) extends Bundle {
+  // tilesPerRow/fbWidthTiles/fbHeightTiles all express a tile-grid extent
+  // that can never exceed cfg.maxBinTiles (BorgBinner's on-chip count SRAM
+  // -- and BorgSequencer's own tileWasDirty/tileIsDirty arrays -- already
+  // hard-require this for correctness, narrowing here just makes the width
+  // match the existing invariant). Narrower operands shrink the tile-index
+  // multiplies (curTileIndex-style math below and in BorgBinner) that
+  // dominate this module's synthesized area on the ASIC's 16-tile config;
+  // math.min keeps Default/Simt (maxBinTiles=1024) byte-identical at 10 bits.
+  private val tileRowWidth = math.min(10, log2Ceil(cfg.maxBinTiles + 1))
+
   val start = Input(Bool())
   val descBase = Input(UInt(20.W))
   val vertShaderAddr = Input(UInt(20.W))
@@ -74,12 +84,12 @@ class SeqMmioIO extends Bundle {
   val clearColorLo = Input(UInt(32.W))
   val clearColorHi = Input(UInt(32.W))
   val fbBase = Input(UInt(25.W))   // 25b = 32 MB GPU memory address space
-  val tilesPerRow = Input(UInt(10.W))
+  val tilesPerRow = Input(UInt(tileRowWidth.W))
   val binBase = Input(UInt(25.W))
   val binRowBytes = Input(UInt(20.W))  // stride (bytes/tile), not an address
   val setupBase = Input(UInt(25.W))
-  val fbWidthTiles = Input(UInt(10.W))
-  val fbHeightTiles = Input(UInt(10.W))
+  val fbWidthTiles = Input(UInt(tileRowWidth.W))
+  val fbHeightTiles = Input(UInt(tileRowWidth.W))
   // Fragment uniform-staging mode (tex_config.frag_uses_fragpos): 0 = vertex
   // colour at u19-u27 (hand frag.s), 1 = model frag_pos (borgc cube.frag).
   val fragUsesFragPos = Input(Bool())
@@ -130,7 +140,7 @@ class SeqDmaIO extends Bundle {
 }
 
 class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
-  val mmio = new SeqMmioIO
+  val mmio = new SeqMmioIO(cfg)
   val binner = new SeqBinnerIO
   val store = new SeqStoreIO
   val flusher = new SeqFlusherIO

@@ -549,12 +549,15 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.mmio.clearColorLo    := seqClearLoReg
       s.io.mmio.clearColorHi    := seqClearHiReg
       s.io.mmio.fbBase          := seqFbBaseReg
-      s.io.mmio.tilesPerRow     := seqTilesPerRowReg
+      // seqTilesPerRowReg is the full RDL register width (10 bits); the
+      // sequencer's tilesPerRow/fbWidthTiles/fbHeightTiles ports may be
+      // narrower (BorgConfig.Asic) -- see SeqMmioIO's tileRowWidth comment.
+      s.io.mmio.tilesPerRow     := seqTilesPerRowReg(s.io.mmio.tilesPerRow.getWidth - 1, 0)
       s.io.mmio.binBase         := seqBinBaseReg
       s.io.mmio.binRowBytes     := seqBinRowBytesReg
       s.io.mmio.setupBase       := seqSetupBaseReg
-      s.io.mmio.fbWidthTiles    := seqTilesPerRowReg
-      s.io.mmio.fbHeightTiles   := seqTilesPerRowReg  // square framebuffer assumption
+      s.io.mmio.fbWidthTiles    := seqTilesPerRowReg(s.io.mmio.fbWidthTiles.getWidth - 1, 0)
+      s.io.mmio.fbHeightTiles   := seqTilesPerRowReg(s.io.mmio.fbHeightTiles.getWidth - 1, 0)  // square framebuffer assumption
       s.io.mmio.fragUsesFragPos := rdlRegs.io.hw.tex_config_frag_uses_fragpos
       s.io.iter.complete        := rast.io.tileComplete
       s.io.iter.stall           := rast.io.autoRunStall
