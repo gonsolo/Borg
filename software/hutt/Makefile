@@ -1,11 +1,23 @@
-# RV64 bare-metal: matches software/borg (RV64I + Zicsr, soft-float lp64).
-TOOLCHAIN64 ?= riscv64-none-elf
-CC = $(TOOLCHAIN64)-gcc
-AS = $(TOOLCHAIN64)-as
-AR = $(TOOLCHAIN64)-ar
+# Bare-metal Hutt runtime, selectable by XLEN: 64 (default, ULX3S -- RV64I +
+# Zicsr, soft-float lp64d, HW-verified) or 32 (ASIC/TT -- RV32I + Zicsr,
+# ilp32). Both toolchains come from flake.nix's pkgsCross riscv{32,64}-embedded.
+XLEN ?= 64
 
+ifeq ($(XLEN),32)
+TOOLCHAIN ?= riscv32-none-elf
+ARCH = rv32i_zicsr
+ABI  = ilp32
+MUL_SRC = mul32.s
+else
+TOOLCHAIN ?= riscv64-none-elf
 ARCH = rv64ifd_zicsr
 ABI  = lp64d
+MUL_SRC = mul.s
+endif
+
+CC = $(TOOLCHAIN)-gcc
+AS = $(TOOLCHAIN)-as
+AR = $(TOOLCHAIN)-ar
 
 all: hutt.a start.o
 
@@ -18,10 +30,14 @@ clean:
 %.o: %.s
 	$(AS) -march=$(ARCH) -mabi=$(ABI) $< -o $@
 
-# mul.s provides RV64-correct soft __mulsi3/__muldi3 (the Hutt has no M ext, and
-# the rv64imafdc libgcc ships no __muldi3).  It was rewritten for lp64 — the old
-# RV32 version corrupted 64-bit multiplies and clobbered s0/s1 on RV64.
+mul.o: $(MUL_SRC)
+	$(AS) -march=$(ARCH) -mabi=$(ABI) $< -o $@
+
+# mul.o: soft __mulsi3/__muldi3 (the Hutt has no M ext in the compiler's -march,
+# so libgcc's hardware-MUL versions can't be used). mul.s (RV64/lp64) and
+# mul32.s (RV32/ilp32) use different register-width conventions -- see their
+# header comments; XLEN above picks the right one.
 # mem.o: byte-loop memcpy/memset/memmove overriding newlib's (which are built
-# rv64imafdc and use compressed instructions the no-C Hutt can't decode).
+# with compressed instructions the no-C Hutt can't decode).
 hutt.a: uart.o mul.o mem.o isqrt.o runtime.o
 	$(AR) rcs $@ $^

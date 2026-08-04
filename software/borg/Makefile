@@ -9,21 +9,29 @@ _max_draws   := $(shell sed -n 's/.*SEQ_MAX_DRAWS[[:space:]]\+\([0-9]\+\).*/\1/p
 _desc_stride := $(shell sed -n 's/.*SEQ_DESC_STRIDE[[:space:]]\+\([0-9]\+\).*/\1/p' borg_layout.h)
 TEX_SPI_BYTE_ADDR := $(shell printf '%d' $$(( $(_desc_base) + $(_max_draws) * $(_desc_stride) )))
 
-# RV64 bare-metal firmware: the ULX3S Hutt core is RV64I + Zicsr (no M/F/D —
-# multiply/divide and float are soft, via libgcc).  Matches the sim tops, which
-# now run xlen=64.  ABI lp64 (soft-float).  Toolchain: riscv64-none-elf
-# (newlib bare-metal, from pkgsCross.riscv64-embedded in flake.nix).
-# Override with TOOLCHAIN64= if your prefix differs.
-TOOLCHAIN64 ?= riscv64-none-elf
-CC = $(TOOLCHAIN64)-gcc
-# _zicsr enables CSR instructions (rdcycle) — Hutt implements the cycle/mcycle
-# read-side counter; the rest of the ISA is still pure RV64I.
+# Bare-metal firmware, selectable by XLEN: 64 (default, ULX3S -- RV64I +
+# Zicsr, soft-float lp64d, HW-verified) or 32 (ASIC/TT -- RV32I + Zicsr,
+# ilp32; no M/F/D either way -- multiply/divide is soft, see
+# $(HUTT_SDK)/mul.s / mul32.s). Toolchains from flake.nix's pkgsCross
+# riscv{32,64}-embedded. export so the recursive `$(MAKE) -C $(HUTT_SDK)`
+# below picks up the same XLEN. Override TOOLCHAIN= if your prefix differs.
+export XLEN ?= 64
+
+ifeq ($(XLEN),32)
+TOOLCHAIN ?= riscv32-none-elf
+ARCH = rv32i_zicsr
+ABI  = ilp32
+else
+TOOLCHAIN ?= riscv64-none-elf
 ARCH = rv64ifd_zicsr
 ABI  = lp64d
-AS = $(TOOLCHAIN64)-as
-AR = $(TOOLCHAIN64)-ar
-LD = $(TOOLCHAIN64)-ld
-OBJCOPY = $(TOOLCHAIN64)-objcopy
+endif
+
+CC = $(TOOLCHAIN)-gcc
+AS = $(TOOLCHAIN)-as
+AR = $(TOOLCHAIN)-ar
+LD = $(TOOLCHAIN)-ld
+OBJCOPY = $(TOOLCHAIN)-objcopy
 
 # Disable Nixpkgs compiler wrapper hardening flags which pollute bare-metal linking
 export HARDENING_DISABLE=all
