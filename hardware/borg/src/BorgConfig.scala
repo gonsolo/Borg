@@ -31,6 +31,16 @@ package borg
   *                     the current behaviour); 4 = a 2×2 pixel quad per pass (4× shader
   *                     throughput, lays the architecture for dFdx/dFdy).  ULX3S/sim use 4;
   *                     ASIC stays at 1 (area).
+  * @param maxTrianglesPerTile Upper bound on BorgSequencer/BorgBinner's `binRowBytes`
+  *                     MMIO input (= this * 2 bytes/entry), used to narrow the
+  *                     tile-index*binRowBytes multiplier's width instead of leaving
+  *                     it at the register's full 20 bits. MUST match (or exceed)
+  *                     software/borg/borg_layout.h's SEQ_MAX_TRI -- that's a single
+  *                     compile-time constant shared unconditionally by every target
+  *                     (borg_driver.c's only write site: `seq_bin_row_bytes =
+  *                     TBR_BIN_ROW_BYTES = SEQ_MAX_TRI*2`), so 256 here is safe for
+  *                     both Default/Simt and Asic without any firmware coordination.
+  *                     If SEQ_MAX_TRI ever grows, this must grow with it.
   */
 case class BorgConfig(
     fp: FloatConfig = FloatConfig.FP16,
@@ -41,7 +51,8 @@ case class BorgConfig(
     icacheLines: Int = 512,
     maxUniforms: Int = 64,
     hasPerfCounters: Boolean = true,
-    fragLanes: Int = 1
+    fragLanes: Int = 1,
+    maxTrianglesPerTile: Int = 256
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   def totalBits: Int = fp.totalBits

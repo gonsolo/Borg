@@ -69,6 +69,14 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // math.min keeps Default/Simt (maxBinTiles=1024) byte-identical at 10 bits.
   private val tileRowWidth = math.min(10, log2Ceil(cfg.maxBinTiles + 1))
 
+  // binRowBytes = maxTrianglesPerTile*2 bytes at most (see BorgConfig's doc
+  // comment -- tied to software/borg/borg_layout.h's SEQ_MAX_TRI, a single
+  // compile-time constant shared by every target). Narrows the
+  // tileLinear*binRowBytes multiply the same way tileRowWidth narrows the
+  // tile-index one above; math.min keeps this at the register's full 20
+  // bits unless maxTrianglesPerTile is deliberately set below ~512k.
+  private val binRowBytesWidth = math.min(20, log2Ceil(cfg.maxTrianglesPerTile * 2 + 1))
+
   val start = Input(Bool())
   val descBase = Input(UInt(20.W))
   val vertShaderAddr = Input(UInt(20.W))
@@ -86,7 +94,7 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   val fbBase = Input(UInt(25.W))   // 25b = 32 MB GPU memory address space
   val tilesPerRow = Input(UInt(tileRowWidth.W))
   val binBase = Input(UInt(25.W))
-  val binRowBytes = Input(UInt(20.W))  // stride (bytes/tile), not an address
+  val binRowBytes = Input(UInt(binRowBytesWidth.W))  // stride (bytes/tile), not an address
   val setupBase = Input(UInt(25.W))
   val fbWidthTiles = Input(UInt(tileRowWidth.W))
   val fbHeightTiles = Input(UInt(tileRowWidth.W))

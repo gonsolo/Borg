@@ -12,11 +12,15 @@ import chisel3.util._
   * It is triggered once per triangle during the geometry pass and iterates
   * over all tiles in the triangle's bounding box.
   */
-class BorgBinnerIO(maxTiles: Int = 1024) extends Bundle {
+class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256) extends Bundle {
   // See BorgSequencer.SeqMmioIO's tileRowWidth comment -- same invariant,
   // same formula, so this and BorgSequencer's tilesPerRow always agree in
   // width when both are constructed from the same cfg.maxBinTiles.
   private val tileRowWidth = math.min(10, log2Ceil(maxTiles + 1))
+  // See BorgSequencer.SeqMmioIO's binRowBytesWidth comment -- same formula,
+  // so this and BorgSequencer's binRowBytes always agree in width when both
+  // are constructed from the same cfg.maxTrianglesPerTile.
+  private val binRowBytesWidth = math.min(20, log2Ceil(maxTrianglesPerTile * 2 + 1))
   // --- Trigger interface ---
   /** One-cycle pulse to start binning a triangle. */
   val start       = Input(Bool())
@@ -37,7 +41,7 @@ class BorgBinnerIO(maxTiles: Int = 1024) extends Bundle {
   /** GPU memory byte address of the bin list region base (from tbr_bin_base); 25b = 32 MB. */
   val binBase     = Input(UInt(25.W))
   /** Bin list row size in bytes (= SEQ_MAX_TRI * TBR_BIN_ENTRY_SIZE). */
-  val binRowBytes = Input(UInt(20.W))
+  val binRowBytes = Input(UInt(binRowBytesWidth.W))
   /** Number of tiles per framebuffer row (= fb_width / 4). */
   val tilesPerRow = Input(UInt(tileRowWidth.W))
 
@@ -79,9 +83,11 @@ class BorgBinnerIO(maxTiles: Int = 1024) extends Bundle {
   * invisible to FPGA iCE40 targets.
   *
   * @param maxTiles Maximum number of tiles (default 1024 = 32×32 for 128×128 @ 4×4).
+  * @param maxTrianglesPerTile Upper bound on `binRowBytes` (see BorgConfig's doc
+  *   comment) -- default 256 matches software/borg/borg_layout.h's SEQ_MAX_TRI.
   */
-class BorgBinner(val maxTiles: Int = 1024) extends Module {
-  val io = IO(new BorgBinnerIO(maxTiles))
+class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256) extends Module {
+  val io = IO(new BorgBinnerIO(maxTiles, maxTrianglesPerTile))
 
   // --- Per-tile count SRAM ---
   // 10-bit count per tile: supports up to 1023 triangles per tile.
