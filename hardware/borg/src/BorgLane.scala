@@ -115,13 +115,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // --- ALU ---
   val (fma_result, is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg) = wireFma(recA_raw, recB_raw, recC_raw, io.fmaStart)
   val fstep_result = computeFstep(recA_raw)
-  val frcp_result  = computeFrcp(recA_raw)
-  val frsq_result  = computeFrsq(recA_raw)
-  val fsrgb_result = computeFsrgb(recA_raw)
+  val special_result = computeFp16Special(recA_raw, is_frcp_reg, is_frsq_reg, is_fsrgb_reg)
   val (int_result, is_int_reg) = wireIntAlu(recA_raw, recB_raw, io.fmaStart)
 
   // --- Write-back (+ FTEX override) ---
-  wireWriteBack(fma_result, fstep_result, frcp_result, frsq_result, fsrgb_result,
+  wireWriteBack(fma_result, fstep_result, special_result,
                 is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg,
                 int_result, is_int_reg, mmioD)
 
@@ -231,43 +229,6 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     (fma_result, is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg)
   }
 
-  /** Linear→sRGB via the 256-entry direct fp16→fp16 table (Fp16Srgb). Indexed by
-    * (exp-1, mant[9:6]); combinational ROM so idx and idx+1 read in the same cycle. */
-  private def computeFsrgb(recA_raw: UInt): UInt = {
-    val exp  = recA_raw(14, 10)
-    val mant = recA_raw(9, 0)
-    val idx  = Cat((exp - 1.U)(3, 0), mant(9, 6)) // 8-bit
-    val rawVal  = srgbRom(idx)
-    val rawNext = srgbRom((idx +& 1.U)(7, 0))
-    val valReg  = RegEnable(rawVal,  is_busy && busy_counter === 3.U)
-    val nextReg = RegEnable(rawNext, is_busy && busy_counter === 3.U)
-    val srgb = Module(new Fp16Srgb)
-    srgb.io.in      := recA_raw(15, 0)
-    srgb.io.lutVal  := valReg
-    srgb.io.lutNext := nextReg
-    if (config.totalBits > 16) Cat(0.U((config.totalBits - 16).W), srgb.io.out)
-    else srgb.io.out
-  }
-
-  /** Reciprocal square root via the 34-entry parity-split ROM (companion of
-    * computeFrcp). Parity (exp LSB) selects the ROM region; combinational. */
-  private def computeFrsq(recA_raw: UInt): UInt = {
-    val exp      = recA_raw(14, 10)
-    val mant     = recA_raw(9, 0)
-    val parity   = !exp(0)
-    val baseAddr = Mux(parity, 17.U(6.W), 0.U(6.W)) + mant(9, 6)
-    val rsqLutRawVal  = frsqRom(baseAddr)
-    val rsqLutRawNext = frsqRom((baseAddr +& 1.U)(5, 0))
-    val rsqLutValReg  = RegEnable(rsqLutRawVal,  is_busy && busy_counter === 3.U)
-    val rsqLutNextReg = RegEnable(rsqLutRawNext, is_busy && busy_counter === 3.U)
-    val rsq = Module(new Fp16Rsq)
-    rsq.io.in      := recA_raw(15, 0)
-    rsq.io.lutVal  := rsqLutValReg
-    rsq.io.lutNext := rsqLutNextReg
-    if (config.totalBits > 16) Cat(0.U((config.totalBits - 16).W), rsq.io.out)
-    else rsq.io.out
-  }
-
   // @doc:fstep
   private def computeFstep(recA_raw: UInt): UInt = {
     val one_fn = (((1 << (config.exp - 1)) - 1) << (config.sig - 1)).U(config.totalBits.W)
@@ -276,20 +237,46 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
   // @doc:end
 
-  // @doc:frcp
-  private def computeFrcp(recA_raw: UInt): UInt = {
-    val rcpMant = recA_raw(9, 0)
-    val rcpLutIdx = rcpMant(9, 6)
-    val rcpLutRawVal  = rcpRom(rcpLutIdx)
-    val rcpLutRawNext = rcpRom((rcpLutIdx +& 1.U)(4, 0))
-    val rcpLutValReg  = RegEnable(rcpLutRawVal,  is_busy && busy_counter === 3.U)
-    val rcpLutNextReg = RegEnable(rcpLutRawNext, is_busy && busy_counter === 3.U)
-    val rcp = Module(new Fp16Rcp)
-    rcp.io.in      := recA_raw(15, 0)
-    rcp.io.lutVal  := rcpLutValReg
-    rcp.io.lutNext := rcpLutNextReg
-    if (config.totalBits > 16) Cat(0.U((config.totalBits - 16).W), rcp.io.out)
-    else rcp.io.out
+  /** Reciprocal / reciprocal-sqrt / linear->sRGB, sharing one Fp16Special
+    * instance (was 3 separate modules, each with its own copy of the
+    * LUT-interpolation datapath -- measured 6,967+7,273+11,189=25,429 um^2
+    * standalone vs 15,363 um^2 consolidated, -39.6%). Each op's ROM lookup
+    * (rcpRom/frsqRom/srgbRom, all purely combinational VecInits) still
+    * happens independently -- cheap, and keeps each op's indexing formula
+    * untouched -- only the downstream interpolation/edge-case hardware is
+    * shared, muxed by which op is latched active this instruction. */
+  private def computeFp16Special(recA_raw: UInt, isFrcp: Bool, isFrsq: Bool, isFsrgb: Bool): UInt = {
+    val exp  = recA_raw(14, 10)
+    val mant = recA_raw(9, 0)
+
+    val rcpLutIdx = mant(9, 6)
+    val rcpRawVal  = rcpRom(rcpLutIdx)
+    val rcpRawNext = rcpRom((rcpLutIdx +& 1.U)(4, 0))
+
+    val parity      = !exp(0)
+    val rsqBaseAddr = Mux(parity, 17.U(6.W), 0.U(6.W)) + mant(9, 6)
+    val rsqRawVal   = frsqRom(rsqBaseAddr)
+    val rsqRawNext  = frsqRom((rsqBaseAddr +& 1.U)(5, 0))
+
+    val srgbIdx     = Cat((exp - 1.U)(3, 0), mant(9, 6)) // 8-bit
+    val srgbRawVal  = srgbRom(srgbIdx)
+    val srgbRawNext = srgbRom((srgbIdx +& 1.U)(7, 0))
+
+    // rcp/rsq LUT entries are 10-bit mantissa estimates; zero-extend to
+    // Fp16Special's uniform 16-bit port (exact: delta=val-next is always
+    // non-negative for these two monotonically-decreasing curves).
+    val rawVal  = Mux(isFsrgb, srgbRawVal,  Mux(isFrsq, Cat(0.U(6.W), rsqRawVal),  Cat(0.U(6.W), rcpRawVal)))
+    val rawNext = Mux(isFsrgb, srgbRawNext, Mux(isFrsq, Cat(0.U(6.W), rsqRawNext), Cat(0.U(6.W), rcpRawNext)))
+    val valReg  = RegEnable(rawVal,  is_busy && busy_counter === 3.U)
+    val nextReg = RegEnable(rawNext, is_busy && busy_counter === 3.U)
+
+    val special = Module(new Fp16Special)
+    special.io.in      := recA_raw(15, 0)
+    special.io.lutVal  := valReg
+    special.io.lutNext := nextReg
+    special.io.op      := Mux(isFrcp, Fp16SpecialOp.Rcp, Mux(isFrsq, Fp16SpecialOp.Rsq, Fp16SpecialOp.Srgb))
+    if (config.totalBits > 16) Cat(0.U((config.totalBits - 16).W), special.io.out)
+    else special.io.out
   }
   // @doc:end
 
@@ -354,7 +341,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   private def wireWriteBack(
-      fma_result: UInt, fstep_result: UInt, frcp_result: UInt, frsq_result: UInt, fsrgb_result: UInt,
+      fma_result: UInt, fstep_result: UInt, special_result: UInt,
       is_fstep_reg: Bool, is_frcp_reg: Bool, is_frsq_reg: Bool, is_fsrgb_reg: Bool,
       int_result: UInt, is_int_reg: Bool, mmio_reg_data: UInt
   ): Unit = {
@@ -362,11 +349,14 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val pipe_write = running && is_busy && busy_counter === 1.U
     val w_en = mmio_write || pipe_write
     val w_addr = Mux(pipe_write, regs.rd, (io.bus.address - BorgGpuRegs.gpr_offset) >> 2)
+    // is_frcp_reg/is_frsq_reg/is_fsrgb_reg are mutually exclusive (decoded
+    // from distinct funct7 values); special_result already internally
+    // selects the right op's result (see computeFp16Special's `op` mux).
+    val is_special_reg = is_frcp_reg || is_frsq_reg || is_fsrgb_reg
     val w_data = Mux(pipe_write,
       Mux(is_int_reg, int_result,
         Mux(is_fstep_reg, fstep_result,
-          Mux(is_frcp_reg, frcp_result,
-            Mux(is_frsq_reg, frsq_result, Mux(is_fsrgb_reg, fsrgb_result, fma_result))))),
+          Mux(is_special_reg, special_result, fma_result))),
       io.bus.data_in(config.totalBits - 1, 0))
 
     writeReg(w_addr, w_en, w_data)
