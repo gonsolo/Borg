@@ -80,7 +80,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val rdlRegs   = Module(new BorgGpuRegs()) // Auto-generated RDL register block
   val dma       = Module(new BorgDMA)
   val sequencer = Module(new BorgSequencer(cfg))
-  val binner    = Module(new BorgBinner(cfg.maxBinTiles))
+  val binner    = Module(new BorgBinner(cfg.maxBinTiles, cfg.maxTrianglesPerTile))
 
   // Sticky done flag for sequencer detection (module-level so it's visible
   // in the data_out MuxCase).  Set when the sequencer pulses io.done,
@@ -554,7 +554,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // narrower (BorgConfig.Asic) -- see SeqMmioIO's tileRowWidth comment.
       s.io.mmio.tilesPerRow     := seqTilesPerRowReg(s.io.mmio.tilesPerRow.getWidth - 1, 0)
       s.io.mmio.binBase         := seqBinBaseReg
-      s.io.mmio.binRowBytes     := seqBinRowBytesReg
+      // seqBinRowBytesReg is the full RDL register width (20 bits); the
+      // sequencer's binRowBytes port may be narrower -- see SeqMmioIO's
+      // binRowBytesWidth comment.
+      s.io.mmio.binRowBytes     := seqBinRowBytesReg(s.io.mmio.binRowBytes.getWidth - 1, 0)
       s.io.mmio.setupBase       := seqSetupBaseReg
       s.io.mmio.fbWidthTiles    := seqTilesPerRowReg(s.io.mmio.fbWidthTiles.getWidth - 1, 0)
       s.io.mmio.fbHeightTiles   := seqTilesPerRowReg(s.io.mmio.fbHeightTiles.getWidth - 1, 0)  // square framebuffer assumption
