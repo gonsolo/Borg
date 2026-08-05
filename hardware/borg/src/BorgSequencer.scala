@@ -103,15 +103,22 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   val fragUsesFragPos = Input(Bool())
 }
 
-class SeqBinnerIO extends Bundle {
+class SeqBinnerIO(cfg: BorgConfig) extends Bundle {
+  // Tile index into countMem (maxBinTiles entries) and per-tile triangle
+  // count (0..maxTrianglesPerTile) -- narrowed from the historical fixed
+  // 13/10-bit widths to match the config, same math.min-guarded pattern as
+  // SeqMmioIO's tileRowWidth/binRowBytesWidth (never widens past the
+  // original bound, only narrows when the config's real max is smaller).
+  private val countAddrWidth = math.min(13, log2Ceil(cfg.maxBinTiles))
+  private val countWidth     = math.min(10, log2Ceil(cfg.maxTrianglesPerTile + 1))
   val start = Output(Bool())
   val triIndex = Output(UInt(16.W))
-  val bbox = Output(new Bbox(10))
+  val bbox = Output(new Bbox(cfg.coordWidth))
   val clearCounts = Output(Bool())
   val busy = Input(Bool())
-  val countReadAddr = Output(UInt(13.W))  // tile index — up to 8192 tiles (512×512 @ 4×4)
+  val countReadAddr = Output(UInt(countAddrWidth.W))
   val countReadEn = Output(Bool())
-  val countReadData = Input(UInt(10.W))
+  val countReadData = Input(UInt(countWidth.W))
 }
 
 class SeqStoreIO extends Bundle {
@@ -149,7 +156,7 @@ class SeqDmaIO extends Bundle {
 
 class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val mmio = new SeqMmioIO(cfg)
-  val binner = new SeqBinnerIO
+  val binner = new SeqBinnerIO(cfg)
   val store = new SeqStoreIO
   val flusher = new SeqFlusherIO
   val iter = new SeqIteratorIO(cfg.coordWidth)
@@ -235,10 +242,10 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // Step 31.4: Tile loop registers (reused for Pass 2 full-screen iteration)
   val tileX = RegInit(0.U(cfg.coordWidth.W))
   val tileY = RegInit(0.U(cfg.coordWidth.W))
-  val bboxMinX = RegInit(0.U(16.W))
-  val bboxMinY = RegInit(0.U(16.W))
-  val bboxMaxX = RegInit(0.U(16.W))
-  val bboxMaxY = RegInit(0.U(16.W))
+  val bboxMinX = RegInit(0.U(cfg.coordWidth.W))
+  val bboxMinY = RegInit(0.U(cfg.coordWidth.W))
+  val bboxMaxX = RegInit(0.U(cfg.coordWidth.W))
+  val bboxMaxY = RegInit(0.U(cfg.coordWidth.W))
 
   // Step 32.3: Pass 2 registers
   val binTriIdx   = RegInit(0.U(10.W))  // current index into tile's bin list
@@ -384,10 +391,10 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // --- Step 32.2: Binner output defaults ---
     io.binner.start       := false.B
     io.binner.triIndex    := triIdx
-    io.binner.bbox.min.x  := bboxMinX(9, 0)
-    io.binner.bbox.min.y  := bboxMinY(9, 0)
-    io.binner.bbox.max.x  := bboxMaxX(9, 0)
-    io.binner.bbox.max.y  := bboxMaxY(9, 0)
+    io.binner.bbox.min.x  := bboxMinX
+    io.binner.bbox.min.y  := bboxMinY
+    io.binner.bbox.max.x  := bboxMaxX
+    io.binner.bbox.max.y  := bboxMaxY
     io.binner.clearCounts := false.B
 
     // --- Step 32.3: Store + count read output defaults ---
@@ -626,16 +633,17 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     state                := sWaitVert
   }
 
-  // FP16 positive → 10-bit integer pixel coordinate.
+  // FP16 positive → cfg.coordWidth-bit integer pixel coordinate.
   // Unsigned integer comparison on positive FP16 is monotone (IEEE 754 property).
   // Negative inputs (off-screen left/top) are clamped to 0.
   private def fp16ToPixelInt(fp: UInt): UInt = {
+    val w    = cfg.coordWidth
     val e    = fp(14, 10)       // biased exponent (0..30)
     val m    = fp(9, 0)         // mantissa
     val norm = Cat(1.U(1.W), m) // 11-bit implicit-1 representation
-    Mux(e < 15.U, 0.U(10.W),
-    Mux(e >= 25.U, 1023.U(10.W),
-      (norm >> (10.U - (e - 15.U)))(9, 0)
+    Mux(e < 15.U, 0.U(w.W),
+    Mux(e >= (15 + w).U, ((1 << w) - 1).U(w.W),
+      (norm >> (w.U - (e - 15.U)))(w - 1, 0)
     ))
   }
 
@@ -654,10 +662,10 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         val maxXpix = fp16ToPixelInt(fp16Max(fp16Max(x0, x1), x2))
         val minYpix = fp16ToPixelInt(fp16Min(fp16Min(y0, y1), y2))
         val maxYpix = fp16ToPixelInt(fp16Max(fp16Max(y0, y1), y2))
-        bboxMinX := Cat(0.U(6.W), minXpix(9, 2), 0.U(2.W))  // round down to 4-pixel tile boundary
-        bboxMaxX := Cat(0.U(6.W), maxXpix)
-        bboxMinY := Cat(0.U(6.W), minYpix(9, 2), 0.U(2.W))
-        bboxMaxY := Cat(0.U(6.W), maxYpix)
+        bboxMinX := Cat(minXpix(cfg.coordWidth - 1, 2), 0.U(2.W))  // round down to 4-pixel tile boundary
+        bboxMaxX := maxXpix
+        bboxMinY := Cat(minYpix(cfg.coordWidth - 1, 2), 0.U(2.W))
+        bboxMaxY := maxYpix
         if (BorgDebug.trace) printf("[SEQ] gpuBbox (%d,%d)-(%d,%d)\n", minXpix, minYpix, maxXpix, maxYpix)
 
         writeIdx := 0.U

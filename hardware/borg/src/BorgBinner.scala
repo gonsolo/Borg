@@ -12,7 +12,7 @@ import chisel3.util._
   * It is triggered once per triangle during the geometry pass and iterates
   * over all tiles in the triangle's bounding box.
   */
-class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256) extends Bundle {
+class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256, coordWidth: Int = 9) extends Bundle {
   // See BorgSequencer.SeqMmioIO's tileRowWidth comment -- same invariant,
   // same formula, so this and BorgSequencer's tilesPerRow always agree in
   // width when both are constructed from the same cfg.maxBinTiles.
@@ -21,6 +21,10 @@ class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256) extends
   // so this and BorgSequencer's binRowBytes always agree in width when both
   // are constructed from the same cfg.maxTrianglesPerTile.
   private val binRowBytesWidth = math.min(20, log2Ceil(maxTrianglesPerTile * 2 + 1))
+  // Same math.min-guarded narrowing as SeqBinnerIO (BorgSequencer.scala) --
+  // must agree with it since BorgSequencer drives these ports directly.
+  private val countAddrWidth = math.min(13, log2Ceil(maxTiles))
+  private val countWidth     = math.min(10, log2Ceil(maxTrianglesPerTile + 1))
   // --- Trigger interface ---
   /** One-cycle pulse to start binning a triangle. */
   val start       = Input(Bool())
@@ -35,7 +39,7 @@ class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256) extends
   /** Tile-aligned bounding box: {minX, minY, maxX, maxY} in pixel coordinates.
     * minX/minY are inclusive; maxX/maxY are exclusive (one past the last pixel).
     * All values must be 4-pixel-aligned (tile size = 4×4). */
-  val bbox        = Input(new Bbox(10))
+  val bbox        = Input(new Bbox(coordWidth))
 
   // --- DRAM layout parameters ---
   /** GPU memory byte address of the bin list region base (from tbr_bin_base); 25b = 32 MB. */
@@ -55,11 +59,11 @@ class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256) extends
 
   // --- Step 32.3: External count read port (for Pass 2 tile render) ---
   /** Tile index to read the triangle count for. */
-  val countReadAddr = Input(UInt(13.W))  // up to 8192 tiles (512×512 @ 4×4)
+  val countReadAddr = Input(UInt(countAddrWidth.W))
   /** Read enable — assert for one cycle; data valid on next cycle. */
   val countReadEn   = Input(Bool())
   /** Triangle count for the tile addressed by countReadAddr (1-cycle latency). */
-  val countReadData = Output(UInt(10.W))
+  val countReadData = Output(UInt(countWidth.W))
 }
 
 /** BorgBinner — per-tile bin list writer (Step 32.1).
@@ -86,32 +90,35 @@ class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256) extends
   * @param maxTrianglesPerTile Upper bound on `binRowBytes` (see BorgConfig's doc
   *   comment) -- default 256 matches software/borg/borg_layout.h's SEQ_MAX_TRI.
   */
-class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256) extends Module {
-  val io = IO(new BorgBinnerIO(maxTiles, maxTrianglesPerTile))
+class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, val coordWidth: Int = 9) extends Module {
+  val io = IO(new BorgBinnerIO(maxTiles, maxTrianglesPerTile, coordWidth))
+
+  // Same math.min-guarded narrowing as BorgBinnerIO (must agree with it).
+  private val countWidth = math.min(10, log2Ceil(maxTrianglesPerTile + 1))
 
   // --- Per-tile count SRAM ---
-  // 10-bit count per tile: supports up to 1023 triangles per tile.
-  val countMem = SyncReadMem(maxTiles, UInt(10.W))
+  // countWidth-bit count per tile: supports up to maxTrianglesPerTile triangles.
+  val countMem = SyncReadMem(maxTiles, UInt(countWidth.W))
 
   // --- FSM ---
   val sIdle :: sReadCount :: sWaitCount :: sWriteDram :: sStoreCount :: sNextTile :: Nil = Enum(6)
   val state = RegInit(sIdle)
 
   // --- Tile iteration registers ---
-  val tileX = RegInit(0.U(10.W))   // current tile column (pixel coord, 4-aligned)
-  val tileY = RegInit(0.U(10.W))   // current tile row (pixel coord, 4-aligned)
+  val tileX = RegInit(0.U(coordWidth.W))   // current tile column (pixel coord, 4-aligned)
+  val tileY = RegInit(0.U(coordWidth.W))   // current tile row (pixel coord, 4-aligned)
 
   // Latched bbox (stable for the duration of one triangle's binning)
-  val bboxMinX = RegInit(0.U(10.W))
-  val bboxMinY = RegInit(0.U(10.W))
-  val bboxMaxX = RegInit(0.U(10.W))
-  val bboxMaxY = RegInit(0.U(10.W))
+  val bboxMinX = RegInit(0.U(coordWidth.W))
+  val bboxMinY = RegInit(0.U(coordWidth.W))
+  val bboxMaxX = RegInit(0.U(coordWidth.W))
+  val bboxMaxY = RegInit(0.U(coordWidth.W))
 
   // Latched triangle index
   val triIdxReg = RegInit(0.U(16.W))
 
   // Current tile's count (read from SRAM)
-  val curCount = RegInit(0.U(10.W))
+  val curCount = RegInit(0.U(countWidth.W))
 
   // Current tile index (linear: tileRow * tilesPerRow + tileCol)
   val curTileIndex = ((tileY >> 2) * io.tilesPerRow) + (tileX >> 2)
@@ -124,10 +131,10 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256) e
   // Pending start: latched when start fires during clearing.
   // Auto-starts binning once clearing finishes.
   val pendingStart = RegInit(false.B)
-  val pendBboxMinX = Reg(UInt(10.W))
-  val pendBboxMinY = Reg(UInt(10.W))
-  val pendBboxMaxX = Reg(UInt(10.W))
-  val pendBboxMaxY = Reg(UInt(10.W))
+  val pendBboxMinX = Reg(UInt(coordWidth.W))
+  val pendBboxMinY = Reg(UInt(coordWidth.W))
+  val pendBboxMaxX = Reg(UInt(coordWidth.W))
+  val pendBboxMaxY = Reg(UInt(coordWidth.W))
   val pendTriIdx   = Reg(UInt(16.W))
 
   when(io.clearCounts && !clearing) {
@@ -163,7 +170,7 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256) e
   // mid-binning, which is out-of-spec (sequencer clears at frame start before binning).
   val countMemWriteEn   = clearing || (state === sStoreCount)
   val countMemWriteAddr = Mux(clearing, clearIdx, curTileIndex)
-  val countMemWriteData = Mux(clearing, 0.U(10.W), curCount + 1.U)
+  val countMemWriteData = Mux(clearing, 0.U(countWidth.W), curCount + 1.U)
   when(countMemWriteEn) {
     countMem.write(countMemWriteAddr, countMemWriteData)
   }
@@ -229,8 +236,8 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256) e
         // on every current target; the bound is the fb width in pixels.
         val fbDim   = (io.tilesPerRow << 2).asUInt        // fb extent in pixels (exclusive max)
         val lastTl  = Mux(fbDim >= 4.U, fbDim - 4.U, 0.U) // first pixel of the last tile
-        def clampMin(v: UInt): UInt = Mux(v > lastTl, lastTl, v)(9, 0)
-        def clampMax(v: UInt): UInt = Mux(v > fbDim, fbDim, v)(9, 0)
+        def clampMin(v: UInt): UInt = Mux(v > lastTl, lastTl, v)(coordWidth - 1, 0)
+        def clampMax(v: UInt): UInt = Mux(v > fbDim, fbDim, v)(coordWidth - 1, 0)
         val minX = clampMin(rawMinX)
         val minY = clampMin(rawMinY)
         val maxX = clampMax(rawMaxX)

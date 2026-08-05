@@ -87,7 +87,7 @@ object BorgConfig {
   //   hasPerfCounters=false: 5×32-bit counters not needed for silicon demo; saves ~18 kµm².
   val Asic = BorgConfig(
     fp               = FloatConfig.FP16,
-    coordWidth       = 9,
+    coordWidth       = 7,
     fifoDepth        = 2,
     maxBinTiles      = 16,
     maxInstructions  = 32,

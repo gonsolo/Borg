@@ -80,7 +80,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val rdlRegs   = Module(new BorgGpuRegs()) // Auto-generated RDL register block
   val dma       = Module(new BorgDMA)
   val sequencer = Module(new BorgSequencer(cfg))
-  val binner    = Module(new BorgBinner(cfg.maxBinTiles, cfg.maxTrianglesPerTile))
+  val binner    = Module(new BorgBinner(cfg.maxBinTiles, cfg.maxTrianglesPerTile, cfg.coordWidth))
 
   // Sticky done flag for sequencer detection (module-level so it's visible
   // in the data_out MuxCase).  Set when the sequencer pulses io.done,
