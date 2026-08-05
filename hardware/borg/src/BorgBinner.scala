@@ -120,8 +120,17 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
   // Current tile's count (read from SRAM)
   val curCount = RegInit(0.U(countWidth.W))
 
-  // Current tile index (linear: tileRow * tilesPerRow + tileCol)
-  val curTileIndex = ((tileY >> 2) * io.tilesPerRow) + (tileX >> 2)
+  // Current tile index (linear: tileRow * tilesPerRow + tileCol). Chisel's
+  // generic width inference for the multiply/add gives a worst-case width
+  // wider than any value curTileIndex can actually take -- it's used
+  // exclusively to address countMem (SyncReadMem(maxTiles, ...)), so by
+  // construction it never needs to represent a value >= maxTiles. Narrowing
+  // to that real bound doesn't change behaviour (an out-of-range value would
+  // already be misindexing the same memory at the wider width) but lets
+  // synthesis drop the now-provably-unused high bits from every downstream
+  // user (notably the tileLinear * binRowBytes multiply below).
+  private val tileIndexWidth = log2Ceil(maxTiles)
+  val curTileIndex = (((tileY >> 2) * io.tilesPerRow) + (tileX >> 2))(tileIndexWidth - 1, 0)
 
   // --- Count clear logic ---
   // When clearCounts is pulsed, zero all entries over multiple cycles.
