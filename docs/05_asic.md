@@ -52,22 +52,77 @@ repair, which in turn reduces area.
 
 ## Tile Size
 
-The design occupies a 4×2 tile (8 tiles) on the TTIHP26a shuttle, providing
-approximately 260,000 µm² of usable area. At 60% target density, the design
-uses about 160,000 µm² — primarily flip-flops for the register files, instruction
-memory, and pipeline state.
+**TTIHP26a** (submitted March 2026, CPU: TinyQV) occupied a 4×2 tile (8 tiles),
+providing approximately 260,000 µm² of usable area.
+
+**TTIHP26b** (current target, submission deadline September 2026, CPU: Hutt)
+occupies an 8×4 tile (32 tiles) — a fixed die of 1,208,170 µm². Hutt's RV64
+groundwork (Sv39 MMU, M/A extensions) plus the growing Borg GPU no longer fit
+the smaller die even at RV32; the larger tile allocation was a deliberate
+scope decision, not a fallback.
+
+## Latest Results (TTIHP26b, 2026-08-05)
+
+`make gds-ihp` completes the full 80-stage LibreLane flow with zero DRC, LVS,
+antenna, or power-grid violations:
+
+| Metric | Value |
+|---|---|
+| Tiles | 8×4 (32) |
+| Core area (fixed die) | 1,208,170 µm² |
+| Post-synthesis design area | 850,850.9 µm² |
+| Utilization | 88.1% |
+| Power | 2.55 mW @ 4 MHz |
+| DRC / LVS / Antenna | clean |
+
+GDS: `runs/wokwi/final/gds/tt_um_gonsolo_borg.gds`.
 
 ## Verification
 
 The design is verified at multiple levels before tape-out:
 
 - **Chisel unit tests** — functional correctness of Borg FPU and Hutt
-- **cocotb RTL simulation** — full SoC integration tests
+- **cocotb RTL simulation** — full SoC integration tests (9 tests: 4 Borg + 5 core)
 - **Verilator lint** — static analysis of the generated Verilog
 - **FPGA validation** — real hardware testing on ULX3S
-- **Gate-level simulation** — post-synthesis simulation with IHP standard cells
+- **Gate-level simulation** — post-synthesis simulation against the actual IHP
+  netlist (9 tests: 4 Borg + 5 core, same test names as RTL — ~80× slower since
+  it simulates real synthesized gates instead of the RTL model)
 
 ```
-make test-all   # Run Chisel + cocotb tests
-make lint       # Verilator lint check
+make test-all                   # Run Chisel + cocotb RTL tests
+make lint                       # Verilator lint check
+PDK=ihp-sg13g2 make -C test/soc test-cocotb-soc-core-gl  # Gate-level (post-synthesis)
+PDK=ihp-sg13g2 make -C test/soc test-cocotb-soc-borg-gl
 ```
+
+## What Changed Since TTIHP26a
+
+The design has been substantially rewritten since the TTIHP26a submission
+(git tag `TinyTapeoutIHP26a`) — 883 commits, 528 files changed:
+
+- **CPU rewrite**: TinyQV → **Hutt**, a clean multi-cycle RV32I/RV64I core
+  with `Decoupled` instruction/data buses (top module renamed
+  `tt_um_tt_tinyQV` → `tt_um_gonsolo_borg`).
+- **Die grown 4×**: 4×2 (8 tiles) → 8×4 (32 tiles) to fit Hutt plus the
+  larger Borg GPU.
+- **Repo reorganized**: `borg/`, `tinyqv/`, `src/` → `hardware/{borg,hutt,
+  memory,peri,soc,hardfloat}`, `asic/tt/`, `fpga/ulx3s/`, `software/`; the
+  MMIO register block moved to SystemRDL as the single source of truth
+  (`hardware/rdl/*.rdl`, generated via the in-tree `PeakRDL-chisel` submodule).
+- **RV64 + Linux explored and descoped**: a full RV64/Sv39/Linux path was
+  built and shown to boot on ULX3S, but measured at ~2× the TT-IHP 8×4 die
+  budget — TTIHP26b stays RV32I, no Linux; RV64/Linux remains a future-shuttle
+  goal.
+- **New host-side work**: `borgvk`, a real Vulkan ICD driver (Mesa fork,
+  branch `borg`) that runs the unmodified `Vulkan-Tools/cube.c` over serial —
+  working end-to-end on ULX3S, not yet exercised on IHP silicon.
+- **Verification deepened**: added gate-level cocotb tests against the actual
+  synthesized netlist and an RV32 firmware boot test (`test/soc/test_rv32_boot.py`),
+  neither of which existed for TTIHP26a.
+- **Area-optimization campaign** (this session): a systematic pass over
+  hardcoded/oversized register widths across `BorgBinner`, `BorgSequencer`,
+  `BorgLane`, and the FP16 special-function units took the design from
+  908,820 µm² down to 850,850.9 µm² and, for the first time, cleared the
+  post-CTS detailed-placement failure (`DPL-0036`) that had blocked the full
+  flow since the RV64 merge.
