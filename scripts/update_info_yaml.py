@@ -49,7 +49,9 @@ def main():
     parser.add_argument('--pdk', default=os.environ.get('PDK', 'sky130A'))
     args = parser.parse_args()
 
-    tiles = "8x4"
+    # IHP's ttihp26b shuttle only offers up to 6x4 (no 8x4 slot); Sky130/
+    # GF180MCU shuttles offer 8x4.
+    tiles = "6x4" if args.pdk == "ihp-sg13g2" else "8x4"
 
     with open(template_path, 'r') as f:
         content = f.read()
