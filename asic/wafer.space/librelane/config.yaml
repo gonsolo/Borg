@@ -1,0 +1,268 @@
+meta:
+  version: 3
+  flow: Chip
+  substituting_steps:
+
+    # Render the layout after sealring insertion
+    KLayout.Render: null
+    +KLayout.SealRing: KLayout.Render
+
+    # Disable KLayout DRC
+    #KLayout.DRC: null
+    #Checker.KLayoutDRC: null
+
+    # Disable KLayout antenna check
+    #KLayout.Antenna: null
+    #Checker.KLayoutAntenna: null
+
+    # Disable KLayout density check
+    #KLayout.Density: null
+    #Checker.KLayoutDensity: null
+
+    # Save time during development
+    # Enable for sign-off
+    #OpenROAD.IRDropReport: null
+    #Magic.DRC: null
+    #Checker.MagicDRC: null
+    #KLayout.XOR: null
+    #Netgen.LVS: null
+    #Checker.LVS: null
+
+DESIGN_NAME: chip_top
+
+# Needed alongside LIB below: SYNTH_CORNER stayed None even with --manual-pdk
+# args passed, and filter_views() can't pick a LIB entry without it -- same
+# "Missing -liberty" error even with LIB correctly populated.
+SYNTH_CORNER: nom_tt_025C_5v00
+
+# Needed on LibreLane 3.0.3: --manual-pdk mode does not auto-populate LIB
+# (standard-cell liberty files) from --scl/STD_CELL_LIBRARY the way non-manual
+# (Ciel-managed) PDK resolution does -- without this, Yosys's DFFLIBMAP pass
+# fails with "Missing -liberty liberty_file option!". Corners match
+# STA_CORNERS' 3 unique suffixes (tt_025C_5v00/ss_125C_4v50/ff_n40C_5v50);
+# nom_/min_/max_ prefixes there are wire-RC sub-corners sharing one liberty
+# file each.
+LIB:
+  "*_tt_025C_5v00":
+  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib
+  "*_ss_125C_4v50":
+  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ss_125C_4v50.lib
+  "*_ff_n40C_5v50":
+  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ff_n40C_5v50.lib
+
+# Needed on LibreLane 3.0.3: --pad on the CLI does not auto-inject the io pad
+# library's blackbox Verilog models into synthesis -- without this, io pad
+# cell references (gf180mcu_fd_io__in_c, __in_s, __bi_24t, __asig_5p0, etc.)
+# fail hierarchy checks as "not part of the design". PAD_VERILOG_MODELS
+# (librelane/steps/pyosys.py's VerilogStep) is only consumed when the step's
+# power_defines=True, which the plain Yosys.Synthesis step doesn't set --
+# EXTRA_VERILOG_MODELS is the unconditional equivalent, so use that instead.
+EXTRA_VERILOG_MODELS:
+- pdk_dir::libs.ref/gf180mcu_fd_io/verilog/gf180mcu_fd_io__blackbox_pp.v
+
+# LibreLane 3.0.3 bug (still present on the dev branch as of 2026-04):
+# PAD_LIBS is declared Dict[str, List[Path]] (corner-pattern -> libs, same
+# shape as LIB), but common/io.tcl's read_timing_info does a flat
+# `foreach lib $::env(PAD_LIBS)` with no corner-filtering step (unlike LIB,
+# which gets resolved to _CURRENT_CORNER_LIBS first). A dict serializes to
+# Tcl as an interleaved key/value list, so the loop trips over the literal
+# corner-glob keys (e.g. "*_tt_025C_5v00") as if they were liberty file
+# paths -- "Error: cannot read file *_tt_025C_5v00." We don't need gpio pad
+# timing accuracy for an area measurement, so just skip loading it.
+PAD_LIBS: null
+
+VERILOG_FILES:
+- dir::../src/chip_top.sv
+- dir::../src/chip_core.sv
+# Borg's existing generated Verilog (same RTL used unmodified for the
+# ihp-sg13g2/sky130A GDS flows), instantiated as tt_um_gonsolo_borg inside
+# chip_core.sv. Keep this list in sync with info.yaml's source_files.
+- dir::../../../out/hardware/borg/verilog/Borg.sv
+- dir::../../../out/hardware/borg/verilog/BorgBinner.sv
+- dir::../../../out/hardware/borg/verilog/BorgCommandFIFO.sv
+- dir::../../../out/hardware/borg/verilog/BorgCore.sv
+- dir::../../../out/hardware/borg/verilog/BorgDMA.sv
+- dir::../../../out/hardware/borg/verilog/BorgFp16Fma.sv
+- dir::../../../out/hardware/borg/verilog/BorgGpuRegs.sv
+- dir::../../../out/hardware/borg/verilog/BorgIterator.sv
+- dir::../../../out/hardware/borg/verilog/BorgLane.sv
+- dir::../../../out/hardware/borg/verilog/BorgRasterizer.sv
+- dir::../../../out/hardware/borg/verilog/BorgSequencer.sv
+- dir::../../../out/hardware/borg/verilog/BorgShaderDispatcher.sv
+- dir::../../../out/hardware/borg/verilog/BorgTextureUnit.sv
+- dir::../../../out/hardware/borg/verilog/BorgTileBuffer.sv
+- dir::../../../out/hardware/borg/verilog/BorgTileFlusher.sv
+- dir::../../../out/hardware/borg/verilog/Fp16Special.sv
+- dir::../../../out/hardware/borg/verilog/Hutt.sv
+- dir::../../../out/hardware/borg/verilog/HuttAlu.sv
+- dir::../../../out/hardware/borg/verilog/HuttRegFile.sv
+- dir::../../../out/hardware/borg/verilog/MemoryController.sv
+- dir::../../../out/hardware/borg/verilog/Peripherals.sv
+- dir::../../../out/hardware/borg/verilog/QspiBackend.sv
+- dir::../../../out/hardware/borg/verilog/QspiController.sv
+- dir::../../../out/hardware/borg/verilog/Queue2_BorgCommand.sv
+- dir::../../../out/hardware/borg/verilog/countMem_16x9.sv
+- dir::../../../out/hardware/borg/verilog/instructionMemory_64x32.sv
+- dir::../../../out/hardware/borg/verilog/mem_16x32.sv
+- dir::../../../out/hardware/borg/verilog/mem_32x16.sv
+- dir::../../../out/hardware/borg/verilog/ram_2x14.sv
+- dir::../../../out/hardware/borg/verilog/regFile.sv
+- dir::../../../out/hardware/borg/verilog/rgbzMem_16x64.sv
+- dir::../../../out/hardware/borg/verilog/tqvp_uart_wrapper.sv
+- dir::../../../out/hardware/borg/verilog/tt_um_gonsolo_borg.sv
+- dir::../../../out/hardware/borg/verilog/uart_rx.sv
+- dir::../../../out/hardware/borg/verilog/uart_tx.sv
+
+# Enable plugin for better SystemVerilog support
+# USE_SLANG: True
+# SLANG_ARGUMENTS: ['--keep-hierarchy']
+
+# Slightly smaller file sizes
+PRIMARY_GDSII_STREAMOUT_TOOL: klayout
+
+# SDC files
+PNR_SDC_FILE: dir::chip_top.sdc
+SIGNOFF_SDC_FILE: dir::chip_top.sdc
+FALLBACK_SDC: dir::chip_top.sdc
+
+# Power / ground nets
+VDD_NETS:
+- VDD
+GND_NETS:
+- VSS
+
+# We need to add gf180mcu_fd_io__bi_24t
+# due to the unused Y output for output only pads
+IGNORE_DISCONNECTED_MODULES:
+- gf180mcu_fd_io__bi_24t
+- gf180mcu_ws_ip__qrcode_id
+- gf180mcu_ws_ip__shuttle_id
+- gf180mcu_ws_ip__project_id
+- gf180mcu_ws_ip__logo
+- gf180mcu_ws_ip__marker
+
+# Clock
+# 250ns (4 MHz) matches Borg's real ASIC clock target (see asic/tt/src/TTMain.scala)
+# -- the template's default 40ns/25MHz would force unnecessary buffer/cell
+# upsizing purely to meet timing we don't need, inflating the area number
+# we're trying to measure here.
+CLOCK_PORT: clk_PAD
+CLOCK_NET: clk_pad/Y
+CLOCK_PERIOD: 250 # 4 MHz
+
+# Overfix hold violations
+PL_RESIZER_HOLD_SLACK_MARGIN: 0.35
+GRT_RESIZER_HOLD_SLACK_MARGIN: 0.3
+
+# Increase density for more 
+# logic on your die
+PL_TARGET_DENSITY_PCT: 35
+GRT_ALLOW_CONGESTION: true
+
+# Allow a larger Y displacement
+PL_MAX_DISPLACEMENT_Y: 200
+
+# Fix antenna violations after DRT
+DRT_ANTENNA_REPAIR_ITERS: 10
+DRT_ANTENNA_REPAIR_MARGIN: 10 # %
+
+# PDN
+PDN_CFG: dir::pdn/pdn_cfg.tcl
+PDN_ENABLE_PINS: False
+
+# PDN - Straps
+PDN_VWIDTH: 5
+PDN_HWIDTH: 5
+PDN_VSPACING: 1
+PDN_HSPACING: 1
+PDN_VPITCH: 75
+PDN_HPITCH: 75
+
+# PDN - Core ring
+PDN_CORE_RING: True
+# Maximum metal width without slotting: 30um
+PDN_CORE_RING_VWIDTH: 25
+PDN_CORE_RING_HWIDTH: 25
+PDN_CORE_RING_CONNECT_TO_PADS: True
+PDN_CORE_VERTICAL_LAYER: Metal4
+PDN_CORE_HORIZONTAL_LAYER: Metal3
+# PDN_CORE_RING_CONNECT_TO_PAD_LAYERS (layer-specific variant) doesn't exist
+# in LibreLane 3.0.3 -- only in dev. PDN_CORE_RING_CONNECT_TO_PADS above
+# already connects the ring to pads (using 3.0.3's own default layer).
+
+# Do not error on magic DRC violations
+# Note: Passing magic DRC is not required for the submission.
+# However, it is recommended to fix or carefully review all violations.
+ERROR_ON_MAGIC_DRC: False
+
+# Prevent false positive DRC errors in I/O cells
+MAGIC_GDS_FLATGLOB:
+# For contacts
+- "*_CDNS_*"
+# Foundry provided SRAMs
+- "*$$*"
+- "M1_N*"
+- "M1_P*"
+- "M2_M1*"
+- "M3_M2*"
+- "nmos_5p0*"
+- "nmos_1p2*"
+- "pmos_5p0*"
+- "pmos_1p2*"
+- "via1_*"
+- "ypass_gate*"
+- "G_ring_*"
+# These additional cells must be flattened to get rid of 3.3V devices
+# (DUALGATE drawn into high-level cells)
+- "dcap_103*"
+- "din_*"
+- "mux821_*"
+- "rdummy_*"
+- "pmoscap_*"
+- "xdec_*"
+- "ypredec*"
+- "xpredec*"
+- "prexdec_*"
+- "xdec8_*"
+- "xdec16_*"
+- "xdec32_*"
+- "sa_*"
+
+# Since we cannot meet the minimum density limit on Metal2,
+# ignore active metal on previous and subsequent layers
+# (DM.5_DM.7 and DM.4_DM.6). Dummy metal is moved to active
+# metal during the precheck.
+KLAYOUT_FILLER_OPTIONS:
+  Metal2_ignore_active: true
+
+# Because we have multiple power pads for one power domain
+MAGIC_EXT_UNIQUE: notopports
+
+# Image render settings
+KLAYOUT_RENDER_RESOLUTION: 2048
+KLAYOUT_RENDER_OVERSAMPLING: 3
+KLAYOUT_PROPERTIES: dir::gf180mcu_render.lyp
+
+# DRC settings
+# A high number of workers increases RAM usage,
+# but can significantly improve the performance.
+# workers * threads should equal the available
+# hardware threads for a best possible utilization.
+
+KLAYOUT_DRC_THREADS: 1
+
+# "max" equals max hardware threads
+KLAYOUT_DRC_OPTIONS:
+  decks: "all,-antenna,-density,-cup" # disable CUP for now
+  variant: ref::$PDK
+  workers: max
+
+KLAYOUT_DENSITY_OPTIONS:
+  decks: "density"
+  variant: ref::$PDK
+  workers: max
+
+KLAYOUT_ANTENNA_OPTIONS:
+  decks: "antenna"
+  variant: ref::$PDK
+  workers: max

@@ -123,7 +123,14 @@
         pkgs.icestorm
         pkgs.jdk21
         pkgs.klayout
-        pkgs.librelane
+        # yosys override: LibreLane bundles its own internal yosys 0.62
+        # (separate from yosysFixed below), which hits the same autoname
+        # quadratic-blowup bug patched for our own synthesis (see yosysFixed's
+        # own comment) -- confirmed hitting it directly: asic/wafer.space's
+        # librelane run had yosys-abc at 7.3GB RSS and climbing during ABC
+        # tech-mapping, the same runaway pattern that made full Hutt+Borg SoC
+        # synthesis take 49GB+/never complete before this was patched.
+        (pkgs.librelane.override { yosys = yosysFixed; })
         pkgs.magic-vlsi
         pkgs.metals
         pkgs.mill
