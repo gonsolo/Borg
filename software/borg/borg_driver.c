@@ -508,17 +508,15 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
   BORG_GPU->seq_setup_addr = SEQ_SETUP_SHADER_ADDR;
   BORG_GPU->seq_setup_len  = SEQ_SETUP_SHADER_LEN;
 
-  // Step 31: Stage rast+frag shaders to DRAM for autonomous re-DMA.
-  // After vertex+setup, the sequencer needs to reload IMEM with rast+frag.
-  for (int i = 0; i < (int)rast_shader.num_instrs; i++)
-    DRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)i * 4) = rast_shader.instrs[i];
-  // HALT sentinel
-  DRAM_OUT_RAW(SEQ_RAST_SHADER_ADDR + (uint32_t)rast_shader.num_instrs * 4) = 0;
+  // Step 31: Stage frag shader to DRAM for autonomous re-DMA. After vertex+
+  // setup, the sequencer needs to reload IMEM with frag. The rasterizer edge-
+  // test shader is a permanent hardware ROM (BorgRasterRom) now -- it is no
+  // longer staged or DMA'd; rast_shader is still spirb_parse'd above purely
+  // for its uniform_regs metadata (consumed by the CPU-fallback
+  // setup_tile_uniforms path).
   for (int i = 0; i < (int)frag_shader.num_instrs; i++)
     DRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)i * 4) = frag_shader.instrs[i];
   DRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)frag_shader.num_instrs * 4) = 0;
-  BORG_GPU->seq_rast_addr = SEQ_RAST_SHADER_ADDR;
-  BORG_GPU->seq_rast_len  = rast_shader.num_instrs + 1;  // +1 for HALT
   BORG_GPU->seq_frag_addr = SEQ_FRAG_SHADER_ADDR;
   BORG_GPU->seq_frag_len  = frag_shader.num_instrs + 1;  // +1 for HALT
 
@@ -558,9 +556,10 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   // seq_*_len = num_instrs (no +1).
   uint32_t n = blob[0];
   // IMEM-slot bounds: vertex DRAM slot is 128 B (32 words); fragment occupies
-  // IMEM[13..71] (59 words).  Reject oversized blobs.
+  // IMEM[BORG_IMEM_FRAG_OFFSET..BORG_IMEM_DEPTH-1] (BORG_IMEM_FRAG_LEN words).
+  // Reject oversized blobs.
   if (stage == 0 && n > 32) return;
-  if (stage == 1 && n > 59) return;
+  if (stage == 1 && n > BORG_IMEM_FRAG_LEN) return;
 
   const uint8_t *w = blob + 6;
   uint32_t addr = (stage == 0) ? SEQ_VERT_SHADER_ADDR : SEQ_FRAG_SHADER_ADDR;
@@ -807,7 +806,10 @@ static bbox_t compute_bbox(const xy16x3_t *pos) {
 
 // CPU fallback: load all uniforms for a draw call into the hardware pipeline.
 // Used when hasSequencer=false. Sequencer path replaces this on Sim/ULX3S.
-static void setup_tile_uniforms(const draw_call_t *dc) {
+// NOTE: dead code since its only caller (borgBinRender, the CPU software TBR
+// path) was removed -- kept for the non-sequencer (no hardware TBR) fallback
+// this codebase doesn't currently exercise on any live target.
+static void __attribute__((unused)) setup_tile_uniforms(const draw_call_t *dc) {
   const triangle_t *tri = &dc->tri;
   const texture_t *t = &dc->tex;
 
@@ -949,123 +951,6 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
   draw_call_count++;
 }
 
-// TBR tile-ordered render loop.
-// NOTE: dead code (CPU software TBR path, pico-ice only — removed).  Its tile
-// strides (tile_index * 32 / * 128) are stale for the RGB565 framebuffer; the
-// live path is borgBinRenderAutonomous (hardware sequencer + flusher).
-static void __attribute__((unused)) borgBinRender(int frame) {
-  int tiles_per_row = borg_fb_width >> 2;
-  int tile_rows = borg_fb_height >> 2;
-  int fb_offset = frame * FRAME_STRIDE;
-
-  // Precompute packed clear color in tiled format:
-  //   lo word = {b[31:16], z_max[15:0]}
-  //   hi word = {r[31:16], g[15:0]}
-  uint32_t cc_lo = ((uint32_t)last_clear_color.b << 16) | FP16_MAX_DEPTH;
-  uint32_t cc_hi = ((uint32_t)last_clear_color.r << 16) | last_clear_color.g;
-
-  borg_load_spirb_shader_at(&rast_shader, BORG_IMEM_RAST_OFFSET);
-  borg_load_spirb_shader_at(&frag_shader, BORG_IMEM_FRAG_OFFSET);
-  borg_load_add_shader();
-
-  // Set the clear-color shadow registers once per frame.
-  // These same values are reused in the per-pixel MMIO pre-fill loop below.
-  BORG_GPU->tile_bz = cc_lo;   // {B[31:16], Z_max[15:0]}
-
-
-  for (int tile_row = 0; tile_row < tile_rows; tile_row++) {
-    for (int tile_col = 0; tile_col < tiles_per_row; tile_col++) {
-      int tile_index = tile_row * tiles_per_row + tile_col;
-      int count = (int)bin_count[tile_index];
-
-      int tx = tile_col << 2;
-      int ty = tile_row << 2;
-
-      if (count == 0) {
-        // Empty tile: write clear color directly to DRAM (32 words = 16 pixels
-        // × 2).
-        int base = fb_offset + tile_index * 32;
-        for (int tile_idx = 0; tile_idx < 16; tile_idx++) {
-          DRAM_OUT(base + tile_idx * 2 + 0) = cc_lo;
-          DRAM_OUT(base + tile_idx * 2 + 1) = cc_hi;
-        }
-        continue;
-      }
-
-      // tileBase: written once per tile (same for all triangles on this tile).
-      uint32_t tile_base_spi =
-          DRAM_OUT_SPI(0 * FRAME_STRIDE) + (uint32_t)tile_index * 128;
-      BORG_GPU->flush_fb_base = tile_base_spi;
-
-      // Pre-fill all 16 tile SRAM pixels with {clear_color.RGB, Z=max}.
-      // Uses the TILE_BZ shadow (set once above) + per-pixel TILE_CTRL/TILE_RG.
-      for (int tile_idx = 0; tile_idx < 16; tile_idx++) {
-        BORG_GPU->tile_ctrl = (uint32_t)tile_idx;
-        BORG_GPU->tile_rg   = cc_hi;
-      }
-
-      for (int slot = 0; slot < count; slot++) {
-        const draw_call_t *dc = &draw_calls[(int)bin_list[tile_index][slot]];
-
-        if (has_sequencer) {
-          // TODO: triggering sequencer with triCount=1 per-tile runs the full
-          // autonomous FSM (vertex+setup+bin+render), conflicting with the
-          // CPU-driven tile loop. Use CPU fallback until a dedicated
-          // uniform-staging-only sequencer mode is added.
-          setup_tile_uniforms(dc);
-        } else {
-          // CPU fallback (no sequencer).
-          setup_tile_uniforms(dc);
-        }
-
-        // Enqueue tile command.
-        while (BORG_GPU->status & STATUS_REG_T__FIFO_FULL_bm)
-          ;
-        uint32_t cmd = ((uint32_t)tx << CMD_ENQUEUE_REG_T__TILE_X_bp) |
-                       ((uint32_t)ty << CMD_ENQUEUE_REG_T__TILE_Y_bp);
-        BORG_GPU->cmd_enqueue = cmd;
-
-        // Allow FIFO pop and dispatcher to start.
-        for (volatile int k = 0; k < 16; k++) {
-          __asm__ volatile("nop");
-        }
-
-        // Drain iterator (advances hardware through all 16 tile pixels).
-        do {
-          uint32_t iter = BORG_GPU->iter;
-          if (!(iter & ITER_REG_T__VALID_bm))
-            break;
-          BORG_GPU->iter = 1;
-        } while (1);
-
-        // --- Tile flush ---
-        // Auto-detect HW flusher: FLUSH_BUSY goes high right after tileComplete
-        // when hasFlusher=true (Sim / ULX3S).  When hasFlusher=false it
-        // is hardwired 0 → always takes the CPU flush path below.
-        if (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm) {
-          // HW flusher active — wait for it to finish writing to DRAM.
-          while (BORG_GPU->status & STATUS_REG_T__FLUSH_BUSY_bm);
-        } else {
-          // CPU tile flush (hasFlusher=false):
-          // read 16 tile-buffer pixels from BRAM and write to DRAM.
-          int base = fb_offset + tile_index * 32;
-          for (int tile_idx = 0; tile_idx < 16; tile_idx++) {
-            BORG_GPU->tile_ctrl = (uint32_t)tile_idx;  // trigger BRAM read
-            // 2-cycle BRAM latency (SyncReadMem → readDataHeld)
-            __asm__ volatile("nop"); __asm__ volatile("nop");
-            __asm__ volatile("nop"); __asm__ volatile("nop");
-            uint32_t bz = BORG_GPU->tile_bz;   // {B[31:16], Z[15:0]}
-            uint32_t rg = BORG_GPU->tile_rg;   // {R[31:16], G[15:0]}
-            DRAM_OUT(base + tile_idx * 2 + 0) = bz;
-            DRAM_OUT(base + tile_idx * 2 + 1) = rg;
-          }
-        }
-
-      }   // for (int slot...)
-    }
-  }
-  (void)frame;
-}
 
 // Step 32.3/32.4: Autonomous two-pass TBR rendering.
 // Pass 1 (geometry): sequencer runs vert+setup+bin+storeSetup for all triangles.

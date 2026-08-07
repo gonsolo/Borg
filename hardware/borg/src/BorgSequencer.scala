@@ -365,8 +365,9 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.dma.start := false.B
     io.dma.desc  := dmaDescReg
 
-    io.coreTrigger.valid := false.B
-    io.coreTrigger.pc    := 0.U
+    io.coreTrigger.valid  := false.B
+    io.coreTrigger.pc     := 0.U
+    io.coreTrigger.isRast := false.B  // vert/setup always run from writable IMEM
 
     io.uniformWrite.en   := false.B
     io.uniformWrite.addr := 0.U
@@ -636,15 +637,27 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // FP16 positive → cfg.coordWidth-bit integer pixel coordinate.
   // Unsigned integer comparison on positive FP16 is monotone (IEEE 754 property).
   // Negative inputs (off-screen left/top) are clamped to 0.
+  //
+  // The shift amount and overflow threshold below MUST use the fixed FP16
+  // mantissa width (10), not cfg.coordWidth: they extract the correct integer
+  // value from the FP16 bit pattern, a property of the FP16 format itself,
+  // independent of how many bits of that integer we ultimately want to keep.
+  // Compute the true (up to 10-bit) pixel integer first, THEN clamp/truncate
+  // to cfg.coordWidth bits. (Conflating the two here previously shifted by
+  // one bit too few for every coordWidth != 10 -- i.e. every real config,
+  // since Default/Simt use coordWidth=9 -- roughly doubling every nonzero
+  // pixel coordinate and corrupting all bbox/binning downstream.)
   private def fp16ToPixelInt(fp: UInt): UInt = {
     val w    = cfg.coordWidth
     val e    = fp(14, 10)       // biased exponent (0..30)
     val m    = fp(9, 0)         // mantissa
     val norm = Cat(1.U(1.W), m) // 11-bit implicit-1 representation
-    Mux(e < 15.U, 0.U(w.W),
-    Mux(e >= (15 + w).U, ((1 << w) - 1).U(w.W),
-      (norm >> (w.U - (e - 15.U)))(w - 1, 0)
-    ))
+    val raw10 = Mux(e < 15.U, 0.U(10.W),
+                Mux(e >= 25.U, 1023.U(10.W),
+                  (norm >> (10.U - (e - 15.U)))(9, 0)
+                ))
+    val maxW = ((1 << w) - 1).U(10.W)
+    Mux(raw10 > maxW, ((1 << w) - 1).U(w.W), raw10(w - 1, 0))
   }
 
   private def handleWaitVert(): Unit = {
@@ -858,17 +871,11 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   private def handleLoadRastShader(): Unit = {
-    val desc = Wire(new DMADescriptor)
-    desc.baseAddr := io.mmio.rastShaderAddr
-    desc.length   := io.mmio.rastShaderLen
-    desc.dest     := 0.U  // dest=0 -> IMEM
-    desc.offset   := 0.U  // BORG_IMEM_RAST_OFFSET
-
-    dmaDescReg   := desc
-    io.dma.desc   := desc
-    io.dma.start  := true.B
-    nextAfterDMA := sLoadFragShader
-    state        := sWaitDMA
+    // The rasterizer edge-test shader is now a permanent hardware ROM
+    // (BorgRasterRom, fetched directly by BorgCore) -- it no longer lives in
+    // the writable IMEM, so there is nothing to DMA here. Go straight to
+    // loading the fragment shader.
+    state := sLoadFragShader
   }
 
   private def handleLoadFragShader(): Unit = {
@@ -876,7 +883,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     desc.baseAddr := io.mmio.fragShaderAddr
     desc.length   := io.mmio.fragShaderLen
     desc.dest     := 0.U  // dest=0 -> IMEM
-    desc.offset   := 13.U // BORG_IMEM_FRAG_OFFSET
+    desc.offset   := 1.U  // BORG_IMEM_FRAG_OFFSET (freed from 13 now that rast is a ROM)
 
     dmaDescReg   := desc
     io.dma.desc   := desc

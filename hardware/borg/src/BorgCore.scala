@@ -79,6 +79,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val auto_run_pending = RegInit(false.B)
   val running_by_rasterizer = RegInit(false.B)
 
+  // Baked rasterizer edge-test shader (see BorgRasterRom) -- a permanent ROM,
+  // fetched instead of instructionMemory while fetchRast is latched. Timing-
+  // matched to instructionMemory.read(nextPC)'s 1-cycle synchronous latency by
+  // registering the address, not the (combinational) ROM output.
+  val rasterRom  = VecInit(BorgRasterRom.instructions.map(_.U(32.W)))
+  val fetchRast  = RegInit(false.B)
+
   val uniformMem = SyncReadMem(cfg.maxUniforms, UInt(config.totalBits.W))
   // @doc:end
 
@@ -89,7 +96,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // --- Instruction Fetch ---
   val nextPC =
     Mux(is_busy && busy_counter === 1.U, programCounter + 1.U, programCounter)
-  val fetchedInstruction = instructionMemory.read(nextPC)
+  val rasterRomAddrReg = RegNext(nextPC)
+  val fetchedInstruction =
+    Mux(fetchRast, rasterRom(rasterRomAddrReg), instructionMemory.read(nextPC))
 
   // FTEX resume delay: after FTEX writeback completes, the IMEM still holds the
   // stale FTEX opcode (1-cycle SyncReadMem latency); suppress restart for 1 cycle.
@@ -208,6 +217,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     when(io.control.start) {
       running := true.B
       running_by_rasterizer := false.B
+      fetchRast := false.B  // CPU/MMIO-driven runs always fetch from writable IMEM
     }
     when(io.control.reset) {
       programCounter := io.control.startPC
@@ -220,6 +230,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       programCounter := io.coreTrigger.pc
       auto_run_pending := true.B
       running_by_rasterizer := true.B
+      fetchRast := io.coreTrigger.isRast
+      if (BorgDebug.trace) printf("[CORE] coreTrigger pc=%d isRast=%d\n",
+        io.coreTrigger.pc, io.coreTrigger.isRast)
     }
 
     when(auto_run_pending) {

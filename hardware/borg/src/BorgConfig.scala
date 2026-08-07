@@ -20,7 +20,11 @@ package borg
   *                        ASIC uses 16 to fit the IHP 8×4 die (16-tile render grid).
   * @param maxInstructions Shader instruction memory depth.  Each entry is 32 bits.
   *                        56 entries ≈ 145 kµm²; 32 entries ≈ 83 kµm² (saves 62 kµm²).
-  *                        ASIC uses 32 — the demo shader fits comfortably.
+  *                        The rasterizer edge-test shader is a separate, permanent
+  *                        ROM (BorgRasterRom) and does not consume this budget --
+  *                        this is purely the fragment-shader (and, time-multiplexed,
+  *                        vertex-shader) writable IMEM. ASIC uses 64, sized to fit
+  *                        cube.frag's 59 words.
   * @param maxUniforms  Uniform memory depth.  64 = two 32-entry pages (double-buffered
   *                     for CPU/GPU overlap); 32 = single page (saves ~25 kµm² on ASIC
   *                     where the sequencer always writes page 0).
@@ -81,7 +85,11 @@ object BorgConfig {
 
   // ASIC (IHP SG13G2, TT 8×4 tile).
   //   countMem_1024x10 alone was ~920 kµm² (50 % of die) → reduced to 16 tiles (~14 kµm²).
-  //   instructionMemory_56x32 was ~145 kµm² → reduced to 32 entries (~83 kµm²).
+  //   maxInstructions=64: the rasterizer edge-test shader (13 words) no longer lives
+  //     in this writable IMEM at all -- it's baked into a permanent ROM (BorgRasterRom),
+  //     fetched by BorgCore independently. This budget is now frag-only: cube.frag
+  //     is 59 words, +1 word BORG_IMEM_FRAG_OFFSET (kept nonzero so fragPcReg==0 can
+  //     still mean "no fragment shader"), +1 HALT sentinel = 61 of 64 used.
   //   icacheLines=0: I-cache bypassed — at 4 MHz QSPI latency is trivial; saves ~55 kµm².
   //   maxUniforms=32: single-page uniforms — sequencer always writes page 0; saves ~25 kµm².
   //   hasPerfCounters=false: 5×32-bit counters not needed for silicon demo; saves ~18 kµm².
@@ -90,7 +98,7 @@ object BorgConfig {
     coordWidth       = 7,
     fifoDepth        = 2,
     maxBinTiles      = 16,
-    maxInstructions  = 32,
+    maxInstructions  = 64,
     icacheLines      = 0,
     maxUniforms      = 32,
     hasPerfCounters  = false
