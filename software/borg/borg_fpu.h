@@ -47,19 +47,22 @@ int fp16_to_uint(fp16_t fp16);
 fp16_t uint_to_fp16(int val);
 
 // --- Shader loader helpers ---
+// The rasterizer edge-test shader is a permanent hardware ROM (BorgRasterRom
+// in hardware/borg/src/) — it no longer lives in the writable IMEM and is
+// never DMA'd or MMIO-uploaded (BORG_IMEM_RAST_OFFSET/LEN removed accordingly).
 #define BORG_IMEM_VERT_OFFSET 0
-#define BORG_IMEM_RAST_OFFSET 0
-#define BORG_IMEM_FRAG_OFFSET 13
+#define BORG_IMEM_FRAG_OFFSET 1
 // The scalar-FPU helper REWRITES its 2-word program (op + HALT) before every
-// borg_run, so it needs no persistent slot.  It shares offset 0 with the rast
-// shader, which the sequencer re-DMAs into IMEM at every seq_trigger anyway —
-// the 59-word borgc frag now fills IMEM[13..71], leaving no slot past it.
+// borg_run, so it needs no persistent slot.  It shares offset 0 with the
+// vertex shader (mutually exclusive in time: Pass 1 vs. direct CPU calls).
 #define BORG_IMEM_ADD_OFFSET  0
 #define BORG_IMEM_DEPTH       72
 
-// Instruction counts for hardware sequencer DMA shader reload (Step 31.2).
-// RAST occupies IMEM[0..12] (13 words); FRAG occupies IMEM[13..71] (up to 59 words).
-#define BORG_IMEM_RAST_LEN  (BORG_IMEM_FRAG_OFFSET - BORG_IMEM_RAST_OFFSET)
+// Instruction count for hardware sequencer DMA shader reload (Step 31.2).
+// FRAG occupies IMEM[1..71] (up to 71 words). NOTE: this is the Default/ULX3S
+// hardware bound (BorgConfig.Default.maxInstructions=72); ASIC's real IMEM is
+// only 64 entries (BorgConfig.Asic) -- firmware here has no per-target build
+// knob yet, so ASIC builds must keep frag well under BORG_IMEM_FRAG_LEN.
 #define BORG_IMEM_FRAG_LEN  (BORG_IMEM_DEPTH       - BORG_IMEM_FRAG_OFFSET)
 
 void borg_load_spirb_shader(const spirb_shader_t *s);

@@ -11,6 +11,11 @@ import chisel3._
   *       BorgRasterizerIO named them `triggerCore*`. Unified here.
   */
 class CoreTriggerIO extends Bundle {
-  val valid = Output(Bool())
-  val pc    = Output(UInt(6.W))
+  val valid  = Output(Bool())
+  val pc     = Output(UInt(6.W))
+  // True when this trigger should fetch from BorgRasterRom (the baked edge-test
+  // shader) instead of the writable instructionMemory.  Only the dispatcher's
+  // sRast trigger ever sets this; sequencer (vert/setup) and sFrag triggers
+  // always leave it false.
+  val isRast = Output(Bool())
 }

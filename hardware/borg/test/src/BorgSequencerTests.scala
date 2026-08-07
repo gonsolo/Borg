@@ -249,9 +249,28 @@ object BorgSequencerTests extends TestSuite {
         println("\n=== BorgSequencerTests: triangle_setup ===")
         resetAndWait(borg)
 
+        // Pass 2 always visits tile (0,0) at least once (handleStartPass2 issues
+        // its bin-count read unconditionally, before the fbHeightTiles bound
+        // check). With the rasterizer edge-test shader now a permanent hardware
+        // ROM (BorgRasterRom) rather than software-configurable IMEM content,
+        // that visit genuinely runs the rasterizer -- with real uniform data --
+        // against any tile that has bin entries. This test's own setup shader
+        // only writes registers r0-r7 for inspection; it never populates the
+        // uniform slots (via the production sStageUniforms/DRAM setup-store
+        // round trip) that the real rasterizer needs, so ANY tile actually
+        // being binned corrupts r0-r2 here regardless of which tile it is --
+        // relocating the triangle doesn't help. The correct fix is to keep
+        // this triangle from being binned AT ALL: reverse its winding order
+        // (v1/v2 swapped vs. the natural CW-in-screen order) so
+        // handleWaitSetup's backface cull (BorgSequencer.scala: "Back-facing
+        // -> r6 < 0 (sign 1) -> skip") fires and sLoadBBox/sBinTri never runs,
+        // leaving every tile's bin count at 0. Edge deltas (and thus every
+        // "expected" value below) are computed purely from these same v0/v1/v2
+        // coordinates, so relabeling which physical vertex is "v1" vs "v2"
+        // doesn't change what's being tested -- only the winding sign.
         val v0x = 1.0f; val v0y = 0.0f
-        val v1x = 2.0f; val v1y = 0.0f
-        val v2x = 1.0f; val v2y = 5.0f
+        val v1x = 1.0f; val v1y = 5.0f
+        val v2x = 2.0f; val v2y = 0.0f
 
         val vertAddr = 0x1000; val setupAddr = 0x3000; val descAddr = 0x2000
         val vertShader = vertPassthroughShader()
@@ -312,12 +331,18 @@ object BorgSequencerTests extends TestSuite {
         println("\n=== BorgSequencerTests: sequencer_uniform_staging ===")
         resetAndWait(borg)
 
+        // See the comment in triangle_setup for why this triangle's winding is
+        // reversed (v1/v2 swapped vs. the natural CW-in-screen order): it
+        // forces handleWaitSetup's backface cull to skip sLoadBBox/sBinTri
+        // entirely, so no tile is ever binned and Pass 2's mandatory tile-(0,0)
+        // visit stays harmless regardless of which tile would otherwise have
+        // received this triangle's (never populated) uniform-slot data.
         val v0x = 1.0f; val v0y = 0.0f; val v0z = 0.1f
-        val v1x = 2.0f; val v1y = 0.0f; val v1z = 0.2f
-        val v2x = 1.0f; val v2y = 5.0f; val v2z = 0.3f
+        val v1x = 1.0f; val v1y = 5.0f; val v1z = 0.3f
+        val v2x = 2.0f; val v2y = 0.0f; val v2z = 0.2f
         val c0r = 1.0f; val c0g = 0.0f; val c0b = 0.0f  // v0 = red
-        val c1r = 0.0f; val c1g = 1.0f; val c1b = 0.0f  // v1 = green
-        val c2r = 0.0f; val c2g = 0.0f; val c2b = 1.0f  // v2 = blue
+        val c1r = 0.0f; val c1g = 0.0f; val c1b = 1.0f  // v1 = blue
+        val c2r = 0.0f; val c2g = 1.0f; val c2b = 0.0f  // v2 = green
 
         val vertAddr = 0x1000; val setupAddr = 0x3000; val descAddr = 0x2000
         val rastAddr = 0x4000; val fragAddr = 0x5000; val setupBase = 0x7000; val binBase = 0x6000

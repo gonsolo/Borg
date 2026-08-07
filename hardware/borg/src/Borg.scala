@@ -176,10 +176,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // CoreTrigger mux: sequencer takes priority ONLY when it is actively
     // asserting coreTrigger.valid (sRunVert, sRunSetup).
-    core.io.coreTrigger.valid := Mux(s.io.coreTrigger.valid, true.B,
+    core.io.coreTrigger.valid  := Mux(s.io.coreTrigger.valid, true.B,
                                                 rast.io.coreTrigger.valid)
-    core.io.coreTrigger.pc    := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.pc,
+    core.io.coreTrigger.pc     := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.pc,
                                                 rast.io.coreTrigger.pc)
+    core.io.coreTrigger.isRast := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.isRast,
+                                                rast.io.coreTrigger.isRast)
 
     core.io.control.start            := rdlRegs.io.hw.control_start
     core.io.control.reset            := rdlRegs.io.hw.control_reset_pipeline

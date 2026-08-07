@@ -109,8 +109,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val laneCtr = RegInit(0.U(log2Ceil(N).W))
 
   // --- Trigger outputs (directly driven, no register delay) ---
-  io.coreTrigger.valid := false.B
-  io.coreTrigger.pc    := 0.U
+  io.coreTrigger.valid  := false.B
+  io.coreTrigger.pc     := 0.U
+  io.coreTrigger.isRast := false.B
 
   // Tile buffer write default (no write)
   io.tileWrite.en   := false.B
@@ -190,8 +191,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     laneCtr := 0.U
     auto_run_stall := true.B
     phase := sRast
-    io.coreTrigger.valid := true.B
-    io.coreTrigger.pc    := 0.U
+    io.coreTrigger.valid  := true.B
+    io.coreTrigger.pc     := 0.U
+    io.coreTrigger.isRast := true.B
     if (BorgDebug.trace) printf("[DISP] pixelReady tileIdx0=%d\n", io.shaderTileIndex(0))
   }
 
