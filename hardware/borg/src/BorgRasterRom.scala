@@ -31,6 +31,17 @@ package borg
   * `@borg uniform` directives) and writes e0/e1/e2 to r0/r1/r2. Uniform
   * staging (borg_load_edge_constants in software/borg/borg_driver.c) is
   * completely unchanged by this ROM -- only instruction *fetch* moves.
+  *
+  * REGISTER CLOBBER ABI -- running this ROM destroys r0..r4 on EVERY pixel:
+  *   r0, r1, r2  = the e0/e1/e2 edge outputs (read by the inside-flag snoop)
+  *   r3, r4      = the per-edge dpx/dpy scratch pair, reused three times
+  *                 (r3 = r30 + neg_vx_k, r4 = r31 + neg_vy_k)
+  * Because BORG_ITER auto-run always runs this ROM before chaining into the
+  * fragment shader, NOTHING staged in r0..r4 survives into the frag phase --
+  * with all-zero uniforms r3/r4 come back as exactly coordX/coordY (px+0.5,
+  * py+0.5), which is a confusing value to debug. Fragment shaders must treat
+  * r0..r4 as caller-clobbered; borgc already does (regalloc.rs pre-colours
+  * r0..r3 for gl_Position and reserves r4 as the perspective-divide scratch).
   */
 private[borg] object BorgRasterRom {
   val instructions: Seq[BigInt] = Seq(

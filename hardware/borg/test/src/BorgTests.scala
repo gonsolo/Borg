@@ -662,6 +662,16 @@ object BorgTests extends TestSuite {
       simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Inside Flag Snoop Tests ===")
 
+        // BORG_ITER-triggered auto-run always fetches the fixed rasterizer
+        // edge-test ROM (BorgRasterRom) since 1e726db, never a custom IMEM
+        // program -- so these tests drive the real edge math via the
+        // production uniform MMIO window (uniform[0..11]: dx0, neg_dy0, dx1,
+        // neg_dy1, dx2, neg_dy2, neg_vx0, neg_vy0, neg_vx1, neg_vy1, neg_vx2,
+        // neg_vy2 -- same slots borg_load_edge_constants uses) instead of
+        // writing a synthetic shader that the ROM path no longer executes.
+        def writeUniform(idx: Int, value: Float): Unit =
+          writeAddr(borg, BorgGpuRegs.uniform_offset.litValue.toInt + idx * 4, floatToBits(value, config))
+
         def assertInside(expected: Boolean, label: String): Unit = {
           borg.io.address.poke(BorgGpuRegs.iter_offset)
           borg.io.data_read_n.poke(2.U)
@@ -669,71 +679,54 @@ object BorgTests extends TestSuite {
           borg.clock.step(1)
           val iterVal = borg.io.data_out.peek().litValue
           borg.io.data_read_n.poke(3.U)
-          
+
           val isInside = ((iterVal >> 21) & 1) == 1
           println(f"Check: $label -> Actual: $isInside (Exp: $expected)")
           utest.assert(isInside == expected)
         }
 
-        def writeToReg(rDest: Int, value: Float): Unit = {
-           borg.clock.step(10)
-           writeAddr(borg, 16, floatToBits(value, config)) // r4 holds the value
-           writeAddr(borg, 20, floatToBits(0.0f, config)) // r5 holds 0.0
-           val instr = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = rDest)
-           
-           resetAndWait(borg)
-           // Tile-origin encoding: tile_y[19:10] | tile_x[9:0]
-           val tileCmd = (0 << 10) | 0  // tile origin (0,0)
-           writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd)
-           // Wait a few cycles for the FIFO to pass the command to the rasterizer
-           borg.clock.step(5)
-           
-           writeAddr(borg, 128, instr)
-           writeAddr(borg, 132, 0) // halt
-           // Trigger auto-run via BORG_ITER to enter sRast phase where snooping happens
-           writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
-           waitForHalt(borg)
-           
-           // Delay by asserting a dummy readAddr.
-           // Because the test is poking combinationally to evaluate insideFlag, and
-           // waitForHalt returns immediately upon core execution halt but before
-           // auto_run_stall propagates and clears in BorgRasterizer, we need an
-           // additional two test-cycles of delay to avoid a combinational race constraint.
-           readAddr(borg, rDest * 4, config)
+        // Triggers the real rasterizer ROM against tile origin (0,0) and
+        // checks the resulting inside flag.
+        def triggerRastAndCheckInside(expected: Boolean, label: String): Unit = {
+          val tileCmd = (0 << 10) | 0  // tile origin (0,0)
+          writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd)
+          // Wait a few cycles for the FIFO to pass the command to the rasterizer
+          borg.clock.step(5)
+          // Trigger auto-run via BORG_ITER to enter sRast phase where snooping happens
+          writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
+          waitForHalt(borg, 200)
+          // waitForHalt returns immediately upon core execution halt but before
+          // auto_run_stall propagates and clears in BorgRasterizer, so settle
+          // a couple more cycles before sampling the snooped inside flag.
+          borg.clock.step(2)
+          assertInside(expected, label)
         }
 
-        println("  Test 1: All positive (strictly inside)")
-        writeToReg(0, 1.0f)
-        writeToReg(1, 2.0f)
-        writeToReg(2, 3.0f)
-        assertInside(true, "All positive")
-
-        println("  Test 2: One negative (outside)")
-        writeToReg(1, -1.0f)
-        assertInside(false, "r1 is negative")
-
-        println("  Test 3: Zero is inside (edge tie)")
-        writeToReg(0, 0.0f)
-        writeToReg(1, 0.0f)
-        writeToReg(2, 0.0f)
-        assertInside(true, "All zero")
-
-        println("  Test 4: Negative-Zero is inside (magnitude is 0)")
-        writeAddr(borg, 16, floatToBits(0.0f, config))
+        // Each scenario gets its own resetAndWait immediately before writing
+        // uniforms and triggering: the dispatcher's phase FSM must be back in
+        // sIdle for a fresh BORG_ITER trigger to pick up a just-written
+        // uniform value (confirmed experimentally -- reusing state across
+        // triggers without an intervening reset leaves the ROM reading stale
+        // uniform data from the previous trigger).
+        println("  Test 1: All-zero edge constants (e0=e1=e2=0.0, on-edge counts as inside)")
         resetAndWait(borg)
-        // Tile-origin encoding: tile_y[19:10] | tile_x[9:0]
-        val tileCmd = (0 << 10) | 0  // tile origin (0,0)
-        writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd)
-        borg.clock.step(5)
-        writeAddr(borg, 128, encodeInstruction(config, FNEG, rs1 = 4, rs2 = 4, rd = 1)) // r1 = -0.0
-        writeAddr(borg, 132, 0)
-        writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
-        waitForHalt(borg)
-        // Match writeToReg's tail: dummy readAddr settles auto_run_stall before
-        // the iter-register read in assertInside.  Without this, iter_offset
-        // can be sampled before the rasterizer has latched the snoop result.
-        readAddr(borg, 4, config)
-        assertInside(true, "r1 is -0.0 (rest 0.0)")
+        for (i <- 0 until 12) writeUniform(i, 0.0f)
+        triggerRastAndCheckInside(true, "All-zero edges")
+
+        // e0 = dx0*(r31+neg_vy0) + neg_dy0*(r30+neg_vx0). With dx0=1.0,
+        // neg_dy0=0, neg_vy0=-1.0: e0 = r31 - 1.0, negative since the
+        // coordLut-injected r31 (px+0.5) is well below 1.0 for tile origin (0,0).
+        println("  Test 2: dx0=1.0, neg_vy0=-1.0 -> e0 < 0 (outside)")
+        resetAndWait(borg)
+        for (i <- 0 until 12) writeUniform(i, 0.0f)
+        writeUniform(0, 1.0f)    // dx0
+        writeUniform(7, -1.0f)   // neg_vy0
+        triggerRastAndCheckInside(false, "e0 < 0")
+
+        println("  Test 3: All-zero edge constants again (inside)")
+        resetAndWait(borg)
+        for (i <- 0 until 12) writeUniform(i, 0.0f)
+        triggerRastAndCheckInside(true, "All-zero edges (restored)")
 
         println("=== Inside Flag Snoop Tests Passed ===\n")
       }
@@ -749,39 +742,35 @@ object BorgTests extends TestSuite {
       simulate(new BorgTestWrapper(config)) { borg =>
         println("\n=== Auto-Run Tests ===")
 
-        // --- Test 1: Auto-run triggers shader on BORG_ITER write ---
-        // Load a simple shader at PC=0: ADD r0 = r4 + r5
+        // BORG_ITER-triggered auto-run always fetches the fixed rasterizer
+        // edge-test ROM (BorgRasterRom) since 1e726db, never a custom IMEM
+        // program -- so drive it via the production uniform MMIO window
+        // (uniform[0..11], same slots borg_load_edge_constants uses).
+        def writeUniform(idx: Int, value: Float): Unit =
+          writeAddr(borg, BorgGpuRegs.uniform_offset.litValue.toInt + idx * 4, floatToBits(value, config))
+
+        // --- Test 1: Auto-run triggers the rasterizer ROM on BORG_ITER write ---
         println("  Test 1: Auto-run triggers shader")
         resetAndWait(borg)
-        val addInstr = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = 0)
-        writeAddr(borg, 128, addInstr)       // imem[0]
-        writeAddr(borg, 128 + 4, 0)          // imem[1] = halt
+        for (i <- 0 until 12) writeUniform(i, 0.0f)  // all-zero edges -> e0=e1=e2=0.0
 
-        // Load operands
-        writeAddr(borg, 16, floatToBits(3.0f, config))   // r4 = 3.0
-        writeAddr(borg, 20, floatToBits(7.0f, config))   // r5 = 7.0
-
-        borg.io.data_write_n.poke(3.U)
-        borg.io.data_read_n.poke(3.U)
-        borg.clock.step(1)
-        
         // Set up bounding box: min=(0,0), max=(2,2)
         // Tile-origin encoding: tile origin (0,0)
         val tileCmd = (0 << 10) | 0
         writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd)
         borg.clock.step(5)
 
-        // Write BORG_ITER to advance — should auto-trigger shader at PC=0
+        // Write BORG_ITER to advance — should auto-trigger the rasterizer ROM
         writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
 
-        // Wait for auto-run to complete by bounded polling of the status register
-        // It takes ~7 cycles for the rasterizer to evaluate the coordinate FPU,
-        // so we wait up to 20 cycles for it to start, then wait for it to finish.
-        waitForHalt(borg, 40)
+        // Wait for auto-run to complete by bounded polling of the status register.
+        // The ROM is 13 words (vs. the 1-2 word programs this test used to write),
+        // so it needs a longer budget than a hand-rolled shader would.
+        waitForHalt(borg, 200)
 
-        // Read r0 — should be 3.0 + 7.0 = 10.0
+        // Read r0 — the ROM's e0 output, should be 0.0 for all-zero edge constants
         val result = readAddr(borg, 0, config)
-        assertResult(result, 10.0f, config, "auto-run: r0 = r4 + r5")
+        assertResult(result, 0.0f, config, "auto-run: ROM e0 with all-zero edges")
         println("  Auto-run shader: PASSED")
 
         // --- Test 2: Iterator advanced correctly after auto-run ---
@@ -803,25 +792,18 @@ object BorgTests extends TestSuite {
         println("  Iterator advance: PASSED")
 
         // --- Test 3: Inside flag updated by auto-run ---
-        // Write positive values to r0/r1/r2 via auto-run: r0=r1=r2 = r4+r5 where r4=3.0, r5=0.0
+        // All-zero edge constants -> e0=e1=e2=0.0 (on-edge counts as inside).
         println("  Test 3: Inside flag via auto-run")
         resetAndWait(borg)
-        val addInstr0 = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = 0)
-        val addInstr1 = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = 1)
-        val addInstr2 = encodeInstruction(config, ADD, rs1 = 4, rs2 = 5, rd = 2)
-        writeAddr(borg, 128, addInstr0)       // r0 = r4+r5 = 3.0
-        writeAddr(borg, 128 + 4, addInstr1)   // r1 = r4+r5 = 3.0
-        writeAddr(borg, 128 + 8, addInstr2)   // r2 = r4+r5 = 3.0
-        writeAddr(borg, 128 + 12, 0)          // halt
+        for (i <- 0 until 12) writeUniform(i, 0.0f)
 
-        writeAddr(borg, 16, floatToBits(3.0f, config))   // r4 = 3.0 (positive)
-        writeAddr(borg, 20, floatToBits(0.0f, config))   // r5 = 0.0
         writeAddr(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, tileCmd)
         borg.clock.step(5)
 
-        // Write BORG_ITER — auto-runs shader, r0/r1/r2 all become 3.0 (positive → inside)
+        // Write BORG_ITER — auto-runs the ROM, r0/r1/r2 all become 0.0 (inside)
         writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
-        borg.clock.step(30)
+        waitForHalt(borg, 200)
+        borg.clock.step(2)
 
         // Read inside_flag
         borg.io.address.poke(BorgGpuRegs.iter_offset)
@@ -1036,37 +1018,45 @@ object BorgTests extends TestSuite {
           v
         }
 
+        // BORG_ITER-triggered auto-run always fetches the fixed rasterizer
+        // edge-test ROM (BorgRasterRom) since 1e726db, never a custom IMEM
+        // program -- so inside=true is driven via the production uniform
+        // MMIO window (uniform[0..11]), same slots borg_load_edge_constants
+        // uses, rather than a synthetic "rast shader" at PC=0.
+        def writeUniform(idx: Int, value: Float): Unit =
+          writeAddr(borg, BorgGpuRegs.uniform_offset.litValue.toInt + idx * 4, floatToBits(value, config))
+
         /** Drive FP16 UV values through the rasterizer's pipeline snoop path.
           * The Morton encoder reads from rast.io.fragU/fragV, which are driven by
           * the rasterizer's frag_r/frag_g registers. These are snooped from pipeline
           * writes to r26 (outU) and r27 (outV) during the sFrag phase only.
           *
           * To test from the top level, we need a two-shader pipeline:
-          * 1. Rast shader (PC=0): sets r0/r1/r2 = +1.0 so inside_flag = true
+          * 1. Rast ROM (PC=0, fixed hardware ROM): all-zero edge constants ->
+          *    e0=e1=e2=0.0, so inside_flag = true
           * 2. Frag shader (PC=4): writes r26=u, r27=v (snooped as fragU/fragV)
           * The rasterizer chains sRast → sFrag when inside=true and fragPC != 0.
+          *
+          * REGISTER ABI: the rast ROM clobbers r0..r4 on every pixel (r0/r1/r2
+          * = e0/e1/e2 outputs, r3/r4 = the dpx/dpy scratch pair -- see
+          * BorgRasterRom's doc comment). The u/v inputs staged here must
+          * therefore live ABOVE r4, otherwise the ROM overwrites them with
+          * the pixel centre (r3 = r30 + neg_vx, r4 = r31 + neg_vy, which with
+          * all-zero uniforms is exactly coordX/coordY = 0.5) before the frag
+          * shader ever reads them. r8/r9/r10 are used below for that reason.
           */
         def testTexFetch(u_fp16: Int, v_fp16: Int, expU6: Int, expV6: Int, label: String): Unit = {
           resetAndWait(borg)
+          for (i <- 0 until 12) writeUniform(i, 0.0f)  // all-zero edges -> inside
 
-          // Load values into source registers
-          writeAddr(borg, 16, BigInt(u_fp16 & 0xFFFF))   // r4 = u
-          writeAddr(borg, 20, BigInt(v_fp16 & 0xFFFF))   // r5 = v
-          writeAddr(borg, 24, BigInt(0))                   // r6 = 0.0
-          writeAddr(borg, 28, BigInt(0x3C00))              // r7 = 1.0 (positive, for edges)
-
-          // Rast shader at PC=0: set all edges inside (r0=r1=r2 = +1.0), then halt
-          val setR0 = encodeInstruction(config, ADD, rs1 = 7, rs2 = 6, rd = 0)  // r0 = 1.0+0 = 1.0
-          val setR1 = encodeInstruction(config, ADD, rs1 = 7, rs2 = 6, rd = 1)  // r1 = 1.0
-          val setR2 = encodeInstruction(config, ADD, rs1 = 7, rs2 = 6, rd = 2)  // r2 = 1.0
-          writeAddr(borg, 128 + 0*4, setR0)   // IMEM[0]
-          writeAddr(borg, 128 + 1*4, setR1)   // IMEM[1]
-          writeAddr(borg, 128 + 2*4, setR2)   // IMEM[2]
-          writeAddr(borg, 128 + 3*4, 0)       // IMEM[3] = halt (rast shader ends)
+          // Load values into source registers (above the rast ROM's r0..r4)
+          writeAddr(borg, 32, BigInt(u_fp16 & 0xFFFF))   // r8  = u
+          writeAddr(borg, 36, BigInt(v_fp16 & 0xFFFF))   // r9  = v
+          writeAddr(borg, 40, BigInt(0))                 // r10 = 0.0
 
           // Frag shader at PC=4: write r26=u, r27=v, then halt
-          val addU = encodeInstruction(config, ADD, rs1 = 4, rs2 = 6, rd = 26) // r26 = u
-          val addV = encodeInstruction(config, ADD, rs1 = 5, rs2 = 6, rd = 27) // r27 = v
+          val addU = encodeInstruction(config, ADD, rs1 = 8, rs2 = 10, rd = 26) // r26 = u
+          val addV = encodeInstruction(config, ADD, rs1 = 9, rs2 = 10, rd = 27) // r27 = v
           writeAddr(borg, 128 + 4*4, addU)    // IMEM[4]
           writeAddr(borg, 128 + 5*4, addV)    // IMEM[5]
           writeAddr(borg, 128 + 6*4, 0)       // IMEM[6] = halt (frag shader ends)
@@ -1079,12 +1069,13 @@ object BorgTests extends TestSuite {
           borg.clock.step(5)
 
           // Trigger auto-run via BORG_ITER write
-          // Pipeline: sRast(PC=0) → sFrag(PC=4, snoops r26/r27) → sTileWrite → sIdle
+          // Pipeline: sRast(PC=0, ROM) → sFrag(PC=4, snoops r26/r27) → sTileWrite → sIdle
           writeAddr(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
-          // Wait for rast shader to halt, then allow time for rasterizer FSM
-          // to chain into sFrag and re-trigger the core before polling again.
-          waitForHalt(borg, 60)
-          borg.clock.step(3)  // rasterizer FSM: detect halt → check inside → trigger frag
+          // Wait for the rast ROM to halt (13 words, longer than a hand-rolled
+          // shader), then allow time for rasterizer FSM to chain into sFrag
+          // and re-trigger the core before polling again.
+          waitForHalt(borg, 200)
+          borg.clock.step(6)  // rasterizer FSM: detect halt → check inside → trigger frag
           waitForHalt(borg, 60)  // wait for frag shader to halt
           borg.clock.step(5)  // settle through sTileWrite → sIdle
 
