@@ -121,7 +121,7 @@ VERILOG_FILES:
 - dir::../../../out/hardware/borg/verilog/ram_2x14.sv
 - dir::../../../out/hardware/borg/verilog/regFile.sv
 - dir::../../../out/hardware/borg/verilog/rgbzMem_16x64.sv
-- dir::../../../out/hardware/borg/verilog/tqvp_uart_wrapper.sv
+- dir::../../../out/hardware/borg/verilog/peri_uart.sv
 - dir::../../../out/hardware/borg/verilog/tt_um_gonsolo_borg.sv
 - dir::../../../out/hardware/borg/verilog/uart_rx.sv
 - dir::../../../out/hardware/borg/verilog/uart_tx.sv
