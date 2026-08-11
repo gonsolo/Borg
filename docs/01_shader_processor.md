@@ -90,7 +90,10 @@ triangle edge.  The result is simply 1.0 for positive inputs and 0.0 otherwise:
 
 The sixth operation, **FRCP**, provides hardware FP16 reciprocal (1/x) via a
 17-entry LUT with linear interpolation.  It enables single-instruction
-perspective division (W-divide) in the vertex shader:
+perspective division (W-divide) in the vertex shader.  FRCP shares its ROM
+lookup and interpolation hardware with the FRSQ (reciprocal-sqrt) and FSRGB
+(linear→sRGB) ops via one `Fp16Special` instance, muxed by which op is
+latched active:
 
 {{snippet:hardware/borg/src/BorgLane.scala:frcp}}
 
@@ -110,7 +113,7 @@ total of just 170 bits of ROM:
 The interpolation uses only a 7×6-bit multiply and a subtraction —
 no full multiplier is needed:
 
-{{snippet:hardware/borg/src/Fp16Rcp.scala:rcp-interpolation}}
+{{snippet:hardware/borg/src/Fp16Special.scala:rcp-interpolation}}
 
 The exponent is simply inverted: `29 - exp` (since `1 / 2^e = 2^(-e)`, and
 the FP16 bias is 15, so `(30 - 1) - exp = 29 - exp`).  The result achieves

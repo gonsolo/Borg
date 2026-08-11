@@ -58,12 +58,14 @@ class Fp16Special extends Module {
   val isNeg             = sign && !isZeroOrSubnormal // rsqrt(neg) = NaN
 
   // --- Shared interpolation core ---
+  // @doc:rcp-interpolation
   // rcp/rsq: decreasing (lutVal >= lutNext). srgb: increasing (lutNext >= lutVal).
   val decreasing = isRcp || isRsq
   val delta      = Mux(decreasing, io.lutVal - io.lutNext, io.lutNext - io.lutVal)
   val correction = (delta * frac) >> 6
   val estMant16  = Mux(decreasing, io.lutVal - correction, io.lutVal +& correction)(15, 0)
   val estMant10  = estMant16(9, 0)
+  // @doc:end
 
   // --- rcp: exponent = 29 - exp (clamped), sign preserved ---
   val rcpEstExp = WireDefault(0.U(5.W))

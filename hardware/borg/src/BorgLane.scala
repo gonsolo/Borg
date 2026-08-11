@@ -245,6 +245,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * happens independently -- cheap, and keeps each op's indexing formula
     * untouched -- only the downstream interpolation/edge-case hardware is
     * shared, muxed by which op is latched active this instruction. */
+  // @doc:frcp
   private def computeFp16Special(recA_raw: UInt, isFrcp: Bool, isFrsq: Bool, isFsrgb: Bool): UInt = {
     val exp  = recA_raw(14, 10)
     val mant = recA_raw(9, 0)
