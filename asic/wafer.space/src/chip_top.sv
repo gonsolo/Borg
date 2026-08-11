@@ -78,10 +78,18 @@ module chip_top #(
     wire [NUM_BIDIR_PADS-1:0] bidir_CORE2PAD_PU;
     wire [NUM_BIDIR_PADS-1:0] bidir_CORE2PAD_PD;
 
-    // In the foundry pads, the I/O and
-    // core voltage domains are shorted
+    // In the foundry pads, the I/O and core voltage domains are shorted.
+    // Gate on the ABSENCE of PAD_gf180mcu_ocd_io, not the presence of
+    // PAD_gf180mcu_fd_io: the LibreLane synthesis flow never defines either
+    // PAD_gf180mcu_* macro (only the cocotb sim testbench does), so gating on
+    // PAD_gf180mcu_fd_io left this assign permanently dead during synthesis/
+    // PnR -- VDD/VSS were never tied to DVDD/DVSS at all, so OpenROAD's
+    // PadRing connect_by_abutment saw them as two disconnected nets and
+    // aborted with [PAD-0002] wherever a filler cell touched across the two
+    // domains. Same bug + fix independently found in wafer.space's
+    // asinghani/ws-dco-tdc project.
     `ifdef USE_POWER_PINS
-    `ifdef PAD_gf180mcu_fd_io
+    `ifndef PAD_gf180mcu_ocd_io
     assign VDD = DVDD;
     assign VSS = DVSS;
     `endif

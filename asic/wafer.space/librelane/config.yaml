@@ -35,6 +35,19 @@ DESIGN_NAME: chip_top
 # "Missing -liberty" error even with LIB correctly populated.
 SYNTH_CORNER: nom_tt_025C_5v00
 
+# Needed for OpenROAD physical steps (Floorplan, CheckMacroInstances, ...):
+# DEFAULT_CORNER is normally auto-derived as "nom_{default_pvt}" by
+# pdk_compat.py, but that derivation only runs in Ciel-managed (non
+# --manual-pdk) mode. Left unset, it stays the bare "nom_" prefix, which
+# doesn't match any LIB glob key below ("*_tt_025C_5v00" etc.) -- so
+# _CURRENT_CORNER_NAME resolves to "nom_", zero liberty loads, and EVERY
+# std cell (not just one) reports "no liberty cell" / "not found" during
+# floorplan init (e.g. SYNTH_TIELO_CELL's gf180mcu_fd_sc_mcu7t5v0__tiel/ZN --
+# the cell is fully characterized in the .lib file, it just never got
+# loaded). LIB's own docstring says exactly one entry must match
+# DEFAULT_CORNER -- this makes that true.
+DEFAULT_CORNER: nom_tt_025C_5v00
+
 # Needed on LibreLane 3.0.3: --manual-pdk mode does not auto-populate LIB
 # (standard-cell liberty files) from --scl/STD_CELL_LIBRARY the way non-manual
 # (Ciel-managed) PDK resolution does -- without this, Yosys's DFFLIBMAP pass
@@ -167,7 +180,10 @@ DRT_ANTENNA_REPAIR_ITERS: 10
 DRT_ANTENNA_REPAIR_MARGIN: 10 # %
 
 # PDN
-PDN_CFG: dir::pdn/pdn_cfg.tcl
+# pdn_cfg_borg.tcl is our fork of the template's pdn_cfg.tcl with the
+# unconditional SRAM-macro PDN grid dropped -- Borg has no hard SRAM macros,
+# so sourcing it hit [PDN-1030] Unable to find instance: i_chip_core.sram_0.
+PDN_CFG: dir::pdn/pdn_cfg_borg.tcl
 PDN_ENABLE_PINS: False
 
 # PDN - Straps
