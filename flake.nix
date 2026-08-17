@@ -3,8 +3,18 @@
     #nixpkgs.url = "github:gonsolo/nixpkgs/librelane-opensta3-fix";
     #nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    # librelane 3.0.3
-    nixpkgs.url = "github:NixOS/nixpkgs/220a1d1bac3d8706a19e2cf715bf0dcdb6b1102c";
+    # klayout 0.30.10 (catches real DRC violations nixpkgs' previous 0.30.7
+    # silently missed -- see the GR.2 sealring investigation) and librelane
+    # 3.0.8. yosys is already 0.68 here too, which fixes the autoname
+    # O(iterations x module size) blowup upstream (YosysHQ/yosys#6050) --
+    # the local yosysFixed patch below is no longer needed.
+    # Pinned just past NixOS/nixpkgs#551902 (sv-lang_10: fix build against
+    # fmt 12, merged 2026-08-16) rather than a same-day master commit, so
+    # this resolves against Hydra's cache instead of forcing a from-source
+    # rebuild of nearly everything. The nixos-unstable channel pointer
+    # itself (e5bdc4a4) predates that fix by ~8h and hits the exact sv-lang
+    # build failure it resolves -- this commit is the next best thing.
+    nixpkgs.url = "github:NixOS/nixpkgs/055f428aed456a836a7079a27c5bad1d2b36aa58";
 
     alejandra.url = "github:kamadorueda/alejandra/4.0.0";
     alejandra.inputs.nixpkgs.follows = "nixpkgs";
@@ -16,12 +26,43 @@
     alejandra,
   }: let
     system = "x86_64-linux";
-    pkgs = nixpkgs.legacyPackages.${system};
+    # nixpkgs' own default python3 is 3.14 here, which breaks or-tools
+    # (openroad's dependency, transitively librelane's) -- its meta.broken
+    # is conditioned on pythonAtLeast "3.14" (real pybind11 test failures,
+    # not yet fixed upstream: NixOS/nixpkgs#551898). or-tools takes python3
+    # as a direct override arg, so fix just that one package back to 3.13
+    # instead of overriding the whole set -- everything else (openroad,
+    # librelane, klayout, yosys, pythonEnv, ...) stays on nixpkgs' own
+    # default, maximizing cache hits.
+    #
+    # doCheck = false: even on 3.13, or-tools' own test suite has one
+    # unrelated failure (python_contrib_check_dependencies, a stale
+    # pkg_resources/setuptools deprecation check -- 610/611 other tests
+    # pass). Same workaround NixOS/nixpkgs#551846's author used.
+    pkgs = import nixpkgs {
+      inherit system;
+      overlays = [
+        (final: prev: {
+          or-tools =
+            (prev.or-tools.overrideAttrs (_: {doCheck = false;}))
+            .override {python3 = final.python313;};
+        })
+      ];
+    };
 
-    pythonEnv = pkgs.python313.withPackages (p: [
+    # cocotb has no released Python 3.14 support upstream either
+    # (cocotb/cocotb's setup.py hard-caps at 3.13; 3.14 support exists only
+    # on cocotb's unreleased master). Pin only cocotb itself to
+    # python313Packages -- it doesn't need to share an interpreter with
+    # anything else: Borg's own `test/soc/Makefile` drives it via
+    # `cocotb-config --makefiles`, which generates a Makefile.sim pointing
+    # at cocotb's own bundled interpreter internally, so this needs no
+    # PATH/shim wiring at all.
+    cocotbForTests = pkgs.python313Packages.cocotb;
+
+    pythonEnv = pkgs.python3.withPackages (p: [
       p.cairosvg
       p.chevron
-      p.cocotb
       p.gdstk
       p.gitpython
       p.graphviz # for gen_hw_diagram.py
@@ -30,7 +71,7 @@
       p.matplotlib
       p.mistune
       p.numpy
-      p.peakrdl
+      p.peakrdl-cli
       p.peakrdl-cheader
       p.pip
       p.pygame
@@ -46,11 +87,12 @@
       p.pyyaml # Mesa build
     ]);
 
-    # Curated TeX Live for the HPG poster (docs/poster: poster.tex + abstract.tex)
-    # only.  The full scheme (scheme-full) pulled thousands of obscure packages
-    # (e.g. qualitype, lpform) whose cache.nixos.org artifacts are corrupt/hash-
-    # mismatched, breaking every CI job that enters the dev shell.  We list just
-    # what the poster needs — texlive.combine resolves each package's deps — and
+    # Curated TeX Live for docs/poster (poster.tex + abstract.tex, HPG 2026)
+    # and docs/talk (talk.tex, ORConf 2026) only.  The full scheme
+    # (scheme-full) pulled thousands of obscure packages (e.g. qualitype,
+    # lpform) whose cache.nixos.org artifacts are corrupt/hash-mismatched,
+    # breaking every CI job that enters the dev shell.  We list just what
+    # these two need — texlive.combine resolves each package's deps — and
     # keep it OUT of the default shell so CI never fetches it.
 
     # OpenSBI source — pkgs.opensbi.src is already an unpacked directory
@@ -65,20 +107,6 @@
       tar -xJf ${pkgs.linux.src} -C $out --strip-components=1
     '';
 
-    # nixpkgs' pinned yosys (0.62) has an O(iterations x module size) blowup
-    # in the `autoname` pass (full module rescan every round) that made the
-    # full Hutt+Borg SoC synthesis take 49GB+/never complete. Upstream issues:
-    # https://github.com/YosysHQ/yosys/issues/5394, 4509, 2816. Fixed upstream
-    # via https://github.com/YosysHQ/yosys/pull/6003; patched here in the
-    # meantime with a persistent-worklist rewrite that reaches the identical
-    # fixed point without the full rescan (verified: same output on yosys's
-    # own tests/various/autoname.ys AND on this design — 49GB+/never-complete
-    # -> ~1.6GB/~9.5min, using yosys's default abc9 script, no other changes
-    # needed).
-    yosysFixed = pkgs.yosys.overrideAttrs (old: {
-      patches = (old.patches or []) ++ [ ./nix/patches/yosys-autoname-quadratic-fix.patch ];
-    });
-
     borgTexlive = pkgs.texlive.combine {
       inherit (pkgs.texlive)
         scheme-small   # latex + pdflatex + latexmk + common (collection-latexrecommended)
@@ -87,6 +115,7 @@
         biblatex
         acmart         # abstract.tex documentclass (+deps)
         tikzposter     # poster.tex documentclass (+deps)
+        beamer         # docs/talk (ORConf 2026 slides) documentclass (+deps)
         qrcode
         microtype
         enumitem
@@ -123,14 +152,15 @@
         pkgs.icestorm
         pkgs.jdk21
         pkgs.klayout
-        # yosys override: LibreLane bundles its own internal yosys 0.62
-        # (separate from yosysFixed below), which hits the same autoname
-        # quadratic-blowup bug patched for our own synthesis (see yosysFixed's
-        # own comment) -- confirmed hitting it directly: asic/wafer.space's
-        # librelane run had yosys-abc at 7.3GB RSS and climbing during ABC
-        # tech-mapping, the same runaway pattern that made full Hutt+Borg SoC
-        # synthesis take 49GB+/never complete before this was patched.
-        (pkgs.librelane.override { yosys = yosysFixed; })
+        # yosys override: LibreLane bundles its own internal yosys, which
+        # previously hit the autoname O(iterations x module size) blowup
+        # (YosysHQ/yosys#5394, 4509, 2816) that made full Hutt+Borg SoC
+        # synthesis take 49GB+/never complete -- confirmed hitting it
+        # directly: asic/wafer.space's librelane run had yosys-abc at 7.3GB
+        # RSS and climbing during ABC tech-mapping. Fixed upstream in yosys
+        # 0.68 (YosysHQ/yosys#6050); force LibreLane onto nixpkgs' yosys
+        # (now 0.68) instead of its own bundled copy.
+        (pkgs.librelane.override { yosys = pkgs.yosys; })
         pkgs.magic-vlsi
         pkgs.metals
         pkgs.mill
@@ -160,7 +190,7 @@
         pkgs.typst
         pkgs.verilator
         pkgs.which
-        yosysFixed
+        pkgs.yosys
         pkgs.z3
         pkgs.pkgsCross.riscv32-embedded.buildPackages.gcc
         pkgs.pkgsCross.riscv32-embedded.buildPackages.binutils
@@ -175,6 +205,7 @@
         pkgs.pkgsCross.riscv64.buildPackages.gcc
         pkgs.pkgsCross.riscv64.buildPackages.binutils
         pythonEnv
+        cocotbForTests
       ];
 
       # Library dependencies for the Mesa "borgvk" Vulkan driver. Kept in
@@ -237,7 +268,7 @@
         mkdir -p $HOME/bin
 
         # Link native yosys to the name the python script is looking for
-        ln -sf ${yosysFixed}/bin/yosys $HOME/bin/yowasp-yosys
+        ln -sf ${pkgs.yosys}/bin/yosys $HOME/bin/yowasp-yosys
 
         # Ensure our shim is at the front of the PATH
         export PATH="$HOME/bin:$PATH"
@@ -279,16 +310,13 @@ CROSSEOF
     };
 
     # Poster shell: everything in the default shell PLUS the curated TeX Live,
-    # for building docs/poster.  Use `nix develop .#poster --command make -C docs/poster`.
+    # for building docs/poster and docs/talk. Use `nix develop .#poster
+    # --command make -C docs/poster` (or `-C docs/talk`).
     # Kept separate so CI (which uses the default shell) never fetches texlive.
     poster = pkgs.mkShell {
       inputsFrom = [ self.devShells.${system}.default ];
       nativeBuildInputs = [ borgTexlive ];
     };
-    };
-
-    packages.${system} = {
-      inherit yosysFixed;
     };
 
     formatter.${system} = alejandra.defaultPackage.${system};
