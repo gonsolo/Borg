@@ -270,6 +270,22 @@
         # Link native yosys to the name the python script is looking for
         ln -sf ${pkgs.yosys}/bin/yosys $HOME/bin/yowasp-yosys
 
+        # Bare `python3` on PATH can resolve to any nativeBuildInput's own
+        # bundled interpreter (e.g. klayout's, or librelane's own wrapper --
+        # which is itself just nixpkgs' python3 plus PYTHONPATH entries, not
+        # a separate interpreter) rather than pythonEnv's. Since they're all
+        # the same underlying python3.14, export PYTHONPATH globally instead
+        # of chasing PATH order per-script: whichever python3 wins can then
+        # still `import systemrdl` (from pythonEnv) or `import librelane`
+        # (from librelane's own site-packages), covering both
+        # hardware/rdl/generate.py and asic/wafer.space/scripts/padring.py.
+        # librelane's wrapper adds ~150 PYTHONPATH entries (its own package
+        # plus every transitive Python dependency, e.g. httpx) -- too many
+        # to enumerate by hand, so source the wrapper's own env-setup lines
+        # (everything but its final `exec`) in a subshell and capture the
+        # PYTHONPATH it computes, rather than reimplementing it.
+        export PYTHONPATH="${pythonEnv}/${pkgs.python3.sitePackages}:$(source <(head -n -1 ${pkgs.librelane}/bin/librelane); echo "$PYTHONPATH")''${PYTHONPATH:+:''${PYTHONPATH}}"
+
         # Ensure our shim is at the front of the PATH
         export PATH="$HOME/bin:$PATH"
 
