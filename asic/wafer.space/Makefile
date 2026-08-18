@@ -119,7 +119,7 @@ librelane-klayout: clone-pdk defines ## Open the last run in KLayout
 .PHONY: librelane-klayout
 
 librelane-padring: clone-pdk defines ## Only create the padring
-	python3 scripts/padring.py ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS}
+	python3-librelane scripts/padring.py ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS}
 .PHONY: librelane-padring
 
 sim: clone-pdk defines ## Run RTL simulation with cocotb

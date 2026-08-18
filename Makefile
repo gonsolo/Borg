@@ -1,5 +1,12 @@
 TT_TOOL   := ./tt/tt_tool.py
-TEST_SOC  := make -C test/soc -B
+# PYTHONPATH=$$COCOTB_PYTHONPATH (not the ambient shell PYTHONPATH): nix's
+# devShell aggregates PYTHONPATH from every python.withPackages input
+# regardless of interpreter version, so plain $$PYTHONPATH here is a mix
+# of cocotbForTests' python3.13 packages and pythonEnv's python3.14 ones --
+# cocotb's own numpy import then silently resolves to whichever copy lands
+# first. COCOTB_PYTHONPATH (flake.nix's shellHook) is cocotbForTests' own
+# site-packages only.
+TEST_SOC  := env PYTHONPATH=$$COCOTB_PYTHONPATH make -C test/soc -B
 MILL_JOBS := $(if $(CI),1,4)
 MILL_OPTS := $(if $(CI),--no-server,) -j $(MILL_JOBS)
 MILL      := mill $(MILL_OPTS)
@@ -184,7 +191,10 @@ RDL_DIR      := hardware/rdl
 RDL_SRC      := $(wildcard $(RDL_DIR)/*.rdl)
 RDL_SCALA_OUT:= hardware/borg/src/generated
 export RDL_C_OUT := $(CURDIR)/out/hardware/borg/rdl
-RDL_PYTHON   := PYTHONPATH=$(RDL_CHISEL):$$PYTHONPATH python3
+# python3-borg-rdl: pythonEnv's python3 (systemrdl-compiler etc.), shimmed
+# by flake.nix's shellHook under this name -- bare `python3` on PATH can
+# resolve to a different nativeBuildInput's bundled interpreter instead.
+RDL_PYTHON   := PYTHONPATH=$(RDL_CHISEL):$$PYTHONPATH python3-borg-rdl
 
 rdl: $(RDL_SRC)
 	@mkdir -p $(RDL_C_OUT)

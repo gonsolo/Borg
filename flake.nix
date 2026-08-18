@@ -71,13 +71,22 @@
 
     # cocotb has no released Python 3.14 support upstream either
     # (cocotb/cocotb's setup.py hard-caps at 3.13; 3.14 support exists only
-    # on cocotb's unreleased master). Pin only cocotb itself to
-    # python313Packages -- it doesn't need to share an interpreter with
-    # anything else: Borg's own `test/soc/Makefile` drives it via
-    # `cocotb-config --makefiles`, which generates a Makefile.sim pointing
-    # at cocotb's own bundled interpreter internally, so this needs no
-    # PATH/shim wiring at all.
-    cocotbForTests = pkgs.python313Packages.cocotb;
+    # on cocotb's unreleased master). Bundle it with everything
+    # test/soc's cocotb-based tests actually import: numpy (a real runtime
+    # dependency of cocotb's own internals, not obvious from Borg's test
+    # files -- CI caught this) and riscv-model (imported directly by
+    # test/soc/test.py, test_util.py, tqv.py).
+    #
+    # This env's own PYTHONPATH must be used verbatim, not merged into the
+    # shell's ambient one: nix's devShell construction aggregates
+    # PYTHONPATH from every python.withPackages input regardless of
+    # interpreter version, so having this (3.13) alongside pythonEnv
+    # (3.14) in the same shell leaves plain `$PYTHONPATH` a mix of both --
+    # cocotb's own numpy import then resolves to whichever copy (3.13 or
+    # 3.14-compiled) happens to land first, which silently breaks it (CI
+    # caught this too). See COCOTB_PYTHONPATH below and its use in the top
+    # Makefile's TEST_SOC.
+    cocotbForTests = pkgs.python313.withPackages (p: [p.cocotb p.numpy p.riscv-model]);
 
     pythonEnv = pkgs.python3.withPackages (p: [
       p.cairosvg
@@ -257,6 +266,12 @@
       shellHook = ''
         export GONSOLO_PROJECT="borg_tinyqv"
 
+        # cocotbForTests' own site-packages (cocotb, numpy, riscv-model),
+        # to be used verbatim -- not merged into the shell's ambient
+        # PYTHONPATH -- when invoking cocotb-based tests. See
+        # cocotbForTests' own comment above for why.
+        export COCOTB_PYTHONPATH="${cocotbForTests}/${pkgs.python313.sitePackages}"
+
         # OpenSBI + Linux kernel sources (pinned via nixpkgs; no manual hashes).
         export OPENSBI_SRC="${opensbiSrc}"
         export LINUX_SRC="${linuxSrc}"
@@ -292,18 +307,31 @@
         # Bare `python3` on PATH can resolve to any nativeBuildInput's own
         # bundled interpreter (e.g. klayout's, or librelane's own wrapper --
         # which is itself just nixpkgs' python3 plus PYTHONPATH entries, not
-        # a separate interpreter) rather than pythonEnv's. Since they're all
-        # the same underlying python3.14, export PYTHONPATH globally instead
-        # of chasing PATH order per-script: whichever python3 wins can then
-        # still `import systemrdl` (from pythonEnv) or `import librelane`
-        # (from librelane's own site-packages), covering both
-        # hardware/rdl/generate.py and asic/wafer.space/scripts/padring.py.
-        # librelane's wrapper adds ~150 PYTHONPATH entries (its own package
-        # plus every transitive Python dependency, e.g. httpx) -- too many
-        # to enumerate by hand, so source the wrapper's own env-setup lines
-        # (everything but its final `exec`) in a subshell and capture the
-        # PYTHONPATH it computes, rather than reimplementing it.
-        export PYTHONPATH="${pythonEnv}/${pkgs.python3.sitePackages}:$(source <(head -n -1 ${pkgs.librelane}/bin/librelane); echo "$PYTHONPATH")''${PYTHONPATH:+:''${PYTHONPATH}}"
+        # a separate interpreter) rather than pythonEnv's.
+        #
+        # NOTE: a global `export PYTHONPATH=...` here previously broke
+        # cocotb (python3.13) by leaking pythonEnv's/librelane's python3.14
+        # numpy onto its import path -- PYTHONPATH is inherited by every
+        # child process, not just "bare python3" PATH resolution, so it
+        # doesn't stay scoped to the scripts that actually need it. Use
+        # per-script named wrappers instead, each setting PYTHONPATH only
+        # for its own exec:
+        #  - python3-borg-rdl: pythonEnv's python3 (systemrdl-compiler
+        #    etc.), for the top Makefile's `rdl` target.
+        #  - python3-librelane: pythonEnv's python3 plus whatever
+        #    PYTHONPATH librelane's own wrapper computes for itself
+        #    (~150 entries -- its own package plus every transitive
+        #    Python dependency, e.g. httpx -- too many to enumerate by
+        #    hand, so source the wrapper's env-setup lines, everything but
+        #    its final `exec`, and capture the result), for
+        #    asic/wafer.space/scripts/padring.py.
+        ln -sf ${pythonEnv}/bin/python3 $HOME/bin/python3-borg-rdl
+        cat > $HOME/bin/python3-librelane << 'WRAPPER_EOF'
+#!${pkgs.bash}/bin/bash
+export PYTHONPATH="$(source <(head -n -1 ${pkgs.librelane}/bin/librelane); echo "$PYTHONPATH")"
+exec ${pythonEnv}/bin/python3 "$@"
+WRAPPER_EOF
+        chmod +x $HOME/bin/python3-librelane
 
         # Ensure our shim is at the front of the PATH
         export PATH="$HOME/bin:$PATH"
