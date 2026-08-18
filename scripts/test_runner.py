@@ -250,7 +250,15 @@ def main() -> None:
     root     = Path(__file__).resolve().parent.parent
     ncpus    = int(os.environ.get("MILL_JOBS", os.cpu_count() or 4))
     mill     = f"mill --no-server -j {ncpus}"
-    test_soc = f"make -j1 -C '{root}/test/soc' -B"
+    # PYTHONPATH=$COCOTB_PYTHONPATH (not the ambient shell PYTHONPATH, which
+    # this process also inherits): nix's devShell aggregates PYTHONPATH from
+    # every python.withPackages input regardless of interpreter version, so
+    # plain $PYTHONPATH is a mix of cocotbForTests' python3.13 packages and
+    # pythonEnv's python3.14 ones -- cocotb's own numpy import then silently
+    # resolves to whichever copy lands first. COCOTB_PYTHONPATH (set by
+    # flake.nix's shellHook) is cocotbForTests' own site-packages only. Kept
+    # in sync with the top Makefile's TEST_SOC, which this duplicates.
+    test_soc = f"env PYTHONPATH=$COCOTB_PYTHONPATH make -j1 -C '{root}/test/soc' -B"
 
     log_dir    = tempfile.mkdtemp(prefix="borg-test-")
     persist_dir = root / "test_logs"
