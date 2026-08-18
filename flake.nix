@@ -3,11 +3,11 @@
     #nixpkgs.url = "github:gonsolo/nixpkgs/librelane-opensta3-fix";
     #nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    # klayout 0.30.10 (catches real DRC violations nixpkgs' previous 0.30.7
-    # silently missed -- see the GR.2 sealring investigation) and librelane
-    # 3.0.8. yosys is already 0.68 here too, which fixes the autoname
-    # O(iterations x module size) blowup upstream (YosysHQ/yosys#6050) --
-    # the local yosysFixed patch below is no longer needed.
+    # librelane 3.0.8, and a base for klayout (overridden to 0.30.9 below,
+    # see the overlay's own comment). yosys is already 0.68 here too, which
+    # fixes the autoname O(iterations x module size) blowup upstream
+    # (YosysHQ/yosys#6050) -- the local yosysFixed patch below is no longer
+    # needed.
     # Pinned just past NixOS/nixpkgs#551902 (sv-lang_10: fix build against
     # fmt 12, merged 2026-08-16) rather than a same-day master commit, so
     # this resolves against Hydra's cache instead of forcing a from-source
@@ -39,6 +39,16 @@
     # unrelated failure (python_contrib_check_dependencies, a stale
     # pkg_resources/setuptools deprecation check -- 610/611 other tests
     # pass). Same workaround NixOS/nixpkgs#551846's author used.
+    # klayout 0.30.9, not nixpkgs' own 0.30.10 -- 0.30.10 has a real
+    # regression in how the DRC `.separation()` operator handles fully-
+    # overlapping regions (confirmed with wafer-space/gf180mcu-project-
+    # template's Leo Moser: it spuriously flags GR.2 -- COMP-to-
+    # GUARD_RING_MK spacing -- at the sealring's own reflex corners, even
+    # though COMP and GUARD_RING_MK are drawn exactly coincident there by
+    # design; verified clean with the PDK's unmodified code once run under
+    # 0.30.9 instead). 0.30.9 is also wafer.space's officially supported
+    # version. nixpkgs jumped straight from 0.30.8 to 0.30.10 (never
+    # packaged 0.30.9), so build it from upstream's own release tag.
     pkgs = import nixpkgs {
       inherit system;
       overlays = [
@@ -46,6 +56,15 @@
           or-tools =
             (prev.or-tools.overrideAttrs (_: {doCheck = false;}))
             .override {python3 = final.python313;};
+          klayout = prev.klayout.overrideAttrs (old: {
+            version = "0.30.9";
+            src = prev.fetchFromGitHub {
+              owner = "KLayout";
+              repo = "klayout";
+              tag = "v0.30.9";
+              hash = "sha256-5Yu8MP0T4Bb1huuHOXnBYno1WJ4UNKjxYG332A9vrew=";
+            };
+          });
         })
       ];
     };
