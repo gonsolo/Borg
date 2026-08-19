@@ -1,0 +1,49 @@
+name: gds-wafer-space
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  gds:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Generate SystemVerilog
+        run: nix develop --command make generate_verilog
+
+      - name: Run LibreLane flow (GF180MCU, wafer.space)
+        working-directory: asic/wafer.space
+        run: |
+          nix develop $GITHUB_WORKSPACE --command \
+            make librelane SLOT=0p5x1 | tee librelane.log
+
+      - name: Verify manufacturability (Antenna / LVS / DRC)
+        working-directory: asic/wafer.space
+        run: |
+          got=$(grep -c 'Passed ✅' librelane.log || true)
+          if [ "$got" -ne 3 ] || grep -q '❌' librelane.log; then
+            echo "::error::Manufacturability check did not report 3x Passed (got $got); see librelane.log"
+            grep -A2 -E '^\* (Antenna|LVS|DRC)' librelane.log || true
+            exit 1
+          fi
+          echo "Antenna / LVS / DRC all passed."
+
+      - name: Upload GDS + reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wafer-space-gds
+          path: |
+            asic/wafer.space/final/
+            asic/wafer.space/librelane.log
+          if-no-files-found: warn
