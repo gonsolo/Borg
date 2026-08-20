@@ -25,6 +25,26 @@ jobs:
         with:
           pdk: ihp-sg13g2
 
+  gds-workstation:
+    runs-on: [self-hosted, gonsolo-workstation]
+    timeout-minutes: 300
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Build GDS (IHP, nix)
+        run: nix develop --command make gds-ihp
+
+      - name: Upload GDS + reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ihp-gds-workstation
+          path: runs/wokwi/
+          if-no-files-found: warn
+
   precheck:
     needs: gds
     runs-on: ubuntu-24.04
