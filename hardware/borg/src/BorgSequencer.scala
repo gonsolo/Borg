@@ -165,8 +165,6 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val busy = Output(Bool())
   val done = Output(Bool())
   val seqShaderActive = Output(Bool())
-  val debugState = Output(UInt(6.W))
-  val debugTileCompleteLatch = Output(Bool())
   // Per-triangle texture enable: true when current triangle has UVs.
   // Driven from descriptor metadata has_uvs flag.
   val texEnOverride = Output(Bool())
@@ -175,8 +173,6 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val coreStatus = Flipped(new CoreStatusIO)
   val pipeWrite = Flipped(new PipeWriteIO(cfg.totalBits))
   val uniformWrite = new MemWritePort(6, 16)
-  val clipOut = Output(Vec(3, Vec(4, UInt(16.W))))
-  val setupOut = Output(Vec(8, UInt(16.W)))
   val uniformWritePage = Output(UInt(1.W))
 }
 
@@ -265,16 +261,16 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val tagReg      = RegInit(VecInit(Seq.fill(2)("hFFFF".U(16.W))))
   val uvsReg      = RegInit(VecInit(Seq.fill(2)(false.B)))
   val cacheVictim = RegInit(0.U(1.W))
-  // uDataReg: latched uniform value for DRAM store (computed during sStageUniforms)
-  val uDataStore = RegInit(VecInit.fill(31)(0.U(16.W)))
-
   // General-purpose sequential write counter
   // - sWriteSetupInputs: 0-5 (6 uniform writes)
   // - sStageUniforms:    0-30 (31 uniform writes)
   val writeIdx = RegInit(0.U(5.W))
 
-  // Shadow registers for clip-space outputs (3 vertices × 4 components: x,y,z,w)
-  val clipRegs = RegInit(VecInit.fill(3, 4)(0.U(16.W)))
+  // Shadow registers for clip-space outputs (3 vertices × 3 components: x,y,z).
+  // A 4th (w) component was captured here historically but never read by
+  // anything (no consumer inside this module, and the io.clipOut port that
+  // used to forward it had no consumer either) -- dropped.
+  val clipRegs = RegInit(VecInit.fill(3, 3)(0.U(16.W)))
 
   // Shadow registers for color + z per vertex (3 vertices × 4 components: r,g,b,z)
   // Populated by snooping the DMA uniform write stream during vertex DMA.
@@ -284,11 +280,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   //   uniform offset 6 = uv.u, 7 = uv.v  (pre-scaled by tex dimensions in descriptor)
   // We capture offsets 2(z), 3(r), 4(g), 5(b), 6(u), 7(v).
   val colorRegs = RegInit(VecInit.fill(3, 4)(0.U(16.W)))  // [v][r,g,b,z]
-  // Per-vertex MODEL position (x,y,z) — captured from DMA uniform offsets 0,1,2.
-  // borgc's cube.frag reads frag_pos (= gl_Position.xyz) for dFdx/dFdy lighting;
-  // we approximate it with the affine model position (the cleanest per-vertex
-  // 3-vector in the descriptor), staged into u19-27 in place of vertex colour.
-  val posRegs = RegInit(VecInit.fill(3, 3)(0.U(16.W)))    // [v][x,y,z]
   // UV per vertex — pre-scaled by tex_w/tex_h in the DRAM descriptor.
   // Offsets 6,7 from the DMA vertex stream (uniform[6]=u_tex, [7]=v_tex).
   val uvRegs = RegInit(VecInit.fill(3, 2)(0.U(16.W)))     // [v][u,v]
@@ -326,7 +317,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   // bboxWordIdx removed — bbox now computed from GPU clipRegs in handleWaitVert.
-  val binnerStarted = RegInit(false.B)  // tracks whether binner accepted start
   // Per-triangle has_uvs flag from descriptor metadata (offset 104).
   val triHasUvs = RegInit(false.B)
 
@@ -358,8 +348,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // (where r30/r31 must be zero, not pixel coordinates).
     io.seqShaderActive := state === sRunVert || state === sWaitVert ||
                           state === sRunSetup || state === sWaitSetup
-    io.debugState := state
-    io.debugTileCompleteLatch := tileCompleteLatch
     io.texEnOverride := triHasUvs
 
     io.dma.start := false.B
@@ -374,9 +362,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.uniformWrite.data := 0.U
 
     io.uniformWritePage := uniformPage
-
-    io.clipOut  := clipRegs
-    io.setupOut := setupRegs
 
     io.iter.clear     := false.B
     io.iter.enqueue.valid := false.B
@@ -476,7 +461,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is(sStageUniforms) { handleStageUniforms() }
 
       // --- Step 32.3: Store uniforms to DRAM setup store ---
-      // Write all 31 uniform values (latched in uDataStore) to DRAM at
+      // Write all 31 uniform values (recomputed via computeUniformData) to DRAM at
       // setupBase + triIdx * 128 + storeWriteIdx * 4.
       // Each value is stored as a 32-bit word (low 16 bits = uniform, high = 0).
       is(sStoreSetup) { handleStoreSetup() }
@@ -773,21 +758,24 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
   }
 
-  private def handleStageUniforms(): Unit = {
-    val w = writeIdx
-
-    // FTEX uniform layout (new, matching frag.s SPIRB output with uniform_base=12):
-    //   u0-u5:   scaled edge components (setupRegs[0..5])
-    //   u6-u11:  negated vertex positions FNEG(clipRegs)
-    //   u12:     inv_area (setupRegs[7])
-    //   u13-u15: U texture coord  (v2, v1, v0) — pre-scaled by tex_w in descriptor
-    //   u16-u18: V texture coord  (v2, v1, v0) — pre-scaled by tex_h in descriptor
-    //   u19-u21: frag_pos.x       (v2, v1, v0) — model position (borgc lighting)
-    //   u22-u24: frag_pos.y       (v2, v1, v0)
-    //   u25-u27: frag_pos.z       (v2, v1, v0)
-    //   u28-u30: z value          (v2, v1, v0) — projected depth for z-interp
-    // Within each group of 3: slot 0→vertex2, slot 1→vertex1, slot 2→vertex0
-
+  // Combinational uniform-value lookup — shared by sStageUniforms (writes the
+  // live uniform buffer) and sStoreSetup (writes the same values to DRAM for
+  // Pass 2 reload). Recomputed from index 'w' rather than latched into a
+  // separate 31-entry register array, since the source shadow registers
+  // (setupRegs/clipRegs/uvRegs/colorRegs) are stable across both states.
+  //
+  // FTEX uniform layout (matching frag.s SPIRB output with uniform_base=12):
+  //   u0-u5:   scaled edge components (setupRegs[0..5])
+  //   u6-u11:  negated vertex positions FNEG(clipRegs)
+  //   u12:     inv_area (setupRegs[7])
+  //   u13-u15: U texture coord  (v2, v1, v0) — pre-scaled by tex_w in descriptor
+  //   u16-u18: V texture coord  (v2, v1, v0) — pre-scaled by tex_h in descriptor
+  //   u19-u21: frag_pos.x       (v2, v1, v0) — model position (borgc lighting)
+  //   u22-u24: frag_pos.y       (v2, v1, v0)
+  //   u25-u27: frag_pos.z       (v2, v1, v0)
+  //   u28-u30: z value          (v2, v1, v0) — projected depth for z-interp
+  // Within each group of 3: slot 0→vertex2, slot 1→vertex1, slot 2→vertex0
+  private def computeUniformData(w: UInt): UInt = {
     val uData = WireDefault(0.U(16.W))
 
     // Helper: within a group of 3 starting at 'base', map to vertex index.
@@ -816,7 +804,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // cube.vert sets frag_pos = gl_Position.xyz — the TRANSFORMED position.
       // Feed the per-vertex transformed position (clipRegs = screen-space x,y,
       // projected z) so the derivative-normal rotates with the cube; staging the
-      // model-space posRegs here makes the per-face normal constant and the light
+      // model-space position here makes the per-face normal constant and the light
       // appear glued to the cube.
       uData := Mux(io.mmio.fragUsesFragPos, clipRegs(vertOf(19))(0), colorRegs(vertOf(19))(0))
     }.elsewhen(w < 25.U) {
@@ -826,7 +814,12 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }.otherwise {
       uData := clipRegs(vertOf(28))(2)        // u28-u30: Z from vertex shader r2 (projected depth)
     }
-    // (w > 30 cannot occur: writeIdx stops at 30)
+    // (w > 30 cannot occur: writeIdx/storeWriteIdx(4,0) stop at 30)
+    uData
+  }
+
+  private def handleStageUniforms(): Unit = {
+    val uData = computeUniformData(writeIdx)
 
     io.uniformWrite.en   := true.B
     io.uniformWrite.addr := (if (cfg.maxUniforms > 32) Cat(uniformPage, writeIdx(4, 0)) else writeIdx(4, 0))
@@ -836,9 +829,6 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     when(writeIdx === 0.U || writeIdx === 19.U || writeIdx === 22.U || writeIdx === 25.U) {
       if (BorgDebug.trace) printf("[SEQ] stageU tri=%d u%d=0x%x\n", triIdx, writeIdx, uData)
     }
-
-    // Step 32.3: Latch computed uniform into uDataStore for DRAM write
-    uDataStore(writeIdx) := uData
 
     when(writeIdx === 30.U) {
       storeWriteIdx := 0.U
@@ -853,14 +843,14 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.store.req   := true.B
     io.store.addr  := dramAddr
     // Word 31 = has_uvs flag (for pass 2 recovery)
-    // storeWriteIdx is 6-bit; guard uDataStore access with (4,0) slice
+    // storeWriteIdx is 6-bit; guard the uniform-index slice with (4,0)
     // (only reached when storeWriteIdx < 31, so top bit is always 0).
-    io.store.wdata := Mux(storeWriteIdx === 31.U, triHasUvs.asUInt, uDataStore(storeWriteIdx(4, 0)))
+    val storeData = Mux(storeWriteIdx === 31.U, triHasUvs.asUInt, computeUniformData(storeWriteIdx(4, 0)))
+    io.store.wdata := storeData
     when(io.store.ready) {
       when(storeWriteIdx < 2.U || storeWriteIdx === 19.U || storeWriteIdx === 22.U || storeWriteIdx === 25.U || storeWriteIdx === 31.U) {
         if (BorgDebug.trace) printf("[SEQ] storeSetup triIdx=%d [%d] addr=0x%x data=0x%x\n",
-          triIdx, storeWriteIdx, dramAddr,
-          Mux(storeWriteIdx === 31.U, triHasUvs.asUInt, uDataStore(storeWriteIdx(4, 0))))
+          triIdx, storeWriteIdx, dramAddr, storeData)
       }
       when(storeWriteIdx === 31.U) {
         state := sNextTriangle
@@ -1139,7 +1129,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // --- Clip-space output snooping (Step 29.1) ---
     // Vertex shader writes results to r0(x), r1(y) (passthrough of u0, u1).
     when(io.pipeWrite.en && state === sWaitVert) {
-      for (comp <- 0 until 4) {
+      for (comp <- 0 until 3) {
         when(io.pipeWrite.addr === comp.U) {
           clipRegs(vertIdx)(comp) := io.pipeWrite.data(15, 0)
         }
@@ -1155,11 +1145,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
          nextAfterDMA === sRunVert) {
       val addr = io.dma.uniformSnoop.addr(2, 0)  // low 3 bits = offset 0-7
       val data = io.dma.uniformSnoop.data
-      when(addr === 0.U) { posRegs(vertIdx)(0) := data }    // model x → frag_pos.x
-      when(addr === 1.U) { posRegs(vertIdx)(1) := data }    // model y → frag_pos.y
       when(addr === 2.U) {
         colorRegs(vertIdx)(3) := data                       // z (projected depth source)
-        posRegs(vertIdx)(2)   := data                       // model z → frag_pos.z
       }
       when(addr === 3.U) {
         colorRegs(vertIdx)(0) := data   // r
