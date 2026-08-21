@@ -5,7 +5,7 @@
 ![Book](../../workflows/book/badge.svg)
 ![Test](../../workflows/test/badge.svg)
 ![FPGA](../../workflows/fpga/badge.svg)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21189253.svg)](https://doi.org/10.5281/zenodo.21189252)
+[![DOI](.github/badges/zenodo-doi.svg)](https://doi.org/10.5281/zenodo.21189252)
 
 ## Foundational workflow for an open-source GPU
 
