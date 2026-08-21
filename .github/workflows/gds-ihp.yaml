@@ -5,27 +5,17 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# NOTE: the official hosted path (gds/precheck/gl_test, via
+# TinyTapeout/tt-gds-action) is temporarily removed so this workflow's
+# badge is gated by a single, fast job instead of paying for a redundant
+# ~4-5h hosted run on every trigger. IHP is currently a diagnostic-only
+# build anyway (8x4 tiles, not a real ttihp26b shuttle option; a
+# CLOCK_UNCERTAINTY_CONSTRAINT not yet validated as sign-off-safe -- see
+# src/config.json), so the official-format cross-check isn't buying much
+# right now. Restore the gds/precheck/gl_test jobs (git log this file)
+# once IHP is back to a real, submittable configuration.
+
 jobs:
-  gds:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: checkout repo
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
-
-      - name: Generate SystemVerilog
-        run: nix develop --command make generate_verilog
-
-      - name: Build GDS (IHP)
-        uses: TinyTapeout/tt-gds-action@ttihp26a
-        with:
-          pdk: ihp-sg13g2
-          librelane-version: '3.0.8'
-
   gds-workstation:
     runs-on: [self-hosted, gonsolo-workstation]
     timeout-minutes: 300
@@ -45,32 +35,3 @@ jobs:
           name: ihp-gds-workstation
           path: runs/wokwi/
           if-no-files-found: warn
-
-  precheck:
-    needs: gds
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Run Tiny Tapeout Precheck (IHP)
-        uses: TinyTapeout/tt-gds-action/precheck@ttihp26a
-
-  gl_test:
-    needs: gds
-    runs-on: ubuntu-24.04
-    steps:
-      - name: checkout repo
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
-
-      - name: Generate SystemVerilog
-        run: nix develop --command make generate_verilog
-
-      - name: GL test (IHP)
-        uses: TinyTapeout/tt-gds-action/gl_test@ttihp26a
-        env:
-          CLOCK_MHZ: 4
-
-
