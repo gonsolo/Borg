@@ -49,9 +49,11 @@ def main():
     parser.add_argument('--pdk', default=os.environ.get('PDK', 'sky130A'))
     args = parser.parse_args()
 
-    # IHP's ttihp26b shuttle only offers up to 6x4 (no 8x4 slot); Sky130/
-    # GF180MCU shuttles offer 8x4.
-    tiles = "6x4" if args.pdk == "ihp-sg13g2" else "8x4"
+    # NOTE: IHP's real ttihp26b shuttle only offers up to 6x4 (no 8x4 slot);
+    # this is set to 8x4 as a diagnostic to isolate the DPL-0036/hold-
+    # violation investigation from the GPL-0301 area gate. Not submittable
+    # to the shuttle as-is -- revert to 6x4 before any real IHP submission.
+    tiles = "8x4"
 
     with open(template_path, 'r') as f:
         content = f.read()
