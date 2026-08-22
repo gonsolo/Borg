@@ -791,7 +791,13 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       val vIdx = (w - 6.U)(2, 1)
       val cIdx = (w - 6.U)(0)
       val raw  = clipRegs(vIdx)(Cat(0.U(1.W), cIdx))
-      uData := raw ^ (1.U(16.W) << 15)
+      // FNEG via sign-bit XOR. Written as the mask literal directly rather
+      // than `1.U(16.W) << 15`: a static shift by a Scala Int still grows
+      // Chisel's declared width by the shift amount (16+15=31 bits) even
+      // though the shifted VALUE (bit 15 set, a compile-time constant)
+      // always fits in 16 -- tripping an implicit-truncation warning for
+      // width that was never real.
+      uData := raw ^ "h8000".U(16.W)
     }.elsewhen(w === 12.U) {
       uData := setupRegs(7)
     }.elsewhen(w < 16.U) {
@@ -953,7 +959,15 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private def handleReadBinEntry(): Unit = {
     val tileLinear = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
-    val entryAddr  = io.mmio.binBase + (tileLinear * io.mmio.binRowBytes) + (binTriIdx << 1)
+    // Truncated to DMADescriptor.baseAddr's fixed 25-bit/32MB GPU address
+    // space (same constant used throughout this file). Unlike mmioAddr/
+    // w_addr in BorgLane, this bound isn't provable from the RTL alone --
+    // it relies on firmware keeping the triangle-bin table within the 32MB
+    // budget. Chisel's generic width growth through the multiply/add chain
+    // conservatively exceeds 25 bits even though real addresses stay in
+    // range; unchanged from this design's behavior before this truncation
+    // was made explicit.
+    val entryAddr  = (io.mmio.binBase + (tileLinear * io.mmio.binRowBytes) + (binTriIdx << 1))(24, 0)
     val desc = Wire(new DMADescriptor)
     desc.baseAddr := entryAddr
     desc.length   := 1.U  // 1 word (bin entry = uint16, stored in low half of 32b word)

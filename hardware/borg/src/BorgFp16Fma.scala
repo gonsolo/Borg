@@ -117,7 +117,14 @@ class BorgFp16Fma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val m_cSign      = RegEnable(s1_cSign,      false.B, io.pipeEn1)
   private val m_prodZero   = RegEnable(s1_prodZero,   false.B, io.pipeEn1)
   private val m_cZero      = RegEnable(s1_cZero,      false.B, io.pipeEn1)
-  private val m_prodLowExp = RegEnable(s1_prodLowExp, 0.S(EW.W), io.pipeEn1)
+  // Truncated to EW bits (low-order bits + resulting sign, same as the
+  // implicit truncation this makes explicit): EW = EXP+8 already reserves 8
+  // bits of deliberate headroom over FP16's ~5-bit raw exponent range for
+  // exactly this kind of chained exponent arithmetic (see EW's own comment
+  // above); the 1 extra bit s1_prodLowExp's type carries beyond EW is
+  // Chisel's generic conservative width growth from chaining +&/-, not real
+  // additional range the value needs.
+  private val m_prodLowExp = RegEnable(s1_prodLowExp(EW - 1, 0).asSInt, 0.S(EW.W), io.pipeEn1)
   private val m_cLowExp    = RegEnable(s1_cLowExp,    0.S(EW.W), io.pipeEn1)
   private val m_specialNaN = RegEnable(s1_specialNaN, false.B, io.pipeEn1)
   private val m_specialInf = RegEnable(s1_specialInf, false.B, io.pipeEn1)

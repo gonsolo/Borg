@@ -106,7 +106,11 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // inside_flag Vecs, which triggered pathological blowup in Yosys/ABC9 synthesis
   // for the full ULX3S SoC (a 3-bit dynamic index into a 4-element Vec forces
   // hardware for 8 selector values instead of 4).
-  val laneCtr = RegInit(0.U(log2Ceil(N).W))
+  // log2Up (not log2Ceil): at N=1 a single lane needs zero index bits, but
+  // Chisel has no 0-width literal syntax, so `:= 0.U`/`+ 1.U` against a
+  // genuinely 0-bit register trips the implicit-truncation warning; log2Up
+  // floors at 1 bit instead.
+  val laneCtr = RegInit(0.U(log2Up(N).W))
 
   // --- Trigger outputs (directly driven, no register delay) ---
   io.coreTrigger.valid  := false.B

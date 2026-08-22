@@ -304,8 +304,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val texState = RegInit(sTexIdle)
     // Ranges over [0, N-1] only (wraps at N-1, never reaches N) — log2Ceil(N)
     // bits, not N+1: see BorgShaderDispatcher's laneCtr for the same bug and
-    // its Yosys/ABC9 synthesis-blowup consequence.
-    val texLane  = RegInit(0.U(log2Ceil(N).W))
+    // its Yosys/ABC9 synthesis-blowup consequence. log2Up (not log2Ceil):
+    // at N=1 a single lane needs zero index bits, but Chisel has no 0-width
+    // literal syntax, so `:= 0.U`/`+ 1.U` against a genuinely 0-bit register
+    // trips the implicit-truncation warning; log2Up floors at 1 bit instead.
+    val texLane  = RegInit(0.U(log2Up(N).W))
 
     val texRdReg = RegInit(0.U(5.W))
     val texResultR = RegInit(0.U(16.W))

@@ -126,7 +126,13 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   // --- Tile index helper ---
-  def tileIndex(c: Coord): UInt = c.x(1, 0) | (c.y(1, 0) << 2.U)
+  // `<< 2` (Scala Int, static shift), not `<< 2.U`: a UInt-typed shift amount
+  // selects Chisel's dynamic-shift overload even for a compile-time-constant
+  // shift, which widens conservatively to cover any runtime value 2.U's own
+  // width could hold (2 + (2^2-1) = 5 bits) instead of the exact static-shift
+  // result (2 + 2 = 4 bits) -- tripping an implicit-truncation warning against
+  // the 4-bit tileIndex output for width that was never actually needed.
+  def tileIndex(c: Coord): UInt = c.x(1, 0) | (c.y(1, 0) << 2)
 
   // --- Outputs ---
   io.iter            := iter_reg
@@ -143,6 +149,6 @@ class BorgIterator(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val ly = shader_iter_reg.y + (i / qdim).U
     io.shaderIter(i).x   := lx
     io.shaderIter(i).y   := ly
-    io.shaderTileIndex(i) := lx(1, 0) | (ly(1, 0) << 2.U)
+    io.shaderTileIndex(i) := lx(1, 0) | (ly(1, 0) << 2)
   }
 }

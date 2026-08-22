@@ -160,7 +160,12 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def wireGprReads(): (UInt, UInt, UInt, UInt) = {
     val mmioEn = !running && !is_busy && (io.bus.is_reading || io.bus.is_writing) &&
                  io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
-    val mmioAddr = (io.bus.address - BorgGpuRegs.gpr_offset) >> 2
+    // Truncated to the register file's own log2Ceil(32) address width: mmioEn
+    // (below) only ever selects this value when io.bus.address falls in
+    // [gpr_offset, imem_offset), which spans exactly the 32-word GPR region --
+    // so the word index is always in range and the high bits Chisel's generic
+    // subtract/shift width-growth adds are provably always zero here.
+    val mmioAddr = ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0)
 
     // Issue cycles: rs1 at decode, rs2 at busy==7, rs3 at busy==6.
     val atDecode = running && !is_busy
@@ -349,7 +354,10 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val mmio_write = io.bus.is_writing && io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
     val pipe_write = running && is_busy && busy_counter === 1.U
     val w_en = mmio_write || pipe_write
-    val w_addr = Mux(pipe_write, regs.rd, (io.bus.address - BorgGpuRegs.gpr_offset) >> 2)
+    // Truncated to log2Ceil(32) for the same reason as wireGprReads' mmioAddr:
+    // this branch is only selected when mmio_write is true, which bounds
+    // io.bus.address to the 32-word GPR region.
+    val w_addr = Mux(pipe_write, regs.rd, ((io.bus.address - BorgGpuRegs.gpr_offset) >> 2)(log2Ceil(32) - 1, 0))
     // is_frcp_reg/is_frsq_reg/is_fsrgb_reg are mutually exclusive (decoded
     // from distinct funct7 values); special_result already internally
     // selects the right op's result (see computeFp16Special's `op` mux).
