@@ -107,21 +107,21 @@
   \begin{itemize}[leftmargin=*]
     \item \textbf{Yosys}: \texttt{autoname} pass rescans the whole module
           every iteration — $O(n^2)$ blowup, 49\,GB+/never-complete on our
-          SoC. Patched locally, later fixed upstream (yosys \#6050).
+          SoC. Patched locally, fixed upstream (yosys \#6050) and shipped
+          in \texttt{0.68}, our current pin — local patch dropped.
     \item \textbf{LibreLane 3.0.3 \texttt{--manual-pdk}}: three real signoff
           blockers (dead VDD/DVDD tie, unset \texttt{DEFAULT\_CORNER},
-          a PDN config hardcoding macros we don't have).
-    \item \textbf{KLayout DRC}: a real sealring corner-geometry violation
-          (\texttt{GR.2}) that \emph{two} independently-run KLayout versions
-          both silently missed — caught only after isolating the exact
-          KLayout release across three toolchains.
+          a PDN config hardcoding macros we don't have). Fixed upstream,
+          now on \texttt{3.0.8}.
     \item \textbf{OpenROAD}: a heap-underflow crash (\texttt{GRT-0183})
           during antenna-repair jumper insertion, hit on a real net in our
           own GDS flow — already fixed upstream, pulled in via our own
           nixpkgs 26Q2$\to$26Q3 OpenROAD bump.
-    \item \textbf{KLayout DRC, again}: \texttt{0.30.10}'s
-          \texttt{separation()} operator spuriously flagged fully-overlapping
-          regions — fixed upstream (\#2425), adopted in \texttt{0.30.11}.
+    \item \textbf{KLayout DRC}: \texttt{0.30.10}'s \texttt{separation()}
+          operator spuriously flagged fully-overlapping regions as a
+          sealring DRC violation (\texttt{GR.2}) — a regression, not a
+          real bug, confirmed against the PDK's own unmodified code.
+          Fixed upstream (\#2425), adopted in \texttt{0.30.11}.
   \end{itemize}
   \vfill
   \centering
