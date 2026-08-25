@@ -20,7 +20,7 @@ Borg uses standard IEEE-754 Half-Precision (FP16) instead of Single-Precision (F
 ## 3. No Hardware Divider (The Reciprocal LUT)
 
 Floating-point division is massive and slow. Borg completely omits a hardware divider. Instead, it provides an `FRCP` (Fast Reciprocal) instruction.
-It uses a tiny 17-entry BRAM lookup table (`rcpLut`) to get a highly accurate initial "guess" for `1/x`. If more precision is needed, the firmware does a Newton-Raphson iteration using the FMA pipeline. This completely eliminates the thousands of gates a real divider would require.
+It uses a tiny 33-entry BRAM lookup table (`rcpLut`) to get a highly accurate initial "guess" for `1/x`. If more precision is needed, the firmware does a Newton-Raphson iteration using the FMA pipeline. This completely eliminates the thousands of gates a real divider would require.
 
 ## 4. The 3-Copy Register File
 

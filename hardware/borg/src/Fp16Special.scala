@@ -11,9 +11,10 @@ import chisel3.util._
   * All three ops share the exact same LUT-interpolation core (see
   * `@doc:rcp-interpolation` in the former Fp16Rcp): `correction = (delta *
   * frac) >> 6`, only the direction (subtract for the decreasing rcp/rsq
-  * curves, add for the increasing sRGB curve) and the exponent/edge-case
-  * assembly differ. Previously three separate modules (Fp16Rcp, Fp16Rsq,
-  * Fp16Srgb) each carried their own copy of that interpolation datapath;
+  * curves, add for the increasing sRGB curve), fraction selection, and the
+  * exponent/edge-case assembly differ. Previously three separate modules
+  * (Fp16Rcp, Fp16Rsq, Fp16Srgb) each carried their own copy of that
+  * interpolation datapath;
   * measured standalone: 6,967 + 7,273 + 11,189 = 25,429 um^2 vs 15,363 um^2
   * consolidated (-39.6%). All three ops execute in the same pipeline slot
   * (busy_counter==3 capture, see BorgLane), so sharing one instance selected
@@ -46,10 +47,12 @@ class Fp16Special extends Module {
   val sign = io.in(15)
   val exp  = io.in(14, 10)
   val mant = io.in(9, 0)
-  val frac = mant(5, 0)
 
   val isRcp  = io.op === Fp16SpecialOp.Rcp
   val isRsq  = io.op === Fp16SpecialOp.Rsq
+
+  // rcp uses a 5-bit fraction. Pre-double it to reuse the shared >>6 datapath.
+  val frac = Mux(isRcp, Cat(mant(4, 0), 0.U(1.W)), mant(5, 0))
 
   val isZeroOrSubnormal = exp === 0.U
   val isInfOrNaN        = exp === 31.U
