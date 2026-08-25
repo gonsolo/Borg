@@ -1,20 +1,34 @@
 {
   inputs = {
-    #nixpkgs.url = "github:gonsolo/nixpkgs/librelane-opensta3-fix";
-    #nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
-    # librelane 3.0.8, and a base for klayout (overridden to 0.30.9 below,
-    # see the overlay's own comment). yosys is already 0.68 here too, which
-    # fixes the autoname O(iterations x module size) blowup upstream
-    # (YosysHQ/yosys#6050) -- the local yosysFixed patch below is no longer
-    # needed.
-    # Pinned just past NixOS/nixpkgs#551902 (sv-lang_10: fix build against
-    # fmt 12, merged 2026-08-16) rather than a same-day master commit, so
-    # this resolves against Hydra's cache instead of forcing a from-source
-    # rebuild of nearly everything. The nixos-unstable channel pointer
-    # itself (e5bdc4a4) predates that fix by ~8h and hits the exact sv-lang
-    # build failure it resolves -- this commit is the next best thing.
-    nixpkgs.url = "github:NixOS/nixpkgs/055f428aed456a836a7079a27c5bad1d2b36aa58";
+    # gonsolo/nixpkgs#borg-toolchain-bump: our own integration branch,
+    # merging several toolchain fixes we need that aren't upstream-merged
+    # into NixOS/nixpkgs yet (each also exists as its own open nixpkgs PR --
+    # see the branch's commit log for the individual PR numbers):
+    #   - librelane 3.0.4 -> 3.0.8
+    #   - yosys 0.67 -> 0.68 (fixes the autoname O(iterations x module
+    #     size) blowup upstream, YosysHQ/yosys#6050 -- previously needed a
+    #     local yosysFixed patch, no longer required)
+    #   - or-tools: fix Python 3.14 support (nixpkgs' default python3 is
+    #     3.14 here; or-tools -- openroad's dependency, transitively
+    #     librelane's -- was broken/meta.broken against it)
+    #   - openroad 26Q2 -> 26Q3 (fixes a real upstream bug,
+    #     The-OpenROAD-Project/OpenROAD#10743, that crashes antenna-repair
+    #     routing -- GRT-0183 heap underflow -- on designs needing many
+    #     diode/jumper insertions)
+    #   - sv-lang_10: fix build against fmt 12
+    #   - klayout 0.30.10 -> 0.30.11 (0.30.10 has a real regression in how
+    #     the DRC `.separation()` operator handles fully-overlapping
+    #     regions, confirmed with wafer-space/gf180mcu-project-template's
+    #     Leo Moser: it spuriously flags GR.2 -- COMP-to-GUARD_RING_MK
+    #     spacing -- at the sealring's own reflex corners, even though
+    #     COMP and GUARD_RING_MK are drawn exactly coincident there by
+    #     design. 0.30.11 contains the upstream fix, KLayout/klayout#2425,
+    #     merged 2026-08-20 -- verified clean with the PDK's unmodified
+    #     code)
+    # Pinned to a specific commit (not just the branch name) for
+    # reproducibility. Switch back to a plain NixOS/nixpkgs commit once
+    # these merge upstream.
+    nixpkgs.url = "github:gonsolo/nixpkgs/fa81aeaea883a8d5d719666b7704f7f8ddd159cc";
 
     alejandra.url = "github:kamadorueda/alejandra/4.0.0";
     alejandra.inputs.nixpkgs.follows = "nixpkgs";
@@ -26,48 +40,7 @@
     alejandra,
   }: let
     system = "x86_64-linux";
-    # nixpkgs' own default python3 is 3.14 here, which breaks or-tools
-    # (openroad's dependency, transitively librelane's) -- its meta.broken
-    # is conditioned on pythonAtLeast "3.14" (real pybind11 test failures,
-    # not yet fixed upstream: NixOS/nixpkgs#551898). or-tools takes python3
-    # as a direct override arg, so fix just that one package back to 3.13
-    # instead of overriding the whole set -- everything else (openroad,
-    # librelane, klayout, yosys, pythonEnv, ...) stays on nixpkgs' own
-    # default, maximizing cache hits.
-    #
-    # doCheck = false: even on 3.13, or-tools' own test suite has one
-    # unrelated failure (python_contrib_check_dependencies, a stale
-    # pkg_resources/setuptools deprecation check -- 610/611 other tests
-    # pass). Same workaround NixOS/nixpkgs#551846's author used.
-    # klayout 0.30.9, not nixpkgs' own 0.30.10 -- 0.30.10 has a real
-    # regression in how the DRC `.separation()` operator handles fully-
-    # overlapping regions (confirmed with wafer-space/gf180mcu-project-
-    # template's Leo Moser: it spuriously flags GR.2 -- COMP-to-
-    # GUARD_RING_MK spacing -- at the sealring's own reflex corners, even
-    # though COMP and GUARD_RING_MK are drawn exactly coincident there by
-    # design; verified clean with the PDK's unmodified code once run under
-    # 0.30.9 instead). 0.30.9 is also wafer.space's officially supported
-    # version. nixpkgs jumped straight from 0.30.8 to 0.30.10 (never
-    # packaged 0.30.9), so build it from upstream's own release tag.
-    pkgs = import nixpkgs {
-      inherit system;
-      overlays = [
-        (final: prev: {
-          or-tools =
-            (prev.or-tools.overrideAttrs (_: {doCheck = false;}))
-            .override {python3 = final.python313;};
-          klayout = prev.klayout.overrideAttrs (old: {
-            version = "0.30.9";
-            src = prev.fetchFromGitHub {
-              owner = "KLayout";
-              repo = "klayout";
-              tag = "v0.30.9";
-              hash = "sha256-5Yu8MP0T4Bb1huuHOXnBYno1WJ4UNKjxYG332A9vrew=";
-            };
-          });
-        })
-      ];
-    };
+    pkgs = import nixpkgs {inherit system;};
 
     # cocotb has no released Python 3.14 support upstream either
     # (cocotb/cocotb's setup.py hard-caps at 3.13; 3.14 support exists only
