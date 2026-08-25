@@ -1437,30 +1437,47 @@ vkcube; (3) drm-shim → FPGA over USB → **Vulkan vkcube on the board with Mes
 kernel driver + Linux on the upgraded Hutt for on-device vkcube. So Steps 45–49 below are
 better done host-side first, with the kernel/on-device path as a separate later arc.
 
-### Step 45: Minimal `vk_device` + `wsi_headless`
+### Step 45: Minimal `vk_device` + `wsi_headless` ✅ (2026-06-16)
 
-Headless rendering, no window system needed. Estimate: 1–2 weeks.
+Headless rendering via `wsi_device_init()` + `force_headless_swapchain = true`
+(`borgvk_wsi.c`). `vk_device_init()` real (`borgvk_device.c`).
 
-### Step 46: Shader Compiler (NIR → SPIR-B)
+### Step 46: Shader Compiler (NIR → SPIR-B) ✅ (2026-06-16)
 
-NIR backend generating Borg instructions. Estimate: 2–3 weeks.
+`borgc` — 1028-line Rust compiler (`isel.rs`/`opt.rs`/`regalloc.rs`/`encode.rs`)
+lowering NIR to Borg ISA: instruction selection, linear-scan RA, SPIR-B blob
+serialization. Wired into `borgvk_pipeline.c` at `vkCreateGraphicsPipeline`.
 
-### Step 47: Draw Path (`vkCmdDraw`)
+### Step 47: Draw Path (`vkCmdDraw`) ✅ (2026-06-16)
 
-Vertex + fragment shader dispatch to hardware. Estimate: 1–2 weeks.
+Unmodified `cube.c` (Khronos Vulkan-Tools) renders real geometry + LunarG
+texture + lighting via the Mesa native ICD on ULX3S HDMI. `borgvk_queue.c`
+handles `VK_CMD_DRAW` via Mesa's generic `vk_cmd_enqueue_*` recording.
 
-### Step 48: Texture Sampling (Software)
+### Step 48: Texture Sampling (Software) ✅ (2026-06-16)
 
-CPU-side sampling, spec-compliant but slow. Estimate: 1 week.
+Verified against `borgvk`'s real source (2026-08-24) — see the Conformance +
+Scale-Out phase below for what's still open beyond this baseline.
 
-### Step 49: Vulkan CTS Subset
+### Step 49: Vulkan CTS Subset — baseline only, real scope much larger than estimated
 
-Run conformance tests, fix failures. Estimate: 1–2 weeks.
+The 1–2 week estimate here significantly undersold the actual work. See the
+**Vulkan Conformance + Scale-Out** phase below (added 2026-08-25) for the
+real, spec-grounded scope: `dEQP-VK` category breakdown, confirmed hardware
+gaps, and the 113-day tapeout-deadline framing this now has to fit inside.
 
 ## Phase 6: Mobile GPU Fidelity (Steps 34–39)
 
 Target: **~Jan–Feb 2027**. Transition from "Autonomous Renderer" to a feature-complete
 "Mobile-Class GPU" (Bilinear, Z-Buffer, Blending).
+
+> **Not re-verified 2026-08-25**: Step 35 below ("Hardware Z-Buffer & Atomic
+> Depth Test") appears to duplicate work already done in Step 12 ("Hardware
+> Z-Buffer Unit ✅ 2026-04-07") much earlier in this document — this whole
+> phase looks like it accumulated some drift/duplication over time and
+> would benefit from a dedicated pass to reconcile against what's actually
+> in the RTL today, which was out of scope for this update (see Phase 7
+> below for what *was* re-verified against real source this session).
 
 ### Step 34: Bilinear Texture Filtering
 
@@ -1485,28 +1502,188 @@ smoke, glass, and transparency effects.
 Add `IADD`, `ISUB`, `AND`, `OR`, `XOR`, `SLL`, `SRL` to the `BorgCore` pipeline.
 Necessary for Vulkan integer address math and bit-packed data structures.
 
-### Step 38: Multi-Lane SIMD (2–4 FMA Units)
+### Step 38: Multi-Lane SIMD (2–4 FMA Units) ✅ (2026-06-16, partial — quad only)
 
-Duplicate the FMA pipeline within `BorgCore` (or add multiple cores) to process
-multiple pixels/vertices concurrently. Essential for hitting 60 FPS at
-higher resolutions on ULX3S/Nitefury.
+Implemented as `BorgConfig.fragLanes` (1 or 4, `Simt` config): a 2×2 pixel
+quad executes the fragment shader in lockstep (`BorgLane` × `fragLanes`
+instances in `BorgCore`), laying the architecture for `dFdx`/`dFdy`. ASIC
+stays at `fragLanes=1` for area. HW-verified on ULX3S ("4-lane SIMT: DONE").
+**Not done**: widening past 4, warp-level multithreading (multiple resident
+lane-groups for latency hiding), or multi-**core** scale-out (independent
+`BorgCore` instances) — those are real, separate, larger pieces of work; see
+the Conformance + Scale-Out phase below for the current scale-out plan and
+an honest sizing of each.
 
-### Step 39: Second Tapeout Submission
+### Step 39: Second/Final Tapeout Submission
 
-4×4 or 4×5 tile, Linux + Vulkan capable, with full hardware fidelity suite.
-Estimate: 1 week.
+**Status (2026-08-25): active track is wafer.space (GF180MCU), not Tiny
+Tapeout.** The `asic/wafer.space/` directory (vendored from wafer.space's
+own `gf180mcu-project-template`) currently reuses the same
+`generate_verilog` → `TTTop.scala` → `BorgConfig.Asic` RTL path as the
+original Tiny Tapeout target — same core design, different shuttle/PDK.
+**Real deadlines**: early-bird 2026-09-30, purchase 2026-12-09, submission
+**2026-12-16**. The signoff flow (LibreLane/OpenROAD, GF180MCU) is
+currently green: run
+[`32849867662`](https://github.com/gonsolo/Borg/actions/runs/32849867662)
+(2026-08-25) passed Antenna/LVS/DRC cleanly — 9.92 mm² die, 4.45 mm² core,
+61.4% utilization, 0 setup/hold timing violations at any PVT corner, 2.76 mW
+total power. See `docs/talk/talk.tex` for the toolchain bugs (OpenROAD
+GRT-0183, KLayout `.separation()` regression) hit and fixed along the way.
+This is the near-term tapeout referenced by the Conformance + Scale-Out
+phase below — whether a separate TTIHP26b submission is still planned is
+not reflected in this document; treat wafer.space as the authoritative
+near-term target until noted otherwise.
 
-**Target shuttle: TTIHP26b (IHP SG13G2) — submission deadline September 2026,
-delivery expected April 2027.** Effective working time is tighter than the
-raw calendar gap suggests due to a three-week planned absence in August
-2026 — worth tracking closely rather than assuming the full ~2 months are
-available.
+## Phase 7: Vulkan Conformance + Scale-Out
 
-## Phase 7: Vulkan 1.0 Conformance
+**This replaces the old estimate below wholesale.** "Full CTS pass in
+3–4 weeks, Mesa handles most complexity" significantly undersold the real
+scope — established 2026-08-25 by actually reading the Vulkan spec's
+Required Limits table and vkQuake's real source, not by guessing. Kept the
+original two lines as a `> superseded` note for the historical record:
 
-Target: **~Mar–Apr 2027**. Full CTS pass (~3–4 weeks); Mesa handles most
-complexity. Khronos conformance submission (~2 weeks): documentation + test
-results.
+> Superseded (was the whole of Phase 7): Target ~Mar–Apr 2027. Full CTS pass
+> (~3–4 weeks); Mesa handles most complexity. Khronos conformance
+> submission (~2 weeks): documentation + test results.
+
+Deadline that shapes near-term sequencing: wafer.space tapeout submission
+**2026-12-16** (see Step 39 above).
+
+### Step 50: Hardware prerequisites for Vulkan conformance + vkQuake (do first)
+
+Both Step 51 (conformance) and Step 52 (vkQuake) need the same underlying
+hardware — pulled out as its own leading step so it's the first thing
+worked on, not buried inside either narrative. Confirmed 2026-08-25 by
+reading the Vulkan spec's Required Limits table
+(`Vulkan-Docs` `chapters/limits.adoc`, no "unsupported" fallback listed,
+i.e. not behind an optional feature bit) and vkQuake's actual source
+(`~/src/vkQuake`), not by guessing.
+
+1. **Divergent branching / fragment `discard`** — structured control flow
+   (`if`/`while`/`for`) is core GLSL/SPIR-V language, not an optional
+   feature; `dEQP-VK.shaderrender/glsl` tests it as baseline. **Confirmed
+   independently via vkQuake's simplest shader** (`world_common.inc`:
+   `if (use_alpha_test && diffuse.a < 0.666f) discard;`) — not
+   hypothetical, needed by real code today. Borg's compiler currently has
+   **no branch support at all**: `borgc`'s own comment
+   (`borgvk_compiler.c:103`) says *"Borg has no branches: flatten if/else
+   into bcsel selects"* — which cannot express `discard` (it suppresses
+   output, it isn't a value to select between). Borg already has a
+   per-lane write-suppress mask (`inside_flag` gating tile write-back in
+   `BorgShaderDispatcher`) that a `discard`-capable mask is a smaller
+   extension of than full generic branching would be — real ISA + hardware
+   work either way, genuinely the sharpest gap here.
+2. **4× MSAA framebuffer support** — `framebufferColorSampleCounts` must
+   include `VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_4_BIT` unconditionally
+   (no feature-flag gate found in the spec table). Borg's tile buffer is
+   single-sample today. Newly identified 2026-08-25 by actually reading the
+   spec — not previously on any roadmap. Needs multi-sample tile storage +
+   a resolve step; likely comparable in size to the branching work.
+3. **Multi-texture binding** — `world.frag` alone needs three concurrent
+   samplers (diffuse/lightmap/fullbright); `BorgTextureUnit.scala` has one
+   `baseAddr` register (one bound texture at a time). Real for both
+   conformance's descriptor-binding tests and vkQuake specifically.
+4. **Instruction memory capacity** — `cube.frag` already uses 59/64 words
+   on the ASIC config; a real shader with fog math + multiple texture
+   samples + spec-constant-driven variants will not fit the current
+   64–72 word budget. Likely a config/sizing fix, not a redesign, but real
+   capacity planning.
+5. A handful of minimum limit/precision numbers (`maxColorAttachments`≥4,
+   `subPixelPrecisionBits`≥4, `maxDrawIndexedIndexValue`≥2²⁴−1, various
+   descriptor-count minimums) — need checking against Borg's current
+   parameters; lower risk, mostly "make the number big enough."
+
+**Explicitly NOT here — pure performance, not correctness, deferred to
+Step 53**: wider `fragLanes`, warp-level multithreading, multi-core
+scale-out. Neither Vulkan conformance nor vkQuake need any of these; CTS
+checks correctness within a generous timeout, not throughput.
+
+**Deadline framing**: the wafer.space submission deadline (2026-12-16, Step
+39) sets the outer bound for whatever hardware work lands before that
+tapeout. Real risk: verification (hand-crafted/`borgc`-compiled test
+shaders through Chisel unit tests + cocotb RTL sims, proving the new
+hardware correct before freezing for fab) is real hardware-scope work, not
+deferrable software — but is lighter than the full `borgvk` driver stack
+and builds on existing `test-chisel-borg`/`test-cocotb-soc-borg-rtl`
+infrastructure. Software/driver breadth (descriptor plumbing, format
+tables, the bulk of CTS's combinatorial volume) can genuinely wait until
+after submission, since none of it requires re-taping silicon.
+
+### Step 51: Vulkan conformance (builds on Step 50)
+
+Raise `borgvk`'s `dEQP-VK` CTS pass rate from its early baseline, ordered by
+category from simplest (`api`/`info`) to most demanding
+(`image`/`texture`/`synchronization`). **Key reframe (2026-08-25, from
+reading the actual Vulkan spec, not recollection): conformance ≠ feature
+completeness.** A device may legally report most "big" features unsupported
+(`geometryShader`, `tessellationShader`, `sampleRateShading`,
+`dualSrcBlend`, `logicOp`, `multiDrawIndirect`, `depthClamp`,
+`depthBiasClamp`, `fillModeNonSolid`, `wideLines`, `largePoints`,
+`alphaToOne`, `multiViewport`, `samplerAnisotropy`, all
+texture-compression formats) and CTS *skips* those tests rather than
+failing them. `subgroupSupportedOperations` baseline (Vulkan 1.1 core) is
+just `VK_SUBGROUP_FEATURE_BASIC_BIT` — full ballot/shuffle/quad ops are
+only required at higher, optional roadmap tiers. This legitimately shrinks
+the hardware-required surface a lot, on top of what Step 50 already covers.
+
+### Step 52: vkQuake as a real-world milestone (builds on Step 50)
+
+Run vkQuake (`~/src/vkQuake`) as a real-world milestone beyond `vkcube`.
+Gap analysis (2026-08-25, from reading vkQuake's actual source, not
+generic assumption):
+
+- **Hardware, real**: `discard`/masking, multi-texture binding, and
+  instruction memory — all Step 50, items 1/3/4. vkQuake's simplest shader
+  already needs `discard`.
+- **Compute shaders — architecturally the biggest single gap, but resolved
+  as a *software*, not hardware, problem.** `borgc`'s own comment
+  (`borgvk_compiler.c:116`): *"anything else (e.g. compute) has no Borg
+  slot."* `borgvk_CreateComputePipelines` is a stub; there is no
+  `vkCmdDispatch` execution path anywhere. vkQuake leans on compute
+  heavily by design: `skinning.comp` (GPU skeletal animation),
+  `indirect.comp`/`indirect_clear.comp` (GPU-generated draw commands),
+  `update_lightmap.comp`, `cs_tex_warp.comp` (the classic water/lava
+  warp), `screen_effects.comp`. **Planned resolution**: give `borgvk`'s
+  compute pipeline path a second NIR lowering target reusing Mesa's own
+  `llvmpipe` NIR→LLVM CPU JIT (the same execution engine `rusticl`, Mesa's
+  OpenCL implementation, ultimately rides on for CPU-backed compute) —
+  compute dispatches execute on the host CPU while vertex/fragment stay on
+  real Borg silicon, one `VkDevice`, one driver. Removes compute entirely
+  from the hardware/RTL critical path — nothing here belongs in Step 50.
+  Real remaining wrinkle: several compute shaders feed graphics stages
+  directly (`skinning.comp` → `alias.vert`, `update_lightmap.comp` →
+  `world.frag`'s `lightmap_tex`) — needs explicit host-visible/coherent
+  memory staging since compute (CPU) and graphics (silicon) are different
+  execution domains, not same-engine Vulkan barrier semantics.
+- **Renderer defaults to advanced techniques** (WBOIT/MBOIT
+  order-independent transparency, GPU-indirect draws) — `world.frag` has a
+  plain non-OIT `#else` path, so a stripped-down bring-up is plausible;
+  real engine-configuration work, not hardware.
+- **Extension/feature negotiation** — vkQuake already mirrors back
+  whatever the device actually reports (ray query, `independentBlend`,
+  `samplerAnisotropy`, etc. are all conditionally enabled), so this is
+  just correctly reporting what Borg doesn't have — software only.
+- **Open, unverified** (flagged honestly rather than guessed): whether
+  Borg's ISA needs hardware `exp()` or software emulation for
+  `world.frag`'s fog term; whether `alias.vert` expects pre-skinned input
+  from `skinning.comp`; whether cube-map sampling (`sky_cube.frag`/`.vert`
+  use `samplerCube`) is supported at all — `BorgTextureUnit`'s Morton
+  addressing is 2D-only as far as verified, cube-map support (or stubbing
+  the skybox for a first bring-up) needs a decision before this is final.
+
+### Step 53: Scale-out (performance, after Step 50–52)
+
+Second Borg shader processor (N-way parameterizable, not hardcoded to two
+cores), multi-core scaling experiments beyond two cores (verilator/
+arcilator/ULX3S), shader pipeline performance work, an FP16 matrix-multiply
+experiment, and a HyperRAM memory controller port. Explicitly a
+*performance* axis, decoupled from Step 50's correctness-critical work —
+see the "explicitly not here" note in Step 50.
+
+### Step 54: Second/final tapeout on this track
+
+Same wafer.space track as Step 39, run again once Steps 50–53 land, to
+capture the conformance and scale-out work in silicon.
 
 ## Tile Budget Estimate
 
