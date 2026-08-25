@@ -856,7 +856,7 @@ Current utilisation: **161%** — fails at global placement.
   | `instructionMemory` (56×32) | Reduce to 32 entries | −16K µm² |
   | `uniformMem` (64×16) | Reduce to 32 entries | −11K µm² |
   | Register files A/B/C (32×16 each) | Reduce to 16 registers | −16K µm² |
-  | `rcpLutA/B` (17×10 each) | Replace with Newton-Raphson combinational | −7K µm² |
+  | `rcpLutA/B` (33×10 each) | Replace with Newton-Raphson combinational | −7K µm² |
 
   Gate: `m test-all` green; shaders using registers 0–15 unaffected.
 
@@ -1067,7 +1067,7 @@ No host PC required after flashing the bitstream.
 | regFileA/B/C | GPR copies (rs1/rs2/rs3) | 32×16-bit | 3 |
 | instructionMemory | Shader IMEM | 56×32-bit | 1 |
 | uniformMem | Uniform buffer (2 pages) | 64×16-bit | 1 |
-| rcpLutA/B | Reciprocal LUT | 17×10-bit | 2 |
+| rcpLutA/B | Reciprocal LUT | 33×10-bit | 2 |
 | rgbzMem | Tile buffer | 16×64-bit | 1 |
 | **Total** | | | **8 / 30** |
 

@@ -89,7 +89,7 @@ triangle edge.  The result is simply 1.0 for positive inputs and 0.0 otherwise:
 {{snippet:hardware/borg/src/BorgLane.scala:fstep}}
 
 The sixth operation, **FRCP**, provides hardware FP16 reciprocal (1/x) via a
-17-entry LUT with linear interpolation.  It enables single-instruction
+33-entry LUT with linear interpolation.  It enables single-instruction
 perspective division (W-divide) in the vertex shader.  FRCP shares its ROM
 lookup and interpolation hardware with the FRSQ (reciprocal-sqrt) and FSRGB
 (linear→sRGB) ops via one `Fp16Special` instance, muxed by which op is
@@ -101,24 +101,26 @@ latched active:
 
 Computing 1/x in hardware without a divider is a classic GPU problem.  The
 Borg solves it with a **piecewise-linear approximation**: split the FP16
-mantissa into 16 intervals, store the exact reciprocal at each boundary in a
+mantissa into 32 intervals, store the exact reciprocal at each boundary in a
 small lookup table, and linearly interpolate between entries using the
 remaining mantissa bits.
 
-The LUT stores 17 values (16 intervals + 1 sentinel), each 10 bits wide — a
-total of just 170 bits of ROM:
+The LUT stores 33 values (32 intervals + 1 sentinel), each 10 bits wide — a
+total of 330 bits of ROM.  Doubling the original table fixes issue #2: the
+worst `a * FRCP(b)` error drops from 3.295 to 2.245 ULP, below Vulkan's
+2.5 ULP `OpFDiv` bound.
 
 {{snippet:hardware/borg/src/BorgLutTables.scala:rcp-lut}}
 
-The interpolation uses only a 7×6-bit multiply and a subtraction —
-no full multiplier is needed:
+The 5-bit reciprocal fraction is pre-doubled so rcp, rsq and sRGB can keep
+sharing the existing interpolation datapath and fixed `>> 6` shift:
 
 {{snippet:hardware/borg/src/Fp16Special.scala:rcp-interpolation}}
 
 The exponent is simply inverted: `29 - exp` (since `1 / 2^e = 2^(-e)`, and
 the FP16 bias is 15, so `(30 - 1) - exp = 29 - exp`).  The result achieves
 ~10-bit mantissa accuracy, matching FP16 precision without any Newton-Raphson
-iteration.
+iteration.  `FrcpPrecisionTests` guards the 2.5 ULP bound against regressions.
 
 ## Instruction Set Architecture
 
