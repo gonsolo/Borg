@@ -199,14 +199,15 @@ if { $::env(PDN_CORE_RING) == 1 } {
     }
 }
 
-define_pdn_grid \
-    -macro \
-    -default \
-    -name macro \
-    -starts_with POWER \
-    -halo "$::env(PDN_HORIZONTAL_HALO) $::env(PDN_VERTICAL_HALO)"
-
-add_pdn_connect \
-    -grid macro \
-    -layers "$::env(PDN_VERTICAL_LAYER) $::env(PDN_HORIZONTAL_LAYER)"
+# Dropped (2026-08-25): the upstream template's trailing generic
+# `-macro -default` grid (matching any macro-classified cell via an
+# implicit `-cells .*`), plus its add_pdn_connect. Borg's chip_core.sv has
+# zero macro instances -- see this file's header comment -- so there is
+# nothing for `.*` to match. Under OpenROAD 26Q2 this was apparently a
+# harmless no-op; under 26Q3 (bumped in gonsolo/nixpkgs#borg-toolchain-bump
+# to fix GRT-0183, a heap-underflow crash during antenna repair) a
+# `-default` grid with zero matching instances no longer registers,
+# so the immediately following `add_pdn_connect -grid macro` failed with
+# [PDN-0217] No grid found with name: macro. Since we have no macros to
+# connect, just don't define or reference this grid at all.
 
