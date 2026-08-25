@@ -115,6 +115,13 @@
           (\texttt{GR.2}) that \emph{two} independently-run KLayout versions
           both silently missed — caught only after isolating the exact
           KLayout release across three toolchains.
+    \item \textbf{OpenROAD}: a heap-underflow crash (\texttt{GRT-0183})
+          during antenna-repair jumper insertion, hit on a real net in our
+          own GDS flow — already fixed upstream, pulled in via our own
+          nixpkgs 26Q2$\to$26Q3 OpenROAD bump.
+    \item \textbf{KLayout DRC, again}: \texttt{0.30.10}'s
+          \texttt{separation()} operator spuriously flagged fully-overlapping
+          regions — fixed upstream (\#2425), adopted in \texttt{0.30.11}.
   \end{itemize}
   \vfill
   \centering
