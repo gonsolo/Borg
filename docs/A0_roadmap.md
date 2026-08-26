@@ -1559,20 +1559,30 @@ reading the Vulkan spec's Required Limits table
 i.e. not behind an optional feature bit) and vkQuake's actual source
 (`~/src/vkQuake`), not by guessing.
 
-1. **Divergent branching / fragment `discard`** — structured control flow
-   (`if`/`while`/`for`) is core GLSL/SPIR-V language, not an optional
-   feature; `dEQP-VK.shaderrender/glsl` tests it as baseline. **Confirmed
-   independently via vkQuake's simplest shader** (`world_common.inc`:
-   `if (use_alpha_test && diffuse.a < 0.666f) discard;`) — not
-   hypothetical, needed by real code today. Borg's compiler currently has
-   **no branch support at all**: `borgc`'s own comment
+1. **Fragment `discard`** ✅ **hardware done (2026-08-26)**, compiler lowering
+   still open. Structured control flow (`if`/`while`/`for`) is core
+   GLSL/SPIR-V language, not an optional feature; `dEQP-VK.shaderrender/glsl`
+   tests it as baseline. **Confirmed independently via vkQuake's simplest
+   shader** (`world_common.inc`: `if (use_alpha_test && diffuse.a < 0.666f)
+   discard;`) — not hypothetical, needed by real code today. Borg's compiler
+   has **no branch support at all**: `borgc`'s own comment
    (`borgvk_compiler.c:103`) says *"Borg has no branches: flatten if/else
    into bcsel selects"* — which cannot express `discard` (it suppresses
-   output, it isn't a value to select between). Borg already has a
-   per-lane write-suppress mask (`inside_flag` gating tile write-back in
-   `BorgShaderDispatcher`) that a `discard`-capable mask is a smaller
-   extension of than full generic branching would be — real ISA + hardware
-   work either way, genuinely the sharpest gap here.
+   output, it isn't a value to select between).
+   **Implemented**: rather than new branch hardware, `discard` reuses the
+   existing per-lane fragment-output hardware-ABI convention (R=r26/G=r27/
+   B=r28/Z=r29) with a new reserved **Kill=r25** register — any nonzero
+   write to r25 during the fragment shader sets a sticky per-lane `killed`
+   flag in `BorgShaderDispatcher`, gating tile write-back alongside the
+   existing `inside_flag`/depth-test check (`zPass = inside_flag &&
+   !killed && depth_pass`). No new ISA opcode, no new pipeline stage.
+   Verified: 2 new Chisel tests, full `test-all` green, and a real
+   wafer.space signoff run confirming negligible cost (+0.2pp utilization,
+   +0.02 mW power, zero timing regression) — see Step 39 above.
+   **Still open**: the `borgc`/NIR side that actually emits the discard
+   condition to r25 (lowering `discard`/`discard_if` from real GLSL/SPIR-V)
+   — the hardware primitive exists now, but nothing generates code for it
+   yet. That's the remaining piece of this item, not the whole item.
 2. **4× MSAA framebuffer support** — `framebufferColorSampleCounts` must
    include `VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_4_BIT` unconditionally
    (no feature-flag gate found in the spec table). Borg's tile buffer is
