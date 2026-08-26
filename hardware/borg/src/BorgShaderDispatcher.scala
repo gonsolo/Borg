@@ -94,11 +94,23 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // --- Stall ---
   val auto_run_stall = RegInit(false.B)
 
-  // --- Per-lane fragment output snoop (Hardware ABI: R=r26, G=r27, B=r28, Z=r29) ---
+  // --- Per-lane fragment output snoop (Hardware ABI: Kill=r25, R=r26, G=r27, B=r28, Z=r29) ---
   val frag_r = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_g = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_b = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_z = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
+
+  // discard: r25 is a hardware-ABI "kill" register, not a new ISA opcode. The
+  // compiler lowers GLSL/SPIR-V `discard`/`discard_if(cond)` (already reduced
+  // to a plain boolean value by NIR's own nir_lower_discard_if pass, no branch
+  // needed) to any existing op that writes `cond` to r25. Sticky OR across the
+  // whole fragment shader invocation, since a discarded fragment must stay
+  // discarded even if later code in the same invocation writes r25 again with
+  // a false condition — matches GLSL's "discard doesn't necessarily terminate
+  // execution, but the fragment is never written" semantics. Reset once per
+  // quad below (same lifecycle as e0/e1/e2_outside), gates tile write-back in
+  // sTileWrite exactly like inside_flag already does.
+  val killed = RegInit(VecInit(Seq.fill(N)(false.B)))
 
   // Lane counter for the serialized Z-read / tile-write loop (single-port tile buffer).
   // Ranges over [0, N-1] only (wraps at N-1, never reaches N) — log2Ceil(N) bits,
@@ -191,6 +203,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       e0_outside(i) := false.B
       e1_outside(i) := false.B
       e2_outside(i) := false.B
+      killed(i) := false.B
     }
     laneCtr := 0.U
     auto_run_stall := true.B
@@ -277,7 +290,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     io.tileWrite.data.z := frag_z(laneCtr)
     // Depth test: write only if this lane is inside AND closer.  FP16 Z is
     // non-negative in NDC; unsigned < comparison is valid.
-    val zPass = inside_flag(laneCtr) && (frag_z(laneCtr) < io.tileRead.data.z)
+    val zPass = inside_flag(laneCtr) && !killed(laneCtr) && (frag_z(laneCtr) < io.tileRead.data.z)
     io.tileWrite.en := zPass
     if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d idx=%d Z=0x%x zOld=0x%x pass=%d\n",
       laneCtr, io.shaderTileIndex(laneCtr), frag_z(laneCtr), io.tileRead.data.z, zPass)
@@ -343,9 +356,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   }
   // @doc:end
 
-  // Per-lane fragment output snoop (Hardware ABI: R=r26, G=r27, B=r28, Z=r29)
+  // Per-lane fragment output snoop (Hardware ABI: Kill=r25, R=r26, G=r27, B=r28, Z=r29)
   for (i <- 0 until N) {
     when(io.pipeWrite(i).en && phase === sFrag) {
+      when(io.pipeWrite(i).addr === 25.U) { killed(i) := killed(i) || (io.pipeWrite(i).data =/= 0.U) }
       when(io.pipeWrite(i).addr === 26.U) { frag_r(i) := io.pipeWrite(i).data(15, 0) }
       when(io.pipeWrite(i).addr === 27.U) { frag_g(i) := io.pipeWrite(i).data(15, 0) }
       when(io.pipeWrite(i).addr === 28.U) { frag_b(i) := io.pipeWrite(i).data(15, 0) }

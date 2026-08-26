@@ -596,5 +596,138 @@ object BorgShaderDispatcherTests extends TestSuite {
       }
     }
 
+
+    // =========================================================================
+    // discard: r25 hardware-ABI kill flag blocks tile write-back
+    // =========================================================================
+
+    utest.test("discard_kill_flag_blocks_tile_write") {
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
+        println("\n--- BorgShaderDispatcher: discard_kill_flag_blocks_tile_write ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        // --- Part 1: inside pixel, fragment shader writes nonzero to r25 (discard) ---
+        println("  Part 1: inside pixel, shader discards (writes r25=1.0)")
+        firePixelReady(d, fragPc = 13, tileIdx = 5)
+        d.io.fragPcReg.poke(13.U)
+
+        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.clock.step(1)
+        d.io.coreStatus.autoRunPending.poke(false.B)
+        d.io.coreStatus.running.poke(true.B)
+        pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
+        utest.assert(d.io.insideFlag.peek().litToBoolean)
+        d.io.coreStatus.running.poke(false.B)
+        d.clock.step(1) // -> sFrag
+
+        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.clock.step(1)
+        d.io.coreStatus.autoRunPending.poke(false.B)
+        d.io.coreStatus.running.poke(true.B)
+        // Write r25 (kill, nonzero) then RGBZ as usual — discard doesn't stop
+        // the rest of the shader from running (matches GLSL semantics).
+        for ((reg, value) <- Seq((25, 0x3C00), (26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
+          d.io.pipeWrite(0).en.poke(true.B)
+          d.io.pipeWrite(0).addr.poke(reg.U)
+          d.io.pipeWrite(0).data.poke(value.U)
+          d.clock.step(1)
+        }
+        d.io.pipeWrite(0).en.poke(false.B)
+        d.io.coreStatus.running.poke(false.B)
+        d.clock.step(1) // -> sZRead
+
+        stepThroughDepthTest(d)
+        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TILE_WRITE)
+
+        val enDiscarded = d.io.tileWrite.en.peek().litToBoolean
+        println(f"  sTileWrite after discard: tileWrite.en=$enDiscarded (expect false)")
+        utest.assert(!enDiscarded)
+        println("  tileWrite.en=false despite inside_flag=true ✓")
+
+        d.clock.step(1)
+        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
+
+        // --- Part 2: inside pixel, no r25 write — must NOT discard (regression) ---
+        println("  Part 2: inside pixel, shader does not touch r25")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        firePixelReady(d, fragPc = 13, tileIdx = 5)
+        d.io.fragPcReg.poke(13.U)
+
+        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.clock.step(1)
+        d.io.coreStatus.autoRunPending.poke(false.B)
+        d.io.coreStatus.running.poke(true.B)
+        pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
+        d.io.coreStatus.running.poke(false.B)
+        d.clock.step(1)
+
+        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.clock.step(1)
+        d.io.coreStatus.autoRunPending.poke(false.B)
+        d.io.coreStatus.running.poke(true.B)
+        for ((reg, value) <- Seq((26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
+          d.io.pipeWrite(0).en.poke(true.B)
+          d.io.pipeWrite(0).addr.poke(reg.U)
+          d.io.pipeWrite(0).data.poke(value.U)
+          d.clock.step(1)
+        }
+        d.io.pipeWrite(0).en.poke(false.B)
+        d.io.coreStatus.running.poke(false.B)
+        d.clock.step(1)
+
+        stepThroughDepthTest(d)
+        val enNotDiscarded = d.io.tileWrite.en.peek().litToBoolean
+        println(f"  sTileWrite without discard: tileWrite.en=$enNotDiscarded (expect true)")
+        utest.assert(enNotDiscarded)
+        println("  tileWrite.en=true when r25 untouched ✓ (regression check)")
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // discard: r25 write of exactly 0 must NOT discard (only nonzero kills)
+    // =========================================================================
+
+    utest.test("discard_zero_write_to_r25_does_not_kill") {
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
+        println("\n--- BorgShaderDispatcher: discard_zero_write_to_r25_does_not_kill ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        firePixelReady(d, fragPc = 13, tileIdx = 5)
+        d.io.fragPcReg.poke(13.U)
+
+        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.clock.step(1)
+        d.io.coreStatus.autoRunPending.poke(false.B)
+        d.io.coreStatus.running.poke(true.B)
+        pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
+        d.io.coreStatus.running.poke(false.B)
+        d.clock.step(1)
+
+        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.clock.step(1)
+        d.io.coreStatus.autoRunPending.poke(false.B)
+        d.io.coreStatus.running.poke(true.B)
+        for ((reg, value) <- Seq((25, 0x0000), (26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x4444))) {
+          d.io.pipeWrite(0).en.poke(true.B)
+          d.io.pipeWrite(0).addr.poke(reg.U)
+          d.io.pipeWrite(0).data.poke(value.U)
+          d.clock.step(1)
+        }
+        d.io.pipeWrite(0).en.poke(false.B)
+        d.io.coreStatus.running.poke(false.B)
+        d.clock.step(1)
+
+        stepThroughDepthTest(d)
+        val en = d.io.tileWrite.en.peek().litToBoolean
+        println(f"  sTileWrite after r25=0x0000: tileWrite.en=$en (expect true)")
+        utest.assert(en)
+        println("  PASSED")
+      }
+    }
   }
 }
