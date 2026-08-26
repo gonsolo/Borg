@@ -7,7 +7,7 @@ on:
 
 jobs:
   fpga:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, gonsolo-workstation]
     steps:
       - name: checkout repo
         uses: actions/checkout@v6
