@@ -24,27 +24,47 @@ import chisel3.experimental.BundleLiterals._
   * Step 11 of the Borg GPU roadmap.
   */
 
-class BorgTileBufferIO(val dataBits: Int = 16) extends Bundle {
+class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1) extends Bundle {
   // Write port (from rasterizer auto-write or MMIO)
-  val write = Flipped(new TileWriteIO)
+  val write = Flipped(new TileWriteIO(samples))
 
   // Read port (for tile flush - 2-cycle latency: BRAM + hold reg)
-  val read  = Flipped(new TileReadIO(dataBits))
+  val read  = Flipped(new TileReadIO(dataBits, samples))
 
   // Clear (resets all entries: Z to FP16_MAX_DEPTH, RGB to 0)
   val clear = Flipped(new TileClearIO)
 }
 
-class BorgTileBuffer(val dataBits: Int = 16) extends Module {
-  val io = IO(new BorgTileBufferIO(dataBits))
+class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1) extends Module {
+  val io = IO(new BorgTileBufferIO(dataBits, samples))
 
   val FP16_MAX_DEPTH_VAL = 0x7BFF  // Scala constant
   val FP16_MAX_DEPTH = FP16_MAX_DEPTH_VAL.U(dataBits.W)
   val TILE_SIZE = 16  // 4×4
-  val PACKED_BITS = new ColorZ(dataBits).getWidth  // 64 bits
+  val SAMPLE_BITS = new ColorZ(dataBits).getWidth   // 64 bits per sample
 
-  // --- RGBZ buffer: single BRAM (16 × 64-bit = 1024 bits, fits in 1 ECP5 DP16KD) ---
-  val rgbzMem = SyncReadMem(TILE_SIZE, UInt(PACKED_BITS.W))
+  // --- RGBZ buffer: ONE SyncReadMem PER SAMPLE, each 16 × 64 bits.
+  //
+  // All planes share the same 4-bit `idx`, so a pixel's samples are read
+  // together in one cycle — the dispatcher's serialized read→compare→write
+  // depth test stays 4 cycles per lane instead of becoming 4× that — and the
+  // 4-bit index shared with TileWriteIO/TileReadIO/BorgIterator.tileIndex
+  // stays valid.  Cost: 1024 bits (1×) → 4096 bits (4×).
+  //
+  // Deliberately NOT one wide Vec-typed SyncReadMem with a write mask: that
+  // form compiles, and even emits correct-looking CHIRRTL
+  // (`when writeMask[i] : connect MPORT[i], ...`), but CIRCT lowered it to a
+  // memory macro with NO mask port at all — `if (W0_en) Memory[W0_addr] <=
+  // W0_data`, a full-width write that clobbers uncovered samples.  That
+  // silently breaks MSAA (caught by BorgTileBufferTests.msaa_partial_coverage_
+  // _write, which writes coverage 0b0101 and checks samples 1 and 3 are
+  // preserved).  Per-sample memories make the write-enable explicit and
+  // structural, with no dependence on mask inference.
+  //
+  // At samples==1 this is exactly one 16×64 SyncReadMem — structurally
+  // identical to the pre-MSAA design, which is what keeps the single-sample
+  // path (and the ASIC config) bit-identical.
+  val rgbzMems = Seq.fill(samples)(SyncReadMem(TILE_SIZE, UInt(SAMPLE_BITS.W)))
 
   // --- Clear state machine ---
   // BRAM needs sequential writes (1 entry per cycle).
@@ -69,6 +89,8 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
   val clearInit = (new ColorZ(dataBits)).Lit(
     _.r -> 0.U, _.g -> 0.U, _.b -> 0.U, _.z -> FP16_MAX_DEPTH
   )
+  // Replicated across samples: a clear has no per-sample coverage, every sample
+  // of every pixel gets the same value (matches the software MSAA clear path).
   val clearWordReg = RegInit(clearInit.asUInt)
   val clearWord = clearWordReg
 
@@ -80,37 +102,47 @@ class BorgTileBuffer(val dataBits: Int = 16) extends Module {
       io.clear.color.r, io.clear.color.g, io.clear.color.b, io.clear.color.z)
   }
 
+  // --- Clear / write logic ---
+  // A clear writes every sample plane unconditionally (no per-sample coverage);
+  // a rasterizer write goes only to the planes selected by `coverage`.  Both are
+  // expressed as one guarded write per plane, so the enable is structural.
   when(clearing) {
-    rgbzMem.write(clearCounter, clearWord)
     when(clearCounter === 0.U || clearCounter === 15.U) {
       if (BorgDebug.trace) printf("[TBUF] CLEAR slot=%d raw=0x%x\n", clearCounter, clearWord)
     }
     clearCounter := clearCounter + 1.U
   }
 
-  // --- Write logic ---
   when(io.write.en && !clearing) {
-    rgbzMem.write(io.write.idx, io.write.data.asUInt)
-    if (BorgDebug.trace) printf("[TBUF] WRITE slot=%d R=0x%x G=0x%x B=0x%x Z=0x%x\n",
-      io.write.idx, io.write.data.r, io.write.data.g, io.write.data.b, io.write.data.z)
+    if (BorgDebug.trace) printf("[TBUF] WRITE slot=%d cov=0x%x R=0x%x G=0x%x B=0x%x Z=0x%x\n",
+      io.write.idx, io.write.coverage, io.write.data.r, io.write.data.g,
+      io.write.data.b, io.write.data.z)
   }
 
   // --- Read port ---
   val effectiveReadEn = io.read.en && !clearing
-  val rgbzRead = rgbzMem.read(io.read.idx, effectiveReadEn)
+
+  val rgbzRead = VecInit(rgbzMems.zipWithIndex.map { case (mem, s) =>
+    when(clearing) {
+      mem.write(clearCounter, clearWord)
+    }.elsewhen(io.write.en && io.write.coverage(s).asBool) {
+      mem.write(io.write.idx, io.write.data.asUInt)
+    }
+    mem.read(io.read.idx, effectiveReadEn)
+  })
 
   when(effectiveReadEn) {
     if (BorgDebug.trace) printf("[TBUF] READ-REQ slot=%d\n", io.read.idx)
   }
 
-  val readDataHeld = RegInit(0.U.asTypeOf(new ColorZ(dataBits)))
+  val readDataHeld = RegInit(0.U.asTypeOf(Vec(samples, new ColorZ(dataBits))))
 
   // Capture BRAM output one cycle after readEn pulse
   val readEnDel = RegNext(effectiveReadEn, false.B)
   when(readEnDel) {
-    readDataHeld := rgbzRead.asTypeOf(new ColorZ(dataBits))
-    val parsed = rgbzRead.asTypeOf(new ColorZ(dataBits))
-    if (BorgDebug.trace) printf("[TBUF] READ-DATA R=0x%x G=0x%x B=0x%x Z=0x%x\n",
+    readDataHeld := VecInit(rgbzRead.map(_.asTypeOf(new ColorZ(dataBits))))
+    val parsed = rgbzRead(0).asTypeOf(new ColorZ(dataBits))
+    if (BorgDebug.trace) printf("[TBUF] READ-DATA s0 R=0x%x G=0x%x B=0x%x Z=0x%x\n",
       parsed.r, parsed.g, parsed.b, parsed.z)
   }
 

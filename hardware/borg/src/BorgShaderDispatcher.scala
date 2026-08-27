@@ -47,8 +47,8 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val coreTrigger = new CoreTriggerIO           // shader start pulse + PC
 
   // --- Outputs to BorgTileBuffer ---
-  val tileWrite  = new TileWriteIO              // tile buffer push
-  val tileRead   = new TileReadIO(16)           // Step 25.5C: depth test read port
+  val tileWrite  = new TileWriteIO(cfg.samples)         // tile buffer push
+  val tileRead   = new TileReadIO(16, cfg.samples)      // Step 25.5C: depth test read port
 
   // --- Outputs to MemoryController (DRAM) ---
   val gpuMem     = new GpuMemIO                 // texel read port
@@ -132,9 +132,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.coreTrigger.isRast := false.B
 
   // Tile buffer write default (no write)
-  io.tileWrite.en   := false.B
-  io.tileWrite.idx  := io.shaderTileIndex(0)
-  io.tileWrite.data := 0.U.asTypeOf(new ColorZ(16))
+  io.tileWrite.en       := false.B
+  io.tileWrite.idx      := io.shaderTileIndex(0)
+  io.tileWrite.data     := 0.U.asTypeOf(new ColorZ(16))
+  io.tileWrite.coverage := 0.U
 
   // GPU memory port: forwarded from BorgTextureUnit (Step 25.3e)
   texUnit.io.texConfig <> io.texConfig
@@ -284,12 +285,21 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     io.tileWrite.data.g := frag_g(laneCtr)
     io.tileWrite.data.b := frag_b(laneCtr)
     io.tileWrite.data.z := frag_z(laneCtr)
-    // Depth test: write only if this lane is inside AND closer.  FP16 Z is
-    // non-negative in NDC; unsigned < comparison is valid.
-    val zPass = inside_flag(laneCtr) && !killed(laneCtr) && (frag_z(laneCtr) < io.tileRead.data.z)
-    io.tileWrite.en := zPass
-    if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d idx=%d Z=0x%x zOld=0x%x pass=%d\n",
-      laneCtr, io.shaderTileIndex(laneCtr), frag_z(laneCtr), io.tileRead.data.z, zPass)
+    // Depth test, per sample: a sample takes the fragment only if the lane is
+    // inside (coverage), not discarded, AND this sample's own stored Z is
+    // farther.  FP16 Z is non-negative in NDC; unsigned < comparison is valid.
+    //
+    // At cfg.samples==1 this is exactly the historical single `zPass`: one
+    // coverage bit, `en` equal to it — the bit-identical regression anchor.
+    val laneLive = inside_flag(laneCtr) && !killed(laneCtr)
+    val samplePass = (0 until cfg.samples).map { s =>
+      laneLive && (frag_z(laneCtr) < io.tileRead.data(s).z)
+    }
+    io.tileWrite.coverage := Cat(samplePass.reverse)
+    io.tileWrite.en       := samplePass.reduce(_ || _)
+    if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d idx=%d Z=0x%x zOld_s0=0x%x cov=0x%x\n",
+      laneCtr, io.shaderTileIndex(laneCtr), frag_z(laneCtr), io.tileRead.data(0).z,
+      Cat(samplePass.reverse))
 
     when(laneCtr === (N - 1).U) {
       laneCtr := 0.U

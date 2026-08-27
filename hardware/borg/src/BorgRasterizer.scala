@@ -54,9 +54,9 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val tileOrigin    = Output(new Coord(cfg.coordWidth))
 
   // Tile Buffer auto-write interface (Step 11.3)
-  val tileWrite = new TileWriteIO
+  val tileWrite = new TileWriteIO(cfg.samples)
   // Step 25.5C: Tile Buffer read port for depth test
-  val tileRead  = new TileReadIO(16)
+  val tileRead  = new TileReadIO(16, cfg.samples)
 
   // GPU memory read/write port (Step 19.2/24.3)
   val gpuMem    = new GpuMemIO

@@ -63,11 +63,14 @@ object BorgShaderDispatcherTests extends TestSuite {
     d.io.texConfig.baseAddr.poke(0.U)
     d.io.gpuMem.data.poke(0.U)
     d.io.gpuMem.ready.poke(false.B)
-    // Step 25.5C: tile read port — provide max depth so depth test passes
-    d.io.tileRead.data.r.poke(0.U)
-    d.io.tileRead.data.g.poke(0.U)
-    d.io.tileRead.data.b.poke(0.U)
-    d.io.tileRead.data.z.poke(FP16_MAX_DEPTH.U)
+    // Step 25.5C: tile read port — provide max depth so depth test passes.
+    // Per-sample since MSAA: every sample starts at the far plane.
+    d.io.tileRead.data.foreach { s =>
+      s.r.poke(0.U)
+      s.g.poke(0.U)
+      s.b.poke(0.U)
+      s.z.poke(FP16_MAX_DEPTH.U)
+    }
   }
 
   /** Step through the 3 depth-test wait states (sZRead → sZWait1 → sZWait2 → sTileWrite). */
