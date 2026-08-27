@@ -322,12 +322,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     writeColor.b := rdlRegs.io.hw.tile_bz_b   // from RDL tile_bz_b_reg (Step 26.5)
     writeColor.z := rdlRegs.io.hw.tile_bz_z   // from RDL tile_bz_z_reg (Step 26.5)
     tile.io.write.data := Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor)
-    // MSAA coverage deltas: tied off until BorgSequencer computes them from the
-    // setup shader (Step 50.2b).  All-zero deltas make every sample's threshold
-    // ±0, i.e. all four samples test at the pixel centre — so 4× behaves
-    // exactly like 1× until the real per-triangle values arrive.  Deliberately
-    // a working degenerate case, not an invalid one.
-    rast.io.covDelta.foreach(_ := VecInit(Seq.fill(3)(VecInit(Seq.fill(2)(0.U(16.W))))))
+    // MSAA coverage deltas, computed once per triangle by the setup shader and
+    // latched in BorgSequencer (Step 50.2b).  Before the first triangle's setup
+    // completes these read as zero, which puts every sample's threshold at ±0 —
+    // all four samples test at the pixel centre, i.e. 4× degenerates to 1×
+    // rather than to anything invalid.
+    rast.io.covDelta.foreach(_ := s.io.covDelta.get)
 
     // Coverage: the rasterizer supplies a per-sample mask from the depth test;
     // an MMIO poke has no coverage concept and writes every sample (same

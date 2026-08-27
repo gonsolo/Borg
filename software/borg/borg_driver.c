@@ -165,6 +165,40 @@ static const uint32_t seq_setup_shader[] = {
   BORG_INSTR_FMUL( 5,  5,  6, 2), // r5 = e2.dy * inv_width
   BORG_INSTR_FMUL( 6,  6,  6, 2), // r6 = (-area) * inv_width = -area/W
   BORG_INSTR_FRCP( 7,  6, 0),     // r7 = rcp(-area/W) = W/area = inv_area
+  // ---- Step 50.2b: per-edge MSAA sample deltas -------------------------
+  // The rasterizer evaluates e = A*dpy + B*dpx, where for edge k
+  //   A = r[2k] (the coefficient multiplying dpy, staged to u0/u2/u4)
+  //   B = r[2k+1]                                  (staged to u1/u3/u5)
+  // Shifting the sample point by (dx_s, dy_s) shifts the edge value by the
+  // per-triangle CONSTANT  delta_s = A*dy_s + B*dx_s, so per-sample coverage
+  // costs no per-pixel arithmetic -- the hardware just compares e against
+  // -delta_s (see BorgShaderDispatcher's coverage logic).
+  //
+  // Standard Vulkan/D3D 4x sample offsets from the pixel centre:
+  //   s0 (-0.125, -0.375)   s1 ( 0.375, -0.125)
+  //   s2 (-0.375,  0.125)   s3 ( 0.125,  0.375)
+  // These are +/-symmetric (s2 = -s1, s3 = -s0), so only TWO deltas per edge
+  // are computed here; hardware derives the other two by sign flip.
+  //   d0 = A*(-0.375) + B*(-0.125)      u7 = -0.375
+  //   d1 = A*(-0.125) + B*( 0.375)      u8 = -0.125, u9 = +0.375
+  //
+  // MUST come after the inv_width normalization above: the rasterizer's edge
+  // values are in normalized space, so the deltas have to be too.
+  // Scratch r14 only; outputs r8-r13 (the screen-coord copies loaded at the
+  // top are dead by now).  r17-r19 remain untouched -- they carry the borgc
+  // fragment's lightDir into Pass 2.
+  BORG_INSTR_FMUL (14,  0,  7, 2),      // r14 = A0 * -0.375
+  BORG_INSTR_FMADD( 8,  1,  8, 14, 2),  // r8  = B0 * -0.125 + r14  = d0[0]
+  BORG_INSTR_FMUL (14,  0,  8, 2),      // r14 = A0 * -0.125
+  BORG_INSTR_FMADD( 9,  1,  9, 14, 2),  // r9  = B0 *  0.375 + r14  = d1[0]
+  BORG_INSTR_FMUL (14,  2,  7, 2),      // r14 = A1 * -0.375
+  BORG_INSTR_FMADD(10,  3,  8, 14, 2),  // r10 = B1 * -0.125 + r14  = d0[1]
+  BORG_INSTR_FMUL (14,  2,  8, 2),      // r14 = A1 * -0.125
+  BORG_INSTR_FMADD(11,  3,  9, 14, 2),  // r11 = B1 *  0.375 + r14  = d1[1]
+  BORG_INSTR_FMUL (14,  4,  7, 2),      // r14 = A2 * -0.375
+  BORG_INSTR_FMADD(12,  5,  8, 14, 2),  // r12 = B2 * -0.125 + r14  = d0[2]
+  BORG_INSTR_FMUL (14,  4,  8, 2),      // r14 = A2 * -0.125
+  BORG_INSTR_FMADD(13,  5,  9, 14, 2),  // r13 = B2 *  0.375 + r14  = d1[2]
   BORG_INSTR_HALT,
 };
 #define SEQ_SETUP_SHADER_LEN (sizeof(seq_setup_shader) / sizeof(seq_setup_shader[0]))
