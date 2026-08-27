@@ -10,13 +10,13 @@ import chisel3.util._
   *
   * Directions are from the flusher's perspective (master).
   */
-class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
+class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1) extends Bundle {
   // Trigger interface
   val start     = Input(Bool())    // one-cycle pulse to begin flush
   val busy      = Output(Bool())   // high while flushing
 
   // Tile SRAM read port (flusher drives idx/en, reads data)
-  val read      = new TileReadIO(dataBits)
+  val read      = new TileReadIO(dataBits, samples)
 
   // DRAM write port
   val gpuMem    = new GpuMemIO
@@ -57,8 +57,8 @@ class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
   *   cycle N+2: SyncReadMem output travels through readDataHeld (cycle 2 of 2)
   *   cycle N+3: io.read.data valid; capture RGB565 into rgbVec
   */
-class BorgTileFlusher(val dataBits: Int = 16) extends Module {
-  val io = IO(new BorgTileFlusherIO(dataBits))
+class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1) extends Module {
+  val io = IO(new BorgTileFlusherIO(dataBits, samples))
 
   val sIdle :: sFill :: sBurst :: Nil = Enum(3)
   val state = RegInit(sIdle)
@@ -118,11 +118,32 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
     rgb8(7, 8 - bits)
   }
 
-  // ColorZ.asUInt packs first field in MSBs: {r[63:48], g[47:32], b[31:16], z[15:0]}.
-  def toRgb565(entry: UInt): UInt = {
-    val r5 = fp16ToUnorm(entry(63, 48), 5)
-    val g6 = fp16ToUnorm(entry(47, 32), 6)
-    val b5 = fp16ToUnorm(entry(31, 16), 5)
+  /** MSAA resolve + RGB565 pack for one pixel's `samples` samples.
+    *
+    * The average is taken in the UNORM INTEGER domain, after fp16ToUnorm, not in
+    * FP16: each sample converts to a full 8-bit channel, the `samples` results
+    * are summed (8+log2(samples) bits) and shifted right by log2(samples).  That
+    * is a handful of small integer adds — no FP16 adders, no extra conversion
+    * hardware — and it reuses fp16ToUnorm's existing clamping unchanged.
+    * Averaging pre-conversion in FP16 would need real float adders for no gain,
+    * since the result is quantised to 5/6 bits immediately afterwards anyway.
+    *
+    * Truncation (not rounding) on the shift matches the existing fp16ToUnorm
+    * behaviour, which already truncates when it slices `rgb8(7, 8-bits)`.
+    *
+    * At samples==1 this reduces to the historical single-sample path exactly:
+    * one conversion, sum of one term, shift by zero.
+    */
+  def resolveChannel(entry: Vec[ColorZ], sel: ColorZ => UInt, bits: Int): UInt = {
+    val shift = log2Ceil(samples)                       // 0 for 1×, 2 for 4×
+    val wide  = entry.map(cz => fp16ToUnorm(sel(cz), 8)).reduce(_ +& _)
+    (wide >> shift)(7, 8 - bits)
+  }
+
+  def toRgb565(entry: Vec[ColorZ]): UInt = {
+    val r5 = resolveChannel(entry, _.r, 5)
+    val g6 = resolveChannel(entry, _.g, 6)
+    val b5 = resolveChannel(entry, _.b, 5)
     Cat(r5, g6, b5)
   }
 
@@ -133,7 +154,7 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   val v2 = RegNext(v1, false.B)
   val v3 = RegNext(v2, false.B)
   when(v3) {
-    rgbVec(capIdx(3, 0)) := toRgb565(io.read.data.asUInt)
+    rgbVec(capIdx(3, 0)) := toRgb565(io.read.data)
     capIdx := capIdx + 1.U
   }
 

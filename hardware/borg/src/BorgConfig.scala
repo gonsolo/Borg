@@ -35,6 +35,14 @@ package borg
   *                     the current behaviour); 4 = a 2×2 pixel quad per pass (4× shader
   *                     throughput, lays the architecture for dFdx/dFdy).  ULX3S/sim use 4;
   *                     ASIC stays at 1 (area).
+  * @param samples  Multisample (MSAA) rate: colour+depth samples stored per pixel in
+  *                 the tile buffer.  1 = single-sample (historical behaviour, the
+  *                 bit-exact regression anchor); 4 = 4× MSAA, required by Vulkan's
+  *                 `framebufferColorSampleCounts` minimum limit.  One fragment shade
+  *                 per pixel is broadcast to every covered sample (standard MSAA, NOT
+  *                 `sampleRateShading`, which Vulkan permits reporting unsupported).
+  *                 Costs `(samples-1) * 64` bits per tile entry; the resolve (average)
+  *                 happens in BorgTileFlusher so the DRAM burst format is unchanged.
   * @param maxTrianglesPerTile Upper bound on BorgSequencer/BorgBinner's `binRowBytes`
   *                     MMIO input (= this * 2 bytes/entry), used to narrow the
   *                     tile-index*binRowBytes multiplier's width instead of leaving
@@ -56,9 +64,11 @@ case class BorgConfig(
     maxUniforms: Int = 64,
     hasPerfCounters: Boolean = true,
     fragLanes: Int = 1,
-    maxTrianglesPerTile: Int = 256
+    maxTrianglesPerTile: Int = 256,
+    samples: Int = 1
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
+  require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
   def sig: Int = fp.sig
