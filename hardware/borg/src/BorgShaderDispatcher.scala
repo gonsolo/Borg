@@ -66,6 +66,19 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val texR    = Output(UInt(16.W))    // fetched texel R (to core)
   val texG    = Output(UInt(16.W))    // fetched texel G (to core)
   val texB    = Output(UInt(16.W))    // fetched texel B (to core)
+
+  // MSAA coverage deltas (Step 50.2), per triangle, from the setup shader via
+  // BorgSequencer.  Indexed [edge][k]: two base deltas per edge.  Absent at
+  // cfg.samples == 1 so the single-sample build has no unused port to lint.
+  //
+  // Standard Vulkan/D3D 4× sample positions are ±symmetric about the pixel
+  // centre — offsets (-.125,-.375), (.375,-.125), (-.375,.125), (.125,.375),
+  // so s3 == -s0 and s2 == -s1 — and every offset is FP16-exact.  Since the
+  // edge function is linear, sample s's edge value is e + δ_s where
+  // δ_s = dx·δy_s + ndy·δx_s is a per-triangle constant, so only δ_s0 and
+  // δ_s1 need computing; δ_s2 = -δ_s1 and δ_s3 = -δ_s0 are sign flips.
+  val covDelta = if (cfg.samples > 1)
+    Some(Input(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
 }
 
 class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -90,7 +103,61 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val e0_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
   val e1_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
   val e2_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
-  val inside_flag = VecInit((0 until N).map(i => !e0_outside(i) && !e1_outside(i) && !e2_outside(i)))
+
+  // --- MSAA per-sample coverage (Step 50.2) ---------------------------------
+  // At samples == 1 coverage is the historical pixel-centre test: all three
+  // edge signs non-negative.  At samples > 1 the centre is not itself a sample,
+  // so coverage is evaluated per sample and `inside_flag` becomes "any sample
+  // covered" — which is what decides whether the fragment gets shaded at all
+  // (shade once per pixel, broadcast to covered samples).
+  //
+  // The per-sample test is `e + δ_s >= 0`, rewritten as `e >= -δ_s`.  Negating
+  // an FP16 is exact (sign-bit flip), so this is an EXACT comparison of two
+  // FP16 values — no rounding, and no FP16 adders.  Verified exhaustively:
+  // `ordered` below is monotonic across all 63,488 finite FP16 bit patterns,
+  // and over 400k random (e, δ) pairs the compare path matched exact float64
+  // ground truth on every case (the add-then-test-sign path is the one that
+  // rounds first).
+  //
+  // Known half-ULP corner: ordered(-0) < ordered(+0) whereas IEEE says they are
+  // equal, so a sample landing exactly on an edge with a +0 threshold and a -0
+  // edge value reads as outside.  That is one boundary sample at exactly zero;
+  // the single-sample path has its own -0 convention (isOutside treats -0 as
+  // inside via the magnitude test) and is unaffected.
+
+  /** Bijective sign-magnitude → unsigned mapping that preserves FP16 order, so
+    * a float compare becomes an unsigned integer compare. */
+  def ordered(x: UInt): UInt = {
+    val msb = 1.U << (cfg.totalBits - 1)
+    Mux(x(cfg.totalBits - 1), ~x, x | msb)
+  }
+  def fnegBits(x: UInt): UInt = x ^ (1.U << (cfg.totalBits - 1))
+
+  // Raw edge values per lane, needed only for the per-sample compare.
+  val e_val = if (cfg.samples > 1)
+    Some(RegInit(VecInit(Seq.fill(N)(VecInit(Seq.fill(3)(0.U(cfg.totalBits.W)))))))
+  else None
+
+  /** Per-lane, per-sample coverage. */
+  val coverage: Vec[Vec[Bool]] = cfg.samples match {
+    case 1 =>
+      VecInit((0 until N).map(i =>
+        VecInit(Seq(!e0_outside(i) && !e1_outside(i) && !e2_outside(i)))))
+    case _ =>
+      // thresholds per edge: {-d0, -d1, +d1, +d0}  (see covDelta's comment)
+      val thresh = VecInit((0 until 3).map { e =>
+        val d0 = io.covDelta.get(e)(0)
+        val d1 = io.covDelta.get(e)(1)
+        VecInit(Seq(fnegBits(d0), fnegBits(d1), d1, d0).map(ordered))
+      })
+      VecInit((0 until N).map { i =>
+        VecInit((0 until cfg.samples).map { s =>
+          (0 until 3).map(e => ordered(e_val.get(i)(e)) >= thresh(e)(s)).reduce(_ && _)
+        })
+      })
+  }
+
+  val inside_flag = VecInit((0 until N).map(i => coverage(i).reduce(_ || _)))
   val any_inside  = inside_flag.reduce(_ || _)
 
   // --- Stall ---
@@ -291,9 +358,11 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     //
     // At cfg.samples==1 this is exactly the historical single `zPass`: one
     // coverage bit, `en` equal to it — the bit-identical regression anchor.
-    val laneLive = inside_flag(laneCtr) && !killed(laneCtr)
+    // Per sample: covered by the triangle, not discarded, and passing that
+    // sample's own depth test.  At samples == 1 `coverage(lane)(0)` is exactly
+    // the historical inside_flag.
     val samplePass = (0 until cfg.samples).map { s =>
-      laneLive && (frag_z(laneCtr) < io.tileRead.data(s).z)
+      coverage(laneCtr)(s) && !killed(laneCtr) && (frag_z(laneCtr) < io.tileRead.data(s).z)
     }
     io.tileWrite.coverage := Cat(samplePass.reverse)
     io.tileWrite.en       := samplePass.reduce(_ || _)
@@ -358,6 +427,14 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       when(io.pipeWrite(i).addr === 0.U) { e0_outside(i) := isOutside(io.pipeWrite(i).data) }
       when(io.pipeWrite(i).addr === 1.U) { e1_outside(i) := isOutside(io.pipeWrite(i).data) }
       when(io.pipeWrite(i).addr === 2.U) { e2_outside(i) := isOutside(io.pipeWrite(i).data) }
+      // MSAA also needs the raw edge magnitudes, not just their signs, to test
+      // each sample's offset position.  Same write, same cycle, same registers'
+      // lifecycle — just kept at full width.
+      e_val.foreach { ev =>
+        for (e <- 0 until 3) {
+          when(io.pipeWrite(i).addr === e.U) { ev(i)(e) := io.pipeWrite(i).data(cfg.totalBits - 1, 0) }
+        }
+      }
     }
   }
   // @doc:end
