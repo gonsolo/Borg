@@ -165,6 +165,13 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val busy = Output(Bool())
   val done = Output(Bool())
   val seqShaderActive = Output(Bool())
+
+  // Step 50.2b: per-edge MSAA sample deltas, [edge][k] where k=0 is d0 and
+  // k=1 is d1 (the other two samples are sign flips, derived in hardware).
+  // Latched from the setup shader's r8..r13 and held stable for the whole
+  // triangle, so the dispatcher can use them throughout tile iteration.
+  val covDelta = if (cfg.samples > 1)
+    Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
   // Per-triangle texture enable: true when current triangle has UVs.
   // Driven from descriptor metadata has_uvs flag.
   val texEnOverride = Output(Bool())
@@ -288,6 +295,16 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // r0-r5 = scaled edge components, r6 = area, r7 = inv_area
   val setupRegs = RegInit(VecInit.fill(8)(0.U(16.W)))
 
+  // Step 50.2b: per-edge MSAA sample deltas produced by the setup shader in
+  // r8..r13 as {d0[0], d1[0], d0[1], d1[1], d0[2], d1[2]}.  Only generated at
+  // cfg.samples > 1, so the single-sample build carries no extra registers.
+  val covDeltaRegs = if (cfg.samples > 1)
+    Some(RegInit(VecInit.fill(6)(0.U(16.W)))) else None
+
+  /** Last uniform index written by sWriteSetupInputs: u0-u6 always, plus the
+    * three sample-offset constants u7-u9 when MSAA is enabled. */
+  private val lastSetupUniform = if (cfg.samples > 1) 9 else 6
+
   // Latched DMA descriptor — BorgDMA (Step 26.3) reads io.desc fields
   // directly every cycle in sRead, so the sequencer must hold them stable
   // from start until busy deasserts.
@@ -343,6 +360,10 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def wireOutputDefaults(): Unit = {
     // --- Output defaults ---
     io.busy := state =/= sIdle
+    // covDeltaRegs is {d0[0], d1[0], d0[1], d1[1], d0[2], d1[2]} → [edge][k]
+    io.covDelta.foreach { cd =>
+      for (e <- 0 until 3; k <- 0 until 2) cd(e)(k) := covDeltaRegs.get(2 * e + k)
+    }
     io.done := false.B
     // seqShaderActive: only true during vertex/setup shader execution states
     // (where r30/r31 must be zero, not pixel coordinates).
@@ -682,11 +703,22 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       val v = writeIdx(2, 1)  // writeIdx / 2 → vertex index (0, 1, 2)
       val c = writeIdx(0)     // writeIdx % 2 → component (0=x, 1=y)
       io.uniformWrite.data := clipRegs(v)(Cat(0.U(1.W), c))
-    }.otherwise {
+    }.elsewhen(writeIdx === 6.U) {
       // u6 = inv_width
       io.uniformWrite.data := io.mmio.seqInvWidth
+    }.otherwise {
+      // Step 50.2b: u7/u8/u9 = the MSAA sample-offset constants the setup
+      // shader multiplies the edge coefficients by.  Standard Vulkan/D3D 4×
+      // offsets, all FP16-exact: -0.375 = 0xB600, -0.125 = 0xB000,
+      // +0.375 = 0x3600.  Constants rather than MMIO inputs because the
+      // sample pattern is fixed by the spec, not a runtime choice.
+      io.uniformWrite.data := MuxLookup(writeIdx, 0.U(16.W))(Seq(
+        7.U -> "hB600".U(16.W),   // -0.375
+        8.U -> "hB000".U(16.W),   // -0.125
+        9.U -> "h3600".U(16.W)    // +0.375
+      ))
     }
-    when(writeIdx === 6.U) {
+    when(writeIdx === lastSetupUniform.U) {
       state := sLoadSetupShader
     }.otherwise {
       writeIdx := writeIdx + 1.U
@@ -1185,6 +1217,14 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       for (i <- 0 until 8) {
         when(io.pipeWrite.addr === i.U) {
           setupRegs(i) := io.pipeWrite.data(15, 0)
+        }
+      }
+      // Step 50.2b: r8..r13 carry the per-edge MSAA sample deltas.
+      covDeltaRegs.foreach { cd =>
+        for (i <- 0 until 6) {
+          when(io.pipeWrite.addr === (8 + i).U) {
+            cd(i) := io.pipeWrite.data(15, 0)
+          }
         }
       }
     }

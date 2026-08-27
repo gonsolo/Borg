@@ -34,8 +34,20 @@
 // -------------------------------------------------------------------------
 
 #define SEQ_VERT_SHADER_ADDR  0x4800   // SPI byte addr for vertex shader  (max 128B)
-#define SEQ_SETUP_SHADER_ADDR 0x4880   // SPI byte addr for setup shader   (max 128B)
-#define SEQ_RAST_SHADER_ADDR  0x4900   // SPI byte addr for rast shader    (max 128B)
+// Setup shader: 256B (64 instructions), spanning 0x4880-0x4980.
+//
+// It absorbed the old SEQ_RAST_SHADER_ADDR region at 0x4900, which is dead
+// space: the rasterizer edge-test shader is a permanent hardware ROM
+// (BorgRasterRom, fetched directly by BorgCore), BorgSequencer's
+// handleLoadRastShader() is a no-op pass-through, and the firmware never
+// staged anything there. Growing into it shifts NO other address -- frag,
+// descriptors, texture and framebuffer bases are all unmoved.
+//
+// The extra room is needed by Step 50.2b: the setup shader gained 12
+// instructions computing the per-edge MSAA sample deltas, taking it from 31 to
+// 43 -- past the old 32-instruction (128B) cap, which would have silently
+// overflowed into 0x4900 and corrupted whatever lived there.
+#define SEQ_SETUP_SHADER_ADDR 0x4880   // SPI byte addr for setup shader   (max 256B)
 #define SEQ_FRAG_SHADER_ADDR  0x4980   // SPI byte addr for frag shader    (max 256B = 64 words)
 #define SEQ_DESC_BASE_ADDR    0x4A80   // SPI byte addr for descriptor 0 (moved +0x80 for the
                                        // borgc 56-word frag; TEX/DRAM_OUT derive from here)
