@@ -53,6 +53,11 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // Tile origin (top-left corner of the current 4×4 tile), valid when tileComplete fires
   val tileOrigin    = Output(new Coord(cfg.coordWidth))
 
+  // MSAA coverage deltas from BorgSequencer (Step 50.2); see the matching
+  // comment in BorgShaderDispatcherIO.  Absent at cfg.samples == 1.
+  val covDelta = if (cfg.samples > 1)
+    Some(Input(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
+
   // Tile Buffer auto-write interface (Step 11.3)
   val tileWrite = new TileWriteIO(cfg.samples)
   // Step 25.5C: Tile Buffer read port for depth test
@@ -105,6 +110,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.fragPcReg      := io.fragPcReg
   dispatcher.io.texConfig      <> io.texConfig
   dispatcher.io.log2Dim        := io.log2Dim
+  dispatcher.io.covDelta.foreach(_ := io.covDelta.get)
 
   // --- Forward dispatcher outputs to rasterizer IO ---
   io.coreTrigger  <> dispatcher.io.coreTrigger
