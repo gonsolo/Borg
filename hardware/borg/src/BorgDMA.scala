@@ -31,7 +31,7 @@ class BorgDMAIO extends Bundle {
 
 /** BorgDMA — bulk DRAM→IMEM/Uniform DMA engine (Step 22.1).
   *
-  * Drives the same [[GpuMemIO]] port used by sTexFetch. Arbitration is
+  * Drives the same [[GpuMemIO]] port used by texture fetches. Arbitration is
   * handled externally in Borg.scala; DMA only runs when the rasterizer is
   * idle so the two never contend in practice.
   *
