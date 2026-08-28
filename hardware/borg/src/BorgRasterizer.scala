@@ -61,6 +61,10 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // GPU memory read/write port (Step 19.2/24.3)
   val gpuMem    = new GpuMemIO
   val texConfig  = new TexConfigIO
+  // log2 of the texture dimension (tex_config_log2_dim MMIO field), for
+  // clamping texel coordinates to the last valid row/column -- see
+  // ClampTexCoord's comment.
+  val log2Dim    = Input(UInt(4.W))
 
   // Snooped fragment U/V outputs for autonomous Morton encoding (Step 21.2)
   // When texturing, frag.s maps U→outR (r26) and V→outG (r27) via shader recompilation.
@@ -105,6 +109,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.coreStatus     <> io.coreStatus
   dispatcher.io.fragPcReg      := io.fragPcReg
   dispatcher.io.texConfig      <> io.texConfig
+  dispatcher.io.log2Dim        := io.log2Dim
 
   // --- Forward dispatcher outputs to rasterizer IO ---
   io.coreTrigger  <> dispatcher.io.coreTrigger

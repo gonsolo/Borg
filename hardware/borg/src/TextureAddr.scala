@@ -49,6 +49,26 @@ object Fp16ToUint6 {
   }
 }
 
+/** Clamp a raw Fp16ToUint8 texel coordinate to the last valid row/column of a
+  * `2^log2Dim`-texel-wide texture, given as the `tex_config_log2_dim` MMIO
+  * field (0 disables clamping, matching the legacy path's existing convention).
+  *
+  * UV=1.0 at a triangle's far edge/vertex legitimately interpolates to
+  * exactly the texture's width in texel space (e.g. 64.0 for a 64-wide
+  * texture) rather than 63.999... — Fp16ToUint8 floors that to 64, one past
+  * the last valid index (0-63). Left unclamped, MortonEncode sets a bit the
+  * 64-wide addressing was never meant to carry, landing the read in
+  * unpopulated texture memory and returning black. This was already fixed
+  * for the legacy autonomous texture path (Borg.scala) but not carried over
+  * when the FTEX-inline path (Step 34.5) was added — hence a shared helper,
+  * so a future new call site can't independently forget it. */
+object ClampTexCoord {
+  def apply(raw: UInt, log2Dim: UInt): UInt = {
+    val max = Mux(log2Dim === 0.U, 255.U(8.W), ((1.U << log2Dim) - 1.U)(7, 0))
+    Mux(raw > max, max, raw)
+  }
+}
+
 /** Morton (Z-order) encoding for two 8-bit coordinates.
   *
   * Interleaves bits: y7 x7 y6 x6 ... y1 x1 y0 x0 → 16-bit index.
