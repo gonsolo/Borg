@@ -16,8 +16,8 @@ import utest._
   *
   * Coverage (Step 25.3d):
   *   - sRast → sIdle for outside pixels (no frag trigger)
-  *   - sRast → sFrag → sTileWrite for inside pixels without texturing
-  *   - sRast → sFrag → sTexFetch → sTileWrite for inside pixels with texturing
+  *   - sRast → sFrag → sTileWrite for inside pixels (texturing, when enabled,
+  *     happens inline mid-sFrag via FTEX -- no separate phase)
   *   - autoRunStall held across all phases and released on sIdle
   *   - fragPcReg=0 disables chaining even for inside pixels
   *   - FP16 negative-zero (0x8000) is treated as inside (not outside)
@@ -38,11 +38,12 @@ object BorgShaderDispatcherTests extends TestSuite {
   val PHASE_IDLE       = 0
   val PHASE_RAST       = 1
   val PHASE_FRAG       = 2
-  val PHASE_TEX_FETCH  = 3
-  val PHASE_Z_READ     = 4
-  val PHASE_Z_WAIT1    = 5
-  val PHASE_Z_WAIT2    = 6
-  val PHASE_TILE_WRITE = 7
+  // sTexFetch (legacy autonomous fetch) removed -- texturing is FTEX-inline
+  // only now, so the remaining phases shift down by one.
+  val PHASE_Z_READ     = 3
+  val PHASE_Z_WAIT1    = 4
+  val PHASE_Z_WAIT2    = 5
+  val PHASE_TILE_WRITE = 6
 
   // FP16 max depth for tile buffer clear value
   val FP16_MAX_DEPTH = 0x7BFF
@@ -347,102 +348,6 @@ object BorgShaderDispatcherTests extends TestSuite {
         val outsideAfterNegOne = !d.io.insideFlag.peek().litToBoolean
         println(f"  After e0=-1.0: insideFlag=${!outsideAfterNegOne} (expect false)")
         utest.assert(outsideAfterNegOne)
-        println("  PASSED")
-      }
-    }
-
-    // =========================================================================
-    // Texture path: sRast → sFrag → sTexFetch → sTileWrite
-    // =========================================================================
-
-    utest.test("texture_path_b_first_then_rg") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
-        println("\n--- BorgShaderDispatcher: texture_path_b_first_then_rg ---")
-        pokeIdle(d)
-        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
-
-        val texBase   = 0x0100
-        val mortonIdx = 0x005
-        val wordB     = texBase + (mortonIdx << 3) | 4  // B word: offset +4
-        val wordRG    = texBase + (mortonIdx << 3)       // RG word: offset +0
-
-        d.io.texConfig.baseAddr.poke(texBase.U)
-        d.io.texConfig.mortonIndex.poke(mortonIdx.U)
-        d.io.texConfig.en.poke(true.B)
-
-        firePixelReady(d, fragPc = 13, tileIdx = 3)
-        d.io.fragPcReg.poke(13.U)
-        d.io.texConfig.en.poke(true.B)
-        d.io.texConfig.baseAddr.poke(texBase.U)
-        d.io.texConfig.mortonIndex.poke(mortonIdx.U)
-
-        // rast shader: all edges inside
-        d.io.coreStatus.autoRunPending.poke(true.B)
-        d.clock.step(1)
-        d.io.coreStatus.autoRunPending.poke(false.B)
-        d.io.coreStatus.running.poke(true.B)
-        pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
-        d.io.coreStatus.running.poke(false.B)
-        d.clock.step(1)
-        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_FRAG)
-
-        // frag shader finishes
-        simulateShaderRun(d)
-        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TEX_FETCH)
-        println("  Entered sTexFetch ✓")
-
-        // --- Read 0: B word first (offset +4) ---
-        d.io.gpuMem.ready.poke(false.B)
-        d.clock.step(1)
-        val req0  = d.io.gpuMem.req.peek().litToBoolean
-        val addr0 = d.io.gpuMem.addr.peek().litValue.toInt
-        println(f"  Read0 addr=0x${addr0.toHexString} (expect 0x${wordB.toHexString}), req=$req0")
-        utest.assert(req0)
-        utest.assert(addr0 == wordB)
-
-        d.io.gpuMem.data.poke(0x00005555.U)  // B=0x5555 in low 16 bits
-        d.io.gpuMem.ready.poke(true.B)
-        d.clock.step(1)
-        d.io.gpuMem.ready.poke(false.B)
-
-        // --- Read 1: RG word (offset +0) ---
-        d.clock.step(1)
-        val req1  = d.io.gpuMem.req.peek().litToBoolean
-        val addr1 = d.io.gpuMem.addr.peek().litValue.toInt
-        println(f"  Read1 addr=0x${addr1.toHexString} (expect 0x${wordRG.toHexString}), req=$req1")
-        utest.assert(req1)
-        utest.assert(addr1 == wordRG)
-
-        d.io.gpuMem.data.poke(0x22221111.U)  // G=0x2222 in high 16, R=0x1111 in low 16
-        d.io.gpuMem.ready.poke(true.B)
-        d.clock.step(1)
-        d.io.gpuMem.ready.poke(false.B)
-
-        // BorgTextureUnit needs one cycle to transition sReadRG→sDone and pulse done;
-        // the dispatcher then sees done and enters sZRead.
-        d.clock.step(1)
-
-        // Should now be in sZRead (Step 25.5C)
-        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_Z_READ)
-
-        // Step through depth test
-        stepThroughDepthTest(d)
-
-        // Now in sTileWrite
-        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TILE_WRITE)
-        val tileEn = d.io.tileWrite.en.peek().litToBoolean
-        val tileR  = d.io.tileWrite.data.r.peek().litValue.toInt
-        val tileG  = d.io.tileWrite.data.g.peek().litValue.toInt
-        val tileB  = d.io.tileWrite.data.b.peek().litValue.toInt
-        println(f"  sTileWrite: en=$tileEn, R=0x${tileR.toHexString}, G=0x${tileG.toHexString}, B=0x${tileB.toHexString}")
-        utest.assert(tileEn)
-        utest.assert(tileR == 0x1111)
-        utest.assert(tileG == 0x2222)
-        utest.assert(tileB == 0x5555)
-
-        d.clock.step(1)
-        utest.assert(!d.io.autoRunStall.peek().litToBoolean)
-        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
         println("  PASSED")
       }
     }

@@ -66,11 +66,6 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // ClampTexCoord's comment.
   val log2Dim    = Input(UInt(4.W))
 
-  // Snooped fragment U/V outputs for autonomous Morton encoding (Step 21.2)
-  // When texturing, frag.s maps U→outR (r26) and V→outG (r27) via shader recompilation.
-  val fragU      = Output(UInt(16.W))
-  val fragV      = Output(UInt(16.W))
-
   // Step 34.5: FTEX core ↔ dispatcher texture request/response
   val texReq  = Input(Bool())
   val texU    = Input(UInt(16.W))
@@ -118,8 +113,6 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.gpuMem       <> dispatcher.io.gpuMem
   io.autoRunStall := dispatcher.io.autoRunStall
   io.insideFlag   := dispatcher.io.insideFlag
-  io.fragU        := dispatcher.io.fragU
-  io.fragV        := dispatcher.io.fragV
 
   // Step 34.5: FTEX core ↔ dispatcher forwarding
   dispatcher.io.texReq := io.texReq

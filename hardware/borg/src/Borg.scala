@@ -20,7 +20,7 @@ class BorgIO(val cfg: BorgConfig) extends Bundle {
   val uo_out = Output(UInt(8.W))
   val user_interrupt = Output(Bool())
 
-  // GPU read port (Step 19.2: sTexFetch → MemoryController)
+  // GPU read port (Step 19.2: texture fetches → MemoryController)
   val gpuMem = new GpuMemIO
 }
 
@@ -276,6 +276,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
     rast.io.texConfig.baseAddr := rdlRegs.io.hw.tex_config_base_addr
     rast.io.log2Dim            := rdlRegs.io.hw.tex_config_log2_dim
+    // Unused now that texturing is FTEX-inline only: BorgTextureUnit only
+    // ever consumes texConfig.mortonIndex in the same cycle FTEX overrides
+    // it directly (BorgShaderDispatcher.ftexMortonIndex), so this base value
+    // never actually reaches a real fetch. Tied off rather than removed from
+    // TexConfigIO, which BorgTextureUnit's IO still requires.
+    rast.io.texConfig.mortonIndex := 0.U
     // Per-triangle tex enable: when sequencer is busy, use its per-triangle
     // has_uvs flag. When idle, use the MMIO register (legacy/CPU path).
     rast.io.texConfig.en       := Mux(s.io.busy,
@@ -402,24 +408,17 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // =========================================================================
     // Texture Fetch Hardware (Step 16.3 / Step 21.2)
     // =========================================================================
-    // Morton encoder: always uses the rasterizer's snooped fragment U/V.
-    // (The CPU TEX_UV register is preserved for MMIO compatibility but is
-    //  no longer routed into the Morton pipeline — saves ~32 LUTs.)
-    val tex_x_raw = Fp16ToUint8(rast.io.fragU)
-    val tex_y_raw = Fp16ToUint8(rast.io.fragV)
-    // Clamp to [0, 2^log2_dim − 1] when log2_dim > 0, preventing UV=1.0 from
-    // indexing one row/column past the texture boundary.
-    val log2_dim = rdlRegs.io.hw.tex_config_log2_dim
-    val tex_x = ClampTexCoord(tex_x_raw, log2_dim)
-    val tex_y = ClampTexCoord(tex_y_raw, log2_dim)
-    val morton_index = MortonEncode(tex_x, tex_y)
-
-    rdlRegs.io.hw.tex_addr_morton := morton_index
-    rdlRegs.io.hw.tex_addr_raw_u  := tex_x
-    rdlRegs.io.hw.tex_addr_raw_v  := tex_y
-
-    // Wire morton_index to rasterizer for sTexFetch (Step 19.2)
-    rast.io.texConfig.mortonIndex := morton_index
+    // The legacy autonomous single-texel fetch this Morton pipeline used to
+    // feed (rast.io.texConfig.mortonIndex, driving the dispatcher's now-
+    // removed sTexFetch state) is gone -- texturing is exclusively FTEX-
+    // inline now, which computes and clamps its own Morton index internally
+    // per texel request (BorgShaderDispatcher's ftexMortonIndex). The
+    // tex_addr MMIO register (morton/raw_u/raw_v) is kept, tied to zero,
+    // rather than removed from the RDL map -- it was never read by firmware
+    // and removing it would renumber every register after it.
+    rdlRegs.io.hw.tex_addr_morton := 0.U
+    rdlRegs.io.hw.tex_addr_raw_u  := 0.U
+    rdlRegs.io.hw.tex_addr_raw_v  := 0.U
 
     val rdl_read_data = rdlRegs.io.bus.readData
     // tile_rg/tile_bz readback arms kept unconditionally: needed by the test harness

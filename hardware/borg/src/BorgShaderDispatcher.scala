@@ -12,14 +12,14 @@ import chisel3.util._
   *   1. Receives `pixelReady` from BorgIterator.
   *   2. Triggers the rasterizer (edge) shader at PC=0.
   *   3. Snoops edge-sign results from pipeline write-back to determine inside/outside.
-  *   4. If inside: chains to fragment shader at `fragPcReg`.
-  *   5. If texturing enabled: performs autonomous DRAM texel fetch (2-word read).
-  *   6. Pushes snooped fragment RGBZ to the tile buffer.
-  *   7. Releases the CPU stall.
+  *   4. If inside: chains to fragment shader at `fragPcReg`, which fetches
+  *      texels inline via FTEX (Step 34.5) when texturing is enabled.
+  *   5. Pushes snooped fragment RGBZ to the tile buffer.
+  *   6. Releases the CPU stall.
   *
   * Phase FSM (Step 10.6.2 / Step 25.3d):
-  *   sIdle → sRast → sFrag → sTexFetch → sTileWrite → sIdle
-  *   Outside pixels shortcut: sRast → sIdle (skip sFrag/sTexFetch/sTileWrite).
+  *   sIdle → sRast → sFrag → sTileWrite → sIdle
+  *   Outside pixels shortcut: sRast → sIdle (skip sFrag/sTileWrite).
   *
   * The `phase` output is exposed for debugability — when tracing in simulation,
   * you can directly observe which FSM state the dispatcher occupies without
@@ -56,8 +56,6 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // --- Outputs (status / debug) ---
   val autoRunStall = Output(Bool())             // stalls CPU between advance and completion
   val insideFlag   = Output(Bool())             // true when all 3 edges are non-negative
-  val fragU        = Output(UInt(16.W))         // snooped U (r26) for Morton encoder
-  val fragV        = Output(UInt(16.W))         // snooped V (r27) for Morton encoder
   val phase        = Output(UInt(3.W))          // current FSM state (debug observable)
 
   // Step 34.5: FTEX inline texture fetch — core ↔ dispatcher ↔ texture unit
@@ -77,7 +75,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   // --- Phase FSM ---
   // Step 25.5C: sZRead/sZWait1/sZWait2 added for depth test read-before-write.
-  val sIdle :: sRast :: sFrag :: sTexFetch :: sZRead :: sZWait1 :: sZWait2 :: sTileWrite :: Nil = Enum(8)
+  // sTexFetch (the legacy autonomous single-texel fetch state) removed:
+  // texturing is exclusively FTEX-inline (Step 34.5) now, driven mid-sFrag by
+  // the core's own FTEX instruction rather than a dispatcher-owned FSM state.
+  val sIdle :: sRast :: sFrag :: sZRead :: sZWait1 :: sZWait2 :: sTileWrite :: Nil = Enum(7)
   val phase = RegInit(sIdle)
 
   // --- Texture unit (Step 25.3e) ---
@@ -138,15 +139,17 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // GPU memory port: forwarded from BorgTextureUnit (Step 25.3e)
   texUnit.io.texConfig <> io.texConfig
   texUnit.io.gpuMem    <> io.gpuMem
-  texUnit.io.start     := false.B  // overridden in sTexFetch transition below
+  texUnit.io.start     := false.B  // overridden by the FTEX start pulse below
 
   // Step 34.5: FTEX inline texture fetch — core drives texture unit directly
   //
   // When the core executes an FTEX instruction, it asserts texReq with U/V.
   // The dispatcher computes Morton coordinates inline and starts the texture
-  // unit, bypassing the sTexFetch FSM state entirely. On completion, results
-  // are forwarded back to the core. The sTexFetch state is retained for
-  // backward compatibility with non-FTEX shaders.
+  // unit, forwarding results back to the core on completion. This is the
+  // only texture-fetch path — the legacy autonomous single-texel fetch (a
+  // dedicated FSM state that fired unconditionally once per fragment
+  // whenever texturing was enabled, whether or not the shader asked for it)
+  // was removed once no shader depended on it.
   //
   // Single-shader textured/non-textured support:
   // When tex_config.en=false, FTEX immediately returns (1.0, 1.0, 1.0).
@@ -195,8 +198,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     io.texR    := texUnit.io.fragColor.r
     io.texG    := texUnit.io.fragColor.g
     io.texB    := texUnit.io.fragColor.b
-    // Keep ftexActive=true so the sTexFetch gate at line 202 skips
-    // the legacy path for the remainder of this fragment shader execution.
+    // ftexActive gates this block to genuine FTEX completions -- texUnit.io.start
+    // is only ever pulsed from the FTEX branch above, so texUnit.io.done can
+    // only fire in response to one.
   }
 
 
@@ -242,25 +246,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   when(phase === sFrag && core_just_finished) {
     laneCtr := 0.U
-    // Skip sTexFetch when FTEX handled texturing inline (Step 34.5)
-    when(io.texConfig.en && !ftexActive) {
-      phase := sTexFetch
-      texUnit.io.start := true.B
-    } .otherwise {
-      phase := sZRead
-    }
+    phase   := sZRead
     // Clear ftexActive for next quad — FTEX was a one-shot for this frag invocation.
     ftexActive := false.B
   }
-
-  // --- sTexFetch (legacy autonomous fetch; lane 0 — modern shaders use FTEX-inline) ---
-  when(phase === sTexFetch && texUnit.io.done) {
-    frag_r(0) := texUnit.io.fragColor.r
-    frag_g(0) := texUnit.io.fragColor.g
-    frag_b(0) := texUnit.io.fragColor.b
-    phase  := sZRead
-  }
-
 
   // Step 25.5C: Depth test — read-before-write on tile SRAM
   // =========================================================================
@@ -377,7 +366,5 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // --- Outputs ---
   io.autoRunStall := auto_run_stall
   io.insideFlag   := any_inside
-  io.fragU        := frag_r(0)   // snooped U (lane 0; legacy Morton path)
-  io.fragV        := frag_g(0)   // snooped V (lane 0; legacy Morton path)
   io.phase        := phase    // debug: FSM state visible from parent
 }
