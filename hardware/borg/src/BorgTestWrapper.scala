@@ -40,6 +40,8 @@ class BorgTestWrapperIO(val cfg: BorgConfig) extends Bundle {
   val uo_out         = Output(UInt(8.W))
   val user_interrupt = Output(Bool())
   val gpuMem         = new GpuMemIO
+  // DIAGNOSTIC TEMP: see matching field in BorgIO.
+  val covDeltaDebug  = if (cfg.samples > 1) Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
 }
 
 class BorgTestWrapper(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -52,6 +54,7 @@ class BorgTestWrapper(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.uo_out         := borg.io.uo_out
   io.user_interrupt := borg.io.user_interrupt
   borg.io.gpuMem    <> io.gpuMem
+  io.covDeltaDebug.foreach(_ := borg.io.covDeltaDebug.get)
 
   // -- Edge / level detection -----------------------------------------------
   val writeNDel  = RegNext(io.data_write_n, 3.U(2.W))

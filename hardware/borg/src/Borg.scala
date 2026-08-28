@@ -22,6 +22,10 @@ class BorgIO(val cfg: BorgConfig) extends Bundle {
 
   // GPU read port (Step 19.2: texture fetches → MemoryController)
   val gpuMem = new GpuMemIO
+
+  // DIAGNOSTIC TEMP: expose the sequencer's latched MSAA covDelta for test
+  // observability while debugging Step 50.2 corruption.
+  val covDeltaDebug = if (cfg.samples > 1) Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
 }
 
 /** Borg — minimal FP16 shading processor with 4-cycle FMA pipeline.
@@ -328,6 +332,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // all four samples test at the pixel centre, i.e. 4× degenerates to 1×
     // rather than to anything invalid.
     rast.io.covDelta.foreach(_ := s.io.covDelta.get)
+    io.covDeltaDebug.foreach(_ := s.io.covDelta.get)
 
     // Coverage: the rasterizer supplies a per-sample mask from the depth test;
     // an MMIO poke has no coverage concept and writes every sample (same

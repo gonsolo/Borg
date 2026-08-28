@@ -799,5 +799,221 @@ object BorgSequencerTests extends TestSuite {
         println("=== sequencer_flusher_e2e PASSED ===\n")
       }
     }
+
+    utest.test("covDelta_diagnostic_real_values") {
+      // DIAGNOSTIC (temporary): runs the REAL firmware setup-shader instruction
+      // sequence (ported 1:1 from software/borg/borg_driver.c's seq_setup_shader,
+      // including the Step 50.2b delta block) through the actual hardware
+      // pipeline, then peeks borg.io.covDeltaDebug and compares against
+      // hand-computed expected values for a known triangle. Isolates whether
+      // the covDelta corruption is in the shader math/uniform staging itself
+      // (this test would fail) or somewhere further downstream (this test
+      // would pass, and the bug is elsewhere).
+      val cfg = BorgConfig.Default.copy(samples = 4)
+      simulate(new BorgTestWrapper(cfg)) { borg =>
+        println("\n=== BorgSequencerTests: covDelta_diagnostic_real_values ===")
+
+        borg.reset.poke(true.B)
+        borg.io.data_write_n.poke(3.U)
+        borg.io.data_read_n.poke(3.U)
+        borg.io.gpuMem.ready.poke(false.B)
+        borg.io.gpuMem.data.poke(0.U)
+        borg.clock.step(4)
+        borg.reset.poke(false.B)
+        borg.clock.step(20)
+        rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
+
+        val vertAddr  = 0x1000; val setupAddr = 0x3000; val descAddr  = 0x2000
+        val rastAddr  = 0x4000; val fragAddr  = 0x5000
+        val binBase   = 0x6000; val setupBase = 0x7000
+        val fbBase    = 0x10000
+
+        // Triangle: v0=(0,0), v1=(4,0), v2=(0,4) — same shape as sequencer_flusher_e2e.
+        // Hand-computed (see investigation notes):
+        //   X0=v0.x-v1.x=-4, Y0=v1.y-v0.y=0
+        //   X1=v1.x-v2.x=4,  Y1=v2.y-v1.y=4
+        //   X2=v2.x-v0.x=0,  Y2=v0.y-v2.y=-4
+        // inv_width fed as 1.0 so the normalization step is a no-op.
+        //   d0[0]=X0*-0.375+Y0*-0.125=1.5   d1[0]=X0*-0.125+Y0*0.375=0.5
+        //   d0[1]=X1*-0.375+Y1*-0.125=-2.0  d1[1]=X1*-0.125+Y1*0.375=1.0
+        //   d0[2]=X2*-0.375+Y2*-0.125=0.5   d1[2]=X2*-0.125+Y2*0.375=-1.5
+        val verts = Seq(
+          Seq(0.0f, 0.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f),
+          Seq(4.0f, 0.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f),
+          Seq(0.0f, 4.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f),
+        )
+        val expected = Seq((1.5f, 0.5f), (-2.0f, 1.0f), (0.5f, -1.5f))
+
+        val vertShader = vertPassthroughShader()
+
+        // Ported 1:1 from software/borg/borg_driver.c's seq_setup_shader
+        // (base edge computation + Step 50.2b delta block).
+        val setup = Seq(
+          Instructions.ADD(rs1 = 0, rs2 = 31, rd = 8,  funct3 = 1),
+          Instructions.ADD(rs1 = 1, rs2 = 31, rd = 9,  funct3 = 1),
+          Instructions.ADD(rs1 = 2, rs2 = 31, rd = 10, funct3 = 1),
+          Instructions.ADD(rs1 = 3, rs2 = 31, rd = 11, funct3 = 1),
+          Instructions.ADD(rs1 = 4, rs2 = 31, rd = 12, funct3 = 1),
+          Instructions.ADD(rs1 = 5, rs2 = 31, rd = 13, funct3 = 1),
+          Instructions.FNEG(rs1 = 10, rd = 14),
+          Instructions.ADD(rs1 = 8,  rs2 = 14, rd = 0),
+          Instructions.FNEG(rs1 = 9,  rd = 15),
+          Instructions.ADD(rs1 = 11, rs2 = 15, rd = 1),
+          Instructions.FNEG(rs1 = 12, rd = 16),
+          Instructions.ADD(rs1 = 10, rs2 = 16, rd = 2),
+          Instructions.FNEG(rs1 = 11, rd = 22),
+          Instructions.ADD(rs1 = 13, rs2 = 22, rd = 3),
+          Instructions.FNEG(rs1 = 8,  rd = 23),
+          Instructions.ADD(rs1 = 12, rs2 = 23, rd = 4),
+          Instructions.FNEG(rs1 = 13, rd = 24),
+          Instructions.ADD(rs1 = 9,  rs2 = 24, rd = 5),
+          Instructions.MUL(rs1 = 0, rs2 = 5, rd = 20),
+          Instructions.FNEG(rs1 = 1, rd = 21),
+          Instructions.FMA(rs1 = 4, rs2 = 21, rs3 = 20, rd = 6),
+          Instructions.FNEG(rs1 = 6, rd = 6),
+          Instructions.MUL(rs1 = 0, rs2 = 6, rd = 0, funct3 = 2),
+          Instructions.MUL(rs1 = 1, rs2 = 6, rd = 1, funct3 = 2),
+          Instructions.MUL(rs1 = 2, rs2 = 6, rd = 2, funct3 = 2),
+          Instructions.MUL(rs1 = 3, rs2 = 6, rd = 3, funct3 = 2),
+          Instructions.MUL(rs1 = 4, rs2 = 6, rd = 4, funct3 = 2),
+          Instructions.MUL(rs1 = 5, rs2 = 6, rd = 5, funct3 = 2),
+          Instructions.MUL(rs1 = 6, rs2 = 6, rd = 6, funct3 = 2),
+          Instructions.FRCP(rs1 = 6, rd = 7),
+          // Step 50.2b
+          Instructions.MUL(rs1 = 0, rs2 = 7, rd = 14, funct3 = 2),
+          Instructions.FMA(rs1 = 1, rs2 = 8, rs3 = 14, rd = 8, funct3 = 2),
+          Instructions.MUL(rs1 = 0, rs2 = 8, rd = 14, funct3 = 2),
+          Instructions.FMA(rs1 = 1, rs2 = 9, rs3 = 14, rd = 9, funct3 = 2),
+          Instructions.MUL(rs1 = 2, rs2 = 7, rd = 14, funct3 = 2),
+          Instructions.FMA(rs1 = 3, rs2 = 8, rs3 = 14, rd = 10, funct3 = 2),
+          Instructions.MUL(rs1 = 2, rs2 = 8, rd = 14, funct3 = 2),
+          Instructions.FMA(rs1 = 3, rs2 = 9, rs3 = 14, rd = 11, funct3 = 2),
+          Instructions.MUL(rs1 = 4, rs2 = 7, rd = 14, funct3 = 2),
+          Instructions.FMA(rs1 = 5, rs2 = 8, rs3 = 14, rd = 12, funct3 = 2),
+          Instructions.MUL(rs1 = 4, rs2 = 8, rd = 14, funct3 = 2),
+          Instructions.FMA(rs1 = 5, rs2 = 9, rs3 = 14, rd = 13, funct3 = 2),
+          BigInt(0) // HALT
+        )
+
+        val rastShader = Seq(
+          Instructions.ADD(rs1 = 7, rs2 = 6, rd = 0),
+          Instructions.ADD(rs1 = 7, rs2 = 6, rd = 1),
+          Instructions.ADD(rs1 = 7, rs2 = 6, rd = 2),
+          BigInt(0)
+        )
+        val fragShader = Seq(
+          Instructions.ADD(rs1 = 14, rs2 = 25, rd = 26, funct3 = 1),
+          Instructions.ADD(rs1 = 7,  rs2 = 25, rd = 27, funct3 = 1),
+          Instructions.ADD(rs1 = 10, rs2 = 25, rd = 28, funct3 = 1),
+          Instructions.ADD(rs1 = 13, rs2 = 25, rd = 29, funct3 = 1),
+          Instructions.ADD(rs1 = 0, rs2 = 0, rd = 0),
+          Instructions.ADD(rs1 = 0, rs2 = 0, rd = 0),
+          Instructions.ADD(rs1 = 0, rs2 = 0, rd = 0),
+          Instructions.ADD(rs1 = 0, rs2 = 0, rd = 0),
+          BigInt(0)
+        )
+
+        val dramInit: Map[Int, BigInt] =
+          vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
+          setup.zipWithIndex.map      { case (w,i) => (setupAddr + i*4) -> w }.toMap ++
+          rastShader.zipWithIndex.map { case (w,i) => (rastAddr + i*4) -> w }.toMap ++
+          fragShader.zipWithIndex.map { case (w,i) => (fragAddr + i*4) -> w }.toMap ++
+          buildDescriptorWithBbox(descAddr, verts, 0, 0, 4, 4)
+
+        val dram = scala.collection.mutable.Map[Int, BigInt]() ++= dramInit
+
+        def serviceDramCapture(): Int = {
+          if (borg.io.gpuMem.req.peek().litToBoolean) {
+            val addr = borg.io.gpuMem.addr.peek().litValue.toInt
+            val data = dram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)
+            borg.io.gpuMem.data.poke(data.U)
+            borg.io.gpuMem.waccept.poke(false.B)
+            borg.io.gpuMem.ready.poke(true.B)
+            1
+          } else if (borg.io.gpuMem.wr.peek().litToBoolean) {
+            val baseAddr = borg.io.gpuMem.addr.peek().litValue.toInt
+            val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
+            if (wlen > 1) {
+              for (i <- 1 until wlen) {
+                borg.io.gpuMem.waccept.poke(true.B)
+                borg.io.gpuMem.ready.poke(false.B)
+                borg.clock.step(1)
+              }
+              borg.io.gpuMem.waccept.poke(false.B)
+            }
+            borg.io.gpuMem.ready.poke(true.B)
+            wlen
+          } else {
+            borg.io.gpuMem.waccept.poke(false.B)
+            borg.io.gpuMem.ready.poke(false.B)
+            0
+          }
+        }
+
+        rawWrite(borg, BorgGpuRegs.seq_desc_base_offset.litValue.toInt, descAddr)
+        rawWrite(borg, BorgGpuRegs.seq_vert_addr_offset.litValue.toInt, vertAddr)
+        rawWrite(borg, BorgGpuRegs.seq_vert_len_offset.litValue.toInt, vertShader.size)
+        rawWrite(borg, BorgGpuRegs.seq_setup_addr_offset.litValue.toInt, setupAddr)
+        rawWrite(borg, BorgGpuRegs.seq_setup_len_offset.litValue.toInt, setup.size)
+        rawWrite(borg, BorgGpuRegs.seq_rast_addr_offset.litValue.toInt, rastAddr)
+        rawWrite(borg, BorgGpuRegs.seq_rast_len_offset.litValue.toInt, rastShader.size)
+        rawWrite(borg, BorgGpuRegs.seq_frag_addr_offset.litValue.toInt, fragAddr)
+        rawWrite(borg, BorgGpuRegs.seq_frag_len_offset.litValue.toInt, fragShader.size)
+        rawWrite(borg, BorgGpuRegs.seq_bin_base_offset.litValue.toInt, binBase)
+        rawWrite(borg, BorgGpuRegs.seq_bin_row_bytes_offset.litValue.toInt, 2)
+        rawWrite(borg, BorgGpuRegs.seq_setup_base_offset.litValue.toInt, setupBase)
+        rawWrite(borg, BorgGpuRegs.seq_fb_base_offset.litValue.toInt, fbBase)
+        rawWrite(borg, BorgGpuRegs.seq_tiles_per_row_offset.litValue.toInt, 1)
+        rawWrite(borg, BorgGpuRegs.seq_clear_lo_offset.litValue.toInt, 0x7BFF)
+        rawWrite(borg, BorgGpuRegs.seq_clear_hi_offset.litValue.toInt, 0)
+        rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 64)
+        rawWrite(borg, BorgGpuRegs.flush_width_offset.litValue.toInt, 2)
+        rawWrite(borg, BorgGpuRegs.seq_inv_width_offset.litValue.toInt, floatToBits16(1.0f))
+
+        rawWrite(borg, BorgGpuRegs.seq_tri_count_offset.litValue.toInt, 1)
+        rawWrite(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt, 1)
+
+        var seqBusySeen = false
+        var seqBusyCleared = false
+        val maxCycles = 20000
+        for (cycle <- 0 until maxCycles if !seqBusyCleared) {
+          serviceDramCapture()
+          borg.clock.step(1)
+          if (cycle % 10 == 5) {
+            borg.io.address.poke(BorgGpuRegs.status_offset)
+            borg.io.data_read_n.poke(2.U)
+            borg.io.data_write_n.poke(3.U)
+            serviceDramCapture()
+            borg.clock.step(1)
+            val st = borg.io.data_out.peek().litValue
+            borg.io.data_read_n.poke(3.U)
+            serviceDramCapture()
+            borg.clock.step(1)
+            val busy = (st >> 5) & 1
+            if (busy == 1) seqBusySeen = true
+            if (seqBusySeen && busy == 0) seqBusyCleared = true
+          }
+        }
+        Predef.assert(seqBusySeen, "sequencer never went busy")
+        Predef.assert(seqBusyCleared, "sequencer never completed")
+
+        val actual = (0 until 3).map { e =>
+          val d0 = borg.io.covDeltaDebug.get(e)(0).peek().litValue
+          val d1 = borg.io.covDeltaDebug.get(e)(1).peek().litValue
+          (bitsToFloat16(d0), bitsToFloat16(d1))
+        }
+        for (e <- 0 until 3) {
+          println(f"  edge$e: d0=${actual(e)._1}%.4f (expect ${expected(e)._1}%.4f)  " +
+                  f"d1=${actual(e)._2}%.4f (expect ${expected(e)._2}%.4f)")
+        }
+        for (e <- 0 until 3) {
+          Predef.assert(math.abs(actual(e)._1 - expected(e)._1) < 0.01f,
+            s"edge $e d0 mismatch: got ${actual(e)._1}, expected ${expected(e)._1}")
+          Predef.assert(math.abs(actual(e)._2 - expected(e)._2) < 0.01f,
+            s"edge $e d1 mismatch: got ${actual(e)._2}, expected ${expected(e)._2}")
+        }
+        println("=== covDelta_diagnostic_real_values PASSED ===\n")
+      }
+    }
   }
 }
