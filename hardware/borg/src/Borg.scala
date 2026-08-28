@@ -275,6 +275,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
     rast.io.texConfig.baseAddr := rdlRegs.io.hw.tex_config_base_addr
+    rast.io.log2Dim            := rdlRegs.io.hw.tex_config_log2_dim
     // Per-triangle tex enable: when sequencer is busy, use its per-triangle
     // has_uvs flag. When idle, use the MMIO register (legacy/CPU path).
     rast.io.texConfig.en       := Mux(s.io.busy,
@@ -409,9 +410,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Clamp to [0, 2^log2_dim − 1] when log2_dim > 0, preventing UV=1.0 from
     // indexing one row/column past the texture boundary.
     val log2_dim = rdlRegs.io.hw.tex_config_log2_dim
-    val tex_max  = Mux(log2_dim === 0.U, 255.U(8.W), ((1.U << log2_dim) - 1.U)(7, 0))
-    val tex_x = Mux(tex_x_raw > tex_max, tex_max, tex_x_raw)
-    val tex_y = Mux(tex_y_raw > tex_max, tex_max, tex_y_raw)
+    val tex_x = ClampTexCoord(tex_x_raw, log2_dim)
+    val tex_y = ClampTexCoord(tex_y_raw, log2_dim)
     val morton_index = MortonEncode(tex_x, tex_y)
 
     rdlRegs.io.hw.tex_addr_morton := morton_index

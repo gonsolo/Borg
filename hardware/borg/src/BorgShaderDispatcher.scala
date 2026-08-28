@@ -41,6 +41,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
 
   // --- Inputs from texture pipeline ---
   val texConfig  = new TexConfigIO              // mortonIndex, baseAddr, en
+  val log2Dim    = Input(UInt(4.W))             // tex_config_log2_dim, see ClampTexCoord
 
   // --- Outputs to BorgCore ---
   val coreTrigger = new CoreTriggerIO           // shader start pulse + PC
@@ -155,8 +156,14 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   val ftexActive = RegInit(false.B)  // FTEX fetch in progress (tex enabled)
   val ftexMortonIndex = Wire(UInt(16.W))
-  val ftex_u8 = Fp16ToUint8(io.texU)
-  val ftex_v8 = Fp16ToUint8(io.texV)
+  // Clamped to the last valid row/column -- see ClampTexCoord's comment. A
+  // UV of exactly 1.0 at a triangle's far edge/vertex legitimately
+  // interpolates to the texture's width in texel space (e.g. 64.0 for a
+  // 64-wide texture) rather than 63.999..., which floors to one past the
+  // last valid index; left unclamped that reads unpopulated texture memory
+  // and returns black for an otherwise-correctly-covered pixel.
+  val ftex_u8 = ClampTexCoord(Fp16ToUint8(io.texU), io.log2Dim)
+  val ftex_v8 = ClampTexCoord(Fp16ToUint8(io.texV), io.log2Dim)
   ftexMortonIndex := MortonEncode(ftex_u8, ftex_v8)
 
   // Default FTEX response
