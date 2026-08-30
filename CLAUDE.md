@@ -104,8 +104,67 @@ A real Mesa Vulkan driver (native ICD, modeled on v3dv) that runs the **unmodifi
 
 The driver intercepts `vkQueueSubmit` (via Mesa runtime's `vk_queue.driver_submit`), reads the per-frame MVP from the bound uniform buffer, and ships it over serial to the `borg_kernel.c` firmware (wire protocol: 0xAD MVP, 0xAE geometry, 0xAF texture rows, 0xB0 borgc shaders). The kernel renders the frame via the autonomous TBR sequencer. No NIR→Borg compiler is needed for the cube demo (borgvk ships borgc-compiled shaders from Mesa's `src/borg/compiler/`). Full plan: `~/.claude/plans/atomic-questing-stream.md`. `flake.nix` carries the Mesa/Vulkan build deps (meson, ninja, vulkan-loader/headers, libdrm, spirv-tools, x11/xcb).
 
+## MSAA and texturing status
+
+4x MSAA hardware is implemented and verified (real captured-borgvk render, full
+regression suite) on the **`msaa-hardware`** branch — not yet merged to `main`.
+Root cause of the original broken attempt: `covDelta` (per-triangle coverage
+deltas) was read live from a Pass-1-only staging register that Pass 2 never
+refreshed (fixed with a proper per-triangle latch, mirroring the existing
+`triHasUvs` pattern), and the Pass-2 setup reload still used the pre-MSAA
+DMA stride/length after the Pass-1 store widened to fit `covDelta` (fixed by
+splitting the reload into the original 32-word uniform-write transfer plus a
+second, snoop-only transfer for `covDelta` — appending it to the first would
+alias onto and corrupt the triangle's real uniforms, since BorgDMA's uniform
+destination address is hard-truncated to 5 bits).
+
+Texturing is **FTEX-inline only** now (`main` and `msaa-hardware`) — the
+legacy autonomous single-texel fetch (`sTexFetch`, `BorgShaderDispatcher`) was
+removed; it predated FTEX and was firing redundantly. Texel coordinates are
+clamped to `[0, 2^log2Dim − 1]` via the shared `ClampTexCoord` helper
+(`TextureAddr.scala`) — a UV of exactly 1.0 at a triangle's far edge
+legitimately floors to one past the last valid texel index, and Morton
+addressing an out-of-range coordinate silently reads unpopulated (black)
+texture memory. Both FTEX-inline and the legacy path had this class of bug at
+different points; if a new texture-coordinate call site is ever added, route
+it through `ClampTexCoord` rather than reimplementing the clamp inline.
+
+## Heavy compute goes on the workstation, not this machine
+
+`mill`, verilator/arcilator builds, and yosys synthesis must run on
+`gonsolo-workstation` (reachable via Tailscale SSH) — never on the local
+notebook. Toolchain quirks specific to that workflow:
+
+- `direnv exec .` is required to get the nix devshell into a non-interactive
+  SSH command (`ssh gonsolo-workstation 'cd ~/work/Borg && direnv exec . <cmd>'`)
+  — a plain `ssh host 'cmd'` does not pick up direnv's PATH/env.
+- Env vars like `BORG_TRACE=1` only take effect if Mill's persistent daemon is
+  fresh — if a stale daemon is already running, the var never reaches the
+  elaboration JVM. Kill it first (`pkill -9 -f mill.daemon.MillDaemonMain` —
+  **never use `-f` on a pattern that also matches your own invoking command
+  line**, e.g. `ssh host 'pkill -f mill.daemon...'`, or `pkill` kills the
+  shell running the command and drops the SSH session).
+- Mill's Verilog-emission stamp files (`.verilog_sim_stamp`,
+  `out/hardware/borg/firrtl_sim/*.fir`) can go stale and silently skip
+  regeneration even after a real source change. If a build finishes
+  suspiciously fast or a change doesn't seem to take effect, delete the
+  relevant stamp file and retry.
+- `BorgDebug.trace` printfs are split into a separate `verification/*.sv`
+  subdirectory by `--split-verilog`, not embedded in the main per-module
+  `.sv` files — check there, not the main output.
+- The arcilator toolchain's own `firtool --disable-layers=Verification` step
+  strips all trace/printf content regardless of `BorgDebug.trace` — use
+  **verilator**, not arcilator, for any `BORG_TRACE`-based debugging (invoke
+  the `verilator_sim` binary directly with `--cts-uart`, not through
+  `cts_uart_render.py`, which pipes stdout as a binary RGB protocol and
+  silently discards stderr on success).
+- `mill asic.tt.runMain asic.tt.<Emitter>` commonly fails on the first
+  invocation with a generic error and succeeds on an immediate retry with no
+  code changes — a known toolchain quirk, not a real failure.
+
 ## Conventions to know
 
 - Don't recreate the deleted TinyQV CPU or its nibble-serial QSPI protocol — Hutt's `Decoupled` buses are the current contract.
 - Always create new commits; don't amend or force-push without explicit user OK.
 - The top Makefile's `HAND_CHISEL` `find` paths list `fpga/ulx3s/soc/src` and `asic/tt/src`.
+- The `mesa` submodule is a separate git repo (`gonsolo/mesa`) — a `chore(mesa): bump submodule` commit in this repo is only resolvable elsewhere once the referenced mesa commit is actually **pushed** to `gonsolo/mesa`, not just committed locally. A bump commit made from an unpushed local mesa checkout will break `git submodule update` everywhere else until it's pushed.
