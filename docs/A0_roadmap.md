@@ -1583,12 +1583,27 @@ i.e. not behind an optional feature bit) and vkQuake's actual source
    condition to r25 (lowering `discard`/`discard_if` from real GLSL/SPIR-V)
    — the hardware primitive exists now, but nothing generates code for it
    yet. That's the remaining piece of this item, not the whole item.
-2. **4× MSAA framebuffer support** — `framebufferColorSampleCounts` must
-   include `VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_4_BIT` unconditionally
-   (no feature-flag gate found in the spec table). Borg's tile buffer is
-   single-sample today. Newly identified 2026-08-25 by actually reading the
-   spec — not previously on any roadmap. Needs multi-sample tile storage +
-   a resolve step; likely comparable in size to the branching work.
+2. **4× MSAA framebuffer support** ✅ **hardware done, merged to `main`
+   (2026-08-31)**. `framebufferColorSampleCounts` must include
+   `VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_4_BIT` unconditionally (no
+   feature-flag gate found in the spec table) — this item was newly
+   identified 2026-08-25 by actually reading the spec, not previously on
+   any roadmap. **Implemented**: per-sample tile buffer storage
+   (`BorgTileBuffer`, one `SyncReadMem` per sample, sharing one 4-bit
+   index), per-sample coverage test in `BorgShaderDispatcher` (exact FP16
+   compare via sign-magnitude reordering — no adders, no rounding), the
+   setup shader computes per-triangle sample deltas that `BorgSequencer`
+   caches per-triangle (mirroring the existing `triHasUvs` 2-entry-cache
+   pattern), and a serialized single-shared-`fp16ToUnorm` resolve in
+   `BorgTileFlusher` to keep the extra converter hardware from being
+   instantiated per-sample. Verified against a real captured-`borgvk`
+   render and the full regression suite; gated behind `BorgConfig.samples`
+   (`1` default/ASIC, `4` to enable) — `BorgConfig.Asic` still runs
+   `samples=1`, so this has not gone to silicon yet. Real-ULX3S-hardware
+   validation (`ULX3S.scala`'s `BORG_CFG` overridden to `samples=4`) is in
+   progress as of this update, on top of the `samples=1` config already
+   confirmed working end-to-end (real `cube.c` render via `borgvk`) on the
+   same hardware the same day.
 3. **Multi-texture binding** — `world.frag` alone needs three concurrent
    samplers (diffuse/lightmap/fullbright); `BorgTextureUnit.scala` has one
    `baseAddr` register (one bound texture at a time). Real for both
@@ -1602,6 +1617,69 @@ i.e. not behind an optional feature bit) and vkQuake's actual source
    `subPixelPrecisionBits`≥4, `maxDrawIndexedIndexValue`≥2²⁴−1, various
    descriptor-count minimums) — need checking against Borg's current
    parameters; lower risk, mostly "make the number big enough."
+
+**Added 2026-08-31**, cross-checked against the Vulkan 1.0 Required Limits /
+Required Format Support tables and the local `~/src/VK-GL-CTS` mustpass
+structure (which tests run unconditionally vs. behind a
+`context.getDeviceFeatures().x` gate) — not guessed:
+
+6. **FP32 shader arithmetic — likely the single largest remaining gap.**
+   SPIR-V's baseline `Shader` capability (mandatory for *any* Vulkan
+   implementation, no feature bit gates it) requires 32-bit int/float
+   arithmetic; 16-bit float is the *optional* one (`shaderFloat16`/`Float16`
+   capability). Borg's entire compute path — FMA lanes, register file,
+   reciprocal/coord LUTs, tile buffer, uniform bank — is FP16-only, and not
+   just as an unused config knob: `FloatConfig.FP32` exists
+   (`FloatConfig.scala`) but is referenced only in one test, never wired
+   into `BorgConfig.Default`/`.Asic`, and `BorgLutTables.scala`
+   (`rcp_lut.hex`/`coord_lut.hex`) is sized and populated for FP16
+   magnitude specifically — switching `fp` alone would not work. Depth
+   *storage* doesn't need this (`D16_UNORM` alone satisfies the mandatory
+   depth-only format); this is purely a shader-ALU requirement.
+7. **Graphics+compute queue** — confirmed via the Vulkan spec (any
+   implementation exposing `VK_QUEUE_GRAPHICS_BIT` must expose a queue
+   family supporting `VK_QUEUE_COMPUTE_BIT` too, i.e. compute is not
+   optional for a graphics-capable device) and the local CTS
+   (`vk-default/compute.txt`: 60,811 unconditional test cases). Not a new
+   line item on top of Step 52 — this is the same compute gap Step 52
+   already plans to solve via host-CPU `llvmpipe` dispatch, kept off the
+   RTL critical path — noted here because it's *also* required for
+   baseline conformance (Step 51), not only for vkQuake.
+8. **Framebuffer/image resolution ceiling** — `maxFramebufferWidth`,
+   `maxFramebufferHeight`, and `maxImageDimension2D` must all be ≥4096
+   unconditionally. `BorgConfig.maxBinTiles` caps the tile-based renderer
+   at 128×128 today — roughly 1024× short. Not a constant bump: the tile
+   buffer is BRAM-backed and DRAM-bandwidth-limited at this scale (the same
+   wall flagged in the earlier 800×480 fps analysis), so this is real
+   re-architecture, not sizing.
+9. **Alpha blending** — mandatory core functionality (only
+   `independentBlend`/`dualSrcBlend` are the optional extras, easy to
+   mis-assume the whole feature is skippable). Borg has none — every tile
+   write is an unconditional overwrite. A natural fit for the per-sample
+   write-path pattern item 2's MSAA work just established in
+   `BorgTileBuffer`/`BorgShaderDispatcher`.
+10. **Stencil test** — mandatory, no `VkPhysicalDeviceFeatures` gate found;
+    no stencil concept anywhere in `hardware/borg/src/`. Same shape as item
+    2's per-sample planes — a second plane alongside color/Z.
+11. **Configurable depth compare op** — hardcoded `<` (LESS) at
+    `BorgShaderDispatcher.scala:373`; Vulkan requires all 8 `VkCompareOp`
+    values selectable, so this needs an 8-way mux instead of a fixed
+    comparison.
+12. **Indexed + instanced draw** — no index-buffer read path in
+    `BorgSequencer.scala`, no `instanc*` symbol anywhere in
+    `hardware/borg/src/`; `borgvk` currently always flattens geometry to
+    flat triangle lists before upload, so this is new sequencer state
+    machinery, not a rewrite of an existing path.
+13. **Push constants** (`maxPushConstantsSize`≥128 bytes) — no push-constant
+    path in hardware or `software/borg/`; shaped like the existing uniform
+    bank, likely the smallest item on this list.
+
+**Not independently re-verified 2026-08-31** (flagged rather than guessed):
+the exact mandatory depth/stencil `VkFormat` list (`D16_UNORM` alone for
+depth-only, plus at least one of `D24_UNORM_S8_UINT`/`D32_SFLOAT_S8_UINT`
+for combined depth-stencil) and the mandatory *sampled-image* format list
+(e.g. `R8G8B8A8_UNORM`) checked against Borg's FP16-only internal texel
+format — worth a dedicated follow-up pass rather than assuming either way.
 
 **Explicitly NOT here — pure performance, not correctness, deferred to
 Step 53**: wider `fragLanes`, warp-level multithreading, multi-core
