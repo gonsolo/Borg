@@ -8,9 +8,15 @@
 set -euo pipefail
 REPO=/home/gonsolo/work/Borg
 
-# Runtime libs the dynamically-linked / dlopen'd bits need (not in rpath):
-LOADER=/nix/store/zs7y2aadk71bawprdcn000az9y05s8nf-vulkan-loader-1.4.341.0/lib
-LIBWAYLAND=/nix/store/ysbyz6zabjcg078ssp4l58mhgbr57pbz-wayland-1.24.0/lib
+# Runtime libs the dynamically-linked / dlopen'd bits need (not in rpath).
+# Resolved via pkg-config at run time rather than hardcoded store paths --
+# a hardcoded /nix/store/<hash>-... here goes stale the moment `nix store gc`
+# reclaims a generation this script wasn't holding a live reference to (hit
+# this for real: 2026-08-31, gc during a devshell rebuild wiped the paths
+# that used to be hardcoded here, silently breaking this script until
+# someone tried to run it and got "file not found").
+LOADER=$(pkg-config --variable=libdir vulkan)
+LIBWAYLAND=$(pkg-config --variable=libdir wayland-client)
 export LD_LIBRARY_PATH="$LOADER:$LIBWAYLAND:${LD_LIBRARY_PATH:-}"
 
 # Point the loader at the in-tree (build-tree) borgvk driver, not the installed one:
