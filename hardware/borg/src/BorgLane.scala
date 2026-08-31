@@ -256,7 +256,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val mant = recA_raw(9, 0)
 
     val rcpLutIdx = mant(9, 6)
-    val rcpRawVal  = rcpRom(rcpLutIdx)
+    // rcpLutIdx is structurally 0-15 (4 bits) and never reaches rcpRom's 17th
+    // entry (only rcpRawNext's `+& 1.U` lookahead does, already 5 bits below)
+    // -- pad to the 5 bits Chisel expects for a 17-entry Vec so the dynamic
+    // index is fully specified; same value, same hardware, no W005 warning.
+    val rcpRawVal  = rcpRom(rcpLutIdx.pad(5))
     val rcpRawNext = rcpRom((rcpLutIdx +& 1.U)(4, 0))
 
     val parity      = !exp(0)

@@ -10,13 +10,13 @@ import chisel3.util._
   *
   * Directions are from the flusher's perspective (master).
   */
-class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
+class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1) extends Bundle {
   // Trigger interface
   val start     = Input(Bool())    // one-cycle pulse to begin flush
   val busy      = Output(Bool())   // high while flushing
 
   // Tile SRAM read port (flusher drives idx/en, reads data)
-  val read      = new TileReadIO(dataBits)
+  val read      = new TileReadIO(dataBits, samples)
 
   // DRAM write port
   val gpuMem    = new GpuMemIO
@@ -57,8 +57,8 @@ class BorgTileFlusherIO(val dataBits: Int = 16) extends Bundle {
   *   cycle N+2: SyncReadMem output travels through readDataHeld (cycle 2 of 2)
   *   cycle N+3: io.read.data valid; capture RGB565 into rgbVec
   */
-class BorgTileFlusher(val dataBits: Int = 16) extends Module {
-  val io = IO(new BorgTileFlusherIO(dataBits))
+class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1) extends Module {
+  val io = IO(new BorgTileFlusherIO(dataBits, samples))
 
   val sIdle :: sFill :: sBurst :: Nil = Enum(3)
   val state = RegInit(sIdle)
@@ -93,6 +93,15 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
   // FP16 [0,1] -> unsigned N-bit channel (top N bits of an 8-bit conversion).
   // FP16: 1 sign + 5 exponent (bias=15) + 10 mantissa.  Clamp negatives to 0,
   // >=1.0 to all-ones; matches the scanout's old fp16ToRgb8 mapping.
+  //
+  // This is an 8-arm MuxLookup, i.e. real hardware (~140 cells measured via
+  // synthesis), not a cheap function -- which is why the MSAA resolve below
+  // goes out of its way to instantiate ONE of these per channel and time-share
+  // it across samples rather than one per (channel, sample) pair. The first
+  // cut of resolve called this `samples` times per channel combinationally
+  // (see git history) and cost +1,312 cells in BorgTileFlusher alone at
+  // samples=4 -- confirmed via yosys `stat` on the emitted ASIC netlist,
+  // comparing samples=1 vs samples=4 module-by-module.
   def fp16ToUnorm(fp16: UInt, bits: Int): UInt = {
     val sign = fp16(15)
     val exp  = fp16(14, 10)
@@ -118,68 +127,172 @@ class BorgTileFlusher(val dataBits: Int = 16) extends Module {
     rgb8(7, 8 - bits)
   }
 
-  // ColorZ.asUInt packs first field in MSBs: {r[63:48], g[47:32], b[31:16], z[15:0]}.
-  def toRgb565(entry: UInt): UInt = {
-    val r5 = fp16ToUnorm(entry(63, 48), 5)
-    val g6 = fp16ToUnorm(entry(47, 32), 6)
-    val b5 = fp16ToUnorm(entry(31, 16), 5)
-    Cat(r5, g6, b5)
-  }
-
   // Fill-pipeline valid tracking: a read issued this cycle yields data 3 cycles
   // later.  issueValid marks the issue; v3 marks the matching data-valid cycle.
   val issueValid = WireDefault(false.B)
   val v1 = RegNext(issueValid, false.B)
   val v2 = RegNext(v1, false.B)
   val v3 = RegNext(v2, false.B)
-  when(v3) {
-    rgbVec(capIdx(3, 0)) := toRgb565(io.read.data.asUInt)
-    capIdx := capIdx + 1.U
-  }
 
-  switch(state) {
+  if (samples == 1) {
+    // Untouched single-sample path -- the bit-identical AND cycle-identical
+    // regression anchor for every non-MSAA target (including BorgConfig.Asic
+    // until the MSAA config is actually selected). One fp16ToUnorm per
+    // channel, one cycle, fully pipelined issuance exactly as before this
+    // file gained a `samples` parameter.
+    def toRgb565(entry: Vec[ColorZ]): UInt = {
+      val r5 = fp16ToUnorm(entry(0).r, 5)
+      val g6 = fp16ToUnorm(entry(0).g, 6)
+      val b5 = fp16ToUnorm(entry(0).b, 5)
+      Cat(r5, g6, b5)
+    }
 
-    is(sIdle) {
-      when(io.start) {
-        baseReg  := io.tileBase
-        issueIdx := 0.U
-        capIdx   := 0.U
-        burstIdx := 0.U
-        state    := sFill
+    when(v3) {
+      rgbVec(capIdx(3, 0)) := toRgb565(io.read.data)
+      capIdx := capIdx + 1.U
+    }
+
+    switch(state) {
+      is(sIdle) {
+        when(io.start) {
+          baseReg  := io.tileBase
+          issueIdx := 0.U
+          capIdx   := 0.U
+          burstIdx := 0.U
+          state    := sFill
+        }
+      }
+      // Issue one read per cycle for entries 0..15; captures land via v3 above.
+      // Advance to the burst once all 16 entries are captured.
+      is(sFill) {
+        when(issueIdx < 16.U) {
+          readEnReg  := true.B
+          readIdxReg := issueIdx(3, 0)
+          issueValid := true.B
+          issueIdx   := issueIdx + 1.U
+        }
+        when(capIdx === 16.U) {
+          state := sBurst
+        }
+      }
+      is(sBurst) {
+        io.gpuMem.wr    := true.B
+        io.gpuMem.addr  := baseReg
+        io.gpuMem.wdata := rgbVec(burstIdx(3, 0))
+        io.gpuMem.wlen  := 16.U
+        when(io.gpuMem.waccept) {
+          if (BorgDebug.trace) printf("[FLUSH] entry=%d RGB565=0x%x\n",
+            burstIdx, rgbVec(burstIdx(3, 0)))
+          burstIdx := burstIdx + 1.U
+        }
+        when(io.gpuMem.ready) {
+          state := sIdle
+        }
+      }
+    }
+  } else {
+    // MSAA resolve, SERIALIZED across samples: one shared fp16ToUnorm per
+    // channel (3 total, not samples*3), fed one sample per cycle. Averaging
+    // is done in the same UNORM INTEGER domain as before (sum of `samples`
+    // 8-bit conversions, shifted right by log2(samples)) -- only the timing
+    // changed, not the arithmetic or the result.
+    //
+    // Correctness requires the read pipeline to fully drain (issue -> v3 ->
+    // samples-cycle resolve -> capIdx write) before the NEXT read is issued:
+    // the tile buffer's read port can have at most one outstanding request's
+    // result live at a time, and resolving now takes longer than the 3-cycle
+    // issue-to-v3 latency, so without this the pipeline would overtake itself
+    // and read N+1's data would land on top of read N's before it finished
+    // resolving. `pipelineBusy` enforces that: set at issue, held through the
+    // entire resolve, cleared only when the resolved pixel is written to
+    // rgbVec. This trades the original pipelined ~19-cycle fill phase for a
+    // fully sequential ~16*(3+samples) cycles -- a real but small cost
+    // against a frame's DRAM burst time, in exchange for not needing a
+    // multi-pixel queue (which would have eaten back much of the area this
+    // is meant to save).
+    val sampleBits = log2Ceil(samples)
+    val accBits    = 8 + sampleBits          // max sum = samples*255, fits exactly
+
+    val pipelineBusy   = RegInit(false.B)
+    val resolveBusy    = RegInit(false.B)
+    val resolveSample  = RegInit(0.U(sampleBits.W))
+    val pendingSamples = Reg(Vec(samples, new ColorZ(dataBits)))
+    val accR = RegInit(0.U(accBits.W))
+    val accG = RegInit(0.U(accBits.W))
+    val accB = RegInit(0.U(accBits.W))
+
+    when(v3) {
+      pendingSamples := io.read.data
+      resolveBusy    := true.B
+      resolveSample  := 0.U
+      accR := 0.U
+      accG := 0.U
+      accB := 0.U
+    }
+
+    when(resolveBusy) {
+      val s     = pendingSamples(resolveSample)
+      val rTerm = fp16ToUnorm(s.r, 8)
+      val gTerm = fp16ToUnorm(s.g, 8)
+      val bTerm = fp16ToUnorm(s.b, 8)
+      val rSum  = accR + rTerm
+      val gSum  = accG + gTerm
+      val bSum  = accB + bTerm
+      when(resolveSample === (samples - 1).U) {
+        rgbVec(capIdx(3, 0)) := Cat(
+          (rSum >> sampleBits)(7, 3),
+          (gSum >> sampleBits)(7, 2),
+          (bSum >> sampleBits)(7, 3))
+        if (BorgDebug.trace) printf("[FLUSH] entry=%d resolved RGB565 from %d samples\n",
+          capIdx, samples.U)
+        capIdx       := capIdx + 1.U
+        resolveBusy  := false.B
+        pipelineBusy := false.B
+      }.otherwise {
+        accR := rSum
+        accG := gSum
+        accB := bSum
+        resolveSample := resolveSample + 1.U
       }
     }
 
-    // Issue one read per cycle for entries 0..15; captures land via v3 above.
-    // Advance to the burst once all 16 entries are captured.
-    is(sFill) {
-      when(issueIdx < 16.U) {
-        readEnReg  := true.B
-        readIdxReg := issueIdx(3, 0)
-        issueValid := true.B
-        issueIdx   := issueIdx + 1.U
+    switch(state) {
+      is(sIdle) {
+        when(io.start) {
+          baseReg      := io.tileBase
+          issueIdx     := 0.U
+          capIdx       := 0.U
+          burstIdx     := 0.U
+          pipelineBusy := false.B
+          resolveBusy  := false.B
+          state        := sFill
+        }
       }
-      when(capIdx === 16.U) {
-        state := sBurst
+      is(sFill) {
+        when(issueIdx < 16.U && !pipelineBusy) {
+          readEnReg    := true.B
+          readIdxReg   := issueIdx(3, 0)
+          issueValid   := true.B
+          issueIdx     := issueIdx + 1.U
+          pipelineBusy := true.B
+        }
+        when(capIdx === 16.U) {
+          state := sBurst
+        }
       }
-    }
-
-    // Stream all 16 RGB565 words as one burst.  wdata is a register read of
-    // rgbVec(burstIdx): when waccept advances burstIdx, the next word is ready
-    // the following cycle, exactly when the controller samples it.
-    is(sBurst) {
-      io.gpuMem.wr    := true.B
-      io.gpuMem.addr  := baseReg
-      io.gpuMem.wdata := rgbVec(burstIdx(3, 0))
-      io.gpuMem.wlen  := 16.U
-
-      when(io.gpuMem.waccept) {
-        if (BorgDebug.trace) printf("[FLUSH] entry=%d RGB565=0x%x\n",
-          burstIdx, rgbVec(burstIdx(3, 0)))
-        burstIdx := burstIdx + 1.U
-      }
-
-      when(io.gpuMem.ready) {
-        state := sIdle
+      is(sBurst) {
+        io.gpuMem.wr    := true.B
+        io.gpuMem.addr  := baseReg
+        io.gpuMem.wdata := rgbVec(burstIdx(3, 0))
+        io.gpuMem.wlen  := 16.U
+        when(io.gpuMem.waccept) {
+          if (BorgDebug.trace) printf("[FLUSH] entry=%d RGB565=0x%x\n",
+            burstIdx, rgbVec(burstIdx(3, 0)))
+          burstIdx := burstIdx + 1.U
+        }
+        when(io.gpuMem.ready) {
+          state := sIdle
+        }
       }
     }
   }

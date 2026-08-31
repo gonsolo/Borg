@@ -24,6 +24,7 @@ object BorgTileBufferTests extends TestSuite {
     tb.io.write.data.b.poke(0.U)
     tb.io.write.data.z.poke(0.U)
     tb.io.write.en.poke(false.B)
+    tb.io.write.coverage.poke(((1 << tb.samples) - 1).U)  // all samples
     tb.io.read.idx.poke(0.U)
     tb.io.read.en.poke(false.B)
     tb.io.clear.en.poke(false.B)
@@ -65,10 +66,12 @@ object BorgTileBufferTests extends TestSuite {
     tb.clock.step(1)  // BRAM read fires
     tb.io.read.en.poke(false.B)
     tb.clock.step(1)  // Hold registers capture BRAM output
-    val r = tb.io.read.data.r.peek().litValue.toInt
-    val g = tb.io.read.data.g.peek().litValue.toInt
-    val b = tb.io.read.data.b.peek().litValue.toInt
-    val z = tb.io.read.data.z.peek().litValue.toInt
+    // Sample 0: writePixel drives full coverage, so every sample holds the same
+    // value and sample 0 is representative.
+    val r = tb.io.read.data(0).r.peek().litValue.toInt
+    val g = tb.io.read.data(0).g.peek().litValue.toInt
+    val b = tb.io.read.data(0).b.peek().litValue.toInt
+    val z = tb.io.read.data(0).z.peek().litValue.toInt
     (r, g, b, z)
   }
 
@@ -203,6 +206,81 @@ object BorgTileBufferTests extends TestSuite {
           utest.assert(z == FP16_MAX_DEPTH)
         }
         println("  All 16 Z entries = 0x7BFF after reset ✓")
+        println("  PASSED")
+      }
+    }
+
+    // ── 4× MSAA ───────────────────────────────────────────────────────────
+    // The whole point of the per-sample tile buffer: one shaded colour is
+    // broadcast to the samples selected by `coverage`, and the samples NOT
+    // covered must keep their previous contents.  A partial mask is the only
+    // thing that distinguishes real MSAA storage from 4 redundant copies, so
+    // that is what these test.
+
+    utest.test("msaa_partial_coverage_write") {
+      simulate(new BorgTileBuffer(16, 4)) { tb =>
+        println("\n--- BorgTileBuffer: msaa_partial_coverage_write ---")
+        resetModule(tb)
+
+        // After reset every sample holds RGB=0, Z=0x7BFF.
+        // Write to samples 0 and 2 only (mask 0b0101).
+        pokeIdle(tb)
+        tb.io.write.idx.poke(5.U)
+        tb.io.write.data.r.poke(0x3C00.U)   // 1.0
+        tb.io.write.data.g.poke(0x3800.U)   // 0.5
+        tb.io.write.data.b.poke(0x0000.U)
+        tb.io.write.data.z.poke(0x3000.U)   // 0.125, nearer than 0x7BFF
+        tb.io.write.coverage.poke("b0101".U)
+        tb.io.write.en.poke(true.B)
+        tb.clock.step(1)
+        tb.io.write.en.poke(false.B)
+
+        // Read the pixel back and inspect every sample individually.
+        pokeIdle(tb)
+        tb.io.read.idx.poke(5.U)
+        tb.io.read.en.poke(true.B)
+        tb.clock.step(1)
+        tb.io.read.en.poke(false.B)
+        tb.clock.step(1)
+
+        for (s <- 0 until 4) {
+          val r = tb.io.read.data(s).r.peek().litValue.toInt
+          val z = tb.io.read.data(s).z.peek().litValue.toInt
+          val covered = (s == 0 || s == 2)
+          println(f"  sample $s: R=0x$r%04x Z=0x$z%04x (covered=$covered)")
+          if (covered) {
+            utest.assert(r == 0x3C00)
+            utest.assert(z == 0x3000)
+          } else {
+            // Untouched samples must still hold the post-clear values.
+            utest.assert(r == 0x0000)
+            utest.assert(z == FP16_MAX_DEPTH)
+          }
+        }
+        println("  Covered samples updated, uncovered samples preserved ✓")
+        println("  PASSED")
+      }
+    }
+
+    utest.test("msaa_clear_writes_all_samples") {
+      simulate(new BorgTileBuffer(16, 4)) { tb =>
+        println("\n--- BorgTileBuffer: msaa_clear_writes_all_samples ---")
+        resetModule(tb)
+
+        // A clear has no per-sample coverage: every sample of every pixel takes
+        // the clear value (this is what makes a cleared MSAA image resolve to
+        // exactly the clear colour).
+        for (i <- 0 until 16; s <- 0 until 4) {
+          pokeIdle(tb)
+          tb.io.read.idx.poke(i.U)
+          tb.io.read.en.poke(true.B)
+          tb.clock.step(1)
+          tb.io.read.en.poke(false.B)
+          tb.clock.step(1)
+          val z = tb.io.read.data(s).z.peek().litValue.toInt
+          utest.assert(z == FP16_MAX_DEPTH)
+        }
+        println("  All 16 pixels × 4 samples = 0x7BFF after reset clear ✓")
         println("  PASSED")
       }
     }

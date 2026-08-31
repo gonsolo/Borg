@@ -165,6 +165,13 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val busy = Output(Bool())
   val done = Output(Bool())
   val seqShaderActive = Output(Bool())
+
+  // Step 50.2b: per-edge MSAA sample deltas, [edge][k] where k=0 is d0 and
+  // k=1 is d1 (the other two samples are sign flips, derived in hardware).
+  // Latched from the setup shader's r8..r13 and held stable for the whole
+  // triangle, so the dispatcher can use them throughout tile iteration.
+  val covDelta = if (cfg.samples > 1)
+    Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
   // Per-triangle texture enable: true when current triangle has UVs.
   // Driven from descriptor metadata has_uvs flag.
   val texEnOverride = Output(Bool())
@@ -210,18 +217,30 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   //   sLoadBBox, sBinTri, sWaitBinner, sStageUniforms, sStoreSetup, sNextTriangle
   // Pass 2 (tile render): sLoadRastShader, sLoadFragShader, sStartPass2,
   //   sReadBinCount, sWaitBinCount, sClearTile,
-  //   sReadBinEntry, sWaitBinEntry, sLoadTriSetup,
+  //   sReadBinEntry, sWaitBinEntry, sLoadTriSetup, sLoadCovDelta,
   //   sEnqueueTile, sIteratePixels, sWaitRast, sWaitFlush, sWaitFlushSync,
   //   sNextBinTri, sNextRenderTile
   // Terminal: sDone
-  val nStates = 34
+  //
+  // sLoadCovDelta (Step 50.2 root-cause fix): a cache-miss setup reload used
+  // to fetch covDelta (words 32-37) as part of the SAME dest=1 "uniform
+  // write" transfer as words 0-31. That destination is a real, capacity-
+  // limited on-chip memory addressed by BorgDMA's `destIdx(4,0)` (5 bits,
+  // exactly 32 slots) -- words 32-37 silently wrapped back onto slots 0-5,
+  // overwriting that triangle's real edge-coefficient uniforms (u0-u5) with
+  // covDelta bit patterns after every miss reload. covDelta never needs to
+  // live in that memory at all (only the sequencer's own covDeltaCache
+  // consumes it), so it is now a SEPARATE, second, dest=2 ("snoop only, no
+  // destination write") transfer, read via the general io.dma.snoop tap
+  // instead of the capacity-limited io.dma.uniformSnoop.
+  val nStates = 35
   val states = Enum(nStates)
   val (sIdle :: sLoadShader :: sWaitDMA :: sLoadMVP :: sLoadVert :: sRunVert :: sWaitVert ::
        sWriteSetupInputs :: sLoadSetupShader :: sRunSetup :: sWaitSetup ::
        sLoadBBox :: sBinTri :: sWaitBinner :: sStageUniforms :: sStoreSetup :: sNextTriangle :: Nil) = states.take(17)
   val (sLoadRastShader :: sLoadFragShader :: sStartPass2 ::
        sReadBinCount :: sWaitBinCount :: sClearTile ::
-       sReadBinEntry :: sWaitBinEntry :: sLoadTriSetup ::
+       sReadBinEntry :: sWaitBinEntry :: sLoadTriSetup :: sLoadCovDelta ::
        sEnqueueTile :: sIteratePixels :: sWaitRast :: sWaitFlush :: sWaitFlushSync ::
        sNextBinTri :: sNextRenderTile :: sDone :: Nil) = states.drop(17)
   val state = RegInit(sIdle)
@@ -261,6 +280,27 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val tagReg      = RegInit(VecInit(Seq.fill(2)("hFFFF".U(16.W))))
   val uvsReg      = RegInit(VecInit(Seq.fill(2)(false.B)))
   val cacheVictim = RegInit(0.U(1.W))
+  // Step 50.2 root-cause fix: covDelta needs the SAME per-page Pass 2 cache as
+  // uvsReg/the uniform bank. It was previously a flat register fed only by the
+  // Pass 1 setup-shader snoop, which Pass 2 never refreshes -- every triangle
+  // rendered in Pass 2 read whatever the LAST triangle processed during Pass 1's
+  // sequential setup loop left behind, not the triangle actually being drawn.
+  // covDeltaRegs (below) stays as the flat Pass 1 staging area feeding
+  // handleStoreSetup's DRAM write; this cache is what Pass 2 actually reads.
+  val covDeltaCache = if (cfg.samples > 1)
+    Some(RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(6)(0.U(16.W))))))) else None
+  // covDeltaCache(uniformPage) is only safe to read AT SELECTION TIME: like
+  // triHasUvs below, the triangle actually in flight through the downstream
+  // pixel pipeline (BorgIterator/BorgShaderDispatcher) can still be draining
+  // pixels for several cycles after the sequencer has already moved on to
+  // the NEXT triangle and changed uniformPage. A live Mux on uniformPage
+  // would then serve the wrong triangle's covDelta to those in-flight
+  // pixels. covDeltaActive is latched exactly once per triangle selection
+  // (hit: immediately in handleLoadTriSetup; miss: as each word arrives from
+  // the DMA snoop) and held stable until the next selection -- same pattern
+  // as triHasUvs, which is a real register instead of a live uvsReg(page) read.
+  val covDeltaActive = if (cfg.samples > 1)
+    Some(RegInit(VecInit(Seq.fill(6)(0.U(16.W))))) else None
   // General-purpose sequential write counter
   // - sWriteSetupInputs: 0-5 (6 uniform writes)
   // - sStageUniforms:    0-30 (31 uniform writes)
@@ -287,6 +327,16 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // Shadow registers for setup shader outputs (8 values)
   // r0-r5 = scaled edge components, r6 = area, r7 = inv_area
   val setupRegs = RegInit(VecInit.fill(8)(0.U(16.W)))
+
+  // Step 50.2b: per-edge MSAA sample deltas produced by the setup shader in
+  // r8..r13 as {d0[0], d1[0], d0[1], d1[1], d0[2], d1[2]}.  Only generated at
+  // cfg.samples > 1, so the single-sample build carries no extra registers.
+  val covDeltaRegs = if (cfg.samples > 1)
+    Some(RegInit(VecInit.fill(6)(0.U(16.W)))) else None
+
+  /** Last uniform index written by sWriteSetupInputs: u0-u6 always, plus the
+    * three sample-offset constants u7-u9 when MSAA is enabled. */
+  private val lastSetupUniform = if (cfg.samples > 1) 9 else 6
 
   // Latched DMA descriptor — BorgDMA (Step 26.3) reads io.desc fields
   // directly every cycle in sRead, so the sequencer must hold them stable
@@ -343,6 +393,27 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def wireOutputDefaults(): Unit = {
     // --- Output defaults ---
     io.busy := state =/= sIdle
+    // Step 50.2 root-cause fix: covDeltaRegs is a Pass-1-only staging register,
+    // refreshed as EACH triangle's setup shader runs -- correct only while that
+    // triangle is the one currently being processed. Pass 2 iterates triangles
+    // in a completely different (tile-major) order and never touches
+    // covDeltaRegs again, so reading it directly during Pass 2 (the ORIGINAL
+    // bug) served every triangle whatever the LAST Pass-1 triangle left behind.
+    // Mirrors the existing uvsReg 2-entry cache exactly: during Pass 2,
+    // uniformPage always names the cache page holding the triangle actually
+    // selected by handleLoadTriSetup's hit/miss logic (populated on miss by
+    // the DMA snoop below), so covDeltaCache(uniformPage) is always that
+    // triangle's real data. During Pass 1, pass2Active is false and this
+    // reads covDeltaRegs directly, same as before -- preserves the
+    // just-computed-triangle behavior Pass 1 relies on.
+    // covDeltaRegs is {d0[0], d1[0], d0[1], d1[1], d0[2], d1[2]} → [edge][k]
+    val pass2Active = state >= sLoadRastShader
+    io.covDelta.foreach { cd =>
+      val active = covDeltaActive.get
+      for (e <- 0 until 3; k <- 0 until 2) {
+        cd(e)(k) := Mux(pass2Active, active(2 * e + k), covDeltaRegs.get(2 * e + k))
+      }
+    }
     io.done := false.B
     // seqShaderActive: only true during vertex/setup shader execution states
     // (where r30/r31 must be zero, not pixel coordinates).
@@ -502,6 +573,10 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // DMA-load the triangle's 31 setup uniforms from DRAM into the uniform buffer.
       // addr = setupBase + binEntryData * 128
       is(sLoadTriSetup) { handleLoadTriSetup() }
+
+      // Second, snoop-only DMA transfer for covDelta words 32-37 (samples>1
+      // miss path only) -- see the sLoadCovDelta comment above the state list.
+      is(sLoadCovDelta) { handleLoadCovDelta() }
 
       // --- Per-triangle rasterization (reused from Step 31.4) ---
       is(sEnqueueTile) { handleEnqueueTile() }
@@ -682,11 +757,22 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       val v = writeIdx(2, 1)  // writeIdx / 2 → vertex index (0, 1, 2)
       val c = writeIdx(0)     // writeIdx % 2 → component (0=x, 1=y)
       io.uniformWrite.data := clipRegs(v)(Cat(0.U(1.W), c))
-    }.otherwise {
+    }.elsewhen(writeIdx === 6.U) {
       // u6 = inv_width
       io.uniformWrite.data := io.mmio.seqInvWidth
+    }.otherwise {
+      // Step 50.2b: u7/u8/u9 = the MSAA sample-offset constants the setup
+      // shader multiplies the edge coefficients by.  Standard Vulkan/D3D 4×
+      // offsets, all FP16-exact: -0.375 = 0xB600, -0.125 = 0xB000,
+      // +0.375 = 0x3600.  Constants rather than MMIO inputs because the
+      // sample pattern is fixed by the spec, not a runtime choice.
+      io.uniformWrite.data := MuxLookup(writeIdx, 0.U(16.W))(Seq(
+        7.U -> "hB600".U(16.W),   // -0.375
+        8.U -> "hB000".U(16.W),   // -0.125
+        9.U -> "h3600".U(16.W)    // +0.375
+      ))
     }
-    when(writeIdx === 6.U) {
+    when(writeIdx === lastSetupUniform.U) {
       state := sLoadSetupShader
     }.otherwise {
       writeIdx := writeIdx + 1.U
@@ -844,21 +930,35 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
   }
 
+  // Per-triangle setup-store stride: 128B (32 words) at samples==1, unchanged
+  // from the original layout. At samples>1 the store grows to 38 words (adds
+  // covDelta), so it needs the wider 256B stride to have room -- see
+  // software/borg/borg_layout.h's TBR_SETUP_ENTRY_BYTES (must match).
+  private def setupStrideShift = if (cfg.samples > 1) 8 else 7
+  private def lastStoreWord    = if (cfg.samples > 1) 37 else 31
+
   private def handleStoreSetup(): Unit = {
-    val dramAddr = io.mmio.setupBase + (triIdx << 7) + (storeWriteIdx << 2)
+    val dramAddr = io.mmio.setupBase + (triIdx << setupStrideShift) + (storeWriteIdx << 2)
     io.store.req   := true.B
     io.store.addr  := dramAddr
-    // Word 31 = has_uvs flag (for pass 2 recovery)
+    // Word 31 = has_uvs flag; words 32-37 (samples>1 only) = covDelta, sourced
+    // from the flat Pass 1 staging registers covDeltaRegs.
     // storeWriteIdx is 6-bit; guard the uniform-index slice with (4,0)
     // (only reached when storeWriteIdx < 31, so top bit is always 0).
-    val storeData = Mux(storeWriteIdx === 31.U, triHasUvs.asUInt, computeUniformData(storeWriteIdx(4, 0)))
+    val storeData = if (cfg.samples > 1)
+      MuxCase(computeUniformData(storeWriteIdx(4, 0)), Seq(
+        (storeWriteIdx === 31.U) -> triHasUvs.asUInt,
+        (storeWriteIdx >= 32.U)  -> covDeltaRegs.get((storeWriteIdx - 32.U)(2, 0))
+      ))
+    else
+      Mux(storeWriteIdx === 31.U, triHasUvs.asUInt, computeUniformData(storeWriteIdx(4, 0)))
     io.store.wdata := storeData
     when(io.store.ready) {
       when(storeWriteIdx < 2.U || storeWriteIdx === 19.U || storeWriteIdx === 22.U || storeWriteIdx === 25.U || storeWriteIdx === 31.U) {
         if (BorgDebug.trace) printf("[SEQ] storeSetup triIdx=%d [%d] addr=0x%x data=0x%x\n",
           triIdx, storeWriteIdx, dramAddr, storeData)
       }
-      when(storeWriteIdx === 31.U) {
+      when(storeWriteIdx === lastStoreWord.U) {
         state := sNextTriangle
       }.otherwise {
         storeWriteIdx := storeWriteIdx + 1.U
@@ -995,22 +1095,34 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       if (BorgDebug.trace) printf("[SEQ] loadTriSetup HIT page0 triIdx=%d\n", binEntryData)
       uniformPage := 0.U
       triHasUvs   := uvsReg(0)
+      covDeltaActive.foreach(_ := covDeltaCache.get(0))
       state       := sEnqueueTile
     }.elsewhen(binEntryData === tagReg(1)) {
       if (BorgDebug.trace) printf("[SEQ] loadTriSetup HIT page1 triIdx=%d\n", binEntryData)
       uniformPage := 1.U
       triHasUvs   := uvsReg(1)
+      covDeltaActive.foreach(_ := covDeltaCache.get(1))
       state       := sEnqueueTile
     }.otherwise {
       val victim = cacheVictim
+      // Base address must match handleStoreSetup's write-side stride exactly
+      // -- the store moved to setupStrideShift (Step 50.2 fix) when covDelta
+      // was added to the per-triangle entry. Length stays fixed at the
+      // original 32 words (31 uniforms + has_uvs): that destination is the
+      // real, capacity-limited on-chip uniform memory (BorgDMA's destIdx is
+      // truncated to 5 bits, exactly 32 slots), so covDelta -- consumed only
+      // by this sequencer, never by the shader core -- is fetched by a
+      // SEPARATE, second, snoop-only transfer (sLoadCovDelta) instead of
+      // being appended here, where it would silently alias back onto and
+      // corrupt slots 0-5 (this triangle's real edge-coefficient uniforms).
       val desc = Wire(new DMADescriptor)
-      desc.baseAddr := io.mmio.setupBase + (binEntryData << 7)
+      desc.baseAddr := io.mmio.setupBase + (binEntryData << setupStrideShift)
       desc.length   := 32.U  // 31 uniforms + 1 has_uvs flag
       desc.dest     := 1.U   // uniform write; page = uniformPage(:=victim) via DMA
       desc.offset   := 0.U
 
       if (BorgDebug.trace) printf("[SEQ] loadTriSetup MISS triIdx=%d -> page%d addr=0x%x\n",
-        binEntryData, victim, io.mmio.setupBase + (binEntryData << 7))
+        binEntryData, victim, io.mmio.setupBase + (binEntryData << setupStrideShift))
 
       tagReg(victim) := binEntryData
       uniformPage    := victim        // frag reads from the victim page
@@ -1018,11 +1130,33 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       dmaDescReg     := desc
       io.dma.desc    := desc
       io.dma.start   := true.B
-      nextAfterDMA   := sEnqueueTile
-      // Track word count for has_uvs snoop (word 31)
+      nextAfterDMA   := (if (cfg.samples > 1) sLoadCovDelta else sEnqueueTile)
+      // Track word count for the has_uvs snoop (word 31)
       setupLoadIdx   := 0.U
       state          := sWaitDMA
     }
+  }
+
+  /** Step 50.2 root-cause fix: second, snoop-only DMA transfer fetching
+    * covDelta (6 words) for the triangle just loaded by handleLoadTriSetup's
+    * miss path. Only reached when cfg.samples > 1 (nextAfterDMA only ever
+    * targets this state in that case). dest=2 means BorgDMA does not write
+    * any destination memory -- the data is captured purely via the general
+    * io.dma.snoop tap below, avoiding the capacity-limited uniform buffer
+    * entirely. */
+  private def handleLoadCovDelta(): Unit = {
+    val desc = Wire(new DMADescriptor)
+    desc.baseAddr := io.mmio.setupBase + (binEntryData << setupStrideShift) + 128.U  // word 32 = byte 128
+    desc.length   := 6.U
+    desc.dest     := 2.U  // snoop only
+    desc.offset   := 0.U
+
+    dmaDescReg   := desc
+    io.dma.desc  := desc
+    io.dma.start := true.B
+    nextAfterDMA := sEnqueueTile
+    setupLoadIdx := 0.U
+    state        := sWaitDMA
   }
 
   private def handleEnqueueTile(): Unit = {
@@ -1187,6 +1321,15 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
           setupRegs(i) := io.pipeWrite.data(15, 0)
         }
       }
+      // Step 50.2b: r8..r13 carry the per-edge MSAA sample deltas.
+      covDeltaRegs.foreach { cd =>
+        for (i <- 0 until 6) {
+          when(io.pipeWrite.addr === (8 + i).U) {
+            cd(i) := io.pipeWrite.data(15, 0)
+            if (BorgDebug.trace) printf("[SEQ] covDelta r%d = 0x%x\n", (8 + i).U, io.pipeWrite.data(15, 0))
+          }
+        }
+      }
     }
 
     // --- DMA snoop for has_uvs flag (Phase 2: bbox computed from GPU clipRegs) ---
@@ -1204,10 +1347,13 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
 
     // --- Pass 2: Snoop has_uvs flag from setup store word 31 ---
-    // During sLoadTriSetup → sWaitDMA (nextAfterDMA=sEnqueueTile), the DMA
-    // writes 32 words to the uniform buffer. Track the word count via
-    // setupLoadIdx and recover triHasUvs from word 31.
-    when(io.dma.uniformSnoop.en && state === sWaitDMA && nextAfterDMA === sEnqueueTile) {
+    // During sLoadTriSetup → sWaitDMA, the first (dest=1) transfer writes 32
+    // words to the uniform buffer. Track the word count via setupLoadIdx and
+    // recover triHasUvs from word 31. At samples>1 this transfer's
+    // nextAfterDMA target is sLoadCovDelta (not sEnqueueTile) -- covDelta
+    // itself is fetched by a separate dest=2 transfer, see below.
+    val firstTransferTarget = if (cfg.samples > 1) sLoadCovDelta else sEnqueueTile
+    when(io.dma.uniformSnoop.en && state === sWaitDMA && nextAfterDMA === firstTransferTarget) {
       setupLoadIdx := setupLoadIdx + 1.U
       when(setupLoadIdx === 31.U) {
         triHasUvs := io.dma.uniformSnoop.data(0)
@@ -1215,6 +1361,26 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         // later cache hit on this triangle restores it without re-reading setup.
         uvsReg(uniformPage) := io.dma.uniformSnoop.data(0)
         if (BorgDebug.trace) printf("[SEQ] pass2 hasUvs triIdx=%d flag=%d\n", binEntryData, io.dma.uniformSnoop.data(0))
+      }
+    }
+
+    // --- Pass 2: Snoop covDelta (6 words) from the second, snoop-only
+    // (dest=2) transfer issued by handleLoadCovDelta ---
+    // dest=2 never touches io.dma.uniformSnoop (that signal is wired
+    // directly from the destination uniformWrite port, which dest=2 never
+    // drives) -- must read the general io.dma.snoop tap instead, which fires
+    // for every DMA read regardless of destination. setupLoadIdx is reused
+    // as a fresh 0-5 counter here (reset by handleLoadCovDelta).
+    covDeltaCache.foreach { cache =>
+      when(io.dma.snoop.valid && state === sWaitDMA && nextAfterDMA === sEnqueueTile &&
+           setupLoadIdx < 6.U) {
+        val data = io.dma.snoop.bits(15, 0)
+        val idx  = setupLoadIdx(2, 0)
+        cache(uniformPage)(idx) := data  // persist for future hits
+        covDeltaActive.get(idx) := data  // and use immediately for this triangle
+        setupLoadIdx := setupLoadIdx + 1.U
+        if (BorgDebug.trace) printf("[SEQ] pass2 covDelta triIdx=%d word=%d data=0x%x\n",
+          binEntryData, setupLoadIdx, data)
       }
     }
   }

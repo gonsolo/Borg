@@ -22,6 +22,10 @@ class BorgIO(val cfg: BorgConfig) extends Bundle {
 
   // GPU read port (Step 19.2: texture fetches → MemoryController)
   val gpuMem = new GpuMemIO
+
+  // DIAGNOSTIC TEMP: expose the sequencer's latched MSAA covDelta for test
+  // observability while debugging Step 50.2 corruption.
+  val covDeltaDebug = if (cfg.samples > 1) Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
 }
 
 /** Borg — minimal FP16 shading processor with 4-cycle FMA pipeline.
@@ -75,8 +79,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // order, so flusher must precede tile or tile sees a one-cycle-stale read_en.
   val core      = Module(new BorgCore(cfg))
   val rast      = Module(new BorgRasterizer(cfg))
-  val flusher   = Module(new BorgTileFlusher())   // before tile — see note above
-  val tile      = Module(new BorgTileBuffer())
+  val flusher   = Module(new BorgTileFlusher(16, cfg.samples))   // before tile — see note above
+  val tile      = Module(new BorgTileBuffer(16, cfg.samples))
   val rdlRegs   = Module(new BorgGpuRegs()) // Auto-generated RDL register block
   val dma       = Module(new BorgDMA)
   val sequencer = Module(new BorgSequencer(cfg))
@@ -322,6 +326,20 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     writeColor.b := rdlRegs.io.hw.tile_bz_b   // from RDL tile_bz_b_reg (Step 26.5)
     writeColor.z := rdlRegs.io.hw.tile_bz_z   // from RDL tile_bz_z_reg (Step 26.5)
     tile.io.write.data := Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor)
+    // MSAA coverage deltas, computed once per triangle by the setup shader and
+    // latched in BorgSequencer (Step 50.2b).  Before the first triangle's setup
+    // completes these read as zero, which puts every sample's threshold at ±0 —
+    // all four samples test at the pixel centre, i.e. 4× degenerates to 1×
+    // rather than to anything invalid.
+    rast.io.covDelta.foreach(_ := s.io.covDelta.get)
+    io.covDeltaDebug.foreach(_ := s.io.covDelta.get)
+
+    // Coverage: the rasterizer supplies a per-sample mask from the depth test;
+    // an MMIO poke has no coverage concept and writes every sample (same
+    // all-samples semantics as a clear).
+    tile.io.write.coverage := Mux(rast.io.tileWrite.en,
+                                  rast.io.tileWrite.coverage,
+                                  Fill(cfg.samples, 1.U(1.W)))
 
     // Read port: flusher > dispatcher depth-test > MMIO CTRL.
     // Flusher and dispatcher never fire simultaneously (flusher waits for
@@ -425,8 +443,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // (readTilePixel) and by the CPU flush path (hasFlusher=false).
     val data_out = MuxCase(rdl_read_data, Seq(
       (read_addr_del < 128.U) -> core.io.regReadData,
-      (read_addr_del === BorgGpuRegs.tile_rg_offset) -> Cat(tile.io.read.data.r, tile.io.read.data.g),
-      (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.read.data.b, tile.io.read.data.z),
+      // MMIO tile readback is a debug/test path: it reports sample 0.  (The
+      // resolved value lives in DRAM after the flush; the harness that uses
+      // these arms writes and reads single samples.)
+      (read_addr_del === BorgGpuRegs.tile_rg_offset) -> Cat(tile.io.read.data(0).r, tile.io.read.data(0).g),
+      (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.read.data(0).b, tile.io.read.data(0).z),
       // Repurpose the write-only SEQ_TRIGGER address for reading seqDoneSticky.
       // Firmware reads this after triggering with triCount=0 to detect
       // whether the sequencer hardware is present.

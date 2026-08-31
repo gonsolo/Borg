@@ -63,11 +63,14 @@ object BorgShaderDispatcherTests extends TestSuite {
     d.io.texConfig.baseAddr.poke(0.U)
     d.io.gpuMem.data.poke(0.U)
     d.io.gpuMem.ready.poke(false.B)
-    // Step 25.5C: tile read port — provide max depth so depth test passes
-    d.io.tileRead.data.r.poke(0.U)
-    d.io.tileRead.data.g.poke(0.U)
-    d.io.tileRead.data.b.poke(0.U)
-    d.io.tileRead.data.z.poke(FP16_MAX_DEPTH.U)
+    // Step 25.5C: tile read port — provide max depth so depth test passes.
+    // Per-sample since MSAA: every sample starts at the far plane.
+    d.io.tileRead.data.foreach { s =>
+      s.r.poke(0.U)
+      s.g.poke(0.U)
+      s.b.poke(0.U)
+      s.z.poke(FP16_MAX_DEPTH.U)
+    }
   }
 
   /** Step through the 3 depth-test wait states (sZRead → sZWait1 → sZWait2 → sTileWrite). */
@@ -631,6 +634,122 @@ object BorgShaderDispatcherTests extends TestSuite {
         val en = d.io.tileWrite.en.peek().litToBoolean
         println(f"  sTileWrite after r25=0x0000: tileWrite.en=$en (expect true)")
         utest.assert(en)
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // Step 50.2: 4× MSAA per-sample coverage
+    // =========================================================================
+    //
+    // The whole point of per-sample coverage is that a pixel STRADDLING a
+    // triangle edge is partially covered — some samples in, some out.  A
+    // pixel-centre-only test can never produce that, so these tests drive edge
+    // values whose sign differs from the sign of (edge + sample offset).
+    //
+    // Sample s's edge value is e + δ_s, tested as e >= -δ_s.  With the standard
+    // Vulkan/D3D 4× positions, δ_s2 = -δ_s1 and δ_s3 = -δ_s0, so the hardware
+    // derives all four thresholds from the two base deltas per edge.
+
+    val MSAA = BorgConfig.Default.copy(samples = 4)
+
+    /** FP16 bits for a float (test-side reference, finite normals only). */
+    def f16(f: Float): Int = {
+      val h = java.lang.Float.floatToIntBits(f)
+      val sign = (h >>> 16) & 0x8000
+      val expF = ((h >>> 23) & 0xff) - 127 + 15
+      val mantF = h & 0x7fffff
+      if (f == 0.0f) sign
+      else if (expF <= 0) sign
+      else if (expF >= 0x1f) sign | 0x7bff
+      else sign | (expF << 10) | (mantF >> 13)
+    }
+
+    /** Drive the two base deltas for all three edges. */
+    def pokeCovDelta(d: BorgShaderDispatcher, d0: Int, d1: Int): Unit =
+      for (e <- 0 until 3) {
+        d.io.covDelta.get(e)(0).poke(d0.U)
+        d.io.covDelta.get(e)(1).poke(d1.U)
+      }
+
+    utest.test("msaa_partial_coverage_on_edge") {
+      simulate(new BorgShaderDispatcher(MSAA)) { d =>
+        println("\n--- BorgShaderDispatcher: msaa_partial_coverage_on_edge ---")
+        pokeIdle(d)
+        // Base deltas ±0.5: thresholds become {-0.5, -0.5, +0.5, +0.5} per edge
+        // (samples 0,1 shifted one way, samples 2,3 the other).
+        pokeCovDelta(d, f16(0.5f), f16(0.5f))
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        firePixelReady(d, fragPc = 13, tileIdx = 0)
+
+        // e = 0.0 for every edge: exactly on the centre.  Samples whose
+        // threshold is -0.5 are covered (0 >= -0.5); samples whose threshold
+        // is +0.5 are not (0 >= 0.5 is false).  So coverage must be PARTIAL —
+        // impossible under a centre-only test, which would say fully inside.
+        pokeAllEdges(d, f16(0.0f), f16(0.0f), f16(0.0f))
+
+        val inside = d.io.insideFlag.peek().litToBoolean
+        println(s"  e=0.0, thresholds {-0.5,-0.5,+0.5,+0.5}: insideFlag=$inside")
+        utest.assert(inside)   // some samples covered → shade the pixel
+
+        simulateShaderRun(d)   // rast → frag
+        simulateShaderRun(d)   // frag → depth test
+        stepThroughDepthTest(d)
+
+        val cov = d.io.tileWrite.coverage.peek().litValue.toInt
+        println(f"  tileWrite.coverage=0b${cov.toBinaryString}%4s (expect 0b0011)")
+        utest.assert(cov == 0x3)  // samples 0,1 covered; 2,3 not
+        utest.assert(d.io.tileWrite.en.peek().litToBoolean)
+        println("  Partial coverage across a sub-pixel edge ✓")
+        println("  PASSED")
+      }
+    }
+
+    utest.test("msaa_fully_outside_covers_nothing") {
+      simulate(new BorgShaderDispatcher(MSAA)) { d =>
+        println("\n--- BorgShaderDispatcher: msaa_fully_outside_covers_nothing ---")
+        pokeIdle(d)
+        pokeCovDelta(d, f16(0.5f), f16(0.5f))
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        firePixelReady(d, fragPc = 13, tileIdx = 0)
+
+        // e = -4.0: far outside, beyond every ±0.5 sample offset, so NO sample
+        // can be covered and the fragment must not be shaded at all.
+        pokeAllEdges(d, f16(-4.0f), f16(-4.0f), f16(-4.0f))
+        val inside = d.io.insideFlag.peek().litToBoolean
+        println(s"  e=-4.0 (beyond all sample offsets): insideFlag=$inside (expect false)")
+        utest.assert(!inside)
+
+        simulateShaderRun(d)
+        utest.assert(!d.io.tileWrite.en.peek().litToBoolean)
+        println("  No sample covered, no tile write ✓")
+        println("  PASSED")
+      }
+    }
+
+    utest.test("msaa_fully_inside_covers_all_samples") {
+      simulate(new BorgShaderDispatcher(MSAA)) { d =>
+        println("\n--- BorgShaderDispatcher: msaa_fully_inside_covers_all_samples ---")
+        pokeIdle(d)
+        pokeCovDelta(d, f16(0.5f), f16(0.5f))
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        firePixelReady(d, fragPc = 13, tileIdx = 0)
+
+        // e = +4.0: deep inside, every sample covered → full mask.
+        pokeAllEdges(d, f16(4.0f), f16(4.0f), f16(4.0f))
+        utest.assert(d.io.insideFlag.peek().litToBoolean)
+
+        simulateShaderRun(d)
+        simulateShaderRun(d)
+        stepThroughDepthTest(d)
+
+        val cov = d.io.tileWrite.coverage.peek().litValue.toInt
+        println(f"  tileWrite.coverage=0b${cov.toBinaryString}%4s (expect 0b1111)")
+        utest.assert(cov == 0xF)
+        println("  Interior pixel covers all 4 samples ✓")
         println("  PASSED")
       }
     }
