@@ -182,7 +182,24 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val killed = RegInit(VecInit(Seq.fill(N)(false.B)))
 
   // Lane counter for the serialized Z-read / tile-write loop (single-port tile buffer).
-  val laneCtr = RegInit(0.U(log2Ceil(N + 1).W))
+  // Ranges over [0, N-1] only (wraps at N-1, never reaches N) — log2Ceil(N) bits,
+  // not N+1: the extra bit made this a 3-bit index into the 4-entry (2-bit) frag_*/
+  // inside_flag Vecs, which triggered pathological blowup in Yosys/ABC9 synthesis
+  // for the full ULX3S SoC (a 3-bit dynamic index into a 4-element Vec forces
+  // hardware for 8 selector values instead of 4).
+  // log2Up (not log2Ceil): at N=1 a single lane needs zero index bits, but
+  // Chisel has no 0-width literal syntax, so `:= 0.U`/`+ 1.U` against a
+  // genuinely 0-bit register trips the implicit-truncation warning; log2Up
+  // floors at 1 bit instead.
+  val laneCtr = RegInit(0.U(log2Up(N).W))
+  // Dynamic Vec indices need a genuinely 0-width UInt at N=1 (Chisel's own
+  // log2Ceil docs: "log2Ceil(1) // returns 0") to avoid a W004 "dynamic
+  // index too wide" warning — but laneCtr itself must stay log2Up-width
+  // (>=1 bit, see comment above) so its own `:= 0.U`/`+ 1.U` assignments
+  // don't trip a *different* (truncation) warning against a literal 0-bit
+  // register. laneIdx is laneCtr's value at the width Vec indexing actually
+  // needs; use it (not laneCtr) at every `someVec(laneCtr)` call site below.
+  private val laneIdx: UInt = if (N == 1) 0.U(0.W) else laneCtr
 
   // --- Trigger outputs (directly driven, no register delay) ---
   io.coreTrigger.valid  := false.B
@@ -325,7 +342,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // fragLanes=1 this is exactly the original single sZRead→…→sTileWrite sequence.
   when(phase === sZRead) {
     io.tileRead.en  := true.B
-    io.tileRead.idx := io.shaderTileIndex(laneCtr)
+    io.tileRead.idx := io.shaderTileIndex(laneIdx)
     phase := sZWait1
   }
 
@@ -338,11 +355,11 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   }
 
   when(phase === sTileWrite) {
-    io.tileWrite.idx := io.shaderTileIndex(laneCtr)
-    io.tileWrite.data.r := frag_r(laneCtr)
-    io.tileWrite.data.g := frag_g(laneCtr)
-    io.tileWrite.data.b := frag_b(laneCtr)
-    io.tileWrite.data.z := frag_z(laneCtr)
+    io.tileWrite.idx := io.shaderTileIndex(laneIdx)
+    io.tileWrite.data.r := frag_r(laneIdx)
+    io.tileWrite.data.g := frag_g(laneIdx)
+    io.tileWrite.data.b := frag_b(laneIdx)
+    io.tileWrite.data.z := frag_z(laneIdx)
     // Depth test, per sample: a sample takes the fragment only if the lane is
     // inside (coverage), not discarded, AND this sample's own stored Z is
     // farther.  FP16 Z is non-negative in NDC; unsigned < comparison is valid.
@@ -353,12 +370,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // sample's own depth test.  At samples == 1 `coverage(lane)(0)` is exactly
     // the historical inside_flag.
     val samplePass = (0 until cfg.samples).map { s =>
-      coverage(laneCtr)(s) && !killed(laneCtr) && (frag_z(laneCtr) < io.tileRead.data(s).z)
+      coverage(laneIdx)(s) && !killed(laneIdx) && (frag_z(laneIdx) < io.tileRead.data(s).z)
     }
     io.tileWrite.coverage := Cat(samplePass.reverse)
     io.tileWrite.en       := samplePass.reduce(_ || _)
     if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d idx=%d Z=0x%x zOld_s0=0x%x cov=0x%x\n",
-      laneCtr, io.shaderTileIndex(laneCtr), frag_z(laneCtr), io.tileRead.data(0).z,
+      laneCtr, io.shaderTileIndex(laneIdx), frag_z(laneIdx), io.tileRead.data(0).z,
       Cat(samplePass.reverse))
 
     when(laneCtr === (N - 1).U) {
