@@ -309,6 +309,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // literal syntax, so `:= 0.U`/`+ 1.U` against a genuinely 0-bit register
     // trips the implicit-truncation warning; log2Up floors at 1 bit instead.
     val texLane  = RegInit(0.U(log2Up(N).W))
+    // Dynamic Vec index needs 0 width at N=1 (Chisel: log2Ceil(1) == 0), but
+    // texLane itself must stay log2Up-width for its own `:= 0.U`/`+ 1.U` to
+    // avoid a truncation warning instead -- see BorgShaderDispatcher's
+    // laneIdx for the same split.
+    val texLaneIdx: UInt = if (N == 1) 0.U(0.W) else texLane
 
     val texRdReg = RegInit(0.U(5.W))
     val texResultR = RegInit(0.U(16.W))
@@ -316,8 +321,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val texResultB = RegInit(0.U(16.W))
 
     // Active lane's U/V operands (read ports stay valid while busy_counter is held).
-    val curA = VecInit(recAs)(texLane)
-    val curB = VecInit(recBs)(texLane)
+    val curA = VecInit(recAs)(texLaneIdx)
+    val curB = VecInit(recBs)(texLaneIdx)
 
     // Defaults
     io.texReq := false.B
