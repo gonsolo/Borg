@@ -41,8 +41,7 @@
   \titlepage
 \end{frame}
 
-% ── 2: What is Borg (brief — this crowd cares about the toolchain, not the ── %
-%      rasterizer) ─────────────────────────────────────────────────────── %
+% ── 2: What is Borg — presented directly, in the ORConf context ─────────── %
 \begin{frame}{What is Borg?}
   \begin{itemize}[leftmargin=*]
     \item A small RISC-V SoC (\textbf{Hutt} core) driving a tile-based
@@ -50,22 +49,10 @@
     \item Chisel HDL, $\sim$19k lines; GPU pipeline itself is $\sim$5.5k LoC
     \item Runs today on a \$100 ECP5 FPGA, HDMI out, real Vulkan content
           via a native Mesa ICD (\texttt{borgvk})
-  \end{itemize}
-  \vfill
-  \centering
-  \textcolor{borgorange}{\textbf{But that's not really the point of this talk.}}
-\end{frame}
-
-% ── 3: Reframe — the real story is the toolchain ────────────────────────── %
-\begin{frame}{Why This Talk is Here, Not at a Graphics Conference}
-  \begin{itemize}[leftmargin=*]
-    \item Borg has already been presented as a GPU (HPG 2026)
-    \item Here, Borg is a \textbf{stress test}: is a fully libre EDA flow
-          capable of taking a non-trivial SoC —
-          RISC-V core \emph{and} a custom floating-point pipeline —
-          all the way to \textbf{signed-off silicon}?
     \item To our knowledge: the first open-source GPU with a
-          \textbf{submitted ASIC tapeout}
+          \textbf{submitted ASIC tapeout} — a RISC-V core \emph{and} a
+          custom floating-point pipeline, taken all the way to signed-off
+          silicon on a fully libre EDA flow
   \end{itemize}
 \end{frame}
 
@@ -87,70 +74,7 @@
   \textcolor{borgorange}{\textbf{not an afterthought.}}
 \end{frame}
 
-% ── 5: Tapeouts ──────────────────────────────────────────────────────────
-\begin{frame}{Two Tapeouts in Flight}
-  \centering \small
-  \begin{tabular}{@{}llll@{}}
-    \toprule
-    \textbf{Shuttle} & \textbf{PDK} & \textbf{Flow} & \textbf{Status} \\
-    \midrule
-    Tiny Tapeout (TTIHP26a) & IHP SG13G2 (130\,nm) & LibreLane & Submitted; chips $\approx$ Sept.\ 2026 \\
-    wafer.space             & GF180MCU             & LibreLane & In signoff \\
-    \bottomrule
-  \end{tabular}
-  \vfill
-  \includegraphics[width=0.32\linewidth]{../poster/gds_render_small}
-\end{frame}
-
-% ── 6: War stories — THE payload for this audience ──────────────────────── %
-\begin{frame}{What Breaks When You Actually Push These Tools to Tapeout}
-  \begin{itemize}[leftmargin=*]
-    \item \textbf{Yosys}: \texttt{autoname} pass rescans the whole module
-          every iteration — $O(n^2)$ blowup, 49\,GB+/never-complete on our
-          SoC. Patched locally, fixed upstream (yosys \#6050) and shipped
-          in \texttt{0.68}, our current pin — local patch dropped.
-    \item \textbf{LibreLane 3.0.3 \texttt{--manual-pdk}}: three real signoff
-          blockers (dead VDD/DVDD tie, unset \texttt{DEFAULT\_CORNER},
-          a PDN config hardcoding macros we don't have). Fixed upstream,
-          now on \texttt{3.0.8}.
-    \item \textbf{OpenROAD}: a heap-underflow crash (\texttt{GRT-0183})
-          during antenna-repair jumper insertion, hit on a real net in our
-          own GDS flow — already fixed upstream, pulled in via our own
-          nixpkgs 26Q2$\to$26Q3 OpenROAD bump.
-    \item \textbf{KLayout DRC}: \texttt{0.30.10}'s \texttt{separation()}
-          operator spuriously flagged fully-overlapping regions as a
-          sealring DRC violation (\texttt{GR.2}) — a regression, not a
-          real bug, confirmed against the PDK's own unmodified code.
-          Fixed upstream (\#2425), adopted in \texttt{0.30.11}.
-  \end{itemize}
-  \vfill
-  \centering
-  \textcolor{borgorange}{\textbf{Every one of these was reported, and where}}\\
-  \textcolor{borgorange}{\textbf{possible fixed, upstream — not worked around silently.}}
-\end{frame}
-
-% ── 6b: The Bluespec detour — a different kind of tool story ─────────────
-\begin{frame}{When Chisel (and an LLM) Got Stuck: A Bluespec Detour}
-  \begin{itemize}[leftmargin=*]
-    \item A race condition in the memory controller's QSPI bus arbiter
-          resisted both manual debugging \emph{and} LLM-assisted fixes
-          in Chisel/simulation
-    \item Ported the $\sim$3-class arbitration logic to \textbf{Bluespec
-          SystemVerilog} — a different open HDL, built around
-          \emph{atomic rule scheduling} with static conflict checking
-    \item Bluespec's compiler resolved the correct priority chain
-          (\texttt{CPU Read > CPU Write > GPU Write > GPU Read > Instr
-          Fetch} via \texttt{descending\_urgency}) in a fraction of a
-          second
-    \item Ported the verified logic back into Chisel by hand
-  \end{itemize}
-  \vfill
-  \centering
-  \textcolor{borgorange}{\textbf{Different HDL semantics catch different}}\\
-  \textcolor{borgorange}{\textbf{bug classes — worth more than one tool in the box.}}
-\end{frame}
-
-% ── 7: Ecosystem contribution ────────────────────────────────────────────
+% ── 4: Ecosystem contribution (moved up, swapped with Tapeouts) ─────────
 \begin{frame}{A Year of Upstream Maintenance}
   \centering
   {\Large \textbf{80+ contributions}, July 2025 -- July 2026}
@@ -168,25 +92,60 @@
     \bottomrule
   \end{tabular}
 
-  \vspace{1em}
+  \vspace{0.8em}
   \raggedright \normalsize
-  \textbf{Packages authored from scratch} for \texttt{nixpkgs}: \\
-  \texttt{librelane}, \texttt{netgen-vlsi}, \texttt{riscv-model},
-  \texttt{pdk-ciel}, \texttt{libparse-python}, \texttt{gdstk} — plus
-  several more on AUR.
+  \textbf{Authored from scratch} for \texttt{nixpkgs}: \texttt{librelane}
+  \textbf{itself} — the tool most of this flow (and this room) depends on —
+  plus \texttt{netgen-vlsi}, \texttt{riscv-model}, \texttt{pdk-ciel},
+  \texttt{gdstk}, and more.
+  \vfill
+  \centering
+  \textcolor{borgorange}{\textbf{Whole flow is one \texttt{flake.nix} — same}}\\
+  \textcolor{borgorange}{\textbf{bits, bugs, fixes, for anyone who clones it.}}
 \end{frame}
 
-% ── 7b: Why it matters ────────────────────────────────────────────────────
-\begin{frame}{Why Package the Tools, Not Just Use Them}
+% ── 5: War stories — THE payload for this audience (merged w/ former 6b) ── %
+\begin{frame}{What Breaks When You Actually Push These Tools to Tapeout}
+  \small
   \begin{itemize}[leftmargin=*]
-    \item \textbf{LibreLane itself} — the tool most of this flow (and much
-          of this room) depends on — reached \texttt{nixpkgs} through this
-          project
-    \item Whole flow is one \texttt{flake.nix}: same bits, same bugs,
-          same fixes, for anyone who clones the repo
-    \item Packaging surfaces bugs that using-in-place never would —
-          reproducible builds are also a debugging tool
+    \item \textbf{Yosys}: \texttt{autoname} rescans the whole module every
+          iteration — $O(n^2)$ blowup, 49\,GB+/never-complete. Fixed
+          upstream (yosys \#6050), shipped in our \texttt{0.68} pin.
+    \item \textbf{LibreLane 3.0.3 \texttt{--manual-pdk}}: three real signoff
+          blockers (dead VDD/DVDD tie, unset \texttt{DEFAULT\_CORNER}, a
+          PDN config hardcoding macros we don't have). Fixed upstream,
+          now on \texttt{3.0.8}.
+    \item \textbf{OpenROAD}: a heap-underflow (\texttt{GRT-0183}) during
+          antenna-repair jumper insertion, hit on a real net in our own
+          flow — fixed upstream, pulled in via our nixpkgs 26Q2$\to$26Q3 bump.
+    \item \textbf{KLayout DRC}: \texttt{0.30.10}'s \texttt{separation()}
+          spuriously flagged fully-overlapping regions as a sealring
+          violation — confirmed regression, fixed upstream (\#2425),
+          adopted in \texttt{0.30.11}.
+    \item \textbf{Chisel dead end}: a QSPI arbiter race resisted both
+          manual and LLM-assisted debugging — ported to \textbf{Bluespec
+          SystemVerilog}, whose atomic-rule scheduler resolved the correct
+          priority chain outright; ported back to Chisel by hand.
   \end{itemize}
+  \vfill
+  \centering
+  \textcolor{borgorange}{\textbf{Every one of these was reported upstream —}}\\
+  \textcolor{borgorange}{\textbf{and different HDL semantics catch different bug classes.}}
+\end{frame}
+
+% ── 6: Tapeouts (moved down, swapped with Upstream Maintenance) ─────────
+\begin{frame}{Two Tapeouts in Flight}
+  \centering \small
+  \begin{tabular}{@{}llll@{}}
+    \toprule
+    \textbf{Shuttle} & \textbf{PDK} & \textbf{Flow} & \textbf{Status} \\
+    \midrule
+    Tiny Tapeout (TTIHP26a) & IHP SG13G2 (130\,nm) & LibreLane & Submitted; chips $\approx$ Sept.\ 2026 \\
+    wafer.space             & GF180MCU             & LibreLane & In signoff \\
+    \bottomrule
+  \end{tabular}
+  \vfill
+  \includegraphics[width=0.32\linewidth]{../poster/gds_render_small}
 \end{frame}
 
 % ── 8: Funding & status ──────────────────────────────────────────────────
@@ -207,6 +166,29 @@
     \item Phase 4--5, 7 \inprog\ (Linux-capable CPU, Mesa Vulkan driver,
           Vulkan 1.0 conformance)
   \end{itemize}
+\end{frame}
+
+% ── 8c: Shared SoC proposal ───────────────────────────────────────────────
+\begin{frame}{Shared Silicon: Splitting a Tapeout, Not Just Sharing Tools}
+  \begin{itemize}[leftmargin=*]
+    \item Precedent already exists: \textbf{KianV} (RV32IMA + $\mu$Linux
+          SoC, Tiny Tapeout \texttt{ttgf0p3}), \textbf{Greyhound}
+          (RISC-V + tightly-coupled eFPGA, IHP SG13G2), a
+          \textbf{Chipyard + LibreLane} custom RISC-V build (f-si wiki),
+          Tiny Tapeout's \textbf{RISC-V Peripheral} competition
+    \item Proposal: a dedicated TT run --- or an $8\times8$ tile block ---
+          built \emph{together}, cost shared across contributors
+    \item Borg brings the \textbf{GPU} (Chisel, tile-based FP16 pipeline);
+          looking for a \textbf{CPU} (Chisel preferred) to drive it as an
+          MMIO peripheral --- the same contract Hutt already uses
+    \item Interconnect: a stripped-down \textbf{TileLink / Diplomacy}
+          (Rocket Chip / Chipyard) --- enough to wire CPU, GPU, and other
+          peripherals without a bespoke bus per pairing
+  \end{itemize}
+  \vfill
+  \centering
+  \textcolor{borgorange}{\textbf{Building a RISC-V core in Chisel and want a}}\\
+  \textcolor{borgorange}{\textbf{GPU to hang off it? Let's talk.}}
 \end{frame}
 
 % ── 9: Call to action ─────────────────────────────────────────────────────
