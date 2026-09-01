@@ -103,6 +103,11 @@ object BorgConfig {
   //   icacheLines=0: I-cache bypassed — at 4 MHz QSPI latency is trivial; saves ~55 kµm².
   //   maxUniforms=32: single-page uniforms — sequencer always writes page 0; saves ~25 kµm².
   //   hasPerfCounters=false: 5×32-bit counters not needed for silicon demo; saves ~18 kµm².
+  //   fragLanes=4 + samples=4: 4-lane SIMT and 4x MSAA both enabled. Verified by a
+  //     full wafer.space 1x0.5 signoff -- 85.68 % utilisation, DRC/LVS/antenna clean,
+  //     4.52 mW. The earlier 0.5x1 orientation failed detailed placement (DPL-0036) at
+  //     81.97 %; 1x0.5 is the orientation that fits. Real Max Slew / Max Cap warnings
+  //     remain outstanding -- electrical, not frequency-related, at 4 MHz.
   val Asic = BorgConfig(
     fp               = FloatConfig.FP16,
     coordWidth       = 7,
@@ -111,6 +116,8 @@ object BorgConfig {
     maxInstructions  = 64,
     icacheLines      = 0,
     maxUniforms      = 32,
-    hasPerfCounters  = false
+    hasPerfCounters  = false,
+    fragLanes        = 4,
+    samples          = 4
   )
 }
