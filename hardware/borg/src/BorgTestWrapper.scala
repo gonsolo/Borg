@@ -44,7 +44,18 @@ class BorgTestWrapperIO(val cfg: BorgConfig) extends Bundle {
   val covDeltaDebug  = if (cfg.samples > 1) Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
 }
 
-class BorgTestWrapper(val cfg: BorgConfig = BorgConfig.Default) extends Module {
+/** Anything presenting the legacy word-addressed MMIO surface.
+  *
+  * Lets one test scenario be driven against both this wrapper and the
+  * link-interposed one in `borg.link`, which is what the equivalence gate needs:
+  * identical stimulus, direct versus over the chip-to-chip bridge, compared for
+  * bit-identical output.
+  */
+trait HasLegacyBorgMmio {
+  def io: BorgTestWrapperIO
+}
+
+class BorgTestWrapper(val cfg: BorgConfig = BorgConfig.Default) extends Module with HasLegacyBorgMmio {
   def this(fp: FloatConfig) = this(BorgConfig.Default.copy(fp = fp))
 
   val io = IO(new BorgTestWrapperIO(cfg))
