@@ -149,6 +149,54 @@ trait SoCLogic { self: RawModule =>
     mem.io.gpuMem <> peripherals.io.gpuMem
   }
 
+  /** Rung A of the wafer.space Borg-only bridge's on-hardware ladder: close
+    * `peripherals.io.link` back on a same-bitstream `BorgLinkSlave` + `Borg`
+    * pair, so the CPU's every Borg access -- and every gpuMem transaction Borg
+    * itself initiates -- travels the real link RTL (framing, credits,
+    * arbitration, beat-phase training, all four adapter hazards) with no ASIC
+    * involved at all.
+    *
+    * "Pins" are internal wires here, so training locks in a handful of
+    * cycles -- both `BorgLinkClockGen`s divide the *same* clock with zero
+    * board delay between them, unlike the real off-chip case this rehearses.
+    *
+    * Call this instead of leaving `peripherals.io.link` unconnected whenever
+    * `borgMode == BorgLoopback`; it is a no-op-shaped error (dangling IO) to
+    * select that mode and not call it.
+    */
+  def wireBorgLoopback(): Unit = {
+    require(borgMode == BorgLoopback, "wireBorgLoopback() only makes sense under BorgLoopback")
+    val linkIo = peripherals.io.link.getOrElse(
+      throw new IllegalStateException("BorgLoopback requires peripherals.io.link to be present")
+    )
+
+    val farBorg = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new borg.Borg(BORG_CFG)) }
+    val slave   = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+      Module(new borg.link.BorgLinkSlave(linkParams))
+    }
+    slave.io.mmio   <> farBorg.io.mmio
+    slave.io.gpuMem <> farBorg.io.gpuMem
+
+    slave.io.dnPins := linkIo.dnPins
+    linkIo.upPins   := slave.io.upPins
+    slave.io.upCred := linkIo.upCred
+    linkIo.dnCred   := slave.io.dnCred
+    slave.io.linkFast := linkIo.linkFast
+
+    // linkFast is otherwise a board strap (input_in[3] in the wafer.space
+    // lane map) with no such pin here. Default to N=2 -- the reset-default
+    // safe mode -- so a target that selects BorgLoopback and forgets this
+    // input entirely still elaborates to something meaningful rather than an
+    // uninitialized-sink firtool error. A real caller overrides it after this
+    // call (Chisel's last-connect-wins) if it has an actual strap to honor.
+    linkIo.linkFast := false.B
+
+    // The master reads the slave's link_up back on a pin before sending real
+    // traffic (see BorgLinkClockGen's training doc); here that pin is just a
+    // wire, same as everything else in this loopback.
+    linkIo.farLinkUp := slave.io.linkUp
+  }
+
   /** Wire up the entire SoC. Call this from the top-level module body. */
   def wireSoC(): UInt = {
 
