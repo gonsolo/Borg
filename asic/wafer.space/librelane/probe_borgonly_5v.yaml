@@ -1,0 +1,186 @@
+meta:
+  version: 3
+  flow: Chip
+  substituting_steps:
+    KLayout.Render: null
+    +KLayout.SealRing: KLayout.Render
+
+# Phase 0 probes 0a/0c: does Borg-alone (no Hutt, behind BorgLinkSlave) fit
+# SLOT_1X0P5, and does it close 25 MHz? THROWAWAY -- self-contained rather
+# than merged onto config.yaml (LibreLane 3.0.3's multi-config merge order is
+# unverified, see the bridge plan's open question 4), and does not touch
+# config.yaml or src/chip_core.sv, which back the currently-signed-off
+# Hutt+Borg SoC on this same slot. Run with:
+#   cd asic/wafer.space && ciel enable ... (see Makefile clone-pdk) then
+#   librelane librelane/slots/slot_1x0p5.yaml librelane/macros/macros_5v.yaml \
+#     librelane/probe_borgonly_5v.yaml \
+#     --pdk gf180mcuD --pdk-root <root> --manual-pdk \
+#     --scl gf180mcu_fd_sc_mcu7t5v0 --pad gf180mcu_fd_io \
+#     --skip KLayout.Antenna --skip KLayout.DRC --skip Magic.DRC
+#
+# This is the 5V variant: shipping-safe fallback if probe_borgonly_3v3.yaml's
+# 25 MHz timing does not close at the slower 3.3V standard cells.
+
+DESIGN_NAME: chip_top
+
+SYNTH_CORNER: nom_tt_025C_5v00
+DEFAULT_CORNER: nom_tt_025C_5v00
+
+LIB:
+  "*_tt_025C_5v00":
+  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib
+  "*_ss_125C_4v50":
+  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ss_125C_4v50.lib
+  "*_ff_n40C_5v50":
+  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ff_n40C_5v50.lib
+
+EXTRA_VERILOG_MODELS:
+- pdk_dir::libs.ref/gf180mcu_fd_io/verilog/gf180mcu_fd_io__blackbox_pp.v
+
+# Same LibreLane 3.0.3 read_timing_info bug as config.yaml -- see its comment.
+# Irrelevant to an area/timing probe either way.
+PAD_LIBS: null
+
+VERILOG_FILES:
+- dir::../src/chip_top.sv
+- dir::../src/probe_borgonly_chip_core.sv
+- dir::../../../out/hardware/borg/verilog_wafer/Borg.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgBinner.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgCommandFIFO.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgCore.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgDMA.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgFp16Fma.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgGpuRegs.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgIterator.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgLane.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgLinkClockGen.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgLinkSlave.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgOnlyCore.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgOnlyTop.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgRasterizer.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgSequencer.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgShaderDispatcher.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgTextureUnit.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgTileBuffer.sv
+- dir::../../../out/hardware/borg/verilog_wafer/BorgTileFlusher.sv
+- dir::../../../out/hardware/borg/verilog_wafer/CreditCounter.sv
+- dir::../../../out/hardware/borg/verilog_wafer/Fp16Special.sv
+- dir::../../../out/hardware/borg/verilog_wafer/LinkRx.sv
+- dir::../../../out/hardware/borg/verilog_wafer/LinkTx.sv
+- dir::../../../out/hardware/borg/verilog_wafer/Queue2_BorgCommand.sv
+- dir::../../../out/hardware/borg/verilog_wafer/Sync2.sv
+- dir::../../../out/hardware/borg/verilog_wafer/countMem_16x9.sv
+- dir::../../../out/hardware/borg/verilog_wafer/instructionMemory_64x32.sv
+- dir::../../../out/hardware/borg/verilog_wafer/mem_32x16.sv
+- dir::../../../out/hardware/borg/verilog_wafer/ram_2x14.sv
+- dir::../../../out/hardware/borg/verilog_wafer/regFile.sv
+- dir::../../../out/hardware/borg/verilog_wafer/rgbzMems_16x64.sv
+
+PRIMARY_GDSII_STREAMOUT_TOOL: klayout
+
+PNR_SDC_FILE: dir::chip_top.sdc
+SIGNOFF_SDC_FILE: dir::chip_top.sdc
+FALLBACK_SDC: dir::chip_top.sdc
+
+VDD_NETS:
+- VDD
+GND_NETS:
+- VSS
+
+IGNORE_DISCONNECTED_MODULES:
+- gf180mcu_fd_io__bi_24t
+- gf180mcu_ws_ip__qrcode_id
+- gf180mcu_ws_ip__shuttle_id
+- gf180mcu_ws_ip__project_id
+- gf180mcu_ws_ip__logo
+- gf180mcu_ws_ip__marker
+
+CLOCK_PORT: clk_PAD
+CLOCK_NET: clk_pad/Y
+# 40ns = 25MHz: the ASIC core clock must equal ULX3S sysClock exactly (see
+# the bridge plan's Clocking section) -- this is what probe 0c is testing.
+CLOCK_PERIOD: 40
+
+PL_RESIZER_HOLD_SLACK_MARGIN: 0.35
+GRT_RESIZER_HOLD_SLACK_MARGIN: 0.3
+
+PL_TARGET_DENSITY_PCT: 35
+GRT_ALLOW_CONGESTION: true
+
+PL_MAX_DISPLACEMENT_Y: 200
+
+DRT_ANTENNA_REPAIR_ITERS: 10
+DRT_ANTENNA_REPAIR_MARGIN: 10
+
+PDN_CFG: dir::pdn/pdn_cfg_borg.tcl
+PDN_ENABLE_PINS: False
+
+PDN_VWIDTH: 5
+PDN_HWIDTH: 5
+PDN_VSPACING: 1
+PDN_HSPACING: 1
+PDN_VPITCH: 75
+PDN_HPITCH: 75
+
+PDN_CORE_RING: True
+PDN_CORE_RING_VWIDTH: 25
+PDN_CORE_RING_HWIDTH: 25
+PDN_CORE_RING_CONNECT_TO_PADS: True
+PDN_CORE_VERTICAL_LAYER: Metal4
+PDN_CORE_HORIZONTAL_LAYER: Metal3
+
+ERROR_ON_MAGIC_DRC: False
+
+MAGIC_GDS_FLATGLOB:
+- "*_CDNS_*"
+- "*$$*"
+- "M1_N*"
+- "M1_P*"
+- "M2_M1*"
+- "M3_M2*"
+- "nmos_5p0*"
+- "nmos_1p2*"
+- "pmos_5p0*"
+- "pmos_1p2*"
+- "via1_*"
+- "ypass_gate*"
+- "G_ring_*"
+- "dcap_103*"
+- "din_*"
+- "mux821_*"
+- "rdummy_*"
+- "pmoscap_*"
+- "xdec_*"
+- "ypredec*"
+- "xpredec*"
+- "prexdec_*"
+- "xdec8_*"
+- "xdec16_*"
+- "xdec32_*"
+- "sa_*"
+
+KLAYOUT_FILLER_OPTIONS:
+  Metal2_ignore_active: true
+
+MAGIC_EXT_UNIQUE: notopports
+
+KLAYOUT_RENDER_RESOLUTION: 2048
+KLAYOUT_RENDER_OVERSAMPLING: 3
+KLAYOUT_PROPERTIES: dir::gf180mcu_render.lyp
+
+KLAYOUT_DRC_THREADS: 1
+
+KLAYOUT_DRC_OPTIONS:
+  decks: "all,-antenna,-density,-cup"
+  variant: ref::$PDK
+  workers: max
+
+KLAYOUT_DENSITY_OPTIONS:
+  decks: "density"
+  variant: ref::$PDK
+  workers: max
+
+KLAYOUT_ANTENNA_OPTIONS:
+  decks: "antenna"
+  variant: ref::$PDK
+  workers: max
