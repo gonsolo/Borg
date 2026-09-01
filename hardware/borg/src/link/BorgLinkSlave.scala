@@ -225,7 +225,10 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
     }
     is(sVDrain) {
       // gpuMem.wdata carries only 16 meaningful bits, so one word is one flit.
-      vBuf(vCnt) := io.gpuMem.wdata(15, 0)
+      // vCnt is sized to count up to maxBurst inclusive (as a completion check
+      // below), one bit wider than a bare index into the maxBurst-entry vBuf --
+      // truncate rather than let the dynamic index warn as oversized.
+      vBuf(vCnt(log2Ceil(p.maxBurst) - 1, 0)) := io.gpuMem.wdata(15, 0)
       vCnt       := vCnt + 1.U
       when(vCnt === (vWords - 1.U)) {
         vFlit  := 0.U
