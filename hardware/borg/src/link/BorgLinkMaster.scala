@@ -164,6 +164,9 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
   val vData     = Reg(UInt(32.W))
 
   val vWords = (1.U << vWlenLog2).asUInt
+  // vCnt is sized to count up to maxBurst inclusive (as a completion check
+  // below), one bit wider than a bare index into the maxBurst-entry vBuf.
+  val vCntIdx = vCnt(log2Ceil(p.maxBurst) - 1, 0)
 
   io.gpuMem.addr  := vAddr
   io.gpuMem.req   := (vState === sVIssue) && !vWrite
@@ -171,7 +174,7 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
   // A header claiming wlenLog2 > maxBurstLog2 is already rejected by LinkRx's
   // length check, so vWords cannot exceed maxBurst here.
   io.gpuMem.wlen  := vWords(6, 0)
-  io.gpuMem.wdata := vBuf(vCnt)
+  io.gpuMem.wdata := vBuf(vCntIdx)
 
   val vCredRet = RegInit(false.B)
   io.upCred := vCredRet
@@ -194,7 +197,7 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
     }
     is(sVCollect) {
       when(rxFire) {
-        vBuf(vCnt) := rxFlit
+        vBuf(vCntIdx) := rxFlit
         vCnt       := vCnt + 1.U
         when(vCnt === (vWords - 1.U)) {
           vCnt   := 0.U
