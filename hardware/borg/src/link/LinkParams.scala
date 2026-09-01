@@ -43,9 +43,15 @@ object LinkChan {
   *                     budget exactly; 8 is the `link_narrow` post-silicon recovery
   *                     mode, which halves the pins and doubles `beatsPerFlit`.
   *                     The 16-bit flit format is unchanged either way.
-  * @param creditDepth  Outstanding A-channel packets permitted per direction.  Both
-  *                     sides are single-outstanding so 1 would suffice; 2 keeps the
-  *                     counter logic non-degenerate and therefore actually testable.
+  * @param creditDepth  Outstanding A-channel packets permitted per direction.  This
+  *                     '''must not exceed what the receiver can buffer'''.  Both
+  *                     adapters are single-outstanding by construction -- `HuttBus`
+  *                     is a single-outstanding req/resp bus and Borg holds `gpuMem`
+  *                     asserted until `ready` -- and they hold exactly one request,
+  *                     so 1 is the correct value.  Raising it without adding a
+  *                     receive queue would let a second packet arrive mid-service
+  *                     and be dropped.  It costs nothing here: the sender is
+  *                     waiting on the response anyway.
   * @param maxBurstLog2 Largest gpuMem burst the link will carry, as a power of two.
   *                     4 → 16 words, which is what BorgTileFlusher emits.  Bursts are
   *                     encoded log2 so the packet length stays a pure function of the
@@ -60,7 +66,7 @@ object LinkChan {
   */
 case class LinkParams(
     w: Int = 16,
-    creditDepth: Int = 2,
+    creditDepth: Int = 1,
     maxBurstLog2: Int = 4,
     divLog2: Int = 1,
     gapBeats: Int = 1,
