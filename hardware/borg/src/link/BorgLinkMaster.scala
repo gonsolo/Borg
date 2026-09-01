@@ -5,10 +5,10 @@ package borg.link
 
 import chisel3._
 import chisel3.util._
-import borg.GpuMemIO
+import borg.{BorgMmioIf, GpuMemIO}
 import hutt.HuttBus
 
-class BorgLinkMasterIO(val p: LinkParams) extends Bundle {
+class BorgLinkMasterIO(val p: LinkParams) extends Bundle with BorgMmioIf {
 
   /** Deliberately identical to `BorgIO`'s `mmio`, so this is a drop-in for Borg. */
   val mmio = Flipped(new HuttBus(10))
