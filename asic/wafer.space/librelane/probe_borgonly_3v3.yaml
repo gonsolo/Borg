@@ -28,8 +28,25 @@ DESIGN_NAME: chip_top
 SYNTH_CORNER: nom_tt_025C_3v30
 DEFAULT_CORNER: nom_tt_025C_3v30
 
+# LibreLane resolves SYNTH_CORNER/DEFAULT_CORNER's suffix against STA_CORNERS
+# (which glob-matches into LIB) -- the PDK's default STA_CORNERS lists only
+# the 5V corner names, so the 3.3V corner names must be listed here too or
+# "nom_tt_025C_3v30" can't be found and DFFLIBMAP fails with a misleading
+# "Missing -liberty" error (confirmed by a first failed run of this probe --
+# see PROBE_BORGONLY_3V3/06-yosys-synthesis).
+STA_CORNERS:
+- nom_tt_025C_3v30
+- nom_ss_125C_3v00
+- nom_ff_n40C_3v60
+- min_tt_025C_3v30
+- min_ss_125C_3v00
+- min_ff_n40C_3v60
+- max_tt_025C_3v30
+- max_ss_125C_3v00
+- max_ff_n40C_3v60
+
 LIB:
-  "*_tt_025C_5v00":
+  "*_tt_025C_3v30":
   - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_3v30.lib
   "*_ss_125C_3v00":
   - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ss_125C_3v00.lib
