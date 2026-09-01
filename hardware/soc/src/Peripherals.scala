@@ -5,7 +5,8 @@ package soc
 
 import chisel3._
 import chisel3.util._
-import borg.{Borg, BorgConfig, GpuMemIO}
+import borg.{Borg, BorgConfig, BorgMmioIf, GpuMemIO}
+import borg.link.{BorgLinkMaster, LinkParams, LinkPins}
 import hutt.HuttBus
 
 /** User peripheral address decode constants.
@@ -34,7 +35,31 @@ private[soc] object PeriphDecode {
   def userPeriU(idx: Int): UInt = idx.U(2.W)
 }
 
-class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
+/** Raw link pins/status, exposed only when `borgMode != BorgDirect`. Directions
+  * mirror `BorgLinkMasterIO`'s own exactly, since these are a straight
+  * pass-through of the internally-instantiated `BorgLinkMaster`'s port.
+  *
+  * The enclosing top-level routes these — to real pads for `BorgExternal`, or
+  * to a same-bitstream `BorgLinkSlave` + `Borg` pair wired directly for
+  * `BorgLoopback` (rung A of the on-hardware ladder). `Peripherals` itself
+  * stays agnostic to which.
+  */
+class BorgLinkPortsIO(val p: LinkParams) extends Bundle {
+  val dnPins = Output(new LinkPins(p.w))
+  val upPins = Input(new LinkPins(p.w))
+  val dnCred = Input(Bool())
+  val upCred = Output(Bool())
+  val linkFast  = Input(Bool())
+  val farLinkUp = Input(Bool())
+  val linkUp  = Output(Bool())
+  val linkErr = Output(Bool())
+}
+
+class PeripheralsIO(
+    val CLOCK_MHZ: Int,
+    val borgMode: BorgMode = BorgDirect,
+    val linkParams: LinkParams = LinkParams()
+) extends Bundle {
   val ui_in  = Input(UInt(8.W))
   val uo_out = Output(UInt(8.W))
 
@@ -43,6 +68,9 @@ class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
 
   // GPU read port — Borg.scanout etc. (Step 19.2: Borg → MemoryController)
   val gpuMem = new GpuMemIO
+
+  val link: Option[BorgLinkPortsIO] =
+    if (borgMode != BorgDirect) Some(new BorgLinkPortsIO(linkParams)) else None
 }
 
 /** Routes the CPU MMIO bus to GPIO / UART / Borg based on addr[11:10].
@@ -51,8 +79,13 @@ class PeripheralsIO(val CLOCK_MHZ: Int) extends Bundle {
   * one peripheral at a time.  `active` tracks which sub-bus owns the
   * pending response so the resp mux can route it back to the CPU.
   */
-class Peripherals(val CLOCK_MHZ: Int, val borgCfg: BorgConfig = BorgConfig.Default) extends Module {
-  val io = IO(new PeripheralsIO(CLOCK_MHZ))
+class Peripherals(
+    val CLOCK_MHZ: Int,
+    val borgCfg: BorgConfig = BorgConfig.Default,
+    val borgMode: BorgMode = BorgDirect,
+    val linkParams: LinkParams = LinkParams()
+) extends Module {
+  val io = IO(new PeripheralsIO(CLOCK_MHZ, borgMode, linkParams))
 
   import PeriphDecode._
   val PERI_GPIO = userPeriU(USER_PERI_GPIO)
@@ -62,7 +95,30 @@ class Peripherals(val CLOCK_MHZ: Int, val borgCfg: BorgConfig = BorgConfig.Defau
 
   // -- Submodules ------------------------------------------------------------
   val i_uart = Module(new peri.uart.PeriUart(CLOCK_MHZ))
-  val borg   = Module(new Borg(borgCfg))
+
+  // borgOpt/linkOpt + one unified borgIf handle: BorgLinkMaster presents an
+  // interface IDENTICAL to Borg's own mmio+gpuMem (BorgMmioIf), so every
+  // wiring line below that touches `borgIf` is unchanged regardless of mode --
+  // no decode or arbitration logic needs to move.
+  val borgOpt: Option[Borg] =
+    if (borgMode == BorgDirect) Some(Module(new Borg(borgCfg))) else None
+  val linkOpt: Option[BorgLinkMaster] =
+    if (borgMode != BorgDirect) Some(Module(new BorgLinkMaster(linkParams))) else None
+  val borgIf: BorgMmioIf = borgOpt.map(_.io: BorgMmioIf).getOrElse(linkOpt.get.io: BorgMmioIf)
+
+  // Straight pass-through of the link master's pins to Peripherals' own IO --
+  // see BorgLinkPortsIO's doc for why the routing decision lives one level up.
+  io.link.foreach { linkIo =>
+    val m = linkOpt.get.io
+    linkIo.dnPins  := m.dnPins
+    m.upPins       := linkIo.upPins
+    linkIo.upCred  := m.upCred
+    m.dnCred       := linkIo.dnCred
+    m.linkFast     := linkIo.linkFast
+    m.farLinkUp    := linkIo.farLinkUp
+    linkIo.linkUp  := m.linkUp
+    linkIo.linkErr := m.linkErr
+  }
 
   // -- Address decode --------------------------------------------------------
   val reqBits  = io.mmio.req.bits
@@ -96,20 +152,20 @@ class Peripherals(val CLOCK_MHZ: Int, val borgCfg: BorgConfig = BorgConfig.Defau
   i_uart.io.mmio.req.bits.size := reqBits.size
   i_uart.io.mmio.resp.ready    := io.mmio.resp.ready && (active === PERI_UART)
 
-  borg.io.mmio.req.valid       := io.mmio.req.valid && is_borg
-  borg.io.mmio.req.bits.addr   := sub_addr(9, 0)
-  borg.io.mmio.req.bits.data   := reqBits.data
-  borg.io.mmio.req.bits.write  := reqBits.write
-  borg.io.mmio.req.bits.size   := reqBits.size
-  borg.io.mmio.resp.ready      := io.mmio.resp.ready && (active === PERI_BORG)
-  borg.io.gpuMem               <> io.gpuMem
+  borgIf.mmio.req.valid       := io.mmio.req.valid && is_borg
+  borgIf.mmio.req.bits.addr   := sub_addr(9, 0)
+  borgIf.mmio.req.bits.data   := reqBits.data
+  borgIf.mmio.req.bits.write  := reqBits.write
+  borgIf.mmio.req.bits.size   := reqBits.size
+  borgIf.mmio.resp.ready      := io.mmio.resp.ready && (active === PERI_BORG)
+  borgIf.gpuMem               <> io.gpuMem
 
   // -- req.ready muxing ------------------------------------------------------
   // Don't accept a new request while one is in flight (single-outstanding).
   val canAccept = !activePending
   io.mmio.req.ready := canAccept && MuxCase(true.B, Seq(
     is_uart -> i_uart.io.mmio.req.ready,
-    is_borg -> borg.io.mmio.req.ready,
+    is_borg -> borgIf.mmio.req.ready,
     is_gpio -> true.B   // GPIO always ready when not pending
   ))
 
@@ -145,18 +201,22 @@ class Peripherals(val CLOCK_MHZ: Int, val borgCfg: BorgConfig = BorgConfig.Defau
   // -- Response mux ---------------------------------------------------------
   io.mmio.resp.valid := MuxCase(false.B, Seq(
     (active === PERI_UART) -> i_uart.io.mmio.resp.valid,
-    (active === PERI_BORG) -> borg.io.mmio.resp.valid,
+    (active === PERI_BORG) -> borgIf.mmio.resp.valid,
     (active === PERI_GPIO) -> gpioRespPending
   ))
   io.mmio.resp.bits := MuxCase(0.U, Seq(
     (active === PERI_UART) -> i_uart.io.mmio.resp.bits,
-    (active === PERI_BORG) -> borg.io.mmio.resp.bits,
+    (active === PERI_BORG) -> borgIf.mmio.resp.bits,
     (active === PERI_GPIO) -> gpio_resp_data
   ))
 
   // -- uo_out muxing (per-pin function select) ------------------------------
+  // uo_out/user_interrupt only exist on Borg's own IO, not BorgLinkMasterIO
+  // (dropped for the wafer.space bridge -- see the plan's Files section on
+  // Borg.scala). In a link mode there is nothing to mux in; hold the lanes at
+  // their GPIO/UART default instead.
   val uo_out_uart = i_uart.io.uo_out
-  val uo_out_borg = borg.io.uo_out
+  val uo_out_borg = borgOpt.map(_.io.uo_out).getOrElse(0.U(8.W))
   val uo_out_muxed = Wire(Vec(8, Bool()))
   for (k <- 0 until 8) {
     when(func_sel_reg(k) === PERI_UART) {

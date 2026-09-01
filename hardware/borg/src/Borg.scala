@@ -15,7 +15,7 @@ import hutt.HuttBus
   * register file / RDL is RegNext'd).  Write responses ack the cycle after as
   * well (resp.bits is don't-care for writes).
   */
-class BorgIO(val cfg: BorgConfig) extends Bundle {
+class BorgIO(val cfg: BorgConfig) extends Bundle with BorgMmioIf {
   val mmio = Flipped(new HuttBus(10))
   val uo_out = Output(UInt(8.W))
   val user_interrupt = Output(Bool())

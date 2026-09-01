@@ -8,6 +8,7 @@ import chisel3.util._
 import hutt.{Hutt, HuttBus, HuttBusReq, HuttDataWidthAdapter, HuttInstrBus}
 import memory.{MemoryController, MemoryControllerIO, QspiPinsIO}
 import borg.BorgConfig
+import borg.link.LinkParams
 
 // ---------------------------------------------------------------------------
 // SoC-internal bus decoder constants.  Inherited from the original SoC
@@ -90,6 +91,12 @@ trait SoCLogic { self: RawModule =>
   // sim debug harnesses, never by Hutt itself. Default true preserves
   // ULX3S debug capability; the ASIC has no such harness to observe them.
   def hasDebugPorts: Boolean = true
+  // Which physical arrangement drives Borg's mmio/gpuMem: local instantiation
+  // (every target so far), the FPGA-only bridge loopback (rung A of the
+  // wafer.space Borg-only bridge's on-hardware ladder), or the real link out
+  // to pads. See BorgMode's doc.
+  def borgMode: BorgMode = BorgDirect
+  def linkParams: LinkParams = LinkParams()
 
   // --- Abstract members provided by each top-level ---
   def soc_clk: Clock
@@ -106,7 +113,7 @@ trait SoCLogic { self: RawModule =>
     Module(new MemoryController())
   }
   lazy val peripherals = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new Peripherals(CLOCK_MHZ, BORG_CFG))
+    Module(new Peripherals(CLOCK_MHZ, BORG_CFG, borgMode, linkParams))
   }
   lazy val uartTx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new peri.uart.UartTx(13))
