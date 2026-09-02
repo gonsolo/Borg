@@ -3,12 +3,13 @@
 
 `default_nettype none
 
-// Instantiates Borg's existing TT top module (tt_um_gonsolo_borg, same RTL
-// used unmodified for the ihp-sg13g2/sky130A GDS flows) directly, mapping
-// its 24 signal pins (ui_in[7:0] + uo_out[7:0] + uio[7:0]) onto the first 24
-// wafer.space bidir_PAD lanes. Bidir pads can act as pure input (oe=0) or
-// pure output (oe=1) as needed, so no dedicated input_PAD/analog_PAD use is
-// required. Remaining bidir/input/analog pads are tied off safely, unused.
+// Instantiates the wafer.space Borg-only bridge top (BorgOnlyTop -- Borg
+// behind BorgLinkSlave, no Hutt, no QSPI; see the plan doc and
+// asic/tt/src/BorgOnlyTop.scala's own header), mapping its full 46 bidir +
+// 4 input lanes onto the 1x0.5 slot's padring exactly -- this module is only
+// valid for SLOT_1X0P5 (NUM_BIDIR_PADS=46, NUM_INPUT_PADS=4; see
+// slot_defines.svh), not the other three slots, since BorgOnlyTop's lane map
+// fills the whole 1x0.5 budget with no unused positions.
 module chip_core #(
     parameter NUM_INPUT_PADS,
     parameter NUM_BIDIR_PADS,
@@ -38,48 +39,41 @@ module chip_core #(
     inout  wire [NUM_ANALOG_PADS-1:0] analog  // Analog
 );
 
+    // This lane map only makes sense for exactly 46 bidir + 4 input pads
+    // (the 1x0.5 slot). A mismatched slot define would silently truncate/
+    // leave lanes unconnected below instead of failing loudly at elaboration.
+    if (NUM_BIDIR_PADS != 46 || NUM_INPUT_PADS != 4) begin : slot_mismatch
+        $error("chip_core: BorgOnlyTop's lane map requires NUM_BIDIR_PADS=46, NUM_INPUT_PADS=4 (the 1x0.5 slot) -- got %0d/%0d. Build with SLOT=1x0p5.", NUM_BIDIR_PADS, NUM_INPUT_PADS);
+    end
+
     // Not used: leave input pads with pulls disabled and analog untouched.
     assign input_pu = '0;
     assign input_pd = '0;
 
-    // Bidir lane assignment (24 of NUM_BIDIR_PADS used, uses [8] + [8] + [8]): [7:0]=ui_in (input), [15:8]=uo_out (output),
-    // [23:16]=uio (true bidir, oe from Borg's own uio_oe).
-    wire [7:0] ui_in    = bidir_in[7:0];
-    wire [7:0] uo_out;
-    wire [7:0] uio_in   = bidir_in[23:16];
-    wire [7:0] uio_out;
-    wire [7:0] uio_oe;
-    wire       ena = 1'b1;
+    logic _unused;
+    assign _unused = &analog;
 
-    assign bidir_out[7:0]   = '0;              // ui_in lanes: no drive
-    assign bidir_out[15:8]  = uo_out;
-    assign bidir_out[23:16] = uio_out;
-    assign bidir_out[NUM_BIDIR_PADS-1:24] = '0; // unused lanes
+    BorgOnlyTop i_borg (
+        .clk      (clk),
+        .rst_n    (rst_n),
+        .bidirIn  (bidir_in),
+        .bidirOut (bidir_out),
+        .bidirOe  (bidir_oe),
+        .inputIn  (input_in)
+    );
 
-    assign bidir_oe[7:0]    = '0;              // ui_in lanes: input only
-    assign bidir_oe[15:8]   = '1;              // uo_out lanes: output only
-    assign bidir_oe[23:16]  = uio_oe;
-    assign bidir_oe[NUM_BIDIR_PADS-1:24] = '0;  // unused lanes: input, unconnected
-
-    assign bidir_cs = '0;
-    assign bidir_sl = '0;
+    // Schmitt trigger + slow slew on the pads BorgOnlyTop drives as outputs
+    // (cable noise immunity, and 20 simultaneous outputs against 7 DVSS pads
+    // is a real SSO case -- see the plan's Pin budget section), pull-down on
+    // the input-only pads so an unplugged/disconnected far side reads all-
+    // zero rather than floating -- which fails the link's odd-parity check
+    // by construction, so link_up correctly never asserts instead of racing
+    // on undefined pad state.
+    assign bidir_cs = ~bidir_oe;
+    assign bidir_sl = bidir_oe;
     assign bidir_ie = ~bidir_oe;
     assign bidir_pu = '0;
-    assign bidir_pd = '0;
-
-    logic _unused;
-    assign _unused = &{bidir_in[NUM_BIDIR_PADS-1:24], &analog};
-
-    tt_um_gonsolo_borg i_borg (
-        .ui_in   (ui_in),
-        .uo_out  (uo_out),
-        .uio_in  (uio_in),
-        .uio_out (uio_out),
-        .uio_oe  (uio_oe),
-        .ena     (ena),
-        .clk     (clk),
-        .rst_n   (rst_n)
-    );
+    assign bidir_pd = ~bidir_oe;
 
 endmodule
 

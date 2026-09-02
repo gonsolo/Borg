@@ -44,8 +44,10 @@ import borg.link.{BorgLinkSlave, LinkParams}
   * needed because ASIC pins cannot be re-synthesized after tapeout, so
   * "post-silicon recovery" is meaningless unless the switch is real hardware.
   *
-  * @param cfg Borg configuration.  `BorgConfig.Asic` until probe 0a's measured
-  *            area picks `BorgConfig.Wafer`'s `samples`/`fragLanes`.
+  * @param cfg Borg configuration.  `BorgConfig.Wafer` -- Phase 0's probes
+  *            measured `BorgConfig.Asic`'s sizing (fragLanes=4, samples=4)
+  *            clean at 71.55% utilization / 25MHz, so `Wafer` ships that
+  *            sizing unchanged and trims only the interface (debugPorts).
   * @param p   Link configuration.  Default width (16) matches the lane map above.
   */
 class BorgOnlyCoreIO(val p: LinkParams) extends Bundle {

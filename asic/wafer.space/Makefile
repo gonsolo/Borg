@@ -44,7 +44,11 @@ else
 endif
 
 AVAILABLE_SLOTS = 1x1 0p5x1 1x0p5 0p5x0p5
-DEFAULT_SLOT = 1x1
+# The Borg-only bridge's chip_core.sv only supports the 1x0.5 slot (its
+# BorgOnlyTop lane map fills exactly 46 bidir + 4 input pads -- see
+# chip_core.sv and slot_defines.svh). Also the only slot with a confirmed
+# CoB/motherboard path (wafer-space/chip-on-board-wire-bonded-pcbs' 1x0p5-cob).
+DEFAULT_SLOT = 1x0p5
 
 # Slot can be any of AVAILABLE_SLOTS
 SLOT ?= $(DEFAULT_SLOT)
@@ -61,7 +65,10 @@ SLOT_DEFINE = SLOT_$(shell echo $(SLOT) | tr '[:lower:]' '[:upper:]')
 SRAM_DEFINE = SRAM_$(SRAM)
 
 LIBRELANE_OPTS = --pdk ${PDK} --pdk-root ${PDK_ROOT} --manual-pdk --scl ${SCL} --pad ${PAD}
-LIBRELANE_CONFIGS = librelane/slots/slot_${SLOT}.yaml librelane/macros/macros_${MACROS}.yaml librelane/config.yaml
+# generated_sources.yaml last: it carries VERILOG_FILES, and LibreLane's
+# multi-config merge is later-wins, so this must come after config.yaml
+# (which no longer sets VERILOG_FILES itself -- see its own comment there).
+LIBRELANE_CONFIGS = librelane/slots/slot_${SLOT}.yaml librelane/macros/macros_${MACROS}.yaml librelane/config.yaml librelane/generated_sources.yaml
 
 .DEFAULT_GOAL := help
 
@@ -90,23 +97,31 @@ defines:
 	$(file >>src/generated_defines.svh,`define ${SRAM_DEFINE})
 .PHONY: defines
 
-librelane: clone-pdk defines ## Run LibreLane flow (synthesis, PnR, verification)
+# Regenerates BorgOnlyTop's Verilog and librelane/generated_sources.yaml's
+# VERILOG_FILES list from it, so the two can never drift apart again (see
+# gen_librelane_sources.py's own doc for the real drift this replaces).
+generated-sources:
+	$(MAKE) -C ../.. generate_verilog_wafer
+	python3 scripts/gen_librelane_sources.py
+.PHONY: generated-sources
+
+librelane: clone-pdk defines generated-sources ## Run LibreLane flow (synthesis, PnR, verification)
 	SRAM_DEFINE=${SRAM_DEFINE} librelane ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final
 .PHONY: librelane
 
-librelane-condensed: clone-pdk defines ## Run LibreLane flow (synthesis, PnR, verification)
+librelane-condensed: clone-pdk defines generated-sources ## Run LibreLane flow (synthesis, PnR, verification)
 	SRAM_DEFINE=${SRAM_DEFINE} librelane --condensed ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final
 .PHONY: librelane-condensed
 
-librelane-nodrc: clone-pdk defines ## Run LibreLane flow without DRC checks
+librelane-nodrc: clone-pdk defines generated-sources ## Run LibreLane flow without DRC checks
 	SRAM_DEFINE=${SRAM_DEFINE} librelane ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip KLayout.Antenna --skip KLayout.DRC --skip Magic.DRC
 .PHONY: librelane-nodrc
 
-librelane-klayoutdrc: clone-pdk defines ## Run LibreLane flow without magic DRC checks
+librelane-klayoutdrc: clone-pdk defines generated-sources ## Run LibreLane flow without magic DRC checks
 	SRAM_DEFINE=${SRAM_DEFINE} librelane ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip Magic.DRC
 .PHONY: librelane-klayoutdrc
 
-librelane-magicdrc: clone-pdk defines ## Run LibreLane flow without KLayout DRC checks
+librelane-magicdrc: clone-pdk defines generated-sources ## Run LibreLane flow without KLayout DRC checks
 	SRAM_DEFINE=${SRAM_DEFINE} librelane ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip KLayout.DRC
 .PHONY: librelane-magicdrc
 
@@ -118,7 +133,7 @@ librelane-klayout: clone-pdk defines ## Open the last run in KLayout
 	SRAM_DEFINE=${SRAM_DEFINE} librelane ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --last-run --flow OpenInKLayout
 .PHONY: librelane-klayout
 
-librelane-padring: clone-pdk defines ## Only create the padring
+librelane-padring: clone-pdk defines generated-sources ## Only create the padring
 	python3-librelane scripts/padring.py ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS}
 .PHONY: librelane-padring
 

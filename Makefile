@@ -73,6 +73,19 @@ info.yaml: .verilog_stamp
 # Still declared phony so `make generate_verilog` always checks deps explicitly.
 generate_verilog: .verilog_stamp info.yaml
 
+# wafer.space Borg-only bridge target (BorgOnlyTop): same two post-steps as
+# .verilog_stamp above and for the same reasons -- feeds the same yosys-based
+# LibreLane synthesis flow, just a different (link-behind) top module, into
+# out/hardware/borg/verilog_wafer/ rather than .../verilog/ (which this
+# target must NOT touch -- TTMain owns that dir and wipes it on every run).
+.verilog_wafer_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
+	$(MILL) asic.tt.runMain asic.tt.BorgOnlyMain
+	@python3 scripts/init_bram_zero.py out/hardware/borg/verilog_wafer
+	@sed -i 's|// synthesis translate_on\t.*|// synthesis translate_on|g' out/hardware/borg/verilog_wafer/*.sv
+	@touch $@
+
+generate_verilog_wafer: .verilog_wafer_stamp
+
 # Verilator simulation Verilog — flat MemBackendIO top (no QSPI), into
 # out/hardware/borg/verilog_sim/.  Used by simulation/verilator.
 .verilog_sim_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
@@ -213,7 +226,7 @@ rdl: $(RDL_SRC)
 	@sed -i '/#include <assert.h>/d; s/static_assert(/_Static_assert(/g' $(RDL_C_OUT)/borg_regs.h
 
 clean:
-	rm -f src/config_merged.json src/user_config.json .verilog_stamp .verilog_sim_stamp
+	rm -f src/config_merged.json src/user_config.json .verilog_stamp .verilog_sim_stamp .verilog_wafer_stamp
 	rm -rf $(RDL_C_OUT)
 	rm -rf $(RDL_SCALA_OUT)
 	rm -rf out/
@@ -239,7 +252,7 @@ linux:
 flash-linux:
 	$(MAKE) -C software flash-linux
 
-.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_wafer help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \
