@@ -243,6 +243,80 @@ object BorgLinkProtocolTests extends TestSuite {
       }
     }
 
+    utest.test("gpumem_sequential_reads_are_not_duplicated") {
+      // The hazard the round-trip test above papers over by dropping `req` in
+      // the very cycle it observes `ready`.  BorgDMA (and BorgBinner, and the
+      // rasterizer) do NOT do that: `req` is a pure function of the FSM state,
+      // so it stays asserted *through* the ready cycle -- with the old address
+      // still on the bus -- and only changes on the following cycle.
+      //
+      // MemoryController tolerates that because it pulses `ready` from
+      // `sRespond` and only re-arbitrates in `sIdle`, i.e. one cycle later.
+      // The link slave must give the same one-cycle grace, otherwise it
+      // re-samples the still-asserted request and issues a duplicate read of
+      // the previous address -- which then answers the *next* request with
+      // stale data and shifts every subsequent word by one.
+      simulate(new LinkLoopbackHarness(LinkParams(trainBeats = 8))) { dut =>
+        init(dut)
+        waitLinkUp(dut)
+
+        val addrs = Seq(0x001000, 0x001004, 0x001008, 0x00100c)
+
+        val seenReqs = scala.collection.mutable.ArrayBuffer.empty[Int]
+        val gotData  = scala.collection.mutable.ArrayBuffer.empty[Long]
+
+        // Borg side: level-held req, address advanced one cycle after ready
+        // (exactly BorgDMA's `addrReg := addrReg + 4.U` under `when(ready)`).
+        var idx = 0
+        dut.io.borgGpu.addr.poke(addrs(0).U)
+        dut.io.borgGpu.req.poke(true.B)
+
+        // Memory side: MemoryController's shape -- latch on req, respond a few
+        // cycles later with a single-cycle `ready`, never while responding.
+        var memBusy    = 0
+        var memAddr    = 0
+        var c          = 0
+        while (idx < addrs.length && c < TIMEOUT) {
+          if (memBusy == 0 && dut.io.memGpu.req.peek().litToBoolean) {
+            memAddr = dut.io.memGpu.addr.peek().litValue.toInt
+            seenReqs += memAddr
+            memBusy = 4
+          } else if (memBusy > 1) {
+            memBusy -= 1
+          } else if (memBusy == 1) {
+            dut.io.memGpu.data.poke(memAddr.U)
+            dut.io.memGpu.ready.poke(true.B)
+            memBusy = 0
+          }
+
+          val borgReady = dut.io.borgGpu.ready.peek().litToBoolean
+          val borgData  = dut.io.borgGpu.data.peek().litValue.toLong
+          dut.clock.step(1)
+          dut.io.memGpu.ready.poke(false.B)
+
+          if (borgReady) {
+            gotData += borgData
+            idx += 1
+            if (idx < addrs.length) dut.io.borgGpu.addr.poke(addrs(idx).U)
+            else dut.io.borgGpu.req.poke(false.B)
+          }
+          c += 1
+        }
+        dut.io.borgGpu.req.poke(false.B)
+        utest.assert(idx == addrs.length)
+
+        // Let any spurious extra request the slave may have launched reach the
+        // memory side before we judge the count.
+        for (_ <- 0 until 200) dut.clock.step(1)
+        if (dut.io.memGpu.req.peek().litToBoolean)
+          seenReqs += dut.io.memGpu.addr.peek().litValue.toInt
+
+        utest.assert(gotData.toSeq == addrs.map(_.toLong))
+        utest.assert(seenReqs.toSeq == addrs)
+        utest.assert(!dut.io.linkErr.peek().litToBoolean)
+      }
+    }
+
     utest.test("gpumem_burst_write_round_trip") {
       // Hazard 4: the slave drains all 16 words locally via waccept before it
       // transmits anything, which is also what keeps the packet atomic on the wire.
