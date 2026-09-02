@@ -47,8 +47,10 @@ class BorgLinkTestWrapper(val cfg: BorgConfig, val p: LinkParams)
   // -- Near side: the link's master replays gpuMem to the test ---------------
   master.io.gpuMem <> io.gpuMem
 
-  io.uo_out         := borg.io.uo_out
-  io.user_interrupt := borg.io.user_interrupt
+  // Borg's own uo_out/user_interrupt were dead (tied to constants) and have
+  // been removed from BorgIO entirely -- see BorgTestWrapper's matching fix.
+  io.uo_out         := 0.U
+  io.user_interrupt := false.B
   io.covDeltaDebug.foreach(_ := borg.io.covDeltaDebug.get)
 
   // -- Legacy MMIO translation -----------------------------------------------

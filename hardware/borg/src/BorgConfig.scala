@@ -65,7 +65,14 @@ case class BorgConfig(
     hasPerfCounters: Boolean = true,
     fragLanes: Int = 1,
     maxTrianglesPerTile: Int = 256,
-    samples: Int = 1
+    samples: Int = 1,
+    // Gates Borg.scala's covDeltaDebug diagnostic port (only elaborated at
+    // all when samples>1 to begin with). True everywhere except
+    // BorgConfig.Wafer, since the wafer.space Borg-only bridge target has no
+    // debug harness to observe it, unlike ULX3S/sim. Unrelated to BorgIO's
+    // uo_out/user_interrupt, which are dead (tied to constants) for every
+    // config and are simply deleted outright, not gated by this flag.
+    debugPorts: Boolean = true
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
@@ -120,4 +127,11 @@ object BorgConfig {
     fragLanes        = 4,
     samples          = 4
   )
+
+  // wafer.space Borg-only bridge target (BorgOnlyTop): same sizing as Asic
+  // (proven by the Phase 0 probes -- see BorgOnlyTop.scala's doc), minus the
+  // TT-pad-interface-only uo_out/user_interrupt ports and the covDeltaDebug
+  // diagnostic tap, since BorgOnlyTop has no SoCLogic/CPU harness to expose
+  // either through.
+  val Wafer = Asic.copy(debugPorts = false)
 }

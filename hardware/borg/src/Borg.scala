@@ -17,15 +17,16 @@ import hutt.HuttBus
   */
 class BorgIO(val cfg: BorgConfig) extends Bundle with BorgMmioIf {
   val mmio = Flipped(new HuttBus(10))
-  val uo_out = Output(UInt(8.W))
-  val user_interrupt = Output(Bool())
 
   // GPU read port (Step 19.2: texture fetches → MemoryController)
   val gpuMem = new GpuMemIO
 
   // DIAGNOSTIC TEMP: expose the sequencer's latched MSAA covDelta for test
-  // observability while debugging Step 50.2 corruption.
-  val covDeltaDebug = if (cfg.samples > 1) Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
+  // observability while debugging Step 50.2 corruption. Gated on
+  // cfg.debugPorts too (in addition to the pre-existing samples>1 gate) --
+  // BorgConfig.Wafer has no debug harness to observe it, unlike ULX3S/sim.
+  val covDeltaDebug =
+    if (cfg.samples > 1 && cfg.debugPorts) Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
 }
 
 /** Borg — minimal FP16 shading processor with 4-cycle FMA pipeline.
@@ -459,8 +460,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // exactly when mmioRespPending first asserts.
     io.mmio.resp.valid := mmioRespPending && !rast.io.autoRunStall
     io.mmio.resp.bits  := data_out
-    io.uo_out := 0.U
-    io.user_interrupt := false.B
   }
   // @doc:end
 
