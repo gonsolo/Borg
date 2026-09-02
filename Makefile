@@ -88,6 +88,14 @@ ULX3S_CLOCK_MHZ ?= 25
 generate_verilog_ulx3s: rdl
 	CLOCK_MHZ=$(ULX3S_CLOCK_MHZ) $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMain
 
+# Rung A of the wafer.space Borg-only bridge's on-hardware ladder: same full
+# SoC as generate_verilog_ulx3s, but borgMode=BorgLoopback -- Borg is reached
+# only through the real link RTL (BorgLinkMaster+BorgLinkSlave, "pins" are
+# internal wires), not directly. Separate output dir/emitter so the default
+# demo target above is completely unaffected.
+generate_verilog_ulx3s_loopback: rdl
+	CLOCK_MHZ=$(ULX3S_CLOCK_MHZ) $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SLoopbackMain
+
 # Minimal ULX3S Verilog — Hutt + UART only, no Borg.  Fast-iteration target.
 generate_verilog_ulx3s_minimal:
 	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMinimalMain
@@ -231,7 +239,7 @@ linux:
 flash-linux:
 	$(MAKE) -C software flash-linux
 
-.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \

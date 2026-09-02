@@ -46,6 +46,17 @@ private[soc] object SoCDecode {
   val PERI_TIME_LIMIT        = 0xB
   val PERI_DEBUG             = 0xC
   val PERI_WARM_RESET        = 0x5   // write WARM_RESET_MAGIC → pulse warm reset (serial firmware reload)
+  // Read-only: bit0 = link_up, bit1 = link_err. Only wired when
+  // peripherals.io.link is Some(...) (borgMode != BorgDirect); on a
+  // BorgDirect target this address is simply unmapped and falls through to
+  // the same 0xFFFFFFFF "unknown address" default every other unmapped
+  // register gets -- firmware can treat that as "no link support" without a
+  // special case. No PERI_LINK_CTRL yet: a real link-reset needs a reset
+  // port threaded through BorgLinkMaster/Slave that doesn't exist yet, and
+  // rung A's same-bitstream loopback doesn't need one (a full system reset
+  // already clears a wedged link there) -- real scope for rungs B/C, where
+  // you don't want to reset the whole board just to recover the link.
+  val PERI_LINK_STATUS       = 0xD
   val PERI_USER              = 0xF
 
   def socPeriU(idx: Int): UInt = idx.U(4.W)
@@ -325,6 +336,13 @@ trait SoCLogic { self: RawModule =>
     }
 
     val debug_uart_tx_busy = uartTx.io.uart_tx_busy
+    // Absent (borgMode == BorgDirect) reads as all-zero -- both link_up and
+    // link_err false -- rather than falling through to the generic
+    // 0xFFFFFFFF "unknown address" default, since 0 reads more naturally as
+    // "no link" than as an error.
+    val linkStatusBits = peripherals.io.link
+      .map(l => Cat(0.U(30.W), l.linkErr, l.linkUp))
+      .getOrElse(0.U(32.W))
     val socReadData = WireDefault("hffffffff".U(32.W))
     switch(socPeri) {
       is(socPeriU(PERI_ID))                { socReadData := 0x41.U(32.W) }
@@ -335,6 +353,7 @@ trait SoCLogic { self: RawModule =>
       is(socPeriU(PERI_SCANOUT_FB0))       { socReadData := Cat(0.U(7.W), scanout_fb_base0) }
       is(socPeriU(PERI_SCANOUT_FB1))       { socReadData := Cat(0.U(7.W), scanout_fb_base1) }
       is(socPeriU(PERI_TIME_LIMIT))        { socReadData := Cat(0.U(25.W), time_limit, 3.U(2.W)) }
+      is(socPeriU(PERI_LINK_STATUS))       { socReadData := linkStatusBits }
     }
 
     // SoC inline registers respond one cycle after req.fire (matches the

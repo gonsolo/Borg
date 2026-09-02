@@ -34,7 +34,7 @@ class Ecp5BiDirBuf extends ExtModule {
   *       Hutt starts only after boot_done && pll_locked.
   * UART: ftdi_rxd = FPGA→host TX (debug output at 115200 baud).
   */
-class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
+class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect) extends RawModule with SoCLogic {
   // samples=4: 4x MSAA (Step 50.2), on top of 2×2 quad SIMT fragment shading.
   // Verified on real ULX3S hardware: vkcube renders correctly at 39 % LUT,
   // 15 % FF, 13.5 % BRAM on the ECP5-85K, timing closed at 25 MHz.
@@ -42,6 +42,14 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   override def BORG_CFG: BorgConfig = BorgConfig.Simt.copy(samples = 4)
   override def xlen: Int = 64
   override def scanoutCurBuf: Bool = scanout.io.curBuf
+  // Rung A of the wafer.space Borg-only bridge's on-hardware ladder (see the
+  // plan doc / BorgMode's own comment): BorgLoopback closes peripherals.io.link
+  // on a same-bitstream BorgLinkSlave + Borg pair via wireBorgLoopback() below,
+  // so every Borg access -- CPU-initiated MMIO and Borg-initiated gpuMem --
+  // travels the real link RTL with zero ASIC involvement. Default BorgDirect
+  // (today's behaviour, what the demo/talk bitstream ships) is unaffected;
+  // only ULX3SLoopbackMain below overrides this.
+  override def borgMode: BorgMode = borgModeOverride
 
   // ── Board clock and reset ──────────────────────────────────────────────────
   val clk_25mhz = IO(Input(Clock()))
@@ -192,6 +200,11 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
 
   // ── Wire the SoC ──────────────────────────────────────────────────────────
   val uo_out_val = wireSoC()
+
+  // Rung A: peripherals.io.link is Some(...) whenever borgMode != BorgDirect
+  // (see PeripheralsIO) and is left dangling unless something closes it --
+  // wireBorgLoopback() is that something for the loopback case.
+  if (borgMode == BorgLoopback) wireBorgLoopback()
 
   // ── Warm-reset controller logic (uses `warmReset` produced by wireSoC) ─────
   // On a warm-reset request: latch warmBootReg (so the re-run bootloader picks
@@ -473,6 +486,27 @@ object ULX3SMain extends App {
 
   ChiselStage.emitSystemVerilogFile(
     gen         = new ulx3s_top(clockMhz),
+    args        = Array("--target-dir", targetDir),
+    firtoolOpts = Emit.firtoolOpts
+  )
+
+  ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
+}
+
+/** Rung A of the wafer.space Borg-only bridge's on-hardware ladder: same
+  * board, same demo firmware, Borg reached only through the real link RTL
+  * (BorgLinkMaster + BorgLinkSlave, "pins" are internal wires) instead of
+  * directly. Separate emission target/output dir so the default ULX3SMain
+  * (what the demo/talk bitstream ships) is completely unaffected -- this is
+  * purely additive.
+  */
+object ULX3SLoopbackMain extends App {
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "125").toInt
+  val targetDir = "out/ulx3s/verilog_loopback"
+  new java.io.File(targetDir).mkdirs()
+
+  ChiselStage.emitSystemVerilogFile(
+    gen         = new ulx3s_top(clockMhz, borgModeOverride = BorgLoopback),
     args        = Array("--target-dir", targetDir),
     firtoolOpts = Emit.firtoolOpts
   )

@@ -41,6 +41,8 @@ ULX3S_VERILOG_DIR = ../../out/ulx3s/verilog
 SRC_FILES = $$(find $(ULX3S_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
 
 CHISEL_SRCS = $(wildcard ../../hardware/borg/src/*.scala) \
+              $(wildcard ../../hardware/borg/src/link/*.scala) \
+              $(wildcard ../../hardware/borg/src/generated/*.scala) \
               $(wildcard ../../hardware/hutt/src/*.scala) \
               $(wildcard ../../hardware/memory/src/*.scala) \
               $(wildcard ../../hardware/peri/src/*.scala) \
@@ -310,6 +312,53 @@ generate_verilog_ulx3s:
 	@echo -e "$(BOLD)[CHISEL]$(RESET) Emitting ULX3S Verilog (BorgConfig.ULX3S) ..."
 	$(MAKE) -C ../.. generate_verilog_ulx3s ULX3S_CLOCK_MHZ=$(ULX3S_MHZ)
 
+######### Rung A: Borg reached only through the link RTL (loopback) ################################
+
+LOOPBACK_VERILOG_DIR = ../../out/ulx3s/verilog_loopback
+LOOPBACK_SRC_FILES = $$(find $(LOOPBACK_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
+LOOPBACK_LPF = $(LOOPBACK_VERILOG_DIR)/ulx3s.lpf
+
+.verilog_stamp_ulx3s_loopback: $(CHISEL_SRCS) Makefile ../../Makefile
+	$(MAKE) -C ../.. generate_verilog_ulx3s_loopback ULX3S_CLOCK_MHZ=$(ULX3S_MHZ)
+	@touch $@
+
+borg-loopback.json: .verilog_stamp_ulx3s_loopback
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Running Yosys for loopback SoC ..."
+	yosys -p "read -sv $(LOOPBACK_SRC_FILES); \
+	           read_verilog -sv -lib $(CURDIR)/primitives/ecp5_prims.v; \
+	           synth_ecp5 -abc9 -top ulx3s_top -json borg-loopback.json; \
+	           stat -top ulx3s_top" \
+	      -DECP5 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ \
+	      > yosys-loopback.log
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Done."
+
+borg-loopback.config: borg-loopback.json
+	@echo -e "$(BOLD)[PNR]$(RESET) Running nextpnr-ecp5 for loopback SoC ..."
+	nextpnr-ecp5 \
+	  --85k --package CABGA381 \
+	  --json borg-loopback.json \
+	  --lpf $(LOOPBACK_LPF) \
+	  --textcfg borg-loopback.config \
+	  --freq $(CLOCK_FREQ) \
+	  --timing-allow-fail \
+	  --log nextpnr-loopback.log \
+	  --seed 0
+	@echo -e "$(BOLD)[PNR]$(RESET) Done."
+
+borg-loopback.bit: borg-loopback.config
+	@echo -e "$(BOLD)[PACK]$(RESET) Packing loopback bitstream ..."
+	ecppack --svf borg-loopback.svf borg-loopback.config borg-loopback.bit
+	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-loopback.bit ready."
+
+# Same kernel firmware as the direct-Borg demo -- rung A's whole point is that
+# firmware/borgvk/HDMI scanout are unchanged; only how Borg is reached differs.
+flash-loopback: borg-loopback.bit kernel_with_header.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Writing loopback ECP5 bitstream to onboard flash ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset borg-loopback.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing kernel firmware to onboard flash @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 kernel_with_header.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Start tio, then: make reset"
+
 ######### Minimal SoC (Hutt + UART only) — fast iteration ##########################################
 
 ULX3S_MINIMAL_VERILOG_DIR = ../../out/ulx3s_minimal/verilog
@@ -435,7 +484,9 @@ install-udev:
 
 clean:
 	rm -f borg.bit borg.config borg.json borg.svf yosys.log nextpnr.log .verilog_stamp_ulx3s
+	rm -f borg-loopback.bit borg-loopback.config borg-loopback.json borg-loopback.svf \
+	      yosys-loopback.log nextpnr-loopback.log .verilog_stamp_ulx3s_loopback
 
 .PHONY: all help load flash flash-firmware minimal-boot \
         print_resources generate_verilog_ulx3s tio install-udev clean \
-        flash-hdmi-tiled minimal-hdmi
+        flash-hdmi-tiled minimal-hdmi generate_verilog_ulx3s_loopback flash-loopback
