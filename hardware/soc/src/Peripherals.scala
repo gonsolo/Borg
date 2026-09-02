@@ -211,12 +211,11 @@ class Peripherals(
   ))
 
   // -- uo_out muxing (per-pin function select) ------------------------------
-  // uo_out/user_interrupt only exist on Borg's own IO, not BorgLinkMasterIO
-  // (dropped for the wafer.space bridge -- see the plan's Files section on
-  // Borg.scala). In a link mode there is nothing to mux in; hold the lanes at
-  // their GPIO/UART default instead.
+  // Borg's own uo_out/user_interrupt were dead (tied to constants) and have
+  // been removed from BorgIO entirely, so there is nothing to mux in from
+  // Borg regardless of borgMode; PERI_BORG-selected lanes just read 0.
   val uo_out_uart = i_uart.io.uo_out
-  val uo_out_borg = borgOpt.map(_.io.uo_out).getOrElse(0.U(8.W))
+  val uo_out_borg = 0.U(8.W)
   val uo_out_muxed = Wire(Vec(8, Bool()))
   for (k <- 0 until 8) {
     when(func_sel_reg(k) === PERI_UART) {

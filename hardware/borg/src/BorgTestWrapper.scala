@@ -62,8 +62,13 @@ class BorgTestWrapper(val cfg: BorgConfig = BorgConfig.Default) extends Module w
 
   val borg = Module(new Borg(cfg))
 
-  io.uo_out         := borg.io.uo_out
-  io.user_interrupt := borg.io.user_interrupt
+  // Borg's own uo_out/user_interrupt were dead (tied to constants) and have
+  // been removed from BorgIO entirely; this wrapper's own io.uo_out/
+  // io.user_interrupt stay (the ~130+ legacy test pokes' interface is
+  // unrelated to Borg's real production IO), just tied off directly instead
+  // of forwarded.
+  io.uo_out         := 0.U
+  io.user_interrupt := false.B
   borg.io.gpuMem    <> io.gpuMem
   io.covDeltaDebug.foreach(_ := borg.io.covDeltaDebug.get)
 
