@@ -200,7 +200,15 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   io.gpuMem.ready := vReady
   io.gpuMem.data  := vData
   // Hazard 4: pulled locally, one word per cycle, entirely on this side.
-  io.gpuMem.waccept := vState === sVDrain
+  // Gated on an actual burst to match MemoryController, whose `waccept` is
+  // `burst && backend.accept` with `burst := wlen > 1`: a single-word write
+  // pulls nothing there.  The distinction matters because Borg routes
+  // `waccept` to BorgTileFlusher unconditionally (Borg.scala), so a pulse
+  // emitted during someone else's single-word write (BorgBinner, the
+  // sequencer store) would advance the flusher's burst pointer behind its
+  // back.  Draining still works without it: a 1-word packet spends exactly
+  // one cycle in sVDrain and captures `wdata` from the bus directly.
+  io.gpuMem.waccept := (vState === sVDrain) && (vWords > 1.U)
 
   val credit = Module(new CreditCounter(p.creditDepth))
   credit.io.returnPin := io.upCred
@@ -209,18 +217,41 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
 
   switch(vState) {
     is(sVIdle) {
-      // Hazard 2: level-sampled, exactly as MemoryController's sIdle does.
-      when(io.gpuMem.req) {
-        vAddr  := io.gpuMem.addr
-        vWrite := false.B
-        vFlit  := 0.U
-        vState := sVSend
-      }.elsewhen(io.gpuMem.wr) {
-        vAddr     := io.gpuMem.addr
-        vWrite    := true.B
-        vWlenLog2 := Log2(io.gpuMem.wlen)
-        vCnt      := 0.U
-        vState    := sVDrain
+      // Hazard 2: level-sampled, exactly as MemoryController's sIdle does --
+      // and, just as importantly, with the same one-cycle grace after `ready`.
+      //
+      // Borg's gpuMem masters (BorgDMA's `sRead`, BorgBinner, the rasterizer,
+      // BorgTileFlusher) drive `req`/`wr` as a pure function of FSM state, so
+      // the request stays asserted *through* the ready cycle with the old
+      // address still on the bus; only on the next cycle does the address
+      // advance or the request drop.  MemoryController is immune to that
+      // because it pulses `ready` from `sRespond` and re-arbitrates only in
+      // `sIdle`, one cycle later.  Sampling here while `vReady` is high would
+      // instead re-issue the request that just completed, then answer the
+      // master's *next* request with the duplicate's stale data -- shifting
+      // every subsequent word by one.  Observed on real hardware as a render
+      // that completes one frame and then wedges in the sequencer's DMA.
+      when(!vReady) {
+        // Priority matches MemoryController's sIdle (writes before reads), so
+        // a master that ever asserted both would be served identically with
+        // and without the link.
+        when(io.gpuMem.wr) {
+          vAddr     := io.gpuMem.addr
+          vWrite    := true.B
+          vWlenLog2 := Log2(io.gpuMem.wlen)
+          vCnt      := 0.U
+          vState    := sVDrain
+        }.elsewhen(io.gpuMem.req) {
+          vAddr     := io.gpuMem.addr
+          vWrite    := false.B
+          // Reads carry no burst length, but the field still goes out in the
+          // header -- pin it to 0 rather than leaking the previous write's
+          // value (which would arrive as a nonsense `gpuMem.wlen` on the far
+          // side and is uninitialized entirely before the first write).
+          vWlenLog2 := 0.U
+          vFlit     := 0.U
+          vState    := sVSend
+        }
       }
     }
     is(sVDrain) {
@@ -284,7 +315,7 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   }
 
   assert(
-    !(vState === sVIdle && io.gpuMem.wr && !isPow2Wlen(io.gpuMem.wlen)),
+    !(vState === sVIdle && !vReady && io.gpuMem.wr && !isPow2Wlen(io.gpuMem.wlen)),
     "BorgLinkSlave: gpuMem burst length must be a power of two -- the wire format " +
       "encodes it as log2 so that packet length stays a pure function of the header"
   )
