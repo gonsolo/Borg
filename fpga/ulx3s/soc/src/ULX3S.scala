@@ -84,6 +84,33 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   val led = IO(Output(UInt(8.W)))
   val btn = IO(Input(UInt(6.W)))
 
+  // ── Wafer.space Borg-only bridge link pins (BorgExternal, rungs B/C) ──────
+  // Mirrors BorgLinkMasterIO's own directions exactly (see BorgLinkPortsIO's
+  // doc) -- only declared when this specific top is built for BorgExternal
+  // (ULX3SExternalMain), so every other target (the demo bitstream, rung A's
+  // loopback) has zero extra pins from this block. dbg_sel/link_narrow are
+  // wired to real pins but not yet consumed by any RTL -- reserved lane-map
+  // positions, same status as BorgOnlyTop's own ASIC-side pins (see its doc).
+  val dn_d        = if (borgMode == BorgExternal) Some(IO(Output(UInt(16.W)))) else None
+  val dn_v        = if (borgMode == BorgExternal) Some(IO(Output(Bool())))     else None
+  val dn_p        = if (borgMode == BorgExternal) Some(IO(Output(Bool())))     else None
+  val dn_cred     = if (borgMode == BorgExternal) Some(IO(Input(Bool())))      else None
+  val up_d        = if (borgMode == BorgExternal) Some(IO(Input(UInt(16.W)))) else None
+  val up_v        = if (borgMode == BorgExternal) Some(IO(Input(Bool())))      else None
+  val up_p        = if (borgMode == BorgExternal) Some(IO(Input(Bool())))      else None
+  val up_cred     = if (borgMode == BorgExternal) Some(IO(Output(Bool())))     else None
+  // far_link_up reads the far side's link_up pin (a real ASIC in rung C).
+  // link_up_loop exposes this board's own link_up as a pin purely so rung B's
+  // ribbon cable can jumper it back into far_link_up -- there is no ASIC to
+  // read from yet, so this is what lets the master's training precondition
+  // be satisfied by the same loopback cable that closes dn/up.
+  val far_link_up  = if (borgMode == BorgExternal) Some(IO(Input(Bool())))  else None
+  val link_up_loop = if (borgMode == BorgExternal) Some(IO(Output(Bool()))) else None
+  // Control straps -- onboard DIP switches (SW1-4), not GP/GN pins.
+  val dbg_sel     = if (borgMode == BorgExternal) Some(IO(Input(UInt(2.W)))) else None
+  val link_narrow = if (borgMode == BorgExternal) Some(IO(Input(Bool())))    else None
+  val link_fast   = if (borgMode == BorgExternal) Some(IO(Input(Bool())))    else None
+
   // ── PLL: 25 MHz osc → SoC + SoC/90° SDRAM + 125 MHz HDMI ──────────
   // SoC clock = the build's CLOCK_MHZ.  SINGLE SOURCE OF TRUTH is ULX3S_MHZ in
   // fpga/ulx3s/Makefile — it drives this PLL clock, the debug-UART baud divider
@@ -230,6 +257,30 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // (see PeripheralsIO) and is left dangling unless something closes it --
   // wireBorgLoopback() is that something for the loopback case.
   if (borgMode == BorgLoopback) wireBorgLoopback()
+
+  // Rungs B/C: close peripherals.io.link on real board pins instead of
+  // internal wires. See the dn_d/up_d/... IO block above for the pin set.
+  if (borgMode == BorgExternal) {
+    val linkIo = peripherals.io.link.getOrElse(
+      throw new IllegalStateException("BorgExternal requires peripherals.io.link to be present")
+    )
+    dn_d.get    := linkIo.dnPins.d
+    dn_v.get    := linkIo.dnPins.v
+    dn_p.get    := linkIo.dnPins.p
+    linkIo.dnCred := dn_cred.get
+
+    linkIo.upPins.d := up_d.get
+    linkIo.upPins.v := up_v.get
+    linkIo.upPins.p := up_p.get
+    up_cred.get := linkIo.upCred
+
+    linkIo.linkFast  := link_fast.get
+    linkIo.farLinkUp := far_link_up.get
+    link_up_loop.get := linkIo.linkUp
+    // dbg_sel/link_narrow reach real pins (reserving their lane-map position)
+    // but are not consumed by any RTL yet -- same status as BorgOnlyTop's own
+    // ASIC-side dbg_sel/link_narrow pins, see this block's doc above.
+  }
 
   // ── Warm-reset controller logic (uses `warmReset` produced by wireSoC) ─────
   // On a warm-reset request: latch warmBootReg (so the re-run bootloader picks
@@ -524,7 +575,56 @@ object ULX3SPins {
     PinDef("gpdi_dp[3]", "A17", ioType = "LVCMOS33D"),
   )
 
-  def emitLPF(path: String): Unit = {
+  // ── Wafer.space Borg-only bridge link pins (BorgExternal, rungs B/C) ──────
+  // Sites from ulx3s_v20.lpf's gp[]/gn[] table, confirmed applicable to this
+  // board's actual v3.0.8 hardware revision (see that file's own comment:
+  // "wifi lines shared with GP,GN on v3.0.x"). gp/gn[11-13] are skipped --
+  // shared with onboard WiFi GPIO on v3.0.x, per that comment. 40 signals,
+  // mirroring BorgLinkMasterIO's directions exactly (see the dn_d/up_d IO
+  // block's doc in ulx3s_top): our own inputs (reading a disconnected far
+  // side, or no far side at all before a real ASIC exists) default DOWN, to
+  // fail the link's own odd-parity check by construction -- same intent as
+  // chip_core.sv's bidir_pd on the ASIC side. Our own outputs don't need a
+  // pull since they're always driven.
+  val linkExternalPins: Seq[PinDef] = Seq(
+    PinDef("dn_d[0]",  "B11", pull = "NONE"), PinDef("dn_d[1]",  "C11", pull = "NONE"),
+    PinDef("dn_d[2]",  "A10", pull = "NONE"), PinDef("dn_d[3]",  "A11", pull = "NONE"),
+    PinDef("dn_d[4]",  "A9",  pull = "NONE"), PinDef("dn_d[5]",  "B10", pull = "NONE"),
+    PinDef("dn_d[6]",  "B9",  pull = "NONE"), PinDef("dn_d[7]",  "C10", pull = "NONE"),
+    PinDef("dn_d[8]",  "A7",  pull = "NONE"), PinDef("dn_d[9]",  "A8",  pull = "NONE"),
+    PinDef("dn_d[10]", "C8",  pull = "NONE"), PinDef("dn_d[11]", "B8",  pull = "NONE"),
+    PinDef("dn_d[12]", "C6",  pull = "NONE"), PinDef("dn_d[13]", "C7",  pull = "NONE"),
+    PinDef("dn_d[14]", "A6",  pull = "NONE"), PinDef("dn_d[15]", "B6",  pull = "NONE"),
+    PinDef("dn_v",     "A4",  pull = "NONE"),
+    PinDef("dn_p",     "A5",  pull = "NONE"),
+    PinDef("dn_cred",  "A2",  pull = "DOWN"),
+
+    PinDef("up_d[0]",  "B1",  pull = "DOWN"), PinDef("up_d[1]",  "C4",  pull = "DOWN"),
+    PinDef("up_d[2]",  "B4",  pull = "DOWN"), PinDef("up_d[3]",  "U18", pull = "DOWN"),
+    PinDef("up_d[4]",  "U17", pull = "DOWN"), PinDef("up_d[5]",  "N17", pull = "DOWN"),
+    PinDef("up_d[6]",  "P16", pull = "DOWN"), PinDef("up_d[7]",  "N16", pull = "DOWN"),
+    PinDef("up_d[8]",  "M17", pull = "DOWN"), PinDef("up_d[9]",  "L16", pull = "DOWN"),
+    PinDef("up_d[10]", "L17", pull = "DOWN"), PinDef("up_d[11]", "H18", pull = "DOWN"),
+    PinDef("up_d[12]", "H17", pull = "DOWN"), PinDef("up_d[13]", "F17", pull = "DOWN"),
+    PinDef("up_d[14]", "G18", pull = "DOWN"), PinDef("up_d[15]", "D18", pull = "DOWN"),
+    PinDef("up_v",     "E17", pull = "DOWN"),
+    PinDef("up_p",     "C18", pull = "DOWN"),
+    PinDef("up_cred",  "D17", pull = "NONE"),
+
+    PinDef("far_link_up",  "B15", pull = "DOWN"),
+    PinDef("link_up_loop", "C15", pull = "NONE"),
+  )
+
+  // Control straps -- onboard DIP switches SW1-4, not GP/GN pins. Sites +
+  // PULLMODE=DOWN from ulx3s_v20.lpf's "sw[]" block.
+  val dipSwitchPins: Seq[PinDef] = Seq(
+    PinDef("dbg_sel[0]",   "E8", pull = "DOWN"),
+    PinDef("dbg_sel[1]",   "D8", pull = "DOWN"),
+    PinDef("link_narrow",  "D7", pull = "DOWN"),
+    PinDef("link_fast",    "E7", pull = "DOWN"),
+  )
+
+  def emitLPF(path: String, extraPins: Seq[PinDef] = Seq()): Unit = {
     val writer = new java.io.PrintWriter(path)
     writer.println("# ULX3S (ECP5-85K) pin constraints")
     writer.println("# Sites from ulx3s_v20.lpf — https://github.com/emard/ulx3s")
@@ -542,6 +642,10 @@ object ULX3SPins {
     writer.println(s"""FREQUENCY PORT "clk_25mhz" 25 MHZ;""")
     writer.println()
     for (p <- pins if p.name != "clk_25mhz") {
+      writer.println(f"""LOCATE COMP "${p.name}" SITE "${p.site}";""")
+      writer.println(f"""IOBUF  PORT "${p.name}" PULLMODE=${p.pull} IO_TYPE=${p.ioType} DRIVE=${p.drive};""")
+    }
+    for (p <- extraPins) {
       writer.println(f"""LOCATE COMP "${p.name}" SITE "${p.site}";""")
       writer.println(f"""IOBUF  PORT "${p.name}" PULLMODE=${p.pull} IO_TYPE=${p.ioType} DRIVE=${p.drive};""")
     }
@@ -585,4 +689,26 @@ object ULX3SLoopbackMain extends App {
   )
 
   ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
+}
+
+/** Rungs B/C of the wafer.space Borg-only bridge's on-hardware ladder: the
+  * link reaches real GP/GN pins (rung B: ribbon-cable loopback on this same
+  * board; rung C: a second ULX3S running BorgOnlyTop across real
+  * 74LVC8T245 level shifters) instead of BorgLoopback's internal wires.
+  * Separate emission target/output dir, same as ULX3SLoopbackMain -- purely
+  * additive, the default ULX3SMain demo bitstream is unaffected.
+  */
+object ULX3SExternalMain extends App {
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "125").toInt
+  val targetDir = "out/ulx3s/verilog_external"
+  new java.io.File(targetDir).mkdirs()
+
+  ChiselStage.emitSystemVerilogFile(
+    gen         = new ulx3s_top(clockMhz, borgModeOverride = BorgExternal),
+    args        = Array("--target-dir", targetDir),
+    firtoolOpts = Emit.firtoolOpts
+  )
+
+  ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf",
+    extraPins = ULX3SPins.linkExternalPins ++ ULX3SPins.dipSwitchPins)
 }

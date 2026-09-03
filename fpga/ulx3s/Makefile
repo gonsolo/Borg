@@ -340,6 +340,48 @@ flash-loopback: borg-loopback.bit kernel_with_header.bin
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 kernel_with_header.bin
 	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Start tio, then: make reset"
 
+######### Rungs B/C: Borg reached through the link RTL over real pins ##############################
+
+EXTERNAL_VERILOG_DIR = ../../out/ulx3s/verilog_external
+EXTERNAL_SRC_FILES = $$(find $(EXTERNAL_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
+EXTERNAL_LPF = $(EXTERNAL_VERILOG_DIR)/ulx3s.lpf
+
+.verilog_stamp_ulx3s_external: $(CHISEL_SRCS) Makefile ../../Makefile
+	$(MAKE) -C ../.. generate_verilog_ulx3s_external ULX3S_CLOCK_MHZ=$(ULX3S_MHZ)
+	@touch $@
+
+borg-external.json: .verilog_stamp_ulx3s_external
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Running Yosys for external-link SoC ..."
+	yosys -p "read -sv $(EXTERNAL_SRC_FILES); \
+	           read_verilog -sv -lib $(CURDIR)/primitives/ecp5_prims.v; \
+	           synth_ecp5 -abc9 -top ulx3s_top -json borg-external.json; \
+	           stat -top ulx3s_top" \
+	      -DECP5 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ \
+	      > yosys-external.log
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Done."
+
+# Placement-only check (Phase 5): confirms nextpnr can actually place all ~40
+# link pins + 4 DIP-switch straps onto real CABGA381 sites alongside every
+# other SoC pin, with no site conflicts. Not yet flashed to hardware --
+# that's rung B, and needs the physical ribbon cable jumpered first.
+borg-external.config: borg-external.json
+	@echo -e "$(BOLD)[PNR]$(RESET) Running nextpnr-ecp5 for external-link SoC ..."
+	nextpnr-ecp5 \
+	  --85k --package CABGA381 \
+	  --json borg-external.json \
+	  --lpf $(EXTERNAL_LPF) \
+	  --textcfg borg-external.config \
+	  --freq $(CLOCK_FREQ) \
+	  --timing-allow-fail \
+	  --log nextpnr-external.log \
+	  --seed 0
+	@echo -e "$(BOLD)[PNR]$(RESET) Done."
+
+borg-external.bit: borg-external.config
+	@echo -e "$(BOLD)[PACK]$(RESET) Packing external-link bitstream ..."
+	ecppack --svf borg-external.svf borg-external.config borg-external.bit
+	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-external.bit ready."
+
 ######### Minimal SoC (Hutt + UART only) — fast iteration ##########################################
 
 ULX3S_MINIMAL_VERILOG_DIR = ../../out/ulx3s_minimal/verilog
@@ -422,7 +464,10 @@ clean:
 	rm -f borg.bit borg.config borg.json borg.svf yosys.log nextpnr.log .verilog_stamp_ulx3s
 	rm -f borg-loopback.bit borg-loopback.config borg-loopback.json borg-loopback.svf \
 	      yosys-loopback.log nextpnr-loopback.log .verilog_stamp_ulx3s_loopback
+	rm -f borg-external.bit borg-external.config borg-external.json borg-external.svf \
+	      yosys-external.log nextpnr-external.log .verilog_stamp_ulx3s_external
 
 .PHONY: all help load flash flash-firmware minimal-boot \
         print_resources generate_verilog_ulx3s tio install-udev clean \
-        flash-hdmi-tiled minimal-hdmi generate_verilog_ulx3s_loopback flash-loopback
+        flash-hdmi-tiled minimal-hdmi generate_verilog_ulx3s_loopback flash-loopback \
+        generate_verilog_ulx3s_external
