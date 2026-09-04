@@ -586,33 +586,46 @@ object ULX3SPins {
   // fail the link's own odd-parity check by construction -- same intent as
   // chip_core.sv's bidir_pd on the ASIC side. Our own outputs don't need a
   // pull since they're always driven.
+  //
+  // Deliberately paired one dn_*/up_* signal per physical pin number (GP =
+  // the dn_/far_link_up half, GN = the matching up_/link_up_loop half) --
+  // NOT grouped by which gp[]/gn[] index the site table happens to assign.
+  // This means every one of rung B's loopback wires bridges a pin's own two
+  // rows (GP<->GN at the SAME numbered pin) instead of jumping to a
+  // different pin index, so the whole loom collapses to two short runs (J1
+  // pins 0-10, J2 pins 14-22) that a single folded ribbon/shorting block can
+  // bridge, rather than 20 individually-routed point-to-point wires.
+  // GP is the OUTER row (toward the board edge) and GN is the INNER row
+  // (toward the crystal/buttons/chips) -- hardware-confirmed 2026-09-03 via
+  // fpga/ulx3s/debug/pin_loopback_test.v (the opposite row guess failed on
+  // real hardware; this one didn't).
   val linkExternalPins: Seq[PinDef] = Seq(
-    PinDef("dn_d[0]",  "B11", pull = "NONE"), PinDef("dn_d[1]",  "C11", pull = "NONE"),
-    PinDef("dn_d[2]",  "A10", pull = "NONE"), PinDef("dn_d[3]",  "A11", pull = "NONE"),
-    PinDef("dn_d[4]",  "A9",  pull = "NONE"), PinDef("dn_d[5]",  "B10", pull = "NONE"),
-    PinDef("dn_d[6]",  "B9",  pull = "NONE"), PinDef("dn_d[7]",  "C10", pull = "NONE"),
-    PinDef("dn_d[8]",  "A7",  pull = "NONE"), PinDef("dn_d[9]",  "A8",  pull = "NONE"),
-    PinDef("dn_d[10]", "C8",  pull = "NONE"), PinDef("dn_d[11]", "B8",  pull = "NONE"),
-    PinDef("dn_d[12]", "C6",  pull = "NONE"), PinDef("dn_d[13]", "C7",  pull = "NONE"),
-    PinDef("dn_d[14]", "A6",  pull = "NONE"), PinDef("dn_d[15]", "B6",  pull = "NONE"),
-    PinDef("dn_v",     "A4",  pull = "NONE"),
-    PinDef("dn_p",     "A5",  pull = "NONE"),
-    PinDef("dn_cred",  "A2",  pull = "DOWN"),
+    // J1 pins 0-10 (11 pairs): dn_d[0..10] / up_d[0..10]. Pins 11-13 skipped
+    // (WiFi-shared).
+    PinDef("dn_d[0]",  "B11", pull = "NONE"), PinDef("up_d[0]",  "C11", pull = "DOWN"),
+    PinDef("dn_d[1]",  "A10", pull = "NONE"), PinDef("up_d[1]",  "A11", pull = "DOWN"),
+    PinDef("dn_d[2]",  "A9",  pull = "NONE"), PinDef("up_d[2]",  "B10", pull = "DOWN"),
+    PinDef("dn_d[3]",  "B9",  pull = "NONE"), PinDef("up_d[3]",  "C10", pull = "DOWN"),
+    PinDef("dn_d[4]",  "A7",  pull = "NONE"), PinDef("up_d[4]",  "A8",  pull = "DOWN"),
+    PinDef("dn_d[5]",  "C8",  pull = "NONE"), PinDef("up_d[5]",  "B8",  pull = "DOWN"),
+    PinDef("dn_d[6]",  "C6",  pull = "NONE"), PinDef("up_d[6]",  "C7",  pull = "DOWN"),
+    PinDef("dn_d[7]",  "A6",  pull = "NONE"), PinDef("up_d[7]",  "B6",  pull = "DOWN"),
+    PinDef("dn_d[8]",  "A4",  pull = "NONE"), PinDef("up_d[8]",  "A5",  pull = "DOWN"),
+    PinDef("dn_d[9]",  "A2",  pull = "NONE"), PinDef("up_d[9]",  "B1",  pull = "DOWN"),
+    PinDef("dn_d[10]", "C4",  pull = "NONE"), PinDef("up_d[10]", "B4",  pull = "DOWN"),
 
-    PinDef("up_d[0]",  "B1",  pull = "DOWN"), PinDef("up_d[1]",  "C4",  pull = "DOWN"),
-    PinDef("up_d[2]",  "B4",  pull = "DOWN"), PinDef("up_d[3]",  "U18", pull = "DOWN"),
-    PinDef("up_d[4]",  "U17", pull = "DOWN"), PinDef("up_d[5]",  "N17", pull = "DOWN"),
-    PinDef("up_d[6]",  "P16", pull = "DOWN"), PinDef("up_d[7]",  "N16", pull = "DOWN"),
-    PinDef("up_d[8]",  "M17", pull = "DOWN"), PinDef("up_d[9]",  "L16", pull = "DOWN"),
-    PinDef("up_d[10]", "L17", pull = "DOWN"), PinDef("up_d[11]", "H18", pull = "DOWN"),
-    PinDef("up_d[12]", "H17", pull = "DOWN"), PinDef("up_d[13]", "F17", pull = "DOWN"),
-    PinDef("up_d[14]", "G18", pull = "DOWN"), PinDef("up_d[15]", "D18", pull = "DOWN"),
-    PinDef("up_v",     "E17", pull = "DOWN"),
-    PinDef("up_p",     "C18", pull = "DOWN"),
-    PinDef("up_cred",  "D17", pull = "NONE"),
-
-    PinDef("far_link_up",  "B15", pull = "DOWN"),
-    PinDef("link_up_loop", "C15", pull = "NONE"),
+    // J2 pins 14-22 (9 pairs): dn_d[11..15]/up_d[11..15], dn_v/up_v,
+    // dn_p/up_p, dn_cred/up_cred, far_link_up/link_up_loop. Pins 23-27
+    // spare.
+    PinDef("dn_d[11]", "U18", pull = "NONE"), PinDef("up_d[11]", "U17", pull = "DOWN"),
+    PinDef("dn_d[12]", "N17", pull = "NONE"), PinDef("up_d[12]", "P16", pull = "DOWN"),
+    PinDef("dn_d[13]", "N16", pull = "NONE"), PinDef("up_d[13]", "M17", pull = "DOWN"),
+    PinDef("dn_d[14]", "L16", pull = "NONE"), PinDef("up_d[14]", "L17", pull = "DOWN"),
+    PinDef("dn_d[15]", "H18", pull = "NONE"), PinDef("up_d[15]", "H17", pull = "DOWN"),
+    PinDef("dn_v",     "F17", pull = "NONE"), PinDef("up_v",     "G18", pull = "DOWN"),
+    PinDef("dn_p",     "D18", pull = "NONE"), PinDef("up_p",     "E17", pull = "DOWN"),
+    PinDef("dn_cred",  "C18", pull = "DOWN"), PinDef("up_cred",  "D17", pull = "NONE"),
+    PinDef("far_link_up",  "B15", pull = "DOWN"), PinDef("link_up_loop", "C15", pull = "NONE"),
   )
 
   // Control straps -- onboard DIP switches SW1-4, not GP/GN pins. Sites +

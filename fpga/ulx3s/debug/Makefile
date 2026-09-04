@@ -88,7 +88,66 @@ load-uart: uart_test.bit
 	@echo -e "  Connect with: tio /dev/ttyUSB0"
 	@echo -e "  Expect:       HELLO repeated at 115200 baud"
 
-.PHONY: all flash load clean hdmi load-hdmi bare load-bare uart load-uart cpu-sdram load-cpu-sdram
+pin-loopback: pin_loopback_test.bit
+
+pin_loopback_test.json: pin_loopback_test.v
+	@echo -e "$(BOLD)[SYNTH]$(RESET) pin_loopback_test ..."
+	yosys -q -p "read_verilog pin_loopback_test.v; synth_ecp5 -top pin_loopback_test -json pin_loopback_test.json"
+
+pin_loopback_test.config: pin_loopback_test.json
+	@echo -e "$(BOLD)[PNR]$(RESET) pin_loopback_test ..."
+	nextpnr-ecp5 --85k --package CABGA381 --json pin_loopback_test.json --lpf pin_loopback_test.lpf --textcfg pin_loopback_test.config --timing-allow-fail --quiet
+
+pin_loopback_test.bit: pin_loopback_test.config
+	@echo -e "$(BOLD)[PACK]$(RESET) pin_loopback_test ..."
+	ecppack pin_loopback_test.config pin_loopback_test.bit
+
+load-pin-loopback: pin_loopback_test.bit
+	@echo -e "$(BOLD)[LOAD]$(RESET) Loading pin_loopback_test into SRAM ..."
+	openFPGALoader -b ulx3s pin_loopback_test.bit
+	@echo -e "  Press btn[0] (site R1). led[1] should follow the button directly."
+	@echo -e "  led[0] follows led[1] ONLY if the J1 pin0(GP)->J1 pin9(GN) jumper is good."
+	@echo -e "  led[7] stays on to confirm the bitstream is running."
+
+pin_loopback_test_v2.json: pin_loopback_test.v
+	@echo -e "$(BOLD)[SYNTH]$(RESET) pin_loopback_test_v2 ..."
+	yosys -q -p "read_verilog pin_loopback_test.v; synth_ecp5 -top pin_loopback_test -json pin_loopback_test_v2.json"
+
+pin_loopback_test_v2.config: pin_loopback_test_v2.json
+	@echo -e "$(BOLD)[PNR]$(RESET) pin_loopback_test_v2 ..."
+	nextpnr-ecp5 --85k --package CABGA381 --json pin_loopback_test_v2.json --lpf pin_loopback_test_v2.lpf --textcfg pin_loopback_test_v2.config --timing-allow-fail --quiet
+
+pin_loopback_test_v2.bit: pin_loopback_test_v2.config
+	@echo -e "$(BOLD)[PACK]$(RESET) pin_loopback_test_v2 ..."
+	ecppack pin_loopback_test_v2.config pin_loopback_test_v2.bit
+
+load-pin-loopback-v2: pin_loopback_test_v2.bit
+	@echo -e "$(BOLD)[LOAD]$(RESET) Loading pin_loopback_test_v2 (swapped GP/GN hypothesis) into SRAM ..."
+	openFPGALoader -b ulx3s pin_loopback_test_v2.bit
+	@echo -e "  Same jumper, no rewiring. Press btn[0] and check led[0]/led[1] again."
+
+link-loom: link_loom_test.bit
+
+link_loom_test.json: link_loom_test.v
+	@echo -e "$(BOLD)[SYNTH]$(RESET) link_loom_test ..."
+	yosys -q -p "read_verilog link_loom_test.v; synth_ecp5 -top link_loom_test -json link_loom_test.json"
+
+link_loom_test.config: link_loom_test.json
+	@echo -e "$(BOLD)[PNR]$(RESET) link_loom_test ..."
+	nextpnr-ecp5 --85k --package CABGA381 --json link_loom_test.json --lpf link_loom_test.lpf --textcfg link_loom_test.config --timing-allow-fail --quiet
+
+link_loom_test.bit: link_loom_test.config
+	@echo -e "$(BOLD)[PACK]$(RESET) link_loom_test ..."
+	ecppack link_loom_test.config link_loom_test.bit
+
+load-link-loom: link_loom_test.bit
+	@echo -e "$(BOLD)[LOAD]$(RESET) Loading link_loom_test into SRAM ..."
+	openFPGALoader -b ulx3s link_loom_test.bit
+	@echo -e "  Capture: stty -F /dev/ttyUSB0 115200 raw -echo && timeout 3 cat /dev/ttyUSB0"
+	@echo -e "  Look for: PASS=FFFFF  (all 20 wires good)"
+	@echo -e "  led[7]=heartbeat led[1]=all-pass led[0]=uart-tx-activity"
+
+.PHONY: all flash load clean hdmi load-hdmi bare load-bare uart load-uart cpu-sdram load-cpu-sdram pin-loopback load-pin-loopback load-pin-loopback-v2 link-loom load-link-loom
 
 # ── CPU + SDRAM minimal test (fast iteration, ~6s build) ────────────────────
 CPU_SDRAM_VDIR = $(abspath $(CURDIR)/../../..)/out/cpu_sdram_test/verilog
