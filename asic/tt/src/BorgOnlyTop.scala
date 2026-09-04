@@ -23,9 +23,9 @@ import borg.link.{BorgLinkSlave, LinkParams}
   *   bidir[37]     up_cred      in
   *   bidir[38]     link_up      out
   *   bidir[39]     link_err     out
-  *   bidir[40:45]  dbg_o[5:0]   out (reserved, tied 0 -- no debug bus defined yet)
+  *   bidir[40:45]  dbg_o[5:0]   out (live: 4 views selected by dbg_sel)
   *
-  *   input_in[0:1] dbg_sel      in  (reserved, unused)
+  *   input_in[0:1] dbg_sel      in  (live: selects the dbg_o view)
   *   input_in[2]   link_narrow  in  (live: halves the lanes at runtime)
   *   input_in[3]   link_fast    in
   * }}}
@@ -59,6 +59,8 @@ class BorgOnlyCoreIO(val p: LinkParams) extends Bundle {
 
   val linkUp     = Output(Bool())
   val linkErr    = Output(Bool())
+  val dbgSel     = Input(UInt(2.W))
+  val dbgO       = Output(UInt(6.W))
   val linkFast   = Input(Bool())
   val linkNarrow = Input(Bool()) // reserved, see class doc
 }
@@ -86,6 +88,36 @@ class BorgOnlyCore(val cfg: BorgConfig, val p: LinkParams) extends Module {
   slave.io.narrow   := io.linkNarrow
   io.linkUp  := slave.io.linkUp
   io.linkErr := slave.io.linkErr
+
+  // -- Debug bus -------------------------------------------------------------
+  // If the part comes back and link_up never rises, the only other evidence on
+  // the package is link_err. That is two bits for a fault with many causes --
+  // clock not arriving, reset stuck, a lane open in the padring, parity
+  // polarity, the phase never locking -- which all present identically. These
+  // four views are chosen to separate exactly those, and cost 6 output pads
+  // that are otherwise tied to zero.
+  //
+  // The heartbeat is deliberately first and free-running: if it is static, the
+  // core clock is not reaching the die and nothing else on this bus means
+  // anything.
+  val heartbeat = RegInit(0.U(6.W))
+  heartbeat := heartbeat + 1.U
+
+  val dbgViews = VecInit(Seq(
+    // 0: bring-up. trainGood distinguishes "no transitions arriving" (0) from
+    //    "transitions arrive but the phase keeps relocking" (counts, resets).
+    Cat(heartbeat(5), slave.io.linkUp, slave.io.dbgChanged,
+        slave.io.dbgTrainGood(2, 0)),
+    // 1: receiver health once trained -- is traffic arriving and is it clean?
+    Cat(heartbeat(5), slave.io.linkErr, slave.io.dbgRxErr,
+        slave.io.dbgRxParity, slave.io.dbgTxBusy, slave.io.linkUp),
+    // 2: is Borg itself doing anything, or is the link fine and the GPU wedged?
+    Cat(heartbeat(5), borgCore.io.mmio.req.ready, borgCore.io.mmio.resp.valid,
+        borgCore.io.gpuMem.req, borgCore.io.gpuMem.wr, slave.io.linkUp),
+    // 3: straps read back, to confirm the board is driving what it thinks.
+    Cat(heartbeat(5), io.linkFast, io.linkNarrow, io.dbgSel, slave.io.linkUp)
+  ))
+  io.dbgO := dbgViews(io.dbgSel)
 }
 
 /** Pin-flattening `RawModule` wrapper: one bit per wafer.space pad, matching
@@ -113,9 +145,9 @@ class BorgOnlyTop(val cfg: BorgConfig, val p: LinkParams) extends RawModule {
 
   core.io.linkNarrow := inputIn(2)
   core.io.linkFast   := inputIn(3)
-  // dbg_sel (input_in[1:0]) is reserved and unused for now.
+  core.io.dbgSel     := inputIn(1, 0)
 
-  val dbgO = 0.U(6.W) // no debug bus defined yet -- see class doc.
+  val dbgO = core.io.dbgO
 
   // Built per-bit rather than via Cat: the vector mixes in/out lanes at
   // non-contiguous positions, and bidirOe (below) is what actually decides

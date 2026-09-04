@@ -167,6 +167,48 @@ async def test_narrow_strap_round_trip(dut):
     assert m.parity_errors == 0, f"{m.parity_errors} parity errors in narrow mode"
 
 
+@cocotb.test()
+async def test_debug_bus(dut):
+    """dbg_o must carry real state, selected by dbg_sel.
+
+    These six pads were tied to zero. That matters because if a fabricated part
+    never trains, the only other evidence on the package is link_err -- two bits
+    for a fault with many indistinguishable causes. The strap view is checked
+    here because it validates the whole path at once: the dbg_sel mux, the
+    dbg_o lanes, and the padring positions of both.
+    """
+    log = logging.getLogger("link")
+    await start_up(dut, link_fast=0, link_narrow=1, dbg_sel=3)
+    m = LinkMaster(dut, log)
+
+    # View 3 = {heartbeat[5], link_fast, link_narrow, dbg_sel[1:0], link_up}
+    v = m.read_dbg()
+    assert v is not None, "dbg_o reads x/z -- check bidir_oe on lanes 40-45"
+    assert (v >> 4) & 1 == 0, f"dbg_o link_fast bit wrong: 0x{v:02x}"
+    assert (v >> 3) & 1 == 1, f"dbg_o link_narrow bit wrong (strapped 1): 0x{v:02x}"
+    assert (v >> 1) & 3 == 3, f"dbg_o should read back dbg_sel=3: 0x{v:02x}"
+
+    # The heartbeat is the "is the clock even arriving" bit: it must toggle on
+    # its own, with no traffic and without the link up.
+    seen = set()
+    for _ in range(160):
+        d = m.read_dbg()
+        if d is not None:
+            seen.add((d >> 5) & 1)
+        await ClockCycles(dut.clk, 1)
+    assert seen == {0, 1}, f"dbg_o heartbeat never toggled (saw {seen}) -- a dead clock would look like this"
+
+    # View 0's link_up bit must agree with the link_up pad once trained.
+    dut.input_drv.value = 0                      # dbg_sel = 0
+    await ClockCycles(dut.clk, 4)
+    assert await m.train(), "link_up never asserted"
+    v0 = m.read_dbg()
+    assert v0 is not None and (v0 >> 4) & 1 == 1, (
+        f"dbg_o view 0 link_up disagrees with the link_up pad: 0x{v0:02x}"
+    )
+    log.info("debug bus: strap view + heartbeat + bring-up view all consistent")
+
+
 def chip_link_runner():
     proj_path = Path(__file__).resolve().parent
 

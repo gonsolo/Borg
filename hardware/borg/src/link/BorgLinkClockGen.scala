@@ -30,6 +30,15 @@ class BorgLinkClockGenIO(val p: LinkParams) extends Bundle {
 
   /** Master only: the pin values to drive while `trainActive`. */
   val trainPins = Output(new LinkPins(p.w))
+
+  /** Observability for the "silicon came back not training" case, where the
+    * only other evidence is link_up staying low. `trainGood` separates "no
+    * transitions are arriving at all" (stays 0) from "transitions arrive but
+    * the phase never locks" (counts up, then keeps getting reset) -- two faults
+    * with completely different causes that are otherwise indistinguishable from
+    * outside the package. Slave only; tied off on the master. */
+  val dbgTrainGood = Output(UInt(log2Ceil(p.trainBeats + 1).W))
+  val dbgChanged   = Output(Bool())
 }
 
 /** Beat-rate generator and link training.
@@ -95,6 +104,8 @@ class BorgLinkClockGen(val p: LinkParams, val isMaster: Boolean) extends Module 
     io.beatEn := true.B
     io.linkUp := (if (isMaster) io.farLinkUp else true.B)
     io.trainActive := (if (isMaster) !io.farLinkUp else false.B)
+    io.dbgTrainGood := 0.U
+    io.dbgChanged   := false.B
   } else {
     val phase = RegInit(0.U(log2Ceil(p.divCycles).W))
     val beat  = phase === 0.U
@@ -105,6 +116,8 @@ class BorgLinkClockGen(val p: LinkParams, val isMaster: Boolean) extends Module 
       phase := Mux(phase >= limit, 0.U, phase + 1.U)
       io.linkUp      := io.farLinkUp
       io.trainActive := !io.farLinkUp
+      io.dbgTrainGood := 0.U
+      io.dbgChanged   := false.B
     } else {
       val up   = RegInit(false.B)
       val good = RegInit(0.U(log2Ceil(p.trainBeats + 1).W))
@@ -147,6 +160,8 @@ class BorgLinkClockGen(val p: LinkParams, val isMaster: Boolean) extends Module 
 
       io.linkUp      := up
       io.trainActive := false.B
+      io.dbgTrainGood := good
+      io.dbgChanged   := changed
     }
   }
 

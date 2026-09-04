@@ -33,6 +33,15 @@ class BorgLinkSlaveIO(val p: LinkParams) extends Bundle {
   val narrow   = Input(Bool())
   val linkUp   = Output(Bool())
   val linkErr  = Output(Bool())
+
+  /** Internal state worth seeing from outside the package when the chip does
+    * not come up. See BorgLinkClockGenIO's dbg fields for why training progress
+    * in particular is the signal that separates the plausible causes. */
+  val dbgTrainGood = Output(UInt(log2Ceil(p.trainBeats + 1).W))
+  val dbgChanged   = Output(Bool())
+  val dbgRxErr     = Output(Bool())
+  val dbgRxParity  = Output(Bool())
+  val dbgTxBusy    = Output(Bool())
 }
 
 /** ASIC-side link adapter: the bridge between the pins and Borg's own ports.
@@ -110,6 +119,12 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   val errSticky = RegInit(false.B)
   when(rx.io.err && linkUp && synced) { errSticky := true.B }
   io.linkErr := errSticky
+
+  io.dbgTrainGood := clkgen.io.dbgTrainGood
+  io.dbgChanged   := clkgen.io.dbgChanged
+  io.dbgRxErr     := rx.io.err
+  io.dbgRxParity  := rx.io.errParity
+  io.dbgTxBusy    := tx.io.busy
 
   // -- Receive demux ---------------------------------------------------------
   val rxFire  = rx.io.out.valid && linkUp

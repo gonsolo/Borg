@@ -171,6 +171,17 @@ class LinkMaster:
             self.dn_cred_seen = cred
         return s
 
+    def read_dbg(self):
+        """Sample dbg_o[5:0]. Returns None if any lane is x/z."""
+        raw = str(self.dut.bidir_PAD.value)
+        v = 0
+        for i in range(DBG_O_LO, DBG_O_HI + 1):
+            c = raw[NUM_BIDIR - 1 - i]
+            if c not in ("0", "1"):
+                return None
+            v |= int(c) << (i - DBG_O_LO)
+        return v
+
     # -- link bring-up ------------------------------------------------------
     async def train(self, max_beats=400):
         """Send the inverting training word until the slave raises link_up."""
