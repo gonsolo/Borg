@@ -16,8 +16,17 @@ import soc.Emit
   * wipes on every TT emission.
   */
 object BorgOnlyMain extends App {
-  val cfg = BorgConfig.Asic
-  val p   = LinkParams()
+  // Phase 0's probes measured BorgConfig.Asic's sizing (fragLanes=4,
+  // samples=4) at 71.55% utilization / clean 25MHz timing on the 1x0.5 slot
+  // -- see the plan doc's "Conclusion: ship BorgConfig.Asic's current sizing
+  // as BorgConfig.Wafer unchanged". BorgConfig.Wafer trims only the
+  // interface (debugPorts=false), not the sizing.
+  val cfg = BorgConfig.Wafer
+  // narrowCapable: the tapeout gets the real runtime w=16 -> w=8 mux behind the
+  // link_narrow strap, not an elaboration-time width. Pins cannot be
+  // re-synthesized after tapeout, so this is the only form in which the
+  // post-silicon recovery mode actually exists.
+  val p   = LinkParams(narrowCapable = true)
 
   val targetDir = "out/hardware/borg/verilog_wafer"
   Emit.cleanTargetDir(targetDir)

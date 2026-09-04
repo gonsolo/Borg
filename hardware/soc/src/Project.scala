@@ -192,6 +192,7 @@ trait SoCLogic { self: RawModule =>
     slave.io.upCred := linkIo.upCred
     linkIo.dnCred   := slave.io.dnCred
     slave.io.linkFast := linkIo.linkFast
+    slave.io.narrow   := linkIo.linkNarrow
 
     // linkFast is otherwise a board strap (input_in[3] in the wafer.space
     // lane map) with no such pin here. Default to N=2 -- the reset-default
@@ -199,7 +200,8 @@ trait SoCLogic { self: RawModule =>
     // input entirely still elaborates to something meaningful rather than an
     // uninitialized-sink firtool error. A real caller overrides it after this
     // call (Chisel's last-connect-wins) if it has an actual strap to honor.
-    linkIo.linkFast := false.B
+    linkIo.linkFast   := false.B
+    linkIo.linkNarrow := false.B
 
     // The master reads the slave's link_up back on a pin before sending real
     // traffic (see BorgLinkClockGen's training doc); here that pin is just a
@@ -250,6 +252,7 @@ trait SoCLogic { self: RawModule =>
     linkIo.farLinkUp := pads.linkUpIn
 
     slave.io.linkFast := linkIo.linkFast
+    slave.io.narrow   := linkIo.linkNarrow
   }
 
   /** Wire up the entire SoC. Call this from the top-level module body. */

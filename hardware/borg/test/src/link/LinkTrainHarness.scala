@@ -8,6 +8,7 @@ import chisel3.util._
 
 class LinkTrainHarnessIO extends Bundle {
   val linkFast   = Input(Bool())
+  val narrow     = Input(Bool())
   val slaveReset = Input(Bool())
 
   val masterBeat = Output(Bool())
@@ -29,7 +30,9 @@ class LinkTrainHarness(val p: LinkParams) extends Module {
   val slave  = withReset(io.slaveReset) { Module(new BorgLinkClockGen(p, isMaster = false)) }
 
   master.io.linkFast := io.linkFast
+  master.io.narrow := io.narrow
   slave.io.linkFast  := io.linkFast
+  slave.io.narrow  := io.narrow
 
   // Master reads the slave's link_up back on a pin before sending real traffic.
   master.io.farLinkUp := slave.io.linkUp

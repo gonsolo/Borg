@@ -26,8 +26,7 @@ import borg.link.{BorgLinkSlave, LinkParams}
   *   bidir[40:45]  dbg_o[5:0]   out (reserved, tied 0 -- no debug bus defined yet)
   *
   *   input_in[0:1] dbg_sel      in  (reserved, unused)
-  *   input_in[2]   link_narrow  in  (reserved -- LinkParams.w is still Scala-time
-  *                                   only; see the constructor doc)
+  *   input_in[2]   link_narrow  in  (live: halves the lanes at runtime)
   *   input_in[3]   link_fast    in
   * }}}
   *
@@ -35,14 +34,13 @@ import borg.link.{BorgLinkSlave, LinkParams}
   * there is no CPU here.  `BorgOnlyCore` holds the clocked logic so cocotb/Chisel
   * tests can instantiate it directly without the pin-flattening boilerplate.
   *
-  * '''`link_narrow` is wired but not yet load-bearing.''' [[LinkParams.w]] fixes
-  * the datapath width at Chisel elaboration time; there is no runtime mux between
-  * w=16 and w=8 in [[borg.link.LinkTx]]/[[borg.link.LinkRx]] today. Wiring the pad
-  * now reserves its position in the lane map (moving it later would be a padring
-  * change, i.e. unfixable post-tapeout) without claiming the recovery mode works.
-  * Building the real runtime-width mux is tracked separately, before RTL freeze --
-  * needed because ASIC pins cannot be re-synthesized after tapeout, so
-  * "post-silicon recovery" is meaningless unless the switch is real hardware.
+  * '''`link_narrow` is a real runtime switch.''' Built with
+  * [[borg.link.LinkParams.narrowCapable]], so strapping input_in[2] high makes
+  * the link drive d[7:0] only, tie d[15:8] low, take two beats per flit and
+  * compute parity over the live lanes -- see LinkParams' doc. This is the
+  * post-silicon recovery path: pins cannot be re-synthesized after tapeout, so
+  * an elaboration-time `w = 8` would only have been a different build, not
+  * something the fabricated part could be talked into.
   *
   * @param cfg Borg configuration.  `BorgConfig.Asic` until probe 0a's measured
   *            area picks `BorgConfig.Wafer`'s `samples`/`fragLanes`.
@@ -85,11 +83,9 @@ class BorgOnlyCore(val cfg: BorgConfig, val p: LinkParams) extends Module {
   slave.io.upCred := io.upCred
 
   slave.io.linkFast := io.linkFast
+  slave.io.narrow   := io.linkNarrow
   io.linkUp  := slave.io.linkUp
   io.linkErr := slave.io.linkErr
-
-  // Not yet consumed -- see the `link_narrow` note on the enclosing class.
-  io.linkNarrow.suggestName("linkNarrowUnused")
 }
 
 /** Pin-flattening `RawModule` wrapper: one bit per wafer.space pad, matching

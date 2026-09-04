@@ -50,6 +50,9 @@ class BorgLinkPortsIO(val p: LinkParams) extends Bundle {
   val dnCred = Input(Bool())
   val upCred = Output(Bool())
   val linkFast  = Input(Bool())
+  /** `link_narrow` strap. Load-bearing only in a narrowCapable build; the FPGA
+    * targets are fixed-width, so there it is accepted and ignored. */
+  val linkNarrow = Input(Bool())
   val farLinkUp = Input(Bool())
   val linkUp  = Output(Bool())
   val linkErr = Output(Bool())
@@ -139,6 +142,7 @@ class Peripherals(
     linkIo.upCred  := m.upCred
     m.dnCred       := linkIo.dnCred
     m.linkFast     := linkIo.linkFast
+    m.narrow       := linkIo.linkNarrow
     m.farLinkUp    := linkIo.farLinkUp
     linkIo.linkUp  := m.linkUp
     linkIo.linkErr := m.linkErr

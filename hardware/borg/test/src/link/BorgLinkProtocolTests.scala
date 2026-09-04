@@ -23,8 +23,9 @@ object BorgLinkProtocolTests extends TestSuite {
 
   val TIMEOUT = 4000
 
-  def init(dut: LinkLoopbackHarness): Unit = {
+  def init(dut: LinkLoopbackHarness, narrow: Boolean = false): Unit = {
     dut.io.linkFast.poke(false.B)
+    dut.io.narrow.poke(narrow.B)
     dut.io.socMmio.req.valid.poke(false.B)
     dut.io.socMmio.resp.ready.poke(true.B)
     dut.io.borgMmio.req.ready.poke(false.B)
@@ -185,6 +186,87 @@ object BorgLinkProtocolTests extends TestSuite {
         stepUntil(dut, "soc resp.valid") { dut.io.socMmio.resp.valid.peek().litToBoolean }
         utest.assert(dut.io.socMmio.resp.bits.peek().litValue.toLong == 0x12345678L)
         dut.clock.step(1)
+        utest.assert(!dut.io.linkErr.peek().litToBoolean)
+      }
+    }
+
+    // -- Runtime narrow (link_narrow strap) ---------------------------------
+    // The point of narrowCapable is that ONE build works in both strap
+    // positions: an elaboration-time w=8 would be a different bitstream, which
+    // is useless as post-silicon recovery since pins cannot be re-synthesized.
+    // So both directions are asserted against the same narrowCapable DUT.
+    val narrowP = LinkParams(trainBeats = 8, narrowCapable = true)
+
+    utest.test("narrowCapable_write_round_trip_when_strapped_narrow") {
+      simulate(new LinkLoopbackHarness(narrowP)) { dut =>
+        init(dut, narrow = true)
+        waitLinkUp(dut)
+
+        dut.io.socMmio.req.valid.poke(true.B)
+        dut.io.socMmio.req.bits.addr.poke(0x155.U)
+        dut.io.socMmio.req.bits.write.poke(true.B)
+        dut.io.socMmio.req.bits.data.poke(0xdeadbeefL.U)
+        dut.io.socMmio.req.bits.size.poke(2.U)
+        stepUntil(dut, "soc req.ready") { dut.io.socMmio.req.ready.peek().litToBoolean }
+        dut.clock.step(1)
+        dut.io.socMmio.req.valid.poke(false.B)
+
+        val seen = serveBorgMmio(dut, 0L)
+        utest.assert(seen._1 == 0x155)
+        utest.assert(seen._2)
+        // The payload crossed as two 8-bit beats per flit and must reassemble
+        // bit-exactly -- a swapped slice order would corrupt exactly this.
+        utest.assert(seen._3 == 0xdeadbeefL)
+
+        stepUntil(dut, "soc resp.valid") { dut.io.socMmio.resp.valid.peek().litToBoolean }
+        dut.clock.step(1)
+        utest.assert(!dut.io.linkErr.peek().litToBoolean)
+      }
+    }
+
+    utest.test("narrowCapable_read_round_trip_when_strapped_narrow") {
+      simulate(new LinkLoopbackHarness(narrowP)) { dut =>
+        init(dut, narrow = true)
+        waitLinkUp(dut)
+
+        dut.io.socMmio.req.valid.poke(true.B)
+        dut.io.socMmio.req.bits.addr.poke(0x2ac.U)
+        dut.io.socMmio.req.bits.write.poke(false.B)
+        dut.io.socMmio.req.bits.size.poke(2.U)
+        stepUntil(dut, "soc req.ready") { dut.io.socMmio.req.ready.peek().litToBoolean }
+        dut.clock.step(1)
+        dut.io.socMmio.req.valid.poke(false.B)
+
+        val seen = serveBorgMmio(dut, 0x12345678L)
+        utest.assert(seen._1 == 0x2ac)
+        utest.assert(!seen._2)
+
+        stepUntil(dut, "soc resp.valid") { dut.io.socMmio.resp.valid.peek().litToBoolean }
+        utest.assert(dut.io.socMmio.resp.bits.peek().litValue.toLong == 0x12345678L)
+        dut.clock.step(1)
+        utest.assert(!dut.io.linkErr.peek().litToBoolean)
+      }
+    }
+
+    utest.test("narrowCapable_still_works_when_strapped_wide") {
+      // Same build, strap low: the runtime mux must not have broken the normal
+      // full-width path, which is the mode the chip is expected to run in.
+      simulate(new LinkLoopbackHarness(narrowP)) { dut =>
+        init(dut, narrow = false)
+        waitLinkUp(dut)
+
+        dut.io.socMmio.req.valid.poke(true.B)
+        dut.io.socMmio.req.bits.addr.poke(0x0aa.U)
+        dut.io.socMmio.req.bits.write.poke(true.B)
+        dut.io.socMmio.req.bits.data.poke(0xa5a55a5aL.U)
+        dut.io.socMmio.req.bits.size.poke(2.U)
+        stepUntil(dut, "soc req.ready") { dut.io.socMmio.req.ready.peek().litToBoolean }
+        dut.clock.step(1)
+        dut.io.socMmio.req.valid.poke(false.B)
+
+        val seen = serveBorgMmio(dut, 0L)
+        utest.assert(seen._1 == 0x0aa)
+        utest.assert(seen._3 == 0xa5a55a5aL)
         utest.assert(!dut.io.linkErr.peek().litToBoolean)
       }
     }

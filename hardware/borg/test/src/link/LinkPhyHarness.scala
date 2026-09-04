@@ -43,6 +43,7 @@ class LinkPhyHarness(val p: LinkParams, val isDn: Boolean) extends Module {
   val rx = Module(new LinkRx(p, isDn))
 
   tx.io.beatEn := io.beatEn
+  tx.io.narrow := false.B
   tx.io.a <> io.a
   tx.io.d <> io.d
   io.txBusy := tx.io.busy
@@ -51,6 +52,7 @@ class LinkPhyHarness(val p: LinkParams, val isDn: Boolean) extends Module {
   val wireV = tx.io.pins.v && !io.forceV0
 
   rx.io.beatEn := io.beatEn
+  rx.io.narrow := false.B
   rx.io.pins.d := Mux(io.forceDead, 0.U, wireD)
   rx.io.pins.v := Mux(io.forceDead, false.B, wireV)
   rx.io.pins.p := Mux(

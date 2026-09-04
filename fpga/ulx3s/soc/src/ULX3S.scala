@@ -310,12 +310,14 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     linkIo.upPins.p := up_p.get
     up_cred.get := linkIo.upCred
 
-    linkIo.linkFast  := link_fast.get
-    linkIo.farLinkUp := far_link_up.get
-    link_up_loop.get := linkIo.linkUp
-    // dbg_sel/link_narrow reach real pins (reserving their lane-map position)
-    // but are not consumed by any RTL yet -- same status as BorgOnlyTop's own
-    // ASIC-side dbg_sel/link_narrow pins, see this block's doc above.
+    linkIo.linkFast   := link_fast.get
+    linkIo.linkNarrow := link_narrow.get
+    linkIo.farLinkUp  := far_link_up.get
+    link_up_loop.get  := linkIo.linkUp
+    // dbg_sel still only reserves its lane-map position -- no RTL reads it.
+    // link_narrow is wired through, but this build is fixed-width (the runtime
+    // mux is a narrowCapable build, which is the ASIC's), so the strap is
+    // accepted and ignored here rather than silently doing nothing on silicon.
   }
 
   // ── Rung B: the whole bridge, with the master<->slave path out on pads ────
@@ -351,6 +353,9 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
 
     // Real strap this time (SW4), unlike rung A's hardcoded safe default.
     peripherals.io.link.get.linkFast := link_fast.get
+    // Rung B is already physically 8 lanes wide (see BorgMode), so there is no
+    // 16->8 mux to engage; wireBorgPadLoop drives the slave's own side.
+    peripherals.io.link.get.linkNarrow := false.B
   }
 
   // ── Warm-reset controller logic (uses `warmReset` produced by wireSoC) ─────

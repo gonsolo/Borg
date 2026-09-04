@@ -37,6 +37,8 @@ import chisel3.util._
   */
 class LinkTxIO(val p: LinkParams) extends Bundle {
   val beatEn = Input(Bool())
+  /** Runtime narrow strap; only consulted when `p.narrowCapable`. */
+  val narrow = Input(Bool())
   val a      = Flipped(Decoupled(new LinkFlitStream))
   val d      = Flipped(Decoupled(new LinkFlitStream))
   val pins   = Output(new LinkPins(p.w))
@@ -52,7 +54,7 @@ class LinkTx(val p: LinkParams) extends Module {
   val state = RegInit(sIdle)
 
   val ownerD = RegInit(false.B)
-  val subCnt = RegInit(0.U(log2Ceil(math.max(p.beatsPerFlit, 2)).W))
+  val subCnt = RegInit(0.U(log2Ceil(math.max(if (p.narrowCapable) 2 else p.beatsPerFlit, 2)).W))
   val gapCnt = RegInit(0.U(log2Ceil(p.gapBeats + 1).W))
 
   // -- Source selection -------------------------------------------------------
@@ -67,10 +69,18 @@ class LinkTx(val p: LinkParams) extends Module {
   // At w=16 the flit is one beat and there is no index at all; the Scala `if`
   // keeps a genuinely 0-width dynamic Vec index from ever being elaborated.
   val beatData: UInt =
-    if (p.beatsPerFlit == 1) srcFlit
+    if (p.narrowCapable)
+      // 16 physical lanes either way: full flit when wide, low slice zero-extended
+      // when narrow, so d[15:8] is driven low rather than left floating.
+      Mux(io.narrow,
+          Mux(subCnt === 0.U, srcFlit(7, 0), srcFlit(15, 8)).pad(p.w),
+          srcFlit)
+    else if (p.beatsPerFlit == 1) srcFlit
     else VecInit(Seq.tabulate(p.beatsPerFlit)(i => srcFlit(p.w * (i + 1) - 1, p.w * i)))(subCnt)
 
-  val lastBeatOfFlit = subCnt === (p.beatsPerFlit - 1).U
+  val lastBeatOfFlit =
+    if (p.narrowCapable) Mux(io.narrow, subCnt === 1.U, true.B)
+    else subCnt === (p.beatsPerFlit - 1).U
 
   // Emitting on this beat?  sIdle emits the first beat directly rather than
   // burning a beat on the transition -- latency is what hurts on this link.
@@ -89,7 +99,7 @@ class LinkTx(val p: LinkParams) extends Module {
   when(io.beatEn) {
     outD := nextD
     outV := nextV
-    outP := LinkFlit.parity(nextD, nextV)
+    outP := LinkFlit.parityW(nextD, nextV, io.narrow, p)
   }
 
   io.pins.d := outD

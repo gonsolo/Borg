@@ -39,6 +39,8 @@ class BorgLinkTestWrapper(val cfg: BorgConfig, val p: LinkParams)
   master.io.farLinkUp := slave.io.linkUp
   master.io.linkFast  := false.B
   slave.io.linkFast   := false.B
+  master.io.narrow    := false.B
+  slave.io.narrow     := false.B
 
   // -- Far side: the link's slave drives the real Borg ------------------------
   borg.io.mmio   <> slave.io.mmio

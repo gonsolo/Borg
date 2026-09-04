@@ -10,6 +10,8 @@ class BorgLinkClockGenIO(val p: LinkParams) extends Bundle {
 
   /** `link_fast` strap: high selects N=1 (25 MHz beats) instead of the N=2 default. */
   val linkFast = Input(Bool())
+  /** Runtime narrow strap; only consulted when `p.narrowCapable`. */
+  val narrow   = Input(Bool())
 
   /** Master only: the far side's `link_up` pin. */
   val farLinkUp = Input(Bool())
@@ -81,6 +83,9 @@ class BorgLinkClockGen(val p: LinkParams, val isMaster: Boolean) extends Module 
 
   /** Alternating-bit seed, so a stuck or shorted lane fails to produce transitions. */
   val trainWord: UInt = Fill(p.w / 8, "hA5".U(8.W))
+  // In narrow mode the reset value drives the dead half high for the single
+  // beat before the first beatEn re-derives it; the far side is not listening
+  // to those lanes and parity excludes them, so it cannot affect training.
 
   // Divider limit is strap-selected: 0 => every cycle is a beat (N=1).
   val limit = Mux(io.linkFast, 0.U, (p.divCycles - 1).U)
@@ -108,7 +113,12 @@ class BorgLinkClockGen(val p: LinkParams, val isMaster: Boolean) extends Module 
       // receiver will later decode.  Oversampled at the core rate.
       val inD  = RegNext(io.rxPins.d, 0.U(p.w.W))
       val prev = RegNext(inD, 0.U(p.w.W))
-      val changed = inD =/= prev
+      // Compare only the lanes carrying data: in narrow mode the tied-off half
+      // is constant, so including it is harmless for a clean link but would let
+      // a noisy floating lane fake transitions and train against nothing.
+      val changed =
+        if (!p.narrowCapable) inD =/= prev
+        else Mux(io.narrow, inD(7, 0) =/= prev(7, 0), inD =/= prev)
 
       // Place the beat N/2 cycles after a transition.  Assigning `phase` at the
       // transition cycle c makes cycle c+k carry phase (P + k - 1), so the beat
@@ -150,10 +160,15 @@ class BorgLinkClockGen(val p: LinkParams, val isMaster: Boolean) extends Module 
   val tP = RegInit(LinkFlit.parity(trainWord, true.B))
 
   when(io.beatEn) {
-    val nextD = ~tD
+    // Invert only the live lanes: in narrow mode d[15:8] must stay low, or the
+    // dead half would toggle and the far side would see transitions on lanes it
+    // is not listening to.
+    val nextD =
+      if (!p.narrowCapable) ~tD
+      else Mux(io.narrow, Cat(0.U((p.w - 8).W), ~tD(7, 0)), ~tD)
     tD := nextD
     tV := true.B
-    tP := LinkFlit.parity(nextD, true.B)
+    tP := LinkFlit.parityW(nextD, true.B, io.narrow, p)
   }
 
   io.trainPins.d := tD

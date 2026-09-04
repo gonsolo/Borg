@@ -42,6 +42,8 @@ class LinkRxFlit(val maxFlits: Int) extends Bundle {
   *             V.D), false for the FPGA-side receiver (V.A and M.D).
   */
 class LinkRxIO(val p: LinkParams) extends Bundle {
+  /** Runtime narrow strap; only consulted when `p.narrowCapable`. */
+  val narrow = Input(Bool())
   val beatEn = Input(Bool())
   val pins   = Input(new LinkPins(p.w))
 
@@ -68,23 +70,31 @@ class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
   val inV = RegNext(io.pins.v, false.B)
   val inP = RegNext(io.pins.p, true.B)
 
-  val parityOk = LinkFlit.parity(inD, inV) === inP
+  val parityOk = LinkFlit.parityW(inD, inV, io.narrow, p) === inP
 
   // -- Flit assembly ----------------------------------------------------------
   val sIdle :: sPayload :: Nil = Enum(2)
   val state = RegInit(sIdle)
 
-  val subCnt   = RegInit(0.U(log2Ceil(math.max(p.beatsPerFlit, 2)).W))
+  val subCnt   = RegInit(0.U(log2Ceil(math.max(if (p.narrowCapable) 2 else p.beatsPerFlit, 2)).W))
   val flitAcc  = RegInit(0.U(16.W))
   val remain   = RegInit(0.U(log2Ceil(p.maxPacketFlits + 1).W))
   val flitIdx  = RegInit(0.U(log2Ceil(p.maxPacketFlits + 1).W))
   val hdrReg   = RegInit(0.U.asTypeOf(new LinkHeader))
 
-  val lastBeatOfFlit = subCnt === (p.beatsPerFlit - 1).U
+  val lastBeatOfFlit =
+    if (p.narrowCapable) Mux(io.narrow, subCnt === 1.U, true.B)
+    else subCnt === (p.beatsPerFlit - 1).U
 
   // Assemble LSB slice first, matching LinkTx's serialization order.
   val assembled: UInt =
-    if (p.beatsPerFlit == 1) inD
+    if (p.narrowCapable) {
+      // Narrow: the live half is inD[7:0]; first beat is the LSB slice, second
+      // the MSB slice, matching LinkTx. Wide: the flit is the whole beat.
+      val narrowAsm = Wire(UInt(16.W))
+      narrowAsm := Mux(subCnt === 0.U, inD(7, 0), Cat(inD(7, 0), flitAcc(7, 0)))
+      Mux(io.narrow, narrowAsm, inD)
+    } else if (p.beatsPerFlit == 1) inD
     else {
       val shifted = Wire(UInt(16.W))
       shifted := (inD << (subCnt * p.w.U))(15, 0)

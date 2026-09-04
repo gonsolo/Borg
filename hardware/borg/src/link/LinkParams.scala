@@ -43,6 +43,18 @@ object LinkChan {
   *                     budget exactly; 8 is the `link_narrow` post-silicon recovery
   *                     mode, which halves the pins and doubles `beatsPerFlit`.
   *                     The 16-bit flit format is unchanged either way.
+  * @param narrowCapable Build the *runtime* w=16 -> w=8 mux, driven by the
+  *                     `link_narrow` strap, rather than fixing the width at
+  *                     elaboration.  This is what makes narrow mode a real
+  *                     recovery path: ASIC pins cannot be re-synthesized after
+  *                     tapeout, so a Scala-time `w = 8` is only a different
+  *                     build, not something silicon can be talked into.  The
+  *                     lanes stay physically 16 wide; narrow drives d[7:0] and
+  *                     ties d[15:8] low, takes two beats per flit (LSB slice
+  *                     first, matching the elaboration-time split), and
+  *                     computes parity over the ACTIVE lanes only -- covering
+  *                     the tied-off half would make a stuck-high unused lane
+  *                     indistinguishable from real data.
   * @param creditDepth  Outstanding A-channel packets permitted per direction.  This
   *                     '''must not exceed what the receiver can buffer'''.  Both
   *                     adapters are single-outstanding by construction -- `HuttBus`
@@ -70,9 +82,12 @@ case class LinkParams(
     maxBurstLog2: Int = 4,
     divLog2: Int = 1,
     gapBeats: Int = 1,
-    trainBeats: Int = 16
+    trainBeats: Int = 16,
+    narrowCapable: Boolean = false
 ) {
   require(w == 16 || w == 8, s"w must be 16 (normal) or 8 (link_narrow), got $w")
+  require(!narrowCapable || w == 16,
+          "narrowCapable halves 16 physical lanes to 8; it is meaningless at w=8")
   require(creditDepth >= 1, "creditDepth must be at least 1")
   require(maxBurstLog2 >= 0 && maxBurstLog2 <= 6, "gpuMem wlen is 7 bits, so log2 ≤ 6")
   require(gapBeats >= 1, "gapBeats must be ≥1 -- it is the resynchronization point")

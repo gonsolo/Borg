@@ -82,6 +82,19 @@ object LinkFlit {
   /** Odd parity over the concatenation of `d` and `v`. */
   def parity(d: UInt, v: Bool): Bool = !(Cat(d, v).xorR)
 
+  /** Odd parity over only the lanes narrow mode is actually using.
+    *
+    * In narrow mode d[15:8] is tied low and carries nothing, so it must be
+    * excluded: folding a dead half into the checksum would make a stuck-high
+    * unused lane look like a data error, and — worse — a stuck-LOW one
+    * contribute nothing, hiding the very fault parity exists to catch on the
+    * lanes that are live. `narrow` is ignored unless the build is narrowCapable,
+    * so a fixed-width link elaborates exactly the logic it did before.
+    */
+  def parityW(d: UInt, v: Bool, narrow: Bool, p: LinkParams): Bool =
+    if (!p.narrowCapable) parity(d, v)
+    else Mux(narrow, parity(d(7, 0), v), parity(d, v))
+
   /** Flits in a packet travelling FPGA→ASIC, from its header alone.
     *
     * DN carries M.A (request) and V.D (response).

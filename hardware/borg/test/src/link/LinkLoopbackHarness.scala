@@ -10,6 +10,7 @@ import hutt.HuttBus
 
 class LinkLoopbackHarnessIO(val p: LinkParams) extends Bundle {
   val linkFast = Input(Bool())
+  val narrow   = Input(Bool())
   val linkUp   = Output(Bool())
   val linkErr  = Output(Bool())
 
@@ -49,7 +50,9 @@ class LinkLoopbackHarness(val p: LinkParams) extends Module {
   master.io.farLinkUp := slave.io.linkUp
 
   master.io.linkFast := io.linkFast
+  master.io.narrow := io.narrow
   slave.io.linkFast  := io.linkFast
+  slave.io.narrow  := io.narrow
 
   io.linkUp  := master.io.linkUp
   io.linkErr := master.io.linkErr || slave.io.linkErr

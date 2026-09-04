@@ -26,6 +26,9 @@ class BorgLinkMasterIO(val p: LinkParams) extends Bundle with BorgMmioIf {
   val upCred = Output(Bool())
 
   val linkFast = Input(Bool())
+  /** `link_narrow` strap: halve the lanes at runtime. Only load-bearing when
+    * the build is narrowCapable; see LinkParams. */
+  val narrow   = Input(Bool())
 
   /** The ASIC's `link_up` pin. */
   val farLinkUp = Input(Bool())
@@ -56,6 +59,7 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
   val rx     = Module(new LinkRx(p, isDn = false))
 
   clkgen.io.linkFast  := io.linkFast
+  clkgen.io.narrow    := io.narrow
   clkgen.io.farLinkUp := io.farLinkUp
   clkgen.io.rxPins    := DontCare
 
@@ -64,14 +68,36 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
   io.linkUp := linkUp
 
   tx.io.beatEn := beatEn
+  tx.io.narrow := io.narrow
   rx.io.beatEn := beatEn
+  rx.io.narrow := io.narrow
   rx.io.pins   := io.upPins
 
   // Drive the training pattern until the far side reports it has locked phase.
   io.dnPins := Mux(clkgen.io.trainActive, clkgen.io.trainPins, tx.io.pins)
 
+  // Errors are only latched from a defined resynchronization point: the first
+  // idle beat seen after link_up. Until then the receiver may still be chewing
+  // on the far side's training pattern -- link_up rises here as soon as the
+  // phase locks, but the master only stops training once farLinkUp has
+  // propagated back, so training beats (which carry v=1) are still arriving and
+  // get decoded as packets. Whether that leaves the receiver mid-packet when
+  // training stops depends purely on how the training word happens to decode:
+  // at w=16 it forms a 1-flit packet and completes every beat, at w=8 the two
+  // beats assemble into a 3-flit header and it does not. Gating on the gap --
+  // which LinkTx guarantees between packets, and which is the same
+  // resynchronization point a real framing error recovers through -- makes that
+  // an implementation detail rather than something the strap position can turn
+  // into a spurious link_err.
+  // RegNext to sit in the same cycle LinkRx does: it acts on a registered
+  // capture of the pins, so gating on the raw pin would arm `synced` on the very
+  // cycle the receiver aborts and latch the error we are trying to suppress.
+  val idleSeen = RegNext(linkUp && !io.upPins.v, false.B)
+  val synced   = RegInit(false.B)
+  when(idleSeen) { synced := true.B }
+
   val errSticky = RegInit(false.B)
-  when(rx.io.err && linkUp) { errSticky := true.B }
+  when(rx.io.err && linkUp && synced) { errSticky := true.B }
   io.linkErr := errSticky
 
   val rxFire  = rx.io.out.valid && linkUp
