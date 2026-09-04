@@ -666,14 +666,19 @@ object ULX3SPins {
   // chip_core.sv's bidir_pd on the ASIC side. Our own outputs don't need a
   // pull since they're always driven.
   //
-  // Deliberately paired one dn_*/up_* signal per physical pin number (GP =
-  // the dn_/far_link_up half, GN = the matching up_/link_up_loop half) --
-  // NOT grouped by which gp[]/gn[] index the site table happens to assign.
-  // This means every one of rung B's loopback wires bridges a pin's own two
-  // rows (GP<->GN at the SAME numbered pin) instead of jumping to a
-  // different pin index, so the whole loom collapses to two short runs (J1
-  // pins 0-10, J2 pins 14-22) that a single folded ribbon/shorting block can
-  // bridge, rather than 20 individually-routed point-to-point wires.
+  // Deliberately paired one dn_* signal with its up_* counterpart per physical
+  // pin number (GP = the dn_/far_link_up half, GN = the matching up_ half) --
+  // NOT grouped by which gp[]/gn[] index the site table happens to assign, so
+  // each pair sits on one pin's own two rows and the map reads as a table
+  // rather than a scatter.
+  //
+  // This layout is a leftover convenience from when BorgExternal was expected
+  // to serve rung B by jumpering GP to GN. It cannot (see the far_link_up doc
+  // in ulx3s_top: master-only, and the training precondition self-deadlocks),
+  // and rung B is BorgPadLoop instead. For BorgExternal's actual use -- rung C,
+  // far side on a second board -- the pairing is cosmetic: each of these
+  // signals runs to its opposite number on the other board, not to its
+  // neighbour here.
   // GP is the OUTER row (toward the board edge) and GN is the INNER row
   // (toward the crystal/buttons/chips) -- hardware-confirmed 2026-09-03 via
   // fpga/ulx3s/debug/pin_loopback_test.v (the opposite row guess failed on
