@@ -12,6 +12,11 @@ import utest._
   * not a re-transcription of the Chisel to Python, an actual run of the
   * hardware path (LUT ROM in BorgLane + Fp16Special interpolation +
   * BorgCore's FRCP/FMUL instruction execution).
+  *
+  * Now that the 33-entry rcpLut has landed, these sweeps assert the bound
+  * rather than only reporting it, so they double as the regression guard for
+  * that table. The printed worst cases are kept: a future table edit that
+  * stays under 2.5 ULP but loses margin should still be visible.
   */
 object FrcpPrecisionTests extends TestSuite {
   import BorgCoreTests._
@@ -91,8 +96,11 @@ object FrcpPrecisionTests extends TestSuite {
           if (err > worst) { worst = err; worstMant = mant }
         }
         println(f"[frcp exp15] worst=$worst%.3f ULP at mant=$worstMant over${bound}=$overCount/1024")
-        // Report only — this is verification of an external claim, not an
-        // assertion that current hardware already meets the bound.
+        // This was report-only while it was verifying an external claim about
+        // hardware that did not yet meet the bound. With the 33-entry table it
+        // does, so the claim becomes an assertion: 2.555 -> 0.955 ULP here.
+        utest.assert(overCount == 0)
+        utest.assert(worst <= bound)
       }
     }
 
@@ -115,6 +123,8 @@ object FrcpPrecisionTests extends TestSuite {
             if (err > worst) worst = err
           }
           println(f"[frcp exp=$expField] worst=$worst%.3f ULP over${bound}=$overCount/1024")
+          utest.assert(overCount == 0)
+          utest.assert(worst <= bound)
         }
       }
     }
@@ -123,6 +133,10 @@ object FrcpPrecisionTests extends TestSuite {
       // Mirrors the issue's methodology: fixed set of numerators, sweep
       // divisors across one binade, exactly as borgvk_compiler.c lowers
       // OpFDiv (FRCP then FMUL, no refinement).
+      //
+      // The numerators are a fixed eight, so this worst case is a floor, not
+      // a maximum. The exhaustive figure lives in BorgLutTables' comment: all
+      // 1,048,576 mantissa pairs, 3.295 ULP before and 2.245 ULP after.
       simulate(new BorgCore(config)) { core =>
         idleInputs(core)
         val numerators = Seq(1.0, 1.5, 2.0, 3.0, 7.0, -1.0, 0.5, 100.0)
@@ -145,6 +159,8 @@ object FrcpPrecisionTests extends TestSuite {
           }
         }
         println(f"[fdiv sample] worst=$worst%.3f ULP over${bound}=$overCount/$total")
+        utest.assert(overCount == 0)
+        utest.assert(worst <= bound)
       }
     }
   }
