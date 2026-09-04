@@ -147,7 +147,7 @@ load-link-loom: link_loom_test.bit
 	@echo -e "  Look for: PASS=FFFFF  (all 20 wires good)"
 	@echo -e "  led[7]=heartbeat led[1]=all-pass led[0]=uart-tx-activity"
 
-.PHONY: all flash load clean hdmi load-hdmi bare load-bare uart load-uart cpu-sdram load-cpu-sdram pin-loopback load-pin-loopback load-pin-loopback-v2 link-loom load-link-loom
+.PHONY: all flash load clean hdmi load-hdmi bare load-bare uart load-uart cpu-sdram load-cpu-sdram pin-loopback load-pin-loopback load-pin-loopback-v2 link-loom load-link-loom uart-wire-loop load-uart-wire-loop
 
 # ── CPU + SDRAM minimal test (fast iteration, ~6s build) ────────────────────
 CPU_SDRAM_VDIR = $(abspath $(CURDIR)/../../..)/out/cpu_sdram_test/verilog
@@ -318,3 +318,21 @@ load-cpu-sdram-hdmi-test: cpu_sdram_hdmi_test.bit
 	@echo -e "Expected: CPU fills SDRAM, HDMI scanout shows 64x64 Red Square."
 
 
+
+uart-wire-loop: uart_wire_loop.bit
+
+uart_wire_loop.json: uart_wire_loop.v
+	@echo -e "$(BOLD)[SYNTH]$(RESET) uart_wire_loop ..."
+	yosys -q -p "read_verilog uart_wire_loop.v; synth_ecp5 -top uart_wire_loop -json uart_wire_loop.json"
+
+uart_wire_loop.config: uart_wire_loop.json
+	@echo -e "$(BOLD)[PNR]$(RESET) uart_wire_loop ..."
+	nextpnr-ecp5 --85k --package CABGA381 --json uart_wire_loop.json --lpf $(LPF) --textcfg uart_wire_loop.config --timing-allow-fail --quiet
+
+uart_wire_loop.bit: uart_wire_loop.config
+	@echo -e "$(BOLD)[PACK]$(RESET) uart_wire_loop ..."
+	ecppack uart_wire_loop.config uart_wire_loop.bit
+
+load-uart-wire-loop: uart_wire_loop.bit
+	@echo -e "$(BOLD)[LOAD]$(RESET) Loading uart_wire_loop into SRAM ..."
+	openFPGALoader -b ulx3s uart_wire_loop.bit

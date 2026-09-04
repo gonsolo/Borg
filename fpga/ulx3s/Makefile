@@ -382,6 +382,17 @@ borg-external.bit: borg-external.config
 	ecppack --svf borg-external.svf borg-external.config borg-external.bit
 	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-external.bit ready."
 
+# Same kernel firmware as the direct-Borg/rung-A demos -- rung B's whole point
+# is that firmware/borgvk/HDMI scanout are unchanged; only how Borg is reached
+# differs, and now it's reached over the real physical J1/J2 ribbon loom
+# (dn_* -> jumper -> up_*) instead of internal wires.
+flash-external: borg-external.bit kernel_with_header.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Writing external-link ECP5 bitstream to onboard flash ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset borg-external.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing kernel firmware to onboard flash @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 kernel_with_header.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Start tio, then: make reset"
+
 ######### Minimal SoC (Hutt + UART only) — fast iteration ##########################################
 
 ULX3S_MINIMAL_VERILOG_DIR = ../../out/ulx3s_minimal/verilog
