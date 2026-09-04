@@ -104,13 +104,17 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   val up_v        = if (borgMode == BorgExternal) Some(IO(Input(Bool())))      else None
   val up_p        = if (borgMode == BorgExternal) Some(IO(Input(Bool())))      else None
   val up_cred     = if (borgMode == BorgExternal) Some(IO(Output(Bool())))     else None
-  // far_link_up reads the far side's link_up pin (a real ASIC in rung C).
-  // link_up_loop exposes this board's own link_up as a pin purely so rung B's
-  // ribbon cable can jumper it back into far_link_up -- there is no ASIC to
-  // read from yet, so this is what lets the master's training precondition
-  // be satisfied by the same loopback cable that closes dn/up.
+  // far_link_up reads the far side's link_up pin -- a real ASIC or second board
+  // in rung C, which is what BorgExternal is for.
+  //
+  // There is deliberately no `link_up_loop` companion. It used to exist so a
+  // single-board ribbon could jumper this master's own link_up back into
+  // far_link_up, but that cannot work: the master's linkUp IS its farLinkUp
+  // (see BorgLinkClockGen), so the cable closes farLinkUp = linkUp = farLinkUp,
+  // a combinational loop a pulled-down pad holds at 0 forever -- the link could
+  // never train. Single-board loopback is BorgPadLoop, which routes the SLAVE's
+  // linkUp (a constant true) out and back instead.
   val far_link_up  = if (borgMode == BorgExternal) Some(IO(Input(Bool())))  else None
-  val link_up_loop = if (borgMode == BorgExternal) Some(IO(Output(Bool()))) else None
   // Control straps -- onboard DIP switches (SW1-4), not GP/GN pins.
   val dbg_sel     = if (borgMode == BorgExternal) Some(IO(Input(UInt(2.W)))) else None
   val link_narrow = if (borgMode == BorgExternal) Some(IO(Input(Bool())))    else None
@@ -313,7 +317,6 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     linkIo.linkFast   := link_fast.get
     linkIo.linkNarrow := link_narrow.get
     linkIo.farLinkUp  := far_link_up.get
-    link_up_loop.get  := linkIo.linkUp
     // dbg_sel still only reserves its lane-map position -- no RTL reads it.
     // link_narrow is wired through, but this build is fixed-width (the runtime
     // mux is a narrowCapable build, which is the ASIC's), so the strap is
@@ -691,8 +694,7 @@ object ULX3SPins {
     PinDef("dn_d[10]", "C4",  pull = "NONE"), PinDef("up_d[10]", "B4",  pull = "DOWN"),
 
     // J2 pins 14-22 (9 pairs): dn_d[11..15]/up_d[11..15], dn_v/up_v,
-    // dn_p/up_p, dn_cred/up_cred, far_link_up/link_up_loop. Pins 23-27
-    // spare.
+    // dn_p/up_p, dn_cred/up_cred, far_link_up. gn[22] and pins 23-27 spare.
     PinDef("dn_d[11]", "U18", pull = "NONE"), PinDef("up_d[11]", "U17", pull = "DOWN"),
     PinDef("dn_d[12]", "N17", pull = "NONE"), PinDef("up_d[12]", "P16", pull = "DOWN"),
     PinDef("dn_d[13]", "N16", pull = "NONE"), PinDef("up_d[13]", "M17", pull = "DOWN"),
@@ -701,7 +703,7 @@ object ULX3SPins {
     PinDef("dn_v",     "F17", pull = "NONE"), PinDef("up_v",     "G18", pull = "DOWN"),
     PinDef("dn_p",     "D18", pull = "NONE"), PinDef("up_p",     "E17", pull = "DOWN"),
     PinDef("dn_cred",  "C18", pull = "DOWN"), PinDef("up_cred",  "D17", pull = "NONE"),
-    PinDef("far_link_up",  "B15", pull = "DOWN"), PinDef("link_up_loop", "C15", pull = "NONE"),
+    PinDef("far_link_up",  "B15", pull = "DOWN"),
   )
 
   // ── Rung B pad-loop pin map (BorgPadLoop) ────────────────────────────────
