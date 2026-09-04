@@ -13,7 +13,9 @@ import chisel3.experimental.BundleLiterals._
   * After all pixels in the tile are processed, the CPU flushes the buffer
   * to DRAM in a batch, eliminating per-pixel DRAM round-trips.
   *
-  * Storage: All 4 channels packed into a single 64-bit SyncReadMem (1 BRAM).
+  * Storage: All 4 channels packed into a single 64-bit SyncReadMem (1 BRAM)
+  * per sample plane by default, or a narrower one when `colorBits` requests
+  * on-the-fly R/G/B quantization -- see the class-level doc below.
   * This avoids the ~256 FF cost of register-based Z storage.
   * Z comparison for Step 11.5 will use a 1-cycle BRAM read in the FSM.
   *
@@ -35,13 +37,55 @@ class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1) extends Bun
   val clear = Flipped(new TileClearIO)
 }
 
-class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1) extends Module {
+/** @param colorBits Stored R/G/B width, independent of `dataBits` (the port
+  *                  width, always full FP16). Default `dataBits` (off) keeps
+  *                  every existing target bit-identical; `colorBits = 8`
+  *                  quantizes R/G/B through [[ColorQuantize]] on write and
+  *                  dequantizes on read, entirely internally -- the write/
+  *                  read/clear ports above are unchanged FP16 `ColorZ`
+  *                  either way, so nothing outside this module needs to know.
+  *                  Z is never narrowed this way -- see BorgConfig.tileColorBits's
+  *                  own doc for why.
+  */
+class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits: Int = 16) extends Module {
+  require(colorBits == dataBits || colorBits == 8,
+          s"colorBits must equal dataBits (off) or be 8 (ColorQuantize), got $colorBits")
   val io = IO(new BorgTileBufferIO(dataBits, samples))
 
   val FP16_MAX_DEPTH_VAL = 0x7BFF  // Scala constant
   val FP16_MAX_DEPTH = FP16_MAX_DEPTH_VAL.U(dataBits.W)
   val TILE_SIZE = 16  // 4×4
-  val SAMPLE_BITS = new ColorZ(dataBits).getWidth   // 64 bits per sample
+  val SAMPLE_BITS = new ColorZ(dataBits).getWidth   // 64 bits per sample, at the ports
+
+  // Narrow storage encode/decode -- compile-time branch, so the colorBits ==
+  // dataBits (default) path emits exactly the same hardware as before this
+  // parameter existed, not merely equivalent hardware.
+  val narrowColor  = colorBits < dataBits
+  val STORED_BITS  = if (narrowColor) 3 * colorBits + dataBits else SAMPLE_BITS
+
+  /** ColorZ(dataBits) -> the narrower stored bit pattern. */
+  def encodeStored(cz: ColorZ): UInt =
+    if (!narrowColor) cz.asUInt
+    else Cat(ColorQuantize.quantize8(cz.r), ColorQuantize.quantize8(cz.g),
+             ColorQuantize.quantize8(cz.b), cz.z)
+
+  /** The stored bit pattern -> ColorZ(dataBits), reconstructed for every
+    * reader outside this module (which only ever sees full-width FP16). */
+  def decodeStored(bits: UInt): ColorZ = {
+    val cz = Wire(new ColorZ(dataBits))
+    if (!narrowColor) {
+      cz := bits.asTypeOf(new ColorZ(dataBits))
+    } else {
+      val r8 = bits(3 * colorBits + dataBits - 1, 2 * colorBits + dataBits)
+      val g8 = bits(2 * colorBits + dataBits - 1, colorBits + dataBits)
+      val b8 = bits(colorBits + dataBits - 1, dataBits)
+      cz.r := ColorQuantize.dequantize8(r8)
+      cz.g := ColorQuantize.dequantize8(g8)
+      cz.b := ColorQuantize.dequantize8(b8)
+      cz.z := bits(dataBits - 1, 0)
+    }
+    cz
+  }
 
   // --- RGBZ buffer: ONE SyncReadMem PER SAMPLE, each 16 × 64 bits.
   //
@@ -64,7 +108,7 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1) extends Modul
   // At samples==1 this is exactly one 16×64 SyncReadMem — structurally
   // identical to the pre-MSAA design, which is what keeps the single-sample
   // path (and the ASIC config) bit-identical.
-  val rgbzMems = Seq.fill(samples)(SyncReadMem(TILE_SIZE, UInt(SAMPLE_BITS.W)))
+  val rgbzMems = Seq.fill(samples)(SyncReadMem(TILE_SIZE, UInt(STORED_BITS.W)))
 
   // --- Clear state machine ---
   // BRAM needs sequential writes (1 entry per cycle).
@@ -91,13 +135,13 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1) extends Modul
   )
   // Replicated across samples: a clear has no per-sample coverage, every sample
   // of every pixel gets the same value (matches the software MSAA clear path).
-  val clearWordReg = RegInit(clearInit.asUInt)
+  val clearWordReg = RegInit(encodeStored(clearInit))
   val clearWord = clearWordReg
 
   // --- Clear logic ---
   when(io.clear.en && !clearing) {
     clearCounter := 0.U
-    clearWordReg := io.clear.color.asUInt
+    clearWordReg := encodeStored(io.clear.color)
     if (BorgDebug.trace) printf("[TBUF] CLEAR-START R=0x%x G=0x%x B=0x%x Z=0x%x\n",
       io.clear.color.r, io.clear.color.g, io.clear.color.b, io.clear.color.z)
   }
@@ -126,7 +170,7 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1) extends Modul
     when(clearing) {
       mem.write(clearCounter, clearWord)
     }.elsewhen(io.write.en && io.write.coverage(s).asBool) {
-      mem.write(io.write.idx, io.write.data.asUInt)
+      mem.write(io.write.idx, encodeStored(io.write.data))
     }
     mem.read(io.read.idx, effectiveReadEn)
   })
@@ -140,8 +184,8 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1) extends Modul
   // Capture BRAM output one cycle after readEn pulse
   val readEnDel = RegNext(effectiveReadEn, false.B)
   when(readEnDel) {
-    readDataHeld := VecInit(rgbzRead.map(_.asTypeOf(new ColorZ(dataBits))))
-    val parsed = rgbzRead(0).asTypeOf(new ColorZ(dataBits))
+    readDataHeld := VecInit(rgbzRead.map(decodeStored))
+    val parsed = decodeStored(rgbzRead(0))
     if (BorgDebug.trace) printf("[TBUF] READ-DATA s0 R=0x%x G=0x%x B=0x%x Z=0x%x\n",
       parsed.r, parsed.g, parsed.b, parsed.z)
   }

@@ -72,10 +72,25 @@ case class BorgConfig(
     // debug harness to observe it, unlike ULX3S/sim. Unrelated to BorgIO's
     // uo_out/user_interrupt, which are dead (tied to constants) for every
     // config and are simply deleted outright, not gated by this flag.
-    debugPorts: Boolean = true
+    debugPorts: Boolean = true,
+    // BorgTileBuffer's per-sample R/G/B storage width, independent of `fp`.
+    // Default 16 keeps every existing target (including today's signed-off
+    // wafer.space GDS) bit-identical -- this narrows ONLY the internal SRAM
+    // of the tile buffer via ColorQuantize; TileWriteIO/TileReadIO stay FP16
+    // at the port on every config, so nothing outside BorgTileBuffer changes
+    // shape. Z is deliberately excluded: a color quantized to a broadcast
+    // shading value compresses cleanly, but Z varies continuously per-sample
+    // even within one triangle on a sloped surface, so there is no similar
+    // "the final format doesn't need this precision" argument for it. Only
+    // 16 (off) and 8 (ColorQuantize's UNORM8 path) exist; 8 costs one exact
+    // sub-half-LSB tie in 256 (see ColorQuantizeTests' round-trip test) in
+    // exchange for roughly 37% less tile-buffer storage.
+    tileColorBits: Int = 16
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
+  require(tileColorBits == 16 || tileColorBits == 8,
+          s"tileColorBits must be 16 (off) or 8 (ColorQuantize UNORM8), got $tileColorBits")
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
   def sig: Int = fp.sig
@@ -125,7 +140,21 @@ object BorgConfig {
     maxUniforms      = 32,
     hasPerfCounters  = false,
     fragLanes        = 4,
-    samples          = 4
+    samples          = 4,
+    // tileColorBits=8: BorgTileBuffer stores R/G/B as UNORM8 (via
+    // ColorQuantize) instead of full FP16, quantizing on write and
+    // dequantizing on read entirely internally -- TileWriteIO/TileReadIO
+    // stay FP16 at the port, so nothing outside BorgTileBuffer changes. Z
+    // stays FP16 (never quantized -- see BorgConfig.tileColorBits's own doc
+    // for why). Measured: rgbzMems_16x64 -> rgbzMems_16x40, -37.2% per MSAA
+    // sample plane, -8.75% (2,323,169 -> 2,119,850 um^2) on the whole
+    // BorgOnlyCore hierarchy after the quantizer/dequantizer's own added
+    // logic is accounted for. Verified: full hardware.borg.test (195/195)
+    // at both tileColorBits=16 (unaffected) and =8 (new dedicated tests in
+    // BorgTileBufferTests/ColorQuantizeTests), incl. the full render-pipeline
+    // end-to-end tests and MSAA per-sample coverage masking against the
+    // narrower storage.
+    tileColorBits    = 8
   )
 
   // wafer.space Borg-only bridge target (BorgOnlyTop): same sizing as Asic

@@ -284,5 +284,132 @@ object BorgTileBufferTests extends TestSuite {
         println("  PASSED")
       }
     }
+
+    // --- colorBits=8 (BorgConfig.tileColorBits): the narrow-storage path ---
+    // ColorQuantizeTests already verifies the pure quantize8/dequantize8
+    // functions exhaustively; these exercise them wired into the real
+    // module -- the actual SyncReadMem width change, the encode-on-write /
+    // decode-on-read plumbing, and (critically) that per-sample MSAA write
+    // masking still works correctly against the now-narrower storage word.
+
+    utest.test("write_read_roundtrip_narrow_color") {
+      simulate(new BorgTileBuffer(16, 1, 8)) { tb =>
+        println("\n--- BorgTileBuffer: write_read_roundtrip_narrow_color ---")
+        resetModule(tb)
+
+        // 1.0, 0.5, 0.0 all quantize to an EXACT UNORM8 (255, 128, 0), but the
+        // dequantized FP16 bit pattern is not required to match the original
+        // bits: dequantize8's u*257/65536 approximation of u/255 means even
+        // these "nice" values are off by up to 1 FP16 ULP after the round
+        // trip (matches ColorQuantizeTests' own dequantize8_exhaustive_256_values,
+        // which allows exactly this and covers u=255/128/0 as part of its
+        // exhaustive sweep). Z is untouched by colorBits and must stay
+        // bit-exact regardless.
+        writePixel(tb, idx = 0, r = 0x3C00, g = 0x3800, b = 0x0000, z = 0x3000)
+        val (r, g, b, z) = readPixel(tb, idx = 0)
+        println(f"  Read back: R=0x$r%04X G=0x$g%04X B=0x$b%04X Z=0x$z%04X")
+        val gotR = BorgTests.bitsToFloat(BigInt(r), FloatConfig.FP16)
+        val gotG = BorgTests.bitsToFloat(BigInt(g), FloatConfig.FP16)
+        utest.assert(math.abs(gotR - 1.0f) < (1.5f / 255))
+        utest.assert(math.abs(gotG - 0.5f) < (1.5f / 255))
+        utest.assert(b == 0x0000)
+        utest.assert(z == 0x3000) // Z must be bit-exact: never quantized
+        println("  PASSED")
+      }
+    }
+
+    utest.test("narrow_color_is_lossy_but_bounded") {
+      // A value with NO exact UNORM8 representation must still come back
+      // close (this is the whole trade this config makes), matching
+      // ColorQuantizeTests' own +/-1-in-256 characterization.
+      simulate(new BorgTileBuffer(16, 1, 8)) { tb =>
+        println("\n--- BorgTileBuffer: narrow_color_is_lossy_but_bounded ---")
+        resetModule(tb)
+
+        val oneThird = BorgTests.floatToBits(1.0f / 3, FloatConfig.FP16).toInt
+        writePixel(tb, idx = 3, r = oneThird, g = 0, b = 0, z = 0x3000)
+        val (r, _, _, z) = readPixel(tb, idx = 3)
+        val got  = BorgTests.bitsToFloat(BigInt(r), FloatConfig.FP16)
+        val want = 1.0f / 3
+        println(f"  wrote 1/3 (fp16 0x$oneThird%04x), read back 0x$r%04x = $got%.5f")
+        utest.assert(math.abs(got - want) < (1.5f / 255)) // within ~1.5 UNORM8 steps
+        utest.assert(z == 0x3000) // still bit-exact
+        println("  PASSED")
+      }
+    }
+
+    utest.test("msaa_partial_coverage_write_narrow_color") {
+      // Same scenario as msaa_partial_coverage_write, at colorBits=8: proves
+      // per-sample write masking is unaffected by the narrower stored word
+      // width (each sample plane is still its own SyncReadMem, just narrower).
+      simulate(new BorgTileBuffer(16, 4, 8)) { tb =>
+        println("\n--- BorgTileBuffer: msaa_partial_coverage_write_narrow_color ---")
+        resetModule(tb)
+
+        pokeIdle(tb)
+        tb.io.write.idx.poke(5.U)
+        tb.io.write.data.r.poke(0x3C00.U) // 1.0
+        tb.io.write.data.g.poke(0x3800.U) // 0.5
+        tb.io.write.data.b.poke(0x0000.U)
+        tb.io.write.data.z.poke(0x3000.U)
+        tb.io.write.coverage.poke("b0101".U)
+        tb.io.write.en.poke(true.B)
+        tb.clock.step(1)
+        tb.io.write.en.poke(false.B)
+
+        pokeIdle(tb)
+        tb.io.read.idx.poke(5.U)
+        tb.io.read.en.poke(true.B)
+        tb.clock.step(1)
+        tb.io.read.en.poke(false.B)
+        tb.clock.step(1)
+
+        for (s <- 0 until 4) {
+          val r = tb.io.read.data(s).r.peek().litValue.toInt
+          val z = tb.io.read.data(s).z.peek().litValue.toInt
+          val covered = (s == 0 || s == 2)
+          println(f"  sample $s: R=0x$r%04x Z=0x$z%04x (covered=$covered)")
+          if (covered) {
+            // See write_read_roundtrip_narrow_color: 1.0 -> UNORM8 255 exactly,
+            // but the dequantized bits can be up to 1 FP16 ULP off 0x3C00.
+            val got = BorgTests.bitsToFloat(BigInt(r), FloatConfig.FP16)
+            utest.assert(math.abs(got - 1.0f) < (1.5f / 255))
+            utest.assert(z == 0x3000)
+          } else {
+            utest.assert(r == 0x0000)
+            utest.assert(z == FP16_MAX_DEPTH)
+          }
+        }
+        println("  Covered samples updated, uncovered samples preserved (narrow) ✓")
+        println("  PASSED")
+      }
+    }
+
+    utest.test("clear_color_quantized_narrow_color") {
+      // The clear path (encodeStored(io.clear.color)) is a separate code path
+      // from the write path (encodeStored(io.write.data)) -- exercise it with
+      // a non-exact value specifically, not just the RGB=0 every other test
+      // (including the default resetModule clear) already covers.
+      simulate(new BorgTileBuffer(16, 1, 8)) { tb =>
+        println("\n--- BorgTileBuffer: clear_color_quantized_narrow_color ---")
+        resetModule(tb)
+        val oneThird = BorgTests.floatToBits(1.0f / 3, FloatConfig.FP16).toInt
+        tb.io.clear.color.r.poke(oneThird.U)
+        tb.io.clear.color.g.poke(0.U)
+        tb.io.clear.color.b.poke(0.U)
+        tb.io.clear.color.z.poke(FP16_MAX_DEPTH.U)
+        tb.io.clear.en.poke(true.B)
+        tb.clock.step(1)
+        tb.io.clear.en.poke(false.B)
+        tb.clock.step(18)
+
+        val (r, _, _, z) = readPixel(tb, idx = 0)
+        val got  = BorgTests.bitsToFloat(BigInt(r), FloatConfig.FP16)
+        println(f"  clear color 1/3, read back R=0x$r%04x = $got%.5f")
+        utest.assert(math.abs(got - 1.0f / 3) < (1.5f / 255))
+        utest.assert(z == FP16_MAX_DEPTH)
+        println("  PASSED")
+      }
+    }
   }
 }
