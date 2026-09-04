@@ -147,7 +147,7 @@ load-link-loom: link_loom_test.bit
 	@echo -e "  Look for: PASS=FFFFF  (all 20 wires good)"
 	@echo -e "  led[7]=heartbeat led[1]=all-pass led[0]=uart-tx-activity"
 
-.PHONY: all flash load clean hdmi load-hdmi bare load-bare uart load-uart cpu-sdram load-cpu-sdram pin-loopback load-pin-loopback load-pin-loopback-v2 link-loom load-link-loom uart-wire-loop load-uart-wire-loop
+.PHONY: all flash load clean hdmi load-hdmi bare load-bare uart load-uart cpu-sdram load-cpu-sdram pin-loopback load-pin-loopback load-pin-loopback-v2 link-loom load-link-loom uart-wire-loop load-uart-wire-loop padloop-loom load-padloop-loom
 
 # ── CPU + SDRAM minimal test (fast iteration, ~6s build) ────────────────────
 CPU_SDRAM_VDIR = $(abspath $(CURDIR)/../../..)/out/cpu_sdram_test/verilog
@@ -336,3 +336,23 @@ uart_wire_loop.bit: uart_wire_loop.config
 load-uart-wire-loop: uart_wire_loop.bit
 	@echo -e "$(BOLD)[LOAD]$(RESET) Loading uart_wire_loop into SRAM ..."
 	openFPGALoader -b ulx3s uart_wire_loop.bit
+
+padloop-loom: padloop_loom_test.bit
+
+padloop_loom_test.json: padloop_loom_test.v
+	@echo -e "$(BOLD)[SYNTH]$(RESET) padloop_loom_test ..."
+	yosys -q -p "read_verilog padloop_loom_test.v; synth_ecp5 -top padloop_loom_test -json padloop_loom_test.json"
+
+padloop_loom_test.config: padloop_loom_test.json
+	@echo -e "$(BOLD)[PNR]$(RESET) padloop_loom_test ..."
+	nextpnr-ecp5 --85k --package CABGA381 --json padloop_loom_test.json --lpf padloop_loom_test.lpf --textcfg padloop_loom_test.config --timing-allow-fail --quiet
+
+padloop_loom_test.bit: padloop_loom_test.config
+	@echo -e "$(BOLD)[PACK]$(RESET) padloop_loom_test ..."
+	ecppack padloop_loom_test.config padloop_loom_test.bit
+
+load-padloop-loom: padloop_loom_test.bit
+	@echo -e "$(BOLD)[LOAD]$(RESET) Loading padloop_loom_test into SRAM ..."
+	openFPGALoader -b ulx3s padloop_loom_test.bit
+	@echo -e "  Capture: stty -F /dev/ttyUSB0 115200 raw -echo && timeout 4 cat /dev/ttyUSB0"
+	@echo -e "  Look for: PASS=7FFFFF  (all 23 wires good; 23 bits, so not FFFFFF)"

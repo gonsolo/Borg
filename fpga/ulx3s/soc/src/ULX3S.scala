@@ -50,6 +50,11 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // (today's behaviour, what the demo/talk bitstream ships) is unaffected;
   // only ULX3SLoopbackMain below overrides this.
   override def borgMode: BorgMode = borgModeOverride
+  // Rung B needs two pads per logical wire (both endpoints are on this chip),
+  // which only fits J1+J2 at the narrow width -- see BorgMode's doc.
+  override def linkParams: borg.link.LinkParams =
+    if (borgModeOverride == BorgPadLoop) borg.link.LinkParams(w = 8)
+    else borg.link.LinkParams()
 
   // ── Board clock and reset ──────────────────────────────────────────────────
   val clk_25mhz = IO(Input(Clock()))
@@ -109,7 +114,38 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // Control straps -- onboard DIP switches (SW1-4), not GP/GN pins.
   val dbg_sel     = if (borgMode == BorgExternal) Some(IO(Input(UInt(2.W)))) else None
   val link_narrow = if (borgMode == BorgExternal) Some(IO(Input(Bool())))    else None
-  val link_fast   = if (borgMode == BorgExternal) Some(IO(Input(Bool())))    else None
+  val link_fast   =
+    if (borgMode == BorgExternal || borgMode == BorgPadLoop) Some(IO(Input(Bool()))) else None
+
+  // ── Rung B pad-loop pins (BorgPadLoop, ULX3SPadLoopMain) ─────────────────
+  // Master AND slave are both on this FPGA, so unlike BorgExternal above every
+  // logical wire needs a driving pad and a receiving pad, with the ribbon
+  // bridging the two halves of one J1/J2 pin. 23 pairs at w=8; see BorgMode's
+  // doc for why w=16 (78 holes) does not fit and rung B cannot reuse
+  // BorgExternal.
+  private def padLoop = borgMode == BorgPadLoop
+  // master -> pads -> cable -> pads -> slave
+  val pl_dn_d_out   = if (padLoop) Some(IO(Output(UInt(8.W)))) else None
+  val pl_dn_v_out   = if (padLoop) Some(IO(Output(Bool())))    else None
+  val pl_dn_p_out   = if (padLoop) Some(IO(Output(Bool())))    else None
+  val pl_dn_d_in    = if (padLoop) Some(IO(Input(UInt(8.W))))  else None
+  val pl_dn_v_in    = if (padLoop) Some(IO(Input(Bool())))     else None
+  val pl_dn_p_in    = if (padLoop) Some(IO(Input(Bool())))     else None
+  val pl_upcred_out = if (padLoop) Some(IO(Output(Bool())))    else None
+  val pl_upcred_in  = if (padLoop) Some(IO(Input(Bool())))     else None
+  // slave -> pads -> cable -> pads -> master
+  val pl_up_d_out   = if (padLoop) Some(IO(Output(UInt(8.W)))) else None
+  val pl_up_v_out   = if (padLoop) Some(IO(Output(Bool())))    else None
+  val pl_up_p_out   = if (padLoop) Some(IO(Output(Bool())))    else None
+  val pl_up_d_in    = if (padLoop) Some(IO(Input(UInt(8.W))))  else None
+  val pl_up_v_in    = if (padLoop) Some(IO(Input(Bool())))     else None
+  val pl_up_p_in    = if (padLoop) Some(IO(Input(Bool())))     else None
+  val pl_dncred_out = if (padLoop) Some(IO(Output(Bool())))    else None
+  val pl_dncred_in  = if (padLoop) Some(IO(Input(Bool())))     else None
+  // Carries the SLAVE's linkUp (constant true) out and back into the master's
+  // farLinkUp -- NOT the master's own linkUp, which would deadlock.
+  val pl_linkup_out = if (padLoop) Some(IO(Output(Bool())))    else None
+  val pl_linkup_in  = if (padLoop) Some(IO(Input(Bool())))     else None
 
   // ── PLL: 25 MHz osc → SoC + SoC/90° SDRAM + 125 MHz HDMI ──────────
   // SoC clock = the build's CLOCK_MHZ.  SINGLE SOURCE OF TRUTH is ULX3S_MHZ in
@@ -280,6 +316,41 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     // dbg_sel/link_narrow reach real pins (reserving their lane-map position)
     // but are not consumed by any RTL yet -- same status as BorgOnlyTop's own
     // ASIC-side dbg_sel/link_narrow pins, see this block's doc above.
+  }
+
+  // ── Rung B: the whole bridge, with the master<->slave path out on pads ────
+  if (borgMode == BorgPadLoop) {
+    val pads = Wire(new BorgPadLoopIO(linkParams))
+
+    // Drive the outbound pads; sample the inbound ones. The ribbon shorts each
+    // *_out to its matching *_in, so these halves meet outside the chip.
+    pl_dn_d_out.get := pads.dnOut.d
+    pl_dn_v_out.get := pads.dnOut.v
+    pl_dn_p_out.get := pads.dnOut.p
+    pads.dnIn.d     := pl_dn_d_in.get
+    pads.dnIn.v     := pl_dn_v_in.get
+    pads.dnIn.p     := pl_dn_p_in.get
+
+    pl_upcred_out.get := pads.upCredOut
+    pads.upCredIn     := pl_upcred_in.get
+
+    pl_up_d_out.get := pads.upOut.d
+    pl_up_v_out.get := pads.upOut.v
+    pl_up_p_out.get := pads.upOut.p
+    pads.upIn.d     := pl_up_d_in.get
+    pads.upIn.v     := pl_up_v_in.get
+    pads.upIn.p     := pl_up_p_in.get
+
+    pl_dncred_out.get := pads.dnCredOut
+    pads.dnCredIn     := pl_dncred_in.get
+
+    pl_linkup_out.get := pads.linkUpOut
+    pads.linkUpIn     := pl_linkup_in.get
+
+    wireBorgPadLoop(pads)
+
+    // Real strap this time (SW4), unlike rung A's hardcoded safe default.
+    peripherals.io.link.get.linkFast := link_fast.get
   }
 
   // ── Warm-reset controller logic (uses `warmReset` produced by wireSoC) ─────
@@ -628,6 +699,48 @@ object ULX3SPins {
     PinDef("far_link_up",  "B15", pull = "DOWN"), PinDef("link_up_loop", "C15", pull = "NONE"),
   )
 
+  // ── Rung B pad-loop pin map (BorgPadLoop) ────────────────────────────────
+  // 23 pins, one logical link wire each, GP = the FPGA's driving pad and GN =
+  // its receiving pad -- so the ribbon bridges each pin's own two rows, the
+  // same physical pattern as the BorgExternal loom above (GP outer / GN inner,
+  // hardware-confirmed). Sites are gp[]/gn[] from ulx3s_v20.lpf; gp/gn[11-13]
+  // are skipped as WiFi-shared on this board revision.
+  //
+  // Inputs pull DOWN so a missing or broken jumper reads 0: that is the safe
+  // failure, since v/p and linkUp all mean "nothing is happening" when low.
+  val padLoopPins: Seq[PinDef] = Seq(
+    // J1 pins 0-10: master -> cable -> slave.
+    PinDef("pl_dn_d_out[0]", "B11", pull = "NONE"), PinDef("pl_dn_d_in[0]", "C11", pull = "DOWN"),
+    PinDef("pl_dn_d_out[1]", "A10", pull = "NONE"), PinDef("pl_dn_d_in[1]", "A11", pull = "DOWN"),
+    PinDef("pl_dn_d_out[2]", "A9",  pull = "NONE"), PinDef("pl_dn_d_in[2]", "B10", pull = "DOWN"),
+    PinDef("pl_dn_d_out[3]", "B9",  pull = "NONE"), PinDef("pl_dn_d_in[3]", "C10", pull = "DOWN"),
+    PinDef("pl_dn_d_out[4]", "A7",  pull = "NONE"), PinDef("pl_dn_d_in[4]", "A8",  pull = "DOWN"),
+    PinDef("pl_dn_d_out[5]", "C8",  pull = "NONE"), PinDef("pl_dn_d_in[5]", "B8",  pull = "DOWN"),
+    PinDef("pl_dn_d_out[6]", "C6",  pull = "NONE"), PinDef("pl_dn_d_in[6]", "C7",  pull = "DOWN"),
+    PinDef("pl_dn_d_out[7]", "A6",  pull = "NONE"), PinDef("pl_dn_d_in[7]", "B6",  pull = "DOWN"),
+    PinDef("pl_dn_v_out",    "A4",  pull = "NONE"), PinDef("pl_dn_v_in",    "A5",  pull = "DOWN"),
+    PinDef("pl_dn_p_out",    "A2",  pull = "NONE"), PinDef("pl_dn_p_in",    "B1",  pull = "DOWN"),
+    PinDef("pl_upcred_out",  "C4",  pull = "NONE"), PinDef("pl_upcred_in",  "B4",  pull = "DOWN"),
+
+    // J2 pins 14-25: slave -> cable -> master.
+    PinDef("pl_up_d_out[0]", "U18", pull = "NONE"), PinDef("pl_up_d_in[0]", "U17", pull = "DOWN"),
+    PinDef("pl_up_d_out[1]", "N17", pull = "NONE"), PinDef("pl_up_d_in[1]", "P16", pull = "DOWN"),
+    PinDef("pl_up_d_out[2]", "N16", pull = "NONE"), PinDef("pl_up_d_in[2]", "M17", pull = "DOWN"),
+    PinDef("pl_up_d_out[3]", "L16", pull = "NONE"), PinDef("pl_up_d_in[3]", "L17", pull = "DOWN"),
+    PinDef("pl_up_d_out[4]", "H18", pull = "NONE"), PinDef("pl_up_d_in[4]", "H17", pull = "DOWN"),
+    PinDef("pl_up_d_out[5]", "F17", pull = "NONE"), PinDef("pl_up_d_in[5]", "G18", pull = "DOWN"),
+    PinDef("pl_up_d_out[6]", "D18", pull = "NONE"), PinDef("pl_up_d_in[6]", "E17", pull = "DOWN"),
+    PinDef("pl_up_d_out[7]", "C18", pull = "NONE"), PinDef("pl_up_d_in[7]", "D17", pull = "DOWN"),
+    PinDef("pl_up_v_out",    "B15", pull = "NONE"), PinDef("pl_up_v_in",    "C15", pull = "DOWN"),
+    PinDef("pl_up_p_out",    "B17", pull = "NONE"), PinDef("pl_up_p_in",    "C17", pull = "DOWN"),
+    PinDef("pl_dncred_out",  "C16", pull = "NONE"), PinDef("pl_dncred_in",  "D16", pull = "DOWN"),
+    PinDef("pl_linkup_out",  "D14", pull = "NONE"), PinDef("pl_linkup_in",  "E14", pull = "DOWN"),
+  )
+
+  /** SW4 alone -- rung B consumes only link_fast; dbg_sel/link_narrow are
+    * BorgExternal's reserved lane-map positions and no RTL reads them. */
+  val linkFastPin: Seq[PinDef] = Seq(PinDef("link_fast", "E7", pull = "DOWN"))
+
   // Control straps -- onboard DIP switches SW1-4, not GP/GN pins. Sites +
   // PULLMODE=DOWN from ulx3s_v20.lpf's "sw[]" block.
   val dipSwitchPins: Seq[PinDef] = Seq(
@@ -724,4 +837,28 @@ object ULX3SExternalMain extends App {
 
   ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf",
     extraPins = ULX3SPins.linkExternalPins ++ ULX3SPins.dipSwitchPins)
+}
+
+/** Rung B of the on-hardware ladder: the complete bridge (master + slave + a
+  * real Borg, exactly like rung A), but with the master<->slave path routed out
+  * through real pads and shorted back by a ribbon cable across J1/J2 -- adding
+  * IO buffers, flight time and SSO to a topology rung A already proved.
+  *
+  * Not a variant of ULX3SExternalMain: that one elaborates the master alone, so
+  * a loopback cable there feeds the master its own beats with no slave or Borg
+  * to answer. See BorgMode's doc.
+  */
+object ULX3SPadLoopMain extends App {
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "125").toInt
+  val targetDir = "out/ulx3s/verilog_padloop"
+  new java.io.File(targetDir).mkdirs()
+
+  ChiselStage.emitSystemVerilogFile(
+    gen         = new ulx3s_top(clockMhz, borgModeOverride = BorgPadLoop),
+    args        = Array("--target-dir", targetDir),
+    firtoolOpts = Emit.firtoolOpts
+  )
+
+  ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf",
+    extraPins = ULX3SPins.padLoopPins ++ ULX3SPins.linkFastPin)
 }

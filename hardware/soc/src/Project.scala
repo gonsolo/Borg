@@ -207,6 +207,51 @@ trait SoCLogic { self: RawModule =>
     linkIo.farLinkUp := slave.io.linkUp
   }
 
+  /** Rung B: rung A's complete system, but every master<->slave wire leaves
+    * the FPGA and comes back over a ribbon cable.
+    *
+    * Both endpoints are on this chip, so each logical wire needs a driving pad
+    * AND a receiving pad -- the cable bridges the two. That is why this takes a
+    * bundle with paired `*Out`/`*In` halves rather than the single set of pins
+    * [[wireBorgLoopback]] hands straight to the slave.
+    *
+    * `linkUpOut`/`linkUpIn` must carry the *slave's* `linkUp`, which is a
+    * constant `true` (see BorgLinkClockGen: only the master's `linkUp` follows
+    * `farLinkUp`). Routing the master's own `linkUp` out and back instead --
+    * the obvious-looking "expose link_up as a jumper target" -- closes a
+    * combinational loop through the cable, `farLinkUp = linkUp = farLinkUp`,
+    * which a pulled-down pad holds at 0 forever so the link never trains.
+    */
+  def wireBorgPadLoop(pads: BorgPadLoopIO): Unit = {
+    require(borgMode == BorgPadLoop, "wireBorgPadLoop() only makes sense under BorgPadLoop")
+    val linkIo = peripherals.io.link.getOrElse(
+      throw new IllegalStateException("BorgPadLoop requires peripherals.io.link to be present")
+    )
+
+    val farBorg = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new borg.Borg(BORG_CFG)) }
+    val slave   = withClockAndReset(soc_clk, !soc_rst_reg_n) {
+      Module(new borg.link.BorgLinkSlave(linkParams))
+    }
+    slave.io.mmio   <> farBorg.io.mmio
+    slave.io.gpuMem <> farBorg.io.gpuMem
+
+    // master -> pads -> cable -> pads -> slave
+    pads.dnOut      := linkIo.dnPins
+    slave.io.dnPins := pads.dnIn
+    pads.upCredOut  := linkIo.upCred
+    slave.io.upCred := pads.upCredIn
+
+    // slave -> pads -> cable -> pads -> master
+    pads.upOut       := slave.io.upPins
+    linkIo.upPins    := pads.upIn
+    pads.dnCredOut   := slave.io.dnCred
+    linkIo.dnCred    := pads.dnCredIn
+    pads.linkUpOut   := slave.io.linkUp
+    linkIo.farLinkUp := pads.linkUpIn
+
+    slave.io.linkFast := linkIo.linkFast
+  }
+
   /** Wire up the entire SoC. Call this from the top-level module body. */
   def wireSoC(): UInt = {
 

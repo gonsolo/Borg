@@ -95,6 +95,12 @@ generate_verilog_ulx3s_loopback: rdl
 generate_verilog_ulx3s_external: rdl
 	CLOCK_MHZ=$(ULX3S_CLOCK_MHZ) $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SExternalMain
 
+# Rung B: master + slave + Borg all on the FPGA, but the master<->slave path
+# routed out to J1/J2 pads and shorted back by a ribbon (narrow w=8 -- see
+# BorgMode's doc for why w=16 does not fit).
+generate_verilog_ulx3s_padloop: rdl
+	CLOCK_MHZ=$(ULX3S_CLOCK_MHZ) $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SPadLoopMain
+
 # Minimal ULX3S Verilog — Hutt + UART only, no Borg.  Fast-iteration target.
 generate_verilog_ulx3s_minimal:
 	CLOCK_MHZ=25 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMinimalMain
@@ -233,7 +239,7 @@ linux:
 flash-linux:
 	$(MAKE) -C software flash-linux
 
-.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_wafer help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \

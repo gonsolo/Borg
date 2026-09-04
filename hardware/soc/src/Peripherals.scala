@@ -55,6 +55,30 @@ class BorgLinkPortsIO(val p: LinkParams) extends Bundle {
   val linkErr = Output(Bool())
 }
 
+/** Pad-facing signals for rung B ([[soc.BorgPadLoop]]): the master and the
+  * slave are both on this FPGA, so every logical link wire needs a driving pad
+  * and a receiving pad, with the ribbon cable bridging the two halves.
+  *
+  * Contrast [[BorgLinkPortsIO]], which is one endpoint's pins and so needs a
+  * single set: there, whatever is on the other end of the wire lives off-chip.
+  */
+class BorgPadLoopIO(val p: LinkParams) extends Bundle {
+  // master -> pads -> cable -> pads -> slave
+  val dnOut     = Output(new LinkPins(p.w))
+  val dnIn      = Input(new LinkPins(p.w))
+  val upCredOut = Output(Bool())
+  val upCredIn  = Input(Bool())
+  // slave -> pads -> cable -> pads -> master
+  val upOut     = Output(new LinkPins(p.w))
+  val upIn      = Input(new LinkPins(p.w))
+  val dnCredOut = Output(Bool())
+  val dnCredIn  = Input(Bool())
+  // Carries the SLAVE's linkUp (constant true), never the master's -- see
+  // Project.wireBorgPadLoop's doc for the combinational loop that causes.
+  val linkUpOut = Output(Bool())
+  val linkUpIn  = Input(Bool())
+}
+
 class PeripheralsIO(
     val CLOCK_MHZ: Int,
     val borgMode: BorgMode = BorgDirect,

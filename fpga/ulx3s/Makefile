@@ -393,6 +393,56 @@ flash-external: borg-external.bit kernel_with_header.bin
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 kernel_with_header.bin
 	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Start tio, then: make reset"
 
+######### Rung B: the whole bridge, master<->slave routed out over pads #########################
+
+# Unlike borg-external (master only -- the far side lives elsewhere, rung C),
+# this build has master + slave + a real Borg, with every link wire leaving the
+# FPGA and coming back over the J1/J2 ribbon. Narrow w=8: two pads per logical
+# wire is 46 holes, which fits; w=16 would need 78. See BorgMode's doc.
+PADLOOP_VERILOG_DIR = ../../out/ulx3s/verilog_padloop
+PADLOOP_SRC_FILES = $$(find $(PADLOOP_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
+PADLOOP_LPF = $(PADLOOP_VERILOG_DIR)/ulx3s.lpf
+
+.verilog_stamp_ulx3s_padloop: $(CHISEL_SRCS) Makefile ../../Makefile
+	$(MAKE) -C ../.. generate_verilog_ulx3s_padloop ULX3S_CLOCK_MHZ=$(ULX3S_MHZ)
+	@touch $@
+
+borg-padloop.json: .verilog_stamp_ulx3s_padloop
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Running Yosys for pad-loop (rung B) SoC ..."
+	yosys -p "read -sv $(PADLOOP_SRC_FILES); \
+	           read_verilog -sv -lib $(CURDIR)/primitives/ecp5_prims.v; \
+	           synth_ecp5 -abc9 -top ulx3s_top -json borg-padloop.json; \
+	           stat -top ulx3s_top" \
+	      -DECP5 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ \
+	      > yosys-padloop.log
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Done."
+
+borg-padloop.config: borg-padloop.json
+	@echo -e "$(BOLD)[PNR]$(RESET) Running nextpnr-ecp5 for pad-loop SoC ..."
+	nextpnr-ecp5 \
+	  --85k --package CABGA381 \
+	  --json borg-padloop.json \
+	  --lpf $(PADLOOP_LPF) \
+	  --textcfg borg-padloop.config \
+	  --freq $(CLOCK_FREQ) \
+	  --timing-allow-fail \
+	  --log nextpnr-padloop.log \
+	  --seed 0
+	@echo -e "$(BOLD)[PNR]$(RESET) Done."
+
+borg-padloop.bit: borg-padloop.config
+	@echo -e "$(BOLD)[PACK]$(RESET) Packing pad-loop bitstream ..."
+	ecppack --svf borg-padloop.svf borg-padloop.config borg-padloop.bit
+	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-padloop.bit ready."
+
+# Same kernel firmware as every other rung -- only how Borg is reached differs.
+flash-padloop: borg-padloop.bit kernel_with_header.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Writing pad-loop ECP5 bitstream to onboard flash ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset borg-padloop.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing kernel firmware to onboard flash @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset -o 0x400000 kernel_with_header.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Both flashed. Start tio, then: make reset"
+
 ######### Minimal SoC (Hutt + UART only) — fast iteration ##########################################
 
 ULX3S_MINIMAL_VERILOG_DIR = ../../out/ulx3s_minimal/verilog
@@ -477,6 +527,8 @@ clean:
 	      yosys-loopback.log nextpnr-loopback.log .verilog_stamp_ulx3s_loopback
 	rm -f borg-external.bit borg-external.config borg-external.json borg-external.svf \
 	      yosys-external.log nextpnr-external.log .verilog_stamp_ulx3s_external
+	rm -f borg-padloop.bit borg-padloop.config borg-padloop.json borg-padloop.svf \
+	      yosys-padloop.log nextpnr-padloop.log .verilog_stamp_ulx3s_padloop
 
 .PHONY: all help load flash flash-firmware minimal-boot \
         print_resources generate_verilog_ulx3s tio install-udev clean \
