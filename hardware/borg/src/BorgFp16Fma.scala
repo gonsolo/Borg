@@ -150,48 +150,110 @@ class BorgFp16Fma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val prodExt   = Cat(prodField, Mux(m_prodZero, false.B, prodStk))
   private val cExt      = Cat(cField,    Mux(m_cZero,    false.B, cStk))
 
-  private val prodSigned = Mux(m_prodSign, -(prodExt.zext), prodExt.zext)
-  private val cSignedV   = Mux(m_cSign,    -(cExt.zext),    cExt.zext)
+  // ---- Optional stage-2 split (cfg.fmaStages >= 4), for FP32 timing ----
+  // Cut point: after alignment, before the signed sum.  That puts the two F-bit
+  // barrel shifts + sticky reduction on one side and the three serial carry
+  // chains (negate, add, negate) on the other -- the two halves of what makes
+  // this stage 58.035 ns at FP32.  See BorgConfig.fmaExtraStage for the numbers.
+  //
+  // reg2a is FREE-RUNNING (plain RegNext) for exactly the reason regC is: its
+  // input is combinational from regMid, which holds while pipeEn1 is low, so
+  // re-latching an unchanged value is harmless -- and it avoids routing another
+  // high-fanout enable net.  topExp is truncated to EW here, which is what the
+  // regB capture below already did, so the value is unchanged either way.
+  //
+  // Compile-time branch: at fmaExtraStage=false this emits the identical
+  // hardware it did before the parameter existed, not merely equivalent.
+  private val (x_prodExt, x_cExt, x_prodSign, x_cSign, x_topExp,
+               x_specialNaN, x_specialInf, x_specialSign) =
+    if (cfg.fmaStages >= 4) (
+      RegNext(prodExt,       0.U(FE.W)),
+      RegNext(cExt,          0.U(FE.W)),
+      RegNext(m_prodSign,    false.B),
+      RegNext(m_cSign,       false.B),
+      RegNext(topExp,        0.S(EW.W)),
+      RegNext(m_specialNaN,  false.B),
+      RegNext(m_specialInf,  false.B),
+      RegNext(m_specialSign, false.B)
+    ) else (
+      prodExt, cExt, m_prodSign, m_cSign, topExp,
+      m_specialNaN, m_specialInf, m_specialSign
+    )
+
+  private val prodSigned = Mux(x_prodSign, -(x_prodExt.zext), x_prodExt.zext)
+  private val cSignedV   = Mux(x_cSign,    -(x_cExt.zext),    x_cExt.zext)
   private val sumSigned  = prodSigned +& cSignedV
   private val s2_sign    = sumSigned < 0.S
   private val magW       = FE + 1
   private val s2_mag     = Mux(s2_sign, (-sumSigned).asUInt, sumSigned.asUInt)(magW - 1, 0)
 
   // ---- regB (pipeEn2; holds during non-busy → no X churn) ----
-  private val magR        = RegEnable(s2_mag,                       0.U, io.pipeEn2)
+  // Width made explicit (s2_mag is already magW bits): Log2(magR) in stage 3
+  // needs the width known at construction, and a bare 0.U init defers it.
+  private val magR        = RegEnable(s2_mag,                       0.U(magW.W), io.pipeEn2)
   private val signR       = RegEnable(s2_sign,                      false.B, io.pipeEn2)
-  private val topExpR     = RegEnable(topExp,                       0.S(EW.W), io.pipeEn2)
-  private val useSpecialR = RegEnable(m_specialNaN || m_specialInf, false.B, io.pipeEn2)
-  private val specNaNR    = RegEnable(m_specialNaN,                 false.B, io.pipeEn2)
-  private val specSignR   = RegEnable(m_specialSign,                false.B, io.pipeEn2)
+  private val topExpR     = RegEnable(x_topExp,                     0.S(EW.W), io.pipeEn2)
+  private val useSpecialR = RegEnable(x_specialNaN || x_specialInf, false.B, io.pipeEn2)
+  private val specNaNR    = RegEnable(x_specialNaN,                 false.B, io.pipeEn2)
+  private val specSignR   = RegEnable(x_specialSign,                false.B, io.pipeEn2)
 
   // ==========================================================================
   // Stage 3 (combinational): normalize + round-to-nearest-even + pack
   // ==========================================================================
   private val isZeroResult = magR === 0.U
-  private val msbPos = {
-    val idx = WireDefault(0.U(log2Ceil(magW).W))
-    for (i <- 0 until magW) { when(magR(i)) { idx := i.U } }
-    idx
-  }
+  // Position of the highest set bit.  Log2 emits a logarithmic tree; the
+  // previous form -- `for (i <- 0 until magW) when(magR(i)) { idx := i.U }` --
+  // is a magW-deep last-connect-wins mux cascade, which at FP16 (magW=42) was
+  // harmless but at FP32 (magW=68) became the FMA's critical path.  Identical
+  // semantics: both yield the index of the top set bit, and the magR===0 case
+  // is handled separately by isZeroResult, so Log2's undefined-at-zero does
+  // not matter.
+  private val msbPos = Log2(magR)
   private val expBiased = msbPos.zext.asTypeOf(SInt(EW.W)) + topExpR - F.S + BIAS.S
   private val effExp    = Mux(expBiased < 1.S, 1.S(EW.W), expBiased)
   private val dropAmtS  = effExp - (BIAS + MANT).S + F.S - topExpR
   private val dropAmt   = Mux(dropAmtS < 0.S, 0.U, dropAmtS.asUInt)(log2Ceil(magW + 1) - 1, 0)
 
-  private val keep      = (magR >> dropAmt)
-  private val guardMask = Mux(dropAmt === 0.U, 0.U, (1.U << (dropAmt - 1.U)))(magW - 1, 0)
-  private val stkMask   = Mux(dropAmt <= 1.U, 0.U, ((1.U << (dropAmt - 1.U)) - 1.U))(magW - 1, 0)
-  private val guard     = (magR & guardMask).orR
-  private val sticky    = (magR & stkMask).orR
+  // ---- Optional stage-3 split (cfg.fmaStages >= 5) ----
+  // Cut point: after the priority encode and exponent arithmetic have produced
+  // dropAmt, before the variable shift + guard/sticky + round.  With stages=4
+  // the critical path lands here (measured: starts at magR, 36.197 ns at FP32),
+  // because this half chains a magW-bit priority encoder, a magW-bit barrel
+  // shift, two more variable-shift mask builds and two OR reductions.
+  //
+  // Free-running for the same reason as reg2a/regC: regB holds while pipeEn2
+  // is low, so these inputs are stable and re-latching is harmless.  expBiased
+  // is truncated to EW, exactly as the topExpR capture above already does --
+  // EW = EXP+8 covers its full range (|expBiased| stays well under 2^15).
+  private val (y_magR, y_dropAmt, y_expBiased, y_sign, y_isZero,
+               y_useSpecial, y_specNaN, y_specSign) =
+    if (cfg.fmaStages >= 5) (
+      RegNext(magR,         0.U(magW.W)),
+      RegNext(dropAmt,      0.U(log2Ceil(magW + 1).W)),
+      RegNext(expBiased,    0.S(EW.W)),
+      RegNext(signR,        false.B),
+      RegNext(isZeroResult, false.B),
+      RegNext(useSpecialR,  false.B),
+      RegNext(specNaNR,     false.B),
+      RegNext(specSignR,    false.B)
+    ) else (
+      magR, dropAmt, expBiased, signR, isZeroResult,
+      useSpecialR, specNaNR, specSignR
+    )
+
+  private val keep      = (y_magR >> y_dropAmt)
+  private val guardMask = Mux(y_dropAmt === 0.U, 0.U, (1.U << (y_dropAmt - 1.U)))(magW - 1, 0)
+  private val stkMask   = Mux(y_dropAmt <= 1.U, 0.U, ((1.U << (y_dropAmt - 1.U)) - 1.U))(magW - 1, 0)
+  private val guard     = (y_magR & guardMask).orR
+  private val sticky    = (y_magR & stkMask).orR
   private val lsb       = keep(0)
   private val roundUp   = guard && (sticky || lsb)
   private val sigRounded = keep(MANT, 0) +& roundUp
 
-  private val subnorm      = expBiased < 1.S
+  private val subnorm      = y_expBiased < 1.S
   private val carry        = sigRounded(SIG)
   private val becameNormal = subnorm && sigRounded(MANT)
-  private val baseExp      = Mux(subnorm, 0.S(EW.W), expBiased)
+  private val baseExp      = Mux(subnorm, 0.S(EW.W), y_expBiased)
   private val finalExpS    = Mux(carry, baseExp + 1.S, Mux(becameNormal, 1.S(EW.W), baseExp))
   private val finalFrac    = Mux(carry, 0.U(MANT.W), sigRounded(MANT - 1, 0))
 
@@ -200,12 +262,12 @@ class BorgFp16Fma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                           Mux(finalExpS < 0.S, 0.U(EXP.W), finalExpS.asUInt(EXP - 1, 0)))
   private val fracField = Mux(overflow, 0.U(MANT.W), finalFrac)
 
-  private val normalOut  = Cat(signR, expField, fracField)
+  private val normalOut  = Cat(y_sign, expField, fracField)
   private val zeroOut    = Cat(false.B, 0.U((EXP + MANT).W))
   private val nanOut     = Cat(false.B, EXPMAX.U(EXP.W), (1 << (MANT - 1)).U(MANT.W))
-  private val infOut     = Cat(specSignR, EXPMAX.U(EXP.W), 0.U(MANT.W))
-  private val specialOut = Mux(specNaNR, nanOut, infOut)
-  private val s3_out     = Mux(useSpecialR, specialOut, Mux(isZeroResult, zeroOut, normalOut))
+  private val infOut     = Cat(y_specSign, EXPMAX.U(EXP.W), 0.U(MANT.W))
+  private val specialOut = Mux(y_specNaN, nanOut, infOut)
+  private val s3_out     = Mux(y_useSpecial, specialOut, Mux(y_isZero, zeroOut, normalOut))
 
   // regC: register the final result so write-back + dispatcher snoop read a reg.
   io.out := RegNext(s3_out, 0.U(cfg.totalBits.W))

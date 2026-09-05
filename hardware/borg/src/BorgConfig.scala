@@ -85,12 +85,63 @@ case class BorgConfig(
     // 16 (off) and 8 (ColorQuantize's UNORM8 path) exist; 8 costs one exact
     // sub-half-LSB tie in 256 (see ColorQuantizeTests' round-trip test) in
     // exchange for roughly 37% less tile-buffer storage.
-    tileColorBits: Int = 16
+    tileColorBits: Int = 16,
+    // BorgFp16Fma pipeline depth. 3 is the shipping FP16 form; 4 and 5 add
+    // registers inside stages 2 and 3 respectively, for FP32 at 25 MHz.
+    //
+    // THE CELL LIBRARY DOMINATES THIS DECISION -- check which one your target
+    // builds against before concluding anything. Measured with OpenSTA at a
+    // 40 ns (25 MHz) period, synthesis-only (no wire delay), Log2 msbPos:
+    //
+    //                   5V fd_sc_mcu7t5v0     3.3V as_sc_mcu7t3v3
+    //   FP16 3-stage    31.256 (+8.453)       18.035 (+21.783)
+    //   FP32 3-stage    55.687 (-15.968 VIOL) 26.690 (+13.131 MET)
+    //   FP32 4-stage    38.884 (+0.679)       18.740 (+21.074)
+    //   FP32 5-stage    42.047 (-2.334 VIOL)  22.446 (+17.375)
+    //
+    // The 3.3V cells are ~1.7-2.1x faster (and ~7% larger). On 3.3V, FP32
+    // closes 25 MHz UNSPLIT with 33% margin -- fmaStages>3 buys nothing.
+    // Only on the 5V library (what the 4 MHz config ships) does FP32 need
+    // splitting, and even then 4 stages is marginal. librelane/
+    // probe_borgonly_3v3.yaml is the 3.3V/25 MHz precedent.
+    //
+    // FP32 blows stage 2 up because F grows 40 -> 66 bits and the stage chains
+    // a 66-bit barrel shift, a two's-complement negate, a 68-bit add and a
+    // second negate. Splitting after alignment (stages=4) separates the shift
+    // work from the three carry chains and moves the path into stage 3.
+    //
+    // stages=5 splits stage 3 after dropAmt, and measures WORSE than 4 on both
+    // libraries: the path moves to stage 2b, starting at x_prodSign with a
+    // 3.734 ns first-gate delay -- one sign bit driving a 67-bit conditional
+    // negate (Mux(sign, -(x.zext), x.zext)), whose fanout ABC buffers poorly
+    // without placement. Fixing that means restructuring the add as
+    // "same signs -> add, differing -> subtract" instead of two conditional
+    // negates: a numerics-sensitive rewrite of a module verified bit-identical
+    // to HardFloat over 30k vectors. Not worth doing unless a 5V 25 MHz build
+    // is actually required.
+    //
+    // Caution: 2-4 ns differences here are within synthesis-to-synthesis
+    // variance (ABC's buffering/sizing shifts without placement data). The
+    // library gap and the 3-vs-4 gap are real; 4-vs-5 is indicative only.
+    // Settle any 25 MHz claim with a real LibreLane run, not pre-layout STA.
+    //
+    // Context: the wafer.space flow ships at 4 MHz today
+    // (librelane/config.yaml CLOCK_PERIOD 250), where even the unsplit FP32
+    // stage 2 has ~192 ns of slack. These splits exist for the 25 MHz target.
+    // Synthesis-only numbers run optimistic: FP16 measures 30.9 MHz here but
+    // signs off at 25, implying ~1.24x layout degradation -- so budget margin
+    // rather than trusting a barely-passing synthesis slack.
+    //
+    // NOTE: raising this alone is NOT functionally correct -- each extra stage
+    // adds a pipeline cycle, so BorgCore's busy_counter must widen from 3 bits
+    // and load 7+N instead of 7, shifting holdA/B/C and pipeEn1 earlier.
+    fmaStages: Int = 3
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
   require(tileColorBits == 16 || tileColorBits == 8,
           s"tileColorBits must be 16 (off) or 8 (ColorQuantize UNORM8), got $tileColorBits")
+  require(fmaStages >= 3 && fmaStages <= 5, s"fmaStages must be 3, 4 or 5, got $fmaStages")
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
   def sig: Int = fp.sig
