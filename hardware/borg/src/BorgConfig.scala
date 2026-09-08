@@ -86,6 +86,19 @@ case class BorgConfig(
     // sub-half-LSB tie in 256 (see ColorQuantizeTests' round-trip test) in
     // exchange for roughly 37% less tile-buffer storage.
     tileColorBits: Int = 16,
+    // Adds BorgTileFlusher's optional second DRAM burst, writing the tile's
+    // Z plane (FP16 -> UNORM16 via DepthQuantize) to the FLUSH_ZB_BASE
+    // region -- the hardware half of `D16_UNORM` depth-attachment support
+    // (Step 50 item 14). Default false: historically Z was never written to
+    // DRAM at all (the TBR keeps it on-chip), which is why a mandatory
+    // Vulkan depth format had no path to exist as a real image. Costs a
+    // 16x16-bit staging vector plus a second burst pass per tile when
+    // enabled; the runtime FLUSH_ZB_BASE!=0 gate means even an enabled
+    // build behaves exactly like a disabled one until firmware actually
+    // binds a depth buffer. Only valid at samples==1 -- see
+    // BorgTileFlusher's own require() and doc comment for why MSAA depth
+    // resolve is a separate semantic decision, not an average.
+    hasDepthFlush: Boolean = false,
     // BorgFp16Fma pipeline depth. 3 is the shipping FP16 form; 4 and 5 add
     // registers inside stages 2 and 3 respectively, for FP32 at 25 MHz.
     //
