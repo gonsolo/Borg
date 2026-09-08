@@ -80,7 +80,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // order, so flusher must precede tile or tile sees a one-cycle-stale read_en.
   val core      = Module(new BorgCore(cfg))
   val rast      = Module(new BorgRasterizer(cfg))
-  val flusher   = Module(new BorgTileFlusher(16, cfg.samples))   // before tile — see note above
+  val flusher   = Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush))   // before tile — see note above
   val tile      = Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits))
   val rdlRegs   = Module(new BorgGpuRegs()) // Auto-generated RDL register block
   val dma       = Module(new BorgDMA(cfg))
@@ -388,6 +388,26 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     f.io.read.data := tile.io.read.data
     f.io.tileBase  := Mux(seqFlushActive, s.io.flusher.base, flushTileBaseReg)
+
+    // Depth-attachment write-out (only present at cfg.hasDepthFlush). The
+    // FLUSH_ZB_BASE register has existed in the register map since Step
+    // 25.3h but was never wired to anything -- the flusher simply never
+    // wrote Z. It is decoded here exactly like FLUSH_FB_BASE above (both
+    // are `nogen` regs read straight off the raw bus).
+    //
+    // Enable convention: a nonzero zb_base means a depth attachment is
+    // bound. Firmware that never writes the register leaves it at its
+    // reset value of 0 and gets the historical colour-only flush, so no
+    // firmware change is needed to keep existing targets working.
+    f.io.depthBase.foreach { p =>
+      val flushDepthBaseReg = RegInit(0.U(25.W))
+      when(bus.is_writing && bus.address === BorgGpuRegs.flush_zb_base_offset) {
+        flushDepthBaseReg := bus.data_in(24, 0)
+      }
+      p := flushDepthBaseReg
+      f.io.depthEn.get := flushDepthBaseReg =/= 0.U
+    }
+
     s.io.flusher.busy := f.io.busy
     rdlRegs.io.hw.status_flush_busy := (flushPending || f.io.busy).asUInt
   }
