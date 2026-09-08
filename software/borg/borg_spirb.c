@@ -36,8 +36,8 @@ int spirb_parse(const uint8_t *blob, spirb_shader_t *s) {
   for (int i = 0; i < s->num_consts; i++)
     s->const_regs[i] = *p++;
   for (int i = 0; i < s->num_consts; i++) {
-    s->const_vals[i] = p[0] | (p[1] << 8);
-    p += 2;
+    s->const_vals[i] = p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24);
+    p += 4;
   }
 
   return (int)(p - blob);

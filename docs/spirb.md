@@ -22,10 +22,18 @@ Offset  Size       Field
 ...     A          attribute_regs     uint8[]
 ...     O          output_regs        uint8[]
 ...     C          const_regs         uint8[]
-...     C × 2      const_vals         uint16_le[]
+...     C × 4      const_vals         uint32_le[]
 ```
 
-**Total size** = `6 + N*4 + U + A + O + C + C*2` bytes.
+**Total size** = `6 + N*4 + U + A + O + C + C*4` bytes.
+
+`const_vals` is `uint32_le` (widened 2026-09-08 from `uint16_le`) so the format
+can eventually carry a real FP32 constant -- `borgc` has no FP32 codegen path
+yet, so every current producer still writes an FP16 bit pattern zero-extended
+into the low 16 bits. This is a wire-format widening only; see
+`mesa/src/borg/compiler/encode.rs`'s `emit_blob` doc comment and
+`software/borg/borg_spirb.h`'s `const_vals` doc comment (same commit) for the
+full note.
 
 The instruction list does **not** include the implicit halt word (0x0000);
 the firmware appends it when loading IMEM.

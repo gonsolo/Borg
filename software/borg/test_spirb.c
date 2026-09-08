@@ -75,8 +75,9 @@ static void test_too_many_consts(void) {
 // Blob with 1 const: check const_reg and const_val are read correctly.
 static void test_one_const(void) {
     // Header: instrs=0, uniforms=0, attrs=0, outputs=0, consts=1, reserved=0
-    // const_reg=0x07, const_val=0x3C00 (FP16 1.0)
-    uint8_t blob[] = { 0, 0, 0, 0, 1, 0, 0x07, 0x00, 0x3C };
+    // const_reg=0x07, const_val=0x3C00 (FP16 1.0, zero-extended to 4 bytes --
+    // const_vals is uint32_le now, see borg_spirb.h/docs/spirb.md)
+    uint8_t blob[] = { 0, 0, 0, 0, 1, 0, 0x07, 0x00, 0x3C, 0x00, 0x00 };
     spirb_shader_t s;
     int n = spirb_parse(blob, &s);
     CHECK(n == (int)sizeof(blob), "one const: byte count");
