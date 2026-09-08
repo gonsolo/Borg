@@ -316,9 +316,15 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val texLaneIdx: UInt = if (N == 1) 0.U(0.W) else texLane
 
     val texRdReg = RegInit(0.U(5.W))
-    val texResultR = RegInit(0.U(16.W))
-    val texResultG = RegInit(0.U(16.W))
-    val texResultB = RegInit(0.U(16.W))
+    // cfg.totalBits wide: texture sampling stays FP16-native (io.texR/G/B
+    // are the fixed 16-bit ports below), but these registers feed the
+    // general register file via texWrite, which the FP32 ALU reads as a
+    // real cfg.fp-width operand -- widen() converts the raw FP16 texel into
+    // a genuine value in that wider format instead of zero-extending it.
+    val texResultR = RegInit(0.U(config.totalBits.W))
+    val texResultG = RegInit(0.U(config.totalBits.W))
+    val texResultB = RegInit(0.U(config.totalBits.W))
+    def widenTexel(t: UInt): UInt = if (config.totalBits > 16) Fp16Fp32.widen(t) else t
 
     // Active lane's U/V operands (read ports stay valid while busy_counter is held).
     val curA = VecInit(recAs)(texLaneIdx)
@@ -349,7 +355,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       io.texU   := curA(15, 0)
       io.texV   := curB(15, 0)
       when(io.texDone) {                      // same-cycle (e.g. texture disabled → white)
-        texResultR := io.texR; texResultG := io.texG; texResultB := io.texB
+        texResultR := widenTexel(io.texR); texResultG := widenTexel(io.texG); texResultB := widenTexel(io.texB)
         texState   := sTexWB0
       }.otherwise {
         texState := sTexWait
@@ -359,7 +365,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     when(texState === sTexWait) {
       busy_counter := busy_counter            // hold
       when(io.texDone) {
-        texResultR := io.texR; texResultG := io.texG; texResultB := io.texB
+        texResultR := widenTexel(io.texR); texResultG := widenTexel(io.texG); texResultB := widenTexel(io.texB)
         texState   := sTexWB0
       }
     }

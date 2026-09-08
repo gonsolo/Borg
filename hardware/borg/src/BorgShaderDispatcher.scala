@@ -447,14 +447,22 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   }
   // @doc:end
 
-  // Per-lane fragment output snoop (Hardware ABI: Kill=r25, R=r26, G=r27, B=r28, Z=r29)
+  // Per-lane fragment output snoop (Hardware ABI: Kill=r25, R=r26, G=r27, B=r28, Z=r29).
+  // R/G/B/Z feed the FP16-native tile buffer (frag_r/g/b/z below are 16-bit
+  // registers, unchanged regardless of cfg.fp -- tile-buffer color/Z storage
+  // is a deliberate FP16-native boundary, see the branch's plan doc). At
+  // FP32, io.pipeWrite(i).data is a genuine 32-bit fragment-shader ALU
+  // result -- narrow() rounds it to the nearest FP16 value; a raw (15,0)
+  // slice (the pre-fix code) kept the wrong bits entirely, same class of
+  // bug as clipRegs/setupRegs before commit 505bc139.
+  def fragNarrow(d: UInt): UInt = if (config.totalBits > 16) Fp16Fp32.narrow(d) else d(15, 0)
   for (i <- 0 until N) {
     when(io.pipeWrite(i).en && phase === sFrag) {
       when(io.pipeWrite(i).addr === 25.U) { killed(i) := killed(i) || (io.pipeWrite(i).data =/= 0.U) }
-      when(io.pipeWrite(i).addr === 26.U) { frag_r(i) := io.pipeWrite(i).data(15, 0) }
-      when(io.pipeWrite(i).addr === 27.U) { frag_g(i) := io.pipeWrite(i).data(15, 0) }
-      when(io.pipeWrite(i).addr === 28.U) { frag_b(i) := io.pipeWrite(i).data(15, 0) }
-      when(io.pipeWrite(i).addr === 29.U) { frag_z(i) := io.pipeWrite(i).data(15, 0) }
+      when(io.pipeWrite(i).addr === 26.U) { frag_r(i) := fragNarrow(io.pipeWrite(i).data) }
+      when(io.pipeWrite(i).addr === 27.U) { frag_g(i) := fragNarrow(io.pipeWrite(i).data) }
+      when(io.pipeWrite(i).addr === 28.U) { frag_b(i) := fragNarrow(io.pipeWrite(i).data) }
+      when(io.pipeWrite(i).addr === 29.U) { frag_z(i) := fragNarrow(io.pipeWrite(i).data) }
     }
   }
 
