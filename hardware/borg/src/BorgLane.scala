@@ -89,6 +89,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val opFlags      = io.opFlags
 
   // --- Coordinate expansion (r30/r31 = pixel center i+0.5) ---
+  // Deliberately stays FP16-native (rasterizer coordinate generation, per
+  // the branch's plan doc) regardless of cfg.fp -- widened into coordX/
+  // coordY's full cfg.totalBits width via Fp16Fp32.widen below, rather than
+  // relying on plain zero-extension, which is only a valid FP32 value when
+  // cfg.fp is already FP16 (totalBits==16, i.e. a no-op).
   def pixelToFP16Half(i: UInt): UInt = {
     val x    = Cat(i, 1.U(1.W))
     val n    = Log2(x)
@@ -96,12 +101,14 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val frac = (x << (10.U - n))(9, 0)
     Cat(0.U(1.W), exp, frac)
   }
+  private def coordToRegWidth(h: UInt): UInt =
+    if (config.totalBits == 16) h else Fp16Fp32.widen(h)
   private val coordReadEn = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
   private val coordX = Reg(UInt(config.totalBits.W))
   private val coordY = Reg(UInt(config.totalBits.W))
   when(coordReadEn) {
-    coordX := pixelToFP16Half(io.iter.x)
-    coordY := pixelToFP16Half(io.iter.y)
+    coordX := coordToRegWidth(pixelToFP16Half(io.iter.x))
+    coordY := coordToRegWidth(pixelToFP16Half(io.iter.y))
   }
 
   // --- Register reads + uniform operand mux ---
@@ -311,7 +318,9 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val mantN = config.sig - 1            // 10 stored mantissa bits
     val bias  = (1 << (config.exp - 1)) - 1   // 15
 
-    val shamt = recB_raw(3, 0)
+    // Shift amount: covers the full 0..w-1 range (4 bits sufficed only for
+    // w=16; w=32 needs 5).
+    val shamt = recB_raw(log2Ceil(w) - 1, 0)
     val iadd = (recA_raw +& recB_raw)(w - 1, 0)
     val ishl = (recA_raw << shamt)(w - 1, 0)
     val ishr = (recA_raw.asSInt >> shamt).asUInt(w - 1, 0)
