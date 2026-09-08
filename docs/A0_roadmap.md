@@ -1465,9 +1465,307 @@ Estimate: 1 week.
 
 ## Phase 7: Vulkan 1.0 Conformance
 
-Target: **~Mar–Apr 2027**. Full CTS pass (~3–4 weeks); Mesa handles most
-complexity. Khronos conformance submission (~2 weeks): documentation + test
-results.
+**This replaces the old estimate below wholesale.** "Full CTS pass in
+3–4 weeks, Mesa handles most complexity" significantly undersold the real
+scope — established 2026-08-25 by actually reading the Vulkan spec's
+Required Limits table and vkQuake's real source, not by guessing. Kept the
+original two lines as a `> superseded` note for the historical record:
+
+> Superseded (was the whole of Phase 7): Target ~Mar–Apr 2027. Full CTS pass
+> (~3–4 weeks); Mesa handles most complexity. Khronos conformance
+> submission (~2 weeks): documentation + test results.
+
+Deadline that shapes near-term sequencing: wafer.space tapeout submission
+**2026-12-16** (see Step 39 above).
+
+### Step 50: Hardware prerequisites for Vulkan conformance + vkQuake (do first)
+
+Both Step 51 (conformance) and Step 52 (vkQuake) need the same underlying
+hardware — pulled out as its own leading step so it's the first thing
+worked on, not buried inside either narrative. Confirmed 2026-08-25 by
+reading the Vulkan spec's Required Limits table
+(`Vulkan-Docs` `chapters/limits.adoc`, no "unsupported" fallback listed,
+i.e. not behind an optional feature bit) and vkQuake's actual source
+(`~/src/vkQuake`), not by guessing.
+
+1. **Fragment `discard`** ✅ **hardware done (2026-08-26)**, compiler lowering
+   still open. Structured control flow (`if`/`while`/`for`) is core
+   GLSL/SPIR-V language, not an optional feature; `dEQP-VK.shaderrender/glsl`
+   tests it as baseline. **Confirmed independently via vkQuake's simplest
+   shader** (`world_common.inc`: `if (use_alpha_test && diffuse.a < 0.666f)
+   discard;`) — not hypothetical, needed by real code today. Borg's compiler
+   has **no branch support at all**: `borgc`'s own comment
+   (`borgvk_compiler.c:103`) says *"Borg has no branches: flatten if/else
+   into bcsel selects"* — which cannot express `discard` (it suppresses
+   output, it isn't a value to select between).
+   **Implemented**: rather than new branch hardware, `discard` reuses the
+   existing per-lane fragment-output hardware-ABI convention (R=r26/G=r27/
+   B=r28/Z=r29) with a new reserved **Kill=r25** register — any nonzero
+   write to r25 during the fragment shader sets a sticky per-lane `killed`
+   flag in `BorgShaderDispatcher`, gating tile write-back alongside the
+   existing `inside_flag`/depth-test check (`zPass = inside_flag &&
+   !killed && depth_pass`). No new ISA opcode, no new pipeline stage.
+   Verified: 2 new Chisel tests, full `test-all` green, and a real
+   wafer.space signoff run confirming negligible cost (+0.2pp utilization,
+   +0.02 mW power, zero timing regression) — see Step 39 above.
+   **Still open**: the `borgc`/NIR side that actually emits the discard
+   condition to r25 (lowering `discard`/`discard_if` from real GLSL/SPIR-V)
+   — the hardware primitive exists now, but nothing generates code for it
+   yet. That's the remaining piece of this item, not the whole item.
+2. **4× MSAA framebuffer support** ✅ **hardware done, merged to `main`
+   (2026-08-31)**. `framebufferColorSampleCounts` must include
+   `VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_4_BIT` unconditionally (no
+   feature-flag gate found in the spec table) — this item was newly
+   identified 2026-08-25 by actually reading the spec, not previously on
+   any roadmap. **Implemented**: per-sample tile buffer storage
+   (`BorgTileBuffer`, one `SyncReadMem` per sample, sharing one 4-bit
+   index), per-sample coverage test in `BorgShaderDispatcher` (exact FP16
+   compare via sign-magnitude reordering — no adders, no rounding), the
+   setup shader computes per-triangle sample deltas that `BorgSequencer`
+   caches per-triangle (mirroring the existing `triHasUvs` 2-entry-cache
+   pattern), and a serialized single-shared-`fp16ToUnorm` resolve in
+   `BorgTileFlusher` to keep the extra converter hardware from being
+   instantiated per-sample. Verified against a real captured-`borgvk`
+   render and the full regression suite; gated behind `BorgConfig.samples`
+   (`1` default/ASIC, `4` to enable) — `BorgConfig.Asic` still runs
+   `samples=1`, so this has not gone to silicon yet. Real-ULX3S-hardware
+   validation (`ULX3S.scala`'s `BORG_CFG` overridden to `samples=4`) is in
+   progress as of this update, on top of the `samples=1` config already
+   confirmed working end-to-end (real `cube.c` render via `borgvk`) on the
+   same hardware the same day.
+3. **Multi-texture binding** — `world.frag` alone needs three concurrent
+   samplers (diffuse/lightmap/fullbright); `BorgTextureUnit.scala` has one
+   `baseAddr` register (one bound texture at a time). Real for both
+   conformance's descriptor-binding tests and vkQuake specifically.
+   **Scoped 2026-09-08, not yet implemented** (learned from the read-back
+   port's r21 register-collision mistake this same day -- audit real usage
+   before assuming anything is free): giving FTEX a texture-select operand
+   is not a simple "reuse a spare field" change. FTEX currently uses
+   `encodeRType` (`Instructions.scala`) under `OPCODE_ALU`, where `funct7`
+   (`BF_FUNCT7`, bits 31:25) already occupies the *entire* bit range that
+   `BF_RS3` (bits 31:27) would need for a 3rd operand -- there is no spare
+   field to reuse within FTEX's current instruction format, unlike the
+   (also-occupied, this session confirmed) general-purpose register space.
+   The real options: (a) move FTEX to the R4-type encoding FMA already uses
+   (`encodeR4Type`, `OPCODE_FMA`, a small `funct2` instead of the full
+   `funct7`), gaining `rs3` as a texture-select index at the cost of
+   restructuring FTEX's decode (`BorgCore.scala`'s `flags.ftex := !flags.fma
+   && f7op === Instructions.FUNCT7_FTEX.U` assumes the current ALU-opcode
+   format) and coordinating with the `mesa`/`borgc` side that emits FTEX; or
+   (b) a small array of `baseAddr` registers selected by something other
+   than a per-instruction operand (e.g. a uniform-bank value, avoiding ISA
+   encoding changes entirely, at the cost of an extra uniform-read
+   indirection per texture switch). Neither is scoped in enough detail to
+   implement blind; needs a real design pass before RTL work starts.
+4. **Instruction memory capacity** — `cube.frag` already uses 59/64 words
+   on the ASIC config; a real shader with fog math + multiple texture
+   samples + spec-constant-driven variants will not fit the current
+   64–72 word budget. Likely a config/sizing fix, not a redesign, but real
+   capacity planning.
+5. A handful of minimum limit/precision numbers (`maxColorAttachments`≥4,
+   `subPixelPrecisionBits`≥4, `maxDrawIndexedIndexValue`≥2²⁴−1, various
+   descriptor-count minimums) — need checking against Borg's current
+   parameters; lower risk, mostly "make the number big enough."
+
+**Added 2026-08-31**, cross-checked against the Vulkan 1.0 Required Limits /
+Required Format Support tables and the local `~/src/VK-GL-CTS` mustpass
+structure (which tests run unconditionally vs. behind a
+`context.getDeviceFeatures().x` gate) — not guessed:
+
+6. **FP32 shader arithmetic — likely the single largest remaining gap.**
+   SPIR-V's baseline `Shader` capability (mandatory for *any* Vulkan
+   implementation, no feature bit gates it) requires 32-bit int/float
+   arithmetic; 16-bit float is the *optional* one (`shaderFloat16`/`Float16`
+   capability). Borg's entire compute path — FMA lanes, register file,
+   reciprocal/coord LUTs, tile buffer, uniform bank — is FP16-only, and not
+   just as an unused config knob: `FloatConfig.FP32` exists
+   (`FloatConfig.scala`) but is referenced only in one test, never wired
+   into `BorgConfig.Default`/`.Asic`, and `BorgLutTables.scala`
+   (`rcp_lut.hex`/`coord_lut.hex`) is sized and populated for FP16
+   magnitude specifically — switching `fp` alone would not work. Depth
+   *storage* doesn't need this (`D16_UNORM` alone satisfies the mandatory
+   depth-only format); this is purely a shader-ALU requirement.
+7. **Graphics+compute queue** — confirmed via the Vulkan spec (any
+   implementation exposing `VK_QUEUE_GRAPHICS_BIT` must expose a queue
+   family supporting `VK_QUEUE_COMPUTE_BIT` too, i.e. compute is not
+   optional for a graphics-capable device) and the local CTS
+   (`vk-default/compute.txt`: 60,811 unconditional test cases). Not a new
+   line item on top of Step 52 — this is the same compute gap Step 52
+   already plans to solve via host-CPU `llvmpipe` dispatch, kept off the
+   RTL critical path — noted here because it's *also* required for
+   baseline conformance (Step 51), not only for vkQuake.
+8. **Framebuffer/image resolution ceiling** — `maxFramebufferWidth`,
+   `maxFramebufferHeight`, and `maxImageDimension2D` must all be ≥4096
+   unconditionally. `BorgConfig.maxBinTiles` caps the tile-based renderer
+   at 128×128 today — roughly 1024× short. Not a constant bump: the tile
+   buffer is BRAM-backed and DRAM-bandwidth-limited at this scale (the same
+   wall flagged in the earlier 800×480 fps analysis), so this is real
+   re-architecture, not sizing.
+9. **Alpha blending** — mandatory core functionality (only
+   `independentBlend`/`dualSrcBlend` are the optional extras, easy to
+   mis-assume the whole feature is skippable). Borg has none — every tile
+   write is an unconditional overwrite. A natural fit for the per-sample
+   write-path pattern item 2's MSAA work just established in
+   `BorgTileBuffer`/`BorgShaderDispatcher`.
+10. **Stencil test** — mandatory, no `VkPhysicalDeviceFeatures` gate found;
+    no stencil concept anywhere in `hardware/borg/src/`. Same shape as item
+    2's per-sample planes — a second plane alongside color/Z.
+11. **Configurable depth compare op** — hardcoded `<` (LESS) at
+    `BorgShaderDispatcher.scala:373`; Vulkan requires all 8 `VkCompareOp`
+    values selectable, so this needs an 8-way mux instead of a fixed
+    comparison.
+12. **Indexed + instanced draw** — no index-buffer read path in
+    `BorgSequencer.scala`, no `instanc*` symbol anywhere in
+    `hardware/borg/src/`; `borgvk` currently always flattens geometry to
+    flat triangle lists before upload, so this is new sequencer state
+    machinery, not a rewrite of an existing path.
+13. **Push constants** (`maxPushConstantsSize`≥128 bytes) — no push-constant
+    path in hardware or `software/borg/`; shaped like the existing uniform
+    bank, likely the smallest item on this list.
+
+**Not independently re-verified 2026-08-31** (flagged rather than guessed):
+the exact mandatory depth/stencil `VkFormat` list (`D16_UNORM` alone for
+depth-only, plus at least one of `D24_UNORM_S8_UINT`/`D32_SFLOAT_S8_UINT`
+for combined depth-stencil) and the mandatory *sampled-image* format list
+(e.g. `R8G8B8A8_UNORM`) checked against Borg's FP16-only internal texel
+format — worth a dedicated follow-up pass rather than assuming either way.
+
+**Resolved 2026-09-08** (this branch, `feat/fp32-datapath`): built and
+verified the actual `D16_UNORM` FP16<->UNORM16 conversion math
+(`hardware/borg/src/DepthQuantize.scala`, same shape as the already-shipped
+`ColorQuantize`, `DepthQuantizeTests.scala` 5/5 passing standalone) --
+but discovered while looking for where to wire it in that this item's real
+blocker isn't quantization math at all: **Borg has no depth-attachment DRAM
+path of any kind today.** `BorgTileFlusher`'s own doc comment says it
+outright -- "each tile fully on-chip, so DRAM never needs the depth value"
+-- Z exists only transiently on-chip during one tile's rasterization Z-test
+and is never flushed anywhere. Supporting `D16_UNORM` as a real, creatable,
+readable/writable/copyable Vulkan image means building that DRAM
+write/read path from scratch (a new DMA burst mechanism analogous to the
+color flusher, real new hardware), not just plugging a quantizer into
+existing plumbing. `DepthQuantize`'s conversion math is genuine, tested
+groundwork for whenever that larger feature gets scoped -- not wasted --
+but wiring it into `BorgTileBuffer` today would connect it to nothing.
+
+Same investigation found the `R8G8B8A8_UNORM` sampled-image half is
+architecturally the opposite situation -- likely no new hardware at all.
+`BorgTextureUnit`'s own doc comment specifies its DRAM texel layout: 8
+bytes/texel (two 16-bit FP16 channels packed per 32-bit word). A real
+`R8G8B8A8_UNORM` upload is 4 bytes/texel, one byte per channel -- a
+completely different byte layout BorgTextureUnit doesn't read today. But
+per the Step 50 hardware-vs-software framing above (see the "Reprioritized"
+triage note at the top of this step): converting an uploaded UNORM8 RGBA
+texture to Borg's native FP16 8-byte layout is a natural fit for the
+*existing* texture-upload path (the firmware/`borgvk` side that already
+handles the 0xAF wire packets), reusing `ColorQuantize.dequantize8`
+(already built, already proven) at upload time -- a bounded, once-per-
+texture-upload software cost, not new RTL, and not per-sample the way a
+hardware texel-format decoder would be.
+
+**Explicitly NOT here — pure performance, not correctness, deferred to
+Step 53**: widening `fragLanes` *beyond* 4, warp-level multithreading,
+multi-core scale-out. Neither Vulkan conformance nor vkQuake need any of
+these; CTS checks correctness within a generous timeout, not throughput.
+
+**Correction, 2026-09-05**: `fragLanes=4` itself is NOT one of these --
+verified against `Vulkan-Docs`' `vk.xml` (`spirvcapability name=
+"DerivativeControl"`, `<enable version="VK_VERSION_1_0"/>` with no
+`feature=` gate, unlike e.g. `Geometry`/`Float64`): `OpDPdxFine`/
+`OpDPdyFine`/etc. are unconditionally mandatory, and plain `OpDPdx`/`OpDPdy`
+(what Borg already emits) don't even need their own capability, being part
+of baseline `Shader`. Borg's dFdx/dFdy (`FUNCT7_DDX`/`FUNCT7_DDY`, already
+used by `borgc cube.frag`) are hardwired to the 2x2 quad (`ddx = lane1 -
+lane0`, `ddy = lane2 - lane0`) and only exist at `fragLanes=4`
+(`BorgCore.scala`: "DDX/DDY are only emitted for the 4-lane fragment
+core"). So `fragLanes=4` is required hardware, already built and already
+in use -- not a droppable performance knob down to `fragLanes=1`.
+
+**Deadline framing**: the wafer.space submission deadline (2026-12-16, Step
+39) sets the outer bound for whatever hardware work lands before that
+tapeout. Real risk: verification (hand-crafted/`borgc`-compiled test
+shaders through Chisel unit tests + cocotb RTL sims, proving the new
+hardware correct before freezing for fab) is real hardware-scope work, not
+deferrable software — but is lighter than the full `borgvk` driver stack
+and builds on existing `test-chisel-borg`/`test-cocotb-soc-borg-rtl`
+infrastructure. Software/driver breadth (descriptor plumbing, format
+tables, the bulk of CTS's combinatorial volume) can genuinely wait until
+after submission, since none of it requires re-taping silicon.
+
+### Step 51: Vulkan conformance (builds on Step 50)
+
+Raise `borgvk`'s `dEQP-VK` CTS pass rate from its early baseline, ordered by
+category from simplest (`api`/`info`) to most demanding
+(`image`/`texture`/`synchronization`). **Key reframe (2026-08-25, from
+reading the actual Vulkan spec, not recollection): conformance ≠ feature
+completeness.** A device may legally report most "big" features unsupported
+(`geometryShader`, `tessellationShader`, `sampleRateShading`,
+`dualSrcBlend`, `logicOp`, `multiDrawIndirect`, `depthClamp`,
+`depthBiasClamp`, `fillModeNonSolid`, `wideLines`, `largePoints`,
+`alphaToOne`, `multiViewport`, `samplerAnisotropy`, all
+texture-compression formats) and CTS *skips* those tests rather than
+failing them. `subgroupSupportedOperations` baseline (Vulkan 1.1 core) is
+just `VK_SUBGROUP_FEATURE_BASIC_BIT` — full ballot/shuffle/quad ops are
+only required at higher, optional roadmap tiers. This legitimately shrinks
+the hardware-required surface a lot, on top of what Step 50 already covers.
+
+### Step 52: vkQuake as a real-world milestone (builds on Step 50)
+
+Run vkQuake (`~/src/vkQuake`) as a real-world milestone beyond `vkcube`.
+Gap analysis (2026-08-25, from reading vkQuake's actual source, not
+generic assumption):
+
+- **Hardware, real**: `discard`/masking, multi-texture binding, and
+  instruction memory — all Step 50, items 1/3/4. vkQuake's simplest shader
+  already needs `discard`.
+- **Compute shaders — architecturally the biggest single gap, but resolved
+  as a *software*, not hardware, problem.** `borgc`'s own comment
+  (`borgvk_compiler.c:116`): *"anything else (e.g. compute) has no Borg
+  slot."* `borgvk_CreateComputePipelines` is a stub; there is no
+  `vkCmdDispatch` execution path anywhere. vkQuake leans on compute
+  heavily by design: `skinning.comp` (GPU skeletal animation),
+  `indirect.comp`/`indirect_clear.comp` (GPU-generated draw commands),
+  `update_lightmap.comp`, `cs_tex_warp.comp` (the classic water/lava
+  warp), `screen_effects.comp`. **Planned resolution**: give `borgvk`'s
+  compute pipeline path a second NIR lowering target reusing Mesa's own
+  `llvmpipe` NIR→LLVM CPU JIT (the same execution engine `rusticl`, Mesa's
+  OpenCL implementation, ultimately rides on for CPU-backed compute) —
+  compute dispatches execute on the host CPU while vertex/fragment stay on
+  real Borg silicon, one `VkDevice`, one driver. Removes compute entirely
+  from the hardware/RTL critical path — nothing here belongs in Step 50.
+  Real remaining wrinkle: several compute shaders feed graphics stages
+  directly (`skinning.comp` → `alias.vert`, `update_lightmap.comp` →
+  `world.frag`'s `lightmap_tex`) — needs explicit host-visible/coherent
+  memory staging since compute (CPU) and graphics (silicon) are different
+  execution domains, not same-engine Vulkan barrier semantics.
+- **Renderer defaults to advanced techniques** (WBOIT/MBOIT
+  order-independent transparency, GPU-indirect draws) — `world.frag` has a
+  plain non-OIT `#else` path, so a stripped-down bring-up is plausible;
+  real engine-configuration work, not hardware.
+- **Extension/feature negotiation** — vkQuake already mirrors back
+  whatever the device actually reports (ray query, `independentBlend`,
+  `samplerAnisotropy`, etc. are all conditionally enabled), so this is
+  just correctly reporting what Borg doesn't have — software only.
+- **Open, unverified** (flagged honestly rather than guessed): whether
+  Borg's ISA needs hardware `exp()` or software emulation for
+  `world.frag`'s fog term; whether `alias.vert` expects pre-skinned input
+  from `skinning.comp`; whether cube-map sampling (`sky_cube.frag`/`.vert`
+  use `samplerCube`) is supported at all — `BorgTextureUnit`'s Morton
+  addressing is 2D-only as far as verified, cube-map support (or stubbing
+  the skybox for a first bring-up) needs a decision before this is final.
+
+### Step 53: Scale-out (performance, after Step 50–52)
+
+Second Borg shader processor (N-way parameterizable, not hardcoded to two
+cores), multi-core scaling experiments beyond two cores (verilator/
+arcilator/ULX3S), shader pipeline performance work, an FP16 matrix-multiply
+experiment, and a HyperRAM memory controller port. Explicitly a
+*performance* axis, decoupled from Step 50's correctness-critical work —
+see the "explicitly not here" note in Step 50.
+
+### Step 54: Second/final tapeout on this track
+
+Same wafer.space track as Step 39, run again once Steps 50–53 land, to
+capture the conformance and scale-out work in silicon.
 
 ## Tile Budget Estimate
 
