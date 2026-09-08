@@ -1665,7 +1665,11 @@ structure (which tests run unconditionally vs. behind a
    mis-assume the whole feature is skippable). Borg has none — every tile
    write is an unconditional overwrite. A natural fit for the per-sample
    write-path pattern item 2's MSAA work just established in
-   `BorgTileBuffer`/`BorgShaderDispatcher`.
+   `BorgTileBuffer`/`BorgShaderDispatcher`. **Confirmed 2026-09-08**: this
+   is two gaps, not one — `BorgTileBuffer`/`ColorQuantize`/`ColorZ` have no
+   alpha channel at all (grepped, zero hits), so `R8G8B8A8_UNORM`'s
+   mandatory `COLOR_ATTACHMENT_BLEND_BIT` support needs the storage/plumbing
+   for a 4th channel added *before* any blend-math hardware is meaningful.
 10. **Stencil test** — mandatory, no `VkPhysicalDeviceFeatures` gate found;
     no stencil concept anywhere in `hardware/borg/src/`. Same shape as item
     2's per-sample planes — a second plane alongside color/Z.
@@ -1681,13 +1685,41 @@ structure (which tests run unconditionally vs. behind a
 13. **Push constants** (`maxPushConstantsSize`≥128 bytes) — no push-constant
     path in hardware or `software/borg/`; shaped like the existing uniform
     bank, likely the smallest item on this list.
-
-**Not independently re-verified 2026-08-31** (flagged rather than guessed):
-the exact mandatory depth/stencil `VkFormat` list (`D16_UNORM` alone for
-depth-only, plus at least one of `D24_UNORM_S8_UINT`/`D32_SFLOAT_S8_UINT`
-for combined depth-stencil) and the mandatory *sampled-image* format list
-(e.g. `R8G8B8A8_UNORM`) checked against Borg's FP16-only internal texel
-format — worth a dedicated follow-up pass rather than assuming either way.
+14. **Depth/sampled-image format quantizers** — **resolved 2026-09-08**
+    (previously flagged, not guessed; now actually checked against
+    `Vulkan-Docs`' `formats.adoc` Required Format Support tables and
+    Borg's real code). Two distinct gaps, both real, both unbuilt:
+    - **`D16_UNORM` is mandatory unconditionally** (`SAMPLED_IMAGE`,
+      `BLIT_SRC`, `DEPTH_STENCIL_ATTACHMENT` — no OR-choice, unlike the
+      24/32-bit tiers). `BorgTileBuffer`'s Z is FP16-native throughout
+      (`dataBits`/`FP16_MAX_DEPTH_VAL`, never quantized — see
+      `BorgConfig.tileColorBits`'s own doc) with no UNORM16 conversion
+      path. Needs a depth quantizer following the exact pattern
+      `ColorQuantize.scala` just built for color (commit `373b3228`) — a
+      real, scoped, but currently unbuilt hardware unit.
+    - **`R8G8B8A8_UNORM` sampled-image support** (`SAMPLED_IMAGE` +
+      `SAMPLED_IMAGE_FILTER_LINEAR`) has **no bearing on the tile-buffer
+      `ColorQuantize` work at all** — that's the color-*attachment* (render
+      target) side. `BorgTextureUnit`/`TextureAddr` (the sampled-*image*/
+      texture side) are 100% FP16-texel, zero UNORM8 texel-storage path
+      (`Fp16ToUint8` in `TextureAddr.scala` converts UV coordinates to a
+      texel index, not texel color — unrelated). A second, separate
+      quantizer is needed on the texture-sampling side.
+    - The full mandatory-depth picture also has a middle tier missed by
+      the original flag: Vulkan requires DEPTH_STENCIL_ATTACHMENT support
+      for at least one of `X8_D24_UNORM_PACK32`/`D32_SFLOAT` (depth-only,
+      independent of the D16_UNORM and combined-depth-stencil
+      requirements). `D32_SFLOAT` is a much more natural fit for Borg's
+      FP-native storage than the UNORM tiers -- essentially "store Z as
+      real FP32 instead of FP16" -- but the FP32-datapath branch's current
+      scoping decision deliberately keeps the tile buffer FP16-native (see
+      that branch's plan doc), so satisfying `D32_SFLOAT` would mean
+      either revisiting that boundary for depth specifically, or widening
+      at the attachment boundary the same way `Fp16Fp32.widen` (built for
+      the FP32 branch's coordinate-generation boundary) does elsewhere.
+      Combined depth-stencil (`D24_UNORM_S8_UINT`/`D32_SFLOAT_S8_UINT`)
+      stays blocked on item 10 (stencil doesn't exist) regardless of which
+      depth format is picked.
 
 **Explicitly NOT here — pure performance, not correctness, deferred to
 Step 53**: widening `fragLanes` *beyond* 4, warp-level multithreading,
