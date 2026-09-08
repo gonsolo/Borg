@@ -51,7 +51,166 @@ object BorgTileFlusherTests extends TestSuite {
   def entZ(e: Int): Int = 0x4000 + e              // dropped by the flusher
   def expWord(e: Int): Int = rgb565(entR(e), entG(e), entB(e))
 
+  // Depth-flush test data: z = e/16, all exactly representable in FP16, so
+  // quantize16's round(z * 65536) is exact -- expected UNORM16 is e * 4096
+  // with no rounding slack to argue about.
+  def dz(e: Int): Int    = f16(e / 16.0f)
+  def expDz(e: Int): Int = e * 4096
+
   val tests = Tests {
+
+    utest.test("depth flush streams a second UNORM16 burst to depthBase") {
+      // Step 50 item 14: with hasDepthFlush, the flusher emits the colour
+      // burst exactly as before and then a SECOND 16-word burst carrying the
+      // tile's Z plane, quantized FP16 -> UNORM16, to a separate base
+      // address. Verifies both bursts, their addresses, and the depth values.
+      simulate(new BorgTileFlusher(16, 1, hasDepthFlush = true)) { dut =>
+        var cycle = 0
+        var pipe0: Option[Int] = None
+        var pipe1: Option[Int] = None
+
+        def step(n: Int = 1): Unit = for (_ <- 0 until n) {
+          pipe1.foreach { i =>
+            dut.io.read.data.foreach { s =>
+              s.r.poke(entR(i).U); s.g.poke(entG(i).U)
+              s.b.poke(entB(i).U); s.z.poke(dz(i).U)
+            }
+          }
+          val en  = dut.io.read.en.peek().litToBoolean
+          val idx = dut.io.read.idx.peek().litValue.toInt
+          pipe1 = pipe0
+          pipe0 = if (en) Some(idx) else None
+          dut.clock.step()
+          cycle += 1
+          Predef.assert(cycle < 5000, "TIMEOUT")
+        }
+
+        dut.reset.poke(true.B); step(4)
+        dut.reset.poke(false.B)
+        dut.io.start.poke(false.B)
+        dut.io.tileBase.poke(0.U)
+        dut.io.depthBase.get.poke(0.U)
+        dut.io.depthEn.get.poke(true.B)
+        dut.io.gpuMem.ready.poke(false.B)
+        dut.io.gpuMem.waccept.poke(false.B)
+        dut.io.gpuMem.data.poke(0.U)
+        step(2)
+
+        dut.io.tileBase.poke(0x2000.U)
+        dut.io.depthBase.get.poke(0x9000.U)
+        dut.io.start.poke(true.B)
+        step()
+        dut.io.start.poke(false.B)
+
+        /** Drive one 16-beat burst as the memory controller would, returning
+          * (baseAddr, words). */
+        def collectBurst(): (Int, Seq[Int]) = {
+          var guard = 0
+          while (!(dut.io.gpuMem.wr.peek().litToBoolean &&
+                   dut.io.gpuMem.wlen.peek().litValue.toInt == 16) && guard < 500) {
+            step(); guard += 1
+          }
+          Predef.assert(guard < 500, "burst never started")
+          val base = dut.io.gpuMem.addr.peek().litValue.toInt
+          val words = ArrayBuffer[Int]()
+          for (w <- 0 until 16) {
+            Predef.assert(dut.io.gpuMem.wr.peek().litToBoolean, s"wr dropped at word $w")
+            words += (dut.io.gpuMem.wdata.peek().litValue.toInt & 0xFFFF)
+            if (w < 15) {
+              dut.io.gpuMem.waccept.poke(true.B); step()
+              dut.io.gpuMem.waccept.poke(false.B)
+            }
+          }
+          dut.io.gpuMem.ready.poke(true.B); step()
+          dut.io.gpuMem.ready.poke(false.B); step()
+          (base, words.toSeq)
+        }
+
+        val (colourBase, colourWords) = collectBurst()
+        Predef.assert(colourBase == 0x2000, s"colour burst base 0x${colourBase.toHexString} != 0x2000")
+        for (w <- 0 until 16)
+          Predef.assert(colourWords(w) == expWord(w),
+            f"colour word $w%2d: got 0x${colourWords(w).toHexString} exp 0x${expWord(w).toHexString}")
+
+        val (depthBase, depthWords) = collectBurst()
+        Predef.assert(depthBase == 0x9000, s"depth burst base 0x${depthBase.toHexString} != 0x9000")
+        var errors = 0
+        for (w <- 0 until 16) {
+          if (depthWords(w) != expDz(w)) {
+            println(f"  depth word $w%2d: got 0x${depthWords(w).toHexString} exp 0x${expDz(w).toHexString}")
+            errors += 1
+          }
+        }
+        Predef.assert(errors == 0, s"$errors depth word mismatches")
+        Predef.assert(!dut.io.busy.peek().litToBoolean, "flusher still busy after both bursts")
+        println("[flusher] colour burst + 16-word UNORM16 depth burst both correct")
+      }
+    }
+
+    utest.test("depthEn=false skips the depth burst entirely") {
+      // The runtime gate: a draw with no depth attachment bound must behave
+      // exactly like the historical colour-only flush -- one burst, then idle.
+      simulate(new BorgTileFlusher(16, 1, hasDepthFlush = true)) { dut =>
+        var cycle = 0
+        var pipe0: Option[Int] = None
+        var pipe1: Option[Int] = None
+
+        def step(n: Int = 1): Unit = for (_ <- 0 until n) {
+          pipe1.foreach { i =>
+            dut.io.read.data.foreach { s =>
+              s.r.poke(entR(i).U); s.g.poke(entG(i).U)
+              s.b.poke(entB(i).U); s.z.poke(dz(i).U)
+            }
+          }
+          val en  = dut.io.read.en.peek().litToBoolean
+          val idx = dut.io.read.idx.peek().litValue.toInt
+          pipe1 = pipe0
+          pipe0 = if (en) Some(idx) else None
+          dut.clock.step()
+          cycle += 1
+          Predef.assert(cycle < 5000, "TIMEOUT")
+        }
+
+        dut.reset.poke(true.B); step(4)
+        dut.reset.poke(false.B)
+        dut.io.start.poke(false.B)
+        dut.io.tileBase.poke(0x2000.U)
+        dut.io.depthBase.get.poke(0x9000.U)
+        dut.io.depthEn.get.poke(false.B)   // no depth attachment bound
+        dut.io.gpuMem.ready.poke(false.B)
+        dut.io.gpuMem.waccept.poke(false.B)
+        dut.io.gpuMem.data.poke(0.U)
+        step(2)
+
+        dut.io.start.poke(true.B); step()
+        dut.io.start.poke(false.B)
+
+        var guard = 0
+        while (!(dut.io.gpuMem.wr.peek().litToBoolean &&
+                 dut.io.gpuMem.wlen.peek().litValue.toInt == 16) && guard < 500) {
+          step(); guard += 1
+        }
+        Predef.assert(guard < 500, "colour burst never started")
+        for (w <- 0 until 16) {
+          if (w < 15) {
+            dut.io.gpuMem.waccept.poke(true.B); step()
+            dut.io.gpuMem.waccept.poke(false.B)
+          }
+        }
+        dut.io.gpuMem.ready.poke(true.B); step()
+        dut.io.gpuMem.ready.poke(false.B); step()
+
+        // No second burst may start, and the flusher must be idle.
+        Predef.assert(!dut.io.gpuMem.wr.peek().litToBoolean,
+          "a second burst started even though depthEn was false")
+        Predef.assert(!dut.io.busy.peek().litToBoolean,
+          "flusher still busy after the colour-only flush")
+        step(20)
+        Predef.assert(!dut.io.gpuMem.wr.peek().litToBoolean,
+          "a delayed second burst started even though depthEn was false")
+        println("[flusher] depthEn=false: colour burst only, no depth burst")
+      }
+    }
 
     utest.test("flusher streams 16 RGB565 words in one burst, correct order") {
       simulate(new BorgTileFlusher) { dut =>
