@@ -1660,18 +1660,53 @@ structure (which tests run unconditionally vs. behind a
    implementation exposing `VK_QUEUE_GRAPHICS_BIT` must expose a queue
    family supporting `VK_QUEUE_COMPUTE_BIT` too, i.e. compute is not
    optional for a graphics-capable device) and the local CTS
-   (`vk-default/compute.txt`: 60,811 unconditional test cases). Not a new
-   line item on top of Step 52 — this is the same compute gap Step 52
-   already plans to solve via host-CPU `llvmpipe` dispatch, kept off the
-   RTL critical path — noted here because it's *also* required for
-   baseline conformance (Step 51), not only for vkQuake.
+   (`vk-default/compute.txt`: 60,811 unconditional test cases). **Real
+   hardware, no host-CPU offload** — an earlier draft of this note proposed
+   host-CPU `llvmpipe` dispatch to keep compute off the RTL critical path;
+   that's rejected per explicit user decision (2026-09-08), not merely
+   superseded -- see the `feedback_no_llvmpipe_compute` memory.
+   **Investigated 2026-09-08**: the real blocker isn't a dispatch-
+   sequencing mechanism (a `BorgSequencer`-style supervisor driving
+   work-group IDs instead of triangles/pixels is a moderate, bounded
+   addition on its own) -- it's that **Borg's ISA has no general memory
+   load/store instruction at all**. Grepped `Instructions.scala`
+   exhaustively: every existing op is FMA-family arithmetic, the
+   fixed-position uniform-bank read (funct3-selected, not addressable per-
+   invocation), FTEX (fixed texture fetch), or the fragment-output
+   hardware ABI (fixed tile-buffer write) -- nothing lets a shader read or
+   write an arbitrary DRAM address it computes itself, which is exactly
+   what a compute shader's SSBO/image access needs to do anything useful
+   beyond a fixed-function-adjacent trick. This matches (and sharpens) the
+   "load/store instruction" item this doc already lists elsewhere as an
+   out-of-scope Vulkan-conformance gap -- it's not a separate, smaller gap,
+   it's the actual prerequisite for compute-queue support specifically.
+   Building general load/store (ISA encoding, decode, address computation,
+   a new DRAM read/write arbitration path) is likely bigger than the
+   dispatch-sequencing piece it would unblock, and needs its own dedicated
+   scoping pass before any RTL work starts here.
 8. **Framebuffer/image resolution ceiling** — `maxFramebufferWidth`,
    `maxFramebufferHeight`, and `maxImageDimension2D` must all be ≥4096
-   unconditionally. `BorgConfig.maxBinTiles` caps the tile-based renderer
-   at 128×128 today — roughly 1024× short. Not a constant bump: the tile
-   buffer is BRAM-backed and DRAM-bandwidth-limited at this scale (the same
-   wall flagged in the earlier 800×480 fps analysis), so this is real
-   re-architecture, not sizing.
+   unconditionally. **Partial step taken 2026-09-08**: `BorgConfig.Default`/
+   `.Simt`'s `maxBinTiles` grown 1024→4096 (128×128→256×256 @ 4×4 tiles,
+   4x capacity), a real, conservative, fully-tested increase -- backward
+   compatible (`maxBinTiles` is a capacity ceiling, not a required
+   resolution; the existing 128×128 demo content is bit-identical,
+   confirmed via the unchanged `mill hardware.borg.test` pass and the
+   vkcube golden-image render). Still roughly 256x short of the full
+   4096x4096 Vulkan minimum, and going much further needs care: the
+   per-buffer `tileWasDirty`/`tileIsDirty` dirty-bit arrays in
+   `BorgTileSequencer` cost 2 flip-flops per tile, so the full requirement
+   (1024x1024 = 1,048,576 tiles) would cost roughly 2M FFs -- not a number
+   to pick without real synthesis data, unlike this session's 4096-tile
+   step (verified functionally, not yet through synthesis either, but a
+   small enough jump to be low-risk). The tile buffer is also
+   BRAM-backed and DRAM-bandwidth-limited at real high resolutions (the
+   same wall flagged in the earlier 800×480 fps analysis), so closing the
+   rest of this gap for real use (not just CTS's generous-timeout
+   correctness bar) likely still needs firmware-side multi-pass tiling on
+   top of whatever capacity growth is affordable in hardware, not capacity
+   growth alone -- see the Step 50 "Reprioritized" triage note at the top
+   of this step for the full hardware-vs-software framing.
 9. **Alpha blending** — mandatory core functionality (only
    `independentBlend`/`dualSrcBlend` are the optional extras, easy to
    mis-assume the whole feature is skippable). Borg has none — every tile
@@ -1719,19 +1754,31 @@ groundwork for whenever that larger feature gets scoped -- not wasted --
 but wiring it into `BorgTileBuffer` today would connect it to nothing.
 
 Same investigation found the `R8G8B8A8_UNORM` sampled-image half is
-architecturally the opposite situation -- likely no new hardware at all.
+architecturally the opposite situation -- no new hardware needed.
 `BorgTextureUnit`'s own doc comment specifies its DRAM texel layout: 8
 bytes/texel (two 16-bit FP16 channels packed per 32-bit word). A real
 `R8G8B8A8_UNORM` upload is 4 bytes/texel, one byte per channel -- a
-completely different byte layout BorgTextureUnit doesn't read today. But
-per the Step 50 hardware-vs-software framing above (see the "Reprioritized"
-triage note at the top of this step): converting an uploaded UNORM8 RGBA
-texture to Borg's native FP16 8-byte layout is a natural fit for the
-*existing* texture-upload path (the firmware/`borgvk` side that already
-handles the 0xAF wire packets), reusing `ColorQuantize.dequantize8`
-(already built, already proven) at upload time -- a bounded, once-per-
-texture-upload software cost, not new RTL, and not per-sample the way a
-hardware texel-format decoder would be.
+completely different byte layout BorgTextureUnit doesn't read today.
+
+**Corrected 2026-09-08 (later the same day)**: the software conversion this
+note proposed building **already exists and is already working** --
+`mesa/src/borg/vulkan/borgvk_queue.c`'s `send_texture_row()` reads the
+app's real RGBA8 (`UNORM8`) texture, box-downsamples it, and normalizes
+each channel to `[0,1]` float; `borgvk_serial.c`'s `send_tex_row()` then
+converts those floats to FP16 via `f32_to_f16()` before shipping them over
+the existing 0xAF wire packets. This is not new/proposed work -- it's how
+every texture in the vkcube demo has been rendering the whole time this
+project has existed. `ColorQuantize.dequantize8` was never actually needed
+here (the C-side conversion is plain float math, not the RTL bit-trick
+version built for area reasons). **What actually remains, if anything**:
+this path forces every texture through a hardcoded `BORGVK_TEX_DIM=64`
+downsample (`borgvk_private.h`) regardless of the app's real texture
+size -- fine for the demo, but whether real `dEQP-VK` format/sampling
+tests for `R8G8B8A8_UNORM` need arbitrary dimensions (not just this fixed
+64x64 approximation) and whether `vkGetPhysicalDeviceFormatProperties`
+correctly reports the format as supported are both still open, unverified
+questions -- worth checking against the real CTS mustpass list before
+assuming this item is fully closed, rather than assuming either way.
 
 **Explicitly NOT here — pure performance, not correctness, deferred to
 Step 53**: widening `fragLanes` *beyond* 4, warp-level multithreading,
