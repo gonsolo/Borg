@@ -48,6 +48,17 @@ object BorgShaderDispatcherTests extends TestSuite {
   // FP16 max depth for tile buffer clear value
   val FP16_MAX_DEPTH = 0x7BFF
 
+  // VkCompareOp encoding (Step 50 item 11) -- deliberately identical to the
+  // Vulkan enum so the driver can pass VkCompareOp through untranslated.
+  val CMP_NEVER            = 0
+  val CMP_LESS             = 1
+  val CMP_EQUAL            = 2
+  val CMP_LESS_OR_EQUAL    = 3
+  val CMP_GREATER          = 4
+  val CMP_NOT_EQUAL        = 5
+  val CMP_GREATER_OR_EQUAL = 6
+  val CMP_ALWAYS           = 7
+
   /** Set all inputs to safe idle defaults (no clock step). */
   def pokeIdle(d: BorgShaderDispatcher): Unit = {
     d.io.pixelReady.poke(false.B)
@@ -63,6 +74,11 @@ object BorgShaderDispatcherTests extends TestSuite {
     d.io.texConfig.baseAddr.poke(0.U)
     d.io.gpuMem.data.poke(0.U)
     d.io.gpuMem.ready.poke(false.B)
+    // Step 50 item 11: configurable depth state.  The defaults reproduce the
+    // historical hardcoded behaviour (LESS, depth writes on) so every
+    // pre-existing test in this file keeps its original meaning.
+    d.io.depthCompareOp.poke(CMP_LESS.U)
+    d.io.depthWriteEn.poke(true.B)
     // Step 25.5C: tile read port — provide max depth so depth test passes.
     // Per-sample since MSAA: every sample starts at the far plane.
     d.io.tileRead.data.foreach { s =>
@@ -107,6 +123,64 @@ object BorgShaderDispatcherTests extends TestSuite {
     d.io.pipeWrite(0).data.poke(value.U)
     d.clock.step(1)
     d.io.pipeWrite(0).en.poke(false.B)
+  }
+
+  /** Drive one complete inside-pixel through sRast → sFrag → depth test →
+    * sTileWrite, and report what the tile buffer was told to do.
+    *
+    * Returns `(tileWrite.en, tileWrite.data.z)` sampled in sTileWrite.  The
+    * FSM lands back in sIdle afterwards, so a single simulator instance can
+    * run many pixels back to back -- which is what makes the 24-case
+    * compare-op sweep below affordable (one `simulate` block, not 24).
+    */
+  def runPixel(
+      d: BorgShaderDispatcher,
+      fragZ: Int,
+      oldZ: Int,
+      compareOp: Int,
+      writeEn: Boolean,
+      tileIdx: Int = 7
+  ): (Boolean, Int) = {
+    d.io.depthCompareOp.poke(compareOp.U)
+    d.io.depthWriteEn.poke(writeEn.B)
+    d.io.tileRead.data.foreach(_.z.poke(oldZ.U))
+
+    firePixelReady(d, fragPc = 13, tileIdx = tileIdx)
+    d.io.fragPcReg.poke(13.U)
+
+    // Rast shader: all edges inside.
+    d.io.coreStatus.autoRunPending.poke(true.B)
+    d.clock.step(1)
+    d.io.coreStatus.autoRunPending.poke(false.B)
+    d.io.coreStatus.running.poke(true.B)
+    pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
+    d.io.coreStatus.running.poke(false.B)
+    d.clock.step(1)
+
+    // Frag shader: RGB plus the depth we want tested.
+    d.io.coreStatus.autoRunPending.poke(true.B)
+    d.clock.step(1)
+    d.io.coreStatus.autoRunPending.poke(false.B)
+    d.io.coreStatus.running.poke(true.B)
+    for ((reg, value) <- Seq((26, 0x1111), (27, 0x2222), (28, 0x3333), (29, fragZ))) {
+      d.io.pipeWrite(0).en.poke(true.B)
+      d.io.pipeWrite(0).addr.poke(reg.U)
+      d.io.pipeWrite(0).data.poke(value.U)
+      d.clock.step(1)
+    }
+    d.io.pipeWrite(0).en.poke(false.B)
+    d.io.coreStatus.running.poke(false.B)
+    d.clock.step(1)
+
+    utest.assert(d.io.phase.peek().litValue.toInt == PHASE_Z_READ)
+    stepThroughDepthTest(d)
+    utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TILE_WRITE)
+
+    val en = d.io.tileWrite.en.peek().litToBoolean
+    val z  = d.io.tileWrite.data.z.peek().litValue.toInt
+
+    d.clock.step(1)  // sTileWrite → sIdle, ready for the next pixel
+    (en, z)
   }
 
   /** Write all three edge values and check resulting insideFlag. */
@@ -750,6 +824,88 @@ object BorgShaderDispatcherTests extends TestSuite {
         println(f"  tileWrite.coverage=0b${cov.toBinaryString}%4s (expect 0b1111)")
         utest.assert(cov == 0xF)
         println("  Interior pixel covers all 4 samples ✓")
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // Step 50 item 11: configurable depth compare op + depthWriteEnable
+    //
+    // Vulkan requires all 8 VkCompareOp values and an independent
+    // depthWriteEnable; the hardware previously hardcoded LESS with an
+    // unconditional write, so a pipeline asking for anything else rendered
+    // silently wrong rather than failing.
+    // =========================================================================
+
+    utest.test("all_eight_compare_ops_against_less_equal_greater") {
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
+        println("\n--- BorgShaderDispatcher: all_eight_compare_ops ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        // Positive FP16 bit patterns compare correctly as raw unsigned ints,
+        // which is exactly what the hardware does -- so these three stand in
+        // for newZ < oldZ, newZ == oldZ, newZ > oldZ.
+        val LO = 0x3000
+        val MID = 0x4000
+        val HI = 0x5000
+
+        // (op name, op value, expected pass for (LO, MID, HI) vs oldZ = MID)
+        val cases = Seq(
+          ("NEVER",            CMP_NEVER,            (false, false, false)),
+          ("LESS",             CMP_LESS,             (true,  false, false)),
+          ("EQUAL",            CMP_EQUAL,            (false, true,  false)),
+          ("LESS_OR_EQUAL",    CMP_LESS_OR_EQUAL,    (true,  true,  false)),
+          ("GREATER",          CMP_GREATER,          (false, false, true )),
+          ("NOT_EQUAL",        CMP_NOT_EQUAL,        (true,  false, true )),
+          ("GREATER_OR_EQUAL", CMP_GREATER_OR_EQUAL, (false, true,  true )),
+          ("ALWAYS",           CMP_ALWAYS,           (true,  true,  true ))
+        )
+
+        for ((name, op, (expLo, expEq, expHi)) <- cases) {
+          val (gotLo, _) = runPixel(d, fragZ = LO,  oldZ = MID, compareOp = op, writeEn = true)
+          val (gotEq, _) = runPixel(d, fragZ = MID, oldZ = MID, compareOp = op, writeEn = true)
+          val (gotHi, _) = runPixel(d, fragZ = HI,  oldZ = MID, compareOp = op, writeEn = true)
+          println(f"  $name%-17s new<old=$gotLo%-5s new==old=$gotEq%-5s new>old=$gotHi%-5s")
+          utest.assert(gotLo == expLo)
+          utest.assert(gotEq == expEq)
+          utest.assert(gotHi == expHi)
+        }
+        println("  All 8 VkCompareOp values behave per spec ✓")
+        println("  PASSED")
+      }
+    }
+
+    utest.test("depth_write_enable_gates_z_but_not_the_test") {
+      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
+        println("\n--- BorgShaderDispatcher: depth_write_enable ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        val NEW = 0x3000
+        val OLD = 0x4000
+
+        // writeEn = 1: passing fragment stores the new depth (the historical,
+        // and still default, behaviour).
+        val (enOn, zOn) = runPixel(d, NEW, OLD, CMP_LESS, writeEn = true)
+        println(f"  writeEn=1: en=$enOn z=0x${zOn.toHexString} (expect 0x${NEW.toHexString})")
+        utest.assert(enOn)
+        utest.assert(zOn == NEW)
+
+        // writeEn = 0: the depth *test* still runs and the fragment's colour
+        // is still written -- only the Z store is suppressed, so the tile
+        // buffer must be handed back its own existing depth.  Writing NEW
+        // here would be the classic depthWriteEnable bug: a read-only depth
+        // pass that quietly mutates the buffer.
+        val (enOff, zOff) = runPixel(d, NEW, OLD, CMP_LESS, writeEn = false)
+        println(f"  writeEn=0: en=$enOff z=0x${zOff.toHexString} (expect 0x${OLD.toHexString})")
+        utest.assert(enOff)
+        utest.assert(zOff == OLD)
+
+        // A failing test is still a failing test with writes disabled.
+        val (enFail, _) = runPixel(d, OLD, NEW, CMP_LESS, writeEn = false)
+        println(f"  writeEn=0, failing fragment: en=$enFail (expect false)")
+        utest.assert(!enFail)
         println("  PASSED")
       }
     }

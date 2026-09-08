@@ -410,6 +410,36 @@ reg flush_fb_base_reg_t {
     } RSVD[12] = 0;
 };
 
+// --- Depth test configuration (Step 50 item 11) ---
+reg depth_cfg_reg_t {
+    name = "Depth Test Configuration";
+    desc = "Per-pipeline depth state. Vulkan requires all 8 VkCompareOp values
+            to be selectable for the depth test (no feature bit gates it), and
+            requires depthWriteEnable; the hardware previously hardcoded LESS
+            with depth always written on pass. Reset values reproduce that
+            historical behaviour exactly, so firmware that never writes this
+            register is unaffected.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 2:0: VkCompareOp for the depth test. 0=NEVER, 1=LESS,
+                2=EQUAL, 3=LESS_OR_EQUAL, 4=GREATER, 5=NOT_EQUAL,
+                6=GREATER_OR_EQUAL, 7=ALWAYS. Reset 1 (LESS) is the historical
+                hardcoded comparison.";
+    } compare_op[3] = 1;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bit 3: depthWriteEnable. 1 = a passing fragment updates the
+                stored Z (historical behaviour); 0 = depth is tested but never
+                written, which Vulkan requires for depth-read-only passes.";
+    } write_en[1] = 1;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[28] = 0;
+};
+
 // --- Tile flusher Z-buffer base address (Step 25.3h) ---
 reg flush_zb_base_reg_t {
     name = "Flush Z-buffer Base Address";
@@ -981,6 +1011,11 @@ addrmap borg_gpu {
     // ---- Sequencer Setup Store Base: 0x268 — nogen (Step 32.3) ----
     seq_setup_base_reg_t seq_setup_base;
     seq_setup_base->nogen = true;
+
+    // ---- Depth test configuration — fully generated (hw=r, Borg reads
+    //      io.hw.depth_cfg_compare_op / _write_en). Reset values reproduce
+    //      the historical hardcoded LESS + always-write behaviour. ----
+    depth_cfg_reg_t depth_cfg;
 
     // ---- Performance counters: present-phase decomposition ----
     // Fully generated (hw=w → Borg drives io.hw.perf_*_value, SW reads).

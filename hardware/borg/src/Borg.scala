@@ -295,6 +295,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // frag_pc and uniform_page from dedicated registers
     rast.io.fragPcReg      := rdlRegs.io.hw.frag_pc_frag_pc
+    // DEPTH_CFG (Step 50 item 11). Reset values are compare_op=1 (LESS) and
+    // write_en=1, i.e. exactly the behaviour that used to be hardcoded, so
+    // firmware that never writes this register sees no change.
+    rast.io.depthCompareOp := rdlRegs.io.hw.depth_cfg_compare_op
+    rast.io.depthWriteEn   := rdlRegs.io.hw.depth_cfg_write_en.asBool
     rast.io.uniformPageReg := rdlRegs.io.hw.control_uniform_write_page
   }
 
