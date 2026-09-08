@@ -1559,6 +1559,100 @@ reading the Vulkan spec's Required Limits table
 i.e. not behind an optional feature bit) and vkQuake's actual source
 (`~/src/vkQuake`), not by guessing.
 
+**Reprioritized 2026-09-08 for the 99-day tapeout window** (today ->
+2026-12-16 is exactly 99 days -- not a coincidence, that's the wafer.space
+submission deadline below). Goal: spend the scarce RTL/verification days
+only where a software path would either be infeasible or tank real
+performance; leave everything else in firmware/driver/compiler, where it
+can proceed in parallel without competing for tapeout time. "Software"
+here always means *real Borg-hardware execution* via `borgc`/firmware/
+`borgvk` -- never host-CPU offload (see item 7's `llvmpipe` rejection
+above). The full per-item reasoning (including software-viability and
+performance analysis) is below each item; this is the triage summary.
+
+**Real hardware, competes for the 99-day RTL budget** (priority order):
+1. **Item 6, FP32 shader arithmetic** (in progress, `feat/fp32-datapath`).
+   No viable software alternative: Borg's ISA has no branches and no call/
+   return, so soft-float would need full inline expansion at every
+   operation site -- not just slow, likely infeasible within the
+   instruction-memory budget (item 4) for any real shader. If FP32 FMA
+   area ever threatens the 1x1 slot budget, time-multiplexing the
+   existing FP16 FMA hardware across multiple cycles (trade latency for
+   area, avoiding a full wide second FMA) is the fallback -- not needed
+   today, Phase 0 already measures the current approach fitting at
+   58-62% utilization.
+2. **New: tile-buffer shader read-back port.** Not yet its own item below
+   -- added here because it's the single highest-leverage piece of new
+   hardware on this list. Exposing the *current* tile-buffer contents
+   (color, Z, eventually stencil) as a shader-readable operand, alongside
+   the existing Kill (r25) mechanism item 1 already built, turns three
+   separate items -- 9 (alpha blending math), 10 (stencil op logic), 11
+   (configurable depth compare) -- from fixed-function hardware into
+   `borgc`-compiled shader code. Cheap: it's one more read path into
+   memory the tile buffer already has to arbitrate reads for (the
+   existing Z-test already reads Z every pixel); the incremental
+   per-pixel cost of exposing color/Z as a read is small, not a new
+   per-sample multiplier like MSAA's real cost driver.
+3. **Item 3, multi-texture binding** — a small array of `baseAddr`
+   registers plus a binding-index field on the FTEX instruction, not a
+   second sampler. Cheap real hardware beats the software alternative
+   (multi-pass: re-bin and re-rasterize the same geometry once per bound
+   texture), which is a real, scene-complexity-scaling cost on a
+   TBR architecture, not a bounded one.
+4. **Item 7, graphics+compute queue** — real hardware per the explicit
+   rejection of host-CPU dispatch above. Scoped as a `BorgSequencer`
+   dispatch-indexing extension driving the *existing* ALU/register-file/
+   uniform-bank by work-group ID instead of by rasterized pixel, not a
+   second execution unit -- most of the actual compute work reuses
+   hardware Borg already has.
+5. **Item 8, framebuffer/image resolution ceiling** — real hardware, but
+   the lever is just **more `maxBinTiles` SRAM** (area), not a redesign.
+   The software alternative (multi-pass tiling: re-run the whole
+   geometry/binning pass once per tile-batch) scales with scene
+   complexity too catastrophically to call "real" performance, even
+   though it would likely still clear CTS's generous per-test timeout on
+   simple conformance content.
+6. **Items 9 and 10's storage halves** — an alpha channel and a stencil
+   plane in `BorgTileBuffer`/`ColorZ`/`ColorQuantize`. Unavoidably real
+   regardless of where the blend/stencil-op *arithmetic* ends up (item
+   2's read-back port), since there's nowhere to put the data otherwise.
+7. **Item 14, depth/sampled-image format quantizers** — bounded, real,
+   and cheap: the `D16_UNORM` depth quantizer follows the exact pattern
+   `ColorQuantize.scala` already proved out for color; the texture-side
+   `R8G8B8A8_UNORM` quantizer is a second, small, structurally identical
+   unit (`ColorQuantize` itself doesn't cover it -- that's the tile-
+   buffer/render-target side, not the texture-sampling side).
+
+**Software/firmware, off the RTL critical path** (can proceed in parallel,
+or after 2026-12-16 -- nothing here requires re-taping silicon):
+- **Item 1's remaining half** (discard `borgc`/NIR lowering) — hardware
+  primitive already shipped, only the compiler side is left.
+- **Items 9/10's arithmetic halves** (blend math, stencil compare+op
+  logic) and **item 11** (configurable depth compare) — all become
+  `borgc`-compiled shader code once the read-back port above exists.
+  Item 11 in particular is close to free: the hardware already reads Z
+  every pixel for today's hardcoded compare, so moving the comparison
+  into the shader doesn't add a read, just relocates where it happens.
+  Vulkan bakes this state into the pipeline object at creation (not
+  per-draw dynamic branching in core 1.0), so `borgc` can emit a
+  different flattened epilogue per PSO -- no runtime branch hardware
+  needed.
+- **Item 12, indexed + instanced draw** — **reclassified 2026-09-08**:
+  `borgvk` already flattens indexed/instanced geometry into flat triangle
+  lists before upload *today* (not hypothetically -- this is the doc's
+  own prior text, confirmed still true). Real index-buffer-read hardware
+  in `BorgSequencer` would remove the vertex-duplication cost
+  (2-6x typical for real meshes), but nothing here blocks conformance or
+  vkQuake -- defer past 2026-12-16 and only build it if profiling shows
+  it's a real bottleneck, rather than spending tapeout-window days on it
+  now.
+- **Item 13, push constants** — a driver convention over the *existing*
+  uniform bank (reserve some slots, update via the existing write path).
+  Likely zero new hardware.
+- **Item 4, instruction memory capacity** and **item 5, minimum limits**
+  — sizing/config/reporting, not hardware design; still need to be right
+  before freeze, but not multi-day RTL work.
+
 1. **Fragment `discard`** ✅ **hardware done (2026-08-26)**, compiler lowering
    still open. Structured control flow (`if`/`while`/`for`) is core
    GLSL/SPIR-V language, not an optional feature; `dEQP-VK.shaderrender/glsl`
@@ -1675,13 +1769,21 @@ structure (which tests run unconditionally vs. behind a
     2's per-sample planes — a second plane alongside color/Z.
 11. **Configurable depth compare op** — hardcoded `<` (LESS) at
     `BorgShaderDispatcher.scala:373`; Vulkan requires all 8 `VkCompareOp`
-    values selectable, so this needs an 8-way mux instead of a fixed
-    comparison.
+    values selectable. **Reprioritized 2026-09-08**: rather than an 8-way
+    hardware mux, this becomes `borgc`-compiled shader code once the
+    tile-buffer read-back port (see the triage summary above item 1) lets
+    the shader read the current Z and do the comparison itself, reusing
+    the existing Kill mechanism to fail the test. Near-free -- the
+    hardware already reads Z every pixel for today's fixed compare.
 12. **Indexed + instanced draw** — no index-buffer read path in
     `BorgSequencer.scala`, no `instanc*` symbol anywhere in
     `hardware/borg/src/`; `borgvk` currently always flattens geometry to
     flat triangle lists before upload, so this is new sequencer state
-    machinery, not a rewrite of an existing path.
+    machinery, not a rewrite of an existing path. **Reprioritized
+    2026-09-08**: deferred past the tapeout -- the existing software
+    flattening already works today, real hardware here is a performance
+    optimization (removes 2-6x vertex duplication), not a conformance
+    blocker. See the triage summary above item 1.
 13. **Push constants** (`maxPushConstantsSize`≥128 bytes) — no push-constant
     path in hardware or `software/borg/`; shaped like the existing uniform
     bank, likely the smallest item on this list.
