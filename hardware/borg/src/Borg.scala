@@ -83,7 +83,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val flusher   = Module(new BorgTileFlusher(16, cfg.samples))   // before tile — see note above
   val tile      = Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits))
   val rdlRegs   = Module(new BorgGpuRegs()) // Auto-generated RDL register block
-  val dma       = Module(new BorgDMA)
+  val dma       = Module(new BorgDMA(cfg))
   val sequencer = Module(new BorgSequencer(cfg))
   val binner    = Module(new BorgBinner(cfg.maxBinTiles, cfg.maxTrianglesPerTile, cfg.coordWidth))
 

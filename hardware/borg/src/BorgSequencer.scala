@@ -147,12 +147,12 @@ class SeqIteratorIO(val coordWidth: Int) extends Bundle {
   val stall = Input(Bool())
 }
 
-class SeqDmaIO extends Bundle {
+class SeqDmaIO(val cfg: BorgConfig) extends Bundle {
   val start = Output(Bool())
   val desc = Output(new DMADescriptor)
   val busy = Input(Bool())
   val snoop = Flipped(Valid(UInt(32.W)))
-  val uniformSnoop = Flipped(new MemWritePort(3, 16))
+  val uniformSnoop = Flipped(new MemWritePort(3, cfg.totalBits))
 }
 
 class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
@@ -161,7 +161,7 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val store = new SeqStoreIO
   val flusher = new SeqFlusherIO
   val iter = new SeqIteratorIO(cfg.coordWidth)
-  val dma = new SeqDmaIO
+  val dma = new SeqDmaIO(cfg)
 
   val busy = Output(Bool())
   val done = Output(Bool())
@@ -180,7 +180,7 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val coreTrigger = new CoreTriggerIO
   val coreStatus = Flipped(new CoreStatusIO)
   val pipeWrite = Flipped(new PipeWriteIO(cfg.totalBits))
-  val uniformWrite = new MemWritePort(6, 16)
+  val uniformWrite = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
 }
 

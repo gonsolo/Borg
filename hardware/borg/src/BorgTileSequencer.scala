@@ -39,13 +39,13 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   val binner  = new SeqBinnerIO(cfg)  // only countReadAddr/countReadEn/countReadData used
   val flusher = new SeqFlusherIO
   val iter    = new SeqIteratorIO(cfg.coordWidth)
-  val dma     = new SeqDmaIO
+  val dma     = new SeqDmaIO(cfg)
 
   val covDelta = if (cfg.samples > 1)
     Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
   val texEnOverride = Output(Bool())
 
-  val uniformWrite     = new MemWritePort(6, 16)
+  val uniformWrite     = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
 }
 

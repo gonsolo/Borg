@@ -15,7 +15,7 @@ class DMADescriptor extends Bundle {
   val offset   = UInt(7.W)  // starting word index in the destination buffer (IMEM up to 72)
 }
 
-class BorgDMAIO extends Bundle {
+class BorgDMAIO(val cfg: BorgConfig) extends Bundle {
   val start        = Input(Bool())
   val desc         = Input(new DMADescriptor)
   // Which uniform page (0/1) a dest=1 uniform DMA writes to.  Driven by the
@@ -24,7 +24,7 @@ class BorgDMAIO extends Bundle {
   val busy         = Output(Bool())
   val gpuMem      = new GpuMemIO
   val imemWrite    = new MemWritePort(7, 32)
-  val uniformWrite = new MemWritePort(6, 16)
+  val uniformWrite = new MemWritePort(6, cfg.totalBits)
   // 32-bit snoop port for sequencer (valid when gpuMem.ready)
   val snoop        = Output(Valid(UInt(32.W)))
 }
@@ -50,8 +50,8 @@ class BorgDMAIO extends Bundle {
   * directly as combinational wires in sRead — no local descReg copy is
   * needed, saving ~34 LCs (Step 26.3).
   */
-class BorgDMA extends Module {
-  val io = IO(new BorgDMAIO)
+class BorgDMA(val cfg: BorgConfig = BorgConfig.Default) extends Module {
+  val io = IO(new BorgDMAIO(cfg))
 
   val sIdle :: sRead :: Nil = Enum(2)
   val state = RegInit(sIdle)
@@ -110,15 +110,17 @@ class BorgDMA extends Module {
           io.imemWrite.data := io.gpuMem.data
           if (BorgDebug.trace) printf("[DMA] imemWrite[%d]=0x%x\n", destIdx, io.gpuMem.data)
         }.elsewhen(io.desc.dest === 1.U) {
-          // Uniform buffer: low 16 bits; page selected by the sequencer (2-entry
-          // setup cache) rather than hardcoded — was always page 0 before.
+          // Uniform buffer: low cfg.totalBits bits of the 32-bit DRAM word
+          // (16 at FP16, the full word at FP32); page selected by the
+          // sequencer (2-entry setup cache) rather than hardcoded — was
+          // always page 0 before.
           val page = io.uniformWritePage
           io.uniformWrite.en   := true.B
           io.uniformWrite.addr := Cat(page, destIdx(4, 0))
-          io.uniformWrite.data := io.gpuMem.data(15, 0)
+          io.uniformWrite.data := io.gpuMem.data(cfg.totalBits - 1, 0)
           when(destIdx < 2.U || destIdx === 19.U || destIdx === 22.U || destIdx === 25.U) {
             if (BorgDebug.trace) printf("[DMA] uniWrite idx=%d data=0x%x (raw32=0x%x)\n",
-              destIdx, io.gpuMem.data(15, 0), io.gpuMem.data)
+              destIdx, io.gpuMem.data(cfg.totalBits - 1, 0), io.gpuMem.data)
           }
         }.elsewhen(io.desc.dest === 2.U) {
           // Snoop only (no write to IMEM or Uniforms)
