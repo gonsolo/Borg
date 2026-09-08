@@ -39,6 +39,14 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // --- Inputs from MMIO registers ---
   val fragPcReg  = Input(UInt(6.W))             // fragment shader start PC
 
+  // Step 50 item 11: depth-test state (DEPTH_CFG register). Vulkan requires
+  // all 8 VkCompareOp values selectable and requires depthWriteEnable; the
+  // hardware used to hardcode LESS with depth always written on pass. The
+  // register's reset values (compare_op=1/LESS, write_en=1) reproduce that
+  // exactly, so nothing changes until firmware writes it.
+  val depthCompareOp = Input(UInt(3.W))
+  val depthWriteEn   = Input(Bool())
+
   // --- Inputs from texture pipeline ---
   val texConfig  = new TexConfigIO              // mortonIndex, baseAddr, en
   val log2Dim    = Input(UInt(4.W))             // tex_config_log2_dim, see ClampTexCoord
@@ -359,7 +367,20 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     io.tileWrite.data.r := frag_r(laneIdx)
     io.tileWrite.data.g := frag_g(laneIdx)
     io.tileWrite.data.b := frag_b(laneIdx)
-    io.tileWrite.data.z := frag_z(laneIdx)
+    // depthWriteEnable: on a passing fragment, write the new Z (historical
+    // behaviour, write_en=1) or preserve the stored one (write_en=0, which
+    // Vulkan requires for depth-read-only passes -- colour still updates).
+    //
+    // samples==1 only. At samples>1 each sample has its OWN stored Z but
+    // TileWriteIO carries a single shared `data` for every covered sample
+    // (see its doc comment -- shade once, broadcast), so preserving
+    // per-sample depth would need a per-sample Z write mask on that port.
+    // Rather than silently write sample 0's old Z to every sample, MSAA
+    // keeps the historical always-write behaviour; making write_en correct
+    // there is real port work, noted here and in DEPTH_CFG's own RDL desc.
+    io.tileWrite.data.z := (if (cfg.samples == 1)
+                              Mux(io.depthWriteEn, frag_z(laneIdx), io.tileRead.data(0).z)
+                            else frag_z(laneIdx))
     // Depth test, per sample: a sample takes the fragment only if the lane is
     // inside (coverage), not discarded, AND this sample's own stored Z is
     // farther.  FP16 Z is non-negative in NDC; unsigned < comparison is valid.
@@ -369,8 +390,24 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // Per sample: covered by the triangle, not discarded, and passing that
     // sample's own depth test.  At samples == 1 `coverage(lane)(0)` is exactly
     // the historical inside_flag.
+    // VkCompareOp depth test. FP16 Z is non-negative in NDC and positive
+    // IEEE floats order identically as unsigned integers, so every ordering
+    // op below is a plain unsigned compare on the raw bits -- the same
+    // property the historical hardcoded `<` already relied on.
+    def depthPasses(newZ: UInt, oldZ: UInt): Bool = MuxLookup(io.depthCompareOp, false.B)(Seq(
+      0.U -> false.B,          // VK_COMPARE_OP_NEVER
+      1.U -> (newZ < oldZ),    // VK_COMPARE_OP_LESS (reset value = historical)
+      2.U -> (newZ === oldZ),  // VK_COMPARE_OP_EQUAL
+      3.U -> (newZ <= oldZ),   // VK_COMPARE_OP_LESS_OR_EQUAL
+      4.U -> (newZ > oldZ),    // VK_COMPARE_OP_GREATER
+      5.U -> (newZ =/= oldZ),  // VK_COMPARE_OP_NOT_EQUAL
+      6.U -> (newZ >= oldZ),   // VK_COMPARE_OP_GREATER_OR_EQUAL
+      7.U -> true.B            // VK_COMPARE_OP_ALWAYS
+    ))
+
     val samplePass = (0 until cfg.samples).map { s =>
-      coverage(laneIdx)(s) && !killed(laneIdx) && (frag_z(laneIdx) < io.tileRead.data(s).z)
+      coverage(laneIdx)(s) && !killed(laneIdx) &&
+        depthPasses(frag_z(laneIdx), io.tileRead.data(s).z)
     }
     io.tileWrite.coverage := Cat(samplePass.reverse)
     io.tileWrite.en       := samplePass.reduce(_ || _)

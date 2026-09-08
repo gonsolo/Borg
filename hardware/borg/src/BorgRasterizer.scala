@@ -36,6 +36,9 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
 
   // Register-driven frag_pc and uniform_page (from dedicated MMIO registers)
   val fragPcReg       = Input(UInt(6.W))
+  // Step 50 item 11: depth-test state, forwarded to BorgShaderDispatcher.
+  val depthCompareOp  = Input(UInt(3.W))
+  val depthWriteEn    = Input(Bool())
   val uniformPageReg  = Input(UInt(1.W))
 
   // Outputs
@@ -108,6 +111,8 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.pipeWrite      <> io.pipeWrite
   dispatcher.io.coreStatus     <> io.coreStatus
   dispatcher.io.fragPcReg      := io.fragPcReg
+  dispatcher.io.depthCompareOp := io.depthCompareOp
+  dispatcher.io.depthWriteEn   := io.depthWriteEn
   dispatcher.io.texConfig      <> io.texConfig
   dispatcher.io.log2Dim        := io.log2Dim
   dispatcher.io.covDelta.foreach(_ := io.covDelta.get)
