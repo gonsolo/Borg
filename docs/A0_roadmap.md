@@ -1701,6 +1701,38 @@ for combined depth-stencil) and the mandatory *sampled-image* format list
 (e.g. `R8G8B8A8_UNORM`) checked against Borg's FP16-only internal texel
 format — worth a dedicated follow-up pass rather than assuming either way.
 
+**Resolved 2026-09-08** (this branch, `feat/fp32-datapath`): built and
+verified the actual `D16_UNORM` FP16<->UNORM16 conversion math
+(`hardware/borg/src/DepthQuantize.scala`, same shape as the already-shipped
+`ColorQuantize`, `DepthQuantizeTests.scala` 5/5 passing standalone) --
+but discovered while looking for where to wire it in that this item's real
+blocker isn't quantization math at all: **Borg has no depth-attachment DRAM
+path of any kind today.** `BorgTileFlusher`'s own doc comment says it
+outright -- "each tile fully on-chip, so DRAM never needs the depth value"
+-- Z exists only transiently on-chip during one tile's rasterization Z-test
+and is never flushed anywhere. Supporting `D16_UNORM` as a real, creatable,
+readable/writable/copyable Vulkan image means building that DRAM
+write/read path from scratch (a new DMA burst mechanism analogous to the
+color flusher, real new hardware), not just plugging a quantizer into
+existing plumbing. `DepthQuantize`'s conversion math is genuine, tested
+groundwork for whenever that larger feature gets scoped -- not wasted --
+but wiring it into `BorgTileBuffer` today would connect it to nothing.
+
+Same investigation found the `R8G8B8A8_UNORM` sampled-image half is
+architecturally the opposite situation -- likely no new hardware at all.
+`BorgTextureUnit`'s own doc comment specifies its DRAM texel layout: 8
+bytes/texel (two 16-bit FP16 channels packed per 32-bit word). A real
+`R8G8B8A8_UNORM` upload is 4 bytes/texel, one byte per channel -- a
+completely different byte layout BorgTextureUnit doesn't read today. But
+per the Step 50 hardware-vs-software framing above (see the "Reprioritized"
+triage note at the top of this step): converting an uploaded UNORM8 RGBA
+texture to Borg's native FP16 8-byte layout is a natural fit for the
+*existing* texture-upload path (the firmware/`borgvk` side that already
+handles the 0xAF wire packets), reusing `ColorQuantize.dequantize8`
+(already built, already proven) at upload time -- a bounded, once-per-
+texture-upload software cost, not new RTL, and not per-sample the way a
+hardware texel-format decoder would be.
+
 **Explicitly NOT here — pure performance, not correctness, deferred to
 Step 53**: widening `fragLanes` *beyond* 4, warp-level multithreading,
 multi-core scale-out. Neither Vulkan conformance nor vkQuake need any of
