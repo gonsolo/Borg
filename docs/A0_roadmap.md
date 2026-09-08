@@ -1608,6 +1608,26 @@ i.e. not behind an optional feature bit) and vkQuake's actual source
    samplers (diffuse/lightmap/fullbright); `BorgTextureUnit.scala` has one
    `baseAddr` register (one bound texture at a time). Real for both
    conformance's descriptor-binding tests and vkQuake specifically.
+   **Scoped 2026-09-08, not yet implemented** (learned from the read-back
+   port's r21 register-collision mistake this same day -- audit real usage
+   before assuming anything is free): giving FTEX a texture-select operand
+   is not a simple "reuse a spare field" change. FTEX currently uses
+   `encodeRType` (`Instructions.scala`) under `OPCODE_ALU`, where `funct7`
+   (`BF_FUNCT7`, bits 31:25) already occupies the *entire* bit range that
+   `BF_RS3` (bits 31:27) would need for a 3rd operand -- there is no spare
+   field to reuse within FTEX's current instruction format, unlike the
+   (also-occupied, this session confirmed) general-purpose register space.
+   The real options: (a) move FTEX to the R4-type encoding FMA already uses
+   (`encodeR4Type`, `OPCODE_FMA`, a small `funct2` instead of the full
+   `funct7`), gaining `rs3` as a texture-select index at the cost of
+   restructuring FTEX's decode (`BorgCore.scala`'s `flags.ftex := !flags.fma
+   && f7op === Instructions.FUNCT7_FTEX.U` assumes the current ALU-opcode
+   format) and coordinating with the `mesa`/`borgc` side that emits FTEX; or
+   (b) a small array of `baseAddr` registers selected by something other
+   than a per-instruction operand (e.g. a uniform-bank value, avoiding ISA
+   encoding changes entirely, at the cost of an extra uniform-read
+   indirection per texture switch). Neither is scoped in enough detail to
+   implement blind; needs a real design pass before RTL work starts.
 4. **Instruction memory capacity** — `cube.frag` already uses 59/64 words
    on the ASIC config; a real shader with fog math + multiple texture
    samples + spec-constant-driven variants will not fit the current
