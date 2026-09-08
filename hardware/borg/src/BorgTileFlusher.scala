@@ -10,7 +10,8 @@ import chisel3.util._
   *
   * Directions are from the flusher's perspective (master).
   */
-class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1) extends Bundle {
+class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
+                        val hasDepthFlush: Boolean = false) extends Bundle {
   // Trigger interface
   val start     = Input(Bool())    // one-cycle pulse to begin flush
   val busy      = Output(Bool())   // high while flushing
@@ -24,11 +25,27 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1) extends Bu
   // Tile base address: absolute DRAM byte address of this tile's region.
   // Layout (RGB565): 16 entries × 2 bytes = 32 bytes per tile.
   //   word[i] = RGB565(entry[i])   (R[15:11] | G[10:5] | B[4:0])
-  // Z is not written — depth lives only in the on-chip tile buffer (TBR renders
-  // each tile fully on-chip, so DRAM never needs the depth value).
   // Firmware computes: tileBase = fbBase + tile_index * 32
   //   where tile_index = (ty >> 2) * tiles_per_row + (tx >> 2)
   val tileBase  = Input(UInt(25.W))
+
+  // Optional depth-attachment write-out (Step 50 item 14 groundwork; absent
+  // unless hasDepthFlush). Historically Z was NEVER written to DRAM -- the
+  // TBR renders each tile fully on-chip, so nothing downstream needed the
+  // depth value, which is exactly why `D16_UNORM` (a mandatory Vulkan
+  // format) had no path to exist as a real, readable image. These ports
+  // give the flusher a second burst target for the tile's Z plane,
+  // quantized FP16 -> UNORM16 via DepthQuantize.
+  //
+  // Layout mirrors the colour burst: 16 entries x 2 bytes = 32 bytes per
+  // tile, word[i] = UNORM16(entry[i].z). depthBase is the absolute DRAM
+  // byte address of this tile's depth region (firmware computes it the same
+  // way as tileBase, from its own depth-buffer base).
+  val depthBase = if (hasDepthFlush) Some(Input(UInt(25.W))) else None
+  // Runtime gate: even in a hasDepthFlush build, a draw with no depth
+  // attachment bound skips the second burst entirely (straight to sIdle),
+  // costing only the state check.
+  val depthEn   = if (hasDepthFlush) Some(Input(Bool())) else None
 }
 
 /** BorgTileFlusher -- bulk DMA from tile SRAM to DRAM, one burst per tile.
@@ -57,15 +74,60 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1) extends Bu
   *   cycle N+2: SyncReadMem output travels through readDataHeld (cycle 2 of 2)
   *   cycle N+3: io.read.data valid; capture RGB565 into rgbVec
   */
-class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1) extends Module {
-  val io = IO(new BorgTileFlusherIO(dataBits, samples))
+/** @param hasDepthFlush Adds a second DRAM burst that writes the tile's Z
+  *                      plane (quantized FP16 -> UNORM16 via [[DepthQuantize]])
+  *                      to a separate depth-buffer region, for `D16_UNORM`
+  *                      depth-attachment support. Default false: a disabled
+  *                      build elaborates no zVec, no depthBaseReg and no
+  *                      extra ports, and is cycle-identical to before this
+  *                      parameter existed -- same compile-time-branch
+  *                      discipline the `samples` parameter already uses
+  *                      below. (Precisely: the sBurstZ enum value and its
+  *                      switch arm ARE still elaborated, because Chisel's
+  *                      switch macro won't accept a conditionally-present
+  *                      is() arm -- but nothing transitions into it, so it
+  *                      is unreachable and folds away in synthesis, and the
+  *                      state register width is unchanged since
+  *                      log2Ceil(3) == log2Ceil(4).)
+  *
+  *                      Deliberately folded into this module rather than
+  *                      built as a separate depth flusher: sFill already
+  *                      reads all 16 tile entries for the colour burst, and
+  *                      each entry carries its own `.z` alongside r/g/b, so
+  *                      the depth path costs one extra staging vector and one
+  *                      extra burst state -- NOT a second read pass over the
+  *                      tile SRAM, which would double the flush's read
+  *                      traffic for no reason.
+  *
+  *                      samples>1 (MSAA) is not wired for depth yet: the
+  *                      colour path resolves by averaging samples, which is
+  *                      the wrong operation for depth (you'd want a specific
+  *                      sample or a min/max, a real semantic choice, not an
+  *                      average). Left for whoever scopes MSAA depth
+  *                      attachments; `require` below makes the unsupported
+  *                      combination a build error rather than silently
+  *                      wrong output.
+  */
+class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
+                      val hasDepthFlush: Boolean = false) extends Module {
+  require(!hasDepthFlush || samples == 1,
+          s"hasDepthFlush is only wired for samples==1 (got samples=$samples) -- " +
+          "MSAA depth resolve is a real semantic choice, not an average; see the " +
+          "hasDepthFlush doc comment")
+  val io = IO(new BorgTileFlusherIO(dataBits, samples, hasDepthFlush))
 
-  val sIdle :: sFill :: sBurst :: Nil = Enum(3)
+  val sIdle :: sFill :: sBurst :: sBurstZ :: Nil = Enum(4)
   val state = RegInit(sIdle)
 
   // 16 RGB565 pixels staged before the burst (256 FFs).
   val rgbVec   = Reg(Vec(16, UInt(16.W)))
+  // 16 UNORM16 depth values, staged from the SAME sFill read pass as rgbVec
+  // (another 256 FFs, only when hasDepthFlush).
+  val zVec     = if (hasDepthFlush) Some(Reg(Vec(16, UInt(16.W)))) else None
   val baseReg  = RegInit(0.U(25.W))
+  // Latched alongside baseReg for the same reason: the sequencer's address
+  // inputs are only valid at the start pulse, not for the whole flush.
+  val depthBaseReg = if (hasDepthFlush) Some(RegInit(0.U(25.W))) else None
   val issueIdx = RegInit(0.U(5.W))  // next entry to issue a read for (0..16)
   val capIdx   = RegInit(0.U(5.W))  // next entry to capture into rgbVec (0..16)
   val burstIdx = RegInit(0.U(5.W))  // entry currently being streamed (0..15)
@@ -149,6 +211,11 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1) extends Modu
 
     when(v3) {
       rgbVec(capIdx(3, 0)) := toRgb565(io.read.data)
+      // Depth rides the same capture: io.read.data(0) is already valid here
+      // for the colour conversion, and .z is simply another field of it, so
+      // this adds a quantizer and a register write -- no extra read, no
+      // extra cycle, no change to the colour path's timing.
+      zVec.foreach(_(capIdx(3, 0)) := DepthQuantize.quantize16(io.read.data(0).z))
       capIdx := capIdx + 1.U
     }
 
@@ -156,6 +223,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1) extends Modu
       is(sIdle) {
         when(io.start) {
           baseReg  := io.tileBase
+          depthBaseReg.foreach(_ := io.depthBase.get)
           issueIdx := 0.U
           capIdx   := 0.U
           burstIdx := 0.U
@@ -186,6 +254,46 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1) extends Modu
           burstIdx := burstIdx + 1.U
         }
         when(io.gpuMem.ready) {
+          // With depth disabled (or not built at all) this is the historical
+          // sBurst -> sIdle edge, unchanged.
+          if (hasDepthFlush) {
+            when(io.depthEn.get) {
+              burstIdx := 0.U
+              state    := sBurstZ
+            }.otherwise {
+              state := sIdle
+            }
+          } else {
+            state := sIdle
+          }
+        }
+      }
+      // Second burst: the tile's Z plane as 16 UNORM16 words, to the
+      // depth-buffer region. Structurally identical to the colour burst
+      // above -- same 16-beat wlen, same waccept/ready handshake -- just a
+      // different staging vector and base address.
+      //
+      // The `is()` arm itself is unconditional because Chisel's switch macro
+      // rejects any block that doesn't begin with is(); only the BODY varies
+      // at elaboration. In a hasDepthFlush=false build nothing ever
+      // transitions into sBurstZ (sBurst exits straight to sIdle above), so
+      // this arm is unreachable and folds away in synthesis, and the state
+      // register stays 2 bits wide either way (log2Ceil(3) == log2Ceil(4)).
+      is(sBurstZ) {
+        if (hasDepthFlush) {
+          io.gpuMem.wr    := true.B
+          io.gpuMem.addr  := depthBaseReg.get
+          io.gpuMem.wdata := zVec.get(burstIdx(3, 0))
+          io.gpuMem.wlen  := 16.U
+          when(io.gpuMem.waccept) {
+            if (BorgDebug.trace) printf("[FLUSH] entry=%d D16=0x%x\n",
+              burstIdx, zVec.get(burstIdx(3, 0)))
+            burstIdx := burstIdx + 1.U
+          }
+          when(io.gpuMem.ready) {
+            state := sIdle
+          }
+        } else {
           state := sIdle
         }
       }
