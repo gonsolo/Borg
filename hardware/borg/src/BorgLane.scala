@@ -53,7 +53,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val bus         = Flipped(new BorgBusIO())
 
   // --- FTEX write-back from the shared FTEX FSM (en/addr/data) ---
-  val texWrite    = Flipped(new MemWritePort(5, 16))
+  val texWrite    = Flipped(new MemWritePort(5, cfg.totalBits))
 
   // --- Outputs ---
   val pipeWrite   = new PipeWriteIO(cfg.totalBits) // write-back snoop
@@ -259,8 +259,14 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * shared, muxed by which op is latched active this instruction. */
   // @doc:frcp
   private def computeFp16Special(recA_raw: UInt, isFrcp: Bool, isFrsq: Bool, isFsrgb: Bool): UInt = {
-    val exp  = recA_raw(14, 10)
-    val mant = recA_raw(9, 0)
+    // Narrow once, up front: every LUT index below and special.io.in itself
+    // must all read the SAME FP16 bit pattern. Reading exp/mant straight off
+    // recA_raw's low bits would silently misindex the ROMs at FP32 (bits
+    // 9:0/14:10 of a 32-bit FP32 pattern are not this value's FP16 mantissa/
+    // exponent -- they're arbitrary low mantissa bits of the FP32 pattern).
+    val fp16In = if (config.totalBits > 16) Fp16Fp32.narrow(recA_raw) else recA_raw(15, 0)
+    val exp  = fp16In(14, 10)
+    val mant = fp16In(9, 0)
 
     // rcp's LUT is 33 entries on mant(9,5) (rsq/srgb stay on mant(9,6)); idx is
     // 0..31 so only idx+1 can reach the last entry. A 33-entry Vec requires a
@@ -287,11 +293,14 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val nextReg = RegEnable(rawNext, is_busy && busy_counter === 3.U)
 
     val special = Module(new Fp16Special)
-    special.io.in      := recA_raw(15, 0)
+    // Fp16Special stays FP16-internal (existing LUT hardware) regardless of
+    // cfg.fp -- feed it the same narrowed fp16In used for the LUT indices
+    // above, widen its FP16 result back up at the output below.
+    special.io.in      := fp16In
     special.io.lutVal  := valReg
     special.io.lutNext := nextReg
     special.io.op      := Mux(isFrcp, Fp16SpecialOp.Rcp, Mux(isFrsq, Fp16SpecialOp.Rsq, Fp16SpecialOp.Srgb))
-    if (config.totalBits > 16) Cat(0.U((config.totalBits - 16).W), special.io.out)
+    if (config.totalBits > 16) Fp16Fp32.widen(special.io.out)
     else special.io.out
   }
   // @doc:end
