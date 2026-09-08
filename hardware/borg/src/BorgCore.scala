@@ -41,7 +41,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
 
   // DMA write ports (Step 22.1): DMA takes priority over MMIO writes
   val dmaImemWrite    = Flipped(new MemWritePort(7, 32)) // 7-bit: IMEM up to 72 entries
-  val dmaUniformWrite = Flipped(new MemWritePort(6, 16))
+  val dmaUniformWrite = Flipped(new MemWritePort(6, cfg.totalBits))
 
   // Pipeline write-back snoop, per lane (exposed to rasterizer + sequencer)
   val pipeWrite = Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits))

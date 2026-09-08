@@ -214,4 +214,16 @@ object BorgConfig {
   // diagnostic tap, since BorgOnlyTop has no SoCLogic/CPU harness to expose
   // either through.
   val Wafer = Asic.copy(debugPorts = false)
+
+  // FP32 shader-ALU datapath (feat/fp32-datapath branch): Default sizing
+  // with fp = FloatConfig.FP32. Scope is the general compute path (FMA,
+  // register file, integer ALU, uniform bank) only -- texture sampling,
+  // tile-buffer color storage, Fp16Special (rcp/rsqrt/sRGB), and rasterizer
+  // coordinate generation stay FP16-native by design (see docs/A0_roadmap.md
+  // item 6 and the branch's plan doc), with explicit Fp16<->Fp32 conversion
+  // at those boundaries. Not area/timing-tuned for any physical target yet
+  // -- Phase 0's real numbers (2.48x FMA area, 58-62% 1x1-slot utilization,
+  // 25 MHz closes at 3.3V with the original 3-stage pipeline) were measured
+  // against BorgConfig.Wafer.copy(fp = FloatConfig.FP32), not this config.
+  val Fp32 = Default.copy(fp = FloatConfig.FP32)
 }

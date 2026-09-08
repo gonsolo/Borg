@@ -37,12 +37,12 @@ class BorgGeometrySequencerIO(val cfg: BorgConfig) extends Bundle {
   val mmio   = new SeqMmioIO(cfg)
   val binner = new SeqBinnerIO(cfg)   // only start/triIndex/bbox/clearCounts/busy used
   val store  = new SeqStoreIO
-  val dma    = new SeqDmaIO
+  val dma    = new SeqDmaIO(cfg)
 
   val coreTrigger = new CoreTriggerIO
   val coreStatus  = Flipped(new CoreStatusIO)
   val pipeWrite   = Flipped(new PipeWriteIO(cfg.totalBits))
-  val uniformWrite     = new MemWritePort(6, 16)
+  val uniformWrite     = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
   val seqShaderActive  = Output(Bool())
 
@@ -55,7 +55,7 @@ class BorgGeometrySequencerIO(val cfg: BorgConfig) extends Bundle {
   // idle, after a full frame completes) -- see BorgSequencer's own doc for
   // why that fallback is load-bearing, not incidental.
   val covDeltaOut = if (cfg.samples > 1)
-    Some(Output(Vec(6, UInt(16.W)))) else None
+    Some(Output(Vec(6, UInt(cfg.totalBits.W)))) else None
 }
 
 class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
