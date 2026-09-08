@@ -148,46 +148,23 @@ case class BorgConfig(
 }
 
 object BorgConfig {
-  // Default: sim + ULX3S — 4096-tile bin table, 56-instruction shader memory.
+  // Default: sim + ULX3S — full 1024-tile bin table, 56-instruction shader memory.
   // The in-tree BorgFp16Fma (CERN-OHL-S, round-to-nearest-even) is the sole FP16 FMA
   // across ALL targets — historically bit-verified vs IEEE/HardFloat (30k+ co-sim),
   // renders correctly in verilator/arcilator/ULX3S, smaller + shorter critical path.
-  //
-  // maxBinTiles = 4096 (grown from 1024, 2026-09-08, Step 50 item 5 --
-  // framebuffer/image resolution ceiling): covers up to 256x256 @ 4x4
-  // (64x64 = 4096 tiles), 4x the previous 128x128 capacity. This is a real,
-  // conservative step, not the full Vulkan-mandated >=4096x4096 --
-  // reaching that needs either a much larger capacity (the per-buffer
-  // tileWasDirty/tileIsDirty dirty-bit arrays in BorgTileSequencer cost 2
-  // flip-flops per tile, so scaling all the way to 4096x4096 pixels
-  // (1024x1024 = 1,048,576 tiles) would cost ~2M FFs -- not a number to
-  // pick without real synthesis data) or firmware-side multi-pass tiling
-  // (re-running the existing binner/render pass per tile-batch) on top of
-  // whatever capacity is here. See docs/A0_roadmap.md item 8's own note.
-  // This growth is backward compatible: maxBinTiles is a capacity ceiling,
-  // not a required resolution -- firmware requesting the previous 128x128
-  // (1024 of the now-4096 available tile slots) behaves identically to
-  // before, verified by the unchanged 195/195 mill hardware.borg.test pass
-  // and the vkcube golden-image render (both still rendering the same
-  // 128x128 content). log2Ceil(4096)=12 stays under SeqBinnerIO/
-  // BorgBinnerIO's existing countAddrWidth cap of 13 bits, so no other RTL
-  // needed changing for this specific step -- a bigger future jump past
-  // 8192 tiles would need that cap raised too (see those IOs' own comments).
   val Default = BorgConfig(
     fp              = FloatConfig.FP16,
     coordWidth      = 9,
     fifoDepth       = 2,
-    maxBinTiles     = 4096,
+    maxBinTiles     = 1024,
     maxInstructions = 72 // M5 step 1: grow IMEM (rast 13 + frag ~56 co-resident)
   )
 
   // Sim + ULX3S SIMT config: 2×2 quad fragment shading.  Selected via BORG_CFG in
   // the sim tops and ULX3S; the scalar Default keeps the chisel unit tests on
-  // the bit-exact single-lane reference.  maxBinTiles=4096 covers up to
-  // 256×256 @ 4×4 (64×64 = 4096 tiles); the current demo resolution
-  // (128×128) uses only 1024 of that capacity, unaffected by the growth
-  // (see Default's own comment for the full rationale).
-  val Simt = Default.copy(fragLanes = 4, maxBinTiles = 4096)
+  // the bit-exact single-lane reference.  maxBinTiles=1024 covers 128×128 @ 4×4
+  // (32×32 = 1024 tiles), which is the current demo resolution.
+  val Simt = Default.copy(fragLanes = 4, maxBinTiles = 1024)
 
   // ASIC (IHP SG13G2, TT 8×4 tile).
   //   countMem_1024x10 alone was ~920 kµm² (50 % of die) → reduced to 16 tiles (~14 kµm²).
