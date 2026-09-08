@@ -17,7 +17,14 @@ REPO=/home/gonsolo/work/Borg
 # someone tried to run it and got "file not found").
 LOADER=$(pkg-config --variable=libdir vulkan)
 LIBWAYLAND=$(pkg-config --variable=libdir wayland-client)
-export LD_LIBRARY_PATH="$LOADER:$LIBWAYLAND:${LD_LIBRARY_PATH:-}"
+# libvulkan_borg.so and libborg_drm_shim.so (mesa/build-borg) carry a RUNPATH
+# baked in at build time, which goes stale on the same `nix store gc` schedule
+# as everything else here -- RUNPATH is only consulted *after*
+# LD_LIBRARY_PATH, so listing every one of their deps here (again resolved
+# via pkg-config, not hardcoded hashes) papers over a stale RUNPATH without
+# needing to rebuild mesa just to pick up a store-path bump.
+DEPLIBS=$(pkg-config --variable=libdir libdrm):$(pkg-config --variable=libdir xcb):$(pkg-config --variable=libdir x11-xcb):$(pkg-config --variable=libdir xshmfence):$(pkg-config --variable=libdir xcb-keysyms):$(pkg-config --variable=libdir expat):$(pkg-config --variable=libdir libzstd):$(dirname "$(g++ -print-file-name=libstdc++.so.6)")
+export LD_LIBRARY_PATH="$LOADER:$LIBWAYLAND:$DEPLIBS:${LD_LIBRARY_PATH:-}"
 
 # Point the loader at the in-tree (build-tree) borgvk driver, not the installed one:
 export VK_DRIVER_FILES="$REPO/mesa/build-borg/src/borg/vulkan/borg_devenv_icd.x86_64.json"
