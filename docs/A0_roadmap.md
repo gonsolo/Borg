@@ -1753,6 +1753,33 @@ existing plumbing. `DepthQuantize`'s conversion math is genuine, tested
 groundwork for whenever that larger feature gets scoped -- not wasted --
 but wiring it into `BorgTileBuffer` today would connect it to nothing.
 
+**Built 2026-09-09** (commits `f72ad54` + `6c8b871`): that larger feature
+is now done on the hardware side. `BorgTileFlusher` gained an optional
+second DRAM burst carrying the tile's Z plane, quantized FP16 -> UNORM16
+through `DepthQuantize`, behind a `hasDepthFlush` config knob. It is
+folded into the existing flusher rather than built as a separate module
+because `sFill` already reads all 16 tile entries for the colour burst and
+each entry carries its own `.z` -- so depth costs one staging vector and
+one burst state, not a second read pass over the tile SRAM.
+
+The destination address needed no new register: **`FLUSH_ZB_BASE` (0x258)
+had existed in the register map since Step 25.3h but was wired to
+nothing** -- a leftover from a Z-flush that was planned and never built,
+which is precisely why the flusher's own doc comment said "Z is not
+written". `Borg.scala` now decodes it the same `nogen` way `FLUSH_FB_BASE`
+already was, and gates the burst on `zbBase =/= 0`, so firmware that never
+writes it gets the exact historical colour-only behaviour.
+
+Not wired for `samples > 1`: the colour path resolves MSAA by averaging,
+which is the wrong operation for depth (a specific sample, or min/max, is
+a real semantic choice) -- a `require` makes that combination a build
+error rather than silently wrong output.
+
+**What remains for `D16_UNORM` is no longer hardware**: firmware must
+allocate a depth buffer and write `FLUSH_ZB_BASE`, and `borgvk` must
+report the format as supported. Both are software, in `software/borg` and
+`mesa/`.
+
 Same investigation found the `R8G8B8A8_UNORM` sampled-image half is
 architecturally the opposite situation -- no new hardware needed.
 `BorgTextureUnit`'s own doc comment specifies its DRAM texel layout: 8
