@@ -1640,11 +1640,19 @@ structure (which tests run unconditionally vs. behind a
    implementation exposing `VK_QUEUE_GRAPHICS_BIT` must expose a queue
    family supporting `VK_QUEUE_COMPUTE_BIT` too, i.e. compute is not
    optional for a graphics-capable device) and the local CTS
-   (`vk-default/compute.txt`: 60,811 unconditional test cases). Not a new
-   line item on top of Step 52 — this is the same compute gap Step 52
-   already plans to solve via host-CPU `llvmpipe` dispatch, kept off the
-   RTL critical path — noted here because it's *also* required for
-   baseline conformance (Step 51), not only for vkQuake.
+   (`vk-default/compute.txt`: 60,811 unconditional test cases). **Real
+   hardware, on the RTL critical path** — explicit user decision
+   (2026-09-08): compute dispatches must execute on Borg silicon itself,
+   not be offloaded to the host CPU via `llvmpipe` or any other CPU JIT.
+   An earlier draft of this doc (and of Step 52 below) proposed host-CPU
+   `llvmpipe` dispatch as a way to keep compute off the RTL critical
+   path — that plan is **rejected**, not merely superseded. The actual
+   RTL design (how `vkCmdDispatch` work gets scheduled onto the existing
+   Borg shader core — presumably via `BorgSequencer`/`BorgCore`, or a
+   dedicated compute-dispatch path) is **not yet scoped**; this is real,
+   currently-undesigned hardware work, and belongs in Step 50 alongside
+   the rest of the hardware prerequisites, not deferred to Step 52 as a
+   software-only item.
 8. **Framebuffer/image resolution ceiling** — `maxFramebufferWidth`,
    `maxFramebufferHeight`, and `maxImageDimension2D` must all be ≥4096
    unconditionally. `BorgConfig.maxBinTiles` caps the tile-based renderer
@@ -1736,26 +1744,26 @@ generic assumption):
 - **Hardware, real**: `discard`/masking, multi-texture binding, and
   instruction memory — all Step 50, items 1/3/4. vkQuake's simplest shader
   already needs `discard`.
-- **Compute shaders — architecturally the biggest single gap, but resolved
-  as a *software*, not hardware, problem.** `borgc`'s own comment
-  (`borgvk_compiler.c:116`): *"anything else (e.g. compute) has no Borg
-  slot."* `borgvk_CreateComputePipelines` is a stub; there is no
+- **Compute shaders — architecturally the biggest single gap, and real
+  hardware work, per explicit user decision (2026-09-08).** `borgc`'s own
+  comment (`borgvk_compiler.c:116`): *"anything else (e.g. compute) has no
+  Borg slot."* `borgvk_CreateComputePipelines` is a stub; there is no
   `vkCmdDispatch` execution path anywhere. vkQuake leans on compute
   heavily by design: `skinning.comp` (GPU skeletal animation),
   `indirect.comp`/`indirect_clear.comp` (GPU-generated draw commands),
   `update_lightmap.comp`, `cs_tex_warp.comp` (the classic water/lava
-  warp), `screen_effects.comp`. **Planned resolution**: give `borgvk`'s
-  compute pipeline path a second NIR lowering target reusing Mesa's own
-  `llvmpipe` NIR→LLVM CPU JIT (the same execution engine `rusticl`, Mesa's
-  OpenCL implementation, ultimately rides on for CPU-backed compute) —
-  compute dispatches execute on the host CPU while vertex/fragment stay on
-  real Borg silicon, one `VkDevice`, one driver. Removes compute entirely
-  from the hardware/RTL critical path — nothing here belongs in Step 50.
-  Real remaining wrinkle: several compute shaders feed graphics stages
-  directly (`skinning.comp` → `alias.vert`, `update_lightmap.comp` →
-  `world.frag`'s `lightmap_tex`) — needs explicit host-visible/coherent
-  memory staging since compute (CPU) and graphics (silicon) are different
-  execution domains, not same-engine Vulkan barrier semantics.
+  warp), `screen_effects.comp`. **Rejected resolution**: an earlier draft
+  of this section proposed giving `borgvk`'s compute pipeline path a
+  second NIR lowering target reusing Mesa's own `llvmpipe` NIR→LLVM CPU
+  JIT, executing compute dispatches on the host CPU while vertex/fragment
+  stayed on real Borg silicon. The user explicitly rejected this — compute
+  must run on Borg hardware itself, not be offloaded to the host CPU. This
+  is real, currently-unscoped RTL work (see Step 50 item 7 above), not a
+  software-only problem kept off the critical path. Real remaining
+  wrinkle, regardless of design: several compute shaders feed graphics
+  stages directly (`skinning.comp` → `alias.vert`, `update_lightmap.comp`
+  → `world.frag`'s `lightmap_tex`) — the dependency/scheduling story
+  between compute and graphics work on the same core still needs a design.
 - **Renderer defaults to advanced techniques** (WBOIT/MBOIT
   order-independent transparency, GPU-indirect draws) — `world.frag` has a
   plain non-OIT `#else` path, so a stripped-down bring-up is plausible;
