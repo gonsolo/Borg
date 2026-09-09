@@ -2032,6 +2032,38 @@ Pass 1's per-triangle setup state is stored to DRAM and reloaded per-tile
 in Pass 2, so facing has to travel with it the way `has_uvs` does -- a
 store/reload path change, not just wiring.
 
+**Texture/sampler work DONE 2026-09-09** (commits `b6a8891a`, `e996cb09`) --
+this was the weakest block in the design at roughly 15%: one texel, no
+weights, and clamp as the only addressing mode.
+
+- **Bilinear filtering** (`VK_FILTER_LINEAR`, core, no feature bit). Four
+  taps weighted in UNORM8, reusing BorgBlend's exact `round(a*b/255)` so the
+  two units cannot round differently. UNORM8 is the matching precision
+  rather than a shortcut: texels reach DRAM as FP16 but originate as UNORM8
+  from borgvk's upload path, so quantizing each tap back is lossless for
+  content that exists. Costs 8 DRAM reads per filtered sample (a texel is
+  already 2 because of the packed layout) with **no coalescing**, even
+  though a 2x2 footprint is adjacent in Morton order -- the obvious later
+  optimization.
+- **All four `VkSamplerAddressMode` values**. Power-of-two sizes make REPEAT
+  a mask and MIRRORED_REPEAT a fold. Applied at BOTH coordinate sites --
+  base and bilinear neighbour -- since wrapping only the base leaves a
+  filtered sample across a REPEAT seam fetching a clamped duplicate instead
+  of wrapping.
+
+**Two limitations recorded rather than discovered later.** The half-texel
+offset (`u*W - 0.5`) is NOT applied: Borg's nearest path never applied it,
+and adding it inside the change that introduces filtering would make any
+regression impossible to attribute -- it belongs in coordinate generation
+with its own golden comparison. And wrapping operates on an already-unsigned
+texel index, so **negative UV cannot wrap** (it arrives as 0); positive
+overflow is correct. That needs a signed coordinate conversion.
+
+**Still missing in this block**: mipmaps and LOD selection (the DDX/DDY
+hardware makes the LOD computable, but a mip chain layout and trilinear
+blending are real work), and the format matrix beyond the single FP16 texel
+layout. Anisotropy is optional and should not get hardware.
+
 **Two more mandatory gaps this list had never named, both DONE 2026-09-09**
 (commit `26d87222`) -- found by walking `VkGraphicsPipelineCreateInfo`
 field by field rather than working from the existing list, which is worth
