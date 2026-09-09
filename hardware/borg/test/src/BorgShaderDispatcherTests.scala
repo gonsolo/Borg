@@ -88,6 +88,7 @@ object BorgShaderDispatcherTests extends TestSuite {
       b.srcAlphaFactor.poke(0.U); b.dstAlphaFactor.poke(0.U); b.alphaOp.poke(0.U)
       b.constant.r.poke(0.U); b.constant.g.poke(0.U)
       b.constant.b.poke(0.U); b.constant.a.poke(0.U)
+      b.colorWriteMask.poke(0xF.U)
     }
     // Step 50 item 10: stencil off by default, same reasoning.
     d.io.stencilCfg.foreach { st =>
@@ -99,6 +100,11 @@ object BorgShaderDispatcherTests extends TestSuite {
       }
     }
     d.io.stencilRead.foreach(_.foreach(_.poke(0.U)))
+    // Step 50: scissor. The rectangle test itself lives in BorgRasterizer
+    // (that is where the screen coordinates are); the dispatcher just takes
+    // the per-lane verdict, so "everything passes" is the neutral default
+    // every pre-existing test was written against.
+    d.io.scissorPass.foreach(_.poke(true.B))
     // Step 25.5C: tile read port — provide max depth so depth test passes.
     // Per-sample since MSAA: every sample starts at the far plane.
     d.io.tileRead.data.foreach { s =>
@@ -1277,6 +1283,68 @@ object BorgShaderDispatcherTests extends TestSuite {
         println(f"  discarded: tileWrite.en=$en stencilWriteEn=$sEn (expect false, false)")
         utest.assert(!en)
         utest.assert(!sEn)
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // Step 50: colorWriteMask and the scissor verdict
+    // =========================================================================
+
+    utest.test("color_write_mask_keeps_the_destination_on_masked_channels") {
+      simulate(new BorgShaderDispatcher(BLEND)) { d =>
+        println("\n--- BorgShaderDispatcher: colorWriteMask ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        val SRC = (0x1111, 0x2222, 0x3333)
+        val DST = (0x4444, 0x5555, 0x6666)
+
+        // Blending stays OFF: Vulkan applies the write mask regardless of
+        // blendEnable, and that is the configuration the channel-isolating
+        // passes it exists for actually use.
+        for ((mask, name) <- Seq((0x7, "RGB"), (0x1, "R only"), (0x6, "GB"), (0x0, "none"))) {
+          d.io.blendCfg.get.colorWriteMask.poke(mask.U)
+          val w = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+            compareOp = CMP_LESS, writeEn = true, srcRgb = SRC, dstRgb = DST)
+          val exp = (if ((mask & 1) != 0) SRC._1 else DST._1,
+                     if ((mask & 2) != 0) SRC._2 else DST._2,
+                     if ((mask & 4) != 0) SRC._3 else DST._3)
+          println(f"  mask=0x$mask%x ($name%-6s) -> 0x${w.r.toHexString}/0x${w.g.toHexString}/0x${w.b.toHexString}")
+          utest.assert((w.r, w.g, w.b) == exp)
+          // A fully masked write still writes: the fragment passed its tests,
+          // and the mask does not cancel the depth/stencil side effects.
+          utest.assert(w.en)
+        }
+        println("  PASSED")
+      }
+    }
+
+    utest.test("scissor_reject_kills_the_fragment_and_its_stencil_op") {
+      simulate(new BorgShaderDispatcher(STENCIL)) { d =>
+        println("\n--- BorgShaderDispatcher: scissor verdict ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        d.io.stencilCfg.get.enable.poke(true.B)
+        pokeFrontFace(d, CMP_ALWAYS, BorgStencil.ZERO, BorgStencil.INCREMENT_AND_CLAMP,
+                      BorgStencil.ZERO, reference = 0)
+
+        // Passing scissor: the fragment and its stencil op both happen.
+        d.io.scissorPass.foreach(_.poke(true.B))
+        val inRect = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+          compareOp = CMP_LESS, writeEn = true, storedStencil = 0x11)
+        println(f"  inside scissor:  en=${inRect.en} stencilEn=${inRect.stencilEn}")
+        utest.assert(inRect.en && inRect.stencilEn)
+
+        // Scissored out: the fragment is not rasterized at all, so it performs
+        // no per-fragment operations -- the stencil buffer must not advance
+        // either. Getting only the colour half of this right is the easy bug.
+        d.io.scissorPass.foreach(_.poke(false.B))
+        val outRect = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+          compareOp = CMP_LESS, writeEn = true, storedStencil = 0x11)
+        println(f"  outside scissor: en=${outRect.en} stencilEn=${outRect.stencilEn}")
+        utest.assert(!outRect.en && !outRect.stencilEn)
         println("  PASSED")
       }
     }

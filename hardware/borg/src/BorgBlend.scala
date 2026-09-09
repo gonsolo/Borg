@@ -32,6 +32,11 @@ class BlendConfig extends Bundle {
   val dstAlphaFactor = UInt(5.W)
   val alphaOp        = UInt(3.W)
   val constant       = new Rgba8   // VkPipelineColorBlendStateCreateInfo::blendConstants
+  // VkColorComponentFlagBits: bit 0 = R, 1 = G, 2 = B, 3 = A. A masked-off
+  // channel keeps the destination's value. Independent of `enable` -- Vulkan
+  // applies the write mask whether or not blending is on, which is what makes
+  // it usable for the depth-only and channel-isolating passes it exists for.
+  val colorWriteMask = UInt(4.W)
 }
 
 /** Fixed-function colour blending (Vulkan-conformance item 9).

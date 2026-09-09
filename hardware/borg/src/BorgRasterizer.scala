@@ -48,6 +48,10 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val stencilRead     = if (cfg.hasStencil) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
   val stencilWrite    = if (cfg.hasStencil) Some(Output(UInt(8.W))) else None
   val stencilWriteEn  = if (cfg.hasStencil) Some(Output(Bool())) else None
+  // Step 50: scissor rectangle (SCISSOR_X/SCISSOR_Y). Tested here rather
+  // than in the dispatcher because this is where the per-lane screen
+  // coordinates are.
+  val scissor         = Input(new ScissorConfig)
   val uniformPageReg  = Input(UInt(1.W))
 
   // Outputs
@@ -127,6 +131,13 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.stencilRead.foreach(_ := io.stencilRead.get)
   io.stencilWrite.foreach(_ := dispatcher.io.stencilWrite.get)
   io.stencilWriteEn.foreach(_ := dispatcher.io.stencilWriteEn.get)
+  // Scissor: one rectangle test per lane against its own pre-advance screen
+  // position -- the same coordinates that produce shaderTileIndex, so the
+  // result lines up with the tile slot the fragment will write.
+  for (i <- 0 until cfg.fragLanes) {
+    dispatcher.io.scissorPass(i) :=
+      ScissorConfig.passes(io.scissor, iterator.io.shaderIter(i).x, iterator.io.shaderIter(i).y)
+  }
   dispatcher.io.texConfig      <> io.texConfig
   dispatcher.io.log2Dim        := io.log2Dim
   dispatcher.io.covDelta.foreach(_ := io.covDelta.get)
