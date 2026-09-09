@@ -81,7 +81,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val core      = Module(new BorgCore(cfg))
   val rast      = Module(new BorgRasterizer(cfg))
   val flusher   = Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush))   // before tile — see note above
-  val tile      = Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits))
+  val tile      = Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil))
   val rdlRegs   = Module(new BorgGpuRegs()) // Auto-generated RDL register block
   val dma       = Module(new BorgDMA(cfg))
   val sequencer = Module(new BorgSequencer(cfg))
@@ -316,6 +316,25 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       b.constant.b     := rdlRegs.io.hw.blend_const_const_b
       b.constant.a     := rdlRegs.io.hw.blend_const_const_a
     }
+    // STENCIL_CFG / STENCIL_FRONT / STENCIL_BACK (Step 50 item 10). Reset 0
+    // means stencil disabled -- the historical no-stencil behaviour.
+    rast.io.stencilCfg.foreach { st =>
+      st.enable := rdlRegs.io.hw.stencil_cfg_enable.asBool
+      st.front.compareOp   := rdlRegs.io.hw.stencil_cfg_front_compare_op
+      st.front.failOp      := rdlRegs.io.hw.stencil_cfg_front_fail_op
+      st.front.passOp      := rdlRegs.io.hw.stencil_cfg_front_pass_op
+      st.front.depthFailOp := rdlRegs.io.hw.stencil_cfg_front_depth_fail_op
+      st.front.compareMask := rdlRegs.io.hw.stencil_front_compare_mask
+      st.front.writeMask   := rdlRegs.io.hw.stencil_front_write_mask
+      st.front.reference   := rdlRegs.io.hw.stencil_front_reference
+      st.back.compareOp    := rdlRegs.io.hw.stencil_cfg_back_compare_op
+      st.back.failOp       := rdlRegs.io.hw.stencil_cfg_back_fail_op
+      st.back.passOp       := rdlRegs.io.hw.stencil_cfg_back_pass_op
+      st.back.depthFailOp  := rdlRegs.io.hw.stencil_cfg_back_depth_fail_op
+      st.back.compareMask  := rdlRegs.io.hw.stencil_back_compare_mask
+      st.back.writeMask    := rdlRegs.io.hw.stencil_back_write_mask
+      st.back.reference    := rdlRegs.io.hw.stencil_back_reference
+    }
     rast.io.uniformPageReg := rdlRegs.io.hw.control_uniform_write_page
   }
 
@@ -373,6 +392,14 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // Feed tile read data back to both flusher and dispatcher.
     rast.io.tileRead.data := tile.io.read.data
+
+    // Stencil plane (Step 50 item 10). It shares the colour plane's index,
+    // enable and clear sequence -- the mux above already selected them --
+    // so only the data paths need wiring here.
+    rast.io.stencilRead.foreach(_ := tile.io.stencilRead.get)
+    tile.io.stencilWrite.foreach(_ := rast.io.stencilWrite.get)
+    tile.io.stencilWriteEn.foreach(_ := rast.io.stencilWriteEn.get)
+    tile.io.stencilClear.foreach(_ := rdlRegs.io.hw.stencil_clear_clear_value)
   }
 
   /** Step 25.4.1: Wire BorgTileFlusher with real DRAM writes.
@@ -624,6 +651,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.mmio.fbWidthTiles    := seqTilesPerRowReg(s.io.mmio.fbWidthTiles.getWidth - 1, 0)
       s.io.mmio.fbHeightTiles   := seqTilesPerRowReg(s.io.mmio.fbHeightTiles.getWidth - 1, 0)  // square framebuffer assumption
       s.io.mmio.fragUsesFragPos := rdlRegs.io.hw.tex_config_frag_uses_fragpos
+      // CULL_CFG (Step 50). Reset 2/0 = cull back faces with the historical
+      // winding convention, so firmware that never writes it sees no change.
+      s.io.mmio.cullMode        := rdlRegs.io.hw.cull_cfg_cull_mode
+      s.io.mmio.frontFaceInvert := rdlRegs.io.hw.cull_cfg_front_face_invert.asBool
       s.io.iter.complete        := rast.io.tileComplete
       s.io.iter.stall           := rast.io.autoRunStall
       // Dispatcher pipeline idle — sequencer waits for this before flushing

@@ -42,6 +42,12 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // Step 50 item 9: blend state, forwarded to BorgShaderDispatcher. Present
   // only in a cfg.hasBlend build, matching the dispatcher's own port.
   val blendCfg        = if (cfg.hasBlend) Some(Input(new BlendConfig)) else None
+  // Step 50 item 10: stencil state and the tile buffer's stencil plane,
+  // forwarded to BorgShaderDispatcher.
+  val stencilCfg      = if (cfg.hasStencil) Some(Input(new StencilConfig)) else None
+  val stencilRead     = if (cfg.hasStencil) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
+  val stencilWrite    = if (cfg.hasStencil) Some(Output(UInt(8.W))) else None
+  val stencilWriteEn  = if (cfg.hasStencil) Some(Output(Bool())) else None
   val uniformPageReg  = Input(UInt(1.W))
 
   // Outputs
@@ -117,6 +123,10 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.depthCompareOp := io.depthCompareOp
   dispatcher.io.depthWriteEn   := io.depthWriteEn
   dispatcher.io.blendCfg.foreach(_ := io.blendCfg.get)
+  dispatcher.io.stencilCfg.foreach(_ := io.stencilCfg.get)
+  dispatcher.io.stencilRead.foreach(_ := io.stencilRead.get)
+  io.stencilWrite.foreach(_ := dispatcher.io.stencilWrite.get)
+  io.stencilWriteEn.foreach(_ := dispatcher.io.stencilWriteEn.get)
   dispatcher.io.texConfig      <> io.texConfig
   dispatcher.io.log2Dim        := io.log2Dim
   dispatcher.io.covDelta.foreach(_ := io.covDelta.get)

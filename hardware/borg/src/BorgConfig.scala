@@ -119,6 +119,21 @@ case class BorgConfig(
     // per-sample blending would need a wider write port. See
     // BorgShaderDispatcher's require().
     hasBlend: Boolean = false,
+    // Adds the stencil plane and the fixed-function stencil test/update
+    // ([[BorgStencil]]) -- Vulkan-conformance item 10. Stencil is mandatory;
+    // no VkPhysicalDeviceFeatures bit gates it, and Borg had no stencil
+    // concept at all.
+    //
+    // Costs one 16x8-bit SyncReadMem per sample in the tile buffer plus the
+    // test/op logic. Default false keeps every existing target
+    // bit-identical, and the runtime `stencil_cfg.enable` bit keeps even an
+    // enabled build behaving exactly like a disabled one until firmware
+    // turns it on.
+    //
+    // samples==1 only, for the same TileWriteIO reason as hasBlend: each
+    // sample's stencil update depends on its own stored value, which one
+    // shared write port cannot express.
+    hasStencil: Boolean = false,
     // BorgFp16Fma pipeline depth. 3 is the shipping FP16 form; 4 and 5 add
     // registers inside stages 2 and 3 respectively, for FP32 at 25 MHz.
     //

@@ -102,6 +102,11 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // Fragment uniform-staging mode (tex_config.frag_uses_fragpos): 0 = vertex
   // colour at u19-u27 (hand frag.s), 1 = model frag_pos (borgc cube.frag).
   val fragUsesFragPos = Input(Bool())
+  // Step 50: configurable face culling (CULL_CFG). Reset values reproduce
+  // the historical always-cull-back behaviour -- see BorgGeometrySequencer's
+  // sWaitSetup, the only consumer.
+  val cullMode        = Input(UInt(2.W))
+  val frontFaceInvert = Input(Bool())
 }
 
 class SeqBinnerIO(cfg: BorgConfig) extends Bundle {
