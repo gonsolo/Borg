@@ -42,6 +42,47 @@ object Fp16ToUint8 {
   }
 }
 
+/** FP16 -> unsigned 8.8 fixed point, for texture coordinates.
+  *
+  * Returns the integer texel index in bits 15:8 and the fraction in 7:0, so
+  * one conversion yields both halves a bilinear tap needs. Deriving them
+  * separately -- [[Fp16ToUint8]] for the integer and a second shifter for the
+  * fraction -- would be two chances for the two to disagree at a boundary,
+  * which is exactly where filtering artifacts show up.
+  *
+  * Same derivation as ColorQuantize.quantize8: a normal FP16 is
+  * `SIG * 2^(exp-25)` with SIG = 1024+mant, so `value * 256 = SIG *
+  * 2^(exp-17)` -- a left shift for exp >= 17 and a right shift below it.
+  * Unlike quantize8 the shift crosses zero, so both directions are needed.
+  *
+  * Negative and zero/subnormal inputs give 0; anything >= 256.0 saturates,
+  * matching Fp16ToUint8's clamping so the two never disagree about range.
+  */
+object Fp16ToFixed88 {
+  def apply(fp16: UInt): UInt = {
+    require(fp16.getWidth == 16)
+    val sign = fp16(15)
+    val exp  = fp16(14, 10)
+    val mant = fp16(9, 0)
+    val sig  = Cat(1.U(1.W), mant)                  // 11 bits, [1024, 2047]
+
+    // Widened to the output width BEFORE shifting: `sig` is 11 bits, so a
+    // right shift of it stays 11 bits and slicing (15,0) is out of range.
+    val sigWide   = Cat(0.U(5.W), sig)              // 16 bits
+    val shiftUp   = (exp - 17.U)(4, 0)
+    val shiftDown = (17.U - exp)(4, 0)
+    val up   = (sigWide << shiftUp)(15, 0)
+    val down = (sigWide >> shiftDown)(15, 0)
+
+    val magnitude = Mux(exp >= 17.U, up, down)
+    MuxCase(magnitude, Seq(
+      (sign)             -> 0.U(16.W),              // negative clamps to 0
+      (exp === 0.U)      -> 0.U(16.W),              // zero / subnormal
+      (exp >= 23.U)      -> "hFF00".U(16.W)         // >= 256.0 saturates
+    ))
+  }
+}
+
 /** Keep Fp16ToUint6 for backward compatibility. */
 object Fp16ToUint6 {
   def apply(fp16: UInt): UInt = {

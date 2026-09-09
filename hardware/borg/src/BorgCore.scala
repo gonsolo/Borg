@@ -697,12 +697,22 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def wireExecMask(condOperands: Seq[UInt]): Unit = {
     val perLaneTrue = VecInit(condOperands.map(_ =/= 0.U)).asUInt
 
+    // execSp needs log2Ceil(DEPTH+1) bits to represent "full", but the Vec is
+    // DEPTH deep and wants log2Ceil(DEPTH). Indexing with the wider value is
+    // a Chisel W004 warning and, left alone, synthesizes selection logic for
+    // twice the entries that exist -- the same class of waste as the 3-bit
+    // index into a 4-element Vec that once blew up ABC9 for the full SoC (see
+    // BorgShaderDispatcher's laneCtr). Slice explicitly; the guards above
+    // already ensure the value is in range wherever it is used.
+    val spIdx  = execSp(log2Ceil(EXEC_STACK_DEPTH) - 1, 0)
+    val spPrev = (execSp - 1.U)(log2Ceil(EXEC_STACK_DEPTH) - 1, 0)
+
     when(is_busy && busy_counter === 4.U && opFlags.execOp) {
       when(opFlags.expush) {
         when(execSp === EXEC_STACK_DEPTH.U) {
           execFault := true.B          // no room; results will be wrong
         }.otherwise {
-          execStack(execSp) := execMask
+          execStack(spIdx) := execMask
           execSp   := execSp + 1.U
           execMask := execMask & perLaneTrue
         }
@@ -713,7 +723,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         }.otherwise {
           // Enclosing mask is the top of stack -- see the doc above for why
           // this must not be a plain inversion of execMask.
-          execMask := execStack(execSp - 1.U) & (~execMask).asUInt
+          execMask := execStack(spPrev) & (~execMask).asUInt
         }
       }
       when(opFlags.expop) {
@@ -722,7 +732,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
           execMask  := ((1 << cfg.fragLanes) - 1).U
         }.otherwise {
           execSp   := execSp - 1.U
-          execMask := execStack(execSp - 1.U)
+          execMask := execStack(spPrev)
         }
       }
       if (BorgDebug.trace) printf("[EXEC] pc=%d push=%d else=%d pop=%d cond=0x%x mask=0x%x sp=%d\n",

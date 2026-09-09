@@ -144,13 +144,23 @@ object BorgTilePathElabTests extends TestSuite {
 
     // --- And they coexist ---------------------------------------------------
 
+    utest.test("Borg elaborates with hasBilinear enabled") {
+      // BorgConfig.hasBilinear -> BorgTextureUnit's optional BilinearIO ->
+      // BorgShaderDispatcher's fraction derivation -> BorgRasterizer ->
+      // Borg's SAMPLER_CFG decode. Adding a port to a chain that long is
+      // exactly how an undriven sink gets in.
+      val chirrtl = elaborate(BorgConfig.Default.copy(hasBilinear = true))
+      utest.assert(chirrtl.nonEmpty)
+      println("  Borg(hasBilinear=true) elaborated cleanly")
+    }
+
     utest.test("all three optional tile-path features coexist") {
       // They touch the same modules; enabling one must not have quietly
       // claimed something another needs.
       val chirrtl = elaborate(BorgConfig.Default.copy(
-        hasDepthFlush = true, hasBlend = true, hasStencil = true))
+        hasDepthFlush = true, hasBlend = true, hasStencil = true, hasBilinear = true))
       utest.assert(chirrtl.nonEmpty)
-      println("  Borg(depthFlush + blend + stencil) elaborated cleanly")
+      println("  Borg(depthFlush + blend + stencil + bilinear) elaborated cleanly")
     }
   }
 }

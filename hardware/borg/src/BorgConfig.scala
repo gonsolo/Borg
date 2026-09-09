@@ -134,6 +134,21 @@ case class BorgConfig(
     // sample's stencil update depends on its own stored value, which one
     // shared write port cannot express.
     hasStencil: Boolean = false,
+    // Adds bilinear texture filtering (VK_FILTER_LINEAR) to BorgTextureUnit.
+    // Core Vulkan -- no feature bit gates linear filtering -- and Borg
+    // sampled nearest-neighbour only.
+    //
+    // Costs three UNORM8 tap stores (96 bits), the weight arithmetic, and
+    // 4x the DRAM reads per filtered sample: a texel is already two reads
+    // because of the packed layout, so a filtered one is eight. There is no
+    // coalescing yet even though the four taps of a 2x2 footprint are
+    // adjacent in Morton order, which is the obvious later optimization.
+    //
+    // Default false keeps every existing target bit-identical, and the
+    // runtime SAMPLER_CFG filter bit keeps even an enabled build sampling
+    // nearest -- and paying no quantize/dequantize round trip -- until an
+    // application asks for linear.
+    hasBilinear: Boolean = false,
     // BorgFp16Fma pipeline depth. 3 is the shipping FP16 form; 4 and 5 add
     // registers inside stages 2 and 3 respectively, for FP32 at 25 MHz.
     //

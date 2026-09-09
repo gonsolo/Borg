@@ -80,6 +80,9 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // --- Inputs from texture pipeline ---
   val texConfig  = new TexConfigIO              // mortonIndex, baseAddr, en
   val log2Dim    = Input(UInt(4.W))             // tex_config_log2_dim, see ClampTexCoord
+  // Runtime VkFilter for the sampler (SAMPLER_CFG). Only present in a build
+  // that has the filtering hardware to obey it.
+  val texFilterLinear = if (cfg.hasBilinear) Some(Input(Bool())) else None
 
   // --- Outputs to BorgCore ---
   val coreTrigger = new CoreTriggerIO           // shader start pulse + PC
@@ -159,7 +162,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val phase = RegInit(sIdle)
 
   // --- Texture unit (Step 25.3e) ---
-  val texUnit = Module(new BorgTextureUnit)
+  val texUnit = Module(new BorgTextureUnit(cfg.hasBilinear))
 
   private val N = cfg.fragLanes
 
@@ -336,6 +339,19 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val ftex_u8 = ClampTexCoord(Fp16ToUint8(io.texU), io.log2Dim)
   val ftex_v8 = ClampTexCoord(Fp16ToUint8(io.texV), io.log2Dim)
   ftexMortonIndex := MortonEncode(ftex_u8, ftex_v8)
+
+  // Bilinear operands. The integer halves deliberately reuse ftex_u8/ftex_v8
+  // rather than re-deriving from Fp16ToFixed88's high byte: the nearest path
+  // must keep sampling exactly the texel it always did, so the two paths
+  // share one source of truth for "which texel is the base".
+  texUnit.io.bilinear.foreach { b =>
+    b.enable  := io.texFilterLinear.get
+    b.u8      := ftex_u8
+    b.v8      := ftex_v8
+    b.fracU   := Fp16ToFixed88(io.texU)(7, 0)
+    b.fracV   := Fp16ToFixed88(io.texV)(7, 0)
+    b.log2Dim := io.log2Dim
+  }
 
   // Default FTEX response
   io.texDone := false.B

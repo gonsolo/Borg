@@ -361,6 +361,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rast.io.scissor.x1     := rdlRegs.io.hw.scissor_x_x1
     rast.io.scissor.y0     := rdlRegs.io.hw.scissor_y_y0
     rast.io.scissor.y1     := rdlRegs.io.hw.scissor_y_y1
+    // SAMPLER_CFG (Step 50). Reset 0 = NEAREST, the historical behaviour.
+    rast.io.texFilterLinear.foreach(_ := rdlRegs.io.hw.sampler_cfg_filter_linear.asBool)
     rast.io.uniformPageReg := rdlRegs.io.hw.control_uniform_write_page
   }
 

@@ -22,6 +22,23 @@ import utest._
   *   - DRAM stall: gpuMem.ready de-asserted for multiple cycles before response
   *   - start ignored while a fetch is already in progress (no restart glitch)
   */
+/** Probe for the coordinate conversion, which has no module of its own.
+  *
+  * It lives in BorgShaderDispatcher's datapath, not BorgTextureUnit's, so the
+  * texture-unit tests below -- which poke fracU/fracV directly -- never
+  * elaborate it. That gap let a width bug (`(sig >> n)(15,0)` on an 11-bit
+  * operand) reach the full build. Hence a direct probe.
+  */
+class Fixed88ProbeIO extends Bundle {
+  val fp16  = Input(UInt(16.W))
+  val fixed = Output(UInt(16.W))
+}
+
+class Fixed88Probe extends Module {
+  val io = IO(new Fixed88ProbeIO)
+  io.fixed := Fp16ToFixed88(io.fp16)
+}
+
 object BorgTextureUnitTests extends TestSuite {
 
   // Convenience: compute expected byte address for a Morton index
@@ -30,6 +47,14 @@ object BorgTextureUnitTests extends TestSuite {
 
   /** Reset the DUT and idle for a couple of cycles. */
   def reset(d: BorgTextureUnit): Unit = {
+    // Bilinear operands, when the build has them. NEAREST by default so every
+    // pre-existing test in this file keeps its original meaning.
+    d.io.bilinear.foreach { b =>
+      b.enable.poke(false.B)
+      b.u8.poke(0.U); b.v8.poke(0.U)
+      b.fracU.poke(0.U); b.fracV.poke(0.U)
+      b.log2Dim.poke(0.U)
+    }
     d.io.start.poke(false.B)
     d.io.texConfig.en.poke(false.B)
     d.io.texConfig.mortonIndex.poke(0.U)
@@ -287,5 +312,248 @@ object BorgTextureUnitTests extends TestSuite {
       }
     }
 
+
+    // =========================================================================
+    // Bilinear filtering (VK_FILTER_LINEAR) -- core Vulkan, no feature bit.
+    // =========================================================================
+
+    val BILIN = true
+
+    /** FP16 bits for a small positive float (finite normals only). */
+    def f16(f: Float): Int = {
+      val h = java.lang.Float.floatToIntBits(f)
+      val sign = (h >>> 16) & 0x8000
+      val expF = ((h >>> 23) & 0xff) - 127 + 15
+      val mantF = h & 0x7fffff
+      if (f == 0.0f) sign
+      else if (expF <= 0) sign
+      else if (expF >= 0x1f) sign | 0x7bff
+      else sign | (expF << 10) | (mantF >> 13)
+    }
+    def f16ToFloat(bits: Int): Float = {
+      val exp = (bits >> 10) & 0x1f
+      val mant = bits & 0x3ff
+      val mag = if (exp == 0) mant.toFloat / (1 << 24)
+                else (1.0f + mant.toFloat / 1024.0f) * math.pow(2.0, exp - 15).toFloat
+      if ((bits & 0x8000) != 0) -mag else mag
+    }
+
+    /** Serve one filtered sample: 4 taps x 2 reads, answering each read with
+      * the value the address maps to. Returns the addresses touched, in order,
+      * so a test can assert on the tap footprint itself. */
+    def runFiltered(d: BorgTextureUnit, texel: Map[Int, (Int, Int, Int)],
+                    base: Int): Seq[Int] = {
+      var addrs = Vector.empty[Int]
+      d.io.start.poke(true.B)
+      d.clock.step(1)
+      d.io.start.poke(false.B)
+      var guard = 0
+      while (!d.io.done.peek().litToBoolean && guard < 200) {
+        if (d.io.gpuMem.req.peek().litToBoolean) {
+          val a = d.io.gpuMem.addr.peek().litValue.toInt
+          addrs = addrs :+ a
+          val texelAddr = a & ~4
+          val (r, g, b) = texel.getOrElse(texelAddr, (0, 0, 0))
+          // Layout: word +4 is B, word +0 is {G[31:16], R[15:0]}.
+          val data = if ((a & 4) != 0) BigInt(b) else (BigInt(g) << 16) | BigInt(r)
+          d.io.gpuMem.data.poke(data.U)
+          d.io.gpuMem.ready.poke(true.B)
+        } else {
+          d.io.gpuMem.ready.poke(false.B)
+        }
+        d.clock.step(1)
+        guard += 1
+      }
+      d.io.gpuMem.ready.poke(false.B)
+      utest.assert(guard < 200)
+      addrs
+    }
+
+    utest.test("nearest_is_untouched_by_the_filtering_hardware") {
+      simulate(new BorgTextureUnit(BILIN)) { d =>
+        println("\n--- BorgTextureUnit: filter off ---")
+        reset(d)
+        d.io.texConfig.baseAddr.poke(0.U)
+        d.io.texConfig.mortonIndex.poke(0.U)
+        // enable stays false: exactly two reads, and the raw FP16 texel comes
+        // back bit-for-bit with no quantize/dequantize round trip.
+        val texel = Map(0 -> (f16(1.0f), f16(0.5f), f16(0.25f)))
+        val addrs = runFiltered(d, texel, 0)
+        println(f"  reads=${addrs.length} (expect 2), addrs=${addrs.mkString(",")}")
+        utest.assert(addrs.length == 2)
+        utest.assert(d.io.fragColor.r.peek().litValue.toInt == f16(1.0f))
+        utest.assert(d.io.fragColor.g.peek().litValue.toInt == f16(0.5f))
+        utest.assert(d.io.fragColor.b.peek().litValue.toInt == f16(0.25f))
+        println("  PASSED")
+      }
+    }
+
+    utest.test("filtered_sample_fetches_the_four_neighbours") {
+      simulate(new BorgTextureUnit(BILIN)) { d =>
+        println("\n--- BorgTextureUnit: 2x2 tap footprint ---")
+        reset(d)
+        d.io.texConfig.baseAddr.poke(0.U)
+        d.io.bilinear.get.enable.poke(true.B)
+        d.io.bilinear.get.u8.poke(1.U)
+        d.io.bilinear.get.v8.poke(1.U)
+        d.io.bilinear.get.log2Dim.poke(3.U)     // 8x8 texture, so 2 and 2 are valid
+        d.io.bilinear.get.fracU.poke(0.U)
+        d.io.bilinear.get.fracV.poke(0.U)
+
+        val addrs = runFiltered(d, Map.empty, 0)
+        // Four taps, two reads each, and the addresses must be the Morton
+        // codes of (1,1) (2,1) (1,2) (2,2).
+        def morton(x: Int, y: Int): Int =
+          (0 until 8).map(i => ((x >> i) & 1) << (2 * i) | ((y >> i) & 1) << (2 * i + 1)).sum
+        val expected = Seq((1, 1), (2, 1), (1, 2), (2, 2)).map(p => morton(p._1, p._2) << 3)
+        val touched = addrs.map(_ & ~4).distinct
+        println(f"  reads=${addrs.length} (expect 8), texels=${touched.mkString(",")} expect ${expected.mkString(",")}")
+        utest.assert(addrs.length == 8)
+        utest.assert(touched == expected)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("frac_zero_returns_the_base_texel_exactly") {
+      simulate(new BorgTextureUnit(BILIN)) { d =>
+        println("\n--- BorgTextureUnit: frac 0 is the base texel ---")
+        reset(d)
+        d.io.texConfig.baseAddr.poke(0.U)
+        d.io.bilinear.get.enable.poke(true.B)
+        d.io.bilinear.get.u8.poke(0.U); d.io.bilinear.get.v8.poke(0.U)
+        d.io.bilinear.get.log2Dim.poke(3.U)
+        d.io.bilinear.get.fracU.poke(0.U); d.io.bilinear.get.fracV.poke(0.U)
+
+        // Base texel white, every neighbour black: with both fractions 0 the
+        // filter must land entirely on the base tap. A weight sign error or a
+        // swapped lerp order shows up immediately here.
+        val texel = Map(0 -> (f16(1.0f), f16(1.0f), f16(1.0f)))
+        runFiltered(d, texel, 0)
+        val r = f16ToFloat(d.io.fragColor.r.peek().litValue.toInt)
+        println(f"  r = $r%.3f (expect 1.0)")
+        utest.assert(math.abs(r - 1.0f) < 0.01f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("frac_half_averages_the_two_horizontal_neighbours") {
+      simulate(new BorgTextureUnit(BILIN)) { d =>
+        println("\n--- BorgTextureUnit: horizontal blend ---")
+        reset(d)
+        d.io.texConfig.baseAddr.poke(0.U)
+        d.io.bilinear.get.enable.poke(true.B)
+        d.io.bilinear.get.u8.poke(0.U); d.io.bilinear.get.v8.poke(0.U)
+        d.io.bilinear.get.log2Dim.poke(3.U)
+        d.io.bilinear.get.fracU.poke(128.U)   // halfway across
+        d.io.bilinear.get.fracV.poke(0.U)
+
+        def morton(x: Int, y: Int): Int =
+          (0 until 8).map(i => ((x >> i) & 1) << (2 * i) | ((y >> i) & 1) << (2 * i + 1)).sum
+        // (0,0) white, (1,0) black -> halfway should be ~0.5. fracV=0 keeps
+        // the lower row out of it entirely, so this isolates the u lerp.
+        val texel = Map(
+          (morton(0, 0) << 3) -> (f16(1.0f), f16(1.0f), f16(1.0f)),
+          (morton(1, 0) << 3) -> (0, 0, 0))
+        runFiltered(d, texel, 0)
+        val r = f16ToFloat(d.io.fragColor.r.peek().litValue.toInt)
+        println(f"  r = $r%.3f (expect ~0.5)")
+        utest.assert(math.abs(r - 0.5f) < 0.02f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("frac_half_in_both_axes_averages_all_four") {
+      simulate(new BorgTextureUnit(BILIN)) { d =>
+        println("\n--- BorgTextureUnit: full 2x2 average ---")
+        reset(d)
+        d.io.texConfig.baseAddr.poke(0.U)
+        d.io.bilinear.get.enable.poke(true.B)
+        d.io.bilinear.get.u8.poke(0.U); d.io.bilinear.get.v8.poke(0.U)
+        d.io.bilinear.get.log2Dim.poke(3.U)
+        d.io.bilinear.get.fracU.poke(128.U)
+        d.io.bilinear.get.fracV.poke(128.U)
+
+        def morton(x: Int, y: Int): Int =
+          (0 until 8).map(i => ((x >> i) & 1) << (2 * i) | ((y >> i) & 1) << (2 * i + 1)).sum
+        // Three white, one black -> 0.75. This is the check that the v lerp
+        // actually happens: a version that only lerped in u would give 0.5.
+        val texel = Map(
+          (morton(0, 0) << 3) -> (f16(1.0f), 0, 0),
+          (morton(1, 0) << 3) -> (f16(1.0f), 0, 0),
+          (morton(0, 1) << 3) -> (f16(1.0f), 0, 0),
+          (morton(1, 1) << 3) -> (0, 0, 0))
+        runFiltered(d, texel, 0)
+        val r = f16ToFloat(d.io.fragColor.r.peek().litValue.toInt)
+        println(f"  r = $r%.3f (expect ~0.75; 0.5 would mean no v lerp)")
+        utest.assert(math.abs(r - 0.75f) < 0.02f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("neighbour_taps_clamp_at_the_texture_edge") {
+      simulate(new BorgTextureUnit(BILIN)) { d =>
+        println("\n--- BorgTextureUnit: edge clamp ---")
+        reset(d)
+        d.io.texConfig.baseAddr.poke(0.U)
+        d.io.bilinear.get.enable.poke(true.B)
+        d.io.bilinear.get.u8.poke(7.U); d.io.bilinear.get.v8.poke(7.U)
+        d.io.bilinear.get.log2Dim.poke(3.U)   // 8x8: 7 is the last valid index
+        d.io.bilinear.get.fracU.poke(255.U); d.io.bilinear.get.fracV.poke(255.U)
+
+        // u+1 and v+1 are past the edge. Unclamped, Morton would set a bit the
+        // 8-wide addressing never carries and the read would land in
+        // unpopulated memory -- black fringing along two edges of every
+        // texture. All four taps must collapse onto (7,7).
+        val addrs = runFiltered(d, Map.empty, 0)
+        val touched = addrs.map(_ & ~4).distinct
+        println(f"  distinct texels touched = ${touched.length} (expect 1 -- all clamped to (7,7))")
+        utest.assert(touched.length == 1)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("fp16_to_8dot8_splits_integer_and_fraction") {
+      simulate(new Fixed88Probe) { d =>
+        println("\n--- Fp16ToFixed88 ---")
+        def f16(f: Float): Int = {
+          val h = java.lang.Float.floatToIntBits(f)
+          val sign = (h >>> 16) & 0x8000
+          val expF = ((h >>> 23) & 0xff) - 127 + 15
+          val mantF = h & 0x7fffff
+          if (f == 0.0f) sign
+          else if (expF <= 0) sign
+          else if (expF >= 0x1f) sign | 0x7bff
+          else sign | (expF << 10) | (mantF >> 13)
+        }
+        def conv(f: Float): (Int, Int) = {
+          d.io.fp16.poke(f16(f).U)
+          d.clock.step(1)
+          val v = d.io.fixed.peek().litValue.toInt
+          (v >> 8, v & 0xFF)
+        }
+
+        // Spans both shift directions: values below 1.0 shift right, values
+        // at and above 2.0 shift left, and 1.x is the boundary. That boundary
+        // is where the 11-bit-operand width bug lived.
+        for ((v, ei, ef) <- Seq(
+              (0.0f, 0, 0), (0.5f, 0, 128), (0.25f, 0, 64), (0.75f, 0, 192),
+              (1.0f, 1, 0), (1.5f, 1, 128), (2.0f, 2, 0), (2.25f, 2, 64),
+              (7.5f, 7, 128), (63.5f, 63, 128), (200.0f, 200, 0))) {
+          val (i, f) = conv(v)
+          println(f"  $v%8.3f -> int=$i%3d frac=$f%3d (expect $ei/$ef)")
+          utest.assert(i == ei && f == ef)
+        }
+
+        // The integer half must agree with Fp16ToUint8, which the nearest
+        // path uses -- if they ever disagree, a filtered sample and an
+        // unfiltered one would name different base texels.
+        utest.assert(conv(255.9f)._1 == 255)
+        // Negative and out-of-range clamp the same way Fp16ToUint8 does.
+        d.io.fp16.poke(f16(-1.0f).U); d.clock.step(1)
+        utest.assert(d.io.fixed.peek().litValue.toInt == 0)
+        println("  clamping matches the nearest path")
+        println("  PASSED")
+      }
+    }
   }
 }
