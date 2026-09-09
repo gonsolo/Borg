@@ -53,6 +53,19 @@ object Instructions {
   val FUNCT7_FSRGB = 0x1C  // rd = linearToSrgb(rs1)       (unary, LUT)
   val FUNCT7_DDX   = 0x1E  // rd = dFdx(rs1)  (cross-lane: lane1 - lane0)
   val FUNCT7_DDY   = 0x20  // rd = dFdy(rs1)  (cross-lane: lane2 - lane0)
+  // Memory access. The FIRST instructions that touch an address the shader
+  // computes itself -- every op above reaches memory only through a
+  // fixed-function path (FTEX's texture fetch, the uniform bank's
+  // funct3-selected read, the hardware ABI's tile-buffer write).
+  //
+  // The operand is a WORD INDEX, not a byte address: at FP16 a register holds
+  // 16 bits and the address space is 25, so a register simply cannot carry a
+  // full address. The effective address is `LS_BASE + (rs1 << 2)`, which is
+  // the same base-plus-index shape the texture unit already uses, and maps
+  // directly onto a Vulkan SSBO binding -- LS_BASE is the descriptor, the
+  // shader supplies the element index.
+  val FUNCT7_LOAD  = 0x22  // rd = mem32[LS_BASE + (rs1 << 2)]
+  val FUNCT7_STORE = 0x24  // mem32[LS_BASE + (rs1 << 2)] = rs2   (no rd)
   // @doc:end
 
   // --- Base Instruction Encoders ---
@@ -79,6 +92,9 @@ object Instructions {
   def FSRGB(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FSRGB, 0, rs1, rd, funct3)
   def DDX(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_DDX, 0, rs1, rd, funct3)
   def DDY(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_DDY, 0, rs1, rd, funct3)
+  def LOAD(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_LOAD, 0, rs1, rd, funct3)
+  /** STORE has no destination register; rd is encoded as 0. */
+  def STORE(rs1: Int, rs2: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_STORE, rs2, rs1, 0, funct3)
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
   // @doc:end
 

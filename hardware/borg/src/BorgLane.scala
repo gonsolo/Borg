@@ -16,7 +16,7 @@ import chisel3.util._
   * here as inputs: the decoded instruction (`regs`/`opFlags`), the pipeline
   * control (`busyCounter`/`running`/`isBusy`/`fmaStart`), the single uniform-RAM
   * read result (`uniformData`/`funct3Del`), the MMIO bus, LUT init, and the FTEX
-  * write-back (`texWrite`) from the shared FTEX FSM.
+  * write-back (`memWrite`) from the shared FTEX FSM.
   *
   * Write-back addr+enable are shared (same `rd`/MMIO address, same control); only
   * the data differs per lane, so the lane computes its own data and writes its own
@@ -53,7 +53,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val bus         = Flipped(new BorgBusIO())
 
   // --- FTEX write-back from the shared FTEX FSM (en/addr/data) ---
-  val texWrite    = Flipped(new MemWritePort(5, cfg.totalBits))
+  val memWrite    = Flipped(new MemWritePort(5, cfg.totalBits))
 
   // --- Outputs ---
   val pipeWrite   = new PipeWriteIO(cfg.totalBits) // write-back snoop
@@ -394,13 +394,15 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.pipeWrite.addr := w_addr
     io.pipeWrite.data := w_data
 
-    // FTEX write-back override (shared FSM drives texWrite; last-connect wins,
-    // matching the original wireTexStall-after-wireWriteBack ordering).
-    when(io.texWrite.en) {
-      writeReg(io.texWrite.addr, true.B, io.texWrite.data)
+    // Memory-FSM write-back override (FTEX's texel triple, or LOAD's word).
+    // Last-connect wins, matching the original wireTexStall-after-
+    // wireWriteBack ordering. Named memWrite rather than texWrite since
+    // FTEX is no longer its only driver.
+    when(io.memWrite.en) {
+      writeReg(io.memWrite.addr, true.B, io.memWrite.data)
       io.pipeWrite.en   := true.B
-      io.pipeWrite.addr := io.texWrite.addr
-      io.pipeWrite.data := io.texWrite.data
+      io.pipeWrite.addr := io.memWrite.addr
+      io.pipeWrite.data := io.memWrite.data
     }
   }
 

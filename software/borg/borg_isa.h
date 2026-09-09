@@ -35,6 +35,15 @@
 #define BORG_INSTR_I2F(rd, rs1, funct3)          (0x2C000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
 #define BORG_INSTR_F2I(rd, rs1, funct3)          (0x30000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
 
+// --- R-type: LOAD / STORE (DRAM access) ---
+// The operand is a WORD INDEX, not a byte address: at FP16 a register holds
+// 16 bits and the GPU address space is 25, so a register cannot carry a full
+// address. The hardware forms LS_BASE + (rs1 << 2), where LS_BASE is the
+// ls_base MMIO register -- effectively an SSBO descriptor.
+// STORE has no destination; rd is encoded as 0.
+#define BORG_INSTR_LOAD(rd, rs1, funct3)         (0x44000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
+#define BORG_INSTR_STORE(rs1, rs2, funct3)       (0x48000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15))
+
 // --- Special: HALT ---
 #define BORG_INSTR_HALT                           0x00000000U
 

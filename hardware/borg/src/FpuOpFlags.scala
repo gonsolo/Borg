@@ -23,5 +23,10 @@ class FpuOpFlags extends Bundle {
   val fsrgb  = Bool()
   val ddx    = Bool() // quad derivative d/dx (cross-lane: lane1 - lane0)
   val ddy    = Bool() // quad derivative d/dy (cross-lane: lane2 - lane0)
+  // Memory access (LS_BASE + (rs1 << 2)). Both stall the core like FTEX; the
+  // lane's own ALU write-back never fires for them, because the shared
+  // memory FSM freezes busy_counter at 4 and write-back happens at 1.
+  val load   = Bool()
+  val store  = Bool()
   val funct3 = UInt(3.W)
 }
