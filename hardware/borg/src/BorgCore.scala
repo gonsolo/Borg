@@ -61,7 +61,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // texV interface is: Borg.scala already arbitrates four gpuMem masters with
   // a priority mux, so adding a fifth is a smaller change than routing a
   // second memory protocol through BorgRasterizer and BorgShaderDispatcher.
-  val gpuMem  = new GpuMemIO
+  val gpuMem  = if (cfg.hasMemoryOps) Some(new GpuMemIO) else None
   val memBusy = Output(Bool())       // high while a LOAD/STORE owns the bus
   // Sticky: a branch condition differed between quad lanes. Deliberately NOT
   // a CoreStatusIO field -- that bundle is pipeline feedback consumed by the
@@ -78,7 +78,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // LS_BASE: the base address loads and stores are relative to. Effectively
   // the SSBO descriptor -- see Instructions.FUNCT7_LOAD for why the register
   // operand is an index rather than a full address.
-  val lsBase  = Input(UInt(25.W))
+  val lsBase  = if (cfg.hasMemoryOps) Some(Input(UInt(25.W))) else None
 
   // Step 34.4: FTEX texture sample request/response
   val texReq  = Output(Bool())       // core requests texture fetch
@@ -210,13 +210,16 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // the two FSMs are mutually exclusive in time (one instruction at a time),
   // so each drives the port only inside its own `when`, and FTEX's default
   // survives for every cycle this one is idle.
-  wireMemStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.memWrite))
+  if (cfg.hasMemoryOps)
+    wireMemStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.memWrite))
+  else
+    io.memBusy := false.B
 
-  // --- Branch evaluation ---
-  wireBranch(lanes.map(_.io.recARaw))
-
-  // --- Execution mask (EXPUSH / EXELSE / EXPOP) ---
-  wireExecMask(lanes.map(_.io.recARaw))
+  // --- Branch evaluation and execution mask ---
+  if (cfg.hasControlFlow) {
+    wireBranch(lanes.map(_.io.recARaw))
+    wireExecMask(lanes.map(_.io.recARaw))
+  }
 
   // --- Quad derivatives (DDX/DDY): broadcast cross-lane operands to every lane.
   //   ddx = lane1 - lane0, ddy = lane2 - lane0 (constant across a flat 2×2 quad:
@@ -267,14 +270,18 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.fsrgb := !flags.fma && f7op === Instructions.FUNCT7_FSRGB.U
     flags.ddx   := !flags.fma && f7op === Instructions.FUNCT7_DDX.U
     flags.ddy   := !flags.fma && f7op === Instructions.FUNCT7_DDY.U
-    flags.load  := !flags.fma && f7op === Instructions.FUNCT7_LOAD.U
-    flags.store := !flags.fma && f7op === Instructions.FUNCT7_STORE.U
-    flags.brz   := !flags.fma && f7op === Instructions.FUNCT7_BRZ.U
-    flags.brnz  := !flags.fma && f7op === Instructions.FUNCT7_BRNZ.U
+    // A gated-out opcode decodes as false everywhere rather than falling
+    // through to some other op's flag: an absent instruction must be inert,
+    // not accidentally an ADD.
+    flags.load  := (if (cfg.hasMemoryOps) !flags.fma && f7op === Instructions.FUNCT7_LOAD.U else false.B)
+    flags.store := (if (cfg.hasMemoryOps) !flags.fma && f7op === Instructions.FUNCT7_STORE.U else false.B)
+    val cf = cfg.hasControlFlow
+    flags.brz    := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_BRZ.U else false.B)
+    flags.brnz   := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_BRNZ.U else false.B)
     flags.branch := flags.brz || flags.brnz
-    flags.expush := !flags.fma && f7op === Instructions.FUNCT7_EXPUSH.U
-    flags.exelse := !flags.fma && f7op === Instructions.FUNCT7_EXELSE.U
-    flags.expop  := !flags.fma && f7op === Instructions.FUNCT7_EXPOP.U
+    flags.expush := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_EXPUSH.U else false.B)
+    flags.exelse := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_EXELSE.U else false.B)
+    flags.expop  := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_EXPOP.U else false.B)
     flags.execOp := flags.expush || flags.exelse || flags.expop
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 
@@ -535,13 +542,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Effective address: LS_BASE + (index << 2). The shift is what makes the
     // index a word index and misalignment unrepresentable; +& keeps the carry
     // so a base near the top of the space does not wrap silently.
-    val byteAddr = (io.lsBase +& (curIndex << 2))(24, 0)
+    val byteAddr = (io.lsBase.get +& (curIndex << 2))(24, 0)
 
-    io.gpuMem.req   := false.B
-    io.gpuMem.addr  := 0.U
-    io.gpuMem.wr    := false.B
-    io.gpuMem.wdata := 0.U
-    io.gpuMem.wlen  := 1.U            // single word; only the flusher bursts
+    io.gpuMem.get.req   := false.B
+    io.gpuMem.get.addr  := 0.U
+    io.gpuMem.get.wr    := false.B
+    io.gpuMem.get.wdata := 0.U
+    io.gpuMem.get.wlen  := 1.U            // single word; only the flusher bursts
     io.memBusy      := memState =/= sMemIdle
 
     // Start once operands are valid, exactly like FTEX.
@@ -583,16 +590,16 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     when(memState === sMemReq && laneActive) {
       busy_counter    := busy_counter   // hold operands stable
-      io.gpuMem.addr  := byteAddr
-      io.gpuMem.req   := is_load_reg
-      io.gpuMem.wr    := is_store_reg
-      io.gpuMem.wdata := curData
-      when(io.gpuMem.ready) {
+      io.gpuMem.get.addr  := byteAddr
+      io.gpuMem.get.req   := is_load_reg
+      io.gpuMem.get.wr    := is_store_reg
+      io.gpuMem.get.wdata := curData
+      when(io.gpuMem.get.ready) {
         if (BorgDebug.trace) printf("[MEM] %s lane=%d addr=0x%x data=0x%x\n",
           Mux(is_load_reg, "LD".U, "ST".U), memLane, byteAddr,
-          Mux(is_load_reg, io.gpuMem.data, curData))
+          Mux(is_load_reg, io.gpuMem.get.data, curData))
         when(is_load_reg) {
-          memDataReg := io.gpuMem.data(config.totalBits - 1, 0)
+          memDataReg := io.gpuMem.get.data(config.totalBits - 1, 0)
           memState   := sMemWB
         }.otherwise {
           finishLane()                  // a store has nothing to write back

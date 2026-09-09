@@ -259,26 +259,32 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val geoWdata = Mux(b.io.busy, b.io.gpuMem.wdata, s.io.store.wdata)
 
     // 4-way mux: DMA > Flusher > Geo > Rast
+    // The core is a master only in a build that has LOAD/STORE. Without it
+    // the mux collapses back to the four-way form it had before, rather than
+    // carrying a permanently-idle fifth input.
     val coreMem = core.io.memBusy
+    def coreOr(sel: GpuMemIO => UInt, fallback: UInt): UInt =
+      core.io.gpuMem.map(g => Mux(coreMem, sel(g), fallback)).getOrElse(fallback)
+    def coreOrB(sel: GpuMemIO => Bool, fallback: Bool): Bool =
+      core.io.gpuMem.map(g => Mux(coreMem, sel(g), fallback)).getOrElse(fallback)
+
     io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
                        Mux(f.io.busy, f.io.gpuMem.req,
-                       Mux(geoBusy, geoReq,
-                       Mux(coreMem, core.io.gpuMem.req, rast.io.gpuMem.req))))
+                       Mux(geoBusy, geoReq, coreOrB(_.req, rast.io.gpuMem.req))))
     io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
                        Mux(f.io.busy, f.io.gpuMem.addr,
-                       Mux(geoBusy, geoAddr,
-                       Mux(coreMem, core.io.gpuMem.addr, rast.io.gpuMem.addr))))
+                       Mux(geoBusy, geoAddr, coreOr(_.addr, rast.io.gpuMem.addr))))
     io.gpuMem.wr    := Mux(d.io.busy, false.B,  // DMA only reads — never assert wr
                        Mux(f.io.busy, f.io.gpuMem.wr,
-                       Mux(geoBusy, geoWr,
-                       Mux(coreMem, core.io.gpuMem.wr, rast.io.gpuMem.wr))))
+                       Mux(geoBusy, geoWr, coreOrB(_.wr, rast.io.gpuMem.wr))))
     io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
-                       Mux(geoBusy, geoWdata,
-                       Mux(coreMem, core.io.gpuMem.wdata, rast.io.gpuMem.wdata)))
-    core.io.gpuMem.data    := io.gpuMem.data
-    core.io.gpuMem.ready   := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy && coreMem
-    core.io.gpuMem.waccept := false.B
-    core.io.lsBase         := rdlRegs.io.hw.ls_base_base_addr
+                       Mux(geoBusy, geoWdata, coreOr(_.wdata, rast.io.gpuMem.wdata)))
+    core.io.gpuMem.foreach { g =>
+      g.data    := io.gpuMem.data
+      g.ready   := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy && coreMem
+      g.waccept := false.B
+    }
+    core.io.lsBase.foreach(_ := rdlRegs.io.hw.ls_base_base_addr)
     // Burst length: only the flusher streams whole tiles; everyone else is 1 word.
     io.gpuMem.wlen  := Mux(f.io.busy, f.io.gpuMem.wlen, 1.U)
     rast.io.gpuMem.data  := io.gpuMem.data
