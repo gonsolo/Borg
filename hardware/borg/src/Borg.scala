@@ -335,6 +335,14 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       st.back.writeMask    := rdlRegs.io.hw.stencil_back_write_mask
       st.back.reference    := rdlRegs.io.hw.stencil_back_reference
     }
+    // SCISSOR_X / SCISSOR_Y (Step 50). Reset enable=0 means every fragment
+    // passes -- the historical behaviour, and deliberately not "an empty
+    // rectangle", which would blank the frame.
+    rast.io.scissor.enable := rdlRegs.io.hw.scissor_y_enable.asBool
+    rast.io.scissor.x0     := rdlRegs.io.hw.scissor_x_x0
+    rast.io.scissor.x1     := rdlRegs.io.hw.scissor_x_x1
+    rast.io.scissor.y0     := rdlRegs.io.hw.scissor_y_y0
+    rast.io.scissor.y1     := rdlRegs.io.hw.scissor_y_y1
     rast.io.uniformPageReg := rdlRegs.io.hw.control_uniform_write_page
   }
 

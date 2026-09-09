@@ -494,8 +494,20 @@ reg blend_cfg_reg_t {
     } alpha_op[3] = 0;
 
     field {
+        sw = rw; hw = r;
+        desc = "Bits 30:27: colorWriteMask (VkColorComponentFlagBits) -- bit 0
+                R, 1 G, 2 B, 3 A. A masked-off channel keeps the destination's
+                value. Independent of `enable`: Vulkan applies the write mask
+                whether or not blending is on, which is what makes it usable
+                for the depth-only and channel-isolating passes it exists for.
+                Reset 0xF = write every channel, the historical behaviour.
+                The A bit has nothing to act on -- Borg's colour attachment
+                stores no alpha -- so masking it is already what happens.";
+    } color_write_mask[4] = 15;
+
+    field {
         sw = rw; hw = na;
-    } RSVD[5] = 0;
+    } RSVD[1] = 0;
 };
 
 reg blend_const_reg_t {
@@ -619,6 +631,44 @@ reg cull_cfg_reg_t {
     } front_face_invert[1] = 0;
 
     field { sw = rw; hw = na; } RSVD[29] = 0;
+};
+
+// --- Scissor rectangle (Step 50) ---
+reg scissor_x_reg_t {
+    name = "Scissor Rectangle X";
+    desc = "Scissor test X bounds, in pixels. x0 is inclusive, x1 exclusive,
+            so a VkRect2D maps directly: x0 = offset.x, x1 = offset.x +
+            extent.width.
+
+            The scissor test is core Vulkan -- every graphics pipeline has a
+            scissor rectangle, there is no feature bit and no way to opt out
+            of the state -- and Borg had none: a fragment inside the triangle
+            was always written.
+
+            13 bits per bound, not 12: the bounds are half-open, so covering
+            the full 4096-wide framebuffer Vulkan requires needs x1 = 4096,
+            which does not fit in 12 bits.";
+
+    field { sw = rw; hw = r; desc = "Bits 12:0: x0, inclusive."; }  x0[13] = 0;
+    field { sw = rw; hw = r; desc = "Bits 25:13: x1, exclusive."; } x1[13] = 0;
+    field { sw = rw; hw = na; } RSVD[6] = 0;
+};
+
+reg scissor_y_reg_t {
+    name = "Scissor Rectangle Y";
+    desc = "Scissor test Y bounds plus the enable. y0 inclusive, y1
+            exclusive, matching scissor_x.";
+
+    field { sw = rw; hw = r; desc = "Bits 12:0: y0, inclusive."; }  y0[13] = 0;
+    field { sw = rw; hw = r; desc = "Bits 25:13: y1, exclusive."; } y1[13] = 0;
+    field {
+        sw = rw; hw = r;
+        desc = "Bit 26: scissor enable. Reset 0 -- every fragment passes, the
+                historical behaviour. An enable bit rather than resetting the
+                bounds wide open, so firmware that zeroes the register block
+                does not silently discard the whole frame.";
+    } enable[1] = 0;
+    field { sw = rw; hw = na; } RSVD[5] = 0;
 };
 
 // --- Tile flusher Z-buffer base address (Step 25.3h) ---
@@ -1214,6 +1264,11 @@ addrmap borg_gpu {
     // ---- Face culling — fully generated (hw=r). Reset = cull back faces,
     //      the historical hardcoded behaviour. ----
     cull_cfg_reg_t cull_cfg;
+
+    // ---- Scissor rectangle — fully generated (hw=r). Reset = disabled,
+    //      i.e. every fragment passes. ----
+    scissor_x_reg_t scissor_x;
+    scissor_y_reg_t scissor_y;
 
     // ---- Performance counters: present-phase decomposition ----
     // Fully generated (hw=w → Borg drives io.hw.perf_*_value, SW reads).

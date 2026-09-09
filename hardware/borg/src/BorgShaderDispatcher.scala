@@ -60,6 +60,13 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val stencilWrite   = if (cfg.hasStencil) Some(Output(UInt(8.W))) else None
   val stencilWriteEn = if (cfg.hasStencil) Some(Output(Bool())) else None
 
+  // Step 50: per-lane scissor result, computed in BorgRasterizer where the
+  // screen coordinates live. Unconditional rather than config-gated: the
+  // scissor test is core Vulkan state with no feature bit, and it costs one
+  // AND per lane here (the comparators themselves are one shared rectangle
+  // test in the rasterizer, not per lane).
+  val scissorPass = Input(Vec(cfg.fragLanes, Bool()))
+
   // --- Inputs from texture pipeline ---
   val texConfig  = new TexConfigIO              // mortonIndex, baseAddr, en
   val log2Dim    = Input(UInt(4.W))             // tex_config_log2_dim, see ClampTexCoord
@@ -445,9 +452,22 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       dst.b := ColorQuantize.quantize8(io.tileRead.data(0).b)
       dst.a := BorgBlend.ONE_U8.U
       val out = BorgBlend.blend(cfgIn, src, dst)
-      (Mux(cfgIn.enable, ColorQuantize.dequantize8(out.r), frag_r(laneIdx)),
-       Mux(cfgIn.enable, ColorQuantize.dequantize8(out.g), frag_g(laneIdx)),
-       Mux(cfgIn.enable, ColorQuantize.dequantize8(out.b), frag_b(laneIdx)))
+      val blended = Seq(
+        Mux(cfgIn.enable, ColorQuantize.dequantize8(out.r), frag_r(laneIdx)),
+        Mux(cfgIn.enable, ColorQuantize.dequantize8(out.g), frag_g(laneIdx)),
+        Mux(cfgIn.enable, ColorQuantize.dequantize8(out.b), frag_b(laneIdx)))
+      // colorWriteMask: a masked-off channel keeps the destination value.
+      // Applied outside the `enable` mux on purpose -- Vulkan's write mask is
+      // independent of blendEnable, and the channel-isolating passes it
+      // exists for typically run with blending off.
+      //
+      // The alpha bit (3) has nothing to act on: Borg's colour attachment
+      // stores no alpha, so masking it is already the observed behaviour.
+      val dstRgb = Seq(io.tileRead.data(0).r, io.tileRead.data(0).g, io.tileRead.data(0).b)
+      val masked = blended.zip(dstRgb).zipWithIndex.map { case ((b, d), i) =>
+        Mux(cfgIn.colorWriteMask(i), b, d)
+      }
+      (masked(0), masked(1), masked(2))
     } else (frag_r(laneIdx), frag_g(laneIdx), frag_b(laneIdx))
 
     io.tileWrite.data.r := blendR
@@ -511,7 +531,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
         case Some(r) if s == 0 => r.pass
         case _                 => depthPasses(frag_z(laneIdx), io.tileRead.data(s).z)
       }
-      coverage(laneIdx)(s) && !killed(laneIdx) && depthOk
+      coverage(laneIdx)(s) && !killed(laneIdx) && io.scissorPass(laneIdx) && depthOk
     }
     io.tileWrite.coverage := Cat(samplePass.reverse)
     io.tileWrite.en       := samplePass.reduce(_ || _)
@@ -521,7 +541,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       // Reached the stencil test at all: covered and not discarded. A
       // `discard`ed fragment performs no per-fragment operations, so it must
       // not advance the stencil buffer either.
-      io.stencilWriteEn.get := coverage(laneIdx)(0) && !killed(laneIdx)
+      io.stencilWriteEn.get := coverage(laneIdx)(0) && !killed(laneIdx) && io.scissorPass(laneIdx)
     }
     if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d idx=%d Z=0x%x zOld_s0=0x%x cov=0x%x\n",
       laneCtr, io.shaderTileIndex(laneIdx), frag_z(laneIdx), io.tileRead.data(0).z,
