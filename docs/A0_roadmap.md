@@ -1939,6 +1939,42 @@ Pass 1's per-triangle setup state is stored to DRAM and reloaded per-tile
 in Pass 2, so facing has to travel with it the way `has_uvs` does -- a
 store/reload path change, not just wiring.
 
+**Two more mandatory gaps this list had never named, both DONE 2026-09-09**
+(commit `26d87222`) -- found by walking `VkGraphicsPipelineCreateInfo`
+field by field rather than working from the existing list, which is worth
+repeating for the remaining state:
+
+- **`colorWriteMask`** (`VkColorComponentFlagBits`). No feature bit; Borg
+  wrote every channel unconditionally. It rides with the blend attachment
+  state it belongs to, so it sits under `hasBlend`. Applied *outside* the
+  `blendEnable` mux deliberately: Vulkan applies the write mask whether or
+  not blending is on, and the channel-isolating passes it exists for
+  typically run with blending off.
+- **Scissor test.** Every graphics pipeline carries a scissor rectangle --
+  there is no feature bit and no way to opt out of the state -- and Borg
+  had none. Computed in `BorgRasterizer` where the per-lane screen
+  coordinates are, folded in beside the depth and stencil results so a
+  scissored-out fragment also performs no stencil operation. Bounds are
+  half-open so `VkRect2D`'s `offset + extent` maps across unchanged, and
+  *disabled* means everything passes, not the empty rectangle.
+
+**Remaining known mandatory graphics state Borg still lacks**, from the
+same walk -- listed so the next pass does not have to rediscover it:
+`depthBiasEnable` with its constant/slope/clamp factors (slope needs
+dz/dx,dz/dy, so it is not just an addend); primitive topologies other than
+triangle lists (points and lines are mandatory); and multiple viewports/
+the viewport transform being fixed in the setup shader rather than
+programmable state. `depthBounds`, `depthClamp`, `wideLines`,
+`independentBlend` and `dualSrcBlend` are all optional features Borg can
+legitimately report unsupported -- **do not** spend hardware on those.
+
+**Also worth re-checking before the next MSAA claim**: Vulkan's limits
+table requires `framebufferColorSampleCounts` to include
+`VK_SAMPLE_COUNT_4_BIT`, not just 1. That makes the `TileWriteIO`
+shared-`data` limitation flagged above a genuine conformance blocker
+rather than a nice-to-have, since blending, `depthWriteEnable`, stencil and
+the scissor/colour path all have to be correct at 4 samples.
+
 **Explicitly NOT here — pure performance, not correctness, deferred to
 Step 53**: widening `fragLanes` *beyond* 4, warp-level multithreading,
 multi-core scale-out. Neither Vulkan conformance nor vkQuake need any of
