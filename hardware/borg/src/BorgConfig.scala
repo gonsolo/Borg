@@ -99,6 +99,26 @@ case class BorgConfig(
     // BorgTileFlusher's own require() and doc comment for why MSAA depth
     // resolve is a separate semantic decision, not an average.
     hasDepthFlush: Boolean = false,
+    // Adds the fixed-function colour blend stage ([[BorgBlend]]) to the
+    // dispatcher's tile-write path -- Vulkan-conformance item 9. Blending is
+    // core functionality, not an optional feature (only `independentBlend`
+    // and `dualSrcBlend` are the optional extras), and Borg had none: every
+    // tile write was an unconditional overwrite.
+    //
+    // Costs the blend equation itself (eight 8x8 multipliers plus the factor
+    // muxes) and one 16-bit per-lane register for the fragment's alpha
+    // output. Default false keeps every existing target bit-identical.
+    //
+    // Even in an enabled build the runtime `blend_cfg.enable` bit passes the
+    // fragment's original FP16 colour straight through, so nothing pays the
+    // FP16 -> UNORM8 -> FP16 round trip until an application actually turns
+    // blending on.
+    //
+    // Only valid at samples==1: the destination colour is per-sample but
+    // TileWriteIO carries one shared `data` for all covered samples, so
+    // per-sample blending would need a wider write port. See
+    // BorgShaderDispatcher's require().
+    hasBlend: Boolean = false,
     // BorgFp16Fma pipeline depth. 3 is the shipping FP16 form; 4 and 5 add
     // registers inside stages 2 and 3 respectively, for FP32 at 25 MHz.
     //

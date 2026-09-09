@@ -39,6 +39,9 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // Step 50 item 11: depth-test state, forwarded to BorgShaderDispatcher.
   val depthCompareOp  = Input(UInt(3.W))
   val depthWriteEn    = Input(Bool())
+  // Step 50 item 9: blend state, forwarded to BorgShaderDispatcher. Present
+  // only in a cfg.hasBlend build, matching the dispatcher's own port.
+  val blendCfg        = if (cfg.hasBlend) Some(Input(new BlendConfig)) else None
   val uniformPageReg  = Input(UInt(1.W))
 
   // Outputs
@@ -113,6 +116,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.fragPcReg      := io.fragPcReg
   dispatcher.io.depthCompareOp := io.depthCompareOp
   dispatcher.io.depthWriteEn   := io.depthWriteEn
+  dispatcher.io.blendCfg.foreach(_ := io.blendCfg.get)
   dispatcher.io.texConfig      <> io.texConfig
   dispatcher.io.log2Dim        := io.log2Dim
   dispatcher.io.covDelta.foreach(_ := io.covDelta.get)

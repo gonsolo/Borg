@@ -440,6 +440,77 @@ reg depth_cfg_reg_t {
     } RSVD[28] = 0;
 };
 
+// --- Colour blend configuration (Step 50 item 9) ---
+reg blend_cfg_reg_t {
+    name = "Blend Configuration";
+    desc = "Fixed-function colour blend state, laid out to match
+            VkPipelineColorBlendAttachmentState so the driver passes the
+            Vulkan enum values through with no translation table.
+
+            Blending is core Vulkan functionality -- only independentBlend
+            and dualSrcBlend are the optional extras. Reset 0 disables it,
+            which is the historical unconditional-overwrite behaviour, so
+            firmware that never writes this register is unaffected.
+
+            Factor encodings are VkBlendFactor 0..14; the SRC1_* values
+            (15..18) belong to the optional dualSrcBlend feature and are not
+            implemented. Op encodings are VkBlendOp 0..4 (ADD, SUBTRACT,
+            REVERSE_SUBTRACT, MIN, MAX).";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bit 0: blendEnable. 0 = the fragment colour overwrites the
+                destination (and skips the UNORM8 round trip entirely).";
+    } enable[1] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 5:1: srcColorBlendFactor (VkBlendFactor).";
+    } src_color_factor[5] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 10:6: dstColorBlendFactor (VkBlendFactor).";
+    } dst_color_factor[5] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 13:11: colorBlendOp (VkBlendOp).";
+    } color_op[3] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 18:14: srcAlphaBlendFactor (VkBlendFactor).";
+    } src_alpha_factor[5] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 23:19: dstAlphaBlendFactor (VkBlendFactor).";
+    } dst_alpha_factor[5] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 26:24: alphaBlendOp (VkBlendOp).";
+    } alpha_op[3] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[5] = 0;
+};
+
+reg blend_const_reg_t {
+    name = "Blend Constant Colour";
+    desc = "VkPipelineColorBlendStateCreateInfo::blendConstants, as UNORM8
+            components -- the value the CONSTANT_COLOR / CONSTANT_ALPHA
+            blend factors select. Blending is performed in UNORM8, so this
+            is the natural encoding rather than four floats.";
+
+    field { sw = rw; hw = r; desc = "Bits 7:0: R."; }   const_r[8] = 0;
+    field { sw = rw; hw = r; desc = "Bits 15:8: G."; }  const_g[8] = 0;
+    field { sw = rw; hw = r; desc = "Bits 23:16: B."; } const_b[8] = 0;
+    field { sw = rw; hw = r; desc = "Bits 31:24: A."; } const_a[8] = 0;
+};
+
 // --- Tile flusher Z-buffer base address (Step 25.3h) ---
 reg flush_zb_base_reg_t {
     name = "Flush Z-buffer Base Address";
@@ -1016,6 +1087,12 @@ addrmap borg_gpu {
     //      io.hw.depth_cfg_compare_op / _write_en). Reset values reproduce
     //      the historical hardcoded LESS + always-write behaviour. ----
     depth_cfg_reg_t depth_cfg;
+
+    // ---- Blend configuration — fully generated (hw=r, Borg reads
+    //      io.hw.blend_cfg_* / blend_const_*). Reset 0 = blending disabled,
+    //      i.e. the historical unconditional overwrite. ----
+    blend_cfg_reg_t blend_cfg;
+    blend_const_reg_t blend_const;
 
     // ---- Performance counters: present-phase decomposition ----
     // Fully generated (hw=w → Borg drives io.hw.perf_*_value, SW reads).

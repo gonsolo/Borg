@@ -47,6 +47,11 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val depthCompareOp = Input(UInt(3.W))
   val depthWriteEn   = Input(Bool())
 
+  // Step 50 item 9: fixed-function blend state (BLEND_CFG/BLEND_CONST).
+  // Present only when cfg.hasBlend, so a build without blending carries no
+  // extra ports at all rather than tying them off.
+  val blendCfg = if (cfg.hasBlend) Some(Input(new BlendConfig)) else None
+
   // --- Inputs from texture pipeline ---
   val texConfig  = new TexConfigIO              // mortonIndex, baseAddr, en
   val log2Dim    = Input(UInt(4.W))             // tex_config_log2_dim, see ClampTexCoord
@@ -91,6 +96,15 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
 
 class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgShaderDispatcherIO(cfg))
+
+  // Blending reads the destination colour, which is per-sample, but writes
+  // through TileWriteIO's single shared `data`. Blending sample 0's
+  // destination and broadcasting the result to every covered sample would be
+  // silently wrong on any partially-covered edge pixel, so the combination is
+  // a build error rather than an approximation.
+  require(!cfg.hasBlend || cfg.samples == 1,
+          s"hasBlend requires samples==1 (got ${cfg.samples}): TileWriteIO broadcasts one " +
+          "blended colour to all covered samples, which is wrong for per-sample destinations")
 
   private val config = cfg.fp  // shorthand for FP arithmetic
 
@@ -171,11 +185,22 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // --- Stall ---
   val auto_run_stall = RegInit(false.B)
 
-  // --- Per-lane fragment output snoop (Hardware ABI: Kill=r25, R=r26, G=r27, B=r28, Z=r29) ---
+  // --- Per-lane fragment output snoop ---
+  // Hardware ABI: A=r24, Kill=r25, R=r26, G=r27, B=r28, Z=r29.
+  //
+  // r24 (alpha) extends the ABI block downwards and exists only in a
+  // cfg.hasBlend build -- an alpha output is meaningless without a blend
+  // stage to consume it, and borgc's fragment allocator must reserve r24
+  // in lockstep or it will hand the register to an unrelated temporary
+  // (exactly the collision class that killed the r21-r24 read-back port).
   val frag_r = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_g = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_b = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_z = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
+  // FP16 1.0: a shader that writes no alpha is opaque, which is what makes
+  // adding the register backwards-compatible for existing shaders.
+  val frag_a =
+    if (cfg.hasBlend) Some(RegInit(VecInit(Seq.fill(N)(0x3C00.U(16.W))))) else None
 
   // discard: r25 is a hardware-ABI "kill" register, not a new ISA opcode. The
   // compiler lowers GLSL/SPIR-V `discard`/`discard_if(cond)` (already reduced
@@ -299,6 +324,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       e1_outside(i) := false.B
       e2_outside(i) := false.B
       killed(i) := false.B
+      // Re-arm the opaque default every quad: a shader that writes r24 on one
+      // quad and not the next must not inherit the previous quad's alpha.
+      frag_a.foreach(_(i) := 0x3C00.U)
     }
     laneCtr := 0.U
     auto_run_stall := true.B
@@ -364,9 +392,45 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   when(phase === sTileWrite) {
     io.tileWrite.idx := io.shaderTileIndex(laneIdx)
-    io.tileWrite.data.r := frag_r(laneIdx)
-    io.tileWrite.data.g := frag_g(laneIdx)
-    io.tileWrite.data.b := frag_b(laneIdx)
+
+    // Step 50 item 9: fixed-function blending.
+    //
+    // The destination colour is already in hand -- io.tileRead.data was
+    // fetched three cycles ago for the depth test -- so blending needs no
+    // extra tile-buffer traffic, only the equation.
+    //
+    // Quantize both operands to UNORM8, blend, and expand back to the FP16
+    // the tile-write port speaks. That round trip is why the whole thing sits
+    // behind `enable`: with blending off the fragment's original FP16 bits go
+    // through untouched, so an enabled build still renders a non-blended
+    // frame bit-identically to a build compiled without hasBlend at all.
+    //
+    // Destination alpha is 1.0, not stored: Borg's colour attachment has no
+    // alpha component (the flusher writes RGB565/UNORM8 RGB to DRAM), and for
+    // an attachment format without an A component the spec defines Ad as 1.
+    // Exposing an alpha-carrying attachment format would need a real alpha
+    // plane in the tile buffer -- separate, larger work.
+    val (blendR, blendG, blendB) = if (cfg.hasBlend) {
+      val cfgIn = io.blendCfg.get
+      val src = Wire(new Rgba8)
+      src.r := ColorQuantize.quantize8(frag_r(laneIdx))
+      src.g := ColorQuantize.quantize8(frag_g(laneIdx))
+      src.b := ColorQuantize.quantize8(frag_b(laneIdx))
+      src.a := ColorQuantize.quantize8(frag_a.get(laneIdx))
+      val dst = Wire(new Rgba8)
+      dst.r := ColorQuantize.quantize8(io.tileRead.data(0).r)
+      dst.g := ColorQuantize.quantize8(io.tileRead.data(0).g)
+      dst.b := ColorQuantize.quantize8(io.tileRead.data(0).b)
+      dst.a := BorgBlend.ONE_U8.U
+      val out = BorgBlend.blend(cfgIn, src, dst)
+      (Mux(cfgIn.enable, ColorQuantize.dequantize8(out.r), frag_r(laneIdx)),
+       Mux(cfgIn.enable, ColorQuantize.dequantize8(out.g), frag_g(laneIdx)),
+       Mux(cfgIn.enable, ColorQuantize.dequantize8(out.b), frag_b(laneIdx)))
+    } else (frag_r(laneIdx), frag_g(laneIdx), frag_b(laneIdx))
+
+    io.tileWrite.data.r := blendR
+    io.tileWrite.data.g := blendG
+    io.tileWrite.data.b := blendB
     // depthWriteEnable: on a passing fragment, write the new Z (historical
     // behaviour, write_en=1) or preserve the stored one (write_en=0, which
     // Vulkan requires for depth-read-only passes -- colour still updates).
@@ -495,6 +559,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   def fragNarrow(d: UInt): UInt = if (config.totalBits > 16) Fp16Fp32.narrow(d) else d(15, 0)
   for (i <- 0 until N) {
     when(io.pipeWrite(i).en && phase === sFrag) {
+      frag_a.foreach { a =>
+        when(io.pipeWrite(i).addr === 24.U) { a(i) := fragNarrow(io.pipeWrite(i).data) }
+      }
       when(io.pipeWrite(i).addr === 25.U) { killed(i) := killed(i) || (io.pipeWrite(i).data =/= 0.U) }
       when(io.pipeWrite(i).addr === 26.U) { frag_r(i) := fragNarrow(io.pipeWrite(i).data) }
       when(io.pipeWrite(i).addr === 27.U) { frag_g(i) := fragNarrow(io.pipeWrite(i).data) }

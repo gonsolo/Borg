@@ -79,6 +79,16 @@ object BorgShaderDispatcherTests extends TestSuite {
     // pre-existing test in this file keeps its original meaning.
     d.io.depthCompareOp.poke(CMP_LESS.U)
     d.io.depthWriteEn.poke(true.B)
+    // Step 50 item 9: blending off by default (only present in a hasBlend
+    // build), so every pre-existing test keeps the unconditional-overwrite
+    // behaviour it was written against.
+    d.io.blendCfg.foreach { b =>
+      b.enable.poke(false.B)
+      b.srcColorFactor.poke(0.U); b.dstColorFactor.poke(0.U); b.colorOp.poke(0.U)
+      b.srcAlphaFactor.poke(0.U); b.dstAlphaFactor.poke(0.U); b.alphaOp.poke(0.U)
+      b.constant.r.poke(0.U); b.constant.g.poke(0.U)
+      b.constant.b.poke(0.U); b.constant.a.poke(0.U)
+    }
     // Step 25.5C: tile read port — provide max depth so depth test passes.
     // Per-sample since MSAA: every sample starts at the far plane.
     d.io.tileRead.data.foreach { s =>
@@ -141,9 +151,34 @@ object BorgShaderDispatcherTests extends TestSuite {
       writeEn: Boolean,
       tileIdx: Int = 7
   ): (Boolean, Int) = {
+    val w = runPixelFull(d, fragZ, oldZ, compareOp, writeEn, tileIdx = tileIdx)
+    (w.en, w.z)
+  }
+
+  /** What the tile buffer was told to write. */
+  case class TileWrite(en: Boolean, r: Int, g: Int, b: Int, z: Int)
+
+  /** [[runPixel]] with the colour operands exposed, for the blend tests:
+    * `srcRgb` is what the fragment shader writes to r26/27/28, `dstRgb` what
+    * the tile buffer already holds, and `fragA` the optional r24 alpha
+    * output (a hasBlend build only).
+    */
+  def runPixelFull(
+      d: BorgShaderDispatcher,
+      fragZ: Int,
+      oldZ: Int,
+      compareOp: Int,
+      writeEn: Boolean,
+      srcRgb: (Int, Int, Int) = (0x1111, 0x2222, 0x3333),
+      dstRgb: (Int, Int, Int) = (0, 0, 0),
+      fragA: Option[Int] = None,
+      tileIdx: Int = 7
+  ): TileWrite = {
     d.io.depthCompareOp.poke(compareOp.U)
     d.io.depthWriteEn.poke(writeEn.B)
-    d.io.tileRead.data.foreach(_.z.poke(oldZ.U))
+    d.io.tileRead.data.foreach { s =>
+      s.z.poke(oldZ.U); s.r.poke(dstRgb._1.U); s.g.poke(dstRgb._2.U); s.b.poke(dstRgb._3.U)
+    }
 
     firePixelReady(d, fragPc = 13, tileIdx = tileIdx)
     d.io.fragPcReg.poke(13.U)
@@ -162,7 +197,10 @@ object BorgShaderDispatcherTests extends TestSuite {
     d.clock.step(1)
     d.io.coreStatus.autoRunPending.poke(false.B)
     d.io.coreStatus.running.poke(true.B)
-    for ((reg, value) <- Seq((26, 0x1111), (27, 0x2222), (28, 0x3333), (29, fragZ))) {
+    val fragWrites =
+      fragA.map(a => Seq((24, a))).getOrElse(Seq.empty) ++
+      Seq((26, srcRgb._1), (27, srcRgb._2), (28, srcRgb._3), (29, fragZ))
+    for ((reg, value) <- fragWrites) {
       d.io.pipeWrite(0).en.poke(true.B)
       d.io.pipeWrite(0).addr.poke(reg.U)
       d.io.pipeWrite(0).data.poke(value.U)
@@ -176,11 +214,15 @@ object BorgShaderDispatcherTests extends TestSuite {
     stepThroughDepthTest(d)
     utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TILE_WRITE)
 
-    val en = d.io.tileWrite.en.peek().litToBoolean
-    val z  = d.io.tileWrite.data.z.peek().litValue.toInt
+    val w = TileWrite(
+      d.io.tileWrite.en.peek().litToBoolean,
+      d.io.tileWrite.data.r.peek().litValue.toInt,
+      d.io.tileWrite.data.g.peek().litValue.toInt,
+      d.io.tileWrite.data.b.peek().litValue.toInt,
+      d.io.tileWrite.data.z.peek().litValue.toInt)
 
     d.clock.step(1)  // sTileWrite → sIdle, ready for the next pixel
-    (en, z)
+    w
   }
 
   /** Write all three edge values and check resulting insideFlag. */
@@ -739,6 +781,19 @@ object BorgShaderDispatcherTests extends TestSuite {
       else sign | (expF << 10) | (mantF >> 13)
     }
 
+    /** Inverse of [[f16]] — used by the blend tests, which care about the
+      * numeric colour rather than an exact bit pattern (the blend path
+      * round-trips through UNORM8, so the FP16 that comes back is the nearest
+      * representable value, not the one that went in). */
+    def f16ToFloat(bits: Int): Float = {
+      val exp  = (bits >> 10) & 0x1f
+      val mant = bits & 0x3ff
+      val mag =
+        if (exp == 0) mant.toFloat / (1 << 24)
+        else (1.0f + mant.toFloat / 1024.0f) * math.pow(2.0, exp - 15).toFloat
+      if ((bits & 0x8000) != 0) -mag else mag
+    }
+
     /** Drive the two base deltas for all three edges. */
     def pokeCovDelta(d: BorgShaderDispatcher, d0: Int, d1: Int): Unit =
       for (e <- 0 until 3) {
@@ -906,6 +961,153 @@ object BorgShaderDispatcherTests extends TestSuite {
         val (enFail, _) = runPixel(d, OLD, NEW, CMP_LESS, writeEn = false)
         println(f"  writeEn=0, failing fragment: en=$enFail (expect false)")
         utest.assert(!enFail)
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // Step 50 item 9: blending wired into the tile-write path
+    //
+    // BorgBlendTests covers the blend equation itself exhaustively. What is
+    // tested here is the integration: that the destination colour really is
+    // the tile buffer's stored colour (not a stale or zero read), that r24
+    // reaches the blend unit as source alpha, and that a disabled blend is
+    // bit-exact rather than merely close.
+    // =========================================================================
+
+    val BLEND = BorgConfig.Default.copy(hasBlend = true)
+
+    val FP16_ONE  = 0x3C00
+    val FP16_HALF = 0x3800
+    val FP16_ZERO = 0x0000
+
+    utest.test("blend_disabled_writes_the_fragment_colour_bit_exactly") {
+      simulate(new BorgShaderDispatcher(BLEND)) { d =>
+        println("\n--- BorgShaderDispatcher: blend disabled is bit-exact ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        // A hasBlend build with blending off must be indistinguishable from a
+        // build compiled without it: no FP16 -> UNORM8 -> FP16 round trip, so
+        // arbitrary bit patterns (not just representable colours) survive.
+        val w = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+          compareOp = CMP_LESS, writeEn = true,
+          srcRgb = (0x1111, 0x2222, 0x3333), dstRgb = (FP16_ONE, FP16_ONE, FP16_ONE))
+        println(f"  wrote 0x${w.r.toHexString}/0x${w.g.toHexString}/0x${w.b.toHexString}")
+        utest.assert(w.en)
+        utest.assert(w.r == 0x1111 && w.g == 0x2222 && w.b == 0x3333)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("src_over_blends_against_the_stored_tile_colour") {
+      simulate(new BorgShaderDispatcher(BLEND)) { d =>
+        println("\n--- BorgShaderDispatcher: src-over against the tile buffer ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        // Half-transparent red over opaque blue.
+        d.io.blendCfg.get.enable.poke(true.B)
+        d.io.blendCfg.get.srcColorFactor.poke(BorgBlend.SRC_ALPHA.U)
+        d.io.blendCfg.get.dstColorFactor.poke(BorgBlend.ONE_MINUS_SRC_ALPHA.U)
+        d.io.blendCfg.get.colorOp.poke(BorgBlend.OP_ADD.U)
+
+        val w = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+          compareOp = CMP_LESS, writeEn = true,
+          srcRgb = (FP16_ONE, FP16_ZERO, FP16_ZERO),
+          dstRgb = (FP16_ZERO, FP16_ZERO, FP16_ONE),
+          fragA = Some(FP16_HALF))
+
+        val (rf, gf, bf) = (f16ToFloat(w.r), f16ToFloat(w.g), f16ToFloat(w.b))
+        println(f"  result = ($rf%.3f, $gf%.3f, $bf%.3f), expect ~(0.502, 0.0, 0.498)")
+        utest.assert(w.en)
+        // 128/255 and 127/255 -- the exact UNORM8 answers, checked as numbers
+        // because the FP16 that carries them back is the nearest representable
+        // value rather than a fixed bit pattern.
+        utest.assert(math.abs(rf - 128.0f / 255.0f) < 0.01f)
+        utest.assert(gf == 0.0f)
+        utest.assert(math.abs(bf - 127.0f / 255.0f) < 0.01f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("alpha_defaults_to_opaque_when_the_shader_never_writes_r24") {
+      simulate(new BorgShaderDispatcher(BLEND)) { d =>
+        println("\n--- BorgShaderDispatcher: r24 defaults to 1.0 ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        d.io.blendCfg.get.enable.poke(true.B)
+        d.io.blendCfg.get.srcColorFactor.poke(BorgBlend.SRC_ALPHA.U)
+        d.io.blendCfg.get.dstColorFactor.poke(BorgBlend.ONE_MINUS_SRC_ALPHA.U)
+        d.io.blendCfg.get.colorOp.poke(BorgBlend.OP_ADD.U)
+
+        // No fragA: an existing three-component shader must still render
+        // opaquely under src-over, i.e. the destination must vanish.
+        val w = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+          compareOp = CMP_LESS, writeEn = true,
+          srcRgb = (FP16_ONE, FP16_ZERO, FP16_ZERO),
+          dstRgb = (FP16_ZERO, FP16_ZERO, FP16_ONE),
+          fragA = None)
+
+        val (rf, bf) = (f16ToFloat(w.r), f16ToFloat(w.b))
+        println(f"  result r=$rf%.3f b=$bf%.3f, expect ~(1.0, 0.0)")
+        utest.assert(math.abs(rf - 1.0f) < 0.01f)
+        utest.assert(bf == 0.0f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("r24_alpha_reaches_the_blend_unit_and_changes_the_result") {
+      simulate(new BorgShaderDispatcher(BLEND)) { d =>
+        println("\n--- BorgShaderDispatcher: r24 alpha sweep ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        d.io.blendCfg.get.enable.poke(true.B)
+        d.io.blendCfg.get.srcColorFactor.poke(BorgBlend.SRC_ALPHA.U)
+        d.io.blendCfg.get.dstColorFactor.poke(BorgBlend.ONE_MINUS_SRC_ALPHA.U)
+        d.io.blendCfg.get.colorOp.poke(BorgBlend.OP_ADD.U)
+
+        // Alpha 0 -> pure destination, 1 -> pure source; monotone in between.
+        // Also proves the per-quad re-arm works: each call re-runs pixelReady,
+        // so a leaked previous alpha would show up as a wrong first result.
+        for ((aBits, aName, expR) <- Seq(
+              (FP16_ZERO, "0.0", 0.0f), (FP16_HALF, "0.5", 128.0f / 255.0f),
+              (FP16_ONE, "1.0", 1.0f))) {
+          val w = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+            compareOp = CMP_LESS, writeEn = true,
+            srcRgb = (FP16_ONE, FP16_ZERO, FP16_ZERO),
+            dstRgb = (FP16_ZERO, FP16_ZERO, FP16_ONE),
+            fragA = Some(aBits))
+          val rf = f16ToFloat(w.r)
+          println(f"  alpha=$aName%-4s -> r=$rf%.3f (expect $expR%.3f)")
+          utest.assert(math.abs(rf - expR) < 0.01f)
+        }
+        println("  PASSED")
+      }
+    }
+
+    utest.test("blending_does_not_bypass_the_depth_test") {
+      simulate(new BorgShaderDispatcher(BLEND)) { d =>
+        println("\n--- BorgShaderDispatcher: blend + failing depth test ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        d.io.blendCfg.get.enable.poke(true.B)
+        d.io.blendCfg.get.srcColorFactor.poke(BorgBlend.ONE.U)
+        d.io.blendCfg.get.dstColorFactor.poke(BorgBlend.ONE.U)
+        d.io.blendCfg.get.colorOp.poke(BorgBlend.OP_ADD.U)
+
+        // Blending is a write-path transform, not a write-enable: a fragment
+        // behind the stored depth must still be rejected outright.
+        val w = runPixelFull(d, fragZ = 0x4000, oldZ = 0x3000,
+          compareOp = CMP_LESS, writeEn = true,
+          srcRgb = (FP16_ONE, FP16_ONE, FP16_ONE),
+          dstRgb = (FP16_ONE, FP16_ONE, FP16_ONE),
+          fragA = Some(FP16_ONE))
+        println(f"  occluded fragment: tileWrite.en=${w.en} (expect false)")
+        utest.assert(!w.en)
         println("  PASSED")
       }
     }
