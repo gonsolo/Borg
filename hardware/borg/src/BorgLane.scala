@@ -30,6 +30,10 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // --- Shared control (broadcast identically to every lane) ---
   val regs        = Input(new RegIndices())
   val opFlags     = Input(new FpuOpFlags())
+  // This lane's bit of the execution mask. Low means the lane is inside the
+  // not-taken arm of a divergent `if`: it still executes (the quad shares one
+  // program counter, so it has no choice) but none of its writes may land.
+  val execActive  = Input(Bool())
   val busyCounter = Input(UInt(3.W))
   val running     = Input(Bool())
   val isBusy      = Input(Bool())
@@ -369,7 +373,12 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val mmio_write = io.bus.is_writing && io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
     // A branch has no destination: its rd field carries the low bits of the
     // target address, so writing back would corrupt an unrelated register.
-    val pipe_write = running && is_busy && busy_counter === 1.U && !io.opFlags.branch
+    // The exec mask gates the same point, which is what makes predicated
+    // execution correct for everything the ALU produces -- including the
+    // fragment outputs r24..r29, since the dispatcher snoops them through
+    // this very port.
+    val pipe_write = running && is_busy && busy_counter === 1.U &&
+                     !io.opFlags.branch && !io.opFlags.execOp && io.execActive
     val w_en = mmio_write || pipe_write
     val w_addr = Mux(pipe_write, regs.rd, (io.bus.address - BorgGpuRegs.gpr_offset) >> 2)
     // is_frcp_reg/is_frsq_reg/is_fsrgb_reg are mutually exclusive (decoded
@@ -391,7 +400,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Last-connect wins, matching the original wireTexStall-after-
     // wireWriteBack ordering. Named memWrite rather than texWrite since
     // FTEX is no longer its only driver.
-    when(io.memWrite.en) {
+    when(io.memWrite.en && io.execActive) {
       writeReg(io.memWrite.addr, true.B, io.memWrite.data)
       io.pipeWrite.en   := true.B
       io.pipeWrite.addr := io.memWrite.addr

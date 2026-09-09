@@ -80,6 +80,22 @@ object Instructions {
   // already uses (`data =/= 0`).
   val FUNCT7_BRZ   = 0x26  // if (rs1 == 0) pc = target
   val FUNCT7_BRNZ  = 0x28  // if (rs1 != 0) pc = target
+  // Execution mask -- divergent control flow for the 2x2 quad.
+  //
+  // BRZ/BRNZ redirect the single shared program counter, so they can only
+  // express control flow whose condition is the same in every lane. These
+  // three express the other case, and they do it WITHOUT branching: both
+  // sides of an `if` execute, and lanes that should not be running are
+  // masked off so their writes (registers, memory, fragment outputs) do not
+  // happen. That is predication, and for a 2x2 quad it is cheaper and far
+  // simpler than a per-lane program counter.
+  //
+  //   EXPUSH rs1 : push exec; exec &= (rs1 != 0), per lane
+  //   EXELSE     : exec = enclosing & ~exec      (the else arm)
+  //   EXPOP      : exec = pop()                  (end of the if)
+  val FUNCT7_EXPUSH = 0x2A
+  val FUNCT7_EXELSE = 0x2C
+  val FUNCT7_EXPOP  = 0x2E
   // @doc:end
 
   /** Split an absolute branch target into the rs2/rd fields it is packed into. */
@@ -119,6 +135,9 @@ object Instructions {
     val (hi, lo) = branchTargetFields(target)
     encodeRType(FUNCT7_BRZ, hi, rs1, lo, funct3)
   }
+  def EXPUSH(rs1: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXPUSH, 0, rs1, 0, funct3)
+  def EXELSE(funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXELSE, 0, 0, 0, funct3)
+  def EXPOP(funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXPOP, 0, 0, 0, funct3)
   def BRNZ(rs1: Int, target: Int, funct3: Int = 0): BigInt = {
     val (hi, lo) = branchTargetFields(target)
     encodeRType(FUNCT7_BRNZ, hi, rs1, lo, funct3)

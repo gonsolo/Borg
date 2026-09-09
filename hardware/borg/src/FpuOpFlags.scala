@@ -35,5 +35,12 @@ class FpuOpFlags extends Bundle {
   val brz    = Bool()
   val brnz   = Bool()
   val branch = Bool()
+  // Execution-mask ops. Like `branch`, `execOp` exists so BorgLane can
+  // suppress write-back for all three without decoding each: none of them
+  // has a destination register.
+  val expush = Bool()
+  val exelse = Bool()
+  val expop  = Bool()
+  val execOp = Bool()
   val funct3 = UInt(3.W)
 }
