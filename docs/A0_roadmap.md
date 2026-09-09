@@ -1850,11 +1850,22 @@ turning alpha into a live output root stops the instructions computing it
 from being dead code, growing every existing shader on a core with a hard
 instruction-memory ceiling).
 
-**Destination alpha is 1.0, not stored** -- correct for the format Borg
-exposes (no A component in the colour attachment, and the spec defines Ad
-as 1 there), but it is the boundary of this item: advertising an
-alpha-carrying attachment format needs a real alpha plane in the tile
-buffer. Like item 11's `depthWriteEnable`, blending is `samples==1` only,
+**Destination alpha was initially 1.0, not stored** -- a correct reading of
+the spec for an alpha-less attachment format, but it made every
+DST_ALPHA-family blend factor wrong when compositing into a translucent
+buffer, with nothing to indicate it. **Closed the same day** (commit
+`633b7dde`) with a real alpha plane, built to the same pattern the stencil
+plane had just established: one 16x8-bit SyncReadMem per sample sharing
+the colour plane's index, enable and clear, UNORM8 so nothing converts
+between the plane and the blend unit. Everything defaults to opaque, and
+here that default is load-bearing rather than cosmetic -- a 0 reset would
+silently turn every existing scene transparent.
+
+The plane is tile-local, which *is* the full correctness scope for Borg's
+render model (clear a tile, blend every triangle binned to it, flush).
+What remains for item 9 is only the DRAM half: exposing an alpha-carrying
+attachment format an application can read back needs the flusher to carry
+alpha, the same shape as the item-14 depth burst. Like item 11's `depthWriteEnable`, blending is `samples==1` only,
 and for the same underlying reason -- `TileWriteIO` broadcasts one `data`
 to all covered samples, so a per-sample destination cannot be blended
 correctly through it. **That single port limitation is now blocking three
