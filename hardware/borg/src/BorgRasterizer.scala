@@ -90,6 +90,8 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // clamping texel coordinates to the last valid row/column -- see
   // ClampTexCoord's comment.
   val log2Dim    = Input(UInt(4.W))
+  // Runtime VkFilter for the sampler, forwarded to BorgShaderDispatcher.
+  val texFilterLinear = if (cfg.hasBilinear) Some(Input(Bool())) else None
 
   // Step 34.5: FTEX core ↔ dispatcher texture request/response
   val texReq  = Input(Bool())
@@ -147,6 +149,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
   dispatcher.io.texConfig      <> io.texConfig
   dispatcher.io.log2Dim        := io.log2Dim
+  dispatcher.io.texFilterLinear.foreach(_ := io.texFilterLinear.get)
   dispatcher.io.covDelta.foreach(_ := io.covDelta.get)
 
   // --- Forward dispatcher outputs to rasterizer IO ---

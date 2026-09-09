@@ -732,6 +732,30 @@ reg ls_base_reg_t {
     field { sw = rw; hw = na; } RSVD[7] = 0;
 };
 
+// --- Sampler configuration (Step 50) ---
+reg sampler_cfg_reg_t {
+    name = "Sampler Configuration";
+    desc = "Texture sampler state. Linear filtering is core Vulkan -- no
+            feature bit gates VK_FILTER_LINEAR -- and Borg sampled
+            nearest-neighbour only.
+
+            Reset 0 (NEAREST) reproduces the historical behaviour exactly,
+            including skipping the UNORM8 round trip the filtered path uses,
+            so firmware that never writes this register is unaffected.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bit 0: VkFilter for magnification and minification alike --
+                0 = VK_FILTER_NEAREST, 1 = VK_FILTER_LINEAR. Vulkan carries
+                magFilter and minFilter separately; Borg has no LOD selection
+                yet, so there is no minification path to filter differently
+                and one bit covers both. Splitting them belongs with mipmap
+                support, not before it.";
+    } filter_linear[1] = 0;
+
+    field { sw = rw; hw = na; } RSVD[31] = 0;
+};
+
 // --- Tile flusher Z-buffer base address (Step 25.3h) ---
 reg flush_zb_base_reg_t {
     name = "Flush Z-buffer Base Address";
@@ -1333,6 +1357,9 @@ addrmap borg_gpu {
 
     // ---- Load/store base — fully generated (hw=r). Reset 0. ----
     ls_base_reg_t ls_base;
+
+    // ---- Sampler configuration — fully generated (hw=r). Reset = NEAREST. ----
+    sampler_cfg_reg_t sampler_cfg;
 
     // ---- Performance counters: present-phase decomposition ----
     // Fully generated (hw=w → Borg drives io.hw.perf_*_value, SW reads).
