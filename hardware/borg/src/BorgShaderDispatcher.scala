@@ -588,20 +588,29 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // triangle, not discarded, inside the scissor. A `discard`ed or
     // scissored-out fragment performs no per-fragment operations, so it must
     // not advance the stencil buffer either.
-    def reached(s: UInt): Bool =
+    // Two overloads rather than one taking a UInt: the broadcast path's
+    // sample index is a compile-time constant, and passing it as `s.U` would
+    // build a dynamic Vec access where the original code had a direct wire.
+    // firtool folds it either way, but the emitted CHIRRTL would no longer be
+    // structurally identical to the pre-serialization design -- and "the
+    // untouched path is unchanged, not merely equivalent" is a property worth
+    // keeping literally true.
+    def reached(s: Int): Bool =
+      coverage(laneIdx)(s) && !killed(laneIdx) && io.scissorPass(laneIdx)
+    def reachedDyn(s: UInt): Bool =
       coverage(laneIdx)(s) && !killed(laneIdx) && io.scissorPass(laneIdx)
 
     if (needPerSample) {
       // Serialized: one sample per cycle, one-hot coverage.
       val depthOk = stencilRes.map(_.pass)
         .getOrElse(depthPasses(frag_z(laneIdx), io.tileRead.data(dstIdx).z))
-      val pass = reached(dstIdx) && depthOk
+      val pass = reachedDyn(dstIdx) && depthOk
       val oneHot = UIntToOH(dstIdx, cfg.samples)
       io.tileWrite.coverage := Mux(pass, oneHot, 0.U)
       io.tileWrite.en       := pass
       stencilRes.foreach { r =>
         io.stencilWrite.get       := r.newValue
-        io.stencilWriteMask.get   := Mux(reached(dstIdx), oneHot, 0.U)
+        io.stencilWriteMask.get   := Mux(reachedDyn(dstIdx), oneHot, 0.U)
       }
     } else {
       // Broadcast: every sample evaluated in one cycle against its own stored
@@ -613,13 +622,13 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
           case Some(r) if s == 0 => r.pass
           case _                 => depthPasses(frag_z(laneIdx), io.tileRead.data(s).z)
         }
-        reached(s.U) && depthOk
+        reached(s) && depthOk
       }
       io.tileWrite.coverage := Cat(samplePass.reverse)
       io.tileWrite.en       := samplePass.reduce(_ || _)
       stencilRes.foreach { r =>
         io.stencilWrite.get     := r.newValue
-        io.stencilWriteMask.get := Mux(reached(0.U), Fill(cfg.samples, 1.U(1.W)), 0.U)
+        io.stencilWriteMask.get := Mux(reached(0), Fill(cfg.samples, 1.U(1.W)), 0.U)
       }
     }
     if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d smp=%d idx=%d Z=0x%x zOld=0x%x cov=0x%x\n",
