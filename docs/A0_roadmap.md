@@ -1807,6 +1807,62 @@ correctly reports the format as supported are both still open, unverified
 questions -- worth checking against the real CTS mustpass list before
 assuming this item is fully closed, rather than assuming either way.
 
+**Item 11 (configurable depth compare) DONE 2026-09-09** (this branch,
+commit `a8f102c5`). New `depth_cfg` RDL register (`compare_op[3]`,
+`write_en[1]`) threaded Borg -> BorgRasterizer -> BorgShaderDispatcher,
+replacing the hardcoded `<`. `compare_op` uses the `VkCompareOp` enum
+encoding verbatim so the driver passes the value through untranslated, and
+the reset values (LESS, write-on) reproduce the historical hardcoded
+behaviour exactly -- firmware that never writes the register is
+unaffected. Tests sweep all 8 ops against `newZ <`, `==`, `>` `oldZ`.
+
+`depthWriteEnable=0` is honoured at `samples==1` only. `TileWriteIO`
+carries a single shared `data` for every covered sample (shade once,
+broadcast), so preserving *per-sample* stored depth needs a per-sample Z
+write mask on that port -- real port work, not a mux. MSAA keeps the
+historical unconditional store rather than writing sample 0's old Z to
+every sample.
+
+**Item 9 (alpha blending) DONE 2026-09-09** (this branch, commits
+`775926d9` hardware + `5d6f4379` integration, plus `e0826fb25a6` in mesa).
+Two things worth recording beyond "it's built":
+
+*It blends in UNORM8, not FP16.* The obvious implementation blends in the
+FP16 the shader produces and costs eight FP16 multipliers. UNORM8 is not a
+shortcut but the matching precision: the framebuffer format Borg actually
+writes to DRAM is UNORM8, and the spec asks only for precision no lower
+than the destination components'. It also removes every denormal/NaN case
+from the blend path. A float attachment format would need the FP path --
+Borg does not expose one. Both gates that keep this free are structural,
+not aspirational: `hasBlend=false` emits no blend hardware at all (checked
+against the emitted CHIRRTL, not asserted), and even in an enabled build
+the runtime `enable` bit passes the fragment's original FP16 bits through
+untouched, so a non-blended frame is bit-exact rather than merely close.
+
+*The destination colour was already free.* `io.tileRead.data` is fetched
+three cycles before `sTileWrite` for the depth test, so blending needs no
+extra tile-buffer traffic -- only the equation.
+
+Source alpha is a new ABI register r24, resetting to 1.0 and re-armed per
+quad so existing three-component shaders still render opaque under
+src-over. borgc emits it behind `BORGC_FRAG_ALPHA` (off by default:
+turning alpha into a live output root stops the instructions computing it
+from being dead code, growing every existing shader on a core with a hard
+instruction-memory ceiling).
+
+**Destination alpha is 1.0, not stored** -- correct for the format Borg
+exposes (no A component in the colour attachment, and the spec defines Ad
+as 1 there), but it is the boundary of this item: advertising an
+alpha-carrying attachment format needs a real alpha plane in the tile
+buffer. Like item 11's `depthWriteEnable`, blending is `samples==1` only,
+and for the same underlying reason -- `TileWriteIO` broadcasts one `data`
+to all covered samples, so a per-sample destination cannot be blended
+correctly through it. **That single port limitation is now blocking three
+separate MSAA behaviours** (depth write-enable, blending, and any future
+per-sample colour op); widening it is one piece of work that would unblock
+all three, and is the obvious next structural item rather than three
+separate workarounds.
+
 **Explicitly NOT here — pure performance, not correctness, deferred to
 Step 53**: widening `fragLanes` *beyond* 4, warp-level multithreading,
 multi-core scale-out. Neither Vulkan conformance nor vkQuake need any of
