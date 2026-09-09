@@ -1716,8 +1716,25 @@ structure (which tests run unconditionally vs. behind a
    `OpMemoryBarrier` remain unimplementable, and that blocks any compute
    shader sharing data across a workgroup.
 
-   **Control flow is now the largest single remaining ISA gap** -- there is
-   still no branch instruction, so every shader is straight-line.
+   **CONTROL FLOW BUILT 2026-09-09** (commit `85839586`): `BRZ`/`BRNZ rs1,
+   target`, absolute target packed into the unused rs2/rd fields. Loops and
+   early exits are expressible for the first time.
+
+   **What it does NOT cover, and this is the important half**: at
+   `fragLanes=4` the quad shares one program counter, so a branch whose
+   condition differs between lanes cannot be executed correctly by any
+   choice the hardware could make. The contract is quad-uniform conditions,
+   and a violation sets a sticky STATUS bit (bit 6, `branch_divergent`)
+   rather than silently producing a wrong image. **Real divergent control
+   flow needs a per-lane execution mask and a reconvergence stack** -- that
+   is the next control-flow item, and until it exists a compiler must
+   if-convert every non-uniform branch.
+
+   Remaining ISA gaps after this, in rough order of what unblocks most:
+   execution mask + reconvergence (divergent control flow), barriers and
+   atomics (`OpControlBarrier`/`OpMemoryBarrier`, without which compute
+   cannot share data across a workgroup), and multiple simultaneous
+   load/store bindings.
 8. **Framebuffer/image resolution ceiling** — `maxFramebufferWidth`,
    `maxFramebufferHeight`, and `maxImageDimension2D` must all be ≥4096
    unconditionally. **Partial step taken 2026-09-08**: `BorgConfig.Default`/
