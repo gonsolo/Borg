@@ -105,6 +105,10 @@ object BorgShaderDispatcherTests extends TestSuite {
     // the per-lane verdict, so "everything passes" is the neutral default
     // every pre-existing test was written against.
     d.io.scissorPass.foreach(_.poke(true.B))
+    // Destination alpha: opaque, which is what the hardware behaved as
+    // before the plane existed -- so every pre-existing blend test keeps its
+    // original meaning.
+    d.io.alphaRead.foreach(_.foreach(_.poke(0xFF.U)))
     // Step 25.5C: tile read port — provide max depth so depth test passes.
     // Per-sample since MSAA: every sample starts at the far plane.
     d.io.tileRead.data.foreach { s =>
@@ -175,7 +179,8 @@ object BorgShaderDispatcherTests extends TestSuite {
     * meaningful only in a hasStencil build; elsewhere they read as
     * false/0, matching a build with no stencil plane. */
   case class TileWrite(en: Boolean, r: Int, g: Int, b: Int, z: Int,
-                       stencilEn: Boolean = false, stencil: Int = 0)
+                       stencilEn: Boolean = false, stencil: Int = 0,
+                       alpha: Int = 0xFF, alphaMask: Boolean = false)
 
   /** [[runPixel]] with the colour operands exposed, for the blend tests:
     * `srcRgb` is what the fragment shader writes to r26/27/28, `dstRgb` what
@@ -192,9 +197,11 @@ object BorgShaderDispatcherTests extends TestSuite {
       dstRgb: (Int, Int, Int) = (0, 0, 0),
       fragA: Option[Int] = None,
       storedStencil: Int = 0,
+      dstAlpha: Int = 0xFF,
       tileIdx: Int = 7
   ): TileWrite = {
     d.io.stencilRead.foreach(_.foreach(_.poke(storedStencil.U)))
+    d.io.alphaRead.foreach(_.foreach(_.poke(dstAlpha.U)))
     d.io.depthCompareOp.poke(compareOp.U)
     d.io.depthWriteEn.poke(writeEn.B)
     d.io.tileRead.data.foreach { s =>
@@ -242,7 +249,9 @@ object BorgShaderDispatcherTests extends TestSuite {
       d.io.tileWrite.data.b.peek().litValue.toInt,
       d.io.tileWrite.data.z.peek().litValue.toInt,
       d.io.stencilWriteEn.map(_.peek().litToBoolean).getOrElse(false),
-      d.io.stencilWrite.map(_.peek().litValue.toInt).getOrElse(0))
+      d.io.stencilWrite.map(_.peek().litValue.toInt).getOrElse(0),
+      d.io.alphaWrite.map(_.peek().litValue.toInt).getOrElse(0xFF),
+      d.io.alphaWriteMask.map(_.peek().litToBoolean).getOrElse(false))
 
     d.clock.step(1)  // sTileWrite → sIdle, ready for the next pixel
     w
@@ -1332,6 +1341,10 @@ object BorgShaderDispatcherTests extends TestSuite {
 
         // Passing scissor: the fragment and its stencil op both happen.
         d.io.scissorPass.foreach(_.poke(true.B))
+    // Destination alpha: opaque, which is what the hardware behaved as
+    // before the plane existed -- so every pre-existing blend test keeps its
+    // original meaning.
+    d.io.alphaRead.foreach(_.foreach(_.poke(0xFF.U)))
         val inRect = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
           compareOp = CMP_LESS, writeEn = true, storedStencil = 0x11)
         println(f"  inside scissor:  en=${inRect.en} stencilEn=${inRect.stencilEn}")
@@ -1345,6 +1358,90 @@ object BorgShaderDispatcherTests extends TestSuite {
           compareOp = CMP_LESS, writeEn = true, storedStencil = 0x11)
         println(f"  outside scissor: en=${outRect.en} stencilEn=${outRect.stencilEn}")
         utest.assert(!outRect.en && !outRect.stencilEn)
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // Step 50 item 9, second half: real destination alpha
+    // =========================================================================
+
+    utest.test("dst_alpha_factors_read_the_alpha_plane_not_a_hardcoded_one") {
+      simulate(new BorgShaderDispatcher(BLEND)) { d =>
+        println("\n--- BorgShaderDispatcher: DST_ALPHA reads the plane ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        // src = white, dst colour = black, factors DST_ALPHA / ZERO: the
+        // result is exactly the destination alpha scaled into the colour, so
+        // a hardwired Ad = 1.0 would give white for every stored alpha.
+        d.io.blendCfg.get.enable.poke(true.B)
+        d.io.blendCfg.get.srcColorFactor.poke(BorgBlend.DST_ALPHA.U)
+        d.io.blendCfg.get.dstColorFactor.poke(BorgBlend.ZERO.U)
+        d.io.blendCfg.get.colorOp.poke(BorgBlend.OP_ADD.U)
+
+        for ((storedA, expected) <- Seq((0xFF, 1.0f), (128, 128.0f / 255.0f), (0, 0.0f))) {
+          val w = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+            compareOp = CMP_LESS, writeEn = true,
+            srcRgb = (FP16_ONE, FP16_ONE, FP16_ONE),
+            dstRgb = (FP16_ZERO, FP16_ZERO, FP16_ZERO),
+            fragA = Some(FP16_ONE), dstAlpha = storedA)
+          val rf = f16ToFloat(w.r)
+          println(f"  stored Ad=$storedA%3d -> r=$rf%.3f (expect $expected%.3f)")
+          utest.assert(math.abs(rf - expected) < 0.01f)
+        }
+        println("  PASSED")
+      }
+    }
+
+    utest.test("blended_alpha_is_stored_back_and_gated_by_the_mask_A_bit") {
+      simulate(new BorgShaderDispatcher(BLEND)) { d =>
+        println("\n--- BorgShaderDispatcher: alpha write-back ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        // Alpha equation ONE/ONE_MINUS_SRC_ALPHA ADD -- the standard
+        // src-over alpha accumulation. As = 0.5 (128), Ad = 128:
+        // 128 + round(128 * 127/255) = 128 + 64 = 192.
+        d.io.blendCfg.get.enable.poke(true.B)
+        d.io.blendCfg.get.srcAlphaFactor.poke(BorgBlend.ONE.U)
+        d.io.blendCfg.get.dstAlphaFactor.poke(BorgBlend.ONE_MINUS_SRC_ALPHA.U)
+        d.io.blendCfg.get.alphaOp.poke(BorgBlend.OP_ADD.U)
+
+        val w = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+          compareOp = CMP_LESS, writeEn = true,
+          fragA = Some(FP16_HALF), dstAlpha = 128)
+        println(f"  As=128 Ad=128 -> stored ${w.alpha} (expect 192), mask=${w.alphaMask}")
+        utest.assert(w.alpha == 192)
+        utest.assert(w.alphaMask)
+
+        // colorWriteMask's A bit suppresses the alpha store while leaving the
+        // colour store alone -- the two must not share one enable.
+        d.io.blendCfg.get.colorWriteMask.poke(0x7.U)
+        val masked = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+          compareOp = CMP_LESS, writeEn = true,
+          fragA = Some(FP16_HALF), dstAlpha = 128)
+        println(f"  mask A cleared -> alphaMask=${masked.alphaMask}, colour still written=${masked.en}")
+        utest.assert(!masked.alphaMask)
+        utest.assert(masked.en)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("alpha_passes_through_unblended_when_blending_is_off") {
+      simulate(new BorgShaderDispatcher(BLEND)) { d =>
+        println("\n--- BorgShaderDispatcher: alpha with blending off ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        // enable=0: the fragment's own alpha is stored, matching how the
+        // colour channels behave. Anything else would make a non-blended
+        // draw's alpha depend on the (unused) blend factors.
+        val w = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+          compareOp = CMP_LESS, writeEn = true,
+          fragA = Some(FP16_HALF), dstAlpha = 0x11)
+        println(f"  As=0.5 -> stored ${w.alpha} (expect 128)")
+        utest.assert(w.alpha == 128)
         println("  PASSED")
       }
     }
