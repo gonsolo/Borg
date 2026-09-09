@@ -47,7 +47,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val stencilCfg      = if (cfg.hasStencil) Some(Input(new StencilConfig)) else None
   val stencilRead     = if (cfg.hasStencil) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
   val stencilWrite    = if (cfg.hasStencil) Some(Output(UInt(8.W))) else None
-  val stencilWriteEn  = if (cfg.hasStencil) Some(Output(Bool())) else None
+  val stencilWriteMask = if (cfg.hasStencil) Some(Output(UInt(cfg.samples.W))) else None
   // Step 50 item 9: the tile buffer's destination-alpha plane.
   val alphaRead       = if (cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
   val alphaWrite      = if (cfg.hasBlend) Some(Output(UInt(8.W))) else None
@@ -134,7 +134,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.stencilCfg.foreach(_ := io.stencilCfg.get)
   dispatcher.io.stencilRead.foreach(_ := io.stencilRead.get)
   io.stencilWrite.foreach(_ := dispatcher.io.stencilWrite.get)
-  io.stencilWriteEn.foreach(_ := dispatcher.io.stencilWriteEn.get)
+  io.stencilWriteMask.foreach(_ := dispatcher.io.stencilWriteMask.get)
   dispatcher.io.alphaRead.foreach(_ := io.alphaRead.get)
   io.alphaWrite.foreach(_ := dispatcher.io.alphaWrite.get)
   io.alphaWriteMask.foreach(_ := dispatcher.io.alphaWriteMask.get)

@@ -48,14 +48,15 @@ class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
   // touches. Piggybacking on `write.idx`/`read.idx`/`clear` keeps the shared
   // bundles untouched.
   //
-  // `stencilWriteEn` is separate from `write.en` for a real reason, not
-  // symmetry: the stencil buffer must be updated even when the fragment is
-  // discarded by the stencil or depth test (see BorgStencil's doc), so it
-  // cannot share the colour write's enable.
-  val stencilRead    = if (hasStencil) Some(Output(Vec(samples, UInt(8.W)))) else None
-  val stencilWrite   = if (hasStencil) Some(Input(UInt(8.W))) else None
-  val stencilWriteEn = if (hasStencil) Some(Input(Bool())) else None
-  val stencilClear   = if (hasStencil) Some(Input(UInt(8.W))) else None
+  // `stencilWriteMask` is separate from `write.en`/`write.coverage` for a
+  // real reason, not symmetry: the stencil buffer must be updated even when
+  // the fragment is discarded by the stencil or depth test (see BorgStencil's
+  // doc), so it cannot share the colour write's enable, and the samples it
+  // updates are not the samples the colour write covers.
+  val stencilRead      = if (hasStencil) Some(Output(Vec(samples, UInt(8.W)))) else None
+  val stencilWrite     = if (hasStencil) Some(Input(UInt(8.W))) else None
+  val stencilWriteMask = if (hasStencil) Some(Input(UInt(samples.W))) else None
+  val stencilClear     = if (hasStencil) Some(Input(UInt(8.W))) else None
 
   // --- Optional destination-alpha plane (Step 50 item 9) -------------------
   //
@@ -247,13 +248,13 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
     val stencilClearReg = RegInit(0.U(8.W))
     when(io.clear.en && !clearing) { stencilClearReg := io.stencilClear.get }
 
-    val stencilRead = VecInit(stencilMems.map { mem =>
+    val stencilRead = VecInit(stencilMems.zipWithIndex.map { case (mem, s) =>
       when(clearing) {
         mem.write(clearCounter, stencilClearReg)
-      }.elsewhen(io.stencilWriteEn.get) {
-        // No coverage gate: hasStencil is samples==1 only (see
-        // BorgShaderDispatcher's require), so there is exactly one plane and
-        // stencilWriteEn already carries the coverage/discard decision.
+      }.elsewhen(io.stencilWriteMask.get(s).asBool) {
+        // The mask carries the coverage/discard decision per sample, which is
+        // why it is a mask and not a single enable -- a fragment can pass the
+        // stencil test for some samples and fail it for others.
         mem.write(io.write.idx, io.stencilWrite.get)
       }
       mem.read(io.read.idx, effectiveReadEn)

@@ -107,25 +107,34 @@ object BorgTilePathElabTests extends TestSuite {
       println("  hasDepthFlush + samples=4 correctly rejected")
     }
 
-    utest.test("hasBlend with MSAA is a build error, not silent wrongness") {
-      // The destination colour is per-sample but TileWriteIO broadcasts one
-      // blended result to every covered sample -- wrong on any partially
-      // covered edge pixel.
-      val thrown =
-        try { elaborate(BorgConfig.Default.copy(hasBlend = true, samples = 4)); false }
-        catch { case _: Throwable => true }
-      utest.assert(thrown)
-      println("  hasBlend + samples=4 correctly rejected")
+    utest.test("blend and stencil elaborate at 4x MSAA") {
+      // These used to be a build error: TileWriteIO broadcasts one `data` to
+      // every covered sample, so blending against sample 0's destination and
+      // sharing one stencil write was wrong on any partially covered edge
+      // pixel. sTileWrite now serializes over samples instead, which matters
+      // because Vulkan's framebufferColorSampleCounts must include 4 -- so
+      // "blending only works at 1x" was a conformance hole, not a
+      // configuration preference.
+      for (cfg <- Seq(
+             BorgConfig.Default.copy(hasBlend = true, samples = 4),
+             BorgConfig.Default.copy(hasStencil = true, samples = 4),
+             BorgConfig.Default.copy(hasBlend = true, hasStencil = true, samples = 4)))
+        utest.assert(elaborate(cfg).nonEmpty)
+      println("  hasBlend / hasStencil / both at samples=4 all elaborate")
     }
 
-    utest.test("hasStencil with MSAA is a build error, not silent wrongness") {
-      // Each sample's stencil update depends on its own stored value, which
-      // one shared write port cannot express.
-      val thrown =
-        try { elaborate(BorgConfig.Default.copy(hasStencil = true, samples = 4)); false }
-        catch { case _: Throwable => true }
-      utest.assert(thrown)
-      println("  hasStencil + samples=4 correctly rejected")
+    utest.test("the serialized write path exists only where it is needed") {
+      // needPerSample is samples>1 AND (hasBlend || hasStencil): plain 4x MSAA
+      // keeps the single-cycle broadcast write, so the existing MSAA config
+      // pays none of the extra cycles.
+      val plainMsaa = elaborate(BorgConfig.Default.copy(samples = 4))
+      utest.assert(!plainMsaa.contains("sampleCtr"))
+      val blendMsaa = elaborate(BorgConfig.Default.copy(hasBlend = true, samples = 4))
+      utest.assert(blendMsaa.contains("sampleCtr"))
+      // And a single-sample build never needs it regardless of features.
+      val single = elaborate(BorgConfig.Default.copy(hasBlend = true, hasStencil = true))
+      utest.assert(!single.contains("sampleCtr"))
+      println("  sampleCtr present only for MSAA + blend/stencil")
     }
 
     // --- And they coexist ---------------------------------------------------

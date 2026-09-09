@@ -58,7 +58,10 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val stencilCfg     = if (cfg.hasStencil) Some(Input(new StencilConfig)) else None
   val stencilRead    = if (cfg.hasStencil) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
   val stencilWrite   = if (cfg.hasStencil) Some(Output(UInt(8.W))) else None
-  val stencilWriteEn = if (cfg.hasStencil) Some(Output(Bool())) else None
+  // Per-sample, not a single enable: with per-sample writes the stencil plane
+  // is updated one sample at a time, and a fragment can pass the stencil test
+  // for some samples and fail it for others.
+  val stencilWriteMask = if (cfg.hasStencil) Some(Output(UInt(cfg.samples.W))) else None
 
   // Step 50: per-lane scissor result, computed in BorgRasterizer where the
   // screen coordinates live. Unconditional rather than config-gated: the
@@ -119,20 +122,31 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
 class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgShaderDispatcherIO(cfg))
 
-  // Blending reads the destination colour, which is per-sample, but writes
-  // through TileWriteIO's single shared `data`. Blending sample 0's
-  // destination and broadcasting the result to every covered sample would be
-  // silently wrong on any partially-covered edge pixel, so the combination is
-  // a build error rather than an approximation.
-  require(!cfg.hasBlend || cfg.samples == 1,
-          s"hasBlend requires samples==1 (got ${cfg.samples}): TileWriteIO broadcasts one " +
-          "blended colour to all covered samples, which is wrong for per-sample destinations")
-
-  // Same shared-write-port limitation: each sample's stencil update depends
-  // on its own stored value, so one shared stencil write cannot express it.
-  require(!cfg.hasStencil || cfg.samples == 1,
-          s"hasStencil requires samples==1 (got ${cfg.samples}): each sample's stencil " +
-          "update depends on its own stored value, which one shared write port cannot express")
+  // --- Per-sample tile writes -------------------------------------------
+  //
+  // Blending, stencil and depthWriteEnable all need the destination sample's
+  // OWN stored value, but TileWriteIO carries a single shared `data` for
+  // every covered sample (shade once, broadcast). That shared port used to
+  // make all three a samples==1-only feature.
+  //
+  // The fix is to serialize rather than widen the port: sTileWrite issues one
+  // write per sample, each with a one-hot coverage mask and its own
+  // destination operands. The alternative -- widening `data` to a per-sample
+  // Vec -- would need `samples` copies of the blend equation (eight 8x8
+  // multipliers each) and would touch every one of the port's call sites.
+  // Serializing reuses the single blend unit and changes nothing outside this
+  // module. It costs `samples - 1` extra cycles per written fragment, paid
+  // only by a build that actually enables one of these features.
+  //
+  // The read data is already all there: io.tileRead.data, io.stencilRead and
+  // io.alphaRead are per-sample Vecs held stable by the tile buffer's hold
+  // registers, so the extra samples need no extra reads -- just extra cycles
+  // to write.
+  //
+  // A build with neither feature keeps the historical single-cycle broadcast
+  // write, selected here at elaboration, so its hardware is unchanged rather
+  // than merely equivalent.
+  val needPerSample = cfg.samples > 1 && (cfg.hasBlend || cfg.hasStencil)
 
   private val config = cfg.fp  // shorthand for FP arithmetic
 
@@ -259,6 +273,11 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // genuinely 0-bit register trips the implicit-truncation warning; log2Up
   // floors at 1 bit instead.
   val laneCtr = RegInit(0.U(log2Up(N).W))
+
+  // Which sample sTileWrite is currently writing. Only exists when the
+  // serialized path is built; see needPerSample above.
+  val sampleCtr =
+    if (needPerSample) Some(RegInit(0.U(log2Up(cfg.samples).W))) else None
   // Dynamic Vec indices need a genuinely 0-width UInt at N=1 (Chisel's own
   // log2Ceil docs: "log2Ceil(1) // returns 0") to avoid a W004 "dynamic
   // index too wide" warning — but laneCtr itself must stay log2Up-width
@@ -279,7 +298,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.tileWrite.data     := 0.U.asTypeOf(new ColorZ(16))
   io.tileWrite.coverage := 0.U
   io.stencilWrite.foreach(_ := 0.U)
-  io.stencilWriteEn.foreach(_ := false.B)
+  io.stencilWriteMask.foreach(_ := 0.U)
   io.alphaWrite.foreach(_ := 0.U)
   // Defaults to masked-off outside sTileWrite, so the plane can never be
   // written by a stray write.en pulse from elsewhere in the FSM.
@@ -369,6 +388,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       frag_a.foreach(_(i) := 0x3C00.U)
     }
     laneCtr := 0.U
+    sampleCtr.foreach(_ := 0.U)
     auto_run_stall := true.B
     phase := sRast
     io.coreTrigger.valid  := true.B
@@ -458,6 +478,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // written to DRAM -- exposing an alpha-carrying *attachment format* an
     // application can read back would additionally need the flusher to carry
     // it, the same shape as the item-14 depth burst.
+    // The destination sample this cycle's write targets. In the broadcast
+    // path there is only ever one set of operands (sample 0's), which is the
+    // historical behaviour and its documented limitation; in the serialized
+    // path it walks every sample.
+    val dstIdx: UInt = sampleCtr.map(_.asUInt).getOrElse(0.U)
+
     val (blendR, blendG, blendB) = if (cfg.hasBlend) {
       val cfgIn = io.blendCfg.get
       val src = Wire(new Rgba8)
@@ -466,10 +492,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       src.b := ColorQuantize.quantize8(frag_b(laneIdx))
       src.a := ColorQuantize.quantize8(frag_a.get(laneIdx))
       val dst = Wire(new Rgba8)
-      dst.r := ColorQuantize.quantize8(io.tileRead.data(0).r)
-      dst.g := ColorQuantize.quantize8(io.tileRead.data(0).g)
-      dst.b := ColorQuantize.quantize8(io.tileRead.data(0).b)
-      dst.a := io.alphaRead.get(0)
+      dst.r := ColorQuantize.quantize8(io.tileRead.data(dstIdx).r)
+      dst.g := ColorQuantize.quantize8(io.tileRead.data(dstIdx).g)
+      dst.b := ColorQuantize.quantize8(io.tileRead.data(dstIdx).b)
+      dst.a := io.alphaRead.get(dstIdx)
       val out = BorgBlend.blend(cfgIn, src, dst)
       // The alpha channel's own blend result, stored back to the plane. With
       // blending off the fragment's source alpha passes through, matching how
@@ -488,7 +514,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       // Only the R/G/B bits are consumed here; the A bit gates the alpha
       // plane's write instead (io.alphaWriteMask above), so the colour and
       // alpha stores are maskable independently, as Vulkan requires.
-      val dstRgb = Seq(io.tileRead.data(0).r, io.tileRead.data(0).g, io.tileRead.data(0).b)
+      val dstRgb = Seq(io.tileRead.data(dstIdx).r, io.tileRead.data(dstIdx).g,
+                       io.tileRead.data(dstIdx).b)
       val masked = blended.zip(dstRgb).zipWithIndex.map { case ((b, d), i) =>
         Mux(cfgIn.colorWriteMask(i), b, d)
       }
@@ -509,8 +536,14 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // Rather than silently write sample 0's old Z to every sample, MSAA
     // keeps the historical always-write behaviour; making write_en correct
     // there is real port work, noted here and in DEPTH_CFG's own RDL desc.
-    io.tileWrite.data.z := (if (cfg.samples == 1)
-                              Mux(io.depthWriteEn, frag_z(laneIdx), io.tileRead.data(0).z)
+    // depthWriteEnable is honoured whenever the write targets a single known
+    // sample -- always at samples==1, and on the serialized path at any
+    // sample count. The broadcast path at samples>1 still cannot: preserving
+    // depth there would mean writing sample 0's stored Z to every covered
+    // sample, which is worse than ignoring the bit, so it keeps the
+    // historical unconditional store.
+    io.tileWrite.data.z := (if (cfg.samples == 1 || needPerSample)
+                              Mux(io.depthWriteEn, frag_z(laneIdx), io.tileRead.data(dstIdx).z)
                             else frag_z(laneIdx))
     // Depth test, per sample: a sample takes the fragment only if the lane is
     // inside (coverage), not discarded, AND this sample's own stored Z is
@@ -547,40 +580,75 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // registers and datapath are already carried through, so it lands as
     // wiring rather than a redesign.
     val stencilRes = if (cfg.hasStencil) {
-      Some(BorgStencil.evaluate(io.stencilCfg.get, true.B, io.stencilRead.get(0),
-                                depthPasses(frag_z(laneIdx), io.tileRead.data(0).z)))
+      Some(BorgStencil.evaluate(io.stencilCfg.get, true.B, io.stencilRead.get(dstIdx),
+                                depthPasses(frag_z(laneIdx), io.tileRead.data(dstIdx).z)))
     } else None
 
-    val samplePass = (0 until cfg.samples).map { s =>
-      val depthOk = stencilRes match {
-        // evaluate() already folds the depth result in, and additionally
-        // requires the stencil test to pass.
-        case Some(r) if s == 0 => r.pass
-        case _                 => depthPasses(frag_z(laneIdx), io.tileRead.data(s).z)
+    // "The fragment reached the per-fragment tests at all": covered by the
+    // triangle, not discarded, inside the scissor. A `discard`ed or
+    // scissored-out fragment performs no per-fragment operations, so it must
+    // not advance the stencil buffer either.
+    def reached(s: UInt): Bool =
+      coverage(laneIdx)(s) && !killed(laneIdx) && io.scissorPass(laneIdx)
+
+    if (needPerSample) {
+      // Serialized: one sample per cycle, one-hot coverage.
+      val depthOk = stencilRes.map(_.pass)
+        .getOrElse(depthPasses(frag_z(laneIdx), io.tileRead.data(dstIdx).z))
+      val pass = reached(dstIdx) && depthOk
+      val oneHot = UIntToOH(dstIdx, cfg.samples)
+      io.tileWrite.coverage := Mux(pass, oneHot, 0.U)
+      io.tileWrite.en       := pass
+      stencilRes.foreach { r =>
+        io.stencilWrite.get       := r.newValue
+        io.stencilWriteMask.get   := Mux(reached(dstIdx), oneHot, 0.U)
       }
-      coverage(laneIdx)(s) && !killed(laneIdx) && io.scissorPass(laneIdx) && depthOk
+    } else {
+      // Broadcast: every sample evaluated in one cycle against its own stored
+      // Z, one shared colour. Structurally the historical path.
+      val samplePass = (0 until cfg.samples).map { s =>
+        val depthOk = stencilRes match {
+          // evaluate() already folds the depth result in, and additionally
+          // requires the stencil test to pass.
+          case Some(r) if s == 0 => r.pass
+          case _                 => depthPasses(frag_z(laneIdx), io.tileRead.data(s).z)
+        }
+        reached(s.U) && depthOk
+      }
+      io.tileWrite.coverage := Cat(samplePass.reverse)
+      io.tileWrite.en       := samplePass.reduce(_ || _)
+      stencilRes.foreach { r =>
+        io.stencilWrite.get     := r.newValue
+        io.stencilWriteMask.get := Mux(reached(0.U), Fill(cfg.samples, 1.U(1.W)), 0.U)
+      }
     }
-    io.tileWrite.coverage := Cat(samplePass.reverse)
-    io.tileWrite.en       := samplePass.reduce(_ || _)
+    if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d smp=%d idx=%d Z=0x%x zOld=0x%x cov=0x%x\n",
+      laneCtr, dstIdx, io.shaderTileIndex(laneIdx), frag_z(laneIdx),
+      io.tileRead.data(dstIdx).z, io.tileWrite.coverage)
 
-    stencilRes.foreach { r =>
-      io.stencilWrite.get := r.newValue
-      // Reached the stencil test at all: covered and not discarded. A
-      // `discard`ed fragment performs no per-fragment operations, so it must
-      // not advance the stencil buffer either.
-      io.stencilWriteEn.get := coverage(laneIdx)(0) && !killed(laneIdx) && io.scissorPass(laneIdx)
+    // Lane advance. On the serialized path this only runs after the last
+    // sample of the lane -- the tile read stays valid across all of them, so
+    // the extra samples cost cycles in sTileWrite and nothing else.
+    def advanceLane(): Unit = {
+      when(laneCtr === (N - 1).U) {
+        laneCtr := 0.U
+        phase := sIdle
+        auto_run_stall := false.B
+      }.otherwise {
+        laneCtr := laneCtr + 1.U
+        phase := sZRead   // next lane
+      }
     }
-    if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d idx=%d Z=0x%x zOld_s0=0x%x cov=0x%x\n",
-      laneCtr, io.shaderTileIndex(laneIdx), frag_z(laneIdx), io.tileRead.data(0).z,
-      Cat(samplePass.reverse))
 
-    when(laneCtr === (N - 1).U) {
-      laneCtr := 0.U
-      phase := sIdle
-      auto_run_stall := false.B
-    }.otherwise {
-      laneCtr := laneCtr + 1.U
-      phase := sZRead   // next lane
+    sampleCtr match {
+      case Some(ctr) =>
+        when(ctr === (cfg.samples - 1).U) {
+          ctr := 0.U
+          advanceLane()
+        }.otherwise {
+          ctr := ctr + 1.U   // stay in sTileWrite for the next sample
+        }
+      case None => advanceLane()
     }
   }
 
