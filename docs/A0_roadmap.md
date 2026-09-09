@@ -1863,6 +1863,82 @@ per-sample colour op); widening it is one piece of work that would unblock
 all three, and is the obvious next structural item rather than three
 separate workarounds.
 
+**Item 10 (stencil) DONE 2026-09-09** (this branch, commits `9b58264e`
+test/op logic + the tile-plane integration that follows it). Stencil is
+mandatory -- no `VkPhysicalDeviceFeatures` bit gates it -- and Borg had no
+stencil concept anywhere.
+
+The structural thing this item turns on is that stencil is not one test
+with one outcome but a **three-way branch chosen by both the stencil and
+the depth result**, and the buffer is written in all three arms --
+including the two that kill the fragment. That is the entire point of the
+feature: masking, outlining and shadow volumes all depend on the buffer
+advancing on a fragment that never reaches the framebuffer. An
+implementation that gates the stencil write on the colour write passes a
+naive depth test and is useless for everything stencil exists for, so
+`stencilWriteEn` is a signal of its own rather than sharing
+`tileWrite.en`. Also note stencil is tested *before* depth but written
+*after* the depth result is known, so the two cannot be split across
+pipeline stages without carrying the intermediate decision along -- they
+are evaluated in the same cycle here.
+
+The plane is one 16x8-bit `SyncReadMem` per sample in `BorgTileBuffer`,
+sharing the colour plane's index, enable and clear sequence, so a stencil
+read arrives on exactly the same cycle as the colour/Z read the depth test
+already waits for -- stencil costs the dispatcher no extra FSM states. The
+ports are deliberately *not* fields on `TileWriteIO`/`TileReadIO`/
+`TileClearIO`: those three are shared with the flusher and the MMIO poke
+path, which would then have to agree on the flag just to stay
+type-compatible with a plane only the dispatcher touches.
+
+`VkCompareOp` is now a shared `CompareOp` object used by both the depth and
+stencil tests. Vulkan uses one enum for both with identical semantics; two
+copies of the 8-way mux would be two places for the operand order to drift,
+and a reversed comparison shows up as subtly missing geometry rather than a
+failure.
+
+**Two boundaries, both worth knowing before assuming this item is closed.**
+First, `samples==1` only, the same `TileWriteIO` limitation as items 9 and
+11 -- that single shared port is now blocking *four* MSAA behaviours.
+Second, and specific to stencil: **the back-face state is unreachable
+today**. `BorgGeometrySequencer` culls back-facing triangles outright
+before rasterization (the `setupRegs(6)` sign check), so every fragment
+that reaches the dispatcher is front-facing and `frontFacing` is hardwired
+true. Two-sided stencil needs configurable cull mode
+(`VK_CULL_MODE_NONE`/`FRONT`/`BACK`, itself a Vulkan requirement Borg does
+not currently meet) before it can do anything. The back-face registers and
+datapath are carried through anyway so that lands as a wiring change rather
+than a redesign -- **configurable cull mode is the natural next item**, and
+it unblocks two-sided stencil as a side effect.
+
+What remains for stencil beyond hardware: a real `D24_UNORM_S8_UINT` or
+`D32_SFLOAT_S8_UINT` *attachment* also needs the plane flushed to and
+reloaded from DRAM, the same shape as the depth flush built for item 14.
+Within a single render pass the on-chip plane is already correct.
+
+**Configurable face culling DONE 2026-09-09** (this branch) -- a gap this
+list had not called out separately, found while wiring stencil. Vulkan
+requires all four `VkCullModeFlagBits` values and both `VkFrontFace`
+windings; `BorgGeometrySequencer` hardcoded "discard every triangle whose
+signed-area sign bit is set", i.e. permanent `VK_CULL_MODE_BACK_BIT`, so
+`VK_CULL_MODE_NONE` was unavailable. New `cull_cfg` register with the
+Vulkan bitmask verbatim (bit 0 culls front, bit 1 culls back), so NONE and
+FRONT_AND_BACK fall out of the same expression rather than needing their
+own arms; reset 2 reproduces the historical behaviour exactly.
+
+The winding bit is named `front_face_invert`, not `VkFrontFace`, on
+purpose: **which of CLOCKWISE / COUNTER_CLOCKWISE the current setup
+shader's winding actually corresponds to is unverified**, and guessing the
+mapping would bake a coin flip into the register map. One two-triangle
+experiment pins it down, after which the field can be documented as the
+`VkFrontFace` bit it is. Flagged rather than assumed.
+
+This also removes the *first* of the two blockers on two-sided stencil.
+The second remains: the facing bit still has to reach the dispatcher, and
+Pass 1's per-triangle setup state is stored to DRAM and reloaded per-tile
+in Pass 2, so facing has to travel with it the way `has_uvs` does -- a
+store/reload path change, not just wiring.
+
 **Explicitly NOT here — pure performance, not correctness, deferred to
 Step 53**: widening `fragLanes` *beyond* 4, warp-level multithreading,
 multi-core scale-out. Neither Vulkan conformance nor vkQuake need any of
