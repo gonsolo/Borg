@@ -121,10 +121,10 @@ object BorgCoreTests extends TestSuite {
     core.io.seqBusy.poke(false.B)
     // LOAD/STORE DRAM port -- driven idle so nothing X-propagates for the
     // tests that never execute a memory instruction.
-    core.io.gpuMem.data.poke(0.U)
-    core.io.gpuMem.ready.poke(false.B)
-    core.io.gpuMem.waccept.poke(false.B)
-    core.io.lsBase.poke(0.U)
+    core.io.gpuMem.get.data.poke(0.U)
+    core.io.gpuMem.get.ready.poke(false.B)
+    core.io.gpuMem.get.waccept.poke(false.B)
+    core.io.lsBase.get.poke(0.U)
     core.clock.step(1)
   }
 
@@ -143,21 +143,21 @@ object BorgCoreTests extends TestSuite {
     var idle = false
     var watchdog = 0
     while (!idle && watchdog < 500) {
-      val rd = core.io.gpuMem.req.peek().litToBoolean
-      val wr = core.io.gpuMem.wr.peek().litToBoolean
+      val rd = core.io.gpuMem.get.req.peek().litToBoolean
+      val wr = core.io.gpuMem.get.wr.peek().litToBoolean
       if (rd || wr) {
-        val addr = core.io.gpuMem.addr.peek().litValue
-        if (wr) mem(addr) = core.io.gpuMem.wdata.peek().litValue
-        core.io.gpuMem.data.poke((mem.getOrElse(addr, BigInt(0)) & BigInt("ffffffff", 16)).U)
-        core.io.gpuMem.ready.poke(true.B)
+        val addr = core.io.gpuMem.get.addr.peek().litValue
+        if (wr) mem(addr) = core.io.gpuMem.get.wdata.peek().litValue
+        core.io.gpuMem.get.data.poke((mem.getOrElse(addr, BigInt(0)) & BigInt("ffffffff", 16)).U)
+        core.io.gpuMem.get.ready.poke(true.B)
       } else {
-        core.io.gpuMem.ready.poke(false.B)
+        core.io.gpuMem.get.ready.poke(false.B)
       }
       core.clock.step(1)
       idle = !core.io.status.running.peek().litToBoolean
       watchdog += 1
     }
-    core.io.gpuMem.ready.poke(false.B)
+    core.io.gpuMem.get.ready.poke(false.B)
     utest.assert(idle)
   }
 
@@ -874,7 +874,7 @@ object BorgCoreTests extends TestSuite {
         println("\n--- BorgCore: LOAD ---")
         idleInputs(core)
         resetCore(core)
-        core.io.lsBase.poke(LS_BASE.U)
+        core.io.lsBase.get.poke(LS_BASE.U)
 
         val mem = scala.collection.mutable.Map[BigInt, BigInt](
           BigInt(LS_BASE + 3 * 4) -> BigInt("beef", 16))
@@ -898,7 +898,7 @@ object BorgCoreTests extends TestSuite {
         println("\n--- BorgCore: STORE ---")
         idleInputs(core)
         resetCore(core)
-        core.io.lsBase.poke(LS_BASE.U)
+        core.io.lsBase.get.poke(LS_BASE.U)
 
         val mem = scala.collection.mutable.Map[BigInt, BigInt]()
         writeReg(core, 0, 5)                      // r0 = element index 5
@@ -922,7 +922,7 @@ object BorgCoreTests extends TestSuite {
         println("\n--- BorgCore: STORE then LOAD ---")
         idleInputs(core)
         resetCore(core)
-        core.io.lsBase.poke(LS_BASE.U)
+        core.io.lsBase.get.poke(LS_BASE.U)
 
         val mem = scala.collection.mutable.Map[BigInt, BigInt]()
         writeReg(core, 0, 7)
@@ -955,7 +955,7 @@ object BorgCoreTests extends TestSuite {
           // Each iteration is a fresh program: without the reset the program
           // counter stays past the previous halt and nothing executes.
           resetCore(core)
-          core.io.lsBase.poke(base.U)
+          core.io.lsBase.get.poke(base.U)
           val mem = scala.collection.mutable.Map[BigInt, BigInt]()
           writeReg(core, 0, index)
           writeImem(core, 0, Instructions.STORE(rs1 = 0, rs2 = 0))
@@ -975,7 +975,7 @@ object BorgCoreTests extends TestSuite {
         println("\n--- BorgCore: LOAD stalls the pipeline ---")
         idleInputs(core)
         resetCore(core)
-        core.io.lsBase.poke(LS_BASE.U)
+        core.io.lsBase.get.poke(LS_BASE.U)
 
         writeReg(core, 0, 1)
         writeImem(core, 0, Instructions.LOAD(rs1 = 0, rd = 2))
@@ -990,8 +990,8 @@ object BorgCoreTests extends TestSuite {
         // would finish and drop `running` within a handful of cycles.
         var sawRequest = false
         for (_ <- 0 until 60) {
-          core.io.gpuMem.ready.poke(false.B)
-          if (core.io.gpuMem.req.peek().litToBoolean) sawRequest = true
+          core.io.gpuMem.get.ready.poke(false.B)
+          if (core.io.gpuMem.get.req.peek().litToBoolean) sawRequest = true
           core.clock.step(1)
         }
         val stillRunning = core.io.status.running.peek().litToBoolean
@@ -1005,17 +1005,17 @@ object BorgCoreTests extends TestSuite {
         var idle = false
         var wd = 0
         while (!idle && wd < 200) {
-          val rq = core.io.gpuMem.req.peek().litToBoolean
+          val rq = core.io.gpuMem.get.req.peek().litToBoolean
           if (rq) {
-            val a = core.io.gpuMem.addr.peek().litValue
-            core.io.gpuMem.data.poke((mem.getOrElse(a, BigInt(0))).U)
-            core.io.gpuMem.ready.poke(true.B)
-          } else core.io.gpuMem.ready.poke(false.B)
+            val a = core.io.gpuMem.get.addr.peek().litValue
+            core.io.gpuMem.get.data.poke((mem.getOrElse(a, BigInt(0))).U)
+            core.io.gpuMem.get.ready.poke(true.B)
+          } else core.io.gpuMem.get.ready.poke(false.B)
           core.clock.step(1)
           idle = !core.io.status.running.peek().litToBoolean
           wd += 1
         }
-        core.io.gpuMem.ready.poke(false.B)
+        core.io.gpuMem.get.ready.poke(false.B)
         utest.assert(idle)
         println(f"  released: r2 = 0x${readReg(core, 2).toInt.toHexString} (expect 0xff)")
         utest.assert(readReg(core, 2) == BigInt("00ff", 16))

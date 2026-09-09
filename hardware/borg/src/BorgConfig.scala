@@ -149,6 +149,24 @@ case class BorgConfig(
     // nearest -- and paying no quantize/dequantize round trip -- until an
     // application asks for linear.
     hasBilinear: Boolean = false,
+    // --- Extended ISA -------------------------------------------------
+    //
+    // Two knobs rather than one so the wafer.space area/feature tradeoff can
+    // be measured at finer grain than all-or-nothing. Both default TRUE:
+    // unlike the fixed-function knobs above, these gate instructions a
+    // compiler may already have emitted into a shader binary, and silently
+    // dropping an opcode would execute as something else rather than fail.
+    // Turning one off is an explicit decision to ship a smaller ISA.
+    //
+    // hasMemoryOps: LOAD/STORE and the core's DRAM port. The prerequisite
+    // for compute queues, SSBOs and storage images -- but dead area for a
+    // target that only ever runs the graphics pipeline.
+    hasMemoryOps: Boolean = true,
+    // hasControlFlow: BRZ/BRNZ plus the execution mask and its stack. Costs
+    // the PC redirect, the mask, and 8 x fragLanes bits of stack. At
+    // fragLanes=1 the mask is degenerate but the branches are not -- loops
+    // and early exits need them regardless of SIMT width.
+    hasControlFlow: Boolean = true,
     // BorgFp16Fma pipeline depth. 3 is the shipping FP16 form; 4 and 5 add
     // registers inside stages 2 and 3 respectively, for FP32 at 25 MHz.
     //
