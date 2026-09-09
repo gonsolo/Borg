@@ -1865,14 +1865,32 @@ The plane is tile-local, which *is* the full correctness scope for Borg's
 render model (clear a tile, blend every triangle binned to it, flush).
 What remains for item 9 is only the DRAM half: exposing an alpha-carrying
 attachment format an application can read back needs the flusher to carry
-alpha, the same shape as the item-14 depth burst. Like item 11's `depthWriteEnable`, blending is `samples==1` only,
-and for the same underlying reason -- `TileWriteIO` broadcasts one `data`
-to all covered samples, so a per-sample destination cannot be blended
-correctly through it. **That single port limitation is now blocking three
-separate MSAA behaviours** (depth write-enable, blending, and any future
-per-sample colour op); widening it is one piece of work that would unblock
-all three, and is the obvious next structural item rather than three
-separate workarounds.
+alpha, the same shape as the item-14 depth burst. Blending was initially `samples==1` only, the same `TileWriteIO`
+limitation as item 11's `depthWriteEnable` -- one shared `data`
+broadcast to all covered samples, so a per-sample destination could not be
+blended correctly through it. **RESOLVED the same day** (commit
+`94b59eb0`), and worth recording how, because the obvious fix was the
+wrong one.
+
+Widening `data` to a per-sample Vec would need `samples` copies of the
+blend equation (eight 8x8 multipliers each) and would edit every one of
+the port's ~30 call sites. Serializing instead -- `sTileWrite` issues one
+write per sample with a one-hot coverage mask and that sample's own
+destination operands -- reuses the single blend unit and changes nothing
+outside `BorgShaderDispatcher`. The read data was already all present:
+`tileRead.data`, `stencilRead` and `alphaRead` are per-sample Vecs held
+stable by the tile buffer's hold registers, so the extra samples cost
+cycles, not reads.
+
+This unblocked all four behaviours at once -- blending, stencil,
+`depthWriteEnable` (which comes free once a write targets one known
+sample) and any future per-sample colour op. It matters for conformance
+rather than tidiness: Vulkan's `framebufferColorSampleCounts` must include
+`VK_SAMPLE_COUNT_4_BIT`, so "blending only works at 1x" was a hole, not a
+preference. Cost is `samples - 1` extra cycles per written fragment, paid
+only by a build that enables one of these features -- plain 4x MSAA keeps
+the single-cycle broadcast path, checked structurally (no `sampleCtr` in
+its emitted CHIRRTL).
 
 **Item 10 (stencil) DONE 2026-09-09** (this branch, commits `9b58264e`
 test/op logic + the tile-plane integration that follows it). Stencil is
@@ -1908,10 +1926,9 @@ copies of the 8-way mux would be two places for the operand order to drift,
 and a reversed comparison shows up as subtly missing geometry rather than a
 failure.
 
-**Two boundaries, both worth knowing before assuming this item is closed.**
-First, `samples==1` only, the same `TileWriteIO` limitation as items 9 and
-11 -- that single shared port is now blocking *four* MSAA behaviours.
-Second, and specific to stencil: **the back-face state is unreachable
+**One boundary remains** (the `samples==1` restriction that was here has
+been lifted -- see item 9's per-sample-write note above, which covers
+stencil too), and it is specific to stencil: **the back-face state is unreachable
 today**. `BorgGeometrySequencer` culls back-facing triangles outright
 before rasterization (the `setupRegs(6)` sign check), so every fragment
 that reaches the dispatcher is front-facing and `frontFacing` is hardwired
@@ -1979,12 +1996,16 @@ programmable state. `depthBounds`, `depthClamp`, `wideLines`,
 `independentBlend` and `dualSrcBlend` are all optional features Borg can
 legitimately report unsupported -- **do not** spend hardware on those.
 
-**Also worth re-checking before the next MSAA claim**: Vulkan's limits
-table requires `framebufferColorSampleCounts` to include
-`VK_SAMPLE_COUNT_4_BIT`, not just 1. That makes the `TileWriteIO`
-shared-`data` limitation flagged above a genuine conformance blocker
-rather than a nice-to-have, since blending, `depthWriteEnable`, stencil and
-the scissor/colour path all have to be correct at 4 samples.
+**The MSAA requirement that drove the above**: Vulkan's limits table
+requires `framebufferColorSampleCounts` to include
+`VK_SAMPLE_COUNT_4_BIT`, not just 1 -- which is what turned the
+`TileWriteIO` shared-`data` limitation from a nice-to-have into a
+conformance blocker, since blending, `depthWriteEnable`, stencil and the
+colour path all have to be correct at 4 samples. Now resolved by
+serializing the write; `hasDepthFlush` at `samples > 1` remains a build
+error, but for an unrelated reason (resolving depth by averaging samples
+is simply the wrong operation, and picking min/max/a specific sample is a
+real semantic choice, not an implementation gap).
 
 **Explicitly NOT here — pure performance, not correctness, deferred to
 Step 53**: widening `fragLanes` *beyond* 4, warp-level multithreading,
