@@ -1684,6 +1684,40 @@ structure (which tests run unconditionally vs. behind a
    a new DRAM read/write arbitration path) is likely bigger than the
    dispatch-sequencing piece it would unblock, and needs its own dedicated
    scoping pass before any RTL work starts here.
+
+   **LOAD/STORE BUILT 2026-09-09** (commit `f7646a28`), so this item's
+   stated prerequisite is met and what remains here really is the dispatch
+   machinery. `LOAD rd, rs1` and `STORE rs1, rs2` address
+   `LS_BASE + (rs1 << 2)`.
+
+   The word-index form is forced, not chosen: at FP16 a shader register
+   holds 16 bits and the address space is 25, so a register cannot carry an
+   address. It lands on the right abstraction anyway -- `LS_BASE` is
+   effectively an SSBO descriptor and the shader supplies the element index
+   -- but at FP16 one binding is capped at a 64K-word window, and a shader
+   needing two bindings at once has no way to express it. Multiple
+   simultaneous bindings need either a wider register file (FP32, this
+   branch) or a second base register. That is a real design question, not
+   an oversight.
+
+   Implemented as `wireMemStall`, structurally a copy of the FTEX stall
+   FSM, which is what made it a day's work rather than a redesign. Freezing
+   `busy_counter` at 4 means the lane's own ALU write-back (at 1) never
+   fires, so `BorgLane` needs no decode for these ops at all.
+
+   **Absent on purpose, and each is a real gap before compute can use
+   this**: no coalescing (a 4-lane quad issues four separate single-word
+   accesses -- the obvious first optimization), no bounds check against the
+   binding size, no alignment fault (the shift makes misalignment
+   unrepresentable instead), and no barrier or memory-ordering primitive.
+   Accesses are in program order only because the core stalls for each one,
+   which is stronger than Vulkan requires *within* an invocation and says
+   nothing at all *between* them -- so `OpControlBarrier`/
+   `OpMemoryBarrier` remain unimplementable, and that blocks any compute
+   shader sharing data across a workgroup.
+
+   **Control flow is now the largest single remaining ISA gap** -- there is
+   still no branch instruction, so every shader is straight-line.
 8. **Framebuffer/image resolution ceiling** — `maxFramebufferWidth`,
    `maxFramebufferHeight`, and `maxImageDimension2D` must all be ≥4096
    unconditionally. **Partial step taken 2026-09-08**: `BorgConfig.Default`/
