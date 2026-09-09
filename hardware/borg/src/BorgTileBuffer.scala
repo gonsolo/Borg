@@ -27,7 +27,8 @@ import chisel3.experimental.BundleLiterals._
   */
 
 class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
-                       val hasStencil: Boolean = false) extends Bundle {
+                       val hasStencil: Boolean = false,
+                       val hasAlpha: Boolean = false) extends Bundle {
   // Write port (from rasterizer auto-write or MMIO)
   val write = Flipped(new TileWriteIO(samples))
 
@@ -55,6 +56,20 @@ class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
   val stencilWrite   = if (hasStencil) Some(Input(UInt(8.W))) else None
   val stencilWriteEn = if (hasStencil) Some(Input(Bool())) else None
   val stencilClear   = if (hasStencil) Some(Input(UInt(8.W))) else None
+
+  // --- Optional destination-alpha plane (Step 50 item 9) -------------------
+  //
+  // UNORM8, matching the format blending is performed in, so no conversion
+  // sits between the plane and the blend unit.
+  //
+  // Unlike stencil this has no write-enable of its own: alpha is written
+  // exactly when colour is, on the same fragment and under the same
+  // coverage. `alphaWriteMask` is colorWriteMask's A bit, which suppresses
+  // the alpha store while leaving the colour store alone.
+  val alphaRead      = if (hasAlpha) Some(Output(Vec(samples, UInt(8.W)))) else None
+  val alphaWrite     = if (hasAlpha) Some(Input(UInt(8.W))) else None
+  val alphaWriteMask = if (hasAlpha) Some(Input(Bool())) else None
+  val alphaClear     = if (hasAlpha) Some(Input(UInt(8.W))) else None
 }
 
 /** @param colorBits Stored R/G/B width, independent of `dataBits` (the port
@@ -68,10 +83,10 @@ class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
   *                  own doc for why.
   */
 class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits: Int = 16,
-                     val hasStencil: Boolean = false) extends Module {
+                     val hasStencil: Boolean = false, val hasAlpha: Boolean = false) extends Module {
   require(colorBits == dataBits || colorBits == 8,
           s"colorBits must equal dataBits (off) or be 8 (ColorQuantize), got $colorBits")
-  val io = IO(new BorgTileBufferIO(dataBits, samples, hasStencil))
+  val io = IO(new BorgTileBufferIO(dataBits, samples, hasStencil, hasAlpha))
 
   val FP16_MAX_DEPTH_VAL = 0x7BFF  // Scala constant
   val FP16_MAX_DEPTH = FP16_MAX_DEPTH_VAL.U(dataBits.W)
@@ -247,5 +262,36 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
     val stencilHeld = RegInit(VecInit(Seq.fill(samples)(0.U(8.W))))
     when(readEnDel) { stencilHeld := stencilRead }
     io.stencilRead.get := stencilHeld
+  }
+
+  // --- Optional destination-alpha plane ----------------------------------
+  //
+  // Same shape as the stencil plane and for the same reasons (shared index/
+  // enable/clear, per-sample memories rather than a write mask). What makes
+  // it worth having: without it every blend factor involving DST_ALPHA has
+  // to assume an opaque destination, so an application compositing
+  // translucent geometry into a translucent buffer gets the wrong answer
+  // with no way to tell.
+  if (hasAlpha) {
+    val alphaMems = Seq.fill(samples)(SyncReadMem(TILE_SIZE, UInt(8.W)))
+
+    // RegInit 0xFF, not 0: the reset auto-clear runs before firmware writes
+    // anything, and an opaque destination is what the hardware behaved as
+    // before this plane existed.
+    val alphaClearReg = RegInit(0xFF.U(8.W))
+    when(io.clear.en && !clearing) { alphaClearReg := io.alphaClear.get }
+
+    val alphaRead = VecInit(alphaMems.zipWithIndex.map { case (mem, s) =>
+      when(clearing) {
+        mem.write(clearCounter, alphaClearReg)
+      }.elsewhen(io.write.en && io.write.coverage(s).asBool && io.alphaWriteMask.get) {
+        mem.write(io.write.idx, io.alphaWrite.get)
+      }
+      mem.read(io.read.idx, effectiveReadEn)
+    })
+
+    val alphaHeld = RegInit(VecInit(Seq.fill(samples)(0xFF.U(8.W))))
+    when(readEnDel) { alphaHeld := alphaRead }
+    io.alphaRead.get := alphaHeld
   }
 }

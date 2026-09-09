@@ -81,7 +81,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val core      = Module(new BorgCore(cfg))
   val rast      = Module(new BorgRasterizer(cfg))
   val flusher   = Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush))   // before tile — see note above
-  val tile      = Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil))
+  val tile      = Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend))
   val rdlRegs   = Module(new BorgGpuRegs()) // Auto-generated RDL register block
   val dma       = Module(new BorgDMA(cfg))
   val sequencer = Module(new BorgSequencer(cfg))
@@ -407,7 +407,14 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rast.io.stencilRead.foreach(_ := tile.io.stencilRead.get)
     tile.io.stencilWrite.foreach(_ := rast.io.stencilWrite.get)
     tile.io.stencilWriteEn.foreach(_ := rast.io.stencilWriteEn.get)
-    tile.io.stencilClear.foreach(_ := rdlRegs.io.hw.stencil_clear_clear_value)
+    tile.io.stencilClear.foreach(_ := rdlRegs.io.hw.plane_clear_stencil)
+
+    // Destination-alpha plane (Step 50 item 9). Same piggyback on the colour
+    // plane's index/enable/clear as the stencil plane.
+    rast.io.alphaRead.foreach(_ := tile.io.alphaRead.get)
+    tile.io.alphaWrite.foreach(_ := rast.io.alphaWrite.get)
+    tile.io.alphaWriteMask.foreach(_ := rast.io.alphaWriteMask.get)
+    tile.io.alphaClear.foreach(_ := rdlRegs.io.hw.plane_clear_alpha)
   }
 
   /** Step 25.4.1: Wire BorgTileFlusher with real DRAM writes.

@@ -48,6 +48,10 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val stencilRead     = if (cfg.hasStencil) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
   val stencilWrite    = if (cfg.hasStencil) Some(Output(UInt(8.W))) else None
   val stencilWriteEn  = if (cfg.hasStencil) Some(Output(Bool())) else None
+  // Step 50 item 9: the tile buffer's destination-alpha plane.
+  val alphaRead       = if (cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
+  val alphaWrite      = if (cfg.hasBlend) Some(Output(UInt(8.W))) else None
+  val alphaWriteMask  = if (cfg.hasBlend) Some(Output(Bool())) else None
   // Step 50: scissor rectangle (SCISSOR_X/SCISSOR_Y). Tested here rather
   // than in the dispatcher because this is where the per-lane screen
   // coordinates are.
@@ -131,6 +135,9 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.stencilRead.foreach(_ := io.stencilRead.get)
   io.stencilWrite.foreach(_ := dispatcher.io.stencilWrite.get)
   io.stencilWriteEn.foreach(_ := dispatcher.io.stencilWriteEn.get)
+  dispatcher.io.alphaRead.foreach(_ := io.alphaRead.get)
+  io.alphaWrite.foreach(_ := dispatcher.io.alphaWrite.get)
+  io.alphaWriteMask.foreach(_ := dispatcher.io.alphaWriteMask.get)
   // Scissor: one rectangle test per lane against its own pre-advance screen
   // position -- the same coordinates that produce shaderTileIndex, so the
   // result lines up with the tile slot the fragment will write.

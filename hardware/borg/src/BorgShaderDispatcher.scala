@@ -67,6 +67,13 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // test in the rasterizer, not per lane).
   val scissorPass = Input(Vec(cfg.fragLanes, Bool()))
 
+  // Step 50 item 9, second half: the tile buffer's destination-alpha plane.
+  // Present with hasBlend, since destination alpha exists only to feed the
+  // DST_ALPHA blend factors and the alpha channel's own blend equation.
+  val alphaRead      = if (cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
+  val alphaWrite     = if (cfg.hasBlend) Some(Output(UInt(8.W))) else None
+  val alphaWriteMask = if (cfg.hasBlend) Some(Output(Bool())) else None
+
   // --- Inputs from texture pipeline ---
   val texConfig  = new TexConfigIO              // mortonIndex, baseAddr, en
   val log2Dim    = Input(UInt(4.W))             // tex_config_log2_dim, see ClampTexCoord
@@ -273,6 +280,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.tileWrite.coverage := 0.U
   io.stencilWrite.foreach(_ := 0.U)
   io.stencilWriteEn.foreach(_ := false.B)
+  io.alphaWrite.foreach(_ := 0.U)
+  // Defaults to masked-off outside sTileWrite, so the plane can never be
+  // written by a stray write.en pulse from elsewhere in the FSM.
+  io.alphaWriteMask.foreach(_ := false.B)
 
   // GPU memory port: forwarded from BorgTextureUnit (Step 25.3e)
   texUnit.io.texConfig <> io.texConfig
@@ -434,11 +445,19 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // through untouched, so an enabled build still renders a non-blended
     // frame bit-identically to a build compiled without hasBlend at all.
     //
-    // Destination alpha is 1.0, not stored: Borg's colour attachment has no
-    // alpha component (the flusher writes RGB565/UNORM8 RGB to DRAM), and for
-    // an attachment format without an A component the spec defines Ad as 1.
-    // Exposing an alpha-carrying attachment format would need a real alpha
-    // plane in the tile buffer -- separate, larger work.
+    // Destination alpha comes from the tile buffer's own alpha plane, read on
+    // the same cycle as the colour/Z the depth test already fetched. Before
+    // that plane existed this was hardwired to 1.0, which is correct only for
+    // an opaque destination -- every DST_ALPHA-family factor gave the wrong
+    // answer when compositing into a translucent buffer, with nothing to
+    // indicate it.
+    //
+    // The plane is on-chip and tile-local, which is the full correctness
+    // scope for Borg's render model: a tile is cleared, all triangles binned
+    // to it blend against each other, then it is flushed. Alpha is not
+    // written to DRAM -- exposing an alpha-carrying *attachment format* an
+    // application can read back would additionally need the flusher to carry
+    // it, the same shape as the item-14 depth burst.
     val (blendR, blendG, blendB) = if (cfg.hasBlend) {
       val cfgIn = io.blendCfg.get
       val src = Wire(new Rgba8)
@@ -450,8 +469,13 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       dst.r := ColorQuantize.quantize8(io.tileRead.data(0).r)
       dst.g := ColorQuantize.quantize8(io.tileRead.data(0).g)
       dst.b := ColorQuantize.quantize8(io.tileRead.data(0).b)
-      dst.a := BorgBlend.ONE_U8.U
+      dst.a := io.alphaRead.get(0)
       val out = BorgBlend.blend(cfgIn, src, dst)
+      // The alpha channel's own blend result, stored back to the plane. With
+      // blending off the fragment's source alpha passes through, matching how
+      // the colour channels behave.
+      io.alphaWrite.get     := Mux(cfgIn.enable, out.a, src.a)
+      io.alphaWriteMask.get := cfgIn.colorWriteMask(3)
       val blended = Seq(
         Mux(cfgIn.enable, ColorQuantize.dequantize8(out.r), frag_r(laneIdx)),
         Mux(cfgIn.enable, ColorQuantize.dequantize8(out.g), frag_g(laneIdx)),

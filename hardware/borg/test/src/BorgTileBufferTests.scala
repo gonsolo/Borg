@@ -39,6 +39,9 @@ object BorgTileBufferTests extends TestSuite {
     tb.io.stencilWrite.foreach(_.poke(0.U))
     tb.io.stencilWriteEn.foreach(_.poke(false.B))
     tb.io.stencilClear.foreach(_.poke(0.U))
+    tb.io.alphaWrite.foreach(_.poke(0.U))
+    tb.io.alphaWriteMask.foreach(_.poke(false.B))
+    tb.io.alphaClear.foreach(_.poke(0xFF.U))
   }
 
   /** Explicit reset pulse + wait for BRAM auto-clear (16 cycles). */
@@ -480,6 +483,70 @@ object BorgTileBufferTests extends TestSuite {
         val (rr, _, _, _) = readPixel(tb, idx = 5)
         utest.assert(rr == 0x1111)
         println("  colour write left the stencil value alone (and vice versa)")
+        println("  PASSED")
+      }
+    }
+
+    utest.test("alpha_plane_defaults_opaque_and_follows_the_colour_write") {
+      simulate(new BorgTileBuffer(16, 1, 16, hasAlpha = true)) { tb =>
+        println("\n--- BorgTileBuffer: destination-alpha plane ---")
+
+        def readAlpha(idx: Int): Int = {
+          pokeIdle(tb)
+          tb.io.read.idx.poke(idx.U)
+          tb.io.read.en.poke(true.B)
+          tb.clock.step(1)
+          tb.io.read.en.poke(false.B)
+          tb.clock.step(1)
+          tb.io.alphaRead.get(0).peek().litValue.toInt
+        }
+
+        resetModule(tb)
+        // The reset auto-clear uses alphaClearReg's RegInit, which is 0xFF --
+        // an opaque destination is what the hardware behaved as before this
+        // plane existed, so an alpha-capable build that never writes the
+        // clear register renders exactly like one without the plane.
+        utest.assert(readAlpha(3) == 0xFF)
+        println("  reset auto-clear -> 0xFF (opaque)")
+
+        pokeIdle(tb)
+        tb.io.alphaClear.get.poke(0x40.U)
+        tb.io.clear.en.poke(true.B)
+        tb.clock.step(1)
+        tb.io.clear.en.poke(false.B)
+        tb.io.alphaClear.get.poke(0.U)   // latch must hold across the sequence
+        tb.clock.step(18)
+        utest.assert(readAlpha(0) == 0x40 && readAlpha(15) == 0x40)
+        println("  explicit clear 0x40 held across all 16 entries")
+
+        // Alpha rides the colour write's enable and coverage, gated only by
+        // the mask bit -- so a colour write with the mask set stores both.
+        pokeIdle(tb)
+        tb.io.write.idx.poke(5.U)
+        tb.io.write.data.r.poke(0x1111.U)
+        tb.io.alphaWrite.get.poke(0x99.U)
+        tb.io.alphaWriteMask.get.poke(true.B)
+        tb.io.write.en.poke(true.B)
+        tb.clock.step(1)
+        tb.io.write.en.poke(false.B)
+        utest.assert(readAlpha(5) == 0x99)
+        utest.assert(readAlpha(6) == 0x40)
+        println("  masked-in write stored 0x99 at slot 5 only")
+
+        // Mask clear: the colour still lands, the alpha does not. Sharing one
+        // enable between the two would break exactly this.
+        pokeIdle(tb)
+        tb.io.write.idx.poke(5.U)
+        tb.io.write.data.r.poke(0x2222.U)
+        tb.io.alphaWrite.get.poke(0x11.U)
+        tb.io.alphaWriteMask.get.poke(false.B)
+        tb.io.write.en.poke(true.B)
+        tb.clock.step(1)
+        tb.io.write.en.poke(false.B)
+        utest.assert(readAlpha(5) == 0x99)
+        val (r, _, _, _) = readPixel(tb, idx = 5)
+        utest.assert(r == 0x2222)
+        println("  masked-out write left alpha at 0x99 while colour updated")
         println("  PASSED")
       }
     }

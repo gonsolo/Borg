@@ -567,16 +567,31 @@ reg stencil_cfg_reg_t {
     field { sw = rw; hw = na; } RSVD[7] = 0;
 };
 
-reg stencil_clear_reg_t {
-    name = "Stencil Clear Value";
-    desc = "The value written to every stencil entry by a tile clear
-            (VkClearDepthStencilValue::stencil). Its own register rather than
-            spare bits in STENCIL_CFG: only 7 bits were free there, and a
-            7-bit clear value would be a real conformance gap for an 8-bit
-            stencil format, not a harmless simplification.";
+reg plane_clear_reg_t {
+    name = "Auxiliary Plane Clear Values";
+    desc = "Clear values for the tile buffer's two auxiliary planes -- the
+            stencil plane and the destination-alpha plane. Neither fits in
+            the existing SEQ_CLEAR_LO/HI pair (that is fully occupied by
+            R/G/B/Z) and neither had enough spare bits in its own config
+            register, so both live here.
 
-    field { sw = rw; hw = r; desc = "Bits 7:0: clear value."; } clear_value[8] = 0;
-    field { sw = rw; hw = na; } RSVD[24] = 0;
+            The alpha reset is 0xFF, not 0: an opaque destination is what the
+            hardware behaved as before the alpha plane existed, so an
+            alpha-capable build that never writes this register renders
+            exactly like one without it.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 7:0: stencil clear value (VkClearDepthStencilValue::stencil).";
+    } stencil[8] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 15:8: destination alpha clear value, UNORM8
+                (VkClearColorValue alpha). Reset 0xFF = opaque.";
+    } alpha[8] = 255;
+
+    field { sw = rw; hw = na; } RSVD[16] = 0;
 };
 
 reg stencil_face_reg_t {
@@ -1259,7 +1274,7 @@ addrmap borg_gpu {
     stencil_cfg_reg_t stencil_cfg;
     stencil_face_reg_t stencil_front;
     stencil_face_reg_t stencil_back;
-    stencil_clear_reg_t stencil_clear;
+    plane_clear_reg_t plane_clear;
 
     // ---- Face culling — fully generated (hw=r). Reset = cull back faces,
     //      the historical hardcoded behaviour. ----
