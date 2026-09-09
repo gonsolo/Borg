@@ -21,7 +21,19 @@ object BorgOnlyMain extends App {
   // -- see the plan doc's "Conclusion: ship BorgConfig.Asic's current sizing
   // as BorgConfig.Wafer unchanged". BorgConfig.Wafer trims only the
   // interface (debugPorts=false), not the sizing.
-  val cfg = BorgConfig.Wafer
+  // Extended-ISA knobs, overridable from the environment so the nightly area
+  // probe can A/B them without dirtying the working tree -- same pattern as
+  // CLOCK_MHZ. Defaults match BorgConfig, so an unset environment emits
+  // exactly what it always did.
+  //
+  //   BORG_WAFER_MEMORY_OPS=0   drop LOAD/STORE and the core's DRAM port
+  //   BORG_WAFER_CONTROL_FLOW=0 drop BRZ/BRNZ and the execution mask
+  private def envFlag(name: String, default: Boolean): Boolean =
+    sys.env.get(name).map(v => v != "0" && v.toLowerCase != "false").getOrElse(default)
+
+  val cfg = BorgConfig.Wafer.copy(
+    hasMemoryOps   = envFlag("BORG_WAFER_MEMORY_OPS", BorgConfig.Wafer.hasMemoryOps),
+    hasControlFlow = envFlag("BORG_WAFER_CONTROL_FLOW", BorgConfig.Wafer.hasControlFlow))
   // narrowCapable: the tapeout gets the real runtime w=16 -> w=8 mux behind the
   // link_narrow strap, not an elaboration-time width. Pins cannot be
   // re-synthesized after tapeout, so this is the only form in which the
