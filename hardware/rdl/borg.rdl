@@ -511,6 +511,116 @@ reg blend_const_reg_t {
     field { sw = rw; hw = r; desc = "Bits 31:24: A."; } const_a[8] = 0;
 };
 
+// --- Stencil test configuration (Step 50 item 10) ---
+reg stencil_cfg_reg_t {
+    name = "Stencil Configuration";
+    desc = "Stencil enable plus both faces' VkStencilOpState op fields.
+            Vulkan always has independent front/back stencil state -- no
+            feature bit makes them share -- so both faces live in the
+            datapath rather than being swapped between draws.
+
+            Compare ops are VkCompareOp 0..7 (the same encoding DEPTH_CFG
+            uses); stencil ops are VkStencilOp 0..7: 0=KEEP, 1=ZERO,
+            2=REPLACE, 3=INCREMENT_AND_CLAMP, 4=DECREMENT_AND_CLAMP,
+            5=INVERT, 6=INCREMENT_AND_WRAP, 7=DECREMENT_AND_WRAP.
+
+            Reset 0 disables stencil entirely, reproducing the historical
+            no-stencil behaviour.
+
+            NOTE: back-face state is currently unreachable. The geometry
+            sequencer culls back-facing triangles before rasterization, so
+            every fragment is front-facing; two-sided stencil needs
+            configurable cull mode (VK_CULL_MODE_NONE) first.";
+
+    field { sw = rw; hw = r; desc = "Bit 0: stencilTestEnable."; } enable[1] = 0;
+
+    field { sw = rw; hw = r; desc = "Bits 3:1: front compareOp (VkCompareOp)."; }
+        front_compare_op[3] = 0;
+    field { sw = rw; hw = r; desc = "Bits 6:4: front failOp (VkStencilOp)."; }
+        front_fail_op[3] = 0;
+    field { sw = rw; hw = r; desc = "Bits 9:7: front passOp (VkStencilOp)."; }
+        front_pass_op[3] = 0;
+    field { sw = rw; hw = r; desc = "Bits 12:10: front depthFailOp (VkStencilOp)."; }
+        front_depth_fail_op[3] = 0;
+
+    field { sw = rw; hw = r; desc = "Bits 15:13: back compareOp (VkCompareOp)."; }
+        back_compare_op[3] = 0;
+    field { sw = rw; hw = r; desc = "Bits 18:16: back failOp (VkStencilOp)."; }
+        back_fail_op[3] = 0;
+    field { sw = rw; hw = r; desc = "Bits 21:19: back passOp (VkStencilOp)."; }
+        back_pass_op[3] = 0;
+    field { sw = rw; hw = r; desc = "Bits 24:22: back depthFailOp (VkStencilOp)."; }
+        back_depth_fail_op[3] = 0;
+
+    field { sw = rw; hw = na; } RSVD[7] = 0;
+};
+
+reg stencil_clear_reg_t {
+    name = "Stencil Clear Value";
+    desc = "The value written to every stencil entry by a tile clear
+            (VkClearDepthStencilValue::stencil). Its own register rather than
+            spare bits in STENCIL_CFG: only 7 bits were free there, and a
+            7-bit clear value would be a real conformance gap for an 8-bit
+            stencil format, not a harmless simplification.";
+
+    field { sw = rw; hw = r; desc = "Bits 7:0: clear value."; } clear_value[8] = 0;
+    field { sw = rw; hw = na; } RSVD[24] = 0;
+};
+
+reg stencil_face_reg_t {
+    name = "Stencil Face Masks";
+    desc = "One face's compareMask, writeMask and reference. These are the
+            three pieces of stencil state Vulkan lets an application change
+            without rebuilding the pipeline (VK_DYNAMIC_STATE_STENCIL_*),
+            which is why they sit in their own register.";
+
+    field { sw = rw; hw = r; desc = "Bits 7:0: compareMask."; }   compare_mask[8] = 0;
+    field { sw = rw; hw = r; desc = "Bits 15:8: writeMask."; }    write_mask[8] = 0;
+    field { sw = rw; hw = r; desc = "Bits 23:16: reference."; }   reference[8] = 0;
+    field { sw = rw; hw = na; } RSVD[8] = 0;
+};
+
+// --- Face culling configuration (Step 50) ---
+reg cull_cfg_reg_t {
+    name = "Face Culling Configuration";
+    desc = "Configurable face culling. Vulkan requires all four
+            VkCullModeFlagBits values (NONE, FRONT, BACK, FRONT_AND_BACK)
+            and both VkFrontFace windings; the hardware previously always
+            culled back-facing triangles with no way to change it, so
+            VK_CULL_MODE_NONE -- needed by any two-sided draw, and the
+            precondition for two-sided stencil ever doing anything -- was
+            simply unavailable.
+
+            Reset values reproduce the historical always-cull-back
+            behaviour, so firmware that never writes this register is
+            unaffected.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 1:0: VkCullModeFlagBits -- bit 0 culls front faces,
+                bit 1 culls back faces. 0 = NONE (no culling), 3 =
+                FRONT_AND_BACK (everything culled). Reset 2 = BACK, the
+                historical hardcoded behaviour.";
+    } cull_mode[2] = 2;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bit 2: invert the facing determination. 0 keeps the
+                historical convention (the setup shader's signed area sign
+                bit means back-facing); 1 swaps front and back.
+
+                Deliberately named 'invert' rather than exposing VkFrontFace
+                directly: which of CLOCKWISE / COUNTER_CLOCKWISE the current
+                setup shader's winding corresponds to has not been confirmed
+                by experiment, and guessing the mapping here would bake a
+                coin flip into the register map. The driver needs one
+                two-triangle test to pin it down, after which this can be
+                documented as the VkFrontFace bit it actually is.";
+    } front_face_invert[1] = 0;
+
+    field { sw = rw; hw = na; } RSVD[29] = 0;
+};
+
 // --- Tile flusher Z-buffer base address (Step 25.3h) ---
 reg flush_zb_base_reg_t {
     name = "Flush Z-buffer Base Address";
@@ -1093,6 +1203,17 @@ addrmap borg_gpu {
     //      i.e. the historical unconditional overwrite. ----
     blend_cfg_reg_t blend_cfg;
     blend_const_reg_t blend_const;
+
+    // ---- Stencil configuration — fully generated (hw=r). Reset 0 = stencil
+    //      disabled, i.e. the historical no-stencil behaviour. ----
+    stencil_cfg_reg_t stencil_cfg;
+    stencil_face_reg_t stencil_front;
+    stencil_face_reg_t stencil_back;
+    stencil_clear_reg_t stencil_clear;
+
+    // ---- Face culling — fully generated (hw=r). Reset = cull back faces,
+    //      the historical hardcoded behaviour. ----
+    cull_cfg_reg_t cull_cfg;
 
     // ---- Performance counters: present-phase decomposition ----
     // Fully generated (hw=w → Borg drives io.hw.perf_*_value, SW reads).

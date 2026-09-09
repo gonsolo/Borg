@@ -392,9 +392,21 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
     when(core_just_finished) {
       writeIdx := 0.U
       // Screen y-down: front-facing (CW in screen) -> area < 0 -> r6 = -area/W
-      // > 0 (sign 0). Back-facing -> r6 < 0 (sign 1) -> skip.
-      when(setupRegs(6)(cfg.totalBits - 1)) {
-        if (BorgDebug.trace) printf("[SEQ] cull triIdx=%d r6=0x%x\n", triIdx, setupRegs(6))
+      // > 0 (sign 0). Back-facing -> r6 < 0 (sign 1).
+      //
+      // Which of those to discard is now configurable (CULL_CFG). Vulkan
+      // requires all four VkCullModeFlagBits values and both VkFrontFace
+      // windings; this used to be a hardcoded "drop everything with the sign
+      // bit set", so VK_CULL_MODE_NONE -- needed by any two-sided draw, and
+      // the precondition for two-sided stencil doing anything at all -- was
+      // unavailable. cullMode is the Vulkan bitmask verbatim: bit 0 culls
+      // front faces, bit 1 culls back faces, so NONE and FRONT_AND_BACK fall
+      // out of the same expression rather than needing their own arms.
+      val isBackFacing = setupRegs(6)(cfg.totalBits - 1) ^ io.mmio.frontFaceInvert
+      val culled = Mux(isBackFacing, io.mmio.cullMode(1), io.mmio.cullMode(0))
+      when(culled) {
+        if (BorgDebug.trace) printf("[SEQ] cull triIdx=%d r6=0x%x back=%d\n",
+          triIdx, setupRegs(6), isBackFacing)
         state := sNextTriangle
       }.otherwise {
         state := sLoadBBox

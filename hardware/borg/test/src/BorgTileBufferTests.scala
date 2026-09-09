@@ -34,6 +34,11 @@ object BorgTileBufferTests extends TestSuite {
     tb.io.clear.color.g.poke(0.U)
     tb.io.clear.color.b.poke(0.U)
     tb.io.clear.color.z.poke(FP16_MAX_DEPTH.U)
+    // Step 50 item 10: optional stencil plane, idle by default so every
+    // pre-existing test in this file is unaffected by its presence.
+    tb.io.stencilWrite.foreach(_.poke(0.U))
+    tb.io.stencilWriteEn.foreach(_.poke(false.B))
+    tb.io.stencilClear.foreach(_.poke(0.U))
   }
 
   /** Explicit reset pulse + wait for BRAM auto-clear (16 cycles). */
@@ -408,6 +413,73 @@ object BorgTileBufferTests extends TestSuite {
         println(f"  clear color 1/3, read back R=0x$r%04x = $got%.5f")
         utest.assert(math.abs(got - 1.0f / 3) < (1.5f / 255))
         utest.assert(z == FP16_MAX_DEPTH)
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // Step 50 item 10: the optional stencil plane
+    //
+    // BorgStencilTests covers the test/op logic and BorgShaderDispatcherTests
+    // the decision to write; what is checked here is the memory itself --
+    // that it clears, stores, reads back on the colour plane's schedule, and
+    // is genuinely independent of the colour write.
+    // =========================================================================
+
+    utest.test("stencil_plane_clears_stores_and_reads_back") {
+      simulate(new BorgTileBuffer(16, 1, 16, hasStencil = true)) { tb =>
+        println("\n--- BorgTileBuffer: stencil plane ---")
+
+        def readStencil(idx: Int): Int = {
+          pokeIdle(tb)
+          tb.io.read.idx.poke(idx.U)
+          tb.io.read.en.poke(true.B)
+          tb.clock.step(1)
+          tb.io.read.en.poke(false.B)
+          tb.clock.step(1)
+          tb.io.stencilRead.get(0).peek().litValue.toInt
+        }
+
+        resetModule(tb)
+        // The reset auto-clear runs before firmware writes anything, so it
+        // uses stencilClearReg's RegInit value.
+        utest.assert(readStencil(3) == 0)
+        println("  reset auto-clear -> 0")
+
+        // An explicit clear latches the value at clear-start and holds it
+        // across all 16 writes -- the same latch discipline as the colour
+        // clear, and the reason a combinationally-sampled clear value would
+        // paint only the first entry.
+        pokeIdle(tb)
+        tb.io.stencilClear.get.poke(0x5A.U)
+        tb.io.clear.en.poke(true.B)
+        tb.clock.step(1)
+        tb.io.clear.en.poke(false.B)
+        tb.io.stencilClear.get.poke(0.U)   // pulse gone; the latch must hold
+        tb.clock.step(18)
+        utest.assert(readStencil(0) == 0x5A)
+        utest.assert(readStencil(15) == 0x5A)
+        println("  explicit clear 0x5A -> held across the whole 16-entry sequence")
+
+        // A stencil write goes only to its own slot.
+        pokeIdle(tb)
+        tb.io.write.idx.poke(5.U)
+        tb.io.stencilWrite.get.poke(0x77.U)
+        tb.io.stencilWriteEn.get.poke(true.B)
+        tb.clock.step(1)
+        tb.io.stencilWriteEn.get.poke(false.B)
+        utest.assert(readStencil(5) == 0x77)
+        utest.assert(readStencil(6) == 0x5A)
+        println("  write 0x77 at slot 5 -> slot 5 = 0x77, slot 6 untouched")
+
+        // The two planes are independent in both directions: a colour write
+        // with stencilWriteEn low must not disturb the stencil value, which
+        // is what lets a fragment update colour without a stencil op.
+        writePixel(tb, idx = 5, r = 0x1111, g = 0x2222, b = 0x3333, z = 0x4444)
+        utest.assert(readStencil(5) == 0x77)
+        val (rr, _, _, _) = readPixel(tb, idx = 5)
+        utest.assert(rr == 0x1111)
+        println("  colour write left the stencil value alone (and vice versa)")
         println("  PASSED")
       }
     }

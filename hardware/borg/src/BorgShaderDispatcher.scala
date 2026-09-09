@@ -52,6 +52,14 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // extra ports at all rather than tying them off.
   val blendCfg = if (cfg.hasBlend) Some(Input(new BlendConfig)) else None
 
+  // Step 50 item 10: stencil state and the tile buffer's stencil plane.
+  // The read arrives with the colour/Z read the depth test already waits
+  // for, so stencil costs no extra FSM states.
+  val stencilCfg     = if (cfg.hasStencil) Some(Input(new StencilConfig)) else None
+  val stencilRead    = if (cfg.hasStencil) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
+  val stencilWrite   = if (cfg.hasStencil) Some(Output(UInt(8.W))) else None
+  val stencilWriteEn = if (cfg.hasStencil) Some(Output(Bool())) else None
+
   // --- Inputs from texture pipeline ---
   val texConfig  = new TexConfigIO              // mortonIndex, baseAddr, en
   val log2Dim    = Input(UInt(4.W))             // tex_config_log2_dim, see ClampTexCoord
@@ -105,6 +113,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   require(!cfg.hasBlend || cfg.samples == 1,
           s"hasBlend requires samples==1 (got ${cfg.samples}): TileWriteIO broadcasts one " +
           "blended colour to all covered samples, which is wrong for per-sample destinations")
+
+  // Same shared-write-port limitation: each sample's stencil update depends
+  // on its own stored value, so one shared stencil write cannot express it.
+  require(!cfg.hasStencil || cfg.samples == 1,
+          s"hasStencil requires samples==1 (got ${cfg.samples}): each sample's stencil " +
+          "update depends on its own stored value, which one shared write port cannot express")
 
   private val config = cfg.fp  // shorthand for FP arithmetic
 
@@ -193,6 +207,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // stage to consume it, and borgc's fragment allocator must reserve r24
   // in lockstep or it will hand the register to an unrelated temporary
   // (exactly the collision class that killed the r21-r24 read-back port).
+  //
+  // The same applies to the hand-written shaders in software/borg: any of
+  // them that uses r24 as a scratch register would silently feed garbage
+  // alpha to the blend unit. Harmless today only because blending is off by
+  // default, so frag_a is never read -- not because the registers are
+  // actually free. Check before enabling blending with a hand shader.
   val frag_r = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_g = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_b = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
@@ -244,6 +264,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.tileWrite.idx      := io.shaderTileIndex(0)
   io.tileWrite.data     := 0.U.asTypeOf(new ColorZ(16))
   io.tileWrite.coverage := 0.U
+  io.stencilWrite.foreach(_ := 0.U)
+  io.stencilWriteEn.foreach(_ := false.B)
 
   // GPU memory port: forwarded from BorgTextureUnit (Step 25.3e)
   texUnit.io.texConfig <> io.texConfig
@@ -461,12 +483,46 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     def depthPasses(newZ: UInt, oldZ: UInt): Bool =
       CompareOp(io.depthCompareOp, newZ, oldZ)
 
+    // Stencil (Step 50 item 10), folded into the same cycle.
+    //
+    // The order matters and is not symmetric: the stencil test runs BEFORE
+    // the depth test but the stencil buffer is written AFTER the depth
+    // result is known (the op chosen depends on it), so both are evaluated
+    // here rather than split across states. The stencil buffer is written on
+    // all three outcomes, including the two that kill the fragment -- hence
+    // stencilWriteEn is its own signal, not io.tileWrite.en.
+    //
+    // frontFacing is hardwired true: the geometry sequencer culls
+    // back-facing triangles outright before they ever reach the rasterizer
+    // (BorgGeometrySequencer's setupRegs(6) sign check), so no back-facing
+    // fragment exists to test. Two-sided stencil becomes reachable only once
+    // cull mode is configurable (VK_CULL_MODE_NONE), which is its own item;
+    // the back-face state is carried through the datapath so that lands as a
+    // wiring change rather than a redesign.
+    val stencilRes = if (cfg.hasStencil) {
+      Some(BorgStencil.evaluate(io.stencilCfg.get, true.B, io.stencilRead.get(0),
+                                depthPasses(frag_z(laneIdx), io.tileRead.data(0).z)))
+    } else None
+
     val samplePass = (0 until cfg.samples).map { s =>
-      coverage(laneIdx)(s) && !killed(laneIdx) &&
-        depthPasses(frag_z(laneIdx), io.tileRead.data(s).z)
+      val depthOk = stencilRes match {
+        // evaluate() already folds the depth result in, and additionally
+        // requires the stencil test to pass.
+        case Some(r) if s == 0 => r.pass
+        case _                 => depthPasses(frag_z(laneIdx), io.tileRead.data(s).z)
+      }
+      coverage(laneIdx)(s) && !killed(laneIdx) && depthOk
     }
     io.tileWrite.coverage := Cat(samplePass.reverse)
     io.tileWrite.en       := samplePass.reduce(_ || _)
+
+    stencilRes.foreach { r =>
+      io.stencilWrite.get := r.newValue
+      // Reached the stencil test at all: covered and not discarded. A
+      // `discard`ed fragment performs no per-fragment operations, so it must
+      // not advance the stencil buffer either.
+      io.stencilWriteEn.get := coverage(laneIdx)(0) && !killed(laneIdx)
+    }
     if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d idx=%d Z=0x%x zOld_s0=0x%x cov=0x%x\n",
       laneCtr, io.shaderTileIndex(laneIdx), frag_z(laneIdx), io.tileRead.data(0).z,
       Cat(samplePass.reverse))

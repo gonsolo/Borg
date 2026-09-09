@@ -89,6 +89,16 @@ object BorgShaderDispatcherTests extends TestSuite {
       b.constant.r.poke(0.U); b.constant.g.poke(0.U)
       b.constant.b.poke(0.U); b.constant.a.poke(0.U)
     }
+    // Step 50 item 10: stencil off by default, same reasoning.
+    d.io.stencilCfg.foreach { st =>
+      st.enable.poke(false.B)
+      for (f <- Seq(st.front, st.back)) {
+        f.compareOp.poke(0.U); f.failOp.poke(0.U)
+        f.passOp.poke(0.U); f.depthFailOp.poke(0.U)
+        f.compareMask.poke(0xFF.U); f.writeMask.poke(0xFF.U); f.reference.poke(0.U)
+      }
+    }
+    d.io.stencilRead.foreach(_.foreach(_.poke(0.U)))
     // Step 25.5C: tile read port — provide max depth so depth test passes.
     // Per-sample since MSAA: every sample starts at the far plane.
     d.io.tileRead.data.foreach { s =>
@@ -155,8 +165,11 @@ object BorgShaderDispatcherTests extends TestSuite {
     (w.en, w.z)
   }
 
-  /** What the tile buffer was told to write. */
-  case class TileWrite(en: Boolean, r: Int, g: Int, b: Int, z: Int)
+  /** What the tile buffer was told to write. `stencilEn`/`stencil` are
+    * meaningful only in a hasStencil build; elsewhere they read as
+    * false/0, matching a build with no stencil plane. */
+  case class TileWrite(en: Boolean, r: Int, g: Int, b: Int, z: Int,
+                       stencilEn: Boolean = false, stencil: Int = 0)
 
   /** [[runPixel]] with the colour operands exposed, for the blend tests:
     * `srcRgb` is what the fragment shader writes to r26/27/28, `dstRgb` what
@@ -172,8 +185,10 @@ object BorgShaderDispatcherTests extends TestSuite {
       srcRgb: (Int, Int, Int) = (0x1111, 0x2222, 0x3333),
       dstRgb: (Int, Int, Int) = (0, 0, 0),
       fragA: Option[Int] = None,
+      storedStencil: Int = 0,
       tileIdx: Int = 7
   ): TileWrite = {
+    d.io.stencilRead.foreach(_.foreach(_.poke(storedStencil.U)))
     d.io.depthCompareOp.poke(compareOp.U)
     d.io.depthWriteEn.poke(writeEn.B)
     d.io.tileRead.data.foreach { s =>
@@ -219,7 +234,9 @@ object BorgShaderDispatcherTests extends TestSuite {
       d.io.tileWrite.data.r.peek().litValue.toInt,
       d.io.tileWrite.data.g.peek().litValue.toInt,
       d.io.tileWrite.data.b.peek().litValue.toInt,
-      d.io.tileWrite.data.z.peek().litValue.toInt)
+      d.io.tileWrite.data.z.peek().litValue.toInt,
+      d.io.stencilWriteEn.map(_.peek().litToBoolean).getOrElse(false),
+      d.io.stencilWrite.map(_.peek().litValue.toInt).getOrElse(0))
 
     d.clock.step(1)  // sTileWrite → sIdle, ready for the next pixel
     w
@@ -1108,6 +1125,158 @@ object BorgShaderDispatcherTests extends TestSuite {
           fragA = Some(FP16_ONE))
         println(f"  occluded fragment: tileWrite.en=${w.en} (expect false)")
         utest.assert(!w.en)
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // Step 50 item 10: stencil wired into the tile-write path
+    //
+    // BorgStencilTests covers the test/op logic exhaustively. What is tested
+    // here is that the dispatcher drives it with the right operands and, in
+    // particular, that stencilWriteEn is genuinely independent of
+    // tileWrite.en -- the buffer must advance on fragments that are killed.
+    // =========================================================================
+
+    val STENCIL = BorgConfig.Default.copy(hasStencil = true)
+
+    def pokeFrontFace(d: BorgShaderDispatcher, compareOp: Int, failOp: Int,
+                      passOp: Int, depthFailOp: Int, reference: Int,
+                      compareMask: Int = 0xFF, writeMask: Int = 0xFF): Unit = {
+      val f = d.io.stencilCfg.get.front
+      f.compareOp.poke(compareOp.U); f.failOp.poke(failOp.U)
+      f.passOp.poke(passOp.U); f.depthFailOp.poke(depthFailOp.U)
+      f.compareMask.poke(compareMask.U); f.writeMask.poke(writeMask.U)
+      f.reference.poke(reference.U)
+    }
+
+    utest.test("stencil_disabled_leaves_the_plane_untouched") {
+      simulate(new BorgShaderDispatcher(STENCIL)) { d =>
+        println("\n--- BorgShaderDispatcher: stencil disabled ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        // A NEVER test with a ZERO fail op: if the enable gate leaked, both
+        // the fragment and the stored value would visibly change.
+        pokeFrontFace(d, CMP_NEVER, BorgStencil.ZERO, BorgStencil.ZERO,
+                      BorgStencil.ZERO, reference = 0)
+        val w = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+          compareOp = CMP_LESS, writeEn = true, storedStencil = 0x42)
+        println(f"  en=${w.en} stencil=0x${w.stencil.toHexString} (expect true, 0x42)")
+        utest.assert(w.en)
+        utest.assert(w.stencil == 0x42)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("failing_stencil_kills_the_fragment_but_still_writes_the_plane") {
+      simulate(new BorgShaderDispatcher(STENCIL)) { d =>
+        println("\n--- BorgShaderDispatcher: stencil fail arm ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        d.io.stencilCfg.get.enable.poke(true.B)
+        // EQUAL against reference 0x55 with 0x11 stored -> the test fails, so
+        // failOp (INCREMENT) runs and the colour write is suppressed. This is
+        // the arm an implementation that gates stencil writes on tileWrite.en
+        // gets wrong.
+        pokeFrontFace(d, CMP_EQUAL, BorgStencil.INCREMENT_AND_CLAMP,
+                      BorgStencil.ZERO, BorgStencil.ZERO, reference = 0x55)
+        val w = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+          compareOp = CMP_LESS, writeEn = true, storedStencil = 0x11)
+        println(f"  en=${w.en} stencilEn=${w.stencilEn} stencil=0x${w.stencil.toHexString}")
+        utest.assert(!w.en)          // fragment killed
+        utest.assert(w.stencilEn)    // plane still written
+        utest.assert(w.stencil == 0x12)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("depth_fail_arm_runs_depthFailOp_not_passOp") {
+      simulate(new BorgShaderDispatcher(STENCIL)) { d =>
+        println("\n--- BorgShaderDispatcher: depthFail arm ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        d.io.stencilCfg.get.enable.poke(true.B)
+        // Stencil passes (ALWAYS) but the fragment is behind the stored depth,
+        // so depthFailOp (REPLACE with 0x77) must run rather than passOp.
+        pokeFrontFace(d, CMP_ALWAYS, BorgStencil.ZERO, BorgStencil.INVERT,
+                      BorgStencil.REPLACE, reference = 0x77)
+        val w = runPixelFull(d, fragZ = 0x4000, oldZ = 0x3000,
+          compareOp = CMP_LESS, writeEn = true, storedStencil = 0x11)
+        println(f"  en=${w.en} stencil=0x${w.stencil.toHexString} (expect false, 0x77)")
+        utest.assert(!w.en)
+        utest.assert(w.stencilEn)
+        utest.assert(w.stencil == 0x77)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("both_pass_arm_writes_the_fragment_and_runs_passOp") {
+      simulate(new BorgShaderDispatcher(STENCIL)) { d =>
+        println("\n--- BorgShaderDispatcher: pass arm ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        d.io.stencilCfg.get.enable.poke(true.B)
+        pokeFrontFace(d, CMP_ALWAYS, BorgStencil.ZERO, BorgStencil.INCREMENT_AND_CLAMP,
+                      BorgStencil.ZERO, reference = 0)
+        val w = runPixelFull(d, fragZ = 0x3000, oldZ = 0x4000,
+          compareOp = CMP_LESS, writeEn = true, storedStencil = 0x11)
+        println(f"  en=${w.en} stencil=0x${w.stencil.toHexString} (expect true, 0x12)")
+        utest.assert(w.en)
+        utest.assert(w.stencilEn)
+        utest.assert(w.stencil == 0x12)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("a_discarded_fragment_performs_no_stencil_operation") {
+      simulate(new BorgShaderDispatcher(STENCIL)) { d =>
+        println("\n--- BorgShaderDispatcher: discard suppresses the stencil write ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        d.io.stencilCfg.get.enable.poke(true.B)
+        pokeFrontFace(d, CMP_ALWAYS, BorgStencil.ZERO, BorgStencil.INCREMENT_AND_CLAMP,
+                      BorgStencil.ZERO, reference = 0)
+        d.io.tileRead.data.foreach(_.z.poke(0x4000.U))
+        d.io.stencilRead.foreach(_.foreach(_.poke(0x11.U)))
+
+        firePixelReady(d, fragPc = 13, tileIdx = 7)
+        d.io.fragPcReg.poke(13.U)
+        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.clock.step(1)
+        d.io.coreStatus.autoRunPending.poke(false.B)
+        d.io.coreStatus.running.poke(true.B)
+        pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
+        d.io.coreStatus.running.poke(false.B)
+        d.clock.step(1)
+
+        // Fragment shader writes r25 (the discard/kill register) as well as
+        // its colour: a `discard`ed fragment performs no per-fragment
+        // operations at all, so the stencil buffer must not advance either.
+        d.io.coreStatus.autoRunPending.poke(true.B)
+        d.clock.step(1)
+        d.io.coreStatus.autoRunPending.poke(false.B)
+        d.io.coreStatus.running.poke(true.B)
+        for ((reg, value) <- Seq((25, 1), (26, 0x1111), (27, 0x2222), (28, 0x3333), (29, 0x3000))) {
+          d.io.pipeWrite(0).en.poke(true.B)
+          d.io.pipeWrite(0).addr.poke(reg.U)
+          d.io.pipeWrite(0).data.poke(value.U)
+          d.clock.step(1)
+        }
+        d.io.pipeWrite(0).en.poke(false.B)
+        d.io.coreStatus.running.poke(false.B)
+        d.clock.step(1)
+        stepThroughDepthTest(d)
+
+        val en   = d.io.tileWrite.en.peek().litToBoolean
+        val sEn  = d.io.stencilWriteEn.get.peek().litToBoolean
+        println(f"  discarded: tileWrite.en=$en stencilWriteEn=$sEn (expect false, false)")
+        utest.assert(!en)
+        utest.assert(!sEn)
         println("  PASSED")
       }
     }
