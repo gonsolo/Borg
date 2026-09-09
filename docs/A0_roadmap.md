@@ -1720,21 +1720,35 @@ structure (which tests run unconditionally vs. behind a
    target`, absolute target packed into the unused rs2/rd fields. Loops and
    early exits are expressible for the first time.
 
-   **What it does NOT cover, and this is the important half**: at
-   `fragLanes=4` the quad shares one program counter, so a branch whose
-   condition differs between lanes cannot be executed correctly by any
-   choice the hardware could make. The contract is quad-uniform conditions,
-   and a violation sets a sticky STATUS bit (bit 6, `branch_divergent`)
-   rather than silently producing a wrong image. **Real divergent control
-   flow needs a per-lane execution mask and a reconvergence stack** -- that
-   is the next control-flow item, and until it exists a compiler must
-   if-convert every non-uniform branch.
+   Branches redirect one shared program counter, so on their own they can
+   only express control flow whose condition is quad-uniform; a violation
+   sets a sticky STATUS bit (bit 6, `branch_divergent`) rather than
+   producing a silently wrong image.
+
+   **EXECUTION MASK BUILT 2026-09-09** (commit `00066a41`), which covers the
+   divergent case properly rather than merely detecting it:
+   `EXPUSH`/`EXELSE`/`EXPOP` predicate instead of branching -- both arms of
+   an `if` run and masked lanes write nothing. Applied at BorgLane's
+   write-back port, which is where registers, LOAD results and the fragment
+   outputs all funnel through; masked lanes additionally skip memory
+   accesses outright, so a masked STORE never reaches DRAM.
+
+   The stack holds the ENCLOSING mask, which is what makes `EXELSE` exact
+   (`M & ~C`, not `~(M & C)` applied to the full mask) -- inverting the full
+   mask would re-activate lanes an outer `if` had masked off. Unbalanced or
+   over-deep push/pop sets STATUS bit 7 (`exec_fault`).
+
+   **Divergent LOOPS are the remaining control-flow case**: lanes exiting at
+   different iterations need the mask plus a way to ask "is any lane still
+   active" to decide the backward branch. That is one more instruction --
+   a mask reduction -- not a redesign. Uniform loops work today, divergent
+   `if`/`else` works now.
 
    Remaining ISA gaps after this, in rough order of what unblocks most:
-   execution mask + reconvergence (divergent control flow), barriers and
-   atomics (`OpControlBarrier`/`OpMemoryBarrier`, without which compute
-   cannot share data across a workgroup), and multiple simultaneous
-   load/store bindings.
+   **barriers and atomics** (`OpControlBarrier`/`OpMemoryBarrier`, without
+   which compute cannot share data across a workgroup -- now the single
+   thing standing between Borg and a compute queue), a divergent-loop mask
+   reduction, and multiple simultaneous load/store bindings.
 8. **Framebuffer/image resolution ceiling** — `maxFramebufferWidth`,
    `maxFramebufferHeight`, and `maxImageDimension2D` must all be ≥4096
    unconditionally. **Partial step taken 2026-09-08**: `BorgConfig.Default`/
