@@ -35,6 +35,13 @@ RUNLOG="$LOGDIR/run_$(date +%Y%m%d_%H%M%S)_${SHA}.log"
 
 echo "[nightly-area] $STAMP  $BRANCH@$SHA -> $RUNLOG"
 
+# Force Verilog re-emission. The top-level Makefile gates emission on
+# .verilog_wafer_stamp, and those stamps are documented (CLAUDE.md) to go
+# stale and silently skip regeneration after a real source change. A nightly
+# probe that measures yesterday's RTL is worse than no probe at all: it
+# reports a flat trend, which reads as "today cost nothing".
+rm -f "$WORKTREE/.verilog_wafer_stamp"
+
 # direnv exec picks up the nix devshell; a bare command does not get its PATH.
 direnv exec "$WORKTREE" make -C "$WORKTREE/asic/wafer.space" librelane-nodrc \
   > "$RUNLOG" 2>&1
