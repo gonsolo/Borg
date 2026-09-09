@@ -485,8 +485,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       // independent of blendEnable, and the channel-isolating passes it
       // exists for typically run with blending off.
       //
-      // The alpha bit (3) has nothing to act on: Borg's colour attachment
-      // stores no alpha, so masking it is already the observed behaviour.
+      // Only the R/G/B bits are consumed here; the A bit gates the alpha
+      // plane's write instead (io.alphaWriteMask above), so the colour and
+      // alpha stores are maskable independently, as Vulkan requires.
       val dstRgb = Seq(io.tileRead.data(0).r, io.tileRead.data(0).g, io.tileRead.data(0).b)
       val masked = blended.zip(dstRgb).zipWithIndex.map { case ((b, d), i) =>
         Mux(cfgIn.colorWriteMask(i), b, d)
@@ -536,13 +537,15 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // all three outcomes, including the two that kill the fragment -- hence
     // stencilWriteEn is its own signal, not io.tileWrite.en.
     //
-    // frontFacing is hardwired true: the geometry sequencer culls
-    // back-facing triangles outright before they ever reach the rasterizer
-    // (BorgGeometrySequencer's setupRegs(6) sign check), so no back-facing
-    // fragment exists to test. Two-sided stencil becomes reachable only once
-    // cull mode is configurable (VK_CULL_MODE_NONE), which is its own item;
-    // the back-face state is carried through the datapath so that lands as a
-    // wiring change rather than a redesign.
+    // frontFacing is hardwired true, so only the front face's state is
+    // reachable. Cull mode is now configurable (CULL_CFG), so a build can
+    // finally ask for VK_CULL_MODE_NONE and produce back-facing fragments --
+    // but the facing bit itself still does not reach here. Pass 1 stores its
+    // per-triangle setup state to DRAM and Pass 2 reloads it per tile, so
+    // facing has to travel with it the way has_uvs does; that store/reload
+    // change is the remaining piece for two-sided stencil. The back-face
+    // registers and datapath are already carried through, so it lands as
+    // wiring rather than a redesign.
     val stencilRes = if (cfg.hasStencil) {
       Some(BorgStencil.evaluate(io.stencilCfg.get, true.B, io.stencilRead.get(0),
                                 depthPasses(frag_z(laneIdx), io.tileRead.data(0).z)))
