@@ -110,6 +110,84 @@ object ClampTexCoord {
   }
 }
 
+/** `VkSamplerAddressMode` -- what happens to a texel coordinate outside the
+  * texture.
+  *
+  * All four of these are core Vulkan (only MIRROR_CLAMP_TO_EDGE needs an
+  * extension), and Borg implemented exactly one of them: clamp. A tiling
+  * texture -- the thing REPEAT exists for -- was simply not expressible.
+  *
+  * Textures are power-of-two sized (the size arrives as `log2Dim`), which is
+  * what makes REPEAT and MIRRORED_REPEAT free: they are bit masking and a
+  * conditional inversion, not a modulo.
+  *
+  * == The limitation worth knowing ==
+  *
+  * These operate on a coordinate that has ALREADY been converted to an
+  * unsigned texel index by [[Fp16ToUint8]], which flattens anything negative
+  * to 0. So a UV below zero cannot wrap -- it arrives as 0 and REPEAT has
+  * nothing left to work with. Positive overflow wraps correctly up to 255.
+  * Supporting negative UV needs a signed coordinate conversion, which is a
+  * change to the conversion rather than to this, and is deliberately not
+  * bundled in here.
+  */
+object TexAddressMode {
+  val REPEAT           = 0
+  val MIRRORED_REPEAT  = 1
+  val CLAMP_TO_EDGE    = 2
+  val CLAMP_TO_BORDER  = 3
+
+  /** @return (wrapped coordinate, true if the sample falls on the border)
+    *
+    * `isBorder` is only ever set by CLAMP_TO_BORDER; every other mode maps
+    * an out-of-range coordinate onto a real texel.
+    */
+  def apply(raw: UInt, log2Dim: UInt, mode: UInt): (UInt, Bool) = {
+    // log2Dim == 0 keeps its historical meaning of "sizing unknown, don't
+    // clamp" rather than being read as a 1x1 texture -- every existing call
+    // site relies on that, so wrapping must not change it.
+    val unsized = log2Dim === 0.U
+    val dim     = (1.U(9.W) << log2Dim)(8, 0)          // up to 256
+    val maxIdx  = Mux(unsized, 255.U(8.W), (dim - 1.U)(7, 0))
+
+    val repeated = raw & maxIdx                         // power-of-two modulo
+
+    // Mirror: fold within a 2*dim period, so the texture reverses each
+    // repeat instead of jumping back to zero.
+    val period   = (dim << 1)(9, 0)
+    val phase    = (raw & (period - 1.U))(8, 0)
+    val mirrored = Mux(phase >= dim, (period - 1.U - phase)(7, 0), phase(7, 0))
+
+    val clamped  = Mux(raw > maxIdx, maxIdx, raw)
+    val outside  = !unsized && raw > maxIdx
+
+    val coord = MuxLookup(mode, clamped)(Seq(
+      REPEAT.U          -> Mux(unsized, clamped, repeated),
+      MIRRORED_REPEAT.U -> Mux(unsized, clamped, mirrored),
+      CLAMP_TO_EDGE.U   -> clamped,
+      CLAMP_TO_BORDER.U -> clamped   // the coordinate is unused when isBorder
+    ))
+    (coord, mode === CLAMP_TO_BORDER.U && outside)
+  }
+}
+
+/** `VkBorderColor`, for CLAMP_TO_BORDER.
+  *
+  * The float and int variants of each colour collapse to the same stored
+  * value here, so two bits cover the whole core enum. CUSTOM belongs to
+  * VK_EXT_custom_border_color and needs a colour register, not an enum.
+  */
+object BorderColor {
+  val TRANSPARENT_BLACK = 0
+  val OPAQUE_BLACK      = 1
+  val OPAQUE_WHITE      = 2
+
+  /** UNORM8 RGB for the selected border. Alpha is not stored by the texture
+    * path, so transparent and opaque black are the same colour here -- the
+    * distinction only matters once sampled alpha exists. */
+  def rgb8(sel: UInt): UInt = Mux(sel === OPAQUE_WHITE.U, 255.U(8.W), 0.U(8.W))
+}
+
 /** Morton (Z-order) encoding for two 8-bit coordinates.
   *
   * Interleaves bits: y7 x7 y6 x6 ... y1 x1 y0 x0 → 16-bit index.

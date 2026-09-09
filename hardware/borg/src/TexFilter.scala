@@ -21,7 +21,14 @@ class BilinearIO extends Bundle {
   val v8      = Input(UInt(8.W))   // base texel row
   val fracU   = Input(UInt(8.W))   // sub-texel position, 0..255 -> [0,1)
   val fracV   = Input(UInt(8.W))
-  val log2Dim = Input(UInt(4.W))   // for clamping u8+1 / v8+1
+  val log2Dim = Input(UInt(4.W))   // for wrapping u8+1 / v8+1
+  // VkSamplerAddressMode per axis, plus the border colour they may select.
+  // The +1 neighbours have to be wrapped by the same rule as the base
+  // coordinate, so the mode travels with the tap operands rather than being
+  // applied once upstream.
+  val addrModeU = Input(UInt(2.W))
+  val addrModeV = Input(UInt(2.W))
+  val border    = Input(UInt(2.W))   // VkBorderColor
 }
 
 /** Bilinear texture filtering (`VK_FILTER_LINEAR`).

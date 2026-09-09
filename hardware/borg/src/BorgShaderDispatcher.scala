@@ -83,6 +83,11 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // Runtime VkFilter for the sampler (SAMPLER_CFG). Only present in a build
   // that has the filtering hardware to obey it.
   val texFilterLinear = if (cfg.hasBilinear) Some(Input(Bool())) else None
+  // VkSamplerAddressMode per axis plus VkBorderColor (SAMPLER_CFG). Present
+  // with the filtering hardware since both feed the same tap addressing.
+  val texAddrModeU = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
+  val texAddrModeV = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
+  val texBorder    = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
 
   // --- Outputs to BorgCore ---
   val coreTrigger = new CoreTriggerIO           // shader start pulse + PC
@@ -336,8 +341,18 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // 64-wide texture) rather than 63.999..., which floors to one past the
   // last valid index; left unclamped that reads unpopulated texture memory
   // and returns black for an otherwise-correctly-covered pixel.
-  val ftex_u8 = ClampTexCoord(Fp16ToUint8(io.texU), io.log2Dim)
-  val ftex_v8 = ClampTexCoord(Fp16ToUint8(io.texV), io.log2Dim)
+  // Base coordinate. In a build without the sampler hardware this is the
+  // historical clamp, unchanged; with it, the configured address mode --
+  // whose CLAMP_TO_EDGE reset value IS that same clamp, so nothing moves
+  // until firmware selects otherwise.
+  val (ftex_u8, ftex_v8) = if (cfg.hasBilinear) {
+    val (u, _) = TexAddressMode(Fp16ToUint8(io.texU), io.log2Dim, io.texAddrModeU.get)
+    val (v, _) = TexAddressMode(Fp16ToUint8(io.texV), io.log2Dim, io.texAddrModeV.get)
+    (u, v)
+  } else {
+    (ClampTexCoord(Fp16ToUint8(io.texU), io.log2Dim),
+     ClampTexCoord(Fp16ToUint8(io.texV), io.log2Dim))
+  }
   ftexMortonIndex := MortonEncode(ftex_u8, ftex_v8)
 
   // Bilinear operands. The integer halves deliberately reuse ftex_u8/ftex_v8
@@ -350,7 +365,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     b.v8      := ftex_v8
     b.fracU   := Fp16ToFixed88(io.texU)(7, 0)
     b.fracV   := Fp16ToFixed88(io.texV)(7, 0)
-    b.log2Dim := io.log2Dim
+    b.log2Dim   := io.log2Dim
+    b.addrModeU := io.texAddrModeU.get
+    b.addrModeV := io.texAddrModeV.get
+    b.border    := io.texBorder.get
   }
 
   // Default FTEX response

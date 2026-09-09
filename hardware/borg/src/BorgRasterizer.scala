@@ -92,6 +92,9 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val log2Dim    = Input(UInt(4.W))
   // Runtime VkFilter for the sampler, forwarded to BorgShaderDispatcher.
   val texFilterLinear = if (cfg.hasBilinear) Some(Input(Bool())) else None
+  val texAddrModeU    = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
+  val texAddrModeV    = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
+  val texBorder       = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
 
   // Step 34.5: FTEX core ↔ dispatcher texture request/response
   val texReq  = Input(Bool())
@@ -150,6 +153,9 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.texConfig      <> io.texConfig
   dispatcher.io.log2Dim        := io.log2Dim
   dispatcher.io.texFilterLinear.foreach(_ := io.texFilterLinear.get)
+  dispatcher.io.texAddrModeU.foreach(_ := io.texAddrModeU.get)
+  dispatcher.io.texAddrModeV.foreach(_ := io.texAddrModeV.get)
+  dispatcher.io.texBorder.foreach(_ := io.texBorder.get)
   dispatcher.io.covDelta.foreach(_ := io.covDelta.get)
 
   // --- Forward dispatcher outputs to rasterizer IO ---

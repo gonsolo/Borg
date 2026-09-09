@@ -39,6 +39,23 @@ class Fixed88Probe extends Module {
   io.fixed := Fp16ToFixed88(io.fp16)
 }
 
+/** Probe for the address-mode wrapping, which is a pure function used by
+  * both the dispatcher (base coordinate) and the texture unit (neighbours). */
+class AddrModeProbeIO extends Bundle {
+  val raw      = Input(UInt(8.W))
+  val log2Dim  = Input(UInt(4.W))
+  val mode     = Input(UInt(2.W))
+  val coord    = Output(UInt(8.W))
+  val isBorder = Output(Bool())
+}
+
+class AddrModeProbe extends Module {
+  val io = IO(new AddrModeProbeIO)
+  val (c, b) = TexAddressMode(io.raw, io.log2Dim, io.mode)
+  io.coord    := c
+  io.isBorder := b
+}
+
 object BorgTextureUnitTests extends TestSuite {
 
   // Convenience: compute expected byte address for a Morton index
@@ -54,6 +71,10 @@ object BorgTextureUnitTests extends TestSuite {
       b.u8.poke(0.U); b.v8.poke(0.U)
       b.fracU.poke(0.U); b.fracV.poke(0.U)
       b.log2Dim.poke(0.U)
+      // CLAMP_TO_EDGE is the reset mode and the historical behaviour.
+      b.addrModeU.poke(TexAddressMode.CLAMP_TO_EDGE.U)
+      b.addrModeV.poke(TexAddressMode.CLAMP_TO_EDGE.U)
+      b.border.poke(0.U)
     }
     d.io.start.poke(false.B)
     d.io.texConfig.en.poke(false.B)
@@ -552,6 +573,107 @@ object BorgTextureUnitTests extends TestSuite {
         d.io.fp16.poke(f16(-1.0f).U); d.clock.step(1)
         utest.assert(d.io.fixed.peek().litValue.toInt == 0)
         println("  clamping matches the nearest path")
+        println("  PASSED")
+      }
+    }
+
+    utest.test("address_modes_wrap_clamp_and_mirror") {
+      simulate(new AddrModeProbe) { d =>
+        println("\n--- TexAddressMode ---")
+        def at(raw: Int, mode: Int, log2Dim: Int = 3): (Int, Boolean) = {
+          d.io.raw.poke(raw.U); d.io.mode.poke(mode.U); d.io.log2Dim.poke(log2Dim.U)
+          d.clock.step(1)
+          (d.io.coord.peek().litValue.toInt, d.io.isBorder.peek().litToBoolean)
+        }
+        // 8-wide texture: valid indices 0..7.
+        val M = TexAddressMode
+
+        // CLAMP_TO_EDGE is the reset mode and must be byte-for-byte what the
+        // old ClampTexCoord did, or every existing render moves.
+        for ((raw, exp) <- Seq((0, 0), (7, 7), (8, 7), (200, 7)))
+          utest.assert(at(raw, M.CLAMP_TO_EDGE)._1 == exp)
+        println("  CLAMP_TO_EDGE matches the historical clamp")
+
+        // REPEAT tiles: 8 -> 0, 9 -> 1, 15 -> 7, 16 -> 0.
+        for ((raw, exp) <- Seq((0, 0), (7, 7), (8, 0), (9, 1), (15, 7), (16, 0)))
+          utest.assert(at(raw, M.REPEAT)._1 == exp)
+        println("  REPEAT tiles on the power-of-two boundary")
+
+        // MIRRORED_REPEAT folds: 8 -> 7, 9 -> 6, 15 -> 0, 16 -> 0 (next period).
+        for ((raw, exp) <- Seq((0, 0), (7, 7), (8, 7), (9, 6), (15, 0), (16, 0)))
+          utest.assert(at(raw, M.MIRRORED_REPEAT)._1 == exp)
+        println("  MIRRORED_REPEAT reverses each repeat")
+
+        // CLAMP_TO_BORDER only flags; in range it behaves like clamp.
+        utest.assert(at(3, M.CLAMP_TO_BORDER) == (3, false))
+        utest.assert(at(8, M.CLAMP_TO_BORDER)._2)
+        utest.assert(!at(7, M.CLAMP_TO_BORDER)._2)
+        println("  CLAMP_TO_BORDER flags only outside the texture")
+
+        // log2Dim == 0 keeps its historical "unsized, don't clamp" meaning in
+        // every mode -- existing call sites depend on it.
+        for (mode <- Seq(M.REPEAT, M.MIRRORED_REPEAT, M.CLAMP_TO_EDGE, M.CLAMP_TO_BORDER))
+          utest.assert(at(200, mode, log2Dim = 0)._1 == 200)
+        println("  log2Dim=0 still means unsized in every mode")
+        println("  PASSED")
+      }
+    }
+
+    utest.test("repeat_makes_the_neighbour_tap_wrap_to_the_far_edge") {
+      simulate(new BorgTextureUnit(BILIN)) { d =>
+        println("\n--- BorgTextureUnit: REPEAT neighbour ---")
+        reset(d)
+        d.io.texConfig.baseAddr.poke(0.U)
+        d.io.bilinear.get.enable.poke(true.B)
+        d.io.bilinear.get.u8.poke(7.U); d.io.bilinear.get.v8.poke(0.U)
+        d.io.bilinear.get.log2Dim.poke(3.U)
+        d.io.bilinear.get.fracU.poke(128.U); d.io.bilinear.get.fracV.poke(0.U)
+        d.io.bilinear.get.addrModeU.poke(TexAddressMode.REPEAT.U)
+        d.io.bilinear.get.addrModeV.poke(TexAddressMode.REPEAT.U)
+
+        def morton(x: Int, y: Int): Int =
+          (0 until 8).map(i => ((x >> i) & 1) << (2 * i) | ((y >> i) & 1) << (2 * i + 1)).sum
+        // Sampling across the right edge of a tiling texture: the second tap
+        // must come from column 0, not a clamped copy of column 7. Under
+        // CLAMP_TO_EDGE both taps would be texel (7,0) and the seam would
+        // smear instead of wrapping.
+        val addrs = runFiltered(d, Map.empty, 0)
+        val touched = addrs.map(_ & ~4).distinct
+        println(f"  texels=${touched.mkString(",")} expect ${morton(7,0) << 3} and ${morton(0,0) << 3}")
+        utest.assert(touched.contains(morton(7, 0) << 3))
+        utest.assert(touched.contains(morton(0, 0) << 3))
+        println("  PASSED")
+      }
+    }
+
+    utest.test("clamp_to_border_substitutes_without_reading_memory") {
+      simulate(new BorgTextureUnit(BILIN)) { d =>
+        println("\n--- BorgTextureUnit: CLAMP_TO_BORDER ---")
+        reset(d)
+        d.io.texConfig.baseAddr.poke(0.U)
+        d.io.bilinear.get.enable.poke(true.B)
+        d.io.bilinear.get.u8.poke(7.U); d.io.bilinear.get.v8.poke(7.U)
+        d.io.bilinear.get.log2Dim.poke(3.U)
+        d.io.bilinear.get.fracU.poke(128.U); d.io.bilinear.get.fracV.poke(128.U)
+        d.io.bilinear.get.addrModeU.poke(TexAddressMode.CLAMP_TO_BORDER.U)
+        d.io.bilinear.get.addrModeV.poke(TexAddressMode.CLAMP_TO_BORDER.U)
+        d.io.bilinear.get.border.poke(BorderColor.OPAQUE_WHITE.U)
+
+        def morton(x: Int, y: Int): Int =
+          (0 until 8).map(i => ((x >> i) & 1) << (2 * i) | ((y >> i) & 1) << (2 * i + 1)).sum
+        // Only tap 0 is inside; the other three are border. Exactly one texel
+        // may be read -- the border taps must not issue an access, since
+        // their address is outside the texture's allocation.
+        val texel = Map((morton(7, 7) << 3) -> (0, 0, 0))
+        val addrs = runFiltered(d, texel, 0)
+        val touched = addrs.map(_ & ~4).distinct
+        println(f"  texels read = ${touched.length} (expect 1 -- three taps are border)")
+        utest.assert(touched.length == 1)
+        // Base texel black, three quarters white border, weights at the
+        // centre -> roughly 3/4 white.
+        val r = f16ToFloat(d.io.fragColor.r.peek().litValue.toInt)
+        println(f"  r = $r%.3f (expect ~0.75)")
+        utest.assert(math.abs(r - 0.75f) < 0.02f)
         println("  PASSED")
       }
     }
