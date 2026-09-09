@@ -525,6 +525,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rdlRegs.io.hw.status_idle := !core.io.status.running
     // Sticky divergence flag (STATUS bit 6) -- see BorgCore.wireBranch.
     rdlRegs.io.hw.status_branch_divergent := core.io.branchDivergent
+    rdlRegs.io.hw.status_exec_fault       := core.io.execFault
     rdlRegs.io.hw.status_fifo_full := stsFifoFull
 
     // =========================================================================

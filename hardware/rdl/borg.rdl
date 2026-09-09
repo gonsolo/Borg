@@ -175,8 +175,17 @@ reg status_reg_t {
     } branch_divergent[1] = 0;
 
     field {
+        sw = r; hw = w;
+        desc = "Bit 7: Execution-mask fault — sticky, set when the
+                EXPUSH/EXPOP stack over- or underflowed, i.e. a shader's
+                mask push/pop pairs are unbalanced or nested deeper than 8.
+                Any such program produces wrong results; this makes that
+                detectable rather than silent. Cleared by a core reset.";
+    } exec_fault[1] = 0;
+
+    field {
         sw = r; hw = na;
-    } RSVD_hi[25] = 0;
+    } RSVD_hi[24] = 0;
 };
 
 // --- Fragment shader start PC ---

@@ -70,6 +70,11 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // else, so it lives here rather than making three unrelated modules thread
   // a field they ignore. See wireBranch for what it means.
   val branchDivergent = Output(Bool())
+  // Sticky: the execution-mask stack over- or underflowed, i.e. the shader's
+  // EXPUSH/EXPOP pairs are unbalanced or nested deeper than 8. Any such
+  // program produces wrong results; this makes that detectable rather than
+  // silent, same reasoning as branchDivergent.
+  val execFault = Output(Bool())
   // LS_BASE: the base address loads and stores are relative to. Effectively
   // the SSBO descriptor -- see Instructions.FUNCT7_LOAD for why the register
   // operand is an index rather than a full address.
@@ -127,6 +132,23 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // which lane to believe.
   val branchDivergent = RegInit(false.B)
 
+  // --- Execution mask (divergent control flow) ---------------------------
+  //
+  // One bit per lane. All-ones means every lane is running, which is the
+  // state a shader with no EXPUSH stays in forever -- so a program that
+  // never uses these instructions behaves exactly as before.
+  //
+  // The stack holds the ENCLOSING mask at each nesting level, so EXELSE can
+  // compute `enclosing & ~exec` and EXPOP can restore. Depth 8 is 8 x
+  // fragLanes bits (32 FFs at fragLanes=4) and nests deeper than any shader
+  // Borg's instruction memory could hold; overflow and underflow are still
+  // flagged rather than silently wrapping.
+  val EXEC_STACK_DEPTH = 8
+  val execMask  = RegInit(((1 << cfg.fragLanes) - 1).U(cfg.fragLanes.W))
+  val execStack = Reg(Vec(EXEC_STACK_DEPTH, UInt(cfg.fragLanes.W)))
+  val execSp    = RegInit(0.U(log2Ceil(EXEC_STACK_DEPTH + 1).W))
+  val execFault = RegInit(false.B)   // sticky: stack over/underflow
+
   // --- Instruction Fetch ---
   val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
   val nextPC =
@@ -166,6 +188,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     lane.io.bus.is_writing := io.bus.is_writing
     lane.io.bus.is_reading := io.bus.is_reading
   }
+  // Per-lane execution mask bit.
+  lanes.zipWithIndex.foreach { case (lane, i) => lane.io.execActive := execMask(i) }
+
   // Per-lane pixel coordinate (2×2 quad fanned out by the iterator).
   lanes.zipWithIndex.foreach { case (lane, i) => lane.io.iter := io.iter(i) }
 
@@ -175,6 +200,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.status.running := running
   io.status.autoRunPending := auto_run_pending
   io.branchDivergent := branchDivergent
+  io.execFault       := execFault
 
   // --- FTEX FSM (shared): drives each lane's memWrite, uses lane 0's operands ---
   wireTexStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.memWrite))
@@ -188,6 +214,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Branch evaluation ---
   wireBranch(lanes.map(_.io.recARaw))
+
+  // --- Execution mask (EXPUSH / EXELSE / EXPOP) ---
+  wireExecMask(lanes.map(_.io.recARaw))
 
   // --- Quad derivatives (DDX/DDY): broadcast cross-lane operands to every lane.
   //   ddx = lane1 - lane0, ddy = lane2 - lane0 (constant across a flat 2×2 quad:
@@ -243,6 +272,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.brz   := !flags.fma && f7op === Instructions.FUNCT7_BRZ.U
     flags.brnz  := !flags.fma && f7op === Instructions.FUNCT7_BRNZ.U
     flags.branch := flags.brz || flags.brnz
+    flags.expush := !flags.fma && f7op === Instructions.FUNCT7_EXPUSH.U
+    flags.exelse := !flags.fma && f7op === Instructions.FUNCT7_EXELSE.U
+    flags.expop  := !flags.fma && f7op === Instructions.FUNCT7_EXPOP.U
+    flags.execOp := flags.expush || flags.exelse || flags.expop
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 
     (regs, flags)
@@ -536,7 +569,19 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     }
 
-    when(memState === sMemReq) {
+    // A lane masked off by a divergent `if` must perform no memory access at
+    // all. For a STORE that is a correctness requirement, not an
+    // optimization: the write would otherwise land in DRAM from a lane the
+    // shader said was not running. Skipping also costs nothing -- the access
+    // is simply not issued and the FSM moves to the next lane.
+    val laneActive = VecInit(execMask.asBools)(memLaneIdx)
+
+    when(memState === sMemReq && !laneActive) {
+      busy_counter := busy_counter
+      finishLane()
+    }
+
+    when(memState === sMemReq && laneActive) {
       busy_counter    := busy_counter   // hold operands stable
       io.gpuMem.addr  := byteAddr
       io.gpuMem.req   := is_load_reg
@@ -618,6 +663,79 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Consumed by the PC advance this cycle; must not survive into the next
     // instruction or every op after a taken branch would branch too.
     when(is_busy && busy_counter === 1.U) { brTakenReg := false.B }
+  }
+  // @doc:end
+
+  // @doc:exec-mask
+  /** Execution mask: `EXPUSH rs1` / `EXELSE` / `EXPOP`.
+    *
+    * Divergent control flow without divergent program counters. The 2x2 quad
+    * has one PC, so an `if` whose condition differs between lanes cannot be
+    * branched around -- instead BOTH arms execute and the lanes that should
+    * not be running are masked off, so none of their writes land. BorgLane
+    * gates its write-back on this bit, which covers registers, LOAD results
+    * and the fragment outputs alike (the dispatcher snoops those through the
+    * same port). wireMemStall skips masked lanes outright, so a masked STORE
+    * never reaches DRAM.
+    *
+    * The stack holds the ENCLOSING mask, which is what makes EXELSE exact:
+    * with enclosing M and condition C, EXPUSH gives `M & C` and EXELSE gives
+    * `M & ~(M & C)` = `M & ~C` -- the else arm, correctly still restricted to
+    * lanes that were running before the `if`. Getting that wrong by inverting
+    * the full mask instead would re-activate lanes the enclosing `if` had
+    * already masked off, which is the classic bug here.
+    *
+    * Evaluated at busy_counter 4, the same point every other operand-reading
+    * FSM uses.
+    *
+    * Not covered: a divergent LOOP, where lanes exit at different iterations.
+    * That needs the mask plus a way to ask "is any lane still active" to
+    * decide whether to take the backward branch. Uniform loops work today
+    * (BRZ/BRNZ), and divergent `if`/`else` works now; divergent loops are the
+    * remaining case and want one more instruction.
+    */
+  private def wireExecMask(condOperands: Seq[UInt]): Unit = {
+    val perLaneTrue = VecInit(condOperands.map(_ =/= 0.U)).asUInt
+
+    when(is_busy && busy_counter === 4.U && opFlags.execOp) {
+      when(opFlags.expush) {
+        when(execSp === EXEC_STACK_DEPTH.U) {
+          execFault := true.B          // no room; results will be wrong
+        }.otherwise {
+          execStack(execSp) := execMask
+          execSp   := execSp + 1.U
+          execMask := execMask & perLaneTrue
+        }
+      }
+      when(opFlags.exelse) {
+        when(execSp === 0.U) {
+          execFault := true.B          // EXELSE outside any EXPUSH
+        }.otherwise {
+          // Enclosing mask is the top of stack -- see the doc above for why
+          // this must not be a plain inversion of execMask.
+          execMask := execStack(execSp - 1.U) & (~execMask).asUInt
+        }
+      }
+      when(opFlags.expop) {
+        when(execSp === 0.U) {
+          execFault := true.B
+          execMask  := ((1 << cfg.fragLanes) - 1).U
+        }.otherwise {
+          execSp   := execSp - 1.U
+          execMask := execStack(execSp - 1.U)
+        }
+      }
+      if (BorgDebug.trace) printf("[EXEC] pc=%d push=%d else=%d pop=%d cond=0x%x mask=0x%x sp=%d\n",
+        programCounter, opFlags.expush, opFlags.exelse, opFlags.expop,
+        perLaneTrue, execMask, execSp)
+    }
+
+    // A fresh shader invocation starts with every lane running. Without this
+    // an unbalanced EXPUSH in one invocation would leak into the next.
+    when(io.control.start || io.coreTrigger.valid) {
+      execMask := ((1 << cfg.fragLanes) - 1).U
+      execSp   := 0.U
+    }
   }
   // @doc:end
 }
