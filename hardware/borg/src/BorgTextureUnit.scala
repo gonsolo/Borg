@@ -85,15 +85,20 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
   // single-tap path needs, for the same reason (a UV of exactly 1.0 floors
   // one past the last texel, and Morton-addressing that reads unpopulated
   // memory as black).
-  val tapAddr = if (hasBilinear) {
+  val (tapAddr, tapIsBorder) = if (hasBilinear) {
     val b  = io.bilinear.get
     val dx = tap(0)
     val dy = tap(1)
-    val u  = ClampTexCoord(b.u8 +& dx, b.log2Dim)
-    val v  = ClampTexCoord(b.v8 +& dy, b.log2Dim)
+    // Each neighbour is wrapped by the sampler's own address mode, not just
+    // clamped: under REPEAT the tap past the right edge must come from column
+    // zero, which is what makes a tiling texture seamless instead of smearing
+    // its last column.
+    val (u, uBorder) = TexAddressMode(b.u8 +& dx, b.log2Dim, b.addrModeU)
+    val (v, vBorder) = TexAddressMode(b.v8 +& dy, b.log2Dim, b.addrModeV)
     val morton = MortonEncode(u, v)
-    Mux(filtering, io.texConfig.baseAddr +& (morton << 3), tex_base)
-  } else tex_base
+    (Mux(filtering, io.texConfig.baseAddr +& (morton << 3), tex_base),
+     uBorder || vBorder)
+  } else (tex_base, false.B)
 
   // --- Defaults ---
   io.gpuMem.req   := false.B
@@ -136,16 +141,36 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
       }
     }
 
-    // Read 0: B word first (offset +4) — keeps Morton address stable
+    // Read 0: B word first (offset +4) — keeps Morton address stable.
+    //
+    // A tap that lands on the border has no texel to read and is short
+    // circuited here. Skipping the access is not merely an optimization: the
+    // address would be outside the texture's allocation, so the read would
+    // return whatever else happens to live there.
     is(sReadB) {
-      io.gpuMem.req  := true.B
-      io.gpuMem.addr := tapAddr | 4.U
-      when(io.gpuMem.ready) {
-        frag_b := io.gpuMem.data(15, 0)
-        if (hasBilinear) tapB(tap) := ColorQuantize.quantize8(io.gpuMem.data(15, 0))
-        if (BorgDebug.trace) printf("[TEX] READ-B addr=0x%x data=0x%x B=0x%x\n",
-          tex_base | 4.U, io.gpuMem.data, io.gpuMem.data(15, 0))
-        state  := sReadRG
+      when(tapIsBorder) {
+        if (hasBilinear) {
+          val bc = BorderColor.rgb8(io.bilinear.get.border)
+          tapR(tap) := bc; tapG(tap) := bc; tapB(tap) := bc
+          frag_r := ColorQuantize.dequantize8(bc)
+          frag_g := ColorQuantize.dequantize8(bc)
+          frag_b := ColorQuantize.dequantize8(bc)
+        }
+        when(filtering && tap =/= 3.U) {
+          tap   := tap + 1.U       // stay in sReadB for the next tap
+        }.otherwise {
+          state := sDone
+        }
+      }.otherwise {
+        io.gpuMem.req  := true.B
+        io.gpuMem.addr := tapAddr | 4.U
+        when(io.gpuMem.ready) {
+          frag_b := io.gpuMem.data(15, 0)
+          if (hasBilinear) tapB(tap) := ColorQuantize.quantize8(io.gpuMem.data(15, 0))
+          if (BorgDebug.trace) printf("[TEX] READ-B addr=0x%x data=0x%x B=0x%x\n",
+            tapAddr | 4.U, io.gpuMem.data, io.gpuMem.data(15, 0))
+          state  := sReadRG
+        }
       }
     }
 

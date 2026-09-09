@@ -753,7 +753,36 @@ reg sampler_cfg_reg_t {
                 support, not before it.";
     } filter_linear[1] = 0;
 
-    field { sw = rw; hw = na; } RSVD[31] = 0;
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 2:1: addressModeU (VkSamplerAddressMode) -- 0 = REPEAT,
+                1 = MIRRORED_REPEAT, 2 = CLAMP_TO_EDGE, 3 = CLAMP_TO_BORDER.
+                Reset 2 (CLAMP_TO_EDGE) is exactly what the hardware did
+                before this field existed. MIRROR_CLAMP_TO_EDGE needs an
+                extension and is not implemented.
+
+                NOTE: wrapping applies to a coordinate already converted to
+                an unsigned texel index, so a NEGATIVE UV arrives as 0 and
+                cannot wrap. Positive overflow wraps correctly. Fixing the
+                negative case needs a signed coordinate conversion.";
+    } addr_mode_u[2] = 2;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 4:3: addressModeV, same encoding.";
+    } addr_mode_v[2] = 2;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 6:5: VkBorderColor for CLAMP_TO_BORDER -- 0 =
+                TRANSPARENT_BLACK, 1 = OPAQUE_BLACK, 2 = OPAQUE_WHITE. The
+                float and int variants of each collapse here; CUSTOM belongs
+                to VK_EXT_custom_border_color and would need a colour
+                register rather than an enum. Transparent and opaque black
+                are the same value while the texture path stores no alpha.";
+    } border_color[2] = 0;
+
+    field { sw = rw; hw = na; } RSVD[25] = 0;
 };
 
 // --- Tile flusher Z-buffer base address (Step 25.3h) ---
