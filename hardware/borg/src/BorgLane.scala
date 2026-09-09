@@ -367,7 +367,9 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       int_result: UInt, is_int_reg: Bool, mmio_reg_data: UInt
   ): Unit = {
     val mmio_write = io.bus.is_writing && io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
-    val pipe_write = running && is_busy && busy_counter === 1.U
+    // A branch has no destination: its rd field carries the low bits of the
+    // target address, so writing back would corrupt an unrelated register.
+    val pipe_write = running && is_busy && busy_counter === 1.U && !io.opFlags.branch
     val w_en = mmio_write || pipe_write
     val w_addr = Mux(pipe_write, regs.rd, (io.bus.address - BorgGpuRegs.gpr_offset) >> 2)
     // is_frcp_reg/is_frsq_reg/is_fsrgb_reg are mutually exclusive (decoded

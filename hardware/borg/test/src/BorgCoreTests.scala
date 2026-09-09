@@ -1020,5 +1020,177 @@ object BorgCoreTests extends TestSuite {
         println("  PASSED")
       }
     }
+
+    // =========================================================================
+    // Control flow -- until BRZ/BRNZ every shader was straight-line, the
+    // program counter only ever advancing by one.
+    // =========================================================================
+
+    utest.test("brz_taken_skips_instructions") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: BRZ taken ---")
+        idleInputs(core)
+        resetCore(core)
+
+        writeReg(core, 0, 0)              // condition == 0 -> branch taken
+        writeReg(core, 1, floatToFp16Bits(1.0f))
+        writeReg(core, 2, floatToFp16Bits(0.0f))
+        // 0: BRZ r0 -> 2      (skip the add at slot 1)
+        // 1: r2 = r1 + r1     (must NOT execute)
+        // 2: halt
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 2))
+        writeImem(core, 1, Instructions.ADD(1, 1, 2))
+        writeImem(core, 2, 0)
+
+        startAndWait(core)
+        val r2 = fp16BitsToFloat(readReg(core, 2))
+        println(f"  r2 = $r2%.2f (expect 0.0 -- the skipped add would make it 2.0)")
+        utest.assert(math.abs(r2) < 0.01f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("brz_not_taken_falls_through") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: BRZ not taken ---")
+        idleInputs(core)
+        resetCore(core)
+
+        writeReg(core, 0, 1)              // condition != 0 -> fall through
+        writeReg(core, 1, floatToFp16Bits(1.0f))
+        writeReg(core, 2, floatToFp16Bits(0.0f))
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 2))
+        writeImem(core, 1, Instructions.ADD(1, 1, 2))
+        writeImem(core, 2, 0)
+
+        startAndWait(core)
+        val r2 = fp16BitsToFloat(readReg(core, 2))
+        println(f"  r2 = $r2%.2f (expect 2.0 -- the add ran)")
+        utest.assert(math.abs(r2 - 2.0f) < 0.01f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("branch_does_not_write_the_register_its_target_names") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: branch has no destination ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // The target's low 5 bits land in the rd field. Target 3 therefore
+        // names r3; an ALU write-back would clobber it. This is the failure
+        // mode BorgLane's `!opFlags.branch` guard exists for.
+        writeReg(core, 0, 1)                            // not taken
+        writeReg(core, 3, floatToFp16Bits(7.0f))        // sentinel in r3
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 3))
+        writeImem(core, 1, 0)
+
+        startAndWait(core)
+        val r3 = fp16BitsToFloat(readReg(core, 3))
+        println(f"  r3 = $r3%.2f (expect 7.0 -- untouched)")
+        utest.assert(math.abs(r3 - 7.0f) < 0.01f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("backward_branch_runs_a_real_loop") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: counted loop ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // The thing branches actually unlock. Sum 1.0 four times by looping,
+        // counting an integer register down to zero:
+        //   r0 = 4 (counter, raw int)   r1 = -1   r2 = 1.0   r3 = accumulator
+        //   0: r3 = r3 + r2        accumulate
+        //   1: r0 = r0 + r1        decrement (integer add on raw bits)
+        //   2: BRNZ r0 -> 0        loop while the counter is non-zero
+        //   3: halt
+        writeReg(core, 0, 4)
+        writeReg(core, 1, 0xFFFF)                       // -1 as int16
+        writeReg(core, 2, floatToFp16Bits(1.0f))
+        writeReg(core, 3, floatToFp16Bits(0.0f))
+        writeImem(core, 0, Instructions.ADD(3, 2, 3))
+        writeImem(core, 1, Instructions.IADD(0, 1, 0))
+        writeImem(core, 2, Instructions.BRNZ(rs1 = 0, target = 0))
+        writeImem(core, 3, 0)
+
+        startAndWait(core)
+        val acc = fp16BitsToFloat(readReg(core, 3))
+        val ctr = readReg(core, 0)
+        println(f"  looped: r3 = $acc%.2f (expect 4.0), counter = $ctr (expect 0)")
+        utest.assert(math.abs(acc - 4.0f) < 0.01f)
+        utest.assert(ctr == 0)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("brnz_polarity_is_the_inverse_of_brz") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: BRNZ polarity ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // Same program twice, only the condition register differs, so a
+        // swapped polarity shows up as both cases behaving alike.
+        for ((cond, shouldBranch) <- Seq((0, false), (1, true))) {
+          resetCore(core)
+          writeReg(core, 0, cond)
+          writeReg(core, 1, floatToFp16Bits(1.0f))
+          writeReg(core, 2, floatToFp16Bits(0.0f))
+          writeImem(core, 0, Instructions.BRNZ(rs1 = 0, target = 2))
+          writeImem(core, 1, Instructions.ADD(1, 1, 2))
+          writeImem(core, 2, 0)
+          startAndWait(core)
+          val r2 = fp16BitsToFloat(readReg(core, 2))
+          val branched = math.abs(r2) < 0.01f
+          println(f"  cond=$cond -> branched=$branched (expect $shouldBranch)")
+          utest.assert(branched == shouldBranch)
+        }
+        println("  PASSED")
+      }
+    }
+
+    utest.test("negative_zero_counts_as_non_zero") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: FP16 -0.0 is non-zero to a branch ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // The condition is a RAW bits comparison, so -0.0 (0x8000) does NOT
+        // branch on BRZ -- the same convention the discard register uses.
+        // Worth pinning down: an FP-aware comparison would do the opposite.
+        writeReg(core, 0, 0x8000)
+        writeReg(core, 1, floatToFp16Bits(1.0f))
+        writeReg(core, 2, floatToFp16Bits(0.0f))
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 2))
+        writeImem(core, 1, Instructions.ADD(1, 1, 2))
+        writeImem(core, 2, 0)
+
+        startAndWait(core)
+        val r2 = fp16BitsToFloat(readReg(core, 2))
+        println(f"  r2 = $r2%.2f (expect 2.0 -- not taken, so the add ran)")
+        utest.assert(math.abs(r2 - 2.0f) < 0.01f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("scalar_build_never_reports_branch_divergence") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: divergence flag at fragLanes=1 ---")
+        idleInputs(core)
+        resetCore(core)
+
+        writeReg(core, 0, 0)
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 1))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+
+        val div = core.io.branchDivergent.peek().litToBoolean
+        println(f"  branchDivergent = $div (expect false -- one lane cannot disagree)")
+        utest.assert(!div)
+        println("  PASSED")
+      }
+    }
   }
 }

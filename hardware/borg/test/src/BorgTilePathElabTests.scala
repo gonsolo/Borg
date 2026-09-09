@@ -29,8 +29,13 @@ import utest._
   */
 object BorgTilePathElabTests extends TestSuite {
 
+  // emitSystemVerilog, NOT emitCHIRRTL. CHIRRTL emission stops before
+  // firtool's lowering, so it happily accepts a design with an undriven sink
+  // -- which is exactly how a `not fully initialized` error on a newly added
+  // IO field reached the golden render instead of failing here. Going all the
+  // way to SystemVerilog costs a few seconds per config and closes that hole.
   private def elaborate(cfg: BorgConfig): String =
-    circt.stage.ChiselStage.emitCHIRRTL(new Borg(cfg))
+    circt.stage.ChiselStage.emitSystemVerilog(new Borg(cfg))
 
   val tests = Tests {
 
