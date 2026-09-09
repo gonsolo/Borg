@@ -458,16 +458,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // IEEE floats order identically as unsigned integers, so every ordering
     // op below is a plain unsigned compare on the raw bits -- the same
     // property the historical hardcoded `<` already relied on.
-    def depthPasses(newZ: UInt, oldZ: UInt): Bool = MuxLookup(io.depthCompareOp, false.B)(Seq(
-      0.U -> false.B,          // VK_COMPARE_OP_NEVER
-      1.U -> (newZ < oldZ),    // VK_COMPARE_OP_LESS (reset value = historical)
-      2.U -> (newZ === oldZ),  // VK_COMPARE_OP_EQUAL
-      3.U -> (newZ <= oldZ),   // VK_COMPARE_OP_LESS_OR_EQUAL
-      4.U -> (newZ > oldZ),    // VK_COMPARE_OP_GREATER
-      5.U -> (newZ =/= oldZ),  // VK_COMPARE_OP_NOT_EQUAL
-      6.U -> (newZ >= oldZ),   // VK_COMPARE_OP_GREATER_OR_EQUAL
-      7.U -> true.B            // VK_COMPARE_OP_ALWAYS
-    ))
+    def depthPasses(newZ: UInt, oldZ: UInt): Bool =
+      CompareOp(io.depthCompareOp, newZ, oldZ)
 
     val samplePass = (0 until cfg.samples).map { s =>
       coverage(laneIdx)(s) && !killed(laneIdx) &&
