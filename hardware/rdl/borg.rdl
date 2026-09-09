@@ -686,6 +686,31 @@ reg scissor_y_reg_t {
     field { sw = rw; hw = na; } RSVD[5] = 0;
 };
 
+// --- Load/store base address (Step 50) ---
+reg ls_base_reg_t {
+    name = "Load/Store Base Address";
+    desc = "Base DRAM byte address that the LOAD and STORE shader
+            instructions are relative to. Effectively an SSBO descriptor: the
+            shader supplies an element index, the hardware forms
+            LS_BASE + (index << 2).
+
+            The operand cannot be a full address. At FP16 a shader register
+            holds 16 bits and the GPU address space is 25, so a register
+            physically cannot carry one -- hence base-plus-index, which is
+            also the shape the texture unit already uses and the shape a
+            Vulkan descriptor binding naturally has.
+
+            Reset 0. Nothing reads this until a shader actually executes a
+            LOAD or STORE, so firmware that never writes it is unaffected.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 24:0: base DRAM byte address (32 MB space).";
+    } base_addr[25] = 0;
+
+    field { sw = rw; hw = na; } RSVD[7] = 0;
+};
+
 // --- Tile flusher Z-buffer base address (Step 25.3h) ---
 reg flush_zb_base_reg_t {
     name = "Flush Z-buffer Base Address";
@@ -1284,6 +1309,9 @@ addrmap borg_gpu {
     //      i.e. every fragment passes. ----
     scissor_x_reg_t scissor_x;
     scissor_y_reg_t scissor_y;
+
+    // ---- Load/store base — fully generated (hw=r). Reset 0. ----
+    ls_base_reg_t ls_base;
 
     // ---- Performance counters: present-phase decomposition ----
     // Fully generated (hw=w → Borg drives io.hw.perf_*_value, SW reads).

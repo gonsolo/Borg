@@ -117,7 +117,46 @@ object BorgCoreTests extends TestSuite {
     core.io.texG.poke(0.U)
     core.io.texB.poke(0.U)
     core.io.seqBusy.poke(false.B)
+    // LOAD/STORE DRAM port -- driven idle so nothing X-propagates for the
+    // tests that never execute a memory instruction.
+    core.io.gpuMem.data.poke(0.U)
+    core.io.gpuMem.ready.poke(false.B)
+    core.io.gpuMem.waccept.poke(false.B)
+    core.io.lsBase.poke(0.U)
     core.clock.step(1)
+  }
+
+  /** Run the shader with a model DRAM attached to the core's gpuMem port.
+    *
+    * Acks every request in the cycle it is made, which is the fastest a
+    * controller could possibly be -- deliberately, so the test exercises the
+    * FSM's same-cycle-ready path. `mem` is keyed by byte address and is
+    * read/written in place, so a test can seed it, run, and inspect it.
+    */
+  def startAndWaitWithMem(core: BorgCore,
+                          mem: scala.collection.mutable.Map[BigInt, BigInt]): Unit = {
+    core.io.control.start.poke(true.B)
+    core.clock.step(1)
+    core.io.control.start.poke(false.B)
+    var idle = false
+    var watchdog = 0
+    while (!idle && watchdog < 500) {
+      val rd = core.io.gpuMem.req.peek().litToBoolean
+      val wr = core.io.gpuMem.wr.peek().litToBoolean
+      if (rd || wr) {
+        val addr = core.io.gpuMem.addr.peek().litValue
+        if (wr) mem(addr) = core.io.gpuMem.wdata.peek().litValue
+        core.io.gpuMem.data.poke((mem.getOrElse(addr, BigInt(0)) & BigInt("ffffffff", 16)).U)
+        core.io.gpuMem.ready.poke(true.B)
+      } else {
+        core.io.gpuMem.ready.poke(false.B)
+      }
+      core.clock.step(1)
+      idle = !core.io.status.running.peek().litToBoolean
+      watchdog += 1
+    }
+    core.io.gpuMem.ready.poke(false.B)
+    utest.assert(idle)
   }
 
   // Linear→sRGB encode (used by the fsrgb test to compute expected values).
@@ -816,6 +855,168 @@ object BorgCoreTests extends TestSuite {
         utest.assert(math.abs(sx - 0.5f) < 0.02f)
         utest.assert(math.abs(sy - 1.0f) < 0.03f)
         utest.assert(math.abs(sz - 1.5f) < 0.04f)
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // LOAD / STORE -- the first instructions that touch an address the shader
+    // computes itself. Everything else reaches memory only through a
+    // fixed-function path (FTEX, the uniform bank, the tile-buffer ABI).
+    // =========================================================================
+
+    val LS_BASE = 0x1000
+
+    utest.test("load_reads_dram_into_a_register") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: LOAD ---")
+        idleInputs(core)
+        resetCore(core)
+        core.io.lsBase.poke(LS_BASE.U)
+
+        val mem = scala.collection.mutable.Map[BigInt, BigInt](
+          BigInt(LS_BASE + 3 * 4) -> BigInt("beef", 16))
+
+        writeReg(core, 0, 3)                      // r0 = element index 3
+        writeImem(core, 0, Instructions.LOAD(rs1 = 0, rd = 2))
+        writeImem(core, 1, 0)
+
+        startAndWaitWithMem(core, mem)
+        val got = readReg(core, 2)
+        println(f"  r2 = 0x${got.toInt.toHexString} (expect 0xbeef)")
+        // Also proves no spurious ALU write-back: BorgLane has no decode for
+        // LOAD, so an unfrozen pipeline would have written an ADD result here.
+        utest.assert(got == BigInt("beef", 16))
+        println("  PASSED")
+      }
+    }
+
+    utest.test("store_writes_a_register_to_dram") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: STORE ---")
+        idleInputs(core)
+        resetCore(core)
+        core.io.lsBase.poke(LS_BASE.U)
+
+        val mem = scala.collection.mutable.Map[BigInt, BigInt]()
+        writeReg(core, 0, 5)                      // r0 = element index 5
+        writeReg(core, 1, BigInt("1234", 16))     // r1 = payload
+        writeImem(core, 0, Instructions.STORE(rs1 = 0, rs2 = 1))
+        writeImem(core, 1, 0)
+
+        startAndWaitWithMem(core, mem)
+        val addr = BigInt(LS_BASE + 5 * 4)
+        println(f"  mem[0x${addr.toInt.toHexString}] = 0x${mem.getOrElse(addr, BigInt(0)).toInt.toHexString} (expect 0x1234)")
+        utest.assert(mem.get(addr).contains(BigInt("1234", 16)))
+        // STORE encodes rd = 0; that must not be mistaken for a destination.
+        println(f"  r0 still ${readReg(core, 0)} (expect 5 -- rd=0 is not a write)")
+        utest.assert(readReg(core, 0) == 5)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("store_then_load_round_trips_through_memory") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: STORE then LOAD ---")
+        idleInputs(core)
+        resetCore(core)
+        core.io.lsBase.poke(LS_BASE.U)
+
+        val mem = scala.collection.mutable.Map[BigInt, BigInt]()
+        writeReg(core, 0, 7)
+        writeReg(core, 1, BigInt("cafe", 16))
+        // Two memory instructions back to back: the second must not inherit
+        // any state from the first (the FSM has to have fully returned to
+        // idle and the resume-delay has to have cleared).
+        writeImem(core, 0, Instructions.STORE(rs1 = 0, rs2 = 1))
+        writeImem(core, 1, Instructions.LOAD(rs1 = 0, rd = 3))
+        writeImem(core, 2, 0)
+
+        startAndWaitWithMem(core, mem)
+        val got = readReg(core, 3)
+        println(f"  r3 = 0x${got.toInt.toHexString} (expect 0xcafe)")
+        utest.assert(got == BigInt("cafe", 16))
+        println("  PASSED")
+      }
+    }
+
+    utest.test("effective_address_is_base_plus_index_times_four") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: effective address ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // The addressing rule is the part a compiler has to agree with, so it
+        // is checked directly against emitted addresses rather than inferred
+        // from a value round-tripping.
+        for ((base, index) <- Seq((0x1000, 0), (0x1000, 1), (0x2000, 255), (0x0, 1024))) {
+          // Each iteration is a fresh program: without the reset the program
+          // counter stays past the previous halt and nothing executes.
+          resetCore(core)
+          core.io.lsBase.poke(base.U)
+          val mem = scala.collection.mutable.Map[BigInt, BigInt]()
+          writeReg(core, 0, index)
+          writeImem(core, 0, Instructions.STORE(rs1 = 0, rs2 = 0))
+          writeImem(core, 1, 0)
+          startAndWaitWithMem(core, mem)
+          val expected = BigInt(base + index * 4)
+          val touched = mem.keys.toSeq
+          println(f"  base=0x$base%x index=$index%4d -> ${touched.map(a => "0x" + a.toInt.toHexString).mkString(",")} (expect 0x${expected.toInt.toHexString})")
+          utest.assert(touched == Seq(expected))
+        }
+        println("  PASSED")
+      }
+    }
+
+    utest.test("a_stalled_load_does_not_advance_until_memory_answers") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: LOAD stalls the pipeline ---")
+        idleInputs(core)
+        resetCore(core)
+        core.io.lsBase.poke(LS_BASE.U)
+
+        writeReg(core, 0, 1)
+        writeImem(core, 0, Instructions.LOAD(rs1 = 0, rd = 2))
+        writeImem(core, 1, 0)
+
+        core.io.control.start.poke(true.B)
+        core.clock.step(1)
+        core.io.control.start.poke(false.B)
+
+        // Withhold `ready` and confirm the core sits there requesting rather
+        // than running off the end. A memory instruction that did not stall
+        // would finish and drop `running` within a handful of cycles.
+        var sawRequest = false
+        for (_ <- 0 until 60) {
+          core.io.gpuMem.ready.poke(false.B)
+          if (core.io.gpuMem.req.peek().litToBoolean) sawRequest = true
+          core.clock.step(1)
+        }
+        val stillRunning = core.io.status.running.peek().litToBoolean
+        println(f"  after 60 cycles with ready held low: req seen=$sawRequest running=$stillRunning")
+        utest.assert(sawRequest)
+        utest.assert(stillRunning)
+
+        // Release it and the instruction completes normally.
+        val mem = scala.collection.mutable.Map[BigInt, BigInt](
+          BigInt(LS_BASE + 4) -> BigInt("00ff", 16))
+        var idle = false
+        var wd = 0
+        while (!idle && wd < 200) {
+          val rq = core.io.gpuMem.req.peek().litToBoolean
+          if (rq) {
+            val a = core.io.gpuMem.addr.peek().litValue
+            core.io.gpuMem.data.poke((mem.getOrElse(a, BigInt(0))).U)
+            core.io.gpuMem.ready.poke(true.B)
+          } else core.io.gpuMem.ready.poke(false.B)
+          core.clock.step(1)
+          idle = !core.io.status.running.peek().litToBoolean
+          wd += 1
+        }
+        core.io.gpuMem.ready.poke(false.B)
+        utest.assert(idle)
+        println(f"  released: r2 = 0x${readReg(core, 2).toInt.toHexString} (expect 0xff)")
+        utest.assert(readReg(core, 2) == BigInt("00ff", 16))
         println("  PASSED")
       }
     }

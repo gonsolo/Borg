@@ -243,7 +243,15 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rast.io.coreStatus <> core.io.status
 
     // GPU memory port: arbitration.
-    // Priority: DMA > Flusher > Geo (Binner+Store) > Rast (texFetch).
+    // Priority: DMA > Flusher > Geo (Binner+Store) > Core (LOAD/STORE) >
+    // Rast (texFetch).
+    //
+    // Core and Rast can never both be active: FTEX and LOAD/STORE are both
+    // instructions, the core executes one at a time, and each stalls the
+    // pipeline for its whole access. Their relative order is therefore
+    // arbitrary -- but they are separate ports, so both must be in the mux.
+    // Core sits above Rast so that if the invariant is ever broken the
+    // failure is a stalled texture fetch rather than a corrupted load.
     val geoBusy  = b.io.busy || s.io.store.active
     val geoReq   = Mux(b.io.busy, b.io.gpuMem.req,   s.io.store.req)
     val geoAddr  = Mux(b.io.busy, b.io.gpuMem.addr,  s.io.store.addr)
@@ -251,21 +259,30 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val geoWdata = Mux(b.io.busy, b.io.gpuMem.wdata, s.io.store.wdata)
 
     // 4-way mux: DMA > Flusher > Geo > Rast
+    val coreMem = core.io.memBusy
     io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
                        Mux(f.io.busy, f.io.gpuMem.req,
-                       Mux(geoBusy, geoReq, rast.io.gpuMem.req)))
+                       Mux(geoBusy, geoReq,
+                       Mux(coreMem, core.io.gpuMem.req, rast.io.gpuMem.req))))
     io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
                        Mux(f.io.busy, f.io.gpuMem.addr,
-                       Mux(geoBusy, geoAddr, rast.io.gpuMem.addr)))
+                       Mux(geoBusy, geoAddr,
+                       Mux(coreMem, core.io.gpuMem.addr, rast.io.gpuMem.addr))))
     io.gpuMem.wr    := Mux(d.io.busy, false.B,  // DMA only reads — never assert wr
                        Mux(f.io.busy, f.io.gpuMem.wr,
-                       Mux(geoBusy, geoWr, rast.io.gpuMem.wr)))
+                       Mux(geoBusy, geoWr,
+                       Mux(coreMem, core.io.gpuMem.wr, rast.io.gpuMem.wr))))
     io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
-                       Mux(geoBusy, geoWdata, rast.io.gpuMem.wdata))
+                       Mux(geoBusy, geoWdata,
+                       Mux(coreMem, core.io.gpuMem.wdata, rast.io.gpuMem.wdata)))
+    core.io.gpuMem.data    := io.gpuMem.data
+    core.io.gpuMem.ready   := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy && coreMem
+    core.io.gpuMem.waccept := false.B
+    core.io.lsBase         := rdlRegs.io.hw.ls_base_base_addr
     // Burst length: only the flusher streams whole tiles; everyone else is 1 word.
     io.gpuMem.wlen  := Mux(f.io.busy, f.io.gpuMem.wlen, 1.U)
     rast.io.gpuMem.data  := io.gpuMem.data
-    rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy
+    rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy && !coreMem
     rast.io.gpuMem.waccept := false.B
     f.io.gpuMem.data  := io.gpuMem.data
     f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
