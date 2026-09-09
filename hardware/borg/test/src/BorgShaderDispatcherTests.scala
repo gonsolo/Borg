@@ -248,7 +248,7 @@ object BorgShaderDispatcherTests extends TestSuite {
       d.io.tileWrite.data.g.peek().litValue.toInt,
       d.io.tileWrite.data.b.peek().litValue.toInt,
       d.io.tileWrite.data.z.peek().litValue.toInt,
-      d.io.stencilWriteEn.map(_.peek().litToBoolean).getOrElse(false),
+      d.io.stencilWriteMask.map(_.peek().litValue != 0).getOrElse(false),
       d.io.stencilWrite.map(_.peek().litValue.toInt).getOrElse(0),
       d.io.alphaWrite.map(_.peek().litValue.toInt).getOrElse(0xFF),
       d.io.alphaWriteMask.map(_.peek().litToBoolean).getOrElse(false))
@@ -1288,7 +1288,7 @@ object BorgShaderDispatcherTests extends TestSuite {
         stepThroughDepthTest(d)
 
         val en   = d.io.tileWrite.en.peek().litToBoolean
-        val sEn  = d.io.stencilWriteEn.get.peek().litToBoolean
+        val sEn  = d.io.stencilWriteMask.get.peek().litValue != 0
         println(f"  discarded: tileWrite.en=$en stencilWriteEn=$sEn (expect false, false)")
         utest.assert(!en)
         utest.assert(!sEn)
@@ -1442,6 +1442,130 @@ object BorgShaderDispatcherTests extends TestSuite {
           fragA = Some(FP16_HALF), dstAlpha = 0x11)
         println(f"  As=0.5 -> stored ${w.alpha} (expect 128)")
         utest.assert(w.alpha == 128)
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // Step 50: per-sample tile writes at 4x MSAA
+    //
+    // Vulkan's framebufferColorSampleCounts must include VK_SAMPLE_COUNT_4_BIT,
+    // so "blending/stencil/depthWriteEnable only work at 1x" was a conformance
+    // hole rather than a configuration preference. sTileWrite now issues one
+    // write per sample with a one-hot coverage mask instead of broadcasting
+    // one shared result.
+    // =========================================================================
+
+    val MSAA_BLEND = BorgConfig.Default.copy(samples = 4, hasBlend = true, hasStencil = true)
+
+    utest.test("msaa_serialized_writes_use_each_samples_own_destination") {
+      simulate(new BorgShaderDispatcher(MSAA_BLEND)) { d =>
+        println("\n--- BorgShaderDispatcher: per-sample MSAA writes ---")
+        pokeIdle(d)
+        pokeCovDelta(d, f16(0.5f), f16(0.5f))
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        // Four DIFFERENT stored destinations, one per sample. If the hardware
+        // still blended against sample 0 and broadcast, every cycle would
+        // report the same colour.
+        val dstR = Seq(0.0f, 0.25f, 0.5f, 1.0f)
+        val dstZ = Seq(0x3000, 0x3400, 0x3800, 0x3C00)
+        val dstS = Seq(0x10, 0x20, 0x30, 0x40)
+        for (s <- 0 until 4) {
+          d.io.tileRead.data(s).r.poke(f16(dstR(s)).U)
+          d.io.tileRead.data(s).g.poke(0.U)
+          d.io.tileRead.data(s).b.poke(0.U)
+          d.io.tileRead.data(s).z.poke(dstZ(s).U)
+          d.io.stencilRead.get(s).poke(dstS(s).U)
+          d.io.alphaRead.get(s).poke(0xFF.U)
+        }
+
+        // ZERO/ONE ADD makes the result exactly the destination colour, so
+        // each cycle's output names the sample it read.
+        d.io.blendCfg.get.enable.poke(true.B)
+        d.io.blendCfg.get.srcColorFactor.poke(BorgBlend.ZERO.U)
+        d.io.blendCfg.get.dstColorFactor.poke(BorgBlend.ONE.U)
+        d.io.blendCfg.get.colorOp.poke(BorgBlend.OP_ADD.U)
+        // ALWAYS depth with writes OFF: the stored Z must come back untouched,
+        // per sample -- the case the broadcast path could not express at all.
+        d.io.depthCompareOp.poke(CMP_ALWAYS.U)
+        d.io.depthWriteEn.poke(false.B)
+        // Stencil INCREMENT on pass, so each sample's own stored value moves.
+        d.io.stencilCfg.get.enable.poke(true.B)
+        pokeFrontFace(d, CMP_ALWAYS, BorgStencil.ZERO, BorgStencil.INCREMENT_AND_CLAMP,
+                      BorgStencil.ZERO, reference = 0)
+
+        firePixelReady(d, fragPc = 13, tileIdx = 0)
+        // e = +4.0: deep inside, every sample covered.
+        pokeAllEdges(d, f16(4.0f), f16(4.0f), f16(4.0f))
+        simulateShaderRun(d)
+        simulateShaderRun(d)
+        stepThroughDepthTest(d)
+
+        for (s <- 0 until 4) {
+          utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TILE_WRITE)
+          val cov  = d.io.tileWrite.coverage.peek().litValue.toInt
+          val r    = f16ToFloat(d.io.tileWrite.data.r.peek().litValue.toInt)
+          val z    = d.io.tileWrite.data.z.peek().litValue.toInt
+          val sMsk = d.io.stencilWriteMask.get.peek().litValue.toInt
+          val sVal = d.io.stencilWrite.get.peek().litValue.toInt
+          println(f"  sample $s: cov=0b${cov.toBinaryString}%4s r=$r%.3f z=0x${z.toHexString} " +
+                  f"stencilMask=0b${sMsk.toBinaryString}%4s stencil=0x${sVal.toHexString}")
+          // One-hot, and the hot bit is this sample.
+          utest.assert(cov == (1 << s))
+          utest.assert(sMsk == (1 << s))
+          // Blended against THIS sample's destination colour.
+          utest.assert(math.abs(r - dstR(s)) < 0.01f)
+          // depthWriteEnable=0 preserved THIS sample's own stored Z.
+          utest.assert(z == dstZ(s))
+          // Stencil incremented THIS sample's own stored value.
+          utest.assert(sVal == dstS(s) + 1)
+          d.clock.step(1)
+        }
+
+        // Four samples done -> the lane (and, at fragLanes=1, the quad) is
+        // finished and the stall is released.
+        utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
+        utest.assert(!d.io.autoRunStall.peek().litToBoolean)
+        println("  4 one-hot writes, each against its own sample, then idle ✓")
+        println("  PASSED")
+      }
+    }
+
+    utest.test("msaa_partial_coverage_only_writes_the_covered_samples") {
+      simulate(new BorgShaderDispatcher(MSAA_BLEND)) { d =>
+        println("\n--- BorgShaderDispatcher: partial coverage, serialized ---")
+        pokeIdle(d)
+        // Same thresholds as the existing partial-coverage test: e = 0.0 with
+        // deltas {-0.5,-0.5,+0.5,+0.5} covers samples 0 and 1 only.
+        pokeCovDelta(d, f16(0.5f), f16(0.5f))
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+
+        d.io.depthCompareOp.poke(CMP_ALWAYS.U)
+        d.io.stencilCfg.get.enable.poke(true.B)
+        pokeFrontFace(d, CMP_ALWAYS, BorgStencil.ZERO, BorgStencil.INCREMENT_AND_CLAMP,
+                      BorgStencil.ZERO, reference = 0)
+
+        firePixelReady(d, fragPc = 13, tileIdx = 0)
+        pokeAllEdges(d, f16(0.0f), f16(0.0f), f16(0.0f))
+        simulateShaderRun(d)
+        simulateShaderRun(d)
+        stepThroughDepthTest(d)
+
+        // Serializing must not turn an uncovered sample into a written one:
+        // the union of the four one-hot masks has to equal the coverage the
+        // broadcast path would have produced in a single cycle.
+        var union = 0
+        var stencilUnion = 0
+        for (_ <- 0 until 4) {
+          union |= d.io.tileWrite.coverage.peek().litValue.toInt
+          stencilUnion |= d.io.stencilWriteMask.get.peek().litValue.toInt
+          d.clock.step(1)
+        }
+        println(f"  colour coverage union=0b${union.toBinaryString}%4s " +
+                f"stencil union=0b${stencilUnion.toBinaryString}%4s (expect 0b0011)")
+        utest.assert(union == 0x3)
+        utest.assert(stencilUnion == 0x3)
         println("  PASSED")
       }
     }

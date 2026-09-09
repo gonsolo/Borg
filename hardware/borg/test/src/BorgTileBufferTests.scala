@@ -37,7 +37,7 @@ object BorgTileBufferTests extends TestSuite {
     // Step 50 item 10: optional stencil plane, idle by default so every
     // pre-existing test in this file is unaffected by its presence.
     tb.io.stencilWrite.foreach(_.poke(0.U))
-    tb.io.stencilWriteEn.foreach(_.poke(false.B))
+    tb.io.stencilWriteMask.foreach(_.poke(0.U))
     tb.io.stencilClear.foreach(_.poke(0.U))
     tb.io.alphaWrite.foreach(_.poke(0.U))
     tb.io.alphaWriteMask.foreach(_.poke(false.B))
@@ -468,9 +468,9 @@ object BorgTileBufferTests extends TestSuite {
         pokeIdle(tb)
         tb.io.write.idx.poke(5.U)
         tb.io.stencilWrite.get.poke(0x77.U)
-        tb.io.stencilWriteEn.get.poke(true.B)
+        tb.io.stencilWriteMask.get.poke(1.U)   // one plane at samples==1
         tb.clock.step(1)
-        tb.io.stencilWriteEn.get.poke(false.B)
+        tb.io.stencilWriteMask.get.poke(0.U)
         utest.assert(readStencil(5) == 0x77)
         utest.assert(readStencil(6) == 0x5A)
         println("  write 0x77 at slot 5 -> slot 5 = 0x77, slot 6 untouched")

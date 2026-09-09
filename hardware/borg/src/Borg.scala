@@ -406,7 +406,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // so only the data paths need wiring here.
     rast.io.stencilRead.foreach(_ := tile.io.stencilRead.get)
     tile.io.stencilWrite.foreach(_ := rast.io.stencilWrite.get)
-    tile.io.stencilWriteEn.foreach(_ := rast.io.stencilWriteEn.get)
+    tile.io.stencilWriteMask.foreach(_ := rast.io.stencilWriteMask.get)
     tile.io.stencilClear.foreach(_ := rdlRegs.io.hw.plane_clear_stencil)
 
     // Destination-alpha plane (Step 50 item 9). Same piggyback on the colour
