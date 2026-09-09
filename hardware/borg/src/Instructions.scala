@@ -66,7 +66,27 @@ object Instructions {
   // shader supplies the element index.
   val FUNCT7_LOAD  = 0x22  // rd = mem32[LS_BASE + (rs1 << 2)]
   val FUNCT7_STORE = 0x24  // mem32[LS_BASE + (rs1 << 2)] = rs2   (no rd)
+  // Control flow. Until these, every shader was straight-line: the program
+  // counter only ever advanced by one.
+  //
+  // The branch target is an ABSOLUTE word index into instruction memory,
+  // packed into the otherwise-unused rs2 and rd fields as (rs2 << 5) | rd.
+  // 10 bits reaches 1023, far past any IMEM Borg builds (56-72 words), and
+  // absolute is easier for a compiler to emit than PC-relative when the
+  // whole program is a handful of words.
+  //
+  // The condition tests the RAW register bits against zero, so FP16 -0.0
+  // (0x8000) counts as non-zero -- the same convention the discard register
+  // already uses (`data =/= 0`).
+  val FUNCT7_BRZ   = 0x26  // if (rs1 == 0) pc = target
+  val FUNCT7_BRNZ  = 0x28  // if (rs1 != 0) pc = target
   // @doc:end
+
+  /** Split an absolute branch target into the rs2/rd fields it is packed into. */
+  def branchTargetFields(target: Int): (Int, Int) = {
+    require(target >= 0 && target < 1024, s"branch target out of range: $target")
+    ((target >> 5) & 0x1f, target & 0x1f)
+  }
 
   // --- Base Instruction Encoders ---
   def encodeRType(funct7: Int, rs2: Int, rs1: Int, rd: Int, funct3: Int = 0, opcode: Int = OPCODE_ALU): BigInt =
@@ -95,6 +115,14 @@ object Instructions {
   def LOAD(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_LOAD, 0, rs1, rd, funct3)
   /** STORE has no destination register; rd is encoded as 0. */
   def STORE(rs1: Int, rs2: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_STORE, rs2, rs1, 0, funct3)
+  def BRZ(rs1: Int, target: Int, funct3: Int = 0): BigInt = {
+    val (hi, lo) = branchTargetFields(target)
+    encodeRType(FUNCT7_BRZ, hi, rs1, lo, funct3)
+  }
+  def BRNZ(rs1: Int, target: Int, funct3: Int = 0): BigInt = {
+    val (hi, lo) = branchTargetFields(target)
+    encodeRType(FUNCT7_BRNZ, hi, rs1, lo, funct3)
+  }
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
   // @doc:end
 

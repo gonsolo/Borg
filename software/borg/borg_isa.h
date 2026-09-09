@@ -44,6 +44,15 @@
 #define BORG_INSTR_LOAD(rd, rs1, funct3)         (0x44000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
 #define BORG_INSTR_STORE(rs1, rs2, funct3)       (0x48000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15))
 
+// --- R-type: BRZ / BRNZ (conditional branch) ---
+// The target is an ABSOLUTE word index into instruction memory, packed into
+// the unused rs2/rd fields as (target >> 5) and (target & 31). The condition
+// tests the RAW register bits against zero, so FP16 -0.0 counts as non-zero.
+// At fragLanes=4 the condition must be quad-uniform -- the quad shares one
+// program counter. A violation sets STATUS bit 6 (branch_divergent).
+#define BORG_INSTR_BRZ(rs1, target, funct3)      (0x4C000000U | ((uint32_t)(funct3) << 12) | ((((uint32_t)(target) >> 5) & 0x1FU) << 20) | ((uint32_t)(rs1) << 15) | ((((uint32_t)(target)) & 0x1FU) << 7))
+#define BORG_INSTR_BRNZ(rs1, target, funct3)     (0x50000000U | ((uint32_t)(funct3) << 12) | ((((uint32_t)(target) >> 5) & 0x1FU) << 20) | ((uint32_t)(rs1) << 15) | ((((uint32_t)(target)) & 0x1FU) << 7))
+
 // --- Special: HALT ---
 #define BORG_INSTR_HALT                           0x00000000U
 

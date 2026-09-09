@@ -28,5 +28,12 @@ class FpuOpFlags extends Bundle {
   // memory FSM freezes busy_counter at 4 and write-back happens at 1.
   val load   = Bool()
   val store  = Bool()
+  // Control flow. `branch` is brz||brnz and exists so BorgLane can suppress
+  // write-back without decoding either: a branch packs its target into the
+  // rd field, so an ALU write-back would clobber whatever register that
+  // bit pattern happens to name.
+  val brz    = Bool()
+  val brnz   = Bool()
+  val branch = Bool()
   val funct3 = UInt(3.W)
 }

@@ -163,8 +163,20 @@ reg status_reg_t {
     } seq_busy[1] = 0;
 
     field {
+        sw = r; hw = w;
+        desc = "Bit 6: Branch divergence — sticky, set when a BRZ/BRNZ
+                condition differed between lanes of a 2x2 quad. The quad
+                shares one program counter, so such a branch cannot be
+                executed correctly by any choice the hardware could make;
+                the contract is that branch conditions are quad-uniform, and
+                this bit exists so a violation is observable instead of
+                silently producing a wrong image. Always 0 at fragLanes=1.
+                Cleared by a core reset.";
+    } branch_divergent[1] = 0;
+
+    field {
         sw = r; hw = na;
-    } RSVD_hi[26] = 0;
+    } RSVD_hi[25] = 0;
 };
 
 // --- Fragment shader start PC ---

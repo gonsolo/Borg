@@ -63,6 +63,13 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // second memory protocol through BorgRasterizer and BorgShaderDispatcher.
   val gpuMem  = new GpuMemIO
   val memBusy = Output(Bool())       // high while a LOAD/STORE owns the bus
+  // Sticky: a branch condition differed between quad lanes. Deliberately NOT
+  // a CoreStatusIO field -- that bundle is pipeline feedback consumed by the
+  // rasterizer, the dispatcher and both sequencers, none of which care about
+  // this. It is a top-level status bit for the MMIO register and nothing
+  // else, so it lives here rather than making three unrelated modules thread
+  // a field they ignore. See wireBranch for what it means.
+  val branchDivergent = Output(Bool())
   // LS_BASE: the base address loads and stores are relative to. Effectively
   // the SSBO descriptor -- see Instructions.FUNCT7_LOAD for why the register
   // operand is an index rather than a full address.
@@ -105,9 +112,25 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val busy_counter = RegInit(0.U(3.W))
   val is_busy = busy_counter > 0.U
 
+  // --- Branch decision (declared before the fetch that consumes it) ---
+  //
+  // Registered, not combinational, and that is required rather than tidy:
+  // nextPC feeds the instruction-memory read, whose output is decoded to
+  // produce the branch condition. Deriving `taken` combinationally from the
+  // instruction currently being fetched would close a loop through the
+  // memory read. Latching the decision mid-execution breaks it -- by the
+  // time the PC is redirected the branch has long since been decoded.
+  val brTakenReg  = RegInit(false.B)
+  val brTargetReg = RegInit(0.U(10.W))
+  // Sticky: set by a non-uniform branch condition, cleared only by a core
+  // reset. See wireBranch's doc for why this exists rather than a choice of
+  // which lane to believe.
+  val branchDivergent = RegInit(false.B)
+
   // --- Instruction Fetch ---
+  val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
   val nextPC =
-    Mux(is_busy && busy_counter === 1.U, programCounter + 1.U, programCounter)
+    Mux(is_busy && busy_counter === 1.U, pcAfterThis, programCounter)
   val rasterRomAddrReg = RegNext(nextPC)
   val fetchedInstruction =
     Mux(fetchRast, rasterRom(rasterRomAddrReg), instructionMemory.read(nextPC))
@@ -151,6 +174,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.regReadData := lanes(0).io.regReadData
   io.status.running := running
   io.status.autoRunPending := auto_run_pending
+  io.branchDivergent := branchDivergent
 
   // --- FTEX FSM (shared): drives each lane's memWrite, uses lane 0's operands ---
   wireTexStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.memWrite))
@@ -161,6 +185,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // so each drives the port only inside its own `when`, and FTEX's default
   // survives for every cycle this one is idle.
   wireMemStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.memWrite))
+
+  // --- Branch evaluation ---
+  wireBranch(lanes.map(_.io.recARaw))
 
   // --- Quad derivatives (DDX/DDY): broadcast cross-lane operands to every lane.
   //   ddx = lane1 - lane0, ddy = lane2 - lane0 (constant across a flat 2×2 quad:
@@ -213,6 +240,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.ddy   := !flags.fma && f7op === Instructions.FUNCT7_DDY.U
     flags.load  := !flags.fma && f7op === Instructions.FUNCT7_LOAD.U
     flags.store := !flags.fma && f7op === Instructions.FUNCT7_STORE.U
+    flags.brz   := !flags.fma && f7op === Instructions.FUNCT7_BRZ.U
+    flags.brnz  := !flags.fma && f7op === Instructions.FUNCT7_BRNZ.U
+    flags.branch := flags.brz || flags.brnz
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 
     (regs, flags)
@@ -231,7 +261,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }.elsewhen(is_busy) {
       busy_counter := busy_counter - 1.U
       when(busy_counter === 1.U) {
-        programCounter := programCounter + 1.U
+        programCounter := pcAfterThis
       }
     }
 
@@ -534,6 +564,60 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
       finishLane()
     }
+  }
+  // @doc:end
+
+  // @doc:branch
+  /** Conditional branch: `BRZ`/`BRNZ rs1, target`.
+    *
+    * Evaluated at busy_counter 4 -- the same point wireTexStall and
+    * wireMemStall take their operands, for the same reason (the register read
+    * ports are settled) -- and consumed at 1, where the PC advances. The
+    * one-cycle-early `nextPC` already reads the target, so a taken branch
+    * costs exactly the same as a fall-through: no bubble, no flush.
+    *
+    * == Divergence ==
+    *
+    * The condition is taken from lane 0. At fragLanes == 1 that is simply the
+    * condition, and this is exact. At fragLanes == 4 the quad shares one
+    * program counter, so a branch whose condition differs between lanes
+    * cannot be executed correctly by ANY choice here -- taking it runs the
+    * body for lanes that should have skipped it, not taking it skips the body
+    * for lanes that should have run it. Correct divergent control flow needs a
+    * per-lane execution mask and a reconvergence stack, which is a separate
+    * piece of work.
+    *
+    * So the contract is that the condition must be quad-uniform, and the
+    * hardware makes a violation OBSERVABLE rather than silent: `divergent`
+    * is a sticky status bit set whenever any lane's condition disagrees with
+    * lane 0's. A compiler emitting a non-uniform branch gets a flag it can
+    * be tested against instead of a subtly wrong image. At fragLanes == 1 the
+    * comparison is against an empty set and the bit can never set, so a
+    * scalar build pays nothing for it.
+    */
+  private def wireBranch(condOperands: Seq[UInt]): Unit = {
+    // Raw-bits comparison: FP16 -0.0 is 0x8000 and therefore non-zero, the
+    // same convention the discard register already uses.
+    val isZero = condOperands.map(_ === 0.U)
+    val takeIt = (opFlags.brz && isZero.head) || (opFlags.brnz && !isZero.head)
+
+    when(is_busy && busy_counter === 4.U) {
+      brTakenReg  := opFlags.branch && takeIt
+      brTargetReg := Cat(regs.rs2, regs.rd)
+      when(opFlags.branch && isZero.map(_ =/= isZero.head).foldLeft(false.B)(_ || _)) {
+        branchDivergent := true.B
+        if (BorgDebug.trace) printf("[BR] DIVERGENT pc=%d\n", programCounter)
+      }
+      if (BorgDebug.trace) {
+        when(opFlags.branch) {
+          printf("[BR] pc=%d taken=%d target=%d\n", programCounter, takeIt,
+                 Cat(regs.rs2, regs.rd))
+        }
+      }
+    }
+    // Consumed by the PC advance this cycle; must not survive into the next
+    // instruction or every op after a taken branch would branch too.
+    when(is_busy && busy_counter === 1.U) { brTakenReg := false.B }
   }
   // @doc:end
 }

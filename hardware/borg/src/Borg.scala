@@ -332,6 +332,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       b.constant.g     := rdlRegs.io.hw.blend_const_const_g
       b.constant.b     := rdlRegs.io.hw.blend_const_const_b
       b.constant.a     := rdlRegs.io.hw.blend_const_const_a
+      b.colorWriteMask := rdlRegs.io.hw.blend_cfg_color_write_mask
     }
     // STENCIL_CFG / STENCIL_FRONT / STENCIL_BACK (Step 50 item 10). Reset 0
     // means stencil disabled -- the historical no-stencil behaviour.
@@ -522,6 +523,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     val stsFifoFull = !fifo.io.enq.ready
     rdlRegs.io.hw.status_idle := !core.io.status.running
+    // Sticky divergence flag (STATUS bit 6) -- see BorgCore.wireBranch.
+    rdlRegs.io.hw.status_branch_divergent := core.io.branchDivergent
     rdlRegs.io.hw.status_fifo_full := stsFifoFull
 
     // =========================================================================
