@@ -300,6 +300,22 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // firmware that never writes this register sees no change.
     rast.io.depthCompareOp := rdlRegs.io.hw.depth_cfg_compare_op
     rast.io.depthWriteEn   := rdlRegs.io.hw.depth_cfg_write_en.asBool
+    // BLEND_CFG / BLEND_CONST (Step 50 item 9). Reset 0 means blending
+    // disabled -- the historical unconditional overwrite -- so, as with
+    // DEPTH_CFG, firmware that never writes these sees no change.
+    rast.io.blendCfg.foreach { b =>
+      b.enable         := rdlRegs.io.hw.blend_cfg_enable.asBool
+      b.srcColorFactor := rdlRegs.io.hw.blend_cfg_src_color_factor
+      b.dstColorFactor := rdlRegs.io.hw.blend_cfg_dst_color_factor
+      b.colorOp        := rdlRegs.io.hw.blend_cfg_color_op
+      b.srcAlphaFactor := rdlRegs.io.hw.blend_cfg_src_alpha_factor
+      b.dstAlphaFactor := rdlRegs.io.hw.blend_cfg_dst_alpha_factor
+      b.alphaOp        := rdlRegs.io.hw.blend_cfg_alpha_op
+      b.constant.r     := rdlRegs.io.hw.blend_const_const_r
+      b.constant.g     := rdlRegs.io.hw.blend_const_const_g
+      b.constant.b     := rdlRegs.io.hw.blend_const_const_b
+      b.constant.a     := rdlRegs.io.hw.blend_const_const_a
+    }
     rast.io.uniformPageReg := rdlRegs.io.hw.control_uniform_write_page
   }
 
