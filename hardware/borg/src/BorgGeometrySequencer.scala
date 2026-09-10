@@ -138,6 +138,13 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
   // own cache -- the two are not the same register.
   val triHasUvs = RegInit(false.B)
 
+  // Per-triangle facing flag (Vulkan conformance item 10, two-sided
+  // stencil): captured in handleWaitSetup from the same setup-shader sign
+  // bit the cull test already reads (setupRegs(6)), stored to DRAM
+  // alongside has_uvs (word 31, bit 1) in sStoreSetup, and restored on the
+  // Pass 2 side the same way -- see BorgTileSequencer's triIsBackFacing.
+  val triIsBackFacing = RegInit(false.B)
+
   val core_was_active = RegNext(
     io.coreStatus.running || io.coreStatus.autoRunPending, false.B
   )
@@ -403,6 +410,7 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
       // front faces, bit 1 culls back faces, so NONE and FRONT_AND_BACK fall
       // out of the same expression rather than needing their own arms.
       val isBackFacing = setupRegs(6)(cfg.totalBits - 1) ^ io.mmio.frontFaceInvert
+      triIsBackFacing := isBackFacing
       val culled = Mux(isBackFacing, io.mmio.cullMode(1), io.mmio.cullMode(0))
       when(culled) {
         if (BorgDebug.trace) printf("[SEQ] cull triIdx=%d r6=0x%x back=%d\n",
@@ -526,14 +534,19 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
     val dramAddr = io.mmio.setupBase + (triIdx << setupStrideShift) + (storeWriteIdx << 2)
     io.store.req   := true.B
     io.store.addr  := dramAddr
-    // Word 31 = has_uvs flag; words 32-37 (samples>1 only) = covDelta.
+    // Word 31 = has_uvs (bit 0) + isBackFacing (bit 1); words 32-37
+    // (samples>1 only) = covDelta. The facing bit rides in the same word
+    // has_uvs already occupies rather than costing a new DMA word or a
+    // second store cycle -- both are single bits packed into one otherwise
+    // mostly-empty word.
+    val meta31 = Cat(triIsBackFacing, triHasUvs)
     val storeData = if (cfg.samples > 1)
       MuxCase(computeUniformData(storeWriteIdx(4, 0)), Seq(
-        (storeWriteIdx === 31.U) -> triHasUvs.asUInt,
+        (storeWriteIdx === 31.U) -> meta31,
         (storeWriteIdx >= 32.U)  -> covDeltaRegs.get((storeWriteIdx - 32.U)(2, 0))
       ))
     else
-      Mux(storeWriteIdx === 31.U, triHasUvs.asUInt, computeUniformData(storeWriteIdx(4, 0)))
+      Mux(storeWriteIdx === 31.U, meta31, computeUniformData(storeWriteIdx(4, 0)))
     io.store.wdata := storeData
     when(io.store.ready) {
       when(storeWriteIdx < 2.U || storeWriteIdx === 19.U || storeWriteIdx === 22.U || storeWriteIdx === 25.U || storeWriteIdx === 31.U) {

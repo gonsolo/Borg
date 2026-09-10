@@ -340,6 +340,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       b.constant.a     := rdlRegs.io.hw.blend_const_const_a
       b.colorWriteMask := rdlRegs.io.hw.blend_cfg_color_write_mask
     }
+    // Per-triangle facing, same busy/idle split as texConfig.en above: while
+    // the sequencer is rendering, use its real per-triangle value; otherwise
+    // (idle / legacy direct-poke path) default true, the historical
+    // behaviour front-face-only builds already depended on.
+    rast.io.frontFacing.foreach(_ := Mux(s.io.busy, s.io.frontFacingOverride, true.B))
     // STENCIL_CFG / STENCIL_FRONT / STENCIL_BACK (Step 50 item 10). Reset 0
     // means stencil disabled -- the historical no-stencil behaviour.
     rast.io.stencilCfg.foreach { st =>

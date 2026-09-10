@@ -181,6 +181,11 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   // Per-triangle texture enable: true when current triangle has UVs.
   // Driven from descriptor metadata has_uvs flag.
   val texEnOverride = Output(Bool())
+  // Per-triangle facing (Vulkan conformance item 10, two-sided stencil).
+  // Straight passthrough of Pass 2's own output, same as texEnOverride
+  // above -- only meaningful while the sequencer is busy, which is how the
+  // top-level Borg.scala consumer already gates texEnOverride.
+  val frontFacingOverride = Output(Bool())
 
   val coreTrigger = new CoreTriggerIO
   val coreStatus = Flipped(new CoreStatusIO)
@@ -369,6 +374,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
   }
   io.texEnOverride := p2.io.texEnOverride
+  io.frontFacingOverride := p2.io.frontFacingOverride
 
   // --- BorgBinner: writer (start/triIndex/bbox/clearCounts) is Pass 1;
   // count-reader (countReadAddr/countReadEn/countReadData) is Pass 2. The
