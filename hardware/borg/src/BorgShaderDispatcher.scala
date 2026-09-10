@@ -350,8 +350,14 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // whose CLAMP_TO_EDGE reset value IS that same clamp, so nothing moves
   // until firmware selects otherwise.
   val (ftex_u8, ftex_v8) = if (cfg.hasBilinear) {
-    val (u, _) = TexAddressMode(Fp16ToUint8(io.texU), io.log2Dim, io.texAddrModeU.get)
-    val (v, _) = TexAddressMode(Fp16ToUint8(io.texV), io.log2Dim, io.texAddrModeV.get)
+    // Fp16ToSignedTexCoord, not Fp16ToUint8: this is the one place a
+    // negative UV first becomes a texel coordinate, so it's the only call
+    // site that needs the sign-preserving conversion and the real sign bit
+    // -- see TexAddressMode's own doc for why REPEAT/MIRRORED_REPEAT
+    // couldn't wrap negative UV before this (io.texU/io.texV(15) below is
+    // the FP16 sign bit, not derived from the converted value).
+    val (u, _) = TexAddressMode(Fp16ToSignedTexCoord(io.texU), io.log2Dim, io.texAddrModeU.get, io.texU(15))
+    val (v, _) = TexAddressMode(Fp16ToSignedTexCoord(io.texV), io.log2Dim, io.texAddrModeV.get, io.texV(15))
     (u, v)
   } else {
     (ClampTexCoord(Fp16ToUint8(io.texU), io.log2Dim),

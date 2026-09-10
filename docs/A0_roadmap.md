@@ -2104,13 +2104,43 @@ weights, and clamp as the only addressing mode.
   filtered sample across a REPEAT seam fetching a clamped duplicate instead
   of wrapping.
 
-**Two limitations recorded rather than discovered later.** The half-texel
+**One limitation recorded rather than discovered later.** The half-texel
 offset (`u*W - 0.5`) is NOT applied: Borg's nearest path never applied it,
 and adding it inside the change that introduces filtering would make any
 regression impossible to attribute -- it belongs in coordinate generation
-with its own golden comparison. And wrapping operates on an already-unsigned
-texel index, so **negative UV cannot wrap** (it arrives as 0); positive
-overflow is correct. That needs a signed coordinate conversion.
+with its own golden comparison.
+
+**Negative UV wrap DONE 2026-09-10** (this branch). The gap above --
+wrapping ran on an already-unsigned texel index, so a negative UV
+flattened to 0 (correct for CLAMP, wrong for REPEAT/MIRRORED_REPEAT,
+which need the true negative value to fold) -- needed the signed
+coordinate conversion this doc had already flagged as the fix, not a
+change to `TexAddressMode` itself. New `Fp16ToSignedTexCoord`
+(`TextureAddr.scala`) computes floor(value) as an 8-bit two's-complement
+byte by negating the unsigned 8.8 magnitude when the FP16 sign bit is
+set -- negating a fixed-point value this way produces floor(), not
+trunc(), which is what makes UV=-0.3 land on a texture's LAST texel
+under REPEAT rather than not wrapping at all. `TexAddressMode` gained an
+explicit `negative: Bool` parameter (defaulting to the historical
+`false.B`, so every other call site is provably unchanged) rather than
+trying to infer sign from `raw`'s own bit pattern, which is a different
+width at different call sites -- inferring it there risked misreading a
+legitimately large positive value (the neighbour-tap path's `u8 +& dx`)
+as negative. REPEAT/MIRRORED_REPEAT's existing bit-masking needed no
+changes at all: `raw & (dim-1)` already computes the correct value mod a
+power-of-two dim for a two's-complement pattern of either sign.
+
+Caught and fixed during this same change, before it shipped: the new
+`negative` handling initially overrode `log2Dim == 0`'s "unsized, don't
+touch raw at all" contract (forcing a clamp to 0 even when unsized) --
+would have broken the invariant an existing test explicitly checks for
+every other mode. Fixed by gating the negative clamp on `unsized` too.
+
+Verified behaviorally, not just structurally: 19/19 `BorgTextureUnitTests`
+pass, including hand-derived REPEAT/MIRRORED_REPEAT/CLAMP expected values
+for negative input and the `Fp16ToSignedTexCoord` conversion itself
+(`-2.5 -> 0xFD`, `-8.0 -> 0xF8`, etc.), plus a full regression pass on
+every pre-existing case in the same file.
 
 **Still missing in this block**: mipmaps and LOD selection (the DDX/DDY
 hardware makes the LOD computable, but a mip chain layout and trilinear
