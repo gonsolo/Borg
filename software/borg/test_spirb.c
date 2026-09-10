@@ -130,8 +130,12 @@ static int isa_base_is_known(uint32_t word) {
         BORG_INSTR_IADD(0, 0, 0, 0),  BORG_INSTR_ISHL(0, 0, 0, 0),
         BORG_INSTR_ISHR(0, 0, 0, 0),  BORG_INSTR_IMUL(0, 0, 0, 0),
         BORG_INSTR_I2F(0, 0, 0),      BORG_INSTR_F2I(0, 0, 0),
+        BORG_INSTR_FRSQ(0, 0, 0),     BORG_INSTR_FSRGB(0, 0, 0),
+        BORG_INSTR_DDX(0, 0, 0),      BORG_INSTR_DDY(0, 0, 0),
         BORG_INSTR_LOAD(0, 0, 0),     BORG_INSTR_STORE(0, 0, 0),
         BORG_INSTR_BRZ(0, 0, 0),      BORG_INSTR_BRNZ(0, 0, 0),
+        BORG_INSTR_EXPUSH(0, 0),      BORG_INSTR_EXELSE(0),
+        BORG_INSTR_EXPOP(0),
     };
     uint32_t f7 = word & 0xFE000000u;
     if (f7 == 0 && word == BORG_INSTR_HALT) return 1;   // halt
