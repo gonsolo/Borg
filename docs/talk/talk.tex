@@ -12,6 +12,7 @@
 \usepackage{lmodern}
 \usepackage{booktabs}
 \usepackage{graphicx}
+\usepackage{animate}
 \usepackage{tikz}
 \usepackage{xcolor}
 \usepackage{enumitem}
@@ -37,8 +38,17 @@
 \begin{document}
 
 % ── 1: Title ─────────────────────────────────────────────────────────────
+% cube.gif (real ULX3S/borgvk capture) is pre-split into cube_frames/ (116
+% PNG frames, 0-indexed via `convert -coalesce`) since pdflatex can't
+% animate a .gif directly. animate.sty plays it back at ~30fps, matching
+% the source's ~33.65ms average frame delay. Autoplays and loops; requires
+% a JS-capable PDF viewer (Acrobat, Okular) to actually animate -- falls
+% back to a static first frame elsewhere.
 \begin{frame}
   \titlepage
+  \vspace{-0.5em}
+  \centering
+  \animategraphics[loop,autoplay,width=2.6cm]{30}{cube_frames/cube-}{0}{115}
 \end{frame}
 
 % ── 2: What is Borg — presented directly, in the ORConf context ─────────── %
