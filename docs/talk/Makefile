@@ -20,7 +20,7 @@ talk.pdf: talk.tex cube_frames
 # above. Needs a patched `papers` to actually autoplay it -- see patches/.
 talk_video.pdf: talk.pdf cube.mp4
 	python3 scripts/add_video_annotation.py talk.pdf talk_video.pdf cube.mp4 \
-		156.77 15 296.77 150
+		327 89 407 166
 video: talk_video.pdf
 
 cube.mp4: cube.gif

@@ -8,21 +8,36 @@ and the F5 fullscreen "Present" mode (`PpsViewPresentation`) is a from-scratch
 widget that never had any media support at all (it composites pre-rendered
 page textures with slide-transition shaders, no child-widget concept).
 
-`papers-video-autoplay.patch` adds:
-- Autoplay+loop in the normal windowed view (`libview/pps-view.c`): starts
-  any embedded media the moment its page becomes current, instead of
-  requiring a click.
-- The same, from scratch, in the F5 presentation widget
-  (`libview/pps-view-presentation.c`): a `GtkVideo` child positioned over its
-  annotation's rect (via the existing `pps_view_presentation_get_page_area`
-  helper), synced on every page change including the initial page.
+`papers-video-autoplay.patch` adds autoplay+loop in the F5 presentation widget
+(`libview/pps-view-presentation.c`), from scratch: a `GtkVideo` child
+positioned over its annotation's rect (via the existing
+`pps_view_presentation_get_page_area` helper), synced on every page change
+including the initial page. An earlier revision of this patch also touched
+the normal windowed view (`libview/pps-view.c`) the same way, but both being
+active at once produced two independent media players/pipelines for the same
+annotation running simultaneously (visible as two slightly-offset copies of
+the video on screen) -- dropped since our actual use case is F5 only.
 
-Both were built and verified against Papers 51.beta (commit
+Two bugs worth knowing about if you extend this:
+- Dropping the last ref on `PpsMedia` right after building the `GtkVideo`
+  deletes the temp file GStreamer is about to open asynchronously (see
+  `pps_media_from_poppler_rendition`'s "poppler-media-temp-file" qdata) --
+  the ref must live as long as the player widget (`g_object_set_data_full`
+  on it), not just the setup function.
+- `gtk_video_set_loop()`/`gtk_video_set_autoplay()` only take effect for
+  files loaded *after* the call (an explicit caveat in `gtk_video_set_loop`'s
+  own docs) -- call them on an empty `gtk_video_new()` before
+  `gtk_video_set_file()`, not after `gtk_video_new_for_file()`.
+
+Built and verified against Papers 51.beta (commit
 `593459ef82095f5202656d4453801c50f93bef55`, matching what Arch's `papers
 50.2-1` package ships) using a PDF with a real PDF 1.5+ "Rendition Action"
 Screen annotation carrying an embedded H.264 stream (produced by
 `../scripts/add_video_annotation.py`, not by any LaTeX package -- pdflatex
-has no native way to embed playable video, only a static image).
+has no native way to embed playable video, only a static image). Verified by
+log: continuous CPU activity (GStreamer decode) across a 10s window far past
+the clip's own ~3.87s length, and exactly one open temp-file handle
+throughout -- confirms looping without a duplicate player.
 
 ## Reproducing the build
 
