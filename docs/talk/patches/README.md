@@ -1,0 +1,55 @@
+# Papers video-autoplay patch
+
+Native GNOME Papers (the Evince successor: GTK4, poppler-glib, GPL-2.0,
+https://gitlab.gnome.org/GNOME/papers) already has a real, working embedded-
+video pipeline (`PpsMedia`/`GtkVideo`, decoding via GStreamer) for PDF Movie
+and Screen+Rendition annotations -- it's just click-triggered, not autoplay,
+and the F5 fullscreen "Present" mode (`PpsViewPresentation`) is a from-scratch
+widget that never had any media support at all (it composites pre-rendered
+page textures with slide-transition shaders, no child-widget concept).
+
+`papers-video-autoplay.patch` adds:
+- Autoplay+loop in the normal windowed view (`libview/pps-view.c`): starts
+  any embedded media the moment its page becomes current, instead of
+  requiring a click.
+- The same, from scratch, in the F5 presentation widget
+  (`libview/pps-view-presentation.c`): a `GtkVideo` child positioned over its
+  annotation's rect (via the existing `pps_view_presentation_get_page_area`
+  helper), synced on every page change including the initial page.
+
+Both were built and verified against Papers 51.beta (commit
+`593459ef82095f5202656d4453801c50f93bef55`, matching what Arch's `papers
+50.2-1` package ships) using a PDF with a real PDF 1.5+ "Rendition Action"
+Screen annotation carrying an embedded H.264 stream (produced by
+`../scripts/add_video_annotation.py`, not by any LaTeX package -- pdflatex
+has no native way to embed playable video, only a static image).
+
+## Reproducing the build
+
+```sh
+sudo pacman -S --needed qpdf python-pikepdf blueprint-compiler \
+    gobject-introspection glib2-devel gi-docgen itstool
+
+git clone https://gitlab.gnome.org/GNOME/papers.git
+cd papers
+git checkout 593459ef82095f5202656d4453801c50f93bef55
+git apply /path/to/papers-video-autoplay.patch
+
+# Build with the system (not nix devshell) toolchain -- a nix devshell whose
+# default CC/CXX targets a different architecture (as this repo's does, for
+# RISC-V firmware) silently produces a binary meson's own sanity check can't
+# execute, or gcc/g++ mismatches against distro GTK4/poppler-glib headers.
+env -i HOME="$HOME" PATH=/usr/bin:/bin CC=/usr/bin/gcc CXX=/usr/bin/g++ \
+  meson setup build --prefix="$HOME/.local/opt/papers-video"
+env -i HOME="$HOME" PATH=/usr/bin:/bin ninja -C build install
+```
+
+Then run via `../run-papers-video.sh`.
+
+## Why not upstream this
+
+The presentation-view half is a real feature Papers doesn't have and could
+plausibly land upstream, but it's scoped narrowly for this one use case
+(rotation 0 only, one media widget per page, no play/pause controls). Filed
+as a local patch rather than a PR for now -- revisit after the talk if there's
+interest.

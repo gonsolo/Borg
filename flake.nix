@@ -351,7 +351,14 @@ CROSSEOF
     # Kept separate so CI (which uses the default shell) never fetches texlive.
     poster = pkgs.mkShell {
       inputsFrom = [ self.devShells.${system}.default ];
-      nativeBuildInputs = [ borgTexlive ];
+      nativeBuildInputs = [
+        borgTexlive
+        pkgs.ffmpeg    # docs/talk: cube.gif -> cube.mp4 (make video)
+        # docs/talk: scripts/add_video_annotation.py injects a real PDF
+        # Screen+Rendition video annotation (make video) -- pikepdf/qpdf do
+        # the actual PDF object construction.
+        (pkgs.python3.withPackages (p: [ p.pikepdf ]))
+      ];
     };
     };
 

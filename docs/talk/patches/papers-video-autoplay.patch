@@ -1,0 +1,230 @@
+diff --git a/libview/pps-view-presentation.c b/libview/pps-view-presentation.c
+index f515a9e..2f6e288 100644
+--- a/libview/pps-view-presentation.c
++++ b/libview/pps-view-presentation.c
+@@ -75,6 +75,12 @@ struct _PpsViewPresentationPrivate {
+ 	PpsJob *prev_job;
+ 	PpsJob *curr_job;
+ 	PpsJob *next_job;
++
++	/* Media (Movie/Screen+Rendition annotations) on the current page --
++	 * e.g. a self-contained looping video/GIF on a title slide. There is
++	 * at most one active player at a time (this widget shows one page). */
++	GtkWidget *media_player;
++	PpsRectangle media_area; /* doc-space rect, page point units */
+ };
+ 
+ typedef struct _PpsViewPresentationPrivate PpsViewPresentationPrivate;
+@@ -225,6 +231,109 @@ pps_view_presentation_get_page_area (PpsViewPresentation *pview,
+ 	area->height = view_height;
+ }
+ 
++/* Media (Movie/Screen+Rendition annotations) */
++static void
++pps_view_presentation_clear_media (PpsViewPresentation *pview)
++{
++	PpsViewPresentationPrivate *priv = GET_PRIVATE (pview);
++
++	g_clear_pointer (&priv->media_player, gtk_widget_unparent);
++}
++
++/* Swap in whatever media belongs to `page`, replacing any player left over
++ * from the previous page. Positioning happens in size_allocate (the
++ * page-space -> widget-space transform needs the widget's current size). */
++static void
++pps_view_presentation_sync_media (PpsViewPresentation *pview,
++                                  guint page)
++{
++	PpsViewPresentationPrivate *priv = GET_PRIVATE (pview);
++	PpsMappingList *media_mapping;
++	PpsPage *pps_page;
++	GList *l;
++	PpsMedia *media = NULL;
++	PpsMapping *found = NULL;
++
++	pps_view_presentation_clear_media (pview);
++
++	if (!priv->document || !PPS_IS_DOCUMENT_MEDIA (priv->document))
++		return;
++
++	pps_page = pps_document_get_page (priv->document, page);
++	media_mapping = pps_document_media_get_media_mapping (PPS_DOCUMENT_MEDIA (priv->document), pps_page);
++	g_object_unref (pps_page);
++
++	for (l = media_mapping ? pps_mapping_list_get_list (media_mapping) : NULL; l; l = l->next) {
++		found = l->data;
++		media = found->data;
++		break; /* one media widget per page is enough for our use case */
++	}
++
++	if (!media) {
++		if (media_mapping)
++			pps_mapping_list_unref (media_mapping);
++		return;
++	}
++
++	/* The mapping list holds the sole ref on `media` (see
++	 * pdf_document_media_get_media_mapping) -- take our own before
++	 * dropping the list, since we don't keep the list itself around. */
++	media = g_object_ref (media);
++	priv->media_area = found->area;
++	pps_mapping_list_unref (media_mapping);
++
++	{
++		GFile *file = g_file_new_for_uri (pps_media_get_uri (media));
++		priv->media_player = gtk_video_new_for_file (file);
++		g_object_unref (file);
++	}
++	gtk_video_set_autoplay (GTK_VIDEO (priv->media_player), TRUE);
++	gtk_video_set_loop (GTK_VIDEO (priv->media_player), TRUE);
++	gtk_widget_set_parent (priv->media_player, GTK_WIDGET (pview));
++
++	/* For an embedded (temp-file-backed) media, `media`'s finalize deletes
++	 * that temp file (see pps_media_from_poppler_rendition's
++	 * "poppler-media-temp-file" qdata) -- dropping our ref here, before
++	 * GStreamer has actually opened the file asynchronously, deletes it out
++	 * from under the player ("gtk_gst_media_file_source_setup_cb: assertion
++	 * 'stream != NULL' failed"). Keep `media` alive for the player's
++	 * lifetime instead, mirroring pps_view_handle_media()'s same pattern in
++	 * pps-view.c. */
++	g_object_set_data_full (G_OBJECT (priv->media_player), "media",
++	                        media, (GDestroyNotify) g_object_unref);
++}
++
++/* Position the media player (if any) over its annotation's rect on the
++ * current page. Rotation is intentionally not handled here -- only
++ * rotation 0 is exercised by our use case (a title-slide video). */
++static void
++pps_view_presentation_allocate_media (PpsViewPresentation *pview)
++{
++	PpsViewPresentationPrivate *priv = GET_PRIVATE (pview);
++	GdkRectangle page_area;
++	gdouble width, height, scale;
++	GtkAllocation alloc;
++
++	if (!priv->media_player)
++		return;
++
++	pps_view_presentation_get_page_area (pview, &page_area);
++	pps_document_get_page_size (priv->document, priv->current_page, &width, &height);
++	if (priv->rotation == 90 || priv->rotation == 270) {
++		gdouble tmp = width;
++		width = height;
++		height = tmp;
++	}
++	scale = width > 0 ? page_area.width / width : 1.0;
++
++	alloc.x = page_area.x + (int) (priv->media_area.x1 * scale + 0.5);
++	alloc.y = page_area.y + (int) (priv->media_area.y1 * scale + 0.5);
++	alloc.width = (int) ((priv->media_area.x2 - priv->media_area.x1) * scale + 0.5);
++	alloc.height = (int) ((priv->media_area.y2 - priv->media_area.y1) * scale + 0.5);
++
++	gtk_widget_size_allocate (priv->media_player, &alloc, -1);
++}
++
+ /* Page Transition */
+ static void
+ transition_next_page (PpsViewPresentation *pview)
+@@ -515,6 +624,14 @@ pps_view_presentation_update_current_page (PpsViewPresentation *pview,
+ 		g_object_notify (G_OBJECT (pview), "current-page");
+ 	}
+ 
++	/* Unconditional (not just on a real page change): the initial page is
++	 * assigned directly by pps_view_presentation_set_current_page() before
++	 * the widget is realized, so the first call here that has a valid size
++	 * to allocate into may see priv->current_page == page already. */
++	pps_view_presentation_sync_media (pview, page);
++	if (gtk_widget_get_width (GTK_WIDGET (pview)) > 0)
++		pps_view_presentation_allocate_media (pview);
++
+ 	if (priv->page_cache)
+ 		pps_page_cache_set_page_range (priv->page_cache, page, page);
+ 
+@@ -854,6 +971,7 @@ pps_view_presentation_dispose (GObject *object)
+ 	g_clear_object (&priv->previous_texture);
+ 
+ 	g_clear_pointer (&priv->goto_popup, gtk_widget_unparent);
++	g_clear_pointer (&priv->media_player, gtk_widget_unparent);
+ 
+ 	g_clear_handle_id (&priv->trans_timeout_id, g_source_remove);
+ 	g_clear_handle_id (&priv->hide_cursor_timeout_id, g_source_remove);
+@@ -1094,6 +1212,9 @@ pps_view_presentation_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
+ 	}
+ 
+ 	gsk_render_node_unref (document_node);
++
++	if (priv->media_player)
++		gtk_widget_snapshot_child (widget, priv->media_player, snapshot);
+ }
+ 
+ static gboolean
+@@ -1381,6 +1502,8 @@ pps_view_presentation_size_allocate (GtkWidget *widget,
+ 
+ 	if (priv->goto_popup)
+ 		gtk_popover_present (GTK_POPOVER (priv->goto_popup));
++
++	pps_view_presentation_allocate_media (pview);
+ }
+ 
+ static void
+diff --git a/libview/pps-view.c b/libview/pps-view.c
+index c0453dd..1674850 100644
+--- a/libview/pps-view.c
++++ b/libview/pps-view.c
+@@ -2508,6 +2508,7 @@ pps_view_handle_media (PpsView *view,
+ 	uri = g_file_new_for_uri (pps_media_get_uri (media));
+ 	player = gtk_video_new_for_file (uri);
+ 	gtk_video_set_autoplay (GTK_VIDEO (player), TRUE);
++	gtk_video_set_loop (GTK_VIDEO (player), TRUE);
+ 	g_object_unref (uri);
+ 
+ 	g_object_set_data_full (G_OBJECT (player), "media",
+@@ -2519,6 +2520,31 @@ pps_view_handle_media (PpsView *view,
+ 	pps_view_put (view, player, page, &mapping->area);
+ }
+ 
++/* Auto-start any Movie/Screen+Rendition media on `page` -- e.g. for a
++ * self-contained looping video/GIF on a presentation's title slide, without
++ * requiring a click. Called both when the current page changes and when a
++ * new document is first loaded (page 0 may not otherwise emit page-changed
++ * if it matches the model's already-default page). */
++static void
++pps_view_autoplay_media_on_page (PpsView *view,
++                                 gint page)
++{
++	PpsViewPrivate *priv = GET_PRIVATE (view);
++	PpsMappingList *media_mapping;
++	GList *l;
++
++	if (page < 0 || !priv->page_cache ||
++	    !PPS_IS_DOCUMENT_MEDIA (pps_document_model_get_document (priv->model)))
++		return;
++
++	media_mapping = pps_page_cache_get_media_mapping (priv->page_cache, page);
++	for (l = media_mapping ? pps_mapping_list_get_list (media_mapping) : NULL; l; l = l->next) {
++		PpsMapping *mapping = l->data;
++
++		pps_view_handle_media (view, PPS_MEDIA (mapping->data));
++	}
++}
++
+ /* Annotations */
+ static GtkWidget *
+ pps_view_create_annotation_window (PpsView *view,
+@@ -6327,6 +6353,8 @@ pps_view_page_changed_cb (PpsDocumentModel *model,
+ 	if (priv->current_page != new_page) {
+ 		pps_view_scroll_to_page (view, new_page);
+ 	}
++
++	pps_view_autoplay_media_on_page (view, new_page);
+ }
+ 
+ PpsView *
+@@ -6436,6 +6464,7 @@ pps_view_document_changed_cb (PpsDocumentModel *model,
+ 
+ 	priv->keep_scroll_of_current_page = TRUE;
+ 	pps_view_scroll_to_page (view, pps_document_model_get_page (model));
++	pps_view_autoplay_media_on_page (view, pps_document_model_get_page (model));
+ 
+ 	view_update_scale_limits (view);
+ 

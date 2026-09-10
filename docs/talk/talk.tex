@@ -12,7 +12,6 @@
 \usepackage{lmodern}
 \usepackage{booktabs}
 \usepackage{graphicx}
-\usepackage{animate}
 \usepackage{tikz}
 \usepackage{xcolor}
 \usepackage{enumitem}
@@ -38,17 +37,22 @@
 \begin{document}
 
 % ── 1: Title ─────────────────────────────────────────────────────────────
-% cube.gif (real ULX3S/borgvk capture) is pre-split into cube_frames/ (116
-% PNG frames, 0-indexed via `convert -coalesce`) since pdflatex can't
-% animate a .gif directly. animate.sty plays it back at ~30fps, matching
-% the source's ~33.65ms average frame delay. Autoplays and loops; requires
-% a JS-capable PDF viewer (Acrobat, Okular) to actually animate -- falls
-% back to a static first frame elsewhere.
+% cube_frames/cube-0.png (frame 0 of the real ULX3S/borgvk cube.gif capture,
+% via ImageMagick -coalesce) is the static poster/fallback shown here. The
+% actual looping video (cube.mp4, same source) is added as a native PDF
+% Screen+Rendition annotation by scripts/add_video_annotation.py, run as a
+% post-processing step after pdflatex (see the Makefile) -- pdflatex/beamer
+% have no native way to embed playable video, so this has to happen outside
+% LaTeX. The rect below (156.77pt,15pt)-(296.77pt,150pt) is placed at a
+% fixed absolute page position specifically so the post-processing script's
+% annotation rect can match it exactly; keep the two in sync if this moves.
 \begin{frame}
   \titlepage
-  \vspace{-0.5em}
-  \centering
-  \animategraphics[loop,autoplay,width=2.6cm]{30}{cube_frames/cube-}{0}{115}
+  \begin{tikzpicture}[remember picture, overlay]
+    \node[anchor=south west] at (current page.south west) [xshift=156.77pt, yshift=15pt] {
+      \includegraphics[width=140pt]{cube_frames/cube-0}
+    };
+  \end{tikzpicture}
 \end{frame}
 
 % ── 2: What is Borg — presented directly, in the ORConf context ─────────── %
