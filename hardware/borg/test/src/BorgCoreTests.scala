@@ -243,6 +243,45 @@ object BorgCoreTests extends TestSuite {
       }
     }
 
+    // FP32 datapath plan item 3: the shift amount was hardcoded to 4 bits
+    // (shamt = recB_raw(3,0), correct only for a 16-bit width) and is now
+    // log2Ceil(w) -- 5 bits at w=32. Shift by 20 is the discriminating value:
+    // a still-4-bit shamt truncates 20 to 20 mod 16 = 4, so this fails
+    // loudly (1048576 vs the broken 16) if the width fix ever regresses.
+    utest.test("ishl_int32_full_shift_range") {
+      simulate(new BorgCore(BorgConfig.Fp32)) { core =>
+        println("\n--- BorgCore: ishl_int32_full_shift_range ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 1)
+        writeReg(core, 1, 20)
+        writeImem(core, 0, Instructions.ISHL(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2)
+        println(s"  ishl(1, 20) = $r (expected 1048576)")
+        utest.assert(r == BigInt(1048576))
+        println("  PASSED")
+      }
+    }
+
+    utest.test("ishr_int32_full_shift_range") {
+      simulate(new BorgCore(BorgConfig.Fp32)) { core =>
+        println("\n--- BorgCore: ishr_int32_full_shift_range ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, BigInt(1) << 30)
+        writeReg(core, 1, 20)
+        writeImem(core, 0, Instructions.ISHR(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2)
+        println(s"  ishr(1<<30, 20) = $r (expected 1024)")
+        utest.assert(r == BigInt(1024))
+        println("  PASSED")
+      }
+    }
+
     utest.test("imul_int16") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: imul_int16 ---")
