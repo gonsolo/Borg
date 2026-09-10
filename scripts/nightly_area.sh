@@ -43,7 +43,14 @@ echo "[nightly-area] $STAMP  $BRANCH@$SHA -> $RUNLOG"
 rm -f "$WORKTREE/.verilog_wafer_stamp"
 
 # direnv exec picks up the nix devshell; a bare command does not get its PATH.
-direnv exec "$WORKTREE" make -C "$WORKTREE/asic/wafer.space" librelane-nodrc \
+# SLOT=1x1 explicitly. The Makefile's DEFAULT_SLOT is 1x0p5, a HALF slot the
+# design outgrew long ago -- measuring it reports a placement failure that
+# says nothing about the real target. The runs that actually signed off
+# (2026-09-07/08) used 1x1, so that is the only slot whose numbers mean
+# anything. Getting this wrong on the first night cost two full flow runs
+# and produced a "the design no longer fits" conclusion that was measuring
+# a slot nobody ships.
+direnv exec "$WORKTREE" make -C "$WORKTREE/asic/wafer.space" SLOT=1x1 librelane-nodrc \
   > "$RUNLOG" 2>&1
 RC=$?
 
