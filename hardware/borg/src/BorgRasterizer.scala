@@ -44,6 +44,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val blendCfg        = if (cfg.hasBlend) Some(Input(new BlendConfig)) else None
   // Step 50 item 10: stencil state and the tile buffer's stencil plane,
   // forwarded to BorgShaderDispatcher.
+  val frontFacing     = if (cfg.hasStencil) Some(Input(Bool())) else None
   val stencilCfg      = if (cfg.hasStencil) Some(Input(new StencilConfig)) else None
   val stencilRead     = if (cfg.hasStencil) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
   val stencilWrite    = if (cfg.hasStencil) Some(Output(UInt(8.W))) else None
@@ -136,6 +137,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.depthCompareOp := io.depthCompareOp
   dispatcher.io.depthWriteEn   := io.depthWriteEn
   dispatcher.io.blendCfg.foreach(_ := io.blendCfg.get)
+  dispatcher.io.frontFacing.foreach(_ := io.frontFacing.get)
   dispatcher.io.stencilCfg.foreach(_ := io.stencilCfg.get)
   dispatcher.io.stencilRead.foreach(_ := io.stencilRead.get)
   io.stencilWrite.foreach(_ := dispatcher.io.stencilWrite.get)

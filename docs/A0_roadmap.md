@@ -2055,10 +2055,35 @@ experiment pins it down, after which the field can be documented as the
 `VkFrontFace` bit it is. Flagged rather than assumed.
 
 This also removes the *first* of the two blockers on two-sided stencil.
-The second remains: the facing bit still has to reach the dispatcher, and
-Pass 1's per-triangle setup state is stored to DRAM and reloaded per-tile
-in Pass 2, so facing has to travel with it the way `has_uvs` does -- a
-store/reload path change, not just wiring.
+
+**Second blocker (facing bit reaching the dispatcher) DONE 2026-09-10**
+(this branch). `BorgGeometrySequencer` now captures the same sign bit the
+cull test reads (`setupRegs(6)`) into a `triIsBackFacing` register at the
+moment it's computed, and packs it into bit 1 of the same DRAM word
+`has_uvs` already occupies (word 31) at `sStoreSetup` -- no new DMA word,
+no second store cycle. `BorgTileSequencer` restores it the same way it
+restores `has_uvs`: from its 2-way setup cache on a hit, or from bit 1 of
+the DMA snoop on a miss. The result threads up through
+`BorgSequencer.frontFacingOverride` -> `Borg.scala` (`Mux(s.io.busy,
+s.io.frontFacingOverride, true.B)`, the same busy/idle split
+`texConfig.en` already uses) -> `BorgRasterizer.io.frontFacing` ->
+`BorgShaderDispatcher.io.frontFacing`, replacing the `true.B` literal
+`BorgStencil.evaluate` used to receive. `StencilConfig`'s separate
+`front`/`back` op sets already existed (visible in the RDL registers) --
+this was purely the missing runtime signal, not new stencil logic.
+
+**Verified structurally, not behaviorally**: all 12 `BorgTilePathElabTests`
+cases pass, including two that specifically exercise the new port chain
+end-to-end (`hasStencil enabled` and `blend and stencil elaborate at 4x
+MSAA`) and the disabled-build check confirming a non-stencil build carries
+none of the new wiring. This catches the unconnected-port/width-mismatch
+class of bug the whole file exists for, but does NOT prove the DRAM
+round-trip produces the *correct* facing value for a real back-facing
+triangle -- that needs a full two-pass render test of the same shape as
+`BorgSequencerTests`' `covDelta_diagnostic_real_values`, and that suite is
+currently unrunnable in reasonable time on this machine (a single test
+sat 3461s without completing, per `BorgTilePathElabTests`' own docstring).
+Flagged as open, not assumed passing.
 
 **Texture/sampler work DONE 2026-09-09** (commits `b6a8891a`, `e996cb09`) --
 this was the weakest block in the design at roughly 15%: one texel, no

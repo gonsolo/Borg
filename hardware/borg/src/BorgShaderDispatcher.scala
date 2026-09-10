@@ -55,6 +55,10 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // Step 50 item 10: stencil state and the tile buffer's stencil plane.
   // The read arrives with the colour/Z read the depth test already waits
   // for, so stencil costs no extra FSM states.
+  // Per-triangle facing, real hardware now that BorgSequencer's two passes
+  // carry it through DRAM alongside has_uvs -- was hardcoded true.B, which
+  // made back-face stencil state unreachable regardless of cull mode.
+  val frontFacing    = if (cfg.hasStencil) Some(Input(Bool())) else None
   val stencilCfg     = if (cfg.hasStencil) Some(Input(new StencilConfig)) else None
   val stencilRead    = if (cfg.hasStencil) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
   val stencilWrite   = if (cfg.hasStencil) Some(Output(UInt(8.W))) else None
@@ -604,17 +608,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // all three outcomes, including the two that kill the fragment -- hence
     // stencilWriteEn is its own signal, not io.tileWrite.en.
     //
-    // frontFacing is hardwired true, so only the front face's state is
-    // reachable. Cull mode is now configurable (CULL_CFG), so a build can
-    // finally ask for VK_CULL_MODE_NONE and produce back-facing fragments --
-    // but the facing bit itself still does not reach here. Pass 1 stores its
-    // per-triangle setup state to DRAM and Pass 2 reloads it per tile, so
-    // facing has to travel with it the way has_uvs does; that store/reload
-    // change is the remaining piece for two-sided stencil. The back-face
-    // registers and datapath are already carried through, so it lands as
-    // wiring rather than a redesign.
+    // frontFacing is now real per-triangle hardware (BorgSequencer's two
+    // passes carry it through DRAM alongside has_uvs), so back-face stencil
+    // state is reachable wherever CULL_CFG is configured to let back-facing
+    // fragments through (VK_CULL_MODE_NONE/FRONT).
     val stencilRes = if (cfg.hasStencil) {
-      Some(BorgStencil.evaluate(io.stencilCfg.get, true.B, io.stencilRead.get(dstIdx),
+      Some(BorgStencil.evaluate(io.stencilCfg.get, io.frontFacing.get, io.stencilRead.get(dstIdx),
                                 depthPasses(frag_z(laneIdx), io.tileRead.data(dstIdx).z)))
     } else None
 
