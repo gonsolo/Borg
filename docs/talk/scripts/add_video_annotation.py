@@ -38,6 +38,22 @@ def main():
     pdf = pikepdf.open(in_pdf)
     page = pdf.pages[0]
 
+    # Cover the static poster image underneath with an opaque white
+    # rectangle before adding the video annotation. Papers' GtkVideo widget
+    # draws on top of the page raster but doesn't necessarily fill its
+    # allocated rect pixel-for-pixel (aspect-ratio letterboxing, rounding);
+    # without this, the still poster peeks out at the edges and, since the
+    # video is itself in motion, reads as a second, stacked copy of the
+    # frame rather than a clean border. Appended (drawn last -> on top) to
+    # the existing content stream. Padded a few points beyond the exact
+    # annotation rect -- TeX's pt (1/72.27in) isn't quite PDF's point
+    # (1/72in), and talk.tex's poster and this rect are computed
+    # independently, so treat "same rect" as approximate, not exact.
+    margin = 10
+    cx1, cy1, cx2, cy2 = x1 - margin, y1 - margin, x2 + margin, y2 + margin
+    cover = f"q 1 1 1 rg {cx1} {cy1} {cx2 - cx1} {cy2 - cy1} re f Q\n".encode()
+    page.contents_add(cover, prepend=False)
+
     with open(video_path, "rb") as f:
         video_bytes = f.read()
 
