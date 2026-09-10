@@ -1794,6 +1794,34 @@ structure (which tests run unconditionally vs. behind a
     path in hardware or `software/borg/`; shaped like the existing uniform
     bank, likely the smallest item on this list.
 
+    **COMPILER-SIDE LOWERING BUILT 2026-09-10** (mesa commit `6d16b54f59c`,
+    pushed to `origin/feat/fp32-datapath-borgc`): `borgc` now lowers
+    `nir_intrinsic_load_push_constant` to a real `LOAD` instruction, reusing
+    the same `LS_BASE`-relative word-addressed hardware built for the
+    load/store item above rather than any new RTL. Each static push-constant
+    word offset gets its own raw-integer word index pinned into a const GPR
+    (`push_const_reg: HashMap<u32,u32>`, same const-GPR mechanism as the
+    FP16-1.0/lightDir constants) and fed through `LOAD rd, rs1` — the
+    dynamic-offset source NIR can also emit is not yet handled, only
+    `.base()`-only static offsets.
+
+    Verified structurally, not just by a clean compile: decoded the emitted
+    `.borg` blob byte-for-byte for two different push-constant offsets and
+    confirmed the pinned const-GPR value is the RAW WORD INDEX (not an
+    FP16-converted float, which would be the wrong encoding for an address),
+    plus a byte-identical regression check against the unaffected
+    cube.vert/cube.frag compiles to confirm nothing else in the selection
+    walk shifted.
+
+    **Explicitly NOT built**: any of the `vkCmdPushConstants` driver/
+    firmware plumbing this depends on end-to-end — no byte capture of the
+    pushed range in `borgvk`, no float32→FP16 conversion (needed because the
+    shader register file is still FP16 on `main`; moot once this branch's
+    FP32 datapath lands), no DRAM staging area, and no code setting
+    `LS_BASE` before dispatch so a compiled shader's `LOAD`s actually land on
+    the right bytes. The compiler now emits the right instruction; nothing
+    yet puts real data where it expects to find it.
+
 **Not independently re-verified 2026-08-31** (flagged rather than guessed):
 the exact mandatory depth/stencil `VkFormat` list (`D16_UNORM` alone for
 depth-only, plus at least one of `D24_UNORM_S8_UINT`/`D32_SFLOAT_S8_UINT`
