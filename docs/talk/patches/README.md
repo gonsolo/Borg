@@ -18,7 +18,7 @@ active at once produced two independent media players/pipelines for the same
 annotation running simultaneously (visible as two slightly-offset copies of
 the video on screen) -- dropped since our actual use case is F5 only.
 
-Two bugs worth knowing about if you extend this:
+Three bugs worth knowing about if you extend this:
 - Dropping the last ref on `PpsMedia` right after building the `GtkVideo`
   deletes the temp file GStreamer is about to open asynchronously (see
   `pps_media_from_poppler_rendition`'s "poppler-media-temp-file" qdata) --
@@ -28,6 +28,15 @@ Two bugs worth knowing about if you extend this:
   files loaded *after* the call (an explicit caveat in `gtk_video_set_loop`'s
   own docs) -- call them on an empty `gtk_video_new()` before
   `gtk_video_set_file()`, not after `gtk_video_new_for_file()`.
+- `pps_view_presentation_update_current_page()` (our sync point) can
+  legitimately run more than once for the same page while things settle
+  during startup (once via `notify_scale_factor`, again via the lazy-init
+  path in `snapshot()`). Rebuilding the player unconditionally on every call
+  left two of them briefly alive and rendering at once -- visible as two
+  slightly-offset, both-moving copies of the video on screen while playing
+  (not visible when paused/static, since only one page raster is ever
+  involved). Fixed by tracking which page the current player belongs to
+  (`priv->media_page`) and no-op'ing `sync_media` when it's already correct.
 
 Built and verified against Papers 51.beta (commit
 `593459ef82095f5202656d4453801c50f93bef55`, matching what Arch's `papers
@@ -36,8 +45,8 @@ Screen annotation carrying an embedded H.264 stream (produced by
 `../scripts/add_video_annotation.py`, not by any LaTeX package -- pdflatex
 has no native way to embed playable video, only a static image). Verified by
 log: continuous CPU activity (GStreamer decode) across a 10s window far past
-the clip's own ~3.87s length, and exactly one open temp-file handle
-throughout -- confirms looping without a duplicate player.
+the clip's own ~3.87s length, and exactly one `decodebin3`/one open temp-file
+handle throughout a run -- confirms looping without a duplicate player.
 
 ## Reproducing the build
 

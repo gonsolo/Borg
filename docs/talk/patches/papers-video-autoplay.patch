@@ -1,8 +1,8 @@
 diff --git a/libview/pps-view-presentation.c b/libview/pps-view-presentation.c
-index f515a9e..e71c18c 100644
+index f515a9e..9fd69a8 100644
 --- a/libview/pps-view-presentation.c
 +++ b/libview/pps-view-presentation.c
-@@ -75,6 +75,12 @@ struct _PpsViewPresentationPrivate {
+@@ -75,6 +75,13 @@ struct _PpsViewPresentationPrivate {
  	PpsJob *prev_job;
  	PpsJob *curr_job;
  	PpsJob *next_job;
@@ -12,10 +12,11 @@ index f515a9e..e71c18c 100644
 +	 * at most one active player at a time (this widget shows one page). */
 +	GtkWidget *media_player;
 +	PpsRectangle media_area; /* doc-space rect, page point units */
++	gint media_page;         /* page media_player belongs to, -1 if none */
  };
  
  typedef struct _PpsViewPresentationPrivate PpsViewPresentationPrivate;
-@@ -225,6 +231,114 @@ pps_view_presentation_get_page_area (PpsViewPresentation *pview,
+@@ -225,6 +232,127 @@ pps_view_presentation_get_page_area (PpsViewPresentation *pview,
  	area->height = view_height;
  }
  
@@ -26,11 +27,20 @@ index f515a9e..e71c18c 100644
 +	PpsViewPresentationPrivate *priv = GET_PRIVATE (pview);
 +
 +	g_clear_pointer (&priv->media_player, gtk_widget_unparent);
++	priv->media_page = -1;
 +}
 +
 +/* Swap in whatever media belongs to `page`, replacing any player left over
 + * from the previous page. Positioning happens in size_allocate (the
-+ * page-space -> widget-space transform needs the widget's current size). */
++ * page-space -> widget-space transform needs the widget's current size).
++ *
++ * update_current_page() (our only caller) can legitimately run more than
++ * once for the very same page while things settle during startup (once via
++ * notify_scale_factor, again via the lazy-init path in snapshot()) -- make
++ * this a no-op in that case rather than tearing down and rebuilding a
++ * perfectly good player+pipeline, which was observed to leave two of them
++ * briefly alive and rendering at once (two slightly-offset copies of the
++ * video visible on screen while playing). */
 +static void
 +pps_view_presentation_sync_media (PpsViewPresentation *pview,
 +                                  guint page)
@@ -41,6 +51,9 @@ index f515a9e..e71c18c 100644
 +	GList *l;
 +	PpsMedia *media = NULL;
 +	PpsMapping *found = NULL;
++
++	if (priv->media_player && priv->media_page == (gint) page)
++		return;
 +
 +	pps_view_presentation_clear_media (pview);
 +
@@ -68,6 +81,7 @@ index f515a9e..e71c18c 100644
 +	 * dropping the list, since we don't keep the list itself around. */
 +	media = g_object_ref (media);
 +	priv->media_area = found->area;
++	priv->media_page = (gint) page;
 +	pps_mapping_list_unref (media_mapping);
 +
 +	/* gtk_video_set_loop()'s own docs: "This won't affect the file that is
@@ -130,7 +144,7 @@ index f515a9e..e71c18c 100644
  /* Page Transition */
  static void
  transition_next_page (PpsViewPresentation *pview)
-@@ -515,6 +629,14 @@ pps_view_presentation_update_current_page (PpsViewPresentation *pview,
+@@ -515,6 +643,14 @@ pps_view_presentation_update_current_page (PpsViewPresentation *pview,
  		g_object_notify (G_OBJECT (pview), "current-page");
  	}
  
@@ -145,7 +159,7 @@ index f515a9e..e71c18c 100644
  	if (priv->page_cache)
  		pps_page_cache_set_page_range (priv->page_cache, page, page);
  
-@@ -854,6 +976,7 @@ pps_view_presentation_dispose (GObject *object)
+@@ -854,6 +990,7 @@ pps_view_presentation_dispose (GObject *object)
  	g_clear_object (&priv->previous_texture);
  
  	g_clear_pointer (&priv->goto_popup, gtk_widget_unparent);
@@ -153,7 +167,7 @@ index f515a9e..e71c18c 100644
  
  	g_clear_handle_id (&priv->trans_timeout_id, g_source_remove);
  	g_clear_handle_id (&priv->hide_cursor_timeout_id, g_source_remove);
-@@ -1094,6 +1217,9 @@ pps_view_presentation_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
+@@ -1094,6 +1231,9 @@ pps_view_presentation_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
  	}
  
  	gsk_render_node_unref (document_node);
@@ -163,7 +177,7 @@ index f515a9e..e71c18c 100644
  }
  
  static gboolean
-@@ -1381,6 +1507,8 @@ pps_view_presentation_size_allocate (GtkWidget *widget,
+@@ -1381,6 +1521,8 @@ pps_view_presentation_size_allocate (GtkWidget *widget,
  
  	if (priv->goto_popup)
  		gtk_popover_present (GTK_POPOVER (priv->goto_popup));
@@ -172,3 +186,11 @@ index f515a9e..e71c18c 100644
  }
  
  static void
+@@ -1508,6 +1650,7 @@ pps_view_presentation_init (PpsViewPresentation *pview)
+ 	PpsViewPresentationPrivate *priv = GET_PRIVATE (pview);
+ 
+ 	priv->is_constructing = TRUE;
++	priv->media_page = -1;
+ 
+ 	gtk_widget_init_template (GTK_WIDGET (pview));
+ }

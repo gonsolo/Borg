@@ -43,19 +43,18 @@
 % Screen+Rendition annotation by scripts/add_video_annotation.py, run as a
 % post-processing step after pdflatex (see the Makefile) -- pdflatex/beamer
 % have no native way to embed playable video, so this has to happen outside
-% LaTeX. \titlepage is confined to a narrower left column (rather than
-% centered across the full page) so it doesn't compete with the video on
-% the right. The rect below (327pt,89pt)-(407pt,166pt) is placed at a fixed
-% absolute page position specifically so the post-processing script's
-% annotation rect (Makefile's `video` target) can match it exactly; keep
-% the two in sync if this moves.
+% LaTeX. Tucked into the bottom-right corner (small, out of the way of
+% \titlepage's normal centered layout) so nothing else on the slide needs to
+% move for it. Anchored to (current page.south east) rather than an absolute
+% rect so it stays pinned to that corner if the page size ever changes; the
+% post-processing script's annotation rect (Makefile's `video` target) is
+% given the equivalent rect in raw PDF points and must match -- keep the two
+% in sync if this moves.
 \begin{frame}
-  \begin{minipage}[c][\textheight]{0.6\linewidth}
-    \titlepage
-  \end{minipage}%
+  \titlepage
   \begin{tikzpicture}[remember picture, overlay]
-    \node[anchor=south west] at (current page.south west) [xshift=327pt, yshift=89pt] {
-      \includegraphics[width=80pt]{cube_frames/cube-0}
+    \node[anchor=south east] at (current page.south east) [xshift=-10pt, yshift=10pt] {
+      \includegraphics[width=70pt]{cube_frames/cube-0}
     };
   \end{tikzpicture}
 \end{frame}
