@@ -109,9 +109,15 @@ int main() {
   borgCreateShaderModule(&rast, rasterize_borg, sizeof(rasterize_borg));
   borgCreateShaderModule(&frag, frag_borg, sizeof(frag_borg));
   borgCreateGraphicsPipeline(&vert, &rast, &frag);
-  // Baked frag is a texel×vertex_color Gouraud shader; borgvk's borgc frag uses
-  // frag_pos instead.  borg_stage_shader() resets the mode when frag is uploaded.
-  borg_set_frag_vertex_color(1);
+  // The baked frag is now borgc's compilation of cube.frag -- the same shader
+  // borgvk uploads -- so it wants the same staging mode borgvk's does:
+  // frag_pos, not vertex colour. It used to be a texel x vertex_color Gouraud
+  // shader from a since-deleted pipeline, which is why this was 1.
+  //
+  // Getting this wrong does not fail loudly, it renders flat/yellow -- the
+  // staging mode decides which uniforms the sequencer writes, so a mismatch
+  // feeds the shader the wrong inputs rather than crashing.
+  borg_set_frag_vertex_color(0);
 
   // Pre-fill the texture region with white before any borgvk upload arrives.
   // The RX drain loop below recovers from a dropped/corrupted 0xAF texture-row

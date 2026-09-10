@@ -145,6 +145,50 @@ object Instructions {
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
   // @doc:end
 
+  /** Operand shape of an instruction, which decides its C macro signature. */
+  sealed trait Shape
+  case object RType  extends Shape  // rd, rs1, rs2
+  case object R1Type extends Shape  // rd, rs1        (unary)
+  case object R4Type extends Shape  // rd, rs1, rs2, rs3
+  case object Store  extends Shape  // rs1, rs2       (no destination)
+  case object Branch extends Shape  // rs1, target    (target packed into rs2:rd)
+  case object Mask1  extends Shape  // rs1            (no destination)
+  case object Mask0  extends Shape  // (no operands)
+
+  /** THE instruction table. Everything downstream -- hardware decode, the C
+    * header, any future Python emitter -- comes from here, so an opcode cannot
+    * exist in one and not another.
+    *
+    * This table is why borg_isa.h is generated rather than written: as a
+    * hand-maintained mirror it silently fell four opcodes behind (DDX, DDY,
+    * FRSQ, FSRGB), which only surfaced when a test tried to validate a real
+    * compiled shader against it. */
+  val all: Seq[(String, Int, Shape)] = Seq(
+    ("FADD",   FUNCT7_ADD,   RType),
+    ("FMUL",   FUNCT7_MUL,   RType),
+    ("FNEG",   FUNCT7_FNEG,  R1Type),
+    ("FSTEP",  FUNCT7_FSTEP, R1Type),
+    ("FRCP",   FUNCT7_FRCP,  R1Type),
+    ("FTEX",   FUNCT7_FTEX,  RType),
+    ("IADD",   FUNCT7_IADD,  RType),
+    ("ISHL",   FUNCT7_ISHL,  RType),
+    ("ISHR",   FUNCT7_ISHR,  RType),
+    ("IMUL",   FUNCT7_IMUL,  RType),
+    ("I2F",    FUNCT7_I2F,   R1Type),
+    ("F2I",    FUNCT7_F2I,   R1Type),
+    ("FRSQ",   FUNCT7_FRSQ,  R1Type),
+    ("FSRGB",  FUNCT7_FSRGB, R1Type),
+    ("DDX",    FUNCT7_DDX,   R1Type),
+    ("DDY",    FUNCT7_DDY,   R1Type),
+    ("LOAD",   FUNCT7_LOAD,  R1Type),
+    ("STORE",  FUNCT7_STORE, Store),
+    ("BRZ",    FUNCT7_BRZ,   Branch),
+    ("BRNZ",   FUNCT7_BRNZ,  Branch),
+    ("EXPUSH", FUNCT7_EXPUSH, Mask1),
+    ("EXELSE", FUNCT7_EXELSE, Mask0),
+    ("EXPOP",  FUNCT7_EXPOP,  Mask0)
+  )
+
   // --- String Formatters for C / Python Generation ---
   def PY_ARGS_R    = s"(funct3 << ${BF_FUNCT3.lo}) | (rs2 << ${BF_RS2.lo}) | (rs1 << ${BF_RS1.lo}) | (rd << ${BF_RD.lo})"
   def PY_ARGS_R4   = s"(funct3 << ${BF_FUNCT3.lo}) | (rs3 << ${BF_RS3.lo}) | (rs2 << ${BF_RS2.lo}) | (rs1 << ${BF_RS1.lo}) | (rd << ${BF_RD.lo})"

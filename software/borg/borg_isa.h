@@ -1,59 +1,42 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Borg SPIR-B ISA — instruction encoding macros.
+// GENERATED from hardware/borg/src/Instructions.scala by
+//   mill hardware.borg.runMain borg.EmitIsaHeader
+// Do not edit: edit Instructions.scala's `all` table instead.
 //
-// These define the 32-bit RISC-V R-type and R4-type instruction encodings
-// used by the Borg FPU shader pipeline.  They are ISA definitions and do
-// not belong in SystemRDL register descriptions.
+// Borg SPIR-B ISA — instruction encoding macros. The funct7 sub-op
+// occupies bits 31:25, so each base below is funct7 << 25.
 
 #pragma once
+#include <stdint.h>
 
-// --- R-type: FADD, FMUL ---
-#define BORG_INSTR_FADD(rd, rs1, rs2, funct3)    (0x00000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
-#define BORG_INSTR_FMUL(rd, rs1, rs2, funct3)    (0x08000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
+// R4-type: FMADD (opcode bit 2, not a funct7 value)
+#define BORG_INSTR_FMADD(rd, rs1, rs2, rs3, funct3) (0x00000004U | ((funct3) << 12) | ((rs3) << 27) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 
-// --- R4-type: FMADD ---
-#define BORG_INSTR_FMADD(rd, rs1, rs2, rs3, funct3) (0x00000004U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs3) << 27) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
+#define BORG_INSTR_FADD(rd, rs1, rs2, funct3) (0x00000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FMUL(rd, rs1, rs2, funct3) (0x08000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FNEG(rd, rs1, funct3) (0x0C000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FSTEP(rd, rs1, funct3) (0x10000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FRCP(rd, rs1, funct3) (0x14000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FTEX(rd, rs1, rs2, funct3) (0x18000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_IADD(rd, rs1, rs2, funct3) (0x1C000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_ISHL(rd, rs1, rs2, funct3) (0x20000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_ISHR(rd, rs1, rs2, funct3) (0x24000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_IMUL(rd, rs1, rs2, funct3) (0x28000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_I2F(rd, rs1, funct3) (0x2C000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_F2I(rd, rs1, funct3) (0x30000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FRSQ(rd, rs1, funct3) (0x34000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FSRGB(rd, rs1, funct3) (0x38000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_DDX(rd, rs1, funct3) (0x3C000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_DDY(rd, rs1, funct3) (0x40000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_LOAD(rd, rs1, funct3) (0x44000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_STORE(rs1, rs2, funct3) (0x48000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15))
+#define BORG_INSTR_BRZ(rs1, target, funct3) (0x4C000000U | ((funct3) << 12) | ((((uint32_t)(target) >> 5) & 0x1FU) << 20) | ((rs1) << 15) | (((uint32_t)(target) & 0x1FU) << 7))
+#define BORG_INSTR_BRNZ(rs1, target, funct3) (0x50000000U | ((funct3) << 12) | ((((uint32_t)(target) >> 5) & 0x1FU) << 20) | ((rs1) << 15) | (((uint32_t)(target) & 0x1FU) << 7))
+#define BORG_INSTR_EXPUSH(rs1, funct3) (0x54000000U | ((funct3) << 12) | ((rs1) << 15))
+#define BORG_INSTR_EXELSE(funct3) (0x58000000U | ((funct3) << 12))
+#define BORG_INSTR_EXPOP(funct3) (0x5C000000U | ((funct3) << 12))
 
-// --- R1-type (unary): FNEG, FSTEP, FRCP ---
-#define BORG_INSTR_FNEG(rd, rs1, funct3)         (0x0C000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
-#define BORG_INSTR_FSTEP(rd, rs1, funct3)        (0x10000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
-#define BORG_INSTR_FRCP(rd, rs1, funct3)         (0x14000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
-
-// --- R-type: FTEX (texture sample) ---
-// rd = texel R; texG written to rd+1, texB to rd+2 (implicit, by hardware).
-#define BORG_INSTR_FTEX(rd, rs1, rs2, funct3)    (0x18000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
-
-// --- R-type: integer ALU (16-bit, on the raw register bits) ---
-#define BORG_INSTR_IADD(rd, rs1, rs2, funct3)    (0x1C000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
-#define BORG_INSTR_ISHL(rd, rs1, rs2, funct3)    (0x20000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
-#define BORG_INSTR_ISHR(rd, rs1, rs2, funct3)    (0x24000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
-#define BORG_INSTR_IMUL(rd, rs1, rs2, funct3)    (0x28000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
-
-// --- R1-type (unary): integer↔fp16 conversions ---
-#define BORG_INSTR_I2F(rd, rs1, funct3)          (0x2C000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
-#define BORG_INSTR_F2I(rd, rs1, funct3)          (0x30000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
-
-// --- R-type: LOAD / STORE (DRAM access) ---
-// The operand is a WORD INDEX, not a byte address: at FP16 a register holds
-// 16 bits and the GPU address space is 25, so a register cannot carry a full
-// address. The hardware forms LS_BASE + (rs1 << 2), where LS_BASE is the
-// ls_base MMIO register -- effectively an SSBO descriptor.
-// STORE has no destination; rd is encoded as 0.
-#define BORG_INSTR_LOAD(rd, rs1, funct3)         (0x44000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
-#define BORG_INSTR_STORE(rs1, rs2, funct3)       (0x48000000U | ((uint32_t)(funct3) << 12) | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15))
-
-// --- R-type: BRZ / BRNZ (conditional branch) ---
-// The target is an ABSOLUTE word index into instruction memory, packed into
-// the unused rs2/rd fields as (target >> 5) and (target & 31). The condition
-// tests the RAW register bits against zero, so FP16 -0.0 counts as non-zero.
-// At fragLanes=4 the condition must be quad-uniform -- the quad shares one
-// program counter. A violation sets STATUS bit 6 (branch_divergent).
-#define BORG_INSTR_BRZ(rs1, target, funct3)      (0x4C000000U | ((uint32_t)(funct3) << 12) | ((((uint32_t)(target) >> 5) & 0x1FU) << 20) | ((uint32_t)(rs1) << 15) | ((((uint32_t)(target)) & 0x1FU) << 7))
-#define BORG_INSTR_BRNZ(rs1, target, funct3)     (0x50000000U | ((uint32_t)(funct3) << 12) | ((((uint32_t)(target) >> 5) & 0x1FU) << 20) | ((uint32_t)(rs1) << 15) | ((((uint32_t)(target)) & 0x1FU) << 7))
-
-// --- Special: HALT ---
+// Special: HALT (an all-zero instruction word)
 #define BORG_INSTR_HALT                           0x00000000U
-
-
