@@ -4,6 +4,8 @@
 // Unit tests for spirb_parse().
 
 #include "borg_spirb.h"
+#include "borg_isa.h"
+#include "compiler/shader_blobs.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -95,8 +97,84 @@ static void test_empty_blob(void) {
     CHECK(s.num_instrs == 0, "empty blob: num_instrs==0");
 }
 
+// ---------------------------------------------------------------------------
+// The baked shader blobs still decode as current-ISA instructions.
+//
+// compiler/shader_blobs.h is a checked-in binary artifact whose generator (a
+// glslangValidator -> spirv-dis -> python pipeline) has been DELETED, and
+// whose GLSL sources are gone with it. It cannot be regenerated. That makes it
+// a standing hazard: the blobs encode opcodes, and if an existing funct7 ever
+// changed, they would silently execute DIFFERENT instructions -- no load
+// failure, no error, just a wrong image, in the standalone path that has no
+// driver to override them.
+//
+// This is the guard. It cannot check the blobs still compute the right thing
+// (nothing can, without the sources), but it does catch the whole class of
+// "the ISA moved out from under the fossil".
+//
+// The valid opcode set is built by invoking each borg_isa.h macro with zero
+// operands, so it tracks that header automatically rather than being a second
+// hand-maintained list that could drift from it.
+// ---------------------------------------------------------------------------
+
+static int isa_base_is_known(uint32_t word) {
+    // FMADD is discriminated by opcode bit 2, not funct7 -- its rs3 field
+    // occupies the bits a funct7 comparison would look at, so it must be
+    // tested first or it reads as an arbitrary opcode.
+    if ((word >> 2) & 1u) return 1;
+
+    static const uint32_t bases[] = {
+        BORG_INSTR_FADD(0, 0, 0, 0),  BORG_INSTR_FMUL(0, 0, 0, 0),
+        BORG_INSTR_FNEG(0, 0, 0),     BORG_INSTR_FSTEP(0, 0, 0),
+        BORG_INSTR_FRCP(0, 0, 0),     BORG_INSTR_FTEX(0, 0, 0, 0),
+        BORG_INSTR_IADD(0, 0, 0, 0),  BORG_INSTR_ISHL(0, 0, 0, 0),
+        BORG_INSTR_ISHR(0, 0, 0, 0),  BORG_INSTR_IMUL(0, 0, 0, 0),
+        BORG_INSTR_I2F(0, 0, 0),      BORG_INSTR_F2I(0, 0, 0),
+        BORG_INSTR_LOAD(0, 0, 0),     BORG_INSTR_STORE(0, 0, 0),
+        BORG_INSTR_BRZ(0, 0, 0),      BORG_INSTR_BRNZ(0, 0, 0),
+    };
+    uint32_t f7 = word & 0xFE000000u;
+    if (f7 == 0 && word == BORG_INSTR_HALT) return 1;   // halt
+    for (unsigned i = 0; i < sizeof(bases) / sizeof(bases[0]); i++)
+        if ((bases[i] & 0xFE000000u) == f7) return 1;
+    return 0;
+}
+
+static void check_blob_opcodes(const char *name, const unsigned char *blob,
+                               unsigned len) {
+    spirb_shader_t s;
+    int n = spirb_parse((uint8_t *)blob, &s);
+    char msg[160];
+    // Report the numbers on failure: "parses" alone would not say whether the
+    // parser overran the array or the array outgrew the parser, and those have
+    // opposite fixes.
+    snprintf(msg, sizeof msg, "%s: parse consumed %d of %u declared bytes",
+             name, n, len);
+    CHECK(n > 0 && (unsigned)n <= (int)len, msg);
+    if (n <= 0) return;
+
+    int bad = -1;
+    for (unsigned i = 0; i < s.num_instrs; i++)
+        if (!isa_base_is_known(s.instrs[i])) { bad = (int)i; break; }
+
+    if (bad >= 0)
+        snprintf(msg, sizeof msg, "%s: instr %d = 0x%08X is not a current opcode",
+                 name, bad, s.instrs[bad]);
+    else
+        snprintf(msg, sizeof msg, "%s: all %u instrs decode as current ISA",
+                 name, s.num_instrs);
+    CHECK(bad < 0, msg);
+}
+
+static void test_baked_blobs_match_current_isa(void) {
+    check_blob_opcodes("vert_borg", vert_borg, vert_borg_len);
+    check_blob_opcodes("rasterize_borg", rasterize_borg, rasterize_borg_len);
+    check_blob_opcodes("frag_borg", frag_borg, frag_borg_len);
+}
+
 int main(void) {
     printf("test_spirb\n");
+    test_baked_blobs_match_current_isa();
     test_valid_blob();
     test_null_blob();
     test_null_struct();
