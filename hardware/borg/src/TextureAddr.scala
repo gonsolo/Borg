@@ -83,6 +83,41 @@ object Fp16ToFixed88 {
   }
 }
 
+/** FP16 -> floor(value) as an 8-bit two's-complement texel coordinate,
+  * PRESERVING sign -- unlike [[Fp16ToUint8]]/[[Fp16ToFixed88]], which both
+  * flatten negative inputs to 0 (correct for those two: everywhere they're
+  * used, a negative value belongs at the near edge/zero). This exists
+  * specifically to feed [[TexAddressMode]]'s REPEAT/MIRRORED_REPEAT wrap,
+  * which needs the true negative integer to fold correctly -- see
+  * `TexAddressMode`'s own comment for why UV<0 previously could not wrap.
+  *
+  * Derivation: compute the UNSIGNED 8.8 magnitude of abs(fp16) via
+  * [[Fp16ToFixed88]], then two's-complement-negate the whole 8.8 value when
+  * the input was negative. Negating a fixed-point value this way computes
+  * floor() automatically -- e.g. abs(0.3)'s 8.8 magnitude is (0, ~77/256);
+  * negating the 16-bit pattern gives integer byte 0xFF = -1 = floor(-0.3),
+  * not 0 = trunc(-0.3) -- which matters at the wrap boundary (UV=-0.3 must
+  * land on a texture's LAST texel under REPEAT, not fail to wrap at all).
+  *
+  * Same magnitude-saturation bound as Fp16ToFixed88: an input whose
+  * magnitude already saturates that conversion (>= 256.0) does not produce
+  * a meaningfully-wrapped result here either -- acceptable for the same
+  * reason the existing positive-overflow path accepts it: realistic UV
+  * overflow from a single triangle's interpolation is nowhere near that
+  * range.
+  */
+object Fp16ToSignedTexCoord {
+  def apply(fp16: UInt): UInt = {
+    require(fp16.getWidth == 16)
+    val sign      = fp16(15)
+    val absFp16   = Cat(0.U(1.W), fp16(14, 0))       // clear sign -> abs(value)
+    val mag88     = Fp16ToFixed88(absFp16)            // unsigned magnitude, 16-bit 8.8
+    val negated   = (~mag88 + 1.U)(15, 0)
+    val signed88  = Mux(sign, negated, mag88)
+    signed88(15, 8)                                    // integer half, two's complement
+  }
+}
+
 /** Keep Fp16ToUint6 for backward compatibility. */
 object Fp16ToUint6 {
   def apply(fp16: UInt): UInt = {
@@ -121,15 +156,21 @@ object ClampTexCoord {
   * what makes REPEAT and MIRRORED_REPEAT free: they are bit masking and a
   * conditional inversion, not a modulo.
   *
-  * == The limitation worth knowing ==
+  * == Negative UV ==
   *
-  * These operate on a coordinate that has ALREADY been converted to an
-  * unsigned texel index by [[Fp16ToUint8]], which flattens anything negative
-  * to 0. So a UV below zero cannot wrap -- it arrives as 0 and REPEAT has
-  * nothing left to work with. Positive overflow wraps correctly up to 255.
-  * Supporting negative UV needs a signed coordinate conversion, which is a
-  * change to the conversion rather than to this, and is deliberately not
-  * bundled in here.
+  * `raw` may be the two's-complement bit pattern of a NEGATIVE texel
+  * coordinate (from [[Fp16ToSignedTexCoord]]), not just a plain unsigned
+  * index -- REPEAT/MIRRORED_REPEAT's bit-masking (`raw & (dim-1)`) computes
+  * the correct value mod a power-of-two dim for either sign with no extra
+  * logic, which is what makes both free of an actual modulo. CLAMP_TO_EDGE/
+  * CLAMP_TO_BORDER can't reuse that trick -- a masked bit pattern can't be
+  * told apart from "legitimately large positive" by magnitude alone across
+  * this function's several caller-dependent widths of `raw` -- so callers
+  * with a possibly-negative coordinate pass the real sign explicitly via
+  * `negative`, used only for the clamp/border decision. Callers whose `raw`
+  * is always non-negative (e.g. a wrapped base coordinate plus a one-texel
+  * neighbour offset) leave it at the default and get the historical
+  * behaviour unchanged.
   */
 object TexAddressMode {
   val REPEAT           = 0
@@ -137,12 +178,19 @@ object TexAddressMode {
   val CLAMP_TO_EDGE    = 2
   val CLAMP_TO_BORDER  = 3
 
-  /** @return (wrapped coordinate, true if the sample falls on the border)
+  /** @param negative true if the source coordinate was actually negative
+    *   (e.g. the FP16 sign bit) -- NOT derived from `raw`'s own bit pattern,
+    *   since `raw` is a different width at different call sites and a wide
+    *   positive value (a wrapped coordinate plus a neighbour offset) must
+    *   never be misread as a small negative one. Defaults to false.B, the
+    *   historical behaviour, for every call site that never passes a
+    *   negative coordinate.
+    * @return (wrapped coordinate, true if the sample falls on the border)
     *
     * `isBorder` is only ever set by CLAMP_TO_BORDER; every other mode maps
     * an out-of-range coordinate onto a real texel.
     */
-  def apply(raw: UInt, log2Dim: UInt, mode: UInt): (UInt, Bool) = {
+  def apply(raw: UInt, log2Dim: UInt, mode: UInt, negative: Bool = false.B): (UInt, Bool) = {
     // log2Dim == 0 keeps its historical meaning of "sizing unknown, don't
     // clamp" rather than being read as a 1x1 texture -- every existing call
     // site relies on that, so wrapping must not change it.
@@ -150,6 +198,8 @@ object TexAddressMode {
     val dim     = (1.U(9.W) << log2Dim)(8, 0)          // up to 256
     val maxIdx  = Mux(unsized, 255.U(8.W), (dim - 1.U)(7, 0))
 
+    // Sign-agnostic: correct for a negative raw's two's-complement bit
+    // pattern too, for any power-of-two dim -- see the class doc.
     val repeated = raw & maxIdx                         // power-of-two modulo
 
     // Mirror: fold within a 2*dim period, so the texture reverses each
@@ -158,8 +208,16 @@ object TexAddressMode {
     val phase    = (raw & (period - 1.U))(8, 0)
     val mirrored = Mux(phase >= dim, (period - 1.U - phase)(7, 0), phase(7, 0))
 
-    val clamped  = Mux(raw > maxIdx, maxIdx, raw)
-    val outside  = !unsized && raw > maxIdx
+    // Real sign semantics for clamp/border: negative clamps to the near
+    // edge (texel 0), NOT `raw`'s (possibly huge, two's-complement-encoded)
+    // unsigned bit value -- that distinction is exactly what `negative`
+    // exists to carry in from the caller. Gated by `unsized` first, same as
+    // maxIdx above: log2Dim==0 means don't touch raw AT ALL, negative
+    // included, or the "every existing call site relies on it" invariant
+    // above breaks for exactly the caller this parameter was added for.
+    val positiveOverflow = !negative && raw > maxIdx
+    val clamped = Mux(unsized, raw, Mux(negative, 0.U(8.W), Mux(positiveOverflow, maxIdx, raw)))
+    val outside = !unsized && (negative || positiveOverflow)
 
     val coord = MuxLookup(mode, clamped)(Seq(
       REPEAT.U          -> Mux(unsized, clamped, repeated),

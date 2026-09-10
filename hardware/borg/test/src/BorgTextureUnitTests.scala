@@ -45,15 +45,29 @@ class AddrModeProbeIO extends Bundle {
   val raw      = Input(UInt(8.W))
   val log2Dim  = Input(UInt(4.W))
   val mode     = Input(UInt(2.W))
+  val negative = Input(Bool())
   val coord    = Output(UInt(8.W))
   val isBorder = Output(Bool())
 }
 
 class AddrModeProbe extends Module {
   val io = IO(new AddrModeProbeIO)
-  val (c, b) = TexAddressMode(io.raw, io.log2Dim, io.mode)
+  val (c, b) = TexAddressMode(io.raw, io.log2Dim, io.mode, io.negative)
   io.coord    := c
   io.isBorder := b
+}
+
+/** Probe for the sign-preserving FP16->texel-coordinate conversion that
+  * feeds negative UVs into TexAddressMode (BorgShaderDispatcher's base
+  * coordinate is the only call site that needs it). */
+class SignedTexCoordProbeIO extends Bundle {
+  val fp16  = Input(UInt(16.W))
+  val coord = Output(UInt(8.W))
+}
+
+class SignedTexCoordProbe extends Module {
+  val io = IO(new SignedTexCoordProbeIO)
+  io.coord := Fp16ToSignedTexCoord(io.fp16)
 }
 
 object BorgTextureUnitTests extends TestSuite {
@@ -580,8 +594,9 @@ object BorgTextureUnitTests extends TestSuite {
     utest.test("address_modes_wrap_clamp_and_mirror") {
       simulate(new AddrModeProbe) { d =>
         println("\n--- TexAddressMode ---")
-        def at(raw: Int, mode: Int, log2Dim: Int = 3): (Int, Boolean) = {
+        def at(raw: Int, mode: Int, log2Dim: Int = 3, negative: Boolean = false): (Int, Boolean) = {
           d.io.raw.poke(raw.U); d.io.mode.poke(mode.U); d.io.log2Dim.poke(log2Dim.U)
+          d.io.negative.poke(negative.B)
           d.clock.step(1)
           (d.io.coord.peek().litValue.toInt, d.io.isBorder.peek().litToBoolean)
         }
@@ -615,6 +630,93 @@ object BorgTextureUnitTests extends TestSuite {
         for (mode <- Seq(M.REPEAT, M.MIRRORED_REPEAT, M.CLAMP_TO_EDGE, M.CLAMP_TO_BORDER))
           utest.assert(at(200, mode, log2Dim = 0)._1 == 200)
         println("  log2Dim=0 still means unsized in every mode")
+        println("  PASSED")
+      }
+    }
+
+    // Negative UV (roadmap's "supporting negative UV needs a signed
+    // coordinate conversion" gap): raw here is the two's-complement 8-bit
+    // pattern a genuinely negative coordinate produces (see
+    // Fp16ToSignedTexCoord's own test below), passed alongside the real
+    // sign so CLAMP can tell "negative" apart from "large positive".
+    utest.test("negative_uv_wraps_instead_of_clamping_to_zero") {
+      simulate(new AddrModeProbe) { d =>
+        println("\n--- TexAddressMode: negative UV ---")
+        def at(raw: Int, mode: Int, log2Dim: Int = 3, negative: Boolean = true): (Int, Boolean) = {
+          d.io.raw.poke((raw & 0xff).U); d.io.mode.poke(mode.U)
+          d.io.log2Dim.poke(log2Dim.U); d.io.negative.poke(negative.B)
+          d.clock.step(1)
+          (d.io.coord.peek().litValue.toInt, d.io.isBorder.peek().litToBoolean)
+        }
+        val M = TexAddressMode
+
+        // REPEAT on an 8-wide texture: -1 -> 7 (last texel), -8 -> 0
+        // (exact period boundary), -9 -> 7 (one more than a full period).
+        for ((raw, exp) <- Seq((-1, 7), (-8, 0), (-9, 7)))
+          utest.assert(at(raw, M.REPEAT)._1 == exp)
+        println("  REPEAT wraps a negative coordinate onto the far edge")
+
+        // MIRRORED_REPEAT: -1 reflects onto texel 0 (the boundary itself),
+        // -9 (one full mirror period further) matches +7's direct phase.
+        utest.assert(at(-1, M.MIRRORED_REPEAT)._1 == 0)
+        utest.assert(at(-9, M.MIRRORED_REPEAT)._1 == 7)
+        println("  MIRRORED_REPEAT reflects a negative coordinate at the boundary")
+
+        // CLAMP_TO_EDGE: any negative coordinate clamps to the NEAR edge
+        // (texel 0) -- this is the case that used to already work, since
+        // Fp16ToUint8 flattening negative to 0 happened to be the right
+        // answer here. Checked anyway as a regression guard on `negative`'s
+        // new clamp path.
+        for (raw <- Seq(-1, -8, -100))
+          utest.assert(at(raw, M.CLAMP_TO_EDGE)._1 == 0)
+        println("  CLAMP_TO_EDGE still clamps negative to the near edge")
+
+        // CLAMP_TO_BORDER: a negative coordinate is outside the texture,
+        // same as positive overflow.
+        utest.assert(at(-1, M.CLAMP_TO_BORDER)._2)
+        println("  CLAMP_TO_BORDER flags a negative coordinate as outside")
+
+        // log2Dim==0 (unsized) must still mean "don't touch raw at all",
+        // negative included -- this is exactly the invariant a naive
+        // negative-clamp implementation would have silently broken.
+        for (mode <- Seq(M.REPEAT, M.MIRRORED_REPEAT, M.CLAMP_TO_EDGE, M.CLAMP_TO_BORDER))
+          utest.assert(at(0xab, mode, log2Dim = 0)._1 == 0xab)
+        println("  log2Dim=0 stays unsized even when negative is set")
+        println("  PASSED")
+      }
+    }
+
+    utest.test("fp16_to_signed_tex_coord_preserves_sign_for_wrapping") {
+      simulate(new SignedTexCoordProbe) { d =>
+        println("\n--- Fp16ToSignedTexCoord ---")
+        def f16(f: Float): Int = {
+          val h = java.lang.Float.floatToIntBits(f)
+          val sign = (h >>> 16) & 0x8000
+          val expF = ((h >>> 23) & 0xff) - 127 + 15
+          val mantF = h & 0x7fffff
+          if (f == 0.0f) sign
+          else if (expF <= 0) sign
+          else if (expF >= 0x1f) sign | 0x7bff
+          else sign | (expF << 10) | (mantF >> 13)
+        }
+        def conv(f: Float): Int = {
+          d.io.fp16.poke(f16(f).U)
+          d.clock.step(1)
+          d.io.coord.peek().litValue.toInt
+        }
+        // Two's-complement byte pattern of floor(f): -1 -> 0xFF, -3 -> 0xFD.
+        for ((f, expByte) <- Seq(
+              (0.0f, 0x00), (-0.0f, 0x00), (1.0f, 0x01), (7.5f, 0x07),
+              (-0.3f, 0xFF), (-1.0f, 0xFF), (-2.5f, 0xFD), (-8.0f, 0xF8))) {
+          val got = conv(f)
+          println(f"  $f%6.2f -> 0x$got%02x (expect 0x$expByte%02x)")
+          utest.assert(got == expByte)
+        }
+        // Positive values must agree with Fp16ToUint8 -- both feed the same
+        // base coordinate depending on which call site is active, and a
+        // disagreement would move the base texel between builds.
+        utest.assert(conv(63.5f) == 63)
+        println("  positive values match Fp16ToUint8")
         println("  PASSED")
       }
     }
