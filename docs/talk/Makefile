@@ -23,17 +23,15 @@ talk_video.pdf: talk.pdf cube.mp4 check-video-deps
 		373.54 10 443.54 77.37
 video: talk_video.pdf
 
-# `pikepdf` (used by add_video_annotation.py above) only lives in the
-# `poster` nix devshell, not the default one -- and `python3` there still
-# resolves (shadowing the system one that actually has it, since it was
-# `pacman -S python-pikepdf`'d directly on this machine), so a plain `nix
-# develop` + `make present` fails with a bare ModuleNotFoundError instead of
-# a clear "wrong shell" message. Catch it here instead.
+# `pikepdf` (used by add_video_annotation.py above) is in the default
+# devshell's pythonEnv now, but a stale/pre-flake-update shell or a `PATH`
+# without nix's python3 on it at all would still hit a bare
+# ModuleNotFoundError with no hint what to do -- catch it here instead.
 check-video-deps:
 	@python3 -c "import pikepdf" 2>/dev/null || { \
-		echo "error: python3's pikepdf module is missing -- this needs the" \
-			 "'poster' devshell, not the default one:" >&2; \
-		echo "  nix develop ..#poster -c make $(MAKECMDGOALS)" >&2; \
+		echo "error: python3's pikepdf module is missing -- re-enter the nix" \
+			 "devshell ('nix develop') to pick it up, or update your flake" \
+			 "lock if it's still missing there." >&2; \
 		exit 1; \
 	}
 .PHONY: check-video-deps

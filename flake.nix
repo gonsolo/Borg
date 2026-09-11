@@ -86,6 +86,11 @@
       p.pyserial
       p.mako # Mesa build (code generation)
       p.pyyaml # Mesa build
+      # docs/talk: scripts/add_video_annotation.py injects a real PDF
+      # Screen+Rendition video annotation (make video) -- pikepdf/qpdf do
+      # the actual PDF object construction. Small/no heavy-fetch risk (unlike
+      # texlive below), so it lives in the default shell, not just `poster`.
+      p.pikepdf
     ]);
 
     # Curated TeX Live for docs/poster (poster.tex + abstract.tex, HPG 2026)
@@ -207,6 +212,7 @@
         pkgs.pkgsCross.riscv64.buildPackages.binutils
         pythonEnv
         cocotbForTests
+        pkgs.ffmpeg    # docs/talk: cube.gif -> cube.mp4 (make video)
       ];
 
       # Library dependencies for the Mesa "borgvk" Vulkan driver. Kept in
@@ -345,20 +351,15 @@ CROSSEOF
       '';
     };
 
-    # Poster shell: everything in the default shell PLUS the curated TeX Live,
-    # for building docs/poster and docs/talk. Use `nix develop .#poster
-    # --command make -C docs/poster` (or `-C docs/talk`).
-    # Kept separate so CI (which uses the default shell) never fetches texlive.
+    # Poster shell: everything in the default shell PLUS the curated TeX Live
+    # (pdflatex/beamer/etc.), for building docs/poster and docs/talk. Use
+    # `nix develop .#poster --command make -C docs/poster` (or `-C docs/talk`).
+    # Kept separate so CI (which uses the default shell) never fetches
+    # texlive -- ffmpeg/pikepdf, also used by docs/talk, don't carry that
+    # same risk and live in the default shell instead (see pythonEnv above).
     poster = pkgs.mkShell {
       inputsFrom = [ self.devShells.${system}.default ];
-      nativeBuildInputs = [
-        borgTexlive
-        pkgs.ffmpeg    # docs/talk: cube.gif -> cube.mp4 (make video)
-        # docs/talk: scripts/add_video_annotation.py injects a real PDF
-        # Screen+Rendition video annotation (make video) -- pikepdf/qpdf do
-        # the actual PDF object construction.
-        (pkgs.python3.withPackages (p: [ p.pikepdf ]))
-      ];
+      nativeBuildInputs = [ borgTexlive ];
     };
     };
 
