@@ -18,10 +18,25 @@ talk.pdf: talk.tex cube_frames
 # PDF 1.5+ Screen+Rendition annotation (real Poppler/PDF structure, no Flash)
 # with cube.mp4 embedded directly, at the exact same rect as the poster image
 # above. Needs a patched `papers` to actually autoplay it -- see patches/.
-talk_video.pdf: talk.pdf cube.mp4
+talk_video.pdf: talk.pdf cube.mp4 check-video-deps
 	python3 scripts/add_video_annotation.py talk.pdf talk_video.pdf cube.mp4 \
 		373.54 10 443.54 77.37
 video: talk_video.pdf
+
+# `pikepdf` (used by add_video_annotation.py above) only lives in the
+# `poster` nix devshell, not the default one -- and `python3` there still
+# resolves (shadowing the system one that actually has it, since it was
+# `pacman -S python-pikepdf`'d directly on this machine), so a plain `nix
+# develop` + `make present` fails with a bare ModuleNotFoundError instead of
+# a clear "wrong shell" message. Catch it here instead.
+check-video-deps:
+	@python3 -c "import pikepdf" 2>/dev/null || { \
+		echo "error: python3's pikepdf module is missing -- this needs the" \
+			 "'poster' devshell, not the default one:" >&2; \
+		echo "  nix develop ..#poster -c make $(MAKECMDGOALS)" >&2; \
+		exit 1; \
+	}
+.PHONY: check-video-deps
 
 cube.mp4: cube.gif
 	ffmpeg -y -i cube.gif -movflags +faststart -pix_fmt yuv420p \
