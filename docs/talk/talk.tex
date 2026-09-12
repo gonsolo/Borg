@@ -59,7 +59,17 @@
   \end{tikzpicture}
 \end{frame}
 
-% ── 2: What is Borg — presented directly, in the ORConf context ─────────── %
+% ── 2: Borg GPU hardware modules -- auto-generated, no Hutt/SoC/Software ── %
+% borg_hw_diagram.pdf comes from scripts/gen_hw_diagram.py --groups borg (see
+% the Makefile) -- the same tool and source-derived accuracy as the one on
+% gonsolo.github.io/Borg/hw_diagram.svg, just restricted to the Borg GPU
+% cluster alone for a clean single-rectangle slide.
+\begin{frame}{Borg GPU — Hardware Modules}
+  \centering
+  \includegraphics[width=0.95\linewidth]{borg_hw_diagram}
+\end{frame}
+
+% ── 3: What is Borg — presented directly, in the ORConf context ─────────── %
 \begin{frame}{What is Borg?}
   \begin{itemize}[leftmargin=*]
     \item A small RISC-V SoC (\textbf{Hutt} core) driving a tile-based

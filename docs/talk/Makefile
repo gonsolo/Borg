@@ -9,9 +9,24 @@ talk: talk.pdf
 # The self-contained deck: talk.pdf's title slide carries a static poster
 # frame (cube_frames/cube-0.png) via a fixed-position tikz overlay -- see the
 # comment in talk.tex for why the rect is pinned to absolute coordinates.
-talk.pdf: talk.tex cube_frames
+talk.pdf: talk.tex cube_frames borg_hw_diagram.pdf
 	-$(PDFLATEX) -interaction=nonstopmode talk.tex
 	-$(PDFLATEX) -interaction=nonstopmode talk.tex
+
+# Borg-GPU-only hardware diagram for the "Borg GPU -- Hardware Modules"
+# slide: `--groups borg,link` restricts scripts/gen_hw_diagram.py to just
+# those two clusters (no Hutt/SoC/Software/Memory, no cross-cluster edges to
+# them -- see build_graph's `groups` param) since a slide needs a couple of
+# clean rectangles, not the full architecture diagram. "link" (the inter-tile
+# credit-based link fabric: BorgLinkMaster/Slave, LinkTx/Rx, CreditCounter,
+# ...) is its own cluster split out of "borg" by gen_hw_diagram.py itself
+# (hardware/borg/{src,test/src}/link/), not something built here. Regenerate
+# whenever hardware/borg/ changes; no dependency tracked here since that's a
+# wide, frequently-touched tree -- `make talk` always rebuilds it.
+borg_hw_diagram.pdf: ../../scripts/gen_hw_diagram.py
+	cd ../.. && python3 scripts/gen_hw_diagram.py \
+		--groups borg,link --format svg --output docs/talk/borg_hw_diagram
+	inkscape --export-type=pdf --export-filename=borg_hw_diagram.pdf borg_hw_diagram.svg
 
 # talk_video.pdf additionally carries a real playable video: pdflatex has no
 # native way to embed one, so this is a post-processing step that injects a
@@ -62,4 +77,5 @@ present: talk_video.pdf
 	./run-papers-video.sh talk_video.pdf
 
 clean:
-	rm -f talk.pdf talk_video.pdf talk.log talk.aux talk.nav talk.out talk.snm talk.toc talk.vrb
+	rm -f talk.pdf talk_video.pdf talk.log talk.aux talk.nav talk.out talk.snm talk.toc talk.vrb \
+		borg_hw_diagram.svg borg_hw_diagram.pdf
