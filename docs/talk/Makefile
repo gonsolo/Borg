@@ -14,18 +14,17 @@ talk.pdf: talk.tex cube_frames borg_hw_diagram.pdf
 	-$(PDFLATEX) -interaction=nonstopmode talk.tex
 
 # Borg-GPU-only hardware diagram for the "Borg GPU -- Hardware Modules"
-# slide: `--groups borg,link` restricts scripts/gen_hw_diagram.py to just
-# those two clusters (no Hutt/SoC/Software/Memory, no cross-cluster edges to
-# them -- see build_graph's `groups` param) since a slide needs a couple of
-# clean rectangles, not the full architecture diagram. "link" (the inter-tile
-# credit-based link fabric: BorgLinkMaster/Slave, LinkTx/Rx, CreditCounter,
-# ...) is its own cluster split out of "borg" by gen_hw_diagram.py itself
-# (hardware/borg/{src,test/src}/link/), not something built here. Regenerate
-# whenever hardware/borg/ changes; no dependency tracked here since that's a
-# wide, frequently-touched tree -- `make talk` always rebuilds it.
+# slide: `--groups borg` restricts scripts/gen_hw_diagram.py to just that one
+# cluster (no Hutt/SoC/Software/Memory/Link, no cross-cluster edges to them
+# -- see build_graph's `groups` param) since a slide needs one clean
+# rectangle, not the full architecture diagram. The inter-tile link fabric
+# (hardware/borg/{src,test/src}/link/) is its own "link" cluster in the full
+# site diagram but deliberately left off this slide. Regenerate whenever
+# hardware/borg/ changes; no dependency tracked here since that's a wide,
+# frequently-touched tree -- `make talk` always rebuilds it.
 borg_hw_diagram.pdf: ../../scripts/gen_hw_diagram.py
 	cd ../.. && python3 scripts/gen_hw_diagram.py \
-		--groups borg,link --format svg --output docs/talk/borg_hw_diagram
+		--groups borg --format svg --output docs/talk/borg_hw_diagram
 	inkscape --export-type=pdf --export-filename=borg_hw_diagram.pdf borg_hw_diagram.svg
 
 # talk_video.pdf additionally carries a real playable video: pdflatex has no
