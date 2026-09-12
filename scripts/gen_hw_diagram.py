@@ -38,7 +38,6 @@ GROUPS = {
     "memory":    {"label": "Memory Subsystem",       "color": "#1e3a5f", "fontcolor": "#e2e8f0", "fillcolor": "#1e3a5f"},
     "borg":      {"label": "Borg GPU",               "color": "#0f3460", "fontcolor": "#e2e8f0", "fillcolor": "#0f3460"},
     "hutt":      {"label": "Hutt RISC-V CPU",        "color": "#533483", "fontcolor": "#e2e8f0", "fillcolor": "#533483"},
-    "hardfloat": {"label": "Berkeley HardFloat FPU","color": "#833471", "fontcolor": "#e2e8f0", "fillcolor": "#833471"},
     "rdl":       {"label": "Register Descriptions",  "color": "#2d6a4f", "fontcolor": "#e2e8f0", "fillcolor": "#2d6a4f"},
 }
 
@@ -48,12 +47,16 @@ NODE_COLORS = {
     "memory":    {"style": "filled,rounded", "fillcolor": "#1a3a4f", "fontcolor": "#7dd3fc", "color": "#0ea5e9"},
     "borg":      {"style": "filled,rounded", "fillcolor": "#1e3a5f", "fontcolor": "#6ee7b7", "color": "#10b981"},
     "hutt":      {"style": "filled,rounded", "fillcolor": "#2d1b69", "fontcolor": "#c4b5fd", "color": "#8b5cf6"},
-    "hardfloat": {"style": "filled,rounded", "fillcolor": "#4a1841", "fontcolor": "#f9a8d4", "color": "#ec4899"},
     "rdl":       {"style": "filled,rounded", "fillcolor": "#064e3b", "fontcolor": "#6ee7b7", "color": "#10b981"},
 }
 
-# Modules we consider "top-level connectors" and want highlighted
-TOP_LEVEL = {"tt_um_gonsolo_borg", "Project", "Borg", "Hutt", "Borg Driver", "Hutt Firmware"}
+# Modules we consider "top-level connectors" and want highlighted. Other
+# legitimate hierarchy roots (ULX3S/sim-only SoC top variants, ASIC-only
+# tt_um_gonsolo_borg siblings, etc.) don't need to be hand-listed here -- any
+# defined module nothing else instantiates is auto-detected as a root for
+# reachability purposes too (see auto_roots in build_graph). This set is only
+# for names that should render specially even when nothing links to them.
+TOP_LEVEL = {"tt_um_gonsolo_borg", "Borg", "Hutt", "Borg Driver", "Hutt Firmware"}
 
 # Modules that are data-types / IO bundles — skip as nodes
 SKIP_PATTERNS = [
@@ -90,6 +93,21 @@ def parse_scala_file(path: Path) -> dict:
         if not is_skippable(name) and name not in app_objects:
             defined.add(name)
 
+    # Chisel's "cake pattern": `trait Foo { self: RawModule => ... }` mixed into a
+    # concrete class via `extends RawModule with Foo`. The actual Module(new ...)
+    # wiring often lives in the trait body, not the concrete class -- e.g.
+    # SoCLogic/MinimalSoCLogic own the Clint/HuttDataWidthAdapter instantiations
+    # that tt_um_gonsolo_borg, MinimalSocSimTop et al. just mix in. Without this,
+    # those instantiations have no `defined` name in the same file to attribute
+    # an edge to, so their targets look like orphans despite being wired.
+    for m in re.finditer(
+        r"trait\s+(\w+)\s*\{\s*self:\s*(?:\w+\.)*(?:Module|RawModule)",
+        text,
+    ):
+        name = m.group(1)
+        if not is_skippable(name):
+            defined.add(name)
+
     # Also pick up top-level classes by name heuristic (class Foo extends SoCLogic)
     for m in re.finditer(r"(?:class|object)\s+(\w+)(?:\(.*?\))?", text):
         name = m.group(1)
@@ -98,13 +116,18 @@ def parse_scala_file(path: Path) -> dict:
 
     # Module(new Foo(...)) instantiations — also catches lambda style: () => new Foo(...)
     # and no-arg constructors like Module(new CsrFile) where ) immediately follows.
-    # Skip App-only files (e.g. Main.scala) — their lambda lists are emitter config, not hierarchy
+    # Deliberately NOT gated on app_objects: a file that only builds a Main/App
+    # emitter (e.g. MinimalSocSimMain.scala's `new MinimalSocSimTop(...)`) or a
+    # test file that defines no Module itself still tells us the instantiated
+    # name is genuinely used somewhere -- see all_instantiated below. The
+    # per-file `defn in f["defined"]` loop in build_graph already guarantees no
+    # edge is ever drawn *from* such a file, so this can't manufacture a false
+    # instantiates-by relationship, only a true instantiated-somewhere fact.
     instantiates = set()
-    if defined or not app_objects:
-        for m in re.finditer(r"(?:Module\s*\(\s*)?new\s+(?:[\w.]+\.)?([A-Z]\w+)\s*[({)]", text):
-            name = m.group(1)
-            if not is_skippable(name):
-                instantiates.add(name)
+    for m in re.finditer(r"(?:Module\s*\(\s*)?new\s+(?:[\w.]+\.)?([A-Z]\w+)\s*[({)]", text):
+        name = m.group(1)
+        if not is_skippable(name):
+            instantiates.add(name)
 
 
     # import hutt.{Hutt, ...} — track cross-package imports
@@ -230,6 +253,20 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
     if "soc" in rdl_nodes and "Project" in module_to_group:
         edges.add(("soc", "Project", "generated regs"))
 
+    # Every raw `new Foo(...)` seen anywhere, regardless of whether the file it
+    # appeared in defines a Module itself (a test file, or a Main/App emitter
+    # like MinimalSocSimMain.scala). This can't manufacture a false "used by"
+    # edge (see the comment above instantiates' regex in parse_scala_file), but
+    # it *is* proof `Foo` is genuinely instantiated somewhere -- e.g. Papers'
+    # test harnesses (ColorQuantizeHarness, QspiBackendHarness, ...) are only
+    # ever built from test files that don't themselves extend Module, so they'd
+    # otherwise show zero edges and read as dead code needing "wiring or
+    # removal" despite being real, exercised hardware.
+    all_instantiated: set[str] = set()
+    for group, files in hw_data.items():
+        for f in files:
+            all_instantiated |= f["instantiates"]
+
     # Only render nodes that participate in at least one edge (skip orphans)
     connected: set[str] = set()
     for src, dst, _ in edges:
@@ -245,8 +282,23 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
         adj[src].add(dst)
         adj[dst].add(src)  # treat as undirected for reachability from top
 
+    # Roots aren't just the hand-maintained TOP_LEVEL set (which drifts --
+    # e.g. "Project" hasn't existed as a class in years, and it never listed
+    # the ULX3S/sim-harness top variants like MinimalSocSimTop or
+    # tt_um_gonsolo_borg's siblings). Any defined module nothing else ever
+    # instantiates is *by construction* the top of its own hierarchy --
+    # exactly what a Main/App emitter's sole top-level argument is -- so treat
+    # it as a valid BFS seed too, instead of flagging it "unreachable."
+    instantiated_targets = {dst for _, dst, kind in edges if kind == "instantiates"}
+    auto_roots = {
+        name
+        for group_names in all_defined.values()
+        for name in group_names
+        if name not in instantiated_targets
+    }
+
     reachable: set[str] = set()
-    queue = list(TOP_LEVEL & module_to_group.keys())
+    queue = list((TOP_LEVEL | auto_roots) & module_to_group.keys())
     reachable.update(queue)
     while queue:
         node = queue.pop()
@@ -272,7 +324,7 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
             )
             for name in sorted(all_defined[group]):
                 is_top = name in TOP_LEVEL
-                is_orphan = name not in connected
+                is_orphan = name not in connected and name not in all_instantiated
                 is_floating = connected and name in connected and name not in reachable
                 if is_orphan:
                     # Red — no edges at all, needs wiring or removal
@@ -321,10 +373,16 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
         style = edge_styles.get(kind, {})
         dot.edge(src, dst, **style)
 
-    # Force hierarchy layout (user request: soc > gpu/cpu > fpu)
-    dot.edge("Project", "Borg", style="invis", weight="100")
-    dot.edge("Project", "Hutt", style="invis", weight="100")
-    dot.edge("Borg", "MulAddRecFN", style="invis", weight="100")
+    # Force hierarchy layout (user request: soc > gpu/cpu > fpu). These two
+    # names ("Project", the FPU pipeline's old "MulAddRecFN" from the since-
+    # removed hardware/hardfloat/ vendor dir -- FP16 FMA is now inline in
+    # BorgFp16Fma.scala) haven't existed as classes for a while; dot.edge()
+    # auto-creates a node for any name it's given, so referencing them here
+    # was silently drawing two stray, unstyled default-look boxes with
+    # nothing else pointing at them. tt_um_gonsolo_borg is the real ASIC top.
+    if "tt_um_gonsolo_borg" in module_to_group:
+        dot.edge("tt_um_gonsolo_borg", "Borg", style="invis", weight="100")
+        dot.edge("tt_um_gonsolo_borg", "Hutt", style="invis", weight="100")
 
     # (Legend removed as per user request)
 
