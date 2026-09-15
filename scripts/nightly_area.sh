@@ -21,7 +21,7 @@
 
 set -uo pipefail
 
-WORKTREE="${1:-/home/gonsolo/work/Borg-fp32}"
+WORKTREE="${1:-/home/gonsolo/work/Borg}"
 LOGDIR="$HOME/borg-area-history"
 CSV="$LOGDIR/area_history.csv"
 mkdir -p "$LOGDIR"
