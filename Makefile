@@ -7,7 +7,7 @@ TT_TOOL   := ./tt/tt_tool.py
 # first. COCOTB_PYTHONPATH (flake.nix's shellHook) is cocotbForTests' own
 # site-packages only.
 TEST_SOC  := env PYTHONPATH=$$COCOTB_PYTHONPATH make -C test/soc -B
-MILL_JOBS := $(if $(CI),1,4)
+MILL_JOBS := $(if $(CI),1,12)
 MILL_OPTS := $(if $(CI),--no-server,) -j $(MILL_JOBS)
 MILL      := mill $(MILL_OPTS)
 

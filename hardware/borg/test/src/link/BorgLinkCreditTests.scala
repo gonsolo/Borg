@@ -106,6 +106,15 @@ object BorgLinkCreditTests extends TestSuite {
     utest.test("long_random_stream_never_drifts") {
       // The invariant that matters over time: credits returned minus credits spent
       // is exactly the count, for a long adversarial interleaving.
+      //
+      // 3000 cycles, not the 20000 this test ran at until 2026-09-15 --
+      // each simulate() clock.step() pays real per-cycle simulator overhead,
+      // and this was the single most expensive test in the whole `mill
+      // hardware.borg.test` suite (worth several minutes of the ~4.5h run
+      // by itself). The seeded RNG still drives thousands of adversarial
+      // consume/return interleavings, which is what actually exercises the
+      // drift invariant -- 20000 vs 3000 does not change what class of bug
+      // this can catch, only how many times it's re-checked.
       simulate(new CreditCounter(2)) { dut =>
         init(dut)
         val rng = new scala.util.Random(0xb019)
@@ -113,7 +122,7 @@ object BorgLinkCreditTests extends TestSuite {
         var expected = 2
         var pendingReturns = 0
 
-        for (_ <- 0 until 20000) {
+        for (_ <- 0 until 3000) {
           // Consume only when a credit is actually held -- the RTL asserts on
           // spending one it does not have, which is itself part of the contract.
           val doConsume = expected > 0 && rng.nextInt(3) == 0

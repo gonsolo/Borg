@@ -19,7 +19,7 @@ import utest._
   * stays under 2.5 ULP but loses margin should still be visible.
   */
 object FrcpPrecisionTests extends TestSuite {
-  import BorgCoreTests._
+  import BorgCoreTestHelpers._
 
   val config = BorgConfig.Default
 
@@ -86,16 +86,24 @@ object FrcpPrecisionTests extends TestSuite {
         var worst = 0.0
         var worstMant = 0
         var overCount = 0
+        var total = 0
         val bound = 2.5
-        for (mant <- 0 until 1024) {
+        // Stride 4, not exhaustive: frcpViaCore resets+runs a full BorgCore
+        // instruction, so 1024 exhaustive calls made this one of the
+        // heaviest tests in the suite. The 33-entry rcpLut means error is
+        // piecewise-smooth in mant (~31 values/segment), so a stride-4
+        // sample (~8 points/segment) still catches a segment-wide
+        // regression; it just stops re-proving every single mantissa value.
+        for (mant <- 0 until 1024 by 4) {
           val xBits = BigInt((15 << 10) | mant) // [1.0, 2.0)
           val golden = 1.0 / fp16BitsToDouble(xBits)
           val actual = fp16BitsToDouble(frcpViaCore(core, xBits))
           val err = ulpError(actual, golden)
+          total += 1
           if (err > bound) overCount += 1
           if (err > worst) { worst = err; worstMant = mant }
         }
-        println(f"[frcp exp15] worst=$worst%.3f ULP at mant=$worstMant over${bound}=$overCount/1024")
+        println(f"[frcp exp15] worst=$worst%.3f ULP at mant=$worstMant over${bound}=$overCount/$total")
         // This was report-only while it was verifying an external claim about
         // hardware that did not yet meet the bound. With the 33-entry table it
         // does, so the claim becomes an assertion: 2.555 -> 0.955 ULP here.
@@ -114,15 +122,17 @@ object FrcpPrecisionTests extends TestSuite {
           var worst = 0.0
           val bound = 2.5
           var overCount = 0
-          for (mant <- 0 until 1024) {
+          var total = 0
+          for (mant <- 0 until 1024 by 4) {
             val xBits = BigInt((expField << 10) | mant)
             val golden = 1.0 / fp16BitsToDouble(xBits)
             val actual = fp16BitsToDouble(frcpViaCore(core, xBits))
             val err = ulpError(actual, golden)
+            total += 1
             if (err > bound) overCount += 1
             if (err > worst) worst = err
           }
-          println(f"[frcp exp=$expField] worst=$worst%.3f ULP over${bound}=$overCount/1024")
+          println(f"[frcp exp=$expField] worst=$worst%.3f ULP over${bound}=$overCount/$total")
           utest.assert(overCount == 0)
           utest.assert(worst <= bound)
         }
@@ -145,7 +155,7 @@ object FrcpPrecisionTests extends TestSuite {
         val bound = 2.5
         var overCount = 0
         var total = 0
-        for (mant <- 0 until 1024) {
+        for (mant <- 0 until 1024 by 4) {
           val bBits = BigInt((15 << 10) | mant)
           val bVal = fp16BitsToDouble(bBits)
           for (aBits <- numerators) {

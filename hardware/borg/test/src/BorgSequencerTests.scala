@@ -4,11 +4,19 @@
 package borg
 
 import chisel3._
-import chisel3.simulator.EphemeralSimulator._
+import chisel3.simulator.EphemeralSimulator.{
+  toTestableClock, toTestableSInt, toTestableUInt, toTestableBool,
+  toTestableReset, toTestableEnum, toTestableRecord, toTestableVec, toTestableData
+}
 import utest._
 
-/** BorgSequencer unit tests — Steps 29.1/29.2/29.3. */
-object BorgSequencerTests extends TestSuite {
+/** BorgSequencer unit tests — Steps 29.1/29.2/29.3.
+  *
+  * Instantiates the full BorgTestWrapper (whole Borg, not a submodule), so
+  * this uses FastBuildSimulator rather than EphemeralSimulator's default
+  * -O3 Verilator build -- see FastBuildSimulator's doc comment.
+  */
+object BorgSequencerTests extends TestSuite with FastBuildSimulator {
 
   // --- Float conversion helpers ---
 
