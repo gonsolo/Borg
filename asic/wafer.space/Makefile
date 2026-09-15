@@ -51,11 +51,15 @@ AVAILABLE_SLOTS = 1x1 0p5x1 1x0p5 0p5x0p5
 # the input pads to keep the link at the full w=16. The other two slots have
 # no map. See BorgOnlyTop's class doc and chip_core.sv's elaboration check.
 #
-# 1x0p5 remains the default: it is the slot the design has actually been
-# signed off on, and the one with a confirmed CoB/motherboard path
-# (wafer-space/chip-on-board-wire-bonded-pcbs' 1x0p5-cob). 1x1 is the target
-# for Borg II (FP32 + compute), which does not fit 1x0p5.
-DEFAULT_SLOT = 1x0p5
+# 1x1 is the default and the actual target slot for the wafer.space
+# submission -- it must match the slot used for every real signoff run
+# (e.g. the timing/area baselines under librelane/runs/). Do not silently
+# switch this without re-running signoff: a smaller slot (1x0p5 et al.)
+# gives a shorter die for the same logic, which changes utilization and can
+# make detailed placement fail outright (see the DPL-0036 investigation in
+# librelane/runs/ history -- a `SLOT` mismatch between a test run and its
+# comparison baseline is silent and easy to get wrong).
+DEFAULT_SLOT = 1x1
 
 # Slot can be any of AVAILABLE_SLOTS
 SLOT ?= $(DEFAULT_SLOT)
