@@ -76,6 +76,35 @@ SLOT_DEFINE = SLOT_$(shell echo $(SLOT) | tr '[:lower:]' '[:upper:]')
 SRAM_DEFINE = SRAM_$(SRAM)
 
 LIBRELANE_OPTS = --pdk ${PDK} --pdk-root ${PDK_ROOT} --manual-pdk --scl ${SCL} --pad ${PAD}
+
+# Which LibreLane actually runs.
+#
+# The devshell ships nixpkgs' LibreLane 3.0.8. Our concurrent-signoff patch
+# (SequentialFlow.AsyncSteps: Magic.DRC overlapped with extraction -> LVS,
+# ~24 min off a ~4 h signoff) lives in a source checkout of the same 3.0.8,
+# not in the flake, because that branch is not pushed anywhere the flake could
+# pin yet. Until it is, the checkout is put in front of the installed package
+# via PYTHONPATH: nixpkgs' `librelane` wrapper APPENDS its own site-packages
+# after whatever PYTHONPATH it inherits, so an entry that comes first wins.
+# (The devshell itself exports a PYTHONPATH that starts with the nix
+# package, which is why this has to be prepended here, inside the shell, and
+# not set from outside `direnv exec` -- from outside it is silently replaced
+# and the unpatched flow runs with no error.)
+#
+# Every librelane target starts by printing which tree was imported and
+# whether the patch is in it, so a wrong environment is visible in the first
+# line of the log rather than 4 hours later in the step timings.
+LIBRELANE_SRC ?= $(wildcard $(HOME)/src/librelane)
+ifneq ($(LIBRELANE_SRC),)
+    LIBRELANE_ENV = PYTHONPATH=$(LIBRELANE_SRC)$(if $(PYTHONPATH),:$(PYTHONPATH))
+endif
+LIBRELANE = $(LIBRELANE_ENV) librelane
+
+librelane-which: ## Print which LibreLane tree the flow will import
+	@$(LIBRELANE_ENV) python3-librelane -c 'import librelane, inspect; from librelane.flows import sequential; \
+	  print("LibreLane", librelane.__version__, "from", librelane.__file__); \
+	  print("concurrent signoff (SequentialFlow.AsyncSteps):", "yes" if "AsyncSteps" in inspect.getsource(sequential) else "NO -- unpatched")'
+.PHONY: librelane-which
 # generated_sources.yaml last: it carries VERILOG_FILES, and LibreLane's
 # multi-config merge is later-wins, so this must come after config.yaml
 # (which no longer sets VERILOG_FILES itself -- see its own comment there).
@@ -127,32 +156,32 @@ generated-sources:
 	python3 scripts/gen_librelane_sources.py $(SLOT)
 .PHONY: generated-sources
 
-librelane: clone-pdk defines generated-sources ## Run LibreLane flow (synthesis, PnR, verification)
-	SRAM_DEFINE=${SRAM_DEFINE} librelane ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final
+librelane: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow (synthesis, PnR, verification)
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final
 .PHONY: librelane
 
-librelane-condensed: clone-pdk defines generated-sources ## Run LibreLane flow (synthesis, PnR, verification)
-	SRAM_DEFINE=${SRAM_DEFINE} librelane --condensed ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final
+librelane-condensed: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow (synthesis, PnR, verification)
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) --condensed ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final
 .PHONY: librelane-condensed
 
-librelane-nodrc: clone-pdk defines generated-sources ## Run LibreLane flow without DRC checks
-	SRAM_DEFINE=${SRAM_DEFINE} librelane ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip KLayout.Antenna --skip KLayout.DRC --skip Magic.DRC
+librelane-nodrc: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow without DRC checks
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip KLayout.Antenna --skip KLayout.DRC --skip Magic.DRC
 .PHONY: librelane-nodrc
 
-librelane-klayoutdrc: clone-pdk defines generated-sources ## Run LibreLane flow without magic DRC checks
-	SRAM_DEFINE=${SRAM_DEFINE} librelane ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip Magic.DRC
+librelane-klayoutdrc: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow without magic DRC checks
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip Magic.DRC
 .PHONY: librelane-klayoutdrc
 
-librelane-magicdrc: clone-pdk defines generated-sources ## Run LibreLane flow without KLayout DRC checks
-	SRAM_DEFINE=${SRAM_DEFINE} librelane ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip KLayout.DRC
+librelane-magicdrc: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow without KLayout DRC checks
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip KLayout.DRC
 .PHONY: librelane-magicdrc
 
-librelane-openroad: clone-pdk defines ## Open the last run in OpenROAD
-	SRAM_DEFINE=${SRAM_DEFINE} librelane ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --last-run --flow OpenInOpenROAD
+librelane-openroad: librelane-which clone-pdk defines ## Open the last run in OpenROAD
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --last-run --flow OpenInOpenROAD
 .PHONY: librelane-openroad
 
-librelane-klayout: clone-pdk defines ## Open the last run in KLayout
-	SRAM_DEFINE=${SRAM_DEFINE} librelane ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --last-run --flow OpenInKLayout
+librelane-klayout: librelane-which clone-pdk defines ## Open the last run in KLayout
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --last-run --flow OpenInKLayout
 .PHONY: librelane-klayout
 
 librelane-padring: clone-pdk defines generated-sources ## Only create the padring
@@ -172,6 +201,15 @@ sim-gl: clone-pdk defines ## Run gate-level simulation with cocotb (after copy-f
 # Use cocotb's own interpreter and only its site-packages.
 COCOTB_PY := $(shell cocotb-config --python-bin 2>/dev/null || echo python3)
 
+# The link tests are written against the 1x0.5 lane map (46 bidir + 4
+# input), so they force that slot. The override is a target-specific
+# variable rather than only an env var on the python line so that the
+# `defines` prerequisite writes SLOT_1X0P5 too: with DEFAULT_SLOT=1x1 the
+# generated define selected chip_core's BorgOnlyTop1x1 instantiation while
+# the file list carried the 1x0.5 module -- "Unknown module type
+# BorgOnlyTop1x1", a slot mismatch of exactly the kind DEFAULT_SLOT's
+# comment warns about.
+sim-link sim-link-gl: SLOT = 1x0p5
 sim-link: clone-pdk defines ## Run the Borg link pad-level tests (plan test 8)
 	cd cocotb; PYTHONPATH=$$COCOTB_PYTHONPATH PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=1x0p5 PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
 .PHONY: sim-link

@@ -19,8 +19,9 @@ RESET   := \033[0m
 all: help
 help:
 	@echo "commands: "
-	@echo -e "$(BOLD)  gds-sky130:\t\t\tGenerate Sky130 GDS II file for Tinytapeout.$(RESET)"
-	@echo -e "$(BOLD)  gds-ihp:\t\t\tGenerate IHP SG13G2 GDS II file for Tinytapeout.$(RESET)"
+	@echo -e "$(BOLD)  librelane:\t\t\tFull wafer.space signoff (GF180MCU, 1x1 slot) -- THE tapeout flow.$(RESET)"
+	@echo -e "  gds-sky130:\t\t\tGenerate Sky130 GDS II file for Tinytapeout (legacy)."
+	@echo -e "  gds-ihp:\t\t\tGenerate IHP SG13G2 GDS II file for Tinytapeout (legacy)."
 	@echo -e "  ------------------------------------------------------------------------------"
 	@echo -e "  rdl:\t\t\t\tValidate SystemRDL."
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
@@ -216,6 +217,14 @@ user_config-ihp: export PDK=ihp-sg13g2
 user_config-ihp: generate_verilog
 	$(TT_TOOL) --create-user-config --ihp --no-docker
 
+# The tapeout flow. wafer.space, GF180MCU, 1x1 slot, full signoff (DRC, LVS,
+# antenna, multi-corner STA) -- the Tiny Tapeout gds-* targets below are legacy.
+# Everything slot/PDK-specific lives in asic/wafer.space/Makefile; this is the
+# one entry point so nobody has to remember which sub-Makefile and which SLOT.
+# Takes hours: run it under `systemd-run --user` (see asic/wafer.space/Makefile).
+librelane:
+	$(MAKE) -C asic/wafer.space SLOT=1x1 librelane
+
 gds-sky130: user_config-sky130
 	$(TT_TOOL) --harden --no-docker
 gds-ihp: user_config-ihp
@@ -277,7 +286,7 @@ linux:
 flash-linux:
 	$(MAKE) -C software flash-linux
 
-.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \

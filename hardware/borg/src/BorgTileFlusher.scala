@@ -217,8 +217,8 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
 
   if (samples == 1) {
     // Untouched single-sample path -- the bit-identical AND cycle-identical
-    // regression anchor for every non-MSAA target (including BorgConfig.Asic
-    // until the MSAA config is actually selected). One fp16ToUnorm per
+    // regression anchor for every non-MSAA build (every shipped config is
+    // MSAA now; the samples==1 tests keep this path honest). One fp16ToUnorm per
     // channel, one cycle, fully pipelined issuance exactly as before this
     // file gained a `samples` parameter.
     def toRgb565(entry: Vec[ColorZ]): UInt = {

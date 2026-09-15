@@ -18,8 +18,10 @@ import memory.QspiBackend
   * by the [[soc.SoCLogic]] trait.
   */
 class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
-  // Fit the IHP 8×4 tile: reduce BorgBinner's count SRAM from 1024 to 16 tiles.
-  override def BORG_CFG: BorgConfig = BorgConfig.Asic
+  // Legacy Tiny Tapeout target; the active ASIC is wafer.space (BorgOnlyTop).
+  // Builds the same sized-down config as the tapeout so `make lint` keeps
+  // checking the real ASIC Borg.
+  override def BORG_CFG: BorgConfig = BorgConfig.Wafer
   // TTIHP26b targets RV32I (Hutt's default -- no override needed). RV64 +
   // Linux was investigated and measured: Linux+Borg needs ~2.3 mm^2 of core
   // (8x8 tiles), 1.9x the 8x4 TT-IHP maximum -- not reachable without either

@@ -51,7 +51,7 @@ package borg
   *                     compile-time constant shared unconditionally by every target
   *                     (borg_driver.c's only write site: `seq_bin_row_bytes =
   *                     TBR_BIN_ROW_BYTES = SEQ_MAX_TRI*2`), so 256 here is safe for
-  *                     both Default/Simt and Asic without any firmware coordination.
+  *                     both Default/Simt and Wafer without any firmware coordination.
   *                     If SEQ_MAX_TRI ever grows, this must grow with it.
   */
 case class BorgConfig(
@@ -69,7 +69,9 @@ case class BorgConfig(
     // Gates Borg.scala's covDeltaDebug diagnostic port (only elaborated at
     // all when samples>1 to begin with). True everywhere except
     // BorgConfig.Wafer, since the wafer.space Borg-only bridge target has no
-    // debug harness to observe it, unlike ULX3S/sim. Unrelated to BorgIO's
+    // debug harness to observe it, unlike ULX3S/sim. (The legacy Tiny Tapeout
+    // SoC also builds from Wafer; nothing in SoCLogic reads the tap either.)
+    // Unrelated to BorgIO's
     // uo_out/user_interrupt, which are dead (tied to constants) for every
     // config and are simply deleted outright, not gated by this flag.
     debugPorts: Boolean = true,
@@ -89,9 +91,11 @@ case class BorgConfig(
     // Adds BorgTileFlusher's optional second DRAM burst, writing the tile's
     // Z plane (FP16 -> UNORM16 via DepthQuantize) to the FLUSH_ZB_BASE
     // region -- the hardware half of `D16_UNORM` depth-attachment support
-    // (Step 50 item 14). Default false: historically Z was never written to
-    // DRAM at all (the TBR keeps it on-chip), which is why a mandatory
-    // Vulkan depth format had no path to exist as a real image. Costs a
+    // (Step 50 item 14). The parameter default is false only so the knob's
+    // own tests can build a design without it; BorgConfig.Default turns it
+    // on. Historically Z was never written to DRAM at all (the TBR keeps it
+    // on-chip), which is why a mandatory Vulkan depth format had no path to
+    // exist as a real image. Costs a
     // 16x16-bit staging vector plus a second burst pass per tile when
     // enabled; the runtime FLUSH_ZB_BASE!=0 gate means even an enabled
     // build behaves exactly like a disabled one until firmware actually
@@ -256,23 +260,38 @@ object BorgConfig {
   // BorgBinnerIO's existing countAddrWidth cap of 13 bits, so no other RTL
   // needed changing for this specific step -- a bigger future jump past
   // 8192 tiles would need that cap raised too (see those IOs' own comments).
-  // FP32 + 4x MSAA: Vulkan's baseline Shader capability mandates 32-bit
-  // float arithmetic unconditionally (no feature bit gates it, unlike
-  // shaderFloat16), and framebufferColorSampleCounts must include
-  // VK_SAMPLE_COUNT_4_BIT. A permanent FP16/samples=1 default was never a
-  // real target config, just what Borg happened to be built as first.
+  // What Vulkan needs, on every target. Default is the single place the
+  // feature set is decided; every other config below is a `Default.copy`
+  // that changes SIZING only (tile capacity, IMEM, caches, lanes), never
+  // the float format, sample count or fixed-function feature set. A target
+  // that wants a different feature set must say so at its own `.copy` --
+  // there is deliberately no second base config to drift from this one
+  // (BorgConfig.Asic used to be that, hardcoded FP16, and the wafer.space
+  // tapeout silently kept building FP16 after Default moved to FP32).
+  //
+  //   fp = FP32:      Vulkan's baseline Shader capability mandates 32-bit
+  //                   float arithmetic unconditionally (no feature bit gates
+  //                   it, unlike shaderFloat16).
+  //   samples = 4:    framebufferColorSampleCounts must include
+  //                   VK_SAMPLE_COUNT_4_BIT.
+  //   hasDepthFlush:  D16_UNORM is a mandatory depth format, and without the
+  //                   flush Z never leaves the tile buffer, so no depth image
+  //                   can exist. Resolves to sample zero at MSAA (see the
+  //                   parameter's doc).
+  //
   // 2026-09-15: switched deliberately ahead of re-validating area/timing at
   // this combination (FP32 FMA alone measured 2.48x area / 1.79x critical
   // path via yosys in isolation; samples=4 alone is proven at ASIC via a
-  // real 1x0.5 signoff at 85.68% -- but the two together, on the wafer.space
-  // 1x1 slot and on ULX3S, are unmeasured as of this change).
+  // real 1x0.5 signoff at 85.68% -- the combination, on the wafer.space 1x1
+  // slot and on ULX3S, is unmeasured as of this change).
   val Default = BorgConfig(
     fp              = FloatConfig.FP32,
     coordWidth      = 9,
     fifoDepth       = 2,
     maxBinTiles     = 4096,
     maxInstructions = 72, // M5 step 1: grow IMEM (rast 13 + frag ~56 co-resident)
-    samples         = 4
+    samples         = 4,
+    hasDepthFlush   = true
   )
 
   // Sim + ULX3S SIMT config: 2×2 quad fragment shading.  Selected via BORG_CFG in
@@ -283,8 +302,13 @@ object BorgConfig {
   // (see Default's own comment for the full rationale).
   val Simt = Default.copy(fragLanes = 4, maxBinTiles = 4096)
 
-  // ASIC (IHP SG13G2, TT 8×4 tile).
-  //   countMem_1024x10 alone was ~920 kµm² (50 % of die) → reduced to 16 tiles (~14 kµm²).
+  // The ASIC: wafer.space GF180MCU, 1x1 slot, via BorgOnlyTop (the Borg-only
+  // bridge; the legacy Tiny Tapeout SoC in asic/tt builds from this too).
+  // Default's feature set, sized down to fit the slot. Every line here is a
+  // SIZING decision with a measured reason; nothing about fp/samples/features
+  // is repeated here, so the tapeout cannot fall behind Default again.
+  //   maxBinTiles=16: countMem_1024x10 alone was ~920 kµm² (50 % of the TT
+  //     die) at 1024 tiles → 16 tiles (~14 kµm²).
   //   maxInstructions=64: the rasterizer edge-test shader (13 words) no longer lives
   //     in this writable IMEM at all -- it's baked into a permanent ROM (BorgRasterRom),
   //     fetched by BorgCore independently. This budget is now frag-only: cube.frag
@@ -293,56 +317,42 @@ object BorgConfig {
   //   icacheLines=0: I-cache bypassed — at 4 MHz QSPI latency is trivial; saves ~55 kµm².
   //   maxUniforms=32: single-page uniforms — sequencer always writes page 0; saves ~25 kµm².
   //   hasPerfCounters=false: 5×32-bit counters not needed for silicon demo; saves ~18 kµm².
-  //   fragLanes=4 + samples=4: 4-lane SIMT and 4x MSAA both enabled. Verified by a
-  //     full wafer.space 1x0.5 signoff -- 85.68 % utilisation, DRC/LVS/antenna clean,
-  //     4.52 mW. The earlier 0.5x1 orientation failed detailed placement (DPL-0036) at
-  //     81.97 %; 1x0.5 is the orientation that fits. Real Max Slew / Max Cap warnings
-  //     remain outstanding -- electrical, not frequency-related, at 4 MHz.
-  val Asic = BorgConfig(
-    fp               = FloatConfig.FP16,
+  //   fragLanes=4 (+ Default's samples=4): 4-lane SIMT and 4x MSAA. Verified by a
+  //     full wafer.space 1x0.5 signoff at FP16 -- 85.68 % utilisation, DRC/LVS/antenna
+  //     clean, 4.52 mW. The earlier 0.5x1 orientation failed detailed placement
+  //     (DPL-0036) at 81.97 %; 1x0.5 is the orientation that fits. Real Max Slew /
+  //     Max Cap warnings remain outstanding -- electrical, not frequency-related.
+  //   tileColorBits=8: BorgTileBuffer stores R/G/B as UNORM8 (via
+  //     ColorQuantize) instead of full FP16, quantizing on write and
+  //     dequantizing on read entirely internally -- TileWriteIO/TileReadIO
+  //     stay FP16 at the port, so nothing outside BorgTileBuffer changes. Z
+  //     stays FP16 (never quantized -- see BorgConfig.tileColorBits's own doc
+  //     for why). Measured: rgbzMems_16x64 -> rgbzMems_16x40, -37.2% per MSAA
+  //     sample plane, -8.75% (2,323,169 -> 2,119,850 um^2) on the whole
+  //     BorgOnlyCore hierarchy after the quantizer/dequantizer's own added
+  //     logic is accounted for. Verified: full hardware.borg.test (195/195)
+  //     at both tileColorBits=16 (unaffected) and =8 (new dedicated tests in
+  //     BorgTileBufferTests/ColorQuantizeTests), incl. the full render-pipeline
+  //     end-to-end tests and MSAA per-sample coverage masking against the
+  //     narrower storage.
+  //   debugPorts=false: BorgOnlyTop has no SoCLogic/CPU harness to expose the
+  //     covDeltaDebug tap through (nor the TT-pad-only uo_out/user_interrupt).
+  //
+  // FP32 at this sizing: Phase 0 measured Wafer at FP32 via yosys at 2.48x FMA
+  // area, 58-62% 1x1-slot utilization, and 25 MHz closing at 3.3V with the
+  // original 3-stage pipeline. A real signoff at FP32 + depth flush is the
+  // open item as of 2026-09-15.
+  val Wafer = Default.copy(
     coordWidth       = 7,
-    fifoDepth        = 2,
     maxBinTiles      = 16,
     maxInstructions  = 64,
     icacheLines      = 0,
     maxUniforms      = 32,
     hasPerfCounters  = false,
     fragLanes        = 4,
-    samples          = 4,
-    // tileColorBits=8: BorgTileBuffer stores R/G/B as UNORM8 (via
-    // ColorQuantize) instead of full FP16, quantizing on write and
-    // dequantizing on read entirely internally -- TileWriteIO/TileReadIO
-    // stay FP16 at the port, so nothing outside BorgTileBuffer changes. Z
-    // stays FP16 (never quantized -- see BorgConfig.tileColorBits's own doc
-    // for why). Measured: rgbzMems_16x64 -> rgbzMems_16x40, -37.2% per MSAA
-    // sample plane, -8.75% (2,323,169 -> 2,119,850 um^2) on the whole
-    // BorgOnlyCore hierarchy after the quantizer/dequantizer's own added
-    // logic is accounted for. Verified: full hardware.borg.test (195/195)
-    // at both tileColorBits=16 (unaffected) and =8 (new dedicated tests in
-    // BorgTileBufferTests/ColorQuantizeTests), incl. the full render-pipeline
-    // end-to-end tests and MSAA per-sample coverage masking against the
-    // narrower storage.
-    tileColorBits    = 8
+    tileColorBits    = 8,
+    debugPorts       = false
   )
-
-  // wafer.space Borg-only bridge target (BorgOnlyTop): same sizing as Asic
-  // (proven by the Phase 0 probes -- see BorgOnlyTop.scala's doc), minus the
-  // TT-pad-interface-only uo_out/user_interrupt ports and the covDeltaDebug
-  // diagnostic tap, since BorgOnlyTop has no SoCLogic/CPU harness to expose
-  // either through.
-  val Wafer = Asic.copy(debugPorts = false)
-
-  // FP32 shader-ALU datapath (feat/fp32-datapath branch): Default sizing
-  // with fp = FloatConfig.FP32. Scope is the general compute path (FMA,
-  // register file, integer ALU, uniform bank) only -- texture sampling,
-  // tile-buffer color storage, Fp16Special (rcp/rsqrt/sRGB), and rasterizer
-  // coordinate generation stay FP16-native by design (see docs/A0_roadmap.md
-  // item 6 and the branch's plan doc), with explicit Fp16<->Fp32 conversion
-  // at those boundaries. Not area/timing-tuned for any physical target yet
-  // -- Phase 0's real numbers (2.48x FMA area, 58-62% 1x1-slot utilization,
-  // 25 MHz closes at 3.3V with the original 3-stage pipeline) were measured
-  // against BorgConfig.Wafer.copy(fp = FloatConfig.FP32), not this config.
-  val Fp32 = Default.copy(fp = FloatConfig.FP32)
 
   // The config Chisel unit tests should instantiate full Borg/BorgTestWrapper
   // with, unless a test genuinely needs more tile capacity.

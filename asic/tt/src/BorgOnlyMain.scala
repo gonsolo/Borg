@@ -16,12 +16,9 @@ import soc.Emit
   * wipes on every TT emission.
   */
 object BorgOnlyMain extends App {
-  // Phase 0's probes measured BorgConfig.Asic's sizing (fragLanes=4,
-  // samples=4) at 71.55% utilization / clean 25MHz timing on the 1x0.5 slot
-  // -- see the plan doc's "Conclusion: ship BorgConfig.Asic's current sizing
-  // as BorgConfig.Wafer unchanged". BorgConfig.Wafer trims only the
-  // interface (debugPorts=false), not the sizing.
-  // Extended-ISA knobs, overridable from the environment so the nightly area
+  // BorgConfig.Wafer is Default's feature set (FP32, 4x MSAA, depth flush)
+  // at the slot's sizing -- see its own comment for every sizing decision.
+  // Extended-ISA knobs, overridable from the environment so the area
   // probe can A/B them without dirtying the working tree -- same pattern as
   // CLOCK_MHZ. Defaults match BorgConfig, so an unset environment emits
   // exactly what it always did.

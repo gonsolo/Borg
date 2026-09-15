@@ -17,7 +17,10 @@
 # either. Run the full flow before the freeze, not every night.
 #
 # Usage:  scripts/nightly_area.sh [worktree]
-# Cron:   see `crontab -l` -- installed to run overnight.
+# Run manually. The borg-area.timer systemd user unit that used to fire this
+# nightly was disabled 2026-09-15: signoff runs are launched by hand now, and
+# an unattended probe in the same tree wipes the emitted Verilog and competes
+# for the machine while one is running.
 
 set -uo pipefail
 

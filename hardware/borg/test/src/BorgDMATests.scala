@@ -46,7 +46,7 @@ object BorgDMATests extends TestSuite {
   val tests = Tests {
 
     utest.test("uniform_dma_carries_full_32_bits_at_fp32") {
-      simulate(new BorgDMA(BorgConfig.Fp32)) { dma =>
+      simulate(new BorgDMA(BorgConfig.Default)) { dma => // Default is FP32
         val word = BigInt("89ABCDEF", 16) // both halves set -- a 16-bit truncation would lose 0x89AB
         val (en, data) = driveUniformDma(dma, word)
         utest.assert(en)
