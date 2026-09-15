@@ -343,4 +343,26 @@ object BorgConfig {
   // 25 MHz closes at 3.3V with the original 3-stage pipeline) were measured
   // against BorgConfig.Wafer.copy(fp = FloatConfig.FP32), not this config.
   val Fp32 = Default.copy(fp = FloatConfig.FP32)
+
+  // The config Chisel unit tests should instantiate full Borg/BorgTestWrapper
+  // with, unless a test genuinely needs more tile capacity.
+  //
+  // maxBinTiles is the single dominant cost of building a full-Borg simulation.
+  // BorgTileSequencer tracks 2 dirty bits per tile per buffer, and firtool
+  // emits every element of those Vecs as its own `reg`: at 4096 tiles that is
+  // 16,384 one-bit registers, making BorgTileSequencer.sv 125,746 of the
+  // design's 133,899 emitted lines -- 94% of the whole design, when every
+  // other module is 300-1300 lines. Verilator's V3Order then topologically
+  // sorts a dependency graph over all of it, single-threaded.
+  //
+  // Measured A/B, same seven scenarios, only this parameter changed:
+  //   maxBinTiles = 4096 -> 1092s
+  //   maxBinTiles =   64 ->   13s     (84x, bit-for-bit identical results)
+  //
+  // This costs no coverage: maxBinTiles is a capacity ceiling, not a
+  // resolution (see Default's comment), so a design binning fewer tiles than
+  // the ceiling behaves identically -- which the A/B confirms empirically.
+  // Raise it per-test only where a test really bins more than 64 tiles; a
+  // 128x128 framebuffer at 4x4 tiles, for instance, needs 1024.
+  val Test = Default.copy(maxBinTiles = 64)
 }

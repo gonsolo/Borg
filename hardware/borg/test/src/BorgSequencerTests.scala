@@ -217,8 +217,34 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
 
   val tests = Tests {
 
-    utest.test("vertex_shader_run") {
-      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
+    // ONE simulate() call for all seven scenarios. BorgTestWrapper is the
+    // entire Borg design, and chisel3.simulator rebuilds it from scratch on
+    // every simulate() call -- ~900s of single-threaded Verilator
+    // translation, dwarfing the handful of seconds each scenario actually
+    // simulates. Seven calls meant seven identical builds. They are
+    // identical: BorgConfig.Default is FP32+samples=4, which is exactly
+    // what `Default.copy(samples = 4)` and the FloatConfig.FP32 auxiliary
+    // constructor now resolve to as well.
+    //
+    // Safe because every scenario already resets the DUT as its first act
+    // (resetAndWait, or an inline reset poke). Scenarios are still named and
+    // reported individually below, and a failure names the scenario it came
+    // from -- what utest's own per-test reporting gave us before.
+    utest.test("sequencer scenarios (one shared BorgTestWrapper build)") {
+      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
+        val failures = scala.collection.mutable.ArrayBuffer[(String, Throwable)]()
+
+        def scenario(name: String)(body: => Unit): Unit = {
+          println(s"\n=== scenario: $name ===")
+          try { body; println(s"  [pass] $name") }
+          catch {
+            case t: Throwable =>
+              failures += ((name, t))
+              println(s"  [FAIL] $name: ${t.getMessage}")
+          }
+        }
+
+        scenario("vertex_shader_run") {
         println("\n=== BorgSequencerTests: vertex_shader_run ===")
         resetAndWait(borg)
 
@@ -249,11 +275,9 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         Predef.assert(cleared, "seq_busy never cleared")
         Predef.assert(dmaReads >= 10, s"Expected >= 10 DMA reads, got $dmaReads")
         println("=== vertex_shader_run PASSED ===\n")
-      }
-    }
+        }
 
-    utest.test("triangle_setup") {
-      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
+        scenario("triangle_setup") {
         println("\n=== BorgSequencerTests: triangle_setup ===")
         resetAndWait(borg)
 
@@ -328,14 +352,12 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         assertClose("area",  outputs(6), area)
         Predef.assert(outputs(7) != 0.0f, "inv_area should be non-zero")
         println("=== triangle_setup PASSED ===\n")
-      }
-    }
+        }
 
     /** Step 29.3 gate: sequencer_uniform_staging
       * Verifies all 31 physical uniform registers after a full sequencer run.
       */
-    utest.test("sequencer_uniform_staging") {
-      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
+        scenario("sequencer_uniform_staging") {
         println("\n=== BorgSequencerTests: sequencer_uniform_staging ===")
         resetAndWait(borg)
 
@@ -460,8 +482,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         // validated on hardware at M7 (lit cube on HDMI).
 
         println("=== sequencer_uniform_staging PASSED ===\n")
-      }
-    }
+        }
 
     /** Step 29.4 gate: sequencer_full_triangle
       *
@@ -469,8 +490,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
       * then rasterizer iterates a tile using those uniforms, fragment shader
       * reads staged color values, tile buffer receives correct RGBZ.
       */
-    utest.test("sequencer_full_triangle") {
-      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
+        scenario("sequencer_full_triangle") {
         println("\n=== BorgSequencerTests: sequencer_full_triangle ===")
 
         // --- (0) Reset ---
@@ -538,11 +558,9 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         // DMA should include: vert shader, 3 vertices, setup shader, rast shader, frag shader, bbox
         Predef.assert(dmaReads >= 30, s"Expected >= 30 DMA reads, got $dmaReads")
         println("=== sequencer_full_triangle PASSED ===\n")
-      }
-    }
+        }
 
-    utest.test("multi_triangle_loop") {
-      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
+        scenario("multi_triangle_loop") {
         println("\n=== BorgSequencerTests: multi_triangle_loop ===")
         resetAndWait(borg)
 
@@ -602,8 +620,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         // Total per tri ~ 52. For 2 triangles ~ 104.
         Predef.assert(dmaReads > 80, s"Expected > 80 DMA reads for 2 triangles, got $dmaReads")
         println("=== multi_triangle_loop PASSED ===\n")
-      }
-    }
+        }
 
     /** Sequencer → Flusher E2E: verify autonomous render produces correct
       * FP16 pixel writes to SDRAM.
@@ -612,8 +629,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
       * a known color. After the sequencer completes, verify the captured GPU
       * writes contain the expected FP16 RGBZ values at the correct addresses.
       */
-    utest.test("sequencer_flusher_e2e") {
-      simulate(new BorgTestWrapper(BorgConfig.Default)) { borg =>
+        scenario("sequencer_flusher_e2e") {
         println("\n=== BorgSequencerTests: sequencer_flusher_e2e ===")
 
         // --- Reset ---
@@ -805,20 +821,9 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         }
 
         println("=== sequencer_flusher_e2e PASSED ===\n")
-      }
-    }
+        }
 
-    utest.test("covDelta_diagnostic_real_values") {
-      // DIAGNOSTIC (temporary): runs the REAL firmware setup-shader instruction
-      // sequence (ported 1:1 from software/borg/borg_driver.c's seq_setup_shader,
-      // including the Step 50.2b delta block) through the actual hardware
-      // pipeline, then peeks borg.io.covDeltaDebug and compares against
-      // hand-computed expected values for a known triangle. Isolates whether
-      // the covDelta corruption is in the shader math/uniform staging itself
-      // (this test would fail) or somewhere further downstream (this test
-      // would pass, and the bug is elsewhere).
-      val cfg = BorgConfig.Default.copy(samples = 4)
-      simulate(new BorgTestWrapper(cfg)) { borg =>
+        scenario("covDelta_diagnostic_real_values") {
         println("\n=== BorgSequencerTests: covDelta_diagnostic_real_values ===")
 
         borg.reset.poke(true.B)
@@ -1021,6 +1026,19 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
             s"edge $e d1 mismatch: got ${actual(e)._2}, expected ${expected(e)._2}")
         }
         println("=== covDelta_diagnostic_real_values PASSED ===\n")
+        }
+
+        if (failures.nonEmpty) {
+          val failedNames = failures.map(_._1).mkString(", ")
+          println(s"\n${failures.size} of 7 scenarios FAILED:")
+          failures.foreach { case (n, t) => println(s"  - $n: ${t.getMessage}") }
+          // Chain the first failure as the cause so its original stack trace
+          // survives; the message names every scenario that failed.
+          // java.lang.AssertionError explicitly: `import utest._` puts
+          // utest.AssertionError (msg, Seq[TestValue]) in scope otherwise.
+          throw new java.lang.AssertionError(
+            s"${failures.size} scenario(s) failed: $failedNames", failures.head._2)
+        }
       }
     }
   }
