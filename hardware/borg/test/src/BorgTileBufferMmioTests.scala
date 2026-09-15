@@ -110,7 +110,7 @@ object BorgTileBufferMmioTests extends TestSuite {
     // -----------------------------------------------------------------
     utest.test("mmio_tile_write_read_roundtrip") {
       val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(config)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
         println("\n--- Step 25.3a: MMIO tile buffer write/read round-trip ---")
         resetAndIdle(borg)
 
@@ -140,7 +140,7 @@ object BorgTileBufferMmioTests extends TestSuite {
     // -----------------------------------------------------------------
     utest.test("mmio_tile_multi_index_independence") {
       val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(config)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
         println("\n--- Step 25.3a: MMIO tile multi-index independence ---")
         resetAndIdle(borg)
 
@@ -173,7 +173,7 @@ object BorgTileBufferMmioTests extends TestSuite {
     // -----------------------------------------------------------------
     utest.test("mmio_tile_clear") {
       val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(config)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
         println("\n--- Step 25.3a: MMIO tile clear ---")
         resetAndIdle(borg)
 
@@ -209,7 +209,7 @@ object BorgTileBufferMmioTests extends TestSuite {
     // -----------------------------------------------------------------
     utest.test("mmio_tile_repeated_read") {
       val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(config)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
         println("\n--- Step 25.3a: MMIO tile repeated read ---")
         resetAndIdle(borg)
 
@@ -233,7 +233,7 @@ object BorgTileBufferMmioTests extends TestSuite {
     // -----------------------------------------------------------------
     utest.test("mmio_tile_full_readback") {
       val config = FloatConfig.FP16
-      simulate(new BorgTestWrapper(config)) { borg =>
+      simulate(new BorgTestWrapper(BorgConfig.Test.copy(fp = config))) { borg =>
         println("\n--- Step 25.3a: MMIO tile full 16-entry readback ---")
         resetAndIdle(borg)
 
