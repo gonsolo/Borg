@@ -36,6 +36,27 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
 
   // Register-driven frag_pc and uniform_page (from dedicated MMIO registers)
   val fragPcReg       = Input(UInt(6.W))
+  // Step 50 item 11: depth-test state, forwarded to BorgShaderDispatcher.
+  val depthCompareOp  = Input(UInt(3.W))
+  val depthWriteEn    = Input(Bool())
+  // Step 50 item 9: blend state, forwarded to BorgShaderDispatcher. Present
+  // only in a cfg.hasBlend build, matching the dispatcher's own port.
+  val blendCfg        = if (cfg.hasBlend) Some(Input(new BlendConfig)) else None
+  // Step 50 item 10: stencil state and the tile buffer's stencil plane,
+  // forwarded to BorgShaderDispatcher.
+  val frontFacing     = if (cfg.hasStencil) Some(Input(Bool())) else None
+  val stencilCfg      = if (cfg.hasStencil) Some(Input(new StencilConfig)) else None
+  val stencilRead     = if (cfg.hasStencil) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
+  val stencilWrite    = if (cfg.hasStencil) Some(Output(UInt(8.W))) else None
+  val stencilWriteMask = if (cfg.hasStencil) Some(Output(UInt(cfg.samples.W))) else None
+  // Step 50 item 9: the tile buffer's destination-alpha plane.
+  val alphaRead       = if (cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
+  val alphaWrite      = if (cfg.hasBlend) Some(Output(UInt(8.W))) else None
+  val alphaWriteMask  = if (cfg.hasBlend) Some(Output(Bool())) else None
+  // Step 50: scissor rectangle (SCISSOR_X/SCISSOR_Y). Tested here rather
+  // than in the dispatcher because this is where the per-lane screen
+  // coordinates are.
+  val scissor         = Input(new ScissorConfig)
   val uniformPageReg  = Input(UInt(1.W))
 
   // Outputs
@@ -70,6 +91,11 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // clamping texel coordinates to the last valid row/column -- see
   // ClampTexCoord's comment.
   val log2Dim    = Input(UInt(4.W))
+  // Runtime VkFilter for the sampler, forwarded to BorgShaderDispatcher.
+  val texFilterLinear = if (cfg.hasBilinear) Some(Input(Bool())) else None
+  val texAddrModeU    = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
+  val texAddrModeV    = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
+  val texBorder       = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
 
   // Step 34.5: FTEX core ↔ dispatcher texture request/response
   val texReq  = Input(Bool())
@@ -108,8 +134,30 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.pipeWrite      <> io.pipeWrite
   dispatcher.io.coreStatus     <> io.coreStatus
   dispatcher.io.fragPcReg      := io.fragPcReg
+  dispatcher.io.depthCompareOp := io.depthCompareOp
+  dispatcher.io.depthWriteEn   := io.depthWriteEn
+  dispatcher.io.blendCfg.foreach(_ := io.blendCfg.get)
+  dispatcher.io.frontFacing.foreach(_ := io.frontFacing.get)
+  dispatcher.io.stencilCfg.foreach(_ := io.stencilCfg.get)
+  dispatcher.io.stencilRead.foreach(_ := io.stencilRead.get)
+  io.stencilWrite.foreach(_ := dispatcher.io.stencilWrite.get)
+  io.stencilWriteMask.foreach(_ := dispatcher.io.stencilWriteMask.get)
+  dispatcher.io.alphaRead.foreach(_ := io.alphaRead.get)
+  io.alphaWrite.foreach(_ := dispatcher.io.alphaWrite.get)
+  io.alphaWriteMask.foreach(_ := dispatcher.io.alphaWriteMask.get)
+  // Scissor: one rectangle test per lane against its own pre-advance screen
+  // position -- the same coordinates that produce shaderTileIndex, so the
+  // result lines up with the tile slot the fragment will write.
+  for (i <- 0 until cfg.fragLanes) {
+    dispatcher.io.scissorPass(i) :=
+      ScissorConfig.passes(io.scissor, iterator.io.shaderIter(i).x, iterator.io.shaderIter(i).y)
+  }
   dispatcher.io.texConfig      <> io.texConfig
   dispatcher.io.log2Dim        := io.log2Dim
+  dispatcher.io.texFilterLinear.foreach(_ := io.texFilterLinear.get)
+  dispatcher.io.texAddrModeU.foreach(_ := io.texAddrModeU.get)
+  dispatcher.io.texAddrModeV.foreach(_ := io.texAddrModeV.get)
+  dispatcher.io.texBorder.foreach(_ := io.texBorder.get)
   dispatcher.io.covDelta.foreach(_ := io.covDelta.get)
 
   // --- Forward dispatcher outputs to rasterizer IO ---

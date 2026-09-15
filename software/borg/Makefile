@@ -47,7 +47,14 @@ CLOCK_MHZ ?= 4
 PROJECT_NAME = kernel
 SHARED_SOURCES = borg_driver.c borg_fpu.c borg_raster.c borg_spirb.c borg_math.c
 PROJECT_SOURCES = borg_kernel.c $(SHARED_SOURCES)
-HEADERS = $(wildcard *.h)
+# compiler/shader_blobs.h is listed explicitly, not folded into the wildcard:
+# $(wildcard *.h) only globs THIS directory, so a header one level down in
+# compiler/ was invisible to it. That silently broke incremental builds --
+# editing shader_blobs.h alone left borg_kernel.o (and therefore kernel.bin)
+# stale, so `make kernel` would relink the OLD baked shader with no warning.
+# Found by three separately-edited shader_blobs.h variants all producing
+# bit-identical firmware.
+HEADERS = $(wildcard *.h) compiler/shader_blobs.h
 
 all: python kernel
 

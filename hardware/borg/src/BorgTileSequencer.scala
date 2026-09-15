@@ -39,13 +39,17 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   val binner  = new SeqBinnerIO(cfg)  // only countReadAddr/countReadEn/countReadData used
   val flusher = new SeqFlusherIO
   val iter    = new SeqIteratorIO(cfg.coordWidth)
-  val dma     = new SeqDmaIO
+  val dma     = new SeqDmaIO(cfg)
 
   val covDelta = if (cfg.samples > 1)
     Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
   val texEnOverride = Output(Bool())
+  // Per-triangle facing, inverted at the source so downstream consumers
+  // (BorgStencil's frontFacing param) can use it directly without an
+  // inverter of their own.
+  val frontFacingOverride = Output(Bool())
 
-  val uniformWrite     = new MemWritePort(6, 16)
+  val uniformWrite     = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
 }
 
@@ -87,6 +91,10 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // no reason for its reset to live outside this module.
   val tagReg      = RegInit(VecInit(Seq.fill(2)("hFFFF".U(16.W))))
   val uvsReg      = RegInit(VecInit(Seq.fill(2)(false.B)))
+  // Per-page cached facing flag, same shape as uvsReg -- both bits live in
+  // the same DRAM word (word 31, bit 0 = has_uvs, bit 1 = isBackFacing) and
+  // are restored together on a cache hit.
+  val backFacingReg = RegInit(VecInit(Seq.fill(2)(false.B)))
   val cacheVictim = RegInit(0.U(1.W))
   val covDeltaCache = if (cfg.samples > 1)
     Some(RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(6)(0.U(16.W))))))) else None
@@ -109,6 +117,14 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // own same-named register: that one only ever lives between Pass 1's own
   // sLoadBBox and sStoreSetup for the triangle currently being set up.
   val triHasUvs = RegInit(false.B)
+
+  // Per-triangle facing flag, same shape and lifetime as triHasUvs above --
+  // restored from backFacingReg on a cache hit, or from DRAM (Pass 1's
+  // sStoreSetup, word 31 bit 1) on a miss. Vulkan conformance item 10's
+  // remaining piece: two-sided stencil needs this to pick front vs back ops
+  // (BorgStencil.evaluate's frontFacing param), not just configurable cull
+  // mode to let back-facing fragments through at all.
+  val triIsBackFacing = RegInit(false.B)
 
   val uniformPage = RegInit(0.U(1.W))
 
@@ -153,6 +169,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       }
     }
     io.texEnOverride := triHasUvs
+    io.frontFacingOverride := !triIsBackFacing
 
     io.dma.start := false.B
     io.dma.desc  := dmaDescReg
@@ -351,12 +368,14 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       if (BorgDebug.trace) printf("[SEQ] loadTriSetup HIT page0 triIdx=%d\n", binEntryData)
       uniformPage := 0.U
       triHasUvs   := uvsReg(0)
+      triIsBackFacing := backFacingReg(0)
       covDeltaActive.foreach(_ := covDeltaCache.get(0))
       state       := sEnqueueTile
     }.elsewhen(binEntryData === tagReg(1)) {
       if (BorgDebug.trace) printf("[SEQ] loadTriSetup HIT page1 triIdx=%d\n", binEntryData)
       uniformPage := 1.U
       triHasUvs   := uvsReg(1)
+      triIsBackFacing := backFacingReg(1)
       covDeltaActive.foreach(_ := covDeltaCache.get(1))
       state       := sEnqueueTile
     }.otherwise {
@@ -515,11 +534,14 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       setupLoadIdx := setupLoadIdx + 1.U
       when(setupLoadIdx === 31.U) {
         triHasUvs := io.dma.uniformSnoop.data(0)
-        // Remember has_uvs for the page just loaded (= current uniformPage)
-        // so a later cache hit on this triangle restores it without
-        // re-reading setup.
-        uvsReg(uniformPage) := io.dma.uniformSnoop.data(0)
-        if (BorgDebug.trace) printf("[SEQ] pass2 hasUvs triIdx=%d flag=%d\n", binEntryData, io.dma.uniformSnoop.data(0))
+        triIsBackFacing := io.dma.uniformSnoop.data(1)
+        // Remember has_uvs/isBackFacing for the page just loaded (= current
+        // uniformPage) so a later cache hit on this triangle restores both
+        // without re-reading setup.
+        uvsReg(uniformPage)        := io.dma.uniformSnoop.data(0)
+        backFacingReg(uniformPage) := io.dma.uniformSnoop.data(1)
+        if (BorgDebug.trace) printf("[SEQ] pass2 hasUvs triIdx=%d flag=%d backFacing=%d\n",
+          binEntryData, io.dma.uniformSnoop.data(0), io.dma.uniformSnoop.data(1))
       }
     }
 

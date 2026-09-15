@@ -1702,6 +1702,26 @@ or after 2026-12-16 -- nothing here requires re-taping silicon):
    samplers (diffuse/lightmap/fullbright); `BorgTextureUnit.scala` has one
    `baseAddr` register (one bound texture at a time). Real for both
    conformance's descriptor-binding tests and vkQuake specifically.
+   **Scoped 2026-09-08, not yet implemented** (learned from the read-back
+   port's r21 register-collision mistake this same day -- audit real usage
+   before assuming anything is free): giving FTEX a texture-select operand
+   is not a simple "reuse a spare field" change. FTEX currently uses
+   `encodeRType` (`Instructions.scala`) under `OPCODE_ALU`, where `funct7`
+   (`BF_FUNCT7`, bits 31:25) already occupies the *entire* bit range that
+   `BF_RS3` (bits 31:27) would need for a 3rd operand -- there is no spare
+   field to reuse within FTEX's current instruction format, unlike the
+   (also-occupied, this session confirmed) general-purpose register space.
+   The real options: (a) move FTEX to the R4-type encoding FMA already uses
+   (`encodeR4Type`, `OPCODE_FMA`, a small `funct2` instead of the full
+   `funct7`), gaining `rs3` as a texture-select index at the cost of
+   restructuring FTEX's decode (`BorgCore.scala`'s `flags.ftex := !flags.fma
+   && f7op === Instructions.FUNCT7_FTEX.U` assumes the current ALU-opcode
+   format) and coordinating with the `mesa`/`borgc` side that emits FTEX; or
+   (b) a small array of `baseAddr` registers selected by something other
+   than a per-instruction operand (e.g. a uniform-bank value, avoiding ISA
+   encoding changes entirely, at the cost of an extra uniform-read
+   indirection per texture switch). Neither is scoped in enough detail to
+   implement blind; needs a real design pass before RTL work starts.
 4. **Instruction memory capacity** — `cube.frag` already uses 59/64 words
    on the ASIC config; a real shader with fog math + multiple texture
    samples + spec-constant-driven variants will not fit the current
@@ -1735,25 +1755,117 @@ structure (which tests run unconditionally vs. behind a
    family supporting `VK_QUEUE_COMPUTE_BIT` too, i.e. compute is not
    optional for a graphics-capable device) and the local CTS
    (`vk-default/compute.txt`: 60,811 unconditional test cases). **Real
-   hardware, on the RTL critical path** — explicit user decision
-   (2026-09-08): compute dispatches must execute on Borg silicon itself,
-   not be offloaded to the host CPU via `llvmpipe` or any other CPU JIT.
-   An earlier draft of this doc (and of Step 52 below) proposed host-CPU
-   `llvmpipe` dispatch as a way to keep compute off the RTL critical
-   path — that plan is **rejected**, not merely superseded. The actual
-   RTL design (how `vkCmdDispatch` work gets scheduled onto the existing
-   Borg shader core — presumably via `BorgSequencer`/`BorgCore`, or a
-   dedicated compute-dispatch path) is **not yet scoped**; this is real,
-   currently-undesigned hardware work, and belongs in Step 50 alongside
-   the rest of the hardware prerequisites, not deferred to Step 52 as a
-   software-only item.
+   hardware, no host-CPU offload** — an earlier draft of this note proposed
+   host-CPU `llvmpipe` dispatch to keep compute off the RTL critical path;
+   that's rejected per explicit user decision (2026-09-08), not merely
+   superseded -- see the `feedback_no_llvmpipe_compute` memory.
+   **Investigated 2026-09-08**: the real blocker isn't a dispatch-
+   sequencing mechanism (a `BorgSequencer`-style supervisor driving
+   work-group IDs instead of triangles/pixels is a moderate, bounded
+   addition on its own) -- it's that **Borg's ISA has no general memory
+   load/store instruction at all**. Grepped `Instructions.scala`
+   exhaustively: every existing op is FMA-family arithmetic, the
+   fixed-position uniform-bank read (funct3-selected, not addressable per-
+   invocation), FTEX (fixed texture fetch), or the fragment-output
+   hardware ABI (fixed tile-buffer write) -- nothing lets a shader read or
+   write an arbitrary DRAM address it computes itself, which is exactly
+   what a compute shader's SSBO/image access needs to do anything useful
+   beyond a fixed-function-adjacent trick. This matches (and sharpens) the
+   "load/store instruction" item this doc already lists elsewhere as an
+   out-of-scope Vulkan-conformance gap -- it's not a separate, smaller gap,
+   it's the actual prerequisite for compute-queue support specifically.
+   Building general load/store (ISA encoding, decode, address computation,
+   a new DRAM read/write arbitration path) is likely bigger than the
+   dispatch-sequencing piece it would unblock, and needs its own dedicated
+   scoping pass before any RTL work starts here.
+
+   **LOAD/STORE BUILT 2026-09-09** (commit `f7646a28`), so this item's
+   stated prerequisite is met and what remains here really is the dispatch
+   machinery. `LOAD rd, rs1` and `STORE rs1, rs2` address
+   `LS_BASE + (rs1 << 2)`.
+
+   The word-index form is forced, not chosen: at FP16 a shader register
+   holds 16 bits and the address space is 25, so a register cannot carry an
+   address. It lands on the right abstraction anyway -- `LS_BASE` is
+   effectively an SSBO descriptor and the shader supplies the element index
+   -- but at FP16 one binding is capped at a 64K-word window, and a shader
+   needing two bindings at once has no way to express it. Multiple
+   simultaneous bindings need either a wider register file (FP32, this
+   branch) or a second base register. That is a real design question, not
+   an oversight.
+
+   Implemented as `wireMemStall`, structurally a copy of the FTEX stall
+   FSM, which is what made it a day's work rather than a redesign. Freezing
+   `busy_counter` at 4 means the lane's own ALU write-back (at 1) never
+   fires, so `BorgLane` needs no decode for these ops at all.
+
+   **Absent on purpose, and each is a real gap before compute can use
+   this**: no coalescing (a 4-lane quad issues four separate single-word
+   accesses -- the obvious first optimization), no bounds check against the
+   binding size, no alignment fault (the shift makes misalignment
+   unrepresentable instead), and no barrier or memory-ordering primitive.
+   Accesses are in program order only because the core stalls for each one,
+   which is stronger than Vulkan requires *within* an invocation and says
+   nothing at all *between* them -- so `OpControlBarrier`/
+   `OpMemoryBarrier` remain unimplementable, and that blocks any compute
+   shader sharing data across a workgroup.
+
+   **CONTROL FLOW BUILT 2026-09-09** (commit `85839586`): `BRZ`/`BRNZ rs1,
+   target`, absolute target packed into the unused rs2/rd fields. Loops and
+   early exits are expressible for the first time.
+
+   Branches redirect one shared program counter, so on their own they can
+   only express control flow whose condition is quad-uniform; a violation
+   sets a sticky STATUS bit (bit 6, `branch_divergent`) rather than
+   producing a silently wrong image.
+
+   **EXECUTION MASK BUILT 2026-09-09** (commit `00066a41`), which covers the
+   divergent case properly rather than merely detecting it:
+   `EXPUSH`/`EXELSE`/`EXPOP` predicate instead of branching -- both arms of
+   an `if` run and masked lanes write nothing. Applied at BorgLane's
+   write-back port, which is where registers, LOAD results and the fragment
+   outputs all funnel through; masked lanes additionally skip memory
+   accesses outright, so a masked STORE never reaches DRAM.
+
+   The stack holds the ENCLOSING mask, which is what makes `EXELSE` exact
+   (`M & ~C`, not `~(M & C)` applied to the full mask) -- inverting the full
+   mask would re-activate lanes an outer `if` had masked off. Unbalanced or
+   over-deep push/pop sets STATUS bit 7 (`exec_fault`).
+
+   **Divergent LOOPS are the remaining control-flow case**: lanes exiting at
+   different iterations need the mask plus a way to ask "is any lane still
+   active" to decide the backward branch. That is one more instruction --
+   a mask reduction -- not a redesign. Uniform loops work today, divergent
+   `if`/`else` works now.
+
+   Remaining ISA gaps after this, in rough order of what unblocks most:
+   **barriers and atomics** (`OpControlBarrier`/`OpMemoryBarrier`, without
+   which compute cannot share data across a workgroup -- now the single
+   thing standing between Borg and a compute queue), a divergent-loop mask
+   reduction, and multiple simultaneous load/store bindings.
 8. **Framebuffer/image resolution ceiling** — `maxFramebufferWidth`,
    `maxFramebufferHeight`, and `maxImageDimension2D` must all be ≥4096
-   unconditionally. `BorgConfig.maxBinTiles` caps the tile-based renderer
-   at 128×128 today — roughly 1024× short. Not a constant bump: the tile
-   buffer is BRAM-backed and DRAM-bandwidth-limited at this scale (the same
-   wall flagged in the earlier 800×480 fps analysis), so this is real
-   re-architecture, not sizing.
+   unconditionally. **Partial step taken 2026-09-08**: `BorgConfig.Default`/
+   `.Simt`'s `maxBinTiles` grown 1024→4096 (128×128→256×256 @ 4×4 tiles,
+   4x capacity), a real, conservative, fully-tested increase -- backward
+   compatible (`maxBinTiles` is a capacity ceiling, not a required
+   resolution; the existing 128×128 demo content is bit-identical,
+   confirmed via the unchanged `mill hardware.borg.test` pass and the
+   vkcube golden-image render). Still roughly 256x short of the full
+   4096x4096 Vulkan minimum, and going much further needs care: the
+   per-buffer `tileWasDirty`/`tileIsDirty` dirty-bit arrays in
+   `BorgTileSequencer` cost 2 flip-flops per tile, so the full requirement
+   (1024x1024 = 1,048,576 tiles) would cost roughly 2M FFs -- not a number
+   to pick without real synthesis data, unlike this session's 4096-tile
+   step (verified functionally, not yet through synthesis either, but a
+   small enough jump to be low-risk). The tile buffer is also
+   BRAM-backed and DRAM-bandwidth-limited at real high resolutions (the
+   same wall flagged in the earlier 800×480 fps analysis), so closing the
+   rest of this gap for real use (not just CTS's generous-timeout
+   correctness bar) likely still needs firmware-side multi-pass tiling on
+   top of whatever capacity growth is affordable in hardware, not capacity
+   growth alone -- see the Step 50 "Reprioritized" triage note at the top
+   of this step for the full hardware-vs-software framing.
 9. **Alpha blending** — mandatory core functionality (only
    `independentBlend`/`dualSrcBlend` are the optional extras, easy to
    mis-assume the whole feature is skippable). Borg has none — every tile
@@ -1787,41 +1899,410 @@ structure (which tests run unconditionally vs. behind a
 13. **Push constants** (`maxPushConstantsSize`≥128 bytes) — no push-constant
     path in hardware or `software/borg/`; shaped like the existing uniform
     bank, likely the smallest item on this list.
-14. **Depth/sampled-image format quantizers** — **resolved 2026-09-08**
-    (previously flagged, not guessed; now actually checked against
-    `Vulkan-Docs`' `formats.adoc` Required Format Support tables and
-    Borg's real code). Two distinct gaps, both real, both unbuilt:
-    - **`D16_UNORM` is mandatory unconditionally** (`SAMPLED_IMAGE`,
-      `BLIT_SRC`, `DEPTH_STENCIL_ATTACHMENT` — no OR-choice, unlike the
-      24/32-bit tiers). `BorgTileBuffer`'s Z is FP16-native throughout
-      (`dataBits`/`FP16_MAX_DEPTH_VAL`, never quantized — see
-      `BorgConfig.tileColorBits`'s own doc) with no UNORM16 conversion
-      path. Needs a depth quantizer following the exact pattern
-      `ColorQuantize.scala` just built for color (commit `373b3228`) — a
-      real, scoped, but currently unbuilt hardware unit.
-    - **`R8G8B8A8_UNORM` sampled-image support** (`SAMPLED_IMAGE` +
-      `SAMPLED_IMAGE_FILTER_LINEAR`) has **no bearing on the tile-buffer
-      `ColorQuantize` work at all** — that's the color-*attachment* (render
-      target) side. `BorgTextureUnit`/`TextureAddr` (the sampled-*image*/
-      texture side) are 100% FP16-texel, zero UNORM8 texel-storage path
-      (`Fp16ToUint8` in `TextureAddr.scala` converts UV coordinates to a
-      texel index, not texel color — unrelated). A second, separate
-      quantizer is needed on the texture-sampling side.
-    - The full mandatory-depth picture also has a middle tier missed by
-      the original flag: Vulkan requires DEPTH_STENCIL_ATTACHMENT support
-      for at least one of `X8_D24_UNORM_PACK32`/`D32_SFLOAT` (depth-only,
-      independent of the D16_UNORM and combined-depth-stencil
-      requirements). `D32_SFLOAT` is a much more natural fit for Borg's
-      FP-native storage than the UNORM tiers -- essentially "store Z as
-      real FP32 instead of FP16" -- but the FP32-datapath branch's current
-      scoping decision deliberately keeps the tile buffer FP16-native (see
-      that branch's plan doc), so satisfying `D32_SFLOAT` would mean
-      either revisiting that boundary for depth specifically, or widening
-      at the attachment boundary the same way `Fp16Fp32.widen` (built for
-      the FP32 branch's coordinate-generation boundary) does elsewhere.
-      Combined depth-stencil (`D24_UNORM_S8_UINT`/`D32_SFLOAT_S8_UINT`)
-      stays blocked on item 10 (stencil doesn't exist) regardless of which
-      depth format is picked.
+
+    **COMPILER-SIDE LOWERING BUILT 2026-09-10** (mesa commit `6d16b54f59c`,
+    pushed to `origin/feat/fp32-datapath-borgc`): `borgc` now lowers
+    `nir_intrinsic_load_push_constant` to a real `LOAD` instruction, reusing
+    the same `LS_BASE`-relative word-addressed hardware built for the
+    load/store item above rather than any new RTL. Each static push-constant
+    word offset gets its own raw-integer word index pinned into a const GPR
+    (`push_const_reg: HashMap<u32,u32>`, same const-GPR mechanism as the
+    FP16-1.0/lightDir constants) and fed through `LOAD rd, rs1` — the
+    dynamic-offset source NIR can also emit is not yet handled, only
+    `.base()`-only static offsets.
+
+    Verified structurally, not just by a clean compile: decoded the emitted
+    `.borg` blob byte-for-byte for two different push-constant offsets and
+    confirmed the pinned const-GPR value is the RAW WORD INDEX (not an
+    FP16-converted float, which would be the wrong encoding for an address),
+    plus a byte-identical regression check against the unaffected
+    cube.vert/cube.frag compiles to confirm nothing else in the selection
+    walk shifted.
+
+    **Explicitly NOT built**: any of the `vkCmdPushConstants` driver/
+    firmware plumbing this depends on end-to-end — no byte capture of the
+    pushed range in `borgvk`, no float32→FP16 conversion (needed because the
+    shader register file is still FP16 on `main`; moot once this branch's
+    FP32 datapath lands), no DRAM staging area, and no code setting
+    `LS_BASE` before dispatch so a compiled shader's `LOAD`s actually land on
+    the right bytes. The compiler now emits the right instruction; nothing
+    yet puts real data where it expects to find it.
+
+**Not independently re-verified 2026-08-31** (flagged rather than guessed):
+the exact mandatory depth/stencil `VkFormat` list (`D16_UNORM` alone for
+depth-only, plus at least one of `D24_UNORM_S8_UINT`/`D32_SFLOAT_S8_UINT`
+for combined depth-stencil) and the mandatory *sampled-image* format list
+(e.g. `R8G8B8A8_UNORM`) checked against Borg's FP16-only internal texel
+format — worth a dedicated follow-up pass rather than assuming either way.
+One more gap in that same list, from `main`'s independent pass over
+`formats.adoc` (2026-09-08) and not yet folded into any check above:
+Vulkan also requires DEPTH_STENCIL_ATTACHMENT support for at least one of
+`X8_D24_UNORM_PACK32`/`D32_SFLOAT` *depth-only* (i.e. independent of, and
+in addition to, the D16_UNORM and combined-depth-stencil requirements
+already covered). `D32_SFLOAT` would be a natural fit for Borg's FP-native
+storage — "store Z as real FP32 instead of FP16" — but this branch's
+scoping decision deliberately keeps the tile buffer FP16-native, so
+satisfying it would mean either revisiting that boundary for depth
+specifically or widening at the attachment boundary the way `Fp16Fp32`
+does elsewhere. Not yet scoped further than that.
+
+**Resolved 2026-09-08** (this branch, `feat/fp32-datapath`): built and
+verified the actual `D16_UNORM` FP16<->UNORM16 conversion math
+(`hardware/borg/src/DepthQuantize.scala`, same shape as the already-shipped
+`ColorQuantize`, `DepthQuantizeTests.scala` 5/5 passing standalone) --
+but discovered while looking for where to wire it in that this item's real
+blocker isn't quantization math at all: **Borg has no depth-attachment DRAM
+path of any kind today.** `BorgTileFlusher`'s own doc comment says it
+outright -- "each tile fully on-chip, so DRAM never needs the depth value"
+-- Z exists only transiently on-chip during one tile's rasterization Z-test
+and is never flushed anywhere. Supporting `D16_UNORM` as a real, creatable,
+readable/writable/copyable Vulkan image means building that DRAM
+write/read path from scratch (a new DMA burst mechanism analogous to the
+color flusher, real new hardware), not just plugging a quantizer into
+existing plumbing. `DepthQuantize`'s conversion math is genuine, tested
+groundwork for whenever that larger feature gets scoped -- not wasted --
+but wiring it into `BorgTileBuffer` today would connect it to nothing.
+
+**Built 2026-09-09** (commits `f72ad54` + `6c8b871`): that larger feature
+is now done on the hardware side. `BorgTileFlusher` gained an optional
+second DRAM burst carrying the tile's Z plane, quantized FP16 -> UNORM16
+through `DepthQuantize`, behind a `hasDepthFlush` config knob. It is
+folded into the existing flusher rather than built as a separate module
+because `sFill` already reads all 16 tile entries for the colour burst and
+each entry carries its own `.z` -- so depth costs one staging vector and
+one burst state, not a second read pass over the tile SRAM.
+
+The destination address needed no new register: **`FLUSH_ZB_BASE` (0x258)
+had existed in the register map since Step 25.3h but was wired to
+nothing** -- a leftover from a Z-flush that was planned and never built,
+which is precisely why the flusher's own doc comment said "Z is not
+written". `Borg.scala` now decodes it the same `nogen` way `FLUSH_FB_BASE`
+already was, and gates the burst on `zbBase =/= 0`, so firmware that never
+writes it gets the exact historical colour-only behaviour.
+
+Not wired for `samples > 1`: the colour path resolves MSAA by averaging,
+which is the wrong operation for depth (a specific sample, or min/max, is
+a real semantic choice) -- a `require` makes that combination a build
+error rather than silently wrong output.
+
+**What remains for `D16_UNORM` is no longer hardware**: firmware must
+allocate a depth buffer and write `FLUSH_ZB_BASE`, and `borgvk` must
+report the format as supported. Both are software, in `software/borg` and
+`mesa/`.
+
+Same investigation found the `R8G8B8A8_UNORM` sampled-image half is
+architecturally the opposite situation -- no new hardware needed.
+`BorgTextureUnit`'s own doc comment specifies its DRAM texel layout: 8
+bytes/texel (two 16-bit FP16 channels packed per 32-bit word). A real
+`R8G8B8A8_UNORM` upload is 4 bytes/texel, one byte per channel -- a
+completely different byte layout BorgTextureUnit doesn't read today.
+
+**Corrected 2026-09-08 (later the same day)**: the software conversion this
+note proposed building **already exists and is already working** --
+`mesa/src/borg/vulkan/borgvk_queue.c`'s `send_texture_row()` reads the
+app's real RGBA8 (`UNORM8`) texture, box-downsamples it, and normalizes
+each channel to `[0,1]` float; `borgvk_serial.c`'s `send_tex_row()` then
+converts those floats to FP16 via `f32_to_f16()` before shipping them over
+the existing 0xAF wire packets. This is not new/proposed work -- it's how
+every texture in the vkcube demo has been rendering the whole time this
+project has existed. `ColorQuantize.dequantize8` was never actually needed
+here (the C-side conversion is plain float math, not the RTL bit-trick
+version built for area reasons). **What actually remains, if anything**:
+this path forces every texture through a hardcoded `BORGVK_TEX_DIM=64`
+downsample (`borgvk_private.h`) regardless of the app's real texture
+size -- fine for the demo, but whether real `dEQP-VK` format/sampling
+tests for `R8G8B8A8_UNORM` need arbitrary dimensions (not just this fixed
+64x64 approximation) and whether `vkGetPhysicalDeviceFormatProperties`
+correctly reports the format as supported are both still open, unverified
+questions -- worth checking against the real CTS mustpass list before
+assuming this item is fully closed, rather than assuming either way.
+
+**Item 11 (configurable depth compare) DONE 2026-09-09** (this branch,
+commit `a8f102c5`). New `depth_cfg` RDL register (`compare_op[3]`,
+`write_en[1]`) threaded Borg -> BorgRasterizer -> BorgShaderDispatcher,
+replacing the hardcoded `<`. `compare_op` uses the `VkCompareOp` enum
+encoding verbatim so the driver passes the value through untranslated, and
+the reset values (LESS, write-on) reproduce the historical hardcoded
+behaviour exactly -- firmware that never writes the register is
+unaffected. Tests sweep all 8 ops against `newZ <`, `==`, `>` `oldZ`.
+
+`depthWriteEnable=0` is honoured at `samples==1` only. `TileWriteIO`
+carries a single shared `data` for every covered sample (shade once,
+broadcast), so preserving *per-sample* stored depth needs a per-sample Z
+write mask on that port -- real port work, not a mux. MSAA keeps the
+historical unconditional store rather than writing sample 0's old Z to
+every sample.
+
+**Item 9 (alpha blending) DONE 2026-09-09** (this branch, commits
+`775926d9` hardware + `5d6f4379` integration, plus `e0826fb25a6` in mesa).
+Two things worth recording beyond "it's built":
+
+*It blends in UNORM8, not FP16.* The obvious implementation blends in the
+FP16 the shader produces and costs eight FP16 multipliers. UNORM8 is not a
+shortcut but the matching precision: the framebuffer format Borg actually
+writes to DRAM is UNORM8, and the spec asks only for precision no lower
+than the destination components'. It also removes every denormal/NaN case
+from the blend path. A float attachment format would need the FP path --
+Borg does not expose one. Both gates that keep this free are structural,
+not aspirational: `hasBlend=false` emits no blend hardware at all (checked
+against the emitted CHIRRTL, not asserted), and even in an enabled build
+the runtime `enable` bit passes the fragment's original FP16 bits through
+untouched, so a non-blended frame is bit-exact rather than merely close.
+
+*The destination colour was already free.* `io.tileRead.data` is fetched
+three cycles before `sTileWrite` for the depth test, so blending needs no
+extra tile-buffer traffic -- only the equation.
+
+Source alpha is a new ABI register r24, resetting to 1.0 and re-armed per
+quad so existing three-component shaders still render opaque under
+src-over. borgc emits it behind `BORGC_FRAG_ALPHA` (off by default:
+turning alpha into a live output root stops the instructions computing it
+from being dead code, growing every existing shader on a core with a hard
+instruction-memory ceiling).
+
+**Destination alpha was initially 1.0, not stored** -- a correct reading of
+the spec for an alpha-less attachment format, but it made every
+DST_ALPHA-family blend factor wrong when compositing into a translucent
+buffer, with nothing to indicate it. **Closed the same day** (commit
+`633b7dde`) with a real alpha plane, built to the same pattern the stencil
+plane had just established: one 16x8-bit SyncReadMem per sample sharing
+the colour plane's index, enable and clear, UNORM8 so nothing converts
+between the plane and the blend unit. Everything defaults to opaque, and
+here that default is load-bearing rather than cosmetic -- a 0 reset would
+silently turn every existing scene transparent.
+
+The plane is tile-local, which *is* the full correctness scope for Borg's
+render model (clear a tile, blend every triangle binned to it, flush).
+What remains for item 9 is only the DRAM half: exposing an alpha-carrying
+attachment format an application can read back needs the flusher to carry
+alpha, the same shape as the item-14 depth burst. Blending was initially `samples==1` only, the same `TileWriteIO`
+limitation as item 11's `depthWriteEnable` -- one shared `data`
+broadcast to all covered samples, so a per-sample destination could not be
+blended correctly through it. **RESOLVED the same day** (commit
+`94b59eb0`), and worth recording how, because the obvious fix was the
+wrong one.
+
+Widening `data` to a per-sample Vec would need `samples` copies of the
+blend equation (eight 8x8 multipliers each) and would edit every one of
+the port's ~30 call sites. Serializing instead -- `sTileWrite` issues one
+write per sample with a one-hot coverage mask and that sample's own
+destination operands -- reuses the single blend unit and changes nothing
+outside `BorgShaderDispatcher`. The read data was already all present:
+`tileRead.data`, `stencilRead` and `alphaRead` are per-sample Vecs held
+stable by the tile buffer's hold registers, so the extra samples cost
+cycles, not reads.
+
+This unblocked all four behaviours at once -- blending, stencil,
+`depthWriteEnable` (which comes free once a write targets one known
+sample) and any future per-sample colour op. It matters for conformance
+rather than tidiness: Vulkan's `framebufferColorSampleCounts` must include
+`VK_SAMPLE_COUNT_4_BIT`, so "blending only works at 1x" was a hole, not a
+preference. Cost is `samples - 1` extra cycles per written fragment, paid
+only by a build that enables one of these features -- plain 4x MSAA keeps
+the single-cycle broadcast path, checked structurally (no `sampleCtr` in
+its emitted CHIRRTL).
+
+**Item 10 (stencil) DONE 2026-09-09** (this branch, commits `9b58264e`
+test/op logic + the tile-plane integration that follows it). Stencil is
+mandatory -- no `VkPhysicalDeviceFeatures` bit gates it -- and Borg had no
+stencil concept anywhere.
+
+The structural thing this item turns on is that stencil is not one test
+with one outcome but a **three-way branch chosen by both the stencil and
+the depth result**, and the buffer is written in all three arms --
+including the two that kill the fragment. That is the entire point of the
+feature: masking, outlining and shadow volumes all depend on the buffer
+advancing on a fragment that never reaches the framebuffer. An
+implementation that gates the stencil write on the colour write passes a
+naive depth test and is useless for everything stencil exists for, so
+`stencilWriteEn` is a signal of its own rather than sharing
+`tileWrite.en`. Also note stencil is tested *before* depth but written
+*after* the depth result is known, so the two cannot be split across
+pipeline stages without carrying the intermediate decision along -- they
+are evaluated in the same cycle here.
+
+The plane is one 16x8-bit `SyncReadMem` per sample in `BorgTileBuffer`,
+sharing the colour plane's index, enable and clear sequence, so a stencil
+read arrives on exactly the same cycle as the colour/Z read the depth test
+already waits for -- stencil costs the dispatcher no extra FSM states. The
+ports are deliberately *not* fields on `TileWriteIO`/`TileReadIO`/
+`TileClearIO`: those three are shared with the flusher and the MMIO poke
+path, which would then have to agree on the flag just to stay
+type-compatible with a plane only the dispatcher touches.
+
+`VkCompareOp` is now a shared `CompareOp` object used by both the depth and
+stencil tests. Vulkan uses one enum for both with identical semantics; two
+copies of the 8-way mux would be two places for the operand order to drift,
+and a reversed comparison shows up as subtly missing geometry rather than a
+failure.
+
+**One boundary remains** (the `samples==1` restriction that was here has
+been lifted -- see item 9's per-sample-write note above, which covers
+stencil too), and it is specific to stencil: **the back-face state is unreachable
+today**. `BorgGeometrySequencer` culls back-facing triangles outright
+before rasterization (the `setupRegs(6)` sign check), so every fragment
+that reaches the dispatcher is front-facing and `frontFacing` is hardwired
+true. Two-sided stencil needs configurable cull mode
+(`VK_CULL_MODE_NONE`/`FRONT`/`BACK`, itself a Vulkan requirement Borg does
+not currently meet) before it can do anything. The back-face registers and
+datapath are carried through anyway so that lands as a wiring change rather
+than a redesign -- **configurable cull mode is the natural next item**, and
+it unblocks two-sided stencil as a side effect.
+
+What remains for stencil beyond hardware: a real `D24_UNORM_S8_UINT` or
+`D32_SFLOAT_S8_UINT` *attachment* also needs the plane flushed to and
+reloaded from DRAM, the same shape as the depth flush built for item 14.
+Within a single render pass the on-chip plane is already correct.
+
+**Configurable face culling DONE 2026-09-09** (this branch) -- a gap this
+list had not called out separately, found while wiring stencil. Vulkan
+requires all four `VkCullModeFlagBits` values and both `VkFrontFace`
+windings; `BorgGeometrySequencer` hardcoded "discard every triangle whose
+signed-area sign bit is set", i.e. permanent `VK_CULL_MODE_BACK_BIT`, so
+`VK_CULL_MODE_NONE` was unavailable. New `cull_cfg` register with the
+Vulkan bitmask verbatim (bit 0 culls front, bit 1 culls back), so NONE and
+FRONT_AND_BACK fall out of the same expression rather than needing their
+own arms; reset 2 reproduces the historical behaviour exactly.
+
+The winding bit is named `front_face_invert`, not `VkFrontFace`, on
+purpose: **which of CLOCKWISE / COUNTER_CLOCKWISE the current setup
+shader's winding actually corresponds to is unverified**, and guessing the
+mapping would bake a coin flip into the register map. One two-triangle
+experiment pins it down, after which the field can be documented as the
+`VkFrontFace` bit it is. Flagged rather than assumed.
+
+This also removes the *first* of the two blockers on two-sided stencil.
+
+**Second blocker (facing bit reaching the dispatcher) DONE 2026-09-10**
+(this branch). `BorgGeometrySequencer` now captures the same sign bit the
+cull test reads (`setupRegs(6)`) into a `triIsBackFacing` register at the
+moment it's computed, and packs it into bit 1 of the same DRAM word
+`has_uvs` already occupies (word 31) at `sStoreSetup` -- no new DMA word,
+no second store cycle. `BorgTileSequencer` restores it the same way it
+restores `has_uvs`: from its 2-way setup cache on a hit, or from bit 1 of
+the DMA snoop on a miss. The result threads up through
+`BorgSequencer.frontFacingOverride` -> `Borg.scala` (`Mux(s.io.busy,
+s.io.frontFacingOverride, true.B)`, the same busy/idle split
+`texConfig.en` already uses) -> `BorgRasterizer.io.frontFacing` ->
+`BorgShaderDispatcher.io.frontFacing`, replacing the `true.B` literal
+`BorgStencil.evaluate` used to receive. `StencilConfig`'s separate
+`front`/`back` op sets already existed (visible in the RDL registers) --
+this was purely the missing runtime signal, not new stencil logic.
+
+**Verified structurally, not behaviorally**: all 12 `BorgTilePathElabTests`
+cases pass, including two that specifically exercise the new port chain
+end-to-end (`hasStencil enabled` and `blend and stencil elaborate at 4x
+MSAA`) and the disabled-build check confirming a non-stencil build carries
+none of the new wiring. This catches the unconnected-port/width-mismatch
+class of bug the whole file exists for, but does NOT prove the DRAM
+round-trip produces the *correct* facing value for a real back-facing
+triangle -- that needs a full two-pass render test of the same shape as
+`BorgSequencerTests`' `covDelta_diagnostic_real_values`, and that suite is
+currently unrunnable in reasonable time on this machine (a single test
+sat 3461s without completing, per `BorgTilePathElabTests`' own docstring).
+Flagged as open, not assumed passing.
+
+**Texture/sampler work DONE 2026-09-09** (commits `b6a8891a`, `e996cb09`) --
+this was the weakest block in the design at roughly 15%: one texel, no
+weights, and clamp as the only addressing mode.
+
+- **Bilinear filtering** (`VK_FILTER_LINEAR`, core, no feature bit). Four
+  taps weighted in UNORM8, reusing BorgBlend's exact `round(a*b/255)` so the
+  two units cannot round differently. UNORM8 is the matching precision
+  rather than a shortcut: texels reach DRAM as FP16 but originate as UNORM8
+  from borgvk's upload path, so quantizing each tap back is lossless for
+  content that exists. Costs 8 DRAM reads per filtered sample (a texel is
+  already 2 because of the packed layout) with **no coalescing**, even
+  though a 2x2 footprint is adjacent in Morton order -- the obvious later
+  optimization.
+- **All four `VkSamplerAddressMode` values**. Power-of-two sizes make REPEAT
+  a mask and MIRRORED_REPEAT a fold. Applied at BOTH coordinate sites --
+  base and bilinear neighbour -- since wrapping only the base leaves a
+  filtered sample across a REPEAT seam fetching a clamped duplicate instead
+  of wrapping.
+
+**One limitation recorded rather than discovered later.** The half-texel
+offset (`u*W - 0.5`) is NOT applied: Borg's nearest path never applied it,
+and adding it inside the change that introduces filtering would make any
+regression impossible to attribute -- it belongs in coordinate generation
+with its own golden comparison.
+
+**Negative UV wrap DONE 2026-09-10** (this branch). The gap above --
+wrapping ran on an already-unsigned texel index, so a negative UV
+flattened to 0 (correct for CLAMP, wrong for REPEAT/MIRRORED_REPEAT,
+which need the true negative value to fold) -- needed the signed
+coordinate conversion this doc had already flagged as the fix, not a
+change to `TexAddressMode` itself. New `Fp16ToSignedTexCoord`
+(`TextureAddr.scala`) computes floor(value) as an 8-bit two's-complement
+byte by negating the unsigned 8.8 magnitude when the FP16 sign bit is
+set -- negating a fixed-point value this way produces floor(), not
+trunc(), which is what makes UV=-0.3 land on a texture's LAST texel
+under REPEAT rather than not wrapping at all. `TexAddressMode` gained an
+explicit `negative: Bool` parameter (defaulting to the historical
+`false.B`, so every other call site is provably unchanged) rather than
+trying to infer sign from `raw`'s own bit pattern, which is a different
+width at different call sites -- inferring it there risked misreading a
+legitimately large positive value (the neighbour-tap path's `u8 +& dx`)
+as negative. REPEAT/MIRRORED_REPEAT's existing bit-masking needed no
+changes at all: `raw & (dim-1)` already computes the correct value mod a
+power-of-two dim for a two's-complement pattern of either sign.
+
+Caught and fixed during this same change, before it shipped: the new
+`negative` handling initially overrode `log2Dim == 0`'s "unsized, don't
+touch raw at all" contract (forcing a clamp to 0 even when unsized) --
+would have broken the invariant an existing test explicitly checks for
+every other mode. Fixed by gating the negative clamp on `unsized` too.
+
+Verified behaviorally, not just structurally: 19/19 `BorgTextureUnitTests`
+pass, including hand-derived REPEAT/MIRRORED_REPEAT/CLAMP expected values
+for negative input and the `Fp16ToSignedTexCoord` conversion itself
+(`-2.5 -> 0xFD`, `-8.0 -> 0xF8`, etc.), plus a full regression pass on
+every pre-existing case in the same file.
+
+**Still missing in this block**: mipmaps and LOD selection (the DDX/DDY
+hardware makes the LOD computable, but a mip chain layout and trilinear
+blending are real work), and the format matrix beyond the single FP16 texel
+layout. Anisotropy is optional and should not get hardware.
+
+**Two more mandatory gaps this list had never named, both DONE 2026-09-09**
+(commit `26d87222`) -- found by walking `VkGraphicsPipelineCreateInfo`
+field by field rather than working from the existing list, which is worth
+repeating for the remaining state:
+
+- **`colorWriteMask`** (`VkColorComponentFlagBits`). No feature bit; Borg
+  wrote every channel unconditionally. It rides with the blend attachment
+  state it belongs to, so it sits under `hasBlend`. Applied *outside* the
+  `blendEnable` mux deliberately: Vulkan applies the write mask whether or
+  not blending is on, and the channel-isolating passes it exists for
+  typically run with blending off.
+- **Scissor test.** Every graphics pipeline carries a scissor rectangle --
+  there is no feature bit and no way to opt out of the state -- and Borg
+  had none. Computed in `BorgRasterizer` where the per-lane screen
+  coordinates are, folded in beside the depth and stencil results so a
+  scissored-out fragment also performs no stencil operation. Bounds are
+  half-open so `VkRect2D`'s `offset + extent` maps across unchanged, and
+  *disabled* means everything passes, not the empty rectangle.
+
+**Remaining known mandatory graphics state Borg still lacks**, from the
+same walk -- listed so the next pass does not have to rediscover it:
+`depthBiasEnable` with its constant/slope/clamp factors (slope needs
+dz/dx,dz/dy, so it is not just an addend); primitive topologies other than
+triangle lists (points and lines are mandatory); and multiple viewports/
+the viewport transform being fixed in the setup shader rather than
+programmable state. `depthBounds`, `depthClamp`, `wideLines`,
+`independentBlend` and `dualSrcBlend` are all optional features Borg can
+legitimately report unsupported -- **do not** spend hardware on those.
+
+**The MSAA requirement that drove the above**: Vulkan's limits table
+requires `framebufferColorSampleCounts` to include
+`VK_SAMPLE_COUNT_4_BIT`, not just 1 -- which is what turned the
+`TileWriteIO` shared-`data` limitation from a nice-to-have into a
+conformance blocker, since blending, `depthWriteEnable`, stencil and the
+colour path all have to be correct at 4 samples. Now resolved by
+serializing the write; `hasDepthFlush` at `samples > 1` remains a build
+error, but for an unrelated reason (resolving depth by averaging samples
+is simply the wrong operation, and picking min/max/a specific sample is a
+real semantic choice, not an implementation gap).
 
 **Explicitly NOT here — pure performance, not correctness, deferred to
 Step 53**: widening `fragLanes` *beyond* 4, warp-level multithreading,

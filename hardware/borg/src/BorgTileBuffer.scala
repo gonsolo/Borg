@@ -26,7 +26,9 @@ import chisel3.experimental.BundleLiterals._
   * Step 11 of the Borg GPU roadmap.
   */
 
-class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1) extends Bundle {
+class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
+                       val hasStencil: Boolean = false,
+                       val hasAlpha: Boolean = false) extends Bundle {
   // Write port (from rasterizer auto-write or MMIO)
   val write = Flipped(new TileWriteIO(samples))
 
@@ -35,6 +37,40 @@ class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1) extends Bun
 
   // Clear (resets all entries: Z to FP16_MAX_DEPTH, RGB to 0)
   val clear = Flipped(new TileClearIO)
+
+  // --- Optional stencil plane (Step 50 item 10) --------------------------
+  //
+  // Deliberately NOT fields on TileWriteIO/TileReadIO/TileClearIO, even
+  // though it is the same memory and the same index. Those three bundles are
+  // shared by the flusher, the MMIO poke path and the dispatcher; adding an
+  // optional field to them would force every one of those call sites to agree
+  // on the flag just to stay type-compatible, for a plane only the dispatcher
+  // touches. Piggybacking on `write.idx`/`read.idx`/`clear` keeps the shared
+  // bundles untouched.
+  //
+  // `stencilWriteMask` is separate from `write.en`/`write.coverage` for a
+  // real reason, not symmetry: the stencil buffer must be updated even when
+  // the fragment is discarded by the stencil or depth test (see BorgStencil's
+  // doc), so it cannot share the colour write's enable, and the samples it
+  // updates are not the samples the colour write covers.
+  val stencilRead      = if (hasStencil) Some(Output(Vec(samples, UInt(8.W)))) else None
+  val stencilWrite     = if (hasStencil) Some(Input(UInt(8.W))) else None
+  val stencilWriteMask = if (hasStencil) Some(Input(UInt(samples.W))) else None
+  val stencilClear     = if (hasStencil) Some(Input(UInt(8.W))) else None
+
+  // --- Optional destination-alpha plane (Step 50 item 9) -------------------
+  //
+  // UNORM8, matching the format blending is performed in, so no conversion
+  // sits between the plane and the blend unit.
+  //
+  // Unlike stencil this has no write-enable of its own: alpha is written
+  // exactly when colour is, on the same fragment and under the same
+  // coverage. `alphaWriteMask` is colorWriteMask's A bit, which suppresses
+  // the alpha store while leaving the colour store alone.
+  val alphaRead      = if (hasAlpha) Some(Output(Vec(samples, UInt(8.W)))) else None
+  val alphaWrite     = if (hasAlpha) Some(Input(UInt(8.W))) else None
+  val alphaWriteMask = if (hasAlpha) Some(Input(Bool())) else None
+  val alphaClear     = if (hasAlpha) Some(Input(UInt(8.W))) else None
 }
 
 /** @param colorBits Stored R/G/B width, independent of `dataBits` (the port
@@ -47,10 +83,11 @@ class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1) extends Bun
   *                  Z is never narrowed this way -- see BorgConfig.tileColorBits's
   *                  own doc for why.
   */
-class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits: Int = 16) extends Module {
+class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits: Int = 16,
+                     val hasStencil: Boolean = false, val hasAlpha: Boolean = false) extends Module {
   require(colorBits == dataBits || colorBits == 8,
           s"colorBits must equal dataBits (off) or be 8 (ColorQuantize), got $colorBits")
-  val io = IO(new BorgTileBufferIO(dataBits, samples))
+  val io = IO(new BorgTileBufferIO(dataBits, samples, hasStencil, hasAlpha))
 
   val FP16_MAX_DEPTH_VAL = 0x7BFF  // Scala constant
   val FP16_MAX_DEPTH = FP16_MAX_DEPTH_VAL.U(dataBits.W)
@@ -191,4 +228,71 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   }
 
   io.read.data := readDataHeld
+
+  // --- Optional stencil plane -------------------------------------------
+  //
+  // One 16x8-bit SyncReadMem per sample, sharing the colour plane's index,
+  // enable and clear sequence -- so a stencil read arrives on exactly the
+  // same cycle as the colour/Z read the depth test already waits for, and
+  // costs the dispatcher no extra states.
+  //
+  // Per-sample memories for the same structural reason as the colour planes
+  // (see the long note above): a Vec-typed memory with a write mask lowers to
+  // an unmasked full-width write in CIRCT, which would silently clobber
+  // uncovered samples.
+  if (hasStencil) {
+    val stencilMems = Seq.fill(samples)(SyncReadMem(TILE_SIZE, UInt(8.W)))
+
+    // Latched for the same reason as clearWordReg: io.stencilClear is a
+    // one-cycle pulse from a mux, but the clear writes span 16 cycles.
+    val stencilClearReg = RegInit(0.U(8.W))
+    when(io.clear.en && !clearing) { stencilClearReg := io.stencilClear.get }
+
+    val stencilRead = VecInit(stencilMems.zipWithIndex.map { case (mem, s) =>
+      when(clearing) {
+        mem.write(clearCounter, stencilClearReg)
+      }.elsewhen(io.stencilWriteMask.get(s).asBool) {
+        // The mask carries the coverage/discard decision per sample, which is
+        // why it is a mask and not a single enable -- a fragment can pass the
+        // stencil test for some samples and fail it for others.
+        mem.write(io.write.idx, io.stencilWrite.get)
+      }
+      mem.read(io.read.idx, effectiveReadEn)
+    })
+
+    val stencilHeld = RegInit(VecInit(Seq.fill(samples)(0.U(8.W))))
+    when(readEnDel) { stencilHeld := stencilRead }
+    io.stencilRead.get := stencilHeld
+  }
+
+  // --- Optional destination-alpha plane ----------------------------------
+  //
+  // Same shape as the stencil plane and for the same reasons (shared index/
+  // enable/clear, per-sample memories rather than a write mask). What makes
+  // it worth having: without it every blend factor involving DST_ALPHA has
+  // to assume an opaque destination, so an application compositing
+  // translucent geometry into a translucent buffer gets the wrong answer
+  // with no way to tell.
+  if (hasAlpha) {
+    val alphaMems = Seq.fill(samples)(SyncReadMem(TILE_SIZE, UInt(8.W)))
+
+    // RegInit 0xFF, not 0: the reset auto-clear runs before firmware writes
+    // anything, and an opaque destination is what the hardware behaved as
+    // before this plane existed.
+    val alphaClearReg = RegInit(0xFF.U(8.W))
+    when(io.clear.en && !clearing) { alphaClearReg := io.alphaClear.get }
+
+    val alphaRead = VecInit(alphaMems.zipWithIndex.map { case (mem, s) =>
+      when(clearing) {
+        mem.write(clearCounter, alphaClearReg)
+      }.elsewhen(io.write.en && io.write.coverage(s).asBool && io.alphaWriteMask.get) {
+        mem.write(io.write.idx, io.alphaWrite.get)
+      }
+      mem.read(io.read.idx, effectiveReadEn)
+    })
+
+    val alphaHeld = RegInit(VecInit(Seq.fill(samples)(0xFF.U(8.W))))
+    when(readEnDel) { alphaHeld := alphaRead }
+    io.alphaRead.get := alphaHeld
+  }
 }

@@ -102,8 +102,10 @@ object BorgCoreTests extends TestSuite {
     core.io.bus.data_in.poke(0.U)
     core.io.bus.is_writing.poke(false.B)
     core.io.bus.is_reading.poke(false.B)
-    core.io.iter(0).x.poke(0.U)
-    core.io.iter(0).y.poke(0.U)
+    for (i <- 0 until core.cfg.fragLanes) {
+      core.io.iter(i).x.poke(0.U)
+      core.io.iter(i).y.poke(0.U)
+    }
     core.io.coreTrigger.valid.poke(false.B)
     core.io.coreTrigger.pc.poke(0.U)
     core.io.uniformPage.poke(0.U)
@@ -117,7 +119,46 @@ object BorgCoreTests extends TestSuite {
     core.io.texG.poke(0.U)
     core.io.texB.poke(0.U)
     core.io.seqBusy.poke(false.B)
+    // LOAD/STORE DRAM port -- driven idle so nothing X-propagates for the
+    // tests that never execute a memory instruction.
+    core.io.gpuMem.get.data.poke(0.U)
+    core.io.gpuMem.get.ready.poke(false.B)
+    core.io.gpuMem.get.waccept.poke(false.B)
+    core.io.lsBase.get.poke(0.U)
     core.clock.step(1)
+  }
+
+  /** Run the shader with a model DRAM attached to the core's gpuMem port.
+    *
+    * Acks every request in the cycle it is made, which is the fastest a
+    * controller could possibly be -- deliberately, so the test exercises the
+    * FSM's same-cycle-ready path. `mem` is keyed by byte address and is
+    * read/written in place, so a test can seed it, run, and inspect it.
+    */
+  def startAndWaitWithMem(core: BorgCore,
+                          mem: scala.collection.mutable.Map[BigInt, BigInt]): Unit = {
+    core.io.control.start.poke(true.B)
+    core.clock.step(1)
+    core.io.control.start.poke(false.B)
+    var idle = false
+    var watchdog = 0
+    while (!idle && watchdog < 500) {
+      val rd = core.io.gpuMem.get.req.peek().litToBoolean
+      val wr = core.io.gpuMem.get.wr.peek().litToBoolean
+      if (rd || wr) {
+        val addr = core.io.gpuMem.get.addr.peek().litValue
+        if (wr) mem(addr) = core.io.gpuMem.get.wdata.peek().litValue
+        core.io.gpuMem.get.data.poke((mem.getOrElse(addr, BigInt(0)) & BigInt("ffffffff", 16)).U)
+        core.io.gpuMem.get.ready.poke(true.B)
+      } else {
+        core.io.gpuMem.get.ready.poke(false.B)
+      }
+      core.clock.step(1)
+      idle = !core.io.status.running.peek().litToBoolean
+      watchdog += 1
+    }
+    core.io.gpuMem.get.ready.poke(false.B)
+    utest.assert(idle)
   }
 
   // Linear→sRGB encode (used by the fsrgb test to compute expected values).
@@ -198,6 +239,45 @@ object BorgCoreTests extends TestSuite {
         val r = readReg(core, 2).toInt
         println(s"  ishr(40, 3) = $r (expected 5)")
         utest.assert(r == 5)
+        println("  PASSED")
+      }
+    }
+
+    // FP32 datapath plan item 3: the shift amount was hardcoded to 4 bits
+    // (shamt = recB_raw(3,0), correct only for a 16-bit width) and is now
+    // log2Ceil(w) -- 5 bits at w=32. Shift by 20 is the discriminating value:
+    // a still-4-bit shamt truncates 20 to 20 mod 16 = 4, so this fails
+    // loudly (1048576 vs the broken 16) if the width fix ever regresses.
+    utest.test("ishl_int32_full_shift_range") {
+      simulate(new BorgCore(BorgConfig.Fp32)) { core =>
+        println("\n--- BorgCore: ishl_int32_full_shift_range ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 1)
+        writeReg(core, 1, 20)
+        writeImem(core, 0, Instructions.ISHL(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2)
+        println(s"  ishl(1, 20) = $r (expected 1048576)")
+        utest.assert(r == BigInt(1048576))
+        println("  PASSED")
+      }
+    }
+
+    utest.test("ishr_int32_full_shift_range") {
+      simulate(new BorgCore(BorgConfig.Fp32)) { core =>
+        println("\n--- BorgCore: ishr_int32_full_shift_range ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, BigInt(1) << 30)
+        writeReg(core, 1, 20)
+        writeImem(core, 0, Instructions.ISHR(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2)
+        println(s"  ishr(1<<30, 20) = $r (expected 1024)")
+        utest.assert(r == BigInt(1024))
         println("  PASSED")
       }
     }
@@ -816,6 +896,529 @@ object BorgCoreTests extends TestSuite {
         utest.assert(math.abs(sx - 0.5f) < 0.02f)
         utest.assert(math.abs(sy - 1.0f) < 0.03f)
         utest.assert(math.abs(sz - 1.5f) < 0.04f)
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // LOAD / STORE -- the first instructions that touch an address the shader
+    // computes itself. Everything else reaches memory only through a
+    // fixed-function path (FTEX, the uniform bank, the tile-buffer ABI).
+    // =========================================================================
+
+    val LS_BASE = 0x1000
+
+    utest.test("load_reads_dram_into_a_register") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: LOAD ---")
+        idleInputs(core)
+        resetCore(core)
+        core.io.lsBase.get.poke(LS_BASE.U)
+
+        val mem = scala.collection.mutable.Map[BigInt, BigInt](
+          BigInt(LS_BASE + 3 * 4) -> BigInt("beef", 16))
+
+        writeReg(core, 0, 3)                      // r0 = element index 3
+        writeImem(core, 0, Instructions.LOAD(rs1 = 0, rd = 2))
+        writeImem(core, 1, 0)
+
+        startAndWaitWithMem(core, mem)
+        val got = readReg(core, 2)
+        println(f"  r2 = 0x${got.toInt.toHexString} (expect 0xbeef)")
+        // Also proves no spurious ALU write-back: BorgLane has no decode for
+        // LOAD, so an unfrozen pipeline would have written an ADD result here.
+        utest.assert(got == BigInt("beef", 16))
+        println("  PASSED")
+      }
+    }
+
+    utest.test("store_writes_a_register_to_dram") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: STORE ---")
+        idleInputs(core)
+        resetCore(core)
+        core.io.lsBase.get.poke(LS_BASE.U)
+
+        val mem = scala.collection.mutable.Map[BigInt, BigInt]()
+        writeReg(core, 0, 5)                      // r0 = element index 5
+        writeReg(core, 1, BigInt("1234", 16))     // r1 = payload
+        writeImem(core, 0, Instructions.STORE(rs1 = 0, rs2 = 1))
+        writeImem(core, 1, 0)
+
+        startAndWaitWithMem(core, mem)
+        val addr = BigInt(LS_BASE + 5 * 4)
+        println(f"  mem[0x${addr.toInt.toHexString}] = 0x${mem.getOrElse(addr, BigInt(0)).toInt.toHexString} (expect 0x1234)")
+        utest.assert(mem.get(addr).contains(BigInt("1234", 16)))
+        // STORE encodes rd = 0; that must not be mistaken for a destination.
+        println(f"  r0 still ${readReg(core, 0)} (expect 5 -- rd=0 is not a write)")
+        utest.assert(readReg(core, 0) == 5)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("store_then_load_round_trips_through_memory") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: STORE then LOAD ---")
+        idleInputs(core)
+        resetCore(core)
+        core.io.lsBase.get.poke(LS_BASE.U)
+
+        val mem = scala.collection.mutable.Map[BigInt, BigInt]()
+        writeReg(core, 0, 7)
+        writeReg(core, 1, BigInt("cafe", 16))
+        // Two memory instructions back to back: the second must not inherit
+        // any state from the first (the FSM has to have fully returned to
+        // idle and the resume-delay has to have cleared).
+        writeImem(core, 0, Instructions.STORE(rs1 = 0, rs2 = 1))
+        writeImem(core, 1, Instructions.LOAD(rs1 = 0, rd = 3))
+        writeImem(core, 2, 0)
+
+        startAndWaitWithMem(core, mem)
+        val got = readReg(core, 3)
+        println(f"  r3 = 0x${got.toInt.toHexString} (expect 0xcafe)")
+        utest.assert(got == BigInt("cafe", 16))
+        println("  PASSED")
+      }
+    }
+
+    utest.test("effective_address_is_base_plus_index_times_four") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: effective address ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // The addressing rule is the part a compiler has to agree with, so it
+        // is checked directly against emitted addresses rather than inferred
+        // from a value round-tripping.
+        for ((base, index) <- Seq((0x1000, 0), (0x1000, 1), (0x2000, 255), (0x0, 1024))) {
+          // Each iteration is a fresh program: without the reset the program
+          // counter stays past the previous halt and nothing executes.
+          resetCore(core)
+          core.io.lsBase.get.poke(base.U)
+          val mem = scala.collection.mutable.Map[BigInt, BigInt]()
+          writeReg(core, 0, index)
+          writeImem(core, 0, Instructions.STORE(rs1 = 0, rs2 = 0))
+          writeImem(core, 1, 0)
+          startAndWaitWithMem(core, mem)
+          val expected = BigInt(base + index * 4)
+          val touched = mem.keys.toSeq
+          println(f"  base=0x$base%x index=$index%4d -> ${touched.map(a => "0x" + a.toInt.toHexString).mkString(",")} (expect 0x${expected.toInt.toHexString})")
+          utest.assert(touched == Seq(expected))
+        }
+        println("  PASSED")
+      }
+    }
+
+    utest.test("a_stalled_load_does_not_advance_until_memory_answers") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: LOAD stalls the pipeline ---")
+        idleInputs(core)
+        resetCore(core)
+        core.io.lsBase.get.poke(LS_BASE.U)
+
+        writeReg(core, 0, 1)
+        writeImem(core, 0, Instructions.LOAD(rs1 = 0, rd = 2))
+        writeImem(core, 1, 0)
+
+        core.io.control.start.poke(true.B)
+        core.clock.step(1)
+        core.io.control.start.poke(false.B)
+
+        // Withhold `ready` and confirm the core sits there requesting rather
+        // than running off the end. A memory instruction that did not stall
+        // would finish and drop `running` within a handful of cycles.
+        var sawRequest = false
+        for (_ <- 0 until 60) {
+          core.io.gpuMem.get.ready.poke(false.B)
+          if (core.io.gpuMem.get.req.peek().litToBoolean) sawRequest = true
+          core.clock.step(1)
+        }
+        val stillRunning = core.io.status.running.peek().litToBoolean
+        println(f"  after 60 cycles with ready held low: req seen=$sawRequest running=$stillRunning")
+        utest.assert(sawRequest)
+        utest.assert(stillRunning)
+
+        // Release it and the instruction completes normally.
+        val mem = scala.collection.mutable.Map[BigInt, BigInt](
+          BigInt(LS_BASE + 4) -> BigInt("00ff", 16))
+        var idle = false
+        var wd = 0
+        while (!idle && wd < 200) {
+          val rq = core.io.gpuMem.get.req.peek().litToBoolean
+          if (rq) {
+            val a = core.io.gpuMem.get.addr.peek().litValue
+            core.io.gpuMem.get.data.poke((mem.getOrElse(a, BigInt(0))).U)
+            core.io.gpuMem.get.ready.poke(true.B)
+          } else core.io.gpuMem.get.ready.poke(false.B)
+          core.clock.step(1)
+          idle = !core.io.status.running.peek().litToBoolean
+          wd += 1
+        }
+        core.io.gpuMem.get.ready.poke(false.B)
+        utest.assert(idle)
+        println(f"  released: r2 = 0x${readReg(core, 2).toInt.toHexString} (expect 0xff)")
+        utest.assert(readReg(core, 2) == BigInt("00ff", 16))
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // Control flow -- until BRZ/BRNZ every shader was straight-line, the
+    // program counter only ever advancing by one.
+    // =========================================================================
+
+    utest.test("brz_taken_skips_instructions") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: BRZ taken ---")
+        idleInputs(core)
+        resetCore(core)
+
+        writeReg(core, 0, 0)              // condition == 0 -> branch taken
+        writeReg(core, 1, floatToFp16Bits(1.0f))
+        writeReg(core, 2, floatToFp16Bits(0.0f))
+        // 0: BRZ r0 -> 2      (skip the add at slot 1)
+        // 1: r2 = r1 + r1     (must NOT execute)
+        // 2: halt
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 2))
+        writeImem(core, 1, Instructions.ADD(1, 1, 2))
+        writeImem(core, 2, 0)
+
+        startAndWait(core)
+        val r2 = fp16BitsToFloat(readReg(core, 2))
+        println(f"  r2 = $r2%.2f (expect 0.0 -- the skipped add would make it 2.0)")
+        utest.assert(math.abs(r2) < 0.01f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("brz_not_taken_falls_through") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: BRZ not taken ---")
+        idleInputs(core)
+        resetCore(core)
+
+        writeReg(core, 0, 1)              // condition != 0 -> fall through
+        writeReg(core, 1, floatToFp16Bits(1.0f))
+        writeReg(core, 2, floatToFp16Bits(0.0f))
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 2))
+        writeImem(core, 1, Instructions.ADD(1, 1, 2))
+        writeImem(core, 2, 0)
+
+        startAndWait(core)
+        val r2 = fp16BitsToFloat(readReg(core, 2))
+        println(f"  r2 = $r2%.2f (expect 2.0 -- the add ran)")
+        utest.assert(math.abs(r2 - 2.0f) < 0.01f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("branch_does_not_write_the_register_its_target_names") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: branch has no destination ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // The target's low 5 bits land in the rd field. Target 3 therefore
+        // names r3; an ALU write-back would clobber it. This is the failure
+        // mode BorgLane's `!opFlags.branch` guard exists for.
+        writeReg(core, 0, 1)                            // not taken
+        writeReg(core, 3, floatToFp16Bits(7.0f))        // sentinel in r3
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 3))
+        writeImem(core, 1, 0)
+
+        startAndWait(core)
+        val r3 = fp16BitsToFloat(readReg(core, 3))
+        println(f"  r3 = $r3%.2f (expect 7.0 -- untouched)")
+        utest.assert(math.abs(r3 - 7.0f) < 0.01f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("backward_branch_runs_a_real_loop") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: counted loop ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // The thing branches actually unlock. Sum 1.0 four times by looping,
+        // counting an integer register down to zero:
+        //   r0 = 4 (counter, raw int)   r1 = -1   r2 = 1.0   r3 = accumulator
+        //   0: r3 = r3 + r2        accumulate
+        //   1: r0 = r0 + r1        decrement (integer add on raw bits)
+        //   2: BRNZ r0 -> 0        loop while the counter is non-zero
+        //   3: halt
+        writeReg(core, 0, 4)
+        writeReg(core, 1, 0xFFFF)                       // -1 as int16
+        writeReg(core, 2, floatToFp16Bits(1.0f))
+        writeReg(core, 3, floatToFp16Bits(0.0f))
+        writeImem(core, 0, Instructions.ADD(3, 2, 3))
+        writeImem(core, 1, Instructions.IADD(0, 1, 0))
+        writeImem(core, 2, Instructions.BRNZ(rs1 = 0, target = 0))
+        writeImem(core, 3, 0)
+
+        startAndWait(core)
+        val acc = fp16BitsToFloat(readReg(core, 3))
+        val ctr = readReg(core, 0)
+        println(f"  looped: r3 = $acc%.2f (expect 4.0), counter = $ctr (expect 0)")
+        utest.assert(math.abs(acc - 4.0f) < 0.01f)
+        utest.assert(ctr == 0)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("brnz_polarity_is_the_inverse_of_brz") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: BRNZ polarity ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // Same program twice, only the condition register differs, so a
+        // swapped polarity shows up as both cases behaving alike.
+        for ((cond, shouldBranch) <- Seq((0, false), (1, true))) {
+          resetCore(core)
+          writeReg(core, 0, cond)
+          writeReg(core, 1, floatToFp16Bits(1.0f))
+          writeReg(core, 2, floatToFp16Bits(0.0f))
+          writeImem(core, 0, Instructions.BRNZ(rs1 = 0, target = 2))
+          writeImem(core, 1, Instructions.ADD(1, 1, 2))
+          writeImem(core, 2, 0)
+          startAndWait(core)
+          val r2 = fp16BitsToFloat(readReg(core, 2))
+          val branched = math.abs(r2) < 0.01f
+          println(f"  cond=$cond -> branched=$branched (expect $shouldBranch)")
+          utest.assert(branched == shouldBranch)
+        }
+        println("  PASSED")
+      }
+    }
+
+    utest.test("negative_zero_counts_as_non_zero") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: FP16 -0.0 is non-zero to a branch ---")
+        idleInputs(core)
+        resetCore(core)
+
+        // The condition is a RAW bits comparison, so -0.0 (0x8000) does NOT
+        // branch on BRZ -- the same convention the discard register uses.
+        // Worth pinning down: an FP-aware comparison would do the opposite.
+        writeReg(core, 0, 0x8000)
+        writeReg(core, 1, floatToFp16Bits(1.0f))
+        writeReg(core, 2, floatToFp16Bits(0.0f))
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 2))
+        writeImem(core, 1, Instructions.ADD(1, 1, 2))
+        writeImem(core, 2, 0)
+
+        startAndWait(core)
+        val r2 = fp16BitsToFloat(readReg(core, 2))
+        println(f"  r2 = $r2%.2f (expect 2.0 -- not taken, so the add ran)")
+        utest.assert(math.abs(r2 - 2.0f) < 0.01f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("scalar_build_never_reports_branch_divergence") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: divergence flag at fragLanes=1 ---")
+        idleInputs(core)
+        resetCore(core)
+
+        writeReg(core, 0, 0)
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 1))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+
+        val div = core.io.branchDivergent.peek().litToBoolean
+        println(f"  branchDivergent = $div (expect false -- one lane cannot disagree)")
+        utest.assert(!div)
+        println("  PASSED")
+      }
+    }
+
+    // =========================================================================
+    // Execution mask -- divergent control flow for the 2x2 quad.
+    //
+    // BRZ/BRNZ redirect one shared program counter and so can only express
+    // control flow whose condition is uniform. EXPUSH/EXELSE/EXPOP express the
+    // other case by predication: both arms run, masked lanes write nothing.
+    //
+    // These need genuinely different per-lane values, which the MMIO register
+    // path cannot produce (the bus is broadcast to every lane). They come from
+    // the only real source of per-lane difference: the pixel coordinate
+    // pseudo-register r30, fanned out per lane by the iterator -- which is
+    // where divergence comes from in a real shader too.
+    // =========================================================================
+
+    val SIMT = BorgConfig.Simt
+
+    /** Give each lane of the quad its own pixel coordinate. */
+    def pokeQuad(core: BorgCore): Unit =
+      for ((x, y, i) <- Seq((0, 0, 0), (1, 0, 1), (0, 1, 2), (1, 1, 3))) {
+        core.io.iter(i).x.poke(x.U)
+        core.io.iter(i).y.poke(y.U)
+      }
+
+    /** Read one lane's register through its own pipeWrite snoop is not
+      * possible after the fact, so tests below check lane 0 via regReadData
+      * and infer the others from the masked/unmasked contrast. */
+    utest.test("expush_masks_lanes_whose_condition_is_false") {
+      simulate(new BorgCore(SIMT)) { core =>
+        println("\n--- BorgCore: EXPUSH masks a lane ---")
+        idleInputs(core)
+        pokeQuad(core)
+        resetCore(core)
+
+        // r5 = int(r30) -> lane x coordinate: 0, 1, 0, 1 across the quad.
+        // EXPUSH r5 therefore keeps lanes 1 and 3 and masks lanes 0 and 2.
+        // Lane 0 is masked, so its r6 must keep the sentinel.
+        writeReg(core, 6, floatToFp16Bits(9.0f))     // sentinel in every lane
+        writeReg(core, 7, floatToFp16Bits(1.0f))
+        writeImem(core, 0, Instructions.F2I(30, 5))
+        writeImem(core, 1, Instructions.EXPUSH(rs1 = 5))
+        writeImem(core, 2, Instructions.ADD(7, 7, 6))   // r6 = 2.0, masked lanes skip
+        writeImem(core, 3, Instructions.EXPOP())
+        writeImem(core, 4, 0)
+
+        startAndWait(core)
+        val lane0 = fp16BitsToFloat(readReg(core, 6))
+        println(f"  lane0 (x=0, condition false) r6 = $lane0%.2f (expect 9.0 -- masked)")
+        utest.assert(math.abs(lane0 - 9.0f) < 0.01f)
+        utest.assert(!core.io.execFault.peek().litToBoolean)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("expop_restores_every_lane") {
+      simulate(new BorgCore(SIMT)) { core =>
+        println("\n--- BorgCore: EXPOP restores ---")
+        idleInputs(core)
+        pokeQuad(core)
+        resetCore(core)
+
+        // Same masked region, but the write happens AFTER EXPOP, so lane 0
+        // must see it again. This is what proves the mask is restored rather
+        // than latched off for the rest of the program.
+        writeReg(core, 6, floatToFp16Bits(9.0f))
+        writeReg(core, 7, floatToFp16Bits(1.0f))
+        writeImem(core, 0, Instructions.F2I(30, 5))
+        writeImem(core, 1, Instructions.EXPUSH(rs1 = 5))
+        writeImem(core, 2, Instructions.EXPOP())
+        writeImem(core, 3, Instructions.ADD(7, 7, 6))   // r6 = 2.0 in ALL lanes
+        writeImem(core, 4, 0)
+
+        startAndWait(core)
+        val lane0 = fp16BitsToFloat(readReg(core, 6))
+        println(f"  lane0 r6 = $lane0%.2f (expect 2.0 -- mask restored)")
+        utest.assert(math.abs(lane0 - 2.0f) < 0.01f)
+        utest.assert(!core.io.execFault.peek().litToBoolean)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("exelse_runs_exactly_the_complementary_lanes") {
+      simulate(new BorgCore(SIMT)) { core =>
+        println("\n--- BorgCore: EXELSE ---")
+        idleInputs(core)
+        pokeQuad(core)
+        resetCore(core)
+
+        // if (x != 0) r6 = 2.0  else  r6 = 3.0
+        // Lane 0 has x == 0, so it takes the ELSE arm and must end at 3.0 --
+        // which only happens if EXELSE re-activates it.
+        writeReg(core, 6, floatToFp16Bits(9.0f))
+        writeReg(core, 7, floatToFp16Bits(1.0f))
+        writeReg(core, 8, floatToFp16Bits(3.0f))
+        writeImem(core, 0, Instructions.F2I(30, 5))
+        writeImem(core, 1, Instructions.EXPUSH(rs1 = 5))
+        writeImem(core, 2, Instructions.ADD(7, 7, 6))    // then: r6 = 2.0
+        writeImem(core, 3, Instructions.EXELSE())
+        writeImem(core, 4, Instructions.ADD(8, 30, 6))   // else: overwritten below
+        writeImem(core, 5, Instructions.EXPOP())
+        writeImem(core, 6, 0)
+
+        startAndWait(core)
+        // Lane 0 took the else arm, so r6 there is 3.0 + r30(=0.5) = 3.5;
+        // what matters is that it is NOT 9.0 (never ran) and NOT 2.0 (ran the
+        // then-arm it should have been masked out of).
+        val lane0 = fp16BitsToFloat(readReg(core, 6))
+        println(f"  lane0 r6 = $lane0%.2f (expect 3.5 -- else arm; 9.0 = never ran, 2.0 = wrong arm)")
+        utest.assert(math.abs(lane0 - 3.5f) < 0.01f)
+        utest.assert(!core.io.execFault.peek().litToBoolean)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("nested_expush_only_narrows_never_widens") {
+      simulate(new BorgCore(SIMT)) { core =>
+        println("\n--- BorgCore: nested EXPUSH ---")
+        idleInputs(core)
+        pokeQuad(core)
+        resetCore(core)
+
+        // Outer if masks lane 0 off. The inner EXELSE must NOT bring it back:
+        // the else arm is `enclosing & ~cond`, and lane 0 is not in the
+        // enclosing mask at all. Inverting the full mask instead of masking
+        // against the enclosing one is the classic bug here, and it would
+        // show up as lane 0 executing the inner else.
+        writeReg(core, 6, floatToFp16Bits(9.0f))
+        writeReg(core, 7, floatToFp16Bits(1.0f))
+        writeImem(core, 0, Instructions.F2I(30, 5))
+        writeImem(core, 1, Instructions.EXPUSH(rs1 = 5))   // lane 0 masked off
+        writeImem(core, 2, Instructions.EXPUSH(rs1 = 5))   // inner, same cond
+        writeImem(core, 3, Instructions.EXELSE())          // inner else
+        writeImem(core, 4, Instructions.ADD(7, 7, 6))      // lane 0 must NOT run this
+        writeImem(core, 5, Instructions.EXPOP())
+        writeImem(core, 6, Instructions.EXPOP())
+        writeImem(core, 7, 0)
+
+        startAndWait(core)
+        val lane0 = fp16BitsToFloat(readReg(core, 6))
+        println(f"  lane0 r6 = $lane0%.2f (expect 9.0 -- inner else must not re-activate it)")
+        utest.assert(math.abs(lane0 - 9.0f) < 0.01f)
+        utest.assert(!core.io.execFault.peek().litToBoolean)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("unbalanced_mask_stack_raises_a_fault_instead_of_going_quiet") {
+      simulate(new BorgCore(SIMT)) { core =>
+        println("\n--- BorgCore: EXPOP underflow ---")
+        idleInputs(core)
+        pokeQuad(core)
+        resetCore(core)
+
+        // EXPOP with nothing pushed. Wrong results are unavoidable; the point
+        // is that the shader is detectably broken rather than silently so.
+        writeImem(core, 0, Instructions.EXPOP())
+        writeImem(core, 1, 0)
+        startAndWait(core)
+
+        val fault = core.io.execFault.peek().litToBoolean
+        println(f"  execFault = $fault (expect true)")
+        utest.assert(fault)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("a_shader_using_no_mask_ops_runs_fully_unmasked") {
+      simulate(new BorgCore(SIMT)) { core =>
+        println("\n--- BorgCore: no mask ops -> nothing changes ---")
+        idleInputs(core)
+        pokeQuad(core)
+        resetCore(core)
+
+        // The regression anchor: the mask powers up all-ones and nothing
+        // narrows it, so a program that predates these instructions behaves
+        // exactly as it did.
+        writeReg(core, 0, floatToFp16Bits(2.0f))
+        writeReg(core, 1, floatToFp16Bits(3.0f))
+        writeImem(core, 0, Instructions.ADD(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+
+        val r2 = fp16BitsToFloat(readReg(core, 2))
+        println(f"  r2 = $r2%.2f (expect 5.0), execFault=${core.io.execFault.peek().litToBoolean}")
+        utest.assert(math.abs(r2 - 5.0f) < 0.01f)
+        utest.assert(!core.io.execFault.peek().litToBoolean)
         println("  PASSED")
       }
     }

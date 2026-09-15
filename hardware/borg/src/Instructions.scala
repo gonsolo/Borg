@@ -53,7 +53,56 @@ object Instructions {
   val FUNCT7_FSRGB = 0x1C  // rd = linearToSrgb(rs1)       (unary, LUT)
   val FUNCT7_DDX   = 0x1E  // rd = dFdx(rs1)  (cross-lane: lane1 - lane0)
   val FUNCT7_DDY   = 0x20  // rd = dFdy(rs1)  (cross-lane: lane2 - lane0)
+  // Memory access. The FIRST instructions that touch an address the shader
+  // computes itself -- every op above reaches memory only through a
+  // fixed-function path (FTEX's texture fetch, the uniform bank's
+  // funct3-selected read, the hardware ABI's tile-buffer write).
+  //
+  // The operand is a WORD INDEX, not a byte address: at FP16 a register holds
+  // 16 bits and the address space is 25, so a register simply cannot carry a
+  // full address. The effective address is `LS_BASE + (rs1 << 2)`, which is
+  // the same base-plus-index shape the texture unit already uses, and maps
+  // directly onto a Vulkan SSBO binding -- LS_BASE is the descriptor, the
+  // shader supplies the element index.
+  val FUNCT7_LOAD  = 0x22  // rd = mem32[LS_BASE + (rs1 << 2)]
+  val FUNCT7_STORE = 0x24  // mem32[LS_BASE + (rs1 << 2)] = rs2   (no rd)
+  // Control flow. Until these, every shader was straight-line: the program
+  // counter only ever advanced by one.
+  //
+  // The branch target is an ABSOLUTE word index into instruction memory,
+  // packed into the otherwise-unused rs2 and rd fields as (rs2 << 5) | rd.
+  // 10 bits reaches 1023, far past any IMEM Borg builds (56-72 words), and
+  // absolute is easier for a compiler to emit than PC-relative when the
+  // whole program is a handful of words.
+  //
+  // The condition tests the RAW register bits against zero, so FP16 -0.0
+  // (0x8000) counts as non-zero -- the same convention the discard register
+  // already uses (`data =/= 0`).
+  val FUNCT7_BRZ   = 0x26  // if (rs1 == 0) pc = target
+  val FUNCT7_BRNZ  = 0x28  // if (rs1 != 0) pc = target
+  // Execution mask -- divergent control flow for the 2x2 quad.
+  //
+  // BRZ/BRNZ redirect the single shared program counter, so they can only
+  // express control flow whose condition is the same in every lane. These
+  // three express the other case, and they do it WITHOUT branching: both
+  // sides of an `if` execute, and lanes that should not be running are
+  // masked off so their writes (registers, memory, fragment outputs) do not
+  // happen. That is predication, and for a 2x2 quad it is cheaper and far
+  // simpler than a per-lane program counter.
+  //
+  //   EXPUSH rs1 : push exec; exec &= (rs1 != 0), per lane
+  //   EXELSE     : exec = enclosing & ~exec      (the else arm)
+  //   EXPOP      : exec = pop()                  (end of the if)
+  val FUNCT7_EXPUSH = 0x2A
+  val FUNCT7_EXELSE = 0x2C
+  val FUNCT7_EXPOP  = 0x2E
   // @doc:end
+
+  /** Split an absolute branch target into the rs2/rd fields it is packed into. */
+  def branchTargetFields(target: Int): (Int, Int) = {
+    require(target >= 0 && target < 1024, s"branch target out of range: $target")
+    ((target >> 5) & 0x1f, target & 0x1f)
+  }
 
   // --- Base Instruction Encoders ---
   def encodeRType(funct7: Int, rs2: Int, rs1: Int, rd: Int, funct3: Int = 0, opcode: Int = OPCODE_ALU): BigInt =
@@ -79,8 +128,66 @@ object Instructions {
   def FSRGB(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FSRGB, 0, rs1, rd, funct3)
   def DDX(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_DDX, 0, rs1, rd, funct3)
   def DDY(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_DDY, 0, rs1, rd, funct3)
+  def LOAD(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_LOAD, 0, rs1, rd, funct3)
+  /** STORE has no destination register; rd is encoded as 0. */
+  def STORE(rs1: Int, rs2: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_STORE, rs2, rs1, 0, funct3)
+  def BRZ(rs1: Int, target: Int, funct3: Int = 0): BigInt = {
+    val (hi, lo) = branchTargetFields(target)
+    encodeRType(FUNCT7_BRZ, hi, rs1, lo, funct3)
+  }
+  def EXPUSH(rs1: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXPUSH, 0, rs1, 0, funct3)
+  def EXELSE(funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXELSE, 0, 0, 0, funct3)
+  def EXPOP(funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXPOP, 0, 0, 0, funct3)
+  def BRNZ(rs1: Int, target: Int, funct3: Int = 0): BigInt = {
+    val (hi, lo) = branchTargetFields(target)
+    encodeRType(FUNCT7_BRNZ, hi, rs1, lo, funct3)
+  }
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
   // @doc:end
+
+  /** Operand shape of an instruction, which decides its C macro signature. */
+  sealed trait Shape
+  case object RType  extends Shape  // rd, rs1, rs2
+  case object R1Type extends Shape  // rd, rs1        (unary)
+  case object R4Type extends Shape  // rd, rs1, rs2, rs3
+  case object Store  extends Shape  // rs1, rs2       (no destination)
+  case object Branch extends Shape  // rs1, target    (target packed into rs2:rd)
+  case object Mask1  extends Shape  // rs1            (no destination)
+  case object Mask0  extends Shape  // (no operands)
+
+  /** THE instruction table. Everything downstream -- hardware decode, the C
+    * header, any future Python emitter -- comes from here, so an opcode cannot
+    * exist in one and not another.
+    *
+    * This table is why borg_isa.h is generated rather than written: as a
+    * hand-maintained mirror it silently fell four opcodes behind (DDX, DDY,
+    * FRSQ, FSRGB), which only surfaced when a test tried to validate a real
+    * compiled shader against it. */
+  val all: Seq[(String, Int, Shape)] = Seq(
+    ("FADD",   FUNCT7_ADD,   RType),
+    ("FMUL",   FUNCT7_MUL,   RType),
+    ("FNEG",   FUNCT7_FNEG,  R1Type),
+    ("FSTEP",  FUNCT7_FSTEP, R1Type),
+    ("FRCP",   FUNCT7_FRCP,  R1Type),
+    ("FTEX",   FUNCT7_FTEX,  RType),
+    ("IADD",   FUNCT7_IADD,  RType),
+    ("ISHL",   FUNCT7_ISHL,  RType),
+    ("ISHR",   FUNCT7_ISHR,  RType),
+    ("IMUL",   FUNCT7_IMUL,  RType),
+    ("I2F",    FUNCT7_I2F,   R1Type),
+    ("F2I",    FUNCT7_F2I,   R1Type),
+    ("FRSQ",   FUNCT7_FRSQ,  R1Type),
+    ("FSRGB",  FUNCT7_FSRGB, R1Type),
+    ("DDX",    FUNCT7_DDX,   R1Type),
+    ("DDY",    FUNCT7_DDY,   R1Type),
+    ("LOAD",   FUNCT7_LOAD,  R1Type),
+    ("STORE",  FUNCT7_STORE, Store),
+    ("BRZ",    FUNCT7_BRZ,   Branch),
+    ("BRNZ",   FUNCT7_BRNZ,  Branch),
+    ("EXPUSH", FUNCT7_EXPUSH, Mask1),
+    ("EXELSE", FUNCT7_EXELSE, Mask0),
+    ("EXPOP",  FUNCT7_EXPOP,  Mask0)
+  )
 
   // --- String Formatters for C / Python Generation ---
   def PY_ARGS_R    = s"(funct3 << ${BF_FUNCT3.lo}) | (rs2 << ${BF_RS2.lo}) | (rs1 << ${BF_RS1.lo}) | (rd << ${BF_RD.lo})"

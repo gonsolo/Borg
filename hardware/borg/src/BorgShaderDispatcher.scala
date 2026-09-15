@@ -39,9 +39,59 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // --- Inputs from MMIO registers ---
   val fragPcReg  = Input(UInt(6.W))             // fragment shader start PC
 
+  // Step 50 item 11: depth-test state (DEPTH_CFG register). Vulkan requires
+  // all 8 VkCompareOp values selectable and requires depthWriteEnable; the
+  // hardware used to hardcode LESS with depth always written on pass. The
+  // register's reset values (compare_op=1/LESS, write_en=1) reproduce that
+  // exactly, so nothing changes until firmware writes it.
+  val depthCompareOp = Input(UInt(3.W))
+  val depthWriteEn   = Input(Bool())
+
+  // Step 50 item 9: fixed-function blend state (BLEND_CFG/BLEND_CONST).
+  // Present only when cfg.hasBlend, so a build without blending carries no
+  // extra ports at all rather than tying them off.
+  val blendCfg = if (cfg.hasBlend) Some(Input(new BlendConfig)) else None
+
+  // Step 50 item 10: stencil state and the tile buffer's stencil plane.
+  // The read arrives with the colour/Z read the depth test already waits
+  // for, so stencil costs no extra FSM states.
+  // Per-triangle facing, real hardware now that BorgSequencer's two passes
+  // carry it through DRAM alongside has_uvs -- was hardcoded true.B, which
+  // made back-face stencil state unreachable regardless of cull mode.
+  val frontFacing    = if (cfg.hasStencil) Some(Input(Bool())) else None
+  val stencilCfg     = if (cfg.hasStencil) Some(Input(new StencilConfig)) else None
+  val stencilRead    = if (cfg.hasStencil) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
+  val stencilWrite   = if (cfg.hasStencil) Some(Output(UInt(8.W))) else None
+  // Per-sample, not a single enable: with per-sample writes the stencil plane
+  // is updated one sample at a time, and a fragment can pass the stencil test
+  // for some samples and fail it for others.
+  val stencilWriteMask = if (cfg.hasStencil) Some(Output(UInt(cfg.samples.W))) else None
+
+  // Step 50: per-lane scissor result, computed in BorgRasterizer where the
+  // screen coordinates live. Unconditional rather than config-gated: the
+  // scissor test is core Vulkan state with no feature bit, and it costs one
+  // AND per lane here (the comparators themselves are one shared rectangle
+  // test in the rasterizer, not per lane).
+  val scissorPass = Input(Vec(cfg.fragLanes, Bool()))
+
+  // Step 50 item 9, second half: the tile buffer's destination-alpha plane.
+  // Present with hasBlend, since destination alpha exists only to feed the
+  // DST_ALPHA blend factors and the alpha channel's own blend equation.
+  val alphaRead      = if (cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(8.W)))) else None
+  val alphaWrite     = if (cfg.hasBlend) Some(Output(UInt(8.W))) else None
+  val alphaWriteMask = if (cfg.hasBlend) Some(Output(Bool())) else None
+
   // --- Inputs from texture pipeline ---
   val texConfig  = new TexConfigIO              // mortonIndex, baseAddr, en
   val log2Dim    = Input(UInt(4.W))             // tex_config_log2_dim, see ClampTexCoord
+  // Runtime VkFilter for the sampler (SAMPLER_CFG). Only present in a build
+  // that has the filtering hardware to obey it.
+  val texFilterLinear = if (cfg.hasBilinear) Some(Input(Bool())) else None
+  // VkSamplerAddressMode per axis plus VkBorderColor (SAMPLER_CFG). Present
+  // with the filtering hardware since both feed the same tap addressing.
+  val texAddrModeU = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
+  val texAddrModeV = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
+  val texBorder    = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
 
   // --- Outputs to BorgCore ---
   val coreTrigger = new CoreTriggerIO           // shader start pulse + PC
@@ -84,6 +134,32 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
 class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgShaderDispatcherIO(cfg))
 
+  // --- Per-sample tile writes -------------------------------------------
+  //
+  // Blending, stencil and depthWriteEnable all need the destination sample's
+  // OWN stored value, but TileWriteIO carries a single shared `data` for
+  // every covered sample (shade once, broadcast). That shared port used to
+  // make all three a samples==1-only feature.
+  //
+  // The fix is to serialize rather than widen the port: sTileWrite issues one
+  // write per sample, each with a one-hot coverage mask and its own
+  // destination operands. The alternative -- widening `data` to a per-sample
+  // Vec -- would need `samples` copies of the blend equation (eight 8x8
+  // multipliers each) and would touch every one of the port's call sites.
+  // Serializing reuses the single blend unit and changes nothing outside this
+  // module. It costs `samples - 1` extra cycles per written fragment, paid
+  // only by a build that actually enables one of these features.
+  //
+  // The read data is already all there: io.tileRead.data, io.stencilRead and
+  // io.alphaRead are per-sample Vecs held stable by the tile buffer's hold
+  // registers, so the extra samples need no extra reads -- just extra cycles
+  // to write.
+  //
+  // A build with neither feature keeps the historical single-cycle broadcast
+  // write, selected here at elaboration, so its hardware is unchanged rather
+  // than merely equivalent.
+  val needPerSample = cfg.samples > 1 && (cfg.hasBlend || cfg.hasStencil)
+
   private val config = cfg.fp  // shorthand for FP arithmetic
 
   // --- Phase FSM ---
@@ -95,7 +171,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val phase = RegInit(sIdle)
 
   // --- Texture unit (Step 25.3e) ---
-  val texUnit = Module(new BorgTextureUnit)
+  val texUnit = Module(new BorgTextureUnit(cfg.hasBilinear))
 
   private val N = cfg.fragLanes
 
@@ -163,11 +239,28 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // --- Stall ---
   val auto_run_stall = RegInit(false.B)
 
-  // --- Per-lane fragment output snoop (Hardware ABI: Kill=r25, R=r26, G=r27, B=r28, Z=r29) ---
+  // --- Per-lane fragment output snoop ---
+  // Hardware ABI: A=r24, Kill=r25, R=r26, G=r27, B=r28, Z=r29.
+  //
+  // r24 (alpha) extends the ABI block downwards and exists only in a
+  // cfg.hasBlend build -- an alpha output is meaningless without a blend
+  // stage to consume it, and borgc's fragment allocator must reserve r24
+  // in lockstep or it will hand the register to an unrelated temporary
+  // (exactly the collision class that killed the r21-r24 read-back port).
+  //
+  // The same applies to the hand-written shaders in software/borg: any of
+  // them that uses r24 as a scratch register would silently feed garbage
+  // alpha to the blend unit. Harmless today only because blending is off by
+  // default, so frag_a is never read -- not because the registers are
+  // actually free. Check before enabling blending with a hand shader.
   val frag_r = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_g = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_b = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_z = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
+  // FP16 1.0: a shader that writes no alpha is opaque, which is what makes
+  // adding the register backwards-compatible for existing shaders.
+  val frag_a =
+    if (cfg.hasBlend) Some(RegInit(VecInit(Seq.fill(N)(0x3C00.U(16.W))))) else None
 
   // discard: r25 is a hardware-ABI "kill" register, not a new ISA opcode. The
   // compiler lowers GLSL/SPIR-V `discard`/`discard_if(cond)` (already reduced
@@ -192,6 +285,11 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // genuinely 0-bit register trips the implicit-truncation warning; log2Up
   // floors at 1 bit instead.
   val laneCtr = RegInit(0.U(log2Up(N).W))
+
+  // Which sample sTileWrite is currently writing. Only exists when the
+  // serialized path is built; see needPerSample above.
+  val sampleCtr =
+    if (needPerSample) Some(RegInit(0.U(log2Up(cfg.samples).W))) else None
   // Dynamic Vec indices need a genuinely 0-width UInt at N=1 (Chisel's own
   // log2Ceil docs: "log2Ceil(1) // returns 0") to avoid a W004 "dynamic
   // index too wide" warning — but laneCtr itself must stay log2Up-width
@@ -211,6 +309,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.tileWrite.idx      := io.shaderTileIndex(0)
   io.tileWrite.data     := 0.U.asTypeOf(new ColorZ(16))
   io.tileWrite.coverage := 0.U
+  io.stencilWrite.foreach(_ := 0.U)
+  io.stencilWriteMask.foreach(_ := 0.U)
+  io.alphaWrite.foreach(_ := 0.U)
+  // Defaults to masked-off outside sTileWrite, so the plane can never be
+  // written by a stray write.en pulse from elsewhere in the FSM.
+  io.alphaWriteMask.foreach(_ := false.B)
 
   // GPU memory port: forwarded from BorgTextureUnit (Step 25.3e)
   texUnit.io.texConfig <> io.texConfig
@@ -241,9 +345,41 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // 64-wide texture) rather than 63.999..., which floors to one past the
   // last valid index; left unclamped that reads unpopulated texture memory
   // and returns black for an otherwise-correctly-covered pixel.
-  val ftex_u8 = ClampTexCoord(Fp16ToUint8(io.texU), io.log2Dim)
-  val ftex_v8 = ClampTexCoord(Fp16ToUint8(io.texV), io.log2Dim)
+  // Base coordinate. In a build without the sampler hardware this is the
+  // historical clamp, unchanged; with it, the configured address mode --
+  // whose CLAMP_TO_EDGE reset value IS that same clamp, so nothing moves
+  // until firmware selects otherwise.
+  val (ftex_u8, ftex_v8) = if (cfg.hasBilinear) {
+    // Fp16ToSignedTexCoord, not Fp16ToUint8: this is the one place a
+    // negative UV first becomes a texel coordinate, so it's the only call
+    // site that needs the sign-preserving conversion and the real sign bit
+    // -- see TexAddressMode's own doc for why REPEAT/MIRRORED_REPEAT
+    // couldn't wrap negative UV before this (io.texU/io.texV(15) below is
+    // the FP16 sign bit, not derived from the converted value).
+    val (u, _) = TexAddressMode(Fp16ToSignedTexCoord(io.texU), io.log2Dim, io.texAddrModeU.get, io.texU(15))
+    val (v, _) = TexAddressMode(Fp16ToSignedTexCoord(io.texV), io.log2Dim, io.texAddrModeV.get, io.texV(15))
+    (u, v)
+  } else {
+    (ClampTexCoord(Fp16ToUint8(io.texU), io.log2Dim),
+     ClampTexCoord(Fp16ToUint8(io.texV), io.log2Dim))
+  }
   ftexMortonIndex := MortonEncode(ftex_u8, ftex_v8)
+
+  // Bilinear operands. The integer halves deliberately reuse ftex_u8/ftex_v8
+  // rather than re-deriving from Fp16ToFixed88's high byte: the nearest path
+  // must keep sampling exactly the texel it always did, so the two paths
+  // share one source of truth for "which texel is the base".
+  texUnit.io.bilinear.foreach { b =>
+    b.enable  := io.texFilterLinear.get
+    b.u8      := ftex_u8
+    b.v8      := ftex_v8
+    b.fracU   := Fp16ToFixed88(io.texU)(7, 0)
+    b.fracV   := Fp16ToFixed88(io.texV)(7, 0)
+    b.log2Dim   := io.log2Dim
+    b.addrModeU := io.texAddrModeU.get
+    b.addrModeV := io.texAddrModeV.get
+    b.border    := io.texBorder.get
+  }
 
   // Default FTEX response
   io.texDone := false.B
@@ -291,8 +427,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       e1_outside(i) := false.B
       e2_outside(i) := false.B
       killed(i) := false.B
+      // Re-arm the opaque default every quad: a shader that writes r24 on one
+      // quad and not the next must not inherit the previous quad's alpha.
+      frag_a.foreach(_(i) := 0x3C00.U)
     }
     laneCtr := 0.U
+    sampleCtr.foreach(_ := 0.U)
     auto_run_stall := true.B
     phase := sRast
     io.coreTrigger.valid  := true.B
@@ -356,10 +496,99 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   when(phase === sTileWrite) {
     io.tileWrite.idx := io.shaderTileIndex(laneIdx)
-    io.tileWrite.data.r := frag_r(laneIdx)
-    io.tileWrite.data.g := frag_g(laneIdx)
-    io.tileWrite.data.b := frag_b(laneIdx)
-    io.tileWrite.data.z := frag_z(laneIdx)
+
+    // Step 50 item 9: fixed-function blending.
+    //
+    // The destination colour is already in hand -- io.tileRead.data was
+    // fetched three cycles ago for the depth test -- so blending needs no
+    // extra tile-buffer traffic, only the equation.
+    //
+    // Quantize both operands to UNORM8, blend, and expand back to the FP16
+    // the tile-write port speaks. That round trip is why the whole thing sits
+    // behind `enable`: with blending off the fragment's original FP16 bits go
+    // through untouched, so an enabled build still renders a non-blended
+    // frame bit-identically to a build compiled without hasBlend at all.
+    //
+    // Destination alpha comes from the tile buffer's own alpha plane, read on
+    // the same cycle as the colour/Z the depth test already fetched. Before
+    // that plane existed this was hardwired to 1.0, which is correct only for
+    // an opaque destination -- every DST_ALPHA-family factor gave the wrong
+    // answer when compositing into a translucent buffer, with nothing to
+    // indicate it.
+    //
+    // The plane is on-chip and tile-local, which is the full correctness
+    // scope for Borg's render model: a tile is cleared, all triangles binned
+    // to it blend against each other, then it is flushed. Alpha is not
+    // written to DRAM -- exposing an alpha-carrying *attachment format* an
+    // application can read back would additionally need the flusher to carry
+    // it, the same shape as the item-14 depth burst.
+    // The destination sample this cycle's write targets. In the broadcast
+    // path there is only ever one set of operands (sample 0's), which is the
+    // historical behaviour and its documented limitation; in the serialized
+    // path it walks every sample.
+    val dstIdx: UInt = sampleCtr.map(_.asUInt).getOrElse(0.U)
+
+    val (blendR, blendG, blendB) = if (cfg.hasBlend) {
+      val cfgIn = io.blendCfg.get
+      val src = Wire(new Rgba8)
+      src.r := ColorQuantize.quantize8(frag_r(laneIdx))
+      src.g := ColorQuantize.quantize8(frag_g(laneIdx))
+      src.b := ColorQuantize.quantize8(frag_b(laneIdx))
+      src.a := ColorQuantize.quantize8(frag_a.get(laneIdx))
+      val dst = Wire(new Rgba8)
+      dst.r := ColorQuantize.quantize8(io.tileRead.data(dstIdx).r)
+      dst.g := ColorQuantize.quantize8(io.tileRead.data(dstIdx).g)
+      dst.b := ColorQuantize.quantize8(io.tileRead.data(dstIdx).b)
+      dst.a := io.alphaRead.get(dstIdx)
+      val out = BorgBlend.blend(cfgIn, src, dst)
+      // The alpha channel's own blend result, stored back to the plane. With
+      // blending off the fragment's source alpha passes through, matching how
+      // the colour channels behave.
+      io.alphaWrite.get     := Mux(cfgIn.enable, out.a, src.a)
+      io.alphaWriteMask.get := cfgIn.colorWriteMask(3)
+      val blended = Seq(
+        Mux(cfgIn.enable, ColorQuantize.dequantize8(out.r), frag_r(laneIdx)),
+        Mux(cfgIn.enable, ColorQuantize.dequantize8(out.g), frag_g(laneIdx)),
+        Mux(cfgIn.enable, ColorQuantize.dequantize8(out.b), frag_b(laneIdx)))
+      // colorWriteMask: a masked-off channel keeps the destination value.
+      // Applied outside the `enable` mux on purpose -- Vulkan's write mask is
+      // independent of blendEnable, and the channel-isolating passes it
+      // exists for typically run with blending off.
+      //
+      // Only the R/G/B bits are consumed here; the A bit gates the alpha
+      // plane's write instead (io.alphaWriteMask above), so the colour and
+      // alpha stores are maskable independently, as Vulkan requires.
+      val dstRgb = Seq(io.tileRead.data(dstIdx).r, io.tileRead.data(dstIdx).g,
+                       io.tileRead.data(dstIdx).b)
+      val masked = blended.zip(dstRgb).zipWithIndex.map { case ((b, d), i) =>
+        Mux(cfgIn.colorWriteMask(i), b, d)
+      }
+      (masked(0), masked(1), masked(2))
+    } else (frag_r(laneIdx), frag_g(laneIdx), frag_b(laneIdx))
+
+    io.tileWrite.data.r := blendR
+    io.tileWrite.data.g := blendG
+    io.tileWrite.data.b := blendB
+    // depthWriteEnable: on a passing fragment, write the new Z (historical
+    // behaviour, write_en=1) or preserve the stored one (write_en=0, which
+    // Vulkan requires for depth-read-only passes -- colour still updates).
+    //
+    // samples==1 only. At samples>1 each sample has its OWN stored Z but
+    // TileWriteIO carries a single shared `data` for every covered sample
+    // (see its doc comment -- shade once, broadcast), so preserving
+    // per-sample depth would need a per-sample Z write mask on that port.
+    // Rather than silently write sample 0's old Z to every sample, MSAA
+    // keeps the historical always-write behaviour; making write_en correct
+    // there is real port work, noted here and in DEPTH_CFG's own RDL desc.
+    // depthWriteEnable is honoured whenever the write targets a single known
+    // sample -- always at samples==1, and on the serialized path at any
+    // sample count. The broadcast path at samples>1 still cannot: preserving
+    // depth there would mean writing sample 0's stored Z to every covered
+    // sample, which is worse than ignoring the bit, so it keeps the
+    // historical unconditional store.
+    io.tileWrite.data.z := (if (cfg.samples == 1 || needPerSample)
+                              Mux(io.depthWriteEn, frag_z(laneIdx), io.tileRead.data(dstIdx).z)
+                            else frag_z(laneIdx))
     // Depth test, per sample: a sample takes the fragment only if the lane is
     // inside (coverage), not discarded, AND this sample's own stored Z is
     // farther.  FP16 Z is non-negative in NDC; unsigned < comparison is valid.
@@ -369,22 +598,105 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // Per sample: covered by the triangle, not discarded, and passing that
     // sample's own depth test.  At samples == 1 `coverage(lane)(0)` is exactly
     // the historical inside_flag.
-    val samplePass = (0 until cfg.samples).map { s =>
-      coverage(laneIdx)(s) && !killed(laneIdx) && (frag_z(laneIdx) < io.tileRead.data(s).z)
-    }
-    io.tileWrite.coverage := Cat(samplePass.reverse)
-    io.tileWrite.en       := samplePass.reduce(_ || _)
-    if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d idx=%d Z=0x%x zOld_s0=0x%x cov=0x%x\n",
-      laneCtr, io.shaderTileIndex(laneIdx), frag_z(laneIdx), io.tileRead.data(0).z,
-      Cat(samplePass.reverse))
+    // VkCompareOp depth test. FP16 Z is non-negative in NDC and positive
+    // IEEE floats order identically as unsigned integers, so every ordering
+    // op below is a plain unsigned compare on the raw bits -- the same
+    // property the historical hardcoded `<` already relied on.
+    def depthPasses(newZ: UInt, oldZ: UInt): Bool =
+      CompareOp(io.depthCompareOp, newZ, oldZ)
 
-    when(laneCtr === (N - 1).U) {
-      laneCtr := 0.U
-      phase := sIdle
-      auto_run_stall := false.B
-    }.otherwise {
-      laneCtr := laneCtr + 1.U
-      phase := sZRead   // next lane
+    // Stencil (Step 50 item 10), folded into the same cycle.
+    //
+    // The order matters and is not symmetric: the stencil test runs BEFORE
+    // the depth test but the stencil buffer is written AFTER the depth
+    // result is known (the op chosen depends on it), so both are evaluated
+    // here rather than split across states. The stencil buffer is written on
+    // all three outcomes, including the two that kill the fragment -- hence
+    // stencilWriteEn is its own signal, not io.tileWrite.en.
+    //
+    // frontFacing is now real per-triangle hardware (BorgSequencer's two
+    // passes carry it through DRAM alongside has_uvs), so back-face stencil
+    // state is reachable wherever CULL_CFG is configured to let back-facing
+    // fragments through (VK_CULL_MODE_NONE/FRONT).
+    val stencilRes = if (cfg.hasStencil) {
+      Some(BorgStencil.evaluate(io.stencilCfg.get, io.frontFacing.get, io.stencilRead.get(dstIdx),
+                                depthPasses(frag_z(laneIdx), io.tileRead.data(dstIdx).z)))
+    } else None
+
+    // "The fragment reached the per-fragment tests at all": covered by the
+    // triangle, not discarded, inside the scissor. A `discard`ed or
+    // scissored-out fragment performs no per-fragment operations, so it must
+    // not advance the stencil buffer either.
+    // Two overloads rather than one taking a UInt: the broadcast path's
+    // sample index is a compile-time constant, and passing it as `s.U` would
+    // build a dynamic Vec access where the original code had a direct wire.
+    // firtool folds it either way, but the emitted CHIRRTL would no longer be
+    // structurally identical to the pre-serialization design -- and "the
+    // untouched path is unchanged, not merely equivalent" is a property worth
+    // keeping literally true.
+    def reached(s: Int): Bool =
+      coverage(laneIdx)(s) && !killed(laneIdx) && io.scissorPass(laneIdx)
+    def reachedDyn(s: UInt): Bool =
+      coverage(laneIdx)(s) && !killed(laneIdx) && io.scissorPass(laneIdx)
+
+    if (needPerSample) {
+      // Serialized: one sample per cycle, one-hot coverage.
+      val depthOk = stencilRes.map(_.pass)
+        .getOrElse(depthPasses(frag_z(laneIdx), io.tileRead.data(dstIdx).z))
+      val pass = reachedDyn(dstIdx) && depthOk
+      val oneHot = UIntToOH(dstIdx, cfg.samples)
+      io.tileWrite.coverage := Mux(pass, oneHot, 0.U)
+      io.tileWrite.en       := pass
+      stencilRes.foreach { r =>
+        io.stencilWrite.get       := r.newValue
+        io.stencilWriteMask.get   := Mux(reachedDyn(dstIdx), oneHot, 0.U)
+      }
+    } else {
+      // Broadcast: every sample evaluated in one cycle against its own stored
+      // Z, one shared colour. Structurally the historical path.
+      val samplePass = (0 until cfg.samples).map { s =>
+        val depthOk = stencilRes match {
+          // evaluate() already folds the depth result in, and additionally
+          // requires the stencil test to pass.
+          case Some(r) if s == 0 => r.pass
+          case _                 => depthPasses(frag_z(laneIdx), io.tileRead.data(s).z)
+        }
+        reached(s) && depthOk
+      }
+      io.tileWrite.coverage := Cat(samplePass.reverse)
+      io.tileWrite.en       := samplePass.reduce(_ || _)
+      stencilRes.foreach { r =>
+        io.stencilWrite.get     := r.newValue
+        io.stencilWriteMask.get := Mux(reached(0), Fill(cfg.samples, 1.U(1.W)), 0.U)
+      }
+    }
+    if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d smp=%d idx=%d Z=0x%x zOld=0x%x cov=0x%x\n",
+      laneCtr, dstIdx, io.shaderTileIndex(laneIdx), frag_z(laneIdx),
+      io.tileRead.data(dstIdx).z, io.tileWrite.coverage)
+
+    // Lane advance. On the serialized path this only runs after the last
+    // sample of the lane -- the tile read stays valid across all of them, so
+    // the extra samples cost cycles in sTileWrite and nothing else.
+    def advanceLane(): Unit = {
+      when(laneCtr === (N - 1).U) {
+        laneCtr := 0.U
+        phase := sIdle
+        auto_run_stall := false.B
+      }.otherwise {
+        laneCtr := laneCtr + 1.U
+        phase := sZRead   // next lane
+      }
+    }
+
+    sampleCtr match {
+      case Some(ctr) =>
+        when(ctr === (cfg.samples - 1).U) {
+          ctr := 0.U
+          advanceLane()
+        }.otherwise {
+          ctr := ctr + 1.U   // stay in sTileWrite for the next sample
+        }
+      case None => advanceLane()
     }
   }
 
@@ -447,14 +759,25 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   }
   // @doc:end
 
-  // Per-lane fragment output snoop (Hardware ABI: Kill=r25, R=r26, G=r27, B=r28, Z=r29)
+  // Per-lane fragment output snoop (Hardware ABI: Kill=r25, R=r26, G=r27, B=r28, Z=r29).
+  // R/G/B/Z feed the FP16-native tile buffer (frag_r/g/b/z below are 16-bit
+  // registers, unchanged regardless of cfg.fp -- tile-buffer color/Z storage
+  // is a deliberate FP16-native boundary, see the branch's plan doc). At
+  // FP32, io.pipeWrite(i).data is a genuine 32-bit fragment-shader ALU
+  // result -- narrow() rounds it to the nearest FP16 value; a raw (15,0)
+  // slice (the pre-fix code) kept the wrong bits entirely, same class of
+  // bug as clipRegs/setupRegs before commit 505bc139.
+  def fragNarrow(d: UInt): UInt = if (config.totalBits > 16) Fp16Fp32.narrow(d) else d(15, 0)
   for (i <- 0 until N) {
     when(io.pipeWrite(i).en && phase === sFrag) {
+      frag_a.foreach { a =>
+        when(io.pipeWrite(i).addr === 24.U) { a(i) := fragNarrow(io.pipeWrite(i).data) }
+      }
       when(io.pipeWrite(i).addr === 25.U) { killed(i) := killed(i) || (io.pipeWrite(i).data =/= 0.U) }
-      when(io.pipeWrite(i).addr === 26.U) { frag_r(i) := io.pipeWrite(i).data(15, 0) }
-      when(io.pipeWrite(i).addr === 27.U) { frag_g(i) := io.pipeWrite(i).data(15, 0) }
-      when(io.pipeWrite(i).addr === 28.U) { frag_b(i) := io.pipeWrite(i).data(15, 0) }
-      when(io.pipeWrite(i).addr === 29.U) { frag_z(i) := io.pipeWrite(i).data(15, 0) }
+      when(io.pipeWrite(i).addr === 26.U) { frag_r(i) := fragNarrow(io.pipeWrite(i).data) }
+      when(io.pipeWrite(i).addr === 27.U) { frag_g(i) := fragNarrow(io.pipeWrite(i).data) }
+      when(io.pipeWrite(i).addr === 28.U) { frag_b(i) := fragNarrow(io.pipeWrite(i).data) }
+      when(io.pipeWrite(i).addr === 29.U) { frag_z(i) := fragNarrow(io.pipeWrite(i).data) }
     }
   }
 

@@ -163,8 +163,29 @@ reg status_reg_t {
     } seq_busy[1] = 0;
 
     field {
+        sw = r; hw = w;
+        desc = "Bit 6: Branch divergence — sticky, set when a BRZ/BRNZ
+                condition differed between lanes of a 2x2 quad. The quad
+                shares one program counter, so such a branch cannot be
+                executed correctly by any choice the hardware could make;
+                the contract is that branch conditions are quad-uniform, and
+                this bit exists so a violation is observable instead of
+                silently producing a wrong image. Always 0 at fragLanes=1.
+                Cleared by a core reset.";
+    } branch_divergent[1] = 0;
+
+    field {
+        sw = r; hw = w;
+        desc = "Bit 7: Execution-mask fault — sticky, set when the
+                EXPUSH/EXPOP stack over- or underflowed, i.e. a shader's
+                mask push/pop pairs are unbalanced or nested deeper than 8.
+                Any such program produces wrong results; this makes that
+                detectable rather than silent. Cleared by a core reset.";
+    } exec_fault[1] = 0;
+
+    field {
         sw = r; hw = na;
-    } RSVD_hi[26] = 0;
+    } RSVD_hi[24] = 0;
 };
 
 // --- Fragment shader start PC ---
@@ -408,6 +429,360 @@ reg flush_fb_base_reg_t {
     field {
         sw = rw; hw = na;
     } RSVD[12] = 0;
+};
+
+// --- Depth test configuration (Step 50 item 11) ---
+reg depth_cfg_reg_t {
+    name = "Depth Test Configuration";
+    desc = "Per-pipeline depth state. Vulkan requires all 8 VkCompareOp values
+            to be selectable for the depth test (no feature bit gates it), and
+            requires depthWriteEnable; the hardware previously hardcoded LESS
+            with depth always written on pass. Reset values reproduce that
+            historical behaviour exactly, so firmware that never writes this
+            register is unaffected.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 2:0: VkCompareOp for the depth test. 0=NEVER, 1=LESS,
+                2=EQUAL, 3=LESS_OR_EQUAL, 4=GREATER, 5=NOT_EQUAL,
+                6=GREATER_OR_EQUAL, 7=ALWAYS. Reset 1 (LESS) is the historical
+                hardcoded comparison.";
+    } compare_op[3] = 1;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bit 3: depthWriteEnable. 1 = a passing fragment updates the
+                stored Z (historical behaviour); 0 = depth is tested but never
+                written, which Vulkan requires for depth-read-only passes.";
+    } write_en[1] = 1;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[28] = 0;
+};
+
+// --- Colour blend configuration (Step 50 item 9) ---
+reg blend_cfg_reg_t {
+    name = "Blend Configuration";
+    desc = "Fixed-function colour blend state, laid out to match
+            VkPipelineColorBlendAttachmentState so the driver passes the
+            Vulkan enum values through with no translation table.
+
+            Blending is core Vulkan functionality -- only independentBlend
+            and dualSrcBlend are the optional extras. Reset 0 disables it,
+            which is the historical unconditional-overwrite behaviour, so
+            firmware that never writes this register is unaffected.
+
+            Factor encodings are VkBlendFactor 0..14; the SRC1_* values
+            (15..18) belong to the optional dualSrcBlend feature and are not
+            implemented. Op encodings are VkBlendOp 0..4 (ADD, SUBTRACT,
+            REVERSE_SUBTRACT, MIN, MAX).";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bit 0: blendEnable. 0 = the fragment colour overwrites the
+                destination (and skips the UNORM8 round trip entirely).";
+    } enable[1] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 5:1: srcColorBlendFactor (VkBlendFactor).";
+    } src_color_factor[5] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 10:6: dstColorBlendFactor (VkBlendFactor).";
+    } dst_color_factor[5] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 13:11: colorBlendOp (VkBlendOp).";
+    } color_op[3] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 18:14: srcAlphaBlendFactor (VkBlendFactor).";
+    } src_alpha_factor[5] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 23:19: dstAlphaBlendFactor (VkBlendFactor).";
+    } dst_alpha_factor[5] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 26:24: alphaBlendOp (VkBlendOp).";
+    } alpha_op[3] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 30:27: colorWriteMask (VkColorComponentFlagBits) -- bit 0
+                R, 1 G, 2 B, 3 A. A masked-off channel keeps the destination's
+                value. Independent of `enable`: Vulkan applies the write mask
+                whether or not blending is on, which is what makes it usable
+                for the depth-only and channel-isolating passes it exists for.
+                Reset 0xF = write every channel, the historical behaviour.
+                The A bit has nothing to act on -- Borg's colour attachment
+                stores no alpha -- so masking it is already what happens.";
+    } color_write_mask[4] = 15;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[1] = 0;
+};
+
+reg blend_const_reg_t {
+    name = "Blend Constant Colour";
+    desc = "VkPipelineColorBlendStateCreateInfo::blendConstants, as UNORM8
+            components -- the value the CONSTANT_COLOR / CONSTANT_ALPHA
+            blend factors select. Blending is performed in UNORM8, so this
+            is the natural encoding rather than four floats.";
+
+    field { sw = rw; hw = r; desc = "Bits 7:0: R."; }   const_r[8] = 0;
+    field { sw = rw; hw = r; desc = "Bits 15:8: G."; }  const_g[8] = 0;
+    field { sw = rw; hw = r; desc = "Bits 23:16: B."; } const_b[8] = 0;
+    field { sw = rw; hw = r; desc = "Bits 31:24: A."; } const_a[8] = 0;
+};
+
+// --- Stencil test configuration (Step 50 item 10) ---
+reg stencil_cfg_reg_t {
+    name = "Stencil Configuration";
+    desc = "Stencil enable plus both faces' VkStencilOpState op fields.
+            Vulkan always has independent front/back stencil state -- no
+            feature bit makes them share -- so both faces live in the
+            datapath rather than being swapped between draws.
+
+            Compare ops are VkCompareOp 0..7 (the same encoding DEPTH_CFG
+            uses); stencil ops are VkStencilOp 0..7: 0=KEEP, 1=ZERO,
+            2=REPLACE, 3=INCREMENT_AND_CLAMP, 4=DECREMENT_AND_CLAMP,
+            5=INVERT, 6=INCREMENT_AND_WRAP, 7=DECREMENT_AND_WRAP.
+
+            Reset 0 disables stencil entirely, reproducing the historical
+            no-stencil behaviour.
+
+            NOTE: back-face state is currently unreachable. The geometry
+            sequencer culls back-facing triangles before rasterization, so
+            every fragment is front-facing; two-sided stencil needs
+            configurable cull mode (VK_CULL_MODE_NONE) first.";
+
+    field { sw = rw; hw = r; desc = "Bit 0: stencilTestEnable."; } enable[1] = 0;
+
+    field { sw = rw; hw = r; desc = "Bits 3:1: front compareOp (VkCompareOp)."; }
+        front_compare_op[3] = 0;
+    field { sw = rw; hw = r; desc = "Bits 6:4: front failOp (VkStencilOp)."; }
+        front_fail_op[3] = 0;
+    field { sw = rw; hw = r; desc = "Bits 9:7: front passOp (VkStencilOp)."; }
+        front_pass_op[3] = 0;
+    field { sw = rw; hw = r; desc = "Bits 12:10: front depthFailOp (VkStencilOp)."; }
+        front_depth_fail_op[3] = 0;
+
+    field { sw = rw; hw = r; desc = "Bits 15:13: back compareOp (VkCompareOp)."; }
+        back_compare_op[3] = 0;
+    field { sw = rw; hw = r; desc = "Bits 18:16: back failOp (VkStencilOp)."; }
+        back_fail_op[3] = 0;
+    field { sw = rw; hw = r; desc = "Bits 21:19: back passOp (VkStencilOp)."; }
+        back_pass_op[3] = 0;
+    field { sw = rw; hw = r; desc = "Bits 24:22: back depthFailOp (VkStencilOp)."; }
+        back_depth_fail_op[3] = 0;
+
+    field { sw = rw; hw = na; } RSVD[7] = 0;
+};
+
+reg plane_clear_reg_t {
+    name = "Auxiliary Plane Clear Values";
+    desc = "Clear values for the tile buffer's two auxiliary planes -- the
+            stencil plane and the destination-alpha plane. Neither fits in
+            the existing SEQ_CLEAR_LO/HI pair (that is fully occupied by
+            R/G/B/Z) and neither had enough spare bits in its own config
+            register, so both live here.
+
+            The alpha reset is 0xFF, not 0: an opaque destination is what the
+            hardware behaved as before the alpha plane existed, so an
+            alpha-capable build that never writes this register renders
+            exactly like one without it.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 7:0: stencil clear value (VkClearDepthStencilValue::stencil).";
+    } stencil[8] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 15:8: destination alpha clear value, UNORM8
+                (VkClearColorValue alpha). Reset 0xFF = opaque.";
+    } alpha[8] = 255;
+
+    field { sw = rw; hw = na; } RSVD[16] = 0;
+};
+
+reg stencil_face_reg_t {
+    name = "Stencil Face Masks";
+    desc = "One face's compareMask, writeMask and reference. These are the
+            three pieces of stencil state Vulkan lets an application change
+            without rebuilding the pipeline (VK_DYNAMIC_STATE_STENCIL_*),
+            which is why they sit in their own register.";
+
+    field { sw = rw; hw = r; desc = "Bits 7:0: compareMask."; }   compare_mask[8] = 0;
+    field { sw = rw; hw = r; desc = "Bits 15:8: writeMask."; }    write_mask[8] = 0;
+    field { sw = rw; hw = r; desc = "Bits 23:16: reference."; }   reference[8] = 0;
+    field { sw = rw; hw = na; } RSVD[8] = 0;
+};
+
+// --- Face culling configuration (Step 50) ---
+reg cull_cfg_reg_t {
+    name = "Face Culling Configuration";
+    desc = "Configurable face culling. Vulkan requires all four
+            VkCullModeFlagBits values (NONE, FRONT, BACK, FRONT_AND_BACK)
+            and both VkFrontFace windings; the hardware previously always
+            culled back-facing triangles with no way to change it, so
+            VK_CULL_MODE_NONE -- needed by any two-sided draw, and the
+            precondition for two-sided stencil ever doing anything -- was
+            simply unavailable.
+
+            Reset values reproduce the historical always-cull-back
+            behaviour, so firmware that never writes this register is
+            unaffected.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 1:0: VkCullModeFlagBits -- bit 0 culls front faces,
+                bit 1 culls back faces. 0 = NONE (no culling), 3 =
+                FRONT_AND_BACK (everything culled). Reset 2 = BACK, the
+                historical hardcoded behaviour.";
+    } cull_mode[2] = 2;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bit 2: invert the facing determination. 0 keeps the
+                historical convention (the setup shader's signed area sign
+                bit means back-facing); 1 swaps front and back.
+
+                Deliberately named 'invert' rather than exposing VkFrontFace
+                directly: which of CLOCKWISE / COUNTER_CLOCKWISE the current
+                setup shader's winding corresponds to has not been confirmed
+                by experiment, and guessing the mapping here would bake a
+                coin flip into the register map. The driver needs one
+                two-triangle test to pin it down, after which this can be
+                documented as the VkFrontFace bit it actually is.";
+    } front_face_invert[1] = 0;
+
+    field { sw = rw; hw = na; } RSVD[29] = 0;
+};
+
+// --- Scissor rectangle (Step 50) ---
+reg scissor_x_reg_t {
+    name = "Scissor Rectangle X";
+    desc = "Scissor test X bounds, in pixels. x0 is inclusive, x1 exclusive,
+            so a VkRect2D maps directly: x0 = offset.x, x1 = offset.x +
+            extent.width.
+
+            The scissor test is core Vulkan -- every graphics pipeline has a
+            scissor rectangle, there is no feature bit and no way to opt out
+            of the state -- and Borg had none: a fragment inside the triangle
+            was always written.
+
+            13 bits per bound, not 12: the bounds are half-open, so covering
+            the full 4096-wide framebuffer Vulkan requires needs x1 = 4096,
+            which does not fit in 12 bits.";
+
+    field { sw = rw; hw = r; desc = "Bits 12:0: x0, inclusive."; }  x0[13] = 0;
+    field { sw = rw; hw = r; desc = "Bits 25:13: x1, exclusive."; } x1[13] = 0;
+    field { sw = rw; hw = na; } RSVD[6] = 0;
+};
+
+reg scissor_y_reg_t {
+    name = "Scissor Rectangle Y";
+    desc = "Scissor test Y bounds plus the enable. y0 inclusive, y1
+            exclusive, matching scissor_x.";
+
+    field { sw = rw; hw = r; desc = "Bits 12:0: y0, inclusive."; }  y0[13] = 0;
+    field { sw = rw; hw = r; desc = "Bits 25:13: y1, exclusive."; } y1[13] = 0;
+    field {
+        sw = rw; hw = r;
+        desc = "Bit 26: scissor enable. Reset 0 -- every fragment passes, the
+                historical behaviour. An enable bit rather than resetting the
+                bounds wide open, so firmware that zeroes the register block
+                does not silently discard the whole frame.";
+    } enable[1] = 0;
+    field { sw = rw; hw = na; } RSVD[5] = 0;
+};
+
+// --- Load/store base address (Step 50) ---
+reg ls_base_reg_t {
+    name = "Load/Store Base Address";
+    desc = "Base DRAM byte address that the LOAD and STORE shader
+            instructions are relative to. Effectively an SSBO descriptor: the
+            shader supplies an element index, the hardware forms
+            LS_BASE + (index << 2).
+
+            The operand cannot be a full address. At FP16 a shader register
+            holds 16 bits and the GPU address space is 25, so a register
+            physically cannot carry one -- hence base-plus-index, which is
+            also the shape the texture unit already uses and the shape a
+            Vulkan descriptor binding naturally has.
+
+            Reset 0. Nothing reads this until a shader actually executes a
+            LOAD or STORE, so firmware that never writes it is unaffected.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 24:0: base DRAM byte address (32 MB space).";
+    } base_addr[25] = 0;
+
+    field { sw = rw; hw = na; } RSVD[7] = 0;
+};
+
+// --- Sampler configuration (Step 50) ---
+reg sampler_cfg_reg_t {
+    name = "Sampler Configuration";
+    desc = "Texture sampler state. Linear filtering is core Vulkan -- no
+            feature bit gates VK_FILTER_LINEAR -- and Borg sampled
+            nearest-neighbour only.
+
+            Reset 0 (NEAREST) reproduces the historical behaviour exactly,
+            including skipping the UNORM8 round trip the filtered path uses,
+            so firmware that never writes this register is unaffected.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bit 0: VkFilter for magnification and minification alike --
+                0 = VK_FILTER_NEAREST, 1 = VK_FILTER_LINEAR. Vulkan carries
+                magFilter and minFilter separately; Borg has no LOD selection
+                yet, so there is no minification path to filter differently
+                and one bit covers both. Splitting them belongs with mipmap
+                support, not before it.";
+    } filter_linear[1] = 0;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 2:1: addressModeU (VkSamplerAddressMode) -- 0 = REPEAT,
+                1 = MIRRORED_REPEAT, 2 = CLAMP_TO_EDGE, 3 = CLAMP_TO_BORDER.
+                Reset 2 (CLAMP_TO_EDGE) is exactly what the hardware did
+                before this field existed. MIRROR_CLAMP_TO_EDGE needs an
+                extension and is not implemented.
+
+                NOTE: wrapping applies to a coordinate already converted to
+                an unsigned texel index, so a NEGATIVE UV arrives as 0 and
+                cannot wrap. Positive overflow wraps correctly. Fixing the
+                negative case needs a signed coordinate conversion.";
+    } addr_mode_u[2] = 2;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 4:3: addressModeV, same encoding.";
+    } addr_mode_v[2] = 2;
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 6:5: VkBorderColor for CLAMP_TO_BORDER -- 0 =
+                TRANSPARENT_BLACK, 1 = OPAQUE_BLACK, 2 = OPAQUE_WHITE. The
+                float and int variants of each collapse here; CUSTOM belongs
+                to VK_EXT_custom_border_color and would need a colour
+                register rather than an enum. Transparent and opaque black
+                are the same value while the texture path stores no alpha.";
+    } border_color[2] = 0;
+
+    field { sw = rw; hw = na; } RSVD[25] = 0;
 };
 
 // --- Tile flusher Z-buffer base address (Step 25.3h) ---
@@ -981,6 +1356,39 @@ addrmap borg_gpu {
     // ---- Sequencer Setup Store Base: 0x268 — nogen (Step 32.3) ----
     seq_setup_base_reg_t seq_setup_base;
     seq_setup_base->nogen = true;
+
+    // ---- Depth test configuration — fully generated (hw=r, Borg reads
+    //      io.hw.depth_cfg_compare_op / _write_en). Reset values reproduce
+    //      the historical hardcoded LESS + always-write behaviour. ----
+    depth_cfg_reg_t depth_cfg;
+
+    // ---- Blend configuration — fully generated (hw=r, Borg reads
+    //      io.hw.blend_cfg_* / blend_const_*). Reset 0 = blending disabled,
+    //      i.e. the historical unconditional overwrite. ----
+    blend_cfg_reg_t blend_cfg;
+    blend_const_reg_t blend_const;
+
+    // ---- Stencil configuration — fully generated (hw=r). Reset 0 = stencil
+    //      disabled, i.e. the historical no-stencil behaviour. ----
+    stencil_cfg_reg_t stencil_cfg;
+    stencil_face_reg_t stencil_front;
+    stencil_face_reg_t stencil_back;
+    plane_clear_reg_t plane_clear;
+
+    // ---- Face culling — fully generated (hw=r). Reset = cull back faces,
+    //      the historical hardcoded behaviour. ----
+    cull_cfg_reg_t cull_cfg;
+
+    // ---- Scissor rectangle — fully generated (hw=r). Reset = disabled,
+    //      i.e. every fragment passes. ----
+    scissor_x_reg_t scissor_x;
+    scissor_y_reg_t scissor_y;
+
+    // ---- Load/store base — fully generated (hw=r). Reset 0. ----
+    ls_base_reg_t ls_base;
+
+    // ---- Sampler configuration — fully generated (hw=r). Reset = NEAREST. ----
+    sampler_cfg_reg_t sampler_cfg;
 
     // ---- Performance counters: present-phase decomposition ----
     // Fully generated (hw=w → Borg drives io.hw.perf_*_value, SW reads).

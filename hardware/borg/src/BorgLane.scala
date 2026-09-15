@@ -16,7 +16,7 @@ import chisel3.util._
   * here as inputs: the decoded instruction (`regs`/`opFlags`), the pipeline
   * control (`busyCounter`/`running`/`isBusy`/`fmaStart`), the single uniform-RAM
   * read result (`uniformData`/`funct3Del`), the MMIO bus, LUT init, and the FTEX
-  * write-back (`texWrite`) from the shared FTEX FSM.
+  * write-back (`memWrite`) from the shared FTEX FSM.
   *
   * Write-back addr+enable are shared (same `rd`/MMIO address, same control); only
   * the data differs per lane, so the lane computes its own data and writes its own
@@ -30,6 +30,10 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // --- Shared control (broadcast identically to every lane) ---
   val regs        = Input(new RegIndices())
   val opFlags     = Input(new FpuOpFlags())
+  // This lane's bit of the execution mask. Low means the lane is inside the
+  // not-taken arm of a divergent `if`: it still executes (the quad shares one
+  // program counter, so it has no choice) but none of its writes may land.
+  val execActive  = Input(Bool())
   val busyCounter = Input(UInt(3.W))
   val running     = Input(Bool())
   val isBusy      = Input(Bool())
@@ -53,7 +57,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val bus         = Flipped(new BorgBusIO())
 
   // --- FTEX write-back from the shared FTEX FSM (en/addr/data) ---
-  val texWrite    = Flipped(new MemWritePort(5, 16))
+  val memWrite    = Flipped(new MemWritePort(5, cfg.totalBits))
 
   // --- Outputs ---
   val pipeWrite   = new PipeWriteIO(cfg.totalBits) // write-back snoop
@@ -89,6 +93,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val opFlags      = io.opFlags
 
   // --- Coordinate expansion (r30/r31 = pixel center i+0.5) ---
+  // Deliberately stays FP16-native (rasterizer coordinate generation, per
+  // the branch's plan doc) regardless of cfg.fp -- widened into coordX/
+  // coordY's full cfg.totalBits width via Fp16Fp32.widen below, rather than
+  // relying on plain zero-extension, which is only a valid FP32 value when
+  // cfg.fp is already FP16 (totalBits==16, i.e. a no-op).
   def pixelToFP16Half(i: UInt): UInt = {
     val x    = Cat(i, 1.U(1.W))
     val n    = Log2(x)
@@ -96,12 +105,14 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val frac = (x << (10.U - n))(9, 0)
     Cat(0.U(1.W), exp, frac)
   }
+  private def coordToRegWidth(h: UInt): UInt =
+    if (config.totalBits == 16) h else Fp16Fp32.widen(h)
   private val coordReadEn = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
   private val coordX = Reg(UInt(config.totalBits.W))
   private val coordY = Reg(UInt(config.totalBits.W))
   when(coordReadEn) {
-    coordX := pixelToFP16Half(io.iter.x)
-    coordY := pixelToFP16Half(io.iter.y)
+    coordX := coordToRegWidth(pixelToFP16Half(io.iter.x))
+    coordY := coordToRegWidth(pixelToFP16Half(io.iter.y))
   }
 
   // --- Register reads + uniform operand mux ---
@@ -252,8 +263,14 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * shared, muxed by which op is latched active this instruction. */
   // @doc:frcp
   private def computeFp16Special(recA_raw: UInt, isFrcp: Bool, isFrsq: Bool, isFsrgb: Bool): UInt = {
-    val exp  = recA_raw(14, 10)
-    val mant = recA_raw(9, 0)
+    // Narrow once, up front: every LUT index below and special.io.in itself
+    // must all read the SAME FP16 bit pattern. Reading exp/mant straight off
+    // recA_raw's low bits would silently misindex the ROMs at FP32 (bits
+    // 9:0/14:10 of a 32-bit FP32 pattern are not this value's FP16 mantissa/
+    // exponent -- they're arbitrary low mantissa bits of the FP32 pattern).
+    val fp16In = if (config.totalBits > 16) Fp16Fp32.narrow(recA_raw) else recA_raw(15, 0)
+    val exp  = fp16In(14, 10)
+    val mant = fp16In(9, 0)
 
     // rcp's LUT is 33 entries on mant(9,5) (rsq/srgb stay on mant(9,6)); idx is
     // 0..31 so only idx+1 can reach the last entry. A 33-entry Vec requires a
@@ -280,11 +297,14 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val nextReg = RegEnable(rawNext, is_busy && busy_counter === 3.U)
 
     val special = Module(new Fp16Special)
-    special.io.in      := recA_raw(15, 0)
+    // Fp16Special stays FP16-internal (existing LUT hardware) regardless of
+    // cfg.fp -- feed it the same narrowed fp16In used for the LUT indices
+    // above, widen its FP16 result back up at the output below.
+    special.io.in      := fp16In
     special.io.lutVal  := valReg
     special.io.lutNext := nextReg
     special.io.op      := Mux(isFrcp, Fp16SpecialOp.Rcp, Mux(isFrsq, Fp16SpecialOp.Rsq, Fp16SpecialOp.Srgb))
-    if (config.totalBits > 16) Cat(0.U((config.totalBits - 16).W), special.io.out)
+    if (config.totalBits > 16) Fp16Fp32.widen(special.io.out)
     else special.io.out
   }
   // @doc:end
@@ -311,7 +331,9 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val mantN = config.sig - 1            // 10 stored mantissa bits
     val bias  = (1 << (config.exp - 1)) - 1   // 15
 
-    val shamt = recB_raw(3, 0)
+    // Shift amount: covers the full 0..w-1 range (4 bits sufficed only for
+    // w=16; w=32 needs 5).
+    val shamt = recB_raw(log2Ceil(w) - 1, 0)
     val iadd = (recA_raw +& recB_raw)(w - 1, 0)
     val ishl = (recA_raw << shamt)(w - 1, 0)
     val ishr = (recA_raw.asSInt >> shamt).asUInt(w - 1, 0)
@@ -355,7 +377,14 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       int_result: UInt, is_int_reg: Bool, mmio_reg_data: UInt
   ): Unit = {
     val mmio_write = io.bus.is_writing && io.bus.address >= BorgGpuRegs.gpr_offset && io.bus.address < BorgGpuRegs.imem_offset
-    val pipe_write = running && is_busy && busy_counter === 1.U
+    // A branch has no destination: its rd field carries the low bits of the
+    // target address, so writing back would corrupt an unrelated register.
+    // The exec mask gates the same point, which is what makes predicated
+    // execution correct for everything the ALU produces -- including the
+    // fragment outputs r24..r29, since the dispatcher snoops them through
+    // this very port.
+    val pipe_write = running && is_busy && busy_counter === 1.U &&
+                     !io.opFlags.branch && !io.opFlags.execOp && io.execActive
     val w_en = mmio_write || pipe_write
     // Truncated to log2Ceil(32) for the same reason as wireGprReads' mmioAddr:
     // this branch is only selected when mmio_write is true, which bounds
@@ -376,13 +405,15 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.pipeWrite.addr := w_addr
     io.pipeWrite.data := w_data
 
-    // FTEX write-back override (shared FSM drives texWrite; last-connect wins,
-    // matching the original wireTexStall-after-wireWriteBack ordering).
-    when(io.texWrite.en) {
-      writeReg(io.texWrite.addr, true.B, io.texWrite.data)
+    // Memory-FSM write-back override (FTEX's texel triple, or LOAD's word).
+    // Last-connect wins, matching the original wireTexStall-after-
+    // wireWriteBack ordering. Named memWrite rather than texWrite since
+    // FTEX is no longer its only driver.
+    when(io.memWrite.en && io.execActive) {
+      writeReg(io.memWrite.addr, true.B, io.memWrite.data)
       io.pipeWrite.en   := true.B
-      io.pipeWrite.addr := io.texWrite.addr
-      io.pipeWrite.data := io.texWrite.data
+      io.pipeWrite.addr := io.memWrite.addr
+      io.pipeWrite.data := io.memWrite.data
     }
   }
 

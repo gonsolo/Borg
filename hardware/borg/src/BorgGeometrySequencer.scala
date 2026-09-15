@@ -37,12 +37,12 @@ class BorgGeometrySequencerIO(val cfg: BorgConfig) extends Bundle {
   val mmio   = new SeqMmioIO(cfg)
   val binner = new SeqBinnerIO(cfg)   // only start/triIndex/bbox/clearCounts/busy used
   val store  = new SeqStoreIO
-  val dma    = new SeqDmaIO
+  val dma    = new SeqDmaIO(cfg)
 
   val coreTrigger = new CoreTriggerIO
   val coreStatus  = Flipped(new CoreStatusIO)
   val pipeWrite   = Flipped(new PipeWriteIO(cfg.totalBits))
-  val uniformWrite     = new MemWritePort(6, 16)
+  val uniformWrite     = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
   val seqShaderActive  = Output(Bool())
 
@@ -55,7 +55,7 @@ class BorgGeometrySequencerIO(val cfg: BorgConfig) extends Bundle {
   // idle, after a full frame completes) -- see BorgSequencer's own doc for
   // why that fallback is load-bearing, not incidental.
   val covDeltaOut = if (cfg.samples > 1)
-    Some(Output(Vec(6, UInt(16.W)))) else None
+    Some(Output(Vec(6, UInt(cfg.totalBits.W)))) else None
 }
 
 class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -84,16 +84,29 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
   val writeIdx = RegInit(0.U(5.W))
 
   // Shadow registers for clip-space outputs (3 vertices x 3 components: x,y,z).
-  val clipRegs = RegInit(VecInit.fill(3, 3)(0.U(16.W)))
+  // cfg.totalBits wide: genuine vertex-shader ALU output (real FP32 in FP32
+  // mode, not narrowed) -- see BorgGeometrySequencerIO's pipeWrite, which is
+  // the same width. Only fpToPixelInt's bbox extraction and the backface-
+  // cull sign test below are format-aware; the values themselves stay full
+  // precision through Pass 1.
+  val clipRegs = RegInit(VecInit.fill(3, 3)(0.U(cfg.totalBits.W)))
   // Shadow registers for color + z per vertex, populated by snooping the DMA
   // uniform write stream during vertex DMA. See computeUniformData's doc for
-  // the offset layout.
-  val colorRegs = RegInit(VecInit.fill(3, 4)(0.U(16.W)))  // [v][r,g,b,z]
+  // the offset layout. cfg.totalBits wide -- these are DMA'd vertex
+  // attributes (firmware-packed at cfg.fp's width), not FP16-native like
+  // uvRegs below.
+  val colorRegs = RegInit(VecInit.fill(3, 4)(0.U(cfg.totalBits.W)))  // [v][r,g,b,z]
+  // uvRegs stays FP16-native (16 bits) regardless of cfg.fp: texture
+  // coordinates feed BorgCore's FTEX path (io.texU/texV, hardcoded 16-bit
+  // ports) and the FP16-native texture unit, not the general FP32 ALU.
+  // Zero-extends safely into the wider uniform slot when staged; FTEX reads
+  // it back via an explicit (15,0) slice on the register-file operand.
   val uvRegs    = RegInit(VecInit.fill(3, 2)(0.U(16.W)))  // [v][u,v]
 
   // Shadow registers for setup shader outputs: r0-r5 = scaled edge
-  // components, r6 = area, r7 = inv_area.
-  val setupRegs = RegInit(VecInit.fill(8)(0.U(16.W)))
+  // components, r6 = area, r7 = inv_area. cfg.totalBits wide -- genuine
+  // setup-shader ALU output, same reasoning as clipRegs above.
+  val setupRegs = RegInit(VecInit.fill(8)(0.U(cfg.totalBits.W)))
 
   // Step 50.2b: per-edge MSAA sample deltas produced by the setup shader in
   // r8..r13 as {d0[0], d1[0], d0[1], d1[1], d0[2], d1[2]}. Consumed by this
@@ -124,6 +137,13 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
   // copy, restored from DRAM (via this triangle's sStoreSetup write) or its
   // own cache -- the two are not the same register.
   val triHasUvs = RegInit(false.B)
+
+  // Per-triangle facing flag (Vulkan conformance item 10, two-sided
+  // stencil): captured in handleWaitSetup from the same setup-shader sign
+  // bit the cull test already reads (setupRegs(6)), stored to DRAM
+  // alongside has_uvs (word 31, bit 1) in sStoreSetup, and restored on the
+  // Pass 2 side the same way -- see BorgTileSequencer's triIsBackFacing.
+  val triIsBackFacing = RegInit(false.B)
 
   val core_was_active = RegNext(
     io.coreStatus.running || io.coreStatus.autoRunPending, false.B
@@ -266,25 +286,34 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
     state                := sWaitVert
   }
 
-  // FP16 positive -> cfg.coordWidth-bit integer pixel coordinate. Unsigned
-  // integer comparison on positive FP16 is monotone (IEEE 754 property).
-  // Negative inputs (off-screen left/top) are clamped to 0.
+  // Positive fp -> cfg.coordWidth-bit integer pixel coordinate. Format-
+  // generic (works for whatever cfg.fp is, FP16 or FP32) -- rasterizer
+  // coordinate generation stays FP16-native as a design decision (see the
+  // branch's plan doc), but bbox extraction runs on clipRegs, which now
+  // carries genuine cfg.fp-width vertex-shader output, so this needs to
+  // parse whatever format that is. Unsigned integer comparison on positive
+  // IEEE floats is monotone (IEEE 754 property). Negative inputs (off-screen
+  // left/top) are clamped to 0 by the caller (see `pos`).
   //
-  // The shift amount and overflow threshold below MUST use the fixed FP16
-  // mantissa width (10), not cfg.coordWidth: they extract the correct integer
-  // value from the FP16 bit pattern, a property of the FP16 format itself,
-  // independent of how many bits of that integer we ultimately want to keep.
-  private def fp16ToPixelInt(fp: UInt): UInt = {
-    val w    = cfg.coordWidth
-    val e    = fp(14, 10)       // biased exponent (0..30)
-    val m    = fp(9, 0)         // mantissa
-    val norm = Cat(1.U(1.W), m) // 11-bit implicit-1 representation
-    val raw10 = Mux(e < 15.U, 0.U(10.W),
-                Mux(e >= 25.U, 1023.U(10.W),
-                  (norm >> (10.U - (e - 15.U)))(9, 0)
-                ))
-    val maxW = ((1 << w) - 1).U(10.W)
-    Mux(raw10 > maxW, ((1 << w) - 1).U(w.W), raw10(w - 1, 0))
+  // The shift amount and overflow threshold below MUST use cfg.fp's own
+  // exponent/mantissa widths and bias, not cfg.coordWidth: they extract the
+  // correct integer value from the FP bit pattern, a property of the FP
+  // format itself, independent of how many bits of that integer we
+  // ultimately want to keep.
+  private def fpToPixelInt(fp: UInt): UInt = {
+    val w        = cfg.coordWidth
+    val mantBits = cfg.sig - 1               // stored mantissa bits (10 @ FP16, 23 @ FP32)
+    val bias     = (1 << (cfg.exp - 1)) - 1  // 15 @ FP16, 127 @ FP32
+    val e        = fp(cfg.totalBits - 2, mantBits)  // biased exponent
+    val m        = fp(mantBits - 1, 0)              // mantissa
+    val norm     = Cat(1.U(1.W), m)                 // (mantBits+1)-bit implicit-1 representation
+    val rawMax   = ((1 << mantBits) - 1).U(mantBits.W)
+    val raw = Mux(e < bias.U, 0.U(mantBits.W),
+              Mux(e >= (bias + mantBits).U, rawMax,
+                (norm >> (mantBits.U - (e - bias.U)))(mantBits - 1, 0)
+              ))
+    val maxW = ((1 << w) - 1).U(mantBits.W)
+    Mux(raw > maxW, ((1 << w) - 1).U(w.W), raw(w - 1, 0))
   }
 
   private def handleWaitVert(): Unit = {
@@ -293,15 +322,15 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
         // All 3 vertices done -- compute bbox from GPU clip-space outputs in
         // clipRegs. FP16 positive values compare correctly as unsigned
         // integers (IEEE 754). Clamp negatives (off-screen) to 0.
-        def pos(fp: UInt): UInt = Mux(fp(15), 0.U(16.W), fp)
+        def pos(fp: UInt): UInt = Mux(fp(cfg.totalBits - 1), 0.U(cfg.totalBits.W), fp)
         val x0 = pos(clipRegs(0)(0)); val x1 = pos(clipRegs(1)(0)); val x2 = pos(clipRegs(2)(0))
         val y0 = pos(clipRegs(0)(1)); val y1 = pos(clipRegs(1)(1)); val y2 = pos(clipRegs(2)(1))
         def fp16Min(a: UInt, b: UInt): UInt = Mux(a <= b, a, b)
         def fp16Max(a: UInt, b: UInt): UInt = Mux(a >= b, a, b)
-        val minXpix = fp16ToPixelInt(fp16Min(fp16Min(x0, x1), x2))
-        val maxXpix = fp16ToPixelInt(fp16Max(fp16Max(x0, x1), x2))
-        val minYpix = fp16ToPixelInt(fp16Min(fp16Min(y0, y1), y2))
-        val maxYpix = fp16ToPixelInt(fp16Max(fp16Max(y0, y1), y2))
+        val minXpix = fpToPixelInt(fp16Min(fp16Min(x0, x1), x2))
+        val maxXpix = fpToPixelInt(fp16Max(fp16Max(x0, x1), x2))
+        val minYpix = fpToPixelInt(fp16Min(fp16Min(y0, y1), y2))
+        val maxYpix = fpToPixelInt(fp16Max(fp16Max(y0, y1), y2))
         bboxMinX := Cat(minXpix(cfg.coordWidth - 1, 2), 0.U(2.W))  // round down to 4-pixel tile boundary
         bboxMaxX := maxXpix
         bboxMinY := Cat(minYpix(cfg.coordWidth - 1, 2), 0.U(2.W))
@@ -370,9 +399,22 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
     when(core_just_finished) {
       writeIdx := 0.U
       // Screen y-down: front-facing (CW in screen) -> area < 0 -> r6 = -area/W
-      // > 0 (sign 0). Back-facing -> r6 < 0 (sign 1) -> skip.
-      when(setupRegs(6)(15)) {
-        if (BorgDebug.trace) printf("[SEQ] cull triIdx=%d r6=0x%x\n", triIdx, setupRegs(6))
+      // > 0 (sign 0). Back-facing -> r6 < 0 (sign 1).
+      //
+      // Which of those to discard is now configurable (CULL_CFG). Vulkan
+      // requires all four VkCullModeFlagBits values and both VkFrontFace
+      // windings; this used to be a hardcoded "drop everything with the sign
+      // bit set", so VK_CULL_MODE_NONE -- needed by any two-sided draw, and
+      // the precondition for two-sided stencil doing anything at all -- was
+      // unavailable. cullMode is the Vulkan bitmask verbatim: bit 0 culls
+      // front faces, bit 1 culls back faces, so NONE and FRONT_AND_BACK fall
+      // out of the same expression rather than needing their own arms.
+      val isBackFacing = setupRegs(6)(cfg.totalBits - 1) ^ io.mmio.frontFaceInvert
+      triIsBackFacing := isBackFacing
+      val culled = Mux(isBackFacing, io.mmio.cullMode(1), io.mmio.cullMode(0))
+      when(culled) {
+        if (BorgDebug.trace) printf("[SEQ] cull triIdx=%d r6=0x%x back=%d\n",
+          triIdx, setupRegs(6), isBackFacing)
         state := sNextTriangle
       }.otherwise {
         state := sLoadBBox
@@ -429,7 +471,10 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
   //   u28-u30: z value          (v2, v1, v0) -- projected depth for z-interp
   // Within each group of 3: slot 0->vertex2, slot 1->vertex1, slot 2->vertex0
   private def computeUniformData(w: UInt): UInt = {
-    val uData = WireDefault(0.U(16.W))
+    val uData = WireDefault(0.U(cfg.totalBits.W))
+    // Sign-bit-only mask, format-generic: flips clipRegs' sign bit for the
+    // FNEG(clipRegs) uniforms below (u6-u11), regardless of cfg.fp's width.
+    val signMask = (BigInt(1) << (cfg.totalBits - 1)).U(cfg.totalBits.W)
 
     def vertOf(base: Int): UInt =
       Mux(w === base.U, 1.U(2.W), Mux(w === (base+1).U, 0.U(2.W), 2.U(2.W)))
@@ -440,7 +485,7 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
       val vIdx = (w - 6.U)(2, 1)
       val cIdx = (w - 6.U)(0)
       val raw  = clipRegs(vIdx)(Cat(0.U(1.W), cIdx))
-      uData := raw ^ "h8000".U(16.W)
+      uData := raw ^ signMask
     }.elsewhen(w === 12.U) {
       uData := setupRegs(7)
     }.elsewhen(w < 16.U) {
@@ -489,14 +534,19 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
     val dramAddr = io.mmio.setupBase + (triIdx << setupStrideShift) + (storeWriteIdx << 2)
     io.store.req   := true.B
     io.store.addr  := dramAddr
-    // Word 31 = has_uvs flag; words 32-37 (samples>1 only) = covDelta.
+    // Word 31 = has_uvs (bit 0) + isBackFacing (bit 1); words 32-37
+    // (samples>1 only) = covDelta. The facing bit rides in the same word
+    // has_uvs already occupies rather than costing a new DMA word or a
+    // second store cycle -- both are single bits packed into one otherwise
+    // mostly-empty word.
+    val meta31 = Cat(triIsBackFacing, triHasUvs)
     val storeData = if (cfg.samples > 1)
       MuxCase(computeUniformData(storeWriteIdx(4, 0)), Seq(
-        (storeWriteIdx === 31.U) -> triHasUvs.asUInt,
+        (storeWriteIdx === 31.U) -> meta31,
         (storeWriteIdx >= 32.U)  -> covDeltaRegs.get((storeWriteIdx - 32.U)(2, 0))
       ))
     else
-      Mux(storeWriteIdx === 31.U, triHasUvs.asUInt, computeUniformData(storeWriteIdx(4, 0)))
+      Mux(storeWriteIdx === 31.U, meta31, computeUniformData(storeWriteIdx(4, 0)))
     io.store.wdata := storeData
     when(io.store.ready) {
       when(storeWriteIdx < 2.U || storeWriteIdx === 19.U || storeWriteIdx === 22.U || storeWriteIdx === 25.U || storeWriteIdx === 31.U) {
@@ -533,7 +583,11 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
     when(io.pipeWrite.en && state === sWaitVert) {
       for (comp <- 0 until 3) {
         when(io.pipeWrite.addr === comp.U) {
-          clipRegs(vertIdx)(comp) := io.pipeWrite.data(15, 0)
+          // Full-width capture: io.pipeWrite.data is a genuine cfg.fp-width
+          // vertex-shader ALU result (was an explicit (15,0) slice, which
+          // silently kept the wrong bits of a wider FP32 pattern -- see the
+          // branch's plan doc / commit history for how this was found).
+          clipRegs(vertIdx)(comp) := io.pipeWrite.data
         }
       }
     }
@@ -571,7 +625,8 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
     when(io.pipeWrite.en && state === sWaitSetup) {
       for (i <- 0 until 8) {
         when(io.pipeWrite.addr === i.U) {
-          setupRegs(i) := io.pipeWrite.data(15, 0)
+          // Full-width capture -- see clipRegs' identical fix above.
+          setupRegs(i) := io.pipeWrite.data
         }
       }
       // Step 50.2b: r8..r13 carry the per-edge MSAA sample deltas.

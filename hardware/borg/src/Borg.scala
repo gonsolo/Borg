@@ -80,10 +80,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // order, so flusher must precede tile or tile sees a one-cycle-stale read_en.
   val core      = Module(new BorgCore(cfg))
   val rast      = Module(new BorgRasterizer(cfg))
-  val flusher   = Module(new BorgTileFlusher(16, cfg.samples))   // before tile — see note above
-  val tile      = Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits))
+  val flusher   = Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush))   // before tile — see note above
+  val tile      = Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend))
   val rdlRegs   = Module(new BorgGpuRegs()) // Auto-generated RDL register block
-  val dma       = Module(new BorgDMA)
+  val dma       = Module(new BorgDMA(cfg))
   val sequencer = Module(new BorgSequencer(cfg))
   val binner    = Module(new BorgBinner(cfg.maxBinTiles, cfg.maxTrianglesPerTile, cfg.coordWidth))
 
@@ -243,7 +243,15 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rast.io.coreStatus <> core.io.status
 
     // GPU memory port: arbitration.
-    // Priority: DMA > Flusher > Geo (Binner+Store) > Rast (texFetch).
+    // Priority: DMA > Flusher > Geo (Binner+Store) > Core (LOAD/STORE) >
+    // Rast (texFetch).
+    //
+    // Core and Rast can never both be active: FTEX and LOAD/STORE are both
+    // instructions, the core executes one at a time, and each stalls the
+    // pipeline for its whole access. Their relative order is therefore
+    // arbitrary -- but they are separate ports, so both must be in the mux.
+    // Core sits above Rast so that if the invariant is ever broken the
+    // failure is a stalled texture fetch rather than a corrupted load.
     val geoBusy  = b.io.busy || s.io.store.active
     val geoReq   = Mux(b.io.busy, b.io.gpuMem.req,   s.io.store.req)
     val geoAddr  = Mux(b.io.busy, b.io.gpuMem.addr,  s.io.store.addr)
@@ -251,21 +259,36 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val geoWdata = Mux(b.io.busy, b.io.gpuMem.wdata, s.io.store.wdata)
 
     // 4-way mux: DMA > Flusher > Geo > Rast
+    // The core is a master only in a build that has LOAD/STORE. Without it
+    // the mux collapses back to the four-way form it had before, rather than
+    // carrying a permanently-idle fifth input.
+    val coreMem = core.io.memBusy
+    def coreOr(sel: GpuMemIO => UInt, fallback: UInt): UInt =
+      core.io.gpuMem.map(g => Mux(coreMem, sel(g), fallback)).getOrElse(fallback)
+    def coreOrB(sel: GpuMemIO => Bool, fallback: Bool): Bool =
+      core.io.gpuMem.map(g => Mux(coreMem, sel(g), fallback)).getOrElse(fallback)
+
     io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
                        Mux(f.io.busy, f.io.gpuMem.req,
-                       Mux(geoBusy, geoReq, rast.io.gpuMem.req)))
+                       Mux(geoBusy, geoReq, coreOrB(_.req, rast.io.gpuMem.req))))
     io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
                        Mux(f.io.busy, f.io.gpuMem.addr,
-                       Mux(geoBusy, geoAddr, rast.io.gpuMem.addr)))
+                       Mux(geoBusy, geoAddr, coreOr(_.addr, rast.io.gpuMem.addr))))
     io.gpuMem.wr    := Mux(d.io.busy, false.B,  // DMA only reads — never assert wr
                        Mux(f.io.busy, f.io.gpuMem.wr,
-                       Mux(geoBusy, geoWr, rast.io.gpuMem.wr)))
+                       Mux(geoBusy, geoWr, coreOrB(_.wr, rast.io.gpuMem.wr))))
     io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
-                       Mux(geoBusy, geoWdata, rast.io.gpuMem.wdata))
+                       Mux(geoBusy, geoWdata, coreOr(_.wdata, rast.io.gpuMem.wdata)))
+    core.io.gpuMem.foreach { g =>
+      g.data    := io.gpuMem.data
+      g.ready   := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy && coreMem
+      g.waccept := false.B
+    }
+    core.io.lsBase.foreach(_ := rdlRegs.io.hw.ls_base_base_addr)
     // Burst length: only the flusher streams whole tiles; everyone else is 1 word.
     io.gpuMem.wlen  := Mux(f.io.busy, f.io.gpuMem.wlen, 1.U)
     rast.io.gpuMem.data  := io.gpuMem.data
-    rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy
+    rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy && !coreMem
     rast.io.gpuMem.waccept := false.B
     f.io.gpuMem.data  := io.gpuMem.data
     f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
@@ -295,6 +318,65 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // frag_pc and uniform_page from dedicated registers
     rast.io.fragPcReg      := rdlRegs.io.hw.frag_pc_frag_pc
+    // DEPTH_CFG (Step 50 item 11). Reset values are compare_op=1 (LESS) and
+    // write_en=1, i.e. exactly the behaviour that used to be hardcoded, so
+    // firmware that never writes this register sees no change.
+    rast.io.depthCompareOp := rdlRegs.io.hw.depth_cfg_compare_op
+    rast.io.depthWriteEn   := rdlRegs.io.hw.depth_cfg_write_en.asBool
+    // BLEND_CFG / BLEND_CONST (Step 50 item 9). Reset 0 means blending
+    // disabled -- the historical unconditional overwrite -- so, as with
+    // DEPTH_CFG, firmware that never writes these sees no change.
+    rast.io.blendCfg.foreach { b =>
+      b.enable         := rdlRegs.io.hw.blend_cfg_enable.asBool
+      b.srcColorFactor := rdlRegs.io.hw.blend_cfg_src_color_factor
+      b.dstColorFactor := rdlRegs.io.hw.blend_cfg_dst_color_factor
+      b.colorOp        := rdlRegs.io.hw.blend_cfg_color_op
+      b.srcAlphaFactor := rdlRegs.io.hw.blend_cfg_src_alpha_factor
+      b.dstAlphaFactor := rdlRegs.io.hw.blend_cfg_dst_alpha_factor
+      b.alphaOp        := rdlRegs.io.hw.blend_cfg_alpha_op
+      b.constant.r     := rdlRegs.io.hw.blend_const_const_r
+      b.constant.g     := rdlRegs.io.hw.blend_const_const_g
+      b.constant.b     := rdlRegs.io.hw.blend_const_const_b
+      b.constant.a     := rdlRegs.io.hw.blend_const_const_a
+      b.colorWriteMask := rdlRegs.io.hw.blend_cfg_color_write_mask
+    }
+    // Per-triangle facing, same busy/idle split as texConfig.en above: while
+    // the sequencer is rendering, use its real per-triangle value; otherwise
+    // (idle / legacy direct-poke path) default true, the historical
+    // behaviour front-face-only builds already depended on.
+    rast.io.frontFacing.foreach(_ := Mux(s.io.busy, s.io.frontFacingOverride, true.B))
+    // STENCIL_CFG / STENCIL_FRONT / STENCIL_BACK (Step 50 item 10). Reset 0
+    // means stencil disabled -- the historical no-stencil behaviour.
+    rast.io.stencilCfg.foreach { st =>
+      st.enable := rdlRegs.io.hw.stencil_cfg_enable.asBool
+      st.front.compareOp   := rdlRegs.io.hw.stencil_cfg_front_compare_op
+      st.front.failOp      := rdlRegs.io.hw.stencil_cfg_front_fail_op
+      st.front.passOp      := rdlRegs.io.hw.stencil_cfg_front_pass_op
+      st.front.depthFailOp := rdlRegs.io.hw.stencil_cfg_front_depth_fail_op
+      st.front.compareMask := rdlRegs.io.hw.stencil_front_compare_mask
+      st.front.writeMask   := rdlRegs.io.hw.stencil_front_write_mask
+      st.front.reference   := rdlRegs.io.hw.stencil_front_reference
+      st.back.compareOp    := rdlRegs.io.hw.stencil_cfg_back_compare_op
+      st.back.failOp       := rdlRegs.io.hw.stencil_cfg_back_fail_op
+      st.back.passOp       := rdlRegs.io.hw.stencil_cfg_back_pass_op
+      st.back.depthFailOp  := rdlRegs.io.hw.stencil_cfg_back_depth_fail_op
+      st.back.compareMask  := rdlRegs.io.hw.stencil_back_compare_mask
+      st.back.writeMask    := rdlRegs.io.hw.stencil_back_write_mask
+      st.back.reference    := rdlRegs.io.hw.stencil_back_reference
+    }
+    // SCISSOR_X / SCISSOR_Y (Step 50). Reset enable=0 means every fragment
+    // passes -- the historical behaviour, and deliberately not "an empty
+    // rectangle", which would blank the frame.
+    rast.io.scissor.enable := rdlRegs.io.hw.scissor_y_enable.asBool
+    rast.io.scissor.x0     := rdlRegs.io.hw.scissor_x_x0
+    rast.io.scissor.x1     := rdlRegs.io.hw.scissor_x_x1
+    rast.io.scissor.y0     := rdlRegs.io.hw.scissor_y_y0
+    rast.io.scissor.y1     := rdlRegs.io.hw.scissor_y_y1
+    // SAMPLER_CFG (Step 50). Reset 0 = NEAREST, the historical behaviour.
+    rast.io.texFilterLinear.foreach(_ := rdlRegs.io.hw.sampler_cfg_filter_linear.asBool)
+    rast.io.texAddrModeU.foreach(_ := rdlRegs.io.hw.sampler_cfg_addr_mode_u)
+    rast.io.texAddrModeV.foreach(_ := rdlRegs.io.hw.sampler_cfg_addr_mode_v)
+    rast.io.texBorder.foreach(_ := rdlRegs.io.hw.sampler_cfg_border_color)
     rast.io.uniformPageReg := rdlRegs.io.hw.control_uniform_write_page
   }
 
@@ -352,6 +434,21 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // Feed tile read data back to both flusher and dispatcher.
     rast.io.tileRead.data := tile.io.read.data
+
+    // Stencil plane (Step 50 item 10). It shares the colour plane's index,
+    // enable and clear sequence -- the mux above already selected them --
+    // so only the data paths need wiring here.
+    rast.io.stencilRead.foreach(_ := tile.io.stencilRead.get)
+    tile.io.stencilWrite.foreach(_ := rast.io.stencilWrite.get)
+    tile.io.stencilWriteMask.foreach(_ := rast.io.stencilWriteMask.get)
+    tile.io.stencilClear.foreach(_ := rdlRegs.io.hw.plane_clear_stencil)
+
+    // Destination-alpha plane (Step 50 item 9). Same piggyback on the colour
+    // plane's index/enable/clear as the stencil plane.
+    rast.io.alphaRead.foreach(_ := tile.io.alphaRead.get)
+    tile.io.alphaWrite.foreach(_ := rast.io.alphaWrite.get)
+    tile.io.alphaWriteMask.foreach(_ := rast.io.alphaWriteMask.get)
+    tile.io.alphaClear.foreach(_ := rdlRegs.io.hw.plane_clear_alpha)
   }
 
   /** Step 25.4.1: Wire BorgTileFlusher with real DRAM writes.
@@ -388,6 +485,26 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     f.io.read.data := tile.io.read.data
     f.io.tileBase  := Mux(seqFlushActive, s.io.flusher.base, flushTileBaseReg)
+
+    // Depth-attachment write-out (only present at cfg.hasDepthFlush). The
+    // FLUSH_ZB_BASE register has existed in the register map since Step
+    // 25.3h but was never wired to anything -- the flusher simply never
+    // wrote Z. It is decoded here exactly like FLUSH_FB_BASE above (both
+    // are `nogen` regs read straight off the raw bus).
+    //
+    // Enable convention: a nonzero zb_base means a depth attachment is
+    // bound. Firmware that never writes the register leaves it at its
+    // reset value of 0 and gets the historical colour-only flush, so no
+    // firmware change is needed to keep existing targets working.
+    f.io.depthBase.foreach { p =>
+      val flushDepthBaseReg = RegInit(0.U(25.W))
+      when(bus.is_writing && bus.address === BorgGpuRegs.flush_zb_base_offset) {
+        flushDepthBaseReg := bus.data_in(24, 0)
+      }
+      p := flushDepthBaseReg
+      f.io.depthEn.get := flushDepthBaseReg =/= 0.U
+    }
+
     s.io.flusher.busy := f.io.busy
     rdlRegs.io.hw.status_flush_busy := (flushPending || f.io.busy).asUInt
   }
@@ -422,6 +539,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     val stsFifoFull = !fifo.io.enq.ready
     rdlRegs.io.hw.status_idle := !core.io.status.running
+    // Sticky divergence flag (STATUS bit 6) -- see BorgCore.wireBranch.
+    rdlRegs.io.hw.status_branch_divergent := core.io.branchDivergent
+    rdlRegs.io.hw.status_exec_fault       := core.io.execFault
     rdlRegs.io.hw.status_fifo_full := stsFifoFull
 
     // =========================================================================
@@ -583,6 +703,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.mmio.fbWidthTiles    := seqTilesPerRowReg(s.io.mmio.fbWidthTiles.getWidth - 1, 0)
       s.io.mmio.fbHeightTiles   := seqTilesPerRowReg(s.io.mmio.fbHeightTiles.getWidth - 1, 0)  // square framebuffer assumption
       s.io.mmio.fragUsesFragPos := rdlRegs.io.hw.tex_config_frag_uses_fragpos
+      // CULL_CFG (Step 50). Reset 2/0 = cull back faces with the historical
+      // winding convention, so firmware that never writes it sees no change.
+      s.io.mmio.cullMode        := rdlRegs.io.hw.cull_cfg_cull_mode
+      s.io.mmio.frontFaceInvert := rdlRegs.io.hw.cull_cfg_front_face_invert.asBool
       s.io.iter.complete        := rast.io.tileComplete
       s.io.iter.stall           := rast.io.autoRunStall
       // Dispatcher pipeline idle — sequencer waits for this before flushing

@@ -22,12 +22,15 @@ import chisel3.util._
   * tex_base value — the B-first order is preserved for historical reasons
   * but is no longer required for address stability.
   */
-class BorgTextureUnitIO extends Bundle {
+class BorgTextureUnitIO(val hasBilinear: Boolean = false) extends Bundle {
   val start     = Input(Bool())           // one-cycle trigger from dispatcher
   val done      = Output(Bool())          // one-cycle completion pulse
   val texConfig = new TexConfigIO         // mortonIndex, baseAddr, en
   val gpuMem    = new GpuMemIO            // DRAM read port
   val fragColor = Output(new ColorZ(16))  // fetched R/G/B; Z is always zero here
+  // Bilinear operands. Absent unless the config asks for filtering, so a
+  // nearest-only build carries no extra ports at all.
+  val bilinear  = if (hasBilinear) Some(new BilinearIO) else None
 }
 
 /** Autonomous DRAM texel fetch unit (Step 25.3e).
@@ -44,12 +47,27 @@ class BorgTextureUnitIO extends Bundle {
   *         → sReadRG (fetch RG word, offset +0)
   *         → sDone (pulse done, return to sIdle)
   */
-class BorgTextureUnit extends Module {
-  val io = IO(new BorgTextureUnitIO)
+class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
+  val io = IO(new BorgTextureUnitIO(hasBilinear))
 
   // --- FSM ---
+  // sReadB/sReadRG are the two DRAM reads one texel costs (the layout packs
+  // B in the second word). Bilinear walks them four times, once per tap, so
+  // a filtered sample is 8 reads -- there is no coalescing, and the four taps
+  // of a 2x2 footprint are adjacent in Morton order but still fetched
+  // individually. That is the honest cost of the simplest correct version and
+  // the obvious thing to optimize later.
   val sIdle :: sReadB :: sReadRG :: sDone :: Nil = Enum(4)
   val state = RegInit(sIdle)
+
+  // Which of the four taps is in flight, and the UNORM8 tap store. Texels are
+  // quantized as they arrive rather than kept as FP16: the weighting is
+  // UNORM8 anyway, so this is 4x3x8 = 96 bits of storage instead of 192.
+  val tap    = RegInit(0.U(2.W))
+  val tapR   = Reg(Vec(4, UInt(8.W)))
+  val tapG   = Reg(Vec(4, UInt(8.W)))
+  val tapB   = Reg(Vec(4, UInt(8.W)))
+  val filtering = RegInit(false.B)   // latched at start: this sample is filtered
 
   // --- Result registers ---
   val frag_r = RegInit(0.U(16.W))
@@ -60,6 +78,28 @@ class BorgTextureUnit extends Module {
   // --- (valid for one cycle only) is captured for both DRAM reads.     ---
   val tex_base = RegInit(0.U(20.W))
 
+  // Address of the tap currently in flight. For the nearest path this is
+  // simply the latched tex_base; for a filtered sample each tap re-encodes
+  // (u + dx, v + dy) through Morton, with the +1 neighbours clamped to the
+  // last valid row/column via the shared helper -- the same clamp the
+  // single-tap path needs, for the same reason (a UV of exactly 1.0 floors
+  // one past the last texel, and Morton-addressing that reads unpopulated
+  // memory as black).
+  val (tapAddr, tapIsBorder) = if (hasBilinear) {
+    val b  = io.bilinear.get
+    val dx = tap(0)
+    val dy = tap(1)
+    // Each neighbour is wrapped by the sampler's own address mode, not just
+    // clamped: under REPEAT the tap past the right edge must come from column
+    // zero, which is what makes a tiling texture seamless instead of smearing
+    // its last column.
+    val (u, uBorder) = TexAddressMode(b.u8 +& dx, b.log2Dim, b.addrModeU)
+    val (v, vBorder) = TexAddressMode(b.v8 +& dy, b.log2Dim, b.addrModeV)
+    val morton = MortonEncode(u, v)
+    (Mux(filtering, io.texConfig.baseAddr +& (morton << 3), tex_base),
+     uBorder || vBorder)
+  } else (tex_base, false.B)
+
   // --- Defaults ---
   io.gpuMem.req   := false.B
   io.gpuMem.addr  := 0.U
@@ -68,9 +108,23 @@ class BorgTextureUnit extends Module {
   io.gpuMem.wlen  := 1.U   // texture unit only reads
   io.done         := false.B
 
-  io.fragColor.r := frag_r
-  io.fragColor.g := frag_g
-  io.fragColor.b := frag_b
+  // The filtered result is combinational on the completed tap store rather
+  // than a separate FSM state: by the time sDone is reached all four taps are
+  // captured, so a state would add a cycle and buy nothing. With filtering
+  // off these are the raw FP16 texels, bit-for-bit as before -- no quantize/
+  // dequantize round trip is paid by a nearest sample.
+  if (hasBilinear) {
+    val b = io.bilinear.get
+    def filtered(taps: Vec[UInt]): UInt =
+      ColorQuantize.dequantize8(TexFilter.bilinear(taps, b.fracU, b.fracV))
+    io.fragColor.r := Mux(filtering, filtered(tapR), frag_r)
+    io.fragColor.g := Mux(filtering, filtered(tapG), frag_g)
+    io.fragColor.b := Mux(filtering, filtered(tapB), frag_b)
+  } else {
+    io.fragColor.r := frag_r
+    io.fragColor.g := frag_g
+    io.fragColor.b := frag_b
+  }
   io.fragColor.z := 0.U  // Z is pass-through from shader snoop in dispatcher
 
   switch(state) {
@@ -79,34 +133,70 @@ class BorgTextureUnit extends Module {
       when(io.start) {
         val addr = io.texConfig.baseAddr +& (io.texConfig.mortonIndex << 3)
         tex_base := addr
+        tap      := 0.U
+        io.bilinear.foreach { b => filtering := b.enable }
         if (BorgDebug.trace) printf("[TEX] START baseAddr=0x%x morton=%d texAddr=0x%x\n",
           io.texConfig.baseAddr, io.texConfig.mortonIndex, addr)
         state := sReadB
       }
     }
 
-    // Read 0: B word first (offset +4) — keeps Morton address stable
+    // Read 0: B word first (offset +4) — keeps Morton address stable.
+    //
+    // A tap that lands on the border has no texel to read and is short
+    // circuited here. Skipping the access is not merely an optimization: the
+    // address would be outside the texture's allocation, so the read would
+    // return whatever else happens to live there.
     is(sReadB) {
-      io.gpuMem.req  := true.B
-      io.gpuMem.addr := tex_base | 4.U
-      when(io.gpuMem.ready) {
-        frag_b := io.gpuMem.data(15, 0)
-        if (BorgDebug.trace) printf("[TEX] READ-B addr=0x%x data=0x%x B=0x%x\n",
-          tex_base | 4.U, io.gpuMem.data, io.gpuMem.data(15, 0))
-        state  := sReadRG
+      when(tapIsBorder) {
+        if (hasBilinear) {
+          val bc = BorderColor.rgb8(io.bilinear.get.border)
+          tapR(tap) := bc; tapG(tap) := bc; tapB(tap) := bc
+          frag_r := ColorQuantize.dequantize8(bc)
+          frag_g := ColorQuantize.dequantize8(bc)
+          frag_b := ColorQuantize.dequantize8(bc)
+        }
+        when(filtering && tap =/= 3.U) {
+          tap   := tap + 1.U       // stay in sReadB for the next tap
+        }.otherwise {
+          state := sDone
+        }
+      }.otherwise {
+        io.gpuMem.req  := true.B
+        io.gpuMem.addr := tapAddr | 4.U
+        when(io.gpuMem.ready) {
+          frag_b := io.gpuMem.data(15, 0)
+          if (hasBilinear) tapB(tap) := ColorQuantize.quantize8(io.gpuMem.data(15, 0))
+          if (BorgDebug.trace) printf("[TEX] READ-B addr=0x%x data=0x%x B=0x%x\n",
+            tapAddr | 4.U, io.gpuMem.data, io.gpuMem.data(15, 0))
+          state  := sReadRG
+        }
       }
     }
 
     // Read 1: RG word (offset +0) — safe to overwrite R/G now
     is(sReadRG) {
       io.gpuMem.req  := true.B
-      io.gpuMem.addr := tex_base
+      io.gpuMem.addr := tapAddr
       when(io.gpuMem.ready) {
         frag_r := io.gpuMem.data(15, 0)
         frag_g := io.gpuMem.data(31, 16)
         if (BorgDebug.trace) printf("[TEX] READ-RG addr=0x%x data=0x%x R=0x%x G=0x%x\n",
           tex_base, io.gpuMem.data, io.gpuMem.data(15, 0), io.gpuMem.data(31, 16))
-        state  := sDone
+        if (hasBilinear) {
+          tapR(tap) := ColorQuantize.quantize8(io.gpuMem.data(15, 0))
+          tapG(tap) := ColorQuantize.quantize8(io.gpuMem.data(31, 16))
+          // Loop over the remaining taps; a nearest sample takes the same
+          // single pass it always did, so its cycle count is unchanged.
+          when(filtering && tap =/= 3.U) {
+            tap   := tap + 1.U
+            state := sReadB
+          }.otherwise {
+            state := sDone
+          }
+        } else {
+          state := sDone
+        }
       }
     }
 

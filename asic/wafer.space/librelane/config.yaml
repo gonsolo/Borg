@@ -30,38 +30,78 @@ meta:
 
 DESIGN_NAME: chip_top
 
+# SWITCHED TO 3.3V 2026-09-10. This is the shipping decision recorded
+# 2026-09-01 (project_borg_only_bridge_status memory: "ship 3.3V, no level
+# shifters") -- the CoB board shorts only ground between power pins, so
+# 3.3V is a free choice with no level-shifter cost, and it's what the real
+# ULX3S link target needs. Validated first on a throwaway probe harness
+# (librelane/probe_borgonly_3v3.yaml, Phase 0: 71.55% util, 0 setup/hold
+# violations at all 9 corners at 25 MHz -- vs 5V, which closes but loses on
+# every axis: 76.68% util, 3763 vs 398 Max Slew violations) before landing
+# here on the real production config. SAME standard-cell library
+# (gf180mcu_fd_sc_mcu7t5v0) and SAME io pad cells (gf180mcu_fd_io) as
+# before -- this is a different characterization corner of the identical
+# cells, not a library swap, so none of the physical (PDN/padring/GDS)
+# config below needed to change.
+#
+# This is ONE variable changed at a time on purpose: CLOCK_PERIOD stays at
+# 125 (8 MHz) below, the value this config's hold/congestion/density tuning
+# was measured against at 5V. 3.3V cells are ~1.7-2.1x faster (measured
+# separately, project_borg_ii_fp32_measurements memory) -- a strong
+# candidate for finally closing the 25 MHz target the comment below
+# documents as blocked by 5V's slow-corner timing, but that is a second,
+# separate experiment once this one is confirmed clean at 8 MHz. The
+# congestion half of the 25 MHz blocker (global routing, not timing) is
+# unrelated to voltage and will not be fixed by this change alone.
+#
 # Needed alongside LIB below: SYNTH_CORNER stayed None even with --manual-pdk
 # args passed, and filter_views() can't pick a LIB entry without it -- same
 # "Missing -liberty" error even with LIB correctly populated.
-SYNTH_CORNER: nom_tt_025C_5v00
+SYNTH_CORNER: nom_tt_025C_3v30
 
 # Needed for OpenROAD physical steps (Floorplan, CheckMacroInstances, ...):
 # DEFAULT_CORNER is normally auto-derived as "nom_{default_pvt}" by
 # pdk_compat.py, but that derivation only runs in Ciel-managed (non
 # --manual-pdk) mode. Left unset, it stays the bare "nom_" prefix, which
-# doesn't match any LIB glob key below ("*_tt_025C_5v00" etc.) -- so
+# doesn't match any LIB glob key below ("*_tt_025C_3v30" etc.) -- so
 # _CURRENT_CORNER_NAME resolves to "nom_", zero liberty loads, and EVERY
 # std cell (not just one) reports "no liberty cell" / "not found" during
 # floorplan init (e.g. SYNTH_TIELO_CELL's gf180mcu_fd_sc_mcu7t5v0__tiel/ZN --
 # the cell is fully characterized in the .lib file, it just never got
 # loaded). LIB's own docstring says exactly one entry must match
 # DEFAULT_CORNER -- this makes that true.
-DEFAULT_CORNER: nom_tt_025C_5v00
+DEFAULT_CORNER: nom_tt_025C_3v30
+
+# The PDK's default STA_CORNERS lists only the 5V corner names, so the 3.3V
+# corner names must be listed here too or "nom_tt_025C_3v30" can't be found
+# and DFFLIBMAP fails with a misleading "Missing -liberty" error (hit once
+# on the probe harness, see probe_borgonly_3v3.yaml's comment -- fixed here
+# before it could happen again on the real config).
+STA_CORNERS:
+- nom_tt_025C_3v30
+- nom_ss_125C_3v00
+- nom_ff_n40C_3v60
+- min_tt_025C_3v30
+- min_ss_125C_3v00
+- min_ff_n40C_3v60
+- max_tt_025C_3v30
+- max_ss_125C_3v00
+- max_ff_n40C_3v60
 
 # Needed on LibreLane 3.0.3: --manual-pdk mode does not auto-populate LIB
 # (standard-cell liberty files) from --scl/STD_CELL_LIBRARY the way non-manual
 # (Ciel-managed) PDK resolution does -- without this, Yosys's DFFLIBMAP pass
 # fails with "Missing -liberty liberty_file option!". Corners match
-# STA_CORNERS' 3 unique suffixes (tt_025C_5v00/ss_125C_4v50/ff_n40C_5v50);
+# STA_CORNERS' 3 unique suffixes (tt_025C_3v30/ss_125C_3v00/ff_n40C_3v60);
 # nom_/min_/max_ prefixes there are wire-RC sub-corners sharing one liberty
 # file each.
 LIB:
-  "*_tt_025C_5v00":
-  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib
-  "*_ss_125C_4v50":
-  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ss_125C_4v50.lib
-  "*_ff_n40C_5v50":
-  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ff_n40C_5v50.lib
+  "*_tt_025C_3v30":
+  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_3v30.lib
+  "*_ss_125C_3v00":
+  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ss_125C_3v00.lib
+  "*_ff_n40C_3v60":
+  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ff_n40C_3v60.lib
 
 # Needed on LibreLane 3.0.3: --pad on the CLI does not auto-inject the io pad
 # library's blackbox Verilog models into synthesis -- without this, io pad
@@ -102,7 +142,7 @@ EXTRA_VERILOG_MODELS:
 # between launch and capture) and far better than no clock at all.
 PAD_LIBS: null
 EXTRA_LIBS:
-- pdk_dir::libs.ref/gf180mcu_fd_io/lib/gf180mcu_fd_io__tt_025C_5v00.lib
+- pdk_dir::libs.ref/gf180mcu_fd_io/lib/gf180mcu_fd_io__tt_025C_3v30.lib
 
 # VERILOG_FILES lives in librelane/generated_sources.yaml now (generated by
 # scripts/gen_librelane_sources.py from BorgOnlyTop's actual emitted module

@@ -102,6 +102,11 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // Fragment uniform-staging mode (tex_config.frag_uses_fragpos): 0 = vertex
   // colour at u19-u27 (hand frag.s), 1 = model frag_pos (borgc cube.frag).
   val fragUsesFragPos = Input(Bool())
+  // Step 50: configurable face culling (CULL_CFG). Reset values reproduce
+  // the historical always-cull-back behaviour -- see BorgGeometrySequencer's
+  // sWaitSetup, the only consumer.
+  val cullMode        = Input(UInt(2.W))
+  val frontFaceInvert = Input(Bool())
 }
 
 class SeqBinnerIO(cfg: BorgConfig) extends Bundle {
@@ -147,12 +152,12 @@ class SeqIteratorIO(val coordWidth: Int) extends Bundle {
   val stall = Input(Bool())
 }
 
-class SeqDmaIO extends Bundle {
+class SeqDmaIO(val cfg: BorgConfig) extends Bundle {
   val start = Output(Bool())
   val desc = Output(new DMADescriptor)
   val busy = Input(Bool())
   val snoop = Flipped(Valid(UInt(32.W)))
-  val uniformSnoop = Flipped(new MemWritePort(3, 16))
+  val uniformSnoop = Flipped(new MemWritePort(3, cfg.totalBits))
 }
 
 class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
@@ -161,7 +166,7 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val store = new SeqStoreIO
   val flusher = new SeqFlusherIO
   val iter = new SeqIteratorIO(cfg.coordWidth)
-  val dma = new SeqDmaIO
+  val dma = new SeqDmaIO(cfg)
 
   val busy = Output(Bool())
   val done = Output(Bool())
@@ -176,11 +181,16 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   // Per-triangle texture enable: true when current triangle has UVs.
   // Driven from descriptor metadata has_uvs flag.
   val texEnOverride = Output(Bool())
+  // Per-triangle facing (Vulkan conformance item 10, two-sided stencil).
+  // Straight passthrough of Pass 2's own output, same as texEnOverride
+  // above -- only meaningful while the sequencer is busy, which is how the
+  // top-level Borg.scala consumer already gates texEnOverride.
+  val frontFacingOverride = Output(Bool())
 
   val coreTrigger = new CoreTriggerIO
   val coreStatus = Flipped(new CoreStatusIO)
   val pipeWrite = Flipped(new PipeWriteIO(cfg.totalBits))
-  val uniformWrite = new MemWritePort(6, 16)
+  val uniformWrite = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
 }
 
@@ -364,6 +374,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
   }
   io.texEnOverride := p2.io.texEnOverride
+  io.frontFacingOverride := p2.io.frontFacingOverride
 
   // --- BorgBinner: writer (start/triIndex/bbox/clearCounts) is Pass 1;
   // count-reader (countReadAddr/countReadEn/countReadData) is Pass 2. The
