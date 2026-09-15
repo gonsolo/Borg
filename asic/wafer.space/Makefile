@@ -1,0 +1,223 @@
+MAKEFILE_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
+
+RUN_TAG = $(shell ls librelane/runs/ | tail -n 1)
+TOP = chip_top
+
+PDK_ROOT ?= $(MAKEFILE_DIR)/gf180mcu
+PDK ?= gf180mcuD
+PDK_COMMIT ?= f6eeac7dad085ffcc829ccfd721f7b4ce39edcf7
+
+# Available SCL libraries:
+# gf180mcu_as_sc_mcu7t3v3
+# gf180mcu_fd_sc_mcu7t5v0
+# gf180mcu_fd_sc_mcu9t5v0
+# gf180mcu_osu_sc_gp9t3v3 (broken)
+# gf180mcu_osu_sc_gp12t3v3 (broken)
+
+ifeq ($(SCL),default)
+    SCL = gf180mcu_fd_sc_mcu7t5v0
+endif
+SCL ?= gf180mcu_fd_sc_mcu7t5v0
+
+# Available PAD libraries:
+# gf180mcu_fd_io
+# gf180mcu_ocd_io
+
+ifeq ($(PAD),default)
+    PAD = gf180mcu_fd_io
+endif
+PAD ?= gf180mcu_fd_io
+
+# Available SRAM macros:
+# gf180mcu_fd_ip_sram
+# gf180mcu_ocd_ip_sram
+
+ifeq ($(SRAM),default)
+    SRAM = gf180mcu_fd_ip_sram
+endif
+SRAM ?= gf180mcu_fd_ip_sram
+
+ifeq ($(SRAM),gf180mcu_fd_ip_sram)
+    MACROS = 5v
+else
+    MACROS = 3v3
+endif
+
+AVAILABLE_SLOTS = 1x1 0p5x1 1x0p5 0p5x0p5
+# The Borg-only bridge supports two of the four slots: 1x0p5 (46 bidir +
+# 4 input) and 1x1 (40 bidir + 12 input). BorgOnlyTop carries a lane map for
+# each -- they are genuinely different maps, since 1x1 trades six bidir pads
+# for eight extra input-only ones, so the input-direction link lanes move onto
+# the input pads to keep the link at the full w=16. The other two slots have
+# no map. See BorgOnlyTop's class doc and chip_core.sv's elaboration check.
+#
+# 1x1 is the default and the actual target slot for the wafer.space
+# submission -- it must match the slot used for every real signoff run
+# (e.g. the timing/area baselines under librelane/runs/). Do not silently
+# switch this without re-running signoff: a smaller slot (1x0p5 et al.)
+# gives a shorter die for the same logic, which changes utilization and can
+# make detailed placement fail outright (see the DPL-0036 investigation in
+# librelane/runs/ history -- a `SLOT` mismatch between a test run and its
+# comparison baseline is silent and easy to get wrong).
+DEFAULT_SLOT = 1x1
+
+# Slot can be any of AVAILABLE_SLOTS
+SLOT ?= $(DEFAULT_SLOT)
+
+ifeq ($(SLOT),default)
+    SLOT = $(DEFAULT_SLOT)
+endif
+
+ifeq ($(filter $(SLOT),$(AVAILABLE_SLOTS)),)
+    $(error $(SLOT) does not exist in AVAILABLE_SLOTS: $(AVAILABLE_SLOTS))
+endif
+
+SLOT_DEFINE = SLOT_$(shell echo $(SLOT) | tr '[:lower:]' '[:upper:]')
+SRAM_DEFINE = SRAM_$(SRAM)
+
+LIBRELANE_OPTS = --pdk ${PDK} --pdk-root ${PDK_ROOT} --manual-pdk --scl ${SCL} --pad ${PAD}
+
+# Which LibreLane actually runs.
+#
+# The devshell ships nixpkgs' LibreLane 3.0.8. Our concurrent-signoff patch
+# (SequentialFlow.AsyncSteps: Magic.DRC overlapped with extraction -> LVS,
+# ~24 min off a ~4 h signoff) lives in a source checkout of the same 3.0.8,
+# not in the flake, because that branch is not pushed anywhere the flake could
+# pin yet. Until it is, the checkout is put in front of the installed package
+# via PYTHONPATH: nixpkgs' `librelane` wrapper APPENDS its own site-packages
+# after whatever PYTHONPATH it inherits, so an entry that comes first wins.
+# (The devshell itself exports a PYTHONPATH that starts with the nix
+# package, which is why this has to be prepended here, inside the shell, and
+# not set from outside `direnv exec` -- from outside it is silently replaced
+# and the unpatched flow runs with no error.)
+#
+# Every librelane target starts by printing which tree was imported and
+# whether the patch is in it, so a wrong environment is visible in the first
+# line of the log rather than 4 hours later in the step timings.
+LIBRELANE_SRC ?= $(wildcard $(HOME)/src/librelane)
+ifneq ($(LIBRELANE_SRC),)
+    LIBRELANE_ENV = PYTHONPATH=$(LIBRELANE_SRC)$(if $(PYTHONPATH),:$(PYTHONPATH))
+endif
+LIBRELANE = $(LIBRELANE_ENV) librelane
+
+librelane-which: ## Print which LibreLane tree the flow will import
+	@$(LIBRELANE_ENV) python3-librelane -c 'import librelane, inspect; from librelane.flows import sequential; \
+	  print("LibreLane", librelane.__version__, "from", librelane.__file__); \
+	  print("concurrent signoff (SequentialFlow.AsyncSteps):", "yes" if "AsyncSteps" in inspect.getsource(sequential) else "NO -- unpatched")'
+.PHONY: librelane-which
+# generated_sources.yaml last: it carries VERILOG_FILES, and LibreLane's
+# multi-config merge is later-wins, so this must come after config.yaml
+# (which no longer sets VERILOG_FILES itself -- see its own comment there).
+LIBRELANE_CONFIGS = librelane/slots/slot_${SLOT}.yaml librelane/macros/macros_${MACROS}.yaml librelane/config.yaml librelane/generated_sources.yaml
+
+.DEFAULT_GOAL := help
+
+help: ## Show this help message
+	@echo 'Usage: make [target]'
+	@echo ''
+	@echo 'Available targets:'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
+.PHONY: help
+
+all: librelane ## Build the project (runs LibreLane)
+.PHONY: all
+
+$(PDK_ROOT)/ciel/gf180mcu/versions/$(PDK_COMMIT)/$(PDK):
+	ciel enable $(PDK_COMMIT) --pdk-root $(PDK_ROOT) --pdk-family $(PDK) --include-libraries all
+
+clone-pdk: $(PDK_ROOT)/ciel/gf180mcu/versions/$(PDK_COMMIT)/$(PDK) ## Clone the gf180mcu PDK
+.PHONY: clone-pdk
+
+# Need to find a better way to
+# pass the variables to LibreLane
+defines:
+	@echo "Writing src/generated_defines.svh"
+	$(file >src/generated_defines.svh,// This file is auto-generated by the Makefile)
+	$(file >>src/generated_defines.svh,`define ${SLOT_DEFINE})
+	$(file >>src/generated_defines.svh,`define ${SRAM_DEFINE})
+.PHONY: defines
+
+# Regenerates BorgOnlyTop's Verilog and librelane/generated_sources.yaml's
+# VERILOG_FILES list from it, so the two can never drift apart again (see
+# gen_librelane_sources.py's own doc for the real drift this replaces).
+# BorgOnlyTop has a lane map for two slots, emitted to separate directories
+# (see the top-level Makefile's generate_verilog_wafer_1x1 comment). Pick the
+# emission matching SLOT so a `SLOT=1x1` build does not silently synthesise
+# the 46-pad Verilog -- the pad counts would mismatch and chip_core's
+# elaboration check would fire.
+ifeq ($(SLOT),1x1)
+    WAFER_VERILOG_TARGET = generate_verilog_wafer_1x1
+else
+    WAFER_VERILOG_TARGET = generate_verilog_wafer
+endif
+
+generated-sources:
+	$(MAKE) -C ../.. $(WAFER_VERILOG_TARGET)
+	python3 scripts/gen_librelane_sources.py $(SLOT)
+.PHONY: generated-sources
+
+librelane: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow (synthesis, PnR, verification)
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final
+.PHONY: librelane
+
+librelane-condensed: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow (synthesis, PnR, verification)
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) --condensed ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final
+.PHONY: librelane-condensed
+
+librelane-nodrc: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow without DRC checks
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip KLayout.Antenna --skip KLayout.DRC --skip Magic.DRC
+.PHONY: librelane-nodrc
+
+librelane-klayoutdrc: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow without magic DRC checks
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip Magic.DRC
+.PHONY: librelane-klayoutdrc
+
+librelane-magicdrc: librelane-which clone-pdk defines generated-sources ## Run LibreLane flow without KLayout DRC checks
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --save-views-to $(MAKEFILE_DIR)/final --skip KLayout.DRC
+.PHONY: librelane-magicdrc
+
+librelane-openroad: librelane-which clone-pdk defines ## Open the last run in OpenROAD
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --last-run --flow OpenInOpenROAD
+.PHONY: librelane-openroad
+
+librelane-klayout: librelane-which clone-pdk defines ## Open the last run in KLayout
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --last-run --flow OpenInKLayout
+.PHONY: librelane-klayout
+
+librelane-padring: clone-pdk defines generated-sources ## Only create the padring
+	python3-librelane scripts/padring.py ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS}
+.PHONY: librelane-padring
+
+sim: clone-pdk defines ## Run RTL simulation with cocotb
+	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} python3 chip_top_tb.py
+.PHONY: sim
+
+sim-gl: clone-pdk defines ## Run gate-level simulation with cocotb (after copy-final)
+	cd cocotb; GL=1 PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} python3 chip_top_tb.py
+.PHONY: sim-gl
+
+# cocotb lives in its own python3.13 env; the devShell's ambient python3 is
+# 3.14 and its PYTHONPATH mixes both (see the top-level Makefile's header).
+# Use cocotb's own interpreter and only its site-packages.
+COCOTB_PY := $(shell cocotb-config --python-bin 2>/dev/null || echo python3)
+
+# The link tests are written against the 1x0.5 lane map (46 bidir + 4
+# input), so they force that slot. The override is a target-specific
+# variable rather than only an env var on the python line so that the
+# `defines` prerequisite writes SLOT_1X0P5 too: with DEFAULT_SLOT=1x1 the
+# generated define selected chip_core's BorgOnlyTop1x1 instantiation while
+# the file list carried the 1x0.5 module -- "Unknown module type
+# BorgOnlyTop1x1", a slot mismatch of exactly the kind DEFAULT_SLOT's
+# comment warns about.
+sim-link sim-link-gl: SLOT = 1x0p5
+sim-link: clone-pdk defines ## Run the Borg link pad-level tests (plan test 8)
+	cd cocotb; PYTHONPATH=$$COCOTB_PYTHONPATH PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=1x0p5 PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
+.PHONY: sim-link
+
+sim-link-gl: clone-pdk defines ## Borg link pad-level tests, gate level (after copy-final)
+	cd cocotb; GL=1 PYTHONPATH=$$COCOTB_PYTHONPATH PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=1x0p5 PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
+.PHONY: sim-link-gl
+
+sim-view: ## View simulation waveforms in GTKWave
+	gtkwave cocotb/sim_build/chip_top.fst
+.PHONY: sim-view

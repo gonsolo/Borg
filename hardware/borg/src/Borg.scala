@@ -692,7 +692,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.mmio.fbBase          := seqFbBaseReg
       // seqTilesPerRowReg is the full RDL register width (10 bits); the
       // sequencer's tilesPerRow/fbWidthTiles/fbHeightTiles ports may be
-      // narrower (BorgConfig.Asic) -- see SeqMmioIO's tileRowWidth comment.
+      // narrower (BorgConfig.Wafer) -- see SeqMmioIO's tileRowWidth comment.
       s.io.mmio.tilesPerRow     := seqTilesPerRowReg(s.io.mmio.tilesPerRow.getWidth - 1, 0)
       s.io.mmio.binBase         := seqBinBaseReg
       // seqBinRowBytesReg is the full RDL register width (20 bits); the

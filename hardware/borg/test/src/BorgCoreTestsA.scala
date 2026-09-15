@@ -87,7 +87,7 @@ object BorgCoreTestsA extends TestSuite {
     }
 
     utest.test("ishl_int32_full_shift_range") {
-      simulate(new BorgCore(BorgConfig.Fp32)) { core =>
+      simulate(new BorgCore(BorgConfig.Default)) { core => // Default is FP32
         println("\n--- BorgCore: ishl_int32_full_shift_range ---")
         idleInputs(core)
         resetCore(core)
@@ -104,7 +104,7 @@ object BorgCoreTestsA extends TestSuite {
     }
 
     utest.test("ishr_int32_full_shift_range") {
-      simulate(new BorgCore(BorgConfig.Fp32)) { core =>
+      simulate(new BorgCore(BorgConfig.Default)) { core => // Default is FP32
         println("\n--- BorgCore: ishr_int32_full_shift_range ---")
         idleInputs(core)
         resetCore(core)

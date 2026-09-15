@@ -37,6 +37,12 @@ object BorgTilePathElabTests extends TestSuite {
   private def elaborate(cfg: BorgConfig): String =
     circt.stage.ChiselStage.emitSystemVerilog(new Borg(cfg))
 
+  // BorgConfig.Default turns hasDepthFlush on (it is part of the Vulkan
+  // feature set every target ships), so "nothing optional" has to be spelled
+  // out: these tests are about the knobs themselves, not the shipped set.
+  private val Bare = BorgConfig.Test.copy(
+    hasDepthFlush = false, hasBlend = false, hasStencil = false, hasBilinear = false)
+
   val tests = Tests {
 
     // --- Each feature elaborates on its own ---------------------------------
@@ -67,10 +73,10 @@ object BorgTilePathElabTests extends TestSuite {
       println("  Borg(hasStencil=true) elaborated cleanly")
     }
 
-    utest.test("Borg elaborates unchanged with everything disabled") {
-      val chirrtl = elaborate(BorgConfig.Test)
+    utest.test("Borg elaborates with every optional feature disabled") {
+      val chirrtl = elaborate(Bare)
       utest.assert(chirrtl.nonEmpty)
-      println("  Borg(default) elaborated cleanly")
+      println("  Borg(bare) elaborated cleanly")
     }
 
     // --- A disabled build really carries no hardware ------------------------
@@ -80,7 +86,7 @@ object BorgTilePathElabTests extends TestSuite {
       // equivalent -- checked structurally against the emitted CHIRRTL rather
       // than taken on trust. `depthBase`/`blendCfg`/`stencilRead` are port
       // names; `zVec`/`frag_a`/`stencilMems` are the registers and memory.
-      val off = elaborate(BorgConfig.Test)
+      val off = elaborate(Bare)
       utest.assert(!off.contains("depthBase"))
       utest.assert(!off.contains("zVec"))
       utest.assert(!off.contains("blendCfg"))

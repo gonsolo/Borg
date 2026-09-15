@@ -18,8 +18,43 @@ import memory.QspiBackend
   * by the [[soc.SoCLogic]] trait.
   */
 class tt_um_gonsolo_borg(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
-  // Fit the IHP 8×4 tile: reduce BorgBinner's count SRAM from 1024 to 16 tiles.
-  override def BORG_CFG: BorgConfig = BorgConfig.Asic
+  // Legacy Tiny Tapeout target; the active ASIC is wafer.space (BorgOnlyTop).
+  // Builds the same sized-down config as the tapeout so `make lint` keeps
+  // checking the real ASIC Borg.
+  override def BORG_CFG: BorgConfig = BorgConfig.Wafer
+  // TTIHP26b targets RV32I (Hutt's default -- no override needed). RV64 +
+  // Linux was investigated and measured: Linux+Borg needs ~2.3 mm^2 of core
+  // (8x8 tiles), 1.9x the 8x4 TT-IHP maximum -- not reachable without either
+  // a bigger die (not offered by TT-IHP at any tile size) or gutting Borg to
+  // make room, which isn't the right trade for a GPU tapeout. That RV64/area
+  // campaign is tracked separately as a future-shuttle goal; September ships
+  // RV32 + Borg, no Linux.
+  //
+  // Hutt's CSR read/write is split into two pipeline stages purely to
+  // close ECP5's 25MHz timing (see Hutt.scala's constructor doc). TT's
+  // sign-off clock is 250ns/4MHz (src/config.json CLOCK_PERIOD) -- 6x the
+  // period the split exists for -- so skip it and save the extra stage's
+  // registers + duplicated select logic.
+  override def pipelinedCsrRead: Boolean = false
+  // S-mode/CSR delegation machinery (sstatus/sie/stvec/sscratch/sepc/scause/
+  // stval/sip, medeleg/mideleg) exists only to support Linux -- see Hutt's
+  // constructor doc. software/borg's bare-metal firmware never leaves
+  // M-mode: no ecall/mret/sret anywhere, mtvec is never set, the only CSR
+  // touched at all is the read-only `cycle` counter (borg_driver.c:369).
+  // Measured: 960,127 -> 926,861 um^2 (-3.5%) -- real, but well short of
+  // the full regression vs TTIHP26a's proven-good 843,556 um^2 baseline,
+  // so make gds-ihp still fails detailed placement on its own. The rest of
+  // the gap is elsewhere (see hasClint below, and the still-open area
+  // campaign in project memory).
+  override def hasSupervisorMode: Boolean = false
+  // CLINT (mtime/mtimecmp, timer interrupts): same story as S-mode --
+  // Linux/OpenSBI-only, and this firmware never takes an interrupt.
+  override def hasClint: Boolean = false
+  // Hutt's ~31 debug trace registers (store/load/trap/sfence/x1/x18
+  // tracers) plus HuttRegFile's 7 forensic register-read taps -- all
+  // accumulated during the ULX3S/Linux boot investigation, observed only
+  // by simulation harnesses. No such harness exists for the ASIC.
+  override def hasDebugPorts: Boolean = false
 
   val ui_in   = IO(Input(UInt(8.W)))
   val uo_out  = IO(Output(UInt(8.W)))

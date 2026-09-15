@@ -18,13 +18,36 @@ from borg_mmio import encode_rv32_fadd, encode_rv32_fmul, encode_rv32_fmadd, enc
 FP16_MAX = 65504
 PERIPHERAL_NUM = 3
 
+# The emitted Verilog this suite compiles against (test/soc/Makefile's
+# out/hardware/borg/verilog). The DUT's float format is BorgConfig.Wafer's
+# `fp` -- FP32 since 2026-09-15 -- and the only honest source of truth here
+# is the hardware itself, so read the FMA's operand width off the emitted
+# module rather than keeping a second copy of the config in Python. A
+# hardcoded default (is_fp16=True) is exactly how this suite silently kept
+# testing FP16 packing against an FP32 core.
+_VERILOG_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..",
+                            "out", "hardware", "borg", "verilog")
+
+
+def dut_is_fp16():
+    import re
+    path = os.path.join(_VERILOG_DIR, "BorgFp16Fma.sv")
+    with open(path) as f:
+        m = re.search(r"input\s*\[(\d+):0\]\s*io_a\b", f.read())
+    if not m:
+        raise RuntimeError(f"could not find io_a's width in {path}")
+    width = int(m.group(1)) + 1
+    if width not in (16, 32):
+        raise RuntimeError(f"unexpected FMA operand width {width} in {path}")
+    return width == 16
+
 
 class BorgDriver:
     """
     Driver to abstract Hutt bus transactions into Borg-specific actions.
     """
 
-    def __init__(self, dut, tqv, is_fp16=True):
+    def __init__(self, dut, tqv, is_fp16):
         self.dut = dut
         self.tqv = tqv
         self.is_fp16 = is_fp16
@@ -178,7 +201,7 @@ async def test_borg_shader_math_batch(dut):
     cocotb.start_soon(clock.start())
 
     tqv = Hutt(dut, PERIPHERAL_NUM)
-    driver = BorgDriver(dut, tqv)
+    driver = BorgDriver(dut, tqv, is_fp16=dut_is_fp16())
     await driver.reset()
 
     for op in ["add", "mul", "fneg", "fma"]:
@@ -209,7 +232,7 @@ async def test_borg_rotation_shader(dut):
     cocotb.start_soon(clock.start())
 
     tqv = Hutt(dut, PERIPHERAL_NUM)
-    driver = BorgDriver(dut, tqv)
+    driver = BorgDriver(dut, tqv, is_fp16=dut_is_fp16())
     await driver.reset()
 
     # Load shader program into IMEM (same as borg_rotate.c):
@@ -228,24 +251,23 @@ async def test_borg_rotation_shader(dut):
     dut._log.info(f"  IMEM[2] fmul  r1,r5,r3:     0x{instr_fmul_sx:04X}")
     dut._log.info(f"  IMEM[3] fmadd r1,r2,r6,r1:  0x{instr_fmadd_ry:04X}")
 
-    # Test case: angle=0, vertex=(1.0, 0.0)
-    # cos=1.0, sin=0.0, -sin=-0.0
-    # Expected: rx=1.0, ry=0.0
+    # Operands as floats, packed by the driver in the DUT's own format (these
+    # were raw FP16 bit patterns until the core went FP32). The expectation
+    # is computed from the operands as the DUT actually receives them --
+    # rounded through the same packing -- so it holds at either width.
+    import math
+    c45 = math.cos(math.pi / 4)
     test_cases = [
-        {
-            "label": "angle=0, v=(1,0)",
-            "cos": 0x3C00, "x": 0x3C00, "nsin": 0x8000, "sin": 0x0000, "y": 0x0000,
-            "exp_rx": 1.0, "exp_ry": 0.0,
-        },
-        {
-            "label": "angle=pi/4, v=(1,1)",
-            "cos": 0x39A8, "x": 0x3C00, "nsin": 0xB9A8, "sin": 0x39A8, "y": 0x3C00,
-            "exp_rx": 0.0, "exp_ry": 1.414,
-        },
+        {"label": "angle=0, v=(1,0)",    "cos": 1.0, "sin": 0.0, "x": 1.0, "y": 0.0},
+        {"label": "angle=pi/4, v=(1,1)", "cos": c45, "sin": c45, "x": 1.0, "y": 1.0},
     ]
 
     for tc in test_cases:
         dut._log.info(f"  Test: {tc['label']}")
+        rnd = lambda v: float(driver.bits_to_float(driver.float_to_bits(v)))
+        cos, sin, x, y = (rnd(tc[k]) for k in ("cos", "sin", "x", "y"))
+        tc["exp_rx"] = cos * x - sin * y
+        tc["exp_ry"] = sin * x + cos * y
 
         # Reset PC and load IMEM
         await driver.start_execution(reset_pc=True)
@@ -255,12 +277,12 @@ async def test_borg_rotation_shader(dut):
         await driver.write_imem(3, instr_fmadd_ry)
         await driver.write_imem(4, 0)  # halt
 
-        # Load registers (raw FP16 bits)
-        await tqv.write_word_reg(2 * 4, tc["cos"])    # r2 = cos
-        await tqv.write_word_reg(3 * 4, tc["x"])      # r3 = x
-        await tqv.write_word_reg(4 * 4, tc["nsin"])   # r4 = -sin
-        await tqv.write_word_reg(5 * 4, tc["sin"])    # r5 = sin
-        await tqv.write_word_reg(6 * 4, tc["y"])      # r6 = y
+        # Load registers in the DUT's float format
+        await tqv.write_word_reg(2 * 4, int(driver.float_to_bits(tc["cos"])))   # r2 = cos
+        await tqv.write_word_reg(3 * 4, int(driver.float_to_bits(tc["x"])))     # r3 = x
+        await tqv.write_word_reg(4 * 4, int(driver.float_to_bits(-tc["sin"])))  # r4 = -sin
+        await tqv.write_word_reg(5 * 4, int(driver.float_to_bits(tc["sin"])))   # r5 = sin
+        await tqv.write_word_reg(6 * 4, int(driver.float_to_bits(tc["y"])))     # r6 = y
 
         # Reset PC and start execution
         await driver.start_execution(reset_pc=True)
@@ -297,7 +319,7 @@ async def test_borg_fstep(dut):
     cocotb.start_soon(clock.start())
 
     tqv = Hutt(dut, PERIPHERAL_NUM)
-    driver = BorgDriver(dut, tqv)
+    driver = BorgDriver(dut, tqv, is_fp16=dut_is_fp16())
     await driver.reset()
 
     instr = encode_rv32_fstep(rs1=0, rd=1)
@@ -328,7 +350,7 @@ async def test_borg_frcp(dut):
     cocotb.start_soon(clock.start())
 
     tqv = Hutt(dut, PERIPHERAL_NUM)
-    driver = BorgDriver(dut, tqv)
+    driver = BorgDriver(dut, tqv, is_fp16=dut_is_fp16())
     await driver.reset()
 
     instr = encode_rv32_frcp(rs1=0, rd=1)

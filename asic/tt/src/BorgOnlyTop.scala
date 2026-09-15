@@ -42,8 +42,9 @@ import borg.link.{BorgLinkSlave, LinkParams}
   * an elaboration-time `w = 8` would only have been a different build, not
   * something the fabricated part could be talked into.
   *
-  * @param cfg Borg configuration.  `BorgConfig.Asic` until probe 0a's measured
-  *            area picks `BorgConfig.Wafer`'s `samples`/`fragLanes`.
+  * @param cfg Borg configuration.  `BorgConfig.Wafer`: Default's feature set
+  *            (FP32, 4x MSAA, depth flush) at the slot's sizing, with
+  *            debugPorts=false since there is no harness here to read them.
   * @param p   Link configuration.  Default width (16) matches the lane map above.
   */
 class BorgOnlyCoreIO(val p: LinkParams) extends Bundle {
