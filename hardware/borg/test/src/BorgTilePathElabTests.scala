@@ -100,16 +100,20 @@ object BorgTilePathElabTests extends TestSuite {
       println("  all-enabled build: all six present")
     }
 
-    // --- MSAA is rejected, not approximated ---------------------------------
+    // --- MSAA depth resolves to sample zero, not an average -----------------
 
-    utest.test("hasDepthFlush with MSAA is a build error, not silent wrongness") {
-      // BorgTileFlusher.require: averaging samples is the wrong resolve for
-      // depth, so the unsupported combination must fail loudly.
-      val thrown =
-        try { elaborate(BorgConfig.Default.copy(hasDepthFlush = true, samples = 4)); false }
-        catch { case _: Throwable => true }
-      utest.assert(thrown)
-      println("  hasDepthFlush + samples=4 correctly rejected")
+    utest.test("hasDepthFlush elaborates at MSAA, resolving to sample zero") {
+      // This combination was a build error until 2026-09-15, on the grounds
+      // that "which sample's depth wins" was an unmade decision. It isn't:
+      // VK_KHR_depth_stencil_resolve defines SAMPLE_ZERO/AVERAGE/MIN/MAX,
+      // every Mesa driver advertises SAMPLE_ZERO, and v3dv -- the tile-based
+      // renderer this design is closest to -- supports ONLY SAMPLE_ZERO for
+      // depth. BorgTileFlusher's sFill already stages io.read.data(0).z, and
+      // `data` is indexed by sample, so the conformant result was what the
+      // RTL computed all along; only the require() disagreed.
+      val chirrtl = elaborate(BorgConfig.Default.copy(hasDepthFlush = true, samples = 4))
+      utest.assert(chirrtl.nonEmpty)
+      println("  hasDepthFlush + samples=4 elaborates (sample-zero resolve)")
     }
 
     utest.test("blend and stencil elaborate at 4x MSAA") {
@@ -137,7 +141,7 @@ object BorgTilePathElabTests extends TestSuite {
       val blendMsaa = elaborate(BorgConfig.Default.copy(hasBlend = true, samples = 4))
       utest.assert(blendMsaa.contains("sampleCtr"))
       // And a single-sample build never needs it regardless of features.
-      val single = elaborate(BorgConfig.Default.copy(hasBlend = true, hasStencil = true))
+      val single = elaborate(BorgConfig.Default.copy(hasBlend = true, hasStencil = true, samples = 1))
       utest.assert(!single.contains("sampleCtr"))
       println("  sampleCtr present only for MSAA + blend/stencil")
     }

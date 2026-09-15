@@ -99,21 +99,40 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
   *                      tile SRAM, which would double the flush's read
   *                      traffic for no reason.
   *
-  *                      samples>1 (MSAA) is not wired for depth yet: the
-  *                      colour path resolves by averaging samples, which is
-  *                      the wrong operation for depth (you'd want a specific
-  *                      sample or a min/max, a real semantic choice, not an
-  *                      average). Left for whoever scopes MSAA depth
-  *                      attachments; `require` below makes the unsupported
-  *                      combination a build error rather than silently
-  *                      wrong output.
+  *                      At samples>1 the depth flush resolves by taking
+  *                      SAMPLE 0. Averaging really is the wrong operation for
+  *                      depth, but "take sample zero" is the settled answer,
+  *                      not an open question: Vulkan's depth/stencil resolve
+  *                      (VK_KHR_depth_stencil_resolve, core since 1.2)
+  *                      defines SAMPLE_ZERO / AVERAGE / MIN / MAX, every Mesa
+  *                      driver advertises SAMPLE_ZERO, and v3dv -- the
+  *                      tile-based renderer closest to this design --
+  *                      supports ONLY VK_RESOLVE_MODE_SAMPLE_ZERO_BIT for
+  *                      depth and stencil. V3D's tile-store hardware spells
+  *                      the same three-way choice as `decimate_mode`
+  *                      (ALL_SAMPLES / 4X-average / SAMPLE_0) and routes the
+  *                      depth resolve to SAMPLE_0.
+  *
+  *                      Until 2026-09-15 a `require` made hasDepthFlush +
+  *                      samples>1 a build error, because the MSAA branch
+  *                      below genuinely had no depth path -- the staging,
+  *                      the sBurst -> sBurstZ hand-off and the sBurstZ arm
+  *                      all existed only in the samples==1 branch. Both
+  *                      branches now carry it; the MSAA one stages
+  *                      `pendingSamples(0).z` as each pixel's colour resolve
+  *                      retires, which is the same sample-zero rule the
+  *                      single-sample branch gets for free from
+  *                      `io.read.data(0).z`.
+  *
+  *                      What is still NOT supported is a true multisampled
+  *                      depth ATTACHMENT (V3D's ALL_SAMPLES mode): storing
+  *                      every sample's Z costs 4x the depth memory and a
+  *                      wider burst. Sample-zero resolve is what the resolve
+  *                      path needs and is a strict prerequisite for that
+  *                      larger feature, not a detour around it.
   */
 class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
                       val hasDepthFlush: Boolean = false) extends Module {
-  require(!hasDepthFlush || samples == 1,
-          s"hasDepthFlush is only wired for samples==1 (got samples=$samples) -- " +
-          "MSAA depth resolve is a real semantic choice, not an average; see the " +
-          "hasDepthFlush doc comment")
   val io = IO(new BorgTileFlusherIO(dataBits, samples, hasDepthFlush))
 
   val sIdle :: sFill :: sBurst :: sBurstZ :: Nil = Enum(4)
@@ -215,6 +234,11 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
       // for the colour conversion, and .z is simply another field of it, so
       // this adds a quantizer and a register write -- no extra read, no
       // extra cycle, no change to the colour path's timing.
+      //
+      // `data` is indexed by SAMPLE, so at samples>1 taking (0) here IS the
+      // depth resolve: VK_RESOLVE_MODE_SAMPLE_ZERO_BIT, the only depth
+      // resolve mode v3dv supports and the one V3D's tile-store hardware
+      // selects (decimate_mode = SAMPLE_0). See the class doc comment.
       zVec.foreach(_(capIdx(3, 0)) := DepthQuantize.quantize16(io.read.data(0).z))
       capIdx := capIdx + 1.U
     }
@@ -351,6 +375,14 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
           (rSum >> sampleBits)(7, 3),
           (gSum >> sampleBits)(7, 2),
           (bSum >> sampleBits)(7, 3))
+        // Depth resolves by taking SAMPLE ZERO, not this average: averaging
+        // depth is meaningless across a triangle edge, and sample-zero is
+        // the resolve mode Vulkan requires (VK_RESOLVE_MODE_SAMPLE_ZERO_BIT)
+        // and the only one v3dv offers for depth. pendingSamples still holds
+        // every captured sample here, so (0) is sample zero directly -- the
+        // colour accumulators are untouched by this.
+        zVec.foreach(_(capIdx(3, 0)) :=
+          DepthQuantize.quantize16(pendingSamples(0).z))
         if (BorgDebug.trace) printf("[FLUSH] entry=%d resolved RGB565 from %d samples\n",
           capIdx, samples.U)
         capIdx       := capIdx + 1.U
@@ -368,6 +400,10 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
       is(sIdle) {
         when(io.start) {
           baseReg      := io.tileBase
+          // Latched at the start pulse for the same reason as baseReg: the
+          // sequencer's address inputs are only valid then, not for the
+          // whole flush.
+          depthBaseReg.foreach(_ := io.depthBase.get)
           issueIdx     := 0.U
           capIdx       := 0.U
           burstIdx     := 0.U
@@ -399,6 +435,39 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
           burstIdx := burstIdx + 1.U
         }
         when(io.gpuMem.ready) {
+          // Same depth hand-off as the single-sample branch above: with a
+          // depth attachment bound, the colour burst is followed by the Z
+          // burst; without one, this is the historical sBurst -> sIdle edge.
+          if (hasDepthFlush) {
+            when(io.depthEn.get) {
+              burstIdx := 0.U
+              state    := sBurstZ
+            }.otherwise {
+              state := sIdle
+            }
+          } else {
+            state := sIdle
+          }
+        }
+      }
+      // The Z burst, identical in shape to the single-sample branch's: 16
+      // UNORM16 words to depthBaseReg. zVec was staged from sample zero as
+      // each pixel's colour resolve completed.
+      is(sBurstZ) {
+        if (hasDepthFlush) {
+          io.gpuMem.wr    := true.B
+          io.gpuMem.addr  := depthBaseReg.get
+          io.gpuMem.wdata := zVec.get(burstIdx(3, 0))
+          io.gpuMem.wlen  := 16.U
+          when(io.gpuMem.waccept) {
+            if (BorgDebug.trace) printf("[FLUSH] entry=%d D16=0x%x\n",
+              burstIdx, zVec.get(burstIdx(3, 0)))
+            burstIdx := burstIdx + 1.U
+          }
+          when(io.gpuMem.ready) {
+            state := sIdle
+          }
+        } else {
           state := sIdle
         }
       }
