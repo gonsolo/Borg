@@ -13,7 +13,7 @@ object BorgShaderDispatcherTestsB extends TestSuite {
   val tests = Tests {
 
     utest.test("discard_kill_flag_blocks_tile_write") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
+      simulate(new BorgShaderDispatcher(BASE)) { d =>
         println("\n--- BorgShaderDispatcher: discard_kill_flag_blocks_tile_write ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
@@ -99,7 +99,7 @@ object BorgShaderDispatcherTestsB extends TestSuite {
     }
 
     utest.test("discard_zero_write_to_r25_does_not_kill") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
+      simulate(new BorgShaderDispatcher(BASE)) { d =>
         println("\n--- BorgShaderDispatcher: discard_zero_write_to_r25_does_not_kill ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
@@ -220,7 +220,7 @@ object BorgShaderDispatcherTestsB extends TestSuite {
     }
 
     utest.test("all_eight_compare_ops_against_less_equal_greater") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
+      simulate(new BorgShaderDispatcher(BASE)) { d =>
         println("\n--- BorgShaderDispatcher: all_eight_compare_ops ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
@@ -259,7 +259,7 @@ object BorgShaderDispatcherTestsB extends TestSuite {
     }
 
     utest.test("depth_write_enable_gates_z_but_not_the_test") {
-      simulate(new BorgShaderDispatcher(BorgConfig.Default)) { d =>
+      simulate(new BorgShaderDispatcher(BASE)) { d =>
         println("\n--- BorgShaderDispatcher: depth_write_enable ---")
         pokeIdle(d)
         d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)

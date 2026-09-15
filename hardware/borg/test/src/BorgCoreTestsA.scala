@@ -19,8 +19,8 @@ object BorgCoreTestsA extends TestSuite {
         resetCore(core)
 
         // r0 = 2.0, r1 = 3.0
-        writeReg(core, 0, floatToFp16Bits(2.0f))
-        writeReg(core, 1, floatToFp16Bits(3.0f))
+        writeReg(core, 0, floatToBits(2.0f))
+        writeReg(core, 1, floatToBits(3.0f))
 
         // IMEM[0] = fadd r2, r0, r1;  IMEM[1] = halt
         val instr = Instructions.ADD(0, 1, 2)
@@ -28,7 +28,7 @@ object BorgCoreTestsA extends TestSuite {
         writeImem(core, 1, 0)
 
         startAndWait(core)
-        val result = fp16BitsToFloat(readReg(core, 2))
+        val result = bitsToFloat(readReg(core, 2))
         println(f"  fadd(2.0, 3.0) = $result%.2f (expected 5.0)")
         utest.assert(math.abs(result - 5.0f) < 0.01f)
         println("  PASSED")
@@ -143,13 +143,13 @@ object BorgCoreTestsA extends TestSuite {
         idleInputs(core)
         resetCore(core)
         writeReg(core, 0, 35)              // int 35
-        writeReg(core, 1, 0xFFFB)          // int -5 (two's complement)
+        writeReg(core, 1, intBits(-5))     // int -5, two's complement at the datapath width
         writeImem(core, 0, Instructions.I2F(0, 2))
         writeImem(core, 1, Instructions.I2F(1, 3))
         writeImem(core, 2, 0)
         startAndWait(core)
-        val pos = fp16BitsToFloat(readReg(core, 2))
-        val neg = fp16BitsToFloat(readReg(core, 3))
+        val pos = bitsToFloat(readReg(core, 2))
+        val neg = bitsToFloat(readReg(core, 3))
         println(f"  i2f(35) = $pos%.2f, i2f(-5) = $neg%.2f")
         utest.assert(math.abs(pos - 35.0f) < 0.01f)
         utest.assert(math.abs(neg + 5.0f) < 0.01f)
@@ -162,17 +162,17 @@ object BorgCoreTestsA extends TestSuite {
         println("\n--- BorgCore: f2i_int16 ---")
         idleInputs(core)
         resetCore(core)
-        writeReg(core, 0, floatToFp16Bits(35.0f))
-        writeReg(core, 1, floatToFp16Bits(-5.0f))
+        writeReg(core, 0, floatToBits(35.0f))
+        writeReg(core, 1, floatToBits(-5.0f))
         writeImem(core, 0, Instructions.F2I(0, 2))
         writeImem(core, 1, Instructions.F2I(1, 3))
         writeImem(core, 2, 0)
         startAndWait(core)
         val pos = readReg(core, 2).toInt
-        val neg = readReg(core, 3).toInt & 0xFFFF
-        println(s"  f2i(35.0) = $pos, f2i(-5.0) = 0x${neg.toHexString} (expect 0xfffb)")
+        val neg = readReg(core, 3) & intMask
+        println(s"  f2i(35.0) = $pos, f2i(-5.0) = 0x${neg.toString(16)} (expect 0x${intBits(-5).toString(16)})")
         utest.assert(pos == 35)
-        utest.assert(neg == 0xFFFB)
+        utest.assert(neg == intBits(-5))
         println("  PASSED")
       }
     }
@@ -183,15 +183,15 @@ object BorgCoreTestsA extends TestSuite {
         idleInputs(core)
         resetCore(core)
 
-        writeReg(core, 0, floatToFp16Bits(3.0f))
-        writeReg(core, 1, floatToFp16Bits(4.0f))
+        writeReg(core, 0, floatToBits(3.0f))
+        writeReg(core, 1, floatToBits(4.0f))
 
         val instr = Instructions.MUL(0, 1, 2)
         writeImem(core, 0, instr)
         writeImem(core, 1, 0)
 
         startAndWait(core)
-        val result = fp16BitsToFloat(readReg(core, 2))
+        val result = bitsToFloat(readReg(core, 2))
         println(f"  fmul(3.0, 4.0) = $result%.2f (expected 12.0)")
         utest.assert(math.abs(result - 12.0f) < 0.1f)
         println("  PASSED")
@@ -205,16 +205,16 @@ object BorgCoreTestsA extends TestSuite {
         resetCore(core)
 
         // r0=2.0, r1=3.0, r3=1.0 → fmadd r2, r0, r1, r3 = 2*3+1 = 7.0
-        writeReg(core, 0, floatToFp16Bits(2.0f))
-        writeReg(core, 1, floatToFp16Bits(3.0f))
-        writeReg(core, 3, floatToFp16Bits(1.0f))
+        writeReg(core, 0, floatToBits(2.0f))
+        writeReg(core, 1, floatToBits(3.0f))
+        writeReg(core, 3, floatToBits(1.0f))
 
         val instr = Instructions.FMA(0, 1, 3, 2)
         writeImem(core, 0, instr)
         writeImem(core, 1, 0)
 
         startAndWait(core)
-        val result = fp16BitsToFloat(readReg(core, 2))
+        val result = bitsToFloat(readReg(core, 2))
         println(f"  fmadd(2.0, 3.0, 1.0) = $result%.2f (expected 7.0)")
         utest.assert(math.abs(result - 7.0f) < 0.1f)
         println("  PASSED")

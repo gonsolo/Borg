@@ -21,7 +21,14 @@ import utest._
 object FrcpPrecisionTests extends TestSuite {
   import BorgCoreTestHelpers._
 
-  val config = BorgConfig.Default
+  // Pinned to FP16, not BorgConfig.Default (which became FP32 on
+  // 2026-09-15). This file's whole subject is the 33-entry FP16 rcpLut and
+  // whether FRCP/FDIV stay inside Vulkan's 2.5 ULP bound *in FP16* -- the
+  // bound, the golden values and the ULP arithmetic below are all FP16. At
+  // FP32, Fp16Special still narrows to FP16 internally (BorgLane's
+  // computeFp16Special), so running this at FP32 would measure the same LUT
+  // through an extra conversion and call it something it isn't.
+  val config = BorgConfig.Default.copy(fp = FloatConfig.FP16)
 
   /** FP16 bits -> Double, exact (no float rounding in between). */
   def fp16BitsToDouble(b: BigInt): Double = {

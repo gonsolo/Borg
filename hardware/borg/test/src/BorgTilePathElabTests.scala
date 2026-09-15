@@ -45,7 +45,7 @@ object BorgTilePathElabTests extends TestSuite {
       // The integration path: BorgConfig knob -> BorgTileFlusher constructor
       // -> depthBase/depthEn ports -> Borg.scala's FLUSH_ZB_BASE decode.
       // Any unconnected/mismatched port in that chain fails right here.
-      val chirrtl = elaborate(BorgConfig.Default.copy(hasDepthFlush = true))
+      val chirrtl = elaborate(BorgConfig.Test.copy(hasDepthFlush = true))
       utest.assert(chirrtl.nonEmpty)
       println("  Borg(hasDepthFlush=true) elaborated cleanly")
     }
@@ -54,7 +54,7 @@ object BorgTilePathElabTests extends TestSuite {
       // BorgConfig.hasBlend -> BorgRasterizer.blendCfg ->
       // BorgShaderDispatcher.blendCfg -> Borg.scala's BLEND_CFG/BLEND_CONST
       // decode.
-      val chirrtl = elaborate(BorgConfig.Default.copy(hasBlend = true))
+      val chirrtl = elaborate(BorgConfig.Test.copy(hasBlend = true))
       utest.assert(chirrtl.nonEmpty)
       println("  Borg(hasBlend=true) elaborated cleanly")
     }
@@ -62,13 +62,13 @@ object BorgTilePathElabTests extends TestSuite {
     utest.test("Borg elaborates with hasStencil enabled") {
       // Adds a memory as well as ports: BorgTileBuffer's stencil plane plus
       // the read/write/clear paths muxed alongside the colour plane.
-      val chirrtl = elaborate(BorgConfig.Default.copy(hasStencil = true))
+      val chirrtl = elaborate(BorgConfig.Test.copy(hasStencil = true))
       utest.assert(chirrtl.nonEmpty)
       println("  Borg(hasStencil=true) elaborated cleanly")
     }
 
     utest.test("Borg elaborates unchanged with everything disabled") {
-      val chirrtl = elaborate(BorgConfig.Default)
+      val chirrtl = elaborate(BorgConfig.Test)
       utest.assert(chirrtl.nonEmpty)
       println("  Borg(default) elaborated cleanly")
     }
@@ -80,7 +80,7 @@ object BorgTilePathElabTests extends TestSuite {
       // equivalent -- checked structurally against the emitted CHIRRTL rather
       // than taken on trust. `depthBase`/`blendCfg`/`stencilRead` are port
       // names; `zVec`/`frag_a`/`stencilMems` are the registers and memory.
-      val off = elaborate(BorgConfig.Default)
+      val off = elaborate(BorgConfig.Test)
       utest.assert(!off.contains("depthBase"))
       utest.assert(!off.contains("zVec"))
       utest.assert(!off.contains("blendCfg"))
@@ -89,7 +89,7 @@ object BorgTilePathElabTests extends TestSuite {
       utest.assert(!off.contains("stencilMems"))
       println("  default build: none of the six markers present")
 
-      val on = elaborate(BorgConfig.Default.copy(
+      val on = elaborate(BorgConfig.Test.copy(
         hasDepthFlush = true, hasBlend = true, hasStencil = true))
       utest.assert(on.contains("depthBase"))
       utest.assert(on.contains("zVec"))
@@ -111,7 +111,7 @@ object BorgTilePathElabTests extends TestSuite {
       // depth. BorgTileFlusher's sFill already stages io.read.data(0).z, and
       // `data` is indexed by sample, so the conformant result was what the
       // RTL computed all along; only the require() disagreed.
-      val chirrtl = elaborate(BorgConfig.Default.copy(hasDepthFlush = true, samples = 4))
+      val chirrtl = elaborate(BorgConfig.Test.copy(hasDepthFlush = true, samples = 4))
       utest.assert(chirrtl.nonEmpty)
       println("  hasDepthFlush + samples=4 elaborates (sample-zero resolve)")
     }
@@ -125,9 +125,9 @@ object BorgTilePathElabTests extends TestSuite {
       // "blending only works at 1x" was a conformance hole, not a
       // configuration preference.
       for (cfg <- Seq(
-             BorgConfig.Default.copy(hasBlend = true, samples = 4),
-             BorgConfig.Default.copy(hasStencil = true, samples = 4),
-             BorgConfig.Default.copy(hasBlend = true, hasStencil = true, samples = 4)))
+             BorgConfig.Test.copy(hasBlend = true, samples = 4),
+             BorgConfig.Test.copy(hasStencil = true, samples = 4),
+             BorgConfig.Test.copy(hasBlend = true, hasStencil = true, samples = 4)))
         utest.assert(elaborate(cfg).nonEmpty)
       println("  hasBlend / hasStencil / both at samples=4 all elaborate")
     }
@@ -136,12 +136,12 @@ object BorgTilePathElabTests extends TestSuite {
       // needPerSample is samples>1 AND (hasBlend || hasStencil): plain 4x MSAA
       // keeps the single-cycle broadcast write, so the existing MSAA config
       // pays none of the extra cycles.
-      val plainMsaa = elaborate(BorgConfig.Default.copy(samples = 4))
+      val plainMsaa = elaborate(BorgConfig.Test.copy(samples = 4))
       utest.assert(!plainMsaa.contains("sampleCtr"))
-      val blendMsaa = elaborate(BorgConfig.Default.copy(hasBlend = true, samples = 4))
+      val blendMsaa = elaborate(BorgConfig.Test.copy(hasBlend = true, samples = 4))
       utest.assert(blendMsaa.contains("sampleCtr"))
       // And a single-sample build never needs it regardless of features.
-      val single = elaborate(BorgConfig.Default.copy(hasBlend = true, hasStencil = true, samples = 1))
+      val single = elaborate(BorgConfig.Test.copy(hasBlend = true, hasStencil = true, samples = 1))
       utest.assert(!single.contains("sampleCtr"))
       println("  sampleCtr present only for MSAA + blend/stencil")
     }
@@ -154,13 +154,13 @@ object BorgTilePathElabTests extends TestSuite {
       // compiler already emitted would execute as something else rather than
       // fail. Turning them off is an explicit smaller-ISA decision, and this
       // checks it actually removes the hardware rather than just the decode.
-      val off = elaborate(BorgConfig.Default.copy(
+      val off = elaborate(BorgConfig.Test.copy(
         hasMemoryOps = false, hasControlFlow = false))
       utest.assert(!off.contains("execStack"))
       utest.assert(!off.contains("memRdReg"))
       println("  no exec stack, no load/store state")
 
-      val on = elaborate(BorgConfig.Default)
+      val on = elaborate(BorgConfig.Test)
       utest.assert(on.contains("execStack"))
       utest.assert(on.contains("memRdReg"))
       println("  default build has both")
@@ -169,8 +169,8 @@ object BorgTilePathElabTests extends TestSuite {
     utest.test("each extended-ISA half can be dropped on its own") {
       // The point of two knobs rather than one: the wafer.space tradeoff can
       // be measured at finer grain than all-or-nothing.
-      utest.assert(elaborate(BorgConfig.Default.copy(hasMemoryOps = false)).nonEmpty)
-      utest.assert(elaborate(BorgConfig.Default.copy(hasControlFlow = false)).nonEmpty)
+      utest.assert(elaborate(BorgConfig.Test.copy(hasMemoryOps = false)).nonEmpty)
+      utest.assert(elaborate(BorgConfig.Test.copy(hasControlFlow = false)).nonEmpty)
       println("  memory-only and control-flow-only builds both elaborate")
     }
 
@@ -181,7 +181,7 @@ object BorgTilePathElabTests extends TestSuite {
       // BorgShaderDispatcher's fraction derivation -> BorgRasterizer ->
       // Borg's SAMPLER_CFG decode. Adding a port to a chain that long is
       // exactly how an undriven sink gets in.
-      val chirrtl = elaborate(BorgConfig.Default.copy(hasBilinear = true))
+      val chirrtl = elaborate(BorgConfig.Test.copy(hasBilinear = true))
       utest.assert(chirrtl.nonEmpty)
       println("  Borg(hasBilinear=true) elaborated cleanly")
     }
@@ -189,7 +189,7 @@ object BorgTilePathElabTests extends TestSuite {
     utest.test("all three optional tile-path features coexist") {
       // They touch the same modules; enabling one must not have quietly
       // claimed something another needs.
-      val chirrtl = elaborate(BorgConfig.Default.copy(
+      val chirrtl = elaborate(BorgConfig.Test.copy(
         hasDepthFlush = true, hasBlend = true, hasStencil = true, hasBilinear = true))
       utest.assert(chirrtl.nonEmpty)
       println("  Borg(depthFlush + blend + stencil + bilinear) elaborated cleanly")

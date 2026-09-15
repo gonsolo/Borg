@@ -84,7 +84,11 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   val vertShaderLen = Input(UInt(6.W))
   val setupShaderAddr = Input(UInt(20.W))
   val setupShaderLen = Input(UInt(6.W))
-  val seqInvWidth = Input(UInt(16.W))
+  // cfg.totalBits, not 16: this feeds io.uniformWrite.data (cfg.totalBits
+  // wide) as u6, and is a float in the datapath's own format -- FP32 in an
+  // FP32 build. At 16 bits an FP32 1.0 (0x3F800000) arrived as 0x0000, so
+  // every edge was normalised by zero and covDelta came out all zeros.
+  val seqInvWidth = Input(UInt(cfg.totalBits.W))
   val triCount = Input(UInt(5.W))
   val rastShaderAddr = Input(UInt(20.W))
   val rastShaderLen = Input(UInt(6.W))

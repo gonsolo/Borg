@@ -19,7 +19,18 @@ object BorgCoreTestsC extends TestSuite {
       // frag_pos are non-zero. FTEX returns a constant texel. The chosen inputs make
       // the lighting hand-computable: ddx=(2,1,1), ddy=(3,3,0), normal∝(-1,1,1),
       // light=dot(lightDir,normal)≈0.490, so colour≈sRGB(0.490·texel).
-      simulate(new BorgCore(BorgConfig.Simt)) { core =>
+      // Pinned to FP16 on BOTH sides -- the DUT config here and the
+      // floatToFp16Bits() calls below, rather than the config-aware
+      // floatToBits(). Pinning only the DUT left the helpers still emitting
+      // FP32 patterns (they follow BorgCoreTestHelpers' own `config`, which
+      // is Default), poking 32-bit values into 16-bit registers.
+      //
+      // Pinned to FP16: the 56-word blob below is literal borgc output
+      // compiled for the FP16 datapath, and the expectations are that exact
+      // program's exact results. BorgConfig.Simt inherits fp from Default,
+      // which became FP32 on 2026-09-15 -- running an FP16-compiled blob on
+      // an FP32 core tests neither one.
+      simulate(new BorgCore(BorgConfig.Simt.copy(fp = FloatConfig.FP16))) { core =>
         println("\n--- BorgCore: borgc_fragment_cube ---")
         idleInputs(core)
         val qx = Seq(4, 5, 4, 5); val qy = Seq(4, 4, 5, 5) // 2×2 quad
@@ -117,11 +128,11 @@ object BorgCoreTestsC extends TestSuite {
 
         def testSrgb(input: Float, label: String): Unit = {
           resetCore(core)
-          writeReg(core, 0, floatToFp16Bits(input))
+          writeReg(core, 0, floatToBits(input))
           writeImem(core, 0, Instructions.FSRGB(rs1 = 0, rd = 2))
           writeImem(core, 1, 0) // halt
           startAndWait(core)
-          val result = fp16BitsToFloat(readReg(core, 2))
+          val result = bitsToFloat(readReg(core, 2))
           val expected = linearToSrgb(input)
           println(f"  $label: srgb($input%.4f) actual=$result%.5f expected=$expected%.5f")
           utest.assert(math.abs(result - expected) < 0.01f) // < ~2.5/255
@@ -168,23 +179,23 @@ object BorgCoreTestsC extends TestSuite {
         // position (u0..u2) = (1, 2, 3); pos.w is folded to 1.0 by the compiler, so
         // u3 is NOT read — set it to garbage (on real HW u3 holds color.r) to prove
         // the shader is independent of it.
-        writeUniform(0, floatToFp16Bits(1.0f))
-        writeUniform(1, floatToFp16Bits(2.0f))
-        writeUniform(2, floatToFp16Bits(3.0f))
-        writeUniform(3, floatToFp16Bits(7.0f)) // garbage — must not affect the result
+        writeUniform(0, floatToBits(1.0f))
+        writeUniform(1, floatToBits(2.0f))
+        writeUniform(2, floatToBits(3.0f))
+        writeUniform(3, floatToBits(7.0f)) // garbage — must not affect the result
 
         // Viewport-baked MVP, column-major in u8..u23 (u = 8 + col*4 + row):
         //   col0=[1,0,0,0] col1=[0,1,0,0] col2=[0,0,1,0] col3=[0,0,0,2]
         // → identity on x/y/z, clip_w = 2·pos.w (a power of two → exact 1/w).
         val mvp = Array(
           1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 2f)
-        for (i <- 0 until 16) writeUniform(8 + i, floatToFp16Bits(mvp(i)))
+        for (i <- 0 until 16) writeUniform(8 + i, floatToBits(mvp(i)))
 
         startAndWait(core)
 
-        val sx = fp16BitsToFloat(readReg(core, 0))
-        val sy = fp16BitsToFloat(readReg(core, 1))
-        val sz = fp16BitsToFloat(readReg(core, 2))
+        val sx = bitsToFloat(readReg(core, 0))
+        val sy = bitsToFloat(readReg(core, 1))
+        val sz = bitsToFloat(readReg(core, 2))
         // clip = MVP·pos = (1, 2, 3, 2); inv_w = 0.5; screen = (0.5, 1.0, 1.5).
         println(f"  screen = ($sx%.3f, $sy%.3f, $sz%.3f)  expected (0.5, 1.0, 1.5)")
         utest.assert(math.abs(sx - 0.5f) < 0.02f)
@@ -355,8 +366,8 @@ object BorgCoreTestsC extends TestSuite {
         resetCore(core)
 
         writeReg(core, 0, 0)              // condition == 0 -> branch taken
-        writeReg(core, 1, floatToFp16Bits(1.0f))
-        writeReg(core, 2, floatToFp16Bits(0.0f))
+        writeReg(core, 1, floatToBits(1.0f))
+        writeReg(core, 2, floatToBits(0.0f))
         // 0: BRZ r0 -> 2      (skip the add at slot 1)
         // 1: r2 = r1 + r1     (must NOT execute)
         // 2: halt
@@ -365,7 +376,7 @@ object BorgCoreTestsC extends TestSuite {
         writeImem(core, 2, 0)
 
         startAndWait(core)
-        val r2 = fp16BitsToFloat(readReg(core, 2))
+        val r2 = bitsToFloat(readReg(core, 2))
         println(f"  r2 = $r2%.2f (expect 0.0 -- the skipped add would make it 2.0)")
         utest.assert(math.abs(r2) < 0.01f)
         println("  PASSED")
@@ -379,14 +390,14 @@ object BorgCoreTestsC extends TestSuite {
         resetCore(core)
 
         writeReg(core, 0, 1)              // condition != 0 -> fall through
-        writeReg(core, 1, floatToFp16Bits(1.0f))
-        writeReg(core, 2, floatToFp16Bits(0.0f))
+        writeReg(core, 1, floatToBits(1.0f))
+        writeReg(core, 2, floatToBits(0.0f))
         writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 2))
         writeImem(core, 1, Instructions.ADD(1, 1, 2))
         writeImem(core, 2, 0)
 
         startAndWait(core)
-        val r2 = fp16BitsToFloat(readReg(core, 2))
+        val r2 = bitsToFloat(readReg(core, 2))
         println(f"  r2 = $r2%.2f (expect 2.0 -- the add ran)")
         utest.assert(math.abs(r2 - 2.0f) < 0.01f)
         println("  PASSED")
@@ -403,12 +414,12 @@ object BorgCoreTestsC extends TestSuite {
         // names r3; an ALU write-back would clobber it. This is the failure
         // mode BorgLane's `!opFlags.branch` guard exists for.
         writeReg(core, 0, 1)                            // not taken
-        writeReg(core, 3, floatToFp16Bits(7.0f))        // sentinel in r3
+        writeReg(core, 3, floatToBits(7.0f))        // sentinel in r3
         writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 3))
         writeImem(core, 1, 0)
 
         startAndWait(core)
-        val r3 = fp16BitsToFloat(readReg(core, 3))
+        val r3 = bitsToFloat(readReg(core, 3))
         println(f"  r3 = $r3%.2f (expect 7.0 -- untouched)")
         utest.assert(math.abs(r3 - 7.0f) < 0.01f)
         println("  PASSED")

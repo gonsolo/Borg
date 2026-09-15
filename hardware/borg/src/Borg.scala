@@ -637,7 +637,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       val seqVertLenReg    = RegInit(0.U(6.W))
       val seqSetupAddrReg  = RegInit(0.U(20.W))
       val seqSetupLenReg   = RegInit(0.U(6.W))
-      val seqInvWidthReg   = RegInit(0.U(16.W))
+      val seqInvWidthReg   = RegInit(0.U(cfg.totalBits.W))
       val seqStartPulse    = WireDefault(false.B)
       val seqTriCountReg   = RegInit(0.U(5.W))
       val seqRastAddrReg   = RegInit(0.U(20.W))
@@ -661,7 +661,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_len_offset)     { seqVertLenReg := bus.data_in(5, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_addr_offset)   { seqSetupAddrReg := bus.data_in(19, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_len_offset)    { seqSetupLenReg := bus.data_in(5, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_inv_width_offset)    { seqInvWidthReg := bus.data_in(15, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_inv_width_offset)    { seqInvWidthReg := bus.data_in(cfg.totalBits - 1, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_tri_count_offset)    { seqTriCountReg := bus.data_in(4, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_rast_addr_offset)    { seqRastAddrReg := bus.data_in(19, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_rast_len_offset)     { seqRastLenReg := bus.data_in(5, 0) }
