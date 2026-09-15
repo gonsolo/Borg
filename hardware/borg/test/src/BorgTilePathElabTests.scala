@@ -139,17 +139,24 @@ object BorgTilePathElabTests extends TestSuite {
     }
 
     utest.test("the serialized write path exists only where it is needed") {
-      // needPerSample is samples>1 AND (hasBlend || hasStencil): plain 4x MSAA
-      // keeps the single-cycle broadcast write, so the existing MSAA config
-      // pays none of the extra cycles.
-      val plainMsaa = elaborate(BorgConfig.Test.copy(samples = 4))
-      utest.assert(!plainMsaa.contains("sampleCtr"))
-      val blendMsaa = elaborate(BorgConfig.Test.copy(hasBlend = true, samples = 4))
+      // needPerSample is samples>1 AND (hasBlend || hasStencil). Isolate the
+      // knob against Bare (no optional tile-path hardware) rather than
+      // BorgConfig.Test: Test IS Default's shape, and Default has had
+      // hasBlend/hasStencil on unconditionally since 2026-09-15 (Vulkan
+      // conformance, not a per-target choice) -- so "plain 4x MSAA is
+      // cheap" stopped being a true claim about anything actually shipped
+      // the same day it was written. Every shipped 4x MSAA build now pays
+      // the serialized write; that is asserted below too, not hidden.
+      val bareMsaa = elaborate(Bare.copy(samples = 4))
+      utest.assert(!bareMsaa.contains("sampleCtr"))
+      val blendMsaa = elaborate(Bare.copy(hasBlend = true, samples = 4))
       utest.assert(blendMsaa.contains("sampleCtr"))
+      val shippedMsaa = elaborate(BorgConfig.Test.copy(samples = 4))
+      utest.assert(shippedMsaa.contains("sampleCtr"))
       // And a single-sample build never needs it regardless of features.
-      val single = elaborate(BorgConfig.Test.copy(hasBlend = true, hasStencil = true, samples = 1))
+      val single = elaborate(Bare.copy(hasBlend = true, hasStencil = true, samples = 1))
       utest.assert(!single.contains("sampleCtr"))
-      println("  sampleCtr present only for MSAA + blend/stencil")
+      println("  sampleCtr present only for MSAA + blend/stencil -- which the shipped Test/Default config now always is")
     }
 
     // --- The extended ISA is gated too --------------------------------------

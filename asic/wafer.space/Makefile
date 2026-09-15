@@ -79,31 +79,20 @@ LIBRELANE_OPTS = --pdk ${PDK} --pdk-root ${PDK_ROOT} --manual-pdk --scl ${SCL} -
 
 # Which LibreLane actually runs.
 #
-# The devshell ships nixpkgs' LibreLane 3.0.8. Our concurrent-signoff patch
-# (SequentialFlow.AsyncSteps: Magic.DRC overlapped with extraction -> LVS,
-# ~24 min off a ~4 h signoff) lives in a source checkout of the same 3.0.8,
-# not in the flake, because that branch is not pushed anywhere the flake could
-# pin yet. Until it is, the checkout is put in front of the installed package
-# via PYTHONPATH: nixpkgs' `librelane` wrapper APPENDS its own site-packages
-# after whatever PYTHONPATH it inherits, so an entry that comes first wins.
-# (The devshell itself exports a PYTHONPATH that starts with the nix
-# package, which is why this has to be prepended here, inside the shell, and
-# not set from outside `direnv exec` -- from outside it is silently replaced
-# and the unpatched flow runs with no error.)
-#
-# Every librelane target starts by printing which tree was imported and
-# whether the patch is in it, so a wrong environment is visible in the first
-# line of the log rather than 4 hours later in the step timings.
-LIBRELANE_SRC ?= $(wildcard $(HOME)/src/librelane)
-ifneq ($(LIBRELANE_SRC),)
-    LIBRELANE_ENV = PYTHONPATH=$(LIBRELANE_SRC)$(if $(PYTHONPATH),:$(PYTHONPATH))
-endif
-LIBRELANE = $(LIBRELANE_ENV) librelane
+# flake.nix pins our fork (gonsolo/librelane, feat/concurrent-signoff-steps-
+# 3.0.8: upstream 3.0.8 + SequentialFlow.AsyncSteps, Magic.DRC overlapped
+# with extraction -> LVS). Every librelane target starts by printing which
+# tree was imported and REFUSES to run if the patch is not in it -- a stale
+# devshell or a stray PYTHONPATH shows up in the first line of the log, not
+# four hours later in the step timings.
+LIBRELANE = librelane
 
-librelane-which: ## Print which LibreLane tree the flow will import
-	@$(LIBRELANE_ENV) python3-librelane -c 'import librelane, inspect; from librelane.flows import sequential; \
+librelane-which: ## Print which LibreLane the flow imports; fail if unpatched
+	@python3-librelane -c 'import librelane, inspect, sys; from librelane.flows import sequential; \
 	  print("LibreLane", librelane.__version__, "from", librelane.__file__); \
-	  print("concurrent signoff (SequentialFlow.AsyncSteps):", "yes" if "AsyncSteps" in inspect.getsource(sequential) else "NO -- unpatched")'
+	  ok = "AsyncSteps" in inspect.getsource(sequential); \
+	  print("concurrent signoff (SequentialFlow.AsyncSteps):", "yes" if ok else "NO -- unpatched, refusing to run"); \
+	  sys.exit(0 if ok else 1)'
 .PHONY: librelane-which
 # generated_sources.yaml last: it carries VERILOG_FILES, and LibreLane's
 # multi-config merge is later-wins, so this must come after config.yaml

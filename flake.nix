@@ -166,7 +166,24 @@
         # RSS and climbing during ABC tech-mapping. Fixed upstream in yosys
         # 0.68 (YosysHQ/yosys#6050); force LibreLane onto nixpkgs' yosys
         # (now 0.68) instead of its own bundled copy.
-        (pkgs.librelane.override { yosys = pkgs.yosys; })
+        #
+        # src override: our fork's feat/concurrent-signoff-steps-3.0.8 --
+        # upstream 3.0.8 plus one commit adding SequentialFlow.AsyncSteps,
+        # which overlaps Magic.DRC with SpiceExtraction -> Netgen.LVS in the
+        # Classic flow (~24 min off a ~4 h wafer.space signoff). Same version
+        # as nixpkgs' package, so its dependency closure and the yosys
+        # override above apply unchanged. Pinned by commit + hash: the flow
+        # that runs is the flow that was reviewed, on every machine, with no
+        # PYTHONPATH games (asic/wafer.space/Makefile's librelane-which prints
+        # what was actually imported and refuses to run an unpatched tree).
+        ((pkgs.librelane.override { yosys = pkgs.yosys; }).overridePythonAttrs (old: {
+          src = pkgs.fetchFromGitHub {
+            owner = "gonsolo";
+            repo = "librelane";
+            rev = "ff241805b0add4ed0b4038bf73e578d933d57be9";
+            hash = "sha256-l8aQ9D39kwA/Cv/bLXKwPilYKQOIqjqEnJ4ytZmYWvw=";
+          };
+        }))
         pkgs.magic-vlsi
         pkgs.metals
         pkgs.mill

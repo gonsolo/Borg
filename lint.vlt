@@ -61,3 +61,15 @@ lint_off -rule UNUSEDSIGNAL -file "*Clint.sv"
 // for RV64 ULX3S).
 lint_off -rule UNUSEDSIGNAL -file "*mem_16x32*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*mem_16x64*.sv"
+// BorgTileBuffer's stencil and alpha planes (hasStencil / hasBlend, on in
+// every config since 2026-09-15): one 16x8 SyncReadMem per sample, written
+// from two sites (clear + tile write), so firtool emits two write ports
+// sharing one clock and the second port's W1_clk goes unused -- same shape
+// as rgbzMem above.
+lint_off -rule UNUSEDSIGNAL -file "*mem_16x8*.sv"
+// BorgTextureUnit's bilinear path (hasBilinear, on since the same date):
+// the tap weights are 8x8 -> 16-bit products of which only the top byte is
+// kept, and the FP16 unpack/round helpers slice fields out of full-width
+// intermediates -- the usual Chisel "wire wider than the slice it feeds"
+// artifact every other datapath module in this file is waived for.
+lint_off -rule UNUSEDSIGNAL -file "*BorgTextureUnit.sv"
