@@ -147,6 +147,106 @@ object BorgTileFlusherTests extends TestSuite {
       }
     }
 
+    utest.test("MSAA depth flush resolves to sample zero, not an average") {
+      // The depth resolve mode, pinned by construction rather than by
+      // reading the RTL: each of the four samples gets a DIFFERENT z, chosen
+      // so that every plausible resolve mode produces a distinguishable
+      // answer. At entry e:
+      //   sample 0 = e/16      -> UNORM16 e*4096   (SAMPLE_ZERO, the one we want)
+      //   sample 1 = 0.0       -> 0                (so MIN is not mistaken for it)
+      //   sample 2 = 1.0       -> 65535            (so MAX is not)
+      //   sample 3 = 0.5       -> 32768            (so AVERAGE is not)
+      // VK_KHR_depth_stencil_resolve's four modes are exactly SAMPLE_ZERO /
+      // AVERAGE / MIN / MAX, and v3dv -- the tile-based renderer closest to
+      // this design -- supports only SAMPLE_ZERO for depth, which is what
+      // this asserts. Colour is held identical across samples so the colour
+      // burst stays the single-sample expectation and any failure here is
+      // unambiguously about depth.
+      simulate(new BorgTileFlusher(16, 4, hasDepthFlush = true)) { dut =>
+        val decoyZ = Seq(f16(0.0f), f16(1.0f), f16(0.5f)) // samples 1..3
+        var cycle = 0
+        var pipe0: Option[Int] = None
+        var pipe1: Option[Int] = None
+
+        def step(n: Int = 1): Unit = for (_ <- 0 until n) {
+          pipe1.foreach { i =>
+            dut.io.read.data.zipWithIndex.foreach { case (s, smp) =>
+              s.r.poke(entR(i).U); s.g.poke(entG(i).U); s.b.poke(entB(i).U)
+              s.z.poke((if (smp == 0) dz(i) else decoyZ(smp - 1)).U)
+            }
+          }
+          val en  = dut.io.read.en.peek().litToBoolean
+          val idx = dut.io.read.idx.peek().litValue.toInt
+          pipe1 = pipe0
+          pipe0 = if (en) Some(idx) else None
+          dut.clock.step()
+          cycle += 1
+          Predef.assert(cycle < 5000, "TIMEOUT")
+        }
+
+        dut.reset.poke(true.B); step(4)
+        dut.reset.poke(false.B)
+        dut.io.start.poke(false.B)
+        dut.io.tileBase.poke(0.U)
+        dut.io.depthBase.get.poke(0.U)
+        dut.io.depthEn.get.poke(true.B)
+        dut.io.gpuMem.ready.poke(false.B)
+        dut.io.gpuMem.waccept.poke(false.B)
+        dut.io.gpuMem.data.poke(0.U)
+        step(2)
+
+        dut.io.tileBase.poke(0x2000.U)
+        dut.io.depthBase.get.poke(0x9000.U)
+        dut.io.start.poke(true.B)
+        step()
+        dut.io.start.poke(false.B)
+
+        def collectBurst(): (Int, Seq[Int]) = {
+          var guard = 0
+          while (!(dut.io.gpuMem.wr.peek().litToBoolean &&
+                   dut.io.gpuMem.wlen.peek().litValue.toInt == 16) && guard < 500) {
+            step(); guard += 1
+          }
+          Predef.assert(guard < 500, "burst never started")
+          val base = dut.io.gpuMem.addr.peek().litValue.toInt
+          val words = ArrayBuffer[Int]()
+          for (w <- 0 until 16) {
+            Predef.assert(dut.io.gpuMem.wr.peek().litToBoolean, s"wr dropped at word $w")
+            words += (dut.io.gpuMem.wdata.peek().litValue.toInt & 0xFFFF)
+            if (w < 15) {
+              dut.io.gpuMem.waccept.poke(true.B); step()
+              dut.io.gpuMem.waccept.poke(false.B)
+            }
+          }
+          dut.io.gpuMem.ready.poke(true.B); step()
+          dut.io.gpuMem.ready.poke(false.B); step()
+          (base, words.toSeq)
+        }
+
+        collectBurst() // colour burst; depth is what this test is about
+        val (depthBase, depthWords) = collectBurst()
+        Predef.assert(depthBase == 0x9000,
+          s"depth burst base 0x${depthBase.toHexString} != 0x9000")
+
+        var errors = 0
+        for (w <- 0 until 16) {
+          if (depthWords(w) != expDz(w)) {
+            val diagnosis =
+              if (depthWords(w) == 0) "  <- looks like MIN (sample 1)"
+              else if (depthWords(w) == 65535) "  <- looks like MAX (sample 2)"
+              else "  <- neither sample zero nor an obvious other mode"
+            println(f"  depth word $w%2d: got 0x${depthWords(w).toHexString} " +
+                    f"exp 0x${expDz(w).toHexString}$diagnosis")
+            errors += 1
+          }
+        }
+        Predef.assert(errors == 0,
+          s"$errors depth words did not carry sample 0's value")
+        println("[flusher] 4x MSAA depth burst carries sample 0 exactly " +
+                "(VK_RESOLVE_MODE_SAMPLE_ZERO_BIT)")
+      }
+    }
+
     utest.test("depthEn=false skips the depth burst entirely") {
       // The runtime gate: a draw with no depth attachment bound must behave
       // exactly like the historical colour-only flush -- one burst, then idle.

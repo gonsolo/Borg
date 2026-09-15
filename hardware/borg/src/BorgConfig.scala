@@ -95,9 +95,11 @@ case class BorgConfig(
     // 16x16-bit staging vector plus a second burst pass per tile when
     // enabled; the runtime FLUSH_ZB_BASE!=0 gate means even an enabled
     // build behaves exactly like a disabled one until firmware actually
-    // binds a depth buffer. Only valid at samples==1 -- see
-    // BorgTileFlusher's own require() and doc comment for why MSAA depth
-    // resolve is a separate semantic decision, not an average.
+    // binds a depth buffer. At samples>1 the flush resolves depth by taking
+    // sample 0 (VK_RESOLVE_MODE_SAMPLE_ZERO_BIT -- the only depth resolve
+    // mode v3dv supports, and what V3D's tile-store hardware does); see
+    // BorgTileFlusher's doc comment. A true multisampled depth ATTACHMENT
+    // (all samples stored, 4x the memory) remains unsupported.
     hasDepthFlush: Boolean = false,
     // Adds the fixed-function colour blend stage ([[BorgBlend]]) to the
     // dispatcher's tile-write path -- Vulkan-conformance item 9. Blending is
@@ -254,12 +256,23 @@ object BorgConfig {
   // BorgBinnerIO's existing countAddrWidth cap of 13 bits, so no other RTL
   // needed changing for this specific step -- a bigger future jump past
   // 8192 tiles would need that cap raised too (see those IOs' own comments).
+  // FP32 + 4x MSAA: Vulkan's baseline Shader capability mandates 32-bit
+  // float arithmetic unconditionally (no feature bit gates it, unlike
+  // shaderFloat16), and framebufferColorSampleCounts must include
+  // VK_SAMPLE_COUNT_4_BIT. A permanent FP16/samples=1 default was never a
+  // real target config, just what Borg happened to be built as first.
+  // 2026-09-15: switched deliberately ahead of re-validating area/timing at
+  // this combination (FP32 FMA alone measured 2.48x area / 1.79x critical
+  // path via yosys in isolation; samples=4 alone is proven at ASIC via a
+  // real 1x0.5 signoff at 85.68% -- but the two together, on the wafer.space
+  // 1x1 slot and on ULX3S, are unmeasured as of this change).
   val Default = BorgConfig(
-    fp              = FloatConfig.FP16,
+    fp              = FloatConfig.FP32,
     coordWidth      = 9,
     fifoDepth       = 2,
     maxBinTiles     = 4096,
-    maxInstructions = 72 // M5 step 1: grow IMEM (rast 13 + frag ~56 co-resident)
+    maxInstructions = 72, // M5 step 1: grow IMEM (rast 13 + frag ~56 co-resident)
+    samples         = 4
   )
 
   // Sim + ULX3S SIMT config: 2×2 quad fragment shading.  Selected via BORG_CFG in
