@@ -58,7 +58,9 @@ object BorgDMATests extends TestSuite {
     // historical behaviour -- confirms the fix is config-gated by
     // cfg.totalBits, not an unconditional widen that would change FP16 too.
     utest.test("uniform_dma_truncates_to_16_bits_at_fp16") {
-      simulate(new BorgDMA(BorgConfig.Default)) { dma =>
+      // Explicitly FP16, not BorgConfig.Default: this test is about the FP16
+      // half of the config gate, and Default became FP32 on 2026-09-15.
+      simulate(new BorgDMA(BorgConfig.Default.copy(fp = FloatConfig.FP16))) { dma =>
         val word = BigInt("89ABCDEF", 16)
         val (en, data) = driveUniformDma(dma, word)
         utest.assert(en)

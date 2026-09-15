@@ -20,6 +20,18 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
 
   // --- Float conversion helpers ---
 
+  /** The config this suite builds its DUT with. The float helpers below
+    * follow it rather than hardcoding a format, so these tests keep meaning
+    * the same thing when the default changes -- which is exactly what broke
+    * them when BorgConfig.Default moved to FP32: uniforms, GPRs, clipRegs
+    * and covDeltaDebug are all `cfg.totalBits` wide, and BorgDMA stages
+    * `io.gpuMem.data(cfg.totalBits - 1, 0)` out of each DRAM word, so a
+    * 16-bit pattern written into DRAM and a 16-bit mask on readback were
+    * both wrong at FP32 (FP32 -1.0 is 0xBF800000, whose low 16 bits decode
+    * as 0.0 -- the "got 0.0, expected 1.5" these tests reported).
+    */
+  val suiteCfg = BorgConfig.Test
+
   def floatToBits16(f: Float): BigInt = {
     val bits = java.lang.Float.floatToRawIntBits(f)
     val sign = (bits >>> 31) << 15
@@ -39,6 +51,19 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
     else if (exp == 31) { exp = 255 }
     else { exp = exp - 15 + 127 }
     java.lang.Float.intBitsToFloat(sign | (exp << 23) | sig)
+  }
+
+  /** Float -> the datapath's own bit pattern, `suiteCfg.totalBits` wide. */
+  def floatToBits(f: Float): BigInt = suiteCfg.fp match {
+    case FloatConfig.FP32 => BigInt(java.lang.Float.floatToRawIntBits(f) & 0xffffffffL)
+    case _                => floatToBits16(f)
+  }
+
+  /** The inverse. Masks to the datapath width itself, so call sites do not
+    * carry their own `& 0xFFFF` (which is what silently truncated FP32). */
+  def bitsToFloat(b: BigInt): Float = suiteCfg.fp match {
+    case FloatConfig.FP32 => java.lang.Float.intBitsToFloat((b & BigInt(0xffffffffL)).toInt)
+    case _                => bitsToFloat16(b & BigInt(0xffff))
   }
 
   // --- Bus helpers ---
@@ -187,7 +212,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
     */
   def buildDescriptor(baseAddr: Int, verts: Seq[Seq[Float]]): Map[Int, BigInt] = {
     val m1 = (for (v <- 0 until 3; c <- 0 until 8) yield
-      (baseAddr + v * 32 + c * 4) -> floatToBits16(verts(v)(c))
+      (baseAddr + v * 32 + c * 4) -> floatToBits(verts(v)(c))
     ).toMap
     // Zero-extent bbox: minX=minY=maxX=maxY=0.
     // With >= comparison in sNextTile: nextX(4) >= maxX(0) → immediately goes
@@ -207,7 +232,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
   def buildDescriptorWithBbox(baseAddr: Int, verts: Seq[Seq[Float]],
                               minX: Int, minY: Int, maxX: Int, maxY: Int): Map[Int, BigInt] = {
     val m1 = (for (v <- 0 until 3; c <- 0 until 8) yield
-      (baseAddr + v * 32 + c * 4) -> floatToBits16(verts(v)(c))
+      (baseAddr + v * 32 + c * 4) -> floatToBits(verts(v)(c))
     ).toMap
     m1 ++ Map(
       (baseAddr + 96)  -> BigInt(((minY & ~3) << 16) | (minX & ~3)),
@@ -231,7 +256,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
     // reported individually below, and a failure names the scenario it came
     // from -- what utest's own per-test reporting gave us before.
     utest.test("sequencer scenarios (one shared BorgTestWrapper build)") {
-      simulate(new BorgTestWrapper(BorgConfig.Test)) { borg =>
+      simulate(new BorgTestWrapper(suiteCfg)) { borg =>
         val failures = scala.collection.mutable.ArrayBuffer[(String, Throwable)]()
 
         def scenario(name: String)(body: => Unit): Unit = {
@@ -335,7 +360,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         val area = e0dx * e2dy - e2dx * e0dy
         println(f"  Expected edges: ($e0dx%.1f,$e0dy%.1f) ($e1dx%.1f,$e1dy%.1f) ($e2dx%.1f,$e2dy%.1f) area=$area%.1f")
 
-        val outputs = (0 until 8).map { i => bitsToFloat16(rawRead(borg, BorgGpuRegs.gpr_offset.litValue.toInt + i * 4) & 0xFFFF) }
+        val outputs = (0 until 8).map { i => bitsToFloat(rawRead(borg, BorgGpuRegs.gpr_offset.litValue.toInt + i * 4)) }
         println(f"  r0-r5: ${outputs.take(6).map(v => f"$v%.3f").mkString(" ")}  r6=${outputs(6)}%.3f  r7=${outputs(7)}%.6f")
 
         val tol = 0.1f
@@ -387,9 +412,9 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         )
         // Pre-computed edge uniforms stored by sStoreSetup at setupBase.
         // sLoadTriSetup (pass-2) reads these back — must match sStageUniforms output.
-        val e0dxBits = floatToBits16(v0x - v1x); val e0dyBits = floatToBits16(v1y - v0y)
-        val e1dxBits = floatToBits16(v1x - v2x); val e1dyBits = floatToBits16(v2y - v1y)
-        val e2dxBits = floatToBits16(v2x - v0x); val e2dyBits = floatToBits16(v0y - v2y)
+        val e0dxBits = floatToBits(v0x - v1x); val e0dyBits = floatToBits(v1y - v0y)
+        val e1dxBits = floatToBits(v1x - v2x); val e1dyBits = floatToBits(v2y - v1y)
+        val e2dxBits = floatToBits(v2x - v0x); val e2dyBits = floatToBits(v0y - v2y)
         val setupData: Map[Int, BigInt] = Map(
           (setupBase + 0*4) -> e0dxBits, (setupBase + 1*4) -> e0dyBits,
           (setupBase + 2*4) -> e1dxBits, (setupBase + 3*4) -> e1dyBits,
@@ -455,7 +480,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         // detection margin.
         borg.clock.step(160)
 
-        val gprs = (0 until 12).map { i => bitsToFloat16(rawRead(borg, BorgGpuRegs.gpr_offset.litValue.toInt + i * 4) & 0xFFFF) }
+        val gprs = (0 until 12).map { i => bitsToFloat(rawRead(borg, BorgGpuRegs.gpr_offset.litValue.toInt + i * 4)) }
         println(f"  r0-r5  (u0-u5 edges):   ${gprs.take(6).map(v => f"$v%.3f").mkString(" ")}")
         println(f"  r6-r11 (u6-u11 negpos): ${gprs.slice(6,12).map(v => f"$v%.3f").mkString(" ")}")
         // Note: u6-u11 (negated positions) are in the uniform buffer but the readout
@@ -981,7 +1006,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         rawWrite(borg, BorgGpuRegs.seq_clear_hi_offset.litValue.toInt, 0)
         rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 64)
         rawWrite(borg, BorgGpuRegs.flush_width_offset.litValue.toInt, 2)
-        rawWrite(borg, BorgGpuRegs.seq_inv_width_offset.litValue.toInt, floatToBits16(1.0f))
+        rawWrite(borg, BorgGpuRegs.seq_inv_width_offset.litValue.toInt, floatToBits(1.0f))
 
         rawWrite(borg, BorgGpuRegs.seq_tri_count_offset.litValue.toInt, 1)
         rawWrite(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt, 1)
@@ -1013,7 +1038,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         val actual = (0 until 3).map { e =>
           val d0 = borg.io.covDeltaDebug.get(e)(0).peek().litValue
           val d1 = borg.io.covDeltaDebug.get(e)(1).peek().litValue
-          (bitsToFloat16(d0), bitsToFloat16(d1))
+          (bitsToFloat(d0), bitsToFloat(d1))
         }
         for (e <- 0 until 3) {
           println(f"  edge$e: d0=${actual(e)._1}%.4f (expect ${expected(e)._1}%.4f)  " +

@@ -26,16 +26,16 @@ object BorgCoreTestsD extends TestSuite {
         //   2: BRNZ r0 -> 0        loop while the counter is non-zero
         //   3: halt
         writeReg(core, 0, 4)
-        writeReg(core, 1, 0xFFFF)                       // -1 as int16
-        writeReg(core, 2, floatToFp16Bits(1.0f))
-        writeReg(core, 3, floatToFp16Bits(0.0f))
+        writeReg(core, 1, intBits(-1))                  // -1 at the datapath width
+        writeReg(core, 2, floatToBits(1.0f))
+        writeReg(core, 3, floatToBits(0.0f))
         writeImem(core, 0, Instructions.ADD(3, 2, 3))
         writeImem(core, 1, Instructions.IADD(0, 1, 0))
         writeImem(core, 2, Instructions.BRNZ(rs1 = 0, target = 0))
         writeImem(core, 3, 0)
 
         startAndWait(core)
-        val acc = fp16BitsToFloat(readReg(core, 3))
+        val acc = bitsToFloat(readReg(core, 3))
         val ctr = readReg(core, 0)
         println(f"  looped: r3 = $acc%.2f (expect 4.0), counter = $ctr (expect 0)")
         utest.assert(math.abs(acc - 4.0f) < 0.01f)
@@ -55,13 +55,13 @@ object BorgCoreTestsD extends TestSuite {
         for ((cond, shouldBranch) <- Seq((0, false), (1, true))) {
           resetCore(core)
           writeReg(core, 0, cond)
-          writeReg(core, 1, floatToFp16Bits(1.0f))
-          writeReg(core, 2, floatToFp16Bits(0.0f))
+          writeReg(core, 1, floatToBits(1.0f))
+          writeReg(core, 2, floatToBits(0.0f))
           writeImem(core, 0, Instructions.BRNZ(rs1 = 0, target = 2))
           writeImem(core, 1, Instructions.ADD(1, 1, 2))
           writeImem(core, 2, 0)
           startAndWait(core)
-          val r2 = fp16BitsToFloat(readReg(core, 2))
+          val r2 = bitsToFloat(readReg(core, 2))
           val branched = math.abs(r2) < 0.01f
           println(f"  cond=$cond -> branched=$branched (expect $shouldBranch)")
           utest.assert(branched == shouldBranch)
@@ -80,14 +80,14 @@ object BorgCoreTestsD extends TestSuite {
         // branch on BRZ -- the same convention the discard register uses.
         // Worth pinning down: an FP-aware comparison would do the opposite.
         writeReg(core, 0, 0x8000)
-        writeReg(core, 1, floatToFp16Bits(1.0f))
-        writeReg(core, 2, floatToFp16Bits(0.0f))
+        writeReg(core, 1, floatToBits(1.0f))
+        writeReg(core, 2, floatToBits(0.0f))
         writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 2))
         writeImem(core, 1, Instructions.ADD(1, 1, 2))
         writeImem(core, 2, 0)
 
         startAndWait(core)
-        val r2 = fp16BitsToFloat(readReg(core, 2))
+        val r2 = bitsToFloat(readReg(core, 2))
         println(f"  r2 = $r2%.2f (expect 2.0 -- not taken, so the add ran)")
         utest.assert(math.abs(r2 - 2.0f) < 0.01f)
         println("  PASSED")
@@ -122,8 +122,8 @@ object BorgCoreTestsD extends TestSuite {
         // r5 = int(r30) -> lane x coordinate: 0, 1, 0, 1 across the quad.
         // EXPUSH r5 therefore keeps lanes 1 and 3 and masks lanes 0 and 2.
         // Lane 0 is masked, so its r6 must keep the sentinel.
-        writeReg(core, 6, floatToFp16Bits(9.0f))     // sentinel in every lane
-        writeReg(core, 7, floatToFp16Bits(1.0f))
+        writeReg(core, 6, floatToBits(9.0f))     // sentinel in every lane
+        writeReg(core, 7, floatToBits(1.0f))
         writeImem(core, 0, Instructions.F2I(30, 5))
         writeImem(core, 1, Instructions.EXPUSH(rs1 = 5))
         writeImem(core, 2, Instructions.ADD(7, 7, 6))   // r6 = 2.0, masked lanes skip
@@ -131,7 +131,7 @@ object BorgCoreTestsD extends TestSuite {
         writeImem(core, 4, 0)
 
         startAndWait(core)
-        val lane0 = fp16BitsToFloat(readReg(core, 6))
+        val lane0 = bitsToFloat(readReg(core, 6))
         println(f"  lane0 (x=0, condition false) r6 = $lane0%.2f (expect 9.0 -- masked)")
         utest.assert(math.abs(lane0 - 9.0f) < 0.01f)
         utest.assert(!core.io.execFault.peek().litToBoolean)
@@ -149,8 +149,8 @@ object BorgCoreTestsD extends TestSuite {
         // Same masked region, but the write happens AFTER EXPOP, so lane 0
         // must see it again. This is what proves the mask is restored rather
         // than latched off for the rest of the program.
-        writeReg(core, 6, floatToFp16Bits(9.0f))
-        writeReg(core, 7, floatToFp16Bits(1.0f))
+        writeReg(core, 6, floatToBits(9.0f))
+        writeReg(core, 7, floatToBits(1.0f))
         writeImem(core, 0, Instructions.F2I(30, 5))
         writeImem(core, 1, Instructions.EXPUSH(rs1 = 5))
         writeImem(core, 2, Instructions.EXPOP())
@@ -158,7 +158,7 @@ object BorgCoreTestsD extends TestSuite {
         writeImem(core, 4, 0)
 
         startAndWait(core)
-        val lane0 = fp16BitsToFloat(readReg(core, 6))
+        val lane0 = bitsToFloat(readReg(core, 6))
         println(f"  lane0 r6 = $lane0%.2f (expect 2.0 -- mask restored)")
         utest.assert(math.abs(lane0 - 2.0f) < 0.01f)
         utest.assert(!core.io.execFault.peek().litToBoolean)
@@ -176,9 +176,9 @@ object BorgCoreTestsD extends TestSuite {
         // if (x != 0) r6 = 2.0  else  r6 = 3.0
         // Lane 0 has x == 0, so it takes the ELSE arm and must end at 3.0 --
         // which only happens if EXELSE re-activates it.
-        writeReg(core, 6, floatToFp16Bits(9.0f))
-        writeReg(core, 7, floatToFp16Bits(1.0f))
-        writeReg(core, 8, floatToFp16Bits(3.0f))
+        writeReg(core, 6, floatToBits(9.0f))
+        writeReg(core, 7, floatToBits(1.0f))
+        writeReg(core, 8, floatToBits(3.0f))
         writeImem(core, 0, Instructions.F2I(30, 5))
         writeImem(core, 1, Instructions.EXPUSH(rs1 = 5))
         writeImem(core, 2, Instructions.ADD(7, 7, 6))    // then: r6 = 2.0
@@ -191,7 +191,7 @@ object BorgCoreTestsD extends TestSuite {
         // Lane 0 took the else arm, so r6 there is 3.0 + r30(=0.5) = 3.5;
         // what matters is that it is NOT 9.0 (never ran) and NOT 2.0 (ran the
         // then-arm it should have been masked out of).
-        val lane0 = fp16BitsToFloat(readReg(core, 6))
+        val lane0 = bitsToFloat(readReg(core, 6))
         println(f"  lane0 r6 = $lane0%.2f (expect 3.5 -- else arm; 9.0 = never ran, 2.0 = wrong arm)")
         utest.assert(math.abs(lane0 - 3.5f) < 0.01f)
         utest.assert(!core.io.execFault.peek().litToBoolean)
@@ -211,8 +211,8 @@ object BorgCoreTestsD extends TestSuite {
         // enclosing mask at all. Inverting the full mask instead of masking
         // against the enclosing one is the classic bug here, and it would
         // show up as lane 0 executing the inner else.
-        writeReg(core, 6, floatToFp16Bits(9.0f))
-        writeReg(core, 7, floatToFp16Bits(1.0f))
+        writeReg(core, 6, floatToBits(9.0f))
+        writeReg(core, 7, floatToBits(1.0f))
         writeImem(core, 0, Instructions.F2I(30, 5))
         writeImem(core, 1, Instructions.EXPUSH(rs1 = 5))   // lane 0 masked off
         writeImem(core, 2, Instructions.EXPUSH(rs1 = 5))   // inner, same cond
@@ -223,7 +223,7 @@ object BorgCoreTestsD extends TestSuite {
         writeImem(core, 7, 0)
 
         startAndWait(core)
-        val lane0 = fp16BitsToFloat(readReg(core, 6))
+        val lane0 = bitsToFloat(readReg(core, 6))
         println(f"  lane0 r6 = $lane0%.2f (expect 9.0 -- inner else must not re-activate it)")
         utest.assert(math.abs(lane0 - 9.0f) < 0.01f)
         utest.assert(!core.io.execFault.peek().litToBoolean)
@@ -261,13 +261,13 @@ object BorgCoreTestsD extends TestSuite {
         // The regression anchor: the mask powers up all-ones and nothing
         // narrows it, so a program that predates these instructions behaves
         // exactly as it did.
-        writeReg(core, 0, floatToFp16Bits(2.0f))
-        writeReg(core, 1, floatToFp16Bits(3.0f))
+        writeReg(core, 0, floatToBits(2.0f))
+        writeReg(core, 1, floatToBits(3.0f))
         writeImem(core, 0, Instructions.ADD(0, 1, 2))
         writeImem(core, 1, 0)
         startAndWait(core)
 
-        val r2 = fp16BitsToFloat(readReg(core, 2))
+        val r2 = bitsToFloat(readReg(core, 2))
         println(f"  r2 = $r2%.2f (expect 5.0), execFault=${core.io.execFault.peek().litToBoolean}")
         utest.assert(math.abs(r2 - 5.0f) < 0.01f)
         utest.assert(!core.io.execFault.peek().litToBoolean)

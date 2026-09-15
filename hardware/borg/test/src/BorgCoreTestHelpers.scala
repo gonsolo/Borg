@@ -32,6 +32,40 @@ object BorgCoreTestHelpers {
     java.lang.Float.intBitsToFloat(sign | (exp << 23) | sig)
   }
 
+  /** Signed integer -> its two's-complement pattern at the datapath width.
+    *
+    * The integer ALU is `config.totalBits` wide, so "-5" is 0xFFFB at FP16
+    * and 0xFFFFFFFB at FP32 -- a literal 0xFFFB in an FP32 build is simply
+    * +65531, which is why i2f_int16 read back 65531.0 instead of -5.0 when
+    * the default moved.
+    */
+  def intBits(v: Int): BigInt = BigInt(v) & ((BigInt(1) << config.totalBits) - 1)
+
+  /** Mask for reading a raw integer result back at the datapath width. */
+  val intMask: BigInt = (BigInt(1) << config.totalBits) - 1
+
+  /** Float -> the datapath's own bit pattern, `config.totalBits` wide.
+    *
+    * BorgCore's register file, pipeWrite and regReadData are all
+    * cfg.totalBits wide, so at FP32 a 16-bit FP16 pattern is simply a
+    * different (tiny, denormal) number -- not a narrower version of the same
+    * one. These tests fed FP16 patterns and compared decoded FP16, which is
+    * why ~24 of them failed the moment BorgConfig.Default became FP32.
+    *
+    * The FP16 primitives above are kept and still used directly by
+    * FrcpPrecisionTests, whose subject really is the FP16 rcpLut.
+    */
+  def floatToBits(f: Float): BigInt = config.fp match {
+    case FloatConfig.FP32 => BigInt(java.lang.Float.floatToRawIntBits(f) & 0xffffffffL)
+    case _                => floatToFp16Bits(f)
+  }
+
+  /** The inverse, masking to the datapath width itself. */
+  def bitsToFloat(b: BigInt): Float = config.fp match {
+    case FloatConfig.FP32 => java.lang.Float.intBitsToFloat((b & BigInt(0xffffffffL)).toInt)
+    case _                => fp16BitsToFloat(b & BigInt(0xffff))
+  }
+
   /** Perform a write to BorgCore (simulating the edge-detected is_writing pulse). */
   def writeCore(core: BorgCore, addr: Int, data: BigInt): Unit = {
     core.io.bus.address.poke(addr.U)

@@ -11,6 +11,15 @@ object BorgShaderDispatcherTestHelpers {
 
   val config = FloatConfig.FP16
 
+  /** The datapath every test in this file is written against: FP16, single
+    * sample. Was spelled `BorgConfig.Default` at each call site, which is how
+    * 13 basic dispatcher tests silently became FP32 + 4x MSAA when the
+    * default moved on 2026-09-15 -- MSAA changes the coverage/tile-write
+    * semantics these tests assert on, so they failed for a reason that had
+    * nothing to do with what they test. Named once, here.
+    */
+  val BASE = BorgConfig.Default.copy(fp = FloatConfig.FP16, samples = 1)
+
   // FP16 constants
   val FP16_POS_ONE = 0x3C00  // +1.0
   val FP16_NEG_ONE = 0xBC00  // -1.0
@@ -377,7 +386,18 @@ object BorgShaderDispatcherTestHelpers {
 
     // derives all four thresholds from the two base deltas per edge.
 
-    val MSAA = BorgConfig.Default.copy(samples = 4)
+    // Pinned to FP16 explicitly. These were BorgConfig.Default.copy(...),
+    // which silently became FP32 when the default switched on 2026-09-15 --
+    // while every expectation in this file is a bit-exact FP16 constant
+    // (FP16_ONE = 0x3C00, the f16()/f16ToFloat() helpers, the tile colour
+    // comparisons), and `config` above is FP16 too. That left one file
+    // driving two different datapaths with one set of patterns.
+    //
+    // KNOWN GAP: this means the FP32 dispatcher path -- blend, stencil and
+    // the per-sample MSAA tile writes at FP32 -- has no simulation coverage,
+    // on what is now the default config. Converting this file's constants to
+    // FP32 is a real rewrite rather than a helper swap; tracked separately.
+    val MSAA = BASE.copy(samples = 4)
 
     /** FP16 bits for a float (test-side reference, finite normals only). */
 
@@ -448,7 +468,7 @@ object BorgShaderDispatcherTestHelpers {
 
     // =========================================================================
 
-    val BLEND = BorgConfig.Default.copy(hasBlend = true)
+    val BLEND = BASE.copy(hasBlend = true)
 
     val FP16_ONE  = 0x3C00
 
@@ -472,7 +492,7 @@ object BorgShaderDispatcherTestHelpers {
 
     // =========================================================================
 
-    val STENCIL = BorgConfig.Default.copy(hasStencil = true)
+    val STENCIL = BASE.copy(hasStencil = true)
 
     def pokeFrontFace(d: BorgShaderDispatcher, compareOp: Int, failOp: Int,
                       passOp: Int, depthFailOp: Int, reference: Int,
@@ -514,6 +534,6 @@ object BorgShaderDispatcherTestHelpers {
 
     // =========================================================================
 
-    val MSAA_BLEND = BorgConfig.Default.copy(samples = 4, hasBlend = true, hasStencil = true)
+    val MSAA_BLEND = BASE.copy(samples = 4, hasBlend = true, hasStencil = true)
 
 }

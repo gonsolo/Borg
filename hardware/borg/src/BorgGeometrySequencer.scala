@@ -114,8 +114,13 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
   // read across a triangle boundary internally -- BorgTileSequencer reads
   // its own independent copy back from DRAM (or its own cache), not from
   // here. Also exposed read-only via io.covDeltaOut; see that port's doc.
+  // cfg.totalBits, not a hardcoded 16: these hold genuine setup-shader ALU
+  // output (r8..r13), which is FP32 in an FP32 build, and io.covDeltaOut is
+  // cfg.totalBits wide. Holding them at 16 bits truncated every delta to its
+  // low half and then zero-extended it back out -- FP32 1.5 is 0x3FC00000,
+  // whose low 16 bits are 0x0000, so every covDelta read as exactly 0.0.
   val covDeltaRegs = if (cfg.samples > 1)
-    Some(RegInit(VecInit.fill(6)(0.U(16.W)))) else None
+    Some(RegInit(VecInit.fill(6)(0.U(cfg.totalBits.W)))) else None
 
   /** Last uniform index written by sWriteSetupInputs: u0-u6 always, plus the
     * three sample-offset constants u7-u9 when MSAA is enabled. */
@@ -359,13 +364,25 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
     }.otherwise {
       // Step 50.2b: u7/u8/u9 = the MSAA sample-offset constants the setup
       // shader multiplies the edge coefficients by. Standard Vulkan/D3D 4x
-      // offsets, all FP16-exact: -0.375 = 0xB600, -0.125 = 0xB000,
-      // +0.375 = 0x3600. Constants rather than MMIO inputs because the
-      // sample pattern is fixed by the spec, not a runtime choice.
-      io.uniformWrite.data := MuxLookup(writeIdx, 0.U(16.W))(Seq(
-        7.U -> "hB600".U(16.W),   // -0.375
-        8.U -> "hB000".U(16.W),   // -0.125
-        9.U -> "h3600".U(16.W)    // +0.375
+      // offsets: -0.375, -0.125, +0.375. Constants rather than MMIO inputs
+      // because the sample pattern is fixed by the spec, not a runtime
+      // choice.
+      //
+      // Emitted in the DATAPATH's float format, not always FP16. These land
+      // in io.uniformWrite.data (cfg.totalBits wide) and get multiplied by
+      // edge coefficients the ALU produced in that same format. The FP16
+      // patterns below zero-extended into an FP32 build, where 0x0000B600
+      // is a denormal ~1e-40 rather than -0.375 -- which silently drove
+      // every covDelta to (near) zero. All six values are exact in both
+      // formats, so this is a representation change only.
+      val (offM375, offM125, offP375) = cfg.fp match {
+        case FloatConfig.FP32 => ("hBEC00000", "hBE000000", "h3EC00000")
+        case _                => ("hB600",     "hB000",     "h3600")
+      }
+      io.uniformWrite.data := MuxLookup(writeIdx, 0.U(cfg.totalBits.W))(Seq(
+        7.U -> offM375.U(cfg.totalBits.W),   // -0.375
+        8.U -> offM125.U(cfg.totalBits.W),   // -0.125
+        9.U -> offP375.U(cfg.totalBits.W)    // +0.375
       ))
     }
     when(writeIdx === lastSetupUniform.U) {
@@ -633,8 +650,10 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
       covDeltaRegs.foreach { cd =>
         for (i <- 0 until 6) {
           when(io.pipeWrite.addr === (8 + i).U) {
-            cd(i) := io.pipeWrite.data(15, 0)
-            if (BorgDebug.trace) printf("[SEQ] covDelta r%d = 0x%x\n", (8 + i).U, io.pipeWrite.data(15, 0))
+            // Full-width capture, exactly as setupRegs above -- see
+            // covDeltaRegs' declaration for what truncating here cost.
+            cd(i) := io.pipeWrite.data
+            if (BorgDebug.trace) printf("[SEQ] covDelta r%d = 0x%x\n", (8 + i).U, io.pipeWrite.data)
           }
         }
       }
