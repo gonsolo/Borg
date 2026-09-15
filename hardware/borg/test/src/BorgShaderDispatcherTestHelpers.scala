@@ -12,13 +12,22 @@ object BorgShaderDispatcherTestHelpers {
   val config = FloatConfig.FP16
 
   /** The datapath every test in this file is written against: FP16, single
-    * sample. Was spelled `BorgConfig.Default` at each call site, which is how
-    * 13 basic dispatcher tests silently became FP32 + 4x MSAA when the
-    * default moved on 2026-09-15 -- MSAA changes the coverage/tile-write
-    * semantics these tests assert on, so they failed for a reason that had
-    * nothing to do with what they test. Named once, here.
+    * sample, no optional tile-path hardware. Was spelled `BorgConfig.Default`
+    * at each call site, which is how 13 basic dispatcher tests silently
+    * became FP32 + 4x MSAA when the default moved on 2026-09-15 -- MSAA
+    * changes the coverage/tile-write semantics these tests assert on, so
+    * they failed for a reason that had nothing to do with what they test.
+    * hasBlend/hasStencil/hasBilinear are pinned false for the same reason,
+    * repeated 2026-09-15 when Default turned those three on too: MSAA below
+    * is BASE.copy(samples = 4) and needPerSample (BorgShaderDispatcher) is
+    * `samples > 1 && (hasBlend || hasStencil)` -- an unpinned BASE would have
+    * made "plain MSAA" silently take the serialized per-sample write path,
+    * and BLEND/STENCIL/MSAA_BLEND below would stop isolating what they name
+    * since BASE would already carry them. Named once, here.
     */
-  val BASE = BorgConfig.Default.copy(fp = FloatConfig.FP16, samples = 1)
+  val BASE = BorgConfig.Default.copy(
+    fp = FloatConfig.FP16, samples = 1,
+    hasBlend = false, hasStencil = false, hasBilinear = false)
 
   // FP16 constants
   val FP16_POS_ONE = 0x3C00  // +1.0

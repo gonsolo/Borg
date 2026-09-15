@@ -113,17 +113,18 @@ case class BorgConfig(
     //
     // Costs the blend equation itself (eight 8x8 multipliers plus the factor
     // muxes) and one 16-bit per-lane register for the fragment's alpha
-    // output. Default false keeps every existing target bit-identical.
+    // output. The parameter default is false only so the knob's own tests
+    // can build without it; BorgConfig.Default turns it on.
     //
     // Even in an enabled build the runtime `blend_cfg.enable` bit passes the
     // fragment's original FP16 colour straight through, so nothing pays the
     // FP16 -> UNORM8 -> FP16 round trip until an application actually turns
     // blending on.
     //
-    // Only valid at samples==1: the destination colour is per-sample but
-    // TileWriteIO carries one shared `data` for all covered samples, so
-    // per-sample blending would need a wider write port. See
-    // BorgShaderDispatcher's require().
+    // At samples>1 the destination colour is per-sample while TileWriteIO
+    // carries one shared `data`, so BorgShaderDispatcher serializes the tile
+    // write over samples (needPerSample / sampleCtr) instead of widening the
+    // port; plain MSAA without blend/stencil keeps the single-cycle write.
     hasBlend: Boolean = false,
     // Adds the stencil plane and the fixed-function stencil test/update
     // ([[BorgStencil]]) -- Vulkan-conformance item 10. Stencil is mandatory;
@@ -131,14 +132,14 @@ case class BorgConfig(
     // concept at all.
     //
     // Costs one 16x8-bit SyncReadMem per sample in the tile buffer plus the
-    // test/op logic. Default false keeps every existing target
-    // bit-identical, and the runtime `stencil_cfg.enable` bit keeps even an
-    // enabled build behaving exactly like a disabled one until firmware
-    // turns it on.
+    // test/op logic. The parameter default is false only for the knob's own
+    // tests; BorgConfig.Default turns it on. The runtime `stencil_cfg.enable`
+    // bit keeps even an enabled build behaving exactly like a disabled one
+    // until firmware turns it on.
     //
-    // samples==1 only, for the same TileWriteIO reason as hasBlend: each
-    // sample's stencil update depends on its own stored value, which one
-    // shared write port cannot express.
+    // At samples>1 each sample's stencil update depends on its own stored
+    // value, which is why the dispatcher's serialized per-sample tile write
+    // (see hasBlend) exists.
     hasStencil: Boolean = false,
     // Adds bilinear texture filtering (VK_FILTER_LINEAR) to BorgTextureUnit.
     // Core Vulkan -- no feature bit gates linear filtering -- and Borg
@@ -150,10 +151,10 @@ case class BorgConfig(
     // coalescing yet even though the four taps of a 2x2 footprint are
     // adjacent in Morton order, which is the obvious later optimization.
     //
-    // Default false keeps every existing target bit-identical, and the
-    // runtime SAMPLER_CFG filter bit keeps even an enabled build sampling
-    // nearest -- and paying no quantize/dequantize round trip -- until an
-    // application asks for linear.
+    // The parameter default is false only for the knob's own tests;
+    // BorgConfig.Default turns it on. The runtime SAMPLER_CFG filter bit
+    // keeps even an enabled build sampling nearest -- and paying no
+    // quantize/dequantize round trip -- until an application asks for linear.
     hasBilinear: Boolean = false,
     // --- Extended ISA -------------------------------------------------
     //
@@ -278,6 +279,13 @@ object BorgConfig {
   //                   flush Z never leaves the tile buffer, so no depth image
   //                   can exist. Resolves to sample zero at MSAA (see the
   //                   parameter's doc).
+  //   hasBlend:       colour blending is core Vulkan (only independentBlend
+  //                   and dualSrcBlend are optional).
+  //   hasStencil:     the stencil test is core; no feature bit gates it.
+  //   hasBilinear:    VK_FILTER_LINEAR is core; no feature bit gates it.
+  //   Every one of the four is runtime-gated by its own enable bit, so a
+  //   build with them on behaves exactly like one without until firmware
+  //   turns a feature on -- the cost is area, never behaviour.
   //
   // 2026-09-15: switched deliberately ahead of re-validating area/timing at
   // this combination (FP32 FMA alone measured 2.48x area / 1.79x critical
@@ -291,7 +299,10 @@ object BorgConfig {
     maxBinTiles     = 4096,
     maxInstructions = 72, // M5 step 1: grow IMEM (rast 13 + frag ~56 co-resident)
     samples         = 4,
-    hasDepthFlush   = true
+    hasDepthFlush   = true,
+    hasBlend        = true,
+    hasStencil      = true,
+    hasBilinear     = true
   )
 
   // Sim + ULX3S SIMT config: 2×2 quad fragment shading.  Selected via BORG_CFG in

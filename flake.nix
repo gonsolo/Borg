@@ -184,49 +184,21 @@
         # 0.68 (YosysHQ/yosys#6050); force LibreLane onto nixpkgs' yosys
         # (now 0.68) instead of its own bundled copy.
         #
-        # src override: our fork's feat/concurrent-signoff-steps --
-        # upstream 3.0.14 plus one commit adding SequentialFlow.AsyncSteps,
+        # src override: our fork's feat/concurrent-signoff-steps-3.0.8 --
+        # upstream 3.0.8 plus one commit adding SequentialFlow.AsyncSteps,
         # which overlaps Magic.DRC with SpiceExtraction -> Netgen.LVS in the
         # Classic flow (~24 min off a ~4 h wafer.space signoff). Same version
-        # as nixpkgs-librelane's package, so its dependency closure and the
-        # yosys override above apply unchanged. Pinned by commit + hash: the flow
+        # as nixpkgs' package, so its dependency closure and the yosys
+        # override above apply unchanged. Pinned by commit + hash: the flow
         # that runs is the flow that was reviewed, on every machine, with no
         # PYTHONPATH games (asic/wafer.space/Makefile's librelane-which prints
         # what was actually imported and refuses to run an unpatched tree).
-        # 2026-09-18: 3.0.8 -> 3.0.14. Base derivation comes from
-        # nixpkgs-librelane (see the input's comment) because the main pin
-        # still carries 3.0.8 and only `src` is overridden here -- the
-        # dependency closure has to match the source.
-        #
-        # BUT taking the package from that input also takes ITS tool closure,
-        # which is NOT what we want: nixpkgs-librelane carries openroad 26Q2,
-        # a DOWNGRADE from the 26Q3 that 3.0.8 used and that every measurement
-        # on this design was taken with (the 2026-09-17 run's -15.7 ns setup,
-        # its DPL behaviour, its GRT congestion escalation). OpenROAD is the
-        # placer, CTS, resizer and router -- swapping it silently would make
-        # the next signoff incomparable and a regression ambiguous.
-        #
-        # So both tools that matter are pinned to the MAIN input: yosys (0.68,
-        # for the ABC memory fix above) and openroad (26Q3). klayout and magic
-        # still come from nixpkgs-librelane; they are signoff/DRC-side and do
-        # not touch placement or routing decisions.
-        ((pkgsLibrelane.librelane.override {
-          yosys = pkgs.yosys;
-          openroad = pkgs.openroad;
-        }).overridePythonAttrs (old: {
-          src = pkgsLibrelane.fetchFromGitHub {
+        ((pkgs.librelane.override { yosys = pkgs.yosys; }).overridePythonAttrs (old: {
+          src = pkgs.fetchFromGitHub {
             owner = "gonsolo";
             repo = "librelane";
-            # branch feat/concurrent-signoff-steps = 3.0.14-2-gdc0feb4:
-            # AsyncSteps (f70d4bc) plus PL_RESIZER_HOLD_ONLY_CELLS
-            # (dc0feb4) -- scopes the dont-use cell exclusion so a delay
-            # cell can be barred from setup fixing/general buffering (its
-            # measured misuse) while staying available to hold repair (its
-            # designed purpose). See PL_RESIZER_HOLD_ONLY_CELLS in
-            # asic/wafer.space/librelane/config.yaml for the measurement
-            # that motivated this.
-            rev = "dc0feb41a7bd72f2e0c16a13eafb2612c68f3e61";
-            hash = "sha256-/1zBoJJ+4JajTRxv6rj+28Zn7Rj9KMZjXzDgHy/JcIk=";
+            rev = "ff241805b0add4ed0b4038bf73e578d933d57be9";
+            hash = "sha256-l8aQ9D39kwA/Cv/bLXKwPilYKQOIqjqEnJ4ytZmYWvw=";
           };
         }))
         pkgs.magic-vlsi
