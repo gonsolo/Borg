@@ -1,6 +1,13 @@
 TT_TOOL   := ./tt/tt_tool.py
-TEST_SOC  := make -C test/soc -B
-MILL_JOBS := $(if $(CI),1,4)
+# PYTHONPATH=$$COCOTB_PYTHONPATH (not the ambient shell PYTHONPATH): nix's
+# devShell aggregates PYTHONPATH from every python.withPackages input
+# regardless of interpreter version, so plain $$PYTHONPATH here is a mix
+# of cocotbForTests' python3.13 packages and pythonEnv's python3.14 ones --
+# cocotb's own numpy import then silently resolves to whichever copy lands
+# first. COCOTB_PYTHONPATH (flake.nix's shellHook) is cocotbForTests' own
+# site-packages only.
+TEST_SOC  := env PYTHONPATH=$$COCOTB_PYTHONPATH make -C test/soc -B
+MILL_JOBS := $(if $(CI),1,12)
 MILL_OPTS := $(if $(CI),--no-server,) -j $(MILL_JOBS)
 MILL      := mill $(MILL_OPTS)
 

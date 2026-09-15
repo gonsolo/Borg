@@ -36,6 +36,15 @@ trait BorgModule extends ScalaModule {
 
   object test extends ScalaTests with TestModule.Utest {
 
+    // Each simulate() call in a Chisel test spawns its own from-scratch
+    // Verilator build (no caching across calls — see memory
+    // project_mill_concurrency_bug_root_caused). One test class per fork
+    // group + testParallelism lets mill run classes as concurrent forked
+    // JVMs instead of one sequential JVM working through every test
+    // back to back.
+    override def testForkGrouping = Task { discoveredTestClasses().map(Seq(_)) }
+    override def testParallelism = true
+
     override def forkEnv = Task {
       super.forkEnv() ++ Map(
         "PROJECT_ROOT" -> BuildCtx.workspaceRoot.toString()
