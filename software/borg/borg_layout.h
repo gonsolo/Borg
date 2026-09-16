@@ -135,3 +135,26 @@
 // NO_CULL: the firmware submits each triangle twice (normal + reversed winding)
 // so the hardware culler lets both front- and back-facing triangles through.
 #define BORG_CTS_FLAG_NO_CULL  (1u << 0)
+
+// -------------------------------------------------------------------------
+// Push-constant staging block (Step 50 item 13).
+// -------------------------------------------------------------------------
+//
+// LS_BASE points at this block, and the shader's `LOAD rd, rs1` forms
+// LS_BASE + (rs1 << 2) -- so word i here IS byte offset 4*i of the Vulkan
+// push-constant range.  That is exactly the mapping borgc already emits: it
+// pins each static field's byte_offset/4 into a const GPR as a RAW word index
+// (see lib.rs's load_push_constant lowering), so nothing on either side needs
+// to repack.  Push-constant data is word-granular by construction, since
+// Vulkan requires offset and size to be multiples of 4.
+//
+// 128 bytes = Vulkan 1.0's minimum maxPushConstantsSize, which is what
+// borgvk advertises; a larger range is a driver-side limit change, not a
+// layout change, as long as this block grows with it.
+//
+// Placed above the CTS mailbox and DERIVED from its anchor, per this file's
+// rule.  0x400 of headroom over the mailbox's own BORG_CTS_WORDS*4 = 704 B
+// leaves room for the mailbox to grow without silently overlapping this.
+#define BORG_PUSH_CONST_SPI        (BORG_CTS_MAILBOX_SPI + 0x400)
+#define BORG_PUSH_CONST_MAX_WORDS  32
+#define BORG_PUSH_CONST_MAX_BYTES  (BORG_PUSH_CONST_MAX_WORDS * 4)

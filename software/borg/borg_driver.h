@@ -95,6 +95,14 @@ void borg_upload_texture(const uint8_t *rgb_fp16, int dim);
 // Upload one texture row (host streams the texture row-by-row over serial).
 void borg_upload_texture_row(const uint8_t *row, int y, int dim);
 
+// Stage a Vulkan push-constant range and point the shader load path at it
+// (Step 50 item 13).  `off_words` and `nwords` are WORD units -- Vulkan
+// requires vkCmdPushConstants' offset and size to be multiples of 4, and the
+// shader side addresses whole words (LS_BASE + rs1<<2), so words are the
+// natural granularity end to end.  Mirrors vkCmdPushConstants().
+void borg_set_push_constants(const uint32_t *words, uint32_t off_words,
+                             uint32_t nwords);
+
 // Render a triangle: vertex shade → rasterize → z-test → fragment shade → framebuffer.
 // Mirrors vkCmdDraw().
 void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame);

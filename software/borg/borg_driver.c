@@ -703,6 +703,34 @@ void borg_clear_texture(void) {
   BORG_GPU->tex_config = 0;
 }
 
+// Step 50 item 13: stage a push-constant range and point LS_BASE at it.
+//
+// No new hardware: LOAD/STORE and the LS_BASE register already exist
+// (BorgConfig.hasMemoryOps, ls_base_reg_t in the RDL), and borgc already
+// lowers load_push_constant to `LOAD rd, rs1` with rs1 pinned to the field's
+// word index.  The only thing that was missing is this -- putting the bytes
+// where those loads look.
+//
+// LS_BASE is written on every call rather than once at init because it is
+// also the base for ordinary SSBO-style LOAD/STORE: whoever points it
+// somewhere else must not silently break the next draw's push constants, and
+// re-asserting it here is one register write against a UART packet's cost.
+void borg_set_push_constants(const uint32_t *words, uint32_t off_words,
+                             uint32_t nwords) {
+  if (!words || nwords == 0) return;
+  // Clamp rather than trust: the range arrives over a serial link, and a
+  // corrupted length that survived the checksum would otherwise scribble
+  // across the CTS mailbox below or the firmware stack above.
+  if (off_words >= BORG_PUSH_CONST_MAX_WORDS) return;
+  if (nwords > BORG_PUSH_CONST_MAX_WORDS - off_words)
+    nwords = BORG_PUSH_CONST_MAX_WORDS - off_words;
+
+  for (uint32_t i = 0; i < nwords; i++)
+    DRAM_OUT_RAW(BORG_PUSH_CONST_SPI + (off_words + i) * 4) = words[i];
+
+  BORG_GPU->ls_base = BORG_PUSH_CONST_SPI & LS_BASE_REG_T__BASE_ADDR_bm;
+}
+
 // Upload a row-major RGB-FP16 texture (6 bytes/texel: R, G, B each one FP16
 // halfword) into the GPU texture region at TEX_DRAM_BYTE_ADDR_FIXED, Morton-
 // encoded into the 2-word (8-byte) layout the hardware sTexFetch reads:
