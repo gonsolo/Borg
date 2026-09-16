@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // borg_kernel.c — thin render kernel driven by the borgvk Mesa driver.
-// Boots, drains borgvk wire packets (0xAD/0xAE/0xAF/0xB0/0xB1) from UART,
+// Boots, drains borgvk wire packets (0xAD/0xAE/0xAF/0xB0/0xB1/0xB2) from UART,
 // and drives the autonomous TBR hardware.  No hardcoded geometry, shaders, or
 // texture — all content is uploaded at runtime by borgvk / cube.c.
 
@@ -38,6 +38,24 @@ static int     g_geom_recorded = 0;
 // 0xB0 borgc shader upload: marker(1), stage(1), len(2 LE), blob(RX_SHADER_MAX), csum(1)
 #define RX_SHADER_MAX     512
 #define RX_SHADER_PKT_LEN (1 + 1 + 2 + RX_SHADER_MAX + 1)
+
+// 0xB2 push constants: marker(1), off_words(1), n_words(1), data(128 B), csum(1)
+//
+// 0xB1 is NOT free -- it is the serial-reload trigger handled before the
+// length table below -- hence 0xB2.  Fixed length, padded to the full 32-word
+// range, for the same reason 0xAE/0xAF/0xB0 are: the drain loop reads a
+// constant byte count per marker and `n_words` says how much is valid.
+// 132 B, comfortably inside RX_PKT_BUF_LEN (the 0xB0 packet's 517 B), so the
+// shared buffer below does not need to grow -- but the max() there is what
+// guarantees that, so re-check it if this packet ever outgrows 0xB0's.
+#define RX_PUSH_MAX_WORDS 32   // = BORG_PUSH_CONST_MAX_WORDS (128 B, Vulkan min)
+#define RX_PUSH_PKT_LEN   (1 + 1 + 1 + RX_PUSH_MAX_WORDS * 4 + 1)
+// The wire packet and the DRAM staging block must hold the same number of
+// words, or a host pushing the full 128 B range would have its tail silently
+// clamped away by borg_set_push_constants().  Tie them together here rather
+// than trusting two 32s to stay equal.
+_Static_assert(RX_PUSH_MAX_WORDS == BORG_PUSH_CONST_MAX_WORDS,
+               "push-constant wire packet and DRAM staging block disagree");
 
 #define RX_PKT_BUF_LEN \
   (RX_GEOM_PKT_LEN > RX_TEX_PKT_LEN \
@@ -224,7 +242,8 @@ int main() {
       int need = (pkt_marker == 0xAD) ? 66 :
                  (pkt_marker == 0xAE) ? RX_GEOM_PKT_LEN :
                  (pkt_marker == 0xAF) ? RX_TEX_PKT_LEN :
-                 (pkt_marker == 0xB0) ? RX_SHADER_PKT_LEN : 0;
+                 (pkt_marker == 0xB0) ? RX_SHADER_PKT_LEN :
+                 (pkt_marker == 0xB2) ? RX_PUSH_PKT_LEN : 0;
       if (need) {
           int ok = 1;
           while (pkt_pos < need) {
@@ -309,6 +328,31 @@ int main() {
                 puts_uart("B0:csum\r\n");
               }
             }
+          } else if (ok && pkt_marker == 0xB2) {
+            // Push constants: [1]=off_words, [2]=n_words, [3..]=LE u32 words.
+            uint8_t csum = 0;
+            for (int i = 1; i < RX_PUSH_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
+            uint32_t off_w = pkt_buf[1];
+            uint32_t n_w   = pkt_buf[2];
+            if (csum == pkt_buf[RX_PUSH_PKT_LEN - 1] &&
+                n_w >= 1 && n_w <= RX_PUSH_MAX_WORDS &&
+                off_w < RX_PUSH_MAX_WORDS &&
+                n_w <= RX_PUSH_MAX_WORDS - off_w) {
+              // Rebuild words from LE bytes rather than aliasing pkt_buf to
+              // uint32_t*: pkt_buf[3] is not 4-byte aligned, and this core
+              // does not do unaligned loads.
+              uint32_t w[RX_PUSH_MAX_WORDS];
+              for (uint32_t i = 0; i < n_w; i++) {
+                int b = 3 + (int)i * 4;
+                w[i] = (uint32_t)pkt_buf[b]            |
+                       ((uint32_t)pkt_buf[b+1] << 8)   |
+                       ((uint32_t)pkt_buf[b+2] << 16)  |
+                       ((uint32_t)pkt_buf[b+3] << 24);
+              }
+              borg_set_push_constants(w, off_w, n_w);
+              success = 1;
+              skip_gap = 1;  // push constants precede the draw's MVP on the wire
+            }
           }
 
           // Resync: a checksum failure (or short read) means the framing
@@ -321,7 +365,7 @@ int main() {
           if (!success && pkt_marker != 0xB1) {
             for (int q = 1; q < pkt_pos; q++) {
               uint8_t m = pkt_buf[q];
-              if (m == 0xAD || m == 0xAE || m == 0xAF || m == 0xB0) {
+              if (m == 0xAD || m == 0xAE || m == 0xAF || m == 0xB0 || m == 0xB2) {
                 int rem = pkt_pos - q;
                 for (int i = 0; i < rem; i++) pkt_buf[i] = pkt_buf[q + i];
                 pending_len = rem;
