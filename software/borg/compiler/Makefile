@@ -42,7 +42,34 @@ regen:
 	@rm -rf $(TMP)
 	@echo "regenerated shader_blobs.h — run 'make -C .. test-native' to check it"
 
+# Push-constant lowering check (Step 50 item 13) — no simulator, no hardware.
+#
+# Asserts that borgc turns `layout(offset = 32)` in testdata/pushconst.frag
+# into RAW WORD INDICES 8..11 pinned in const registers, because that single
+# fact is what the whole feature rests on: the hardware forms
+# LS_BASE + (rs1 << 2), so an index that got float-converted, or computed in
+# bytes instead of words, addresses the wrong DRAM entirely. Cheap enough to
+# run on every compiler change, unlike the simulator tests.
+#
+# Deliberately checks the ISA dump rather than just a clean exit: the shader
+# compiling proves nothing here, since a wrong-but-well-formed index compiles
+# exactly as happily as a right one.
+test-pushconst:
+	@test -n "$(BORGC_CLI)" || \
+	  (echo "ERROR: set BORGC_CLI=<mesa-build>/src/borg/compiler/borgc-cli" && exit 1)
+	@mkdir -p $(TMP)
+	@$(GLSLANG) -V testdata/pushconst.vert -o $(TMP)/pc_vert.spv > /dev/null
+	@$(GLSLANG) -V testdata/pushconst.frag -o $(TMP)/pc_frag.spv > /dev/null
+	@$(BORGC_CLI) -s vert -o $(TMP)/pc_vert.borg $(TMP)/pc_vert.spv > /dev/null 2>&1
+	@BORGC_DUMP_ISA=1 $(BORGC_CLI) -s frag -o $(TMP)/pc_frag.borg $(TMP)/pc_frag.spv \
+	   > $(TMP)/frag.log 2>&1
+	@grep -q 'r17=0x0008 r18=0x0009 r19=0x000a r20=0x000b' $(TMP)/frag.log || \
+	  (echo "FAIL: offset=32 did not lower to word indices 8..11"; \
+	   grep 'const regs' $(TMP)/frag.log; rm -rf $(TMP); exit 1)
+	@echo "push-constant lowering OK: offset 32 -> word indices 8..11 (raw, not float)"
+	@rm -rf $(TMP)
+
 clean:
 	rm -rf $(TMP)
 
-.PHONY: all regen clean
+.PHONY: all regen clean test-pushconst
