@@ -69,7 +69,40 @@ test-pushconst:
 	@echo "push-constant lowering OK: offset 32 -> word indices 8..11 (raw, not float)"
 	@rm -rf $(TMP)
 
-clean:
-	rm -rf $(TMP)
+# Wire bursts for the push-constant end-to-end test (Step 50 item 13, phase 2).
+#
+# Produces two replayable frames that are byte-identical except for the pushed
+# colour, which is the whole experiment: phase 3 renders both and requires the
+# output to follow the pushed value. A single burst could not distinguish a
+# shader that reads the push constant from one that returns a baked colour.
+#
+# Generated rather than checked in: the bursts embed borgc's compiled blobs,
+# so a stale .bin would silently test an old compiler against a new firmware.
+# Regenerate whenever either side moves -- same reasoning as `regen` above.
+#
+#   make pushconst-bursts BORGC_CLI=<mesa-build>/src/borg/compiler/borgc-cli \
+#                         BURST_GEN=<mesa-build>/src/borg/vulkan/borgvk_burst_gen \
+#                         OUT=<dir>
+OUT ?= $(CURDIR)/.bursts
+BURST_GEN ?=
 
-.PHONY: all regen clean test-pushconst
+pushconst-bursts:
+	@test -n "$(BORGC_CLI)" || \
+	  (echo "ERROR: set BORGC_CLI=<mesa-build>/src/borg/compiler/borgc-cli" && exit 1)
+	@test -n "$(BURST_GEN)" || \
+	  (echo "ERROR: set BURST_GEN=<mesa-build>/src/borg/vulkan/borgvk_burst_gen" && exit 1)
+	@mkdir -p $(OUT)
+	@$(GLSLANG) -V testdata/pushconst.vert -o $(OUT)/pc_vert.spv > /dev/null
+	@$(GLSLANG) -V testdata/pushconst.frag -o $(OUT)/pc_frag.spv > /dev/null
+	@$(BORGC_CLI) -s vert -o $(OUT)/pc_vert.borg $(OUT)/pc_vert.spv > /dev/null 2>&1
+	@$(BORGC_CLI) -s frag -o $(OUT)/pc_frag.borg $(OUT)/pc_frag.spv > /dev/null 2>&1
+	@$(BURST_GEN) $(OUT)/pc_vert.borg $(OUT)/pc_frag.borg \
+	   $(OUT)/burst_red.bin  1.0 0.0 0.0 1.0 > /dev/null 2>&1
+	@$(BURST_GEN) $(OUT)/pc_vert.borg $(OUT)/pc_frag.borg \
+	   $(OUT)/burst_blue.bin 0.0 0.0 1.0 1.0 > /dev/null 2>&1
+	@echo "push-constant bursts in $(OUT): burst_red.bin burst_blue.bin"
+
+clean:
+	rm -rf $(TMP) $(OUT)
+
+.PHONY: all regen clean test-pushconst pushconst-bursts
