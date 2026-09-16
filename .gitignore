@@ -61,3 +61,10 @@ asic/wafer.space/librelane/generated_sources.yaml
 result
 simulation/verilator/obj_dir_*
 .verilog_wafer_1x1_stamp
+
+# Scratch dirs for the shader-blob and push-constant-burst generators
+# (software/borg/compiler's `regen` and `pushconst-bursts` targets). Both embed
+# borgc output, so they are regenerated rather than committed -- a stale copy
+# would silently test an old compiler against new firmware.
+software/borg/compiler/.regen/
+software/borg/compiler/.bursts/
