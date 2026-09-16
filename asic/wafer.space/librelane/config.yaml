@@ -287,17 +287,40 @@ GRT_RESIZER_HOLD_SLACK_MARGIN: 0.4
 # per-sample reads the way sTileWrite already serializes writes. But it is
 # pre-existing and was tolerated; it is not what broke this run.
 #
-# 45% is chosen to sit comfortably above 34.8% with headroom for the cells
-# the flow inserts after placement (CTS, repair buffers, fill). EXPECT TO
-# REVISIT ROUTING CONGESTION: 45% re-enters the region above the 35% that
-# failed global routing on 09-07. That measurement was taken on a smaller,
-# structurally different netlist, so it is worth re-measuring rather than
-# assuming -- but if global routing starts grinding on "extra iteration
-# N/50" again, this is the first knob to look at, and the hotspot to check
-# is the BorgSequencer Pass-2 / rasterizer-dispatcher boundary named above.
-# Note the die is only ~35% full: the binding constraint here is routing
-# congestion, not area.
-PL_TARGET_DENSITY_PCT: 45
+# 2026-09-16, second correction: 45 -> 70. The 45 above was sized against the
+# WRONG number and failed identically (RUN_2026-09-16_09-42-09, DPL-0036 at
+# the same step 31, 4h12m). It did fix what it was aimed at -- GPL-0302 is
+# gone, global placement no longer runs under an impossible target -- but
+# 34.8% is utilization at GLOBAL placement, BEFORE
+# OpenROAD.RepairDesignPostGPL inserts its buffers. The figure that governs
+# legalization is utilization at DETAILED placement, which DPL-0006 reports
+# outright:
+#
+#   run                 core area    instance area @ DPL   util @ DPL
+#   FP16      09-08     12,901,980   4,699,087             36.4%   PASSED
+#   FP32+feat 09-16     12,901,980   7,432,776             57.6%   DPL-0036
+#
+# Repair grows instance area ~60% in BOTH runs (4,488,350 -> 7,432,776 here),
+# so that expansion is not the regression -- the starting point is. Targeting
+# 45% against 57.6% of actual content is the same contradiction as targeting
+# 25% against 34.8%, one number up. 70% clears 57.6% with real headroom and is
+# ordinary for an ASIC, where 60-80% is typical.
+#
+# The failure shape agrees: the second run failed on 2306 instances (DPL-0034)
+# now mostly ordinary cells rather than mostly fanout buffers, i.e. "no room
+# anywhere" rather than "one pathological net".
+#
+# EXPECT TO REVISIT ROUTING CONGESTION -- more so at 70 than at 45. This is
+# far above the 35% that failed global routing on 09-07, on a smaller and
+# structurally different netlist. If routing starts grinding on "extra
+# iteration N/50", the hotspot to check is the BorgSequencer Pass-2 /
+# rasterizer-dispatcher boundary named above, and the better lever then is
+# MAX_FANOUT_CONSTRAINT (a LibreLane default of 10, unset here, and very
+# strict for a 125 ns clock): relaxing it cuts the ~60% repair expansion at
+# the source, reducing area AND routing demand together, rather than making
+# room for it. Left alone for now because the density number is the MEASURED
+# blocker and the 09-08 run proves the flow tolerates that buffer count.
+PL_TARGET_DENSITY_PCT: 70
 # 2026-09-06: was true. Confirmed by a real failure this session that this
 # was masking, not tolerating, a genuine problem: global routing "finished"
 # with congestion never actually resolved (flat ~1.5% overflow across 6-7
