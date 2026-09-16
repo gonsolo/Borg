@@ -12,7 +12,7 @@ FBW  ?= 128
 FBH  ?= 128
 TEXD ?= 64
 
-.PHONY: all vkcube_gui hdmi clean cts-uart cts-uart-golden
+.PHONY: all vkcube_gui hdmi clean cts-uart cts-uart-golden push-const-test
 
 # The old triangle/vkcube app-config render targets are gone — content is no
 # longer baked into firmware (see borg_kernel.c); it arrives from borgvk at
@@ -136,6 +136,14 @@ $(FIRMWARE_DIR)/textest.bin:
 # Simulation targets
 kernel: obj_dir/verilator_sim $(FIRMWARE_DIR)/kernel.bin
 	./obj_dir/verilator_sim $(FIRMWARE_DIR)/kernel.bin kernel 32 32
+
+# Push-constant staging (Step 50 item 13): feed two 0xB2 packets over the
+# simulated UART and assert the firmware staged the right words at the right
+# DRAM addresses.  Self-contained -- no capture file, no golden image.  Does
+# NOT cover a shader reading the value back; that needs content using
+# layout(push_constant), which nothing in the tree does yet.
+push-const-test: obj_dir/verilator_sim $(FIRMWARE_DIR)/kernel.bin
+	./obj_dir/verilator_sim --push-const-test '$(FIRMWARE_DIR)/kernel.bin'
 
 vkcube_gui: python_extension $(FIRMWARE_DIR)/kernel.bin
 	python3 viewer.py

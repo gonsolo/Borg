@@ -103,7 +103,110 @@ static int run_cts(const char *uart_file, const char *fw_path,
     return run_and_dump(sim, width, height, pixel_fd);
 }
 
+// Push-constant staging test (Step 50 item 13).
+//
+// Invoked as: verilator_sim --push-const-test <firmware.bin>
+//
+// Narrow on purpose: this proves the 0xB2 transport and the firmware's
+// staging arithmetic, NOT that a compiled shader reads the value back. The
+// full chain additionally needs a borgc-compiled shader that actually does a
+// push-constant LOAD, which no content in the tree does yet.
+//
+// Two packets rather than one, because the interesting bugs live in the
+// offset path: a full-range push, then a short push at a non-zero offset.
+// Asserting that the second landed ONLY in its window catches both an offset
+// that is ignored (would overwrite from word 0) and a length that is not
+// clamped (would run past its window).
+//
+// The packets are built here rather than read from a fixture file so there is
+// one source of truth for the format in this test; the format itself is
+// cross-checked against borgvk's sender and the firmware's parser by the
+// constants in each (132 B, 32 words, marker 0xB2).
+static int run_push_const_test(const char *fw_path)
+{
+    Verilated::commandArgs(0, (char **)nullptr);
+    // Framebuffer size is irrelevant here (nothing renders), but the
+    // constructor needs one; 32x32 keeps the SDRAM model's init cheap.
+    VerBorgSimulator sim(fw_path, 32, 32);
+
+    const uint32_t MAXW = BORG_PUSH_CONST_MAX_WORDS;
+    const int PKT = 1 + 1 + 1 + (int)MAXW * 4 + 1;
+
+    // Expected DRAM image, maintained alongside the packets we send.
+    std::vector<uint32_t> expect(MAXW);
+
+    auto build = [&](uint32_t off_w, uint32_t n_w, uint32_t seed) {
+        std::vector<uint8_t> p((size_t)PKT, 0);
+        p[0] = 0xB2;
+        p[1] = (uint8_t)off_w;
+        p[2] = (uint8_t)n_w;
+        for (uint32_t i = 0; i < n_w; i++) {
+            uint32_t v = seed + i;
+            p[3 + i * 4 + 0] = (uint8_t)(v & 0xFF);
+            p[3 + i * 4 + 1] = (uint8_t)((v >> 8) & 0xFF);
+            p[3 + i * 4 + 2] = (uint8_t)((v >> 16) & 0xFF);
+            p[3 + i * 4 + 3] = (uint8_t)((v >> 24) & 0xFF);
+            expect[off_w + i] = v;   // last write wins, as on the device
+        }
+        uint8_t csum = 0;
+        for (int i = 1; i < PKT - 1; i++) csum ^= p[(size_t)i];
+        p[(size_t)PKT - 1] = csum;
+        return p;
+    };
+
+    std::vector<uint8_t> a = build(0, MAXW, 0xA5A50000u);   // full range
+    std::vector<uint8_t> b = build(8, 4,    0xB2B20000u);   // window at word 8
+
+    std::vector<uint8_t> stream;
+    stream.insert(stream.end(), a.begin(), a.end());
+    stream.insert(stream.end(), b.begin(), b.end());
+
+    // Same baud/boot-gap handling as run_cts() above -- see its comments for
+    // why the gap is required rather than merely helpful.
+    sim.uart_tx.set_cycles_per_bit(217);
+    sim.uart.set_cycles_per_bit(217);
+    sim.uart_tx.enqueue_gap(8000000);
+    sim.uart_tx.enqueue(stream.data(), stream.size());
+
+    // 8M boot gap + ~573k cycles of wire time for 264 bytes at 217 cycles/bit,
+    // plus firmware processing. 16M is roughly 2x that, and nothing here waits
+    // on a rendered frame.
+    const uint64_t MAX_CYCLES = 16000000ULL;
+    for (uint64_t c = 0; c < MAX_CYCLES; c += 100000)
+        sim.step(100000);
+
+    // flat word index == SPI byte address / 4 (see BorgSimulator's
+    // out_base_word derivation), and a 32-bit word is two SDRAM halfwords.
+    uint32_t base_w32 = BORG_PUSH_CONST_SPI / 4;
+    int bad = 0;
+    for (uint32_t i = 0; i < MAXW; i++) {
+        uint32_t w32 = base_w32 + i;
+        uint16_t lo = sim.dbg_read((w32 * 2) | 0x800000);
+        uint16_t hi = sim.dbg_read((w32 * 2 + 1) | 0x800000);
+        uint32_t got = (uint32_t)lo | ((uint32_t)hi << 16);
+        if (got != expect[i]) {
+            std::cerr << "[PUSH] word " << i << " (SPI 0x" << std::hex
+                      << (BORG_PUSH_CONST_SPI + i * 4) << "): got 0x" << got
+                      << ", expected 0x" << expect[i] << std::dec << "\n";
+            bad++;
+        }
+    }
+
+    if (bad) {
+        std::cerr << "[PUSH] FAIL: " << bad << " of " << MAXW
+                  << " staged words wrong\n";
+        return 1;
+    }
+    std::cout << "[PUSH] PASS: " << MAXW
+              << " words staged at SPI 0x" << std::hex << BORG_PUSH_CONST_SPI
+              << std::dec << ", including a 4-word window at offset 8\n";
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc >= 3 && strcmp(argv[1], "--push-const-test") == 0)
+        return run_push_const_test(argv[2]);
+
     // CTS headless UART mode — same protocol as arcilator_sim --cts-uart.
     if (argc >= 2 && strcmp(argv[1], "--cts-uart") == 0) {
         if (argc < 6) {
