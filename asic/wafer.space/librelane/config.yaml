@@ -258,7 +258,46 @@ GRT_RESIZER_HOLD_SLACK_MARGIN: 0.4
 # into an already-fully-completed run directory), not real, reproducible
 # under a normal single fresh flow. Don't resume-test placement-sensitive
 # config changes this way again -- always verify with a fresh run.
-PL_TARGET_DENSITY_PCT: 25
+#
+# 2026-09-16: 25 -> 45. The 25% above was correct for the design that was
+# here on 09-07 and became INVALID, not merely suboptimal, once Default
+# gained FP32 + blend/stencil/bilinear: a target density BELOW the design's
+# own utilization is physically unsatisfiable, and that is what the 1x1
+# signoff run RUN_2026-09-16_00-21-32 hit.
+#
+#   run                     util (25-globalplacementskipio)  target  outcome
+#   FP16      09-08          22.8%                            25%    PASSED
+#   FP32+feat 09-16          34.8%                            25%    DPL-0036
+#
+# OpenROAD said so itself and overrode the value -- "[GPL-0302] Target
+# density 0.2500 is too low for the available free area. Automatically
+# adjusting to uniform density 0.3200" -- but even its own 32% override is
+# still below the 34.8% the cells actually occupy, so global placement ran
+# with ~zero local slack and OpenROAD.RepairDesignPostGPL then had nowhere
+# to legalize the ~826 buffers it inserted (DPL-0036, 1000+ DPL-0035).
+#
+# Not a fanout problem, which is where this investigation started: the
+# MAX_FANOUT_CONSTRAINT of 10 (a LibreLane default, unset here) is the same
+# value the PASSING 09-08 run used, and that run inserted and legalized
+# 9,972 fanout-repair buffers without complaint -- 12x more than the run
+# that failed. The tile-buffer read-index nets do carry ~1,200 loads each
+# (12 plane memories -- 4 rgbz + 4 stencil + 4 alpha -- share one 4-bit
+# index and 224 bits of read mux, all read in the same cycle), and that is
+# real architectural debt worth paying down later by serializing the
+# per-sample reads the way sTileWrite already serializes writes. But it is
+# pre-existing and was tolerated; it is not what broke this run.
+#
+# 45% is chosen to sit comfortably above 34.8% with headroom for the cells
+# the flow inserts after placement (CTS, repair buffers, fill). EXPECT TO
+# REVISIT ROUTING CONGESTION: 45% re-enters the region above the 35% that
+# failed global routing on 09-07. That measurement was taken on a smaller,
+# structurally different netlist, so it is worth re-measuring rather than
+# assuming -- but if global routing starts grinding on "extra iteration
+# N/50" again, this is the first knob to look at, and the hotspot to check
+# is the BorgSequencer Pass-2 / rasterizer-dispatcher boundary named above.
+# Note the die is only ~35% full: the binding constraint here is routing
+# congestion, not area.
+PL_TARGET_DENSITY_PCT: 45
 # 2026-09-06: was true. Confirmed by a real failure this session that this
 # was masking, not tolerating, a genuine problem: global routing "finished"
 # with congestion never actually resolved (flat ~1.5% overflow across 6-7
