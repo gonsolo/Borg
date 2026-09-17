@@ -96,12 +96,12 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
   // attributes (firmware-packed at cfg.fp's width), not FP16-native like
   // uvRegs below.
   val colorRegs = RegInit(VecInit.fill(3, 4)(0.U(cfg.totalBits.W)))  // [v][r,g,b,z]
-  // uvRegs stays FP16-native (16 bits) regardless of cfg.fp: texture
-  // coordinates feed BorgCore's FTEX path (io.texU/texV, hardcoded 16-bit
-  // ports) and the FP16-native texture unit, not the general FP32 ALU.
-  // Zero-extends safely into the wider uniform slot when staged; FTEX reads
-  // it back via an explicit (15,0) slice on the register-file operand.
-  val uvRegs    = RegInit(VecInit.fill(3, 2)(0.U(16.W)))  // [v][u,v]
+  // cfg.totalBits wide: texture coordinates are datapath values. The
+  // fragment shader interpolates them in the general ALU (FMUL/FMADD on
+  // u13-u18) before FTEX, and only FTEX narrows the result to the FP16-native
+  // texture unit (BorgCore). A 16-bit register here kept the low half of an
+  // FP32 coordinate -- 0.75f (0x3F400000) staged as 0.
+  val uvRegs    = RegInit(VecInit.fill(3, 2)(0.U(cfg.totalBits.W)))  // [v][u,v]
 
   // Shadow registers for setup shader outputs: r0-r5 = scaled edge
   // components, r6 = area, r7 = inv_area. cfg.totalBits wide -- genuine
@@ -528,7 +528,7 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
     io.uniformWrite.addr := (if (cfg.maxUniforms > 32) Cat(uniformPage, writeIdx(4, 0)) else writeIdx(4, 0))
     io.uniformWrite.data := uData
 
-    when(writeIdx === 0.U || writeIdx === 19.U || writeIdx === 22.U || writeIdx === 25.U) {
+    when(writeIdx === 0.U || writeIdx === 13.U || writeIdx === 16.U || writeIdx === 19.U || writeIdx === 22.U || writeIdx === 25.U) {
       if (BorgDebug.trace) printf("[SEQ] stageU tri=%d u%d=0x%x\n", triIdx, writeIdx, uData)
     }
 

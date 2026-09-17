@@ -12,6 +12,41 @@ object BorgCoreTestsC extends TestSuite {
 
   val tests = Tests {
 
+    utest.test("ftex_narrows_fp32_coordinates") {
+      // FTEX's operands are datapath floats: the fragment shader interpolates
+      // texture coordinates in the FP32 ALU. The texture unit is FP16-native,
+      // so the core must hand it FP16 values, not the low 16 bits of the FP32
+      // pattern (0.5f = 0x3F000000 -> 0x0000, i.e. texel (0,0) everywhere).
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: FTEX narrows FP32 coordinates ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, BigInt("3F000000", 16))   // u = 0.5
+        writeReg(core, 1, BigInt("3E800000", 16))   // v = 0.25
+        writeImem(core, 0, Instructions.FTEX(rs1 = 0, rs2 = 1, rd = 2))
+        writeImem(core, 1, 0)
+
+        core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
+        val seen = scala.collection.mutable.ArrayBuffer[(Int, Int)]()
+        var wd = 0
+        while (core.io.status.running.peek().litToBoolean && wd < 2000) {
+          if (core.io.texReq.peek().litToBoolean) {
+            seen += ((core.io.texU.peek().litValue.toInt, core.io.texV.peek().litValue.toInt))
+            core.io.texR.poke(0x3C00.U); core.io.texG.poke(0x3C00.U); core.io.texB.poke(0x3C00.U)
+            core.io.texDone.poke(true.B)
+          } else core.io.texDone.poke(false.B)
+          core.clock.step(1); wd += 1
+        }
+        core.io.texDone.poke(false.B)
+        println(f"  texture requests (u, v): ${seen.distinct.map { case (u, v) => f"(0x$u%04x, 0x$v%04x)" }.mkString(" ")}")
+        utest.assert(wd < 2000)
+        utest.assert(seen.nonEmpty)
+        utest.assert(seen.forall(_ == ((0x3800, 0x3400))))
+        // The FP16 texel comes back widened: 1.0 in the datapath's own format.
+        utest.assert(readReg(core, 2) == BigInt("3F800000", 16))
+      }
+    }
+
     utest.test("borgc_fragment_cube") {
       // End-to-end execution of the borgc-compiled cube.frag (56-word blob) in the
       // 4-lane SIMT core. Per-lane edge functions come from a 3-instr preamble
