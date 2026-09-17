@@ -156,7 +156,12 @@ class BorgLinkClockGen(val p: LinkParams, val isMaster: Boolean) extends Module 
         when(!up && changed && good < p.trainBeats.U) { good := good + 1.U }
       }
 
-      when(good >= p.trainBeats.U || io.linkFast) { up := true.B }
+      // Fast mode still counts training transitions: it skips phase recovery,
+      // not training. Raising link_up straight out of reset let the slave's
+      // receiver resynchronize on an idle line BEFORE the master had trained,
+      // after which the training word decoded as real packets -- a spurious
+      // MMIO write to Borg (BorgLinkProtocolTests.bring_up_is_clean_at_every_wire_delay).
+      when(good >= p.trainBeats.U) { up := true.B }
 
       io.linkUp      := up
       io.trainActive := false.B
