@@ -111,7 +111,7 @@ alone is correct in arcilator).
 
 ## How to reproduce (≈4 min)
 
-1. Edit `asic/tt/src/BorgArcSimTop.scala`, add inside the class body:
+1. Edit `hardware/soc/src/BorgArcSimTop.scala`, add inside the class body:
    ```scala
    override def BORG_CFG: borg.BorgConfig = borg.BorgConfig.Default.copy(useCustomFma = true)
    ```
@@ -125,7 +125,7 @@ alone is correct in arcilator).
    ```
 3. Control (same config, verilator → PASS):
    ```bash
-   # add the same override to asic/tt/src/BorgSimTop.scala, then:
+   # add the same override to hardware/soc/src/BorgSimTop.scala, then:
    cd simulation/verilator && make triangle
    ```
 4. Revert the overrides afterward (default is HardFloat).
@@ -164,7 +164,7 @@ directly inside arcilator, fast:
 
 - `asic/tt/src/FmaArcTop.scala` — emits FIRRTL for a co-sim top with both FMAs.
   Drive with `simulation/arcilator/debug/fma_cosim.cpp` (400k cases → 0 diverge).
-- `asic/tt/src/BorgCoreArcMain.scala` — emits FIRRTL for a standalone `BorgCore`
+- `hardware/soc/src/BorgCoreArcMain.scala` — emits FIRRTL for a standalone `BorgCore`
   (custom FMA). Drive with `simulation/arcilator/debug/core_harness.cpp` (ADD/MUL/
   FMA/FNEG via MMIO → all correct).
 - `simulation/arcilator/debug/README.md` — exact build/run commands.
@@ -178,5 +178,5 @@ in arcilator, only the whole SoC is not.
 - `hardware/borg/src/BorgCore.scala` `wireFma()` — the true/false branch.
 - `hardware/borg/src/BorgConfig.scala` — `useCustomFma` flag (default false).
 - `hardware/borg/test/src/BorgFp16FmaTests.scala` — co-sim + oracle tests.
-- `asic/tt/src/BorgArcSimTop.scala` / `BorgSimTop.scala` — sim tops (set the flag here).
+- `hardware/soc/src/BorgArcSimTop.scala` / `BorgSimTop.scala` — sim tops (set the flag here).
 - `simulation/arcilator/main.cpp` — watchdog; `Makefile` — arcilator invocation.

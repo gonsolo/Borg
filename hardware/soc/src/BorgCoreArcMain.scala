@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
-package asic.tt
+package soc
 
 import borg.{BorgConfig, BorgCore}
 
@@ -12,7 +12,7 @@ import borg.{BorgConfig, BorgCore}
   * the paradox (BorgCore is fine standalone; only the full SoC miscompiles).
   * Not a build target.
   *
-  * Emit FIRRTL: `mill asic.tt.runMain asic.tt.BorgCoreArcMain`
+  * Emit FIRRTL: `mill hardware.soc.runMain soc.BorgCoreArcMain`
   * (also prints the instruction encodings used by the harness)
   */
 object BorgCoreArcMain extends App {

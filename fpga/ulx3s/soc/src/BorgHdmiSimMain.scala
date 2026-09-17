@@ -7,7 +7,7 @@ import borg.BorgConfig
 
 /** Verilog emission for the full-SoC-with-HDMI-scanout verilator sim.
   *
-  * Run via: CLOCK_MHZ=25 mill asic.tt.runMain asic.tt.BorgHdmiSimMain
+  * Run via: CLOCK_MHZ=25 mill fpga.ulx3s.soc.runMain soc.BorgHdmiSimMain
   *
   * Emits into out/hardware/borg/verilog_hdmi_sim/ (separate from BorgSimMain so
   * the two never clobber each other).

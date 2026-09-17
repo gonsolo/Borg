@@ -14,7 +14,6 @@ LAYOUT_HDRS = ../common/common_sim.h $(wildcard $(FIRMWARE_DIR)/*.h)
 # Chisel + RDL sources — used by arcilator to decide when to re-emit FIRRTL.
 CHISEL_SRCS = $(shell find $(ROOT)/hardware/borg/src $(ROOT)/hardware/soc/src \
                            $(ROOT)/hardware/hutt/src $(ROOT)/hardware/memory/src \
-                           $(ROOT)/asic/tt/src \
                            -name '*.scala' -not -path '*/generated/*' 2>/dev/null) \
               $(wildcard $(ROOT)/hardware/rdl/*.rdl)
 

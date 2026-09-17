@@ -71,3 +71,34 @@ The design is verified at multiple levels before tape-out:
 make test-all   # Run Chisel + cocotb tests
 make lint       # Verilator lint check
 ```
+
+## What Changed Since TTIHP26a
+
+The design has been substantially rewritten since the TTIHP26a submission
+(git tag `TinyTapeoutIHP26a`) — 883 commits, 528 files changed:
+
+- **CPU rewrite**: TinyQV → **Hutt**, a clean multi-cycle RV32I/RV64I core
+  with `Decoupled` instruction/data buses (top module renamed
+  `tt_um_tt_tinyQV` → `tt_um_gonsolo_borg`).
+- **Die grown 4×**: 4×2 (8 tiles) → 8×4 (32 tiles) to fit Hutt plus the
+  larger Borg GPU.
+- **Repo reorganized**: `borg/`, `tinyqv/`, `src/` → `hardware/{borg,hutt,
+  memory,peri,soc,hardfloat}`, `asic/tt/`, `asic/wafer/`, `fpga/ulx3s/`, `software/`; the
+  MMIO register block moved to SystemRDL as the single source of truth
+  (`hardware/rdl/*.rdl`, generated via the in-tree `PeakRDL-chisel` submodule).
+- **RV64 + Linux explored and descoped**: a full RV64/Sv39/Linux path was
+  built and shown to boot on ULX3S, but measured at ~2× the TT-IHP 8×4 die
+  budget — TTIHP26b stays RV32I, no Linux; RV64/Linux remains a future-shuttle
+  goal.
+- **New host-side work**: `borgvk`, a real Vulkan ICD driver (Mesa fork,
+  branch `borg`) that runs the unmodified `Vulkan-Tools/cube.c` over serial —
+  working end-to-end on ULX3S, not yet exercised on IHP silicon.
+- **Verification deepened**: added gate-level cocotb tests against the actual
+  synthesized netlist and an RV32 firmware boot test (`test/soc/test_rv32_boot.py`),
+  neither of which existed for TTIHP26a.
+- **Area-optimization campaign** (this session): a systematic pass over
+  hardcoded/oversized register widths across `BorgBinner`, `BorgSequencer`,
+  `BorgLane`, and the FP16 special-function units took the design from
+  908,820 µm² down to 850,850.9 µm² and, for the first time, cleared the
+  post-CTS detailed-placement failure (`DPL-0036`) that had blocked the full
+  flow since the RV64 merge.

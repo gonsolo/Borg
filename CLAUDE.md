@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Borg is an open-source GPU: a small RV32I CPU driving the **Borg FP16 shader processor** as an MMIO peripheral. The same Chisel source targets three back ends:
+Borg is an open-source GPU: a small RISC-V CPU driving the **Borg shader processor** (FP32 by default since 2026-09-15) as an MMIO peripheral. The same Chisel source targets three back ends:
 
-- **ASIC** via Tiny Tapeout (IHP SG13G2) — `asic/tt/`
+- **ASIC** via wafer.space (GF180MCU, 1x1 slot) — the Borg-only bridge top `BorgOnlyTop` in `asic/wafer/src/` (mill module `asic.wafer`), LibreLane flow in `asic/wafer.space/` (`make librelane`). `asic/tt/` keeps the retired Tiny Tapeout SoC top (`TTTop`), still the harness for the cocotb SoC tests and `make lint`.
 - **ULX3S** FPGA (Lattice ECP5-85K) — `fpga/ulx3s/`
 
 The CPU has been **rewritten from TinyQV to a new core called Hutt** (`hardware/hutt/src/`). The `hardware/tinyqv/` directory no longer exists; do not recreate it or its protocol.
@@ -14,7 +14,7 @@ The CPU has been **rewritten from TinyQV to a new core called Hutt** (`hardware/
 ## Build system layout
 
 - **Top-level `Makefile`** orchestrates Chisel→Verilog emission, cocotb tests, lint, GDS, the docs book, and SystemRDL→Chisel register generation.
-- **Mill** (`build.mill` + per-directory `package.mill`) drives Scala/Chisel compilation. `BorgModule` (in `build.mill`) is the shared trait — Scala 2.13, Chisel 7.11. Modules are organized under `hardware/{borg,hutt,memory,peri,soc,hardfloat}`, `fpga/ulx3s/soc`, and `asic/tt`.
+- **Mill** (`build.mill` + per-directory `package.mill`) drives Scala/Chisel compilation. `BorgModule` (in `build.mill`) is the shared trait — Scala 2.13, Chisel 7.11. Modules are organized under `hardware/{borg,hutt,memory,peri,soc,hardfloat}`, `fpga/ulx3s/soc`, `asic/tt` and `asic/wafer`. The simulation tops (`BorgSimTop`, `BorgArcSimTop`) live in `hardware/soc`.
 - **Nix** (`flake.nix`) provides the full reproducible toolchain (firtool, Yosys, nextpnr, OpenROAD/LibreLane, RISC-V GCC, cocotb, PeakRDL, etc.). Enter it with `nix develop` before running anything below.
 - **Per-board sub-Makefiles** (`fpga/ulx3s/Makefile`, `simulation/{verilator,arcilator}/Makefile`, `test/soc/Makefile`, `software/Makefile`) own their flow. The top Makefile forwards to them.
 
@@ -45,9 +45,11 @@ make generate_verilog_ulx3s_minimal    # MinimalSoC: Hutt + UART only, no Borg �
 # Lint
 make lint                       # verilator --lint-only against the emitted ASIC Verilog
 
-# ASIC GDS
-make gds-sky130                 # Sky130 via LibreLane/OpenROAD
-make gds-ihp                    # IHP SG13G2
+# ASIC: wafer.space tapeout (full signoff, several hours -- run under systemd-run)
+make librelane                  # GF180MCU 1x1 slot, BorgOnlyTop
+# Legacy Tiny Tapeout GDS (retired target)
+make gds-sky130
+make gds-ihp
 
 # Simulation (cycle-accurate C++ with Pygame UI)
 make -C simulation/verilator vkcube_gui
@@ -66,7 +68,7 @@ When a build needs the SystemRDL-generated register block, the top Makefile runs
 
 ### CPU ↔ peripheral fabric (Hutt + MemoryController + SoC)
 
-`hardware/hutt/Hutt.scala` is a clean multi-cycle RV32I core with **Decoupled** instruction and data buses (`HuttInstrBus`, `HuttBus` in `HuttBus.scala`). It is wired up in `hardware/soc/src/MinimalSoC.scala` (the slim Hutt + UART + MemoryController harness used for ULX3S/HDMI/UART bring-up) and in the full SoC alongside Borg. The CPU's data bus is decoded against `SoCDecode` constants to route MMIO between SoC inline registers, the user peripheral router, and the Borg peripheral bus.
+`hardware/hutt/Hutt.scala` is a clean multi-cycle RV32I/RV64I core (parameterized via the `xlen` constructor arg, default 32) with **Decoupled** instruction and data buses (`HuttInstrBus`, `HuttBus` in `HuttBus.scala`). **Current split by target:** the retired Tiny Tapeout SoC (`asic/tt/src/TTTop.scala`, now the cocotb SoC test harness) uses the RV32I default, and the wafer.space tapeout has no CPU at all (Borg-only bridge); the ULX3S FPGA path (`fpga/ulx3s/soc/src/ULX3S.scala`, the active demo target) overrides `xlen = 64` — RV64IMAC with M-mode/S-mode privilege levels, Sv39 MMU, and CLINT, laying groundwork for a Linux boot (not yet attempted; see `software/opensbi/`, `software/linux/`). `hardware/soc/src/MinimalSoC.scala` (the slim Hutt + UART + MemoryController harness used for ULX3S/HDMI/UART bring-up) still instantiates Hutt at its RV32I default. The CPU's data bus is decoded against `SoCDecode` constants to route MMIO between SoC inline registers, the user peripheral router, and the Borg peripheral bus.
 
 `hardware/memory/src/MemoryController.scala` arbitrates the instruction port, the CPU data port, and the GPU's `gpuMem` port across QSPI flash (`QspiBackend`) and SDRAM (`SdramBackend`) backends, with a `FlashBootLoader` for cold-boot copy-in. The GPU port can be tied off (default in `MinimalSoCLogic.wireGpuMem`) or driven by HDMI scanout in bring-up harnesses.
 
@@ -93,7 +95,7 @@ Multiple bitstream targets live in `fpga/ulx3s/soc/src/`: `ULX3S.scala` (full So
 
 ### Clock frequencies
 
-Per-target Scala `Main` objects have their own defaults: **TT ASIC = 4 MHz**, **ULX3S = 25 MHz (SoC) / 125 MHz (HDMI)**. Override via the `CLOCK_MHZ` env var (e.g. `CLOCK_MHZ=50 make generate_verilog`).
+The **wafer.space tapeout clock is 8 MHz**, set only by `CLOCK_PERIOD: 125` in `asic/wafer.space/librelane/config.yaml` — `BorgOnlyTop` has no clock parameter. `CLOCK_MHZ` is a different thing: an elaboration parameter for SoC peripherals (UART baud divisor), read by the SoC emitters — Tiny Tapeout SoC and simulation SoC default 4, ULX3S 25 (SoC) / 125 (HDMI). Override via the env var (e.g. `CLOCK_MHZ=50 make generate_verilog`).
 
 ### Host Vulkan driver — `borgvk` (work in progress)
 
@@ -104,8 +106,67 @@ A real Mesa Vulkan driver (native ICD, modeled on v3dv) that runs the **unmodifi
 
 The driver intercepts `vkQueueSubmit` (via Mesa runtime's `vk_queue.driver_submit`), reads the per-frame MVP from the bound uniform buffer, and ships it over serial to the `borg_kernel.c` firmware (wire protocol: 0xAD MVP, 0xAE geometry, 0xAF texture rows, 0xB0 borgc shaders). The kernel renders the frame via the autonomous TBR sequencer. No NIR→Borg compiler is needed for the cube demo (borgvk ships borgc-compiled shaders from Mesa's `src/borg/compiler/`). Full plan: `~/.claude/plans/atomic-questing-stream.md`. `flake.nix` carries the Mesa/Vulkan build deps (meson, ninja, vulkan-loader/headers, libdrm, spirv-tools, x11/xcb).
 
+## MSAA and texturing status
+
+4x MSAA hardware is implemented and verified (real captured-borgvk render, full
+regression suite) on the **`msaa-hardware`** branch — not yet merged to `main`.
+Root cause of the original broken attempt: `covDelta` (per-triangle coverage
+deltas) was read live from a Pass-1-only staging register that Pass 2 never
+refreshed (fixed with a proper per-triangle latch, mirroring the existing
+`triHasUvs` pattern), and the Pass-2 setup reload still used the pre-MSAA
+DMA stride/length after the Pass-1 store widened to fit `covDelta` (fixed by
+splitting the reload into the original 32-word uniform-write transfer plus a
+second, snoop-only transfer for `covDelta` — appending it to the first would
+alias onto and corrupt the triangle's real uniforms, since BorgDMA's uniform
+destination address is hard-truncated to 5 bits).
+
+Texturing is **FTEX-inline only** now (`main` and `msaa-hardware`) — the
+legacy autonomous single-texel fetch (`sTexFetch`, `BorgShaderDispatcher`) was
+removed; it predated FTEX and was firing redundantly. Texel coordinates are
+clamped to `[0, 2^log2Dim − 1]` via the shared `ClampTexCoord` helper
+(`TextureAddr.scala`) — a UV of exactly 1.0 at a triangle's far edge
+legitimately floors to one past the last valid texel index, and Morton
+addressing an out-of-range coordinate silently reads unpopulated (black)
+texture memory. Both FTEX-inline and the legacy path had this class of bug at
+different points; if a new texture-coordinate call site is ever added, route
+it through `ClampTexCoord` rather than reimplementing the clamp inline.
+
+## Heavy compute goes on the workstation, not this machine
+
+`mill`, verilator/arcilator builds, and yosys synthesis must run on
+`gonsolo-workstation` (reachable via Tailscale SSH) — never on the local
+notebook. Toolchain quirks specific to that workflow:
+
+- `direnv exec .` is required to get the nix devshell into a non-interactive
+  SSH command (`ssh gonsolo-workstation 'cd ~/work/Borg && direnv exec . <cmd>'`)
+  — a plain `ssh host 'cmd'` does not pick up direnv's PATH/env.
+- Env vars like `BORG_TRACE=1` only take effect if Mill's persistent daemon is
+  fresh — if a stale daemon is already running, the var never reaches the
+  elaboration JVM. Kill it first (`pkill -9 -f mill.daemon.MillDaemonMain` —
+  **never use `-f` on a pattern that also matches your own invoking command
+  line**, e.g. `ssh host 'pkill -f mill.daemon...'`, or `pkill` kills the
+  shell running the command and drops the SSH session).
+- Mill's Verilog-emission stamp files (`.verilog_sim_stamp`,
+  `out/hardware/borg/firrtl_sim/*.fir`) can go stale and silently skip
+  regeneration even after a real source change. If a build finishes
+  suspiciously fast or a change doesn't seem to take effect, delete the
+  relevant stamp file and retry.
+- `BorgDebug.trace` printfs are split into a separate `verification/*.sv`
+  subdirectory by `--split-verilog`, not embedded in the main per-module
+  `.sv` files — check there, not the main output.
+- The arcilator toolchain's own `firtool --disable-layers=Verification` step
+  strips all trace/printf content regardless of `BorgDebug.trace` — use
+  **verilator**, not arcilator, for any `BORG_TRACE`-based debugging (invoke
+  the `verilator_sim` binary directly with `--cts-uart`, not through
+  `cts_uart_render.py`, which pipes stdout as a binary RGB protocol and
+  silently discards stderr on success).
+- `mill <module>.runMain <Emitter>` (e.g. `asic.wafer.runMain asic.wafer.BorgOnly1x1Main`) commonly fails on the first
+  invocation with a generic error and succeeds on an immediate retry with no
+  code changes — a known toolchain quirk, not a real failure.
+
 ## Conventions to know
 
 - Don't recreate the deleted TinyQV CPU or its nibble-serial QSPI protocol — Hutt's `Decoupled` buses are the current contract.
 - Always create new commits; don't amend or force-push without explicit user OK.
-- The top Makefile's `HAND_CHISEL` `find` paths list `fpga/ulx3s/soc/src` and `asic/tt/src`.
+- The top Makefile's `HAND_CHISEL` `find` paths (Verilog stamp dependencies) list `fpga/ulx3s/soc/src`, `asic/tt/src` and `asic/wafer/src`; `simulation/common.mk`'s `CHISEL_SRCS` is the simulator-side equivalent. A new Chisel source directory must be added to both, or edits there silently stop triggering re-emission.
+- The `mesa` submodule is a separate git repo (`gonsolo/mesa`) — a `chore(mesa): bump submodule` commit in this repo is only resolvable elsewhere once the referenced mesa commit is actually **pushed** to `gonsolo/mesa`, not just committed locally. A bump commit made from an unpushed local mesa checkout will break `git submodule update` everywhere else until it's pushed.

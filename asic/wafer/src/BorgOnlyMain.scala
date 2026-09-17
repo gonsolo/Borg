@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
-package asic.tt
+package asic.wafer
 
 import borg.BorgConfig
 import borg.link.LinkParams
@@ -9,7 +9,7 @@ import soc.Emit
 
 /** Verilog emission entry point for the Borg-only wafer.space ASIC target.
   *
-  * Run via: mill asic.tt.runMain asic.tt.BorgOnlyMain
+  * Run via: mill asic.wafer.runMain asic.wafer.BorgOnlyMain
   *
   * Emits split Verilog into out/hardware/borg/verilog_wafer/ -- deliberately
   * *not* out/hardware/borg/verilog/, which TTMain owns and Emit.cleanTargetDir

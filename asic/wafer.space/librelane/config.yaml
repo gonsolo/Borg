@@ -155,10 +155,41 @@ IGNORE_DISCONNECTED_MODULES:
 - gf180mcu_ws_ip__marker
 
 # Clock
-# 250ns (4 MHz) matches Borg's real ASIC clock target (see asic/tt/src/TTMain.scala)
-# -- the template's default 40ns/25MHz would force unnecessary buffer/cell
-# upsizing purely to meet timing we don't need, inflating the area number
-# we're trying to measure here.
+# CLOCK_PERIOD at the end of this block is the tapeout's signoff clock: 125 ns
+# (8 MHz). It is the only place the tapeout clock is set -- BorgOnlyTop has no
+# CLOCK_MHZ parameter (that env var only sizes SoC peripherals such as the UART
+# baud divisor, in the Tiny Tapeout and simulation SoCs). History: this started at
+# 250 ns (4 MHz), the old Tiny Tapeout clock target; the notes below record the
+# probing that led to 8 MHz.
+#
+# 25 MHz (40ns, the wafer.space template's own default) was tried on 1x1 with
+# real timing analysis on 2026-09-05 and does NOT close. Two independent
+# blockers, both measured:
+#
+#  1. Slow-corner timing. At nom_tt_025C_5v00 the design just makes it
+#     (+0.211 ns slack), but at nom_ss_125C_4v50 it is -149.83 ns with
+#     -660k TNS -- roughly a 192 ns path against a ~42 ns requirement. Signoff
+#     needs every corner, so the typical-corner pass is meaningless on its own.
+#     The critical path starts at BorgSequencer's FSM state register
+#     (i_chip_core.i_borg.core.borgCore.sequencer.state[2]) with ~85 ns of
+#     combinational decode behind it -- NOT the FMA. Closing 25 MHz means
+#     restructuring that decode, not adding FMA pipeline stages.
+#  2. Clock routing congestion. Global routing entered congestion overtime
+#     ("extra iteration N/50") on clk_PAD2CORE / clknet_0_clk_PAD2CORE and was
+#     still grinding after 3.5 h, despite only 31% cell utilisation -- the
+#     25 MHz clock tree plus 1x1's taller aspect ratio (3048x4238 vs 1x0.5's
+#     3048x1647). This is independent of the logic-depth problem and would
+#     still need solving (floorplan / PDN / clock strategy) even if (1) were.
+#
+# 4 MHz remains what this design actually closes. Raise it again only
+# alongside the sequencer restructuring, and expect to revisit congestion.
+# Currently probing upward from 4 MHz to find where the design actually
+# breaks, rather than jumping to the 25 MHz target. Predicted slow-corner
+# ceiling from the 25 MHz run's measured ~192 ns ss-corner path is ~5.2 MHz,
+# so 8 MHz is expected to miss by ~67 ns at nom_ss_125C_4v50 -- running it to
+# test that model, since the resizer may find different tradeoffs at a less
+# extreme target. ALWAYS check nom_ss_125C_4v50, not nom_tt_025C_5v00: at
+# 25 MHz the typical corner passed (+0.211 ns) while ss was -149.83 ns.
 CLOCK_PORT: clk_PAD
 CLOCK_NET: clk_pad/Y
 CLOCK_PERIOD: 250 # 4 MHz

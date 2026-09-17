@@ -44,12 +44,15 @@ help:
 	@echo -e "  linux:\t\t\tBuild Linux kernel for Borg (requires ext/linux)."
 	@echo -e "  flash-linux:\t\t\tWrap + flash OpenSBI+Linux payload to SPI flash @ 0x400000."
 
-# Clock frequencies: each target's Scala Main has its own default.
-# TT ASIC = 4 MHz, ULX3S = 25 MHz (SoC) / 125 MHz (HDMI).
-# Override via env var if needed: CLOCK_MHZ=50 make generate_verilog
+# CLOCK_MHZ is an RTL elaboration parameter for SoC peripherals (the UART baud
+# divisor, mainly), read by the SoC emitters: Tiny Tapeout SoC (TTMain, 4), the
+# simulation SoC (BorgSimMain, 4), ULX3S (25 SoC / 125 HDMI). Override via env:
+# CLOCK_MHZ=50 make generate_verilog. It is NOT the wafer.space tapeout clock:
+# BorgOnlyTop has no such parameter; its clock is the signoff constraint
+# CLOCK_PERIOD in asic/wafer.space/librelane/config.yaml (125 ns = 8 MHz).
 
 HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/hutt/src hardware/memory/src \
-                        fpga/ulx3s/soc/src asic/tt/src \
+                        fpga/ulx3s/soc/src asic/tt/src asic/wafer/src \
                         -name '*.scala' -not -path '*/generated/*' 2>/dev/null)
 
 # Stamp target: only re-runs Mill when Scala or RDL sources actually change.
@@ -74,10 +77,36 @@ info.yaml: .verilog_stamp
 # Still declared phony so `make generate_verilog` always checks deps explicitly.
 generate_verilog: .verilog_stamp info.yaml
 
+# wafer.space Borg-only bridge target (BorgOnlyTop): same two post-steps as
+# .verilog_stamp above and for the same reasons -- feeds the same yosys-based
+# LibreLane synthesis flow, just a different (link-behind) top module, into
+# out/hardware/borg/verilog_wafer/ rather than .../verilog/ (which this
+# target must NOT touch -- TTMain owns that dir and wipes it on every run).
+.verilog_wafer_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
+	$(MILL) asic.wafer.runMain asic.wafer.BorgOnlyMain
+	@python3 scripts/init_bram_zero.py out/hardware/borg/verilog_wafer
+	@sed -i 's|// synthesis translate_on\t.*|// synthesis translate_on|g' out/hardware/borg/verilog_wafer/*.sv
+	@touch $@
+
+generate_verilog_wafer: .verilog_wafer_stamp
+
+# Same design on the wafer.space 1x1 slot -- 40 bidir + 12 input-only pads
+# instead of 46 + 4, so BorgOnlyTop uses a different lane map (see its class
+# doc; it is a re-map, not a truncation).  Emitted to its own directory
+# because both slots produce a module named BorgOnlyTop with different port
+# widths -- mixing them in one directory would be silently wrong.
+.verilog_wafer_1x1_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
+	$(MILL) asic.wafer.runMain asic.wafer.BorgOnly1x1Main
+	@python3 scripts/init_bram_zero.py out/hardware/borg/verilog_wafer_1x1
+	@sed -i 's|// synthesis translate_on\t.*|// synthesis translate_on|g' out/hardware/borg/verilog_wafer_1x1/*.sv
+	@touch $@
+
+generate_verilog_wafer_1x1: .verilog_wafer_1x1_stamp
+
 # Verilator simulation Verilog — flat MemBackendIO top (no QSPI), into
 # out/hardware/borg/verilog_sim/.  Used by simulation/verilator.
 .verilog_sim_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
-	CLOCK_MHZ=4 $(MILL) asic.tt.runMain asic.tt.BorgSimMain
+	CLOCK_MHZ=4 $(MILL) hardware.soc.runMain soc.BorgSimMain
 	@touch $@
 
 generate_verilog_sim: .verilog_sim_stamp
@@ -155,6 +184,18 @@ test-chisel-borg:
 # re-trigger the three Mill invocations when Verilog is already current.
 lint: .verilog_stamp
 	verilator --lint-only -Wall -Iout/hardware/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $$(cat out/hardware/borg/verilog/asic_files.txt | sed 's|^\.\./||')
+
+# Lint the RTL that is actually taped out: BorgOnlyTop on the wafer.space 1x1
+# slot. `lint` above checks the retired Tiny Tapeout SoC top, which contains no
+# link bridge at all, so this is the only lint of the tapeout design.
+# Not part of test-all yet: on 2026-09-17 it reports four UNUSEDSIGNAL warnings.
+# One is a real FP32 bug -- BorgLinkSlave keeps only gpuMem.wdata[15:0] (a 16-bit
+# design from the FP16 era) while the geometry sequencer's setup store and the
+# core's STORE now write 32-bit words, so on silicon their upper halves are lost.
+# The other three (unused input side of output pads, wlen bit 0, LinkRx flitAcc's
+# narrow-mode byte) look like design facts to waive once that is fixed.
+lint-wafer: .verilog_wafer_1x1_stamp
+	verilator --lint-only -Wall -Iout/hardware/borg/verilog_wafer_1x1 --top-module BorgOnlyTop1x1 lint.vlt $$(sed 's|^\.\./||' out/hardware/borg/verilog_wafer_1x1/wafer_files.txt)
 
 test-chisel-core: rdl
 	$(MILL) hardware.hutt.test
@@ -255,7 +296,7 @@ linux:
 flash-linux:
 	$(MAKE) -C software flash-linux
 
-.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \
