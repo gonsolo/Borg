@@ -20,12 +20,22 @@ TEXD ?= 64
 # captured borgvk UART burst and is the render smoke test now.
 all: cts-uart
 
-# Hardware generation
-$(HW_DIR)/borg/verilog_sim/sim_files.txt:
+# Hardware generation. Depends on the Chisel sources (like arcilator's FIRRTL
+# rule): without that, an existing sim_files.txt satisfied this target forever
+# and the simulator kept running Verilog emitted before a hardware change. The
+# top-level stamp makes the recursive make a no-op when nothing changed.
+$(HW_DIR)/borg/verilog_sim/sim_files.txt: $(CHISEL_SRCS)
 	$(MAKE) -C $(ROOT) generate_verilog_sim
 
 $(HDMI_DIR)/sim_files.txt:
 	cd $(ROOT) && CLOCK_MHZ=25 FB_W=$(FBW) FB_H=$(FBH) mill fpga.ulx3s.soc.runMain soc.BorgHdmiSimMain
+
+# C++ optimisation of the Verilated model. Verilator's defaults (OPT_FAST=-Os)
+# cost a factor of 9 here: a 5M-cycle vkcube run takes 125.7 s with them and
+# 13.5 s with -O3 (measured 2026-09-17). --threads made it slower (64 s): the
+# harness evaluates the model once per cycle, too little work per eval to
+# amortise the thread handoff.
+VERILATOR_OPT = OPT_FAST=-O3 OPT_SLOW=-O2 OPT_GLOBAL=-O3
 
 # Common verilator invocation — avoids repeating 18 flags for the HDMI variant.
 # $(1)=output-dir  $(2)=sv-dir  $(3)=top-module  $(4)=main-cpp  $(5)=binary-name
@@ -34,7 +44,7 @@ define VERILATE
 	@SRC_FILES=$$(cat $(2)/sim_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
 	echo "Building Verilator model [$(3)]..."; \
 	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall -Wno-UNUSEDSIGNAL --build -j 0 \
-	-MAKEFLAGS "-s" --Mdir $(1) \
+	-MAKEFLAGS "-s $(VERILATOR_OPT)" --Mdir $(1) \
 	-I$(2) -I$(2)/verification/assert -I$(2)/verification \
 	--top-module $(3) \
 	-CFLAGS "-fPIC" -CFLAGS "-I../../common" \
