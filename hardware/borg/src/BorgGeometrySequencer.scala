@@ -89,24 +89,27 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
   // the same width. Only fpToPixelInt's bbox extraction and the backface-
   // cull sign test below are format-aware; the values themselves stay full
   // precision through Pass 1.
-  val clipRegs = RegInit(VecInit.fill(3, 3)(0.U(cfg.totalBits.W)))
+  // No reset (like the other per-triangle shadow registers below): the vertex
+  // shader writes all three components of all three vertices before anything
+  // reads them, so the reset value is never observed.
+  val clipRegs = Reg(Vec(3, Vec(3, UInt(cfg.totalBits.W))))
   // Shadow registers for color + z per vertex, populated by snooping the DMA
   // uniform write stream during vertex DMA. See computeUniformData's doc for
   // the offset layout. cfg.totalBits wide -- these are DMA'd vertex
   // attributes (firmware-packed at cfg.fp's width), not FP16-native like
   // uvRegs below.
-  val colorRegs = RegInit(VecInit.fill(3, 4)(0.U(cfg.totalBits.W)))  // [v][r,g,b,z]
+  val colorRegs = Reg(Vec(3, Vec(4, UInt(cfg.totalBits.W))))  // [v][r,g,b,z]
   // cfg.totalBits wide: texture coordinates are datapath values. The
   // fragment shader interpolates them in the general ALU (FMUL/FMADD on
   // u13-u18) before FTEX, and only FTEX narrows the result to the FP16-native
   // texture unit (BorgCore). A 16-bit register here kept the low half of an
   // FP32 coordinate -- 0.75f (0x3F400000) staged as 0.
-  val uvRegs    = RegInit(VecInit.fill(3, 2)(0.U(cfg.totalBits.W)))  // [v][u,v]
+  val uvRegs    = Reg(Vec(3, Vec(2, UInt(cfg.totalBits.W))))  // [v][u,v]
 
   // Shadow registers for setup shader outputs: r0-r5 = scaled edge
   // components, r6 = area, r7 = inv_area. cfg.totalBits wide -- genuine
   // setup-shader ALU output, same reasoning as clipRegs above.
-  val setupRegs = RegInit(VecInit.fill(8)(0.U(cfg.totalBits.W)))
+  val setupRegs = Reg(Vec(8, UInt(cfg.totalBits.W)))
 
   // Step 50.2b: per-edge MSAA sample deltas produced by the setup shader in
   // r8..r13 as {d0[0], d1[0], d0[1], d1[1], d0[2], d1[2]}. Consumed by this
@@ -120,6 +123,11 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
   // low half and then zero-extended it back out -- FP32 1.5 is 0x3FC00000,
   // whose low 16 bits are 0x0000, so every covDelta read as exactly 0.0.
   val covDeltaRegs = if (cfg.samples > 1)
+    // Keeps its reset, unlike the shadow registers above: covDeltaOut feeds the
+    // dispatcher's per-sample coverage compare, which is live whenever pixels
+    // are shaded -- including paths that never ran Pass 1 (the rasterizer unit
+    // tests drive the ROM directly). An undefined threshold there is undefined
+    // coverage, not merely a stale value.
     Some(RegInit(VecInit.fill(6)(0.U(cfg.totalBits.W)))) else None
 
   /** Last uniform index written by sWriteSetupInputs: u0-u6 always, plus the

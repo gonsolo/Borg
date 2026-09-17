@@ -78,14 +78,42 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // a combinational function of io_gpuMem_waccept; tile.io_read_en depends on
   // flusher.io_read_en.  Arcilator processes hw.instance calls in declaration
   // order, so flusher must precede tile or tile sees a one-cycle-stale read_en.
-  val core      = Module(new BorgCore(cfg))
-  val rast      = Module(new BorgRasterizer(cfg))
-  val flusher   = Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush))   // before tile — see note above
-  val tile      = Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend))
-  val rdlRegs   = Module(new BorgGpuRegs()) // Auto-generated RDL register block
-  val dma       = Module(new BorgDMA(cfg))
-  val sequencer = Module(new BorgSequencer(cfg))
-  val binner    = Module(new BorgBinner(cfg.maxBinTiles, cfg.maxTrianglesPerTile, cfg.coordWidth))
+  // --- Reset fan-out ---
+  // Each block gets its OWN registered copy of the reset instead of sharing
+  // one net. Measured on the 2026-09-16 signoff netlist: the single reset drove
+  // 3887 gates reaching 5161 flops, and post-placement repair grew it a
+  // 59891-cell, 2.1M um^2 repeater tree -- a third of it inside 6.5% of the
+  // core, which detailed placement then could not legalize (DPL-0036). Several
+  // smaller nets can each be placed with their own loads.
+  //
+  // All copies release on the same cycle, one cycle after the incoming reset.
+  // A CHAIN (copy N registered from copy N-1) would keep synthesis from merging
+  // them, but it staggers reset release per block, and that is observable: a
+  // register written in the first cycles after reset is lost while its block is
+  // still held (BorgGpuMemWordTests caught exactly that -- ls_base dropped, so
+  // the shader's STORE went to the wrong address).
+  //
+  // Measured on the 2026-09-18 synthesis: yosys merges these eight identical
+  // registers back into one net (dontTouch does not prevent it), so the reset
+  // arrives as two nets rather than eight -- the pad reset (458 loads) and the
+  // merged copy (1552). That is still a 2.5x drop in worst-case reset fan-out
+  // versus the 3887-load single net, on top of the reduction from the
+  // reset-free datapath registers above; the copies cost eight flops.
+  private def resetCopy(name: String): Bool = {
+    val r = RegNext(reset.asBool, true.B)
+    r.suggestName(s"rstCopy_$name")
+    dontTouch(r)
+    r
+  }
+
+  val core      = withReset(resetCopy("core"))   { Module(new BorgCore(cfg)) }
+  val rast      = withReset(resetCopy("rast"))   { Module(new BorgRasterizer(cfg)) }
+  val flusher   = withReset(resetCopy("flush"))  { Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush)) }   // before tile — see note above
+  val tile      = withReset(resetCopy("tile"))   { Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend)) }
+  val rdlRegs   = withReset(resetCopy("regs"))   { Module(new BorgGpuRegs()) } // Auto-generated RDL register block
+  val dma       = withReset(resetCopy("dma"))    { Module(new BorgDMA(cfg)) }
+  val sequencer = withReset(resetCopy("seq"))    { Module(new BorgSequencer(cfg)) }
+  val binner    = withReset(resetCopy("bin"))    { Module(new BorgBinner(cfg.maxBinTiles, cfg.maxTrianglesPerTile, cfg.coordWidth)) }
 
   // Sticky done flag for sequencer detection (module-level so it's visible
   // in the data_out MuxCase).  Set when the sequencer pulses io.done,
