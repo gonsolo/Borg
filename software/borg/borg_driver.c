@@ -107,9 +107,10 @@ static const uint32_t seq_vert_shader[] = {
 //   u6    = inv_width = 1/fb_width (written by sWriteSetupInputs, Step 30.1c).
 //   Outputs r0-r5 = normalized edge components (divided by fb_width).
 //   Output  r7    = inv_area = W/area (matching CPU path convention).
-//   r8-r16, r20-r24 are working registers (intermediate positions).
-//   r17-r19 are RESERVED: they carry the borgc fragment's lightDir from the
-//   firmware (written before seq_trigger) through to Pass 2 — do not clobber.
+//   r8-r16 are working registers; the setup shader touches nothing above r16.
+//   r17-r19 and r23 are RESERVED: they carry the fragment's constants (borgc's
+//   CONST_REGS, e.g. cube.frag's lightDir), written by the firmware once before
+//   seq_trigger and read in Pass 2 -- do not clobber.
 static const uint32_t seq_setup_shader[] = {
   // Copy screen coords from uniforms u0-u5 into working regs r8-r13
   BORG_INSTR_FADD( 8, 0, 31, 1),  // r8  = v0.x
@@ -118,31 +119,26 @@ static const uint32_t seq_setup_shader[] = {
   BORG_INSTR_FADD(11, 3, 31, 1),  // r11 = v1.y
   BORG_INSTR_FADD(12, 4, 31, 1),  // r12 = v2.x
   BORG_INSTR_FADD(13, 5, 31, 1),  // r13 = v2.y
-  // Edge vectors
+  // Edge vectors. Every negation is consumed by the very next FADD, so one
+  // scratch register (r14) serves them all -- keeping r17-r24 untouched.
   BORG_INSTR_FNEG(14, 10, 0),     // r14 = -v1.x
   BORG_INSTR_FADD( 0,  8, 14, 0), // r0  = v0.x - v1.x  (e0.dx)
-  BORG_INSTR_FNEG(15,  9, 0),     // r15 = -v0.y
-  BORG_INSTR_FADD( 1, 11, 15, 0), // r1  = v1.y - v0.y  (e0.dy)
-  BORG_INSTR_FNEG(16, 12, 0),     // r16 = -v2.x
-  BORG_INSTR_FADD( 2, 10, 16, 0), // r2  = v1.x - v2.x  (e1.dx)
-  // NOTE: scratch deliberately SKIPS r17-r19 — those hold the borgc fragment's
-  // lightDir, written by the firmware ONCE before seq_trigger and read in Pass 2.
-  // The original r17/r18/r19 scratch overwrote lightDir with negated screen
-  // coords (|v|≈fb_width), so diffuse = dot(±100-ish, normal) saturated → every
-  // face shaded pure white or black.  r22-r24 are dead at this point in every
-  // stage (FTEX writes r20-22 only during the frag; vertex writes r24-26 before
-  // setup runs and setup writes-before-reads).
-  BORG_INSTR_FNEG(22, 11, 0),     // r22 = -v1.y
-  BORG_INSTR_FADD( 3, 13, 22, 0), // r3  = v2.y - v1.y  (e1.dy)
-  BORG_INSTR_FNEG(23,  8, 0),     // r23 = -v0.x
-  BORG_INSTR_FADD( 4, 12, 23, 0), // r4  = v2.x - v0.x  (e2.dx)
-  BORG_INSTR_FNEG(24, 13, 0),     // r24 = -v2.y
-  BORG_INSTR_FADD( 5,  9, 24, 0), // r5  = v0.y - v2.y  (e2.dy)
+  BORG_INSTR_FNEG(14,  9, 0),     // r14 = -v0.y
+  BORG_INSTR_FADD( 1, 11, 14, 0), // r1  = v1.y - v0.y  (e0.dy)
+  BORG_INSTR_FNEG(14, 12, 0),     // r14 = -v2.x
+  BORG_INSTR_FADD( 2, 10, 14, 0), // r2  = v1.x - v2.x  (e1.dx)
+  BORG_INSTR_FNEG(14, 11, 0),     // r14 = -v1.y
+  BORG_INSTR_FADD( 3, 13, 14, 0), // r3  = v2.y - v1.y  (e1.dy)
+  BORG_INSTR_FNEG(14,  8, 0),     // r14 = -v0.x
+  BORG_INSTR_FADD( 4, 12, 14, 0), // r4  = v2.x - v0.x  (e2.dx)
+  BORG_INSTR_FNEG(14, 13, 0),     // r14 = -v2.y
+  BORG_INSTR_FADD( 5,  9, 14, 0), // r5  = v0.y - v2.y  (e2.dy)
   // Area = e0.dx * e2.dy + e2.dx * (-e0.dy)
-  BORG_INSTR_FMUL(20,  0,  5, 0), // r20 = e0.dx * e2.dy
-  BORG_INSTR_FNEG(21,  1, 0),     // r21 = -e0.dy
-  BORG_INSTR_FMADD(6, 4, 21, 20, 0), // r6 = e2.dx * r21 + r20 = area
-  // Negate area to match CPU convention (triangle_setup: area ^= 0x8000).
+  BORG_INSTR_FMUL(15,  0,  5, 0), // r15 = e0.dx * e2.dy
+  BORG_INSTR_FNEG(16,  1, 0),     // r16 = -e0.dy
+  BORG_INSTR_FMADD(6, 4, 16, 15, 0), // r6 = e2.dx * r16 + r15 = area
+  // Negate the area: the rasterizer's edge functions expect it (same sign
+  // convention the removed CPU triangle setup used).
   BORG_INSTR_FNEG(6,  6, 0),      // r6 = -area
   // Step 30.1c: Edge normalization.
   // Multiply raw edges by inv_width (u6) to match CPU path's borg_load_edge_constants().
@@ -176,8 +172,8 @@ static const uint32_t seq_setup_shader[] = {
   // MUST come after the inv_width normalization above: the rasterizer's edge
   // values are in normalized space, so the deltas have to be too.
   // Scratch r14 only; outputs r8-r13 (the screen-coord copies loaded at the
-  // top are dead by now).  r17-r19 remain untouched -- they carry the borgc
-  // fragment's lightDir into Pass 2.
+  // top are dead by now).  r17-r24 remain untouched -- r17-r19 and r23 carry the
+  // fragment's constants into Pass 2.
   BORG_INSTR_FMUL (14,  0,  7, 2),      // r14 = A0 * -0.375
   BORG_INSTR_FMADD( 8,  1,  8, 14, 2),  // r8  = B0 * -0.125 + r14  = d0[0]
   BORG_INSTR_FMUL (14,  0,  8, 2),      // r14 = A0 * -0.125
