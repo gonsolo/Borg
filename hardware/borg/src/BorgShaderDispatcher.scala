@@ -210,8 +210,13 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   def fnegBits(x: UInt): UInt = x ^ (1.U << (cfg.totalBits - 1))
 
   // Raw edge values per lane, needed only for the per-sample compare.
+  //
+  // No reset: the rasterizer program writes all three edges for every lane of
+  // every pixel (the snoop below) before `coverage` reads them, so the reset
+  // value is never observed. 384 flops off the reset tree at 4x MSAA -- see
+  // the reset-fanout work for why that matters (one net drove 3887 gates).
   val e_val = if (cfg.samples > 1)
-    Some(RegInit(VecInit(Seq.fill(N)(VecInit(Seq.fill(3)(0.U(cfg.totalBits.W)))))))
+    Some(Reg(Vec(N, Vec(3, UInt(cfg.totalBits.W)))))
   else None
 
   /** Per-lane, per-sample coverage. */
