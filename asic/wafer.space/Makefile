@@ -177,36 +177,38 @@ librelane-padring: clone-pdk defines generated-sources ## Only create the padrin
 	python3-librelane scripts/padring.py ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS}
 .PHONY: librelane-padring
 
-sim: clone-pdk defines ## Run RTL simulation with cocotb
-	cd cocotb; PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} python3 chip_top_tb.py
-.PHONY: sim
-
-sim-gl: clone-pdk defines ## Run gate-level simulation with cocotb (after copy-final)
-	cd cocotb; GL=1 PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} python3 chip_top_tb.py
-.PHONY: sim-gl
-
 # cocotb lives in its own python3.13 env; the devShell's ambient python3 is
 # 3.14 and its PYTHONPATH mixes both (see the top-level Makefile's header).
 # Use cocotb's own interpreter and only its site-packages.
 COCOTB_PY := $(shell cocotb-config --python-bin 2>/dev/null || echo python3)
 
-# The link tests are written against the 1x0.5 lane map (46 bidir + 4
-# input), so they force that slot. The override is a target-specific
-# variable rather than only an env var on the python line so that the
-# `defines` prerequisite writes SLOT_1X0P5 too: with DEFAULT_SLOT=1x1 the
-# generated define selected chip_core's BorgOnlyTop1x1 instantiation while
-# the file list carried the 1x0.5 module -- "Unknown module type
-# BorgOnlyTop1x1", a slot mismatch of exactly the kind DEFAULT_SLOT's
-# comment warns about.
-sim-link sim-link-gl: SLOT = 1x0p5
-sim-link: clone-pdk defines ## Run the Borg link pad-level tests (plan test 8)
-	cd cocotb; PYTHONPATH=$$COCOTB_PYTHONPATH PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=1x0p5 PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
+# The link tests carry both slots' lane maps (cocotb/borg_link.py) and run
+# against $(SLOT) -- 1x1 by default, the tapeout slot. SLOT reaches the
+# `defines` prerequisite too, so chip_core instantiates the matching top
+# (BorgOnlyTop1x1 or BorgOnlyTop), and the RTL run reads that slot's
+# emission (out/hardware/borg/verilog_wafer_1x1 or verilog_wafer).
+sim-link: clone-pdk defines ## Borg link pad-level tests at RTL (SLOT=1x1 default)
+	cd cocotb; PYTHONPATH=$$COCOTB_PYTHONPATH PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
 .PHONY: sim-link
 
 sim-link-gl: clone-pdk defines ## Borg link pad-level tests, gate level (after copy-final)
-	cd cocotb; GL=1 PYTHONPATH=$$COCOTB_PYTHONPATH PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=1x0p5 PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
+	cd cocotb; GL=1 PYTHONPATH=$$COCOTB_PYTHONPATH PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
 .PHONY: sim-link-gl
 
+# The latest synthesis netlist under librelane/runs/. Produced by any full run,
+# or by `make librelane-synth` alone (~1.5 h vs. the full flow's many hours).
+SYNTH_NETLIST = $(lastword $(sort $(wildcard librelane/runs/*/*-yosys-synthesis/chip_top.nl.v)))
+
+librelane-synth: librelane-which clone-pdk defines generated-sources ## LibreLane up to and including Yosys synthesis only
+	SRAM_DEFINE=${SRAM_DEFINE} $(LIBRELANE) ${LIBRELANE_CONFIGS} ${LIBRELANE_OPTS} --to Yosys.Synthesis
+.PHONY: librelane-synth
+
+sim-link-synth: clone-pdk defines ## Borg link pad-level tests on the latest synthesis netlist
+	@test -n "$(SYNTH_NETLIST)" || { echo "no synthesis netlist under librelane/runs/ -- run make librelane-synth"; exit 1; }
+	@echo "netlist: $(SYNTH_NETLIST)"
+	cd cocotb; GL=1 GL_NETLIST=$(MAKEFILE_DIR)/$(SYNTH_NETLIST) PYTHONPATH=$$COCOTB_PYTHONPATH PDK_ROOT=${PDK_ROOT} PDK=${PDK} SLOT=${SLOT} PAD=${PAD} SCL=${SCL} SRAM=${SRAM} $(COCOTB_PY) chip_link_tb.py
+.PHONY: sim-link-synth
+
 sim-view: ## View simulation waveforms in GTKWave
-	gtkwave cocotb/sim_build/chip_top.fst
+	gtkwave $$(ls -t cocotb/sim_build_*/chip_link_tb.fst | head -1)
 .PHONY: sim-view

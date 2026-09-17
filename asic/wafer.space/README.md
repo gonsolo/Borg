@@ -41,22 +41,28 @@ make librelane-klayout
 
 For the verification of the chip we use [cocotb](https://www.cocotb.org/). Cocotb is a Python-based testbench environment. The simulator that is used by the project template is [Icarus Verilog](https://github.com/steveicarus/iverilog).
 
-The testbench is located in `cocotb/chip_top_tb.py`. To run the RTL simulation, run the following command:
+The testbench is `cocotb/chip_link_tb.py`: it drives the Borg link through the real padring (`cocotb/borg_link.py` is the host side of the link). To run it at RTL:
 
 ```
-make sim
+make sim-link
 ```
 
-To run the GL (gate-level) simulation, run the following command:
+To run it on the synthesis netlist (`make librelane-synth` produces one in about 1.5 hours, without the rest of the flow):
 
 ```
-make sim-gl
+make sim-link-synth
+```
+
+To run it on the post-layout netlist:
+
+```
+make sim-link-gl
 ```
 
 > [!NOTE]
 > You need to have the latest implementation of your design in the `final/` folder. After a run has completed without errors, the final views will be copied to `final/`.
 
-In both cases, a waveform file will be generated under `cocotb/sim_build/chip_top.fst`.
+Each run writes a waveform to `cocotb/sim_build_<rtl,gl,pnl>/chip_link_tb.fst`.
 You can view it using a waveform viewer, for example, [GTKWave](https://gtkwave.github.io/gtkwave/).
 
 ```

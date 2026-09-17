@@ -4,12 +4,10 @@
 `default_nettype none
 
 // Instantiates the wafer.space Borg-only bridge top (BorgOnlyTop -- Borg
-// behind BorgLinkSlave, no Hutt, no QSPI; see the plan doc and
-// asic/wafer/src/BorgOnlyTop.scala's own header), mapping its full 46 bidir +
-// 4 input lanes onto the 1x0.5 slot's padring exactly -- this module is only
-// valid for SLOT_1X0P5 (NUM_BIDIR_PADS=46, NUM_INPUT_PADS=4; see
-// slot_defines.svh), not the other three slots, since BorgOnlyTop's lane map
-// fills the whole 1x0.5 budget with no unused positions.
+// behind BorgLinkSlave, no Hutt, no QSPI; see
+// asic/wafer/src/BorgOnlyTop.scala's own header) on the padring of one of the
+// two slots it has a lane map for: SLOT_1X1 (BorgOnlyTop1x1, 40 bidir + 12
+// input, the tapeout slot) or SLOT_1X0P5 (BorgOnlyTop, 46 bidir + 4 input).
 module chip_core #(
     parameter NUM_INPUT_PADS,
     parameter NUM_BIDIR_PADS,

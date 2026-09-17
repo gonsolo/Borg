@@ -11,8 +11,8 @@ lint_off -rule UNUSEDSIGNAL -file "*Shifter.sv"
 lint_off -rule UNUSEDSIGNAL -file "*Time.sv"
 lint_off -rule UNUSEDSIGNAL -file "*Cpu.sv"
 lint_off -rule UNUSEDSIGNAL -file "*Core.sv"
-lint_off -rule UNUSEDSIGNAL -file "*tt_um_gonsolo_borg.sv"
-lint_off -rule PINMISSING   -file "*tt_um_gonsolo_borg.sv"
+lint_off -rule UNUSEDSIGNAL -file "*QspiSocTop.sv"
+lint_off -rule PINMISSING   -file "*QspiSocTop.sv"
 lint_off -rule UNUSEDSIGNAL -file "*MemoryController.sv"
 lint_off -rule UNUSEDSIGNAL -file "*peri_uart.sv"
 lint_off -rule PINCONNECTEMPTY -file "*Time.sv"
@@ -73,3 +73,16 @@ lint_off -rule UNUSEDSIGNAL -file "*mem_16x8*.sv"
 // intermediates -- the usual Chisel "wire wider than the slice it feeds"
 // artifact every other datapath module in this file is waived for.
 lint_off -rule UNUSEDSIGNAL -file "*BorgTextureUnit.sv"
+// Wafer.space Borg-only bridge (make lint-wafer).
+// BorgOnlyTop*: bidirIn bits at output-lane positions -- the pad's input side
+// of an output lane is physically there but carries nothing to read.
+lint_off -rule UNUSEDSIGNAL -file "*BorgOnlyTop*.sv" -match "*bidirIn*"
+// BorgLinkSlave: a gpuMem write word is ONE 16-bit halfword by contract (Borg
+// sends wider words as a two-word burst, see Borg.scala's wideWr), so
+// wdata[31:16] is never meaningful; wlen is a power of two sent as log2, so
+// wlen[0] only distinguishes 1 from larger, which Log2 does not need.
+lint_off -rule UNUSEDSIGNAL -file "*BorgLinkSlave.sv" -match "*io_gpuMem_wdata*"
+lint_off -rule UNUSEDSIGNAL -file "*BorgLinkSlave.sv" -match "*io_gpuMem_wlen*"
+// LinkRx: flitAcc[15:8] only exists for the narrow (w=8) reassembly, which
+// keeps the first slice in the low byte.
+lint_off -rule UNUSEDSIGNAL -file "*LinkRx.sv" -match "*flitAcc*"

@@ -81,6 +81,14 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
         Suite("lint",
               f"cd '{root}' && make lint",
               sequential=True),
+        # The taped-out design: BorgOnlyTop on the wafer.space 1x1 slot. Both
+        # emit Verilog through Mill, so they stay in the sequential phase.
+        Suite("lint   › wafer",
+              f"cd '{root}' && make lint-wafer",
+              sequential=True),
+        Suite("cocotb › wafer link 1x1 (rtl)",
+              f"cd '{root}' && make generate_verilog_wafer_1x1 && make -C asic/wafer.space SLOT=1x1 sim-link",
+              sequential=True),
         # ── Parallel (no inter-dependencies) ─────────────────────────────────
         # NOTE: chisel suites share the Mill build server — serialise them to
         # avoid "Another Mill process is running" lock contention.

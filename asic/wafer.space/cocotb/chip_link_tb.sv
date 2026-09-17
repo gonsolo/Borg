@@ -17,6 +17,13 @@
 
 `timescale 1ns / 1ps
 
+// Pad counts. At RTL chip_top.sv has already included these; a gate-level
+// netlist carries no macros, so pull them in here (the SLOT_* define comes
+// from the runner).
+`ifndef NUM_BIDIR_PADS
+`include "slot_defines.svh"
+`endif
+
 module chip_link_tb;
 
     localparam NUM_INPUT_PADS = `NUM_INPUT_PADS;

@@ -18,6 +18,11 @@ jobs:
       - name: Generate SystemVerilog
         run: nix develop --command make generate_verilog
 
+      - name: Pad-level link tests at RTL (1x1)
+        run: |
+          nix develop --command make generate_verilog_wafer_1x1
+          nix develop --command make -C asic/wafer.space SLOT=1x1 sim-link
+
       - name: Run LibreLane flow (GF180MCU, wafer.space)
         working-directory: asic/wafer.space
         run: |
@@ -34,6 +39,10 @@ jobs:
             exit 1
           fi
           echo "Antenna / LVS / DRC all passed."
+
+      - name: Pad-level link tests on the post-layout netlist
+        working-directory: asic/wafer.space
+        run: nix develop $GITHUB_WORKSPACE --command make sim-link-gl SLOT=1x1
 
       - name: Upload GDS + reports
         if: always()
