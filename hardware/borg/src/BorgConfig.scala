@@ -69,8 +69,8 @@ case class BorgConfig(
     // Gates Borg.scala's covDeltaDebug diagnostic port (only elaborated at
     // all when samples>1 to begin with). True everywhere except
     // BorgConfig.Wafer, since the wafer.space Borg-only bridge target has no
-    // debug harness to observe it, unlike ULX3S/sim. (The legacy Tiny Tapeout
-    // SoC also builds from Wafer; nothing in SoCLogic reads the tap either.)
+    // debug harness to observe it, unlike ULX3S/sim. (QspiSocTop, the cocotb
+    // SoC harness, also builds from Wafer; nothing in SoCLogic reads the tap.)
     // Unrelated to BorgIO's
     // uo_out/user_interrupt, which are dead (tied to constants) for every
     // config and are simply deleted outright, not gated by this flag.
@@ -314,7 +314,7 @@ object BorgConfig {
   val Simt = Default.copy(fragLanes = 4, maxBinTiles = 4096)
 
   // The ASIC: wafer.space GF180MCU, 1x1 slot, via BorgOnlyTop (the Borg-only
-  // bridge; the legacy Tiny Tapeout SoC in asic/tt builds from this too).
+  // bridge; QspiSocTop, the cocotb CPU SoC harness, builds from this too).
   // Default's feature set, sized down to fit the slot. Every line here is a
   // SIZING decision with a measured reason; nothing about fp/samples/features
   // is repeated here, so the tapeout cannot fall behind Default again.

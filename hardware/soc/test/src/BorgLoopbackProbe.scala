@@ -54,7 +54,7 @@ class BorgLoopbackProbe(val cfg: BorgConfig, mode: BorgMode) extends RawModule w
 /** `chisel3.simulator`'s `simulate()` drives an implicit `clock`/`reset`, which
   * a `RawModule` doesn't have -- [[BorgLoopbackProbe]] takes explicit `clk`/
   * `rst_n` ports instead, matching every real board top in this repo
-  * (`tt_um_gonsolo_borg`, `ulx3s_top`, ...). This thin `Module` wrapper
+  * (`QspiSocTop`, `ulx3s_top`, ...). This thin `Module` wrapper
   * supplies that implicit clock/reset and forwards it in, which is the
   * standard way to simulate a `RawModule` child.
   */

@@ -141,7 +141,7 @@ case object Slot1x1 extends WaferSlot {
 
 /** Pin-flattening `RawModule` wrapper: one bit per wafer.space pad, matching
   * [[chip_core]]'s `bidir_in`/`bidir_out`/`bidir_oe`/`input_in` convention exactly
-  * (mirrors `tt_um_gonsolo_borg`'s flattening of Hutt's SoC ports for TT's pad
+  * (mirrors `soc.QspiSocTop`'s flattening of Hutt's SoC ports for its pad
   * interface).
   *
   * The design needs 27 output-direction and 23 input-direction lanes. Outputs

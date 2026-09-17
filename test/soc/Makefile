@@ -1,18 +1,18 @@
 # ==============================================================================
-# Cocotb Test Makefile for ttihp-verilog (CI Compatible)
+# cocotb tests for the QSPI CPU SoC (hardware/soc/src/QspiSocTop.scala):
+# Hutt -> QSPI -> MemoryController -> Borg, end to end, at RTL.
 # ==============================================================================
 
 # Simulation defaults
 SIM ?= icarus
 FST ?= -fst
 TOPLEVEL_LANG ?= verilog
-SRC_DIR = $(CURDIR)/../../src
+ROOT = $(CURDIR)/../..
 
-# --- 1. AUTOMATIC SOURCE EXTRACTION ---
-ifneq ($(GATES),yes)
-    YAML_SOURCES = $(shell sed -n '/source_files:/,/pinout:/p' ../../info.yaml | grep '\- "' | sed 's/.*"\(.*\)".*/\1/')
-    VERILOG_SOURCES += $(addprefix $(SRC_DIR)/,$(YAML_SOURCES))
-endif
+# --- 1. SOURCES ---
+# QspiSocMain's own file list (paths prefixed "../", relative to out/..).
+SOC_FILES = $(ROOT)/out/hardware/borg/verilog/soc_files.txt
+VERILOG_SOURCES += $(addprefix $(ROOT)/,$(shell sed 's|^\.\./||' $(SOC_FILES) 2>/dev/null))
 
 # --- 2. TESTBENCH CONFIGURATION ---
 VERILOG_SOURCES += $(CURDIR)/tb.v
@@ -27,7 +27,7 @@ all: sim
 # FRSQ/FSRGB read back undefined.  The hex files are staged into this dir by the
 # `luts` target (relative-path $readmemh resolves against the vvp CWD).  Matches
 # the verilator/ulx3s flows, which all define this macro.
-COMPILE_ARGS += -I$(SRC_DIR) -I$(CURDIR)/../../out/hardware/borg/verilog -DSIM -DENABLE_INITIAL_MEM_
+COMPILE_ARGS += -I$(ROOT)/out/hardware/borg/verilog -DSIM -DENABLE_INITIAL_MEM_
 export PYTHONPATH := $(CURDIR):../../out/hardware/borg/rdl:../../:$(PYTHONPATH)
 
 # Icarus Verilog specific flags
@@ -35,63 +35,12 @@ ifeq ($(SIM), icarus)
     COMPILE_ARGS += -g2012
 endif
 
-# --- 4. RTL VS GATE LEVEL SETUP ---
-ifneq ($(GATES),yes)
-    # RTL simulation
-    SIM_BUILD = sim_build/rtl
-else
-    # Gate level simulation — PDK-aware (Sky130 or IHP)
-    SIM_BUILD = sim_build/gl
-
-    COMPILE_ARGS += -DGL_TEST -DFUNCTIONAL -DSIM
-
-    # PDK defaults: prefer env var, then auto-detect from installed ciel versions
-    PDK ?= sky130A
-    
-    # Normalize PDK name
-    ifeq ($(findstring ihp,$(PDK)),ihp)
-        NORMALIZED_PDK := ihp-sg13g2
-    else ifeq ($(findstring gf180,$(PDK)),gf180)
-        NORMALIZED_PDK := gf180mcuD
-    else
-        NORMALIZED_PDK := sky130A
-    endif
-
-    # Detect PDK_ROOT from installed ciel versions
-    ifeq ($(PDK_ROOT),)
-        PDK_ROOT := $(firstword $(wildcard $(HOME)/.ciel/ciel/$(NORMALIZED_PDK)/versions/*/))
-    endif
-
-    # --- CI-AWARE NETLIST DETECTION ---
-    # The GH Action copies the netlist to ../gate_level_netlist.v
-    CI_NETLIST = $(CURDIR)/../gate_level_netlist.v
-    LOCAL_NETLIST = $(CURDIR)/../../runs/wokwi/final/nl/tt_um_gonsolo_borg.nl.v
-
-    ifneq ($(wildcard $(CI_NETLIST)),)
-        GL_NETLIST = $(CI_NETLIST)
-    else
-        GL_NETLIST = $(LOCAL_NETLIST)
-    endif
-
-    ifeq ($(wildcard $(GL_NETLIST)),)
-        $(error GL Simulation error: Netlist not found at $(CI_NETLIST) or $(LOCAL_NETLIST))
-    endif
-
-    VERILOG_SOURCES += $(GL_NETLIST)
-
-    # --- PDK-SPECIFIC LIBRARY SELECTION ---
-    include $(CURDIR)/pdks/$(NORMALIZED_PDK).mk
-endif
+SIM_BUILD = sim_build/rtl
 
 # --- 5. COCOTB MAKE RULES ---
 include $(shell cocotb-config --makefiles)/Makefile.sim
 
 
-
-# --- 6. HELPER TARGETS ---
-debug_sources:
-	@echo "Netlist being used: $(GL_NETLIST)"
-	@echo "PDK_ROOT: $(PDK_ROOT)"
 
 # --- LUT hex initialization ---
 # The generated Verilog initializes the Borg FP16 LUT ROMs with relative-path

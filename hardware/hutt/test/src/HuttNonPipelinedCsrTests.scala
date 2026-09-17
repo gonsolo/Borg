@@ -8,7 +8,7 @@ import chisel3.simulator.EphemeralSimulator._
 import utest._
 
 /** Regression coverage for `pipelinedCsrRead = false` (the ASIC/TT
-  * configuration, see Hutt.scala's constructor doc and asic/tt/src/TTTop.scala)
+  * configuration, see Hutt.scala's constructor doc and hardware/soc/src/QspiSocTop.scala)
   * -- reruns a representative subset of HuttTrapsTests's CSR/trap programs
   * against the single-cycle CSR read+write path instead of the default
   * two-stage (sExec + sCsrSel) one, to prove csrWriteDecode behaves

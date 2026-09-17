@@ -12,7 +12,7 @@ import soc.Emit
   * Run via: mill asic.wafer.runMain asic.wafer.BorgOnlyMain
   *
   * Emits split Verilog into out/hardware/borg/verilog_wafer/ -- deliberately
-  * *not* out/hardware/borg/verilog/, which TTMain owns and Emit.cleanTargetDir
+  * *not* out/hardware/borg/verilog/, which QspiSocMain owns and Emit.cleanTargetDir
   * wipes on every TT emission.
   */
 object BorgOnlyMain extends App {

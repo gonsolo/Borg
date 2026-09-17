@@ -9,7 +9,7 @@ import utest._
 
 /** Regression coverage for `hasSupervisorMode = false` (the ASIC/TT
   * configuration, see Hutt.scala's constructor doc and
-  * asic/tt/src/TTTop.scala) -- confirms M-mode CSR/trap handling is
+  * hardware/soc/src/QspiSocTop.scala) -- confirms M-mode CSR/trap handling is
   * unaffected by removing S-mode, that traps which could delegate to S-mode
   * go straight to M instead, that a stray SRET (never emitted by ASIC
   * firmware) behaves as a safe no-op rather than an undefined state, and

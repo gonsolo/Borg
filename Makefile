@@ -1,4 +1,3 @@
-TT_TOOL   := ./tt/tt_tool.py
 # PYTHONPATH=$$COCOTB_PYTHONPATH (not the ambient shell PYTHONPATH): nix's
 # devShell aggregates PYTHONPATH from every python.withPackages input
 # regardless of interpreter version, so plain $$PYTHONPATH here is a mix
@@ -20,8 +19,6 @@ all: help
 help:
 	@echo "commands: "
 	@echo -e "$(BOLD)  librelane:\t\t\tFull wafer.space signoff (GF180MCU, 1x1 slot) -- THE tapeout flow.$(RESET)"
-	@echo -e "  gds-sky130:\t\t\tGenerate Sky130 GDS II file for Tinytapeout (legacy)."
-	@echo -e "  gds-ihp:\t\t\tGenerate IHP SG13G2 GDS II file for Tinytapeout (legacy)."
 	@echo -e "  ------------------------------------------------------------------------------"
 	@echo -e "  rdl:\t\t\t\tValidate SystemRDL."
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
@@ -29,14 +26,11 @@ help:
 	@echo -e "  test-chisel-core:\t\tRun Hutt CPU tests (Chisel)."
 	@echo -e "  test-cocotb-soc-core-rtl:\tRun CPU core tests (cocotb)."
 	@echo -e "  test-cocotb-soc-borg-rtl:\tRun Borg peripheral tests (cocotb)."
-	@echo -e "  test-cocotb-soc-core-gl:\tRun Gate-Level core simulations (cocotb)."
-	@echo -e "  test-cocotb-soc-borg-gl:\tRun Gate-Level borg simulations (cocotb)."
+	@echo -e "  lint:\t\t\t\tLint the QSPI CPU SoC (QspiSocTop)."
+	@echo -e "  lint-wafer:\t\t\tLint the wafer.space tapeout top (BorgOnlyTop1x1)."
 	@echo -e "  test-all:\t\t\tRun all tests."
 	@echo -e "  build-vkcube:\t\t\tBuild Vulkan-Tools vkcube host binary."
 	@echo -e "  vulkan-cts:\t\t\tRun the Vulkan CTS survivor slice against borgvk."
-	@echo -e "  datasheet.pdf:\t\tGenerate datasheet for Tinytapeout."
-	@echo -e "  user_config-*:\t\tGenerate user config for tapeout."
-	@echo -e "  print_stats:\t\t\tPrint statistics about tile usage."
 	@echo -e "  book:\t\t\t\tBuild the documentation book."
 	@echo -e "  clean:\t\t\tRemove all build artifacts."
 	@echo -e "  clean-gh-runs:\t\tClean up GitHub workflow runs."
@@ -45,43 +39,37 @@ help:
 	@echo -e "  flash-linux:\t\t\tWrap + flash OpenSBI+Linux payload to SPI flash @ 0x400000."
 
 # CLOCK_MHZ is an RTL elaboration parameter for SoC peripherals (the UART baud
-# divisor, mainly), read by the SoC emitters: Tiny Tapeout SoC (TTMain, 4), the
+# divisor, mainly), read by the SoC emitters: the QSPI SoC (QspiSocMain, 4), the
 # simulation SoC (BorgSimMain, 4), ULX3S (25 SoC / 125 HDMI). Override via env:
 # CLOCK_MHZ=50 make generate_verilog. It is NOT the wafer.space tapeout clock:
 # BorgOnlyTop has no such parameter; its clock is the signoff constraint
 # CLOCK_PERIOD in asic/wafer.space/librelane/config.yaml (125 ns = 8 MHz).
 
 HAND_CHISEL = $(shell find hardware/borg/src hardware/soc/src hardware/hutt/src hardware/memory/src \
-                        fpga/ulx3s/soc/src asic/tt/src asic/wafer/src \
+                        fpga/ulx3s/soc/src asic/wafer/src \
                         -name '*.scala' -not -path '*/generated/*' 2>/dev/null)
 
 # Stamp target: only re-runs Mill when Scala or RDL sources actually change.
 # | rdl is an order-only dep so rdl always runs first (it is fast and idempotent)
 # but a re-run of rdl alone does not invalidate the stamp.
 .verilog_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
-	CLOCK_MHZ=4 $(MILL) asic.tt.runMain asic.tt.TTMain
+	CLOCK_MHZ=4 $(MILL) hardware.soc.runMain soc.QspiSocMain
 	@python3 scripts/init_bram_zero.py out/hardware/borg/verilog
-	@# firtool appends a tab+source-location to "// synthesis translate_on" lines.
-	@# yowasp-yosys (used by tt_tool.py for port-read) does not recognise the
-	@# augmented form and fails to exit translate-off mode, causing a parse error
-	@# on the very next token.  Strip the trailing annotation here so the files
-	@# are compatible with both yowasp-yosys and native Yosys.
+	@# firtool appends a tab+source-location to "// synthesis translate_on" lines,
+	@# which some Verilog front ends do not recognise as the end of a
+	@# translate-off region. Strip the trailing annotation.
 	@sed -i 's|// synthesis translate_on\t.*|// synthesis translate_on|g' out/hardware/borg/verilog/*.sv
 	@touch $@
 
-.PHONY: info.yaml
-info.yaml: .verilog_stamp
-	@python3 scripts/update_info_yaml.py
-
 # Convenience alias: ensures rdl and the verilog stamp are up to date.
 # Still declared phony so `make generate_verilog` always checks deps explicitly.
-generate_verilog: .verilog_stamp info.yaml
+generate_verilog: .verilog_stamp
 
 # wafer.space Borg-only bridge target (BorgOnlyTop): same two post-steps as
 # .verilog_stamp above and for the same reasons -- feeds the same yosys-based
 # LibreLane synthesis flow, just a different (link-behind) top module, into
 # out/hardware/borg/verilog_wafer/ rather than .../verilog/ (which this
-# target must NOT touch -- TTMain owns that dir and wipes it on every run).
+# target must NOT touch -- QspiSocMain owns that dir and wipes it on every run).
 .verilog_wafer_stamp: $(HAND_CHISEL) $(RDL_SRC) | rdl
 	$(MILL) asic.wafer.runMain asic.wafer.BorgOnlyMain
 	@python3 scripts/init_bram_zero.py out/hardware/borg/verilog_wafer
@@ -172,30 +160,19 @@ test-cocotb-soc-core-rtl: generate_verilog
 test-cocotb-soc-borg-rtl: generate_verilog
 	$(TEST_SOC) borg
 
-test-cocotb-soc-core-gl:
-	$(TEST_SOC) core GATES=yes
-	@ln -sf soc/results.xml test/results.xml
-
-test-cocotb-soc-borg-gl:
-	$(TEST_SOC) borg GATES=yes
-
 test-chisel-borg:
 	$(MILL) hardware.borg.test
 
-# lint depends on .verilog_stamp (not generate_verilog) so it does not
-# re-trigger the three Mill invocations when Verilog is already current.
+# Lint the QSPI CPU SoC (QspiSocTop: Hutt + MemoryController + Borg).
 lint: .verilog_stamp
-	verilator --lint-only -Wall -Iout/hardware/borg/verilog --top-module tt_um_gonsolo_borg lint.vlt $$(cat out/hardware/borg/verilog/asic_files.txt | sed 's|^\.\./||')
+	verilator --lint-only -Wall -Iout/hardware/borg/verilog --top-module QspiSocTop lint.vlt $$(sed 's|^\.\./||' out/hardware/borg/verilog/soc_files.txt)
 
 # Lint the RTL that is actually taped out: BorgOnlyTop on the wafer.space 1x1
-# slot. `lint` above checks the retired Tiny Tapeout SoC top, which contains no
-# link bridge at all, so this is the only lint of the tapeout design.
-# Not part of test-all yet: on 2026-09-17 it reports four UNUSEDSIGNAL warnings.
-# One is a real FP32 bug -- BorgLinkSlave keeps only gpuMem.wdata[15:0] (a 16-bit
-# design from the FP16 era) while the geometry sequencer's setup store and the
-# core's STORE now write 32-bit words, so on silicon their upper halves are lost.
-# The other three (unused input side of output pads, wlen bit 0, LinkRx flitAcc's
-# narrow-mode byte) look like design facts to waive once that is fixed.
+# slot. `lint` above checks the CPU SoC, which contains no link bridge at all,
+# so this is the only lint of the tapeout design.
+# Part of test-all. Its waivers in lint.vlt document why each remaining unused
+# bit is a design fact (e.g. BorgLinkSlave's gpuMem.wdata[31:16]: a write word
+# is one halfword by contract, and Borg sends wider words as two).
 lint-wafer: .verilog_wafer_1x1_stamp
 	verilator --lint-only -Wall -Iout/hardware/borg/verilog_wafer_1x1 --top-module BorgOnlyTop1x1 lint.vlt $$(sed 's|^\.\./||' out/hardware/borg/verilog_wafer_1x1/wafer_files.txt)
 
@@ -222,36 +199,16 @@ Vulkan-Tools/build/cube/vkcube:
 vulkan-cts:
 	@bash scripts/run_vulkan_cts.sh
 
-datasheet.pdf: generate_verilog
-	$(TT_TOOL) --create-pdf
-user_config-sky130: export PDK=sky130A
-user_config-sky130: generate_verilog
-	$(TT_TOOL) --create-user-config --no-docker
-
-user_config-ihp: export PDK=ihp-sg13g2
-user_config-ihp: generate_verilog
-	$(TT_TOOL) --create-user-config --ihp --no-docker
-
 # The tapeout flow. wafer.space, GF180MCU, 1x1 slot, full signoff (DRC, LVS,
-# antenna, multi-corner STA) -- the Tiny Tapeout gds-* targets below are legacy.
+# antenna, multi-corner STA).
 # Everything slot/PDK-specific lives in asic/wafer.space/Makefile; this is the
 # one entry point so nobody has to remember which sub-Makefile and which SLOT.
 # Takes hours: run it under `systemd-run --user` (see asic/wafer.space/Makefile).
 librelane:
 	$(MAKE) -C asic/wafer.space SLOT=1x1 librelane
 
-gds-sky130: user_config-sky130
-	$(TT_TOOL) --harden --no-docker
-gds-ihp: user_config-ihp
-	$(TT_TOOL) --harden --ihp --no-docker
-
-print_stats:
-	./tt/tt_tool.py --print-stats
 book:
 	python3 docs/build_book.py
-placement_animation:
-	@echo "Rendering 100 placement frames (~15 min)..."
-	bash scripts/animate_placement.sh
 
 # --- SystemRDL → Chisel register generation ---
 # systemrdl-compiler and peakrdl-cheader are provided by Nix (flake.nix).
@@ -275,7 +232,7 @@ rdl: $(RDL_SRC)
 	@sed -i '/#include <assert.h>/d; s/static_assert(/_Static_assert(/g' $(RDL_C_OUT)/borg_regs.h
 
 clean:
-	rm -f src/config_merged.json src/user_config.json .verilog_stamp .verilog_sim_stamp .verilog_wafer_stamp
+	rm -f .verilog_stamp .verilog_sim_stamp .verilog_wafer_stamp .verilog_wafer_1x1_stamp
 	rm -rf $(RDL_C_OUT)
 	rm -rf $(RDL_SCALA_OUT)
 	rm -rf out/
@@ -301,9 +258,9 @@ linux:
 flash-linux:
 	$(MAKE) -C software flash-linux
 
-.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
-	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
+	test-chisel-borg test-chisel-core \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \
 	opensbi linux flash-linux
 

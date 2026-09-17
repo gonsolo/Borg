@@ -1,128 +1,102 @@
 # Generating the ASIC
 
-![Borg GPU GDS Render](gds_render_small.png)
-
-The design targets the IHP SG13G2 130nm process via the
-[Tiny Tapeout](https://tinytapeout.com/) program. The RTL-to-GDS flow uses
+The ASIC target is a [wafer.space](https://wafer.space/) multi-project wafer
+run on GlobalFoundries' open GF180MCU (180 nm) process, in the **1x1 slot**
+(die 3,932 × 5,122 µm, core 3,048 × 4,238 µm). The RTL-to-GDS flow uses
 entirely open-source tools.
+
+## What Is Taped Out
+
+The chip is **Borg only**: the shader processor behind a chip-to-chip link,
+with no CPU and no memory on the die. `BorgOnlyTop` (asic/wafer/src/) puts
+`Borg` behind `BorgLinkSlave`; the host side — a CPU, SDRAM and the matching
+`BorgLinkMaster` — sits on an FPGA. Borg's MMIO register access and its
+`gpuMem` DRAM traffic both cross the link, as 16-bit flits on 16 data lanes
+per direction, with odd parity, credit-based flow control and a training
+sequence that locks the beat phase. A `link_narrow` strap halves the lanes at
+runtime (the post-silicon recovery path) and `link_fast` doubles the beat
+rate; six debug pads expose training and receiver state.
+
+`BorgOnlyTop` carries a lane map for two slots: 1x1 (40 bidir + 12 input-only
+pads, the tapeout) and 1x0.5 (46 bidir + 4 input). The configuration is
+`BorgConfig.Wafer`: the full Default feature set (FP32 datapath, 4× MSAA,
+depth flush, blending, stencil, bilinear filtering) at the slot's sizing.
 
 ## The Flow
 
-The ASIC build comes in two flavours:
-
 ```
-make gds-ihp      # IHP SG13G2 via LibreLane/OpenROAD
+make librelane      # full signoff: GF180MCU, 1x1 slot, several hours
 ```
 
-This invokes [LibreLane](https://github.com/efabless/librelane), which
-orchestrates the full flow:
+This runs [LibreLane](https://github.com/librelane/librelane) (a pinned fork,
+see flake.nix) from asic/wafer.space/: synthesis (Yosys), floorplan and padring,
+placement, clock tree synthesis, routing, multi-corner STA, and DRC / LVS /
+antenna signoff (Magic, KLayout, Netgen). The Verilog comes from
+`make generate_verilog_wafer_1x1`.
 
-1. **Synthesis** (Yosys) — Chisel-generated Verilog → gate-level netlist
-2. **Floorplanning** (OpenROAD) — die size, power grid, pin placement
-3. **Global Placement** (OpenROAD) — initial cell positions
-4. **Clock Tree Synthesis** (OpenROAD) — balanced clock distribution
-5. **Detailed Placement** (OpenROAD) — legal cell positions with density constraints
-6. **Routing** (OpenROAD) — metal layer connections
-7. **Timing Repair** — hold buffer insertion to meet timing
-8. **GDS Export** (Magic/KLayout) — final layout for manufacturing
+Configuration lives in `asic/wafer.space/librelane/`: `config.yaml` (the flow),
+`slots/slot_1x1.yaml` (die, core and pad ring) and `macros/`. Two settings to
+know:
 
-## Physical Organization
+- `CLOCK_PERIOD: 125` — the signoff clock, 8 MHz.
+- `PL_TARGET_DENSITY_PCT` — global placement target density.
 
-During the Global Placement phase, the OpenROAD placement algorithms dynamically organize the flattened Verilog into physical clumps based strictly on wire connectivity.
+## Status
 
-<p align="center">
-  <img src="images/placement_annotated.png" alt="Annotated Placement Clusters">
-  <br>
-  <em>Frame 44 of the global placement process, annotated with the functional modules. Colors reflect the Chisel design blocks.</em>
-</p>
-
-The dense connectivity of the GPU datapath forces the Tile Buffer, Rasterizer Math, and Texture Unit into tight clusters on the left. The Command FIFO naturally acts as a physical bridge, dropping directly into the center between the Hutt CPU core and the GPU. The Memory Controller is pulled toward the top-right to interface with the external SPI pins.
-
-## Configuration
-
-The build is configured through `src/config.json`:
-
-- `PL_TARGET_DENSITY_PCT` — maximum cell density (60% for this design)
-- `CLOCK_PERIOD` — synthesis timing constraint in nanoseconds (250ns = 4 MHz)
-- `PL_RESIZER_HOLD_SLACK_MARGIN` — slack margin for hold time repair
-
-These parameters control the tradeoff between area utilization and timing closure.
-A relaxed clock period reduces the number of hold buffers inserted during timing
-repair, which in turn reduces area.
-
-## Tile Size
-
-**TTIHP26a** (submitted March 2026, CPU: TinyQV) occupied a 4×2 tile (8 tiles),
-providing approximately 260,000 µm² of usable area.
-
-**TTIHP26b** (current target, submission deadline September 2026, CPU: Hutt)
-occupies an 8×4 tile (32 tiles) — a fixed die of 1,208,170 µm². Hutt's RV64
-groundwork (Sv39 MMU, M/A extensions) plus the growing Borg GPU no longer fit
-the smaller die even at RV32; the larger tile allocation was a deliberate
-scope decision, not a fallback.
-
-## Latest Results (TTIHP26b, 2026-08-05)
-
-`make gds-ihp` completes the full 80-stage LibreLane flow with zero DRC, LVS,
-antenna, or power-grid violations:
-
-| Metric | Value |
-|---|---|
-| Tiles | 8×4 (32) |
-| Core area (fixed die) | 1,208,170 µm² |
-| Post-synthesis design area | 850,850.9 µm² |
-| Utilization | 88.1% |
-| Power | 2.55 mW @ 4 MHz |
-| DRC / LVS / Antenna | clean |
-
-GDS: `runs/wokwi/final/gds/tt_um_gonsolo_borg.gds`.
+The FP32 design has not yet closed signoff: detailed placement fails
+(`DPL-0036`) after the post-placement design repair. The cause was measured,
+not tuned around: the pad reset is the synchronous reset of the whole core,
+and its buffer tree (≈60,000 repeater cells, 2.1 million µm²) concentrates in
+a small region that cannot then be legalized. The design fix — reset only
+control state, and synchronize and replicate the pad reset per block — is
+the next step.
 
 ## Verification
 
-The design is verified at multiple levels before tape-out:
-
-- **Chisel unit tests** — functional correctness of Borg FPU and Hutt
-- **cocotb RTL simulation** — full SoC integration tests (9 tests: 4 Borg + 5 core)
-- **Verilator lint** — static analysis of the generated Verilog
-- **FPGA validation** — real hardware testing on ULX3S
-- **Gate-level simulation** — post-synthesis simulation against the actual IHP
-  netlist (9 tests: 4 Borg + 5 core, same test names as RTL — ~80× slower since
-  it simulates real synthesized gates instead of the RTL model)
-
 ```
-make test-all                   # Run Chisel + cocotb RTL tests
-make lint                       # Verilator lint check
-PDK=ihp-sg13g2 make -C test/soc test-cocotb-soc-core-gl  # Gate-level (post-synthesis)
-PDK=ihp-sg13g2 make -C test/soc test-cocotb-soc-borg-gl
+make test-all                               # Chisel, cocotb, lint, renders
+make lint-wafer                             # Verilator lint of BorgOnlyTop1x1
+make -C asic/wafer.space sim-link           # link tests through the real padring (RTL)
+make -C asic/wafer.space librelane-synth    # LibreLane through Yosys synthesis only (~1.5 h)
+make -C asic/wafer.space sim-link-synth     # the same tests on the synthesis netlist
+make -C asic/wafer.space sim-link-gl        # the same tests on the post-layout netlist
 ```
 
-## What Changed Since TTIHP26a
+The pad-level suite (asic/wafer.space/cocotb/chip_link_tb.py) drives the chip
+through the GF180 pad models with a Python model of the link master, which
+also serves Borg's DRAM requests from a memory that stores halfwords the way
+the real controller does. It trains the link, checks the lane map in both
+directions, the `link_narrow` strap and the debug bus, and runs shader
+programs end to end: FP32 STORE/LOAD, ADD/MUL/FNEG/FMA, a rotation shader,
+FSTEP and FRCP. `SLOT=1x1` (default) or `SLOT=1x0p5` selects the lane map.
 
-The design has been substantially rewritten since the TTIHP26a submission
-(git tag `TinyTapeoutIHP26a`) — 883 commits, 528 files changed:
+Gate-level simulation is what found the link bring-up bugs fixed in
+September 2026: RTL simulation happened to hide them because master and slave
+always started at the same beat phase (`BorgLinkProtocolTests` now sweeps the
+pin latency instead).
 
-- **CPU rewrite**: TinyQV → **Hutt**, a clean multi-cycle RV32I/RV64I core
-  with `Decoupled` instruction/data buses (top module renamed
-  `tt_um_tt_tinyQV` → `tt_um_gonsolo_borg`).
-- **Die grown 4×**: 4×2 (8 tiles) → 8×4 (32 tiles) to fit Hutt plus the
-  larger Borg GPU.
-- **Repo reorganized**: `borg/`, `tinyqv/`, `src/` → `hardware/{borg,hutt,
-  memory,peri,soc,hardfloat}`, `asic/tt/`, `asic/wafer/`, `fpga/ulx3s/`, `software/`; the
-  MMIO register block moved to SystemRDL as the single source of truth
-  (`hardware/rdl/*.rdl`, generated via the in-tree `PeakRDL-chisel` submodule).
-- **RV64 + Linux explored and descoped**: a full RV64/Sv39/Linux path was
-  built and shown to boot on ULX3S, but measured at ~2× the TT-IHP 8×4 die
-  budget — TTIHP26b stays RV32I, no Linux; RV64/Linux remains a future-shuttle
-  goal.
-- **New host-side work**: `borgvk`, a real Vulkan ICD driver (Mesa fork,
-  branch `borg`) that runs the unmodified `Vulkan-Tools/cube.c` over serial —
-  working end-to-end on ULX3S, not yet exercised on IHP silicon.
-- **Verification deepened**: added gate-level cocotb tests against the actual
-  synthesized netlist and an RV32 firmware boot test (`test/soc/test_rv32_boot.py`),
-  neither of which existed for TTIHP26a.
-- **Area-optimization campaign** (this session): a systematic pass over
-  hardcoded/oversized register widths across `BorgBinner`, `BorgSequencer`,
-  `BorgLane`, and the FP16 special-function units took the design from
-  908,820 µm² down to 850,850.9 µm² and, for the first time, cleared the
-  post-CTS detailed-placement failure (`DPL-0036`) that had blocked the full
-  flow since the RV64 merge.
+## History: Tiny Tapeout
+
+Borg started on [Tiny Tapeout](https://tinytapeout.com/) as a full SoC — CPU,
+QSPI memory controller and GPU — on IHP SG13G2 (130 nm).
+
+- **TTIHP26a** (submitted March 2026): TinyQV CPU + Borg in a 4×2 tile
+  (≈260,000 µm²). Git tag `TinyTapeoutIHP26a`.
+- **TTIHP26b** (planned for September 2026): Hutt RV32I + Borg in an 8×4 tile.
+  The full flow closed on 2026-08-05 (850,851 µm² post-synthesis, 88.1%
+  utilization, 2.55 mW at 4 MHz, DRC/LVS/antenna clean), but the target was
+  dropped in favour of wafer.space, which fits a larger GPU.
+
+<p align="center">
+  <img src="gds_render_small.png" alt="Borg GPU GDS render (Tiny Tapeout, IHP SG13G2)">
+</p>
+
+<p align="center">
+  <img src="images/placement_annotated.png" alt="Annotated placement clusters">
+  <br>
+  <em>Global placement of the Tiny Tapeout SoC, annotated with the functional
+  modules. Colors reflect the Chisel design blocks.</em>
+</p>
+
+The Tiny Tapeout top survives as `QspiSocTop` (hardware/soc/src/), the
+harness for the cocotb CPU SoC tests in test/soc/ and for `make lint`.

@@ -11,7 +11,7 @@ import borg.BorgConfig
   *
   * Emits split Verilog into out/hardware/borg/verilog_sim/ and writes
   * sim_files.txt for the verilator build.  Separate from the ASIC flow
-  * (TTMain → out/hardware/borg/verilog/) so the two never clobber each other.
+  * (QspiSocMain → out/hardware/borg/verilog/) so the two never clobber each other.
   */
 object BorgSimMain extends App {
   val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "4").toInt

@@ -79,7 +79,7 @@ MACROS:
         orientation: N
 
 # Borg's chip_core.sv (see ../../src/chip_core.sv) instantiates
-# tt_um_gonsolo_borg directly and uses no hard SRAM macros -- all of Borg's
+# BorgOnlyTop directly and uses no hard SRAM macros -- all of Borg's
 # memories are synthesized registers/SyncReadMem, unlike the template's
 # original example design. The template's gf180mcu_fd_ip_sram__sram512x8m8wm1
 # macro (instances i_chip_core.sram_0/1) and its PDN_MACRO_CONNECTIONS are

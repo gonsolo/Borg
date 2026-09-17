@@ -9,7 +9,7 @@ import circt.stage.ChiselStage
 /** Shared Verilog emission utilities.
   *
   * Central definition of firtool options, used by all Main objects
-  * (hardware/borg, hardware/soc, hardware/hutt, fpga/ulx3s, asic/tt, asic/wafer)
+  * (hardware/borg, hardware/soc, hardware/hutt, fpga/ulx3s, asic/wafer)
   * to ensure consistent
   * Verilog output.
   */

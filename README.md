@@ -1,6 +1,5 @@
 # Borg - Tiny Open Source Graphics Processing Unit
 
-![GDS IHP](../../workflows/gds-ihp/badge.svg)
 ![GDS wafer.space](../../workflows/gds-wafer-space/badge.svg)
 ![Book](../../workflows/book/badge.svg)
 ![Test](../../workflows/test/badge.svg)
@@ -29,7 +28,7 @@ advances in low-cost chip manufacturing to make individual tape-outs feasible fo
 ## Architecture
 
 The design is a **Hutt RISC-V SoC** with the **Borg FP16 shader processor** as a memory-mapped peripheral,
-targeting ECP5 FPGAs (ULX3S) and ASIC (IHP SG13G2 via Tiny Tapeout).
+targeting ECP5 FPGAs (ULX3S) and an ASIC (GF180MCU via wafer.space, Borg only behind a chip-to-chip link).
 
 ### Borg Shader Processor
 
@@ -67,7 +66,7 @@ It features an asynchronous 2-entry **Command FIFO** so the CPU can pack and que
 
 ### Hutt CPU
 
-A clean multi-cycle **RV32I/RV64I** RISC-V core written in Chisel with fully **Decoupled** instruction and data buses, parameterized by XLEN. The ASIC/Tiny Tapeout target uses RV32I; the ULX3S FPGA target runs RV64IMAC with M-mode/S-mode privilege levels and an Sv39 MMU. Hutt integrates seamlessly with the `MemoryController` (arbitrating QSPI flash and SDRAM) and routes MMIO via `SoCDecode` to inline SoC registers, the user peripheral router, and the Borg peripheral bus. Verified on ULX3S hardware.
+A clean multi-cycle **RV32I/RV64I** RISC-V core written in Chisel with fully **Decoupled** instruction and data buses, parameterized by XLEN. The QSPI SoC used for the cocotb SoC tests uses RV32I; the ULX3S FPGA target runs RV64IMAC with M-mode/S-mode privilege levels and an Sv39 MMU. Hutt integrates seamlessly with the `MemoryController` (arbitrating QSPI flash and SDRAM) and routes MMIO via `SoCDecode` to inline SoC registers, the user peripheral router, and the Borg peripheral bus. Verified on ULX3S hardware.
 
 **Linux boots on Hutt.** OpenSBI + a mainline Linux kernel (device-tree only, no config patches) boot to an interactive shell on real ULX3S hardware and in the cycle-accurate Verilator simulator, cross-validated at matching cycle counts. This unblocks the path to a native, on-device Linux DRM/KMS kernel driver for Borg (see [The Hutt CPU](docs/A3_hutt_cpu.md) and the [roadmap](docs/A0_roadmap.md#phase-4-linux-capable-cpu)).
 
@@ -154,15 +153,13 @@ make flash          # Write to config flash
 make tio            # Open serial console on /dev/ttyUSB0
 ```
 
-### ASIC (Tiny Tapeout)
-
-<p align="center">
-  <img src="docs/gds_render_small.png" alt="Borg GPU GDS Render">
-</p>
+### ASIC (wafer.space)
 
 ```bash
-make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
+make librelane      # GF180MCU 1x1 slot: full RTL-to-GDS signoff via LibreLane
 ```
+
+See [Generating the ASIC](docs/05_asic.md).
 
 ## Milestones
 
@@ -197,7 +194,7 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD) | Place and route | BSD-3-Clause |
 | [Magic](https://github.com/RTimothyEdwards/magic) | Layout tool, DRC, GDS export | MIT |
 | [KLayout](https://github.com/KLayout/klayout) | GDS viewer and DRC | GPL-2.0 |
-| [IHP SG13G2 PDK](https://github.com/IHP-GmbH/IHP-Open-PDK) | IHP 130nm process design kit | Apache-2.0 |
+| [GF180MCU PDK](https://github.com/google/gf180mcu-pdk) | GlobalFoundries 180nm process design kit | Apache-2.0 |
 | [cocotb](https://github.com/cocotb/cocotb) | Python-based RTL simulation and testing | BSD-3-Clause |
 | [Icarus Verilog](https://github.com/steveicarus/iverilog) | Verilog simulation (cocotb backend) | GPL-2.0 |
 | [Verilator](https://github.com/verilator/verilator) | Verilog linting and simulation | LGPL-3.0 |
@@ -206,7 +203,6 @@ make gds            # Full RTL-to-GDS flow via LibreLane/OpenROAD
 | [Netgen](https://github.com/RTimothyEdwards/netgen) | LVS (Layout vs. Schematic) | MIT |
 | [GCC](https://gcc.gnu.org/) | RISC-V cross-compiler (`riscv64-none-elf`) | GPL-3.0 |
 | [Mill](https://github.com/com-lihaoyi/mill) | Scala build tool | MIT |
-| [Tiny Tapeout Tools](https://github.com/TinyTapeout/tt-support-tools) | Build and submission orchestrator | Apache-2.0 |
 | [Nix](https://github.com/NixOS/nix) | Reproducible development environment | LGPL-2.1 |
 | [CIRCT/firtool](https://github.com/llvm/circt) | Chisel → Verilog compiler (FIRRTL) | Apache-2.0 (LLVM) |
 | [Arcilator](https://github.com/llvm/circt) | Cycle-accurate FIRRTL C++ simulator | Apache-2.0 (LLVM) |

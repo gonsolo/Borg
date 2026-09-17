@@ -15,7 +15,6 @@ fpga/firmware_cache/
 *.fst.hier
 hardware/borg/src/generated/
 .idea
-info.yaml
 .metals
 .nix-home/
 .os-lib-watch-sentinel-*

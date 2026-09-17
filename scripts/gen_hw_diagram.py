@@ -54,11 +54,11 @@ NODE_COLORS = {
 
 # Modules we consider "top-level connectors" and want highlighted. Other
 # legitimate hierarchy roots (ULX3S/sim-only SoC top variants, ASIC-only
-# tt_um_gonsolo_borg siblings, etc.) don't need to be hand-listed here -- any
+# QspiSocTop siblings, etc.) don't need to be hand-listed here -- any
 # defined module nothing else instantiates is auto-detected as a root for
 # reachability purposes too (see auto_roots in build_graph). This set is only
 # for names that should render specially even when nothing links to them.
-TOP_LEVEL = {"tt_um_gonsolo_borg", "Borg", "Hutt", "Borg Driver", "Hutt Firmware"}
+TOP_LEVEL = {"QspiSocTop", "Borg", "Hutt", "Borg Driver", "Hutt Firmware"}
 
 # Modules that are data-types / IO bundles — skip as nodes
 SKIP_PATTERNS = [
@@ -99,7 +99,7 @@ def parse_scala_file(path: Path) -> dict:
     # concrete class via `extends RawModule with Foo`. The actual Module(new ...)
     # wiring often lives in the trait body, not the concrete class -- e.g.
     # SoCLogic/MinimalSoCLogic own the Clint/HuttDataWidthAdapter instantiations
-    # that tt_um_gonsolo_borg, MinimalSocSimTop et al. just mix in. Without this,
+    # that QspiSocTop, MinimalSocSimTop et al. just mix in. Without this,
     # those instantiations have no `defined` name in the same file to attribute
     # an edge to, so their targets look like orphans despite being wired.
     for m in re.finditer(
@@ -321,7 +321,7 @@ def build_graph(hw_data: dict, groups: set[str] | None = None) -> graphviz.Digra
     # Roots aren't just the hand-maintained TOP_LEVEL set (which drifts --
     # e.g. "Project" hasn't existed as a class in years, and it never listed
     # the ULX3S/sim-harness top variants like MinimalSocSimTop or
-    # tt_um_gonsolo_borg's siblings). Any defined module nothing else ever
+    # QspiSocTop's siblings). Any defined module nothing else ever
     # instantiates is *by construction* the top of its own hierarchy --
     # exactly what a Main/App emitter's sole top-level argument is -- so treat
     # it as a valid BFS seed too, instead of flagging it "unreachable."
@@ -417,10 +417,10 @@ def build_graph(hw_data: dict, groups: set[str] | None = None) -> graphviz.Digra
     # BorgFp16Fma.scala) haven't existed as classes for a while; dot.edge()
     # auto-creates a node for any name it's given, so referencing them here
     # was silently drawing two stray, unstyled default-look boxes with
-    # nothing else pointing at them. tt_um_gonsolo_borg is the real ASIC top.
-    if "tt_um_gonsolo_borg" in module_to_group:
-        dot.edge("tt_um_gonsolo_borg", "Borg", style="invis", weight="100")
-        dot.edge("tt_um_gonsolo_borg", "Hutt", style="invis", weight="100")
+    # nothing else pointing at them. QspiSocTop is the real ASIC top.
+    if "QspiSocTop" in module_to_group:
+        dot.edge("QspiSocTop", "Borg", style="invis", weight="100")
+        dot.edge("QspiSocTop", "Hutt", style="invis", weight="100")
 
     # (Legend removed as per user request)
 

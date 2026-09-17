@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 """Boot the real RV32 firmware (software/borg/kernel.bin, compiled XLEN=32)
-through tt_um_gonsolo_borg's actual QSPI flash-read protocol -- verifies the
+through QspiSocTop's actual QSPI flash-read protocol -- verifies the
 RV32 toolchain/ABI/boot sequence actually works, not just that it compiles
 (see software/borg/Makefile's XLEN=32 path, commit 8f403c2).
 

@@ -45,21 +45,7 @@ module tb ();
   wire uart_rx = ui_in_base[7];
   assign ui_in = {uart_rx, game_data, game_clk, game_latch, mhz_clk, spi_miso, ui_in_base[1:0]};
 
-`ifdef GL_TEST
-  wire VPWR = 1'b1;
-  wire VGND = 1'b0;
-`endif
-
-  // Replace tt_um_example with your module name:
-  tt_um_gonsolo_borg user_project (
-
-`ifdef USE_POWER_PINS
-      // Only include these if your gate_level_netlist.v
-      // explicitly lists them in the module ports.
-      .VPWR(VPWR),
-      .VGND(VGND),
-`endif
-
+  QspiSocTop user_project (
       .ui_in  (ui_in),    // Dedicated inputs
       .uo_out (uo_out),   // Dedicated outputs
       .uio_in (uio_in),   // IOs: Input path
@@ -69,15 +55,6 @@ module tb ();
       .clk    (clk),      // clock
       .rst_n  (rst_n)     // not reset
   );
-
-`ifdef GL_TEST
-  // If simulation shows all signals as 'X', uncomment these lines
-  // to force power into the internal nets of the netlist:
-  // initial begin
-  //   force user_project.VPWR = 1'b1;
-  //   force user_project.VGND = 1'b0;
-  // end
-`endif
 
   initial begin
     $dumpfile("tb.vcd");

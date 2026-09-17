@@ -31,9 +31,9 @@ cd fpga/ulx3s && make load   # ~10 min first run; subsequent: ~3 min
   the SDRAM bandwidth at 25 MHz tops out at ~15–20 fps at that resolution; the
   demo targets 128×128 for the HPG 2026 deadline.
 - `BorgConfig.Default` (ULX3S) is the primary FPGA target.
-- **cocotb gate-level tests**: `test-cocotb-soc-core-gl` and
-  `test-cocotb-soc-borg-gl` require a synthesized netlist; they are skipped in CI
-  unless `make gds-ihp` has been run first.
+- **Gate-level tests**: `make -C asic/wafer.space sim-link-synth` and
+  `sim-link-gl` need a synthesis or post-layout netlist from LibreLane; they
+  are not part of `make test-all`.
 
 ## Reading Order
 
