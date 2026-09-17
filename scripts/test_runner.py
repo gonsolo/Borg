@@ -103,19 +103,21 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
               f"make -C '{root}/simulation' test-sim-common"),
         Suite("cocotb › soc-core (rtl)",
               f"cd '{root}' && {test_soc} core"),
-        # Gate the render chain behind the chisel (Mill) suites: the render
-        # Makefile invokes `make generate_verilog_sim` (a Mill build), and two
-        # Mill clients hitting the server at once corrupts it
-        # (xsbt.CompilerInterface ClassNotFound) — the cause of the chisel/render
-        # cascade failures in CI.  Serialising trades wall-clock for reliability.
-        # NOTE: arcilator/verilator vkcube-cts-uart share their respective sim
-        # binaries with nothing else now (triangle/vkcube app-config renders were
-        # removed — content is no longer baked into firmware, see borg_kernel.c),
-        # but are kept serialised relative to each other for the same reason.
+        # The renders run in the parallel phase, not behind the chisel suites.
+        # They used to be chained there because their Makefiles invoke
+        # `make generate_verilog_sim` and two Mill clients at once corrupt the
+        # build server (xsbt.CompilerInterface ClassNotFound). The sequential
+        # setup phase above already generated that Verilog, so the recursive
+        # make is a stamp no-op and starts no Mill client -- while the chisel
+        # suites are the long pole (7-8 min), so this is most of the suite's
+        # wall clock.
+        #
+        # The two renders stay chained to EACH OTHER: both build the firmware
+        # in software/borg/, and two makes in one directory race over the same
+        # object files.
         # CTS UART path: borgvk-style 0xAD MVP packet → firmware via --cts-uart
         Suite("render › arcilator › vkcube-cts-uart",
-              cts_uart_render(arcilator_dir, "cts-uart"),
-              depends_on="chisel › hutt"),
+              cts_uart_render(arcilator_dir, "cts-uart")),
         Suite("render › verilator › vkcube-cts-uart",
               cts_uart_render(verilator_dir, "cts-uart"),
               depends_on="render › arcilator › vkcube-cts-uart"),
