@@ -180,7 +180,12 @@ IGNORE_DISCONNECTED_MODULES:
 - gf180mcu_ws_ip__marker
 
 # Clock
-# 250ns (4 MHz), matching Borg's ASIC clock target (asic/tt/src/TTMain.scala).
+# CLOCK_PERIOD at the end of this block is the tapeout's signoff clock: 125 ns
+# (8 MHz). It is the only place the tapeout clock is set -- BorgOnlyTop has no
+# CLOCK_MHZ parameter (that env var only sizes SoC peripherals such as the UART
+# baud divisor, in the Tiny Tapeout and simulation SoCs). History: this started at
+# 250 ns (4 MHz), the old Tiny Tapeout clock target; the notes below record the
+# probing that led to 8 MHz.
 #
 # 25 MHz (40ns, the wafer.space template's own default) was tried on 1x1 with
 # real timing analysis on 2026-09-05 and does NOT close. Two independent

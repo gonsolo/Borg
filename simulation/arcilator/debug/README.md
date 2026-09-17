@@ -13,7 +13,7 @@ them). Run from this directory.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-mill asic.tt.runMain asic.tt.FmaArcMain
+# FmaArcMain no longer exists in the tree (removed after this investigation)
 cd simulation/arcilator/debug
 firtool ../../../out/hardware/borg/firrtl_fma/FmaArcTop.fir --disable-layers=Verification --ir-hw \
   | arcilator --inline --observe-memories --state-file fma_state.json -o fma_arc.ll
@@ -26,7 +26,7 @@ clang++ -O3 fma_cosim.cpp fma_arc.o -I.. -o fma_cosim && ./fma_cosim
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-mill asic.tt.runMain asic.tt.BorgCoreArcMain   # also prints instruction encodings
+mill hardware.soc.runMain soc.BorgCoreArcMain   # also prints instruction encodings
 cd simulation/arcilator/debug
 firtool ../../../out/hardware/borg/firrtl_corearc/BorgCore.fir --disable-layers=Verification --ir-hw \
   | arcilator --inline --observe-memories --state-file core_state.json -o core_arc.ll

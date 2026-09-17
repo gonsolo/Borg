@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
-package asic.tt
+package asic.wafer
 
 import borg.BorgConfig
 import borg.link.LinkParams
@@ -9,7 +9,7 @@ import soc.Emit
 
 /** Verilog emission for the Borg-only bridge on the wafer.space **1x1** slot.
   *
-  * Run via: mill asic.tt.runMain asic.tt.BorgOnly1x1Main
+  * Run via: mill asic.wafer.runMain asic.wafer.BorgOnly1x1Main
   *
   * Same design and config as [[BorgOnlyMain]]; only the pad map differs
   * (Slot1x1: 40 bidir + 12 input-only, vs 1x0.5's 46 + 4). See BorgOnlyTop's

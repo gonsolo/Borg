@@ -5,7 +5,7 @@
 
 // Instantiates the wafer.space Borg-only bridge top (BorgOnlyTop -- Borg
 // behind BorgLinkSlave, no Hutt, no QSPI; see the plan doc and
-// asic/tt/src/BorgOnlyTop.scala's own header), mapping its full 46 bidir +
+// asic/wafer/src/BorgOnlyTop.scala's own header), mapping its full 46 bidir +
 // 4 input lanes onto the 1x0.5 slot's padring exactly -- this module is only
 // valid for SLOT_1X0P5 (NUM_BIDIR_PADS=46, NUM_INPUT_PADS=4; see
 // slot_defines.svh), not the other three slots, since BorgOnlyTop's lane map

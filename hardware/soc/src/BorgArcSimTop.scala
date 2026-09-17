@@ -1,10 +1,9 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
-package asic.tt
+package soc
 
 import chisel3._
-import soc.SoCLogic
 import borg.BorgConfig
 
 /** Arcilator simulation top-level module.

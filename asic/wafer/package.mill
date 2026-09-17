@@ -1,0 +1,13 @@
+package build.asic.wafer
+import mill._, scalalib._
+import build.BorgModule
+
+// The wafer.space tapeout RTL: BorgOnlyTop and its per-slot Verilog emitters.
+// Lives here rather than inside asic/wafer.space/ because mill 1.1.2 cannot
+// address a module under a dotted directory: the directory segment becomes
+// `wafer.space` (backtick-wrapped), `asic.wafer.space` does not resolve, and a
+// backticked selector fails to parse (probed 2026-09-17). The LibreLane flow
+// that consumes this module's output stays in asic/wafer.space/.
+object `package` extends BorgModule {
+  override def moduleDeps = Seq(build.hardware.soc)
+}

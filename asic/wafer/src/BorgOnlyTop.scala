@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
-package asic.tt
+package asic.wafer
 
 import chisel3._
 import chisel3.util._

@@ -107,7 +107,7 @@ The design has been substantially rewritten since the TTIHP26a submission
 - **Die grown 4×**: 4×2 (8 tiles) → 8×4 (32 tiles) to fit Hutt plus the
   larger Borg GPU.
 - **Repo reorganized**: `borg/`, `tinyqv/`, `src/` → `hardware/{borg,hutt,
-  memory,peri,soc,hardfloat}`, `asic/tt/`, `fpga/ulx3s/`, `software/`; the
+  memory,peri,soc,hardfloat}`, `asic/tt/`, `asic/wafer/`, `fpga/ulx3s/`, `software/`; the
   MMIO register block moved to SystemRDL as the single source of truth
   (`hardware/rdl/*.rdl`, generated via the in-tree `PeakRDL-chisel` submodule).
 - **RV64 + Linux explored and descoped**: a full RV64/Sv39/Linux path was

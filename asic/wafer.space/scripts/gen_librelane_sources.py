@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Generate librelane/generated_sources.yaml's VERILOG_FILES list from
 out/hardware/borg/verilog_wafer/wafer_files.txt, produced by
-`make generate_verilog_wafer` (mill asic.tt.runMain asic.tt.BorgOnlyMain).
+`make generate_verilog_wafer` (mill asic.wafer.runMain asic.wafer.BorgOnlyMain).
 
 Replaces a hand-maintained VERILOG_FILES list that already drifted out of
 sync once for real: it still listed Hutt.sv/Peripherals.sv/QspiBackend.sv/

@@ -1,7 +1,7 @@
 // Arcilator harness: standalone BorgCore (custom FMA), drive ADD/MUL/FMA/FNEG
 // via MMIO and read regReadData.  See docs/arcilator_custom_fma_bug.md.
 // Result: all correct in arcilator — BorgCore is fine standalone; only the full
-// SoC miscompiles.  Encodings come from `mill asic.tt.runMain asic.tt.BorgCoreArcMain`.
+// SoC miscompiles.  Encodings come from `mill hardware.soc.runMain soc.BorgCoreArcMain`.
 //
 // Build (from simulation/arcilator/debug, after the runMain above):
 //   firtool ../../../out/hardware/borg/firrtl_corearc/BorgCore.fir --disable-layers=Verification --ir-hw \

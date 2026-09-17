@@ -7,8 +7,8 @@ import chisel3._
 import memory.SdramBackendSim
 
 /** Verilator-only top-level module for booting real firmware (OpenSBI/Linux)
-  * against the Borg-free MinimalSoC — the counterpart of asic/tt's
-  * BorgSimTop, but for MinimalSoCLogic instead of the full SoCLogic.
+  * against the Borg-free MinimalSoC — the counterpart of
+  * BorgSimTop (this package), but for MinimalSoCLogic instead of the full SoCLogic.
   *
   * Exists to answer a question the ULX3S hardware silent-boot investigation
   * couldn't answer by itself: is a genuine full-chip timing-closure/logic

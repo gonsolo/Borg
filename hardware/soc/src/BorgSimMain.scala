@@ -1,14 +1,13 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
 
-package asic.tt
+package soc
 
-import soc.{Emit, Peripherals}
 import borg.BorgConfig
 
 /** Verilog emission entry point for the verilator simulation target.
   *
-  * Run via: CLOCK_MHZ=4 mill asic.tt.runMain asic.tt.BorgSimMain
+  * Run via: CLOCK_MHZ=4 mill hardware.soc.runMain soc.BorgSimMain
   *
   * Emits split Verilog into out/hardware/borg/verilog_sim/ and writes
   * sim_files.txt for the verilator build.  Separate from the ASIC flow

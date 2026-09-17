@@ -25,7 +25,7 @@ a mistake here is unfixable after tapeout.
 
 from cocotb.triggers import RisingEdge
 
-# --- BorgOnlyTop lane map (asic/tt/src/BorgOnlyTop.scala) -------------------
+# --- BorgOnlyTop lane map (asic/wafer/src/BorgOnlyTop.scala) ----------------
 DN_D_LO, DN_D_HI = 0, 15      # in  (we drive)
 DN_V            = 16          # in
 DN_P            = 17          # in
