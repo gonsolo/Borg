@@ -416,6 +416,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val texResultG = RegInit(0.U(config.totalBits.W))
     val texResultB = RegInit(0.U(config.totalBits.W))
     def widenTexel(t: UInt): UInt = if (config.totalBits > 16) Fp16Fp32.widen(t) else t
+    def narrowTexCoord(c: UInt): UInt =
+      if (config.totalBits > 16) Fp16Fp32.narrow(c(config.totalBits - 1, 0)) else c(15, 0)
 
     // Active lane's U/V operands (read ports stay valid while busy_counter is held).
     val curA = VecInit(recAs)(texLaneIdx)
@@ -443,8 +445,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     when(texState === sTexReq) {
       busy_counter := busy_counter            // hold operands stable
       io.texReq := true.B
-      io.texU   := curA(15, 0)
-      io.texV   := curB(15, 0)
+      // The coordinates are datapath floats; the texture unit is FP16-native.
+      // Narrow the value (round to nearest), never slice the bit pattern:
+      // curA(15, 0) of FP32 0.5f is 0x0000.
+      io.texU   := narrowTexCoord(curA)
+      io.texV   := narrowTexCoord(curB)
       when(io.texDone) {                      // same-cycle (e.g. texture disabled → white)
         texResultR := widenTexel(io.texR); texResultG := widenTexel(io.texG); texResultB := widenTexel(io.texB)
         texState   := sTexWB0
@@ -595,8 +600,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       io.gpuMem.get.wr    := is_store_reg
       io.gpuMem.get.wdata := curData
       when(io.gpuMem.get.ready) {
-        if (BorgDebug.trace) printf("[MEM] %s lane=%d addr=0x%x data=0x%x\n",
-          Mux(is_load_reg, "LD".U, "ST".U), memLane, byteAddr,
+        if (BorgDebug.trace) printf("[MEM] load=%d lane=%d addr=0x%x data=0x%x\n",
+          is_load_reg, memLane, byteAddr,
           Mux(is_load_reg, io.gpuMem.get.data, curData))
         when(is_load_reg) {
           memDataReg := io.gpuMem.get.data(config.totalBits - 1, 0)
