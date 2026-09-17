@@ -70,17 +70,15 @@ arcilator_sim: main.o arc.o texture_loader.o uart_decoder.o BorgSimulatorBase.o 
 # Firmware binaries — always invoke the firmware Makefile so its cflags_stamp
 # check detects flag changes (e.g. TARGET_ULX3S from a board build) that a
 # timestamp check on $(FW_SRCS) alone would miss.
-# CLOCK_MHZ=25 (matching ULX3S) — the borgvk UART drain loop's software
-# polling needs the cycles/bit margin that gives; see borg_kernel.c and
-# simulation/common/uart_tx.h (UartTx::set_cycles_per_bit, matched to 217 in
-# main.cpp/viewer.py). CLOCK_MHZ=4 does not leave enough slack and drops bytes.
+# CLOCK_MHZ=25 (matching ULX3S), UART at SIM_UART_BAUD (common_sim.h), the
+# rate the harnesses inject and decode at (SIM_UART_CYCLES_PER_BIT).
 # NOTE: these must be explicit rules, not a %.bin pattern rule — GNU Make
 # never applies an implicit/pattern rule to a target listed in .PHONY (it
 # silently reports "nothing to be done" instead), so on a fresh checkout
 # with no pre-existing kernel.bin the recipe below would never run.
 .PHONY: $(FIRMWARE_DIR)/kernel.bin $(FIRMWARE_DIR)/textest.bin
 $(FIRMWARE_DIR)/kernel.bin:
-	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=25 kernel
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=25 EXTRA_CFLAGS="$(EXTRA_CFLAGS) -DBORG_UART_BAUD=$(SIM_UART_BAUD)" kernel
 
 $(FIRMWARE_DIR)/textest.bin:
 	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=25 textest

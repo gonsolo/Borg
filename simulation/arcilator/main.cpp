@@ -8,26 +8,14 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-// ---- fp16 + DRAM mailbox helpers (host side of the CTS draw path) --------
+// ---- DRAM mailbox helpers (host side of the CTS draw path) ---------------
 
-// Round-to-nearest-even float → IEEE-754 half (fp16).
-static uint16_t f32_to_f16(float f) {
+// A float32 as the datapath word it is: the shader datapath is FP32, so the
+// mailbox carries the IEEE bits unchanged.
+static uint32_t f32_bits(float f) {
     uint32_t x;
     std::memcpy(&x, &f, 4);
-    uint32_t sign = (x >> 16) & 0x8000u;
-    int32_t  exp  = (int32_t)((x >> 23) & 0xFF) - 127 + 15;
-    uint32_t mant = x & 0x7FFFFFu;
-    if (exp <= 0) {
-        if (exp < -10) return (uint16_t)sign;           // underflow → ±0
-        mant |= 0x800000u;
-        uint32_t shift = (uint32_t)(14 - exp);
-        uint32_t half = (mant + (1u << (shift - 1))) >> shift;
-        return (uint16_t)(sign | half);
-    }
-    if (exp >= 0x1F) return (uint16_t)(sign | 0x7C00u); // overflow → ±inf
-    uint16_t h = (uint16_t)(sign | ((uint32_t)exp << 10) | (mant >> 13));
-    if (mant & 0x1000u) h++;                             // round to nearest even
-    return h;
+    return x;
 }
 
 // Write one 32-bit word into DRAM at an SPI byte address (little-endian),
@@ -41,15 +29,15 @@ static void mb_word(ArcBorgSimulator &sim, uint32_t word_idx, uint32_t v) {
     flat_write_word(sim, BORG_CTS_MAILBOX_SPI + word_idx * 4, v);
 }
 
-// Fill the whole texture region with white (fp16 1.0 = 0x3C00) so the baked
-// frag's `texel × vertex_color` modulation passes vertex color through.
+// Fill the whole texture region with white so the baked frag's
+// `texel × vertex_color` modulation passes vertex color through. Texels are
+// FP16 (1.0 = 0x3C00), two 32-bit words per texel -- word0 = {G, R},
+// word1 = {0, B}, the layout BorgTextureUnit reads (see borg_upload_texture).
 static void fill_white_texture(ArcBorgSimulator &sim) {
-    uint8_t *m = sim.flat->mem.data();
-    // White (R=G=B=1.0=0x3C00) per 6-byte texel so frag texel×color = color.
     for (uint32_t a = TEX_DRAM_BYTE_ADDR_FIXED;
-         a + 5 < TEX_DRAM_BYTE_ADDR_FIXED + TEX_REGION_BYTES; a += 6) {
-        m[a]=0x00; m[a+1]=0x3C; m[a+2]=0x00;
-        m[a+3]=0x3C; m[a+4]=0x00; m[a+5]=0x3C;
+         a + 7 < TEX_DRAM_BYTE_ADDR_FIXED + TEX_REGION_BYTES; a += 8) {
+        flat_write_word(sim, a,     0x3C003C00u);
+        flat_write_word(sim, a + 4, 0x00003C00u);
     }
 }
 
@@ -63,10 +51,10 @@ static void write_mailbox_draw(ArcBorgSimulator &sim,
     mb_word(sim, BORG_CTS_OFF_NVERTS, (uint32_t)nverts);
     mb_word(sim, BORG_CTS_OFF_NTRIS,  (uint32_t)ntris);
     for (int i = 0; i < 16; i++)
-        mb_word(sim, BORG_CTS_OFF_MVP + i, f32_to_f16(mvp[i]));
+        mb_word(sim, BORG_CTS_OFF_MVP + i, f32_bits(mvp[i]));
     for (int i = 0; i < nverts * 3; i++) {
-        mb_word(sim, BORG_CTS_OFF_POS   + i, f32_to_f16(pos[i]));
-        mb_word(sim, BORG_CTS_OFF_COLOR + i, f32_to_f16(col[i]));
+        mb_word(sim, BORG_CTS_OFF_POS   + i, f32_bits(pos[i]));
+        mb_word(sim, BORG_CTS_OFF_COLOR + i, f32_bits(col[i]));
     }
     for (int i = 0; i < ntris * 3; i++)
         mb_word(sim, BORG_CTS_OFF_IDX + i, (uint32_t)idx[i]);
@@ -82,8 +70,8 @@ static int run_and_dump(ArcBorgSimulator &sim, uint32_t width, uint32_t height,
     if (devnull >= 0) dup2(devnull, STDOUT_FILENO);
 
     // Default sized for small/legacy captures.  A full borgvk burst (2 shaders +
-    // geometry + up to RX_TEX_DIM texture rows + MVP, tens of KB) takes ~2170
-    // sim-cycles/byte at real UART pacing — e.g. 26 KB needs ~57M cycles just for
+    // geometry + up to RX_TEX_DIM texture rows + MVP, tens of KB) takes 10 x
+    // SIM_UART_CYCLES_PER_BIT sim-cycles/byte — e.g. 26 KB needs ~6.6M cycles for
     // the wire transfer, before any render time.  Override via CTS_MAX_CYCLES for
     // large captures rather than bumping the default (keeps small-test runs fast
     // to fail).
@@ -154,7 +142,7 @@ static int run_and_dump(ArcBorgSimulator &sim, uint32_t width, uint32_t height,
 // arcilator_sim --cts-tri <firmware.bin> <W> <H>
 static int run_cts_tri(const char *fw_path, uint32_t width, uint32_t height) {
     ArcBorgSimulator sim(fw_path, width, height);
-    sim.uart.set_cycles_per_bit(217);
+    sim.uart.set_cycles_per_bit(SIM_UART_CYCLES_PER_BIT);
     // NDC triangle with red/green/blue corners (Vulkan y-down screen space).
     const float pos[9] = {
         -0.9f, -0.9f, 0.5f,
@@ -233,7 +221,7 @@ static int run_cts_draw(const char *geom_file, const char *fw_path,
         idx[i] = (uint8_t)idx32[i];
 
     ArcBorgSimulator sim(fw_path, width, height);
-    sim.uart.set_cycles_per_bit(217);
+    sim.uart.set_cycles_per_bit(SIM_UART_CYCLES_PER_BIT);
     write_mailbox_draw(sim, pos.data(), col.data(), (int)nverts,
                        idx.data(), (int)ntris, mvp);
 
@@ -261,12 +249,10 @@ static int run_cts(const char *uart_file, const char *fw_path,
     f.seekg(0);
     std::vector<uint8_t> uart_bytes((size_t)sz);
     f.read((char *)uart_bytes.data(), sz);
-    // kernel.bin is built at CLOCK_MHZ=25 (matching ULX3S) so the borgvk UART
-    // drain loop's software polling has enough cycles/bit margin — see
-    // borg_kernel.c and simulation/common/uart_tx.h.  115200 baud @ 25 MHz ≈
-    // 217 sim-cycles/bit; must match the firmware's own UART_BAUD divisor.
-    sim.uart_tx.set_cycles_per_bit(217);
-    sim.uart.set_cycles_per_bit(217);
+    // kernel.bin is built at CLOCK_MHZ=25 with BORG_UART_BAUD=SIM_UART_BAUD;
+    // the harness must use the same cycles per bit (common_sim.h).
+    sim.uart_tx.set_cycles_per_bit(SIM_UART_CYCLES_PER_BIT);
+    sim.uart.set_cycles_per_bit(SIM_UART_CYCLES_PER_BIT);
     // Delay byte injection until after firmware has booted (shader modules,
     // pipeline, mailbox check, ...) and reached its first drain-loop gap-wait.
     // Measured boot takes ~2.3M cycles before the first UART poll; bytes

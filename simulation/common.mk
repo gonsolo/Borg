@@ -22,6 +22,9 @@ FW_SRCS = $(shell find $(FIRMWARE_DIR) $(ROOT)/software/hutt \
                        -maxdepth 1 \( -name '*.c' -o -name '*.h' -o -name '*.s' \) 2>/dev/null) \
           $(ROOT)/software/hutt/memmap
 
+# Simulated UART baud rate, single source of truth in common_sim.h.
+SIM_UART_BAUD := $(shell sed -n 's/^\#define SIM_UART_BAUD \([0-9]*\).*/\1/p' $(ROOT)/simulation/common/common_sim.h)
+
 # Compiler used for harness object files (overridable per backend).
 CLANG ?= clang++
 

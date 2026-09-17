@@ -15,8 +15,9 @@ Usage:
 --capture FILE   Replay a pre-captured borgvk UART burst (0xAE/0xAF/0xB0/0xAD
                  packets) instead of synthesizing a bare MVP packet. Required
                  for kernel.bin, which renders nothing on MVP alone. A real
-                 burst is tens of KB and needs ~2170 sim-cycles/byte just for
-                 the wire transfer (CTS_MAX_CYCLES is bumped accordingly here).
+                 burst is tens of KB and needs 10 x SIM_UART_CYCLES_PER_BIT
+                 sim-cycles/byte for the wire transfer (CTS_MAX_CYCLES is
+                 bumped accordingly here).
                  See simulation/golden/borgvk_capture.bin.
 
 Without --capture, a bare 0xAD (MVP) packet is sent using the firmware's
@@ -148,10 +149,11 @@ def main():
     if capture_path:
         with open(capture_path, 'rb') as f:
             stream = f.read()
-        # A real burst is tens of KB at ~2170 sim-cycles/byte for the wire
-        # transfer alone, plus the enqueue_gap(8000000) boot delay and render
-        # time — see run_and_dump's CTS_MAX_CYCLES comment in main.cpp.
-        env.setdefault('CTS_MAX_CYCLES', '100000000')
+        # The vkcube burst (26 KB at 250 sim-cycles/byte, see common_sim.h
+        # SIM_UART_BAUD) plus the enqueue_gap(8000000) boot delay and one
+        # render completes in about 30M cycles; 60M is 2x that and fails a
+        # hung render in half the time the old 100M did.
+        env.setdefault('CTS_MAX_CYCLES', '60000000')
     else:
         stream = build_0xad(build_mvp())
 

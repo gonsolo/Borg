@@ -17,8 +17,8 @@ static int run_and_dump(VerBorgSimulator &sim, uint32_t width, uint32_t height,
     if (devnull >= 0) dup2(devnull, STDOUT_FILENO);
 
     // Default sized for small/legacy captures.  A full borgvk burst (2 shaders +
-    // geometry + up to RX_TEX_DIM texture rows + MVP, tens of KB) takes ~2170
-    // sim-cycles/byte at real UART pacing — e.g. 26 KB needs ~57M cycles just for
+    // geometry + up to RX_TEX_DIM texture rows + MVP, tens of KB) takes 10 x
+    // SIM_UART_CYCLES_PER_BIT sim-cycles/byte — e.g. 26 KB needs ~6.6M cycles for
     // the wire transfer, before any render time.  Override via CTS_MAX_CYCLES for
     // large captures rather than bumping the default (keeps small-test runs fast
     // to fail).
@@ -84,12 +84,10 @@ static int run_cts(const char *uart_file, const char *fw_path,
     f.seekg(0);
     std::vector<uint8_t> uart_bytes((size_t)sz);
     f.read((char *)uart_bytes.data(), sz);
-    // kernel.bin is built at CLOCK_MHZ=25 (matching ULX3S) so the borgvk UART
-    // drain loop's software polling has enough cycles/bit margin — see
-    // borg_kernel.c and simulation/common/uart_tx.h.  115200 baud @ 25 MHz ≈
-    // 217 sim-cycles/bit; must match the firmware's own UART_BAUD divisor.
-    sim.uart_tx.set_cycles_per_bit(217);
-    sim.uart.set_cycles_per_bit(217);
+    // kernel.bin is built at CLOCK_MHZ=25 with BORG_UART_BAUD=SIM_UART_BAUD;
+    // the harness must use the same cycles per bit (common_sim.h).
+    sim.uart_tx.set_cycles_per_bit(SIM_UART_CYCLES_PER_BIT);
+    sim.uart.set_cycles_per_bit(SIM_UART_CYCLES_PER_BIT);
     // Delay byte injection until after firmware has booted and reached its
     // first drain-loop gap-wait — see arcilator/main.cpp's twin of this for
     // why: an already-arrived burst is misread as stale "padding" by the
@@ -163,14 +161,14 @@ static int run_push_const_test(const char *fw_path)
 
     // Same baud/boot-gap handling as run_cts() above -- see its comments for
     // why the gap is required rather than merely helpful.
-    sim.uart_tx.set_cycles_per_bit(217);
-    sim.uart.set_cycles_per_bit(217);
+    sim.uart_tx.set_cycles_per_bit(SIM_UART_CYCLES_PER_BIT);
+    sim.uart.set_cycles_per_bit(SIM_UART_CYCLES_PER_BIT);
     sim.uart_tx.enqueue_gap(8000000);
     sim.uart_tx.enqueue(stream.data(), stream.size());
 
-    // 8M boot gap + ~573k cycles of wire time for 264 bytes at 217 cycles/bit,
-    // plus firmware processing. 16M is roughly 2x that, and nothing here waits
-    // on a rendered frame.
+    // 8M boot gap + wire time for 264 bytes (tiny at SIM_UART_CYCLES_PER_BIT)
+    // plus firmware processing. 16M leaves ample margin, and nothing here
+    // waits on a rendered frame.
     const uint64_t MAX_CYCLES = 16000000ULL;
     for (uint64_t c = 0; c < MAX_CYCLES; c += 100000)
         sim.step(100000);

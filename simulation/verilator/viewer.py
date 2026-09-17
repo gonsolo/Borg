@@ -16,6 +16,17 @@ os.environ["SDL_VIDEODRIVER"] = "x11"
 import pygame
 import numpy as np
 
+
+def sim_uart_cycles_per_bit():
+    """SIM_UART_CYCLES_PER_BIT from simulation/common/common_sim.h, the rate the
+    sim Makefiles build the firmware's UART at (-DBORG_UART_BAUD)."""
+    import re as _re
+    from pathlib import Path as _Path
+    hdr = (_Path(__file__).resolve().parent.parent / "common" / "common_sim.h").read_text()
+    baud = int(_re.search(r"#define SIM_UART_BAUD (\d+)", hdr).group(1))
+    clock = int(_re.search(r"#define SIM_CLOCK_HZ (\d+)", hdr).group(1))
+    return clock // baud
+
 # Load the compiled nanobind module
 script_dir = os.path.dirname(os.path.abspath(__file__))
 use_arc = '--arc' in sys.argv or 'arc_viewer' in os.path.basename(sys.argv[0])
@@ -85,12 +96,10 @@ def main():
     # expects and frame-completion is never detected.
     sim = borg_sim.BorgSimulator(FW_PATH, 128, 128)
 
-    # kernel.bin is built at CLOCK_MHZ=25 (matching ULX3S) — the borgvk UART
-    # drain loop's software polling needs that many cycles/bit of margin (the
-    # hardware UART receiver stalls until the CPU reads out each buffered
-    # byte, so bytes-per-poll-overhead must fit inside the bit period). Must
-    # match the firmware's own UART_BAUD divisor: 115200 baud @ 25 MHz ≈ 217.
-    sim.uart_set_cycles_per_bit(217)
+    # kernel.bin is built at CLOCK_MHZ=25 with BORG_UART_BAUD=SIM_UART_BAUD
+    # (simulation/common/common_sim.h); the injected and decoded UART must use
+    # the same cycles per bit.
+    sim.uart_set_cycles_per_bit(sim_uart_cycles_per_bit())
 
     # Pre-gap: firmware needs ~3.5M cycles to boot and reach the drain loop.
     sim.uart_inject_gap(3500000)

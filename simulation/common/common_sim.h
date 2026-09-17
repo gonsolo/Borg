@@ -1,5 +1,15 @@
 #pragma once
 
+// Simulated UART rate. The simulators build the firmware with this baud rate
+// (the sim Makefiles pass -DBORG_UART_BAUD from this line) and drive/decode
+// the UART at the matching cycles per bit. At 115200 baud (217 cycles/bit)
+// replaying one vkcube burst took ~57M of a frame's ~95M cycles. Safe to raise:
+// the harness starts a byte only when UartRx has handed over the previous one
+// (RTS flow control, see BorgSimulatorBase::step).
+#define SIM_UART_BAUD 1000000
+#define SIM_CLOCK_HZ 25000000
+#define SIM_UART_CYCLES_PER_BIT (SIM_CLOCK_HZ / SIM_UART_BAUD)
+
 #include <iostream>
 #include <fstream>
 #include <vector>
