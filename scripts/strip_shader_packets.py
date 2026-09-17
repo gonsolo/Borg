@@ -24,15 +24,17 @@ RX_GEOM_MAX_VERTS = 16
 RX_GEOM_MAX_TRIS = 12
 RX_TEX_DIM = 64
 RX_SHADER_MAX = 512
+RX_PUSH_MAX_WORDS = 32
 
 # marker -> total packet length in bytes, mirroring borg_kernel.c's `need`.
 LEN = {
     0xAD: 66,
-    0xAE: 1 + 2 + RX_GEOM_MAX_VERTS * 6 + RX_GEOM_MAX_TRIS * 3
-          + RX_GEOM_MAX_TRIS * 12 + 1,
+    0xAE: 1 + 2 + RX_GEOM_MAX_VERTS * 12 + RX_GEOM_MAX_TRIS * 3
+          + RX_GEOM_MAX_TRIS * 24 + 1,
     0xAF: 1 + 1 + RX_TEX_DIM * 6 + 1,
     0xB0: 1 + 1 + 2 + RX_SHADER_MAX + 1,
     0xB1: 1,
+    0xB2: 1 + 1 + 1 + RX_PUSH_MAX_WORDS * 4 + 1,
 }
 
 
