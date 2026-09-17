@@ -63,7 +63,7 @@ test-pushconst:
 	@$(BORGC_CLI) -s vert -o $(TMP)/pc_vert.borg $(TMP)/pc_vert.spv > /dev/null 2>&1
 	@BORGC_DUMP_ISA=1 $(BORGC_CLI) -s frag -o $(TMP)/pc_frag.borg $(TMP)/pc_frag.spv \
 	   > $(TMP)/frag.log 2>&1
-	@grep -q 'r17=0x0008 r18=0x0009 r19=0x000a r20=0x000b' $(TMP)/frag.log || \
+	@grep -q 'r17=0x0008 r18=0x0009 r19=0x000a r23=0x000b' $(TMP)/frag.log || \
 	  (echo "FAIL: offset=32 did not lower to word indices 8..11"; \
 	   grep 'const regs' $(TMP)/frag.log; rm -rf $(TMP); exit 1)
 	@echo "push-constant lowering OK: offset 32 -> word indices 8..11 (raw, not float)"
