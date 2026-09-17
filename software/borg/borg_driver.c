@@ -277,7 +277,7 @@ static texture_t tex = {.dram_offset = -1};
 // rather than a fixed constant: a value tuned for one clock (e.g. the 4 MHz
 // ASIC target) silently under-delays at another (25 MHz sim/ULX3S needs
 // ~2170 cycles/byte vs ASIC's ~347) — this was the actual bug.
-#define UART_BAUD_RATE       115200  // distinct from UART_BAUD (the MMIO register)
+#define UART_BAUD_RATE       BORG_UART_BAUD  // distinct from UART_BAUD (the MMIO register)
 #define UART_CYCLES_PER_BIT  ((CLOCK_MHZ * 1000000) / UART_BAUD_RATE)
 #define UART_CYCLES_PER_BYTE (UART_CYCLES_PER_BIT * 10)  // start + 8 data + stop
 // The busy-wait loop costs ~2 cycles/iteration (addi+bnez) on the
