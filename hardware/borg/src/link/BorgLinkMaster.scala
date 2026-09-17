@@ -64,7 +64,15 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
   clkgen.io.rxPins    := DontCare
 
   val beatEn = clkgen.io.beatEn
-  val linkUp = clkgen.io.linkUp
+  // Report link_up only once a full inter-packet gap has gone out after
+  // training stops. farLinkUp can arrive while the slave's receiver is inside a
+  // training "packet"; a request sent on the very next beat would be taken as
+  // its payload. The idle beats are also the slave's resynchronization point
+  // (BorgLinkSlave's `synced`), which it will not accept traffic without.
+  val settle = RegInit(0.U(log2Ceil(p.gapBeats + 2).W))
+  when(!clkgen.io.linkUp) { settle := 0.U }
+    .elsewhen(beatEn && settle <= p.gapBeats.U) { settle := settle + 1.U }
+  val linkUp = clkgen.io.linkUp && settle > p.gapBeats.U
   io.linkUp := linkUp
 
   tx.io.beatEn := beatEn
@@ -76,31 +84,17 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
   // Drive the training pattern until the far side reports it has locked phase.
   io.dnPins := Mux(clkgen.io.trainActive, clkgen.io.trainPins, tx.io.pins)
 
-  // Errors are only latched from a defined resynchronization point: the first
-  // idle beat seen after link_up. Until then the receiver may still be chewing
-  // on the far side's training pattern -- link_up rises here as soon as the
-  // phase locks, but the master only stops training once farLinkUp has
-  // propagated back, so training beats (which carry v=1) are still arriving and
-  // get decoded as packets. Whether that leaves the receiver mid-packet when
-  // training stops depends purely on how the training word happens to decode:
-  // at w=16 it forms a 1-flit packet and completes every beat, at w=8 the two
-  // beats assemble into a 3-flit header and it does not. Gating on the gap --
-  // which LinkTx guarantees between packets, and which is the same
-  // resynchronization point a real framing error recovers through -- makes that
-  // an implementation detail rather than something the strap position can turn
-  // into a spurious link_err.
-  // RegNext to sit in the same cycle LinkRx does: it acts on a registered
-  // capture of the pins, so gating on the raw pin would arm `synced` on the very
-  // cycle the receiver aborts and latch the error we are trying to suppress.
-  val idleSeen = RegNext(linkUp && !io.upPins.v, false.B)
-  val synced   = RegInit(false.B)
-  when(idleSeen) { synced := true.B }
+  // Received traffic only counts from the first idle beat after link_up, judged
+  // on the receiver's own beat -- see BorgLinkSlave's `synced` for why both the
+  // resynchronization point and its beat alignment matter.
+  val synced = RegInit(false.B)
+  when(linkUp && rx.io.idle) { synced := true.B }
 
   val errSticky = RegInit(false.B)
   when(rx.io.err && linkUp && synced) { errSticky := true.B }
   io.linkErr := errSticky
 
-  val rxFire  = rx.io.out.valid && linkUp
+  val rxFire  = rx.io.out.valid && linkUp && synced
   val rxHdr   = rx.io.hdr
   val rxIsV   = rxHdr.chan === LinkChan.V // V.A request from Borg
   val rxIsM   = rxHdr.chan === LinkChan.M // M.D response to one of our requests

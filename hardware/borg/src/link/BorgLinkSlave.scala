@@ -96,25 +96,28 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   rx.io.pins   := io.dnPins
   io.upPins    := tx.io.pins
 
-  // Errors are only latched from a defined resynchronization point: the first
-  // idle beat seen after link_up. Until then the receiver may still be chewing
-  // on the far side's training pattern -- link_up rises here as soon as the
-  // phase locks, but the master only stops training once farLinkUp has
-  // propagated back, so training beats (which carry v=1) are still arriving and
-  // get decoded as packets. Whether that leaves the receiver mid-packet when
-  // training stops depends purely on how the training word happens to decode:
-  // at w=16 it forms a 1-flit packet and completes every beat, at w=8 the two
-  // beats assemble into a 3-flit header and it does not. Gating on the gap --
-  // which LinkTx guarantees between packets, and which is the same
-  // resynchronization point a real framing error recovers through -- makes that
-  // an implementation detail rather than something the strap position can turn
-  // into a spurious link_err.
-  // RegNext to sit in the same cycle LinkRx does: it acts on a registered
-  // capture of the pins, so gating on the raw pin would arm `synced` on the very
-  // cycle the receiver aborts and latch the error we are trying to suppress.
-  val idleSeen = RegNext(linkUp && !io.dnPins.v, false.B)
-  val synced   = RegInit(false.B)
-  when(idleSeen) { synced := true.B }
+  // Received traffic -- packets and errors alike -- only counts from a defined
+  // resynchronization point: the first idle beat after link_up. Until then the
+  // receiver is still decoding the master's training pattern, which carries v=1
+  // with valid parity: link_up rises here as soon as the phase locks, but the
+  // master keeps training until farLinkUp has propagated back. The inverting
+  // training word decodes alternately as a 1-flit header (0xA5A5) and a 3-flit
+  // M.A write header (0x5A5A), so where training happens to stop decides whether
+  // the receiver is left mid-packet. Without this gate that was visible two ways
+  // on the gate-level netlist, where the stopping point differs from RTL: a
+  // spurious sticky link_err, and a training "write" that parked the MMIO FSM in
+  // sMCollect so it swallowed the first real request as data.
+  //
+  // `synced` is set on the receiver's OWN beat, from the same registered pin
+  // capture LinkRx decodes, and only by a parity-valid idle (a floating or
+  // stuck line is not a gap). Deriving it from a per-cycle flag instead made the
+  // outcome depend on which core cycle the beat falls in, a phase silicon does
+  // not control. At that beat LinkRx aborts any half-finished training packet
+  // (io.err) while `synced` is still false, so the abort is not latched, and
+  // every later beat is judged normally. BorgLinkMaster guarantees that idle
+  // beat by holding its link_up until a gap has gone out after training.
+  val synced = RegInit(false.B)
+  when(linkUp && rx.io.idle) { synced := true.B }
 
   val errSticky = RegInit(false.B)
   when(rx.io.err && linkUp && synced) { errSticky := true.B }
@@ -127,7 +130,7 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   io.dbgTxBusy    := tx.io.busy
 
   // -- Receive demux ---------------------------------------------------------
-  val rxFire  = rx.io.out.valid && linkUp
+  val rxFire  = rx.io.out.valid && linkUp && synced
   val rxHdr   = rx.io.hdr
   val rxIsM   = rxHdr.chan === LinkChan.M // M.A request from the FPGA
   val rxIsV   = rxHdr.chan === LinkChan.V // V.D response to one of our reads
@@ -174,6 +177,9 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
       }
     }
     is(sMCollect) {
+      // An aborted packet never delivers its data flits; waiting here would
+      // take the next request's header as payload.
+      when(rx.io.err) { mState := sMIdle }
       when(rxFire) {
         when(rxIdx === 1.U) { mData := Cat(mData(31, 16), rxFlit) }
           .otherwise {

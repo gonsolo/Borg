@@ -131,6 +131,52 @@ object BorgLinkProtocolTests extends TestSuite {
 
   val tests = Tests {
 
+    utest.test("bring_up_is_clean_at_every_wire_delay") {
+      // Where training stops relative to the slave's beat depends on the
+      // round-trip latency of the pins. The inverting training word decodes as
+      // a 1-flit header and a 3-flit M.A write header in turn, so some latencies
+      // leave the slave's receiver mid-packet when training ends. Before the
+      // resynchronization fix that showed up (first on the gate-level netlist)
+      // as a sticky link_err and as a training "write" that swallowed the first
+      // real request. Every latency must bring the link up cleanly and carry a
+      // round trip.
+      for (delay <- 0 to 5; fast <- Seq(false, true)) {
+        simulate(new LinkLoopbackHarness(LinkParams(), wireDelay = delay)) { dut =>
+          init(dut)
+          dut.io.linkFast.poke(fast.B)
+          waitLinkUp(dut)
+          for (_ <- 0 until 40) dut.clock.step(1)
+          val errAfterTraining = dut.io.linkErr.peek().litToBoolean
+
+          val addr = 0x123
+          val data = 0xC0490FDBL
+          dut.io.socMmio.req.valid.poke(true.B)
+          dut.io.socMmio.req.bits.addr.poke(addr.U)
+          dut.io.socMmio.req.bits.data.poke(data.U)
+          dut.io.socMmio.req.bits.write.poke(true.B)
+          dut.io.socMmio.req.bits.size.poke(2.U)
+          var c = 0
+          while (c < TIMEOUT && !dut.io.socMmio.req.ready.peek().litToBoolean) { dut.clock.step(1); c += 1 }
+          dut.clock.step(1)
+          dut.io.socMmio.req.valid.poke(false.B)
+
+          var got: Option[(Int, Boolean, Long)] = None
+          c = 0
+          while (c < TIMEOUT && got.isEmpty) {
+            if (dut.io.borgMmio.req.valid.peek().litToBoolean) {
+              got = Some((dut.io.borgMmio.req.bits.addr.peek().litValue.toInt,
+                          dut.io.borgMmio.req.bits.write.peek().litToBoolean,
+                          dut.io.borgMmio.req.bits.data.peek().litValue.toLong))
+            }
+            dut.clock.step(1); c += 1
+          }
+          println(f"  delay=$delay fast=$fast: link_err after training=$errAfterTraining, first request at Borg=$got")
+          utest.assert(!errAfterTraining)
+          utest.assert(got == Some((addr, true, data)))
+        }
+      }
+    }
+
     utest.test("link_comes_up") {
       simulate(new LinkLoopbackHarness(LinkParams(trainBeats = 8))) { dut =>
         init(dut)

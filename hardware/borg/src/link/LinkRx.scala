@@ -57,6 +57,11 @@ class LinkRxIO(val p: LinkParams) extends Bundle {
 
   /** Sticky-ish view for debug: last error was parity (vs framing). */
   val errParity = Output(Bool())
+
+  /** A beat carrying a valid idle (v=0, parity good): the resynchronization
+    * point the inter-packet gap guarantees. Any packet in progress is aborted
+    * on it, so traffic judged from the next beat on starts on a header. */
+  val idle = Output(Bool())
 }
 
 class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
@@ -71,6 +76,7 @@ class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
   val inP = RegNext(io.pins.p, true.B)
 
   val parityOk = LinkFlit.parityW(inD, inV, io.narrow, p) === inP
+  io.idle := io.beatEn && parityOk && !inV
 
   // -- Flit assembly ----------------------------------------------------------
   val sIdle :: sPayload :: Nil = Enum(2)

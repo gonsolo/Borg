@@ -34,20 +34,25 @@ class LinkLoopbackHarnessIO(val p: LinkParams) extends Bundle {
   * and check the protocol end to end -- including the interface hazards that the
   * adapters exist to absorb.
   */
-class LinkLoopbackHarness(val p: LinkParams) extends Module {
+class LinkLoopbackHarness(val p: LinkParams, val wireDelay: Int = 0) extends Module {
   val io = IO(new LinkLoopbackHarnessIO(p))
 
   val master = Module(new BorgLinkMaster(p))
   val slave  = Module(new BorgLinkSlave(p))
 
-  // Pins, both directions, plus the credit return lines.
-  slave.io.dnPins  := master.io.dnPins
-  master.io.upPins := slave.io.upPins
-  master.io.dnCred := slave.io.dnCred
-  slave.io.upCred  := master.io.upCred
+  // Pins, both directions, plus the credit return lines. `wireDelay` core
+  // cycles of latency per direction stand in for pads, cable and the far
+  // side's input registers: with none, master and slave see each other's pins
+  // at a fixed phase from reset, which hides every bug that depends on where
+  // a beat falls relative to a pin change.
+  def wire[T <: Data](x: T): T = ShiftRegister(x, wireDelay)
+  slave.io.dnPins  := wire(master.io.dnPins)
+  master.io.upPins := wire(slave.io.upPins)
+  master.io.dnCred := wire(slave.io.dnCred)
+  slave.io.upCred  := wire(master.io.upCred)
 
   // The ASIC reports phase lock on a pin; the master reads it back.
-  master.io.farLinkUp := slave.io.linkUp
+  master.io.farLinkUp := wire(slave.io.linkUp)
 
   master.io.linkFast := io.linkFast
   master.io.narrow := io.narrow

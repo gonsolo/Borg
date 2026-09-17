@@ -277,16 +277,36 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.gpuMem.wr    := Mux(d.io.busy, false.B,  // DMA only reads — never assert wr
                        Mux(f.io.busy, f.io.gpuMem.wr,
                        Mux(geoBusy, geoWr, coreOrB(_.wr, rast.io.gpuMem.wr))))
+    // Every memory behind this port stores one write word as ONE 16-bit
+    // halfword (MemoryController writes GPU words as HuttSize.Half and streams
+    // wdata(15, 0) per burst beat; BorgLinkSlave sends one 16-bit flit per
+    // word). The flusher and binner write genuine halfwords. The setup store
+    // and the core's STORE write datapath-width words, so above 16 bits they
+    // go out as a two-word burst, low halfword first -- which a word read at
+    // the same address (DMA reload, LOAD) reassembles. Presenting them as a
+    // single word instead silently dropped the upper half: FP32 -pi stored as
+    // 0x00000FDB (BorgGpuMemWordTests).
+    val wordData = Mux(geoBusy, geoWdata, coreOr(_.wdata, rast.io.gpuMem.wdata))
+    val wideWr   = if (cfg.totalBits > 16)
+      !d.io.busy && !f.io.busy &&
+        Mux(geoBusy, !b.io.busy, coreOrB(_.wr, false.B))
+    else false.B
+    // Registered, so no combinational path from waccept back into wdata.
+    val upperHalf = RegInit(false.B)
+    when(io.gpuMem.ready) { upperHalf := false.B }
+      .elsewhen(wideWr && io.gpuMem.waccept) { upperHalf := true.B }
+    val splitData = Mux(upperHalf, wordData(31, 16), wordData(15, 0))
     io.gpuMem.wdata := Mux(f.io.busy, f.io.gpuMem.wdata,
-                       Mux(geoBusy, geoWdata, coreOr(_.wdata, rast.io.gpuMem.wdata)))
+                       Mux(wideWr, splitData, wordData))
     core.io.gpuMem.foreach { g =>
       g.data    := io.gpuMem.data
       g.ready   := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy && coreMem
       g.waccept := false.B
     }
     core.io.lsBase.foreach(_ := rdlRegs.io.hw.ls_base_base_addr)
-    // Burst length: only the flusher streams whole tiles; everyone else is 1 word.
-    io.gpuMem.wlen  := Mux(f.io.busy, f.io.gpuMem.wlen, 1.U)
+    // Burst length: the flusher streams whole tiles, a wide word is two
+    // halfwords (see wideWr above), everything else is 1 word.
+    io.gpuMem.wlen  := Mux(f.io.busy, f.io.gpuMem.wlen, Mux(wideWr, 2.U, 1.U))
     rast.io.gpuMem.data  := io.gpuMem.data
     rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy && !coreMem
     rast.io.gpuMem.waccept := false.B
