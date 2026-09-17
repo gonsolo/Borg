@@ -7,18 +7,20 @@
 
 #include <stdint.h>
 #include "borg_fpu.h"
-#include "borg_raster.h"
 #include "borg_regs.h"   // IWYU pragma: keep — borg_gpu_t used in BORG_GPU macro
 #include "borg_sys.h"    // BORG_BASE and system constants
 #define BORG_GPU ((volatile borg_gpu_t*)(uintptr_t) BORG_BASE)
 
-// FP16 constants from borg_fpu.h (single source of truth)
-
-// Vertex with position, color, and optional UV (all FP16)
+// Tile-buffer clear colour: FP16, like the tile buffer itself.
 typedef struct {
-    fp16_t pos[3];    // x, y, z
-    fp16_t color[3];  // r, g, b
-    fp16_t uv[2];     // u, v texture coordinates (0..1)
+    fp16_t r, g, b;
+} rgb16_t;
+
+// Vertex color and UV, datapath floats (the position comes from
+// borgTransformVerts' cache).
+typedef struct {
+    borg_float_t color[3];  // r, g, b
+    borg_float_t uv[2];     // u, v texture coordinates (0..1)
 } borg_vertex_t;
 
 // Framebuffer dimensions (set at runtime from host)
@@ -28,9 +30,9 @@ extern int borg_fb_height;
 #define BORG_FB_HEIGHT borg_fb_height
 #define BORG_MAX_FB_DIM 512
 
-// Draw state (uniforms computed from angle)
+// Draw state: the 4x4 MVP, column-major, as datapath floats.
 typedef struct {
-    fp16_t uniforms[16];
+    borg_float_t uniforms[16];
 } borg_draw_data_t;
 
 // Shader module — mirrors Vulkan's VkShaderModule.
@@ -70,9 +72,6 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob);
 // signal).  Returns (without resetting) on any framing/checksum/timeout error.
 void borg_serial_reload(void);
 
-// Set up draw data from a rotation angle (FP16 radians)
-void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16);
-
 // Clear z-buffer for a frame to FP16_MAX_DEPTH
 void borg_clear_zbuffer(int frame, rgb16_t clear_color);
 
@@ -103,11 +102,9 @@ void borg_upload_texture_row(const uint8_t *row, int y, int dim);
 void borg_set_push_constants(const uint32_t *words, uint32_t off_words,
                              uint32_t nwords);
 
-// Render a triangle: vertex shade → rasterize → z-test → fragment shade → framebuffer.
-// Mirrors vkCmdDraw().
-void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3], int frame);
-// Vertex-dedup fast path: transform unique positions once, draw by index.
-void borgTransformVerts(const borg_draw_data_t *d, const fp16_t *positions, int count);
+// Vertex-dedup draw path: cache the unique model-space positions and the MVP
+// once, then record triangles by index (the sequencer transforms on the GPU).
+void borgTransformVerts(const borg_draw_data_t *d, const borg_float_t *positions, int count);
 void borgCmdDrawIndexed(const int idx[3], const borg_vertex_t vertices[3], int frame);
 
 // Invalidate the recorded command buffer, forcing a full DRAM descriptor

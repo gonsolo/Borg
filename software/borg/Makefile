@@ -45,7 +45,7 @@ HUTT_SDK ?= ../hutt
 CLOCK_MHZ ?= 4
 
 PROJECT_NAME = kernel
-SHARED_SOURCES = borg_driver.c borg_fpu.c borg_raster.c borg_spirb.c borg_math.c
+SHARED_SOURCES = borg_driver.c borg_fpu.c borg_spirb.c borg_math.c
 PROJECT_SOURCES = borg_kernel.c $(SHARED_SOURCES)
 # compiler/shader_blobs.h is listed explicitly, not folded into the wildcard:
 # $(wildcard *.h) only globs THIS directory, so a header one level down in
@@ -67,14 +67,12 @@ kernel: python
 python:
 	$(MAKE) -C python
 
-test-native: test_raster.c borg_raster.c borg_math.c test_spirb.c borg_spirb.c
-	gcc -O2 -g -Wall -Wno-int-to-pointer-cast test_raster.c borg_raster.c borg_math.c -I. -I$(RDL_C_OUT) -D BORG_BASE=0 -o test_raster -lm
-	./test_raster
+test-native: test_spirb.c borg_spirb.c
 	gcc -O2 -g -Wall test_spirb.c borg_spirb.c -I. -o test_spirb
 	./test_spirb
 
 clean:
-	rm -f *.o *.elf *.bin *.hex *.asm test_raster test_spirb .cflags_stamp
+	rm -f *.o *.elf *.bin *.hex *.asm test_spirb .cflags_stamp
 	$(MAKE) -C compiler clean
 	$(MAKE) -C python clean
 

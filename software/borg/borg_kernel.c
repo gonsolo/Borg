@@ -8,7 +8,6 @@
 
 #include "borg_driver.h"
 #include "borg_fpu.h"
-#include "borg_math.h"
 #include "borg_sys.h"
 #include "compiler/shader_blobs.h"
 
@@ -16,15 +15,17 @@
 // an indexed triangle list with per-triangle-vertex UVs.
 #define RX_GEOM_MAX_VERTS 16
 #define RX_GEOM_MAX_TRIS  12
-// Payload after marker: nverts(1), ntris(1), verts(MAX_VERTS*6 B),
-// idx(MAX_TRIS*3 B), uv(MAX_TRIS*12 B), xor_checksum(1).
+// Payload after marker: nverts(1), ntris(1), verts(MAX_VERTS*3 float32 = 12 B
+// each), idx(MAX_TRIS*3 B), uv(MAX_TRIS*3*2 float32 = 24 B per tri),
+// xor_checksum(1). Positions and UVs are datapath values, sent as the host's
+// float32 bits.
 #define RX_GEOM_PKT_LEN \
-  (1 + 2 + RX_GEOM_MAX_VERTS * 6 + RX_GEOM_MAX_TRIS * 3 + RX_GEOM_MAX_TRIS * 12 + 1)
-static fp16_t  rx_geom_pos[RX_GEOM_MAX_VERTS * 3];
-static uint8_t rx_geom_idx[RX_GEOM_MAX_TRIS * 3];
-static fp16_t  rx_geom_uv[RX_GEOM_MAX_TRIS * 3 * 2];
+  (1 + 2 + RX_GEOM_MAX_VERTS * 12 + RX_GEOM_MAX_TRIS * 3 + RX_GEOM_MAX_TRIS * 24 + 1)
+static borg_float_t rx_geom_pos[RX_GEOM_MAX_VERTS * 3];
+static uint8_t      rx_geom_idx[RX_GEOM_MAX_TRIS * 3];
+static borg_float_t rx_geom_uv[RX_GEOM_MAX_TRIS * 3 * 2];
 // Per-vertex RGB for the CTS flat-shaded path (zero when borgvk is the source).
-static fp16_t  rx_geom_color[RX_GEOM_MAX_VERTS * 3];
+static borg_float_t rx_geom_color[RX_GEOM_MAX_VERTS * 3];
 static int     rx_have_color  = 0;
 static int     rx_geom_nverts = 0;
 static int     rx_geom_ntris  = 0;
@@ -45,9 +46,9 @@ static int     g_geom_recorded = 0;
 // length table below -- hence 0xB2.  Fixed length, padded to the full 32-word
 // range, for the same reason 0xAE/0xAF/0xB0 are: the drain loop reads a
 // constant byte count per marker and `n_words` says how much is valid.
-// 132 B, comfortably inside RX_PKT_BUF_LEN (the 0xB0 packet's 517 B), so the
-// shared buffer below does not need to grow -- but the max() there is what
-// guarantees that, so re-check it if this packet ever outgrows 0xB0's.
+// 132 B, comfortably inside RX_PKT_BUF_LEN (the largest packet: 0xAE at 520 B),
+// so the shared buffer below does not need to grow -- the max() there is what
+// guarantees that.
 #define RX_PUSH_MAX_WORDS 32   // = BORG_PUSH_CONST_MAX_WORDS (128 B, Vulkan min)
 #define RX_PUSH_PKT_LEN   (1 + 1 + 1 + RX_PUSH_MAX_WORDS * 4 + 1)
 // The wire packet and the DRAM staging block must hold the same number of
@@ -66,26 +67,31 @@ _Static_assert(RX_PUSH_MAX_WORDS == BORG_PUSH_CONST_MAX_WORDS,
 // harness fills with geometry + MVP so the sim needs no UART drain.
 #define CTS_MB(n) DRAM_OUT_RAW(BORG_CTS_MAILBOX_SPI + (n) * 4)
 
+static inline uint32_t rx_le32(const uint8_t *b) {
+  return (uint32_t)b[0] | ((uint32_t)b[1] << 8) |
+         ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
+}
+
 static int cts_mailbox_present(void) {
   return CTS_MB(BORG_CTS_OFF_MAGIC) == BORG_CTS_MAGIC;
 }
 
-static int cts_load_mailbox(fp16_t mvp_out[16]) {
+static int cts_load_mailbox(borg_float_t mvp_out[16]) {
   if (!cts_mailbox_present()) return 0;
   int nv = (int)CTS_MB(BORG_CTS_OFF_NVERTS);
   int nt = (int)CTS_MB(BORG_CTS_OFF_NTRIS);
   if (nv < 1 || nv > RX_GEOM_MAX_VERTS || nt < 1 || nt > RX_GEOM_MAX_TRIS)
     return 0;
   for (int i = 0; i < 16; i++)
-    mvp_out[i] = (fp16_t)(CTS_MB(BORG_CTS_OFF_MVP + i) & 0xFFFF);
+    mvp_out[i] = CTS_MB(BORG_CTS_OFF_MVP + i);
   for (int i = 0; i < nv * 3; i++) {
-    rx_geom_pos[i]   = (fp16_t)(CTS_MB(BORG_CTS_OFF_POS   + i) & 0xFFFF);
-    rx_geom_color[i] = (fp16_t)(CTS_MB(BORG_CTS_OFF_COLOR + i) & 0xFFFF);
+    rx_geom_pos[i]   = CTS_MB(BORG_CTS_OFF_POS   + i);
+    rx_geom_color[i] = CTS_MB(BORG_CTS_OFF_COLOR + i);
   }
   for (int i = 0; i < nt * 3; i++) {
     rx_geom_idx[i]        = (uint8_t)CTS_MB(BORG_CTS_OFF_IDX + i);
-    rx_geom_uv[i * 2 + 0] = FP16_ZERO;
-    rx_geom_uv[i * 2 + 1] = FP16_ZERO;
+    rx_geom_uv[i * 2 + 0] = BORG_FLOAT_ZERO;
+    rx_geom_uv[i * 2 + 1] = BORG_FLOAT_ZERO;
   }
   rx_geom_nverts = nv;
   rx_geom_ntris  = nt;
@@ -102,7 +108,7 @@ static void draw_received_geom(const borg_draw_data_t *draw) {
     for (int v = 0; v < 3; v++) {
       int vi = rx_geom_idx[t * 3 + v];
       idx[v] = vi;
-      fp16_t cr = FP16_ONE, cg = FP16_ONE, cb = FP16_ONE;
+      borg_float_t cr = BORG_FLOAT_ONE, cg = BORG_FLOAT_ONE, cb = BORG_FLOAT_ONE;
       if (rx_have_color) {
         cr = rx_geom_color[vi * 3 + 0];
         cg = rx_geom_color[vi * 3 + 1];
@@ -147,9 +153,10 @@ int main() {
   {
     static uint8_t white_row[RX_TEX_DIM * 6];
     for (int i = 0; i < RX_TEX_DIM; i++) {
-      white_row[i * 6 + 0] = 0x00; white_row[i * 6 + 1] = 0x3C;  // R=1.0 fp16
-      white_row[i * 6 + 2] = 0x00; white_row[i * 6 + 3] = 0x3C;  // G=1.0 fp16
-      white_row[i * 6 + 4] = 0x00; white_row[i * 6 + 5] = 0x3C;  // B=1.0 fp16
+      // Texels are FP16 (the texture unit is FP16-native).
+      white_row[i * 6 + 0] = FP16_ONE & 0xFF; white_row[i * 6 + 1] = FP16_ONE >> 8;  // R
+      white_row[i * 6 + 2] = FP16_ONE & 0xFF; white_row[i * 6 + 3] = FP16_ONE >> 8;  // G
+      white_row[i * 6 + 4] = FP16_ONE & 0xFF; white_row[i * 6 + 5] = FP16_ONE >> 8;  // B
     }
     for (int y = 0; y < RX_TEX_DIM; y++)
       borg_upload_texture_row(white_row, y, RX_TEX_DIM);
@@ -158,7 +165,7 @@ int main() {
   const int cts_active = cts_mailbox_present();
 
   static uint8_t pkt_buf[RX_PKT_BUF_LEN];
-  static float host_mvp[16];
+  static borg_float_t host_mvp[16];
   static int have_mvp = 0;
   // Persists ACROSS while(1) iterations (not just within one drain-loop call):
   // a burst's packets stream back-to-back with no idle gap, so when a call
@@ -258,14 +265,12 @@ int main() {
             uint8_t csum = 0;
             for (int i = 1; i <= 64; i++) csum ^= pkt_buf[i];
             if (csum == pkt_buf[65]) {
-              union { uint32_t u; float f; } conv;
               for (int i = 0; i < 16; i++) {
                 int base = 1 + i * 4;
-                conv.u = (uint32_t)pkt_buf[base]           |
-                         ((uint32_t)pkt_buf[base+1] << 8)  |
-                         ((uint32_t)pkt_buf[base+2] << 16) |
-                         ((uint32_t)pkt_buf[base+3] << 24);
-                host_mvp[i] = conv.f;
+                host_mvp[i] = (uint32_t)pkt_buf[base]           |
+                              ((uint32_t)pkt_buf[base+1] << 8)  |
+                              ((uint32_t)pkt_buf[base+2] << 16) |
+                              ((uint32_t)pkt_buf[base+3] << 24);
               }
               have_mvp = 1;
               success = 1;
@@ -279,16 +284,14 @@ int main() {
                 nv >= 1 && nv <= RX_GEOM_MAX_VERTS &&
                 nt >= 1 && nt <= RX_GEOM_MAX_TRIS) {
               int vbase = 3;
-              int ibase = vbase + RX_GEOM_MAX_VERTS * 6;
+              int ibase = vbase + RX_GEOM_MAX_VERTS * 12;
               int ubase = ibase + RX_GEOM_MAX_TRIS * 3;
               for (int i = 0; i < nv * 3; i++)
-                rx_geom_pos[i] = (uint16_t)pkt_buf[vbase + i*2] |
-                                 ((uint16_t)pkt_buf[vbase + i*2 + 1] << 8);
+                rx_geom_pos[i] = rx_le32(&pkt_buf[vbase + i * 4]);
               for (int i = 0; i < nt * 3; i++)
                 rx_geom_idx[i] = pkt_buf[ibase + i];
               for (int i = 0; i < nt * 6; i++)
-                rx_geom_uv[i] = (uint16_t)pkt_buf[ubase + i*2] |
-                                ((uint16_t)pkt_buf[ubase + i*2 + 1] << 8);
+                rx_geom_uv[i] = rx_le32(&pkt_buf[ubase + i * 4]);
               rx_geom_nverts = nv;
               rx_geom_ntris  = nt;
               rx_have_geom   = 1;
@@ -382,7 +385,7 @@ int main() {
 
     // CTS host-mailbox: override geometry + MVP if the headless harness has
     // filled the DRAM region (transport-independent, no UART required).
-    fp16_t cts_mvp[16];
+    borg_float_t cts_mvp[16];
     int cts_frame = cts_active && cts_load_mailbox(cts_mvp);
 
     // Wait for borgvk to deliver geometry and an MVP before rendering.
@@ -394,9 +397,10 @@ int main() {
       for (int i = 0; i < 16; i++) draw.uniforms[i] = cts_mvp[i];
     } else {
       for (int i = 0; i < 16; i++)
-        draw.uniforms[i] = fp16_from_float(host_mvp[i]);
+        draw.uniforms[i] = host_mvp[i];  // float32 on the wire = datapath float
     }
 
+    // Tile clear colour: FP16, the tile buffer's own format.
     rgb16_t bg = cts_active ? (rgb16_t){0,0,0} : (rgb16_t){0x3266, 0x3266, 0x3266};
 
     if (rx_have_geom && g_geom_recorded) {

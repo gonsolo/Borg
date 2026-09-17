@@ -1,13 +1,22 @@
 // SPDX-FileCopyrightText: © 2025-2026 Andreas Wendleder
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Borg FPU helpers — hardware-accelerated FP16 arithmetic via MMIO.
+// Borg FPU helpers — the shader datapath's float arithmetic via MMIO, plus the
+// float encodings the firmware hands to the hardware.
 
 #pragma once
 
 #include <stdint.h>
 
-// Documentary typedef: distinguishes FP16 float values from raw integers.
+// A datapath float: the bit pattern of one value in the shader core's float
+// format -- IEEE 754 binary32 (FP32) in every current BorgConfig. GPRs,
+// uniforms, vertex descriptor words, the setup store and push constants all
+// hold these. borg_check_float_width() refuses to run on anything else.
+typedef uint32_t borg_float_t;
+
+// FP16 stays where the hardware itself is FP16: texels (the texture unit),
+// the tile buffer's colour/Z and its clear value. Nothing on the shader
+// datapath is FP16.
 #ifndef FP16_T_DEFINED
 #define FP16_T_DEFINED
 typedef uint16_t fp16_t;
@@ -17,34 +26,46 @@ typedef uint16_t fp16_t;
 struct spirb_shader_t;
 typedef struct spirb_shader_t spirb_shader_t;
 
-// --- Borg FPU wrappers ---
+// --- Borg FPU wrappers (one instruction run on the shader core) ---
 void borg_run(uint32_t start_pc);
-fp16_t borg_fp16_add(fp16_t a, fp16_t b);
-fp16_t borg_fp16_mul(fp16_t a, fp16_t b);
-fp16_t borg_fp16_fmadd(fp16_t a, fp16_t b, fp16_t c);
-fp16_t borg_fp16_rcp(fp16_t x);
+borg_float_t borg_float_add(borg_float_t a, borg_float_t b);
+borg_float_t borg_float_mul(borg_float_t a, borg_float_t b);
+borg_float_t borg_float_fmadd(borg_float_t a, borg_float_t b, borg_float_t c);
 
-// --- FP16 constants (single source of truth) ---
-#define FP16_ZERO      0x0000
-#define FP16_HALF      0x3800  // 0.5
-#define FP16_ONE       0x3C00  // 1.0
-#define FP16_TWO       0x4000  // 2.0
-#define FP16_MAX_DEPTH 0x7BFF  // 65504 (max finite FP16)
+// --- Datapath float constants ---
+#define BORG_FLOAT_ZERO 0x00000000u
+#define BORG_FLOAT_HALF 0x3F000000u  // 0.5
+#define BORG_FLOAT_ONE  0x3F800000u  // 1.0
 
-// --- Inline macros ---
-#define BORG_FP16_SUB(a, b) borg_fp16_add((a), (b) ^ 0x8000)
-#define BORG_FP16_NEG(x) ((x) ^ 0x8000)
+// --- FP16 constants (texels, tile colour/Z) ---
+#define FP16_ONE       0x3C00  // 1.0 (texel)
+#define FP16_MAX_DEPTH 0x7BFF  // 65504 (max finite FP16), tile-buffer Z clear
 
-// --- FP16 conversion utilities ---
-static inline int fp16_ge_zero(fp16_t v) { return (v & 0x8000) == 0; }
-// Signed FP16 less-than: handles negative values correctly.
-static inline int fp16_lt(fp16_t a, fp16_t b) {
-  int sa = a >> 15, sb = b >> 15;
-  if (sa != sb) return sa > sb;       // negative < positive
-  return sa ? (a > b) : (a < b);      // both neg: larger bits = more negative
+// C float -> datapath float: the IEEE bits, no conversion. memcpy-style union
+// copy, so no soft-float arithmetic is involved on RV32.
+static inline borg_float_t borg_float_from_f(float f) {
+  union { float f; uint32_t u; } v = { f };
+  return v.u;
 }
-int fp16_to_uint(fp16_t fp16);
-fp16_t uint_to_fp16(int val);
+
+// Non-negative integer -> datapath float, exact for v < 2^24. Integer-only.
+static inline borg_float_t borg_float_from_uint(uint32_t v) {
+  if (v == 0) return BORG_FLOAT_ZERO;
+  int msb = 31;
+  while (!(v & (1u << msb))) msb--;
+  uint32_t mant = (msb >= 23) ? (v >> (msb - 23)) : (v << (23 - msb));
+  return ((uint32_t)(127 + msb) << 23) | (mant & 0x7FFFFFu);
+}
+
+// 1/2^n as a datapath float (exact).
+static inline borg_float_t borg_float_inv_pow2(unsigned n) {
+  return (uint32_t)(127 - n) << 23;
+}
+
+// Halts with a UART message unless the shader core really holds FP32 words.
+// An FP16 build keeps only the low 16 bits of a GPR write, and every float the
+// firmware sends would then be garbage that renders nothing, silently.
+void borg_check_float_width(void);
 
 // --- Shader loader helpers ---
 // The rasterizer edge-test shader is a permanent hardware ROM (BorgRasterRom
@@ -67,8 +88,6 @@ fp16_t uint_to_fp16(int val);
 
 void borg_load_spirb_shader(const spirb_shader_t *s);
 void borg_load_spirb_shader_at(const spirb_shader_t *s, int offset);
-void borg_load_add_shader(void);
-fp16_t borg_fp16_sub_raw(fp16_t a, fp16_t b);
 
 // --- DMA shader/uniform loaders (Step 26.4, hasDMA=true path) ---
 // Firmware must hold dram_byte_addr / num / offset stable; caller ensures GPU is idle.

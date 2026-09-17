@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025-2026 Andreas Wendleder
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Borg FPU helpers — hardware-accelerated FP16 arithmetic via MMIO.
+// Borg FPU helpers — the shader datapath's float arithmetic via MMIO.
 
 #include "borg_fpu.h"
 #include "borg_spirb.h"
@@ -9,6 +9,9 @@
 #include "borg_regs.h"  // borg_gpu_t + register bit-masks
 #include "borg_isa.h"
 #define BORG_GPU ((volatile borg_gpu_t*) BORG_BASE)
+
+void putc_uart(int c);
+void puts_uart(const char *s);
 
 // @doc:fpu-helpers
 // --- Borg FPU helpers ---
@@ -26,42 +29,48 @@ void borg_run(uint32_t start_pc) {
     timeout--;
 }
 
-fp16_t borg_fp16_add(fp16_t a, fp16_t b) {
+borg_float_t borg_float_add(borg_float_t a, borg_float_t b) {
   BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FADD(0, 1, 2, 0);
   BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
   BORG_GPU->gpr[1] = a;
   BORG_GPU->gpr[2] = b;
   borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_GPU->gpr[0] & 0xFFFF;
+  return BORG_GPU->gpr[0];
 }
 
-fp16_t borg_fp16_mul(fp16_t a, fp16_t b) {
+borg_float_t borg_float_mul(borg_float_t a, borg_float_t b) {
   BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FMUL(0, 1, 2, 0);
   BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
   BORG_GPU->gpr[1] = a;
   BORG_GPU->gpr[2] = b;
   borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_GPU->gpr[0] & 0xFFFF;
+  return BORG_GPU->gpr[0];
 // @doc:end
 }
 
-fp16_t borg_fp16_fmadd(fp16_t a, fp16_t b, fp16_t c) {
+borg_float_t borg_float_fmadd(borg_float_t a, borg_float_t b, borg_float_t c) {
   BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FMADD(0, 1, 2, 3, 0);
   BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
   BORG_GPU->gpr[1] = a;
   BORG_GPU->gpr[2] = b;
   BORG_GPU->gpr[3] = c;
   borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_GPU->gpr[0] & 0xFFFF;
+  return BORG_GPU->gpr[0];
 }
 
-// FP16 reciprocal: 1/x via hardware FRCP instruction (LUT + interpolation).
-fp16_t borg_fp16_rcp(fp16_t x) {
-  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FRCP(0, 1, 0);
-  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
-  BORG_GPU->gpr[1] = x;
-  borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_GPU->gpr[0] & 0xFFFF;
+void borg_check_float_width(void) {
+  // Read a GPR back: the register file stores cfg.totalBits bits, so FP16
+  // hardware returns 0x0000FFFF here. The GPU is idle at boot; gpr[0] is
+  // scratch for the FPU helpers above.
+  BORG_GPU->gpr[0] = 0xFFFFFFFFu;
+  uint32_t got = BORG_GPU->gpr[0];
+  BORG_GPU->gpr[0] = 0;
+  if (got == 0xFFFFFFFFu) return;
+  static const char hex[] = "0123456789abcdef";
+  puts_uart("FW: Borg shader datapath is not FP32 (GPR read back 0x");
+  for (int i = 28; i >= 0; i -= 4) putc_uart(hex[(got >> i) & 0xF]);
+  puts_uart("); this firmware only drives FP32. Halted.\r\n");
+  for (;;) { }
 }
 
 void borg_load_spirb_shader_at(const spirb_shader_t *s, int offset) {
@@ -100,11 +109,11 @@ void dma_load_shader(uint32_t dram_byte_addr, int num_instrs, int imem_offset) {
     ;
 }
 
-/** dma_load_uniforms — bulk-copy FP16 uniforms from DRAM to uniform buffer.
+/** dma_load_uniforms — bulk-copy uniforms from DRAM to the uniform buffer.
  *
  * @param dram_byte_addr  4-byte-aligned DRAM source address
- *                         Each DRAM word holds one FP16 value in bits[15:0].
- * @param num_uniforms     number of FP16 uniform values to transfer
+ *                         Each DRAM word holds one datapath float.
+ * @param num_uniforms     number of uniform values to transfer
  * @param uniform_offset   starting index in the uniform buffer (0..31)
  * @param page             uniform buffer page: 0 or 1
  */
@@ -129,39 +138,3 @@ void borg_load_spirb_shader(const spirb_shader_t *s) {
   borg_load_spirb_shader_at(s, 0);
 }
 
-void borg_load_add_shader(void) {
-  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FADD(0, 1, 2, 0);
-  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
-}
-
-fp16_t borg_fp16_sub_raw(fp16_t a, fp16_t b) {
-  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET] = BORG_INSTR_FADD(0, 1, 2, 0);
-  BORG_GPU->imem[BORG_IMEM_ADD_OFFSET + 1] = BORG_INSTR_HALT;
-  BORG_GPU->gpr[1] = a;
-  BORG_GPU->gpr[2] = b ^ 0x8000;
-  borg_run(BORG_IMEM_ADD_OFFSET);
-  return BORG_GPU->gpr[0] & 0xFFFF;
-}
-
-// Convert FP16 (positive) to unsigned integer (truncate)
-int fp16_to_uint(fp16_t fp16) {
-  int exp = (fp16 >> 10) & 0x1F;
-  int frac = fp16 & 0x3FF;
-  if (exp < 15) return 0;  // value < 1.0, integer part is 0
-  if (exp == 0) return 0;  // zero/subnormal
-  int mantissa = 1024 + frac;  // 1.frac in Q10
-  int shift = exp - 15;       // number of integer bits
-  if (shift >= 10) return mantissa << (shift - 10);
-  return mantissa >> (10 - shift);
-}
-
-// Convert integer to FP16 (for small positive integers)
-fp16_t uint_to_fp16(int val) {
-  if (val == 0) return 0;
-  int exp = 25;  // bias(15) + Q10 offset(10)
-  int mantissa = val;
-  // Normalize: shift until mantissa is in [1024, 2048)
-  while (mantissa >= 2048) { mantissa >>= 1; exp++; }
-  while (mantissa < 1024)  { mantissa <<= 1; exp--; }
-  return (uint16_t)((exp << 10) | (mantissa & 0x3FF));
-}
