@@ -14,24 +14,29 @@ SECTIONS
     .text : { *(.text*) } > rom
     .rodata : { *(.rodata*) } > rom
 
-    .peri : {
+    /* Load addresses (LMA) in ROM must be word-aligned: __runtime_init copies
+       .peri and .data with uint32_t pointer walks, and a word read from an
+       odd byte address returns the halfword containing it -- shifting every
+       initialized variable by a byte (back_buf = 1 read back as 0x100). The
+       end of .rodata is wherever the code size leaves it, so align here. */
+    .peri : AT(ALIGN(LOADADDR(.rodata) + SIZEOF(.rodata), 16)) {
         . = ALIGN(4);
         __peri_data_start__ = .;
         *(.peri_data*)
         . = ALIGN(4);
         __peri_data_end__ = .;
         *(.peri_bss*)
-    } > ram_a AT> rom
+    } > ram_a
     __peri_lma = LOADADDR(.peri);
 
-    .data : {
+    .data : AT(ALIGN(LOADADDR(.peri) + SIZEOF(.peri), 16)) {
         __data_start_unaligned__ = .;
         . = ALIGN(16);
         __data_start__ = .;
         *(.sdata*) *(.data*)
         . = ALIGN(16);
         __data_end__ = .;
-    } > ram_a AT> rom
+    } > ram_a
     __data_lma = LOADADDR(.data) + __data_start__ - __data_start_unaligned__;
 
     .bss (NOLOAD): {
