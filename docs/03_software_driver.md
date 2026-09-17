@@ -1,7 +1,7 @@
 # The Software Driver
 
 The firmware running on Hutt provides a Vulkan-like API for rendering triangles.
-It consists of a driver library (`borg_driver.c`, `borg_fpu.c`, `borg_raster.c`) and a thin kernel (`borg_kernel.c`) that drains geometry, textures, and shaders streamed at runtime by the borgvk Mesa driver over serial, rather than rendering baked demo content.
+It consists of a driver library (`borg_driver.c`, `borg_fpu.c`, `borg_spirb.c`) and a thin kernel (`borg_kernel.c`) that drains geometry, textures, and shaders streamed at runtime by the borgvk Mesa driver over serial, rather than rendering baked demo content.
 
 ## Memory-Mapped Hardware
 
@@ -11,7 +11,7 @@ values, and control execution:
 
 {{snippet:software/borg/borg_driver.c:mmio-map}}
 
-The Borg peripheral is accessed at `0x08000C00` (BORG_BASE). It exposes 32 FP16 general-purpose registers (r0–r31), 31 usable instruction memory words, a control/status register, and a full RDL-generated register block covering tile buffer, texture, sequencer, DMA, and flush control. DRAM provides shared memory between the Hutt CPU and the GPU.
+The Borg peripheral is accessed at `0x08000C00` (BORG_BASE). It exposes 32 general-purpose float registers (r0–r31, FP32), 72 instruction memory words, a control/status register, and a full RDL-generated register block covering tile buffer, texture, sequencer, DMA, and flush control. DRAM provides shared memory between the Hutt CPU and the GPU.
 
 ## FPU Helper Functions
 

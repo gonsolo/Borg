@@ -6,7 +6,6 @@
 #include "borg_driver.h"
 #include "borg_fpu.h"
 #include "borg_math.h"
-#include "borg_raster.h"
 #include "borg_spirb.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -16,8 +15,6 @@
 #include "borg_sys.h"
 // @doc:end
 
-#define FP16_SIXTEEN 0x4C00
-
 // --- DRAM frame layout (tiled: 2 words per pixel) ---
 // RGB565 tiled framebuffer: the flusher writes one 16-bit RGB565 halfword per
 // pixel (R[15:11] G[10:5] B[4:0]); depth lives only in the on-chip tile buffer.
@@ -26,13 +23,9 @@
 #define FRAME_ZB_SIZE 0
 #define FRAME_STRIDE (FRAME_FB_SIZE + 1) // FB + DONE marker
 
-// Maximum tiles for the largest supported framebuffer (128×128 / 4×4 = 32×32
-// tiles).
-#define BORG_MAX_TILES 1024      // (128/4)*(128/4) = 1024
 // In-RAM draw-call buffer — mirrors SEQ_MAX_DRAWS from borg_layout.h which
 // also sizes the DRAM descriptor window (SEQ_MAX_DRAWS × SEQ_DESC_STRIDE).
 #define BORG_MAX_DRAWS SEQ_MAX_DRAWS
-#define BORG_MAX_TRIS_PER_TILE 8    // max triangles that can touch one tile
 
 // Sequencer auto-detection (set in borgCreateGraphicsPipeline).
 // Sim/ULX3S: hasSequencer=true → autonomous uniform staging.
@@ -69,12 +62,10 @@ static int last_present_marker_offset = 0;
 //   exactly to the previous orthographic behaviour (0xAC / 0xAD demos unchanged).
 //   r0=screen_x, r1=screen_y, r2=ndc_z (snooped by the sequencer into clipRegs).
 //   r30,r31 = 0 when seqBusy=true (special BorgCore registers).
-// lightDir = (0.424, 0.566, 0.707) as FP16, pinned to reserved GPRs r17-19.
-#define BORGC_LIGHTDIR_R17 0x36c8  // fp16(0.424)
-#define BORGC_LIGHTDIR_R18 0x3887  // fp16(0.566)
-#define BORGC_LIGHTDIR_R19 0x39a7  // fp16(0.707)
-// 32.0 for the DDX rescale FMULs, pinned to uniform u31 (both pages).
-#define BORGC_DDXSCALE_U31 0x5000  // fp16(32.0)
+// The fragment's constants (e.g. cube.frag's lightDir, pinned by borgc to the
+// reserved GPRs r17-r19) come from the staged blob's const pool -- see
+// borg_stage_shader and borgBinRenderAutonomous. They used to be hand-copied
+// here, and drifted from borgc's output without anything noticing.
 
 // Hand-written GPU MVP vertex shader with HARDWARE PERSPECTIVE DIVIDE.  Used by
 // the self-contained firmware (triangle/vkcube, headless sims) when no host
@@ -203,15 +194,6 @@ static const uint32_t seq_setup_shader[] = {
 };
 #define SEQ_SETUP_SHADER_LEN (sizeof(seq_setup_shader) / sizeof(seq_setup_shader[0]))
 
-// Per-tile triangle list (the in-RAM "bin").
-// bin_count[t] = number of draw calls touching tile t
-// bin_list[t][i] = index into draw_calls[] for the i-th triangle on tile t
-// uint8_t is sufficient: BORG_MAX_DRAWS = 12, indices are always 0..11.
-// The DRAM bin list (Step 32.1 BorgBinner) uses uint16_t entries for
-// thousands of triangles — that is a separate, hardware-managed structure.
-static uint8_t bin_count[BORG_MAX_TILES];
-static uint8_t bin_list[BORG_MAX_TILES][BORG_MAX_TRIS_PER_TILE];
-
 typedef struct {
   int w, h;
 } dim2_t;
@@ -219,13 +201,13 @@ typedef struct {
 typedef struct {
   int dram_offset;        // -1 = no texture
   dim2_t size;             // integer dimensions
-  uint16_t w_fp16, h_fp16; // FP16 dimensions for Borg FPU
+  borg_float_t w_f, h_f;   // dimensions as datapath floats (UV pre-scale)
 } texture_t;
 
 // Runtime framebuffer dimensions and derived values
 int borg_fb_width;
 int borg_fb_height;
-static fp16_t fp16_half_width;
+static borg_float_t half_width_f;
 
 // log2 of the current texture dimension (set by borg_set_texture; 0 = no clamp).
 static uint8_t tex_log2_dim = 0;
@@ -239,7 +221,6 @@ static uint8_t tex_log2_dim = 0;
 // Set via borg_set_frag_vertex_color() before borg_present().
 int borg_frag_vertex_color = 0;
 void borg_set_frag_vertex_color(int enable) { borg_frag_vertex_color = enable; }
-static fp16_t pc_lut[BORG_MAX_FB_DIM];
 
 // Step 32.0: TBR DRAM geometry region base addresses.
 // Computed in borgCreateDevice() after framebuffer size is known.
@@ -249,16 +230,23 @@ static fp16_t pc_lut[BORG_MAX_FB_DIM];
 uint32_t tbr_bin_base   = 0;  // set in borgCreateDevice
 uint32_t tbr_setup_base = 0;  // set in borgCreateDevice
 
-// Integer bounding box (clamped to framebuffer).
+// Per-triangle attributes recorded into the sequencer descriptor.
 typedef struct {
-  int x0, y0, x1, y1;
-} bbox_t;
+  borg_float_t r, g, b;
+} rgbf_t;
+typedef struct {
+  borg_float_t u, v;
+} uvf_t;
+typedef struct {
+  rgbf_t colors[3];
+  uvf_t uvs[3];
+  int has_uvs;
+} triangle_t;
 
-// Snapshot of one submitted draw call (post-clip, post-setup).
+// Snapshot of one submitted draw call.
 typedef struct {
-  triangle_t tri; // fully set-up triangle (screen_pos, edges, uniforms)
+  triangle_t tri;
   texture_t tex;  // copy of texture state at draw time
-  bbox_t bb;      // screen-space AABB (used for binning)
   int frame;      // target frame index
 } draw_call_t;
 
@@ -272,16 +260,6 @@ static rgb16_t
 // dynamic state (MVP + vertex colors) is rewritten each frame.
 // Set to 0 to force a full re-record (e.g. after a pipeline change).
 static int g_cmdbuf_valid = 0;
-
-#define NUM_VERTICES 3
-#define MAX_CLIP_VERTS 4 // Clipping one triangle can produce at most a quad
-
-// Clipped vertex: carries all interpolable attributes through clipping.
-typedef struct {
-  fp16_t x, y, z, w; // clip-space position
-  fp16_t r, g, b;    // vertex color
-  fp16_t u, v;       // texture UV
-} clip_vertex_t;
 
 // Global timing vars
 unsigned int t_init_cycles = 0;
@@ -405,33 +383,10 @@ static inline unsigned int get_cycles(void) {
 }
 
 // --- Shader globals ---
-static spirb_shader_t vert_shader;
-static spirb_shader_t rast_shader;
+// The fragment stage's parsed blob: its const pool is written to the GPRs
+// before every render (vertex constants are not supported yet -- borgc emits
+// none for the cube's vertex shader).
 static spirb_shader_t frag_shader;
-
-// --- Vertex shader ---
-static void run_vertex_shader(const fp16_t *uniforms, const fp16_t *attrs,
-                              fp16_t *outputs) {
-  const spirb_shader_t *s = &vert_shader;
-  borg_load_spirb_shader(s);
-
-  for (int i = 0; i < s->num_uniforms; i++)
-    BORG_GPU->uniform[s->uniform_regs[i]] = uniforms[i];
-
-  for (int v = 0; v < NUM_VERTICES; v++) {
-    BORG_GPU->control = CONTROL_REG_T__RESET_PIPELINE_bm;
-    for (int i = 0; i < s->num_uniforms; i++)
-      BORG_GPU->uniform[s->uniform_regs[i]] = uniforms[i];
-    for (int i = 0; i < s->num_attributes; i++)
-      BORG_GPU->gpr[s->attribute_regs[i]] = attrs[v * s->num_attributes + i];
-    for (int i = 0; i < s->num_consts; i++)
-      BORG_GPU->gpr[s->const_regs[i]] = s->const_vals[i];
-    borg_run(BORG_IMEM_VERT_OFFSET);
-    for (int i = 0; i < s->num_outputs; i++)
-      outputs[v * s->num_outputs + i] =
-          BORG_GPU->gpr[s->output_regs[i]] & 0xFFFF;
-  }
-}
 
 // --- Public API ---
 
@@ -439,6 +394,7 @@ void borgCreateDevice(void) {
   STARTUP_DELAY();
   UART_BAUD = UART_BAUD_DEFAULT;
   puts_uart("Borg pipeline\r\n");
+  borg_check_float_width();
   unsigned int t_init = get_cycles();
 
   // Read framebuffer dimensions from DRAM (written by host on sim).
@@ -454,25 +410,8 @@ void borgCreateDevice(void) {
       (borg_fb_height & (borg_fb_height - 1)) != 0)
     borg_fb_height = 128;
 
-  // Compute FP16 half-width for NDC→screen transform.
-  // Must encode both exponent AND mantissa to handle non-power-of-2 widths.
-  // E.g. width=60 → hw=30 → FP16 0x4F80 (30.0), not 0x4C00 (16.0).
-  int hw = borg_fb_width / 2;
-  int exp = 0;
-  int tmp = hw;
-  while (tmp > 1) {
-    tmp >>= 1;
-    exp++;
-  }
-  int mantissa = ((hw - (1 << exp)) << (10 - exp)) & 0x3FF;
-  fp16_half_width = ((exp + 15) << 10) | mantissa;
-
-  // Compute pixel center LUT: 0.5, 1.5, ..., (width-0.5)
-  fp16_t val = FP16_HALF;
-  for (int i = 0; i < borg_fb_width; i++) {
-    pc_lut[i] = val;
-    val = borg_fp16_add(val, FP16_ONE);
-  }
+  // Half the framebuffer width, for the viewport transform baked into the MVP.
+  half_width_f = borg_float_from_uint((uint32_t)borg_fb_width / 2);
 
   // Step 25.4.1: Configure hardware tile flusher base address.
   // Actual per-tile base is set dynamically in borgBinRender.
@@ -517,8 +456,8 @@ void borgCreateDevice(void) {
 void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
                                 const BorgShaderModule *rast,
                                 const BorgShaderModule *frag) {
-  spirb_parse(vert->code, &vert_shader);
-  spirb_parse(rast->code, &rast_shader);
+  (void)vert;  // the sequencer runs the hand-written seq_vert_shader below
+  (void)rast;  // the rasterizer is a hardware ROM (BorgRasterRom)
   spirb_parse(frag->code, &frag_shader);
 
   // Stage all four sequencer shader stages (vertex/setup/rast/frag) to DRAM.  This
@@ -545,21 +484,18 @@ void borgCreateGraphicsPipeline(const BorgShaderModule *vert,
   // Step 31: Stage frag shader to DRAM for autonomous re-DMA. After vertex+
   // setup, the sequencer needs to reload IMEM with frag. The rasterizer edge-
   // test shader is a permanent hardware ROM (BorgRasterRom) now -- it is no
-  // longer staged or DMA'd; rast_shader is still spirb_parse'd above purely
-  // for its uniform_regs metadata (consumed by the CPU-fallback
-  // setup_tile_uniforms path).
+  // longer staged or DMA'd.
   for (int i = 0; i < (int)frag_shader.num_instrs; i++)
     DRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)i * 4) = frag_shader.instrs[i];
   DRAM_OUT_RAW(SEQ_FRAG_SHADER_ADDR + (uint32_t)frag_shader.num_instrs * 4) = 0;
   BORG_GPU->seq_frag_addr = SEQ_FRAG_SHADER_ADDR;
   BORG_GPU->seq_frag_len  = frag_shader.num_instrs + 1;  // +1 for HALT
 
-  // Step 30.1c: Precompute 1/fb_width as exact FP16 (fb_width is a power of 2).
-  // fp16(2^n) has exp = n+15, so fp16(2^-n) has exp = 15-n = 30 - exp_of_width.
+  // Step 30.1c: 1/fb_width, exact (fb_width is a power of 2).
   {
-    fp16_t fb_fp16   = uint_to_fp16(borg_fb_width);
-    fp16_t inv_width = (fp16_t)((30u - ((fb_fp16 >> 10) & 0x1Fu)) << 10);
-    BORG_GPU->seq_inv_width = inv_width;
+    unsigned log2_w = 0;
+    for (int w = borg_fb_width; w > 1; w >>= 1) log2_w++;
+    BORG_GPU->seq_inv_width = borg_float_inv_pow2(log2_w);
   }
 
   // Detect sequencer: trigger with triCount=0, then read seqDoneSticky.
@@ -585,9 +521,9 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   // .borg blob layout (spirb_parse / emit_blob): byte 0 = num_instrs, then a
   // 6-byte header, then num_instrs little-endian u32 instruction words.  Only the
   // instruction words need staging — the sequencer re-DMAs them into IMEM each
-  // render; the fragment's lightDir (r17-19) and u31=32.0 consts are written
-  // separately in the render path.  borgc HALT-terminates the blob, so
-  // seq_*_len = num_instrs (no +1).
+  // render.  The fragment's const pool is parsed here and written to its GPRs
+  // in the render path.  borgc HALT-terminates the blob, so seq_*_len =
+  // num_instrs (no +1).
   uint32_t n = blob[0];
   // IMEM-slot bounds: vertex DRAM slot is 128 B (32 words); fragment occupies
   // IMEM[BORG_IMEM_FRAG_OFFSET..BORG_IMEM_DEPTH-1] (BORG_IMEM_FRAG_LEN words).
@@ -614,6 +550,8 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   } else {
     BORG_GPU->seq_frag_addr = SEQ_FRAG_SHADER_ADDR;
     BORG_GPU->seq_frag_len  = n;
+    static spirb_shader_t parsed;
+    if (spirb_parse(blob, &parsed) >= 0) frag_shader = parsed;
     // A host-uploaded fragment is borgc-compiled (e.g. cube.frag), which reads
     // model frag_pos via dFdx/dFdy — so the sequencer must stage frag_pos into
     // u19-u27 (FRAG_USES_FRAGPOS=1).  The standalone firmware sets vertex-color
@@ -623,42 +561,9 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   }
 }
 
-void borg_set_angle(borg_draw_data_t *d, fp16_t angle_fp16) {
-  // Compute vertex shader uniforms from angle for Phase 2 4x4 Projection
-  fp16_t s = fp16_sin(angle_fp16);
-  fp16_t c = fp16_cos(angle_fp16);
-  fp16_t ns = fp16_neg(s);
-
-  // Col 0 (X)
-  d->uniforms[0] = c;
-  d->uniforms[1] = s;
-  d->uniforms[2] = FP16_ZERO;
-  d->uniforms[3] = FP16_ZERO;
-
-  // Col 1 (Y)
-  d->uniforms[4] = ns;
-  d->uniforms[5] = c;
-  d->uniforms[6] = FP16_ZERO;
-  d->uniforms[7] = FP16_ZERO;
-
-  // Col 2 (Z) - passed through seamlessly
-  d->uniforms[8] = FP16_ZERO;
-  d->uniforms[9] = FP16_ZERO;
-  d->uniforms[10] = FP16_ONE;
-  d->uniforms[11] = FP16_ZERO;
-
-  // Col 3 (Translations/W)
-  d->uniforms[12] = FP16_ZERO;
-  d->uniforms[13] = FP16_ZERO;
-  d->uniforms[14] = FP16_ZERO;
-  d->uniforms[15] = FP16_ONE;
-}
-
 // TBR: Reset binning state. No DRAM clearing needed —
 // clear color is written to empty tiles during borgBinRender.
 static void borgBinReset(rgb16_t cc) {
-  for (int i = 0; i < BORG_MAX_TILES; i++)
-    bin_count[i] = 0;
   draw_call_count = 0;
   last_clear_color = cc;
 }
@@ -682,8 +587,8 @@ void borg_clear_zbuffer(int frame, rgb16_t clear_color) {
 void borg_set_texture(int tex_width, int tex_height) {
   tex = (texture_t){.dram_offset = 0, // unused, texture at fixed DRAM addr
                     .size = {tex_width, tex_height},
-                    .w_fp16 = uint_to_fp16(tex_width),
-                    .h_fp16 = uint_to_fp16(tex_height)};
+                    .w_f = borg_float_from_uint((uint32_t)tex_width),
+                    .h_f = borg_float_from_uint((uint32_t)tex_height)};
   // Compute log2(tex_width) for the hardware UV clamp (tex_width is power-of-2).
   tex_log2_dim = 0;
   for (int d = tex_width; d > 1; d >>= 1)
@@ -771,197 +676,10 @@ void borg_upload_texture_row(const uint8_t *row, int y, int dim) {
   }
 }
 
-// --- Triangle Clipping (Step 6) ---
-
-// Linearly interpolate between two clip vertices: result = a + t * (b - a)
-static clip_vertex_t clip_lerp(const clip_vertex_t *a, const clip_vertex_t *b,
-                               fp16_t t) {
-  clip_vertex_t out;
-  // For each component: out = a + t * (b - a) = fmadd(t, b-a, a)
-  out.x = borg_fp16_fmadd(t, BORG_FP16_SUB(b->x, a->x), a->x);
-  out.y = borg_fp16_fmadd(t, BORG_FP16_SUB(b->y, a->y), a->y);
-  out.z = borg_fp16_fmadd(t, BORG_FP16_SUB(b->z, a->z), a->z);
-  out.w = borg_fp16_fmadd(t, BORG_FP16_SUB(b->w, a->w), a->w);
-  out.r = borg_fp16_fmadd(t, BORG_FP16_SUB(b->r, a->r), a->r);
-  out.g = borg_fp16_fmadd(t, BORG_FP16_SUB(b->g, a->g), a->g);
-  out.b = borg_fp16_fmadd(t, BORG_FP16_SUB(b->b, a->b), a->b);
-  out.u = borg_fp16_fmadd(t, BORG_FP16_SUB(b->u, a->u), a->u);
-  out.v = borg_fp16_fmadd(t, BORG_FP16_SUB(b->v, a->v), a->v);
-  return out;
-}
-
-// Clip polygon against near plane (z >= 0 in clip space).
-// Sutherland-Hodgman: vertices with z < 0 are outside.
-// Returns number of output vertices (0..MAX_CLIP_VERTS).
-static int clip_near(const clip_vertex_t *in, int n_in, clip_vertex_t *out) {
-  int n_out = 0;
-  for (int i = 0; i < n_in; i++) {
-    int prev_idx = (i == 0) ? n_in - 1 : i - 1;
-    const clip_vertex_t *cur = &in[i];
-    const clip_vertex_t *prev = &in[prev_idx];
-    int cur_inside = fp16_ge_zero(cur->z);
-    int prev_inside = fp16_ge_zero(prev->z);
-    if (cur_inside != prev_inside) {
-      // Edge crosses the near plane — compute intersection.
-      // t = prev.z / (prev.z - cur.z)
-      fp16_t denom = BORG_FP16_SUB(prev->z, cur->z);
-      fp16_t t = borg_fp16_mul(prev->z, borg_fp16_rcp(denom));
-      out[n_out++] = clip_lerp(prev, cur, t);
-    }
-    if (cur_inside)
-      out[n_out++] = *cur;
-  }
-  return n_out;
-}
-
-// Clip polygon against far plane (z <= w in clip space).
-// Sutherland-Hodgman: vertices with z > w are outside.
-// Returns number of output vertices (0..MAX_CLIP_VERTS+1, capped at 7 for a
-// triangle).
-static int clip_far(const clip_vertex_t *in, int n_in, clip_vertex_t *out) {
-  int n_out = 0;
-  for (int i = 0; i < n_in; i++) {
-    int prev_idx = (i == 0) ? n_in - 1 : i - 1;
-    const clip_vertex_t *cur = &in[i];
-    const clip_vertex_t *prev = &in[prev_idx];
-    // signed distance to far plane: d = w - z (inside when d >= 0)
-    fp16_t d_cur = BORG_FP16_SUB(cur->w, cur->z);
-    fp16_t d_prev = BORG_FP16_SUB(prev->w, prev->z);
-    int cur_inside = fp16_ge_zero(d_cur);
-    int prev_inside = fp16_ge_zero(d_prev);
-    if (cur_inside != prev_inside) {
-      // t = d_prev / (d_prev - d_cur)
-      fp16_t denom = BORG_FP16_SUB(d_prev, d_cur);
-      fp16_t t = borg_fp16_mul(d_prev, borg_fp16_rcp(denom));
-      out[n_out++] = clip_lerp(prev, cur, t);
-    }
-    if (cur_inside)
-      out[n_out++] = *cur;
-  }
-  return n_out;
-}
-
-// Compute screen-space AABB of 3 vertices, clamped to framebuffer.
-static bbox_t compute_bbox(const xy16x3_t *pos) {
-  fp16_t min_x = pos->v[0].x, max_x = pos->v[0].x;
-  fp16_t min_y = pos->v[0].y, max_y = pos->v[0].y;
-  for (int i = 1; i < 3; i++) {
-    if (fp16_lt(pos->v[i].x, min_x))
-      min_x = pos->v[i].x;
-    if (fp16_lt(max_x, pos->v[i].x))
-      max_x = pos->v[i].x;
-    if (fp16_lt(pos->v[i].y, min_y))
-      min_y = pos->v[i].y;
-    if (fp16_lt(max_y, pos->v[i].y))
-      max_y = pos->v[i].y;
-  }
-  int x0 = fp16_ge_zero(min_x) ? fp16_to_uint(min_x) : 0;
-  int y0 = fp16_ge_zero(min_y) ? fp16_to_uint(min_y) : 0;
-  int x1 = fp16_ge_zero(max_x) ? fp16_to_uint(max_x) + 1 : 0;
-  int y1 = fp16_ge_zero(max_y) ? fp16_to_uint(max_y) + 1 : 0;
-  if (x1 > BORG_FB_WIDTH)
-    x1 = BORG_FB_WIDTH;
-  if (y1 > BORG_FB_HEIGHT)
-    y1 = BORG_FB_HEIGHT;
-  return (bbox_t){x0, y0, x1, y1};
-}
-
-// CPU fallback: load all uniforms for a draw call into the hardware pipeline.
-// Used when hasSequencer=false. Sequencer path replaces this on Sim/ULX3S.
-// NOTE: dead code since its only caller (borgBinRender, the CPU software TBR
-// path) was removed -- kept for the non-sequencer (no hardware TBR) fallback
-// this codebase doesn't currently exercise on any live target.
-static void __attribute__((unused)) setup_tile_uniforms(const draw_call_t *dc) {
-  const triangle_t *tri = &dc->tri;
-  const texture_t *t = &dc->tex;
-
-  // Ping-pong the uniform pages (Step 13.4)
-  static int current_uniform_page = 0;
-  current_uniform_page ^= 1;
-  BORG_GPU->control =
-      (current_uniform_page << CONTROL_REG_T__UNIFORM_WRITE_PAGE_bp);
-
-  // Rasterizer uniforms (u0-u11): edge constants + negated vertex positions
-  borg_load_edge_constants(&rast_shader, tri->edges.v);
-  for (int i = 0; i < 3; i++) {
-    BORG_GPU->uniform[rast_shader.uniform_regs[6 + i * 2 + 0]] =
-        BORG_FP16_NEG(tri->screen_pos.v[i].x);
-    BORG_GPU->uniform[rast_shader.uniform_regs[6 + i * 2 + 1]] =
-        BORG_FP16_NEG(tri->screen_pos.v[i].y);
-  }
-
-  // Fragment uniforms: FTEX layout
-  //   uniform_regs[0]    = inv_area
-  //   uniform_regs[1-3]  = U texture (v1, v0, v2) — pre-scaled by tex_w
-  //   uniform_regs[4-6]  = V texture (v1, v0, v2) — pre-scaled by tex_h
-  //   uniform_regs[7-9]  = color R   (v1, v0, v2)
-  //   uniform_regs[10-12]= color G   (v1, v0, v2)
-  //   uniform_regs[13-15]= color B   (v1, v0, v2)
-  //   uniform_regs[16-18]= z         (v1, v0, v2)
-  // Barycentric weight mapping: w2→v1, w1→v0, w0→v2
-  const rgb16_t *colors = tri->colors.v;
-  BORG_GPU->uniform[frag_shader.uniform_regs[0]] = tri->inv_area;
-
-  // UV slots (indices 1-6)
-  if (tri->has_uvs) {
-    const uv16_t *uvs = tri->uvs.v;
-    load_uniform_triple(&frag_shader, 1, borg_fp16_mul(uvs[1].u, t->w_fp16),
-                        borg_fp16_mul(uvs[0].u, t->w_fp16),
-                        borg_fp16_mul(uvs[2].u, t->w_fp16));
-    load_uniform_triple(&frag_shader, 4, borg_fp16_mul(uvs[1].v, t->h_fp16),
-                        borg_fp16_mul(uvs[0].v, t->h_fp16),
-                        borg_fp16_mul(uvs[2].v, t->h_fp16));
-  } else {
-    // No UVs: write zero → FTEX with en=false returns white (1,1,1)
-    load_uniform_triple(&frag_shader, 1, 0, 0, 0);
-    load_uniform_triple(&frag_shader, 4, 0, 0, 0);
-  }
-
-  // Color slots (indices 7-15)
-  load_uniform_triple(&frag_shader, 7,  colors[1].r, colors[0].r, colors[2].r);
-  load_uniform_triple(&frag_shader, 10, colors[1].g, colors[0].g, colors[2].g);
-  load_uniform_triple(&frag_shader, 13, colors[1].b, colors[0].b, colors[2].b);
-
-  // Z slots (indices 16-18)
-  load_uniform_triple(&frag_shader, 16, tri->z_vals.v[1], tri->z_vals.v[0],
-                      tri->z_vals.v[2]);
-
-  BORG_GPU->frag_pc = BORG_IMEM_FRAG_OFFSET;
-
-  // Enable/disable texture for this draw call
-  if (tri->has_uvs) {
-    BORG_GPU->tex_config =
-        (TEX_DRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
-        TEX_CONFIG_REG_T__EN_bm |
-        ((uint32_t)tex_log2_dim << TEX_CONFIG_REG_T__LOG2_DIM_bp);
-  } else {
-    BORG_GPU->tex_config = 0;
-  }
-}
-
-// Bin a single draw call into the per-tile lists.
-static void __attribute__((unused)) borgBin(void) {
-  int tiles_per_row = borg_fb_width >> 2;
-  for (int dc = 0; dc < draw_call_count; dc++) {
-    const bbox_t *bb = &draw_calls[dc].bb;
-    for (int ty = bb->y0 & ~3; ty < bb->y1; ty += 4) {
-      for (int tx = bb->x0 & ~3; tx < bb->x1; tx += 4) {
-        int tile_index = (ty >> 2) * tiles_per_row + (tx >> 2);
-        int cnt = bin_count[tile_index];
-        if (cnt < BORG_MAX_TRIS_PER_TILE) {
-          bin_list[tile_index][cnt] = (uint8_t)dc;
-
-          bin_count[tile_index] = cnt + 1;
-        }
-      }
-    }
-  }
-}
-
 // Forward declarations for GPU vertex transform state (defined with borgCmdDraw).
 #define BORG_MAX_UNIQUE_VERTS 16
-static fp16_t g_current_raw_verts[9];
-static fp16_t g_ts_mvp_cache[16];
+static borg_float_t g_current_raw_verts[9];
+static borg_float_t g_ts_mvp_cache[16];
 
 // Record a draw call for later TBR rendering.
 static void record_draw_call(const triangle_t *tri, const texture_t *t,
@@ -969,16 +687,15 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
   if (draw_call_count >= BORG_MAX_DRAWS)
     return;
   int idx = draw_call_count;
-  bbox_t bb = compute_bbox(&tri->screen_pos);
   draw_calls[idx] = (draw_call_t){
       .tri = *tri,
       .tex = *t,
-      .bb = bb,
       .frame = frame,
   };
 
   // Write vertex descriptor to DRAM for the sequencer.
-  // Layout (Phase 1): 96B model-space verts + 64B TS-baked MVP + 32B metadata = 256 bytes.
+  // Layout: 96B model-space verts + 64B TS-baked MVP + 32B metadata = 256 bytes,
+  // every value one datapath-float word.
   uint32_t desc_base = SEQ_DESC_BASE_ADDR + (uint32_t)idx * SEQ_DESC_STRIDE;
 
   if (!g_cmdbuf_valid) {
@@ -990,23 +707,23 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
       DRAM_OUT_RAW(vbase + 4) = g_current_raw_verts[v*3+1];  // model.y
       DRAM_OUT_RAW(vbase + 8) = g_current_raw_verts[v*3+2];  // model.z
       DRAM_OUT_RAW(vbase + 24) = tri->has_uvs
-          ? (uint32_t)borg_fp16_mul(tri->uvs.v[v].u, t->w_fp16) : (uint32_t)FP16_ZERO;
+          ? borg_float_mul(tri->uvs[v].u, t->w_f) : BORG_FLOAT_ZERO;
       DRAM_OUT_RAW(vbase + 28) = tri->has_uvs
-          ? (uint32_t)borg_fp16_mul(tri->uvs.v[v].v, t->h_fp16) : (uint32_t)FP16_ZERO;
+          ? borg_float_mul(tri->uvs[v].v, t->h_f) : BORG_FLOAT_ZERO;
     }
-    DRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 0) = ((uint32_t)(bb.y0 & ~3) << 16) | (uint32_t)(bb.x0 & ~3);
-    DRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 4) = ((uint32_t)(bb.y1) << 16) | (uint32_t)(bb.x1);
+    // Metadata: only has_uvs is read by the hardware (desc + 168); the binner
+    // computes each triangle's bbox from the transformed vertices itself.
     DRAM_OUT_RAW(desc_base + SEQ_META_OFFSET + 8) = tri->has_uvs ? 1u : 0u;
   }
 
   // Dynamic state — MVP and vertex colors change every frame (rotation + lighting).
   for (int v = 0; v < 3; v++) {
     uint32_t vbase = desc_base + (uint32_t)v * 32;
-    DRAM_OUT_RAW(vbase + 12) = tri->colors.v[v].r;
-    DRAM_OUT_RAW(vbase + 16) = tri->colors.v[v].g;
-    DRAM_OUT_RAW(vbase + 20) = tri->colors.v[v].b;
+    DRAM_OUT_RAW(vbase + 12) = tri->colors[v].r;
+    DRAM_OUT_RAW(vbase + 16) = tri->colors[v].g;
+    DRAM_OUT_RAW(vbase + 20) = tri->colors[v].b;
   }
-  // TS-baked MVP at SEQ_MVP_OFFSET (96): 16 FP16 values, column-major.
+  // TS-baked MVP at SEQ_MVP_OFFSET (96): 16 values, column-major.
   for (int i = 0; i < 16; i++)
     DRAM_OUT_RAW(desc_base + SEQ_MVP_OFFSET + (uint32_t)i * 4) = g_ts_mvp_cache[i];
 
@@ -1077,14 +794,11 @@ static void borgBinRenderAutonomous(int frame) {
       // (Removed per-frame "A<n>"/"B" debug UART: ~7 blind-write putc/frame, each
       // ~2 ms while the CPU is instruction-starved during render → ~13 ms/frame
       // of pure debug overhead counted in `present`.)
-      BORG_GPU->gpr[17] = BORGC_LIGHTDIR_R17;
-      BORG_GPU->gpr[18] = BORGC_LIGHTDIR_R18;
-      BORG_GPU->gpr[19] = BORGC_LIGHTDIR_R19;
-      BORG_GPU->control = 0;  // uniform write page 0
-      BORG_GPU->uniform[31] = BORGC_DDXSCALE_U31;
-      BORG_GPU->control = CONTROL_REG_T__UNIFORM_WRITE_PAGE_bm;
-      BORG_GPU->uniform[31] = BORGC_DDXSCALE_U31;
-      BORG_GPU->control = 0;  // restore page 0 (matches the staging default)
+      // The fragment's constants, from its blob. They must survive Pass 1:
+      // borgc pins them to GPRs the vertex and setup shaders leave alone
+      // (r17-r19 for cube.frag's lightDir).
+      for (int i = 0; i < frag_shader.num_consts; i++)
+        BORG_GPU->gpr[frag_shader.const_regs[i]] = frag_shader.const_vals[i];
       BORG_GPU->seq_desc_base = SEQ_DESC_BASE_ADDR;
       BORG_GPU->seq_tri_count = draw_call_count;
       BORG_GPU->seq_trigger = 1;
@@ -1094,121 +808,8 @@ static void borgBinRenderAutonomous(int frame) {
   }
 }
 
-// Clip-space → NDC → screen-space for 3 vertices.
-static void perspective_divide(const clip_vertex_t *cv, fp16_t ndc[3][3],
-                               xy16x3_t *pos) {
-  for (int v = 0; v < 3; v++) {
-    fp16_t inv_w = borg_fp16_rcp(cv[v].w);
-    ndc[v][0] = borg_fp16_mul(cv[v].x, inv_w);
-    ndc[v][1] = borg_fp16_mul(cv[v].y, inv_w);
-    ndc[v][2] = borg_fp16_mul(cv[v].z, inv_w);
-    pos->v[v] =
-        (xy16_t){borg_fp16_fmadd(ndc[v][0], fp16_half_width, fp16_half_width),
-                 borg_fp16_fmadd(ndc[v][1], fp16_half_width, fp16_half_width)};
-  }
-}
-
-// Triangle setup: compute signed area, back-face cull, return inv_area.
-// Returns 0 if the triangle is degenerate or back-facing.
-static int triangle_setup(const xy16x3_t *pos, fp16_t *inv_area) {
-  fp16_t dx10 = BORG_FP16_SUB(pos->v[1].x, pos->v[0].x);
-  fp16_t dy20 = BORG_FP16_SUB(pos->v[2].y, pos->v[0].y);
-  fp16_t dx20 = BORG_FP16_SUB(pos->v[2].x, pos->v[0].x);
-  fp16_t dy10 = BORG_FP16_SUB(pos->v[1].y, pos->v[0].y);
-  fp16_t area =
-      BORG_FP16_SUB(borg_fp16_mul(dx10, dy20), borg_fp16_mul(dx20, dy10));
-  if (fp16_ge_zero(area))
-    return 0; // degenerate or back-facing
-
-  // Hardware fstep.s expects positive edge values.
-  // Since we allow negative area, we negate it here and in the edge constants.
-  area ^= 0x8000;
-
-  // Edge-vector normalization compensation (see borg_load_edge_constants):
-  // borg_load_edge_constants divides each edge vector by fb_width, so
-  // inv_area must be multiplied by fb_width to keep barycentric weights
-  // correct:
-  //   w = (E/W) * (W/area) = E/area  ✓
-  //
-  // Implementation: construct inv_width via direct FP16 exponent flip (avoids
-  // the Fp16Rcp factor-of-2 bug for power-of-2 inputs), multiply area by it to
-  // get area/W (always a normal FP16 at any practical resolution), then rcp
-  // that.
-  //   inv_area_scaled = rcp(area * inv_width) = rcp(area/W) = W/area
-  //
-  // At 128×128: area/128 ≈ 184 (normal), rcp(184) ≈ 0.00543 >> 6e-5 min-normal.
-  fp16_t fb_fp16 = uint_to_fp16(borg_fb_width);
-  fp16_t inv_width = (fp16_t)((30u - ((fb_fp16 >> 10) & 0x1Fu)) << 10);
-  fp16_t area_norm = borg_fp16_mul(area, inv_width); // area / fb_width
-  *inv_area = borg_fp16_rcp(area_norm);              // W / area
-  return 1;
-}
-
-// Rasterize a single triangle from 3 clip vertices (post-clipping).
-static void rasterize_clipped_triangle(const clip_vertex_t *cv,
-                                       const texture_t *t, int frame) {
-  fp16_t ndc[3][3];
-  triangle_t tri;
-  perspective_divide(cv, ndc, &tri.screen_pos);
-  fp16_t inv_area;
-  int setup_res = triangle_setup(&tri.screen_pos, &inv_area);
-
-  if (!setup_res)
-    return;
-  tri.inv_area = inv_area;
-
-  compute_edge_vectors(tri.screen_pos.v, tri.edges.v);
-
-  for (int v = 0; v < 3; v++) {
-    tri.colors.v[v] = (rgb16_t){cv[v].r, cv[v].g, cv[v].b};
-    tri.uvs.v[v] = (uv16_t){cv[v].u, cv[v].v};
-  }
-  tri.z_vals = (fp16x3_t){{ndc[0][2], ndc[1][2], ndc[2][2]}};
-  tri.has_uvs = (t->dram_offset >= 0);
-
-  // TBR: record for tile-ordered rendering instead of immediate
-  // shade.
-  record_draw_call(&tri, t, frame);
-}
-
-// Build clip-space vertices from vertex shader output and original attributes.
-static void build_clip_vertices(const fp16_t *vout, int stride,
-                                const borg_vertex_t vertices[3],
-                                clip_vertex_t clip_in[3]) {
-  for (int v = 0; v < 3; v++) {
-    clip_in[v].x = vout[v * stride + 0];
-    clip_in[v].y = vout[v * stride + 1];
-    clip_in[v].z = (stride >= 3) ? vout[v * stride + 2] : FP16_ZERO;
-    clip_in[v].w = (stride >= 4) ? vout[v * stride + 3] : FP16_ONE;
-    clip_in[v].r = vertices[v].color[0];
-    clip_in[v].g = vertices[v].color[1];
-    clip_in[v].b = vertices[v].color[2];
-    clip_in[v].u = vertices[v].uv[0];
-    clip_in[v].v = vertices[v].uv[1];
-  }
-}
-
-static void clip_and_rasterize(const clip_vertex_t clip_in[3],
-                               const texture_t *t, int frame) {
-  clip_vertex_t clip_a[MAX_CLIP_VERTS + 1];
-  clip_vertex_t clip_b[MAX_CLIP_VERTS + 2];
-
-  int n_near = clip_near(clip_in, 3, clip_a);
-  if (n_near < 3)
-    return;
-
-  int n_far = clip_far(clip_a, n_near, clip_b);
-  if (n_far < 3)
-    return;
-
-  for (int i = 1; i < n_far - 1; i++) {
-    clip_vertex_t tri[3] = {clip_b[0], clip_b[i], clip_b[i + 1]};
-    rasterize_clipped_triangle(tri, t, frame);
-  }
-}
-
 // raw_pos_cache: model-space positions saved by borgTransformVerts for indexed draws.
-static fp16_t raw_pos_cache[BORG_MAX_UNIQUE_VERTS * 3];
+static borg_float_t raw_pos_cache[BORG_MAX_UNIQUE_VERTS * 3];
 
 // Bake the viewport transform into the MVP for the GPU vertex shader's hardware
 // perspective divide.  The shader computes clip'_x,
@@ -1219,14 +820,14 @@ static fp16_t raw_pos_cache[BORG_MAX_UNIQUE_VERTS * 3];
 // Affine MVPs (M3 row = [0,0,0,1]) → clip_w = 1, divide is a no-op, and this
 // reduces exactly to the previous orthographic baking.
 static void cache_ts_mvp(const borg_draw_data_t *d) {
-  fp16_t hw = fp16_half_width;
+  borg_float_t hw = half_width_f;
   for (int col = 0; col < 4; col++) {
-    fp16_t m0 = d->uniforms[col*4+0];  // M[0][col]
-    fp16_t m1 = d->uniforms[col*4+1];  // M[1][col]
-    fp16_t m2 = d->uniforms[col*4+2];  // M[2][col]
-    fp16_t m3 = d->uniforms[col*4+3];  // M[3][col]
-    g_ts_mvp_cache[col*4+0] = borg_fp16_mul(hw, borg_fp16_add(m0, m3)); // x' = hw*(M0+M3)
-    g_ts_mvp_cache[col*4+1] = borg_fp16_mul(hw, borg_fp16_add(m1, m3)); // y' = hw*(M1+M3)
+    borg_float_t m0 = d->uniforms[col*4+0];  // M[0][col]
+    borg_float_t m1 = d->uniforms[col*4+1];  // M[1][col]
+    borg_float_t m2 = d->uniforms[col*4+2];  // M[2][col]
+    borg_float_t m3 = d->uniforms[col*4+3];  // M[3][col]
+    g_ts_mvp_cache[col*4+0] = borg_float_mul(hw, borg_float_add(m0, m3)); // x' = hw*(M0+M3)
+    g_ts_mvp_cache[col*4+1] = borg_float_mul(hw, borg_float_add(m1, m3)); // y' = hw*(M1+M3)
     g_ts_mvp_cache[col*4+2] = m2;                                       // z  (raw)
     g_ts_mvp_cache[col*4+3] = m3;                                       // w  (raw)
   }
@@ -1243,37 +844,7 @@ void borgUpdateUniforms(const borg_draw_data_t *d) {
   }
 }
 
-void borgCmdDraw(const borg_draw_data_t *d, const borg_vertex_t vertices[3],
-                 int frame) {
-  unsigned int t_start = get_cycles();
-
-  fp16_t attrs[NUM_VERTICES * 3];
-  for (int v = 0; v < NUM_VERTICES; v++) {
-    attrs[v * 3 + 0] = vertices[v].pos[0];
-    attrs[v * 3 + 1] = vertices[v].pos[1];
-    attrs[v * 3 + 2] = vertices[v].pos[2];
-  }
-
-  // Save raw model positions and TS-baked MVP for GPU descriptor.
-  cache_ts_mvp(d);
-  for (int v = 0; v < NUM_VERTICES; v++) {
-    g_current_raw_verts[v*3+0] = vertices[v].pos[0];
-    g_current_raw_verts[v*3+1] = vertices[v].pos[1];
-    g_current_raw_verts[v*3+2] = vertices[v].pos[2];
-  }
-
-  fp16_t vout[NUM_VERTICES * SPIRB_MAX_REGS];
-  run_vertex_shader(d->uniforms, attrs, vout);
-
-  clip_vertex_t clip_in[3];
-  build_clip_vertices(vout, vert_shader.num_outputs, vertices, clip_in);
-
-  // TBR: records draw call for tile-ordered rendering (no immediate render)
-  clip_and_rasterize(clip_in, &tex, frame);
-  t_draw_cycles += get_cycles() - t_start;
-}
-
-void borgTransformVerts(const borg_draw_data_t *d, const fp16_t *positions,
+void borgTransformVerts(const borg_draw_data_t *d, const borg_float_t *positions,
                         int count) {
   // GPU handles vertex transform via sequencer. Cache MVP and raw positions.
   cache_ts_mvp(d);
@@ -1297,8 +868,8 @@ void borgCmdDrawIndexed(const int idx[3], const borg_vertex_t vertices[3],
   triangle_t tri;
   tri.has_uvs = (tex.dram_offset >= 0);
   for (int v = 0; v < 3; v++) {
-    tri.colors.v[v] = (rgb16_t){vertices[v].color[0], vertices[v].color[1], vertices[v].color[2]};
-    tri.uvs.v[v]    = (uv16_t){vertices[v].uv[0], vertices[v].uv[1]};
+    tri.colors[v] = (rgbf_t){vertices[v].color[0], vertices[v].color[1], vertices[v].color[2]};
+    tri.uvs[v]    = (uvf_t){vertices[v].uv[0], vertices[v].uv[1]};
   }
   record_draw_call(&tri, &tex, frame);
   t_draw_cycles += get_cycles() - t_start;
