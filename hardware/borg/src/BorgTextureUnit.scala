@@ -57,7 +57,11 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
   // of a 2x2 footprint are adjacent in Morton order but still fetched
   // individually. That is the honest cost of the simplest correct version and
   // the obvious thing to optimize later.
-  val sIdle :: sReadB :: sReadRG :: sDone :: Nil = Enum(4)
+  // sBlend exists only on the filtered path: it registers the bilinear result
+  // instead of letting it fall out combinationally (see the fragColor comment
+  // below). A nearest sample goes straight to sDone and is cycle-exact with
+  // the pre-pipeline version.
+  val sIdle :: sReadB :: sReadRG :: sBlend :: sDone :: Nil = Enum(5)
   val state = RegInit(sIdle)
 
   // Which of the four taps is in flight, and the UNORM8 tap store. Texels are
@@ -108,23 +112,21 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
   io.gpuMem.wlen  := 1.U   // texture unit only reads
   io.done         := false.B
 
-  // The filtered result is combinational on the completed tap store rather
-  // than a separate FSM state: by the time sDone is reached all four taps are
-  // captured, so a state would add a cycle and buy nothing. With filtering
-  // off these are the raw FP16 texels, bit-for-bit as before -- no quantize/
+  // The filtered result is REGISTERED (state sBlend), not combinational on the
+  // tap store. It used to be combinational -- "a state would add a cycle and
+  // buy nothing" -- but that made the whole blend part of the consumer's path:
+  // tapB -> lerp8 -> lerp8 -> dequantize8 -> Fp16Fp32.widen -> BorgCore's
+  // texResultB, in one cycle. On the 2026-09-17 wafer signoff that was THE
+  // critical path: 162 ns of a 125 ns budget at max_ss_125C_3v00, 112 ns of it
+  // logic (two serial lerps) and the rest repeaters over 6.65 mm of wire.
+  //
+  // Registering it costs one cycle per FILTERED sample only; a nearest sample
+  // never enters sBlend and keeps its exact old cycle count. With filtering
+  // off these are still the raw FP16 texels, bit-for-bit -- no quantize/
   // dequantize round trip is paid by a nearest sample.
-  if (hasBilinear) {
-    val b = io.bilinear.get
-    def filtered(taps: Vec[UInt]): UInt =
-      ColorQuantize.dequantize8(TexFilter.bilinear(taps, b.fracU, b.fracV))
-    io.fragColor.r := Mux(filtering, filtered(tapR), frag_r)
-    io.fragColor.g := Mux(filtering, filtered(tapG), frag_g)
-    io.fragColor.b := Mux(filtering, filtered(tapB), frag_b)
-  } else {
-    io.fragColor.r := frag_r
-    io.fragColor.g := frag_g
-    io.fragColor.b := frag_b
-  }
+  io.fragColor.r := frag_r
+  io.fragColor.g := frag_g
+  io.fragColor.b := frag_b
   io.fragColor.z := 0.U  // Z is pass-through from shader snoop in dispatcher
 
   switch(state) {
@@ -159,7 +161,7 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
         when(filtering && tap =/= 3.U) {
           tap   := tap + 1.U       // stay in sReadB for the next tap
         }.otherwise {
-          state := sDone
+          state := Mux(filtering, sBlend, sDone)
         }
       }.otherwise {
         io.gpuMem.req  := true.B
@@ -192,12 +194,27 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
             tap   := tap + 1.U
             state := sReadB
           }.otherwise {
-            state := sDone
+            state := Mux(filtering, sBlend, sDone)
           }
         } else {
           state := sDone
         }
       }
+    }
+
+    // Filtered path only: collapse the four taps into frag_* so the blend
+    // terminates at a register here instead of in the consumer's timing path.
+    // Reached only when `filtering`, so a nearest sample never pays this cycle.
+    is(sBlend) {
+      if (hasBilinear) {
+        val b = io.bilinear.get
+        def filtered(taps: Vec[UInt]): UInt =
+          ColorQuantize.dequantize8(TexFilter.bilinear(taps, b.fracU, b.fracV))
+        frag_r := filtered(tapR)
+        frag_g := filtered(tapG)
+        frag_b := filtered(tapB)
+      }
+      state := sDone
     }
 
     is(sDone) {
