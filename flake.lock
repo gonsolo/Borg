@@ -77,10 +77,27 @@
         "type": "github"
       }
     },
+    "nixpkgs-librelane": {
+      "locked": {
+        "lastModified": 1789731373,
+        "narHash": "sha256-E3O5IyfmmUWjfi/vhMzDbxWOPglyPbE3070pTpUHR24=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "a15ff3450eb6ac348370c206e35db13c4c201a3f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "a15ff3450eb6ac348370c206e35db13c4c201a3f",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "alejandra": "alejandra",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "nixpkgs-librelane": "nixpkgs-librelane"
       }
     },
     "rust-analyzer-src": {

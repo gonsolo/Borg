@@ -30,6 +30,21 @@
     # these merge upstream.
     nixpkgs.url = "github:gonsolo/nixpkgs/fa81aeaea883a8d5d719666b7704f7f8ddd159cc";
 
+    # SECOND nixpkgs, used for ONE package: librelane.
+    #
+    # The pin above carries librelane 3.0.8, and our fork's patch is now
+    # rebased onto upstream 3.0.14. overridePythonAttrs only swaps `src`, so
+    # pointing 3.0.14 source at the 3.0.8 derivation would build it against
+    # 3.0.8's dependency set. This input is a nixpkgs that actually packages
+    # 3.0.14 (verified: `nix eval .#librelane.version` -> 3.0.14).
+    #
+    # Deliberately NOT a bump of `nixpkgs.url` above: that pin also supplies
+    # yosys, OpenROAD, verilator and riscv-gcc, so moving it would change the
+    # whole toolchain at once and make the next signoff incomparable to every
+    # measurement taken against the current one. Scope the change to the one
+    # package that needs it.
+    nixpkgs-librelane.url = "github:NixOS/nixpkgs/a15ff3450eb6ac348370c206e35db13c4c201a3f";
+
     alejandra.url = "github:kamadorueda/alejandra/4.0.0";
     alejandra.inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -37,10 +52,12 @@
   outputs = {
     self,
     nixpkgs,
+    nixpkgs-librelane,
     alejandra,
   }: let
     system = "x86_64-linux";
     pkgs = import nixpkgs {inherit system;};
+    pkgsLibrelane = import nixpkgs-librelane {inherit system;};
 
     # cocotb has no released Python 3.14 support upstream either
     # (cocotb/cocotb's setup.py hard-caps at 3.13; 3.14 support exists only
@@ -167,21 +184,43 @@
         # 0.68 (YosysHQ/yosys#6050); force LibreLane onto nixpkgs' yosys
         # (now 0.68) instead of its own bundled copy.
         #
-        # src override: our fork's feat/concurrent-signoff-steps-3.0.8 --
-        # upstream 3.0.8 plus one commit adding SequentialFlow.AsyncSteps,
+        # src override: our fork's feat/concurrent-signoff-steps --
+        # upstream 3.0.14 plus one commit adding SequentialFlow.AsyncSteps,
         # which overlaps Magic.DRC with SpiceExtraction -> Netgen.LVS in the
         # Classic flow (~24 min off a ~4 h wafer.space signoff). Same version
-        # as nixpkgs' package, so its dependency closure and the yosys
-        # override above apply unchanged. Pinned by commit + hash: the flow
+        # as nixpkgs-librelane's package, so its dependency closure and the
+        # yosys override above apply unchanged. Pinned by commit + hash: the flow
         # that runs is the flow that was reviewed, on every machine, with no
         # PYTHONPATH games (asic/wafer.space/Makefile's librelane-which prints
         # what was actually imported and refuses to run an unpatched tree).
-        ((pkgs.librelane.override { yosys = pkgs.yosys; }).overridePythonAttrs (old: {
-          src = pkgs.fetchFromGitHub {
+        # 2026-09-18: 3.0.8 -> 3.0.14. Base derivation comes from
+        # nixpkgs-librelane (see the input's comment) because the main pin
+        # still carries 3.0.8 and only `src` is overridden here -- the
+        # dependency closure has to match the source.
+        #
+        # BUT taking the package from that input also takes ITS tool closure,
+        # which is NOT what we want: nixpkgs-librelane carries openroad 26Q2,
+        # a DOWNGRADE from the 26Q3 that 3.0.8 used and that every measurement
+        # on this design was taken with (the 2026-09-17 run's -15.7 ns setup,
+        # its DPL behaviour, its GRT congestion escalation). OpenROAD is the
+        # placer, CTS, resizer and router -- swapping it silently would make
+        # the next signoff incomparable and a regression ambiguous.
+        #
+        # So both tools that matter are pinned to the MAIN input: yosys (0.68,
+        # for the ABC memory fix above) and openroad (26Q3). klayout and magic
+        # still come from nixpkgs-librelane; they are signoff/DRC-side and do
+        # not touch placement or routing decisions.
+        ((pkgsLibrelane.librelane.override {
+          yosys = pkgs.yosys;
+          openroad = pkgs.openroad;
+        }).overridePythonAttrs (old: {
+          src = pkgsLibrelane.fetchFromGitHub {
             owner = "gonsolo";
             repo = "librelane";
-            rev = "ff241805b0add4ed0b4038bf73e578d933d57be9";
-            hash = "sha256-l8aQ9D39kwA/Cv/bLXKwPilYKQOIqjqEnJ4ytZmYWvw=";
+            # branch feat/concurrent-signoff-steps = 3.0.14-1-gf70d4bc:
+            # exactly one commit (AsyncSteps) on top of the 3.0.14 tag.
+            rev = "f70d4bc24263a91fbee143af7a8d4b032d6f1141";
+            hash = "sha256-uwofXxuCEwhvGx4okIr77jENBoDY3JazfHaOT/uOeUg=";
           };
         }))
         pkgs.magic-vlsi
