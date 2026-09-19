@@ -34,7 +34,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // not-taken arm of a divergent `if`: it still executes (the quad shares one
   // program counter, so it has no choice) but none of its writes may land.
   val execActive  = Input(Bool())
-  val busyCounter = Input(UInt(3.W))
+  val busyCounter = Input(UInt(cfg.busyCounterWidth.W))
   val running     = Input(Bool())
   val isBusy      = Input(Bool())
   val fmaStart    = Input(Bool())
@@ -180,11 +180,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // Issue cycles: rs1 at decode, rs2 at busy==7, rs3 at busy==6.
     val atDecode = running && !is_busy
-    val atC7 = is_busy && busy_counter === 7.U
-    val atC6 = is_busy && busy_counter === 6.U
+    val atRs2 = is_busy && busy_counter === cfg.cRs2.U
+    val atRs3 = is_busy && busy_counter === cfg.cRs3.U
 
-    regFile.io.rd.addr := Mux(mmioEn, mmioAddr, Mux(atDecode, regs.rs1, Mux(atC7, regs.rs2, regs.rs3)))
-    regFile.io.rd.en   := mmioEn || atDecode || atC7 || atC6
+    regFile.io.rd.addr := Mux(mmioEn, mmioAddr, Mux(atDecode, regs.rs1, Mux(atRs2, regs.rs2, regs.rs3)))
+    regFile.io.rd.en   := mmioEn || atDecode || atRs2 || atRs3
 
     val mmioEnDel   = RegNext(mmioEn && io.bus.is_reading, false.B)
     val mmioAddrDel = RegEnable(mmioAddr, mmioEn)
@@ -192,11 +192,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Capture cycles: one cycle after each issue (SyncReadMem's read latency)
     // -- rs1's result lands at busy==7, rs2's at busy==6, rs3's at busy==5.
     val rs1IdxDel = RegEnable(regs.rs1, atDecode)
-    val rs2IdxDel = RegEnable(regs.rs2, atC7)
-    val rs3IdxDel = RegEnable(regs.rs3, atC6)
-    val holdA = RegEnable(resolveCoordReg(regFile.io.rd.data, rs1IdxDel), 0.U(config.totalBits.W), atC7)
-    val holdB = RegEnable(resolveCoordReg(regFile.io.rd.data, rs2IdxDel), 0.U(config.totalBits.W), atC6)
-    val holdC = RegEnable(resolveCoordReg(regFile.io.rd.data, rs3IdxDel), 0.U(config.totalBits.W), is_busy && busy_counter === 5.U)
+    val rs2IdxDel = RegEnable(regs.rs2, atRs2)
+    val rs3IdxDel = RegEnable(regs.rs3, atRs3)
+    val holdA = RegEnable(resolveCoordReg(regFile.io.rd.data, rs1IdxDel), 0.U(config.totalBits.W), atRs2)
+    val holdB = RegEnable(resolveCoordReg(regFile.io.rd.data, rs2IdxDel), 0.U(config.totalBits.W), atRs3)
+    val holdC = RegEnable(resolveCoordReg(regFile.io.rd.data, rs3IdxDel), 0.U(config.totalBits.W), is_busy && busy_counter === cfg.cHoldC.U)
     val mmioD = Mux(mmioEnDel, resolveCoordReg(regFile.io.rd.data, mmioAddrDel), 0.U)
 
     (holdA, holdB, holdC, mmioD)
@@ -236,8 +236,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         // 4-stage custom FMA: regA@4, regB@3 (enabled → hold during non-busy, no X
         // churn); regC free-runs (no pipeEn3) to drop its high-fanout enable net.
         // Registered result ready for write-back/snoop at counter==1.
-        fma.io.pipeEn1 := is_busy && busy_counter === 4.U
-        fma.io.pipeEn2 := is_busy && busy_counter === 3.U
+        fma.io.pipeEn1 := is_busy && busy_counter === cfg.cOperands.U
+        fma.io.pipeEn2 := is_busy && busy_counter === cfg.cPipeEn2.U
         fma.io.out
       }
     // @doc:end
@@ -293,6 +293,10 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // non-negative for these two monotonically-decreasing curves).
     val rawVal  = Mux(isFsrgb, srgbRawVal,  Mux(isFrsq, Cat(0.U(6.W), rsqRawVal),  Cat(0.U(6.W), rcpRawVal)))
     val rawNext = Mux(isFsrgb, srgbRawNext, Mux(isFrsq, Cat(0.U(6.W), rsqRawNext), Cat(0.U(6.W), rcpRawNext)))
+    // Fixed at 3 regardless of cfg.fmaStages: this is the special-function
+    // path, not the FMA path. Its operands come from holdA, which an extra FMA
+    // stage makes available EARLIER (cRs2 moves up), and its result still has
+    // to land at write-back (counter==1), which never moves.
     val valReg  = RegEnable(rawVal,  is_busy && busy_counter === 3.U)
     val nextReg = RegEnable(rawNext, is_busy && busy_counter === 3.U)
 

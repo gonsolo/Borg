@@ -233,6 +233,42 @@ case class BorgConfig(
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
   def sig: Int = fp.sig
+
+  // --- busy_counter phase constants, derived from fmaStages ---------------
+  //
+  // BorgCore runs one instruction as a countdown (see its "Pipeline timing"
+  // doc). Every extra FMA pipeline stage inserts a cycle, so the phases move.
+  // These are the single source of truth for both BorgCore and BorgLane --
+  // the counter values used to live as literals in both files, which is why
+  // BorgConfig's fmaStages comment warned that raising it "alone is NOT
+  // functionally correct".
+  //
+  // fmaStages=4 splits BorgFp16Fma stage 2 (reg2a, between regMid and magR),
+  // so everything from operand-read down to pipeEn1 shifts one cycle later
+  // while pipeEn2 and write-back stay put. fmaStages=5 additionally splits
+  // stage 3 (the y_* registers after magR), which pushes pipeEn2 out too.
+  //
+  //            stages=3   stages=4   stages=5
+  //   load/rs2      7          8          9
+  //   rs3           6          7          8
+  //   holdC         5          6          7
+  //   pipeEn1       4          5          6     (= operands valid)
+  //   pipeEn2       3          3          4
+  //   write-back    1          1          1
+  private def fmaExtraMid: Int = if (fmaStages >= 4) 1 else 0
+  private def fmaExtraLate: Int = if (fmaStages >= 5) 1 else 0
+
+  /** pipeEn2: magR capture. */
+  def cPipeEn2: Int = 3 + fmaExtraLate
+  /** pipeEn1 / all three operands held and valid -- also when BorgCore starts
+    * FTEX, LOAD/STORE and evaluates branches. */
+  def cOperands: Int = cPipeEn2 + 1 + fmaExtraMid
+  def cHoldC: Int = cOperands + 1
+  def cRs3: Int = cOperands + 2
+  def cRs2: Int = cOperands + 3
+  /** Value busy_counter loads when an instruction issues. */
+  def cBusyLoad: Int = cRs2
+  def busyCounterWidth: Int = chisel3.util.log2Ceil(cBusyLoad + 1)
 }
 
 object BorgConfig {
@@ -362,7 +398,14 @@ object BorgConfig {
     hasPerfCounters  = false,
     fragLanes        = 4,
     tileColorBits    = 8,
-    debugPorts       = false
+    debugPorts       = false,
+    // 2026-09-19: the ONLY target that needs this. Measured post-repair with
+    // OpenSTA at max_ss_125C_3v00 on two signoff runs, the worst path was
+    // BorgFp16Fma stage 2 -- m_prodLowExp -> magR, the three serial carry
+    // chains -- at -5.6 ns and -12.8 ns against the 125 ns budget. That is
+    // exactly the stage fmaStages=4 splits. Costs one cycle per FMA; the
+    // ULX3S/sim Default stays at 3 because the FMA is not its limiter.
+    fmaStages        = 4
   )
 
   // The config Chisel unit tests should instantiate full Borg/BorgTestWrapper
