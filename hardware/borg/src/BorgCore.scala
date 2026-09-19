@@ -15,12 +15,13 @@ import chisel3.util.*
   * times.  At `fragLanes==1` (current default) a single lane reproduces the
   * original monolithic core bit-for-bit.
   *
-  * Pipeline timing (busy_counter counts 7→0):
-  *   7..5: rs1/rs2/rs3 read serially, one per cycle, off the lane's single
+  * Pipeline timing (busy_counter counts cfg.cBusyLoad→0; 7→0 at fmaStages=3,
+  * 8→0 at 4, 9→0 at 5 -- see BorgConfig's cPipeEn2/cOperands/cRs2 table):
+  *   cRs2..cHoldC: rs1/rs2/rs3 read serially, one per cycle, off the lane's single
   *         register-file port (was 3 parallel ports/copies -- see BorgLane's
   *         `regFile` doc comment for the area rationale); each result is
   *         captured into a hold register the cycle after it's issued.
-  *   4..2: Stage 1 — operand reads valid (now held, not live); op-type flags
+  *   cOperands..2: Stage 1 — operand reads valid (now held, not live); op-type flags
   *         latched (in the lane) at decode
   *   2→1:  Lane pipeline register captures the FMA mid-result
   *   1:    Stage 2 — round; register file written; pipeWrite exposed
@@ -114,7 +115,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // @doc:end
 
   // --- Pipeline Control ---
-  val busy_counter = RegInit(0.U(3.W))
+  val busy_counter = RegInit(0.U(cfg.busyCounterWidth.W))
   val is_busy = busy_counter > 0.U
 
   // --- Branch decision (declared before the fetch that consumes it) ---
@@ -296,7 +297,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(fetchedInstruction === 0.U) {
         running := false.B
       }.otherwise {
-        busy_counter := 7.U
+        busy_counter := cfg.cBusyLoad.U
       }
     }.elsewhen(is_busy) {
       busy_counter := busy_counter - 1.U
@@ -435,7 +436,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     driveTexWriteLane(0.U, false.B, 0.U, 0.U)
 
     // Initiate FTEX at counter=4 (operands valid): start with lane 0.
-    when(is_busy && busy_counter === 4.U && is_ftex_reg) {
+    when(is_busy && busy_counter === cfg.cOperands.U && is_ftex_reg) {
       texRdReg := regs.rd
       texLane  := 0.U
       texState := sTexReq
@@ -557,7 +558,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.memBusy      := memState =/= sMemIdle
 
     // Start once operands are valid, exactly like FTEX.
-    when(is_busy && busy_counter === 4.U && (is_load_reg || is_store_reg)) {
+    when(is_busy && busy_counter === cfg.cOperands.U && (is_load_reg || is_store_reg)) {
       memRdReg := regs.rd
       memLane  := 0.U
       memState := sMemReq
@@ -658,7 +659,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val isZero = condOperands.map(_ === 0.U)
     val takeIt = (opFlags.brz && isZero.head) || (opFlags.brnz && !isZero.head)
 
-    when(is_busy && busy_counter === 4.U) {
+    when(is_busy && busy_counter === cfg.cOperands.U) {
       brTakenReg  := opFlags.branch && takeIt
       brTargetReg := Cat(regs.rs2, regs.rd)
       when(opFlags.branch && isZero.map(_ =/= isZero.head).foldLeft(false.B)(_ || _)) {
@@ -719,7 +720,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val spIdx  = execSp(log2Ceil(EXEC_STACK_DEPTH) - 1, 0)
     val spPrev = (execSp - 1.U)(log2Ceil(EXEC_STACK_DEPTH) - 1, 0)
 
-    when(is_busy && busy_counter === 4.U && opFlags.execOp) {
+    when(is_busy && busy_counter === cfg.cOperands.U && opFlags.execOp) {
       when(opFlags.expush) {
         when(execSp === EXEC_STACK_DEPTH.U) {
           execFault := true.B          // no room; results will be wrong
