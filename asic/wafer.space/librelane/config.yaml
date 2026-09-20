@@ -325,7 +325,33 @@ GRT_RESIZER_HOLD_SLACK_MARGIN: 0.4
 # the source, reducing area AND routing demand together, rather than making
 # room for it. Left alone for now because the density number is the MEASURED
 # blocker and the 09-08 run proves the flow tolerates that buffer count.
-PL_TARGET_DENSITY_PCT: 70
+# 2026-09-20, third correction: 70 -> 50. The 70 above was sized against
+# 57.6% utilization. After the reset fan-out fix (d6d98c67) the design sits at
+# 42.7% util @ DPL (instance area 5,511,142 of 12,901,980 um^2), so 70 became
+# the OPPOSITE of the error it was fixing: a target 27 points ABOVE actual
+# content, which tells the global placer to pack cells and leave whitespace.
+#
+# Measured on RUN_2026-09-19's placed DEF, cell counts over a 12x16 grid of
+# the core:
+#
+#     ..o###o.....      '#' >1.5x mean cell count
+#     ..######....      '.' <0.5x
+#     ..+######+..      max bin 2247 (2.92x mean)
+#     ..o####+oo#.      min bin 1    (0.00x mean)
+#     ...+#######.
+#     ........o+o.
+#
+# ~a quarter of the die (two left columns, right edge, bottom row) is empty
+# while the centre-right runs at ~70% LOCAL density -- exactly this target.
+# That is the "localized congestion" global routing has died on three times
+# (2.10% of tiles overflowed at 42.7% average utilization; the FP16 run that
+# routed in 51 s had 1.43% and 7x less total overflow).
+#
+# 50 keeps this comment's own rule -- target above actual with headroom --
+# against the utilization the design ACTUALLY has now. Shrinking the RTL would
+# not have helped: at target 70 a smaller design is packed into a
+# proportionally smaller blob at the same local density.
+PL_TARGET_DENSITY_PCT: 50
 # 2026-09-06: was true. Confirmed by a real failure this session that this
 # was masking, not tolerating, a genuine problem: global routing "finished"
 # with congestion never actually resolved (flat ~1.5% overflow across 6-7
