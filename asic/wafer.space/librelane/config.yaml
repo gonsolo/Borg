@@ -217,7 +217,25 @@ IGNORE_DISCONNECTED_MODULES:
 # 25 MHz the typical corner passed (+0.211 ns) while ss was -149.83 ns.
 CLOCK_PORT: clk_PAD
 CLOCK_NET: clk_pad/Y
-CLOCK_PERIOD: 125 # 8 MHz
+# 2026-09-20: 125 -> 200 ns (8 -> 5 MHz), the tapeout's signoff clock.
+#
+# Measured, not predicted: RUN_2026-09-20 ended post-CTS repair at -49.686 ns
+# on max_ss_125C_3v00, so the slow-corner path is ~174.7 ns (= 125 + 49.686)
+# -> 5.72 MHz. That lands almost exactly on the ~5.2 MHz ceiling the 25 MHz
+# probe above predicted from its ~192 ns ss-corner path, which is the third
+# independent measurement agreeing that this design is a ~5 MHz part at 3.3V.
+#
+# 200 ns rather than 180: 180 would leave only ~5 ns of margin, and the
+# slow-corner number moved 8 ns (-41.9 -> -49.7) between two runs that
+# differed ONLY in placement density -- 5 ns is inside the run-to-run noise.
+# The extra slack also feeds back into routing: less timing pressure means the
+# resizer inserts fewer repair buffers, which is the area that congests.
+#
+# Still to watch: at 25 MHz the critical path was sequencer.state[2] with ~85 ns
+# of combinational decode, NOT the FMA. That path has not been addressed and may
+# resurface now that the FMA (fmaStages=4) and the texture blend are out of the
+# way. ALWAYS check max_ss_125C_3v00, never the typical corner.
+CLOCK_PERIOD: 200 # 5 MHz
 
 # CTS
 #
@@ -362,6 +380,24 @@ PL_TARGET_DENSITY_PCT: 50
 # failure surface in minutes at global routing instead of hours later at
 # detailed routing -- doesn't fix the congestion, but makes iterating on a
 # real fix far cheaper than paying the multi-hour tax every attempt.
+# 2026-09-20: 0.3 -> 0.18. This is the global router's pessimism margin -- it
+# pretends this fraction of every layer's tracks is unavailable, as headroom for
+# detailed routing. 0.3 is a LibreLane default, never sized for a PDK with only
+# FOUR usable routing layers (GF180 has 5; Metal1 contributes zero routing
+# resource, it is consumed by cells and pins).
+#
+# Four runs have now died in global routing, all with the same signature: strip
+# an NDR from a clock net (GRT-0273), restart the 50-iteration loop, fail again.
+# Every DEMAND-side fix improved its own metric and left routing untouched --
+# fmaStages=4 cut violating endpoints 26% and placement overflow 22% and still
+# stalled at iteration 18. The one thing that moved the wall was placement
+# density (70 -> 50, wall 18 -> 21-28). This is the only untried lever that adds
+# routing SUPPLY rather than rearranging demand.
+#
+# If detailed routing then fails with DRT-0218 ("Guide is not connected to
+# design"), 0.18 was too optimistic -- raise toward 0.22 rather than reverting.
+GRT_ADJUSTMENT: 0.18
+
 GRT_ALLOW_CONGESTION: false
 
 # Allow a larger Y displacement
