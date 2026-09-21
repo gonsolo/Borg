@@ -26,9 +26,32 @@ import chisel3.experimental.BundleLiterals._
   * Step 11 of the Borg GPU roadmap.
   */
 
+/** Control for `msaaMultiPass`. The tile is rendered once per sample; this
+  * bundle says which sample a pass is for, folds a finished pass's colour
+  * into the accumulator, and switches the read port to the resolved average
+  * for the flush. See BorgConfig.msaaMultiPass for the conformance argument.
+  */
+class TilePassIO(val samples: Int) extends Bundle {
+  /** Sample this pass renders. Coverage, depth and stencil all act on it
+    * alone; every other sample's bit in `write.coverage` is ignored. */
+  val sampleIdx  = Input(UInt(log2Up(samples).W))
+  /** One-cycle pulse: sweep the tile folding the working colour into the
+    * accumulator. Runs after every pass EXCEPT the last. */
+  val accumEn    = Input(Bool())
+  /** True on the first accumulate of a tile: the sweep initialises the
+    * accumulator instead of adding, so it needs no separate clear. */
+  val accumFirst = Input(Bool())
+  /** High while an accumulate sweep is in flight. */
+  val accumBusy  = Output(Bool())
+  /** Read port returns the resolved average instead of the working plane.
+    * Asserted for the flush, after the final pass. */
+  val resolve    = Input(Bool())
+}
+
 class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
                        val hasStencil: Boolean = false,
-                       val hasAlpha: Boolean = false) extends Bundle {
+                       val hasAlpha: Boolean = false,
+                       val multiPass: Boolean = false) extends Bundle {
   // Write port (from rasterizer auto-write or MMIO)
   val write = Flipped(new TileWriteIO(samples))
 
@@ -71,6 +94,9 @@ class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
   val alphaWrite     = if (hasAlpha) Some(Input(UInt(8.W))) else None
   val alphaWriteMask = if (hasAlpha) Some(Input(Bool())) else None
   val alphaClear     = if (hasAlpha) Some(Input(UInt(8.W))) else None
+
+  // --- Multi-pass MSAA control (BorgConfig.msaaMultiPass) ----------------
+  val pass = if (multiPass) Some(new TilePassIO(samples)) else None
 }
 
 /** @param colorBits Stored R/G/B width, independent of `dataBits` (the port
@@ -84,10 +110,18 @@ class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
   *                  own doc for why.
   */
 class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits: Int = 16,
-                     val hasStencil: Boolean = false, val hasAlpha: Boolean = false) extends Module {
+                     val hasStencil: Boolean = false, val hasAlpha: Boolean = false,
+                     val multiPass: Boolean = false) extends Module {
   require(colorBits == dataBits || colorBits == 8,
           s"colorBits must equal dataBits (off) or be 8 (ColorQuantize), got $colorBits")
-  val io = IO(new BorgTileBufferIO(dataBits, samples, hasStencil, hasAlpha))
+  // Multi-pass averages STORED colour arithmetically. That is only meaningful
+  // when the stored form is UNORM8 integers; averaging FP16 bit patterns is
+  // not averaging the colours they denote.
+  require(!multiPass || colorBits < dataBits,
+          "msaaMultiPass requires quantized tile colour (tileColorBits = 8): " +
+          "the accumulator averages stored integers, not FP16 bit patterns")
+  require(!multiPass || samples > 1, "msaaMultiPass is meaningless at samples == 1")
+  val io = IO(new BorgTileBufferIO(dataBits, samples, hasStencil, hasAlpha, multiPass))
 
   val FP16_MAX_DEPTH_VAL = 0x7BFF  // Scala constant
   val FP16_MAX_DEPTH = FP16_MAX_DEPTH_VAL.U(dataBits.W)
@@ -105,6 +139,16 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
     if (!narrowColor) cz.asUInt
     else Cat(ColorQuantize.quantize8(cz.r), ColorQuantize.quantize8(cz.g),
              ColorQuantize.quantize8(cz.b), cz.z)
+
+  /** The stored colour channels as raw integers, for the multi-pass
+    * accumulator: averaging must happen on the UNORM8 values, never on the
+    * FP16 patterns they dequantize to. */
+  def storedChannels(bits: UInt): (UInt, UInt, UInt) = {
+    require(narrowColor, "storedChannels is only meaningful for quantized storage")
+    (bits(3 * colorBits + dataBits - 1, 2 * colorBits + dataBits),
+     bits(2 * colorBits + dataBits - 1, colorBits + dataBits),
+     bits(colorBits + dataBits - 1, dataBits))
+  }
 
   /** The stored bit pattern -> ColorZ(dataBits), reconstructed for every
     * reader outside this module (which only ever sees full-width FP16). */
@@ -145,7 +189,39 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   // At samples==1 this is exactly one 16×64 SyncReadMem — structurally
   // identical to the pre-MSAA design, which is what keeps the single-sample
   // path (and the ASIC config) bit-identical.
-  val rgbzMems = Seq.fill(samples)(SyncReadMem(TILE_SIZE, UInt(STORED_BITS.W)))
+  // At msaaMultiPass the tile is rendered once per sample, so only ONE plane
+  // is ever live: the pass's own. The other samples live in the accumulator
+  // as a running colour sum, which is 3 channels wide instead of a whole
+  // ColorZ. 4x MSAA storage drops 3,584 -> 1,376 bits.
+  val planes = if (multiPass) 1 else samples
+  val rgbzMems = Seq.fill(planes)(SyncReadMem(TILE_SIZE, UInt(STORED_BITS.W)))
+
+  // Per-channel accumulator width: enough headroom to sum `samples` values.
+  val ACC_CH   = colorBits + log2Ceil(samples)
+  val ACC_BITS = 3 * ACC_CH
+  val accumMem = if (multiPass) Some(SyncReadMem(TILE_SIZE, UInt(ACC_BITS.W))) else None
+
+  // --- Accumulate sweep -------------------------------------------------
+  // One pass over the tile folding the working plane's colour into the
+  // accumulator, run after every pass but the LAST. Sample 0 is rendered
+  // last deliberately: its colour and Z are then still in the working plane
+  // at flush time, which is what the sample-zero depth resolve needs, so the
+  // accumulator never has to carry Z.
+  val accRun     = RegInit(false.B)
+  val accCtr     = RegInit(0.U(log2Ceil(TILE_SIZE + 1).W))
+  val accFirstReg = RegInit(false.B)
+  if (multiPass) {
+    val p = io.pass.get
+    when(p.accumEn && !accRun) {
+      accRun := true.B; accCtr := 0.U; accFirstReg := p.accumFirst
+    }.elsewhen(accRun) {
+      accCtr := accCtr + 1.U
+      when(accCtr === (TILE_SIZE - 1).U) { accRun := false.B }
+    }
+  }
+  // The write lags the read by one cycle (SyncReadMem latency).
+  val accRunDel = RegNext(accRun, false.B)
+  val accCtrDel = RegNext(accCtr, 0.U)
 
   // --- Clear state machine ---
   // BRAM needs sequential writes (1 entry per cycle).
@@ -203,14 +279,43 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   // --- Read port ---
   val effectiveReadEn = io.read.en && !clearing
 
+  // At multiPass the read port is shared with the accumulate sweep, which
+  // walks the tile on its own counter.
+  val rdAddr = if (multiPass) Mux(accRun, accCtr, io.read.idx) else io.read.idx
+  val rdEn   = if (multiPass) (effectiveReadEn || accRun) else effectiveReadEn
+
+  /** Coverage bit that gates a write into plane `s`. At multiPass there is
+    * one plane and it belongs to the pass's own sample, so every other bit
+    * of `write.coverage` is ignored rather than written elsewhere. */
+  def coverageFor(s: Int): Bool =
+    if (multiPass) io.write.coverage(io.pass.get.sampleIdx) else io.write.coverage(s)
+
   val rgbzRead = VecInit(rgbzMems.zipWithIndex.map { case (mem, s) =>
     when(clearing) {
       mem.write(clearCounter, clearWord)
-    }.elsewhen(io.write.en && io.write.coverage(s).asBool) {
+    }.elsewhen(io.write.en && coverageFor(s)) {
       mem.write(io.write.idx, encodeStored(io.write.data))
     }
-    mem.read(io.read.idx, effectiveReadEn)
+    mem.read(rdAddr, rdEn)
   })
+
+  // Accumulator read rides the same address, so a resolving read returns the
+  // running sum alongside the working plane in the same cycle.
+  val accRead = accumMem.map(_.read(rdAddr, rdEn)).getOrElse(0.U)
+
+  if (multiPass) {
+    val (wr, wg, wb) = storedChannels(rgbzRead(0))
+    val pr = accRead(3 * ACC_CH - 1, 2 * ACC_CH)
+    val pg = accRead(2 * ACC_CH - 1, 1 * ACC_CH)
+    val pb = accRead(1 * ACC_CH - 1, 0)
+    when(accRunDel) {
+      accumMem.get.write(accCtrDel, Cat(
+        Mux(accFirstReg, wr.pad(ACC_CH), pr + wr),
+        Mux(accFirstReg, wg.pad(ACC_CH), pg + wg),
+        Mux(accFirstReg, wb.pad(ACC_CH), pb + wb)))
+    }
+    io.pass.get.accumBusy := accRun || accRunDel
+  }
 
   when(effectiveReadEn) {
     if (BorgDebug.trace) printf("[TBUF] READ-REQ slot=%d\n", io.read.idx)
@@ -221,7 +326,34 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   // Capture BRAM output one cycle after readEn pulse
   val readEnDel = RegNext(effectiveReadEn, false.B)
   when(readEnDel) {
-    readDataHeld := VecInit(rgbzRead.map(decodeStored))
+    if (!multiPass) {
+      readDataHeld := VecInit(rgbzRead.map(decodeStored))
+    } else {
+      // One plane, replicated across the read port so the dispatcher's
+      // per-sample indexing (io.tileRead.data(dstIdx)) keeps working
+      // unchanged -- during a pass every index names the same live sample.
+      //
+      // On `resolve` (the flush, after the final pass) the colour becomes
+      // the MSAA average instead: accumulator + working plane, divided by
+      // `samples`. Z is the working plane's, which is sample 0's because
+      // sample 0 is rendered last -- the sample-zero depth resolve, for free.
+      val work = decodeStored(rgbzRead(0))
+      val (wr, wg, wb) = storedChannels(rgbzRead(0))
+      val shift = log2Ceil(samples)
+      val avgR = (accRead(3 * ACC_CH - 1, 2 * ACC_CH) +& wr) >> shift
+      val avgG = (accRead(2 * ACC_CH - 1, 1 * ACC_CH) +& wg) >> shift
+      val avgB = (accRead(1 * ACC_CH - 1, 0)           +& wb) >> shift
+      val res = Wire(new ColorZ(dataBits))
+      when(io.pass.get.resolve) {
+        res.r := ColorQuantize.dequantize8(avgR(colorBits - 1, 0))
+        res.g := ColorQuantize.dequantize8(avgG(colorBits - 1, 0))
+        res.b := ColorQuantize.dequantize8(avgB(colorBits - 1, 0))
+        res.z := work.z
+      }.otherwise {
+        res := work
+      }
+      readDataHeld := VecInit(Seq.fill(samples)(res))
+    }
     val parsed = decodeStored(rgbzRead(0))
     if (BorgDebug.trace) printf("[TBUF] READ-DATA s0 R=0x%x G=0x%x B=0x%x Z=0x%x\n",
       parsed.r, parsed.g, parsed.b, parsed.z)
@@ -241,7 +373,11 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   // an unmasked full-width write in CIRCT, which would silently clobber
   // uncovered samples.
   if (hasStencil) {
-    val stencilMems = Seq.fill(samples)(SyncReadMem(TILE_SIZE, UInt(8.W)))
+    // One plane per LIVE sample: at multiPass that is one, because stencil
+    // never leaves the tile buffer (BorgTileFlusher reads colour and Z only),
+    // so a pass's stencil is purely transient -- there is nothing to preserve
+    // for the resolve.
+    val stencilMems = Seq.fill(planes)(SyncReadMem(TILE_SIZE, UInt(8.W)))
 
     // Latched for the same reason as clearWordReg: io.stencilClear is a
     // one-cycle pulse from a mux, but the clear writes span 16 cycles.
@@ -251,17 +387,22 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
     val stencilRead = VecInit(stencilMems.zipWithIndex.map { case (mem, s) =>
       when(clearing) {
         mem.write(clearCounter, stencilClearReg)
-      }.elsewhen(io.stencilWriteMask.get(s).asBool) {
+      }.elsewhen(if (multiPass) io.stencilWriteMask.get(io.pass.get.sampleIdx)
+                 else io.stencilWriteMask.get(s).asBool) {
         // The mask carries the coverage/discard decision per sample, which is
         // why it is a mask and not a single enable -- a fragment can pass the
-        // stencil test for some samples and fail it for others.
+        // stencil test for some samples and fail it for others. At multiPass
+        // only the pass's own bit can select this plane.
         mem.write(io.write.idx, io.stencilWrite.get)
       }
-      mem.read(io.read.idx, effectiveReadEn)
+      mem.read(rdAddr, rdEn)
     })
 
     val stencilHeld = RegInit(VecInit(Seq.fill(samples)(0.U(8.W))))
-    when(readEnDel) { stencilHeld := stencilRead }
+    when(readEnDel) {
+      if (!multiPass) stencilHeld := stencilRead
+      else stencilHeld := VecInit(Seq.fill(samples)(stencilRead(0)))
+    }
     io.stencilRead.get := stencilHeld
   }
 
@@ -274,7 +415,9 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   // translucent geometry into a translucent buffer gets the wrong answer
   // with no way to tell.
   if (hasAlpha) {
-    val alphaMems = Seq.fill(samples)(SyncReadMem(TILE_SIZE, UInt(8.W)))
+    // One plane per live sample, for the same reason as stencil: destination
+    // alpha feeds blending inside the tile and is never flushed.
+    val alphaMems = Seq.fill(planes)(SyncReadMem(TILE_SIZE, UInt(8.W)))
 
     // RegInit 0xFF, not 0: the reset auto-clear runs before firmware writes
     // anything, and an opaque destination is what the hardware behaved as
@@ -285,14 +428,17 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
     val alphaRead = VecInit(alphaMems.zipWithIndex.map { case (mem, s) =>
       when(clearing) {
         mem.write(clearCounter, alphaClearReg)
-      }.elsewhen(io.write.en && io.write.coverage(s).asBool && io.alphaWriteMask.get) {
+      }.elsewhen(io.write.en && coverageFor(s) && io.alphaWriteMask.get) {
         mem.write(io.write.idx, io.alphaWrite.get)
       }
-      mem.read(io.read.idx, effectiveReadEn)
+      mem.read(rdAddr, rdEn)
     })
 
     val alphaHeld = RegInit(VecInit(Seq.fill(samples)(0xFF.U(8.W))))
-    when(readEnDel) { alphaHeld := alphaRead }
+    when(readEnDel) {
+      if (!multiPass) alphaHeld := alphaRead
+      else alphaHeld := VecInit(Seq.fill(samples)(alphaRead(0)))
+    }
     io.alphaRead.get := alphaHeld
   }
 }

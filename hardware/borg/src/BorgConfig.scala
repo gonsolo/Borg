@@ -156,6 +156,38 @@ case class BorgConfig(
     // keeps even an enabled build sampling nearest -- and paying no
     // quantize/dequantize round trip -- until an application asks for linear.
     hasBilinear: Boolean = false,
+    // --- MSAA storage strategy ------------------------------------------
+    //
+    // false (default): every sample of the tile is resident at once --
+    // `samples` copies of the colour/Z, stencil and destination-alpha planes.
+    // 4x MSAA costs 536,286 um2 on GF180 for 3,584 bits, because only 43% of
+    // a 16-deep flop array is storage; the other 57% is its read mux and
+    // write decode, paid twelve times over.
+    //
+    // true: render each tile ONCE PER SAMPLE, keeping a single plane of each
+    // plus a per-pixel colour accumulator, and average at the end. Storage
+    // drops to ~206,000 um2 -- 8.9% of the whole design -- for roughly 4x the
+    // fragment work, because every pass re-shades the tile.
+    //
+    // This is still MSAA, not supersampling, and therefore conformant: each
+    // pass interpolates at the PIXEL CENTRE and shades identically, and only
+    // the coverage test and the depth/stencil write target the pass's own
+    // sample. The shaded value is the same every pass, so the accumulated
+    // average is exactly the MSAA resolve. Vulkan requires the fragment
+    // shader to run *at least* max(ceil(minSampleShading * rasterizationSamples), 1)
+    // times per fragment; running it more often is permitted.
+    //
+    // The semantics multi-pass WOULD disturb -- interpolateAtSample,
+    // gl_SampleID, the `sample` qualifier -- are all gated behind the
+    // optional sampleRateShading feature, which borgvk reports false
+    // (borgvk_device.c advertises only textureCompressionETC2), so the CTS
+    // cases covering them are skipped.
+    //
+    // LATENT CONSTRAINT: a fragment shader with storage writes or atomics
+    // would execute them four times instead of once, which IS observable.
+    // Borg has no fragment load/store today; adding it later would silently
+    // break conformance unless this is revisited.
+    msaaMultiPass: Boolean = false,
     // --- Extended ISA -------------------------------------------------
     //
     // Two knobs rather than one so the wafer.space area/feature tradeoff can
@@ -227,6 +259,8 @@ case class BorgConfig(
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
+  require(!msaaMultiPass || samples > 1,
+          "msaaMultiPass is meaningless at samples == 1 (there is nothing to accumulate)")
   require(tileColorBits == 16 || tileColorBits == 8,
           s"tileColorBits must be 16 (off) or 8 (ColorQuantize UNORM8), got $tileColorBits")
   require(fmaStages >= 3 && fmaStages <= 5, s"fmaStages must be 3, 4 or 5, got $fmaStages")
