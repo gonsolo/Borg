@@ -383,6 +383,38 @@ object BorgConfig {
   // (see Default's own comment for the full rationale).
   val Simt = Default.copy(fragLanes = 4, maxBinTiles = 4096)
 
+  // --- Simulation configs for validating msaaMultiPass end to end ---------
+  //
+  // A fair comparison needs BOTH sides quantized: msaaMultiPass requires
+  // tileColorBits = 8, so measuring it against the plain Simt (which stores
+  // FP16) would show colour-quantization differences and call them MSAA.
+  // These two differ ONLY in where the samples live.
+  //
+  //   SimtQ    resident samples, UNORM8 tile colour
+  //   SimtQMp  one live plane + accumulator, UNORM8 tile colour
+  //
+  // Both render 4x MSAA and average the same four sample colours -- SimtQ in
+  // the flusher, SimtQMp in the accumulator -- so a correct implementation
+  // renders the SAME image. Any divergence is a real bug in the pass loop,
+  // the accumulator or the resolve.
+  val SimtQ   = Simt.copy(tileColorBits = 8)
+  val SimtQMp = SimtQ.copy(msaaMultiPass = true)
+
+  /** Which config the Verilator/Arcilator sim tops elaborate, from
+    * `BORG_SIM_CFG`. Default `simt` keeps every existing sim run unchanged.
+    *
+    * MUST be used by BorgSimTop AND BorgSimMain's Peripherals: firtool splits
+    * per module, so two different configs in one emission silently overwrite
+    * each other's BorgCore/BorgShaderDispatcher (see BorgSimMain's own note).
+    */
+  def simCfg: BorgConfig = sys.env.getOrElse("BORG_SIM_CFG", "simt") match {
+    case "simt"    => Simt
+    case "simt8"   => SimtQ
+    case "simt8mp" => SimtQMp
+    case other     => throw new IllegalArgumentException(
+      s"BORG_SIM_CFG=$other; expected simt, simt8 or simt8mp")
+  }
+
   // The ASIC: wafer.space GF180MCU, 1x1 slot, via BorgOnlyTop (the Borg-only
   // bridge; QspiSocTop, the cocotb CPU SoC harness, builds from this too).
   // Default's feature set, sized down to fit the slot. Every line here is a

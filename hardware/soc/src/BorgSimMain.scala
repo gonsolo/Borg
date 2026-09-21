@@ -26,7 +26,7 @@ object BorgSimMain extends App {
   // module, so a Default-config (1-lane) Peripherals here silently OVERWRITES the
   // 4-lane BorgCore.sv/BorgShaderDispatcher.sv emitted from BorgSimTop above —
   // making the whole verilator sim secretly 1-lane.  Keep these configs in sync.
-  Emit.emitAndCollect(new Peripherals(clockMhz, BorgConfig.Simt), targetDir, allFiles)
+  Emit.emitAndCollect(new Peripherals(clockMhz, BorgConfig.simCfg), targetDir, allFiles)
 
   val fw = new java.io.PrintWriter(new java.io.File(s"$targetDir/sim_files.txt"))
   allFiles.toList.sorted.foreach(fw.println)

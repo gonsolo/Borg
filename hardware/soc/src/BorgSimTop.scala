@@ -46,8 +46,10 @@ class BorgSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // Match ULX3S hardware: RV64IMAC Hutt core.
   override def xlen: Int = 64
 
-  // 2×2 quad SIMT fragment shading (sim).
-  override def BORG_CFG: BorgConfig = BorgConfig.Simt
+  // 2×2 quad SIMT fragment shading (sim). BORG_SIM_CFG selects the MSAA
+  // storage strategy so msaaMultiPass can be rendered end to end; it defaults
+  // to Simt, leaving every existing sim run unchanged.
+  override def BORG_CFG: BorgConfig = BorgConfig.simCfg
 
   // Immediately reflect fb_select writes back as scanoutCurBuf so the firmware's
   // PERI_FB_SELECT sync loop exits on the first read (no real scanout in the sim).
