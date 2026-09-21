@@ -223,7 +223,20 @@ case class BorgConfig(
     // NOTE: raising this alone is NOT functionally correct -- each extra stage
     // adds a pipeline cycle, so BorgCore's busy_counter must widen from 3 bits
     // and load 7+N instead of 7, shifting holdA/B/C and pipeEn1 earlier.
-    fmaStages: Int = 3
+    fmaStages: Int = 3,
+    // Pass 2 visits the tiles in a fixed pseudo-random order instead of raster
+    // order (frameless / stochastic-scan experiment, after Jonson et al.,
+    // SIGGRAPH ET '26). Each tile is still rendered and flushed exactly once,
+    // so the finished framebuffer is identical; only the order in which tiles
+    // become visible changes. Off by default: costs a K-bit constant
+    // multiplier pair, two K-bit registers and one FSM state (K =
+    // log2Ceil(maxBinTiles)) when on, nothing when off.
+    //
+    // Needs fbWidthTiles to be a power of two at runtime; otherwise the
+    // sequencer falls back to raster order for that frame. Raster order also
+    // gives the 2-entry setup cache its locality (neighbouring tiles share
+    // triangles), which a random order gives up -- expect more setup DMA.
+    stochasticTiles: Boolean = false
 ) {
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")

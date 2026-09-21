@@ -53,22 +53,101 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   val uniformWritePage = Output(UInt(1.W))
 }
 
+/** The bijection behind [[BorgConfig.stochasticTiles]]: a fixed pseudo-random
+  * permutation of the integers [0, 2^k).
+  *
+  * xorshift / odd-multiply / xorshift / odd-multiply / xorshift, all on k bits.
+  * Each step is invertible (a right xorshift by s >= 1, and a multiply by an
+  * odd constant modulo 2^k), so the composition is a bijection. The constants
+  * are the low bits of two well-known avalanche multipliers, forced odd.
+  *
+  * `perm` is the hardware; `permModel` is the same arithmetic on BigInt, so a
+  * test can check the two agree and check bijectivity exhaustively.
+  */
+object TileOrder {
+  private def shift(k: Int): Int = math.max(1, k / 2)
+  private def consts(k: Int): (BigInt, BigInt) = {
+    val mask = (BigInt(1) << k) - 1
+    ((BigInt("9E3779B1", 16) & mask) | 1, (BigInt("85EBCA6B", 16) & mask) | 1)
+  }
+
+  def perm(x: UInt, k: Int): UInt = {
+    val s        = shift(k)
+    val (a1, a2) = consts(k)
+    val v0 = x(k - 1, 0)
+    val v1 = v0 ^ (v0 >> s)
+    val v2 = (v1 * a1.U(k.W))(k - 1, 0)
+    val v3 = v2 ^ (v2 >> s)
+    val v4 = (v3 * a2.U(k.W))(k - 1, 0)
+    v4 ^ (v4 >> s)
+  }
+
+  def permModel(x: BigInt, k: Int): BigInt = {
+    val s        = shift(k)
+    val mask     = (BigInt(1) << k) - 1
+    val (a1, a2) = consts(k)
+    val v1 = x ^ (x >> s)
+    val v2 = (v1 * a1) & mask
+    val v3 = v2 ^ (v2 >> s)
+    val v4 = (v3 * a2) & mask
+    v4 ^ (v4 >> s)
+  }
+
+  /** Software model of the sequencer's walk: the tile visited at ordinal
+    * `ord` of an `n`-tile grid, for n <= 2^k. */
+  def walkModel(ord: Int, n: Int, k: Int): Int = {
+    var v = BigInt(ord)
+    do { v = permModel(v, k) } while (v >= n)
+    v.toInt
+  }
+}
+
 class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgTileSequencerIO(cfg))
 
-  val nStates = 18
+  val nStates = 19
   val states = Enum(nStates)
   val (sIdle :: sWaitDMA :: sLoadRastShader :: sLoadFragShader :: sStartPass2 ::
        sReadBinCount :: sClearTile ::
        sReadBinEntry :: sWaitBinEntry :: sLoadTriSetup :: sLoadCovDelta ::
        sEnqueueTile :: sIteratePixels :: sWaitRast :: sWaitFlush :: sWaitFlushSync ::
-       sNextBinTri :: sNextRenderTile :: Nil) = states
+       sNextBinTri :: sNextRenderTile :: sPermWalk :: Nil) = states
   val state = RegInit(sIdle)
 
   val nextAfterDMA = RegInit(sIdle)
 
   val tileX = RegInit(0.U(cfg.coordWidth.W))
   val tileY = RegInit(0.U(cfg.coordWidth.W))
+
+  // -- Stochastic tile order (cfg.stochasticTiles) ----------------------------
+  // tileOrd counts tiles visited this pass (0 until nTiles). Each ordinal is
+  // mapped to a tile by tilePerm, a bijection on permBits-bit integers; an
+  // ordinal whose image lands outside [0, nTiles) is re-mapped until it lands
+  // inside (cycle walking), which makes the restriction to [0, nTiles) a
+  // bijection too, for any nTiles <= 2^permBits. sPermWalk does one step of
+  // that walk per cycle; the expected walk is 2^permBits / nTiles steps, a
+  // few cycles against roughly a thousand per tile.
+  private val permBits = log2Ceil(cfg.maxBinTiles)
+  if (cfg.stochasticTiles) {
+    require(permBits >= 2, s"stochasticTiles needs maxBinTiles >= 4, got ${cfg.maxBinTiles}")
+  }
+  private val tileOrd = if (cfg.stochasticTiles) Some(RegInit(0.U(permBits.W))) else None
+  private val walkVal = if (cfg.stochasticTiles) Some(RegInit(0.U(permBits.W))) else None
+
+  // Runtime guard: the tile grid needs a power-of-two width (tile x/y come
+  // from shifts and masks, not a divide) and a nonzero height. Otherwise this
+  // frame is rendered in raster order.
+  private val stochActive: Bool =
+    if (cfg.stochasticTiles) {
+      val w = io.mmio.fbWidthTiles
+      (w =/= 0.U) && ((w & (w - 1.U)) === 0.U) && (io.mmio.fbHeightTiles =/= 0.U)
+    } else false.B
+
+  // Tiles in the grid this frame (only meaningful when stochActive). Built at
+  // class level, not lazily: a multiplier first created inside a when() block
+  // is scoped to that block and cannot be used from the others.
+  private val stochTileCount: UInt =
+    if (cfg.stochasticTiles) io.mmio.fbHeightTiles * io.mmio.fbWidthTiles else 0.U
 
   val binTriIdx    = RegInit(0.U(10.W))  // current index into tile's bin list
   val binTriCount  = RegInit(0.U(10.W))  // number of triangles in current tile's bin
@@ -224,6 +303,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       is(sWaitFlush)       { handleWaitFlush() }
       is(sWaitFlushSync)   { handleWaitFlushSync() }
       is(sNextRenderTile)  { handleNextRenderTile() }
+      is(sPermWalk)        { handlePermWalk() }
     }
   }
 
@@ -278,6 +358,22 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       tileWasDirty(io.curBufIdx)(i) := tileIsDirty(io.curBufIdx)(i) || colorChanged
       tileIsDirty(io.curBufIdx)(i)  := false.B
     }
+    if (cfg.stochasticTiles) {
+      when(stochActive) {
+        // First tile comes from the permutation walk, which issues its own
+        // bin-count read (see handlePermWalk).
+        tileOrd.get := 0.U
+        walkVal.get := 0.U
+        state       := sPermWalk
+      }.otherwise {
+        startRasterPass()
+      }
+    } else {
+      startRasterPass()
+    }
+  }
+
+  private def startRasterPass(): Unit = {
     // Issue count read for tile (0,0) = tile index 0
     io.binner.countReadAddr := 0.U
     io.binner.countReadEn   := true.B
@@ -490,6 +586,53 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleNextRenderTile(): Unit = {
+    if (cfg.stochasticTiles) {
+      when(stochActive) {
+        // Expanding add: with nTiles == 2^permBits a wrapping increment would
+        // never reach nTiles and the pass would not terminate.
+        val nextOrd = tileOrd.get +& 1.U
+        when(nextOrd >= stochTileCount) {
+          io.done := true.B
+          state   := sIdle
+        }.otherwise {
+          tileOrd.get := nextOrd
+          walkVal.get := nextOrd
+          state       := sPermWalk
+        }
+      }.otherwise {
+        handleNextRasterTile()
+      }
+    } else {
+      handleNextRasterTile()
+    }
+  }
+
+  // One step of the cycle walk: map walkVal through tilePerm. If the image is
+  // a real tile, visit it: derive x/y with shifts and masks (the grid width is
+  // a power of two, see stochActive) and issue the bin-count read for it, so
+  // sReadBinCount sees valid data next cycle exactly as after a raster advance.
+  // Otherwise feed the image back in and try again next cycle.
+  private def handlePermWalk(): Unit = {
+    if (cfg.stochasticTiles) {
+      val p     = TileOrder.perm(walkVal.get, permBits)
+      val w     = io.mmio.fbWidthTiles
+      val log2W = PriorityEncoder(w)
+      when(p < stochTileCount) {
+        val px = p & (w - 1.U)
+        val py = p >> log2W
+        tileX := (px << 2)
+        tileY := (py << 2)
+        val lin = (py * io.mmio.tilesPerRow) + px
+        io.binner.countReadAddr := lin(log2Ceil(cfg.maxBinTiles) - 1, 0)
+        io.binner.countReadEn   := true.B
+        state := sReadBinCount
+      }.otherwise {
+        walkVal.get := p
+      }
+    }
+  }
+
+  private def handleNextRasterTile(): Unit = {
     val nextTileX = (tileX >> 2) + 1.U
     when(nextTileX >= io.mmio.fbWidthTiles) {
       tileX := 0.U
