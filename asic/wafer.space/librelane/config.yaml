@@ -394,9 +394,61 @@ PL_TARGET_DENSITY_PCT: 50
 # density (70 -> 50, wall 18 -> 21-28). This is the only untried lever that adds
 # routing SUPPLY rather than rearranging demand.
 #
-# If detailed routing then fails with DRT-0218 ("Guide is not connected to
-# design"), 0.18 was too optimistic -- raise toward 0.22 rather than reverting.
-GRT_ADJUSTMENT: 0.18
+# 2026-09-21: SOLVED, and the paragraph above had the wrong model. GRT_ADJUSTMENT
+# applies UNIFORMLY to all five routing layers. Borg's demand is not uniform --
+# it is 78% on Metal2/Metal3, with Metal4 at 15.1% and Metal5 at 7.8% usage. So
+# the 18% haircut was removing capacity from the two layers that had slack and
+# doing nothing about the two that were tight. The congestion was never a global
+# shortage: total routing usage was 24.4%, and all 2,114 congested tiles sat in
+# ONE 756x782 um box (4.6% of the core) whose local utilization was 15.7% vs the
+# 43.1% chip average -- routability-driven placement had already evacuated it.
+#
+# Measured by re-running global routing from a saved post-CTS ODB (a 1-5 minute
+# loop; see project_grt_adjustment_is_the_cause in Claude's memory for the
+# recipe -- it replaces 6-hour signoff runs for any routing change). All points
+# at REAL signoff conditions: 50 iterations, GRT_ALLOW_CONGESTION false.
+#
+#   M2/M3 derate (M4/M5 free)   overflow   result
+#   0.00                               0   converges, but detailed routing then
+#                                          produced 90% SHORTS (118,422 on
+#                                          Metal2) -- too optimistic, as this
+#                                          variable exists to prevent
+#   0.02                               0   converges
+#   0.05                               0   converges  <- CHOSEN
+#   0.08                               9   fails
+#   0.10                              11   fails
+#   0.18                          31,400   fails (the old setting, 5h50m)
+#
+# 0.05 is the LARGEST derate that converges, so it concedes the least optimism
+# of any setting that works, and it keeps real margin on Metal2/Metal3 where
+# pin access and shorts actually occur. Metal4/Metal5 get 0 because they are
+# measurably idle. Note the cliff between 0.10 (11 overflow) and 0.18 (31,400):
+# the old value was far past the edge, which is why this looked structural.
+#
+# FOUR structural hypotheses were refuted by measurement before this was found
+# -- macro hardening (made routing 11.5x WORSE), cell area (usage is 24.4%),
+# high-fanout nets (repair_design caps fanout at 30 before routing), and long
+# broadcast wires (295 um median span). Do not retry them.
+#
+# GRT_ADJUSTMENT MUST BE 0 HERE -- this is a trap. LibreLane's
+# set_layer_adjustments.tcl runs
+#     set_global_routing_layer_adjustment * $GRT_ADJUSTMENT
+# FIRST and only then applies GRT_LAYER_ADJUSTMENTS per layer. A per-layer
+# value of 0 does NOT undo the global one, so `GRT_ADJUSTMENT: 0.05` plus
+# `[0, 0.05, 0.05, 0, 0]` silently derates ALL FIVE layers by 5% -- verified
+# 2026-09-21 by the reduction table it printed: Metal4 7.54% and Metal5 11.70%
+# although both were configured 0. With this fixed, Metal4/Metal5 report
+# exactly 0.00% and Metal2/Metal3 report 7.53%/6.86% -- a 0.05 request
+# QUANTISED UP to a whole routing track per tile, which is why the effective
+# derate reads higher than the number requested (the sweep saw the same
+# quantisation, so the two are consistent).
+# Put every non-zero derate in the per-layer list and leave this at 0.
+GRT_ADJUSTMENT: 0.0
+
+# Per-layer, in order Metal1..Metal5. Metal1 carries no routing resource.
+# Metal2/Metal3 keep a real margin (they absorb pin access and are where
+# detailed routing produced its shorts); Metal4/Metal5 are measurably idle.
+GRT_LAYER_ADJUSTMENTS: [0.0, 0.05, 0.05, 0.0, 0.0]
 
 GRT_ALLOW_CONGESTION: false
 
