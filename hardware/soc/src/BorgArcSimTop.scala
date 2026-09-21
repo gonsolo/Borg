@@ -48,7 +48,14 @@ class BorgArcSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // Arcilator ignores $readmemh, so its C++ harness pokes the per-lane LUTs into
   // all 4 lanes (see ArcBorgSimulator::load_luts).  One config everywhere keeps
   // sim == hardware.
-  override def BORG_CFG: BorgConfig = BorgConfig.Simt
+  // BORG_STOCHASTIC_TILES=1 turns on BorgConfig.stochasticTiles for the
+  // frameless-scan experiment. Unset, this is exactly BorgConfig.Simt. The
+  // variable is read at elaboration, so a Mill daemon started without it will
+  // not see it: restart the daemon when switching.
+  override def BORG_CFG: BorgConfig =
+    if (sys.env.get("BORG_STOCHASTIC_TILES").contains("1"))
+      BorgConfig.Simt.copy(stochasticTiles = true)
+    else BorgConfig.Simt
 
   // No scanout: immediately reflect fb_select writes so the firmware's
   // PERI_FB_SELECT sync loop exits on the first read.
