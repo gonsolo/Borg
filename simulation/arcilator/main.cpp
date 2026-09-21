@@ -78,8 +78,44 @@ static int run_and_dump(ArcBorgSimulator &sim, uint32_t width, uint32_t height,
     uint64_t MAX_CYCLES = 15000000ULL;
     if (const char *ov = getenv("CTS_MAX_CYCLES")) MAX_CYCLES = strtoull(ov, nullptr, 10);
     uint64_t cycles = 0;
-    while (!sim.step(10000)) {
-        cycles += 10000;
+
+    // CTS_TS_RAMP=<W>: render-time stamping for the frameless-latency
+    // experiment. Once the first tile of the frame reaches DRAM (render start),
+    // ramp the green channel of the pushed colour (push-constant words 8..11,
+    // what pushconst.frag outputs) linearly from 0 to 1 over W cycles. A shader
+    // that LOADs its colour at run time then paints each tile with the value
+    // current when it rendered, so the image is a per-tile render-time map.
+    // Off unless the variable is set.
+    uint64_t ramp_w = 0;
+    if (const char *rw = getenv("CTS_TS_RAMP")) ramp_w = strtoull(rw, nullptr, 10);
+    const uint32_t step_cycles = ramp_w ? 2000 : 10000;
+    const uint32_t *fbw = (const uint32_t *)sim.flat->mem.data();
+    const uint32_t fb0 = sim.out_base_word_buf0;
+    // Buffer 1 starts one word later than frame_tile_size_words: the completion
+    // marker word sits between the two buffers (see BorgSimulatorBase::step).
+    const uint32_t fb1 = sim.out_base_word_buf0 + sim.frame_tile_size_words + 1;
+    const uint32_t init0 = fbw[fb0], init1 = fbw[fb1];
+    bool ramp_started = false;
+    uint64_t ramp_t0 = 0;
+    auto poke_ramp = [&]() {
+        if (cycles % 2000000 == 0)
+            std::cerr << "[RAMP] cycle " << cycles << " fb0=0x" << std::hex << fbw[fb0]
+                      << " fb1=0x" << fbw[fb1] << std::dec << "\n";
+        if (!ramp_started && (fbw[fb0] != init0 || fbw[fb1] != init1)) {
+            ramp_started = true; ramp_t0 = cycles;
+            std::cerr << "[RAMP] render start detected at cycle " << cycles << "\n";
+        }
+        double g = ramp_started ? double(cycles - ramp_t0) / double(ramp_w) : 0.0;
+        if (g > 1.0) g = 1.0;
+        flat_write_word(sim, BORG_PUSH_CONST_SPI + 8 * 4,  f32_bits(0.0f));
+        flat_write_word(sim, BORG_PUSH_CONST_SPI + 9 * 4,  f32_bits((float)g));
+        flat_write_word(sim, BORG_PUSH_CONST_SPI + 10 * 4, f32_bits(0.0f));
+        flat_write_word(sim, BORG_PUSH_CONST_SPI + 11 * 4, f32_bits(1.0f));
+    };
+
+    while (!sim.step(step_cycles)) {
+        cycles += step_cycles;
+        if (ramp_w) poke_ramp();
         if (cycles > MAX_CYCLES) {
             std::cerr << "[CTS] Watchdog: frame not complete after "
                       << MAX_CYCLES << " cycles\n";
