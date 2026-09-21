@@ -170,6 +170,11 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val store = new SeqStoreIO
   val flusher = new SeqFlusherIO
   val iter = new SeqIteratorIO(cfg.coordWidth)
+
+  // Multi-pass MSAA control, passed straight through from Pass 2 (only Pass 2
+  // renders tiles). Flipped for the same reason as there: BorgTileBuffer owns
+  // the directions.
+  val pass = if (cfg.msaaMultiPass) Some(Flipped(new TilePassIO(cfg.samples))) else None
   val dma = new SeqDmaIO(cfg)
 
   val busy = Output(Bool())
@@ -306,6 +311,16 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Config fan-out (pure input data; safe to share) ---
   p1.io.mmio := io.mmio
+  // Pass-control is Pass 2's alone; Pass 1 never touches the tile buffer.
+  io.pass.foreach { w =>
+    val t = p2.io.pass.get
+    w.sampleIdx  := t.sampleIdx
+    w.accumEn    := t.accumEn
+    w.accumFirst := t.accumFirst
+    w.resolve    := t.resolve
+    t.accumBusy  := w.accumBusy
+  }
+
   p2.io.mmio := io.mmio
   p2.io.curBufIdx := curBufIdx
 

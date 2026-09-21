@@ -51,18 +51,22 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
 
   val uniformWrite     = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
+
+  // --- Multi-pass MSAA control (BorgConfig.msaaMultiPass) ----------------
+  // Flipped: BorgTileBuffer declares the directions, this pass drives them.
+  val pass = if (cfg.msaaMultiPass) Some(Flipped(new TilePassIO(cfg.samples))) else None
 }
 
 class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgTileSequencerIO(cfg))
 
-  val nStates = 18
+  val nStates = 19
   val states = Enum(nStates)
   val (sIdle :: sWaitDMA :: sLoadRastShader :: sLoadFragShader :: sStartPass2 ::
        sReadBinCount :: sClearTile ::
        sReadBinEntry :: sWaitBinEntry :: sLoadTriSetup :: sLoadCovDelta ::
        sEnqueueTile :: sIteratePixels :: sWaitRast :: sWaitFlush :: sWaitFlushSync ::
-       sNextBinTri :: sNextRenderTile :: Nil) = states
+       sNextBinTri :: sNextRenderTile :: sAccumWait :: Nil) = states
   val state = RegInit(sIdle)
 
   val nextAfterDMA = RegInit(sIdle)
@@ -78,6 +82,33 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // reusing one flat register across both was a pre-split economy that no
   // longer applies once each pass is its own module.)
   val clearCounter = RegInit(0.U(5.W))
+
+  // --- Multi-pass MSAA ---------------------------------------------------
+  // At msaaMultiPass the tile is rendered once per sample rather than with
+  // every sample resident. passCtr counts the passes; the sample a pass
+  // renders is passCtr + 1 (mod samples), so SAMPLE 0 GOES LAST -- its colour
+  // and Z are then still in the working plane at flush time, which is exactly
+  // what the sample-zero depth resolve reads, so the accumulator carries no Z.
+  //
+  // accumDone gates `resolve`: a tile that skipped its passes entirely (an
+  // empty bin, flushed straight from the clear colour) must flush the working
+  // plane, not an average against a stale accumulator.
+  val passCtr   = if (cfg.msaaMultiPass) Some(RegInit(0.U(log2Up(cfg.samples).W))) else None
+  val accumDone = if (cfg.msaaMultiPass) Some(RegInit(false.B)) else None
+  private def lastPass: Bool =
+    passCtr.map(_ === (cfg.samples - 1).U).getOrElse(true.B)
+
+  // Multi-pass control defaults. sampleIdx trails passCtr by one so sample 0
+  // is rendered LAST (see passCtr's comment); the 2-bit add wraps 3 -> 0.
+  // `resolve` is asserted only across the flush, and only once at least one
+  // pass has been accumulated.
+  io.pass.foreach { p =>
+    p.sampleIdx  := (passCtr.get + 1.U)(log2Up(cfg.samples) - 1, 0)
+    p.accumEn    := false.B
+    p.accumFirst := passCtr.get === 0.U
+    p.resolve    := accumDone.get && (state === sWaitFlush || state === sWaitFlushSync)
+  }
+
   // setupLoadIdx: tracks DMA word count during sLoadTriSetup (for the has_uvs
   // snoop) and is reused for the covDelta snoop in sLoadCovDelta.
   val setupLoadIdx = RegInit(0.U(6.W))
@@ -224,6 +255,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       is(sWaitFlush)       { handleWaitFlush() }
       is(sWaitFlushSync)   { handleWaitFlushSync() }
       is(sNextRenderTile)  { handleNextRenderTile() }
+      is(sAccumWait)       { handleAccumWait() }
     }
   }
 
@@ -285,6 +317,11 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleReadBinCount(): Unit = {
+    // A new tile starts at pass 0 with an empty accumulator. Reset here, not
+    // in sClearTile: sClearTile is re-entered once per PASS, this state only
+    // once per tile.
+    passCtr.foreach(_ := 0.U)
+    accumDone.foreach(_ := false.B)
     // SyncReadMem data is valid NOW (1 cycle after read was issued in
     // sStartPass2/sNextRenderTile). Capture it immediately -- the output
     // goes undefined on the next cycle when readEn drops.
@@ -467,8 +504,39 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
         // Don't re-clear tile buffer -- fragments accumulate on top of clear color
         state := sReadBinEntry
       }.otherwise {
-        state := sWaitFlush
+        if (cfg.msaaMultiPass) {
+          // Every triangle covering this tile has now been rasterized for
+          // THIS pass's sample. Unless it was the last pass, fold the working
+          // plane into the accumulator and go round again for the next one.
+          when(lastPass) {
+            state := sWaitFlush
+          }.otherwise {
+            clearCounter := 0.U
+            state := sAccumWait
+          }
+        } else {
+          state := sWaitFlush
+        }
       }
+    }
+  }
+
+  /** Fold the finished pass's colour into the accumulator, then restart the
+    * tile for the next sample. The sweep is 16 entries plus the SyncReadMem
+    * read latency; 20 cycles covers it with the same margin sClearTile uses. */
+  private def handleAccumWait(): Unit = {
+    clearTileComplete := true.B
+    when(clearCounter === 0.U) {
+      io.pass.foreach(_.accumEn := true.B)
+      clearCounter := 1.U
+    }.elsewhen(clearCounter < 20.U) {
+      clearCounter := clearCounter + 1.U
+    }.otherwise {
+      clearCounter := 0.U
+      accumDone.foreach(_ := true.B)
+      passCtr.foreach(pc => pc := pc + 1.U)
+      binTriIdx := 0.U
+      state := sClearTile
     }
   }
 
