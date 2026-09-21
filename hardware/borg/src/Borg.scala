@@ -109,7 +109,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val core      = withReset(resetCopy("core"))   { Module(new BorgCore(cfg)) }
   val rast      = withReset(resetCopy("rast"))   { Module(new BorgRasterizer(cfg)) }
   val flusher   = withReset(resetCopy("flush"))  { Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush)) }   // before tile — see note above
-  val tile      = withReset(resetCopy("tile"))   { Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend)) }
+  val tile      = withReset(resetCopy("tile"))   { Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend, cfg.msaaMultiPass)) }
   val rdlRegs   = withReset(resetCopy("regs"))   { Module(new BorgGpuRegs()) } // Auto-generated RDL register block
   val dma       = withReset(resetCopy("dma"))    { Module(new BorgDMA(cfg)) }
   val sequencer = withReset(resetCopy("seq"))    { Module(new BorgSequencer(cfg)) }
@@ -497,6 +497,19 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     tile.io.alphaWrite.foreach(_ := rast.io.alphaWrite.get)
     tile.io.alphaWriteMask.foreach(_ := rast.io.alphaWriteMask.get)
     tile.io.alphaClear.foreach(_ := rdlRegs.io.hw.plane_clear_alpha)
+
+    // --- Multi-pass MSAA control (BorgConfig.msaaMultiPass) --------------
+    // The sequencer renders the tile once per sample and folds each finished
+    // pass into the accumulator; `resolve` switches the read port to the
+    // average for the flush.
+    tile.io.pass.foreach { p =>
+      val sp = s.io.pass.get
+      p.sampleIdx  := sp.sampleIdx
+      p.accumEn    := sp.accumEn
+      p.accumFirst := sp.accumFirst
+      p.resolve    := sp.resolve
+      sp.accumBusy := p.accumBusy
+    }
   }
 
   /** Step 25.4.1: Wire BorgTileFlusher with real DRAM writes.

@@ -439,7 +439,19 @@ object BorgConfig {
     // chains -- at -5.6 ns and -12.8 ns against the 125 ns budget. That is
     // exactly the stage fmaStages=4 splits. Costs one cycle per FMA; the
     // ULX3S/sim Default stays at 3 because the FMA is not its limiter.
-    fmaStages        = 4
+    fmaStages        = 4,
+    // 2026-09-21: the ONLY target that needs this either. Measured on GF180,
+    // rendering each tile once per sample instead of keeping every sample
+    // resident saves 346,969 um2 -- 9.32% of the whole design:
+    //
+    //   tile memories  12 -> 4     536,814 -> 189,845 um2  (-64.6%)
+    //   stored bits    3,584 -> 1,376
+    //
+    // The cost is roughly 4x the fragment work, which this target can afford
+    // and the ULX3S/sim Default cannot: the wafer.space submission is gated
+    // on fitting and routing, not on frame rate. Conformance is unaffected --
+    // see msaaMultiPass's own doc for why this is still MSAA.
+    msaaMultiPass    = true
   )
 
   // The config Chisel unit tests should instantiate full Borg/BorgTestWrapper

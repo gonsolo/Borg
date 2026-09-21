@@ -73,6 +73,37 @@ object BorgTilePathElabTests extends TestSuite {
       println("  Borg(hasStencil=true) elaborated cleanly")
     }
 
+    utest.test("Borg elaborates with msaaMultiPass enabled") {
+      // The whole tile path end to end in multi-pass storage: BorgTileBuffer
+      // collapses to one live plane plus an accumulator, BorgTileSequencer
+      // gains its pass loop, and Borg wires the TilePassIO between them. An
+      // unconnected Option port anywhere on that path fails here.
+      val cfg = BorgConfig.Default.copy(
+        samples = 4, hasBlend = true, hasStencil = true,
+        tileColorBits = 8, msaaMultiPass = true, maxBinTiles = 64)
+      val sv = elaborate(cfg)
+      // One colour plane and one accumulator, not four planes.
+      assert(sv.contains("accumMem"))
+      assert(sv.contains("rgbzMems_0_ext"))
+      assert(!sv.contains("rgbzMems_3_ext"))
+      // Stencil and alpha collapse the same way -- neither is ever flushed,
+      // so a pass's values are purely transient.
+      assert(!sv.contains("stencilMems_3_ext"))
+      assert(!sv.contains("alphaMems_3_ext"))
+      println("  msaaMultiPass: 1 colour plane + accumulator, no sample 1-3 planes")
+    }
+
+    utest.test("msaaMultiPass requires quantized tile colour") {
+      // The accumulator averages STORED integers; averaging FP16 bit patterns
+      // would not average the colours they denote, so the combination is
+      // refused at elaboration rather than producing quietly wrong pixels.
+      val bad = BorgConfig.Default.copy(
+        samples = 4, tileColorBits = 16, msaaMultiPass = true, maxBinTiles = 64)
+      val threw = try { elaborate(bad); false } catch { case _: Throwable => true }
+      assert(threw)
+      println("  msaaMultiPass + tileColorBits=16 correctly refused")
+    }
+
     utest.test("Borg elaborates with every optional feature disabled") {
       val chirrtl = elaborate(Bare)
       utest.assert(chirrtl.nonEmpty)
