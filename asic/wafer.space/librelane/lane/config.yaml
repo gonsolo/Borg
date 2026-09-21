@@ -1,0 +1,53 @@
+# Standalone hardening experiment for ONE BorgLane (2026-09-21).
+#
+# Question this answers: can a single shader lane place and route on its own,
+# and at what utilization? Four lanes flat are the measured congestion hotspot
+# (every hottest placement bin is core.lanes_*; the final GRT congestion report
+# showed 31,400 overflow points with 54% on Metal3 while overall track usage
+# was only 24%). Hardening contains each lane's ~1,024-wire register-file
+# convergence inside its own footprint instead of letting four of them fight
+# in one region of a flat 148k-cell design.
+#
+# This is NOT a tapeout config -- no padring, no sealring, core only.
+meta:
+  version: 3
+  flow: Classic
+
+DESIGN_NAME: BorgLane
+VERILOG_FILES:
+- dir::../../../../out/hardware/borg/verilog_wafer_1x1/BorgLane.sv
+- dir::../../../../out/hardware/borg/verilog_wafer_1x1/BorgFp16Fma.sv
+- dir::../../../../out/hardware/borg/verilog_wafer_1x1/Fp16Special.sv
+- dir::../../../../out/hardware/borg/verilog_wafer_1x1/regFile.sv
+- dir::../../../../out/hardware/borg/verilog_wafer_1x1/mem_32x32.sv
+
+CLOCK_PORT: clock
+CLOCK_PERIOD: 200
+
+# 412,755 um^2 at synthesis; ~1.55x after repair on this design's history
+# => ~640k um^2 of cells. A 1270x1270 core is 1.61 mm^2 => ~40% utilization,
+# deliberately matching the 36-43% band where the flat design sits, so the
+# result is comparable rather than flattered by a generous die.
+FP_SIZING: absolute
+DIE_AREA: [0, 0, 1290, 1290]
+CORE_AREA: [10, 10, 1280, 1280]
+
+PL_TARGET_DENSITY_PCT: 50
+GRT_ADJUSTMENT: 0.18
+GRT_ALLOW_CONGESTION: false
+
+# Same 3.3V corner set as the tapeout config, so timing is comparable.
+SYNTH_CORNER: nom_tt_025C_3v30
+DEFAULT_CORNER: nom_tt_025C_3v30
+STA_CORNERS:
+- nom_tt_025C_3v30
+- nom_ss_125C_3v00
+- nom_ff_n40C_3v60
+- max_ss_125C_3v00
+LIB:
+  "*_tt_025C_3v30":
+  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__tt_025C_3v30.lib
+  "*_ss_125C_3v00":
+  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ss_125C_3v00.lib
+  "*_ff_n40C_3v60":
+  - pdk_dir::libs.ref/gf180mcu_fd_sc_mcu7t5v0/lib/gf180mcu_fd_sc_mcu7t5v0__ff_n40C_3v60.lib
