@@ -532,6 +532,13 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // historical behaviour and its documented limitation; in the serialized
     // path it walks every sample.
     val dstIdx: UInt = sampleCtr.map(_.asUInt).getOrElse(0.U)
+    // At msaaMultiPass only one sample plane is live and the tile buffer fans
+    // it out across every read lane, so read lane 0 and let the rest optimize
+    // away. Indexing by dstIdx there would keep four lanes of wiring alive for
+    // four copies of the same value -- measured as +2.8% routing demand.
+    // dstIdx still drives the WRITE coverage: that is what selects the pass's
+    // own sample in the tile buffer.
+    val srcIdx: UInt = if (cfg.msaaMultiPass) 0.U else dstIdx
 
     val (blendR, blendG, blendB) = if (cfg.hasBlend) {
       val cfgIn = io.blendCfg.get
@@ -541,10 +548,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       src.b := ColorQuantize.quantize8(frag_b(laneIdx))
       src.a := ColorQuantize.quantize8(frag_a.get(laneIdx))
       val dst = Wire(new Rgba8)
-      dst.r := ColorQuantize.quantize8(io.tileRead.data(dstIdx).r)
-      dst.g := ColorQuantize.quantize8(io.tileRead.data(dstIdx).g)
-      dst.b := ColorQuantize.quantize8(io.tileRead.data(dstIdx).b)
-      dst.a := io.alphaRead.get(dstIdx)
+      dst.r := ColorQuantize.quantize8(io.tileRead.data(srcIdx).r)
+      dst.g := ColorQuantize.quantize8(io.tileRead.data(srcIdx).g)
+      dst.b := ColorQuantize.quantize8(io.tileRead.data(srcIdx).b)
+      dst.a := io.alphaRead.get(srcIdx)
       val out = BorgBlend.blend(cfgIn, src, dst)
       // The alpha channel's own blend result, stored back to the plane. With
       // blending off the fragment's source alpha passes through, matching how
@@ -563,8 +570,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       // Only the R/G/B bits are consumed here; the A bit gates the alpha
       // plane's write instead (io.alphaWriteMask above), so the colour and
       // alpha stores are maskable independently, as Vulkan requires.
-      val dstRgb = Seq(io.tileRead.data(dstIdx).r, io.tileRead.data(dstIdx).g,
-                       io.tileRead.data(dstIdx).b)
+      val dstRgb = Seq(io.tileRead.data(srcIdx).r, io.tileRead.data(srcIdx).g,
+                       io.tileRead.data(srcIdx).b)
       val masked = blended.zip(dstRgb).zipWithIndex.map { case ((b, d), i) =>
         Mux(cfgIn.colorWriteMask(i), b, d)
       }
@@ -592,7 +599,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // sample, which is worse than ignoring the bit, so it keeps the
     // historical unconditional store.
     io.tileWrite.data.z := (if (cfg.samples == 1 || needPerSample)
-                              Mux(io.depthWriteEn, frag_z(laneIdx), io.tileRead.data(dstIdx).z)
+                              Mux(io.depthWriteEn, frag_z(laneIdx), io.tileRead.data(srcIdx).z)
                             else frag_z(laneIdx))
     // Depth test, per sample: a sample takes the fragment only if the lane is
     // inside (coverage), not discarded, AND this sample's own stored Z is
@@ -625,7 +632,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // fragments through (VK_CULL_MODE_NONE/FRONT).
     val stencilRes = if (cfg.hasStencil) {
       Some(BorgStencil.evaluate(io.stencilCfg.get, io.frontFacing.get, io.stencilRead.get(dstIdx),
-                                depthPasses(frag_z(laneIdx), io.tileRead.data(dstIdx).z)))
+                                depthPasses(frag_z(laneIdx), io.tileRead.data(srcIdx).z)))
     } else None
 
     // "The fragment reached the per-fragment tests at all": covered by the
@@ -647,7 +654,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     if (needPerSample) {
       // Serialized: one sample per cycle, one-hot coverage.
       val depthOk = stencilRes.map(_.pass)
-        .getOrElse(depthPasses(frag_z(laneIdx), io.tileRead.data(dstIdx).z))
+        .getOrElse(depthPasses(frag_z(laneIdx), io.tileRead.data(srcIdx).z))
       val pass = reachedDyn(dstIdx) && depthOk
       val oneHot = UIntToOH(dstIdx, cfg.samples)
       io.tileWrite.coverage := Mux(pass, oneHot, 0.U)
@@ -677,7 +684,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     }
     if (BorgDebug.trace) printf("[DISP] tileWrite lane=%d smp=%d idx=%d Z=0x%x zOld=0x%x cov=0x%x\n",
       laneCtr, dstIdx, io.shaderTileIndex(laneIdx), frag_z(laneIdx),
-      io.tileRead.data(dstIdx).z, io.tileWrite.coverage)
+      io.tileRead.data(srcIdx).z, io.tileWrite.coverage)
 
     // Lane advance. On the serialized path this only runs after the last
     // sample of the lane -- the tile read stays valid across all of them, so

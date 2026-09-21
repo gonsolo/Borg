@@ -321,7 +321,13 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
     if (BorgDebug.trace) printf("[TBUF] READ-REQ slot=%d\n", io.read.idx)
   }
 
-  val readDataHeld = RegInit(0.U.asTypeOf(Vec(samples, new ColorZ(dataBits))))
+  // At multiPass only ONE sample is live, so hold ONE ColorZ and fan it out at
+  // the port rather than replicating the register `samples` times. The 4x
+  // replication cost 3 x 40 flops AND four lanes of wiring into the dispatcher
+  // and flusher -- measured as +2.8% routing demand against the resident-sample
+  // build, which is why both consumers now read lane 0 under multiPass and the
+  // other lanes optimize away.
+  val readDataHeld = RegInit(0.U.asTypeOf(Vec(if (multiPass) 1 else samples, new ColorZ(dataBits))))
 
   // Capture BRAM output one cycle after readEn pulse
   val readEnDel = RegNext(effectiveReadEn, false.B)
@@ -352,14 +358,15 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
       }.otherwise {
         res := work
       }
-      readDataHeld := VecInit(Seq.fill(samples)(res))
+      readDataHeld := VecInit(Seq(res))
     }
     val parsed = decodeStored(rgbzRead(0))
     if (BorgDebug.trace) printf("[TBUF] READ-DATA s0 R=0x%x G=0x%x B=0x%x Z=0x%x\n",
       parsed.r, parsed.g, parsed.b, parsed.z)
   }
 
-  io.read.data := readDataHeld
+  if (!multiPass) io.read.data := readDataHeld
+  else io.read.data := VecInit(Seq.fill(samples)(readDataHeld(0)))
 
   // --- Optional stencil plane -------------------------------------------
   //
@@ -398,12 +405,13 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
       mem.read(rdAddr, rdEn)
     })
 
-    val stencilHeld = RegInit(VecInit(Seq.fill(samples)(0.U(8.W))))
+    val stencilHeld = RegInit(VecInit(Seq.fill(if (multiPass) 1 else samples)(0.U(8.W))))
     when(readEnDel) {
       if (!multiPass) stencilHeld := stencilRead
-      else stencilHeld := VecInit(Seq.fill(samples)(stencilRead(0)))
+      else stencilHeld := VecInit(Seq(stencilRead(0)))
     }
-    io.stencilRead.get := stencilHeld
+    if (!multiPass) io.stencilRead.get := stencilHeld
+    else io.stencilRead.get := VecInit(Seq.fill(samples)(stencilHeld(0)))
   }
 
   // --- Optional destination-alpha plane ----------------------------------
@@ -434,11 +442,12 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
       mem.read(rdAddr, rdEn)
     })
 
-    val alphaHeld = RegInit(VecInit(Seq.fill(samples)(0xFF.U(8.W))))
+    val alphaHeld = RegInit(VecInit(Seq.fill(if (multiPass) 1 else samples)(0xFF.U(8.W))))
     when(readEnDel) {
       if (!multiPass) alphaHeld := alphaRead
-      else alphaHeld := VecInit(Seq.fill(samples)(alphaRead(0)))
+      else alphaHeld := VecInit(Seq(alphaRead(0)))
     }
-    io.alphaRead.get := alphaHeld
+    if (!multiPass) io.alphaRead.get := alphaHeld
+    else io.alphaRead.get := VecInit(Seq.fill(samples)(alphaHeld(0)))
   }
 }
