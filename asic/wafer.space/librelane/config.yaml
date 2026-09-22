@@ -503,8 +503,39 @@ DRT_ANTENNA_REPAIR_MARGIN: 10 # %
 # validated this: antenna repair converged in ~8 min (vs 3+ hours for the
 # diode path), and the same run's detailed routing converged to ZERO
 # violations for the first time ever on a Borg chip_top.
-GRT_ANTENNA_REPAIR_JUMPER_ONLY: true
-DRT_ANTENNA_REPAIR_JUMPER_ONLY: true
+# Delay cells (all 12 dly* variants) are excluded from synthesis and P&R here, on top of the
+# PDK's own two entries which this file carries over. repair_design was
+# selecting dlyb_1 (2.543 ns, area 35.1) as a plain repeater where buf_4
+# (0.294 ns, area 30.7) belongs -- 8.6x slower and larger. 14 of them in
+# series on the msaa-jump worst path accounted for 47 ns of a 207 ns data
+# path. Full reasoning, measurements and the accepted hold-repair trade-off
+# are in the file itself.
+PNR_EXCLUDED_CELL_FILE: dir::pnr_exclude.cells
+
+# 2026-09-22, SUPERSEDED by measurement on the run described above. Jumper-only
+# is NOT sufficient on its own: that run left 70 violating nets after detailed
+# routing (OpenROAD's own check: 132 before repair -> 70 after), and the
+# foundry KLayout deck failed it with 268 items -- Metal2 38, Metal3 147,
+# Metal4 83, all thick-gate. Metal3 being the worst is consistent with what a
+# jumper does: it relieves a lower layer by moving metal UP one, so leaning on
+# jumpers alone pushes the problem onto M3/M4 rather than removing it.
+#
+# Every one of those 268 items reported DIODES_AREA = 0, because these two
+# flags forbade diodes outright. The violations are marginal -- ratios median
+# 462, max 876 against a limit of 400 -- and a diode raises the effective
+# limit to 400 * MF(15) = 6000, i.e. one diode per net clears the worst case
+# with ~7x margin. This is a missing-diode problem, not a structural one.
+#
+# So: back to the tool's default of using BOTH, jumpers first and diodes where
+# jumpers cannot reach. The reason they were forbidden -- 134 diodes pushing
+# GRT demand +3.8% into a GRT-0232 failure -- was measured at demand
+# 1,678,155. The msaa-jump run routed at 1,478,023 with Metal2/3/4/5 at
+# 27.6/20.3/5.1/1.5% and zero congestion, so the same +3.8% now lands near
+# 1,534,000, comfortably under what has already routed clean. That is an
+# argument from headroom, not a guarantee: if GRT-0232 returns, the diodes are
+# the first thing to look at.
+GRT_ANTENNA_REPAIR_JUMPER_ONLY: false
+DRT_ANTENNA_REPAIR_JUMPER_ONLY: false
 
 # PDN
 # pdn_cfg_borg.tcl is our fork of the template's pdn_cfg.tcl with the

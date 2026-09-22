@@ -1,0 +1,64 @@
+# Cells excluded from synthesis AND place-and-route.
+#
+# Supersedes the PDK's own
+# gf180mcu/gf180mcuD/libs.tech/librelane/gf180mcu_fd_sc_mcu7t5v0/pnr_exclude.cells,
+# whose two entries are carried over verbatim below -- this file is pointed at
+# by PNR_EXCLUDED_CELL_FILE in config.yaml, which replaces rather than extends
+# the PDK default.
+
+# --- inherited from the PDK's pnr_exclude.cells (DRC-failed / complex pinout)
+gf180mcu_fd_sc_mcu7t5v0__mux2_1
+gf180mcu_fd_sc_mcu7t5v0__oai33_2
+
+# --- delay cells: never auto-select these as repeaters -------------------
+#
+# 2026-09-22, measured on run msaa-jump. `repair_design` was picking dlyb_1
+# as an ordinary buffer. It is strictly dominated in that role -- at the
+# ss_125C_3v00 corner:
+#
+#   cell      intrinsic cell_rise    area
+#   buf_4          0.294 ns         30.7
+#   dlyb_1         2.543 ns         35.1    <- 8.6x slower AND larger
+#
+# The dly* family exists to ADD delay for hold fixing, which is why it is
+# slow by construction. 8,196 delay cells ended up in that netlist:
+#
+#   5,515  fanout*      max-fanout repair    } 5,728 inserted by repair_design,
+#     146  wire*        wire-length repair   } i.e. delay cells misused as
+#      66  load_slew* / max_cap*             } plain repeaters
+#   2,468  hold*        hold repair (dlyc_1) -- the legitimate use
+#
+# On the worst setup path 14 of them sat in series, burning 47 ns of a 207 ns
+# data path, which is most of that run's -13.02 ns setup WNS at max_ss.
+# Replacing them with ordinary buffers is worth roughly +30 ns of slack and
+# drops ~100,000 um2 of cell area.
+#
+# This excludes the whole family rather than just dlyb: excluding only dlyb
+# leaves the resizer free to reach for dlya_1 (1.04 ns) or, worse, dlyc_1
+# (4.77 ns) as the next-best "buffer", which would reintroduce the same
+# problem under a different cell name.
+#
+# Known cost, accepted deliberately: hold repair loses its one-cell delay
+# elements and must build delay out of buffer chains instead, so the hold-fix
+# cell count will rise. That is the correct trade here -- the hold violations
+# on this design are 8 I/O paths needing well under 1 ns each (see the
+# set_input_delay -min 0 note in config.yaml), not something that needs 4.77 ns
+# delay elements. If a future run shows hold repair failing to converge
+# without them, revisit this rather than assuming it still holds.
+# Listed explicitly rather than as a dly* wildcard: LibreLane documents
+# wildcard support, but neither of the PDK's own exclude files uses one, so
+# there is no in-tree precedent that yosys AND OpenSTA both honour the same
+# glob. A pattern that silently matches nothing would cost a 7.4 h run to
+# discover. This is the complete set from the LEF (12 cells).
+gf180mcu_fd_sc_mcu7t5v0__dlya_1
+gf180mcu_fd_sc_mcu7t5v0__dlya_2
+gf180mcu_fd_sc_mcu7t5v0__dlya_4
+gf180mcu_fd_sc_mcu7t5v0__dlyb_1
+gf180mcu_fd_sc_mcu7t5v0__dlyb_2
+gf180mcu_fd_sc_mcu7t5v0__dlyb_4
+gf180mcu_fd_sc_mcu7t5v0__dlyc_1
+gf180mcu_fd_sc_mcu7t5v0__dlyc_2
+gf180mcu_fd_sc_mcu7t5v0__dlyc_4
+gf180mcu_fd_sc_mcu7t5v0__dlyd_1
+gf180mcu_fd_sc_mcu7t5v0__dlyd_2
+gf180mcu_fd_sc_mcu7t5v0__dlyd_4
