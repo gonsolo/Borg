@@ -552,21 +552,31 @@ KLAYOUT_PROPERTIES: dir::gf180mcu_render.lyp
 # but can significantly improve the performance.
 # workers * threads should equal the available
 # hardware threads for a best possible utilization.
-
+#
+# 2026-09-22: workers=max (24, matching nproc on gonsolo-workstation) measured
+# at ~2.1 GB RSS per worker on the msaa-jump signoff's KLAYOUT_DRC_OPTIONS run
+# -- 52.5 GB across 25 processes on a 62 GB machine, which pushed the system
+# 25 GB into swap with only 6 GB "available" while the run was live. The
+# per-worker cost is roughly the same for the antenna and density decks too
+# (same GDS, same engine), so all three were lowered together rather than
+# just the one caught in the act. 8 keeps real parallelism (vs. THREADS=1's
+# serial fallback) while landing around ~17 GB peak, leaving headroom for
+# whatever else is running on the same machine. Runtime goes up somewhat
+# in exchange -- raise this back toward `max` only on a machine with enough
+# RAM to safely hold workers * ~2.1 GB.
 KLAYOUT_DRC_THREADS: 1
 
-# "max" equals max hardware threads
 KLAYOUT_DRC_OPTIONS:
   decks: "all,-antenna,-density,-cup" # disable CUP for now
   variant: ref::$PDK
-  workers: max
+  workers: 8
 
 KLAYOUT_DENSITY_OPTIONS:
   decks: "density"
   variant: ref::$PDK
-  workers: max
+  workers: 8
 
 KLAYOUT_ANTENNA_OPTIONS:
   decks: "antenna"
   variant: ref::$PDK
-  workers: max
+  workers: 8
