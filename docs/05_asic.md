@@ -38,18 +38,64 @@ Configuration lives in `asic/wafer.space/librelane/`: `config.yaml` (the flow),
 `slots/slot_1x1.yaml` (die, core and pad ring) and `macros/`. Two settings to
 know:
 
-- `CLOCK_PERIOD: 125` — the signoff clock, 8 MHz.
+- `CLOCK_PERIOD: 200` — the signoff clock, 5 MHz.
 - `PL_TARGET_DENSITY_PCT` — global placement target density.
 
 ## Status
 
-The FP32 design has not yet closed signoff: detailed placement fails
-(`DPL-0036`) after the post-placement design repair. The cause was measured,
-not tuned around: the pad reset is the synchronous reset of the whole core,
-and its buffer tree (≈60,000 repeater cells, 2.1 million µm²) concentrates in
-a small region that cannot then be legalized. The design fix — reset only
-control state, and synchronize and replicate the pad reset per block — is
-the next step.
+**As of 2026-09-22 (run `msaa-jump`): physical implementation is proven
+correct for the first time ever on a Borg `chip_top`. Timing is not yet
+closed.**
+
+The design now includes multi-pass MSAA (one live tile-buffer sample plus an
+accumulator instead of four resident samples, −9.8% of Borg's area), a fix
+for the routing-demand regression that first attempt introduced, and a
+register stage pipelining the sequencer's MMIO configuration path — the
+combination that finally got a full run through place, route, and signoff
+checking:
+
+| check | result |
+|---|---|
+| Global routing | 0 congestion, 0 NDR strips, demand 1,478,023 (best of every variant tried) |
+| Detailed routing | **0 violations** (trajectory: 150,111 → 61,903 → 56,321 → 5,470 → ⋯ → 0 over 13 iterations) |
+| Magic DRC | **0 violations** |
+| KLayout DRC | **0 violations** |
+| Magic ↔ KLayout GDS XOR | match |
+| Netgen LVS | **"Circuits match uniquely"** — 187,189 devices, 190,491 nets |
+
+That is routing, DRC and LVS all independently clean — the furthest any Borg
+ASIC attempt has reached. The earlier antenna-repair strategy (diode
+insertion) was replaced with jumper-only repair
+(`GRT_ANTENNA_REPAIR_JUMPER_ONLY` / `DRT_ANTENNA_REPAIR_JUMPER_ONLY`, both on
+by default now): diodes are real cells and 134 of them were enough to push
+routing demand +3.8% and turn a congestion-free route into a failing one.
+Jumpers hop a net up a layer and back instead of inserting cells, so they
+cost no routing demand.
+
+**What is not yet closed, on that same run:**
+
+1. **Timing.** Post-RCX (real extracted parasitics) STA at 200 ns fails
+   setup, hold, max-slew and max-cap together at the slow/hot/low corners —
+   see the table in `config.yaml` next to `CLOCK_PERIOD`. Worst case
+   (`max_ss_125C_3v00`): setup WNS −13.02 ns, TNS −246.36 ns, 28 violating
+   endpoints. This looks like a genuinely marginal design at this clock
+   period rather than one late path, since all four checks fail together
+   across most corners.
+2. **268 KLayout antenna errors**, found by the GDS-geometry-level antenna
+   check that runs *after* fill insertion and sealring. This is separate
+   from the jumper-based antenna repair above, which runs earlier in the
+   flow (before fill/sealring add their own metal) and did converge clean.
+
+LibreLane defers both of these and only reports them in a final summary at
+the very end of the run — a run reaching GDS/DRC/LVS does not by itself mean
+signoff passed; always check the `Checker.SetupViolations` /
+`Checker.HoldViolations` / `Checker.MaxSlewViolations` /
+`Checker.MaxCapViolations` / `Checker.KLayoutAntenna` results specifically.
+
+A complete `final/` view set (GDS, DEF, LIB, netlists, SPICE, SPEF) is still
+written even when these deferred checks fail, so the artifact from a run
+like this is real and usable for further analysis even though the run is not
+a clean signoff.
 
 ## Verification
 

@@ -235,6 +235,28 @@ CLOCK_NET: clk_pad/Y
 # of combinational decode, NOT the FMA. That path has not been addressed and may
 # resurface now that the FMA (fmaStages=4) and the texture blend are out of the
 # way. ALWAYS check max_ss_125C_3v00, never the typical corner.
+#
+# SIGNOFF STATUS 2026-09-22 (run msaa-jump, post-RCX STA at 200 ns): timing does
+# NOT close at 200 ns. Setup, hold, max-slew and max-cap all fail together at
+# the slow/hot/low corners -- this is a genuinely marginal design at this
+# period, not one narrow late path:
+#
+#   corner              setup WNS   setup TNS   violating endpoints
+#   nom_tt_025C_3v30       +79.22        0.00      0   (clean)
+#   nom_ss_125C_3v00        -8.20     -116.24     25
+#   nom_ff_n40C_3v60       +94.69        0.00      0   (clean)
+#   max_ss_125C_3v00       -13.02     -246.36     28   (worst)
+#
+# Hold fails even at some tt/ff corners (not just ss), and max-slew/max-cap
+# fail at nearly every corner -- see docs/05_asic.md for the full table and
+# the reasoning. Routing, DRC (Magic + KLayout, both 0 violations) and LVS
+# ("circuits match uniquely") are all independently clean on this same run --
+# this is a timing-closure problem layered on top of a physically valid
+# implementation, not a routing or DRC problem. Do not treat a future clean
+# GRT/DRT/DRC/LVS result as signoff-complete without also checking
+# Checker.SetupViolations/HoldViolations/MaxSlewViolations/MaxCapViolations --
+# LibreLane defers these and only reports them in a final summary, so a run
+# can look finished long before you see whether it actually passed.
 CLOCK_PERIOD: 200 # 5 MHz
 
 # CTS
