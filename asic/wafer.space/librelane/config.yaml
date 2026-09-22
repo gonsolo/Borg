@@ -459,6 +459,31 @@ PL_MAX_DISPLACEMENT_Y: 200
 DRT_ANTENNA_REPAIR_ITERS: 10
 DRT_ANTENNA_REPAIR_MARGIN: 10 # %
 
+# Jumper-only antenna repair, at both the global-routing and detailed-routing
+# repair passes.
+#
+# Diodes are real cells. 134 of them inserted on 2026-09-22 pushed global
+# routing demand 1,678,155 -> 1,741,547 (+3.8%), turning a route with ZERO
+# congestion into 74 overflow points and failing the run (GRT-0232). Allowing
+# congestion got past that, but handed detailed routing degraded guides, and
+# DRT then ran ~13% worse at EVERY iteration than the previous attempt:
+#
+#            previous   with allow_congestion
+#   initial   322,622   341,631
+#   iter 1    254,573   288,011
+#   iter 2    240,329   270,771
+#
+# A jumper fixes the same violation by hopping the net up a layer and back,
+# so the antenna ratio is taken over a shorter same-layer run. It inserts NO
+# cells: no demand inflation, no congestion, no need to relax the check, and
+# detailed routing keeps clean guides. Metal4/Metal5 are at 9.4% and 5.7%
+# usage, so the upper-layer cost is affordable. Run msaa-jump (2026-09-22)
+# validated this: antenna repair converged in ~8 min (vs 3+ hours for the
+# diode path), and the same run's detailed routing converged to ZERO
+# violations for the first time ever on a Borg chip_top.
+GRT_ANTENNA_REPAIR_JUMPER_ONLY: true
+DRT_ANTENNA_REPAIR_JUMPER_ONLY: true
+
 # PDN
 # pdn_cfg_borg.tcl is our fork of the template's pdn_cfg.tcl with the
 # unconditional SRAM-macro PDN grid dropped -- Borg has no hard SRAM macros,
