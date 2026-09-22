@@ -217,10 +217,16 @@
           src = pkgsLibrelane.fetchFromGitHub {
             owner = "gonsolo";
             repo = "librelane";
-            # branch feat/concurrent-signoff-steps = 3.0.14-1-gf70d4bc:
-            # exactly one commit (AsyncSteps) on top of the 3.0.14 tag.
-            rev = "f70d4bc24263a91fbee143af7a8d4b032d6f1141";
-            hash = "sha256-uwofXxuCEwhvGx4okIr77jENBoDY3JazfHaOT/uOeUg=";
+            # branch feat/concurrent-signoff-steps = 3.0.14-2-gdc0feb4:
+            # AsyncSteps (f70d4bc) plus PL_RESIZER_HOLD_ONLY_CELLS
+            # (dc0feb4) -- scopes the dont-use cell exclusion so a delay
+            # cell can be barred from setup fixing/general buffering (its
+            # measured misuse) while staying available to hold repair (its
+            # designed purpose). See PL_RESIZER_HOLD_ONLY_CELLS in
+            # asic/wafer.space/librelane/config.yaml for the measurement
+            # that motivated this.
+            rev = "dc0feb41a7bd72f2e0c16a13eafb2612c68f3e61";
+            hash = "sha256-/1zBoJJ+4JajTRxv6rj+28Zn7Rj9KMZjXzDgHy/JcIk=";
           };
         }))
         pkgs.magic-vlsi

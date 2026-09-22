@@ -512,6 +512,30 @@ DRT_ANTENNA_REPAIR_MARGIN: 10 # %
 # are in the file itself.
 PNR_EXCLUDED_CELL_FILE: dir::pnr_exclude.cells
 
+# 2026-09-22, run nodly-diode: excluding the whole dly* family (above) fixed
+# setup as measured (max_ss WNS -13.02 -> -12.34 ns, TNS -246 -> -175 ns) but
+# regressed hold 2-11x at every one of the 9 signoff corners (e.g. max_ss WNS
+# -0.72 -> -1.44 ns, min_ss -0.08 -> -0.82 ns) -- hold repair lost its
+# purpose-built delay cell and had to build the same delay out of buffer
+# chains, and came up short. Traced one violating path
+# (bidir_PAD[6] -> _263624_/D, max_ss corner) to the exact mechanism: 8.698 ns
+# of data-path delay (through 8 already-inserted hold buffers) against 9.747
+# ns of capture-clock insertion delay to that flop -- not a reg-to-reg race,
+# not an RTL bug (0 reg-to-reg hold violations at every corner, confirmed).
+# The dly family's own legitimate use, measured on the original unexcluded
+# run: 2,468 uses of dlyc_1 specifically, OpenSTA's own preferred hold-fix
+# cell (4.77 ns/cell, so few are needed per path).
+#
+# PL_RESIZER_HOLD_ONLY_CELLS (added to the pinned LibreLane fork,
+# feat/concurrent-signoff-steps, commit dc0feb4 -- not yet pushed/repinned)
+# relaxes named cells back in around ONLY the hold repair_timing call in
+# ResizerTimingPostCTS, restoring dlyc_1 to the one pass it's actually meant
+# for while every setup/buffering pass -- in this step and every other --
+# still excludes it via PNR_EXCLUDED_CELL_FILE. Needs the flake.nix librelane
+# pin updated to the pushed commit before this variable does anything.
+PL_RESIZER_HOLD_ONLY_CELLS:
+  - gf180mcu_fd_sc_mcu7t5v0__dlyc_1
+
 # 2026-09-22, SUPERSEDED by measurement on the run described above. Jumper-only
 # is NOT sufficient on its own: that run left 70 violating nets after detailed
 # routing (OpenROAD's own check: 132 before repair -> 70 after), and the
