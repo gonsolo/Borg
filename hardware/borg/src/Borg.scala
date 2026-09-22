@@ -692,6 +692,21 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * Step 29.2 additions:
     * - Uniform write port muxed in wireCore() (sequencer > DMA).
     */
+  /** One pipeline stage on the sequencer's static MMIO configuration when
+    * `pipelineSeqConfig` is set. These paths run from the bus decode to
+    * BorgSequencer across the die -- seqSetupBaseReg measured 1,939 um, and
+    * the design's antenna violators have a 715 um median span against 47 um
+    * for all nets. They are point-to-point, so replication and dontTouch
+    * cannot help; a register splits each net in two and, having a single
+    * consumer, cannot be merged away.
+    *
+    * Every field is static configuration and `start` is delayed with them, so
+    * what the sequencer sees is unchanged apart from one cycle of absolute
+    * latency after the MMIO write.
+    */
+  private def seqCfgPipe[T <: chisel3.Data](x: T): T =
+    if (cfg.pipelineSeqConfig) RegNext(x) else x
+
   private def wireSequencer(): Unit = {
     val seqDescBaseReg   = RegInit(0.U(20.W))
       val seqVertAddrReg   = RegInit(0.U(20.W))
@@ -736,38 +751,38 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_bin_row_bytes_offset){ seqBinRowBytesReg := bus.data_in(19, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_base_offset)   { seqSetupBaseReg := bus.data_in(24, 0) }
 
-      s.io.mmio.start           := seqStartPulse
-      s.io.mmio.descBase        := seqDescBaseReg
-      s.io.mmio.vertShaderAddr  := seqVertAddrReg
-      s.io.mmio.vertShaderLen   := seqVertLenReg
-      s.io.mmio.setupShaderAddr := seqSetupAddrReg
-      s.io.mmio.setupShaderLen  := seqSetupLenReg
-      s.io.mmio.seqInvWidth     := seqInvWidthReg
-      s.io.mmio.triCount        := seqTriCountReg
-      s.io.mmio.rastShaderAddr  := seqRastAddrReg
-      s.io.mmio.rastShaderLen   := seqRastLenReg
-      s.io.mmio.fragShaderAddr  := seqFragAddrReg
-      s.io.mmio.fragShaderLen   := seqFragLenReg
-      s.io.mmio.clearColorLo    := seqClearLoReg
-      s.io.mmio.clearColorHi    := seqClearHiReg
-      s.io.mmio.fbBase          := seqFbBaseReg
+      s.io.mmio.start           := seqCfgPipe(seqStartPulse)
+      s.io.mmio.descBase        := seqCfgPipe(seqDescBaseReg)
+      s.io.mmio.vertShaderAddr  := seqCfgPipe(seqVertAddrReg)
+      s.io.mmio.vertShaderLen   := seqCfgPipe(seqVertLenReg)
+      s.io.mmio.setupShaderAddr := seqCfgPipe(seqSetupAddrReg)
+      s.io.mmio.setupShaderLen  := seqCfgPipe(seqSetupLenReg)
+      s.io.mmio.seqInvWidth     := seqCfgPipe(seqInvWidthReg)
+      s.io.mmio.triCount        := seqCfgPipe(seqTriCountReg)
+      s.io.mmio.rastShaderAddr  := seqCfgPipe(seqRastAddrReg)
+      s.io.mmio.rastShaderLen   := seqCfgPipe(seqRastLenReg)
+      s.io.mmio.fragShaderAddr  := seqCfgPipe(seqFragAddrReg)
+      s.io.mmio.fragShaderLen   := seqCfgPipe(seqFragLenReg)
+      s.io.mmio.clearColorLo    := seqCfgPipe(seqClearLoReg)
+      s.io.mmio.clearColorHi    := seqCfgPipe(seqClearHiReg)
+      s.io.mmio.fbBase          := seqCfgPipe(seqFbBaseReg)
       // seqTilesPerRowReg is the full RDL register width (10 bits); the
       // sequencer's tilesPerRow/fbWidthTiles/fbHeightTiles ports may be
       // narrower (BorgConfig.Wafer) -- see SeqMmioIO's tileRowWidth comment.
-      s.io.mmio.tilesPerRow     := seqTilesPerRowReg(s.io.mmio.tilesPerRow.getWidth - 1, 0)
-      s.io.mmio.binBase         := seqBinBaseReg
+      s.io.mmio.tilesPerRow     := seqCfgPipe(seqTilesPerRowReg(s.io.mmio.tilesPerRow.getWidth - 1, 0))
+      s.io.mmio.binBase         := seqCfgPipe(seqBinBaseReg)
       // seqBinRowBytesReg is the full RDL register width (20 bits); the
       // sequencer's binRowBytes port may be narrower -- see SeqMmioIO's
       // binRowBytesWidth comment.
-      s.io.mmio.binRowBytes     := seqBinRowBytesReg(s.io.mmio.binRowBytes.getWidth - 1, 0)
-      s.io.mmio.setupBase       := seqSetupBaseReg
-      s.io.mmio.fbWidthTiles    := seqTilesPerRowReg(s.io.mmio.fbWidthTiles.getWidth - 1, 0)
-      s.io.mmio.fbHeightTiles   := seqTilesPerRowReg(s.io.mmio.fbHeightTiles.getWidth - 1, 0)  // square framebuffer assumption
-      s.io.mmio.fragUsesFragPos := rdlRegs.io.hw.tex_config_frag_uses_fragpos
+      s.io.mmio.binRowBytes     := seqCfgPipe(seqBinRowBytesReg(s.io.mmio.binRowBytes.getWidth - 1, 0))
+      s.io.mmio.setupBase       := seqCfgPipe(seqSetupBaseReg)
+      s.io.mmio.fbWidthTiles    := seqCfgPipe(seqTilesPerRowReg(s.io.mmio.fbWidthTiles.getWidth - 1, 0))
+      s.io.mmio.fbHeightTiles   := seqCfgPipe(seqTilesPerRowReg(s.io.mmio.fbHeightTiles.getWidth - 1, 0))  // square framebuffer assumption
+      s.io.mmio.fragUsesFragPos := seqCfgPipe(rdlRegs.io.hw.tex_config_frag_uses_fragpos)
       // CULL_CFG (Step 50). Reset 2/0 = cull back faces with the historical
       // winding convention, so firmware that never writes it sees no change.
-      s.io.mmio.cullMode        := rdlRegs.io.hw.cull_cfg_cull_mode
-      s.io.mmio.frontFaceInvert := rdlRegs.io.hw.cull_cfg_front_face_invert.asBool
+      s.io.mmio.cullMode        := seqCfgPipe(rdlRegs.io.hw.cull_cfg_cull_mode)
+      s.io.mmio.frontFaceInvert := seqCfgPipe(rdlRegs.io.hw.cull_cfg_front_face_invert.asBool)
       s.io.iter.complete        := rast.io.tileComplete
       s.io.iter.stall           := rast.io.autoRunStall
       // Dispatcher pipeline idle — sequencer waits for this before flushing

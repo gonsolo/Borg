@@ -188,6 +188,30 @@ case class BorgConfig(
     // Borg has no fragment load/store today; adding it later would silently
     // break conformance unless this is revisited.
     msaaMultiPass: Boolean = false,
+    // --- Sequencer configuration pipelining -----------------------------
+    //
+    // The sequencer's MMIO configuration (base addresses, shader pointers,
+    // clear colour, tile geometry) is registered next to the bus decode in
+    // Borg and read by BorgSequencer, which the placer puts far away. Measured
+    // on run `msaa-fix` 2026-09-22:
+    //
+    //   seqSetupBaseReg  1,939 um, and 22 of its 25 bits exceed 800 um
+    //   antenna violators median span 715 um vs 47 um for all 185,982 nets
+    //   40% of violators exceed 1,000 um; only 1.5% of all nets do
+    //
+    // These nets are POINT-TO-POINT (one consumer each), so neither register
+    // replication nor `dontTouch` can shorten them -- and Borg.scala's own
+    // reset-copy comment records that yosys merges identical registers back
+    // together regardless of dontTouch. A pipeline stage is different in kind:
+    // it splits each net in two, and each stage has a single consumer so there
+    // is nothing for opt_merge to undo.
+    //
+    // Safe because every field is STATIC configuration, written during setup
+    // and read during rendering. `start` is delayed with the rest, so the
+    // relative timing the sequencer sees is unchanged -- only the absolute
+    // latency from the MMIO write grows by one cycle, which no firmware
+    // observes (it polls `done`).
+    pipelineSeqConfig: Boolean = false,
     // --- Extended ISA -------------------------------------------------
     //
     // Two knobs rather than one so the wafer.space area/feature tradeoff can
@@ -399,6 +423,10 @@ object BorgConfig {
   // the accumulator or the resolve.
   val SimtQ   = Simt.copy(tileColorBits = 8)
   val SimtQMp = SimtQ.copy(msaaMultiPass = true)
+  /** SimtQMp plus the sequencer configuration pipeline, so `pipelineSeqConfig`
+    * gets a real end-to-end render rather than elaboration coverage alone.
+    * A correct pipeline is invisible: the rendered frame must be identical. */
+  val SimtQMpP = SimtQMp.copy(pipelineSeqConfig = true)
 
   /** Which config the Verilator/Arcilator sim tops elaborate, from
     * `BORG_SIM_CFG`. Default `simt` keeps every existing sim run unchanged.
@@ -411,8 +439,9 @@ object BorgConfig {
     case "simt"    => Simt
     case "simt8"   => SimtQ
     case "simt8mp" => SimtQMp
+    case "simt8mpp" => SimtQMpP
     case other     => throw new IllegalArgumentException(
-      s"BORG_SIM_CFG=$other; expected simt, simt8 or simt8mp")
+      s"BORG_SIM_CFG=$other; expected simt, simt8, simt8mp or simt8mpp")
   }
 
   // The ASIC: wafer.space GF180MCU, 1x1 slot, via BorgOnlyTop (the Borg-only
@@ -483,7 +512,10 @@ object BorgConfig {
     // and the ULX3S/sim Default cannot: the wafer.space submission is gated
     // on fitting and routing, not on frame rate. Conformance is unaffected --
     // see msaaMultiPass's own doc for why this is still MSAA.
-    msaaMultiPass    = true
+    msaaMultiPass    = true,
+    // Splits the longest nets in the design (see the parameter's own doc).
+    // Costs one cycle of MMIO-write latency, which nothing observes.
+    pipelineSeqConfig = true
   )
 
   // The config Chisel unit tests should instantiate full Borg/BorgTestWrapper
