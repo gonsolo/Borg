@@ -82,6 +82,22 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
   // --- (valid for one cycle only) is captured for both DRAM reads.     ---
   val tex_base = RegInit(0.U(20.W))
 
+  // Bilinear operands, latched on start for the same reason. They come live off
+  // the core's FTEX operands, so reading them on every tap put each tap's address
+  // and border decision on a die-crossing path out of the core: on the 2026-09-23
+  // wafer signoff (run holdscope) that was every setup violation, uniform read ->
+  // frag_b/frag_g, 221 ns at max_ss_125C_3v00 of which 67 ns was wire repeaters.
+  private val startNow = state === sIdle && io.start
+  private case class Bil(u8: UInt, v8: UInt, fracU: UInt, fracV: UInt, log2Dim: UInt,
+                         addrModeU: UInt, addrModeV: UInt, border: UInt)
+  private val bil = io.bilinear.map { b =>
+    Bil(RegEnable(b.u8, startNow), RegEnable(b.v8, startNow),
+        RegEnable(b.fracU, startNow), RegEnable(b.fracV, startNow),
+        RegEnable(b.log2Dim, startNow),
+        RegEnable(b.addrModeU, startNow), RegEnable(b.addrModeV, startNow),
+        RegEnable(b.border, startNow))
+  }
+
   // Address of the tap currently in flight. For the nearest path this is
   // simply the latched tex_base; for a filtered sample each tap re-encodes
   // (u + dx, v + dy) through Morton, with the +1 neighbours clamped to the
@@ -90,7 +106,7 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
   // one past the last texel, and Morton-addressing that reads unpopulated
   // memory as black).
   val (tapAddr, tapIsBorder) = if (hasBilinear) {
-    val b  = io.bilinear.get
+    val b  = bil.get
     val dx = tap(0)
     val dy = tap(1)
     // Each neighbour is wrapped by the sampler's own address mode, not just
@@ -152,7 +168,7 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
     is(sReadB) {
       when(tapIsBorder) {
         if (hasBilinear) {
-          val bc = BorderColor.rgb8(io.bilinear.get.border)
+          val bc = BorderColor.rgb8(bil.get.border)
           tapR(tap) := bc; tapG(tap) := bc; tapB(tap) := bc
           frag_r := ColorQuantize.dequantize8(bc)
           frag_g := ColorQuantize.dequantize8(bc)
@@ -207,7 +223,7 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
     // Reached only when `filtering`, so a nearest sample never pays this cycle.
     is(sBlend) {
       if (hasBilinear) {
-        val b = io.bilinear.get
+        val b = bil.get
         def filtered(taps: Vec[UInt]): UInt =
           ColorQuantize.dequantize8(TexFilter.bilinear(taps, b.fracU, b.fracV))
         frag_r := filtered(tapR)

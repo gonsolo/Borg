@@ -35,6 +35,13 @@ set_max_fanout $::env(MAX_FANOUT_CONSTRAINT) [current_design]
 if { [info exists ::env(MAX_TRANSITION_CONSTRAINT)] } {
     set_max_transition $::env(MAX_TRANSITION_CONSTRAINT) [current_design]
 }
+# Design-wide, so it also lands on the pad cells' PAD pins, which carry their
+# own ~3.7 pF and are rated for 50 pF (gf180mcu_fd_io__bi_24t). Every such pin
+# reports a max-cap "violation" (224 on run holdscope). It cannot be scoped
+# away: set_max_capacitance takes no library cells, and OpenSTA applies the
+# tightest of design/cell/pin limits, so a looser pad override is ignored.
+# Kept anyway because it is the resizer's load target for the whole core
+# (the std cells' own ratings are mostly far looser, median 0.71 pF).
 if { [info exists ::env(MAX_CAPACITANCE_CONSTRAINT)] } {
     set_max_capacitance $::env(MAX_CAPACITANCE_CONSTRAINT) [current_design]
 }

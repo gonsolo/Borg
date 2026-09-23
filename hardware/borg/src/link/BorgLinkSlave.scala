@@ -80,10 +80,21 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   val tx     = Module(new LinkTx(p))
   val rx     = Module(new LinkRx(p, isDn = true))
 
+  // Pad inputs are captured on the falling edge, then re-registered on the rising
+  // edge by clkgen/rx as before. The far side launches on the same clock, so a
+  // rising-edge capture races it: the capture flop's clock arrives ~10 ns late
+  // through the clock tree while the data needs none (2026-09-23, run holdscope:
+  // hold failed by up to 0.68 ns on exactly these pins). Half a cycle of margin
+  // removes the race at every corner; the sample merely moves half a cycle
+  // earlier, which training absorbs, and latency is unchanged.
+  private val fallClock = (!clock.asBool).asClock
+  private val dnPinsIn  = withClock(fallClock)(RegNext(io.dnPins))
+  private val upCredIn  = withClock(fallClock)(RegNext(io.upCred))
+
   clkgen.io.linkFast  := io.linkFast
   clkgen.io.narrow    := io.narrow
   clkgen.io.farLinkUp := false.B
-  clkgen.io.rxPins    := io.dnPins
+  clkgen.io.rxPins    := dnPinsIn
 
   val beatEn = clkgen.io.beatEn
   val linkUp = clkgen.io.linkUp
@@ -93,7 +104,7 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   tx.io.narrow := io.narrow
   rx.io.beatEn := beatEn
   rx.io.narrow := io.narrow
-  rx.io.pins   := io.dnPins
+  rx.io.pins   := dnPinsIn
   io.upPins    := tx.io.pins
 
   // Received traffic -- packets and errors alike -- only counts from a defined
@@ -258,7 +269,7 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   io.gpuMem.waccept := (vState === sVDrain) && (vWords > 1.U)
 
   val credit = Module(new CreditCounter(p.creditDepth))
-  credit.io.returnPin := io.upCred
+  credit.io.returnPin := upCredIn
 
   vReady := false.B
 
