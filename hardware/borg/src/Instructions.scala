@@ -96,6 +96,21 @@ object Instructions {
   val FUNCT7_EXPUSH = 0x2A
   val FUNCT7_EXELSE = 0x2C
   val FUNCT7_EXPOP  = 0x2E
+  // Integer ALU completeness: the datapath above only ever grew IADD/ISHL/
+  // ISHR/IMUL, so subtraction, bitwise logic, and comparison were the only
+  // ops an integer-heavy shader (index math, texture-coordinate masks,
+  // flow-control conditions) could not express without going through FP.
+  val FUNCT7_ISUB  = 0x30  // rd = rs1 - rs2         (16-bit wrap)
+  val FUNCT7_IAND  = 0x32  // rd = rs1 & rs2
+  val FUNCT7_IOR   = 0x34  // rd = rs1 | rs2
+  val FUNCT7_IXOR  = 0x36  // rd = rs1 ^ rs2
+  // Comparisons produce a 0/1 result (not a raw flag) so they compose with
+  // the existing BRZ/BRNZ/EXPUSH ops, which all test "raw bits == 0". A
+  // full set of six relational ops is synthesizable from just these two by
+  // swapping operands (for GT/LE) or testing the other branch polarity (for
+  // NE) -- the same minimal basis RV32I itself uses (SLT/SLTU only).
+  val FUNCT7_ISLT  = 0x38  // rd = (rs1 <s rs2) ? 1 : 0   (signed)
+  val FUNCT7_ISEQ  = 0x3A  // rd = (rs1 == rs2) ? 1 : 0
   // @doc:end
 
   /** Split an absolute branch target into the rs2/rd fields it is packed into. */
@@ -122,6 +137,12 @@ object Instructions {
   def ISHL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISHL, rs2, rs1, rd, funct3)
   def ISHR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISHR, rs2, rs1, rd, funct3)
   def IMUL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_IMUL, rs2, rs1, rd, funct3)
+  def ISUB(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISUB, rs2, rs1, rd, funct3)
+  def IAND(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_IAND, rs2, rs1, rd, funct3)
+  def IOR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_IOR, rs2, rs1, rd, funct3)
+  def IXOR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_IXOR, rs2, rs1, rd, funct3)
+  def ISLT(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISLT, rs2, rs1, rd, funct3)
+  def ISEQ(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISEQ, rs2, rs1, rd, funct3)
   def I2F(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_I2F, 0, rs1, rd, funct3)
   def F2I(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_F2I, 0, rs1, rd, funct3)
   def FRSQ(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FRSQ, 0, rs1, rd, funct3)
@@ -174,6 +195,12 @@ object Instructions {
     ("ISHL",   FUNCT7_ISHL,  RType),
     ("ISHR",   FUNCT7_ISHR,  RType),
     ("IMUL",   FUNCT7_IMUL,  RType),
+    ("ISUB",   FUNCT7_ISUB,  RType),
+    ("IAND",   FUNCT7_IAND,  RType),
+    ("IOR",    FUNCT7_IOR,   RType),
+    ("IXOR",   FUNCT7_IXOR,  RType),
+    ("ISLT",   FUNCT7_ISLT,  RType),
+    ("ISEQ",   FUNCT7_ISEQ,  RType),
     ("I2F",    FUNCT7_I2F,   R1Type),
     ("F2I",    FUNCT7_F2I,   R1Type),
     ("FRSQ",   FUNCT7_FRSQ,  R1Type),
