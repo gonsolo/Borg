@@ -11,15 +11,17 @@
 #pragma once
 #include <stdint.h>
 
-// R4-type: FMADD (opcode bit 2, not a funct7 value)
+// R4-type: FMADD (opcode bit 2, funct2=0)
 #define BORG_INSTR_FMADD(rd, rs1, rs2, rs3, funct3) (0x00000004U | ((funct3) << 12) | ((rs3) << 27) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+
+// R4-type: FTEX (opcode bit 2, funct2=1)
+#define BORG_INSTR_FTEX(rd, rs1, rs2, rs3, funct3) (0x02000004U | ((funct3) << 12) | ((rs3) << 27) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 
 #define BORG_INSTR_FADD(rd, rs1, rs2, funct3) (0x00000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FMUL(rd, rs1, rs2, funct3) (0x08000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FNEG(rd, rs1, funct3) (0x0C000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FSTEP(rd, rs1, funct3) (0x10000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FRCP(rd, rs1, funct3) (0x14000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
-#define BORG_INSTR_FTEX(rd, rs1, rs2, funct3) (0x18000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_IADD(rd, rs1, rs2, funct3) (0x1C000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_ISHL(rd, rs1, rs2, funct3) (0x20000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_ISHR(rd, rs1, rs2, funct3) (0x24000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
