@@ -28,12 +28,14 @@ object BorgOnly1x1Main extends App {
   //
   //   BORG_WAFER_MEMORY_OPS=0   drop LOAD/STORE and the core's DRAM port
   //   BORG_WAFER_CONTROL_FLOW=0 drop BRZ/BRNZ and the execution mask
+  //   BORG_WAFER_COMPUTE=1      add the compute dispatch sequencer
   private def envFlag(name: String, default: Boolean): Boolean =
     sys.env.get(name).map(v => v != "0" && v.toLowerCase != "false").getOrElse(default)
 
   val cfg = BorgConfig.Wafer.copy(
     hasMemoryOps   = envFlag("BORG_WAFER_MEMORY_OPS", BorgConfig.Wafer.hasMemoryOps),
-    hasControlFlow = envFlag("BORG_WAFER_CONTROL_FLOW", BorgConfig.Wafer.hasControlFlow))
+    hasControlFlow = envFlag("BORG_WAFER_CONTROL_FLOW", BorgConfig.Wafer.hasControlFlow),
+    hasCompute     = envFlag("BORG_WAFER_COMPUTE", BorgConfig.Wafer.hasCompute))
   // narrowCapable: as on 1x0.5, the runtime w=16 -> w=8 mux is the only
   // post-silicon recovery mode, and pins cannot be re-synthesized after
   // tapeout. Note the 1x1 map does NOT need narrow mode to fit -- it carries

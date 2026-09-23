@@ -114,6 +114,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val dma       = withReset(resetCopy("dma"))    { Module(new BorgDMA(cfg)) }
   val sequencer = withReset(resetCopy("seq"))    { Module(new BorgSequencer(cfg)) }
   val binner    = withReset(resetCopy("bin"))    { Module(new BorgBinner(cfg.maxBinTiles, cfg.maxTrianglesPerTile, cfg.coordWidth)) }
+  val compute   = Option.when(cfg.computeEnabled) {
+    withReset(resetCopy("comp")) { Module(new BorgComputeSequencer(cfg)) }
+  }
+  private val computeBusy = compute.map(_.io.busy).getOrElse(false.B)
+  // Set when a dispatch completes, cleared by the next start (COMPUTE_CTRL bit 0).
+  val computeDoneSticky = Option.when(cfg.computeEnabled)(RegInit(false.B))
 
   // Sticky done flag for sequencer detection (module-level so it's visible
   // in the data_out MuxCase).  Set when the sequencer pulses io.done,
@@ -147,6 +153,39 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   wireMmioRead()
   wireDMA()
   wirePerf()
+  wireCompute()
+
+  /** COMPUTE_* registers (nogen in the RDL, so a build without compute has no
+    * storage for them) and the compute sequencer's core-status snoop. */
+  private def wireCompute(): Unit = compute.foreach { c =>
+    def writes(off: UInt): Bool = bus.is_writing && bus.address === off
+    val pcReg  = RegInit(0.U(6.W))
+    val gx, gy, gz = RegInit(0.U(16.W))
+    val sx, sy, count = RegInit(0.U(8.W))
+    when(writes(BorgGpuRegs.compute_pc_offset))        { pcReg := bus.data_in(5, 0) }
+    when(writes(BorgGpuRegs.compute_groups_xy_offset)) { gx := bus.data_in(15, 0); gy := bus.data_in(31, 16) }
+    when(writes(BorgGpuRegs.compute_groups_z_offset))  { gz := bus.data_in(15, 0) }
+    when(writes(BorgGpuRegs.compute_local_offset)) {
+      sx := bus.data_in(7, 0); sy := bus.data_in(15, 8); count := bus.data_in(23, 16)
+    }
+    val start = writes(BorgGpuRegs.compute_ctrl_offset) && bus.data_in(0)
+
+    c.io.mmio.start      := RegNext(start, false.B)
+    c.io.mmio.pc         := pcReg
+    c.io.mmio.groupsX    := gx
+    c.io.mmio.groupsY    := gy
+    c.io.mmio.groupsZ    := gz
+    c.io.mmio.localX     := sx
+    c.io.mmio.localY     := sy
+    c.io.mmio.localCount := count
+
+    c.io.coreStatus.running        := core.io.status.running
+    c.io.coreStatus.autoRunPending := core.io.status.autoRunPending
+
+    val done = computeDoneSticky.get
+    when(start)        { done := false.B }
+    when(c.io.done)    { done := true.B }
+  }
 
   private def wireRdlRegs(): Unit = {
     rdlRegs.io.bus.address   := bus.address
@@ -208,13 +247,19 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     core.io.iter       := rast.io.shaderIter    // latched pre-advance position for coordLut
 
     // CoreTrigger mux: sequencer takes priority ONLY when it is actively
-    // asserting coreTrigger.valid (sRunVert, sRunSetup).
+    // asserting coreTrigger.valid (sRunVert, sRunSetup). A compute dispatch
+    // never overlaps a render (the driver serializes them), so its place in
+    // the order only matters for which trigger wins a misuse.
+    val nonSeqTrigger = compute.map { c =>
+      Mux(c.io.coreTrigger.valid, c.io.coreTrigger, rast.io.coreTrigger)
+    }.getOrElse(rast.io.coreTrigger)
     core.io.coreTrigger.valid  := Mux(s.io.coreTrigger.valid, true.B,
-                                                rast.io.coreTrigger.valid)
+                                                nonSeqTrigger.valid)
     core.io.coreTrigger.pc     := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.pc,
-                                                rast.io.coreTrigger.pc)
+                                                nonSeqTrigger.pc)
     core.io.coreTrigger.isRast := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.isRast,
-                                                rast.io.coreTrigger.isRast)
+                                                nonSeqTrigger.isRast)
+    core.io.compute.foreach(_ := compute.get.io.lanes)
 
     core.io.control.start            := rdlRegs.io.hw.control_start
     core.io.control.reset            := rdlRegs.io.hw.control_reset_pipeline
@@ -237,13 +282,18 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // load fills the correct page of the 2-entry cache (was hardcoded page 0).
     d.io.uniformWritePage := s.io.uniformWritePage
     val dmaUniWriteEn = d.io.uniformWrite.en && d.io.uniformWrite.addr(4, 0) =/= 31.U
-    core.io.dmaUniformWrite.en   := dmaUniWriteEn || s.io.uniformWrite.en
+    // The compute sequencer writes the workgroup ID (u29..u31) the same way.
+    val nonSeqUniWrite = compute.map { c =>
+      Mux(c.io.uniformWrite.en, c.io.uniformWrite, d.io.uniformWrite)
+    }.getOrElse(d.io.uniformWrite)
+    val nonSeqUniWriteEn = compute.map(_.io.uniformWrite.en || dmaUniWriteEn).getOrElse(dmaUniWriteEn)
+    core.io.dmaUniformWrite.en   := nonSeqUniWriteEn || s.io.uniformWrite.en
     core.io.dmaUniformWrite.addr := Mux(s.io.uniformWrite.en,
                                         s.io.uniformWrite.addr,
-                                        d.io.uniformWrite.addr)
+                                        nonSeqUniWrite.addr)
     core.io.dmaUniformWrite.data := Mux(s.io.uniformWrite.en,
                                         s.io.uniformWrite.data,
-                                        d.io.uniformWrite.data)
+                                        nonSeqUniWrite.data)
     // Snoop: sequencer observes what DMA writes to the uniform buffer
     s.io.dma.uniformSnoop.en   := d.io.uniformWrite.en
     s.io.dma.uniformSnoop.addr := d.io.uniformWrite.addr(2, 0)
@@ -583,7 +633,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     fifo.io.enq.bits.tileOrigin.y := Mux(seqEnqueue, s.io.iter.enqueue.bits.y, rdlRegs.io.hw.cmd_enqueue_tile_y(cfg.coordWidth - 1, 0))
 
     rast.io.cmdPop <> fifo.io.deq
-    core.io.uniformPage := Mux(s.io.busy, s.io.uniformWritePage, rast.io.uniformPage)
+    // A compute dispatch reads uniform page 0 -- the page its workgroup IDs are written to.
+    core.io.uniformPage := Mux(computeBusy, 0.U,
+                           Mux(s.io.busy, s.io.uniformWritePage, rast.io.uniformPage))
     core.io.seqBusy     := s.io.seqShaderActive
 
     // O8: use RDL's internal readAddr (RegNext of address) instead of a duplicate register.
@@ -634,7 +686,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // Firmware reads this after triggering with triCount=0 to detect
       // whether the sequencer hardware is present.
       (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> seqDoneSticky.asUInt
-    ))
+    ) ++ computeDoneSticky.map { done =>
+      // A build without compute leaves this address to rdl_read_data, which
+      // returns 0 for a nogen register: `present` reads back clear.
+      (read_addr_del === BorgGpuRegs.compute_ctrl_offset) -> Cat(true.B, computeBusy, done)
+    })
 
     // Resp drive: data_out is combinational from read_addr_del (= RegNext of
     // bus.address), which is stable from the cycle after req.fire onward —
