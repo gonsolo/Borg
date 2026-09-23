@@ -147,6 +147,7 @@ object BorgCoreTestHelpers {
     core.io.texR.poke(0.U)
     core.io.texG.poke(0.U)
     core.io.texB.poke(0.U)
+    core.io.texA.poke(0.U)
     core.io.seqBusy.poke(false.B)
     // LOAD/STORE DRAM port -- driven idle so nothing X-propagates for the
     // tests that never execute a memory instruction.

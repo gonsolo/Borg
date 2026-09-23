@@ -240,10 +240,12 @@ object BorderColor {
   val OPAQUE_BLACK      = 1
   val OPAQUE_WHITE      = 2
 
-  /** UNORM8 RGB for the selected border. Alpha is not stored by the texture
-    * path, so transparent and opaque black are the same colour here -- the
-    * distinction only matters once sampled alpha exists. */
+  /** UNORM8 RGB for the selected border. Transparent and opaque black share
+    * it; they differ only in [[a8]]. */
   def rgb8(sel: UInt): UInt = Mux(sel === OPAQUE_WHITE.U, 255.U(8.W), 0.U(8.W))
+  /** UNORM8 alpha for the selected border: 0 for transparent black, 1.0 for
+    * both opaque colours. */
+  def a8(sel: UInt): UInt = Mux(sel === TRANSPARENT_BLACK.U, 0.U(8.W), 255.U(8.W))
 }
 
 /** Morton (Z-order) encoding for two 8-bit coordinates.

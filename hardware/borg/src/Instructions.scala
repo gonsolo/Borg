@@ -150,6 +150,9 @@ object Instructions {
   // rs3 (texSelect) is expected to be a compile-time-constant descriptor
   // binding index, pinned into a const GPR exactly like borgc's existing
   // push_const_reg mechanism -- not a per-invocation dynamic value.
+  //
+  // FTEX writes FOUR registers, rd..rd+3 = R, G, B, A -- a sampled image is a
+  // vec4. rd must leave room for all four (rd <= 28).
   val FUNCT2_FMADD = 0
   val FUNCT2_FTEX  = 1
 

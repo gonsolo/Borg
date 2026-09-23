@@ -73,7 +73,7 @@ object EmitIsaHeader extends App {
   body ++= s"// R4-type: FMADD (opcode bit ${BITS_OPCODE_FMA_BIT}, funct2=$FUNCT2_FMADD)\n"
   body ++= s"#define BORG_INSTR_FMADD(rd, rs1, rs2, rs3, funct3) " +
            s"(${r4Base(FUNCT2_FMADD)} | $C_ARGS_R4)\n\n"
-  // FTEX rd, rs1(U), rs2(V), rs3: rd=texR, rd+1=texG, rd+2=texB. rs3 is a
+  // FTEX rd, rs1(U), rs2(V), rs3: rd=R, rd+1=G, rd+2=B, rd+3=A. rs3 is a
   // REGISTER INDEX (like FMA's own rs3) whose low bits select which
   // texture-binding slot to sample -- write the desired slot number into a
   // register first, same as any other pinned constant, then pass its index.

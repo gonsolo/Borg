@@ -103,6 +103,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val texR    = Input(UInt(16.W))    // fetched texel R
   val texG    = Input(UInt(16.W))    // fetched texel G
   val texB    = Input(UInt(16.W))    // fetched texel B
+  val texA    = Input(UInt(16.W))    // fetched texel A
 }
 
 class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -449,9 +450,14 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   // @doc:ftex-stall
-  /** Step 34.4: FTEX texture-sample stall and 3-register write-back.  Shared FSM:
+  /** Step 34.4: FTEX texture-sample stall and 4-register write-back.  Shared FSM:
     * latches operands → texReq, freezes busy_counter while waiting, then writes
-    * texR/G/B to rd/rd+1/rd+2 via each lane's memWrite port over 3 cycles. */
+    * texR/G/B/A to rd..rd+3 via each lane's memWrite port over 4 cycles.
+    *
+    * Four, not three: a sampled image is a vec4 in SPIR-V, and alpha is a
+    * real channel of every mandatory RGBA format. The texture unit always
+    * fetched it (the upper half of the texel's second word) and threw it
+    * away, so `texture(s, uv).a` had no source. */
   private def wireTexStall(recAs: Seq[UInt], recBs: Seq[UInt], recCs: Seq[UInt],
                            memWrites: Seq[MemWritePort]): Unit = {
     val N = cfg.fragLanes
@@ -461,8 +467,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
 
     // One texture unit, serialized over lanes: request lane → wait → write that
-    // lane's rd/rd+1/rd+2 → next lane.  At fragLanes=1 this is the original path.
-    val sTexIdle :: sTexReq :: sTexWait :: sTexWB0 :: sTexWB1 :: sTexWB2 :: Nil = Enum(6)
+    // lane's rd..rd+3 → next lane.  At fragLanes=1 this is the original path.
+    val sTexIdle :: sTexReq :: sTexWait :: sTexWB0 :: sTexWB1 :: sTexWB2 :: sTexWB3 :: Nil = Enum(7)
     val texState = RegInit(sTexIdle)
     // Ranges over [0, N-1] only (wraps at N-1, never reaches N) — log2Ceil(N)
     // bits, not N+1: see BorgShaderDispatcher's laneCtr for the same bug and
@@ -486,6 +492,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val texResultR = RegInit(0.U(config.totalBits.W))
     val texResultG = RegInit(0.U(config.totalBits.W))
     val texResultB = RegInit(0.U(config.totalBits.W))
+    val texResultA = RegInit(0.U(config.totalBits.W))
     def widenTexel(t: UInt): UInt = if (config.totalBits > 16) Fp16Fp32.widen(t) else t
     def narrowTexCoord(c: UInt): UInt =
       if (config.totalBits > 16) Fp16Fp32.narrow(c(config.totalBits - 1, 0)) else c(15, 0)
@@ -530,6 +537,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       io.texSelect := curC(texSelectWidth - 1, 0)
       when(io.texDone) {                      // same-cycle (e.g. texture disabled → white)
         texResultR := widenTexel(io.texR); texResultG := widenTexel(io.texG); texResultB := widenTexel(io.texB)
+        texResultA := widenTexel(io.texA)
         texState   := sTexWB0
       }.otherwise {
         texState := sTexWait
@@ -540,6 +548,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       busy_counter := busy_counter            // hold
       when(io.texDone) {
         texResultR := widenTexel(io.texR); texResultG := widenTexel(io.texG); texResultB := widenTexel(io.texB)
+        texResultA := widenTexel(io.texA)
         texState   := sTexWB0
       }
     }
@@ -553,7 +562,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       driveTexWriteLane(texLane, true.B, texRdReg + 1.U, texResultG); texState := sTexWB2
     }
     when(texState === sTexWB2) {
-      driveTexWriteLane(texLane, true.B, texRdReg + 2.U, texResultB)
+      busy_counter := busy_counter
+      driveTexWriteLane(texLane, true.B, texRdReg + 2.U, texResultB); texState := sTexWB3
+    }
+    when(texState === sTexWB3) {
+      driveTexWriteLane(texLane, true.B, texRdReg + 3.U, texResultA)
       when(texLane === (N - 1).U) {
         // All lanes textured — resume the fragment shader past the FTEX op.
         texState   := sTexIdle

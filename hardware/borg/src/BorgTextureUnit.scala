@@ -13,8 +13,13 @@ import chisel3.util._
   * touching the caller's interface.
   *
   * Texel memory layout (8 bytes per texel, stride = power-of-2):
-  *   Word 0 [offset +0]: { G[15:0], R[15:0] }   — both R and G packed
-  *   Word 1 [offset +4]: { pad[15:0], B[15:0] }  — B only
+  *   Word 0 [offset +0]: { G[15:0], R[15:0] }
+  *   Word 1 [offset +4]: { A[15:0], B[15:0] }
+  *
+  * That is exactly `VK_FORMAT_R16G16B16A16_SFLOAT`, byte for byte. The upper
+  * half of word 1 used to be documented as padding and was fetched and then
+  * discarded -- which dropped alpha from every sampled texture, so
+  * `texture(s, uv).a` had no hardware source at all.
   *
   * Read order: B first (offset +4), then RG (offset +0).
   * The texture address (baseAddr + mortonIndex×8) is latched into tex_base
@@ -28,6 +33,7 @@ class BorgTextureUnitIO(val hasBilinear: Boolean = false) extends Bundle {
   val texConfig = new TexConfigIO         // mortonIndex, baseAddr, en
   val gpuMem    = new GpuMemIO            // DRAM read port
   val fragColor = Output(new ColorZ(16))  // fetched R/G/B; Z is always zero here
+  val fragA     = Output(UInt(16.W))      // fetched alpha (upper half of word 1)
   // Bilinear operands. Absent unless the config asks for filtering, so a
   // nearest-only build carries no extra ports at all.
   val bilinear  = if (hasBilinear) Some(new BilinearIO) else None
@@ -36,14 +42,14 @@ class BorgTextureUnitIO(val hasBilinear: Boolean = false) extends Bundle {
 /** Autonomous DRAM texel fetch unit (Step 25.3e).
   *
   * Issues two sequential read requests over [[GpuMemIO]], assembles the
-  * 16-bit R, G, B channels, and pulses [[done]] for one cycle when finished.
+  * 16-bit R, G, B, A channels, and pulses [[done]] for one cycle when finished.
   *
   * This module is a natural insertion point for texture compression:
   * add decompression logic between the raw [[gpuMem.data]] reads and
   * the [[fragColor]] outputs without changing the caller's interface.
   *
   * FSM:
-  *   sIdle → sReadB (fetch B word, offset +4)
+  *   sIdle → sReadB (fetch BA word, offset +4)
   *         → sReadRG (fetch RG word, offset +0)
   *         → sDone (pulse done, return to sIdle)
   */
@@ -66,17 +72,19 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
 
   // Which of the four taps is in flight, and the UNORM8 tap store. Texels are
   // quantized as they arrive rather than kept as FP16: the weighting is
-  // UNORM8 anyway, so this is 4x3x8 = 96 bits of storage instead of 192.
+  // UNORM8 anyway, so this is 4x4x8 = 128 bits of storage instead of 256.
   val tap    = RegInit(0.U(2.W))
   val tapR   = Reg(Vec(4, UInt(8.W)))
   val tapG   = Reg(Vec(4, UInt(8.W)))
   val tapB   = Reg(Vec(4, UInt(8.W)))
+  val tapA   = Reg(Vec(4, UInt(8.W)))
   val filtering = RegInit(false.B)   // latched at start: this sample is filtered
 
   // --- Result registers ---
   val frag_r = RegInit(0.U(16.W))
   val frag_g = RegInit(0.U(16.W))
   val frag_b = RegInit(0.U(16.W))
+  val texel_a = RegInit(0.U(16.W))
 
   // --- Base address: latched on start so the FTEX mortonIndex override ---
   // --- (valid for one cycle only) is captured for both DRAM reads.     ---
@@ -144,6 +152,7 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
   io.fragColor.g := frag_g
   io.fragColor.b := frag_b
   io.fragColor.z := 0.U  // Z is pass-through from shader snoop in dispatcher
+  io.fragA       := texel_a
 
   switch(state) {
 
@@ -159,7 +168,7 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
       }
     }
 
-    // Read 0: B word first (offset +4) — keeps Morton address stable.
+    // Read 0: BA word first (offset +4) — keeps Morton address stable.
     //
     // A tap that lands on the border has no texel to read and is short
     // circuited here. Skipping the access is not merely an optimization: the
@@ -169,10 +178,12 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
       when(tapIsBorder) {
         if (hasBilinear) {
           val bc = BorderColor.rgb8(bil.get.border)
-          tapR(tap) := bc; tapG(tap) := bc; tapB(tap) := bc
+          val ba = BorderColor.a8(bil.get.border)
+          tapR(tap) := bc; tapG(tap) := bc; tapB(tap) := bc; tapA(tap) := ba
           frag_r := ColorQuantize.dequantize8(bc)
           frag_g := ColorQuantize.dequantize8(bc)
           frag_b := ColorQuantize.dequantize8(bc)
+          texel_a := ColorQuantize.dequantize8(ba)
         }
         when(filtering && tap =/= 3.U) {
           tap   := tap + 1.U       // stay in sReadB for the next tap
@@ -184,9 +195,13 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
         io.gpuMem.addr := tapAddr | 4.U
         when(io.gpuMem.ready) {
           frag_b := io.gpuMem.data(15, 0)
-          if (hasBilinear) tapB(tap) := ColorQuantize.quantize8(io.gpuMem.data(15, 0))
-          if (BorgDebug.trace) printf("[TEX] READ-B addr=0x%x data=0x%x B=0x%x\n",
-            tapAddr | 4.U, io.gpuMem.data, io.gpuMem.data(15, 0))
+          texel_a := io.gpuMem.data(31, 16)
+          if (hasBilinear) {
+            tapB(tap) := ColorQuantize.quantize8(io.gpuMem.data(15, 0))
+            tapA(tap) := ColorQuantize.quantize8(io.gpuMem.data(31, 16))
+          }
+          if (BorgDebug.trace) printf("[TEX] READ-BA addr=0x%x data=0x%x B=0x%x A=0x%x\n",
+            tapAddr | 4.U, io.gpuMem.data, io.gpuMem.data(15, 0), io.gpuMem.data(31, 16))
           state  := sReadRG
         }
       }
@@ -229,13 +244,14 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
         frag_r := filtered(tapR)
         frag_g := filtered(tapG)
         frag_b := filtered(tapB)
+        texel_a := filtered(tapA)
       }
       state := sDone
     }
 
     is(sDone) {
       io.done := true.B
-      if (BorgDebug.trace) printf("[TEX] DONE R=0x%x G=0x%x B=0x%x\n", frag_r, frag_g, frag_b)
+      if (BorgDebug.trace) printf("[TEX] DONE R=0x%x G=0x%x B=0x%x A=0x%x\n", frag_r, frag_g, frag_b, texel_a)
       state   := sIdle
     }
   }
