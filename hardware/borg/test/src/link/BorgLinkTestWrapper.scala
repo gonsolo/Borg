@@ -32,10 +32,22 @@ class BorgLinkTestWrapper(val cfg: BorgConfig, val p: LinkParams)
   val borg   = Module(new Borg(cfg))
 
   // -- Pins ------------------------------------------------------------------
-  slave.io.dnPins     := master.io.dnPins
-  master.io.upPins    := slave.io.upPins
-  master.io.dnCred    := slave.io.dnCred
-  slave.io.upCred     := master.io.upCred
+  // One cycle of wire delay, matching LinkLoopbackHarness's default: zero
+  // delay puts master and slave at a fixed phase from reset, which (per
+  // LinkLoopbackHarness's own comment) "hides every bug that depends on
+  // where a beat falls relative to a pin change" -- and, found here the hard
+  // way, can also manufacture a failure real hardware would never see, since
+  // no real pad-to-pad connection has zero propagation delay. Regressed by
+  // BorgLinkSlave's pad-to-flop hold-margin pre-stage (2026-09-23):
+  // BorgGpuMemWordTests.fp32_store_load_over_link hung waiting for link-up
+  // at the exact zero-delay phase this wrapper hardcoded, while the
+  // equivalent scenario at every OTHER wire delay (BorgLinkProtocolTests'
+  // sweep) already passed.
+  def wire[T <: Data](x: T): T = ShiftRegister(x, 1)
+  slave.io.dnPins     := wire(master.io.dnPins)
+  master.io.upPins    := wire(slave.io.upPins)
+  master.io.dnCred    := wire(slave.io.dnCred)
+  slave.io.upCred     := wire(master.io.upCred)
   master.io.farLinkUp := slave.io.linkUp
   master.io.linkFast  := false.B
   slave.io.linkFast   := false.B

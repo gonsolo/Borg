@@ -87,7 +87,22 @@ class BorgLinkClockGenIO(val p: LinkParams) extends Bundle {
   * @param isMaster true for the FPGA side (defines the phase), false for the ASIC
   *                 side (recovers it).
   */
-class BorgLinkClockGen(val p: LinkParams, val isMaster: Boolean) extends Module {
+/** @param dnPinsPreRegistered
+  *   True when `rxPins` has already been through one extra falling-edge
+  *   register ahead of this module (BorgLinkSlave's `dnPinsIn`, for ASIC
+  *   pad-to-flop hold margin -- ASIC/slave only, never the FPGA/master).
+  *   Shifts `expectedTransPhase`/`relockPhase` by the one extra cycle of
+  *   latency that stage adds between the pin and this module's own `inD`,
+  *   so the phase-lock FSM looks for the transition where it actually
+  *   arrives instead of one cycle early. Must default to false: getting this
+  *   wrong desyncs training silently (BorgGpuMemWordTests.
+  *   fp32_store_load_over_link, found the hard way).
+  */
+class BorgLinkClockGen(
+    val p: LinkParams,
+    val isMaster: Boolean,
+    val dnPinsPreRegistered: Boolean = false
+) extends Module {
   val io = IO(new BorgLinkClockGenIO(p))
 
   /** Alternating-bit seed, so a stuck or shorted lane fails to produce transitions. */
@@ -136,9 +151,16 @@ class BorgLinkClockGen(val p: LinkParams, val isMaster: Boolean) extends Module 
       // Place the beat N/2 cycles after a transition.  Assigning `phase` at the
       // transition cycle c makes cycle c+k carry phase (P + k - 1), so the beat
       // (phase 0) lands at c + N/2 when P = (N/2 + 1) mod N.
-      val relockPhase = ((p.divCycles / 2 + 1) % p.divCycles).U
+      //
+      // dnPinsPreRegistered adds one more cycle between the pin's actual
+      // transition and `changed` reading true (BorgLinkSlave's extra
+      // falling-edge pre-stage ahead of this module's own inD/prev) -- shift
+      // both constants by that one cycle so the FSM expects the transition
+      // where it now actually lands, rather than one cycle earlier.
+      val preRegShift = if (dnPinsPreRegistered) 1 else 0
+      val relockPhase = ((p.divCycles / 2 + 1 + preRegShift) % p.divCycles).U
       // Once locked, transitions arrive N/2 cycles *before* each beat.
-      val expectedTransPhase = (p.divCycles / 2).U
+      val expectedTransPhase = ((p.divCycles / 2 + preRegShift) % p.divCycles).U
 
       // With `link_fast` there is exactly one phase, so there is nothing to
       // recover and nothing that could be misaligned.  Suppressing training here

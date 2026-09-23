@@ -76,34 +76,34 @@ class BorgLinkSlaveIO(val p: LinkParams) extends Bundle {
 class BorgLinkSlave(val p: LinkParams) extends Module {
   val io = IO(new BorgLinkSlaveIO(p))
 
-  val clkgen = Module(new BorgLinkClockGen(p, isMaster = false))
+  val clkgen = Module(new BorgLinkClockGen(p, isMaster = false, dnPinsPreRegistered = true))
   val tx     = Module(new LinkTx(p))
   val rx     = Module(new LinkRx(p, isDn = true))
 
-  // Pad inputs are captured on the falling edge, then re-registered on the rising
-  // edge by clkgen/rx as before. The far side launches on the same clock, so a
-  // rising-edge capture races it: the capture flop's clock arrives ~10 ns late
-  // through the clock tree while the data needs none (2026-09-23, run holdscope:
-  // hold failed by up to 0.68 ns on exactly these pins). Half a cycle of margin
-  // removes the race at every corner; the sample merely moves half a cycle
-  // earlier, which training absorbs, and latency is unchanged.
+  // Pad inputs are pre-registered on the falling edge before clkgen/rx's own
+  // (unmodified) rising-edge capture. The far side launches on the same
+  // clock, so a bare rising-edge capture races it: the capture flop's clock
+  // arrives ~10 ns late through the clock tree while the data needs none
+  // (2026-09-23, run holdscope: hold failed by up to 0.68 ns on exactly
+  // these pins, named `slave.clkgen.inD`/`slave.rx.inD`/`slave.rx.inP`).
+  // `.d`/`.v`/`.p` must stay on ONE shared delay profile: `rx`'s own
+  // parityOk/framing logic compares them against each other every beat, so
+  // staging some and not others desyncs that comparison against itself,
+  // independent of anything about narrow mode (found by trying it: an
+  // intermediate version staged `.d`/`.p` but not `.v`, which is internally
+  // inconsistent regardless of what it did to any test). `.d` also has to
+  // match clkgen.io.rxPins.d specifically -- clkgen's phase-lock only reads
+  // `.d`, so a mismatched delay there leaves beatEn positioned correctly for
+  // one consumer and a full cycle wrong for the other.
   //
-  // linkFast/narrow do NOT get this treatment, despite also showing a (tiny,
-  // 0.046 ns) hold "violation" on run holdfix (2026-09-23): they are straps,
-  // read combinationally everywhere below, held static by the board from
-  // before reset through the whole session -- registering them the same way
-  // broke BorgGpuMemWordTests.fp32_store_load_over_link (a real functional
-  // regression, not a timing nit): BorgLinkClockGen's phase-lock FSM reads
-  // `narrow`/`linkFast` to pick divCycles/N=1-vs-N=2 behavior every cycle
-  // from reset, and a registered strap is momentarily wrong (reset value)
-  // before its first falling edge, which is enough to desync a state machine
-  // that assumes they are correct from cycle 0. Since they never actually
-  // toggle in operation, the correct fix is exempting them from timing
-  // analysis entirely (set_false_path in chip_top.sdc), not adding a race
-  // fix meant for signals that toggle every beat.
+  // Moving the training phase this way exposed a latent LinkRx bug, not a
+  // pre-stage one: a valid idle beat did not clear a half-assembled narrow
+  // flit left over from decoding the training pattern, so narrow mode only
+  // worked when training happened to stop on an even sub-beat -- a coin
+  // flip on silicon. Fixed in LinkRx's sIdle
+  // (chip_link_tb.test_narrow_strap_round_trip).
   private val fallClock = (!clock.asBool).asClock
   private val dnPinsIn  = withClock(fallClock)(RegNext(io.dnPins))
-  private val upCredIn  = withClock(fallClock)(RegNext(io.upCred))
 
   clkgen.io.linkFast  := io.linkFast
   clkgen.io.narrow    := io.narrow
@@ -282,8 +282,12 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   // one cycle in sVDrain and captures `wdata` from the bus directly.
   io.gpuMem.waccept := (vState === sVDrain) && (vWords > 1.U)
 
+  // upCred was never in the measured hold-violator list (only clkgen.inD and
+  // rx.inD/inV/inP were), and CreditCounter's Sync2 is already a 2-flop
+  // synchronizer with its own built-in margin -- left unregistered here on
+  // purpose rather than fixing a violation that hasn't actually been observed.
   val credit = Module(new CreditCounter(p.creditDepth))
-  credit.io.returnPin := upCredIn
+  credit.io.returnPin := io.upCred
 
   vReady := false.B
 

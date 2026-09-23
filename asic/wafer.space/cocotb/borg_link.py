@@ -208,9 +208,9 @@ class LinkMaster:
                 self.parity_errors += 1
                 self.log.warning("parity error beat %d: d=0x%04x v=%d p=%d",
                                  self.beats, d, v, p)
-            if self.trace == "beats" and (v or _up or _err):
-                self.log.warning("beat %d: up_d=0x%04x v=%d p=%d link_up=%d err=%d cred=%d",
-                              self.beats, d, v, p, _up, _err, self._bit(raw, self.lanes.dn_cred))
+            if self.trace == "beats" and (v or _up or _err or self.dn_v):
+                self.log.warning("beat %d: dn_d=0x%04x dn_v=%d | up_d=0x%04x v=%d p=%d link_up=%d err=%d cred=%d",
+                              self.beats, self.dn_d, self.dn_v, d, v, p, _up, _err, self._bit(raw, self.lanes.dn_cred))
             # Credit returns are toggle-encoded.
             cred = self._bit(raw, self.lanes.dn_cred)
             if cred is not None and self.dn_cred_seen is not None and cred != self.dn_cred_seen:

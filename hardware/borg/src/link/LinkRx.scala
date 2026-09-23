@@ -181,7 +181,16 @@ class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
               flitAcc := assembled
             }
           }
-          // v=0 while idle is just the inter-packet gap: nothing to do.
+          // v=0 while idle is the inter-packet gap -- the resync point, so it
+          // must also discard a half-assembled narrow flit. Training keeps v
+          // high and is decoded as garbage, and wherever it happens to stop
+          // can leave subCnt=1; without this the first real header would be
+          // paired with that stale half and every packet after it shifted by
+          // one sub-beat (chip_link_tb.test_narrow_strap_round_trip).
+          when(!inV) {
+            subCnt  := 0.U
+            flitAcc := 0.U
+          }
         }
 
         is(sPayload) {
