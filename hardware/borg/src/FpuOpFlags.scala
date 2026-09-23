@@ -48,5 +48,7 @@ class FpuOpFlags extends Bundle {
   val exelse = Bool()
   val expop  = Bool()
   val execOp = Bool()
+  // Compute only (BorgConfig.computeEnabled) -- see Instructions.FUNCT7_BARRIER.
+  val barrier = Bool()
   val funct3 = UInt(3.W)
 }

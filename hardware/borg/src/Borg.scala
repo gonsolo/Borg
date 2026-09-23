@@ -260,6 +260,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     core.io.coreTrigger.isRast := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.isRast,
                                                 nonSeqTrigger.isRast)
     core.io.compute.foreach(_ := compute.get.io.lanes)
+    core.io.barrier.foreach(compute.get.io.barrier := _)
 
     core.io.control.start            := rdlRegs.io.hw.control_start
     core.io.control.reset            := rdlRegs.io.hw.control_reset_pipeline
@@ -689,7 +690,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     ) ++ computeDoneSticky.map { done =>
       // A build without compute leaves this address to rdl_read_data, which
       // returns 0 for a nogen register: `present` reads back clear.
-      (read_addr_del === BorgGpuRegs.compute_ctrl_offset) -> Cat(true.B, computeBusy, done)
+      // Bit 3: barrier_fault (sticky, cleared by the next dispatch's start --
+      // see BorgComputeSequencer's class doc). Bits 2:0: present/busy/done.
+      (read_addr_del === BorgGpuRegs.compute_ctrl_offset) ->
+        Cat(compute.get.io.barrierFault, true.B, computeBusy, done)
     })
 
     // Resp drive: data_out is combinational from read_addr_del (= RegNext of

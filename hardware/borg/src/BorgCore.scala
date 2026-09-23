@@ -84,6 +84,12 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // Compute mode (BorgComputeSequencer): raw invocation IDs for r30/r31 and
   // the lanes a compute trigger starts with.
   val compute = if (cfg.computeEnabled) Some(Input(new ComputeLaneIO(cfg))) else None
+  // Compute mode, the other direction: did the invocation that just stopped
+  // (coreStatus.running -> false) stop at a BARRIER, and if so, where should
+  // it resume. Valid from the same cycle running drops until the next
+  // invocation starts; BorgComputeSequencer reads it off coreStatus's own
+  // running-drop detection, so there is no separate handshake.
+  val barrier = if (cfg.computeEnabled) Some(Output(new ComputeBarrierIO)) else None
 
   // Step 34.4: FTEX texture sample request/response
   val texReq  = Output(Bool())       // core requests texture fetch
@@ -154,6 +160,14 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val execSp    = RegInit(0.U(log2Ceil(EXEC_STACK_DEPTH + 1).W))
   val execFault = RegInit(false.B)   // sticky: stack over/underflow
 
+  // --- Compute: BARRIER stop point (BorgConfig.computeEnabled) -----------
+  //
+  // Not sticky across invocations: written on every stop (either branch of
+  // runPipeline's BARRIER/HALT check below), so a stale true from a PRIOR
+  // invocation can never survive into the next one's read.
+  val atBarrierReg = RegInit(false.B)
+  val barrierPCReg = RegInit(0.U(6.W))
+
   // --- Instruction Fetch ---
   val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
   val nextPC =
@@ -214,6 +228,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.status.autoRunPending := auto_run_pending
   io.branchDivergent := branchDivergent
   io.execFault       := execFault
+  io.barrier.foreach { b =>
+    b.hit      := atBarrierReg
+    b.resumePC := barrierPCReg
+  }
 
   // --- FTEX FSM (shared): drives each lane's memWrite, uses lane 0's operands ---
   wireTexStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.memWrite))
@@ -302,6 +320,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.exelse := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_EXELSE.U else false.B)
     flags.expop  := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_EXPOP.U else false.B)
     flags.execOp := flags.expush || flags.exelse || flags.expop
+    flags.barrier := (if (cfg.computeEnabled) !flags.fma && f7op === Instructions.FUNCT7_BARRIER.U else false.B)
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 
     (regs, flags)
@@ -313,7 +332,17 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // @doc:fetch-execute
     when(running && !is_busy && !texResumeDelay) {
       when(fetchedInstruction === 0.U) {
-        running := false.B
+        running      := false.B
+        atBarrierReg := false.B
+      }.elsewhen(opFlags.barrier) {
+        // Zero-latency stop, same as HALT above -- the difference is only in
+        // what BorgComputeSequencer does with it (resume this same invocation
+        // one word past BARRIER next segment, rather than treating it as
+        // finished). BARRIER is never a branch, so the resume address is
+        // simply the next word -- no need for pcAfterThis's brTakenReg mux.
+        running      := false.B
+        atBarrierReg := true.B
+        barrierPCReg := (programCounter + 1.U)(5, 0)
       }.otherwise {
         busy_counter := cfg.cBusyLoad.U
       }

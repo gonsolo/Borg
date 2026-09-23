@@ -29,14 +29,26 @@ class ComputeLaneIO(val cfg: BorgConfig) extends Bundle {
   val r31      = Vec(cfg.fragLanes, UInt(cfg.totalBits.W))  // LocalInvocationID, x | y << 10 | z << 20
 }
 
+/** BorgCore -> BorgComputeSequencer: why the invocation that just stopped did
+  * so. See Instructions.FUNCT7_BARRIER. */
+class ComputeBarrierIO extends Bundle {
+  val hit      = Bool()      // stopped at BARRIER, not HALT
+  val resumePC = UInt(6.W)   // valid only when hit
+}
+
 class BorgComputeSequencerIO(val cfg: BorgConfig) extends Bundle {
   val mmio         = new ComputeDispatchIO
   val busy         = Output(Bool())
   val done         = Output(Bool())
   val coreTrigger  = new CoreTriggerIO
   val coreStatus   = Flipped(new CoreStatusIO)
+  val barrier      = Input(new ComputeBarrierIO)
   val lanes        = Output(new ComputeLaneIO(cfg))
   val uniformWrite = new MemWritePort(6, cfg.totalBits)
+  // Sticky: set when quads of one workgroup disagreed about whether/where
+  // they hit a BARRIER. Cleared by the next dispatch's start, same shape as
+  // BorgCore's branch_divergent/exec_fault.
+  val barrierFault = Output(Bool())
 }
 
 /** BorgComputeSequencer -- vkCmdDispatch on the shader core.
@@ -61,6 +73,30 @@ class BorgComputeSequencerIO(val cfg: BorgConfig) extends Bundle {
   * One workgroup at a time, one quad at a time, and every memory access stalls
   * the core until it completes: memory is sequentially consistent across all
   * invocations of a dispatch by construction.
+  *
+  * == BARRIER: a segment loop over the same quad walk ==
+  *
+  * OpControlBarrier needs every invocation of a workgroup to reach it before
+  * any of them proceeds past it. Since a workgroup here is a SEQUENCE of
+  * quads (not concurrent lanes), that becomes: run every quad of the
+  * workgroup up to its BARRIER, THEN run every quad again from just past it,
+  * as a second pass over the exact same (lin, lx, ly, lz) walk sLane already
+  * does -- a "segment" is just which PC that walk starts each quad at.
+  * `segStartPC` is that PC; it resets to the dispatch entry point `pc` at the
+  * start of each workgroup and advances to the barrier's resume point each
+  * time every quad agrees they hit one.
+  *
+  * "Agrees" is enforced, not assumed: SPIR-V requires uniform control flow
+  * through a control barrier (every invocation executes the same one), and a
+  * shader that violates it would otherwise make some quads finish (HALT)
+  * while others are still waiting at a BARRIER that can now never be
+  * reached by every quad -- a real hang, not just a wrong image, if nothing
+  * else read the mismatch. So instead, of the up-to-fragLanes*maxQuads
+  * invocations in one segment: if any two disagree about whether they
+  * stopped at a BARRIER at all, or (both barrier) disagree about the resume
+  * PC, `barrierFault` sets sticky and the workgroup is treated as finished --
+  * same "observable, not silently wrong, not hung" shape as BorgCore's
+  * branch_divergent/exec_fault.
   */
 class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgComputeSequencerIO(cfg))
@@ -69,7 +105,7 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   private val sIdle :: sWgIds :: sLane :: sTrigger :: sWait :: sDone :: Nil = Enum(6)
   private val state = RegInit(sIdle)
 
-  private val pc      = RegInit(0.U(6.W))
+  private val pc      = RegInit(0.U(6.W))  // dispatch entry point (segment 0 of every workgroup)
   private val groupsX = RegInit(0.U(16.W))
   private val groupsY = RegInit(0.U(16.W))
   private val groupsZ = RegInit(0.U(16.W))
@@ -80,6 +116,13 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   private val wgX = RegInit(0.U(16.W))
   private val wgY = RegInit(0.U(16.W))
   private val wgZ = RegInit(0.U(16.W))
+
+  // --- Current segment (see class doc) ---
+  private val segStartPC    = RegInit(0.U(6.W))
+  private val segSawBarrier = RegInit(false.B)  // some quad this segment stopped at BARRIER
+  private val segSawHalt    = RegInit(false.B)  // some quad this segment stopped at HALT
+  private val segResumePC   = RegInit(0.U(6.W)) // the (checked-common) resume PC, once segSawBarrier
+  private val barrierFault  = RegInit(false.B)
 
   // The next invocation to hand out, as a linear index and as (x, y, z).
   private val lin = RegInit(0.U(8.W))
@@ -100,9 +143,10 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   io.busy := state =/= sIdle
   io.done := state === sDone
+  io.barrierFault := barrierFault
 
   io.coreTrigger.valid  := state === sTrigger
-  io.coreTrigger.pc     := pc
+  io.coreTrigger.pc     := segStartPC
   io.coreTrigger.isRast := false.B
 
   io.lanes.mode     := state =/= sIdle
@@ -116,9 +160,23 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.uniformWrite.addr := Cat(0.U(1.W), 29.U(5.W) + uniIdx)
   io.uniformWrite.data := MuxLookup(uniIdx, wgZ)(Seq(0.U -> wgX, 1.U -> wgY))
 
+  /** Reset the per-quad walk (lin/lx/ly/lz/lane, via sWgIds -> sLane) and
+    * (re)write the workgroup-ID uniforms -- shared by "next workgroup" and
+    * "next segment of this same workgroup" (the ID hasn't changed either
+    * way, so re-writing it there is harmless, not just cheap: one fewer
+    * special case). Caller sets segStartPC first. */
   private def startWorkgroup(): Unit = {
     uniIdx := 0.U
     state  := sWgIds
+  }
+
+  /** Begin a fresh segment of the CURRENT workgroup, starting every quad at
+    * `startPC`. */
+  private def beginSegment(startPC: UInt): Unit = {
+    segStartPC    := startPC
+    segSawBarrier := false.B
+    segSawHalt    := false.B
+    startWorkgroup()
   }
 
   switch(state) {
@@ -132,9 +190,10 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
         sizeY   := io.mmio.localY
         count   := io.mmio.localCount
         wgX := 0.U; wgY := 0.U; wgZ := 0.U
+        barrierFault := false.B
         val empty = io.mmio.groupsX === 0.U || io.mmio.groupsY === 0.U || io.mmio.groupsZ === 0.U ||
                     io.mmio.localX === 0.U || io.mmio.localY === 0.U || io.mmio.localCount === 0.U
-        when(empty) { state := sDone }.otherwise { startWorkgroup() }
+        when(empty) { state := sDone }.otherwise { beginSegment(io.mmio.pc) }
       }
     }
 
@@ -172,21 +231,47 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
     is(sWait) {
       when(coreFinished) {
+        // Fold this quad's stop reason into the segment's aggregate. Reads of
+        // segSawBarrier/segResumePC below see their value from BEFORE this
+        // quad (Chisel Reg semantics), i.e. "what prior quads this segment
+        // already established" -- exactly what a same-segment disagreement
+        // check needs. sawBarrierNext/sawHaltNext additionally fold in THIS
+        // quad, for the "is the segment, as of the quad that just finished,
+        // clean" decision below (which needs its own contribution, not just
+        // the ones before it -- otherwise a one-quad-workgroup could never
+        // see its own barrier hit).
+        val hitBarrier    = io.barrier.hit
+        val sawBarrierNext = segSawBarrier || hitBarrier
+        val sawHaltNext    = segSawHalt    || !hitBarrier
+        when(sawBarrierNext && sawHaltNext) { barrierFault := true.B }
+        when(hitBarrier) {
+          when(segSawBarrier && io.barrier.resumePC =/= segResumePC) {
+            barrierFault := true.B
+          }.elsewhen(!segSawBarrier) {
+            segResumePC := io.barrier.resumePC
+          }
+        }
+        segSawBarrier := sawBarrierNext
+        segSawHalt    := sawHaltNext
+
         when(lin < count) {
           lane  := 0.U
           state := sLane
+        }.elsewhen(sawBarrierNext && !sawHaltNext) {
+          // Every quad of this workgroup hit the same barrier: next segment.
+          beginSegment(Mux(segSawBarrier, segResumePC, io.barrier.resumePC))
         }.elsewhen(wgX +& 1.U < groupsX) {
           wgX := wgX + 1.U
-          startWorkgroup()
+          beginSegment(pc)
         }.elsewhen(wgY +& 1.U < groupsY) {
           wgX := 0.U
           wgY := wgY + 1.U
-          startWorkgroup()
+          beginSegment(pc)
         }.elsewhen(wgZ +& 1.U < groupsZ) {
           wgX := 0.U
           wgY := 0.U
           wgZ := wgZ + 1.U
-          startWorkgroup()
+          beginSegment(pc)
         }.otherwise {
           state := sDone
         }

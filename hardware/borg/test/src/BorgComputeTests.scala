@@ -128,6 +128,73 @@ object BorgComputeTests extends TestSuite with FastBuildSimulator {
       }
     }
 
+    // -- Phase 2: BARRIER ---------------------------------------------------
+
+    /** Every invocation stores 1000+i to shared[100+i], BARRIERs, then reads
+      * shared[100 + ((i+count/2) & (count-1))] -- its "opposite half" neighbour
+      * -- and stores that into output[i]. For i in the FIRST half this reads a
+      * LATER quad's phase-1 write: correct only if BorgComputeSequencer really
+      * runs every quad's phase 1 before any quad's phase 2. Without the
+      * barrier (or with it broken), the first half would read whatever was in
+      * DRAM before the dispatch (0 here), not 1000+neighbour.
+      */
+    def barrierScenario(d: BorgGpuMemWordTests.Dut, count: Int): Unit = {
+      val half = count / 2
+      val prog = Seq(
+        Instructions.IADD(rs1 = 10, rs2 = 30, rd = 1),        // r1 = 100 + i
+        Instructions.IADD(rs1 = 30, rs2 = 11, rd = 2),        // r2 = 1000 + i
+        Instructions.STORE(rs1 = 1, rs2 = 2),                 // shared[100+i] = 1000+i
+        Instructions.BARRIER(),
+        Instructions.IADD(rs1 = 30, rs2 = 12, rd = 3),        // r3 = i + half
+        Instructions.IAND(rs1 = 3, rs2 = 13, rd = 3),         // r3 = (i+half) & (count-1) = j
+        Instructions.IADD(rs1 = 10, rs2 = 3, rd = 4),         // r4 = 100 + j
+        Instructions.LOAD(rs1 = 4, rd = 5),                   // r5 = shared[100+j]
+        Instructions.STORE(rs1 = 30, rs2 = 5)                 // output[i] = r5
+      )
+      val gprs = Map(10 -> 100, 11 -> 1000, 12 -> half, 13 -> (count - 1))
+      val dram = dispatch(d, prog, gprs, (1, 1, 1), (count, 1, 1))
+      for (i <- 0 until count) {
+        val j = (i + half) & (count - 1)
+        val got = word(dram, i)
+        if (got != 1000 + j) println(s"  output[$i] = $got (expected ${1000 + j}, j=$j)")
+        utest.assert(got == 1000 + j)
+      }
+    }
+
+    utest.test("barrier_synchronizes_across_quads") {
+      // count=8, fragLanes=4: two quads. i=0..3 (quad 0) reads shared[104..107],
+      // written by quad 1 -- the case that can only pass with a real barrier.
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d => barrierScenario(d, 8) }
+    }
+
+    utest.test("barrier_synchronizes_across_quads_scalar") {
+      // count=8, fragLanes=1: eight one-lane quads -- an 8-way barrier, not
+      // just a 2-way one.
+      simulate(new BorgTestWrapper(scalar), additionalResetCycles = 4) { d => barrierScenario(d, 8) }
+    }
+
+    utest.test("divergent_barrier_sets_fault_but_still_completes") {
+      // quadIdx = LocalInvocationIndex >> 2 is uniform WITHIN a quad (all 4
+      // lanes of one quad share it) but differs BETWEEN quads -- a valid,
+      // non-branch-divergent condition to build an invalid (non-uniform
+      // control flow through OpControlBarrier) program from: quad 0 (i=0..3,
+      // quadIdx=0) falls through to BARRIER; quad 1 (i=4..7, quadIdx=1)
+      // branches around it straight to HALT.
+      val prog = Seq(
+        Instructions.ISHR(rs1 = 30, rs2 = 10, rd = 1),  // r1 = i >> 2 = quadIdx
+        Instructions.BRNZ(rs1 = 1, target = 3),         // quadIdx != 0: skip the barrier
+        Instructions.BARRIER()
+        // index 3 (implicit HALT) is BRNZ's target
+      )
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
+        val dram = dispatch(d, prog, Map(10 -> 2), (1, 1, 1), (8, 1, 1))
+        val status = mmioRead(d, dram, off(BorgGpuRegs.compute_ctrl_offset))
+        println(f"  COMPUTE_CTRL = 0x$status%x (expect bit3 barrier_fault set)")
+        utest.assert((status & 1) == 1)  // still completed (done), not hung
+        utest.assert((status & 8) == 8)  // barrier_fault
+      }
+    }
+
     utest.test("a_build_without_compute_reports_it_absent") {
       simulate(new BorgTestWrapper(scalar.copy(hasCompute = false)), additionalResetCycles = 4) { d =>
         val dram = new HalfwordDram

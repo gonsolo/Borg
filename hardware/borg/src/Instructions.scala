@@ -111,6 +111,17 @@ object Instructions {
   // NE) -- the same minimal basis RV32I itself uses (SLT/SLTU only).
   val FUNCT7_ISLT  = 0x38  // rd = (rs1 <s rs2) ? 1 : 0   (signed)
   val FUNCT7_ISEQ  = 0x3A  // rd = (rs1 == rs2) ? 1 : 0
+  // Compute only (BorgConfig.computeEnabled). Stops the invocation like HALT
+  // (running := false, zero latency), but records that it stopped AT a
+  // barrier rather than finishing, plus the PC to resume at. BorgCore only
+  // ever runs one quad at a time, so OpControlBarrier's "every invocation in
+  // the workgroup reaches this point" is enforced by BorgComputeSequencer:
+  // it runs every quad of the workgroup up to its own BARRIER before letting
+  // any of them past it. See BorgComputeSequencer's doc for what happens if
+  // quads disagree (SPIR-V requires uniform control flow through a barrier;
+  // Borg makes a violation of that observable rather than silently wrong,
+  // same as branch_divergent/exec_fault).
+  val FUNCT7_BARRIER = 0x3C
   // @doc:end
 
   /** Split an absolute branch target into the rs2/rd fields it is packed into. */
@@ -159,6 +170,7 @@ object Instructions {
   def EXPUSH(rs1: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXPUSH, 0, rs1, 0, funct3)
   def EXELSE(funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXELSE, 0, 0, 0, funct3)
   def EXPOP(funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXPOP, 0, 0, 0, funct3)
+  def BARRIER(funct3: Int = 0): BigInt = encodeRType(FUNCT7_BARRIER, 0, 0, 0, funct3)
   def BRNZ(rs1: Int, target: Int, funct3: Int = 0): BigInt = {
     val (hi, lo) = branchTargetFields(target)
     encodeRType(FUNCT7_BRNZ, hi, rs1, lo, funct3)
@@ -213,7 +225,8 @@ object Instructions {
     ("BRNZ",   FUNCT7_BRNZ,  Branch),
     ("EXPUSH", FUNCT7_EXPUSH, Mask1),
     ("EXELSE", FUNCT7_EXELSE, Mask0),
-    ("EXPOP",  FUNCT7_EXPOP,  Mask0)
+    ("EXPOP",  FUNCT7_EXPOP,  Mask0),
+    ("BARRIER", FUNCT7_BARRIER, Mask0)
   )
 
   // --- String Formatters for C / Python Generation ---
