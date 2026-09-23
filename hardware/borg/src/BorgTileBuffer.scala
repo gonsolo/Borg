@@ -197,8 +197,12 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   val rgbzMems = Seq.fill(planes)(SyncReadMem(TILE_SIZE, UInt(STORED_BITS.W)))
 
   // Per-channel accumulator width: enough headroom to sum `samples` values.
+  // With an alpha plane the accumulator carries alpha as a fourth channel:
+  // a flush to a 32-bit colour format resolves alpha by the same average,
+  // and without it the resolved alpha would be sample 0's alone.
   val ACC_CH   = colorBits + log2Ceil(samples)
-  val ACC_BITS = 3 * ACC_CH
+  val ACC_NCH  = if (hasAlpha) 4 else 3
+  val ACC_BITS = ACC_NCH * ACC_CH
   val accumMem = if (multiPass) Some(SyncReadMem(TILE_SIZE, UInt(ACC_BITS.W))) else None
 
   // --- Accumulate sweep -------------------------------------------------
@@ -303,16 +307,49 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   // running sum alongside the working plane in the same cycle.
   val accRead = accumMem.map(_.read(rdAddr, rdEn)).getOrElse(0.U)
 
+  // --- Optional destination-alpha plane: storage --------------------------
+  //
+  // Same shape as the stencil plane and for the same reasons (shared index/
+  // enable/clear, per-sample memories rather than a write mask). What makes
+  // it worth having: without it every blend factor involving DST_ALPHA has
+  // to assume an opaque destination, so an application compositing
+  // translucent geometry into a translucent buffer gets the wrong answer
+  // with no way to tell. It is also flushed: the 32-bit colour formats
+  // (FlushFormat.RGBA8/BGRA8) write it out as the attachment's A channel.
+  //
+  // Declared ahead of the accumulate sweep, which folds it in at multiPass.
+  val alphaReadRaw: Option[Vec[UInt]] = if (!hasAlpha) None else {
+    // One plane per live sample, for the same reason as stencil.
+    val alphaMems = Seq.fill(planes)(SyncReadMem(TILE_SIZE, UInt(8.W)))
+
+    // RegInit 0xFF, not 0: the reset auto-clear runs before firmware writes
+    // anything, and an opaque destination is what the hardware behaved as
+    // before this plane existed.
+    val alphaClearReg = RegInit(0xFF.U(8.W))
+    when(io.clear.en && !clearing) { alphaClearReg := io.alphaClear.get }
+
+    Some(VecInit(alphaMems.zipWithIndex.map { case (mem, s) =>
+      when(clearing) {
+        mem.write(clearCounter, alphaClearReg)
+      }.elsewhen(io.write.en && coverageFor(s) && io.alphaWriteMask.get) {
+        mem.write(io.write.idx, io.alphaWrite.get)
+      }
+      mem.read(rdAddr, rdEn)
+    }))
+  }
+
+  /** Channel `i` of an accumulator word, counting from the most significant:
+    * 0 = R, 1 = G, 2 = B, 3 = A. */
+  def accCh(word: UInt, i: Int): UInt =
+    word((ACC_NCH - i) * ACC_CH - 1, (ACC_NCH - i - 1) * ACC_CH)
+
   if (multiPass) {
     val (wr, wg, wb) = storedChannels(rgbzRead(0))
-    val pr = accRead(3 * ACC_CH - 1, 2 * ACC_CH)
-    val pg = accRead(2 * ACC_CH - 1, 1 * ACC_CH)
-    val pb = accRead(1 * ACC_CH - 1, 0)
+    val working = Seq(wr, wg, wb) ++ alphaReadRaw.map(_(0)).toSeq
     when(accRunDel) {
-      accumMem.get.write(accCtrDel, Cat(
-        Mux(accFirstReg, wr.pad(ACC_CH), pr + wr),
-        Mux(accFirstReg, wg.pad(ACC_CH), pg + wg),
-        Mux(accFirstReg, wb.pad(ACC_CH), pb + wb)))
+      accumMem.get.write(accCtrDel, Cat(working.zipWithIndex.map { case (w, i) =>
+        Mux(accFirstReg, w.pad(ACC_CH), accCh(accRead, i) + w)
+      }))
     }
     io.pass.get.accumBusy := accRun || accRunDel
   }
@@ -346,9 +383,9 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
       val work = decodeStored(rgbzRead(0))
       val (wr, wg, wb) = storedChannels(rgbzRead(0))
       val shift = log2Ceil(samples)
-      val avgR = (accRead(3 * ACC_CH - 1, 2 * ACC_CH) +& wr) >> shift
-      val avgG = (accRead(2 * ACC_CH - 1, 1 * ACC_CH) +& wg) >> shift
-      val avgB = (accRead(1 * ACC_CH - 1, 0)           +& wb) >> shift
+      val avgR = (accCh(accRead, 0) +& wr) >> shift
+      val avgG = (accCh(accRead, 1) +& wg) >> shift
+      val avgB = (accCh(accRead, 2) +& wb) >> shift
       val res = Wire(new ColorZ(dataBits))
       when(io.pass.get.resolve) {
         res.r := ColorQuantize.dequantize8(avgR(colorBits - 1, 0))
@@ -414,38 +451,19 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
     else io.stencilRead.get := VecInit(Seq.fill(samples)(stencilHeld(0)))
   }
 
-  // --- Optional destination-alpha plane ----------------------------------
+  // --- Optional destination-alpha plane: read port -----------------------
   //
-  // Same shape as the stencil plane and for the same reasons (shared index/
-  // enable/clear, per-sample memories rather than a write mask). What makes
-  // it worth having: without it every blend factor involving DST_ALPHA has
-  // to assume an opaque destination, so an application compositing
-  // translucent geometry into a translucent buffer gets the wrong answer
-  // with no way to tell.
-  if (hasAlpha) {
-    // One plane per live sample, for the same reason as stencil: destination
-    // alpha feeds blending inside the tile and is never flushed.
-    val alphaMems = Seq.fill(planes)(SyncReadMem(TILE_SIZE, UInt(8.W)))
-
-    // RegInit 0xFF, not 0: the reset auto-clear runs before firmware writes
-    // anything, and an opaque destination is what the hardware behaved as
-    // before this plane existed.
-    val alphaClearReg = RegInit(0xFF.U(8.W))
-    when(io.clear.en && !clearing) { alphaClearReg := io.alphaClear.get }
-
-    val alphaRead = VecInit(alphaMems.zipWithIndex.map { case (mem, s) =>
-      when(clearing) {
-        mem.write(clearCounter, alphaClearReg)
-      }.elsewhen(io.write.en && coverageFor(s) && io.alphaWriteMask.get) {
-        mem.write(io.write.idx, io.alphaWrite.get)
-      }
-      mem.read(rdAddr, rdEn)
-    })
-
+  // Held with the same timing as the colour read. At multiPass a resolving
+  // read (the flush after the final pass) returns the MSAA average from the
+  // accumulator, exactly like colour; any other read returns the live plane.
+  alphaReadRaw.foreach { alphaRead =>
     val alphaHeld = RegInit(VecInit(Seq.fill(if (multiPass) 1 else samples)(0xFF.U(8.W))))
     when(readEnDel) {
       if (!multiPass) alphaHeld := alphaRead
-      else alphaHeld := VecInit(Seq(alphaRead(0)))
+      else {
+        val avgA = (accCh(accRead, 3) +& alphaRead(0)) >> log2Ceil(samples)
+        alphaHeld := VecInit(Seq(Mux(io.pass.get.resolve, avgA(7, 0), alphaRead(0))))
+      }
     }
     if (!multiPass) io.alphaRead.get := alphaHeld
     else io.alphaRead.get := VecInit(Seq.fill(samples)(alphaHeld(0)))

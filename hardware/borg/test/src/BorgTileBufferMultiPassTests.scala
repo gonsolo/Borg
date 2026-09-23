@@ -201,5 +201,46 @@ object BorgTileBufferMultiPassTests extends TestSuite {
         println("  PASSED")
       }
     }
+    utest.test("alpha_is_averaged_across_passes_like_colour") {
+      // A 32-bit colour flush writes alpha out, so at multiPass alpha must
+      // resolve the same way colour does -- summed in the accumulator, not
+      // left as whatever sample 0 (the last pass) happened to write.
+      simulate(mk) { tb =>
+        println("\n--- multiPass: alpha resolves to the average ---")
+        resetModule(tb)
+        def paintAlpha(sample: Int, a: Int): Unit = {
+          pokeIdle(tb)
+          tb.io.pass.get.sampleIdx.poke(sample.U)
+          tb.io.alphaWriteMask.get.poke(true.B)
+          tb.io.alphaWrite.get.poke(a.U)
+          for (i <- 0 until 16) {
+            tb.io.write.idx.poke(i.U)
+            tb.io.write.data.z.poke(0x3000.U)
+            tb.io.write.coverage.poke((1 << sample).U)
+            tb.io.write.en.poke(true.B)
+            tb.clock.step(1)
+          }
+          tb.io.write.en.poke(false.B)
+        }
+        // Alphas 40, 80, 120, then sample 0 last with 200: average 110. Sample
+        // 0 alone would read 200, and a sum of the first three without the
+        // working plane would give 60 -- both distinguishable.
+        paintAlpha(1, 40);  accumulate(tb, first = true)
+        paintAlpha(2, 80);  accumulate(tb, first = false)
+        paintAlpha(3, 120); accumulate(tb, first = false)
+        paintAlpha(0, 200)
+        readResolved(tb, 9)
+        val aRes = tb.io.alphaRead.get(0).peek().litValue.toInt
+        // A non-resolving read still returns the live plane.
+        pokeIdle(tb)
+        tb.io.read.idx.poke(9.U); tb.io.read.en.poke(true.B)
+        tb.clock.step(1); tb.io.read.en.poke(false.B); tb.clock.step(1)
+        val aLive = tb.io.alphaRead.get(0).peek().litValue.toInt
+        println(s"  resolved alpha = $aRes (expect 110), live plane = $aLive (expect 200)")
+        utest.assert(aRes == 110)
+        utest.assert(aLive == 200)
+        println("  PASSED")
+      }
+    }
   }
 }

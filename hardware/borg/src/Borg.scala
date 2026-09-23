@@ -108,7 +108,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   val core      = withReset(resetCopy("core"))   { Module(new BorgCore(cfg)) }
   val rast      = withReset(resetCopy("rast"))   { Module(new BorgRasterizer(cfg)) }
-  val flusher   = withReset(resetCopy("flush"))  { Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush)) }   // before tile — see note above
+  val flusher   = withReset(resetCopy("flush"))  { Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush, cfg.hasBlend)) }   // before tile — see note above
   val tile      = withReset(resetCopy("tile"))   { Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend, cfg.msaaMultiPass)) }
   val rdlRegs   = withReset(resetCopy("regs"))   { Module(new BorgGpuRegs()) } // Auto-generated RDL register block
   val dma       = withReset(resetCopy("dma"))    { Module(new BorgDMA(cfg)) }
@@ -607,7 +607,15 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
 
     f.io.read.data := tile.io.read.data
-    f.io.tileBase  := Mux(seqFlushActive, s.io.flusher.base, flushTileBaseReg)
+    f.io.alpha.foreach(_ := tile.io.alphaRead.get)
+    f.io.format    := rdlRegs.io.hw.flush_format_format
+    // Autonomous tiles are addressed from the sequencer's tile offset (in
+    // 32-byte units, one RGB565 tile). A 32-bit colour format doubles the
+    // colour tile; the depth tile (D16_UNORM, 16 x 2 bytes) never changes.
+    val seqTileOffset = s.io.flusher.tileOffset
+    val colourOffset  = Mux(FlushFormat.isWide(rdlRegs.io.hw.flush_format_format),
+                            seqTileOffset << 1, seqTileOffset)
+    f.io.tileBase  := Mux(seqFlushActive, s.io.mmio.fbBase + colourOffset, flushTileBaseReg)
 
     // Depth-attachment write-out (only present at cfg.hasDepthFlush). The
     // FLUSH_ZB_BASE register has existed in the register map since Step
@@ -624,7 +632,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(bus.is_writing && bus.address === BorgGpuRegs.flush_zb_base_offset) {
         flushDepthBaseReg := bus.data_in(24, 0)
       }
-      p := flushDepthBaseReg
+      // Autonomous flushes offset it per tile exactly like the colour base.
+      // It used to be passed through unchanged, so every tile of a
+      // sequencer-driven render wrote its Z to the same 32 bytes and only
+      // the last tile's depth survived.
+      p := Mux(seqFlushActive, flushDepthBaseReg + seqTileOffset, flushDepthBaseReg)
       f.io.depthEn.get := flushDepthBaseReg =/= 0.U
     }
 

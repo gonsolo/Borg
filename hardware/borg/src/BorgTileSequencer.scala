@@ -216,10 +216,11 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     io.iter.enqueue.bits.y := tileY
     io.iter.iterate       := false.B
     io.flusher.trigger    := false.B
-    // tileBase = fbBase + ((tileY / 4) * tilesPerRow + (tileX / 4)) * 32
-    // (RGB565: 16 pixels x 2 bytes = 32 bytes per tile)
+    // tileOffset = ((tileY / 4) * tilesPerRow + (tileX / 4)) * 32
+    // (16 pixels x 2 bytes: an RGB565 or D16 tile; Borg.scala adds the
+    // attachment base and scales for 4-byte colour formats)
     val tileIndex = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
-    io.flusher.base := io.mmio.fbBase + (tileIndex << 5)
+    io.flusher.tileOffset := tileIndex << 5
 
     // Not used by this sub-FSM: BorgGeometrySequencer owns the write side of
     // SeqBinnerIO. Tied off rather than split into a bespoke bundle, to keep

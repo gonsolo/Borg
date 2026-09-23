@@ -87,6 +87,7 @@ object BorgTileFlusherTests extends TestSuite {
 
         dut.reset.poke(true.B); step(4)
         dut.reset.poke(false.B)
+        dut.io.format.poke(FlushFormat.RGB565.U)
         dut.io.start.poke(false.B)
         dut.io.tileBase.poke(0.U)
         dut.io.depthBase.get.poke(0.U)
@@ -186,6 +187,7 @@ object BorgTileFlusherTests extends TestSuite {
 
         dut.reset.poke(true.B); step(4)
         dut.reset.poke(false.B)
+        dut.io.format.poke(FlushFormat.RGB565.U)
         dut.io.start.poke(false.B)
         dut.io.tileBase.poke(0.U)
         dut.io.depthBase.get.poke(0.U)
@@ -273,6 +275,7 @@ object BorgTileFlusherTests extends TestSuite {
 
         dut.reset.poke(true.B); step(4)
         dut.reset.poke(false.B)
+        dut.io.format.poke(FlushFormat.RGB565.U)
         dut.io.start.poke(false.B)
         dut.io.tileBase.poke(0x2000.U)
         dut.io.depthBase.get.poke(0x9000.U)
@@ -345,6 +348,7 @@ object BorgTileFlusherTests extends TestSuite {
 
         dut.reset.poke(true.B);  step(4)
         dut.reset.poke(false.B)
+        dut.io.format.poke(FlushFormat.RGB565.U)
         dut.io.start.poke(false.B)
         dut.io.tileBase.poke(0.U)
         dut.io.gpuMem.ready.poke(false.B)
@@ -453,6 +457,7 @@ object BorgTileFlusherTests extends TestSuite {
 
         dut.reset.poke(true.B); step(4)
         dut.reset.poke(false.B)
+        dut.io.format.poke(FlushFormat.RGB565.U)
         dut.io.start.poke(false.B)
         dut.io.tileBase.poke(0.U)
         dut.io.gpuMem.ready.poke(false.B)
@@ -504,6 +509,98 @@ object BorgTileFlusherTests extends TestSuite {
         println("[flusher] 4x MSAA resolve: 16 averaged RGB565 words correct, " +
                 "and provably different from sample-0 passthrough")
       }
+    }
+    // ── 32-bit colour formats (R8G8B8A8_UNORM / B8G8R8A8_UNORM) ─────────────
+    // Both mandatory COLOR_ATTACHMENT formats. A tile is 64 bytes, written as
+    // two 16-halfword bursts (pixels 0..7 at tileBase, 8..15 at tileBase+32),
+    // followed by the unchanged D16 depth burst. Every channel carries a
+    // distinct per-pixel ramp and alpha differs per SAMPLE at 4x MSAA, so a
+    // swapped byte, a dropped half, or alpha taken from one sample instead of
+    // averaged all fail.
+    def wideFlush(samples: Int, format: Int): Unit = {
+      simulate(new BorgTileFlusher(16, samples, hasDepthFlush = true, hasAlpha = true)) { dut =>
+        def sAlpha(e: Int, smp: Int): Int = (e * 13 + smp * 40) & 0xFF
+        var cycle = 0
+        var pipe0: Option[Int] = None
+        var pipe1: Option[Int] = None
+        def step(n: Int = 1): Unit = for (_ <- 0 until n) {
+          pipe1.foreach { i =>
+            dut.io.read.data.foreach { s =>
+              s.r.poke(entR(i).U); s.g.poke(entG(i).U)
+              s.b.poke(entB(i).U); s.z.poke(dz(i).U)
+            }
+            dut.io.alpha.get.zipWithIndex.foreach { case (a, smp) => a.poke(sAlpha(i, smp).U) }
+          }
+          val en  = dut.io.read.en.peek().litToBoolean
+          val idx = dut.io.read.idx.peek().litValue.toInt
+          pipe1 = pipe0
+          pipe0 = if (en) Some(idx) else None
+          dut.clock.step()
+          cycle += 1
+          Predef.assert(cycle < 10000, "TIMEOUT")
+        }
+
+        dut.reset.poke(true.B); step(4)
+        dut.reset.poke(false.B)
+        dut.io.start.poke(false.B)
+        dut.io.format.poke(format.U)
+        dut.io.tileBase.poke(0x2000.U)
+        dut.io.depthBase.get.poke(0x9000.U)
+        dut.io.depthEn.get.poke(true.B)
+        dut.io.gpuMem.ready.poke(false.B)
+        dut.io.gpuMem.waccept.poke(false.B)
+        dut.io.gpuMem.data.poke(0.U)
+        step(2)
+        dut.io.start.poke(true.B); step(); dut.io.start.poke(false.B)
+
+        val bursts = ArrayBuffer[(Int, Seq[Int])]()
+        while (dut.io.busy.peek().litToBoolean) {
+          if (dut.io.gpuMem.wr.peek().litToBoolean) {
+            Predef.assert(dut.io.gpuMem.wlen.peek().litValue.toInt == 16, "burst length")
+            val base = dut.io.gpuMem.addr.peek().litValue.toInt
+            val words = ArrayBuffer[Int]()
+            for (w <- 0 until 16) {
+              words += (dut.io.gpuMem.wdata.peek().litValue.toInt & 0xFFFF)
+              if (w < 15) { dut.io.gpuMem.waccept.poke(true.B); step(); dut.io.gpuMem.waccept.poke(false.B) }
+            }
+            dut.io.gpuMem.ready.poke(true.B); step()
+            dut.io.gpuMem.ready.poke(false.B)
+            bursts += ((base, words.toSeq))
+          }
+          step()
+        }
+
+        println(f"[flusher] samples=$samples format=$format: bursts at " +
+          bursts.map(b => f"0x${b._1}%x").mkString(", "))
+        Predef.assert(bursts.map(_._1) == Seq(0x2000, 0x2020, 0x9000),
+          "expected two colour halves then the depth burst")
+        // Reassemble the 64 colour bytes, little-endian halfwords.
+        val bytes = bursts.take(2).flatMap(_._2).flatMap(h => Seq(h & 0xFF, (h >> 8) & 0xFF))
+        var errors = 0
+        for (e <- 0 until 16) {
+          val r = fp16ToUnorm(entR(e), 8); val g = fp16ToUnorm(entG(e), 8)
+          val b = fp16ToUnorm(entB(e), 8)
+          val a = (0 until samples).map(sAlpha(e, _)).sum / samples
+          val exp = if (format == FlushFormat.BGRA8) Seq(b, g, r, a) else Seq(r, g, b, a)
+          val got = bytes.slice(4 * e, 4 * e + 4)
+          if (got != exp) {
+            println(s"  pixel $e: got $got expected $exp"); errors += 1
+          }
+        }
+        Predef.assert(errors == 0, s"$errors pixel mismatches")
+        for (w <- 0 until 16)
+          Predef.assert(bursts(2)._2(w) == expDz(w), s"depth word $w")
+      }
+    }
+
+    utest.test("rgba8 flush: two 8-pixel bursts, Vulkan byte order, then depth") {
+      wideFlush(1, FlushFormat.RGBA8)
+    }
+    utest.test("bgra8 flush swaps R and B only") {
+      wideFlush(1, FlushFormat.BGRA8)
+    }
+    utest.test("msaa 4x rgba8 flush averages alpha across samples") {
+      wideFlush(4, FlushFormat.RGBA8)
     }
   }
 }
