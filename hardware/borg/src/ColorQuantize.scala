@@ -19,20 +19,25 @@ import chisel3.util._
   */
 object ColorQuantize {
 
-  /** FP16(assumed in [0,1]) -> UNORM8, round-to-nearest.
+  /** FP16(assumed in [0,1]) -> UNORM8, exactly `round(value * 255)`.
     *
     * A normal FP16 value is `1.mant x 2^(exp-15)`, mant 10 bits, implicit
     * leading 1 (so the 11-bit significand SIG = 1024 + mant, an integer in
-    * [1024, 2047)). We want `round(value * 255)`; using 256 instead of 255
-    * turns the multiply into a pure shift (255/256 error is under 0.4% of
-    * one UNORM8 step, negligible for a deliberately lossy color path):
+    * [1024, 2047)). Then
     *
-    *   value * 256 = SIG * 2^(exp-15-10+8) = SIG * 2^(exp-17)
+    *   value * 255 = SIG * 255 * 2^(exp-25) = (SIG*256 - SIG) >> (17-exp+8)
     *
-    * exp is in [1,14] for a normal value < 1 (exp=15 means >=1.0, clamped
-    * separately below), so exp-17 is always negative: this is SIG right-
-    * shifted by (17-exp), 3..16 bits, with the bit just below the shift
-    * point used to round rather than truncate.
+    * so the x255 costs one subtract, not a multiplier. exp is in [1,14] for a
+    * normal value < 1 (exp=15 means >=1.0, clamped separately below), so the
+    * right shift is 11..24 bits, rounded to nearest by adding half first.
+    *
+    * This used to scale by 256 instead ("under 0.4% of one step"). That is
+    * not the inverse of dequantize8's u/255, and it showed: every u >= 128
+    * came back as u+1, so a stored colour drifted up by one each time the
+    * tile buffer rewrote it (blend with a masked channel, and ZTEST's
+    * depth-only update, which must leave colour untouched). Exhaustively
+    * checked: this form equals round(value * 255) for every positive finite
+    * FP16 below 1.0, and quantize8(dequantize8(u)) == u for all 256 u.
     */
   def quantize8(fp16: UInt): UInt = {
     require(fp16.getWidth == 16)
@@ -43,14 +48,13 @@ object ColorQuantize {
 
     val isZeroOrSubnormal = exp === 0.U
 
-    // Right-shift amount N = 17-exp, always in [3,16] for exp in [1,14] (the
+    // Right-shift amount N = 17-exp+8, in [11,24] for exp in [1,14] (the
     // only range reaching here once zero/subnormal and >=1.0 are muxed off
-    // below). Round-to-nearest via a standard "add half, then shift" bias
-    // rather than truncating: result = (sig + 2^(N-1)) >> N.
-    val n = (17.U(5.W) - exp)(4, 0)
-    val roundBias = (1.U(16.W) << (n - 1.U))(15, 0)
-    val sigPlusBias = sig +& roundBias // 11-bit + up to 16-bit -> needs 17 bits, Chisel infers it
-    val rounded = (sigPlusBias >> n)(8, 0) // shifted result fits in 9 bits (may carry to 256)
+    // below). Round-to-nearest: result = (sig*255 + 2^(N-1)) >> N.
+    val sig255 = (sig << 8) - sig                // 19 bits, exact
+    val n = (25.U(5.W) - exp)(4, 0)
+    val roundBias = (1.U(24.W) << (n - 1.U))(23, 0)
+    val rounded = ((sig255 +& roundBias) >> n)(8, 0)  // may carry to 256
 
     val normalResult = Mux(rounded > 255.U, 255.U(8.W), rounded(7, 0))
 
