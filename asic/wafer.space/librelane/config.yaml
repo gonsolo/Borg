@@ -290,14 +290,23 @@ GRT_RESIZER_HOLD_SLACK_MARGIN: 0.4
 # link pins on the falling edge (BorgLinkSlave); these margins predate it and
 # are left as they are so that fix is measured on its own.
 
-# Repair slew/cap again on global-route parasitics. The placement-stage
-# repair only sees estimated wires, and on run holdscope (2026-09-23) that
-# left 284 drivers over the 3 ns slew limit -- all at the ss corners, none
-# anywhere else, worst 4.63 ns -- plus two nets 4% over the 0.2 pF cap target.
-# No single net or RTL structure behind them; the estimate is simply short
-# of the routed RC. Global routing runs in ~1 min at 14% usage here, so the
-# extra GRT passes this step costs are cheap.
-RUN_POST_GRT_DESIGN_REPAIR: true
+# 2026-09-23, run holdfix: TRIED enabling RUN_POST_GRT_DESIGN_REPAIR to fix
+# holdscope's 284 max_ss slew violators (worst 4.63 ns) -- REVERTED, it made
+# slew measurably WORSE, not better. Its own log claimed 91 violations fixed,
+# but this step runs BEFORE detailed routing (step 40 vs 44) on
+# `estimate_parasitics -global_routing`, not real routed RC. The weak buf_1
+# fanout buffers it inserted (repair_design's usual choice for small fixes)
+# were sized against that estimate; once detailed routing produced the real
+# wire parasitics, the same corner (max_ss) went from 942 violators (worst
+# -1.63 ns) to 1,195 (worst -4.17 ns), and slew violations appeared at
+# max_tt for the first time ever on this design. Same failure mode as the
+# dly-cell issue and the standing "measure post-repair, not post-CTS" lesson,
+# just one pipeline stage earlier: a repair pass is only as good as the
+# parasitics it can see, and this one runs too early to see the real ones.
+# Left disabled. If slew is worth fixing, it needs a repair pass AFTER
+# detailed routing (which the Classic flow doesn't have) or a real RTL/
+# floorplan intervention on the specific high-fanout nets, not this knob.
+RUN_POST_GRT_DESIGN_REPAIR: false
 
 # 2026-09-07: 35 -> 25. Root-caused a persistent local-congestion failure
 # (global routing never converging, up to Max H/V 55/86 at one hotspot) to

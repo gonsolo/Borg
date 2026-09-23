@@ -87,6 +87,20 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   // hold failed by up to 0.68 ns on exactly these pins). Half a cycle of margin
   // removes the race at every corner; the sample merely moves half a cycle
   // earlier, which training absorbs, and latency is unchanged.
+  //
+  // linkFast/narrow do NOT get this treatment, despite also showing a (tiny,
+  // 0.046 ns) hold "violation" on run holdfix (2026-09-23): they are straps,
+  // read combinationally everywhere below, held static by the board from
+  // before reset through the whole session -- registering them the same way
+  // broke BorgGpuMemWordTests.fp32_store_load_over_link (a real functional
+  // regression, not a timing nit): BorgLinkClockGen's phase-lock FSM reads
+  // `narrow`/`linkFast` to pick divCycles/N=1-vs-N=2 behavior every cycle
+  // from reset, and a registered strap is momentarily wrong (reset value)
+  // before its first falling edge, which is enough to desync a state machine
+  // that assumes they are correct from cycle 0. Since they never actually
+  // toggle in operation, the correct fix is exempting them from timing
+  // analysis entirely (set_false_path in chip_top.sdc), not adding a race
+  // fix meant for signals that toggle every beat.
   private val fallClock = (!clock.asBool).asClock
   private val dnPinsIn  = withClock(fallClock)(RegNext(io.dnPins))
   private val upCredIn  = withClock(fallClock)(RegNext(io.upCred))

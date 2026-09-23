@@ -66,6 +66,22 @@ set clk_core_input_ports [get_ports {
 set_input_delay -min 0 -clock $clocks $clk_core_input_ports
 set_input_delay -max $input_delay_value -clock $clocks $clk_core_input_ports
 
+# link_narrow (input_PAD[2]) / link_fast (input_PAD[3]): board-level straps,
+# not link data. Held static by the board from before reset through the
+# whole session (see BorgOnlyTop.scala's pin map and BorgLinkClockGen's doc
+# comment on the training protocol) -- they are never launched synchronously
+# by anything, so a setup/hold check against clk_PAD is meaningless for them.
+# 2026-09-23, run holdfix: still showed a 0.046 ns hold "violation" on
+# input_PAD[2] under the same -min 0 assumption as the link data pins. Tried
+# registering it like the data pins (BorgLinkSlave, since reverted) -- that
+# broke a real test (BorgGpuMemWordTests.fp32_store_load_over_link) because
+# BorgLinkClockGen's phase-lock FSM reads these every cycle from reset and a
+# registered strap is transiently wrong before its first clock edge, which
+# desyncs a state machine that assumes they're correct from cycle 0. The
+# textbook-correct treatment for a genuinely static strap is exempting it
+# from timing analysis, not a race fix meant for signals that toggle.
+set_false_path -from [get_ports { input_PAD[2] input_PAD[3] }]
+
 # Output load
 set cap_load [expr $::env(OUTPUT_CAP_LOAD) / 1000.0]
 puts "\[INFO] Setting load to: $cap_load"
