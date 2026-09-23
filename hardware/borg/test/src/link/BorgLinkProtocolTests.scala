@@ -445,6 +445,54 @@ object BorgLinkProtocolTests extends TestSuite {
       }
     }
 
+    utest.test("gpumem_req_before_link_up_is_ignored_not_wedged") {
+      // Reproduces the bug behind BorgGpuMemWordTests.fp32_store_load_over_link:
+      // a unit's undefined pre-reset state can glitch gpuMem.req/wr high for a
+      // cycle before the link has trained. Before the fix in BorgLinkSlave's
+      // sVIdle, the adapter forwarded it anyway and then waited in sVWait
+      // forever for a V.D reply the far side -- still decoding training, not
+      // listening for packets -- could never send, wedging every later gpuMem
+      // request behind it (the shader's own STORE included).
+      simulate(new LinkLoopbackHarness(LinkParams(trainBeats = 8))) { dut =>
+        init(dut)
+        // Glitch req/wr for one cycle, immediately out of reset, well before
+        // training completes.
+        dut.io.borgGpu.addr.poke(0xbad.U)
+        dut.io.borgGpu.wr.poke(true.B)
+        dut.io.borgGpu.wlen.poke(1.U)
+        dut.io.borgGpu.wdata.poke(0xdead.U)
+        dut.clock.step(1)
+        dut.io.borgGpu.wr.poke(false.B)
+
+        // Must not have reached the far side: no memGpu write anywhere before
+        // link-up, and it must not still be pending once the link comes up.
+        for (_ <- 0 until 200) {
+          utest.assert(!dut.io.memGpu.req.peek().litToBoolean)
+          dut.clock.step(1)
+        }
+        waitLinkUp(dut)
+        for (_ <- 0 until 40) {
+          utest.assert(!dut.io.memGpu.req.peek().litToBoolean)
+          dut.clock.step(1)
+        }
+        utest.assert(!dut.io.linkErr.peek().litToBoolean)
+
+        // The adapter is not wedged: a real request afterward completes normally.
+        dut.io.borgGpu.addr.poke(0x1a2b3c.U)
+        dut.io.borgGpu.req.poke(true.B)
+        stepUntil(dut, "mem req") { dut.io.memGpu.req.peek().litToBoolean }
+        utest.assert(dut.io.memGpu.addr.peek().litValue.toInt == 0x1a2b3c)
+        dut.io.memGpu.data.poke(0x89abcdefL.U)
+        dut.io.memGpu.ready.poke(true.B)
+        dut.clock.step(1)
+        dut.io.memGpu.ready.poke(false.B)
+        stepUntil(dut, "borg gpuMem.ready") { dut.io.borgGpu.ready.peek().litToBoolean }
+        utest.assert(dut.io.borgGpu.data.peek().litValue.toLong == 0x89abcdefL)
+        dut.io.borgGpu.req.poke(false.B)
+        utest.assert(!dut.io.linkErr.peek().litToBoolean)
+      }
+    }
+
     utest.test("gpumem_burst_write_round_trip") {
       // Hazard 4: the slave drains all 16 words locally via waccept before it
       // transmits anything, which is also what keeps the packet atomic on the wire.

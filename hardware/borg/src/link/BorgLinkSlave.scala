@@ -307,7 +307,21 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
       // master's *next* request with the duplicate's stale data -- shifting
       // every subsequent word by one.  Observed on real hardware as a render
       // that completes one frame and then wedges in the sequencer's DMA.
-      when(!vReady) {
+      // Gated on `linkUp && synced`, the same condition `rxFire` uses on the
+      // receive side: before it, there is nowhere for a V.A to go -- the far
+      // side is still decoding the training pattern, not listening for
+      // packets, so a request accepted here would sit in sVWait forever
+      // waiting for a V.D that structurally cannot arrive. Borg's gpuMem
+      // masters hold `req`/`wr` as a pure function of their own FSM state
+      // (see the hazard-2 note below), so in normal operation nothing ever
+      // asserts them before the firmware/driver has itself observed link_up
+      // and started issuing real work -- this only guards the window before
+      // that, where a not-yet-reset unit's power-up/reset-lag state could
+      // otherwise glitch `req`/`wr` high for a cycle and wedge the adapter on
+      // a reply that never comes (found via BorgGpuMemWordTests.
+      // fp32_store_load_over_link: a 1-cycle testbench reset let the binner's
+      // undefined pre-reset state issue exactly such a glitch).
+      when(!vReady && linkUp && synced) {
         // Priority matches MemoryController's sIdle (writes before reads), so
         // a master that ever asserted both would be served identically with
         // and without the link.
