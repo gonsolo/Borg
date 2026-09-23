@@ -154,9 +154,97 @@ object BorgGpuMemWordTests extends TestSuite with FastBuildSimulator {
     }
   }
 
+  /** Two independent "bindings" -- each just a word-index base plus a
+    * dynamically-computed local offset, exactly the way a real GPU compiler
+    * does it (confirmed against Mesa's v3d backend, `nir_to_vir.c`'s
+    * `ntq_emit_tmu_general`: every SSBO access is `base_offset` -- a driver-
+    * resolved per-binding constant, `QUNIFORM_SSBO_OFFSET` -- plus the
+    * shader's own computed local index; there is no hardware binding-select
+    * mechanism at all). LS_BASE stays at its reset default of 0, so each
+    * binding's "base" (r10/r11 here) is a full, independent word index into
+    * the real 25-bit GPU address space -- not a MMIO register, just an
+    * ordinary GPR the way a real RISC-V program would hold a pointer.
+    *
+    * Two STOREs to two far-apart, non-overlapping regions, then two LOADs
+    * back, proves both that each address actually reaches where it should
+    * (not silently folded through some shared indirection) and that they
+    * don't alias each other -- exactly two words end up written, at exactly
+    * the two expected addresses, and each still holds its OWN value after
+    * both writes have happened.
+    */
+  def multiBindingScenario(d: Dut): Unit = {
+    val dram = new HalfwordDram
+    d.io.data_write_n.poke(3.U)
+    d.io.data_read_n.poke(3.U)
+    d.io.gpuMem.data.poke(0.U)
+    dram.step(d)
+    mmioWrite(d, dram, BorgGpuRegs.control_offset.litValue.toInt, 2) // reset pipeline
+    // LS_BASE deliberately left unwritten: 0 is the reset default, and that
+    // is the point -- no per-binding MMIO register is needed at all.
+
+    val gpr = BorgGpuRegs.gpr_offset.litValue.toInt
+    val bindingABase = 200 // "binding 0"'s base word index -- a pinned const, same shape as borgc's push_const_reg
+    val bindingBBase = 300 // "binding 1"'s base word index
+    val offsetA = 5        // dynamically-computed local index into binding 0
+    val offsetB = 7        // dynamically-computed local index into binding 1
+    val valueA  = BigInt("AAAAAAAA", 16)
+    val valueB  = BigInt("55555555", 16)
+
+    mmioWrite(d, dram, gpr + 10 * 4, bindingABase)
+    mmioWrite(d, dram, gpr + 11 * 4, bindingBBase)
+    mmioWrite(d, dram, gpr + 1 * 4, offsetA)
+    mmioWrite(d, dram, gpr + 2 * 4, offsetB)
+    mmioWrite(d, dram, gpr + 3 * 4, valueA)
+    mmioWrite(d, dram, gpr + 4 * 4, valueB)
+
+    val imem = BorgGpuRegs.imem_offset.litValue.toInt
+    val prog = Seq(
+      Instructions.IADD(rs1 = 10, rs2 = 1, rd = 5), // r5 = bindingABase + offsetA
+      Instructions.STORE(rs1 = 5, rs2 = 3),         // binding0[offsetA] = valueA
+      Instructions.IADD(rs1 = 11, rs2 = 2, rd = 6), // r6 = bindingBBase + offsetB
+      Instructions.STORE(rs1 = 6, rs2 = 4),         // binding1[offsetB] = valueB
+      Instructions.LOAD(rs1 = 5, rd = 7),           // r7 = binding0[offsetA]
+      Instructions.LOAD(rs1 = 6, rd = 8)            // r8 = binding1[offsetB]
+    )
+    for ((w, i) <- (prog :+ BigInt(0)).zipWithIndex)
+      mmioWrite(d, dram, imem + 4 * i, w)
+
+    mmioWrite(d, dram, BorgGpuRegs.control_offset.litValue.toInt, 2)
+    mmioWrite(d, dram, BorgGpuRegs.control_offset.litValue.toInt, 1)
+
+    var status = BigInt(0)
+    var n = 0
+    do {
+      for (_ <- 0 until 20) dram.step(d)
+      status = mmioRead(d, dram, BorgGpuRegs.status_offset.litValue.toInt)
+      n += 1
+    } while ((status & 2) == 0 && n < 200)
+    utest.assert(n < 200)
+
+    val r7 = mmioRead(d, dram, gpr + 7 * 4) & BigInt(0xffffffffL)
+    val r8 = mmioRead(d, dram, gpr + 8 * 4) & BigInt(0xffffffffL)
+    val wordA = BigInt(dram.word(4 * (bindingABase + offsetA)))
+    val wordB = BigInt(dram.word(4 * (bindingBBase + offsetB)))
+    println(f"  binding0[$offsetA]=0x$wordA%08x (r7=0x$r7%08x), binding1[$offsetB]=0x$wordB%08x (r8=0x$r8%08x)")
+    utest.assert(wordA == valueA)
+    utest.assert(wordB == valueB)
+    utest.assert(r7 == valueA)
+    utest.assert(r8 == valueB)
+    // Exactly two words written anywhere: no aliasing, no stray write from
+    // the address composition landing somewhere neither binding expected.
+    // Two halfwords (low/high) per 32-bit word -- see HalfwordDram's own doc.
+    val wordsWritten = dram.mem.size / 2
+    println(s"  $wordsWritten words written (expected 2)")
+    utest.assert(wordsWritten == 2)
+  }
+
   val tests = Tests {
     utest.test("fp32_store_load_direct") {
       simulate(new BorgTestWrapper(cfg)) { d => storeLoadScenario(d) }
+    }
+
+    utest.test("two_simultaneous_bindings_dont_alias") {
+      simulate(new BorgTestWrapper(cfg)) { d => multiBindingScenario(d) }
     }
     utest.test("fp32_store_load_over_link") {
       // Used to fail intermittently: a one-cycle reset releases the link
