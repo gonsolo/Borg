@@ -391,6 +391,66 @@ reg tex_config_reg_t {
     } RSVD[10] = 0;
 };
 
+// --- Multi-texture binding: per-slot DRAM base address ---
+//
+// FTEX's rs3 operand (see hardware/borg/src/Instructions.scala's
+// FUNCT2_FTEX) selects which of these the hardware reads for a given
+// sample. Only the base address is per-slot; tex_config's dimension,
+// address-mode and filtering fields stay shared across every bound
+// texture -- a real scoping limit (every simultaneously-bound texture
+// must be the same size), not an oversight. tex_config.base_addr itself
+// is superseded by slot 0 here and no longer read by hardware, but is
+// left defined above rather than removed, matching this file's existing
+// convention for retired-but-still-firmware-visible fields (see tex_addr's
+// own comment below).
+//
+// Four SEPARATE registers, deliberately not a SystemRDL array: an array
+// this small still gets PeakRDL-chisel's generic array backing (a
+// SyncReadMem with a 1-cycle-latency read port), which is the wrong
+// timing for a value that must be valid combinationally alongside FTEX's
+// texU/texV in the same cycle -- the same reason ls_base and every other
+// small always-on register in this file is its own named reg, not a[1].
+reg tex_base_addr_reg_t {
+    name = "Texture Base Address (per binding slot)";
+    desc = "Same encoding as the superseded tex_config.base_addr: a 16-bit
+            word index (×8 for byte offset, matching the 8-byte-per-texel
+            layout). Which slot's register is read is selected in hardware
+            by FTEX's rs3 operand.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 15:0: DRAM base address of this slot's texture (16-bit word index).";
+    } base_addr[16] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[16] = 0;
+};
+
+// --- Colour attachment format written by the tile flusher ---
+// RGB565 alone cannot be every colour attachment: R8G8B8A8_UNORM and
+// B8G8R8A8_UNORM are mandatory COLOR_ATTACHMENT formats, and the swapchain
+// format is almost always the latter. The tile buffer already holds UNORM8
+// R/G/B plus a UNORM8 alpha plane, so the wider formats are a packing choice
+// at flush time, not new storage.
+reg flush_format_reg_t {
+    name = "Flush Colour Format";
+    desc = "Colour format of the attachment the tile flusher writes. Reset 0
+            is the historical RGB565 (32 bytes per 4x4 tile); the 32-bit
+            formats take 64 bytes per tile, so the autonomous sequencer's tile
+            stride doubles with them. Depth tiles stay 32 bytes (D16_UNORM).";
+
+    field {
+        sw = rw; hw = r;
+        desc = "0 = R5G6B5_UNORM_PACK16, 1 = R8G8B8A8_UNORM, 2 = B8G8R8A8_UNORM,
+                3 = reserved (behaves as 0).";
+    } format[2] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[30] = 0;
+};
+
 // --- Texture address (computed by hardware) ---
 // Read: Morton-encoded texel index from the most recent tex_uv write.
 reg tex_addr_reg_t {
@@ -1469,4 +1529,13 @@ addrmap borg_gpu {
     compute_groups_z->nogen = true;
     compute_local_reg_t compute_local;
     compute_local->nogen = true;
+
+    // ---- Multi-texture binding: 4 base-address slots, FTEX rs3-selected ----
+    tex_base_addr_reg_t tex_base_addr0;
+    tex_base_addr_reg_t tex_base_addr1;
+    tex_base_addr_reg_t tex_base_addr2;
+    tex_base_addr_reg_t tex_base_addr3;
+
+    // ---- Colour attachment format (RGB565 / RGBA8 / BGRA8) ----
+    flush_format_reg_t flush_format;
 };

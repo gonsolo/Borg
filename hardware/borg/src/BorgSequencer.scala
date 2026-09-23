@@ -140,7 +140,10 @@ class SeqStoreIO extends Bundle {
 }
 
 class SeqFlusherIO extends Bundle {
-  val base = Output(UInt(25.W))   // 25b = 32 MB GPU memory address space
+  // Byte offset of the current tile from the start of an attachment whose
+  // tiles are 32 bytes (RGB565 colour, D16 depth). Borg.scala scales it for
+  // wider colour formats and adds each attachment's own base.
+  val tileOffset = Output(UInt(25.W))   // 25b = 32 MB GPU memory address space
   val trigger = Output(Bool())
   val busy = Input(Bool())
 }
@@ -361,7 +364,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   p1.io.store.ready := io.store.ready
 
   // flusher/iter: Pass 2 only (tile rendering).
-  io.flusher.base    := p2.io.flusher.base
+  io.flusher.tileOffset := p2.io.flusher.tileOffset
   io.flusher.trigger := p2.io.flusher.trigger
   p2.io.flusher.busy := io.flusher.busy
   io.iter.clear         := p2.io.iter.clear

@@ -848,6 +848,141 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         println("=== sequencer_flusher_e2e PASSED ===\n")
         }
 
+        scenario("sequencer_rgba8_and_depth_advance_per_tile") {
+        // An autonomous multi-tile render with a 32-bit colour attachment and a
+        // depth attachment bound. Each flushed tile must write its colour as two
+        // 32-byte halves at fbBase + 64*t and its depth at zbBase + 32*t.
+        // The depth address used to stay at zbBase for every tile, so all
+        // tiles' Z landed on the same 32 bytes -- this scenario pins that.
+        println("\n=== BorgSequencerTests: sequencer_rgba8_and_depth_advance_per_tile ===")
+        borg.reset.poke(true.B)
+        borg.io.data_write_n.poke(3.U)
+        borg.io.data_read_n.poke(3.U)
+        borg.io.gpuMem.ready.poke(false.B)
+        borg.io.gpuMem.data.poke(0.U)
+        borg.clock.step(4)
+        borg.reset.poke(false.B)
+        borg.clock.step(20)
+        rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
+
+        val vertAddr  = 0x1000; val setupAddr = 0x3000; val descAddr  = 0x2000
+        val rastAddr  = 0x4000; val fragAddr  = 0x5000
+        val binBase   = 0x6000; val setupBase = 0x7000
+        val fbBase    = 0x10000; val zbBase = 0x20000
+
+        // 8x8 framebuffer (2x2 tiles); the triangle spans three of them.
+        val verts = Seq(
+          Seq(0.0f, 0.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f),
+          Seq(8.0f, 0.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f),
+          Seq(0.0f, 8.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f),
+        )
+        val vertShader = vertPassthroughShader()
+        val setup      = setupShader()
+        val rastShader = Seq(
+          Instructions.ADD(rs1 = 7, rs2 = 6, rd = 0),
+          Instructions.ADD(rs1 = 7, rs2 = 6, rd = 1),
+          Instructions.ADD(rs1 = 7, rs2 = 6, rd = 2),
+          BigInt(0))
+        val fragShader = Seq(
+          Instructions.ADD(rs1 = 7,  rs2 = 25, rd = 26, funct3 = 1),
+          Instructions.ADD(rs1 = 10, rs2 = 25, rd = 27, funct3 = 1),
+          Instructions.ADD(rs1 = 13, rs2 = 25, rd = 28, funct3 = 1),
+          BigInt(0))
+        val dram = scala.collection.mutable.Map[Int, BigInt]() ++= (
+          vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
+          setup.zipWithIndex.map      { case (w,i) => (setupAddr + i*4) -> w }.toMap ++
+          rastShader.zipWithIndex.map { case (w,i) => (rastAddr + i*4) -> w }.toMap ++
+          fragShader.zipWithIndex.map { case (w,i) => (fragAddr + i*4) -> w }.toMap ++
+          buildDescriptorWithBbox(descAddr, verts, 0, 0, 8, 8))
+
+        // Every write burst, as (base address, length).
+        val bursts = scala.collection.mutable.ArrayBuffer[(Int, Int)]()
+        def service(): Unit = {
+          if (borg.io.gpuMem.req.peek().litToBoolean) {
+            val addr = borg.io.gpuMem.addr.peek().litValue.toInt
+            borg.io.gpuMem.data.poke((dram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)).U)
+            borg.io.gpuMem.waccept.poke(false.B)
+            borg.io.gpuMem.ready.poke(true.B)
+          } else if (borg.io.gpuMem.wr.peek().litToBoolean) {
+            val base = borg.io.gpuMem.addr.peek().litValue.toInt
+            val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
+            if (wlen == 16) bursts += ((base, wlen))
+            for (_ <- 1 until wlen) {
+              borg.io.gpuMem.waccept.poke(true.B)
+              borg.io.gpuMem.ready.poke(false.B)
+              borg.clock.step(1)
+            }
+            borg.io.gpuMem.waccept.poke(false.B)
+            borg.io.gpuMem.ready.poke(true.B)
+          } else {
+            borg.io.gpuMem.waccept.poke(false.B)
+            borg.io.gpuMem.ready.poke(false.B)
+          }
+        }
+
+        rawWrite(borg, BorgGpuRegs.seq_desc_base_offset.litValue.toInt, descAddr)
+        rawWrite(borg, BorgGpuRegs.seq_vert_addr_offset.litValue.toInt, vertAddr)
+        rawWrite(borg, BorgGpuRegs.seq_vert_len_offset.litValue.toInt, vertShader.size)
+        rawWrite(borg, BorgGpuRegs.seq_setup_addr_offset.litValue.toInt, setupAddr)
+        rawWrite(borg, BorgGpuRegs.seq_setup_len_offset.litValue.toInt, setup.size)
+        rawWrite(borg, BorgGpuRegs.seq_rast_addr_offset.litValue.toInt, rastAddr)
+        rawWrite(borg, BorgGpuRegs.seq_rast_len_offset.litValue.toInt, rastShader.size)
+        rawWrite(borg, BorgGpuRegs.seq_frag_addr_offset.litValue.toInt, fragAddr)
+        rawWrite(borg, BorgGpuRegs.seq_frag_len_offset.litValue.toInt, fragShader.size)
+        rawWrite(borg, BorgGpuRegs.seq_bin_base_offset.litValue.toInt, binBase)
+        rawWrite(borg, BorgGpuRegs.seq_bin_row_bytes_offset.litValue.toInt, 2)
+        rawWrite(borg, BorgGpuRegs.seq_setup_base_offset.litValue.toInt, setupBase)
+        rawWrite(borg, BorgGpuRegs.seq_fb_base_offset.litValue.toInt, fbBase)
+        rawWrite(borg, BorgGpuRegs.seq_tiles_per_row_offset.litValue.toInt, 2)
+        rawWrite(borg, BorgGpuRegs.seq_clear_lo_offset.litValue.toInt, 0x7BFF)
+        rawWrite(borg, BorgGpuRegs.seq_clear_hi_offset.litValue.toInt, 0)
+        rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 64)
+        rawWrite(borg, BorgGpuRegs.flush_width_offset.litValue.toInt, 3)
+        rawWrite(borg, BorgGpuRegs.flush_format_offset.litValue.toInt, FlushFormat.RGBA8)
+        rawWrite(borg, BorgGpuRegs.flush_zb_base_offset.litValue.toInt, zbBase)
+        rawWrite(borg, BorgGpuRegs.seq_tri_count_offset.litValue.toInt, 1)
+        rawWrite(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt, 1)
+
+        var seqBusySeen = false
+        var seqBusyCleared = false
+        for (cycle <- 0 until 60000 if !seqBusyCleared) {
+          service()
+          borg.clock.step(1)
+          if (cycle % 10 == 5) {
+            borg.io.address.poke(BorgGpuRegs.status_offset)
+            borg.io.data_read_n.poke(2.U)
+            borg.io.data_write_n.poke(3.U)
+            service(); borg.clock.step(1)
+            val st = borg.io.data_out.peek().litValue
+            borg.io.data_read_n.poke(3.U)
+            service(); borg.clock.step(1)
+            val busy = (st >> 5) & 1
+            if (busy == 1) seqBusySeen = true
+            if (seqBusySeen && busy == 0) seqBusyCleared = true
+          }
+        }
+        // Leave the attachment registers as every other scenario expects them.
+        rawWrite(borg, BorgGpuRegs.flush_format_offset.litValue.toInt, FlushFormat.RGB565)
+        rawWrite(borg, BorgGpuRegs.flush_zb_base_offset.litValue.toInt, 0)
+        Predef.assert(seqBusyCleared, "sequencer never completed")
+
+        val flushBursts = bursts.filter(b => b._1 >= fbBase)
+        println("  flush bursts: " + flushBursts.map(b => f"0x${b._1}%x").mkString(" "))
+        Predef.assert(flushBursts.size % 3 == 0 && flushBursts.nonEmpty,
+          s"expected colour, colour, depth per tile; got ${flushBursts.size} bursts")
+        val tiles = flushBursts.grouped(3).map { g =>
+          val t = (g(0)._1 - fbBase) / 64
+          Predef.assert(g(0)._1 == fbBase + 64 * t, f"colour half 0 at 0x${g(0)._1}%x not 64-aligned")
+          Predef.assert(g(1)._1 == fbBase + 64 * t + 32, f"colour half 1 at 0x${g(1)._1}%x")
+          Predef.assert(g(2)._1 == zbBase + 32 * t,
+            f"tile $t depth at 0x${g(2)._1}%x, expected 0x${zbBase + 32 * t}%x")
+          t
+        }.toSeq
+        println(s"  tiles flushed: ${tiles.mkString(", ")}")
+        Predef.assert(tiles.distinct.size >= 2, "need at least two distinct tiles to prove the offset advances")
+        println("=== sequencer_rgba8_and_depth_advance_per_tile PASSED ===\n")
+        }
+
         scenario("covDelta_diagnostic_real_values") {
         println("\n=== BorgSequencerTests: covDelta_diagnostic_real_values ===")
 
