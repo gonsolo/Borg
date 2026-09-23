@@ -195,6 +195,130 @@ object BorgComputeTests extends TestSuite with FastBuildSimulator {
       }
     }
 
+    // -- Phase 3: hand-written ISA patterns borgc will need to emit ---------
+    //
+    // Neither pattern below is new hardware -- both are proofs, ahead of the
+    // compiler that will generate them, that the primitives Phase 1/2 already
+    // built are actually sufficient. Each has a companion test that removes
+    // the pattern and confirms the predicted, specific wrong answer, not just
+    // "some assertion fails somewhere" -- the same discipline used to verify
+    // the barrier tests themselves above.
+
+    utest.test("atomic_add_via_per_lane_expush_is_race_free") {
+      // atomicAdd(counter, 1) once per invocation, all 4 lanes of one quad
+      // sharing one address: EXPUSH(LocalInvocationIndex == i) around each
+      // lane's own LOAD/IADD/STORE serializes them into the program stream --
+      // wireMemStall already skips a masked lane's memory access AND its
+      // write-back entirely (BorgCore's own doc), so only one lane's
+      // read-modify-write is ever real at a time, and lane i+1's LOAD does
+      // not even issue until lane i's STORE has landed in DRAM. r30 differs
+      // per lane, so ISEQ(r30, i) is genuinely a per-lane, not per-quad, mask.
+      val prog = Seq(
+        Instructions.ISEQ(rs1 = 30, rs2 = 10, rd = 1), Instructions.EXPUSH(rs1 = 1),
+        Instructions.LOAD(rs1 = 14, rd = 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
+        Instructions.STORE(rs1 = 14, rs2 = 5), Instructions.EXPOP(),
+        Instructions.ISEQ(rs1 = 30, rs2 = 11, rd = 1), Instructions.EXPUSH(rs1 = 1),
+        Instructions.LOAD(rs1 = 14, rd = 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
+        Instructions.STORE(rs1 = 14, rs2 = 5), Instructions.EXPOP(),
+        Instructions.ISEQ(rs1 = 30, rs2 = 12, rd = 1), Instructions.EXPUSH(rs1 = 1),
+        Instructions.LOAD(rs1 = 14, rd = 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
+        Instructions.STORE(rs1 = 14, rs2 = 5), Instructions.EXPOP(),
+        Instructions.ISEQ(rs1 = 30, rs2 = 13, rd = 1), Instructions.EXPUSH(rs1 = 1),
+        Instructions.LOAD(rs1 = 14, rd = 5), Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
+        Instructions.STORE(rs1 = 14, rs2 = 5), Instructions.EXPOP()
+      )
+      // r10-13 = the four lane indices; r14 = counter address (index 50,
+      // preset to 0 so the counter starts there rather than DRAM garbage);
+      // r15 = 1 (the increment).
+      val gprs = Map(10 -> 0, 11 -> 1, 12 -> 2, 13 -> 3, 14 -> 50, 15 -> 1)
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
+        val dram = dispatch(d, prog, gprs, (1, 1, 1), (4, 1, 1))
+        val counter = word(dram, 50)
+        println(s"  counter = $counter (expected 4)")
+        utest.assert(counter == 4)
+      }
+    }
+
+    utest.test("atomic_add_without_expush_loses_updates") {
+      // Same four lanes, same shared counter, but all issue LOAD/IADD/STORE
+      // unconditionally: every lane's LOAD reads the SAME pre-increment value
+      // (no lane's STORE has landed yet, since all four LOADs happen in the
+      // same instruction), so all four STOREs write the same result and three
+      // of the four increments are lost. This is the failure mode
+      // atomic_add_via_per_lane_expush_is_race_free's masking exists to
+      // prevent, made concrete rather than asserted in the abstract.
+      val prog = Seq(
+        Instructions.LOAD(rs1 = 14, rd = 5),
+        Instructions.IADD(rs1 = 5, rs2 = 15, rd = 5),
+        Instructions.STORE(rs1 = 14, rs2 = 5)
+      )
+      val gprs = Map(14 -> 50, 15 -> 1)
+      simulate(new BorgTestWrapper(quad), additionalResetCycles = 4) { d =>
+        val dram = dispatch(d, prog, gprs, (1, 1, 1), (4, 1, 1))
+        val counter = word(dram, 50)
+        println(s"  counter = $counter (expected 1, NOT 4 -- three updates lost)")
+        utest.assert(counter == 1)
+      }
+    }
+
+    utest.test("live_register_survives_barrier_only_if_spilled_to_dram") {
+      // Every invocation computes a private "live value" (i*100+7), spills it
+      // to a per-invocation DRAM slot, BARRIERs, recomputes the slot address
+      // (r30 is safe to reuse across a barrier -- re-derived fresh from
+      // ComputeLaneIO on every trigger, never register-file state -- but any
+      // ordinary GPR is not, see the companion test below), reloads, and
+      // writes it to the output. scalar (fragLanes=1): every invocation is
+      // its own quad, so between one invocation's barrier-stop and its own
+      // resume, the other 7 invocations' full segment-0 runs intervene and
+      // physically overwrite the one shared register file -- this only
+      // passes if the spill/reload genuinely defeats that, not because
+      // nothing ever clobbers the registers in this config.
+      val prog = Seq(
+        Instructions.IMUL(rs1 = 30, rs2 = 10, rd = 1),  // r1 = i*100
+        Instructions.IADD(rs1 = 1, rs2 = 11, rd = 1),   // r1 = i*100+7 (the live value)
+        Instructions.IADD(rs1 = 12, rs2 = 30, rd = 2),  // r2 = scratchBase + i
+        Instructions.STORE(rs1 = 2, rs2 = 1),           // scratch[i] = live value
+        Instructions.BARRIER(),
+        Instructions.IADD(rs1 = 12, rs2 = 30, rd = 3),  // r3 = scratchBase + i, recomputed fresh
+        Instructions.LOAD(rs1 = 3, rd = 4),             // r4 = reloaded live value
+        Instructions.STORE(rs1 = 30, rs2 = 4)           // output[i] = r4
+      )
+      val gprs = Map(10 -> 100, 11 -> 7, 12 -> 200)
+      simulate(new BorgTestWrapper(scalar), additionalResetCycles = 4) { d =>
+        val dram = dispatch(d, prog, gprs, (1, 1, 1), (8, 1, 1))
+        for (i <- 0 until 8) {
+          val got = word(dram, i)
+          if (got != i * 100 + 7) println(s"  output[$i] = $got (expected ${i * 100 + 7})")
+          utest.assert(got == i * 100 + 7)
+        }
+      }
+    }
+
+    utest.test("live_register_without_spill_reads_back_stale_after_barrier") {
+      // Same shape, but reuses r1 directly after the barrier instead of
+      // spilling/reloading through DRAM. Segment 0 runs all 8 invocations in
+      // order (0..7), each overwriting the one shared r1 with its own
+      // i*100+7; by the time segment 1 starts, r1 holds whatever invocation 7
+      // (the last to run segment 0) left there -- 707 -- and nothing in
+      // segment 1 writes r1 again, so every invocation's output reads that
+      // same frozen, wrong value.
+      val prog = Seq(
+        Instructions.IMUL(rs1 = 30, rs2 = 10, rd = 1),
+        Instructions.IADD(rs1 = 1, rs2 = 11, rd = 1),
+        Instructions.BARRIER(),
+        Instructions.STORE(rs1 = 30, rs2 = 1)  // output[i] = r1, NOT recomputed/reloaded
+      )
+      val gprs = Map(10 -> 100, 11 -> 7)
+      simulate(new BorgTestWrapper(scalar), additionalResetCycles = 4) { d =>
+        val dram = dispatch(d, prog, gprs, (1, 1, 1), (8, 1, 1))
+        for (i <- 0 until 8) {
+          val got = word(dram, i)
+          if (got != 707) println(s"  output[$i] = $got (expected the stale 707)")
+          utest.assert(got == 707)
+        }
+      }
+    }
+
     utest.test("a_build_without_compute_reports_it_absent") {
       simulate(new BorgTestWrapper(scalar.copy(hasCompute = false)), additionalResetCycles = 4) { d =>
         val dram = new HalfwordDram
