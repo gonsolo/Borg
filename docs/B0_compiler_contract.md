@@ -19,6 +19,48 @@ The source of truth for every encoding below is
 `hardware/borg/src/Instructions.scala`; `software/borg/borg_isa.h` is
 generated from it (`mill hardware.borg.runMain borg.EmitIsaHeader`).
 
+## All shaders: program length and the instruction cache
+
+A shader is no longer limited to IMEM (64 words on Wafer, 72 on ULX3S/sim).
+With `BorgConfig.hasShaderICache` (on in Default and Wafer), IMEM is a
+direct-mapped instruction cache over the program's image in DRAM: word `pc`
+lives at `codeBase + 4*pc`, and a PC past what IMEM holds is fetched from
+there on demand and kept for the next quad.
+
+What the compiler must know:
+
+- **Program length:** up to **1024 words**. That is the program-counter width,
+  and also the range of the absolute 10-bit branch targets that BRZ/BRNZ
+  already had. Nothing else changes: branches work across the IMEM boundary
+  (a loop entirely past IMEM is tested). A BARRIER past IMEM is supported,
+  since its resume PC and the compute sequencer's segment PCs were widened
+  to 10 bits, but no test exercises it yet.
+- **Performance, not correctness:** a program that fits in IMEM never misses
+  and runs exactly as before. Code past IMEM costs one DRAM word read on first
+  use, and again whenever the line has been reused for other code. Placing
+  hot loops early in the program keeps them resident.
+
+What the driver/firmware must do:
+
+- **Keep the whole program contiguous in DRAM**, not only its tail. Any PC
+  can miss, including one inside IMEM whose line far code evicted, and the
+  miss is served from `codeBase + 4*pc`.
+- **Sequencer-loaded shaders need nothing else.** Every shader DMA into IMEM
+  (`seq_vert/setup/frag_addr` + `_len`) sets `codeBase` automatically, to the
+  DMA source minus 4 × its IMEM offset, and flushes the cache. `_len` only
+  controls how much is preloaded. It is a 6-bit field, and anything past IMEM
+  is simply not preloaded, so the natural setting is `min(program length,
+  IMEM − offset)`.
+- **Programs written over MMIO** (the compute path, `borg_fpu.c` helpers):
+  one that fits needs nothing. One longer than IMEM must be in DRAM, with
+  `CODE_BASE` (0x318) written **before** its IMEM words, because the write
+  flushes the cache and the IMEM writes that follow are the prefill.
+- **Firmware limits to lift:** `borg_stage_shader` in
+  `software/borg/borg_driver.c` rejects blobs longer than 32 (vertex) or
+  `BORG_IMEM_FRAG_LEN` (fragment) words, and stages them into DRAM slots
+  sized for those limits. Both must grow. The blob's 1-byte `num_instrs`
+  (≤ 255) and the `0xB0` packet size (`RX_SHADER_MAX`) cap it next.
+
 ## Fragment shaders
 
 ### FTEX encoding
@@ -235,3 +277,5 @@ regenerating.
 | RGBA8/BGRA8 flush, depth per tile| `BorgTileFlusherTests`, scenario `sequencer_rgba8_and_depth_advance_per_tile` |
 | Compute ABI, BARRIER, atomics    | `BorgComputeTests`                                                 |
 | EXANY divergent loop             | `BorgCoreTestsD.exany_implements_a_genuinely_divergent_loop`      |
+| Programs longer than IMEM        | `BorgCoreTestsC.icache_*` (4 tests, 64- and 72-word IMEM)         |
+| Long shader through DMA preload  | `BorgSequencerTests` scenario `icache_runs_a_fragment_shader_longer_than_imem` |

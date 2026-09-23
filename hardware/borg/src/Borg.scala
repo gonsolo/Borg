@@ -758,6 +758,41 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     d.io.start     := Mux(s.io.busy, s.io.dma.start, dmaStartPulse)
     d.io.desc      := Mux(s.io.busy, s.io.dma.desc,  mmioDesc)
     s.io.dma.busy  := d.io.busy
+
+    // Instruction cache backing store (BorgConfig.hasShaderICache). A shader
+    // DMA into IMEM defines the program: the word it reads from address A
+    // lands in IMEM word i, so program word `pc` is at A + 4*(pc - i), i.e.
+    // codeBase = A - 4*i. Setting it here means every sequencer-loaded shader
+    // (vertex, setup, fragment) can run past IMEM without the driver doing
+    // anything. Both this and a CODE_BASE write start a new program, so the
+    // cache is flushed.
+    //
+    // Taken from the DMA's FIRST IMEM WRITE, not its start pulse: BorgDMA
+    // latches only the base address at start and reads the other descriptor
+    // fields live, and an MMIO-started DMA pulses start in the same cycle it
+    // writes DMA_CONFIG -- so at the pulse, offset and dest are still the
+    // previous transfer's. The first write carries both the exact source
+    // address (the DMA's read address) and the exact IMEM index. The flush
+    // lands in the same cycle; the core lets the write win, so that line
+    // stays valid.
+    core.io.codeBase.foreach { cb =>
+      val codeBaseReg  = RegInit(0.U(25.W))
+      val awaitFirst   = RegInit(false.B)
+      val flush = WireDefault(false.B)
+      when(d.io.start) { awaitFirst := true.B }
+      when(d.io.imemWrite.en && awaitFirst) {
+        codeBaseReg := (d.io.gpuMem.addr - (d.io.imemWrite.addr << 2))(24, 0)
+        awaitFirst  := false.B
+        flush := true.B
+      }
+      when(!d.io.busy && !d.io.start) { awaitFirst := false.B }  // a non-IMEM transfer ended
+      when(bus.is_writing && bus.address === BorgGpuRegs.code_base_offset) {
+        codeBaseReg := bus.data_in(24, 0)
+        flush := true.B
+      }
+      cb := codeBaseReg
+      core.io.icacheFlush.get := flush
+    }
     rdlRegs.io.hw.status_dma_busy := d.io.busy.asUInt
   }
 

@@ -114,6 +114,12 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // that failed ZTEST. Suppresses STORE; only exists with memory ops, the
   // only side effect a shader has.
   val laneHelper = if (cfg.hasMemoryOps) Some(Input(Vec(cfg.fragLanes, Bool()))) else None
+
+  // Instruction cache (BorgConfig.hasShaderICache): the running program's
+  // image in DRAM -- word `pc` lives at codeBase + 4*pc -- and a pulse that
+  // forgets every word fetched from it, raised whenever the program changes.
+  val codeBase    = if (cfg.shaderICacheEnabled) Some(Input(UInt(25.W))) else None
+  val icacheFlush = if (cfg.shaderICacheEnabled) Some(Input(Bool())) else None
 }
 
 class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -124,7 +130,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // @doc:storage
   // --- Shared storage ---
   val instructionMemory = SyncReadMem(cfg.maxInstructions, UInt(32.W))
-  val programCounter = RegInit(0.U(log2Ceil(cfg.maxInstructions).W))
+  val programCounter = RegInit(0.U(cfg.pcBits.W))
   val running = RegInit(false.B)
   val auto_run_pending = RegInit(false.B)
   val running_by_rasterizer = RegInit(false.B)
@@ -181,15 +187,26 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // runPipeline's BARRIER/HALT check below), so a stale true from a PRIOR
   // invocation can never survive into the next one's read.
   val atBarrierReg = RegInit(false.B)
-  val barrierPCReg = RegInit(0.U(6.W))
+  val barrierPCReg = RegInit(0.U(cfg.pcBits.W))
 
   // --- Instruction Fetch ---
   val pcAfterThis = Mux(brTakenReg, brTargetReg, programCounter + 1.U)
   val nextPC =
     Mux(is_busy && busy_counter === 1.U, pcAfterThis, programCounter)
-  val rasterRomAddrReg = RegNext(nextPC)
+  val rasterRomAddrReg = RegNext(nextPC)   // the PC whose word fetchedInstruction holds
   val fetchedInstruction =
-    Mux(fetchRast, rasterRom(rasterRomAddrReg), instructionMemory.read(nextPC))
+    Mux(fetchRast, rasterRom(rasterRomAddrReg), instructionMemory.read(imemIndex(nextPC)))
+  // False while the fetched word is not the program's word at that PC (an
+  // instruction-cache miss or fill); nothing issues until it is. Always true
+  // without the cache.
+  val fetchReady = WireDefault(true.B)
+  // Cache fill: shares IMEM's single write port with DMA/MMIO (see runPipeline).
+  val fillWriteEn   = WireDefault(false.B)
+  val fillWriteIdx  = WireDefault(0.U(log2Ceil(cfg.maxInstructions).W))
+  val fillWriteData = WireDefault(0.U(32.W))
+  // DMA/MMIO write this cycle, for the cache's bookkeeping.
+  val extWriteEn  = WireDefault(false.B)
+  val extWriteIdx = WireDefault(0.U(7.W))
 
   // FTEX resume delay: after FTEX writeback completes, the IMEM still holds the
   // stale FTEX opcode (1-cycle SyncReadMem latency); suppress restart for 1 cycle.
@@ -198,7 +215,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   // --- Decode + FSM ---
   val (regs, opFlags) = decode(fetchedInstruction)
-  val fma_start = running && !is_busy && !texResumeDelay && fetchedInstruction =/= 0.U
+  val fma_start = running && !is_busy && !texResumeDelay && fetchReady && fetchedInstruction =/= 0.U
   runPipeline(fma_start)
 
   // --- Shared uniform-RAM read (broadcast to every lane) ---
@@ -260,6 +277,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // --- ZTEST: stall while the dispatcher runs the early per-fragment tests ---
   wireZTest()
 
+  // --- Instruction cache: must follow wireMemStall, whose port it shares ---
+
   // --- LOAD/STORE FSM (shared): same stall shape, same write-back port ---
   // Called after wireTexStall and deliberately does NOT re-default memWrite:
   // the two FSMs are mutually exclusive in time (one instruction at a time),
@@ -269,6 +288,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     wireMemStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.memWrite))
   else
     io.memBusy := false.B
+  if (cfg.shaderICacheEnabled) wireICache()
 
   // --- Branch evaluation and execution mask ---
   if (cfg.hasControlFlow) {
@@ -367,7 +387,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** Fetch/execute FSM: start pipeline, count down busy cycles, advance PC. */
   private def runPipeline(fma_start: Bool): Unit = {
     // @doc:fetch-execute
-    when(running && !is_busy && !texResumeDelay) {
+    when(running && !is_busy && !texResumeDelay && fetchReady) {
       when(fetchedInstruction === 0.U) {
         running      := false.B
         atBarrierReg := false.B
@@ -379,7 +399,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         // simply the next word -- no need for pcAfterThis's brTakenReg mux.
         running      := false.B
         atBarrierReg := true.B
-        barrierPCReg := (programCounter + 1.U)(5, 0)
+        barrierPCReg := (programCounter + 1.U)(cfg.pcBits - 1, 0)
       }.otherwise {
         busy_counter := cfg.cBusyLoad.U
       }
@@ -403,7 +423,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // @doc:end
 
     when(io.coreTrigger.valid) {
-      programCounter := io.coreTrigger.pc
+      programCounter := io.coreTrigger.pc(cfg.pcBits - 1, 0)
       auto_run_pending := true.B
       running_by_rasterizer := true.B
       fetchRast := io.coreTrigger.isRast
@@ -423,7 +443,17 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val imemAddr = Mux(io.dmaImemWrite.en, io.dmaImemWrite.addr,
                        (io.bus.address - BorgGpuRegs.imem_offset) >> 2)
     val imemData = Mux(io.dmaImemWrite.en, io.dmaImemWrite.data, io.bus.data_in)
-    when(imemWen) { instructionMemory.write(imemAddr, imemData) }
+    // One write port, shared with the instruction-cache fill (which only runs
+    // while a shader is executing, never alongside a DMA/MMIO load). An
+    // address past IMEM is dropped: a preload longer than IMEM leaves the
+    // rest of the program to the cache.
+    val extWrite = imemWen && imemAddr < cfg.maxInstructions.U
+    extWriteEn  := extWrite
+    extWriteIdx := imemAddr
+    when(extWrite || fillWriteEn) {
+      instructionMemory.write(Mux(fillWriteEn, fillWriteIdx, imemAddr(log2Ceil(cfg.maxInstructions) - 1, 0)),
+                              Mux(fillWriteEn, fillWriteData, imemData))
+    }
 
     // Uniform write: same single-port pattern.
     val mmioUnifWrite =
@@ -593,6 +623,113 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         texState := sTexReq                   // fetch the next lane's texel
         busy_counter := busy_counter
       }
+    }
+  }
+  // @doc:end
+
+  /** IMEM word for program counter `pc`. Without the cache the PC only ever
+    * indexes IMEM. With it, IMEM is direct-mapped over the program: word `pc`
+    * lives in line `pc mod L` (L = the largest power of two within IMEM),
+    * except that every PC inside IMEM keeps its own word, so a 72-word IMEM
+    * still holds a 72-word program exactly where it always did. */
+  private def imemIndex(pc: UInt): UInt = {
+    val n  = cfg.maxInstructions
+    val lb = cfg.icacheLinesLog2
+    if (!cfg.shaderICacheEnabled) pc
+    else if ((1 << lb) == n) pc(lb - 1, 0)
+    else Mux(pc < n.U, pc(log2Ceil(n) - 1, 0), pc(lb - 1, 0))
+  }
+
+  // @doc:icache
+  /** Shader instruction cache (BorgConfig.hasShaderICache).
+    *
+    * IMEM is the cache's data array; this adds only bookkeeping. A line is
+    * invalid, NEAR -- holding the word of the PC equal to its own index, which
+    * is where the sequencer's DMA and MMIO writes put a program -- or FAR,
+    * holding the word of a PC past IMEM, identified by a tag. Only the low L
+    * lines can go far; lines L..N-1 (IMEM 64..71 of a 72-word build) are
+    * near or invalid.
+    *
+    * A fetch hits if the line is valid and holds the word of the PC being
+    * fetched (near for a PC inside IMEM, far with a matching tag past it).
+    * On a miss the core does not issue. The fill reads codeBase + 4*pc over
+    * the LOAD/STORE port (one 32-bit word), writes it into the line, marks
+    * it, and waits one cycle for IMEM's synchronous read to return the new
+    * word. Any PC can miss -- a near line far code evicted, or one the
+    * preload never reached -- so the whole program, not just its tail, must
+    * be in DRAM at codeBase. The sequencer's shader DMA arranges that
+    * automatically (Borg.scala).
+    *
+    * `icacheFlush` marks a program change and invalidates every line; the
+    * DMA/MMIO writes that follow make their lines near and valid, which is
+    * what makes a preload a prefill of this cache. Lines reset valid, so a
+    * program loaded without any flush -- every pre-cache use of IMEM --
+    * behaves exactly as before. An MMIO-loaded program longer than IMEM must
+    * write CODE_BASE (which flushes) BEFORE its IMEM words.
+    */
+  private def wireICache(): Unit = {
+    val n       = cfg.maxInstructions
+    val lb      = cfg.icacheLinesLog2
+    val L       = 1 << lb
+    val tagBits = cfg.pcBits - lb
+    val valid    = RegInit(VecInit(Seq.fill(n)(true.B)))
+    val isFar    = RegInit(VecInit(Seq.fill(L)(false.B)))
+    val farTag   = Reg(Vec(L, UInt(tagBits.W)))
+
+    val pc     = rasterRomAddrReg
+    val line   = pc(lb - 1, 0)
+    val inImem = pc < n.U
+    val idx    = imemIndex(pc)
+    val nearOk = if (L < n) Mux(pc >= L.U, true.B, !isFar(line)) else !isFar(line)
+    val hit = fetchRast || (valid(idx) && Mux(inImem, nearOk,
+      isFar(line) && farTag(line) === pc(cfg.pcBits - 1, lb)))
+
+    val sIdle :: sFetch :: sSettle :: Nil = Enum(3)
+    val state  = RegInit(sIdle)
+    val missPc = RegInit(0.U(cfg.pcBits.W))
+    fetchReady := hit && state === sIdle
+
+    when(state === sIdle && running && !is_busy && !texResumeDelay && !hit) {
+      missPc := pc
+      state  := sFetch
+      if (BorgDebug.trace) printf("[ICACHE] miss pc=%d\n", pc)
+    }
+
+    val g = io.gpuMem.get
+    when(state === sFetch) {
+      io.memBusy := true.B
+      g.req  := true.B
+      g.wr   := false.B
+      g.addr := (io.codeBase.get + (missPc << 2))(24, 0)
+      when(g.ready) {
+        fillWriteEn   := true.B
+        fillWriteIdx  := imemIndex(missPc)
+        fillWriteData := g.data
+        val l = missPc(lb - 1, 0)
+        valid(imemIndex(missPc)) := true.B
+        when(missPc < n.U) {
+          when(missPc < L.U) { isFar(l) := false.B }   // a near word (re)fetched
+        }.otherwise {
+          isFar(l)  := true.B
+          farTag(l) := missPc(cfg.pcBits - 1, lb)
+        }
+        state := sSettle
+      }
+    }
+    // IMEM returns the filled word one read later; hold issue for that cycle.
+    when(state === sSettle) { state := sIdle }
+
+    // A flush starts a new program: nothing in IMEM belongs to it yet. The
+    // DMA/MMIO writes that follow each make their line near and valid. (A
+    // write in the same cycle as a flush wins: the flush pulses at DMA start,
+    // before its first word arrives, so they never actually coincide.)
+    when(io.icacheFlush.get) {
+      valid.foreach(_ := false.B)
+      isFar.foreach(_ := false.B)
+    }
+    when(extWriteEn) {
+      valid(extWriteIdx(log2Ceil(n) - 1, 0)) := true.B
+      when(extWriteIdx < L.U) { isFar(extWriteIdx(lb - 1, 0)) := false.B }
     }
   }
   // @doc:end

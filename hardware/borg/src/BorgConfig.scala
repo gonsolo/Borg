@@ -249,6 +249,20 @@ case class BorgConfig(
     // (partial quads) and a 32-bit datapath (the IDs are raw integers) -- see
     // computeEnabled.
     hasCompute: Boolean = false,
+    // hasShaderICache: IMEM becomes a direct-mapped instruction cache over a
+    // program image in DRAM, so a shader is no longer limited to
+    // maxInstructions words. Vulkan has no shader-size limit, and every
+    // Vulkan-class GPU fetches shader code from memory; a fixed on-chip IMEM
+    // is where GLES2-era cores (Vivante GC2000, whose driver rejects any
+    // shader that does not fit) stopped.
+    //
+    // Preloading is unchanged -- the sequencer's shader DMA and MMIO writes
+    // fill IMEM exactly as before -- so a shader that fits never misses and
+    // runs as it always did. A PC past the preloaded words misses, fetches
+    // `codeBase + 4*pc` through the core's LOAD/STORE port, and keeps the
+    // word for the next quad. Costs a tag and a valid bit per line and the
+    // fill FSM; no extra instruction storage. Needs hasMemoryOps (the port).
+    hasShaderICache: Boolean = false,
     // BorgFp16Fma pipeline depth. 3 is the shipping FP16 form; 4 and 5 add
     // registers inside stages 2 and 3 respectively, for FP32 at 25 MHz.
     //
@@ -315,6 +329,14 @@ case class BorgConfig(
   // Compute exists only where its prerequisites do; the driver detects it
   // through COMPUTE_CTRL's `present` bit rather than assuming it.
   def computeEnabled: Boolean = hasCompute && hasMemoryOps && hasControlFlow && fp.totalBits == 32
+  def shaderICacheEnabled: Boolean = hasShaderICache && hasMemoryOps
+  /** Program counter width. With the instruction cache a program may run past
+    * IMEM, up to the 10-bit absolute branch-target range (1024 words);
+    * without it the PC only ever indexes IMEM. */
+  def pcBits: Int = if (shaderICacheEnabled) 10 else chisel3.util.log2Ceil(maxInstructions)
+  /** Direct-mapped cache lines: the largest power of two within IMEM. Lines
+    * at and above it (IMEM 64..71 on a 72-word build) are never replaced. */
+  def icacheLinesLog2: Int = chisel3.util.log2Floor(maxInstructions)
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
   def sig: Int = fp.sig
@@ -424,7 +446,8 @@ object BorgConfig {
     hasBlend        = true,
     hasStencil      = true,
     hasBilinear     = true,
-    hasCompute      = true
+    hasCompute      = true,
+    hasShaderICache = true
   )
 
   // Sim + ULX3S SIMT config: 2×2 quad fragment shading.  Selected via BORG_CFG in

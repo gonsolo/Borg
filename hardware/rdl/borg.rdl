@@ -451,6 +451,30 @@ reg flush_format_reg_t {
     } RSVD[30] = 0;
 };
 
+// --- Shader program image in DRAM (instruction cache backing store) ---
+// With BorgConfig.hasShaderICache, IMEM is a cache over the running program,
+// whose word `pc` lives at code_base + 4*pc. Every shader DMA into IMEM sets
+// this automatically (to the DMA source minus 4 x its IMEM offset), so a
+// sequencer-driven render never needs to write it; it is for programs loaded
+// over MMIO that are longer than IMEM. Any write, and any shader DMA into
+// IMEM, starts a new program and invalidates the whole cache -- so write it
+// BEFORE the program's IMEM words, which then prefill it.
+reg code_base_reg_t {
+    name = "Shader Code Base";
+    desc = "Byte address in GPU memory of word 0 of the running shader
+            program (4-byte aligned). nogen: decoded from the raw bus by
+            Borg.scala, only in a build with the instruction cache.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 24:0: byte address of program word 0.";
+    } base_addr[25] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[7] = 0;
+};
+
 // --- Texture address (computed by hardware) ---
 // Read: Morton-encoded texel index from the most recent tex_uv write.
 reg tex_addr_reg_t {
@@ -1538,4 +1562,8 @@ addrmap borg_gpu {
 
     // ---- Colour attachment format (RGB565 / RGBA8 / BGRA8) ----
     flush_format_reg_t flush_format;
+
+    // ---- Shader program image for the instruction cache ----
+    code_base_reg_t code_base;
+    code_base->nogen = true;
 };

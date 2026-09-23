@@ -473,6 +473,132 @@ object BorgCoreTestsC extends TestSuite {
       }
     }
 
+    // --- Shader instruction cache (BorgConfig.hasShaderICache) -------------
+    //
+    // A program image in "DRAM" (a Scala map) at CODE_BASE, IMEM preloaded
+    // with however much of it fits -- exactly what the sequencer's shader DMA
+    // does -- and the rest fetched on demand. Returns the number of
+    // instruction fetches that went to memory.
+    val CODE_BASE = 0x8000
+    def runFromImage(core: BorgCore, image: Seq[BigInt], preload: Int): Int = {
+      resetCore(core)
+      core.io.codeBase.get.poke(CODE_BASE.U)
+      core.io.icacheFlush.get.poke(true.B); core.clock.step(1); core.io.icacheFlush.get.poke(false.B)
+      for (i <- 0 until preload) writeImem(core, i, image(i))
+      core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
+      var fetches = 0; var wd = 0
+      while (core.io.status.running.peek().litToBoolean && wd < 20000) {
+        val rd = core.io.gpuMem.get.req.peek().litToBoolean
+        if (rd) {
+          val a = core.io.gpuMem.get.addr.peek().litValue.toInt
+          val w = (a - CODE_BASE) / 4
+          utest.assert(a >= CODE_BASE && w < image.length)
+          core.io.gpuMem.get.data.poke(image(w).U)
+          fetches += 1
+        }
+        core.io.gpuMem.get.ready.poke(rd.B)
+        core.clock.step(1); wd += 1
+      }
+      core.io.gpuMem.get.ready.poke(false.B)
+      utest.assert(wd < 20000)
+      fetches
+    }
+    /** Word i adds r(2 + i%3) = 1, 10 or 100 to r1, then HALT. The words
+      * differ, so executing the wrong one -- a stale line from the wrong PC
+      * -- changes the sum. */
+    def countingProgram(n: Int): Seq[BigInt] =
+      (0 until n).map(i => Instructions.IADD(rs1 = 1, rs2 = 2 + i % 3, rd = 1)) :+ BigInt(0)
+    def countingSum(n: Int): Int = (0 until n).map(i => Seq(1, 10, 100)(i % 3)).sum
+    def countingRegs(core: BorgCore): Unit = {
+      writeReg(core, 1, 0); writeReg(core, 2, 1); writeReg(core, 3, 10); writeReg(core, 4, 100)
+    }
+
+    utest.test("icache_runs_a_program_longer_than_imem") {
+      for (cfg <- Seq(config, BorgConfig.Wafer)) {        // 72-word and 64-word IMEM
+        simulate(new BorgCore(cfg)) { core =>
+          val n = cfg.maxInstructions
+          println(s"\n--- BorgCore: ${n}-word IMEM, 150-instruction program ---")
+          idleInputs(core)
+          val prog = countingProgram(150)
+          countingRegs(core)
+          val f1 = runFromImage(core, prog, preload = n)
+          val r1 = readReg(core, 1)
+          println(s"  run 1: r1=$r1 (expect ${countingSum(150)}), $f1 fetches from memory (expect ${prog.length - n})")
+          utest.assert(r1 == countingSum(150))
+          utest.assert(f1 == prog.length - n)
+          // Same program again without a flush or reload: far words that
+          // survived are hits, near words they evicted are refetched -- the
+          // result must not change either way.
+          countingRegs(core)
+          resetCore(core)
+          core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
+          var wd = 0; var f2 = 0
+          while (core.io.status.running.peek().litToBoolean && wd < 20000) {
+            val rd = core.io.gpuMem.get.req.peek().litToBoolean
+            if (rd) {
+              val w = (core.io.gpuMem.get.addr.peek().litValue.toInt - CODE_BASE) / 4
+              core.io.gpuMem.get.data.poke(prog(w).U); f2 += 1
+            }
+            core.io.gpuMem.get.ready.poke(rd.B)
+            core.clock.step(1); wd += 1
+          }
+          core.io.gpuMem.get.ready.poke(false.B)
+          println(s"  run 2: r1=${readReg(core, 1)} (expect ${countingSum(150)}), $f2 fetches")
+          utest.assert(readReg(core, 1) == countingSum(150))
+        }
+      }
+    }
+
+    utest.test("icache_short_preload_fetches_everything_it_did_not_cover") {
+      // A preload that stops short of IMEM (the MMIO DMA's length field
+      // cannot even reach 72 words) must not run whatever the previous
+      // program left in the lines it did not write.
+      simulate(new BorgCore(config)) { core =>
+        idleInputs(core)
+        // Leave a different program's words in IMEM first.
+        for (i <- 0 until config.maxInstructions) writeImem(core, i, Instructions.IADD(rs1 = 1, rs2 = 1, rd = 1))
+        val prog = countingProgram(150)
+        countingRegs(core)
+        val f = runFromImage(core, prog, preload = 20)
+        println(s"  r1=${readReg(core, 1)} (expect ${countingSum(150)}), fetches=$f (expect ${prog.length - 20})")
+        utest.assert(readReg(core, 1) == countingSum(150))
+        utest.assert(f == prog.length - 20)
+      }
+    }
+
+    utest.test("icache_program_that_fits_never_touches_memory") {
+      simulate(new BorgCore(config)) { core =>
+        idleInputs(core)
+        val prog = countingProgram(config.maxInstructions - 1)   // exactly fills IMEM
+        countingRegs(core)
+        val f = runFromImage(core, prog, preload = prog.length)
+        println(s"  r1=${readReg(core, 1)} (expect ${countingSum(prog.length - 1)}), fetches=$f (expect 0)")
+        utest.assert(readReg(core, 1) == countingSum(prog.length - 1))
+        utest.assert(f == 0)
+      }
+    }
+
+    utest.test("icache_loop_past_imem_hits_after_the_first_iteration") {
+      simulate(new BorgCore(config)) { core =>
+        idleInputs(core)
+        // Words 0..89 straight-line padding (r1 += r2), then a 4-word loop at
+        // 90..93 that counts r3 down from 10, all past the 72-word IMEM.
+        val pad = Seq.fill(90)(Instructions.IADD(rs1 = 1, rs2 = 2, rd = 1))
+        val loop = Seq(
+          Instructions.IADD(rs1 = 4, rs2 = 2, rd = 4),            // r4 += 1 (loop body)
+          Instructions.ISUB(rs1 = 3, rs2 = 2, rd = 3),            // r3 -= 1
+          Instructions.BRNZ(rs1 = 3, target = 90),
+          BigInt(0))
+        val prog = pad ++ loop
+        writeReg(core, 1, 0); writeReg(core, 2, 1); writeReg(core, 3, 10); writeReg(core, 4, 0)
+        val f = runFromImage(core, prog, preload = config.maxInstructions)
+        println(s"  r1=${readReg(core, 1)} (expect 90) r4=${readReg(core, 4)} (expect 10), fetches=$f (expect ${prog.length - config.maxInstructions}: each far word once)")
+        utest.assert(readReg(core, 1) == 90)
+        utest.assert(readReg(core, 4) == 10)
+        utest.assert(f == prog.length - config.maxInstructions)
+      }
+    }
+
     utest.test("store_then_load_round_trips_through_memory") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: STORE then LOAD ---")
