@@ -52,5 +52,7 @@ class FpuOpFlags extends Bundle {
   val barrier = Bool()
   // Gated on hasControlFlow, like expush/exelse/expop -- see Instructions.FUNCT7_EXANY.
   val exany   = Bool()
+  // Early per-fragment tests -- see Instructions.FUNCT7_ZTEST.
+  val ztest   = Bool()
   val funct3 = UInt(3.W)
 }
