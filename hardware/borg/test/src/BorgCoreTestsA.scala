@@ -137,6 +137,136 @@ object BorgCoreTestsA extends TestSuite {
       }
     }
 
+    utest.test("isub_int16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: isub_int16 ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 100)
+        writeReg(core, 1, 30)
+        writeImem(core, 0, Instructions.ISUB(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2).toInt
+        println(s"  isub(100, 30) = $r (expected 70)")
+        utest.assert(r == 70)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("isub_int16_underflow_wraps") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: isub_int16_underflow_wraps ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 5)
+        writeReg(core, 1, 10)
+        writeImem(core, 0, Instructions.ISUB(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2) & intMask
+        println(s"  isub(5, 10) = 0x${r.toString(16)} (expect 0x${intBits(-5).toString(16)})")
+        utest.assert(r == intBits(-5))
+        println("  PASSED")
+      }
+    }
+
+    utest.test("iand_int16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: iand_int16 ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 0xF0)
+        writeReg(core, 1, 0x3C)
+        writeImem(core, 0, Instructions.IAND(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2).toInt
+        println(f"  iand(0xF0, 0x3C) = 0x$r%X (expected 0x30)")
+        utest.assert(r == 0x30)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("ior_int16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: ior_int16 ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 0xF0)
+        writeReg(core, 1, 0x0F)
+        writeImem(core, 0, Instructions.IOR(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2).toInt
+        println(f"  ior(0xF0, 0x0F) = 0x$r%X (expected 0xFF)")
+        utest.assert(r == 0xFF)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("ixor_int16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: ixor_int16 ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 0xFF)
+        writeReg(core, 1, 0x0F)
+        writeImem(core, 0, Instructions.IXOR(0, 1, 2))
+        writeImem(core, 1, 0)
+        startAndWait(core)
+        val r = readReg(core, 2).toInt
+        println(f"  ixor(0xFF, 0x0F) = 0x$r%X (expected 0xF0)")
+        utest.assert(r == 0xF0)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("islt_int16_signed") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: islt_int16_signed ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, intBits(-1))
+        writeReg(core, 1, 1)
+        writeReg(core, 2, 5)
+        writeReg(core, 3, 5)
+        // r4 = (r0 <s r1); r5 = (r2 <s r3)
+        writeImem(core, 0, Instructions.ISLT(0, 1, 4))
+        writeImem(core, 1, Instructions.ISLT(2, 3, 5))
+        writeImem(core, 2, 0)
+        startAndWait(core)
+        val ltTrue  = readReg(core, 4).toInt
+        val ltFalse = readReg(core, 5).toInt
+        println(s"  islt(-1, 1) = $ltTrue (expected 1), islt(5, 5) = $ltFalse (expected 0)")
+        utest.assert(ltTrue == 1)
+        utest.assert(ltFalse == 0)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("iseq_int16") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: iseq_int16 ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 42)
+        writeReg(core, 1, 42)
+        writeReg(core, 2, 43)
+        // r3 = (r0 == r1); r4 = (r0 == r2)
+        writeImem(core, 0, Instructions.ISEQ(0, 1, 3))
+        writeImem(core, 1, Instructions.ISEQ(0, 2, 4))
+        writeImem(core, 2, 0)
+        startAndWait(core)
+        val eqTrue  = readReg(core, 3).toInt
+        val eqFalse = readReg(core, 4).toInt
+        println(s"  iseq(42, 42) = $eqTrue (expected 1), iseq(42, 43) = $eqFalse (expected 0)")
+        utest.assert(eqTrue == 1)
+        utest.assert(eqFalse == 0)
+        println("  PASSED")
+      }
+    }
+
     utest.test("i2f_int16") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: i2f_int16 ---")

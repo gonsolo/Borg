@@ -321,6 +321,12 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_ishl_reg = RegInit(false.B)
     val is_ishr_reg = RegInit(false.B)
     val is_imul_reg = RegInit(false.B)
+    val is_isub_reg = RegInit(false.B)
+    val is_iand_reg = RegInit(false.B)
+    val is_ior_reg  = RegInit(false.B)
+    val is_ixor_reg = RegInit(false.B)
+    val is_islt_reg = RegInit(false.B)
+    val is_iseq_reg = RegInit(false.B)
     val is_i2f_reg  = RegInit(false.B)
     val is_f2i_reg  = RegInit(false.B)
     when(start) {
@@ -328,6 +334,12 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_ishl_reg := opFlags.ishl
       is_ishr_reg := opFlags.ishr
       is_imul_reg := opFlags.imul
+      is_isub_reg := opFlags.isub
+      is_iand_reg := opFlags.iand
+      is_ior_reg  := opFlags.ior
+      is_ixor_reg := opFlags.ixor
+      is_islt_reg := opFlags.islt
+      is_iseq_reg := opFlags.iseq
       is_i2f_reg  := opFlags.i2f
       is_f2i_reg  := opFlags.f2i
     }
@@ -342,6 +354,12 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val ishl = (recA_raw << shamt)(w - 1, 0)
     val ishr = (recA_raw.asSInt >> shamt).asUInt(w - 1, 0)
     val imul = (recA_raw * recB_raw)(w - 1, 0)
+    val isub = (recA_raw -& recB_raw)(w - 1, 0)
+    val iand = recA_raw & recB_raw
+    val ior  = recA_raw | recB_raw
+    val ixor = recA_raw ^ recB_raw
+    val islt = Mux(recA_raw.asSInt < recB_raw.asSInt, 1.U(w.W), 0.U(w.W))
+    val iseq = Mux(recA_raw === recB_raw, 1.U(w.W), 0.U(w.W))
 
     // i2f: signed int16 → fp16. |a|, normalize: MSB → implicit 1, exp = msb+bias,
     // mantissa = the mantN bits below the MSB. Truncates for |a| >= 2^(mantN+1).
@@ -369,9 +387,16 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                  Mux(is_ishl_reg, ishl,
                  Mux(is_ishr_reg, ishr,
                  Mux(is_imul_reg, imul,
-                 Mux(is_i2f_reg,  i2f, f2i)))))
+                 Mux(is_isub_reg, isub,
+                 Mux(is_iand_reg, iand,
+                 Mux(is_ior_reg,  ior,
+                 Mux(is_ixor_reg, ixor,
+                 Mux(is_islt_reg, islt,
+                 Mux(is_iseq_reg, iseq,
+                 Mux(is_i2f_reg,  i2f, f2i)))))))))))
     val is_int = is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg ||
-                 is_i2f_reg || is_f2i_reg
+                 is_isub_reg || is_iand_reg || is_ior_reg || is_ixor_reg ||
+                 is_islt_reg || is_iseq_reg || is_i2f_reg || is_f2i_reg
     (result, is_int)
   }
 
