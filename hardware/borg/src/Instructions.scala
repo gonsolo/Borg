@@ -135,6 +135,20 @@ object Instructions {
   // exited before deciding to loop back. Uniform loops (BRZ/BRNZ alone) and
   // divergent if/else (EXPUSH/EXELSE/EXPOP alone) already work without it.
   val FUNCT7_EXANY = 0x3E
+  // Early per-fragment tests (SPIR-V EarlyFragmentTests, core Vulkan with no
+  // feature bit). Borg's depth/stencil test otherwise runs AFTER the fragment
+  // shader, so a fragment that fails it has already executed every STORE.
+  // ZTEST runs the configured depth/stencil test for the quad at this point,
+  // using the depth the shader has already written to r29, and performs the
+  // depth/stencil writes then. Lanes that fail become helper invocations:
+  // they keep executing (derivatives still need them) but their STOREs are
+  // suppressed, and the end-of-shader write-back no longer re-tests -- it
+  // writes colour to exactly the samples that passed here.
+  //
+  // The compiler emits it once, at top level, after the r29 write and before
+  // the first STORE. Outside a rasterized fragment (MMIO or compute runs) it
+  // completes immediately and does nothing.
+  val FUNCT7_ZTEST = 0x40
   // @doc:end
 
   // R4-type sub-opcodes (opcode bit 2 set, discriminated by the 2-bit funct2
@@ -163,8 +177,10 @@ object Instructions {
   }
 
   // --- Base Instruction Encoders ---
+  // Long, not Int: funct7 values >= 0x40 set bit 31, which overflows an Int
+  // shift into a negative literal.
   def encodeRType(funct7: Int, rs2: Int, rs1: Int, rd: Int, funct3: Int = 0, opcode: Int = OPCODE_ALU): BigInt =
-    BigInt((funct7 << BF_FUNCT7.lo) | (rs2 << BF_RS2.lo) | (rs1 << BF_RS1.lo) | (funct3 << BF_FUNCT3.lo) | (rd << BF_RD.lo) | (opcode << BF_OP.lo))
+    BigInt((funct7.toLong << BF_FUNCT7.lo) | (rs2 << BF_RS2.lo) | (rs1 << BF_RS1.lo) | (funct3 << BF_FUNCT3.lo) | (rd << BF_RD.lo) | (opcode << BF_OP.lo))
 
   def encodeR4Type(rs3: Int, funct2: Int, rs2: Int, rs1: Int, rd: Int, funct3: Int = 0, opcode: Int = OPCODE_FMA): BigInt =
     BigInt((rs3 << BF_RS3.lo) | (funct2 << 25) | (rs2 << BF_RS2.lo) | (rs1 << BF_RS1.lo) | (funct3 << BF_FUNCT3.lo) | (rd << BF_RD.lo) | (opcode << BF_OP.lo))
@@ -214,6 +230,7 @@ object Instructions {
   def EXPOP(funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXPOP, 0, 0, 0, funct3)
   def BARRIER(funct3: Int = 0): BigInt = encodeRType(FUNCT7_BARRIER, 0, 0, 0, funct3)
   def EXANY(rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXANY, 0, 0, rd, funct3)
+  def ZTEST(funct3: Int = 0): BigInt = encodeRType(FUNCT7_ZTEST, 0, 0, 0, funct3)
   def BRNZ(rs1: Int, target: Int, funct3: Int = 0): BigInt = {
     val (hi, lo) = branchTargetFields(target)
     encodeRType(FUNCT7_BRNZ, hi, rs1, lo, funct3)
@@ -272,7 +289,8 @@ object Instructions {
     ("EXELSE", FUNCT7_EXELSE, Mask0),
     ("EXPOP",  FUNCT7_EXPOP,  Mask0),
     ("BARRIER", FUNCT7_BARRIER, Mask0),
-    ("EXANY",  FUNCT7_EXANY,  MaskDest)
+    ("EXANY",  FUNCT7_EXANY,  MaskDest),
+    ("ZTEST",  FUNCT7_ZTEST,  Mask0)
   )
 
   // --- String Formatters for C / Python Generation ---

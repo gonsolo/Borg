@@ -102,6 +102,11 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val texU    = Input(UInt(16.W))
   val texV    = Input(UInt(16.W))
   val texDone = Output(Bool())
+  // ZTEST (see BorgShaderDispatcher) and per-lane side-effect suppression.
+  val zTestReq   = Input(Bool())
+  val zTestDone  = Output(Bool())
+  val laneHelper = Output(Vec(cfg.fragLanes, Bool()))
+  val passSample = if (cfg.msaaMultiPass) Some(Input(UInt(log2Up(cfg.samples).W))) else None
   val texR    = Output(UInt(16.W))
   val texG    = Output(UInt(16.W))
   val texB    = Output(UInt(16.W))
@@ -178,6 +183,10 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.texG              := dispatcher.io.texG
   io.texB              := dispatcher.io.texB
   io.texA              := dispatcher.io.texA
+  dispatcher.io.zTestReq := io.zTestReq
+  io.zTestDone         := dispatcher.io.zTestDone
+  io.laneHelper        := dispatcher.io.laneHelper
+  dispatcher.io.passSample.foreach(_ := io.passSample.get)
 
   // --- Forward iterator outputs ---
   io.iter         := iterator.io.iter

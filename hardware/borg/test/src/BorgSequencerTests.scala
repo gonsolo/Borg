@@ -983,6 +983,93 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         println("=== sequencer_rgba8_and_depth_advance_per_tile PASSED ===\n")
         }
 
+        scenario("ztest_suppresses_stores_of_hidden_fragments") {
+        // One 4x4 tile shaded twice through the real rasterizer ROM,
+        // dispatcher, core and tile buffer (the MMIO pixel path: all-zero edge
+        // constants make every pixel inside, each ITER write shades one).
+        // Pass 1 is near (depth = colour = 0.25), pass 2 is far (0.75) and
+        // therefore hidden everywhere. The fragment shader writes its depth,
+        // then (optionally) ZTEST, then STOREs its colour. With the tests late
+        // every hidden fragment's STORE lands -- exactly what SPIR-V
+        // EarlyFragmentTests forbids. With ZTEST none may.
+        println("\n=== BorgSequencerTests: ztest_suppresses_stores_of_hidden_fragments ===")
+        val lsBase = 0x30000
+        val nearBits = floatToBits(0.25f); val farBits = floatToBits(0.75f)
+
+        def render(useZTest: Boolean): Seq[BigInt] = {
+          resetAndWait(borg)
+          def uniform(i: Int, v: BigInt): Unit =
+            rawWrite(borg, BorgGpuRegs.uniform_offset.litValue.toInt + i * 4, v)
+          for (i <- 0 until 12) uniform(i, 0)          // all-zero edges: every pixel inside
+          val fragPc = 1
+          val frag = Seq(
+            Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),                // r25 = 0 (index, no kill)
+            Instructions.ADD(rs1 = 12, rs2 = 25, rd = 29, funct3 = 1),      // r29 = depth = u12
+            Instructions.ADD(rs1 = 12, rs2 = 25, rd = 27, funct3 = 1),      // r27 = colour = u12
+            if (useZTest) Instructions.ZTEST()
+            else Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),            // same length, no test
+            Instructions.STORE(rs1 = 25, rs2 = 27),                         // mem[lsBase] = colour
+            BigInt(0))
+          for ((w, i) <- frag.zipWithIndex)
+            rawWrite(borg, BorgGpuRegs.imem_offset.litValue.toInt + (fragPc + i) * 4, w)
+          rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, fragPc)
+          rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, lsBase)
+
+          val stores = scala.collection.mutable.ArrayBuffer[BigInt]()
+          def service(): Unit = {
+            if (borg.io.gpuMem.req.peek().litToBoolean) {
+              borg.io.gpuMem.data.poke(0.U)
+              borg.io.gpuMem.waccept.poke(false.B)
+              borg.io.gpuMem.ready.poke(true.B)
+            } else if (borg.io.gpuMem.wr.peek().litToBoolean) {
+              val base = borg.io.gpuMem.addr.peek().litValue.toInt
+              val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
+              val halves = scala.collection.mutable.ArrayBuffer(borg.io.gpuMem.wdata.peek().litValue & 0xFFFF)
+              for (_ <- 1 until wlen) {
+                borg.io.gpuMem.waccept.poke(true.B)
+                borg.io.gpuMem.ready.poke(false.B)
+                borg.clock.step(1)
+                halves += borg.io.gpuMem.wdata.peek().litValue & 0xFFFF
+              }
+              borg.io.gpuMem.waccept.poke(false.B)
+              borg.io.gpuMem.ready.poke(true.B)
+              // A shader STORE of a 32-bit register is one 2-halfword write.
+              if (base == lsBase && wlen == 2) stores += (halves(0) | (halves(1) << 16))
+            } else {
+              borg.io.gpuMem.waccept.poke(false.B)
+              borg.io.gpuMem.ready.poke(false.B)
+            }
+          }
+          def run(cycles: Int): Unit = for (_ <- 0 until cycles) { service(); borg.clock.step(1) }
+
+          for (depth <- Seq(nearBits, farBits)) {
+            uniform(12, depth)
+            rawWrite(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, 0)   // tile (0,0)
+            run(10)
+            for (_ <- 0 until 16) {
+              rawWrite(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
+              run(300)
+            }
+          }
+          rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, 0)
+          rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 0)
+          stores.toSeq
+        }
+
+        val late  = render(useZTest = false)
+        val early = render(useZTest = true)
+        def count(xs: Seq[BigInt], v: BigInt) = xs.count(_ == v)
+        println(s"  late tests:  ${count(late, nearBits)} near stores, ${count(late, farBits)} hidden stores")
+        println(s"  with ZTEST:  ${count(early, nearBits)} near stores, ${count(early, farBits)} hidden stores")
+        Predef.assert(count(late, nearBits) == 16 && count(late, farBits) == 16,
+          "control: every fragment of both passes should store when the tests are late")
+        Predef.assert(count(early, nearBits) == 16,
+          "ZTEST must not suppress the visible fragments' stores")
+        Predef.assert(count(early, farBits) == 0,
+          "hidden fragments executed STOREs despite failing ZTEST")
+        println("=== ztest_suppresses_stores_of_hidden_fragments PASSED ===\n")
+        }
+
         scenario("covDelta_diagnostic_real_values") {
         println("\n=== BorgSequencerTests: covDelta_diagnostic_real_values ===")
 

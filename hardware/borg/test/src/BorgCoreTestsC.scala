@@ -401,6 +401,78 @@ object BorgCoreTestsC extends TestSuite {
       }
     }
 
+    utest.test("ztest_stalls_until_done_and_writes_no_register") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: ZTEST stall ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, 5)
+        writeImem(core, 0, Instructions.ZTEST())
+        writeImem(core, 1, Instructions.IADD(rs1 = 0, rs2 = 0, rd = 1))  // r1 = 10
+        writeImem(core, 2, 0)
+        core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
+
+        var wd = 0
+        while (!core.io.zTestReq.peek().litToBoolean && wd < 100) { core.clock.step(1); wd += 1 }
+        utest.assert(wd < 100)
+        // Held: the core must wait however long the dispatcher takes.
+        for (_ <- 0 until 20) {
+          utest.assert(core.io.zTestReq.peek().litToBoolean)
+          utest.assert(core.io.status.running.peek().litToBoolean)
+          core.clock.step(1)
+        }
+        core.io.zTestDone.poke(true.B); core.clock.step(1); core.io.zTestDone.poke(false.B)
+        wd = 0
+        while (core.io.status.running.peek().litToBoolean && wd < 200) {
+          utest.assert(!core.io.zTestReq.peek().litToBoolean)   // no second request
+          core.clock.step(1); wd += 1
+        }
+        utest.assert(wd < 200)
+        println(s"  r0=${readReg(core, 0)} (expect 5, rd=0 is not a write)  r1=${readReg(core, 1)} (expect 10)")
+        utest.assert(readReg(core, 0) == 5)
+        utest.assert(readReg(core, 1) == 10)
+      }
+    }
+
+    utest.test("helper_lane_stores_are_suppressed_loads_are_not") {
+      simulate(new BorgCore(BorgConfig.Simt)) { core =>
+        println("\n--- BorgCore: helper lanes ---")
+        idleInputs(core)
+        resetCore(core)
+        core.io.lsBase.get.poke(LS_BASE.U)
+        writeReg(core, 0, 2)
+        writeReg(core, 1, BigInt("77", 16))
+
+        def run(op: BigInt, helpers: Seq[Boolean]): (Int, Int) = {
+          core.io.laneHelper.get.zip(helpers).foreach { case (p, h) => p.poke(h.B) }
+          resetCore(core)                      // PC back to 0 for each run
+          writeImem(core, 0, op)
+          writeImem(core, 1, 0)
+          core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
+          var reads = 0; var writes = 0; var wd = 0
+          while (core.io.status.running.peek().litToBoolean && wd < 500) {
+            val rd = core.io.gpuMem.get.req.peek().litToBoolean
+            val wr = core.io.gpuMem.get.wr.peek().litToBoolean
+            if (rd) reads += 1
+            if (wr) writes += 1
+            core.io.gpuMem.get.ready.poke((rd || wr).B)
+            core.clock.step(1); wd += 1
+          }
+          core.io.gpuMem.get.ready.poke(false.B)
+          utest.assert(wd < 500)
+          (reads, writes)
+        }
+        val (_, allW)    = run(Instructions.STORE(rs1 = 0, rs2 = 1), Seq(false, false, false, false))
+        val (_, helperW) = run(Instructions.STORE(rs1 = 0, rs2 = 1), Seq(false, true, false, true))
+        val (helperR, _) = run(Instructions.LOAD(rs1 = 0, rd = 2), Seq(false, true, false, true))
+        println(s"  stores: $allW without helpers (expect 4), $helperW with lanes 1,3 helpers (expect 2); loads $helperR (expect 4)")
+        utest.assert(allW == 4)
+        utest.assert(helperW == 2)
+        utest.assert(helperR == 4)
+        core.io.laneHelper.get.foreach(_.poke(false.B))
+      }
+    }
+
     utest.test("store_then_load_round_trips_through_memory") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: STORE then LOAD ---")

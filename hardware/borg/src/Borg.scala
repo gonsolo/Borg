@@ -310,6 +310,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     core.io.texG    := rast.io.texG
     core.io.texB    := rast.io.texB
     core.io.texA    := rast.io.texA
+    rast.io.zTestReq := core.io.zTestReq
+    core.io.zTestDone := rast.io.zTestDone
+    core.io.laneHelper.foreach(_ := rast.io.laneHelper)
   }
 
   private def wireRasterizer(): Unit = {
@@ -567,6 +570,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     tile.io.pass.foreach { p =>
       val sp = s.io.pass.get
       p.sampleIdx  := sp.sampleIdx
+      rast.io.passSample.get := sp.sampleIdx
       p.accumEn    := sp.accumEn
       p.accumFirst := sp.accumFirst
       p.resolve    := sp.resolve

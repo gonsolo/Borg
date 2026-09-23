@@ -47,6 +47,7 @@
 #define BORG_INSTR_EXPOP(funct3) (0x5C000000U | ((funct3) << 12))
 #define BORG_INSTR_BARRIER(funct3) (0x78000000U | ((funct3) << 12))
 #define BORG_INSTR_EXANY(rd, funct3) (0x7C000000U | ((funct3) << 12) | ((rd) << 7))
+#define BORG_INSTR_ZTEST(funct3) (0x80000000U | ((funct3) << 12))
 
 // Special: HALT (an all-zero instruction word)
 #define BORG_INSTR_HALT                           0x00000000U

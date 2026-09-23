@@ -104,6 +104,16 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val texG    = Input(UInt(16.W))    // fetched texel G
   val texB    = Input(UInt(16.W))    // fetched texel B
   val texA    = Input(UInt(16.W))    // fetched texel A
+
+  // ZTEST (early per-fragment tests): the core stalls on zTestReq until the
+  // dispatcher has run the quad's depth/stencil test and pulses zTestDone.
+  val zTestReq  = Output(Bool())
+  val zTestDone = Input(Bool())
+  // Per lane: this invocation must have no side effects -- a helper lane
+  // (no covered sample, outside the scissor), a discarded fragment, or one
+  // that failed ZTEST. Suppresses STORE; only exists with memory ops, the
+  // only side effect a shader has.
+  val laneHelper = if (cfg.hasMemoryOps) Some(Input(Vec(cfg.fragLanes, Bool()))) else None
 }
 
 class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -247,6 +257,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // --- FTEX FSM (shared): drives each lane's memWrite, uses lane 0's operands ---
   wireTexStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
 
+  // --- ZTEST: stall while the dispatcher runs the early per-fragment tests ---
+  wireZTest()
+
   // --- LOAD/STORE FSM (shared): same stall shape, same write-back port ---
   // Called after wireTexStall and deliberately does NOT re-default memWrite:
   // the two FSMs are mutually exclusive in time (one instruction at a time),
@@ -344,6 +357,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // this costs nothing on a build (Wafer) that has hasControlFlow but not
     // compute -- verified byte-identical Wafer Verilog with this gating.
     flags.exany  := (if (cfg.computeEnabled) !flags.fma && f7op === Instructions.FUNCT7_EXANY.U else false.B)
+    flags.ztest  := !flags.fma && f7op === Instructions.FUNCT7_ZTEST.U
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 
     (regs, flags)
@@ -583,6 +597,30 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
   // @doc:end
 
+  /** ZTEST stall. Same freeze-at-operands shape as FTEX and LOAD/STORE, but
+    * there is no per-lane loop here: the dispatcher tests every lane of the
+    * quad itself (it owns the tile buffer) and answers once. Resuming by
+    * setting busy_counter to 0 skips the lanes' write-back cycle, so ZTEST
+    * writes no register, exactly like STORE. */
+  private def wireZTest(): Unit = {
+    val is_ztest_reg = RegInit(false.B)
+    when(running && !is_busy && fetchedInstruction =/= 0.U) {
+      is_ztest_reg := opFlags.ztest
+    }
+    val waiting = is_busy && busy_counter === cfg.cOperands.U && is_ztest_reg
+    io.zTestReq := waiting
+    when(waiting) {
+      busy_counter := busy_counter
+      when(io.zTestDone) {
+        busy_counter   := 0.U
+        programCounter := programCounter + 1.U
+        is_ztest_reg   := false.B
+        // IMEM still holds the ZTEST word for a cycle, as after FTEX.
+        texResumeDelay := true.B
+      }
+    }
+  }
+
   // @doc:mem-stall
   /** LOAD / STORE stall FSM -- the shared memory-access path.
     *
@@ -677,7 +715,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // optimization: the write would otherwise land in DRAM from a lane the
     // shader said was not running. Skipping also costs nothing -- the access
     // is simply not issued and the FSM moves to the next lane.
-    val laneActive = VecInit(execMask.asBools)(memLaneIdx)
+    //
+    // A helper lane (see io.laneHelper) runs everything except its STOREs:
+    // Vulkan requires stores by helper invocations, and by fragments that
+    // failed the early tests or were discarded, to have no effect. Its LOADs
+    // still happen, since derivatives of loaded values need them.
+    val laneActive = VecInit(execMask.asBools)(memLaneIdx) &&
+                     !(is_store_reg && io.laneHelper.get(memLaneIdx))
 
     when(memState === sMemReq && !laneActive) {
       busy_counter := busy_counter

@@ -46,6 +46,7 @@ object BorgRasterizerTests extends TestSuite {
     // Register-driven frag_pc and uniform_page
     rast.io.fragPcReg.poke(0.U)
     rast.io.uniformPageReg.poke(0.U)
+    rast.io.zTestReq.poke(false.B)
     // Step 25.5C: tile read port — provide max depth so depth test passes.
     // Per-sample since MSAA: every sample starts at the far plane.
     rast.io.tileRead.data.foreach { s =>

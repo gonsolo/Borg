@@ -148,6 +148,9 @@ object BorgCoreTestHelpers {
     core.io.texG.poke(0.U)
     core.io.texB.poke(0.U)
     core.io.texA.poke(0.U)
+    // ZTEST response and side-effect suppression: idle / no lane suppressed.
+    core.io.zTestDone.poke(false.B)
+    core.io.laneHelper.foreach(_.foreach(_.poke(false.B)))
     core.io.seqBusy.poke(false.B)
     // LOAD/STORE DRAM port -- driven idle so nothing X-propagates for the
     // tests that never execute a memory instruction.
