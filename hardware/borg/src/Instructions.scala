@@ -122,6 +122,16 @@ object Instructions {
   // Borg makes a violation of that observable rather than silently wrong,
   // same as branch_divergent/exec_fault).
   val FUNCT7_BARRIER = 0x3C
+  // Gated on hasControlFlow, same as EXPUSH/EXELSE/EXPOP (not computeEnabled:
+  // nothing about it depends on the compute dispatch sequencer, only on the
+  // execution mask, which fragment shaders have too). Reduces the CURRENT
+  // execMask to a single raw 0/1 in rd -- "is any lane still active" --
+  // exactly the piece BRZ/BRNZ/EXPUSH/EXELSE/EXPOP were missing for a
+  // divergent LOOP: EXPUSH masks off a lane whose per-lane condition just
+  // went false, and EXANY (fed to BRNZ) asks whether every lane has now
+  // exited before deciding to loop back. Uniform loops (BRZ/BRNZ alone) and
+  // divergent if/else (EXPUSH/EXELSE/EXPOP alone) already work without it.
+  val FUNCT7_EXANY = 0x3E
   // @doc:end
 
   /** Split an absolute branch target into the rs2/rd fields it is packed into. */
@@ -171,6 +181,7 @@ object Instructions {
   def EXELSE(funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXELSE, 0, 0, 0, funct3)
   def EXPOP(funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXPOP, 0, 0, 0, funct3)
   def BARRIER(funct3: Int = 0): BigInt = encodeRType(FUNCT7_BARRIER, 0, 0, 0, funct3)
+  def EXANY(rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXANY, 0, 0, rd, funct3)
   def BRNZ(rs1: Int, target: Int, funct3: Int = 0): BigInt = {
     val (hi, lo) = branchTargetFields(target)
     encodeRType(FUNCT7_BRNZ, hi, rs1, lo, funct3)
@@ -187,6 +198,7 @@ object Instructions {
   case object Branch extends Shape  // rs1, target    (target packed into rs2:rd)
   case object Mask1  extends Shape  // rs1            (no destination)
   case object Mask0  extends Shape  // (no operands)
+  case object MaskDest extends Shape  // rd           (no source operand)
 
   /** THE instruction table. Everything downstream -- hardware decode, the C
     * header, any future Python emitter -- comes from here, so an opcode cannot
@@ -226,7 +238,8 @@ object Instructions {
     ("EXPUSH", FUNCT7_EXPUSH, Mask1),
     ("EXELSE", FUNCT7_EXELSE, Mask0),
     ("EXPOP",  FUNCT7_EXPOP,  Mask0),
-    ("BARRIER", FUNCT7_BARRIER, Mask0)
+    ("BARRIER", FUNCT7_BARRIER, Mask0),
+    ("EXANY",  FUNCT7_EXANY,  MaskDest)
   )
 
   // --- String Formatters for C / Python Generation ---

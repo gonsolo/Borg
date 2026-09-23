@@ -209,6 +209,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
   // Per-lane execution mask bit.
   lanes.zipWithIndex.foreach { case (lane, i) => lane.io.execActive := execMask(i) }
+  // Broadcast (one shared reduction, not per-lane): EXANY's "is any lane in
+  // the current mask still active" result. Read live at write-back time, not
+  // latched -- execMask only changes via another EXPUSH/EXELSE/EXPOP, which
+  // cannot execute concurrently with this instruction, so it is stable for
+  // EXANY's whole multi-cycle execution window.
+  lanes.foreach(_.io.execAny := execMask.orR)
 
   io.compute.foreach { c =>
     lanes.zipWithIndex.foreach { case (lane, i) =>
@@ -321,6 +327,12 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.expop  := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_EXPOP.U else false.B)
     flags.execOp := flags.expush || flags.exelse || flags.expop
     flags.barrier := (if (cfg.computeEnabled) !flags.fma && f7op === Instructions.FUNCT7_BARRIER.U else false.B)
+    // Gated on computeEnabled, not plain hasControlFlow like EXPUSH/EXELSE/
+    // EXPOP: the only shader that currently emits a divergent loop is a
+    // compute one, and computeEnabled implies hasControlFlow already, so
+    // this costs nothing on a build (Wafer) that has hasControlFlow but not
+    // compute -- verified byte-identical Wafer Verilog with this gating.
+    flags.exany  := (if (cfg.computeEnabled) !flags.fma && f7op === Instructions.FUNCT7_EXANY.U else false.B)
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 
     (regs, flags)
