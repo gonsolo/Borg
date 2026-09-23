@@ -192,10 +192,15 @@ object BorgLinkEquivalenceTests extends TestSuite {
     rw(BorgGpuRegs.flush_fb_base_offset.litValue.toInt, texTileBase)
     rw(BorgGpuRegs.flush_width_offset.litValue.toInt, 5) // log2(32)
 
-    // Texture configuration: base=texBaseAddr, en=1. log2_dim is irrelevant
-    // here -- U=V=0.0 always clamps/mortons to index 0 regardless of it.
-    val texConfigVal = (1 << 16) | texBaseAddr
+    // Texture configuration: en=1. log2_dim is irrelevant here -- U=V=0.0
+    // always clamps/mortons to index 0 regardless of it. base_addr in
+    // tex_config itself is superseded by the multi-texture-binding slot
+    // registers (see hardware/rdl/borg.rdl's tex_base_addr0..3 comment) --
+    // hardware no longer reads it. FTEX's rs3 (texSelect) defaults to 0
+    // here, so slot 0 (tex_base_addr0) is what needs the real base.
+    val texConfigVal = 1 << 16
     rw(BorgGpuRegs.tex_config_offset.litValue.toInt, texConfigVal)
+    rw(BorgGpuRegs.tex_base_addr0_offset.litValue.toInt, texBaseAddr)
 
     // Edge uniforms 0-5 = 0x0000 (see this method's doc comment).
     for (i <- 0 until 6) {
@@ -210,6 +215,13 @@ object BorgLinkEquivalenceTests extends TestSuite {
     // so the fragment shader is placed at word 4, not word 0.
     rw(BorgGpuRegs.control_offset.litValue.toInt, 2) // reset pipeline
     rw(6 * 4, 0x0000) // r6 = 0.0 (U and V operand for FTEX)
+    // r0 = 0: FTEX's rs3 defaults to register index 0, and the hardware
+    // reads THAT register's content to pick a texture-binding slot (rs3 is
+    // a register index, not an immediate -- see Instructions.FTEX's own
+    // doc). r0 is otherwise unused by this scenario and simulation
+    // randomizes uninitialized register content, so leaving it unwritten
+    // would make which slot gets sampled here a matter of the random seed.
+    rw(0 * 4, 0x0000)
     rw(128 + 4 * 4, Instructions.FTEX(6, 6, 26))
     rw(128 + 5 * 4, 0) // halt
     rw(BorgGpuRegs.frag_pc_offset.litValue.toInt, 4)

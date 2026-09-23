@@ -47,6 +47,65 @@ object BorgCoreTestsC extends TestSuite {
       }
     }
 
+    utest.test("ftex_rs3_routes_two_calls_to_different_textures") {
+      // Multi-texture binding: FTEX's rs3 (Instructions.FUNCT2_FTEX) is a
+      // real register-index operand now, not a config-time-only MMIO field
+      // -- this proves ONE shader invocation can sample from two
+      // conceptually different bound textures via two FTEX calls with
+      // different rs3 registers, and get back the RIGHT texel for each,
+      // not the other one's (or a stale one).
+      //
+      // rs3 is a register INDEX, not an immediate: the desired select value
+      // must be written into a register first, the same "pin a constant,
+      // reference its register" shape borgc's push_const_reg already uses
+      // for push constants -- r10 <- 0, r11 <- 1 here, then FTEX references
+      // r10/r11 as its rs3.
+      //
+      // Same U/V for both calls (so a bug that ignored rs3 entirely and
+      // just re-fetched the same thing twice would otherwise pass by
+      // accident) -- the harness below distinguishes the two calls purely
+      // by the observed core.io.texSelect value, the same way a real
+      // texture unit driven by Borg.scala's tex_base_addr0..3 mux would.
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: FTEX rs3 routes to distinct textures ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, BigInt("3F000000", 16))  // u = 0.5, same for both calls
+        writeReg(core, 1, BigInt("3E800000", 16))  // v = 0.25, same for both calls
+        writeReg(core, 10, 0)  // pinned constant: select slot 0
+        writeReg(core, 11, 1)  // pinned constant: select slot 1
+        writeImem(core, 0, Instructions.FTEX(rs1 = 0, rs2 = 1, rd = 2, rs3 = 10))
+        writeImem(core, 1, Instructions.FTEX(rs1 = 0, rs2 = 1, rd = 5, rs3 = 11))
+        writeImem(core, 2, 0)
+
+        core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
+        val seenSelects = scala.collection.mutable.ArrayBuffer[Int]()
+        var wd = 0
+        while (core.io.status.running.peek().litToBoolean && wd < 3000) {
+          if (core.io.texReq.peek().litToBoolean) {
+            val sel = core.io.texSelect.peek().litValue.toInt
+            seenSelects += sel
+            // Slot 0 -> texel 1.0, slot 1 -> texel 2.0: two genuinely
+            // different, verifiable responses keyed on the wire the
+            // hardware actually drives, not on which call this is.
+            val texel = if (sel == 0) 0x3C00 else 0x4000 // FP16 1.0 / 2.0
+            core.io.texR.poke(texel.U); core.io.texG.poke(texel.U); core.io.texB.poke(texel.U)
+            core.io.texDone.poke(true.B)
+          } else core.io.texDone.poke(false.B)
+          core.clock.step(1); wd += 1
+        }
+        core.io.texDone.poke(false.B)
+        println(s"  texSelect values seen: ${seenSelects.toSeq}")
+        utest.assert(wd < 3000)
+        utest.assert(seenSelects.distinct.sorted == Seq(0, 1))
+        val r2 = bitsToFloat(readReg(core, 2)) // rd from the texSelect=0 call
+        val r5 = bitsToFloat(readReg(core, 5)) // rd from the texSelect=1 call
+        println(f"  r2 (texSelect=0) = $r2%.2f (expect 1.0), r5 (texSelect=1) = $r5%.2f (expect 2.0)")
+        utest.assert(math.abs(r2 - 1.0f) < 0.01f)
+        utest.assert(math.abs(r5 - 2.0f) < 0.01f)
+      }
+    }
+
     utest.test("borgc_fragment_cube") {
       // End-to-end execution of the borgc-compiled cube.frag (56-word blob) in the
       // 4-lane SIMT core. Per-lane edge functions come from a 3-instr preamble
@@ -100,6 +159,23 @@ object BorgCoreTestsC extends TestSuite {
         // 3 DDX-rescale FMULs (×u31=32.0, right after the 3 DDX ops) — the
         // FP16-underflow fix; must match borgc_frag_shader in
         // software/borg/borg_driver.c word-for-word.
+        //
+        // ONE exception, word index 48: borgc (mesa/src/borg/compiler, not
+        // checked out in this worktree) still emits FTEX's pre-multi-
+        // texture-binding encoding (opcode ALU, funct7 0x0C). FTEX moved to
+        // the R4-type shape FMA already uses (Instructions.FUNCT2_FTEX) to
+        // gain rs3 as a texture-slot-select register index. The original
+        // word was 0x18778a00 (FTEX rs1=15, rs2=7, rd=20, funct3=0 --
+        // decoded and this re-encoding verified with a standalone script
+        // before patching, not by hand); re-expressed below via
+        // Instructions.FTEX with the same operands under the new scheme,
+        // rs3 defaulted to r0 (this test drives texR/G/B directly and never
+        // looks at core.io.texSelect, so which register r0 happens to be
+        // doesn't matter here -- rs3 is genuinely new information the old
+        // encoding had no equivalent of). borgc itself needs the matching
+        // compiler-side change (out of scope here); once it emits the new
+        // encoding, this line should go back to a plain literal from a
+        // fresh BORGC_DUMP_ISA capture.
         val frag = Seq(
           0x08c02180L, 0x08c0a280L, 0x08c12300L, 0x0951a380L, 0x3942a404L, 0x41332384L,
           0x0981a400L, 0x4172a484L, 0x49632404L, 0x09b1a480L, 0x49a2a504L, 0x51932484L,
@@ -109,7 +185,8 @@ object BorgCoreTestsC extends TestSuite {
           0x09080700L, 0x70948384L, 0x38f78704L, 0x34070380L, 0x08778700L, 0x08780780L,
           0x08748800L, 0x08f90380L, 0x39098784L, 0x78e88384L, 0x10038780L, 0x08f38700L,
           0x08f1a780L, 0x78e2a384L, 0x38d32784L, 0x0921a380L, 0x3912a804L, 0x81032384L,
-          0x18778a00L, 0x08ea0380L, 0x08ea8800L, 0x08eb0780L, 0x38038d00L, 0x38080d80L,
+          Instructions.FTEX(rs1 = 15, rs2 = 7, rd = 20, rs3 = 0).toLong, // was 0x18778a00L
+          0x08ea0380L, 0x08ea8800L, 0x08eb0780L, 0x38038d00L, 0x38080d80L,
           0x38078e00L, 0x09e1a780L, 0x79d2a184L, 0x19c32e84L, 0x00000000L)
         for ((w, i) <- frag.zipWithIndex) writeImem(core, 3 + i, BigInt(w))
 

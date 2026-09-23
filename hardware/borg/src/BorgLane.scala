@@ -75,6 +75,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val regReadData = Output(UInt(cfg.totalBits.W))  // MMIO GPR read (lane 0 consumed)
   val recARaw     = Output(UInt(cfg.totalBits.W))  // operands for shared FTEX FSM
   val recBRaw     = Output(UInt(cfg.totalBits.W))
+  val recCRaw     = Output(UInt(cfg.totalBits.W))  // FTEX's rs3: texture-slot select
 }
 
 class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -137,6 +138,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val recC_raw = Mux(io.funct3Del === 3.U, io.uniformData, recC)
   io.recARaw := recA_raw
   io.recBRaw := recB_raw
+  io.recCRaw := recC_raw
 
   // --- ALU ---
   val (fma_result, is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg) = wireFma(recA_raw, recB_raw, recC_raw, io.fmaStart)
@@ -230,7 +232,14 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_deriv_reg = RegInit(false.B) // DDX/DDY: FMA computes crossA + crossC
     when(start) {
       is_mul_reg := opFlags.mul
-      is_fma_reg := opFlags.fma
+      // opFlags.fma is the raw R4-type opcode bit, which FTEX now also sets
+      // (see Instructions.FUNCT2_FTEX) -- exclude it here so a texture
+      // sample doesn't needlessly run its U/V/texSelect operands through the
+      // real multiply-add datapath. Harmless either way (FTEX's own result
+      // always arrives via the memWrite override below, last-connect-wins
+      // over whatever this path would have produced), but wasteful power and
+      // muddies what "is_fma_reg" means.
+      is_fma_reg := opFlags.fma && !opFlags.ftex
       is_fneg_reg := opFlags.fneg
       is_fstep_reg := opFlags.fstep
       is_frcp_reg := opFlags.frcp

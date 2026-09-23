@@ -95,6 +95,10 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val texReq  = Output(Bool())       // core requests texture fetch
   val texU    = Output(UInt(16.W))   // U coordinate from rs1
   val texV    = Output(UInt(16.W))   // V coordinate from rs2
+  // Multi-texture binding: FTEX's rs3 operand, valid alongside texReq/texU/
+  // texV. Selects which of cfg.maxTextureBindings base-address slots the
+  // caller (Borg.scala) should feed the texture unit for this sample.
+  val texSelect = Output(UInt(math.max(1, log2Ceil(cfg.maxTextureBindings)).W))
   val texDone = Input(Bool())        // texture unit completion pulse
   val texR    = Input(UInt(16.W))    // fetched texel R
   val texG    = Input(UInt(16.W))    // fetched texel G
@@ -240,7 +244,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   // --- FTEX FSM (shared): drives each lane's memWrite, uses lane 0's operands ---
-  wireTexStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.memWrite))
+  wireTexStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
 
   // --- LOAD/STORE FSM (shared): same stall shape, same write-back port ---
   // Called after wireTexStall and deliberately does NOT re-default memWrite:
@@ -292,11 +296,17 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val flags = Wire(new FpuOpFlags())
     flags.fma   := instr(Instructions.BITS_OPCODE_FMA_BIT)
     val f7op    = Instructions.BF_F7_OP(instr)
+    // R4-type sub-opcode (only meaningful when flags.fma is set): FMADD is
+    // funct2=0, FTEX is funct2=1 -- see Instructions.FUNCT2_FTEX. FTEX moved
+    // here from the ALU-opcode RType shape specifically to gain rs3 as a
+    // texture-slot index; regs.rs3 (decoded unconditionally above) picks it
+    // up automatically.
+    val funct2  = instr(26, 25)
+    flags.ftex  := flags.fma && funct2 === Instructions.FUNCT2_FTEX.U
     flags.mul   := !flags.fma && f7op === Instructions.FUNCT7_MUL.U
     flags.fneg  := !flags.fma && f7op === Instructions.FUNCT7_FNEG.U
     flags.fstep := !flags.fma && f7op === Instructions.FUNCT7_FSTEP.U
     flags.frcp  := !flags.fma && f7op === Instructions.FUNCT7_FRCP.U
-    flags.ftex  := !flags.fma && f7op === Instructions.FUNCT7_FTEX.U
     flags.iadd  := !flags.fma && f7op === Instructions.FUNCT7_IADD.U
     flags.ishl  := !flags.fma && f7op === Instructions.FUNCT7_ISHL.U
     flags.ishr  := !flags.fma && f7op === Instructions.FUNCT7_ISHR.U
@@ -442,7 +452,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   /** Step 34.4: FTEX texture-sample stall and 3-register write-back.  Shared FSM:
     * latches operands → texReq, freezes busy_counter while waiting, then writes
     * texR/G/B to rd/rd+1/rd+2 via each lane's memWrite port over 3 cycles. */
-  private def wireTexStall(recAs: Seq[UInt], recBs: Seq[UInt], memWrites: Seq[MemWritePort]): Unit = {
+  private def wireTexStall(recAs: Seq[UInt], recBs: Seq[UInt], recCs: Seq[UInt],
+                           memWrites: Seq[MemWritePort]): Unit = {
     val N = cfg.fragLanes
     val is_ftex_reg = RegInit(false.B)
     when(running && !is_busy && fetchedInstruction =/= 0.U) {
@@ -479,14 +490,17 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     def narrowTexCoord(c: UInt): UInt =
       if (config.totalBits > 16) Fp16Fp32.narrow(c(config.totalBits - 1, 0)) else c(15, 0)
 
-    // Active lane's U/V operands (read ports stay valid while busy_counter is held).
+    // Active lane's U/V/texSelect operands (read ports stay valid while busy_counter is held).
     val curA = VecInit(recAs)(texLaneIdx)
     val curB = VecInit(recBs)(texLaneIdx)
+    val curC = VecInit(recCs)(texLaneIdx)
+    val texSelectWidth = io.texSelect.getWidth
 
     // Defaults
-    io.texReq := false.B
-    io.texU   := 0.U
-    io.texV   := 0.U
+    io.texReq    := false.B
+    io.texU      := 0.U
+    io.texV      := 0.U
+    io.texSelect := 0.U
     // Lane-selective write: only the active lane's register file is written.
     def driveTexWriteLane(lane: UInt, en: Bool, addr: UInt, data: UInt): Unit =
       memWrites.zipWithIndex.foreach { case (tw, i) =>
@@ -510,6 +524,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // curA(15, 0) of FP32 0.5f is 0x0000.
       io.texU   := narrowTexCoord(curA)
       io.texV   := narrowTexCoord(curB)
+      // texSelect is a raw small integer (the compiler pins a compile-time
+      // binding index into rs3), not a float -- take the low bits directly,
+      // same convention as the int ALU's own raw-bits results.
+      io.texSelect := curC(texSelectWidth - 1, 0)
       when(io.texDone) {                      // same-cycle (e.g. texture disabled → white)
         texResultR := widenTexel(io.texR); texResultG := widenTexel(io.texG); texResultB := widenTexel(io.texB)
         texState   := sTexWB0

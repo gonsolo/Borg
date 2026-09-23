@@ -67,11 +67,21 @@ object EmitIsaHeader extends App {
   body ++= "// occupies bits 31:25, so each base below is funct7 << 25.\n\n"
   body ++= "#pragma once\n#include <stdint.h>\n\n"
 
-  // FMADD is the one R4-type op and is discriminated by opcode bit 2 rather
-  // than by funct7, so it is not in the funct7 table.
-  body ++= s"// R4-type: FMADD (opcode bit ${BITS_OPCODE_FMA_BIT}, not a funct7 value)\n"
+  // R4-type ops are discriminated by opcode bit 2 plus a 2-bit funct2 at
+  // instr[26:25], not by funct7, so neither is in the funct7 table.
+  private def r4Base(funct2: Int): String = f"0x${OPCODE_FMA.toLong | (funct2.toLong << 25)}%08XU"
+  body ++= s"// R4-type: FMADD (opcode bit ${BITS_OPCODE_FMA_BIT}, funct2=$FUNCT2_FMADD)\n"
   body ++= s"#define BORG_INSTR_FMADD(rd, rs1, rs2, rs3, funct3) " +
-           f"(0x${OPCODE_FMA}%08XU | $C_ARGS_R4)\n\n"
+           s"(${r4Base(FUNCT2_FMADD)} | $C_ARGS_R4)\n\n"
+  // FTEX rd, rs1(U), rs2(V), rs3: rd=texR, rd+1=texG, rd+2=texB. rs3 is a
+  // REGISTER INDEX (like FMA's own rs3) whose low bits select which
+  // texture-binding slot to sample -- write the desired slot number into a
+  // register first, same as any other pinned constant, then pass its index.
+  body ++= s"// R4-type: FTEX (opcode bit ${BITS_OPCODE_FMA_BIT}, funct2=$FUNCT2_FTEX)\n"
+  body ++= s"#define BORG_INSTR_FTEX(rd, rs1, rs2, rs3, funct3) " +
+           s"(${r4Base(FUNCT2_FTEX)} | " +
+           s"((funct3) << ${BF_FUNCT3.lo}) | ((rs3) << ${BF_RS3.lo}) | " +
+           s"((rs2) << ${BF_RS2.lo}) | ((rs1) << ${BF_RS1.lo}) | ((rd) << ${BF_RD.lo}))\n\n"
 
   for ((name, f7, shape) <- all)
     body ++= macroFor(name, f7, shape) + "\n"
@@ -80,5 +90,5 @@ object EmitIsaHeader extends App {
   body ++= "#define BORG_INSTR_HALT                           0x00000000U\n"
 
   java.nio.file.Files.write(java.nio.file.Paths.get(out), body.toString.getBytes)
-  println(s"EmitIsaHeader: wrote $out (${all.length} opcodes + FMADD)")
+  println(s"EmitIsaHeader: wrote $out (${all.length} opcodes + FMADD + FTEX)")
 }

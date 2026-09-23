@@ -40,7 +40,10 @@ object Instructions {
   val FUNCT7_FNEG  = 0x06
   val FUNCT7_FSTEP = 0x08
   val FUNCT7_FRCP  = 0x0A
-  val FUNCT7_FTEX  = 0x0C  // Texture sample: FTEX rd, rs1(U), rs2(V) → rd=texR, rd+1=texG, rd+2=texB
+  // FTEX moved to the R4-type shape (see FUNCT2_FTEX below) to gain rs3 as a
+  // texture-slot index for multi-texture binding -- 0x0C is retired, not
+  // reused: any stale binary encoding a pre-migration FTEX must not silently
+  // decode as something else.
   // Integer ops (16-bit, operate on the raw register bits). Use the widened
   // 7-bit funct7 field; the upper bits keep them distinct from the FP ops.
   val FUNCT7_IADD  = 0x0E  // rd = rs1 + rs2        (16-bit wrap)
@@ -134,6 +137,22 @@ object Instructions {
   val FUNCT7_EXANY = 0x3E
   // @doc:end
 
+  // R4-type sub-opcodes (opcode bit 2 set, discriminated by the 2-bit funct2
+  // at instr[26:25] -- see encodeR4Type). FMADD is funct2=0 (unchanged).
+  // FTEX moved here (funct2=1) specifically to gain rs3 as a texture-slot
+  // index for multi-texture binding: under the ALU-opcode RType shape its
+  // funct7 (bits 31:25) already used the full width BF_RS3 (bits 31:27)
+  // would need, leaving no room for a 3rd operand. R4-type's much narrower
+  // funct2 frees those bits. This is the same 3-source-operand shape real
+  // RISC-V uses for its own fmadd.s -- U, V and a texture-select index are a
+  // structural match for it, not a repurposing.
+  //
+  // rs3 (texSelect) is expected to be a compile-time-constant descriptor
+  // binding index, pinned into a const GPR exactly like borgc's existing
+  // push_const_reg mechanism -- not a per-invocation dynamic value.
+  val FUNCT2_FMADD = 0
+  val FUNCT2_FTEX  = 1
+
   /** Split an absolute branch target into the rs2/rd fields it is packed into. */
   def branchTargetFields(target: Int): (Int, Int) = {
     require(target >= 0 && target < 1024, s"branch target out of range: $target")
@@ -153,7 +172,17 @@ object Instructions {
   def FNEG(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FNEG, 0, rs1, rd, funct3)
   def FSTEP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FSTEP, 0, rs1, rd, funct3)
   def FRCP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FRCP, 0, rs1, rd, funct3)
-  def FTEX(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FTEX, rs2, rs1, rd, funct3)
+  /** rs3: a REGISTER INDEX (like FMA's own rs3), not an immediate -- the
+    * hardware reads whatever value is stored in register rs3 and uses its
+    * low bits to select which texture-binding slot to sample (see
+    * FUNCT2_FTEX). A caller wanting texSelect=N must first write N into
+    * some register and pass that register's index here -- exactly the
+    * same "pin a constant into a register, then reference it" shape
+    * borgc's push_const_reg already uses. Defaults to r0 for
+    * single-texture callers (whose r0 need not even hold 0: any value
+    * whose low log2(maxTextureBindings) bits are 0 selects slot 0). */
+  def FTEX(rs1: Int, rs2: Int, rd: Int, rs3: Int = 0, funct3: Int = 0): BigInt =
+    encodeR4Type(rs3, FUNCT2_FTEX, rs2, rs1, rd, funct3)
   def IADD(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_IADD, rs2, rs1, rd, funct3)
   def ISHL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISHL, rs2, rs1, rd, funct3)
   def ISHR(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISHR, rs2, rs1, rd, funct3)
@@ -214,7 +243,8 @@ object Instructions {
     ("FNEG",   FUNCT7_FNEG,  R1Type),
     ("FSTEP",  FUNCT7_FSTEP, R1Type),
     ("FRCP",   FUNCT7_FRCP,  R1Type),
-    ("FTEX",   FUNCT7_FTEX,  RType),
+    // FTEX is R4-type now (see FUNCT2_FTEX) -- not funct7-keyed, so like
+    // FMADD it is special-cased in EmitIsaHeader rather than listed here.
     ("IADD",   FUNCT7_IADD,  RType),
     ("ISHL",   FUNCT7_ISHL,  RType),
     ("ISHR",   FUNCT7_ISHR,  RType),

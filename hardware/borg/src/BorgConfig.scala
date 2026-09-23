@@ -156,6 +156,19 @@ case class BorgConfig(
     // keeps even an enabled build sampling nearest -- and paying no
     // quantize/dequantize round trip -- until an application asks for linear.
     hasBilinear: Boolean = false,
+    // Number of simultaneously-bound textures FTEX can select between (its
+    // rs3 operand -- see Instructions.FUNCT2_FTEX). Only the base DRAM
+    // address is per-slot; dimension, address mode and filtering stay
+    // shared/global, so every simultaneously-bound texture must be the same
+    // size -- a real, deliberate scoping limit, not an oversight.
+    //
+    // 4 is conservative, not the Vulkan-declared minimum: the CTS's own
+    // required-limits check (vktApiFeatureInfo.cpp) puts
+    // maxPerStageDescriptorSampledImages/Samplers at 16. Raising this is a
+    // bounded, mechanical change (widen the tex_base_addr RDL array and this
+    // field) -- deferred to an explicit area-vs-declared-limit call, the
+    // same shape as the hasCompute decision.
+    maxTextureBindings: Int = 4,
     // --- MSAA storage strategy ------------------------------------------
     //
     // false (default): every sample of the tile is resident at once --
@@ -287,6 +300,11 @@ case class BorgConfig(
     // and load 7+N instead of 7, shifting holdA/B/C and pipeEn1 earlier.
     fmaStages: Int = 3
 ) {
+  // Fixed at exactly 4: hardware/rdl/borg.rdl declares tex_base_addr0..3 as
+  // four separate named registers (not a SystemRDL array -- see that file's
+  // own comment for why), so Borg.scala's mux over them is hardcoded to 4
+  // wide. Raising this needs both files changed together, not just this one.
+  require(maxTextureBindings == 4, s"maxTextureBindings must be 4 (matching the RDL's fixed tex_base_addr0..3), got $maxTextureBindings")
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
   require(!msaaMultiPass || samples > 1,

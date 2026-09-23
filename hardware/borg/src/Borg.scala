@@ -401,7 +401,17 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     d.io.gpuMem.waccept := false.B
 
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
-    rast.io.texConfig.baseAddr := rdlRegs.io.hw.tex_config_base_addr
+    // Multi-texture binding: FTEX's rs3 (core.io.texSelect) picks which of
+    // the 4 base-address slots feeds the texture unit for this sample.
+    // tex_config.base_addr itself is superseded (see the RDL's own comment)
+    // and no longer read here. Dimension/address-mode/filtering stay shared
+    // across every bound texture -- see BorgConfig.maxTextureBindings.
+    rast.io.texConfig.baseAddr := VecInit(
+      rdlRegs.io.hw.tex_base_addr0_base_addr,
+      rdlRegs.io.hw.tex_base_addr1_base_addr,
+      rdlRegs.io.hw.tex_base_addr2_base_addr,
+      rdlRegs.io.hw.tex_base_addr3_base_addr
+    )(core.io.texSelect)
     rast.io.log2Dim            := rdlRegs.io.hw.tex_config_log2_dim
     // Unused now that texturing is FTEX-inline only: BorgTextureUnit only
     // ever consumes texConfig.mortonIndex in the same cycle FTEX overrides
