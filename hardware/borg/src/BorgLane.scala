@@ -40,6 +40,9 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // not-taken arm of a divergent `if`: it still executes (the quad shares one
   // program counter, so it has no choice) but none of its writes may land.
   val execActive  = Input(Bool())
+  // Broadcast, not per-lane: whether ANY lane's execMask bit is set right
+  // now -- see Instructions.FUNCT7_EXANY.
+  val execAny     = Input(Bool())
   val busyCounter = Input(UInt(cfg.busyCounterWidth.W))
   val running     = Input(Bool())
   val isBusy      = Input(Bool())
@@ -341,6 +344,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_iseq_reg = RegInit(false.B)
     val is_i2f_reg  = RegInit(false.B)
     val is_f2i_reg  = RegInit(false.B)
+    val is_exany_reg = RegInit(false.B)
     when(start) {
       is_iadd_reg := opFlags.iadd
       is_ishl_reg := opFlags.ishl
@@ -354,6 +358,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_iseq_reg := opFlags.iseq
       is_i2f_reg  := opFlags.i2f
       is_f2i_reg  := opFlags.f2i
+      is_exany_reg := opFlags.exany
     }
     val w     = config.totalBits          // 16
     val mantN = config.sig - 1            // 10 stored mantissa bits
@@ -372,6 +377,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val ixor = recA_raw ^ recB_raw
     val islt = Mux(recA_raw.asSInt < recB_raw.asSInt, 1.U(w.W), 0.U(w.W))
     val iseq = Mux(recA_raw === recB_raw, 1.U(w.W), 0.U(w.W))
+    val exany = Mux(io.execAny, 1.U(w.W), 0.U(w.W))
 
     // i2f: signed int16 → fp16. |a|, normalize: MSB → implicit 1, exp = msb+bias,
     // mantissa = the mantN bits below the MSB. Truncates for |a| >= 2^(mantN+1).
@@ -405,10 +411,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                  Mux(is_ixor_reg, ixor,
                  Mux(is_islt_reg, islt,
                  Mux(is_iseq_reg, iseq,
-                 Mux(is_i2f_reg,  i2f, f2i)))))))))))
+                 Mux(is_exany_reg, exany,
+                 Mux(is_i2f_reg,  i2f, f2i))))))))))))
     val is_int = is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg ||
                  is_isub_reg || is_iand_reg || is_ior_reg || is_ixor_reg ||
-                 is_islt_reg || is_iseq_reg || is_i2f_reg || is_f2i_reg
+                 is_islt_reg || is_iseq_reg || is_exany_reg || is_i2f_reg || is_f2i_reg
     (result, is_int)
   }
 
@@ -424,8 +431,18 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // execution correct for everything the ALU produces -- including the
     // fragment outputs r24..r29, since the dispatcher snoops them through
     // this very port.
+    //
+    // EXANY is the one deliberate exception to the exec-mask gate: its whole
+    // purpose is to hand every lane -- INCLUDING ones the current mask has
+    // masked off -- a quad-uniform "is any lane still active" value, so that
+    // a lane which has already dropped out of a divergent loop still gets a
+    // fresh answer every iteration. BRZ/BRNZ only ever reads lane 0's
+    // operand; gating EXANY's write-back on execActive like everything else
+    // would freeze lane 0's copy the moment lane 0 itself masks off, and the
+    // loop could never observe every OTHER lane finishing after that.
     val pipe_write = running && is_busy && busy_counter === 1.U &&
-                     !io.opFlags.branch && !io.opFlags.execOp && io.execActive
+                     !io.opFlags.branch && !io.opFlags.execOp &&
+                     (io.opFlags.exany || io.execActive)
     val w_en = mmio_write || pipe_write
     // Truncated to log2Ceil(32) for the same reason as wireGprReads' mmioAddr:
     // this branch is only selected when mmio_write is true, which bounds

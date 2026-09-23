@@ -251,6 +251,70 @@ object BorgCoreTestsD extends TestSuite {
       }
     }
 
+    utest.test("exany_implements_a_genuinely_divergent_loop") {
+      simulate(new BorgCore(SIMT)) { core =>
+        println("\n--- BorgCore: EXANY -- divergent while loop ---")
+        idleInputs(core)
+        pokeQuad(core)
+        resetCore(core)
+
+        // while (counter != 0) { accum++; counter--; }, counter = 2 + 2*x, so
+        // lanes 0/2 (x=0) run it twice and lanes 1/3 (x=1) run it four times --
+        // genuinely different trip counts. BRZ/BRNZ alone cannot express this
+        // loop's exit condition (it only reads lane 0's operand, and lane 0's
+        // OWN counter says "done" two iterations before lane 1's does); EXANY
+        // reduces the whole quad's execMask to one quad-uniform value BRNZ can
+        // safely test. r9 counts total passes through the EXPUSH/EXANY/EXPOP
+        // block, unconditionally (outside the mask) -- a lane-0-readable proxy
+        // for "did the loop actually run long enough for the OTHER lane's
+        // longer trip count", since lane 0 alone would only need 3 passes.
+        writeReg(core, 1, 0)   // counter, computed below
+        writeReg(core, 2, 0)   // accumulator
+        writeReg(core, 7, 1)              // +1
+        writeReg(core, 8, intBits(-1))    // -1
+        writeReg(core, 9, 0)   // total passes
+
+        writeReg(core, 6, 2)                                           // constant 2
+        writeImem(core, 0, Instructions.F2I(30, 5))                    // r5 = int(x), 0 or 1
+        writeImem(core, 1, Instructions.IMUL(5, 6, 1))                 // r1 = x*2
+        writeImem(core, 2, Instructions.IADD(1, 6, 1))                 // r1 = x*2 + 2 (counter: 2 or 4)
+        // LOOP (starts at instruction 3):
+        writeImem(core, 3, Instructions.IADD(9, 7, 9))                 // r9 += 1 (unmasked pass counter)
+        writeImem(core, 4, Instructions.EXPUSH(rs1 = 1))               // mask lanes with counter == 0
+        writeImem(core, 5, Instructions.IADD(2, 7, 2))                 // r2 += 1
+        writeImem(core, 6, Instructions.IADD(1, 8, 1))                 // r1 -= 1
+        writeImem(core, 7, Instructions.EXANY(rd = 3))                 // r3 = any lane still active this pass
+        writeImem(core, 8, Instructions.EXPOP())
+        writeImem(core, 9, Instructions.BRNZ(rs1 = 3, target = 3))
+        writeImem(core, 10, 0)
+
+        core.io.control.start.poke(true.B)
+        core.clock.step(1)
+        core.io.control.start.poke(false.B)
+        var idle = false
+        var watchdog = 0
+        while (!idle && watchdog < 3000) {
+          core.clock.step(1)
+          idle = !core.io.status.running.peek().litToBoolean
+          watchdog += 1
+        }
+        utest.assert(idle)
+
+        val accum = readReg(core, 2)
+        val passes = readReg(core, 9)
+        println(s"  lane0 (x=0, trip count 2): accum = $accum (expect 2), total passes = $passes (expect 5)")
+        utest.assert(accum == 2)
+        // 5, not 3: 4 passes where at least one lane (the x=1 pair, trip
+        // count 4) is still active, plus the final pass where every lane's
+        // counter has already reached 0 -- the one EXANY reports as empty.
+        // A broken EXANY (or one that only reflected lane 0's own state)
+        // would stop this at 3.
+        utest.assert(passes == 5)
+        utest.assert(!core.io.execFault.peek().litToBoolean)
+        println("  PASSED")
+      }
+    }
+
     utest.test("a_shader_using_no_mask_ops_runs_fully_unmasked") {
       simulate(new BorgCore(SIMT)) { core =>
         println("\n--- BorgCore: no mask ops -> nothing changes ---")

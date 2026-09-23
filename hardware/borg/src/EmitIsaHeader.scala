@@ -51,6 +51,9 @@ object EmitIsaHeader extends App {
           s"((funct3) << ${BF_FUNCT3.lo}) | ((rs1) << ${BF_RS1.lo}))"
       case Mask0 =>
         s"#define BORG_INSTR_$name(funct3) ($b | ((funct3) << ${BF_FUNCT3.lo}))"
+      case MaskDest =>
+        s"#define BORG_INSTR_$name(rd, funct3) ($b | " +
+          s"((funct3) << ${BF_FUNCT3.lo}) | ((rd) << ${BF_RD.lo}))"
     }
   }
 
