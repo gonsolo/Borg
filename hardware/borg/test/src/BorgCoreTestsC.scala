@@ -47,6 +47,42 @@ object BorgCoreTestsC extends TestSuite {
       }
     }
 
+    utest.test("ftex_writes_rgba_to_four_consecutive_registers") {
+      // A sampled image is a vec4: FTEX must land R/G/B/A in rd..rd+3, each
+      // channel distinct so a swapped or dropped write shows up, and must
+      // not touch rd+4.
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: FTEX writes RGBA ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, BigInt("3F000000", 16))   // u = 0.5
+        writeReg(core, 1, BigInt("3E800000", 16))   // v = 0.25
+        writeReg(core, 3, 0)                         // rs3: slot 0
+        val sentinel = BigInt("DEADBEEF", 16)
+        writeReg(core, 12, sentinel)                 // rd+4
+        writeImem(core, 0, Instructions.FTEX(rs1 = 0, rs2 = 1, rd = 8, rs3 = 3))
+        writeImem(core, 1, 0)
+
+        core.io.control.start.poke(true.B); core.clock.step(1); core.io.control.start.poke(false.B)
+        var wd = 0
+        while (core.io.status.running.peek().litToBoolean && wd < 2000) {
+          if (core.io.texReq.peek().litToBoolean) {
+            // FP16 0.25 / 0.5 / 0.75 / 1.0
+            core.io.texR.poke(0x3400.U); core.io.texG.poke(0x3800.U)
+            core.io.texB.poke(0x3A00.U); core.io.texA.poke(0x3C00.U)
+            core.io.texDone.poke(true.B)
+          } else core.io.texDone.poke(false.B)
+          core.clock.step(1); wd += 1
+        }
+        core.io.texDone.poke(false.B)
+        utest.assert(wd < 2000)
+        val got = (8 to 11).map(r => bitsToFloat(readReg(core, r)))
+        println(f"  r8..r11 = ${got.map(v => f"$v%.2f").mkString(", ")} (expect 0.25, 0.50, 0.75, 1.00)")
+        utest.assert(got == Seq(0.25f, 0.5f, 0.75f, 1.0f))
+        utest.assert(readReg(core, 12) == sentinel)
+      }
+    }
+
     utest.test("ftex_rs3_routes_two_calls_to_different_textures") {
       // Multi-texture binding: FTEX's rs3 (Instructions.FUNCT2_FTEX) is a
       // real register-index operand now, not a config-time-only MMIO field

@@ -339,9 +339,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     core.io.texG    := rast.io.texG
     core.io.texB    := rast.io.texB
     core.io.texA    := rast.io.texA
-    rast.io.zTestReq := core.io.zTestReq
-    core.io.zTestDone := rast.io.zTestDone
-    core.io.laneHelper.foreach(_ := rast.io.laneHelper)
   }
 
   private def wireRasterizer(): Unit = {

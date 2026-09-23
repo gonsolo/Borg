@@ -116,22 +116,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val texR    = Output(UInt(16.W))    // fetched texel R (to core)
   val texG    = Output(UInt(16.W))    // fetched texel G (to core)
   val texB    = Output(UInt(16.W))    // fetched texel B (to core)
-  val texA    = Output(UInt(16.W))    // alpha: stubbed 0 (FTEX-returns-alpha commit not applied)
-
-  // ZTEST: early per-fragment tests, requested mid-shader by the core.
-  val zTestReq   = Input(Bool())
-  val zTestDone  = Output(Bool())
-  // Per lane: no side effects allowed (helper, discarded, or failed ZTEST).
-  // Only meaningful while a fragment shader runs; false otherwise, so a
-  // compute or MMIO run is never affected.
-  val laneHelper = Output(Vec(cfg.fragLanes, Bool()))
-  // msaaMultiPass: the sample this pass renders. Only that sample's early
-  // result decides whether a lane is a helper -- the other samples' planes
-  // are not live in this pass.
-  val passSample = if (cfg.msaaMultiPass) Some(Input(UInt(log2Up(cfg.samples).W))) else None
-  // Occlusion queries: how many samples passed the per-fragment tests this
-  // cycle (0 on cycles that ran no test). Borg.scala accumulates it.
-  val occSamples = Output(UInt(log2Ceil(cfg.samples + 1).W))
+  val texA    = Output(UInt(16.W))    // fetched texel A (to core)
 
   // MSAA coverage deltas (Step 50.2), per triangle, from the setup shader via
   // BorgSequencer.  Indexed [edge][k]: two base deltas per edge.  Absent at
@@ -449,12 +434,13 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       texUnit.io.texConfig.mortonIndex := ftexMortonIndex
       ftexActive := true.B
     }.otherwise {
-      // Texture disabled: immediately return white (1.0, 1.0, 1.0)
-      // texel(1,1,1) × vertexColor = vertexColor (non-textured pass-through)
+      // Texture disabled: immediately return opaque white (1.0, 1.0, 1.0, 1.0)
+      // texel(1,1,1,1) × vertexColor = vertexColor (non-textured pass-through)
       io.texDone := true.B
       io.texR    := FP16_ONE_U
       io.texG    := FP16_ONE_U
       io.texB    := FP16_ONE_U
+      io.texA    := FP16_ONE_U
     }
   }
 
@@ -464,6 +450,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     io.texR    := texUnit.io.fragColor.r
     io.texG    := texUnit.io.fragColor.g
     io.texB    := texUnit.io.fragColor.b
+    io.texA    := texUnit.io.fragA
     // ftexActive gates this block to genuine FTEX completions -- texUnit.io.start
     // is only ever pulsed from the FTEX branch above, so texUnit.io.done can
     // only fire in response to one.

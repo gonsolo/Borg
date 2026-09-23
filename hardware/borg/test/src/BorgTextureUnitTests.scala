@@ -204,6 +204,20 @@ object BorgTextureUnitTests extends TestSuite {
     // Correct R/G/B unpacking from the two 32-bit words
     // =========================================================================
 
+    utest.test("alpha_is_the_upper_half_of_the_ba_word") {
+      simulate(new BorgTextureUnit) { d =>
+        println("\n--- BorgTextureUnit: alpha unpacking ---")
+        reset(d)
+        // R16G16B16A16_SFLOAT: word +4 is {A, B}. A used to be discarded.
+        runFetch(d, base = 0x0100, idx = 0x002, bWord = 0xAAAABBBBL, rgWord = 0x56781234L)
+        // fragA holds after done (registered), so read it back now.
+        val a = d.io.fragA.peek().litValue.toInt
+        println(f"  fragA=0x${a.toHexString} (expect 0xaaaa)")
+        utest.assert(a == 0xAAAA)
+        println("  PASSED")
+      }
+    }
+
     utest.test("rgb_unpacking_correct") {
       simulate(new BorgTextureUnit) { d =>
         println("\n--- BorgTextureUnit: rgb_unpacking_correct ---")
@@ -377,7 +391,7 @@ object BorgTextureUnitTests extends TestSuite {
       * the value the address maps to. Returns the addresses touched, in order,
       * so a test can assert on the tap footprint itself. */
     def runFiltered(d: BorgTextureUnit, texel: Map[Int, (Int, Int, Int)],
-                    base: Int): Seq[Int] = {
+                    base: Int, alpha: Map[Int, Int] = Map.empty): Seq[Int] = {
       var addrs = Vector.empty[Int]
       d.io.start.poke(true.B)
       d.clock.step(1)
@@ -389,8 +403,9 @@ object BorgTextureUnitTests extends TestSuite {
           addrs = addrs :+ a
           val texelAddr = a & ~4
           val (r, g, b) = texel.getOrElse(texelAddr, (0, 0, 0))
-          // Layout: word +4 is B, word +0 is {G[31:16], R[15:0]}.
-          val data = if ((a & 4) != 0) BigInt(b) else (BigInt(g) << 16) | BigInt(r)
+          // Layout: word +4 is {A[31:16], B[15:0]}, word +0 is {G[31:16], R[15:0]}.
+          val al = alpha.getOrElse(texelAddr, 0)
+          val data = if ((a & 4) != 0) (BigInt(al) << 16) | BigInt(b) else (BigInt(g) << 16) | BigInt(r)
           d.io.gpuMem.data.poke(data.U)
           d.io.gpuMem.ready.poke(true.B)
         } else {
@@ -777,6 +792,58 @@ object BorgTextureUnitTests extends TestSuite {
         println(f"  r = $r%.3f (expect ~0.75)")
         utest.assert(math.abs(r - 0.75f) < 0.02f)
         println("  PASSED")
+      }
+    }
+    utest.test("filtered_alpha_blends_like_the_colour_channels") {
+      simulate(new BorgTextureUnit(BILIN)) { d =>
+        println("\n--- BorgTextureUnit: filtered alpha ---")
+        reset(d)
+        d.io.texConfig.baseAddr.poke(0.U)
+        d.io.bilinear.get.enable.poke(true.B)
+        d.io.bilinear.get.u8.poke(0.U); d.io.bilinear.get.v8.poke(0.U)
+        d.io.bilinear.get.log2Dim.poke(3.U)
+        d.io.bilinear.get.fracU.poke(128.U); d.io.bilinear.get.fracV.poke(0.U)
+        def morton(x: Int, y: Int): Int =
+          (0 until 8).map(i => ((x >> i) & 1) << (2 * i) | ((y >> i) & 1) << (2 * i + 1)).sum
+        // Colour identical on both taps, alpha 1.0 vs 0.0: the halfway sample
+        // must have alpha ~0.5 while colour stays put. Colour and alpha share
+        // the blend, so an alpha lane that was never wired would read 0.
+        val white = (f16(1.0f), f16(1.0f), f16(1.0f))
+        val texel = Map((morton(0, 0) << 3) -> white, (morton(1, 0) << 3) -> white)
+        val alpha = Map((morton(0, 0) << 3) -> f16(1.0f))
+        runFiltered(d, texel, 0, alpha)
+        val a = f16ToFloat(d.io.fragA.peek().litValue.toInt)
+        val r = f16ToFloat(d.io.fragColor.r.peek().litValue.toInt)
+        println(f"  a = $a%.3f (expect ~0.5), r = $r%.3f (expect 1.0)")
+        utest.assert(math.abs(a - 0.5f) < 0.02f)
+        utest.assert(math.abs(r - 1.0f) < 0.01f)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("border_alpha_separates_transparent_from_opaque_black") {
+      // TRANSPARENT_BLACK and OPAQUE_BLACK were indistinguishable while the
+      // texture path had no alpha. Every tap outside an 8x8 texture is border.
+      for ((sel, expA) <- Seq((BorderColor.TRANSPARENT_BLACK, 0.0f),
+                              (BorderColor.OPAQUE_BLACK, 1.0f),
+                              (BorderColor.OPAQUE_WHITE, 1.0f))) {
+        simulate(new BorgTextureUnit(BILIN)) { d =>
+          println(s"\n--- BorgTextureUnit: border $sel alpha ---")
+          reset(d)
+          d.io.texConfig.baseAddr.poke(0.U)
+          d.io.bilinear.get.enable.poke(true.B)
+          d.io.bilinear.get.u8.poke(9.U); d.io.bilinear.get.v8.poke(9.U)
+          d.io.bilinear.get.log2Dim.poke(3.U)
+          d.io.bilinear.get.fracU.poke(0.U); d.io.bilinear.get.fracV.poke(0.U)
+          d.io.bilinear.get.addrModeU.poke(TexAddressMode.CLAMP_TO_BORDER.U)
+          d.io.bilinear.get.addrModeV.poke(TexAddressMode.CLAMP_TO_BORDER.U)
+          d.io.bilinear.get.border.poke(sel.U)
+          val addrs = runFiltered(d, Map.empty, 0)
+          val a = f16ToFloat(d.io.fragA.peek().litValue.toInt)
+          println(f"  reads=${addrs.length} (expect 0), a = $a%.3f (expect $expA%.1f)")
+          utest.assert(addrs.isEmpty)
+          utest.assert(math.abs(a - expA) < 0.01f)
+        }
       }
     }
   }
