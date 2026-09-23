@@ -230,6 +230,12 @@ case class BorgConfig(
     // fragLanes=1 the mask is degenerate but the branches are not -- loops
     // and early exits need them regardless of SIMT width.
     hasControlFlow: Boolean = true,
+    // hasCompute: the compute dispatch sequencer (BorgComputeSequencer) and
+    // compute-mode invocation IDs in r30/r31. Only takes effect with LOAD/STORE
+    // (the only way a compute shader produces output), the execution mask
+    // (partial quads) and a 32-bit datapath (the IDs are raw integers) -- see
+    // computeEnabled.
+    hasCompute: Boolean = false,
     // BorgFp16Fma pipeline depth. 3 is the shipping FP16 form; 4 and 5 add
     // registers inside stages 2 and 3 respectively, for FP32 at 25 MHz.
     //
@@ -288,6 +294,9 @@ case class BorgConfig(
   require(tileColorBits == 16 || tileColorBits == 8,
           s"tileColorBits must be 16 (off) or 8 (ColorQuantize UNORM8), got $tileColorBits")
   require(fmaStages >= 3 && fmaStages <= 5, s"fmaStages must be 3, 4 or 5, got $fmaStages")
+  // Compute exists only where its prerequisites do; the driver detects it
+  // through COMPUTE_CTRL's `present` bit rather than assuming it.
+  def computeEnabled: Boolean = hasCompute && hasMemoryOps && hasControlFlow && fp.totalBits == 32
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
   def sig: Int = fp.sig
@@ -396,7 +405,8 @@ object BorgConfig {
     hasDepthFlush   = true,
     hasBlend        = true,
     hasStencil      = true,
-    hasBilinear     = true
+    hasBilinear     = true,
+    hasCompute      = true
   )
 
   // Sim + ULX3S SIMT config: 2×2 quad fragment shading.  Selected via BORG_CFG in
@@ -515,7 +525,10 @@ object BorgConfig {
     msaaMultiPass    = true,
     // Splits the longest nets in the design (see the parameter's own doc).
     // Costs one cycle of MMIO-write latency, which nothing observes.
-    pipelineSeqConfig = true
+    pipelineSeqConfig = true,
+    // Off until its area and routing are measured on this slot: the taped-out
+    // RTL must not change as a side effect of Default gaining compute.
+    hasCompute       = false
   )
 
   // The config Chisel unit tests should instantiate full Borg/BorgTestWrapper

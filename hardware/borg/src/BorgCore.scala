@@ -81,6 +81,10 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // operand is an index rather than a full address.
   val lsBase  = if (cfg.hasMemoryOps) Some(Input(UInt(25.W))) else None
 
+  // Compute mode (BorgComputeSequencer): raw invocation IDs for r30/r31 and
+  // the lanes a compute trigger starts with.
+  val compute = if (cfg.computeEnabled) Some(Input(new ComputeLaneIO(cfg))) else None
+
   // Step 34.4: FTEX texture sample request/response
   val texReq  = Output(Bool())       // core requests texture fetch
   val texU    = Output(UInt(16.W))   // U coordinate from rs1
@@ -191,6 +195,14 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
   // Per-lane execution mask bit.
   lanes.zipWithIndex.foreach { case (lane, i) => lane.io.execActive := execMask(i) }
+
+  io.compute.foreach { c =>
+    lanes.zipWithIndex.foreach { case (lane, i) =>
+      lane.io.compute.get.mode := c.mode
+      lane.io.compute.get.r30  := c.r30(i)
+      lane.io.compute.get.r31  := c.r31(i)
+    }
+  }
 
   // Per-lane pixel coordinate (2×2 quad fanned out by the iterator).
   lanes.zipWithIndex.foreach { case (lane, i) => lane.io.iter := io.iter(i) }
@@ -760,9 +772,13 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
 
     // A fresh shader invocation starts with every lane running. Without this
-    // an unbalanced EXPUSH in one invocation would leak into the next.
+    // an unbalanced EXPUSH in one invocation would leak into the next. A
+    // compute quad starts with only its real invocations: the lanes past the
+    // end of a workgroup that is not a multiple of fragLanes stay masked.
     when(io.control.start || io.coreTrigger.valid) {
-      execMask := ((1 << cfg.fragLanes) - 1).U
+      val allLanes = ((1 << cfg.fragLanes) - 1).U
+      execMask := io.compute.map(c => Mux(c.mode && io.coreTrigger.valid, c.laneMask, allLanes))
+                    .getOrElse(allLanes)
       execSp   := 0.U
     }
   }

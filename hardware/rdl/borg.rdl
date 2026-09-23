@@ -1195,6 +1195,76 @@ reg uniform_reg_t {
 };
 
 
+// --- Compute dispatch (BorgConfig.computeEnabled) ---
+reg compute_ctrl_reg_t {
+    name = "Compute Dispatch Control / Status";
+    desc = "Write bit 0 = 1 to start a dispatch of COMPUTE_GROUPS workgroups,
+            each running COMPUTE_LOCAL.count invocations of the shader at
+            COMPUTE_PC. Load IMEM, LS_BASE and any uniforms first; the
+            sequencer overwrites uniforms u29/u30/u31 of page 0 with the
+            workgroup ID (x/y/z, raw integers) before each workgroup.
+            Reading returns bit 0 = done (sticky, cleared by the next start),
+            bit 1 = busy, bit 2 = compute hardware present.
+            nogen: decoded in Borg.scala.";
+
+    field {
+        sw = w; hw = r;
+        singlepulse;
+        desc = "Bit 0: Start dispatch (self-clearing pulse).";
+    } start[1] = 0;
+
+    field {
+        sw = w; hw = na;
+    } RSVD[31] = 0;
+};
+
+reg compute_pc_reg_t {
+    name = "Compute Shader Start PC";
+    desc = "IMEM word index of the compute shader's first instruction.";
+
+    field {
+        sw = w; hw = r;
+        desc = "Bits 5:0: start PC.";
+    } pc[6] = 0;
+
+    field {
+        sw = w; hw = na;
+    } RSVD[26] = 0;
+};
+
+reg compute_groups_xy_reg_t {
+    name = "Compute Workgroup Count X/Y";
+    desc = "vkCmdDispatch groupCountX/Y. A zero count in any dimension
+            dispatches nothing and completes immediately.";
+
+    field { sw = w; hw = r; desc = "Bits 15:0: groupCountX."; }  x[16] = 0;
+    field { sw = w; hw = r; desc = "Bits 31:16: groupCountY."; } y[16] = 0;
+};
+
+reg compute_groups_z_reg_t {
+    name = "Compute Workgroup Count Z";
+    desc = "vkCmdDispatch groupCountZ.";
+
+    field { sw = w; hw = r; desc = "Bits 15:0: groupCountZ."; } z[16] = 0;
+    field { sw = w; hw = na; } RSVD[16] = 0;
+};
+
+reg compute_local_reg_t {
+    name = "Compute Workgroup Size";
+    desc = "The shader's LocalSize. count must equal x*y*z (the driver
+            computes it; the hardware has no multiplier for it) and be at most
+            128, Vulkan's minimum maxComputeWorkGroupInvocations. Each lane
+            reads its invocation's IDs as raw integers: r30 =
+            LocalInvocationIndex, r31 = LocalInvocationID packed as
+            x | y << 10 | z << 20.";
+
+    field { sw = w; hw = r; desc = "Bits 7:0: local size x."; }        x[8] = 0;
+    field { sw = w; hw = r; desc = "Bits 15:8: local size y."; }       y[8] = 0;
+    field { sw = w; hw = r; desc = "Bits 23:16: invocation count."; }  count[8] = 0;
+    field { sw = w; hw = na; } RSVD[8] = 0;
+};
+
+
 // ============================================================================
 // Address map
 // ============================================================================
@@ -1385,4 +1455,18 @@ addrmap borg_gpu {
     perf_counter_reg_t perf_flush;   // 0x2B4: tile flusher active (SDRAM writes)
     perf_counter_reg_t perf_stall;   // 0x2B8: gpuMem.req && !ready (SDRAM stall)
     perf_counter_reg_t perf_dma;     // 0x2BC: DMA active (bin/descriptor reads)
+
+    // ---- Compute dispatch -- all nogen, decoded in Borg.scala only when
+    //      BorgConfig.computeEnabled, so a build without compute (Wafer)
+    //      carries no storage for them. ----
+    compute_ctrl_reg_t compute_ctrl;
+    compute_ctrl->nogen = true;
+    compute_pc_reg_t compute_pc;
+    compute_pc->nogen = true;
+    compute_groups_xy_reg_t compute_groups_xy;
+    compute_groups_xy->nogen = true;
+    compute_groups_z_reg_t compute_groups_z;
+    compute_groups_z->nogen = true;
+    compute_local_reg_t compute_local;
+    compute_local->nogen = true;
 };

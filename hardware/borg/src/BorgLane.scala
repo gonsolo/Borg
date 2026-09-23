@@ -26,6 +26,12 @@ import chisel3.util._
   * At `fragLanes==1` a single instance reproduces the original monolithic BorgCore
   * behaviour bit-for-bit.
   */
+class LaneComputeIO(val cfg: BorgConfig) extends Bundle {
+  val mode = Bool()
+  val r30  = UInt(cfg.totalBits.W)
+  val r31  = UInt(cfg.totalBits.W)
+}
+
 class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // --- Shared control (broadcast identically to every lane) ---
   val regs        = Input(new RegIndices())
@@ -42,6 +48,8 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
 
   // --- Per-lane pixel coordinate ---
   val iter        = Input(new Coord(cfg.coordWidth))
+  // --- Compute mode: r30/r31 read these raw integers instead ---
+  val compute     = if (cfg.computeEnabled) Some(Input(new LaneComputeIO(cfg))) else None
 
   // --- Shared uniform-RAM read (done once in BorgCore) ---
   val uniformData = Input(UInt(cfg.totalBits.W)) // op_en_del-gated read result
@@ -110,9 +118,13 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val coordReadEn = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
   private val coordX = Reg(UInt(config.totalBits.W))
   private val coordY = Reg(UInt(config.totalBits.W))
+  // Muxed ahead of the registers, not on the read path, so compute mode adds
+  // nothing to the register-file read timing.
   when(coordReadEn) {
-    coordX := coordToRegWidth(pixelToFP16Half(io.iter.x))
-    coordY := coordToRegWidth(pixelToFP16Half(io.iter.y))
+    coordX := io.compute.map(c => Mux(c.mode, c.r30, coordToRegWidth(pixelToFP16Half(io.iter.x))))
+                .getOrElse(coordToRegWidth(pixelToFP16Half(io.iter.x)))
+    coordY := io.compute.map(c => Mux(c.mode, c.r31, coordToRegWidth(pixelToFP16Half(io.iter.y))))
+                .getOrElse(coordToRegWidth(pixelToFP16Half(io.iter.y)))
   }
 
   // --- Register reads + uniform operand mux ---

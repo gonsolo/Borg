@@ -152,6 +152,12 @@ object BorgCoreTestHelpers {
     // tests that never execute a memory instruction.
     core.io.gpuMem.get.data.poke(0.U)
     core.io.gpuMem.get.ready.poke(false.B)
+    core.io.compute.foreach { c =>
+      c.mode.poke(false.B)
+      c.laneMask.poke(0.U)
+      c.r30.foreach(_.poke(0.U))
+      c.r31.foreach(_.poke(0.U))
+    }
     core.io.gpuMem.get.waccept.poke(false.B)
     core.io.lsBase.get.poke(0.U)
     core.clock.step(1)
