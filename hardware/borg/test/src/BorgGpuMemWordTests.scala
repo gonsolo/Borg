@@ -159,7 +159,11 @@ object BorgGpuMemWordTests extends TestSuite with FastBuildSimulator {
       simulate(new BorgTestWrapper(cfg)) { d => storeLoadScenario(d) }
     }
     utest.test("fp32_store_load_over_link") {
-      simulate(new BorgLinkTestWrapper(cfg, LinkParams())) { d => storeLoadScenario(d) }
+      // A one-cycle reset releases the link slave while Borg's registered reset
+      // copies still lag, so a unit's random power-up state can issue a gpuMem
+      // request the slave forwards before link-up and never gets answered.
+      // Silicon holds reset for milliseconds; hold it long enough here too.
+      simulate(new BorgLinkTestWrapper(cfg, LinkParams()), additionalResetCycles = 4) { d => storeLoadScenario(d) }
     }
   }
 }
