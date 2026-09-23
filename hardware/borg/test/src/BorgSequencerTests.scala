@@ -478,7 +478,14 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         // pipeline, widened 4->7 by the register-file read serialization --
         // see BorgLane's `regFile` doc comment) = 96 cycles, + start/halt
         // detection margin.
-        borg.clock.step(160)
+        //
+        // Memory is serviced throughout, as real hardware always does: CONTROL
+        // start does not reset the PC, so the core resumes where the last
+        // shader halted. With the instruction cache that line belongs to an
+        // older program, and the core fetches the current program's word from
+        // DRAM rather than running whatever IMEM happened to hold. A bare
+        // clock.step would leave that fetch unanswered and the core stalled.
+        for (_ <- 0 until 400) { serviceDram(borg, dram); borg.clock.step(1) }
 
         val gprs = (0 until 12).map { i => bitsToFloat(rawRead(borg, BorgGpuRegs.gpr_offset.litValue.toInt + i * 4)) }
         println(f"  r0-r5  (u0-u5 edges):   ${gprs.take(6).map(v => f"$v%.3f").mkString(" ")}")
@@ -1068,6 +1075,77 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         Predef.assert(count(early, farBits) == 0,
           "hidden fragments executed STOREs despite failing ZTEST")
         println("=== ztest_suppresses_stores_of_hidden_fragments PASSED ===\n")
+        }
+
+        scenario("icache_runs_a_fragment_shader_longer_than_imem") {
+        // A 106-word fragment shader -- longer than IMEM -- in DRAM, of which
+        // the MMIO DMA preloads only 40 words at IMEM offset 1 (which also sets
+        // CODE_BASE = source - 4). Each of 16 pixels, shaded through the real
+        // rasterizer ROM, dispatcher and core, must run all of it: it adds 1
+        // a hundred times and STOREs the sum. Every instruction past the
+        // preload arrives through the core's miss path and Borg's gpuMem mux.
+        println("\n=== BorgSequencerTests: icache_runs_a_fragment_shader_longer_than_imem ===")
+        resetAndWait(borg)
+        val lsBase = 0x30000; val fragAddr = 0x5000; val fragPc = 1
+        val frag = Seq(
+            Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),               // r25 = 0 (index, no kill)
+            Instructions.IXOR(rs1 = 5, rs2 = 5, rd = 5),                  // r5 = 0
+            Instructions.IADD(rs1 = 12, rs2 = 25, rd = 6, funct3 = 1)) ++ // r6 = u12 = 1
+          Seq.fill(100)(Instructions.IADD(rs1 = 5, rs2 = 6, rd = 5)) ++   // r5 += 1, x100
+          Seq(Instructions.STORE(rs1 = 25, rs2 = 5), BigInt(0))
+        Predef.assert(frag.length + fragPc > suiteCfg.maxInstructions)
+        val dram = frag.zipWithIndex.map { case (w, i) => (fragAddr + i * 4) -> w }.toMap
+
+        val stores = scala.collection.mutable.ArrayBuffer[BigInt]()
+        def service(): Unit = {
+          if (borg.io.gpuMem.req.peek().litToBoolean) {
+            val a = borg.io.gpuMem.addr.peek().litValue.toInt
+            borg.io.gpuMem.data.poke((dram.getOrElse(a, BigInt(0)) & BigInt(0xFFFFFFFFL)).U)
+            borg.io.gpuMem.waccept.poke(false.B)
+            borg.io.gpuMem.ready.poke(true.B)
+          } else if (borg.io.gpuMem.wr.peek().litToBoolean) {
+            val base = borg.io.gpuMem.addr.peek().litValue.toInt
+            val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
+            val halves = scala.collection.mutable.ArrayBuffer(borg.io.gpuMem.wdata.peek().litValue & 0xFFFF)
+            for (_ <- 1 until wlen) {
+              borg.io.gpuMem.waccept.poke(true.B)
+              borg.io.gpuMem.ready.poke(false.B)
+              borg.clock.step(1)
+              halves += borg.io.gpuMem.wdata.peek().litValue & 0xFFFF
+            }
+            borg.io.gpuMem.waccept.poke(false.B)
+            borg.io.gpuMem.ready.poke(true.B)
+            if (base == lsBase && wlen == 2) stores += (halves(0) | (halves(1) << 16))
+          } else {
+            borg.io.gpuMem.waccept.poke(false.B)
+            borg.io.gpuMem.ready.poke(false.B)
+          }
+        }
+        def run(cycles: Int): Unit = for (_ <- 0 until cycles) { service(); borg.clock.step(1) }
+
+        // Preload 40 words at IMEM offset 1 through the MMIO DMA.
+        val preload = 40
+        rawWrite(borg, BorgGpuRegs.dma_dram_offset.litValue.toInt, fragAddr)
+        rawWrite(borg, BorgGpuRegs.dma_config_offset.litValue.toInt, 1 | (preload << 1) | (0 << 7) | (fragPc << 9))
+        run(400)
+        def uniform(i: Int, v: BigInt): Unit =
+          rawWrite(borg, BorgGpuRegs.uniform_offset.litValue.toInt + i * 4, v)
+        for (i <- 0 until 12) uniform(i, 0)          // all-zero edges: every pixel inside
+        uniform(12, 1)
+        rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, fragPc)
+        rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, lsBase)
+        rawWrite(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, 0)
+        run(10)
+        for (_ <- 0 until 16) {
+          rawWrite(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
+          run(3000)
+        }
+        rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, 0)
+        rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 0)
+        println(s"  stores: ${stores.length} (expect 16), values: ${stores.distinct.mkString(",")} (expect 100)")
+        Predef.assert(stores.length == 16, "every pixel must finish the long shader")
+        Predef.assert(stores.forall(_ == 100), "a store saw the wrong sum: instructions were skipped or wrong")
+        println("=== icache_runs_a_fragment_shader_longer_than_imem PASSED ===\n")
         }
 
         scenario("covDelta_diagnostic_real_values") {

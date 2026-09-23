@@ -33,7 +33,7 @@ class ComputeLaneIO(val cfg: BorgConfig) extends Bundle {
   * so. See Instructions.FUNCT7_BARRIER. */
 class ComputeBarrierIO extends Bundle {
   val hit      = Bool()      // stopped at BARRIER, not HALT
-  val resumePC = UInt(6.W)   // valid only when hit
+  val resumePC = UInt(10.W)  // valid only when hit; may lie past IMEM
 }
 
 class BorgComputeSequencerIO(val cfg: BorgConfig) extends Bundle {
@@ -118,10 +118,10 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   private val wgZ = RegInit(0.U(16.W))
 
   // --- Current segment (see class doc) ---
-  private val segStartPC    = RegInit(0.U(6.W))
+  private val segStartPC    = RegInit(0.U(10.W))
   private val segSawBarrier = RegInit(false.B)  // some quad this segment stopped at BARRIER
   private val segSawHalt    = RegInit(false.B)  // some quad this segment stopped at HALT
-  private val segResumePC   = RegInit(0.U(6.W)) // the (checked-common) resume PC, once segSawBarrier
+  private val segResumePC   = RegInit(0.U(10.W)) // the (checked-common) resume PC, once segSawBarrier
   private val barrierFault  = RegInit(false.B)
 
   // The next invocation to hand out, as a linear index and as (x, y, z).
