@@ -327,6 +327,14 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
       Seq(0.0f, legs._2, 0.1f, r, g, 0.0f, 0.0f, 0.0f),
       Seq(legs._1, 0.0f, 0.1f, r, g, 0.0f, 0.0f, 0.0f))
 
+    /** A multi-triangle, multi-tile render instead of the single corner
+      * triangle: every entry is (vertices, maxX, maxY), binned from (0,0) up
+      * to its bbox, on a framebuffer `tilesPerRow` tiles wide. */
+    var scene: Seq[(Seq[Seq[Float]], Int, Int)] = Nil
+    var tilesPerRow = 1
+    /** OCC_TRI_RANGE: count only triangles first <= index < last. */
+    var occRange: (Int, Int) = (0, 0xFFFF)
+
     val DEPTH_LESS = 1 | (1 << 3); val DEPTH_ALWAYS = 7 | (1 << 3)
     val STENCIL_WRITE_7 = 1 | (7 << 1) | (BorgStencil.REPLACE << 7)   // ALWAYS, pass: REPLACE
     val STENCIL_EQUAL_7 = 1 | (2 << 1)                                // EQUAL, keep
@@ -349,16 +357,19 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
       // random r25 turns the fragment's depth into garbage.
       rawWrite(borg, BorgGpuRegs.gpr_offset.litValue.toInt + 31 * 4, 0)
       rawWrite(borg, BorgGpuRegs.gpr_offset.litValue.toInt + 25 * 4, 0)
-      rom ++= buildDescriptorWithBbox(descAddr, triangle(colour._1, colour._2), 0, 0, 4, 4)
+      val tris = if (scene.nonEmpty) scene else Seq((triangle(colour._1, colour._2), 4, 4))
+      for (((v, mx, my), i) <- tris.zipWithIndex)
+        rom ++= buildDescriptorWithBbox(descAddr + 256 * i, v, 0, 0, mx, my)
       def reg(r: UInt, v: BigInt): Unit = rawWrite(borg, r.litValue.toInt, v)
       reg(BorgGpuRegs.seq_desc_base_offset, descAddr)
       reg(BorgGpuRegs.seq_vert_addr_offset, vertAddr); reg(BorgGpuRegs.seq_vert_len_offset, vertShader.size)
       reg(BorgGpuRegs.seq_setup_addr_offset, setupAddr); reg(BorgGpuRegs.seq_setup_len_offset, setup.size)
       reg(BorgGpuRegs.seq_rast_addr_offset, rastAddr); reg(BorgGpuRegs.seq_rast_len_offset, 1)
       reg(BorgGpuRegs.seq_frag_addr_offset, fragAddr); reg(BorgGpuRegs.seq_frag_len_offset, fragShader.size)
-      reg(BorgGpuRegs.seq_bin_base_offset, binBase); reg(BorgGpuRegs.seq_bin_row_bytes_offset, 4)
+      reg(BorgGpuRegs.seq_bin_base_offset, binBase)
+      reg(BorgGpuRegs.seq_bin_row_bytes_offset, 4 max (2 * tris.size))
       reg(BorgGpuRegs.seq_setup_base_offset, setupBase)
-      reg(BorgGpuRegs.seq_fb_base_offset, fbBase); reg(BorgGpuRegs.seq_tiles_per_row_offset, 1)
+      reg(BorgGpuRegs.seq_fb_base_offset, fbBase); reg(BorgGpuRegs.seq_tiles_per_row_offset, tilesPerRow)
       reg(BorgGpuRegs.seq_clear_lo_offset, 0x7BFF); reg(BorgGpuRegs.seq_clear_hi_offset, clearHi)
       reg(BorgGpuRegs.frag_pc_offset, 1); reg(BorgGpuRegs.flush_width_offset, 2)
       reg(BorgGpuRegs.seq_inv_width_offset, floatToBits(1.0f))
@@ -370,8 +381,9 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
       reg(BorgGpuRegs.stencil_cfg_offset, stencilCfg)
       reg(BorgGpuRegs.stencil_front_offset, STENCIL_FACE_7)
       reg(BorgGpuRegs.tile_load_offset, load)
+      reg(BorgGpuRegs.occ_tri_range_offset, BigInt(occRange._1) | (BigInt(occRange._2) << 16))
       reg(BorgGpuRegs.occ_ctrl_offset, 3)                     // clear + enable
-      reg(BorgGpuRegs.seq_tri_count_offset, 1)
+      reg(BorgGpuRegs.seq_tri_count_offset, tris.size)
       reg(BorgGpuRegs.seq_trigger_offset, 1)
       var seqBusySeen = false; var seqBusyCleared = false
       for (cycle <- 0 until 60000 if !seqBusyCleared) {
