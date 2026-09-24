@@ -41,7 +41,7 @@ class BorgTestWrapperIO(val cfg: BorgConfig) extends Bundle {
   val user_interrupt = Output(Bool())
   val gpuMem         = new GpuMemIO
   // DIAGNOSTIC TEMP: see matching field in BorgIO.
-  val covDeltaDebug  = if (cfg.samples > 1) Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
+  val covDeltaDebug  = if (cfg.samples > 1) Some(Output(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
 }
 
 /** Anything presenting the legacy word-addressed MMIO surface.

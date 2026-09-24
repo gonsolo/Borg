@@ -42,7 +42,7 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   val dma     = new SeqDmaIO(cfg)
 
   val covDelta = if (cfg.samples > 1)
-    Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
+    Some(Output(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
   val texEnOverride = Output(Bool())
   // Per-triangle facing, inverted at the source so downstream consumers
   // (BorgStencil's frontFacing param) can use it directly without an
@@ -52,6 +52,10 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   // advances once the triangle's pixels have drained (sWaitRast ->
   // sReadBinEntry), so it names the triangle every tested fragment belongs to.
   val curTriIndex = Output(UInt(16.W))
+  // Draw front end: the current triangle's varyings in its record (word 48),
+  // for FATTR. The dispatcher drains before the next triangle is selected,
+  // so every fragment of a triangle sees its own record.
+  val attrBase = if (cfg.drawEnabled) Some(Output(UInt(25.W))) else None
 
   val uniformWrite     = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
@@ -64,9 +68,9 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
 class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgTileSequencerIO(cfg))
 
-  val nStates = 20
+  val nStates = 21
   val states = Enum(nStates)
-  val (sIdle :: sWaitDMA :: sLoadRastShader :: sLoadFragShader :: sStartPass2 ::
+  val (sIdle :: sWaitDMA :: sLoadRastShader :: sLoadFragShader :: sLoadFsConst :: sStartPass2 ::
        sReadBinCount :: sClearTile :: sLoadTile ::
        sReadBinEntry :: sWaitBinEntry :: sLoadTriSetup :: sLoadCovDelta ::
        sEnqueueTile :: sIteratePixels :: sWaitRast :: sWaitFlush :: sWaitFlushSync ::
@@ -74,6 +78,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   val state = RegInit(sIdle)
 
   val nextAfterDMA = RegInit(sIdle)
+  // Draw mode: which uniform page the fragment constant window goes to next.
+  val constPage = RegInit(0.U(1.W))
 
   val tileX = RegInit(0.U(cfg.coordWidth.W))
   val tileY = RegInit(0.U(cfg.coordWidth.W))
@@ -131,6 +137,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // the first tag would shade that triangle with the other one's uniforms.
   private val setupPages = if (cfg.maxUniforms > 32) 2 else 1
   val tagReg      = RegInit(VecInit(Seq.fill(2)("hFFFF".U(16.W))))
+  /** Two MSAA sample deltas per stored coverage plane. */
+  private val covDeltaWords = 2 * cfg.coveragePlanesStored
   val uvsReg      = RegInit(VecInit(Seq.fill(2)(false.B)))
   // Per-page cached facing flag, same shape as uvsReg -- both bits live in
   // the same DRAM word (word 31, bit 0 = has_uvs, bit 1 = isBackFacing) and
@@ -138,7 +146,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   val backFacingReg = RegInit(VecInit(Seq.fill(2)(false.B)))
   val cacheVictim = RegInit(0.U(1.W))
   val covDeltaCache = if (cfg.samples > 1)
-    Some(RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(6)(0.U(cfg.totalBits.W))))))) else None
+    Some(RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(covDeltaWords)(0.U(cfg.totalBits.W))))))) else None
   // covDeltaCache(uniformPage) is only safe to read AT SELECTION TIME: the
   // triangle actually in flight through the downstream pixel pipeline
   // (BorgIterator/BorgShaderDispatcher) can still be draining pixels for
@@ -150,7 +158,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // DMA snoop) and held stable until the next selection -- same pattern as
   // triHasUvs, which is a real register instead of a live uvsReg(page) read.
   val covDeltaActive = if (cfg.samples > 1)
-    Some(RegInit(VecInit(Seq.fill(6)(0.U(cfg.totalBits.W))))) else None
+    Some(RegInit(VecInit(Seq.fill(covDeltaWords)(0.U(cfg.totalBits.W))))) else None
 
   // Per-triangle has_uvs flag for the triangle currently selected by
   // handleLoadTriSetup -- restored from the cache on a hit, or reloaded from
@@ -207,13 +215,14 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
 
     io.covDelta.foreach { cd =>
       val active = covDeltaActive.get
-      for (e <- 0 until 3; k <- 0 until 2) {
+      for (e <- 0 until cfg.coveragePlanesStored; k <- 0 until 2) {
         cd(e)(k) := active(2 * e + k)
       }
     }
     io.texEnOverride := triHasUvs
     io.frontFacingOverride := !triIsBackFacing
     io.curTriIndex := binEntryData
+    io.attrBase.foreach(_ := (io.mmio.setupBase +& (binEntryData << setupStrideShift) +& (48 * 4).U)(24, 0))
 
     io.dma.start := false.B
     io.dma.desc  := dmaDescReg
@@ -256,6 +265,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       is(sWaitDMA)         { handleWaitDMA() }
       is(sLoadRastShader)  { handleLoadRastShader() }
       is(sLoadFragShader)  { handleLoadFragShader() }
+      is(sLoadFsConst)     { handleLoadFsConst() }
       is(sStartPass2)      { handleStartPass2() }
       is(sReadBinCount)    { handleReadBinCount() }
       is(sClearTile)       { handleClearTile() }
@@ -308,8 +318,33 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     dmaDescReg   := desc
     io.dma.desc  := desc
     io.dma.start := true.B
-    nextAfterDMA := sStartPass2
+    nextAfterDMA := (if (cfg.drawEnabled) Mux(io.mmio.drawMode, sLoadFsConst, sStartPass2) else sStartPass2)
+    constPage    := 0.U
     state        := sWaitDMA
+  }
+
+  /** Draw mode: the fragment shader's constant window, into every uniform
+    * page the setup cache can select, once per render. The record DMA below
+    * only writes the words beneath it. */
+  private def handleLoadFsConst(): Unit = {
+    val first = BorgSetupRom.Record.FsConstFirst
+    val desc = Wire(new DMADescriptor)
+    desc.baseAddr := io.mmio.fsConstBase
+    desc.length   := (32 - first).U
+    desc.dest     := 1.U                      // uniforms, page = uniformPage
+    desc.offset   := first.U
+    uniformPage   := constPage
+    val last = constPage === (if (cfg.maxUniforms > 32) 1 else 0).U
+    constPage := constPage + 1.U
+    when(io.mmio.fsConstBase === 0.U) {
+      state := sStartPass2
+    }.otherwise {
+      dmaDescReg   := desc
+      io.dma.desc  := desc
+      io.dma.start := true.B
+      nextAfterDMA := Mux(last, sStartPass2, sLoadFsConst)
+      state        := sWaitDMA
+    }
   }
 
   private def handleStartPass2(): Unit = {
@@ -475,7 +510,9 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       // edge-coefficient uniforms).
       val desc = Wire(new DMADescriptor)
       desc.baseAddr := io.mmio.setupBase + (binEntryData << setupStrideShift)
-      desc.length   := 32.U  // 31 uniforms + 1 has_uvs flag
+      // Draw mode: the record's 16-word uniform image, meta last -- the
+      // fragment shader's constant window lives above it.
+      desc.length   := (if (cfg.drawEnabled) Mux(io.mmio.drawMode, 16.U, 32.U) else 32.U)
       desc.dest     := 1.U   // uniform write; page = uniformPage(:=victim) via DMA
       desc.offset   := 0.U
 
@@ -494,7 +531,11 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     }
   }
 
-  private def setupStrideShift = if (cfg.samples > 1) 8 else 7
+  /** Record stride: DRAW_CFG's in a draw, the legacy layout's otherwise. */
+  private def setupStrideShift: UInt = {
+    val legacy = (if (cfg.samples > 1) 8 else 7).U
+    if (cfg.drawEnabled) Mux(io.mmio.drawMode, io.mmio.recordShift, legacy) else legacy
+  }
 
   /** Second, snoop-only DMA transfer fetching covDelta (6 words) for the
     * triangle just loaded by handleLoadTriSetup's miss path. Only reached
@@ -505,7 +546,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   private def handleLoadCovDelta(): Unit = {
     val desc = Wire(new DMADescriptor)
     desc.baseAddr := io.mmio.setupBase + (binEntryData << setupStrideShift) + 128.U  // word 32 = byte 128
-    desc.length   := 6.U
+    desc.length   := covDeltaWords.U
     desc.dest     := 2.U  // snoop only
     desc.offset   := 0.U
 
@@ -663,7 +704,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     val firstTransferTarget = if (cfg.samples > 1) sLoadCovDelta else sEnqueueTile
     when(io.dma.uniformSnoop.en && state === sWaitDMA && nextAfterDMA === firstTransferTarget) {
       setupLoadIdx := setupLoadIdx + 1.U
-      when(setupLoadIdx === 31.U) {
+      val metaWord = if (cfg.drawEnabled) Mux(io.mmio.drawMode, BorgSetupRom.Record.Meta.U, 31.U) else 31.U
+      when(setupLoadIdx === metaWord) {
         triHasUvs := io.dma.uniformSnoop.data(0)
         triIsBackFacing := io.dma.uniformSnoop.data(1)
         // Remember has_uvs/isBackFacing for the page just loaded (= current
@@ -685,7 +727,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     // as a fresh 0-5 counter here (reset by handleLoadCovDelta).
     covDeltaCache.foreach { cache =>
       when(io.dma.snoop.valid && state === sWaitDMA && nextAfterDMA === sEnqueueTile &&
-           setupLoadIdx < 6.U) {
+           setupLoadIdx < covDeltaWords.U) {
         // The datapath's full width: covDelta is an FP32 value on an FP32
         // build. The FP16-era (15, 0) slice kept only the low half, which
         // made every sample threshold ~0 -- 4x MSAA rasterized with the

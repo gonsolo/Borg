@@ -149,6 +149,23 @@ object Instructions {
   // the first STORE. Outside a rasterized fragment (MMIO or compute runs) it
   // completes immediately and does nothing.
   val FUNCT7_ZTEST = 0x40
+  // The draw front end (BorgConfig.drawEnabled; docs/B1_geometry_front_end.md).
+  // Both take a 10-bit IMMEDIATE component index, split over two register
+  // fields the way RISC-V S-type stores split theirs: the index names a slot
+  // in the triangle's record, and a compiler knows it statically.
+  //
+  // SOUT stores rs2 as output component `index` of this invocation. The
+  // sequencer owns the address: for a vertex shader, component c of corner k
+  // lands at outBase + 4*(3c + k), so a varying's three per-vertex values sit
+  // side by side; for the setup ROM, at outBase + 4c. The index is packed
+  // into rs1:rd, as (rs1 << 5) | rd. Masked lanes store nothing.
+  val FUNCT7_SOUT  = 0x42
+  // FATTR loads component `index` of the triangle being shaded: its three
+  // per-vertex values into rd, rd+1, rd+2, in every active lane. A varying is
+  // then l0*a0 + l1*a1 + l2*a2 with the raster ROM's perspective-correct
+  // barycentrics. The index is packed into rs2:rs1, as (rs2 << 5) | rs1, like
+  // a branch target. rd must leave room for all three (rd <= 29).
+  val FUNCT7_FATTR = 0x44
   // @doc:end
 
   // R4-type sub-opcodes (opcode bit 2 set, discriminated by the 2-bit funct2
@@ -236,6 +253,17 @@ object Instructions {
     encodeRType(FUNCT7_BRNZ, hi, rs1, lo, funct3)
   }
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
+  /** SOUT: store rs2 as output component `index` (packed into rs1:rd). */
+  def SOUT(rs2: Int, index: Int, funct3: Int = 0): BigInt = {
+    val (hi, lo) = branchTargetFields(index)
+    encodeRType(FUNCT7_SOUT, rs2, hi, lo, funct3)
+  }
+  /** FATTR: rd..rd+2 = component `index`'s per-vertex values (packed into rs2:rs1). */
+  def FATTR(rd: Int, index: Int): BigInt = {
+    require(rd <= 29, s"FATTR writes rd..rd+2, so rd <= 29: $rd")
+    val (hi, lo) = branchTargetFields(index)
+    encodeRType(FUNCT7_FATTR, hi, lo, rd)
+  }
   // @doc:end
 
   /** Operand shape of an instruction, which decides its C macro signature. */
@@ -248,6 +276,8 @@ object Instructions {
   case object Mask1  extends Shape  // rs1            (no destination)
   case object Mask0  extends Shape  // (no operands)
   case object MaskDest extends Shape  // rd           (no source operand)
+  case object StoreIdx extends Shape  // rs2, index   (index packed into rs1:rd)
+  case object LoadIdx  extends Shape  // rd, index    (index packed into rs2:rs1)
 
   /** THE instruction table. Everything downstream -- hardware decode, the C
     * header, any future Python emitter -- comes from here, so an opcode cannot
@@ -290,7 +320,9 @@ object Instructions {
     ("EXPOP",  FUNCT7_EXPOP,  Mask0),
     ("BARRIER", FUNCT7_BARRIER, Mask0),
     ("EXANY",  FUNCT7_EXANY,  MaskDest),
-    ("ZTEST",  FUNCT7_ZTEST,  Mask0)
+    ("ZTEST",  FUNCT7_ZTEST,  Mask0),
+    ("SOUT",   FUNCT7_SOUT,   StoreIdx),
+    ("FATTR",  FUNCT7_FATTR,  LoadIdx)
   )
 
   // --- String Formatters for C / Python Generation ---

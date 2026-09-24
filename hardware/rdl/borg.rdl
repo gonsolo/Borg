@@ -565,6 +565,28 @@ reg attach_ms_reg_t {
     field { sw = rw; hw = na; } RSVD[31] = 0;
 };
 
+// --- Draw front end (docs/B1_geometry_front_end.md) --------------------
+reg draw_cfg_reg_t {
+    name = "Draw Configuration";
+    desc = "nogen. Mode 1 renders a draw: hardware primitive assembly, one
+            vertex-shader run per triangle, the setup and raster ROMs, and
+            varyings in per-triangle records. Mode 0 (reset) is the legacy
+            per-triangle-descriptor path.";
+    field { sw = rw; hw = r; desc = "0 = legacy descriptors, 1 = draw."; } mode[1] = 0;
+    field { sw = rw; hw = r; desc = "0 = triangle list, 1 = strip, 2 = fan."; } topology[2] = 0;
+    field { sw = rw; hw = r; desc = "0 = no index buffer, 1 = 16-bit, 2 = 32-bit indices."; } index_type[2] = 0;
+    field { sw = rw; hw = r; desc = "Primitive restart (strips and fans)."; } restart[1] = 0;
+    field { sw = rw; hw = r; desc = "Record stride: triangle t's record is at SEQ_SETUP_BASE + (t << shift)."; } record_shift[4] = 8;
+    field { sw = rw; hw = na; } RSVD[22] = 0;
+};
+reg draw_word_reg_t {
+    name = "Draw Parameter";
+    desc = "nogen. One 32-bit draw parameter: counts, first vertex and
+            instance, vertex offset (signed), index buffer base (byte
+            address), or an FP32 viewport/depth-range value.";
+    field { sw = rw; hw = r; desc = "Value."; } value[32] = 0;
+};
+
 // --- Texture address (computed by hardware) ---
 // Read: Morton-encoded texel index from the most recent tex_uv write.
 reg tex_addr_reg_t {
@@ -1680,4 +1702,36 @@ addrmap borg_gpu {
     // ---- Per-sample multisampled attachments ----
     attach_ms_reg_t attach_ms;
     attach_ms->nogen = true;
+
+    // ---- Draw front end ----
+    draw_cfg_reg_t draw_cfg;
+    draw_cfg->nogen = true;
+    draw_word_reg_t draw_vertex_count;
+    draw_vertex_count->nogen = true;
+    draw_word_reg_t draw_instance_count;
+    draw_instance_count->nogen = true;
+    draw_word_reg_t draw_first_vertex;
+    draw_first_vertex->nogen = true;
+    draw_word_reg_t draw_first_instance;
+    draw_first_instance->nogen = true;
+    draw_word_reg_t draw_vertex_offset;
+    draw_vertex_offset->nogen = true;
+    draw_word_reg_t draw_index_base;
+    draw_index_base->nogen = true;
+    draw_word_reg_t viewport_sx;
+    viewport_sx->nogen = true;
+    draw_word_reg_t viewport_sy;
+    viewport_sy->nogen = true;
+    draw_word_reg_t viewport_ox;
+    viewport_ox->nogen = true;
+    draw_word_reg_t viewport_oy;
+    viewport_oy->nogen = true;
+    draw_word_reg_t depth_scale;
+    depth_scale->nogen = true;
+    draw_word_reg_t depth_offset;
+    depth_offset->nogen = true;
+    draw_word_reg_t draw_vs_const;
+    draw_vs_const->nogen = true;
+    draw_word_reg_t draw_fs_const;
+    draw_fs_const->nogen = true;
 };

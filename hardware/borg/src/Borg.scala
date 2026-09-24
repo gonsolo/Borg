@@ -26,7 +26,7 @@ class BorgIO(val cfg: BorgConfig) extends Bundle with BorgMmioIf {
   // cfg.debugPorts too (in addition to the pre-existing samples>1 gate) --
   // BorgConfig.Wafer has no debug harness to observe it, unlike ULX3S/sim.
   val covDeltaDebug =
-    if (cfg.samples > 1 && cfg.debugPorts) Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
+    if (cfg.samples > 1 && cfg.debugPorts) Some(Output(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
 }
 
 /** Borg — minimal FP16 shading processor with 4-cycle FMA pipeline.
@@ -288,7 +288,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                                                 nonSeqTrigger.pc)
     core.io.coreTrigger.isRast := Mux(s.io.coreTrigger.valid, s.io.coreTrigger.isRast,
                                                 nonSeqTrigger.isRast)
-    core.io.compute.foreach(_ := compute.get.io.lanes)
+    core.io.coreTrigger.isSetup := s.io.coreTrigger.valid && s.io.coreTrigger.isSetup
+    // ids, record and drawMode: see wireDraw.
     core.io.barrier.foreach(compute.get.io.barrier := _)
 
     core.io.control.start            := rdlRegs.io.hw.control_start
@@ -1054,11 +1055,56 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.pipeWrite.en   := core.io.pipeWrite(0).en
       s.io.pipeWrite.addr := core.io.pipeWrite(0).addr
       s.io.pipeWrite.data := core.io.pipeWrite(0).data
+      wireDraw()
 
       // Latch sticky done when sequencer pulses io.done
       when(s.io.done) { seqDoneSticky := true.B }
 
       rdlRegs.io.hw.status_seq_busy := s.io.busy.asUInt
+  }
+
+  /** The draw front end's registers and connections (docs/B1_geometry_front_end.md):
+    * DRAW_CFG and the draw parameters to the walker, the walker's
+    * VertexIndex/InstanceIndex and record addresses to the core, and the
+    * draw-mode selection of the raster ROM and five-plane coverage. */
+  private def wireDraw(): Unit = {
+    val cfgReg   = RegInit(0x100.U(32.W))      // record_shift reset 8, like the RDL
+    val words    = Seq(BorgGpuRegs.draw_vertex_count_offset, BorgGpuRegs.draw_instance_count_offset,
+                       BorgGpuRegs.draw_first_vertex_offset, BorgGpuRegs.draw_first_instance_offset,
+                       BorgGpuRegs.draw_vertex_offset_offset, BorgGpuRegs.draw_index_base_offset,
+                       BorgGpuRegs.viewport_sx_offset, BorgGpuRegs.viewport_sy_offset,
+                       BorgGpuRegs.viewport_ox_offset, BorgGpuRegs.viewport_oy_offset,
+                       BorgGpuRegs.depth_scale_offset, BorgGpuRegs.depth_offset_offset,
+                       BorgGpuRegs.draw_vs_const_offset, BorgGpuRegs.draw_fs_const_offset)
+    val wordRegs = Option.when(cfg.drawEnabled)(words.map(_ => RegInit(0.U(32.W))))
+    val drawMode = cfg.drawEnabled.B && cfgReg(0)
+    when(bus.is_writing && bus.address === BorgGpuRegs.draw_cfg_offset) { cfgReg := bus.data_in }
+    wordRegs.foreach(_.zip(words).foreach { case (r, off) =>
+      when(bus.is_writing && bus.address === off) { r := bus.data_in }
+    })
+    s.io.mmio.drawMode    := drawMode
+    s.io.mmio.recordShift := cfgReg(9, 6)
+    s.io.mmio.vsConstBase := wordRegs.map(_(12)(24, 0)).getOrElse(0.U)
+    s.io.mmio.fsConstBase := wordRegs.map(_(13)(24, 0)).getOrElse(0.U)
+    s.io.draw.foreach { d =>
+      val w = wordRegs.get
+      d.topology := cfgReg(2, 1); d.indexType := cfgReg(4, 3); d.restart := cfgReg(5)
+      d.recordShift := cfgReg(9, 6)
+      d.vertexCount := w(0); d.instanceCount := w(1); d.firstVertex := w(2); d.firstInstance := w(3)
+      d.vertexOffset := w(4); d.indexBase := w(5)(24, 0)
+      for (i <- 0 until 4) d.viewport(i) := w(6 + i)
+      d.depthScale := w(10); d.depthOffset := w(11)
+    }
+    s.io.pipeWriteLanes.foreach(_ := core.io.pipeWrite)
+    core.io.drawMode.foreach(_ := drawMode)
+    rast.io.drawMode.foreach(_ := drawMode)
+    // The walker owns r30/r31 while it runs a vertex shader; compute
+    // otherwise (the two never overlap).
+    core.io.ids.foreach { ids =>
+      val computeIds = compute.map(_.io.lanes).getOrElse(0.U.asTypeOf(ids))
+      ids := s.io.ids.map(w => Mux(w.mode, w, computeIds)).getOrElse(computeIds)
+    }
+    core.io.record.foreach(_ := s.io.record.get)
   }
 
   /** Step 32.2: Wire BorgBinner — sequencer-driven geometry pass binning.

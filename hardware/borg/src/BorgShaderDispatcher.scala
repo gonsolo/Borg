@@ -143,8 +143,17 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // edge function is linear, sample s's edge value is e + δ_s where
   // δ_s = dx·δy_s + ndy·δx_s is a per-triangle constant, so only δ_s0 and
   // δ_s1 need computing; δ_s2 = -δ_s1 and δ_s3 = -δ_s0 are sign flips.
+  //
+  // A draw-front-end build carries a fourth pair, the depth plane Zn's; the
+  // far plane Zf = 1 - Zn has exactly the negated deltas, so it needs none.
   val covDelta = if (cfg.samples > 1)
-    Some(Input(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
+    Some(Input(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
+
+  // Draw front end (docs/B1_geometry_front_end.md): the raster ROM also
+  // writes the near and far planes Zn and Zf to r3/r4, which coverage tests
+  // like the three edges, and FragCoord.z to r29, which is the fragment's
+  // depth unless the shader writes its own.
+  val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None
 }
 
 class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -195,6 +204,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val e0_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
   val e1_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
   val e2_outside = RegInit(VecInit(Seq.fill(N)(false.B)))
+  // Draw front end: the near (Zn) and far (Zf) planes, r3 and r4.
+  private val drawMode = io.drawMode.getOrElse(false.B)
+  private val nPlanes  = if (cfg.drawEnabled) 5 else 3
+  val z_outside = Option.when(cfg.drawEnabled)(RegInit(VecInit(Seq.fill(N)(VecInit(false.B, false.B)))))
 
   // --- MSAA per-sample coverage (Step 50.2) ---------------------------------
   // At samples == 1 coverage is the historical pixel-centre test: all three
@@ -232,24 +245,30 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // value is never observed. 384 flops off the reset tree at 4x MSAA -- see
   // the reset-fanout work for why that matters (one net drove 3887 gates).
   val e_val = if (cfg.samples > 1)
-    Some(Reg(Vec(N, Vec(3, UInt(cfg.totalBits.W)))))
+    Some(Reg(Vec(N, Vec(nPlanes, UInt(cfg.totalBits.W)))))
   else None
 
   /** Per-lane, per-sample coverage. */
   val coverage: Vec[Vec[Bool]] = cfg.samples match {
     case 1 =>
       VecInit((0 until N).map(i =>
-        VecInit(Seq(!e0_outside(i) && !e1_outside(i) && !e2_outside(i)))))
+        VecInit(Seq(!e0_outside(i) && !e1_outside(i) && !e2_outside(i) &&
+                    z_outside.map(z => !drawMode || (!z(i)(0) && !z(i)(1))).getOrElse(true.B)))))
     case _ =>
-      // thresholds per edge: {-d0, -d1, +d1, +d0}  (see covDelta's comment)
-      val thresh = VecInit((0 until 3).map { e =>
-        val d0 = io.covDelta.get(e)(0)
-        val d1 = io.covDelta.get(e)(1)
+      // thresholds per edge: {-d0, -d1, +d1, +d0}  (see covDelta's comment).
+      // The far plane Zf = 1 - Zn moves the opposite way to Zn at every
+      // sample, so its thresholds are Zn's with the signs swapped.
+      val deltas = (0 until cfg.coveragePlanesStored).map(e => (io.covDelta.get(e)(0), io.covDelta.get(e)(1)))
+      val planeDeltas = if (cfg.drawEnabled)
+        deltas :+ ((fnegBits(deltas(3)._1), fnegBits(deltas(3)._2))) else deltas
+      val thresh = VecInit(planeDeltas.map { case (d0, d1) =>
         VecInit(Seq(fnegBits(d0), fnegBits(d1), d1, d0).map(ordered))
       })
       VecInit((0 until N).map { i =>
         VecInit((0 until cfg.samples).map { s =>
-          (0 until 3).map(e => ordered(e_val.get(i)(e)) >= thresh(e)(s)).reduce(_ && _)
+          def test(e: Int) = ordered(e_val.get(i)(e)) >= thresh(e)(s)
+          val edges = (0 until 3).map(test).reduce(_ && _)
+          if (cfg.drawEnabled) edges && (!drawMode || (test(3) && test(4))) else edges
         })
       })
   }
@@ -355,6 +374,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.coreTrigger.valid  := false.B
   io.coreTrigger.pc     := 0.U
   io.coreTrigger.isRast := false.B
+  io.coreTrigger.isSetup := false.B
 
   // Tile buffer write default (no write)
   io.tileWrite.en       := false.B
@@ -502,6 +522,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       e0_outside(i) := false.B
       e1_outside(i) := false.B
       e2_outside(i) := false.B
+      z_outside.foreach(z => z(i).foreach(_ := false.B))
       killed(i) := false.B
       // Re-arm the opaque default every quad: a shader that writes r24 on one
       // quad and not the next must not inherit the previous quad's alpha.
@@ -857,11 +878,17 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       when(io.pipeWrite(i).addr === 0.U) { e0_outside(i) := isOutside(io.pipeWrite(i).data) }
       when(io.pipeWrite(i).addr === 1.U) { e1_outside(i) := isOutside(io.pipeWrite(i).data) }
       when(io.pipeWrite(i).addr === 2.U) { e2_outside(i) := isOutside(io.pipeWrite(i).data) }
+      z_outside.foreach { z =>
+        when(io.pipeWrite(i).addr === 3.U) { z(i)(0) := isOutside(io.pipeWrite(i).data) }
+        when(io.pipeWrite(i).addr === 4.U) { z(i)(1) := isOutside(io.pipeWrite(i).data) }
+        // FragCoord.z, the depth unless the fragment shader writes its own.
+        when(drawMode && io.pipeWrite(i).addr === 29.U) { frag_z(i) := io.pipeWrite(i).data(31, 0) }
+      }
       // MSAA also needs the raw edge magnitudes, not just their signs, to test
       // each sample's offset position.  Same write, same cycle, same registers'
       // lifecycle — just kept at full width.
       e_val.foreach { ev =>
-        for (e <- 0 until 3) {
+        for (e <- 0 until nPlanes) {
           when(io.pipeWrite(i).addr === e.U) { ev(i)(e) := io.pipeWrite(i).data(cfg.totalBits - 1, 0) }
         }
       }

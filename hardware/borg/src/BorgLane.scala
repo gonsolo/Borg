@@ -26,7 +26,7 @@ import chisel3.util._
   * At `fragLanes==1` a single instance reproduces the original monolithic BorgCore
   * behaviour bit-for-bit.
   */
-class LaneComputeIO(val cfg: BorgConfig) extends Bundle {
+class LaneIdsIO(val cfg: BorgConfig) extends Bundle {
   val mode = Bool()
   val r30  = UInt(cfg.totalBits.W)
   val r31  = UInt(cfg.totalBits.W)
@@ -51,8 +51,8 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
 
   // --- Per-lane pixel coordinate ---
   val iter        = Input(new Coord(cfg.coordWidth))
-  // --- Compute mode: r30/r31 read these raw integers instead ---
-  val compute     = if (cfg.computeEnabled) Some(Input(new LaneComputeIO(cfg))) else None
+  // --- Compute or vertex stage: r30/r31 read these raw integers instead ---
+  val ids         = if (cfg.hasInvocationIds) Some(Input(new LaneIdsIO(cfg))) else None
 
   // --- Shared uniform-RAM read (done once in BorgCore) ---
   val uniformData = Input(UInt(cfg.totalBits.W)) // op_en_del-gated read result
@@ -117,18 +117,29 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val frac = (x << (10.U - n))(9, 0)
     Cat(0.U(1.W), exp, frac)
   }
+  // An FP32 build builds i + 0.5 as FP32 directly: FP16 holds it exactly
+  // only up to 1023.5, and a Vulkan framebuffer is 4096 wide.
+  def pixelToFP32Half(i: UInt): UInt = {
+    val x    = Cat(i, 1.U(1.W))                 // 2i + 1
+    val n    = Log2(x)
+    val exp  = (n +& 126.U)(7, 0)               // (2i + 1) / 2 = 1.f * 2^(n - 1)
+    val frac = (x << (23.U - n))(22, 0)
+    Cat(0.U(1.W), exp, frac)
+  }
   private def coordToRegWidth(h: UInt): UInt =
     if (config.totalBits == 16) h else Fp16Fp32.widen(h)
+  private def pixelCentre(i: UInt): UInt =
+    if (config.totalBits == 32) pixelToFP32Half(i) else coordToRegWidth(pixelToFP16Half(i))
   private val coordReadEn = (running && !is_busy) || (is_busy && busy_counter >= 2.U)
   private val coordX = Reg(UInt(config.totalBits.W))
   private val coordY = Reg(UInt(config.totalBits.W))
   // Muxed ahead of the registers, not on the read path, so compute mode adds
   // nothing to the register-file read timing.
   when(coordReadEn) {
-    coordX := io.compute.map(c => Mux(c.mode, c.r30, coordToRegWidth(pixelToFP16Half(io.iter.x))))
-                .getOrElse(coordToRegWidth(pixelToFP16Half(io.iter.x)))
-    coordY := io.compute.map(c => Mux(c.mode, c.r31, coordToRegWidth(pixelToFP16Half(io.iter.y))))
-                .getOrElse(coordToRegWidth(pixelToFP16Half(io.iter.y)))
+    coordX := io.ids.map(c => Mux(c.mode, c.r30, pixelCentre(io.iter.x)))
+                .getOrElse(pixelCentre(io.iter.x))
+    coordY := io.ids.map(c => Mux(c.mode, c.r31, pixelCentre(io.iter.y)))
+                .getOrElse(pixelCentre(io.iter.y))
   }
 
   // --- Register reads + uniform operand mux ---
@@ -161,7 +172,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * pseudo-registers r30/r31 (same special-case for every port, GPR or MMIO). */
   private def resolveCoordReg(raw: UInt, idx: UInt): UInt = {
     val isCoordReg = idx === 30.U || idx === 31.U
-    Mux(isCoordReg, Mux(!io.seqBusy, Mux(idx === 30.U, coordX, coordY), 0.U), raw)
+    // A sequencer-run shader reads 0 here (legacy vertex/setup shaders use r31
+    // as a zero), unless the sequencer supplies IDs -- a vertex shader's
+    // VertexIndex/InstanceIndex.
+    val idsMode = io.ids.map(_.mode).getOrElse(false.B)
+    Mux(isCoordReg, Mux(!io.seqBusy || idsMode, Mux(idx === 30.U, coordX, coordY), 0.U), raw)
   }
 
   /** Single read port, time-multiplexed across rs1/rs2/rs3/MMIO (was 3

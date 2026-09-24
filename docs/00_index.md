@@ -71,4 +71,5 @@ depending on your goal:
 5. [Architectural Tricks](A8_architectural_tricks.md) — 15 tricks for minimizing area
 6. [Project Poster](A9_poster.md) — Academic poster summarizing the Borg GPU architecture
 7. [Compiler and Driver Contract](B0_compiler_contract.md) — Pending borgc/borgvk/firmware follow-ups for the Vulkan conformance hardware
+8. [Geometry Front End](B1_geometry_front_end.md) — Draws walked by hardware, homogeneous setup without clipping, perspective-correct varyings
 8. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools

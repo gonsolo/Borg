@@ -20,4 +20,7 @@ class CoreTriggerIO extends Bundle {
   // sRast trigger ever sets this; sequencer (vert/setup) and sFrag triggers
   // always leave it false.
   val isRast = Output(Bool())
+  // True when this trigger should fetch from BorgSetupRom (the draw front
+  // end's triangle setup). Only the draw walker sets it.
+  val isSetup = Output(Bool())
 }

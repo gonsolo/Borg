@@ -117,6 +117,14 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // msaaMultiPass each pass then flushes its own sample instead of folding it
   // into the resolve accumulator.
   val attachMs        = Input(Bool())
+  // DRAW_CFG: a draw (docs/B1_geometry_front_end.md) instead of legacy
+  // descriptors, and its record stride (triangle t at setupBase + t << shift).
+  val drawMode        = Input(Bool())
+  val recordShift     = Input(UInt(4.W))
+  // Each stage's constant window (0 = none): loaded once per draw into the
+  // uniform words above the hardware's -- see BorgSetupRom.Record.
+  val vsConstBase     = Input(UInt(25.W))
+  val fsConstBase     = Input(UInt(25.W))
 }
 
 class SeqBinnerIO(cfg: BorgConfig) extends Bundle {
@@ -199,7 +207,7 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   // Latched from the setup shader's r8..r13 and held stable for the whole
   // triangle, so the dispatcher can use them throughout tile iteration.
   val covDelta = if (cfg.samples > 1)
-    Some(Output(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
+    Some(Output(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
   // Per-triangle texture enable: true when current triangle has UVs.
   // Driven from descriptor metadata has_uvs flag.
   val texEnOverride = Output(Bool())
@@ -215,6 +223,15 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val pipeWrite = Flipped(new PipeWriteIO(cfg.totalBits))
   val uniformWrite = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
+
+  // Draw front end: the draw registers, every lane's write-back (the vertex
+  // shader shades three corners at once), and what the core needs from the
+  // walker (VertexIndex/InstanceIndex, record addresses) and from Pass 2
+  // (the current triangle's attributes, for FATTR).
+  val draw       = if (cfg.drawEnabled) Some(Input(new DrawMmioIO)) else None
+  val pipeWriteLanes = if (cfg.drawEnabled) Some(Flipped(Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits)))) else None
+  val ids        = if (cfg.drawEnabled) Some(Output(new InvocationIdsIO(cfg))) else None
+  val record     = if (cfg.drawEnabled) Some(Output(new CoreRecordIO)) else None
 }
 
 /** BorgSequencer — top-level supervisor over the GPU's two-pass
@@ -261,6 +278,10 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   private val p1 = Module(new BorgGeometrySequencer(cfg))
   private val p2 = Module(new BorgTileSequencer(cfg))
+  // Pass 1 of a draw: selected by DRAW_CFG in place of p1, whose legacy
+  // per-triangle descriptors it replaces.
+  private val dw = Option.when(cfg.drawEnabled)(Module(new BorgDrawWalker(cfg)))
+  private val drawing = dw.map(_ => io.mmio.drawMode).getOrElse(false.B)
 
   private val wIdle :: wPass1 :: wPass2 :: wDone :: Nil = Enum(4)
   private val wstate = RegInit(wIdle)
@@ -283,26 +304,30 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // completion wait polls `busy` unconditionally.
   p1.io.start := false.B
   p2.io.start := false.B
+  dw.foreach(_.io.start := false.B)
+  private val p1Done = dw.map(w => Mux(drawing, w.io.done, p1.io.done)).getOrElse(p1.io.done)
+  private val nothingToDraw = io.draw.map(d => d.vertexCount === 0.U || d.instanceCount === 0.U).getOrElse(false.B)
   io.done := false.B
 
   switch(wstate) {
     is(wIdle) {
       when(io.mmio.start) {
-        when(io.mmio.triCount === 0.U) {
+        when(Mux(drawing, nothingToDraw, io.mmio.triCount === 0.U)) {
           // No triangles -- pulse busy and immediately finish. Used by
           // firmware's sequencer detection probe (seq_trigger with
           // tri_count=0). Without this guard, the full pipeline would run
           // with garbage descriptors and the flusher would corrupt DRAM.
           wstate := wDone
         }.otherwise {
-          p1.io.start := true.B
+          p1.io.start := !drawing
+          dw.foreach(_.io.start := drawing)
           if (BorgDebug.trace) printf("[SEQ] Pass1 start triCount=%d\n", io.mmio.triCount)
           wstate := wPass1
         }
       }
     }
     is(wPass1) {
-      when(p1.io.done) {
+      when(p1Done) {
         p2.io.start := true.B
         wstate := wPass2
       }
@@ -321,10 +346,27 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   io.busy         := wstate =/= wIdle
-  io.seqShaderActive := p1.io.seqShaderActive
+  io.seqShaderActive := dw.map(w => Mux(drawing, w.io.seqShaderActive, p1.io.seqShaderActive))
+                           .getOrElse(p1.io.seqShaderActive)
 
   // --- Config fan-out (pure input data; safe to share) ---
   p1.io.mmio := io.mmio
+  dw.foreach { w =>
+    w.io.mmio := io.mmio
+    w.io.draw := io.draw.get
+    w.io.coreStatus := io.coreStatus
+    w.io.pipeWrite  := io.pipeWriteLanes.get
+    w.io.dma.busy := io.dma.busy
+    w.io.dma.snoop := io.dma.snoop
+    w.io.dma.uniformSnoop := io.dma.uniformSnoop
+    w.io.store.ready := io.store.ready
+    w.io.binner.busy := io.binner.busy
+    w.io.binner.countReadData := io.binner.countReadData
+    io.ids.get := w.io.ids
+    // Pass 1 writes records; Pass 2 reads the current triangle's attributes.
+    io.record.get := w.io.record
+    io.record.get.attrBase := p2.io.attrBase.get
+  }
   // Pass-control is Pass 2's alone; Pass 1 never touches the tile buffer.
   io.pass.foreach { w =>
     val t = p2.io.pass.get
@@ -344,8 +386,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // exactly like Borg.scala's existing Mux(s.io.busy, ..., ...) pattern for
   // resources shared among sibling modules. ---
   private val pass1Active = wstate === wPass1
-  io.dma.start := Mux(pass1Active, p1.io.dma.start, p2.io.dma.start)
-  io.dma.desc  := Mux(pass1Active, p1.io.dma.desc,  p2.io.dma.desc)
+  io.dma.start := Mux(pass1Active, dw.map(w => Mux(drawing, w.io.dma.start, p1.io.dma.start)).getOrElse(p1.io.dma.start), p2.io.dma.start)
+  io.dma.desc  := Mux(pass1Active, dw.map(w => Mux(drawing, w.io.dma.desc, p1.io.dma.desc)).getOrElse(p1.io.dma.desc),  p2.io.dma.desc)
   p1.io.dma.busy := io.dma.busy
   p2.io.dma.busy := io.dma.busy
   p1.io.dma.snoop := io.dma.snoop
@@ -354,24 +396,24 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   p2.io.dma.uniformSnoop := io.dma.uniformSnoop
 
   // --- Uniform write: same shared/arbitrated shape as DMA. ---
-  io.uniformWrite.en   := Mux(pass1Active, p1.io.uniformWrite.en,   p2.io.uniformWrite.en)
-  io.uniformWrite.addr := Mux(pass1Active, p1.io.uniformWrite.addr, p2.io.uniformWrite.addr)
-  io.uniformWrite.data := Mux(pass1Active, p1.io.uniformWrite.data, p2.io.uniformWrite.data)
+  io.uniformWrite.en   := Mux(pass1Active, dw.map(w => Mux(drawing, w.io.uniformWrite.en, p1.io.uniformWrite.en)).getOrElse(p1.io.uniformWrite.en),   p2.io.uniformWrite.en)
+  io.uniformWrite.addr := Mux(pass1Active, dw.map(w => Mux(drawing, w.io.uniformWrite.addr, p1.io.uniformWrite.addr)).getOrElse(p1.io.uniformWrite.addr), p2.io.uniformWrite.addr)
+  io.uniformWrite.data := Mux(pass1Active, dw.map(w => Mux(drawing, w.io.uniformWrite.data, p1.io.uniformWrite.data)).getOrElse(p1.io.uniformWrite.data), p2.io.uniformWrite.data)
   io.uniformWritePage  := Mux(pass1Active, p1.io.uniformWritePage,  p2.io.uniformWritePage)
 
   // --- Ports exclusive to one pass: direct connection, no arbitration. ---
   // coreTrigger/coreStatus/pipeWrite: only Pass 1 ever triggers BorgCore
   // directly (vertex/setup shaders). Pass 2's shader execution is triggered
   // by the rasterizer's own dispatcher, not by this sequencer.
-  io.coreTrigger  := p1.io.coreTrigger
+  io.coreTrigger  := dw.map(w => Mux(drawing, w.io.coreTrigger, p1.io.coreTrigger)).getOrElse(p1.io.coreTrigger)
   p1.io.coreStatus := io.coreStatus
   p1.io.pipeWrite  := io.pipeWrite
 
   // store: Pass 1 only (per-triangle setup spill to DRAM).
-  io.store.active := p1.io.store.active
-  io.store.req    := p1.io.store.req
-  io.store.addr   := p1.io.store.addr
-  io.store.wdata  := p1.io.store.wdata
+  io.store.active := dw.map(w => Mux(drawing, w.io.store.active, p1.io.store.active)).getOrElse(p1.io.store.active)
+  io.store.req := dw.map(w => Mux(drawing, w.io.store.req, p1.io.store.req)).getOrElse(p1.io.store.req)
+  io.store.addr := dw.map(w => Mux(drawing, w.io.store.addr, p1.io.store.addr)).getOrElse(p1.io.store.addr)
+  io.store.wdata := dw.map(w => Mux(drawing, w.io.store.wdata, p1.io.store.wdata)).getOrElse(p1.io.store.wdata)
   p1.io.store.ready := io.store.ready
 
   // flusher/iter: Pass 2 only (tile rendering).
@@ -407,6 +449,9 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     for (e <- 0 until 3; k <- 0 until 2) {
       cd(e)(k) := Mux(pass2Active, p2out(e)(k), p1out(2 * e + k))
     }
+    // The depth plane's deltas exist only in the draw front end's records,
+    // which Pass 1's legacy setup shader never produces.
+    for (e <- 3 until cfg.coveragePlanesStored; k <- 0 until 2) cd(e)(k) := p2out(e)(k)
   }
   io.texEnOverride := p2.io.texEnOverride
   io.frontFacingOverride := p2.io.frontFacingOverride
@@ -417,10 +462,10 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // two halves of SeqBinnerIO never overlap, so this is direct routing, not
   // arbitration. Both sub-modules get the full bundle (see each one's own
   // wireOutputDefaults for the tie-offs on their unused half). ---
-  io.binner.start       := p1.io.binner.start
-  io.binner.triIndex    := p1.io.binner.triIndex
-  io.binner.bbox        := p1.io.binner.bbox
-  io.binner.clearCounts := p1.io.binner.clearCounts
+  io.binner.start := dw.map(w => Mux(drawing, w.io.binner.start, p1.io.binner.start)).getOrElse(p1.io.binner.start)
+  io.binner.triIndex := dw.map(w => Mux(drawing, w.io.binner.triIndex, p1.io.binner.triIndex)).getOrElse(p1.io.binner.triIndex)
+  io.binner.bbox := dw.map(w => Mux(drawing, w.io.binner.bbox, p1.io.binner.bbox)).getOrElse(p1.io.binner.bbox)
+  io.binner.clearCounts := dw.map(w => Mux(drawing, w.io.binner.clearCounts, p1.io.binner.clearCounts)).getOrElse(p1.io.binner.clearCounts)
   io.binner.countReadAddr := p2.io.binner.countReadAddr
   io.binner.countReadEn   := p2.io.binner.countReadEn
   p1.io.binner.busy         := io.binner.busy
