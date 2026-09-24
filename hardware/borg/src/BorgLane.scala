@@ -292,7 +292,22 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // recA_raw's low bits would silently misindex the ROMs at FP32 (bits
     // 9:0/14:10 of a 32-bit FP32 pattern are not this value's FP16 mantissa/
     // exponent -- they're arbitrary low mantissa bits of the FP32 pattern).
-    val fp16In = if (config.totalBits > 16) Fp16Fp32.narrow(recA_raw) else recA_raw(15, 0)
+    //
+    // FP32 rcp/rsq keep FP32's exponent range: the LUT core only ever sees the
+    // MANTISSA, scaled into [1, 2) -- or [2, 4) for an rsq of an odd exponent,
+    // so the halved exponent stays an integer -- and the input's own exponent
+    // is applied to the result afterwards. Narrowing the whole value instead
+    // overflowed FP16 from 65504 up (1/x = 0) and underflowed below 6e-5
+    // (1/x = inf): a triangle's setup determinant is routinely outside both.
+    val wide = config.totalBits > 16
+    val e32 = if (wide) recA_raw(30, 23) else 0.U(8.W)
+    val eUnb = e32.zext - 127.S                         // input exponent, unbiased
+    val special32 = e32 === 0.U || e32 === 255.U        // zero/denormal, inf/NaN
+    val oddExp = eUnb(0) && isFrsq
+    val fp16In = if (wide) {
+      val scaled = Cat(recA_raw(31), Mux(oddExp, 128.U(8.W), 127.U(8.W)), recA_raw(22, 0))
+      Mux(isFsrgb || special32, Fp16Fp32.narrow(recA_raw), Fp16Fp32.narrow(scaled))
+    } else recA_raw(15, 0)
     val exp  = fp16In(14, 10)
     val mant = fp16In(9, 0)
 
@@ -332,8 +347,17 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     special.io.lutVal  := valReg
     special.io.lutNext := nextReg
     special.io.op      := Mux(isFrcp, Fp16SpecialOp.Rcp, Mux(isFrsq, Fp16SpecialOp.Rsq, Fp16SpecialOp.Srgb))
-    if (config.totalBits > 16) Fp16Fp32.widen(special.io.out)
-    else special.io.out
+    if (wide) {
+      val r = Fp16Fp32.widen(special.io.out)
+      // 1/(m*2^E) = (1/m)*2^-E;  1/sqrt(m*2^E) = (1/sqrt(m'))*2^-(E'/2).
+      val shift = Mux(isFrsq, (eUnb - oddExp.asUInt.zext) >> 1, eUnb)
+      val eOut  = r(30, 23).zext - shift
+      val scaledOut = MuxCase(Cat(r(31), eOut.asUInt(7, 0), r(22, 0)), Seq(
+        (eOut <= 0.S)   -> Cat(r(31), 0.U(31.W)),                      // flush to zero
+        (eOut >= 255.S) -> Cat(r(31), "hFF".U(8.W), 0.U(23.W))         // overflow to inf
+      ))
+      Mux(isFsrgb || special32 || r(30, 23) === 255.U, r, scaledOut)
+    } else special.io.out
   }
   // @doc:end
 
