@@ -106,6 +106,18 @@ A real Mesa Vulkan driver (native ICD, modeled on v3dv) that runs the **unmodifi
 
 The driver intercepts `vkQueueSubmit` (via Mesa runtime's `vk_queue.driver_submit`), reads the per-frame MVP from the bound uniform buffer, and ships it over serial to the `borg_kernel.c` firmware (wire protocol: 0xAD MVP, 0xAE geometry, 0xAF texture rows, 0xB0 borgc shaders). The kernel renders the frame via the autonomous TBR sequencer. No NIR→Borg compiler is needed for the cube demo (borgvk ships borgc-compiled shaders from Mesa's `src/borg/compiler/`). Full plan: `~/.claude/plans/atomic-questing-stream.md`. `flake.nix` carries the Mesa/Vulkan build deps (meson, ninja, vulkan-loader/headers, libdrm, spirv-tools, x11/xcb).
 
+## Draw front end (Vulkan geometry path)
+
+`DRAW_CFG` mode 1 renders a whole draw in hardware: primitive assembly
+(lists, strips, fans, indices, restart, instancing), one vertex-shader run
+per triangle with `VertexIndex`/`InstanceIndex` in r30/r31, varyings written
+with `SOUT` and read back with `FATTR`, 2D homogeneous setup in
+`BorgSetupRom` (no clipping needed, corners behind the eye are exact), and
+perspective-correct barycentrics from the draw raster ROM. Mode 0 (reset) is
+the legacy per-triangle-descriptor path that today's firmware, `borgvk` and
+`borgc` still use. Spec, ABI and a step-by-step "minimal draw" recipe:
+`docs/B1_geometry_front_end.md`; working example: `BorgDrawTests.DrawRig`.
+
 ## MSAA and texturing status
 
 4x MSAA hardware is implemented and verified (real captured-borgvk render, full

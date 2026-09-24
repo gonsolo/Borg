@@ -205,6 +205,67 @@ setup shader, raster ROM and uniform layout, so the firmware, `borgvk` and
 `borgc` keep working untouched. Mode 1 is everything above. The legacy path
 can be deleted once the compiler emits the new ABI.
 
+## Using it: a minimal draw
+
+This is exactly what `BorgDrawTests.DrawRig` does, and it renders correctly
+on every configuration. All addresses are GPU byte addresses.
+
+**Memory.**
+
+- Vertex shader and fragment shader code, contiguous (the instruction
+  cache fetches past IMEM from there).
+- A vertex buffer in whatever layout the vertex shader pulls, here six
+  words per vertex: X, Y, Z, W (clip space), then two varyings r, g.
+- Optionally an index buffer (16- or 32-bit).
+- The vertex constant window, 10 words: here word 0 = vertex buffer word
+  address (`vb / 4`), word 1 = 6 (stride), word 2 = 1.
+- The fragment constant window, 16 words: here word 0 = 0.0.
+- Room for the records: `triangles << record_shift` bytes at
+  `SEQ_SETUP_BASE`, plus the bin table and the framebuffer as usual.
+
+**Vertex shader** (varying `k` = `SOUT` index `k`):
+
+    IMUL  r9, r30, u23        ; VertexIndex * stride        (funct3 = 2)
+    IADD  r9, r9, u22         ; + vertex buffer word address
+    LOAD  r0, r9              ; X      then IADD r9, r9, u24 between loads
+    LOAD  r1, r9              ; Y
+    LOAD  r2, r9              ; Z
+    LOAD  r3, r9              ; W      -> r0..r3 is the clip-space position
+    LOAD  r10, r9             ; r
+    LOAD  r11, r9             ; g
+    SOUT  r10, 0              ; varying 0
+    SOUT  r11, 1              ; varying 1
+    HALT                      ; (word 0)
+
+**Fragment shader** (loaded at IMEM offset 1, `FRAG_PC` = 1):
+
+    FATTR r10, 0              ; r10..r12 = varying 0 at corners 0, 1, 2
+    FMUL  r26, r5, r10        ; red = l0*a0 + l1*a1 + l2*a2
+    FMADD r26, r6, r11, r26
+    FMADD r26, r7, r12, r26
+    FATTR r10, 1              ; green likewise into r27
+    ...
+    FMUL  r28, r5, u16        ; blue = 0.0 from the constant window
+    HALT                      ; depth: r29 already holds FragCoord.z
+
+**Registers**, then `SEQ_TRIGGER`:
+
+    SEQ_VERT_ADDR/LEN, SEQ_FRAG_ADDR/LEN, FRAG_PC = 1
+    SEQ_BIN_BASE, SEQ_BIN_ROW_BYTES, SEQ_SETUP_BASE (records)
+    SEQ_FB_BASE, SEQ_TILES_PER_ROW, SEQ_CLEAR_LO/HI, FLUSH_FORMAT, DEPTH_CFG, CULL_CFG
+    DRAW_CFG            = 1 | topology << 1 | index_type << 3 | restart << 5 | record_shift << 6
+    DRAW_VERTEX_COUNT   = vertices (or indices) per instance
+    DRAW_INSTANCE_COUNT = 1 or more
+    DRAW_FIRST_VERTEX, DRAW_FIRST_INSTANCE, DRAW_VERTEX_OFFSET, DRAW_INDEX_BASE
+    VIEWPORT_SX/SY      = width/2, height/2      (FP32)
+    VIEWPORT_OX/OY      = x + width/2, y + height/2
+    DEPTH_SCALE/OFFSET  = maxDepth - minDepth, minDepth
+    DRAW_VS_CONST, DRAW_FS_CONST
+    SEQ_TRIGGER = 1     ; then poll STATUS bit 5 (sequencer busy) until clear
+
+`SEQ_TRI_COUNT` is not used in draw mode. With `record_shift` 8 a record
+holds five varying components; use 10 for up to 64.
+
 ## Tests
 
 | What                                                        | Test                                             |
