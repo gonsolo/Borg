@@ -43,6 +43,39 @@ know:
 
 ## Status
 
+**As of 2026-09-24 (run `rstsync-0924-0825`): FIRST FULLY CLEAN SIGNOFF.**
+DRC, LVS, antenna, setup and hold all pass, at every one of the 9 STA
+corners. `Checker.HoldViolations` reports "No hold violations found";
+the run completed with `ExecMainStatus=0` instead of failing on the
+deferred-error gate the way every earlier run did.
+
+The `msaa-jump` run below (2026-09-22) had already gotten routing/DRC/LVS
+clean but failed on timing. The remaining gap was a single hold path:
+`rst_n_PAD` fed the core's synchronous reset directly, with no
+synchronizer, so at the slow corners the ~11 ns clock insertion delay beat
+the pad's data path (`set_input_delay -min 0`) and violated hold by
+−0.47 ns (`max_ss_125C_3v00`) / −0.21 ns (`nom_ss_125C_3v00`) — the ONLY
+violating path in the whole design by that point. Fixed by adding a
+two-flop reset synchronizer (`BorgOnlyTop`'s `rstSync`) and a
+`set_false_path` on `rst_n_PAD` in `chip_top.sdc` (the standard constraint
+for a synchronizer input).
+
+**Still open, warnings only (not fatal in this flow's configuration),
+deferred to the post-shrink final design:** max slew at the `ss` corners,
+and max cap at every corner (this includes a known false positive — the
+pad's `PAD` pin reports ~3.6 pF against the design-wide 0.2 pF limit
+because `set_max_capacitance` cannot exempt one pin, even though the pad
+is rated for 50 pF).
+
+**Also as of 2026-09-24: the 1×1 slot is sold out.** Borg must now fit the
+1×0.5 slot (core 5.02 mm² vs 1×1's 12.92 mm²) instead — a ~58% synthesis
+area cut from the FP32 datapath (3.26 mm² today), planned once the
+in-progress Vulkan-conformance work merges. See `project_1x0p5_shrink_target`
+in the assistant's project memory for the per-module area breakdown and
+plan; this doc will be updated once that work lands in the repo.
+
+---
+
 **As of 2026-09-22 (run `msaa-jump`): physical implementation is proven
 correct for the first time ever on a Borg `chip_top`. Timing is not yet
 closed.**

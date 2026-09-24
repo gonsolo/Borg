@@ -236,10 +236,25 @@ CLOCK_NET: clk_pad/Y
 # resurface now that the FMA (fmaStages=4) and the texture blend are out of the
 # way. ALWAYS check max_ss_125C_3v00, never the typical corner.
 #
-# SIGNOFF STATUS 2026-09-22 (run msaa-jump, post-RCX STA at 200 ns): timing does
-# NOT close at 200 ns. Setup, hold, max-slew and max-cap all fail together at
-# the slow/hot/low corners -- this is a genuinely marginal design at this
-# period, not one narrow late path:
+# SIGNOFF STATUS 2026-09-24 (run rstsync-0924-0825, post-RCX STA at 200 ns):
+# FIRST FULLY CLEAN SIGNOFF. DRC, LVS, antenna, setup and hold all pass at
+# every one of the 9 STA corners -- Checker.HoldViolations reports "No hold
+# violations found" and the run exits ExecMainStatus=0 instead of failing on
+# the deferred-error gate. Only max-slew (ss corners) and max-cap (all
+# corners, including a known pad-pin false positive) remain, and both are
+# warnings, not fatal, in HOLD_VIOLATION_CORNERS/TIMING_VIOLATION_CORNERS/
+# MAX_*_CORNERS below -- deferred to the post-1x0.5-shrink final design.
+#
+# What got there: the 2026-09-22 msaa-jump run below had routing/DRC/LVS
+# clean but ONE hold violator left -- rst_n_PAD drove the core's synchronous
+# reset with no synchronizer, so at the slow corners the ~11 ns clock
+# insertion delay beat the pad's data path (-0.47 ns at max_ss_125C_3v00,
+# -0.21 ns at nom_ss_125C_3v00). Fixed with a two-flop reset synchronizer
+# (BorgOnlyTop's rstSync) plus set_false_path on rst_n_PAD in chip_top.sdc.
+#
+# Superseded history (msaa-jump, 2026-09-22, kept for context): timing did
+# NOT close at 200 ns -- setup, hold, max-slew and max-cap all failed
+# together at the slow/hot/low corners:
 #
 #   corner              setup WNS   setup TNS   violating endpoints
 #   nom_tt_025C_3v30       +79.22        0.00      0   (clean)
@@ -247,16 +262,15 @@ CLOCK_NET: clk_pad/Y
 #   nom_ff_n40C_3v60       +94.69        0.00      0   (clean)
 #   max_ss_125C_3v00       -13.02     -246.36     28   (worst)
 #
-# Hold fails even at some tt/ff corners (not just ss), and max-slew/max-cap
-# fail at nearly every corner -- see docs/05_asic.md for the full table and
-# the reasoning. Routing, DRC (Magic + KLayout, both 0 violations) and LVS
-# ("circuits match uniquely") are all independently clean on this same run --
-# this is a timing-closure problem layered on top of a physically valid
-# implementation, not a routing or DRC problem. Do not treat a future clean
+# See docs/05_asic.md for the full table and reasoning. Do not treat a clean
 # GRT/DRT/DRC/LVS result as signoff-complete without also checking
 # Checker.SetupViolations/HoldViolations/MaxSlewViolations/MaxCapViolations --
 # LibreLane defers these and only reports them in a final summary, so a run
 # can look finished long before you see whether it actually passed.
+#
+# 2026-09-24: the 1x1 slot is sold out. Borg must fit 1x0.5 (core 5.02 mm2
+# vs 1x1's 12.92 mm2) instead -- a ~58% synthesis area cut, planned once the
+# in-progress Vulkan-conformance work merges.
 CLOCK_PERIOD: 200 # 5 MHz
 
 # CTS
