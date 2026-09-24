@@ -21,6 +21,10 @@ class DrawMmioIO extends Bundle {
   val viewport      = Vec(4, UInt(32.W))   // sx, sy, ox, oy (FP32)
   val depthScale    = UInt(32.W)
   val depthOffset   = UInt(32.W)
+  val singleSample  = Bool()       // rasterizationSamples = 1: every sample at the centre
+  val depthBiasConst = UInt(32.W)  // FP32 depthBiasConstantFactor
+  val depthBiasSlope = UInt(32.W)  // FP32 depthBiasSlopeFactor
+  val depthD32      = Bool()       // D32_SFLOAT: r per triangle, else D16's 2^-16
 }
 
 class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
@@ -249,9 +253,14 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
             12.U -> d.viewport(0), 13.U -> d.viewport(1), 14.U -> d.viewport(2), 15.U -> d.viewport(3),
             16.U -> d.depthScale, 17.U -> d.depthOffset,
             18.U -> "h3F800000".U,       //  1.0
-            19.U -> "hBE000000".U,       // -0.125
-            20.U -> "hBEC00000".U,       // -0.375
-            21.U -> "h3EC00000".U))      // +0.375
+            // The standard 4x sample offsets, or all at the pixel centre
+            // for a single-sample render: coverage and depth then agree
+            // across the four samples and resolve exactly.
+            19.U -> Mux(d.singleSample, 0.U, "hBE000000".U),   // -0.125
+            20.U -> Mux(d.singleSample, 0.U, "hBEC00000".U),   // -0.375
+            21.U -> Mux(d.singleSample, 0.U, "h3EC00000".U),   // +0.375
+            22.U -> d.depthBiasSlope, 23.U -> d.depthBiasConst,
+            24.U -> Mux(d.depthD32, 0.U, "h37800000".U)))       // r of D16: 2^-16
         when(stageIdx === (BorgSetupRom.Uniforms - 1).U) { state := sRunSetup }
         stageIdx := stageIdx + 1.U
       }

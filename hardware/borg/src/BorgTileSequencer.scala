@@ -119,6 +119,9 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   val accumDone = if (cfg.msaaMultiPass) Some(RegInit(false.B)) else None
   private def lastPass: Bool =
     passCtr.map(_ === (cfg.samples - 1).U).getOrElse(true.B)
+  // A single-sample render starts at the last pass, whose sample is 0: one
+  // pass, nothing accumulated, the working plane flushed as is.
+  private def firstPass: UInt = Mux(io.mmio.singleSample, (cfg.samples - 1).U, 0.U)
 
   // Multi-pass control defaults. sampleIdx trails passCtr by one so sample 0
   // is rendered LAST (see passCtr's comment); the 2-bit add wraps 3 -> 0.
@@ -392,7 +395,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     // A new tile starts at pass 0 with an empty accumulator. Reset here, not
     // in sClearTile: sClearTile is re-entered once per PASS, this state only
     // once per tile.
-    passCtr.foreach(_ := 0.U)
+    passCtr.foreach(_ := firstPass)
     accumDone.foreach(_ := false.B)
     attPass := 0.U
     // SyncReadMem data is valid NOW (1 cycle after read was issued in
@@ -670,7 +673,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     def nextAttachment(): Unit = {
       when(attPass =/= io.mmio.attCount - 1.U) {
         attPass := attPass + 1.U
-        passCtr.foreach(_ := 0.U)
+        passCtr.foreach(_ := firstPass)
         accumDone.foreach(_ := false.B)
         binTriIdx    := 0.U
         clearCounter := 0.U

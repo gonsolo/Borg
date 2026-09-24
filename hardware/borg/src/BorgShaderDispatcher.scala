@@ -46,6 +46,9 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // exactly, so nothing changes until firmware writes it.
   val depthCompareOp = Input(UInt(3.W))
   val depthWriteEn   = Input(Bool())
+  // The depth attachment is UNORM (D16): a draw-mode fragment's depth is
+  // clamped to [0, 1] before the test, as that format cannot hold more.
+  val depthUnorm     = Input(Bool())
 
   // Step 50 item 9: fixed-function blend state (BLEND_CFG/BLEND_CONST).
   // Present only when cfg.hasBlend, so a build without blending carries no
@@ -170,6 +173,9 @@ class SampleMaskConfig(val samples: Int) extends Bundle {
   val mask        = UInt(samples.W)   // VkPipelineMultisampleStateCreateInfo::pSampleMask
   val alphaToCov  = Bool()            // alphaToCoverageEnable
   val shaderMask  = Bool()            // the fragment shader writes gl_SampleMask to r19
+  /** rasterizationSamples = 1: coverage and every mask come from sample 0
+    * and hold for all samples, which the walker has put at the pixel centre. */
+  val single      = Bool()
 }
 
 class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -301,8 +307,12 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   // The sample mask test: the pipeline's static mask, before shading.
   val coverage: Vec[Vec[Bool]] = VecInit((0 until N).map(i =>
-    VecInit((0 until cfg.samples).map(s => geomCoverage(i)(s) && io.sampleCfg.mask(s)))))
-  io.laneCoverage := VecInit(coverage.map(c => Cat(c.reverse)))
+    VecInit((0 until cfg.samples).map { s =>
+      val k = Mux(io.sampleCfg.single, 0.U, s.U)
+      geomCoverage(i)(k) && io.sampleCfg.mask(k)
+    })))
+  // gl_SampleMaskIn has one bit per rasterization sample.
+  io.laneCoverage := VecInit(coverage.map(c => Mux(io.sampleCfg.single, c(0).asUInt, Cat(c.reverse))))
 
   val inside_flag = VecInit((0 until N).map(i => coverage(i).reduce(_ || _)))
   val any_inside  = inside_flag.reduce(_ || _)
@@ -352,7 +362,14 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val frag_zs  = Option.when(cfg.drawEnabled && cfg.samples == 4)(Reg(Vec(N, Vec(4, UInt(32.W)))))
   val zWritten = RegInit(VecInit(Seq.fill(N)(false.B)))
   def zAt(l: UInt, s: UInt): UInt =
-    frag_zs.map(zs => Mux(drawMode && !zWritten(l), zs(l)(s(1, 0)), frag_z(l))).getOrElse(frag_z(l))
+    zClamp(frag_zs.map(zs => Mux(drawMode && !zWritten(l), zs(l)(s(1, 0)), frag_z(l))).getOrElse(frag_z(l)))
+  /** Depth into a D16 attachment's range: below 0 (depth bias can take it
+    * there) is 0, above 1 is 1. Legacy renders keep their far value 65504. */
+  def zClamp(z: UInt): UInt = {
+    val w = cfg.tileDepthBits
+    val one = (if (w == 32) 0x3F800000L else 0x3C00L).U(w.W)
+    Mux(drawMode && io.depthUnorm, Mux(z(w - 1), 0.U(w.W), Mux(z > one, one, z)), z)
+  }
   // gl_SampleMask as the shader wrote it (r19), all ones until it does.
   val fragMask = RegInit(VecInit(Seq.fill(N)(((1 << cfg.samples) - 1).U(cfg.samples.W))))
   /** Alpha to coverage: the first round(alpha * samples) samples -- a
@@ -367,10 +384,14 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     ((1.U << n) - 1.U)(cfg.samples - 1, 0)
   }
   def postMask(i: UInt): Vec[Bool] = {
-    val a2c = frag_a.map(a => alphaMask(a(i))).getOrElse(((1 << cfg.samples) - 1).U)
-    val m = Mux(io.sampleCfg.alphaToCov, a2c, ((1 << cfg.samples) - 1).U(cfg.samples.W)) &
-            Mux(io.sampleCfg.shaderMask, fragMask(i), ((1 << cfg.samples) - 1).U(cfg.samples.W))
-    VecInit(m.asBools)
+    val all = ((1 << cfg.samples) - 1).U(cfg.samples.W)
+    val a2c = frag_a.map(a => alphaMask(a(i))).getOrElse(all)
+    val m = Mux(io.sampleCfg.alphaToCov, a2c, all) & Mux(io.sampleCfg.shaderMask, fragMask(i), all)
+    // One sample: alpha to coverage covers it from alpha 0.5, and the
+    // shader's mask is its bit 0.
+    val a1 = frag_a.map(a => !a(i)(15) && a(i) >= 0x3800.U).getOrElse(true.B)
+    val m1 = (!io.sampleCfg.alphaToCov || a1) && (!io.sampleCfg.shaderMask || fragMask(i)(0))
+    VecInit(Mux(io.sampleCfg.single, Fill(cfg.samples, m1), m).asBools)
   }
 
   // --- Early per-fragment tests (ZTEST) ---------------------------------
@@ -756,7 +777,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // After ZTEST the depth is already final in the tile buffer: keep it.
     io.tileWrite.data.z := (if (cfg.samples == 1 || needPerSample)
                               Mux(io.depthWriteEn && !earlyDone, zAt(laneIdx, dstIdx), io.tileRead.data(srcIdx).z)
-                            else frag_z(laneIdx))
+                            else zClamp(frag_z(laneIdx)))
     // Depth test, per sample: a sample takes the fragment only if the lane is
     // inside (coverage), not discarded, AND this sample's own stored Z is
     // farther.  FP16 Z is non-negative in NDC; unsigned < comparison is valid.
@@ -770,8 +791,17 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // IEEE floats order identically as unsigned integers, so every ordering
     // op below is a plain unsigned compare on the raw bits -- the same
     // property the historical hardcoded `<` already relied on.
-    def depthPasses(newZ: UInt, oldZ: UInt): Bool =
-      CompareOp(io.depthCompareOp, newZ, oldZ)
+    // In float order, not bit order: a negative depth (a D32_SFLOAT one
+    // after depth bias) is below every positive one, and -0 equals +0.
+    def depthPasses(newZ: UInt, oldZ: UInt): Bool = {
+      val w = newZ.getWidth
+      def key(z: UInt): UInt = {
+        val msb = (BigInt(1) << (w - 1)).U(w.W)
+        val zn = Mux(z === msb, 0.U(w.W), z)
+        Mux(zn(w - 1), ~zn, zn | msb)
+      }
+      CompareOp(io.depthCompareOp, key(newZ), key(oldZ))
+    }
 
     // Stencil (Step 50 item 10), folded into the same cycle.
     //
@@ -824,7 +854,9 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       // Sample counting happens where the tests do: in the ZTEST sub-phase
       // for early tests, else here -- never both. At msaaMultiPass the loop
       // walks every sample but only the pass's own is live.
-      val countThis = io.passSample.map(_ === dstIdx).getOrElse(true.B)
+      // A single-sample render counts only sample 0 of its identical copies.
+      val countThis = io.passSample.map(_ === dstIdx).getOrElse(true.B) &&
+                      (!io.sampleCfg.single || dstIdx === 0.U)
       io.occSamples := (pass && !earlyDone && countThis).asUInt
       stencilRes.foreach { r =>
         io.stencilWrite.get       := r.newValue
@@ -849,7 +881,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       when(earlyActive) {
         samplePass.zipWithIndex.foreach { case (p, s) => earlyPass(laneIdx)(s) := p }
       }
-      io.occSamples := Mux(earlyDone, 0.U, PopCount(samplePass))
+      // A single-sample render counts each pixel once, not per copy.
+      io.occSamples := Mux(earlyDone, 0.U, Mux(io.sampleCfg.single, samplePass(0).asUInt, PopCount(samplePass)))
       stencilRes.foreach { r =>
         io.stencilWrite.get     := r.newValue
         io.stencilWriteMask.get := Mux(reached(0) && !earlyDone, Fill(cfg.samples, 1.U(1.W)), 0.U)

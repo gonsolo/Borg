@@ -178,6 +178,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val clearDepthSet   = RegInit(false.B)        // CLEAR_DEPTH written since reset
   // ATTACH_MS: multisampled attachments stored/loaded per sample.
   val attachMsReg     = RegInit(false.B)
+  // SAMPLE_MASK_CFG: [samples-1:0] static mask (reset all ones), [4] alpha to
+  // coverage, [5] the shader's own mask (r19), [6] rasterizationSamples = 1.
+  val smCfg = RegInit(((1 << cfg.samples) - 1).U(7.W))
+  private def singleSample: Bool = smCfg(6) && (cfg.samples > 1).B
   /** Tiles per attachment tile: `samples` per-sample tiles, or one resolved. */
   private def msScale(offset: UInt): UInt =
     if (cfg.samples > 1) Mux(attachMsReg, offset * cfg.samples.U, offset) else offset
@@ -488,6 +492,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // write_en=1, i.e. exactly the behaviour that used to be hardcoded, so
     // firmware that never writes this register sees no change.
     rast.io.depthCompareOp := rdlRegs.io.hw.depth_cfg_compare_op
+    rast.io.depthUnorm     := !depthD32Reg
     rast.io.depthWriteEn   := rdlRegs.io.hw.depth_cfg_write_en.asBool
     // BLEND_CFG / BLEND_CONST (Step 50 item 9). Reset 0 means blending
     // disabled -- the historical unconditional overwrite -- so, as with
@@ -744,6 +749,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     ld.io.msLoad.foreach(_ := attachMsReg)
     ld.io.msSample.foreach(passSample)
     s.io.mmio.attachMs := attachMsReg
+    s.io.mmio.singleSample := singleSample
     f.io.stencil.foreach(_ := tile.io.stencilRead.get)
     f.io.stencilBase.foreach(_ := Mux(seqFlushActive, stencilTileBase, stencilBaseReg))
     f.io.stencilEn.foreach(_ := stencilBaseReg =/= 0.U && (!seqFlushActive || attLast))
@@ -866,7 +872,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // Repurpose the write-only SEQ_TRIGGER address for reading seqDoneSticky.
       // Firmware reads this after triggering with triCount=0 to detect
       // whether the sequencer hardware is present.
-      (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> seqDoneSticky.asUInt,
+      // Bit 1: a bin overflowed and the render wrote nothing (BorgBinner).
+      (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> Cat(binner.io.overflow, seqDoneSticky),
       (read_addr_del === BorgGpuRegs.occ_count_offset)   -> occCount,
       (read_addr_del === BorgGpuRegs.occ_ctrl_offset)    -> occEnable.asUInt,
       (read_addr_del === BorgGpuRegs.occ_tri_range_offset) -> Cat(occLast, occFirst)
@@ -1108,7 +1115,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                        BorgGpuRegs.viewport_sx_offset, BorgGpuRegs.viewport_sy_offset,
                        BorgGpuRegs.viewport_ox_offset, BorgGpuRegs.viewport_oy_offset,
                        BorgGpuRegs.depth_scale_offset, BorgGpuRegs.depth_offset_offset,
-                       BorgGpuRegs.draw_vs_const_offset, BorgGpuRegs.draw_fs_const_offset)
+                       BorgGpuRegs.draw_vs_const_offset, BorgGpuRegs.draw_fs_const_offset,
+                       BorgGpuRegs.depth_bias_const_offset, BorgGpuRegs.depth_bias_slope_offset)
     val wordRegs = Option.when(cfg.drawEnabled)(words.map(_ => RegInit(0.U(32.W))))
     val drawMode = cfg.drawEnabled.B && cfgReg(0)
     when(bus.is_writing && bus.address === BorgGpuRegs.draw_cfg_offset) { cfgReg := bus.data_in }
@@ -1127,6 +1135,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       d.vertexOffset := w(4); d.indexBase := w(5)
       for (i <- 0 until 4) d.viewport(i) := w(6 + i)
       d.depthScale := w(10); d.depthOffset := w(11)
+      d.singleSample := singleSample
+      d.depthBiasConst := w(14); d.depthBiasSlope := w(15); d.depthD32 := depthD32Reg
     }
     s.io.pipeWriteLanes.foreach(_ := core.io.pipeWrite)
     core.io.drawMode.foreach(_ := drawMode)
@@ -1152,13 +1162,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     core.io.sampDescBase.foreach(_ := sampDescReg)
     core.io.descWritten.foreach(_ := descWrite)
 
-    // SAMPLE_MASK_CFG: [samples-1:0] static mask (reset all ones), then
-    // alpha to coverage and the shader's own mask (r19).
-    val smCfg = RegInit(((1 << cfg.samples) - 1).U(32.W))
-    when(bus.is_writing && bus.address === BorgGpuRegs.sample_mask_cfg_offset) { smCfg := bus.data_in }
+    when(bus.is_writing && bus.address === BorgGpuRegs.sample_mask_cfg_offset) { smCfg := bus.data_in(6, 0) }
     rast.io.sampleCfg.mask       := smCfg(cfg.samples - 1, 0)
     rast.io.sampleCfg.alphaToCov := smCfg(4)
     rast.io.sampleCfg.shaderMask := smCfg(5)
+    rast.io.sampleCfg.single     := singleSample
     core.io.laneCoverage.foreach(_ := rast.io.laneCoverage)
     core.io.pixelOrigin.x := pixelOriginX; core.io.pixelOrigin.y := pixelOriginY
     // Colour attachments 1..3; attachment 0 is the historical one.
@@ -1212,6 +1220,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     b.io.countReadAddr := s.io.binner.countReadAddr
     b.io.countReadEn   := s.io.binner.countReadEn
     s.io.binner.countReadData := b.io.countReadData
+    s.io.binOverflow := b.io.overflow
 
     // GpuMem feedback
     b.io.gpuMem.data  := io.gpuMem.data

@@ -79,7 +79,7 @@ object BorgShaderDispatcherTestHelpers {
     // historical hardcoded behaviour (LESS, depth writes on) so every
     // pre-existing test in this file keeps its original meaning.
     d.io.depthCompareOp.poke(CMP_LESS.U)
-    d.io.depthWriteEn.poke(true.B)
+    d.io.depthWriteEn.poke(true.B); d.io.depthUnorm.poke(true.B)
     // Step 50 item 9: blending off by default (only present in a hasBlend
     // build), so every pre-existing test keeps the unconditional-overwrite
     // behaviour it was written against.
@@ -118,7 +118,7 @@ object BorgShaderDispatcherTestHelpers {
     // every pre-existing test was written against.
     d.io.scissorPass.foreach(_.poke(true.B))
     d.io.sampleCfg.mask.poke(((1 << d.cfg.samples) - 1).U)
-    d.io.sampleCfg.alphaToCov.poke(false.B); d.io.sampleCfg.shaderMask.poke(false.B)
+    d.io.sampleCfg.alphaToCov.poke(false.B); d.io.sampleCfg.shaderMask.poke(false.B); d.io.sampleCfg.single.poke(false.B)
     // No ZTEST in flight: every pre-existing test runs the late tests.
     d.io.zTestReq.poke(false.B)
     // Destination alpha: opaque, which is what the hardware behaved as

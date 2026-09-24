@@ -37,8 +37,10 @@ object BorgSetupRomTests extends TestSuite {
     (rows0.map(_.map(_ * math.signum(det))) :+ zn, det, screen)
   }
 
-  def runSetup(core: BorgCore, t: Tri, mem: scala.collection.mutable.Map[BigInt, BigInt]): Unit = {
+  def runSetup(core: BorgCore, t: Tri, mem: scala.collection.mutable.Map[BigInt, BigInt],
+               bias: (Double, Double, Double) = (0, 0, 0)): Unit = {
     def u(i: Int, f: Double): Unit = writeCore(core, 432 + 4 * i, floatToBits(f.toFloat))
+    u(BorgSetupRom.uBiasSlope, bias._1); u(BorgSetupRom.uBiasConst, bias._2); u(BorgSetupRom.uRFloor, bias._3)
     for (k <- 0 until 3) {
       u(uX(k), t.c(k)(0)); u(uY(k), t.c(k)(1)); u(uZ(k), t.c(k)(2)); u(uW(k), t.c(k)(3))
     }
@@ -123,6 +125,43 @@ object BorgSetupRomTests extends TestSuite {
             if (x == 128 && y == 128)
               println(f"  tri $n at (128,128): lambda = (${got(5)}%.4f, ${got(6)}%.4f, ${got(7)}%.4f), 1/w = ${got(8)}%.4f, z = ${got(9)}%.4f")
           }
+        }
+        println("  PASSED")
+      }
+    }
+
+    utest.test("setup_rom_adds_depth_bias") {
+      // offset + m * slope + r * constant, m = max(|dz/dx|, |dz/dy|) of
+      // FragCoord.z (scale 0.5), r = max(floor, ulp(largest corner |depth|)),
+      // or ulp(1.0) with a corner behind the eye.
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgSetupRom: depth bias ---")
+        idleInputs(core)
+        resetCore(core)
+        val rnd = new scala.util.Random(11)
+        def ulp(f: Float) = java.lang.Math.ulp(f).toDouble
+        for (n <- 0 until 12) {
+          val behind = n >= 9
+          val t = Tri((0 until 3).map { k =>
+            val w = if (behind && k == 0) -0.4 else 0.5 + 2.5 * rnd.nextDouble()
+            Seq((rnd.nextDouble() * 2 - 1) * math.abs(w), (rnd.nextDouble() * 2 - 1) * math.abs(w),
+                rnd.nextDouble() * math.abs(w), w)
+          })
+          val (slope, const, floor) = (if (n % 3 == 0) 0.0 else -1.5 + n, if (n % 2 == 0) 3.0 else -2.0,
+                                       if (n % 4 == 1) math.pow(2, -16) else 0.0)
+          val mem = scala.collection.mutable.Map[BigInt, BigInt]()
+          runSetup(core, t, mem, (slope, const, floor))
+          val (planes, _, _) = reference(t)
+          val m = 0.5 * math.max(math.abs(planes(3)(0)), math.abs(planes(3)(1)))
+          val zmax = if (behind) 1.0 else t.c.map(c => math.abs(0.5 * c(2) / c(3) + 0.25)).max.min(1.0)
+          val r = math.max(floor, ulp(zmax.toFloat))
+          val expect = 0.25 + m * slope + r * const
+          val got = bitsToFloat(mem.getOrElse(BigInt(recordBase + 4 * Record.DepthOffset), BigInt(0x7fc00000))).toDouble
+          println(f"  tri $n: m $m%.4g r $r%.3g slope $slope const $const -> $got%.9g (expect $expect%.9g)")
+          // The slope term to FP32 rounding of m; the constant term exactly
+          // (r is a power of two), to half an ulp of the result.
+          Predef.assert(math.abs(got - expect) <= 1e-5 * math.abs(m * slope) + ulp(got.toFloat) / 2,
+                        f"tri $n bias: $got vs $expect")
         }
         println("  PASSED")
       }
