@@ -30,11 +30,11 @@ class BorgTileLoaderIO(val hasDepth: Boolean = true, val hasStencil: Boolean = t
 
   val aspects     = Input(new TileLoadAspects)
   val format      = Input(UInt(2.W))        // FlushFormat of the colour attachment
-  val colorBase   = Input(UInt(25.W))       // this tile's colour data, as the flusher wrote it
+  val colorBase   = Input(UInt(GpuMemIO.AddrBits.W))       // this tile's colour data, as the flusher wrote it
   // Present only in a build that can store the aspect (hasDepthFlush /
   // hasStencil): there is nothing to load back otherwise.
-  val depthBase   = if (hasDepth)   Some(Input(UInt(25.W))) else None  // 16 x D16_UNORM
-  val stencilBase = if (hasStencil) Some(Input(UInt(25.W))) else None  // 16 x S8_UINT
+  val depthBase   = if (hasDepth)   Some(Input(UInt(GpuMemIO.AddrBits.W))) else None  // 16 x D16_UNORM
+  val stencilBase = if (hasStencil) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None  // 16 x S8_UINT
   // D32_SFLOAT depth attachment (DEPTH_FORMAT), only with FP32 tile depth.
   val depthD32    = if (hasDepth && zBits == 32) Some(Input(Bool())) else None
   // Per-sample attachments (ATTACH_MS), the flusher's layout: each sample of
@@ -93,9 +93,9 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
 
   val aspects = Reg(new TileLoadAspects)
   val format  = Reg(UInt(2.W))
-  val cBase   = Reg(UInt(25.W))
-  val zBase   = Reg(UInt(25.W))
-  val sBase   = Reg(UInt(25.W))
+  val cBase   = Reg(UInt(GpuMemIO.AddrBits.W))
+  val zBase   = Reg(UInt(GpuMemIO.AddrBits.W))
+  val sBase   = Reg(UInt(GpuMemIO.AddrBits.W))
   val entry   = RegInit(0.U(4.W))            // first entry of the current pair (even)
   val cWord0  = Reg(UInt(32.W))
   val cWord1  = Reg(UInt(32.W))

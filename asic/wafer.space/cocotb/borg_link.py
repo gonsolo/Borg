@@ -232,8 +232,9 @@ class LinkMaster:
         hdr = self.rx_flits[0]
         chan, op = (hdr >> 15) & 1, (hdr >> 12) & 0x7
         if chan == CHAN_V:
-            # V.A: header + addr[15:0], then 2^wlenLog2 words on a write.
-            expect = 2 if op == OP_GET else 2 + (1 << ((hdr >> 9) & 0x7))
+            # V.A: header + addr[15:0] + addr[31:16], then 2^wlenLog2 words
+            # on a write.
+            expect = 3 if op == OP_GET else 3 + (1 << ((hdr >> 9) & 0x7))
         else:
             expect = 3 if op == OP_ACCESS_ACK_DATA else 1
         if len(self.rx_flits) >= expect:
@@ -251,14 +252,14 @@ class LinkMaster:
         """Answer one V.A (Borg gpuMem request) from the halfword DRAM."""
         hdr = pkt[0]
         op = (hdr >> 12) & 0x7
-        addr = ((hdr & 0x1FF) << 16) | pkt[1]
+        addr = (pkt[2] << 16) | pkt[1]
         if op == OP_GET:
             data = self.word(addr)
             self.va_log.append(("get", addr, [data]))
             await self.send_flits([header(CHAN_V, OP_ACCESS_ACK_DATA, 0),
                                    data & 0xFFFF, (data >> 16) & 0xFFFF])
         else:
-            words = pkt[2:]
+            words = pkt[3:]
             for i, w in enumerate(words):
                 self.mem[addr + 2 * i] = w
             self.va_log.append(("put", addr, words))

@@ -22,7 +22,7 @@ import chisel3._
   * }}}
   */
 class GpuMemIO extends Bundle {
-  val addr  = Output(UInt(25.W))  // 25-bit: 32 MB SDRAM address space
+  val addr  = Output(UInt(GpuMemIO.AddrBits.W))  // byte address
   val req   = Output(Bool())
   val data  = Input(UInt(32.W))
   val ready = Input(Bool())
@@ -35,4 +35,15 @@ class GpuMemIO extends Bundle {
   // plain single-word write (the existing behaviour).
   val wlen    = Output(UInt(7.W))   // burst word count (1..64)
   val waccept = Input(Bool())       // controller pulled the current word; present next
+}
+
+object GpuMemIO {
+
+  /** Width of every GPU byte address: this bus, the base registers, the DMA,
+    * the texture unit, LOAD/STORE. 32 bits, RV32's address space -- a 32-bit
+    * register holds any address, and a board decodes only the memory it has.
+    * Vulkan's maxStorageBufferRange (2^27) and a 4096^2 RGBA32F image
+    * (256 MiB) both need more than the 25 bits of today's 32 MiB boards.
+    */
+  val AddrBits = 32
 }

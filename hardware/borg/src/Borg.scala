@@ -142,7 +142,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // Colour attachments (decoded in wireDraw): the current pass's colour
   // base, format, clear colour and loadOp, and whether it is the first or
   // the last pass of the tile.
-  private val attBase     = WireDefault(0.U(25.W))
+  private val attBase     = WireDefault(0.U(GpuMemIO.AddrBits.W))
   private val attFormat   = WireDefault(0.U(2.W))
   private val attClearRG  = WireDefault(0.U(32.W))
   private val attClearB   = WireDefault(0.U(16.W))
@@ -661,9 +661,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * - tile read port: muxed in wireTileBuffer() above.
     */
   private def wireFlusher(): Unit = {
-    val flushTileBaseReg = RegInit(0.U(25.W))
+    val flushTileBaseReg = RegInit(0.U(GpuMemIO.AddrBits.W))
     when(bus.is_writing && bus.address === BorgGpuRegs.flush_fb_base_offset) {
-      flushTileBaseReg := bus.data_in(24, 0)
+      flushTileBaseReg := bus.data_in
     }
 
     val flushPending = RegInit(false.B)
@@ -707,9 +707,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val depthTileOffset = msScale(Mux(depthD32Reg, seqTileOffset << 1, seqTileOffset))
     f.io.depthD32.foreach(_ := depthD32Reg)
     // Also the tile loader's depth source, so it exists in every build.
-    val flushDepthBaseReg = RegInit(0.U(25.W))
+    val flushDepthBaseReg = RegInit(0.U(GpuMemIO.AddrBits.W))
     when(bus.is_writing && bus.address === BorgGpuRegs.flush_zb_base_offset) {
-      flushDepthBaseReg := bus.data_in(24, 0)
+      flushDepthBaseReg := bus.data_in
     }
     f.io.depthBase.foreach { p =>
       // Autonomous flushes offset it per tile exactly like the colour base.
@@ -724,9 +724,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // Stencil attachment (S8_UINT, 16 bytes per tile: half a depth tile's
     // offset). Same enable convention as depth: nonzero base = bound.
-    val stencilBaseReg = RegInit(0.U(25.W))
+    val stencilBaseReg = RegInit(0.U(GpuMemIO.AddrBits.W))
     when(bus.is_writing && bus.address === BorgGpuRegs.flush_sb_base_offset) {
-      stencilBaseReg := bus.data_in(24, 0)
+      stencilBaseReg := bus.data_in
     }
     val stencilTileBase = stencilBaseReg + msScale(seqTileOffset >> 1)
 
@@ -888,14 +888,14 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // @doc:end
 
   private def wireDMA(): Unit = {
-    val dmaBaseReg   = RegInit(0.U(20.W))
+    val dmaBaseReg   = RegInit(0.U(GpuMemIO.AddrBits.W))
     val dmaLenReg    = RegInit(0.U(6.W))
     val dmaDestReg   = RegInit(0.U(2.W))
     val dmaOffsetReg = RegInit(0.U(6.W))
     val dmaStartPulse = WireDefault(false.B)
 
     when(bus.is_writing && bus.address === BorgGpuRegs.dma_dram_offset) {
-      dmaBaseReg := bus.data_in(19, 0)
+      dmaBaseReg := bus.data_in
     }
     when(bus.is_writing && bus.address === BorgGpuRegs.dma_config_offset) {
       dmaLenReg    := bus.data_in(6, 1)
@@ -932,18 +932,18 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // lands in the same cycle; the core lets the write win, so that line
     // stays valid.
     core.io.codeBase.foreach { cb =>
-      val codeBaseReg  = RegInit(0.U(25.W))
+      val codeBaseReg  = RegInit(0.U(GpuMemIO.AddrBits.W))
       val awaitFirst   = RegInit(false.B)
       val flush = WireDefault(false.B)
       when(d.io.start) { awaitFirst := true.B }
       when(d.io.imemWrite.en && awaitFirst) {
-        codeBaseReg := (d.io.gpuMem.addr - (d.io.imemWrite.addr << 2))(24, 0)
+        codeBaseReg := d.io.gpuMem.addr - (d.io.imemWrite.addr << 2)
         awaitFirst  := false.B
         flush := true.B
       }
       when(!d.io.busy && !d.io.start) { awaitFirst := false.B }  // a non-IMEM transfer ended
       when(bus.is_writing && bus.address === BorgGpuRegs.code_base_offset) {
-        codeBaseReg := bus.data_in(24, 0)
+        codeBaseReg := bus.data_in
         flush := true.B
       }
       cb := codeBaseReg
@@ -986,48 +986,48 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     if (cfg.pipelineSeqConfig) RegNext(x) else x
 
   private def wireSequencer(): Unit = {
-    val seqDescBaseReg   = RegInit(0.U(20.W))
-      val seqVertAddrReg   = RegInit(0.U(20.W))
+    val seqDescBaseReg   = RegInit(0.U(GpuMemIO.AddrBits.W))
+      val seqVertAddrReg   = RegInit(0.U(GpuMemIO.AddrBits.W))
       val seqVertLenReg    = RegInit(0.U(6.W))
-      val seqSetupAddrReg  = RegInit(0.U(20.W))
+      val seqSetupAddrReg  = RegInit(0.U(GpuMemIO.AddrBits.W))
       val seqSetupLenReg   = RegInit(0.U(6.W))
       val seqInvWidthReg   = RegInit(0.U(cfg.totalBits.W))
       val seqStartPulse    = WireDefault(false.B)
       val seqTriCountReg   = RegInit(0.U(5.W))
-      val seqRastAddrReg   = RegInit(0.U(20.W))
+      val seqRastAddrReg   = RegInit(0.U(GpuMemIO.AddrBits.W))
       val seqRastLenReg    = RegInit(0.U(6.W))
-      val seqFragAddrReg   = RegInit(0.U(20.W))
+      val seqFragAddrReg   = RegInit(0.U(GpuMemIO.AddrBits.W))
       val seqFragLenReg    = RegInit(0.U(6.W))
       val seqClearLoReg    = RegInit(0.U(32.W))
       val seqClearHiReg    = RegInit(0.U(32.W))
-      val seqFbBaseReg     = RegInit(0.U(25.W))
+      val seqFbBaseReg     = RegInit(0.U(GpuMemIO.AddrBits.W))
       val seqTilesPerRowReg = RegInit(0.U(10.W))
-      val seqBinBaseReg     = RegInit(0.U(25.W))
+      val seqBinBaseReg     = RegInit(0.U(GpuMemIO.AddrBits.W))
       val seqBinRowBytesReg = RegInit(0.U(20.W))
-      val seqSetupBaseReg   = RegInit(0.U(25.W))
+      val seqSetupBaseReg   = RegInit(0.U(GpuMemIO.AddrBits.W))
 
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_desc_base_offset)    { seqDescBaseReg := bus.data_in(19, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_desc_base_offset)    { seqDescBaseReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_trigger_offset) {
         seqStartPulse := bus.data_in(0)
         seqDoneSticky := false.B   // clear sticky on new trigger
       }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_addr_offset)    { seqVertAddrReg := bus.data_in(19, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_addr_offset)    { seqVertAddrReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_len_offset)     { seqVertLenReg := bus.data_in(5, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_addr_offset)   { seqSetupAddrReg := bus.data_in(19, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_addr_offset)   { seqSetupAddrReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_len_offset)    { seqSetupLenReg := bus.data_in(5, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_inv_width_offset)    { seqInvWidthReg := bus.data_in(cfg.totalBits - 1, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_tri_count_offset)    { seqTriCountReg := bus.data_in(4, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_rast_addr_offset)    { seqRastAddrReg := bus.data_in(19, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_rast_addr_offset)    { seqRastAddrReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_rast_len_offset)     { seqRastLenReg := bus.data_in(5, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_frag_addr_offset)    { seqFragAddrReg := bus.data_in(19, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_frag_addr_offset)    { seqFragAddrReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_frag_len_offset)     { seqFragLenReg := bus.data_in(5, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_clear_lo_offset)     { seqClearLoReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_clear_hi_offset)     { seqClearHiReg := bus.data_in }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_fb_base_offset)      { seqFbBaseReg := bus.data_in(24, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_fb_base_offset)      { seqFbBaseReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_tiles_per_row_offset){ seqTilesPerRowReg := bus.data_in(9, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_bin_base_offset)     { seqBinBaseReg := bus.data_in(24, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_bin_base_offset)     { seqBinBaseReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_bin_row_bytes_offset){ seqBinRowBytesReg := bus.data_in(19, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_base_offset)   { seqSetupBaseReg := bus.data_in(24, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_base_offset)   { seqSetupBaseReg := bus.data_in }
 
       s.io.mmio.start           := seqCfgPipe(seqStartPulse)
       s.io.mmio.descBase        := seqCfgPipe(seqDescBaseReg)
@@ -1117,14 +1117,14 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     })
     s.io.mmio.drawMode    := drawMode
     s.io.mmio.recordShift := cfgReg(9, 6)
-    s.io.mmio.vsConstBase := wordRegs.map(_(12)(24, 0)).getOrElse(0.U)
-    s.io.mmio.fsConstBase := wordRegs.map(_(13)(24, 0)).getOrElse(0.U)
+    s.io.mmio.vsConstBase := wordRegs.map(_(12)).getOrElse(0.U)
+    s.io.mmio.fsConstBase := wordRegs.map(_(13)).getOrElse(0.U)
     s.io.draw.foreach { d =>
       val w = wordRegs.get
       d.topology := cfgReg(2, 1); d.indexType := cfgReg(4, 3); d.restart := cfgReg(5)
       d.recordShift := cfgReg(9, 6)
       d.vertexCount := w(0); d.instanceCount := w(1); d.firstVertex := w(2); d.firstInstance := w(3)
-      d.vertexOffset := w(4); d.indexBase := w(5)(24, 0)
+      d.vertexOffset := w(4); d.indexBase := w(5)
       for (i <- 0 until 4) d.viewport(i) := w(6 + i)
       d.depthScale := w(10); d.depthOffset := w(11)
     }
@@ -1142,12 +1142,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // The texture unit's descriptor tables. A write to either forgets the
     // descriptors the unit has cached.
-    val texDescReg  = RegInit(0.U(25.W))
-    val sampDescReg = RegInit(0.U(25.W))
+    val texDescReg  = RegInit(0.U(GpuMemIO.AddrBits.W))
+    val sampDescReg = RegInit(0.U(GpuMemIO.AddrBits.W))
     val descWrite = bus.is_writing &&
       (bus.address === BorgGpuRegs.tex_desc_base_offset || bus.address === BorgGpuRegs.sampler_desc_base_offset)
-    when(bus.is_writing && bus.address === BorgGpuRegs.tex_desc_base_offset)     { texDescReg  := bus.data_in(24, 0) }
-    when(bus.is_writing && bus.address === BorgGpuRegs.sampler_desc_base_offset) { sampDescReg := bus.data_in(24, 0) }
+    when(bus.is_writing && bus.address === BorgGpuRegs.tex_desc_base_offset)     { texDescReg  := bus.data_in }
+    when(bus.is_writing && bus.address === BorgGpuRegs.sampler_desc_base_offset) { sampDescReg := bus.data_in }
     core.io.texDescBase.foreach(_ := texDescReg)
     core.io.sampDescBase.foreach(_ := sampDescReg)
     core.io.descWritten.foreach(_ := descWrite)
@@ -1163,12 +1163,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     core.io.pixelOrigin.x := pixelOriginX; core.io.pixelOrigin.y := pixelOriginY
     // Colour attachments 1..3; attachment 0 is the historical one.
     val attCfg = RegInit(0.U(8.W)); val attFmtReg = RegInit(0.U(6.W))
-    val attBases = Seq.fill(3)(RegInit(0.U(25.W)))
+    val attBases = Seq.fill(3)(RegInit(0.U(GpuMemIO.AddrBits.W)))
     val attRG = Seq.fill(3)(RegInit(0.U(32.W))); val attBA = Seq.fill(3)(RegInit(0.U(32.W)))
     when(bus.is_writing && bus.address === BorgGpuRegs.att_cfg_offset)    { attCfg := bus.data_in(7, 0) }
     when(bus.is_writing && bus.address === BorgGpuRegs.att_format_offset) { attFmtReg := bus.data_in(5, 0) }
     for ((r, off) <- attBases.zip(Seq(BorgGpuRegs.att_base1_offset, BorgGpuRegs.att_base2_offset, BorgGpuRegs.att_base3_offset)))
-      when(bus.is_writing && bus.address === off) { r := bus.data_in(24, 0) }
+      when(bus.is_writing && bus.address === off) { r := bus.data_in }
     for ((r, off) <- attRG.zip(Seq(BorgGpuRegs.att_clear_rg1_offset, BorgGpuRegs.att_clear_rg2_offset, BorgGpuRegs.att_clear_rg3_offset)))
       when(bus.is_writing && bus.address === off) { r := bus.data_in }
     for ((r, off) <- attBA.zip(Seq(BorgGpuRegs.att_clear_ba1_offset, BorgGpuRegs.att_clear_ba2_offset, BorgGpuRegs.att_clear_ba3_offset)))

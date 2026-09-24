@@ -43,7 +43,7 @@ class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256, coordWi
 
   // --- DRAM layout parameters ---
   /** GPU memory byte address of the bin list region base (from tbr_bin_base); 25b = 32 MB. */
-  val binBase     = Input(UInt(25.W))
+  val binBase     = Input(UInt(GpuMemIO.AddrBits.W))
   /** Bin list row size in bytes (= SEQ_MAX_TRI * TBR_BIN_ENTRY_SIZE). */
   val binRowBytes = Input(UInt(binRowBytesWidth.W))
   /** Number of tiles per framebuffer row (= fb_width / 4). */

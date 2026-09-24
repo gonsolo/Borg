@@ -84,7 +84,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // LS_BASE: the base address loads and stores are relative to. Effectively
   // the SSBO descriptor -- see Instructions.FUNCT7_LOAD for why the register
   // operand is an index rather than a full address.
-  val lsBase  = if (cfg.hasMemoryOps) Some(Input(UInt(25.W))) else None
+  val lsBase  = if (cfg.hasMemoryOps) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
 
   // Raw invocation IDs for r30/r31 and the lanes a trigger starts with:
   // compute's (BorgComputeSequencer), or a vertex shader's VertexIndex and
@@ -124,7 +124,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // Instruction cache (BorgConfig.hasShaderICache): the running program's
   // image in DRAM -- word `pc` lives at codeBase + 4*pc -- and a pulse that
   // forgets every word fetched from it, raised whenever the program changes.
-  val codeBase    = if (cfg.shaderICacheEnabled) Some(Input(UInt(25.W))) else None
+  val codeBase    = if (cfg.shaderICacheEnabled) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
   val icacheFlush = if (cfg.shaderICacheEnabled) Some(Input(Bool())) else None
 
   // Draw front end: where SOUT and FATTR go (see Instructions.FUNCT7_SOUT).
@@ -133,8 +133,8 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None
   // The texture unit's descriptor tables (TEX_DESC_BASE, SAMPLER_DESC_BASE),
   // and a pulse when either is written (forgets cached descriptors).
-  val texDescBase  = if (cfg.samplerEnabled) Some(Input(UInt(25.W))) else None
-  val sampDescBase = if (cfg.samplerEnabled) Some(Input(UInt(25.W))) else None
+  val texDescBase  = if (cfg.samplerEnabled) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
+  val sampDescBase = if (cfg.samplerEnabled) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
   val descWritten  = if (cfg.samplerEnabled) Some(Input(Bool())) else None
   // Per lane, the samples the current fragment covers (SMASK).
   val laneCoverage = if (cfg.drawEnabled) Some(Input(Vec(cfg.fragLanes, UInt(cfg.samples.W)))) else None
@@ -144,7 +144,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   * driven by the sequencers. See docs/B1_geometry_front_end.md. */
 class CoreRecordIO extends Bundle {
   /** Byte address output component 0 goes to. */
-  val outBase       = UInt(25.W)
+  val outBase       = UInt(GpuMemIO.AddrBits.W)
   /** Vertex stage: component c of corner k at outBase + 4*(3c + k). Otherwise
     * (the setup ROM) at outBase + 4c. */
   val outInterleave = Bool()
@@ -152,7 +152,7 @@ class CoreRecordIO extends Bundle {
     * runs the vertex shader once per corner and steps this instead. */
   val outCorner     = UInt(2.W)
   /** Byte address of component 0's three per-vertex values, for FATTR. */
-  val attrBase      = UInt(25.W)
+  val attrBase      = UInt(GpuMemIO.AddrBits.W)
 }
 
 class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -761,7 +761,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       io.memBusy := true.B
       g.req  := true.B
       g.wr   := false.B
-      g.addr := (io.codeBase.get + (missPc << 2))(24, 0)
+      g.addr := (io.codeBase.get + (missPc << 2))(GpuMemIO.AddrBits - 1, 0)
       when(g.ready) {
         fillWriteEn   := true.B
         fillWriteIdx  := imemIndex(missPc)
@@ -974,7 +974,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Effective address: LS_BASE + (index << 2). The shift is what makes the
     // index a word index and misalignment unrepresentable; +& keeps the carry
     // so a base near the top of the space does not wrap silently.
-    val lsAddr = (io.lsBase.get +& (curIndex << 2))(24, 0)
+    val lsAddr = (io.lsBase.get +& (curIndex << 2))(GpuMemIO.AddrBits - 1, 0)
 
     // SOUT/FATTR: a component index from the instruction, not a register.
     // Taken at start (below), since the index is packed into register fields
@@ -985,8 +985,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       val times3 = (compIdx << 1) +& compIdx
       val corner = rec.outCorner +& memLane
       val word   = Mux(rec.outInterleave, times3 +& corner, compIdx)
-      val soutAddr = (rec.outBase +& (word << 2))(24, 0)
-      val attrAddr = (rec.attrBase +& ((times3 +& attrK) << 2))(24, 0)
+      val soutAddr = (rec.outBase +& (word << 2))(GpuMemIO.AddrBits - 1, 0)
+      val attrAddr = (rec.attrBase +& ((times3 +& attrK) << 2))(GpuMemIO.AddrBits - 1, 0)
       Mux(is_fattr_reg, attrAddr, Mux(is_sout_reg, soutAddr, lsAddr))
     }.getOrElse(lsAddr)
 

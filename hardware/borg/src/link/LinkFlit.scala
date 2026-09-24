@@ -17,7 +17,9 @@ import chisel3.util._
   * Payload layouts, each exactly 12 bits:
   *
   *   - M.A: `{size[1:0], addr[9:0]}`         -- HuttBus(10) request
-  *   - V.A: `{wlenLog2[2:0], addr[24:16]}`   -- gpuMem request, high address bits
+  *   - V.A: `{wlenLog2[2:0], 9'b0}`          -- gpuMem request; the 32-bit
+  *     byte address follows in two flits, `addr[15:0]` then `addr[31:16]`
+  *     (low half first, like every data word on the link)
   *   - D:   zero
   *
   * The burst length is encoded as a log2 so that the total packet length stays a
@@ -46,11 +48,10 @@ object LinkHeader {
   def mmioAddr(h: LinkHeader): UInt = h.payload(9, 0)
   def mmioSize(h: LinkHeader): UInt = h.payload(11, 10)
 
-  def vramAddrHi(h: LinkHeader): UInt = h.payload(8, 0)   // addr[24:16]
   def vramWlenLog2(h: LinkHeader): UInt = h.payload(11, 9)
 
   def mmioPayload(size: UInt, addr: UInt): UInt = Cat(size(1, 0), addr(9, 0))
-  def vramPayload(wlenLog2: UInt, addrHi: UInt): UInt = Cat(wlenLog2(2, 0), addrHi(8, 0))
+  def vramPayload(wlenLog2: UInt): UInt = Cat(wlenLog2(2, 0), 0.U(9.W))
 }
 
 /** One 16-bit flit of a packet, with an end-of-packet marker.
@@ -115,12 +116,13 @@ object LinkFlit {
   def flitsUp(h: LinkHeader): UInt =
     Mux(
       h.chan === LinkChan.V,
-      // V.A: header + addr[15:0], then one flit per burst word on writes.
-      // gpuMem.wdata only carries 16 meaningful bits, so a word is one flit.
+      // V.A: header + addr[15:0] + addr[31:16], then one flit per burst word
+      // on writes. gpuMem.wdata only carries 16 meaningful bits, so a word is
+      // one flit.
       Mux(
         h.opcode === TLOpcode.Get,
-        2.U,
-        2.U + (1.U << LinkHeader.vramWlenLog2(h))
+        3.U,
+        3.U + (1.U << LinkHeader.vramWlenLog2(h))
       ),
       // M.D: read data appends two flits, a write ack is header-only.
       Mux(h.opcode === TLOpcode.AccessAckData, 3.U, 1.U)

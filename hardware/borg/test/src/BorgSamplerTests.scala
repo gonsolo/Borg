@@ -171,7 +171,7 @@ object BorgSamplerTests extends TestSuite {
       val layer = if (t.ttype == T3D) 0 else if (isFetch) math.min(math.max(ln.fetch._3, 0), t.d - 1)
                   else (((fixed(lsrc, 1, 18) + 1) >> 1).toInt).max(0).min(t.d - 1)
       val coords = Seq(ln.u, ln.v, ln.w)
-      var acc = Seq.fill(4)(0.0f); var gather = Seq.fill(4)(0L); var singleVal: Seq[Either[Long, Double]] = null
+      var acc = Seq.fill(4)(0.0f); var gather: Seq[Either[Long, Double]] = Seq.fill(4)(Left(0L)); var singleVal: Seq[Either[Long, Double]] = null
       val nLev = lv.size
       for ((l, lw) <- lv) {
         val size = Seq(t.lw(l), t.lh(l), t.ld(l))
@@ -222,7 +222,9 @@ object BorgSamplerTests extends TestSuite {
             } else if (cubeTaps.size == 1) decode(t.fm, texel(cubeTaps(0)._1, cubeTaps(0)._2, z, cubeTaps(0)._3, l))
             else {                                        // a corner: the average of three texels
               val vs = cubeTaps.map { case (cx, cy, cf) => decode(t.fm, texel(cx, cy, z, cf, l)) }
-              (0 until 4).map(c => Right(vs.map(_(c).fold(_.toDouble, identity)).sum / 3): Either[Long, Double])
+              // Integers can't be averaged; they keep the tap's own face (the spec's "may").
+              if (t.fm.isInt) vs(0)
+              else (0 until 4).map(c => Right(vs.map(_(c).fold(_.toDouble, identity)).sum / 3): Either[Long, Double])
             }
           s.cmp.foreach { op =>
             val dt = vals(0).fold(_.toDouble, identity); val dr = ln.dref.toDouble
@@ -230,7 +232,7 @@ object BorgSamplerTests extends TestSuite {
                                   case 4 => dr > dt; case 5 => dr != dt; case 6 => dr >= dt; case _ => true }
             vals = Seq(Right(if (pass) 1.0 else 0.0), Right(0.0), Right(0.0), Right(1.0))
           }
-          if (isGather) gather = gather.updated(tp, vals(((ctl >> 18) & 3).toInt).fold(identity, d => fbits(d.toFloat)))
+          if (isGather) gather = gather.updated(tp, vals(((ctl >> 18) & 3).toInt))
           else if ((nTaps == 1 && nLev == 1) || t.fm.isInt) singleVal = vals
           else {
             def aw(a: Int) = if (a >= dims || !linear) 256 else if (((tt >> a) & 1) == 1) axes(a)._3 else 256 - axes(a)._3
@@ -241,7 +243,7 @@ object BorgSamplerTests extends TestSuite {
           }
         }
       }
-      if (isGather) gather.map(Left(_))
+      if (isGather) gather
       else if (singleVal != null) singleVal
       else acc.map(a => Right(a.toDouble))
     }
@@ -308,17 +310,16 @@ object BorgSamplerTests extends TestSuite {
     out.toSeq
   }
 
-  def check(name: String, got: Seq[Seq[Long]], exp: Seq[Seq[Either[Long, Double]]], active: Seq[Boolean] = Seq.fill(4)(true)): Unit =
-    for (i <- 0 until 4 if active(i); c <- 0 until 4) {
-      val g = got(i)(c)
-      exp(i)(c) match {
-        case Left(v) => Predef.assert(g == v, f"$name lane $i ch $c: got 0x$g%x, expected 0x$v%x")
-        case Right(v) =>
-          val gf = bitsf(g).toDouble
-          val ok = (gf.isNaN && v.isNaN) || math.abs(gf - v) <= 2e-5 * math.max(1.0, math.abs(v)) + 1e-6
-          Predef.assert(ok, f"$name lane $i ch $c: got $gf%.7g, expected $v%.7g")
-      }
-    }
+  def check(name: String, got: Seq[Seq[Long]], exp: Seq[Seq[Either[Long, Double]]], active: Seq[Boolean] = Seq.fill(4)(true)): Unit = {
+    val bad = for (i <- 0 until 4 if active(i); c <- 0 until 4; g = got(i)(c); m <- (exp(i)(c) match {
+      case Left(v) => Option.when(g != v)(f"lane $i ch $c: got 0x$g%x, expected 0x$v%x")
+      case Right(v) =>
+        val gf = bitsf(g).toDouble
+        val ok = (gf.isNaN && v.isNaN) || math.abs(gf - v) <= 2e-5 * math.max(1.0, math.abs(v)) + 1e-6
+        Option.when(!ok)(f"lane $i ch $c: got $gf%.7g, expected $v%.7g")
+    })) yield m
+    Predef.assert(bad.isEmpty, s"$name: " + bad.mkString("; "))
+  }
 
   def setup(mem: Mem, texs: Seq[Tex], samps: Seq[Samp]): Unit = {
     for ((t, i) <- texs.zipWithIndex; (w, k) <- t.desc.zipWithIndex) mem.putWord(TexBase + 64 * i + 4 * k, w)
@@ -413,9 +414,32 @@ object BorgSamplerTests extends TestSuite {
       }
     }
 
+    utest.test("addresses_use_all_32_bits") {
+      // Descriptors and texels at 3 GiB: a truncated address reads the empty
+      // low memory (zeros) instead, so the reference only matches if every
+      // one of the 32 bits reaches the memory port.
+      withSampler { d =>
+        val hi = 0xC0000000
+        val t = Tex(TexFormat.byName("R8G8B8A8_UNORM"), 8, 4, base = hi + 0x10000)
+        val s = Samp(magLin = true, minLin = true)
+        val mem = new Mem
+        for ((w, k) <- t.desc.zipWithIndex) mem.putWord(hi + 4 * k, w)
+        for ((w, k) <- s.desc.zipWithIndex) mem.putWord(hi + 0x800 + 4 * k, w)
+        val texel = fill(mem, t, new scala.util.Random(32))
+        d.io.texBase.poke((hi.toLong & 0xFFFFFFFFL).U); d.io.sampBase.poke(((hi + 0x800).toLong & 0xFFFFFFFFL).U)
+        d.io.invalidate.poke(true.B); d.clock.step(1); d.io.invalidate.poke(false.B)
+        val ctl = LodExplicit.toLong << 21
+        val lanes = Seq(Lane(0.1f, 0.2f), Lane(0.55f, 0.8f), Lane(0.9f, 0.4f), Lane(0.33f, 0.66f))
+        check("texture at 3 GiB", run(d, mem, ctl, lanes), reference(t, s, texel, ctl, lanes))
+        d.io.texBase.poke(TexBase.U); d.io.sampBase.poke(SampBase.U)
+        println("  descriptors and texels above 2^31 sample correctly")
+      }
+    }
+
     utest.test("seamless_cube_edges_and_corners") {
       withSampler { d =>
         val cube = Tex(TexFormat.byName("R8G8B8A8_UNORM"), 8, 8, d = 6, ttype = TCube)
+        val cubeU = Tex(TexFormat.byName("R8G8B8A8_UINT"), 8, 8, d = 6, ttype = TCube)
         val s = Samp(magLin = true, minLin = true)
         val near = Seq(0.01f, 0.99f); val mid = 0.5f
         for (face <- 0 until 6) {
@@ -424,8 +448,13 @@ object BorgSamplerTests extends TestSuite {
           sample(d, s"cube face $face edges", cube, s, LodExplicit.toLong << 21, lanes, seed = 40)
           val corners = for (u <- near; v <- near) yield Lane(u, v, face)
           sample(d, s"cube face $face corners", cube, s, LodExplicit.toLong << 21, corners, seed = 40)
+          // textureGather returns the corner texel itself: the average too.
+          for (comp <- 0 until 4)
+            sample(d, s"cube face $face corners gather $comp", cube, s,
+                   (OpGather.toLong << 16) | (comp.toLong << 18), corners, seed = 40)
+          sample(d, s"cube face $face corners gather uint", cubeU, s, OpGather.toLong << 16, corners, seed = 41)
         }
-        println("  6 faces: every edge and corner filters across into the neighbouring faces")
+        println("  6 faces: every edge and corner filters (and gathers) across into the neighbouring faces")
       }
     }
 

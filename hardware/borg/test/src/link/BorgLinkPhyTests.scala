@@ -24,7 +24,7 @@ object BorgLinkPhyTests extends TestSuite {
     ((chan & 1) << 15) | ((opcode & 7) << 12) | (payload & 0xfff)
 
   def mmioPayload(size: Int, addr: Int): Int = ((size & 3) << 10) | (addr & 0x3ff)
-  def vramPayload(wlenLog2: Int, addrHi: Int): Int = ((wlenLog2 & 7) << 9) | (addrHi & 0x1ff)
+  def vramPayload(wlenLog2: Int): Int = (wlenLog2 & 7) << 9
 
   val chanM = 0
   val chanV = 1
@@ -43,18 +43,20 @@ object BorgLinkPhyTests extends TestSuite {
     ((data >> 16) & 0xffff).toInt
   )
 
-  /** V.A read: header + addr[15:0]. */
+  /** V.A read: header + addr[15:0] + addr[31:16]. */
   def vAGet(addr: Int): Seq[Int] = Seq(
-    hdrBits(chanV, opGet, vramPayload(0, (addr >> 16) & 0x1ff)),
-    addr & 0xffff
+    hdrBits(chanV, opGet, vramPayload(0)),
+    addr & 0xffff,
+    (addr >>> 16) & 0xffff
   )
 
-  /** V.A burst write: header + addr[15:0] + 2^wlenLog2 data words. */
+  /** V.A burst write: header + addr[15:0] + addr[31:16] + 2^wlenLog2 data words. */
   def vAPut(addr: Int, wlenLog2: Int, words: Seq[Int]): Seq[Int] = {
     require(words.length == (1 << wlenLog2))
     Seq(
-      hdrBits(chanV, opPutFullData, vramPayload(wlenLog2, (addr >> 16) & 0x1ff)),
-      addr & 0xffff
+      hdrBits(chanV, opPutFullData, vramPayload(wlenLog2)),
+      addr & 0xffff,
+      (addr >>> 16) & 0xffff
     ) ++ words
   }
 
@@ -205,14 +207,14 @@ object BorgLinkPhyTests extends TestSuite {
     }
 
     utest.test("burst_write_length_from_header") {
-      // The whole point of the log2 burst encoding: an 18-flit packet whose
+      // The whole point of the log2 burst encoding: a 19-flit packet whose
       // length the receiver knows from flit 0 alone.
       val p = LinkParams()
       simulate(new LinkPhyHarness(p, isDn = false)) { dut =>
         init(dut)
         val words = (0 until 16).map(i => 0x1000 + i)
-        val pkt = vAPut(0x1a2b3c, 4, words)
-        utest.assert(pkt.length == 18)
+        val pkt = vAPut(0x9a2b3c40, 4, words)  // above 2^31: all 32 address bits
+        utest.assert(pkt.length == 19)
         val (rx, errs) = sendAndCollect(dut, Seq((false, pkt)))
         utest.assert(errs == 0)
         utest.assert(packetize(rx) == Seq(pkt))
@@ -268,7 +270,7 @@ object BorgLinkPhyTests extends TestSuite {
       simulate(new LinkPhyHarness(p, isDn = false)) { dut =>
         init(dut)
         val words = (0 until 16).map(i => 0x2000 + i)
-        val pkt = vAPut(0x000100, 4, words) // 18 flits
+        val pkt = vAPut(0x000100, 4, words) // 19 flits
         // Drop valid mid-packet with parity recomputed: pure framing error.
         val (_, errs) = sendAndCollect(dut, Seq((false, pkt)),
           inject = b => if (b == 8) (0, true) else (0, false))

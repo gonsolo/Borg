@@ -257,7 +257,7 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
   val sVIdle :: sVDrain :: sVSend :: sVWait :: Nil = Enum(4)
   val vState = RegInit(sVIdle)
 
-  val vAddr     = Reg(UInt(25.W))
+  val vAddr     = Reg(UInt(GpuMemIO.AddrBits.W))
   val vWrite    = Reg(Bool())
   val vWlenLog2 = Reg(UInt(3.W))
   val vBuf      = Reg(Vec(p.maxBurst, UInt(16.W)))
@@ -375,20 +375,21 @@ class BorgLinkSlave(val p: LinkParams) extends Module {
     }
   }
 
-  val vSendLen = Mux(vWrite, 2.U +& vWords, 2.U)
+  val vSendLen = Mux(vWrite, 3.U +& vWords, 3.U)
   val vHdr = LinkHeader(
     LinkChan.V,
     Mux(vWrite, TLOpcode.PutFullData, TLOpcode.Get),
-    LinkHeader.vramPayload(vWlenLog2, vAddr(24, 16))
+    LinkHeader.vramPayload(vWlenLog2)
   ).asUInt
 
-  val vBufIdx = (vFlit - 2.U)(log2Ceil(p.maxBurst) - 1, 0)
+  val vBufIdx = (vFlit - 3.U)(log2Ceil(p.maxBurst) - 1, 0)
   tx.io.a.valid := (vState === sVSend) && credit.io.available
   tx.io.a.bits.flit := MuxCase(
     vBuf(vBufIdx),
     Seq(
       (vFlit === 0.U) -> vHdr,
-      (vFlit === 1.U) -> vAddr(15, 0)
+      (vFlit === 1.U) -> vAddr(15, 0),
+      (vFlit === 2.U) -> vAddr(31, 16)
     )
   )
   tx.io.a.bits.last := vFlit === (vSendLen - 1.U)

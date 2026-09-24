@@ -98,7 +98,7 @@ case class LinkParams(
 
   /** Largest burst in words, and the longest packet on the wire (a V.A write). */
   val maxBurst: Int = 1 << maxBurstLog2
-  val maxPacketFlits: Int = 2 + maxBurst
+  val maxPacketFlits: Int = 3 + maxBurst
 
   val divCycles: Int = 1 << divLog2
 }

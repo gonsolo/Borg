@@ -17,7 +17,7 @@ class DrawMmioIO extends Bundle {
   val firstVertex   = UInt(32.W)
   val firstInstance = UInt(32.W)
   val vertexOffset  = UInt(32.W)   // signed
-  val indexBase     = UInt(25.W)
+  val indexBase     = UInt(GpuMemIO.AddrBits.W)
   val viewport      = Vec(4, UInt(32.W))   // sx, sy, ox, oy (FP32)
   val depthScale    = UInt(32.W)
   val depthOffset   = UInt(32.W)
@@ -90,7 +90,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val bboxMaxX = RegInit(0.U(cfg.coordWidth.W))
   private val bboxMaxY = RegInit(0.U(cfg.coordWidth.W))
 
-  private val recordBase = (io.mmio.setupBase +& (tri << d.recordShift))(24, 0)
+  private val recordBase = (io.mmio.setupBase +& (tri << d.recordShift))(GpuMemIO.AddrBits - 1, 0)
   /** Where the vertex shader's SOUT component 0 goes: record word 48. */
   private val attrOffset = 48 * 4
 
@@ -207,7 +207,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     is(sFetchIdx) {
       val byteAddr = d.indexBase +& Mux(idx16, pos(k) << 1, pos(k) << 2)
       val desc = Wire(new DMADescriptor)
-      desc.baseAddr := Cat(byteAddr(24, 2), 0.U(2.W))
+      desc.baseAddr := Cat(byteAddr(GpuMemIO.AddrBits - 1, 2), 0.U(2.W))
       desc.length   := 1.U
       desc.dest     := 2.U                        // snoop only
       desc.offset   := 0.U

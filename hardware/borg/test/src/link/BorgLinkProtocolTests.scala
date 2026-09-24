@@ -348,12 +348,12 @@ object BorgLinkProtocolTests extends TestSuite {
         waitLinkUp(dut)
 
         // Borg raises req and holds it: level-held, no accept handshake.
-        dut.io.borgGpu.addr.poke(0x1a2b3c.U)
+        dut.io.borgGpu.addr.poke(0xc1a2b3c4L.U)  // above 2^31: every address bit crosses
         dut.io.borgGpu.req.poke(true.B)
 
         // The memory side sees the replayed request.
         stepUntil(dut, "mem req") { dut.io.memGpu.req.peek().litToBoolean }
-        utest.assert(dut.io.memGpu.addr.peek().litValue.toInt == 0x1a2b3c)
+        utest.assert(dut.io.memGpu.addr.peek().litValue.toLong == 0xc1a2b3c4L)
 
         dut.io.memGpu.data.poke(0x89abcdefL.U)
         dut.io.memGpu.ready.poke(true.B)
@@ -502,7 +502,7 @@ object BorgLinkProtocolTests extends TestSuite {
 
         val words = (0 until 16).map(i => 0xb000 + i)
 
-        dut.io.borgGpu.addr.poke(0x004000.U)
+        dut.io.borgGpu.addr.poke(0x9e004000L.U)
         dut.io.borgGpu.wlen.poke(16.U)
         dut.io.borgGpu.wdata.poke(words(0).U)
         dut.io.borgGpu.wr.poke(true.B)
@@ -526,7 +526,7 @@ object BorgLinkProtocolTests extends TestSuite {
 
         // The memory side must see the same burst, in order.
         stepUntil(dut, "mem wr") { dut.io.memGpu.wr.peek().litToBoolean }
-        utest.assert(dut.io.memGpu.addr.peek().litValue.toInt == 0x004000)
+        utest.assert(dut.io.memGpu.addr.peek().litValue.toLong == 0x9e004000L)
         utest.assert(dut.io.memGpu.wlen.peek().litValue.toInt == 16)
 
         val got = scala.collection.mutable.ArrayBuffer.empty[Int]

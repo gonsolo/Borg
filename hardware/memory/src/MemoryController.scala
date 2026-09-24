@@ -212,7 +212,9 @@ class MemoryController extends Module {
         // same data via DRAM_OUT_RAW, which adds the DRAM base so byte bit 24
         // is set.  Force bit 24 here so GPU and CPU accesses hit identical
         // backend words (otherwise the GPU reads/writes the flash region).
-        reqByteAddr := io.gpuMem.addr | VRAM_REGION_BIT
+        // The GPU's address is 32 bits (GpuMemIO.AddrBits); this board has
+        // 16 MiB of VRAM, so only its low 24 bits are decoded.
+        reqByteAddr := io.gpuMem.addr(23, 0) | VRAM_REGION_BIT
         reqData     := io.gpuMem.wdata
         // GPU writes are always 16-bit (BorgTileFlusher writes R/G/B/Z each as
         // one FP16 halfword; BorgBinner writes 16-bit triangle indices).
@@ -227,7 +229,7 @@ class MemoryController extends Module {
         state       := sIssue
       }.elsewhen(io.gpuMem.req) {
         rKind       := rGpuRead
-        reqByteAddr := io.gpuMem.addr | VRAM_REGION_BIT
+        reqByteAddr := io.gpuMem.addr(23, 0) | VRAM_REGION_BIT
         reqSize     := HuttSize.Word
         needTwo     := true.B
         hwIdx       := 0.U
