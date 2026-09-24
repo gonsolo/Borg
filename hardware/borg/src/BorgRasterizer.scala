@@ -57,6 +57,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // than in the dispatcher because this is where the per-lane screen
   // coordinates are.
   val scissor         = Input(new ScissorConfig)
+  val pixelOrigin     = Input(new Coord(14))   // the render window's origin
   val uniformPageReg  = Input(UInt(1.W))
 
   // Outputs
@@ -80,6 +81,9 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
     Some(Input(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
   // Draw front end: see BorgShaderDispatcherIO.drawMode.
   val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None
+  val topLeft  = if (cfg.drawEnabled) Some(Input(Vec(3, Bool()))) else None
+  val sampleCfg    = Input(new SampleMaskConfig(cfg.samples))
+  val laneCoverage = Output(Vec(cfg.fragLanes, UInt(cfg.samples.W)))
 
   // Tile Buffer auto-write interface (Step 11.3)
   val tileWrite = new TileWriteIO(cfg.samples, cfg.tileDepthBits)
@@ -159,7 +163,8 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // result lines up with the tile slot the fragment will write.
   for (i <- 0 until cfg.fragLanes) {
     dispatcher.io.scissorPass(i) :=
-      ScissorConfig.passes(io.scissor, iterator.io.shaderIter(i).x, iterator.io.shaderIter(i).y)
+      ScissorConfig.passes(io.scissor, iterator.io.shaderIter(i).x +& io.pixelOrigin.x,
+                           iterator.io.shaderIter(i).y +& io.pixelOrigin.y)
   }
   dispatcher.io.texConfig      <> io.texConfig
   dispatcher.io.log2Dim        := io.log2Dim
@@ -169,6 +174,9 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.texBorder.foreach(_ := io.texBorder.get)
   dispatcher.io.covDelta.foreach(_ := io.covDelta.get)
   dispatcher.io.drawMode.foreach(_ := io.drawMode.get)
+  dispatcher.io.topLeft.foreach(_ := io.topLeft.get)
+  dispatcher.io.sampleCfg := io.sampleCfg
+  io.laneCoverage := dispatcher.io.laneCoverage
 
   // --- Forward dispatcher outputs to rasterizer IO ---
   io.coreTrigger  <> dispatcher.io.coreTrigger

@@ -142,10 +142,11 @@ object BorgSamplerTests extends TestSuite {
     val dims = t.ttype match { case T1D => 1; case T3D => 3; case _ => 2 }
     val quadLod = if (isFetch || isGather || lodMode == LodExplicit || s.unnorm) 0 else {
       def fma(a: Float, b: Float, c: Float) = Math.fma(a, b, c)
-      val (dux, dvx) = (lanes(1).u - lanes(0).u, lanes(1).v - lanes(0).v)
-      val (duy, dvy) = (lanes(2).u - lanes(0).u, lanes(2).v - lanes(0).v)
-      val rx = fma(math.abs(dvx), t.h.toFloat, math.abs(dux) * t.w.toFloat)
-      val ry = fma(math.abs(dvy), t.h.toFloat, math.abs(duy) * t.w.toFloat)
+      val (dux, dvx, dwx) = (lanes(1).u - lanes(0).u, lanes(1).v - lanes(0).v, lanes(1).w - lanes(0).w)
+      val (duy, dvy, dwy) = (lanes(2).u - lanes(0).u, lanes(2).v - lanes(0).v, lanes(2).w - lanes(0).w)
+      val (dz, dd) = if (t.ttype == T3D) (1f, t.d.toFloat) else (0f, 0f)
+      val rx = fma(math.abs(dwx) * dz, dd, fma(math.abs(dvx), t.h.toFloat, math.abs(dux) * t.w.toFloat))
+      val ry = fma(math.abs(dwy) * dz, dd, fma(math.abs(dvy), t.h.toFloat, math.abs(duy) * t.w.toFloat))
       log2q(math.max(rx, ry))
     }
     lanes.map { ln =>
@@ -189,7 +190,8 @@ object BorgSamplerTests extends TestSuite {
           val frac = if (linear) (xs & 255).toInt else 0
           def wrap(i0: Int): (Int, Boolean) = {
             val sz = size(a); var i = i0
-            if (isFetch) (i.max(0).min(sz - 1), false)
+            if (isFetch || (t.ttype == TCube && !linear)) (i.max(0).min(sz - 1), false)
+            else if (t.ttype == TCube) (i, false)             // seamless: resolved per tap
             else mode(a) match {
               case Repeat => i = ((i % sz) + sz) % sz; (i, false)
               case Mirror => i = ((i % (2 * sz)) + 2 * sz) % (2 * sz); (if (i >= sz) 2 * sz - 1 - i else i, false)
@@ -208,13 +210,20 @@ object BorgSamplerTests extends TestSuite {
           val pc = picked.map(_._1) ++ Seq.fill(3 - dims)(0)
           val z = if (t.ttype == T3D) pc(2) else 0
           val y = if (dims >= 2) pc(1) else 0
+          // Seamless cube: fold a tap that falls off the face over the edge.
+          val cubeTaps: Seq[(Int, Int, Int)] =
+            if (t.ttype == TCube) cubeResolve(layer, pc(0), y, t.lw(l)) else Seq((pc(0), y, layer))
           var vals: Seq[Either[Long, Double]] =
             if (border) {
               val one: Either[Long, Double] = if (t.fm.isInt) Left(1L) else Right(1.0)
               val zero: Either[Long, Double] = if (t.fm.isInt) Left(0L) else Right(0.0)
               Seq(if (s.border >= 4) one else zero, if (s.border >= 4) one else zero,
                   if (s.border >= 4) one else zero, if (s.border >= 2) one else zero)
-            } else decode(t.fm, texel(pc(0), y, z, layer, l))
+            } else if (cubeTaps.size == 1) decode(t.fm, texel(cubeTaps(0)._1, cubeTaps(0)._2, z, cubeTaps(0)._3, l))
+            else {                                        // a corner: the average of three texels
+              val vs = cubeTaps.map { case (cx, cy, cf) => decode(t.fm, texel(cx, cy, z, cf, l)) }
+              (0 until 4).map(c => Right(vs.map(_(c).fold(_.toDouble, identity)).sum / 3): Either[Long, Double])
+            }
           s.cmp.foreach { op =>
             val dt = vals(0).fold(_.toDouble, identity); val dr = ln.dref.toDouble
             val pass = op match { case 0 => false; case 1 => dr < dt; case 2 => dr == dt; case 3 => dr <= dt
@@ -236,6 +245,33 @@ object BorgSamplerTests extends TestSuite {
       else if (singleVal != null) singleVal
       else acc.map(a => Right(a.toDouble))
     }
+  }
+
+  // Cube faces +X -X +Y -Y +Z -Z: major axis, and the axes s and t run along.
+  val cubeM = Seq(Seq(1, 0, 0), Seq(-1, 0, 0), Seq(0, 1, 0), Seq(0, -1, 0), Seq(0, 0, 1), Seq(0, 0, -1))
+  val cubeU = Seq(Seq(0, 0, -1), Seq(0, 0, 1), Seq(1, 0, 0), Seq(1, 0, 0), Seq(1, 0, 0), Seq(-1, 0, 0))
+  val cubeV = Seq(Seq(0, -1, 0), Seq(0, -1, 0), Seq(0, 0, 1), Seq(0, 0, -1), Seq(0, -1, 0), Seq(0, -1, 0))
+  /** Texel (i, j) of face f, possibly off the face by one: the texel(s) it
+    * reads. Off an edge, fold the point over the edge onto the neighbouring
+    * face (rotate by 90 degrees about the edge); off a corner, the three
+    * texels meeting there. Independent of the RTL's table. */
+  def cubeResolve(f: Int, i: Int, j: Int, n: Int): Seq[(Int, Int, Int)] = {
+    def clamp(v: Int) = v.max(0).min(n - 1)
+    def fold(i: Int, j: Int): (Int, Int, Int) = {
+      val sc = 2 * (i + 0.5) / n - 1; val tc = 2 * (j + 0.5) / n - 1
+      // Off by d past +-1 along s (or t): that axis becomes +-1, the major axis 1 - d.
+      val (s2, t2, m2) = if (math.abs(sc) > 1) (math.signum(sc), tc, 1 - (math.abs(sc) - 1))
+                         else (sc, math.signum(tc), 1 - (math.abs(tc) - 1))
+      val p = (0 until 3).map(a => cubeM(f)(a) * m2 + cubeU(f)(a) * s2 + cubeV(f)(a) * t2)
+      val g = (0 until 6).maxBy(k => (0 until 3).map(a => cubeM(k)(a) * p(a)).sum)
+      val ma = (0 until 3).map(a => cubeM(g)(a) * p(a)).sum
+      def c(ax: Seq[Seq[Int]]) = (0 until 3).map(a => ax(g)(a) * p(a)).sum / ma
+      (clamp(math.floor((c(cubeU) + 1) / 2 * n).toInt), clamp(math.floor((c(cubeV) + 1) / 2 * n).toInt), g)
+    }
+    val iOut = i < 0 || i >= n; val jOut = j < 0 || j >= n
+    if (!iOut && !jOut) Seq((i, j, f))
+    else if (iOut && jOut) Seq((clamp(i), clamp(j), f), fold(i, clamp(j)), fold(clamp(i), j))
+    else Seq(fold(i, j))
   }
 
   // --- Driving the unit ------------------------------------------------------
@@ -349,7 +385,14 @@ object BorgSamplerTests extends TestSuite {
           val lanes = Seq(Lane(u0, v0), Lane(u0 + du, v0 + dv), Lane(u0 + dv, v0 + du), Lane(u0 + du + dv, v0 + du + dv))
           sample(d, s"implicit du $du dv $dv bias $bias", t, s, 0L, lanes)
         }
-        println("  explicit and implicit LOD, nearest and linear mip selection, bias and clamp")
+        // 3D: the quad steps 3 texels in w and almost nothing in u, v, so the
+        // LOD comes from w -- log2(3) -- which a 2D formula would miss.
+        val t3 = Tex(TexFormat.byName("R8G8B8A8_UNORM"), 8, 8, d = 8, levels = 4, ttype = T3D)
+        val s3 = Samp(magLin = true, minLin = true, mipLin = true, mode = (Repeat, Repeat, Repeat))
+        val (u0, v0, w0) = (0.4f, 0.3f, 0.2f)
+        sample(d, "implicit 3D", t3, s3, 0L, Seq(Lane(u0, v0, w0), Lane(u0 + 0.01f, v0, w0 + 3f / 8),
+               Lane(u0, v0 + 0.01f, w0 + 3f / 8), Lane(u0, v0, w0)))
+        println("  explicit and implicit LOD (2D and 3D), nearest and linear mip selection, bias and clamp")
       }
     }
 
@@ -367,6 +410,22 @@ object BorgSamplerTests extends TestSuite {
                LodExplicit.toLong << 21, lanesA)
         sample(d, "B10G11R11", Tex(TexFormat.byName("B10G11R11_UFLOAT_PACK32"), 4, 4), lin, LodExplicit.toLong << 21, lanesA)
         println("  3D, 1D and 2D arrays, linear layout, float formats filtered")
+      }
+    }
+
+    utest.test("seamless_cube_edges_and_corners") {
+      withSampler { d =>
+        val cube = Tex(TexFormat.byName("R8G8B8A8_UNORM"), 8, 8, d = 6, ttype = TCube)
+        val s = Samp(magLin = true, minLin = true)
+        val near = Seq(0.01f, 0.99f); val mid = 0.5f
+        for (face <- 0 until 6) {
+          // Every edge and the four corners of the face.
+          val lanes = Seq(Lane(near(0), mid, face), Lane(near(1), mid, face), Lane(mid, near(0), face), Lane(mid, near(1), face))
+          sample(d, s"cube face $face edges", cube, s, LodExplicit.toLong << 21, lanes, seed = 40)
+          val corners = for (u <- near; v <- near) yield Lane(u, v, face)
+          sample(d, s"cube face $face corners", cube, s, LodExplicit.toLong << 21, corners, seed = 40)
+        }
+        println("  6 faces: every edge and corner filters across into the neighbouring faces")
       }
     }
 

@@ -117,6 +117,8 @@ object BorgShaderDispatcherTestHelpers {
     // the per-lane verdict, so "everything passes" is the neutral default
     // every pre-existing test was written against.
     d.io.scissorPass.foreach(_.poke(true.B))
+    d.io.sampleCfg.mask.poke(((1 << d.cfg.samples) - 1).U)
+    d.io.sampleCfg.alphaToCov.poke(false.B); d.io.sampleCfg.shaderMask.poke(false.B)
     // No ZTEST in flight: every pre-existing test runs the late tests.
     d.io.zTestReq.poke(false.B)
     // Destination alpha: opaque, which is what the hardware behaved as

@@ -169,6 +169,7 @@ object BorgCoreTestHelpers {
     core.io.drawMode.foreach(_.poke(false.B))
     core.io.texDescBase.foreach(_.poke(0.U)); core.io.sampDescBase.foreach(_.poke(0.U))
     core.io.descWritten.foreach(_.poke(false.B))
+    core.io.laneCoverage.foreach(_.foreach(_.poke(0.U)))
     core.io.record.foreach { r =>
       r.outBase.poke(0.U); r.outInterleave.poke(false.B); r.outCorner.poke(0.U); r.attrBase.poke(0.U)
     }

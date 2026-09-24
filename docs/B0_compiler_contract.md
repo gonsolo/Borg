@@ -188,10 +188,21 @@ a lowering convention, each pinned by a hand-written ISA test in
   packed `x | y << 10 | z << 20`, both raw integers. `WorkgroupID` x/y/z is in
   uniforms u29/u30/u31 of page 0. `GlobalInvocationID`, and `NumWorkGroups`
   (passed as a push constant), are ordinary integer arithmetic on these.
-- **Integer ALU:** IADD, ISUB, IMUL, ISHL, ISHR, IAND, IOR, IXOR, ISLT
-  (signed), ISEQ, I2F, F2I. The comparisons return 0/1, so they compose
-  with BRZ/BRNZ/EXPUSH; the other four relations come from swapping operands
-  or flipping branch polarity, as in RV32I.
+- **Integer ALU:** IADD, ISUB, IMUL, ISHL, ISHR (arithmetic), ISRL
+  (logical, funct7 `0x4A`), IAND, IOR, IXOR, ISLT (signed), ISLTU (unsigned,
+  funct7 `0x4C`), ISEQ, I2F, F2I -- RV32I's SLL/SRA/SRL/SLT/SLTU. The
+  comparisons return 0/1, so they compose with BRZ/BRNZ/EXPUSH; the other
+  relations come from swapping operands or flipping branch polarity, as in
+  RV32I.
+- **EXANY** is available wherever the execution mask is (every build), not
+  only with compute: a fragment shader's divergent loop needs it too. Wafer
+  now has compute (`BorgConfig.Wafer` no longer turns it off).
+- **Address space:** LOAD/STORE, the sampler and every other master address
+  25 bits (32 MiB), all of the device memory on today's boards. Vulkan's
+  `maxStorageBufferRange` minimum (2^27) is a limit the driver reports; a
+  buffer that large cannot be backed by 32 MiB of memory anyway, so its
+  allocation fails rather than its addressing. A board with more memory
+  needs the address width raised with it.
 - **BARRIER** (funct7 `0x3C`): **no register survives it.** Every value live
   across a barrier must be spilled to a per-invocation memory slot before it
   and reloaded after it, with the slot address recomputed from r30/r31.

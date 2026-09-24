@@ -277,16 +277,26 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         def minOf(a: UInt, b: UInt) = Mux(ordered(a) <= ordered(b), a, b)
         def maxOf(a: UInt, b: UInt) = Mux(ordered(a) >= ordered(b), a, b)
         val xs = Seq(screen(0), screen(2), screen(4)); val ys = Seq(screen(1), screen(3), screen(5))
-        val loX = PixelBox.toPixel(cfg, xs.reduce(minOf)); val hiX = PixelBox.toPixel(cfg, xs.reduce(maxOf))
-        val loY = PixelBox.toPixel(cfg, ys.reduce(minOf)); val hiY = PixelBox.toPixel(cfg, ys.reduce(maxOf))
+        // Framebuffer pixels (up to 8191), then relative to the render window
+        // (FB_ORIGIN, SEQ_TILES_PER_ROW x SEQ_TILE_ROWS tiles).
+        val G = 13
+        val loX = PixelBox.toPixel(cfg, xs.reduce(minOf), G); val hiX = PixelBox.toPixel(cfg, xs.reduce(maxOf), G)
+        val loY = PixelBox.toPixel(cfg, ys.reduce(minOf), G); val hiY = PixelBox.toPixel(cfg, ys.reduce(maxOf), G)
+        val ox = Cat(io.mmio.fbOriginX, 0.U(2.W)); val oy = Cat(io.mmio.fbOriginY, 0.U(2.W))
+        val wx = Cat(io.mmio.fbWidthTiles, 0.U(2.W)); val wy = Cat(io.mmio.fbHeightTiles, 0.U(2.W))
+        // One pixel of slack on the far side: the corners are ~22-bit
+        // reciprocals, and a pixel whose centre sits a rounding error
+        // inside must not be lost.
+        val outside = allFront && (hiX +& 1.U < ox || hiY +& 1.U < oy || loX >= ox +& wx || loY >= oy +& wy)
+        def local(v: UInt, o: UInt, w: UInt) = Mux(v < o, 0.U, Mux(v - o >= w, w - 1.U, v - o))
         val full = ((1 << cfg.coordWidth) - 1).U
-        bboxMinX := Mux(allFront, Cat(loX(cfg.coordWidth - 1, 2), 0.U(2.W)), 0.U)
-        bboxMinY := Mux(allFront, Cat(loY(cfg.coordWidth - 1, 2), 0.U(2.W)), 0.U)
-        // One pixel of slack: the corners are ~22-bit reciprocals, and a
-        // pixel whose centre sits a rounding error inside must not be lost.
-        bboxMaxX := Mux(allFront, Mux(hiX === full, full, hiX + 1.U), full)
-        bboxMaxY := Mux(allFront, Mux(hiY === full, full, hiY + 1.U), full)
-        state := Mux(culled, sNext, sBin)
+        val lx = local(loX, ox, wx); val ly = local(loY, oy, wy)
+        val hx = local(hiX +& 1.U, ox, wx); val hy = local(hiY +& 1.U, oy, wy)
+        bboxMinX := Mux(allFront, Cat(lx(cfg.coordWidth - 1, 2), 0.U(2.W)), 0.U)
+        bboxMinY := Mux(allFront, Cat(ly(cfg.coordWidth - 1, 2), 0.U(2.W)), 0.U)
+        bboxMaxX := Mux(allFront, hx(cfg.coordWidth - 1, 0), full)
+        bboxMaxY := Mux(allFront, hy(cfg.coordWidth - 1, 0), full)
+        state := Mux(culled || outside, sNext, sBin)
       }
     }
     is(sBin) {
@@ -358,8 +368,8 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 object PixelBox {
   /** Truncates positive values to their integer part, clamps negatives to 0
     * and anything past the coordinate range to its maximum. */
-  def toPixel(cfg: BorgConfig, fp: UInt): UInt = {
-    val w        = cfg.coordWidth
+  def toPixel(cfg: BorgConfig, fp: UInt, width: Int = 0): UInt = {
+    val w        = if (width > 0) width else cfg.coordWidth
     val mantBits = cfg.sig - 1
     val bias     = (1 << (cfg.exp - 1)) - 1
     val e        = fp(cfg.totalBits - 2, mantBits)

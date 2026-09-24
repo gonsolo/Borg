@@ -27,6 +27,27 @@ object BorgCoreDrawTests extends TestSuite {
 
   val tests = Tests {
 
+    utest.test("isrl_and_isltu_are_the_unsigned_ops") {
+      simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: ISRL / ISLTU ---")
+        idleInputs(core)
+        resetCore(core)
+        writeReg(core, 0, BigInt("F0000010", 16))          // negative as signed
+        writeReg(core, 1, 4)
+        writeReg(core, 2, BigInt("7FFFFFFF", 16))
+        writeImem(core, 0, Instructions.ISRL(rs1 = 0, rs2 = 1, rd = 3))
+        writeImem(core, 1, Instructions.ISHR(rs1 = 0, rs2 = 1, rd = 4))
+        writeImem(core, 2, Instructions.ISLTU(rs1 = 2, rs2 = 0, rd = 5))   // 0x7FFFFFFF <u 0xF0000010
+        writeImem(core, 3, Instructions.ISLT(rs1 = 2, rs2 = 0, rd = 6))    // but not signed
+        writeImem(core, 4, 0)
+        startAndWait(core)
+        val got = (3 to 6).map(readReg(core, _))
+        println(f"  srl 0x${got(0)}%08x sra 0x${got(1)}%08x sltu ${got(2)} slt ${got(3)}")
+        utest.assert(got == Seq(BigInt("0F000001", 16), BigInt("FF000001", 16), BigInt(1), BigInt(0)))
+        println("  PASSED")
+      }
+    }
+
     utest.test("vertex_stage_reads_its_indices_and_interleaves_sout_by_corner") {
       simulate(new BorgCore(quad)) { core =>
         println("\n--- BorgCore: VertexIndex/InstanceIndex, SOUT by corner ---")
