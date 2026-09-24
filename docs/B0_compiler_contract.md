@@ -67,7 +67,7 @@ What the driver/firmware must do:
 
 `FTEX` moved from the ALU-opcode R-type shape (funct7 `0x0C`) to the R4-type
 shape `FMADD` already uses, to gain a third source operand (commit
-`a1762418`).
+`303bba28`).
 
 | Field  | Bits    | FTEX value                                |
 |--------|---------|-------------------------------------------|
@@ -88,7 +88,7 @@ encoding. It must emit the R4 form with a real `rs3`.
 ### FTEX writes four registers: RGBA
 
 `FTEX rd` writes `rd` = R, `rd+1` = G, `rd+2` = B, `rd+3` = **A** (commit
-`30aee6e9`). A sampled image is a vec4, and the texel format
+`8b178d92`). A sampled image is a vec4, and the texel format
 (R16G16B16A16_SFLOAT) always carried alpha; the hardware used to discard it.
 `rd` must be at most 28.
 
@@ -121,7 +121,7 @@ RDL registers).
 New instruction `ZTEST` (funct7 `0x40`, no operands; word `0x80000000`; C
 macro `BORG_INSTR_ZTEST(funct3)`, funct3 = 0) runs the configured
 depth/stencil test for the quad **at that point in the shader**, instead of
-after it (commit `48bac59d`). It is how Borg implements SPIR-V's
+after it (commit `9fd88e30`). It is how Borg implements SPIR-V's
 `EarlyFragmentTests` execution mode: Borg computes fragment depth in the
 shader itself (r29), so "before the shader" becomes "at ZTEST".
 
@@ -139,7 +139,7 @@ Rules for the compiler:
 - **Emit it only when the shader declares `EarlyFragmentTests`.** Without
   that mode, Vulkan says the tests happen after the shader, and a shader that
   writes storage must still have its stores land for fragments that then
-  fail the depth test. (The commit message for `48bac59d` suggests using
+  fail the depth test. (The commit message for `9fd88e30` suggests using
   ZTEST for any side-effecting shader; that is wrong, follow this page.)
 - Emit it **once**, after the **final** write of r29 (the interpolated depth)
   and before the first STORE. A second ZTEST in the same invocation is a
@@ -158,7 +158,7 @@ Rules for the compiler:
 ### Side effects of helper and discarded lanes
 
 Handled in hardware; no compiler action needed, but worth knowing (commit
-`48bac59d`). A STORE is dropped for any lane that has no covered sample (a
+`9fd88e30`). A STORE is dropped for any lane that has no covered sample (a
 helper invocation that exists only for derivatives), is outside the scissor,
 has been discarded (r25), or failed ZTEST. LOADs are **not** dropped, since
 derivatives of loaded values need them.
@@ -179,8 +179,8 @@ The r25 kill register is sticky and does not stop execution, so code after a
 
 ## Compute shaders
 
-The compute hardware (commits `afd602fc`, `fdaa028e`, `9d3a302e`, `c5da4d23`,
-`93d0e690`) needs no new instructions beyond those below. Everything else is
+The compute hardware (commits `05bfcab8`, `d1e87e14`, `48720a73`, `dff44909`,
+`35bcd514`) needs no new instructions beyond those below. Everything else is
 a lowering convention, each pinned by a hand-written ISA test in
 `BorgComputeTests` / `BorgCoreTestsD` that the compiler output should match.
 
@@ -272,7 +272,7 @@ channel. Until then, opaque textures should upload A = 1.0 (`0x3C00`).
 
 ### Colour attachment format
 
-New `FLUSH_FORMAT` register (`0x314`, commit `601eb709`): 0 = R5G6B5
+New `FLUSH_FORMAT` register (`0x314`, commit `bcd7f104`): 0 = R5G6B5
 (reset, unchanged behaviour), 1 = R8G8B8A8_UNORM, 2 = B8G8R8A8_UNORM, in
 Vulkan byte order. The 32-bit formats take 64 bytes per 4×4 tile instead of
 32, so an autonomous render's colour tile stride doubles. Size the
@@ -283,12 +283,12 @@ plane (hasBlend builds, else opaque) and is MSAA-averaged like colour.
 
 `FLUSH_ZB_BASE` (nonzero = a depth attachment is bound) now advances per
 tile in autonomous renders: tile `t` writes its 16 × D16_UNORM values at
-`zb_base + 32*t`. Before `601eb709`, every tile wrote to the same 32 bytes.
+`zb_base + 32*t`. Before `bcd7f104`, every tile wrote to the same 32 bytes.
 No firmware uses it yet; `borgvk` must also report D16_UNORM as supported.
 
 ### Occlusion queries
 
-Three registers (commit after `cb052720`): `OCC_CTRL` (`0x31C`: bit 0 enable,
+Three registers (commit after `e6d27097`): `OCC_CTRL` (`0x31C`: bit 0 enable,
 bit 1 write-1 clear), `OCC_TRI_RANGE` (`0x320`: first triangle index in bits
 15:0, one past the last in 31:16, reset 0..0xFFFF) and `OCC_COUNT`
 (`0x324`, read-only).
@@ -365,7 +365,7 @@ pass 2 loads exactly one, or holds more than one occlusion query.
 ### Colour quantization
 
 `quantize8` (FP16 → UNORM8) is now an exact `round(v*255)`; it used to
-scale by 256 (commit `1343a207`). 8-bit colour results can move by one step
+scale by 256 (commit `d495a767`). 8-bit colour results can move by one step
 wherever it is used: narrow tile colour storage, blending, bilinear taps.
 Pixel-exact reference images from renders with those paths enabled may need
 regenerating.
