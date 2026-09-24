@@ -337,6 +337,9 @@ case class BorgConfig(
   /** r30/r31 can carry sequencer-provided integer IDs instead of the pixel
     * centre: compute's invocation IDs, or a vertex shader's indices. */
   def hasInvocationIds: Boolean = computeEnabled || drawEnabled
+  /** The descriptor-based texture unit, TEX/TEXA (docs/B2_texture_unit.md):
+    * FP32 results, the core's memory port. */
+  def samplerEnabled: Boolean = drawEnabled
   /** Planes whose MSAA sample deltas travel with a triangle: the three edges,
     * plus the depth plane Zn on a draw-front-end build (the far plane's are
     * Zn's, negated). */

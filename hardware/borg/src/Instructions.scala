@@ -186,6 +186,13 @@ object Instructions {
   // vec4. rd must leave room for all four (rd <= 28).
   val FUNCT2_FMADD = 0
   val FUNCT2_FTEX  = 1
+  // The descriptor-based texture unit (BorgSampler; docs/B2_texture_unit.md).
+  // TEX rd, rs1 = u, rs2 = v, rs3 = register holding the control word (which
+  // texture and sampler, which operation): RGBA to rd..rd+3 (rd <= 28).
+  // TEXA rs1 = w or array layer, rs2 = LOD or bias, rs3 = depth reference:
+  // this lane's extra sampling arguments, kept for the TEX that follows.
+  val FUNCT2_TEX   = 2
+  val FUNCT2_TEXA  = 3
 
   /** Split an absolute branch target into the rs2/rd fields it is packed into. */
   def branchTargetFields(target: Int): (Int, Int) = {
@@ -253,6 +260,13 @@ object Instructions {
     encodeRType(FUNCT7_BRNZ, hi, rs1, lo, funct3)
   }
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
+  /** TEX: sample; rs3 names the register holding the control word. */
+  def TEX(rd: Int, rs1: Int, rs2: Int, rs3: Int, funct3: Int = 0): BigInt = {
+    require(rd <= 28, s"TEX writes rd..rd+3, so rd <= 28: $rd")
+    encodeR4Type(rs3, FUNCT2_TEX, rs2, rs1, rd, funct3)
+  }
+  /** TEXA: w/layer, LOD/bias and depth reference for the next TEX. */
+  def TEXA(rs1: Int, rs2: Int, rs3: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, FUNCT2_TEXA, rs2, rs1, 0, funct3)
   /** SOUT: store rs2 as output component `index` (packed into rs1:rd). */
   def SOUT(rs2: Int, index: Int, funct3: Int = 0): BigInt = {
     val (hi, lo) = branchTargetFields(index)

@@ -350,6 +350,12 @@ FragCoord), the constant windows in the uniform bank, and the registers.
 Legacy mode is unchanged, so nothing on this page is affected until the
 compiler targets it.
 
+## The texture unit
+
+`TEX`/`TEXA` and the descriptor tables replace `FTEX` for anything beyond
+the legacy RGBA16F path: [Texture Unit](B2_texture_unit.md) has the
+encodings, the control word, the descriptor layouts and an example.
+
 ## Where each contract is tested
 
 | Contract                         | Test                                                              |

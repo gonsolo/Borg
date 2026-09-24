@@ -1105,6 +1105,18 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       ids := s.io.ids.map(w => Mux(w.mode, w, computeIds)).getOrElse(computeIds)
     }
     core.io.record.foreach(_ := s.io.record.get)
+
+    // The texture unit's descriptor tables. A write to either forgets the
+    // descriptors the unit has cached.
+    val texDescReg  = RegInit(0.U(25.W))
+    val sampDescReg = RegInit(0.U(25.W))
+    val descWrite = bus.is_writing &&
+      (bus.address === BorgGpuRegs.tex_desc_base_offset || bus.address === BorgGpuRegs.sampler_desc_base_offset)
+    when(bus.is_writing && bus.address === BorgGpuRegs.tex_desc_base_offset)     { texDescReg  := bus.data_in(24, 0) }
+    when(bus.is_writing && bus.address === BorgGpuRegs.sampler_desc_base_offset) { sampDescReg := bus.data_in(24, 0) }
+    core.io.texDescBase.foreach(_ := texDescReg)
+    core.io.sampDescBase.foreach(_ := sampDescReg)
+    core.io.descWritten.foreach(_ := descWrite)
   }
 
   /** Step 32.2: Wire BorgBinner — sequencer-driven geometry pass binning.

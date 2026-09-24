@@ -118,6 +118,15 @@ the legacy per-triangle-descriptor path that today's firmware, `borgvk` and
 `borgc` still use. Spec, ABI and a step-by-step "minimal draw" recipe:
 `docs/B1_geometry_front_end.md`; working example: `BorgDrawTests.DrawRig`.
 
+## Texture unit (Vulkan sampling)
+
+`TEX rd, u, v, ctl` (with `TEXA` for layer/LOD/depth reference) samples
+through descriptor tables in memory (`TEX_DESC_BASE`, `SAMPLER_DESC_BASE`):
+any size up to 4096, mipmaps with implicit LOD, 51 formats, all address
+modes and border colours, trilinear, compare, gather, texelFetch, offsets.
+`BorgSampler` + `TexFormat`; spec and usage in `docs/B2_texture_unit.md`.
+The legacy `FTEX` path below is unchanged.
+
 ## MSAA and texturing status
 
 4x MSAA hardware is implemented and verified (real captured-borgvk render, full

@@ -126,6 +126,11 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val record = if (cfg.drawEnabled) Some(Input(new CoreRecordIO)) else None
   // DRAW_CFG's mode: the raster ROM runs the draw front end's program.
   val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None
+  // The texture unit's descriptor tables (TEX_DESC_BASE, SAMPLER_DESC_BASE),
+  // and a pulse when either is written (forgets cached descriptors).
+  val texDescBase  = if (cfg.samplerEnabled) Some(Input(UInt(25.W))) else None
+  val sampDescBase = if (cfg.samplerEnabled) Some(Input(UInt(25.W))) else None
+  val descWritten  = if (cfg.samplerEnabled) Some(Input(Bool())) else None
 }
 
 /** The triangle record the running shader writes (SOUT) or reads (FATTR),
@@ -319,6 +324,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   else
     io.memBusy := false.B
   if (cfg.shaderICacheEnabled) wireICache()
+  // --- TEX/TEXA: the descriptor-based texture unit, on the same port ---
+  if (cfg.samplerEnabled)
+    wireSampler(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
 
   // --- Branch evaluation and execution mask ---
   if (cfg.hasControlFlow) {
@@ -411,6 +419,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val draw = cfg.drawEnabled
     flags.sout   := (if (draw) !flags.fma && f7op === Instructions.FUNCT7_SOUT.U else false.B)
     flags.fattr  := (if (draw) !flags.fma && f7op === Instructions.FUNCT7_FATTR.U else false.B)
+    val smp = cfg.samplerEnabled
+    flags.tex    := (if (smp) flags.fma && funct2 === Instructions.FUNCT2_TEX.U else false.B)
+    flags.texa   := (if (smp) flags.fma && funct2 === Instructions.FUNCT2_TEXA.U else false.B)
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 
     (regs, flags)
@@ -768,6 +779,101 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
   }
   // @doc:end
+
+  /** TEX and TEXA (docs/B2_texture_unit.md).
+    *
+    * TEXA keeps each lane's three operands (w or layer, LOD or bias, depth
+    * reference) for the TEXs after it. TEX hands the whole quad to
+    * BorgSampler -- every lane's u, v and TEXA arguments at once, so it can
+    * take the LOD from the quad's derivatives -- then writes each lane's
+    * RGBA to rd..rd+3 as the sampler answers it. Both freeze at operand time
+    * like LOAD/STORE and resume past the instruction, so the lanes' own FMA
+    * (TEX and TEXA are R4-type) never writes back.
+    *
+    * The sampler owns the core's memory port while it runs; LOAD/STORE and
+    * the instruction cache cannot run at the same time. */
+  private def wireSampler(uOps: Seq[UInt], vOps: Seq[UInt], cOps: Seq[UInt],
+                          memWrites: Seq[MemWritePort]): Unit = {
+    val N = cfg.fragLanes
+    val sampler = Module(new BorgSampler(cfg))
+    sampler.io.texBase    := io.texDescBase.get
+    sampler.io.sampBase   := io.sampDescBase.get
+    sampler.io.invalidate := io.descWritten.get
+
+    val auxW = Reg(Vec(N, UInt(32.W))); val auxLod = Reg(Vec(N, UInt(32.W))); val auxRef = Reg(Vec(N, UInt(32.W)))
+    val is_tex_reg  = RegInit(false.B)
+    val is_texa_reg = RegInit(false.B)
+    when(running && !is_busy && fetchedInstruction =/= 0.U) {
+      is_tex_reg  := opFlags.tex
+      is_texa_reg := opFlags.texa
+    }
+    val sIdle :: sWait :: sWB :: sAck :: Nil = Enum(4)
+    val st = RegInit(sIdle)
+    val rdReg = RegInit(0.U(5.W))
+    val wbK   = RegInit(0.U(2.W))
+    val respLane = RegInit(0.U(log2Up(N).W))
+    val respData = Reg(Vec(4, UInt(32.W)))
+
+    def finish(): Unit = {
+      st := sIdle
+      is_tex_reg := false.B; is_texa_reg := false.B
+      busy_counter := 0.U
+      programCounter := programCounter + 1.U
+      texResumeDelay := true.B
+    }
+
+    sampler.io.req.valid := false.B
+    sampler.io.req.bits.ctl := cOps(0)
+    for (i <- 0 until N) {
+      sampler.io.req.bits.active(i) := execMask(i)
+      val a = sampler.io.req.bits.lane(i)
+      a.u := uOps(i); a.v := vOps(i); a.w := auxW(i); a.lod := auxLod(i); a.dref := auxRef(i)
+    }
+    sampler.io.respReady := st === sAck
+
+    when(is_busy && busy_counter === cfg.cOperands.U && is_texa_reg) {
+      for (i <- 0 until N) { auxW(i) := uOps(i); auxLod(i) := vOps(i); auxRef(i) := cOps(i) }
+      finish()
+    }
+    when(is_busy && busy_counter === cfg.cOperands.U && is_tex_reg && st === sIdle) {
+      sampler.io.req.valid := true.B
+      rdReg := regs.rd
+      busy_counter := busy_counter
+      st := sWait
+    }
+    when(st === sWait) {
+      busy_counter := busy_counter
+      when(sampler.io.resp.valid) {
+        respLane := sampler.io.resp.bits.lane; respData := sampler.io.resp.bits.data
+        wbK := 0.U; st := sWB
+      }
+    }
+    when(st === sWB) {
+      busy_counter := busy_counter
+      memWrites.zipWithIndex.foreach { case (mw, i) =>
+        mw.en   := i.U === respLane && execMask(i)
+        mw.addr := rdReg + wbK
+        mw.data := respData(wbK)
+      }
+      when(wbK === 3.U) { st := sAck }.otherwise { wbK := wbK + 1.U }
+    }
+    when(st === sAck) {
+      busy_counter := busy_counter
+      when(sampler.io.done) { finish() }.otherwise { st := sWait }
+    }
+
+    // The memory port: the sampler's while it runs.
+    sampler.io.gpuMem.data    := io.gpuMem.get.data
+    sampler.io.gpuMem.ready   := io.gpuMem.get.ready && sampler.io.busy
+    sampler.io.gpuMem.waccept := false.B
+    when(sampler.io.busy) {
+      io.memBusy := true.B
+      io.gpuMem.get.req   := sampler.io.gpuMem.req
+      io.gpuMem.get.addr  := sampler.io.gpuMem.addr
+      io.gpuMem.get.wr    := false.B
+      io.gpuMem.get.wlen  := 1.U
+    }
+  }
 
   /** ZTEST stall. Same freeze-at-operands shape as FTEX and LOAD/STORE, but
     * there is no per-lane loop here: the dispatcher tests every lane of the

@@ -49,7 +49,8 @@ object BorgDrawTests extends TestSuite {
   class DrawRig(borg: BorgTestWrapper) {
     val vsAddr = 0x1000; val fsAddr = 0x5000; val binBase = 0x6000
     val vb = 0x9000; val ib = 0xA000; val vsConst = 0xB000; val fsConst = 0xB100
-    val setupBase = 0x20000; val fbBase = 0x10000
+    val setupBase = 0x20000; var fbBase = 0x10000
+    val texDesc = 0xB200; val sampDesc = 0xB400
     val rom = scala.collection.mutable.Map[Int, BigInt]()
     val half = scala.collection.mutable.Map[Int, Int]()
     def f32(d: Double): BigInt = BigInt(java.lang.Float.floatToRawIntBits(d.toFloat)) & BigInt(0xFFFFFFFFL)
@@ -102,14 +103,17 @@ object BorgDrawTests extends TestSuite {
     rom ++= Seq(vsConst -> BigInt(vb / 4), (vsConst + 4) -> BigInt(6), (vsConst + 8) -> BigInt(1))
     rom ++= Seq(fsConst -> BigInt(0))
 
-    /** Render; returns the occlusion count. topology 0/1/2, indexType 0/1/2. */
+    /** Render; returns the occlusion count. topology 0/1/2, indexType 0/1/2.
+      * `frag` replaces the fragment shader; `keep` keeps what earlier
+      * renders wrote to memory (a render that samples a previous one). */
     def draw(verts: Seq[V], topology: Int = 0, indices: Seq[Int] = Nil, restart: Boolean = false,
-             instances: Int = 1, count: Int = -1): BigInt = {
+             instances: Int = 1, count: Int = -1, frag: Seq[BigInt] = fs, keep: Boolean = false): BigInt = {
+      rom ++= frag.zipWithIndex.map { case (w, i) => (fsAddr + 4 * i) -> w }
       borg.reset.poke(true.B)
       borg.io.data_write_n.poke(3.U); borg.io.data_read_n.poke(3.U)
       borg.io.gpuMem.ready.poke(false.B); borg.io.gpuMem.data.poke(0.U)
       borg.clock.step(4); borg.reset.poke(false.B); borg.clock.step(20)
-      half.clear()
+      if (!keep) half.clear()
       for ((v, i) <- verts.zipWithIndex; (c, j) <- Seq(v.x, v.y, v.z, v.w, v.r, v.g).zipWithIndex)
         rom(vb + 4 * (6 * i + j)) = f32(c)
       for ((ix, i) <- indices.zipWithIndex) {               // 16-bit indices
@@ -119,7 +123,7 @@ object BorgDrawTests extends TestSuite {
       def reg(r: UInt, v: BigInt): Unit = rawWrite(borg, r.litValue.toInt, v)
       rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
       reg(BorgGpuRegs.seq_vert_addr_offset, vsAddr); reg(BorgGpuRegs.seq_vert_len_offset, vs.size)
-      reg(BorgGpuRegs.seq_frag_addr_offset, fsAddr); reg(BorgGpuRegs.seq_frag_len_offset, fs.size)
+      reg(BorgGpuRegs.seq_frag_addr_offset, fsAddr); reg(BorgGpuRegs.seq_frag_len_offset, math.min(frag.size, 60))
       reg(BorgGpuRegs.seq_bin_base_offset, binBase); reg(BorgGpuRegs.seq_bin_row_bytes_offset, 32)
       reg(BorgGpuRegs.seq_setup_base_offset, setupBase)
       reg(BorgGpuRegs.seq_fb_base_offset, fbBase); reg(BorgGpuRegs.seq_tiles_per_row_offset, Size / 4)
@@ -141,6 +145,7 @@ object BorgDrawTests extends TestSuite {
                          BorgGpuRegs.depth_scale_offset -> 1.0, BorgGpuRegs.depth_offset_offset -> 0.0))
         reg(r, f32(v))
       reg(BorgGpuRegs.draw_vs_const_offset, vsConst); reg(BorgGpuRegs.draw_fs_const_offset, fsConst)
+      reg(BorgGpuRegs.tex_desc_base_offset, texDesc); reg(BorgGpuRegs.sampler_desc_base_offset, sampDesc)
       reg(BorgGpuRegs.seq_trigger_offset, 1)
       var seen = false; var cleared = false
       for (cycle <- 0 until 400000 if !cleared) {
@@ -236,7 +241,48 @@ object BorgDrawTests extends TestSuite {
     utest.assert(instanced == 2 * full)
   }
 
+  /** Render to a texture, then sample it: the second draw's fragment shader
+    * reads the first draw's framebuffer through TEX (R8G8B8A8_UNORM in the
+    * flusher's 4x4-tiled layout, nearest, at texel centres), so the second
+    * framebuffer must equal the first exactly. */
+  def renderToTexture(rig: DrawRig): Unit = {
+    import Instructions._
+    val fbA = 0x10000; val fbB = 0x14000
+    rig.fbBase = fbA
+    val t = Seq(at(0, 0, 1.0, r = 1), at(8, 0, 4.0, g = 1), at(0, 8, 2.0))
+    rig.draw(t)
+    val a = for (y <- 0 until Size; x <- 0 until Size) yield rig.pixel(x, y)
+    // The texture descriptor: fbA, 8x8, R8G8B8A8_UNORM, tiled, 2D; nearest sampler.
+    val fm = TexFormat.byName("R8G8B8A8_UNORM")
+    val desc = Seq[BigInt](fbA, ((Size - 1) << 16) | (Size - 1), (BigInt(fm.code) << 16) | (1 << 26), 0) ++ Seq.fill(12)(BigInt(0))
+    for ((w, i) <- desc.zipWithIndex) rig.rom(rig.texDesc + 4 * i) = w
+    for ((w, i) <- Seq[BigInt](2 << 3 | 2 << 6, 0, 0, 0).zipWithIndex) rig.rom(rig.sampDesc + 4 * i) = w
+    // u = varying 0, v = varying 1, both screen / 8: texel centres at pixel centres.
+    rig.rom(rig.fsConst + 4) = BigInt(SamplerCtl.LodExplicit) << 21         // u17: TEX control word
+    val fs2 = Seq(
+      FATTR(rd = 10, index = 0),
+      MUL(rs1 = 5, rs2 = 10, rd = 13), FMA(rs1 = 6, rs2 = 11, rs3 = 13, rd = 13), FMA(rs1 = 7, rs2 = 12, rs3 = 13, rd = 13),
+      FATTR(rd = 10, index = 1),
+      MUL(rs1 = 5, rs2 = 10, rd = 14), FMA(rs1 = 6, rs2 = 11, rs3 = 14, rd = 14), FMA(rs1 = 7, rs2 = 12, rs3 = 14, rd = 14),
+      TEX(rd = 20, rs1 = 13, rs2 = 14, rs3 = 17, funct3 = 3),                 // rs3 from the constant window
+      ADD(rs1 = 20, rs2 = 16, rd = 26, funct3 = 2), ADD(rs1 = 21, rs2 = 16, rd = 27, funct3 = 2),
+      ADD(rs1 = 22, rs2 = 16, rd = 28, funct3 = 2), ADD(rs1 = 23, rs2 = 16, rd = 24, funct3 = 2),
+      BigInt(0))
+    rig.fbBase = fbB
+    val quad = Seq(at(8, 0, 1, r = 1, g = 0), at(0, 0, 1, r = 0, g = 0), at(8, 8, 1, r = 1, g = 1), at(0, 8, 1, r = 0, g = 1))
+    rig.draw(quad, topology = 1, frag = fs2, keep = true)
+    val b = for (y <- 0 until Size; x <- 0 until Size) yield rig.pixel(x, y)
+    val diff = a.zip(b).count { case (p, q) => p != q }
+    for (((p, q), i) <- a.zip(b).zipWithIndex if p != q) println(s"  pixel (${i % Size},${i / Size}): rendered $p, sampled $q")
+    println(s"  sampled render target: ${Size * Size - diff} of ${Size * Size} pixels identical")
+    utest.assert(diff == 0)
+    rig.fbBase = 0x10000
+  }
+
   val tests = Tests {
+    utest.test("render_to_texture_and_sample_it") {
+      run("render to texture", quadCfg)(renderToTexture)
+    }
     utest.test("varyings_are_perspective_correct") {
       run("perspective-correct varyings")(perspective)
     }

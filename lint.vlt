@@ -28,6 +28,9 @@ lint_off -rule UNUSEDSIGNAL -file "*BorgTileLoader.sv"
 // truncated high bits by construction (index-buffer word alignment, record
 // addresses past the 25-bit space, float-to-pixel shifts).
 lint_off -rule UNUSEDSIGNAL -file "*BorgDrawWalker.sv"
+// The sampler reads descriptor words whose reserved bits it ignores, and its
+// fixed-point shifters and format decoder keep only the bits a field needs.
+lint_off -rule UNUSEDSIGNAL -file "*BorgSampler.sv"
 lint_off -rule UNUSEDSIGNAL -file "*ram_*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*tagMem*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*dataMem*.sv"

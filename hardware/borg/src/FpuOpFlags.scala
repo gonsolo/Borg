@@ -57,5 +57,8 @@ class FpuOpFlags extends Bundle {
   // Draw front end (BorgConfig.drawEnabled) -- see Instructions.FUNCT7_SOUT/FATTR.
   val sout    = Bool()
   val fattr   = Bool()
+  // The descriptor-based texture unit (BorgConfig.samplerEnabled).
+  val tex     = Bool()
+  val texa    = Bool()
   val funct3 = UInt(3.W)
 }

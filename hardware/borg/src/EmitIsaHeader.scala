@@ -88,6 +88,10 @@ object EmitIsaHeader extends App {
   // REGISTER INDEX (like FMA's own rs3) whose low bits select which
   // texture-binding slot to sample -- write the desired slot number into a
   // register first, same as any other pinned constant, then pass its index.
+  body ++= s"// R4-type: TEX rd, u, v, ctl-register (funct2=$FUNCT2_TEX) and TEXA w, lod, dref (funct2=$FUNCT2_TEXA)\n"
+  body ++= s"#define BORG_INSTR_TEX(rd, rs1, rs2, rs3, funct3) (${r4Base(FUNCT2_TEX)} | $C_ARGS_R4)\n"
+  body ++= s"#define BORG_INSTR_TEXA(rs1, rs2, rs3, funct3) (${r4Base(FUNCT2_TEXA)} | " +
+           s"((funct3) << ${BF_FUNCT3.lo}) | ((rs3) << ${BF_RS3.lo}) | ((rs2) << ${BF_RS2.lo}) | ((rs1) << ${BF_RS1.lo}))\n\n"
   body ++= s"// R4-type: FTEX (opcode bit ${BITS_OPCODE_FMA_BIT}, funct2=$FUNCT2_FTEX)\n"
   body ++= s"#define BORG_INSTR_FTEX(rd, rs1, rs2, rs3, funct3) " +
            s"(${r4Base(FUNCT2_FTEX)} | " +
