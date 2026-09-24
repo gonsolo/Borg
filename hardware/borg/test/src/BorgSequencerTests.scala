@@ -100,15 +100,12 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
   }
 
   def serviceDram(borg: BorgTestWrapper, dram: Map[Int, BigInt]): Int = {
-    if (borg.io.gpuMem.req.peek().litToBoolean) {
-      // Read request: provide data and pulse ready.
-      val addr = borg.io.gpuMem.addr.peek().litValue.toInt
-      val data = dram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)
-      borg.io.gpuMem.data.poke(data.U)
-      borg.io.gpuMem.waccept.poke(false.B)
-      borg.io.gpuMem.ready.poke(true.B)
-      1
-    } else if (borg.io.gpuMem.wr.peek().litToBoolean) {
+    // Writes before reads, as MemoryController and BorgLinkSlave do: the
+    // setup store raises req AND wr together, and taking it as a read drops
+    // the write. (The map is immutable here, so writes are acknowledged and
+    // discarded -- scenarios that need pass 1's bins and setup data back use
+    // their own mutable service, see the occlusion-query scenario.)
+    if (borg.io.gpuMem.wr.peek().litToBoolean) {
       // Write request.  For a burst (wlen>1) consume words via waccept until
       // all are transferred, then pulse ready.  For a single write just pulse ready.
       val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
@@ -123,6 +120,14 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
       }
       borg.io.gpuMem.ready.poke(true.B)
       wlen
+    } else if (borg.io.gpuMem.req.peek().litToBoolean) {
+      // Read request: provide data and pulse ready.
+      val addr = borg.io.gpuMem.addr.peek().litValue.toInt
+      val data = dram.getOrElse(addr, BigInt(0)) & BigInt(0xFFFFFFFFL)
+      borg.io.gpuMem.data.poke(data.U)
+      borg.io.gpuMem.waccept.poke(false.B)
+      borg.io.gpuMem.ready.poke(true.B)
+      1
     } else {
       borg.io.gpuMem.waccept.poke(false.B)
       borg.io.gpuMem.ready.poke(false.B)
@@ -203,6 +208,58 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
     Instructions.FMA(rs1 = 4, rs2 = 21, rs3 = 20, rd = 6),     // r6 = area
     Instructions.FRCP(rs1 = 6, rd = 7),                         // r7 = inv_area
     BigInt(0)
+  )
+
+  /** The setup shader covDelta_diagnostic_real_values uses: unlike
+    * setupShader() it negates the area and normalizes the edges, and with it
+    * (plus seq_inv_width = 1.0) pass 1 really bins the triangle and pass 2
+    * really rasterizes it. setupShader() only exercises the sequencer FSM.
+    */
+  def binningSetupShader(): Seq[BigInt] = Seq(
+    Instructions.ADD(rs1 = 0, rs2 = 31, rd = 8,  funct3 = 1),
+    Instructions.ADD(rs1 = 1, rs2 = 31, rd = 9,  funct3 = 1),
+    Instructions.ADD(rs1 = 2, rs2 = 31, rd = 10, funct3 = 1),
+    Instructions.ADD(rs1 = 3, rs2 = 31, rd = 11, funct3 = 1),
+    Instructions.ADD(rs1 = 4, rs2 = 31, rd = 12, funct3 = 1),
+    Instructions.ADD(rs1 = 5, rs2 = 31, rd = 13, funct3 = 1),
+    Instructions.FNEG(rs1 = 10, rd = 14),
+    Instructions.ADD(rs1 = 8,  rs2 = 14, rd = 0),
+    Instructions.FNEG(rs1 = 9,  rd = 15),
+    Instructions.ADD(rs1 = 11, rs2 = 15, rd = 1),
+    Instructions.FNEG(rs1 = 12, rd = 16),
+    Instructions.ADD(rs1 = 10, rs2 = 16, rd = 2),
+    Instructions.FNEG(rs1 = 11, rd = 22),
+    Instructions.ADD(rs1 = 13, rs2 = 22, rd = 3),
+    Instructions.FNEG(rs1 = 8,  rd = 23),
+    Instructions.ADD(rs1 = 12, rs2 = 23, rd = 4),
+    Instructions.FNEG(rs1 = 13, rd = 24),
+    Instructions.ADD(rs1 = 9,  rs2 = 24, rd = 5),
+    Instructions.MUL(rs1 = 0, rs2 = 5, rd = 20),
+    Instructions.FNEG(rs1 = 1, rd = 21),
+    Instructions.FMA(rs1 = 4, rs2 = 21, rs3 = 20, rd = 6),
+    Instructions.FNEG(rs1 = 6, rd = 6),
+    Instructions.MUL(rs1 = 0, rs2 = 6, rd = 0, funct3 = 2),
+    Instructions.MUL(rs1 = 1, rs2 = 6, rd = 1, funct3 = 2),
+    Instructions.MUL(rs1 = 2, rs2 = 6, rd = 2, funct3 = 2),
+    Instructions.MUL(rs1 = 3, rs2 = 6, rd = 3, funct3 = 2),
+    Instructions.MUL(rs1 = 4, rs2 = 6, rd = 4, funct3 = 2),
+    Instructions.MUL(rs1 = 5, rs2 = 6, rd = 5, funct3 = 2),
+    Instructions.MUL(rs1 = 6, rs2 = 6, rd = 6, funct3 = 2),
+    Instructions.FRCP(rs1 = 6, rd = 7),
+    // Step 50.2b
+    Instructions.MUL(rs1 = 0, rs2 = 7, rd = 14, funct3 = 2),
+    Instructions.FMA(rs1 = 1, rs2 = 8, rs3 = 14, rd = 8, funct3 = 2),
+    Instructions.MUL(rs1 = 0, rs2 = 8, rd = 14, funct3 = 2),
+    Instructions.FMA(rs1 = 1, rs2 = 9, rs3 = 14, rd = 9, funct3 = 2),
+    Instructions.MUL(rs1 = 2, rs2 = 7, rd = 14, funct3 = 2),
+    Instructions.FMA(rs1 = 3, rs2 = 8, rs3 = 14, rd = 10, funct3 = 2),
+    Instructions.MUL(rs1 = 2, rs2 = 8, rd = 14, funct3 = 2),
+    Instructions.FMA(rs1 = 3, rs2 = 9, rs3 = 14, rd = 11, funct3 = 2),
+    Instructions.MUL(rs1 = 4, rs2 = 7, rd = 14, funct3 = 2),
+    Instructions.FMA(rs1 = 5, rs2 = 8, rs3 = 14, rd = 12, funct3 = 2),
+    Instructions.MUL(rs1 = 4, rs2 = 8, rd = 14, funct3 = 2),
+    Instructions.FMA(rs1 = 5, rs2 = 9, rs3 = 14, rd = 13, funct3 = 2),
+    BigInt(0) // HALT
   )
 
   /** Build a stride-32 DRAM descriptor for 3 vertices with a zero-extent bbox.
@@ -621,7 +678,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
                     rast.zipWithIndex.map       { case (w,i) => (rastAddr + i*4) -> w }.toMap ++
                     frag.zipWithIndex.map       { case (w,i) => (fragAddr + i*4) -> w }.toMap ++
                     buildDescriptorWithBbox(descAddr,       verts1, 0, 0, 4, 4) ++
-                    buildDescriptorWithBbox(descAddr + 128, verts2, 0, 0, 4, 4)
+                    buildDescriptorWithBbox(descAddr + 256, verts2, 0, 0, 4, 4)
 
         rawWrite(borg, BorgGpuRegs.seq_desc_base_offset.litValue.toInt,  descAddr)
         rawWrite(borg, BorgGpuRegs.seq_vert_addr_offset.litValue.toInt,  vertAddr)
@@ -1148,6 +1205,147 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         println("=== icache_runs_a_fragment_shader_longer_than_imem PASSED ===\n")
         }
 
+        scenario("occlusion_query_counts_the_samples_of_the_triangle_window") {
+        // Two identical triangles through a real sequencer render (binned in
+        // pass 1, rasterized in pass 2). Depth compare ALWAYS, so both are
+        // fully visible and each contributes the same N passing samples. The
+        // triangle window must pick out exactly the triangles inside it:
+        //   [0,1) -> N, [1,2) -> N, [0,2) -> 2N, counting disabled -> 0.
+        println("\n=== BorgSequencerTests: occlusion_query_counts_the_samples_of_the_triangle_window ===")
+        // Front-facing winding: binningSetupShader normalizes edges for it,
+        // and the reset cull mode (back) then keeps the triangle.
+        val verts = Seq(
+          Seq(0.0f, 0.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f),
+          Seq(0.0f, 4.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f),
+          Seq(4.0f, 0.0f, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f))
+
+        def render(window: Option[(Int, Int)]): BigInt = {
+          borg.reset.poke(true.B)
+          borg.io.data_write_n.poke(3.U)
+          borg.io.data_read_n.poke(3.U)
+          borg.io.gpuMem.ready.poke(false.B)
+          borg.io.gpuMem.data.poke(0.U)
+          borg.clock.step(4)
+          borg.reset.poke(false.B)
+          borg.clock.step(20)
+          rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
+
+          val vertAddr = 0x1000; val setupAddr = 0x3000; val descAddr = 0x2000
+          val rastAddr = 0x4000; val fragAddr = 0x5000
+          val binBase = 0x6000; val setupBase = 0x7000; val fbBase = 0x10000
+          val vertShader = vertPassthroughShader()
+          val setup = binningSetupShader()
+          val rastShader = Seq(BigInt(0))
+          val fragShader = Seq(
+            Instructions.ADD(rs1 = 7,  rs2 = 25, rd = 26, funct3 = 1),
+            Instructions.ADD(rs1 = 10, rs2 = 25, rd = 27, funct3 = 1),
+            Instructions.ADD(rs1 = 13, rs2 = 25, rd = 28, funct3 = 1),
+            Instructions.ADD(rs1 = 16, rs2 = 25, rd = 29, funct3 = 1),
+            BigInt(0))
+          val dram = scala.collection.mutable.Map[Int, BigInt]() ++= (
+            vertShader.zipWithIndex.map { case (w,i) => (vertAddr + i*4) -> w }.toMap ++
+            setup.zipWithIndex.map      { case (w,i) => (setupAddr + i*4) -> w }.toMap ++
+            rastShader.zipWithIndex.map { case (w,i) => (rastAddr + i*4) -> w }.toMap ++
+            fragShader.zipWithIndex.map { case (w,i) => (fragAddr + i*4) -> w }.toMap ++
+            buildDescriptorWithBbox(descAddr,       verts, 0, 0, 4, 4) ++
+            buildDescriptorWithBbox(descAddr + 256, verts, 0, 0, 4, 4))
+          // Writes before reads, as MemoryController and BorgLinkSlave do: the
+          // setup store raises req AND wr together, and a service that looks
+          // at req first answers it as a read and drops the write -- pass 2
+          // then finds no bins and no setup data.
+          def service(): Unit = {
+            if (borg.io.gpuMem.wr.peek().litToBoolean) {
+              val base = borg.io.gpuMem.addr.peek().litValue.toInt
+              val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
+              val halves = scala.collection.mutable.ArrayBuffer(borg.io.gpuMem.wdata.peek().litValue & 0xFFFF)
+              for (_ <- 1 until wlen) {
+                borg.io.gpuMem.waccept.poke(true.B)
+                borg.io.gpuMem.ready.poke(false.B)
+                borg.clock.step(1)
+                halves += borg.io.gpuMem.wdata.peek().litValue & 0xFFFF
+              }
+              // Keep the binner's and setup store's writes: pass 2 reads them back.
+              for ((h, i) <- halves.zipWithIndex) dram(base + 2 * i) = h
+              if (wlen == 2) dram(base) = halves(0) | (halves(1) << 16)
+              if (wlen == 1) dram(base) = halves(0)
+              borg.io.gpuMem.waccept.poke(false.B)
+              borg.io.gpuMem.ready.poke(true.B)
+            } else if (borg.io.gpuMem.req.peek().litToBoolean) {
+              val a = borg.io.gpuMem.addr.peek().litValue.toInt
+              borg.io.gpuMem.data.poke((dram.getOrElse(a, BigInt(0)) & BigInt(0xFFFFFFFFL)).U)
+              borg.io.gpuMem.waccept.poke(false.B)
+              borg.io.gpuMem.ready.poke(true.B)
+            } else {
+              borg.io.gpuMem.waccept.poke(false.B)
+              borg.io.gpuMem.ready.poke(false.B)
+            }
+          }
+
+          rawWrite(borg, BorgGpuRegs.seq_desc_base_offset.litValue.toInt, descAddr)
+          rawWrite(borg, BorgGpuRegs.seq_vert_addr_offset.litValue.toInt, vertAddr)
+          rawWrite(borg, BorgGpuRegs.seq_vert_len_offset.litValue.toInt, vertShader.size)
+          rawWrite(borg, BorgGpuRegs.seq_setup_addr_offset.litValue.toInt, setupAddr)
+          rawWrite(borg, BorgGpuRegs.seq_setup_len_offset.litValue.toInt, setup.size)
+          rawWrite(borg, BorgGpuRegs.seq_rast_addr_offset.litValue.toInt, rastAddr)
+          rawWrite(borg, BorgGpuRegs.seq_rast_len_offset.litValue.toInt, rastShader.size)
+          rawWrite(borg, BorgGpuRegs.seq_frag_addr_offset.litValue.toInt, fragAddr)
+          rawWrite(borg, BorgGpuRegs.seq_frag_len_offset.litValue.toInt, fragShader.size)
+          rawWrite(borg, BorgGpuRegs.seq_bin_base_offset.litValue.toInt, binBase)
+          rawWrite(borg, BorgGpuRegs.seq_bin_row_bytes_offset.litValue.toInt, 4)
+          rawWrite(borg, BorgGpuRegs.seq_setup_base_offset.litValue.toInt, setupBase)
+          rawWrite(borg, BorgGpuRegs.seq_fb_base_offset.litValue.toInt, fbBase)
+          rawWrite(borg, BorgGpuRegs.seq_tiles_per_row_offset.litValue.toInt, 1)
+          rawWrite(borg, BorgGpuRegs.seq_clear_lo_offset.litValue.toInt, 0x7BFF)
+          rawWrite(borg, BorgGpuRegs.seq_clear_hi_offset.litValue.toInt, 0)
+          rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 1)
+          rawWrite(borg, BorgGpuRegs.flush_width_offset.litValue.toInt, 2)
+          rawWrite(borg, BorgGpuRegs.seq_inv_width_offset.litValue.toInt, floatToBits(1.0f))
+          rawWrite(borg, BorgGpuRegs.depth_cfg_offset.litValue.toInt, 7 | (1 << 3))   // ALWAYS, write on
+          window.foreach { case (f, l) =>
+            rawWrite(borg, BorgGpuRegs.occ_tri_range_offset.litValue.toInt, f | (l << 16))
+          }
+          rawWrite(borg, BorgGpuRegs.occ_ctrl_offset.litValue.toInt, (if (window.isDefined) 1 else 0) | 2)
+          rawWrite(borg, BorgGpuRegs.seq_tri_count_offset.litValue.toInt, 2)
+          rawWrite(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt, 1)
+
+          var seqBusySeen = false
+          var seqBusyCleared = false
+          for (cycle <- 0 until 60000 if !seqBusyCleared) {
+            service()
+            borg.clock.step(1)
+            if (cycle % 10 == 5) {
+              borg.io.address.poke(BorgGpuRegs.status_offset)
+              borg.io.data_read_n.poke(2.U)
+              borg.io.data_write_n.poke(3.U)
+              service(); borg.clock.step(1)
+              val st = borg.io.data_out.peek().litValue
+              borg.io.data_read_n.poke(3.U)
+              service(); borg.clock.step(1)
+              val busy = (st >> 5) & 1
+              if (busy == 1) seqBusySeen = true
+              if (seqBusySeen && busy == 0) seqBusyCleared = true
+            }
+          }
+          Predef.assert(seqBusyCleared, "sequencer never completed")
+          val count = rawRead(borg, BorgGpuRegs.occ_count_offset.litValue.toInt)
+          rawWrite(borg, BorgGpuRegs.occ_ctrl_offset.litValue.toInt, 0)
+          rawWrite(borg, BorgGpuRegs.occ_tri_range_offset.litValue.toInt, BigInt(0xFFFF) << 16)
+          rawWrite(borg, BorgGpuRegs.depth_cfg_offset.litValue.toInt, 1 | (1 << 3))
+          count
+        }
+
+        val t0   = render(Some((0, 1)))
+        val t1   = render(Some((1, 2)))
+        val both = render(Some((0, 2)))
+        val off  = render(None)
+        println(s"  window [0,1): $t0  [1,2): $t1  [0,2): $both  disabled: $off")
+        Predef.assert(t0 > 0, "no samples counted: the triangle was not rasterized")
+        Predef.assert(t1 == t0, "identical triangles must count the same")
+        Predef.assert(both == 2 * t0, "the window must add exactly the triangles inside it")
+        Predef.assert(off == 0, "counting while disabled")
+        println("=== occlusion_query_counts_the_samples_of_the_triangle_window PASSED ===\n")
+        }
+
         scenario("covDelta_diagnostic_real_values") {
         println("\n=== BorgSequencerTests: covDelta_diagnostic_real_values ===")
 
@@ -1186,52 +1384,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
 
         // Ported 1:1 from software/borg/borg_driver.c's seq_setup_shader
         // (base edge computation + Step 50.2b delta block).
-        val setup = Seq(
-          Instructions.ADD(rs1 = 0, rs2 = 31, rd = 8,  funct3 = 1),
-          Instructions.ADD(rs1 = 1, rs2 = 31, rd = 9,  funct3 = 1),
-          Instructions.ADD(rs1 = 2, rs2 = 31, rd = 10, funct3 = 1),
-          Instructions.ADD(rs1 = 3, rs2 = 31, rd = 11, funct3 = 1),
-          Instructions.ADD(rs1 = 4, rs2 = 31, rd = 12, funct3 = 1),
-          Instructions.ADD(rs1 = 5, rs2 = 31, rd = 13, funct3 = 1),
-          Instructions.FNEG(rs1 = 10, rd = 14),
-          Instructions.ADD(rs1 = 8,  rs2 = 14, rd = 0),
-          Instructions.FNEG(rs1 = 9,  rd = 15),
-          Instructions.ADD(rs1 = 11, rs2 = 15, rd = 1),
-          Instructions.FNEG(rs1 = 12, rd = 16),
-          Instructions.ADD(rs1 = 10, rs2 = 16, rd = 2),
-          Instructions.FNEG(rs1 = 11, rd = 22),
-          Instructions.ADD(rs1 = 13, rs2 = 22, rd = 3),
-          Instructions.FNEG(rs1 = 8,  rd = 23),
-          Instructions.ADD(rs1 = 12, rs2 = 23, rd = 4),
-          Instructions.FNEG(rs1 = 13, rd = 24),
-          Instructions.ADD(rs1 = 9,  rs2 = 24, rd = 5),
-          Instructions.MUL(rs1 = 0, rs2 = 5, rd = 20),
-          Instructions.FNEG(rs1 = 1, rd = 21),
-          Instructions.FMA(rs1 = 4, rs2 = 21, rs3 = 20, rd = 6),
-          Instructions.FNEG(rs1 = 6, rd = 6),
-          Instructions.MUL(rs1 = 0, rs2 = 6, rd = 0, funct3 = 2),
-          Instructions.MUL(rs1 = 1, rs2 = 6, rd = 1, funct3 = 2),
-          Instructions.MUL(rs1 = 2, rs2 = 6, rd = 2, funct3 = 2),
-          Instructions.MUL(rs1 = 3, rs2 = 6, rd = 3, funct3 = 2),
-          Instructions.MUL(rs1 = 4, rs2 = 6, rd = 4, funct3 = 2),
-          Instructions.MUL(rs1 = 5, rs2 = 6, rd = 5, funct3 = 2),
-          Instructions.MUL(rs1 = 6, rs2 = 6, rd = 6, funct3 = 2),
-          Instructions.FRCP(rs1 = 6, rd = 7),
-          // Step 50.2b
-          Instructions.MUL(rs1 = 0, rs2 = 7, rd = 14, funct3 = 2),
-          Instructions.FMA(rs1 = 1, rs2 = 8, rs3 = 14, rd = 8, funct3 = 2),
-          Instructions.MUL(rs1 = 0, rs2 = 8, rd = 14, funct3 = 2),
-          Instructions.FMA(rs1 = 1, rs2 = 9, rs3 = 14, rd = 9, funct3 = 2),
-          Instructions.MUL(rs1 = 2, rs2 = 7, rd = 14, funct3 = 2),
-          Instructions.FMA(rs1 = 3, rs2 = 8, rs3 = 14, rd = 10, funct3 = 2),
-          Instructions.MUL(rs1 = 2, rs2 = 8, rd = 14, funct3 = 2),
-          Instructions.FMA(rs1 = 3, rs2 = 9, rs3 = 14, rd = 11, funct3 = 2),
-          Instructions.MUL(rs1 = 4, rs2 = 7, rd = 14, funct3 = 2),
-          Instructions.FMA(rs1 = 5, rs2 = 8, rs3 = 14, rd = 12, funct3 = 2),
-          Instructions.MUL(rs1 = 4, rs2 = 8, rd = 14, funct3 = 2),
-          Instructions.FMA(rs1 = 5, rs2 = 9, rs3 = 14, rd = 13, funct3 = 2),
-          BigInt(0) // HALT
-        )
+        val setup = binningSetupShader()
 
         val rastShader = Seq(
           Instructions.ADD(rs1 = 7, rs2 = 6, rd = 0),

@@ -22,7 +22,7 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
   val DST = (0x0AAA, 0x0BBB, 0x0CCC)
 
   /** What one sTileWrite cycle asked the tile buffer to do. */
-  case class Write(en: Boolean, r: Int, g: Int, b: Int, z: Int, stencilEn: Boolean)
+  case class Write(en: Boolean, r: Int, g: Int, b: Int, z: Int, stencilEn: Boolean, occ: Int)
 
   def capture(d: BorgShaderDispatcher): Write = Write(
     d.io.tileWrite.en.peek().litToBoolean,
@@ -30,7 +30,8 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
     d.io.tileWrite.data.g.peek().litValue.toInt,
     d.io.tileWrite.data.b.peek().litValue.toInt,
     d.io.tileWrite.data.z.peek().litValue.toInt,
-    d.io.stencilWriteMask.map(_.peek().litValue != 0).getOrElse(false))
+    d.io.stencilWriteMask.map(_.peek().litValue != 0).getOrElse(false),
+    d.io.occSamples.peek().litValue.toInt)
 
   def writeReg(d: BorgShaderDispatcher, reg: Int, value: Int): Unit = {
     d.io.pipeWrite(0).en.poke(true.B)
@@ -116,6 +117,8 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         // ZTEST, not re-tested; and depth is kept, not rewritten.
         utest.assert(late.en && late.z == 0x3000)
         utest.assert((late.r, late.g, late.b) == SRC)
+        // Occlusion queries count where the test ran: once, at ZTEST.
+        utest.assert(early.occ == 1 && late.occ == 0)
         println("  PASSED")
       }
     }
@@ -131,6 +134,7 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         utest.assert(!early.en)
         utest.assert(helper)      // its STOREs are suppressed from here on
         utest.assert(!late.en)
+        utest.assert(early.occ == 0 && late.occ == 0)
         println("  PASSED")
       }
     }
@@ -252,9 +256,11 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         d.io.zTestReq.poke(true.B)
         d.clock.step(1)
         stepThroughDepthTest(d)
+        var earlyOcc = 0
         val earlyEn = (0 until 4).map { s =>
           utest.assert(d.io.phase.peek().litValue.toInt == PHASE_TILE_WRITE)
           val en = d.io.tileWrite.en.peek().litToBoolean
+          earlyOcc += d.io.occSamples.peek().litValue.toInt
           utest.assert(d.io.zTestDone.peek().litToBoolean == (s == 3))
           d.clock.step(1)
           en
@@ -271,15 +277,54 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
           s.z.poke((if (i >= 2) 0x3000 else oldZ(i)).U)
         }
         stepThroughDepthTest(d)
+        var lateOcc = 0
         val lateEn = (0 until 4).map { _ =>
           val en = d.io.tileWrite.en.peek().litToBoolean
+          lateOcc += d.io.occSamples.peek().litValue.toInt
           d.clock.step(1)
           en
         }
         println(s"  early writes per sample: $earlyEn, late: $lateEn (expect F,F,T,T both)")
         utest.assert(earlyEn == Seq(false, false, true, true))
         utest.assert(lateEn == Seq(false, false, true, true))
+        println(s"  occlusion samples counted: early $earlyOcc (expect 2), late $lateOcc (expect 0)")
+        utest.assert(earlyOcc == 2 && lateOcc == 0)
         utest.assert(d.io.phase.peek().litValue.toInt == PHASE_IDLE)
+        println("  PASSED")
+      }
+    }
+    utest.test("late_test_counts_each_passing_sample_once") {
+      // Without ZTEST the tests run at the end of the shader, and that is
+      // where samples are counted: 1 for a passing fragment, 0 for a failing
+      // one, and 0 on every cycle that is not the test.
+      simulate(new BorgShaderDispatcher(BASE)) { d =>
+        println("\n--- occlusion: late test ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+        var nonTestCycles = 0
+        def run(fragZ: Int, oldZ: Int): Int = {
+          d.io.tileRead.data.foreach(_.z.poke(oldZ.U))
+          firePixelReady(d, fragPc = 13, tileIdx = 7)
+          d.io.fragPcReg.poke(13.U)
+          d.io.coreStatus.autoRunPending.poke(true.B); d.clock.step(1)
+          d.io.coreStatus.autoRunPending.poke(false.B); d.io.coreStatus.running.poke(true.B)
+          pokeAllEdges(d, FP16_POS_ONE, FP16_POS_ONE, FP16_POS_ONE)
+          d.io.coreStatus.running.poke(false.B); d.clock.step(1)
+          d.io.coreStatus.autoRunPending.poke(true.B); d.clock.step(1)
+          d.io.coreStatus.autoRunPending.poke(false.B); d.io.coreStatus.running.poke(true.B)
+          writeReg(d, 29, fragZ)
+          if (d.io.occSamples.peek().litValue != 0) nonTestCycles += 1
+          d.io.coreStatus.running.poke(false.B); d.clock.step(1)
+          stepThroughDepthTest(d)
+          val occ = d.io.occSamples.peek().litValue.toInt
+          d.clock.step(1)
+          if (d.io.occSamples.peek().litValue != 0) nonTestCycles += 1
+          occ
+        }
+        val pass = run(0x3000, 0x3800)
+        val fail = run(0x3800, 0x3000)
+        println(s"  pass counts $pass (expect 1), fail counts $fail (expect 0), stray counts $nonTestCycles (expect 0)")
+        utest.assert(pass == 1 && fail == 0 && nonTestCycles == 0)
         println("  PASSED")
       }
     }

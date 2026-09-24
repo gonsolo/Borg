@@ -475,6 +475,37 @@ reg code_base_reg_t {
     } RSVD[7] = 0;
 };
 
+// --- Occlusion queries -------------------------------------------------
+// OCC_COUNT counts samples that pass the per-fragment tests (depth, stencil,
+// scissor, coverage, not discarded) -- exactly, so occlusionQueryPrecise can
+// be reported. Counted where the tests run: at ZTEST for a shader with early
+// tests, at the end of the shader otherwise.
+//
+// A tile-based renderer interleaves fragments of every draw tile by tile, so
+// "while the query is active" cannot be a time window. It is a triangle
+// window instead: only fragments of triangles with first <= index < last are
+// counted (the reset window, 0..0xFFFF, counts everything). One window per
+// render: the driver maps vkCmdBeginQuery/EndQuery to the triangle range of
+// the draws between them.
+reg occ_ctrl_reg_t {
+    name = "Occlusion Query Control";
+    desc = "nogen: decoded from the raw bus by Borg.scala.";
+    field { sw = rw; hw = r; desc = "Count passing samples."; } enable[1] = 0;
+    field { sw = w;  hw = r; desc = "Write 1: reset OCC_COUNT to 0."; } clear[1] = 0;
+    field { sw = rw; hw = na; } RSVD[30] = 0;
+};
+reg occ_tri_range_reg_t {
+    name = "Occlusion Query Triangle Window";
+    desc = "nogen. Triangles counted: first <= index < last.";
+    field { sw = rw; hw = r; desc = "First counted triangle index."; } first[16] = 0;
+    field { sw = rw; hw = r; desc = "One past the last counted triangle index."; } last[16] = 0xFFFF;
+};
+reg occ_count_reg_t {
+    name = "Occlusion Query Count";
+    desc = "nogen, read-only: samples that passed the per-fragment tests.";
+    field { sw = r; hw = w; desc = "Passing-sample count."; } count[32] = 0;
+};
+
 // --- Texture address (computed by hardware) ---
 // Read: Morton-encoded texel index from the most recent tex_uv write.
 reg tex_addr_reg_t {
@@ -1566,4 +1597,12 @@ addrmap borg_gpu {
     // ---- Shader program image for the instruction cache ----
     code_base_reg_t code_base;
     code_base->nogen = true;
+
+    // ---- Occlusion queries ----
+    occ_ctrl_reg_t occ_ctrl;
+    occ_ctrl->nogen = true;
+    occ_tri_range_reg_t occ_tri_range;
+    occ_tri_range->nogen = true;
+    occ_count_reg_t occ_count;
+    occ_count->nogen = true;
 };

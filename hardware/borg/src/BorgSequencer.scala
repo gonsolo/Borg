@@ -198,6 +198,7 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   // above -- only meaningful while the sequencer is busy, which is how the
   // top-level Borg.scala consumer already gates texEnOverride.
   val frontFacingOverride = Output(Bool())
+  val curTriIndex = Output(UInt(16.W))   // pass 2's current triangle (occlusion queries)
 
   val coreTrigger = new CoreTriggerIO
   val coreStatus = Flipped(new CoreStatusIO)
@@ -397,6 +398,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
   io.texEnOverride := p2.io.texEnOverride
   io.frontFacingOverride := p2.io.frontFacingOverride
+  io.curTriIndex := p2.io.curTriIndex
 
   // --- BorgBinner: writer (start/triIndex/bbox/clearCounts) is Pass 1;
   // count-reader (countReadAddr/countReadEn/countReadData) is Pass 2. The
