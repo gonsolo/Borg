@@ -82,6 +82,15 @@ set_input_delay -max $input_delay_value -clock $clocks $clk_core_input_ports
 # from timing analysis, not a race fix meant for signals that toggle.
 set_false_path -from [get_ports { input_PAD[2] input_PAD[3] }]
 
+# rst_n: asynchronous board reset. It reaches only the first flop of
+# BorgOnlyTop's two-flop reset synchronizer (rstSync), whose whole purpose is
+# to absorb the missing timing relationship -- the textbook false path for a
+# synchronizer input. The core reset downstream of rstSync is launched by a
+# clocked flop and fully timed. (Before the synchronizer, rst_n drove every
+# flop's reset mux directly: the lone hold violator of run linkfix-0923-1829,
+# -0.47 ns at max_ss.)
+set_false_path -from [get_ports rst_n_PAD]
+
 # Output load
 set cap_load [expr $::env(OUTPUT_CAP_LOAD) / 1000.0]
 puts "\[INFO] Setting load to: $cap_load"

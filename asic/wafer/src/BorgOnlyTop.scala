@@ -182,7 +182,22 @@ class BorgOnlyTop(
   val bidirOe  = IO(Output(UInt(slot.numBidir.W)))
   val inputIn  = IO(Input(UInt(slot.numInput.W)))
 
-  val core = withClockAndReset(clk, !rst_n) { Module(new BorgOnlyCore(cfg, p)) }
+  // Two-flop reset synchronizer. rst_n is a board-level pin with no timing
+  // relationship to clk, but it used to drive the core's synchronous reset
+  // directly -- straight into the reset mux of every resettable flop. A
+  // release near a clock edge could then take some flops out of reset a
+  // cycle before others, or leave one metastable, and STA flagged it as a
+  // pad-to-flop hold violation at the ss corners, where the ~11 ns clock
+  // insertion delay exceeds the pad's data path (run linkfix-0923-1829: the
+  // only hold violator left). Now the pin reaches only rstSync's first flop
+  // (a false path in chip_top.sdc, as for any synchronizer input) and the
+  // core's reset launches from a clocked flop like any other timed path.
+  // Assertion is also synchronous, which is fine: the board clock runs
+  // throughout, and reset only has to be held for two cycles.
+  val rstSync = withClockAndReset(clk, false.B) { ShiftRegister(!rst_n, 2) }
+  rstSync.suggestName("rstSync")
+
+  val core = withClockAndReset(clk, rstSync) { Module(new BorgOnlyCore(cfg, p)) }
 
   val dbgO = core.io.dbgO
 
