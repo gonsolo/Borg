@@ -737,5 +737,81 @@ object BorgTileFlusherTests extends TestSuite {
         }
       }
     }
+    utest.test("per-sample store writes every sample to its own region") {
+      // ATTACH_MS: a stored 4x attachment keeps every sample. Each sample gets
+      // its own colour/depth/stencil region, one tile size apart, holding
+      // that sample's value -- not the average, not sample 0. With msSample
+      // given (msaaMultiPass) only that one sample's regions are written.
+      for (given <- Seq(None, Some(2))) {
+        simulate(new BorgTileFlusher(16, 4, hasDepthFlush = true, hasStencil = true)) { dut =>
+          def cr(e: Int, smp: Int): Int = f16((e + 16 * smp) / 64.0f)
+          def cz(e: Int, smp: Int): Int = f16((e + 16 * smp + 1) / 128.0f)
+          def cs(e: Int, smp: Int): Int = (e * 3 + smp * 50 + 1) & 0xFF
+          var cycle = 0
+          var pipe0: Option[Int] = None
+          var pipe1: Option[Int] = None
+          def step(n: Int = 1): Unit = for (_ <- 0 until n) {
+            pipe1.foreach { i =>
+              dut.io.read.data.zipWithIndex.foreach { case (sd, smp) =>
+                sd.r.poke(cr(i, smp).U); sd.g.poke(0.U); sd.b.poke(0.U); sd.z.poke(cz(i, smp).U)
+              }
+              dut.io.stencil.get.zipWithIndex.foreach { case (st, smp) => st.poke(cs(i, smp).U) }
+            }
+            val en  = dut.io.read.en.peek().litToBoolean
+            val idx = dut.io.read.idx.peek().litValue.toInt
+            pipe1 = pipe0
+            pipe0 = if (en) Some(idx) else None
+            dut.clock.step()
+            cycle += 1
+            Predef.assert(cycle < 40000, "TIMEOUT")
+          }
+          dut.reset.poke(true.B); step(4)
+          dut.reset.poke(false.B)
+          dut.io.format.poke(FlushFormat.RGB565.U)
+          dut.io.start.poke(false.B)
+          dut.io.tileBase.poke(0x2000.U)
+          dut.io.depthBase.get.poke(0x9000.U); dut.io.depthEn.get.poke(true.B)
+          dut.io.stencilBase.get.poke(0xA000.U); dut.io.stencilEn.get.poke(true.B)
+          dut.io.msStore.get.poke(true.B)
+          dut.io.msSample.get.valid.poke(given.isDefined.B)
+          dut.io.msSample.get.bits.poke(given.getOrElse(0).U)
+          dut.io.gpuMem.ready.poke(false.B); dut.io.gpuMem.waccept.poke(false.B)
+          dut.io.gpuMem.data.poke(0.U)
+          step(2)
+          dut.io.start.poke(true.B); step(); dut.io.start.poke(false.B)
+          val bursts = ArrayBuffer[(Int, Seq[Int])]()
+          while (dut.io.busy.peek().litToBoolean) {
+            if (dut.io.gpuMem.wr.peek().litToBoolean) {
+              val base = dut.io.gpuMem.addr.peek().litValue.toInt
+              val wlen = dut.io.gpuMem.wlen.peek().litValue.toInt
+              val words = ArrayBuffer[Int]()
+              for (w <- 0 until wlen) {
+                words += (dut.io.gpuMem.wdata.peek().litValue.toInt & 0xFFFF)
+                if (w < wlen - 1) { dut.io.gpuMem.waccept.poke(true.B); step(); dut.io.gpuMem.waccept.poke(false.B) }
+              }
+              dut.io.gpuMem.ready.poke(true.B); step()
+              dut.io.gpuMem.ready.poke(false.B)
+              bursts += ((base, words.toSeq))
+            }
+            step()
+          }
+          val smps = given.map(Seq(_)).getOrElse(0 until 4)
+          println(f"[flusher] per-sample store, samples ${smps.mkString(",")}: bursts " +
+            bursts.map(b => f"0x${b._1}%x").mkString(" "))
+          Predef.assert(bursts.map(_._1) ==
+            smps.flatMap(sm => Seq(0x2000 + 32 * sm, 0x9000 + 32 * sm, 0xA000 + 16 * sm)))
+          for ((sm, k) <- smps.zipWithIndex) {
+            val (colour, depth, sten) = (bursts(3 * k)._2, bursts(3 * k + 1)._2, bursts(3 * k + 2)._2)
+            for (e <- 0 until 16) {
+              Predef.assert((colour(e) >> 11) == fp16ToUnorm(cr(e, sm), 5), s"sample $sm entry $e colour")
+              // cz = k/128 is exact in FP16 and quantize16 is round(z * 65536): k * 512.
+              Predef.assert(depth(e) == (e + 16 * sm + 1) * 512, s"sample $sm entry $e depth ${depth(e)}")
+              val sb = sten(e / 2) >> (8 * (e % 2)) & 0xFF
+              Predef.assert(sb == cs(e, sm), s"sample $sm entry $e stencil $sb != ${cs(e, sm)}")
+            }
+          }
+        }
+      }
+    }
   }
 }

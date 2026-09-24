@@ -111,7 +111,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val flusher   = withReset(resetCopy("flush"))  { Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush, cfg.hasBlend, cfg.hasStencil, cfg.tileDepthBits)) }   // before tile — see note above
   // loadOp = LOAD: brings a tile's attachments back from DRAM (the flusher's
   // reverse). Shares the flusher's reset copy: the two are one attachment path.
-  val loader    = withReset(resetCopy("flush"))  { Module(new BorgTileLoader(cfg.hasDepthFlush, cfg.hasStencil, cfg.tileDepthBits)) }
+  val loader    = withReset(resetCopy("flush"))  { Module(new BorgTileLoader(cfg.hasDepthFlush, cfg.hasStencil, cfg.tileDepthBits, cfg.samples)) }
   val tile      = withReset(resetCopy("tile"))   { Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend, cfg.msaaMultiPass, cfg.tileDepthBits)) }
   val rdlRegs   = withReset(resetCopy("regs"))   { Module(new BorgGpuRegs()) } // Auto-generated RDL register block
   val dma       = withReset(resetCopy("dma"))    { Module(new BorgDMA(cfg)) }
@@ -159,6 +159,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val depthD32Reg     = RegInit(false.B)        // DEPTH_FORMAT
   val clearDepthReg   = RegInit(0.U(32.W))      // CLEAR_DEPTH (FP32)
   val clearDepthSet   = RegInit(false.B)        // CLEAR_DEPTH written since reset
+  // ATTACH_MS: multisampled attachments stored/loaded per sample.
+  val attachMsReg     = RegInit(false.B)
+  /** Tiles per attachment tile: `samples` per-sample tiles, or one resolved. */
+  private def msScale(offset: UInt): UInt =
+    if (cfg.samples > 1) Mux(attachMsReg, offset * cfg.samples.U, offset) else offset
   /** The sequencer's tile clear depth: SEQ_CLEAR_LO's FP16 field widened, or
     * CLEAR_DEPTH at full FP32 precision once written (a Vulkan clear value
     * like 0.3 is not an FP16 value; rounding it moves it by many D16 steps). */
@@ -554,8 +559,15 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // fragment of the tile runs, so it never contends with the dispatcher.
     val ldWrite = ld.io.write.en
     tile.io.write.en  := mmioTileWriteEn || rast.io.tileWrite.en || ldWrite
+    // The dispatcher's index is live whenever it writes ANY plane -- not just
+    // colour. A fragment that fails the stencil or depth test writes no
+    // colour (tileWrite.en low) but still updates stencil (failOp /
+    // depthFailOp); keyed on tileWrite.en alone, those updates took the MMIO
+    // debug index and landed on entry 0.
+    val rastWrites = rast.io.tileWrite.en ||
+      rast.io.stencilWriteMask.map(_ =/= 0.U).getOrElse(false.B)
     tile.io.write.idx := Mux(ldWrite, ld.io.write.idx,
-                         Mux(rast.io.tileWrite.en, rast.io.tileWrite.idx, tileReadIdx))
+                         Mux(rastWrites, rast.io.tileWrite.idx, tileReadIdx))
     
     val writeColor = Wire(new ColorZ(16, zBits))
     writeColor.r := bus.data_in(31, 16)
@@ -575,9 +587,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Coverage: the rasterizer supplies a per-sample mask from the depth test;
     // an MMIO poke has no coverage concept and writes every sample (same
     // all-samples semantics as a clear).
-    tile.io.write.coverage := Mux(rast.io.tileWrite.en && !ldWrite,
-                                  rast.io.tileWrite.coverage,
-                                  Fill(cfg.samples, 1.U(1.W)))
+    tile.io.write.coverage := Mux(ldWrite, ld.io.write.coverage,
+                              Mux(rast.io.tileWrite.en, rast.io.tileWrite.coverage,
+                                  Fill(cfg.samples, 1.U(1.W))))
 
     // Read port: flusher > dispatcher depth-test > MMIO CTRL.
     // Flusher and dispatcher never fire simultaneously (flusher waits for
@@ -595,7 +607,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // so only the data paths need wiring here.
     rast.io.stencilRead.foreach(_ := tile.io.stencilRead.get)
     tile.io.stencilWrite.foreach(_ := Mux(ldWrite, ld.io.write.stencil, rast.io.stencilWrite.get))
-    tile.io.stencilWriteMask.foreach(_ := Mux(ldWrite, Fill(cfg.samples, 1.U(1.W)),
+    tile.io.stencilWriteMask.foreach(_ := Mux(ldWrite, ld.io.write.coverage,
                                               rast.io.stencilWriteMask.get))
     tile.io.stencilClear.foreach(_ := rdlRegs.io.hw.plane_clear_stencil)
 
@@ -660,8 +672,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // 32-byte units, one RGB565 tile). A 32-bit colour format doubles the
     // colour tile; the depth tile (D16_UNORM, 16 x 2 bytes) never changes.
     val seqTileOffset = s.io.flusher.tileOffset
-    val colourOffset  = Mux(FlushFormat.isWide(rdlRegs.io.hw.flush_format_format),
-                            seqTileOffset << 1, seqTileOffset)
+    val colourOffset  = msScale(Mux(FlushFormat.isWide(rdlRegs.io.hw.flush_format_format),
+                                    seqTileOffset << 1, seqTileOffset))
     f.io.tileBase  := Mux(seqFlushActive, s.io.mmio.fbBase + colourOffset, flushTileBaseReg)
 
     // Depth-attachment write-out (only present at cfg.hasDepthFlush). The
@@ -675,7 +687,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // reset value of 0 and gets the historical colour-only flush, so no
     // firmware change is needed to keep existing targets working.
     // A D32_SFLOAT depth tile is 64 bytes, twice a D16 tile.
-    val depthTileOffset = Mux(depthD32Reg, seqTileOffset << 1, seqTileOffset)
+    val depthTileOffset = msScale(Mux(depthD32Reg, seqTileOffset << 1, seqTileOffset))
     f.io.depthD32.foreach(_ := depthD32Reg)
     // Also the tile loader's depth source, so it exists in every build.
     val flushDepthBaseReg = RegInit(0.U(25.W))
@@ -697,7 +709,22 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     when(bus.is_writing && bus.address === BorgGpuRegs.flush_sb_base_offset) {
       stencilBaseReg := bus.data_in(24, 0)
     }
-    val stencilTileBase = stencilBaseReg + (seqTileOffset >> 1)
+    val stencilTileBase = stencilBaseReg + msScale(seqTileOffset >> 1)
+
+    // Per-sample attachments. At msaaMultiPass the tile buffer holds only the
+    // pass's sample, so store and load name it; otherwise they walk them all.
+    when(bus.is_writing && bus.address === BorgGpuRegs.attach_ms_offset) {
+      attachMsReg := bus.data_in(0) && (cfg.samples > 1).B
+    }
+    def passSample(m: Valid[UInt]): Unit = {
+      m.valid := cfg.msaaMultiPass.B
+      m.bits  := s.io.pass.map(_.sampleIdx).getOrElse(0.U)
+    }
+    f.io.msStore.foreach(_ := attachMsReg)
+    f.io.msSample.foreach(passSample)
+    ld.io.msLoad.foreach(_ := attachMsReg)
+    ld.io.msSample.foreach(passSample)
+    s.io.mmio.attachMs := attachMsReg
     f.io.stencil.foreach(_ := tile.io.stencilRead.get)
     f.io.stencilBase.foreach(_ := Mux(seqFlushActive, stencilTileBase, stencilBaseReg))
     f.io.stencilEn.foreach(_ := stencilBaseReg =/= 0.U)

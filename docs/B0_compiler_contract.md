@@ -318,11 +318,17 @@ pass 2 loads exactly one, or holds more than one occlusion query.
 - **Rounding to the attachment format** (a D16 attachment's fragment depth
   to the nearest `k/65535`) is the shader's job. It is a fixed conversion,
   and FP32 tile depth holds the result exactly.
-- **Open conformance gap (hardware, in progress):**
-  - *Multisampled attachments are stored resolved.* 4× is mandatory for
-    framebuffer and sampled-image sample counts, so a stored 4× attachment
-    must keep every sample for a later load, `texelFetch(…, sample)` or
-    `vkCmdResolveImage`. The fix is per-sample store and load.
+- **Multisampled attachments** (`ATTACH_MS`, `0x338`): with bit 0 set,
+  colour, depth and stencil are stored and loaded **per sample**. Each tile's
+  region then holds `samples` consecutive per-sample tiles (colour 32/64,
+  depth 32/64, stencil 16 bytes each), so a 4× attachment keeps every sample
+  for a later load, `texelFetch(…, sample)` or a resolve. Use it for
+  `storeOp = STORE` or `loadOp = LOAD` on a multisampled attachment. Leave it
+  clear for a multisampled attachment that is only resolved (`storeOp =
+  DONT_CARE` plus a resolve attachment): that path averages on chip and writes
+  one tile. With every sample resident (ULX3S) one flush and one load walk all
+  samples. At msaaMultiPass (Wafer) each pass loads and flushes its own sample
+  instead of accumulating; empty tiles run every pass too.
 - **Empty tiles are always flushed** when loading. The dirty-tile skip
   assumes DRAM already holds the clear colour, which no longer holds.
 

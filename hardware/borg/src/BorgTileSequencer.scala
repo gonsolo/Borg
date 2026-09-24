@@ -391,7 +391,10 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       // right value in DRAM, so we can skip the 64-word SDRAM write entirely.
       val tileLinearCC = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
       when(binTriCount === 0.U) {
-        when(tileWasDirty(io.curBufIdx)(tileLinearCC(log2Ceil(cfg.maxBinTiles) - 1, 0))) {
+        // At msaaMultiPass with per-sample attachments an empty tile still
+        // runs every pass (see handleWaitFlushSync), so never skip it.
+        val msPasses = (cfg.msaaMultiPass.B && io.mmio.attachMs)
+        when(msPasses || tileWasDirty(io.curBufIdx)(tileLinearCC(log2Ceil(cfg.maxBinTiles) - 1, 0))) {
           state := sWaitFlush        // was dirty: must write clear colour to DRAM
         }.otherwise {
           state := sNextRenderTile   // already clean: skip flush
@@ -546,7 +549,9 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
           // Every triangle covering this tile has now been rasterized for
           // THIS pass's sample. Unless it was the last pass, fold the working
           // plane into the accumulator and go round again for the next one.
-          when(lastPass) {
+          // Per-sample attachments (ATTACH_MS): every pass flushes its own
+          // sample; there is nothing to accumulate.
+          when(lastPass || io.mmio.attachMs) {
             state := sWaitFlush
           }.otherwise {
             clearCounter := 0.U
@@ -591,7 +596,21 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
 
   private def handleWaitFlushSync(): Unit = {
     when(!io.flusher.busy) {
-      state := sNextRenderTile
+      if (cfg.msaaMultiPass) {
+        // Per-sample attachments: that was one pass's sample. Go round again
+        // for the next -- even for an empty tile, whose every sample region
+        // still needs its clear (or loaded) value.
+        when(io.mmio.attachMs && !lastPass) {
+          passCtr.foreach(pc => pc := pc + 1.U)
+          binTriIdx    := 0.U
+          clearCounter := 0.U
+          state        := sClearTile
+        }.otherwise {
+          state := sNextRenderTile
+        }
+      } else {
+        state := sNextRenderTile
+      }
     }
   }
 
