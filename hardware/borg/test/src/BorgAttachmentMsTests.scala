@@ -55,9 +55,37 @@ object BorgAttachmentMsTests extends TestSuite {
             "a resolved store has no room for the other samples")
   }
 
+  /** 4x MSAA coverage in a real render: the occlusion count of a triangle
+    * must equal the samples that Vulkan's standard 4x positions put inside
+    * it. Until the covDelta fix the per-triangle sample offsets reached the
+    * rasterizer with their upper half cut off on every FP32 build, so every
+    * sample took the pixel-centre answer: 40 instead of 32 for a 4x4 corner,
+    * 24 instead of 25 for a 3.3x3.7 one. */
+  def coverage(borg: BorgTestWrapper, name: String): Unit = {
+    val rig = new AttachmentRig(borg)
+    import rig._
+    val offsets = Seq((-0.125, -0.375), (0.375, -0.125), (-0.375, 0.125), (0.125, 0.375))
+    for (l <- Seq((4.0f, 4.0f), (3.3f, 3.7f))) {
+      legs = l
+      val expected = (for (y <- 0 until 4; x <- 0 until 4; (ox, oy) <- offsets
+                           if (x + 0.5 + ox) / l._1 + (y + 0.5 + oy) / l._2 <= 1.0) yield 1).sum
+      val got = render((1.0f, 0.0f), load = 0, DEPTH_ALWAYS, 0, bindStencil = false)
+      println(s"  [$name] corner ${l._1} x ${l._2}: $got samples covered (expect $expected)")
+      utest.assert(got == expected)
+    }
+  }
+
   val tests = Tests {
     utest.test("per_sample_attachments_round_trip_with_resident_samples") {
       simulate(new BorgTestWrapper(suiteCfg)) { borg => roundTrip(borg, "resident") }
+    }
+    utest.test("msaa_coverage_is_per_sample_with_resident_samples") {
+      simulate(new BorgTestWrapper(suiteCfg)) { borg => coverage(borg, "resident") }
+    }
+    utest.test("msaa_coverage_is_per_sample_with_multipass_msaa") {
+      simulate(new BorgTestWrapper(suiteCfg.copy(tileColorBits = 8, msaaMultiPass = true))) { borg =>
+        coverage(borg, "multi-pass")
+      }
     }
     utest.test("per_sample_attachments_round_trip_with_multipass_msaa") {
       simulate(new BorgTestWrapper(suiteCfg.copy(tileColorBits = 8, msaaMultiPass = true))) { borg =>
