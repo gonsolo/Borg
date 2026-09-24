@@ -11,20 +11,51 @@ import chisel3.util._
   * Directions are from the flusher's perspective (master).
   */
 /** Colour attachment formats the flusher can write (FLUSH_FORMAT.format).
-  * Encodings are the register's; 3 is reserved and behaves as RGB565. */
+  *
+  * The first three are fixed-function UNORM8: blended by BorgBlend and
+  * resolved by averaging. The RAW formats hold the fragment shader's r26
+  * word as bytes (byte 0 at the lowest address): any colour format the
+  * compiler packs into 1, 2 or 4 bytes. They are neither blended nor
+  * resolved in hardware -- the shader blends through TLD, and a 4x RAW
+  * attachment is stored per sample (ATTACH_MS). In the tile the word rides
+  * the UNORM8 channels unchanged: byte k is channel k (R, G, B, alpha). */
 object FlushFormat {
   val RGB565 = 0   // VK_FORMAT_R5G6B5_UNORM_PACK16: 2 bytes/pixel, 32 bytes/tile
   val RGBA8  = 1   // VK_FORMAT_R8G8B8A8_UNORM:      4 bytes/pixel, 64 bytes/tile
   val BGRA8  = 2   // VK_FORMAT_B8G8R8A8_UNORM:      4 bytes/pixel, 64 bytes/tile
+  val RAW32  = 3   // bytes 0-3:                     4 bytes/pixel, 64 bytes/tile
+  val RAW16  = 4   // bytes 0-1:                     2 bytes/pixel, 32 bytes/tile
+  val RAW8   = 5   // byte 0:                        1 byte/pixel,  16 bytes/tile
+  /** Two words, co-resident in the tile (word 1 in its extension plane):
+    * r26 then r27, 8 bytes/pixel, 128 bytes/tile. */
+  val RAW64  = 6
+  /** Four words, 16 bytes/pixel, rendered in two passes (slices) of two
+    * words each: a 256-byte tile whose first 128 bytes hold bytes 0-7 of its
+    * 16 pixels and the next 128 bytes 8-15 (docs/B2_texture_unit.md). Each
+    * slice flushes and loads like RAW64. Vulkan requires no blending of a
+    * 128-bit format, which is what allows the split. */
+  val RAW128 = 7
+  val Bits   = 3
   /** 4 bytes per pixel: the tile is twice as large in memory. */
-  def isWide(f: UInt): Bool = f === RGBA8.U || f === BGRA8.U
+  def isWide(f: UInt): Bool = f === RGBA8.U || f === BGRA8.U || f === RAW32.U
+  /** 1 byte per pixel: the tile is half as large. */
+  def isByte(f: UInt): Bool = f === RAW8.U
+  def is128(f: UInt): Bool = f === RAW128.U
+  /** Two words resident in the tile: RAW64, or one slice of RAW128. */
+  def is64(f: UInt): Bool = f === RAW64.U || f === RAW128.U
+  def isRaw(f: UInt): Bool = f >= RAW32.U
+  /** A tile offset in 32-byte (2 bytes/pixel) units, scaled to the format. */
+  def scaleTile(f: UInt, offset32: UInt): UInt =
+    Mux(is128(f), offset32 << 3, Mux(is64(f), offset32 << 2,
+      Mux(isWide(f), offset32 << 1, Mux(isByte(f), offset32 >> 1, offset32))))
 }
 
 class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
                         val hasDepthFlush: Boolean = false,
                         val hasAlpha: Boolean = false,
                         val hasStencil: Boolean = false,
-                        val zBits: Int = 16) extends Bundle {
+                        val zBits: Int = 16,
+                        val hasExt: Boolean = false) extends Bundle {
   // Trigger interface
   val start     = Input(Bool())    // one-cycle pulse to begin flush
   val busy      = Output(Bool())   // high while flushing
@@ -45,11 +76,13 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
   val tileBase  = Input(UInt(GpuMemIO.AddrBits.W))
 
   // Colour attachment format, see [[FlushFormat]]. Sampled at the start pulse.
-  val format    = Input(UInt(2.W))
+  val format    = Input(UInt(FlushFormat.Bits.W))
   // Destination alpha per sample, valid alongside `read.data` (the tile
   // buffer's alpha plane shares its read index and latency). Absent when the
   // build has no alpha plane, in which case the 32-bit formats write opaque.
   val alpha     = if (hasAlpha) Some(Input(Vec(samples, UInt(8.W)))) else None
+  // The tile's extension word (RAW64's word 1), same timing as `read.data`.
+  val ext       = if (hasExt) Some(Input(Vec(samples, UInt(32.W)))) else None
 
   // Stencil attachment write-out (S8_UINT, 16 bytes per tile), after the
   // depth burst. Without it the stencil plane never left the chip, so no
@@ -183,8 +216,9 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
                       val hasDepthFlush: Boolean = false,
                       val hasAlpha: Boolean = false,
                       val hasStencil: Boolean = false,
-                      val zBits: Int = 16) extends Module {
-  val io = IO(new BorgTileFlusherIO(dataBits, samples, hasDepthFlush, hasAlpha, hasStencil, zBits))
+                      val zBits: Int = 16,
+                      val hasExt: Boolean = false) extends Module {
+  val io = IO(new BorgTileFlusherIO(dataBits, samples, hasDepthFlush, hasAlpha, hasStencil, zBits, hasExt))
 
   val sIdle :: sFill :: sBurst :: sBurstZ :: sBurstS :: sNextSample :: Nil = Enum(6)
   val state = RegInit(sIdle)
@@ -206,15 +240,21 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   // 16 stencil bytes, staged in the same fill pass (only with hasStencil).
   val sVec           = if (hasStencil) Some(Reg(Vec(16, UInt(8.W)))) else None
   val stencilBaseReg = if (hasStencil) Some(RegInit(0.U(GpuMemIO.AddrBits.W))) else None
-  val formatReg = RegInit(FlushFormat.RGB565.U(2.W))
+  val formatReg = RegInit(FlushFormat.RGB565.U(FlushFormat.Bits.W))
   // Per-sample store: the sample being flushed and whether more follow.
   val msReg      = RegInit(false.B)
   val sampleSel  = RegInit(0.U(math.max(1, log2Up(samples)).W))
   val lastSample = RegInit(true.B)
   val sampleIdx: UInt = if (samples > 1) sampleSel(log2Up(samples) - 1, 0) else 0.U
   val wide      = FlushFormat.isWide(formatReg)
-  // Wide formats only: which 8-pixel half of the tile is being staged/burst.
-  val half      = RegInit(false.B)
+  val byteFmt   = FlushFormat.isByte(formatReg)
+  val fmt64     = FlushFormat.is64(formatReg)
+  /** Bytes of one colour tile (one sample's, per-sample). */
+  val tileBytes = Mux(FlushFormat.is128(formatReg), 256.U, Mux(fmt64, 128.U, Mux(wide, 64.U, Mux(byteFmt, 16.U, 32.U))))
+  // Which 32-byte part of the colour tile is being staged/burst: the two
+  // 8-pixel halves of a 4-byte format, the four 4-pixel quarters of RAW64.
+  val part      = RegInit(0.U(2.W))
+  val lastPart  = Mux(fmt64, part === 3.U, !wide || part === 1.U)
   val issueIdx = RegInit(0.U(5.W))  // next entry to issue a read for (0..16)
   val capIdx   = RegInit(0.U(5.W))  // next entry to capture into rgbVec (0..16)
   val burstIdx = RegInit(0.U(5.W))  // entry currently being streamed (0..15)
@@ -265,13 +305,26 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     * 32-bit formats occupy two consecutive halfword slots, little-endian, so
     * the byte order in memory is Vulkan's: R8G8B8A8 is R,G,B,A from byte 0,
     * B8G8R8A8 is B,G,R,A. Only the low 3 bits of `idx` pick the slot pair,
-    * because a wide tile is staged 8 pixels at a time. */
-  def stagePixel(idx: UInt, r8: UInt, g8: UInt, b8: UInt, a8: UInt): Unit = {
-    when(wide) {
+    * because a wide tile is staged 8 pixels at a time. RAW32 is RGBA8's byte
+    * order; RAW16 keeps bytes 0-1, one pixel per halfword; RAW8 byte 0, two
+    * pixels per halfword (the whole tile is one 8-beat burst). */
+  def stagePixel(idx: UInt, r8: UInt, g8: UInt, b8: UInt, a8: UInt, ext: UInt): Unit = {
+    when(fmt64) {
+      val slot = Cat(idx(1, 0), 0.U(2.W))
+      rgbVec(slot)       := Cat(g8, r8)            // word 0, bytes 1:0
+      rgbVec(slot | 1.U) := Cat(a8, b8)            // word 0, bytes 3:2
+      rgbVec(slot | 2.U) := ext(15, 0)             // word 1
+      rgbVec(slot | 3.U) := ext(31, 16)
+    }.elsewhen(wide) {
       val bgra = formatReg === FlushFormat.BGRA8.U
       val slot = Cat(idx(2, 0), 0.U(1.W))
       rgbVec(slot)        := Cat(g8, Mux(bgra, b8, r8))   // bytes 1:0
       rgbVec(slot | 1.U)  := Cat(a8, Mux(bgra, r8, b8))   // bytes 3:2
+    }.elsewhen(formatReg === FlushFormat.RAW16.U) {
+      rgbVec(idx) := Cat(g8, r8)
+    }.elsewhen(byteFmt) {
+      val h = idx(3, 1)
+      rgbVec(h) := Mux(idx(0), Cat(r8, rgbVec(h)(7, 0)), Cat(rgbVec(h)(15, 8), r8))
     }.otherwise {
       rgbVec(idx) := Cat(r8(7, 3), g8(7, 2), b8(7, 3))
     }
@@ -305,7 +358,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     when(v3) {
       val e = io.read.data(0)
       stagePixel(capIdx(3, 0), fp16ToUnorm(e.r, 8), fp16ToUnorm(e.g, 8),
-                 fp16ToUnorm(e.b, 8), alphaOf(0))
+                 fp16ToUnorm(e.b, 8), alphaOf(0), io.ext.map(_(0)).getOrElse(0.U))
       // Depth rides the same capture: io.read.data(0) is already valid here
       // for the colour conversion, and .z is simply another field of it, so
       // this adds a quantizer and a register write -- no extra read, no
@@ -347,6 +400,9 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     val resolveSample  = RegInit(0.U(sampleBits.W))
     val pendingSamples = Reg(Vec(samples, new ColorZ(dataBits, zBits)))
     val pendingAlpha   = io.alpha.map(_ => Reg(Vec(samples, UInt(8.W))))
+    // RAW64's word 1: raw formats are stored per sample, never averaged, so
+    // only the sample being stored is kept.
+    val pendingExt     = io.ext.map(_ => Reg(UInt(32.W)))
     val accR = RegInit(0.U(accBits.W))
     val accG = RegInit(0.U(accBits.W))
     val accB = RegInit(0.U(accBits.W))
@@ -362,6 +418,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     when(v3) {
       pendingSamples := io.read.data
       pendingAlpha.foreach(_ := io.alpha.get)
+      pendingExt.foreach(_ := io.ext.get(Mux(msReg, sampleIdx, 0.U)))
       resolveBusy    := true.B
       resolveSample  := 0.U
       accR := 0.U
@@ -387,7 +444,8 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
           pick(rSum, rTerm),
           pick(gSum, gTerm),
           pick(bSum, bTerm),
-          aSum.map(a => pick(a, aOne.get)).getOrElse(255.U(8.W)))
+          aSum.map(a => pick(a, aOne.get)).getOrElse(255.U(8.W)),
+          pendingExt.getOrElse(0.U(32.W)))
         // Depth resolves by taking SAMPLE ZERO, not this average: averaging
         // depth is meaningless across a triangle edge, and sample-zero is
         // the resolve mode Vulkan requires (VK_RESOLVE_MODE_SAMPLE_ZERO_BIT)
@@ -410,9 +468,9 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     }
   }
 
-  // Entries staged per burst: the whole tile for RGB565, half of it for the
-  // 32-bit formats (see the class doc).
-  val fillEnd = Mux(wide && !half, 8.U, 16.U)
+  // Entries staged per burst: the whole tile for the 1- and 2-byte formats,
+  // half of it for the 4-byte ones, a quarter for RAW64 (see the class doc).
+  val fillEnd = Mux(fmt64, Cat(part +& 1.U, 0.U(2.W)), Mux(wide && part === 0.U, 8.U, 16.U))
 
   switch(state) {
     is(sIdle) {
@@ -430,7 +488,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
           sampleSel  := Mux(ms && m.valid, m.bits, 0.U)
           lastSample := !ms || m.valid
         }
-        half      := false.B
+        part      := 0.U
         issueIdx  := 0.U
         capIdx    := 0.U
         burstIdx  := 0.U
@@ -452,10 +510,10 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     }
     is(sBurst) {
       io.gpuMem.wr    := true.B
-      // The second half of a wide tile follows the first 32 bytes.
-      io.gpuMem.addr  := baseReg + Mux(half, 32.U, 0.U) + sampleIdx * Mux(wide, 64.U, 32.U)
+      // Each part of a tile follows the previous 32 bytes.
+      io.gpuMem.addr  := baseReg + (part << 5) + sampleIdx * tileBytes
       io.gpuMem.wdata := rgbVec(burstIdx(3, 0))
-      io.gpuMem.wlen  := 16.U
+      io.gpuMem.wlen  := Mux(byteFmt, 8.U, 16.U)
       when(io.gpuMem.waccept) {
         if (BorgDebug.trace) printf("[FLUSH] beat=%d colour=0x%x\n",
           burstIdx, rgbVec(burstIdx(3, 0)))
@@ -463,9 +521,9 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
       }
       when(io.gpuMem.ready) {
         burstIdx := 0.U
-        when(wide && !half) {
-          // Back to sFill for pixels 8..15; issueIdx/capIdx carry on from 8.
-          half  := true.B
+        when(!lastPart) {
+          // Back to sFill for the next pixels; issueIdx/capIdx carry on.
+          part  := part + 1.U
           state := sFill
         }.otherwise {
           // With depth disabled (or not built at all) this is the historical
@@ -540,7 +598,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
       when(msReg && !lastSample) {
         sampleSel  := sampleSel + 1.U
         lastSample := (if (samples > 1) sampleSel === (samples - 2).U else true.B)
-        half      := false.B
+        part      := 0.U
         zHalf     := false.B
         issueIdx  := 0.U
         capIdx    := 0.U

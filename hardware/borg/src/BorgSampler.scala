@@ -207,6 +207,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val ttype   = td(2)(27, 26)
   private val stride  = td(3)
   private val fmt     = TexFormat.info(fmtCode)
+  private val split16 = layout =/= Linear.U && fmt.bytes === 16.U   // see sTapAddr
   private val magLin  = sd(0)(0); private val minLin = sd(0)(1); private val mipLin = sd(0)(2)
   private def addrMode(a: UInt) = MuxLookup(a, sd(0)(5, 3))(Seq(1.U -> sd(0)(8, 6), 2.U -> sd(0)(11, 9)))
   private val border  = sd(0)(14, 12)
@@ -575,14 +576,20 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       mulA := tz; mulB := sliceTexels
       val texel = ((rowTiles + (x >> 2)) << 4) + (y(1, 0) << 2) + x(1, 0) + product.asUInt(GpuMemIO.AddrBits - 1, 0)
       val tiled = base + levelOff + layerOffTap + (texel << shift)
+      // A 16-byte tiled texel is two 8-byte halves, 128 bytes apart in its
+      // 256-byte tile (bytes 0-7 of the tile's texels, then 8-15): what a
+      // RAW128 colour attachment renders in its two slices. Word k is then
+      // at +128*(k >> 1) + 4*(k & 1) from the first half.
+      val tiledSplit = base + levelOff + layerOffTap + ((texel >> 4) << 8) + (texel(3, 0) << 3)
       val lin   = base + rowTiles + (x << shift)
-      addr := Mux(layout === Linear.U, lin, tiled)(GpuMemIO.AddrBits - 1, 0)
+      addr := Mux(layout === Linear.U, lin, Mux(split16, tiledSplit, tiled))(GpuMemIO.AddrBits - 1, 0)
       k := 0.U
       state := Mux(tBorder, sDecode, sFetch)
     }
     is(sFetch) {
       val words = Mux(fmt.bytes >= 4.U, fmt.bytes >> 2, 1.U)
-      read(Cat(addr(GpuMemIO.AddrBits - 1, 2), 0.U(2.W)) + (k << 2)) { d =>
+      val wordOff = Mux(split16, Cat(k(1), 0.U(4.W), k(0), 0.U(2.W)), k << 2)   // 128*(k>>1) + 4*(k&1)
+      read(Cat(addr(GpuMemIO.AddrBits - 1, 2), 0.U(2.W)) + wordOff) { d =>
         raw(k(1, 0)) := d
         when(k === words - 1.U) { k := 0.U; state := sDecode }.otherwise { k := k + 1.U }
       }

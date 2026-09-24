@@ -108,7 +108,13 @@ object BorgSamplerTests extends TestSuite {
       // No infinities or NaNs: clear each small float's top exponent bit.
       if (t.fm.kind == TexFormat.UFLOAT) raw = raw & ~((BigInt(1) << 10) | (BigInt(1) << 21) | (BigInt(1) << 31))
       data((x, y, z, layer, l)) = raw
-      mem.putTexel(t.addr(x, y, z, layer, l), raw, t.fm.bytes)
+      if (t.layout == Tiled && t.fm.bytes == 16) {
+        // Split: bytes 0-7 at +8p of the 256-byte tile, 8-15 128 bytes on.
+        val a = t.addr(x, y, z, layer, l); val p = (a - t.addr(x & ~3, y & ~3, z, layer, l)) / 16
+        val half0 = a - 16 * p + 8 * p
+        mem.putTexel(half0, raw & ((BigInt(1) << 64) - 1), 8)
+        mem.putTexel(half0 + 128, raw >> 64, 8)
+      } else mem.putTexel(t.addr(x, y, z, layer, l), raw, t.fm.bytes)
     }
     (x, y, z, la, l) => data((x, y, z, la, l))
   }

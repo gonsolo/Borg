@@ -137,7 +137,7 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   val fbPitch         = Input(UInt(12.W))
   // Colour attachments: how many (1..4); the tile is rendered once per
   // attachment, see BorgTileSequencer.attPass.
-  val attCount        = Input(UInt(3.W))
+  val attCount        = Input(UInt(4.W))   // passes: up to 4 attachments, RAW128 ones twice
 }
 
 class SeqBinnerIO(cfg: BorgConfig) extends Bundle {
@@ -250,7 +250,7 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val record     = if (cfg.drawEnabled) Some(Output(new CoreRecordIO)) else None
   val topLeft    = if (cfg.drawEnabled) Some(Output(Vec(3, Bool()))) else None
   // The colour attachment the current tile pass renders (ATTIDX).
-  val attPass    = Output(UInt(2.W))
+  val attPass    = Output(UInt(3.W))
 }
 
 /** BorgSequencer — top-level supervisor over the GPU's two-pass

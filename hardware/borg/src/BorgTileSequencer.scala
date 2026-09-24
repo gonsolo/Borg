@@ -63,7 +63,7 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   val topLeft = if (cfg.drawEnabled) Some(Output(Vec(3, Bool()))) else None
   // Multiple colour attachments: the tile is rendered once per attachment,
   // each pass clearing or loading that attachment and flushing to it.
-  val attPass = Output(UInt(2.W))
+  val attPass = Output(UInt(3.W))
 
   val uniformWrite     = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
@@ -89,7 +89,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // Which colour attachment this pass of the tile renders. Depth, stencil
   // and the occlusion count are the same every pass; Borg.scala stores the
   // former only in the last pass and counts the latter only in the first.
-  val attPass = RegInit(0.U(2.W))
+  val attPass = RegInit(0.U(3.W))
   // Draw mode: which uniform page the fragment constant window goes to next.
   val constPage = RegInit(0.U(1.W))
 

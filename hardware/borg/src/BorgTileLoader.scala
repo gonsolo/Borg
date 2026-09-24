@@ -21,6 +21,7 @@ class TileLoadWrite(val zBits: Int = 16, val samples: Int = 1) extends Bundle {
   val data    = new ColorZ(16, zBits)
   val alpha   = UInt(8.W)
   val stencil = UInt(8.W)
+  val ext     = UInt(32.W)                // RAW64's word 1 (the tile's extension plane)
 }
 
 class BorgTileLoaderIO(val hasDepth: Boolean = true, val hasStencil: Boolean = true,
@@ -29,7 +30,7 @@ class BorgTileLoaderIO(val hasDepth: Boolean = true, val hasStencil: Boolean = t
   val busy  = Output(Bool())
 
   val aspects     = Input(new TileLoadAspects)
-  val format      = Input(UInt(2.W))        // FlushFormat of the colour attachment
+  val format      = Input(UInt(FlushFormat.Bits.W))   // FlushFormat of the colour attachment
   val colorBase   = Input(UInt(GpuMemIO.AddrBits.W))       // this tile's colour data, as the flusher wrote it
   // Present only in a build that can store the aspect (hasDepthFlush /
   // hasStencil): there is nothing to load back otherwise.
@@ -51,6 +52,7 @@ class BorgTileLoaderIO(val hasDepth: Boolean = true, val hasStencil: Boolean = t
   val clearColor   = Input(new ColorZ(16, zBits))
   val clearAlpha   = Input(UInt(8.W))
   val clearStencil = Input(UInt(8.W))
+  val clearExt     = Input(UInt(32.W))
 
   val gpuMem = new GpuMemIO                 // reads only
 
@@ -88,17 +90,19 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
                      val zBits: Int = 16, val samples: Int = 1) extends Module {
   val io = IO(new BorgTileLoaderIO(hasDepth, hasStencil, zBits, samples))
 
-  val sIdle :: sReadC0 :: sReadC1 :: sReadZ :: sReadZ1 :: sReadS :: sWrite0 :: sWrite1 :: Nil = Enum(8)
+  val sIdle :: sReadC0 :: sReadC1 :: sReadC2 :: sReadC3 :: sReadZ :: sReadZ1 :: sReadS :: sWrite0 :: sWrite1 :: Nil = Enum(10)
   val state = RegInit(sIdle)
 
   val aspects = Reg(new TileLoadAspects)
-  val format  = Reg(UInt(2.W))
+  val format  = Reg(UInt(FlushFormat.Bits.W))
   val cBase   = Reg(UInt(GpuMemIO.AddrBits.W))
   val zBase   = Reg(UInt(GpuMemIO.AddrBits.W))
   val sBase   = Reg(UInt(GpuMemIO.AddrBits.W))
   val entry   = RegInit(0.U(4.W))            // first entry of the current pair (even)
   val cWord0  = Reg(UInt(32.W))
   val cWord1  = Reg(UInt(32.W))
+  val cWord2  = Reg(UInt(32.W))            // RAW64: word 1 of entries e, e+1
+  val cWord3  = Reg(UInt(32.W))
   val zWord   = Reg(UInt(32.W))
   val zWord1  = Reg(UInt(32.W))            // D32: the pair's second entry
   val d32     = RegInit(false.B)
@@ -110,9 +114,13 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   val sWord   = Reg(UInt(32.W))
 
   val wide = FlushFormat.isWide(format)
-  // This sample's regions: one tile size apart (colour 32/64, depth 32/64,
-  // stencil 16 bytes), matching the flusher.
-  val cSample = cBase + sampleIdx * Mux(wide, 64.U, 32.U)
+  val byteFmt = FlushFormat.isByte(format)
+  val raw16 = format === FlushFormat.RAW16.U
+  val fmt64 = FlushFormat.is64(format)
+  // This sample's regions: one tile size apart (colour 16/32/64/128, depth
+  // 32/64, stencil 16 bytes), matching the flusher.
+  val cSample = cBase + sampleIdx * Mux(FlushFormat.is128(format), 256.U,
+                                    Mux(fmt64, 128.U, Mux(wide, 64.U, Mux(byteFmt, 16.U, 32.U))))
   val zSample = zBase + sampleIdx * Mux(d32, 64.U, 32.U)
   val sSample = sBase + (sampleIdx << 4)
 
@@ -166,14 +174,19 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
         state   := firstRead(0.U, a)
       }
     }
-    // Colour: RGB565 packs entries e, e+1 in one word at +2e; the 32-bit
-    // formats take one word per entry at +4e. (The flusher writes a wide
-    // tile as two 32-byte halves, which is the same contiguous layout.)
+    // Colour: the 2-byte formats pack entries e, e+1 in one word at +2e; the
+    // 32-bit formats take one word per entry at +4e (the flusher writes a
+    // wide tile as two 32-byte halves, which is the same contiguous
+    // layout); RAW8 holds entries e..e+3 in the word at +e, read aligned.
+    // RAW64 reads word 0 of e and e+1 like a 4-byte format, then their word
+    // 1s: entry e is at +8e.
     is(sReadC0) {
-      read(cSample + Mux(wide, entry << 2, entry << 1), cWord0,
-           Mux(wide, sReadC1, afterColor()))
+      read(cSample + Mux(fmt64, entry << 3, Mux(wide, entry << 2, Mux(byteFmt, Cat(entry(3, 2), 0.U(2.W)), entry << 1))), cWord0,
+           Mux(wide || fmt64, sReadC1, afterColor()))
     }
-    is(sReadC1) { read(cSample + ((entry + 1.U) << 2), cWord1, afterColor()) }
+    is(sReadC1) { read(cSample + Mux(fmt64, (entry + 1.U) << 3, (entry + 1.U) << 2), cWord1, Mux(fmt64, sReadC2, afterColor())) }
+    is(sReadC2) { read(cSample + (entry << 3) + 4.U, cWord2, sReadC3) }
+    is(sReadC3) { read(cSample + ((entry + 1.U) << 3) + 4.U, cWord3, afterColor()) }
     // D16: one word holds the pair. D32: one word per entry.
     is(sReadZ)  { read(zSample + Mux(d32, entry << 2, entry << 1), zWord, afterZ0()) }
     is(sReadZ1) { read(zSample + ((entry + 1.U) << 2), zWord1, afterDepth()) }
@@ -205,11 +218,16 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
 
   def expand5(v: UInt): UInt = Cat(v, v(4, 2))
   def expand6(v: UInt): UInt = Cat(v, v(5, 4))
-  val r8 = Mux(wide, Mux(bgra, word(23, 16), word(7, 0)),   expand5(half(15, 11)))
-  val g8 = Mux(wide, word(15, 8),                            expand6(half(10, 5)))
-  val b8 = Mux(wide, Mux(bgra, word(7, 0),   word(23, 16)), expand5(half(4, 0)))
-  // RGB565 has no alpha: a format without it reads as opaque.
-  val a8 = Mux(wide, word(31, 24), 255.U(8.W))
+  // RAW8: the entry's byte of the aligned word (entry mod 4).
+  val byte8 = VecInit((0 until 4).map(i => cWord0(8 * i + 7, 8 * i)))(Cat(entry(1), second))
+  val wide4 = wide || fmt64                                   // word 0 is RGBA8's bytes
+  val r8 = Mux(wide4, Mux(bgra, word(23, 16), word(7, 0)),
+           Mux(raw16, half(7, 0), Mux(byteFmt, byte8, expand5(half(15, 11)))))
+  val g8 = Mux(wide4, word(15, 8), Mux(raw16, half(15, 8), Mux(byteFmt, 0.U, expand6(half(10, 5)))))
+  val b8 = Mux(wide4, Mux(bgra, word(7, 0), word(23, 16)), Mux(raw16 || byteFmt, 0.U, expand5(half(4, 0))))
+  // RGB565 has no alpha: a format without it reads as opaque. The narrow
+  // RAW formats' missing bytes read as 0.
+  val a8 = Mux(wide4, word(31, 24), Mux(raw16 || byteFmt, 0.U, 255.U(8.W)))
 
   val z16 = Mux(second, zWord(31, 16), zWord(15, 0))
   val zLoaded: UInt =
@@ -231,6 +249,7 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   io.write.data.z := Mux(aspects.depth, zLoaded, io.clearColor.z)
   io.write.alpha   := Mux(aspects.color, a8, io.clearAlpha)
   io.write.stencil := Mux(aspects.stencil, s8, io.clearStencil)
+  io.write.ext     := Mux(aspects.color && fmt64, Mux(second, cWord3, cWord2), io.clearExt)
 
   if (BorgDebug.trace) {
     when(io.write.en) {
