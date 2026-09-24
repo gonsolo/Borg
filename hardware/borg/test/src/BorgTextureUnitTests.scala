@@ -391,11 +391,13 @@ object BorgTextureUnitTests extends TestSuite {
       * the value the address maps to. Returns the addresses touched, in order,
       * so a test can assert on the tap footprint itself. */
     def runFiltered(d: BorgTextureUnit, texel: Map[Int, (Int, Int, Int)],
-                    base: Int, alpha: Map[Int, Int] = Map.empty): Seq[Int] = {
+                    base: Int, alpha: Map[Int, Int] = Map.empty,
+                    afterStart: () => Unit = () => ()): Seq[Int] = {
       var addrs = Vector.empty[Int]
       d.io.start.poke(true.B)
       d.clock.step(1)
       d.io.start.poke(false.B)
+      afterStart()
       var guard = 0
       while (!d.io.done.peek().litToBoolean && guard < 200) {
         if (d.io.gpuMem.req.peek().litToBoolean) {
@@ -459,6 +461,33 @@ object BorgTextureUnitTests extends TestSuite {
         val touched = addrs.map(_ & ~4).distinct
         println(f"  reads=${addrs.length} (expect 8), texels=${touched.mkString(",")} expect ${expected.mkString(",")}")
         utest.assert(addrs.length == 8)
+        utest.assert(touched == expected)
+        println("  PASSED")
+      }
+    }
+
+    utest.test("filtered_taps_keep_the_binding_sampled_at_start") {
+      simulate(new BorgTextureUnit(BILIN)) { d =>
+        println("\n--- BorgTextureUnit: filtered taps keep their binding ---")
+        reset(d)
+        // The core drives FTEX's texture select only in the request cycle;
+        // after it, baseAddr is slot 0's. Every tap must still come from the
+        // binding the sample started with.
+        val base = 0x4000
+        d.io.texConfig.baseAddr.poke(base.U)
+        d.io.bilinear.get.enable.poke(true.B)
+        d.io.bilinear.get.u8.poke(1.U)
+        d.io.bilinear.get.v8.poke(1.U)
+        d.io.bilinear.get.log2Dim.poke(3.U)
+        d.io.bilinear.get.fracU.poke(0.U)
+        d.io.bilinear.get.fracV.poke(0.U)
+        val addrs = runFiltered(d, Map.empty, base,
+                                afterStart = () => d.io.texConfig.baseAddr.poke(0.U))
+        def morton(x: Int, y: Int): Int =
+          (0 until 8).map(i => ((x >> i) & 1) << (2 * i) | ((y >> i) & 1) << (2 * i + 1)).sum
+        val expected = Seq((1, 1), (2, 1), (1, 2), (2, 2)).map(p => base + (morton(p._1, p._2) << 3))
+        val touched = addrs.map(_ & ~4).distinct
+        println(f"  texels=${touched.map(a => f"0x$a%x").mkString(",")} expect ${expected.map(a => f"0x$a%x").mkString(",")}")
         utest.assert(touched == expected)
         println("  PASSED")
       }

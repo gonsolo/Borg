@@ -96,10 +96,15 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
   // wafer signoff (run holdscope) that was every setup violation, uniform read ->
   // frag_b/frag_g, 221 ns at max_ss_125C_3v00 of which 67 ns was wire repeaters.
   private val startNow = state === sIdle && io.start
-  private case class Bil(u8: UInt, v8: UInt, fracU: UInt, fracV: UInt, log2Dim: UInt,
+  // The binding's base address too: the core drives FTEX's texture select
+  // only while it requests the sample, so baseAddr falls back to slot 0's
+  // on the next cycle -- a filtered sample from slot 1-3 read its later
+  // taps from slot 0's texture.
+  private case class Bil(base: UInt, u8: UInt, v8: UInt, fracU: UInt, fracV: UInt, log2Dim: UInt,
                          addrModeU: UInt, addrModeV: UInt, border: UInt)
   private val bil = io.bilinear.map { b =>
-    Bil(RegEnable(b.u8, startNow), RegEnable(b.v8, startNow),
+    Bil(RegEnable(io.texConfig.baseAddr, startNow),
+        RegEnable(b.u8, startNow), RegEnable(b.v8, startNow),
         RegEnable(b.fracU, startNow), RegEnable(b.fracV, startNow),
         RegEnable(b.log2Dim, startNow),
         RegEnable(b.addrModeU, startNow), RegEnable(b.addrModeV, startNow),
@@ -124,7 +129,7 @@ class BorgTextureUnit(val hasBilinear: Boolean = false) extends Module {
     val (u, uBorder) = TexAddressMode(b.u8 +& dx, b.log2Dim, b.addrModeU)
     val (v, vBorder) = TexAddressMode(b.v8 +& dy, b.log2Dim, b.addrModeV)
     val morton = MortonEncode(u, v)
-    (Mux(filtering, io.texConfig.baseAddr +& (morton << 3), tex_base),
+    (Mux(filtering, b.base +& (morton << 3), tex_base),
      uBorder || vBorder)
   } else (tex_base, false.B)
 
