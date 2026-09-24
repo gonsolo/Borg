@@ -49,6 +49,7 @@ Control word:
 | 22:21 | LOD: 0 implicit (quad derivatives), 1 implicit + TEXA bias, 2 TEXA LOD |
 | 26:23 | texel offset u (signed, -8..7)                                      |
 | 30:27 | texel offset v                                                      |
+| 31, 20:18 | 3D images only: texel offset w (sign in 31), in the gather and compare bits a 3D image cannot use |
 
 ## Descriptors
 
@@ -61,8 +62,8 @@ Texture descriptor, 16 words at `TEX_DESC_BASE + 64*index`:
 | Word | Contents                                                             |
 |------|----------------------------------------------------------------------|
 | 0    | base byte address                                                    |
-| 1    | width-1 [15:0], height-1 [31:16]                                     |
-| 2    | depth or layers-1 [11:0], levels-1 [15:12], format [21:16] (`TexFormat` code), layout [25:24] (0 tiled 4x4, 1 linear), type [27:26] (0 1D, 1 2D, 2 3D, 3 cube) |
+| 1    | width-1 [15:0] (to 65536: texel buffers), height-1 [27:16], type [29:28] (0 1D, 1 2D, 2 3D, 3 cube), layout [30] (0 tiled 4x4, 1 linear) |
+| 2    | depth or layers-1 [9:0], levels-1 [13:10], format [19:14] (`TexFormat` code), component swizzle R [22:20], G [25:23], B [28:26], A [31:29] (`VkComponentSwizzle`: 0 identity, 1 zero, 2 one, 3-6 R-A) |
 | 3    | tiled: bytes per array layer (all its levels); linear: bytes per row |
 | 4-15 | byte offset of level 1 .. 12 from the base                          |
 
@@ -72,6 +73,10 @@ Sampler descriptor, 4 words at `SAMPLER_DESC_BASE + 16*index`:
 |------|----------|
 | 0    | [0] mag linear, [1] min linear, [2] mip linear, [5:3] [8:6] [11:9] address mode U V W (`VkSamplerAddressMode` 0-4), [14:12] border colour (`VkBorderColor` 0-5), [15] compare, [18:16] compare op (`VkCompareOp`), [19] unnormalized coordinates |
 | 1-3  | mip LOD bias, min LOD, max LOD (FP32) |
+
+The image view's **component swizzle** applies to the result (and, for
+gather, to the component gathered). A **depth compare** against a UNORM
+format clamps the reference to [0, 1] first.
 
 ## Layouts
 
@@ -95,8 +100,11 @@ layer, which is all Vulkan requires of linear images.
 1. **LOD.** Implicit: `rho = max(|du/dx|*W + |dv/dx|*H + |dw/dx|*D, the
    same in y)` from lanes 1-0 and 2-0 (the approximation Vulkan allows; the
    w term only for 3D), `lod =
-   log2(rho)` (a 64-entry table, 8 fraction bits). Plus the sampler's and
-   TEXA's bias, clamped to [min, max]. `lod <= 0` magnifies (level 0, mag
+   log2(rho)` (a 65-entry table interpolated on 8 more mantissa bits,
+   within 0.54/256 of the true log2; the bare table was 5.9/256 off). Plus
+   the sampler's and TEXA's bias, their sum clamped to +-15
+   (`maxSamplerLodBias`), then to [min, max]. 1D arrays leave the layer (in
+   v) out of rho. `lod <= 0` magnifies (level 0, mag
    filter); otherwise the nearest level is `ceil(lod + 0.5) - 1`, or two
    levels weighted by the fraction (mip linear).
 2. **Coordinates**, per axis and level. REPEAT and MIRRORED_REPEAT wrap the
@@ -104,7 +112,9 @@ layer, which is all Vulkan requires of linear images.
    their precision; clamping modes clamp to [-4, 4). Times the level's size,
    minus half a texel when filtering, in fixed point with 8 fraction bits;
    plus the offset. Each tap's texel index is then wrapped, mirrored,
-   clamped or marked as border.
+   clamped or marked as border. A border texel takes the border colour in
+   the channels its format has; the others read (0, 0, 0, 1) as any texel's
+   do.
 3. **Taps**: 1, or 2/4/8 (1D/2D/3D) per level when filtering. Each is
    fetched (1-4 words), decoded to FP32, compared if asked, and added to the
    result with its weight on one FP32 FMA. Single taps and integer formats
@@ -147,6 +157,7 @@ and checks that the second image equals the first pixel for pixel.
 | What                                                        | Test |
 |-------------------------------------------------------------|------|
 | All 51 formats; 20 address mode/filter/border combinations on 5x3; explicit and implicit LOD, bias, clamp, trilinear on a 16x8 chain; 3D, 1D/2D arrays, linear layout, float filtering; compare (PCF), gather, texelFetch, offsets -- against a reference of Vulkan's rules | `BorgSamplerTests` |
+| Component swizzles (sample, integer, gather), border colours on 1- and 2-channel and depth formats, Dref clamp for D16 (not D32), 3D w offset, bias clamp, 1D-array LOD | `BorgSamplerTests.swizzle_borders_dref_3d_offsets_bias_clamp_1d_lod` |
 | Seamless cube: every edge and corner of all six faces, filtered and gathered (UNORM and UINT), against a reference that folds taps over the edge in 3D | `BorgSamplerTests.seamless_cube_edges_and_corners` |
 | Render to texture and sample it, through the whole Borg     | `BorgDrawTests.render_to_texture_and_sample_it` |
 

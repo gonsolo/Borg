@@ -57,6 +57,7 @@
 #define BORG_INSTR_SMASK(rd, funct3) (0x8C000000U | ((funct3) << 12) | ((rd) << 7))
 #define BORG_INSTR_ATTIDX(rd, funct3) (0x90000000U | ((funct3) << 12) | ((rd) << 7))
 #define BORG_INSTR_TLD(rd, funct3) (0x9C000000U | ((funct3) << 12) | ((rd) << 7))
+#define BORG_INSTR_JMP(target) (0xA0000000U | ((((uint32_t)(target) >> 15) & 0x7U) << 12) | ((((uint32_t)(target) >> 10) & 0x1FU) << 20) | ((((uint32_t)(target) >> 5) & 0x1FU) << 15) | (((uint32_t)(target) & 0x1FU) << 7))
 #define BORG_INSTR_ISRL(rd, rs1, rs2, funct3) (0x94000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_ISLTU(rd, rs1, rs2, funct3) (0x98000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 

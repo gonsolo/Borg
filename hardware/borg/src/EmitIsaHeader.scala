@@ -62,6 +62,10 @@ object EmitIsaHeader extends App {
         s"#define BORG_INSTR_$name(rd, index) ($b | " +
           s"((((uint32_t)(index) >> 5) & 0x1FU) << ${BF_RS2.lo}) | " +
           s"(((uint32_t)(index) & 0x1FU) << ${BF_RS1.lo}) | ((rd) << ${BF_RD.lo}))"
+      case Jump =>
+        s"#define BORG_INSTR_$name(target) ($b | " +
+          s"((((uint32_t)(target) >> 15) & 0x7U) << ${BF_FUNCT3.lo}) | ((((uint32_t)(target) >> 10) & 0x1FU) << ${BF_RS2.lo}) | " +
+          s"((((uint32_t)(target) >> 5) & 0x1FU) << ${BF_RS1.lo}) | (((uint32_t)(target) & 0x1FU) << ${BF_RD.lo}))"
       case MaskDest =>
         s"#define BORG_INSTR_$name(rd, funct3) ($b | " +
           s"((funct3) << ${BF_FUNCT3.lo}) | ((rd) << ${BF_RD.lo}))"

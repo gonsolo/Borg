@@ -198,6 +198,17 @@ a lowering convention, each pinned by a hand-written ISA test in
   R5G6B5/RGBA8/BGRA8 UNORM) takes packed words in r26/r27, and the shader
   blends and masks against `TLD rd, k`; see
   [B3](B3_colour_formats.md) for the per-format packing.
+- **Derivatives:** `DDX`/`DDY` with rs2 = 0 are coarse (the quad's top
+  row / left column), with rs2 = 1 fine (each lane's own row / column):
+  SPIR-V's DPdx/DPdxCoarse and DPdxFine, DerivativeControl being core.
+- **Private memory:** spills and dynamically indexed locals go through
+  `STORE` with rd = 1, which helper invocations still perform (Vulkan
+  exempts Function/Private storage); a plain `STORE` from a helper, a
+  discarded or an early-test-failed lane does nothing.
+- **Program size:** up to 16K words (14-bit PC with the instruction
+  cache). `BRZ`/`BRNZ` reach their own 1024-word page; `JMP` (funct7
+  `0x50`, 18-bit absolute target) reaches anywhere, so a far conditional
+  branch is a branch over a `JMP`.
 - **EXANY** is available wherever the execution mask is (every build), not
   only with compute: a fragment shader's divergent loop needs it too. Wafer
   now has compute (`BorgConfig.Wafer` no longer turns it off).

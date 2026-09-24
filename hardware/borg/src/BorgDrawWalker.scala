@@ -153,10 +153,13 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val isList = d.topology === 0.U
   private val isFan  = d.topology === 2.U
   private val odd    = prim(0)
+  // Vulkan's orders, corner 0 being the provoking vertex (flat shading):
+  // list {3p, 3p+1, 3p+2}; strip {p, p+1, p+2}, odd p {p, p+2, p+1} (the
+  // winding flips back); fan {p+1, p+2, 0}.
   private val relPos = VecInit(
-    Mux(isList, prim * 3.U,       Mux(isFan, prim + 1.U, Mux(odd, prim + 1.U, prim))),
-    Mux(isList, prim * 3.U + 1.U, Mux(isFan, prim + 2.U, Mux(odd, prim, prim + 1.U))),
-    Mux(isList, prim * 3.U + 2.U, Mux(isFan, 0.U,        prim + 2.U)))
+    Mux(isList, prim * 3.U,       Mux(isFan, prim + 1.U, prim)),
+    Mux(isList, prim * 3.U + 1.U, Mux(isFan, prim + 2.U, Mux(odd, prim + 2.U, prim + 1.U))),
+    Mux(isList, prim * 3.U + 2.U, Mux(isFan, 0.U,        Mux(odd, prim + 1.U, prim + 2.U))))
   private val lastPos  = Mux(isList, prim * 3.U + 2.U, base + prim + 2.U)
   private val indexed  = d.indexType =/= 0.U
   private val idx16    = d.indexType === 1.U
@@ -260,7 +263,10 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
             20.U -> Mux(d.singleSample, 0.U, "hBEC00000".U),   // -0.375
             21.U -> Mux(d.singleSample, 0.U, "h3EC00000".U),   // +0.375
             22.U -> d.depthBiasSlope, 23.U -> d.depthBiasConst,
-            24.U -> Mux(d.depthD32, 0.U, "h37800000".U)))       // r of D16: 2^-16
+            // r of D16: 2^-15, the spec's largest (2 x 2^-n): 2^-16 is a
+            // hair under one D16 step (1/65535), so a bias of 1 could fail
+            // to reach a distinct stored value.
+            24.U -> Mux(d.depthD32, 0.U, "h38000000".U)))
         when(stageIdx === (BorgSetupRom.Uniforms - 1).U) { state := sRunSetup }
         stageIdx := stageIdx + 1.U
       }

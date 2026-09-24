@@ -187,6 +187,11 @@ object Instructions {
   // attachment is a raw format (FlushFormat.RAW*): the compiler blends,
   // masks and packs any format in the shader and writes the word to r26.
   val FUNCT7_TLD   = 0x4E
+  // JMP target: unconditional, absolute, 18 bits packed as
+  // funct3:rs2:rs1:rd. BRZ/BRNZ reach only their own 1024-word page (their
+  // 10 bits replace the PC's low bits), so a far conditional branch is a
+  // branch over a JMP -- RISC-V's JAL, MIPS's J. Programs run to 16K words.
+  val FUNCT7_JMP   = 0x50
   // @doc:end
 
   // R4-type sub-opcodes (opcode bit 2 set, discriminated by the 2-bit funct2
@@ -261,11 +266,17 @@ object Instructions {
   def F2I(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_F2I, 0, rs1, rd, funct3)
   def FRSQ(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FRSQ, 0, rs1, rd, funct3)
   def FSRGB(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FSRGB, 0, rs1, rd, funct3)
-  def DDX(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_DDX, 0, rs1, rd, funct3)
-  def DDY(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_DDY, 0, rs1, rd, funct3)
+  /** fine = true: DPdxFine/DPdyFine (each lane's own row/column); else coarse. */
+  def DDX(rs1: Int, rd: Int, funct3: Int = 0, fine: Boolean = false): BigInt =
+    encodeRType(FUNCT7_DDX, if (fine) 1 else 0, rs1, rd, funct3)
+  def DDY(rs1: Int, rd: Int, funct3: Int = 0, fine: Boolean = false): BigInt =
+    encodeRType(FUNCT7_DDY, if (fine) 1 else 0, rs1, rd, funct3)
   def LOAD(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_LOAD, 0, rs1, rd, funct3)
   /** STORE has no destination register; rd is encoded as 0. */
-  def STORE(rs1: Int, rs2: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_STORE, rs2, rs1, 0, funct3)
+  /** private = true (rd = 1): Function/Private memory, written by helper
+    * invocations too; a plain STORE (storage buffers, images) is not. */
+  def STORE(rs1: Int, rs2: Int, funct3: Int = 0, `private`: Boolean = false): BigInt =
+    encodeRType(FUNCT7_STORE, rs2, rs1, if (`private`) 1 else 0, funct3)
   def BRZ(rs1: Int, target: Int, funct3: Int = 0): BigInt = {
     val (hi, lo) = branchTargetFields(target)
     encodeRType(FUNCT7_BRZ, hi, rs1, lo, funct3)
@@ -291,6 +302,13 @@ object Instructions {
   def SMASK(rd: Int): BigInt = encodeRType(FUNCT7_SMASK, 0, 0, rd)
   def ATTIDX(rd: Int): BigInt = encodeRType(FUNCT7_ATTIDX, 0, 0, rd)
   def TLD(rd: Int, word: Int = 0): BigInt = encodeRType(FUNCT7_TLD, 0, 0, rd, word)
+  def JMP(target: Int): BigInt = {
+    require(target >= 0 && target < (1 << 18), s"JMP target out of range: $target")
+    encodeRType(FUNCT7_JMP, (target >> 10) & 0x1f, (target >> 5) & 0x1f, target & 0x1f, (target >> 15) & 7)
+  }
+  /** BRZ/BRNZ's 10-bit field for `target`, which must lie in the branch's
+    * own 1024-word page. */
+  def pageTarget(target: Int): Int = target & 0x3ff
   def ISRL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISRL, rs2, rs1, rd, funct3)
   def ISLTU(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISLTU, rs2, rs1, rd, funct3)
   /** SOUT: store rs2 as output component `index` (packed into rs1:rd). */
@@ -318,6 +336,7 @@ object Instructions {
   case object MaskDest extends Shape  // rd           (no source operand)
   case object StoreIdx extends Shape  // rs2, index   (index packed into rs1:rd)
   case object LoadIdx  extends Shape  // rd, index    (index packed into rs2:rs1)
+  case object Jump     extends Shape  // target       (18 bits packed into funct3:rs2:rs1:rd)
 
   /** THE instruction table. Everything downstream -- hardware decode, the C
     * header, any future Python emitter -- comes from here, so an opcode cannot
@@ -366,6 +385,7 @@ object Instructions {
     ("SMASK",  FUNCT7_SMASK,  MaskDest),
     ("ATTIDX", FUNCT7_ATTIDX, MaskDest),
     ("TLD",    FUNCT7_TLD,    MaskDest),
+    ("JMP",    FUNCT7_JMP,    Jump),
     ("ISRL",   FUNCT7_ISRL,   RType),
     ("ISLTU",  FUNCT7_ISLTU,  RType)
   )

@@ -28,7 +28,7 @@ package borg
   *   u19..u21 -0.125, -0.375, +0.375   (the standard 4x sample offsets;
   *            all 0 for a single-sample render)
   *   u22, u23 depth bias slope and constant factors (FP32)
-  *   u24      r's floor: 2^-16 for D16, 0 for D32_SFLOAT
+  *   u24      r's floor: 2^-15 for D16, 0 for D32_SFLOAT
   *
   * Outputs:
   *   r0..r5   screen x, y of corners 0..2 (the bounding box; meaningless
@@ -114,7 +114,7 @@ private[borg] object BorgSetupRom {
     // Depth bias, Vulkan's o = m * slope + r * constant, folded into the
     // triangle's depth offset so every sample of every pixel carries it.
     // m = max(|dz/dx|, |dz/dy|) of FragCoord.z (the approximation the spec
-    // allows); r = 2^-16 for D16, and for D32_SFLOAT 2^(e - 23), e the
+    // allows); r = 2^-15 for D16, and for D32_SFLOAT 2^(e - 23), e the
     // exponent of the triangle's largest |depth| -- exactly ulp(max z),
     // computed as asFloat(bits + 1) - z. The largest depth is the Zn plane at
     // the three corners, or the far plane 1.0 when a corner is behind the eye
@@ -244,6 +244,27 @@ private[borg] object BorgSetupRom {
       covDelta(k, ra, rb)
     }
     for (acc <- Seq(za, zb, zc)) p += MUL(rs1 = acc, rs2 = rAbsInv, rd = acc)
+    // A primitive IN the far plane (Z = W at every corner: a skybox) gets
+    // the exact plane Zn = 1. Rebuilt from rounded coefficients it came out
+    // 1 +- an ulp with tiny per-sample slopes, so samples failed Zf >= 0 --
+    // though Vulkan passes such a primitive unchanged -- and a D32 depth of
+    // 1 + ulp failed LEQUAL against a 1.0 clear. (Z = 0 is exact already.)
+    locally {
+      val (f, g, m) = (12, 13, 14)
+      p += ISEQ(rs1 = uZ(0), rs2 = rW(0), rd = f, funct3 = U1)
+      for (k <- 1 until 3) {
+        p += ISEQ(rs1 = uZ(k), rs2 = rW(k), rd = g, funct3 = U1)
+        p += IAND(rs1 = f, rs2 = g, rd = f)
+      }
+      p += ISUB(rs1 = zero, rs2 = f, rd = m)                        // all ones if so
+      for (acc <- Seq(za, zb)) {                                    // a, b = 0
+        p += IAND(rs1 = acc, rs2 = m, rd = g)
+        p += IXOR(rs1 = acc, rs2 = g, rd = acc)
+      }
+      p += IXOR(rs1 = zc, rs2 = uOne, rd = g, funct3 = U2)          // c = 1.0
+      p += IAND(rs1 = g, rs2 = m, rd = g)
+      p += IXOR(rs1 = zc, rs2 = g, rd = zc)
+    }
     p += SOUT(rs2 = za, index = Record.plane(3))
     p += SOUT(rs2 = zb, index = Record.plane(3) + 1)
     p += SOUT(rs2 = zc, index = Record.plane(3) + 2)

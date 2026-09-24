@@ -465,10 +465,14 @@ object BorgCoreTestsC extends TestSuite {
         val (_, allW)    = run(Instructions.STORE(rs1 = 0, rs2 = 1), Seq(false, false, false, false))
         val (_, helperW) = run(Instructions.STORE(rs1 = 0, rs2 = 1), Seq(false, true, false, true))
         val (helperR, _) = run(Instructions.LOAD(rs1 = 0, rd = 2), Seq(false, true, false, true))
-        println(s"  stores: $allW without helpers (expect 4), $helperW with lanes 1,3 helpers (expect 2); loads $helperR (expect 4)")
+        // Private memory (spills, local arrays) is written by helpers too.
+        val (_, privW)   = run(Instructions.STORE(rs1 = 0, rs2 = 1, `private` = true), Seq(false, true, false, true))
+        println(s"  stores: $allW without helpers (expect 4), $helperW with lanes 1,3 helpers (expect 2); " +
+                s"private stores $privW (expect 4); loads $helperR (expect 4)")
         utest.assert(allW == 4)
         utest.assert(helperW == 2)
         utest.assert(helperR == 4)
+        utest.assert(privW == 4)
         core.io.laneHelper.get.foreach(_.poke(false.B))
       }
     }
@@ -545,6 +549,33 @@ object BorgCoreTestsC extends TestSuite {
           core.io.gpuMem.get.ready.poke(false.B)
           println(s"  run 2: r1=${readReg(core, 1)} (expect ${countingSum(150)}), $f2 fetches")
           utest.assert(readReg(core, 1) == countingSum(150))
+        }
+      }
+    }
+
+    utest.test("programs_past_1024_words_jmp_and_page_branches") {
+      // JMP reaches anywhere (18 bits); BRZ/BRNZ their own 1024-word page.
+      // 0: JMP 2100. 2100: ten r1 += 10, BRNZ r2 to 2200 (page 2), skipping
+      // r1 += 100 poison. 2200: five r1 += 1, JMP 1500. 1500: three
+      // r1 += 100, HALT. r1 = 405; any wrong target changes it.
+      import Instructions._
+      for (cfg <- Seq(config, BorgConfig.Wafer)) {
+        simulate(new BorgCore(cfg)) { core =>
+          println(s"\n--- BorgCore: a 2300-word program, pcBits ${cfg.pcBits} ---")
+          idleInputs(core)
+          val img = Array.fill[BigInt](2300)(BigInt(0))
+          img(0) = JMP(2100)
+          for (i <- 0 until 10) img(2100 + i) = IADD(rs1 = 1, rs2 = 3, rd = 1)
+          img(2110) = BRNZ(rs1 = 2, target = pageTarget(2200))
+          for (i <- 2111 until 2200) img(i) = IADD(rs1 = 1, rs2 = 4, rd = 1)
+          for (i <- 0 until 5) img(2200 + i) = IADD(rs1 = 1, rs2 = 2, rd = 1)
+          img(2205) = JMP(1500)
+          for (i <- 0 until 3) img(1500 + i) = IADD(rs1 = 1, rs2 = 4, rd = 1)
+          countingRegs(core)
+          val fetches = runFromImage(core, img.toSeq, preload = 1)
+          val r1 = readReg(core, 1)
+          println(s"  r1 = $r1 (expect 405), $fetches fetches from memory")
+          utest.assert(r1 == 405)
         }
       }
     }

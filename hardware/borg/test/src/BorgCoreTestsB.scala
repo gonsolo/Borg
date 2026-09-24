@@ -337,5 +337,41 @@ object BorgCoreTestsB extends TestSuite {
       }
     }
 
+    utest.test("ddx_ddy_fine") {
+      // v = x*y is not linear across the quad: (20.25, 24.75, 24.75, 30.25).
+      // Coarse derivatives are the top row / left column everywhere; fine
+      // ones each lane's own row (x) or column (y) -- read back through a
+      // second, coarse derivative, which sees lanes 1 and 2 from lane 0.
+      simulate(new BorgCore(BorgConfig.Simt)) { core =>
+        println("\n--- BorgCore: ddx_ddy_fine (4-lane SIMT) ---")
+        idleInputs(core)
+        val qx = Seq(4, 5, 4, 5); val qy = Seq(4, 4, 5, 5)
+        for (i <- 0 until 4) { core.io.iter(i).x.poke(qx(i).U); core.io.iter(i).y.poke(qy(i).U) }
+        core.io.seqBusy.poke(false.B)
+        resetCore(core)
+        import Instructions._
+        Seq(MUL(rs1 = 30, rs2 = 31, rd = 1),              // v = x*y
+            DDX(rs1 = 1, rd = 2, fine = true),            // (4.5, 4.5, 5.5, 5.5)
+            DDY(rs1 = 2, rd = 3),                         // lane2 - lane0 = 1
+            DDY(rs1 = 1, rd = 4, fine = true),            // (4.5, 5.5, 4.5, 5.5)
+            DDX(rs1 = 4, rd = 5),                         // lane1 - lane0 = 1
+            DDX(rs1 = 1, rd = 6),                         // coarse: 4.5 everywhere
+            DDY(rs1 = 6, rd = 7),                         // so 0
+            BigInt(0)).zipWithIndex.foreach { case (w, i) => writeImem(core, i, w) }
+        startAndWait(core)
+        def chk(reg: Int, exp: Float, label: String): Unit = {
+          val got = bitsToFloat(readReg(core, reg))
+          println(f"  $label = $got%.3f (expected $exp%.3f)")
+          utest.assert(got == exp)
+        }
+        chk(2, 4.5f, "ddxFine(x*y), lane 0")
+        chk(3, 1.0f, "ddy(ddxFine(x*y))")
+        chk(4, 4.5f, "ddyFine(x*y), lane 0")
+        chk(5, 1.0f, "ddx(ddyFine(x*y))")
+        chk(7, 0.0f, "ddy(ddx(x*y)) coarse")
+        println("  PASSED")
+      }
+    }
+
   }
 }

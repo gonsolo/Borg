@@ -198,7 +198,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // memory read. Latching the decision mid-execution breaks it -- by the
   // time the PC is redirected the branch has long since been decoded.
   val brTakenReg  = RegInit(false.B)
-  val brTargetReg = RegInit(0.U(10.W))
+  val brTargetReg = RegInit(0.U(cfg.pcBits.W))
   // Sticky: set by a non-uniform branch condition, cleared only by a core
   // reset. See wireBranch's doc for why this exists rather than a choice of
   // which lane to believe.
@@ -360,12 +360,17 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   {
     val recAvec = VecInit(lanes.map(_.io.recARaw))
     def pick(i: Int): UInt = if (i < cfg.fragLanes) recAvec(i) else recAvec(0)
-    val lane0      = pick(0)
-    val crossHi    = Mux(opFlags.ddy, pick(2), pick(1))
-    val crossLoNeg = Cat(~lane0(cfg.totalBits - 1), lane0(cfg.totalBits - 2, 0))
-    lanes.foreach { lane =>
-      lane.io.crossA := crossHi
-      lane.io.crossC := crossLoNeg
+    def neg(x: UInt): UInt = Cat(~x(cfg.totalBits - 1), x(cfg.totalBits - 2, 0))
+    // Coarse: the quad's top row / left column for every lane. Fine (rs2 = 1,
+    // SPIR-V DPdxFine/DPdyFine, core with DerivativeControl): each lane's own
+    // row for x (lanes 1-0 or 3-2) and own column for y (2-0 or 3-1).
+    lanes.zipWithIndex.foreach { case (lane, i) =>
+      val (xHi, xLo) = if ((i & 2) != 0) (3, 2) else (1, 0)
+      val (yHi, yLo) = if ((i & 1) != 0) (3, 1) else (2, 0)
+      val hi = Mux(opFlags.fine, Mux(opFlags.ddy, pick(yHi), pick(xHi)), Mux(opFlags.ddy, pick(2), pick(1)))
+      val lo = Mux(opFlags.fine, Mux(opFlags.ddy, pick(yLo), pick(xLo)), pick(0))
+      lane.io.crossA := hi
+      lane.io.crossC := neg(lo)
     }
   }
 
@@ -412,6 +417,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.fsrgb := !flags.fma && f7op === Instructions.FUNCT7_FSRGB.U
     flags.ddx   := !flags.fma && f7op === Instructions.FUNCT7_DDX.U
     flags.ddy   := !flags.fma && f7op === Instructions.FUNCT7_DDY.U
+    flags.fine  := Instructions.BF_RS2(instr) === 1.U     // DDX/DDY: fine (per row/column)
     // A gated-out opcode decodes as false everywhere rather than falling
     // through to some other op's flag: an absent instruction must be inert,
     // not accidentally an ADD.
@@ -420,7 +426,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val cf = cfg.hasControlFlow
     flags.brz    := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_BRZ.U else false.B)
     flags.brnz   := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_BRNZ.U else false.B)
-    flags.branch := flags.brz || flags.brnz
+    flags.jmp    := !flags.fma && f7op === Instructions.FUNCT7_JMP.U
+    flags.branch := flags.brz || flags.brnz || flags.jmp
     flags.expush := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_EXPUSH.U else false.B)
     flags.exelse := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_EXELSE.U else false.B)
     flags.expop  := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_EXPOP.U else false.B)
@@ -955,9 +962,15 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_store_reg = RegInit(false.B)
     val is_sout_reg  = RegInit(false.B)
     val is_fattr_reg = RegInit(false.B)
+    // STORE with rd = 1: private memory (Function/Private storage -- the
+    // compiler's spills and local arrays), which helper invocations must
+    // still write (shaders.adoc: their stores have no effect "except for the
+    // Function, Private and Output storage classes").
+    val is_private_reg = RegInit(false.B)
     when(running && !is_busy && fetchedInstruction =/= 0.U) {
       is_load_reg  := opFlags.load
       is_store_reg := opFlags.store || opFlags.sout
+      is_private_reg := opFlags.store && Instructions.BF_RD(fetchedInstruction) === 1.U
       is_sout_reg  := opFlags.sout
       is_fattr_reg := opFlags.fattr
     }
@@ -1056,7 +1069,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // applies to a sequencer-run program: a vertex shader's or the setup
     // ROM's SOUT must not inherit it.
     val laneActive = VecInit(execMask.asBools)(memLaneIdx) &&
-                     !(is_store_reg && !io.seqBusy && io.laneHelper.get(memLaneIdx))
+                     !(is_store_reg && !is_private_reg && !io.seqBusy && io.laneHelper.get(memLaneIdx))
 
     when(memState === sMemReq && !laneActive) {
       busy_counter := busy_counter
@@ -1151,12 +1164,17 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Raw-bits comparison: FP16 -0.0 is 0x8000 and therefore non-zero, the
     // same convention the discard register already uses.
     val isZero = condOperands.map(_ === 0.U)
-    val takeIt = (opFlags.brz && isZero.head) || (opFlags.brnz && !isZero.head)
+    val takeIt = (opFlags.brz && isZero.head) || (opFlags.brnz && !isZero.head) || opFlags.jmp
+    // BRZ/BRNZ: 10 bits within the current 1024-word page (every program up
+    // to 1024 words is page 0, so absolute as before); JMP: 18 absolute bits.
+    val page = if (cfg.pcBits > 10) Some(programCounter(cfg.pcBits - 1, 10)) else None
+    val brTarget = page.map(p => Cat(p, regs.rs2, regs.rd)).getOrElse(Cat(regs.rs2, regs.rd))
+    val jmpTarget = Cat(opFlags.funct3, regs.rs2, regs.rs1, regs.rd)
 
     when(is_busy && busy_counter === cfg.cOperands.U) {
       brTakenReg  := opFlags.branch && takeIt
-      brTargetReg := Cat(regs.rs2, regs.rd)
-      when(opFlags.branch && isZero.map(_ =/= isZero.head).foldLeft(false.B)(_ || _)) {
+      brTargetReg := Mux(opFlags.jmp, jmpTarget, brTarget)(cfg.pcBits - 1, 0)
+      when((opFlags.brz || opFlags.brnz) && isZero.map(_ =/= isZero.head).foldLeft(false.B)(_ || _)) {
         branchDivergent := true.B
         if (BorgDebug.trace) printf("[BR] DIVERGENT pc=%d\n", programCounter)
       }

@@ -266,7 +266,7 @@ object BorgDrawTests extends TestSuite {
     val a = for (y <- 0 until Size; x <- 0 until Size) yield rig.pixel(x, y)
     // The texture descriptor: fbA, 8x8, R8G8B8A8_UNORM, tiled, 2D; nearest sampler.
     val fm = TexFormat.byName("R8G8B8A8_UNORM")
-    val desc = Seq[BigInt](fbA, ((Size - 1) << 16) | (Size - 1), (BigInt(fm.code) << 16) | (1 << 26), 0) ++ Seq.fill(12)(BigInt(0))
+    val desc = SamplerCtl.descHeader(fbA, Size, Size, 1, 1, fm.code, SamplerCtl.Tiled, SamplerCtl.T2D, 0).map(BigInt(_)) ++ Seq.fill(12)(BigInt(0))
     for ((w, i) <- desc.zipWithIndex) rig.rom(rig.texDesc + 4 * i) = w
     for ((w, i) <- Seq[BigInt](2 << 3 | 2 << 6, 0, 0, 0).zipWithIndex) rig.rom(rig.sampDesc + 4 * i) = w
     // u = varying 0, v = varying 1, both screen / 8: texel centres at pixel centres.
@@ -510,7 +510,7 @@ object BorgDrawTests extends TestSuite {
 
   /** Depth bias, o = m * slope + r * constant added to the triangle's depth.
     * Constant: against a full-precision clear depth half an r below the
-    * triangle's 0.5, a bias of -1 passes LESS and -0.4 does not -- r = 2^-16
+    * triangle's 0.5, a bias of -1 passes LESS and -0.4 does not -- r = 2^-15
     * for D16, ulp(0.5) = 2^-24 for D32_SFLOAT. Slope: a ramp of 0.1 per
     * pixel over a flat 0.5 quad; slope factor -2.5 moves the crossing 2.5
     * pixels, sample for sample. */
@@ -523,7 +523,7 @@ object BorgDrawTests extends TestSuite {
       BorgGpuRegs.clear_depth_offset -> rig.f32(clear),
       BorgGpuRegs.depth_bias_const_offset -> rig.f32(const)))
     val full = Size * Size * 4
-    val results = for ((d32, r) <- Seq(false -> math.pow(2, -16), true -> math.pow(2, -24))) yield {
+    val results = for ((d32, r) <- Seq(false -> math.pow(2, -15), true -> math.pow(2, -24))) yield {
       val none = run(0.5, 0, d32); val below = run(0.5 - r / 2, -1, d32)
       val short = run(0.5 - r / 2, -0.4, d32); val up = run(0.5, 1, d32)
       println(f"  ${if (d32) "D32_SFLOAT" else "D16_UNORM "} (r = $r%.3g): no bias $none, -1 $below, -0.4 $short, +1 $up")
@@ -667,6 +667,60 @@ object BorgDrawTests extends TestSuite {
     println(s"  4x RAW64 per sample: $hits covered samples hold the word, the rest the clear value")
   }
 
+  /** D16 invariance at 4x: depth stored per sample, reloaded, and the same
+    * triangle drawn again with EQUAL passes at every covered sample -- the
+    * fragment depth is rounded to D16 before the test, as the stored one is. */
+  def depthInvariance(rig: DrawRig): Unit = {
+    val tri = Seq(at(0.3, 0.2, 1.0, z = 0.1), at(7.9, 0.45, 2.0, z = 0.8), at(0.35, 7.7, 1.5, z = 0.37))
+    val zb = BigInt(0x30000)
+    val store = Seq(BorgGpuRegs.flush_zb_base_offset -> zb, BorgGpuRegs.attach_ms_offset -> BigInt(1))
+    val first = rig.draw(tri, depthCfg = 1 | (1 << 3), extra = store)                  // LESS, write
+    val again = rig.draw(tri, depthCfg = 2, keep = true,                               // EQUAL, no write
+                         extra = store :+ (BorgGpuRegs.tile_load_offset -> BigInt(2)))  // load depth
+    val exp = samplesCovered(tri)
+    println(s"  4x D16: $first samples stored (expect $exp), $again pass EQUAL after the reload (expect $exp)")
+    utest.assert(first == exp && again == exp)
+  }
+
+  /** A primitive exactly on the far plane (z = w, the skybox) is inside the
+    * clip volume and loses no sample -- with w = 1 and with a different w
+    * at each corner, at 4x and at one sample. */
+  def farPlane(rig: DrawRig): Unit = {
+    for ((ws, name) <- Seq((Seq(1.0, 1.0, 1.0, 1.0), "w = 1"), (Seq(1.0, 2.5, 0.7, 1.9), "w varies"))) {
+      val q = Seq(at(8, 0, ws(0), z = 1.0), at(0, 0, ws(1), z = 1.0), at(8, 8, ws(2), z = 1.0), at(0, 8, ws(3), z = 1.0))
+      val tris = Seq(q(0), q(1), q(2), q(2), q(1), q(3))
+      val four = rig.draw(tris)
+      val one = rig.draw(tris, sampleMaskCfg = 0xF | 0x40)
+      val z0 = rig.draw(tris.map(v => v.copy(z = 0.0)))                        // and the near plane
+      println(s"  z = w, $name: $four of ${Size * Size * 4} samples at 4x, $one of ${Size * Size} pixels at 1x; z = 0: $z0")
+      utest.assert(four == Size * Size * 4 && one == Size * Size && z0 == Size * Size * 4)
+    }
+  }
+
+  /** Flat shading takes the provoking vertex, corner 0: v_p for strip
+    * primitive p, odd ones included (Vulkan's {v_p, v_p+2, v_p+1}). */
+  def flatStrip(rig: DrawRig): Unit = {
+    import Instructions._
+    val q = Seq(at(8, 0, 1, r = 0.2), at(0, 0, 1, r = 0.6), at(8, 8, 1, r = 0.4), at(0, 8, 1, r = 0.8))
+    val flat = Seq(FATTR(rd = 10, index = 0), IXOR(rs1 = 9, rs2 = 9, rd = 26), IOR(rs1 = 26, rs2 = 10, rd = 26),
+                   IXOR(rs1 = 9, rs2 = 9, rd = 27), IXOR(rs1 = 9, rs2 = 9, rd = 28), BigInt(0))
+    val tris = Seq(Seq(q(0), q(1), q(2)), Seq(q(1), q(3), q(2)))              // the strip's primitives
+    for (indexed <- Seq(false, true)) {
+      rig.draw(q, topology = 1, frag = flat, sampleMaskCfg = 0xF | 0x40, indices = if (indexed) Seq(0, 1, 2, 3) else Nil)
+      var checked = 0
+      for (y <- 0 until Size; x <- 0 until Size; (t, p) <- tris.zipWithIndex) {
+        val (e, _) = planes(t)
+        if (e.forall(eval(_, x + 0.5, y + 0.5) > 1e-9)) {                        // strictly inside
+          val want = math.round(q(p).r * 255).toInt
+          Predef.assert(math.abs(rig.pixel(x, y)._1 - want) <= 1, s"indexed $indexed pixel ($x,$y) of primitive $p: red ${rig.pixel(x, y)._1}, provoking $want")
+          checked += 1
+        }
+      }
+      println(s"  strip${if (indexed) ", indexed" else ""}: $checked pixels, each primitive flat in its provoking vertex's colour")
+      utest.assert(checked > 40)
+    }
+  }
+
   val tests = Tests {
     utest.test("several_colour_attachments") {
       run("colour attachments")(attachments)
@@ -702,6 +756,17 @@ object BorgDrawTests extends TestSuite {
     utest.test("raw_colour_formats_and_tld") {
       run("RAW colour formats", quadCfg)(rawFormats)
       run("RAW colour formats, Wafer sizing", waferCfg)(rawFormats)
+    }
+    utest.test("d16_depth_is_invariant_across_store_and_reload") {
+      run("D16 invariance", quadCfg)(depthInvariance)
+      run("D16 invariance, Wafer sizing", waferCfg)(depthInvariance)
+    }
+    utest.test("far_and_near_plane_primitives_are_inside") {
+      run("far plane")(farPlane)
+      run("far plane, Wafer sizing", waferCfg)(farPlane)
+    }
+    utest.test("flat_shading_uses_the_provoking_vertex") {
+      run("flat strip")(flatStrip)
     }
     utest.test("bin_overflow_renders_nothing_and_reports") {
       run("bin overflow")(binOverflow)

@@ -12,9 +12,10 @@ import chisel3._
   */
 class CoreTriggerIO extends Bundle {
   val valid  = Output(Bool())
-  // 10 bits: the full program-counter range (see BorgConfig.pcBits). Entry
-  // points are inside IMEM; a BARRIER resume point need not be.
-  val pc     = Output(UInt(10.W))
+  // Wide enough for any program counter (BorgConfig.pcBits <= 16); the core
+  // keeps its own width. Entry points are inside IMEM; a BARRIER resume
+  // point need not be.
+  val pc     = Output(UInt(CoreTriggerIO.PcBits.W))
   // True when this trigger should fetch from BorgRasterRom (the baked edge-test
   // shader) instead of the writable instructionMemory.  Only the dispatcher's
   // sRast trigger ever sets this; sequencer (vert/setup) and sFrag triggers
@@ -23,4 +24,9 @@ class CoreTriggerIO extends Bundle {
   // True when this trigger should fetch from BorgSetupRom (the draw front
   // end's triangle setup). Only the draw walker sets it.
   val isSetup = Output(Bool())
+}
+
+object CoreTriggerIO {
+  /** Width of a program counter crossing a module boundary. */
+  val PcBits = 16
 }

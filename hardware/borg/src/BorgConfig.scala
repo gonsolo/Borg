@@ -349,9 +349,11 @@ case class BorgConfig(
     * D32_SFLOAT exactly; FP16 cannot (see ColorZ). */
   def tileDepthBits: Int = if (fp.totalBits == 32) 32 else 16
   /** Program counter width. With the instruction cache a program may run past
-    * IMEM, up to the 10-bit absolute branch-target range (1024 words);
-    * without it the PC only ever indexes IMEM. */
-  def pcBits: Int = if (shaderICacheEnabled) 10 else chisel3.util.log2Ceil(maxInstructions)
+    * IMEM, up to 16K words: conditional branches reach their own 1024-word
+    * page, JMP anywhere (Instructions.FUNCT7_JMP). Vulkan sets no shader size
+    * limit, and a shader with software division, bounds checks and compares
+    * outgrew 1024 words. Without the cache the PC only ever indexes IMEM. */
+  def pcBits: Int = if (shaderICacheEnabled) 14 else chisel3.util.log2Ceil(maxInstructions)
   /** Direct-mapped cache lines: the largest power of two within IMEM. Lines
     * at and above it (IMEM 64..71 on a 72-word build) are never replaced. */
   def icacheLinesLog2: Int = chisel3.util.log2Floor(maxInstructions)
