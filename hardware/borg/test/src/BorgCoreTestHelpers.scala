@@ -137,6 +137,8 @@ object BorgCoreTestHelpers {
     }
     core.io.coreTrigger.valid.poke(false.B)
     core.io.coreTrigger.pc.poke(0.U)
+    core.io.coreTrigger.isRast.poke(false.B)
+    core.io.coreTrigger.isSetup.poke(false.B)
     core.io.uniformPage.poke(0.U)
     core.io.control.uniformWritePage.poke(0.U)
     core.io.control.start.poke(false.B)
@@ -156,7 +158,7 @@ object BorgCoreTestHelpers {
     // tests that never execute a memory instruction.
     core.io.gpuMem.get.data.poke(0.U)
     core.io.gpuMem.get.ready.poke(false.B)
-    core.io.compute.foreach { c =>
+    core.io.ids.foreach { c =>
       c.mode.poke(false.B)
       c.laneMask.poke(0.U)
       c.r30.foreach(_.poke(0.U))
@@ -164,6 +166,10 @@ object BorgCoreTestHelpers {
     }
     core.io.gpuMem.get.waccept.poke(false.B)
     core.io.lsBase.get.poke(0.U)
+    core.io.drawMode.foreach(_.poke(false.B))
+    core.io.record.foreach { r =>
+      r.outBase.poke(0.U); r.outInterleave.poke(false.B); r.outCorner.poke(0.U); r.attrBase.poke(0.U)
+    }
     core.clock.step(1)
   }
 

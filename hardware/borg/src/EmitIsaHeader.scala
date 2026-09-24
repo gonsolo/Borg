@@ -51,6 +51,17 @@ object EmitIsaHeader extends App {
           s"((funct3) << ${BF_FUNCT3.lo}) | ((rs1) << ${BF_RS1.lo}))"
       case Mask0 =>
         s"#define BORG_INSTR_$name(funct3) ($b | ((funct3) << ${BF_FUNCT3.lo}))"
+      case StoreIdx =>
+        // The component index is packed into rs1:rd, like an S-type store's
+        // split immediate.
+        s"#define BORG_INSTR_$name(rs2, index, funct3) ($b | " +
+          s"((funct3) << ${BF_FUNCT3.lo}) | ((rs2) << ${BF_RS2.lo}) | " +
+          s"((((uint32_t)(index) >> 5) & 0x1FU) << ${BF_RS1.lo}) | (((uint32_t)(index) & 0x1FU) << ${BF_RD.lo}))"
+      case LoadIdx =>
+        // The component index is packed into rs2:rs1, like a branch target.
+        s"#define BORG_INSTR_$name(rd, index) ($b | " +
+          s"((((uint32_t)(index) >> 5) & 0x1FU) << ${BF_RS2.lo}) | " +
+          s"(((uint32_t)(index) & 0x1FU) << ${BF_RS1.lo}) | ((rd) << ${BF_RD.lo}))"
       case MaskDest =>
         s"#define BORG_INSTR_$name(rd, funct3) ($b | " +
           s"((funct3) << ${BF_FUNCT3.lo}) | ((rd) << ${BF_RD.lo}))"

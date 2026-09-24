@@ -77,7 +77,9 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // MSAA coverage deltas from BorgSequencer (Step 50.2); see the matching
   // comment in BorgShaderDispatcherIO.  Absent at cfg.samples == 1.
   val covDelta = if (cfg.samples > 1)
-    Some(Input(Vec(3, Vec(2, UInt(cfg.totalBits.W))))) else None
+    Some(Input(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
+  // Draw front end: see BorgShaderDispatcherIO.drawMode.
+  val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None
 
   // Tile Buffer auto-write interface (Step 11.3)
   val tileWrite = new TileWriteIO(cfg.samples, cfg.tileDepthBits)
@@ -166,6 +168,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.texAddrModeV.foreach(_ := io.texAddrModeV.get)
   dispatcher.io.texBorder.foreach(_ := io.texBorder.get)
   dispatcher.io.covDelta.foreach(_ := io.covDelta.get)
+  dispatcher.io.drawMode.foreach(_ := io.drawMode.get)
 
   // --- Forward dispatcher outputs to rasterizer IO ---
   io.coreTrigger  <> dispatcher.io.coreTrigger

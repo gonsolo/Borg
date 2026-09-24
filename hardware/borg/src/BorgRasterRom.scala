@@ -59,4 +59,46 @@ private[borg] object BorgRasterRom {
     BigInt("10329104", 16),
     BigInt("00000000", 16) // HALT sentinel
   )
+
+  /** The draw front end's per-pixel program (docs/B1_geometry_front_end.md),
+    * used when DRAW_CFG selects it. Uniforms are the first words of the
+    * triangle's record, written by BorgSetupRom (see its Record layout):
+    * planes a*x + b*y + c for E0..E2 and Zn, then depth scale, depth offset
+    * and 1.0. r30/r31 are the pixel centre.
+    *
+    * Leaves, for the dispatcher's coverage snoop and then the fragment
+    * shader:
+    *   r0..r2  E0..E2, screen-linear (Ek*Wk is the noperspective barycentric)
+    *   r3, r4  Zn = z_ndc and Zf = 1 - Zn, the near and far half-spaces
+    *   r5..r7  perspective-correct barycentrics Ek / sum(E)
+    *   r8      FragCoord.w = sum(E) = 1/w
+    *   r29     FragCoord.z = Zn*scale + offset, also the fragment's depth
+    * and clobbers r9, r10. Nothing writes r0..r4 after its plane value: the
+    * dispatcher keeps the last value each register gets in this phase.
+    */
+  val drawInstructions: Seq[BigInt] = {
+    import Instructions._
+    val U2 = 2; val U3 = 3
+    val px = 30; val py = 31; val t = 9; val t2 = 10
+    val R = BorgSetupRom.Record
+    val p = Seq.newBuilder[BigInt]
+    for (k <- 0 until 4) {                       // E0, E1, E2, Zn -> r0..r3
+      p += MUL(rs1 = py, rs2 = R.plane(k) + 1, rd = t, funct3 = U2)
+      p += ADD(rs1 = t, rs2 = R.plane(k) + 2, rd = t, funct3 = U2)
+      p += FMA(rs1 = px, rs2 = R.plane(k), rs3 = t, rd = k, funct3 = U2)
+    }
+    p += FNEG(rs1 = 3, rd = t)                   // Zf = 1 - Zn
+    p += ADD(rs1 = t, rs2 = R.One, rd = 4, funct3 = U2)
+    p += ADD(rs1 = 0, rs2 = 1, rd = 8)           // 1/w = E0 + E1 + E2
+    p += ADD(rs1 = 8, rs2 = 2, rd = 8)
+    p += FRCP(rs1 = 8, rd = t)                   // w, plus one Newton step
+    p += FNEG(rs1 = 8, rd = t2)
+    p += FMA(rs1 = t2, rs2 = t, rs3 = R.One, rd = t2, funct3 = U3)
+    p += FMA(rs1 = t, rs2 = t2, rs3 = t, rd = t)
+    for (k <- 0 until 3) p += MUL(rs1 = k, rs2 = t, rd = 5 + k)
+    p += MUL(rs1 = 3, rs2 = R.DepthScale, rd = 29, funct3 = U2)
+    p += ADD(rs1 = 29, rs2 = R.DepthOffset, rd = 29, funct3 = U2)
+    p += BigInt(0)                               // HALT
+    p.result()
+  }
 }

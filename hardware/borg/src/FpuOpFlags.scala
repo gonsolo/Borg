@@ -54,5 +54,8 @@ class FpuOpFlags extends Bundle {
   val exany   = Bool()
   // Early per-fragment tests -- see Instructions.FUNCT7_ZTEST.
   val ztest   = Bool()
+  // Draw front end (BorgConfig.drawEnabled) -- see Instructions.FUNCT7_SOUT/FATTR.
+  val sout    = Bool()
+  val fattr   = Bool()
   val funct3 = UInt(3.W)
 }

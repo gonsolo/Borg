@@ -340,6 +340,16 @@ wherever it is used: narrow tile colour storage, blending, bilinear taps.
 Pixel-exact reference images from renders with those paths enabled may need
 regenerating.
 
+## The draw front end
+
+Everything a compiler and driver need for draws (`DRAW_CFG` mode 1) is on
+its own page, [Geometry Front End](B1_geometry_front_end.md): the vertex
+stage ABI (`VertexIndex`/`InstanceIndex` in r30/r31, position in r0-r3,
+varyings via `SOUT`), the fragment ABI (barycentrics in r5-r7, `FATTR`,
+FragCoord), the constant windows in the uniform bank, and the registers.
+Legacy mode is unchanged, so nothing on this page is affected until the
+compiler targets it.
+
 ## Where each contract is tested
 
 | Contract                         | Test                                                              |

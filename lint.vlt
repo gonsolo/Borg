@@ -24,6 +24,10 @@ lint_off -rule UNUSEDSIGNAL -file "*Fp16Special.sv"
 lint_off -rule UNUSEDSIGNAL -file "*BorgRasterizer*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*rgbzMem*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*BorgTileLoader.sv"
+// The draw walker's address and pixel-box arithmetic drops alignment and
+// truncated high bits by construction (index-buffer word alignment, record
+// addresses past the 25-bit space, float-to-pixel shifts).
+lint_off -rule UNUSEDSIGNAL -file "*BorgDrawWalker.sv"
 lint_off -rule UNUSEDSIGNAL -file "*ram_*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*tagMem*.sv"
 lint_off -rule UNUSEDSIGNAL -file "*dataMem*.sv"

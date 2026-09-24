@@ -22,7 +22,10 @@ class ComputeDispatchIO extends Bundle {
 }
 
 /** What the lanes see in compute mode. */
-class ComputeLaneIO(val cfg: BorgConfig) extends Bundle {
+/** Sequencer -> BorgCore: integer IDs for r30/r31 in place of the pixel
+  * centre, per lane, and the lanes a trigger starts with. Compute's invocation
+  * IDs, or a vertex shader's VertexIndex/InstanceIndex. */
+class InvocationIdsIO(val cfg: BorgConfig) extends Bundle {
   val mode     = Bool()
   val laneMask = UInt(cfg.fragLanes.W)
   val r30      = Vec(cfg.fragLanes, UInt(cfg.totalBits.W))  // LocalInvocationIndex
@@ -43,7 +46,7 @@ class BorgComputeSequencerIO(val cfg: BorgConfig) extends Bundle {
   val coreTrigger  = new CoreTriggerIO
   val coreStatus   = Flipped(new CoreStatusIO)
   val barrier      = Input(new ComputeBarrierIO)
-  val lanes        = Output(new ComputeLaneIO(cfg))
+  val lanes        = Output(new InvocationIdsIO(cfg))
   val uniformWrite = new MemWritePort(6, cfg.totalBits)
   // Sticky: set when quads of one workgroup disagreed about whether/where
   // they hit a BARRIER. Cleared by the next dispatch's start, same shape as
@@ -148,6 +151,7 @@ class BorgComputeSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.coreTrigger.valid  := state === sTrigger
   io.coreTrigger.pc     := segStartPC
   io.coreTrigger.isRast := false.B
+  io.coreTrigger.isSetup := false.B
 
   io.lanes.mode     := state =/= sIdle
   io.lanes.laneMask := laneOn.asUInt

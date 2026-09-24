@@ -181,6 +181,7 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
     io.coreTrigger.valid  := false.B
     io.coreTrigger.pc     := 0.U
     io.coreTrigger.isRast := false.B
+    io.coreTrigger.isSetup := false.B
 
     io.uniformWrite.en   := false.B
     io.uniformWrite.addr := 0.U
