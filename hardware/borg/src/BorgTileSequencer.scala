@@ -132,7 +132,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   val backFacingReg = RegInit(VecInit(Seq.fill(2)(false.B)))
   val cacheVictim = RegInit(0.U(1.W))
   val covDeltaCache = if (cfg.samples > 1)
-    Some(RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(6)(0.U(16.W))))))) else None
+    Some(RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(6)(0.U(cfg.totalBits.W))))))) else None
   // covDeltaCache(uniformPage) is only safe to read AT SELECTION TIME: the
   // triangle actually in flight through the downstream pixel pipeline
   // (BorgIterator/BorgShaderDispatcher) can still be draining pixels for
@@ -144,7 +144,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // DMA snoop) and held stable until the next selection -- same pattern as
   // triHasUvs, which is a real register instead of a live uvsReg(page) read.
   val covDeltaActive = if (cfg.samples > 1)
-    Some(RegInit(VecInit(Seq.fill(6)(0.U(16.W))))) else None
+    Some(RegInit(VecInit(Seq.fill(6)(0.U(cfg.totalBits.W))))) else None
 
   // Per-triangle has_uvs flag for the triangle currently selected by
   // handleLoadTriSetup -- restored from the cache on a hit, or reloaded from
@@ -680,7 +680,11 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     covDeltaCache.foreach { cache =>
       when(io.dma.snoop.valid && state === sWaitDMA && nextAfterDMA === sEnqueueTile &&
            setupLoadIdx < 6.U) {
-        val data = io.dma.snoop.bits(15, 0)
+        // The datapath's full width: covDelta is an FP32 value on an FP32
+        // build. The FP16-era (15, 0) slice kept only the low half, which
+        // made every sample threshold ~0 -- 4x MSAA rasterized with the
+        // pixel-centre test on every FP32 build, Wafer included.
+        val data = io.dma.snoop.bits(cfg.totalBits - 1, 0)
         val idx  = setupLoadIdx(2, 0)
         cache(uniformPage)(idx) := data  // persist for future hits
         covDeltaActive.get(idx) := data  // and use immediately for this triangle
