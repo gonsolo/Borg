@@ -64,10 +64,10 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
 class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgTileSequencerIO(cfg))
 
-  val nStates = 19
+  val nStates = 20
   val states = Enum(nStates)
   val (sIdle :: sWaitDMA :: sLoadRastShader :: sLoadFragShader :: sStartPass2 ::
-       sReadBinCount :: sClearTile ::
+       sReadBinCount :: sClearTile :: sLoadTile ::
        sReadBinEntry :: sWaitBinEntry :: sLoadTriSetup :: sLoadCovDelta ::
        sEnqueueTile :: sIteratePixels :: sWaitRast :: sWaitFlush :: sWaitFlushSync ::
        sNextBinTri :: sNextRenderTile :: sAccumWait :: Nil) = states
@@ -167,6 +167,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   //   advance -> tileComplete (comb) -> iteratePixels -> advance.
   // One cycle lag is harmless: the pipeline takes >>1 cycles per pixel.
   val clearTileComplete = RegInit(false.B)
+  // sLoadTile: the loader's start pulse has been issued for this tile.
+  val loadStarted = RegInit(false.B)
   val tileCompleteLatch = RegInit(false.B)
   when(clearTileComplete) {
     tileCompleteLatch := false.B
@@ -221,6 +223,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     io.iter.enqueue.bits.y := tileY
     io.iter.iterate       := false.B
     io.flusher.trigger    := false.B
+    io.flusher.loadStart  := false.B
     // tileOffset = ((tileY / 4) * tilesPerRow + (tileX / 4)) * 32
     // (16 pixels x 2 bytes: an RGB565 or D16 tile; Borg.scala adds the
     // attachment base and scales for 4-byte colour formats)
@@ -250,6 +253,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       is(sStartPass2)      { handleStartPass2() }
       is(sReadBinCount)    { handleReadBinCount() }
       is(sClearTile)       { handleClearTile() }
+      is(sLoadTile)        { handleLoadTile() }
       is(sReadBinEntry)    { handleReadBinEntry() }
       is(sWaitBinEntry)    { handleWaitBinEntry() }
       is(sLoadTriSetup)    { handleLoadTriSetup() }
@@ -339,6 +343,28 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     state         := sClearTile
   }
 
+  /** Load the tile's attachments (BorgTileLoader), then continue as a clear
+    * would -- except that an empty tile is always flushed. The dirty-tile
+    * skip below assumes DRAM already holds the clear colour, which is not
+    * what a render with a cleared (not loaded) aspect wants either; flushing
+    * a loaded tile writes back exactly what was loaded plus the clears. */
+  private def handleLoadTile(): Unit = {
+    clearTileComplete := true.B
+    when(!loadStarted) {
+      io.flusher.loadStart := true.B
+      loadStarted := true.B
+    }.elsewhen(!io.flusher.loadBusy && !io.flusher.loadStart) {
+      clearTileComplete := false.B
+      val tileLinear = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
+      when(binTriCount === 0.U) {
+        state := sWaitFlush
+      }.otherwise {
+        tileIsDirty(io.curBufIdx)(tileLinear(log2Ceil(cfg.maxBinTiles) - 1, 0)) := true.B
+        state := sReadBinEntry
+      }
+    }
+  }
+
   private def handleClearTile(): Unit = {
     // Pulse iter.clear for exactly one cycle (clearCounter=0), then wait for
     // BorgTileBuffer to finish its 16-cycle BRAM clear sequence.
@@ -351,6 +377,12 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       clearCounter  := clearCounter + 1.U
     }.elsewhen(clearCounter < 18.U) {
       clearCounter := clearCounter + 1.U
+    }.elsewhen(io.mmio.tileLoad) {
+      // loadOp = LOAD: the clear just gave every aspect its clear value;
+      // now bring back the aspects that load. See handleLoadTile.
+      clearTileComplete := true.B
+      loadStarted       := false.B
+      state             := sLoadTile
     }.otherwise {
       clearTileComplete := false.B
       // After clear: if this tile has triangles, start the inner bin loop.

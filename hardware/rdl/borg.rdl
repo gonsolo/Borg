@@ -506,6 +506,30 @@ reg occ_count_reg_t {
     field { sw = r; hw = w; desc = "Passing-sample count."; } count[32] = 0;
 };
 
+// --- Attachment load (loadOp = LOAD) and stencil store -----------------
+// A tile normally starts from a clear. With any TILE_LOAD bit set, the
+// autonomous render clears the tile as usual and then loads the selected
+// aspects back from their attachments, in exactly the layout the flusher
+// writes: colour from the framebuffer (FLUSH_FORMAT decides the format),
+// depth from FLUSH_ZB_BASE, stencil from FLUSH_SB_BASE. Aspects not loaded
+// keep their clear value, so per-attachment load ops map bit for bit.
+reg tile_load_reg_t {
+    name = "Tile Load";
+    desc = "nogen: decoded from the raw bus by Borg.scala.";
+    field { sw = rw; hw = r; desc = "Load colour (and alpha) from the colour attachment."; } color[1] = 0;
+    field { sw = rw; hw = r; desc = "Load depth (D16_UNORM) from FLUSH_ZB_BASE."; } depth[1] = 0;
+    field { sw = rw; hw = r; desc = "Load stencil (S8_UINT) from FLUSH_SB_BASE."; } stencil[1] = 0;
+    field { sw = rw; hw = na; } RSVD[29] = 0;
+};
+// Stencil attachment: 16 bytes (S8_UINT) per 4x4 tile, flushed after the
+// depth burst when nonzero -- the same enable convention as FLUSH_ZB_BASE.
+reg flush_sb_base_reg_t {
+    name = "Flush Stencil Base Address";
+    desc = "nogen. Byte address of the stencil attachment; 0 = none bound.";
+    field { sw = rw; hw = r; desc = "Bits 24:0: byte address."; } sb_base[25] = 0;
+    field { sw = rw; hw = na; } RSVD[7] = 0;
+};
+
 // --- Texture address (computed by hardware) ---
 // Read: Morton-encoded texel index from the most recent tex_uv write.
 reg tex_addr_reg_t {
@@ -1605,4 +1629,10 @@ addrmap borg_gpu {
     occ_tri_range->nogen = true;
     occ_count_reg_t occ_count;
     occ_count->nogen = true;
+
+    // ---- Attachment load / stencil store ----
+    tile_load_reg_t tile_load;
+    tile_load->nogen = true;
+    flush_sb_base_reg_t flush_sb_base;
+    flush_sb_base->nogen = true;
 };

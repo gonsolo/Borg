@@ -602,5 +602,68 @@ object BorgTileFlusherTests extends TestSuite {
     utest.test("msaa 4x rgba8 flush averages alpha across samples") {
       wideFlush(4, FlushFormat.RGBA8)
     }
+    utest.test("stencil flush follows depth as eight S8 halfword pairs") {
+      // A stencil attachment used to be impossible: the plane never left the
+      // chip. It now goes out after the depth burst, 16 bytes per tile, two
+      // entries per halfword beat (entry 2k in the low byte). MSAA stores
+      // sample 0 like depth; here samples differ so taking any other sample
+      // would show.
+      for (samples <- Seq(1, 4)) {
+        simulate(new BorgTileFlusher(16, samples, hasDepthFlush = true, hasStencil = true)) { dut =>
+          def sten(e: Int, smp: Int): Int = (e * 11 + 5 + smp * 64) & 0xFF
+          var cycle = 0
+          var pipe0: Option[Int] = None
+          var pipe1: Option[Int] = None
+          def step(n: Int = 1): Unit = for (_ <- 0 until n) {
+            pipe1.foreach { i =>
+              dut.io.read.data.foreach { s =>
+                s.r.poke(entR(i).U); s.g.poke(entG(i).U); s.b.poke(entB(i).U); s.z.poke(dz(i).U)
+              }
+              dut.io.stencil.get.zipWithIndex.foreach { case (st, smp) => st.poke(sten(i, smp).U) }
+            }
+            val en  = dut.io.read.en.peek().litToBoolean
+            val idx = dut.io.read.idx.peek().litValue.toInt
+            pipe1 = pipe0
+            pipe0 = if (en) Some(idx) else None
+            dut.clock.step()
+            cycle += 1
+            Predef.assert(cycle < 10000, "TIMEOUT")
+          }
+          dut.reset.poke(true.B); step(4)
+          dut.reset.poke(false.B)
+          dut.io.format.poke(FlushFormat.RGB565.U)
+          dut.io.start.poke(false.B)
+          dut.io.tileBase.poke(0x2000.U)
+          dut.io.depthBase.get.poke(0x9000.U); dut.io.depthEn.get.poke(true.B)
+          dut.io.stencilBase.get.poke(0xA000.U); dut.io.stencilEn.get.poke(true.B)
+          dut.io.gpuMem.ready.poke(false.B); dut.io.gpuMem.waccept.poke(false.B)
+          dut.io.gpuMem.data.poke(0.U)
+          step(2)
+          dut.io.start.poke(true.B); step(); dut.io.start.poke(false.B)
+
+          val bursts = ArrayBuffer[(Int, Seq[Int])]()
+          while (dut.io.busy.peek().litToBoolean) {
+            if (dut.io.gpuMem.wr.peek().litToBoolean) {
+              val base = dut.io.gpuMem.addr.peek().litValue.toInt
+              val wlen = dut.io.gpuMem.wlen.peek().litValue.toInt
+              val words = ArrayBuffer[Int]()
+              for (w <- 0 until wlen) {
+                words += (dut.io.gpuMem.wdata.peek().litValue.toInt & 0xFFFF)
+                if (w < wlen - 1) { dut.io.gpuMem.waccept.poke(true.B); step(); dut.io.gpuMem.waccept.poke(false.B) }
+              }
+              dut.io.gpuMem.ready.poke(true.B); step()
+              dut.io.gpuMem.ready.poke(false.B)
+              bursts += ((base, words.toSeq))
+            }
+            step()
+          }
+          println(f"[flusher] samples=$samples bursts: " + bursts.map(b => f"0x${b._1}%x/${b._2.length}").mkString(" "))
+          Predef.assert(bursts.map(b => (b._1, b._2.length)) == Seq((0x2000, 16), (0x9000, 16), (0xA000, 8)))
+          val bytes = bursts(2)._2.flatMap(h => Seq(h & 0xFF, h >> 8))
+          for (e <- 0 until 16)
+            Predef.assert(bytes(e) == sten(e, 0), s"stencil entry $e: ${bytes(e)} != ${sten(e, 0)}")
+        }
+      }
+    }
   }
 }

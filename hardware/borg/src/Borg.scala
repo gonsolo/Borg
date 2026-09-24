@@ -108,7 +108,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   val core      = withReset(resetCopy("core"))   { Module(new BorgCore(cfg)) }
   val rast      = withReset(resetCopy("rast"))   { Module(new BorgRasterizer(cfg)) }
-  val flusher   = withReset(resetCopy("flush"))  { Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush, cfg.hasBlend)) }   // before tile — see note above
+  val flusher   = withReset(resetCopy("flush"))  { Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush, cfg.hasBlend, cfg.hasStencil)) }   // before tile — see note above
+  // loadOp = LOAD: brings a tile's attachments back from DRAM (the flusher's
+  // reverse). Shares the flusher's reset copy: the two are one attachment path.
+  val loader    = withReset(resetCopy("flush"))  { Module(new BorgTileLoader(cfg.hasDepthFlush, cfg.hasStencil)) }
   val tile      = withReset(resetCopy("tile"))   { Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend, cfg.msaaMultiPass)) }
   val rdlRegs   = withReset(resetCopy("regs"))   { Module(new BorgGpuRegs()) } // Auto-generated RDL register block
   val dma       = withReset(resetCopy("dma"))    { Module(new BorgDMA(cfg)) }
@@ -129,6 +132,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // Convenience aliases
   private def d = dma
   private def f = flusher
+  private def ld = loader
   private def s = sequencer
   private def b = binner
 
@@ -353,13 +357,16 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
                        Mux(f.io.busy, f.io.gpuMem.req,
-                       Mux(geoBusy, geoReq, coreOrB(_.req, rast.io.gpuMem.req))))
+                       Mux(ld.io.busy, ld.io.gpuMem.req,
+                       Mux(geoBusy, geoReq, coreOrB(_.req, rast.io.gpuMem.req)))))
     io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
                        Mux(f.io.busy, f.io.gpuMem.addr,
-                       Mux(geoBusy, geoAddr, coreOr(_.addr, rast.io.gpuMem.addr))))
+                       Mux(ld.io.busy, ld.io.gpuMem.addr,
+                       Mux(geoBusy, geoAddr, coreOr(_.addr, rast.io.gpuMem.addr)))))
     io.gpuMem.wr    := Mux(d.io.busy, false.B,  // DMA only reads — never assert wr
                        Mux(f.io.busy, f.io.gpuMem.wr,
-                       Mux(geoBusy, geoWr, coreOrB(_.wr, rast.io.gpuMem.wr))))
+                       Mux(ld.io.busy, false.B,  // the loader only reads
+                       Mux(geoBusy, geoWr, coreOrB(_.wr, rast.io.gpuMem.wr)))))
     // Every memory behind this port stores one write word as ONE 16-bit
     // halfword (MemoryController writes GPU words as HuttSize.Half and streams
     // wdata(15, 0) per burst beat; BorgLinkSlave sends one 16-bit flit per
@@ -371,7 +378,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // 0x00000FDB (BorgGpuMemWordTests).
     val wordData = Mux(geoBusy, geoWdata, coreOr(_.wdata, rast.io.gpuMem.wdata))
     val wideWr   = if (cfg.totalBits > 16)
-      !d.io.busy && !f.io.busy &&
+      !d.io.busy && !f.io.busy && !ld.io.busy &&
         Mux(geoBusy, !b.io.busy, coreOrB(_.wr, false.B))
     else false.B
     // Registered, so no combinational path from waccept back into wdata.
@@ -383,7 +390,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                        Mux(wideWr, splitData, wordData))
     core.io.gpuMem.foreach { g =>
       g.data    := io.gpuMem.data
-      g.ready   := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy && coreMem
+      g.ready   := io.gpuMem.ready && !d.io.busy && !f.io.busy && !ld.io.busy && !geoBusy && coreMem
       g.waccept := false.B
     }
     core.io.lsBase.foreach(_ := rdlRegs.io.hw.ls_base_base_addr)
@@ -391,7 +398,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // halfwords (see wideWr above), everything else is 1 word.
     io.gpuMem.wlen  := Mux(f.io.busy, f.io.gpuMem.wlen, Mux(wideWr, 2.U, 1.U))
     rast.io.gpuMem.data  := io.gpuMem.data
-    rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !f.io.busy && !geoBusy && !coreMem
+    rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !f.io.busy && !ld.io.busy && !geoBusy && !coreMem
     rast.io.gpuMem.waccept := false.B
     f.io.gpuMem.data  := io.gpuMem.data
     f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
@@ -403,6 +410,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     d.io.gpuMem.data  := io.gpuMem.data
     d.io.gpuMem.ready := io.gpuMem.ready && d.io.busy
     d.io.gpuMem.waccept := false.B
+    ld.io.gpuMem.data  := io.gpuMem.data
+    ld.io.gpuMem.ready := io.gpuMem.ready && ld.io.busy && !d.io.busy && !f.io.busy
+    ld.io.gpuMem.waccept := false.B
 
     // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
     // Multi-texture binding: FTEX's rs3 (core.io.texSelect) picks which of
@@ -513,15 +523,20 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // exposed via rdlRegs.io.hw.tile_bz_b/.tile_bz_z — no duplicate shadow needed (Step 26.5).
 
     val mmioTileWriteEn = bus.is_writing && bus.address === BorgGpuRegs.tile_rg_offset
-    tile.io.write.en  := mmioTileWriteEn || rast.io.tileWrite.en
-    tile.io.write.idx := Mux(rast.io.tileWrite.en, rast.io.tileWrite.idx, tileReadIdx)
+    // The tile loader (loadOp = LOAD) writes only in sLoadTile, before any
+    // fragment of the tile runs, so it never contends with the dispatcher.
+    val ldWrite = ld.io.write.en
+    tile.io.write.en  := mmioTileWriteEn || rast.io.tileWrite.en || ldWrite
+    tile.io.write.idx := Mux(ldWrite, ld.io.write.idx,
+                         Mux(rast.io.tileWrite.en, rast.io.tileWrite.idx, tileReadIdx))
     
     val writeColor = Wire(new ColorZ(16))
     writeColor.r := bus.data_in(31, 16)
     writeColor.g := bus.data_in(15, 0)
     writeColor.b := rdlRegs.io.hw.tile_bz_b   // from RDL tile_bz_b_reg (Step 26.5)
     writeColor.z := rdlRegs.io.hw.tile_bz_z   // from RDL tile_bz_z_reg (Step 26.5)
-    tile.io.write.data := Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor)
+    tile.io.write.data := Mux(ldWrite, ld.io.write.data,
+                          Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor))
     // MSAA coverage deltas, computed once per triangle by the setup shader and
     // latched in BorgSequencer (Step 50.2b).  Before the first triangle's setup
     // completes these read as zero, which puts every sample's threshold at ±0 —
@@ -533,7 +548,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Coverage: the rasterizer supplies a per-sample mask from the depth test;
     // an MMIO poke has no coverage concept and writes every sample (same
     // all-samples semantics as a clear).
-    tile.io.write.coverage := Mux(rast.io.tileWrite.en,
+    tile.io.write.coverage := Mux(rast.io.tileWrite.en && !ldWrite,
                                   rast.io.tileWrite.coverage,
                                   Fill(cfg.samples, 1.U(1.W)))
 
@@ -552,15 +567,16 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // enable and clear sequence -- the mux above already selected them --
     // so only the data paths need wiring here.
     rast.io.stencilRead.foreach(_ := tile.io.stencilRead.get)
-    tile.io.stencilWrite.foreach(_ := rast.io.stencilWrite.get)
-    tile.io.stencilWriteMask.foreach(_ := rast.io.stencilWriteMask.get)
+    tile.io.stencilWrite.foreach(_ := Mux(ldWrite, ld.io.write.stencil, rast.io.stencilWrite.get))
+    tile.io.stencilWriteMask.foreach(_ := Mux(ldWrite, Fill(cfg.samples, 1.U(1.W)),
+                                              rast.io.stencilWriteMask.get))
     tile.io.stencilClear.foreach(_ := rdlRegs.io.hw.plane_clear_stencil)
 
     // Destination-alpha plane (Step 50 item 9). Same piggyback on the colour
     // plane's index/enable/clear as the stencil plane.
     rast.io.alphaRead.foreach(_ := tile.io.alphaRead.get)
-    tile.io.alphaWrite.foreach(_ := rast.io.alphaWrite.get)
-    tile.io.alphaWriteMask.foreach(_ := rast.io.alphaWriteMask.get)
+    tile.io.alphaWrite.foreach(_ := Mux(ldWrite, ld.io.write.alpha, rast.io.alphaWrite.get))
+    tile.io.alphaWriteMask.foreach(_ := ldWrite || rast.io.alphaWriteMask.get)
     tile.io.alphaClear.foreach(_ := rdlRegs.io.hw.plane_clear_alpha)
 
     // --- Multi-pass MSAA control (BorgConfig.msaaMultiPass) --------------
@@ -631,11 +647,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // bound. Firmware that never writes the register leaves it at its
     // reset value of 0 and gets the historical colour-only flush, so no
     // firmware change is needed to keep existing targets working.
+    // Also the tile loader's depth source, so it exists in every build.
+    val flushDepthBaseReg = RegInit(0.U(25.W))
+    when(bus.is_writing && bus.address === BorgGpuRegs.flush_zb_base_offset) {
+      flushDepthBaseReg := bus.data_in(24, 0)
+    }
     f.io.depthBase.foreach { p =>
-      val flushDepthBaseReg = RegInit(0.U(25.W))
-      when(bus.is_writing && bus.address === BorgGpuRegs.flush_zb_base_offset) {
-        flushDepthBaseReg := bus.data_in(24, 0)
-      }
       // Autonomous flushes offset it per tile exactly like the colour base.
       // It used to be passed through unchanged, so every tile of a
       // sequencer-driven render wrote its Z to the same 32 bytes and only
@@ -643,6 +660,41 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       p := Mux(seqFlushActive, flushDepthBaseReg + seqTileOffset, flushDepthBaseReg)
       f.io.depthEn.get := flushDepthBaseReg =/= 0.U
     }
+
+    // Stencil attachment (S8_UINT, 16 bytes per tile: half a depth tile's
+    // offset). Same enable convention as depth: nonzero base = bound.
+    val stencilBaseReg = RegInit(0.U(25.W))
+    when(bus.is_writing && bus.address === BorgGpuRegs.flush_sb_base_offset) {
+      stencilBaseReg := bus.data_in(24, 0)
+    }
+    val stencilTileBase = stencilBaseReg + (seqTileOffset >> 1)
+    f.io.stencil.foreach(_ := tile.io.stencilRead.get)
+    f.io.stencilBase.foreach(_ := Mux(seqFlushActive, stencilTileBase, stencilBaseReg))
+    f.io.stencilEn.foreach(_ := stencilBaseReg =/= 0.U)
+
+    // --- Tile load (loadOp = LOAD), the flusher's reverse ---------------
+    // Same per-tile addresses the flusher writes to; the clear values fill in
+    // every aspect that is not loaded (see BorgTileLoader).
+    val tileLoadReg = RegInit(0.U.asTypeOf(new TileLoadAspects))
+    when(bus.is_writing && bus.address === BorgGpuRegs.tile_load_offset) {
+      tileLoadReg.color   := bus.data_in(0)
+      tileLoadReg.depth   := bus.data_in(1)
+      tileLoadReg.stencil := bus.data_in(2)
+    }
+    s.io.mmio.tileLoad := tileLoadReg.asUInt =/= 0.U
+    ld.io.start       := s.io.flusher.loadStart
+    s.io.flusher.loadBusy := ld.io.busy
+    ld.io.aspects     := tileLoadReg
+    ld.io.format      := rdlRegs.io.hw.flush_format_format
+    ld.io.colorBase   := s.io.mmio.fbBase + colourOffset
+    ld.io.depthBase.foreach(_ := flushDepthBaseReg + seqTileOffset)
+    ld.io.stencilBase.foreach(_ := stencilTileBase)
+    ld.io.clearColor.r := s.io.mmio.clearColorHi(31, 16)
+    ld.io.clearColor.g := s.io.mmio.clearColorHi(15, 0)
+    ld.io.clearColor.b := s.io.mmio.clearColorLo(31, 16)
+    ld.io.clearColor.z := s.io.mmio.clearColorLo(15, 0)
+    ld.io.clearAlpha   := rdlRegs.io.hw.plane_clear_alpha
+    ld.io.clearStencil := rdlRegs.io.hw.plane_clear_stencil
 
     s.io.flusher.busy := f.io.busy
     rdlRegs.io.hw.status_flush_busy := (flushPending || f.io.busy).asUInt

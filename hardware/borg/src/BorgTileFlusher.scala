@@ -22,7 +22,8 @@ object FlushFormat {
 
 class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
                         val hasDepthFlush: Boolean = false,
-                        val hasAlpha: Boolean = false) extends Bundle {
+                        val hasAlpha: Boolean = false,
+                        val hasStencil: Boolean = false) extends Bundle {
   // Trigger interface
   val start     = Input(Bool())    // one-cycle pulse to begin flush
   val busy      = Output(Bool())   // high while flushing
@@ -48,6 +49,15 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
   // buffer's alpha plane shares its read index and latency). Absent when the
   // build has no alpha plane, in which case the 32-bit formats write opaque.
   val alpha     = if (hasAlpha) Some(Input(Vec(samples, UInt(8.W)))) else None
+
+  // Stencil attachment write-out (S8_UINT, 16 bytes per tile), after the
+  // depth burst. Without it the stencil plane never left the chip, so no
+  // stencil attachment could be stored for a later render pass or read back.
+  // The plane data comes with the same timing as `read.data`; at MSAA the
+  // stored value is sample 0's, the same resolve depth uses.
+  val stencil     = if (hasStencil) Some(Input(Vec(samples, UInt(8.W)))) else None
+  val stencilBase = if (hasStencil) Some(Input(UInt(25.W))) else None
+  val stencilEn   = if (hasStencil) Some(Input(Bool())) else None
 
   // Optional depth-attachment write-out (Step 50 item 14 groundwork; absent
   // unless hasDepthFlush). Historically Z was NEVER written to DRAM -- the
@@ -105,13 +115,12 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
   *                      extra ports, and is cycle-identical to before this
   *                      parameter existed -- same compile-time-branch
   *                      discipline the `samples` parameter already uses
-  *                      below. (Precisely: the sBurstZ enum value and its
-  *                      switch arm ARE still elaborated, because Chisel's
-  *                      switch macro won't accept a conditionally-present
-  *                      is() arm -- but nothing transitions into it, so it
-  *                      is unreachable and folds away in synthesis, and the
-  *                      state register width is unchanged since
-  *                      log2Ceil(3) == log2Ceil(4).)
+  *                      below. (Precisely: the sBurstZ and sBurstS enum
+  *                      values and their switch arms ARE still elaborated,
+  *                      because Chisel's switch macro won't accept a
+  *                      conditionally-present is() arm -- but nothing
+  *                      transitions into them, so they are unreachable and
+  *                      fold away in synthesis.)
   *
   *                      Deliberately folded into this module rather than
   *                      built as a separate depth flusher: sFill already
@@ -156,10 +165,11 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
   */
 class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
                       val hasDepthFlush: Boolean = false,
-                      val hasAlpha: Boolean = false) extends Module {
-  val io = IO(new BorgTileFlusherIO(dataBits, samples, hasDepthFlush, hasAlpha))
+                      val hasAlpha: Boolean = false,
+                      val hasStencil: Boolean = false) extends Module {
+  val io = IO(new BorgTileFlusherIO(dataBits, samples, hasDepthFlush, hasAlpha, hasStencil))
 
-  val sIdle :: sFill :: sBurst :: sBurstZ :: Nil = Enum(4)
+  val sIdle :: sFill :: sBurst :: sBurstZ :: sBurstS :: Nil = Enum(5)
   val state = RegInit(sIdle)
 
   // 16 staged halfwords (256 FFs): 16 RGB565 pixels, or 8 RGBA8 pixels as
@@ -172,6 +182,9 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   // Latched alongside baseReg for the same reason: the sequencer's address
   // inputs are only valid at the start pulse, not for the whole flush.
   val depthBaseReg = if (hasDepthFlush) Some(RegInit(0.U(25.W))) else None
+  // 16 stencil bytes, staged in the same fill pass (only with hasStencil).
+  val sVec           = if (hasStencil) Some(Reg(Vec(16, UInt(8.W)))) else None
+  val stencilBaseReg = if (hasStencil) Some(RegInit(0.U(25.W))) else None
   val formatReg = RegInit(FlushFormat.RGB565.U(2.W))
   val wide      = FlushFormat.isWide(formatReg)
   // Wide formats only: which 8-pixel half of the tile is being staged/burst.
@@ -269,6 +282,15 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   // Whether sFill may issue its next read this cycle. The single-sample path
   // issues one per cycle; the MSAA resolve below must drain first.
   val issueGate = WireDefault(true.B)
+
+  // Stencil rides the fill like depth: the read that returns an entry's
+  // colour returns its stencil too. capIdx still names that entry at v3 on
+  // both paths (the MSAA path advances it only when the resolve retires).
+  sVec.foreach(v => when(v3) { v(capIdx(3, 0)) := io.stencil.get(0) })
+
+  /** After the depth burst (or the colour burst, without depth). */
+  def afterDepth: UInt =
+    if (hasStencil) Mux(io.stencilEn.get, sBurstS, sIdle) else sIdle
 
   if (samples == 1) {
     // Single-sample path: one fp16ToUnorm per channel, one cycle, fully
@@ -386,6 +408,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
       when(io.start) {
         baseReg   := io.tileBase
         depthBaseReg.foreach(_ := io.depthBase.get)
+        stencilBaseReg.foreach(_ := io.stencilBase.get)
         formatReg := io.format
         half      := false.B
         issueIdx  := 0.U
@@ -428,9 +451,9 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
           // With depth disabled (or not built at all) this is the historical
           // sBurst -> sIdle edge, unchanged.
           if (hasDepthFlush) {
-            state := Mux(io.depthEn.get, sBurstZ, sIdle)
+            state := Mux(io.depthEn.get, sBurstZ, afterDepth)
           } else {
-            state := sIdle
+            state := afterDepth
           }
         }
       }
@@ -458,8 +481,23 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
           burstIdx := burstIdx + 1.U
         }
         when(io.gpuMem.ready) {
-          state := sIdle
+          burstIdx := 0.U
+          state    := afterDepth
         }
+      } else {
+        state := sIdle
+      }
+    }
+    // Third burst: the stencil plane, two S8 values per halfword beat.
+    is(sBurstS) {
+      if (hasStencil) {
+        io.gpuMem.wr    := true.B
+        io.gpuMem.addr  := stencilBaseReg.get
+        io.gpuMem.wdata := Cat(sVec.get(Cat(burstIdx(2, 0), 1.U(1.W))),
+                               sVec.get(Cat(burstIdx(2, 0), 0.U(1.W))))
+        io.gpuMem.wlen  := 8.U
+        when(io.gpuMem.waccept) { burstIdx := burstIdx + 1.U }
+        when(io.gpuMem.ready) { state := sIdle }
       } else {
         state := sIdle
       }

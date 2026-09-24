@@ -1346,6 +1346,161 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         println("=== occlusion_query_counts_the_samples_of_the_triangle_window PASSED ===\n")
         }
 
+        scenario("attachments_store_and_load_across_renders") {
+        // loadOp = LOAD and a stored stencil attachment, end to end: several
+        // renders of the same triangle share one memory, and the occlusion
+        // counter reports how many samples passed in each.
+        //   render 1: store colour (red), depth and stencil (REPLACE 7)
+        //   depth:    reload colour+depth, redraw at the same depth under LESS
+        //             -> 0 pass, and the framebuffer comes out byte-identical;
+        //             the same render cleared instead of loaded -> all pass
+        //   stencil:  reload stencil, test EQUAL 7 -> all pass;
+        //             cleared instead (0) -> none pass
+        println("\n=== BorgSequencerTests: attachments_store_and_load_across_renders ===")
+        val vertAddr = 0x1000; val setupAddr = 0x3000; val descAddr = 0x2000
+        val rastAddr = 0x4000; val fragAddr = 0x5000
+        val binBase = 0x6000; val setupBase = 0x7000
+        val fbBase = 0x10000; val zbBase = 0x20000; val sbBase = 0x30000
+
+        // Program and descriptor words (read only), and everything the GPU
+        // writes, kept as halfwords the way the memory controller stores them.
+        val rom = scala.collection.mutable.Map[Int, BigInt]()
+        val half = scala.collection.mutable.Map[Int, Int]()
+        def read32(a: Int): BigInt =
+          if (half.contains(a) || half.contains(a + 2))
+            BigInt(half.getOrElse(a, 0)) | (BigInt(half.getOrElse(a + 2, 0)) << 16)
+          else rom.getOrElse(a, BigInt(0)) & BigInt(0xFFFFFFFFL)
+        def service(): Unit = {
+          if (borg.io.gpuMem.wr.peek().litToBoolean) {
+            val base = borg.io.gpuMem.addr.peek().litValue.toInt
+            val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
+            half(base) = (borg.io.gpuMem.wdata.peek().litValue & 0xFFFF).toInt
+            for (i <- 1 until wlen) {
+              borg.io.gpuMem.waccept.poke(true.B)
+              borg.io.gpuMem.ready.poke(false.B)
+              borg.clock.step(1)
+              half(base + 2 * i) = (borg.io.gpuMem.wdata.peek().litValue & 0xFFFF).toInt
+            }
+            borg.io.gpuMem.waccept.poke(false.B)
+            borg.io.gpuMem.ready.poke(true.B)
+          } else if (borg.io.gpuMem.req.peek().litToBoolean) {
+            borg.io.gpuMem.data.poke(read32(borg.io.gpuMem.addr.peek().litValue.toInt).U)
+            borg.io.gpuMem.waccept.poke(false.B)
+            borg.io.gpuMem.ready.poke(true.B)
+          } else {
+            borg.io.gpuMem.waccept.poke(false.B)
+            borg.io.gpuMem.ready.poke(false.B)
+          }
+        }
+
+        val vertShader = vertPassthroughShader()
+        val setup = binningSetupShader()
+        val fragShader = Seq(
+          Instructions.ADD(rs1 = 7,  rs2 = 25, rd = 26, funct3 = 1),
+          Instructions.ADD(rs1 = 10, rs2 = 25, rd = 27, funct3 = 1),
+          Instructions.ADD(rs1 = 13, rs2 = 25, rd = 28, funct3 = 1),
+          Instructions.ADD(rs1 = 16, rs2 = 25, rd = 29, funct3 = 1),
+          BigInt(0))
+        rom ++= vertShader.zipWithIndex.map { case (w, i) => (vertAddr + i * 4) -> w }
+        rom ++= setup.zipWithIndex.map      { case (w, i) => (setupAddr + i * 4) -> w }
+        rom ++= Seq(rastAddr -> BigInt(0))
+        rom ++= fragShader.zipWithIndex.map { case (w, i) => (fragAddr + i * 4) -> w }
+        def triangle(r: Float, g: Float) = Seq(       // front-facing
+          Seq(0.0f, 0.0f, 0.1f, r, g, 0.0f, 0.0f, 0.0f),
+          Seq(0.0f, 4.0f, 0.1f, r, g, 0.0f, 0.0f, 0.0f),
+          Seq(4.0f, 0.0f, 0.1f, r, g, 0.0f, 0.0f, 0.0f))
+
+        val DEPTH_LESS = 1 | (1 << 3); val DEPTH_ALWAYS = 7 | (1 << 3)
+        val STENCIL_WRITE_7 = 1 | (7 << 1) | (BorgStencil.REPLACE << 7)   // ALWAYS, pass: REPLACE
+        val STENCIL_EQUAL_7 = 1 | (2 << 1)                                // EQUAL, keep
+        val STENCIL_FACE_7  = 0xFF | (0xFF << 8) | (7 << 16)              // masks, reference 7
+
+        // Clear colour R/G as FP16 (seq_clear_hi = {R, G}). Each render clears
+        // to its own colour, so an uncovered pixel shows whose clear it got --
+        // unless colour is loaded, in which case it keeps the stored value.
+        def render(colour: (Float, Float), load: Int, depthCfg: Int, stencilCfg: Int,
+                   bindStencil: Boolean, clearHi: Long = 0L): BigInt = {
+          borg.reset.poke(true.B)
+          borg.io.data_write_n.poke(3.U); borg.io.data_read_n.poke(3.U)
+          borg.io.gpuMem.ready.poke(false.B); borg.io.gpuMem.data.poke(0.U)
+          borg.clock.step(4); borg.reset.poke(false.B); borg.clock.step(20)
+          rawWrite(borg, BorgGpuRegs.control_offset.litValue.toInt, 2)
+          rom ++= buildDescriptorWithBbox(descAddr, triangle(colour._1, colour._2), 0, 0, 4, 4)
+          def reg(r: UInt, v: BigInt): Unit = rawWrite(borg, r.litValue.toInt, v)
+          reg(BorgGpuRegs.seq_desc_base_offset, descAddr)
+          reg(BorgGpuRegs.seq_vert_addr_offset, vertAddr); reg(BorgGpuRegs.seq_vert_len_offset, vertShader.size)
+          reg(BorgGpuRegs.seq_setup_addr_offset, setupAddr); reg(BorgGpuRegs.seq_setup_len_offset, setup.size)
+          reg(BorgGpuRegs.seq_rast_addr_offset, rastAddr); reg(BorgGpuRegs.seq_rast_len_offset, 1)
+          reg(BorgGpuRegs.seq_frag_addr_offset, fragAddr); reg(BorgGpuRegs.seq_frag_len_offset, fragShader.size)
+          reg(BorgGpuRegs.seq_bin_base_offset, binBase); reg(BorgGpuRegs.seq_bin_row_bytes_offset, 4)
+          reg(BorgGpuRegs.seq_setup_base_offset, setupBase)
+          reg(BorgGpuRegs.seq_fb_base_offset, fbBase); reg(BorgGpuRegs.seq_tiles_per_row_offset, 1)
+          reg(BorgGpuRegs.seq_clear_lo_offset, 0x7BFF); reg(BorgGpuRegs.seq_clear_hi_offset, clearHi)
+          reg(BorgGpuRegs.frag_pc_offset, 1); reg(BorgGpuRegs.flush_width_offset, 2)
+          reg(BorgGpuRegs.seq_inv_width_offset, floatToBits(1.0f))
+          reg(BorgGpuRegs.flush_zb_base_offset, zbBase)
+          reg(BorgGpuRegs.flush_sb_base_offset, if (bindStencil) sbBase else 0)
+          reg(BorgGpuRegs.depth_cfg_offset, depthCfg)
+          reg(BorgGpuRegs.stencil_cfg_offset, stencilCfg)
+          reg(BorgGpuRegs.stencil_front_offset, STENCIL_FACE_7)
+          reg(BorgGpuRegs.tile_load_offset, load)
+          reg(BorgGpuRegs.occ_ctrl_offset, 3)                     // clear + enable
+          reg(BorgGpuRegs.seq_tri_count_offset, 1)
+          reg(BorgGpuRegs.seq_trigger_offset, 1)
+          var seqBusySeen = false; var seqBusyCleared = false
+          for (cycle <- 0 until 60000 if !seqBusyCleared) {
+            service(); borg.clock.step(1)
+            if (cycle % 10 == 5) {
+              borg.io.address.poke(BorgGpuRegs.status_offset)
+              borg.io.data_read_n.poke(2.U); borg.io.data_write_n.poke(3.U)
+              service(); borg.clock.step(1)
+              val st = borg.io.data_out.peek().litValue
+              borg.io.data_read_n.poke(3.U)
+              service(); borg.clock.step(1)
+              if (((st >> 5) & 1) == 1) seqBusySeen = true
+              if (seqBusySeen && ((st >> 5) & 1) == 0) seqBusyCleared = true
+            }
+          }
+          Predef.assert(seqBusyCleared, "sequencer never completed")
+          val count = rawRead(borg, BorgGpuRegs.occ_count_offset.litValue.toInt)
+          for ((r, v) <- Seq(BorgGpuRegs.occ_ctrl_offset -> 0, BorgGpuRegs.tile_load_offset -> 0,
+                             BorgGpuRegs.flush_zb_base_offset -> 0, BorgGpuRegs.flush_sb_base_offset -> 0,
+                             BorgGpuRegs.depth_cfg_offset -> DEPTH_LESS, BorgGpuRegs.stencil_cfg_offset -> 0))
+            reg(r, v)
+          count
+        }
+        def framebuffer: Seq[Int] = (0 until 16).map(i => half.getOrElse(fbBase + 2 * i, -1))
+
+        val CLEAR_1 = 0x3C003800L; val CLEAR_2 = 0x00003C00L   // (1.0, 0.5) and (0, 1.0)
+        val stored = render((1.0f, 0.0f), load = 0, DEPTH_LESS, STENCIL_WRITE_7, bindStencil = true, CLEAR_1)
+        val fb1 = framebuffer
+        println(s"  render 1 (store): $stored samples, framebuffer ${fb1.map(v => f"$v%04x").mkString(" ")}")
+        Predef.assert(stored > 0, "the stored render drew nothing")
+
+        // Stencil first: the depth renders below store a cleared stencil.
+        val sLoaded  = render((0.0f, 1.0f), load = 4, DEPTH_ALWAYS, STENCIL_EQUAL_7, bindStencil = true)
+        val sCleared = render((0.0f, 1.0f), load = 0, DEPTH_ALWAYS, STENCIL_EQUAL_7, bindStencil = false)
+        println(s"  stencil EQUAL 7: loaded $sLoaded (expect $stored), cleared $sCleared (expect 0)")
+
+        // Restore render 1's colour and depth, then the depth checks.
+        render((1.0f, 0.0f), load = 0, DEPTH_LESS, 0, bindStencil = false, CLEAR_1)
+        val zLoaded  = render((0.0f, 1.0f), load = 3, DEPTH_LESS, 0, bindStencil = false, CLEAR_2)
+        val fb2 = framebuffer
+        val zCleared = render((0.0f, 1.0f), load = 0, DEPTH_LESS, 0, bindStencil = false, CLEAR_2)
+        val fb3 = framebuffer
+        println(s"  depth LESS at equal depth: loaded $zLoaded (expect 0), cleared $zCleared (expect $stored)")
+        println(s"  framebuffer after the loaded render ${if (fb2 == fb1) "unchanged" else "CHANGED: " + fb2.map(v => f"$v%04x").mkString(" ")}")
+        Predef.assert(sLoaded == stored, "stencil was not loaded")
+        Predef.assert(sCleared == 0, "stencil test passed on a cleared stencil")
+        Predef.assert(zLoaded == 0, "depth was not loaded: the equal-depth redraw passed LESS")
+        Predef.assert(zCleared == stored, "control: a cleared depth must let the redraw through")
+        Predef.assert(fb1.exists(_ != 0) && fb1.distinct.length > 1,
+          "render 1's framebuffer must mix clear and drawn pixels for this check to mean anything")
+        Predef.assert(fb2 == fb1, "loaded colour did not survive a render that drew nothing")
+        Predef.assert(fb3 != fb1, "control: a cleared render must not reproduce render 1's colours")
+        println("=== attachments_store_and_load_across_renders PASSED ===\n")
+        }
+
         scenario("covDelta_diagnostic_real_values") {
         println("\n=== BorgSequencerTests: covDelta_diagnostic_real_values ===")
 
