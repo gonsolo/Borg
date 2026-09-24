@@ -65,6 +65,16 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
   // tile depth, so it exists only with zBits = 32.
   val depthD32 = if (hasDepthFlush && zBits == 32) Some(Input(Bool())) else None
 
+  // Multisampled attachments stored per sample (ATTACH_MS) instead of
+  // resolved. Vulkan requires 4x colour/depth/stencil attachments and 4x
+  // sampled images, so a stored 4x attachment must keep every sample.
+  // Each sample of the tile goes to its own region, `sample x tile size`
+  // past the tile base (colour 32/64, depth 32/64, stencil 16 bytes).
+  val msStore  = if (samples > 1) Some(Input(Bool())) else None
+  // msaaMultiPass: the tile buffer holds only the pass's own sample, so a
+  // per-sample flush stores just that one. Absent: every sample, in turn.
+  val msSample = if (samples > 1) Some(Input(Valid(UInt(log2Up(samples).W)))) else None
+
   // Optional depth-attachment write-out (Step 50 item 14 groundwork; absent
   // unless hasDepthFlush). Historically Z was NEVER written to DRAM -- the
   // TBR renders each tile fully on-chip, so nothing downstream needed the
@@ -176,7 +186,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
                       val zBits: Int = 16) extends Module {
   val io = IO(new BorgTileFlusherIO(dataBits, samples, hasDepthFlush, hasAlpha, hasStencil, zBits))
 
-  val sIdle :: sFill :: sBurst :: sBurstZ :: sBurstS :: Nil = Enum(5)
+  val sIdle :: sFill :: sBurst :: sBurstZ :: sBurstS :: sNextSample :: Nil = Enum(6)
   val state = RegInit(sIdle)
 
   // 16 staged halfwords (256 FFs): 16 RGB565 pixels, or 8 RGBA8 pixels as
@@ -197,6 +207,11 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   val sVec           = if (hasStencil) Some(Reg(Vec(16, UInt(8.W)))) else None
   val stencilBaseReg = if (hasStencil) Some(RegInit(0.U(25.W))) else None
   val formatReg = RegInit(FlushFormat.RGB565.U(2.W))
+  // Per-sample store: the sample being flushed and whether more follow.
+  val msReg      = RegInit(false.B)
+  val sampleSel  = RegInit(0.U(math.max(1, log2Up(samples)).W))
+  val lastSample = RegInit(true.B)
+  val sampleIdx: UInt = if (samples > 1) sampleSel(log2Up(samples) - 1, 0) else 0.U
   val wide      = FlushFormat.isWide(formatReg)
   // Wide formats only: which 8-pixel half of the tile is being staged/burst.
   val half      = RegInit(false.B)
@@ -297,11 +312,12 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   // Stencil rides the fill like depth: the read that returns an entry's
   // colour returns its stencil too. capIdx still names that entry at v3 on
   // both paths (the MSAA path advances it only when the resolve retires).
-  sVec.foreach(v => when(v3) { v(capIdx(3, 0)) := io.stencil.get(0) })
+  // Resolved: sample 0, as depth. Per sample: the sample being flushed.
+  sVec.foreach(v => when(v3) { v(capIdx(3, 0)) := io.stencil.get(Mux(msReg, sampleIdx, 0.U)) })
 
   /** After the depth burst (or the colour burst, without depth). */
   def afterDepth: UInt =
-    if (hasStencil) Mux(io.stencilEn.get, sBurstS, sIdle) else sIdle
+    if (hasStencil) Mux(io.stencilEn.get, sBurstS, sNextSample) else sNextSample
 
   if (samples == 1) {
     // Single-sample path: one fp16ToUnorm per channel, one cycle, fully
@@ -376,24 +392,30 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     }
 
     when(resolveBusy) {
-      val s     = pendingSamples(resolveSample)
-      val rSum  = accR + fp16ToUnorm(s.r, 8)
-      val gSum  = accG + fp16ToUnorm(s.g, 8)
-      val bSum  = accB + fp16ToUnorm(s.b, 8)
-      val aSum  = accA.map(a => a + pendingAlpha.get(resolveSample))
-      when(resolveSample === (samples - 1).U) {
+      // Per sample (msReg): one sample, stored as is. Resolved: the average.
+      val s     = pendingSamples(Mux(msReg, sampleIdx, resolveSample))
+      val rTerm = fp16ToUnorm(s.r, 8)
+      val gTerm = fp16ToUnorm(s.g, 8)
+      val bTerm = fp16ToUnorm(s.b, 8)
+      val rSum  = accR + rTerm
+      val gSum  = accG + gTerm
+      val bSum  = accB + bTerm
+      val aOne  = pendingAlpha.map(_(Mux(msReg, sampleIdx, resolveSample)))
+      val aSum  = accA.map(a => a + aOne.get)
+      when(msReg || resolveSample === (samples - 1).U) {
+        def pick(sum: UInt, one: UInt): UInt = Mux(msReg, one, (sum >> sampleBits)(7, 0))
         stagePixel(capIdx(3, 0),
-          (rSum >> sampleBits)(7, 0),
-          (gSum >> sampleBits)(7, 0),
-          (bSum >> sampleBits)(7, 0),
-          aSum.map(a => (a >> sampleBits)(7, 0)).getOrElse(255.U(8.W)))
+          pick(rSum, rTerm),
+          pick(gSum, gTerm),
+          pick(bSum, bTerm),
+          aSum.map(a => pick(a, aOne.get)).getOrElse(255.U(8.W)))
         // Depth resolves by taking SAMPLE ZERO, not this average: averaging
         // depth is meaningless across a triangle edge, and sample-zero is
         // the resolve mode Vulkan requires (VK_RESOLVE_MODE_SAMPLE_ZERO_BIT)
         // and the only one v3dv offers for depth. pendingSamples still holds
         // every captured sample here, so (0) is sample zero directly -- the
         // colour accumulators are untouched by this.
-        zVec.foreach(_(capIdx(3, 0)) := pendingSamples(0).z)
+        zVec.foreach(_(capIdx(3, 0)) := pendingSamples(Mux(msReg, sampleIdx, 0.U)).z)
         if (BorgDebug.trace) printf("[FLUSH] entry=%d resolved from %d samples\n",
           capIdx, samples.U)
         capIdx       := capIdx + 1.U
@@ -422,6 +444,13 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         d32Reg    := io.depthD32.getOrElse(false.B)
         zHalf     := false.B
         formatReg := io.format
+        // Per sample: one given sample (msaaMultiPass), else all in turn.
+        val ms = io.msStore.getOrElse(false.B)
+        msReg      := ms
+        io.msSample.foreach { m =>
+          sampleSel  := Mux(ms && m.valid, m.bits, 0.U)
+          lastSample := !ms || m.valid
+        }
         half      := false.B
         issueIdx  := 0.U
         capIdx    := 0.U
@@ -445,7 +474,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     is(sBurst) {
       io.gpuMem.wr    := true.B
       // The second half of a wide tile follows the first 32 bytes.
-      io.gpuMem.addr  := baseReg + Mux(half, 32.U, 0.U)
+      io.gpuMem.addr  := baseReg + Mux(half, 32.U, 0.U) + sampleIdx * Mux(wide, 64.U, 32.U)
       io.gpuMem.wdata := rgbVec(burstIdx(3, 0))
       io.gpuMem.wlen  := 16.U
       when(io.gpuMem.waccept) {
@@ -491,7 +520,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         val d32Entry = z(Cat(zHalf, burstIdx(3, 1)))
         val d32Half  = if (zBits == 32) Mux(burstIdx(0), d32Entry(31, 16), d32Entry(15, 0)) else 0.U
         io.gpuMem.wr    := true.B
-        io.gpuMem.addr  := depthBaseReg.get + Mux(zHalf, 32.U, 0.U)
+        io.gpuMem.addr  := depthBaseReg.get + Mux(zHalf, 32.U, 0.U) + sampleIdx * Mux(d32Reg, 64.U, 32.U)
         io.gpuMem.wdata := Mux(d32Reg, d32Half, d16)
         io.gpuMem.wlen  := 16.U
         when(io.gpuMem.waccept) {
@@ -515,13 +544,30 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     is(sBurstS) {
       if (hasStencil) {
         io.gpuMem.wr    := true.B
-        io.gpuMem.addr  := stencilBaseReg.get
+        io.gpuMem.addr  := stencilBaseReg.get + (sampleIdx << 4)
         io.gpuMem.wdata := Cat(sVec.get(Cat(burstIdx(2, 0), 1.U(1.W))),
                                sVec.get(Cat(burstIdx(2, 0), 0.U(1.W))))
         io.gpuMem.wlen  := 8.U
         when(io.gpuMem.waccept) { burstIdx := burstIdx + 1.U }
-        when(io.gpuMem.ready) { state := sIdle }
+        when(io.gpuMem.ready) { state := sNextSample }
       } else {
+        state := sIdle
+      }
+    }
+    // One sample's colour/depth/stencil bursts are out. Per sample with more
+    // to go: the same tile again for the next sample, whose regions sit one
+    // tile size further on.
+    is(sNextSample) {
+      when(msReg && !lastSample) {
+        sampleSel  := sampleSel + 1.U
+        lastSample := (if (samples > 1) sampleSel === (samples - 2).U else true.B)
+        half      := false.B
+        zHalf     := false.B
+        issueIdx  := 0.U
+        capIdx    := 0.U
+        burstIdx  := 0.U
+        state     := sFill
+      }.otherwise {
         state := sIdle
       }
     }

@@ -550,6 +550,21 @@ reg clear_depth_reg_t {
     field { sw = rw; hw = r; desc = "FP32 bits."; } depth[32] = 0;
 };
 
+// --- Multisampled attachments stored per sample ------------------------
+// Vulkan requires 4x colour, depth and stencil attachments and 4x sampled
+// images, so a stored 4x attachment must keep every sample (a later load,
+// texelFetch(..., sample), vkCmdResolveImage). With this bit set, store and
+// load are per sample: each tile's region holds `samples` consecutive
+// per-sample tiles instead of one resolved tile. Clear it for a multisampled
+// attachment that is only resolved (storeOp DONT_CARE + a resolve
+// attachment): that path averages on chip.
+reg attach_ms_reg_t {
+    name = "Per-Sample Attachments";
+    desc = "nogen. Bit 0: store and load multisampled attachments per sample.";
+    field { sw = rw; hw = r; desc = "Per-sample store/load."; } per_sample[1] = 0;
+    field { sw = rw; hw = na; } RSVD[31] = 0;
+};
+
 // --- Texture address (computed by hardware) ---
 // Read: Morton-encoded texel index from the most recent tex_uv write.
 reg tex_addr_reg_t {
@@ -1661,4 +1676,8 @@ addrmap borg_gpu {
     depth_format->nogen = true;
     clear_depth_reg_t clear_depth;
     clear_depth->nogen = true;
+
+    // ---- Per-sample multisampled attachments ----
+    attach_ms_reg_t attach_ms;
+    attach_ms->nogen = true;
 };

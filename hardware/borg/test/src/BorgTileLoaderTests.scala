@@ -153,5 +153,54 @@ object BorgTileLoaderTests extends TestSuite {
         println("  FP32 depth: D16 loads to u/65535, D32 loads raw")
       }
     }
+    utest.test("per_sample_load_writes_each_sample_to_its_own_plane") {
+      // ATTACH_MS with every sample resident: each sample's regions (one tile
+      // size apart) load into that sample's plane alone -- one-hot coverage.
+      // With msSample given (msaaMultiPass) only that sample's regions load,
+      // into the one live plane (all coverage bits).
+      for (given <- Seq(None, Some(3))) {
+        simulate(new BorgTileLoader(samples = 4)) { d =>
+          def px(e: Int, smp: Int) = ((e + 8 * smp) & 0x1f) << 11
+          val mem = (for (smp <- 0 until 4; e <- 0 until 16 by 2) yield
+            (C_BASE + 32 * smp + 2 * e) -> (BigInt(px(e, smp)) | (BigInt(px(e + 1, smp)) << 16))).toMap ++
+            (for (smp <- 0 until 4; e <- 0 until 16 by 4) yield (S_BASE + 16 * smp + e) ->
+              (0 until 4).map(i => BigInt((e + i + 40 * smp) & 0xff) << (8 * i)).sum).toMap
+          d.io.msLoad.get.poke(true.B)
+          d.io.msSample.get.valid.poke(given.isDefined.B)
+          d.io.msSample.get.bits.poke(given.getOrElse(0).U)
+          // Record every write with its coverage.
+          d.io.aspects.color.poke(true.B); d.io.aspects.depth.poke(false.B); d.io.aspects.stencil.poke(true.B)
+          d.io.format.poke(FlushFormat.RGB565.U)
+          d.io.colorBase.poke(C_BASE.U); d.io.depthBase.get.poke(Z_BASE.U); d.io.stencilBase.get.poke(S_BASE.U)
+          d.io.clearColor.r.poke(0.U); d.io.clearColor.g.poke(0.U); d.io.clearColor.b.poke(0.U); d.io.clearColor.z.poke(0.U)
+          d.io.clearAlpha.poke(0.U); d.io.clearStencil.poke(0.U)
+          d.io.gpuMem.ready.poke(false.B); d.io.gpuMem.waccept.poke(false.B)
+          d.io.start.poke(true.B); d.clock.step(1); d.io.start.poke(false.B)
+          val writes = scala.collection.mutable.ArrayBuffer[(Int, Int, Int, Int)]()   // (cov, idx, r8, s8)
+          var wd = 0
+          while (d.io.busy.peek().litToBoolean && wd < 5000) {
+            val rd = d.io.gpuMem.req.peek().litToBoolean
+            if (rd) d.io.gpuMem.data.poke(mem.getOrElse(d.io.gpuMem.addr.peek().litValue.toInt, BigInt(0)).U)
+            d.io.gpuMem.ready.poke(rd.B)
+            if (d.io.write.en.peek().litToBoolean)
+              writes += ((d.io.write.coverage.peek().litValue.toInt, d.io.write.idx.peek().litValue.toInt,
+                          d.io.write.data.r.peek().litValue.toInt, d.io.write.stencil.peek().litValue.toInt))
+            d.clock.step(1); wd += 1
+          }
+          d.io.gpuMem.ready.poke(false.B)
+          val smps = given.map(Seq(_)).getOrElse(0 until 4)
+          utest.assert(writes.length == 16 * smps.length)
+          for ((sm, k) <- smps.zipWithIndex; e <- 0 until 16) {
+            val (cov, idx, r, st) = writes(16 * k + e)
+            val r5 = (e + 8 * sm) & 0x1f
+            utest.assert(idx == e)
+            utest.assert(cov == (if (given.isDefined) 0xF else 1 << sm))
+            utest.assert(r == deq8((r5 << 3) | (r5 >> 2)))
+            utest.assert(st == ((e + 40 * sm) & 0xff))
+          }
+          println(s"  per-sample load, samples ${smps.mkString(",")}: ${writes.length} writes, coverage as expected")
+        }
+      }
+    }
   }
 }
