@@ -41,6 +41,7 @@ class FpuOpFlags extends Bundle {
   val brz    = Bool()
   val brnz   = Bool()
   val branch = Bool()
+  val jmp    = Bool()   // JMP: unconditional, 18-bit absolute target
   // Execution-mask ops. Like `branch`, `execOp` exists so BorgLane can
   // suppress write-back for all three without decoding each: none of them
   // has a destination register.
@@ -63,6 +64,7 @@ class FpuOpFlags extends Bundle {
   val smask   = Bool()   // SMASK (drawEnabled)
   val attidx  = Bool()   // ATTIDX (drawEnabled)
   val tld     = Bool()   // TLD (drawEnabled)
+  val fine    = Bool()   // DDX/DDY: fine derivatives (rs2 = 1)
   val isrl    = Bool()   // logical shift right (RISC-V SRL)
   val isltu   = Bool()   // unsigned compare (RISC-V SLTU)
   val funct3 = UInt(3.W)

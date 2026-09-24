@@ -388,12 +388,21 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val zWritten = RegInit(VecInit(Seq.fill(N)(false.B)))
   def zAt(l: UInt, s: UInt): UInt =
     zClamp(frag_zs.map(zs => Mux(drawMode && !zWritten(l), zs(l)(s(1, 0)), frag_z(l))).getOrElse(frag_z(l)))
-  /** Depth into a D16 attachment's range: below 0 (depth bias can take it
-    * there) is 0, above 1 is 1. Legacy renders keep their far value 65504. */
+  /** Depth into a D16 attachment: clamped to [0, 1] (depth bias can leave
+    * it) and ROUNDED to the format before the test, as Vulkan converts the
+    * fragment depth to the attachment's representation first. Otherwise a
+    * redraw with EQUAL compares an unrounded depth against a stored and
+    * reloaded one -- and at 4x only hardware can round the per-sample
+    * depths. The round trip is the flush's quantizer and the load's
+    * dequantizer, so a reloaded value equals a freshly rendered one bit for
+    * bit. Legacy renders keep their far value 65504. */
   def zClamp(z: UInt): UInt = {
     val w = cfg.tileDepthBits
     val one = (if (w == 32) 0x3F800000L else 0x3C00L).U(w.W)
-    Mux(drawMode && io.depthUnorm, Mux(z(w - 1), 0.U(w.W), Mux(z > one, one, z)), z)
+    val clamped = Mux(z(w - 1), 0.U(w.W), Mux(z > one, one, z))
+    val rounded = if (w == 32) DepthQuantize.dequantize16Fp32(DepthQuantize.quantize16Fp32(clamped))
+                  else DepthQuantize.dequantize16(DepthQuantize.quantize16(clamped))
+    Mux(drawMode && io.depthUnorm, rounded, z)
   }
   // gl_SampleMask as the shader wrote it (r19), all ones until it does.
   val fragMask = RegInit(VecInit(Seq.fill(N)(((1 << cfg.samples) - 1).U(cfg.samples.W))))

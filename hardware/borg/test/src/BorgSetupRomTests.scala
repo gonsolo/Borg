@@ -148,7 +148,7 @@ object BorgSetupRomTests extends TestSuite {
                 rnd.nextDouble() * math.abs(w), w)
           })
           val (slope, const, floor) = (if (n % 3 == 0) 0.0 else -1.5 + n, if (n % 2 == 0) 3.0 else -2.0,
-                                       if (n % 4 == 1) math.pow(2, -16) else 0.0)
+                                       if (n % 4 == 1) math.pow(2, -15) else 0.0)
           val mem = scala.collection.mutable.Map[BigInt, BigInt]()
           runSetup(core, t, mem, (slope, const, floor))
           val (planes, _, _) = reference(t)

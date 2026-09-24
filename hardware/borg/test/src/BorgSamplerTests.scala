@@ -55,7 +55,7 @@ object BorgSamplerTests extends TestSuite {
 
   // --- Textures in memory -------------------------------------------------
   case class Tex(fm: TexFormat.Fmt, w: Int, h: Int, d: Int = 1, levels: Int = 1,
-                 layout: Int = Tiled, ttype: Int = T2D, base: Int = Data) {
+                 layout: Int = Tiled, ttype: Int = T2D, base: Int = Data, swz: Seq[Int] = Seq(0, 0, 0, 0)) {
     def lw(l: Int) = math.max(1, w >> l)
     def lh(l: Int) = if (ttype == T1D) 1 else math.max(1, h >> l)
     def ld(l: Int) = if (ttype == T3D) math.max(1, d >> l) else 1
@@ -69,9 +69,8 @@ object BorgSamplerTests extends TestSuite {
       if (layout == Linear) base + y * w * fm.bytes + x * fm.bytes
       else base + levelOff(l) + layer * layerStride +
         (z * slice(l) + ((y >> 2) * tpr(l) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)) * fm.bytes
-    def desc: Seq[Long] = Seq(base.toLong, ((h - 1).toLong << 16) | (w - 1),
-      ((d - 1).toLong) | ((levels - 1).toLong << 12) | (fm.code.toLong << 16) | (layout.toLong << 24) | (ttype.toLong << 26),
-      layerStride.toLong) ++ (1 to 12).map(l => if (l < levels) levelOff(l).toLong else 0L)
+    def desc: Seq[Long] = SamplerCtl.descHeader(base.toLong, w, h, d, levels, fm.code, layout, ttype, layerStride.toLong, swz) ++
+      (1 to 12).map(l => if (l < levels) levelOff(l).toLong else 0L)
   }
   case class Samp(magLin: Boolean = false, minLin: Boolean = false, mipLin: Boolean = false,
                   mode: (Int, Int, Int) = (ClampEdge, ClampEdge, ClampEdge), border: Int = 0,
@@ -126,17 +125,19 @@ object BorgSamplerTests extends TestSuite {
 
   // --- Reference sampler (the hardware's fixed-point conventions) ----------
   def fixedMod(u: Float, intBits: Int): BigInt = {
-    val w = intBits + 24; val m = (BigDecimal(math.abs(u.toDouble)) * BigDecimal(1 << 24)).toBigInt
+    val w = intBits + 24; val m = (BigDecimal(new java.math.BigDecimal(math.abs(u.toDouble))) * BigDecimal(1 << 24)).toBigInt
     val r = if (u < 0) (-m).mod(BigInt(1) << w) else m.mod(BigInt(1) << w); r
   }
   def fixed(u: Float, frac: Int, width: Int): BigInt = {
-    val m = (BigDecimal(math.abs(u.toDouble)) * BigDecimal(BigInt(1) << frac)).toBigInt
+    val m = (BigDecimal(new java.math.BigDecimal(math.abs(u.toDouble))) * BigDecimal(BigInt(1) << frac)).toBigInt
     val lim = (BigInt(1) << (width - 1)) - 1
     val c = m.min(lim); if (u < 0) -c else c
   }
   def log2q(x: Float): Int = {
     val b = fbits(x); val e = ((b >> 23) & 0xFF).toInt
-    if (e == 0) -(1 << 20) else ((e - 127) << 8) + math.round(math.log(1 + ((b >> 17) & 63) / 64.0) / math.log(2) * 256).toInt
+    def rom(i: Int) = math.round(math.log(1 + i / 64.0) / math.log(2) * 4096).toInt
+    val i = ((b >> 17) & 63).toInt; val f = ((b >> 9) & 255).toInt
+    if (e == 0) -(1 << 20) else ((e - 127) << 8) + ((rom(i) + (((rom(i + 1) - rom(i)) * f) >> 8) + 8) >> 4)
   }
   case class Lane(u: Float, v: Float = 0, w: Float = 0, lod: Float = 0, dref: Float = 0, fetch: (Int, Int, Int, Int) = (0, 0, 0, 0))
 
@@ -144,25 +145,24 @@ object BorgSamplerTests extends TestSuite {
     val opc = ((ctl >> 16) & 3).toInt; val isFetch = opc == OpFetch; val isGather = opc == OpGather
     val lodMode = ((ctl >> 21) & 3).toInt
     def sx4(v: Long) = { val x = (v & 15).toInt; if (x >= 8) x - 16 else x }
-    val offs = Seq(sx4(ctl >> 23), sx4(ctl >> 27), 0)
+    val offs = Seq(sx4(ctl >> 23), sx4(ctl >> 27),
+                   if (t.ttype == T3D) sx4(((ctl >> 31) << 3) | ((ctl >> 18) & 7)) else 0)
     val dims = t.ttype match { case T1D => 1; case T3D => 3; case _ => 2 }
     val quadLod = if (isFetch || isGather || lodMode == LodExplicit || s.unnorm) 0 else {
       def fma(a: Float, b: Float, c: Float) = Math.fma(a, b, c)
       val (dux, dvx, dwx) = (lanes(1).u - lanes(0).u, lanes(1).v - lanes(0).v, lanes(1).w - lanes(0).w)
       val (duy, dvy, dwy) = (lanes(2).u - lanes(0).u, lanes(2).v - lanes(0).v, lanes(2).w - lanes(0).w)
       val (dz, dd) = if (t.ttype == T3D) (1f, t.d.toFloat) else (0f, 0f)
-      val rx = fma(math.abs(dwx) * dz, dd, fma(math.abs(dvx), t.h.toFloat, math.abs(dux) * t.w.toFloat))
-      val ry = fma(math.abs(dwy) * dz, dd, fma(math.abs(dvy), t.h.toFloat, math.abs(duy) * t.w.toFloat))
+      val dy = if (t.ttype == T1D) 0f else 1f                     // 1D: the layer rides in v
+      val rx = fma(math.abs(dwx) * dz, dd, fma(math.abs(dvx) * dy, t.h.toFloat, math.abs(dux) * t.w.toFloat))
+      val ry = fma(math.abs(dwy) * dz, dd, fma(math.abs(dvy) * dy, t.h.toFloat, math.abs(duy) * t.w.toFloat))
       log2q(math.max(rx, ry))
     }
     lanes.map { ln =>
       val q = (t.levels - 1) << 8
-      val base0 = lodMode match {
-        case LodBias => quadLod + fixed(ln.lod, 8, 24).toInt
-        case LodExplicit => fixed(ln.lod, 8, 24).toInt
-        case _ => quadLod
-      }
-      val biased = base0 + fixed(s.bias, 8, 24).toInt
+      val base0 = if (lodMode == LodExplicit) fixed(ln.lod, 8, 24).toInt else quadLod
+      val biasSum = fixed(s.bias, 8, 24).toInt + (if (lodMode == LodBias) fixed(ln.lod, 8, 24).toInt else 0)
+      val biased = base0 + biasSum.max(-SamplerCtl.MaxLodBias * 256).min(SamplerCtl.MaxLodBias * 256)
       val lam = biased.max(fixed(s.minLod, 8, 24).toInt).min(fixed(s.maxLod, 8, 24).toInt)
       val mag = lam <= 0
       val linear = if (isFetch) false else if (isGather) true else if (mag) s.magLin else s.minLin
@@ -223,8 +223,11 @@ object BorgSamplerTests extends TestSuite {
             if (border) {
               val one: Either[Long, Double] = if (t.fm.isInt) Left(1L) else Right(1.0)
               val zero: Either[Long, Double] = if (t.fm.isInt) Left(0L) else Right(0.0)
-              Seq(if (s.border >= 4) one else zero, if (s.border >= 4) one else zero,
-                  if (s.border >= 4) one else zero, if (s.border >= 2) one else zero)
+              // Only the format's own channels take the border colour.
+              val bc = Seq(if (s.border >= 4) one else zero, if (s.border >= 4) one else zero,
+                           if (s.border >= 4) one else zero, if (s.border >= 2) one else zero)
+              val dflt = Seq(zero, zero, zero, one)
+              (0 until 4).map(c => if (t.fm.ch(c)._2 == 0) dflt(c) else bc(c))
             } else if (cubeTaps.size == 1) decode(t.fm, texel(cubeTaps(0)._1, cubeTaps(0)._2, z, cubeTaps(0)._3, l))
             else {                                        // a corner: the average of three texels
               val vs = cubeTaps.map { case (cx, cy, cf) => decode(t.fm, texel(cx, cy, z, cf, l)) }
@@ -233,12 +236,13 @@ object BorgSamplerTests extends TestSuite {
               else (0 until 4).map(c => Right(vs.map(_(c).fold(_.toDouble, identity)).sum / 3): Either[Long, Double])
             }
           s.cmp.foreach { op =>
-            val dt = vals(0).fold(_.toDouble, identity); val dr = ln.dref.toDouble
+            val dt = vals(0).fold(_.toDouble, identity)
+            val dr = if (t.fm.kind == TexFormat.UNORM) ln.dref.toDouble.max(0).min(1) else ln.dref.toDouble
             val pass = op match { case 0 => false; case 1 => dr < dt; case 2 => dr == dt; case 3 => dr <= dt
                                   case 4 => dr > dt; case 5 => dr != dt; case 6 => dr >= dt; case _ => true }
             vals = Seq(Right(if (pass) 1.0 else 0.0), Right(0.0), Right(0.0), Right(1.0))
           }
-          if (isGather) gather = gather.updated(tp, vals(((ctl >> 18) & 3).toInt))
+          if (isGather) gather = gather.updated(tp, swizzled(t, vals)(((ctl >> 18) & 3).toInt))
           else if ((nTaps == 1 && nLev == 1) || t.fm.isInt) singleVal = vals
           else {
             def aw(a: Int) = if (a >= dims || !linear) 256 else if (((tt >> a) & 1) == 1) axes(a)._3 else 256 - axes(a)._3
@@ -250,9 +254,14 @@ object BorgSamplerTests extends TestSuite {
         }
       }
       if (isGather) gather
-      else if (singleVal != null) singleVal
-      else acc.map(a => Right(a.toDouble))
+      else swizzled(t, if (singleVal != null) singleVal else acc.map(a => Right(a.toDouble)))
     }
+  }
+  /** The view's component swizzle (VkComponentSwizzle) on an RGBA result. */
+  def swizzled(t: Tex, v: Seq[Either[Long, Double]]): Seq[Either[Long, Double]] = {
+    val one: Either[Long, Double] = if (t.fm.isInt) Left(1L) else Right(1.0)
+    val zero: Either[Long, Double] = if (t.fm.isInt) Left(0L) else Right(0.0)
+    t.swz.zipWithIndex.map { case (sw, i) => sw match { case 0 => v(i); case 1 => zero; case 2 => one; case k => v(k - 3) } }
   }
 
   // Cube faces +X -X +Y -Y +Z -Z: major axis, and the axes s and t run along.
@@ -461,6 +470,54 @@ object BorgSamplerTests extends TestSuite {
           sample(d, s"cube face $face corners gather uint", cubeU, s, OpGather.toLong << 16, corners, seed = 41)
         }
         println("  6 faces: every edge and corner filters (and gathers) across into the neighbouring faces")
+      }
+    }
+
+    utest.test("swizzle_borders_dref_3d_offsets_bias_clamp_1d_lod") {
+      // The spec audit's texture items, each against the reference.
+      withSampler { d =>
+        val lanesA = Seq(Lane(0.1f, 0.2f), Lane(0.6f, 0.3f), Lane(0.35f, 0.8f), Lane(0.9f, 0.9f))
+        val nearest = LodExplicit.toLong << 21
+        // VkComponentMapping: every swizzle value, filtered and gathered.
+        for (swz <- Seq(Seq(0, 0, 0, 0), Seq(6, 5, 4, 3), Seq(1, 2, 3, 0), Seq(4, 4, 1, 2))) {
+          val t = Tex(TexFormat.byName("R8G8B8A8_UNORM"), 5, 4, swz = swz)
+          sample(d, s"swizzle $swz", t, Samp(magLin = true, minLin = true), nearest, lanesA)
+          sample(d, s"swizzle $swz uint", t.copy(fm = TexFormat.byName("R8G8B8A8_UINT")), Samp(), nearest, lanesA)
+          for (comp <- 0 until 4)
+            sample(d, s"swizzle $swz gather $comp", t, Samp(), (OpGather.toLong << 16) | (comp.toLong << 18), lanesA)
+        }
+        // The border colour replaces only the format's own channels.
+        val outside = Seq(Lane(-0.4f, 0.5f), Lane(1.3f, 0.2f), Lane(0.5f, -2.0f), Lane(0.25f, 0.25f))
+        for (fm <- Seq("R8_UNORM", "R16G16_SFLOAT", "R32_UINT", "D16_UNORM"); b <- 0 until 6; lin <- Seq(false, true)) {
+          val t = Tex(TexFormat.byName(fm), 4, 4)
+          if (!(t.fm.isInt && lin))
+            sample(d, s"border $b on $fm lin $lin", t, Samp(magLin = lin, minLin = lin,
+                   mode = (ClampBorder, ClampBorder, ClampBorder), border = b), nearest, outside)
+        }
+        // Dref is clamped to [0, 1] for a UNORM depth format, not for D32.
+        for (fm <- Seq("D16_UNORM", "D32_SFLOAT"); op <- Seq(1, 3, 4, 6)) {
+          val lanes = Seq(1.1f, -0.1f, 1.0f, 0.0f).zipWithIndex.map { case (r, i) => Lane(0.2f + 0.2f * i, 0.4f, dref = r) }
+          sample(d, s"dref clamp $fm op $op", Tex(TexFormat.byName(fm), 4, 4), Samp(cmp = Some(op)), nearest | (1L << 20), lanes)
+        }
+        // A 3D image's w offset: sign in bit 31, low bits in 20:18.
+        val vol = Tex(TexFormat.byName("R32_UINT"), 4, 4, d = 8, ttype = T3D)
+        for (ow <- Seq(-8, -3, 1, 7)) {
+          val w = (ow & 15).toLong
+          sample(d, s"3D w offset $ow", vol, Samp(mode = (Repeat, Repeat, Repeat)),
+                 nearest | ((w >> 3) << 31) | ((w & 7) << 18), lanesA.map(_.copy(w = 0.3f)))
+        }
+        // Sampler bias + shader bias is clamped to +-maxSamplerLodBias: a
+        // quad at lambda -14 with +10 +10 reaches level 1, not the last.
+        val chain = Tex(TexFormat.byName("R8G8B8A8_UNORM"), 16, 8, levels = 4)
+        val tiny = 1f / (1 << 18)
+        val quad = Seq(Lane(0.3f, 0.3f), Lane(0.3f + tiny, 0.3f), Lane(0.3f, 0.3f + tiny), Lane(0.3f + tiny, 0.3f + tiny))
+        sample(d, "bias clamp", chain, Samp(minLin = true, magLin = true, mipLin = true, bias = 10f),
+               LodBias.toLong << 21, quad.map(_.copy(lod = 10f)))
+        // 1D arrays: the layer in v does not count toward the LOD.
+        val arr = Tex(TexFormat.byName("R8G8B8A8_UNORM"), 16, 1, d = 4, levels = 5, ttype = T1D)
+        val quad1d = Seq(Lane(0.3f, 0f), Lane(0.3f + 1f / 64, 1f), Lane(0.3f, 2f), Lane(0.3f + 1f / 64, 3f))
+        sample(d, "1D array LOD", arr, Samp(minLin = true, magLin = true, mipLin = true), 0L, quad1d)
+        println("  swizzles (sample, uint, gather), borders on 1- and 2-channel formats, dref clamp, 3D w offset, bias clamp, 1D array LOD")
       }
     }
 

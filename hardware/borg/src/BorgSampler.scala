@@ -34,14 +34,19 @@ object SamplerCtl {
   def lodMode(c: UInt) = c(22, 21)   // 0 implicit, 1 implicit + TEXA bias, 2 TEXA lod
   def offU(c: UInt)    = c(26, 23).asSInt
   def offV(c: UInt)    = c(30, 27).asSInt
+  // A 3D image's w offset in the bits gather and compare use, which a 3D
+  // image cannot: sign in 31, low bits in 20:18.
+  def offW(c: UInt)    = Cat(c(31), c(20, 18)).asSInt
   val OpSample = 0; val OpFetch = 1; val OpGather = 2
   val LodImplicit = 0; val LodBias = 1; val LodExplicit = 2
 
   // Texture descriptor: 16 words at TEX_DESC_BASE + 64*index.
   //   0  base (byte address)
-  //   1  width-1 [15:0], height-1 [31:16]
-  //   2  depth or layers-1 [11:0], levels-1 [15:12], format [21:16],
-  //      layout [25:24] (0 tiled 4x4, 1 linear), type [27:26] (0 1D, 1 2D, 2 3D, 3 cube)
+  //   1  width-1 [15:0], height-1 [27:16], type [29:28] (0 1D, 1 2D, 2 3D,
+  //      3 cube), layout [30] (0 tiled 4x4, 1 linear)
+  //   2  depth or layers-1 [9:0], levels-1 [13:10], format [19:14],
+  //      swizzle R [22:20], G [25:23], B [28:26], A [31:29] (VkComponentSwizzle:
+  //      0 identity, 1 zero, 2 one, 3-6 R-A)
   //   3  tiled: bytes per array layer (all levels); linear: bytes per row
   //   4.. byte offset of level 1, 2, ... 12 from the base
   // Sampler descriptor: 4 words at SAMPLER_DESC_BASE + 16*index.
@@ -53,6 +58,18 @@ object SamplerCtl {
   val Tiled = 0; val Linear = 1
   val T1D = 0; val T2D = 1; val T3D = 2; val TCube = 3
   val Repeat = 0; val Mirror = 1; val ClampEdge = 2; val ClampBorder = 3; val MirrorClampEdge = 4
+  /** maxSamplerLodBias: the shader's and the sampler's bias together are
+    * clamped to +-this before they reach the LOD. */
+  val MaxLodBias = 15
+
+  /** A texture descriptor's words 0-3 (the driver's layout, for tests). */
+  def descHeader(base: Long, w: Int, h: Int, d: Int, levels: Int, format: Int, layout: Int, ttype: Int,
+                 stride: Long, swizzle: Seq[Int] = Seq(0, 0, 0, 0)): Seq[Long] = Seq(
+    base & 0xFFFFFFFFL,
+    ((w - 1).toLong) | ((h - 1).toLong << 16) | (ttype.toLong << 28) | (layout.toLong << 30),
+    ((d - 1).toLong) | ((levels - 1).toLong << 10) | (format.toLong << 14) |
+      swizzle.zipWithIndex.map { case (s, i) => s.toLong << (20 + 3 * i) }.sum,
+    stride & 0xFFFFFFFFL)
 }
 
 class SamplerLaneArgs extends Bundle {
@@ -156,11 +173,22 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     Mux(x(31), (0.U - mag)(width - 1, 0), mag)
   }
 
-  /** A positive float's log2 in signed fixed point, 8 fraction bits. */
-  private val log2Rom = VecInit((0 until 64).map(i => math.round(math.log(1 + i / 64.0) / math.log(2) * 256).U(9.W)))
-  private def fpLog2(x: UInt): SInt =
+  /** A positive float's log2 in signed fixed point, 8 fraction bits: a
+    * 65-entry table of log2(1 + i/64), interpolated linearly on the next 8
+    * mantissa bits. Without the interpolation it was ~5 bits (up to 0.023
+    * low), where Vulkan asks mipmapPrecisionBits of the LOD and the CTS
+    * mipmap tests assume 8. */
+  // Four extra fraction bits through the interpolation, rounded once at the
+  // end: worst error 0.54/256 (the rounding itself), against 1.5/256 at 8
+  // bits and 5.9/256 for the bare table.
+  private val log2Rom = VecInit((0 to 64).map(i => math.round(math.log(1 + i / 64.0) / math.log(2) * 4096).U(13.W)))
+  private def fpLog2(x: UInt): SInt = {
+    val i = x(22, 17); val f = x(16, 9)
+    val lo = log2Rom(i); val hi = log2Rom(i +& 1.U)
+    val frac = (lo +& (((hi - lo) * f) >> 8) +& 8.U) >> 4
     Mux(x(30, 23) === 0.U, (-(1 << 20)).S(24.W),          // 0 -> "minus infinity"
-      ((x(30, 23).zext - 127.S) << 8) + log2Rom(x(22, 17)).zext)
+      ((x(30, 23).zext - 127.S) << 8) + frac.zext)
+  }
 
   /** Unsigned int (up to 34 bits) times 2^scale, as FP32 (truncated). */
   private def uintToFp32(v0: UInt, scale: SInt): UInt = {
@@ -199,12 +227,13 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   // Descriptor fields.
   private val base    = td(0)
   private val dimW    = td(1)(15, 0) +& 1.U
-  private val dimH    = td(1)(31, 16) +& 1.U
-  private val dimD    = td(2)(11, 0) +& 1.U
-  private val levels  = td(2)(15, 12) +& 1.U
-  private val fmtCode = td(2)(21, 16)
-  private val layout  = td(2)(25, 24)
-  private val ttype   = td(2)(27, 26)
+  private val dimH    = td(1)(27, 16) +& 1.U
+  private val ttype   = td(1)(29, 28)
+  private val layout  = td(1)(30)
+  private val dimD    = td(2)(9, 0) +& 1.U
+  private val levels  = td(2)(13, 10) +& 1.U
+  private val fmtCode = td(2)(19, 14)
+  private def swz(i: Int): UInt = td(2)(22 + 3 * i, 20 + 3 * i)
   private val stride  = td(3)
   private val fmt     = TexFormat.info(fmtCode)
   private val split16 = layout =/= Linear.U && fmt.bytes === 16.U   // see sTapAddr
@@ -215,7 +244,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val unnorm  = sd(0)(19)
   private val isFetch  = op(ctl) === OpFetch.U
   private val isGather = op(ctl) === OpGather.U
-  private val doCmp    = compare(ctl) && !isFetch
+  private val doCmp    = compare(ctl) && !isFetch && ttype =/= T3D.U     // bit 20 is w's offset on 3D
   private val isInt    = fmt.kind === TexFormat.UINT.U || fmt.kind === TexFormat.SINT.U
   /** Filtered dimensions: 1D 1, 2D and cube 2 (a cube face is 2D), 3D 3. */
   private val dims = Mux(ttype === T3D.U, 3.U, Mux(ttype === T1D.U, 1.U, 2.U))
@@ -275,7 +304,12 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   io.done := false.B
   io.resp.valid := state === sResp
   io.resp.bits.lane := lane
-  io.resp.bits.data := acc
+  // The image view's component swizzle (VkComponentMapping), on the result
+  // (gather applied it to its component instead).
+  private def oneOf: UInt = Mux(isInt, 1.U(32.W), "h3F800000".U(32.W))
+  io.resp.bits.data := Mux(isGather, acc, VecInit((0 until 4).map { i =>
+    MuxLookup(swz(i), acc(i))(Seq(1.U -> 0.U, 2.U -> oneOf, 3.U -> acc(0), 4.U -> acc(1), 5.U -> acc(2), 6.U -> acc(3)))
+  }))
   io.gpuMem.req := false.B; io.gpuMem.addr := 0.U; io.gpuMem.wr := false.B
   io.gpuMem.wdata := 0.U; io.gpuMem.wlen := 1.U
 
@@ -344,7 +378,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
           }.otherwise {
             val j = Mux(k < 9.U, k - 6.U, k - 9.U)                     // axis 0..2
             val src = Mux(k < 9.U, lodTmp(j), lodTmp(j +& 3.U))
-            fmaA := Mux(j === 2.U && !is3D, 0.U, abs(src))
+            // 1D arrays carry the layer in v: only u counts (dt = 0 for 1D).
+            fmaA := Mux((j === 2.U && !is3D) || (j === 1.U && ttype === T1D.U), 0.U, abs(src))
             fmaB := VecInit(size)(j)
             fmaC := Mux(j === 0.U, 0.U, Mux(k < 9.U, lodSum(0), lodSum(1)))
           }
@@ -385,10 +420,11 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val a = args(lane)
       // LOD: base, bias, clamps -- all Q.8.
       val q = (levels - 1.U).zext << 8
-      val base0 = MuxLookup(lodMode(ctl), quadLod)(Seq(
-        LodBias.U -> (quadLod + fpToFixed(a.lod, 8, 24)),
-        LodExplicit.U -> fpToFixed(a.lod, 8, 24)))
-      val biased = base0 + fpToFixed(sd(1), 8, 24)
+      // lambda = base + clamp(sampler bias + shader bias, +-maxSamplerLodBias).
+      val base0 = Mux(lodMode(ctl) === LodExplicit.U, fpToFixed(a.lod, 8, 24), quadLod)
+      val biasSum = fpToFixed(sd(1), 8, 24) +& Mux(lodMode(ctl) === LodBias.U, fpToFixed(a.lod, 8, 24), 0.S)
+      val maxB = (MaxLodBias << 8).S
+      val biased = base0 + Mux(biasSum > maxB, maxB, Mux(biasSum < -maxB, -maxB, biasSum))
       val minL = fpToFixed(sd(2), 8, 24); val maxL = fpToFixed(sd(3), 8, 24)
       val lam = Mux(biased < minL, minL, Mux(biased > maxL, maxL, biased))
       val mag = lam <= 0.S
@@ -475,7 +511,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       mulB := size
       val scaled = (product >> 16).asSInt                 // Q.8
       val x8 = Mux(isFetch, (c(19, 0).asSInt << 8), Mux(unnorm, fpToFixed(c, 8, 28), scaled))
-      val off = MuxLookup(ax, 0.S(4.W))(Seq(0.U -> offU(ctl), 1.U -> offV(ctl)))
+      val off = MuxLookup(ax, 0.S(4.W))(Seq(0.U -> offU(ctl), 1.U -> offV(ctl),
+                                            2.U -> Mux(ttype === T3D.U, offW(ctl), 0.S)))
       val xs = Mux(linear, x8 - 128.S, x8)                // texel centres at +0.5
       val first = (xs >> 8) + Mux(isFetch, 0.S, off)
       i0(ax) := first; i1(ax) := first + 1.S
@@ -620,12 +657,17 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       // one matching the format, so the format decides.
       val bOne = Mux(isInt, 1.U(32.W), oneF)
       val bv = Mux(isAlpha, Mux(border >= 2.U, bOne, 0.U), Mux(border >= 4.U, bOne, 0.U))
-      vals(k(1, 0)) := Mux(tBorder, bv, Mux(w === 0.U, dflt, v))
+      // The border colour replaces only the channels the format has; the
+      // missing ones read (0, 0, 0, 1) as for any texel.
+      vals(k(1, 0)) := Mux(w === 0.U, dflt, Mux(tBorder, bv, v))
       when(k === 3.U) { k := 0.U; state := Mux(doCmp, sCompare, sAcc) }.otherwise { k := k + 1.U }
     }
     is(sCompare) {
       // Depth compare, per tap before filtering: dref OP texel as 1.0 or 0.0.
-      val dref = ordered(args(lane).dref); val dtex = ordered(vals(0))
+      // A UNORM depth format clamps the reference to [0, 1] first.
+      val d0 = args(lane).dref
+      val dClamped = Mux(d0(31), 0.U, Mux(d0 > "h3F800000".U, "h3F800000".U, d0))
+      val dref = ordered(Mux(fmt.kind === TexFormat.UNORM.U, dClamped, d0)); val dtex = ordered(vals(0))
       val pass = MuxLookup(cmpOp, false.B)(Seq(
         1.U -> (dref < dtex), 2.U -> (dref === dtex), 3.U -> (dref <= dtex),
         4.U -> (dref > dtex), 5.U -> (dref =/= dtex), 6.U -> (dref >= dtex), 7.U -> true.B))
@@ -635,16 +677,20 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     }
     is(sAcc) {
       val single = (!linear || isFetch) && nLev === 1.U
+      // Gather reads the component the view's swizzle puts at `comp`.
+      val gsw = VecInit((0 until 4).map(swz))(comp(ctl))
+      val gathered = MuxLookup(gsw, vals(comp(ctl)))(Seq(1.U -> 0.U, 2.U -> oneOf,
+        3.U -> vals(0), 4.U -> vals(1), 5.U -> vals(2), 6.U -> vals(3)))
       when(isGather && tCorner && !isInt) {
         // A gathered corner texel is the average of the three, as filtered.
-        fmaA := "h3EAAAAAB".U; fmaB := vals(comp(ctl))                // 1/3
+        fmaA := "h3EAAAAAB".U; fmaB := gathered                         // 1/3
         fmaC := Mux(subTap === 0.U, 0.U, acc(tap(1, 0)))
         k := tap(1, 0); fmaWait := fmaLatency.U
         state := sAccWait
       }.elsewhen(isGather) {
         // An integer corner keeps its own face's texel, one of the three:
         // the spec's "may", which only requires equal texels to stay equal.
-        when(!tCorner || subTap === 0.U) { acc(tap(1, 0)) := vals(comp(ctl)) }
+        when(!tCorner || subTap === 0.U) { acc(tap(1, 0)) := gathered }
         state := sTapNext
       }.elsewhen(single || isInt) {
         acc := vals

@@ -83,11 +83,13 @@ restart), the vertex positions `n0, n1, n2` are:
 |----------------|-------------|---------------|---------------|
 | list           | 3p          | 3p+1          | 3p+2          |
 | strip, p even  | p           | p+1           | p+2           |
-| strip, p odd   | p+1         | p             | p+2           |
+| strip, p odd   | p           | p+2           | p+1           |
 | fan            | p+1         | p+2           | 0             |
 
-Strips swap the first two corners on odd primitives, which keeps the winding
-the same. Without an index buffer, `VertexIndex = firstVertex + n`. With one,
+These are Vulkan's orders, and `n0` is the provoking vertex (flat shading
+reads corner 0). Odd strip primitives swap their last two corners, which
+keeps the winding the same (`rasterization.flatshading.triangle_strip`
+checks exactly this; an earlier order swapped the first two). Without an index buffer, `VertexIndex = firstVertex + n`. With one,
 `VertexIndex = index[n] + vertexOffset`. With restart enabled on a strip or
 fan, an index of all ones (of the index type) ends the strip: assembly
 continues with a new strip after the last restart index the primitive
@@ -170,7 +172,8 @@ to the triangle's depth offset, so every sample of every pixel carries it:
 
 - `m = max(|dz/dx|, |dz/dy|)` of FragCoord.z, the approximation the spec
   allows;
-- `r = 2^-16` for D16_UNORM; for D32_SFLOAT `2^(e - 23)`, `e` the exponent
+- `r = 2^-15` for D16_UNORM (the spec's largest; 2^-16 is a hair under
+  one D16 step); for D32_SFLOAT `2^(e - 23)`, `e` the exponent
   of the triangle's largest depth, which is exactly `ulp(max z)`. The largest
   depth is the depth plane at the three corners, or 1.0 with a corner behind
   the eye.
@@ -179,8 +182,15 @@ to the triangle's depth offset, so every sample of every pixel carries it:
 
 The depth test compares in float order (a negative depth, which bias can
 produce, is below every positive one; -0 equals +0), and a draw's fragment
-depth into a D16 attachment is clamped to [0, 1] first, as the format holds
-nothing else.
+depth into a D16 attachment is clamped to [0, 1] and **rounded to D16**
+first -- per sample, which only hardware can do at 4x -- with the flush's
+and load's own conversions, so a depth stored, reloaded and drawn again
+with EQUAL passes (`d16_depth_is_invariant_across_store_and_reload`).
+
+A primitive **in the far plane** (Z = W at every corner: a skybox) gets
+the exact depth plane Zn = 1: rebuilt from rounded coefficients it came out
+1 +- an ulp, losing samples to the far test at 4x and failing LEQUAL
+against a 1.0 clear at D32 (`far_and_near_plane_primitives_are_inside`).
 
 ## Raster ROM and fragment ABI
 
