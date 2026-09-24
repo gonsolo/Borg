@@ -87,8 +87,9 @@ layer, which is all Vulkan requires of linear images.
 
 ## How a sample is computed
 
-1. **LOD.** Implicit: `rho = max(|du/dx|*W + |dv/dx|*H, |du/dy|*W + |dv/dy|*H)`
-   from lanes 1-0 and 2-0 (the approximation Vulkan allows), `lod =
+1. **LOD.** Implicit: `rho = max(|du/dx|*W + |dv/dx|*H + |dw/dx|*D, the
+   same in y)` from lanes 1-0 and 2-0 (the approximation Vulkan allows; the
+   w term only for 3D), `lod =
    log2(rho)` (a 64-entry table, 8 fraction bits). Plus the sampler's and
    TEXA's bias, clamped to [min, max]. `lod <= 0` magnifies (level 0, mag
    filter); otherwise the nearest level is `ceil(lod + 0.5) - 1`, or two
@@ -103,6 +104,12 @@ layer, which is all Vulkan requires of linear images.
    fetched (1-4 words), decoded to FP32, compared if asked, and added to the
    result with its weight on one FP32 FMA. Single taps and integer formats
    bypass the FMA and are exact.
+4. **Cube maps** filter seamlessly: a tap off a face reads the neighbouring
+   face across the edge (the remap is derived from the face definitions at
+   elaboration, `CubeEdges`), and a tap past a corner takes the average of
+   the three texels meeting there. Address modes do not apply to cubes. The
+   face comes from TEXA's layer (0-5, +X -X +Y -Y +Z -Z); the direction's
+   major-axis projection to (face, s, t) is the compiler's.
 
 Everything is sequential: one multiplier, one FMA, one field extractor. A
 sample costs tens to hundreds of cycles, which is the design point:
@@ -112,10 +119,10 @@ conformance at the area of a state machine.
 
     ; the texture and sampler descriptors in memory, and
     TEX_DESC_BASE, SAMPLER_DESC_BASE = their tables
-    ; u17 (from DRAW_FS_CONST) = control word: texture 0, sampler 0, implicit LOD
+    ; u21 (from DRAW_FS_CONST) = control word: texture 0, sampler 0, implicit LOD
     FATTR r10, 0                   ; interpolate u into r13 ...
     FATTR r10, 1                   ; ... and v into r14 (see B1)
-    TEX   r20, r13, r14, u17       ; funct3 = 3: rs3 is a uniform
+    TEX   r20, r13, r14, u21       ; funct3 = 3: rs3 is a uniform
     ; r20..r23 = RGBA
 
 `BorgDrawTests.renderToTexture` renders a triangle into an RGBA8 attachment,
@@ -127,11 +134,11 @@ and checks that the second image equals the first pixel for pixel.
 | What                                                        | Test |
 |-------------------------------------------------------------|------|
 | All 51 formats; 20 address mode/filter/border combinations on 5x3; explicit and implicit LOD, bias, clamp, trilinear on a 16x8 chain; 3D, 1D/2D arrays, linear layout, float filtering; compare (PCF), gather, texelFetch, offsets -- against a reference of Vulkan's rules | `BorgSamplerTests` |
+| Seamless cube: every edge and corner of all six faces, against a reference that folds taps over the edge in 3D | `BorgSamplerTests.seamless_cube_edges_and_corners` |
 | Render to texture and sample it, through the whole Borg     | `BorgDrawTests.render_to_texture_and_sample_it` |
 
 ## Not covered yet
 
-Seamless cube filtering (a tap past a face edge clamps instead of reading
-the neighbouring face), anisotropic filtering (an optional feature), and 3D
-textures' w derivative in the implicit LOD. Compressed formats (ETC2) are
+Anisotropic filtering (an optional feature) and cube arrays (the optional
+`imageCubeArray`). Compressed formats (ETC2) are
 expected to be decoded by the driver into a supported format.

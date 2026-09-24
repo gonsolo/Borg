@@ -125,6 +125,16 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // uniform words above the hardware's -- see BorgSetupRom.Record.
   val vsConstBase     = Input(UInt(25.W))
   val fsConstBase     = Input(UInt(25.W))
+  // Render window (FB_ORIGIN, FB_PITCH): the window's first tile in the
+  // framebuffer, and the framebuffer's tiles per row. Bins, tile walks and
+  // coordWidth stay window-relative; flush/load addresses and pixel
+  // coordinates are the framebuffer's.
+  val fbOriginX       = Input(UInt(12.W))
+  val fbOriginY       = Input(UInt(12.W))
+  val fbPitch         = Input(UInt(12.W))
+  // Colour attachments: how many (1..4); the tile is rendered once per
+  // attachment, see BorgTileSequencer.attPass.
+  val attCount        = Input(UInt(3.W))
 }
 
 class SeqBinnerIO(cfg: BorgConfig) extends Bundle {
@@ -232,6 +242,9 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val pipeWriteLanes = if (cfg.drawEnabled) Some(Flipped(Vec(cfg.fragLanes, new PipeWriteIO(cfg.totalBits)))) else None
   val ids        = if (cfg.drawEnabled) Some(Output(new InvocationIdsIO(cfg))) else None
   val record     = if (cfg.drawEnabled) Some(Output(new CoreRecordIO)) else None
+  val topLeft    = if (cfg.drawEnabled) Some(Output(Vec(3, Bool()))) else None
+  // The colour attachment the current tile pass renders (ATTIDX).
+  val attPass    = Output(UInt(2.W))
 }
 
 /** BorgSequencer — top-level supervisor over the GPU's two-pass
@@ -366,6 +379,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Pass 1 writes records; Pass 2 reads the current triangle's attributes.
     io.record.get := w.io.record
     io.record.get.attrBase := p2.io.attrBase.get
+    io.topLeft.get := p2.io.topLeft.get
   }
   // Pass-control is Pass 2's alone; Pass 1 never touches the tile buffer.
   io.pass.foreach { w =>
@@ -456,6 +470,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.texEnOverride := p2.io.texEnOverride
   io.frontFacingOverride := p2.io.frontFacingOverride
   io.curTriIndex := p2.io.curTriIndex
+  io.attPass := p2.io.attPass
 
   // --- BorgBinner: writer (start/triIndex/bbox/clearCounts) is Pass 1;
   // count-reader (countReadAddr/countReadEn/countReadData) is Pass 2. The

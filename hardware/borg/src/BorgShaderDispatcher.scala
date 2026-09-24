@@ -154,6 +154,22 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // like the three edges, and FragCoord.z to r29, which is the fragment's
   // depth unless the shader writes its own.
   val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None
+  // Draw mode: which edges are top or left edges -- a sample exactly on an
+  // edge is covered only for those (see BorgTileSequencer.topLeft).
+  val topLeft = if (cfg.drawEnabled) Some(Input(Vec(3, Bool()))) else None
+  // SAMPLE_MASK_CFG: the pipeline's static sample mask, alpha-to-coverage,
+  // and the shader's own mask (gl_SampleMask, written to r19).
+  val sampleCfg = Input(new SampleMaskConfig(cfg.samples))
+  // Per lane: the samples the triangle covers (after the static mask) --
+  // gl_SampleMaskIn, read by the SMASK instruction.
+  val laneCoverage = Output(Vec(cfg.fragLanes, UInt(cfg.samples.W)))
+}
+
+/** SAMPLE_MASK_CFG. */
+class SampleMaskConfig(val samples: Int) extends Bundle {
+  val mask        = UInt(samples.W)   // VkPipelineMultisampleStateCreateInfo::pSampleMask
+  val alphaToCov  = Bool()            // alphaToCoverageEnable
+  val shaderMask  = Bool()            // the fragment shader writes gl_SampleMask to r19
 }
 
 class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -249,7 +265,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   else None
 
   /** Per-lane, per-sample coverage. */
-  val coverage: Vec[Vec[Bool]] = cfg.samples match {
+  val geomCoverage: Vec[Vec[Bool]] = cfg.samples match {
     case 1 =>
       VecInit((0 until N).map(i =>
         VecInit(Seq(!e0_outside(i) && !e1_outside(i) && !e2_outside(i) &&
@@ -264,14 +280,29 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       val thresh = VecInit(planeDeltas.map { case (d0, d1) =>
         VecInit(Seq(fnegBits(d0), fnegBits(d1), d1, d0).map(ordered))
       })
+      // The raw thresholds too, for the draw-mode tie rule on the edges.
+      val threshRaw = VecInit(planeDeltas.map { case (d0, d1) => VecInit(Seq(fnegBits(d0), fnegBits(d1), d1, d0)) })
+      def zeroMag(x: UInt) = x(cfg.totalBits - 2, 0) === 0.U
       VecInit((0 until N).map { i =>
         VecInit((0 until cfg.samples).map { s =>
           def test(e: Int) = ordered(e_val.get(i)(e)) >= thresh(e)(s)
-          val edges = (0 until 3).map(test).reduce(_ && _)
+          // A sample exactly on an edge (E == -delta, +0 and -0 alike)
+          // belongs to the triangle only if the edge is top or left.
+          def edge(e: Int) = if (!cfg.drawEnabled) test(e) else {
+            val v = e_val.get(i)(e); val th = threshRaw(e)(s)
+            val tie = v === th || (zeroMag(v) && zeroMag(th))
+            Mux(drawMode, (ordered(v) > thresh(e)(s) && !tie) || (tie && io.topLeft.get(e)), test(e))
+          }
+          val edges = (0 until 3).map(edge).reduce(_ && _)
           if (cfg.drawEnabled) edges && (!drawMode || (test(3) && test(4))) else edges
         })
       })
   }
+
+  // The sample mask test: the pipeline's static mask, before shading.
+  val coverage: Vec[Vec[Bool]] = VecInit((0 until N).map(i =>
+    VecInit((0 until cfg.samples).map(s => geomCoverage(i)(s) && io.sampleCfg.mask(s)))))
+  io.laneCoverage := VecInit(coverage.map(c => Cat(c.reverse)))
 
   val inside_flag = VecInit((0 until N).map(i => coverage(i).reduce(_ || _)))
   val any_inside  = inside_flag.reduce(_ || _)
@@ -316,6 +347,31 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // quad below (same lifecycle as e0/e1/e2_outside), gates tile write-back in
   // sTileWrite exactly like inside_flag already does.
   val killed = RegInit(VecInit(Seq.fill(N)(false.B)))
+  // Draw mode at MSAA: each sample's own depth (the raster ROM's r11..r14),
+  // used unless the shader writes its depth (r29), which then holds for all.
+  val frag_zs  = Option.when(cfg.drawEnabled && cfg.samples == 4)(Reg(Vec(N, Vec(4, UInt(32.W)))))
+  val zWritten = RegInit(VecInit(Seq.fill(N)(false.B)))
+  def zAt(l: UInt, s: UInt): UInt =
+    frag_zs.map(zs => Mux(drawMode && !zWritten(l), zs(l)(s(1, 0)), frag_z(l))).getOrElse(frag_z(l))
+  // gl_SampleMask as the shader wrote it (r19), all ones until it does.
+  val fragMask = RegInit(VecInit(Seq.fill(N)(((1 << cfg.samples) - 1).U(cfg.samples.W))))
+  /** Alpha to coverage: the first round(alpha * samples) samples -- a
+    * monotonic mapping, which is all Vulkan asks of it. */
+  def alphaMask(a: UInt): UInt = {
+    val o = (x: UInt) => Mux(x(15), ~x, x | 0x8000.U)            // FP16 order key
+    val steps = (1 to cfg.samples).map { k =>
+      val th = java.lang.Float.floatToFloat16(((k - 0.5) / cfg.samples).toFloat).toInt & 0xFFFF
+      o(a) >= o(th.U(16.W))
+    }
+    val n = PopCount(steps)
+    ((1.U << n) - 1.U)(cfg.samples - 1, 0)
+  }
+  def postMask(i: UInt): Vec[Bool] = {
+    val a2c = frag_a.map(a => alphaMask(a(i))).getOrElse(((1 << cfg.samples) - 1).U)
+    val m = Mux(io.sampleCfg.alphaToCov, a2c, ((1 << cfg.samples) - 1).U(cfg.samples.W)) &
+            Mux(io.sampleCfg.shaderMask, fragMask(i), ((1 << cfg.samples) - 1).U(cfg.samples.W))
+    VecInit(m.asBools)
+  }
 
   // --- Early per-fragment tests (ZTEST) ---------------------------------
   //
@@ -527,6 +583,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       // Re-arm the opaque default every quad: a shader that writes r24 on one
       // quad and not the next must not inherit the previous quad's alpha.
       frag_a.foreach(_(i) := 0x3C00.U)
+      fragMask(i) := ((1 << cfg.samples) - 1).U
+      zWritten(i) := false.B
     }
     laneCtr := 0.U
     sampleCtr.foreach(_ := 0.U)
@@ -697,7 +755,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // historical unconditional store.
     // After ZTEST the depth is already final in the tile buffer: keep it.
     io.tileWrite.data.z := (if (cfg.samples == 1 || needPerSample)
-                              Mux(io.depthWriteEn && !earlyDone, frag_z(laneIdx), io.tileRead.data(srcIdx).z)
+                              Mux(io.depthWriteEn && !earlyDone, zAt(laneIdx, dstIdx), io.tileRead.data(srcIdx).z)
                             else frag_z(laneIdx))
     // Depth test, per sample: a sample takes the fragment only if the lane is
     // inside (coverage), not discarded, AND this sample's own stored Z is
@@ -730,7 +788,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // fragments through (VK_CULL_MODE_NONE/FRONT).
     val stencilRes = if (cfg.hasStencil) {
       Some(BorgStencil.evaluate(io.stencilCfg.get, io.frontFacing.get, io.stencilRead.get(dstIdx),
-                                depthPasses(frag_z(laneIdx), io.tileRead.data(srcIdx).z)))
+                                depthPasses(zAt(laneIdx, dstIdx), io.tileRead.data(srcIdx).z)))
     } else None
 
     // "The fragment reached the per-fragment tests at all": covered by the
@@ -744,15 +802,19 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // structurally identical to the pre-serialization design -- and "the
     // untouched path is unchanged, not merely equivalent" is a property worth
     // keeping literally true.
+    // Alpha to coverage and the shader's sample mask narrow the coverage
+    // after the shader -- and after early tests, which ran without them.
     def reached(s: Int): Bool =
-      coverage(laneIdx)(s) && !killed(laneIdx) && io.scissorPass(laneIdx)
+      coverage(laneIdx)(s) && !killed(laneIdx) && io.scissorPass(laneIdx) &&
+        (earlyActive || postMask(laneIdx)(s))
     def reachedDyn(s: UInt): Bool =
-      coverage(laneIdx)(s) && !killed(laneIdx) && io.scissorPass(laneIdx)
+      coverage(laneIdx)(s) && !killed(laneIdx) && io.scissorPass(laneIdx) &&
+        (earlyActive || postMask(laneIdx)(s))
 
     if (needPerSample) {
       // Serialized: one sample per cycle, one-hot coverage.
       val testOk = stencilRes.map(_.pass)
-        .getOrElse(depthPasses(frag_z(laneIdx), io.tileRead.data(srcIdx).z))
+        .getOrElse(depthPasses(zAt(laneIdx, dstIdx), io.tileRead.data(srcIdx).z))
       val depthOk = Mux(earlyDone, earlyPass(laneIdx)(dstIdx), testOk)
       val pass = reachedDyn(dstIdx) && depthOk
       val oneHot = UIntToOH(dstIdx, cfg.samples)
@@ -776,7 +838,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
           // evaluate() already folds the depth result in, and additionally
           // requires the stencil test to pass.
           case Some(r) if s == 0 => r.pass
-          case _                 => depthPasses(frag_z(laneIdx), io.tileRead.data(s).z)
+          case _                 => depthPasses(zAt(laneIdx, s.U), io.tileRead.data(s).z)
         }
         // earlyDone only ever sets where earlySupported, i.e. samples == 1
         // on this path.
@@ -875,14 +937,24 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // its own r0/r1/r2 via its own pipeWrite port.
   for (i <- 0 until N) {
     when(io.pipeWrite(i).en && phase === sRast) {
-      when(io.pipeWrite(i).addr === 0.U) { e0_outside(i) := isOutside(io.pipeWrite(i).data) }
-      when(io.pipeWrite(i).addr === 1.U) { e1_outside(i) := isOutside(io.pipeWrite(i).data) }
-      when(io.pipeWrite(i).addr === 2.U) { e2_outside(i) := isOutside(io.pipeWrite(i).data) }
+      // Draw mode at one sample: an edge value of exactly 0 is inside only
+      // for a top or left edge (the tie rule; see io.topLeft).
+      def out(e: Int): Bool = {
+        val d = io.pipeWrite(i).data
+        val onEdge = d(config.totalBits - 2, 0) === 0.U
+        isOutside(d) || io.topLeft.map(tl => drawMode && onEdge && !tl(e)).getOrElse(false.B)
+      }
+      when(io.pipeWrite(i).addr === 0.U) { e0_outside(i) := out(0) }
+      when(io.pipeWrite(i).addr === 1.U) { e1_outside(i) := out(1) }
+      when(io.pipeWrite(i).addr === 2.U) { e2_outside(i) := out(2) }
       z_outside.foreach { z =>
         when(io.pipeWrite(i).addr === 3.U) { z(i)(0) := isOutside(io.pipeWrite(i).data) }
         when(io.pipeWrite(i).addr === 4.U) { z(i)(1) := isOutside(io.pipeWrite(i).data) }
         // FragCoord.z, the depth unless the fragment shader writes its own.
         when(drawMode && io.pipeWrite(i).addr === 29.U) { frag_z(i) := io.pipeWrite(i).data(31, 0) }
+        frag_zs.foreach { zs =>
+          for (smp <- 0 until 4) when(io.pipeWrite(i).addr === (11 + smp).U) { zs(i)(smp) := io.pipeWrite(i).data(31, 0) }
+        }
       }
       // MSAA also needs the raw edge magnitudes, not just their signs, to test
       // each sample's offset position.  Same write, same cycle, same registers'
@@ -910,11 +982,15 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       frag_a.foreach { a =>
         when(io.pipeWrite(i).addr === 24.U) { a(i) := fragNarrow(io.pipeWrite(i).data) }
       }
+      when(io.sampleCfg.shaderMask && io.pipeWrite(i).addr === 19.U) {
+        fragMask(i) := io.pipeWrite(i).data(cfg.samples - 1, 0)
+      }
       when(io.pipeWrite(i).addr === 25.U) { killed(i) := killed(i) || (io.pipeWrite(i).data =/= 0.U) }
       when(io.pipeWrite(i).addr === 26.U) { frag_r(i) := fragNarrow(io.pipeWrite(i).data) }
       when(io.pipeWrite(i).addr === 27.U) { frag_g(i) := fragNarrow(io.pipeWrite(i).data) }
       when(io.pipeWrite(i).addr === 28.U) { frag_b(i) := fragNarrow(io.pipeWrite(i).data) }
       when(io.pipeWrite(i).addr === 29.U) {
+        zWritten(i) := true.B
         frag_z(i) := (if (cfg.tileDepthBits == 32) io.pipeWrite(i).data(31, 0)
                       else fragNarrow(io.pipeWrite(i).data))
       }

@@ -166,6 +166,21 @@ object Instructions {
   // barycentrics. The index is packed into rs2:rs1, as (rs2 << 5) | rs1, like
   // a branch target. rd must leave room for all three (rd <= 29).
   val FUNCT7_FATTR = 0x44
+  // SMASK rd: this lane's coverage mask -- the samples of the pixel the
+  // triangle covers, after the pipeline's static sample mask -- as an
+  // integer (gl_SampleMaskIn). With the edge planes in u0..u8 it also gives
+  // the compiler centroid interpolation: evaluate the planes at the first
+  // covered sample instead of the centre.
+  val FUNCT7_SMASK = 0x46
+  // ATTIDX rd: the colour attachment this pass of the tile renders (0..3).
+  // With several attachments the tile is rendered once per attachment; the
+  // fragment shader writes that attachment's colour to r24/r26..r28.
+  val FUNCT7_ATTIDX = 0x48
+  // The two RISC-V integer ops ISHR/ISLT left out: SRL (logical shift right)
+  // and SLTU (unsigned less-than). Emulating them cost several instructions
+  // each -- and every 16-bit index unpack or unsigned bounds check needs one.
+  val FUNCT7_ISRL  = 0x4A  // rd = rs1 >>> (rs2 & 31)   (logical)
+  val FUNCT7_ISLTU = 0x4C  // rd = (rs1 <u rs2) ? 1 : 0
   // @doc:end
 
   // R4-type sub-opcodes (opcode bit 2 set, discriminated by the 2-bit funct2
@@ -267,6 +282,10 @@ object Instructions {
   }
   /** TEXA: w/layer, LOD/bias and depth reference for the next TEX. */
   def TEXA(rs1: Int, rs2: Int, rs3: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, FUNCT2_TEXA, rs2, rs1, 0, funct3)
+  def SMASK(rd: Int): BigInt = encodeRType(FUNCT7_SMASK, 0, 0, rd)
+  def ATTIDX(rd: Int): BigInt = encodeRType(FUNCT7_ATTIDX, 0, 0, rd)
+  def ISRL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISRL, rs2, rs1, rd, funct3)
+  def ISLTU(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISLTU, rs2, rs1, rd, funct3)
   /** SOUT: store rs2 as output component `index` (packed into rs1:rd). */
   def SOUT(rs2: Int, index: Int, funct3: Int = 0): BigInt = {
     val (hi, lo) = branchTargetFields(index)
@@ -336,7 +355,11 @@ object Instructions {
     ("EXANY",  FUNCT7_EXANY,  MaskDest),
     ("ZTEST",  FUNCT7_ZTEST,  Mask0),
     ("SOUT",   FUNCT7_SOUT,   StoreIdx),
-    ("FATTR",  FUNCT7_FATTR,  LoadIdx)
+    ("FATTR",  FUNCT7_FATTR,  LoadIdx),
+    ("SMASK",  FUNCT7_SMASK,  MaskDest),
+    ("ATTIDX", FUNCT7_ATTIDX, MaskDest),
+    ("ISRL",   FUNCT7_ISRL,   RType),
+    ("ISLTU",  FUNCT7_ISLTU,  RType)
   )
 
   // --- String Formatters for C / Python Generation ---

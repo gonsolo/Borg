@@ -54,7 +54,16 @@ All `nogen`, decoded in `Borg.wireDraw`.
 | `VIEWPORT_SX/SY/OX/OY`| 0x358-0x364 | FP32: screen = ndc * s + o                                 |
 | `DEPTH_SCALE/OFFSET`  | 0x368, 0x36C | FP32: FragCoord.z = z_ndc * scale + offset              |
 | `DRAW_VS_CONST`       | 0x370   | the vertex shader's constant window (10 words), 0 = none       |
-| `DRAW_FS_CONST`       | 0x374   | the fragment shader's constant window (16 words), 0 = none     |
+| `DRAW_FS_CONST`       | 0x374   | the fragment shader's constant window (12 words), 0 = none     |
+| `SAMPLE_MASK_CFG`     | 0x380   | [3:0] sample mask, [4] alpha to coverage, [5] shader mask in r19 |
+| `SEQ_TILE_ROWS`       | 0x384   | the render window's tile rows (0 = `SEQ_TILES_PER_ROW`)          |
+| `FB_ORIGIN`           | 0x388   | the window's first tile: x [11:0], y [27:16]                     |
+| `FB_PITCH`            | 0x38C   | the framebuffer's tiles per row (0 = `SEQ_TILES_PER_ROW`)        |
+| `ATT_CFG`             | 0x390   | [1:0] colour attachments - 1, [4:2] loadOp LOAD of attachments 1-3 |
+| `ATT_FORMAT`          | 0x394   | `FLUSH_FORMAT` of attachments 1-3: [1:0], [3:2], [5:4]           |
+| `ATT_BASE1..3`        | 0x398-0x3A0 | colour base of attachments 1-3                               |
+| `ATT_CLEAR_RG1..3`    | 0x3A4-0x3AC | clear R, G (FP16) of attachments 1-3                         |
+| `ATT_CLEAR_BA1..3`    | 0x3B0-0x3B8 | clear B (FP16 [31:16]) and A (UNORM8 [7:0]) of attachments 1-3 |
 
 The draw also uses the sequencer's existing registers: vertex and fragment
 shader address and length, bin base and row size, `SEQ_SETUP_BASE` (the
@@ -144,22 +153,27 @@ the mantissa); both ROMs add one Newton step, for about 22 bits.
 ## Raster ROM and fragment ABI
 
 With `DRAW_CFG.mode` set, the dispatcher's per-pixel trigger runs
-`BorgRasterRom.drawInstructions` (26 words) instead of the legacy edge test.
-It evaluates `E0, E1, E2, Zn, Zf` into r0-r4; the dispatcher snoops all five
-for coverage, per sample at 4x MSAA (the far plane's sample thresholds are
-the depth plane's with the signs swapped). Pixel centres are built in FP32,
-exact at any framebuffer size.
+`BorgRasterRom.drawInstructions` instead of the legacy edge test. It
+evaluates `E0, E1, E2, Zn, Zf` into r0-r4; the dispatcher snoops all five for
+coverage, per sample at 4x MSAA (the far plane's sample thresholds are the
+depth plane's with the signs swapped). Pixel centres are built in FP32, exact
+at any framebuffer size.
 
 | Register | At fragment-shader start                                   |
 |----------|------------------------------------------------------------|
-| r0-r2    | `E0..E2` (screen-linear; `Ek*Wk` is the noperspective barycentric) |
+| r0-r2    | `E0..E2`: the edge planes, unscaled (see [Watertight edges](#watertight-edges)) |
 | r3, r4   | `Zn = z_ndc` and `Zf = 1 - z_ndc`                           |
 | r5-r7    | perspective-correct barycentrics `λk = Ek / sum(E)`        |
-| r8       | `FragCoord.w = sum(E) = 1/w`                               |
+| r8       | `FragCoord.w = sum(E) * |1/det M| = 1/w`                    |
 | r9, r10  | clobbered                                                  |
-| r29      | `FragCoord.z`; the fragment's depth unless the shader writes r29 |
+| r11-r14  | the depth at each MSAA sample (see [Per-sample depth](#per-sample-depth)) |
+| r29      | `FragCoord.z`; the fragment's depth if the shader writes r29 |
 | r30, r31 | `FragCoord.xy`, the pixel centre                           |
-| u16-u31  | the constant window, loaded from `DRAW_FS_CONST` once per render |
+| u0-u19   | the triangle's record image: its planes (see below)        |
+| u20-u31  | the constant window, loaded from `DRAW_FS_CONST` once per render |
+
+The noperspective barycentric of corner k is `Ek * Wk * |1/det M|`
+(`Wk` is available if the vertex shader outputs it as a varying).
 
 **`FATTR rd, index`** (funct7 0x44) loads component `index`'s three
 per-vertex values into `rd, rd+1, rd+2` of every active lane (one memory
@@ -171,19 +185,100 @@ read per word for the whole quad). A varying is then
 caching attributes on chip is a possible later optimization, not part of the
 contract.
 
+### Watertight edges
+
+A sample on an edge two triangles share must be covered by exactly one of
+them. The setup ROM therefore stores each edge plane **unscaled**: the cross
+product of the edge's two corners, each component `round(p) - round(q)` of
+two separately rounded products (no FMA), with its sign flipped when
+`det M < 0` so that inside is `>= 0`. The triangle on the other side of the
+edge computes the exact negation, and the per-pixel evaluation and the MSAA
+deltas are sign-symmetric too, so the two triangles' values are exact
+opposites at every sample. A sample exactly on an edge (value 0) is then
+covered only by the triangle for which the edge is a **top or left** edge:
+inward normal `(a, b)` with `a > 0`, or `a == 0` and `b > 0`. The tile
+sequencer derives those flags from the planes as they arrive. The division
+by `det M` that used to scale the planes cancels in `Ek / sum(E)`; it
+survives only as `|1/det M|` for `FragCoord.w` and in the depth plane.
+
+### Per-sample depth
+
+At 4x MSAA the depth test uses each sample's own depth, not the centre's:
+the raster ROM computes `FragCoord.z + {d0, d1, -d1, -d0}` into r11-r14 from
+the depth plane's sample deltas (record words 17-18, already in framebuffer
+depth), and the dispatcher tests and stores sample s with its own value. If
+the shader writes r29 (`FragDepth`), that value is used for every sample.
+Builds without blend or stencil write one depth per pixel (their tile writes
+are broadcast), and keep the centre's.
+
+### Sample masks and coverage in the shader
+
+`SAMPLE_MASK_CFG` (0x380): bits [3:0] the pipeline's static sample mask
+(`pSampleMask`, reset all ones), bit 4 alpha to coverage, bit 5 the fragment
+shader writes `gl_SampleMask` to **r19**. The static mask applies before
+shading; alpha to coverage (the first `round(alpha * 4)` samples) and the
+shader's mask after it, and after `ZTEST`'s early depth writes.
+
+**`SMASK rd`** (funct7 0x46) returns the lane's coverage mask after the
+static mask: `gl_SampleMaskIn`. It also gives the compiler **centroid**
+interpolation: when the mask is not full, evaluate the edge planes (in
+u0-u8) at the first covered sample's offset, `Ek + ak*ox + bk*oy`, and
+normalize as usual.
+
+## Render windows
+
+A render covers a **window** of `SEQ_TILES_PER_ROW x SEQ_TILE_ROWS` tiles
+whose first tile is `FB_ORIGIN`, inside a framebuffer `FB_PITCH` tiles wide.
+Bins, the tile walk and `coordWidth` are window-relative; flush and load
+addresses, pixel centres (FragCoord), the scissor and the viewport are the
+framebuffer's. A framebuffer larger than one render's bin table (256x256
+pixels on the ULX3S/sim build) is drawn as several windows -- the same draw,
+once per window; a triangle entirely outside a window is not binned there.
+With the registers at reset the window is the whole, square framebuffer.
+
+## Colour attachments
+
+`ATT_CFG` sets 1-4 colour attachments. Attachment 0 is the historical one
+(`SEQ_FB_BASE`, `FLUSH_FORMAT`, the sequencer's clear colour, `TILE_LOAD`
+bit 0); 1-3 have their own base, format, clear colour and loadOp. Each tile
+is rendered **once per attachment**, clearing or loading that attachment,
+running every triangle and flushing to it. **`ATTIDX rd`** (funct7 0x48)
+returns the attachment the pass renders, and the fragment shader writes that
+attachment's colour to r24/r26-r28. Depth and stencil are the same in every
+pass and are stored in the last; the occlusion count is taken in the first.
+Like multi-pass MSAA, a fragment shader's stores would run once per
+attachment, which the optional `fragmentStoresAndAtomics` feature (not
+reported) would forbid.
+
+## Points and lines
+
+No hardware: they are expanded into triangles in the vertex stage. The
+driver draws a triangle list of 6 vertices per point or line segment; each
+vertex-shader run derives its primitive and corner from `VertexIndex`,
+pulls the endpoint(s) itself (through the index buffer, if any), clips a
+segment to the near plane in clip space, and offsets its corner by half a
+pixel -- for a line, along the minor axis, which is the parallelogram Vulkan
+allows for non-strict lines (`strictLines = false`); for a point, a 1x1
+square (`largePoints` not reported). The corners carry their endpoint's
+varyings, so attributes interpolate along the line with perspective
+correction; `gl_PointCoord` is a varying the vertex stage adds.
+
 ## Records and the uniform bank
 
 Triangle `t`'s record is at `SEQ_SETUP_BASE + (t << DRAW_CFG.record_shift)`:
 
 | Words  | Contents                                                          |
 |--------|-------------------------------------------------------------------|
-| 0-11   | planes a, b, c of E0, E1, E2, Zn                                  |
+| 0-8    | edge planes a, b, c of E0, E1, E2 (unscaled, sign-normalized)     |
+| 9-11   | depth plane Zn: a, b, c                                           |
 | 12-14  | depth scale, depth offset, 1.0                                    |
 | 15     | meta: bit 1 = back-facing (written by the walker)                 |
+| 16     | `|1/det M|`                                                       |
+| 17-18  | the depth plane's sample deltas in framebuffer depth              |
 | 32-39  | MSAA sample deltas d0, d1 of each of the four planes              |
 | 48-... | varyings, three words per component (`SOUT`, `FATTR`)             |
 
-Pass 2 DMAs words 0-15 into the uniform bank per triangle (the setup cache
+Pass 2 DMAs words 0-19 into the uniform bank per triangle (the setup cache
 keeps one or two triangles resident) and words 32-39 into the coverage
 logic. The uniform bank is thus split in both passes: the low words are the
 hardware's per-triangle data, the high words the stage's constant window,
@@ -192,7 +287,7 @@ which the per-triangle loads never touch.
 | Pass | Hardware words             | Constant window                    |
 |------|----------------------------|------------------------------------|
 | 1    | u0-u21: setup ROM inputs   | u22-u31: vertex shader (10 words)  |
-| 2    | u0-u15: record words 0-15  | u16-u31: fragment shader (16 words)|
+| 2    | u0-u19: record words 0-19  | u20-u31: fragment shader (12 words)|
 
 The driver picks the smallest record shift that fits the pipeline's outputs:
 `48 + 3*N` words for `N` varying components, so 8 (256 bytes) for up to five
@@ -219,7 +314,7 @@ on every configuration. All addresses are GPU byte addresses.
 - Optionally an index buffer (16- or 32-bit).
 - The vertex constant window, 10 words: here word 0 = vertex buffer word
   address (`vb / 4`), word 1 = 6 (stride), word 2 = 1.
-- The fragment constant window, 16 words: here word 0 = 0.0.
+- The fragment constant window, 12 words: here word 0 = 0.0.
 - Room for the records: `triangles << record_shift` bytes at
   `SEQ_SETUP_BASE`, plus the bin table and the framebuffer as usual.
 
@@ -245,7 +340,7 @@ on every configuration. All addresses are GPU byte addresses.
     FMADD r26, r7, r12, r26
     FATTR r10, 1              ; green likewise into r27
     ...
-    FMUL  r28, r5, u16        ; blue = 0.0 from the constant window
+    FMUL  r28, r5, u20        ; blue = 0.0 from the constant window
     HALT                      ; depth: r29 already holds FragCoord.z
 
 **Registers**, then `SEQ_TRIGGER`:
@@ -275,9 +370,13 @@ holds five varying components; use 10 for up to 64.
 | Setup ROM vs a double-precision inverse, corners behind the eye | `BorgSetupRomTests`                          |
 | Raster ROM: planes, barycentrics, 1/w, depth                | `BorgSetupRomTests`                              |
 | Whole draws: perspective-correct varyings, depth planes, corners behind the eye, lists, strips, fans, restart, instancing; single-lane, 4-lane and Wafer sizing | `BorgDrawTests` |
+| Shared edges covered exactly once (an edge through samples, a random perspective fan) | `BorgDrawTests.shared_edges_are_covered_exactly_once` |
+| Static sample mask, alpha to coverage, shader mask, SMASK    | `BorgDrawTests.sample_mask_alpha_to_coverage_and_smask` |
+| Depth tested at each sample's position                      | `BorgDrawTests.depth_is_tested_per_sample` |
+| A 16x8 framebuffer as one non-square window and as two windows | `BorgDrawTests.render_windows_and_non_square_framebuffers` |
+| Three colour attachments (cleared, BGRA, loaded) with depth LESS | `BorgDrawTests.several_colour_attachments` |
 
 ## Not covered yet
 
-Points and lines (the driver can expand them into triangles meanwhile), the
-top-left fill rule, per-sample depth at MSAA, centroid interpolation, and
-the sample mask and alpha-to-coverage. All of them build on the same planes.
+Nothing in the hardware list; the compiler and driver still have to target
+this ABI before the legacy path can go.

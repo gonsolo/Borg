@@ -34,6 +34,7 @@ object BorgBinnerTests extends TestSuite {
     d.io.binBase.poke(0.U)
     d.io.binRowBytes.poke(0.U)
     d.io.tilesPerRow.poke(0.U)
+    d.io.tileRows.poke(0.U)          // a square grid
     d.io.gpuMem.ready.poke(false.B)
     d.io.gpuMem.data.poke(0.U)
     d.io.clearCounts.poke(false.B)
@@ -84,6 +85,7 @@ object BorgBinnerTests extends TestSuite {
         d.io.binBase.poke(binBase.U)
         d.io.binRowBytes.poke(binRowBytes.U)
         d.io.tilesPerRow.poke(tilesPerRow.U)
+        d.io.tileRows.poke(tilesPerRow.U)          // a square grid
 
         // Bbox covers tile (0,0) only: min=(0,0) max=(4,4)
         d.io.bbox.min.x.poke(0.U)
@@ -143,6 +145,7 @@ object BorgBinnerTests extends TestSuite {
         d.io.binBase.poke(binBase.U)
         d.io.binRowBytes.poke(binRowBytes.U)
         d.io.tilesPerRow.poke(tilesPerRow.U)
+        d.io.tileRows.poke(tilesPerRow.U)          // a square grid
 
         // Bbox covers all 4 tiles: min=(0,0) max=(8,8) → tiles (0,0),(4,0),(0,4),(4,4)
         d.io.bbox.min.x.poke(0.U)
@@ -206,6 +209,7 @@ object BorgBinnerTests extends TestSuite {
         d.io.binBase.poke(binBase.U)
         d.io.binRowBytes.poke(binRowBytes.U)
         d.io.tilesPerRow.poke(tilesPerRow.U)
+        d.io.tileRows.poke(tilesPerRow.U)          // a square grid
 
         // Helper: bin one triangle to a single tile (0,0)
         def binTriangle(triIdx: Int): Long = {
@@ -269,6 +273,7 @@ object BorgBinnerTests extends TestSuite {
         d.io.binBase.poke(binBase.U)
         d.io.binRowBytes.poke(binRowBytes.U)
         d.io.tilesPerRow.poke(tilesPerRow.U)
+        d.io.tileRows.poke(tilesPerRow.U)          // a square grid
 
         // Bin one triangle to tile (0,0) — increments count to 1
         d.io.bbox.min.x.poke(0.U)

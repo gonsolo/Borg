@@ -60,5 +60,9 @@ class FpuOpFlags extends Bundle {
   // The descriptor-based texture unit (BorgConfig.samplerEnabled).
   val tex     = Bool()
   val texa    = Bool()
+  val smask   = Bool()   // SMASK (drawEnabled)
+  val attidx  = Bool()   // ATTIDX (drawEnabled)
+  val isrl    = Bool()   // logical shift right (RISC-V SRL)
+  val isltu   = Bool()   // unsigned compare (RISC-V SLTU)
   val funct3 = UInt(3.W)
 }

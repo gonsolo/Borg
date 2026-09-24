@@ -56,6 +56,14 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   // for FATTR. The dispatcher drains before the next triangle is selected,
   // so every fragment of a triangle sees its own record.
   val attrBase = if (cfg.drawEnabled) Some(Output(UInt(25.W))) else None
+  // Draw mode: which of the current triangle's edges are top or left edges
+  // (inward normal (a, b) with a > 0, or a == 0 and b > 0). A sample exactly
+  // on an edge belongs to the triangle only for those -- the tie rule that
+  // makes a shared edge covered exactly once.
+  val topLeft = if (cfg.drawEnabled) Some(Output(Vec(3, Bool()))) else None
+  // Multiple colour attachments: the tile is rendered once per attachment,
+  // each pass clearing or loading that attachment and flushing to it.
+  val attPass = Output(UInt(2.W))
 
   val uniformWrite     = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
@@ -78,6 +86,10 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   val state = RegInit(sIdle)
 
   val nextAfterDMA = RegInit(sIdle)
+  // Which colour attachment this pass of the tile renders. Depth, stencil
+  // and the occlusion count are the same every pass; Borg.scala stores the
+  // former only in the last pass and counts the latter only in the first.
+  val attPass = RegInit(0.U(2.W))
   // Draw mode: which uniform page the fragment constant window goes to next.
   val constPage = RegInit(0.U(1.W))
 
@@ -157,6 +169,12 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // immediately in handleLoadTriSetup; miss: as each word arrives from the
   // DMA snoop) and held stable until the next selection -- same pattern as
   // triHasUvs, which is a real register instead of a live uvsReg(page) read.
+  // Top-left flags per setup-cache page, and for the triangle being shaded
+  // (latched at selection, like covDeltaActive). Taken from the edge planes'
+  // a and b as the record image arrives.
+  val topLeftCache  = Option.when(cfg.drawEnabled)(Reg(Vec(2, Vec(3, Bool()))))
+  val topLeftActive = Option.when(cfg.drawEnabled)(RegInit(VecInit(Seq.fill(3)(true.B))))
+  val planeA = Option.when(cfg.drawEnabled)(Reg(Vec(3, UInt(2.W))))   // a: {negative, zero}
   val covDeltaActive = if (cfg.samples > 1)
     Some(RegInit(VecInit(Seq.fill(covDeltaWords)(0.U(cfg.totalBits.W))))) else None
 
@@ -222,7 +240,9 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     io.texEnOverride := triHasUvs
     io.frontFacingOverride := !triIsBackFacing
     io.curTriIndex := binEntryData
+    io.attPass := attPass
     io.attrBase.foreach(_ := (io.mmio.setupBase +& (binEntryData << setupStrideShift) +& (48 * 4).U)(24, 0))
+    io.topLeft.foreach(_ := topLeftActive.get)
 
     io.dma.start := false.B
     io.dma.desc  := dmaDescReg
@@ -239,10 +259,11 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     io.iter.iterate       := false.B
     io.flusher.trigger    := false.B
     io.flusher.loadStart  := false.B
-    // tileOffset = ((tileY / 4) * tilesPerRow + (tileX / 4)) * 32
+    // tileOffset = the framebuffer tile index * 32: the window's tile plus
+    // its origin, in rows FB_PITCH tiles long.
     // (16 pixels x 2 bytes: an RGB565 or D16 tile; Borg.scala adds the
     // attachment base and scales for 4-byte colour formats)
-    val tileIndex = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
+    val tileIndex = (((tileY >> 2) +& io.mmio.fbOriginY) * io.mmio.fbPitch) + ((tileX >> 2) +& io.mmio.fbOriginX)
     io.flusher.tileOffset := tileIndex << 5
 
     // Not used by this sub-FSM: BorgGeometrySequencer owns the write side of
@@ -373,6 +394,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     // once per tile.
     passCtr.foreach(_ := 0.U)
     accumDone.foreach(_ := false.B)
+    attPass := 0.U
     // SyncReadMem data is valid NOW (1 cycle after read was issued in
     // sStartPass2/sNextRenderTile). Capture it immediately -- the output
     // goes undefined on the next cycle when readEn drops.
@@ -434,7 +456,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       when(binTriCount === 0.U) {
         // At msaaMultiPass with per-sample attachments an empty tile still
         // runs every pass (see handleWaitFlushSync), so never skip it.
-        val msPasses = (cfg.msaaMultiPass.B && io.mmio.attachMs)
+        val msPasses = (cfg.msaaMultiPass.B && io.mmio.attachMs) || io.mmio.attCount > 1.U
         when(msPasses || tileWasDirty(io.curBufIdx)(tileLinearCC(log2Ceil(cfg.maxBinTiles) - 1, 0))) {
           state := sWaitFlush        // was dirty: must write clear colour to DRAM
         }.otherwise {
@@ -489,6 +511,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       triHasUvs   := uvsReg(0)
       triIsBackFacing := backFacingReg(0)
       covDeltaActive.foreach(_ := covDeltaCache.get(0))
+      topLeftActive.foreach(_ := topLeftCache.get(0))
       state       := sEnqueueTile
     }.elsewhen(binEntryData === tagReg(1) && (setupPages > 1).B) {
       if (BorgDebug.trace) printf("[SEQ] loadTriSetup HIT page1 triIdx=%d\n", binEntryData)
@@ -496,6 +519,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       triHasUvs   := uvsReg(1)
       triIsBackFacing := backFacingReg(1)
       covDeltaActive.foreach(_ := covDeltaCache.get(1))
+      topLeftActive.foreach(_ := topLeftCache.get(1))
       state       := sEnqueueTile
     }.otherwise {
       val victim = if (setupPages > 1) cacheVictim else 0.U
@@ -512,7 +536,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       desc.baseAddr := io.mmio.setupBase + (binEntryData << setupStrideShift)
       // Draw mode: the record's 16-word uniform image, meta last -- the
       // fragment shader's constant window lives above it.
-      desc.length   := (if (cfg.drawEnabled) Mux(io.mmio.drawMode, 16.U, 32.U) else 32.U)
+      desc.length   := (if (cfg.drawEnabled) Mux(io.mmio.drawMode, BorgSetupRom.Record.Image.U, 32.U) else 32.U)
       desc.dest     := 1.U   // uniform write; page = uniformPage(:=victim) via DMA
       desc.offset   := 0.U
 
@@ -642,6 +666,19 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleWaitFlushSync(): Unit = {
+    // The tile again for the next colour attachment, from its first sample.
+    def nextAttachment(): Unit = {
+      when(attPass =/= io.mmio.attCount - 1.U) {
+        attPass := attPass + 1.U
+        passCtr.foreach(_ := 0.U)
+        accumDone.foreach(_ := false.B)
+        binTriIdx    := 0.U
+        clearCounter := 0.U
+        state        := sClearTile
+      }.otherwise {
+        state := sNextRenderTile
+      }
+    }
     when(!io.flusher.busy) {
       if (cfg.msaaMultiPass) {
         // Per-sample attachments: that was one pass's sample. Go round again
@@ -653,10 +690,10 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
           clearCounter := 0.U
           state        := sClearTile
         }.otherwise {
-          state := sNextRenderTile
+          nextAttachment()
         }
       } else {
-        state := sNextRenderTile
+        nextAttachment()
       }
     }
   }
@@ -704,6 +741,20 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     val firstTransferTarget = if (cfg.samples > 1) sLoadCovDelta else sEnqueueTile
     when(io.dma.uniformSnoop.en && state === sWaitDMA && nextAfterDMA === firstTransferTarget) {
       setupLoadIdx := setupLoadIdx + 1.U
+      // Edge plane k's a (word 3k) and b (3k + 1): the top-left flags.
+      topLeftCache.foreach { cache =>
+        val d = io.dma.uniformSnoop.data
+        val neg = d(cfg.totalBits - 1); val zero = d(cfg.totalBits - 2, 0) === 0.U
+        for (k <- 0 until 3) {
+          when(setupLoadIdx === (3 * k).U) { planeA.get(k) := Cat(neg, zero) }
+          when(setupLoadIdx === (3 * k + 1).U) {
+            val aNeg = planeA.get(k)(1); val aZero = planeA.get(k)(0)
+            val tl = (!aNeg && !aZero) || (aZero && !neg && !zero)
+            cache(uniformPage)(k) := tl
+            topLeftActive.get(k)  := tl
+          }
+        }
+      }
       val metaWord = if (cfg.drawEnabled) Mux(io.mmio.drawMode, BorgSetupRom.Record.Meta.U, 31.U) else 31.U
       when(setupLoadIdx === metaWord) {
         triHasUvs := io.dma.uniformSnoop.data(0)

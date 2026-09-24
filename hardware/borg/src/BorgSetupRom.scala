@@ -45,13 +45,19 @@ private[borg] object BorgSetupRom {
     val DepthScale  = 12
     val DepthOffset = 13
     val One         = 14
-    /** Written by the draw walker: bit 1 = back-facing. Pass 2 DMAs words
-      * 0..Meta into the uniform bank and snoops this one. */
+    /** Written by the draw walker: bit 1 = back-facing. Pass 2 snoops it. */
     val Meta        = 15
+    /** |1/det M|: turns the edge planes' sum into FragCoord.w = 1/w. */
+    val InvDet      = 16
+    /** The depth plane's two MSAA sample deltas in framebuffer depth
+      * (times DEPTH_SCALE): sample depths are FragCoord.z + {d0, d1, -d1, -d0}. */
+    val SampleDepth = 17
+    /** Words 0 .. Image-1 are what pass 2 DMAs into the uniform bank. */
+    val Image       = 20
     /** The uniform window a stage's own constants live in (DRAW_VS_CONST,
       * DRAW_FS_CONST): above the hardware's per-triangle words. */
     val VsConstFirst = 22    // above the setup ROM's inputs
-    val FsConstFirst = 16    // above the record image
+    val FsConstFirst = Image // above the record image
     /** MSAA sample deltas of plane k (E0..E2, Zn): d0 at 32 + 2k, d1 after. */
     def covDelta(k: Int): Int = 32 + 2 * k
     val Words = 40
@@ -70,7 +76,8 @@ private[borg] object BorgSetupRom {
     val U1 = 1; val U2 = 2; val U3 = 3
     val zero = 31
     val rW  = Seq(9, 10, 11);  val rX  = Seq(12, 13, 14); val rY = Seq(15, 16, 17)
-    val rNW = Seq(18, 19, 20); val rNY = Seq(21, 22, 23)
+    val rNW = Seq(18, 19, 20)
+    val rSignMask = 21; val rDetSign = 22; val rAbsInv = 23
     val rSx = 7; val rSy = 8          // until the corners are transformed
     val rInvDet = 7; val t = 8        // after
     val (ra, rb, rc) = (24, 25, 26)   // the plane being built
@@ -105,10 +112,7 @@ private[borg] object BorgSetupRom {
       p += MUL(rs1 = rW(k), rs2 = uOy, rd = ra, funct3 = U2)
       p += FMA(rs1 = uY(k), rs2 = rSy, rs3 = ra, rd = rY(k), funct3 = U1)
     }
-    for (k <- 0 until 3) {
-      p += FNEG(rs1 = rW(k), rd = rNW(k))
-      p += FNEG(rs1 = rY(k), rd = rNY(k))
-    }
+    for (k <- 0 until 3) p += FNEG(rs1 = rW(k), rd = rNW(k))
 
     // Screen positions for the bounding box: X'/W, Y'/W.
     for (k <- 0 until 3) {
@@ -117,40 +121,72 @@ private[borg] object BorgSetupRom {
       p += MUL(rs1 = rY(k), rs2 = ra, rd = 2 * k + 1)
     }
 
-    // Plane k = (column i) x (column j) / det, i and j the other two corners.
+    // Edge plane k = (column i) x (column j), i and j the other two corners,
+    // with its sign flipped when det M < 0 so that inside is always >= 0.
+    //
+    // NOT divided by det M, and every component is round(p) - round(q) of
+    // two separately rounded products (no FMA): a triangle sharing the edge
+    // computes (column j) x (column i), and round(q) - round(p) is then the
+    // exact negation. With the per-pixel evaluation and the MSAA deltas also
+    // sign-symmetric, the two triangles' edge values are exact opposites at
+    // every sample -- which is what makes the tie rule on exact zeros
+    // watertight (no sample in both triangles, none in neither). Dividing
+    // by each triangle's own det M rounded the two sides differently. The
+    // barycentrics do not need the division: E_k / sum(E) cancels it.
     for (k <- 0 until 3) {
       val i = (k + 1) % 3; val j = (k + 2) % 3
-      p += MUL(rs1 = rNW(i), rs2 = rY(j), rd = t)                   // Yi*Wj - Wi*Yj
-      p += FMA(rs1 = rY(i), rs2 = rW(j), rs3 = t, rd = ra)
-      p += MUL(rs1 = rX(i), rs2 = rNW(j), rd = t)                   // Wi*Xj - Xi*Wj
-      p += FMA(rs1 = rW(i), rs2 = rX(j), rs3 = t, rd = rb)
-      p += MUL(rs1 = rNY(i), rs2 = rX(j), rd = t)                   // Xi*Yj - Yi*Xj
-      p += FMA(rs1 = rX(i), rs2 = rY(j), rs3 = t, rd = rc)
+      p += MUL(rs1 = rY(i), rs2 = rW(j), rd = ra)                   // Yi*Wj - Wi*Yj
+      p += MUL(rs1 = rNW(i), rs2 = rY(j), rd = t)
+      p += ADD(rs1 = ra, rs2 = t, rd = ra)
+      p += MUL(rs1 = rW(i), rs2 = rX(j), rd = rb)                   // Wi*Xj - Xi*Wj
+      p += MUL(rs1 = rX(i), rs2 = rNW(j), rd = t)
+      p += ADD(rs1 = rb, rs2 = t, rd = rb)
+      p += MUL(rs1 = rX(i), rs2 = rY(j), rd = rc)                   // Xi*Yj - Yi*Xj
+      p += MUL(rs1 = rY(i), rs2 = rX(j), rd = t)
+      p += FNEG(rs1 = t, rd = t)
+      p += ADD(rs1 = rc, rs2 = t, rd = rc)
       if (k == 0) {
-        // det M = column 0 . (column 1 x column 2)
+        // det M = column 0 . (column 1 x column 2): its sign is the facing,
+        // |1/det| scales the planes' sum into 1/w.
         p += MUL(rs1 = rX(0), rs2 = ra, rd = 6)
         p += FMA(rs1 = rY(0), rs2 = rb, rs3 = 6, rd = 6)
         p += FMA(rs1 = rW(0), rs2 = rc, rs3 = 6, rd = 6)
+        // The sign bit: -1.0 XOR 1.0. (FNEG of 0 is +0 -- it goes through
+        // the FMA -- so -0.0 cannot supply it.)
+        p += FNEG(rs1 = uOne, rd = rSignMask, funct3 = U1)
+        p += IXOR(rs1 = rSignMask, rs2 = uOne, rd = rSignMask, funct3 = U2)
+        p += IAND(rs1 = 6, rs2 = rSignMask, rd = rDetSign)
         p += FNEG(rs1 = 6, rd = t)
         rcp(6, t, rInvDet, t)
+        p += IAND(rs1 = rInvDet, rs2 = rSignMask, rd = rAbsInv)
+        p += IXOR(rs1 = rInvDet, rs2 = rAbsInv, rd = rAbsInv)           // |1/det|
       }
-      p += MUL(rs1 = ra, rs2 = rInvDet, rd = ra)
-      p += MUL(rs1 = rb, rs2 = rInvDet, rd = rb)
-      p += MUL(rs1 = rc, rs2 = rInvDet, rd = rc)
+      for (r <- Seq(ra, rb, rc)) p += IXOR(rs1 = r, rs2 = rDetSign, rd = r)
       p += SOUT(rs2 = ra, index = Record.plane(k))
       p += SOUT(rs2 = rb, index = Record.plane(k) + 1)
       p += SOUT(rs2 = rc, index = Record.plane(k) + 2)
-      // Zn = sum(Zk * Ek)
+      // Zn = sum(Zk * Ek) / |det| (the normalized planes carry det's sign)
       for ((acc, src) <- Seq(za -> ra, zb -> rb, zc -> rc)) {
         if (k == 0) p += MUL(rs1 = uZ(0), rs2 = src, rd = acc, funct3 = U1)
         else        p += FMA(rs1 = uZ(k), rs2 = src, rs3 = acc, rd = acc, funct3 = U1)
       }
       covDelta(k, ra, rb)
     }
+    for (acc <- Seq(za, zb, zc)) p += MUL(rs1 = acc, rs2 = rAbsInv, rd = acc)
     p += SOUT(rs2 = za, index = Record.plane(3))
     p += SOUT(rs2 = zb, index = Record.plane(3) + 1)
     p += SOUT(rs2 = zc, index = Record.plane(3) + 2)
     covDelta(3, za, zb)
+    // The same two deltas scaled into framebuffer depth, for per-sample depth.
+    p += MUL(rs1 = uM0375, rs2 = zb, rd = t, funct3 = U1)
+    p += FMA(rs1 = uM0125, rs2 = za, rs3 = t, rd = t, funct3 = U1)
+    p += MUL(rs1 = t, rs2 = uDepthScale, rd = t, funct3 = U2)
+    p += SOUT(rs2 = t, index = Record.SampleDepth)
+    p += MUL(rs1 = uM0125, rs2 = zb, rd = t, funct3 = U1)
+    p += FMA(rs1 = uP0375, rs2 = za, rs3 = t, rd = t, funct3 = U1)
+    p += MUL(rs1 = t, rs2 = uDepthScale, rd = t, funct3 = U2)
+    p += SOUT(rs2 = t, index = Record.SampleDepth + 1)
+    p += SOUT(rs2 = rAbsInv, index = Record.InvDet)
     p += SOUT(rs2 = uDepthScale,  index = Record.DepthScale,  funct3 = U2)
     p += SOUT(rs2 = uDepthOffset, index = Record.DepthOffset, funct3 = U2)
     p += SOUT(rs2 = uOne,         index = Record.One,         funct3 = U2)

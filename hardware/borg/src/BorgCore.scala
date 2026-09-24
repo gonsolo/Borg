@@ -34,6 +34,11 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
 
   // Rasterizer interface — per-lane pixel coordinates (2×2 quad at fragLanes=4)
   val iter               = Input(Vec(cfg.fragLanes, new Coord(cfg.coordWidth)))
+  // The render window's origin in pixels: pixel centres (r30/r31,
+  // FragCoord) are the framebuffer's, not the window's.
+  val pixelOrigin        = Input(new Coord(14))
+  // The colour attachment the current tile pass renders (ATTIDX).
+  val attIndex           = if (cfg.drawEnabled) Some(Input(UInt(2.W))) else None
   val coreTrigger       = Flipped(new CoreTriggerIO)  // pulse from rasterizer: trigger shader
   val uniformPage        = Input(UInt(1.W))      // which 32-entry uniform page the GPU reads from
 
@@ -131,6 +136,8 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val texDescBase  = if (cfg.samplerEnabled) Some(Input(UInt(25.W))) else None
   val sampDescBase = if (cfg.samplerEnabled) Some(Input(UInt(25.W))) else None
   val descWritten  = if (cfg.samplerEnabled) Some(Input(Bool())) else None
+  // Per lane, the samples the current fragment covers (SMASK).
+  val laneCoverage = if (cfg.drawEnabled) Some(Input(Vec(cfg.fragLanes, UInt(cfg.samples.W)))) else None
 }
 
 /** The triangle record the running shader writes (SOUT) or reads (FATTR),
@@ -282,6 +289,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // cannot execute concurrently with this instruction, so it is stable for
   // EXANY's whole multi-cycle execution window.
   lanes.foreach(_.io.execAny := execMask.orR)
+  lanes.zipWithIndex.foreach { case (lane, i) =>
+    lane.io.covMask.foreach(_ := io.laneCoverage.get(i))
+    lane.io.attIndex.foreach(_ := io.attIndex.get)
+  }
 
   io.ids.foreach { c =>
     lanes.zipWithIndex.foreach { case (lane, i) =>
@@ -292,7 +303,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }
 
   // Per-lane pixel coordinate (2×2 quad fanned out by the iterator).
-  lanes.zipWithIndex.foreach { case (lane, i) => lane.io.iter := io.iter(i) }
+  lanes.zipWithIndex.foreach { case (lane, i) =>
+    lane.io.iter := io.iter(i)
+    lane.io.pixelOrigin := io.pixelOrigin
+  }
 
   // Each lane exposes its own write-back snoop; lane 0 drives the MMIO read.
   lanes.zipWithIndex.foreach { case (lane, i) => io.pipeWrite(i) := lane.io.pipeWrite }
@@ -409,18 +423,19 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.expop  := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_EXPOP.U else false.B)
     flags.execOp := flags.expush || flags.exelse || flags.expop
     flags.barrier := (if (cfg.computeEnabled) !flags.fma && f7op === Instructions.FUNCT7_BARRIER.U else false.B)
-    // Gated on computeEnabled, not plain hasControlFlow like EXPUSH/EXELSE/
-    // EXPOP: the only shader that currently emits a divergent loop is a
-    // compute one, and computeEnabled implies hasControlFlow already, so
-    // this costs nothing on a build (Wafer) that has hasControlFlow but not
-    // compute -- verified byte-identical Wafer Verilog with this gating.
-    flags.exany  := (if (cfg.computeEnabled) !flags.fma && f7op === Instructions.FUNCT7_EXANY.U else false.B)
+    // With the execution mask, like EXPUSH/EXELSE/EXPOP: a fragment shader's
+    // divergent loop needs it as much as a compute shader's.
+    flags.exany  := (if (cf) !flags.fma && f7op === Instructions.FUNCT7_EXANY.U else false.B)
+    flags.isrl   := !flags.fma && f7op === Instructions.FUNCT7_ISRL.U
+    flags.isltu  := !flags.fma && f7op === Instructions.FUNCT7_ISLTU.U
     flags.ztest  := !flags.fma && f7op === Instructions.FUNCT7_ZTEST.U
     val draw = cfg.drawEnabled
     flags.sout   := (if (draw) !flags.fma && f7op === Instructions.FUNCT7_SOUT.U else false.B)
     flags.fattr  := (if (draw) !flags.fma && f7op === Instructions.FUNCT7_FATTR.U else false.B)
     val smp = cfg.samplerEnabled
     flags.tex    := (if (smp) flags.fma && funct2 === Instructions.FUNCT2_TEX.U else false.B)
+    flags.smask  := (if (draw) !flags.fma && f7op === Instructions.FUNCT7_SMASK.U else false.B)
+    flags.attidx := (if (draw) !flags.fma && f7op === Instructions.FUNCT7_ATTIDX.U else false.B)
     flags.texa   := (if (smp) flags.fma && funct2 === Instructions.FUNCT2_TEXA.U else false.B)
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 

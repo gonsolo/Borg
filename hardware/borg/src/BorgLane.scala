@@ -43,6 +43,9 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // Broadcast, not per-lane: whether ANY lane's execMask bit is set right
   // now -- see Instructions.FUNCT7_EXANY.
   val execAny     = Input(Bool())
+  // This lane's coverage mask, for SMASK.
+  val covMask     = if (cfg.drawEnabled) Some(Input(UInt(cfg.samples.W))) else None
+  val attIndex    = if (cfg.drawEnabled) Some(Input(UInt(2.W))) else None
   val busyCounter = Input(UInt(cfg.busyCounterWidth.W))
   val running     = Input(Bool())
   val isBusy      = Input(Bool())
@@ -51,6 +54,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
 
   // --- Per-lane pixel coordinate ---
   val iter        = Input(new Coord(cfg.coordWidth))
+  val pixelOrigin = Input(new Coord(14))   // the render window's origin
   // --- Compute or vertex stage: r30/r31 read these raw integers instead ---
   val ids         = if (cfg.hasInvocationIds) Some(Input(new LaneIdsIO(cfg))) else None
 
@@ -136,10 +140,9 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // Muxed ahead of the registers, not on the read path, so compute mode adds
   // nothing to the register-file read timing.
   when(coordReadEn) {
-    coordX := io.ids.map(c => Mux(c.mode, c.r30, pixelCentre(io.iter.x)))
-                .getOrElse(pixelCentre(io.iter.x))
-    coordY := io.ids.map(c => Mux(c.mode, c.r31, pixelCentre(io.iter.y)))
-                .getOrElse(pixelCentre(io.iter.y))
+    val gx = io.iter.x +& io.pixelOrigin.x; val gy = io.iter.y +& io.pixelOrigin.y
+    coordX := io.ids.map(c => Mux(c.mode, c.r30, pixelCentre(gx))).getOrElse(pixelCentre(gx))
+    coordY := io.ids.map(c => Mux(c.mode, c.r31, pixelCentre(gy))).getOrElse(pixelCentre(gy))
   }
 
   // --- Register reads + uniform operand mux ---
@@ -393,7 +396,13 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_i2f_reg  = RegInit(false.B)
     val is_f2i_reg  = RegInit(false.B)
     val is_exany_reg = RegInit(false.B)
+    val is_smask_reg = RegInit(false.B)
+    val is_attidx_reg = RegInit(false.B)
+    val is_isrl_reg = RegInit(false.B); val is_isltu_reg = RegInit(false.B)
     when(start) {
+      is_isrl_reg := opFlags.isrl; is_isltu_reg := opFlags.isltu
+      is_smask_reg := opFlags.smask
+      is_attidx_reg := opFlags.attidx
       is_iadd_reg := opFlags.iadd
       is_ishl_reg := opFlags.ishl
       is_ishr_reg := opFlags.ishr
@@ -424,6 +433,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val ior  = recA_raw | recB_raw
     val ixor = recA_raw ^ recB_raw
     val islt = Mux(recA_raw.asSInt < recB_raw.asSInt, 1.U(w.W), 0.U(w.W))
+    val isrl = (recA_raw >> shamt)(w - 1, 0)
+    val isltu = Mux(recA_raw < recB_raw, 1.U(w.W), 0.U(w.W))
     val iseq = Mux(recA_raw === recB_raw, 1.U(w.W), 0.U(w.W))
     val exany = Mux(io.execAny, 1.U(w.W), 0.U(w.W))
 
@@ -458,12 +469,16 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                  Mux(is_ior_reg,  ior,
                  Mux(is_ixor_reg, ixor,
                  Mux(is_islt_reg, islt,
+                 Mux(is_isrl_reg, isrl,
+                 Mux(is_isltu_reg, isltu,
                  Mux(is_iseq_reg, iseq,
                  Mux(is_exany_reg, exany,
-                 Mux(is_i2f_reg,  i2f, f2i))))))))))))
+                 Mux(is_smask_reg, io.covMask.map(_.pad(w)).getOrElse(0.U(w.W)),
+                 Mux(is_attidx_reg, io.attIndex.map(_.pad(w)).getOrElse(0.U(w.W)),
+                 Mux(is_i2f_reg,  i2f, f2i))))))))))))))))
     val is_int = is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg ||
                  is_isub_reg || is_iand_reg || is_ior_reg || is_ixor_reg ||
-                 is_islt_reg || is_iseq_reg || is_exany_reg || is_i2f_reg || is_f2i_reg
+                 is_islt_reg || is_isrl_reg || is_isltu_reg || is_iseq_reg || is_exany_reg || is_smask_reg || is_attidx_reg || is_i2f_reg || is_f2i_reg
     (result, is_int)
   }
 

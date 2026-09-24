@@ -1740,4 +1740,50 @@ addrmap borg_gpu {
     tex_desc_base->nogen = true;
     draw_word_reg_t sampler_desc_base;
     sampler_desc_base->nogen = true;
+
+    // ---- Sample mask test, alpha to coverage, shader sample mask ----
+    // [3:0] static sample mask (reset all ones), [4] alpha to coverage,
+    // [5] the fragment shader writes gl_SampleMask to r19.
+    draw_word_reg_t sample_mask_cfg;
+    sample_mask_cfg->nogen = true;
+
+    // ---- Render windows: a render covers SEQ_TILES_PER_ROW x SEQ_TILE_ROWS
+    //      tiles at FB_ORIGIN inside a framebuffer FB_PITCH tiles wide ----
+    // SEQ_TILE_ROWS: tile rows of the window (0 = SEQ_TILES_PER_ROW, square).
+    draw_word_reg_t seq_tile_rows;
+    seq_tile_rows->nogen = true;
+    // FB_ORIGIN: the window's first tile, x in [11:0], y in [27:16].
+    draw_word_reg_t fb_origin;
+    fb_origin->nogen = true;
+    // FB_PITCH: the framebuffer's tiles per row (0 = SEQ_TILES_PER_ROW).
+    draw_word_reg_t fb_pitch;
+    fb_pitch->nogen = true;
+
+    // ---- Colour attachments 1..3 (0 is SEQ_FB_BASE / FLUSH_FORMAT / the
+    //      sequencer clear colour / TILE_LOAD bit 0) ----
+    // ATT_CFG: [1:0] attachments - 1, [4:2] loadOp LOAD for attachments 1..3.
+    // ATT_FORMAT: FLUSH_FORMAT codes, [1:0] attachment 1, [3:2] 2, [5:4] 3.
+    // ATT_CLEAR_RGk: FP16 R [31:16], G [15:0]; ATT_CLEAR_BAk: FP16 B [31:16], A UNORM8 [7:0].
+    draw_word_reg_t att_cfg;
+    att_cfg->nogen = true;
+    draw_word_reg_t att_format;
+    att_format->nogen = true;
+    draw_word_reg_t att_base1;
+    att_base1->nogen = true;
+    draw_word_reg_t att_base2;
+    att_base2->nogen = true;
+    draw_word_reg_t att_base3;
+    att_base3->nogen = true;
+    draw_word_reg_t att_clear_rg1;
+    att_clear_rg1->nogen = true;
+    draw_word_reg_t att_clear_rg2;
+    att_clear_rg2->nogen = true;
+    draw_word_reg_t att_clear_rg3;
+    att_clear_rg3->nogen = true;
+    draw_word_reg_t att_clear_ba1;
+    att_clear_ba1->nogen = true;
+    draw_word_reg_t att_clear_ba2;
+    att_clear_ba2->nogen = true;
+    draw_word_reg_t att_clear_ba3;
+    att_clear_ba3->nogen = true;
 };

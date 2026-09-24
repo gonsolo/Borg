@@ -21,7 +21,9 @@ object BorgSetupRomTests extends TestSuite {
 
   case class Tri(c: Seq[Seq[Double]])   // corners: X, Y, Z, W
 
-  /** Reference: rows of M^-1 over (px, py, 1), the Zn plane, det, screen xy. */
+  /** Reference: the edge planes the ROM stores -- rows of adj(M), i.e. the
+    * cross products, times sign(det): M^-1's rows unscaled -- the Zn plane
+    * (scaled), det, and the screen corners. */
   def reference(t: Tri) = {
     val (sx, sy, ox, oy) = (W / 2, W / 2, W / 2, W / 2)
     val v = t.c.map { case Seq(x, y, _, w) => Seq(x * sx + w * ox, y * sy + w * oy, w) }
@@ -32,7 +34,7 @@ object BorgSetupRomTests extends TestSuite {
     val rows = rows0.map(_.map(_ / det))
     val zn = (0 until 3).map(i => (0 until 3).map(k => t.c(k)(2) * rows(k)(i)).sum)
     val screen = v.map(p => (p(0) / p(2), p(1) / p(2)))
-    (rows :+ zn, det, screen)
+    (rows0.map(_.map(_ * math.signum(det))) :+ zn, det, screen)
   }
 
   def runSetup(core: BorgCore, t: Tri, mem: scala.collection.mutable.Map[BigInt, BigInt]): Unit = {
@@ -100,7 +102,7 @@ object BorgSetupRomTests extends TestSuite {
           val mem = scala.collection.mutable.Map[BigInt, BigInt]()
           runSetup(core, t, mem)
           // Pass 2 DMAs the record's first words into the uniform bank.
-          for (i <- 0 until 15)
+          for (i <- 0 until Record.Image)
             writeCore(core, 432 + 4 * i, mem.getOrElse(BigInt(recordBase + 4 * i), BigInt(0)))
           val (planes, _, _) = reference(t)
           for ((x, y) <- Seq((10, 20), (60, 128), (200, 50), (128, 128), (255, 255))) {
@@ -110,10 +112,11 @@ object BorgSetupRomTests extends TestSuite {
             val lam = (0 until 3).map(k => e(k) / q)
             val z = e(3)
             val got = runRaster(core, x, y)
-            val expect = Seq(e(0), e(1), e(2), z, 1 - z) ++ lam ++ Seq(q, z * 0.5 + 0.25)
+            val (_, det, _) = reference(t)
+            val expect = Seq(e(0), e(1), e(2), z, 1 - z) ++ lam ++ Seq(q / math.abs(det), z * 0.5 + 0.25)
             val scale = planes.map { case Seq(a, b, c) => math.abs(a) * W + math.abs(b) * W + math.abs(c) }
             val tol = Seq(scale(0), scale(1), scale(2), scale(3), scale(3)).map(_ * 3e-5) ++
-                      lam.map(l => 1e-4 * math.max(1.0, math.abs(l))) ++ Seq(3e-5 * scale.take(3).sum, 3e-5 * scale(3))
+                      lam.map(l => 1e-4 * math.max(1.0, math.abs(l))) ++ Seq(3e-5 * scale.take(3).sum / math.abs(reference(t)._2), 3e-5 * scale(3))
             for (((g, ex), i) <- got.zip(expect).zipWithIndex) {
               Predef.assert(math.abs(g - ex) <= tol(i), f"tri $n pixel ($x,$y) value $i: $g%.6g vs $ex%.6g")
             }
@@ -166,6 +169,7 @@ object BorgSetupRomTests extends TestSuite {
             Predef.assert(math.abs(word(Record.covDelta(k) + 1) - d1) <= 2e-5 * scale, s"tri $n covDelta1 $k")
           }
           Predef.assert(word(Record.DepthScale) == 0.5 && word(Record.DepthOffset) == 0.25 && word(Record.One) == 1.0)
+          Predef.assert(math.abs(word(Record.InvDet) - 1 / math.abs(det)) <= 1e-5 / math.abs(det), s"tri $n |1/det|")
           val hwDet = bitsToFloat(readReg(core, 6)).toDouble
           Predef.assert(math.signum(hwDet) == math.signum(det), s"tri $n det sign")
           Predef.assert(math.abs(hwDet - det) <= 1e-5 * math.abs(det), s"tri $n det $hwDet vs $det")

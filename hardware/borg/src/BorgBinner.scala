@@ -48,6 +48,7 @@ class BorgBinnerIO(maxTiles: Int = 1024, maxTrianglesPerTile: Int = 256, coordWi
   val binRowBytes = Input(UInt(binRowBytesWidth.W))
   /** Number of tiles per framebuffer row (= fb_width / 4). */
   val tilesPerRow = Input(UInt(tileRowWidth.W))
+  val tileRows    = Input(UInt(tileRowWidth.W))   // the window's tile rows (y clamp)
 
   // --- DRAM write port ---
   val gpuMem      = new GpuMemIO
@@ -243,14 +244,16 @@ class BorgBinner(val maxTiles: Int = 1024, val maxTrianglesPerTile: Int = 256, v
         // the bbox to the real grid so the walk is always bounded and in-range,
         // regardless of upstream bugs.  Square fb (width==height) is assumed, as
         // on every current target; the bound is the fb width in pixels.
-        val fbDim   = (io.tilesPerRow << 2).asUInt        // fb extent in pixels (exclusive max)
-        val lastTl  = Mux(fbDim >= 4.U, fbDim - 4.U, 0.U) // first pixel of the last tile
-        def clampMin(v: UInt): UInt = Mux(v > lastTl, lastTl, v)(coordWidth - 1, 0)
-        def clampMax(v: UInt): UInt = Mux(v > fbDim, fbDim, v)(coordWidth - 1, 0)
-        val minX = clampMin(rawMinX)
-        val minY = clampMin(rawMinY)
-        val maxX = clampMax(rawMaxX)
-        val maxY = clampMax(rawMaxY)
+        // The window may be taller or shorter than it is wide.
+        val fbDim   = (io.tilesPerRow << 2).asUInt        // window width in pixels (exclusive max)
+        val fbDimY  = (io.tileRows << 2).asUInt           // window height in pixels
+        def lastTl(d: UInt) = Mux(d >= 4.U, d - 4.U, 0.U) // first pixel of the last tile
+        def clampMin(v: UInt, d: UInt): UInt = Mux(v > lastTl(d), lastTl(d), v)(coordWidth - 1, 0)
+        def clampMax(v: UInt, d: UInt): UInt = Mux(v > d, d, v)(coordWidth - 1, 0)
+        val minX = clampMin(rawMinX, fbDim)
+        val minY = clampMin(rawMinY, fbDimY)
+        val maxX = clampMax(rawMaxX, fbDim)
+        val maxY = clampMax(rawMaxY, fbDimY)
 
         if (BorgDebug.trace) printf("[BIN] doStart pending=%d raw=(%d,%d)-(%d,%d) clamped=(%d,%d)-(%d,%d)\n",
           pendingStart, rawMinX, rawMinY, rawMaxX, rawMaxY, minX, minY, maxX, maxY)

@@ -584,10 +584,9 @@ object BorgConfig {
     msaaMultiPass    = true,
     // Splits the longest nets in the design (see the parameter's own doc).
     // Costs one cycle of MMIO-write latency, which nothing observes.
-    pipelineSeqConfig = true,
-    // Off until its area and routing are measured on this slot: the taped-out
-    // RTL must not change as a side effect of Default gaining compute.
-    hasCompute       = false
+    pipelineSeqConfig = true
+    // Compute is on, as in Default: Vulkan requires a queue family with
+    // compute. It was off only while the 1x1 slot was tight.
   )
 
   // The config Chisel unit tests should instantiate full Borg/BorgTestWrapper

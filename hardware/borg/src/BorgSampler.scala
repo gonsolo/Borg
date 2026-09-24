@@ -83,6 +83,41 @@ class BorgSamplerIO(val cfg: BorgConfig) extends Bundle {
   val gpuMem     = new GpuMemIO
 }
 
+/** Seamless cube filtering: where a tap that falls off face f across edge e
+  * (0: i = -1, 1: i = n, 2: j = -1, 3: j = n) lands on the neighbouring face.
+  * Derived from the face definitions (Vulkan's major-axis table), not
+  * written out by hand: the along-edge coordinate k maps to k or n-1-k, the
+  * other to 0 or n-1. */
+private[borg] object CubeEdges {
+  // Major axis M, and the axes s (U) and t (V) run along, per face +X -X +Y -Y +Z -Z.
+  private val M = Seq((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
+  private val U = Seq((0, 0, -1), (0, 0, 1), (1, 0, 0), (1, 0, 0), (1, 0, 0), (-1, 0, 0))
+  private val V = Seq((0, -1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1), (0, -1, 0), (0, -1, 0))
+  private def dot(a: (Int, Int, Int), d: (Double, Double, Double)) = a._1 * d._1 + a._2 * d._2 + a._3 * d._3
+  /** Direction -> (face, s, t) in [0, 1]. */
+  private def project(d: (Double, Double, Double)): (Int, Double, Double) = {
+    val f = (0 until 6).maxBy(i => dot(M(i), d))
+    val ma = dot(M(f), d)
+    (f, (dot(U(f), d) / ma + 1) / 2, (dot(V(f), d) / ma + 1) / 2)
+  }
+  /** Selectors: 0 -> 0, 1 -> n-1, 2 -> k, 3 -> n-1-k. */
+  case class Remap(face: Int, iSel: Int, jSel: Int)
+  val table: Seq[Seq[Remap]] = for (f <- 0 until 6) yield for (e <- 0 until 4) yield {
+    val n = 64
+    def at(k: Int): (Int, Double, Double) = {
+      val (i, j) = if (e < 2) (if (e == 0) -1 else n, k) else (k, if (e == 2) -1 else n)
+      val sc = 2 * (i + 0.5) / n - 1; val tc = 2 * (j + 0.5) / n - 1
+      def c(a: Int) = Seq(M(f), U(f), V(f)).zip(Seq(1.0, sc, tc)).map { case (v, w) => Seq(v._1, v._2, v._3)(a) * w }.sum
+      project((c(0), c(1), c(2)))
+    }
+    val (f0, s0, t0) = at(n / 2 - 8); val (f1, s1, t1) = at(n / 2 + 8)
+    require(f0 == f1, s"cube face $f edge $e: the neighbour changes along the edge")
+    def sel(a: Double, b: Double): Int =
+      if (math.abs(b - a) > 0.1) { if (b > a) 2 else 3 } else if (a < 0.5) 0 else 1
+    Remap(f0, sel(s0, s1), sel(t0, t1))
+  }
+}
+
 class BorgSampler(val cfg: BorgConfig) extends Module {
   require(cfg.totalBits == 32, "the sampler returns FP32")
   import SamplerCtl._
@@ -143,10 +178,10 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   // State
   // ===================================================================
 
-  private val states = Enum(23)                            // (two patterns: tuples stop at 22)
+  private val states = Enum(24)                            // (two patterns: tuples stop at 22)
   private val (sIdle :: sTexDesc :: sSampDesc :: sLod :: sLodWait :: sLane :: sLaneSetup ::
                sLevel :: sLevelDims :: sLayer :: sAxis :: sAxisMul :: Nil) = states.take(12)
-  private val (sWrap :: sTap :: sTapMul :: sTapAddr :: sFetch :: sDecode :: sCompare :: sAcc ::
+  private val (sWrap :: sTap :: sTapLayer :: sTapMul :: sTapAddr :: sFetch :: sDecode :: sCompare :: sAcc ::
                sAccWait :: sTapNext :: sResp :: Nil) = states.drop(12)
   private val state = RegInit(sIdle)
 
@@ -159,7 +194,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val td = Reg(Vec(4, UInt(32.W))); private val tdTag = Reg(UInt(8.W)); private val tdOk = RegInit(false.B)
   private val sd = Reg(Vec(4, UInt(32.W))); private val sdTag = Reg(UInt(8.W)); private val sdOk = RegInit(false.B)
   when(io.invalidate) { tdOk := false.B; sdOk := false.B }
-  private val k = RegInit(0.U(3.W))                       // word / step / channel counter
+  private val k = RegInit(0.U(4.W))                       // word / step / channel counter
 
   // Descriptor fields.
   private val base    = td(0)(24, 0)
@@ -199,7 +234,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val product = mulA * mulB.zext                 // SInt(56)
 
   // --- LOD --------------------------------------------------------------
-  private val lodTmp = Reg(Vec(4, UInt(32.W)))            // derivatives, then scaled sums
+  private val lodTmp = Reg(Vec(6, UInt(32.W)))            // d{u,v,w}/dx, d{u,v,w}/dy
+  private val lodSum = Reg(Vec(2, UInt(32.W)))            // the scaled sums in x and y
   private val quadLod = RegInit(0.S(24.W))                // implicit LOD, Q.8
 
   // --- Per lane ---------------------------------------------------------
@@ -224,6 +260,9 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val tap = RegInit(0.U(3.W))
   private val tx = Reg(SInt(20.W)); private val ty = Reg(SInt(20.W)); private val tz = Reg(SInt(20.W))
   private val tBorder = RegInit(false.B)
+  private val tLayer = RegInit(0.U(12.W)); private val layerOffTap = RegInit(0.U(25.W))
+  // Cube corners: three sub-taps (own face, and across each edge), a third each.
+  private val subTap = RegInit(0.U(2.W)); private val tCorner = RegInit(false.B)
   private val tWeight = RegInit(0.U(32.W))
   private val rowTiles = RegInit(0.U(25.W))
   private val addr = RegInit(0.U(25.W))
@@ -261,7 +300,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       when(tdOk && tdTag === texIdx(ctl)) { k := 0.U; state := sSampDesc }
         .otherwise {
           read(io.texBase + (texIdx(ctl) << 6) + (k << 2)) { d =>
-            td(k) := d
+            td(k(1, 0)) := d
             when(k === 3.U) { tdOk := true.B; tdTag := texIdx(ctl); k := 0.U; state := sSampDesc }
               .otherwise { k := k + 1.U }
           }
@@ -271,7 +310,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       when(isFetch || (sdOk && sdTag === sampIdx(ctl))) { k := 0.U; state := sLod }
         .otherwise {
           read(io.sampBase + (sampIdx(ctl) << 4) + (k << 2)) { d =>
-            sd(k) := d
+            sd(k(1, 0)) := d
             when(k === 3.U) { sdOk := true.B; sdTag := sampIdx(ctl); k := 0.U; state := sLod }
               .otherwise { k := k + 1.U }
           }
@@ -280,8 +319,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
 
     // --- Implicit LOD: the quad's derivatives, in texels -------------------
     // lane 1 - lane 0 is d/dx, lane 2 - lane 0 d/dy (the DDX/DDY convention).
-    // rho = max(|du/dx|*W + |dv/dx|*H, |du/dy|*W + |dv/dy|*H), the sum form
-    // of the approximation Vulkan allows; LOD = log2(rho).
+    // rho = max(|du/dx|*W + |dv/dx|*H + |dw/dx|*D, the same in y), the sum
+    // form of the approximation Vulkan allows (w only for 3D); LOD = log2(rho).
     is(sLod) {
       val needQuad = !isFetch && !isGather && lodMode(ctl) =/= LodExplicit.U && (N >= 3).B && !unnorm
       when(!needQuad) {
@@ -291,26 +330,22 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         def neg(x: UInt) = Cat(~x(31), x(30, 0))
         def abs(x: UInt) = Cat(0.U(1.W), x(30, 0))
         val one = "h3F800000".U
-        val wF = uintToFp32(dimW, 0.S); val hF = uintToFp32(dimH, 0.S)
+        val is3D = ttype === T3D.U
+        val size = Seq(uintToFp32(dimW, 0.S), uintToFp32(dimH, 0.S), Mux(is3D, uintToFp32(dimD, 0.S), 0.U(32.W)))
         if (N >= 3) {
-          // k: 0..3 differences, 4..5 scaled sums (x, y), 6 done.
-          val (sa, sb, sc) = (WireDefault(0.U(32.W)), WireDefault(0.U(32.W)), WireDefault(0.U(32.W)))
-          switch(k) {
-            is(0.U) { sa := a(1).u; sb := one; sc := neg(a(0).u) }
-            is(1.U) { sa := a(1).v; sb := one; sc := neg(a(0).v) }
-            is(2.U) { sa := a(2).u; sb := one; sc := neg(a(0).u) }
-            is(3.U) { sa := a(2).v; sb := one; sc := neg(a(0).v) }
-          }
-          when(k <= 3.U) {
-            fmaA := sa; fmaB := sb; fmaC := sc
-          }.elsewhen(k === 4.U) {             // |du/dx|*W + |dv/dx|*H: two chained ops
-            fmaA := abs(lodTmp(0)); fmaB := wF; fmaC := 0.U
-          }.elsewhen(k === 5.U) {
-            fmaA := abs(lodTmp(1)); fmaB := hF; fmaC := lodTmp(0)
-          }.elsewhen(k === 6.U) {
-            fmaA := abs(lodTmp(2)); fmaB := wF; fmaC := 0.U
+          // k 0..5: the differences d{u,v,w}/dx, d{u,v,w}/dy into lodTmp;
+          // k 6..8 and 9..11: the scaled sums in x and in y.
+          val coords = (l: Int) => Seq(a(l).u, a(l).v, a(l).w)
+          val step = WireDefault(0.U(4.W)); step := k
+          val diffs = (for (l <- Seq(1, 2); c <- 0 until 3) yield (coords(l)(c), neg(coords(0)(c))))
+          when(k < 6.U) {
+            fmaA := VecInit(diffs.map(_._1))(k); fmaB := one; fmaC := VecInit(diffs.map(_._2))(k)
           }.otherwise {
-            fmaA := abs(lodTmp(3)); fmaB := hF; fmaC := lodTmp(2)
+            val j = Mux(k < 9.U, k - 6.U, k - 9.U)                     // axis 0..2
+            val src = Mux(k < 9.U, lodTmp(j), lodTmp(j +& 3.U))
+            fmaA := Mux(j === 2.U && !is3D, 0.U, abs(src))
+            fmaB := VecInit(size)(j)
+            fmaC := Mux(j === 0.U, 0.U, Mux(k < 9.U, lodSum(0), lodSum(1)))
           }
         }
         fmaWait := fmaLatency.U
@@ -321,14 +356,11 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       when(fmaWait =/= 0.U) { fmaWait := fmaWait - 1.U }
         .otherwise {
           val r = fma.io.out
-          switch(k) {
-            is(0.U) { lodTmp(0) := r }; is(1.U) { lodTmp(1) := r }
-            is(2.U) { lodTmp(2) := r }; is(3.U) { lodTmp(3) := r }
-            is(4.U) { lodTmp(0) := r }; is(5.U) { lodTmp(0) := r }
-            is(6.U) { lodTmp(2) := r }
-          }
-          when(k === 7.U) {
-            val rx = lodTmp(0); val ry = r
+          when(k < 6.U) { lodTmp(k) := r }
+            .elsewhen(k < 9.U) { lodSum(0) := r }
+            .otherwise { lodSum(1) := r }
+          when(k === 11.U) {
+            val rx = lodSum(0); val ry = r
             val rho = Mux(ordered(rx) >= ordered(ry), rx, ry)
             quadLod := fpLog2(rho)
             lane := 0.U
@@ -460,8 +492,10 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
                                                 .otherwise        { i1(ax) := v; b1(ax) := bord }
       val period = Mux(mode === Mirror.U, size << 1, size)
       val done = WireDefault(true.B)
-      when(isFetch) {
+      when(isFetch || (ttype === TCube.U && !linear)) {
         set(Mux(i < 0.S, 0.S, Mux(i >= size, size - 1.S, i)), false.B)
+      }.elsewhen(ttype === TCube.U) {
+        set(i, false.B)                                    // resolved per tap: seamless
       }.elsewhen(mode === Repeat.U || mode === Mirror.U) {
         when(i < 0.S) { set(i + period, false.B); done := false.B }
           .elsewhen(i >= period) { set(i - period, false.B); done := false.B }
@@ -492,10 +526,41 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val used = (0 until 3).map(a => a.U < dims)
       tx := pick(0); ty := Mux(used(1), pick(1), 0.S); tz := Mux(used(2), pick(2), 0.S)
       tBorder := (0 until 3).map(a => used(a) && bord(a)).reduce(_ || _)
+      tLayer := layerN
       // Weight: the product of each used axis's (1 - f) or f, and the level's.
       def aw(a: Int) = Mux(!linear || !used(a), 256.U(9.W), Mux(t(a), fr(a).pad(9), 256.U - fr(a)))
       val wInt = aw(0) * aw(1) * aw(2) * lvlW(lvIdx)                 // 36 bits, 2^32 = 1
       tWeight := uintToFp32(wInt(33, 0), (-32).S)
+      tCorner := false.B
+      when(ttype === TCube.U) {
+        // Seamless: a tap off the face reads the neighbouring face; past a
+        // corner, the average of the three texels meeting there.
+        val n = lw.zext; val x = pick(0); val y = pick(1)
+        val iOut = x < 0.S || x >= n; val jOut = y < 0.S || y >= n
+        def clampC(v: SInt) = Mux(v < 0.S, 0.S, Mux(v >= n, n - 1.S, v))
+        def across(e: UInt, k: SInt): Unit = {
+          val tbl = VecInit(CubeEdges.table.map(row => VecInit(row.map(r => (r.face * 16 + r.iSel * 4 + r.jSel).U(7.W)))))
+          val r = tbl(layerN(2, 0))(e)
+          def pos(sel: UInt) = MuxLookup(sel, 0.S)(Seq(1.U -> (n - 1.S), 2.U -> k, 3.U -> (n - 1.S - k)))
+          tLayer := r(6, 4); tx := pos(r(3, 2)); ty := pos(r(1, 0))
+        }
+        val eI = Mux(x < 0.S, 0.U, 1.U); val eJ = Mux(y < 0.S, 2.U, 3.U)
+        when(iOut && jOut) {
+          tCorner := true.B
+          tWeight := uintToFp32(((wInt * 21845.U) >> 16)(33, 0), (-32).S)   // a third
+          switch(subTap) {
+            is(0.U) { tx := clampC(x); ty := clampC(y) }
+            is(1.U) { across(eI, clampC(y)) }
+            is(2.U) { across(eJ, clampC(x)) }
+          }
+        }.elsewhen(iOut) { across(eI, y) }
+          .elsewhen(jOut) { across(eJ, x) }
+      }
+      state := sTapLayer
+    }
+    is(sTapLayer) {
+      mulA := tLayer.zext; mulB := stride
+      layerOffTap := product.asUInt(24, 0)
       state := sTapMul
     }
     is(sTapMul) {
@@ -509,7 +574,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val shift = Log2(fmt.bytes)
       mulA := tz; mulB := sliceTexels
       val texel = ((rowTiles + (x >> 2)) << 4) + (y(1, 0) << 2) + x(1, 0) + product.asUInt(24, 0)
-      val tiled = base + levelOff + layerOff + (texel << shift)
+      val tiled = base + levelOff + layerOffTap + (texel << shift)
       val lin   = base + rowTiles + (x << shift)
       addr := Mux(layout === Linear.U, lin, tiled)(24, 0)
       k := 0.U
@@ -518,7 +583,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     is(sFetch) {
       val words = Mux(fmt.bytes >= 4.U, fmt.bytes >> 2, 1.U)
       read(Cat(addr(24, 2), 0.U(2.W)) + (k << 2)) { d =>
-        raw(k) := d
+        raw(k(1, 0)) := d
         when(k === words - 1.U) { k := 0.U; state := sDecode }.otherwise { k := k + 1.U }
       }
     }
@@ -570,7 +635,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         acc := vals
         state := sTapNext
       }.otherwise {
-        fmaA := tWeight; fmaB := vals(k); fmaC := acc(k)
+        fmaA := tWeight; fmaB := vals(k(1, 0)); fmaC := acc(k(1, 0))
         fmaWait := fmaLatency.U
         state := sAccWait
       }
@@ -578,16 +643,20 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     is(sAccWait) {
       when(fmaWait =/= 0.U) { fmaWait := fmaWait - 1.U }
         .otherwise {
-          acc(k) := fma.io.out
+          acc(k(1, 0)) := fma.io.out
           when(k === 3.U) { state := sTapNext }.otherwise { k := k + 1.U; state := sAcc }
         }
     }
     is(sTapNext) {
       val nTaps = Mux(isGather, 4.U, Mux(linear && !isFetch, 1.U << dims, 1.U))
-      when(tap === nTaps - 1.U) {
+      when(tCorner && subTap =/= 2.U) {
+        subTap := subTap + 1.U; state := sTap                // the corner's next texel
+      }.elsewhen(tap === nTaps - 1.U) {
+        subTap := 0.U
         when(lvIdx === nLev - 1.U) { state := sResp }
           .otherwise { lvIdx := lvIdx + 1.U; state := sLevel }
       }.otherwise {
+        subTap := 0.U
         tap := tap + 1.U; state := sTap
       }
     }

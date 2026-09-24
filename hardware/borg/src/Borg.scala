@@ -134,6 +134,23 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def f = flusher
   private def ld = loader
   private def s = sequencer
+  // Render window, decoded in wireSequencer: tile rows (binner clamp) and
+  // the window's origin in pixels (FragCoord, scissor).
+  private val windowRows   = WireDefault(0.U(12.W))
+  private val pixelOriginX = WireDefault(0.U(14.W))
+  private val pixelOriginY = WireDefault(0.U(14.W))
+  // Colour attachments (decoded in wireDraw): the current pass's colour
+  // base, format, clear colour and loadOp, and whether it is the first or
+  // the last pass of the tile.
+  private val attBase     = WireDefault(0.U(25.W))
+  private val attFormat   = WireDefault(0.U(2.W))
+  private val attClearRG  = WireDefault(0.U(32.W))
+  private val attClearB   = WireDefault(0.U(16.W))
+  private val attClearA   = WireDefault(0.U(8.W))
+  private val attLoad     = WireDefault(false.B)
+  private val attFirst    = WireDefault(true.B)
+  private val attLast     = WireDefault(true.B)
+  private val tileLoadColor = WireDefault(false.B)
   private def b = binner
 
   // -- MMIO handshake state (visible across multiple wire* methods) ---------
@@ -539,9 +556,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // Wire clear color: sequencer-driven or MMIO-driven (tile_bz shadow).
     // Sequencer clear color format: lo = {B[31:16], Z[15:0]}, hi = {R[31:16], G[15:0]}.
-    tile.io.clear.color.r := Mux(seqClear, s.io.mmio.clearColorHi(31, 16), 0.U)
-    tile.io.clear.color.g := Mux(seqClear, s.io.mmio.clearColorHi(15, 0), 0.U)
-    tile.io.clear.color.b := Mux(seqClear, s.io.mmio.clearColorLo(31, 16), 0.U)
+    tile.io.clear.color.r := Mux(seqClear, attClearRG(31, 16), 0.U)
+    tile.io.clear.color.g := Mux(seqClear, attClearRG(15, 0), 0.U)
+    tile.io.clear.color.b := Mux(seqClear, attClearB, 0.U)
     when(bus.is_writing && bus.address === BorgGpuRegs.depth_format_offset) {
       depthD32Reg := bus.data_in(0) && (zBits == 32).B
     }
@@ -617,7 +634,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rast.io.alphaRead.foreach(_ := tile.io.alphaRead.get)
     tile.io.alphaWrite.foreach(_ := Mux(ldWrite, ld.io.write.alpha, rast.io.alphaWrite.get))
     tile.io.alphaWriteMask.foreach(_ := ldWrite || rast.io.alphaWriteMask.get)
-    tile.io.alphaClear.foreach(_ := rdlRegs.io.hw.plane_clear_alpha)
+    tile.io.alphaClear.foreach(_ := attClearA)
 
     // --- Multi-pass MSAA control (BorgConfig.msaaMultiPass) --------------
     // The sequencer renders the tile once per sample and folds each finished
@@ -668,14 +685,13 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     f.io.read.data := tile.io.read.data
     f.io.alpha.foreach(_ := tile.io.alphaRead.get)
-    f.io.format    := rdlRegs.io.hw.flush_format_format
+    f.io.format    := attFormat
     // Autonomous tiles are addressed from the sequencer's tile offset (in
     // 32-byte units, one RGB565 tile). A 32-bit colour format doubles the
     // colour tile; the depth tile (D16_UNORM, 16 x 2 bytes) never changes.
     val seqTileOffset = s.io.flusher.tileOffset
-    val colourOffset  = msScale(Mux(FlushFormat.isWide(rdlRegs.io.hw.flush_format_format),
-                                    seqTileOffset << 1, seqTileOffset))
-    f.io.tileBase  := Mux(seqFlushActive, s.io.mmio.fbBase + colourOffset, flushTileBaseReg)
+    val colourOffset  = msScale(Mux(FlushFormat.isWide(attFormat), seqTileOffset << 1, seqTileOffset))
+    f.io.tileBase  := Mux(seqFlushActive, attBase + colourOffset, flushTileBaseReg)
 
     // Depth-attachment write-out (only present at cfg.hasDepthFlush). The
     // FLUSH_ZB_BASE register has existed in the register map since Step
@@ -701,7 +717,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // sequencer-driven render wrote its Z to the same 32 bytes and only
       // the last tile's depth survived.
       p := Mux(seqFlushActive, flushDepthBaseReg + depthTileOffset, flushDepthBaseReg)
-      f.io.depthEn.get := flushDepthBaseReg =/= 0.U
+      // With several colour attachments every pass renders the same depth;
+      // store it once, in the last pass, so no earlier pass's load sees it.
+      f.io.depthEn.get := flushDepthBaseReg =/= 0.U && (!seqFlushActive || attLast)
     }
 
     // Stencil attachment (S8_UINT, 16 bytes per tile: half a depth tile's
@@ -728,7 +746,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     s.io.mmio.attachMs := attachMsReg
     f.io.stencil.foreach(_ := tile.io.stencilRead.get)
     f.io.stencilBase.foreach(_ := Mux(seqFlushActive, stencilTileBase, stencilBaseReg))
-    f.io.stencilEn.foreach(_ := stencilBaseReg =/= 0.U)
+    f.io.stencilEn.foreach(_ := stencilBaseReg =/= 0.U && (!seqFlushActive || attLast))
 
     // --- Tile load (loadOp = LOAD), the flusher's reverse ---------------
     // Same per-tile addresses the flusher writes to; the clear values fill in
@@ -739,20 +757,22 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       tileLoadReg.depth   := bus.data_in(1)
       tileLoadReg.stencil := bus.data_in(2)
     }
-    s.io.mmio.tileLoad := tileLoadReg.asUInt =/= 0.U
+    tileLoadColor := tileLoadReg.color
+    s.io.mmio.tileLoad := attLoad || tileLoadReg.depth || tileLoadReg.stencil
     ld.io.start       := s.io.flusher.loadStart
     s.io.flusher.loadBusy := ld.io.busy
     ld.io.aspects     := tileLoadReg
-    ld.io.format      := rdlRegs.io.hw.flush_format_format
-    ld.io.colorBase   := s.io.mmio.fbBase + colourOffset
+    ld.io.aspects.color := attLoad
+    ld.io.format      := attFormat
+    ld.io.colorBase   := attBase + colourOffset
     ld.io.depthBase.foreach(_ := flushDepthBaseReg + depthTileOffset)
     ld.io.depthD32.foreach(_ := depthD32Reg)
     ld.io.stencilBase.foreach(_ := stencilTileBase)
-    ld.io.clearColor.r := s.io.mmio.clearColorHi(31, 16)
-    ld.io.clearColor.g := s.io.mmio.clearColorHi(15, 0)
-    ld.io.clearColor.b := s.io.mmio.clearColorLo(31, 16)
+    ld.io.clearColor.r := attClearRG(31, 16)
+    ld.io.clearColor.g := attClearRG(15, 0)
+    ld.io.clearColor.b := attClearB
     ld.io.clearColor.z := seqClearDepth
-    ld.io.clearAlpha   := rdlRegs.io.hw.plane_clear_alpha
+    ld.io.clearAlpha   := attClearA
     ld.io.clearStencil := rdlRegs.io.hw.plane_clear_stencil
 
     s.io.flusher.busy := f.io.busy
@@ -829,7 +849,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     when(bus.is_writing && bus.address === BorgGpuRegs.occ_ctrl_offset) {
       occEnable := bus.data_in(0)
       when(bus.data_in(1)) { occCount := 0.U }
-    }.elsewhen(occEnable && inWindow) {
+    }.elsewhen(occEnable && inWindow && attFirst) {
       occCount := occCount + rast.io.occSamples
     }
 
@@ -1035,7 +1055,20 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.mmio.binRowBytes     := seqCfgPipe(seqBinRowBytesReg(s.io.mmio.binRowBytes.getWidth - 1, 0))
       s.io.mmio.setupBase       := seqCfgPipe(seqSetupBaseReg)
       s.io.mmio.fbWidthTiles    := seqCfgPipe(seqTilesPerRowReg(s.io.mmio.fbWidthTiles.getWidth - 1, 0))
-      s.io.mmio.fbHeightTiles   := seqCfgPipe(seqTilesPerRowReg(s.io.mmio.fbHeightTiles.getWidth - 1, 0))  // square framebuffer assumption
+      // Render window: SEQ_TILE_ROWS (0 = square), FB_ORIGIN, FB_PITCH (0 =
+      // the window's width) -- all reset to the historical whole-framebuffer
+      // render.
+      val tileRowsReg = RegInit(0.U(12.W)); val originReg = RegInit(0.U(32.W)); val pitchReg = RegInit(0.U(12.W))
+      when(bus.is_writing && bus.address === BorgGpuRegs.seq_tile_rows_offset) { tileRowsReg := bus.data_in(11, 0) }
+      when(bus.is_writing && bus.address === BorgGpuRegs.fb_origin_offset)     { originReg := bus.data_in }
+      when(bus.is_writing && bus.address === BorgGpuRegs.fb_pitch_offset)      { pitchReg := bus.data_in(11, 0) }
+      val rows = Mux(tileRowsReg === 0.U, seqTilesPerRowReg, tileRowsReg)
+      s.io.mmio.fbHeightTiles   := seqCfgPipe(rows(s.io.mmio.fbHeightTiles.getWidth - 1, 0))
+      s.io.mmio.fbOriginX       := seqCfgPipe(originReg(11, 0))
+      s.io.mmio.fbOriginY       := seqCfgPipe(originReg(27, 16))
+      s.io.mmio.fbPitch         := seqCfgPipe(Mux(pitchReg === 0.U, seqTilesPerRowReg, pitchReg))
+      windowRows := rows
+      pixelOriginX := Cat(originReg(11, 0), 0.U(2.W)); pixelOriginY := Cat(originReg(27, 16), 0.U(2.W))
       s.io.mmio.fragUsesFragPos := seqCfgPipe(rdlRegs.io.hw.tex_config_frag_uses_fragpos)
       // CULL_CFG (Step 50). Reset 2/0 = cull back faces with the historical
       // winding convention, so firmware that never writes it sees no change.
@@ -1098,6 +1131,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     s.io.pipeWriteLanes.foreach(_ := core.io.pipeWrite)
     core.io.drawMode.foreach(_ := drawMode)
     rast.io.drawMode.foreach(_ := drawMode)
+    rast.io.topLeft.foreach(_ := s.io.topLeft.get)
     // The walker owns r30/r31 while it runs a vertex shader; compute
     // otherwise (the two never overlap).
     core.io.ids.foreach { ids =>
@@ -1117,6 +1151,42 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     core.io.texDescBase.foreach(_ := texDescReg)
     core.io.sampDescBase.foreach(_ := sampDescReg)
     core.io.descWritten.foreach(_ := descWrite)
+
+    // SAMPLE_MASK_CFG: [samples-1:0] static mask (reset all ones), then
+    // alpha to coverage and the shader's own mask (r19).
+    val smCfg = RegInit(((1 << cfg.samples) - 1).U(32.W))
+    when(bus.is_writing && bus.address === BorgGpuRegs.sample_mask_cfg_offset) { smCfg := bus.data_in }
+    rast.io.sampleCfg.mask       := smCfg(cfg.samples - 1, 0)
+    rast.io.sampleCfg.alphaToCov := smCfg(4)
+    rast.io.sampleCfg.shaderMask := smCfg(5)
+    core.io.laneCoverage.foreach(_ := rast.io.laneCoverage)
+    core.io.pixelOrigin.x := pixelOriginX; core.io.pixelOrigin.y := pixelOriginY
+    // Colour attachments 1..3; attachment 0 is the historical one.
+    val attCfg = RegInit(0.U(8.W)); val attFmtReg = RegInit(0.U(6.W))
+    val attBases = Seq.fill(3)(RegInit(0.U(25.W)))
+    val attRG = Seq.fill(3)(RegInit(0.U(32.W))); val attBA = Seq.fill(3)(RegInit(0.U(32.W)))
+    when(bus.is_writing && bus.address === BorgGpuRegs.att_cfg_offset)    { attCfg := bus.data_in(7, 0) }
+    when(bus.is_writing && bus.address === BorgGpuRegs.att_format_offset) { attFmtReg := bus.data_in(5, 0) }
+    for ((r, off) <- attBases.zip(Seq(BorgGpuRegs.att_base1_offset, BorgGpuRegs.att_base2_offset, BorgGpuRegs.att_base3_offset)))
+      when(bus.is_writing && bus.address === off) { r := bus.data_in(24, 0) }
+    for ((r, off) <- attRG.zip(Seq(BorgGpuRegs.att_clear_rg1_offset, BorgGpuRegs.att_clear_rg2_offset, BorgGpuRegs.att_clear_rg3_offset)))
+      when(bus.is_writing && bus.address === off) { r := bus.data_in }
+    for ((r, off) <- attBA.zip(Seq(BorgGpuRegs.att_clear_ba1_offset, BorgGpuRegs.att_clear_ba2_offset, BorgGpuRegs.att_clear_ba3_offset)))
+      when(bus.is_writing && bus.address === off) { r := bus.data_in }
+    val count = attCfg(1, 0) +& 1.U
+    val pass = s.io.attPass
+    s.io.mmio.attCount := count
+    def sel[T <: Data](first: T, rest: Seq[T]): T = MuxLookup(pass, first)((1 to 3).map(k => k.U -> rest(k - 1)))
+    attBase    := sel(s.io.mmio.fbBase, attBases)
+    attFormat  := sel(rdlRegs.io.hw.flush_format_format, Seq(attFmtReg(1, 0), attFmtReg(3, 2), attFmtReg(5, 4)))
+    attClearRG := sel(s.io.mmio.clearColorHi, attRG)
+    attClearB  := sel(s.io.mmio.clearColorLo(31, 16), attBA.map(_(31, 16)))
+    attClearA  := sel(rdlRegs.io.hw.plane_clear_alpha, attBA.map(_(7, 0)))
+    attLoad    := sel(tileLoadColor, Seq(attCfg(2), attCfg(3), attCfg(4)))
+    attFirst   := pass === 0.U
+    attLast    := pass === count - 1.U
+    core.io.attIndex.foreach(_ := pass)
+    rast.io.pixelOrigin.x := pixelOriginX; rast.io.pixelOrigin.y := pixelOriginY
   }
 
   /** Step 32.2: Wire BorgBinner — sequencer-driven geometry pass binning.
@@ -1137,6 +1207,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     b.io.binBase     := s.io.mmio.binBase
     b.io.binRowBytes := s.io.mmio.binRowBytes
     b.io.tilesPerRow := s.io.mmio.tilesPerRow
+    b.io.tileRows    := windowRows(b.io.tileRows.getWidth - 1, 0)
     s.io.binner.busy := b.io.busy
     b.io.countReadAddr := s.io.binner.countReadAddr
     b.io.countReadEn   := s.io.binner.countReadEn

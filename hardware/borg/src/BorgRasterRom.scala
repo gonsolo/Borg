@@ -68,11 +68,14 @@ private[borg] object BorgRasterRom {
     *
     * Leaves, for the dispatcher's coverage snoop and then the fragment
     * shader:
-    *   r0..r2  E0..E2, screen-linear (Ek*Wk is the noperspective barycentric)
+    *   r0..r2  E0..E2, screen-linear edge values, unscaled (Ek*Wk*|1/det| is
+    *           the noperspective barycentric)
     *   r3, r4  Zn = z_ndc and Zf = 1 - Zn, the near and far half-spaces
     *   r5..r7  perspective-correct barycentrics Ek / sum(E)
     *   r8      FragCoord.w = sum(E) = 1/w
     *   r29     FragCoord.z = Zn*scale + offset, also the fragment's depth
+    *   r11..r14 the depth at each MSAA sample, which the depth test uses
+    *           unless the shader writes r29
     * and clobbers r9, r10. Nothing writes r0..r4 after its plane value: the
     * dispatcher keeps the last value each register gets in this phase.
     */
@@ -91,13 +94,21 @@ private[borg] object BorgRasterRom {
     p += ADD(rs1 = t, rs2 = R.One, rd = 4, funct3 = U2)
     p += ADD(rs1 = 0, rs2 = 1, rd = 8)           // 1/w = E0 + E1 + E2
     p += ADD(rs1 = 8, rs2 = 2, rd = 8)
-    p += FRCP(rs1 = 8, rd = t)                   // w, plus one Newton step
+    p += FRCP(rs1 = 8, rd = t)                   // 1 / sum(E), plus one Newton step
     p += FNEG(rs1 = 8, rd = t2)
     p += FMA(rs1 = t2, rs2 = t, rs3 = R.One, rd = t2, funct3 = U3)
     p += FMA(rs1 = t, rs2 = t2, rs3 = t, rd = t)
     for (k <- 0 until 3) p += MUL(rs1 = k, rs2 = t, rd = 5 + k)
+    p += MUL(rs1 = 8, rs2 = R.InvDet, rd = 8, funct3 = U2)   // FragCoord.w = sum(E) / |det|
     p += MUL(rs1 = 3, rs2 = R.DepthScale, rd = 29, funct3 = U2)
     p += ADD(rs1 = 29, rs2 = R.DepthOffset, rd = 29, funct3 = U2)
+    // Each sample's own depth, r11..r14: FragCoord.z + {d0, d1, -d1, -d0}.
+    p += ADD(rs1 = 29, rs2 = R.SampleDepth, rd = 11, funct3 = U2)
+    p += ADD(rs1 = 29, rs2 = R.SampleDepth + 1, rd = 12, funct3 = U2)
+    p += FNEG(rs1 = R.SampleDepth + 1, rd = 13, funct3 = 1)
+    p += ADD(rs1 = 29, rs2 = 13, rd = 13)
+    p += FNEG(rs1 = R.SampleDepth, rd = 14, funct3 = 1)
+    p += ADD(rs1 = 29, rs2 = 14, rd = 14)
     p += BigInt(0)                               // HALT
     p.result()
   }
