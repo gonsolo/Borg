@@ -124,6 +124,12 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // == LRU). Reset when this pass starts (io.start), not at the top-level
   // frame-idle boundary -- Pass 1 doesn't use this cache at all, so there is
   // no reason for its reset to live outside this module.
+  //
+  // One entry per uniform page the core really has: a 32-uniform build
+  // (Wafer) drops the page bit on uniform read AND write, so a second tag
+  // would name page 1 while its DMA overwrote page 0 -- and a later hit on
+  // the first tag would shade that triangle with the other one's uniforms.
+  private val setupPages = if (cfg.maxUniforms > 32) 2 else 1
   val tagReg      = RegInit(VecInit(Seq.fill(2)("hFFFF".U(16.W))))
   val uvsReg      = RegInit(VecInit(Seq.fill(2)(false.B)))
   // Per-page cached facing flag, same shape as uvsReg -- both bits live in
@@ -449,7 +455,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       triIsBackFacing := backFacingReg(0)
       covDeltaActive.foreach(_ := covDeltaCache.get(0))
       state       := sEnqueueTile
-    }.elsewhen(binEntryData === tagReg(1)) {
+    }.elsewhen(binEntryData === tagReg(1) && (setupPages > 1).B) {
       if (BorgDebug.trace) printf("[SEQ] loadTriSetup HIT page1 triIdx=%d\n", binEntryData)
       uniformPage := 1.U
       triHasUvs   := uvsReg(1)
@@ -457,7 +463,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       covDeltaActive.foreach(_ := covDeltaCache.get(1))
       state       := sEnqueueTile
     }.otherwise {
-      val victim = cacheVictim
+      val victim = if (setupPages > 1) cacheVictim else 0.U
       // Base address must match BorgGeometrySequencer's write-side stride
       // exactly. Length stays fixed at the original 32 words (31 uniforms +
       // has_uvs): that destination is the real, capacity-limited on-chip
