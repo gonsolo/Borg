@@ -111,6 +111,8 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // sWaitSetup, the only consumer.
   val cullMode        = Input(UInt(2.W))
   val frontFaceInvert = Input(Bool())
+  // Any attachment aspect has loadOp = LOAD (TILE_LOAD != 0).
+  val tileLoad        = Input(Bool())
 }
 
 class SeqBinnerIO(cfg: BorgConfig) extends Bundle {
@@ -146,6 +148,10 @@ class SeqFlusherIO extends Bundle {
   val tileOffset = Output(UInt(25.W))   // 25b = 32 MB GPU memory address space
   val trigger = Output(Bool())
   val busy = Input(Bool())
+  // Tile load (loadOp = LOAD): pulsed after the tile's clear when any aspect
+  // is loaded; the tile waits for loadBusy to drop. Same tileOffset.
+  val loadStart = Output(Bool())
+  val loadBusy  = Input(Bool())
 }
 
 class SeqIteratorIO(val coordWidth: Int) extends Bundle {
@@ -368,6 +374,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.flusher.tileOffset := p2.io.flusher.tileOffset
   io.flusher.trigger := p2.io.flusher.trigger
   p2.io.flusher.busy := io.flusher.busy
+  io.flusher.loadStart := p2.io.flusher.loadStart
+  p2.io.flusher.loadBusy := io.flusher.loadBusy
   io.iter.clear         := p2.io.iter.clear
   io.iter.enqueue       := p2.io.iter.enqueue
   io.iter.iterate       := p2.io.iter.iterate

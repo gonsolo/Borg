@@ -283,6 +283,42 @@ bit 1 write-1 clear), `OCC_TRI_RANGE` (`0x320`: first triangle index in bits
   index, and every fragment counts while enabled.
 - 32 bits; Vulkan's 64-bit result is the zero-extended value.
 
+### Attachment load and stencil store
+
+A render can now continue from a previous render's attachments
+(`loadOp = LOAD`) instead of only starting from a clear. This is also what
+lets the driver split one Vulkan render pass into several renders. That split
+is needed whenever a render pass uses more than one fragment shader, since
+pass 2 loads exactly one, or holds more than one occlusion query.
+
+- **`TILE_LOAD`** (`0x328`): bit 0 colour (with alpha), bit 1 depth, bit 2
+  stencil. The same bits as Vulkan's per-attachment `loadOp`. Every tile is
+  cleared as before, then the selected aspects are loaded over the clear.
+  Aspects not loaded keep their clear values, so `LOAD` colour with `CLEAR`
+  depth works as expected.
+- **Sources** are exactly where the flusher writes. Colour comes from the
+  framebuffer in the format `FLUSH_FORMAT` selects: RGB565 loads as opaque,
+  and the 32-bit formats carry alpha. Depth comes from `FLUSH_ZB_BASE` as
+  D16_UNORM, and stencil from the new `FLUSH_SB_BASE` (`0x32C`).
+- **Stencil store:** with `FLUSH_SB_BASE` nonzero, each tile's stencil plane
+  goes out after depth as 16 bytes (S8_UINT) per tile, at
+  `sb_base + 16 × tile index`. Before this commit stencil never left the
+  chip, so no stencil attachment could survive a render pass.
+- **Round-trip fidelity:** colour and stencil are exact. Depth is not
+  conformant yet: see the two gaps below.
+- **Open conformance gaps (hardware, in progress):**
+  - *Tile depth is FP16.* The depth test compares against the value "in the
+    attachment", i.e. in its format. FP16's 11-bit significand merges up to 32
+    neighbouring D16 values near 1.0, and it cannot hold the mandatory
+    depth-only `X8_D24_UNORM_PACK32` or `D32_SFLOAT` at all. The fix is FP32
+    tile depth.
+  - *Multisampled attachments are stored resolved.* 4× is mandatory for
+    framebuffer and sampled-image sample counts, so a stored 4× attachment
+    must keep every sample for a later load, `texelFetch(…, sample)` or
+    `vkCmdResolveImage`. The fix is per-sample store and load.
+- **Empty tiles are always flushed** when loading. The dirty-tile skip
+  assumes DRAM already holds the clear colour, which no longer holds.
+
 ### Colour quantization
 
 `quantize8` (FP16 → UNORM8) is now an exact `round(v*255)`; it used to
@@ -304,6 +340,7 @@ regenerating.
 | RGBA8/BGRA8 flush, depth per tile| `BorgTileFlusherTests`, scenario `sequencer_rgba8_and_depth_advance_per_tile` |
 | Compute ABI, BARRIER, atomics    | `BorgComputeTests`                                                 |
 | Occlusion count, triangle window | `BorgShaderDispatcherZTestTests` (count per test site), scenario `occlusion_query_counts_the_samples_of_the_triangle_window` |
+| Attachment load, stencil store   | `BorgTileLoaderTests` (3), `BorgTileFlusherTests` stencil burst, scenario `attachments_store_and_load_across_renders` |
 | EXANY divergent loop             | `BorgCoreTestsD.exany_implements_a_genuinely_divergent_loop`      |
 | Programs longer than IMEM        | `BorgCoreTestsC.icache_*` (4 tests, 64- and 72-word IMEM)         |
 | Long shader through DMA preload  | `BorgSequencerTests` scenario `icache_runs_a_fragment_shader_longer_than_imem` |
