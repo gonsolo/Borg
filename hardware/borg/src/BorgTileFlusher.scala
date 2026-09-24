@@ -240,41 +240,20 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   readEnReg := false.B
 
   // FP16 [0,1] -> unsigned N-bit channel (top N bits of an 8-bit conversion).
-  // FP16: 1 sign + 5 exponent (bias=15) + 10 mantissa.  Clamp negatives to 0,
-  // >=1.0 to all-ones; matches the scanout's old fp16ToRgb8 mapping.
+  // Clamps negatives to 0 and >= 1.0 to all ones.
   //
-  // This is an 8-arm MuxLookup, i.e. real hardware (~140 cells measured via
-  // synthesis), not a cheap function -- which is why the MSAA resolve below
-  // goes out of its way to instantiate ONE of these per channel and time-share
-  // it across samples rather than one per (channel, sample) pair. The first
-  // cut of resolve called this `samples` times per channel combinationally
-  // (see git history) and cost +1,312 cells in BorgTileFlusher alone at
-  // samples=4 -- confirmed via yosys `stat` on the emitted ASIC netlist,
-  // comparing samples=1 vs samples=4 module-by-module.
-  def fp16ToUnorm(fp16: UInt, bits: Int): UInt = {
-    val sign = fp16(15)
-    val exp  = fp16(14, 10)
-    val mant = fp16(9, 0)
-    val full = Cat(1.U(1.W), mant)  // 11-bit: 1.mantissa
-    val rgb8 = Wire(UInt(8.W))
-    when(sign || exp < 7.U) {
-      rgb8 := 0.U
-    }.elsewhen(exp >= 15.U) {
-      rgb8 := 255.U
-    }.otherwise {
-      rgb8 := MuxLookup(exp, 0.U(8.W))(Seq(
-        14.U -> full(10, 3),
-        13.U -> Cat(0.U(1.W), full(10, 4)),
-        12.U -> Cat(0.U(2.W), full(10, 5)),
-        11.U -> Cat(0.U(3.W), full(10, 6)),
-        10.U -> Cat(0.U(4.W), full(10, 7)),
-         9.U -> Cat(0.U(5.W), full(10, 8)),
-         8.U -> Cat(0.U(6.W), full(10, 9)),
-         7.U -> Cat(0.U(7.W), full(10))
-      ))
-    }
-    rgb8(7, 8 - bits)
-  }
+  // The 8-bit conversion is ColorQuantize.quantize8, round(v * 255) -- what
+  // Vulkan's float-to-UNORM conversion specifies. This used to be its own
+  // shifter that kept floor(v * 256): every stored value landing just above
+  // a UNORM8 step (0.953125 = 243.05/255, say) flushed one step high, so an
+  // RGBA8 attachment could not be stored, sampled back and stored again
+  // unchanged. quantize8 had the same x256 error and was fixed on its own.
+  //
+  // Real hardware, not a cheap function -- which is why the MSAA resolve
+  // below instantiates ONE of these per channel and time-shares it across
+  // samples rather than one per (channel, sample) pair (+1,312 cells at
+  // samples=4 for the per-pair version, measured with yosys `stat`).
+  def fp16ToUnorm(fp16: UInt, bits: Int): UInt = ColorQuantize.quantize8(fp16)(7, 8 - bits)
 
   /** Destination alpha of sample `s`, or opaque without an alpha plane. */
   def alphaOf(s: Int): UInt = io.alpha.map(_(s)).getOrElse(255.U(8.W))

@@ -25,9 +25,11 @@ object BorgTileFlusherTests extends TestSuite {
     val exp  = (h >> 10) & 0x1f
     val mant = h & 0x3ff
     val full = (1 << 10) | mant
-    if (sign == 1 || exp < 7) 0
-    else if (exp >= 15) (1 << bits) - 1
-    else (full >> (17 - exp)) >> (8 - bits)
+    // round(v * 255), as ColorQuantize.quantize8, then the top `bits` bits.
+    val n = 25 - exp
+    val u8 = if (sign == 1 || exp == 0) 0 else if (exp >= 15) 255
+             else math.min(255, (full * 255 + (1 << (n - 1))) >> n)
+    u8 >> (8 - bits)
   }
   def rgb565(r: Int, g: Int, b: Int): Int =
     (fp16ToUnorm(r, 5) << 11) | (fp16ToUnorm(g, 6) << 5) | fp16ToUnorm(b, 5)
