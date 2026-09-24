@@ -19,9 +19,9 @@ import chisel3._
   * At samples==1 `coverage` is a single bit that callers tie to `en`'s meaning,
   * so the single-sample path stays bit-identical.
   */
-class TileWriteIO(val samples: Int = 1) extends Bundle {
+class TileWriteIO(val samples: Int = 1, val zBits: Int = 16) extends Bundle {
   val idx      = Output(UInt(4.W))
-  val data     = Output(new ColorZ(16))
+  val data     = Output(new ColorZ(16, zBits))
   val en       = Output(Bool())
   val coverage = Output(UInt(samples.W))
 }
@@ -37,18 +37,18 @@ class TileWriteIO(val samples: Int = 1) extends Bundle {
   *
   * Symmetric with [[TileWriteIO]].
   */
-class TileReadIO(val dataBits: Int = 16, val samples: Int = 1) extends Bundle {
+class TileReadIO(val dataBits: Int = 16, val samples: Int = 1, val zBits: Int = 16) extends Bundle {
   val idx  = Output(UInt(4.W))
   val en   = Output(Bool())
-  val data = Input(Vec(samples, new ColorZ(dataBits)))
+  val data = Input(Vec(samples, new ColorZ(dataBits, zBits)))
 }
 
 /** Tile buffer clear port — master's perspective.
   * en:   pulse to start sequential clear (Z=FP16_MAX, RGB=0)
   * busy: high while clear is in progress
   */
-class TileClearIO extends Bundle {
+class TileClearIO(val zBits: Int = 16) extends Bundle {
   val en    = Output(Bool())
   val busy  = Input(Bool())
-  val color = Output(new ColorZ(16))  // clear color (Step 32.5: sequencer-driven)
+  val color = Output(new ColorZ(16, zBits))  // clear color (Step 32.5: sequencer-driven)
 }

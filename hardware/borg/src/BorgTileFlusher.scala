@@ -23,13 +23,14 @@ object FlushFormat {
 class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
                         val hasDepthFlush: Boolean = false,
                         val hasAlpha: Boolean = false,
-                        val hasStencil: Boolean = false) extends Bundle {
+                        val hasStencil: Boolean = false,
+                        val zBits: Int = 16) extends Bundle {
   // Trigger interface
   val start     = Input(Bool())    // one-cycle pulse to begin flush
   val busy      = Output(Bool())   // high while flushing
 
   // Tile SRAM read port (flusher drives idx/en, reads data)
-  val read      = new TileReadIO(dataBits, samples)
+  val read      = new TileReadIO(dataBits, samples, zBits)
 
   // DRAM write port
   val gpuMem    = new GpuMemIO
@@ -58,6 +59,11 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
   val stencil     = if (hasStencil) Some(Input(Vec(samples, UInt(8.W)))) else None
   val stencilBase = if (hasStencil) Some(Input(UInt(25.W))) else None
   val stencilEn   = if (hasStencil) Some(Input(Bool())) else None
+
+  // Depth attachment format (DEPTH_FORMAT): false = D16_UNORM (16 x 2 bytes
+  // per tile), true = D32_SFLOAT (16 x 4 bytes, two bursts). D32 needs FP32
+  // tile depth, so it exists only with zBits = 32.
+  val depthD32 = if (hasDepthFlush && zBits == 32) Some(Input(Bool())) else None
 
   // Optional depth-attachment write-out (Step 50 item 14 groundwork; absent
   // unless hasDepthFlush). Historically Z was NEVER written to DRAM -- the
@@ -166,8 +172,9 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
 class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
                       val hasDepthFlush: Boolean = false,
                       val hasAlpha: Boolean = false,
-                      val hasStencil: Boolean = false) extends Module {
-  val io = IO(new BorgTileFlusherIO(dataBits, samples, hasDepthFlush, hasAlpha, hasStencil))
+                      val hasStencil: Boolean = false,
+                      val zBits: Int = 16) extends Module {
+  val io = IO(new BorgTileFlusherIO(dataBits, samples, hasDepthFlush, hasAlpha, hasStencil, zBits))
 
   val sIdle :: sFill :: sBurst :: sBurstZ :: sBurstS :: Nil = Enum(5)
   val state = RegInit(sIdle)
@@ -177,7 +184,11 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   val rgbVec   = Reg(Vec(16, UInt(16.W)))
   // 16 UNORM16 depth values, staged from the SAME sFill read pass as rgbVec
   // (another 256 FFs, only when hasDepthFlush).
-  val zVec     = if (hasDepthFlush) Some(Reg(Vec(16, UInt(16.W)))) else None
+  // Staged raw (the tile's own depth width) and converted to the attachment
+  // format per burst beat: one converter instead of one per captured entry.
+  val zVec     = if (hasDepthFlush) Some(Reg(Vec(16, UInt(zBits.W)))) else None
+  val d32Reg   = RegInit(false.B)      // D32_SFLOAT, latched at start
+  val zHalf    = RegInit(false.B)      // D32: which 8-entry half is bursting
   val baseReg  = RegInit(0.U(25.W))
   // Latched alongside baseReg for the same reason: the sequencer's address
   // inputs are only valid at the start pulse, not for the whole flush.
@@ -309,7 +320,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
       // depth resolve: VK_RESOLVE_MODE_SAMPLE_ZERO_BIT, the only depth
       // resolve mode v3dv supports and the one V3D's tile-store hardware
       // selects (decimate_mode = SAMPLE_0). See the class doc comment.
-      zVec.foreach(_(capIdx(3, 0)) := DepthQuantize.quantize16(e.z))
+      zVec.foreach(_(capIdx(3, 0)) := e.z)
       capIdx := capIdx + 1.U
     }
   } else {
@@ -339,7 +350,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     val pipelineBusy   = RegInit(false.B)
     val resolveBusy    = RegInit(false.B)
     val resolveSample  = RegInit(0.U(sampleBits.W))
-    val pendingSamples = Reg(Vec(samples, new ColorZ(dataBits)))
+    val pendingSamples = Reg(Vec(samples, new ColorZ(dataBits, zBits)))
     val pendingAlpha   = io.alpha.map(_ => Reg(Vec(samples, UInt(8.W))))
     val accR = RegInit(0.U(accBits.W))
     val accG = RegInit(0.U(accBits.W))
@@ -382,8 +393,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         // and the only one v3dv offers for depth. pendingSamples still holds
         // every captured sample here, so (0) is sample zero directly -- the
         // colour accumulators are untouched by this.
-        zVec.foreach(_(capIdx(3, 0)) :=
-          DepthQuantize.quantize16(pendingSamples(0).z))
+        zVec.foreach(_(capIdx(3, 0)) := pendingSamples(0).z)
         if (BorgDebug.trace) printf("[FLUSH] entry=%d resolved from %d samples\n",
           capIdx, samples.U)
         capIdx       := capIdx + 1.U
@@ -409,6 +419,8 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         baseReg   := io.tileBase
         depthBaseReg.foreach(_ := io.depthBase.get)
         stencilBaseReg.foreach(_ := io.stencilBase.get)
+        d32Reg    := io.depthD32.getOrElse(false.B)
+        zHalf     := false.B
         formatReg := io.format
         half      := false.B
         issueIdx  := 0.U
@@ -471,18 +483,29 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     // this arm is unreachable and folds away in synthesis.
     is(sBurstZ) {
       if (hasDepthFlush) {
+        // D16_UNORM: one converted value per beat. D32_SFLOAT: the raw FP32,
+        // low halfword first, 8 entries per burst.
+        val z = zVec.get
+        val d16 = if (zBits == 32) DepthQuantize.quantize16Fp32(z(burstIdx(3, 0)))
+                  else DepthQuantize.quantize16(z(burstIdx(3, 0)))
+        val d32Entry = z(Cat(zHalf, burstIdx(3, 1)))
+        val d32Half  = if (zBits == 32) Mux(burstIdx(0), d32Entry(31, 16), d32Entry(15, 0)) else 0.U
         io.gpuMem.wr    := true.B
-        io.gpuMem.addr  := depthBaseReg.get
-        io.gpuMem.wdata := zVec.get(burstIdx(3, 0))
+        io.gpuMem.addr  := depthBaseReg.get + Mux(zHalf, 32.U, 0.U)
+        io.gpuMem.wdata := Mux(d32Reg, d32Half, d16)
         io.gpuMem.wlen  := 16.U
         when(io.gpuMem.waccept) {
-          if (BorgDebug.trace) printf("[FLUSH] entry=%d D16=0x%x\n",
-            burstIdx, zVec.get(burstIdx(3, 0)))
+          if (BorgDebug.trace) printf("[FLUSH] depth beat=%d data=0x%x\n",
+            burstIdx, io.gpuMem.wdata)
           burstIdx := burstIdx + 1.U
         }
         when(io.gpuMem.ready) {
           burstIdx := 0.U
-          state    := afterDepth
+          when(d32Reg && !zHalf) {
+            zHalf := true.B                 // second 32 bytes of a D32 tile
+          }.otherwise {
+            state := afterDepth
+          }
         }
       } else {
         state := sIdle

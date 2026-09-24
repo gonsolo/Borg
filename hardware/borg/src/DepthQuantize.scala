@@ -107,4 +107,45 @@ object DepthQuantize {
 
     Mux(numerator < 4.U, 0.U(16.W), Cat(0.U(1.W), expField, mantField))
   }
+  /** FP32 (assumed in [0,1]) -> UNORM16, exactly round(value * 65535).
+    *
+    * For FP32 tile depth (BorgConfig.tileDepthBits = 32) storing into a
+    * D16_UNORM attachment. value = SIG * 2^(exp-150) with SIG the 24-bit
+    * significand, so value * 65535 = (SIG*65536 - SIG) >> (150 - exp): a
+    * subtract and a rounding shift, no multiplier -- the same trick as
+    * ColorQuantize.quantize8. A shift of 41 or more leaves nothing (the
+    * product is below 2^40), and values at or above 1.0 clamp to 65535.
+    */
+  def quantize16Fp32(fp32: UInt): UInt = {
+    require(fp32.getWidth == 32)
+    val sign = fp32(31)
+    val exp  = fp32(30, 23)
+    val sig  = Cat(1.U(1.W), fp32(22, 0))                 // 24 bits
+    val t    = (sig << 16) - sig                          // SIG * 65535, < 2^40
+    val n    = 150.U(9.W) - exp                           // >= 24 for exp <= 126
+    val nSm  = n(5, 0)
+    val rounded = ((t +& (1.U(41.W) << (nSm - 1.U))) >> nSm)(16, 0)
+    val normal  = Mux(n > 40.U, 0.U(16.W), Mux(rounded > 65535.U, 65535.U(16.W), rounded(15, 0)))
+    MuxCase(normal, Seq(
+      sign            -> 0.U(16.W),
+      (exp === 0.U)   -> 0.U(16.W),
+      (exp >= 127.U)  -> 65535.U(16.W)))
+  }
+
+  /** UNORM16 -> FP32, close enough to u/65535 that quantize16Fp32 returns u.
+    *
+    * u/65535 is approximated as Cat(u, u) * 2^-32 = u*65537/2^32 (off by a
+    * factor of 1 - 2^-32), normalized and truncated to FP32's 24 significant
+    * bits. The total error is under 2^-24 relative, far inside the half-step
+    * rounding margin of the way back, so every D16 value survives a load and
+    * store unchanged.
+    */
+  def dequantize16Fp32(u16: UInt): UInt = {
+    require(u16.getWidth == 16)
+    val n   = Cat(u16, u16)                               // u * 65537, 32 bits
+    val msb = Log2(n)
+    val expField  = (msb +& 95.U)(7, 0)                   // msb - 32 + 127
+    val mantField = (n << (31.U - msb))(30, 8)            // 23 bits below the leading one
+    Mux(u16 === 0.U, 0.U(32.W), Cat(0.U(1.W), expField, mantField))
+  }
 }

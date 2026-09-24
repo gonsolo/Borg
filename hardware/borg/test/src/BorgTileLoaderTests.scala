@@ -38,7 +38,8 @@ object BorgTileLoaderTests extends TestSuite {
 
   /** Run one tile load against `mem` (byte address -> 32-bit word). */
   def load(d: BorgTileLoader, mem: Map[Int, BigInt], color: Boolean, depth: Boolean,
-           stencil: Boolean, format: Int): Map[Int, Entry] = {
+           stencil: Boolean, format: Int, d32: Boolean = false): Map[Int, Entry] = {
+    d.io.depthD32.foreach(_.poke(d32.B))
     d.io.aspects.color.poke(color.B); d.io.aspects.depth.poke(depth.B)
     d.io.aspects.stencil.poke(stencil.B)
     d.io.format.poke(format.U)
@@ -132,6 +133,24 @@ object BorgTileLoaderTests extends TestSuite {
           utest.assert(math.abs(f16ToFloat(x.z) - d16(e) / 65535.0f) < 1e-3f)
         }
         println("  BGRA8 byte order; depth-only load keeps the clear colour")
+      }
+    }
+    utest.test("fp32_depth_loads_d16_exactly_and_d32_raw") {
+      // FP32 tile depth: a D16 value loads as the FP32 closest to u/65535
+      // (quantize16Fp32 turns it back into u -- the full round trip is swept
+      // in DepthQuantizeTests), and a D32_SFLOAT value loads bit for bit.
+      simulate(new BorgTileLoader(zBits = 32)) { d =>
+        val d16 = load(d, depthAndStencil, color = false, depth = true, stencil = false,
+                       FlushFormat.RGB565)
+        for (e <- 0 until 16) {
+          val f = java.lang.Float.intBitsToFloat(d16(e).z)
+          utest.assert(math.abs(f - (e * 4096 + 100) / 65535.0) < 1e-7)
+        }
+        def zf(e: Int): Long = java.lang.Float.floatToRawIntBits(e / 16.0f + 0.001f).toLong & 0xFFFFFFFFL
+        val mem32 = (0 until 16).map(e => (Z_BASE + 4 * e) -> BigInt(zf(e))).toMap
+        val d32 = load(d, mem32, color = false, depth = true, stencil = false, FlushFormat.RGB565, d32 = true)
+        for (e <- 0 until 16) utest.assert((d32(e).z.toLong & 0xFFFFFFFFL) == zf(e))
+        println("  FP32 depth: D16 loads to u/65535, D32 loads raw")
       }
     }
   }

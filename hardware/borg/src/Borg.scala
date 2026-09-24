@@ -108,11 +108,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   val core      = withReset(resetCopy("core"))   { Module(new BorgCore(cfg)) }
   val rast      = withReset(resetCopy("rast"))   { Module(new BorgRasterizer(cfg)) }
-  val flusher   = withReset(resetCopy("flush"))  { Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush, cfg.hasBlend, cfg.hasStencil)) }   // before tile — see note above
+  val flusher   = withReset(resetCopy("flush"))  { Module(new BorgTileFlusher(16, cfg.samples, cfg.hasDepthFlush, cfg.hasBlend, cfg.hasStencil, cfg.tileDepthBits)) }   // before tile — see note above
   // loadOp = LOAD: brings a tile's attachments back from DRAM (the flusher's
   // reverse). Shares the flusher's reset copy: the two are one attachment path.
-  val loader    = withReset(resetCopy("flush"))  { Module(new BorgTileLoader(cfg.hasDepthFlush, cfg.hasStencil)) }
-  val tile      = withReset(resetCopy("tile"))   { Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend, cfg.msaaMultiPass)) }
+  val loader    = withReset(resetCopy("flush"))  { Module(new BorgTileLoader(cfg.hasDepthFlush, cfg.hasStencil, cfg.tileDepthBits)) }
+  val tile      = withReset(resetCopy("tile"))   { Module(new BorgTileBuffer(16, cfg.samples, cfg.tileColorBits, cfg.hasStencil, cfg.hasBlend, cfg.msaaMultiPass, cfg.tileDepthBits)) }
   val rdlRegs   = withReset(resetCopy("regs"))   { Module(new BorgGpuRegs()) } // Auto-generated RDL register block
   val dma       = withReset(resetCopy("dma"))    { Module(new BorgDMA(cfg)) }
   val sequencer = withReset(resetCopy("seq"))    { Module(new BorgSequencer(cfg)) }
@@ -145,6 +145,26 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val mmioRespPending = RegInit(false.B)
   val mmioReqAddrReg  = RegEnable(io.mmio.req.bits.addr,  io.mmio.req.fire)
   val mmioReqDataReg  = RegEnable(io.mmio.req.bits.data,  io.mmio.req.fire)
+
+  // --- Tile depth (see BorgConfig.tileDepthBits and ColorZ) ---------------
+  // Shared by the tile buffer, flusher and loader wiring. Declared here for
+  // the same val-initialization-order reason as the fields above.
+  private val zBits = cfg.tileDepthBits
+  /** An FP16 depth value in the tile's depth width. */
+  private def depthFromFp16(z16: UInt): UInt =
+    if (zBits == 32) Fp16Fp32.widen(z16) else z16
+  /** The tile's depth as FP16, for the FP16-only MMIO debug path. */
+  private def depthToFp16(z: UInt): UInt =
+    if (zBits == 32) Fp16Fp32.narrow(z) else z
+  val depthD32Reg     = RegInit(false.B)        // DEPTH_FORMAT
+  val clearDepthReg   = RegInit(0.U(32.W))      // CLEAR_DEPTH (FP32)
+  val clearDepthSet   = RegInit(false.B)        // CLEAR_DEPTH written since reset
+  /** The sequencer's tile clear depth: SEQ_CLEAR_LO's FP16 field widened, or
+    * CLEAR_DEPTH at full FP32 precision once written (a Vulkan clear value
+    * like 0.3 is not an FP16 value; rounding it moves it by many D16 steps). */
+  private def seqClearDepth: UInt =
+    if (zBits == 32) Mux(clearDepthSet, clearDepthReg, depthFromFp16(sequencer.io.mmio.clearColorLo(15, 0)))
+    else sequencer.io.mmio.clearColorLo(15, 0)
 
   wireBus()
   wireRdlRegs()
@@ -516,7 +536,14 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     tile.io.clear.color.r := Mux(seqClear, s.io.mmio.clearColorHi(31, 16), 0.U)
     tile.io.clear.color.g := Mux(seqClear, s.io.mmio.clearColorHi(15, 0), 0.U)
     tile.io.clear.color.b := Mux(seqClear, s.io.mmio.clearColorLo(31, 16), 0.U)
-    tile.io.clear.color.z := Mux(seqClear, s.io.mmio.clearColorLo(15, 0), 0x7BFF.U(16.W))
+    when(bus.is_writing && bus.address === BorgGpuRegs.depth_format_offset) {
+      depthD32Reg := bus.data_in(0) && (zBits == 32).B
+    }
+    when(bus.is_writing && bus.address === BorgGpuRegs.clear_depth_offset) {
+      clearDepthReg := bus.data_in
+      clearDepthSet := true.B
+    }
+    tile.io.clear.color.z := Mux(seqClear, seqClearDepth, depthFromFp16(0x7BFF.U(16.W)))
 
     // Two-step protocol: shadow BZ written first, RG write triggers tile buffer write.
     // tile_bz_b/tile_bz_z are captured by the RDL (tile_bz_b_reg/tile_bz_z_reg) and
@@ -530,11 +557,11 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     tile.io.write.idx := Mux(ldWrite, ld.io.write.idx,
                          Mux(rast.io.tileWrite.en, rast.io.tileWrite.idx, tileReadIdx))
     
-    val writeColor = Wire(new ColorZ(16))
+    val writeColor = Wire(new ColorZ(16, zBits))
     writeColor.r := bus.data_in(31, 16)
     writeColor.g := bus.data_in(15, 0)
     writeColor.b := rdlRegs.io.hw.tile_bz_b   // from RDL tile_bz_b_reg (Step 26.5)
-    writeColor.z := rdlRegs.io.hw.tile_bz_z   // from RDL tile_bz_z_reg (Step 26.5)
+    writeColor.z := depthFromFp16(rdlRegs.io.hw.tile_bz_z)   // MMIO speaks FP16 (Step 26.5)
     tile.io.write.data := Mux(ldWrite, ld.io.write.data,
                           Mux(rast.io.tileWrite.en, rast.io.tileWrite.data, writeColor))
     // MSAA coverage deltas, computed once per triangle by the setup shader and
@@ -647,6 +674,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // bound. Firmware that never writes the register leaves it at its
     // reset value of 0 and gets the historical colour-only flush, so no
     // firmware change is needed to keep existing targets working.
+    // A D32_SFLOAT depth tile is 64 bytes, twice a D16 tile.
+    val depthTileOffset = Mux(depthD32Reg, seqTileOffset << 1, seqTileOffset)
+    f.io.depthD32.foreach(_ := depthD32Reg)
     // Also the tile loader's depth source, so it exists in every build.
     val flushDepthBaseReg = RegInit(0.U(25.W))
     when(bus.is_writing && bus.address === BorgGpuRegs.flush_zb_base_offset) {
@@ -657,7 +687,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // It used to be passed through unchanged, so every tile of a
       // sequencer-driven render wrote its Z to the same 32 bytes and only
       // the last tile's depth survived.
-      p := Mux(seqFlushActive, flushDepthBaseReg + seqTileOffset, flushDepthBaseReg)
+      p := Mux(seqFlushActive, flushDepthBaseReg + depthTileOffset, flushDepthBaseReg)
       f.io.depthEn.get := flushDepthBaseReg =/= 0.U
     }
 
@@ -687,12 +717,13 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     ld.io.aspects     := tileLoadReg
     ld.io.format      := rdlRegs.io.hw.flush_format_format
     ld.io.colorBase   := s.io.mmio.fbBase + colourOffset
-    ld.io.depthBase.foreach(_ := flushDepthBaseReg + seqTileOffset)
+    ld.io.depthBase.foreach(_ := flushDepthBaseReg + depthTileOffset)
+    ld.io.depthD32.foreach(_ := depthD32Reg)
     ld.io.stencilBase.foreach(_ := stencilTileBase)
     ld.io.clearColor.r := s.io.mmio.clearColorHi(31, 16)
     ld.io.clearColor.g := s.io.mmio.clearColorHi(15, 0)
     ld.io.clearColor.b := s.io.mmio.clearColorLo(31, 16)
-    ld.io.clearColor.z := s.io.mmio.clearColorLo(15, 0)
+    ld.io.clearColor.z := seqClearDepth
     ld.io.clearAlpha   := rdlRegs.io.hw.plane_clear_alpha
     ld.io.clearStencil := rdlRegs.io.hw.plane_clear_stencil
 
@@ -783,7 +814,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // resolved value lives in DRAM after the flush; the harness that uses
       // these arms writes and reads single samples.)
       (read_addr_del === BorgGpuRegs.tile_rg_offset) -> Cat(tile.io.read.data(0).r, tile.io.read.data(0).g),
-      (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.read.data(0).b, tile.io.read.data(0).z),
+      (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.read.data(0).b, depthToFp16(tile.io.read.data(0).z)),
       // Repurpose the write-only SEQ_TRIGGER address for reading seqDoneSticky.
       // Firmware reads this after triggering with triCount=0 to detect
       // whether the sequencer hardware is present.

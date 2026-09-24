@@ -14,15 +14,16 @@ class TileLoadAspects extends Bundle {
 }
 
 /** One whole tile-buffer entry, as the loader writes it. */
-class TileLoadWrite extends Bundle {
+class TileLoadWrite(val zBits: Int = 16) extends Bundle {
   val en      = Bool()
   val idx     = UInt(4.W)
-  val data    = new ColorZ(16)
+  val data    = new ColorZ(16, zBits)
   val alpha   = UInt(8.W)
   val stencil = UInt(8.W)
 }
 
-class BorgTileLoaderIO(val hasDepth: Boolean = true, val hasStencil: Boolean = true) extends Bundle {
+class BorgTileLoaderIO(val hasDepth: Boolean = true, val hasStencil: Boolean = true,
+                       val zBits: Int = 16) extends Bundle {
   val start = Input(Bool())    // one-cycle pulse, after the tile's clear finished
   val busy  = Output(Bool())
 
@@ -33,19 +34,21 @@ class BorgTileLoaderIO(val hasDepth: Boolean = true, val hasStencil: Boolean = t
   // hasStencil): there is nothing to load back otherwise.
   val depthBase   = if (hasDepth)   Some(Input(UInt(25.W))) else None  // 16 x D16_UNORM
   val stencilBase = if (hasStencil) Some(Input(UInt(25.W))) else None  // 16 x S8_UINT
+  // D32_SFLOAT depth attachment (DEPTH_FORMAT), only with FP32 tile depth.
+  val depthD32    = if (hasDepth && zBits == 32) Some(Input(Bool())) else None
 
   // Values for aspects that are NOT loaded: the tile's clear values. Every
   // loaded entry is written whole (colour, Z, alpha and stencil together),
   // so an aspect that is cleared rather than loaded must be rewritten with
   // what the clear just put there.
-  val clearColor   = Input(new ColorZ(16))
+  val clearColor   = Input(new ColorZ(16, zBits))
   val clearAlpha   = Input(UInt(8.W))
   val clearStencil = Input(UInt(8.W))
 
   val gpuMem = new GpuMemIO                 // reads only
 
   // Tile buffer write, every sample (a load has no per-sample coverage).
-  val write = Output(new TileLoadWrite)
+  val write = Output(new TileLoadWrite(zBits))
 }
 
 /** Loads a tile's attachments back from DRAM into the tile buffer -- Vulkan's
@@ -74,10 +77,11 @@ class BorgTileLoaderIO(val hasDepth: Boolean = true, val hasStencil: Boolean = t
   * loading it back gives every sample the resolved value -- storing and
   * loading all samples individually is not supported.
   */
-class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = true) extends Module {
-  val io = IO(new BorgTileLoaderIO(hasDepth, hasStencil))
+class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = true,
+                     val zBits: Int = 16) extends Module {
+  val io = IO(new BorgTileLoaderIO(hasDepth, hasStencil, zBits))
 
-  val sIdle :: sReadC0 :: sReadC1 :: sReadZ :: sReadS :: sWrite0 :: sWrite1 :: Nil = Enum(7)
+  val sIdle :: sReadC0 :: sReadC1 :: sReadZ :: sReadZ1 :: sReadS :: sWrite0 :: sWrite1 :: Nil = Enum(8)
   val state = RegInit(sIdle)
 
   val aspects = Reg(new TileLoadAspects)
@@ -89,6 +93,8 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   val cWord0  = Reg(UInt(32.W))
   val cWord1  = Reg(UInt(32.W))
   val zWord   = Reg(UInt(32.W))
+  val zWord1  = Reg(UInt(32.W))            // D32: the pair's second entry
+  val d32     = RegInit(false.B)
   val sWord   = Reg(UInt(32.W))
 
   val wide = FlushFormat.isWide(format)
@@ -108,6 +114,7 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   def afterColor(): UInt =
     Mux(aspects.depth, sReadZ, Mux(aspects.stencil && entry(1, 0) === 0.U, sReadS, sWrite0))
   def afterDepth(): UInt = Mux(aspects.stencil && entry(1, 0) === 0.U, sReadS, sWrite0)
+  def afterZ0(): UInt = Mux(d32, sReadZ1, afterDepth())
 
   /** One read: present the address, and on `ready` capture and move on. */
   def read(addr: UInt, into: UInt, next: UInt): Unit = {
@@ -124,6 +131,7 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
         if (!hasDepth)   aspects.depth   := false.B
         if (!hasStencil) aspects.stencil := false.B
         format  := io.format
+        d32     := io.depthD32.getOrElse(false.B)
         cBase   := io.colorBase
         io.depthBase.foreach(zBase := _)
         io.stencilBase.foreach(sBase := _)
@@ -142,7 +150,9 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
            Mux(wide, sReadC1, afterColor()))
     }
     is(sReadC1) { read(cBase + ((entry + 1.U) << 2), cWord1, afterColor()) }
-    is(sReadZ)  { read(zBase + (entry << 1), zWord, afterDepth()) }
+    // D16: one word holds the pair. D32: one word per entry.
+    is(sReadZ)  { read(zBase + Mux(d32, entry << 2, entry << 1), zWord, afterZ0()) }
+    is(sReadZ1) { read(zBase + ((entry + 1.U) << 2), zWord1, afterDepth()) }
     is(sReadS)  { read(sBase + entry, sWord, sWrite0) }   // entry is a multiple of 4 here
     is(sWrite0) { state := sWrite1 }
     is(sWrite1) {
@@ -170,6 +180,9 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   val a8 = Mux(wide, word(31, 24), 255.U(8.W))
 
   val z16 = Mux(second, zWord(31, 16), zWord(15, 0))
+  val zLoaded: UInt =
+    if (zBits == 32) Mux(d32, Mux(second, zWord1, zWord), DepthQuantize.dequantize16Fp32(z16))
+    else DepthQuantize.dequantize16(z16)
   // Stencil byte (entry mod 4) of the word read at the start of the quad.
   val sIdx = Cat(entry(1), second)
   val s8 = VecInit((0 until 4).map(i => sWord(8 * i + 7, 8 * i)))(sIdx)
@@ -179,7 +192,7 @@ class BorgTileLoader(val hasDepth: Boolean = true, val hasStencil: Boolean = tru
   io.write.data.r := Mux(aspects.color, ColorQuantize.dequantize8(r8), io.clearColor.r)
   io.write.data.g := Mux(aspects.color, ColorQuantize.dequantize8(g8), io.clearColor.g)
   io.write.data.b := Mux(aspects.color, ColorQuantize.dequantize8(b8), io.clearColor.b)
-  io.write.data.z := Mux(aspects.depth, DepthQuantize.dequantize16(z16), io.clearColor.z)
+  io.write.data.z := Mux(aspects.depth, zLoaded, io.clearColor.z)
   io.write.alpha   := Mux(aspects.color, a8, io.clearAlpha)
   io.write.stencil := Mux(aspects.stencil, s8, io.clearStencil)
 

@@ -665,5 +665,77 @@ object BorgTileFlusherTests extends TestSuite {
         }
       }
     }
+    utest.test("fp32 depth stores as D16_UNORM or D32_SFLOAT") {
+      // With FP32 tile depth the flusher converts per beat: D16 is exactly
+      // round(z * 65535); D32 is the FP32 itself, 64 bytes per tile as two
+      // 32-byte bursts, low halfword first.
+      def zf(e: Int): Float = (e * 4093 + 17).toFloat / 65536.0f
+      def zbits(e: Int): Long = java.lang.Float.floatToRawIntBits(zf(e)).toLong & 0xFFFFFFFFL
+      for (d32 <- Seq(false, true)) {
+        simulate(new BorgTileFlusher(16, 1, hasDepthFlush = true, zBits = 32)) { dut =>
+          var cycle = 0
+          var pipe0: Option[Int] = None
+          var pipe1: Option[Int] = None
+          def step(n: Int = 1): Unit = for (_ <- 0 until n) {
+            pipe1.foreach { i =>
+              dut.io.read.data.foreach { s =>
+                s.r.poke(entR(i).U); s.g.poke(entG(i).U); s.b.poke(entB(i).U); s.z.poke(zbits(i).U)
+              }
+            }
+            val en  = dut.io.read.en.peek().litToBoolean
+            val idx = dut.io.read.idx.peek().litValue.toInt
+            pipe1 = pipe0
+            pipe0 = if (en) Some(idx) else None
+            dut.clock.step()
+            cycle += 1
+            Predef.assert(cycle < 10000, "TIMEOUT")
+          }
+          dut.reset.poke(true.B); step(4)
+          dut.reset.poke(false.B)
+          dut.io.format.poke(FlushFormat.RGB565.U)
+          dut.io.start.poke(false.B)
+          dut.io.tileBase.poke(0x2000.U)
+          dut.io.depthBase.get.poke(0x9000.U); dut.io.depthEn.get.poke(true.B)
+          dut.io.depthD32.get.poke(d32.B)
+          dut.io.gpuMem.ready.poke(false.B); dut.io.gpuMem.waccept.poke(false.B)
+          dut.io.gpuMem.data.poke(0.U)
+          step(2)
+          dut.io.start.poke(true.B); step(); dut.io.start.poke(false.B)
+          val bursts = ArrayBuffer[(Int, Seq[Int])]()
+          while (dut.io.busy.peek().litToBoolean) {
+            if (dut.io.gpuMem.wr.peek().litToBoolean) {
+              val base = dut.io.gpuMem.addr.peek().litValue.toInt
+              val wlen = dut.io.gpuMem.wlen.peek().litValue.toInt
+              val words = ArrayBuffer[Int]()
+              for (w <- 0 until wlen) {
+                words += (dut.io.gpuMem.wdata.peek().litValue.toInt & 0xFFFF)
+                if (w < wlen - 1) { dut.io.gpuMem.waccept.poke(true.B); step(); dut.io.gpuMem.waccept.poke(false.B) }
+              }
+              dut.io.gpuMem.ready.poke(true.B); step()
+              dut.io.gpuMem.ready.poke(false.B)
+              bursts += ((base, words.toSeq))
+            }
+            step()
+          }
+          val depth = bursts.filter(_._1 >= 0x9000)
+          println(f"[flusher] fp32 depth, ${if (d32) "D32" else "D16"}: bursts " +
+            depth.map(b => f"0x${b._1}%x/${b._2.length}").mkString(" "))
+          if (d32) {
+            Predef.assert(depth.map(_._1) == Seq(0x9000, 0x9020))
+            val halves = depth.flatMap(_._2)
+            for (e <- 0 until 16) {
+              val got = (halves(2 * e).toLong) | (halves(2 * e + 1).toLong << 16)
+              Predef.assert(got == zbits(e), f"D32 entry $e: 0x$got%08x != 0x${zbits(e)}%08x")
+            }
+          } else {
+            Predef.assert(depth.map(_._1) == Seq(0x9000))
+            for (e <- 0 until 16) {
+              val want = math.round(zf(e).toDouble * 65535).toInt
+              Predef.assert(depth.head._2(e) == want, s"D16 entry $e: ${depth.head._2(e)} != $want")
+            }
+          }
+        }
+      }
+    }
   }
 }

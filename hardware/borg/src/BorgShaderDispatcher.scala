@@ -97,8 +97,8 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val coreTrigger = new CoreTriggerIO           // shader start pulse + PC
 
   // --- Outputs to BorgTileBuffer ---
-  val tileWrite  = new TileWriteIO(cfg.samples)         // tile buffer push
-  val tileRead   = new TileReadIO(16, cfg.samples)      // Step 25.5C: depth test read port
+  val tileWrite  = new TileWriteIO(cfg.samples, cfg.tileDepthBits)      // tile buffer push
+  val tileRead   = new TileReadIO(16, cfg.samples, cfg.tileDepthBits)   // Step 25.5C: depth test read port
 
   // --- Outputs to MemoryController (DRAM) ---
   val gpuMem     = new GpuMemIO                 // texel read port
@@ -277,7 +277,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val frag_r = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_g = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
   val frag_b = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
-  val frag_z = RegInit(VecInit(Seq.fill(N)(0.U(16.W))))
+  // Depth keeps the datapath's width (BorgConfig.tileDepthBits): FP32 on an
+  // FP32 build, so the depth test runs at the precision of the attachment
+  // format rather than FP16's (see ColorZ).
+  val frag_z = RegInit(VecInit(Seq.fill(N)(0.U(cfg.tileDepthBits.W))))
   // FP16 1.0: a shader that writes no alpha is opaque, which is what makes
   // adding the register backwards-compatible for existing shaders.
   val frag_a =
@@ -356,7 +359,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // Tile buffer write default (no write)
   io.tileWrite.en       := false.B
   io.tileWrite.idx      := io.shaderTileIndex(0)
-  io.tileWrite.data     := 0.U.asTypeOf(new ColorZ(16))
+  io.tileWrite.data     := 0.U.asTypeOf(new ColorZ(16, cfg.tileDepthBits))
   io.tileWrite.coverage := 0.U
   io.occSamples         := 0.U
   io.stencilWrite.foreach(_ := 0.U)
@@ -884,7 +887,10 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       when(io.pipeWrite(i).addr === 26.U) { frag_r(i) := fragNarrow(io.pipeWrite(i).data) }
       when(io.pipeWrite(i).addr === 27.U) { frag_g(i) := fragNarrow(io.pipeWrite(i).data) }
       when(io.pipeWrite(i).addr === 28.U) { frag_b(i) := fragNarrow(io.pipeWrite(i).data) }
-      when(io.pipeWrite(i).addr === 29.U) { frag_z(i) := fragNarrow(io.pipeWrite(i).data) }
+      when(io.pipeWrite(i).addr === 29.U) {
+        frag_z(i) := (if (cfg.tileDepthBits == 32) io.pipeWrite(i).data(31, 0)
+                      else fragNarrow(io.pipeWrite(i).data))
+      }
     }
   }
 

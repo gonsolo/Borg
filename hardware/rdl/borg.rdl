@@ -530,6 +530,26 @@ reg flush_sb_base_reg_t {
     field { sw = rw; hw = na; } RSVD[7] = 0;
 };
 
+// --- Depth attachment format and full-precision clear depth -----------
+// Tile depth follows the datapath (FP32 on an FP32 build), so both D16_UNORM
+// and D32_SFLOAT attachments can be stored and loaded exactly.
+reg depth_format_reg_t {
+    name = "Depth Attachment Format";
+    desc = "nogen. 0 = D16_UNORM (32 bytes per tile), 1 = D32_SFLOAT (64
+            bytes per tile, needs FP32 tile depth). Store and load alike.";
+    field { sw = rw; hw = r; desc = "Bit 0: D32_SFLOAT."; } d32[1] = 0;
+    field { sw = rw; hw = na; } RSVD[31] = 0;
+};
+// VkClearDepthStencilValue::depth at full precision. Until written, the
+// FP16 depth field of SEQ_CLEAR_LO is widened and used, so firmware that
+// never writes this register renders exactly as before.
+reg clear_depth_reg_t {
+    name = "Clear Depth (FP32)";
+    desc = "nogen. Tile clear depth as an FP32 bit pattern; overrides the
+            FP16 depth in SEQ_CLEAR_LO once written.";
+    field { sw = rw; hw = r; desc = "FP32 bits."; } depth[32] = 0;
+};
+
 // --- Texture address (computed by hardware) ---
 // Read: Morton-encoded texel index from the most recent tex_uv write.
 reg tex_addr_reg_t {
@@ -1635,4 +1655,10 @@ addrmap borg_gpu {
     tile_load->nogen = true;
     flush_sb_base_reg_t flush_sb_base;
     flush_sb_base->nogen = true;
+
+    // ---- Depth attachment format / full-precision clear depth ----
+    depth_format_reg_t depth_format;
+    depth_format->nogen = true;
+    clear_depth_reg_t clear_depth;
+    clear_depth->nogen = true;
 };

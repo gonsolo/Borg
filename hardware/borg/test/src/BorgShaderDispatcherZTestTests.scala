@@ -328,5 +328,44 @@ object BorgShaderDispatcherZTestTests extends TestSuite {
         println("  PASSED")
       }
     }
+    utest.test("fp32_depth_separates_neighbouring_d16_values") {
+      // The depth test compares against the value in the attachment's own
+      // format. Two adjacent D16 values near 1.0 are one FP16 value (FP16 has
+      // 11 significant bits), so FP16 tile depth answered "equal" and LESS
+      // failed. With FP32 depth they stay distinct.
+      val fp32Cfg = BASE.copy(fp = FloatConfig.FP32)
+      simulate(new BorgShaderDispatcher(fp32Cfg)) { d =>
+        println("\n--- FP32 depth precision ---")
+        pokeIdle(d)
+        d.reset.poke(true.B); d.clock.step(2); d.reset.poke(false.B); d.clock.step(1)
+        def d16ToFp32(u: Int): Long =
+          java.lang.Float.floatToRawIntBits((u / 65535.0).toFloat).toLong & 0xFFFFFFFFL
+        val stored = d16ToFp32(65001); val frag = d16ToFp32(65000)
+        d.io.tileRead.data.foreach(_.z.poke(stored.U))
+        firePixelReady(d, fragPc = 13, tileIdx = 7)
+        d.io.fragPcReg.poke(13.U)
+        d.io.coreStatus.autoRunPending.poke(true.B); d.clock.step(1)
+        d.io.coreStatus.autoRunPending.poke(false.B); d.io.coreStatus.running.poke(true.B)
+        val one = java.lang.Float.floatToRawIntBits(1.0f).toLong & 0xFFFFFFFFL
+        for ((reg, v) <- Seq((0, one), (1, one), (2, one))) {
+          d.io.pipeWrite(0).en.poke(true.B); d.io.pipeWrite(0).addr.poke(reg.U)
+          d.io.pipeWrite(0).data.poke(v.U); d.clock.step(1)
+        }
+        d.io.pipeWrite(0).en.poke(false.B)
+        d.io.coreStatus.running.poke(false.B); d.clock.step(1)
+        d.io.coreStatus.autoRunPending.poke(true.B); d.clock.step(1)
+        d.io.coreStatus.autoRunPending.poke(false.B); d.io.coreStatus.running.poke(true.B)
+        d.io.pipeWrite(0).en.poke(true.B); d.io.pipeWrite(0).addr.poke(29.U)
+        d.io.pipeWrite(0).data.poke(frag.U); d.clock.step(1)
+        d.io.pipeWrite(0).en.poke(false.B)
+        d.io.coreStatus.running.poke(false.B); d.clock.step(1)
+        stepThroughDepthTest(d)
+        val en = d.io.tileWrite.en.peek().litToBoolean
+        val z  = d.io.tileWrite.data.z.peek().litValue.toLong
+        println(f"  D16 65000 vs stored 65001 under LESS: write=$en (expect true), z=0x$z%08x (expect 0x$frag%08x)")
+        utest.assert(en && z == frag)
+        d.clock.step(1)
+      }
+    }
   }
 }

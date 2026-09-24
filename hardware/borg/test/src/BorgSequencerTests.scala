@@ -1419,7 +1419,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         // to its own colour, so an uncovered pixel shows whose clear it got --
         // unless colour is loaded, in which case it keeps the stored value.
         def render(colour: (Float, Float), load: Int, depthCfg: Int, stencilCfg: Int,
-                   bindStencil: Boolean, clearHi: Long = 0L): BigInt = {
+                   bindStencil: Boolean, clearHi: Long = 0L, d32: Boolean = false): BigInt = {
           borg.reset.poke(true.B)
           borg.io.data_write_n.poke(3.U); borg.io.data_read_n.poke(3.U)
           borg.io.gpuMem.ready.poke(false.B); borg.io.gpuMem.data.poke(0.U)
@@ -1439,6 +1439,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
           reg(BorgGpuRegs.frag_pc_offset, 1); reg(BorgGpuRegs.flush_width_offset, 2)
           reg(BorgGpuRegs.seq_inv_width_offset, floatToBits(1.0f))
           reg(BorgGpuRegs.flush_zb_base_offset, zbBase)
+          reg(BorgGpuRegs.depth_format_offset, if (d32) 1 else 0)
           reg(BorgGpuRegs.flush_sb_base_offset, if (bindStencil) sbBase else 0)
           reg(BorgGpuRegs.depth_cfg_offset, depthCfg)
           reg(BorgGpuRegs.stencil_cfg_offset, stencilCfg)
@@ -1498,6 +1499,14 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
           "render 1's framebuffer must mix clear and drawn pixels for this check to mean anything")
         Predef.assert(fb2 == fb1, "loaded colour did not survive a render that drew nothing")
         Predef.assert(fb3 != fb1, "control: a cleared render must not reproduce render 1's colours")
+
+        // The same depth round trip through a D32_SFLOAT attachment.
+        render((1.0f, 0.0f), load = 0, DEPTH_LESS, 0, bindStencil = false, CLEAR_1, d32 = true)
+        val z32Loaded  = render((0.0f, 1.0f), load = 2, DEPTH_LESS, 0, bindStencil = false, CLEAR_2, d32 = true)
+        val z32Cleared = render((0.0f, 1.0f), load = 0, DEPTH_LESS, 0, bindStencil = false, CLEAR_2, d32 = true)
+        println(s"  D32_SFLOAT: loaded $z32Loaded (expect 0), cleared $z32Cleared (expect $stored)")
+        Predef.assert(z32Loaded == 0, "D32 depth was not stored and loaded")
+        Predef.assert(z32Cleared == stored, "control: a cleared D32 depth must let the redraw through")
         println("=== attachments_store_and_load_across_renders PASSED ===\n")
         }
 

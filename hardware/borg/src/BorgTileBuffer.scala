@@ -51,15 +51,15 @@ class TilePassIO(val samples: Int) extends Bundle {
 class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
                        val hasStencil: Boolean = false,
                        val hasAlpha: Boolean = false,
-                       val multiPass: Boolean = false) extends Bundle {
+                       val multiPass: Boolean = false, val zBits: Int = 16) extends Bundle {
   // Write port (from rasterizer auto-write or MMIO)
-  val write = Flipped(new TileWriteIO(samples))
+  val write = Flipped(new TileWriteIO(samples, zBits))
 
   // Read port (for tile flush - 2-cycle latency: BRAM + hold reg)
-  val read  = Flipped(new TileReadIO(dataBits, samples))
+  val read  = Flipped(new TileReadIO(dataBits, samples, zBits))
 
   // Clear (resets all entries: Z to FP16_MAX_DEPTH, RGB to 0)
-  val clear = Flipped(new TileClearIO)
+  val clear = Flipped(new TileClearIO(zBits))
 
   // --- Optional stencil plane (Step 50 item 10) --------------------------
   //
@@ -111,7 +111,8 @@ class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
   */
 class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits: Int = 16,
                      val hasStencil: Boolean = false, val hasAlpha: Boolean = false,
-                     val multiPass: Boolean = false) extends Module {
+                     val multiPass: Boolean = false,
+                     val zBits: Int = 16) extends Module {
   require(colorBits == dataBits || colorBits == 8,
           s"colorBits must equal dataBits (off) or be 8 (ColorQuantize), got $colorBits")
   // Multi-pass averages STORED colour arithmetically. That is only meaningful
@@ -121,18 +122,20 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
           "msaaMultiPass requires quantized tile colour (tileColorBits = 8): " +
           "the accumulator averages stored integers, not FP16 bit patterns")
   require(!multiPass || samples > 1, "msaaMultiPass is meaningless at samples == 1")
-  val io = IO(new BorgTileBufferIO(dataBits, samples, hasStencil, hasAlpha, multiPass))
+  val io = IO(new BorgTileBufferIO(dataBits, samples, hasStencil, hasAlpha, multiPass, zBits))
 
+  // The far-plane clear value, 65504 in either width (FP16 max): 0x7BFF, or
+  // the same number as FP32 when depth is FP32 (see ColorZ).
   val FP16_MAX_DEPTH_VAL = 0x7BFF  // Scala constant
-  val FP16_MAX_DEPTH = FP16_MAX_DEPTH_VAL.U(dataBits.W)
+  val FP16_MAX_DEPTH = (if (zBits == 32) 0x477FE000L else FP16_MAX_DEPTH_VAL.toLong).U(zBits.W)
   val TILE_SIZE = 16  // 4×4
-  val SAMPLE_BITS = new ColorZ(dataBits).getWidth   // 64 bits per sample, at the ports
+  val SAMPLE_BITS = new ColorZ(dataBits, zBits).getWidth   // per sample, at the ports
 
   // Narrow storage encode/decode -- compile-time branch, so the colorBits ==
   // dataBits (default) path emits exactly the same hardware as before this
   // parameter existed, not merely equivalent hardware.
   val narrowColor  = colorBits < dataBits
-  val STORED_BITS  = if (narrowColor) 3 * colorBits + dataBits else SAMPLE_BITS
+  val STORED_BITS  = if (narrowColor) 3 * colorBits + zBits else SAMPLE_BITS
 
   /** ColorZ(dataBits) -> the narrower stored bit pattern. */
   def encodeStored(cz: ColorZ): UInt =
@@ -145,25 +148,25 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
     * FP16 patterns they dequantize to. */
   def storedChannels(bits: UInt): (UInt, UInt, UInt) = {
     require(narrowColor, "storedChannels is only meaningful for quantized storage")
-    (bits(3 * colorBits + dataBits - 1, 2 * colorBits + dataBits),
-     bits(2 * colorBits + dataBits - 1, colorBits + dataBits),
-     bits(colorBits + dataBits - 1, dataBits))
+    (bits(3 * colorBits + zBits - 1, 2 * colorBits + zBits),
+     bits(2 * colorBits + zBits - 1, colorBits + zBits),
+     bits(colorBits + zBits - 1, zBits))
   }
 
   /** The stored bit pattern -> ColorZ(dataBits), reconstructed for every
     * reader outside this module (which only ever sees full-width FP16). */
   def decodeStored(bits: UInt): ColorZ = {
-    val cz = Wire(new ColorZ(dataBits))
+    val cz = Wire(new ColorZ(dataBits, zBits))
     if (!narrowColor) {
-      cz := bits.asTypeOf(new ColorZ(dataBits))
+      cz := bits.asTypeOf(new ColorZ(dataBits, zBits))
     } else {
-      val r8 = bits(3 * colorBits + dataBits - 1, 2 * colorBits + dataBits)
-      val g8 = bits(2 * colorBits + dataBits - 1, colorBits + dataBits)
-      val b8 = bits(colorBits + dataBits - 1, dataBits)
+      val r8 = bits(3 * colorBits + zBits - 1, 2 * colorBits + zBits)
+      val g8 = bits(2 * colorBits + zBits - 1, colorBits + zBits)
+      val b8 = bits(colorBits + zBits - 1, zBits)
       cz.r := ColorQuantize.dequantize8(r8)
       cz.g := ColorQuantize.dequantize8(g8)
       cz.b := ColorQuantize.dequantize8(b8)
-      cz.z := bits(dataBits - 1, 0)
+      cz.z := bits(zBits - 1, 0)
     }
     cz
   }
@@ -247,7 +250,7 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   // auto-clear establishes the far-plane depth convention (Z=0x7BFF).  A reset
   // value of Z=0 would be the near plane and reject every fragment until the
   // first explicit clear.
-  val clearInit = (new ColorZ(dataBits)).Lit(
+  val clearInit = (new ColorZ(dataBits, zBits)).Lit(
     _.r -> 0.U, _.g -> 0.U, _.b -> 0.U, _.z -> FP16_MAX_DEPTH
   )
   // Replicated across samples: a clear has no per-sample coverage, every sample
@@ -364,7 +367,7 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   // and flusher -- measured as +2.8% routing demand against the resident-sample
   // build, which is why both consumers now read lane 0 under multiPass and the
   // other lanes optimize away.
-  val readDataHeld = RegInit(0.U.asTypeOf(Vec(if (multiPass) 1 else samples, new ColorZ(dataBits))))
+  val readDataHeld = RegInit(0.U.asTypeOf(Vec(if (multiPass) 1 else samples, new ColorZ(dataBits, zBits))))
 
   // Capture BRAM output one cycle after readEn pulse
   val readEnDel = RegNext(effectiveReadEn, false.B)
@@ -386,7 +389,7 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
       val avgR = (accCh(accRead, 0) +& wr) >> shift
       val avgG = (accCh(accRead, 1) +& wg) >> shift
       val avgB = (accCh(accRead, 2) +& wb) >> shift
-      val res = Wire(new ColorZ(dataBits))
+      val res = Wire(new ColorZ(dataBits, zBits))
       when(io.pass.get.resolve) {
         res.r := ColorQuantize.dequantize8(avgR(colorBits - 1, 0))
         res.g := ColorQuantize.dequantize8(avgG(colorBits - 1, 0))

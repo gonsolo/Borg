@@ -330,6 +330,10 @@ case class BorgConfig(
   // through COMPUTE_CTRL's `present` bit rather than assuming it.
   def computeEnabled: Boolean = hasCompute && hasMemoryOps && hasControlFlow && fp.totalBits == 32
   def shaderICacheEnabled: Boolean = hasShaderICache && hasMemoryOps
+  /** Tile-buffer depth width. Follows the datapath: an FP32 build keeps depth
+    * FP32 end to end, which holds every D16/D24 value distinctly and
+    * D32_SFLOAT exactly; FP16 cannot (see ColorZ). */
+  def tileDepthBits: Int = if (fp.totalBits == 32) 32 else 16
   /** Program counter width. With the instruction cache a program may run past
     * IMEM, up to the 10-bit absolute branch-target range (1024 words);
     * without it the PC only ever indexes IMEM. */

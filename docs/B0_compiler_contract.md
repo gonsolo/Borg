@@ -304,14 +304,21 @@ pass 2 loads exactly one, or holds more than one occlusion query.
   goes out after depth as 16 bytes (S8_UINT) per tile, at
   `sb_base + 16 × tile index`. Before this commit stencil never left the
   chip, so no stencil attachment could survive a render pass.
-- **Round-trip fidelity:** colour and stencil are exact. Depth is not
-  conformant yet: see the two gaps below.
-- **Open conformance gaps (hardware, in progress):**
-  - *Tile depth is FP16.* The depth test compares against the value "in the
-    attachment", i.e. in its format. FP16's 11-bit significand merges up to 32
-    neighbouring D16 values near 1.0, and it cannot hold the mandatory
-    depth-only `X8_D24_UNORM_PACK32` or `D32_SFLOAT` at all. The fix is FP32
-    tile depth.
+- **Round-trip fidelity:** colour, stencil and depth are exact. Tile
+  depth is FP32 on an FP32 build (`BorgConfig.tileDepthBits`): every D16
+  value round-trips (checked for all 65,536), and D32_SFLOAT is stored bit
+  for bit. FP16 depth could not tell apart 58,367 of the 65,535 adjacent D16
+  pairs, and could not hold D32 at all.
+- **`DEPTH_FORMAT`** (`0x330`): bit 0 selects D32_SFLOAT (64 bytes per tile)
+  instead of D16_UNORM (32 bytes), for store and load alike.
+- **`CLEAR_DEPTH`** (`0x334`): the tile clear depth as FP32. Until it is
+  written, the FP16 depth field of `SEQ_CLEAR_LO` is widened and used. A
+  Vulkan clear depth like 0.3 is not an FP16 value, so the driver should
+  write this register.
+- **Rounding to the attachment format** (a D16 attachment's fragment depth
+  to the nearest `k/65535`) is the shader's job. It is a fixed conversion,
+  and FP32 tile depth holds the result exactly.
+- **Open conformance gap (hardware, in progress):**
   - *Multisampled attachments are stored resolved.* 4× is mandatory for
     framebuffer and sampled-image sample counts, so a stored 4× attachment
     must keep every sample for a later load, `texelFetch(…, sample)` or
