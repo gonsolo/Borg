@@ -46,7 +46,7 @@ object BorgDrawTests extends TestSuite {
     (for (py <- 0 until Size; px <- 0 until Size; (ox, oy) <- offsets
           if inside(t, px + 0.5 + ox, py + 0.5 + oy)) yield 1).sum
 
-  class DrawRig(borg: BorgTestWrapper) {
+  class DrawRig(val borg: BorgTestWrapper) {
     val vsAddr = 0x1000; val fsAddr = 0x5000; val binBase = 0x6000
     val vb = 0x9000; val ib = 0xA000; val vsConst = 0xB000; val fsConst = 0xB100
     val setupBase = 0x20000; var fbBase = 0x10000
@@ -85,14 +85,14 @@ object BorgDrawTests extends TestSuite {
 
     import Instructions._
     // Vertex pulling: vertex i is six words (X, Y, Z, W, r, g) at
-    // u22 + 6*i; u23 = 6 and u24 = 1 are integers. Varyings r and g are
+    // u25 + 6*i; u26 = 6 and u27 = 1 are integers. Varyings r and g are
     // output components 0 and 1.
     val vs = Seq(
-      IMUL(rs1 = 30, rs2 = 23, rd = 9, funct3 = 2),
-      IADD(rs1 = 9, rs2 = 22, rd = 9, funct3 = 2)) ++
+      IMUL(rs1 = 30, rs2 = 26, rd = 9, funct3 = 2),
+      IADD(rs1 = 9, rs2 = 25, rd = 9, funct3 = 2)) ++
       (0 until 6).flatMap { c =>
         val dst = if (c < 4) c else 10 + c - 4
-        Seq(LOAD(rs1 = 9, rd = dst)) ++ (if (c < 5) Seq(IADD(rs1 = 9, rs2 = 24, rd = 9, funct3 = 2)) else Nil)
+        Seq(LOAD(rs1 = 9, rd = dst)) ++ (if (c < 5) Seq(IADD(rs1 = 9, rs2 = 27, rd = 9, funct3 = 2)) else Nil)
       } ++ Seq(SOUT(rs2 = 10, index = 0), SOUT(rs2 = 11, index = 1), BigInt(0))
     // v = l0*a0 + l1*a1 + l2*a2 for r and g; blue is 0 (u20 = 0.0, the
     // constant window's first word).
@@ -433,6 +433,119 @@ object BorgDrawTests extends TestSuite {
     utest.assert(count == samplesCovered(t))
   }
 
+  /** A bin that overflows is never written past its row: the render is
+    * abandoned whole -- nothing flushed, nothing counted -- and SEQ_TRIGGER's
+    * bit 1 says so. With room for both triangles the same draw renders. */
+  def binOverflow(rig: DrawRig): Unit = {
+    val quad = Seq(at(8, 0, 1), at(0, 0, 1), at(8, 8, 1), at(0, 8, 1))
+    val tris = Seq(quad(0), quad(1), quad(2), quad(2), quad(1), quad(3))
+    def status = rawRead(rig.borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt)
+    val fb = rig.fbBase until rig.fbBase + 64 * (Size / 4) * (Size / 4)
+    // Every tile is in both triangles' bounding boxes; a row of 2 bytes
+    // holds one entry.
+    val lost = rig.draw(tris, extra = Seq(BorgGpuRegs.seq_bin_row_bytes_offset -> BigInt(2)))
+    val st = status
+    val written = rig.half.keys.count(fb.contains)
+    println(s"  one entry per bin: status $st, $lost samples, $written framebuffer halfwords written")
+    utest.assert(st == 3 && lost == 0 && written == 0)
+    val full = rig.draw(tris, extra = Seq(BorgGpuRegs.seq_bin_row_bytes_offset -> BigInt(4)))
+    println(s"  two entries per bin: status $status, $full samples (expect ${Size * Size * 4})")
+    utest.assert(status == 1 && full == Size * Size * 4)
+  }
+
+  /** rasterizationSamples = 1 (SAMPLE_MASK_CFG bit 6): coverage and depth
+    * at the pixel centre, one count per pixel, every mask on sample 0, and a
+    * pixel that is either wholly the triangle's or untouched -- no partial
+    * edge pixels, so the four identical copies resolve exactly. */
+  def singleSample(rig: DrawRig): Unit = {
+    import Instructions._
+    val one = 0x40
+    val quad = Seq(at(8, 0, 1), at(0, 0, 1), at(8, 8, 1), at(0, 8, 1))
+    // No edge through a pixel centre (x + y = 8.5 on the long one), so the
+    // reference needs no tie rule.
+    val tri = Seq(at(0.25, 0.25, 1.0, r = 1), at(8, 0.5, 4.0, g = 1), at(0.5, 8, 2.0))
+    def centres(t: Seq[V]) = for (py <- 0 until Size; px <- 0 until Size if inside(t, px + 0.5, py + 0.5)) yield (px, py)
+    val count = rig.draw(tri, sampleMaskCfg = 0xF | one)
+    val (e, _) = planes(tri)
+    val in = centres(tri).toSet
+    for (y <- 0 until Size; x <- 0 until Size) {
+      val (hr, hg, hb) = rig.pixel(x, y)
+      if (in((x, y))) {
+        val ev = e.map(eval(_, x + 0.5, y + 0.5)); val q = ev.sum
+        Predef.assert(math.abs(hr - ev(0) / q * 255) <= 2 && math.abs(hg - ev(1) / q * 255) <= 2 && hb == 0,
+                      s"pixel ($x,$y) centre inside: ($hr,$hg,$hb)")
+      } else Predef.assert((hr, hg, hb) == (0, 0, 0), s"pixel ($x,$y) centre outside: ($hr,$hg,$hb)")
+    }
+    println(s"  one sample: $count pixels counted (expect ${in.size}), each wholly shaded or untouched")
+    utest.assert(count == in.size && in.size > 8)
+    // Depth at the centre: the steep triangle of perSampleDepth.
+    val flat = Seq(at(0, 0, 1, z = 0.5), at(8, 0, 1, z = 0.5), at(0, 8, 1, z = 0.5),
+                   at(8, 0, 1, z = 0.5), at(8, 8, 1, z = 0.5), at(0, 8, 1, z = 0.5))
+    val z1 = 0.1 + 0.4 * 8 / 4.25
+    val steep = Seq(at(0, 0, 1, z = 0.1), at(0, 8, 1, z = 0.1), at(8, 0, 1, z = z1))
+    val front = rig.draw(flat ++ steep, depthCfg = 1 | (1 << 3), occ = (2, 3), sampleMaskCfg = 0xF | one)
+    // Its long edge x + y = 8 runs through pixel centres; it is a bottom-right
+    // edge, so the tie rule leaves those out: strictly inside.
+    val (es, _) = planes(steep)
+    val expFront = centres(steep).count { case (px, py) =>
+      es.forall(eval(_, px + 0.5, py + 0.5) > 0) && 0.1 + (z1 - 0.1) * (px + 0.5) / 8 < 0.5 }
+    // Masks act on the one sample.
+    val zero = MUL(rs1 = 5, rs2 = 20, rd = 24, funct3 = 2)
+    def withAlpha(a: Float) = { rig.rom(rig.fsConst + 8) = BigInt(java.lang.Float.floatToRawIntBits(a)) & 0xFFFFFFFFL
+      rig.fs.init ++ Seq(zero, ADD(rs1 = 24, rs2 = 22, rd = 24, funct3 = 2), BigInt(0)) }
+    val staticOff = rig.draw(quad, topology = 1, sampleMaskCfg = 0xE | one)
+    val staticOn  = rig.draw(quad, topology = 1, sampleMaskCfg = 0x1 | one)
+    val a60 = rig.draw(quad, topology = 1, frag = withAlpha(0.6f), sampleMaskCfg = 0xF | 0x10 | one)
+    val a40 = rig.draw(quad, topology = 1, frag = withAlpha(0.4f), sampleMaskCfg = 0xF | 0x10 | one)
+    val smaskId = rig.fs.init ++ Seq(SMASK(rd = 19), BigInt(0))
+    val smaskNot = rig.fs.init ++ Seq(SMASK(rd = 19), MUL(rs1 = 5, rs2 = 20, rd = 18, funct3 = 2),
+                                      IADD(rs1 = 18, rs2 = 23, rd = 18, funct3 = 2), IXOR(rs1 = 19, rs2 = 18, rd = 19), BigInt(0))
+    rig.rom(rig.fsConst + 12) = BigInt(0x1)
+    val id = rig.draw(quad, topology = 1, frag = smaskId, sampleMaskCfg = 0xF | 0x20 | one)
+    val not = rig.draw(quad, topology = 1, frag = smaskNot, sampleMaskCfg = 0xF | 0x20 | one)
+    println(s"  depth at the centre: $front (expect $expFront); static mask bit 0 off $staticOff, on $staticOn; " +
+            s"alpha 0.6 $a60, 0.4 $a40; SMASK as mask $id, ~SMASK $not")
+    utest.assert(front == expFront && staticOff == 0 && staticOn == 64 && a60 == 64 && a40 == 0 && id == 64 && not == 0)
+  }
+
+  /** Depth bias, o = m * slope + r * constant added to the triangle's depth.
+    * Constant: against a full-precision clear depth half an r below the
+    * triangle's 0.5, a bias of -1 passes LESS and -0.4 does not -- r = 2^-16
+    * for D16, ulp(0.5) = 2^-24 for D32_SFLOAT. Slope: a ramp of 0.1 per
+    * pixel over a flat 0.5 quad; slope factor -2.5 moves the crossing 2.5
+    * pixels, sample for sample. */
+  def depthBias(rig: DrawRig): Unit = {
+    val quad = Seq(at(0, 0, 1, z = 0.5), at(8, 0, 1, z = 0.5), at(0, 8, 1, z = 0.5),
+                   at(8, 0, 1, z = 0.5), at(8, 8, 1, z = 0.5), at(0, 8, 1, z = 0.5))
+    val less = 1 | (1 << 3)
+    def run(clear: Double, const: Double, d32: Boolean) = rig.draw(quad, depthCfg = less, extra = Seq(
+      BorgGpuRegs.depth_format_offset -> BigInt(if (d32) 1 else 0),
+      BorgGpuRegs.clear_depth_offset -> rig.f32(clear),
+      BorgGpuRegs.depth_bias_const_offset -> rig.f32(const)))
+    val full = Size * Size * 4
+    val results = for ((d32, r) <- Seq(false -> math.pow(2, -16), true -> math.pow(2, -24))) yield {
+      val none = run(0.5, 0, d32); val below = run(0.5 - r / 2, -1, d32)
+      val short = run(0.5 - r / 2, -0.4, d32); val up = run(0.5, 1, d32)
+      println(f"  ${if (d32) "D32_SFLOAT" else "D16_UNORM "} (r = $r%.3g): no bias $none, -1 $below, -0.4 $short, +1 $up")
+      (none, below, short, up)
+    }
+    utest.assert(results.forall(_ == ((0, full, 0, 0))))
+    val ramp = Seq(at(0, 0, 1, z = 0.1), at(8, 0, 1, z = 0.9), at(0, 8, 1, z = 0.1),
+                   at(8, 0, 1, z = 0.9), at(8, 8, 1, z = 0.9), at(0, 8, 1, z = 0.1))
+    def front(bias: Double) = (for (py <- 0 until Size; px <- 0 until Size; (ox, _) <- offsets
+      if 0.1 + 0.1 * (px + 0.5 + ox) + bias < 0.5) yield 1).sum
+    // Bias -0.25 takes the ramp's left end below 0: D16 clamps it to 0,
+    // D32_SFLOAT keeps it, and both must still count it in front.
+    val flat0 = rig.draw(quad ++ ramp, depthCfg = less, occ = (2, 4))
+    val biased = for (d32 <- Seq(false, true)) yield
+      rig.draw(quad ++ ramp, depthCfg = less, occ = (2, 4), extra = Seq(
+        BorgGpuRegs.depth_format_offset -> BigInt(if (d32) 1 else 0),
+        BorgGpuRegs.depth_bias_slope_offset -> rig.f32(-2.5)))
+    println(s"  ramp in front of the flat quad: no bias $flat0 (expect ${front(0)}), " +
+            s"slope -2.5: D16 ${biased(0)}, D32_SFLOAT ${biased(1)} (expect ${front(-0.25)})")
+    utest.assert(flat0 == front(0) && biased.forall(_ == front(-0.25)) && front(-0.25) > flat0)
+  }
+
   val tests = Tests {
     utest.test("several_colour_attachments") {
       run("colour attachments")(attachments)
@@ -457,6 +570,16 @@ object BorgDrawTests extends TestSuite {
     }
     utest.test("near_plane_and_corners_behind_the_eye_clip_without_clipping") {
       run("near plane, w <= 0")(nearPlane)
+    }
+    utest.test("single_sample_rasterization") {
+      run("one sample")(singleSample)
+      run("one sample, Wafer sizing", waferCfg)(singleSample)
+    }
+    utest.test("depth_bias_constant_and_slope") {
+      run("depth bias")(depthBias)
+    }
+    utest.test("bin_overflow_renders_nothing_and_reports") {
+      run("bin overflow")(binOverflow)
     }
     utest.test("strips_fans_indices_restart_and_instances") {
       run("topologies")(topologies)

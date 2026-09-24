@@ -96,7 +96,7 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   val fragShaderLen = Input(UInt(7.W))
   val clearColorLo = Input(UInt(32.W))
   val clearColorHi = Input(UInt(32.W))
-  val fbBase = Input(UInt(GpuMemIO.AddrBits.W))   // 25b = 32 MB GPU memory address space
+  val fbBase = Input(UInt(GpuMemIO.AddrBits.W))
   val tilesPerRow = Input(UInt(tileRowWidth.W))
   val binBase = Input(UInt(GpuMemIO.AddrBits.W))
   val binRowBytes = Input(UInt(binRowBytesWidth.W))  // stride (bytes/tile), not an address
@@ -117,6 +117,9 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // msaaMultiPass each pass then flushes its own sample instead of folding it
   // into the resolve accumulator.
   val attachMs        = Input(Bool())
+  // SAMPLE_MASK_CFG bit 6, rasterizationSamples = 1: at msaaMultiPass a tile
+  // takes one pass (sample 0) instead of `samples`.
+  val singleSample    = Input(Bool())
   // DRAW_CFG: a draw (docs/B1_geometry_front_end.md) instead of legacy
   // descriptors, and its record stride (triangle t at setupBase + t << shift).
   val drawMode        = Input(Bool())
@@ -158,7 +161,7 @@ class SeqBinnerIO(cfg: BorgConfig) extends Bundle {
 class SeqStoreIO extends Bundle {
   val active = Output(Bool())
   val req = Output(Bool())
-  val addr = Output(UInt(GpuMemIO.AddrBits.W))   // 25b = 32 MB GPU memory address space
+  val addr = Output(UInt(GpuMemIO.AddrBits.W))
   val wdata = Output(UInt(32.W))
   val ready = Input(Bool())
 }
@@ -167,7 +170,7 @@ class SeqFlusherIO extends Bundle {
   // Byte offset of the current tile from the start of an attachment whose
   // tiles are 32 bytes (RGB565 colour, D16 depth). Borg.scala scales it for
   // wider colour formats and adds each attachment's own base.
-  val tileOffset = Output(UInt(GpuMemIO.AddrBits.W))   // 25b = 32 MB GPU memory address space
+  val tileOffset = Output(UInt(GpuMemIO.AddrBits.W))
   val trigger = Output(Bool())
   val busy = Input(Bool())
   // Tile load (loadOp = LOAD): pulsed after the tile's clear when any aspect
@@ -211,6 +214,9 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val busy = Output(Bool())
   val done = Output(Bool())
   val seqShaderActive = Output(Bool())
+  /** The binner dropped an entry this render (BorgBinner.overflow): Pass 2
+    * is skipped, so the render writes nothing and can be re-issued split. */
+  val binOverflow = Input(Bool())
 
   // Step 50.2b: per-edge MSAA sample deltas, [edge][k] where k=0 is d0 and
   // k=1 is d1 (the other two samples are sign flips, derived in hardware).
@@ -341,8 +347,14 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     is(wPass1) {
       when(p1Done) {
-        p2.io.start := true.B
-        wstate := wPass2
+        // A bin overflowed: some triangle is missing from some tile, so any
+        // tile rendered now could be wrong. Render and flush nothing.
+        when(io.binOverflow) {
+          wstate := wDone
+        }.otherwise {
+          p2.io.start := true.B
+          wstate := wPass2
+        }
       }
     }
     is(wPass2) {

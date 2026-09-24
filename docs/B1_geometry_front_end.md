@@ -53,9 +53,9 @@ All `nogen`, decoded in `Borg.wireDraw`.
 | `DRAW_INDEX_BASE`     | 0x354   | index buffer, byte address                                     |
 | `VIEWPORT_SX/SY/OX/OY`| 0x358-0x364 | FP32: screen = ndc * s + o                                 |
 | `DEPTH_SCALE/OFFSET`  | 0x368, 0x36C | FP32: FragCoord.z = z_ndc * scale + offset              |
-| `DRAW_VS_CONST`       | 0x370   | the vertex shader's constant window (10 words), 0 = none       |
+| `DRAW_VS_CONST`       | 0x370   | the vertex shader's constant window (7 words), 0 = none        |
 | `DRAW_FS_CONST`       | 0x374   | the fragment shader's constant window (12 words), 0 = none     |
-| `SAMPLE_MASK_CFG`     | 0x380   | [3:0] sample mask, [4] alpha to coverage, [5] shader mask in r19 |
+| `SAMPLE_MASK_CFG`     | 0x380   | [3:0] sample mask, [4] alpha to coverage, [5] shader mask in r19, [6] one sample |
 | `SEQ_TILE_ROWS`       | 0x384   | the render window's tile rows (0 = `SEQ_TILES_PER_ROW`)          |
 | `FB_ORIGIN`           | 0x388   | the window's first tile: x [11:0], y [27:16]                     |
 | `FB_PITCH`            | 0x38C   | the framebuffer's tiles per row (0 = `SEQ_TILES_PER_ROW`)        |
@@ -64,6 +64,8 @@ All `nogen`, decoded in `Borg.wireDraw`.
 | `ATT_BASE1..3`        | 0x398-0x3A0 | colour base of attachments 1-3                               |
 | `ATT_CLEAR_RG1..3`    | 0x3A4-0x3AC | clear R, G (FP16) of attachments 1-3                         |
 | `ATT_CLEAR_BA1..3`    | 0x3B0-0x3B8 | clear B (FP16 [31:16]) and A (UNORM8 [7:0]) of attachments 1-3 |
+| `DEPTH_BIAS_CONST`    | 0x3BC   | FP32 `depthBiasConstantFactor` (see Depth bias)                  |
+| `DEPTH_BIAS_SLOPE`    | 0x3C0   | FP32 `depthBiasSlopeFactor`                                      |
 
 The draw also uses the sequencer's existing registers: vertex and fragment
 shader address and length, bin base and row size, `SEQ_SETUP_BASE` (the
@@ -101,7 +103,7 @@ allows.
 |----------|------------------------------------------------------------|
 | r30      | `VertexIndex` (integer)                                    |
 | r31      | `InstanceIndex` (integer)                                  |
-| u22-u31  | the constant window, loaded from `DRAW_VS_CONST` once per draw |
+| u25-u31  | the constant window, loaded from `DRAW_VS_CONST` once per draw |
 | r0-r3    | output: clip-space X, Y, Z, W, when the shader halts       |
 
 Lanes 0-2 are the triangle's three corners; lane 3 is masked off. A
@@ -122,8 +124,8 @@ allows. Vertex-stage stores and atomics are the optional
 ## Setup ROM
 
 After the vertex shader, the walker stages the twelve clip coordinates, the
-viewport, the depth range and four constants into u0-u21, and runs
-`BorgSetupRom` (121 words). With the viewport folded into the homogeneous
+viewport, the depth range, four constants and the depth bias into u0-u24,
+and runs `BorgSetupRom`. With the viewport folded into the homogeneous
 coordinates,
 
     X'k = Xk*sx + Wk*ox,   Y'k = Yk*sy + Wk*oy,   M = [X'; Y'; W]  (columns = corners)
@@ -148,7 +150,35 @@ the whole grid when some `W <= 0`. Otherwise the bounding box comes from the
 screen positions, with a pixel of slack for the reciprocal's rounding.
 
 `FRCP` and `FRSQ` keep FP32's exponent range for this (the LUT core sees only
-the mantissa); both ROMs add one Newton step, for about 22 bits.
+the mantissa); one Newton step gives about 22 bits, enough for the bounding
+box and the raster ROM's `1/sum(E)`. `1/det M` takes two, to full FP32: it
+scales the depth plane, and with one a flat `z = 0.5` rasterized some 2^-20
+low -- more than a D32_SFLOAT ulp.
+
+### Depth bias
+
+`DEPTH_BIAS_CONST` and `DEPTH_BIAS_SLOPE` (FP32, reset 0) are Vulkan's
+`depthBiasConstantFactor` and `depthBiasSlopeFactor`; the driver writes 0
+for both when `depthBiasEnable` is off, and for points and lines, which
+Vulkan does not bias. The setup ROM adds
+
+    o = m * slope + r * constant
+
+to the triangle's depth offset, so every sample of every pixel carries it:
+
+- `m = max(|dz/dx|, |dz/dy|)` of FragCoord.z, the approximation the spec
+  allows;
+- `r = 2^-16` for D16_UNORM; for D32_SFLOAT `2^(e - 23)`, `e` the exponent
+  of the triangle's largest depth, which is exactly `ulp(max z)`. The largest
+  depth is the depth plane at the three corners, or 1.0 with a corner behind
+  the eye.
+
+`depthBiasClamp` is an optional feature Borg does not report.
+
+The depth test compares in float order (a negative depth, which bias can
+produce, is below every positive one; -0 equals +0), and a draw's fragment
+depth into a D16 attachment is clamped to [0, 1] first, as the format holds
+nothing else.
 
 ## Raster ROM and fragment ABI
 
@@ -219,6 +249,16 @@ shader writes `gl_SampleMask` to **r19**. The static mask applies before
 shading; alpha to coverage (the first `round(alpha * 4)` samples) and the
 shader's mask after it, and after `ZTEST`'s early depth writes.
 
+**One sample.** Bit 6 is `rasterizationSamples = 1`, which Vulkan requires
+alongside 4 for every attachment. The walker puts all four sample offsets at
+the pixel centre, so coverage and depth are the centre's; every mask acts on
+sample 0 (alpha to coverage covers it from alpha 0.5, the shader's mask is
+its bit 0) and holds for all four; `SMASK` returns one bit; each pixel counts
+once for occlusion. The four copies are identical, so the resolve is exact:
+a pixel is wholly the triangle's or untouched. A multi-pass (Wafer) build
+renders one pass instead of four. Attachments are then single-sample; do not
+combine with `ATTACH_MS`.
+
 **`SMASK rd`** (funct7 0x46) returns the lane's coverage mask after the
 static mask: `gl_SampleMaskIn`. It also gives the compiler **centroid**
 interpolation: when the mask is not full, evaluate the edge planes (in
@@ -235,6 +275,18 @@ framebuffer's. A framebuffer larger than one render's bin table (256x256
 pixels on the ULX3S/sim build) is drawn as several windows -- the same draw,
 once per window; a triangle entirely outside a window is not binned there.
 With the registers at reset the window is the whole, square framebuffer.
+
+**Bin capacity.** A tile's bin holds `SEQ_BIN_ROW_BYTES / 2` triangles
+(at most `maxTrianglesPerTile`), and a window's records need
+`SEQ_SETUP_BASE` room for every triangle of the draw. Records are the
+driver's to size, since it knows the draw's triangle count; bins depend on
+where triangles land, so the hardware checks them. A triangle that finds its
+bin full is dropped, not written into the next tile's row, and the render is
+**abandoned whole**: binning finishes, but no tile is rendered, flushed or
+counted. Reading `SEQ_TRIGGER` returns bit 0 done, bit 1 **bin overflow**.
+The attachments are untouched, so the driver can bin optimistically and, on
+overflow, re-issue the window as smaller draws (the first with the original
+loadOp, the rest with LOAD, `ATTACH_MS` under MSAA) or with larger bin rows.
 
 ## Colour attachments
 
@@ -286,7 +338,7 @@ which the per-triangle loads never touch.
 
 | Pass | Hardware words             | Constant window                    |
 |------|----------------------------|------------------------------------|
-| 1    | u0-u21: setup ROM inputs   | u22-u31: vertex shader (10 words)  |
+| 1    | u0-u24: setup ROM inputs   | u25-u31: vertex shader (7 words)   |
 | 2    | u0-u19: record words 0-19  | u20-u31: fragment shader (12 words)|
 
 The driver picks the smallest record shift that fits the pipeline's outputs:
@@ -320,9 +372,9 @@ on every configuration. All addresses are GPU byte addresses.
 
 **Vertex shader** (varying `k` = `SOUT` index `k`):
 
-    IMUL  r9, r30, u23        ; VertexIndex * stride        (funct3 = 2)
-    IADD  r9, r9, u22         ; + vertex buffer word address
-    LOAD  r0, r9              ; X      then IADD r9, r9, u24 between loads
+    IMUL  r9, r30, u26        ; VertexIndex * stride        (funct3 = 2)
+    IADD  r9, r9, u25         ; + vertex buffer word address
+    LOAD  r0, r9              ; X      then IADD r9, r9, u27 between loads
     LOAD  r1, r9              ; Y
     LOAD  r2, r9              ; Z
     LOAD  r3, r9              ; W      -> r0..r3 is the clip-space position
@@ -375,6 +427,10 @@ holds five varying components; use 10 for up to 64.
 | Depth tested at each sample's position                      | `BorgDrawTests.depth_is_tested_per_sample` |
 | A 16x8 framebuffer as one non-square window and as two windows | `BorgDrawTests.render_windows_and_non_square_framebuffers` |
 | Three colour attachments (cleared, BGRA, loaded) with depth LESS | `BorgDrawTests.several_colour_attachments` |
+| A full bin: nothing rendered or written, overflow reported; with room, the same draw renders | `BorgDrawTests.bin_overflow_renders_nothing_and_reports` |
+| One sample: centre coverage and depth, one count per pixel, exact resolve, masks on sample 0; resident and Wafer multi-pass | `BorgDrawTests.single_sample_rasterization` |
+| Depth bias against a reference, random triangles incl. corners behind the eye | `BorgSetupRomTests.setup_rom_adds_depth_bias` |
+| Depth bias in a draw: the constant term to r for D16 and D32_SFLOAT, the slope term to the sample, negative biased depth | `BorgDrawTests.depth_bias_constant_and_slope` |
 
 ## Not covered yet
 

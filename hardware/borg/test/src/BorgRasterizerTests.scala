@@ -31,7 +31,7 @@ object BorgRasterizerTests extends TestSuite {
   /** Set all control inputs to idle (no clock step). */
   def pokeIdle(rast: BorgRasterizer): Unit = {
     rast.io.sampleCfg.mask.poke(((1 << rast.cfg.samples) - 1).U)
-    rast.io.sampleCfg.alphaToCov.poke(false.B); rast.io.sampleCfg.shaderMask.poke(false.B)
+    rast.io.sampleCfg.alphaToCov.poke(false.B); rast.io.sampleCfg.shaderMask.poke(false.B); rast.io.sampleCfg.single.poke(false.B)
     rast.io.cmdPop.valid.poke(false.B)
     rast.io.advance.poke(false.B)
     rast.io.pipeWrite(0).en.poke(false.B)

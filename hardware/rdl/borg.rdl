@@ -1015,7 +1015,14 @@ reg seq_trigger_reg_t {
     name = "Sequencer Trigger";
     desc = "Write bit 0 = 1 to start the vertex/triangle-setup sequencer.
             SEQ_DESC_BASE must be set before triggering.  Self-clearing.
-            Poll STATUS.seq_busy for completion.  nogen: decoded in Borg.scala.";
+            Poll STATUS.seq_busy for completion.  nogen: decoded in Borg.scala.
+            Read: bit 0 = done (sticky, cleared by the next trigger); bit 1 =
+            bin overflow -- a tile touched by more than SEQ_BIN_ROW_BYTES / 2
+            triangles. Binning is completed, but no tile is rendered and
+            nothing is written or counted: the attachments are untouched,
+            so the driver re-issues the same render split into smaller
+            draws (or with larger bin rows), the first with the original
+            loadOp. Cleared when the next render starts binning.";
 
     field {
         sw = w; hw = r;
@@ -1734,4 +1741,12 @@ addrmap borg_gpu {
     att_clear_ba2->nogen = true;
     draw_word_reg_t att_clear_ba3;
     att_clear_ba3->nogen = true;
+
+    // ---- Depth bias (VkPipelineRasterizationStateCreateInfo), FP32:
+    //      o = m * DEPTH_BIAS_SLOPE + r * DEPTH_BIAS_CONST, added to each
+    //      triangle's depth by the setup ROM. 0/0 (reset) is no bias. ----
+    draw_word_reg_t depth_bias_const;
+    depth_bias_const->nogen = true;
+    draw_word_reg_t depth_bias_slope;
+    depth_bias_slope->nogen = true;
 };
