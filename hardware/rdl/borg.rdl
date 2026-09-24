@@ -1734,4 +1734,10 @@ addrmap borg_gpu {
     draw_vs_const->nogen = true;
     draw_word_reg_t draw_fs_const;
     draw_fs_const->nogen = true;
+
+    // ---- Texture unit descriptor tables (docs/B2_texture_unit.md) ----
+    draw_word_reg_t tex_desc_base;
+    tex_desc_base->nogen = true;
+    draw_word_reg_t sampler_desc_base;
+    sampler_desc_base->nogen = true;
 };

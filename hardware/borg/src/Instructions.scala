@@ -165,6 +165,32 @@ object Instructions {
   val FUNCT7_FATTR = 0x44
   // @doc:end
 
+  // R4-type sub-opcodes (opcode bit 2 set, discriminated by the 2-bit funct2
+  // at instr[26:25] -- see encodeR4Type). FMADD is funct2=0 (unchanged).
+  // FTEX moved here (funct2=1) specifically to gain rs3 as a texture-slot
+  // index for multi-texture binding: under the ALU-opcode RType shape its
+  // funct7 (bits 31:25) already used the full width BF_RS3 (bits 31:27)
+  // would need, leaving no room for a 3rd operand. R4-type's much narrower
+  // funct2 frees those bits. This is the same 3-source-operand shape real
+  // RISC-V uses for its own fmadd.s -- U, V and a texture-select index are a
+  // structural match for it, not a repurposing.
+  //
+  // rs3 (texSelect) is expected to be a compile-time-constant descriptor
+  // binding index, pinned into a const GPR exactly like borgc's existing
+  // push_const_reg mechanism -- not a per-invocation dynamic value.
+  //
+  // FTEX writes FOUR registers, rd..rd+3 = R, G, B, A -- a sampled image is a
+  // vec4. rd must leave room for all four (rd <= 28).
+  val FUNCT2_FMADD = 0
+  val FUNCT2_FTEX  = 1
+  // The descriptor-based texture unit (BorgSampler; docs/B2_texture_unit.md).
+  // TEX rd, rs1 = u, rs2 = v, rs3 = register holding the control word (which
+  // texture and sampler, which operation): RGBA to rd..rd+3 (rd <= 28).
+  // TEXA rs1 = w or array layer, rs2 = LOD or bias, rs3 = depth reference:
+  // this lane's extra sampling arguments, kept for the TEX that follows.
+  val FUNCT2_TEX   = 2
+  val FUNCT2_TEXA  = 3
+
   /** Split an absolute branch target into the rs2/rd fields it is packed into. */
   def branchTargetFields(target: Int): (Int, Int) = {
     require(target >= 0 && target < 1024, s"branch target out of range: $target")
@@ -221,6 +247,13 @@ object Instructions {
     encodeRType(FUNCT7_BRNZ, hi, rs1, lo, funct3)
   }
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
+  /** TEX: sample; rs3 names the register holding the control word. */
+  def TEX(rd: Int, rs1: Int, rs2: Int, rs3: Int, funct3: Int = 0): BigInt = {
+    require(rd <= 28, s"TEX writes rd..rd+3, so rd <= 28: $rd")
+    encodeR4Type(rs3, FUNCT2_TEX, rs2, rs1, rd, funct3)
+  }
+  /** TEXA: w/layer, LOD/bias and depth reference for the next TEX. */
+  def TEXA(rs1: Int, rs2: Int, rs3: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, FUNCT2_TEXA, rs2, rs1, 0, funct3)
   /** SOUT: store rs2 as output component `index` (packed into rs1:rd). */
   def SOUT(rs2: Int, index: Int, funct3: Int = 0): BigInt = {
     val (hi, lo) = branchTargetFields(index)

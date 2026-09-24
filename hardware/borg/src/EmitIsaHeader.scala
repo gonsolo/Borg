@@ -82,7 +82,20 @@ object EmitIsaHeader extends App {
   // than by funct7, so it is not in the funct7 table.
   body ++= s"// R4-type: FMADD (opcode bit ${BITS_OPCODE_FMA_BIT}, not a funct7 value)\n"
   body ++= s"#define BORG_INSTR_FMADD(rd, rs1, rs2, rs3, funct3) " +
-           f"(0x${OPCODE_FMA}%08XU | $C_ARGS_R4)\n\n"
+           s"(${r4Base(FUNCT2_FMADD)} | $C_ARGS_R4)\n\n"
+  // FTEX rd, rs1(U), rs2(V), rs3: rd=R, rd+1=G, rd+2=B, rd+3=A. rs3 is a
+  // REGISTER INDEX (like FMA's own rs3) whose low bits select which
+  // texture-binding slot to sample -- write the desired slot number into a
+  // register first, same as any other pinned constant, then pass its index.
+  body ++= s"// R4-type: TEX rd, u, v, ctl-register (funct2=$FUNCT2_TEX) and TEXA w, lod, dref (funct2=$FUNCT2_TEXA)\n"
+  body ++= s"#define BORG_INSTR_TEX(rd, rs1, rs2, rs3, funct3) (${r4Base(FUNCT2_TEX)} | $C_ARGS_R4)\n"
+  body ++= s"#define BORG_INSTR_TEXA(rs1, rs2, rs3, funct3) (${r4Base(FUNCT2_TEXA)} | " +
+           s"((funct3) << ${BF_FUNCT3.lo}) | ((rs3) << ${BF_RS3.lo}) | ((rs2) << ${BF_RS2.lo}) | ((rs1) << ${BF_RS1.lo}))\n\n"
+  body ++= s"// R4-type: FTEX (opcode bit ${BITS_OPCODE_FMA_BIT}, funct2=$FUNCT2_FTEX)\n"
+  body ++= s"#define BORG_INSTR_FTEX(rd, rs1, rs2, rs3, funct3) " +
+           s"(${r4Base(FUNCT2_FTEX)} | " +
+           s"((funct3) << ${BF_FUNCT3.lo}) | ((rs3) << ${BF_RS3.lo}) | " +
+           s"((rs2) << ${BF_RS2.lo}) | ((rs1) << ${BF_RS1.lo}) | ((rd) << ${BF_RD.lo}))\n\n"
 
   for ((name, f7, shape) <- all)
     body ++= macroFor(name, f7, shape) + "\n"

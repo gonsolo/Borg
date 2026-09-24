@@ -14,6 +14,13 @@
 // R4-type: FMADD (opcode bit 2, not a funct7 value)
 #define BORG_INSTR_FMADD(rd, rs1, rs2, rs3, funct3) (0x00000004U | ((funct3) << 12) | ((rs3) << 27) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 
+// R4-type: TEX rd, u, v, ctl-register (funct2=2) and TEXA w, lod, dref (funct2=3)
+#define BORG_INSTR_TEX(rd, rs1, rs2, rs3, funct3) (0x04000004U | ((funct3) << 12) | ((rs3) << 27) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_TEXA(rs1, rs2, rs3, funct3) (0x06000004U | ((funct3) << 12) | ((rs3) << 27) | ((rs2) << 20) | ((rs1) << 15))
+
+// R4-type: FTEX (opcode bit 2, funct2=1)
+#define BORG_INSTR_FTEX(rd, rs1, rs2, rs3, funct3) (0x02000004U | ((funct3) << 12) | ((rs3) << 27) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+
 #define BORG_INSTR_FADD(rd, rs1, rs2, funct3) (0x00000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FMUL(rd, rs1, rs2, funct3) (0x08000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FNEG(rd, rs1, funct3) (0x0C000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
