@@ -256,6 +256,33 @@ tile in autonomous renders: tile `t` writes its 16 × D16_UNORM values at
 `zb_base + 32*t`. Before `601eb709`, every tile wrote to the same 32 bytes.
 No firmware uses it yet; `borgvk` must also report D16_UNORM as supported.
 
+### Occlusion queries
+
+Three registers (commit after `cb052720`): `OCC_CTRL` (`0x31C`: bit 0 enable,
+bit 1 write-1 clear), `OCC_TRI_RANGE` (`0x320`: first triangle index in bits
+15:0, one past the last in 31:16, reset 0..0xFFFF) and `OCC_COUNT`
+(`0x324`, read-only).
+
+- The count is **exact**: samples that pass coverage, scissor, discard and
+  the depth/stencil tests, counted where the tests run (at `ZTEST` for a
+  shader with early tests, at the end of the shader otherwise). Borg can
+  report `occlusionQueryPrecise = VK_TRUE`.
+- **Queries are triangle windows, not time windows.** A tile-based renderer
+  shades every draw's fragments tile by tile, interleaved, so "between
+  vkCmdBeginQuery and vkCmdEndQuery" has to be expressed as the triangle
+  range of the draws recorded between them. The same problem is why v3d
+  replays query state in every tile's command list. Program
+  `OCC_TRI_RANGE` with that range, clear and enable, render, and read
+  `OCC_COUNT`.
+- **One window per render.** A render pass holding more than one occlusion
+  query must be split into several renders. That needs attachment
+  load/store between renders, which is still an open hardware item. It is
+  also needed for a render pass that uses more than one fragment shader,
+  since pass 2 loads exactly one.
+- Outside a sequencer render (the MMIO pixel path) there is no triangle
+  index, and every fragment counts while enabled.
+- 32 bits; Vulkan's 64-bit result is the zero-extended value.
+
 ### Colour quantization
 
 `quantize8` (FP16 → UNORM8) is now an exact `round(v*255)`; it used to
@@ -276,6 +303,7 @@ regenerating.
 | ZTEST end to end                 | `BorgSequencerTests` scenario `ztest_suppresses_stores_of_hidden_fragments` |
 | RGBA8/BGRA8 flush, depth per tile| `BorgTileFlusherTests`, scenario `sequencer_rgba8_and_depth_advance_per_tile` |
 | Compute ABI, BARRIER, atomics    | `BorgComputeTests`                                                 |
+| Occlusion count, triangle window | `BorgShaderDispatcherZTestTests` (count per test site), scenario `occlusion_query_counts_the_samples_of_the_triangle_window` |
 | EXANY divergent loop             | `BorgCoreTestsD.exany_implements_a_genuinely_divergent_loop`      |
 | Programs longer than IMEM        | `BorgCoreTestsC.icache_*` (4 tests, 64- and 72-word IMEM)         |
 | Long shader through DMA preload  | `BorgSequencerTests` scenario `icache_runs_a_fragment_shader_longer_than_imem` |

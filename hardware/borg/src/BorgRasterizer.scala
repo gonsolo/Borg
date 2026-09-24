@@ -107,6 +107,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val zTestDone  = Output(Bool())
   val laneHelper = Output(Vec(cfg.fragLanes, Bool()))
   val passSample = if (cfg.msaaMultiPass) Some(Input(UInt(log2Up(cfg.samples).W))) else None
+  val occSamples = Output(UInt(log2Ceil(cfg.samples + 1).W))
   val texR    = Output(UInt(16.W))
   val texG    = Output(UInt(16.W))
   val texB    = Output(UInt(16.W))
@@ -187,6 +188,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.zTestDone         := dispatcher.io.zTestDone
   io.laneHelper        := dispatcher.io.laneHelper
   dispatcher.io.passSample.foreach(_ := io.passSample.get)
+  io.occSamples        := dispatcher.io.occSamples
 
   // --- Forward iterator outputs ---
   io.iter         := iterator.io.iter

@@ -129,6 +129,9 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // result decides whether a lane is a helper -- the other samples' planes
   // are not live in this pass.
   val passSample = if (cfg.msaaMultiPass) Some(Input(UInt(log2Up(cfg.samples).W))) else None
+  // Occlusion queries: how many samples passed the per-fragment tests this
+  // cycle (0 on cycles that ran no test). Borg.scala accumulates it.
+  val occSamples = Output(UInt(log2Ceil(cfg.samples + 1).W))
 
   // MSAA coverage deltas (Step 50.2), per triangle, from the setup shader via
   // BorgSequencer.  Indexed [edge][k]: two base deltas per edge.  Absent at
@@ -355,6 +358,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.tileWrite.idx      := io.shaderTileIndex(0)
   io.tileWrite.data     := 0.U.asTypeOf(new ColorZ(16))
   io.tileWrite.coverage := 0.U
+  io.occSamples         := 0.U
   io.stencilWrite.foreach(_ := 0.U)
   io.stencilWriteMask.foreach(_ := 0.U)
   io.alphaWrite.foreach(_ := 0.U)
@@ -731,6 +735,11 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       io.tileWrite.coverage := Mux(pass, oneHot, 0.U)
       io.tileWrite.en       := pass
       when(earlyActive) { earlyPass(laneIdx)(dstIdx) := pass }
+      // Sample counting happens where the tests do: in the ZTEST sub-phase
+      // for early tests, else here -- never both. At msaaMultiPass the loop
+      // walks every sample but only the pass's own is live.
+      val countThis = io.passSample.map(_ === dstIdx).getOrElse(true.B)
+      io.occSamples := (pass && !earlyDone && countThis).asUInt
       stencilRes.foreach { r =>
         io.stencilWrite.get       := r.newValue
         io.stencilWriteMask.get   := Mux(reachedDyn(dstIdx) && !earlyDone, oneHot, 0.U)
@@ -754,6 +763,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       when(earlyActive) {
         samplePass.zipWithIndex.foreach { case (p, s) => earlyPass(laneIdx)(s) := p }
       }
+      io.occSamples := Mux(earlyDone, 0.U, PopCount(samplePass))
       stencilRes.foreach { r =>
         io.stencilWrite.get     := r.newValue
         io.stencilWriteMask.get := Mux(reached(0) && !earlyDone, Fill(cfg.samples, 1.U(1.W)), 0.U)

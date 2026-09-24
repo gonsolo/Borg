@@ -48,6 +48,10 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   // (BorgStencil's frontFacing param) can use it directly without an
   // inverter of their own.
   val frontFacingOverride = Output(Bool())
+  // Pass 2's current triangle (its index in the draw's triangle list). Only
+  // advances once the triangle's pixels have drained (sWaitRast ->
+  // sReadBinEntry), so it names the triangle every tested fragment belongs to.
+  val curTriIndex = Output(UInt(16.W))
 
   val uniformWrite     = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
@@ -201,6 +205,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     }
     io.texEnOverride := triHasUvs
     io.frontFacingOverride := !triIsBackFacing
+    io.curTriIndex := binEntryData
 
     io.dma.start := false.B
     io.dma.desc  := dmaDescReg

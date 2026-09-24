@@ -700,6 +700,28 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rdlRegs.io.hw.tex_addr_raw_u  := 0.U
     rdlRegs.io.hw.tex_addr_raw_v  := 0.U
 
+    // --- Occlusion queries (see OCC_CTRL in borg.rdl) ----------------------
+    // The dispatcher reports the samples that passed the tests each cycle;
+    // count them while enabled, for triangles inside the query's window.
+    // Outside a sequencer render (the MMIO pixel path) there is no triangle
+    // index and every fragment counts.
+    val occEnable = RegInit(false.B)
+    val occFirst  = RegInit(0.U(16.W))
+    val occLast   = RegInit(0xFFFF.U(16.W))
+    val occCount  = RegInit(0.U(32.W))
+    when(bus.is_writing && bus.address === BorgGpuRegs.occ_tri_range_offset) {
+      occFirst := bus.data_in(15, 0)
+      occLast  := bus.data_in(31, 16)
+    }
+    val tri = s.io.curTriIndex
+    val inWindow = !s.io.busy || (tri >= occFirst && tri < occLast)
+    when(bus.is_writing && bus.address === BorgGpuRegs.occ_ctrl_offset) {
+      occEnable := bus.data_in(0)
+      when(bus.data_in(1)) { occCount := 0.U }
+    }.elsewhen(occEnable && inWindow) {
+      occCount := occCount + rast.io.occSamples
+    }
+
     val rdl_read_data = rdlRegs.io.bus.readData
     // tile_rg/tile_bz readback arms kept unconditionally: needed by the test harness
     // (readTilePixel) and by the CPU flush path (hasFlusher=false).
@@ -713,7 +735,10 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // Repurpose the write-only SEQ_TRIGGER address for reading seqDoneSticky.
       // Firmware reads this after triggering with triCount=0 to detect
       // whether the sequencer hardware is present.
-      (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> seqDoneSticky.asUInt
+      (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> seqDoneSticky.asUInt,
+      (read_addr_del === BorgGpuRegs.occ_count_offset)   -> occCount,
+      (read_addr_del === BorgGpuRegs.occ_ctrl_offset)    -> occEnable.asUInt,
+      (read_addr_del === BorgGpuRegs.occ_tri_range_offset) -> Cat(occLast, occFirst)
     ) ++ computeDoneSticky.map { done =>
       // A build without compute leaves this address to rdl_read_data, which
       // returns 0 for a nogen register: `present` reads back clear.
