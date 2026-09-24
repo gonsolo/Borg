@@ -22,6 +22,20 @@ class DepthQuantizeHarness extends Module {
   fp16Out := DepthQuantize.dequantize16(u16In)
 }
 
+/** FP32 tile depth <-> D16_UNORM (BorgConfig.tileDepthBits = 32). The
+  * round trip is chained in hardware so a single poke checks it. */
+class DepthQuantizeFp32Harness extends Module {
+  val u16In   = IO(Input(UInt(16.W)))
+  val fp32Out = IO(Output(UInt(32.W)))
+  val u16Back = IO(Output(UInt(16.W)))
+  val fp32In  = IO(Input(UInt(32.W)))
+  val u16Out  = IO(Output(UInt(16.W)))
+
+  fp32Out := DepthQuantize.dequantize16Fp32(u16In)
+  u16Back := DepthQuantize.quantize16Fp32(fp32Out)
+  u16Out  := DepthQuantize.quantize16Fp32(fp32In)
+}
+
 object DepthQuantizeTests extends TestSuite {
   import BorgTests.{floatToBits, bitsToFloat}
 
@@ -114,6 +128,36 @@ object DepthQuantizeTests extends TestSuite {
         val got  = dut.u16Out.peek().litValue.toInt
         val want = math.round(value * 65536).toInt
         utest.assert(math.abs(got - want) <= 1)
+      }
+    }
+    utest.test("fp32_depth_round_trips_every_d16_value") {
+      // Every one of the 65,536 D16 values must survive load (u -> FP32) and
+      // store (FP32 -> u) unchanged, and the FP32 must be u/65535 to within
+      // FP32's own precision. FP16 tile depth failed this for most of them.
+      simulate(new DepthQuantizeFp32Harness) { d =>
+        var worst = 0.0
+        for (u <- 0 until 65536) {
+          d.u16In.poke(u.U)
+          val f = java.lang.Float.intBitsToFloat(d.fp32Out.peek().litValue.toInt)
+          worst = math.max(worst, math.abs(f - u / 65535.0))
+          utest.assert(d.u16Back.peek().litValue.toInt == u)
+        }
+        println(f"  all 65536 D16 values round-trip; worst |fp32 - u/65535| = $worst%.3e")
+        utest.assert(worst < 1e-7)
+      }
+    }
+
+    utest.test("quantize16_fp32_is_round_of_value_times_65535") {
+      simulate(new DepthQuantizeFp32Harness) { d =>
+        val rnd = new scala.util.Random(7)
+        val samples = Seq(0.0f, 1.0f, 0.5f, 1e-6f, 0.99999f, 1.5f, -0.25f) ++
+                      Seq.fill(5000)(rnd.nextFloat())
+        for (v <- samples) {
+          d.fp32In.poke((java.lang.Float.floatToRawIntBits(v).toLong & 0xFFFFFFFFL).U)
+          val want = math.round(math.max(0.0, math.min(1.0, v.toDouble)) * 65535).toInt
+          utest.assert(d.u16Out.peek().litValue.toInt == want)
+        }
+        println("  quantize16Fp32 == round(v * 65535), clamped, on 5007 values")
       }
     }
   }
