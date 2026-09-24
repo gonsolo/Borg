@@ -194,6 +194,10 @@ a lowering convention, each pinned by a hand-written ISA test in
   comparisons return 0/1, so they compose with BRZ/BRNZ/EXPUSH; the other
   relations come from swapping operands or flipping branch polarity, as in
   RV32I.
+- **Colour output:** a RAW attachment (every Vulkan colour format but
+  R5G6B5/RGBA8/BGRA8 UNORM) takes packed words in r26/r27, and the shader
+  blends and masks against `TLD rd, k`; see
+  [B3](B3_colour_formats.md) for the per-format packing.
 - **EXANY** is available wherever the execution mask is (every build), not
   only with compute: a fragment shader's divergent loop needs it too. Wafer
   now has compute (`BorgConfig.Wafer` no longer turns it off).

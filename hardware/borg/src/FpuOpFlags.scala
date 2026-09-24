@@ -62,6 +62,7 @@ class FpuOpFlags extends Bundle {
   val texa    = Bool()
   val smask   = Bool()   // SMASK (drawEnabled)
   val attidx  = Bool()   // ATTIDX (drawEnabled)
+  val tld     = Bool()   // TLD (drawEnabled)
   val isrl    = Bool()   // logical shift right (RISC-V SRL)
   val isltu   = Bool()   // unsigned compare (RISC-V SLTU)
   val funct3 = UInt(3.W)

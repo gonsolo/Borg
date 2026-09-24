@@ -181,6 +181,12 @@ object Instructions {
   // each -- and every 16-bit index unpack or unsigned bounds check needs one.
   val FUNCT7_ISRL  = 0x4A  // rd = rs1 >>> (rs2 & 31)   (logical)
   val FUNCT7_ISLTU = 0x4C  // rd = (rs1 <u rs2) ? 1 : 0
+  // TLD rd, k: this lane's destination -- word k (0, or 1 of RAW64, in
+  // funct3) of the colour attachment's current value at the pixel (the
+  // pass's own sample), as the raw bytes the attachment holds. Read before the fragment shader starts, when the
+  // attachment is a raw format (FlushFormat.RAW*): the compiler blends,
+  // masks and packs any format in the shader and writes the word to r26.
+  val FUNCT7_TLD   = 0x4E
   // @doc:end
 
   // R4-type sub-opcodes (opcode bit 2 set, discriminated by the 2-bit funct2
@@ -284,6 +290,7 @@ object Instructions {
   def TEXA(rs1: Int, rs2: Int, rs3: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, FUNCT2_TEXA, rs2, rs1, 0, funct3)
   def SMASK(rd: Int): BigInt = encodeRType(FUNCT7_SMASK, 0, 0, rd)
   def ATTIDX(rd: Int): BigInt = encodeRType(FUNCT7_ATTIDX, 0, 0, rd)
+  def TLD(rd: Int, word: Int = 0): BigInt = encodeRType(FUNCT7_TLD, 0, 0, rd, word)
   def ISRL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISRL, rs2, rs1, rd, funct3)
   def ISLTU(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISLTU, rs2, rs1, rd, funct3)
   /** SOUT: store rs2 as output component `index` (packed into rs1:rd). */
@@ -358,6 +365,7 @@ object Instructions {
     ("FATTR",  FUNCT7_FATTR,  LoadIdx),
     ("SMASK",  FUNCT7_SMASK,  MaskDest),
     ("ATTIDX", FUNCT7_ATTIDX, MaskDest),
+    ("TLD",    FUNCT7_TLD,    MaskDest),
     ("ISRL",   FUNCT7_ISRL,   RType),
     ("ISLTU",  FUNCT7_ISLTU,  RType)
   )

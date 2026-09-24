@@ -51,7 +51,8 @@ class TilePassIO(val samples: Int) extends Bundle {
 class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
                        val hasStencil: Boolean = false,
                        val hasAlpha: Boolean = false,
-                       val multiPass: Boolean = false, val zBits: Int = 16) extends Bundle {
+                       val multiPass: Boolean = false, val zBits: Int = 16,
+                       val hasExt: Boolean = false) extends Bundle {
   // Write port (from rasterizer auto-write or MMIO)
   val write = Flipped(new TileWriteIO(samples, zBits))
 
@@ -97,6 +98,23 @@ class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
 
   // --- Multi-pass MSAA control (BorgConfig.msaaMultiPass) ----------------
   val pass = if (multiPass) Some(new TilePassIO(samples)) else None
+
+  // --- Optional extension word (FlushFormat.RAW64) -----------------------
+  //
+  // A 64-bit colour format (RGBA16F, RG32F, ...) keeps both of its words in
+  // the tile: its blending needs the whole pixel (DST_ALPHA factors read the
+  // alpha while blending red), so it cannot be split into two passes. Word
+  // 0 rides the colour and alpha planes like RAW32; word 1 lives here. At
+  // multiPass this is the resolve accumulator, which a RAW format never
+  // uses (it is stored per sample, not resolved): no new storage. Only
+  // while `extActive` (the attachment is RAW64) do writes and clears reach
+  // it -- the tile is re-cleared between MSAA passes, and a UNORM
+  // attachment's accumulator must survive that. Same piggyback on the
+  // colour plane's index, enable and clear as alpha and stencil.
+  val extRead   = if (hasExt) Some(Output(Vec(samples, UInt(32.W)))) else None
+  val extWrite  = if (hasExt) Some(Input(UInt(32.W))) else None
+  val extActive = if (hasExt) Some(Input(Bool())) else None
+  val extClear  = if (hasExt) Some(Input(UInt(32.W))) else None
 }
 
 /** @param colorBits Stored R/G/B width, independent of `dataBits` (the port
@@ -112,7 +130,7 @@ class BorgTileBufferIO(val dataBits: Int = 16, val samples: Int = 1,
 class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits: Int = 16,
                      val hasStencil: Boolean = false, val hasAlpha: Boolean = false,
                      val multiPass: Boolean = false,
-                     val zBits: Int = 16) extends Module {
+                     val zBits: Int = 16, val hasExt: Boolean = false) extends Module {
   require(colorBits == dataBits || colorBits == 8,
           s"colorBits must equal dataBits (off) or be 8 (ColorQuantize), got $colorBits")
   // Multi-pass averages STORED colour arithmetically. That is only meaningful
@@ -122,7 +140,7 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
           "msaaMultiPass requires quantized tile colour (tileColorBits = 8): " +
           "the accumulator averages stored integers, not FP16 bit patterns")
   require(!multiPass || samples > 1, "msaaMultiPass is meaningless at samples == 1")
-  val io = IO(new BorgTileBufferIO(dataBits, samples, hasStencil, hasAlpha, multiPass, zBits))
+  val io = IO(new BorgTileBufferIO(dataBits, samples, hasStencil, hasAlpha, multiPass, zBits, hasExt))
 
   // The far-plane clear value, 65504 in either width (FP16 max): 0x7BFF, or
   // the same number as FP32 when depth is FP32 (see ColorZ).
@@ -346,15 +364,47 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
   def accCh(word: UInt, i: Int): UInt =
     word((ACC_NCH - i) * ACC_CH - 1, (ACC_NCH - i - 1) * ACC_CH)
 
+  // Extension word: its clear value and whether this clear reaches it,
+  // latched at clear start like the other planes' clear values.
+  val extClearReg = RegInit(0.U(32.W))
+  val extClearOn  = RegInit(false.B)
+  if (hasExt) when(io.clear.en && !clearing) {
+    extClearReg := io.extClear.get
+    extClearOn  := io.extActive.get
+  }
+  val extWriteNow = if (hasExt) io.write.en && !clearing && io.extActive.get else false.B
+
   if (multiPass) {
+    require(!hasExt || ACC_BITS >= 32, "the extension word needs a 32-bit accumulator (hasAlpha)")
     val (wr, wg, wb) = storedChannels(rgbzRead(0))
     val working = Seq(wr, wg, wb) ++ alphaReadRaw.map(_(0)).toSeq
-    when(accRunDel) {
-      accumMem.get.write(accCtrDel, Cat(working.zipWithIndex.map { case (w, i) =>
-        Mux(accFirstReg, w.pad(ACC_CH), accCh(accRead, i) + w)
-      }))
+    val sweep = Cat(working.zipWithIndex.map { case (w, i) =>
+      Mux(accFirstReg, w.pad(ACC_CH), accCh(accRead, i) + w)
+    })
+    // One write port: the sweep, or the extension word's clear or write.
+    val extClearNow = clearing && extClearOn
+    val extWr = extWriteNow && coverageFor(0)
+    when(accRunDel || extClearNow || extWr) {
+      accumMem.get.write(Mux(accRunDel, accCtrDel, Mux(clearing, clearCounter(3, 0), io.write.idx)),
+        Mux(accRunDel, sweep, Mux(clearing, extClearReg, io.extWrite.getOrElse(0.U(32.W))).pad(ACC_BITS)))
     }
     io.pass.get.accumBusy := accRun || accRunDel
+  }
+
+  // The extension word's storage: the accumulator at multiPass, else one
+  // 16 x 32 plane per sample.
+  val extReadRaw: Option[Vec[UInt]] = if (!hasExt) None else if (multiPass) {
+    Some(VecInit(Seq(accRead(31, 0))))
+  } else {
+    val extMems = Seq.fill(planes)(SyncReadMem(TILE_SIZE, UInt(32.W)))
+    Some(VecInit(extMems.zipWithIndex.map { case (mem, s) =>
+      when(clearing && extClearOn) {
+        mem.write(clearCounter, extClearReg)
+      }.elsewhen(extWriteNow && coverageFor(s)) {
+        mem.write(io.write.idx, io.extWrite.get)
+      }
+      mem.read(rdAddr, rdEn)
+    }))
   }
 
   when(effectiveReadEn) {
@@ -452,6 +502,13 @@ class BorgTileBuffer(val dataBits: Int = 16, val samples: Int = 1, val colorBits
     }
     if (!multiPass) io.stencilRead.get := stencilHeld
     else io.stencilRead.get := VecInit(Seq.fill(samples)(stencilHeld(0)))
+  }
+
+  extReadRaw.foreach { extRead =>
+    val extHeld = RegInit(VecInit(Seq.fill(if (multiPass) 1 else samples)(0.U(32.W))))
+    when(readEnDel) { extHeld := extRead }
+    if (!multiPass) io.extRead.get := extHeld
+    else io.extRead.get := VecInit(Seq.fill(samples)(extHeld(0)))
   }
 
   // --- Optional destination-alpha plane: read port -----------------------

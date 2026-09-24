@@ -82,6 +82,11 @@ colour attachment is a texture with no copy: an RGBA8/BGRA8 flush is
 `l` has size `max(1, size >> l)`; 3D slices follow each other inside a level;
 array layers follow each other, each holding all its levels.
 
+A **16-byte** texel is the exception: its tile's first 128 bytes hold bytes
+0-7 of the 16 texels and the next 128 bytes bytes 8-15, which is what a
+RAW128 colour attachment renders in its two slices
+([B3](B3_colour_formats.md)).
+
 **Linear** is row-major with the descriptor's row pitch; one level and one
 layer, which is all Vulkan requires of linear images.
 

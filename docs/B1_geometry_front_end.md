@@ -60,12 +60,14 @@ All `nogen`, decoded in `Borg.wireDraw`.
 | `FB_ORIGIN`           | 0x388   | the window's first tile: x [11:0], y [27:16]                     |
 | `FB_PITCH`            | 0x38C   | the framebuffer's tiles per row (0 = `SEQ_TILES_PER_ROW`)        |
 | `ATT_CFG`             | 0x390   | [1:0] colour attachments - 1, [4:2] loadOp LOAD of attachments 1-3 |
-| `ATT_FORMAT`          | 0x394   | `FLUSH_FORMAT` of attachments 1-3: [1:0], [3:2], [5:4]           |
+| `ATT_FORMAT`          | 0x394   | `FLUSH_FORMAT` of attachments 1-3: [2:0], [5:3], [8:6] (B3)      |
 | `ATT_BASE1..3`        | 0x398-0x3A0 | colour base of attachments 1-3                               |
 | `ATT_CLEAR_RG1..3`    | 0x3A4-0x3AC | clear R, G (FP16) of attachments 1-3                         |
 | `ATT_CLEAR_BA1..3`    | 0x3B0-0x3B8 | clear B (FP16 [31:16]) and A (UNORM8 [7:0]) of attachments 1-3 |
 | `DEPTH_BIAS_CONST`    | 0x3BC   | FP32 `depthBiasConstantFactor` (see Depth bias)                  |
 | `DEPTH_BIAS_SLOPE`    | 0x3C0   | FP32 `depthBiasSlopeFactor`                                      |
+| `ATT_CLEAR_EXT0..3`   | 0x3C4-0x3D0 | RAW64 clear word 1 of attachments 0-3 (B3)                   |
+| `ATT_CLEAR_W2_0..3`, `ATT_CLEAR_W3_0..3` | 0x3D4-0x3F0 | RAW128 clear words 2, 3 (B3)                    |
 
 The draw also uses the sequencer's existing registers: vertex and fragment
 shader address and length, bin base and row size, `SEQ_SETUP_BASE` (the
@@ -293,10 +295,12 @@ loadOp, the rest with LOAD, `ATTACH_MS` under MSAA) or with larger bin rows.
 `ATT_CFG` sets 1-4 colour attachments. Attachment 0 is the historical one
 (`SEQ_FB_BASE`, `FLUSH_FORMAT`, the sequencer's clear colour, `TILE_LOAD`
 bit 0); 1-3 have their own base, format, clear colour and loadOp. Each tile
-is rendered **once per attachment**, clearing or loading that attachment,
-running every triangle and flushing to it. **`ATTIDX rd`** (funct7 0x48)
-returns the attachment the pass renders, and the fragment shader writes that
-attachment's colour to r24/r26-r28. Depth and stencil are the same in every
+is rendered **once per attachment** (twice for a RAW128 one, see
+[B3](B3_colour_formats.md)), clearing or loading that attachment, running
+every triangle and flushing to it. **`ATTIDX rd`** (funct7 0x48) returns the
+attachment the pass renders plus 4 x its slice, and the fragment shader
+writes that attachment's colour to r24/r26-r28 (a RAW format: its words to
+r26, r27). Depth and stencil are the same in every
 pass and are stored in the last; the occlusion count is taken in the first.
 Like multi-pass MSAA, a fragment shader's stores would run once per
 attachment, which the optional `fragmentStoresAndAtomics` feature (not

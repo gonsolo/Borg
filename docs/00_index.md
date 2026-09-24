@@ -73,4 +73,5 @@ depending on your goal:
 7. [Compiler and Driver Contract](B0_compiler_contract.md) — Pending borgc/borgvk/firmware follow-ups for the Vulkan conformance hardware
 8. [Geometry Front End](B1_geometry_front_end.md) — Draws walked by hardware, homogeneous setup without clipping, perspective-correct varyings
 9. [Texture Unit](B2_texture_unit.md) — Descriptor-based TEX: any size to 4096, mipmaps, 51 formats, compare, gather, fetch
+10. [Colour Attachment Formats](B3_colour_formats.md) — RAW words the shader packs and blends through TLD: every Vulkan colour format up to 128 bits
 8. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools

@@ -127,6 +127,15 @@ modes and border colours, trilinear, compare, gather, texelFetch, offsets.
 `BorgSampler` + `TexFormat`; spec and usage in `docs/B2_texture_unit.md`.
 The legacy `FTEX` path below is unchanged.
 
+## Colour attachment formats (RAW)
+
+Beyond R5G6B5/RGBA8/BGRA8 UNORM, every colour format is a RAW attachment
+(`FlushFormat.RAW8/16/32/64/128`): the fragment shader packs the format into
+r26 (and r27), and blends by reading the destination with `TLD`. RAW64
+keeps its second word in the tile's extension plane (the multi-pass
+accumulator on Wafer); RAW128 renders in two slices. Spec, per-format
+compiler mapping and clears: `docs/B3_colour_formats.md`.
+
 ## MSAA and texturing status
 
 4x MSAA hardware is implemented and verified (real captured-borgvk render, full

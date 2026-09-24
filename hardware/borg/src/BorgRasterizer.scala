@@ -85,6 +85,10 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val topLeft  = if (cfg.drawEnabled) Some(Input(Vec(3, Bool()))) else None
   val sampleCfg    = Input(new SampleMaskConfig(cfg.samples))
   val laneCoverage = Output(Vec(cfg.fragLanes, UInt(cfg.samples.W)))
+  val rawColor     = Input(Bool())                          // see the dispatcher's
+  val laneDst      = Output(Vec(cfg.fragLanes, Vec(2, UInt(32.W))))
+  val extRead      = if (cfg.drawEnabled && cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(32.W)))) else None
+  val extWrite     = if (cfg.drawEnabled && cfg.hasBlend) Some(Output(UInt(32.W))) else None
 
   // Tile Buffer auto-write interface (Step 11.3)
   val tileWrite = new TileWriteIO(cfg.samples, cfg.tileDepthBits)
@@ -121,7 +125,7 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   val texA    = Output(UInt(16.W))
 
   // Dispatcher FSM phase (exposed for sequencer pipeline drain)
-  val dispatcherPhase = Output(UInt(3.W))
+  val dispatcherIdle  = Output(Bool())
 }
 
 class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -140,7 +144,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // the previous pixel (autoRunStall), ignore the firmware's iter write.
   // The firmware retries because iterValid remains true.
   iterator.io.advance   := io.advance && !dispatcher.io.autoRunStall
-  iterator.io.phaseIdle := (dispatcher.io.phase === 0.U)  // sIdle = Enum(5)(0) = 0
+  iterator.io.phaseIdle := dispatcher.io.idle
 
   // --- Wire BorgShaderDispatcher inputs ---
   dispatcher.io.pixelReady     := iterator.io.pixelReady
@@ -179,6 +183,10 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   dispatcher.io.topLeft.foreach(_ := io.topLeft.get)
   dispatcher.io.sampleCfg := io.sampleCfg
   io.laneCoverage := dispatcher.io.laneCoverage
+  dispatcher.io.rawColor := io.rawColor
+  io.laneDst := dispatcher.io.laneDst
+  dispatcher.io.extRead.foreach(_ := io.extRead.get)
+  io.extWrite.foreach(_ := dispatcher.io.extWrite.get)
 
   // --- Forward dispatcher outputs to rasterizer IO ---
   io.coreTrigger  <> dispatcher.io.coreTrigger
@@ -209,7 +217,7 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.iterValid    := iterator.io.iterValid
   io.tileComplete := iterator.io.tileComplete
   io.tileOrigin   := iterator.io.tileOrigin
-  io.dispatcherPhase := dispatcher.io.phase
+  io.dispatcherIdle := dispatcher.io.idle
 
   // --- Passthrough ---
   io.uniformPage  := io.uniformPageReg  // pass through from register

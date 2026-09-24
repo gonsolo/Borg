@@ -402,7 +402,7 @@ object BorgDrawTests extends TestSuite {
     rig.fbBase = bases(0)
     val count = rig.draw(t, frag = frag, depthCfg = 1 | (1 << 3), extra = Seq(
       BorgGpuRegs.att_cfg_offset -> BigInt(2 | (1 << 3)),                 // 3 attachments, 2 loads
-      BorgGpuRegs.att_format_offset -> BigInt(FlushFormat.BGRA8 | (FlushFormat.RGBA8 << 2)),
+      BorgGpuRegs.att_format_offset -> BigInt(FlushFormat.BGRA8 | (FlushFormat.RGBA8 << 3)),
       BorgGpuRegs.att_base1_offset -> BigInt(bases(1)), BorgGpuRegs.att_base2_offset -> BigInt(bases(2)),
       BorgGpuRegs.att_clear_rg1_offset -> BigInt((fp16(1.0f) << 16) | fp16(0.5f)),  // R 1.0, G 0.5
       BorgGpuRegs.att_clear_ba1_offset -> BigInt((fp16(0.25f) << 16) | 200)))     // B 0.25, A 200
@@ -546,6 +546,127 @@ object BorgDrawTests extends TestSuite {
     utest.assert(flat0 == front(0) && biased.forall(_ == front(-0.25)) && front(-0.25) > flat0)
   }
 
+  /** RAW colour formats: the fragment shader's r26 as raw bytes (1, 2 or 4
+    * per pixel), loaded back, read in the shader with TLD and written again
+    * -- the path every format the compiler packs takes. Single-sample, so
+    * nothing is resolved. Then R32_SFLOAT blending done in the shader: two
+    * overlapping triangles each add 0.375 to the destination, in FP32. */
+  def rawFormats(rig: DrawRig): Unit = {
+    import Instructions._
+    val one = 0x40
+    val tri = Seq(at(0.25, 0.25, 1.0), at(8, 0.5, 4.0), at(0.5, 8, 2.0))
+    val in = (for (py <- 0 until Size; px <- 0 until Size if inside(tri, px + 0.5, py + 0.5)) yield (px, py)).toSet
+    def u(k: Int, v: BigInt): Unit = rig.rom(rig.fsConst + 4 * k) = v
+    def f32(f: Float) = BigInt(java.lang.Float.floatToRawIntBits(f)) & 0xFFFFFFFFL
+    // u21 = word 0, u22 = 1, u23 = word 1, u24 = 2.
+    u(1, BigInt(0xA1B2C3D4L)); u(2, BigInt(1)); u(3, BigInt(0x11223344L)); u(4, BigInt(2))
+    val store = Seq(IXOR(rs1 = 9, rs2 = 9, rd = 26), IOR(rs1 = 26, rs2 = 21, rd = 26, funct3 = 2),
+                    IXOR(rs1 = 9, rs2 = 9, rd = 27), IOR(rs1 = 27, rs2 = 23, rd = 27, funct3 = 2), BigInt(0))
+    val addOne = Seq(TLD(rd = 20), IADD(rs1 = 20, rs2 = 22, rd = 26, funct3 = 2),
+                     TLD(rd = 21, word = 1), IADD(rs1 = 21, rs2 = 24, rd = 27, funct3 = 2), BigInt(0))
+    val bytes = Map(FlushFormat.RAW32 -> 4, FlushFormat.RAW16 -> 2, FlushFormat.RAW8 -> 1, FlushFormat.RAW64 -> 8)
+    def bytesAt(fmt: Int, x: Int, y: Int): BigInt = {
+      val n = bytes(fmt)
+      val a = rig.fbBase + 16 * n * ((y / 4) * rig.pitch + x / 4) + n * ((y % 4) * 4 + x % 4)
+      (0 until n).map { i =>
+        val h = rig.half.getOrElse((a + i) & ~1, -1)
+        BigInt(if (((a + i) & 1) == 1) (h >> 8) & 0xFF else h & 0xFF) << (8 * i)
+      }.sum
+    }
+    val w1Clear = BigInt(0x0BADF00DL)
+    val clear = Seq(BorgGpuRegs.plane_clear_offset -> BigInt(0x5A << 8),      // byte 3 of the clear word
+                    BorgGpuRegs.att_clear_ext0_offset -> w1Clear)              // word 1 (RAW64)
+    val stored = (BigInt(0x11223344L) << 32) | 0xA1B2C3D4L
+    val added  = (BigInt(0x11223346L) << 32) | 0xA1B2C3D5L
+    val cleared = (w1Clear << 32) | 0x5A000000L
+    for (fmt <- Seq(FlushFormat.RAW32, FlushFormat.RAW16, FlushFormat.RAW8, FlushFormat.RAW64)) {
+      val mask = (BigInt(1) << (8 * bytes(fmt))) - 1
+      val cfg = Seq(BorgGpuRegs.flush_format_offset -> BigInt(fmt)) ++ clear
+      val c1 = rig.draw(tri, frag = store, sampleMaskCfg = 0xF | one, extra = cfg)
+      for (y <- 0 until Size; x <- 0 until Size)
+        Predef.assert(bytesAt(fmt, x, y) == ((if (in((x, y))) stored else cleared) & mask),
+                      f"format $fmt pixel ($x,$y): 0x${bytesAt(fmt, x, y)}%x")
+      val c2 = rig.draw(tri, frag = addOne, sampleMaskCfg = 0xF | one, keep = true,
+                        extra = cfg :+ (BorgGpuRegs.tile_load_offset -> BigInt(1)))
+      // Word 0 + 1 in whatever bytes the format keeps; RAW64's word 1 + 2.
+      val exp1 = if (fmt == FlushFormat.RAW64) added else ((stored & mask) + 1) & mask
+      for (y <- 0 until Size; x <- 0 until Size)
+        Predef.assert(bytesAt(fmt, x, y) == (if (in((x, y))) exp1 else cleared & mask),
+                      f"format $fmt loaded pixel ($x,$y): 0x${bytesAt(fmt, x, y)}%x")
+      println(f"  format $fmt: $c1 pixels stored as 0x${stored & mask}%x, loaded, TLD + 1 -> 0x$exp1%x; ${Size * Size - in.size} untouched")
+      utest.assert(c1 == in.size && c2 == in.size)
+    }
+    // R32_SFLOAT, blend ONE/ONE in the shader: dst + 0.375, twice.
+    u(2, f32(0.375f))
+    val blend = Seq(TLD(rd = 20), ADD(rs1 = 20, rs2 = 22, rd = 26, funct3 = 2), BigInt(0))
+    rig.draw(tri ++ tri, frag = blend, sampleMaskCfg = 0xF | one, extra = Seq(
+      BorgGpuRegs.flush_format_offset -> BigInt(FlushFormat.RAW32), BorgGpuRegs.plane_clear_offset -> BigInt(0)))
+    for (y <- 0 until Size; x <- 0 until Size) {
+      val f = java.lang.Float.intBitsToFloat(bytesAt(FlushFormat.RAW32, x, y).toInt)
+      Predef.assert(f == (if (in((x, y))) 0.75f else 0f), s"R32_SFLOAT pixel ($x,$y): $f")
+    }
+    println("  R32_SFLOAT: 0 + 0.375 + 0.375 = 0.75 exactly on every covered pixel, blended in the shader")
+    // R32G32_SFLOAT, a blend that needs the whole pixel: x' = 0.5 + x*y,
+    // y' = y + 1, from (0, 2) twice -> (0.5, 3) -> (2, 4).
+    u(2, f32(0.5f)); u(3, f32(1.0f))
+    val blend64 = Seq(TLD(rd = 20), TLD(rd = 21, word = 1), MUL(rs1 = 20, rs2 = 21, rd = 18),
+                      ADD(rs1 = 18, rs2 = 22, rd = 26, funct3 = 2), ADD(rs1 = 21, rs2 = 23, rd = 27, funct3 = 2), BigInt(0))
+    rig.draw(tri ++ tri, frag = blend64, sampleMaskCfg = 0xF | one, extra = Seq(
+      BorgGpuRegs.flush_format_offset -> BigInt(FlushFormat.RAW64), BorgGpuRegs.plane_clear_offset -> BigInt(0),
+      BorgGpuRegs.att_clear_ext0_offset -> f32(2.0f)))
+    for (y <- 0 until Size; x <- 0 until Size) {
+      val v = bytesAt(FlushFormat.RAW64, x, y)
+      val (fx, fy) = (java.lang.Float.intBitsToFloat((v & 0xFFFFFFFFL).toInt), java.lang.Float.intBitsToFloat((v >> 32).toInt))
+      Predef.assert((fx, fy) == (if (in((x, y))) (2f, 4f) else (0f, 2f)), s"R32G32_SFLOAT pixel ($x,$y): ($fx, $fy)")
+    }
+    println("  R32G32_SFLOAT: (0, 2) -> x + x*y ... -> (2, 4) exactly: both words of the pixel resident")
+    // RAW128: two slices, ATTIDX = 4 * slice. u21, u23 = words 0, 1 and
+    // u24, u25 = words 2, 3; u26 = 2 (the slice's shift).
+    u(3, BigInt(0x11223344L)); u(4, BigInt(0x55667788L)); u(5, BigInt(0x99AABBCCL)); u(6, BigInt(2))
+    def pick(dst: Int, lo: Int, hi: Int) = Seq(
+      IXOR(rs1 = 9, rs2 = 9, rd = dst), IOR(rs1 = dst, rs2 = lo, rd = dst, funct3 = 2),
+      IXOR(rs1 = 9, rs2 = 9, rd = 19), IOR(rs1 = 19, rs2 = hi, rd = 19, funct3 = 2),
+      IXOR(rs1 = dst, rs2 = 19, rd = 19), IAND(rs1 = 19, rs2 = 20, rd = 19), IXOR(rs1 = dst, rs2 = 19, rd = dst))
+    val store128 = Seq(ATTIDX(rd = 20), ISRL(rs1 = 20, rs2 = 26, rd = 20, funct3 = 2),
+                       IXOR(rs1 = 9, rs2 = 9, rd = 18), ISUB(rs1 = 18, rs2 = 20, rd = 20)) ++
+                   pick(26, 21, 24) ++ pick(27, 23, 25) :+ BigInt(0)
+    val w23Clear = Seq(BorgGpuRegs.att_clear_w2_0_offset -> BigInt(0x0C0FFEE0L), BorgGpuRegs.att_clear_w3_0_offset -> BigInt(0x0FACADE0L))
+    def at128(x: Int, y: Int): BigInt = {
+      val t = rig.fbBase + 256 * ((y / 4) * rig.pitch + x / 4) + 8 * ((y % 4) * 4 + x % 4)
+      def w(a: Int) = BigInt(rig.half.getOrElse(a, -1) & 0xFFFF) | (BigInt(rig.half.getOrElse(a + 2, -1) & 0xFFFF) << 16)
+      w(t) | (w(t + 4) << 32) | (w(t + 128) << 64) | (w(t + 132) << 96)
+    }
+    val words128 = Seq(BigInt(0xA1B2C3D4L), BigInt(0x11223344L), BigInt(0x55667788L), BigInt(0x99AABBCCL))
+    def join(ws: Seq[BigInt]) = ws.zipWithIndex.map { case (v, i) => v << (32 * i) }.sum
+    val cfg128 = Seq(BorgGpuRegs.flush_format_offset -> BigInt(FlushFormat.RAW128)) ++ clear ++ w23Clear
+    val c128 = rig.draw(tri, frag = store128, sampleMaskCfg = 0xF | one, extra = cfg128)
+    val clear128 = join(Seq(BigInt(0x5A000000L), w1Clear, BigInt(0x0C0FFEE0L), BigInt(0x0FACADE0L)))
+    for (y <- 0 until Size; x <- 0 until Size)
+      Predef.assert(at128(x, y) == (if (in((x, y))) join(words128) else clear128), f"RAW128 pixel ($x,$y): 0x${at128(x, y)}%x")
+    u(2, BigInt(1)); u(4, BigInt(2))                                   // addOne's u22, u24
+    rig.draw(tri, frag = addOne, sampleMaskCfg = 0xF | one, keep = true, extra = cfg128 :+ (BorgGpuRegs.tile_load_offset -> BigInt(1)))
+    val added128 = join(words128.zip(Seq(1, 2, 1, 2)).map { case (v, d) => v + d })
+    for (y <- 0 until Size; x <- 0 until Size)
+      Predef.assert(at128(x, y) == (if (in((x, y))) added128 else clear128), f"RAW128 loaded pixel ($x,$y): 0x${at128(x, y)}%x")
+    println(f"  RAW128: $c128 pixels in two slices (0x${join(words128)}%x), cleared per slice, loaded, TLD + 1/2 per word")
+    // 4x, stored per sample (ATTACH_MS): each sample's own tile region holds
+    // the word where that sample is covered and the clear value elsewhere.
+    u(1, BigInt(0xA1B2C3D4L)); u(3, BigInt(0x11223344L))
+    val triMs = Seq(at(0.3, 0.2, 1.0), at(7.9, 0.45, 4.0), at(0.35, 7.7, 2.0))   // no sample on an edge
+    rig.draw(triMs, frag = store, extra = Seq(BorgGpuRegs.flush_format_offset -> BigInt(FlushFormat.RAW64),
+      BorgGpuRegs.attach_ms_offset -> BigInt(1)) ++ clear)
+    var hits = 0
+    for (y <- 0 until Size; x <- 0 until Size; ((ox, oy), smp) <- offsets.zipWithIndex) {
+      val a = rig.fbBase + 128 * (4 * ((y / 4) * rig.pitch + x / 4) + smp) + 8 * ((y % 4) * 4 + x % 4)
+      val v = (0 until 8).map { i => val h = rig.half.getOrElse((a + i) & ~1, -1)
+        BigInt(if (((a + i) & 1) == 1) (h >> 8) & 0xFF else h & 0xFF) << (8 * i) }.sum
+      val cov = inside(triMs, x + 0.5 + ox, y + 0.5 + oy)
+      if (cov) hits += 1
+      Predef.assert(v == (if (cov) stored else cleared), f"4x RAW64 pixel ($x,$y) sample $smp: 0x$v%x")
+    }
+    println(s"  4x RAW64 per sample: $hits covered samples hold the word, the rest the clear value")
+  }
+
   val tests = Tests {
     utest.test("several_colour_attachments") {
       run("colour attachments")(attachments)
@@ -577,6 +698,10 @@ object BorgDrawTests extends TestSuite {
     }
     utest.test("depth_bias_constant_and_slope") {
       run("depth bias")(depthBias)
+    }
+    utest.test("raw_colour_formats_and_tld") {
+      run("RAW colour formats", quadCfg)(rawFormats)
+      run("RAW colour formats, Wafer sizing", waferCfg)(rawFormats)
     }
     utest.test("bin_overflow_renders_nothing_and_reports") {
       run("bin overflow")(binOverflow)

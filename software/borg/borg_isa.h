@@ -56,6 +56,9 @@
 #define BORG_INSTR_FATTR(rd, index) (0x88000000U | ((((uint32_t)(index) >> 5) & 0x1FU) << 20) | (((uint32_t)(index) & 0x1FU) << 15) | ((rd) << 7))
 #define BORG_INSTR_SMASK(rd, funct3) (0x8C000000U | ((funct3) << 12) | ((rd) << 7))
 #define BORG_INSTR_ATTIDX(rd, funct3) (0x90000000U | ((funct3) << 12) | ((rd) << 7))
+#define BORG_INSTR_TLD(rd, funct3) (0x9C000000U | ((funct3) << 12) | ((rd) << 7))
+#define BORG_INSTR_ISRL(rd, rs1, rs2, funct3) (0x94000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_ISLTU(rd, rs1, rs2, funct3) (0x98000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 
 // Special: HALT (an all-zero instruction word)
 #define BORG_INSTR_HALT                           0x00000000U

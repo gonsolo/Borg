@@ -38,7 +38,9 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // FragCoord) are the framebuffer's, not the window's.
   val pixelOrigin        = Input(new Coord(14))
   // The colour attachment the current tile pass renders (ATTIDX).
-  val attIndex           = if (cfg.drawEnabled) Some(Input(UInt(2.W))) else None
+  val attIndex           = if (cfg.drawEnabled) Some(Input(UInt(3.W))) else None   // attachment + 4 * slice
+  // Per lane, the colour attachment's word at its pixel (TLD).
+  val laneDst            = if (cfg.drawEnabled) Some(Input(Vec(cfg.fragLanes, Vec(2, UInt(32.W))))) else None
   val coreTrigger       = Flipped(new CoreTriggerIO)  // pulse from rasterizer: trigger shader
   val uniformPage        = Input(UInt(1.W))      // which 32-entry uniform page the GPU reads from
 
@@ -292,6 +294,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   lanes.zipWithIndex.foreach { case (lane, i) =>
     lane.io.covMask.foreach(_ := io.laneCoverage.get(i))
     lane.io.attIndex.foreach(_ := io.attIndex.get)
+    lane.io.dstWord.foreach(_ := io.laneDst.get(i))
   }
 
   io.ids.foreach { c =>
@@ -436,6 +439,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.tex    := (if (smp) flags.fma && funct2 === Instructions.FUNCT2_TEX.U else false.B)
     flags.smask  := (if (draw) !flags.fma && f7op === Instructions.FUNCT7_SMASK.U else false.B)
     flags.attidx := (if (draw) !flags.fma && f7op === Instructions.FUNCT7_ATTIDX.U else false.B)
+    flags.tld    := (if (draw) !flags.fma && f7op === Instructions.FUNCT7_TLD.U else false.B)
     flags.texa   := (if (smp) flags.fma && funct2 === Instructions.FUNCT2_TEXA.U else false.B)
     flags.funct3 := Instructions.BF_FUNCT3(instr)
 

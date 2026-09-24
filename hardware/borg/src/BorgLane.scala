@@ -45,7 +45,9 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   val execAny     = Input(Bool())
   // This lane's coverage mask, for SMASK.
   val covMask     = if (cfg.drawEnabled) Some(Input(UInt(cfg.samples.W))) else None
-  val attIndex    = if (cfg.drawEnabled) Some(Input(UInt(2.W))) else None
+  val attIndex    = if (cfg.drawEnabled) Some(Input(UInt(3.W))) else None
+  // This lane's destination word, for TLD.
+  val dstWord     = if (cfg.drawEnabled) Some(Input(Vec(2, UInt(32.W)))) else None
   val busyCounter = Input(UInt(cfg.busyCounterWidth.W))
   val running     = Input(Bool())
   val isBusy      = Input(Bool())
@@ -398,11 +400,15 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_exany_reg = RegInit(false.B)
     val is_smask_reg = RegInit(false.B)
     val is_attidx_reg = RegInit(false.B)
+    val is_tld_reg = RegInit(false.B)
+    val tld_sel_reg = RegInit(false.B)            // TLD's word: funct3 bit 0
     val is_isrl_reg = RegInit(false.B); val is_isltu_reg = RegInit(false.B)
     when(start) {
       is_isrl_reg := opFlags.isrl; is_isltu_reg := opFlags.isltu
       is_smask_reg := opFlags.smask
       is_attidx_reg := opFlags.attidx
+      is_tld_reg := opFlags.tld
+      tld_sel_reg := opFlags.funct3(0)
       is_iadd_reg := opFlags.iadd
       is_ishl_reg := opFlags.ishl
       is_ishr_reg := opFlags.ishr
@@ -475,10 +481,11 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                  Mux(is_exany_reg, exany,
                  Mux(is_smask_reg, io.covMask.map(_.pad(w)).getOrElse(0.U(w.W)),
                  Mux(is_attidx_reg, io.attIndex.map(_.pad(w)).getOrElse(0.U(w.W)),
-                 Mux(is_i2f_reg,  i2f, f2i))))))))))))))))
+                 Mux(is_tld_reg, io.dstWord.map(d => Mux(tld_sel_reg, d(1), d(0)).pad(w)).getOrElse(0.U(w.W)),
+                 Mux(is_i2f_reg,  i2f, f2i)))))))))))))))))
     val is_int = is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg ||
                  is_isub_reg || is_iand_reg || is_ior_reg || is_ixor_reg ||
-                 is_islt_reg || is_isrl_reg || is_isltu_reg || is_iseq_reg || is_exany_reg || is_smask_reg || is_attidx_reg || is_i2f_reg || is_f2i_reg
+                 is_islt_reg || is_isrl_reg || is_isltu_reg || is_iseq_reg || is_exany_reg || is_smask_reg || is_attidx_reg || is_tld_reg || is_i2f_reg || is_f2i_reg
     (result, is_int)
   }
 

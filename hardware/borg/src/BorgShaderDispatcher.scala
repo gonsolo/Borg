@@ -109,7 +109,11 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // --- Outputs (status / debug) ---
   val autoRunStall = Output(Bool())             // stalls CPU between advance and completion
   val insideFlag   = Output(Bool())             // true when all 3 edges are non-negative
-  val phase        = Output(UInt(3.W))          // current FSM state (debug observable)
+  val phase        = Output(UInt(4.W))          // current FSM state (debug observable)
+  // phase === sIdle. Consumers test this, never a state number: the phase
+  // port was once narrower than the enum, and a new state truncated to 0
+  // read as idle -- a tile flushed under a quad still in flight.
+  val idle         = Output(Bool())
 
   // Step 34.5: FTEX inline texture fetch — core ↔ dispatcher ↔ texture unit
   val texReq  = Input(Bool())         // core requests texture fetch (FTEX instruction)
@@ -166,6 +170,15 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // Per lane: the samples the triangle covers (after the static mask) --
   // gl_SampleMaskIn, read by the SMASK instruction.
   val laneCoverage = Output(Vec(cfg.fragLanes, UInt(cfg.samples.W)))
+  // The colour attachment this pass renders is a RAW format (FlushFormat):
+  // the fragment's r26 is stored as raw bytes, unblended, and each lane's
+  // destination word is read before the shader starts, for TLD.
+  val rawColor = Input(Bool())
+  val laneDst  = Output(Vec(cfg.fragLanes, Vec(2, UInt(32.W))))
+  // RAW64's word 1: the tile's extension plane (read with the colour, and
+  // written from r27 whenever the colour is).
+  val extRead  = if (cfg.drawEnabled && cfg.hasBlend) Some(Input(Vec(cfg.samples, UInt(32.W)))) else None
+  val extWrite = if (cfg.drawEnabled && cfg.hasBlend) Some(Output(UInt(32.W))) else None
 }
 
 /** SAMPLE_MASK_CFG. */
@@ -214,7 +227,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // sTexFetch (the legacy autonomous single-texel fetch state) removed:
   // texturing is exclusively FTEX-inline (Step 34.5) now, driven mid-sFrag by
   // the core's own FTEX instruction rather than a dispatcher-owned FSM state.
-  val sIdle :: sRast :: sFrag :: sZRead :: sZWait1 :: sZWait2 :: sTileWrite :: Nil = Enum(7)
+  val (sIdle :: sRast :: sFrag :: sZRead :: sZWait1 :: sZWait2 :: sTileWrite ::
+       sDstRead :: sDstWait1 :: sDstWait2 :: sDstCap :: Nil) = Enum(11)
   val phase = RegInit(sIdle)
 
   // --- Texture unit (Step 25.3e) ---
@@ -345,6 +359,17 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // adding the register backwards-compatible for existing shaders.
   val frag_a =
     if (cfg.hasBlend) Some(RegInit(VecInit(Seq.fill(N)(0x3C00.U(16.W))))) else None
+  // RAW formats (io.rawColor): r26 whole, the bytes the attachment stores.
+  // The word rides the tile's UNORM8 channels -- byte k in channel k, byte 3
+  // in the alpha plane -- which round-trip exactly, so it needs the alpha
+  // plane (hasBlend) and nothing else.
+  val rawSupported = cfg.drawEnabled && cfg.hasBlend
+  val frag_raw = Option.when(rawSupported)(Reg(Vec(N, UInt(32.W))))
+  val frag_raw1 = Option.when(rawSupported)(Reg(Vec(N, UInt(32.W))))     // r27, RAW64's word 1
+  val dstWord  = RegInit(VecInit(Seq.fill(N)(VecInit(Seq.fill(2)(0.U(32.W))))))
+  io.laneDst := dstWord
+  io.extWrite.foreach(_ := 0.U)
+  private val rawActive = io.rawColor && rawSupported.B
 
   // discard: r25 is a hardware-ABI "kill" register, not a new ISA opcode. The
   // compiler lowers GLSL/SPIR-V `discard`/`discard_if(cond)` (already reduced
@@ -627,9 +652,15 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
     // Run the fragment shader if ANY lane is inside (outside lanes run as helper
     // invocations and are masked off at tile-write time — required SIMT semantics).
     when(any_inside && io.fragPcReg =/= 0.U) {
-      phase := sFrag
-      io.coreTrigger.valid := true.B
-      io.coreTrigger.pc    := io.fragPcReg
+      when(rawActive) {
+        // First each lane's destination word, for TLD.
+        laneCtr := 0.U
+        phase   := sDstRead
+      }.otherwise {
+        phase := sFrag
+        io.coreTrigger.valid := true.B
+        io.coreTrigger.pc    := io.fragPcReg
+      }
       if (BorgDebug.trace) printf("[DISP] -> sFrag pc=%d any_inside=%d\n", io.fragPcReg, any_inside)
     }.otherwise {
       phase := sIdle
@@ -658,6 +689,37 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // Serialized over laneCtr: each lane reads its tile slot's Z, then conditionally
   // writes.  The single-port tile buffer forces one lane per 4-cycle pass; at
   // fragLanes=1 this is exactly the original single sZRead→…→sTileWrite sequence.
+  // RAW destination prefetch: the same read timing as sZRead..sZWait2, one
+  // lane at a time. The word is the tile's UNORM8 channels as bytes, the
+  // pass's own sample (sample 0 of a resident multisampled pixel). Quads of
+  // one triangle cover distinct pixels and the next triangle starts only
+  // once this one is written, so the word cannot go stale under the shader;
+  // ZTEST writes depth and stencil only.
+  when(phase === sDstRead) {
+    io.tileRead.en  := true.B
+    io.tileRead.idx := io.shaderTileIndex(laneIdx)
+    phase := sDstWait1
+  }
+  when(phase === sDstWait1) { phase := sDstWait2 }
+  when(phase === sDstWait2) { phase := sDstCap }
+  when(phase === sDstCap) {
+    if (rawSupported) {
+      val d = io.tileRead.data(0)
+      dstWord(laneIdx)(0) := Cat(io.alphaRead.get(0), ColorQuantize.quantize8(d.b),
+                                 ColorQuantize.quantize8(d.g), ColorQuantize.quantize8(d.r))
+      dstWord(laneIdx)(1) := io.extRead.get(0)
+    }
+    when(laneCtr === (N - 1).U) {
+      laneCtr := 0.U
+      phase   := sFrag
+      io.coreTrigger.valid := true.B
+      io.coreTrigger.pc    := io.fragPcReg
+    }.otherwise {
+      laneCtr := laneCtr + 1.U
+      phase   := sDstRead
+    }
+  }
+
   when(phase === sZRead) {
     io.tileRead.en  := true.B
     io.tileRead.idx := io.shaderTileIndex(laneIdx)
@@ -751,11 +813,28 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
       (masked(0), masked(1), masked(2))
     } else (frag_r(laneIdx), frag_g(laneIdx), frag_b(laneIdx))
 
+    // A RAW attachment stores r26's bytes as they are: no blending, no write
+    // mask (the shader applies both, having read the destination with TLD).
+    val (outR, outG, outB) = frag_raw match {
+      case Some(raw) =>
+        val w = raw(laneIdx)
+        when(rawActive) {
+          io.alphaWrite.get     := w(31, 24)
+          io.alphaWriteMask.get := true.B
+        }
+        (Mux(rawActive, ColorQuantize.dequantize8(w(7, 0)), blendR),
+         Mux(rawActive, ColorQuantize.dequantize8(w(15, 8)), blendG),
+         Mux(rawActive, ColorQuantize.dequantize8(w(23, 16)), blendB))
+      case None => (blendR, blendG, blendB)
+    }
+    // The extension plane is written only for a RAW64 attachment (the tile
+    // buffer's extActive), and rewritten as read under ZTEST like colour.
+    io.extWrite.foreach(_ := Mux(earlyActive, io.extRead.get(srcIdx), frag_raw1.get(laneIdx)))
     // The ZTEST sub-phase updates depth/stencil only: colour is rewritten as
     // read (exact round trip) and destination alpha is not written at all.
-    io.tileWrite.data.r := Mux(earlyActive, io.tileRead.data(srcIdx).r, blendR)
-    io.tileWrite.data.g := Mux(earlyActive, io.tileRead.data(srcIdx).g, blendG)
-    io.tileWrite.data.b := Mux(earlyActive, io.tileRead.data(srcIdx).b, blendB)
+    io.tileWrite.data.r := Mux(earlyActive, io.tileRead.data(srcIdx).r, outR)
+    io.tileWrite.data.g := Mux(earlyActive, io.tileRead.data(srcIdx).g, outG)
+    io.tileWrite.data.b := Mux(earlyActive, io.tileRead.data(srcIdx).b, outB)
     io.alphaWriteMask.foreach(m => when(earlyActive) { m := false.B })
     // depthWriteEnable: on a passing fragment, write the new Z (historical
     // behaviour, write_en=1) or preserve the stored one (write_en=0, which
@@ -1019,8 +1098,14 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
         fragMask(i) := io.pipeWrite(i).data(cfg.samples - 1, 0)
       }
       when(io.pipeWrite(i).addr === 25.U) { killed(i) := killed(i) || (io.pipeWrite(i).data =/= 0.U) }
-      when(io.pipeWrite(i).addr === 26.U) { frag_r(i) := fragNarrow(io.pipeWrite(i).data) }
-      when(io.pipeWrite(i).addr === 27.U) { frag_g(i) := fragNarrow(io.pipeWrite(i).data) }
+      when(io.pipeWrite(i).addr === 26.U) {
+        frag_r(i) := fragNarrow(io.pipeWrite(i).data)
+        frag_raw.foreach(_(i) := io.pipeWrite(i).data.pad(32)(31, 0))
+      }
+      when(io.pipeWrite(i).addr === 27.U) {
+        frag_g(i) := fragNarrow(io.pipeWrite(i).data)
+        frag_raw1.foreach(_(i) := io.pipeWrite(i).data.pad(32)(31, 0))
+      }
       when(io.pipeWrite(i).addr === 28.U) { frag_b(i) := fragNarrow(io.pipeWrite(i).data) }
       when(io.pipeWrite(i).addr === 29.U) {
         zWritten(i) := true.B
@@ -1034,6 +1119,8 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.autoRunStall := auto_run_stall
   io.insideFlag   := any_inside
   io.phase        := phase    // debug: FSM state visible from parent
+  io.idle         := phase === sIdle
+  require(phase.getWidth <= io.phase.getWidth, "the phase port must hold every state")
 
   // Side-effect suppression per lane (see io.laneHelper). A lane with no
   // covered sample, outside the scissor, or discarded is a helper invocation
