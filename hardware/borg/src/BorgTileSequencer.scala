@@ -55,7 +55,7 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   // Draw front end: the current triangle's varyings in its record (word 48),
   // for FATTR. The dispatcher drains before the next triangle is selected,
   // so every fragment of a triangle sees its own record.
-  val attrBase = if (cfg.drawEnabled) Some(Output(UInt(25.W))) else None
+  val attrBase = if (cfg.drawEnabled) Some(Output(UInt(GpuMemIO.AddrBits.W))) else None
   // Draw mode: which of the current triangle's edges are top or left edges
   // (inward normal (a, b) with a > 0, or a == 0 and b > 0). A sample exactly
   // on an edge belongs to the triangle only for those -- the tie rule that
@@ -241,7 +241,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     io.frontFacingOverride := !triIsBackFacing
     io.curTriIndex := binEntryData
     io.attPass := attPass
-    io.attrBase.foreach(_ := (io.mmio.setupBase +& (binEntryData << setupStrideShift) +& (48 * 4).U)(24, 0))
+    io.attrBase.foreach(_ := (io.mmio.setupBase +& (binEntryData << setupStrideShift) +& (48 * 4).U)(GpuMemIO.AddrBits - 1, 0))
     io.topLeft.foreach(_ := topLeftActive.get)
 
     io.dma.start := false.B
@@ -480,7 +480,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     // budget. Chisel's generic width growth through the multiply/add chain
     // conservatively exceeds 25 bits even though real addresses stay in
     // range; unchanged from this design's behavior before this file split.
-    val entryAddr  = (io.mmio.binBase + (tileLinear * io.mmio.binRowBytes) + (binTriIdx << 1))(24, 0)
+    val entryAddr  = (io.mmio.binBase + (tileLinear * io.mmio.binRowBytes) + (binTriIdx << 1))(GpuMemIO.AddrBits - 1, 0)
     val desc = Wire(new DMADescriptor)
     desc.baseAddr := entryAddr
     desc.length   := 1.U  // 1 word (bin entry = uint16, stored in low half of 32b word)

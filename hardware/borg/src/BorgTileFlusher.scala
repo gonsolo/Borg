@@ -42,7 +42,7 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
   // Vulkan byte order (R8G8B8A8: byte 0 = R ... byte 3 = A).
   // tileBase = fbBase + tile_index * (32 or 64)
   //   where tile_index = (ty >> 2) * tiles_per_row + (tx >> 2)
-  val tileBase  = Input(UInt(25.W))
+  val tileBase  = Input(UInt(GpuMemIO.AddrBits.W))
 
   // Colour attachment format, see [[FlushFormat]]. Sampled at the start pulse.
   val format    = Input(UInt(2.W))
@@ -57,7 +57,7 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
   // The plane data comes with the same timing as `read.data`; at MSAA the
   // stored value is sample 0's, the same resolve depth uses.
   val stencil     = if (hasStencil) Some(Input(Vec(samples, UInt(8.W)))) else None
-  val stencilBase = if (hasStencil) Some(Input(UInt(25.W))) else None
+  val stencilBase = if (hasStencil) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
   val stencilEn   = if (hasStencil) Some(Input(Bool())) else None
 
   // Depth attachment format (DEPTH_FORMAT): false = D16_UNORM (16 x 2 bytes
@@ -87,7 +87,7 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
   // tile, word[i] = UNORM16(entry[i].z). depthBase is the absolute DRAM
   // byte address of this tile's depth region (firmware computes it the same
   // way as tileBase, from its own depth-buffer base).
-  val depthBase = if (hasDepthFlush) Some(Input(UInt(25.W))) else None
+  val depthBase = if (hasDepthFlush) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
   // Runtime gate: even in a hasDepthFlush build, a draw with no depth
   // attachment bound skips the second burst entirely (straight to sIdle),
   // costing only the state check.
@@ -199,13 +199,13 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   val zVec     = if (hasDepthFlush) Some(Reg(Vec(16, UInt(zBits.W)))) else None
   val d32Reg   = RegInit(false.B)      // D32_SFLOAT, latched at start
   val zHalf    = RegInit(false.B)      // D32: which 8-entry half is bursting
-  val baseReg  = RegInit(0.U(25.W))
+  val baseReg  = RegInit(0.U(GpuMemIO.AddrBits.W))
   // Latched alongside baseReg for the same reason: the sequencer's address
   // inputs are only valid at the start pulse, not for the whole flush.
-  val depthBaseReg = if (hasDepthFlush) Some(RegInit(0.U(25.W))) else None
+  val depthBaseReg = if (hasDepthFlush) Some(RegInit(0.U(GpuMemIO.AddrBits.W))) else None
   // 16 stencil bytes, staged in the same fill pass (only with hasStencil).
   val sVec           = if (hasStencil) Some(Reg(Vec(16, UInt(8.W)))) else None
-  val stencilBaseReg = if (hasStencil) Some(RegInit(0.U(25.W))) else None
+  val stencilBaseReg = if (hasStencil) Some(RegInit(0.U(GpuMemIO.AddrBits.W))) else None
   val formatReg = RegInit(FlushFormat.RGB565.U(2.W))
   // Per-sample store: the sample being flushed and whether more follow.
   val msReg      = RegInit(false.B)

@@ -213,12 +213,8 @@ reg dma_dram_reg_t {
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit DRAM byte address.";
-    } base[20] = 0;
-
-    field {
-        sw = rw; hw = na;
-    } RSVD[12] = 0;
+        desc = "Bits 31:0: GPU byte address.";
+    } base[32] = 0;
 };
 
 // --- DMA transfer config + trigger (Step 22.1) ---
@@ -467,12 +463,8 @@ reg code_base_reg_t {
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 24:0: byte address of program word 0.";
-    } base_addr[25] = 0;
-
-    field {
-        sw = rw; hw = na;
-    } RSVD[7] = 0;
+        desc = "Bits 31:0: byte address of program word 0.";
+    } base_addr[32] = 0;
 };
 
 // --- Occlusion queries -------------------------------------------------
@@ -526,8 +518,7 @@ reg tile_load_reg_t {
 reg flush_sb_base_reg_t {
     name = "Flush Stencil Base Address";
     desc = "nogen. Byte address of the stencil attachment; 0 = none bound.";
-    field { sw = rw; hw = r; desc = "Bits 24:0: byte address."; } sb_base[25] = 0;
-    field { sw = rw; hw = na; } RSVD[7] = 0;
+    field { sw = rw; hw = r; desc = "Bits 31:0: byte address."; } sb_base[32] = 0;
 };
 
 // --- Depth attachment format and full-precision clear depth -----------
@@ -613,18 +604,14 @@ reg tex_addr_reg_t {
 // --- Tile flusher framebuffer base address (Step 25.3h) ---
 reg flush_fb_base_reg_t {
     name = "Flush Framebuffer Base Address";
-    desc = "20-bit DRAM byte address of the framebuffer base.
+    desc = "GPU byte address of the framebuffer base.
             Written by firmware at startup; read by BorgTileFlusher on every
             tile flush.  nogen: decoded from the raw bus by Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit DRAM byte address of framebuffer base.";
-    } fb_base[20] = 0;
-
-    field {
-        sw = rw; hw = na;
-    } RSVD[12] = 0;
+        desc = "Bits 31:0: GPU byte address of framebuffer base.";
+    } fb_base[32] = 0;
 };
 
 // --- Depth test configuration (Step 50 item 11) ---
@@ -911,21 +898,18 @@ reg ls_base_reg_t {
             shader supplies an element index, the hardware forms
             LS_BASE + (index << 2).
 
-            The operand cannot be a full address. At FP16 a shader register
-            holds 16 bits and the GPU address space is 25, so a register
-            physically cannot carry one -- hence base-plus-index, which is
-            also the shape the texture unit already uses and the shape a
-            Vulkan descriptor binding naturally has.
+            Base-plus-index is the shape a Vulkan descriptor binding
+            naturally has. At FP32 an index register can also carry a full
+            32-bit address, with LS_BASE left at 0 (see
+            docs/B0_compiler_contract.md).
 
             Reset 0. Nothing reads this until a shader actually executes a
             LOAD or STORE, so firmware that never writes it is unaffected.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 24:0: base DRAM byte address (32 MB space).";
-    } base_addr[25] = 0;
-
-    field { sw = rw; hw = na; } RSVD[7] = 0;
+        desc = "Bits 31:0: base GPU byte address.";
+    } base_addr[32] = 0;
 };
 
 // --- Sampler configuration (Step 50) ---
@@ -984,18 +968,14 @@ reg sampler_cfg_reg_t {
 // --- Tile flusher Z-buffer base address (Step 25.3h) ---
 reg flush_zb_base_reg_t {
     name = "Flush Z-buffer Base Address";
-    desc = "20-bit DRAM byte address of the Z-buffer base.
+    desc = "GPU byte address of the Z-buffer base.
             Written by firmware at startup; read by BorgTileFlusher on every
             tile flush.  nogen: decoded from the raw bus by Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit DRAM byte address of Z-buffer base.";
-    } zb_base[20] = 0;
-
-    field {
-        sw = rw; hw = na;
-    } RSVD[12] = 0;
+        desc = "Bits 31:0: GPU byte address of Z-buffer base.";
+    } zb_base[32] = 0;
 };
 
 // --- Tile flusher framebuffer width (Step 25.3h) ---
@@ -1020,18 +1000,14 @@ reg flush_width_reg_t {
 // --- Vertex Sequencer: descriptor DRAM base address (Step 29) ---
 reg seq_desc_base_reg_t {
     name = "Sequencer Descriptor Base Address";
-    desc = "20-bit DRAM byte address of the triangle descriptor (Option A layout:
+    desc = "GPU byte address of the triangle descriptor (Option A layout:
             25 FP16 words = pos[3×3] | color[3×3] | uv[3×2] | flags).
             Write before triggering SEQ_TRIGGER.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit DRAM byte address of triangle descriptor.";
-    } base[20] = 0;
-
-    field {
-        sw = rw; hw = na;
-    } RSVD[12] = 0;
+        desc = "Bits 31:0: GPU byte address of triangle descriptor.";
+    } base[32] = 0;
 };
 
 // --- Vertex Sequencer: trigger (Step 29) ---
@@ -1055,18 +1031,14 @@ reg seq_trigger_reg_t {
 // --- Vertex Sequencer: vertex shader DRAM address (Step 29.1) ---
 reg seq_vert_addr_reg_t {
     name = "Sequencer Vertex Shader Address";
-    desc = "20-bit DRAM byte address of the vertex shader binary.
+    desc = "GPU byte address of the vertex shader binary.
             The sequencer DMA-loads this shader into IMEM before running
             vertex transformations.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit DRAM byte address of vertex shader.";
-    } addr[20] = 0;
-
-    field {
-        sw = rw; hw = na;
-    } RSVD[12] = 0;
+        desc = "Bits 31:0: GPU byte address of vertex shader.";
+    } addr[32] = 0;
 };
 
 // --- Vertex Sequencer: vertex shader length (Step 29.1) ---
@@ -1089,18 +1061,14 @@ reg seq_vert_len_reg_t {
 // --- Vertex Sequencer: setup shader DRAM address (Step 29.2) ---
 reg seq_setup_addr_reg_t {
     name = "Sequencer Setup Shader Address";
-    desc = "20-bit DRAM byte address of the triangle setup shader binary.
+    desc = "GPU byte address of the triangle setup shader binary.
             The sequencer DMA-loads this shader into IMEM after vertex shading
             to compute edge vectors and inv_area.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit DRAM byte address of setup shader.";
-    } addr[20] = 0;
-
-    field {
-        sw = rw; hw = na;
-    } RSVD[12] = 0;
+        desc = "Bits 31:0: GPU byte address of setup shader.";
+    } addr[32] = 0;
 };
 
 // --- Vertex Sequencer: setup shader length (Step 29.2) ---
@@ -1152,18 +1120,14 @@ reg seq_tri_count_reg_t {
 // --- Sequencer: rast shader DRAM address (Step 31) ---
 reg seq_rast_addr_reg_t {
     name = "Sequencer Rast Shader Address";
-    desc = "20-bit DRAM byte address of the rasterizer shader binary.
+    desc = "GPU byte address of the rasterizer shader binary.
             The sequencer DMA-loads this shader into IMEM after triangle setup
             to prepare for tile iteration.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit DRAM byte address of rast shader.";
-    } addr[20] = 0;
-
-    field {
-        sw = rw; hw = na;
-    } RSVD[12] = 0;
+        desc = "Bits 31:0: GPU byte address of rast shader.";
+    } addr[32] = 0;
 };
 
 // --- Sequencer: rast shader length (Step 31) ---
@@ -1185,18 +1149,14 @@ reg seq_rast_len_reg_t {
 // --- Sequencer: frag shader DRAM address (Step 31) ---
 reg seq_frag_addr_reg_t {
     name = "Sequencer Frag Shader Address";
-    desc = "20-bit DRAM byte address of the fragment shader binary.
+    desc = "GPU byte address of the fragment shader binary.
             The sequencer DMA-loads this shader into IMEM after the rast shader
             to prepare for fragment shading.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit DRAM byte address of frag shader.";
-    } addr[20] = 0;
-
-    field {
-        sw = rw; hw = na;
-    } RSVD[12] = 0;
+        desc = "Bits 31:0: GPU byte address of frag shader.";
+    } addr[32] = 0;
 };
 
 // --- Sequencer: frag shader length (Step 31) ---
@@ -1253,18 +1213,14 @@ reg seq_clear_hi_reg_t {
 // --- Sequencer: Framebuffer base address (Step 31.4) ---
 reg seq_fb_base_reg_t {
     name = "Sequencer Framebuffer Base Address";
-    desc = "20-bit DRAM byte address of the framebuffer.
+    desc = "GPU byte address of the framebuffer.
             Used by the sequencer to dynamically compute the flush base address
             during autonomous tile iteration.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit DRAM byte address of framebuffer.";
-    } addr[20] = 0;
-
-    field {
-        sw = rw; hw = na;
-    } RSVD[12] = 0;
+        desc = "Bits 31:0: GPU byte address of framebuffer.";
+    } addr[32] = 0;
 };
 
 // --- Sequencer: Tiles per row (Step 31.4) ---
@@ -1287,18 +1243,14 @@ reg seq_tiles_per_row_reg_t {
 // --- Sequencer: TBR bin list base address (Step 32.2) ---
 reg seq_bin_base_reg_t {
     name = "Sequencer Bin List Base Address";
-    desc = "20-bit DRAM byte address of the TBR bin list region.
+    desc = "GPU byte address of the TBR bin list region.
             Each tile has a row of SEQ_MAX_TRI × 2-byte triangle indices.
             Written by firmware at frame start.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit DRAM byte address of bin list base.";
-    } addr[20] = 0;
-
-    field {
-        sw = rw; hw = na;
-    } RSVD[12] = 0;
+        desc = "Bits 31:0: GPU byte address of bin list base.";
+    } addr[32] = 0;
 };
 
 // --- Sequencer: TBR bin row bytes (Step 32.2) ---
@@ -1321,18 +1273,14 @@ reg seq_bin_row_bytes_reg_t {
 // --- Sequencer: TBR setup store base address (Step 32.3) ---
 reg seq_setup_base_reg_t {
     name = "Sequencer Setup Store Base Address";
-    desc = "20-bit DRAM byte address of the TBR setup store region.
+    desc = "GPU byte address of the TBR setup store region.
             Each triangle's 31 uniforms are stored at stride 128 bytes.
             Written by firmware at frame start.  nogen: decoded in Borg.scala.";
 
     field {
         sw = rw; hw = r;
-        desc = "Bits 19:0: 20-bit DRAM byte address of setup store base.";
-    } addr[20] = 0;
-
-    field {
-        sw = rw; hw = na;
-    } RSVD[12] = 0;
+        desc = "Bits 31:0: GPU byte address of setup store base.";
+    } addr[32] = 0;
 };
 
 // --- Performance counter (present-phase decomposition) ---

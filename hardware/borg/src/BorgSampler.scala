@@ -77,8 +77,8 @@ class BorgSamplerIO(val cfg: BorgConfig) extends Bundle {
   val resp       = Valid(new SamplerResp(cfg.fragLanes))         // held until respReady
   val respReady  = Input(Bool())
   val done       = Output(Bool())                                // pulse after the last lane
-  val texBase    = Input(UInt(25.W))
-  val sampBase   = Input(UInt(25.W))
+  val texBase    = Input(UInt(GpuMemIO.AddrBits.W))
+  val sampBase   = Input(UInt(GpuMemIO.AddrBits.W))
   val invalidate = Input(Bool())                                 // a descriptor base was written
   val gpuMem     = new GpuMemIO
 }
@@ -197,7 +197,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val k = RegInit(0.U(4.W))                       // word / step / channel counter
 
   // Descriptor fields.
-  private val base    = td(0)(24, 0)
+  private val base    = td(0)
   private val dimW    = td(1)(15, 0) +& 1.U
   private val dimH    = td(1)(31, 16) +& 1.U
   private val dimD    = td(2)(11, 0) +& 1.U
@@ -205,7 +205,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val fmtCode = td(2)(21, 16)
   private val layout  = td(2)(25, 24)
   private val ttype   = td(2)(27, 26)
-  private val stride  = td(3)(24, 0)
+  private val stride  = td(3)
   private val fmt     = TexFormat.info(fmtCode)
   private val magLin  = sd(0)(0); private val minLin = sd(0)(1); private val mipLin = sd(0)(2)
   private def addrMode(a: UInt) = MuxLookup(a, sd(0)(5, 3))(Seq(1.U -> sd(0)(8, 6), 2.U -> sd(0)(11, 9)))
@@ -230,8 +230,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val fmaLatency = cfg.fmaStages + 1
 
   // --- The one multiplier ------------------------------------------------
-  private val mulA = WireDefault(0.S(30.W)); private val mulB = WireDefault(0.U(25.W))
-  private val product = mulA * mulB.zext                 // SInt(56)
+  private val mulA = WireDefault(0.S(30.W)); private val mulB = WireDefault(0.U(GpuMemIO.AddrBits.W))
+  private val product = mulA * mulB.zext                 // SInt(63)
 
   // --- LOD --------------------------------------------------------------
   private val lodTmp = Reg(Vec(6, UInt(32.W)))            // d{u,v,w}/dx, d{u,v,w}/dy
@@ -245,11 +245,11 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val lvlW   = Reg(Vec(2, UInt(9.W)))             // level weights, 256 = 1
   private val linear = RegInit(false.B)
   private val layerN = RegInit(0.U(12.W))
-  private val levelOff = RegInit(0.U(25.W))
+  private val levelOff = RegInit(0.U(GpuMemIO.AddrBits.W))
   private val lw = RegInit(0.U(16.W)); private val lh = RegInit(0.U(16.W)); private val ld = RegInit(0.U(16.W))
   private val tpr = RegInit(0.U(14.W))                    // tiles per row at this level
-  private val sliceTexels = RegInit(0.U(25.W))            // tiled texels per 3D slice
-  private val layerOff = RegInit(0.U(25.W))
+  private val sliceTexels = RegInit(0.U(GpuMemIO.AddrBits.W))            // tiled texels per 3D slice
+  private val layerOff = RegInit(0.U(GpuMemIO.AddrBits.W))
   // Per axis: first tap, second tap, border flags, fraction.
   private val ax  = RegInit(0.U(2.W))
   private val i0  = Reg(Vec(3, SInt(20.W))); private val i1 = Reg(Vec(3, SInt(20.W)))
@@ -260,12 +260,12 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val tap = RegInit(0.U(3.W))
   private val tx = Reg(SInt(20.W)); private val ty = Reg(SInt(20.W)); private val tz = Reg(SInt(20.W))
   private val tBorder = RegInit(false.B)
-  private val tLayer = RegInit(0.U(12.W)); private val layerOffTap = RegInit(0.U(25.W))
+  private val tLayer = RegInit(0.U(12.W)); private val layerOffTap = RegInit(0.U(GpuMemIO.AddrBits.W))
   // Cube corners: three sub-taps (own face, and across each edge), a third each.
   private val subTap = RegInit(0.U(2.W)); private val tCorner = RegInit(false.B)
   private val tWeight = RegInit(0.U(32.W))
-  private val rowTiles = RegInit(0.U(25.W))
-  private val addr = RegInit(0.U(25.W))
+  private val rowTiles = RegInit(0.U(GpuMemIO.AddrBits.W))
+  private val addr = RegInit(0.U(GpuMemIO.AddrBits.W))
   private val raw = Reg(Vec(4, UInt(32.W)))
   private val vals = Reg(Vec(4, UInt(32.W)))
   private val acc = Reg(Vec(4, UInt(32.W)))
@@ -429,7 +429,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       when(l === 0.U) { levelOff := 0.U; state := sLevelDims }
         .otherwise {
           read(io.texBase + (texIdx(ctl) << 6) + ((l +& 3.U) << 2)) { d =>
-            levelOff := d(24, 0); state := sLevelDims
+            levelOff := d; state := sLevelDims
           }
         }
     }
@@ -442,12 +442,12 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       tpr := (w +& 3.U) >> 2
       // texels per 3D slice: tiles per row * tile rows * 16
       mulA := ((w +& 3.U) >> 2).zext; mulB := ((h +& 3.U) >> 2) << 4
-      sliceTexels := product.asUInt(24, 0)
+      sliceTexels := product.asUInt(GpuMemIO.AddrBits - 1, 0)
       state := sLayer
     }
     is(sLayer) {
       mulA := layerN.zext; mulB := stride
-      layerOff := product.asUInt(24, 0)
+      layerOff := product.asUInt(GpuMemIO.AddrBits - 1, 0)
       ax := 0.U; wrapEnd := 0.U
       state := sAxis
     }
@@ -560,29 +560,29 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     }
     is(sTapLayer) {
       mulA := tLayer.zext; mulB := stride
-      layerOffTap := product.asUInt(24, 0)
+      layerOffTap := product.asUInt(GpuMemIO.AddrBits - 1, 0)
       state := sTapMul
     }
     is(sTapMul) {
       // Tile row: (y / 4) * tiles per row. Linear layout: y * row pitch.
       mulA := Mux(layout === Linear.U, ty, ty >> 2); mulB := Mux(layout === Linear.U, stride, tpr)
-      rowTiles := product.asUInt(24, 0)
+      rowTiles := product.asUInt(GpuMemIO.AddrBits - 1, 0)
       state := sTapAddr
     }
     is(sTapAddr) {
       val x = tx.asUInt; val y = ty.asUInt
       val shift = Log2(fmt.bytes)
       mulA := tz; mulB := sliceTexels
-      val texel = ((rowTiles + (x >> 2)) << 4) + (y(1, 0) << 2) + x(1, 0) + product.asUInt(24, 0)
+      val texel = ((rowTiles + (x >> 2)) << 4) + (y(1, 0) << 2) + x(1, 0) + product.asUInt(GpuMemIO.AddrBits - 1, 0)
       val tiled = base + levelOff + layerOffTap + (texel << shift)
       val lin   = base + rowTiles + (x << shift)
-      addr := Mux(layout === Linear.U, lin, tiled)(24, 0)
+      addr := Mux(layout === Linear.U, lin, tiled)(GpuMemIO.AddrBits - 1, 0)
       k := 0.U
       state := Mux(tBorder, sDecode, sFetch)
     }
     is(sFetch) {
       val words = Mux(fmt.bytes >= 4.U, fmt.bytes >> 2, 1.U)
-      read(Cat(addr(24, 2), 0.U(2.W)) + (k << 2)) { d =>
+      read(Cat(addr(GpuMemIO.AddrBits - 1, 2), 0.U(2.W)) + (k << 2)) { d =>
         raw(k(1, 0)) := d
         when(k === words - 1.U) { k := 0.U; state := sDecode }.otherwise { k := k + 1.U }
       }
@@ -628,8 +628,16 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     }
     is(sAcc) {
       val single = (!linear || isFetch) && nLev === 1.U
-      when(isGather) {
-        acc(tap(1, 0)) := vals(comp(ctl))
+      when(isGather && tCorner && !isInt) {
+        // A gathered corner texel is the average of the three, as filtered.
+        fmaA := "h3EAAAAAB".U; fmaB := vals(comp(ctl))                // 1/3
+        fmaC := Mux(subTap === 0.U, 0.U, acc(tap(1, 0)))
+        k := tap(1, 0); fmaWait := fmaLatency.U
+        state := sAccWait
+      }.elsewhen(isGather) {
+        // An integer corner keeps its own face's texel, one of the three:
+        // the spec's "may", which only requires equal texels to stay equal.
+        when(!tCorner || subTap === 0.U) { acc(tap(1, 0)) := vals(comp(ctl)) }
         state := sTapNext
       }.elsewhen(single || isInt) {
         acc := vals
@@ -644,7 +652,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       when(fmaWait =/= 0.U) { fmaWait := fmaWait - 1.U }
         .otherwise {
           acc(k(1, 0)) := fma.io.out
-          when(k === 3.U) { state := sTapNext }.otherwise { k := k + 1.U; state := sAcc }
+          when(k === 3.U || isGather) { state := sTapNext }.otherwise { k := k + 1.U; state := sAcc }
         }
     }
     is(sTapNext) {

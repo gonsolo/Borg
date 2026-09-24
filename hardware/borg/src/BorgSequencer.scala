@@ -79,10 +79,10 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   private val binRowBytesWidth = math.min(20, log2Ceil(cfg.maxTrianglesPerTile * 2 + 1))
 
   val start = Input(Bool())
-  val descBase = Input(UInt(20.W))
-  val vertShaderAddr = Input(UInt(20.W))
+  val descBase = Input(UInt(GpuMemIO.AddrBits.W))
+  val vertShaderAddr = Input(UInt(GpuMemIO.AddrBits.W))
   val vertShaderLen = Input(UInt(6.W))
-  val setupShaderAddr = Input(UInt(20.W))
+  val setupShaderAddr = Input(UInt(GpuMemIO.AddrBits.W))
   val setupShaderLen = Input(UInt(6.W))
   // cfg.totalBits, not 16: this feeds io.uniformWrite.data (cfg.totalBits
   // wide) as u6, and is a float in the datapath's own format -- FP32 in an
@@ -90,17 +90,17 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // every edge was normalised by zero and covDelta came out all zeros.
   val seqInvWidth = Input(UInt(cfg.totalBits.W))
   val triCount = Input(UInt(5.W))
-  val rastShaderAddr = Input(UInt(20.W))
+  val rastShaderAddr = Input(UInt(GpuMemIO.AddrBits.W))
   val rastShaderLen = Input(UInt(6.W))
-  val fragShaderAddr = Input(UInt(20.W))
+  val fragShaderAddr = Input(UInt(GpuMemIO.AddrBits.W))
   val fragShaderLen = Input(UInt(7.W))
   val clearColorLo = Input(UInt(32.W))
   val clearColorHi = Input(UInt(32.W))
-  val fbBase = Input(UInt(25.W))   // 25b = 32 MB GPU memory address space
+  val fbBase = Input(UInt(GpuMemIO.AddrBits.W))   // 25b = 32 MB GPU memory address space
   val tilesPerRow = Input(UInt(tileRowWidth.W))
-  val binBase = Input(UInt(25.W))
+  val binBase = Input(UInt(GpuMemIO.AddrBits.W))
   val binRowBytes = Input(UInt(binRowBytesWidth.W))  // stride (bytes/tile), not an address
-  val setupBase = Input(UInt(25.W))
+  val setupBase = Input(UInt(GpuMemIO.AddrBits.W))
   val fbWidthTiles = Input(UInt(tileRowWidth.W))
   val fbHeightTiles = Input(UInt(tileRowWidth.W))
   // Fragment uniform-staging mode (tex_config.frag_uses_fragpos): 0 = vertex
@@ -123,8 +123,8 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   val recordShift     = Input(UInt(4.W))
   // Each stage's constant window (0 = none): loaded once per draw into the
   // uniform words above the hardware's -- see BorgSetupRom.Record.
-  val vsConstBase     = Input(UInt(25.W))
-  val fsConstBase     = Input(UInt(25.W))
+  val vsConstBase     = Input(UInt(GpuMemIO.AddrBits.W))
+  val fsConstBase     = Input(UInt(GpuMemIO.AddrBits.W))
   // Render window (FB_ORIGIN, FB_PITCH): the window's first tile in the
   // framebuffer, and the framebuffer's tiles per row. Bins, tile walks and
   // coordWidth stay window-relative; flush/load addresses and pixel
@@ -158,7 +158,7 @@ class SeqBinnerIO(cfg: BorgConfig) extends Bundle {
 class SeqStoreIO extends Bundle {
   val active = Output(Bool())
   val req = Output(Bool())
-  val addr = Output(UInt(25.W))   // 25b = 32 MB GPU memory address space
+  val addr = Output(UInt(GpuMemIO.AddrBits.W))   // 25b = 32 MB GPU memory address space
   val wdata = Output(UInt(32.W))
   val ready = Input(Bool())
 }
@@ -167,7 +167,7 @@ class SeqFlusherIO extends Bundle {
   // Byte offset of the current tile from the start of an attachment whose
   // tiles are 32 bytes (RGB565 colour, D16 depth). Borg.scala scales it for
   // wider colour formats and adds each attachment's own base.
-  val tileOffset = Output(UInt(25.W))   // 25b = 32 MB GPU memory address space
+  val tileOffset = Output(UInt(GpuMemIO.AddrBits.W))   // 25b = 32 MB GPU memory address space
   val trigger = Output(Bool())
   val busy = Input(Bool())
   // Tile load (loadOp = LOAD): pulsed after the tile's clear when any aspect

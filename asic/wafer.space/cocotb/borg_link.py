@@ -171,6 +171,57 @@ class LinkMaster:
             self.dn_cred_seen = cred
         return s
 
+    def _rx_flit(self, d):
+        if self.narrow:
+            # Two beats per flit, LSB slice first (LinkTx's order).
+            if self.rx_half is None:
+                self.rx_half = d & 0xFF
+                return
+            d = ((d & 0xFF) << 8) | self.rx_half
+            self.rx_half = None
+        self.rx_flits.append(d)
+        hdr = self.rx_flits[0]
+        chan, op = (hdr >> 15) & 1, (hdr >> 12) & 0x7
+        if chan == CHAN_V:
+            # V.A: header + addr[15:0] + addr[31:16], then 2^wlenLog2 words
+            # on a write.
+            expect = 3 if op == OP_GET else 3 + (1 << ((hdr >> 9) & 0x7))
+        else:
+            expect = 3 if op == OP_ACCESS_ACK_DATA else 1
+        if len(self.rx_flits) >= expect:
+            if self.trace:
+                self.log.warning("rx pkt beat %d: %s", self.beats,
+                                 " ".join(f"{f:04x}" for f in self.rx_flits))
+            self.rx_queue.append(self.rx_flits)
+            self.rx_flits = []
+
+    def word(self, addr):
+        """The 32-bit DRAM word at `addr`, as a word read reassembles it."""
+        return (self.mem.get(addr + 2, 0) << 16) | self.mem.get(addr, 0)
+
+    async def serve_va(self, pkt):
+        """Answer one V.A (Borg gpuMem request) from the halfword DRAM."""
+        hdr = pkt[0]
+        op = (hdr >> 12) & 0x7
+        addr = (pkt[2] << 16) | pkt[1]
+        if op == OP_GET:
+            data = self.word(addr)
+            self.va_log.append(("get", addr, [data]))
+            await self.send_flits([header(CHAN_V, OP_ACCESS_ACK_DATA, 0),
+                                   data & 0xFFFF, (data >> 16) & 0xFFFF])
+        else:
+            words = pkt[3:]
+            for i, w in enumerate(words):
+                self.mem[addr + 2 * i] = w
+            self.va_log.append(("put", addr, words))
+            await self.send_flits([header(CHAN_V, OP_ACCESS_ACK, 0)])
+        # Only V.A consumes UP credit (M.D replies are credited on the DN side
+        # by the chip), and BorgLinkMaster returns it once the V.D response
+        # is out -- toggle-encoded. Returning credit for M.D as well inflates
+        # the chip's CreditCounter until it wraps and stalls its transmitter
+        # mid-packet.
+        self.up_cred_level ^= 1
+
     def read_dbg(self):
         """Sample dbg_o[5:0]. Returns None if any lane is x/z."""
         raw = str(self.dut.bidir_PAD.value)

@@ -144,8 +144,8 @@ class LinkRx(val p: LinkParams, val isDn: Boolean) extends Module {
               val len = if (isDn) LinkFlit.flitsDn(h) else LinkFlit.flitsUp(h)
 
               // A corrupted header can decode to a length this build never emits
-              // (the 3-bit wlenLog2 field spans up to 130 flits, `maxPacketFlits`
-              // is 18 at maxBurstLog2=4).  Treat that as a framing error rather
+              // (the 3-bit wlenLog2 field spans up to 131 flits, `maxPacketFlits`
+              // is 19 at maxBurstLog2=4).  Treat that as a framing error rather
               // than trusting it: it bounds how far one bad header can drag the
               // receiver off alignment, and it is a real recovery path, not an
               // assertion -- garbage headers are exactly what follows an error.

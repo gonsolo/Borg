@@ -9,7 +9,7 @@ import chisel3.util._
 
 /** DMA descriptor latched from MMIO at trigger time. */
 class DMADescriptor extends Bundle {
-  val baseAddr = UInt(25.W) // GPU memory byte address (DRAM/SDRAM, 4-byte aligned); 25b = 32 MB
+  val baseAddr = UInt(GpuMemIO.AddrBits.W) // GPU memory byte address (DRAM/SDRAM, 4-byte aligned)
   val length   = UInt(7.W)  // number of 32-bit DRAM words to transfer (1–72)
   val dest     = UInt(2.W)  // 0=IMEM, 1=Uniform-page0, 2=Uniform-page1
   val offset   = UInt(7.W)  // starting word index in the destination buffer (IMEM up to 72)
@@ -56,7 +56,7 @@ class BorgDMA(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val sIdle :: sRead :: Nil = Enum(2)
   val state = RegInit(sIdle)
 
-  val addrReg  = RegInit(0.U(25.W))
+  val addrReg  = RegInit(0.U(GpuMemIO.AddrBits.W))
   val countReg = RegInit(0.U(6.W))
   // descReg removed (Step 26.3): io.desc fields are wired directly in sRead;
   // firmware must hold them stable from start until busy deasserts.

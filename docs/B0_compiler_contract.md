@@ -197,12 +197,15 @@ a lowering convention, each pinned by a hand-written ISA test in
 - **EXANY** is available wherever the execution mask is (every build), not
   only with compute: a fragment shader's divergent loop needs it too. Wafer
   now has compute (`BorgConfig.Wafer` no longer turns it off).
-- **Address space:** LOAD/STORE, the sampler and every other master address
-  25 bits (32 MiB), all of the device memory on today's boards. Vulkan's
-  `maxStorageBufferRange` minimum (2^27) is a limit the driver reports; a
-  buffer that large cannot be backed by 32 MiB of memory anyway, so its
-  allocation fails rather than its addressing. A board with more memory
-  needs the address width raised with it.
+- **Address space:** 32-bit byte addresses, RV32's address space, for
+  LOAD/STORE, the texture unit, the DMA, every base register and the memory
+  port (`GpuMemIO.AddrBits`). Address arithmetic wraps mod 2^32. A 32-bit
+  register holds any address, so Vulkan's `maxStorageBufferRange` (2^27)
+  and a 4096x4096 RGBA32F image (256 MiB) are addressable. A board decodes
+  only the memory it has: the ULX3S maps the low 24 bits onto its 16 MiB
+  VRAM window. The chip-to-chip link carries all 32 bits (a V.A request is
+  a header plus `addr[15:0]` and `addr[31:16]`), so silicon behind a larger
+  memory can reach it.
 - **BARRIER** (funct7 `0x3C`): **no register survives it.** Every value live
   across a barrier must be spilled to a per-invocation memory slot before it
   and reloaded after it, with the slot address recomputed from r30/r31.
@@ -221,8 +224,9 @@ a lowering convention, each pinned by a hand-written ISA test in
   only look at lane 0, so a per-lane loop counter must never drive the back
   edge directly.
 - **Storage buffers (SSBOs):** leave `LS_BASE` at 0 and address with full
-  word indices. A 32-bit register reaches all of the 25-bit GPU address
-  space, so each binding's base is a compiler-pinned constant register added
+  word indices. A 32-bit register reaches the whole GPU address space
+  (word indices up to 2^30), so each binding's base is a compiler-pinned
+  constant register added
   to the element offset. That is the same pattern as v3d's
   `QUNIFORM_SSBO_OFFSET`, and it allows any number of bindings. `LOAD rd, rs1`
   reads `mem32[LS_BASE + (rs1 << 2)]`; `STORE rs1, rs2` writes it.

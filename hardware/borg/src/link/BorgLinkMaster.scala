@@ -172,10 +172,10 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
   // ==========================================================================
   // gpuMem path: V.A in on UP -> replay on the local memory port -> V.D on DN
   // ==========================================================================
-  val sVIdle :: sVAddr :: sVCollect :: sVIssue :: sVSend :: Nil = Enum(5)
+  val sVIdle :: sVAddrLo :: sVAddrHi :: sVCollect :: sVIssue :: sVSend :: Nil = Enum(6)
   val vState = RegInit(sVIdle)
 
-  val vAddr     = Reg(UInt(25.W))
+  val vAddr     = Reg(UInt(GpuMemIO.AddrBits.W))
   val vWrite    = Reg(Bool())
   val vWlenLog2 = Reg(UInt(3.W))
   val vBuf      = Reg(Vec(p.maxBurst, UInt(16.W)))
@@ -204,14 +204,19 @@ class BorgLinkMaster(val p: LinkParams) extends Module {
       when(rxFire && rxIsV && rxFirst) {
         vWrite    := rxHdr.opcode =/= TLOpcode.Get
         vWlenLog2 := LinkHeader.vramWlenLog2(rxHdr)
-        vAddr     := Cat(LinkHeader.vramAddrHi(rxHdr), 0.U(16.W))
         vCnt      := 0.U
-        vState    := sVAddr
+        vState    := sVAddrLo
       }
     }
-    is(sVAddr) {
+    is(sVAddrLo) {
       when(rxFire) {
-        vAddr := Cat(vAddr(24, 16), rxFlit)
+        vAddr  := Cat(vAddr(31, 16), rxFlit)
+        vState := sVAddrHi
+      }
+    }
+    is(sVAddrHi) {
+      when(rxFire) {
+        vAddr := Cat(rxFlit, vAddr(15, 0))
         when(vWrite) { vState := sVCollect }.otherwise { vState := sVIssue }
       }
     }

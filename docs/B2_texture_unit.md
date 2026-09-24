@@ -106,8 +106,16 @@ layer, which is all Vulkan requires of linear images.
    bypass the FMA and are exact.
 4. **Cube maps** filter seamlessly: a tap off a face reads the neighbouring
    face across the edge (the remap is derived from the face definitions at
-   elaboration, `CubeEdges`), and a tap past a corner takes the average of
-   the three texels meeting there. Address modes do not apply to cubes. The
+   elaboration, `CubeEdges`). A tap past a corner has no face; it becomes
+   the average of the three texels meeting there, which are the other three
+   taps of its 2x2 footprint. That is the spec's recommendation ("Cube Map
+   Corner Texel": the corner texel *should* be the average of the three,
+   *may* be something else as long as three equal texels give that value),
+   and it is what dEQP's reference (`tcuTexture.cpp`, `getCubeLinearSamples`)
+   computes. Gather returns the averaged corner texel too. Integer formats,
+   which cannot be averaged, keep the corner's own-face texel, one of the
+   three, which the spec's "may" allows. NEAREST clamps to the face's edge,
+   as the spec requires; other address modes do not apply to cubes. The
    face comes from TEXA's layer (0-5, +X -X +Y -Y +Z -Z); the direction's
    major-axis projection to (face, s, t) is the compiler's.
 
@@ -134,7 +142,7 @@ and checks that the second image equals the first pixel for pixel.
 | What                                                        | Test |
 |-------------------------------------------------------------|------|
 | All 51 formats; 20 address mode/filter/border combinations on 5x3; explicit and implicit LOD, bias, clamp, trilinear on a 16x8 chain; 3D, 1D/2D arrays, linear layout, float filtering; compare (PCF), gather, texelFetch, offsets -- against a reference of Vulkan's rules | `BorgSamplerTests` |
-| Seamless cube: every edge and corner of all six faces, against a reference that folds taps over the edge in 3D | `BorgSamplerTests.seamless_cube_edges_and_corners` |
+| Seamless cube: every edge and corner of all six faces, filtered and gathered (UNORM and UINT), against a reference that folds taps over the edge in 3D | `BorgSamplerTests.seamless_cube_edges_and_corners` |
 | Render to texture and sample it, through the whole Borg     | `BorgDrawTests.render_to_texture_and_sample_it` |
 
 ## Not covered yet
