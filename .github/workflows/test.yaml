@@ -18,6 +18,9 @@ jobs:
           nix develop --command make test-all
         env:
           MILL_JOBS: 4
+          # Outside the workspace, which checkout wipes on this self-hosted
+          # runner: the gf180mcu PDK then downloads once instead of per run.
+          PDK_ROOT: ${{ runner.tool_cache }}/ciel-pdk
 
       - name: Upload test logs
         if: success() || failure()
