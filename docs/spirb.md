@@ -16,7 +16,7 @@ Offset  Size       Field
 2       1 byte     num_attributes     (A)
 3       1 byte     num_outputs        (O)
 4       1 byte     num_consts         (C)
-5       1 byte     reserved           (must be 0)
+5       1 byte     extensions         (bit 0: draw extension follows)
 6       N × 4      instructions       uint32_le[]
 6+N*4   U          uniform_regs       uint8[]
 ...     A          attribute_regs     uint8[]
@@ -25,7 +25,30 @@ Offset  Size       Field
 ...     C × 4      const_vals         uint32_le[]
 ```
 
-**Total size** = `6 + N*4 + U + A + O + C + C*4` bytes.
+**Total size** = `6 + N*4 + U + A + O + C + C*4` bytes, plus the draw
+extension below when `extensions` bit 0 is set.
+
+### Draw extension
+
+A shader compiled for the draw front end (`docs/B1_geometry_front_end.md`)
+sets `extensions` bit 0 and appends:
+
+```text
+Size       Field
+─────────  ────────────────────────────
+1 byte     num_varyings       (V)
+1 byte     num_window         (W)
+W          window_regs        uint8[]
+W × 4      window_vals        uint32_le[]
+```
+
+`num_varyings` is the number of varying components a vertex shader writes
+with `SOUT` (0 in a fragment shader). It sizes the triangle records, which
+take `48 + 3 * V` words. The window is the shader's constant window:
+`window_regs[i]` is a u-index, u25-u31 in a vertex shader and u20-u31 in a
+fragment shader, and `window_vals[i]` its bits. The firmware writes each
+value to `DRAW_VS_CONST` or `DRAW_FS_CONST` plus `4 * (u - 25)` or
+`4 * (u - 20)`. Legacy blobs have `extensions` = 0 and are unchanged.
 
 `const_vals` is `uint32_le` (widened 2026-09-08 from `uint16_le`) so the format
 can eventually carry a real FP32 constant -- `borgc` has no FP32 codegen path

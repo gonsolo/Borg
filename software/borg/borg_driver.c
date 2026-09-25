@@ -209,6 +209,10 @@ static borg_float_t half_height_f;  // used by the draw front end's viewport reg
 // default so borg_present() keeps driving the legacy per-triangle path.
 static int g_draw_mode_active = 0;
 static int g_draw_vertex_count = 0;
+// The staged draw-mode vertex shader's blob: its varying count sizes the
+// records, its draw extension fills the DRAW_VS_CONST window.
+static spirb_shader_t g_draw_vert;
+static int g_draw_vert_ok = 0;
 void borg_set_draw_mode(int enable) { g_draw_mode_active = enable; }
 
 // Sampler descriptor 0 (docs/B2_texture_unit.md) until borgvk sends the app's:
@@ -543,6 +547,17 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   uint32_t vert_max  = g_draw_mode_active ? DRAW_VERT_SHADER_MAX_WORDS : 32;
   if (stage == 0 && n > vert_max) return;
   if (stage == 1 && n > BORG_IMEM_FRAG_LEN) return;
+  // A draw-mode blob must carry its draw extension, and every window word
+  // must land inside its stage's window (u25-u31 vertex, u20-u31 fragment):
+  // the firmware writes it to the window base + 4*(u - first index).
+  static spirb_shader_t parsed;
+  if (g_draw_mode_active) {
+    uint8_t u0 = (stage == 0) ? DRAW_VS_CONST_U0 : DRAW_FS_CONST_U0;
+    uint8_t words = (stage == 0) ? DRAW_VS_CONST_MAX_WORDS : DRAW_FS_CONST_WORDS;
+    if (spirb_parse(blob, &parsed) < 0 || !parsed.has_draw_ext) return;
+    for (int i = 0; i < parsed.num_window; i++)
+      if (parsed.window_regs[i] < u0 || parsed.window_regs[i] >= u0 + words) return;
+  }
 
   const uint8_t *w = blob + 6;
   uint32_t addr = (stage == 0) ? vert_addr : SEQ_FRAG_SHADER_ADDR;
@@ -560,10 +575,13 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   if (stage == 0) {
     BORG_GPU->seq_vert_addr = vert_addr;
     BORG_GPU->seq_vert_len  = n;
+    if (g_draw_mode_active) {
+      g_draw_vert = parsed;
+      g_draw_vert_ok = 1;
+    }
   } else {
     BORG_GPU->seq_frag_addr = SEQ_FRAG_SHADER_ADDR;
     BORG_GPU->seq_frag_len  = n;
-    static spirb_shader_t parsed;
     if (spirb_parse(blob, &parsed) >= 0) frag_shader = parsed;
     // A host-uploaded fragment is borgc-compiled (e.g. cube.frag), which reads
     // model frag_pos via dFdx/dFdy — so the sequencer must stage frag_pos into
@@ -855,34 +873,21 @@ void borgCmdDrawIndexed(const int idx[3], const borg_vertex_t vertices[3],
 
 // --- Draw front end (docs/B1_geometry_front_end.md) ---
 //
-// cube.vert's compile-time integer constants, its DRAW_VS_CONST window
-// (u25-u29; borgc's own log for this exact compile: "draw-mode vertex window
-// consts: u25=0x4 u26=0xa0 u27=0x1 u28=0x0 u29=0x10") -- word stride between
-// UBO array entries, attr[] base word, the literal 1, MVP base word,
-// position[] base word. A window, not pinned GPRs: the draw walker runs the
-// setup ROM in the same register file between triangles, so a GPR staged
-// once per draw survives only the first triangle. Hardcoded because this is
-// the one shader borgc's draw mode compiles today; carrying the window in
-// the vertex blob is future work for a second draw-mode shader.
-#define DRAW_VERT_CONST_COUNT 5
-static const uint32_t draw_vert_const_val[DRAW_VERT_CONST_COUNT] = {4, 160, 1, 0, 16};
-
-// cube.frag's lightDir(0.424, 0.566, 0.707) -- also a compile-time GLSL
-// constant, also hardcoded for the same reason. Lives in the DRAW_FS_CONST
-// memory window (u20-u22), not a pinned GPR: see this session's
-// vertex/fragment GPR-collision fix in mesa/src/borg/compiler/lib.rs.
-static const uint32_t draw_frag_const_val[3] = {0x3ed91687u, 0x3f10e560u, 0x3f34fdf4u};
-
-// A draw-mode triangle record holds 48 + 3*N words for N varying
-// components (docs/B1_geometry_front_end.md's Records table). cube.vert
-// SOUTs N = 7: texcoord is a vec4 (indices 0-3; cube.frag reads only .xy,
-// but the vertex shader still writes all four) and frag_pos a vec3 (4-6).
-// 48 + 21 = 69 words needs 512-byte records, record_shift 9. At 8 (64
-// words) each record's frag_pos tail spilled into the next record, which
-// the next triangle overwrote: only the last triangle kept its normal.
-#define DRAW_RECORD_SHIFT 9
-_Static_assert(((DRAW_UBO_MAX_VERTS / 3) << DRAW_RECORD_SHIFT) <= SEQ_MAX_TRI * TBR_SETUP_ENTRY_BYTES,
+// Records: 48 + 3*N words for N varying components (the Records table),
+// in the smallest power-of-two stride that holds them, 256 B (record_shift
+// 8, up to five components) to 1 KB (10, up to 64). Too small a stride lets
+// each record's varyings spill into the next record, which the next triangle
+// then overwrites. Returns -1 when N does not fit.
+#define DRAW_RECORD_SHIFT_MIN 8
+#define DRAW_RECORD_SHIFT_MAX 10
+_Static_assert(((DRAW_UBO_MAX_VERTS / 3) << DRAW_RECORD_SHIFT_MAX) <= SEQ_MAX_TRI * TBR_SETUP_ENTRY_BYTES,
                "draw-mode records overflow the TBR setup region");
+static int draw_record_shift(int num_varyings) {
+  uint32_t bytes = (48u + 3u * (uint32_t)num_varyings) * 4u;
+  for (int shift = DRAW_RECORD_SHIFT_MIN; shift <= DRAW_RECORD_SHIFT_MAX; shift++)
+    if (bytes <= (1u << shift)) return shift;
+  return -1;
+}
 
 // Stage one frame's geometry into cube.vert's UBO. VertexIndex for a
 // non-indexed "list" draw is 3*triangle + corner, so this expands the
@@ -919,6 +924,11 @@ void borgDrawSubmitGeom(const borg_draw_data_t *d, const borg_float_t *positions
 // (docs/B1_geometry_front_end.md's register table). Geometry and the MVP
 // must already be staged via borgDrawSubmitGeom.
 static void borgDrawRenderAutonomous(int frame) {
+  // Nothing to draw before a draw-mode vertex shader arrives, or when its
+  // varyings do not fit the largest record.
+  int record_shift = draw_record_shift(g_draw_vert.num_varyings);
+  if (!g_draw_vert_ok || record_shift < 0) return;
+
   int fb_offset = frame * FRAME_STRIDE;
   uint32_t cc_lo = ((uint32_t)last_clear_color.b << 16) | FP16_MAX_DEPTH;
   uint32_t cc_hi = ((uint32_t)last_clear_color.r << 16) | last_clear_color.g;
@@ -940,10 +950,14 @@ static void borgDrawRenderAutonomous(int frame) {
   BORG_GPU->depth_scale = BORG_FLOAT_ONE; BORG_GPU->depth_offset = BORG_FLOAT_ZERO;
 
   BORG_GPU->ls_base = DRAW_UBO_SPI & LS_BASE_REG_T__BASE_ADDR_bm;
-  for (int i = 0; i < DRAW_VERT_CONST_COUNT; i++)
-    DRAM_OUT_RAW(DRAW_VS_CONST_SPI + (uint32_t)i * 4) = draw_vert_const_val[i];
-  for (int i = 0; i < 3; i++)
-    DRAM_OUT_RAW(DRAW_FS_CONST_SPI + (uint32_t)i * 4) = draw_frag_const_val[i];
+  // The shaders' constant windows, from their blobs' draw extensions
+  // (indices range-checked in borg_stage_shader).
+  for (int i = 0; i < g_draw_vert.num_window; i++)
+    DRAM_OUT_RAW(DRAW_VS_CONST_SPI + (uint32_t)(g_draw_vert.window_regs[i] - DRAW_VS_CONST_U0) * 4) =
+        g_draw_vert.window_vals[i];
+  for (int i = 0; i < frag_shader.num_window; i++)
+    DRAM_OUT_RAW(DRAW_FS_CONST_SPI + (uint32_t)(frag_shader.window_regs[i] - DRAW_FS_CONST_U0) * 4) =
+        frag_shader.window_vals[i];
 
   BORG_GPU->draw_vs_const = DRAW_VS_CONST_SPI;
   BORG_GPU->draw_fs_const = DRAW_FS_CONST_SPI;
@@ -954,7 +968,7 @@ static void borgDrawRenderAutonomous(int frame) {
   // the walker's front face with front_face_invert clear.
   BORG_GPU->cull_cfg = 2u << CULL_CFG_REG_T__CULL_MODE_bp;
 
-  BORG_GPU->draw_cfg = 1u | ((uint32_t)DRAW_RECORD_SHIFT << 6);  // mode=1, list, no indices, no restart
+  BORG_GPU->draw_cfg = 1u | ((uint32_t)record_shift << 6);  // mode=1, list, no indices, no restart
   BORG_GPU->draw_vertex_count   = g_draw_vertex_count;
   BORG_GPU->draw_instance_count = 1;
   BORG_GPU->draw_first_vertex   = 0; BORG_GPU->draw_first_instance = 0;

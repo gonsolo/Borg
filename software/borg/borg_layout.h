@@ -196,15 +196,17 @@
 // mesa/src/borg/compiler/lib.rs's load_const draw-mode arm.
 #define DRAW_FS_CONST_SPI     (DRAW_UBO_SPI + DRAW_UBO_WORDS * 4)
 #define DRAW_FS_CONST_WORDS   12
+#define DRAW_FS_CONST_U0      20   // the window is u20-u31
 
 // The vertex shader's DRAW_VS_CONST window (u25-u31, 7 words): borgc puts
 // a draw-mode vertex shader's integer constants here, not in GPRs.
 #define DRAW_VS_CONST_SPI     (DRAW_FS_CONST_SPI + DRAW_FS_CONST_WORDS * 4)
 #define DRAW_VS_CONST_MAX_WORDS 7
+#define DRAW_VS_CONST_U0      25   // the window is u25-u31
 
 // Draw-mode vertex shader code.  A draw-mode vertex shader pulls its own
 // vertices and transforms them, so it is far longer than the legacy 32-word
-// SEQ_VERT_SHADER_ADDR slot allows (borgc's cube.vert is 72 instructions).
+// SEQ_VERT_SHADER_ADDR slot allows (borgc's cube.vert is 74 instructions).
 // The instruction cache fetches it from DRAM, so only this slot bounds its
 // length; 128 words covers any blob a 0xB0 packet (RX_SHADER_MAX = 512 B)
 // can carry.

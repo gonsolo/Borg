@@ -8,7 +8,12 @@
 
 #include <stdint.h>
 
-#define SPIRB_MAX_INSTRS 72  // IMEM grew to 72 for the borgc-compiled fragment
+// A draw-mode vertex shader runs from DRAM through the instruction cache,
+// so it may be longer than IMEM (borgc's cube.vert is 74 words); a
+// fragment shader is still bounded by BORG_IMEM_FRAG_LEN where it is staged.
+#define SPIRB_MAX_INSTRS 128
+// Header byte 5, bit 0: the draw extension follows const_vals (docs/spirb.md).
+#define SPIRB_EXT_DRAW   0x01
 #define SPIRB_MAX_REGS   32
 
 // Parsed in-memory representation of a SPIR-B shader blob.
@@ -31,6 +36,14 @@ typedef struct spirb_shader_t {
   // parser, borg_kernel.c's GPR write) is format-agnostic either way, it
   // just copies whatever width-correct value it's given into the GPR.
   uint32_t const_vals[SPIRB_MAX_REGS];
+  // Draw extension (docs/spirb.md), all zero without it: the varying
+  // components a vertex shader SOUTs, and the constant window -- u-index
+  // (u25-u31 vertex, u20-u31 fragment) and bits of each word.
+  uint8_t  has_draw_ext;
+  uint8_t  num_varyings;
+  uint8_t  num_window;
+  uint8_t  window_regs[SPIRB_MAX_REGS];
+  uint32_t window_vals[SPIRB_MAX_REGS];
 } spirb_shader_t;
 
 // Parse a SPIR-B blob from a byte array.

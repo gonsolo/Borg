@@ -15,7 +15,7 @@ int spirb_parse(const uint8_t *blob, spirb_shader_t *s) {
   s->num_attributes = *p++;
   s->num_outputs    = *p++;
   s->num_consts     = *p++;
-  p++; // reserved
+  uint8_t ext       = *p++;
 
   if (s->num_instrs   > SPIRB_MAX_INSTRS) return -1;
   if (s->num_uniforms > SPIRB_MAX_REGS)   return -1;
@@ -38,6 +38,21 @@ int spirb_parse(const uint8_t *blob, spirb_shader_t *s) {
   for (int i = 0; i < s->num_consts; i++) {
     s->const_vals[i] = p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24);
     p += 4;
+  }
+
+  s->has_draw_ext = (ext & SPIRB_EXT_DRAW) ? 1 : 0;
+  s->num_varyings = 0;
+  s->num_window   = 0;
+  if (s->has_draw_ext) {
+    s->num_varyings = *p++;
+    s->num_window   = *p++;
+    if (s->num_window > SPIRB_MAX_REGS) return -1;
+    for (int i = 0; i < s->num_window; i++)
+      s->window_regs[i] = *p++;
+    for (int i = 0; i < s->num_window; i++) {
+      s->window_vals[i] = p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24);
+      p += 4;
+    }
   }
 
   return (int)(p - blob);
