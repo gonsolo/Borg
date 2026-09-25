@@ -103,6 +103,7 @@ static int cts_load_mailbox(borg_float_t mvp_out[16]) {
   return 1;
 }
 
+#ifndef BORG_DRAW_MODE_CUBE
 static void draw_received_geom(const borg_draw_data_t *draw) {
   borgTransformVerts(draw, rx_geom_pos, rx_geom_nverts);
   for (int t = 0; t < rx_geom_ntris; t++) {
@@ -125,6 +126,7 @@ static void draw_received_geom(const borg_draw_data_t *draw) {
     borgCmdDrawIndexed(idx, tri, 0);
   }
 }
+#endif // !BORG_DRAW_MODE_CUBE
 
 int main() {
   borgCreateDevice();
@@ -145,6 +147,15 @@ int main() {
   // staging mode decides which uniforms the sequencer writes, so a mismatch
   // feeds the shader the wrong inputs rather than crashing.
   borg_set_frag_vertex_color(0);
+
+#ifdef BORG_DRAW_MODE_CUBE
+  // Draw front end (docs/B1_geometry_front_end.md): render borgvk's real
+  // cube.vert/cube.frag draw-mode compile through the full-hardware draw
+  // path instead of the legacy per-triangle descriptors. Opt-in build flag
+  // -- the legacy path stays the default until borgc/borgvk drive draw mode
+  // for every shader, not just this one hand-verified pair.
+  borg_set_draw_mode(1);
+#endif
 
   // Pre-fill the texture region with white before any borgvk upload arrives.
   // The RX drain loop below recovers from a dropped/corrupted 0xAF texture-row
@@ -410,6 +421,20 @@ int main() {
     // Tile clear colour: FP16, the tile buffer's own format.
     rgb16_t bg = cts_active ? (rgb16_t){0,0,0} : (rgb16_t){0x3266, 0x3266, 0x3266};
 
+#ifdef BORG_DRAW_MODE_CUBE
+    // The draw front end has no per-triangle descriptor cache to keep valid
+    // across frames -- re-stage the (small, static) geometry and the fresh
+    // MVP every frame; borg_set_texture still only needs doing once.
+    // borgFastFrameBegin only records the clear colour (borgBinRenderAutonomous's
+    // TBR-specific state it also resets is unused on this path).
+    borgFastFrameBegin(bg);
+    if (!g_geom_recorded) {
+      borg_set_texture(RX_TEX_DIM, RX_TEX_DIM);
+      g_geom_recorded = 1;
+    }
+    borgDrawSubmitGeom(&draw, rx_geom_pos, rx_geom_nverts, rx_geom_idx, rx_geom_uv,
+                      rx_geom_ntris);
+#else
     if (rx_have_geom && g_geom_recorded) {
       borgFastFrameBegin(bg);
       borgUpdateUniforms(&draw);
@@ -419,7 +444,11 @@ int main() {
       if (!g_geom_recorded) borgInvalidateCommandBuffer();
       draw_received_geom(&draw);
     }
+#endif
     borg_present(0);
+    // No-op under BORG_DRAW_MODE_CUBE: g_geom_recorded is already set above,
+    // and borgCommandBufferValid() (legacy's own command-buffer cache) is
+    // never set true on the draw front end's path.
     if (rx_have_geom && borgCommandBufferValid())
       g_geom_recorded = 1;
 

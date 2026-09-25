@@ -132,6 +132,29 @@ void borgUpdateUniforms(const borg_draw_data_t *d);
 // Write DONE marker for a frame to DRAM
 void borg_present(int frame);
 
+// --- Draw front end (docs/B1_geometry_front_end.md) ---
+//
+// Renders through the full-hardware draw path (DRAW_CFG mode 1: one vertex-
+// shader run per triangle, vertex pulling, SOUT/FATTR varyings, hardware
+// perspective-correct rasterization) instead of the legacy per-triangle
+// descriptors borgBinRenderAutonomous drives. Built for the one pair
+// borgc's BORGC_DRAW_MODE compiles today -- the real Vulkan-Tools cube.vert/
+// cube.frag -- and off by default: borg_present() keeps calling the legacy
+// path until borg_set_draw_mode(1) is called once at boot.
+void borg_set_draw_mode(int enable);
+
+// Stage one frame's geometry into cube.vert's UBO (DRAW_UBO_SPI) and record
+// the vertex count for the next borg_present(). `positions` is `nverts`
+// deduplicated model-space (x,y,z) triples; `idx`/`uv` are ntris*3 expanded
+// per-corner vertex indices and texcoords -- exactly what draw_received_geom()
+// already unpacks from the 0xAE wire packet (rx_geom_pos/idx/uv), so the
+// caller does no extra work to reshape it. `d`'s raw (unbaked) MVP is copied
+// in column-major, matching std140 mat4 -- cube.vert does its own clip-space
+// transform, so (unlike the legacy path) nothing here bakes the viewport in.
+void borgDrawSubmitGeom(const borg_draw_data_t *d, const borg_float_t *positions,
+                        int nverts, const uint8_t *idx, const borg_float_t *uv,
+                        int ntris);
+
 // DRAM_OUT() word offset of the DONE_MARKER written by the most recent
 // borg_present() — the double-buffer slot alternates every present, so the
 // sim/host viewer's done-wait poll must call this rather than hardcode it.

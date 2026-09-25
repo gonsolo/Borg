@@ -170,3 +170,43 @@
 #define BORG_PUSH_CONST_SPI        (BORG_CTS_MAILBOX_SPI + 0x400)
 #define BORG_PUSH_CONST_MAX_WORDS  32
 #define BORG_PUSH_CONST_MAX_BYTES  (BORG_PUSH_CONST_MAX_WORDS * 4)
+
+// -------------------------------------------------------------------------
+// Draw front end (docs/B1_geometry_front_end.md) vertex-pulling UBO and
+// fragment constant window.
+// -------------------------------------------------------------------------
+//
+// cube.vert's own UBO (`layout(std140, binding=0) uniform buf { mat4 MVP;
+// vec4 position[36]; vec4 attr[36]; }`, Vulkan-Tools/cube/cube.vert)
+// reproduced exactly so its borgc-compiled, draw-mode LOADs (LS_BASE + a
+// pinned-GPR base word + gl_VertexIndex*stride) read it directly: MVP at
+// word 0, position[] at word 16, attr[] at word 160 -- see
+// hardware/borg/test/src/BorgDrawFrontEndCompilerTests.scala, whose address
+// scheme this matches bit for bit. Placed above the push-constant block,
+// DERIVED from its anchor per this file's rule.
+#define DRAW_UBO_SPI          (BORG_PUSH_CONST_SPI + BORG_PUSH_CONST_MAX_BYTES)
+#define DRAW_UBO_MVP_WORD     0
+#define DRAW_UBO_POS_WORD     16
+#define DRAW_UBO_ATTR_WORD    160
+#define DRAW_UBO_MAX_VERTS    36   // Vulkan-Tools cube.c: 12 triangles, vkCmdDraw(36,...), no index buffer
+#define DRAW_UBO_WORDS        (DRAW_UBO_ATTR_WORD + DRAW_UBO_MAX_VERTS * 4)   // 304
+
+// The fragment shader's DRAW_FS_CONST window (12 words) -- cube.frag's
+// lightDir lives at u20-u22 (draw_fs_const_offset + 4*0..2), see
+// mesa/src/borg/compiler/lib.rs's load_const draw-mode arm.
+#define DRAW_FS_CONST_SPI     (DRAW_UBO_SPI + DRAW_UBO_WORDS * 4)
+#define DRAW_FS_CONST_WORDS   12
+
+// The vertex shader's DRAW_VS_CONST window (u25-u31, 7 words): borgc puts
+// a draw-mode vertex shader's integer constants here, not in GPRs.
+#define DRAW_VS_CONST_SPI     (DRAW_FS_CONST_SPI + DRAW_FS_CONST_WORDS * 4)
+#define DRAW_VS_CONST_MAX_WORDS 7
+
+// Draw-mode vertex shader code.  A draw-mode vertex shader pulls its own
+// vertices and transforms them, so it is far longer than the legacy 32-word
+// SEQ_VERT_SHADER_ADDR slot allows (borgc's cube.vert is 72 instructions).
+// The instruction cache fetches it from DRAM, so only this slot bounds its
+// length; 128 words covers any blob a 0xB0 packet (RX_SHADER_MAX = 512 B)
+// can carry.
+#define DRAW_VERT_SHADER_SPI        (DRAW_VS_CONST_SPI + DRAW_VS_CONST_MAX_WORDS * 4)
+#define DRAW_VERT_SHADER_MAX_WORDS  128

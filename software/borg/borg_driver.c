@@ -203,6 +203,13 @@ typedef struct {
 int borg_fb_width;
 int borg_fb_height;
 static borg_float_t half_width_f;
+static borg_float_t half_height_f;  // used by the draw front end's viewport registers
+
+// Draw front end (docs/B1_geometry_front_end.md) activation -- off by
+// default so borg_present() keeps driving the legacy per-triangle path.
+static int g_draw_mode_active = 0;
+static int g_draw_vertex_count = 0;
+void borg_set_draw_mode(int enable) { g_draw_mode_active = enable; }
 
 // Sampler descriptor 0 (docs/B2_texture_unit.md) until borgvk sends the app's:
 // nearest filtering, CLAMP_TO_EDGE (VkSamplerAddressMode 2) on U, V and W, no
@@ -409,6 +416,9 @@ void borgCreateDevice(void) {
 
   // Half the framebuffer width, for the viewport transform baked into the MVP.
   half_width_f = borg_float_from_uint((uint32_t)borg_fb_width / 2);
+  // Half the framebuffer height, for the draw front end's VIEWPORT_SY/OY
+  // (the legacy path's viewport bake is width-only, square-framebuffer only).
+  half_height_f = borg_float_from_uint((uint32_t)borg_fb_height / 2);
 
   // Step 25.4.1: Configure hardware tile flusher base address.
   // Actual per-tile base is set dynamically in borgBinRender.
@@ -525,11 +535,17 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   // IMEM-slot bounds: vertex DRAM slot is 128 B (32 words); fragment occupies
   // IMEM[BORG_IMEM_FRAG_OFFSET..BORG_IMEM_DEPTH-1] (BORG_IMEM_FRAG_LEN words).
   // Reject oversized blobs.
-  if (stage == 0 && n > 32) return;
+  // In draw mode the vertex shader goes to its own, larger slot instead
+  // (DRAW_VERT_SHADER_SPI): it pulls and transforms vertices itself, and
+  // silently dropping it here would leave the baked legacy seq_vert_shader
+  // running under the draw walker.
+  uint32_t vert_addr = g_draw_mode_active ? DRAW_VERT_SHADER_SPI : SEQ_VERT_SHADER_ADDR;
+  uint32_t vert_max  = g_draw_mode_active ? DRAW_VERT_SHADER_MAX_WORDS : 32;
+  if (stage == 0 && n > vert_max) return;
   if (stage == 1 && n > BORG_IMEM_FRAG_LEN) return;
 
   const uint8_t *w = blob + 6;
-  uint32_t addr = (stage == 0) ? SEQ_VERT_SHADER_ADDR : SEQ_FRAG_SHADER_ADDR;
+  uint32_t addr = (stage == 0) ? vert_addr : SEQ_FRAG_SHADER_ADDR;
   for (uint32_t i = 0; i < n; i++) {
     uint32_t word = (uint32_t)w[i * 4]            | ((uint32_t)w[i * 4 + 1] << 8) |
                     ((uint32_t)w[i * 4 + 2] << 16) | ((uint32_t)w[i * 4 + 3] << 24);
@@ -542,7 +558,7 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   // from the shallow UART FIFO.  The drain loop prints a deferred confirmation
   // after the whole burst is absorbed instead.
   if (stage == 0) {
-    BORG_GPU->seq_vert_addr = SEQ_VERT_SHADER_ADDR;
+    BORG_GPU->seq_vert_addr = vert_addr;
     BORG_GPU->seq_vert_len  = n;
   } else {
     BORG_GPU->seq_frag_addr = SEQ_FRAG_SHADER_ADDR;
@@ -837,6 +853,120 @@ void borgCmdDrawIndexed(const int idx[3], const borg_vertex_t vertices[3],
   t_draw_cycles += get_cycles() - t_start;
 }
 
+// --- Draw front end (docs/B1_geometry_front_end.md) ---
+//
+// cube.vert's compile-time integer constants, its DRAW_VS_CONST window
+// (u25-u29; borgc's own log for this exact compile: "draw-mode vertex window
+// consts: u25=0x4 u26=0xa0 u27=0x1 u28=0x0 u29=0x10") -- word stride between
+// UBO array entries, attr[] base word, the literal 1, MVP base word,
+// position[] base word. A window, not pinned GPRs: the draw walker runs the
+// setup ROM in the same register file between triangles, so a GPR staged
+// once per draw survives only the first triangle. Hardcoded because this is
+// the one shader borgc's draw mode compiles today; carrying the window in
+// the vertex blob is future work for a second draw-mode shader.
+#define DRAW_VERT_CONST_COUNT 5
+static const uint32_t draw_vert_const_val[DRAW_VERT_CONST_COUNT] = {4, 160, 1, 0, 16};
+
+// cube.frag's lightDir(0.424, 0.566, 0.707) -- also a compile-time GLSL
+// constant, also hardcoded for the same reason. Lives in the DRAW_FS_CONST
+// memory window (u20-u22), not a pinned GPR: see this session's
+// vertex/fragment GPR-collision fix in mesa/src/borg/compiler/lib.rs.
+static const uint32_t draw_frag_const_val[3] = {0x3ed91687u, 0x3f10e560u, 0x3f34fdf4u};
+
+// A draw-mode triangle record holds 48 + 3*N words for N varying
+// components (docs/B1_geometry_front_end.md's Records table). cube.vert
+// SOUTs N = 7: texcoord is a vec4 (indices 0-3; cube.frag reads only .xy,
+// but the vertex shader still writes all four) and frag_pos a vec3 (4-6).
+// 48 + 21 = 69 words needs 512-byte records, record_shift 9. At 8 (64
+// words) each record's frag_pos tail spilled into the next record, which
+// the next triangle overwrote: only the last triangle kept its normal.
+#define DRAW_RECORD_SHIFT 9
+_Static_assert(((DRAW_UBO_MAX_VERTS / 3) << DRAW_RECORD_SHIFT) <= SEQ_MAX_TRI * TBR_SETUP_ENTRY_BYTES,
+               "draw-mode records overflow the TBR setup region");
+
+// Stage one frame's geometry into cube.vert's UBO. VertexIndex for a
+// non-indexed "list" draw is 3*triangle + corner, so this expands the
+// deduplicated positions the same way draw_received_geom() already does for
+// the legacy path -- just written flat instead of walked per-triangle.
+void borgDrawSubmitGeom(const borg_draw_data_t *d, const borg_float_t *positions,
+                        int nverts, const uint8_t *idx, const borg_float_t *uv,
+                        int ntris) {
+  (void)nverts;
+  for (int i = 0; i < 16; i++)
+    DRAM_OUT_RAW(DRAW_UBO_SPI + (uint32_t)(DRAW_UBO_MVP_WORD + i) * 4) = d->uniforms[i];
+  for (int t = 0; t < ntris; t++) {
+    for (int v = 0; v < 3; v++) {
+      int i = t * 3 + v;   // gl_VertexIndex
+      int vi = idx[i];
+      uint32_t pbase = DRAW_UBO_SPI + (uint32_t)(DRAW_UBO_POS_WORD  + 4 * i) * 4;
+      uint32_t abase = DRAW_UBO_SPI + (uint32_t)(DRAW_UBO_ATTR_WORD + 4 * i) * 4;
+      DRAM_OUT_RAW(pbase + 0)  = positions[vi * 3 + 0];
+      DRAM_OUT_RAW(pbase + 4)  = positions[vi * 3 + 1];
+      DRAM_OUT_RAW(pbase + 8)  = positions[vi * 3 + 2];
+      DRAM_OUT_RAW(pbase + 12) = BORG_FLOAT_ONE;
+      DRAM_OUT_RAW(abase + 0)  = uv[i * 2 + 0];
+      DRAM_OUT_RAW(abase + 4)  = uv[i * 2 + 1];
+      DRAM_OUT_RAW(abase + 8)  = BORG_FLOAT_ZERO;
+      DRAM_OUT_RAW(abase + 12) = BORG_FLOAT_ZERO;
+    }
+  }
+  g_draw_vertex_count = ntris * 3;
+}
+
+// Render one frame through the hardware draw front end. Mirrors
+// borgBinRenderAutonomous's register sequence where the two paths share
+// registers (fb/clear/bin/setup/frag_pc), and adds the DRAW_CFG family
+// (docs/B1_geometry_front_end.md's register table). Geometry and the MVP
+// must already be staged via borgDrawSubmitGeom.
+static void borgDrawRenderAutonomous(int frame) {
+  int fb_offset = frame * FRAME_STRIDE;
+  uint32_t cc_lo = ((uint32_t)last_clear_color.b << 16) | FP16_MAX_DEPTH;
+  uint32_t cc_hi = ((uint32_t)last_clear_color.r << 16) | last_clear_color.g;
+
+  BORG_GPU->seq_fb_base       = DRAM_OUT_SPI(fb_offset);
+  BORG_GPU->seq_tiles_per_row = borg_fb_width >> 2;
+  BORG_GPU->seq_clear_lo      = cc_lo;
+  BORG_GPU->seq_clear_hi      = cc_hi;
+  BORG_GPU->seq_bin_base      = tbr_bin_base;
+  BORG_GPU->seq_bin_row_bytes = TBR_BIN_ROW_BYTES;
+  BORG_GPU->seq_setup_base    = tbr_setup_base;
+  BORG_GPU->tile_bz           = cc_lo;
+  // Chains the dispatcher to the fragment shader (see borgBinRenderAutonomous's
+  // own comment on the "black cube" failure mode this guards against).
+  BORG_GPU->frag_pc = BORG_IMEM_FRAG_OFFSET;
+
+  BORG_GPU->viewport_sx = half_width_f;  BORG_GPU->viewport_sy = half_height_f;
+  BORG_GPU->viewport_ox = half_width_f;  BORG_GPU->viewport_oy = half_height_f;
+  BORG_GPU->depth_scale = BORG_FLOAT_ONE; BORG_GPU->depth_offset = BORG_FLOAT_ZERO;
+
+  BORG_GPU->ls_base = DRAW_UBO_SPI & LS_BASE_REG_T__BASE_ADDR_bm;
+  for (int i = 0; i < DRAW_VERT_CONST_COUNT; i++)
+    DRAM_OUT_RAW(DRAW_VS_CONST_SPI + (uint32_t)i * 4) = draw_vert_const_val[i];
+  for (int i = 0; i < 3; i++)
+    DRAM_OUT_RAW(DRAW_FS_CONST_SPI + (uint32_t)i * 4) = draw_frag_const_val[i];
+
+  BORG_GPU->draw_vs_const = DRAW_VS_CONST_SPI;
+  BORG_GPU->draw_fs_const = DRAW_FS_CONST_SPI;
+  BORG_GPU->tex_desc_base     = TEX_DESC_TABLE_ADDR;
+  BORG_GPU->sampler_desc_base = SAMPLER_DESC_TABLE_ADDR;
+  BORG_GPU->sample_mask_cfg   = 0xF;
+  // cube.c: VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE, which is
+  // the walker's front face with front_face_invert clear.
+  BORG_GPU->cull_cfg = 2u << CULL_CFG_REG_T__CULL_MODE_bp;
+
+  BORG_GPU->draw_cfg = 1u | ((uint32_t)DRAW_RECORD_SHIFT << 6);  // mode=1, list, no indices, no restart
+  BORG_GPU->draw_vertex_count   = g_draw_vertex_count;
+  BORG_GPU->draw_instance_count = 1;
+  BORG_GPU->draw_first_vertex   = 0; BORG_GPU->draw_first_instance = 0;
+  BORG_GPU->draw_vertex_offset  = 0; BORG_GPU->draw_index_base     = 0;
+
+  if (g_draw_vertex_count > 0) {
+    BORG_GPU->seq_trigger = 1;
+    while (BORG_GPU->status & STATUS_REG_T__SEQ_BUSY_bm)
+      ;
+  }
+}
+
 void borg_present(int frame) {
   (void)frame;
   unsigned int t_wait = get_cycles();
@@ -844,7 +974,10 @@ void borg_present(int frame) {
   // Fully autonomous two-pass TBR rendering (Step 32.3/32.4):
   // Pass 1: sequencer runs vert+setup+bin for all triangles.
   // Pass 2: sequencer iterates all tiles, loads bin lists, rasterizes, flushes.
-  borgBinRenderAutonomous(back_buf);
+  if (g_draw_mode_active)
+    borgDrawRenderAutonomous(back_buf);
+  else
+    borgBinRenderAutonomous(back_buf);
 
   // Wait for the GPU to finish the last tile flush.
   while (!(BORG_GPU->status & STATUS_REG_T__IDLE_bm))

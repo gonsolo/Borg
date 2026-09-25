@@ -114,7 +114,7 @@ object BorgDrawTests extends TestSuite {
     def draw(verts: Seq[V], topology: Int = 0, indices: Seq[Int] = Nil, restart: Boolean = false,
              instances: Int = 1, count: Int = -1, frag: Seq[BigInt] = fs, keep: Boolean = false,
              sampleMaskCfg: Int = 0xF, depthCfg: Int = 7 | (1 << 3), occ: (Int, Int) = (0, 0xFFFF),
-             extra: Seq[(UInt, BigInt)] = Nil): BigInt = {
+             extra: Seq[(UInt, BigInt)] = Nil, recordShift: Int = 8): BigInt = {
       rom ++= frag.zipWithIndex.map { case (w, i) => (fsAddr + 4 * i) -> w }
       borg.reset.poke(true.B)
       borg.io.data_write_n.poke(3.U); borg.io.data_read_n.poke(3.U)
@@ -145,7 +145,7 @@ object BorgDrawTests extends TestSuite {
       reg(BorgGpuRegs.occ_ctrl_offset, 3)
       val indexType = if (indices.isEmpty) 0 else 1
       reg(BorgGpuRegs.draw_cfg_offset, 1 | (topology << 1) | (indexType << 3) |
-                                        ((if (restart) 1 else 0) << 5) | (8 << 6))
+                                        ((if (restart) 1 else 0) << 5) | (recordShift << 6))
       reg(BorgGpuRegs.draw_vertex_count_offset, if (count >= 0) count else if (indices.nonEmpty) indices.size else verts.size)
       reg(BorgGpuRegs.draw_instance_count_offset, instances)
       reg(BorgGpuRegs.draw_first_vertex_offset, 0); reg(BorgGpuRegs.draw_first_instance_offset, 0)
