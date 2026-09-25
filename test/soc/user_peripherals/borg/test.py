@@ -31,7 +31,7 @@ _VERILOG_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..",
 
 def dut_is_fp16():
     import re
-    path = os.path.join(_VERILOG_DIR, "BorgFp16Fma.sv")
+    path = os.path.join(_VERILOG_DIR, "BorgFma.sv")
     with open(path) as f:
         m = re.search(r"input\s*\[(\d+):0\]\s*io_a\b", f.read())
     if not m:

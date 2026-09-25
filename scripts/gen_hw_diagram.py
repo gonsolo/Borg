@@ -413,8 +413,9 @@ def build_graph(hw_data: dict, groups: set[str] | None = None) -> graphviz.Digra
 
     # Force hierarchy layout (user request: soc > gpu/cpu > fpu). These two
     # names ("Project", the FPU pipeline's old "MulAddRecFN" from the since-
-    # removed hardware/hardfloat/ vendor dir -- FP16 FMA is now inline in
-    # BorgFp16Fma.scala) haven't existed as classes for a while; dot.edge()
+    # removed hardware/hardfloat/ vendor dir -- the FMA is now inline in
+    # BorgFma.scala, renamed from BorgFp16Fma 2026-09-25) haven't existed as
+    # classes for a while; dot.edge()
     # auto-creates a node for any name it's given, so referencing them here
     # was silently drawing two stray, unstyled default-look boxes with
     # nothing else pointing at them. QspiSocTop is the real ASIC top.

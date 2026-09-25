@@ -6,11 +6,16 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** BorgFp16Fma — in-tree fused multiply-add for the GPU's FP16 domain.
+/** BorgFma — in-tree fused multiply-add for the GPU's float domain.
   *
   * Computes `round_RNE( (negate ? -(a*b) : a*b) + c )` with a SINGLE rounding,
-  * round-to-nearest-even, on standard IEEE-754 binary16.  The sole FP16 FMA across
-  * all targets and the per-lane arithmetic core for 4-lane SIMT.
+  * round-to-nearest-even, on standard IEEE-754 (binary16 or binary32,
+  * per `cfg.fp`: [[FloatConfig.FP16]] for iCE40, [[FloatConfig.FP32]] for the
+  * ASIC). Renamed from `BorgFp16Fma` 2026-09-25 -- FP32 has been the default
+  * since 2026-09-15 and the old name was actively misleading about what the
+  * wafer.space build instantiates. The sole FMA across all targets and the
+  * per-lane arithmetic core for 4-lane SIMT; [[BorgSampler]] also builds its
+  * own instance for texture filtering math.
   *
   * Operand muxing (ADD/MUL/FMA/FNEG) stays in `BorgLane`; this unit sees the
   * resolved a/b/c + negate.  Proper IEEE Inf/NaN handling (edge functions overflow
@@ -41,7 +46,7 @@ import chisel3.util._
   *
   * @doc:custom-fma
   */
-class BorgFp16FmaIO(val cfg: BorgConfig) extends Bundle {
+class BorgFmaIO(val cfg: BorgConfig) extends Bundle {
   val a      = Input(UInt(cfg.totalBits.W))
   val b      = Input(UInt(cfg.totalBits.W))
   val c      = Input(UInt(cfg.totalBits.W))
@@ -51,8 +56,8 @@ class BorgFp16FmaIO(val cfg: BorgConfig) extends Bundle {
   val out    = Output(UInt(cfg.totalBits.W))   // registered, 3-cycle latency
 }
 
-class BorgFp16Fma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
-  val io = IO(new BorgFp16FmaIO(cfg))
+class BorgFma(val cfg: BorgConfig = BorgConfig.Default) extends Module {
+  val io = IO(new BorgFmaIO(cfg))
 
   private val EXP    = cfg.exp                 // 5
   private val SIG    = cfg.sig                 // 11 (10 stored frac + implicit 1)

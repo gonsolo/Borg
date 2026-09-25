@@ -21,7 +21,7 @@ object BorgFp32FmaTests extends TestSuite {
 
   def check(cfg: BorgConfig, triples: Seq[(Float, Float, Float)]): (Int, Int, Int) = {
     var bad = 0; var zeroSign = 0; var flushed = 0
-    simulate(new BorgFp16Fma(cfg)) { d =>
+    simulate(new BorgFma(cfg)) { d =>
       d.io.negate.poke(false.B); d.io.pipeEn1.poke(true.B); d.io.pipeEn2.poke(true.B)
       for ((a, b, c) <- triples) {
         d.io.a.poke(f2b(a).U); d.io.b.poke(f2b(b).U); d.io.c.poke(f2b(c).U)

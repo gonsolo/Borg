@@ -13,7 +13,7 @@ import utest._
   * of the covDeltaOut / uniformWrite / DMA bugs this plan item fixed -- in
   * seconds, without paying for a full-pipeline simulation. Before this file,
   * FP32 had never been elaborated at the top-level `Borg` module at all;
-  * only individual submodules (BorgCore, BorgFp16Fma) were covered by
+  * only individual submodules (BorgCore, BorgFma) were covered by
   * `fp32_tests` in `BorgTests.scala`.
   *
   * Built on BorgConfig.Test rather than Default/Fp32 for its maxBinTiles=64:

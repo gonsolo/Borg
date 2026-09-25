@@ -263,7 +263,7 @@ case class BorgConfig(
     // word for the next quad. Costs a tag and a valid bit per line and the
     // fill FSM; no extra instruction storage. Needs hasMemoryOps (the port).
     hasShaderICache: Boolean = false,
-    // BorgFp16Fma pipeline depth. 3 is the shipping FP16 form; 4 and 5 add
+    // BorgFma pipeline depth. 3 is the shipping FP16 form; 4 and 5 add
     // registers inside stages 2 and 3 respectively, for FP32 at 25 MHz.
     //
     // THE CELL LIBRARY DOMINATES THIS DECISION -- check which one your target
@@ -370,7 +370,7 @@ case class BorgConfig(
   // BorgConfig's fmaStages comment warned that raising it "alone is NOT
   // functionally correct".
   //
-  // fmaStages=4 splits BorgFp16Fma stage 2 (reg2a, between regMid and magR),
+  // fmaStages=4 splits BorgFma stage 2 (reg2a, between regMid and magR),
   // so everything from operand-read down to pipeEn1 shifts one cycle later
   // while pipeEn2 and write-back stay put. fmaStages=5 additionally splits
   // stage 3 (the y_* registers after magR), which pushes pipeEn2 out too.
@@ -400,8 +400,8 @@ case class BorgConfig(
 
 object BorgConfig {
   // Default: sim + ULX3S — 4096-tile bin table, 56-instruction shader memory.
-  // The in-tree BorgFp16Fma (CERN-OHL-S, round-to-nearest-even) is the sole FP16 FMA
-  // across ALL targets — historically bit-verified vs IEEE/HardFloat (30k+ co-sim),
+  // The in-tree BorgFma (CERN-OHL-S, round-to-nearest-even) is the sole FMA
+  // across ALL targets, FP16 or FP32 — historically bit-verified vs IEEE/HardFloat (30k+ co-sim),
   // renders correctly in verilator/arcilator/ULX3S, smaller + shorter critical path.
   //
   // maxBinTiles = 4096 (grown from 1024, 2026-09-08, Step 50 item 5 --
@@ -567,7 +567,7 @@ object BorgConfig {
     debugPorts       = false,
     // 2026-09-19: the ONLY target that needs this. Measured post-repair with
     // OpenSTA at max_ss_125C_3v00 on two signoff runs, the worst path was
-    // BorgFp16Fma stage 2 -- m_prodLowExp -> magR, the three serial carry
+    // BorgFma stage 2 -- m_prodLowExp -> magR, the three serial carry
     // chains -- at -5.6 ns and -12.8 ns against the 125 ns budget. That is
     // exactly the stage fmaStages=4 splits. Costs one cycle per FMA; the
     // ULX3S/sim Default stays at 3 because the FMA is not its limiter.

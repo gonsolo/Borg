@@ -270,7 +270,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
     // @doc:fma-muxing
     val fma_result = {
-        val fma = Module(new BorgFp16Fma(cfg))
+        val fma = Module(new BorgFma(cfg))
         fma.io.a := Mux(is_deriv_reg, io.crossA, Mux(is_mul_reg || is_fma_reg, recA_raw, one_fn))
         fma.io.b := Mux(is_deriv_reg, one_fn,     Mux(is_mul_reg || is_fma_reg, recB_raw, recA_raw))
         fma.io.c := Mux(is_deriv_reg, io.crossC,
