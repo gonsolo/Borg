@@ -20,7 +20,7 @@ import chisel3.util._
   * [[TexFormat]].
   *
   * Deliberately sequential: one multiplier, one FP32 FMA (the lanes' own
-  * BorgFp16Fma) and one field extractor serve every step. A sample costs tens
+  * BorgFma) and one field extractor serve every step. A sample costs tens
   * to hundreds of cycles; conformance, not throughput, is the goal, and the
   * area stays that of a small state machine plus two datapath units.
   */
@@ -252,7 +252,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val srgbRom = VecInit(TexFormat.srgbToLinear.map(_.U(32.W)))
 
   // --- The one FMA: implicit LOD and the filter's weighted sum ---------
-  private val fma = Module(new BorgFp16Fma(cfg))
+  private val fma = Module(new BorgFma(cfg))
   private val fmaA = RegInit(0.U(32.W)); private val fmaB = RegInit(0.U(32.W)); private val fmaC = RegInit(0.U(32.W))
   fma.io.a := fmaA; fma.io.b := fmaB; fma.io.c := fmaC
   fma.io.negate := false.B; fma.io.pipeEn1 := true.B; fma.io.pipeEn2 := true.B

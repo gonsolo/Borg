@@ -42,7 +42,7 @@ lint_off -rule UNUSEDSIGNAL -file "*QspiControllerSim.sv"
 lint_off -rule UNUSEDSIGNAL -file "*QspiController.sv"
 lint_off -rule UNDRIVEN -file "*coordLut*.sv"
 lint_off -rule UNDRIVEN -file "*rcpLut*.sv"
-lint_off -rule UNUSEDSIGNAL -file "*BorgFp16Fma.sv"
+lint_off -rule UNUSEDSIGNAL -file "*BorgFma.sv"
 lint_off -rule UNDRIVEN     -file "*frsqLut*.sv"
 lint_off -rule UNDRIVEN     -file "*srgbLut*.sv"
 // Async-read Mem LUTs (rcp/frsq/srgb) emit per-read-port R0_clk/R1_clk that a

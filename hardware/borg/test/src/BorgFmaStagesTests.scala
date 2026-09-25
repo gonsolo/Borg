@@ -10,7 +10,7 @@ import BorgCoreTestHelpers._
 
 /** `cfg.fmaStages` equivalence.
   *
-  * Raising fmaStages inserts pipeline registers inside BorgFp16Fma, which
+  * Raising fmaStages inserts pipeline registers inside BorgFma, which
   * means BorgCore's whole instruction countdown shifts: busy_counter loads
   * later, the three register reads and pipeEn1 move with it, and the counter
   * itself needs a wider register. BorgConfig's cRs2/cHoldC/cOperands/cPipeEn2

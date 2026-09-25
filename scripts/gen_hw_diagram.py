@@ -321,10 +321,17 @@ def build_graph(hw_data: dict) -> graphviz.Digraph:
         style = edge_styles.get(kind, {})
         dot.edge(src, dst, **style)
 
-    # Force hierarchy layout (user request: soc > gpu/cpu > fpu)
-    dot.edge("Project", "Borg", style="invis", weight="100")
-    dot.edge("Project", "Hutt", style="invis", weight="100")
-    dot.edge("Borg", "MulAddRecFN", style="invis", weight="100")
+    # Force hierarchy layout (user request: soc > gpu/cpu > fpu). These two
+    # names ("Project", the FPU pipeline's old "MulAddRecFN" from the since-
+    # removed hardware/hardfloat/ vendor dir -- the FMA is now inline in
+    # BorgFma.scala, renamed from BorgFp16Fma 2026-09-25) haven't existed as
+    # classes for a while; dot.edge()
+    # auto-creates a node for any name it's given, so referencing them here
+    # was silently drawing two stray, unstyled default-look boxes with
+    # nothing else pointing at them. QspiSocTop is the real ASIC top.
+    if "QspiSocTop" in module_to_group:
+        dot.edge("QspiSocTop", "Borg", style="invis", weight="100")
+        dot.edge("QspiSocTop", "Hutt", style="invis", weight="100")
 
     # (Legend removed as per user request)
 
