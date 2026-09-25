@@ -88,6 +88,25 @@ static void test_one_const(void) {
 }
 
 // Empty blob (zero everything) → returns 6 (header size only).
+// Draw extension (header byte 5 bit 0): num_varyings, num_window, the
+// window's u-indices and values, after const_vals.
+static void test_draw_ext(void) {
+    uint8_t blob[] = {
+        1, 0, 0, 0, 0, SPIRB_EXT_DRAW,
+        0x00, 0x00, 0x00, 0x00,
+        7, 2,                      // 7 varyings, 2 window words
+        25, 26,                    // u25, u26
+        4, 0, 0, 0,                // u25 = 4
+        160, 0, 0, 0,              // u26 = 160
+    };
+    spirb_shader_t s;
+    int n = spirb_parse(blob, &s);
+    CHECK(n == (int)sizeof(blob), "draw ext: byte count");
+    CHECK(s.has_draw_ext && s.num_varyings == 7, "draw ext: num_varyings");
+    CHECK(s.num_window == 2 && s.window_regs[0] == 25 && s.window_regs[1] == 26, "draw ext: u-indices");
+    CHECK(s.window_vals[0] == 4 && s.window_vals[1] == 160, "draw ext: values");
+}
+
 static void test_empty_blob(void) {
     uint8_t blob[6] = { 0, 0, 0, 0, 0, 0 };
     spirb_shader_t s;
@@ -191,6 +210,7 @@ int main(void) {
     test_too_many_consts();
     test_one_const();
     test_empty_blob();
+    test_draw_ext();
     printf("%d/%d passed\n", tests_passed, tests_run);
     return tests_passed == tests_run ? 0 : 1;
 }
