@@ -12,8 +12,9 @@ import chisel3.util._
   *   1. Receives `pixelReady` from BorgIterator.
   *   2. Triggers the rasterizer (edge) shader at PC=0.
   *   3. Snoops edge-sign results from pipeline write-back to determine inside/outside.
-  *   4. If inside: chains to fragment shader at `fragPcReg`, which fetches
-  *      texels inline via FTEX (Step 34.5) when texturing is enabled.
+  *   4. If inside: chains to fragment shader at `fragPcReg`, which samples
+  *      texels via TEX/TEXA (docs/B2_texture_unit.md) when it needs to --
+  *      entirely within BorgCore, this dispatcher is not involved.
   *   5. Pushes snooped fragment RGBZ to the tile buffer.
   *   6. Releases the CPU stall.
   *
@@ -84,27 +85,12 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val alphaWrite     = if (cfg.hasBlend) Some(Output(UInt(8.W))) else None
   val alphaWriteMask = if (cfg.hasBlend) Some(Output(Bool())) else None
 
-  // --- Inputs from texture pipeline ---
-  val texConfig  = new TexConfigIO              // mortonIndex, baseAddr, en
-  val log2Dim    = Input(UInt(4.W))             // tex_config_log2_dim, see ClampTexCoord
-  // Runtime VkFilter for the sampler (SAMPLER_CFG). Only present in a build
-  // that has the filtering hardware to obey it.
-  val texFilterLinear = if (cfg.hasBilinear) Some(Input(Bool())) else None
-  // VkSamplerAddressMode per axis plus VkBorderColor (SAMPLER_CFG). Present
-  // with the filtering hardware since both feed the same tap addressing.
-  val texAddrModeU = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
-  val texAddrModeV = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
-  val texBorder    = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
-
   // --- Outputs to BorgCore ---
   val coreTrigger = new CoreTriggerIO           // shader start pulse + PC
 
   // --- Outputs to BorgTileBuffer ---
   val tileWrite  = new TileWriteIO(cfg.samples, cfg.tileDepthBits)      // tile buffer push
   val tileRead   = new TileReadIO(16, cfg.samples, cfg.tileDepthBits)   // Step 25.5C: depth test read port
-
-  // --- Outputs to MemoryController (DRAM) ---
-  val gpuMem     = new GpuMemIO                 // texel read port
 
   // --- Outputs (status / debug) ---
   val autoRunStall = Output(Bool())             // stalls CPU between advance and completion
@@ -114,16 +100,6 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   // port was once narrower than the enum, and a new state truncated to 0
   // read as idle -- a tile flushed under a quad still in flight.
   val idle         = Output(Bool())
-
-  // Step 34.5: FTEX inline texture fetch — core ↔ dispatcher ↔ texture unit
-  val texReq  = Input(Bool())         // core requests texture fetch (FTEX instruction)
-  val texU    = Input(UInt(16.W))     // U coordinate from core rs1
-  val texV    = Input(UInt(16.W))     // V coordinate from core rs2
-  val texDone = Output(Bool())        // texture unit completion pulse (to core)
-  val texR    = Output(UInt(16.W))    // fetched texel R (to core)
-  val texG    = Output(UInt(16.W))    // fetched texel G (to core)
-  val texB    = Output(UInt(16.W))    // fetched texel B (to core)
-  val texA    = Output(UInt(16.W))    // fetched texel A (to core)
 
   // ZTEST: early per-fragment tests, requested mid-shader by the core.
   val zTestReq   = Input(Bool())
@@ -224,15 +200,13 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
 
   // --- Phase FSM ---
   // Step 25.5C: sZRead/sZWait1/sZWait2 added for depth test read-before-write.
-  // sTexFetch (the legacy autonomous single-texel fetch state) removed:
-  // texturing is exclusively FTEX-inline (Step 34.5) now, driven mid-sFrag by
-  // the core's own FTEX instruction rather than a dispatcher-owned FSM state.
+  // sTexFetch (the legacy autonomous single-texel fetch state) removed, and
+  // later FTEX itself (Step 34.5, the dispatcher-owned BorgTextureUnit) was
+  // retired in favour of TEX/TEXA (BorgSampler, docs/B2_texture_unit.md),
+  // which lives entirely in BorgCore and needs nothing from this dispatcher.
   val (sIdle :: sRast :: sFrag :: sZRead :: sZWait1 :: sZWait2 :: sTileWrite ::
        sDstRead :: sDstWait1 :: sDstWait2 :: sDstCap :: Nil) = Enum(11)
   val phase = RegInit(sIdle)
-
-  // --- Texture unit (Step 25.3e) ---
-  val texUnit = Module(new BorgTextureUnit(cfg.hasBilinear))
 
   private val N = cfg.fragLanes
 
@@ -500,109 +474,6 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   // written by a stray write.en pulse from elsewhere in the FSM.
   io.alphaWriteMask.foreach(_ := false.B)
 
-  // GPU memory port: forwarded from BorgTextureUnit (Step 25.3e)
-  texUnit.io.texConfig <> io.texConfig
-  texUnit.io.gpuMem    <> io.gpuMem
-  texUnit.io.start     := false.B  // overridden by the FTEX start pulse below
-
-  // Step 34.5: FTEX inline texture fetch — core drives texture unit directly
-  //
-  // When the core executes an FTEX instruction, it asserts texReq with U/V.
-  // The dispatcher computes Morton coordinates inline and starts the texture
-  // unit, forwarding results back to the core on completion. This is the
-  // only texture-fetch path — the legacy autonomous single-texel fetch (a
-  // dedicated FSM state that fired unconditionally once per fragment
-  // whenever texturing was enabled, whether or not the shader asked for it)
-  // was removed once no shader depended on it.
-  //
-  // Single-shader textured/non-textured support:
-  // When tex_config.en=false, FTEX immediately returns (1.0, 1.0, 1.0).
-  // This means: texel(1,1,1) × vertexColor = vertexColor — pure interpolated
-  // color, no texture. The shader binary is identical for both paths.
-  val FP16_ONE_U = 0x3C00.U(16.W)
-
-  val ftexActive = RegInit(false.B)  // FTEX fetch in progress (tex enabled)
-  val ftexMortonIndex = Wire(UInt(16.W))
-  // Clamped to the last valid row/column -- see ClampTexCoord's comment. A
-  // UV of exactly 1.0 at a triangle's far edge/vertex legitimately
-  // interpolates to the texture's width in texel space (e.g. 64.0 for a
-  // 64-wide texture) rather than 63.999..., which floors to one past the
-  // last valid index; left unclamped that reads unpopulated texture memory
-  // and returns black for an otherwise-correctly-covered pixel.
-  // Base coordinate. In a build without the sampler hardware this is the
-  // historical clamp, unchanged; with it, the configured address mode --
-  // whose CLAMP_TO_EDGE reset value IS that same clamp, so nothing moves
-  // until firmware selects otherwise.
-  val (ftex_u8, ftex_v8) = if (cfg.hasBilinear) {
-    // Fp16ToSignedTexCoord, not Fp16ToUint8: this is the one place a
-    // negative UV first becomes a texel coordinate, so it's the only call
-    // site that needs the sign-preserving conversion and the real sign bit
-    // -- see TexAddressMode's own doc for why REPEAT/MIRRORED_REPEAT
-    // couldn't wrap negative UV before this (io.texU/io.texV(15) below is
-    // the FP16 sign bit, not derived from the converted value).
-    val (u, _) = TexAddressMode(Fp16ToSignedTexCoord(io.texU), io.log2Dim, io.texAddrModeU.get, io.texU(15))
-    val (v, _) = TexAddressMode(Fp16ToSignedTexCoord(io.texV), io.log2Dim, io.texAddrModeV.get, io.texV(15))
-    (u, v)
-  } else {
-    (ClampTexCoord(Fp16ToUint8(io.texU), io.log2Dim),
-     ClampTexCoord(Fp16ToUint8(io.texV), io.log2Dim))
-  }
-  ftexMortonIndex := MortonEncode(ftex_u8, ftex_v8)
-
-  // Bilinear operands. The integer halves deliberately reuse ftex_u8/ftex_v8
-  // rather than re-deriving from Fp16ToFixed88's high byte: the nearest path
-  // must keep sampling exactly the texel it always did, so the two paths
-  // share one source of truth for "which texel is the base".
-  texUnit.io.bilinear.foreach { b =>
-    b.enable  := io.texFilterLinear.get
-    b.u8      := ftex_u8
-    b.v8      := ftex_v8
-    b.fracU   := Fp16ToFixed88(io.texU)(7, 0)
-    b.fracV   := Fp16ToFixed88(io.texV)(7, 0)
-    b.log2Dim   := io.log2Dim
-    b.addrModeU := io.texAddrModeU.get
-    b.addrModeV := io.texAddrModeV.get
-    b.border    := io.texBorder.get
-  }
-
-  // Default FTEX response
-  io.texDone := false.B
-  io.texR    := 0.U
-  io.texG    := 0.U
-  io.texB    := 0.U
-  io.texA    := 0.U
-
-  // FTEX start: when texture is enabled, start the texture unit
-  when(io.texReq && phase === sFrag) {
-    when(io.texConfig.en) {
-      // Texture enabled: start texture unit fetch
-      texUnit.io.start := true.B
-      texUnit.io.texConfig.mortonIndex := ftexMortonIndex
-      ftexActive := true.B
-    }.otherwise {
-      // Texture disabled: immediately return opaque white (1.0, 1.0, 1.0, 1.0)
-      // texel(1,1,1,1) × vertexColor = vertexColor (non-textured pass-through)
-      io.texDone := true.B
-      io.texR    := FP16_ONE_U
-      io.texG    := FP16_ONE_U
-      io.texB    := FP16_ONE_U
-      io.texA    := FP16_ONE_U
-    }
-  }
-
-  // FTEX completion: forward texUnit results to core (texture-enabled path)
-  when(ftexActive && texUnit.io.done) {
-    io.texDone := true.B
-    io.texR    := texUnit.io.fragColor.r
-    io.texG    := texUnit.io.fragColor.g
-    io.texB    := texUnit.io.fragColor.b
-    io.texA    := texUnit.io.fragA
-    // ftexActive gates this block to genuine FTEX completions -- texUnit.io.start
-    // is only ever pulsed from the FTEX branch above, so texUnit.io.done can
-    // only fire in response to one.
-  }
-
-
   // ZTEST request. Run the early tests if this is a fragment shader that has
   // not already run them; otherwise (MMIO/compute run, a repeated ZTEST, or a
   // build without early-test support) answer at once and change nothing.
@@ -681,8 +552,6 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   when(phase === sFrag && core_just_finished) {
     laneCtr := 0.U
     phase   := sZRead
-    // Clear ftexActive for next quad — FTEX was a one-shot for this frag invocation.
-    ftexActive := false.B
   }
 
   // Step 25.5C: Depth test — read-before-write on tile SRAM

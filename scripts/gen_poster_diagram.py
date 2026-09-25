@@ -52,7 +52,7 @@ COLUMNS = [
             "BorgBinner",
             "BorgTileFlusher",
             "BorgRasterizer",
-            "BorgTextureUnit",
+            "BorgSampler",
             "BorgTileBuffer",
             "BorgDMA",
             "BorgIterator",

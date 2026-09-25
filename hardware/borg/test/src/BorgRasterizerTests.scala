@@ -19,14 +19,14 @@ object BorgRasterizerTests extends TestSuite {
   // = fp))` convenience constructor -- calling it with a bare FloatConfig rides on
   // BorgConfig.Default's *entire* current shape for everything but `fp`, which is how
   // this suite silently went from single-sample/no-fixed-function to samples=4 +
-  // hasBlend/hasStencil/hasBilinear/hasDepthFlush on 2026-09-15 and broke
+  // hasBlend/hasStencil/hasDepthFlush on 2026-09-15 and broke
   // chain_inside_pixel_triggers_frag for a reason that had nothing to do with what it
   // tests (same trap BorgShaderDispatcherTestHelpers.BASE's doc names for the FP32
   // move). Pinned explicitly instead, single-sample and no optional tile-path hardware
   // -- this suite is standalone rasterizer FSM/coverage logic, not a target config.
   val config = BorgConfig.Test.copy(
     fp = FloatConfig.FP16, samples = 1,
-    hasBlend = false, hasStencil = false, hasBilinear = false, hasDepthFlush = false)
+    hasBlend = false, hasStencil = false, hasDepthFlush = false)
 
   /** Set all control inputs to idle (no clock step). */
   def pokeIdle(rast: BorgRasterizer): Unit = {
@@ -39,12 +39,6 @@ object BorgRasterizerTests extends TestSuite {
     rast.io.pipeWrite(0).data.poke(0.U)
     rast.io.coreStatus.running.poke(false.B)
     rast.io.coreStatus.autoRunPending.poke(false.B)
-    // Step 19.2 GPU read-port defaults
-    rast.io.gpuMem.data.poke(0.U)
-    rast.io.gpuMem.ready.poke(false.B)
-    rast.io.texConfig.mortonIndex.poke(0.U)
-    rast.io.texConfig.baseAddr.poke(0.U)
-    rast.io.texConfig.en.poke(false.B)
     // Register-driven frag_pc and uniform_page
     rast.io.fragPcReg.poke(0.U)
     rast.io.uniformPageReg.poke(0.U)

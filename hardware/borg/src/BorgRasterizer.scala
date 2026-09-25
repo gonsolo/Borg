@@ -95,34 +95,12 @@ class BorgRasterizerIO(val cfg: BorgConfig) extends Bundle {
   // Step 25.5C: Tile Buffer read port for depth test
   val tileRead  = new TileReadIO(16, cfg.samples, cfg.tileDepthBits)
 
-  // GPU memory read/write port (Step 19.2/24.3)
-  val gpuMem    = new GpuMemIO
-  val texConfig  = new TexConfigIO
-  // log2 of the texture dimension (tex_config_log2_dim MMIO field), for
-  // clamping texel coordinates to the last valid row/column -- see
-  // ClampTexCoord's comment.
-  val log2Dim    = Input(UInt(4.W))
-  // Runtime VkFilter for the sampler, forwarded to BorgShaderDispatcher.
-  val texFilterLinear = if (cfg.hasBilinear) Some(Input(Bool())) else None
-  val texAddrModeU    = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
-  val texAddrModeV    = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
-  val texBorder       = if (cfg.hasBilinear) Some(Input(UInt(2.W))) else None
-
-  // Step 34.5: FTEX core ↔ dispatcher texture request/response
-  val texReq  = Input(Bool())
-  val texU    = Input(UInt(16.W))
-  val texV    = Input(UInt(16.W))
-  val texDone = Output(Bool())
   // ZTEST (see BorgShaderDispatcher) and per-lane side-effect suppression.
   val zTestReq   = Input(Bool())
   val zTestDone  = Output(Bool())
   val laneHelper = Output(Vec(cfg.fragLanes, Bool()))
   val passSample = if (cfg.msaaMultiPass) Some(Input(UInt(log2Up(cfg.samples).W))) else None
   val occSamples = Output(UInt(log2Ceil(cfg.samples + 1).W))
-  val texR    = Output(UInt(16.W))
-  val texG    = Output(UInt(16.W))
-  val texB    = Output(UInt(16.W))
-  val texA    = Output(UInt(16.W))
 
   // Dispatcher FSM phase (exposed for sequencer pipeline drain)
   val dispatcherIdle  = Output(Bool())
@@ -172,12 +150,6 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       ScissorConfig.passes(io.scissor, iterator.io.shaderIter(i).x +& io.pixelOrigin.x,
                            iterator.io.shaderIter(i).y +& io.pixelOrigin.y)
   }
-  dispatcher.io.texConfig      <> io.texConfig
-  dispatcher.io.log2Dim        := io.log2Dim
-  dispatcher.io.texFilterLinear.foreach(_ := io.texFilterLinear.get)
-  dispatcher.io.texAddrModeU.foreach(_ := io.texAddrModeU.get)
-  dispatcher.io.texAddrModeV.foreach(_ := io.texAddrModeV.get)
-  dispatcher.io.texBorder.foreach(_ := io.texBorder.get)
   dispatcher.io.covDelta.foreach(_ := io.covDelta.get)
   dispatcher.io.drawMode.foreach(_ := io.drawMode.get)
   dispatcher.io.topLeft.foreach(_ := io.topLeft.get)
@@ -192,19 +164,9 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.coreTrigger  <> dispatcher.io.coreTrigger
   io.tileWrite    <> dispatcher.io.tileWrite
   io.tileRead     <> dispatcher.io.tileRead
-  io.gpuMem       <> dispatcher.io.gpuMem
   io.autoRunStall := dispatcher.io.autoRunStall
   io.insideFlag   := dispatcher.io.insideFlag
 
-  // Step 34.5: FTEX core ↔ dispatcher forwarding
-  dispatcher.io.texReq := io.texReq
-  dispatcher.io.texU   := io.texU
-  dispatcher.io.texV   := io.texV
-  io.texDone           := dispatcher.io.texDone
-  io.texR              := dispatcher.io.texR
-  io.texG              := dispatcher.io.texG
-  io.texB              := dispatcher.io.texB
-  io.texA              := dispatcher.io.texA
   dispatcher.io.zTestReq := io.zTestReq
   io.zTestDone         := dispatcher.io.zTestDone
   io.laneHelper        := dispatcher.io.laneHelper

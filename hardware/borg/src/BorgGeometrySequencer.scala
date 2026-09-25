@@ -101,9 +101,8 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
   val colorRegs = Reg(Vec(3, Vec(4, UInt(cfg.totalBits.W))))  // [v][r,g,b,z]
   // cfg.totalBits wide: texture coordinates are datapath values. The
   // fragment shader interpolates them in the general ALU (FMUL/FMADD on
-  // u13-u18) before FTEX, and only FTEX narrows the result to the FP16-native
-  // texture unit (BorgCore). A 16-bit register here kept the low half of an
-  // FP32 coordinate -- 0.75f (0x3F400000) staged as 0.
+  // u13-u18) before TEX samples with them. A 16-bit register here kept the
+  // low half of an FP32 coordinate -- 0.75f (0x3F400000) staged as 0.
   val uvRegs    = Reg(Vec(3, Vec(2, UInt(cfg.totalBits.W))))  // [v][u,v]
 
   // Shadow registers for setup shader outputs: r0-r5 = scaled edge
@@ -485,12 +484,12 @@ class BorgGeometrySequencer(val cfg: BorgConfig = BorgConfig.Default) extends Mo
   // separate 31-entry register array, since the source shadow registers
   // (setupRegs/clipRegs/uvRegs/colorRegs) are stable across both states.
   //
-  // FTEX uniform layout (matching frag.s SPIRB output with uniform_base=12):
+  // Legacy-mode uniform layout (matching the SPIRB fragment's uniform_base=12):
   //   u0-u5:   scaled edge components (setupRegs[0..5])
   //   u6-u11:  negated vertex positions FNEG(clipRegs)
   //   u12:     inv_area (setupRegs[7])
-  //   u13-u15: U texture coord  (v2, v1, v0) -- pre-scaled by tex_w
-  //   u16-u18: V texture coord  (v2, v1, v0) -- pre-scaled by tex_h
+  //   u13-u15: U texture coord  (v2, v1, v0) -- normalized
+  //   u16-u18: V texture coord  (v2, v1, v0)
   //   u19-u21: frag_pos.x       (v2, v1, v0) -- model position (borgc lighting)
   //   u22-u24: frag_pos.y       (v2, v1, v0)
   //   u25-u27: frag_pos.z       (v2, v1, v0)

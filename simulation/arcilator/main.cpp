@@ -29,25 +29,14 @@ static void mb_word(ArcBorgSimulator &sim, uint32_t word_idx, uint32_t v) {
     flat_write_word(sim, BORG_CTS_MAILBOX_SPI + word_idx * 4, v);
 }
 
-// Fill the whole texture region with white so the baked frag's
-// `texel × vertex_color` modulation passes vertex color through. Texels are
-// FP16 (1.0 = 0x3C00), two 32-bit words per texel -- word0 = {G, R},
-// word1 = {0, B}, the layout BorgTextureUnit reads (see borg_upload_texture).
-static void fill_white_texture(ArcBorgSimulator &sim) {
-    for (uint32_t a = TEX_DRAM_BYTE_ADDR_FIXED;
-         a + 7 < TEX_DRAM_BYTE_ADDR_FIXED + TEX_REGION_BYTES; a += 8) {
-        flat_write_word(sim, a,     0x3C003C00u);
-        flat_write_word(sim, a + 4, 0x00003C00u);
-    }
-}
-
 // Write a draw command (positions, per-vertex colors, indices, MVP) into the
-// DRAM mailbox and lay down a white texture.  pos/col are float xyz/rgb.
+// DRAM mailbox. pos/col are float xyz/rgb. The texture the baked fragment
+// samples is the firmware's own: it fills it white at boot and points texture
+// descriptor 0 at it.
 static void write_mailbox_draw(ArcBorgSimulator &sim,
                                const float *pos, const float *col, int nverts,
                                const uint8_t *idx, int ntris,
                                const float mvp[16]) {
-    fill_white_texture(sim);
     mb_word(sim, BORG_CTS_OFF_NVERTS, (uint32_t)nverts);
     mb_word(sim, BORG_CTS_OFF_NTRIS,  (uint32_t)ntris);
     for (int i = 0; i < 16; i++)
@@ -320,7 +309,6 @@ int main(int argc, char **argv) {
     ArcBorgSimulator sim(firmware_path, width, height);
 
     AppConfig cfg = get_app_config(app_name);
-    sim.load_texture(cfg.tex_path, cfg.tex_dim);
     if (cfg.has_camera)
         sim.set_camera_angles(cfg.cam_angle_x, cfg.cam_angle_y);
     std::cout << "[SIM] Starting simulation...\n";

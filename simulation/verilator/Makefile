@@ -10,7 +10,6 @@ HDMI_SRCS   = $(wildcard $(HDMI_DIR)/*.sv)
 APP  ?= vkcube
 FBW  ?= 128
 FBH  ?= 128
-TEXD ?= 64
 
 .PHONY: all vkcube_gui hdmi clean cts-uart cts-uart-golden push-const-test
 
@@ -54,7 +53,6 @@ define VERILATE
 	$(wildcard $(2)/verification/*.sv) \
 	$(4) \
 	../common/BorgSimulatorBase.cpp \
-	../common/texture_loader.cpp \
 	../common/uart_decoder.cpp \
 	-o $(5)
 endef
@@ -158,7 +156,7 @@ vkcube_gui: python_extension $(FIRMWARE_DIR)/kernel.bin
 
 # make hdmi APP=kernel FBW=32 FBH=32
 hdmi: obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin
-	./obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin $(APP) $(FBW) $(FBH) $(TEXD)
+	./obj_dir_hdmi/verilator_hdmi $(FIRMWARE_DIR)/$(APP).bin $(APP) $(FBW) $(FBH)
 
 # CTS UART path: replay a captured borgvk burst (geometry+shaders+texture+MVP)
 # → firmware → RGB565 framebuffer.  kernel.bin bakes in no content, so a bare

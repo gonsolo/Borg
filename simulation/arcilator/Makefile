@@ -42,9 +42,6 @@ arc.h: state.json
 # software/borg/borg_layout.h.  Wildcard firmware headers so a layout change
 # triggers a rebuild (prevents stale-object render hangs).
 
-texture_loader.o: ../common/texture_loader.cpp ../common/texture_loader.h $(LAYOUT_HDRS)
-	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
-
 uart_decoder.o: ../common/uart_decoder.cpp ../common/uart_decoder.h
 	$(CLANG) -O3 -I../common -c $< -o $@
 
@@ -60,11 +57,11 @@ BorgSimulatorBase.o: ../common/BorgSimulatorBase.cpp ../common/BorgSimulatorBase
 ArcBorgSimulator.o: ArcBorgSimulator.cpp ArcBorgSimulator.h arc.h ../common/BorgSimulatorBase.h ../common/uart_tx.h $(LAYOUT_HDRS)
 	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
 
-main.o: main.cpp arc.h arcilator-runtime.h ../common/texture_loader.h ArcBorgSimulator.h ../common/BorgSimulatorBase.h $(LAYOUT_HDRS)
+main.o: main.cpp arc.h arcilator-runtime.h ArcBorgSimulator.h ../common/BorgSimulatorBase.h $(LAYOUT_HDRS)
 	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
 
 # Step 6: Link
-arcilator_sim: main.o arc.o texture_loader.o uart_decoder.o BorgSimulatorBase.o ArcBorgSimulator.o
+arcilator_sim: main.o arc.o uart_decoder.o BorgSimulatorBase.o ArcBorgSimulator.o
 	$(CLANG) -O3 $^ -o $@
 
 # Firmware binaries — always invoke the firmware Makefile so its cflags_stamp

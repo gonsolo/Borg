@@ -29,8 +29,8 @@ import chisel3.util._
   *     offset 12: color.r
   *     offset 16: color.g
   *     offset 20: color.b
-  *     offset 24: uv.u  (pre-scaled by tex_w in the descriptor)
-  *     offset 28: uv.v  (pre-scaled by tex_h in the descriptor)
+  *     offset 24: uv.u  (normalized; TEX scales by the texture's size)
+  *     offset 28: uv.v
   *
   * Physical uniform register map (from SPIRB blob parse of shader_blobs.h):
   *   Rasterizer shader (uniform_regs[0..11] = [0..11]):
@@ -43,17 +43,16 @@ import chisel3.util._
   *     u6  = -v0.x, u7 = -v0.y    (negated vertex 0 position)
   *     u8  = -v1.x, u9 = -v1.y    (negated vertex 1 position)
   *     u10 = -v2.x, u11 = -v2.y   (negated vertex 2 position)
-  *   Fragment shader (uniform_regs[0..18] = [12..30], FTEX layout):
+  *   Fragment shader (uniform_regs[0..18] = [12..30]):
   *     u12 = inv_area
-  *     u13-u15 = UV.u of (v2, v1, v0)  — pre-scaled by tex_w in descriptor
-  *     u16-u18 = UV.v of (v2, v1, v0)  — pre-scaled by tex_h in descriptor
+  *     u13-u15 = UV.u of (v2, v1, v0)
+  *     u16-u18 = UV.v of (v2, v1, v0)
   *     u19-u21 = frag_pos.x of (v2, v1, v0)  — screen-space/transformed position (borgc lighting)
   *     u22-u24 = frag_pos.y of (v2, v1, v0)
   *     u25-u27 = frag_pos.z of (v2, v1, v0)
   *     u28-u30 = z_val      of (v2, v1, v0)  — projected depth for z-interp
   *
-  *  When tex disabled (has_uvs=false): UV words are zero (Morton=0, white texel
-  *  returned by dispatcher), giving texel(1,1,1) × vertexColor = vertexColor.
+  *  When has_uvs=false the UV words are zero.
   *
   * The setup shader outputs pre-scaled edge constants to r0-r5 (already
   * multiplied by inv_width = 1/64 for a 64-wide framebuffer).

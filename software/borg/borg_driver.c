@@ -197,7 +197,6 @@ typedef struct {
 typedef struct {
   int dram_offset;        // -1 = no texture
   dim2_t size;             // integer dimensions
-  borg_float_t w_f, h_f;   // dimensions as datapath floats (UV pre-scale)
 } texture_t;
 
 // Runtime framebuffer dimensions and derived values
@@ -205,8 +204,10 @@ int borg_fb_width;
 int borg_fb_height;
 static borg_float_t half_width_f;
 
-// log2 of the current texture dimension (set by borg_set_texture; 0 = no clamp).
-static uint8_t tex_log2_dim = 0;
+// Sampler descriptor 0 (docs/B2_texture_unit.md) until borgvk sends the app's:
+// nearest filtering, CLAMP_TO_EDGE (VkSamplerAddressMode 2) on U, V and W, no
+// LOD bias, LOD clamped to [0, 0].
+static uint32_t g_sampler_desc[4] = {(2u << 3) | (2u << 6) | (2u << 9), 0, 0, 0};
 
 // Fragment uniform-staging mode for u19-u27 (see record_draw_call / BorgSequencer):
 //   0 (default) = the frag reads model frag_pos there (borgc cube.frag lighting
@@ -580,28 +581,36 @@ void borg_clear_zbuffer(int frame, rgb16_t clear_color) {
   t_clear_cycles = get_cycles() - t_start;
 }
 
+void borg_set_sampler(const uint32_t desc[4]) {
+  for (int i = 0; i < 4; i++)
+    g_sampler_desc[i] = desc[i];
+}
+
 void borg_set_texture(int tex_width, int tex_height) {
   tex = (texture_t){.dram_offset = 0, // unused, texture at fixed DRAM addr
-                    .size = {tex_width, tex_height},
-                    .w_f = borg_float_from_uint((uint32_t)tex_width),
-                    .h_f = borg_float_from_uint((uint32_t)tex_height)};
-  // Compute log2(tex_width) for the hardware UV clamp (tex_width is power-of-2).
-  tex_log2_dim = 0;
-  for (int d = tex_width; d > 1; d >>= 1)
-    tex_log2_dim++;
-  // Step 21.2: Enable hardware sTexFetch via TEX_CONFIG MMIO register.
-  // Texture lives at TEX_DRAM_BYTE_ADDR_FIXED (defined in borg_layout.h),
-  // BEFORE the framebuffer, so it always fits in the 16-bit base_addr field.
-  BORG_GPU->tex_config =
-      (TEX_DRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) |
-      TEX_CONFIG_REG_T__EN_bm |
-      ((uint32_t)tex_log2_dim << TEX_CONFIG_REG_T__LOG2_DIM_bp);
+                    .size = {tex_width, tex_height}};
+  // Texture descriptor 0 (docs/B2_texture_unit.md): a 2D, one-level,
+  // one-layer RGBA8 image, linear, identity swizzle.
+  DRAM_OUT_RAW(TEX_DESC_TABLE_ADDR + 0) = TEX_TEXEL_ADDR;
+  DRAM_OUT_RAW(TEX_DESC_TABLE_ADDR + 4) =
+      (uint32_t)(tex_width - 1) | ((uint32_t)(tex_height - 1) << 16) |
+      (1u << 28) |  // type 2D
+      (1u << 30);   // linear layout
+  DRAM_OUT_RAW(TEX_DESC_TABLE_ADDR + 8) =
+      (uint32_t)BORG_TEX_FORMAT_R8G8B8A8_UNORM << 14;
+  DRAM_OUT_RAW(TEX_DESC_TABLE_ADDR + 12) = (uint32_t)tex_width * 4; // bytes per row
+  for (int w = 4; w < 16; w++)
+    DRAM_OUT_RAW(TEX_DESC_TABLE_ADDR + (uint32_t)w * 4) = 0;
+  for (int w = 0; w < 4; w++)
+    DRAM_OUT_RAW(SAMPLER_DESC_TABLE_ADDR + (uint32_t)w * 4) = g_sampler_desc[w];
+  // Written after the tables: a write to either register also drops the one
+  // texture and one sampler descriptor the unit caches.
+  BORG_GPU->tex_desc_base = TEX_DESC_TABLE_ADDR;
+  BORG_GPU->sampler_desc_base = SAMPLER_DESC_TABLE_ADDR;
 }
 
 void borg_clear_texture(void) {
   tex.dram_offset = -1;
-  // Step 21.2: Disable hardware sTexFetch.
-  BORG_GPU->tex_config = 0;
 }
 
 // Step 50 item 13: stage a push-constant range and point LS_BASE at it.
@@ -632,43 +641,18 @@ void borg_set_push_constants(const uint32_t *words, uint32_t off_words,
   BORG_GPU->ls_base = BORG_PUSH_CONST_SPI & LS_BASE_REG_T__BASE_ADDR_bm;
 }
 
-// Upload a row-major RGB-FP16 texture (6 bytes/texel: R, G, B each one FP16
-// halfword) into the GPU texture region at TEX_DRAM_BYTE_ADDR_FIXED, Morton-
-// encoded into the 2-word (8-byte) layout the hardware sTexFetch reads:
-//   word0 = { G[15:0], R[15:0] }    word1 = { 0, B[15:0] }
-// This mirrors the simulator's load_texture_to_dram() byte-for-byte so the
-// hardware framebuffer matches sim.  In sim the host preloads DRAM; on ULX3S
-// there is no host, so the CPU writes the texels into SDRAM itself.  Writes are
-// full 32-bit words on 8-byte-aligned addresses, so no byte-write RMW occurs.
-void borg_upload_texture(const uint8_t *rgb_fp16, int dim) {
-  for (int y = 0; y < dim; y++) {
-    for (int x = 0; x < dim; x++) {
-      int src = y * dim + x;
-      uint32_t dst = morton_encode((uint32_t)x, (uint32_t)y);
-      uint16_t r = rgb_fp16[(src * 3 + 0) * 2] | (rgb_fp16[(src * 3 + 0) * 2 + 1] << 8);
-      uint16_t g = rgb_fp16[(src * 3 + 1) * 2] | (rgb_fp16[(src * 3 + 1) * 2 + 1] << 8);
-      uint16_t b = rgb_fp16[(src * 3 + 2) * 2] | (rgb_fp16[(src * 3 + 2) * 2 + 1] << 8);
-      uint32_t byte_addr = TEX_DRAM_BYTE_ADDR_FIXED + dst * 8;
-      DRAM_OUT_RAW(byte_addr)     = (uint32_t)r | ((uint32_t)g << 16);
-      DRAM_OUT_RAW(byte_addr + 4) = (uint32_t)b;
-    }
-  }
-}
-
-// Upload a single texture row (Phase B): the host (borgvk) streams the app's
-// texture one row at a time so no large assembly buffer is needed.  `row` is
-// `dim` texels of RGB-FP16 (6 bytes each) for the given y, written Morton-encoded
-// like borg_upload_texture above.
+// Upload a single texture row: the host (borgvk) streams the app's texture one
+// row at a time so no large assembly buffer is needed. `row` is `dim` RGBA8
+// texels for the given y, stored linear (row-major) at TEX_TEXEL_ADDR -- what
+// texture descriptor 0 describes. One 32-bit write per texel, word-aligned, so
+// no byte-write RMW occurs.
 void borg_upload_texture_row(const uint8_t *row, int y, int dim) {
+  uint32_t base = TEX_TEXEL_ADDR + (uint32_t)y * (uint32_t)dim * 4;
   for (int x = 0; x < dim; x++) {
-    int src = x;
-    uint32_t dst = morton_encode((uint32_t)x, (uint32_t)y);
-    uint16_t r = row[(src * 3 + 0) * 2] | (row[(src * 3 + 0) * 2 + 1] << 8);
-    uint16_t g = row[(src * 3 + 1) * 2] | (row[(src * 3 + 1) * 2 + 1] << 8);
-    uint16_t b = row[(src * 3 + 2) * 2] | (row[(src * 3 + 2) * 2 + 1] << 8);
-    uint32_t byte_addr = TEX_DRAM_BYTE_ADDR_FIXED + dst * 8;
-    DRAM_OUT_RAW(byte_addr)     = (uint32_t)r | ((uint32_t)g << 16);
-    DRAM_OUT_RAW(byte_addr + 4) = (uint32_t)b;
+    const uint8_t *p = &row[x * 4];
+    DRAM_OUT_RAW(base + (uint32_t)x * 4) =
+        (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
+        ((uint32_t)p[3] << 24);
   }
 }
 
@@ -695,17 +679,16 @@ static void record_draw_call(const triangle_t *tri, const texture_t *t,
   uint32_t desc_base = SEQ_DESC_BASE_ADDR + (uint32_t)idx * SEQ_DESC_STRIDE;
 
   if (!g_cmdbuf_valid) {
-    // Static geometry — model-space positions, pre-scaled UVs, and metadata.
+    // Static geometry — model-space positions, UVs, and metadata. UVs are
+    // normalized, as TEX takes them (the texture descriptor has the size).
     // Written once on the first frame; never changes between frames.
     for (int v = 0; v < 3; v++) {
       uint32_t vbase = desc_base + (uint32_t)v * 32;
       DRAM_OUT_RAW(vbase + 0) = g_current_raw_verts[v*3+0];  // model.x
       DRAM_OUT_RAW(vbase + 4) = g_current_raw_verts[v*3+1];  // model.y
       DRAM_OUT_RAW(vbase + 8) = g_current_raw_verts[v*3+2];  // model.z
-      DRAM_OUT_RAW(vbase + 24) = tri->has_uvs
-          ? borg_float_mul(tri->uvs[v].u, t->w_f) : BORG_FLOAT_ZERO;
-      DRAM_OUT_RAW(vbase + 28) = tri->has_uvs
-          ? borg_float_mul(tri->uvs[v].v, t->h_f) : BORG_FLOAT_ZERO;
+      DRAM_OUT_RAW(vbase + 24) = tri->has_uvs ? tri->uvs[v].u : BORG_FLOAT_ZERO;
+      DRAM_OUT_RAW(vbase + 28) = tri->has_uvs ? tri->uvs[v].v : BORG_FLOAT_ZERO;
     }
     // Metadata: only has_uvs is read by the hardware (desc + 168); the binner
     // computes each triangle's bbox from the transformed vertices itself.
@@ -752,29 +735,12 @@ static void borgBinRenderAutonomous(int frame) {
   // borgCreateGraphicsPipeline() with the correct DRAM staging addresses.
   // Do NOT overwrite them here.
 
-  // Texture config: set once per frame. The sequencer's sStageUniforms now
-  // writes UV coords from the descriptor (pre-scaled by tex_w/tex_h in
-  // record_draw_call). When has_uvs=false, UV descriptor words are zero;
-  // FTEX returns white (texel(1,1,1) × vertexColor = vertexColor).
-  // Scan draw calls: enable texture if ANY draw call uses a texture.
-  // The global 'tex' state may have been cleared by borg_clear_texture()
-  // between draw calls, but per-draw-call UVs are already recorded.
-  {
-    int any_textured = 0;
-    for (int i = 0; i < draw_call_count; i++) {
-      if (draw_calls[i].tex.dram_offset >= 0) { any_textured = 1; break; }
-    }
-    // Fragment uniform-staging mode (u19-u27): the hand frag.s reads vertex
-    // colour there (bit=0), the borgc cube.frag reads model frag_pos (bit=1).
-    // OR it into every tex_config write (incl. the non-textured branch) so the
-    // sequencer always knows which the loaded fragment expects.
-    uint32_t frag_mode = borg_frag_vertex_color
-        ? 0 : TEX_CONFIG_REG_T__FRAG_USES_FRAGPOS_bm;
-    uint32_t log2_bits = (uint32_t)tex_log2_dim << TEX_CONFIG_REG_T__LOG2_DIM_bp;
-    BORG_GPU->tex_config = (any_textured
-        ? ((TEX_DRAM_BYTE_ADDR_FIXED & TEX_CONFIG_REG_T__BASE_ADDR_bm) | TEX_CONFIG_REG_T__EN_bm)
-        : 0) | frag_mode | log2_bits;
-  }
+  // Fragment uniform-staging mode (u19-u27): the hand frag.s reads vertex
+  // colour there (bit=0), the borgc cube.frag reads model frag_pos (bit=1).
+  // It is the only live field of TEX_CONFIG; the rest belonged to the retired
+  // FTEX texture path (texturing is TEX descriptors now, see borg_set_texture).
+  BORG_GPU->tex_config = borg_frag_vertex_color
+      ? 0 : TEX_CONFIG_REG_T__FRAG_USES_FRAGPOS_bm;
   BORG_GPU->control = 0; // uniform page 0
 
   // Critical: set frag_pc so the dispatcher chains to the fragment shader.

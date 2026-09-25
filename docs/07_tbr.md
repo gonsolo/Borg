@@ -107,7 +107,7 @@ graph TD
         VSH[Vertex Shader]:::gpu
         BINNER[BorgBinner]:::gpu
         RAST[Rasterizer]:::gpu
-        TEXU[BorgTextureUnit]:::gpu
+        TEXU[BorgSampler]:::gpu
         TBUF(On-Chip Tile Buffer):::gpu
         FLUSH[BorgTileFlusher]:::gpu
     end
@@ -130,7 +130,7 @@ graph TD
     SEQ -- "Feeds 2D Triangles" --> RAST
     RAST -- "Requests" --> TEXU
     TEXU -- "Fetches" --> TEX
-    TEXU -- "Returns RGB" --> RAST
+    TEXU -- "Returns RGBA" --> RAST
     RAST -- "Blends Pixels" --> TBUF
 
     %% Phase 3 - GPU
@@ -144,7 +144,7 @@ graph TD
 - **VSH (Vertex Shader)**: Executes `BorgCore` (the Borg FP16 FMA shader processor) to transform 3D vertices into 2D screen coordinates.
 - **BINNER (BorgBinner)**: Determines which 4x4 tiles a triangle overlaps and updates DRAM bin lists.
 - **RAST (Rasterizer)**: Evaluates edge equations for 16 pixels concurrently to determine triangle inclusion.
-- **TEXU (BorgTextureUnit)**: Fetches and filters texels from DRAM for textured fragments.
+- **TEXU (BorgSampler)**: Samples a texture through its descriptor for a shader's `TEX` instruction: fetches, decodes and filters texels from DRAM ([Texture Unit](B2_texture_unit.md)).
 - **TBUF (BorgTileBuffer)**: On-chip SRAM holding the current 4x4 tile's Color and Z values for fast blending.
 - **FLUSH (BorgTileFlusher)**: Bursts the finished 16 pixels from TBUF to the DRAM framebuffer.
 

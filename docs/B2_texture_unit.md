@@ -5,11 +5,11 @@ Status: implemented and tested in simulation, September 2026, on branch
 build with memory ops, Wafer included). Module `BorgSampler`, format table
 `TexFormat`.
 
-The legacy texture path (`FTEX`, `BorgTextureUnit`) samples square
-power-of-two RGBA16F textures of at most 256x256, one mip level, through four
-base-address registers that share one size and one sampler. It stays for
-today's firmware and `borgc`. The new unit, reached through `TEX`, is what
-Vulkan 1.0 needs:
+It is Borg's only texture path. It replaced the legacy one (`FTEX`,
+`BorgTextureUnit`), removed on 2026-09-25, which sampled square power-of-two
+RGBA16F textures of at most 256x256, one mip level, through four
+base-address registers that shared one size and one sampler. The comparison
+that motivated the new unit:
 
 | Limit                        | Legacy `FTEX`              | `TEX`                                      | Vulkan 1.0 |
 |------------------------------|----------------------------|--------------------------------------------|------------|
@@ -151,6 +151,22 @@ conformance at the area of a state machine.
 `BorgDrawTests.renderToTexture` renders a triangle into an RGBA8 attachment,
 then draws a quad whose fragment shader samples that attachment with `TEX`,
 and checks that the second image equals the first pixel for pixel.
+
+## Software
+
+- **borgc** (`mesa/src/borg/compiler/`) lowers a plain `texture()` to `TEX
+  r20, u, v, ctl` with the control word 0 (texture 0, sampler 0, implicit
+  LOD), built in the shader as `FSTEP(FNEG(r30))` rather than pinned in a
+  constant register. R, G, B, A land in r20-r23, so r23 is a constant
+  register only in shaders that never sample. Other texture ops and more
+  than one texture are reported, not yet compiled.
+- **Firmware** (`software/borg/borg_driver.c`) stores the texture linear
+  RGBA8 at `TEX_TEXEL_ADDR`, and `borg_set_texture` writes texture
+  descriptor 0 and sampler descriptor 0 at the start of the texture region
+  (`borg_layout.h`), then `TEX_DESC_BASE` and `SAMPLER_DESC_BASE`.
+- **borgvk** packs the sampler descriptor from the app's `VkSampler` at
+  `vkCreateSampler` and sends it in every `0xAF` row packet (marker, row,
+  four descriptor words, 64 RGBA8 texels, checksum).
 
 ## Tests
 

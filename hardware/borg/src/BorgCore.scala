@@ -8,7 +8,7 @@ import chisel3.util.*
 
 /** BorgCore — shared shader-core control: instruction memory, program counter,
   * the multi-cycle pipeline FSM, instruction decode, the (shared) uniform RAM,
-  * MMIO/DMA write routing, and the FTEX texture-stall FSM.
+  * and MMIO/DMA write routing.
   *
   * The per-lane datapath (register files, coordinate expansion, FP16 ALU,
   * write-back, pipeWrite snoop) lives in [[BorgLane]], instantiated `cfg.fragLanes`
@@ -64,11 +64,11 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // return 0 (not coordX/coordY) because those shaders use r31 as zero.
   val seqBusy = Input(Bool())
 
-  // LOAD/STORE: the core's own DRAM port. Given directly to the core rather
-  // than threaded through the dispatcher the way FTEX's narrow texReq/texU/
-  // texV interface is: Borg.scala already arbitrates four gpuMem masters with
-  // a priority mux, so adding a fifth is a smaller change than routing a
-  // second memory protocol through BorgRasterizer and BorgShaderDispatcher.
+  // LOAD/STORE: the core's own DRAM port, given directly to the core rather
+  // than threaded through the dispatcher -- Borg.scala already arbitrates
+  // memory masters with a priority mux, so adding one more is a smaller
+  // change than routing a second memory protocol through BorgRasterizer and
+  // BorgShaderDispatcher.
   val gpuMem  = if (cfg.hasMemoryOps) Some(new GpuMemIO) else None
   val memBusy = Output(Bool())       // high while a LOAD/STORE owns the bus
   // Sticky: a branch condition differed between quad lanes. Deliberately NOT
@@ -98,20 +98,6 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // invocation starts; BorgComputeSequencer reads it off coreStatus's own
   // running-drop detection, so there is no separate handshake.
   val barrier = if (cfg.computeEnabled) Some(Output(new ComputeBarrierIO)) else None
-
-  // Step 34.4: FTEX texture sample request/response
-  val texReq  = Output(Bool())       // core requests texture fetch
-  val texU    = Output(UInt(16.W))   // U coordinate from rs1
-  val texV    = Output(UInt(16.W))   // V coordinate from rs2
-  // Multi-texture binding: FTEX's rs3 operand, valid alongside texReq/texU/
-  // texV. Selects which of cfg.maxTextureBindings base-address slots the
-  // caller (Borg.scala) should feed the texture unit for this sample.
-  val texSelect = Output(UInt(math.max(1, log2Ceil(cfg.maxTextureBindings)).W))
-  val texDone = Input(Bool())        // texture unit completion pulse
-  val texR    = Input(UInt(16.W))    // fetched texel R
-  val texG    = Input(UInt(16.W))    // fetched texel G
-  val texB    = Input(UInt(16.W))    // fetched texel B
-  val texA    = Input(UInt(16.W))    // fetched texel A
 
   // ZTEST (early per-fragment tests): the core stalls on zTestReq until the
   // dispatcher has run the quad's depth/stencil test and pulses zTestDone.
@@ -252,8 +238,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val extWriteEn  = WireDefault(false.B)
   val extWriteIdx = WireDefault(0.U(7.W))
 
-  // FTEX resume delay: after FTEX writeback completes, the IMEM still holds the
-  // stale FTEX opcode (1-cycle SyncReadMem latency); suppress restart for 1 cycle.
+  // Resume delay: after a stall FSM's writeback completes, the IMEM still
+  // holds the stale opcode (1-cycle SyncReadMem latency); suppress restart
+  // for 1 cycle. Shared by every multi-cycle FSM below (LOAD/STORE, ZTEST,
+  // TEX/TEXA).
   val texResumeDelay = RegInit(false.B)
   when(texResumeDelay) { texResumeDelay := false.B }
 
@@ -323,8 +311,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     b.resumePC := barrierPCReg
   }
 
-  // --- FTEX FSM (shared): drives each lane's memWrite, uses lane 0's operands ---
-  wireTexStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.recCRaw), lanes.map(_.io.memWrite))
+  // Default write-back port: every FSM below (LOAD/STORE, TEX/TEXA) shares
+  // this Vec and drives it only inside its own `when`, one at a time (they
+  // stall the whole core, so at most one is ever active) -- last-connect-wins
+  // over this default for every cycle none of them is.
+  lanes.map(_.io.memWrite).foreach { mw => mw.en := false.B; mw.addr := 0.U; mw.data := 0.U }
 
   // --- ZTEST: stall while the dispatcher runs the early per-fragment tests ---
   wireZTest()
@@ -332,10 +323,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // --- Instruction cache: must follow wireMemStall, whose port it shares ---
 
   // --- LOAD/STORE FSM (shared): same stall shape, same write-back port ---
-  // Called after wireTexStall and deliberately does NOT re-default memWrite:
-  // the two FSMs are mutually exclusive in time (one instruction at a time),
-  // so each drives the port only inside its own `when`, and FTEX's default
-  // survives for every cycle this one is idle.
   if (cfg.hasMemoryOps)
     wireMemStall(lanes.map(_.io.recARaw), lanes.map(_.io.recBRaw), lanes.map(_.io.memWrite))
   else
@@ -391,12 +378,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.fma   := instr(Instructions.BITS_OPCODE_FMA_BIT)
     val f7op    = Instructions.BF_F7_OP(instr)
     // R4-type sub-opcode (only meaningful when flags.fma is set): FMADD is
-    // funct2=0, FTEX is funct2=1 -- see Instructions.FUNCT2_FTEX. FTEX moved
-    // here from the ALU-opcode RType shape specifically to gain rs3 as a
-    // texture-slot index; regs.rs3 (decoded unconditionally above) picks it
-    // up automatically.
+    // funct2=0; TEX/TEXA are funct2=2/3 (decoded below, gated on
+    // cfg.samplerEnabled) -- see Instructions.FUNCT2_TEX/FUNCT2_TEXA.
+    // funct2=1 (the retired FTEX) is never reused -- see Instructions.scala.
     val funct2  = instr(26, 25)
-    flags.ftex  := flags.fma && funct2 === Instructions.FUNCT2_FTEX.U
     flags.mul   := !flags.fma && f7op === Instructions.FUNCT7_MUL.U
     flags.fneg  := !flags.fma && f7op === Instructions.FUNCT7_FNEG.U
     flags.fstep := !flags.fma && f7op === Instructions.FUNCT7_FSTEP.U
@@ -564,140 +549,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val uniform_data = Mux(op_en_del, read_data, 0.U)
     (uniform_data, funct3_del)
   }
-
-  // @doc:ftex-stall
-  /** Step 34.4: FTEX texture-sample stall and 4-register write-back.  Shared FSM:
-    * latches operands → texReq, freezes busy_counter while waiting, then writes
-    * texR/G/B/A to rd..rd+3 via each lane's memWrite port over 4 cycles.
-    *
-    * Four, not three: a sampled image is a vec4 in SPIR-V, and alpha is a
-    * real channel of every mandatory RGBA format. The texture unit always
-    * fetched it (the upper half of the texel's second word) and threw it
-    * away, so `texture(s, uv).a` had no source. */
-  private def wireTexStall(recAs: Seq[UInt], recBs: Seq[UInt], recCs: Seq[UInt],
-                           memWrites: Seq[MemWritePort]): Unit = {
-    val N = cfg.fragLanes
-    val is_ftex_reg = RegInit(false.B)
-    when(running && !is_busy && fetchedInstruction =/= 0.U) {
-      is_ftex_reg := opFlags.ftex
-    }
-
-    // One texture unit, serialized over lanes: request lane → wait → write that
-    // lane's rd..rd+3 → next lane.  At fragLanes=1 this is the original path.
-    val sTexIdle :: sTexReq :: sTexWait :: sTexWB0 :: sTexWB1 :: sTexWB2 :: sTexWB3 :: Nil = Enum(7)
-    val texState = RegInit(sTexIdle)
-    // Ranges over [0, N-1] only (wraps at N-1, never reaches N) — log2Ceil(N)
-    // bits, not N+1: see BorgShaderDispatcher's laneCtr for the same bug and
-    // its Yosys/ABC9 synthesis-blowup consequence. log2Up (not log2Ceil):
-    // at N=1 a single lane needs zero index bits, but Chisel has no 0-width
-    // literal syntax, so `:= 0.U`/`+ 1.U` against a genuinely 0-bit register
-    // trips the implicit-truncation warning; log2Up floors at 1 bit instead.
-    val texLane  = RegInit(0.U(log2Up(N).W))
-    // Dynamic Vec index needs 0 width at N=1 (Chisel: log2Ceil(1) == 0), but
-    // texLane itself must stay log2Up-width for its own `:= 0.U`/`+ 1.U` to
-    // avoid a truncation warning instead -- see BorgShaderDispatcher's
-    // laneIdx for the same split.
-    val texLaneIdx: UInt = if (N == 1) 0.U(0.W) else texLane
-
-    val texRdReg = RegInit(0.U(5.W))
-    // cfg.totalBits wide: texture sampling stays FP16-native (io.texR/G/B
-    // are the fixed 16-bit ports below), but these registers feed the
-    // general register file via memWrite, which the FP32 ALU reads as a
-    // real cfg.fp-width operand -- widen() converts the raw FP16 texel into
-    // a genuine value in that wider format instead of zero-extending it.
-    val texResultR = RegInit(0.U(config.totalBits.W))
-    val texResultG = RegInit(0.U(config.totalBits.W))
-    val texResultB = RegInit(0.U(config.totalBits.W))
-    val texResultA = RegInit(0.U(config.totalBits.W))
-    def widenTexel(t: UInt): UInt = if (config.totalBits > 16) Fp16Fp32.widen(t) else t
-    def narrowTexCoord(c: UInt): UInt =
-      if (config.totalBits > 16) Fp16Fp32.narrow(c(config.totalBits - 1, 0)) else c(15, 0)
-
-    // Active lane's U/V/texSelect operands (read ports stay valid while busy_counter is held).
-    val curA = VecInit(recAs)(texLaneIdx)
-    val curB = VecInit(recBs)(texLaneIdx)
-    val curC = VecInit(recCs)(texLaneIdx)
-    val texSelectWidth = io.texSelect.getWidth
-
-    // Defaults
-    io.texReq    := false.B
-    io.texU      := 0.U
-    io.texV      := 0.U
-    io.texSelect := 0.U
-    // Lane-selective write: only the active lane's register file is written.
-    def driveTexWriteLane(lane: UInt, en: Bool, addr: UInt, data: UInt): Unit =
-      memWrites.zipWithIndex.foreach { case (tw, i) =>
-        tw.en := en && (i.U === lane); tw.addr := addr; tw.data := data
-      }
-    driveTexWriteLane(0.U, false.B, 0.U, 0.U)
-
-    // Initiate FTEX at counter=4 (operands valid): start with lane 0.
-    when(is_busy && busy_counter === cfg.cOperands.U && is_ftex_reg) {
-      texRdReg := regs.rd
-      texLane  := 0.U
-      texState := sTexReq
-    }
-
-    // Request the active lane's texel.
-    when(texState === sTexReq) {
-      busy_counter := busy_counter            // hold operands stable
-      io.texReq := true.B
-      // The coordinates are datapath floats; the texture unit is FP16-native.
-      // Narrow the value (round to nearest), never slice the bit pattern:
-      // curA(15, 0) of FP32 0.5f is 0x0000.
-      io.texU   := narrowTexCoord(curA)
-      io.texV   := narrowTexCoord(curB)
-      // texSelect is a raw small integer (the compiler pins a compile-time
-      // binding index into rs3), not a float -- take the low bits directly,
-      // same convention as the int ALU's own raw-bits results.
-      io.texSelect := curC(texSelectWidth - 1, 0)
-      when(io.texDone) {                      // same-cycle (e.g. texture disabled → white)
-        texResultR := widenTexel(io.texR); texResultG := widenTexel(io.texG); texResultB := widenTexel(io.texB)
-        texResultA := widenTexel(io.texA)
-        texState   := sTexWB0
-      }.otherwise {
-        texState := sTexWait
-      }
-    }
-
-    when(texState === sTexWait) {
-      busy_counter := busy_counter            // hold
-      when(io.texDone) {
-        texResultR := widenTexel(io.texR); texResultG := widenTexel(io.texG); texResultB := widenTexel(io.texB)
-        texResultA := widenTexel(io.texA)
-        texState   := sTexWB0
-      }
-    }
-
-    when(texState === sTexWB0) {
-      busy_counter := busy_counter
-      driveTexWriteLane(texLane, true.B, texRdReg, texResultR); texState := sTexWB1
-    }
-    when(texState === sTexWB1) {
-      busy_counter := busy_counter
-      driveTexWriteLane(texLane, true.B, texRdReg + 1.U, texResultG); texState := sTexWB2
-    }
-    when(texState === sTexWB2) {
-      busy_counter := busy_counter
-      driveTexWriteLane(texLane, true.B, texRdReg + 2.U, texResultB); texState := sTexWB3
-    }
-    when(texState === sTexWB3) {
-      driveTexWriteLane(texLane, true.B, texRdReg + 3.U, texResultA)
-      when(texLane === (N - 1).U) {
-        // All lanes textured — resume the fragment shader past the FTEX op.
-        texState   := sTexIdle
-        is_ftex_reg := false.B
-        busy_counter := 0.U
-        programCounter := programCounter + 1.U
-        texResumeDelay := true.B
-      }.otherwise {
-        texLane := texLane + 1.U
-        texState := sTexReq                   // fetch the next lane's texel
-        busy_counter := busy_counter
-      }
-    }
-  }
-  // @doc:end
 
   /** IMEM word for program counter `pc`. Without the cache the PC only ever
     * indexes IMEM. With it, IMEM is direct-mapped over the program: word `pc`
@@ -901,7 +752,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
   }
 
-  /** ZTEST stall. Same freeze-at-operands shape as FTEX and LOAD/STORE, but
+  /** ZTEST stall. Same freeze-at-operands shape as TEX/TEXA and LOAD/STORE, but
     * there is no per-lane loop here: the dispatcher tests every lane of the
     * quad itself (it owns the tile buffer) and answers once. Resuming by
     * setting busy_counter to 0 skips the lanes' write-back cycle, so ZTEST
@@ -919,7 +770,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         busy_counter   := 0.U
         programCounter := programCounter + 1.U
         is_ztest_reg   := false.B
-        // IMEM still holds the ZTEST word for a cycle, as after FTEX.
+        // IMEM still holds the ZTEST word for a cycle, same as the other stall FSMs.
         texResumeDelay := true.B
       }
     }
@@ -928,7 +779,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // @doc:mem-stall
   /** LOAD / STORE stall FSM -- the shared memory-access path.
     *
-    * Structurally the same shape as [[wireTexStall]], and deliberately so:
+    * Structurally the same shape as [[wireSampler]], and deliberately so:
     * latch the op at fetch, start once operands are valid, freeze
     * `busy_counter` so the pipeline stalls, serialize over lanes, then resume
     * past the instruction. Two consequences of freezing at 4 are load-bearing
@@ -940,7 +791,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     *  - the register read ports stay valid, so the address and store-data
     *    operands are stable for the whole access.
     *
-    * Per-lane serialization matters more here than for FTEX: at fragLanes=4
+    * Per-lane serialization matters more here than for TEX/TEXA: at fragLanes=4
     * each lane computes its OWN address, so a quad's four invocations can
     * touch four unrelated words. There is no coalescing -- four separate
     * single-word accesses. That is the honest cost of the simplest correct
@@ -978,7 +829,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val sMemIdle :: sMemReq :: sMemWB :: sAttrReq :: sAttrWB :: Nil = Enum(5)
     val memState = RegInit(sMemIdle)
     // log2Up, and a separate 0-width index at N==1, for the same two reasons
-    // spelled out on wireTexStall's texLane.
+    // spelled out on wireSampler's respLane.
     val memLane = RegInit(0.U(log2Up(N).W))
     val memLaneIdx: UInt = if (N == 1) 0.U(0.W) else memLane
 
@@ -1014,7 +865,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.gpuMem.get.wlen  := 1.U            // single word; only the flusher bursts
     io.memBusy      := memState =/= sMemIdle
 
-    // Start once operands are valid, exactly like FTEX.
+    // Start once operands are valid, exactly like TEX/TEXA.
     when(is_busy && busy_counter === cfg.cOperands.U && (is_load_reg || is_store_reg)) {
       memRdReg := regs.rd
       memLane  := 0.U
@@ -1039,7 +890,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_fattr_reg := false.B
       busy_counter := 0.U
       programCounter := programCounter + 1.U
-      // Same one-cycle suppression as FTEX: IMEM still holds the stale
+      // Same one-cycle suppression as the other stall FSMs: IMEM still holds the stale
       // LOAD/STORE opcode for a cycle after we resume.
       texResumeDelay := true.B
     }
@@ -1135,7 +986,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // @doc:branch
   /** Conditional branch: `BRZ`/`BRNZ rs1, target`.
     *
-    * Evaluated at busy_counter 4 -- the same point wireTexStall and
+    * Evaluated at busy_counter 4 -- the same point wireSampler and
     * wireMemStall take their operands, for the same reason (the register read
     * ports are settled) -- and consumed at 1, where the PC advances. The
     * one-cycle-early `nextPC` already reads the target, so a taken branch

@@ -88,19 +88,12 @@ object EmitIsaHeader extends App {
   body ++= s"// R4-type: FMADD (opcode bit ${BITS_OPCODE_FMA_BIT}, funct2=$FUNCT2_FMADD)\n"
   body ++= s"#define BORG_INSTR_FMADD(rd, rs1, rs2, rs3, funct3) " +
            s"(${r4Base(FUNCT2_FMADD)} | $C_ARGS_R4)\n\n"
-  // FTEX rd, rs1(U), rs2(V), rs3: rd=R, rd+1=G, rd+2=B, rd+3=A. rs3 is a
-  // REGISTER INDEX (like FMA's own rs3) whose low bits select which
-  // texture-binding slot to sample -- write the desired slot number into a
-  // register first, same as any other pinned constant, then pass its index.
+  // TEX rd, rs1(u), rs2(v), rs3(ctl register): rd=R, rd+1=G, rd+2=B, rd+3=A.
+  // See docs/B2_texture_unit.md for the control word and descriptor layout.
   body ++= s"// R4-type: TEX rd, u, v, ctl-register (funct2=$FUNCT2_TEX) and TEXA w, lod, dref (funct2=$FUNCT2_TEXA)\n"
   body ++= s"#define BORG_INSTR_TEX(rd, rs1, rs2, rs3, funct3) (${r4Base(FUNCT2_TEX)} | $C_ARGS_R4)\n"
   body ++= s"#define BORG_INSTR_TEXA(rs1, rs2, rs3, funct3) (${r4Base(FUNCT2_TEXA)} | " +
            s"((funct3) << ${BF_FUNCT3.lo}) | ((rs3) << ${BF_RS3.lo}) | ((rs2) << ${BF_RS2.lo}) | ((rs1) << ${BF_RS1.lo}))\n\n"
-  body ++= s"// R4-type: FTEX (opcode bit ${BITS_OPCODE_FMA_BIT}, funct2=$FUNCT2_FTEX)\n"
-  body ++= s"#define BORG_INSTR_FTEX(rd, rs1, rs2, rs3, funct3) " +
-           s"(${r4Base(FUNCT2_FTEX)} | " +
-           s"((funct3) << ${BF_FUNCT3.lo}) | ((rs3) << ${BF_RS3.lo}) | " +
-           s"((rs2) << ${BF_RS2.lo}) | ((rs1) << ${BF_RS1.lo}) | ((rd) << ${BF_RD.lo}))\n\n"
 
   for ((name, f7, shape) <- all)
     body ++= macroFor(name, f7, shape) + "\n"
@@ -108,6 +101,12 @@ object EmitIsaHeader extends App {
   body ++= "\n// Special: HALT (an all-zero instruction word)\n"
   body ++= "#define BORG_INSTR_HALT                           0x00000000U\n"
 
+  // Texture descriptor word 2 [19:14] (docs/B2_texture_unit.md), from the same
+  // table the sampler's decoder is built from.
+  body ++= "\n// Texel format codes for a texture descriptor (TexFormat.scala)\n"
+  for (fm <- TexFormat.all)
+    body ++= f"#define BORG_TEX_FORMAT_${fm.name}%-28s ${fm.code}%d\n"
+
   java.nio.file.Files.write(java.nio.file.Paths.get(out), body.toString.getBytes)
-  println(s"EmitIsaHeader: wrote $out (${all.length} opcodes + FMADD + FTEX)")
+  println(s"EmitIsaHeader: wrote $out (${all.length} opcodes + FMADD + TEX + TEXA)")
 }

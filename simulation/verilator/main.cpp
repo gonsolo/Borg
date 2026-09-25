@@ -231,7 +231,6 @@ int main(int argc, char** argv) {
     VerBorgSimulator sim(firmware_path, width, height);
 
     AppConfig cfg = get_app_config(app_name);
-    sim.load_texture(cfg.tex_path, cfg.tex_dim);
     if (cfg.has_camera)
         sim.set_camera_angles(cfg.cam_angle_x, cfg.cam_angle_y);
 

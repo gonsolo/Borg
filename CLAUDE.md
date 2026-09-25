@@ -74,7 +74,7 @@ When a build needs the SystemRDL-generated register block, the top Makefile runs
 
 ### Borg shader processor (the actual GPU)
 
-Lives in `hardware/borg/src/`. `Borg.scala` is the top, with a 4-cycle FP16 FMA pipeline (Berkeley HardFloat via `hardware/hardfloat/`), 32 FP16 registers, instruction memory, a hardware FP16 reciprocal (`Fp16Rcp.scala` + `rcp_lut.hex` + `coord_lut.hex`), tile buffer with Z (`BorgTileBuffer.scala`), texture unit with Morton encoding (`BorgTextureUnit.scala`), rasterizer (`BorgRasterizer.scala`), and a 2-entry async command FIFO (`BorgCommandFIFO.scala`). The CPU pokes it via the MMIO register block defined in SystemRDL.
+Lives in `hardware/borg/src/`. `Borg.scala` is the top, with a 4-cycle FP16 FMA pipeline (Berkeley HardFloat via `hardware/hardfloat/`), 32 FP16 registers, instruction memory, a hardware FP16 reciprocal (`Fp16Rcp.scala` + `rcp_lut.hex` + `coord_lut.hex`), tile buffer with Z (`BorgTileBuffer.scala`), the descriptor-based texture unit (`BorgSampler.scala`, see below), rasterizer (`BorgRasterizer.scala`), and a 2-entry async command FIFO (`BorgCommandFIFO.scala`). The CPU pokes it via the MMIO register block defined in SystemRDL.
 
 ### SystemRDL → Chisel + C headers
 
@@ -125,7 +125,15 @@ through descriptor tables in memory (`TEX_DESC_BASE`, `SAMPLER_DESC_BASE`):
 any size up to 4096, mipmaps with implicit LOD, 51 formats, all address
 modes and border colours, trilinear, compare, gather, texelFetch, offsets.
 `BorgSampler` + `TexFormat`; spec and usage in `docs/B2_texture_unit.md`.
-The legacy `FTEX` path below is unchanged.
+It is the only texture path: the legacy `FTEX` instruction and its
+`BorgTextureUnit` (square power-of-two RGBA16F, Morton layout) were removed
+2026-09-25, and R4-type funct2 = 1 is retired, never reused. borgc emits
+`TEX` with a control word of 0 built in-shader (`FNEG`/`FSTEP` of r30), the
+result block is r20–r23, and r23 is a constant register only in shaders that
+never sample. The firmware stores the texture linear RGBA8 at
+`TEX_TEXEL_ADDR` and writes one texture and one sampler descriptor
+(`borg_set_texture`); borgvk packs the sampler descriptor from the app's
+`VkSampler` and sends it in every 0xAF row packet.
 
 ## Colour attachment formats (RAW)
 
@@ -150,16 +158,10 @@ second, snoop-only transfer for `covDelta` — appending it to the first would
 alias onto and corrupt the triangle's real uniforms, since BorgDMA's uniform
 destination address is hard-truncated to 5 bits).
 
-Texturing is **FTEX-inline only** now (`main` and `msaa-hardware`) — the
-legacy autonomous single-texel fetch (`sTexFetch`, `BorgShaderDispatcher`) was
-removed; it predated FTEX and was firing redundantly. Texel coordinates are
-clamped to `[0, 2^log2Dim − 1]` via the shared `ClampTexCoord` helper
-(`TextureAddr.scala`) — a UV of exactly 1.0 at a triangle's far edge
-legitimately floors to one past the last valid texel index, and Morton
-addressing an out-of-range coordinate silently reads unpopulated (black)
-texture memory. Both FTEX-inline and the legacy path had this class of bug at
-different points; if a new texture-coordinate call site is ever added, route
-it through `ClampTexCoord` rather than reimplementing the clamp inline.
+Texturing is `TEX`/`TEXA` only (see "Texture unit" above); the autonomous
+single-texel fetch (`sTexFetch`) and then `FTEX` were removed. Texture
+coordinates reach the hardware normalized — the firmware no longer
+pre-scales UVs by the texture size.
 
 ## Heavy compute goes on the workstation, not this machine
 

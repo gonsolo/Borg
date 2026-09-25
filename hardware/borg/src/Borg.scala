@@ -356,15 +356,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     s.io.dma.uniformSnoop.data := d.io.uniformWrite.data
     s.io.dma.snoop             := d.io.snoop
 
-    // Step 34.6: FTEX core ↔ rasterizer texture request/response
-    rast.io.texReq  := core.io.texReq
-    rast.io.texU    := core.io.texU
-    rast.io.texV    := core.io.texV
-    core.io.texDone := rast.io.texDone
-    core.io.texR    := rast.io.texR
-    core.io.texG    := rast.io.texG
-    core.io.texB    := rast.io.texB
-    core.io.texA    := rast.io.texA
     rast.io.zTestReq := core.io.zTestReq
     core.io.zTestDone := rast.io.zTestDone
     core.io.laneHelper.foreach(_ := rast.io.laneHelper)
@@ -381,25 +372,18 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rast.io.coreStatus <> core.io.status
 
     // GPU memory port: arbitration.
-    // Priority: DMA > Flusher > Geo (Binner+Store) > Core (LOAD/STORE) >
-    // Rast (texFetch).
-    //
-    // Core and Rast can never both be active: FTEX and LOAD/STORE are both
-    // instructions, the core executes one at a time, and each stalls the
-    // pipeline for its whole access. Their relative order is therefore
-    // arbitrary -- but they are separate ports, so both must be in the mux.
-    // Core sits above Rast so that if the invariant is ever broken the
-    // failure is a stalled texture fetch rather than a corrupted load.
+    // Priority: DMA > Flusher > Geo (Binner+Store) > Core (LOAD/STORE, and,
+    // through BorgCore's own wireSampler, TEX/TEXA).
     val geoBusy  = b.io.busy || s.io.store.active
     val geoReq   = Mux(b.io.busy, b.io.gpuMem.req,   s.io.store.req)
     val geoAddr  = Mux(b.io.busy, b.io.gpuMem.addr,  s.io.store.addr)
     val geoWr    = Mux(b.io.busy, b.io.gpuMem.wr,    true.B)
     val geoWdata = Mux(b.io.busy, b.io.gpuMem.wdata, s.io.store.wdata)
 
-    // 4-way mux: DMA > Flusher > Geo > Rast
-    // The core is a master only in a build that has LOAD/STORE. Without it
-    // the mux collapses back to the four-way form it had before, rather than
-    // carrying a permanently-idle fifth input.
+    // The core is a master only in a build that has LOAD/STORE (which
+    // TEX/TEXA also requires -- see BorgConfig.samplerEnabled). Without it
+    // the mux collapses to the three-way form it had before, rather than
+    // carrying a permanently-idle fourth input.
     val coreMem = core.io.memBusy
     def coreOr(sel: GpuMemIO => UInt, fallback: UInt): UInt =
       core.io.gpuMem.map(g => Mux(coreMem, sel(g), fallback)).getOrElse(fallback)
@@ -409,15 +393,15 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.gpuMem.req   := Mux(d.io.busy, d.io.gpuMem.req,
                        Mux(f.io.busy, f.io.gpuMem.req,
                        Mux(ld.io.busy, ld.io.gpuMem.req,
-                       Mux(geoBusy, geoReq, coreOrB(_.req, rast.io.gpuMem.req)))))
+                       Mux(geoBusy, geoReq, coreOrB(_.req, false.B)))))
     io.gpuMem.addr  := Mux(d.io.busy, d.io.gpuMem.addr,
                        Mux(f.io.busy, f.io.gpuMem.addr,
                        Mux(ld.io.busy, ld.io.gpuMem.addr,
-                       Mux(geoBusy, geoAddr, coreOr(_.addr, rast.io.gpuMem.addr)))))
+                       Mux(geoBusy, geoAddr, coreOr(_.addr, 0.U)))))
     io.gpuMem.wr    := Mux(d.io.busy, false.B,  // DMA only reads — never assert wr
                        Mux(f.io.busy, f.io.gpuMem.wr,
                        Mux(ld.io.busy, false.B,  // the loader only reads
-                       Mux(geoBusy, geoWr, coreOrB(_.wr, rast.io.gpuMem.wr)))))
+                       Mux(geoBusy, geoWr, coreOrB(_.wr, false.B)))))
     // Every memory behind this port stores one write word as ONE 16-bit
     // halfword (MemoryController writes GPU words as HuttSize.Half and streams
     // wdata(15, 0) per burst beat; BorgLinkSlave sends one 16-bit flit per
@@ -427,7 +411,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // the same address (DMA reload, LOAD) reassembles. Presenting them as a
     // single word instead silently dropped the upper half: FP32 -pi stored as
     // 0x00000FDB (BorgGpuMemWordTests).
-    val wordData = Mux(geoBusy, geoWdata, coreOr(_.wdata, rast.io.gpuMem.wdata))
+    val wordData = Mux(geoBusy, geoWdata, coreOr(_.wdata, 0.U))
     val wideWr   = if (cfg.totalBits > 16)
       !d.io.busy && !f.io.busy && !ld.io.busy &&
         Mux(geoBusy, !b.io.busy, coreOrB(_.wr, false.B))
@@ -448,9 +432,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Burst length: the flusher streams whole tiles, a wide word is two
     // halfwords (see wideWr above), everything else is 1 word.
     io.gpuMem.wlen  := Mux(f.io.busy, f.io.gpuMem.wlen, Mux(wideWr, 2.U, 1.U))
-    rast.io.gpuMem.data  := io.gpuMem.data
-    rast.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && !f.io.busy && !ld.io.busy && !geoBusy && !coreMem
-    rast.io.gpuMem.waccept := false.B
     f.io.gpuMem.data  := io.gpuMem.data
     f.io.gpuMem.ready := io.gpuMem.ready && !d.io.busy && f.io.busy
     // Per-word burst pull goes only to the flusher (the sole burst master).
@@ -464,31 +445,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     ld.io.gpuMem.data  := io.gpuMem.data
     ld.io.gpuMem.ready := io.gpuMem.ready && ld.io.busy && !d.io.busy && !f.io.busy
     ld.io.gpuMem.waccept := false.B
-
-    // Texture configuration — wired from MMIO TEX_CONFIG register (Step 21.2)
-    // Multi-texture binding: FTEX's rs3 (core.io.texSelect) picks which of
-    // the 4 base-address slots feeds the texture unit for this sample.
-    // tex_config.base_addr itself is superseded (see the RDL's own comment)
-    // and no longer read here. Dimension/address-mode/filtering stay shared
-    // across every bound texture -- see BorgConfig.maxTextureBindings.
-    rast.io.texConfig.baseAddr := VecInit(
-      rdlRegs.io.hw.tex_base_addr0_base_addr,
-      rdlRegs.io.hw.tex_base_addr1_base_addr,
-      rdlRegs.io.hw.tex_base_addr2_base_addr,
-      rdlRegs.io.hw.tex_base_addr3_base_addr
-    )(core.io.texSelect)
-    rast.io.log2Dim            := rdlRegs.io.hw.tex_config_log2_dim
-    // Unused now that texturing is FTEX-inline only: BorgTextureUnit only
-    // ever consumes texConfig.mortonIndex in the same cycle FTEX overrides
-    // it directly (BorgShaderDispatcher.ftexMortonIndex), so this base value
-    // never actually reaches a real fetch. Tied off rather than removed from
-    // TexConfigIO, which BorgTextureUnit's IO still requires.
-    rast.io.texConfig.mortonIndex := 0.U
-    // Per-triangle tex enable: when sequencer is busy, use its per-triangle
-    // has_uvs flag. When idle, use the MMIO register (legacy/CPU path).
-    rast.io.texConfig.en       := Mux(s.io.busy,
-      s.io.texEnOverride && rdlRegs.io.hw.tex_config_en.asBool,
-      rdlRegs.io.hw.tex_config_en.asBool)
 
     // frag_pc and uniform_page from dedicated registers
     rast.io.fragPcReg      := rdlRegs.io.hw.frag_pc_frag_pc
@@ -516,8 +472,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       b.constant.a     := rdlRegs.io.hw.blend_const_const_a
       b.colorWriteMask := rdlRegs.io.hw.blend_cfg_color_write_mask
     }
-    // Per-triangle facing, same busy/idle split as texConfig.en above: while
-    // the sequencer is rendering, use its real per-triangle value; otherwise
+    // Per-triangle facing: while the sequencer is rendering, use its real
+    // per-triangle value; otherwise
     // (idle / legacy direct-poke path) default true, the historical
     // behaviour front-face-only builds already depended on.
     rast.io.frontFacing.foreach(_ := Mux(s.io.busy, s.io.frontFacingOverride, true.B))
@@ -548,11 +504,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     rast.io.scissor.x1     := rdlRegs.io.hw.scissor_x_x1
     rast.io.scissor.y0     := rdlRegs.io.hw.scissor_y_y0
     rast.io.scissor.y1     := rdlRegs.io.hw.scissor_y_y1
-    // SAMPLER_CFG (Step 50). Reset 0 = NEAREST, the historical behaviour.
-    rast.io.texFilterLinear.foreach(_ := rdlRegs.io.hw.sampler_cfg_filter_linear.asBool)
-    rast.io.texAddrModeU.foreach(_ := rdlRegs.io.hw.sampler_cfg_addr_mode_u)
-    rast.io.texAddrModeV.foreach(_ := rdlRegs.io.hw.sampler_cfg_addr_mode_v)
-    rast.io.texBorder.foreach(_ := rdlRegs.io.hw.sampler_cfg_border_color)
     rast.io.uniformPageReg := rdlRegs.io.hw.control_uniform_write_page
   }
 
@@ -839,10 +790,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Texture Fetch Hardware (Step 16.3 / Step 21.2)
     // =========================================================================
     // The legacy autonomous single-texel fetch this Morton pipeline used to
-    // feed (rast.io.texConfig.mortonIndex, driving the dispatcher's now-
-    // removed sTexFetch state) is gone -- texturing is exclusively FTEX-
-    // inline now, which computes and clamps its own Morton index internally
-    // per texel request (BorgShaderDispatcher's ftexMortonIndex). The
+    // feed, and later FTEX-inline (which computed its own Morton index per
+    // texel request), are both gone -- texturing is TEX/TEXA now, a
+    // descriptor-based unit that has no Morton addressing at all. The
     // tex_addr MMIO register (morton/raw_u/raw_v) is kept, tied to zero,
     // rather than removed from the RDL map -- it was never read by firmware
     // and removing it would renumber every register after it.

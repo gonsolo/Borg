@@ -99,17 +99,16 @@ static void test_empty_blob(void) {
 // ---------------------------------------------------------------------------
 // The baked shader blobs still decode as current-ISA instructions.
 //
-// compiler/shader_blobs.h is a checked-in binary artifact whose generator (a
-// glslangValidator -> spirv-dis -> python pipeline) has been DELETED, and
-// whose GLSL sources are gone with it. It cannot be regenerated. That makes it
-// a standing hazard: the blobs encode opcodes, and if an existing funct7 ever
-// changed, they would silently execute DIFFERENT instructions -- no load
-// failure, no error, just a wrong image, in the standalone path that has no
-// driver to override them.
+// compiler/shader_blobs.h is a checked-in binary artifact: vert_borg and
+// frag_borg are borgc output (`make -C compiler regen`), rasterize_borg is
+// hand-written ISA. Checked in, they can go stale: the blobs encode opcodes,
+// and if one is retired or moves they would silently execute DIFFERENT
+// instructions -- no load failure, no error, just a wrong image, in the
+// standalone path that has no driver to override them.
 //
-// This is the guard. It cannot check the blobs still compute the right thing
-// (nothing can, without the sources), but it does catch the whole class of
-// "the ISA moved out from under the fossil".
+// This is the guard. It cannot check the blobs still compute the right thing,
+// but it does catch the whole class of "the ISA moved out from under the
+// blob" -- which is how the FTEX retirement showed up.
 //
 // The valid opcode set is built by invoking each borg_isa.h macro with zero
 // operands, so it tracks that header automatically rather than being a second
@@ -117,15 +116,21 @@ static void test_empty_blob(void) {
 // ---------------------------------------------------------------------------
 
 static int isa_base_is_known(uint32_t word) {
-    // FMADD is discriminated by opcode bit 2, not funct7 -- its rs3 field
-    // occupies the bits a funct7 comparison would look at, so it must be
-    // tested first or it reads as an arbitrary opcode.
-    if ((word >> 2) & 1u) return 1;
+    // R4-type ops (FMADD, TEX, TEXA) are discriminated by opcode bit 2 and a
+    // funct2 at 26:25, not funct7 -- their rs3 field occupies the bits a
+    // funct7 comparison would look at, so they are tested first. funct2 1 was
+    // FTEX and is retired.
+    if ((word >> 2) & 1u) {
+      uint32_t f2 = (word >> 25) & 3u;
+      return f2 == ((BORG_INSTR_FMADD(0, 0, 0, 0, 0) >> 25) & 3u) ||
+             f2 == ((BORG_INSTR_TEX(0, 0, 0, 0, 0) >> 25) & 3u) ||
+             f2 == ((BORG_INSTR_TEXA(0, 0, 0, 0) >> 25) & 3u);
+    }
 
     static const uint32_t bases[] = {
         BORG_INSTR_FADD(0, 0, 0, 0),  BORG_INSTR_FMUL(0, 0, 0, 0),
         BORG_INSTR_FNEG(0, 0, 0),     BORG_INSTR_FSTEP(0, 0, 0),
-        BORG_INSTR_FRCP(0, 0, 0),     BORG_INSTR_FTEX(0, 0, 0, 0),
+        BORG_INSTR_FRCP(0, 0, 0),
         BORG_INSTR_IADD(0, 0, 0, 0),  BORG_INSTR_ISHL(0, 0, 0, 0),
         BORG_INSTR_ISHR(0, 0, 0, 0),  BORG_INSTR_IMUL(0, 0, 0, 0),
         BORG_INSTR_I2F(0, 0, 0),      BORG_INSTR_F2I(0, 0, 0),

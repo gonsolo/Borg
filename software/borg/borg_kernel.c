@@ -32,9 +32,12 @@ static int     rx_geom_ntris  = 0;
 static int     rx_have_geom   = 0;
 static int     g_geom_recorded = 0;
 
-// 0xAF texture-row packet: marker(1), y(1), row_pixels(TEX_DIM * 6 B), csum(1)
+// 0xAF texture-row packet: marker(1), y(1), sampler descriptor(4 words LE),
+// row_pixels(TEX_DIM * 4 B RGBA8), csum(1). Every row carries the sampler, so
+// any row that arrives intact delivers it.
 #define RX_TEX_DIM       64
-#define RX_TEX_PKT_LEN   (1 + 1 + RX_TEX_DIM * 6 + 1)
+#define RX_TEX_SAMP_LEN  16
+#define RX_TEX_PKT_LEN   (1 + 1 + RX_TEX_SAMP_LEN + RX_TEX_DIM * 4 + 1)
 
 // 0xB0 borgc shader upload: marker(1), stage(1), len(2 LE), blob(RX_SHADER_MAX), csum(1)
 #define RX_SHADER_MAX     512
@@ -151,13 +154,9 @@ int main() {
   // the textured geometry since it's fixed in UV space). White keeps a missed
   // row visually unobtrusive instead.
   {
-    static uint8_t white_row[RX_TEX_DIM * 6];
-    for (int i = 0; i < RX_TEX_DIM; i++) {
-      // Texels are FP16 (the texture unit is FP16-native).
-      white_row[i * 6 + 0] = FP16_ONE & 0xFF; white_row[i * 6 + 1] = FP16_ONE >> 8;  // R
-      white_row[i * 6 + 2] = FP16_ONE & 0xFF; white_row[i * 6 + 3] = FP16_ONE >> 8;  // G
-      white_row[i * 6 + 4] = FP16_ONE & 0xFF; white_row[i * 6 + 5] = FP16_ONE >> 8;  // B
-    }
+    static uint8_t white_row[RX_TEX_DIM * 4];   // RGBA8
+    for (int i = 0; i < RX_TEX_DIM * 4; i++)
+      white_row[i] = 0xFF;
     for (int y = 0; y < RX_TEX_DIM; y++)
       borg_upload_texture_row(white_row, y, RX_TEX_DIM);
   }
@@ -301,13 +300,21 @@ int main() {
               skip_gap = 1;  // texture rows immediately follow geometry on the wire
             }
           } else if (ok && pkt_marker == 0xAF) {
-            // Texture row: [1]=y, then RX_TEX_DIM texels as RGB-FP16.
+            // Texture row: [1]=y, the sampler descriptor, then RX_TEX_DIM
+            // RGBA8 texels.
             uint8_t csum = 0;
             for (int i = 1; i < RX_TEX_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
             int yrow = pkt_buf[1];
             if (csum == pkt_buf[RX_TEX_PKT_LEN - 1] &&
                 yrow >= 0 && yrow < RX_TEX_DIM) {
-              borg_upload_texture_row(&pkt_buf[2], yrow, RX_TEX_DIM);
+              uint32_t samp[4];
+              for (int w = 0; w < 4; w++) {
+                const uint8_t *b = &pkt_buf[2 + w * 4];
+                samp[w] = (uint32_t)b[0] | ((uint32_t)b[1] << 8) |
+                          ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
+              }
+              borg_set_sampler(samp);
+              borg_upload_texture_row(&pkt_buf[2 + RX_TEX_SAMP_LEN], yrow, RX_TEX_DIM);
               got_tex_row = 1;
               success = 1;
               skip_gap = 1;  // next texture row (or the closing MVP) immediately follows

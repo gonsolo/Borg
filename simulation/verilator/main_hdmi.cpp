@@ -6,7 +6,7 @@
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::cerr << "Usage: " << argv[0]
-                  << " <firmware.bin> <app_name> [width] [height] [tex_dim] [max_render_cycles]\n";
+                  << " <firmware.bin> <app_name> [width] [height] [max_render_cycles]\n";
         return 1;
     }
     Verilated::commandArgs(argc, argv);
@@ -14,12 +14,10 @@ int main(int argc, char** argv) {
     std::string app_name = argv[2];
     uint32_t width   = argc > 3 ? std::atoi(argv[3]) : 128;
     uint32_t height  = argc > 4 ? std::atoi(argv[4]) : 128;
-    uint32_t tex_dim = argc > 5 ? std::atoi(argv[5]) : 64;
-    uint64_t max_cy  = argc > 6 ? (uint64_t)std::atoll(argv[6]) : 30000000ULL;
+    uint64_t max_cy  = argc > 5 ? (uint64_t)std::atoll(argv[5]) : 30000000ULL;
 
     VerBorgHdmiSimulator sim(firmware_path, width, height);
     AppConfig cfg = get_app_config(app_name);
-    sim.load_texture(cfg.tex_path, cfg.tex_dim);
     if (cfg.has_camera) sim.set_camera_angles(cfg.cam_angle_x, cfg.cam_angle_y);
 
     std::cout << "[HDMI-SIM] booting + rendering one frame...\n";

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "common_sim.h"
-#include "texture_loader.h"
 #include "uart_decoder.h"
 #include "uart_tx.h"
 #include <string>
@@ -84,7 +83,6 @@ public:
     virtual void host_write_flat_word(uint32_t word_addr, uint32_t value) {}
     
     // Shared methods (step() will be moved here in Step 3.2)
-    void load_texture(const std::string& tex_path, uint32_t tex_dim = 32);
     void set_camera_angles(float rx, float ry);
     void save_ppm(const std::string& name);
     virtual bool step(uint32_t cycles_to_run);

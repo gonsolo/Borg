@@ -11,7 +11,6 @@ class FpuOpFlags extends Bundle {
   val fneg   = Bool()
   val fstep  = Bool()
   val frcp   = Bool()
-  val ftex   = Bool()
   // Integer ALU ops (16-bit, operate on the raw register bits).
   val iadd   = Bool()
   val ishl   = Bool()
@@ -29,7 +28,7 @@ class FpuOpFlags extends Bundle {
   val fsrgb  = Bool()
   val ddx    = Bool() // quad derivative d/dx (cross-lane: lane1 - lane0)
   val ddy    = Bool() // quad derivative d/dy (cross-lane: lane2 - lane0)
-  // Memory access (LS_BASE + (rs1 << 2)). Both stall the core like FTEX; the
+  // Memory access (LS_BASE + (rs1 << 2)). Both stall the core like TEX/TEXA; the
   // lane's own ALU write-back never fires for them, because the shared
   // memory FSM freezes busy_counter at 4 and write-back happens at 1.
   val load   = Bool()

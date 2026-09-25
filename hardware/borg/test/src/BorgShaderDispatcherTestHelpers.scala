@@ -17,9 +17,9 @@ object BorgShaderDispatcherTestHelpers {
     * became FP32 + 4x MSAA when the default moved on 2026-09-15 -- MSAA
     * changes the coverage/tile-write semantics these tests assert on, so
     * they failed for a reason that had nothing to do with what they test.
-    * hasBlend/hasStencil/hasBilinear are pinned false for the same reason,
-    * repeated 2026-09-15 when Default turned those three on too: MSAA below
-    * is BASE.copy(samples = 4) and needPerSample (BorgShaderDispatcher) is
+    * hasBlend/hasStencil are pinned false for the same reason, repeated
+    * 2026-09-15 when Default turned those on too: MSAA below is
+    * BASE.copy(samples = 4) and needPerSample (BorgShaderDispatcher) is
     * `samples > 1 && (hasBlend || hasStencil)` -- an unpinned BASE would have
     * made "plain MSAA" silently take the serialized per-sample write path,
     * and BLEND/STENCIL/MSAA_BLEND below would stop isolating what they name
@@ -27,7 +27,7 @@ object BorgShaderDispatcherTestHelpers {
     */
   val BASE = BorgConfig.Default.copy(
     fp = FloatConfig.FP16, samples = 1,
-    hasBlend = false, hasStencil = false, hasBilinear = false)
+    hasBlend = false, hasStencil = false)
 
   // FP16 constants
   val FP16_POS_ONE = 0x3C00  // +1.0
@@ -39,8 +39,8 @@ object BorgShaderDispatcherTestHelpers {
   val PHASE_IDLE       = 0
   val PHASE_RAST       = 1
   val PHASE_FRAG       = 2
-  // sTexFetch (legacy autonomous fetch) removed -- texturing is FTEX-inline
-  // only now, so the remaining phases shift down by one.
+  // sTexFetch (legacy autonomous fetch) removed, so the remaining phases
+  // shift down by one.
   val PHASE_Z_READ     = 3
   val PHASE_Z_WAIT1    = 4
   val PHASE_Z_WAIT2    = 5
@@ -70,11 +70,6 @@ object BorgShaderDispatcherTestHelpers {
     d.io.coreStatus.running.poke(false.B)
     d.io.coreStatus.autoRunPending.poke(false.B)
     d.io.fragPcReg.poke(0.U)
-    d.io.texConfig.en.poke(false.B)
-    d.io.texConfig.mortonIndex.poke(0.U)
-    d.io.texConfig.baseAddr.poke(0.U)
-    d.io.gpuMem.data.poke(0.U)
-    d.io.gpuMem.ready.poke(false.B)
     // Step 50 item 11: configurable depth state.  The defaults reproduce the
     // historical hardcoded behaviour (LESS, depth writes on) so every
     // pre-existing test in this file keeps its original meaning.

@@ -2,10 +2,6 @@
 #include <cassert>
 #include <iostream>
 
-void BorgSimulatorBase::load_texture(const std::string& tex_path, uint32_t tex_dim) {
-    load_texture_to_flat(flat->mem.data(), tex_path, tex_dim, TEX_DRAM_BYTE_ADDR_FIXED);
-}
-
 void BorgSimulatorBase::set_camera_angles(float rx, float ry) {
     uint32_t* flat_words = (uint32_t*)flat->mem.data();
     float* flat_floats = (float*)&flat_words[flat_spi_word_offset];

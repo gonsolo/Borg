@@ -31,7 +31,7 @@ LEN = {
     0xAD: 66,
     0xAE: 1 + 2 + RX_GEOM_MAX_VERTS * 12 + RX_GEOM_MAX_TRIS * 3
           + RX_GEOM_MAX_TRIS * 24 + 1,
-    0xAF: 1 + 1 + RX_TEX_DIM * 6 + 1,
+    0xAF: 1 + 1 + 16 + RX_TEX_DIM * 4 + 1,   # y, sampler descriptor, RGBA8 row
     0xB0: 1 + 1 + 2 + RX_SHADER_MAX + 1,
     0xB1: 1,
     0xB2: 1 + 1 + 1 + RX_PUSH_MAX_WORDS * 4 + 1,

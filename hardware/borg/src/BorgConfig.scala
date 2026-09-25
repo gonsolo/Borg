@@ -141,34 +141,6 @@ case class BorgConfig(
     // value, which is why the dispatcher's serialized per-sample tile write
     // (see hasBlend) exists.
     hasStencil: Boolean = false,
-    // Adds bilinear texture filtering (VK_FILTER_LINEAR) to BorgTextureUnit.
-    // Core Vulkan -- no feature bit gates linear filtering -- and Borg
-    // sampled nearest-neighbour only.
-    //
-    // Costs three UNORM8 tap stores (96 bits), the weight arithmetic, and
-    // 4x the DRAM reads per filtered sample: a texel is already two reads
-    // because of the packed layout, so a filtered one is eight. There is no
-    // coalescing yet even though the four taps of a 2x2 footprint are
-    // adjacent in Morton order, which is the obvious later optimization.
-    //
-    // The parameter default is false only for the knob's own tests;
-    // BorgConfig.Default turns it on. The runtime SAMPLER_CFG filter bit
-    // keeps even an enabled build sampling nearest -- and paying no
-    // quantize/dequantize round trip -- until an application asks for linear.
-    hasBilinear: Boolean = false,
-    // Number of simultaneously-bound textures FTEX can select between (its
-    // rs3 operand -- see Instructions.FUNCT2_FTEX). Only the base DRAM
-    // address is per-slot; dimension, address mode and filtering stay
-    // shared/global, so every simultaneously-bound texture must be the same
-    // size -- a real, deliberate scoping limit, not an oversight.
-    //
-    // 4 is conservative, not the Vulkan-declared minimum: the CTS's own
-    // required-limits check (vktApiFeatureInfo.cpp) puts
-    // maxPerStageDescriptorSampledImages/Samplers at 16. Raising this is a
-    // bounded, mechanical change (widen the tex_base_addr RDL array and this
-    // field) -- deferred to an explicit area-vs-declared-limit call, the
-    // same shape as the hasCompute decision.
-    maxTextureBindings: Int = 4,
     // --- MSAA storage strategy ------------------------------------------
     //
     // false (default): every sample of the tile is resident at once --
@@ -314,11 +286,6 @@ case class BorgConfig(
     // and load 7+N instead of 7, shifting holdA/B/C and pipeEn1 earlier.
     fmaStages: Int = 3
 ) {
-  // Fixed at exactly 4: hardware/rdl/borg.rdl declares tex_base_addr0..3 as
-  // four separate named registers (not a SystemRDL array -- see that file's
-  // own comment for why), so Borg.scala's mux over them is hardcoded to 4
-  // wide. Raising this needs both files changed together, not just this one.
-  require(maxTextureBindings == 4, s"maxTextureBindings must be 4 (matching the RDL's fixed tex_base_addr0..3), got $maxTextureBindings")
   require(fragLanes == 1 || fragLanes == 4, s"fragLanes must be 1 or 4, got $fragLanes")
   require(samples == 1 || samples == 4, s"samples must be 1 or 4, got $samples")
   require(!msaaMultiPass || samples > 1,
@@ -388,7 +355,7 @@ case class BorgConfig(
   /** pipeEn2: magR capture. */
   def cPipeEn2: Int = 3 + fmaExtraLate
   /** pipeEn1 / all three operands held and valid -- also when BorgCore starts
-    * FTEX, LOAD/STORE and evaluates branches. */
+    * TEX/TEXA, LOAD/STORE and evaluates branches. */
   def cOperands: Int = cPipeEn2 + 1 + fmaExtraMid
   def cHoldC: Int = cOperands + 1
   def cRs3: Int = cOperands + 2
@@ -445,8 +412,7 @@ object BorgConfig {
   //   hasBlend:       colour blending is core Vulkan (only independentBlend
   //                   and dualSrcBlend are optional).
   //   hasStencil:     the stencil test is core; no feature bit gates it.
-  //   hasBilinear:    VK_FILTER_LINEAR is core; no feature bit gates it.
-  //   Every one of the four is runtime-gated by its own enable bit, so a
+  //   Every one of the three is runtime-gated by its own enable bit, so a
   //   build with them on behaves exactly like one without until firmware
   //   turns a feature on -- the cost is area, never behaviour.
   //
@@ -465,7 +431,6 @@ object BorgConfig {
     hasDepthFlush   = true,
     hasBlend        = true,
     hasStencil      = true,
-    hasBilinear     = true,
     hasCompute      = true,
     hasShaderICache = true
   )

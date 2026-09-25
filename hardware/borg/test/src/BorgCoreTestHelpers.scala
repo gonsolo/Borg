@@ -144,12 +144,6 @@ object BorgCoreTestHelpers {
     core.io.control.start.poke(false.B)
     core.io.control.reset.poke(false.B)
     core.io.control.startPC.poke(0.U)
-    // Step 34.4: FTEX texture response inputs — must be driven to avoid X propagation
-    core.io.texDone.poke(false.B)
-    core.io.texR.poke(0.U)
-    core.io.texG.poke(0.U)
-    core.io.texB.poke(0.U)
-    core.io.texA.poke(0.U)
     // ZTEST response and side-effect suppression: idle / no lane suppressed.
     core.io.zTestDone.poke(false.B)
     core.io.laneHelper.foreach(_.foreach(_.poke(false.B)))
@@ -249,7 +243,7 @@ object BorgCoreTestHelpers {
 
     // computes itself. Everything else reaches memory only through a
 
-    // fixed-function path (FTEX, the uniform bank, the tile-buffer ABI).
+    // fixed-function path (TEX, the uniform bank, the tile-buffer ABI).
 
     // =========================================================================
 

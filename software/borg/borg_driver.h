@@ -75,8 +75,15 @@ void borg_serial_reload(void);
 // Clear z-buffer for a frame to FP16_MAX_DEPTH
 void borg_clear_zbuffer(int frame, rgb16_t clear_color);
 
-// Set texture for subsequent draw calls (dimensions only; address is fixed)
+// Point the texture unit at the uploaded texture: writes texture descriptor 0
+// (tex_width × tex_height RGBA8, linear, at TEX_TEXEL_ADDR) and sampler
+// descriptor 0 (the last one given to borg_set_sampler), then TEX_DESC_BASE and
+// SAMPLER_DESC_BASE.
 void borg_set_texture(int tex_width, int tex_height);
+
+// Sampler descriptor 0, four words in the hardware's layout
+// (docs/B2_texture_unit.md) as borgvk packs them from the app's VkSampler.
+void borg_set_sampler(const uint32_t desc[4]);
 
 // Select what the fragment's u19-u27 uniforms carry: per-vertex COLOR (enable=1,
 // for CTS out_color=in_color / flat shading) vs model frag_pos (enable=0, default,
@@ -86,12 +93,8 @@ void borg_set_frag_vertex_color(int enable);
 // Disable texturing for subsequent draw calls
 void borg_clear_texture(void);
 
-// Upload a row-major RGB-FP16 texture (dim×dim, 6 bytes/texel) into the GPU
-// texture region, Morton-encoded into the hardware's 2-word layout.  Needed on
-// targets with no host to preload SDRAM (e.g. ULX3S); mirrors the simulator's
-// load_texture_to_dram().
-void borg_upload_texture(const uint8_t *rgb_fp16, int dim);
-// Upload one texture row (host streams the texture row-by-row over serial).
+// Upload one texture row (host streams the texture row-by-row over serial):
+// `dim` RGBA8 texels, stored linear at TEX_TEXEL_ADDR.
 void borg_upload_texture_row(const uint8_t *row, int y, int dim);
 
 // Stage a Vulkan push-constant range and point the shader load path at it

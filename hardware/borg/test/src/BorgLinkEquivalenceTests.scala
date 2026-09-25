@@ -82,10 +82,10 @@ object BorgLinkEquivalenceTests extends TestSuite {
   /** Minimal gpuMem read-only memory model: services single-word (`wlen=1`)
     * reads issued as a level-held `req` (dropped/advanced only the cycle
     * after `ready`, matching every real Borg gpuMem master -- BorgDMA,
-    * BorgBinner, the rasterizer, BorgTextureUnit -- see `MemoryController`'s
+    * BorgBinner, the core's LOAD/STORE and TEX ports -- see `MemoryController`'s
     * `sIdle`/`sRespond` for the contract this mirrors), from a fixed `mem`
     * map. Any read at an address not in `mem` returns 0 and is recorded so
-    * the caller can tell a real miss from a genuinely-zero texel.
+    * the caller can tell a real miss from a genuinely-zero word.
     */
   class GpuMemReadModel(mem: Map[Int, Long]) {
     val sIdle :: sWait :: sRespond :: Nil = List(0, 1, 2)
@@ -120,22 +120,22 @@ object BorgLinkEquivalenceTests extends TestSuite {
     }
   }
 
-  // --- Texture-read scenario: known texel content planted at texBaseAddr. ---
-  // Layout per BorgTextureUnit's own doc comment: word0 (+0) = {G,R},
-  // word1 (+4) = {pad,B}.
+  // --- Memory-read scenario: known colour words planted at LS_BASE. ---
+  // One word per channel, R at +0, G at +4, B at +8.
   val texBaseAddr = 0x400
   val texTileBase = 0x600
   val texR = BorgTests.floatToBits(0.25f, config).toInt
   val texG = BorgTests.floatToBits(0.75f, config).toInt
   val texB = BorgTests.floatToBits(1.0f, config).toInt
   val texMem: Map[Int, Long] = Map(
-    texBaseAddr       -> ((BigInt(texG & 0xffff) << 16) | BigInt(texR & 0xffff)).toLong,
-    (texBaseAddr | 4) -> (texB & 0xffff).toLong
+    texBaseAddr       -> (texR & 0xffff).toLong,
+    (texBaseAddr + 4) -> (texG & 0xffff).toLong,
+    (texBaseAddr + 8) -> (texB & 0xffff).toLong
   )
 
   /** Second scenario: a real render where every pixel's fragment shader
-    * executes an FTEX instruction, driving two real sequential gpuMem reads
-    * per pixel through the link -- the actual missing coverage described in
+    * executes three LOADs, driving three real sequential gpuMem reads per
+    * pixel through the link -- the actual missing coverage described in
     * this file's class doc: the original acceptance gate only ever exercised
     * the output write burst, never a gpuMem read.
     *
@@ -150,26 +150,25 @@ object BorgLinkEquivalenceTests extends TestSuite {
     * BorgShaderDispatcher's MSAA coverage comment), zero of either sign reads
     * as inside, not outside, so every one of the tile's 16 pixels shades.
     *
-    * Fragment shader at PC=4: `FTEX rd=26, rs1=r6(U=0.0), rs2=r6(V=0.0)`.
-    * U=V=0.0 keeps the texel address at exactly `texBaseAddr` (Fp16ToUint8(0)
-    * = 0, ClampTexCoord leaves 0 alone, MortonEncode(0,0) = 0), and rd=26
-    * lands the fetched (R,G,B) directly in the tile-write ABI registers
+    * Fragment shader at PC=4: `LOAD r26, r6; LOAD r27, r7; LOAD r28, r8`
+    * with r6/r7/r8 = word indices 0/1/2 off LS_BASE = `texBaseAddr`, landing
+    * the planted (R,G,B) directly in the tile-write ABI registers
     * (r26/r27/r28 -- see BorgShaderDispatcher's "Hardware ABI" comment), so no
     * further shader instructions are needed. Frag Z (r29) is left at its
     * post-reset 0x0000, which beats the tile buffer's cleared far-plane Z
     * (0x7BFF) under the unsigned FP16-magnitude compare, so the depth test
-    * passes and the fetched texel really lands in the tile buffer.
+    * passes and the loaded colour really lands in the tile buffer.
     *
     * Returns (burstBaseAddr, 16 RGB565 words, gpuMem reads observed).
     */
-  def runTextureScenario(d: Dut): (Int, Seq[Long], Int) = {
+  def runLoadScenario(d: Dut): (Int, Seq[Long], Int) = {
     val mm = new GpuMemReadModel(texMem)
 
     // Every write in this scenario goes through `mm` while it waits for its
     // own MMIO completion, not a plain clock step. This matters here in a
     // way it doesn't in runScenario(): once a pixel's shading genuinely
     // reads real texture data (below), the iterate write's own completion
-    // is gated behind that shading finishing, which needs FTEX's gpuMem
+    // is gated behind that shading finishing, which needs the LOADs' gpuMem
     // reads serviced *during* the wait -- a plain `d.clock.step(1)` would
     // never answer the pending read and deadlock the whole pipeline behind
     // it. (Found the hard way: every write up through frag_pc genuinely
@@ -192,38 +191,27 @@ object BorgLinkEquivalenceTests extends TestSuite {
     rw(BorgGpuRegs.flush_fb_base_offset.litValue.toInt, texTileBase)
     rw(BorgGpuRegs.flush_width_offset.litValue.toInt, 5) // log2(32)
 
-    // Texture configuration: en=1. log2_dim is irrelevant here -- U=V=0.0
-    // always clamps/mortons to index 0 regardless of it. base_addr in
-    // tex_config itself is superseded by the multi-texture-binding slot
-    // registers (see hardware/rdl/borg.rdl's tex_base_addr0..3 comment) --
-    // hardware no longer reads it. FTEX's rs3 (texSelect) defaults to 0
-    // here, so slot 0 (tex_base_addr0) is what needs the real base.
-    val texConfigVal = 1 << 16
-    rw(BorgGpuRegs.tex_config_offset.litValue.toInt, texConfigVal)
-    rw(BorgGpuRegs.tex_base_addr0_offset.litValue.toInt, texBaseAddr)
+    rw(BorgGpuRegs.ls_base_offset.litValue.toInt, texBaseAddr)
 
     // Edge uniforms 0-5 = 0x0000 (see this method's doc comment).
     for (i <- 0 until 6) {
       rw((BorgGpuRegs.uniform_offset.litValue + i * 4).toInt, 0x0000)
     }
 
-    // Fragment shader: FTEX rd=26, U=r6, V=r6, then halt. fragPcReg=0 is a
+    // Fragment shader: three LOADs into r26..r28, then halt. fragPcReg=0 is a
     // hard "no fragment shader" sentinel (BorgConfig.scala's
     // BORG_IMEM_FRAG_OFFSET doc, BorgShaderDispatcher's
     // `any_inside && io.fragPcReg =/= 0.U` chain condition) -- it must be
     // nonzero for the chain to fire at all, regardless of what word 0 holds,
     // so the fragment shader is placed at word 4, not word 0.
     rw(BorgGpuRegs.control_offset.litValue.toInt, 2) // reset pipeline
-    rw(6 * 4, 0x0000) // r6 = 0.0 (U and V operand for FTEX)
-    // r0 = 0: FTEX's rs3 defaults to register index 0, and the hardware
-    // reads THAT register's content to pick a texture-binding slot (rs3 is
-    // a register index, not an immediate -- see Instructions.FTEX's own
-    // doc). r0 is otherwise unused by this scenario and simulation
-    // randomizes uninitialized register content, so leaving it unwritten
-    // would make which slot gets sampled here a matter of the random seed.
-    rw(0 * 4, 0x0000)
-    rw(128 + 4 * 4, Instructions.FTEX(6, 6, 26))
-    rw(128 + 5 * 4, 0) // halt
+    rw(6 * 4, 0) // word indices, raw integers
+    rw(7 * 4, 1)
+    rw(8 * 4, 2)
+    rw(128 + 4 * 4, Instructions.LOAD(rs1 = 6, rd = 26))
+    rw(128 + 5 * 4, Instructions.LOAD(rs1 = 7, rd = 27))
+    rw(128 + 6 * 4, Instructions.LOAD(rs1 = 8, rd = 28))
+    rw(128 + 7 * 4, 0) // halt
     rw(BorgGpuRegs.frag_pc_offset.litValue.toInt, 4)
 
     // Enqueue tile (tx=0, ty=0).
@@ -231,8 +219,8 @@ object BorgLinkEquivalenceTests extends TestSuite {
     for (_ <- 0 until 5) mm.step(d)
 
     // Step the iterator through all 16 pixels. Each one runs the setup shader,
-    // then (since fragPcReg != 0 and every edge is inside) the FTEX fragment
-    // shader -- two real gpuMem reads per pixel, serviced by `mm`.
+    // then (since fragPcReg != 0 and every edge is inside) the LOAD fragment
+    // shader -- three real gpuMem reads per pixel, serviced by `mm`.
     for (_ <- 0 until 16) {
       rw(BorgGpuRegs.iter_offset.litValue.toInt, 1)
       for (_ <- 0 until 200) mm.step(d)
@@ -309,7 +297,7 @@ object BorgLinkEquivalenceTests extends TestSuite {
     // direct tile-buffer pokes in step (1) above, so whether any pixel tests
     // "inside" is irrelevant here -- frag_pc=0 means no fragment shader chains
     // regardless, and the iterate pass below exists only to drive the tile to
-    // completion so the flusher fires. See runTextureScenario() for a
+    // completion so the flusher fires. See runLoadScenario() for a
     // scenario where "inside" genuinely matters and is staged correctly.
     rawWrite(d, BorgGpuRegs.control_offset.litValue.toInt, 2) // reset pipeline
     rawWrite(d, 128 + 0 * 4, 0) // halt at word 0 -- no shader body needed
@@ -384,13 +372,13 @@ object BorgLinkEquivalenceTests extends TestSuite {
       utest.assert(direct._2 == expected)
     }
 
-    utest.test("direct_and_linked_ftex_framebuffers_are_bit_identical") {
+    utest.test("direct_and_linked_load_framebuffers_are_bit_identical") {
       var direct: (Int, Seq[Long], Int) = null
       var linked: (Int, Seq[Long], Int) = null
 
-      simulate(new BorgTestWrapper(cfg)) { d => direct = runTextureScenario(d) }
+      simulate(new BorgTestWrapper(cfg)) { d => direct = runLoadScenario(d) }
       simulate(new BorgLinkTestWrapper(cfg, LinkParams(trainBeats = 8))) { d =>
-        linked = runTextureScenario(d)
+        linked = runLoadScenario(d)
       }
 
       println(s"  direct: base 0x${direct._1.toHexString}, ${direct._2.length} words, " +
@@ -403,14 +391,14 @@ object BorgLinkEquivalenceTests extends TestSuite {
       utest.assert(direct._2 == linked._2)
 
       // This scenario's whole point: real gpuMem read traffic actually
-      // happened -- two sequential reads (B then RG) per pixel, 16 pixels.
-      utest.assert(direct._3 == 32)
-      utest.assert(linked._3 == 32)
+      // happened -- three sequential reads (R, G, B) per pixel, 16 pixels.
+      utest.assert(direct._3 == 48)
+      utest.assert(linked._3 == 48)
 
       // Independently anchor it: a bug that broke *both* paths identically
       // (e.g. the same reference gpuMem model on both sides) would otherwise
-      // slip through a pure comparison. Every pixel fetches the same planted
-      // texel (U=V=0.0 for all 16), so the whole burst is that one colour.
+      // slip through a pure comparison. Every pixel loads the same planted
+      // words, so the whole burst is that one colour.
       utest.assert(direct._1 == texTileBase)
       utest.assert(direct._2.length == 16)
       val expectedWord = BorgTests.toRgb565(texR, texG, texB).toLong & 0xffffL

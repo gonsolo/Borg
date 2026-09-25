@@ -15,13 +15,13 @@ import chisel3.util._
   * Everything that is SHARED across lanes stays in [[BorgCore]] and is supplied
   * here as inputs: the decoded instruction (`regs`/`opFlags`), the pipeline
   * control (`busyCounter`/`running`/`isBusy`/`fmaStart`), the single uniform-RAM
-  * read result (`uniformData`/`funct3Del`), the MMIO bus, LUT init, and the FTEX
-  * write-back (`memWrite`) from the shared FTEX FSM.
+  * read result (`uniformData`/`funct3Del`), the MMIO bus, LUT init, and the
+  * memory write-back (`memWrite`) from the shared LOAD/STORE and TEX FSMs.
   *
   * Write-back addr+enable are shared (same `rd`/MMIO address, same control); only
   * the data differs per lane, so the lane computes its own data and writes its own
-  * register-file copies.  `recARaw`/`recBRaw` are exported so the shared FTEX FSM
-  * can drive texU/texV from this lane's operands.
+  * register-file copies.  `recARaw`/`recBRaw`/`recCRaw` are exported so the
+  * shared memory and TEX FSMs can read this lane's operands.
   *
   * At `fragLanes==1` a single instance reproduces the original monolithic BorgCore
   * behaviour bit-for-bit.
@@ -73,15 +73,15 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // --- MMIO bus (broadcast; GPR read/write) ---
   val bus         = Flipped(new BorgBusIO())
 
-  // --- FTEX write-back from the shared FTEX FSM (en/addr/data) ---
+  // --- Write-back from the shared memory/TEX FSMs (en/addr/data) ---
   val memWrite    = Flipped(new MemWritePort(5, cfg.totalBits))
 
   // --- Outputs ---
   val pipeWrite   = new PipeWriteIO(cfg.totalBits) // write-back snoop
   val regReadData = Output(UInt(cfg.totalBits.W))  // MMIO GPR read (lane 0 consumed)
-  val recARaw     = Output(UInt(cfg.totalBits.W))  // operands for shared FTEX FSM
+  val recARaw     = Output(UInt(cfg.totalBits.W))  // operands for the shared FSMs
   val recBRaw     = Output(UInt(cfg.totalBits.W))
-  val recCRaw     = Output(UInt(cfg.totalBits.W))  // FTEX's rs3: texture-slot select
+  val recCRaw     = Output(UInt(cfg.totalBits.W))  // TEX's rs3: the control word
 }
 
 class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -162,7 +162,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val special_result = computeFp16Special(recA_raw, is_frcp_reg, is_frsq_reg, is_fsrgb_reg)
   val (int_result, is_int_reg) = wireIntAlu(recA_raw, recB_raw, io.fmaStart)
 
-  // --- Write-back (+ FTEX override) ---
+  // --- Write-back (+ memory/TEX override) ---
   wireWriteBack(fma_result, fstep_result, special_result,
                 is_fstep_reg, is_frcp_reg, is_frsq_reg, is_fsrgb_reg,
                 int_result, is_int_reg, mmioD)
@@ -252,14 +252,12 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_deriv_reg = RegInit(false.B) // DDX/DDY: FMA computes crossA + crossC
     when(start) {
       is_mul_reg := opFlags.mul
-      // opFlags.fma is the raw R4-type opcode bit, which FTEX now also sets
-      // (see Instructions.FUNCT2_FTEX) -- exclude it here so a texture
-      // sample doesn't needlessly run its U/V/texSelect operands through the
-      // real multiply-add datapath. Harmless either way (FTEX's own result
-      // always arrives via the memWrite override below, last-connect-wins
-      // over whatever this path would have produced), but wasteful power and
-      // muddies what "is_fma_reg" means.
-      is_fma_reg := opFlags.fma && !opFlags.ftex
+      // opFlags.fma is the raw R4-type opcode bit, which TEX/TEXA also set --
+      // this lane runs its real multiply-add datapath on their U/V/ctl
+      // operands too, which is wasted power but harmless: TEX/TEXA's real
+      // result always arrives via the memWrite override below (BorgCore's
+      // wireSampler), last-connect-wins over whatever this path produces.
+      is_fma_reg := opFlags.fma
       is_fneg_reg := opFlags.fneg
       is_fstep_reg := opFlags.fstep
       is_frcp_reg := opFlags.frcp
@@ -533,10 +531,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     io.pipeWrite.addr := w_addr
     io.pipeWrite.data := w_data
 
-    // Memory-FSM write-back override (FTEX's texel triple, or LOAD's word).
-    // Last-connect wins, matching the original wireTexStall-after-
-    // wireWriteBack ordering. Named memWrite rather than texWrite since
-    // FTEX is no longer its only driver.
+    // Memory-FSM write-back override (TEX's texel, or LOAD's word).
+    // Last-connect wins over the ALU write-back above.
     when(io.memWrite.en && io.execActive) {
       writeReg(io.memWrite.addr, true.B, io.memWrite.data)
       io.pipeWrite.en   := true.B

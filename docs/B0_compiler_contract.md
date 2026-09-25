@@ -7,13 +7,9 @@ at `mesa/src/borg/compiler/`) and the driver/firmware (`borgvk`,
 collects everything the software side still has to pick up, so that work
 can happen after tapeout without re-deriving it from the RTL.
 
-**Merge warning.** Two of these break existing content the moment the
-branch lands on `main`, before any follow-up is done:
-
-- the new `FTEX` encoding (every compiled shader that samples a texture),
-  see [FTEX encoding](#ftex-encoding);
-- the texture base register moved (firmware texturing), see
-  [Texture binding registers](#texture-binding-registers).
+The texture items are done: `FTEX` is gone, and borgc, borgvk and the
+firmware use `TEX` and the descriptor tables (see
+[Texture sampling](#texture-sampling)).
 
 The source of truth for every encoding below is
 `hardware/borg/src/Instructions.scala`; `software/borg/borg_isa.h` is
@@ -63,58 +59,19 @@ What the driver/firmware must do:
 
 ## Fragment shaders
 
-### FTEX encoding
+### Texture sampling
 
-`FTEX` moved from the ALU-opcode R-type shape (funct7 `0x0C`) to the R4-type
-shape `FMADD` already uses, to gain a third source operand (commit
-`303bba28`).
+Done (2026-09-25). `FTEX` and the legacy texture unit were removed; borgc
+emits `TEX` (R4-type, funct2 `2`) with its result in r20–r23 and a control
+word of 0 built in the shader, and keeps r23 out of the constant registers
+of any shader that samples. Encodings, the control word and the descriptor
+layouts: [Texture Unit](B2_texture_unit.md), whose "Software" section says
+what each piece does. funct2 `1` (the old `FTEX`) and funct7 `0x0C` (the
+one before it) are retired and decode as nothing.
 
-| Field  | Bits    | FTEX value                                |
-|--------|---------|-------------------------------------------|
-| rs3    | 31:27   | register holding the binding slot         |
-| funct2 | 26:25   | `1` (FMADD is `0`)                        |
-| rs2    | 24:20   | V coordinate                              |
-| rs1    | 19:15   | U coordinate                              |
-| funct3 | 14:12   | uniform substitution, as for every op     |
-| rd     | 11:7    | first of four destination registers       |
-| opcode | 6:0     | `0x04` (bit 2 = R4-type)                  |
-
-Base word `0x02000004`; C macro `BORG_INSTR_FTEX(rd, rs1, rs2, rs3, funct3)`.
-funct7 `0x0C` is retired and decodes as nothing.
-
-**borgc today:** `encode.rs` still emits `"FTEX" => bin(0x1800_0000)`, the old
-encoding. It must emit the R4 form with a real `rs3`.
-
-### FTEX writes four registers: RGBA
-
-`FTEX rd` writes `rd` = R, `rd+1` = G, `rd+2` = B, `rd+3` = **A** (commit
-`8b178d92`). A sampled image is a vec4, and the texel format
-(R16G16B16A16_SFLOAT) always carried alpha; the hardware used to discard it.
-`rd` must be at most 28.
-
-**borgc today:**
-
-- `lib.rs` reserves only r20–r22 for the FTEX block and allocates r23 as a
-  constant register (`CONST_REGS: [17, 18, 19, 23]`). An FTEX with `rd = 20`
-  now overwrites r23. Reserve r20–r23 and move that constant elsewhere.
-- `lib.rs` fakes texture alpha by reusing B (`(ftex_v, 2)` as the fourth
-  component). Use `rd+3` instead.
-
-### Texture binding slot (rs3)
-
-`rs3` is a **register index**, like FMADD's own `rs3`: the hardware reads the
-register and uses its low 2 bits to pick one of four texture base addresses
-(`tex_base_addr0..3`). It is not an immediate: `rs3 = 1` means "read r1", not
-"slot 1". Pin the binding index into a register, the same way
-`push_const_reg`/`alloc_const_reg` already pin push-constant offsets, and
-pass that register.
-
-Only the base address is per slot. Texture size (`tex_config.log2_dim`) and
-sampler state (filter, address modes, border) are shared, so every texture
-bound at the same time must have the same size and sampler. 4 slots is below
-Vulkan's reported minimum of 16 (`maxPerStageDescriptorSampledImages`);
-raising it is a bounded RTL change (`BorgConfig.maxTextureBindings` plus the
-RDL registers).
+Still open in borgc: texture ops other than a plain implicit-LOD sample
+(`TEXA` bias/LOD, texelFetch, gather, compare, offsets), 3D/array/cube
+coordinates, and mapping more than one binding to descriptor indices.
 
 ### ZTEST: early per-fragment tests
 
@@ -170,7 +127,7 @@ The r25 kill register is sticky and does not stop execution, so code after a
 
 | Registers | Meaning                                                 |
 |-----------|---------------------------------------------------------|
-| r20–r23   | FTEX result block when `rd = 20` (compiler convention)  |
+| r20–r23   | TEX result block when `rd = 20` (compiler convention)   |
 | r24       | alpha output (hasBlend builds)                          |
 | r25       | kill / discard (sticky, nonzero = discard)              |
 | r26–r28   | R, G, B output                                          |
@@ -250,25 +207,6 @@ a lowering convention, each pinned by a hand-written ISA test in
   can compile to nothing.
 
 ## Driver and firmware
-
-### Texture binding registers
-
-The texture base address moved from `tex_config.base_addr` to four
-per-slot registers, `tex_base_addr0..3` at `0x304`–`0x310` (same encoding:
-the byte address / 8, as a 16-bit field). **The hardware no longer reads
-`tex_config.base_addr`.** `software/borg/borg_driver.c` still writes it, so
-firmware texturing on this branch samples slot 0 at whatever
-`tex_base_addr0` holds (0 after reset) until it also writes
-`tex_base_addr0`. `tex_config` still carries `en`, `log2_dim` and
-`frag_uses_fragpos`.
-
-### Texture alpha
-
-Texels are R16G16B16A16_SFLOAT: word +0 = `{G, R}`, word +4 = `{A, B}`.
-`borg_upload_texture_row` writes only B into word +4, so every uploaded
-texture has alpha 0. The borgvk wire format (`0xAF` rows, RGB FP16) carries
-no alpha either. Before a shader uses FTEX's alpha, both need a fourth
-channel. Until then, opaque textures should upload A = 1.0 (`0x3C00`).
 
 ### Colour attachment format
 
@@ -382,16 +320,16 @@ compiler targets it.
 
 ## The texture unit
 
-`TEX`/`TEXA` and the descriptor tables replace `FTEX` for anything beyond
-the legacy RGBA16F path: [Texture Unit](B2_texture_unit.md) has the
-encodings, the control word, the descriptor layouts and an example.
+`TEX`/`TEXA` and the descriptor tables are the texture path:
+[Texture Unit](B2_texture_unit.md) has the encodings, the control word, the
+descriptor layouts and an example.
 
 ## Where each contract is tested
 
 | Contract                         | Test                                                              |
 |----------------------------------|-------------------------------------------------------------------|
-| FTEX slot select via rs3         | `BorgCoreTestsC.ftex_rs3_routes_two_calls_to_different_textures`  |
-| FTEX writes RGBA                 | `BorgCoreTestsC.ftex_writes_rgba_to_four_consecutive_registers`   |
+| TEX descriptors, formats, LOD    | `BorgSamplerTests`, `BorgDrawTests.render_to_texture_and_sample_it` |
+| borgc TEX encoding               | `encode.rs` test `tex_is_r4_type_funct2_2_with_the_control_word_in_rs3` |
 | ZTEST stall, no register write   | `BorgCoreTestsC.ztest_stalls_until_done_and_writes_no_register`   |
 | Helper-lane store suppression    | `BorgCoreTestsC.helper_lane_stores_are_suppressed_loads_are_not`  |
 | ZTEST pass/fail/discard/stencil  | `BorgShaderDispatcherZTestTests` (7 tests, incl. 4× per-sample)   |

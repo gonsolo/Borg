@@ -60,7 +60,6 @@ VERILOG_FILES:
 - dir::../../../out/hardware/borg/verilog_wafer/BorgRasterizer.sv
 - dir::../../../out/hardware/borg/verilog_wafer/BorgSequencer.sv
 - dir::../../../out/hardware/borg/verilog_wafer/BorgShaderDispatcher.sv
-- dir::../../../out/hardware/borg/verilog_wafer/BorgTextureUnit.sv
 - dir::../../../out/hardware/borg/verilog_wafer/BorgTileBuffer.sv
 - dir::../../../out/hardware/borg/verilog_wafer/BorgTileFlusher.sv
 - dir::../../../out/hardware/borg/verilog_wafer/CreditCounter.sv

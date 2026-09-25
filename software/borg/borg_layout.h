@@ -13,7 +13,7 @@
 //   0x0000 .. 0x4260  Firmware .data/.bss/.uninitialized_data (linker-placed)
 //   0x4800 .. 0x49FF  Sequencer shaders (vert, setup, rast, frag — 4×128B)
 //   SEQ_DESC_BASE_ADDR .. SEQ_DESC_END  Sequencer descriptors (SEQ_MAX_DRAWS × SEQ_DESC_STRIDE)
-//   TEX_DRAM_BYTE_ADDR_FIXED .. +TEX_REGION_BYTES  Texture (Morton-packed FP16)
+//   TEX_DRAM_BYTE_ADDR_FIXED .. +TEX_REGION_BYTES  Texture descriptor tables, then texels
 //   DRAM_OUT_BASE_SPI ..         Framebuffer, Z-buffer, DONE marker (DRAM_OUT)
 
 #pragma once
@@ -68,8 +68,17 @@
 // Currently: 0x4A00 + 12 × 256 = 0x4A00 + 0xC00 = 0x5600.
 #define TEX_DRAM_BYTE_ADDR_FIXED  SEQ_DESC_END
 
-// Maximum texture size (256×256 texels, 8 bytes each = 2×FP16 words/texel).
+// Region size, kept from the legacy 256×256 × 8-byte layout so nothing after
+// it moves: room for the descriptor tables and any texture up to 256×256 at
+// 8 bytes per texel.
 #define TEX_REGION_BYTES      (256 * 256 * 8)   // 0x80000 = 512 KB
+
+// The texture unit's descriptor tables (docs/B2_texture_unit.md), at the start
+// of the region, texels after them. One texture (16 words) and one sampler
+// (4 words) today; TEX_DESC_BASE and SAMPLER_DESC_BASE point here.
+#define TEX_DESC_TABLE_ADDR     TEX_DRAM_BYTE_ADDR_FIXED
+#define SAMPLER_DESC_TABLE_ADDR (TEX_DRAM_BYTE_ADDR_FIXED + 64)
+#define TEX_TEXEL_ADDR          (TEX_DRAM_BYTE_ADDR_FIXED + 256)
 
 // -------------------------------------------------------------------------
 // Framebuffer region — starts immediately after texture.
