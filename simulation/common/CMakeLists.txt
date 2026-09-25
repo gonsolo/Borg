@@ -10,7 +10,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -fPIC")
 
 add_library(borgsim STATIC
     BorgSimulatorBase.cpp
-    texture_loader.cpp
     uart_decoder.cpp
 )
 
