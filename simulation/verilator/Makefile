@@ -60,6 +60,22 @@ endef
 obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/sim_files.txt $(V_SRCS)
 	$(call VERILATE,obj_dir,$(HW_DIR)/borg/verilog_sim,BorgSimTop,main.cpp,verilator_sim)
 
+# The same sim on the ULX3S's real SDRAM path (SdramBackend -> SdramController
+# -> SdramChipModel) instead of SdramBackendSim: hardware/soc/src/
+# BorgRealSdramSimMain.scala. Same harness, firmware and capture.
+REALSDRAM_DIR  = $(HW_DIR)/borg/verilog_sim_realsdram
+REALSDRAM_SRCS = $(wildcard $(REALSDRAM_DIR)/*.sv)
+
+$(REALSDRAM_DIR)/sim_files.txt: $(CHISEL_SRCS)
+	cd $(ROOT) && CLOCK_MHZ=4 mill hardware.soc.runMain soc.BorgRealSdramSimMain
+
+obj_dir_realsdram/verilator_sim: main.cpp $(REALSDRAM_DIR)/sim_files.txt $(REALSDRAM_SRCS)
+	$(call VERILATE,obj_dir_realsdram,$(REALSDRAM_DIR),BorgSimTop,main.cpp,verilator_sim)
+
+.PHONY: cts-uart-realsdram
+cts-uart-realsdram: obj_dir_realsdram/verilator_sim $(FIRMWARE_DIR)/kernel.bin
+	python3 '$(ROOT)/scripts/cts_uart_render.py' ./obj_dir_realsdram/verilator_sim '$(FIRMWARE_DIR)/kernel.bin' kernel_cts_uart_realsdram_00.ppm 128 128 --capture '$(ROOT)/simulation/golden/borgvk_capture.bin'
+
 obj_dir_hdmi/verilator_hdmi: main_hdmi.cpp $(HDMI_DIR)/sim_files.txt $(HDMI_SRCS)
 	$(call VERILATE,obj_dir_hdmi,$(HDMI_DIR),BorgHdmiSimTop,main_hdmi.cpp,verilator_hdmi)
 
