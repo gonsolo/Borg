@@ -40,7 +40,30 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // 15 % FF, 13.5 % BRAM on the ECP5-85K, timing closed at 25 MHz.
   // Revert to plain BorgConfig.Simt to fall back to the HPG-proven config.
   override def BORG_CFG: BorgConfig = BorgConfig.Simt.copy(samples = 4)
-  override def xlen: Int = 64
+  // RV32I Hutt (Project.scala's default): the RV64IMAC + Sv39 MMU config
+  // this used to override to no longer fits the ECP5-85K alongside FP32
+  // Borg (92,986 LUT4 at RV64, 111% of the device, even after fixing
+  // BorgTileSequencer's dirty-bit blowup -- see BorgConfig.scala's
+  // maxBinTiles=4096 comment and BorgTileSequencer's tileDirtyMem doc).
+  // RV32I alone measures 3,537 LUT4 against RV64's 13,401 -- the single
+  // biggest lever available without cutting a Borg feature. Costs the
+  // M extension (no hardware MUL/DIV: firmware falls back to libgcc's
+  // software routines) and the ULX3S OpenSBI/Linux goal on THIS
+  // bitstream -- that work continues on MinimalSocSimTop/
+  // MinimalSocRealSdramSimTop and their own borg-minimal-linux.bit,
+  // which stay RV64 and are untouched by this.
+  //
+  // hasSupervisorMode = false too, matching QspiSocTop: this is the same
+  // software/borg bare-metal firmware that comment describes -- never
+  // leaves M-mode, never sets mtvec, no ecall/mret/sret anywhere -- so
+  // every S-mode CSR and trap-delegation path Hutt elaborates is dead
+  // weight here too, not just on the ASIC/TT target.
+  //
+  // Measured (nextpnr, whole design): RV64 92,986 LUT4 -> RV32 84,580 ->
+  // RV32 without S-mode 84,232 of 83,640 (100.7%). Still does NOT place;
+  // the remaining ~4K needs the legacy draw path gone (see
+  // docs/B1_geometry_front_end.md's "Coexistence" section).
+  override def hasSupervisorMode: Boolean = false
   override def scanoutCurBuf: Bool = scanout.io.curBuf
   // Rung A of the wafer.space Borg-only bridge's on-hardware ladder (see the
   // plan doc / BorgMode's own comment): BorgLoopback closes peripherals.io.link

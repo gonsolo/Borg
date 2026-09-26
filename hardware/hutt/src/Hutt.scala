@@ -1186,7 +1186,8 @@ class Hutt(
           // Sv39 MMU inherently implies S-mode (translation is meaningless
           // without S/U privilege levels to translate for) -- this whole PTW
           // block already only exists when xlen==64, and every xlen==64
-          // config in this codebase (ULX3S) also has hasSupervisorMode=true,
+          // config in this codebase (the MinimalSoC Linux harnesses) also
+          // has hasSupervisorMode=true,
           // so .get here is safe in every real configuration. A hypothetical
           // xlen=64+!hasSupervisorMode build (not used anywhere today) would
           // fail loudly at elaboration rather than silently misbehave.

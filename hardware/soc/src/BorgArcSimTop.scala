@@ -41,8 +41,11 @@ class BorgArcSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   }
   def soc_ui_in = ui_in
 
-  // Match ULX3S hardware: RV64IMAC Hutt core.
-  override def xlen: Int = 64
+  // Match ULX3S hardware: RV32I Hutt core (see ULX3S.scala's own comment
+  // for why RV64 no longer fits the ECP5-85K).
+  // Also matches ULX3S.scala's hasSupervisorMode = false (see its own
+  // comment): the same bare-metal firmware, never leaves M-mode.
+  override def hasSupervisorMode: Boolean = false
 
   // Unified 2×2 quad SIMT config, matching the verilator BorgSimTop and ULX3S.
   // Arcilator ignores $readmemh, so its C++ harness pokes the per-lane LUTs into

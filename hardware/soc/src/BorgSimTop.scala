@@ -43,8 +43,11 @@ class BorgSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   }
   def soc_ui_in = ui_in
 
-  // Match ULX3S hardware: RV64IMAC Hutt core.
-  override def xlen: Int = 64
+  // Match ULX3S hardware: RV32I Hutt core (see ULX3S.scala's own comment
+  // for why RV64 no longer fits the ECP5-85K).
+  // Also matches ULX3S.scala's hasSupervisorMode = false (see its own
+  // comment): the same bare-metal firmware, never leaves M-mode.
+  override def hasSupervisorMode: Boolean = false
 
   // 2×2 quad SIMT fragment shading (sim). BORG_SIM_CFG selects the MSAA
   // storage strategy so msaaMultiPass can be rendered end to end; it defaults

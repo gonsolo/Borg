@@ -1,7 +1,9 @@
-# Bare-metal Hutt runtime, selectable by XLEN: 64 (default, ULX3S -- RV64I +
-# Zicsr, soft-float lp64d, HW-verified) or 32 (ASIC/TT -- RV32I + Zicsr,
-# ilp32). Both toolchains come from flake.nix's pkgsCross riscv{32,64}-embedded.
-XLEN ?= 64
+# Bare-metal Hutt runtime, selectable by XLEN: 32 (default, ULX3S/ASIC/TT --
+# RV32I + Zicsr, ilp32) or 64 (RV64I + Zicsr, soft-float lp64d -- HW-verified,
+# but no longer the ULX3S bitstream's Hutt config; see software/borg/
+# Makefile's own comment). Both toolchains come from flake.nix's pkgsCross
+# riscv{32,64}-embedded.
+XLEN ?= 32
 
 ifeq ($(XLEN),32)
 TOOLCHAIN ?= riscv32-none-elf
@@ -22,15 +24,22 @@ AR = $(TOOLCHAIN)-ar
 all: hutt.a start.o
 
 clean:
-	rm -f *.o *.a
+	rm -f *.o *.a .arch_stamp
 
-%.o: %.c
+# Stamp holding the target ISA/ABI, rewritten only when it changes, so every
+# object (and hutt.a) rebuilds on an XLEN switch. Without it, switching XLEN
+# silently linked the firmware against the other width's stale runtime.
+.PHONY: force_arch_check
+.arch_stamp: force_arch_check
+	@printf '%s' '$(ARCH) $(ABI)' | cmp -s - $@ 2>/dev/null || printf '%s' '$(ARCH) $(ABI)' > $@
+
+%.o: %.c .arch_stamp
 	$(CC) -O2 -march=$(ARCH) -mabi=$(ABI) -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -I$(CURDIR) -c $< -o $@
 
-%.o: %.s
+%.o: %.s .arch_stamp
 	$(AS) -march=$(ARCH) -mabi=$(ABI) $< -o $@
 
-mul.o: $(MUL_SRC)
+mul.o: $(MUL_SRC) .arch_stamp
 	$(AS) -march=$(ARCH) -mabi=$(ABI) $< -o $@
 
 # mul.o: soft __mulsi3/__muldi3 (the Hutt has no M ext in the compiler's -march,

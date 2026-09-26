@@ -9,13 +9,17 @@ _max_draws   := $(shell sed -n 's/.*SEQ_MAX_DRAWS[[:space:]]\+\([0-9]\+\).*/\1/p
 _desc_stride := $(shell sed -n 's/.*SEQ_DESC_STRIDE[[:space:]]\+\([0-9]\+\).*/\1/p' borg_layout.h)
 TEX_SPI_BYTE_ADDR := $(shell printf '%d' $$(( $(_desc_base) + $(_max_draws) * $(_desc_stride) )))
 
-# Bare-metal firmware, selectable by XLEN: 64 (default, ULX3S -- RV64I +
-# Zicsr, soft-float lp64d, HW-verified) or 32 (ASIC/TT -- RV32I + Zicsr,
-# ilp32; no M/F/D either way -- multiply/divide is soft, see
-# $(HUTT_SDK)/mul.s / mul32.s). Toolchains from flake.nix's pkgsCross
-# riscv{32,64}-embedded. export so the recursive `$(MAKE) -C $(HUTT_SDK)`
-# below picks up the same XLEN. Override TOOLCHAIN= if your prefix differs.
-export XLEN ?= 64
+# Bare-metal firmware, selectable by XLEN: 32 (default, ULX3S/ASIC/TT --
+# RV32I + Zicsr, ilp32; no M/F/D -- multiply/divide is soft, see
+# $(HUTT_SDK)/mul32.s) or 64 (RV64I + Zicsr, soft-float lp64d -- HW-verified,
+# but no longer what the ULX3S bitstream's Hutt core is: RV64IMAC + Sv39
+# didn't fit the ECP5-85K alongside FP32 Borg, see ULX3S.scala's own comment.
+# 64 stays available for the separate OpenSBI/Linux bring-up harnesses
+# (MinimalSocSimTop et al.), which build through software/hutt directly, not
+# this Makefile). Toolchains from flake.nix's pkgsCross riscv{32,64}-embedded.
+# export so the recursive `$(MAKE) -C $(HUTT_SDK)` below picks up the same
+# XLEN. Override TOOLCHAIN= if your prefix differs.
+export XLEN ?= 32
 
 ifeq ($(XLEN),32)
 TOOLCHAIN ?= riscv32-none-elf
@@ -76,7 +80,9 @@ clean:
 	$(MAKE) -C compiler clean
 	$(MAKE) -C python clean
 
-$(HUTT_SDK)/%.o: $(HUTT_SDK)/%.s
+# .cflags_stamp carries -march/-mabi, so an XLEN switch reaches start.o too
+# (the runtime's own .arch_stamp then rebuilds it).
+$(HUTT_SDK)/%.o: $(HUTT_SDK)/%.s .cflags_stamp
 	$(MAKE) -C $(HUTT_SDK) $(notdir $@)
 
 # Firmware compile flags, factored into one variable so a change to ANY of them
