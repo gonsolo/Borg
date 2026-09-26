@@ -9,15 +9,24 @@ _max_draws   := $(shell sed -n 's/.*SEQ_MAX_DRAWS[[:space:]]\+\([0-9]\+\).*/\1/p
 _desc_stride := $(shell sed -n 's/.*SEQ_DESC_STRIDE[[:space:]]\+\([0-9]\+\).*/\1/p' borg_layout.h)
 TEX_SPI_BYTE_ADDR := $(shell printf '%d' $$(( $(_desc_base) + $(_max_draws) * $(_desc_stride) )))
 
-# RV64 bare-metal firmware: the ULX3S Hutt core is RV64I + Zicsr (no M/F/D —
-# multiply/divide and float are soft, via libgcc).  Matches the sim tops, which
-# now run xlen=64.  ABI lp64 (soft-float).  Toolchain: riscv64-none-elf
-# (newlib bare-metal, from pkgsCross.riscv64-embedded in flake.nix).
-# Override with TOOLCHAIN64= if your prefix differs.
-TOOLCHAIN64 ?= riscv64-none-elf
-CC = $(TOOLCHAIN64)-gcc
-# _zicsr enables CSR instructions (rdcycle) — Hutt implements the cycle/mcycle
-# read-side counter; the rest of the ISA is still pure RV64I.
+# Bare-metal firmware, selectable by XLEN: 32 (default, ULX3S/ASIC/TT --
+# RV32I + Zicsr, ilp32; no M/F/D -- multiply/divide is soft, see
+# $(HUTT_SDK)/mul32.s) or 64 (RV64I + Zicsr, soft-float lp64d -- HW-verified,
+# but no longer what the ULX3S bitstream's Hutt core is: RV64IMAC + Sv39
+# didn't fit the ECP5-85K alongside FP32 Borg, see ULX3S.scala's own comment.
+# 64 stays available for the separate OpenSBI/Linux bring-up harnesses
+# (MinimalSocSimTop et al.), which build through software/hutt directly, not
+# this Makefile). Toolchains from flake.nix's pkgsCross riscv{32,64}-embedded.
+# export so the recursive `$(MAKE) -C $(HUTT_SDK)` below picks up the same
+# XLEN. Override TOOLCHAIN= if your prefix differs.
+export XLEN ?= 32
+
+ifeq ($(XLEN),32)
+TOOLCHAIN ?= riscv32-none-elf
+ARCH = rv32i_zicsr
+ABI  = ilp32
+else
+TOOLCHAIN ?= riscv64-none-elf
 ARCH = rv64ifd_zicsr
 ABI  = lp64d
 AS = $(TOOLCHAIN64)-as
@@ -70,7 +79,9 @@ clean:
 	$(MAKE) -C compiler clean
 	$(MAKE) -C python clean
 
-$(HUTT_SDK)/%.o: $(HUTT_SDK)/%.s
+# .cflags_stamp carries -march/-mabi, so an XLEN switch reaches start.o too
+# (the runtime's own .arch_stamp then rebuilds it).
+$(HUTT_SDK)/%.o: $(HUTT_SDK)/%.s .cflags_stamp
 	$(MAKE) -C $(HUTT_SDK) $(notdir $@)
 
 # Firmware compile flags, factored into one variable so a change to ANY of them

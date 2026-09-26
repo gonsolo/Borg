@@ -1,8 +1,9 @@
-# RV64 bare-metal: matches software/borg (RV64I + Zicsr, soft-float lp64).
-TOOLCHAIN64 ?= riscv64-none-elf
-CC = $(TOOLCHAIN64)-gcc
-AS = $(TOOLCHAIN64)-as
-AR = $(TOOLCHAIN64)-ar
+# Bare-metal Hutt runtime, selectable by XLEN: 32 (default, ULX3S/ASIC/TT --
+# RV32I + Zicsr, ilp32) or 64 (RV64I + Zicsr, soft-float lp64d -- HW-verified,
+# but no longer the ULX3S bitstream's Hutt config; see software/borg/
+# Makefile's own comment). Both toolchains come from flake.nix's pkgsCross
+# riscv{32,64}-embedded.
+XLEN ?= 32
 
 ARCH = rv64ifd_zicsr
 ABI  = lp64d
@@ -10,17 +11,28 @@ ABI  = lp64d
 all: hutt.a start.o
 
 clean:
-	rm -f *.o *.a
+	rm -f *.o *.a .arch_stamp
 
-%.o: %.c
+# Stamp holding the target ISA/ABI, rewritten only when it changes, so every
+# object (and hutt.a) rebuilds on an XLEN switch. Without it, switching XLEN
+# silently linked the firmware against the other width's stale runtime.
+.PHONY: force_arch_check
+.arch_stamp: force_arch_check
+	@printf '%s' '$(ARCH) $(ABI)' | cmp -s - $@ 2>/dev/null || printf '%s' '$(ARCH) $(ABI)' > $@
+
+%.o: %.c .arch_stamp
 	$(CC) -O2 -march=$(ARCH) -mabi=$(ABI) -nostdlib -nostartfiles -ffreestanding -ffunction-sections -fdata-sections -Wall -Werror -lc -I$(CURDIR) -c $< -o $@
 
-%.o: %.s
+%.o: %.s .arch_stamp
 	$(AS) -march=$(ARCH) -mabi=$(ABI) $< -o $@
 
-# mul.s provides RV64-correct soft __mulsi3/__muldi3 (the Hutt has no M ext, and
-# the rv64imafdc libgcc ships no __muldi3).  It was rewritten for lp64 — the old
-# RV32 version corrupted 64-bit multiplies and clobbered s0/s1 on RV64.
+mul.o: $(MUL_SRC) .arch_stamp
+	$(AS) -march=$(ARCH) -mabi=$(ABI) $< -o $@
+
+# mul.o: soft __mulsi3/__muldi3 (the Hutt has no M ext in the compiler's -march,
+# so libgcc's hardware-MUL versions can't be used). mul.s (RV64/lp64) and
+# mul32.s (RV32/ilp32) use different register-width conventions -- see their
+# header comments; XLEN above picks the right one.
 # mem.o: byte-loop memcpy/memset/memmove overriding newlib's (which are built
 # rv64imafdc and use compressed instructions the no-C Hutt can't decode).
 hutt.a: uart.o mul.o mem.o isqrt.o runtime.o

@@ -1,2 +1,3 @@
 *.a
 *.o
+.arch_stamp

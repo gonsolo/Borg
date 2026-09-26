@@ -529,8 +529,16 @@ class Hutt(
           // Page-fault cause and delegation bit.
           val faultCause = Mux(ptwIsInstr, 12.U(xlen.W),
                            Mux(ptwIsWrite, 15.U(xlen.W), 13.U(xlen.W)))
-          val faultDeleg = Mux(ptwIsInstr, medeleg(12),
-                           Mux(ptwIsWrite, medeleg(15), medeleg(13)))
+          // Sv39 MMU inherently implies S-mode (translation is meaningless
+          // without S/U privilege levels to translate for) -- this whole PTW
+          // block already only exists when xlen==64, and every xlen==64
+          // config in this codebase (the MinimalSoC Linux harnesses) also
+          // has hasSupervisorMode=true,
+          // so .get here is safe in every real configuration. A hypothetical
+          // xlen=64+!hasSupervisorMode build (not used anywhere today) would
+          // fail loudly at elaboration rather than silently misbehave.
+          val faultDeleg = Mux(ptwIsInstr, medelegOpt.get(12),
+                           Mux(ptwIsWrite, medelegOpt.get(15), medelegOpt.get(13)))
 
           def doFault(): Unit = {
             when(faultDeleg && (privLevel =/= 3.U)) {
