@@ -963,7 +963,9 @@ static void borgDrawRenderAutonomous(int frame) {
   BORG_GPU->draw_fs_const = DRAW_FS_CONST_SPI;
   BORG_GPU->tex_desc_base     = TEX_DESC_TABLE_ADDR;
   BORG_GPU->sampler_desc_base = SAMPLER_DESC_TABLE_ADDR;
-  BORG_GPU->sample_mask_cfg   = 0xF;
+  // cube.c: rasterizationSamples = VK_SAMPLE_COUNT_1_BIT (bit 6), all mask
+  // bits set. At one sample the raster ROM also skips the per-sample depths.
+  BORG_GPU->sample_mask_cfg   = 0xF | (1u << 6);
   // cube.c: VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE, which is
   // the walker's front face with front_face_invert clear.
   BORG_GPU->cull_cfg = 2u << CULL_CFG_REG_T__CULL_MODE_bp;
