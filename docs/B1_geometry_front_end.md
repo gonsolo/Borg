@@ -208,7 +208,7 @@ at any framebuffer size.
 | r5-r7    | perspective-correct barycentrics `λk = Ek / sum(E)`        |
 | r8       | `FragCoord.w = sum(E) * |1/det M| = 1/w`                    |
 | r9, r10  | clobbered                                                  |
-| r11-r14  | the depth at each MSAA sample (see [Per-sample depth](#per-sample-depth)) |
+| r11-r14  | the depth at each MSAA sample, not written at one sample (see [Per-sample depth](#per-sample-depth)) |
 | r29      | `FragCoord.z`; the fragment's depth if the shader writes r29 |
 | r30, r31 | `FragCoord.xy`, the pixel centre                           |
 | u0-u19   | the triangle's record image: its planes (see below)        |
@@ -252,6 +252,10 @@ depth), and the dispatcher tests and stores sample s with its own value. If
 the shader writes r29 (`FragDepth`), that value is used for every sample.
 Builds without blend or stencil write one depth per pixel (their tile writes
 are broadcast), and keep the centre's.
+
+At one sample (`SAMPLE_MASK_CFG` bit 6) every sample sits at the pixel centre
+and all four depths equal `FragCoord.z`, so the ROM halts before computing
+them: r11-r14 keep whatever they held and the depth test uses r29.
 
 ### Sample masks and coverage in the shader
 

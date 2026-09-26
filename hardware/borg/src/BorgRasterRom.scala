@@ -75,7 +75,8 @@ private[borg] object BorgRasterRom {
     *   r8      FragCoord.w = sum(E) = 1/w
     *   r29     FragCoord.z = Zn*scale + offset, also the fragment's depth
     *   r11..r14 the depth at each MSAA sample, which the depth test uses
-    *           unless the shader writes r29
+    *           unless the shader writes r29 -- the last instructions, which a
+    *           single-sample draw skips (see drawSampleDepthPc)
     * and clobbers r9, r10. Nothing writes r0..r4 after its plane value: the
     * dispatcher keeps the last value each register gets in this phase.
     */
@@ -112,4 +113,9 @@ private[borg] object BorgRasterRom {
     p += BigInt(0)                               // HALT
     p.result()
   }
+
+  /** The PC of the first per-sample depth instruction. At one sample every
+    * sample sits at the pixel centre, all four depths equal FragCoord.z, and
+    * BorgCore fetches a HALT here instead. */
+  val drawSampleDepthPc: Int = drawInstructions.length - 7
 }

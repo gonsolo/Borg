@@ -358,10 +358,11 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   val killed = RegInit(VecInit(Seq.fill(N)(false.B)))
   // Draw mode at MSAA: each sample's own depth (the raster ROM's r11..r14),
   // used unless the shader writes its depth (r29), which then holds for all.
+  // At one sample the ROM skips them and FragCoord.z (r29) is every sample's.
   val frag_zs  = Option.when(cfg.drawEnabled && cfg.samples == 4)(Reg(Vec(N, Vec(4, UInt(32.W)))))
   val zWritten = RegInit(VecInit(Seq.fill(N)(false.B)))
   def zAt(l: UInt, s: UInt): UInt =
-    zClamp(frag_zs.map(zs => Mux(drawMode && !zWritten(l), zs(l)(s(1, 0)), frag_z(l))).getOrElse(frag_z(l)))
+    zClamp(frag_zs.map(zs => Mux(drawMode && !zWritten(l) && !io.sampleCfg.single, zs(l)(s(1, 0)), frag_z(l))).getOrElse(frag_z(l)))
   /** Depth into a D16 attachment: clamped to [0, 1] (depth bias can leave
     * it) and ROUNDED to the format before the test, as Vulkan converts the
     * fragment depth to the attachment's representation first. Otherwise a

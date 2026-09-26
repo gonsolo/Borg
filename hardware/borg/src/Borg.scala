@@ -1103,6 +1103,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
     s.io.pipeWriteLanes.foreach(_ := core.io.pipeWrite)
     core.io.drawMode.foreach(_ := drawMode)
+    core.io.drawSingle.foreach(_ := (cfg.samples == 1).B || singleSample)
     rast.io.drawMode.foreach(_ := drawMode)
     rast.io.topLeft.foreach(_ := s.io.topLeft.get)
     // The walker owns r30/r31 while it runs a vertex shader; compute
