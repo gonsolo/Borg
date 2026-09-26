@@ -236,10 +236,10 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val fmtCode = td(2)(19, 14)
   private def swz(i: Int): UInt = td(2)(22 + 3 * i, 20 + 3 * i)
   private val stride  = td(3)
-  // The format's decode, registered: `info` is a priority chain over every
-  // format, and td only changes in sTexDesc, which always passes through
-  // sSampDesc before anything reads the format.
-  private val fmt     = RegNext(TexFormat.info(fmtCode))
+  // Not registered: as a function of the 6-bit code, its uses (sDecode's
+  // field extraction above all) collapse to a few constant cases. Registered, the ECP5 build grew by ~3,100 LUTs of general
+  // shifters.
+  private val fmt     = TexFormat.info(fmtCode)
   private val split16 = layout =/= Linear.U && fmt.bytes === 16.U   // see sTapAddr
   private val magLin  = sd(0)(0); private val minLin = sd(0)(1); private val mipLin = sd(0)(2)
   private def addrMode(a: UInt) = MuxLookup(a, sd(0)(5, 3))(Seq(1.U -> sd(0)(8, 6), 2.U -> sd(0)(11, 9)))
