@@ -21,12 +21,6 @@ class BorgIO(val cfg: BorgConfig) extends Bundle with BorgMmioIf {
   // GPU read port (Step 19.2: texture fetches → MemoryController)
   val gpuMem = new GpuMemIO
 
-  // DIAGNOSTIC TEMP: expose the sequencer's latched MSAA covDelta for test
-  // observability while debugging Step 50.2 corruption. Gated on
-  // cfg.debugPorts too (in addition to the pre-existing samples>1 gate) --
-  // BorgConfig.Wafer has no debug harness to observe it, unlike ULX3S/sim.
-  val covDeltaDebug =
-    if (cfg.samples > 1 && cfg.debugPorts) Some(Output(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
 }
 
 /** Borg — minimal FP16 shading processor with 4-cycle FMA pipeline.
@@ -561,7 +555,6 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // all four samples test at the pixel centre, i.e. 4× degenerates to 1×
     // rather than to anything invalid.
     rast.io.covDelta.foreach(_ := s.io.covDelta.get)
-    io.covDeltaDebug.foreach(_ := s.io.covDelta.get)
 
     // Coverage: the rasterizer supplies a per-sample mask from the depth test;
     // an MMIO poke has no coverage concept and writes every sample (same
@@ -832,9 +825,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // these arms writes and reads single samples.)
       (read_addr_del === BorgGpuRegs.tile_rg_offset) -> Cat(tile.io.read.data(0).r, tile.io.read.data(0).g),
       (read_addr_del === BorgGpuRegs.tile_bz_offset) -> Cat(tile.io.read.data(0).b, depthToFp16(tile.io.read.data(0).z)),
-      // Repurpose the write-only SEQ_TRIGGER address for reading seqDoneSticky.
-      // Firmware reads this after triggering with triCount=0 to detect
-      // whether the sequencer hardware is present.
+      // Repurpose the write-only SEQ_TRIGGER address for reading seqDoneSticky
+      // (set when a render finishes, cleared by the next trigger).
       // Bit 1: a bin overflowed and the render wrote nothing (BorgBinner).
       (read_addr_del === BorgGpuRegs.seq_trigger_offset) -> Cat(binner.io.overflow, seqDoneSticky),
       (read_addr_del === BorgGpuRegs.occ_count_offset)   -> occCount,
@@ -956,16 +948,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     if (cfg.pipelineSeqConfig) RegNext(x) else x
 
   private def wireSequencer(): Unit = {
-    val seqDescBaseReg   = RegInit(0.U(GpuMemIO.AddrBits.W))
       val seqVertAddrReg   = RegInit(0.U(GpuMemIO.AddrBits.W))
       val seqVertLenReg    = RegInit(0.U(6.W))
-      val seqSetupAddrReg  = RegInit(0.U(GpuMemIO.AddrBits.W))
-      val seqSetupLenReg   = RegInit(0.U(6.W))
-      val seqInvWidthReg   = RegInit(0.U(cfg.totalBits.W))
       val seqStartPulse    = WireDefault(false.B)
-      val seqTriCountReg   = RegInit(0.U(5.W))
-      val seqRastAddrReg   = RegInit(0.U(GpuMemIO.AddrBits.W))
-      val seqRastLenReg    = RegInit(0.U(6.W))
       val seqFragAddrReg   = RegInit(0.U(GpuMemIO.AddrBits.W))
       val seqFragLenReg    = RegInit(0.U(6.W))
       val seqClearLoReg    = RegInit(0.U(32.W))
@@ -976,19 +961,12 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       val seqBinRowBytesReg = RegInit(0.U(20.W))
       val seqSetupBaseReg   = RegInit(0.U(GpuMemIO.AddrBits.W))
 
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_desc_base_offset)    { seqDescBaseReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_trigger_offset) {
         seqStartPulse := bus.data_in(0)
         seqDoneSticky := false.B   // clear sticky on new trigger
       }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_addr_offset)    { seqVertAddrReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_vert_len_offset)     { seqVertLenReg := bus.data_in(5, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_addr_offset)   { seqSetupAddrReg := bus.data_in }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_len_offset)    { seqSetupLenReg := bus.data_in(5, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_inv_width_offset)    { seqInvWidthReg := bus.data_in(cfg.totalBits - 1, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_tri_count_offset)    { seqTriCountReg := bus.data_in(4, 0) }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_rast_addr_offset)    { seqRastAddrReg := bus.data_in }
-      when(bus.is_writing && bus.address === BorgGpuRegs.seq_rast_len_offset)     { seqRastLenReg := bus.data_in(5, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_frag_addr_offset)    { seqFragAddrReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_frag_len_offset)     { seqFragLenReg := bus.data_in(5, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_clear_lo_offset)     { seqClearLoReg := bus.data_in }
@@ -1000,15 +978,8 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_base_offset)   { seqSetupBaseReg := bus.data_in }
 
       s.io.mmio.start           := seqCfgPipe(seqStartPulse)
-      s.io.mmio.descBase        := seqCfgPipe(seqDescBaseReg)
       s.io.mmio.vertShaderAddr  := seqCfgPipe(seqVertAddrReg)
       s.io.mmio.vertShaderLen   := seqCfgPipe(seqVertLenReg)
-      s.io.mmio.setupShaderAddr := seqCfgPipe(seqSetupAddrReg)
-      s.io.mmio.setupShaderLen  := seqCfgPipe(seqSetupLenReg)
-      s.io.mmio.seqInvWidth     := seqCfgPipe(seqInvWidthReg)
-      s.io.mmio.triCount        := seqCfgPipe(seqTriCountReg)
-      s.io.mmio.rastShaderAddr  := seqCfgPipe(seqRastAddrReg)
-      s.io.mmio.rastShaderLen   := seqCfgPipe(seqRastLenReg)
       s.io.mmio.fragShaderAddr  := seqCfgPipe(seqFragAddrReg)
       s.io.mmio.fragShaderLen   := seqCfgPipe(seqFragLenReg)
       s.io.mmio.clearColorLo    := seqCfgPipe(seqClearLoReg)
@@ -1039,9 +1010,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       s.io.mmio.fbPitch         := seqCfgPipe(Mux(pitchReg === 0.U, seqTilesPerRowReg, pitchReg))
       windowRows := rows
       pixelOriginX := Cat(originReg(11, 0), 0.U(2.W)); pixelOriginY := Cat(originReg(27, 16), 0.U(2.W))
-      s.io.mmio.fragUsesFragPos := seqCfgPipe(rdlRegs.io.hw.tex_config_frag_uses_fragpos)
-      // CULL_CFG (Step 50). Reset 2/0 = cull back faces with the historical
-      // winding convention, so firmware that never writes it sees no change.
+      // CULL_CFG. Reset 2/0 = cull back faces, front counter-clockwise.
       s.io.mmio.cullMode        := seqCfgPipe(rdlRegs.io.hw.cull_cfg_cull_mode)
       s.io.mmio.frontFaceInvert := seqCfgPipe(rdlRegs.io.hw.cull_cfg_front_face_invert.asBool)
       s.io.iter.complete        := rast.io.tileComplete
@@ -1081,12 +1050,14 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                        BorgGpuRegs.draw_vs_const_offset, BorgGpuRegs.draw_fs_const_offset,
                        BorgGpuRegs.depth_bias_const_offset, BorgGpuRegs.depth_bias_slope_offset)
     val wordRegs = Option.when(cfg.drawEnabled)(words.map(_ => RegInit(0.U(32.W))))
-    val drawMode = cfg.drawEnabled.B && cfgReg(0)
+    // A sequencer render is always a draw. DRAW_CFG's mode bit only picks
+    // the program of the MMIO pixel path (CMD_ENQUEUE/ITER): 0 is the edge
+    // test with three planes, 1 the draw raster program.
+    val drawMode = cfg.drawEnabled.B && (cfgReg(0) || s.io.busy)
     when(bus.is_writing && bus.address === BorgGpuRegs.draw_cfg_offset) { cfgReg := bus.data_in }
     wordRegs.foreach(_.zip(words).foreach { case (r, off) =>
       when(bus.is_writing && bus.address === off) { r := bus.data_in }
     })
-    s.io.mmio.drawMode    := drawMode
     s.io.mmio.recordShift := cfgReg(9, 6)
     s.io.mmio.vsConstBase := wordRegs.map(_(12)).getOrElse(0.U)
     s.io.mmio.fsConstBase := wordRegs.map(_(13)).getOrElse(0.U)

@@ -6,56 +6,10 @@ package borg
 import chisel3._
 import chisel3.util._
 
-/** BorgSequencer IO — Steps 29.1–29.3: vertex + setup + uniform staging.
-  *
-  * The sequencer orchestrates autonomous vertex shading, triangle setup, and
-  * uniform staging by:
-  *   1. Loading the vertex shader binary from DRAM into IMEM via DMA.
-  *   2. For each of 3 vertices: loading 8 vertex words (pos+color+uv) into
-  *      the uniform buffer via DMA, then triggering BorgCore to run the
-  *      vertex shader, snooping clip-space outputs from PipeWriteIO, and
-  *      capturing color/z from the DMA write stream into colorRegs.
-  *   3. Writing snooped screen-space coordinates into the uniform buffer.
-  *   4. Loading the setup shader from DRAM into IMEM via DMA.
-  *   5. Running the setup shader to compute scaled edge vectors and inv_area.
-  *   6. Staging all 31 uniform registers for the rasterizer and fragment
-  *      shaders (sStageUniforms, replacing CPU's setup_tile_uniforms()).
-  *
-  * Descriptor layout in DRAM (3 × borg_vertex_t, stride = 32 bytes):
-  *   vertex i at descBase + i*32:
-  *     offset  0: pos.x  (FP16 in bits[15:0] of 32-bit DRAM word)
-  *     offset  4: pos.y
-  *     offset  8: pos.z
-  *     offset 12: color.r
-  *     offset 16: color.g
-  *     offset 20: color.b
-  *     offset 24: uv.u  (normalized; TEX scales by the texture's size)
-  *     offset 28: uv.v
-  *
-  * Physical uniform register map (from SPIRB blob parse of shader_blobs.h):
-  *   Rasterizer shader (uniform_regs[0..11] = [0..11]):
-  *     u0  = e0.dx * inv_width     (scaled edge 0 x)
-  *     u1  = e0.dy * inv_width     (scaled edge 0 y)
-  *     u2  = e1.dx * inv_width     (scaled edge 1 x)
-  *     u3  = e1.dy * inv_width     (scaled edge 1 y)
-  *     u4  = e2.dx * inv_width     (scaled edge 2 x)
-  *     u5  = e2.dy * inv_width     (scaled edge 2 y)
-  *     u6  = -v0.x, u7 = -v0.y    (negated vertex 0 position)
-  *     u8  = -v1.x, u9 = -v1.y    (negated vertex 1 position)
-  *     u10 = -v2.x, u11 = -v2.y   (negated vertex 2 position)
-  *   Fragment shader (uniform_regs[0..18] = [12..30]):
-  *     u12 = inv_area
-  *     u13-u15 = UV.u of (v2, v1, v0)
-  *     u16-u18 = UV.v of (v2, v1, v0)
-  *     u19-u21 = frag_pos.x of (v2, v1, v0)  — screen-space/transformed position (borgc lighting)
-  *     u22-u24 = frag_pos.y of (v2, v1, v0)
-  *     u25-u27 = frag_pos.z of (v2, v1, v0)
-  *     u28-u30 = z_val      of (v2, v1, v0)  — projected depth for z-interp
-  *
-  *  When has_uvs=false the UV words are zero.
-  *
-  * The setup shader outputs pre-scaled edge constants to r0-r5 (already
-  * multiplied by inv_width = 1/64 for a 64-wide framebuffer).
+/** BorgSequencer IO. The sequencer renders a draw (docs/B1_geometry_front_end.md)
+  * in two passes: Pass 1 ([[BorgDrawWalker]]) runs the vertex shader and the
+  * setup ROM per triangle and bins it, Pass 2 ([[BorgTileSequencer]]) renders
+  * and flushes every tile.
   */
 class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // tilesPerRow/fbWidthTiles/fbHeightTiles all express a tile-grid extent
@@ -78,19 +32,8 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   private val binRowBytesWidth = math.min(20, log2Ceil(cfg.maxTrianglesPerTile * 2 + 1))
 
   val start = Input(Bool())
-  val descBase = Input(UInt(GpuMemIO.AddrBits.W))
   val vertShaderAddr = Input(UInt(GpuMemIO.AddrBits.W))
   val vertShaderLen = Input(UInt(6.W))
-  val setupShaderAddr = Input(UInt(GpuMemIO.AddrBits.W))
-  val setupShaderLen = Input(UInt(6.W))
-  // cfg.totalBits, not 16: this feeds io.uniformWrite.data (cfg.totalBits
-  // wide) as u6, and is a float in the datapath's own format -- FP32 in an
-  // FP32 build. At 16 bits an FP32 1.0 (0x3F800000) arrived as 0x0000, so
-  // every edge was normalised by zero and covDelta came out all zeros.
-  val seqInvWidth = Input(UInt(cfg.totalBits.W))
-  val triCount = Input(UInt(5.W))
-  val rastShaderAddr = Input(UInt(GpuMemIO.AddrBits.W))
-  val rastShaderLen = Input(UInt(6.W))
   val fragShaderAddr = Input(UInt(GpuMemIO.AddrBits.W))
   val fragShaderLen = Input(UInt(7.W))
   val clearColorLo = Input(UInt(32.W))
@@ -102,12 +45,7 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   val setupBase = Input(UInt(GpuMemIO.AddrBits.W))
   val fbWidthTiles = Input(UInt(tileRowWidth.W))
   val fbHeightTiles = Input(UInt(tileRowWidth.W))
-  // Fragment uniform-staging mode (tex_config.frag_uses_fragpos): 0 = vertex
-  // colour at u19-u27 (hand frag.s), 1 = model frag_pos (borgc cube.frag).
-  val fragUsesFragPos = Input(Bool())
-  // Step 50: configurable face culling (CULL_CFG). Reset values reproduce
-  // the historical always-cull-back behaviour -- see BorgGeometrySequencer's
-  // sWaitSetup, the only consumer.
+  // Face culling (CULL_CFG), applied by the draw walker after setup.
   val cullMode        = Input(UInt(2.W))
   val frontFaceInvert = Input(Bool())
   // Any attachment aspect has loadOp = LOAD (TILE_LOAD != 0).
@@ -119,9 +57,7 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // SAMPLE_MASK_CFG bit 6, rasterizationSamples = 1: at msaaMultiPass a tile
   // takes one pass (sample 0) instead of `samples`.
   val singleSample    = Input(Bool())
-  // DRAW_CFG: a draw (docs/B1_geometry_front_end.md) instead of legacy
-  // descriptors, and its record stride (triangle t at setupBase + t << shift).
-  val drawMode        = Input(Bool())
+  // DRAW_CFG's record stride (triangle t at setupBase + t << shift).
   val recordShift     = Input(UInt(4.W))
   // Each stage's constant window (0 = none): loaded once per draw into the
   // uniform words above the hardware's -- see BorgSetupRom.Record.
@@ -223,13 +159,9 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   // triangle, so the dispatcher can use them throughout tile iteration.
   val covDelta = if (cfg.samples > 1)
     Some(Output(Vec(cfg.coveragePlanesStored, Vec(2, UInt(cfg.totalBits.W))))) else None
-  // Per-triangle texture enable: true when current triangle has UVs.
-  // Driven from descriptor metadata has_uvs flag.
-  val texEnOverride = Output(Bool())
   // Per-triangle facing (Vulkan conformance item 10, two-sided stencil).
-  // Straight passthrough of Pass 2's own output, same as texEnOverride
-  // above -- only meaningful while the sequencer is busy, which is how the
-  // top-level Borg.scala consumer already gates texEnOverride.
+  // Straight passthrough of Pass 2's own output -- only meaningful while the
+  // sequencer is busy, which is how Borg.scala gates it.
   val frontFacingOverride = Output(Bool())
   val curTriIndex = Output(UInt(16.W))   // pass 2's current triangle (occlusion queries)
 
@@ -252,54 +184,32 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val attPass    = Output(UInt(3.W))
 }
 
-/** BorgSequencer — top-level supervisor over the GPU's two-pass
-  * triangle-batch render, Pass 1 (per-triangle geometry) and Pass 2
-  * (per-tile rendering).
+/** BorgSequencer — top-level supervisor over the GPU's two-pass render:
+  * Pass 1 ([[BorgDrawWalker]]: primitive assembly, the vertex shader and the
+  * setup ROM per triangle, binning) and Pass 2 ([[BorgTileSequencer]]: tile
+  * rendering and flushing).
   *
-  * Restructured (2026-09) from a single flat 35-state FSM into this thin
-  * 4-state supervisor plus two independently-instantiated sub-FSMs,
-  * [[BorgGeometrySequencer]] (Pass 1, 17 states) and [[BorgTileSequencer]]
-  * (Pass 2, 18 states). Two independent things motivated the split:
+  * The two passes are separate modules because they are separate FSMs: Pass
+  * 2 never reads Pass 1's live registers, only what Pass 1 wrote to memory
+  * (bin lists, per-triangle records). Splitting the old flat 35-state FSM
+  * also shortened its timing paths -- every one of the worst 1000 paths of a
+  * post-CTS 25 MHz run started at a bit of its `state` register, because a
+  * `switch` desugars to a priority chain across all its arms.
   *
-  *   - A real post-CTS 25 MHz timing run found every one of the worst 1000
-  *     timing paths in the whole design started at a bit of the old flat
-  *     `state` register, confirmed by hierarchical net name. Tracing the
-  *     paths showed one shared, ~70-77-gate serial chain that only diverged
-  *     in its last 1-2 gates -- consistent with Chisel's `switch(state)
-  *     { is(sX) {...} }` desugaring to chained equality tests, so any
-  *     output wire touched by multiple of the 35 arms synthesizes as a
-  *     linear priority-select chain across all of them, not a balanced
-  *     decoder. More states means a longer chain for every such wire.
-  *     Splitting into two ~half-sized switches directly shortens those
-  *     chains.
-  *   - Independent of timing, the flat 35-state design mixed two logically
-  *     separate passes in one FSM. The split follows a boundary that
-  *     already existed conceptually (and in the state list's own grouping
-  *     comments): Pass 2 never reads Pass 1's live registers, only what
-  *     Pass 1 wrote to DRAM (bin lists, per-triangle setup) plus `triCount`
-  *     (an mmio input, not internal state) -- the two passes were already
-  *     almost fully decoupled.
+  * This wrapper owns only what crosses the boundary: the start/done
+  * handshake (Pass 1 to completion, then Pass 2, then done), `curBufIdx`
+  * (which persists across frames), and arbitration of the two passes'
+  * shared DMA and uniform-write ports (trivial, as they never run
+  * concurrently).
   *
-  * This wrapper owns only what genuinely crosses the Pass 1/Pass 2
-  * boundary: the start/done handshake sequencing "run Pass 1 to completion,
-  * then Pass 2, then done", `curBufIdx` (must persist across whole frames,
-  * so it can't live inside either per-frame sub-FSM), and arbitration of the
-  * two sub-FSMs' shared DMA and uniform-write ports (trivial, since they
-  * never run concurrently). Everything else -- shader triggering, DMA
-  * snooping, the setup cache, tile iteration, flushing -- is exclusively
-  * Pass 1's or Pass 2's, verified while designing this split by auditing
-  * every register and IO field in the original monolith for cross-pass
-  * liveness; almost none needed it.
+  * A build without the draw front end (cfg.drawEnabled false: FP16, or no
+  * memory operations) has no Pass 1: a trigger finishes at once.
   */
 class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgSequencerIO(cfg))
 
-  private val p1 = Module(new BorgGeometrySequencer(cfg))
   private val p2 = Module(new BorgTileSequencer(cfg))
-  // Pass 1 of a draw: selected by DRAW_CFG in place of p1, whose legacy
-  // per-triangle descriptors it replaces.
   private val dw = Option.when(cfg.drawEnabled)(Module(new BorgDrawWalker(cfg)))
-  private val drawing = dw.map(_ => io.mmio.drawMode).getOrElse(false.B)
 
   private val wIdle :: wPass1 :: wPass2 :: wDone :: Nil = Enum(4)
   private val wstate = RegInit(wIdle)
@@ -309,37 +219,22 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   // own it, since each is reset to its own idle at the end of its pass.
   private val curBufIdx = RegInit(0.U(1.W))
 
-  // --- Supervisor FSM ---
-  // Mirrors the original design's sIdle -> ... -> sNextTriangle ->
-  // sLoadRastShader -> ... -> sDone -> sIdle shape exactly, with the two
-  // (formerly inline) passes now opaque sub-modules behind a start/done
-  // handshake. The zero-triangle firmware presence-probe path (wIdle ->
-  // wDone -> wIdle, 1 cycle from `start` sampled to `done` asserted) is
-  // cycle-identical to the original sIdle -> sDone -> sIdle path --
-  // software/borg/borg_driver.c's hardcoded 8-cycle wait for that probe
-  // remains valid unchanged. No other external timing depends on the exact
-  // cycle count anywhere in this handoff chain -- the real per-frame
-  // completion wait polls `busy` unconditionally.
-  p1.io.start := false.B
   p2.io.start := false.B
   dw.foreach(_.io.start := false.B)
-  private val p1Done = dw.map(w => Mux(drawing, w.io.done, p1.io.done)).getOrElse(p1.io.done)
-  private val nothingToDraw = io.draw.map(d => d.vertexCount === 0.U || d.instanceCount === 0.U).getOrElse(false.B)
+  private val p1Done = dw.map(_.io.done).getOrElse(true.B)
+  private val nothingToDraw = io.draw.map(d => d.vertexCount === 0.U || d.instanceCount === 0.U).getOrElse(true.B)
   io.done := false.B
 
   switch(wstate) {
     is(wIdle) {
       when(io.mmio.start) {
-        when(Mux(drawing, nothingToDraw, io.mmio.triCount === 0.U)) {
-          // No triangles -- pulse busy and immediately finish. Used by
-          // firmware's sequencer detection probe (seq_trigger with
-          // tri_count=0). Without this guard, the full pipeline would run
-          // with garbage descriptors and the flusher would corrupt DRAM.
+        when(nothingToDraw) {
+          // Nothing to draw: pulse busy and finish. Without this guard the
+          // whole pipeline would run and the flusher write every tile.
           wstate := wDone
         }.otherwise {
-          p1.io.start := !drawing
-          dw.foreach(_.io.start := drawing)
-          if (BorgDebug.trace) printf("[SEQ] Pass1 start triCount=%d\n", io.mmio.triCount)
+          dw.foreach(_.io.start := true.B)
+          if (BorgDebug.trace) printf("[SEQ] Pass1 start\n")
           wstate := wPass1
         }
       }
@@ -369,12 +264,22 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     }
   }
 
-  io.busy         := wstate =/= wIdle
-  io.seqShaderActive := dw.map(w => Mux(drawing, w.io.seqShaderActive, p1.io.seqShaderActive))
-                           .getOrElse(p1.io.seqShaderActive)
+  io.busy            := wstate =/= wIdle
+  io.seqShaderActive := dw.map(_.io.seqShaderActive).getOrElse(false.B)
 
-  // --- Config fan-out (pure input data; safe to share) ---
-  p1.io.mmio := io.mmio
+  // --- Pass 1: the draw walker ---
+  // Pass 1 alone triggers BorgCore directly (the vertex shader and the setup
+  // ROM), stores records and feeds the binner; Pass 2's shading is triggered
+  // by the rasterizer's own dispatcher.
+  io.coreTrigger.valid   := false.B
+  io.coreTrigger.pc      := 0.U
+  io.coreTrigger.isRast  := false.B
+  io.coreTrigger.isSetup := false.B
+  io.store.active := false.B; io.store.req := false.B
+  io.store.addr   := 0.U;     io.store.wdata := 0.U
+  io.binner.start := false.B; io.binner.triIndex := 0.U
+  io.binner.bbox  := 0.U.asTypeOf(io.binner.bbox)
+  io.binner.clearCounts := false.B
   dw.foreach { w =>
     w.io.mmio := io.mmio
     w.io.draw := io.draw.get
@@ -386,11 +291,16 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     w.io.store.ready := io.store.ready
     w.io.binner.busy := io.binner.busy
     w.io.binner.countReadData := io.binner.countReadData
+    io.coreTrigger := w.io.coreTrigger
+    io.store.active := w.io.store.active; io.store.req := w.io.store.req
+    io.store.addr   := w.io.store.addr;   io.store.wdata := w.io.store.wdata
+    io.binner.start := w.io.binner.start; io.binner.triIndex := w.io.binner.triIndex
+    io.binner.bbox  := w.io.binner.bbox;  io.binner.clearCounts := w.io.binner.clearCounts
     io.ids.get := w.io.ids
     // Pass 1 writes records; Pass 2 reads the current triangle's attributes.
     io.record.get := w.io.record
     io.record.get.attrBase := p2.io.attrBase.get
-    io.record.get.attrFlush := p2.io.start && drawing
+    io.record.get.attrFlush := p2.io.start
     io.topLeft.get := p2.io.topLeft.get
   }
   // Pass-control is Pass 2's alone; Pass 1 never touches the tile buffer.
@@ -406,43 +316,23 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   p2.io.mmio := io.mmio
   p2.io.curBufIdx := curBufIdx
 
-  // --- DMA: shared port, arbitrated by which pass is active. Response
-  // signals (busy/snoop/uniformSnoop) broadcast to both -- only the pass
-  // whose own `state`/`nextAfterDMA` actually matches will act on them,
-  // exactly like Borg.scala's existing Mux(s.io.busy, ..., ...) pattern for
-  // resources shared among sibling modules. ---
+  // --- DMA and uniform writes: shared ports, arbitrated by which pass is
+  // active. Responses (busy/snoop/uniformSnoop) go to both; only the pass
+  // waiting on them acts. Pass 1 writes uniform page 0. ---
   private val pass1Active = wstate === wPass1
-  io.dma.start := Mux(pass1Active, dw.map(w => Mux(drawing, w.io.dma.start, p1.io.dma.start)).getOrElse(p1.io.dma.start), p2.io.dma.start)
-  io.dma.desc  := Mux(pass1Active, dw.map(w => Mux(drawing, w.io.dma.desc, p1.io.dma.desc)).getOrElse(p1.io.dma.desc),  p2.io.dma.desc)
-  p1.io.dma.busy := io.dma.busy
+  private def pass1[T <: Data](f: BorgDrawWalker => T, idle: T): T = dw.map(f).getOrElse(idle)
+  io.dma.start := Mux(pass1Active, pass1(_.io.dma.start, false.B), p2.io.dma.start)
+  io.dma.desc  := Mux(pass1Active, pass1(_.io.dma.desc, p2.io.dma.desc), p2.io.dma.desc)
   p2.io.dma.busy := io.dma.busy
-  p1.io.dma.snoop := io.dma.snoop
   p2.io.dma.snoop := io.dma.snoop
-  p1.io.dma.uniformSnoop := io.dma.uniformSnoop
   p2.io.dma.uniformSnoop := io.dma.uniformSnoop
 
-  // --- Uniform write: same shared/arbitrated shape as DMA. ---
-  io.uniformWrite.en   := Mux(pass1Active, dw.map(w => Mux(drawing, w.io.uniformWrite.en, p1.io.uniformWrite.en)).getOrElse(p1.io.uniformWrite.en),   p2.io.uniformWrite.en)
-  io.uniformWrite.addr := Mux(pass1Active, dw.map(w => Mux(drawing, w.io.uniformWrite.addr, p1.io.uniformWrite.addr)).getOrElse(p1.io.uniformWrite.addr), p2.io.uniformWrite.addr)
-  io.uniformWrite.data := Mux(pass1Active, dw.map(w => Mux(drawing, w.io.uniformWrite.data, p1.io.uniformWrite.data)).getOrElse(p1.io.uniformWrite.data), p2.io.uniformWrite.data)
-  io.uniformWritePage  := Mux(pass1Active, p1.io.uniformWritePage,  p2.io.uniformWritePage)
+  io.uniformWrite.en   := Mux(pass1Active, pass1(_.io.uniformWrite.en, false.B), p2.io.uniformWrite.en)
+  io.uniformWrite.addr := Mux(pass1Active, pass1(_.io.uniformWrite.addr, 0.U), p2.io.uniformWrite.addr)
+  io.uniformWrite.data := Mux(pass1Active, pass1(_.io.uniformWrite.data, 0.U), p2.io.uniformWrite.data)
+  io.uniformWritePage  := Mux(pass1Active, 0.U, p2.io.uniformWritePage)
 
-  // --- Ports exclusive to one pass: direct connection, no arbitration. ---
-  // coreTrigger/coreStatus/pipeWrite: only Pass 1 ever triggers BorgCore
-  // directly (vertex/setup shaders). Pass 2's shader execution is triggered
-  // by the rasterizer's own dispatcher, not by this sequencer.
-  io.coreTrigger  := dw.map(w => Mux(drawing, w.io.coreTrigger, p1.io.coreTrigger)).getOrElse(p1.io.coreTrigger)
-  p1.io.coreStatus := io.coreStatus
-  p1.io.pipeWrite  := io.pipeWrite
-
-  // store: Pass 1 only (per-triangle setup spill to DRAM).
-  io.store.active := dw.map(w => Mux(drawing, w.io.store.active, p1.io.store.active)).getOrElse(p1.io.store.active)
-  io.store.req := dw.map(w => Mux(drawing, w.io.store.req, p1.io.store.req)).getOrElse(p1.io.store.req)
-  io.store.addr := dw.map(w => Mux(drawing, w.io.store.addr, p1.io.store.addr)).getOrElse(p1.io.store.addr)
-  io.store.wdata := dw.map(w => Mux(drawing, w.io.store.wdata, p1.io.store.wdata)).getOrElse(p1.io.store.wdata)
-  p1.io.store.ready := io.store.ready
-
-  // flusher/iter: Pass 2 only (tile rendering).
+  // --- Pass 2 only: flusher and iterator (tile rendering). ---
   io.flusher.tileOffset := p2.io.flusher.tileOffset
   io.flusher.trigger := p2.io.flusher.trigger
   p2.io.flusher.busy := io.flusher.busy
@@ -455,48 +345,15 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   p2.io.iter.complete       := io.iter.complete
   p2.io.iter.stall          := io.iter.stall
 
-  // covDelta: while Pass 2 is actively iterating pixels, its own cache holds
-  // the real per-tile value. At every OTHER wrapper state -- including
-  // wIdle after a full frame completes -- fall back to Pass 1's raw
-  // just-computed value. This exactly reproduces the pre-split design's
-  // `Mux(pass2Active, ..., covDeltaRegs)`, where `pass2Active = state >=
-  // sLoadRastShader` was likewise false whenever the (single, flat) state
-  // register was back at sIdle. That fallback is load-bearing, not
-  // incidental: BorgSequencerTests' covDelta_diagnostic_real_values reads
-  // covDelta only after the whole sequencer goes idle again, specifically to
-  // isolate the setup shader's raw math from whether the triangle was later
-  // culled/binned/rendered at all -- collapsing this to "always Pass 2's
-  // value" broke that test (all-zero readout) without the shader math itself
-  // being wrong.
-  private val pass2Active = wstate === wPass2
-  io.covDelta.foreach { cd =>
-    val p1out = p1.io.covDeltaOut.get
-    val p2out = p2.io.covDelta.get
-    for (e <- 0 until 3; k <- 0 until 2) {
-      cd(e)(k) := Mux(pass2Active, p2out(e)(k), p1out(2 * e + k))
-    }
-    // The depth plane's deltas exist only in the draw front end's records,
-    // which Pass 1's legacy setup shader never produces.
-    for (e <- 3 until cfg.coveragePlanesStored; k <- 0 until 2) cd(e)(k) := p2out(e)(k)
-  }
-  io.texEnOverride := p2.io.texEnOverride
+  // covDelta: the current triangle's MSAA sample deltas, from its record.
+  io.covDelta.foreach(_ := p2.io.covDelta.get)
   io.frontFacingOverride := p2.io.frontFacingOverride
   io.curTriIndex := p2.io.curTriIndex
   io.attPass := p2.io.attPass
 
-  // --- BorgBinner: writer (start/triIndex/bbox/clearCounts) is Pass 1;
-  // count-reader (countReadAddr/countReadEn/countReadData) is Pass 2. The
-  // two halves of SeqBinnerIO never overlap, so this is direct routing, not
-  // arbitration. Both sub-modules get the full bundle (see each one's own
-  // wireOutputDefaults for the tie-offs on their unused half). ---
-  io.binner.start := dw.map(w => Mux(drawing, w.io.binner.start, p1.io.binner.start)).getOrElse(p1.io.binner.start)
-  io.binner.triIndex := dw.map(w => Mux(drawing, w.io.binner.triIndex, p1.io.binner.triIndex)).getOrElse(p1.io.binner.triIndex)
-  io.binner.bbox := dw.map(w => Mux(drawing, w.io.binner.bbox, p1.io.binner.bbox)).getOrElse(p1.io.binner.bbox)
-  io.binner.clearCounts := dw.map(w => Mux(drawing, w.io.binner.clearCounts, p1.io.binner.clearCounts)).getOrElse(p1.io.binner.clearCounts)
+  // --- BorgBinner's count reader is Pass 2's (the writer is Pass 1's, above). ---
   io.binner.countReadAddr := p2.io.binner.countReadAddr
   io.binner.countReadEn   := p2.io.binner.countReadEn
-  p1.io.binner.busy         := io.binner.busy
   p2.io.binner.busy         := io.binner.busy
-  p1.io.binner.countReadData := io.binner.countReadData
   p2.io.binner.countReadData := io.binner.countReadData
 }

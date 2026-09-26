@@ -26,16 +26,16 @@ object BorgSetupCacheTests extends TestSuite {
   def interleaved(borg: BorgTestWrapper, name: String): Unit = {
     val rig = new AttachmentRig(borg)
     import rig._
-    def vert(x: Float, y: Float) = Seq(x, y, 0.1f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f)
-    val a = Seq(vert(0, 0), vert(0, 4), vert(8, 0))   // front-facing
-    val b = Seq(vert(8, 4), vert(8, 0), vert(0, 4))   // A turned by 180 degrees
-    scene = Seq((a, 8, 4), (b, 8, 4))
+    val a = Seq((0.0, 0.0), (0.0, 4.0), (8.0, 0.0))
+    val b = Seq((8.0, 4.0), (8.0, 0.0), (0.0, 4.0))   // A turned by 180 degrees
+    scene = Seq(a, b)
     tilesPerRow = 2
     val offsets = Seq((-0.125, -0.375), (0.375, -0.125), (-0.375, 0.125), (0.125, 0.375))
     val samples = for (y <- 0 until 4; x <- 0 until 8; (ox, oy) <- offsets)
                   yield (x + 0.5 + ox) / 8 + (y + 0.5 + oy) / 4
-    val expectA = samples.count(_ <= 1.0)   // edges are inclusive: e >= 0
-    val expectB = samples.count(_ >= 1.0)
+    // No sample lies on the shared diagonal, so the tie rule never decides.
+    val expectA = samples.count(_ < 1.0)
+    val expectB = samples.count(_ > 1.0)
     occRange = (0, 1); val gotA = render((1.0f, 0.0f), load = 0, DEPTH_ALWAYS, 0, bindStencil = false)
     occRange = (1, 2); val gotB = render((1.0f, 0.0f), load = 0, DEPTH_ALWAYS, 0, bindStencil = false)
     println(s"  [$name] A: $gotA samples (expect $expectA), B: $gotB (expect $expectB)")

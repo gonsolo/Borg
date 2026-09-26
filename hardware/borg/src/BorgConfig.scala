@@ -74,15 +74,6 @@ case class BorgConfig(
     fragLanes: Int = 1,
     maxTrianglesPerTile: Int = 256,
     samples: Int = 1,
-    // Gates Borg.scala's covDeltaDebug diagnostic port (only elaborated at
-    // all when samples>1 to begin with). True everywhere except
-    // BorgConfig.Wafer, since the wafer.space Borg-only bridge target has no
-    // debug harness to observe it, unlike ULX3S/sim. (QspiSocTop, the cocotb
-    // SoC harness, also builds from Wafer; nothing in SoCLogic reads the tap.)
-    // Unrelated to BorgIO's
-    // uo_out/user_interrupt, which are dead (tied to constants) for every
-    // config and are simply deleted outright, not gated by this flag.
-    debugPorts: Boolean = true,
     // BorgTileBuffer's per-sample R/G/B storage width, independent of `fp`.
     // Default 16 keeps every existing target (including today's signed-off
     // wafer.space GDS) bit-identical -- this narrows ONLY the internal SRAM
@@ -522,8 +513,6 @@ object BorgConfig {
   //     BorgTileBufferTests/ColorQuantizeTests), incl. the full render-pipeline
   //     end-to-end tests and MSAA per-sample coverage masking against the
   //     narrower storage.
-  //   debugPorts=false: BorgOnlyTop has no SoCLogic/CPU harness to expose the
-  //     covDeltaDebug tap through (nor the TT-pad-only uo_out/user_interrupt).
   //
   // FP32 at this sizing: Phase 0 measured Wafer at FP32 via yosys at 2.48x FMA
   // area, 58-62% 1x1-slot utilization, and 25 MHz closing at 3.3V with the
@@ -542,7 +531,6 @@ object BorgConfig {
     hasPerfCounters  = false,
     fragLanes        = 4,
     tileColorBits    = 8,
-    debugPorts       = false,
     // 2026-09-19: the ONLY target that needs this. Measured post-repair with
     // OpenSTA at max_ss_125C_3v00 on two signoff runs, the worst path was
     // BorgFma stage 2 -- m_prodLowExp -> magR, the three serial carry

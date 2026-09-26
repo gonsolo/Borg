@@ -65,7 +65,6 @@ class BorgLinkTestWrapper(val cfg: BorgConfig, val p: LinkParams)
   // been removed from BorgIO entirely -- see BorgTestWrapper's matching fix.
   io.uo_out         := 0.U
   io.user_interrupt := false.B
-  io.covDeltaDebug.foreach(_ := borg.io.covDeltaDebug.get)
 
   // -- Legacy MMIO translation -----------------------------------------------
   // Same edge/level semantics as BorgTestWrapper, but a request stays in flight

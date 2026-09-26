@@ -108,14 +108,20 @@ The driver intercepts `vkQueueSubmit` (via Mesa runtime's `vk_queue.driver_submi
 
 ## Draw front end (Vulkan geometry path)
 
-`DRAW_CFG` mode 1 renders a whole draw in hardware: primitive assembly
+`SEQ_TRIGGER` renders a whole draw in hardware: primitive assembly
 (lists, strips, fans, indices, restart, instancing), one vertex-shader run
 per triangle with `VertexIndex`/`InstanceIndex` in r30/r31, varyings written
 with `SOUT` and read back with `FATTR`, 2D homogeneous setup in
 `BorgSetupRom` (no clipping needed, corners behind the eye are exact), and
-perspective-correct barycentrics from the draw raster ROM. Mode 0 (reset) is
-the legacy per-triangle-descriptor path that today's firmware, `borgvk` and
-`borgc` still use. Spec, ABI and a step-by-step "minimal draw" recipe:
+perspective-correct barycentrics from the draw raster ROM. It is the only
+geometry path: the legacy per-triangle-descriptor path (`BorgGeometrySequencer`)
+was deleted 2026-09-26, `borgc` compiles for the draw front end by default
+(`BORGC_LEGACY=1` for the old ABI until that codegen goes too), and the
+firmware draws only through it. `SEQ_TRIGGER` always renders a draw;
+`DRAW_CFG.mode` now only picks the MMIO pixel path's program. Still open: the
+firmware rebuilds cube.vert's UBO from the 0xAE packet, and the CTS mailbox
+path (vertex colours, `make vulkan-cts`) does not render until draw mode takes
+vertex buffers. Spec, ABI and a step-by-step "minimal draw" recipe:
 `docs/B1_geometry_front_end.md`; working example: `BorgDrawTests.DrawRig`.
 
 ## Texture unit (Vulkan sampling)
