@@ -206,11 +206,12 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   // State
   // ===================================================================
 
-  private val states = Enum(24)                            // (two patterns: tuples stop at 22)
+  private val states = Enum(28)                            // (three patterns: tuples stop at 22)
   private val (sIdle :: sTexDesc :: sSampDesc :: sLod :: sLodWait :: sLane :: sLaneSetup ::
                sLevel :: sLevelDims :: sLayer :: sAxis :: sAxisMul :: Nil) = states.take(12)
   private val (sWrap :: sTap :: sTapLayer :: sTapMul :: sTapAddr :: sFetch :: sDecode :: sCompare :: sAcc ::
-               sAccWait :: sTapNext :: sResp :: Nil) = states.drop(12)
+               sAccWait :: sTapNext :: sResp :: Nil) = states.slice(12, 24)
+  private val (sMul :: sLayerOff :: sAxisFix :: sTapSlice :: Nil) = states.drop(24)
   private val state = RegInit(sIdle)
 
   private val ctl   = Reg(UInt(32.W))
@@ -235,7 +236,10 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val fmtCode = td(2)(19, 14)
   private def swz(i: Int): UInt = td(2)(22 + 3 * i, 20 + 3 * i)
   private val stride  = td(3)
-  private val fmt     = TexFormat.info(fmtCode)
+  // The format's decode, registered: `info` is a priority chain over every
+  // format, and td only changes in sTexDesc, which always passes through
+  // sSampDesc before anything reads the format.
+  private val fmt     = RegNext(TexFormat.info(fmtCode))
   private val split16 = layout =/= Linear.U && fmt.bytes === 16.U   // see sTapAddr
   private val magLin  = sd(0)(0); private val minLin = sd(0)(1); private val mipLin = sd(0)(2)
   private def addrMode(a: UInt) = MuxLookup(a, sd(0)(5, 3))(Seq(1.U -> sd(0)(8, 6), 2.U -> sd(0)(11, 9)))
@@ -260,8 +264,13 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val fmaLatency = cfg.fmaStages + 1
 
   // --- The one multiplier ------------------------------------------------
+  // Registered on both sides: a state issues the operands with `mul`, sMul
+  // multiplies, and the state it returns to reads `product`. Neither the
+  // operands' muxes nor the consumers' logic share a cycle with it.
   private val mulA = WireDefault(0.S(30.W)); private val mulB = WireDefault(0.U(GpuMemIO.AddrBits.W))
-  private val product = mulA * mulB.zext                 // SInt(63)
+  private val mulAR = RegNext(mulA); private val mulBR = RegNext(mulB)
+  private val product = Reg(chiselTypeOf(mulAR * mulBR.zext))
+  private val mulRet = Reg(chiselTypeOf(sIdle))
 
   // --- LOD --------------------------------------------------------------
   private val lodTmp = Reg(Vec(6, UInt(32.W)))            // d{u,v,w}/dx, d{u,v,w}/dy
@@ -294,6 +303,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   // Cube corners: three sub-taps (own face, and across each edge), a third each.
   private val subTap = RegInit(0.U(2.W)); private val tCorner = RegInit(false.B)
   private val tWeight = RegInit(0.U(32.W))
+  private val tWeightInt = RegInit(0.U(34.W))             // tWeight before its FP32 conversion, 2^32 = 1
   private val rowTiles = RegInit(0.U(GpuMemIO.AddrBits.W))
   private val addr = RegInit(0.U(GpuMemIO.AddrBits.W))
   private val raw = Reg(Vec(4, UInt(32.W)))
@@ -316,6 +326,12 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private def read(a: UInt)(onData: UInt => Unit): Unit = {
     io.gpuMem.req := true.B; io.gpuMem.addr := a
     when(io.gpuMem.ready) { onData(io.gpuMem.data) }
+  }
+
+  /** Multiply `a` by `b`; `product` holds the result in state `next`. */
+  private def mul(a: SInt, b: UInt, next: UInt): Unit = {
+    mulA := a; mulB := b; mulRet := next
+    state := sMul
   }
 
   // ===================================================================
@@ -478,15 +494,20 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       lw := w; lh := h; ld := d
       tpr := (w +& 3.U) >> 2
       // texels per 3D slice: tiles per row * tile rows * 16
-      mulA := ((w +& 3.U) >> 2).zext; mulB := ((h +& 3.U) >> 2) << 4
-      sliceTexels := product.asUInt(GpuMemIO.AddrBits - 1, 0)
-      state := sLayer
+      mul(((w +& 3.U) >> 2).zext, ((h +& 3.U) >> 2) << 4, sLayer)
     }
     is(sLayer) {
-      mulA := layerN.zext; mulB := stride
+      sliceTexels := product.asUInt(GpuMemIO.AddrBits - 1, 0)
+      mul(layerN.zext, stride, sLayerOff)
+    }
+    is(sLayerOff) {
       layerOff := product.asUInt(GpuMemIO.AddrBits - 1, 0)
       ax := 0.U; wrapEnd := 0.U
       state := sAxis
+    }
+    is(sMul) {
+      product := mulAR * mulBR.zext
+      state := mulRet
     }
 
     // --- Axes: coordinate -> texel -----------------------------------------
@@ -507,8 +528,11 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       val repeatF = fpToFixedMod(c, 0)                    // Q0.24
       val mirrorF = fpToFixedMod(c, 1)                    // Q1.24
       val clampF  = fpToFixed(c, 24, 28)                  // Q3.24
-      mulA := Mux(mode === Repeat.U, repeatF.zext, Mux(mode === Mirror.U, mirrorF.zext, clampF))
-      mulB := size
+      mul(Mux(mode === Repeat.U, repeatF.zext, Mux(mode === Mirror.U, mirrorF.zext, clampF)), size, sAxisFix)
+    }
+    is(sAxisFix) {
+      val a = args(lane)
+      val c = MuxLookup(ax, a.u)(Seq(1.U -> a.v, 2.U -> a.w))
       val scaled = (product >> 16).asSInt                 // Q.8
       val x8 = Mux(isFetch, (c(19, 0).asSInt << 8), Mux(unnorm, fpToFixed(c, 8, 28), scaled))
       val off = MuxLookup(ax, 0.S(4.W))(Seq(0.U -> offU(ctl), 1.U -> offV(ctl),
@@ -568,7 +592,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       // Weight: the product of each used axis's (1 - f) or f, and the level's.
       def aw(a: Int) = Mux(!linear || !used(a), 256.U(9.W), Mux(t(a), fr(a).pad(9), 256.U - fr(a)))
       val wInt = aw(0) * aw(1) * aw(2) * lvlW(lvIdx)                 // 36 bits, 2^32 = 1
-      tWeight := uintToFp32(wInt(33, 0), (-32).S)
+      tWeightInt := wInt(33, 0)                                       // to FP32 in sTapLayer
       tCorner := false.B
       when(ttype === TCube.U) {
         // Seamless: a tap off the face reads the neighbouring face; past a
@@ -585,7 +609,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         val eI = Mux(x < 0.S, 0.U, 1.U); val eJ = Mux(y < 0.S, 2.U, 3.U)
         when(iOut && jOut) {
           tCorner := true.B
-          tWeight := uintToFp32(((wInt * 21845.U) >> 16)(33, 0), (-32).S)   // a third
+          tWeightInt := ((wInt * 21845.U) >> 16)(33, 0)                   // a third
           switch(subTap) {
             is(0.U) { tx := clampC(x); ty := clampC(y) }
             is(1.U) { across(eI, clampC(y)) }
@@ -597,20 +621,21 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       state := sTapLayer
     }
     is(sTapLayer) {
-      mulA := tLayer.zext; mulB := stride
-      layerOffTap := product.asUInt(GpuMemIO.AddrBits - 1, 0)
-      state := sTapMul
+      tWeight := uintToFp32(tWeightInt, (-32).S)
+      mul(tLayer.zext, stride, sTapMul)
     }
     is(sTapMul) {
+      layerOffTap := product.asUInt(GpuMemIO.AddrBits - 1, 0)
       // Tile row: (y / 4) * tiles per row. Linear layout: y * row pitch.
-      mulA := Mux(layout === Linear.U, ty, ty >> 2); mulB := Mux(layout === Linear.U, stride, tpr)
+      mul(Mux(layout === Linear.U, ty, ty >> 2), Mux(layout === Linear.U, stride, tpr), sTapSlice)
+    }
+    is(sTapSlice) {
       rowTiles := product.asUInt(GpuMemIO.AddrBits - 1, 0)
-      state := sTapAddr
+      mul(tz, sliceTexels, sTapAddr)
     }
     is(sTapAddr) {
       val x = tx.asUInt; val y = ty.asUInt
       val shift = Log2(fmt.bytes)
-      mulA := tz; mulB := sliceTexels
       val texel = ((rowTiles + (x >> 2)) << 4) + (y(1, 0) << 2) + x(1, 0) + product.asUInt(GpuMemIO.AddrBits - 1, 0)
       val tiled = base + levelOff + layerOffTap + (texel << shift)
       // A 16-byte tiled texel is two 8-byte halves, 128 bytes apart in its
