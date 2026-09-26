@@ -6,8 +6,9 @@ build with memory ops, Wafer included).
 
 The limits check against Vulkan 1.0 found that the geometry front end falls
 short on most of the vertex-to-fragment path. This page describes how the
-hardware closes those gaps. The legacy path stays in place until `borgc` and
-`borgvk` move over (see [Coexistence](#coexistence-with-the-legacy-path)).
+hardware closes those gaps. It is the only geometry path: `borgc`, `borgvk`
+and the firmware target it, and the legacy per-triangle descriptors were
+removed (see [The legacy path](#the-legacy-path)).
 
 | Limit                   | Legacy Borg                         | Draw front end                       | Vulkan 1.0              |
 |-------------------------|-------------------------------------|--------------------------------------|-------------------------|
@@ -194,8 +195,9 @@ against a 1.0 clear at D32 (`far_and_near_plane_primitives_are_inside`).
 
 ## Raster ROM and fragment ABI
 
-With `DRAW_CFG.mode` set, the dispatcher's per-pixel trigger runs
-`BorgRasterRom.drawInstructions` instead of the legacy edge test. It
+In a render (and on the MMIO pixel path with `DRAW_CFG.mode` set) the
+dispatcher's per-pixel trigger runs `BorgRasterRom.drawInstructions` instead
+of the three-plane edge test. It
 evaluates `E0, E1, E2, Zn, Zf` into r0-r4; the dispatcher snoops all five for
 coverage, per sample at 4x MSAA (the far plane's sample thresholds are the
 depth plane's with the signs swapped). Pixel centres are built in FP32, exact
@@ -363,12 +365,17 @@ The driver picks the smallest record shift that fits the pipeline's outputs:
 `48 + 3*N` words for `N` varying components, so 8 (256 bytes) for up to five
 and 10 (1 KB) for 64.
 
-## Coexistence with the legacy path
+## The legacy path
 
-`DRAW_CFG.mode = 0` (reset) keeps today's per-triangle descriptors, driver
-setup shader, raster ROM and uniform layout, so the firmware, `borgvk` and
-`borgc` keep working untouched. Mode 1 is everything above. The legacy path
-can be deleted once the compiler emits the new ABI.
+Before the draw front end, the firmware wrote a descriptor per triangle, and
+a Pass-1 sequencer (`BorgGeometrySequencer`) ran a driver-supplied vertex and
+setup shader and staged a fixed uniform layout. It was removed on 2026-09-26,
+once `borgc` compiled for the draw front end by default, to fit the ULX3S.
+Its registers (`SEQ_DESC_BASE`, `SEQ_SETUP_ADDR/LEN`, `SEQ_INV_WIDTH`,
+`SEQ_TRI_COUNT`, `SEQ_RAST_ADDR/LEN`) keep their slots but have no hardware
+behind them. `SEQ_TRIGGER` always renders a draw; `DRAW_CFG.mode` only picks
+the MMIO pixel path's (`CMD_ENQUEUE`/`ITER`) program: 0 the three-plane edge
+test (`BorgRasterRom.instructions`), 1 the draw raster program.
 
 ## Using it: a minimal draw
 
@@ -452,5 +459,6 @@ holds five varying components; use 10 for up to 64.
 
 ## Not covered yet
 
-Nothing in the hardware list; the compiler and driver still have to target
-this ABI before the legacy path can go.
+Nothing in the hardware list. The firmware's side is still cube-specific:
+it rebuilds cube.vert's UBO from the 0xAE geometry packet, and draws with
+vertex-buffer input (the CTS mailbox path) are not wired up.

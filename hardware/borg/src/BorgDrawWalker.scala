@@ -47,8 +47,7 @@ class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
   val record = Output(new CoreRecordIO)
 }
 
-/** BorgDrawWalker -- Pass 1 of a draw (DRAW_CFG mode 1), in place of
-  * BorgGeometrySequencer's per-triangle descriptors. See
+/** BorgDrawWalker -- Pass 1 of a draw (DRAW_CFG mode 1). See
   * docs/B1_geometry_front_end.md.
   *
   * For every instance and every primitive: assemble the primitive's three
@@ -126,7 +125,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.store.active := state === sStoreMeta
   io.store.req    := false.B
   io.store.addr   := recordBase + (BorgSetupRom.Record.Meta * 4).U
-  io.store.wdata  := Cat(isBack, 0.U(1.W))    // bit 1 = back-facing (bit 0, has_uvs, is legacy)
+  io.store.wdata  := Cat(isBack, 0.U(1.W))    // bit 1 = back-facing; bit 0 is unused
 
   // Vertex shader: VertexIndex/InstanceIndex, one corner per lane; setup ROM: none.
   private val inVS = state === sRunVS || state === sWaitVS

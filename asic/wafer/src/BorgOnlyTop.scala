@@ -43,8 +43,7 @@ import borg.link.{BorgLinkSlave, LinkParams}
   * something the fabricated part could be talked into.
   *
   * @param cfg Borg configuration.  `BorgConfig.Wafer`: Default's feature set
-  *            (FP32, 4x MSAA, depth flush) at the slot's sizing, with
-  *            debugPorts=false since there is no harness here to read them.
+  *            (FP32, 4x MSAA, depth flush) at the slot's sizing.
   * @param p   Link configuration.  Default width (16) matches the lane map above.
   */
 class BorgOnlyCoreIO(val p: LinkParams) extends Bundle {

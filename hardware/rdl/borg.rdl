@@ -367,11 +367,9 @@ reg tex_config_reg_t {
 
     field {
         sw = rw; hw = r;
-        desc = "Bit 17: Fragment uniform-staging mode for u19-u27.  0 = vertex
-                colour R/G/B (the hand-written frag.s, outColor = texel*color);
-                1 = per-vertex model position frag_pos.x/y/z (the borgc cube.frag,
-                which derives the normal via dFdx/dFdy(frag_pos)).  Set by the
-                firmware to match the loaded fragment shader.";
+        desc = "Bit 17: retired with the legacy per-triangle-descriptor path
+                (it chose what that path staged in u19-u27); no hardware
+                reads it.";
     } frag_uses_fragpos[1] = 0;
 
     field {
@@ -563,11 +561,12 @@ reg attach_ms_reg_t {
 // --- Draw front end (docs/B1_geometry_front_end.md) --------------------
 reg draw_cfg_reg_t {
     name = "Draw Configuration";
-    desc = "nogen. Mode 1 renders a draw: hardware primitive assembly, one
-            vertex-shader run per triangle, the setup and raster ROMs, and
-            varyings in per-triangle records. Mode 0 (reset) is the legacy
-            per-triangle-descriptor path.";
-    field { sw = rw; hw = r; desc = "0 = legacy descriptors, 1 = draw."; } mode[1] = 0;
+    desc = "nogen. SEQ_TRIGGER renders a draw: hardware primitive
+            assembly, one vertex-shader run per triangle, the setup and
+            raster ROMs, and varyings in per-triangle records. The mode bit
+            only selects the MMIO pixel path's (CMD_ENQUEUE/ITER) program: 0
+            (reset) the three-plane edge test, 1 the draw raster program.";
+    field { sw = rw; hw = r; desc = "MMIO pixel path: 0 = edge test, 1 = draw raster program."; } mode[1] = 0;
     field { sw = rw; hw = r; desc = "0 = triangle list, 1 = strip, 2 = fan."; } topology[2] = 0;
     field { sw = rw; hw = r; desc = "0 = no index buffer, 1 = 16-bit, 2 = 32-bit indices."; } index_type[2] = 0;
     field { sw = rw; hw = r; desc = "Primitive restart (strips and fans)."; } restart[1] = 0;
@@ -1004,9 +1003,10 @@ reg flush_width_reg_t {
 // --- Vertex Sequencer: descriptor DRAM base address (Step 29) ---
 reg seq_desc_base_reg_t {
     name = "Sequencer Descriptor Base Address";
-    desc = "GPU byte address of the triangle descriptor (Option A layout:
-            25 FP16 words = pos[3×3] | color[3×3] | uv[3×2] | flags).
-            Write before triggering SEQ_TRIGGER.  nogen: decoded in Borg.scala.";
+    desc = "Retired with the legacy per-triangle-descriptor path
+            (2026-09-26): no hardware behind it, writes are ignored. The
+            slot stays so the registers after it keep their addresses.
+            nogen.";
 
     field {
         sw = rw; hw = r;
@@ -1017,8 +1017,8 @@ reg seq_desc_base_reg_t {
 // --- Vertex Sequencer: trigger (Step 29) ---
 reg seq_trigger_reg_t {
     name = "Sequencer Trigger";
-    desc = "Write bit 0 = 1 to start the vertex/triangle-setup sequencer.
-            SEQ_DESC_BASE must be set before triggering.  Self-clearing.
+    desc = "Write bit 0 = 1 to render the draw set up in DRAW_CFG and the
+            draw parameters (docs/B1_geometry_front_end.md).  Self-clearing.
             Poll STATUS.seq_busy for completion.  nogen: decoded in Borg.scala.
             Read: bit 0 = done (sticky, cleared by the next trigger); bit 1 =
             bin overflow -- a tile touched by more than SEQ_BIN_ROW_BYTES / 2
@@ -1072,9 +1072,10 @@ reg seq_vert_len_reg_t {
 // --- Vertex Sequencer: setup shader DRAM address (Step 29.2) ---
 reg seq_setup_addr_reg_t {
     name = "Sequencer Setup Shader Address";
-    desc = "GPU byte address of the triangle setup shader binary.
-            The sequencer DMA-loads this shader into IMEM after vertex shading
-            to compute edge vectors and inv_area.  nogen: decoded in Borg.scala.";
+    desc = "Retired with the legacy per-triangle-descriptor path
+            (2026-09-26): no hardware behind it, writes are ignored. The
+            slot stays so the registers after it keep their addresses.
+            nogen.";
 
     field {
         sw = rw; hw = r;
@@ -1085,8 +1086,10 @@ reg seq_setup_addr_reg_t {
 // --- Vertex Sequencer: setup shader length (Step 29.2) ---
 reg seq_setup_len_reg_t {
     name = "Sequencer Setup Shader Length";
-    desc = "Length of setup shader binary in 32-bit DRAM words (1–56).
-            nogen: decoded in Borg.scala.";
+    desc = "Retired with the legacy per-triangle-descriptor path
+            (2026-09-26): no hardware behind it, writes are ignored. The
+            slot stays so the registers after it keep their addresses.
+            nogen.";
 
     field {
         sw = rw; hw = r;
@@ -1101,9 +1104,10 @@ reg seq_setup_len_reg_t {
 // --- Vertex Sequencer: inv_width for edge normalization (Step 30.1c) ---
 reg seq_inv_width_reg_t {
     name = "Sequencer Inverse Width";
-    desc = "1/fb_width as a datapath float, written once during init.
-            The sequencer writes this as u6 before running the setup shader,
-            enabling hardware-level edge normalization.  nogen: decoded in Borg.scala.";
+    desc = "Retired with the legacy per-triangle-descriptor path
+            (2026-09-26): no hardware behind it, writes are ignored. The
+            slot stays so the registers after it keep their addresses.
+            nogen.";
 
     field {
         sw = rw; hw = r;
@@ -1114,9 +1118,10 @@ reg seq_inv_width_reg_t {
 // --- Sequencer: triangle count (Step 31) ---
 reg seq_tri_count_reg_t {
     name = "Sequencer Triangle Count";
-    desc = "Number of triangle descriptors to process (1–16).
-            The sequencer loops through triCount descriptors starting at
-            SEQ_DESC_BASE with 128-byte stride.  nogen: decoded in Borg.scala.";
+    desc = "Retired with the legacy per-triangle-descriptor path
+            (2026-09-26): no hardware behind it, writes are ignored. The
+            slot stays so the registers after it keep their addresses.
+            nogen.";
 
     field {
         sw = rw; hw = r;
@@ -1131,9 +1136,10 @@ reg seq_tri_count_reg_t {
 // --- Sequencer: rast shader DRAM address (Step 31) ---
 reg seq_rast_addr_reg_t {
     name = "Sequencer Rast Shader Address";
-    desc = "GPU byte address of the rasterizer shader binary.
-            The sequencer DMA-loads this shader into IMEM after triangle setup
-            to prepare for tile iteration.  nogen: decoded in Borg.scala.";
+    desc = "Retired with the legacy per-triangle-descriptor path
+            (2026-09-26): no hardware behind it, writes are ignored. The
+            slot stays so the registers after it keep their addresses.
+            nogen.";
 
     field {
         sw = rw; hw = r;
@@ -1144,8 +1150,10 @@ reg seq_rast_addr_reg_t {
 // --- Sequencer: rast shader length (Step 31) ---
 reg seq_rast_len_reg_t {
     name = "Sequencer Rast Shader Length";
-    desc = "Length of rast shader binary in 32-bit DRAM words (1–56).
-            nogen: decoded in Borg.scala.";
+    desc = "Retired with the legacy per-triangle-descriptor path
+            (2026-09-26): no hardware behind it, writes are ignored. The
+            slot stays so the registers after it keep their addresses.
+            nogen.";
 
     field {
         sw = rw; hw = r;
