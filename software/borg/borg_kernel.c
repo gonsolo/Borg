@@ -24,13 +24,10 @@
 static borg_float_t rx_geom_pos[RX_GEOM_MAX_VERTS * 3];
 static uint8_t      rx_geom_idx[RX_GEOM_MAX_TRIS * 3];
 static borg_float_t rx_geom_uv[RX_GEOM_MAX_TRIS * 3 * 2];
-// Per-vertex RGB for the CTS flat-shaded path (zero when borgvk is the source).
-static borg_float_t rx_geom_color[RX_GEOM_MAX_VERTS * 3];
-static int     rx_have_color  = 0;
 static int     rx_geom_nverts = 0;
 static int     rx_geom_ntris  = 0;
 static int     rx_have_geom   = 0;
-static int     g_geom_recorded = 0;
+static int     g_texture_bound = 0;
 
 // 0xAF texture-row packet: marker(1), y(1), sampler descriptor(4 words LE),
 // row_pixels(TEX_DIM * 4 B RGBA8), csum(1). Every row carries the sampler, so
@@ -79,6 +76,9 @@ static int cts_mailbox_present(void) {
   return CTS_MB(BORG_CTS_OFF_MAGIC) == BORG_CTS_MAGIC;
 }
 
+// The mailbox also carries per-vertex colours (BORG_CTS_OFF_COLOR), which
+// nothing renders: the draw path runs cube.vert, which reads positions and
+// texcoords from its UBO. CTS draws need vertex-buffer input in draw mode.
 static int cts_load_mailbox(borg_float_t mvp_out[16]) {
   if (!cts_mailbox_present()) return 0;
   int nv = (int)CTS_MB(BORG_CTS_OFF_NVERTS);
@@ -87,10 +87,8 @@ static int cts_load_mailbox(borg_float_t mvp_out[16]) {
     return 0;
   for (int i = 0; i < 16; i++)
     mvp_out[i] = CTS_MB(BORG_CTS_OFF_MVP + i);
-  for (int i = 0; i < nv * 3; i++) {
-    rx_geom_pos[i]   = CTS_MB(BORG_CTS_OFF_POS   + i);
-    rx_geom_color[i] = CTS_MB(BORG_CTS_OFF_COLOR + i);
-  }
+  for (int i = 0; i < nv * 3; i++)
+    rx_geom_pos[i] = CTS_MB(BORG_CTS_OFF_POS + i);
   for (int i = 0; i < nt * 3; i++) {
     rx_geom_idx[i]        = (uint8_t)CTS_MB(BORG_CTS_OFF_IDX + i);
     rx_geom_uv[i * 2 + 0] = BORG_FLOAT_ZERO;
@@ -99,63 +97,20 @@ static int cts_load_mailbox(borg_float_t mvp_out[16]) {
   rx_geom_nverts = nv;
   rx_geom_ntris  = nt;
   rx_have_geom   = 1;
-  rx_have_color  = 1;
   return 1;
 }
-
-#ifndef BORG_DRAW_MODE_CUBE
-static void draw_received_geom(const borg_draw_data_t *draw) {
-  borgTransformVerts(draw, rx_geom_pos, rx_geom_nverts);
-  for (int t = 0; t < rx_geom_ntris; t++) {
-    int idx[3];
-    borg_vertex_t tri[3];
-    for (int v = 0; v < 3; v++) {
-      int vi = rx_geom_idx[t * 3 + v];
-      idx[v] = vi;
-      borg_float_t cr = BORG_FLOAT_ONE, cg = BORG_FLOAT_ONE, cb = BORG_FLOAT_ONE;
-      if (rx_have_color) {
-        cr = rx_geom_color[vi * 3 + 0];
-        cg = rx_geom_color[vi * 3 + 1];
-        cb = rx_geom_color[vi * 3 + 2];
-      }
-      tri[v] = (borg_vertex_t){
-          .color = {cr, cg, cb},
-          .uv    = {rx_geom_uv[(t * 3 + v) * 2 + 0], rx_geom_uv[(t * 3 + v) * 2 + 1]},
-      };
-    }
-    borgCmdDrawIndexed(idx, tri, 0);
-  }
-}
-#endif // !BORG_DRAW_MODE_CUBE
 
 int main() {
   borgCreateDevice();
 
-  // Load baked shaders so the GPU pipeline is valid before borgvk uploads its
-  // own.  borgvk overrides vert+frag at runtime via 0xB0; rast stays baked.
+  // Load baked shaders (borgc's draw-mode compiles of cube.vert/cube.frag) so
+  // the GPU pipeline is valid before borgvk uploads its own. borgvk overrides
+  // vert+frag at runtime via 0xB0; the raster program is a hardware ROM.
   BorgShaderModule vert, rast, frag;
   borgCreateShaderModule(&vert, vert_borg, sizeof(vert_borg));
   borgCreateShaderModule(&rast, rasterize_borg, sizeof(rasterize_borg));
   borgCreateShaderModule(&frag, frag_borg, sizeof(frag_borg));
   borgCreateGraphicsPipeline(&vert, &rast, &frag);
-  // The baked frag is now borgc's compilation of cube.frag -- the same shader
-  // borgvk uploads -- so it wants the same staging mode borgvk's does:
-  // frag_pos, not vertex colour. It used to be a texel x vertex_color Gouraud
-  // shader from a since-deleted pipeline, which is why this was 1.
-  //
-  // Getting this wrong does not fail loudly, it renders flat/yellow -- the
-  // staging mode decides which uniforms the sequencer writes, so a mismatch
-  // feeds the shader the wrong inputs rather than crashing.
-  borg_set_frag_vertex_color(0);
-
-#ifdef BORG_DRAW_MODE_CUBE
-  // Draw front end (docs/B1_geometry_front_end.md): render borgvk's real
-  // cube.vert/cube.frag draw-mode compile through the full-hardware draw
-  // path instead of the legacy per-triangle descriptors. Opt-in build flag
-  // -- the legacy path stays the default until borgc/borgvk drive draw mode
-  // for every shader, not just this one hand-verified pair.
-  borg_set_draw_mode(1);
-#endif
 
   // Pre-fill the texture region with white before any borgvk upload arrives.
   // The RX drain loop below recovers from a dropped/corrupted 0xAF texture-row
@@ -305,7 +260,6 @@ int main() {
               rx_geom_nverts = nv;
               rx_geom_ntris  = nt;
               rx_have_geom   = 1;
-              rx_have_color  = 0;
               success = 1;
               got_geom_pkt = 1;
               skip_gap = 1;  // texture rows immediately follow geometry on the wire
@@ -421,36 +375,16 @@ int main() {
     // Tile clear colour: FP16, the tile buffer's own format.
     rgb16_t bg = cts_active ? (rgb16_t){0,0,0} : (rgb16_t){0x3266, 0x3266, 0x3266};
 
-#ifdef BORG_DRAW_MODE_CUBE
-    // The draw front end has no per-triangle descriptor cache to keep valid
-    // across frames -- re-stage the (small, static) geometry and the fresh
-    // MVP every frame; borg_set_texture still only needs doing once.
-    // borgFastFrameBegin only records the clear colour (borgBinRenderAutonomous's
-    // TBR-specific state it also resets is unused on this path).
+    // Re-stage the (small, static) geometry and the fresh MVP every frame;
+    // borg_set_texture only needs doing once.
     borgFastFrameBegin(bg);
-    if (!g_geom_recorded) {
+    if (!g_texture_bound) {
       borg_set_texture(RX_TEX_DIM, RX_TEX_DIM);
-      g_geom_recorded = 1;
+      g_texture_bound = 1;
     }
     borgDrawSubmitGeom(&draw, rx_geom_pos, rx_geom_nverts, rx_geom_idx, rx_geom_uv,
                       rx_geom_ntris);
-#else
-    if (rx_have_geom && g_geom_recorded) {
-      borgFastFrameBegin(bg);
-      borgUpdateUniforms(&draw);
-    } else {
-      borg_clear_zbuffer(0, bg);
-      borg_set_texture(RX_TEX_DIM, RX_TEX_DIM);
-      if (!g_geom_recorded) borgInvalidateCommandBuffer();
-      draw_received_geom(&draw);
-    }
-#endif
     borg_present(0);
-    // No-op under BORG_DRAW_MODE_CUBE: g_geom_recorded is already set above,
-    // and borgCommandBufferValid() (legacy's own command-buffer cache) is
-    // never set true on the draw front end's path.
-    if (rx_have_geom && borgCommandBufferValid())
-      g_geom_recorded = 1;
 
 #ifndef TARGET_ULX3S
     // Simulation sync: poll until the viewer has consumed the framebuffer and

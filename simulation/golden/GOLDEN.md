@@ -7,15 +7,15 @@ is compared by `scripts/compare_ppm.py` with `--max-diff 1 --max-fail-pixels 2`
 | File | App | Frame | What it exercises |
 |------|-----|-------|-------------------|
 | `vkcube_cts_uart_baked_00.ppm` | cts-uart-baked | 0 | Same scene with the capture's 0xB0 shader uploads stripped (`borgvk_capture_noshader.bin`), so the firmware runs its baked borgc shaders. Identical to `vkcube_cts_uart_00.ppm` while the baked shaders match what borgvk uploads. |
-| `vkcube_cts_uart_00.ppm` | cts-uart | 0 | Full TBR path driven by a captured borgvk UART burst (0xAD MVP / 0xAE geometry / 0xAF texture / 0xB0 shaders) replayed via `--cts-uart`: BorgBinner Pass 1 + BorgSequencer Pass 2, GPU vertex transform (seq_vert_shader) including perspective divide, texture sampling via `TEX` (BorgSampler, linear RGBA8 descriptor), sRGB-converted output, double-buffered PSRAM layout. |
+| `vkcube_cts_uart_00.ppm` | cts-uart | 0 | Full draw front end driven by a captured borgvk UART burst (0xAD MVP / 0xAE geometry / 0xAF texture / 0xB0 shaders) replayed via `--cts-uart`: Pass 1 runs borgc's cube.vert per triangle (vertex pulling from the UBO, SOUT varyings), the setup ROM and the binner; Pass 2 the draw raster ROM, FATTR varyings, cube.frag at one sample, texture sampling via `TEX` (BorgSampler, linear RGBA8 descriptor), sRGB-converted output, double-buffered PSRAM layout. |
 
 The old `triangle_00.ppm`/`vkcube_00.ppm` goldens (baked app-config demos) were
 removed once firmware content stopped being baked in — see `borg_kernel.c`; all
 geometry/shaders/textures now arrive from borgvk at runtime.
 
 `borgvk_capture.bin` is one frame of the unmodified Vulkan-Tools vkcube as borgvk
-puts it on the wire (current capture: FP32 datapath, TEX sampling with RGBA8
-0xAF rows, 2026-09-25, 19220 B):
+puts it on the wire (current capture: FP32 datapath, draw-mode shaders, TEX
+sampling with RGBA8 0xAF rows, 2026-09-26, 19220 B):
 
 ```bash
 BORGVK_SIM=/bin/true BORGVK_SIM_FW=software/borg/kernel.bin \

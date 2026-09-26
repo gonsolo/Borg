@@ -16,13 +16,6 @@ typedef struct {
     fp16_t r, g, b;
 } rgb16_t;
 
-// Vertex color and UV, datapath floats (the position comes from
-// borgTransformVerts' cache).
-typedef struct {
-    borg_float_t color[3];  // r, g, b
-    borg_float_t uv[2];     // u, v texture coordinates (0..1)
-} borg_vertex_t;
-
 // Framebuffer dimensions (set at runtime from host)
 extern int borg_fb_width;
 extern int borg_fb_height;
@@ -72,9 +65,6 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob);
 // signal).  Returns (without resetting) on any framing/checksum/timeout error.
 void borg_serial_reload(void);
 
-// Clear z-buffer for a frame to FP16_MAX_DEPTH
-void borg_clear_zbuffer(int frame, rgb16_t clear_color);
-
 // Point the texture unit at the uploaded texture: writes texture descriptor 0
 // (tex_width × tex_height RGBA8, linear, at TEX_TEXEL_ADDR) and sampler
 // descriptor 0 (the last one given to borg_set_sampler), then TEX_DESC_BASE and
@@ -84,11 +74,6 @@ void borg_set_texture(int tex_width, int tex_height);
 // Sampler descriptor 0, four words in the hardware's layout
 // (docs/B2_texture_unit.md) as borgvk packs them from the app's VkSampler.
 void borg_set_sampler(const uint32_t desc[4]);
-
-// Select what the fragment's u19-u27 uniforms carry: per-vertex COLOR (enable=1,
-// for CTS out_color=in_color / flat shading) vs model frag_pos (enable=0, default,
-// borgc cube.frag lighting).  Drives TEX_CONFIG.FRAG_USES_FRAGPOS.
-void borg_set_frag_vertex_color(int enable);
 
 // Disable texturing for subsequent draw calls
 void borg_clear_texture(void);
@@ -105,52 +90,26 @@ void borg_upload_texture_row(const uint8_t *row, int y, int dim);
 void borg_set_push_constants(const uint32_t *words, uint32_t off_words,
                              uint32_t nwords);
 
-// Vertex-dedup draw path: cache the unique model-space positions and the MVP
-// once, then record triangles by index (the sequencer transforms on the GPU).
-void borgTransformVerts(const borg_draw_data_t *d, const borg_float_t *positions, int count);
-void borgCmdDrawIndexed(const int idx[3], const borg_vertex_t vertices[3], int frame);
-
-// Invalidate the recorded command buffer, forcing a full DRAM descriptor
-// re-write on the next draw.  Call when geometry (vertex positions or UVs)
-// changes.  Mirrors the Vulkan pattern: record a new VkCommandBuffer instead
-// of reusing the old one.
-void borgInvalidateCommandBuffer(void);
-
-// Returns non-zero when the command buffer is valid and geometry descriptors
-// are already in DRAM from a previous frame.
-int borgCommandBufferValid(void);
-
-// Fast-path frame begin: update clear color only, skip bin reset and draw_call_count reset.
-// Call instead of borg_clear_zbuffer when taking the fast path (borgUpdateUniforms).
+// Record the frame's tile clear colour.
 void borgFastFrameBegin(rgb16_t clear_color);
-
-// Update only the TS-baked MVP in every active descriptor slot, without
-// re-recording geometry.  Call each frame instead of borgCmdDraw* when
-// geometry is static and only the uniform (rotation matrix) changes.
-void borgUpdateUniforms(const borg_draw_data_t *d);
 
 // Write DONE marker for a frame to DRAM
 void borg_present(int frame);
 
 // --- Draw front end (docs/B1_geometry_front_end.md) ---
 //
-// Renders through the full-hardware draw path (DRAW_CFG mode 1: one vertex-
-// shader run per triangle, vertex pulling, SOUT/FATTR varyings, hardware
-// perspective-correct rasterization) instead of the legacy per-triangle
-// descriptors borgBinRenderAutonomous drives. Built for the one pair
-// borgc's BORGC_DRAW_MODE compiles today -- the real Vulkan-Tools cube.vert/
-// cube.frag -- and off by default: borg_present() keeps calling the legacy
-// path until borg_set_draw_mode(1) is called once at boot.
-void borg_set_draw_mode(int enable);
+// The only geometry path: one vertex-shader run per triangle, vertex
+// pulling, SOUT/FATTR varyings, hardware perspective-correct rasterization
+// (DRAW_CFG mode 1). The firmware's side is still cube-specific: it rebuilds
+// cube.vert's UBO from the 0xAE geometry packet.
 
 // Stage one frame's geometry into cube.vert's UBO (DRAW_UBO_SPI) and record
 // the vertex count for the next borg_present(). `positions` is `nverts`
 // deduplicated model-space (x,y,z) triples; `idx`/`uv` are ntris*3 expanded
-// per-corner vertex indices and texcoords -- exactly what draw_received_geom()
-// already unpacks from the 0xAE wire packet (rx_geom_pos/idx/uv), so the
-// caller does no extra work to reshape it. `d`'s raw (unbaked) MVP is copied
+// per-corner vertex indices and texcoords, as the 0xAE wire packet carries
+// them (rx_geom_pos/idx/uv). `d`'s raw (unbaked) MVP is copied
 // in column-major, matching std140 mat4 -- cube.vert does its own clip-space
-// transform, so (unlike the legacy path) nothing here bakes the viewport in.
+// transform, so nothing here bakes the viewport in.
 void borgDrawSubmitGeom(const borg_draw_data_t *d, const borg_float_t *positions,
                         int nverts, const uint8_t *idx, const borg_float_t *uv,
                         int ntris);

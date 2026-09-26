@@ -159,6 +159,7 @@ static int isa_base_is_known(uint32_t word) {
         BORG_INSTR_BRZ(0, 0, 0),      BORG_INSTR_BRNZ(0, 0, 0),
         BORG_INSTR_EXPUSH(0, 0),      BORG_INSTR_EXELSE(0),
         BORG_INSTR_EXPOP(0),
+        BORG_INSTR_SOUT(0, 0, 0),     BORG_INSTR_FATTR(0, 0),
     };
     uint32_t f7 = word & 0xFE000000u;
     if (f7 == 0 && word == BORG_INSTR_HALT) return 1;   // halt
