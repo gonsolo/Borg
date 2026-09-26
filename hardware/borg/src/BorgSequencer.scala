@@ -390,6 +390,7 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Pass 1 writes records; Pass 2 reads the current triangle's attributes.
     io.record.get := w.io.record
     io.record.get.attrBase := p2.io.attrBase.get
+    io.record.get.attrFlush := p2.io.start && drawing
     io.topLeft.get := p2.io.topLeft.get
   }
   // Pass-control is Pass 2's alone; Pass 1 never touches the tile buffer.

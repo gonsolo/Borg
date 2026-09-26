@@ -141,6 +141,9 @@ class CoreRecordIO extends Bundle {
   val outCorner     = UInt(2.W)
   /** Byte address of component 0's three per-vertex values, for FATTR. */
   val attrBase      = UInt(GpuMemIO.AddrBits.W)
+  /** One-cycle pulse when a draw's Pass 2 starts: every record has just been
+    * (re)written by Pass 1, so FATTR's varying cache forgets what it holds. */
+  val attrFlush     = Bool()
 }
 
 class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
@@ -826,7 +829,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_fattr_reg := opFlags.fattr
     }
 
-    val sMemIdle :: sMemReq :: sMemWB :: sAttrReq :: sAttrWB :: Nil = Enum(5)
+    val sMemIdle :: sMemReq :: sMemWB :: sAttrReq :: sAttrLook :: sAttrMem :: sAttrWB :: Nil = Enum(7)
     val memState = RegInit(sMemIdle)
     // log2Up, and a separate 0-width index at N==1, for the same two reasons
     // spelled out on wireSampler's respLane.
@@ -956,8 +959,66 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       finishLane()
     }
 
-    // FATTR: read word k, write it to rd+k of every active lane, three times.
-    when(memState === sAttrReq) {
+    // FATTR: fetch word k and write it to rd+k of every active lane, three
+    // times -- from the varying cache when it holds the word, else from DRAM.
+    //
+    // The varying cache (cfg.fattrCacheEnabled): a direct-mapped cache of
+    // record words, each entry {word address, epoch, value}. Pass 2 re-reads
+    // the same few words for every quad of a triangle and again in every
+    // tile the triangle touches. Pass 1 wrote them all before Pass 2 started
+    // and nothing writes them during Pass 2, so a copy stays good for the
+    // whole of Pass 2 and nothing has to watch writes.
+    //
+    // Invalidation needs no valid bit per entry: each draw's Pass 2 start
+    // (record.attrFlush) moves to a new epoch, and an entry hits only in the
+    // epoch it was filled in. Epoch 0 is never current. When the epoch wraps
+    // (every 255 draws), and out of reset when the RAM holds anything at all,
+    // a sweep rewrites every entry's epoch to 0, one per cycle, and nothing
+    // hits until it ends -- so no entry from an earlier draw can ever match.
+    val fcLog2    = cfg.fattrCacheLog2
+    val fcTagBits = GpuMemIO.AddrBits - 2
+    val fcWidth   = fcTagBits + 8 + config.totalBits      // tag, epoch, data
+    val fcMem     = Option.when(cfg.fattrCacheEnabled)(SyncReadMem(1 << fcLog2, UInt(fcWidth.W)))
+    val fcEpoch    = RegInit(1.U(8.W))
+    val fcSweeping = RegInit(true.B)
+    val fcSweepIdx = RegInit(0.U(math.max(fcLog2, 1).W))
+    val fcAddrReg  = RegInit(0.U(fcTagBits.W))
+    /** The entry a byte address maps to: the word address XOR-folded, so
+      * records that sit a power of two apart do not all collide. */
+    def fcIndex(addr: UInt): UInt = {
+      val w = addr(GpuMemIO.AddrBits - 1, 2)
+      (0 until (fcTagBits + fcLog2 - 1) / fcLog2)
+        .map(i => w(math.min((i + 1) * fcLog2, fcTagBits) - 1, i * fcLog2).pad(fcLog2))
+        .reduce(_ ^ _)
+    }
+    val fcReadData = fcMem.map(_.read(fcIndex(byteAddr), memState === sAttrReq))
+    val fcFill     = WireDefault(false.B)
+    // Registered outside any `when`, so it sees every cycle: sAttrWB came
+    // straight from a DRAM read (sAttrMem), not from a cache hit.
+    val fcFromMem  = RegNext(memState === sAttrMem, false.B) && cfg.fattrCacheEnabled.B
+    fcMem.foreach { m =>
+      val flush = io.record.get.attrFlush
+      when(fcSweeping) {
+        fcSweepIdx := fcSweepIdx + 1.U
+        when(fcSweepIdx === ((1 << fcLog2) - 1).U) { fcSweeping := false.B }
+      }
+      when(flush) {
+        when(fcEpoch === 255.U) {
+          fcEpoch := 1.U; fcSweeping := true.B; fcSweepIdx := 0.U
+        }.otherwise {
+          fcEpoch := fcEpoch + 1.U
+        }
+      }
+      // One write port: the sweep wins over a fill, which only costs a hit.
+      when(fcSweeping) {
+        m.write(fcSweepIdx, 0.U(fcWidth.W))
+      }.elsewhen(fcFill) {
+        m.write(fcIndex(byteAddr), Cat(fcAddrReg, fcEpoch, memDataReg))
+      }
+    }
+
+    /** Read FATTR's word from DRAM, then write it back (and cache it). */
+    def attrFromMemory(): Unit = {
       busy_counter       := busy_counter
       io.gpuMem.get.addr := byteAddr
       io.gpuMem.get.req  := true.B
@@ -966,8 +1027,36 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         memState   := sAttrWB
       }
     }
+    when(memState === sAttrReq) {
+      if (cfg.fattrCacheEnabled) {
+        busy_counter := busy_counter
+        fcAddrReg    := byteAddr(GpuMemIO.AddrBits - 1, 2)
+        memState     := sAttrLook
+      } else {
+        attrFromMemory()                 // no cache: straight to DRAM, as ever
+      }
+    }
+    fcReadData.foreach { e =>
+      when(memState === sAttrLook) {
+        busy_counter := busy_counter
+        val eTag   = e(fcWidth - 1, 8 + config.totalBits)
+        val eEpoch = e(8 + config.totalBits - 1, config.totalBits)
+        when(!fcSweeping && eEpoch === fcEpoch && eTag === fcAddrReg) {
+          memDataReg := e(config.totalBits - 1, 0)
+          memState   := sAttrWB
+        }.otherwise {
+          memState := sAttrMem
+        }
+      }
+      when(memState === sAttrMem) {
+        attrFromMemory()
+        // memDataReg lands next cycle; fill from sAttrWB, where it is valid.
+      }
+    }
     when(memState === sAttrWB) {
       busy_counter := busy_counter
+      // A word that came from DRAM (the cache missed) is now in memDataReg.
+      fcFill := fcFromMem
       memWrites.zipWithIndex.foreach { case (mw, i) =>
         mw.en   := execMask(i)
         mw.addr := memRdReg + attrK

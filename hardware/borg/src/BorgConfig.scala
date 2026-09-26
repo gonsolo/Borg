@@ -61,6 +61,14 @@ case class BorgConfig(
     maxBinTiles: Int = 1024,
     maxInstructions: Int = 56,
     icacheLines: Int = 512,
+    // Draw front end: FATTR's varying cache, 2^fattrCacheLog2 words (0 =
+    // none, every FATTR reads the record from DRAM). Without it a fragment
+    // shader re-reads each triangle's per-vertex values from memory for
+    // every quad -- cube.frag's 5 FATTRs are 15 serialized single-word DRAM
+    // round trips per quad. 256 words hold all 12 of vkcube's triangles'
+    // varyings; measured on a draw-mode vkcube frame, 2,389,185 -> 2,123,635
+    // cycles (stalls 453K -> 168K).
+    fattrCacheLog2: Int = 8,
     maxUniforms: Int = 64,
     hasPerfCounters: Boolean = true,
     fragLanes: Int = 1,
@@ -297,6 +305,7 @@ case class BorgConfig(
   // through COMPUTE_CTRL's `present` bit rather than assuming it.
   def computeEnabled: Boolean = hasCompute && hasMemoryOps && hasControlFlow && fp.totalBits == 32
   def shaderICacheEnabled: Boolean = hasShaderICache && hasMemoryOps
+  def fattrCacheEnabled: Boolean = drawEnabled && fattrCacheLog2 > 0
   /** The draw front end (docs/B1_geometry_front_end.md): SOUT/FATTR, and
     * VertexIndex/InstanceIndex in r30/r31. Needs the core's memory port, and
     * a 32-bit datapath because the indices are raw integers. */
@@ -525,6 +534,10 @@ object BorgConfig {
     maxBinTiles      = 16,
     maxInstructions  = 64,
     icacheLines      = 0,
+    // The FATTR varying cache is a 256 x 70-bit RAM: on GF180 that is area
+    // the 1x1 slot does not have, for a speed-up the 8 MHz part can live
+    // without. FATTR reads the record from memory instead.
+    fattrCacheLog2   = 0,
     maxUniforms      = 32,
     hasPerfCounters  = false,
     fragLanes        = 4,

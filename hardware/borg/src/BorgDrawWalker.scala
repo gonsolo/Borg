@@ -140,6 +140,7 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.record.outInterleave := inVS
   io.record.outCorner     := (if (simt) 0.U else k)
   io.record.attrBase      := recordBase + attrOffset.U
+  io.record.attrFlush     := false.B       // the sequencer drives it (Pass 2)
 
   private def dma(desc: DMADescriptor, next: UInt): Unit = {
     dmaDescReg   := desc
