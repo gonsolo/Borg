@@ -4,7 +4,7 @@
 package soc
 
 import chisel3._
-import memory.SdramBackendSim
+import memory.{SdramBackend, SdramBackendSim, SdramChipModel}
 import borg.BorgConfig
 
 /** Verilator-only top-level module.
@@ -19,9 +19,16 @@ import borg.BorgConfig
   *
   * A `dbg_*` host backdoor (into SdramBackendSim's memory) lets the C++ harness
   * preload firmware/texture and read back the framebuffer without modeling the
-  * bus.  NOT used for the ASIC GDS flow (that stays on tt_um_gonsolo_borg).
+  * bus.  NOT used for the cocotb SoC tests (those use QspiSocTop).
+  *
+  * `realSdram` swaps SdramBackendSim for the ULX3S's own memory path:
+  * SdramBackend -> SdramController -> pins -> SdramChipModel (the real JEDEC
+  * protocol: row activates, CAS latency, refresh), clocked like the board
+  * (`sdramMhz`). The backdoor then reaches into the chip model, so the same
+  * harness and firmware run on both; see BorgRealSdramSimMain.
   */
-class BorgSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
+class BorgSimTop(val CLOCK_MHZ: Int, val realSdram: Boolean = false, val sdramMhz: Int = 25)
+    extends RawModule with SoCLogic {
   val ui_in   = IO(Input(UInt(8.W)))
   val uo_out  = IO(Output(UInt(8.W)))
   val ena     = IO(Input(Bool()))
@@ -61,18 +68,35 @@ class BorgSimTop(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // Wire up the SoC.
   val uo_out_val = wireSoC()
 
-  // Behavioral SDRAM backend (full 24-bit word space to match real SDRAM).
-  val sdram = withClockAndReset(clk, !soc_rst_reg_n) {
-    Module(new SdramBackendSim(words = 0x1000000, rdDelay = 4, wrDelay = 2, dbg = true))
+  // SDRAM, full 24-bit word space (32 MB) like the board's chip.
+  if (realSdram) {
+    val backend = withClockAndReset(clk, !soc_rst_reg_n) { Module(new SdramBackend(sdramMhz)) }
+    backend.io.backend <> mem.io.backend
+    val chip = withClockAndReset(clk, !soc_rst_reg_n) {
+      Module(new SdramChipModel(addrBits = 24, readLatency = 2))
+    }
+    val pins = backend.io.sdramPins
+    chip.io.cs_n := pins.cs_n; chip.io.ras_n := pins.ras_n; chip.io.cas_n := pins.cas_n
+    chip.io.we_n := pins.we_n; chip.io.cke := pins.cke;     chip.io.ba := pins.ba
+    chip.io.addr := pins.addr; chip.io.dqm := pins.dqm
+    chip.io.dq_out := pins.dq_out; chip.io.dq_oe := pins.dq_oe
+    pins.dq_in := chip.io.dq_in
+    chip.dbg.we := dbg_we; chip.dbg.waddr := dbg_waddr; chip.dbg.wdata := dbg_wdata
+    chip.dbg.raddr := dbg_raddr
+    dbg_rdata := chip.dbg.rdata
+  } else {
+    // Behavioral SDRAM backend.
+    val sdram = withClockAndReset(clk, !soc_rst_reg_n) {
+      Module(new SdramBackendSim(words = 0x1000000, rdDelay = 4, wrDelay = 2, dbg = true))
+    }
+    sdram.io.backend <> mem.io.backend
+    val d = sdram.dbgIO.get
+    d.we      := dbg_we
+    d.waddr   := dbg_waddr
+    d.wdata   := dbg_wdata
+    d.raddr   := dbg_raddr
+    dbg_rdata := d.rdata
   }
-  sdram.io.backend <> mem.io.backend
-
-  val d = sdram.dbgIO.get
-  d.we      := dbg_we
-  d.waddr   := dbg_waddr
-  d.wdata   := dbg_wdata
-  d.raddr   := dbg_raddr
-  dbg_rdata := d.rdata
 
   // ── SDRAM bandwidth instrumentation (sim-only) ─────────────────────────────
   // Count backend read/write *beats* bucketed by address region, exposed as
