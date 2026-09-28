@@ -34,7 +34,11 @@ package soc
 import chisel3._
 import chisel3.util._
 
-class HdmiScanoutFp16IO extends Bundle {
+class HdmiScanoutFp16IO(separatePixelClock: Boolean) extends Bundle {
+  // The display side's own clock and reset (see HdmiScanoutFp16's
+  // separatePixelClock); hCount/vCount/de and red/green/blue are in it.
+  val pixClk   = Option.when(separatePixelClock)(Input(Clock()))
+  val pixRst   = Option.when(separatePixelClock)(Input(Bool()))
   val gpuReq   = Output(Bool())
   val gpuAddr  = Output(UInt(25.W))
   val gpuData  = Input(UInt(32.W))
@@ -63,8 +67,15 @@ class HdmiScanoutFp16IO extends Bundle {
 // fbBase/fbBase1 are runtime inputs (io.fbBase/io.fbBase1), programmed by
 // firmware — NOT constructor constants — so the scanout cannot drift from the
 // GPU's framebuffer layout.
-class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32) extends Module {
-  val io = IO(new HdmiScanoutFp16IO)
+//
+// separatePixelClock: the display side (VGA position in, frame RAM read port,
+// pixel out) runs on io.pixClk instead of the module clock, which then only
+// clocks the fill FSM and its SDRAM reads. The frame RAM is the clock
+// crossing (ECP5 block RAM has independent port clocks), so the SoC clock no
+// longer has to be the 25 MHz pixel clock.
+class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock: Boolean = false)
+    extends Module {
+  val io = IO(new HdmiScanoutFp16IO(separatePixelClock))
 
   val tilesPerRow  = fbWidth / 4
   val overlayScale = 1   // 1:1 — no scaling
@@ -167,30 +178,37 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32) extends Module {
   // The BRAM read returns data one cycle after the address is presented, so
   // the gating signal is registered to match — this delays the whole overlay
   // by a single pixel, which is imperceptible.
-  val inFbH = io.hCount >= startX && io.hCount < endX
-  val inFbV = io.vCount >= startY && io.vCount < endY
-  val show  = io.de && inFbH && inFbV
+  private def display(): Unit = {
+    val inFbH = io.hCount >= startX && io.hCount < endX
+    val inFbV = io.vCount >= startY && io.vCount < endY
+    val show  = io.de && inFbH && inFbV
 
-  val fbX = ((io.hCount - startX) / overlayScale.U)(log2Ceil(fbWidth) - 1, 0)
-  val fbY = ((io.vCount - startY) / overlayScale.U)(log2Ceil(fbHeight) - 1, 0)
-  val dispIdx = Cat(fbY, fbX)   // row*fbWidth + col
+    val fbX = ((io.hCount - startX) / overlayScale.U)(log2Ceil(fbWidth) - 1, 0)
+    val fbY = ((io.vCount - startY) / overlayScale.U)(log2Ceil(fbHeight) - 1, 0)
+    val dispIdx = Cat(fbY, fbX)   // row*fbWidth + col
 
-  // Defensive guard against an ECP5 BRAM read-during-write collision: when the
-  // fill FSM writes the same index the display port is reading in the same cycle,
-  // the BRAM read output is implementation-defined.  Forward the write data (the
-  // correct new value for that pixel) instead.  NOTE: this was NOT the cause of
-  // the historical green corner pixel — that was a stale scanout fbBase (fixed by
-  // programming fbBase/fbBase1 from firmware) — but the guard is cheap and correct
-  // insurance against a genuine same-address read/write hazard on coloured pixels.
-  val pixel     = frameBuf.read(dispIdx)
-  val collision = wrEn && (fillIdx === dispIdx)
-  val collisionD = RegNext(collision, false.B)
-  val wrDataD    = RegNext(wrData)
-  val pixelSafe  = Mux(collisionD, wrDataD, pixel)
+    val pixel = io.pixClk.map(c => frameBuf.read(dispIdx, true.B, c)).getOrElse(frameBuf.read(dispIdx))
+    // Defensive guard against an ECP5 BRAM read-during-write collision: when the
+    // fill FSM writes the same index the display port is reading in the same cycle,
+    // the BRAM read output is implementation-defined.  Forward the write data (the
+    // correct new value for that pixel) instead.  NOTE: this was NOT the cause of
+    // the historical green corner pixel — that was a stale scanout fbBase (fixed by
+    // programming fbBase/fbBase1 from firmware) — but the guard is cheap and correct
+    // insurance against a genuine same-address read/write hazard on coloured pixels.
+    // With a separate pixel clock the two ports are asynchronous and there is no
+    // same cycle to forward in: a collision shows one pixel's old value for one
+    // frame.
+    val pixelSafe = if (separatePixelClock) pixel else {
+      val collisionD = RegNext(wrEn && (fillIdx === dispIdx), false.B)
+      Mux(collisionD, RegNext(wrData), pixel)
+    }
 
-  val showD = RegNext(show, false.B)
+    val showD = RegNext(show, false.B)
 
-  io.red   := Mux(showD, pixelSafe(23, 16), 0.U)
-  io.green := Mux(showD, pixelSafe(15, 8),  0.U)
-  io.blue  := Mux(showD, pixelSafe(7, 0),   0.U)
+    io.red   := Mux(showD, pixelSafe(23, 16), 0.U)
+    io.green := Mux(showD, pixelSafe(15, 8),  0.U)
+    io.blue  := Mux(showD, pixelSafe(7, 0),   0.U)
+  }
+  if (separatePixelClock) withClockAndReset(io.pixClk.get, io.pixRst.get) { display() }
+  else display()
 }

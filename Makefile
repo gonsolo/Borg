@@ -102,7 +102,7 @@ generate_verilog_sim: .verilog_sim_stamp
 # ULX3S (ECP5-85K) Verilog emission stub — no synthesis flow yet (Step 27).
 # ULX3S SoC clock (MHz). Single source of truth is ULX3S_MHZ in
 # fpga/ulx3s/Makefile, which passes it here as ULX3S_CLOCK_MHZ.
-ULX3S_CLOCK_MHZ ?= 25
+ULX3S_CLOCK_MHZ ?= 10
 generate_verilog_ulx3s: rdl
 	CLOCK_MHZ=$(ULX3S_CLOCK_MHZ) $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMain
 
@@ -140,6 +140,11 @@ generate_verilog_ulx3s_minimal_linux:
 # HDMI Test Pattern emission
 generate_hdmi_test: rdl
 	TARGET_DIR=out/ulx3s/hdmi_test $(MILL) fpga.ulx3s.soc.runMain soc.HdmiTestMain
+
+# 3-PLL-output variant (system + SDRAM@90 + HDMI), testing the divide-by-5
+# video-timing fix before it goes into the full SoC -- see HdmiTestPattern3Pll.scala.
+generate_hdmi_test_3pll: rdl
+	TARGET_DIR=out/ulx3s/hdmi_test_3pll $(MILL) fpga.ulx3s.soc.runMain soc.HdmiTest3PllMain
 
 # HDMI SDRAM Test emission
 generate_hdmi_sdram_test: rdl
