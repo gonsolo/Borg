@@ -3,23 +3,24 @@
 //
 // HdmiScanoutFp16(separatePixelClock = true): the display side (VGA timing
 // consumption, the frame buffer's read port, RGB output) runs on a genuinely
-// different clock than the fill FSM -- ULX3S.scala now feeds it hdmiClock
-// (125 MHz) while the fill FSM stays on sysClock (10 MHz), instead of a
-// single shared clock as before today's fix. This is the one piece of that
-// fix with no real-hardware confirmation of its own (the hardware tests
-// confirmed the PLL/cold-boot side and the tick25-gated VGA/TMDS technique
-// via a standalone pattern generator, not this module's dual-clock frame
-// buffer) and no existing simulation coverage: ScanoutRealBackendTests only
-// ever instantiates the module with separatePixelClock = false (its
-// default), so it has never exercised this code path at all.
+// different clock than the fill FSM -- ULX3S.scala feeds it hdmiClock
+// (125 MHz) while the fill FSM stays on sysClock (10 MHz).
 //
-// This test drives the fill FSM on the module's own (test) clock and
-// generates a second, independently-clocked domain for the display side via
-// a simple divided clock (a standard technique for multi-clock RTL
-// simulation, see e.g. BorgArcSimTop.scala's `.asClock` pattern) -- proving
-// a pixel written through the fill FSM on one clock is correctly visible on
-// the display side on the other, in both directions (display faster than
-// fill, and slower), and across more than one fill loop.
+// frameBuf itself is single-clocked on io.pixClk (see HdmiScanoutFp16's
+// write-side CDC comment): yosys's ECP5 BRAM inference never offers DP16KD
+// for a memory whose read/write ports use genuinely different clocks, so the
+// low-bandwidth fill-write side crosses into pixClk via a plain toggle
+// synchronizer instead, with NO back-pressure/ack. That design is only
+// correct when pixClk samples fast enough relative to the write rate to
+// never see two writes land between samples -- true for every real
+// instantiation in this codebase (pixClk >= 125 MHz vs sysClock <= 25 MHz,
+// and a write can fire at most once every 2 sysClock cycles), but NOT true
+// in general. This test drives that real relationship (pixClk the harness's
+// own fast, undivided clock; sysClock a slower clock divided down from it,
+// exactly the "pixClk much faster" case the toggle sync relies on) and
+// proves a pixel written through the fill FSM on the slow clock is correctly
+// visible on the display side on the fast clock, across more than one fill
+// loop and at a few different speed margins.
 
 package soc
 
@@ -28,10 +29,11 @@ import chisel3.util._
 import chisel3.simulator.EphemeralSimulator._
 import utest._
 
-/** Wraps HdmiScanoutFp16(separatePixelClock = true), generating io.pixClk as
-  * a clock divided from the module's own (test-driven) clock by `pixDiv`
-  * cycles, so the test can drive everything else through ordinary poke/peek
-  * on the single simulator-stepped clock.
+/** Wraps HdmiScanoutFp16(separatePixelClock = true), instantiating it under a
+  * clock (`sysClk`) divided down from the harness's own (test-driven) clock
+  * by `sysDiv` cycles, and wiring io.pixClk to the harness's own undivided
+  * clock -- so the harness's clock plays pixClk (fast) and the divided
+  * clock plays sysClock (slow), matching the real hardware ratio.
   */
 class ScanoutDualClockHarnessIO extends Bundle {
   val gpuReq   = Output(Bool())
@@ -48,20 +50,22 @@ class ScanoutDualClockHarnessIO extends Bundle {
   val blue     = Output(UInt(8.W))
 }
 
-class ScanoutDualClockHarness(fbW: Int, fbH: Int, pixDiv: Int) extends Module {
+class ScanoutDualClockHarness(fbW: Int, fbH: Int, sysDiv: Int) extends Module {
   val io = IO(new ScanoutDualClockHarnessIO)
 
-  // A genuinely different clock for the display side: free-running, divided
-  // from the test's own clock by pixDiv (a power of two keeps this a plain
-  // bit of the counter, matching how hdmiClock's own tick25 divider works).
-  require((pixDiv & (pixDiv - 1)) == 0 && pixDiv >= 2, "pixDiv must be a power of two >= 2")
-  private val divBits = log2Ceil(pixDiv)
+  // sysClock: free-running, divided from the harness's own (pixClk-playing)
+  // clock by sysDiv (a power of two keeps this a plain bit of the counter,
+  // matching how hdmiClock's own tick25 divider works).
+  require((sysDiv & (sysDiv - 1)) == 0 && sysDiv >= 2, "sysDiv must be a power of two >= 2")
+  private val divBits = log2Ceil(sysDiv)
   private val divCount = RegInit(0.U(divBits.W))
   divCount := divCount + 1.U
-  private val pixClk = divCount(divBits - 1).asClock
+  private val sysClk = divCount(divBits - 1).asClock
 
-  val scanout = Module(new HdmiScanoutFp16(fbWidth = fbW, fbHeight = fbH, separatePixelClock = true))
-  scanout.io.pixClk.get := pixClk
+  val scanout = withClockAndReset(sysClk, reset.asBool) {
+    Module(new HdmiScanoutFp16(fbWidth = fbW, fbHeight = fbH, separatePixelClock = true))
+  }
+  scanout.io.pixClk.get := clock
   scanout.io.pixRst.get := reset.asBool
 
   scanout.io.gpuReq  <> io.gpuReq
@@ -98,15 +102,17 @@ object ScanoutDualClockTests extends TestSuite {
     ((r5 << 3) | (r5 >> 2), (g6 << 2) | (g6 >> 4), (b5 << 3) | (b5 >> 2))
   }
 
-  /** Run the fill FSM (test clock) for a generous, fixed cycle budget,
-    * continuously serving whatever gpuReq is asking for with
+  /** Run the fill FSM (sysClk, divided sysDiv:1 from the harness's own
+    * driving clock) for a generous, fixed cycle budget on the harness's own
+    * (fast) clock, continuously serving whatever gpuReq is asking for with
     * `dataOf(byteAddr)` as the low-16-bit RGB565 word. gpuReq is asserted in
     * both the fill FSM's sReq and sWait states, but gpuReady is only
     * consumed in sWait -- so gpuReady must be held (not pulsed) across
-    * however many cycles gpuReq stays high, or roughly half the requests
-    * silently do nothing. */
-  def fill(dut: ScanoutDualClockHarness, n: Int, dataOf: Int => Int): Unit = {
-    for (_ <- 0 until n * 6 + 100) {
+    * however many cycles gpuReq stays high. The budget is scaled by sysDiv
+    * since the fill FSM only advances once every sysDiv driving-clock ticks.
+    */
+  def fill(dut: ScanoutDualClockHarness, n: Int, sysDiv: Int, dataOf: Int => Int): Unit = {
+    for (_ <- 0 until (n * 6 + 100) * sysDiv) {
       val req = dut.io.gpuReq.peek().litToBoolean
       if (req) {
         val addr = dut.io.gpuAddr.peek().litValue.toInt
@@ -118,66 +124,65 @@ object ScanoutDualClockTests extends TestSuite {
     dut.io.gpuReady.poke(false.B)
   }
 
-  /** Point the display at pixel (col, row) and step enough test-clock cycles
-    * for several pixClk edges plus the frame buffer's read latency, then
-    * return the displayed RGB8. */
   /** The overlay's screen offset for a 1:1-scale fbW x fbH buffer centered
     * on the 640x480 screen -- mirrors HdmiScanoutFp16's own startX/startY. */
   def screenOffset(fbW: Int, fbH: Int): (Int, Int) = ((640 - fbW) / 2, (480 - fbH) / 2)
 
-  def readPixel(dut: ScanoutDualClockHarness, fbW: Int, fbH: Int, col: Int, row: Int, pixDiv: Int): (Int, Int, Int) = {
+  /** Point the display at pixel (col, row) and step enough of the harness's
+    * own (pixClk) clock for the BRAM's 1-cycle read latency, then return the
+    * displayed RGB8. */
+  def readPixel(dut: ScanoutDualClockHarness, fbW: Int, fbH: Int, col: Int, row: Int): (Int, Int, Int) = {
     val (startX, startY) = screenOffset(fbW, fbH)
     dut.io.hCount.poke((startX + col).U); dut.io.vCount.poke((startY + row).U); dut.io.de.poke(true.B)
-    dut.clock.step(pixDiv * 4 + 8) // several pixClk periods, well past 1-cycle BRAM latency
+    dut.clock.step(8) // a few pixClk cycles, well past 1-cycle BRAM latency
     (dut.io.red.peek().litValue.toInt, dut.io.green.peek().litValue.toInt, dut.io.blue.peek().litValue.toInt)
   }
 
-  def check(dut: ScanoutDualClockHarness, fbW: Int, fbH: Int, col: Int, row: Int, pixDiv: Int,
+  def check(dut: ScanoutDualClockHarness, fbW: Int, fbH: Int, col: Int, row: Int,
             dataOf: Int => Int, label: String): Unit = {
     val expected565 = dataOf(pixByteAddr(fbW, col, row)) & 0xFFFF
     val (expR, expG, expB) = rgb565ToRgb8(expected565)
-    val (r, g, b) = readPixel(dut, fbW, fbH, col, row, pixDiv)
+    val (r, g, b) = readPixel(dut, fbW, fbH, col, row)
     println(s"  $label: pixel($col,$row) = ($r,$g,$b), expect ($expR,$expG,$expB)")
     utest.assert(r == expR && g == expG && b == expB)
   }
 
   val tests = Tests {
-    utest.test("a pixel written on the fill clock is read correctly on a faster display clock") {
+    utest.test("a pixel written on the slow fill clock is read correctly on the fast display clock") {
       val fbW = 8; val fbH = 8; val numPixels = fbW * fbH
-      simulate(new ScanoutDualClockHarness(fbW, fbH, pixDiv = 2)) { dut =>
-        dut.reset.poke(true.B); dut.clock.step(3); dut.reset.poke(false.B)
+      simulate(new ScanoutDualClockHarness(fbW, fbH, sysDiv = 4)) { dut =>
+        dut.reset.poke(true.B); dut.clock.step(8 * 4); dut.reset.poke(false.B)
         dut.io.fbBase.poke(0.U); dut.io.enable.poke(true.B); dut.io.gpuReady.poke(false.B)
         def word(addr: Int): Int = (addr + 1) & 0xFFFF // any deterministic, non-zero function of addr
-        fill(dut, numPixels, word)
-        check(dut, fbW, fbH, col = 3, row = 5, pixDiv = 2, word, "fast pixClk (div 2)")
+        fill(dut, numPixels, sysDiv = 4, word)
+        check(dut, fbW, fbH, col = 3, row = 5, word, "sysDiv 4")
       }
     }
 
-    utest.test("a pixel written on the fill clock is read correctly on a slower display clock") {
+    utest.test("a pixel written on the slow fill clock is read correctly at a wider speed margin") {
       val fbW = 8; val fbH = 8; val numPixels = fbW * fbH
-      simulate(new ScanoutDualClockHarness(fbW, fbH, pixDiv = 8)) { dut =>
-        dut.reset.poke(true.B); dut.clock.step(3); dut.reset.poke(false.B)
+      simulate(new ScanoutDualClockHarness(fbW, fbH, sysDiv = 16)) { dut =>
+        dut.reset.poke(true.B); dut.clock.step(8 * 16); dut.reset.poke(false.B)
         dut.io.fbBase.poke(0.U); dut.io.enable.poke(true.B); dut.io.gpuReady.poke(false.B)
         def word(addr: Int): Int = (addr + 7) & 0xFFFF
-        fill(dut, numPixels, word)
-        check(dut, fbW, fbH, col = 6, row = 2, pixDiv = 8, word, "slow pixClk (div 8)")
+        fill(dut, numPixels, sysDiv = 16, word)
+        check(dut, fbW, fbH, col = 6, row = 2, word, "sysDiv 16")
       }
     }
 
-    utest.test("the fill FSM keeps looping and overwriting across many pixClk periods") {
+    utest.test("the fill FSM keeps looping and overwriting across more than one fill loop") {
       // Exercises the wrap/double-buffer-latch path (baseAddr/baseLoaded in
-      // HdmiScanoutFp16) with a display clock much slower than the fill clock
-      // -- the extreme direction closest to a real full-frame refill racing a
-      // slow display read.
+      // HdmiScanoutFp16) with the real pixClk/sysClock margin (12.5x on
+      // actual hardware) approximated by sysDiv = 16.
       val fbW = 8; val fbH = 8; val numPixels = fbW * fbH
-      simulate(new ScanoutDualClockHarness(fbW, fbH, pixDiv = 16)) { dut =>
-        dut.reset.poke(true.B); dut.clock.step(3); dut.reset.poke(false.B)
+      simulate(new ScanoutDualClockHarness(fbW, fbH, sysDiv = 16)) { dut =>
+        dut.reset.poke(true.B); dut.clock.step(8 * 16); dut.reset.poke(false.B)
         dut.io.fbBase.poke(0.U); dut.io.enable.poke(true.B); dut.io.gpuReady.poke(false.B)
         def wordLoop1(addr: Int): Int = (addr + 1) & 0xFFFF
         def wordLoop2(addr: Int): Int = (addr + 100) & 0xFFFF
-        fill(dut, numPixels, wordLoop1)
-        fill(dut, numPixels, wordLoop2)
-        check(dut, fbW, fbH, col = 2, row = 1, pixDiv = 16, wordLoop2, "after 2 fill loops, slow pixClk (div 16)")
+        fill(dut, numPixels, sysDiv = 16, wordLoop1)
+        fill(dut, numPixels, sysDiv = 16, wordLoop2)
+        check(dut, fbW, fbH, col = 2, row = 1, wordLoop2, "after 2 fill loops, sysDiv 16")
       }
     }
   }
