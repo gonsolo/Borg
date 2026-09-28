@@ -144,7 +144,40 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
 
   val wrEn   = WireDefault(false.B)
   val wrData = WireDefault(0.U(24.W))
-  when(wrEn) { frameBuf.write(fillIdx, wrData) }
+
+  // ── Write-side clock-domain crossing (sysClock -> pixClk) ──
+  // ECP5 BRAM inference (yosys's memory_libmap, as run by synth_ecp5) never
+  // offers DP16KD as a candidate for a memory whose read and write ports use
+  // genuinely different clocks -- verified empirically: an isolated 16384x24
+  // memory with independent read/write clocks falls back entirely to 6144
+  // TRELLIS_DPR16X4 + 23680 LUT4 cells (this was frameBuf's actual mapping,
+  // and why the ULX3S SoC failed nextpnr placement after switching the
+  // display side to its own pixel clock), while the identical memory with a
+  // single shared clock maps cleanly to 24 DP16KD block RAM cells -- true
+  // even at depths as small as 64 words, so this isn't a cascading-depth
+  // limit, just no dual-clock BRAM inference at all in this flow. So frameBuf
+  // itself stays single-clocked on io.pixClk (matching its read port, which
+  // must run at the real pixel rate) when separatePixelClock is set, and it's
+  // the low-bandwidth fill side that crosses instead: one write roughly every
+  // SDRAM round trip (~1-2us at sysClock<=25MHz) vs pixClk>=125MHz, so an
+  // ordinary toggle-bit synchronizer is enough -- fillIdx/wrData are latched
+  // together with the toggle and stay stable far longer than the few pixClk
+  // cycles the synchronizer takes to see it.
+  if (separatePixelClock) {
+    val wrIdxLatch  = RegEnable(fillIdx, wrEn)
+    val wrDataLatch = RegEnable(wrData, wrEn)
+    val wrToggle    = RegInit(false.B)
+    when(wrEn) { wrToggle := !wrToggle }
+
+    withClockAndReset(io.pixClk.get, io.pixRst.get) {
+      val sync0 = RegNext(wrToggle, false.B)
+      val sync1 = RegNext(sync0, false.B)
+      val sync2 = RegNext(sync1, false.B)
+      when(sync1 =/= sync2) { frameBuf.write(wrIdxLatch, wrDataLatch) }
+    }
+  } else {
+    when(wrEn) { frameBuf.write(fillIdx, wrData) }
+  }
 
   // sim observability: snapshot the value the fill wrote to frameBuf index 0.
   val dbgFill0Reg = RegInit(0.U(24.W))
@@ -187,7 +220,12 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
     val fbY = ((io.vCount - startY) / overlayScale.U)(log2Ceil(fbHeight) - 1, 0)
     val dispIdx = Cat(fbY, fbX)   // row*fbWidth + col
 
-    val pixel = io.pixClk.map(c => frameBuf.read(dispIdx, true.B, c)).getOrElse(frameBuf.read(dispIdx))
+    // Read uses the enclosing clock: io.pixClk when separatePixelClock (this
+    // method then runs inside withClockAndReset(io.pixClk.get, ...) below),
+    // matching the write side above so frameBuf is single-clocked either way
+    // -- see the write-side CDC comment for why that single-clock constraint
+    // is load-bearing for BRAM inference, not just a simplification.
+    val pixel = frameBuf.read(dispIdx)
     // Defensive guard against an ECP5 BRAM read-during-write collision: when the
     // fill FSM writes the same index the display port is reading in the same cycle,
     // the BRAM read output is implementation-defined.  Forward the write data (the
