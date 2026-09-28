@@ -156,6 +156,44 @@ load-hdmi-test: gen-hdmi-test hdmi_test_pattern.bit
 	openFPGALoader -b ulx3s hdmi_test_pattern.bit
 	@echo -e "Expected: Color bars on HDMI monitor."
 
+# ── HDMI test, 3-output PLL (system + SDRAM@90 + HDMI): validates the
+# divide-by-5 video-timing fix before committing it to the full SoC.
+HDMI_TEST_3PLL_VDIR = $(abspath $(CURDIR)/../../..)/out/ulx3s/hdmi_test_3pll
+
+hdmi-test-3pll: hdmi_test_pattern_3pll.bit
+
+.PHONY: gen-hdmi-test-3pll
+gen-hdmi-test-3pll:
+	@echo -e "$(BOLD)[GEN]$(RESET) Generating Verilog from HdmiTestPattern3Pll ..."
+	$(MAKE) -C ../../.. generate_hdmi_test_3pll
+
+hdmi_test_pattern_3pll.json: gen-hdmi-test-3pll
+	@echo -e "$(BOLD)[SYNTH]$(RESET) hdmi_test_pattern_3pll ..."
+	yosys -q -p "read -sv $$(find $(HDMI_TEST_3PLL_VDIR) -maxdepth 1 -name '*.sv' | tr '\n' ' '); \
+	             read_verilog -sv -lib $(CURDIR)/../primitives/ecp5_prims.v; \
+	             synth_ecp5 -top HdmiTestPattern3Pll -json hdmi_test_pattern_3pll.json; \
+	             stat -top HdmiTestPattern3Pll"
+
+hdmi_test_pattern_3pll.config: hdmi_test_pattern_3pll.json
+	@echo -e "$(BOLD)[PNR]$(RESET) hdmi_test_pattern_3pll ..."
+	nextpnr-ecp5 --85k --package CABGA381 --json hdmi_test_pattern_3pll.json \
+	             --lpf hdmi_test.lpf --textcfg hdmi_test_pattern_3pll.config \
+	             --timing-allow-fail --quiet
+
+hdmi_test_pattern_3pll.bit: hdmi_test_pattern_3pll.config
+	@echo -e "$(BOLD)[PACK]$(RESET) hdmi_test_pattern_3pll ..."
+	ecppack hdmi_test_pattern_3pll.config hdmi_test_pattern_3pll.bit
+
+load-hdmi-test-3pll: gen-hdmi-test-3pll hdmi_test_pattern_3pll.bit
+	@echo -e "$(BOLD)[LOAD]$(RESET) Loading hdmi_test_pattern_3pll into SRAM ..."
+	openFPGALoader -b ulx3s hdmi_test_pattern_3pll.bit
+	@echo -e "Expected: LED[7] locked, LED[6] slow blink, LED[5] fast flicker; colour bars on HDMI monitor."
+
+flash-hdmi-test-3pll: gen-hdmi-test-3pll hdmi_test_pattern_3pll.bit
+	@echo -e "$(BOLD)[FLASH]$(RESET) Writing hdmi_test_pattern_3pll to onboard flash ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --verify hdmi_test_pattern_3pll.bit
+	@echo -e "Power-cycle the board to test a genuine cold boot from flash."
+
 # ── HDMI SDRAM Test (Phase 1, Step 3) ────────────────────
 HDMI_SDRAM_TEST_VDIR = $(abspath $(CURDIR)/../../..)/out/ulx3s/hdmi_sdram_test
 

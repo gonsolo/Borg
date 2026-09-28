@@ -51,10 +51,16 @@ CHISEL_SRCS = $(wildcard ../../hardware/borg/src/*.scala) \
 # ── Single source of truth for the ULX3S clock (MHz) ────────────────────────
 # Drives the PLL SoC output (SOC_MHZ = CLOCK_MHZ in ULX3S.scala), the debug-UART
 # baud divider (SoCLogic), AND the firmware's CLOCK_MHZ — set it here only.
-# Pixel clock == SoC clock, so this also sets the HDMI pixel rate (25 MHz =
-# 640×480-ish VGA timing). If the Borg FPU can't close timing at 25 MHz on
-# hardware, the fix is to decouple the compute clock from the pixel clock.
-ULX3S_MHZ ?= 25
+# The HDMI pixel clock is generated inside the 125 MHz HDMI domain (a
+# divide-by-5 clock enable), not by this clock, so this is free of the video
+# timing. 10 MHz, not the ~17 MHz the FP32 draw-front-end build can actually
+# route at: this PLL's other targets near 15-18 MHz all solve to a 750 MHz
+# VCO, which reliably failed to lock on a genuine cold boot from SPI flash on
+# real hardware (confirmed repeatedly with a small diagnostic bitstream,
+# HdmiTestPattern3Pll.scala) even though it worked loaded via JTAG. 10 MHz is
+# the fastest integer MHz target that lands exactly on a VCO (500 MHz)
+# confirmed safe on the same hardware. See ULX3S.scala's PLL comment.
+ULX3S_MHZ ?= 10
 
 # Stamp file — regenerates Verilog only when Chisel sources OR Makefiles change.
 # Makefiles are included so CLOCK_MHZ changes don't silently use stale Verilog.

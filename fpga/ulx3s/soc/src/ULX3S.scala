@@ -75,10 +75,29 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // ── PLL: 25 MHz osc → SoC + SoC/90° SDRAM + 125 MHz HDMI ──────────
   // SoC clock = the build's CLOCK_MHZ.  SINGLE SOURCE OF TRUTH is ULX3S_MHZ in
   // fpga/ulx3s/Makefile — it drives this PLL clock, the debug-UART baud divider
-  // (SoCLogic), AND the firmware's CLOCK_MHZ together.  NB the HDMI pixel clock
-  // == SoC clock, so this also sets the video pixel rate.  Kept BELOW the Borg
-  // FPU's ~16 MHz Fmax until the FPU timing is fixed: the FPU is used by CPU
-  // geometry via MMIO (borg_fpu.c) — NOT bypassed — and returns 0 above Fmax.
+  // (SoCLogic), AND the firmware's CLOCK_MHZ together. The video pixel clock is
+  // NOT this clock -- see the VGA timing section below -- it is generated at a
+  // real 25 MHz cadence inside the 125 MHz HDMI domain instead, via a
+  // divide-by-5 clock enable, so CLOCK_MHZ is free to be whatever the CPU/GPU
+  // logic can meet timing at.
+  //
+  // CLOCK_MHZ is 10, not the higher value the routed logic can actually reach
+  // (~17 MHz measured), for a reason with nothing to do with logic timing: an
+  // ECP5 EHXPLLL solve that lands the VCO near 750 MHz (the exact solve this
+  // PLL's 3 outputs get for several nearby targets, including 15 MHz) reliably
+  // FAILED TO LOCK on a genuine cold boot from SPI flash on this board, though
+  // the identical bitstream booted fine loaded via JTAG -- loading bypasses
+  // whatever real-hardware margin a true cold start needs. A small, fast
+  // diagnostic bitstream (HdmiTestPattern3Pll.scala) swept target frequencies
+  // and found this exactly and repeatably: every target solving to VCO 750 MHz
+  // (15, 17, 18 MHz) failed cold boot on real hardware; every target solving
+  // to 500 or 625 MHz (10, 20, 25 MHz) succeeded, confirmed multiple times.
+  // 10 MHz is the fastest INTEGER MHz target that lands EXACTLY (no rounding,
+  // so no firmware UART-baud mismatch) on one of the confirmed-safe VCOs
+  // (500 MHz here). Faster options exist (e.g. a ~15.6 MHz solve also lands on
+  // the other safe VCO, 625 MHz) but only approximately, and would need
+  // CLOCK_MHZ's integer-MHz assumption fixed throughout the Makefiles and
+  // firmware first.
   val SOC_MHZ = CLOCK_MHZ
   val HDMI_MHZ = 125
   val pll = Module(new Ecp5PllWrapper(Ecp5PllParams(
@@ -89,9 +108,10 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   )))
   pll.io.clk_i   := clk_25mhz
   val pllLocked  = pll.io.locked
-  val sysClock   = pll.io.clk_o(0)   // 25 MHz — CPU, SDRAM, Borg, scanout
-  val sdramClock = pll.io.clk_o(1)   // 25 MHz + 90° — SDRAM clock pin
-  val hdmiClock  = pll.io.clk_o(2)   // 125 MHz — TMDS serializer only
+  val sysClock   = pll.io.clk_o(0)   // CPU, SDRAM, Borg, scanout fill FSM
+  val sdramClock = pll.io.clk_o(1)   // SoC + 90° — SDRAM clock pin
+  val hdmiClock  = pll.io.clk_o(2)   // 125 MHz — TMDS serializer AND (below,
+                                      // divided by 5) the video timing/display
 
   // Route 90°-shifted clock directly to the SDRAM clock pin
   sdram_clk := sdramClock
@@ -151,7 +171,7 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   // drift apart (a 0x80 drift here previously caused the blinking green corner
   // pixel).  Wired below once the SoC registers exist.
   val scanout = withClockAndReset(sysClock, pllRst) {
-    Module(new HdmiScanoutFp16(fbWidth = 128, fbHeight = 128))
+    Module(new HdmiScanoutFp16(fbWidth = 128, fbHeight = 128, separatePixelClock = true))
   }
 
   // ── GPU memory arbiter: Borg GPU writes/reads have priority over scanout ──
@@ -304,56 +324,60 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   scanout.io.fbBase   := scanoutFbBase0
   scanout.io.fbBase1  := scanoutFbBase1
 
-  // ── VGA timing (25 MHz pixel clock = sysClock directly) ───────────────────
-  // At 25 MHz SoC clock, every cycle IS a pixel tick — no divider needed.
-  val tick25 = true.B
-  val hCount = withClockAndReset(sysClock, pllRst) { RegInit(0.U(10.W)) }
-  val vCount = withClockAndReset(sysClock, pllRst) { RegInit(0.U(10.W)) }
-  val hTotal = 800.U;  val vTotal = 525.U
-  val hActive = 640.U; val vActive = 480.U
-  val hFront = 16.U;   val hSync = 96.U
-  val vFront = 10.U;   val vSync = 2.U
-  withClockAndReset(sysClock, pllRst) {
-    when(hCount === hTotal - 1.U) {
-      hCount := 0.U
-      when(vCount === vTotal - 1.U) { vCount := 0.U }
-      .otherwise { vCount := vCount + 1.U }
-    } .otherwise { hCount := hCount + 1.U }
-  }
-  val de    = (hCount < hActive) && (vCount < vActive)
-  val hsync = (hCount >= (hActive + hFront)) && (hCount < (hActive + hFront + hSync))
-  val vsync = (vCount >= (vActive + vFront)) && (vCount < (vActive + vFront + vSync))
-  scanout.io.hCount := hCount; scanout.io.vCount := vCount
-  scanout.io.de := de; scanout.io.tick25 := tick25
-
-  // ── CDC: latch RGB8 + sync from 25 MHz → 125 MHz ─────────────────────────
-  // Pixel data changes once per 25 MHz cycle = 5× 125 MHz cycles.
-  // Single register stage is safe (data is stable for 5 fast clocks).
+  // ── VGA timing, at a real 25 MHz CADENCE inside the 125 MHz HDMI domain ──
+  // A divide-by-5 clock ENABLE (hdmiTick25), not a genuine dedicated pixel-
+  // clock PLL output -- see the PLL comment above for why. Everything below
+  // that used to run on a 25 MHz pixel clock (VGA timing, the scanout's
+  // display side, the TMDS encoders) now runs on hdmiClock and only ADVANCES
+  // state on hdmiTick25 -- behaviorally identical to a real 25 MHz clock,
+  // physically just a clock enable, and the frame buffer's display-side read
+  // port is genuinely on hdmiClock (a real dual-clock BRAM crossing against
+  // the fill FSM's sysClock write side -- ECP5 block RAM supports independent
+  // port clocks). hdmiClock itself is a plain, un-divided, historically
+  // reliable PLL output, so this fix adds no new PLL output and no new
+  // cold-boot risk.
   val hdmiRst = !pllLocked
-  val hdmiRed   = withClockAndReset(hdmiClock, hdmiRst) { RegNext(scanout.io.red) }
-  val hdmiGreen = withClockAndReset(hdmiClock, hdmiRst) { RegNext(scanout.io.green) }
-  val hdmiBlue  = withClockAndReset(hdmiClock, hdmiRst) { RegNext(scanout.io.blue) }
-  val hdmiHsync = withClockAndReset(hdmiClock, hdmiRst) { RegNext(hsync) }
-  val hdmiVsync = withClockAndReset(hdmiClock, hdmiRst) { RegNext(vsync) }
-  val hdmiDe    = withClockAndReset(hdmiClock, hdmiRst) { RegNext(de) }
-
-  // tick25 in the 125 MHz domain: fires every 5th cycle
   val hdmiCount = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(3.W)) }
   val hdmiTick25 = (hdmiCount === 4.U)
   withClockAndReset(hdmiClock, hdmiRst) {
     when(hdmiTick25) { hdmiCount := 0.U } .otherwise { hdmiCount := hdmiCount + 1.U }
   }
 
+  val hCount = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(10.W)) }
+  val vCount = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(10.W)) }
+  val hTotal = 800.U;  val vTotal = 525.U
+  val hActive = 640.U; val vActive = 480.U
+  val hFront = 16.U;   val hSync = 96.U
+  val vFront = 10.U;   val vSync = 2.U
+  withClockAndReset(hdmiClock, hdmiRst) {
+    when(hdmiTick25) {
+      when(hCount === hTotal - 1.U) {
+        hCount := 0.U
+        when(vCount === vTotal - 1.U) { vCount := 0.U }
+        .otherwise { vCount := vCount + 1.U }
+      } .otherwise { hCount := hCount + 1.U }
+    }
+  }
+  val de    = (hCount < hActive) && (vCount < vActive)
+  val hsync = (hCount >= (hActive + hFront)) && (hCount < (hActive + hFront + hSync))
+  val vsync = (vCount >= (vActive + vFront)) && (vCount < (vActive + vFront + vSync))
+  scanout.io.hCount := hCount; scanout.io.vCount := vCount
+  scanout.io.de := de; scanout.io.tick25 := hdmiTick25
+  scanout.io.pixClk.get := hdmiClock; scanout.io.pixRst.get := hdmiRst
+
+  // scanout.io.red/green/blue and hsync/vsync/de are already natively in the
+  // hdmiClock domain (they only change on hdmiTick25) -- no CDC stage needed;
+  // feed the TMDS encoders directly.
   // ── TMDS Encoders + Serializers (125 MHz domain) ─────────────────────────
   val encB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
-  encB.io.en := hdmiTick25; encB.io.data := hdmiBlue
-  encB.io.c := Cat(hdmiVsync, hdmiHsync); encB.io.de := hdmiDe
+  encB.io.en := hdmiTick25; encB.io.data := scanout.io.blue
+  encB.io.c := Cat(vsync, hsync); encB.io.de := de
   val encG = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
-  encG.io.en := hdmiTick25; encG.io.data := hdmiGreen
-  encG.io.c := 0.U; encG.io.de := hdmiDe
+  encG.io.en := hdmiTick25; encG.io.data := scanout.io.green
+  encG.io.c := 0.U; encG.io.de := de
   val encR = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
-  encR.io.en := hdmiTick25; encR.io.data := hdmiRed
-  encR.io.c := 0.U; encR.io.de := hdmiDe
+  encR.io.en := hdmiTick25; encR.io.data := scanout.io.red
+  encR.io.c := 0.U; encR.io.de := de
   // TmdsEncoder has 1 pipeline stage (q_m_reg); delay serializer load by 1 cycle.
   val hdmiTick25D1 = withClockAndReset(hdmiClock, hdmiRst) { RegNext(hdmiTick25, false.B) }
   val serB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
