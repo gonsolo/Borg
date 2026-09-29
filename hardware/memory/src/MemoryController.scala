@@ -48,7 +48,18 @@ class MemoryControllerIO extends Bundle {
   * current SdramController ignores dqm during normal R/W — byte writes will
   * clobber the adjacent byte until SdramController gets a dqm input.)
   */
-class MemoryController extends Module {
+/** @param gpuVramRegionBit force VRAM_REGION_BIT (byte-address bit 24) onto
+  *   every io.gpuMem access. This is [[QspiCtrl]]'s real flash-vs-PSRAM chip
+  *   select (`spi_flash_select_reg := io.addr_in(24)`), so it's load-bearing
+  *   for QspiBackend targets (the default, true) -- but SdramBackend targets
+  *   have no flash/PSRAM split at this level (flash is only ever touched via
+  *   FlashBootLoader during boot, entirely separate from this arbiter) and
+  *   no current CPU address path (SoCLogic or MinimalSoCLogic) adds a
+  *   matching bit for its own DRAM accesses, so forcing it here makes GPU
+  *   and CPU-visible addresses for the *same* location land on different
+  *   physical SDRAM bytes -- pass false for SdramBackend targets.
+  */
+class MemoryController(gpuVramRegionBit: Boolean = true) extends Module {
   val io = IO(new MemoryControllerIO)
 
   // ── FSM ────────────────────────────────────────────────────────────────────
@@ -208,13 +219,13 @@ class MemoryController extends Module {
       }.elsewhen(io.gpuMem.wr) {
         rKind       := rGpuWrite
         // gpuMem is the GPU's DRAM port: its addresses are DRAM SPI-relative
-        // byte addresses (e.g. flush_fb_base, seq_*_addr).  The CPU reaches the
-        // same data via DRAM_OUT_RAW, which adds the DRAM base so byte bit 24
-        // is set.  Force bit 24 here so GPU and CPU accesses hit identical
-        // backend words (otherwise the GPU reads/writes the flash region).
-        // The GPU's address is 32 bits (GpuMemIO.AddrBits); this board has
-        // 16 MiB of VRAM, so only its low 24 bits are decoded.
-        reqByteAddr := io.gpuMem.addr(23, 0) | VRAM_REGION_BIT
+        // byte addresses (e.g. flush_fb_base, seq_*_addr). For QspiBackend
+        // targets, force bit 24 (VRAM_REGION_BIT -- see the class doc) so the
+        // GPU lands on PSRAM rather than flash. The GPU's address is 32 bits
+        // (GpuMemIO.AddrBits); this board has 16 MiB of VRAM, so only its low
+        // 24 bits are decoded.
+        reqByteAddr := (if (gpuVramRegionBit) io.gpuMem.addr(23, 0) | VRAM_REGION_BIT
+                         else io.gpuMem.addr(23, 0))
         reqData     := io.gpuMem.wdata
         // GPU writes are always 16-bit (BorgTileFlusher writes R/G/B/Z each as
         // one FP16 halfword; BorgBinner writes 16-bit triangle indices).
@@ -229,7 +240,8 @@ class MemoryController extends Module {
         state       := sIssue
       }.elsewhen(io.gpuMem.req) {
         rKind       := rGpuRead
-        reqByteAddr := io.gpuMem.addr(23, 0) | VRAM_REGION_BIT
+        reqByteAddr := (if (gpuVramRegionBit) io.gpuMem.addr(23, 0) | VRAM_REGION_BIT
+                         else io.gpuMem.addr(23, 0))
         reqSize     := HuttSize.Word
         needTwo     := true.B
         hwIdx       := 0.U

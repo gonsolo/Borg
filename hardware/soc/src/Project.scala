@@ -108,6 +108,10 @@ trait SoCLogic { self: RawModule =>
   // to pads. See BorgMode's doc.
   def borgMode: BorgMode = BorgDirect
   def linkParams: LinkParams = LinkParams()
+  // See MemoryController's constructor doc: true is correct for QspiBackend
+  // (the default -- bit 24 is QspiCtrl's real flash-vs-PSRAM chip select),
+  // false for SdramBackend targets (no flash/PSRAM split at this level).
+  def gpuVramRegionBit: Boolean = true
 
   // --- Abstract members provided by each top-level ---
   def soc_clk: Clock
@@ -121,7 +125,7 @@ trait SoCLogic { self: RawModule =>
       hasSupervisorMode = hasSupervisorMode, hasDebugPorts = hasDebugPorts))
   }
   lazy val mem = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new MemoryController())
+    Module(new MemoryController(gpuVramRegionBit))
   }
   lazy val peripherals = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new Peripherals(CLOCK_MHZ, BORG_CFG, borgMode, linkParams))

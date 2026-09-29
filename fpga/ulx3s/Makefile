@@ -533,6 +533,27 @@ minimal-hdmi: borg-minimal.bit hdmi_tiled_fw.bin
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_tiled_fw.bin
 	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle, connect HDMI. Expect: red 32x32 overlay. Run 'make tio' for 'R' confirmation."
 
+hdmi_fill_fw.bin: hdmi_fill_fw.s
+	@echo -e "$(BOLD)[FW]$(RESET) Assembling hdmi_fill_fw.s ..."
+	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o hdmi_fill_fw.o hdmi_fill_fw.s
+	riscv64-unknown-elf-ld -melf32lriscv -Ttext=0x0 -o hdmi_fill_fw.elf hdmi_fill_fw.o
+	riscv64-unknown-elf-objcopy -O binary hdmi_fill_fw.elf hdmi_fill_fw_raw.bin
+	@python3 -c "import struct; d=open('hdmi_fill_fw_raw.bin','rb').read(); open('hdmi_fill_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> hdmi_fill_fw.bin')"
+
+flash-hdmi-fill: hdmi_fill_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing hdmi_fill firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_fill_fw.bin
+
+# Combined target: flash minimal bitstream + HDMI FULL-FILL firmware (solid
+# red across the whole 32x32 test region, not just one pixel -- confirms the
+# whole scanout read path on a KNOWN pattern instead of uninitialized SDRAM).
+minimal-hdmi-fill: borg-minimal.bit hdmi_fill_fw.bin
+	@echo -e "$(BOLD)[FLASH]$(RESET) Flashing minimal ECP5 bitstream ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash borg-minimal.bit
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing hdmi_fill firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_fill_fw.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle, connect HDMI. Expect: SOLID red 32x32 overlay. Run 'make tio' for 'R' confirmation."
+
 ######### Minimal SoC, RV64 + CLINT (Hutt without Borg, Linux boot isolation) #######################
 
 ULX3S_MINIMAL_LINUX_VERILOG_DIR = ../../out/ulx3s_minimal_linux/verilog
@@ -602,5 +623,6 @@ clean:
 
 .PHONY: all help load flash flash-firmware minimal-boot \
         print_resources generate_verilog_ulx3s tio install-udev clean \
-        flash-hdmi-tiled minimal-hdmi generate_verilog_ulx3s_loopback flash-loopback \
+        flash-hdmi-tiled minimal-hdmi flash-hdmi-fill minimal-hdmi-fill \
+        generate_verilog_ulx3s_loopback flash-loopback \
         generate_verilog_ulx3s_external

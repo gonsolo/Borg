@@ -35,7 +35,11 @@ trait MinimalSoCLogic { self: RawModule =>
     Module(new Hutt(xlen = xlen))
   }
   lazy val mem = withClockAndReset(soc_clk, !soc_rst_reg_n) {
-    Module(new MemoryController())
+    // Every MinimalSoCLogic target uses SdramBackend, not QspiBackend -- see
+    // MemoryController's constructor doc for why gpuVramRegionBit is false
+    // here (no flash/PSRAM split at this level, and no CPU address path
+    // adds a matching offset for its own DRAM accesses).
+    Module(new MemoryController(gpuVramRegionBit = false))
   }
   lazy val uartTx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new peri.uart.UartTx(13))
