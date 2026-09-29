@@ -60,9 +60,10 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLog
   )))
   pll.io.clk_i := clk_25mhz
   val pllLocked  = pll.io.locked
-  val sysClock   = pll.io.clk_o(0)   // 25 MHz — CPU, SDRAM, scanout
+  val sysClock   = pll.io.clk_o(0)   // 25 MHz — CPU, SDRAM, scanout fill FSM
   val sdramClock = pll.io.clk_o(1)   // 25 MHz + 90° — SDRAM clock pin
-  val hdmiClock  = pll.io.clk_o(2)   // 125 MHz — TMDS serializer only
+  val hdmiClock  = pll.io.clk_o(2)   // 125 MHz — TMDS serializer AND (below,
+                                      // divided by 5) the video timing/display
   sdram_clk := sdramClock
 
   val pllRst = !pllLocked
@@ -89,7 +90,7 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLog
 
   // ── HDMI scanout: instantiate before wireSoC so wireGpuMem can connect ──
   val scanout = withClockAndReset(sysClock, pllRst) {
-    Module(new HdmiScanoutFp16(fbWidth = 32, fbHeight = 32))
+    Module(new HdmiScanoutFp16(fbWidth = 32, fbHeight = 32, separatePixelClock = true))
   }
   scanout.io.frontBuf := false.B   // minimal SoC has no Borg; always read fbBase
   // Minimal SoC has no firmware programming the base; pin it to the test region.
@@ -155,20 +156,35 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLog
   // ── UART out ──────────────────────────────────────────────────────────────
   ftdi_rxd := uo_out_val(6)
 
-  // ── VGA timing (25 MHz pixel clock = sysClock) ────────────────────────────
-  val tick25 = true.B
-  val hCount = withClockAndReset(sysClock, pllRst) { RegInit(0.U(10.W)) }
-  val vCount = withClockAndReset(sysClock, pllRst) { RegInit(0.U(10.W)) }
+  // ── VGA timing, at a real 25 MHz CADENCE inside the 125 MHz HDMI domain ──
+  // A divide-by-5 clock ENABLE (hdmiTick25), not a genuine dedicated pixel-
+  // clock PLL output -- mirrors ULX3S.scala's fix for the same reason: keep
+  // the historically reliable 3-output PLL structure and generate video
+  // timing inside the existing 125 MHz HDMI domain instead of adding a 4th
+  // output. The frame buffer's display-side read port is genuinely on
+  // hdmiClock (a real dual-clock BRAM crossing against the fill FSM's
+  // sysClock write side, via HdmiScanoutFp16's write-side toggle-sync CDC).
+  val hdmiRst = !pllLocked
+  val hdmiCount = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(3.W)) }
+  val hdmiTick25 = (hdmiCount === 4.U)
+  withClockAndReset(hdmiClock, hdmiRst) {
+    when(hdmiTick25) { hdmiCount := 0.U } .otherwise { hdmiCount := hdmiCount + 1.U }
+  }
+
+  val hCount = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(10.W)) }
+  val vCount = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(10.W)) }
   val hTotal = 800.U;  val vTotal = 525.U
   val hActive = 640.U; val vActive = 480.U
   val hFront = 16.U;   val hSync = 96.U
   val vFront = 10.U;   val vSync = 2.U
-  withClockAndReset(sysClock, pllRst) {
-    when(hCount === hTotal - 1.U) {
-      hCount := 0.U
-      when(vCount === vTotal - 1.U) { vCount := 0.U }
-      .otherwise { vCount := vCount + 1.U }
-    } .otherwise { hCount := hCount + 1.U }
+  withClockAndReset(hdmiClock, hdmiRst) {
+    when(hdmiTick25) {
+      when(hCount === hTotal - 1.U) {
+        hCount := 0.U
+        when(vCount === vTotal - 1.U) { vCount := 0.U }
+        .otherwise { vCount := vCount + 1.U }
+      } .otherwise { hCount := hCount + 1.U }
+    }
   }
   val de    = (hCount < hActive) && (vCount < vActive)
   val hsync = (hCount >= (hActive + hFront)) && (hCount < (hActive + hFront + hSync))
@@ -177,39 +193,31 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLog
   scanout.io.hCount := hCount
   scanout.io.vCount := vCount
   scanout.io.de     := de
-  scanout.io.tick25 := tick25
-  // Gate scanout on btn(0) — pressed = enable HDMI fetch.  Hutt's instr
-  // fetch is the lowest-priority requester in MemoryController, and
-  // scanout's gpuReq stays asserted continuously across pixel reads.
-  // Leaving it always-on starves the CPU and silences the UART.
-  // BTN[0] is the active-high "FIRE1" button on the ULX3S.
-  scanout.io.enable := btn(0)
+  scanout.io.tick25 := hdmiTick25
+  scanout.io.pixClk.get := hdmiClock
+  scanout.io.pixRst.get := hdmiRst
+  // Always-on: this harness's UART output isn't needed once the fill loop
+  // finishes (it only ever sends a fixed boot/progress sequence), so the
+  // tradeoff -- Hutt's instr fetch is the lowest-priority requester in
+  // MemoryController, and scanout's gpuReq stays asserted continuously
+  // across pixel reads, so leaving it always-on starves the CPU/UART past
+  // that point -- is a non-issue here. Avoids needing BTN0 held down for
+  // every hardware test.
+  scanout.io.enable := true.B
 
-  // ── CDC: latch RGB8 + sync from 25 MHz → 125 MHz ─────────────────────────
-  val hdmiRst   = !pllLocked
-  val hdmiRed   = withClockAndReset(hdmiClock, hdmiRst) { RegNext(scanout.io.red) }
-  val hdmiGreen = withClockAndReset(hdmiClock, hdmiRst) { RegNext(scanout.io.green) }
-  val hdmiBlue  = withClockAndReset(hdmiClock, hdmiRst) { RegNext(scanout.io.blue) }
-  val hdmiHsync = withClockAndReset(hdmiClock, hdmiRst) { RegNext(hsync) }
-  val hdmiVsync = withClockAndReset(hdmiClock, hdmiRst) { RegNext(vsync) }
-  val hdmiDe    = withClockAndReset(hdmiClock, hdmiRst) { RegNext(de) }
-
-  val hdmiCount  = withClockAndReset(hdmiClock, hdmiRst) { RegInit(0.U(3.W)) }
-  val hdmiTick25 = (hdmiCount === 4.U)
-  withClockAndReset(hdmiClock, hdmiRst) {
-    when(hdmiTick25) { hdmiCount := 0.U } .otherwise { hdmiCount := hdmiCount + 1.U }
-  }
-
+  // scanout.io.red/green/blue and hsync/vsync/de are already natively in the
+  // hdmiClock domain (they only change on hdmiTick25) -- no CDC stage needed;
+  // feed the TMDS encoders directly.
   // ── TMDS Encoders + Serializers (125 MHz domain) ─────────────────────────
   val encB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
-  encB.io.en := hdmiTick25; encB.io.data := hdmiBlue
-  encB.io.c  := Cat(hdmiVsync, hdmiHsync); encB.io.de := hdmiDe
+  encB.io.en := hdmiTick25; encB.io.data := scanout.io.blue
+  encB.io.c  := Cat(vsync, hsync); encB.io.de := de
   val encG = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
-  encG.io.en := hdmiTick25; encG.io.data := hdmiGreen
-  encG.io.c  := 0.U; encG.io.de := hdmiDe
+  encG.io.en := hdmiTick25; encG.io.data := scanout.io.green
+  encG.io.c  := 0.U; encG.io.de := de
   val encR = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
-  encR.io.en := hdmiTick25; encR.io.data := hdmiRed
-  encR.io.c  := 0.U; encR.io.de := hdmiDe
+  encR.io.en := hdmiTick25; encR.io.data := scanout.io.red
+  encR.io.c  := 0.U; encR.io.de := de
   val serB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
   serB.io.en := hdmiTick25; serB.io.tmds := encB.io.tmds
   val serG = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
