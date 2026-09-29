@@ -554,6 +554,21 @@ minimal-hdmi-fill: borg-minimal.bit hdmi_fill_fw.bin
 	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_fill_fw.bin
 	@echo -e "$(BOLD)[DONE]$(RESET) Power-cycle, connect HDMI. Expect: SOLID red 32x32 overlay. Run 'make tio' for 'R' confirmation."
 
+hdmi_halfsplit_fw.bin: hdmi_halfsplit_fw.s
+	@echo -e "$(BOLD)[FW]$(RESET) Assembling hdmi_halfsplit_fw.s ..."
+	riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 -o hdmi_halfsplit_fw.o hdmi_halfsplit_fw.s
+	riscv64-unknown-elf-ld -melf32lriscv -Ttext=0x0 -o hdmi_halfsplit_fw.elf hdmi_halfsplit_fw.o
+	riscv64-unknown-elf-objcopy -O binary hdmi_halfsplit_fw.elf hdmi_halfsplit_fw_raw.bin
+	@python3 -c "import struct; d=open('hdmi_halfsplit_fw_raw.bin','rb').read(); open('hdmi_halfsplit_fw.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + header -> hdmi_halfsplit_fw.bin')"
+
+# Firmware-only target -- reuses whatever borg-minimal.bit is already
+# flashed (no bitstream rebuild). Exercises the tiled addressing math
+# (tileIndex/pixIndex), not just a uniform readback.
+flash-hdmi-halfsplit: hdmi_halfsplit_fw.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Flashing hdmi_halfsplit firmware @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 hdmi_halfsplit_fw.bin
+	@echo -e "$(BOLD)[DONE]$(RESET) Reset the board. Expect: top half red, bottom half blue."
+
 ######### Minimal SoC, RV64 + CLINT (Hutt without Borg, Linux boot isolation) #######################
 
 ULX3S_MINIMAL_LINUX_VERILOG_DIR = ../../out/ulx3s_minimal_linux/verilog
@@ -624,5 +639,6 @@ clean:
 .PHONY: all help load flash flash-firmware minimal-boot \
         print_resources generate_verilog_ulx3s tio install-udev clean \
         flash-hdmi-tiled minimal-hdmi flash-hdmi-fill minimal-hdmi-fill \
+        flash-hdmi-halfsplit \
         generate_verilog_ulx3s_loopback flash-loopback \
         generate_verilog_ulx3s_external

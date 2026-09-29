@@ -202,14 +202,24 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32) extends
   scanout.io.tick25 := hdmiTick25
   scanout.io.pixClk.get := hdmiClock
   scanout.io.pixRst.get := hdmiRst
-  // Always-on: this harness's UART output isn't needed once the fill loop
-  // finishes (it only ever sends a fixed boot/progress sequence), so the
-  // tradeoff -- Hutt's instr fetch is the lowest-priority requester in
-  // MemoryController, and scanout's gpuReq stays asserted continuously
-  // across pixel reads, so leaving it always-on starves the CPU/UART past
-  // that point -- is a non-issue here. Avoids needing BTN0 held down for
-  // every hardware test.
-  scanout.io.enable := true.B
+  // Auto-enable after a boot delay instead of gating on btn(0) (no button
+  // needed) or being always-on from reset. Hutt's instr fetch is the
+  // LOWEST-priority requester in MemoryController, and scanout's gpuReq
+  // stays asserted essentially continuously once enabled (sReq/sWait cycle
+  // back to back) -- confirmed on real hardware that this genuinely starves
+  // instruction fetch badly enough to hang firmware bigger than a handful
+  // of instructions (a proven-working fill loop plus one extra, entirely
+  // unused `andi` never completed with scanout enabled from boot; the
+  // identical firmware ran fine immediately with scanout held off). A fixed
+  // delay before the first enable gives firmware a clear run at SDRAM
+  // during boot -- ~1M sysClock cycles (~42 ms @ 25 MHz) is generous for
+  // any of this harness's diagnostic firmware.
+  val scanoutBootDelay = withClockAndReset(sysClock, pllRst) { RegInit(0.U(21.W)) }
+  val scanoutReady     = scanoutBootDelay(20)
+  withClockAndReset(sysClock, pllRst) {
+    when(!scanoutReady) { scanoutBootDelay := scanoutBootDelay + 1.U }
+  }
+  scanout.io.enable := scanoutReady
 
   // scanout.io.red/green/blue and hsync/vsync/de are already natively in the
   // hdmiClock domain (they only change on hdmiTick25) -- no CDC stage needed;
