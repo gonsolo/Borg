@@ -243,9 +243,50 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
 
     val showD = RegNext(show, false.B)
 
-    io.red   := Mux(showD, pixelSafe(23, 16), 0.U)
-    io.green := Mux(showD, pixelSafe(15, 8),  0.U)
-    io.blue  := Mux(showD, pixelSafe(7, 0),   0.U)
+    if (separatePixelClock) {
+      // The DP16KD's own registered read output has a real clk-to-q of
+      // ~5.8 ns on this device (measured via nextpnr's critical path
+      // report), and this memory splits across two DP16KD blocks for its
+      // 24-bit width, so Yosys inserts a small LUT mux tree to stitch their
+      // outputs back together. Feeding that straight into the TMDS
+      // encoder's first pipeline register (no register of our own in
+      // between) cannot close timing at the real 125 MHz hdmiClock rate --
+      // measured critical path ~13.5 ns against an 8 ns budget, confirmed
+      // on real hardware as a black screen.
+      //
+      // A single extra `RegNext` of the whole read barely moved Fmax
+      // (74.01 -> 74.64 MHz): it's exactly the "plain passthrough of a
+      // memory read" pattern Yosys's memory_libmap absorbs back into the
+      // BRAM's own output stage for free, so the combine-mux tree stays
+      // downstream of it either way, and one split point isn't enough to
+      // fit even half that tree in one 8 ns hop regardless. VGA position
+      // (dispIdx) is stable for 5 hdmiClock cycles at a time (it only
+      // advances on hdmiTick25), so there's plenty of slack for a real
+      // multi-stage pipeline -- each hop only needs to individually fit in
+      // 8 ns, not the whole chain in one. Three stages fixed it (measured
+      // Fmax 94.84 MHz, real hardware confirmed correct), each gated on a
+      // DIFFERENT enable (show, showD, showD2) so none of them matches the
+      // absorbable "plain passthrough" pattern.
+      val showD2 = RegNext(showD, false.B)
+      val showD3 = RegNext(showD2, false.B)
+      val showD4 = RegNext(showD3, false.B)
+      val redD1   = RegEnable(pixelSafe(23, 16), 0.U(8.W), show)
+      val greenD1 = RegEnable(pixelSafe(15, 8),  0.U(8.W), show)
+      val blueD1  = RegEnable(pixelSafe(7, 0),   0.U(8.W), show)
+      val redD2   = RegEnable(redD1,   0.U(8.W), showD)
+      val greenD2 = RegEnable(greenD1, 0.U(8.W), showD)
+      val blueD2  = RegEnable(blueD1,  0.U(8.W), showD)
+      val redD3   = RegEnable(redD2,   0.U(8.W), showD2)
+      val greenD3 = RegEnable(greenD2, 0.U(8.W), showD2)
+      val blueD3  = RegEnable(blueD2,  0.U(8.W), showD2)
+      io.red   := Mux(showD4, redD3, 0.U)
+      io.green := Mux(showD4, greenD3, 0.U)
+      io.blue  := Mux(showD4, blueD3, 0.U)
+    } else {
+      io.red   := Mux(showD, pixelSafe(23, 16), 0.U)
+      io.green := Mux(showD, pixelSafe(15, 8),  0.U)
+      io.blue  := Mux(showD, pixelSafe(7, 0),   0.U)
+    }
   }
   if (separatePixelClock) withClockAndReset(io.pixClk.get, io.pixRst.get) { display() }
   else display()
