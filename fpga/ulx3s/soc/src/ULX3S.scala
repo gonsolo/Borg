@@ -378,16 +378,19 @@ class ulx3s_top(val CLOCK_MHZ: Int) extends RawModule with SoCLogic {
   val encR = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsEncoder) }
   encR.io.en := hdmiTick25; encR.io.data := scanout.io.red
   encR.io.c := 0.U; encR.io.de := de
-  // TmdsEncoder has 1 pipeline stage (q_m_reg); delay serializer load by 1 cycle.
+  // TmdsEncoder has 2 pipeline stages (q_m_reg, then the registered
+  // PopCount/diff added to pipeline the disparity computation -- see its
+  // own comment); delay serializer load by 2 cycles to match.
   val hdmiTick25D1 = withClockAndReset(hdmiClock, hdmiRst) { RegNext(hdmiTick25, false.B) }
+  val hdmiTick25D2 = withClockAndReset(hdmiClock, hdmiRst) { RegNext(hdmiTick25D1, false.B) }
   val serB = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
-  serB.io.en := hdmiTick25D1; serB.io.tmds := encB.io.tmds
+  serB.io.en := hdmiTick25D2; serB.io.tmds := encB.io.tmds
   val serG = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
-  serG.io.en := hdmiTick25D1; serG.io.tmds := encG.io.tmds
+  serG.io.en := hdmiTick25D2; serG.io.tmds := encG.io.tmds
   val serR = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
-  serR.io.en := hdmiTick25D1; serR.io.tmds := encR.io.tmds
+  serR.io.en := hdmiTick25D2; serR.io.tmds := encR.io.tmds
   val serClk = withClockAndReset(hdmiClock, hdmiRst) { Module(new TmdsSerializer) }
-  serClk.io.en := hdmiTick25D1; serClk.io.tmds := "b0000011111".U
+  serClk.io.en := hdmiTick25D2; serClk.io.tmds := "b0000011111".U
   gpdi_dp := Cat(serClk.io.out, serR.io.out, serG.io.out, serB.io.out)
 
   // ── LEDs: max debug ────────────────────────────────────────────────────────
