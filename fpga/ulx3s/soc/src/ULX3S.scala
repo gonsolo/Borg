@@ -44,7 +44,7 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // full FP32 config did not place on the ECP5-85K (10-02 attempt).
   private def cubeCfg = BorgConfig.Simt.copy(samples = 1, hasBlend = false, hasStencil = false,
                                              hasCompute = false, hasDepthFlush = false)
-  override def BORG_CFG: BorgConfig = sys.env.getOrElse("BORG_ULX_CFG", "cube") match {
+  private def baseCfg: BorgConfig = sys.env.getOrElse("BORG_ULX_CFG", "cube") match {
     case "full" => BorgConfig.Simt.copy(samples = 4)
     case "cube" => cubeCfg
     // Feature bring-up: the cube config plus one feature at a time.
@@ -52,6 +52,10 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     case "stencil" => cubeCfg.copy(hasBlend = true, hasStencil = true)
     case other  => throw new IllegalArgumentException(s"BORG_ULX_CFG=$other")
   }
+  // BORG_SAMPLES / BORG_MAXBINTILES override the chosen config (unset = unchanged).
+  override def BORG_CFG: BorgConfig = baseCfg.copy(
+    samples     = sys.env.get("BORG_SAMPLES").filter(_.nonEmpty).map(_.toInt).getOrElse(baseCfg.samples),
+    maxBinTiles = sys.env.get("BORG_MAXBINTILES").filter(_.nonEmpty).map(_.toInt).getOrElse(baseCfg.maxBinTiles))
   // RV32I Hutt (Project.scala's default): the RV64IMAC + Sv39 MMU config
   // this used to override to no longer fits the ECP5-85K alongside FP32
   // Borg (92,986 LUT4 at RV64, 111% of the device, even after fixing
