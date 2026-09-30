@@ -68,16 +68,17 @@ CHISEL_SRCS = $(wildcard ../../hardware/borg/src/*.scala) \
 HDMI_DECOUPLE ?= 0
 BORG_SAMPLES ?=
 BORG_MAXBINTILES ?=
-export HDMI_DECOUPLE BORG_SAMPLES BORG_MAXBINTILES
+BORG_ISA_EXT ?=
+export HDMI_DECOUPLE BORG_SAMPLES BORG_MAXBINTILES BORG_ISA_EXT
 ULX3S_MHZ ?= $(if $(filter 1,$(HDMI_DECOUPLE)),10,25)
 
 # Changing HDMI_DECOUPLE must re-emit the Verilog: keep exactly one flag file.
-.hdmi_decouple_$(HDMI_DECOUPLE)_$(ULX3S_MHZ)_$(BORG_SAMPLES)_$(BORG_MAXBINTILES):
+.hdmi_decouple_$(HDMI_DECOUPLE)_$(ULX3S_MHZ)_$(BORG_SAMPLES)_$(BORG_MAXBINTILES)_$(BORG_ISA_EXT)_$(BORG_ISA_EXT):
 	@rm -f .hdmi_decouple_*; touch $@
 
 # Stamp file — regenerates Verilog only when Chisel sources OR Makefiles change.
 # Makefiles are included so CLOCK_MHZ changes don't silently use stale Verilog.
-.verilog_stamp_ulx3s: $(CHISEL_SRCS) Makefile ../../Makefile .hdmi_decouple_$(HDMI_DECOUPLE)_$(ULX3S_MHZ)_$(BORG_SAMPLES)_$(BORG_MAXBINTILES)
+.verilog_stamp_ulx3s: $(CHISEL_SRCS) Makefile ../../Makefile .hdmi_decouple_$(HDMI_DECOUPLE)_$(ULX3S_MHZ)_$(BORG_SAMPLES)_$(BORG_MAXBINTILES)_$(BORG_ISA_EXT)_$(BORG_ISA_EXT)
 	$(MAKE) -C ../.. generate_verilog_ulx3s ULX3S_CLOCK_MHZ=$(ULX3S_MHZ)
 	@touch $@
 
