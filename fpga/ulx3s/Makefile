@@ -60,11 +60,20 @@ CHISEL_SRCS = $(wildcard ../../hardware/borg/src/*.scala) \
 # HdmiTestPattern3Pll.scala) even though it worked loaded via JTAG. 10 MHz is
 # the fastest integer MHz target that lands exactly on a VCO (500 MHz)
 # confirmed safe on the same hardware. See ULX3S.scala's PLL comment.
-ULX3S_MHZ ?= 10
+# Staged reintroduction: HDMI_DECOUPLE=0 (default) is the HPG 2026 wiring (pixel clock
+# == SoC clock, 25 MHz). HDMI_DECOUPLE=1 is the divide-by-5 video clock + dual-clock
+# frame buffer, which needs the SoC clock at 10 MHz (PLL cold-boot VCO, see above).
+HDMI_DECOUPLE ?= 0
+export HDMI_DECOUPLE
+ULX3S_MHZ ?= $(if $(filter 1,$(HDMI_DECOUPLE)),10,25)
+
+# Changing HDMI_DECOUPLE must re-emit the Verilog: keep exactly one flag file.
+.hdmi_decouple_$(HDMI_DECOUPLE)_$(ULX3S_MHZ):
+	@rm -f .hdmi_decouple_*; touch $@
 
 # Stamp file — regenerates Verilog only when Chisel sources OR Makefiles change.
 # Makefiles are included so CLOCK_MHZ changes don't silently use stale Verilog.
-.verilog_stamp_ulx3s: $(CHISEL_SRCS) Makefile ../../Makefile
+.verilog_stamp_ulx3s: $(CHISEL_SRCS) Makefile ../../Makefile .hdmi_decouple_$(HDMI_DECOUPLE)_$(ULX3S_MHZ)
 	$(MAKE) -C ../.. generate_verilog_ulx3s ULX3S_CLOCK_MHZ=$(ULX3S_MHZ)
 	@touch $@
 
