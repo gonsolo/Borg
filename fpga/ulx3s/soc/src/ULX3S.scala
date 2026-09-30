@@ -39,7 +39,11 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // Verified on real ULX3S hardware: vkcube renders correctly at 39 % LUT,
   // 15 % FF, 13.5 % BRAM on the ECP5-85K, timing closed at 25 MHz.
   // Revert to plain BorgConfig.Simt to fall back to the HPG-proven config.
-  override def BORG_CFG: BorgConfig = BorgConfig.Simt.copy(samples = 4)
+  // Staged-reintroduction switches (defaults = the HPG 2026 demo): BORG_SAMPLES=4 turns
+  // on 4x MSAA, BORG_MAXBINTILES=4096 restores the larger bin-tile memory.
+  override def BORG_CFG: BorgConfig = BorgConfig.Simt.copy(
+    samples     = sys.env.getOrElse("BORG_SAMPLES", "1").toInt,
+    maxBinTiles = sys.env.getOrElse("BORG_MAXBINTILES", "1024").toInt)
   override def xlen: Int = 64
   override def scanoutCurBuf: Bool = scanout.io.curBuf
   // Rung A of the wafer.space Borg-only bridge's on-hardware ladder (see the
