@@ -43,7 +43,10 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // on 4x MSAA, BORG_MAXBINTILES=4096 restores the larger bin-tile memory.
   override def BORG_CFG: BorgConfig = BorgConfig.Simt.copy(
     samples     = sys.env.getOrElse("BORG_SAMPLES", "1").toInt,
-    maxBinTiles = sys.env.getOrElse("BORG_MAXBINTILES", "1024").toInt)
+    maxBinTiles = sys.env.getOrElse("BORG_MAXBINTILES", "1024").toInt,
+    // BORG_ISA_EXT=1: LOAD/STORE + BRZ/BRNZ/exec-mask (off = HPG demo ISA).
+    hasMemoryOps   = sys.env.getOrElse("BORG_ISA_EXT", "0") == "1",
+    hasControlFlow = sys.env.getOrElse("BORG_ISA_EXT", "0") == "1")
   override def xlen: Int = 64
   override def scanoutCurBuf: Bool = scanout.io.curBuf
   // Rung A of the wafer.space Borg-only bridge's on-hardware ladder (see the
