@@ -7,7 +7,7 @@ import chisel3._
 import chisel3.util._
 import chisel3.{ExtModule, StringParam}
 import chisel3.experimental.{Analog, attach}
-import borg.BorgConfig
+import borg.{BorgConfig, FloatConfig}
 import memory.{Ecp5PllParams, Ecp5PllWrapper, FlashBootLoader, SdramBackend, Usrmclk}
 import _root_.circt.stage.ChiselStage
 
@@ -46,7 +46,13 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     maxBinTiles = sys.env.getOrElse("BORG_MAXBINTILES", "1024").toInt,
     // BORG_ISA_EXT=1: LOAD/STORE + BRZ/BRNZ/exec-mask (off = HPG demo ISA).
     hasMemoryOps   = sys.env.getOrElse("BORG_ISA_EXT", "0") == "1",
-    hasControlFlow = sys.env.getOrElse("BORG_ISA_EXT", "0") == "1")
+    hasControlFlow = sys.env.getOrElse("BORG_ISA_EXT", "0") == "1",
+    // BORG_FP32=1: FP32 datapath (needs the FP32 firmware + RV32 CPU to fit; off = FP16).
+    fp = if (sys.env.getOrElse("BORG_FP32", "0") == "1") FloatConfig.FP32 else FloatConfig.FP16,
+    // BORG_FIXED_FUNC=1: blend + stencil + bilinear filtering (off = HPG demo).
+    hasBlend    = sys.env.getOrElse("BORG_FIXED_FUNC", "0") == "1",
+    hasStencil  = sys.env.getOrElse("BORG_FIXED_FUNC", "0") == "1",
+    hasBilinear = sys.env.getOrElse("BORG_FIXED_FUNC", "0") == "1")
   override def xlen: Int = 64
   override def scanoutCurBuf: Bool = scanout.io.curBuf
   // Rung A of the wafer.space Borg-only bridge's on-hardware ladder (see the

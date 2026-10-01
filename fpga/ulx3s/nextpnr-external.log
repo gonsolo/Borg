@@ -1,0 +1,981 @@
+Info: constraining clock net 'clk_25mhz' to 25.00 MHz
+
+Info: Logic utilisation before packing:
+Info:     Total LUT4s:     15986/83640    19%
+Info:         logic LUTs:  13234/83640    15%
+Info:         carry LUTs:   2368/83640     2%
+Info:           RAM LUTs:    256/10455     2%
+Info:          RAMW LUTs:    128/20910     0%
+
+Info:      Total DFFs:      4619/83640     5%
+
+Info: Packing IOs..
+Info: sdram_d_9 feeds TRELLIS_IO bb_9, removing $nextpnr_iobuf sdram_d_9.
+Info: pin 'bb_9' constrained to Bel 'X126/Y35/PIOC'.
+Info: sdram_d_8 feeds TRELLIS_IO bb_8, removing $nextpnr_iobuf sdram_d_8.
+Info: pin 'bb_8' constrained to Bel 'X126/Y35/PIOD'.
+Info: sdram_d_7 feeds TRELLIS_IO bb_7, removing $nextpnr_iobuf sdram_d_7.
+Info: pin 'bb_7' constrained to Bel 'X126/Y86/PIOD'.
+Info: sdram_d_6 feeds TRELLIS_IO bb_6, removing $nextpnr_iobuf sdram_d_6.
+Info: pin 'bb_6' constrained to Bel 'X126/Y92/PIOD'.
+Info: sdram_d_5 feeds TRELLIS_IO bb_5, removing $nextpnr_iobuf sdram_d_5.
+Info: pin 'bb_5' constrained to Bel 'X126/Y89/PIOD'.
+Info: sdram_d_4 feeds TRELLIS_IO bb_4, removing $nextpnr_iobuf sdram_d_4.
+Info: pin 'bb_4' constrained to Bel 'X126/Y83/PIOD'.
+Info: sdram_d_3 feeds TRELLIS_IO bb_3, removing $nextpnr_iobuf sdram_d_3.
+Info: pin 'bb_3' constrained to Bel 'X126/Y53/PIOC'.
+Info: sdram_d_2 feeds TRELLIS_IO bb_2, removing $nextpnr_iobuf sdram_d_2.
+Info: pin 'bb_2' constrained to Bel 'X126/Y50/PIOD'.
+Info: sdram_d_15 feeds TRELLIS_IO bb_15, removing $nextpnr_iobuf sdram_d_15.
+Info: pin 'bb_15' constrained to Bel 'X126/Y20/PIOC'.
+Info: sdram_d_14 feeds TRELLIS_IO bb_14, removing $nextpnr_iobuf sdram_d_14.
+Info: pin 'bb_14' constrained to Bel 'X126/Y41/PIOC'.
+Info: sdram_d_13 feeds TRELLIS_IO bb_13, removing $nextpnr_iobuf sdram_d_13.
+Info: pin 'bb_13' constrained to Bel 'X126/Y14/PIOD'.
+Info: sdram_d_12 feeds TRELLIS_IO bb_12, removing $nextpnr_iobuf sdram_d_12.
+Info: pin 'bb_12' constrained to Bel 'X126/Y14/PIOC'.
+Info: sdram_d_11 feeds TRELLIS_IO bb_11, removing $nextpnr_iobuf sdram_d_11.
+Info: pin 'bb_11' constrained to Bel 'X126/Y35/PIOA'.
+Info: sdram_d_10 feeds TRELLIS_IO bb_10, removing $nextpnr_iobuf sdram_d_10.
+Info: pin 'bb_10' constrained to Bel 'X126/Y35/PIOB'.
+Info: sdram_d_1 feeds TRELLIS_IO bb_1, removing $nextpnr_iobuf sdram_d_1.
+Info: pin 'bb_1' constrained to Bel 'X126/Y50/PIOC'.
+Info: sdram_d_0 feeds TRELLIS_IO bb, removing $nextpnr_iobuf sdram_d_0.
+Info: pin 'bb' constrained to Bel 'X126/Y20/PIOD'.
+Info: pin 'up_v$tr_io' constrained to Bel 'X126/Y17/PIOB'.
+Info: pin 'up_p$tr_io' constrained to Bel 'X126/Y14/PIOB'.
+Info: pin 'up_d[15]$tr_io' constrained to Bel 'X126/Y20/PIOB'.
+Info: pin 'up_d[14]$tr_io' constrained to Bel 'X126/Y50/PIOB'.
+Info: pin 'up_d[13]$tr_io' constrained to Bel 'X126/Y53/PIOB'.
+Info: pin 'up_d[12]$tr_io' constrained to Bel 'X126/Y56/PIOB'.
+Info: pin 'up_d[11]$tr_io' constrained to Bel 'X126/Y92/PIOB'.
+Info: pin 'up_d[10]$tr_io' constrained to Bel 'X0/Y14/PIOB'.
+Info: pin 'up_d[9]$tr_io' constrained to Bel 'X0/Y35/PIOB'.
+Info: pin 'up_d[8]$tr_io' constrained to Bel 'X0/Y11/PIOB'.
+Info: pin 'up_d[7]$tr_io' constrained to Bel 'X4/Y0/PIOB'.
+Info: pin 'up_d[6]$tr_io' constrained to Bel 'X11/Y0/PIOB'.
+Info: pin 'up_d[5]$tr_io' constrained to Bel 'X15/Y0/PIOB'.
+Info: pin 'up_d[4]$tr_io' constrained to Bel 'X18/Y0/PIOB'.
+Info: pin 'up_d[3]$tr_io' constrained to Bel 'X58/Y0/PIOB'.
+Info: pin 'up_d[2]$tr_io' constrained to Bel 'X60/Y0/PIOB'.
+Info: pin 'up_d[1]$tr_io' constrained to Bel 'X63/Y0/PIOB'.
+Info: pin 'up_d[0]$tr_io' constrained to Bel 'X65/Y0/PIOB'.
+Info: pin 'up_cred$tr_io' constrained to Bel 'X126/Y11/PIOB'.
+Info: pin 'sdram_wen$tr_io' constrained to Bel 'X126/Y86/PIOC'.
+Info: pin 'sdram_rasn$tr_io' constrained to Bel 'X126/Y86/PIOB'.
+Info: pin 'sdram_dqm[1]$tr_io' constrained to Bel 'X126/Y38/PIOA'.
+Info: pin 'sdram_dqm[0]$tr_io' constrained to Bel 'X126/Y89/PIOC'.
+Info: pin 'sdram_csn$tr_io' constrained to Bel 'X126/Y86/PIOA'.
+Info: pin 'sdram_clk$tr_io' constrained to Bel 'X126/Y38/PIOB'.
+Info: pin 'sdram_cke$tr_io' constrained to Bel 'X126/Y38/PIOC'.
+Info: pin 'sdram_casn$tr_io' constrained to Bel 'X126/Y89/PIOA'.
+Info: pin 'sdram_ba[1]$tr_io' constrained to Bel 'X126/Y83/PIOB'.
+Info: pin 'sdram_ba[0]$tr_io' constrained to Bel 'X126/Y83/PIOC'.
+Info: pin 'sdram_a[12]$tr_io' constrained to Bel 'X126/Y41/PIOA'.
+Info: pin 'sdram_a[11]$tr_io' constrained to Bel 'X126/Y38/PIOD'.
+Info: pin 'sdram_a[10]$tr_io' constrained to Bel 'X126/Y83/PIOA'.
+Info: pin 'sdram_a[9]$tr_io' constrained to Bel 'X126/Y41/PIOB'.
+Info: pin 'sdram_a[8]$tr_io' constrained to Bel 'X126/Y44/PIOA'.
+Info: pin 'sdram_a[7]$tr_io' constrained to Bel 'X126/Y44/PIOC'.
+Info: pin 'sdram_a[6]$tr_io' constrained to Bel 'X126/Y41/PIOD'.
+Info: pin 'sdram_a[5]$tr_io' constrained to Bel 'X126/Y44/PIOB'.
+Info: pin 'sdram_a[4]$tr_io' constrained to Bel 'X126/Y44/PIOD'.
+Info: pin 'sdram_a[3]$tr_io' constrained to Bel 'X126/Y47/PIOC'.
+Info: pin 'sdram_a[2]$tr_io' constrained to Bel 'X126/Y47/PIOA'.
+Info: pin 'sdram_a[1]$tr_io' constrained to Bel 'X126/Y47/PIOD'.
+Info: pin 'sdram_a[0]$tr_io' constrained to Bel 'X126/Y47/PIOB'.
+Info: pin 'rst_n$tr_io' constrained to Bel 'X6/Y0/PIOB'.
+Info: pin 'link_up_loop$tr_io' constrained to Bel 'X105/Y0/PIOB'.
+Info: pin 'link_narrow$tr_io' constrained to Bel 'X9/Y0/PIOB'.
+Info: pin 'link_fast$tr_io' constrained to Bel 'X9/Y0/PIOA'.
+Info: pin 'led[7]$tr_io' constrained to Bel 'X0/Y41/PIOD'.
+Info: pin 'led[6]$tr_io' constrained to Bel 'X0/Y38/PIOD'.
+Info: pin 'led[5]$tr_io' constrained to Bel 'X0/Y44/PIOD'.
+Info: pin 'led[4]$tr_io' constrained to Bel 'X0/Y38/PIOB'.
+Info: pin 'led[3]$tr_io' constrained to Bel 'X0/Y38/PIOC'.
+Info: pin 'led[2]$tr_io' constrained to Bel 'X0/Y38/PIOA'.
+Info: pin 'led[1]$tr_io' constrained to Bel 'X0/Y35/PIOD'.
+Info: pin 'led[0]$tr_io' constrained to Bel 'X0/Y35/PIOC'.
+Info: pin 'gpdi_dp[3]$tr_io' constrained to Bel 'X116/Y0/PIOA'.
+Info: pin 'gpdi_dp[2]$tr_io' constrained to Bel 'X76/Y0/PIOA'.
+Info: pin 'gpdi_dp[1]$tr_io' constrained to Bel 'X83/Y0/PIOA'.
+Info: pin 'gpdi_dp[0]$tr_io' constrained to Bel 'X110/Y0/PIOA'.
+Info: pin 'ftdi_txd$tr_io' constrained to Bel 'X0/Y89/PIOB'.
+Info: pin 'ftdi_rxd$tr_io' constrained to Bel 'X0/Y56/PIOC'.
+Info: pin 'flash_mosi$tr_io' constrained to Bel 'X11/Y95/PIOB'.
+Info: pin 'flash_miso$tr_io' constrained to Bel 'X11/Y95/PIOA'.
+Info: pin 'flash_csn$tr_io' constrained to Bel 'X15/Y95/PIOA'.
+Info: pin 'far_link_up$tr_io' constrained to Bel 'X105/Y0/PIOA'.
+Info: pin 'dn_v$tr_io' constrained to Bel 'X126/Y17/PIOA'.
+Info: pin 'dn_p$tr_io' constrained to Bel 'X126/Y14/PIOA'.
+Info: pin 'dn_d[15]$tr_io' constrained to Bel 'X126/Y20/PIOA'.
+Info: pin 'dn_d[14]$tr_io' constrained to Bel 'X126/Y50/PIOA'.
+Info: pin 'dn_d[13]$tr_io' constrained to Bel 'X126/Y53/PIOA'.
+Info: pin 'dn_d[12]$tr_io' constrained to Bel 'X126/Y56/PIOA'.
+Info: pin 'dn_d[11]$tr_io' constrained to Bel 'X126/Y92/PIOA'.
+Info: pin 'dn_d[10]$tr_io' constrained to Bel 'X0/Y14/PIOA'.
+Info: pin 'dn_d[9]$tr_io' constrained to Bel 'X0/Y35/PIOA'.
+Info: pin 'dn_d[8]$tr_io' constrained to Bel 'X0/Y11/PIOA'.
+Info: pin 'dn_d[7]$tr_io' constrained to Bel 'X4/Y0/PIOA'.
+Info: pin 'dn_d[6]$tr_io' constrained to Bel 'X11/Y0/PIOA'.
+Info: pin 'dn_d[5]$tr_io' constrained to Bel 'X15/Y0/PIOA'.
+Info: pin 'dn_d[4]$tr_io' constrained to Bel 'X18/Y0/PIOA'.
+Info: pin 'dn_d[3]$tr_io' constrained to Bel 'X58/Y0/PIOA'.
+Info: pin 'dn_d[2]$tr_io' constrained to Bel 'X60/Y0/PIOA'.
+Info: pin 'dn_d[1]$tr_io' constrained to Bel 'X63/Y0/PIOA'.
+Info: pin 'dn_d[0]$tr_io' constrained to Bel 'X65/Y0/PIOA'.
+Info: pin 'dn_cred$tr_io' constrained to Bel 'X126/Y11/PIOA'.
+Info: pin 'dbg_sel[1]$tr_io' constrained to Bel 'X13/Y0/PIOB'.
+Info: pin 'dbg_sel[0]$tr_io' constrained to Bel 'X13/Y0/PIOA'.
+Info: pin 'clk_25mhz$tr_io' constrained to Bel 'X0/Y47/PIOA'.
+Info: pin 'btn[5]$tr_io' constrained to Bel 'X126/Y17/PIOD'.
+Info: pin 'btn[4]$tr_io' constrained to Bel 'X6/Y95/PIOA'.
+Info: pin 'btn[3]$tr_io' constrained to Bel 'X6/Y95/PIOB'.
+Info: pin 'btn[2]$tr_io' constrained to Bel 'X126/Y89/PIOB'.
+Info: pin 'btn[1]$tr_io' constrained to Bel 'X4/Y95/PIOB'.
+Info: pin 'btn[0]$tr_io' constrained to Bel 'X4/Y95/PIOA'.
+Info: IOLOGIC component serR.oddr connected to PIO Bel X76/Y0/PIOA
+Info: IOLOGIC component serG.oddr connected to PIO Bel X83/Y0/PIOA
+Info: IOLOGIC component serClk.oddr connected to PIO Bel X116/Y0/PIOA
+Info: IOLOGIC component serB.oddr connected to PIO Bel X110/Y0/PIOA
+Info: Packing constants..
+Info: Packing carries...
+Info: Packing LUTs...
+Info: Packing LUT5-7s...
+Info: Packing FFs...
+Info:     1894 FFs paired with LUTs.
+Info: Generating derived timing constraints...
+Info:     Input frequency of PLL 'pll.pll' is constrained to 25.0 MHz
+Info:     Derived frequency constraint of 25.0 MHz for net _pll_io_clk_o_0
+Info:     Derived frequency constraint of 25.0 MHz for net sdram_clk$TRELLIS_IO_OUT
+Info:     Derived frequency constraint of 125.0 MHz for net _pll_io_clk_o_2
+Info: Promoting globals...
+Info:     promoting clock net _pll_io_clk_o_0 to global network
+Info:     promoting clock net _pll_io_clk_o_2 to global network
+Info: Checksum: 0x0ad3cf6e
+
+Info: Device utilisation:
+Info: 	          TRELLIS_IO:     108/    365    29%
+Info: 	                DCCA:       2/     56     3%
+Info: 	              DP16KD:      26/    208    12%
+Info: 	          MULT18X18D:      19/    156    12%
+Info: 	              ALU54B:       0/     78     0%
+Info: 	             EHXPLLL:       1/      4    25%
+Info: 	             EXTREFB:       0/      2     0%
+Info: 	                DCUA:       0/      2     0%
+Info: 	           PCSCLKDIV:       0/      2     0%
+Info: 	             IOLOGIC:       0/    224     0%
+Info: 	            SIOLOGIC:       4/    141     2%
+Info: 	                 GSR:       0/      1     0%
+Info: 	               JTAGG:       0/      1     0%
+Info: 	                OSCG:       0/      1     0%
+Info: 	               SEDGA:       0/      1     0%
+Info: 	                 DTR:       0/      1     0%
+Info: 	             USRMCLK:       1/      1   100%
+Info: 	             CLKDIVF:       0/      4     0%
+Info: 	           ECLKSYNCB:       0/     10     0%
+Info: 	             DLLDELD:       0/      8     0%
+Info: 	              DDRDLL:       0/      4     0%
+Info: 	             DQSBUFM:       0/     14     0%
+Info: 	     TRELLIS_ECLKBUF:       0/      8     0%
+Info: 	        ECLKBRIDGECS:       0/      2     0%
+Info: 	                DCSC:       0/      2     0%
+Info: 	          TRELLIS_FF:    4619/  83640     5%
+Info: 	        TRELLIS_COMB:   16326/  83640    19%
+Info: 	        TRELLIS_RAMW:      64/  10455     0%
+
+Info: Placed 113 cells based on constraints.
+Info: Creating initial analytic placement for 13341 cells, random placement wirelen = 1554069.
+Info:     at initial placer iter 0, wirelen = 20797
+Info:     at initial placer iter 1, wirelen = 17330
+Info:     at initial placer iter 2, wirelen = 16439
+Info:     at initial placer iter 3, wirelen = 16688
+Info: Running main analytical placer, max placement attempts per cell = 56021112.
+Info:     at iteration #1, type ALL: wirelen solved = 16349, spread = 224646, legal = 227554; time = 0.90s
+Info:     at iteration #2, type ALL: wirelen solved = 35455, spread = 183663, legal = 190104; time = 0.91s
+Info:     at iteration #3, type ALL: wirelen solved = 56691, spread = 170338, legal = 174633; time = 0.67s
+Info:     at iteration #4, type ALL: wirelen solved = 65852, spread = 162726, legal = 166669; time = 0.65s
+Info:     at iteration #5, type ALL: wirelen solved = 75114, spread = 141451, legal = 148033; time = 0.66s
+Info:     at iteration #6, type ALL: wirelen solved = 77516, spread = 137674, legal = 144624; time = 0.71s
+Info:     at iteration #7, type ALL: wirelen solved = 81149, spread = 130985, legal = 139112; time = 0.68s
+Info:     at iteration #8, type ALL: wirelen solved = 81981, spread = 126775, legal = 134922; time = 0.63s
+Info:     at iteration #9, type ALL: wirelen solved = 84483, spread = 125684, legal = 134018; time = 2.10s
+Info:     at iteration #10, type ALL: wirelen solved = 85310, spread = 124517, legal = 133512; time = 1.96s
+Info:     at iteration #11, type ALL: wirelen solved = 86760, spread = 127101, legal = 136395; time = 1.03s
+Info:     at iteration #12, type ALL: wirelen solved = 89885, spread = 126330, legal = 133198; time = 1.13s
+Info:     at iteration #13, type ALL: wirelen solved = 90296, spread = 124211, legal = 131933; time = 1.00s
+Info:     at iteration #14, type ALL: wirelen solved = 91221, spread = 123320, legal = 131294; time = 1.19s
+Info:     at iteration #15, type ALL: wirelen solved = 90624, spread = 124618, legal = 130934; time = 1.19s
+Info:     at iteration #16, type ALL: wirelen solved = 92203, spread = 126783, legal = 134102; time = 0.92s
+Info:     at iteration #17, type ALL: wirelen solved = 92817, spread = 123905, legal = 129384; time = 0.94s
+Info:     at iteration #18, type ALL: wirelen solved = 92668, spread = 124424, legal = 130675; time = 0.98s
+Info:     at iteration #19, type ALL: wirelen solved = 93829, spread = 123727, legal = 129489; time = 0.91s
+Info:     at iteration #20, type ALL: wirelen solved = 93901, spread = 128208, legal = 134012; time = 0.96s
+Info:     at iteration #21, type ALL: wirelen solved = 95932, spread = 127429, legal = 133199; time = 0.90s
+Info:     at iteration #22, type ALL: wirelen solved = 95610, spread = 126442, legal = 134232; time = 0.96s
+Info: HeAP Placer Time: 30.63s
+Info:   of which solving equations: 19.14s
+Info:   of which spreading cells: 2.96s
+Info:   of which strict legalisation: 1.55s
+
+Info: Running simulated annealing placer for refinement.
+Info:   at iteration #1: temp = 0.000000, timing cost = 7634, wirelen = 129384
+Info:   at iteration #5: temp = 0.000000, timing cost = 5098, wirelen = 116322
+Info:   at iteration #10: temp = 0.000000, timing cost = 4843, wirelen = 112970
+Info:   at iteration #15: temp = 0.000000, timing cost = 5365, wirelen = 111042
+Info:   at iteration #20: temp = 0.000000, timing cost = 5510, wirelen = 110538
+Info:   at iteration #24: temp = 0.000000, timing cost = 5527, wirelen = 110441 
+Info: SA placement time 108.76s
+
+Info: Max frequency for clock '$glbnet$_pll_io_clk_o_2': 108.66 MHz (FAIL at 125.00 MHz)
+Info: Max frequency for clock '$glbnet$_pll_io_clk_o_0': 22.68 MHz (FAIL at 25.00 MHz)
+
+Info: Max delay <async>                         -> <async>                        : 14.00 ns
+Info: Max delay <async>                         -> posedge $glbnet$_pll_io_clk_o_0: 17.74 ns
+Info: Max delay <async>                         -> negedge $glbnet$_pll_io_clk_o_0: 8.40 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> <async>                        : 15.48 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> posedge $glbnet$_pll_io_clk_o_2: 9.59 ns
+
+Info: Slack histogram:
+Info:  legend: * represents 38 endpoint(s)
+Info:          + represents [1,38) endpoint(s)
+Info: [ -4090,  -1923) |**+
+Info: [ -1923,    244) |****+
+Info: [   244,   2411) |*+
+Info: [  2411,   4578) |+
+Info: [  4578,   6745) |+
+Info: [  6745,   8912) |+
+Info: [  8912,  11079) |*********************+
+Info: [ 11079,  13246) |*************************+
+Info: [ 13246,  15413) |**+
+Info: [ 15413,  17580) |*****+
+Info: [ 17580,  19747) |***********+
+Info: [ 19747,  21914) |*****************+
+Info: [ 21914,  24081) |***********+
+Info: [ 24081,  26248) |*******************+
+Info: [ 26248,  28415) |********************************************+
+Info: [ 28415,  30582) |************************************************************ 
+Info: [ 30582,  32749) |**********************************+
+Info: [ 32749,  34916) |*************************+
+Info: [ 34916,  37083) |***************************************+
+Info: [ 37083,  39250) |*******************+
+Info: Checksum: 0xbaba8689
+Info: Routing globals...
+Info:     routing clock net $glbnet$_pll_io_clk_o_2 using global 0
+Info:     routing clock net $glbnet$_pll_io_clk_o_0 using global 1
+
+Info: Routing..
+Info: Setting up routing queue.
+Info: Routing 70349 arcs.
+Info:            |   (re-)routed arcs  |   delta    | remaining|       time spent     |
+Info:    IterCnt |  w/ripup   wo/ripup |  w/r  wo/r |      arcs| batch(sec) total(sec)|
+Info:       1000 |      219        780 |  219   780 |     69657|       1.53       1.53|
+Info:       2000 |      569       1430 |  350   650 |     69332|       0.46       1.99|
+Info:       3000 |      901       2098 |  332   668 |     68988|       0.67       2.67|
+Info:       4000 |     1081       2918 |  180   820 |     68490|       0.83       3.50|
+Info:       5000 |     1262       3737 |  181   819 |     68231|       0.32       3.82|
+Info:       6000 |     1506       4493 |  244   756 |     67783|       0.55       4.37|
+Info:       7000 |     1689       5310 |  183   817 |     67206|       0.69       5.05|
+Info:       8000 |     1862       6137 |  173   827 |     66590|       0.55       5.61|
+Info:       9000 |     2003       6996 |  141   859 |     65967|       0.46       6.07|
+Info:      10000 |     2164       7835 |  161   839 |     65434|       0.67       6.73|
+Info:      11000 |     2324       8675 |  160   840 |     64950|       0.58       7.31|
+Info:      12000 |     2557       9442 |  233   767 |     64621|       0.64       7.95|
+Info:      13000 |     2704      10295 |  147   853 |     64406|       0.56       8.51|
+Info:      14000 |     2874      11125 |  170   830 |     64100|       0.52       9.03|
+Info:      15000 |     3037      11962 |  163   837 |     63653|       0.66       9.69|
+Info:      16000 |     3190      12809 |  153   847 |     63254|       0.56      10.26|
+Info:      17000 |     3378      13621 |  188   812 |     62960|       0.52      10.77|
+Info:      18000 |     3572      14427 |  194   806 |     62744|       0.62      11.40|
+Info:      19000 |     3778      15221 |  206   794 |     62387|       0.55      11.94|
+Info:      20000 |     3958      16041 |  180   820 |     62228|       0.60      12.54|
+Info:      21000 |     4187      16812 |  229   771 |     61965|       0.89      13.43|
+Info:      22000 |     4345      17654 |  158   842 |     61810|       0.56      13.99|
+Info:      23000 |     4576      18423 |  231   769 |     61308|       0.52      14.51|
+Info:      24000 |     4783      19216 |  207   793 |     60954|       0.64      15.15|
+Info:      25000 |     5018      19981 |  235   765 |     60724|       0.89      16.05|
+Info:      26000 |     5216      20783 |  198   802 |     60275|       0.71      16.76|
+Info:      27000 |     5476      21523 |  260   740 |     59912|       0.72      17.48|
+Info:      28000 |     5758      22241 |  282   718 |     59604|       0.54      18.02|
+Info:      29000 |     6038      22961 |  280   720 |     59414|       0.47      18.49|
+Info:      30000 |     6369      23630 |  331   669 |     59118|       0.55      19.04|
+Info:      31000 |     6569      24430 |  200   800 |     59007|       0.71      19.75|
+Info:      32000 |     6806      25193 |  237   763 |     58789|       0.76      20.52|
+Info:      33000 |     7080      25919 |  274   726 |     58398|       0.62      21.14|
+Info:      34000 |     7313      26686 |  233   767 |     58226|       0.67      21.81|
+Info:      35000 |     7595      27404 |  282   718 |     58075|       0.70      22.50|
+Info:      36000 |     7826      28173 |  231   769 |     57847|       0.54      23.04|
+Info:      37000 |     8022      28977 |  196   804 |     57901|       0.65      23.69|
+Info:      38000 |     8287      29712 |  265   735 |     57747|       0.71      24.41|
+Info:      39000 |     8556      30443 |  269   731 |     57548|       0.72      25.13|
+Info:      40000 |     8800      31199 |  244   756 |     57344|       0.87      26.00|
+Info:      41000 |     9053      31946 |  253   747 |     57025|       0.77      26.77|
+Info:      42000 |     9313      32686 |  260   740 |     56723|       0.54      27.31|
+Info:      43000 |     9638      33361 |  325   675 |     56452|       0.59      27.89|
+Info:      44000 |     9911      34088 |  273   727 |     56172|       0.80      28.69|
+Info:      45000 |    10286      34713 |  375   625 |     56038|       1.05      29.74|
+Info:      46000 |    10522      35477 |  236   764 |     55809|       0.92      30.65|
+Info:      47000 |    10799      36200 |  277   723 |     55679|       0.75      31.41|
+Info:      48000 |    11135      36864 |  336   664 |     55431|       1.13      32.54|
+Info:      49000 |    11461      37538 |  326   674 |     55092|       0.86      33.41|
+Info:      50000 |    11751      38248 |  290   710 |     54865|       0.61      34.01|
+Info:      51000 |    12013      38986 |  262   738 |     54499|       1.18      35.20|
+Info:      52000 |    12339      39660 |  326   674 |     54165|       1.13      36.32|
+Info:      53000 |    12616      40383 |  277   723 |     54089|       1.24      37.57|
+Info:      54000 |    12905      41094 |  289   711 |     53726|       0.99      38.56|
+Info:      55000 |    13200      41799 |  295   705 |     53515|       1.46      40.03|
+Info:      56000 |    13443      42556 |  243   757 |     53234|       0.87      40.90|
+Info:      57000 |    13722      43277 |  279   721 |     52876|       1.45      42.35|
+Info:      58000 |    14051      43948 |  329   671 |     52547|       1.32      43.68|
+Info:      59000 |    14368      44631 |  317   683 |     52254|       1.28      44.96|
+Info:      60000 |    14646      45353 |  278   722 |     51969|       1.31      46.26|
+Info:      61000 |    14983      46016 |  337   663 |     51765|       1.32      47.58|
+Info:      62000 |    15217      46782 |  234   766 |     51433|       1.06      48.64|
+Info:      63000 |    15486      47513 |  269   731 |     51102|       1.29      49.93|
+Info:      64000 |    15784      48215 |  298   702 |     50979|       1.71      51.64|
+Info:      65000 |    16086      48913 |  302   698 |     50840|       1.85      53.49|
+Info:      66000 |    16373      49626 |  287   713 |     50722|       1.84      55.33|
+Info:      67000 |    16709      50290 |  336   664 |     50453|       1.43      56.76|
+Info:      68000 |    16898      51101 |  189   811 |     50345|       1.49      58.25|
+Info:      69000 |    17176      51823 |  278   722 |     50029|       1.65      59.90|
+Info:      70000 |    17449      52550 |  273   727 |     49766|       1.37      61.27|
+Info:      71000 |    17800      53199 |  351   649 |     49364|       1.26      62.53|
+Info:      72000 |    18114      53885 |  314   686 |     49217|       1.27      63.80|
+Info:      73000 |    18443      54556 |  329   671 |     48981|       0.86      64.66|
+Info:      74000 |    18730      55269 |  287   713 |     48923|       0.79      65.45|
+Info:      75000 |    19058      55941 |  328   672 |     48655|       1.02      66.47|
+Info:      76000 |    19284      56715 |  226   774 |     48454|       0.67      67.14|
+Info:      77000 |    19594      57405 |  310   690 |     48308|       0.62      67.76|
+Info:      78000 |    19927      58072 |  333   667 |     48136|       0.87      68.63|
+Info:      79000 |    20213      58786 |  286   714 |     47690|       0.79      69.42|
+Info:      80000 |    20440      59559 |  227   773 |     47354|       0.82      70.24|
+Info:      81000 |    20672      60327 |  232   768 |     47171|       0.85      71.09|
+Info:      82000 |    20966      61033 |  294   706 |     46914|       0.87      71.96|
+Info:      83000 |    21351      61648 |  385   615 |     46729|       0.88      72.84|
+Info:      84000 |    21773      62226 |  422   578 |     46454|       0.74      73.58|
+Info:      85000 |    22081      62918 |  308   692 |     46189|       1.20      74.78|
+Info:      86000 |    22327      63672 |  246   754 |     46026|       0.72      75.50|
+Info:      87000 |    22580      64419 |  253   747 |     46036|       0.93      76.43|
+Info:      88000 |    22814      65185 |  234   766 |     45788|       1.11      77.54|
+Info:      89000 |    23097      65902 |  283   717 |     45588|       1.18      78.72|
+Info:      90000 |    23323      66676 |  226   774 |     45348|       0.79      79.51|
+Info:      91000 |    23713      67286 |  390   610 |     45097|       1.01      80.52|
+Info:      92000 |    23999      68000 |  286   714 |     44812|       1.10      81.62|
+Info:      93000 |    24252      68747 |  253   747 |     44669|       1.34      82.96|
+Info:      94000 |    24584      69415 |  332   668 |     44333|       1.00      83.96|
+Info:      95000 |    24871      70128 |  287   713 |     44104|       0.82      84.78|
+Info:      96000 |    25157      70842 |  286   714 |     43698|       0.80      85.59|
+Info:      97000 |    25380      71619 |  223   777 |     43361|       0.77      86.36|
+Info:      98000 |    25588      72411 |  208   792 |     42872|       0.68      87.04|
+Info:      99000 |    25893      73106 |  305   695 |     42583|       1.06      88.10|
+Info:     100000 |    26168      73831 |  275   725 |     42227|       0.75      88.85|
+Info:     101000 |    26374      74625 |  206   794 |     42159|       1.09      89.94|
+Info:     102000 |    26780      75219 |  406   594 |     42089|       0.74      90.67|
+Info:     103000 |    27121      75878 |  341   659 |     41774|       0.77      91.44|
+Info:     104000 |    27515      76484 |  394   606 |     41530|       0.83      92.27|
+Info:     105000 |    27825      77174 |  310   690 |     40999|       0.54      92.81|
+Info:     106000 |    28104      77895 |  279   721 |     40725|       0.84      93.65|
+Info:     107000 |    28319      78680 |  215   785 |     40589|       1.11      94.76|
+Info:     108000 |    28696      79303 |  377   623 |     40167|       1.07      95.82|
+Info:     109000 |    29031      79968 |  335   665 |     39816|       0.78      96.60|
+Info:     110000 |    29312      80687 |  281   719 |     39458|       0.64      97.24|
+Info:     111000 |    29624      81375 |  312   688 |     39153|       0.83      98.07|
+Info:     112000 |    29890      82109 |  266   734 |     39085|       1.01      99.09|
+Info:     113000 |    30159      82840 |  269   731 |     39068|       1.30     100.39|
+Info:     114000 |    30377      83622 |  218   782 |     38816|       0.73     101.12|
+Info:     115000 |    30695      84304 |  318   682 |     38590|       0.84     101.97|
+Info:     116000 |    30944      85055 |  249   751 |     38252|       0.75     102.71|
+Info:     117000 |    31173      85826 |  229   771 |     37736|       0.62     103.34|
+Info:     118000 |    31481      86518 |  308   692 |     37728|       1.27     104.60|
+Info:     119000 |    31753      87246 |  272   728 |     37330|       0.86     105.47|
+Info:     120000 |    32033      87921 |  280   675 |     36979|       0.84     106.31|
+Info:     121000 |    32312      88611 |  279   690 |     36516|       0.88     107.19|
+Info:     122000 |    32616      89260 |  304   649 |     36267|       1.64     108.83|
+Info:     123000 |    32866      89954 |  250   694 |     35882|       1.27     110.10|
+Info:     124000 |    33148      90597 |  282   643 |     35408|       0.60     110.70|
+Info:     125000 |    33390      91322 |  242   725 |     35094|       0.85     111.56|
+Info:     126000 |    33652      91997 |  262   675 |     34551|       0.68     112.23|
+Info:     127000 |    33872      92748 |  220   751 |     34337|       0.70     112.93|
+Info:     128000 |    34117      93457 |  245   709 |     33792|       0.78     113.71|
+Info:     129000 |    34367      94175 |  250   718 |     33261|       0.60     114.30|
+Info:     130000 |    34676      94845 |  309   670 |     32957|       0.97     115.27|
+Info:     131000 |    34967      95517 |  291   672 |     32464|       0.66     115.93|
+Info:     132000 |    35257      96199 |  290   682 |     31972|       0.80     116.74|
+Info:     133000 |    35465      96984 |  208   785 |     31575|       0.59     117.33|
+Info:     134000 |    35665      97771 |  200   787 |     31010|       0.64     117.97|
+Info:     135000 |    35905      98527 |  240   756 |     30681|       1.25     119.21|
+Info:     136000 |    36167      99242 |  262   715 |     30104|       1.82     121.03|
+Info:     137000 |    36362     100031 |  195   789 |     29693|       1.13     122.16|
+Info:     138000 |    36584     100772 |  222   741 |     29258|       1.44     123.61|
+Info:     139000 |    36820     101507 |  236   735 |     28694|       1.16     124.76|
+Info:     140000 |    37051     102253 |  231   746 |     28345|       1.71     126.47|
+Info:     141000 |    37291     102955 |  240   702 |     27800|       1.28     127.76|
+Info:     142000 |    37496     103696 |  205   741 |     27188|       0.97     128.73|
+Info:     143000 |    37710     104407 |  214   711 |     26587|       0.89     129.62|
+Info:     144000 |    37914     105113 |  204   706 |     25882|       0.78     130.40|
+Info:     145000 |    38122     105783 |  208   670 |     25214|       1.03     131.43|
+Info:     146000 |    38376     106457 |  254   674 |     24759|       1.06     132.50|
+Info:     147000 |    38613     107162 |  237   705 |     24353|       1.23     133.73|
+Info:     148000 |    38851     107909 |  238   747 |     24315|       1.42     135.15|
+Info:     149000 |    39039     108721 |  188   812 |     24225|       1.07     136.22|
+Info:     150000 |    39378     109340 |  339   619 |     23810|       0.85     137.07|
+Info:     151000 |    39623     110066 |  245   726 |     23267|       0.64     137.71|
+Info:     152000 |    39892     110782 |  269   716 |     22927|       0.89     138.60|
+Info:     153000 |    40168     111495 |  276   713 |     22732|       0.91     139.50|
+Info:     154000 |    40399     112216 |  231   721 |     22141|       0.48     139.98|
+Info:     155000 |    40626     112926 |  227   710 |     21444|       0.50     140.48|
+Info:     156000 |    40853     113671 |  227   745 |     20957|       0.64     141.12|
+Info:     157000 |    41075     114374 |  222   703 |     20362|       0.59     141.70|
+Info:     158000 |    41359     115014 |  284   640 |     19782|       0.51     142.22|
+Info:     159000 |    41537     115711 |  178   697 |     19015|       0.49     142.71|
+Info:     160000 |    41758     116398 |  221   687 |     18303|       0.52     143.23|
+Info:     161000 |    41995     117077 |  237   679 |     17792|       0.80     144.03|
+Info:     162000 |    42262     117759 |  267   682 |     17281|       1.02     145.04|
+Info:     163000 |    42462     118408 |  200   649 |     16584|       0.48     145.53|
+Info:     164000 |    42772     119055 |  310   647 |     16261|       0.98     146.50|
+Info:     165000 |    43058     119698 |  286   643 |     15689|       0.62     147.12|
+Info:     166000 |    43321     120366 |  263   668 |     15088|       0.65     147.78|
+Info:     167000 |    43624     121035 |  303   669 |     14876|       1.39     149.16|
+Info:     168000 |    43878     121696 |  254   661 |     14244|       0.65     149.82|
+Info:     169000 |    44134     122365 |  256   669 |     13622|       0.61     150.43|
+Info:     170000 |    44323     123102 |  189   737 |     12883|       0.47     150.90|
+Info:     171000 |    44473     123855 |  150   753 |     12068|       0.47     151.37|
+Info:     172000 |    44588     124662 |  115   807 |     11225|       0.45     151.82|
+Info:     173000 |    44743     125406 |  155   744 |     10466|       0.51     152.33|
+Info:     174000 |    44874     126192 |  131   786 |      9631|       0.43     152.76|
+Info:     175000 |    45027     126953 |  153   761 |      8843|       0.53     153.28|
+Info:     176000 |    45172     127728 |  145   775 |      8063|       0.48     153.77|
+Info:     177000 |    45334     128522 |  162   794 |      7304|       0.55     154.31|
+Info:     178000 |    45522     129273 |  188   751 |      6568|       0.56     154.88|
+Info:     179000 |    45771     129997 |  249   724 |      5959|       0.61     155.49|
+Info:     180000 |    46005     130736 |  234   739 |      5257|       0.60     156.09|
+Info:     181000 |    46276     131440 |  271   704 |      4682|       0.76     156.85|
+Info:     182000 |    46531     132162 |  255   722 |      4038|       0.61     157.46|
+Info:     183000 |    46759     132890 |  228   728 |      3388|       0.74     158.20|
+Info:     184000 |    47012     133632 |  253   742 |      2720|       0.58     158.77|
+Info:     185000 |    47252     134392 |  240   760 |      1997|       0.55     159.32|
+Info:     186000 |    47418     135089 |  166   697 |      1342|       1.12     160.44|
+Info:     187000 |    47666     135766 |  248   677 |      1024|       1.10     161.54|
+Info:     188000 |    47805     136516 |  139   750 |       483|       0.71     162.25|
+Info:     188841 |    47963     137123 |  158   607 |         0|       1.32     163.57|
+Info: Routing complete.
+Info: Router1 time 163.57s
+Info: Checksum: 0xb8622bd1
+
+Info: Critical path report for clock '$glbnet$_pll_io_clk_o_2' (posedge -> posedge):
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source encG.q_m_reg_TRELLIS_FF_Q_2.Q
+Info:    routing  0.83  1.36 Net encG.q_m_reg[3] (72,5) -> (72,5)
+Info:                          Sink serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z.B
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_external/TmdsEncoder.sv:12.14-12.21
+Info:      logic  0.24  1.60 Source serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z.F
+Info:    routing  0.43  2.02 Net serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D[3] (72,5) -> (72,5)
+Info:                          Sink serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_D.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  2.26 Source serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_D.F
+Info:    routing  0.41  2.67 Net serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_D_Z[1] (72,5) -> (73,5)
+Info:                          Sink serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_D_Z_LUT4_D.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  2.91 Source serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_D_Z_LUT4_D.F
+Info:    routing  0.64  3.55 Net serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D[2] (73,5) -> (73,5)
+Info:                          Sink serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  3.79 Source serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z.F
+Info:    routing  0.64  4.43 Net serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D[3] (73,5) -> (73,5)
+Info:                          Sink serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z_B_LUT4_A.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  4.66 Source serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z_B_LUT4_A.F
+Info:    routing  1.21  5.87 Net serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z_B_LUT4_A_Z[1] (73,5) -> (72,2)
+Info:                          Sink serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_A0_LUT4_Z_D_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB1.B
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  6.32 Source serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_A0_LUT4_Z_D_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  6.32 Net serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_A0_LUT4_Z_D_CCU2C_S0_CIN (72,2) -> (72,2)
+Info:                          Sink serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_A0_LUT4_Z_D_CCU2C_S0$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_external/TmdsEncoder.sv:77.57-77.77
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.44  6.76 Source serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_A0_LUT4_Z_D_CCU2C_S0$CCU2_COMB0.F
+Info:    routing  0.47  7.23 Net serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_A0_LUT4_Z_D[1] (72,2) -> (71,2)
+Info:                          Sink serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_D.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  7.47 Source serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_D.F
+Info:    routing  0.51  7.98 Net serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_D_Z[3] (71,2) -> (71,2)
+Info:                          Sink serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_Z.C
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  8.21 Source serG.io_tmds_LUT4_Z_D_LUT4_Z_D_LUT4_Z.F
+Info:    routing  0.69  8.90 Net serG.io_tmds_LUT4_Z_D_LUT4_Z_D[2] (71,2) -> (71,4)
+Info:                          Sink serG.io_tmds_LUT4_Z_D_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  9.13 Source serG.io_tmds_LUT4_Z_D_LUT4_Z.F
+Info:    routing  0.73  9.87 Net serG.io_tmds_LUT4_Z_D[4] (71,4) -> (72,3)
+Info:                          Sink serG.io_tmds_LUT4_Z_D_PFUMX_C0_Z_PFUMX_Z_4_BLUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  10.12 Source serG.io_tmds_LUT4_Z_D_PFUMX_C0_Z_PFUMX_Z_4_BLUT_LUT4_Z.OFX
+Info:    routing  0.37  10.49 Net serG.io_tmds_LUT4_Z_D_PFUMX_C0_Z[2] (72,3) -> (72,3)
+Info:                          Sink serG.shift_TRELLIS_FF_Q_5.M
+Info:      setup  0.00  10.49 Source serG.shift_TRELLIS_FF_Q_5.M
+Info: 3.56 ns logic, 6.93 ns routing
+
+Info: Critical path report for clock '$glbnet$_pll_io_clk_o_0' (posedge -> posedge):
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source uo_out_val_iCache_io_cpu_cpu.instr_TRELLIS_FF_Q.Q
+Info:    routing  1.57  2.09 Net uo_out_val_iCache_io_cpu_cpu._GEN[0] (92,32) -> (83,26)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.casez_tmp_27_LUT4_Z_20_D_LUT4_Z_1_C_LUT4_Z_D_LUT4_D_2_Z_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_D_L6MUX21_SD_D1_PFUMX_Z_BLUT_LUT4_Z.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.40  2.49 Source uo_out_val_iCache_io_cpu_cpu.casez_tmp_27_LUT4_Z_20_D_LUT4_Z_1_C_LUT4_Z_D_LUT4_D_2_Z_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_D_L6MUX21_SD_D1_PFUMX_Z_BLUT_LUT4_Z.OFX
+Info:    routing  0.00  2.49 Net uo_out_val_iCache_io_cpu_cpu.casez_tmp_27_LUT4_Z_20_D_LUT4_Z_1_C_LUT4_Z_D_LUT4_D_2_Z_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_D_L6MUX21_SD_D1 (83,26) -> (83,26)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.casez_tmp_27_LUT4_Z_20_D_LUT4_Z_1_C_LUT4_Z_D_LUT4_D_2_Z_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_D_L6MUX21_SD_D1_PFUMX_Z_ALUT_LUT4_Z.FXB
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:141.38-141.40
+Info:      logic  0.24  2.73 Source uo_out_val_iCache_io_cpu_cpu.casez_tmp_27_LUT4_Z_20_D_LUT4_Z_1_C_LUT4_Z_D_LUT4_D_2_Z_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_D_L6MUX21_SD_D1_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.63  3.37 Net uo_out_val_iCache_io_cpu_cpu.casez_tmp_27_LUT4_Z_20_D_LUT4_Z_1_C_LUT4_Z_D_LUT4_D_2_Z_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_D_L6MUX21_SD_Z[5] (83,26) -> (81,26)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_D_LUT4_D_C_L6MUX21_SD_D0_PFUMX_Z_ALUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  3.62 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_D_LUT4_D_C_L6MUX21_SD_D0_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.80  4.42 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_31_BLUT_LUT4_Z_D_LUT4_C_Z_LUT4_Z_C[0] (81,26) -> (84,26)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_C.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  4.66 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_C.F
+Info:    routing  0.67  5.33 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_C_Z[0] (84,26) -> (85,27)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z_D_L6MUX21_Z_D0_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.C
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  5.57 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z_D_L6MUX21_Z_D0_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.F
+Info:    routing  0.00  5.57 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z_D_L6MUX21_Z_D0_L6MUX21_Z_D0_PFUMX_Z_ALUT (85,27) -> (85,27)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z_D_L6MUX21_Z_D0_L6MUX21_Z_D0_PFUMX_Z_BLUT_LUT4_Z.F1
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:157.22-157.24
+Info:      logic  0.17  5.73 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z_D_L6MUX21_Z_D0_L6MUX21_Z_D0_PFUMX_Z_BLUT_LUT4_Z.OFX
+Info:    routing  0.00  5.73 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z_D_L6MUX21_Z_D0_L6MUX21_Z_D0 (85,27) -> (85,27)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z_D_L6MUX21_Z_D0_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.FXA
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:157.50-157.52
+Info:      logic  0.24  5.97 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z_D_L6MUX21_Z_D0_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.00  5.97 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z_D_L6MUX21_Z_D0 (85,27) -> (85,27)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z_D_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.FXA
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:157.66-157.68
+Info:      logic  0.24  6.21 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z_D_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.64  6.85 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z_D[3] (85,27) -> (84,27)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  7.08 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z_LUT4_Z.F
+Info:    routing  1.95  9.03 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_S1_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_CCU2C_S0_COUT_LUT4_Z_1_B_LUT4_C_Z_PFUMX_ALUT_Z_L6MUX21_D1_Z_L6MUX21_Z_2_D1_PFUMX_Z_ALUT_LUT4_Z_D_LUT4_C_1_Z_LUT4_D_Z_LUT4_Z_1_C_LUT4_A_Z_PFUMX_BLUT_Z[2] (84,27) -> (110,33)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_Z_1_D_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  9.27 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_Z_1_D_LUT4_Z.F
+Info:    routing  0.22  9.49 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_Z_1_D[1] (110,33) -> (110,33)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_Z_1_D_LUT4_D.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  9.72 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_Z_1_D_LUT4_D.F
+Info:    routing  2.17  11.89 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_Z_1_D_LUT4_D_Z[64] (110,33) -> (83,34)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_2_S0_CCU2C_S1_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_MULT18X18D_P17.A12
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_external/HuttAlu.sv:24.5-25.63
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/mul2dsp.v:61.22-61.23
+Info:      logic  3.93  15.82 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_2_S0_CCU2C_S1_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_MULT18X18D_P17.P20
+Info:    routing  2.45  18.27 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_2_S0_CCU2C_S1_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_MULT18X18D_P17_P27[20] (83,34) -> (111,35)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_2_S0_CCU2C_S1_S0_CCU2C_S1_A0_LUT4_Z.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/techmap.v:198.23-198.24
+Info:      logic  0.24  18.51 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_2_S0_CCU2C_S1_S0_CCU2C_S1_A0_LUT4_Z.F
+Info:    routing  1.46  19.97 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_2_S0_CCU2C_S1_S0_CCU2C_S1_A0 (111,35) -> (114,38)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_2_S0_CCU2C_S1_S0_CCU2C_S1$CCU2_COMB0.A
+Info:      logic  0.45  20.41 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_2_S0_CCU2C_S1_S0_CCU2C_S1$CCU2_COMB0.FCO
+Info:    routing  0.00  20.41 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_2_S0_CCU2C_S1_S0_CCU2C_S1$CCU2_FCI_INT (114,38) -> (114,38)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_2_S0_CCU2C_S1_S0_CCU2C_S1$CCU2_COMB1.FCI
+Info:      logic  0.00  20.41 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_2_S0_CCU2C_S1_S0_CCU2C_S1$CCU2_COMB1.FCO
+Info:    routing  0.00  20.41 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_2_S0_CCU2C_S1_S0_CCU2C_S1_COUT (114,38) -> (115,38)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_CCU2C_S1$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  20.48 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_CCU2C_S1$CCU2_COMB0.FCO
+Info:    routing  0.00  20.48 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_CCU2C_S1$CCU2_FCI_INT (115,38) -> (115,38)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_CCU2C_S1$CCU2_COMB1.FCI
+Info:      logic  0.40  20.89 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_CCU2C_S1$CCU2_COMB1.F
+Info:    routing  1.42  22.31 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0[1] (115,38) -> (112,39)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_L6MUX21_Z_D0_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  22.54 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_L6MUX21_Z_D0_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.F
+Info:    routing  0.00  22.54 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_L6MUX21_Z_D0_L6MUX21_Z_D1_PFUMX_Z_ALUT (112,39) -> (112,39)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_L6MUX21_Z_D0_L6MUX21_Z_D1_PFUMX_Z_BLUT_LUT4_Z.F1
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:157.30-157.32
+Info:      logic  0.17  22.71 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_L6MUX21_Z_D0_L6MUX21_Z_D1_PFUMX_Z_BLUT_LUT4_Z.OFX
+Info:    routing  0.00  22.71 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_L6MUX21_Z_D0_L6MUX21_Z_D1 (112,39) -> (112,39)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_L6MUX21_Z_D0_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.FXB
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:157.54-157.56
+Info:      logic  0.24  22.95 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_L6MUX21_Z_D0_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.00  22.95 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_L6MUX21_Z_D0 (112,39) -> (112,39)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.FXA
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:157.66-157.68
+Info:      logic  0.24  23.19 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.44  23.63 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_CCU2C_S0_A1_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_S0_CCU2C_S1_1_S0_CCU2C_S1_1_S0_CCU2C_S1_S0[0] (112,39) -> (111,39)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_B0_PFUMX_Z_ALUT_LUT4_Z.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  23.87 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_B0_PFUMX_Z_ALUT_LUT4_Z.F
+Info:    routing  0.00  23.87 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_B0_PFUMX_Z_ALUT (111,39) -> (111,39)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_B0_PFUMX_Z_BLUT_LUT4_Z.F1
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:133.22-133.24
+Info:      logic  0.17  24.03 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_B0_PFUMX_Z_BLUT_LUT4_Z.OFX
+Info:    routing  1.03  25.07 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_B0 (111,39) -> (111,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0$CCU2_COMB0.B
+Info:      logic  0.45  25.51 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0$CCU2_COMB0.FCO
+Info:    routing  0.00  25.51 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0$CCU2_FCI_INT (111,41) -> (111,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0$CCU2_COMB1.FCI
+Info:      logic  0.00  25.51 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0$CCU2_COMB1.FCO
+Info:    routing  0.00  25.51 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT (111,41) -> (111,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  25.58 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  25.58 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN$CCU2_FCI_INT (111,41) -> (111,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  25.58 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  25.58 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT (111,41) -> (111,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  25.66 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  25.66 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (111,41) -> (111,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  25.66 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  25.66 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (111,41) -> (111,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  25.73 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  25.73 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (111,41) -> (111,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  25.73 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  25.73 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (111,41) -> (112,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  25.80 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  25.80 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (112,41) -> (112,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  25.80 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  25.80 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (112,41) -> (112,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  25.87 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  25.87 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (112,41) -> (112,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  25.87 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  25.87 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (112,41) -> (112,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  25.94 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  25.94 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (112,41) -> (112,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  25.94 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  25.94 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (112,41) -> (112,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_S0_CCU2C_S0_S1_CCU2C_S1$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  26.01 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_S0_CCU2C_S0_S1_CCU2C_S1$CCU2_COMB0.FCO
+Info:    routing  0.00  26.01 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_S0_CCU2C_S0_S1_CCU2C_S1$CCU2_FCI_INT (112,41) -> (112,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_S0_CCU2C_S0_S1_CCU2C_S1$CCU2_COMB1.FCI
+Info:      logic  0.00  26.01 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_S0_CCU2C_S0_S1_CCU2C_S1$CCU2_COMB1.FCO
+Info:    routing  0.00  26.01 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_S0_CCU2C_S0_S1_CCU2C_S1_COUT (112,41) -> (113,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  26.08 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0$CCU2_COMB0.FCO
+Info:    routing  0.00  26.08 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0$CCU2_FCI_INT (113,41) -> (113,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0$CCU2_COMB1.FCI
+Info:      logic  0.00  26.08 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0$CCU2_COMB1.FCO
+Info:    routing  0.00  26.08 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT (113,41) -> (113,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  26.15 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  26.15 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_FCI_INT (113,41) -> (113,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  26.15 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  26.15 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT (113,41) -> (113,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  26.22 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  26.22 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (113,41) -> (113,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  26.22 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  26.22 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (113,41) -> (113,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  26.30 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  26.30 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (113,41) -> (113,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  26.30 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  26.30 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (113,41) -> (114,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  26.37 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  26.37 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (114,41) -> (114,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  26.37 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  26.37 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (114,41) -> (114,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  26.44 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  26.44 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (114,41) -> (114,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  26.44 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  26.44 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (114,41) -> (114,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  26.51 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  26.51 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (114,41) -> (114,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  26.51 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  26.51 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (114,41) -> (114,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  26.58 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  26.58 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (114,41) -> (114,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  26.58 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  26.58 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_CCU2C_S1_CIN_CCU2C_COUT_CIN (114,41) -> (115,41)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_CCU2C_S1_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.44  27.02 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_CCU2C_S1_CIN_CCU2C_COUT$CCU2_COMB0.F
+Info:    routing  1.03  28.06 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_CCU2C_S1_CIN_CCU2C_COUT_S0[3] (115,41) -> (122,42)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  28.29 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_Z.F
+Info:    routing  0.42  28.71 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0[4] (122,42) -> (122,42)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_PFUMX_ALUT_BLUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  28.97 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_PFUMX_ALUT_BLUT_LUT4_Z.OFX
+Info:    routing  0.45  29.42 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_PFUMX_Z_1_ALUT_LUT4_Z_B_CCU2C_S0_S1_LUT4_C_Z_LUT4_C_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_D_CCU2C_S0_S1_MULT18X18D_P15_P7_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_PFUMX_ALUT_Z[3] (122,42) -> (122,43)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_PFUMX_Z_1_BLUT_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.40  29.82 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z_PFUMX_Z_1_BLUT_LUT4_Z.OFX
+Info:    routing  1.61  31.43 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_C_Z[5] (122,43) -> (100,43)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_LUT4_B_Z_L6MUX21_Z_D1_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  31.68 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_LUT4_B_Z_L6MUX21_Z_D1_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.00  31.68 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_LUT4_B_Z_L6MUX21_Z_D1 (100,43) -> (100,43)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_LUT4_B_Z_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.FXB
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:157.70-157.72
+Info:      logic  0.24  31.93 Source uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_LUT4_B_Z_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  1.49  33.42 Net uo_out_val_iCache_io_cpu_cpu.csrNewVal_PFUMX_Z_48_C0_LUT4_C_Z_LUT4_Z_1_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_B_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_CCU2C_S0_S1_LUT4_B_Z[4] (100,43) -> (89,44)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.regFile.memHi_ext.W0_data_PFUMX_Z_13_BLUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  33.67 Source uo_out_val_iCache_io_cpu_cpu.regFile.memHi_ext.W0_data_PFUMX_Z_13_BLUT_LUT4_Z.OFX
+Info:    routing  1.02  34.69 Net uo_out_val_iCache_io_cpu_cpu.regFile.io_wData[46] (89,44) -> (92,47)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.regFile.memLo_ext.Memory.0.11$RAMW_SLICE.D1
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_external/mem_16x64.sv:15.17-15.24
+Info:      logic  0.00  34.69 Source uo_out_val_iCache_io_cpu_cpu.regFile.memLo_ext.Memory.0.11$RAMW_SLICE.WDO2
+Info:    routing  0.08  34.77 Net uo_out_val_iCache_io_cpu_cpu.regFile.memLo_ext.Memory.0.11$RAMW_SLICE$conn$WDO2 (92,47) -> (92,47)
+Info:                          Sink uo_out_val_iCache_io_cpu_cpu.regFile.memLo_ext.Memory.0.11$DPRAM_COMB2.WD
+Info:      setup  0.00  34.77 Source uo_out_val_iCache_io_cpu_cpu.regFile.memLo_ext.Memory.0.11$DPRAM_COMB2.WD
+Info: 13.22 ns logic, 21.56 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> '<async>':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source far_link_up$tr_io.O
+Info:    routing  2.60  2.60 Net link_up_loop$TRELLIS_IO_OUT (105,0) -> (94,17)
+Info:                          Sink dn_d_LUT4_Z_10.B
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  2.83 Source dn_d_LUT4_Z_10.F
+Info:    routing  6.40  9.23 Net dn_d[11]$TRELLIS_IO_OUT (94,17) -> (126,92)
+Info:                          Sink dn_d[11]$tr_io.I
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_external/BorgLinkMaster.sv:22.17-22.28
+Info: 0.24 ns logic, 9.00 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> 'posedge $glbnet$_pll_io_clk_o_0':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source far_link_up$tr_io.O
+Info:    routing  3.27  3.27 Net link_up_loop$TRELLIS_IO_OUT (105,0) -> (88,20)
+Info:                          Sink uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_Z.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  3.51 Source uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_Z.F
+Info:    routing  2.28  5.79 Net uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A[2] (88,20) -> (80,38)
+Info:                          Sink uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_C.C
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  6.03 Source uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_C.F
+Info:    routing  0.00  6.03 Net uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_C_Z (80,38) -> (80,38)
+Info:                          Sink uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_C_Z_PFUMX_ALUT_BLUT_LUT4_Z.F1
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:133.22-133.24
+Info:      logic  0.17  6.19 Source uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_C_Z_PFUMX_ALUT_BLUT_LUT4_Z.OFX
+Info:    routing  0.41  6.61 Net uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_C_Z_PFUMX_ALUT_Z[1] (80,38) -> (81,38)
+Info:                          Sink uo_out_val_clintOpt.respPending_LUT4_A.B
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  6.84 Source uo_out_val_clintOpt.respPending_LUT4_A.F
+Info:    routing  0.61  7.45 Net uo_out_val_clintOpt.respPending_LUT4_A_Z[1] (81,38) -> (81,38)
+Info:                          Sink uo_out_val_clintOpt.respPending_LUT4_A_Z_LUT4_D.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  7.69 Source uo_out_val_clintOpt.respPending_LUT4_A_Z_LUT4_D.F
+Info:    routing  0.75  8.44 Net uo_out_val_clintOpt.respPending_LUT4_A_Z_LUT4_D_Z[4] (81,38) -> (80,40)
+Info:                          Sink uo_out_val_socFire_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  8.67 Source uo_out_val_socFire_LUT4_Z.F
+Info:    routing  1.43  10.10 Net uo_out_val_socFire (80,40) -> (71,37)
+Info:                          Sink _uo_out_val_debug_uart_tx_start_T_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  10.34 Source _uo_out_val_debug_uart_tx_start_T_LUT4_Z.F
+Info:    routing  1.12  11.46 Net _uo_out_val_debug_uart_tx_start_T (71,37) -> (67,37)
+Info:                          Sink uo_out_val_socRespData_TRELLIS_FF_Q_23_LSR_LUT4_Z_B_LUT4_B.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  11.70 Source uo_out_val_socRespData_TRELLIS_FF_Q_23_LSR_LUT4_Z_B_LUT4_B.F
+Info:    routing  1.54  13.24 Net uo_out_val_socRespData_TRELLIS_FF_Q_23_LSR_LUT4_Z_B_LUT4_B_Z[4] (67,37) -> (60,39)
+Info:                          Sink _uo_out_val_debug_uart_tx_busy_uartTx_io_uart_tx_busy_LUT4_Z_D_LUT4_B.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  13.47 Source _uo_out_val_debug_uart_tx_busy_uartTx_io_uart_tx_busy_LUT4_Z_D_LUT4_B.F
+Info:    routing  0.73  14.20 Net _uo_out_val_debug_uart_tx_busy_uartTx_io_uart_tx_busy_LUT4_Z_D_LUT4_B_Z (60,39) -> (60,39)
+Info:                          Sink uo_out_val_debug_uart_tx_busy_uartTx.data_to_send_TRELLIS_FF_Q_7.CE
+Info:      setup  0.00  14.20 Source uo_out_val_debug_uart_tx_busy_uartTx.data_to_send_TRELLIS_FF_Q_7.CE
+Info: 2.05 ns logic, 12.15 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> 'negedge $glbnet$_pll_io_clk_o_0':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source rst_n$tr_io.O
+Info:    routing  5.61  5.61 Net rst_n$TRELLIS_IO_IN (6,0) -> (60,32)
+Info:                          Sink rst_n_LUT4_C.C
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_external/ulx3s_top.sv:4.17-4.22
+Info:      logic  0.24  5.84 Source rst_n_LUT4_C.F
+Info:    routing  0.13  5.97 Net rst_n_LUT4_C_Z (60,32) -> (60,32)
+Info:                          Sink uo_out_val_soc_rst_reg_n_TRELLIS_FF_Q.DI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_external/ulx3s_top.sv:225.3-226.82
+Info:      setup  0.00  5.97 Source uo_out_val_soc_rst_reg_n_TRELLIS_FF_Q.DI
+Info: 0.24 ns logic, 5.74 ns routing
+
+Info: Critical path report for cross-domain path 'posedge $glbnet$_pll_io_clk_o_0' -> '<async>':
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source sdramBackend.state_TRELLIS_FF_Q_2.Q
+Info:    routing  0.87  1.40 Net sdramBackend.state[2] (120,59) -> (120,59)
+Info:                          Sink sdramBackend._GEN_LUT4_Z.B
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_external/SdramBackend.sv:29.15-29.20
+Info:      logic  0.24  1.63 Source sdramBackend._GEN_LUT4_Z.F
+Info:    routing  6.91  8.54 Net sdramBackend._GEN (120,59) -> (6,39)
+Info:                          Sink _sdramBackend_io_backend_busy_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  8.78 Source _sdramBackend_io_backend_busy_LUT4_Z.F
+Info:    routing  1.36  10.13 Net _sdramBackend_io_backend_busy (6,39) -> (0,35)
+Info:                          Sink led[1]$tr_io.I
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_external/SdramBackend.sv:13.17-13.32
+Info: 1.00 ns logic, 9.14 ns routing
+
+Info: Critical path report for cross-domain path 'posedge $glbnet$_pll_io_clk_o_0' -> 'posedge $glbnet$_pll_io_clk_o_2':
+Info:       type curr  total name
+Info:   clk-to-q  5.83  5.83 Source scanout.frameBuf_ext.Memory.0.19.DOB0
+Info:    routing  2.43  8.26 Net scanout.frameBuf_ext.Memory.0.19_DOB0[3] (73,46) -> (73,13)
+Info:                          Sink scanout.pixelSafe_LUT4_Z_17.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/brams_map_16kd.v:46.13-46.16
+Info:      logic  0.24  8.50 Source scanout.pixelSafe_LUT4_Z_17.F
+Info:    routing  0.13  8.63 Net scanout.pixelSafe[19] (73,13) -> (73,13)
+Info:                          Sink hdmiRed_TRELLIS_FF_Q_4.DI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_external/HdmiScanoutFp16.sv:42.15-42.24
+Info:      setup  0.00  8.63 Source hdmiRed_TRELLIS_FF_Q_4.DI
+Info: 6.07 ns logic, 2.56 ns routing
+
+Warning: Max frequency for clock '$glbnet$_pll_io_clk_o_2': 95.32 MHz (FAIL at 125.00 MHz)
+Info: Max frequency for clock '$glbnet$_pll_io_clk_o_0': 28.76 MHz (PASS at 25.00 MHz)
+
+Info: Max delay <async>                         -> <async>                        : 9.23 ns
+Info: Max delay <async>                         -> posedge $glbnet$_pll_io_clk_o_0: 14.20 ns
+Info: Max delay <async>                         -> negedge $glbnet$_pll_io_clk_o_0: 5.97 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> <async>                        : 10.13 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> posedge $glbnet$_pll_io_clk_o_2: 8.63 ns
+
+Info: Slack histogram:
+Info:  legend: * represents 40 endpoint(s)
+Info:          + represents [1,40) endpoint(s)
+Info: [ -2491,   -413) |+
+Info: [  -413,   1665) |+
+Info: [  1665,   3743) |+
+Info: [  3743,   5821) |*+
+Info: [  5821,   7899) |*****+
+Info: [  7899,   9977) |+
+Info: [  9977,  12055) |+
+Info: [ 12055,  14133) |*******************+
+Info: [ 14133,  16211) |**********************+
+Info: [ 16211,  18289) |****+
+Info: [ 18289,  20367) |*****+
+Info: [ 20367,  22445) |******+
+Info: [ 22445,  24523) |****************+
+Info: [ 24523,  26601) |****************+
+Info: [ 26601,  28679) |*********************+
+Info: [ 28679,  30757) |************************************************************ 
+Info: [ 30757,  32835) |******************************************************+
+Info: [ 32835,  34913) |****************************+
+Info: [ 34913,  36991) |********************************+
+Info: [ 36991,  39069) |*******************************+
+1 warning, 0 errors
+
+Info: Program finished normally.

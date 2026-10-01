@@ -1,0 +1,1354 @@
+Info: constraining clock net 'clk_25mhz' to 25.00 MHz
+
+Info: Logic utilisation before packing:
+Info:     Total LUT4s:     41621/83640    49%
+Info:         logic LUTs:  33803/83640    40%
+Info:         carry LUTs:   6732/83640     8%
+Info:           RAM LUTs:    724/10455     6%
+Info:          RAMW LUTs:    362/20910     1%
+
+Info:      Total DFFs:     13633/83640    16%
+
+Info: Packing IOs..
+Info: sdram_d_9 feeds TRELLIS_IO bb_9, removing $nextpnr_iobuf sdram_d_9.
+Info: pin 'bb_9' constrained to Bel 'X126/Y35/PIOC'.
+Info: sdram_d_8 feeds TRELLIS_IO bb_8, removing $nextpnr_iobuf sdram_d_8.
+Info: pin 'bb_8' constrained to Bel 'X126/Y35/PIOD'.
+Info: sdram_d_7 feeds TRELLIS_IO bb_7, removing $nextpnr_iobuf sdram_d_7.
+Info: pin 'bb_7' constrained to Bel 'X126/Y86/PIOD'.
+Info: sdram_d_6 feeds TRELLIS_IO bb_6, removing $nextpnr_iobuf sdram_d_6.
+Info: pin 'bb_6' constrained to Bel 'X126/Y92/PIOD'.
+Info: sdram_d_5 feeds TRELLIS_IO bb_5, removing $nextpnr_iobuf sdram_d_5.
+Info: pin 'bb_5' constrained to Bel 'X126/Y89/PIOD'.
+Info: sdram_d_4 feeds TRELLIS_IO bb_4, removing $nextpnr_iobuf sdram_d_4.
+Info: pin 'bb_4' constrained to Bel 'X126/Y83/PIOD'.
+Info: sdram_d_3 feeds TRELLIS_IO bb_3, removing $nextpnr_iobuf sdram_d_3.
+Info: pin 'bb_3' constrained to Bel 'X126/Y53/PIOC'.
+Info: sdram_d_2 feeds TRELLIS_IO bb_2, removing $nextpnr_iobuf sdram_d_2.
+Info: pin 'bb_2' constrained to Bel 'X126/Y50/PIOD'.
+Info: sdram_d_15 feeds TRELLIS_IO bb_15, removing $nextpnr_iobuf sdram_d_15.
+Info: pin 'bb_15' constrained to Bel 'X126/Y20/PIOC'.
+Info: sdram_d_14 feeds TRELLIS_IO bb_14, removing $nextpnr_iobuf sdram_d_14.
+Info: pin 'bb_14' constrained to Bel 'X126/Y41/PIOC'.
+Info: sdram_d_13 feeds TRELLIS_IO bb_13, removing $nextpnr_iobuf sdram_d_13.
+Info: pin 'bb_13' constrained to Bel 'X126/Y14/PIOD'.
+Info: sdram_d_12 feeds TRELLIS_IO bb_12, removing $nextpnr_iobuf sdram_d_12.
+Info: pin 'bb_12' constrained to Bel 'X126/Y14/PIOC'.
+Info: sdram_d_11 feeds TRELLIS_IO bb_11, removing $nextpnr_iobuf sdram_d_11.
+Info: pin 'bb_11' constrained to Bel 'X126/Y35/PIOA'.
+Info: sdram_d_10 feeds TRELLIS_IO bb_10, removing $nextpnr_iobuf sdram_d_10.
+Info: pin 'bb_10' constrained to Bel 'X126/Y35/PIOB'.
+Info: sdram_d_1 feeds TRELLIS_IO bb_1, removing $nextpnr_iobuf sdram_d_1.
+Info: pin 'bb_1' constrained to Bel 'X126/Y50/PIOC'.
+Info: sdram_d_0 feeds TRELLIS_IO bb, removing $nextpnr_iobuf sdram_d_0.
+Info: pin 'bb' constrained to Bel 'X126/Y20/PIOD'.
+Info: pin 'sdram_wen$tr_io' constrained to Bel 'X126/Y86/PIOC'.
+Info: pin 'sdram_rasn$tr_io' constrained to Bel 'X126/Y86/PIOB'.
+Info: pin 'sdram_dqm[1]$tr_io' constrained to Bel 'X126/Y38/PIOA'.
+Info: pin 'sdram_dqm[0]$tr_io' constrained to Bel 'X126/Y89/PIOC'.
+Info: pin 'sdram_csn$tr_io' constrained to Bel 'X126/Y86/PIOA'.
+Info: pin 'sdram_clk$tr_io' constrained to Bel 'X126/Y38/PIOB'.
+Info: pin 'sdram_cke$tr_io' constrained to Bel 'X126/Y38/PIOC'.
+Info: pin 'sdram_casn$tr_io' constrained to Bel 'X126/Y89/PIOA'.
+Info: pin 'sdram_ba[1]$tr_io' constrained to Bel 'X126/Y83/PIOB'.
+Info: pin 'sdram_ba[0]$tr_io' constrained to Bel 'X126/Y83/PIOC'.
+Info: pin 'sdram_a[12]$tr_io' constrained to Bel 'X126/Y41/PIOA'.
+Info: pin 'sdram_a[11]$tr_io' constrained to Bel 'X126/Y38/PIOD'.
+Info: pin 'sdram_a[10]$tr_io' constrained to Bel 'X126/Y83/PIOA'.
+Info: pin 'sdram_a[9]$tr_io' constrained to Bel 'X126/Y41/PIOB'.
+Info: pin 'sdram_a[8]$tr_io' constrained to Bel 'X126/Y44/PIOA'.
+Info: pin 'sdram_a[7]$tr_io' constrained to Bel 'X126/Y44/PIOC'.
+Info: pin 'sdram_a[6]$tr_io' constrained to Bel 'X126/Y41/PIOD'.
+Info: pin 'sdram_a[5]$tr_io' constrained to Bel 'X126/Y44/PIOB'.
+Info: pin 'sdram_a[4]$tr_io' constrained to Bel 'X126/Y44/PIOD'.
+Info: pin 'sdram_a[3]$tr_io' constrained to Bel 'X126/Y47/PIOC'.
+Info: pin 'sdram_a[2]$tr_io' constrained to Bel 'X126/Y47/PIOA'.
+Info: pin 'sdram_a[1]$tr_io' constrained to Bel 'X126/Y47/PIOD'.
+Info: pin 'sdram_a[0]$tr_io' constrained to Bel 'X126/Y47/PIOB'.
+Info: pin 'rst_n$tr_io' constrained to Bel 'X6/Y0/PIOB'.
+Info: pin 'pl_upcred_out$tr_io' constrained to Bel 'X0/Y14/PIOA'.
+Info: pin 'pl_upcred_in$tr_io' constrained to Bel 'X0/Y14/PIOB'.
+Info: pin 'pl_up_v_out$tr_io' constrained to Bel 'X105/Y0/PIOA'.
+Info: pin 'pl_up_v_in$tr_io' constrained to Bel 'X105/Y0/PIOB'.
+Info: pin 'pl_up_p_out$tr_io' constrained to Bel 'X114/Y0/PIOA'.
+Info: pin 'pl_up_p_in$tr_io' constrained to Bel 'X114/Y0/PIOB'.
+Info: pin 'pl_up_d_out[7]$tr_io' constrained to Bel 'X126/Y11/PIOA'.
+Info: pin 'pl_up_d_out[6]$tr_io' constrained to Bel 'X126/Y14/PIOA'.
+Info: pin 'pl_up_d_out[5]$tr_io' constrained to Bel 'X126/Y17/PIOA'.
+Info: pin 'pl_up_d_out[4]$tr_io' constrained to Bel 'X126/Y20/PIOA'.
+Info: pin 'pl_up_d_out[3]$tr_io' constrained to Bel 'X126/Y50/PIOA'.
+Info: pin 'pl_up_d_out[2]$tr_io' constrained to Bel 'X126/Y53/PIOA'.
+Info: pin 'pl_up_d_out[1]$tr_io' constrained to Bel 'X126/Y56/PIOA'.
+Info: pin 'pl_up_d_out[0]$tr_io' constrained to Bel 'X126/Y92/PIOA'.
+Info: pin 'pl_up_d_in[7]$tr_io' constrained to Bel 'X126/Y11/PIOB'.
+Info: pin 'pl_up_d_in[6]$tr_io' constrained to Bel 'X126/Y14/PIOB'.
+Info: pin 'pl_up_d_in[5]$tr_io' constrained to Bel 'X126/Y17/PIOB'.
+Info: pin 'pl_up_d_in[4]$tr_io' constrained to Bel 'X126/Y20/PIOB'.
+Info: pin 'pl_up_d_in[3]$tr_io' constrained to Bel 'X126/Y50/PIOB'.
+Info: pin 'pl_up_d_in[2]$tr_io' constrained to Bel 'X126/Y53/PIOB'.
+Info: pin 'pl_up_d_in[1]$tr_io' constrained to Bel 'X126/Y56/PIOB'.
+Info: pin 'pl_up_d_in[0]$tr_io' constrained to Bel 'X126/Y92/PIOB'.
+Info: pin 'pl_linkup_out$tr_io' constrained to Bel 'X85/Y0/PIOA'.
+Info: pin 'pl_linkup_in$tr_io' constrained to Bel 'X85/Y0/PIOB'.
+Info: pin 'pl_dncred_out$tr_io' constrained to Bel 'X112/Y0/PIOA'.
+Info: pin 'pl_dncred_in$tr_io' constrained to Bel 'X112/Y0/PIOB'.
+Info: pin 'pl_dn_v_out$tr_io' constrained to Bel 'X0/Y11/PIOA'.
+Info: pin 'pl_dn_v_in$tr_io' constrained to Bel 'X0/Y11/PIOB'.
+Info: pin 'pl_dn_p_out$tr_io' constrained to Bel 'X0/Y35/PIOA'.
+Info: pin 'pl_dn_p_in$tr_io' constrained to Bel 'X0/Y35/PIOB'.
+Info: pin 'pl_dn_d_out[7]$tr_io' constrained to Bel 'X4/Y0/PIOA'.
+Info: pin 'pl_dn_d_out[6]$tr_io' constrained to Bel 'X11/Y0/PIOA'.
+Info: pin 'pl_dn_d_out[5]$tr_io' constrained to Bel 'X15/Y0/PIOA'.
+Info: pin 'pl_dn_d_out[4]$tr_io' constrained to Bel 'X18/Y0/PIOA'.
+Info: pin 'pl_dn_d_out[3]$tr_io' constrained to Bel 'X58/Y0/PIOA'.
+Info: pin 'pl_dn_d_out[2]$tr_io' constrained to Bel 'X60/Y0/PIOA'.
+Info: pin 'pl_dn_d_out[1]$tr_io' constrained to Bel 'X63/Y0/PIOA'.
+Info: pin 'pl_dn_d_out[0]$tr_io' constrained to Bel 'X65/Y0/PIOA'.
+Info: pin 'pl_dn_d_in[7]$tr_io' constrained to Bel 'X4/Y0/PIOB'.
+Info: pin 'pl_dn_d_in[6]$tr_io' constrained to Bel 'X11/Y0/PIOB'.
+Info: pin 'pl_dn_d_in[5]$tr_io' constrained to Bel 'X15/Y0/PIOB'.
+Info: pin 'pl_dn_d_in[4]$tr_io' constrained to Bel 'X18/Y0/PIOB'.
+Info: pin 'pl_dn_d_in[3]$tr_io' constrained to Bel 'X58/Y0/PIOB'.
+Info: pin 'pl_dn_d_in[2]$tr_io' constrained to Bel 'X60/Y0/PIOB'.
+Info: pin 'pl_dn_d_in[1]$tr_io' constrained to Bel 'X63/Y0/PIOB'.
+Info: pin 'pl_dn_d_in[0]$tr_io' constrained to Bel 'X65/Y0/PIOB'.
+Info: pin 'link_fast$tr_io' constrained to Bel 'X9/Y0/PIOA'.
+Info: pin 'led[7]$tr_io' constrained to Bel 'X0/Y41/PIOD'.
+Info: pin 'led[6]$tr_io' constrained to Bel 'X0/Y38/PIOD'.
+Info: pin 'led[5]$tr_io' constrained to Bel 'X0/Y44/PIOD'.
+Info: pin 'led[4]$tr_io' constrained to Bel 'X0/Y38/PIOB'.
+Info: pin 'led[3]$tr_io' constrained to Bel 'X0/Y38/PIOC'.
+Info: pin 'led[2]$tr_io' constrained to Bel 'X0/Y38/PIOA'.
+Info: pin 'led[1]$tr_io' constrained to Bel 'X0/Y35/PIOD'.
+Info: pin 'led[0]$tr_io' constrained to Bel 'X0/Y35/PIOC'.
+Info: pin 'gpdi_dp[3]$tr_io' constrained to Bel 'X116/Y0/PIOA'.
+Info: pin 'gpdi_dp[2]$tr_io' constrained to Bel 'X76/Y0/PIOA'.
+Info: pin 'gpdi_dp[1]$tr_io' constrained to Bel 'X83/Y0/PIOA'.
+Info: pin 'gpdi_dp[0]$tr_io' constrained to Bel 'X110/Y0/PIOA'.
+Info: pin 'ftdi_txd$tr_io' constrained to Bel 'X0/Y89/PIOB'.
+Info: pin 'ftdi_rxd$tr_io' constrained to Bel 'X0/Y56/PIOC'.
+Info: pin 'flash_mosi$tr_io' constrained to Bel 'X11/Y95/PIOB'.
+Info: pin 'flash_miso$tr_io' constrained to Bel 'X11/Y95/PIOA'.
+Info: pin 'flash_csn$tr_io' constrained to Bel 'X15/Y95/PIOA'.
+Info: pin 'clk_25mhz$tr_io' constrained to Bel 'X0/Y47/PIOA'.
+Info: pin 'btn[5]$tr_io' constrained to Bel 'X126/Y17/PIOD'.
+Info: pin 'btn[4]$tr_io' constrained to Bel 'X6/Y95/PIOA'.
+Info: pin 'btn[3]$tr_io' constrained to Bel 'X6/Y95/PIOB'.
+Info: pin 'btn[2]$tr_io' constrained to Bel 'X126/Y89/PIOB'.
+Info: pin 'btn[1]$tr_io' constrained to Bel 'X4/Y95/PIOB'.
+Info: pin 'btn[0]$tr_io' constrained to Bel 'X4/Y95/PIOA'.
+Info: IOLOGIC component serR.oddr connected to PIO Bel X76/Y0/PIOA
+Info: IOLOGIC component serG.oddr connected to PIO Bel X83/Y0/PIOA
+Info: IOLOGIC component serClk.oddr connected to PIO Bel X116/Y0/PIOA
+Info: IOLOGIC component serB.oddr connected to PIO Bel X110/Y0/PIOA
+Info: Packing constants..
+Info: Packing carries...
+Info: Packing LUTs...
+Info: Packing LUT5-7s...
+Info: Packing FFs...
+Info:     6895 FFs paired with LUTs.
+Info: Generating derived timing constraints...
+Info:     Input frequency of PLL 'pll.pll' is constrained to 25.0 MHz
+Info:     Derived frequency constraint of 25.0 MHz for net _pll_io_clk_o_0
+Info:     Derived frequency constraint of 25.0 MHz for net sdram_clk$TRELLIS_IO_OUT
+Info:     Derived frequency constraint of 125.0 MHz for net _pll_io_clk_o_2
+Info: Promoting globals...
+Info:     promoting clock net _pll_io_clk_o_0 to global network
+Info:     promoting clock net _pll_io_clk_o_2 to global network
+Info: Checksum: 0x598e6d2d
+
+Info: Device utilisation:
+Info: 	          TRELLIS_IO:     111/    365    30%
+Info: 	                DCCA:       2/     56     3%
+Info: 	              DP16KD:      28/    208    13%
+Info: 	          MULT18X18D:      36/    156    23%
+Info: 	              ALU54B:       0/     78     0%
+Info: 	             EHXPLLL:       1/      4    25%
+Info: 	             EXTREFB:       0/      2     0%
+Info: 	                DCUA:       0/      2     0%
+Info: 	           PCSCLKDIV:       0/      2     0%
+Info: 	             IOLOGIC:       0/    224     0%
+Info: 	            SIOLOGIC:       4/    141     2%
+Info: 	                 GSR:       0/      1     0%
+Info: 	               JTAGG:       0/      1     0%
+Info: 	                OSCG:       0/      1     0%
+Info: 	               SEDGA:       0/      1     0%
+Info: 	                 DTR:       0/      1     0%
+Info: 	             USRMCLK:       1/      1   100%
+Info: 	             CLKDIVF:       0/      4     0%
+Info: 	           ECLKSYNCB:       0/     10     0%
+Info: 	             DLLDELD:       0/      8     0%
+Info: 	              DDRDLL:       0/      4     0%
+Info: 	             DQSBUFM:       0/     14     0%
+Info: 	     TRELLIS_ECLKBUF:       0/      8     0%
+Info: 	        ECLKBRIDGECS:       0/      2     0%
+Info: 	                DCSC:       0/      2     0%
+Info: 	          TRELLIS_FF:   13633/  83640    16%
+Info: 	        TRELLIS_COMB:   43213/  83640    51%
+Info: 	        TRELLIS_RAMW:     181/  10455     1%
+
+Info: Placed 116 cells based on constraints.
+Info: Creating initial analytic placement for 37867 cells, random placement wirelen = 4239839.
+Info:     at initial placer iter 0, wirelen = 25611
+Info:     at initial placer iter 1, wirelen = 21741
+Info:     at initial placer iter 2, wirelen = 21622
+Info:     at initial placer iter 3, wirelen = 21130
+Info: Running main analytical placer, max placement attempts per cell = 10000.
+Info:     at iteration #1, type ALL: wirelen solved = 21360, spread = 915857, legal = 932723; time = 5.23s
+Info:     at iteration #2, type ALL: wirelen solved = 78579, spread = 401837, legal = 410311; time = 3.88s
+Info:     at iteration #3, type ALL: wirelen solved = 124994, spread = 349023, legal = 358019; time = 2.73s
+Info:     at iteration #4, type ALL: wirelen solved = 143206, spread = 325185, legal = 340833; time = 3.01s
+Info:     at iteration #5, type ALL: wirelen solved = 166068, spread = 291374, legal = 310105; time = 2.93s
+Info:     at iteration #6, type ALL: wirelen solved = 172489, spread = 282315, legal = 300336; time = 2.84s
+Info:     at iteration #7, type ALL: wirelen solved = 178591, spread = 284196, legal = 303410; time = 2.75s
+Info:     at iteration #8, type ALL: wirelen solved = 183408, spread = 277379, legal = 294268; time = 2.93s
+Info:     at iteration #9, type ALL: wirelen solved = 185229, spread = 279279, legal = 298400; time = 3.16s
+Info:     at iteration #10, type ALL: wirelen solved = 187334, spread = 263948, legal = 287052; time = 3.35s
+Info:     at iteration #11, type ALL: wirelen solved = 188806, spread = 267090, legal = 288500; time = 3.03s
+Info:     at iteration #12, type ALL: wirelen solved = 192680, spread = 272812, legal = 291030; time = 2.50s
+Info:     at iteration #13, type ALL: wirelen solved = 195762, spread = 268268, legal = 287108; time = 2.42s
+Info:     at iteration #14, type ALL: wirelen solved = 197351, spread = 266119, legal = 285358; time = 2.52s
+Info:     at iteration #15, type ALL: wirelen solved = 196332, spread = 264011, legal = 284347; time = 2.58s
+Info:     at iteration #16, type ALL: wirelen solved = 197239, spread = 264515, legal = 282828; time = 2.45s
+Info:     at iteration #17, type ALL: wirelen solved = 197771, spread = 267008, legal = 285484; time = 2.49s
+Info:     at iteration #18, type ALL: wirelen solved = 200872, spread = 261713, legal = 280677; time = 2.61s
+Info:     at iteration #19, type ALL: wirelen solved = 200532, spread = 263659, legal = 281817; time = 2.69s
+Info:     at iteration #20, type ALL: wirelen solved = 201345, spread = 264747, legal = 283183; time = 2.96s
+Info:     at iteration #21, type ALL: wirelen solved = 202596, spread = 265295, legal = 286126; time = 2.88s
+Info:     at iteration #22, type ALL: wirelen solved = 204221, spread = 269465, legal = 285369; time = 3.02s
+Info:     at iteration #23, type ALL: wirelen solved = 204297, spread = 266324, legal = 283262; time = 3.04s
+Info: HeAP Placer Time: 99.96s
+Info:   of which solving equations: 64.44s
+Info:   of which spreading cells: 13.00s
+Info:   of which strict legalisation: 4.00s
+
+Info: Running simulated annealing placer for refinement.
+Info:   at iteration #1: temp = 0.000000, timing cost = 14583, wirelen = 280677
+Info:   at iteration #5: temp = 0.000000, timing cost = 13167, wirelen = 253587
+Info:   at iteration #10: temp = 0.000000, timing cost = 10347, wirelen = 246992
+Info:   at iteration #15: temp = 0.000000, timing cost = 10173, wirelen = 245125
+Info:   at iteration #20: temp = 0.000000, timing cost = 10754, wirelen = 244390
+Info:   at iteration #25: temp = 0.000000, timing cost = 10158, wirelen = 244146
+Info:   at iteration #25: temp = 0.000000, timing cost = 10100, wirelen = 244149 
+Info: SA placement time 228.26s
+
+Info: Max frequency for clock '$glbnet$_pll_io_clk_o_2': 115.65 MHz (FAIL at 125.00 MHz)
+Info: Max frequency for clock '$glbnet$_pll_io_clk_o_0': 22.51 MHz (FAIL at 25.00 MHz)
+
+Info: Max delay <async>                         -> <async>                        : 12.48 ns
+Info: Max delay <async>                         -> posedge $glbnet$_pll_io_clk_o_0: 18.49 ns
+Info: Max delay <async>                         -> negedge $glbnet$_pll_io_clk_o_0: 7.68 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> <async>                        : 16.28 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> posedge $glbnet$_pll_io_clk_o_2: 13.83 ns
+
+Info: Slack histogram:
+Info:  legend: * represents 84 endpoint(s)
+Info:          + represents [1,84) endpoint(s)
+Info: [ -4427,  -2243) |+
+Info: [ -2243,    -59) |**+
+Info: [   -59,   2125) |*+
+Info: [  2125,   4309) |**+
+Info: [  4309,   6493) |******+
+Info: [  6493,   8677) |*********+
+Info: [  8677,  10861) |******************************************************+
+Info: [ 10861,  13045) |****************************************************+
+Info: [ 13045,  15229) |****************************+
+Info: [ 15229,  17413) |*********+
+Info: [ 17413,  19597) |*************************+
+Info: [ 19597,  21781) |****************************************+
+Info: [ 21781,  23965) |************************+
+Info: [ 23965,  26149) |********************+
+Info: [ 26149,  28333) |**************************+
+Info: [ 28333,  30517) |************************************************************ 
+Info: [ 30517,  32701) |***********************************************+
+Info: [ 32701,  34885) |****************************************+
+Info: [ 34885,  37069) |***********************+
+Info: [ 37069,  39253) |*******************+
+Info: Checksum: 0xf441d4e5
+Info: Routing globals...
+Info:     routing clock net $glbnet$_pll_io_clk_o_2 using global 0
+Info:     routing clock net $glbnet$_pll_io_clk_o_0 using global 1
+
+Info: Routing..
+Info: Setting up routing queue.
+Info: Routing 179655 arcs.
+Info:            |   (re-)routed arcs  |   delta    | remaining|       time spent     |
+Info:    IterCnt |  w/ripup   wo/ripup |  w/r  wo/r |      arcs| batch(sec) total(sec)|
+Info:       1000 |      348        651 |  348   651 |    179347|       3.71       3.71|
+Info:       2000 |      701       1298 |  353   647 |    179235|       0.71       4.42|
+Info:       3000 |     1087       1912 |  386   614 |    179008|       0.93       5.34|
+Info:       4000 |     1434       2565 |  347   653 |    178951|       1.15       6.49|
+Info:       5000 |     1704       3295 |  270   730 |    178729|       1.12       7.61|
+Info:       6000 |     2017       3982 |  313   687 |    178396|       1.04       8.65|
+Info:       7000 |     2457       4542 |  440   560 |    178328|       2.87      11.52|
+Info:       8000 |     2699       5300 |  242   758 |    177850|       0.87      12.39|
+Info:       9000 |     3025       5974 |  326   674 |    177432|       1.34      13.73|
+Info:      10000 |     3370       6629 |  345   655 |    177244|       1.96      15.69|
+Info:      11000 |     3734       7265 |  364   636 |    177009|       1.56      17.25|
+Info:      12000 |     4086       7913 |  352   648 |    176781|       1.51      18.76|
+Info:      13000 |     4335       8664 |  249   751 |    176441|       1.04      19.80|
+Info:      14000 |     4544       9455 |  209   791 |    175897|       1.64      21.44|
+Info:      15000 |     4847      10152 |  303   697 |    175573|       1.78      23.22|
+Info:      16000 |     5170      10829 |  323   677 |    175110|       1.49      24.71|
+Info:      17000 |     5372      11627 |  202   798 |    174376|       1.23      25.94|
+Info:      18000 |     5664      12335 |  292   708 |    174021|       2.19      28.13|
+Info:      19000 |     5954      13045 |  290   710 |    173682|       2.70      30.83|
+Info:      20000 |     6248      13751 |  294   706 |    173227|       1.76      32.59|
+Info:      21000 |     6513      14486 |  265   735 |    172799|       1.28      33.86|
+Info:      22000 |     6855      15144 |  342   658 |    172409|       1.08      34.95|
+Info:      23000 |     7186      15813 |  331   669 |    172116|       0.83      35.77|
+Info:      24000 |     7498      16501 |  312   688 |    171709|       0.93      36.71|
+Info:      25000 |     7735      17264 |  237   763 |    171113|       0.67      37.38|
+Info:      26000 |     8124      17875 |  389   611 |    170682|       0.95      38.33|
+Info:      27000 |     8415      18584 |  291   709 |    170151|       0.94      39.27|
+Info:      28000 |     8721      19278 |  306   694 |    169675|       0.83      40.10|
+Info:      29000 |     9030      19969 |  309   691 |    169319|       0.66      40.76|
+Info:      30000 |     9327      20672 |  297   703 |    168830|       0.74      41.50|
+Info:      31000 |     9661      21338 |  334   666 |    168408|       1.08      42.58|
+Info:      32000 |     9956      22043 |  295   705 |    168017|       0.83      43.40|
+Info:      33000 |    10270      22729 |  314   686 |    167633|       0.62      44.03|
+Info:      34000 |    10588      23411 |  318   682 |    167215|       1.15      45.18|
+Info:      35000 |    10979      24020 |  391   609 |    166847|       1.16      46.35|
+Info:      36000 |    11264      24735 |  285   715 |    166285|       0.57      46.92|
+Info:      37000 |    11598      25401 |  334   666 |    165775|       0.96      47.88|
+Info:      38000 |    11908      26091 |  310   690 |    165363|       0.73      48.61|
+Info:      39000 |    12208      26791 |  300   700 |    164897|       0.93      49.54|
+Info:      40000 |    12553      27446 |  345   655 |    164524|       1.09      50.63|
+Info:      41000 |    12813      28186 |  260   740 |    165777|       0.53      51.17|
+Info:      42000 |    13048      28951 |  235   765 |    165040|       0.54      51.71|
+Info:      43000 |    13326      29673 |  278   722 |    165286|       0.67      52.37|
+Info:      44000 |    13607      30392 |  281   719 |    165476|       0.94      53.31|
+Info:      45000 |    13878      31121 |  271   729 |    164973|       0.93      54.24|
+Info:      46000 |    14215      31784 |  337   663 |    165189|       1.52      55.76|
+Info:      47000 |    14528      32471 |  313   687 |    165454|       1.90      57.66|
+Info:      48000 |    14792      33207 |  264   736 |    164765|       1.37      59.03|
+Info:      49000 |    15017      33982 |  225   775 |    164072|       0.66      59.69|
+Info:      50000 |    15292      34707 |  275   725 |    163496|       0.82      60.51|
+Info:      51000 |    15598      35401 |  306   694 |    163127|       0.68      61.19|
+Info:      52000 |    15932      36067 |  334   666 |    162895|       0.86      62.05|
+Info:      53000 |    16194      36805 |  262   738 |    162381|       0.79      62.84|
+Info:      54000 |    16478      37521 |  284   716 |    161865|       0.72      63.56|
+Info:      55000 |    16768      38231 |  290   710 |    161378|       0.96      64.52|
+Info:      56000 |    16950      39049 |  182   818 |    160726|       0.82      65.34|
+Info:      57000 |    17187      39812 |  237   763 |    160198|       1.06      66.40|
+Info:      58000 |    17477      40522 |  290   710 |    159683|       1.76      68.16|
+Info:      59000 |    17780      41219 |  303   697 |    159344|       1.67      69.82|
+Info:      60000 |    18076      41923 |  296   704 |    158827|       1.56      71.38|
+Info:      61000 |    18363      42636 |  287   713 |    158329|       1.69      73.07|
+Info:      62000 |    18630      43369 |  267   733 |    157947|       1.58      74.65|
+Info:      63000 |    18896      44103 |  266   734 |    157452|       1.15      75.80|
+Info:      64000 |    19170      44829 |  274   726 |    156940|       1.05      76.85|
+Info:      65000 |    19419      45580 |  249   751 |    156441|       0.72      77.57|
+Info:      66000 |    19662      46337 |  243   757 |    155916|       0.80      78.37|
+Info:      67000 |    20073      46926 |  411   589 |    156180|       1.77      80.14|
+Info:      68000 |    20424      47575 |  351   649 |    156327|       2.49      82.63|
+Info:      69000 |    20757      48242 |  333   667 |    155901|       1.82      84.45|
+Info:      70000 |    21052      48947 |  295   705 |    155605|       1.46      85.91|
+Info:      71000 |    21337      49662 |  285   715 |    155132|       0.87      86.77|
+Info:      72000 |    21652      50347 |  315   685 |    154709|       0.82      87.59|
+Info:      73000 |    22121      50878 |  469   531 |    155164|       0.85      88.44|
+Info:      74000 |    22573      51426 |  452   548 |    154934|       1.18      89.62|
+Info:      75000 |    23024      51975 |  451   549 |    155022|       1.78      91.40|
+Info:      76000 |    23418      52581 |  394   606 |    155100|       1.96      93.36|
+Info:      77000 |    23836      53163 |  418   582 |    154942|       2.21      95.57|
+Info:      78000 |    24104      53895 |  268   732 |    154304|       1.14      96.71|
+Info:      79000 |    24356      54643 |  252   748 |    153860|       0.84      97.55|
+Info:      80000 |    24586      55413 |  230   770 |    153380|       0.60      98.16|
+Info:      81000 |    24796      56203 |  210   790 |    152907|       0.66      98.81|
+Info:      82000 |    24959      57040 |  163   837 |    152424|       0.58      99.39|
+Info:      83000 |    25221      57778 |  262   738 |    151945|       1.02     100.41|
+Info:      84000 |    25455      58544 |  234   766 |    151476|       0.68     101.09|
+Info:      85000 |    25773      59226 |  318   682 |    151060|       1.40     102.49|
+Info:      86000 |    26128      59871 |  355   645 |    150847|       1.13     103.62|
+Info:      87000 |    26359      60640 |  231   769 |    150234|       0.62     104.24|
+Info:      88000 |    26623      61376 |  264   736 |    149651|       0.69     104.93|
+Info:      89000 |    26992      62007 |  369   631 |    149939|       2.54     107.47|
+Info:      90000 |    27258      62741 |  266   734 |    149286|       1.13     108.59|
+Info:      91000 |    27464      63535 |  206   794 |    148613|       0.67     109.26|
+Info:      92000 |    27766      64233 |  302   698 |    148266|       1.42     110.68|
+Info:      93000 |    28042      64957 |  276   724 |    147793|       1.33     112.01|
+Info:      94000 |    28319      65680 |  277   723 |    147322|       1.26     113.27|
+Info:      95000 |    28504      66495 |  185   815 |    146885|       1.39     114.66|
+Info:      96000 |    28790      67209 |  286   714 |    146754|       3.38     118.04|
+Info:      97000 |    28927      68072 |  137   863 |    146153|       0.95     118.99|
+Info:      98000 |    29244      68755 |  317   683 |    145838|       1.25     120.24|
+Info:      99000 |    29489      69510 |  245   755 |    145501|       0.78     121.02|
+Info:     100000 |    29823      70176 |  334   666 |    145208|       1.22     122.24|
+Info:     101000 |    30059      70940 |  236   764 |    144618|       0.73     122.97|
+Info:     102000 |    30371      71628 |  312   688 |    144059|       0.86     123.83|
+Info:     103000 |    30609      72390 |  238   762 |    143587|       0.65     124.48|
+Info:     104000 |    30856      73143 |  247   753 |    142996|       1.05     125.53|
+Info:     105000 |    31155      73844 |  299   701 |    142568|       0.97     126.50|
+Info:     106000 |    31377      74622 |  222   778 |    141977|       0.61     127.11|
+Info:     107000 |    31560      75439 |  183   817 |    141380|       0.60     127.71|
+Info:     108000 |    31772      76227 |  212   788 |    140862|       0.69     128.39|
+Info:     109000 |    31940      77059 |  168   832 |    140197|       0.56     128.96|
+Info:     110000 |    32214      77785 |  274   726 |    139740|       1.37     130.33|
+Info:     111000 |    32449      78550 |  235   765 |    139312|       1.02     131.35|
+Info:     112000 |    32762      79237 |  313   687 |    138829|       0.75     132.10|
+Info:     113000 |    33028      79971 |  266   734 |    138288|       0.73     132.83|
+Info:     114000 |    33277      80722 |  249   751 |    137846|       1.12     133.96|
+Info:     115000 |    33534      81465 |  257   743 |    137299|       0.80     134.76|
+Info:     116000 |    33725      82274 |  191   809 |    136717|       0.81     135.57|
+Info:     117000 |    34059      82940 |  334   666 |    136351|       1.08     136.65|
+Info:     118000 |    34408      83591 |  349   651 |    136149|       1.52     138.18|
+Info:     119000 |    34672      84327 |  264   736 |    135682|       1.61     139.79|
+Info:     120000 |    34940      85059 |  268   732 |    135251|       1.78     141.57|
+Info:     121000 |    35250      85749 |  310   690 |    134773|       0.86     142.43|
+Info:     122000 |    35655      86344 |  405   595 |    134505|       0.98     143.40|
+Info:     123000 |    35858      87141 |  203   797 |    133777|       0.61     144.01|
+Info:     124000 |    36152      87847 |  294   706 |    134160|       1.21     145.21|
+Info:     125000 |    36408      88591 |  256   744 |    133577|       2.37     147.59|
+Info:     126000 |    36612      89387 |  204   796 |    132940|       0.72     148.31|
+Info:     127000 |    36762      90237 |  150   850 |    132322|       0.62     148.93|
+Info:     128000 |    36961      91038 |  199   801 |    131667|       0.68     149.61|
+Info:     129000 |    37147      91852 |  186   814 |    130984|       0.59     150.20|
+Info:     130000 |    37366      92633 |  219   781 |    130470|       0.83     151.02|
+Info:     131000 |    37583      93416 |  217   783 |    129825|       0.82     151.84|
+Info:     132000 |    37781      94218 |  198   802 |    129191|       0.86     152.70|
+Info:     133000 |    38045      94954 |  264   736 |    128713|       0.93     153.63|
+Info:     134000 |    38325      95674 |  280   720 |    128142|       0.95     154.58|
+Info:     135000 |    38517      96482 |  192   808 |    127457|       0.61     155.19|
+Info:     136000 |    38744      97255 |  227   773 |    126829|       0.75     155.94|
+Info:     137000 |    38998      98001 |  254   746 |    126194|       0.76     156.71|
+Info:     138000 |    39266      98733 |  268   732 |    125592|       0.80     157.51|
+Info:     139000 |    39500      99499 |  234   766 |    124914|       0.78     158.29|
+Info:     140000 |    39717     100282 |  217   783 |    124392|       0.92     159.21|
+Info:     141000 |    40086     100913 |  369   631 |    124080|       1.34     160.55|
+Info:     142000 |    40506     101493 |  420   580 |    124102|       1.07     161.62|
+Info:     143000 |    40818     102181 |  312   688 |    123857|       1.46     163.08|
+Info:     144000 |    41067     102932 |  249   751 |    123422|       1.09     164.17|
+Info:     145000 |    41402     103597 |  335   665 |    123204|       0.91     165.07|
+Info:     146000 |    41794     104205 |  392   608 |    123075|       2.27     167.35|
+Info:     147000 |    42182     104817 |  388   612 |    122774|       0.84     168.19|
+Info:     148000 |    42464     105535 |  282   718 |    122170|       0.83     169.02|
+Info:     149000 |    42772     106227 |  308   692 |    121694|       1.11     170.13|
+Info:     150000 |    43049     106950 |  277   723 |    121400|       1.03     171.16|
+Info:     151000 |    43323     107676 |  274   726 |    120869|       0.98     172.14|
+Info:     152000 |    43595     108404 |  272   728 |    120248|       0.71     172.85|
+Info:     153000 |    43948     109051 |  353   647 |    119877|       1.25     174.10|
+Info:     154000 |    44279     109720 |  331   669 |    119581|       1.14     175.23|
+Info:     155000 |    44598     110401 |  319   681 |    119070|       1.04     176.27|
+Info:     156000 |    44894     111105 |  296   704 |    118791|       1.14     177.42|
+Info:     157000 |    45113     111886 |  219   781 |    118173|       0.66     178.07|
+Info:     158000 |    45349     112650 |  236   764 |    117669|       0.84     178.91|
+Info:     159000 |    45636     113363 |  287   713 |    117123|       0.91     179.83|
+Info:     160000 |    45890     114109 |  254   746 |    116601|       0.69     180.52|
+Info:     161000 |    46157     114842 |  267   733 |    116023|       0.74     181.26|
+Info:     162000 |    46375     115624 |  218   782 |    115537|       0.72     181.98|
+Info:     163000 |    46618     116381 |  243   757 |    115096|       0.99     182.97|
+Info:     164000 |    46883     117116 |  265   735 |    114587|       1.04     184.00|
+Info:     165000 |    47134     117865 |  251   749 |    113956|       1.29     185.29|
+Info:     166000 |    47373     118626 |  239   761 |    113582|       0.65     185.94|
+Info:     167000 |    47625     119374 |  252   748 |    112999|       0.76     186.70|
+Info:     168000 |    47854     120145 |  229   771 |    112382|       0.88     187.59|
+Info:     169000 |    48180     120819 |  326   674 |    111951|       1.68     189.26|
+Info:     170000 |    48462     121537 |  282   718 |    111457|       1.98     191.25|
+Info:     171000 |    48800     122199 |  338   662 |    111028|       1.14     192.38|
+Info:     172000 |    49047     122952 |  247   753 |    110570|       0.89     193.27|
+Info:     173000 |    49357     123642 |  310   690 |    110128|       1.02     194.29|
+Info:     174000 |    49592     124407 |  235   765 |    109573|       0.81     195.10|
+Info:     175000 |    49884     125115 |  292   708 |    108970|       0.81     195.91|
+Info:     176000 |    50154     125845 |  270   730 |    108773|       1.14     197.05|
+Info:     177000 |    50513     126486 |  359   641 |    108313|       0.90     197.96|
+Info:     178000 |    50768     127231 |  255   745 |    107658|       0.66     198.61|
+Info:     179000 |    51087     127912 |  319   681 |    107535|       0.99     199.61|
+Info:     180000 |    51383     128616 |  296   704 |    107266|       1.59     201.20|
+Info:     181000 |    51662     129337 |  279   721 |    106805|       0.80     202.00|
+Info:     182000 |    51955     130044 |  293   707 |    106252|       2.07     204.07|
+Info:     183000 |    52267     130732 |  312   688 |    105778|       0.82     204.89|
+Info:     184000 |    52571     131428 |  304   696 |    105239|       0.76     205.65|
+Info:     185000 |    52878     132121 |  307   693 |    104826|       0.97     206.62|
+Info:     186000 |    53290     132709 |  412   588 |    104474|       0.72     207.34|
+Info:     187000 |    53613     133386 |  323   677 |    104010|       0.72     208.06|
+Info:     188000 |    53922     134077 |  309   691 |    103593|       0.98     209.04|
+Info:     189000 |    54186     134813 |  264   736 |    103040|       0.69     209.73|
+Info:     190000 |    54488     135511 |  302   698 |    102583|       0.76     210.48|
+Info:     191000 |    54781     136218 |  293   707 |    102064|       1.14     211.63|
+Info:     192000 |    55052     136947 |  271   729 |    101536|       0.78     212.40|
+Info:     193000 |    55345     137654 |  293   707 |    100929|       0.69     213.09|
+Info:     194000 |    55639     138360 |  294   706 |    100358|       0.74     213.84|
+Info:     195000 |    55932     139067 |  293   707 |     99872|       0.73     214.56|
+Info:     196000 |    56210     139789 |  278   722 |     99411|       0.88     215.44|
+Info:     197000 |    56518     140481 |  308   692 |     98933|       0.85     216.28|
+Info:     198000 |    56771     141228 |  253   747 |     98530|       0.86     217.15|
+Info:     199000 |    57055     141944 |  284   716 |     98051|       0.81     217.96|
+Info:     200000 |    57344     142655 |  289   711 |     97561|       0.82     218.78|
+Info:     201000 |    57612     143387 |  268   732 |     96908|       0.70     219.49|
+Info:     202000 |    57907     144092 |  295   705 |     96301|       0.91     220.40|
+Info:     203000 |    58183     144816 |  276   724 |     95855|       0.95     221.35|
+Info:     204000 |    58499     145491 |  316   675 |     95477|       0.72     222.07|
+Info:     205000 |    58743     146241 |  244   750 |     94979|       0.70     222.77|
+Info:     206000 |    59053     146927 |  310   686 |     94582|       1.07     223.84|
+Info:     207000 |    59352     147625 |  299   698 |     93986|       0.79     224.63|
+Info:     208000 |    59623     148345 |  271   720 |     93471|       0.75     225.38|
+Info:     209000 |    59990     148927 |  367   582 |     92915|       0.70     226.09|
+Info:     210000 |    60305     149603 |  315   676 |     92555|       0.82     226.91|
+Info:     211000 |    60583     150319 |  278   716 |     92004|       0.89     227.79|
+Info:     212000 |    60922     150963 |  339   644 |     91472|       0.79     228.59|
+Info:     213000 |    61273     151603 |  351   640 |     90950|       0.75     229.33|
+Info:     214000 |    61656     152212 |  383   609 |     90569|       0.86     230.19|
+Info:     215000 |    61972     152836 |  316   624 |     90071|       0.80     230.99|
+Info:     216000 |    62277     153508 |  305   672 |     89494|       0.75     231.74|
+Info:     217000 |    62589     154174 |  312   666 |     89169|       1.07     232.81|
+Info:     218000 |    62876     154843 |  287   669 |     88628|       0.77     233.58|
+Info:     219000 |    63177     155519 |  301   676 |     88010|       0.81     234.39|
+Info:     220000 |    63456     156216 |  279   697 |     87411|       0.74     235.13|
+Info:     221000 |    63717     156902 |  261   686 |     86870|       0.80     235.94|
+Info:     222000 |    64090     157490 |  373   588 |     86469|       1.03     236.97|
+Info:     223000 |    64402     158160 |  312   670 |     85929|       0.71     237.69|
+Info:     224000 |    64738     158742 |  336   582 |     85399|       0.94     238.63|
+Info:     225000 |    65030     159417 |  292   675 |     84853|       0.84     239.46|
+Info:     226000 |    65354     160069 |  324   652 |     84440|       0.94     240.40|
+Info:     227000 |    65660     160735 |  306   666 |     83925|       0.75     241.15|
+Info:     228000 |    65947     161378 |  287   643 |     83594|       1.15     242.30|
+Info:     229000 |    66247     162052 |  300   674 |     83158|       0.94     243.24|
+Info:     230000 |    66557     162709 |  310   657 |     82559|       0.68     243.92|
+Info:     231000 |    66851     163384 |  294   675 |     81977|       0.74     244.65|
+Info:     232000 |    67202     164020 |  351   636 |     81531|       0.85     245.51|
+Info:     233000 |    67520     164684 |  318   664 |     81197|       0.99     246.49|
+Info:     234000 |    67870     165318 |  350   634 |     80845|       1.17     247.66|
+Info:     235000 |    68209     165966 |  339   648 |     80466|       1.13     248.79|
+Info:     236000 |    68477     166629 |  268   663 |     79832|       0.78     249.57|
+Info:     237000 |    68901     167200 |  424   571 |     79860|       2.79     252.36|
+Info:     238000 |    69317     167784 |  416   584 |     80973|       3.76     256.11|
+Info:     239000 |    69755     168346 |  438   562 |     80698|       3.61     259.72|
+Info:     240000 |    70179     168922 |  424   576 |     80626|       3.52     263.25|
+Info:     241000 |    70623     169478 |  444   556 |     81115|       3.33     266.58|
+Info:     242000 |    71022     170079 |  399   601 |     80988|       3.15     269.72|
+Info:     243000 |    71392     170709 |  370   630 |     80735|       2.60     272.32|
+Info:     244000 |    71787     171314 |  395   605 |     80616|       8.82     281.14|
+Info:     245000 |    72189     171912 |  402   598 |     80497|       4.54     285.68|
+Info:     246000 |    72565     172536 |  376   624 |     80470|       3.02     288.70|
+Info:     247000 |    72828     173273 |  263   737 |     80132|       1.16     289.85|
+Info:     248000 |    73157     173944 |  329   671 |     80650|       2.73     292.59|
+Info:     249000 |    73540     174561 |  383   617 |     80460|       6.93     299.52|
+Info:     250000 |    73925     175176 |  385   615 |     80561|       4.68     304.19|
+Info:     251000 |    74188     175913 |  263   737 |     80396|       2.44     306.64|
+Info:     252000 |    74438     176663 |  250   750 |     79956|       1.43     308.07|
+Info:     253000 |    74766     177328 |  328   665 |     79502|       1.39     309.46|
+Info:     254000 |    75054     177964 |  288   636 |     78842|       0.67     310.13|
+Info:     255000 |    75354     178609 |  300   645 |     78287|       0.83     310.96|
+Info:     256000 |    75583     179144 |  229   535 |     77550|       0.76     311.73|
+Info:     257000 |    75898     179777 |  315   633 |     77013|       1.29     313.02|
+Info:     258000 |    76216     180426 |  318   649 |     76589|       1.43     314.45|
+Info:     259000 |    76479     181097 |  263   671 |     76051|       1.27     315.72|
+Info:     260000 |    76838     181710 |  359   613 |     75617|       1.54     317.26|
+Info:     261000 |    77136     182356 |  298   646 |     75149|       1.23     318.49|
+Info:     262000 |    77467     182973 |  331   617 |     74598|       1.29     319.78|
+Info:     263000 |    77759     183666 |  292   693 |     74491|       2.31     322.09|
+Info:     264000 |    78104     184305 |  345   639 |     74166|       1.73     323.83|
+Info:     265000 |    78412     184958 |  308   653 |     73632|       1.13     324.96|
+Info:     266000 |    78706     185610 |  294   652 |     73047|       1.87     326.83|
+Info:     267000 |    78999     186286 |  293   676 |     72485|       1.10     327.93|
+Info:     268000 |    79261     186990 |  262   704 |     72141|       1.54     329.47|
+Info:     269000 |    79523     187684 |  262   694 |     71501|       1.69     331.17|
+Info:     270000 |    79764     188402 |  241   718 |     70819|       1.15     332.32|
+Info:     271000 |    80008     189086 |  244   684 |     70140|       1.07     333.39|
+Info:     272000 |    80283     189770 |  275   684 |     69540|       1.16     334.55|
+Info:     273000 |    80536     190436 |  253   666 |     68920|       1.21     335.76|
+Info:     274000 |    80840     191081 |  304   645 |     68341|       1.18     336.94|
+Info:     275000 |    81086     191789 |  246   708 |     67758|       1.58     338.52|
+Info:     276000 |    81382     192423 |  296   634 |     67133|       1.46     339.98|
+Info:     277000 |    81661     193082 |  279   659 |     66565|       1.08     341.06|
+Info:     278000 |    81940     193741 |  279   659 |     65901|       1.04     342.10|
+Info:     279000 |    82240     194388 |  300   647 |     65256|       1.25     343.36|
+Info:     280000 |    82496     195093 |  256   705 |     64567|       1.05     344.41|
+Info:     281000 |    82797     195733 |  301   640 |     63915|       1.21     345.62|
+Info:     282000 |    83070     196404 |  273   671 |     63320|       1.25     346.87|
+Info:     283000 |    83337     197117 |  267   713 |     62647|       1.11     347.98|
+Info:     284000 |    83636     197795 |  299   678 |     62245|       1.33     349.31|
+Info:     285000 |    83938     198486 |  302   691 |     61801|       1.42     350.73|
+Info:     286000 |    84241     199169 |  303   683 |     61246|       1.48     352.21|
+Info:     287000 |    84521     199862 |  280   693 |     60881|       1.54     353.75|
+Info:     288000 |    84822     200537 |  301   675 |     60327|       0.94     354.69|
+Info:     289000 |    85120     201226 |  298   689 |     59783|       0.89     355.59|
+Info:     290000 |    85381     201947 |  261   721 |     59267|       0.84     356.43|
+Info:     291000 |    85617     202688 |  236   741 |     58978|       0.78     357.21|
+Info:     292000 |    85876     203389 |  259   701 |     58394|       0.93     358.14|
+Info:     293000 |    86218     204015 |  342   626 |     57999|       1.69     359.83|
+Info:     294000 |    86488     204714 |  270   699 |     57349|       0.81     360.64|
+Info:     295000 |    86816     205375 |  328   661 |     56865|       0.96     361.60|
+Info:     296000 |    87067     206100 |  251   725 |     56485|       0.96     362.56|
+Info:     297000 |    87275     206849 |  208   749 |     55766|       0.96     363.52|
+Info:     298000 |    87571     207524 |  296   675 |     55250|       1.37     364.89|
+Info:     299000 |    87790     208274 |  219   750 |     54706|       1.20     366.09|
+Info:     300000 |    88030     208997 |  240   723 |     54118|       1.55     367.63|
+Info:     301000 |    88292     209700 |  262   703 |     53586|       1.64     369.28|
+Info:     302000 |    88549     210377 |  257   677 |     52988|       1.33     370.61|
+Info:     303000 |    88762     211119 |  213   742 |     52313|       1.13     371.74|
+Info:     304000 |    89002     211834 |  240   715 |     51807|       1.49     373.24|
+Info:     305000 |    89387     212437 |  385   603 |     51559|       2.61     375.85|
+Info:     306000 |    89660     213138 |  273   701 |     51044|       1.36     377.20|
+Info:     307000 |    89898     213864 |  238   726 |     50431|       1.28     378.48|
+Info:     308000 |    90204     214503 |  306   639 |     49925|       1.75     380.23|
+Info:     309000 |    90419     215227 |  215   724 |     49190|       1.13     381.36|
+Info:     310000 |    90627     215968 |  208   741 |     48751|       1.02     382.37|
+Info:     311000 |    90861     216708 |  234   740 |     48291|       1.91     384.28|
+Info:     312000 |    91161     217385 |  300   677 |     47831|       2.31     386.59|
+Info:     313000 |    91475     218048 |  314   663 |     47417|       3.11     389.70|
+Info:     314000 |    91673     218809 |  198   761 |     46667|       1.05     390.75|
+Info:     315000 |    91884     219575 |  211   766 |     46047|       1.24     391.99|
+Info:     316000 |    92174     220257 |  290   682 |     45472|       1.13     393.12|
+Info:     317000 |    92516     220904 |  342   647 |     45282|       1.57     394.69|
+Info:     318000 |    92785     221598 |  269   694 |     44757|       0.95     395.65|
+Info:     319000 |    93037     222319 |  252   721 |     44122|       0.81     396.46|
+Info:     320000 |    93277     223057 |  240   738 |     43454|       0.75     397.21|
+Info:     321000 |    93488     223810 |  211   753 |     42796|       0.71     397.91|
+Info:     322000 |    93713     224561 |  225   751 |     42062|       0.74     398.66|
+Info:     323000 |    94022     225235 |  309   674 |     41846|       1.20     399.86|
+Info:     324000 |    94376     225873 |  354   638 |     41869|       1.62     401.48|
+Info:     325000 |    94815     226434 |  439   561 |     41837|       3.78     405.26|
+Info:     326000 |    95233     227016 |  418   582 |     41868|       5.12     410.38|
+Info:     327000 |    95593     227656 |  360   640 |     41768|       4.46     414.84|
+Info:     328000 |    95878     228370 |  285   714 |     41455|       1.56     416.40|
+Info:     329000 |    96116     229093 |  238   723 |     40968|       0.86     417.26|
+Info:     330000 |    96383     229778 |  267   685 |     40336|       0.85     418.11|
+Info:     331000 |    96711     230410 |  328   632 |     39885|       0.97     419.08|
+Info:     332000 |    96973     231094 |  262   684 |     39326|       0.92     420.00|
+Info:     333000 |    97390     231653 |  417   559 |     39002|       1.50     421.50|
+Info:     334000 |    97701     232302 |  311   649 |     38510|       1.00     422.50|
+Info:     335000 |    98019     232940 |  318   638 |     38164|       1.12     423.61|
+Info:     336000 |    98252     233618 |  233   678 |     37467|       0.85     424.46|
+Info:     337000 |    98485     234309 |  233   691 |     36801|       0.85     425.31|
+Info:     338000 |    98746     235004 |  261   695 |     36191|       1.07     426.38|
+Info:     339000 |    98963     235707 |  217   703 |     35460|       0.86     427.24|
+Info:     340000 |    99224     236413 |  261   706 |     34864|       0.96     428.20|
+Info:     341000 |    99480     237109 |  256   696 |     34230|       1.07     429.27|
+Info:     342000 |    99758     237779 |  278   670 |     33801|       1.20     430.47|
+Info:     343000 |   100055     238460 |  297   681 |     33435|       1.38     431.86|
+Info:     344000 |   100406     239080 |  351   620 |     33187|       1.19     433.05|
+Info:     345000 |   100783     239688 |  377   608 |     32921|       1.60     434.64|
+Info:     346000 |   101048     240376 |  265   688 |     32446|       0.94     435.58|
+Info:     347000 |   101306     241029 |  258   653 |     31864|       1.67     437.26|
+Info:     348000 |   101580     241694 |  274   665 |     31260|       1.49     438.75|
+Info:     349000 |   101804     242422 |  224   728 |     30603|       1.23     439.98|
+Info:     350000 |   102053     243129 |  249   707 |     30029|       1.49     441.48|
+Info:     351000 |   102338     243816 |  285   687 |     29465|       1.74     443.22|
+Info:     352000 |   102561     244497 |  223   681 |     28778|       1.28     444.49|
+Info:     353000 |   102746     245271 |  185   774 |     28044|       1.22     445.71|
+Info:     354000 |   102982     245996 |  236   725 |     27379|       1.33     447.04|
+Info:     355000 |   103287     246672 |  305   676 |     26926|       2.27     449.31|
+Info:     356000 |   103533     247410 |  246   738 |     26426|       1.95     451.27|
+Info:     357000 |   103736     248159 |  203   749 |     25748|       1.34     452.60|
+Info:     358000 |   104012     248843 |  276   684 |     25231|       1.59     454.19|
+Info:     359000 |   104274     249548 |  262   705 |     24754|       1.40     455.59|
+Info:     360000 |   104536     250246 |  262   698 |     24150|       0.97     456.55|
+Info:     361000 |   104733     250972 |  197   726 |     23405|       0.82     457.38|
+Info:     362000 |   105094     251532 |  361   560 |     23024|       1.24     458.61|
+Info:     363000 |   105365     252218 |  271   686 |     22506|       1.09     459.70|
+Info:     364000 |   105618     252912 |  253   694 |     21993|       0.99     460.69|
+Info:     365000 |   105821     253644 |  203   732 |     21366|       0.97     461.66|
+Info:     366000 |   105979     254415 |  158   771 |     20583|       0.81     462.47|
+Info:     367000 |   106296     255066 |  317   651 |     20202|       1.21     463.67|
+Info:     368000 |   106487     255830 |  191   764 |     19505|       0.83     464.50|
+Info:     369000 |   106733     256545 |  246   715 |     18960|       1.03     465.53|
+Info:     370000 |   106951     257235 |  218   690 |     18339|       1.00     466.53|
+Info:     371000 |   107229     257943 |  278   708 |     17794|       0.93     467.47|
+Info:     372000 |   107483     258671 |  254   728 |     17319|       1.12     468.58|
+Info:     373000 |   107711     259424 |  228   753 |     16642|       1.25     469.83|
+Info:     374000 |   107960     260145 |  249   721 |     16018|       1.42     471.25|
+Info:     375000 |   108405     260698 |  445   553 |     16175|       7.41     478.66|
+Info:     376000 |   108676     261409 |  271   711 |     15600|       1.22     479.89|
+Info:     377000 |   108907     262126 |  231   717 |     14873|       0.87     480.76|
+Info:     378000 |   109172     262823 |  265   697 |     14344|       0.96     481.72|
+Info:     379000 |   109420     263523 |  248   700 |     13846|       1.05     482.77|
+Info:     380000 |   109666     264237 |  246   714 |     13227|       0.84     483.61|
+Info:     381000 |   109895     264977 |  229   740 |     12509|       0.91     484.52|
+Info:     382000 |   110222     265642 |  327   665 |     12097|       1.04     485.56|
+Info:     383000 |   110492     266366 |  270   724 |     11441|       1.00     486.56|
+Info:     384000 |   110744     267097 |  252   731 |     10779|       0.89     487.44|
+Info:     385000 |   111045     267787 |  301   690 |     10268|       1.25     488.69|
+Info:     386000 |   111273     268559 |  228   772 |      9562|       0.81     489.50|
+Info:     387000 |   111685     269147 |  412   588 |      9312|       1.42     490.92|
+Info:     388000 |   111940     269892 |  255   745 |      8725|       0.85     491.77|
+Info:     389000 |   112282     270550 |  342   658 |      8231|       0.99     492.75|
+Info:     390000 |   112561     271271 |  279   721 |      7670|       1.14     493.90|
+Info:     391000 |   112859     271973 |  298   702 |      7893|       0.81     494.71|
+Info:     392000 |   112966     272866 |  107   893 |      7169|       1.02     495.72|
+Info:     393000 |   113287     273545 |  321   679 |      6503|       0.84     496.56|
+Info:     394000 |   113632     274200 |  345   655 |      5862|       0.93     497.49|
+Info:     395000 |   113887     274896 |  255   696 |      5244|       1.34     498.83|
+Info:     396000 |   113943     275654 |   56   758 |      4341|       1.34     500.17|
+Info:     397000 |   114007     276420 |   64   766 |      3539|       1.28     501.45|
+Info:     398000 |   114188     277092 |  181   672 |      2875|       1.69     503.13|
+Info:     399000 |   114231     277855 |   43   763 |      1971|       1.25     504.38|
+Info:     400000 |   114527     278451 |  296   596 |      1545|       2.72     507.11|
+Info:     401000 |   114819     279038 |  292   587 |      1078|       2.66     509.77|
+Info:     402000 |   114912     279787 |   93   749 |       250|       1.67     511.44|
+Info:     402293 |   114942     280000 |   30   213 |         0|       1.06     512.50|
+Info: Routing complete.
+Info: Router1 time 512.50s
+Info: Checksum: 0xddd4d2c5
+
+Info: Critical path report for clock '$glbnet$_pll_io_clk_o_2' (posedge -> posedge):
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source encB.q_m_reg_TRELLIS_FF_Q_4.Q
+Info:    routing  0.94  1.46 Net encB.q_m_reg[6] (121,5) -> (121,4)
+Info:                          Sink encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z_C_LUT4_Z_D_LUT4_Z.A
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/TmdsEncoder.sv:12.14-12.21
+Info:      logic  0.24  1.70 Source encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z_C_LUT4_Z_D_LUT4_Z.F
+Info:    routing  0.04  1.74 Net encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z_C_LUT4_Z_D[3] (121,4) -> (121,4)
+Info:                          Sink encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z_C_LUT4_Z_D_LUT4_D.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  1.97 Source encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z_C_LUT4_Z_D_LUT4_D.F
+Info:    routing  0.76  2.74 Net encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z_C_LUT4_Z_D_LUT4_D_Z[1] (121,4) -> (120,3)
+Info:                          Sink encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z_C_LUT4_Z_D_LUT4_D_Z_LUT4_D.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  2.97 Source encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z_C_LUT4_Z_D_LUT4_D_Z_LUT4_D.F
+Info:    routing  0.43  3.40 Net encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C[2] (120,3) -> (120,3)
+Info:                          Sink encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  3.64 Source encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z.F
+Info:    routing  0.23  3.87 Net encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C[3] (120,3) -> (120,3)
+Info:                          Sink encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z_B_LUT4_A.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  4.10 Source encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z_B_LUT4_A.F
+Info:    routing  0.87  4.97 Net encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_LUT4_Z_B_LUT4_A_Z[1] (120,3) -> (121,3)
+Info:                          Sink encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_CCU2C_B0_CIN_CCU2C_COUT$CCU2_COMB1.B
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  5.42 Source encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_CCU2C_B0_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  5.42 Net encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_CCU2C_B0_CIN (121,3) -> (121,3)
+Info:                          Sink encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_CCU2C_B0$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/TmdsEncoder.sv:77.57-77.77
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  5.49 Source encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_CCU2C_B0$CCU2_COMB0.FCO
+Info:    routing  0.00  5.49 Net encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_CCU2C_B0$CCU2_FCI_INT (121,3) -> (121,3)
+Info:                          Sink encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_CCU2C_B0$CCU2_COMB1.FCI
+Info:      logic  0.40  5.89 Source encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_CCU2C_B0$CCU2_COMB1.F
+Info:    routing  0.63  6.53 Net encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_CCU2C_B0_S1[3] (121,3) -> (122,3)
+Info:                          Sink encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_CCU2C_B0_S0_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  6.76 Source encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_C_Z_LUT4_D_B_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_C_CCU2C_B0_S0_LUT4_Z.F
+Info:    routing  0.44  7.21 Net encB.c_reg_LUT4_C_Z_LUT4_Z_D[1] (122,3) -> (122,3)
+Info:                          Sink encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  7.44 Source encB.c_reg_LUT4_C_Z_LUT4_Z_D_LUT4_Z.F
+Info:    routing  0.66  8.10 Net encB.c_reg_LUT4_C_Z_LUT4_Z_D[2] (122,3) -> (123,4)
+Info:                          Sink encB.c_reg_LUT4_C_Z_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  8.34 Source encB.c_reg_LUT4_C_Z_LUT4_Z.F
+Info:    routing  0.74  9.07 Net encB.c_reg_LUT4_C_Z[3] (123,4) -> (120,4)
+Info:                          Sink encB.c_reg_LUT4_D_Z_LUT4_C_Z_LUT4_Z_2_D_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  9.31 Source encB.c_reg_LUT4_D_Z_LUT4_C_Z_LUT4_Z_2_D_LUT4_Z.F
+Info:    routing  0.50  9.80 Net encB.c_reg_LUT4_D_Z_LUT4_C_Z_LUT4_Z_2_D[2] (120,4) -> (120,4)
+Info:                          Sink encB.c_reg_LUT4_D_Z_LUT4_C_Z_LUT4_Z_2.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  10.04 Source encB.c_reg_LUT4_D_Z_LUT4_C_Z_LUT4_Z_2.F
+Info:    routing  0.13  10.17 Net encB.c_reg_LUT4_D_Z_LUT4_C_Z[0] (120,4) -> (120,4)
+Info:                          Sink serB.shift_TRELLIS_FF_Q_9.DI
+Info:      setup  0.00  10.17 Source serB.shift_TRELLIS_FF_Q_9.DI
+Info: 3.81 ns logic, 6.36 ns routing
+
+Info: Critical path report for clock '$glbnet$_pll_io_clk_o_0' (posedge -> posedge):
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source farBorg.core.lanes_3.fma_result_fma.magR_TRELLIS_FF_Q_37.Q
+Info:    routing  1.18  1.70 Net farBorg.core.lanes_3.fma_result_fma.magR[4] (33,8) -> (33,11)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.C
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  1.94 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.F
+Info:    routing  0.00  1.94 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_PFUMX_Z_ALUT (33,11) -> (33,11)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_PFUMX_Z_BLUT_LUT4_Z.F1
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:141.30-141.32
+Info:      logic  0.17  2.11 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_PFUMX_Z_BLUT_LUT4_Z.OFX
+Info:    routing  0.00  2.11 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1 (33,11) -> (33,11)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.FXB
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:141.38-141.40
+Info:      logic  0.24  2.35 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.75  3.10 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD[6] (33,11) -> (35,9)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  3.35 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.62  3.97 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD[6] (35,9) -> (37,9)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  4.23 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  1.02  5.25 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD[6] (37,9) -> (39,6)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  5.51 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.96  6.47 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_SD[6] (39,6) -> (40,9)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  6.73 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.89  7.62 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_SD[6] (40,9) -> (38,11)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  7.87 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  1.21  9.08 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_L6MUX21_Z_SD[6] (38,11) -> (33,13)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_B1_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  9.34 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_B1_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  1.14  10.48 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_B1 (33,13) -> (32,16)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0$CCU2_COMB1.B
+Info:      logic  0.45  10.93 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0$CCU2_COMB1.FCO
+Info:    routing  0.00  10.93 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT (32,16) -> (32,16)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.00 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  11.00 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN$CCU2_FCI_INT (32,16) -> (32,16)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  11.00 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  11.00 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN_COUT (32,16) -> (32,16)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  11.07 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  11.07 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (32,16) -> (32,16)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  11.07 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  11.07 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (32,16) -> (33,16)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.44  11.51 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.F
+Info:    routing  1.07  12.59 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0[1] (33,16) -> (33,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  13.03 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  13.03 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (33,17) -> (33,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  13.03 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  13.03 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (33,17) -> (33,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:168.25-168.58
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  13.10 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  13.10 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (33,17) -> (33,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  13.10 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  13.10 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (33,17) -> (33,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:168.25-168.58
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  13.17 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  13.17 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (33,17) -> (33,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  13.17 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  13.17 Net $nextpnr_CCU2C_279$CIN (33,17) -> (33,17)
+Info:                          Sink $nextpnr_CCU2C_279$CCU2_COMB0.FCI
+Info:      logic  0.44  13.62 Source $nextpnr_CCU2C_279$CCU2_COMB0.F
+Info:    routing  1.01  14.63 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (33,17) -> (34,14)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_A0_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  14.86 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_A0_LUT4_Z.F
+Info:    routing  1.08  15.94 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_A0[0] (34,14) -> (34,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  16.39 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  16.39 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (34,15) -> (34,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  16.39 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  16.39 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT_CIN (34,15) -> (34,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  16.46 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  16.46 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT$CCU2_FCI_INT (34,15) -> (34,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  16.46 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  16.46 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN (34,15) -> (34,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  16.53 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0$CCU2_COMB0.FCO
+Info:    routing  0.00  16.53 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0$CCU2_FCI_INT (34,15) -> (34,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0$CCU2_COMB1.FCI
+Info:      logic  0.00  16.53 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0$CCU2_COMB1.FCO
+Info:    routing  0.00  16.53 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_COUT (34,15) -> (35,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  16.60 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  16.60 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_FCI_INT (35,15) -> (35,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  16.60 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  16.60 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT (35,15) -> (35,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  16.67 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  16.67 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (35,15) -> (35,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  16.67 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  16.67 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_CIN_CCU2C_COUT_CIN (35,15) -> (35,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  16.74 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  16.74 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_CIN_CCU2C_COUT$CCU2_FCI_INT (35,15) -> (35,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  16.74 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  16.74 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_CIN (35,15) -> (35,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.44  17.18 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0$CCU2_COMB0.F
+Info:    routing  0.77  17.95 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0[1] (35,15) -> (37,14)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT_S0_LUT4_Z_3.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  18.19 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_S1_CCU2C_S0_A0_CCU2C_A0_S0_CCU2C_S0_CIN_CCU2C_COUT_S0_LUT4_Z_3.F
+Info:    routing  1.77  19.96 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_B0_LUT4_Z_D_LUT4_Z_1_D[0] (37,14) -> (36,4)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_A1_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN$CCU2_COMB1.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  20.41 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_A1_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  20.41 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_A1_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_COUT (36,4) -> (36,4)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_A1_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:172.33-172.52
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  20.48 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_A1_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1$CCU2_COMB0.FCO
+Info:    routing  0.00  20.48 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_A1_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1$CCU2_FCI_INT (36,4) -> (36,4)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_A1_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1$CCU2_COMB1.FCI
+Info:      logic  0.40  20.88 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_A1_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S1$CCU2_COMB1.F
+Info:    routing  0.78  21.66 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_A1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_D[2] (36,4) -> (38,3)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  21.90 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z.F
+Info:    routing  0.89  22.79 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_Z_D[2] (38,3) -> (36,3)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_Z_1.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  23.02 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_Z_1.F
+Info:    routing  1.12  24.15 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_A0_LUT4_D_Z[3] (36,3) -> (36,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN$CCU2_COMB1.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  24.59 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  24.59 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT (36,2) -> (36,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:179.54-179.80
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  24.66 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  24.66 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (36,2) -> (36,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  24.66 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  24.66 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (36,2) -> (37,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:179.54-179.80
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  24.74 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  24.74 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (37,2) -> (37,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  24.74 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  24.74 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (37,2) -> (37,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:179.54-179.80
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  24.81 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  24.81 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_CIN_CCU2C_COUT$CCU2_FCI_INT (37,2) -> (37,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  24.81 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  24.81 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_CIN (37,2) -> (37,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:179.54-179.80
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  24.88 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0$CCU2_COMB0.FCO
+Info:    routing  0.00  24.88 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0$CCU2_FCI_INT (37,2) -> (37,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0$CCU2_COMB1.FCI
+Info:      logic  0.00  24.88 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0$CCU2_COMB1.FCO
+Info:    routing  0.00  24.88 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT (37,2) -> (37,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:179.54-179.80
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  24.95 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  24.95 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN$CCU2_FCI_INT (37,2) -> (37,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  24.95 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  24.95 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT (37,2) -> (38,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:179.54-179.80
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  25.02 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  25.02 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (38,2) -> (38,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  25.02 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  25.02 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (38,2) -> (38,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:179.54-179.80
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  25.09 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  25.09 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (38,2) -> (38,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  25.09 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  25.09 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (38,2) -> (38,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:179.54-179.80
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  25.16 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0$CCU2_COMB0.FCO
+Info:    routing  0.00  25.16 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0$CCU2_FCI_INT (38,2) -> (38,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0$CCU2_COMB1.FCI
+Info:      logic  0.00  25.16 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0$CCU2_COMB1.FCO
+Info:    routing  0.00  25.16 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT (38,2) -> (38,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:179.54-179.80
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  25.23 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  25.23 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_FCI_INT (38,2) -> (38,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  25.23 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  25.23 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT (38,2) -> (39,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:179.54-179.80
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  25.30 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  25.30 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (39,2) -> (39,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  25.30 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  25.30 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (39,2) -> (39,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:179.54-179.80
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  25.37 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  25.37 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (39,2) -> (39,2)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.40  25.78 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.F
+Info:    routing  1.12  26.89 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1[3] (39,2) -> (40,4)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_D.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  27.13 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_D.F
+Info:    routing  0.61  27.74 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_D_Z[3] (40,4) -> (40,4)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_S1_PFUMX_C0_Z_LUT4_Z_3.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  27.98 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_S1_PFUMX_C0_Z_LUT4_Z_3.F
+Info:    routing  0.66  28.64 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_LUT4_Z_2_D_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_S1_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_CCU2C_S0_S1_PFUMX_C0_Z[6] (40,4) -> (40,5)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  28.89 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0_L6MUX21_Z_D1_L6MUX21_Z_D0_PFUMX_Z_ALUT_LUT4_Z.OFX
+Info:    routing  0.81  29.71 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_B0[3] (40,5) -> (38,5)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_A0_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  29.94 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_A0_LUT4_Z.F
+Info:    routing  1.55  31.49 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_A0 (38,5) -> (38,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1$CCU2_COMB0.A
+Info:      logic  0.45  31.94 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1$CCU2_COMB0.FCO
+Info:    routing  0.00  31.94 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1$CCU2_FCI_INT (38,15) -> (38,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1$CCU2_COMB1.FCI
+Info:      logic  0.00  31.94 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1$CCU2_COMB1.FCO
+Info:    routing  0.00  31.94 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_COUT (38,15) -> (38,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_1$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:176.5-180.24
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  32.01 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_1$CCU2_COMB0.FCO
+Info:    routing  0.00  32.01 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_1$CCU2_FCI_INT (38,15) -> (38,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_1$CCU2_COMB1.FCI
+Info:      logic  0.00  32.01 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_1$CCU2_COMB1.FCO
+Info:    routing  0.00  32.01 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_1_COUT (38,15) -> (38,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_2$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:176.5-180.24
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  32.08 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_2$CCU2_COMB0.FCO
+Info:    routing  0.00  32.08 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_2$CCU2_FCI_INT (38,15) -> (38,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_2$CCU2_COMB1.FCI
+Info:      logic  0.00  32.08 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_2$CCU2_COMB1.FCO
+Info:    routing  0.00  32.08 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_2_COUT (38,15) -> (39,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_3$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:176.5-180.24
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  32.15 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_3$CCU2_COMB0.FCO
+Info:    routing  0.00  32.15 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_3$CCU2_FCI_INT (39,15) -> (39,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_3$CCU2_COMB1.FCI
+Info:      logic  0.00  32.15 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_3$CCU2_COMB1.FCO
+Info:    routing  0.00  32.15 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S1_3_COUT (39,15) -> (39,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:176.5-180.24
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  32.22 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0$CCU2_COMB0.FCO
+Info:    routing  0.00  32.22 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0$CCU2_FCI_INT (39,15) -> (39,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0$CCU2_COMB1.FCI
+Info:      logic  0.00  32.22 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0$CCU2_COMB1.FCO
+Info:    routing  0.00  32.22 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT (39,15) -> (39,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:176.5-180.24
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  32.29 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  32.29 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN$CCU2_FCI_INT (39,15) -> (39,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.40  32.70 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN$CCU2_COMB1.F
+Info:    routing  0.79  33.49 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0[3] (39,15) -> (37,16)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_1_C_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  33.72 Source farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_1_C_LUT4_Z.F
+Info:    routing  1.12  34.85 Net farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_1_C[1] (37,16) -> (35,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN$CCU2_COMB0.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  35.29 Source farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  35.29 Net farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN$CCU2_FCI_INT (35,17) -> (35,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  35.29 Source farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  35.29 Net farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT (35,17) -> (35,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:184.26-184.54
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  35.36 Source farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  35.36 Net farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (35,17) -> (35,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  35.36 Source farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  35.36 Net farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (35,17) -> (36,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:184.26-184.54
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  35.43 Source farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  35.43 Net farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (36,17) -> (36,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  35.43 Source farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  35.43 Net farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (36,17) -> (36,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgFp16Fma.sv:184.26-184.54
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  35.51 Source farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  35.51 Net farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (36,17) -> (36,17)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  35.51 Source farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_Z_LUT4_Z_4_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  35.51 Net $nextpnr_CCU2C_257$CIN (36,17) -> (36,17)
+Info:                          Sink $nextpnr_CCU2C_257$CCU2_COMB0.FCI
+Info:      logic  0.44  35.95 Source $nextpnr_CCU2C_257$CCU2_COMB0.F
+Info:    routing  0.72  36.67 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_B_LUT4_Z_C_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_A0_LUT4_Z_D_LUT4_Z_D_PFUMX_C0_Z_LUT4_D_Z[4] (36,17) -> (37,16)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_Z_PFUMX_Z_BLUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  36.92 Source farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_Z_PFUMX_Z_BLUT_LUT4_Z.OFX
+Info:    routing  0.39  37.31 Net farBorg.core.lanes_3.fma_result_fma.sigRounded_CCU2C_S0_COUT_CCU2C_CIN_S0_LUT4_C_Z[3] (37,16) -> (38,16)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_C0_LUT4_B.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  37.55 Source farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_C0_LUT4_B.F
+Info:    routing  0.65  38.20 Net farBorg.core.lanes_3.fma_result_fma.signR_LUT4_C_Z_PFUMX_ALUT_C0_LUT4_B_Z (38,16) -> (38,15)
+Info:                          Sink farBorg.core.lanes_3.fma_result_fma.io_out_REG_TRELLIS_FF_Q_9.LSR
+Info:      setup  0.42  38.62 Source farBorg.core.lanes_3.fma_result_fma.io_out_REG_TRELLIS_FF_Q_9.LSR
+Info: 13.93 ns logic, 24.69 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> '<async>':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source pl_linkup_in$tr_io.O
+Info:    routing  2.47  2.47 Net pl_linkup_in$TRELLIS_IO_IN (85,0) -> (100,11)
+Info:                          Sink pl_dn_v_out_LUT4_Z.C
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  2.70 Source pl_dn_v_out_LUT4_Z.F
+Info:    routing  5.92  8.63 Net pl_dn_v_out$TRELLIS_IO_OUT (100,11) -> (0,11)
+Info:                          Sink pl_dn_v_out$tr_io.I
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/BorgLinkMaster.sv:23.17-23.28
+Info: 0.24 ns logic, 8.39 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> 'posedge $glbnet$_pll_io_clk_o_0':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source pl_linkup_in$tr_io.O
+Info:    routing  2.89  2.89 Net pl_linkup_in$TRELLIS_IO_IN (85,0) -> (100,15)
+Info:                          Sink uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_Z.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  3.12 Source uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_Z.F
+Info:    routing  2.80  5.93 Net uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A[2] (100,15) -> (93,40)
+Info:                          Sink uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_C.C
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  6.16 Source uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_C.F
+Info:    routing  0.00  6.16 Net uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_C_Z (93,40) -> (93,40)
+Info:                          Sink uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_C_Z_PFUMX_ALUT_BLUT_LUT4_Z.F1
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:133.22-133.24
+Info:      logic  0.17  6.33 Source uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_C_Z_PFUMX_ALUT_BLUT_LUT4_Z.OFX
+Info:    routing  0.61  6.94 Net uo_out_val_peripherals.linkOpt._GEN_2_LUT4_Z_A_LUT4_C_Z_PFUMX_ALUT_Z[1] (93,40) -> (94,41)
+Info:                          Sink uo_out_val_clintOpt.respPending_LUT4_B_Z_PFUMX_BLUT_ALUT_LUT4_Z.C
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  7.18 Source uo_out_val_clintOpt.respPending_LUT4_B_Z_PFUMX_BLUT_ALUT_LUT4_Z.F
+Info:    routing  0.00  7.18 Net uo_out_val_clintOpt.respPending_LUT4_B_Z_PFUMX_BLUT_ALUT (94,41) -> (94,41)
+Info:                          Sink uo_out_val_clintOpt.respPending_LUT4_B.F1
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:133.22-133.24
+Info:      logic  0.17  7.34 Source uo_out_val_clintOpt.respPending_LUT4_B.OFX
+Info:    routing  1.13  8.47 Net uo_out_val_clintOpt.respPending_LUT4_B_Z_PFUMX_BLUT_Z[4] (94,41) -> (89,41)
+Info:                          Sink uo_out_val_socFire_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  8.71 Source uo_out_val_socFire_LUT4_Z.F
+Info:    routing  1.92  10.63 Net uo_out_val_socFire (89,41) -> (97,55)
+Info:                          Sink warmRstCtr_TRELLIS_FF_Q_DI_LUT4_Z_D_LUT4_Z.B
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  10.86 Source warmRstCtr_TRELLIS_FF_Q_DI_LUT4_Z_D_LUT4_Z.F
+Info:    routing  1.53  12.40 Net warmRstCtr_TRELLIS_FF_Q_DI_LUT4_Z_C[1] (97,55) -> (98,68)
+Info:                          Sink warmRstCtr_TRELLIS_FF_Q_1_LSR_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  12.63 Source warmRstCtr_TRELLIS_FF_Q_1_LSR_LUT4_Z.F
+Info:    routing  0.61  13.24 Net warmRstCtr_TRELLIS_FF_Q_1_LSR (98,68) -> (98,69)
+Info:                          Sink warmRstCtr_TRELLIS_FF_Q_3.LSR
+Info:      setup  0.42  13.66 Source warmRstCtr_TRELLIS_FF_Q_3.LSR
+Info: 2.17 ns logic, 11.49 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> 'negedge $glbnet$_pll_io_clk_o_0':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source rst_n$tr_io.O
+Info:    routing  5.48  5.48 Net rst_n$TRELLIS_IO_IN (6,0) -> (50,33)
+Info:                          Sink rst_n_LUT4_C.C
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/ulx3s_top.sv:4.17-4.22
+Info:      logic  0.24  5.72 Source rst_n_LUT4_C.F
+Info:    routing  0.13  5.85 Net rst_n_LUT4_C_Z (50,33) -> (50,33)
+Info:                          Sink uo_out_val_soc_rst_reg_n_TRELLIS_FF_Q.DI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/ulx3s_top.sv:248.3-249.82
+Info:      setup  0.00  5.85 Source uo_out_val_soc_rst_reg_n_TRELLIS_FF_Q.DI
+Info: 0.24 ns logic, 5.61 ns routing
+
+Info: Critical path report for cross-domain path 'posedge $glbnet$_pll_io_clk_o_0' -> '<async>':
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source sdramBackend.state_TRELLIS_FF_Q_1.Q
+Info:    routing  1.20  1.72 Net sdramBackend.state[2] (111,68) -> (116,68)
+Info:                          Sink sdramBackend._GEN_LUT4_Z.B
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/SdramBackend.sv:29.15-29.20
+Info:      logic  0.24  1.96 Source sdramBackend._GEN_LUT4_Z.F
+Info:    routing  7.54  9.50 Net flashBoot.casez_tmp_0_LUT4_Z_2_A_LUT4_Z_C_LUT4_C_D_LUT4_C_Z_CCU2C_S0_S1_LUT4_B_Z_PFUMX_ALUT_Z[0] (116,68) -> (2,37)
+Info:                          Sink _sdramBackend_io_backend_busy_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  9.74 Source _sdramBackend_io_backend_busy_LUT4_Z.F
+Info:    routing  0.95  10.69 Net _sdramBackend_io_backend_busy (2,37) -> (0,35)
+Info:                          Sink led[1]$tr_io.I
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/SdramBackend.sv:13.17-13.32
+Info: 1.00 ns logic, 9.69 ns routing
+
+Info: Critical path report for cross-domain path 'posedge $glbnet$_pll_io_clk_o_0' -> 'posedge $glbnet$_pll_io_clk_o_2':
+Info:       type curr  total name
+Info:   clk-to-q  5.83  5.83 Source scanout.frameBuf_ext.Memory.0.12.DOB0
+Info:    routing  5.02  10.85 Net scanout.frameBuf_ext.Memory.0.12_DOB0[3] (46,22) -> (109,5)
+Info:                          Sink scanout.pixelSafe_LUT4_Z_2.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/brams_map_16kd.v:46.13-46.16
+Info:      logic  0.24  11.08 Source scanout.pixelSafe_LUT4_Z_2.F
+Info:    routing  0.13  11.21 Net scanout.pixelSafe[12] (109,5) -> (109,5)
+Info:                          Sink hdmiGreen_TRELLIS_FF_Q_3.DI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s/verilog_padloop/HdmiScanoutFp16.sv:42.15-42.24
+Info:      setup  0.00  11.21 Source hdmiGreen_TRELLIS_FF_Q_3.DI
+Info: 6.07 ns logic, 5.15 ns routing
+
+Warning: Max frequency for clock '$glbnet$_pll_io_clk_o_2': 98.33 MHz (FAIL at 125.00 MHz)
+Info: Max frequency for clock '$glbnet$_pll_io_clk_o_0': 25.89 MHz (PASS at 25.00 MHz)
+
+Info: Max delay <async>                         -> <async>                        : 8.63 ns
+Info: Max delay <async>                         -> posedge $glbnet$_pll_io_clk_o_0: 13.66 ns
+Info: Max delay <async>                         -> negedge $glbnet$_pll_io_clk_o_0: 5.85 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> <async>                        : 10.69 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> posedge $glbnet$_pll_io_clk_o_2: 11.21 ns
+
+Info: Slack histogram:
+Info:  legend: * represents 132 endpoint(s)
+Info:          + represents [1,132) endpoint(s)
+Info: [ -2170,   -108) |+
+Info: [  -108,   1954) |+
+Info: [  1954,   4016) |*+
+Info: [  4016,   6078) |***+
+Info: [  6078,   8140) |***+
+Info: [  8140,  10202) |**+
+Info: [ 10202,  12264) |*+
+Info: [ 12264,  14326) |**************************+
+Info: [ 14326,  16388) |************************************************************ 
+Info: [ 16388,  18450) |***+
+Info: [ 18450,  20512) |****+
+Info: [ 20512,  22574) |**********+
+Info: [ 22574,  24636) |*****************************+
+Info: [ 24636,  26698) |******************+
+Info: [ 26698,  28760) |*****************+
+Info: [ 28760,  30822) |**********************+
+Info: [ 30822,  32884) |*******************************************+
+Info: [ 32884,  34946) |**********************************+
+Info: [ 34946,  37008) |*******************+
+Info: [ 37008,  39070) |**************+
+1 warning, 0 errors
+
+Info: Program finished normally.

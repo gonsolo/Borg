@@ -13,14 +13,7 @@
 #define CLOCK_MHZ 4
 #endif
 #define FPGA_CLOCK_HZ (CLOCK_MHZ * 1000000)
-// Debug/host UART baud rate. 115200 on hardware (the USB-serial bridge); the
-// simulators build the firmware with a much faster rate (-DBORG_UART_BAUD,
-// see simulation/common/common_sim.h SIM_UART_BAUD) because replaying a borgvk
-// burst bit by bit dominated render time.
-#ifndef BORG_UART_BAUD
-#define BORG_UART_BAUD 115200
-#endif
-#define UART_BAUD_DEFAULT (FPGA_CLOCK_HZ / BORG_UART_BAUD)
+#define UART_BAUD_DEFAULT (FPGA_CLOCK_HZ / 115200)
 
 // --- Bus idle sentinel ---
 #define BUS_IDLE 3

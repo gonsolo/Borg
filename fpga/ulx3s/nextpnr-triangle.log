@@ -1,0 +1,1030 @@
+Info: constraining clock net 'clk_25mhz' to 25.00 MHz
+
+Info: Logic utilisation before packing:
+Info:     Total LUT4s:     47104/83640    56%
+Info:         logic LUTs:  36762/83640    43%
+Info:         carry LUTs:   9328/83640    11%
+Info:           RAM LUTs:    676/10455     6%
+Info:          RAMW LUTs:    338/20910     1%
+
+Info:      Total DFFs:     10672/83640    12%
+
+Info: Packing IOs..
+Info: sdram_d_9 feeds TRELLIS_IO bb_9, removing $nextpnr_iobuf sdram_d_9.
+Info: pin 'bb_9' constrained to Bel 'X126/Y35/PIOC'.
+Info: sdram_d_8 feeds TRELLIS_IO bb_8, removing $nextpnr_iobuf sdram_d_8.
+Info: pin 'bb_8' constrained to Bel 'X126/Y35/PIOD'.
+Info: sdram_d_7 feeds TRELLIS_IO bb_7, removing $nextpnr_iobuf sdram_d_7.
+Info: pin 'bb_7' constrained to Bel 'X126/Y86/PIOD'.
+Info: sdram_d_6 feeds TRELLIS_IO bb_6, removing $nextpnr_iobuf sdram_d_6.
+Info: pin 'bb_6' constrained to Bel 'X126/Y92/PIOD'.
+Info: sdram_d_5 feeds TRELLIS_IO bb_5, removing $nextpnr_iobuf sdram_d_5.
+Info: pin 'bb_5' constrained to Bel 'X126/Y89/PIOD'.
+Info: sdram_d_4 feeds TRELLIS_IO bb_4, removing $nextpnr_iobuf sdram_d_4.
+Info: pin 'bb_4' constrained to Bel 'X126/Y83/PIOD'.
+Info: sdram_d_3 feeds TRELLIS_IO bb_3, removing $nextpnr_iobuf sdram_d_3.
+Info: pin 'bb_3' constrained to Bel 'X126/Y53/PIOC'.
+Info: sdram_d_2 feeds TRELLIS_IO bb_2, removing $nextpnr_iobuf sdram_d_2.
+Info: pin 'bb_2' constrained to Bel 'X126/Y50/PIOD'.
+Info: sdram_d_15 feeds TRELLIS_IO bb_15, removing $nextpnr_iobuf sdram_d_15.
+Info: pin 'bb_15' constrained to Bel 'X126/Y20/PIOC'.
+Info: sdram_d_14 feeds TRELLIS_IO bb_14, removing $nextpnr_iobuf sdram_d_14.
+Info: pin 'bb_14' constrained to Bel 'X126/Y41/PIOC'.
+Info: sdram_d_13 feeds TRELLIS_IO bb_13, removing $nextpnr_iobuf sdram_d_13.
+Info: pin 'bb_13' constrained to Bel 'X126/Y14/PIOD'.
+Info: sdram_d_12 feeds TRELLIS_IO bb_12, removing $nextpnr_iobuf sdram_d_12.
+Info: pin 'bb_12' constrained to Bel 'X126/Y14/PIOC'.
+Info: sdram_d_11 feeds TRELLIS_IO bb_11, removing $nextpnr_iobuf sdram_d_11.
+Info: pin 'bb_11' constrained to Bel 'X126/Y35/PIOA'.
+Info: sdram_d_10 feeds TRELLIS_IO bb_10, removing $nextpnr_iobuf sdram_d_10.
+Info: pin 'bb_10' constrained to Bel 'X126/Y35/PIOB'.
+Info: sdram_d_1 feeds TRELLIS_IO bb_1, removing $nextpnr_iobuf sdram_d_1.
+Info: pin 'bb_1' constrained to Bel 'X126/Y50/PIOC'.
+Info: sdram_d_0 feeds TRELLIS_IO bb, removing $nextpnr_iobuf sdram_d_0.
+Info: pin 'bb' constrained to Bel 'X126/Y20/PIOD'.
+Info: pin 'sdram_wen$tr_io' constrained to Bel 'X126/Y86/PIOC'.
+Info: pin 'sdram_rasn$tr_io' constrained to Bel 'X126/Y86/PIOB'.
+Info: pin 'sdram_dqm[1]$tr_io' constrained to Bel 'X126/Y38/PIOA'.
+Info: pin 'sdram_dqm[0]$tr_io' constrained to Bel 'X126/Y89/PIOC'.
+Info: pin 'sdram_csn$tr_io' constrained to Bel 'X126/Y86/PIOA'.
+Info: pin 'sdram_clk$tr_io' constrained to Bel 'X126/Y38/PIOB'.
+Info: pin 'sdram_cke$tr_io' constrained to Bel 'X126/Y38/PIOC'.
+Info: pin 'sdram_casn$tr_io' constrained to Bel 'X126/Y89/PIOA'.
+Info: pin 'sdram_ba[1]$tr_io' constrained to Bel 'X126/Y83/PIOB'.
+Info: pin 'sdram_ba[0]$tr_io' constrained to Bel 'X126/Y83/PIOC'.
+Info: pin 'sdram_a[12]$tr_io' constrained to Bel 'X126/Y41/PIOA'.
+Info: pin 'sdram_a[11]$tr_io' constrained to Bel 'X126/Y38/PIOD'.
+Info: pin 'sdram_a[10]$tr_io' constrained to Bel 'X126/Y83/PIOA'.
+Info: pin 'sdram_a[9]$tr_io' constrained to Bel 'X126/Y41/PIOB'.
+Info: pin 'sdram_a[8]$tr_io' constrained to Bel 'X126/Y44/PIOA'.
+Info: pin 'sdram_a[7]$tr_io' constrained to Bel 'X126/Y44/PIOC'.
+Info: pin 'sdram_a[6]$tr_io' constrained to Bel 'X126/Y41/PIOD'.
+Info: pin 'sdram_a[5]$tr_io' constrained to Bel 'X126/Y44/PIOB'.
+Info: pin 'sdram_a[4]$tr_io' constrained to Bel 'X126/Y44/PIOD'.
+Info: pin 'sdram_a[3]$tr_io' constrained to Bel 'X126/Y47/PIOC'.
+Info: pin 'sdram_a[2]$tr_io' constrained to Bel 'X126/Y47/PIOA'.
+Info: pin 'sdram_a[1]$tr_io' constrained to Bel 'X126/Y47/PIOD'.
+Info: pin 'sdram_a[0]$tr_io' constrained to Bel 'X126/Y47/PIOB'.
+Info: pin 'rst_n$tr_io' constrained to Bel 'X6/Y0/PIOB'.
+Info: pin 'led[7]$tr_io' constrained to Bel 'X0/Y41/PIOD'.
+Info: pin 'led[6]$tr_io' constrained to Bel 'X0/Y38/PIOD'.
+Info: pin 'led[5]$tr_io' constrained to Bel 'X0/Y44/PIOD'.
+Info: pin 'led[4]$tr_io' constrained to Bel 'X0/Y38/PIOB'.
+Info: pin 'led[3]$tr_io' constrained to Bel 'X0/Y38/PIOC'.
+Info: pin 'led[2]$tr_io' constrained to Bel 'X0/Y38/PIOA'.
+Info: pin 'led[1]$tr_io' constrained to Bel 'X0/Y35/PIOD'.
+Info: pin 'led[0]$tr_io' constrained to Bel 'X0/Y35/PIOC'.
+Info: pin 'gpdi_dp[3]$tr_io' constrained to Bel 'X116/Y0/PIOA'.
+Info: pin 'gpdi_dp[2]$tr_io' constrained to Bel 'X76/Y0/PIOA'.
+Info: pin 'gpdi_dp[1]$tr_io' constrained to Bel 'X83/Y0/PIOA'.
+Info: pin 'gpdi_dp[0]$tr_io' constrained to Bel 'X110/Y0/PIOA'.
+Info: pin 'ftdi_txd$tr_io' constrained to Bel 'X0/Y89/PIOB'.
+Info: pin 'ftdi_rxd$tr_io' constrained to Bel 'X0/Y56/PIOC'.
+Info: pin 'flash_mosi$tr_io' constrained to Bel 'X11/Y95/PIOB'.
+Info: pin 'flash_miso$tr_io' constrained to Bel 'X11/Y95/PIOA'.
+Info: pin 'flash_csn$tr_io' constrained to Bel 'X15/Y95/PIOA'.
+Info: pin 'clk_25mhz$tr_io' constrained to Bel 'X0/Y47/PIOA'.
+Info: pin 'btn[5]$tr_io' constrained to Bel 'X126/Y17/PIOD'.
+Info: pin 'btn[4]$tr_io' constrained to Bel 'X6/Y95/PIOA'.
+Info: pin 'btn[3]$tr_io' constrained to Bel 'X6/Y95/PIOB'.
+Info: pin 'btn[2]$tr_io' constrained to Bel 'X126/Y89/PIOB'.
+Info: pin 'btn[1]$tr_io' constrained to Bel 'X4/Y95/PIOB'.
+Info: pin 'btn[0]$tr_io' constrained to Bel 'X4/Y95/PIOA'.
+Info: IOLOGIC component serR.oddr connected to PIO Bel X76/Y0/PIOA
+Info: IOLOGIC component serG.oddr connected to PIO Bel X83/Y0/PIOA
+Info: IOLOGIC component serClk.oddr connected to PIO Bel X116/Y0/PIOA
+Info: IOLOGIC component serB.oddr connected to PIO Bel X110/Y0/PIOA
+Info: Packing constants..
+Info: Packing carries...
+Info: Packing LUTs...
+Info: Packing LUT5-7s...
+Info: Packing FFs...
+Info:     4034 FFs paired with LUTs.
+Info: Generating derived timing constraints...
+Info:     Input frequency of PLL 'pll.pll' is constrained to 25.0 MHz
+Info:     Derived frequency constraint of 25.0 MHz for net _pll_io_clk_o_0
+Info:     Derived frequency constraint of 25.0 MHz for net sdram_clk$TRELLIS_IO_OUT
+Info:     Derived frequency constraint of 125.0 MHz for net _pll_io_clk_o_2
+Info: Promoting globals...
+Info:     promoting clock net _pll_io_clk_o_0 to global network
+Info:     promoting clock net _pll_io_clk_o_2 to global network
+Info: Checksum: 0x3947f331
+
+Info: Device utilisation:
+Info: 	          TRELLIS_IO:      64/    365    17%
+Info: 	                DCCA:       2/     56     3%
+Info: 	              DP16KD:       8/    208     3%
+Info: 	          MULT18X18D:      49/    156    31%
+Info: 	              ALU54B:       0/     78     0%
+Info: 	             EHXPLLL:       1/      4    25%
+Info: 	             EXTREFB:       0/      2     0%
+Info: 	                DCUA:       0/      2     0%
+Info: 	           PCSCLKDIV:       0/      2     0%
+Info: 	             IOLOGIC:       0/    224     0%
+Info: 	            SIOLOGIC:       4/    141     2%
+Info: 	                 GSR:       0/      1     0%
+Info: 	               JTAGG:       0/      1     0%
+Info: 	                OSCG:       0/      1     0%
+Info: 	               SEDGA:       0/      1     0%
+Info: 	                 DTR:       0/      1     0%
+Info: 	             USRMCLK:       1/      1   100%
+Info: 	             CLKDIVF:       0/      4     0%
+Info: 	           ECLKSYNCB:       0/     10     0%
+Info: 	             DLLDELD:       0/      8     0%
+Info: 	              DDRDLL:       0/      4     0%
+Info: 	             DQSBUFM:       0/     14     0%
+Info: 	     TRELLIS_ECLKBUF:       0/      8     0%
+Info: 	        ECLKBRIDGECS:       0/      2     0%
+Info: 	                DCSC:       0/      2     0%
+Info: 	          TRELLIS_FF:   10672/  83640    12%
+Info: 	        TRELLIS_COMB:   49282/  83640    58%
+Info: 	        TRELLIS_RAMW:     169/  10455     1%
+
+Info: Placed 69 cells based on constraints.
+Info: Creating initial analytic placement for 39533 cells, random placement wirelen = 4587045.
+Info:     at initial placer iter 0, wirelen = 25335
+Info:     at initial placer iter 1, wirelen = 21610
+Info:     at initial placer iter 2, wirelen = 20456
+Info:     at initial placer iter 3, wirelen = 19646
+Info: Running main analytical placer, max placement attempts per cell = 10000.
+Info:     at iteration #1, type ALL: wirelen solved = 19542, spread = 1229280, legal = 1233471; time = 2.05s
+Info:     at iteration #2, type ALL: wirelen solved = 105132, spread = 587210, legal = 595470; time = 2.09s
+Info:     at iteration #3, type ALL: wirelen solved = 182102, spread = 438634, legal = 448374; time = 1.97s
+Info:     at iteration #4, type ALL: wirelen solved = 203883, spread = 403493, legal = 415631; time = 1.91s
+Info:     at iteration #5, type ALL: wirelen solved = 217739, spread = 382604, legal = 396599; time = 1.86s
+Info:     at iteration #6, type ALL: wirelen solved = 227443, spread = 356134, legal = 375631; time = 1.86s
+Info:     at iteration #7, type ALL: wirelen solved = 234174, spread = 369948, legal = 386794; time = 1.83s
+Info:     at iteration #8, type ALL: wirelen solved = 239847, spread = 359086, legal = 377080; time = 1.87s
+Info:     at iteration #9, type ALL: wirelen solved = 243244, spread = 344592, legal = 368061; time = 1.85s
+Info:     at iteration #10, type ALL: wirelen solved = 248527, spread = 335914, legal = 359339; time = 1.98s
+Info:     at iteration #11, type ALL: wirelen solved = 253335, spread = 339471, legal = 363987; time = 1.93s
+Info:     at iteration #12, type ALL: wirelen solved = 255745, spread = 352189, legal = 370017; time = 1.80s
+Info:     at iteration #13, type ALL: wirelen solved = 259668, spread = 328220, legal = 353755; time = 1.79s
+Info:     at iteration #14, type ALL: wirelen solved = 260631, spread = 343796, legal = 361648; time = 1.81s
+Info:     at iteration #15, type ALL: wirelen solved = 262159, spread = 339209, legal = 358501; time = 1.81s
+Info:     at iteration #16, type ALL: wirelen solved = 263149, spread = 341466, legal = 360237; time = 1.79s
+Info:     at iteration #17, type ALL: wirelen solved = 268661, spread = 344220, legal = 361874; time = 1.78s
+Info:     at iteration #18, type ALL: wirelen solved = 270075, spread = 337559, legal = 358961; time = 1.84s
+Info: HeAP Placer Time: 51.12s
+Info:   of which solving equations: 28.95s
+Info:   of which spreading cells: 7.23s
+Info:   of which strict legalisation: 2.09s
+
+Info: Running simulated annealing placer for refinement.
+Info:   at iteration #1: temp = 0.000000, timing cost = 13889, wirelen = 353755
+Info:   at iteration #5: temp = 0.000000, timing cost = 12362, wirelen = 319554
+Info:   at iteration #10: temp = 0.000000, timing cost = 12430, wirelen = 311097
+Info:   at iteration #15: temp = 0.000000, timing cost = 12504, wirelen = 308711
+Info:   at iteration #20: temp = 0.000000, timing cost = 12296, wirelen = 307979
+Info:   at iteration #25: temp = 0.000000, timing cost = 12038, wirelen = 307658
+Info:   at iteration #25: temp = 0.000000, timing cost = 12032, wirelen = 307662 
+Info: SA placement time 314.46s
+
+Info: Max frequency for clock '$glbnet$_pll_io_clk_o_2': 119.25 MHz (FAIL at 125.00 MHz)
+Info: Max frequency for clock '$glbnet$_pll_io_clk_o_0': 17.72 MHz (FAIL at 25.00 MHz)
+
+Info: Max delay <async>                         -> posedge $glbnet$_pll_io_clk_o_0: 3.28 ns
+Info: Max delay <async>                         -> negedge $glbnet$_pll_io_clk_o_0: 7.04 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> <async>                        : 17.48 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> posedge $glbnet$_pll_io_clk_o_2: 4.75 ns
+
+Info: Slack histogram:
+Info:  legend: * represents 61 endpoint(s)
+Info:          + represents [1,61) endpoint(s)
+Info: [-16447, -13662) |*+
+Info: [-13662, -10877) |**********+
+Info: [-10877,  -8092) |*****+
+Info: [ -8092,  -5307) |*******+
+Info: [ -5307,  -2522) |*********+
+Info: [ -2522,    263) |********+
+Info: [   263,   3048) |*********+
+Info: [  3048,   5833) |***********************+
+Info: [  5833,   8618) |****************************************************+
+Info: [  8618,  11403) |*****************************************+
+Info: [ 11403,  14188) |**********************************+
+Info: [ 14188,  16973) |**********************+
+Info: [ 16973,  19758) |**************************+
+Info: [ 19758,  22543) |********************+
+Info: [ 22543,  25328) |*******************************+
+Info: [ 25328,  28113) |****************************+
+Info: [ 28113,  30898) |*********************************+
+Info: [ 30898,  33683) |******************************************************+
+Info: [ 33683,  36468) |************************************************************ 
+Info: [ 36468,  39253) |*********************************+
+Info: Checksum: 0xa2872a45
+Info: Routing globals...
+Info:     routing clock net $glbnet$_pll_io_clk_o_2 using global 0
+Info:     routing clock net $glbnet$_pll_io_clk_o_0 using global 1
+
+Info: Routing..
+Info: Setting up routing queue.
+Info: Routing 183905 arcs.
+Info:            |   (re-)routed arcs  |   delta    | remaining|       time spent     |
+Info:    IterCnt |  w/ripup   wo/ripup |  w/r  wo/r |      arcs| batch(sec) total(sec)|
+Info:       1000 |      219        780 |  219   780 |    183164|       5.84       5.84|
+Info:       2000 |      447       1552 |  228   772 |    182451|       0.76       6.60|
+Info:       3000 |      582       2417 |  135   865 |    181629|       0.81       7.40|
+Info:       4000 |      776       3223 |  194   806 |    180974|       1.40       8.80|
+Info:       5000 |     1029       3970 |  253   747 |    180463|       1.51      10.32|
+Info:       6000 |     1288       4711 |  259   741 |    179966|       1.53      11.84|
+Info:       7000 |     1544       5455 |  256   744 |    179706|       0.90      12.74|
+Info:       8000 |     1823       6176 |  279   721 |    179307|       0.85      13.59|
+Info:       9000 |     2107       6892 |  284   716 |    178850|       0.76      14.35|
+Info:      10000 |     2365       7634 |  258   742 |    178443|       0.85      15.20|
+Info:      11000 |     2681       8318 |  316   684 |    178143|       1.12      16.33|
+Info:      12000 |     2975       9024 |  294   706 |    177864|       1.06      17.39|
+Info:      13000 |     3263       9736 |  288   712 |    177473|       1.22      18.61|
+Info:      14000 |     3547      10452 |  284   716 |    177226|       1.29      19.90|
+Info:      15000 |     3826      11173 |  279   721 |    176929|       1.18      21.08|
+Info:      16000 |     4060      11939 |  234   766 |    176496|       1.08      22.16|
+Info:      17000 |     4297      12702 |  237   763 |    176057|       1.28      23.44|
+Info:      18000 |     4565      13434 |  268   732 |    175775|       1.40      24.83|
+Info:      19000 |     4794      14205 |  229   771 |    175330|       1.13      25.96|
+Info:      20000 |     5073      14926 |  279   721 |    175207|       1.69      27.65|
+Info:      21000 |     5393      15606 |  320   680 |    174963|       2.06      29.70|
+Info:      22000 |     5654      16345 |  261   739 |    174470|       2.39      32.10|
+Info:      23000 |     5945      17054 |  291   709 |    174366|       1.68      33.78|
+Info:      24000 |     6256      17743 |  311   689 |    174141|       1.24      35.02|
+Info:      25000 |     6454      18545 |  198   802 |    173767|       1.34      36.36|
+Info:      26000 |     6776      19223 |  322   678 |    173644|       1.09      37.45|
+Info:      27000 |     7103      19896 |  327   673 |    173481|       1.29      38.74|
+Info:      28000 |     7325      20674 |  222   778 |    173121|       1.24      39.97|
+Info:      29000 |     7552      21447 |  227   773 |    172694|       1.51      41.48|
+Info:      30000 |     7791      22208 |  239   761 |    172244|       1.64      43.12|
+Info:      31000 |     8019      22980 |  228   772 |    171873|       2.04      45.16|
+Info:      32000 |     8232      23767 |  213   787 |    171373|       1.70      46.87|
+Info:      33000 |     8465      24534 |  233   767 |    171033|       1.89      48.76|
+Info:      34000 |     8706      25293 |  241   759 |    170704|       1.16      49.91|
+Info:      35000 |     8966      26033 |  260   740 |    170429|       1.28      51.19|
+Info:      36000 |     9240      26759 |  274   726 |    170266|       1.55      52.74|
+Info:      37000 |     9515      27484 |  275   725 |    169929|       1.48      54.22|
+Info:      38000 |     9759      28240 |  244   756 |    169515|       1.90      56.13|
+Info:      39000 |     9999      29000 |  240   760 |    169246|       1.69      57.81|
+Info:      40000 |    10227      29772 |  228   772 |    168927|       1.87      59.69|
+Info:      41000 |    10417      30582 |  190   810 |    168540|       2.30      61.99|
+Info:      42000 |    10667      31332 |  250   750 |    168223|       1.52      63.51|
+Info:      43000 |    10872      32127 |  205   795 |    167970|       1.68      65.19|
+Info:      44000 |    11147      32852 |  275   725 |    167773|       2.07      67.26|
+Info:      45000 |    11397      33602 |  250   750 |    167376|       1.34      68.60|
+Info:      46000 |    11637      34362 |  240   760 |    167066|       2.46      71.06|
+Info:      47000 |    11845      35154 |  208   792 |    166568|       1.40      72.47|
+Info:      48000 |    12054      35945 |  209   791 |    166195|       1.24      73.70|
+Info:      49000 |    12265      36734 |  211   789 |    165729|       1.08      74.78|
+Info:      50000 |    12506      37493 |  241   759 |    165313|       2.36      77.14|
+Info:      51000 |    12731      38268 |  225   775 |    164984|       1.66      78.80|
+Info:      52000 |    13012      38987 |  281   719 |    164743|       1.67      80.47|
+Info:      53000 |    13252      39747 |  240   760 |    164295|       1.41      81.87|
+Info:      54000 |    13479      40520 |  227   773 |    163972|       1.32      83.19|
+Info:      55000 |    13699      41300 |  220   780 |    163640|       1.30      84.49|
+Info:      56000 |    13947      42052 |  248   752 |    163226|       1.17      85.66|
+Info:      57000 |    14155      42844 |  208   792 |    162802|       1.24      86.90|
+Info:      58000 |    14378      43621 |  223   777 |    162351|       1.45      88.35|
+Info:      59000 |    14654      44345 |  276   724 |    161914|       1.60      89.95|
+Info:      60000 |    14881      45118 |  227   773 |    161456|       1.19      91.14|
+Info:      61000 |    15171      45828 |  290   710 |    161231|       1.92      93.06|
+Info:      62000 |    15442      46557 |  271   729 |    160812|       3.11      96.17|
+Info:      63000 |    15671      47328 |  229   771 |    160320|       1.04      97.21|
+Info:      64000 |    15926      48073 |  255   745 |    160060|       1.38      98.59|
+Info:      65000 |    16186      48813 |  260   740 |    159875|       1.35      99.94|
+Info:      66000 |    16441      49558 |  255   745 |    159447|       2.06     102.00|
+Info:      67000 |    16670      50329 |  229   771 |    159024|       1.05     103.04|
+Info:      68000 |    16909      51090 |  239   761 |    158582|       0.93     103.98|
+Info:      69000 |    17135      51864 |  226   774 |    158185|       1.07     105.04|
+Info:      70000 |    17362      52637 |  227   773 |    157905|       1.41     106.45|
+Info:      71000 |    17629      53370 |  267   733 |    158256|       1.09     107.54|
+Info:      72000 |    17873      54126 |  244   756 |    157763|       0.75     108.29|
+Info:      73000 |    18135      54864 |  262   738 |    157318|       1.21     109.51|
+Info:      74000 |    18380      55619 |  245   755 |    156896|       1.29     110.79|
+Info:      75000 |    18577      56422 |  197   803 |    156595|       1.13     111.92|
+Info:      76000 |    18845      57154 |  268   732 |    156188|       2.52     114.45|
+Info:      77000 |    19095      57904 |  250   750 |    156131|       2.90     117.35|
+Info:      78000 |    19368      58631 |  273   727 |    155790|       1.84     119.19|
+Info:      79000 |    19589      59410 |  221   779 |    155219|       1.07     120.26|
+Info:      80000 |    19812      60187 |  223   777 |    154766|       1.18     121.44|
+Info:      81000 |    20065      60934 |  253   747 |    154333|       1.13     122.57|
+Info:      82000 |    20313      61686 |  248   752 |    153892|       0.91     123.49|
+Info:      83000 |    20577      62422 |  264   736 |    153467|       1.13     124.61|
+Info:      84000 |    20831      63168 |  254   746 |    153043|       1.85     126.47|
+Info:      85000 |    21098      63901 |  267   733 |    152594|       0.82     127.29|
+Info:      86000 |    21339      64660 |  241   759 |    152213|       1.49     128.78|
+Info:      87000 |    21572      65427 |  233   767 |    151842|       1.24     130.03|
+Info:      88000 |    21819      66180 |  247   753 |    151537|       1.06     131.09|
+Info:      89000 |    22002      66997 |  183   817 |    150952|       1.01     132.10|
+Info:      90000 |    22221      67778 |  219   781 |    150420|       1.12     133.22|
+Info:      91000 |    22397      68602 |  176   824 |    149894|       1.33     134.56|
+Info:      92000 |    22607      69392 |  210   790 |    149422|       0.88     135.44|
+Info:      93000 |    22825      70174 |  218   782 |    149046|       1.04     136.48|
+Info:      94000 |    23066      70933 |  241   759 |    148440|       1.02     137.50|
+Info:      95000 |    23346      71653 |  280   720 |    148182|       1.98     139.47|
+Info:      96000 |    23624      72375 |  278   722 |    147939|       1.25     140.73|
+Info:      97000 |    23879      73120 |  255   745 |    147429|       1.61     142.34|
+Info:      98000 |    24155      73844 |  276   724 |    147029|       0.71     143.05|
+Info:      99000 |    24395      74604 |  240   760 |    146624|       1.16     144.21|
+Info:     100000 |    24631      75368 |  236   764 |    146290|       1.40     145.61|
+Info:     101000 |    24883      76116 |  252   748 |    146049|       2.55     148.15|
+Info:     102000 |    25137      76862 |  254   746 |    145584|       1.61     149.77|
+Info:     103000 |    25361      77638 |  224   776 |    145281|       1.57     151.34|
+Info:     104000 |    25629      78370 |  268   732 |    144869|       1.84     153.18|
+Info:     105000 |    25882      79117 |  253   747 |    144346|       1.18     154.36|
+Info:     106000 |    26118      79881 |  236   764 |    144009|       1.42     155.78|
+Info:     107000 |    26400      80599 |  282   718 |    143609|       1.19     156.97|
+Info:     108000 |    26698      81301 |  298   702 |    143184|       1.40     158.37|
+Info:     109000 |    26932      82067 |  234   766 |    142757|       2.39     160.76|
+Info:     110000 |    27166      82833 |  234   766 |    142383|       3.46     164.23|
+Info:     111000 |    27451      83548 |  285   715 |    142249|       1.61     165.83|
+Info:     112000 |    27712      84287 |  261   739 |    141847|       1.00     166.84|
+Info:     113000 |    27959      85040 |  247   753 |    141325|       1.06     167.90|
+Info:     114000 |    28195      85804 |  236   764 |    140904|       1.68     169.58|
+Info:     115000 |    28480      86519 |  285   715 |    140722|       2.57     172.15|
+Info:     116000 |    28727      87272 |  247   753 |    140335|       0.91     173.07|
+Info:     117000 |    28991      88008 |  264   736 |    140045|       1.31     174.37|
+Info:     118000 |    29309      88690 |  318   682 |    139721|       1.61     175.99|
+Info:     119000 |    29621      89378 |  312   688 |    139363|       1.53     177.52|
+Info:     120000 |    29948      90051 |  327   673 |    139006|       1.09     178.61|
+Info:     121000 |    30265      90734 |  317   683 |    138633|       0.87     179.47|
+Info:     122000 |    30540      91459 |  275   725 |    138299|       3.08     182.56|
+Info:     123000 |    30842      92157 |  302   698 |    137865|       1.67     184.23|
+Info:     124000 |    31205      92794 |  363   637 |    137575|       1.27     185.49|
+Info:     125000 |    31432      93567 |  227   773 |    137359|       0.78     186.28|
+Info:     126000 |    31717      94282 |  285   715 |    136832|       1.26     187.54|
+Info:     127000 |    31958      95041 |  241   759 |    136605|       1.18     188.72|
+Info:     128000 |    32222      95777 |  264   736 |    136227|       1.22     189.94|
+Info:     129000 |    32496      96503 |  274   726 |    135950|       1.90     191.84|
+Info:     130000 |    32721      97278 |  225   775 |    135438|       1.17     193.00|
+Info:     131000 |    32972      98027 |  251   749 |    134930|       1.69     194.69|
+Info:     132000 |    33271      98728 |  299   701 |    134474|       0.82     195.51|
+Info:     133000 |    33513      99486 |  242   758 |    133873|       0.81     196.33|
+Info:     134000 |    33784     100215 |  271   729 |    133558|       1.68     198.01|
+Info:     135000 |    34060     100939 |  276   724 |    133084|       1.27     199.28|
+Info:     136000 |    34331     101668 |  271   729 |    132672|       1.65     200.94|
+Info:     137000 |    34578     102421 |  247   753 |    132336|       0.91     201.85|
+Info:     138000 |    34847     103152 |  269   731 |    131961|       2.24     204.09|
+Info:     139000 |    35109     103890 |  262   738 |    131449|       1.31     205.40|
+Info:     140000 |    35406     104593 |  297   703 |    131039|       0.80     206.20|
+Info:     141000 |    35697     105302 |  291   709 |    130603|       0.91     207.11|
+Info:     142000 |    35999     106000 |  302   698 |    130275|       1.15     208.26|
+Info:     143000 |    36311     106688 |  312   688 |    129873|       1.60     209.86|
+Info:     144000 |    36645     107354 |  334   666 |    129501|       1.53     211.40|
+Info:     145000 |    36874     108125 |  229   771 |    129160|       1.78     213.18|
+Info:     146000 |    37173     108826 |  299   701 |    128707|       2.60     215.78|
+Info:     147000 |    37487     109512 |  314   686 |    128342|       1.62     217.40|
+Info:     148000 |    37818     110181 |  331   669 |    128337|       1.05     218.44|
+Info:     149000 |    38058     110941 |  240   760 |    128057|       1.21     219.65|
+Info:     150000 |    38406     111593 |  348   652 |    127627|       4.65     224.31|
+Info:     151000 |    38727     112272 |  321   679 |    127294|       1.03     225.34|
+Info:     152000 |    39044     112955 |  317   683 |    127069|       1.38     226.71|
+Info:     153000 |    39361     113638 |  317   683 |    126571|       0.80     227.51|
+Info:     154000 |    39665     114334 |  304   696 |    126173|       1.14     228.65|
+Info:     155000 |    40018     114981 |  353   647 |    125775|       0.79     229.44|
+Info:     156000 |    40333     115666 |  315   685 |    125565|       2.52     231.96|
+Info:     157000 |    40741     116258 |  408   592 |    125334|       1.70     233.66|
+Info:     158000 |    41032     116967 |  291   709 |    124937|       1.24     234.90|
+Info:     159000 |    41345     117654 |  313   687 |    124617|       1.10     236.00|
+Info:     160000 |    41674     118325 |  329   671 |    124276|       1.74     237.74|
+Info:     161000 |    41989     119010 |  315   685 |    123694|       1.06     238.80|
+Info:     162000 |    42314     119685 |  325   675 |    123541|       2.46     241.27|
+Info:     163000 |    42626     120373 |  312   688 |    123477|       2.11     243.38|
+Info:     164000 |    42916     121083 |  290   710 |    123183|       1.00     244.38|
+Info:     165000 |    43299     121700 |  383   617 |    122835|       1.09     245.47|
+Info:     166000 |    43631     122368 |  332   668 |    122629|       2.18     247.64|
+Info:     167000 |    43953     123046 |  322   678 |    122205|       1.19     248.83|
+Info:     168000 |    44231     123768 |  278   722 |    121922|       2.46     251.29|
+Info:     169000 |    44619     124380 |  388   612 |    121571|       1.55     252.84|
+Info:     170000 |    44941     125058 |  322   678 |    120988|       0.81     253.65|
+Info:     171000 |    45237     125762 |  296   704 |    120371|       1.11     254.76|
+Info:     172000 |    45545     126454 |  308   692 |    119929|       1.25     256.01|
+Info:     173000 |    45809     127190 |  264   736 |    119417|       0.98     256.99|
+Info:     174000 |    46119     127880 |  310   690 |    119027|       1.09     258.07|
+Info:     175000 |    46452     128547 |  333   667 |    118622|       0.86     258.94|
+Info:     176000 |    46763     129236 |  311   689 |    118117|       1.34     260.27|
+Info:     177000 |    47079     129920 |  316   684 |    117659|       1.21     261.48|
+Info:     178000 |    47396     130603 |  317   683 |    117308|       1.44     262.92|
+Info:     179000 |    47678     131321 |  282   718 |    116894|       1.21     264.12|
+Info:     180000 |    47952     132047 |  274   726 |    116977|       1.01     265.14|
+Info:     181000 |    48228     132771 |  276   724 |    116519|       1.56     266.70|
+Info:     182000 |    48527     133472 |  299   701 |    115961|       1.06     267.76|
+Info:     183000 |    48823     134176 |  296   704 |    115643|       0.97     268.73|
+Info:     184000 |    49156     134843 |  333   667 |    115178|       0.90     269.63|
+Info:     185000 |    49472     135527 |  316   684 |    114843|       1.68     271.31|
+Info:     186000 |    49784     136215 |  312   688 |    114746|       1.59     272.91|
+Info:     187000 |    50041     136958 |  257   743 |    114337|       2.01     274.91|
+Info:     188000 |    50377     137622 |  336   664 |    113825|       0.86     275.77|
+Info:     189000 |    50683     138316 |  306   694 |    113244|       0.91     276.68|
+Info:     190000 |    50988     139011 |  305   695 |    112731|       0.85     277.54|
+Info:     191000 |    51296     139703 |  308   692 |    112149|       0.83     278.37|
+Info:     192000 |    51621     140378 |  325   675 |    111742|       0.89     279.25|
+Info:     193000 |    51958     141041 |  337   663 |    111394|       1.04     280.29|
+Info:     194000 |    52398     141601 |  440   560 |    110996|       0.85     281.14|
+Info:     195000 |    52771     142228 |  373   627 |    110607|       1.57     282.70|
+Info:     196000 |    53196     142803 |  425   575 |    110297|       1.56     284.26|
+Info:     197000 |    53513     143486 |  317   683 |    110038|       0.89     285.15|
+Info:     198000 |    53863     144136 |  350   650 |    109551|       0.78     285.92|
+Info:     199000 |    54321     144678 |  458   542 |    109326|       1.54     287.47|
+Info:     200000 |    54687     145312 |  366   634 |    109003|       1.34     288.80|
+Info:     201000 |    55065     145934 |  378   622 |    108824|       1.86     290.66|
+Info:     202000 |    55455     146544 |  390   610 |    108428|       1.08     291.74|
+Info:     203000 |    55822     147177 |  367   633 |    107960|       0.90     292.64|
+Info:     204000 |    56127     147872 |  305   695 |    107841|       1.96     294.60|
+Info:     205000 |    56470     148529 |  343   657 |    107595|       3.36     297.95|
+Info:     206000 |    56842     149157 |  372   628 |    107112|       1.34     299.30|
+Info:     207000 |    57247     149752 |  405   595 |    106690|       0.91     300.20|
+Info:     208000 |    57627     150372 |  380   620 |    106431|       2.15     302.35|
+Info:     209000 |    58046     150953 |  419   581 |    106109|       1.71     304.07|
+Info:     210000 |    58348     151651 |  302   698 |    105828|       1.48     305.55|
+Info:     211000 |    58691     152308 |  343   657 |    105649|       1.92     307.47|
+Info:     212000 |    59010     152989 |  319   681 |    105418|       2.20     309.66|
+Info:     213000 |    59406     153593 |  396   604 |    104965|       0.79     310.45|
+Info:     214000 |    59801     154198 |  395   605 |    104790|       3.11     313.56|
+Info:     215000 |    60180     154819 |  379   621 |    104381|       0.99     314.55|
+Info:     216000 |    60579     155420 |  399   601 |    103899|       0.88     315.43|
+Info:     217000 |    60907     156092 |  328   672 |    103457|       1.12     316.55|
+Info:     218000 |    61222     156777 |  315   685 |    102961|       0.94     317.49|
+Info:     219000 |    61601     157398 |  379   621 |    102546|       1.24     318.73|
+Info:     220000 |    61956     158043 |  355   645 |    102164|       1.29     320.02|
+Info:     221000 |    62311     158688 |  355   645 |    101736|       0.93     320.95|
+Info:     222000 |    62622     159377 |  311   689 |    101328|       1.12     322.08|
+Info:     223000 |    62953     160046 |  331   669 |    100765|       0.81     322.89|
+Info:     224000 |    63283     160716 |  330   670 |    100375|       1.06     323.95|
+Info:     225000 |    63590     161409 |  307   693 |     99904|       1.87     325.82|
+Info:     226000 |    63949     162050 |  359   641 |     99410|       1.08     326.90|
+Info:     227000 |    64272     162727 |  323   677 |     98995|       1.57     328.47|
+Info:     228000 |    64595     163404 |  323   677 |     98477|       1.24     329.71|
+Info:     229000 |    64934     164065 |  339   661 |     97986|       0.82     330.54|
+Info:     230000 |    65221     164778 |  287   713 |     97615|       1.09     331.62|
+Info:     231000 |    65513     165486 |  292   708 |     97141|       0.85     332.48|
+Info:     232000 |    65816     166183 |  303   697 |     96708|       0.81     333.28|
+Info:     233000 |    66126     166873 |  310   690 |     96280|       2.21     335.50|
+Info:     234000 |    66435     167564 |  309   691 |     95719|       0.76     336.26|
+Info:     235000 |    66735     168264 |  300   700 |     95249|       1.92     338.18|
+Info:     236000 |    67022     168977 |  287   713 |     94796|       1.70     339.87|
+Info:     237000 |    67308     169691 |  286   714 |     94536|       0.84     340.72|
+Info:     238000 |    67548     170451 |  240   760 |     93949|       1.11     341.83|
+Info:     239000 |    67885     171075 |  337   624 |     93385|       0.70     342.53|
+Info:     240000 |    68190     171760 |  305   685 |     92898|       0.85     343.38|
+Info:     241000 |    68527     172422 |  337   662 |     92445|       0.94     344.33|
+Info:     242000 |    68828     173121 |  301   699 |     92013|       1.46     345.78|
+Info:     243000 |    69175     173753 |  347   632 |     91599|       1.63     347.41|
+Info:     244000 |    69536     174369 |  361   616 |     91120|       0.87     348.28|
+Info:     245000 |    69799     175098 |  263   729 |     90920|       0.88     349.17|
+Info:     246000 |    70199     175691 |  400   593 |     90628|       1.46     350.63|
+Info:     247000 |    70640     176222 |  441   531 |     90225|       0.84     351.47|
+Info:     248000 |    71070     176779 |  430   557 |     89859|       2.36     353.82|
+Info:     249000 |    71473     177315 |  403   536 |     89392|       1.13     354.95|
+Info:     250000 |    71887     177866 |  414   551 |     89035|       1.08     356.03|
+Info:     251000 |    72367     178373 |  480   507 |     88668|       1.02     357.05|
+Info:     252000 |    72820     178881 |  453   508 |     88301|       1.29     358.34|
+Info:     253000 |    73264     179386 |  444   505 |     87886|       1.68     360.02|
+Info:     254000 |    73567     180074 |  303   688 |     87642|       1.05     361.07|
+Info:     255000 |    74007     180602 |  440   528 |     87185|       1.51     362.58|
+Info:     256000 |    74417     181175 |  410   573 |     86758|       1.35     363.93|
+Info:     257000 |    74806     181723 |  389   548 |     86264|       0.97     364.91|
+Info:     258000 |    75209     182301 |  403   578 |     85922|       1.07     365.97|
+Info:     259000 |    75580     182917 |  371   616 |     85689|       1.44     367.42|
+Info:     260000 |    76060     183435 |  480   518 |     85577|       2.19     369.60|
+Info:     261000 |    76474     184005 |  414   570 |     85247|       4.52     374.12|
+Info:     262000 |    76881     184587 |  407   582 |     84933|       1.41     375.53|
+Info:     263000 |    77325     185124 |  444   537 |     84547|       1.07     376.60|
+Info:     264000 |    77758     185663 |  433   539 |     84158|       0.85     377.45|
+Info:     265000 |    78154     186242 |  396   579 |     83676|       1.09     378.54|
+Info:     266000 |    78595     186788 |  441   546 |     83518|       2.16     380.70|
+Info:     267000 |    78975     187381 |  380   593 |     83094|       0.98     381.68|
+Info:     268000 |    79393     187944 |  418   563 |     82782|       1.04     382.72|
+Info:     269000 |    79767     188536 |  374   592 |     82252|       0.84     383.56|
+Info:     270000 |    80158     189110 |  391   574 |     81865|       1.12     384.68|
+Info:     271000 |    80553     189694 |  395   584 |     81441|       0.95     385.64|
+Info:     272000 |    80843     190392 |  290   698 |     82207|       1.17     386.81|
+Info:     273000 |    81000     191235 |  157   843 |     81431|       0.90     387.71|
+Info:     274000 |    81341     191891 |  341   656 |     81181|       1.96     389.66|
+Info:     275000 |    81709     192505 |  368   614 |     80675|       1.92     391.58|
+Info:     276000 |    82109     193063 |  400   558 |     80344|       1.88     393.46|
+Info:     277000 |    82495     193652 |  386   589 |     79988|       1.99     395.45|
+Info:     278000 |    82865     194246 |  370   594 |     79545|       1.25     396.70|
+Info:     279000 |    83171     194914 |  306   668 |     79299|       1.67     398.37|
+Info:     280000 |    83527     195515 |  356   601 |     78797|       0.79     399.16|
+Info:     281000 |    83876     196127 |  349   612 |     78393|       1.11     400.28|
+Info:     282000 |    84200     196761 |  324   634 |     77989|       1.37     401.65|
+Info:     283000 |    84540     197358 |  340   597 |     77389|       1.03     402.68|
+Info:     284000 |    84900     197924 |  360   566 |     76817|       0.74     403.42|
+Info:     285000 |    85234     198579 |  334   655 |     76547|       1.16     404.58|
+Info:     286000 |    85578     199123 |  344   544 |     75969|       0.71     405.29|
+Info:     287000 |    85914     199771 |  336   648 |     75568|       1.61     406.90|
+Info:     288000 |    86274     200366 |  360   595 |     75031|       0.84     407.74|
+Info:     289000 |    86622     200974 |  348   608 |     74592|       1.03     408.77|
+Info:     290000 |    86941     201605 |  319   631 |     74027|       0.84     409.61|
+Info:     291000 |    87275     202177 |  334   572 |     73608|       1.18     410.80|
+Info:     292000 |    87590     202839 |  315   662 |     73128|       2.13     412.93|
+Info:     293000 |    87903     203483 |  313   644 |     72606|       0.92     413.85|
+Info:     294000 |    88201     204160 |  298   677 |     72328|       1.00     414.85|
+Info:     295000 |    88523     204768 |  322   608 |     71786|       0.89     415.74|
+Info:     296000 |    88828     205337 |  305   569 |     71217|       0.79     416.53|
+Info:     297000 |    89177     205926 |  349   589 |     70640|       0.77     417.29|
+Info:     298000 |    89454     206565 |  277   639 |     70116|       1.17     418.46|
+Info:     299000 |    89763     207096 |  309   531 |     69630|       1.50     419.95|
+Info:     300000 |    90124     207675 |  361   579 |     69116|       1.16     421.11|
+Info:     301000 |    90387     208139 |  263   464 |     68462|       0.70     421.81|
+Info:     302000 |    90651     208760 |  264   621 |     68009|       1.64     423.46|
+Info:     303000 |    90932     209384 |  281   624 |     67544|       1.06     424.51|
+Info:     304000 |    91187     210063 |  255   679 |     66980|       1.13     425.64|
+Info:     305000 |    91485     210725 |  298   662 |     66622|       1.27     426.92|
+Info:     306000 |    91772     211378 |  287   653 |     66051|       0.94     427.86|
+Info:     307000 |    92042     212013 |  270   635 |     65435|       0.84     428.70|
+Info:     308000 |    92357     212586 |  315   573 |     64940|       0.99     429.69|
+Info:     309000 |    92633     213247 |  276   661 |     64320|       1.86     431.55|
+Info:     310000 |    92831     213958 |  198   711 |     63922|       0.95     432.50|
+Info:     311000 |    93106     214621 |  275   663 |     63229|       0.83     433.33|
+Info:     312000 |    93380     215303 |  274   682 |     62691|       0.90     434.23|
+Info:     313000 |    93675     215979 |  295   676 |     62252|       1.46     435.69|
+Info:     314000 |    93987     216619 |  312   640 |     61908|       2.77     438.46|
+Info:     315000 |    94288     217266 |  301   647 |     61281|       1.04     439.50|
+Info:     316000 |    94583     217942 |  295   676 |     60868|       1.13     440.63|
+Info:     317000 |    94897     218582 |  314   640 |     60236|       0.87     441.50|
+Info:     318000 |    95273     219203 |  376   621 |     60317|       4.30     445.80|
+Info:     319000 |    95583     219853 |  310   650 |     59740|       3.46     449.26|
+Info:     320000 |    95838     220556 |  255   703 |     59352|       2.82     452.08|
+Info:     321000 |    96105     221218 |  267   662 |     58672|       0.79     452.87|
+Info:     322000 |    96388     221873 |  283   655 |     58042|       0.95     453.82|
+Info:     323000 |    96642     222568 |  254   695 |     57344|       1.03     454.86|
+Info:     324000 |    96917     223219 |  275   651 |     56903|       1.17     456.02|
+Info:     325000 |    97201     223865 |  284   646 |     56312|       1.24     457.26|
+Info:     326000 |    97509     224489 |  308   624 |     55736|       1.49     458.75|
+Info:     327000 |    97795     225156 |  286   667 |     55239|       0.81     459.56|
+Info:     328000 |    98115     225791 |  320   635 |     54677|       1.11     460.67|
+Info:     329000 |    98420     226444 |  305   653 |     54209|       1.02     461.70|
+Info:     330000 |    98673     227096 |  253   652 |     53524|       0.79     462.48|
+Info:     331000 |    98991     227740 |  318   644 |     53153|       5.57     468.05|
+Info:     332000 |    99231     228451 |  240   711 |     52542|       0.86     468.91|
+Info:     333000 |    99466     229108 |  235   657 |     51887|       0.91     469.82|
+Info:     334000 |    99718     229798 |  252   690 |     51254|       0.84     470.66|
+Info:     335000 |    99996     230459 |  278   661 |     50760|       1.75     472.40|
+Info:     336000 |   100312     231126 |  316   667 |     50482|       1.29     473.70|
+Info:     337000 |   100613     231805 |  301   679 |     50177|       2.20     475.90|
+Info:     338000 |   100842     232494 |  229   689 |     49706|       1.18     477.08|
+Info:     339000 |   101067     233170 |  225   676 |     49141|       1.30     478.38|
+Info:     340000 |   101315     233864 |  248   694 |     48454|       1.00     479.39|
+Info:     341000 |   101487     234643 |  172   779 |     47878|       1.05     480.44|
+Info:     342000 |   101687     235365 |  200   722 |     47136|       0.94     481.38|
+Info:     343000 |   101928     236075 |  241   710 |     46472|       0.95     482.32|
+Info:     344000 |   102195     236746 |  267   671 |     45887|       0.98     483.30|
+Info:     345000 |   102435     237461 |  240   715 |     45223|       1.08     484.38|
+Info:     346000 |   102660     238158 |  225   697 |     44484|       0.83     485.22|
+Info:     347000 |   102880     238887 |  220   729 |     43945|       1.56     486.78|
+Info:     348000 |   103088     239639 |  208   752 |     43312|       0.97     487.75|
+Info:     349000 |   103271     240394 |  183   755 |     42688|       1.12     488.88|
+Info:     350000 |   103474     241149 |  203   755 |     42052|       0.96     489.84|
+Info:     351000 |   103678     241892 |  204   743 |     41267|       0.86     490.70|
+Info:     352000 |   103915     242625 |  237   733 |     40670|       1.68     492.38|
+Info:     353000 |   104149     243337 |  234   712 |     40056|       1.08     493.46|
+Info:     354000 |   104364     244062 |  215   725 |     39509|       1.13     494.59|
+Info:     355000 |   104603     244779 |  239   717 |     39073|       1.38     495.97|
+Info:     356000 |   104879     245484 |  276   705 |     38950|       1.47     497.43|
+Info:     357000 |   105098     246184 |  219   700 |     38364|       0.94     498.37|
+Info:     358000 |   105289     246900 |  191   716 |     37727|       2.19     500.56|
+Info:     359000 |   105503     247586 |  214   686 |     37014|       0.97     501.53|
+Info:     360000 |   105722     248303 |  219   717 |     36549|       1.48     503.00|
+Info:     361000 |   105898     249029 |  176   726 |     35768|       0.86     503.86|
+Info:     362000 |   106176     249693 |  278   664 |     35264|       1.20     505.06|
+Info:     363000 |   106458     250361 |  282   668 |     34914|       1.54     506.61|
+Info:     364000 |   106678     251123 |  220   762 |     34610|       2.85     509.46|
+Info:     365000 |   106924     251865 |  246   742 |     34450|       1.33     510.80|
+Info:     366000 |   107161     252611 |  237   746 |     33972|       2.47     513.27|
+Info:     367000 |   107382     253353 |  221   742 |     33362|       1.35     514.62|
+Info:     368000 |   107604     254075 |  222   722 |     32714|       1.11     515.73|
+Info:     369000 |   107818     254835 |  214   760 |     32190|       1.03     516.76|
+Info:     370000 |   108004     255604 |  186   769 |     31455|       1.00     517.75|
+Info:     371000 |   108267     256286 |  263   682 |     30990|       1.69     519.44|
+Info:     372000 |   108600     256932 |  333   646 |     30617|       1.83     521.28|
+Info:     373000 |   108844     257640 |  244   708 |     30056|       2.60     523.88|
+Info:     374000 |   109156     258328 |  312   688 |     30118|       1.62     525.49|
+Info:     375000 |   109363     259074 |  207   746 |     29499|       1.03     526.52|
+Info:     376000 |   109579     259801 |  216   727 |     28865|       1.01     527.53|
+Info:     377000 |   109848     260532 |  269   731 |     28872|       1.31     528.84|
+Info:     378000 |   110110     261211 |  262   679 |     28396|       1.22     530.06|
+Info:     379000 |   110267     261943 |  157   732 |     27674|       0.96     531.02|
+Info:     380000 |   110435     262722 |  168   779 |     26998|       1.05     532.08|
+Info:     381000 |   110647     263449 |  212   727 |     26529|       1.74     533.82|
+Info:     382000 |   110842     264213 |  195   764 |     25970|       1.56     535.38|
+Info:     383000 |   111041     264975 |  199   762 |     25351|       1.31     536.69|
+Info:     384000 |   111193     265756 |  152   781 |     24572|       1.12     537.81|
+Info:     385000 |   111405     266462 |  212   706 |     23974|       1.22     539.03|
+Info:     386000 |   111595     267223 |  190   761 |     23312|       1.02     540.05|
+Info:     387000 |   111803     267968 |  208   745 |     22707|       1.98     542.03|
+Info:     388000 |   112036     268692 |  233   724 |     22083|       1.27     543.30|
+Info:     389000 |   112212     269454 |  176   762 |     21337|       1.05     544.35|
+Info:     390000 |   112390     270204 |  178   750 |     20753|       1.68     546.03|
+Info:     391000 |   112586     270929 |  196   725 |     20030|       1.00     547.03|
+Info:     392000 |   112809     271652 |  223   723 |     19563|       1.41     548.44|
+Info:     393000 |   113024     272389 |  215   737 |     18866|       1.23     549.67|
+Info:     394000 |   113320     273037 |  296   648 |     18345|       1.10     550.77|
+Info:     395000 |   113650     273699 |  330   662 |     18267|       2.36     553.13|
+Info:     396000 |   113971     274344 |  321   645 |     17905|       2.29     555.42|
+Info:     397000 |   114191     275049 |  220   705 |     17293|       1.13     556.55|
+Info:     398000 |   114448     275761 |  257   712 |     16905|       2.45     558.99|
+Info:     399000 |   114763     276402 |  315   641 |     16601|       1.30     560.29|
+Info:     400000 |   115033     277103 |  270   701 |     16005|       2.10     562.39|
+Info:     401000 |   115303     277811 |  270   708 |     15558|       1.23     563.62|
+Info:     402000 |   115585     278503 |  282   692 |     15325|       2.20     565.81|
+Info:     403000 |   115911     279177 |  326   674 |     15466|       3.17     568.99|
+Info:     404000 |   116290     279796 |  379   619 |     15220|       2.51     571.50|
+Info:     405000 |   116555     280513 |  265   717 |     14826|       1.13     572.63|
+Info:     406000 |   116883     281149 |  328   636 |     14417|       1.42     574.04|
+Info:     407000 |   117155     281867 |  272   718 |     14196|       1.57     575.61|
+Info:     408000 |   117457     282542 |  302   675 |     13691|       1.41     577.02|
+Info:     409000 |   117679     283238 |  222   696 |     13065|       1.09     578.11|
+Info:     410000 |   117875     284030 |  196   792 |     12349|       1.14     579.25|
+Info:     411000 |   118231     284670 |  356   640 |     12139|       2.41     581.66|
+Info:     412000 |   118481     285374 |  250   704 |     11605|       1.44     583.11|
+Info:     413000 |   118655     286149 |  174   775 |     10860|       0.97     584.07|
+Info:     414000 |   118835     286878 |  180   729 |     10252|       1.07     585.14|
+Info:     415000 |   119117     287582 |  282   704 |     10095|       2.78     587.93|
+Info:     416000 |   119410     288289 |  293   707 |      9945|       4.56     592.49|
+Info:     417000 |   119663     289006 |  253   717 |      9533|       1.63     594.11|
+Info:     418000 |   119842     289785 |  179   779 |      8986|       1.56     595.67|
+Info:     419000 |   119963     290627 |  121   842 |      8137|       0.82     596.49|
+Info:     420000 |   120131     291459 |  168   832 |      7326|       0.83     597.32|
+Info:     421000 |   120151     292235 |   20   776 |      6354|       2.32     599.63|
+Info:     422000 |   120199     292978 |   48   743 |      5444|       1.55     601.18|
+Info:     423000 |   120228     293743 |   29   765 |      4481|       1.36     602.54|
+Info:     424000 |   120382     294421 |  154   678 |      3756|       1.97     604.52|
+Info:     425000 |   120441     295199 |   59   778 |      2953|       2.33     606.85|
+Info:     426000 |   120467     295967 |   26   768 |      2007|       1.29     608.14|
+Info:     427000 |   120497     296715 |   30   748 |      1046|       0.97     609.11|
+Info:     428000 |   120539     297451 |   42   736 |       138|       1.13     610.24|
+Info:     428139 |   120540     297561 |    1   110 |         0|       0.68     610.92|
+Info: Routing complete.
+Info: Router1 time 610.92s
+Info: Checksum: 0x75161619
+
+Info: Critical path report for clock '$glbnet$_pll_io_clk_o_2' (posedge -> posedge):
+Info:       type curr  total name
+Info:   clk-to-q  5.83  5.83 Source scanout.frameBuf_ext.Memory.0.0.DOB17
+Info:    routing  2.06  7.89 Net scanout.frameBuf_ext.Memory.0.0_DOB17[1] (24,22) -> (23,8)
+Info:                          Sink scanout.pixelSafe_LUT4_Z_15.B
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  8.13 Source scanout.pixelSafe_LUT4_Z_15.F
+Info:    routing  0.13  8.26 Net scanout.pixelSafe[17] (23,8) -> (23,8)
+Info:                          Sink scanout.redD1_TRELLIS_FF_Q_5.DI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/HdmiScanoutFp16.sv:89.15-89.24
+Info:      setup  0.00  8.26 Source scanout.redD1_TRELLIS_FF_Q_5.DI
+Info: 6.07 ns logic, 2.19 ns routing
+
+Info: Critical path report for clock '$glbnet$_pll_io_clk_o_0' (posedge -> posedge):
+Info:       type curr  total name
+Info:   clk-to-q  5.83  5.83 Source uo_out_val_peripherals.borgOpt.core.uniformMem_ext.Memory.0.0.DOB9
+Info:    routing  0.81  6.64 Net uo_out_val_peripherals.borgOpt.core.uniformMem_ext.Memory.0.0_DOB17[27] (51,46) -> (53,45)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.uniformMem_ext.Memory.0.0_DOB9_LUT4_B.B
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  6.88 Source uo_out_val_peripherals.borgOpt.core.uniformMem_ext.Memory.0.0_DOB9_LUT4_B.F
+Info:    routing  3.72  10.60 Net uo_out_val_peripherals.borgOpt.core.uniformMem_ext.Memory.0.0_DOB9_LUT4_B_Z[3] (53,45) -> (69,12)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core._lanes_2_io_recARaw_LUT4_Z_16.C
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  10.84 Source uo_out_val_peripherals.borgOpt.core._lanes_2_io_recARaw_LUT4_Z_16.F
+Info:    routing  1.15  11.98 Net uo_out_val_peripherals.borgOpt.core._lanes_2_io_recARaw[27] (69,12) -> (71,11)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_C_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_C_LUT4_C_D_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN$CCU2_COMB0.A
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/BorgLane.sv:96.16-96.24
+Info:      logic  0.45  12.43 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_C_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_C_LUT4_C_D_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  12.43 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_C_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_C_LUT4_C_D_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN$CCU2_FCI_INT (71,11) -> (71,11)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_C_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_C_LUT4_C_D_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  12.43 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_C_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_C_LUT4_C_D_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  12.43 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_C_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_C_LUT4_C_D_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT (71,11) -> (72,11)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_C_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_C_LUT4_C_D_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S0$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/BorgLane.sv:1815.25-1815.37
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  12.50 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_C_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_C_LUT4_C_D_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S0$CCU2_COMB0.FCO
+Info:    routing  0.00  12.50 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_C_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_C_LUT4_C_D_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S0$CCU2_FCI_INT (72,11) -> (72,11)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_C_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_C_LUT4_C_D_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S0$CCU2_COMB1.FCI
+Info:      logic  0.40  12.90 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_C_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_C_LUT4_C_D_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S0$CCU2_COMB1.F
+Info:    routing  1.12  14.03 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_C_LUT4_Z_1_D_LUT4_Z_1_D_LUT4_Z_C_LUT4_C_D_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S0_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_S1_CCU2C_S0_COUT_CCU2C_CIN_S0[1] (72,11) -> (71,12)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  14.47 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  14.47 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (71,12) -> (71,12)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/BorgLane.sv:119.5-119.58
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.44  14.92 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.F
+Info:    routing  1.07  15.98 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_A0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0[1] (71,12) -> (75,6)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_B0_S0_LUT4_Z.C
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  16.22 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_B0_S0_LUT4_Z.F
+Info:    routing  0.48  16.70 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_B0_COUT_CCU2C_CIN_S0[1] (75,6) -> (76,6)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_B0_CIN_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_CIN_CCU2C_COUT_S1_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  16.93 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_B0_CIN_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_CIN_CCU2C_COUT_S1_LUT4_Z.F
+Info:    routing  0.62  17.55 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_B0_CIN_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0[3] (76,6) -> (76,6)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_B0_CIN_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_CIN_CCU2C_COUT_S1_LUT4_Z_1.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  17.79 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_B0_CIN_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_CIN_CCU2C_COUT_S1_LUT4_Z_1.F
+Info:    routing  0.64  18.43 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_B0_CIN_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_CIN_CCU2C_COUT_S1[3] (76,6) -> (76,6)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_B0_CIN_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_LUT4_C_Z_LUT4_Z_3.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  18.66 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_B0_CIN_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_LUT4_C_Z_LUT4_Z_3.F
+Info:    routing  1.29  19.95 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_3_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_D_Z_LUT4_Z_D_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_D_LUT4_Z_C_LUT4_Z_D_LUT4_Z_C_LUT4_D_C_LUT4_D_Z_LUT4_Z_B_LUT4_Z_D_LUT4_B_Z_LUT4_Z_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_B1_CCU2C_B0_CIN_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_CCU2C_S1_S0_LUT4_C_Z[1] (76,6) -> (74,10)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.special_result_special._correction_T_MULT18X18D_P9.B1
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/Fp16Special.sv:19.5-20.55
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/mul2dsp.v:63.22-63.23
+Info:      logic  3.93  23.88 Source uo_out_val_peripherals.borgOpt.core.lanes_2.special_result_special._correction_T_MULT18X18D_P9.P12
+Info:    routing  1.77  25.65 Net uo_out_val_peripherals.borgOpt.core.lanes_2.special_result_special._correction_T[12] (74,10) -> (76,5)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.B
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/Fp16Special.sv:18.15-18.28
+Info:      logic  0.45  26.10 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  26.10 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (76,5) -> (76,5)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  26.10 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  26.10 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (76,5) -> (76,5)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/Fp16Special.sv:22.52-22.83
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  26.17 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  26.17 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (76,5) -> (76,5)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  26.17 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  26.17 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN (76,5) -> (76,5)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/Fp16Special.sv:22.52-22.83
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  26.24 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  26.24 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_FCI_INT (76,5) -> (76,5)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  26.24 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  26.24 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN (76,5) -> (76,5)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/Fp16Special.sv:22.52-22.83
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  26.31 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  26.31 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT$CCU2_FCI_INT (76,5) -> (76,5)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.40  26.71 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT$CCU2_COMB1.F
+Info:    routing  0.97  27.69 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_S1[0] (76,5) -> (78,4)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_Z_2_D_LUT4_D_Z_LUT4_Z.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  27.92 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_Z_2_D_LUT4_D_Z_LUT4_Z.F
+Info:    routing  0.43  28.35 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_Z_2_D_LUT4_D_Z[3] (78,4) -> (78,4)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_S0_LUT4_D_Z_LUT4_D_Z_PFUMX_Z_1_ALUT_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  28.59 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_S0_LUT4_D_Z_LUT4_D_Z_PFUMX_Z_1_ALUT_LUT4_Z.F
+Info:    routing  0.00  28.59 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_S0_LUT4_D_Z_LUT4_D_Z_PFUMX_Z_1_ALUT (78,4) -> (78,4)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_S0_LUT4_D_Z_LUT4_D_Z_PFUMX_Z_1_BLUT_LUT4_Z.F1
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:133.22-133.24
+Info:      logic  0.17  28.75 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_S0_LUT4_D_Z_LUT4_D_Z_PFUMX_Z_1_BLUT_LUT4_Z.OFX
+Info:    routing  0.84  29.59 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_S1[1] (78,4) -> (77,4)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_C_PFUMX_Z_BLUT_LUT4_Z.C
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.40  29.99 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_C_PFUMX_Z_BLUT_LUT4_Z.OFX
+Info:    routing  1.47  31.46 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_B[2] (77,4) -> (74,8)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_A1_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  31.70 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_A1_LUT4_Z.F
+Info:    routing  0.89  32.58 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_A1[2] (74,8) -> (73,8)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1$CCU2_COMB0.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  33.03 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1$CCU2_COMB0.FCO
+Info:    routing  0.00  33.03 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1$CCU2_FCI_INT (73,8) -> (73,8)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1$CCU2_COMB1.FCI
+Info:      logic  0.00  33.03 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1$CCU2_COMB1.FCO
+Info:    routing  0.00  33.03 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT (73,8) -> (74,8)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/BorgLane.sv:1759.5-1762.37
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.44  33.47 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN$CCU2_COMB0.F
+Info:    routing  1.07  34.54 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S0[2] (74,8) -> (74,9)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_1_D_CCU2C_COUT$CCU2_COMB0.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  34.99 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_1_D_CCU2C_COUT$CCU2_COMB0.FCO
+Info:    routing  0.00  34.99 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_1_D_CCU2C_COUT$CCU2_FCI_INT (74,9) -> (74,9)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_1_D_CCU2C_COUT$CCU2_COMB1.FCI
+Info:      logic  0.00  34.99 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_1_D_CCU2C_COUT$CCU2_COMB1.FCO
+Info:    routing  0.00  34.99 Net $nextpnr_CCU2C_313$CIN (74,9) -> (74,9)
+Info:                          Sink $nextpnr_CCU2C_313$CCU2_COMB0.FCI
+Info:      logic  0.44  35.43 Source $nextpnr_CCU2C_313$CCU2_COMB0.F
+Info:    routing  0.21  35.65 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_1_C[1] (74,9) -> (74,9)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_1.D
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/BorgLane.sv:1896.31-1896.72
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.24  35.88 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_COUT_CCU2C_CIN_S1_LUT4_Z_1.F
+Info:    routing  0.64  36.52 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0_LUT4_D_Z_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0[4] (74,9) -> (75,9)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_D_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  36.76 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_D_LUT4_Z.F
+Info:    routing  0.89  37.64 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_B[3] (75,9) -> (75,11)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  37.88 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z.F
+Info:    routing  0.48  38.36 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_1_C0_LUT4_Z_D_LUT4_Z_1_D_LUT4_Z_D_LUT4_Z_C_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1[4] (75,11) -> (75,11)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_Z_D_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  38.60 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_Z_D_LUT4_Z.F
+Info:    routing  1.35  39.94 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_Z_D[3] (75,11) -> (69,18)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  40.18 Source uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0_LUT4_Z.F
+Info:    routing  0.37  40.54 Net uo_out_val_peripherals.borgOpt.core.lanes_0.regFile.mem_ext.W0_data_PFUMX_Z_6_C0_LUT4_Z_D_LUT4_Z_D_CCU2C_S1_S0_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S0_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_PFUMX_C0_Z_LUT4_D_Z_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_2_C_LUT4_D_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_D_Z_CCU2C_S1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S1_LUT4_Z_C_LUT4_C_Z_LUT4_D_Z_PFUMX_C0_Z_LUT4_Z_1_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S1_LUT4_D_Z_LUT4_Z_1_D_LUT4_Z_C_LUT4_D_Z_LUT4_Z_C_LUT4_D_Z_LUT4_C_Z_LUT4_Z_D_LUT4_D_Z_LUT4_Z_2_D_CCU2C_S1_CIN_CCU2C_COUT_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0[4] (69,18) -> (69,18)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_18_C0_PFUMX_Z_BLUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  40.80 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_18_C0_PFUMX_Z_BLUT_LUT4_Z.OFX
+Info:    routing  1.56  42.37 Net uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_18_C0[4] (69,18) -> (71,28)
+Info:                          Sink uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_18_BLUT_LUT4_Z.M
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.26  42.62 Source uo_out_val_peripherals.borgOpt.core.lanes_2.regFile.mem_ext.W0_data_PFUMX_Z_18_BLUT_LUT4_Z.OFX
+Info:    routing  2.06  44.68 Net uo_out_val_peripherals.borgOpt._core_io_pipeWrite_2_data[16] (71,28) -> (86,36)
+Info:                          Sink uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN$CCU2_COMB1.B
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/BorgSequencer.sv:108.17-108.41
+Info:      logic  0.45  45.12 Source uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  45.12 Net uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT (86,36) -> (86,36)
+Info:                          Sink uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/BorgShaderDispatcher.sv:1429.5-1432.71
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  45.20 Source uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  45.20 Net uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (86,36) -> (86,36)
+Info:                          Sink uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  45.20 Source uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  45.20 Net uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (86,36) -> (87,36)
+Info:                          Sink uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/BorgShaderDispatcher.sv:1429.5-1432.71
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  45.27 Source uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  45.27 Net uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (87,36) -> (87,36)
+Info:                          Sink uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  45.27 Source uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  45.27 Net uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (87,36) -> (87,36)
+Info:                          Sink uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/BorgShaderDispatcher.sv:1429.5-1432.71
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.07  45.34 Source uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCO
+Info:    routing  0.00  45.34 Net uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_FCI_INT (87,36) -> (87,36)
+Info:                          Sink uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCI
+Info:      logic  0.00  45.34 Source uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB1.FCO
+Info:    routing  0.00  45.34 Net uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT (87,36) -> (87,36)
+Info:                          Sink uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.FCI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/BorgShaderDispatcher.sv:1429.5-1432.71
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/arith_map_ccu2c.v:74.7-80.4
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/ccu2c_sim.vh:9.9-9.13
+Info:      logic  0.44  45.78 Source uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN$CCU2_COMB0.F
+Info:    routing  1.80  47.58 Net uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_1_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_COUT_CCU2C_CIN_S0[0] (87,36) -> (90,27)
+Info:                          Sink $nextpnr_CCU2C_66$CCU2_COMB0.A
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.45  48.03 Source $nextpnr_CCU2C_66$CCU2_COMB0.FCO
+Info:    routing  0.00  48.03 Net $nextpnr_CCU2C_66$CCU2_FCI_INT (90,27) -> (90,27)
+Info:                          Sink $nextpnr_CCU2C_66$CCU2_COMB1.FCI
+Info:      logic  0.00  48.03 Source $nextpnr_CCU2C_66$CCU2_COMB1.FCO
+Info:    routing  0.00  48.03 Net $nextpnr_CCU2C_66$COUT (90,27) -> (90,27)
+Info:                          Sink uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_A0_CCU2C_A1_S1_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.FCI
+Info:      logic  0.44  48.47 Source uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_A0_CCU2C_A1_S1_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT$CCU2_COMB0.F
+Info:    routing  0.92  49.38 Net uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_A0_CCU2C_A1_S1_CCU2C_S0_CIN_CCU2C_COUT_CIN_CCU2C_COUT_S0[3] (90,27) -> (91,26)
+Info:                          Sink uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_A0_CCU2C_A1_S1_CCU2C_S0_CIN_CCU2C_COUT_S0_LUT4_C_Z_LUT4_Z_2.C
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  49.62 Source uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_A0_CCU2C_A1_S1_CCU2C_S0_CIN_CCU2C_COUT_S0_LUT4_C_Z_LUT4_Z_2.F
+Info:    routing  0.67  50.29 Net uo_out_val_peripherals.borgOpt.rast.dispatcher._GEN_34_LUT4_Z_D_LUT4_D_Z_CCU2C_S0_A0_CCU2C_A1_S1_CCU2C_S0_CIN_CCU2C_COUT_S0_LUT4_C_Z[0] (91,26) -> (92,26)
+Info:                          Sink uo_out_val_peripherals.borgOpt.rast.dispatcher.frag_g_2_TRELLIS_FF_Q_9.M
+Info:      setup  0.00  50.29 Source uo_out_val_peripherals.borgOpt.rast.dispatcher.frag_g_2_TRELLIS_FF_Q_9.M
+Info: 21.02 ns logic, 29.27 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> 'posedge $glbnet$_pll_io_clk_o_0':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source btn[1]$tr_io.O
+Info:    routing  2.31  2.31 Net btn[1]$TRELLIS_IO_IN (4,95) -> (15,83)
+Info:                          Sink uo_out_val_ui_in_sync0_TRELLIS_FF_Q_1.M
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/ulx3s_top.sv:37.17-37.20
+Info:      setup  0.00  2.31 Source uo_out_val_ui_in_sync0_TRELLIS_FF_Q_1.M
+Info: 0.00 ns logic, 2.31 ns routing
+
+Info: Critical path report for cross-domain path '<async>' -> 'negedge $glbnet$_pll_io_clk_o_0':
+Info:       type curr  total name
+Info:     source  0.00  0.00 Source rst_n$tr_io.O
+Info:    routing  4.95  4.95 Net rst_n$TRELLIS_IO_IN (6,0) -> (16,59)
+Info:                          Sink rst_n_LUT4_C.C
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/ulx3s_top.sv:4.17-4.22
+Info:      logic  0.24  5.18 Source rst_n_LUT4_C.F
+Info:    routing  0.13  5.31 Net rst_n_LUT4_C_Z (16,59) -> (16,59)
+Info:                          Sink uo_out_val_soc_rst_reg_n_TRELLIS_FF_Q.DI
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/ulx3s_top.sv:197.3-198.82
+Info:      setup  0.00  5.31 Source uo_out_val_soc_rst_reg_n_TRELLIS_FF_Q.DI
+Info: 0.24 ns logic, 5.08 ns routing
+
+Info: Critical path report for cross-domain path 'posedge $glbnet$_pll_io_clk_o_0' -> '<async>':
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source sdramBackend.state_TRELLIS_FF_Q_2.Q
+Info:    routing  1.56  2.08 Net sdramBackend.rdyPrev_LUT4_D_Z_LUT4_D_Z_LUT4_B_D[0] (122,61) -> (123,67)
+Info:                          Sink sdramBackend._GEN_LUT4_Z.B
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/SdramBackend.sv:29.15-29.20
+Info:      logic  0.24  2.32 Source sdramBackend._GEN_LUT4_Z.F
+Info:    routing  7.47  9.79 Net _flashBoot_io_boot_done_LUT4_Z_D_LUT4_D_Z[2] (123,67) -> (13,40)
+Info:                          Sink _sdramBackend_io_backend_busy_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  10.02 Source _sdramBackend_io_backend_busy_LUT4_Z.F
+Info:    routing  1.69  11.71 Net _sdramBackend_io_backend_busy (13,40) -> (0,35)
+Info:                          Sink led[1]$tr_io.I
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/SdramBackend.sv:13.17-13.32
+Info: 1.00 ns logic, 10.72 ns routing
+
+Info: Critical path report for cross-domain path 'posedge $glbnet$_pll_io_clk_o_0' -> 'posedge $glbnet$_pll_io_clk_o_2':
+Info:       type curr  total name
+Info:   clk-to-q  0.52  0.52 Source scanout.idxLatch_TRELLIS_FF_Q_3.Q
+Info:    routing  1.01  1.53 Net scanout.idxLatch[7] (23,17) -> (22,14)
+Info:                          Sink scanout.pixelSafe_collisionD_TRELLIS_FF_Q_DI_LUT4_Z_D_LUT4_Z_D_LUT4_Z_3.A
+Info:                          Defined in:
+Info:                               ../../out/ulx3s_triangle/verilog/HdmiScanoutFp16.sv:30.15-30.23
+Info:      logic  0.24  1.77 Source scanout.pixelSafe_collisionD_TRELLIS_FF_Q_DI_LUT4_Z_D_LUT4_Z_D_LUT4_Z_3.F
+Info:    routing  1.46  3.22 Net scanout.pixelSafe_collisionD_TRELLIS_FF_Q_DI_LUT4_Z_D_LUT4_Z_D[2] (22,14) -> (22,9)
+Info:                          Sink scanout.pixelSafe_collisionD_TRELLIS_FF_Q_DI_LUT4_Z_D_LUT4_Z.C
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  3.46 Source scanout.pixelSafe_collisionD_TRELLIS_FF_Q_DI_LUT4_Z_D_LUT4_Z.F
+Info:    routing  0.21  3.67 Net scanout.pixelSafe_collisionD_TRELLIS_FF_Q_DI_LUT4_Z_D[2] (22,9) -> (22,9)
+Info:                          Sink scanout.pixelSafe_collisionD_TRELLIS_FF_Q_DI_LUT4_Z.D
+Info:                          Defined in:
+Info:                               /nix/store/d4q316mks6inhm54c19lqgw2c7snm5hk-yosys-0.68/bin/../share/yosys/lattice/cells_map_trellis.v:108.23-108.24
+Info:      logic  0.24  3.91 Source scanout.pixelSafe_collisionD_TRELLIS_FF_Q_DI_LUT4_Z.F
+Info:    routing  0.72  4.63 Net scanout.pixelSafe_collisionD_TRELLIS_FF_Q_DI (22,9) -> (22,8)
+Info:                          Sink scanout.frameBuf_ext.Memory.0.0_DOB14_TRELLIS_FF_Q.M
+Info:      setup  0.00  4.63 Source scanout.frameBuf_ext.Memory.0.0_DOB14_TRELLIS_FF_Q.M
+Info: 1.23 ns logic, 3.39 ns routing
+
+Warning: Max frequency for clock '$glbnet$_pll_io_clk_o_2': 121.12 MHz (FAIL at 125.00 MHz)
+Warning: Max frequency for clock '$glbnet$_pll_io_clk_o_0': 19.89 MHz (FAIL at 25.00 MHz)
+
+Info: Max delay <async>                         -> posedge $glbnet$_pll_io_clk_o_0: 2.31 ns
+Info: Max delay <async>                         -> negedge $glbnet$_pll_io_clk_o_0: 5.31 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> <async>                        : 11.71 ns
+Info: Max delay posedge $glbnet$_pll_io_clk_o_0 -> posedge $glbnet$_pll_io_clk_o_2: 4.63 ns
+
+Info: Slack histogram:
+Info:  legend: * represents 73 endpoint(s)
+Info:          + represents [1,73) endpoint(s)
+Info: [-10289,  -7821) |*+
+Info: [ -7821,  -5353) |**+
+Info: [ -5353,  -2885) |*********+
+Info: [ -2885,   -417) |********+
+Info: [  -417,   2051) |***********+
+Info: [  2051,   4519) |*****+
+Info: [  4519,   6987) |***+
+Info: [  6987,   9455) |*+
+Info: [  9455,  11923) |***************************+
+Info: [ 11923,  14391) |************************************************+
+Info: [ 14391,  16859) |********************************+
+Info: [ 16859,  19327) |*******************************+
+Info: [ 19327,  21795) |************************+
+Info: [ 21795,  24263) |************+
+Info: [ 24263,  26731) |*********************+
+Info: [ 26731,  29199) |*********************+
+Info: [ 29199,  31667) |*****************************+
+Info: [ 31667,  34135) |*************************************+
+Info: [ 34135,  36603) |************************************************************ 
+Info: [ 36603,  39071) |************************************+
+2 warnings, 0 errors
+
+Info: Program finished normally.

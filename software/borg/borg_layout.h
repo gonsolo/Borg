@@ -54,7 +54,7 @@
 
 // Descriptor layout: 3 verts × 32B + 64B MVP + 32B metadata = 256B each.
 #define SEQ_DESC_STRIDE       256
-#define SEQ_MVP_OFFSET        96       // byte offset to 16 MVP datapath-float words (64B)
+#define SEQ_MVP_OFFSET        96       // byte offset to 16 MVP FP16 words (64B)
 #define SEQ_META_OFFSET       160      // byte offset to bbox + flags (32B)
 
 // End of descriptor region (exclusive) — derived, do not edit.
@@ -98,11 +98,9 @@
 #define TBR_BIN_ENTRY_SIZE    2                              // sizeof(uint16_t)
 #define TBR_BIN_ROW_BYTES     (SEQ_MAX_TRI * TBR_BIN_ENTRY_SIZE)
 
-// Per-triangle setup store. At samples > 1 (every current BorgConfig: 4x MSAA)
-// the hardware stores 38 words per triangle (uniforms + has_uvs + covDelta) at
-// a 256-byte stride -- sStoreSetup: addr = setupBase + (triIdx << 8), see
-// BorgGeometrySequencer.setupStrideShift. 128 is the samples == 1 stride.
-#define TBR_SETUP_ENTRY_BYTES 256
+// Per-triangle setup store: 128 bytes per triangle (31 uniforms × 4B, rounded up).
+// Hardware sStoreSetup: addr = setupBase + (triIdx << 7).
+#define TBR_SETUP_ENTRY_BYTES 128
 
 // TBR_BIN_BASE and TBR_SETUP_BASE are computed at runtime (depend on fb size).
 
@@ -116,8 +114,7 @@
 // at the top of the render loop.  Placed at the 4 MB SPI mark — well above the
 // framebuffer + TBR bin/setup data (~2.8 MB worst case at 128²) and below the
 // firmware stack (top of the 8 MB ram_a).  Values are stored one-per-32-bit
-// word (one datapath float, or an integer) so DRAM_OUT_RAW's word access is
-// alignment-safe.
+// word (fp16 in the low half) so DRAM_OUT_RAW's word access is alignment-safe.
 #define BORG_CTS_MAILBOX_SPI  0x400000      // SPI byte address of the mailbox
 #define BORG_CTS_MAGIC        0x0C75DA7Au   // "CTS DATA" presence sentinel
 #define BORG_CTS_MAX_VERTS    16
@@ -128,8 +125,8 @@
 #define BORG_CTS_OFF_NVERTS   1
 #define BORG_CTS_OFF_NTRIS    2
 #define BORG_CTS_OFF_FLAGS    3   // render flags (see BORG_CTS_FLAG_*)
-#define BORG_CTS_OFF_MVP      16                                       // 16 float words
-#define BORG_CTS_OFF_POS      32                                       // nverts*3 float words
+#define BORG_CTS_OFF_MVP      16                                       // 16 fp16 words
+#define BORG_CTS_OFF_POS      32                                       // nverts*3 fp16
 #define BORG_CTS_OFF_COLOR    (BORG_CTS_OFF_POS   + BORG_CTS_MAX_VERTS * 3)  // 80
 #define BORG_CTS_OFF_IDX      (BORG_CTS_OFF_COLOR + BORG_CTS_MAX_VERTS * 3)  // 128
 #define BORG_CTS_WORDS        (BORG_CTS_OFF_IDX   + BORG_CTS_MAX_TRIS  * 3)  // 176
@@ -138,26 +135,3 @@
 // NO_CULL: the firmware submits each triangle twice (normal + reversed winding)
 // so the hardware culler lets both front- and back-facing triangles through.
 #define BORG_CTS_FLAG_NO_CULL  (1u << 0)
-
-// -------------------------------------------------------------------------
-// Push-constant staging block (Step 50 item 13).
-// -------------------------------------------------------------------------
-//
-// LS_BASE points at this block, and the shader's `LOAD rd, rs1` forms
-// LS_BASE + (rs1 << 2) -- so word i here IS byte offset 4*i of the Vulkan
-// push-constant range.  That is exactly the mapping borgc already emits: it
-// pins each static field's byte_offset/4 into a const GPR as a RAW word index
-// (see lib.rs's load_push_constant lowering), so nothing on either side needs
-// to repack.  Push-constant data is word-granular by construction, since
-// Vulkan requires offset and size to be multiples of 4.
-//
-// 128 bytes = Vulkan 1.0's minimum maxPushConstantsSize, which is what
-// borgvk advertises; a larger range is a driver-side limit change, not a
-// layout change, as long as this block grows with it.
-//
-// Placed above the CTS mailbox and DERIVED from its anchor, per this file's
-// rule.  0x400 of headroom over the mailbox's own BORG_CTS_WORDS*4 = 704 B
-// leaves room for the mailbox to grow without silently overlapping this.
-#define BORG_PUSH_CONST_SPI        (BORG_CTS_MAILBOX_SPI + 0x400)
-#define BORG_PUSH_CONST_MAX_WORDS  32
-#define BORG_PUSH_CONST_MAX_BYTES  (BORG_PUSH_CONST_MAX_WORDS * 4)
