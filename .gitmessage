@@ -7,4 +7,5 @@ AI-Assisted: none
 # or:  AI-Assisted: Claude Sonnet 5.5
 # and then:
 # AI-Prompts: <curated summary of the prompts/decisions that defined this change>
+# AI-Basis: <optional: the spec/Mesa/Borg reference that made this change obvious>
 # Reviewed-by: <you>

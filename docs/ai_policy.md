@@ -12,6 +12,16 @@ Borg follows NLnet's [Generative AI policy](https://nlnet.nl/foundation/policies
    the change) and `Reviewed-by:` (the human who read, tested and takes
    responsibility for the diff). Purely AI-generated, unreviewed work is not
    eligible for grant payment.
+   Three kinds of commit are distinguished:
+   - **Written by a human:** `AI-Assisted: none`.
+   - **AI-generated, closely reviewed, obvious from an external reference**
+     (the Vulkan spec, Mesa, an existing Borg module): `AI-Assisted: <model>`,
+     `Reviewed-by:`, and `AI-Basis:` naming the reference that makes the change
+     near-deterministic (e.g. `Vulkan 1.3 section on VkBlendFactor; same
+     pattern as BorgBlend`). This is a disclosure category, not an exemption:
+     whether NLnet treats it differently is for NLnet to say.
+   - **AI-driven design or debugging work:** `AI-Assisted`, a fuller
+     `AI-Prompts` summary, `Reviewed-by`.
 3. **Experiments live on `exp/*` branches** (or worktrees). They are local,
    never pushed (the pre-push hook refuses), and exempt from the trailers.
    Only a reviewed, squashed commit reaches `main`.

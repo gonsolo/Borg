@@ -10,6 +10,11 @@ When AI was used, two more trailers are required:
     AI-Prompts:  <curated summary of the prompts/decisions that defined the change>
     Reviewed-by: <human who read, tested and takes responsibility for the diff>
 
+and one is optional but encouraged when the change is AI-generated yet obvious
+from an external reference (Vulkan spec, Mesa, an existing Borg module):
+
+    AI-Basis:    <the reference that makes the change near-deterministic>
+
 Full session logs stay private (scripts/archive_ai_sessions.sh) and are
 available to NLnet on request. See docs/ai_policy.md.
 
@@ -46,6 +51,9 @@ def check_message(msg: str) -> list[str]:
         errs.append("AI-Assisted commits need an 'AI-Prompts:' line summarising the prompts that defined the change")
     if not trailer(msg, "Reviewed-by"):
         errs.append("AI-Assisted commits need a 'Reviewed-by: <human>' trailer")
+    basis = trailer(msg, "AI-Basis")
+    if basis is not None and len(basis) < 10:
+        errs.append("AI-Basis must name the reference (spec section, Mesa file, Borg module)")
     return errs
 
 
