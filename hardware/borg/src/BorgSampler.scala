@@ -139,7 +139,30 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   require(cfg.totalBits == 32, "the sampler returns FP32")
   import SamplerCtl._
   val io = IO(new BorgSamplerIO(cfg))
-  private val N = cfg.fragLanes
+
+  if (!cfg.hasSampler) {
+    // hasSampler=false previously did nothing here: BorgCore's wireSampler
+    // unconditionally instantiates BorgSampler regardless of the flag, so
+    // the full texture unit (descriptor tables, mip/LOD math, cube-face
+    // remap, filtering) was always synthesized and never actually removed
+    // -- a real area/congestion cost for configs that set hasSampler=false
+    // specifically to shrink the design (e.g. BorgConfig.UlxTriangle).
+    // Firmware never issues TEX/TEXA when hasSampler=false (no texturing),
+    // so these outputs would already have stayed idle/false at runtime --
+    // this just also removes the hardware that would otherwise sit unused.
+    io.busy        := false.B
+    io.resp.valid  := false.B
+    io.resp.bits   := DontCare
+    io.done        := false.B
+    io.gpuMem.req   := false.B
+    io.gpuMem.addr  := 0.U
+    io.gpuMem.wr    := false.B
+    io.gpuMem.wdata := 0.U
+    io.gpuMem.wlen  := 1.U
+    io.gpuMem.waccept := DontCare
+  } else {
+
+  val N = cfg.fragLanes
 
   // ===================================================================
   // Fixed-point and float helpers (combinational)
@@ -147,7 +170,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
 
   /** FP32 -> signed fixed point with `frac` fraction bits, saturating to
     * `width` bits. Denormals read as zero. */
-  private def fpToFixed(x: UInt, frac: Int, width: Int): SInt = {
+  def fpToFixed(x: UInt, frac: Int, width: Int): SInt = {
     val e = x(30, 23); val sig = Cat(e =/= 0.U, x(22, 0))
     val sh = e.zext - (150 - frac).S                   // value * 2^frac = sig * 2^sh
     val maxMag = ((BigInt(1) << (width - 1)) - 1).U
@@ -163,7 +186,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   /** FP32 mod 2^intBits as unsigned fixed point with 24 fraction bits: the
     * wrap of REPEAT (intBits 0) and MIRRORED_REPEAT (1), done exactly on the
     * float before any scaling, so a coordinate of 1000.25 is as good as 0.25. */
-  private def fpToFixedMod(x: UInt, intBits: Int): UInt = {
+  def fpToFixedMod(x: UInt, intBits: Int): UInt = {
     val width = intBits + 24
     val e = x(30, 23); val sig = Cat(e =/= 0.U, x(22, 0))
     val sh = e.zext - 126.S                            // value * 2^24 = sig * 2^(e-126)
@@ -181,8 +204,8 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   // Four extra fraction bits through the interpolation, rounded once at the
   // end: worst error 0.54/256 (the rounding itself), against 1.5/256 at 8
   // bits and 5.9/256 for the bare table.
-  private val log2Rom = VecInit((0 to 64).map(i => math.round(math.log(1 + i / 64.0) / math.log(2) * 4096).U(13.W)))
-  private def fpLog2(x: UInt): SInt = {
+  val log2Rom = VecInit((0 to 64).map(i => math.round(math.log(1 + i / 64.0) / math.log(2) * 4096).U(13.W)))
+  def fpLog2(x: UInt): SInt = {
     val i = x(22, 17); val f = x(16, 9)
     val lo = log2Rom(i); val hi = log2Rom(i +& 1.U)
     val frac = (lo +& (((hi - lo) * f) >> 8) +& 8.U) >> 4
@@ -191,7 +214,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   }
 
   /** Unsigned int (up to 34 bits) times 2^scale, as FP32 (truncated). */
-  private def uintToFp32(v0: UInt, scale: SInt): UInt = {
+  def uintToFp32(v0: UInt, scale: SInt): UInt = {
     val v = v0.pad(34); val w = 34
     val lz = PriorityEncoder(Reverse(v))
     val norm = (v << lz)(w - 1, 0)
@@ -200,115 +223,115 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   }
 
   /** Signed ordered compare key for floats. */
-  private def ordered(x: UInt): UInt = Mux(x(31), ~x, x | (1.U << 31))
+  def ordered(x: UInt): UInt = Mux(x(31), ~x, x | (1.U << 31))
 
   // ===================================================================
   // State
   // ===================================================================
 
-  private val states = Enum(28)                            // (three patterns: tuples stop at 22)
-  private val (sIdle :: sTexDesc :: sSampDesc :: sLod :: sLodWait :: sLane :: sLaneSetup ::
+  val states = Enum(28)                            // (three patterns: tuples stop at 22)
+  val (sIdle :: sTexDesc :: sSampDesc :: sLod :: sLodWait :: sLane :: sLaneSetup ::
                sLevel :: sLevelDims :: sLayer :: sAxis :: sAxisMul :: Nil) = states.take(12)
-  private val (sWrap :: sTap :: sTapLayer :: sTapMul :: sTapAddr :: sFetch :: sDecode :: sCompare :: sAcc ::
+  val (sWrap :: sTap :: sTapLayer :: sTapMul :: sTapAddr :: sFetch :: sDecode :: sCompare :: sAcc ::
                sAccWait :: sTapNext :: sResp :: Nil) = states.slice(12, 24)
-  private val (sMul :: sLayerOff :: sAxisFix :: sTapSlice :: Nil) = states.drop(24)
-  private val state = RegInit(sIdle)
+  val (sMul :: sLayerOff :: sAxisFix :: sTapSlice :: Nil) = states.drop(24)
+  val state = RegInit(sIdle)
 
-  private val ctl   = Reg(UInt(32.W))
-  private val act   = Reg(Vec(N, Bool()))
-  private val args  = Reg(Vec(N, new SamplerLaneArgs))
+  val ctl   = Reg(UInt(32.W))
+  val act   = Reg(Vec(N, Bool()))
+  val args  = Reg(Vec(N, new SamplerLaneArgs))
 
   // Descriptor caches: one texture and one sampler, tagged by index; any
   // write to either table's base forgets both.
-  private val td = Reg(Vec(4, UInt(32.W))); private val tdTag = Reg(UInt(8.W)); private val tdOk = RegInit(false.B)
-  private val sd = Reg(Vec(4, UInt(32.W))); private val sdTag = Reg(UInt(8.W)); private val sdOk = RegInit(false.B)
+  val td = Reg(Vec(4, UInt(32.W))); val tdTag = Reg(UInt(8.W)); val tdOk = RegInit(false.B)
+  val sd = Reg(Vec(4, UInt(32.W))); val sdTag = Reg(UInt(8.W)); val sdOk = RegInit(false.B)
   when(io.invalidate) { tdOk := false.B; sdOk := false.B }
-  private val k = RegInit(0.U(4.W))                       // word / step / channel counter
+  val k = RegInit(0.U(4.W))                       // word / step / channel counter
 
   // Descriptor fields.
-  private val base    = td(0)
-  private val dimW    = td(1)(15, 0) +& 1.U
-  private val dimH    = td(1)(27, 16) +& 1.U
-  private val ttype   = td(1)(29, 28)
-  private val layout  = td(1)(30)
-  private val dimD    = td(2)(9, 0) +& 1.U
-  private val levels  = td(2)(13, 10) +& 1.U
-  private val fmtCode = td(2)(19, 14)
-  private def swz(i: Int): UInt = td(2)(22 + 3 * i, 20 + 3 * i)
-  private val stride  = td(3)
+  val base    = td(0)
+  val dimW    = td(1)(15, 0) +& 1.U
+  val dimH    = td(1)(27, 16) +& 1.U
+  val ttype   = td(1)(29, 28)
+  val layout  = td(1)(30)
+  val dimD    = td(2)(9, 0) +& 1.U
+  val levels  = td(2)(13, 10) +& 1.U
+  val fmtCode = td(2)(19, 14)
+  def swz(i: Int): UInt = td(2)(22 + 3 * i, 20 + 3 * i)
+  val stride  = td(3)
   // Not registered: as a function of the 6-bit code, its uses (sDecode's
   // field extraction above all) collapse to a few constant cases. Registered, the ECP5 build grew by ~3,100 LUTs of general
   // shifters.
-  private val fmt     = TexFormat.info(fmtCode)
-  private val split16 = layout =/= Linear.U && fmt.bytes === 16.U   // see sTapAddr
-  private val magLin  = sd(0)(0); private val minLin = sd(0)(1); private val mipLin = sd(0)(2)
-  private def addrMode(a: UInt) = MuxLookup(a, sd(0)(5, 3))(Seq(1.U -> sd(0)(8, 6), 2.U -> sd(0)(11, 9)))
-  private val border  = sd(0)(14, 12)
-  private val cmpOp   = sd(0)(18, 16)
-  private val unnorm  = sd(0)(19)
-  private val isFetch  = op(ctl) === OpFetch.U
-  private val isGather = op(ctl) === OpGather.U
-  private val doCmp    = compare(ctl) && !isFetch && ttype =/= T3D.U     // bit 20 is w's offset on 3D
-  private val isInt    = fmt.kind === TexFormat.UINT.U || fmt.kind === TexFormat.SINT.U
+  val fmt     = TexFormat.info(fmtCode)
+  val split16 = layout =/= Linear.U && fmt.bytes === 16.U   // see sTapAddr
+  val magLin  = sd(0)(0); val minLin = sd(0)(1); val mipLin = sd(0)(2)
+  def addrMode(a: UInt) = MuxLookup(a, sd(0)(5, 3))(Seq(1.U -> sd(0)(8, 6), 2.U -> sd(0)(11, 9)))
+  val border  = sd(0)(14, 12)
+  val cmpOp   = sd(0)(18, 16)
+  val unnorm  = sd(0)(19)
+  val isFetch  = op(ctl) === OpFetch.U
+  val isGather = op(ctl) === OpGather.U
+  val doCmp    = compare(ctl) && !isFetch && ttype =/= T3D.U     // bit 20 is w's offset on 3D
+  val isInt    = fmt.kind === TexFormat.UINT.U || fmt.kind === TexFormat.SINT.U
   /** Filtered dimensions: 1D 1, 2D and cube 2 (a cube face is 2D), 3D 3. */
-  private val dims = Mux(ttype === T3D.U, 3.U, Mux(ttype === T1D.U, 1.U, 2.U))
+  val dims = Mux(ttype === T3D.U, 3.U, Mux(ttype === T1D.U, 1.U, 2.U))
 
-  private val srgbRom = VecInit(TexFormat.srgbToLinear.map(_.U(32.W)))
+  val srgbRom = VecInit(TexFormat.srgbToLinear.map(_.U(32.W)))
 
   // --- The one FMA: implicit LOD and the filter's weighted sum ---------
-  private val fma = Module(new BorgFma(cfg))
-  private val fmaA = RegInit(0.U(32.W)); private val fmaB = RegInit(0.U(32.W)); private val fmaC = RegInit(0.U(32.W))
+  val fma = Module(new BorgFma(cfg))
+  val fmaA = RegInit(0.U(32.W)); val fmaB = RegInit(0.U(32.W)); val fmaC = RegInit(0.U(32.W))
   fma.io.a := fmaA; fma.io.b := fmaB; fma.io.c := fmaC
   fma.io.negate := false.B; fma.io.pipeEn1 := true.B; fma.io.pipeEn2 := true.B
-  private val fmaWait = RegInit(0.U(3.W))
-  private val fmaLatency = cfg.fmaStages + 1
+  val fmaWait = RegInit(0.U(3.W))
+  val fmaLatency = cfg.fmaStages + 1
 
   // --- The one multiplier ------------------------------------------------
   // Registered on both sides: a state issues the operands with `mul`, sMul
   // multiplies, and the state it returns to reads `product`. Neither the
   // operands' muxes nor the consumers' logic share a cycle with it.
-  private val mulA = WireDefault(0.S(30.W)); private val mulB = WireDefault(0.U(GpuMemIO.AddrBits.W))
-  private val mulAR = RegNext(mulA); private val mulBR = RegNext(mulB)
-  private val product = Reg(chiselTypeOf(mulAR * mulBR.zext))
-  private val mulRet = Reg(chiselTypeOf(sIdle))
+  val mulA = WireDefault(0.S(30.W)); val mulB = WireDefault(0.U(GpuMemIO.AddrBits.W))
+  val mulAR = RegNext(mulA); val mulBR = RegNext(mulB)
+  val product = Reg(chiselTypeOf(mulAR * mulBR.zext))
+  val mulRet = Reg(chiselTypeOf(sIdle))
 
   // --- LOD --------------------------------------------------------------
-  private val lodTmp = Reg(Vec(6, UInt(32.W)))            // d{u,v,w}/dx, d{u,v,w}/dy
-  private val lodSum = Reg(Vec(2, UInt(32.W)))            // the scaled sums in x and y
-  private val quadLod = RegInit(0.S(24.W))                // implicit LOD, Q.8
+  val lodTmp = Reg(Vec(6, UInt(32.W)))            // d{u,v,w}/dx, d{u,v,w}/dy
+  val lodSum = Reg(Vec(2, UInt(32.W)))            // the scaled sums in x and y
+  val quadLod = RegInit(0.S(24.W))                // implicit LOD, Q.8
 
   // --- Per lane ---------------------------------------------------------
-  private val lane   = RegInit(0.U(log2Up(N).W))
-  private val nLev   = RegInit(1.U(2.W)); private val lvIdx = RegInit(0.U(1.W))
-  private val lvl    = Reg(Vec(2, UInt(4.W)))
-  private val lvlW   = Reg(Vec(2, UInt(9.W)))             // level weights, 256 = 1
-  private val linear = RegInit(false.B)
-  private val layerN = RegInit(0.U(12.W))
-  private val levelOff = RegInit(0.U(GpuMemIO.AddrBits.W))
-  private val lw = RegInit(0.U(16.W)); private val lh = RegInit(0.U(16.W)); private val ld = RegInit(0.U(16.W))
-  private val tpr = RegInit(0.U(14.W))                    // tiles per row at this level
-  private val sliceTexels = RegInit(0.U(GpuMemIO.AddrBits.W))            // tiled texels per 3D slice
-  private val layerOff = RegInit(0.U(GpuMemIO.AddrBits.W))
+  val lane   = RegInit(0.U(log2Up(N).W))
+  val nLev   = RegInit(1.U(2.W)); val lvIdx = RegInit(0.U(1.W))
+  val lvl    = Reg(Vec(2, UInt(4.W)))
+  val lvlW   = Reg(Vec(2, UInt(9.W)))             // level weights, 256 = 1
+  val linear = RegInit(false.B)
+  val layerN = RegInit(0.U(12.W))
+  val levelOff = RegInit(0.U(GpuMemIO.AddrBits.W))
+  val lw = RegInit(0.U(16.W)); val lh = RegInit(0.U(16.W)); val ld = RegInit(0.U(16.W))
+  val tpr = RegInit(0.U(14.W))                    // tiles per row at this level
+  val sliceTexels = RegInit(0.U(GpuMemIO.AddrBits.W))            // tiled texels per 3D slice
+  val layerOff = RegInit(0.U(GpuMemIO.AddrBits.W))
   // Per axis: first tap, second tap, border flags, fraction.
-  private val ax  = RegInit(0.U(2.W))
-  private val i0  = Reg(Vec(3, SInt(20.W))); private val i1 = Reg(Vec(3, SInt(20.W)))
-  private val b0  = Reg(Vec(3, Bool()));     private val b1 = Reg(Vec(3, Bool()))
-  private val fr  = Reg(Vec(3, UInt(8.W)))
-  private val wrapEnd = RegInit(0.U(1.W))
+  val ax  = RegInit(0.U(2.W))
+  val i0  = Reg(Vec(3, SInt(20.W))); val i1 = Reg(Vec(3, SInt(20.W)))
+  val b0  = Reg(Vec(3, Bool()));     val b1 = Reg(Vec(3, Bool()))
+  val fr  = Reg(Vec(3, UInt(8.W)))
+  val wrapEnd = RegInit(0.U(1.W))
   // Per tap.
-  private val tap = RegInit(0.U(3.W))
-  private val tx = Reg(SInt(20.W)); private val ty = Reg(SInt(20.W)); private val tz = Reg(SInt(20.W))
-  private val tBorder = RegInit(false.B)
-  private val tLayer = RegInit(0.U(12.W)); private val layerOffTap = RegInit(0.U(GpuMemIO.AddrBits.W))
+  val tap = RegInit(0.U(3.W))
+  val tx = Reg(SInt(20.W)); val ty = Reg(SInt(20.W)); val tz = Reg(SInt(20.W))
+  val tBorder = RegInit(false.B)
+  val tLayer = RegInit(0.U(12.W)); val layerOffTap = RegInit(0.U(GpuMemIO.AddrBits.W))
   // Cube corners: three sub-taps (own face, and across each edge), a third each.
-  private val subTap = RegInit(0.U(2.W)); private val tCorner = RegInit(false.B)
-  private val tWeight = RegInit(0.U(32.W))
-  private val tWeightInt = RegInit(0.U(34.W))             // tWeight before its FP32 conversion, 2^32 = 1
-  private val rowTiles = RegInit(0.U(GpuMemIO.AddrBits.W))
-  private val addr = RegInit(0.U(GpuMemIO.AddrBits.W))
-  private val raw = Reg(Vec(4, UInt(32.W)))
-  private val vals = Reg(Vec(4, UInt(32.W)))
-  private val acc = Reg(Vec(4, UInt(32.W)))
+  val subTap = RegInit(0.U(2.W)); val tCorner = RegInit(false.B)
+  val tWeight = RegInit(0.U(32.W))
+  val tWeightInt = RegInit(0.U(34.W))             // tWeight before its FP32 conversion, 2^32 = 1
+  val rowTiles = RegInit(0.U(GpuMemIO.AddrBits.W))
+  val addr = RegInit(0.U(GpuMemIO.AddrBits.W))
+  val raw = Reg(Vec(4, UInt(32.W)))
+  val vals = Reg(Vec(4, UInt(32.W)))
+  val acc = Reg(Vec(4, UInt(32.W)))
 
   io.busy := state =/= sIdle
   io.done := false.B
@@ -316,20 +339,20 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   io.resp.bits.lane := lane
   // The image view's component swizzle (VkComponentMapping), on the result
   // (gather applied it to its component instead).
-  private def oneOf: UInt = Mux(isInt, 1.U(32.W), "h3F800000".U(32.W))
+  def oneOf: UInt = Mux(isInt, 1.U(32.W), "h3F800000".U(32.W))
   io.resp.bits.data := Mux(isGather, acc, VecInit((0 until 4).map { i =>
     MuxLookup(swz(i), acc(i))(Seq(1.U -> 0.U, 2.U -> oneOf, 3.U -> acc(0), 4.U -> acc(1), 5.U -> acc(2), 6.U -> acc(3)))
   }))
   io.gpuMem.req := false.B; io.gpuMem.addr := 0.U; io.gpuMem.wr := false.B
   io.gpuMem.wdata := 0.U; io.gpuMem.wlen := 1.U
 
-  private def read(a: UInt)(onData: UInt => Unit): Unit = {
+  def read(a: UInt)(onData: UInt => Unit): Unit = {
     io.gpuMem.req := true.B; io.gpuMem.addr := a
     when(io.gpuMem.ready) { onData(io.gpuMem.data) }
   }
 
   /** Multiply `a` by `b`; `product` holds the result in state `next`. */
-  private def mul(a: SInt, b: UInt, next: UInt): Unit = {
+  def mul(a: SInt, b: UInt, next: UInt): Unit = {
     mulA := a; mulB := b; mulRet := next
     state := sMul
   }
@@ -758,5 +781,6 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
           .otherwise { lane := lane + 1.U; state := sLane }
       }
     }
+  }
   }
 }

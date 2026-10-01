@@ -323,7 +323,11 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
     }.elsewhen(formatReg === FlushFormat.RAW16.U) {
       rgbVec(idx) := Cat(g8, r8)
     }.elsewhen(byteFmt) {
-      val h = idx(3, 1)
+      // idx(3,1) only ever reaches 0-7 (RAW8 packs 2 pixels/halfword, so this
+      // branch only ever touches the first half of rgbVec's 16 entries) --
+      // .pad to the Vec's real index width (4 bits) so that's explicit
+      // instead of Chisel warning about a 3-bit index against a 16-entry Vec.
+      val h = idx(3, 1).pad(log2Ceil(rgbVec.length))
       rgbVec(h) := Mux(idx(0), Cat(r8, rgbVec(h)(7, 0)), Cat(rgbVec(h)(15, 8), r8))
     }.otherwise {
       rgbVec(idx) := Cat(r8(7, 3), g8(7, 2), b8(7, 3))

@@ -34,12 +34,25 @@ class Ecp5BiDirBuf extends ExtModule {
   *       Hutt starts only after boot_done && pll_locked.
   * UART: ftdi_rxd = FPGA→host TX (debug output at 115200 baud).
   */
-class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect) extends RawModule with SoCLogic {
+class ulx3s_top(
+    val CLOCK_MHZ: Int,
+    val borgModeOverride: BorgMode = BorgDirect,
+    val borgCfgOverride: Option[BorgConfig] = None,
+    // Square HDMI scanout framebuffer size in pixels. Must be consistent
+    // with borgCfgOverride's maxBinTiles: (fbSize/4)^2 tiles are needed to
+    // cover it (128 -> 1024 tiles, 32 -> 64 tiles). Mismatching these means
+    // the scanout's fill FSM walks tiles the GPU never binned/flushed into,
+    // reading whatever SDRAM happened to hold -- garbage outside whatever
+    // region firmware actually rendered into.
+    val fbSizeOverride: Option[Int] = None
+) extends RawModule with SoCLogic {
   // samples=4: 4x MSAA (Step 50.2), on top of 2×2 quad SIMT fragment shading.
   // Verified on real ULX3S hardware: vkcube renders correctly at 39 % LUT,
   // 15 % FF, 13.5 % BRAM on the ECP5-85K, timing closed at 25 MHz.
   // Revert to plain BorgConfig.Simt to fall back to the HPG-proven config.
-  override def BORG_CFG: BorgConfig = BorgConfig.Simt.copy(samples = 4)
+  // borgCfgOverride: an alternate config entirely, e.g. BorgConfig.UlxTriangle
+  // for a much smaller/faster-to-build real-hardware GPU test target.
+  override def BORG_CFG: BorgConfig = borgCfgOverride.getOrElse(BorgConfig.Simt.copy(samples = 4))
   // RV32I Hutt (Project.scala's default): the RV64IMAC + Sv39 MMU config
   // this used to override to no longer fits the ECP5-85K alongside FP32
   // Borg (92,986 LUT4 at RV64, 111% of the device, even after fixing
@@ -277,8 +290,9 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // constants that drive the GPU flush base — so the scanout and the GPU cannot
   // drift apart (a 0x80 drift here previously caused the blinking green corner
   // pixel).  Wired below once the SoC registers exist.
+  val scanoutFbSize = fbSizeOverride.getOrElse(128)
   val scanout = withClockAndReset(sysClock, pllRst) {
-    Module(new HdmiScanoutFp16(fbWidth = 128, fbHeight = 128, separatePixelClock = hdmiDecouple))
+    Module(new HdmiScanoutFp16(fbWidth = scanoutFbSize, fbHeight = scanoutFbSize, separatePixelClock = hdmiDecouple))
   }
 
   // ── GPU memory arbiter: Borg GPU writes/reads have priority over scanout ──
@@ -493,7 +507,26 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
 
 
   // ── HDMI Scanout: enable + front-buffer select ────────────────────────────
-  scanout.io.enable   := true.B
+  // Auto-enable after a boot delay rather than always-on from reset. Hutt's
+  // instr fetch is the LOWEST-priority requester in MemoryController, and
+  // scanout's gpuReq stays asserted essentially continuously once enabled
+  // (its fill FSM's sReq/sWait cycle back to back) -- confirmed on real
+  // hardware (ULX3SMinimal.scala hit the identical bug first) that this can
+  // starve instruction fetch badly enough to hang firmware doing enough
+  // setup work early in boot (many MMIO writes, a polling loop) before ever
+  // reaching its first observable output. The production borgvk/host
+  // pipeline's slow serial handshake apparently gives it enough of a head
+  // start to avoid this in practice, but that's luck, not a guarantee. A
+  // fixed delay before the first enable gives firmware a clear run at SDRAM
+  // during boot -- ~1M sysClock cycles (~100 ms @ 10 MHz) is generous.
+  // EXPERIMENT (SCANOUT_LATE): enable after 2^26 cycles (~6.7 s @ 10 MHz) so the GPU
+  // draw runs with the memory port uncontended; display only after the draw is done.
+  val scanoutBootDelay = withClockAndReset(sysClock, pllRst) { RegInit(0.U(27.W)) }
+  val scanoutReady     = scanoutBootDelay(26)
+  withClockAndReset(sysClock, pllRst) {
+    when(!scanoutReady) { scanoutBootDelay := scanoutBootDelay + 1.U }
+  }
+  scanout.io.enable   := scanoutReady
   scanout.io.frontBuf := fbSelectReg
   // Firmware-programmed framebuffer bases (single source of truth, no drift).
   scanout.io.fbBase   := scanoutFbBase0
@@ -824,6 +857,37 @@ object ULX3SMain extends App {
 
   ChiselStage.emitSystemVerilogFile(
     gen         = new ulx3s_top(clockMhz),
+    args        = Array("--target-dir", targetDir),
+    firtoolOpts = Emit.firtoolOpts
+  )
+
+  ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
+}
+
+/** Fast-iteration full-SoC target: real Borg GPU hardware (draw front end,
+  * real triangles) with BorgConfig.UlxTriangle instead of the full
+  * vkcube-capable Simt config -- see that config's own doc for exactly what
+  * it cuts and why. Separate output dir so the production ULX3SMain (what
+  * the demo/talk bitstream ships) is completely unaffected.
+  */
+object ULX3STriangleMain extends App {
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "125").toInt
+  val targetDir = "out/ulx3s_triangle/verilog"
+  new java.io.File(targetDir).mkdirs()
+
+  ChiselStage.emitSystemVerilogFile(
+    gen = new ulx3s_top(
+      clockMhz,
+      // BORG_TRI_VARIANT (bring-up matrix): base | lane1 | nofixed | lane1nofixed
+      borgCfgOverride = Some(sys.env.getOrElse("BORG_TRI_VARIANT", "base") match {
+        case "base"         => BorgConfig.UlxTriangle
+        case "lane1"        => BorgConfig.UlxTriangle.copy(fragLanes = 1)
+        case "nofixed"      => BorgConfig.UlxTriangle.copy(hasBlend = false, hasStencil = false)
+        case "lane1nofixed" => BorgConfig.UlxTriangle.copy(fragLanes = 1, hasBlend = false, hasStencil = false)
+        case other          => throw new IllegalArgumentException(s"BORG_TRI_VARIANT=$other")
+      }),
+      fbSizeOverride  = Some(32)  // matches UlxTriangle's maxBinTiles=64 (8x8 tiles of 4x4)
+    ),
     args        = Array("--target-dir", targetDir),
     firtoolOpts = Emit.firtoolOpts
   )

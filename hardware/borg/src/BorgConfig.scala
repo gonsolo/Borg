@@ -249,6 +249,13 @@ case class BorgConfig(
     // word for the next quad. Costs a tag and a valid bit per line and the
     // fill FSM; no extra instruction storage. Needs hasMemoryOps (the port).
     hasShaderICache: Boolean = false,
+    // hasSampler: independent opt-out for the descriptor-based texture unit
+    // (TEX/TEXA, see samplerEnabled) on a build that otherwise has the draw
+    // front end (drawEnabled) -- real geometry, real triangles, but no
+    // texture content to sample, e.g. a fast-iteration test target. Default
+    // true keeps every existing drawEnabled build's texturing behaviour
+    // unchanged; BorgConfig.Default doesn't touch it.
+    hasSampler: Boolean = true,
     // BorgFma pipeline depth. 3 is the shipping FP16 form; 4 and 5 add
     // registers inside stages 2 and 3 respectively, for FP32 at 25 MHz.
     //
@@ -320,8 +327,11 @@ case class BorgConfig(
     * centre: compute's invocation IDs, or a vertex shader's indices. */
   def hasInvocationIds: Boolean = computeEnabled || drawEnabled
   /** The descriptor-based texture unit, TEX/TEXA (docs/B2_texture_unit.md):
-    * FP32 results, the core's memory port. */
-  def samplerEnabled: Boolean = drawEnabled
+    * FP32 results, the core's memory port. Also needs `hasSampler`, an
+    * independent opt-out for a build that wants the draw front end (real
+    * geometry, real triangles) but not texturing -- e.g. a fast-iteration
+    * test target with no texture content to sample. */
+  def samplerEnabled: Boolean = drawEnabled && hasSampler
   /** Planes whose MSAA sample deltas travel with a triangle: the three edges,
     * plus the depth plane Zn on a draw-front-end build (the far plane's are
     * Zn's, negated). */
@@ -460,6 +470,54 @@ object BorgConfig {
   // (see Default's own comment for the full rationale).
   val Simt = Default.copy(fragLanes = 4, maxBinTiles = 4096)
 
+  // ULX3S fast-iteration config: real Borg GPU hardware (draw front end,
+  // real triangles), sized down for a much faster synth+P&R cycle than the
+  // full vkcube-capable Simt build -- not meant to replace it, just to
+  // validate the GPU render path on real hardware without a multi-hour
+  // build. Cuts only knobs that don't change vkcube's actual demo
+  // behaviour or Vulkan-conformance feature set (blend/stencil/depth-flush/
+  // MSAA are untouched):
+  //   maxBinTiles 4096 -> 64 (32x32, same resolution ULX3SMinimal already
+  //     uses; the real demo has only ever rendered at 128x128 = 1024 tiles,
+  //     so even that is pure headroom -- see maxBinTiles's own doc).
+  //   hasSampler = false: no texture unit -- fine for a triangle/solid-color
+  //     test, but this build can't render vkcube's textured cube.
+  //   hasCompute = false: compute dispatch is irrelevant to rendering a
+  //     triangle.
+  //   maxInstructions 72 -> 32: cube.vert/cube.frag need the full 72 (59
+  //     words plus margin, per Default's own comment) because they sample a
+  //     texture; a plain vertex/fragment pair with no TEX fits well under 32.
+  //   hasShaderICache MUST stay true (do not cut this one): the draw front
+  //     end's vertex/fragment shader load path depends on it -- disabling it
+  //     was tried and bisected to a 100%-reproducible hang (BorgDrawTests'
+  //     `ulx_triangle_config_perspective`/bisect tests): with pcBits falling
+  //     back to log2Ceil(maxInstructions) instead of 14, SEQ_TRIGGER's render
+  //     never completes. First found as a real-hardware symptom (borg-
+  //     triangle.bit's CPU ran fine but produced almost no UART output even
+  //     in a GPU-register-free bisect firmware, then a genuine draw hang once
+  //     the CPU actually reached SEQ_TRIGGER), reproduced deterministically
+  //     in cycle-accurate sim once isolated. Every OTHER single-field
+  //     reversion (maxInstructions=72, hasCompute=true, maxBinTiles=4096,
+  //     hasSampler=true) still hangs with hasShaderICache=false, confirming
+  //     this field alone is the cause.
+  //   samples 4 -> 1: UlxTriangle previously inherited Default's samples=4
+  //     (4x MSAA) silently -- Default.copy(fragLanes=4, maxBinTiles=4096)
+  //     (=Simt) never touched it, and neither did this config. Default's own
+  //     comment on switching to FP32+4x MSAA (2026-09-15) explicitly flags
+  //     that combination as "unmeasured... on ULX3S" at the time. The HPG
+  //     2026 demo (last known-good real-hardware vkcube render, commit
+  //     de99bc02) ran FP16 at 1 sample -- MSAA is 2026-09 work this
+  //     diagnostic build never meant to exercise. Explicit now so it can't
+  //     silently drift again, and so it can be deliberately flipped back to
+  //     4 as its own isolated test once the 1-sample case is confirmed good.
+  val UlxTriangle = Simt.copy(
+    maxBinTiles     = 64,
+    hasSampler      = false,
+    hasCompute      = false,
+    maxInstructions = 32,
+    samples         = 1
+  )
+
   // --- Simulation configs for validating msaaMultiPass end to end ---------
   //
   // A fair comparison needs BOTH sides quantized: msaaMultiPass requires
@@ -489,12 +547,13 @@ object BorgConfig {
     * each other's BorgCore/BorgShaderDispatcher (see BorgSimMain's own note).
     */
   def simCfg: BorgConfig = sys.env.getOrElse("BORG_SIM_CFG", "simt") match {
-    case "simt"    => Simt
-    case "simt8"   => SimtQ
-    case "simt8mp" => SimtQMp
-    case "simt8mpp" => SimtQMpP
-    case other     => throw new IllegalArgumentException(
-      s"BORG_SIM_CFG=$other; expected simt, simt8, simt8mp or simt8mpp")
+    case "simt"        => Simt
+    case "simt8"       => SimtQ
+    case "simt8mp"     => SimtQMp
+    case "simt8mpp"    => SimtQMpP
+    case "ulxtriangle" => UlxTriangle
+    case other         => throw new IllegalArgumentException(
+      s"BORG_SIM_CFG=$other; expected simt, simt8, simt8mp, simt8mpp or ulxtriangle")
   }
 
   // The ASIC: wafer.space GF180MCU, 1x1 slot, via BorgOnlyTop (the Borg-only

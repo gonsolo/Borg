@@ -144,6 +144,108 @@ flash: borg.bit
 reset:
 	openFPGALoader -b ulx3s -r
 
+######### Fast-iteration full-SoC build: real Borg GPU, BorgConfig.UlxTriangle #####################
+# Real GPU hardware (draw front end, real triangles) sized down for a much
+# faster synth+P&R cycle than the full vkcube-capable build above -- see
+# BorgConfig.UlxTriangle's own doc for exactly what it cuts. Not a
+# replacement for borg.bit; a way to validate the GPU render path on real
+# hardware without a multi-hour build.
+
+ULX3S_TRIANGLE_VERILOG_DIR = ../../out/ulx3s_triangle/verilog
+SRC_FILES_TRIANGLE = $$(find $(ULX3S_TRIANGLE_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
+TRIANGLE_LPF = $(ULX3S_TRIANGLE_VERILOG_DIR)/ulx3s.lpf
+
+.verilog_stamp_ulx3s_triangle: $(CHISEL_SRCS) Makefile ../../Makefile
+	$(MAKE) -C ../.. generate_verilog_ulx3s_triangle ULX3S_CLOCK_MHZ=$(ULX3S_MHZ)
+	@touch $@
+
+borg-triangle.json: .verilog_stamp_ulx3s_triangle
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Running Yosys for ECP5 (triangle) ..."
+	yosys -p "read -sv $(SRC_FILES_TRIANGLE); \
+	           read_verilog -sv -lib $(CURDIR)/primitives/ecp5_prims.v; \
+	           synth_ecp5 -abc9 -top ulx3s_top -json borg-triangle.json; \
+	           stat -top ulx3s_top" \
+	      -DECP5 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ \
+	      > yosys-triangle.log
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Done."
+
+borg-triangle.config: borg-triangle.json
+	@echo -e "$(BOLD)[PNR]$(RESET) Running nextpnr-ecp5 (triangle) ..."
+	nextpnr-ecp5 \
+	  --85k --package CABGA381 \
+	  --json borg-triangle.json \
+	  --lpf $(TRIANGLE_LPF) \
+	  --textcfg borg-triangle.config \
+	  --freq $(CLOCK_FREQ) \
+	  --timing-allow-fail \
+	  --log nextpnr-triangle.log \
+	  --seed 0
+	@echo -e "$(BOLD)[PNR]$(RESET) Done."
+
+borg-triangle.bit: borg-triangle.config
+	@echo -e "$(BOLD)[PACK]$(RESET) Packing bitstream (triangle) ..."
+	ecppack --svf borg-triangle.svf borg-triangle.config borg-triangle.bit
+	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-triangle.bit ready."
+
+flash-triangle: borg-triangle.bit
+	@echo -e "$(BOLD)[FLASH]$(RESET) Writing ECP5 bitstream to onboard flash ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash --skip-reset borg-triangle.bit
+	@echo -e "$(BOLD)[FLASH]$(RESET) Bitstream flashed. Start tio, then: make reset"
+
+# triangle_with_header.bin / flash-firmware-triangle mirror firmware_with_header.bin /
+# flash-firmware below for the diagnostic triangle firmware (software/borg's
+# `triangle` target, borg_triangle_demo.c) instead of `kernel` -- same
+# CLOCK_MHZ=$(ULX3S_MHZ) + EXTRA_CFLAGS="-DTARGET_ULX3S" requirement applies
+# (see the comment above $(FIRMWARE_DIR)/kernel.bin): building triangle.bin by
+# hand without both flags silently produces a firmware that either assumes the
+# wrong UART baud (CLOCK_MHZ) or writes UART_TX to the wrong peripheral
+# address entirely (TARGET_ULX3S) -- zero UART output, no error.
+triangle_with_header.bin: $(FIRMWARE_DIR)/triangle.bin
+	@echo -e "$(BOLD)[FW-PACK]$(RESET) Prepending 4-byte size header to triangle firmware ..."
+	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/triangle.bin','rb').read(); open('triangle_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> triangle_with_header.bin')"
+
+.PHONY: $(FIRMWARE_DIR)/triangle.bin
+$(FIRMWARE_DIR)/triangle.bin:
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
+		EXTRA_CFLAGS="-DTARGET_ULX3S" triangle
+
+flash-firmware-triangle: triangle_with_header.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Writing triangle firmware to onboard flash @ 0x400000 ..."
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 triangle_with_header.bin
+	@echo -e "$(BOLD)[FLASH-FW]$(RESET) Firmware flashed. Resetting FPGA ..."
+	openFPGALoader -b ulx3s -r
+	@echo -e "$(BOLD)[DONE]$(RESET) Board is rebooting — attach tio now."
+
+# One-shot: bitstream + firmware, for the common case of iterating on the
+# triangle firmware alone once borg-triangle.bit is already stable (skips
+# rebuilding the bitstream if its stamp is up to date).
+run-triangle: flash-triangle flash-firmware-triangle
+
+# Framebuffer-pattern diagnostic firmware (CPU-written gradient, no GPU) for borg-triangle.bit.
+fbpattern_with_header.bin: $(FIRMWARE_DIR)/fbpattern.bin
+	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/fbpattern.bin','rb').read(); open('fbpattern_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> fbpattern_with_header.bin')"
+
+.PHONY: $(FIRMWARE_DIR)/fbpattern.bin
+$(FIRMWARE_DIR)/fbpattern.bin:
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
+		EXTRA_CFLAGS="-DTARGET_ULX3S" fbpattern
+
+triangledbg_with_header.bin: $(FIRMWARE_DIR)/triangledbg.bin
+	@python3 -c "import struct; d=open('$(FIRMWARE_DIR)/triangledbg.bin','rb').read(); open('triangledbg_with_header.bin','wb').write(struct.pack('<I',len(d))+d); print(f'  {len(d)} bytes + 4-byte header -> triangledbg_with_header.bin')"
+
+.PHONY: $(FIRMWARE_DIR)/triangledbg.bin
+$(FIRMWARE_DIR)/triangledbg.bin:
+	$(MAKE) -C $(FIRMWARE_DIR) CLOCK_MHZ=$(ULX3S_MHZ) \
+		EXTRA_CFLAGS="-DTARGET_ULX3S" triangledbg
+
+flash-firmware-triangledbg: triangledbg_with_header.bin
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 triangledbg_with_header.bin
+	openFPGALoader -b ulx3s -r
+
+flash-firmware-fbpattern: fbpattern_with_header.bin
+	openFPGALoader -b ulx3s --write-flash --unprotect-flash -o 0x400000 fbpattern_with_header.bin
+	openFPGALoader -b ulx3s -r
+
 ######### Firmware (onboard SDRAM boot flow) ######################################################
 
 FIRMWARE_DIR = ../../software/borg
@@ -535,8 +637,14 @@ clean:
 	      yosys-external.log nextpnr-external.log .verilog_stamp_ulx3s_external
 	rm -f borg-padloop.bit borg-padloop.config borg-padloop.json borg-padloop.svf \
 	      yosys-padloop.log nextpnr-padloop.log .verilog_stamp_ulx3s_padloop
+	rm -f borg-triangle.bit borg-triangle.config borg-triangle.json borg-triangle.svf \
+	      yosys-triangle.log nextpnr-triangle.log .verilog_stamp_ulx3s_triangle \
+	      triangle_with_header.bin
 
 .PHONY: all help load flash flash-firmware minimal-boot \
         print_resources generate_verilog_ulx3s tio install-udev clean \
-        flash-hdmi-tiled minimal-hdmi generate_verilog_ulx3s_loopback flash-loopback \
+        flash-hdmi-tiled minimal-hdmi flash-hdmi-fill minimal-hdmi-fill \
+        flash-hdmi-halfsplit \
+        flash-triangle flash-firmware-triangle run-triangle \
+        generate_verilog_ulx3s_loopback flash-loopback \
         generate_verilog_ulx3s_external

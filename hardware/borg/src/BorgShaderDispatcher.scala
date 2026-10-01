@@ -320,9 +320,15 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   }
 
   // The sample mask test: the pipeline's static mask, before shading.
+  // Explicit width: 0.U/s.U are otherwise sized independently per Scala-level
+  // `s` (0.U and s.U=0 both 1 bit, but s.U=2/3 need 2 bits), so the Mux's
+  // inferred width varies by generated instance -- always too narrow to
+  // fully address a `cfg.samples`-entry Vec except when it happens to need
+  // the max width already.
+  val sampleIdxWidth = log2Ceil(cfg.samples)
   val coverage: Vec[Vec[Bool]] = VecInit((0 until N).map(i =>
     VecInit((0 until cfg.samples).map { s =>
-      val k = Mux(io.sampleCfg.single, 0.U, s.U)
+      val k = Mux(io.sampleCfg.single, 0.U(sampleIdxWidth.W), s.U(sampleIdxWidth.W))
       geomCoverage(i)(k) && io.sampleCfg.mask(k)
     })))
   // gl_SampleMaskIn has one bit per rasterization sample.

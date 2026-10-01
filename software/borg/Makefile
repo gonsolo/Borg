@@ -59,11 +59,46 @@ HEADERS = $(wildcard *.h) compiler/shader_blobs.h
 
 all: python kernel
 
-.PHONY: all kernel python test-native clean
+.PHONY: all kernel python test-native clean triangle
 
 kernel: python
 	@$(MAKE) -C compiler all
 	@bear -- $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex || $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex
+
+# Fast-iteration diagnostic firmware for borg-triangle.bit (BorgConfig.UlxTriangle):
+# renders one hardcoded triangle through the draw front end directly, no
+# borgvk/host/wire-protocol involved. Deliberately does NOT reuse `kernel`'s
+# PROJECT_SOURCES (borg_driver.c and friends) -- borg_triangle_demo.c is
+# fully self-contained (see its own header comment), so this skips the
+# borgc/compiler subdir build entirely.
+triangle:
+	@$(MAKE) PROJECT_NAME=triangle PROJECT_SOURCES=borg_triangle_demo.c \
+	         HEADERS="$(wildcard *.h)" triangle.bin triangle.hex
+
+# Framebuffer-pattern diagnostic (no GPU): CPU writes a gradient into the scanout FB.
+fbpattern:
+	@$(MAKE) PROJECT_NAME=fbpattern PROJECT_SOURCES=borg_fbpattern.c \
+	         HEADERS="$(wildcard *.h)" fbpattern.bin fbpattern.hex
+
+triangledbg:
+	@$(MAKE) PROJECT_NAME=triangledbg PROJECT_SOURCES=borg_triangledbg.c \
+	         HEADERS="$(wildcard *.h)" triangledbg.bin triangledbg.hex
+
+triangledbg0:
+	@$(MAKE) PROJECT_NAME=triangledbg0 PROJECT_SOURCES=borg_triangledbg0.c \
+	         HEADERS="$(wildcard *.h)" triangledbg0.bin triangledbg0.hex
+
+triangledbg2:
+	@$(MAKE) PROJECT_NAME=triangledbg2 PROJECT_SOURCES=borg_triangledbg2.c \
+	         HEADERS="$(wildcard *.h)" triangledbg2.bin triangledbg2.hex
+
+triangledbg3:
+	@$(MAKE) PROJECT_NAME=triangledbg3 PROJECT_SOURCES=borg_triangledbg3.c \
+	         HEADERS="$(wildcard *.h)" triangledbg3.bin triangledbg3.hex
+
+triangledbg4:
+	@$(MAKE) PROJECT_NAME=triangledbg4 PROJECT_SOURCES=borg_triangledbg4.c \
+	         HEADERS="$(wildcard *.h)" triangledbg4.bin triangledbg4.hex
 
 python:
 	$(MAKE) -C python
