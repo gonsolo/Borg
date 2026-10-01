@@ -52,7 +52,9 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     // BORG_FIXED_FUNC=1: blend + stencil + bilinear filtering (off = HPG demo).
     hasBlend    = sys.env.getOrElse("BORG_FIXED_FUNC", "0") == "1",
     hasStencil  = sys.env.getOrElse("BORG_FIXED_FUNC", "0") == "1",
-    hasBilinear = sys.env.getOrElse("BORG_FIXED_FUNC", "0") == "1")
+    hasBilinear = sys.env.getOrElse("BORG_FIXED_FUNC", "0") == "1",
+    // BORG_ICACHE=1: shader instruction cache over DRAM (also needs BORG_ISA_EXT=1).
+    hasShaderICache = sys.env.getOrElse("BORG_ICACHE", "0") == "1")
   override def xlen: Int = 64
   override def scanoutCurBuf: Bool = scanout.io.curBuf
   // Rung A of the wafer.space Borg-only bridge's on-hardware ladder (see the
