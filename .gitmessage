@@ -4,8 +4,9 @@
 #
 # Required (NLnet generative-AI policy, docs/ai_policy.md):
 AI-Assisted: none
+# or:  AI-Assisted: none (debugging/testing only)   [AI found the bug, a human wrote the code]
 # or:  AI-Assisted: Claude Sonnet 5.5
 # and then:
-# AI-Prompts: <curated summary of the prompts/decisions that defined this change>
+# AI-Prompts: <the relevant prompts, quoted or closely paraphrased>
 # AI-Basis: <optional: the spec/Mesa/Borg reference that made this change obvious>
 # Reviewed-by: <you>

@@ -4,10 +4,13 @@
 Every commit on main must declare its AI use in a trailer:
 
     AI-Assisted: <model and version>   or   AI-Assisted: none
+    (AI used only to find/diagnose a bug or to test, with the code written by a
+     human: "AI-Assisted: none (debugging/testing only)" -- NLnet's policy
+     targets code generation, not this)
 
 When AI was used, two more trailers are required:
 
-    AI-Prompts:  <curated summary of the prompts/decisions that defined the change>
+    AI-Prompts:  <the relevant prompts, quoted or closely paraphrased>
     Reviewed-by: <human who read, tested and takes responsibility for the diff>
 
 and one is optional but encouraged when the change is AI-generated yet obvious
@@ -42,13 +45,13 @@ def check_message(msg: str) -> list[str]:
     ai = trailer(msg, "AI-Assisted")
     if ai is None:
         return ["missing 'AI-Assisted: <model and version>' or 'AI-Assisted: none'"]
-    if ai.lower() == "none":
+    if ai.lower().startswith("none"):
         return errs
     if not re.search(r"\d", ai):
         errs.append("AI-Assisted must name the model AND its version (e.g. 'Claude Sonnet 5.5')")
     prompts = trailer(msg, "AI-Prompts")
-    if not prompts or len(prompts) < 20:
-        errs.append("AI-Assisted commits need an 'AI-Prompts:' line summarising the prompts that defined the change")
+    if not prompts or len(prompts) < 40:
+        errs.append("AI-Assisted commits need an 'AI-Prompts:' line quoting or closely paraphrasing the relevant prompts (40+ chars)")
     if not trailer(msg, "Reviewed-by"):
         errs.append("AI-Assisted commits need a 'Reviewed-by: <human>' trailer")
     basis = trailer(msg, "AI-Basis")

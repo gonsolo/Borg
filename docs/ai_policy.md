@@ -8,12 +8,15 @@ Borg follows NLnet's [Generative AI policy](https://nlnet.nl/foundation/policies
 1. **Every commit on `main` declares its AI use** in a trailer:
    `AI-Assisted: <model and version>` or `AI-Assisted: none`.
 2. **If AI was used**, the commit also carries
-   `AI-Prompts:` (a curated summary of the prompts and decisions that defined
-   the change) and `Reviewed-by:` (the human who read, tested and takes
+   `AI-Prompts:` (the relevant prompts, quoted or closely paraphrased -- a topic
+   summary is not enough; the prompts are what shows the result is not
+   vibe-coded) and `Reviewed-by:` (the human who read, tested and takes
    responsibility for the diff). Purely AI-generated, unreviewed work is not
    eligible for grant payment.
    Three kinds of commit are distinguished:
-   - **Written by a human:** `AI-Assisted: none`.
+   - **Written by a human:** `AI-Assisted: none`. If AI only helped find or
+     diagnose a bug, or to test, and a human wrote the code, use
+     `AI-Assisted: none (debugging/testing only)`; no prompts are required.
    - **AI-generated, closely reviewed, obvious from an external reference**
      (the Vulkan spec, Mesa, an existing Borg module): `AI-Assisted: <model>`,
      `Reviewed-by:`, and `AI-Basis:` naming the reference that makes the change
@@ -45,8 +48,9 @@ Borg follows NLnet's [Generative AI policy](https://nlnet.nl/foundation/policies
   on every push to `main` and every pull request, plus the README check.
 - The README must keep its "Generative AI use" section.
 
-## Open question for NLnet
+## Full session records
 
-The policy asks for "the used prompts/interactions and resulting output". We
-provide a curated per-commit record and keep full logs available on request.
-Whether that is sufficient is to be confirmed with NLnet.
+The relevant prompts live in the public commit message. In addition, scrubbed
+session records are kept in a separate private repository, titled with the
+public commit's hash, and are available to NLnet on request. They are a backup,
+not the main evidence.
