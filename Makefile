@@ -115,6 +115,9 @@ generate_verilog_sim: .verilog_sim_stamp
 # ULX3S SoC clock (MHz). Single source of truth is ULX3S_MHZ in
 # fpga/ulx3s/Makefile, which passes it here as ULX3S_CLOCK_MHZ.
 ULX3S_CLOCK_MHZ ?= 25
+generate_verilog_ulx3s_triangle: rdl
+	CLOCK_MHZ=$(ULX3S_CLOCK_MHZ) $(MILL) fpga.ulx3s.soc.runMain soc.ULX3STriangleMain
+
 generate_verilog_ulx3s: rdl
 	CLOCK_MHZ=$(ULX3S_CLOCK_MHZ) $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMain
 
@@ -303,7 +306,7 @@ linux:
 flash-linux:
 	$(MAKE) -C software flash-linux
 
-.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_triangle generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help print_stats gds-sky130 gds-ihp user_config-sky130 user_config-ihp lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-cocotb-soc-core-gl test-cocotb-soc-borg-gl test-chisel-borg test-chisel-core \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \
