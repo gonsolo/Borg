@@ -1,0 +1,4 @@
+#!/bin/sh
+# Archive the AI session logs for this commit (background; never blocks).
+( "$(git rev-parse --show-toplevel)/scripts/archive_ai_sessions.sh" HEAD >/dev/null 2>&1 & )
+exit 0

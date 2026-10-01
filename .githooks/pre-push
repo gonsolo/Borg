@@ -1,0 +1,14 @@
+#!/bin/sh
+# Never publish experiment branches; check every commit pushed to main.
+zero=0000000000000000000000000000000000000000
+root=$(git rev-parse --show-toplevel)
+while read local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/exp/*) echo "pre-push: exp/* branches are local-only (prompts may be private)"; exit 1 ;;
+    refs/heads/main)
+      [ "$local_sha" = "$zero" ] && continue
+      if [ "$remote_sha" = "$zero" ]; then range="$local_sha"; else range="$remote_sha..$local_sha"; fi
+      python3 "$root/scripts/check_ai_policy.py" --range "$range" --readme || exit 1 ;;
+  esac
+done
+exit 0

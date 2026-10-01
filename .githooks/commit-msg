@@ -1,0 +1,6 @@
+#!/bin/sh
+# Reject commits without the AI-use trailers. Experiment branches (exp/*)
+# are exempt: they are local scratch space and never pushed.
+branch=$(git symbolic-ref --short -q HEAD)
+case "$branch" in exp/*) exit 0 ;; esac
+exec python3 "$(git rev-parse --show-toplevel)/scripts/check_ai_policy.py" --msg-file "$1"

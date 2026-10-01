@@ -1,0 +1,42 @@
+# Generative AI policy compliance
+
+Borg follows NLnet's [Generative AI policy](https://nlnet.nl/foundation/policies/generativeAI)
+(v1.1, 2026-01-25). This page is how we do it.
+
+## Rules for contributors
+
+1. **Every commit on `main` declares its AI use** in a trailer:
+   `AI-Assisted: <model and version>` or `AI-Assisted: none`.
+2. **If AI was used**, the commit also carries
+   `AI-Prompts:` (a curated summary of the prompts and decisions that defined
+   the change) and `Reviewed-by:` (the human who read, tested and takes
+   responsibility for the diff). Purely AI-generated, unreviewed work is not
+   eligible for grant payment.
+3. **Experiments live on `exp/*` branches** (or worktrees). They are local,
+   never pushed (the pre-push hook refuses), and exempt from the trailers.
+   Only a reviewed, squashed commit reaches `main`.
+4. **Full session logs are private but retained**, in the separate private repo
+   `~/work/Borg-provenance`. A `post-commit` hook archives them on every commit
+   (`scripts/archive_ai_sessions.sh`); each archive commit is titled with the
+   public commit's hash (`Borg-Commit: <sha>`), so the log for any public commit
+   is found with `git log --grep <sha>` there. They are handed to NLnet on
+   request, scrubbed first. Commits do not carry session URLs: outsiders cannot
+   open them.
+5. **Generated code is checked for copied material** before it lands,
+   especially anything resembling upstream sources (Mesa, firmware, vendor code).
+6. Deterministic generation (Chisel to Verilog, PeakRDL, borgc) is not GenAI
+   and needs no declaration.
+
+## Enforcement
+
+- `scripts/install_hooks.sh` (once per clone) enables the `commit-msg` and
+  `pre-push` hooks (`git commit -t .gitmessage` gives a message template).
+- `.github/workflows/ai-policy.yaml` runs the same `scripts/check_ai_policy.py`
+  on every push to `main` and every pull request, plus the README check.
+- The README must keep its "Generative AI use" section.
+
+## Open question for NLnet
+
+The policy asks for "the used prompts/interactions and resulting output". We
+provide a curated per-commit record and keep full logs available on request.
+Whether that is sufficient is to be confirmed with NLnet.

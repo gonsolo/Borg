@@ -161,6 +161,17 @@ make librelane      # GF180MCU 1x1 slot: full RTL-to-GDS signoff via LibreLane
 
 See [Generating the ASIC](docs/05_asic.md).
 
+## Generative AI use
+
+Parts of Borg are developed with an AI coding assistant (Claude Code; model and
+version are recorded per commit), mainly for hardware debugging, firmware, test
+scaffolding and documentation. Every change on `main` is reviewed and tested by
+a human, declares its AI use in commit trailers (`AI-Assisted`, `AI-Prompts`,
+`Reviewed-by`), and generated code is checked for copied material. Experiments
+stay on local branches. Generated Verilog, register blocks and compiler output
+are deterministic tool output, not GenAI. Details and enforcement:
+[docs/ai_policy.md](docs/ai_policy.md).
+
 ## Milestones
 
 | Milestone | Status |

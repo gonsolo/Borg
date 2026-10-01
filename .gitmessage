@@ -1,0 +1,10 @@
+
+
+# Summary line above, then what and why.
+#
+# Required (NLnet generative-AI policy, docs/ai_policy.md):
+AI-Assisted: none
+# or:  AI-Assisted: Claude Sonnet 5.5
+# and then:
+# AI-Prompts: <curated summary of the prompts/decisions that defined this change>
+# Reviewed-by: <you>
