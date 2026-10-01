@@ -53,12 +53,13 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     case other  => throw new IllegalArgumentException(s"BORG_ULX_CFG=$other")
   }
   // BORG_SAMPLES / BORG_MAXBINTILES / BORG_ISA_EXT=1|0 (LOAD/STORE + BRZ/BRNZ/exec mask)
-  // override the chosen config; unset = unchanged.
+  // and BORG_ICACHE=1|0 (shader I-cache, needs ISA_EXT) override the chosen config; unset = unchanged.
   private def envInt(k: String) = sys.env.get(k).filter(_.nonEmpty).map(_.toInt)
   override def BORG_CFG: BorgConfig = {
     val c = baseCfg.copy(samples = envInt("BORG_SAMPLES").getOrElse(baseCfg.samples),
                          maxBinTiles = envInt("BORG_MAXBINTILES").getOrElse(baseCfg.maxBinTiles))
-    envInt("BORG_ISA_EXT").fold(c)(e => c.copy(hasMemoryOps = e == 1, hasControlFlow = e == 1))
+    val d = envInt("BORG_ISA_EXT").fold(c)(e => c.copy(hasMemoryOps = e == 1, hasControlFlow = e == 1))
+    envInt("BORG_ICACHE").fold(d)(e => d.copy(hasShaderICache = e == 1))
   }
   // RV32I Hutt (Project.scala's default): the RV64IMAC + Sv39 MMU config
   // this used to override to no longer fits the ECP5-85K alongside FP32
