@@ -116,6 +116,7 @@ class BorgShaderDispatcherIO(val cfg: BorgConfig) extends Bundle {
   val texR    = Output(UInt(16.W))    // fetched texel R (to core)
   val texG    = Output(UInt(16.W))    // fetched texel G (to core)
   val texB    = Output(UInt(16.W))    // fetched texel B (to core)
+  val texA    = Output(UInt(16.W))    // alpha: stubbed 0 (FTEX-returns-alpha commit not applied)
 
   // ZTEST: early per-fragment tests, requested mid-shader by the core.
   val zTestReq   = Input(Bool())
@@ -438,6 +439,7 @@ class BorgShaderDispatcher(val cfg: BorgConfig = BorgConfig.Default) extends Mod
   io.texR    := 0.U
   io.texG    := 0.U
   io.texB    := 0.U
+  io.texA    := 0.U
 
   // FTEX start: when texture is enabled, start the texture unit
   when(io.texReq && phase === sFrag) {
