@@ -427,6 +427,144 @@ reg tex_base_addr_reg_t {
     } RSVD[16] = 0;
 };
 
+// --- Colour attachment format written by the tile flusher ---
+// RGB565 alone cannot be every colour attachment: R8G8B8A8_UNORM and
+// B8G8R8A8_UNORM are mandatory COLOR_ATTACHMENT formats, and the swapchain
+// format is almost always the latter. The tile buffer already holds UNORM8
+// R/G/B plus a UNORM8 alpha plane, so the wider formats are a packing choice
+// at flush time, not new storage.
+reg flush_format_reg_t {
+    name = "Flush Colour Format";
+    desc = "Colour format of the attachment the tile flusher writes. Reset 0
+            is the historical RGB565 (32 bytes per 4x4 tile); the 32-bit
+            formats take 64 bytes per tile, so the autonomous sequencer's tile
+            stride doubles with them. Depth tiles stay 32 bytes (D16_UNORM).";
+
+    field {
+        sw = rw; hw = r;
+        desc = "0 = R5G6B5_UNORM_PACK16, 1 = R8G8B8A8_UNORM, 2 = B8G8R8A8_UNORM,
+                3 = reserved (behaves as 0).";
+    } format[2] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[30] = 0;
+};
+
+// --- Shader program image in DRAM (instruction cache backing store) ---
+// With BorgConfig.hasShaderICache, IMEM is a cache over the running program,
+// whose word `pc` lives at code_base + 4*pc. Every shader DMA into IMEM sets
+// this automatically (to the DMA source minus 4 x its IMEM offset), so a
+// sequencer-driven render never needs to write it; it is for programs loaded
+// over MMIO that are longer than IMEM. Any write, and any shader DMA into
+// IMEM, starts a new program and invalidates the whole cache -- so write it
+// BEFORE the program's IMEM words, which then prefill it.
+reg code_base_reg_t {
+    name = "Shader Code Base";
+    desc = "Byte address in GPU memory of word 0 of the running shader
+            program (4-byte aligned). nogen: decoded from the raw bus by
+            Borg.scala, only in a build with the instruction cache.";
+
+    field {
+        sw = rw; hw = r;
+        desc = "Bits 24:0: byte address of program word 0.";
+    } base_addr[25] = 0;
+
+    field {
+        sw = rw; hw = na;
+    } RSVD[7] = 0;
+};
+
+// --- Occlusion queries -------------------------------------------------
+// OCC_COUNT counts samples that pass the per-fragment tests (depth, stencil,
+// scissor, coverage, not discarded) -- exactly, so occlusionQueryPrecise can
+// be reported. Counted where the tests run: at ZTEST for a shader with early
+// tests, at the end of the shader otherwise.
+//
+// A tile-based renderer interleaves fragments of every draw tile by tile, so
+// "while the query is active" cannot be a time window. It is a triangle
+// window instead: only fragments of triangles with first <= index < last are
+// counted (the reset window, 0..0xFFFF, counts everything). One window per
+// render: the driver maps vkCmdBeginQuery/EndQuery to the triangle range of
+// the draws between them.
+reg occ_ctrl_reg_t {
+    name = "Occlusion Query Control";
+    desc = "nogen: decoded from the raw bus by Borg.scala.";
+    field { sw = rw; hw = r; desc = "Count passing samples."; } enable[1] = 0;
+    field { sw = w;  hw = r; desc = "Write 1: reset OCC_COUNT to 0."; } clear[1] = 0;
+    field { sw = rw; hw = na; } RSVD[30] = 0;
+};
+reg occ_tri_range_reg_t {
+    name = "Occlusion Query Triangle Window";
+    desc = "nogen. Triangles counted: first <= index < last.";
+    field { sw = rw; hw = r; desc = "First counted triangle index."; } first[16] = 0;
+    field { sw = rw; hw = r; desc = "One past the last counted triangle index."; } last[16] = 0xFFFF;
+};
+reg occ_count_reg_t {
+    name = "Occlusion Query Count";
+    desc = "nogen, read-only: samples that passed the per-fragment tests.";
+    field { sw = r; hw = w; desc = "Passing-sample count."; } count[32] = 0;
+};
+
+// --- Attachment load (loadOp = LOAD) and stencil store -----------------
+// A tile normally starts from a clear. With any TILE_LOAD bit set, the
+// autonomous render clears the tile as usual and then loads the selected
+// aspects back from their attachments, in exactly the layout the flusher
+// writes: colour from the framebuffer (FLUSH_FORMAT decides the format),
+// depth from FLUSH_ZB_BASE, stencil from FLUSH_SB_BASE. Aspects not loaded
+// keep their clear value, so per-attachment load ops map bit for bit.
+reg tile_load_reg_t {
+    name = "Tile Load";
+    desc = "nogen: decoded from the raw bus by Borg.scala.";
+    field { sw = rw; hw = r; desc = "Load colour (and alpha) from the colour attachment."; } color[1] = 0;
+    field { sw = rw; hw = r; desc = "Load depth (D16_UNORM) from FLUSH_ZB_BASE."; } depth[1] = 0;
+    field { sw = rw; hw = r; desc = "Load stencil (S8_UINT) from FLUSH_SB_BASE."; } stencil[1] = 0;
+    field { sw = rw; hw = na; } RSVD[29] = 0;
+};
+// Stencil attachment: 16 bytes (S8_UINT) per 4x4 tile, flushed after the
+// depth burst when nonzero -- the same enable convention as FLUSH_ZB_BASE.
+reg flush_sb_base_reg_t {
+    name = "Flush Stencil Base Address";
+    desc = "nogen. Byte address of the stencil attachment; 0 = none bound.";
+    field { sw = rw; hw = r; desc = "Bits 24:0: byte address."; } sb_base[25] = 0;
+    field { sw = rw; hw = na; } RSVD[7] = 0;
+};
+
+// --- Depth attachment format and full-precision clear depth -----------
+// Tile depth follows the datapath (FP32 on an FP32 build), so both D16_UNORM
+// and D32_SFLOAT attachments can be stored and loaded exactly.
+reg depth_format_reg_t {
+    name = "Depth Attachment Format";
+    desc = "nogen. 0 = D16_UNORM (32 bytes per tile), 1 = D32_SFLOAT (64
+            bytes per tile, needs FP32 tile depth). Store and load alike.";
+    field { sw = rw; hw = r; desc = "Bit 0: D32_SFLOAT."; } d32[1] = 0;
+    field { sw = rw; hw = na; } RSVD[31] = 0;
+};
+// VkClearDepthStencilValue::depth at full precision. Until written, the
+// FP16 depth field of SEQ_CLEAR_LO is widened and used, so firmware that
+// never writes this register renders exactly as before.
+reg clear_depth_reg_t {
+    name = "Clear Depth (FP32)";
+    desc = "nogen. Tile clear depth as an FP32 bit pattern; overrides the
+            FP16 depth in SEQ_CLEAR_LO once written.";
+    field { sw = rw; hw = r; desc = "FP32 bits."; } depth[32] = 0;
+};
+
+// --- Multisampled attachments stored per sample ------------------------
+// Vulkan requires 4x colour, depth and stencil attachments and 4x sampled
+// images, so a stored 4x attachment must keep every sample (a later load,
+// texelFetch(..., sample), vkCmdResolveImage). With this bit set, store and
+// load are per sample: each tile's region holds `samples` consecutive
+// per-sample tiles instead of one resolved tile. Clear it for a multisampled
+// attachment that is only resolved (storeOp DONT_CARE + a resolve
+// attachment): that path averages on chip.
+reg attach_ms_reg_t {
+    name = "Per-Sample Attachments";
+    desc = "nogen. Bit 0: store and load multisampled attachments per sample.";
+    field { sw = rw; hw = r; desc = "Per-sample store/load."; } per_sample[1] = 0;
+    field { sw = rw; hw = na; } RSVD[31] = 0;
+};
+
 // --- Texture address (computed by hardware) ---
 // Read: Morton-encoded texel index from the most recent tex_uv write.
 reg tex_addr_reg_t {
@@ -1511,4 +1649,35 @@ addrmap borg_gpu {
     tex_base_addr_reg_t tex_base_addr1;
     tex_base_addr_reg_t tex_base_addr2;
     tex_base_addr_reg_t tex_base_addr3;
+
+    // ---- Colour attachment format (RGB565 / RGBA8 / BGRA8) ----
+    flush_format_reg_t flush_format;
+
+    // ---- Shader program image for the instruction cache ----
+    code_base_reg_t code_base;
+    code_base->nogen = true;
+
+    // ---- Occlusion queries ----
+    occ_ctrl_reg_t occ_ctrl;
+    occ_ctrl->nogen = true;
+    occ_tri_range_reg_t occ_tri_range;
+    occ_tri_range->nogen = true;
+    occ_count_reg_t occ_count;
+    occ_count->nogen = true;
+
+    // ---- Attachment load / stencil store ----
+    tile_load_reg_t tile_load;
+    tile_load->nogen = true;
+    flush_sb_base_reg_t flush_sb_base;
+    flush_sb_base->nogen = true;
+
+    // ---- Depth attachment format / full-precision clear depth ----
+    depth_format_reg_t depth_format;
+    depth_format->nogen = true;
+    clear_depth_reg_t clear_depth;
+    clear_depth->nogen = true;
+
+    // ---- Per-sample multisampled attachments ----
+    attach_ms_reg_t attach_ms;
+    attach_ms->nogen = true;
 };
