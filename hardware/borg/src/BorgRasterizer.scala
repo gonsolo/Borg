@@ -184,6 +184,11 @@ class BorgRasterizer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.texG              := dispatcher.io.texG
   io.texB              := dispatcher.io.texB
   io.texA              := dispatcher.io.texA
+  dispatcher.io.zTestReq := io.zTestReq
+  io.zTestDone         := dispatcher.io.zTestDone
+  io.laneHelper        := dispatcher.io.laneHelper
+  dispatcher.io.passSample.foreach(_ := io.passSample.get)
+  io.occSamples        := dispatcher.io.occSamples
 
   // --- Forward iterator outputs ---
   io.iter         := iterator.io.iter
