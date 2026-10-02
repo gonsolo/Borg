@@ -14,7 +14,7 @@ The CPU has been **rewritten from TinyQV to a new core called Hutt** (`hardware/
 ## Build system layout
 
 - **Top-level `Makefile`** orchestrates Chisel→Verilog emission, cocotb tests, lint, GDS, the docs book, and SystemRDL→Chisel register generation.
-- **Mill** (`build.mill` + per-directory `package.mill`) drives Scala/Chisel compilation. `BorgModule` (in `build.mill`) is the shared trait — Scala 2.13, Chisel 7.11. Modules are organized under `hardware/{borg,hutt,memory,peri,soc,hardfloat}`, `fpga/ulx3s/soc` and `asic/wafer`. The simulation tops (`BorgSimTop`, `BorgArcSimTop`) live in `hardware/soc`.
+- **Mill** (`build.mill` + per-directory `package.mill`) drives Scala/Chisel compilation. `BorgModule` (in `build.mill`) is the shared trait — Scala 2.13, Chisel (version pinned by `chiselVersion` in `build.mill`). Modules are organized under `hardware/{borg,hutt,memory,peri,soc,hardfloat}`, `fpga/ulx3s/soc` and `asic/wafer`. The simulation tops (`BorgSimTop`, `BorgArcSimTop`) live in `hardware/soc`.
 - **Nix** (`flake.nix`) provides the full reproducible toolchain (firtool, Yosys, nextpnr, OpenROAD/LibreLane, RISC-V GCC, cocotb, PeakRDL, etc.). Enter it with `nix develop` before running anything below.
 - **Per-board sub-Makefiles** (`fpga/ulx3s/Makefile`, `simulation/{verilator,arcilator}/Makefile`, `test/soc/Makefile`, `software/Makefile`) own their flow. The top Makefile forwards to them.
 
