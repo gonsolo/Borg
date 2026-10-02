@@ -95,7 +95,26 @@ public:
         }
     }
 
+    // BORG_SIM_JUNK: fill the Chisel SDRAM with junk over the regions the
+    // firmware and GPU use (low image half and the 0x800000 "flat" half),
+    // BORG_SIM_JUNK_WORDS words each (default 2.5M words = 5 MB, covers the 4 MB mailbox + draw slots), before the
+    // image is loaded over it.
+    void junk_fill_sdram() {
+        uint64_t seed;
+        if (!sim_junk_seed(&seed)) return;
+        const char* nw = std::getenv("BORG_SIM_JUNK_WORDS");
+        uint32_t words = nw ? (uint32_t)std::strtoul(nw, nullptr, 0) : 0x280000u;
+        std::cerr << "[SIM] BORG_SIM_JUNK=" << seed << ": junk-filling " << words << " words x2 of SDRAM\n";
+        uint64_t x = (seed + 1) * 0x9E3779B97F4A7C15ull ^ 0x5DEECE66Dull;
+        for (uint32_t base : {0u, 0x800000u})
+            for (uint32_t w = 0; w < words; w++) {
+                x ^= x >> 12; x ^= x << 25; x ^= x >> 27;
+                dbg_write(base + w, (uint16_t)(((x * 0x2545F4914F6CDD1Dull) >> 48) & 0xFFFF));
+            }
+    }
+
     void boot() {
+        junk_fill_sdram();
         // Firmware/boot image: flash byte F → SDRAM word F>>1.  Copy exactly what
         // load_bin() actually loaded (rounded up to an even byte count for the
         // 16-bit word copy) — NOT a fixed 0x20000 (128KB). That fixed size was a

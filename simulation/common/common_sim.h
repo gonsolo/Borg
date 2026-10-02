@@ -51,6 +51,27 @@ inline bool get_ram_a_cs(uint8_t uio_out) {
     return (uio_out & (1 << 6)) != 0;
 }
 
+// BORG_SIM_JUNK=<seed>: start simulated memory with deterministic pseudo-random
+// junk instead of zeros, like real SDRAM after power-up. Zero-initialised sim
+// memory hides bugs that only show on a board: a shader with no HALT runs into
+// zeros (= HALT), code that reads memory nobody wrote sees 0. `salt` keeps the
+// separate memories uncorrelated. No-op when the variable is unset.
+inline bool sim_junk_seed(uint64_t* seed) {
+    const char* e = std::getenv("BORG_SIM_JUNK");
+    if (!e || !*e) return false;
+    *seed = std::strtoull(e, nullptr, 0);
+    return true;
+}
+inline void sim_junk_fill(uint8_t* p, size_t n, uint64_t salt) {
+    uint64_t seed;
+    if (!sim_junk_seed(&seed)) return;
+    uint64_t x = (seed + 1) * 0x9E3779B97F4A7C15ull ^ (salt * 0xD1B54A32D192ED03ull);
+    for (size_t i = 0; i < n; i++) {   // xorshift64*
+        x ^= x >> 12; x ^= x << 25; x ^= x >> 27;
+        p[i] = (uint8_t)((x * 0x2545F4914F6CDD1Dull) >> 56);
+    }
+}
+
 class QSPIMemory {
 public:
     std::vector<uint8_t> mem;
@@ -74,6 +95,7 @@ public:
     QSPIMemory(size_t size, bool flash) {
         mem.resize(size, 0);
         is_flash = flash;
+        sim_junk_fill(mem.data(), mem.size(), flash ? 1 : 2);
     }
     
     void load_bin(const std::string& path) {

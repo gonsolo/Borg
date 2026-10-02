@@ -57,7 +57,7 @@ define VERILATE
 	-o $(5)
 endef
 
-obj_dir/verilator_sim: main.cpp $(HW_DIR)/borg/verilog_sim/sim_files.txt $(V_SRCS)
+obj_dir/verilator_sim: main.cpp BorgSimulator.h ../common/common_sim.h $(HW_DIR)/borg/verilog_sim/sim_files.txt $(V_SRCS)
 	$(call VERILATE,obj_dir,$(HW_DIR)/borg/verilog_sim,BorgSimTop,main.cpp,verilator_sim)
 
 # The same sim on the ULX3S's real SDRAM path (SdramBackend -> SdramController
