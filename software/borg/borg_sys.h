@@ -45,12 +45,7 @@
 // DRAM is the technology-general name for the GPU's large read/write store: it
 // is SDRAM on ULX3S, QSPI PSRAM on the ASIC, and a flat memory model in the
 // verilator/arcilator sims.  The firmware is portable across all three, so it
-// uses the general DRAM_* names; the concrete base is the single source of
-// truth, selected by the one -DTARGET_* macro (no -DDRAM_BASE=... literal in
-// any Makefile).
-//   TARGET_ULX3S: SDRAM is direct-mapped at 0 with no SPI controller, so the
-//     CPU sees the GPU's raw SPI byte addresses directly → base == SPI base.
-//   default (ASIC / sim): CPU-mapped at 0x01001000.
+// uses the general DRAM_* names.
 // CPU-mapped DRAM base = DRAM_SPI_BASE + 0x1000000.  The +0x1000000 makes
 // the CPU's DRAM_OUT/DRAM_OUT_RAW byte addresses carry bit 24 — the region bit
 // the MemoryController forces onto the GPU's gpuMem port (VRAM_REGION_BIT) — so
@@ -58,9 +53,7 @@
 // shaders, and texture.  Identical on ULX3S and sim/ASIC: a prior ULX3S-only
 // DRAM_BASE=DRAM_SPI_BASE made them disagree by 16 MB, so the GPU DMA'd
 // geometry from an empty region and rendered black.
-#ifndef DRAM_BASE
 #define DRAM_BASE 0x01001000
-#endif
 #define DRAM_IN(n)   (*(volatile uint32_t *)(uintptr_t)(DRAM_BASE + (n) * 4))
 #define DRAM_OUT(n)  (*(volatile uint32_t *)(uintptr_t)(DRAM_BASE + DRAM_OUT_OFFSET + (n) * 4))
 // Companion to DRAM_OUT: converts the same word-index n to the raw SPI byte
@@ -74,27 +67,20 @@
 #define DRAM_OUT_RAW(spi_addr) (*(volatile uint32_t *)(uintptr_t)(DRAM_BASE - DRAM_SPI_BASE + (spi_addr)))
 
 // --- Peripheral base addresses ---
-// These come from the SoC address map (soc.rdl).
-// Fallbacks for builds that don't include RDL-generated headers.
-#ifndef GPIO_BASE
+// These mirror the SoC address map (soc.rdl).
 #define GPIO_BASE 0x08000400
-#endif
 // UART_BASE — single source of truth, selected by one target macro.
 // Targets pass exactly one -DTARGET_* (see each board Makefile); the actual
 // address lives ONLY here, never duplicated as a -DUART_BASE=... literal.
 //   TARGET_ULX3S: the full SoC's user-region UART read-side decode is broken,
 //                 so firmware writes the SoC debug UART at 0x08000018 (blind).
 //   default (ASIC / sim): the user-region UART at 0x08000800.
-#ifndef UART_BASE
 #if defined(TARGET_ULX3S)
 #define UART_BASE 0x08000018
 #else
 #define UART_BASE 0x08000800
 #endif
-#endif
-#ifndef BORG_BASE
 #define BORG_BASE 0x08000C00
-#endif
 
 // --- UART accessor macros ---
 #define UART_TX      (*(volatile uint32_t *)(uintptr_t)(UART_BASE + 0x0))
