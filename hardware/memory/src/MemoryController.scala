@@ -49,15 +49,21 @@ class MemoryControllerIO extends Bundle {
   * clobber the adjacent byte until SdramController gets a dqm input.)
   */
 /** @param gpuVramRegionBit force VRAM_REGION_BIT (byte-address bit 24) onto
-  *   every io.gpuMem access. This is [[QspiCtrl]]'s real flash-vs-PSRAM chip
-  *   select (`spi_flash_select_reg := io.addr_in(24)`), so it's load-bearing
-  *   for QspiBackend targets (the default, true) -- but SdramBackend targets
-  *   have no flash/PSRAM split at this level (flash is only ever touched via
-  *   FlashBootLoader during boot, entirely separate from this arbiter) and
-  *   no current CPU address path (SoCLogic or MinimalSoCLogic) adds a
-  *   matching bit for its own DRAM accesses, so forcing it here makes GPU
-  *   and CPU-visible addresses for the *same* location land on different
-  *   physical SDRAM bytes -- pass false for SdramBackend targets.
+  *   every io.gpuMem access, so the GPU reaches the same physical bytes the
+  *   CPU does. Whether that is right depends on the CPU's own address path:
+  *   - QspiBackend targets (the default, true): bit 24 is [[QspiCtrl]]'s real
+  *     flash-vs-PSRAM chip select (`spi_flash_select_reg := io.addr_in(24)`),
+  *     and the GPU must always hit PSRAM.
+  *   - ULX3S (SdramBackend, true): the CPU reaches SDRAM through a
+  *     0x1000000-based window (firmware `DRAM_OUT_RAW`), so its addresses carry
+  *     bit 24, which SdramBackend decodes. Without the bit the GPU lands on
+  *     different physical SDRAM than the CPU: shader DMA loaded uninitialised
+  *     memory and every draw hung (found on the board, 10-02).
+  *   - A harness whose CPU path adds no such bit, or whose GPU port is tied
+  *     off (MinimalSoC), passes false.
+  *   Keep the GPU's and the CPU's convention in step; this flag is what ties
+  *   them together. A cleaner map would strip the window base in the SoC
+  *   decode and give QspiBackend a side-band "GPU request" instead.
   */
 class MemoryController(gpuVramRegionBit: Boolean = true) extends Module {
   val io = IO(new MemoryControllerIO)

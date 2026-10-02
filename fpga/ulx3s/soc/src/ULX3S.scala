@@ -73,12 +73,14 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // (today's behaviour, what the demo/talk bitstream ships) is unaffected;
   // only ULX3SLoopbackMain below overrides this.
   override def borgMode: BorgMode = borgModeOverride
-  // This target uses SdramBackend, not QspiBackend -- no flash/PSRAM split
-  // at MemoryController's level (see its constructor doc), and no current
-  // CPU address path adds a matching offset for its own DRAM accesses, so
-  // forcing VRAM_REGION_BIT here would make GPU and CPU-visible addresses
-  // for the same location land on different physical SDRAM bytes.
-  override def gpuVramRegionBit: Boolean = false
+  // The CPU reaches SDRAM through a 0x1000000-based window (DRAM_OUT_RAW), so its
+  // addresses carry byte-address bit 24 -- and SdramBackend decodes that bit.
+  // The GPU port must carry it too (MemoryController ORs VRAM_REGION_BIT in),
+  // otherwise the GPU reads/writes different physical SDRAM than the CPU does:
+  // the shader DMA then loaded uninitialised SDRAM into IMEM and the draw hung
+  // (found on the board with a DMA-write probe; with the bit the triangle
+  // renders, 496 px, identical to the netlist sim).
+  override def gpuVramRegionBit: Boolean = true
   // Rung B needs two pads per logical wire (both endpoints are on this chip),
   // which only fits J1+J2 at the narrow width -- see BorgMode's doc.
   override def linkParams: borg.link.LinkParams =
