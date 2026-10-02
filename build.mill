@@ -10,7 +10,7 @@ import mill.api.BuildCtx
 
 trait BorgModule extends ScalaModule {
   def scalaVersion = "2.13.18"
-  def chiselVersion = "7.15.0"
+  def chiselVersion = "7.16.0"
 
   override def mvnDeps = Task {
     super.mvnDeps() ++ Seq(
