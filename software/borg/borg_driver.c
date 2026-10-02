@@ -306,6 +306,12 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
                     ((uint32_t)w[i * 4 + 2] << 16) | ((uint32_t)w[i * 4 + 3] << 24);
     DRAM_OUT_RAW(addr + i * 4) = word;
   }
+  // Zero word (HALT) after the program, belt and braces for blobs from a
+  // borgc that does not terminate them (draw-mode vertex shaders did not
+  // before the mesa borgc HALT fix). Simulated memory is zero past the blob, which
+  // hid it; real SDRAM holds power-up junk and the core ran off the end.
+  if ((stage == 0 && n < DRAW_VERT_SHADER_MAX_WORDS) || (stage == 1 && n < BORG_IMEM_FRAG_LEN))
+    DRAM_OUT_RAW(addr + n * 4) = 0;
   // NOTE: no UART print here.  The host streams the vert and frag 0xB0 packets
   // back-to-back (USB-CDC buffering absorbs the inter-packet usleep into vert's
   // own ~45 ms wire time, so frag immediately follows vert with no gap).  A

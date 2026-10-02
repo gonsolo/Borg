@@ -39,7 +39,15 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // Verified on real ULX3S hardware: vkcube renders correctly at 39 % LUT,
   // 15 % FF, 13.5 % BRAM on the ECP5-85K, timing closed at 25 MHz.
   // Revert to plain BorgConfig.Simt to fall back to the HPG-proven config.
-  override def BORG_CFG: BorgConfig = BorgConfig.Simt.copy(samples = 4)
+  // BORG_ULX_CFG=full keeps everything; the default "cube" drops what unmodified
+  // cube.c never uses (MSAA, blend, stencil, compute, depth-image flush) -- the
+  // full FP32 config did not place on the ECP5-85K (10-02 attempt).
+  override def BORG_CFG: BorgConfig = sys.env.getOrElse("BORG_ULX_CFG", "cube") match {
+    case "full" => BorgConfig.Simt.copy(samples = 4)
+    case "cube" => BorgConfig.Simt.copy(samples = 1, hasBlend = false, hasStencil = false,
+                                        hasCompute = false, hasDepthFlush = false)
+    case other  => throw new IllegalArgumentException(s"BORG_ULX_CFG=$other")
+  }
   // RV32I Hutt (Project.scala's default): the RV64IMAC + Sv39 MMU config
   // this used to override to no longer fits the ECP5-85K alongside FP32
   // Borg (92,986 LUT4 at RV64, 111% of the device, even after fixing
