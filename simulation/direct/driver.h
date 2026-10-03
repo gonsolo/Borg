@@ -21,6 +21,8 @@ public:
 
   // RGB888 of the last rendered frame (width*height*3).
   std::vector<uint8_t> framebuffer_rgb() const;
+  // 32-bit words of a RAW32 attachment (width*height*4).
+  std::vector<uint8_t> framebuffer_raw32() const;
 
   int draws = 0;
   uint16_t clear_rgb16 = 0x3266;   // FP16 0.2, the firmware's default clear

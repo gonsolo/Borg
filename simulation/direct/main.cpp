@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
   int draws = drv.run_stream(bytes);
   if (getenv("DIRECT_DBG")) fprintf(stderr, "[direct] %d draw(s), %llu cycles\n", draws, (unsigned long long)sim.cycles);
   if (!draws) return 2;
-  auto rgb = drv.framebuffer_rgb();
+  auto rgb = borg_core_flush_format() == 3 ? drv.framebuffer_raw32() : drv.framebuffer_rgb();
   FILE *o = argc > 4 ? fopen(argv[4], "wb") : stdout;
   fwrite(rgb.data(), 1, rgb.size(), o);
   if (o != stdout) fclose(o);

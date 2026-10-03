@@ -38,14 +38,14 @@ static int g_draw_vert_ok = 0;
 static spirb_shader_t frag_shader;     // its window fills DRAW_FS_CONST
 static int g_draw_vertex_count = 0;
 static uint16_t clear_r, clear_g, clear_b;
-static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8 (4 B/px)
+static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px)
 
 // Words per framebuffer, plus the DONE marker word.
 static uint32_t frame_stride_words(void) {
   return (uint32_t)borg_fb_width * (uint32_t)borg_fb_height * (g_flush_format ? 4u : 2u) / 4u + 1u;
 }
 
-void borg_core_set_flush_format(int fmt) { g_flush_format = (fmt == 1 || fmt == 2) ? fmt : 0; }
+void borg_core_set_flush_format(int fmt) { g_flush_format = (fmt >= 1 && fmt <= 3) ? fmt : 0; }
 int borg_core_flush_format(void) { return g_flush_format; }
 
 // Sampler descriptor 0 until the host sends the app's: nearest filtering,
@@ -265,6 +265,18 @@ void borg_core_stage(const borg_float_t *mvp) {
   g_draw_vertex_count = rx_geom_ntris * 3;
 }
 
+// Tiles per side of one render window: the bin table holds 4096 tiles (maxBinTiles), so 64.
+// The host simulator may use smaller windows and render only every borg_nparts-th one, to spread
+// a large target over several processes (env BORG_WINDOW_TILES, BORG_PART=k/n).
+#ifdef BORG_HOST
+#include <stdlib.h>
+#include <stdio.h>
+static int window_tiles(void) { const char *e = getenv("BORG_WINDOW_TILES"); int v = e ? atoi(e) : 0; return v > 0 && v <= 64 ? v : 64; }
+#define WINDOW_TILES window_tiles()
+#else
+#define WINDOW_TILES 64
+#endif
+
 void borg_core_render(int frame) {
   // Nothing to draw before a draw-mode vertex shader arrives, or when its varyings do not fit.
   int record_shift = draw_record_shift(g_draw_vert.num_varyings);
@@ -275,7 +287,13 @@ void borg_core_render(int frame) {
   uint32_t cc_hi = ((uint32_t)clear_r << 16) | clear_g;
 
   BREG_W(seq_fb_base,       DRAM_OUT_SPI((uint32_t)frame * frame_stride));
-  BREG_W(seq_tiles_per_row, borg_fb_width >> 2);
+  // A framebuffer wider than one render's bin table (WINDOW_TILES x WINDOW_TILES tiles) is drawn as
+  // several windows, the same draw once per window (docs/B1_geometry_front_end.md, "Render windows").
+  const int fb_tiles = borg_fb_width >> 2;
+  const int win_tiles = fb_tiles < WINDOW_TILES ? fb_tiles : WINDOW_TILES;
+  BREG_W(seq_tiles_per_row, win_tiles);
+  BREG_W(seq_tile_rows,     win_tiles);
+  BREG_W(fb_pitch,          fb_tiles);
   BREG_W(seq_clear_lo,      cc_lo);
   BREG_W(seq_clear_hi,      cc_hi);
   BREG_W(seq_bin_base,      tbr_bin_base);
@@ -313,9 +331,18 @@ void borg_core_render(int frame) {
   BREG_W(draw_vertex_offset, 0); BREG_W(draw_index_base, 0);
 
   if (g_draw_vertex_count > 0) {
-    BREG_W(seq_trigger, 1);
-    while (BREG_R(status) & STATUS_REG_T__SEQ_BUSY_bm)
-      ;
+    int part = 0, nparts = 1, widx = 0;
+#ifdef BORG_HOST
+    { const char *e = getenv("BORG_PART"); if (e) sscanf(e, "%d/%d", &part, &nparts); }
+#endif
+    for (int wy = 0; wy < fb_tiles; wy += win_tiles)
+      for (int wx = 0; wx < fb_tiles; wx += win_tiles) {
+        if (widx++ % nparts != part) continue;
+        BREG_W(fb_origin, (uint32_t)wx | ((uint32_t)wy << 16));
+        BREG_W(seq_trigger, 1);
+        while (BREG_R(status) & STATUS_REG_T__SEQ_BUSY_bm)
+          ;
+      }
   }
 }
 
@@ -414,7 +441,7 @@ int borg_core_packet(const uint8_t *p) {
 #ifdef BORG_HOST
   case 0xB6: { // render target: flush format + clear colour (4 x float32)
     int fmt = p[1];
-    if (fmt > 2) return BC_BAD;
+    if (fmt > 3) return BC_BAD;
     if (fmt != g_flush_format) {
       g_flush_format = fmt;
       core_apply_layout();
