@@ -250,7 +250,9 @@ static int run_cts(const char *uart_file, const char *fw_path,
     // own gap-sync heuristic — which assumes a genuinely idle line — misreads
     // an already-arrived burst as stale "padding" and desyncs on it if it
     // starts polling mid-burst.  8M cycles gives a solid margin over boot.
-    sim.uart_tx.enqueue_gap(8000000);
+    uint64_t gap = 3000000;  // boot is ~2.3M cycles; CTS_GAP overrides
+    if (const char *g = getenv("CTS_GAP")) gap = strtoull(g, nullptr, 10);
+    sim.uart_tx.enqueue_gap(gap);
     sim.uart_tx.enqueue(uart_bytes.data(), (size_t)sz);
 
     // Save the real stdout (pipe to borgvk, or terminal/file standalone); pixels

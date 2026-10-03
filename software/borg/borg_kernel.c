@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // borg_kernel.c — thin render kernel driven by the borgvk Mesa driver.
-// Boots, drains borgvk wire packets (0xAD/0xAE/0xAF/0xB0/0xB1/0xB2/0xB3/0xB4) from UART,
+// Boots, drains borgvk wire packets (0xAD/0xAE/0xAF/0xB0/0xB1/0xB2/0xB3/0xB4/0xB5) from UART,
 // and drives the autonomous TBR hardware.  No hardcoded geometry, shaders, or
 // texture — all content is uploaded at runtime by borgvk / cube.c.
 
@@ -44,6 +44,13 @@ static int     g_texture_bound = 0;
 // host packs both words in the registers' own layout (VkPipelineColorBlend-
 // AttachmentState fields, constants as UNORM8), so the firmware only stores them.
 #define RX_BLEND_PKT_LEN  (1 + 4 + 4 + 1)
+
+// 0xB5 generic texture: marker(1), texel byte offset(4 LE), nbytes(2 LE), texture
+// descriptor words 1..3 (12 B, docs/B2_texture_unit.md), sampler descriptor
+// (16 B), RX_TEXG_DATA bytes of texels (the first nbytes valid), csum(1). The
+// descriptor and sampler ride along with every chunk, so any chunk installs them.
+#define RX_TEXG_DATA      256
+#define RX_TEXG_PKT_LEN   (1 + 4 + 2 + 12 + 16 + RX_TEXG_DATA + 1)
 
 // 0xB4 raster state: marker(1), STENCIL_CFG, STENCIL_FRONT, STENCIL_BACK,
 // DEPTH_CFG, CULL_CFG (5 x 4 LE, register layout), csum(1).
@@ -228,7 +235,8 @@ int main() {
                  (pkt_marker == 0xB0) ? RX_SHADER_PKT_LEN :
                  (pkt_marker == 0xB2) ? RX_PUSH_PKT_LEN :
                  (pkt_marker == 0xB3) ? RX_BLEND_PKT_LEN :
-                 (pkt_marker == 0xB4) ? RX_STATE_PKT_LEN : 0;
+                 (pkt_marker == 0xB4) ? RX_STATE_PKT_LEN :
+                 (pkt_marker == 0xB5) ? RX_TEXG_PKT_LEN : 0;
       if (need) {
           int ok = 1;
           while (pkt_pos < need) {
@@ -331,6 +339,23 @@ int main() {
               got_state_pkt = 1;
               skip_gap = 1;  // state precedes the draw's MVP on the wire
             }
+          } else if (ok && pkt_marker == 0xB5) {
+            uint8_t csum = 0;
+            for (int i = 1; i < RX_TEXG_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
+            uint32_t off = rx_le32(&pkt_buf[1]);
+            uint32_t nb  = (uint32_t)pkt_buf[5] | ((uint32_t)pkt_buf[6] << 8);
+            if (csum == pkt_buf[RX_TEXG_PKT_LEN - 1] && nb <= RX_TEXG_DATA &&
+                (off & 3u) == 0 && off + nb <= TEX_REGION_BYTES - 256) {
+              uint32_t w[3], samp[4];
+              for (int i = 0; i < 3; i++) w[i] = rx_le32(&pkt_buf[7 + i * 4]);
+              for (int i = 0; i < 4; i++) samp[i] = rx_le32(&pkt_buf[19 + i * 4]);
+              borg_set_texture_desc(w, samp);
+              borg_write_texels(off, &pkt_buf[35], nb);
+              g_texture_bound = 1;   // the host owns descriptor 0 now
+              got_tex_row = 1;
+              success = 1;
+              skip_gap = 1;
+            }
           } else if (ok && pkt_marker == 0xB4) {
             uint8_t csum = 0;
             for (int i = 1; i < RX_STATE_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
@@ -387,7 +412,7 @@ int main() {
           if (!success && pkt_marker != 0xB1) {
             for (int q = 1; q < pkt_pos; q++) {
               uint8_t m = pkt_buf[q];
-              if (m == 0xAD || m == 0xAE || m == 0xAF || m == 0xB0 || m == 0xB2 || m == 0xB3 || m == 0xB4) {
+              if (m == 0xAD || m == 0xAE || m == 0xAF || m == 0xB0 || m == 0xB2 || m == 0xB3 || m == 0xB4 || m == 0xB5) {
                 int rem = pkt_pos - q;
                 for (int i = 0; i < rem; i++) pkt_buf[i] = pkt_buf[q + i];
                 pending_len = rem;

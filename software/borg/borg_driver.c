@@ -363,6 +363,25 @@ void borg_set_texture(int tex_width, int tex_height) {
   BORG_GPU->sampler_desc_base = SAMPLER_DESC_TABLE_ADDR;
 }
 
+void borg_set_texture_desc(const uint32_t w[3], const uint32_t samp[4]) {
+  DRAM_OUT_RAW(TEX_DESC_TABLE_ADDR + 0) = TEX_TEXEL_ADDR;
+  for (int i = 0; i < 3; i++)
+    DRAM_OUT_RAW(TEX_DESC_TABLE_ADDR + 4 + (uint32_t)i * 4) = w[i];
+  for (int i = 4; i < 16; i++)
+    DRAM_OUT_RAW(TEX_DESC_TABLE_ADDR + (uint32_t)i * 4) = 0;
+  for (int i = 0; i < 4; i++)
+    DRAM_OUT_RAW(SAMPLER_DESC_TABLE_ADDR + (uint32_t)i * 4) = samp[i];
+  BORG_GPU->tex_desc_base = TEX_DESC_TABLE_ADDR;
+  BORG_GPU->sampler_desc_base = SAMPLER_DESC_TABLE_ADDR;
+}
+
+void borg_write_texels(uint32_t off, const uint8_t *data, uint32_t n) {
+  for (uint32_t i = 0; i + 4 <= n; i += 4)
+    DRAM_OUT_RAW(TEX_TEXEL_ADDR + off + i) =
+        (uint32_t)data[i] | ((uint32_t)data[i + 1] << 8) |
+        ((uint32_t)data[i + 2] << 16) | ((uint32_t)data[i + 3] << 24);
+}
+
 void borg_clear_texture(void) {
   tex.dram_offset = -1;
 }
