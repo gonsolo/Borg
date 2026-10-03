@@ -42,6 +42,7 @@ extern "C" {
 #define BC_PKT_LEN_STATE   (1 + 5 * 4 + 1)
 #define BC_PKT_LEN_TEXG    (1 + 4 + 2 + 12 + 16 + BC_TEXG_DATA + 1)
 #define BC_PKT_LEN_TARGET  (1 + 1 + 16 + 1)   // 0xB6: flush format, clear colour (4 x float32)
+#define BC_PKT_LEN_ATTR4   (1 + 1 + BC_GEOM_MAX_TRIS * 3 * 16 + 1)   // 0xB7 (host only): vec4 attribute 1 per corner
 #define BC_PKT_LEN_MAX     BC_PKT_LEN_GEOM
 
 // Fixed length of the packet starting with `marker`; 0 for a marker that is not
