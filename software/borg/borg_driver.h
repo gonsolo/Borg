@@ -74,6 +74,11 @@ void borg_set_texture(int tex_width, int tex_height);
 // Sampler descriptor 0, four words in the hardware's layout
 // (docs/B2_texture_unit.md) as borgvk packs them from the app's VkSampler.
 void borg_set_sampler(const uint32_t desc[4]);
+// 0xB5 generic texture: install texture descriptor 0 (words 1..3 from the host,
+// word 0 the fixed texel base) and sampler descriptor 0, and write `n` bytes of
+// texels at byte offset `off` from the texel base.
+void borg_set_texture_desc(const uint32_t desc_w123[3], const uint32_t samp[4]);
+void borg_write_texels(uint32_t off, const uint8_t *data, uint32_t n);
 
 // Disable texturing for subsequent draw calls
 void borg_clear_texture(void);
