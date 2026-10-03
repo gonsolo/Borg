@@ -1,0 +1,60 @@
+diff --git a/framework/qphelper/CMakeLists.txt b/framework/qphelper/CMakeLists.txt
+index 46b6a9fbe..cdfb7f868 100644
+--- a/framework/qphelper/CMakeLists.txt
++++ b/framework/qphelper/CMakeLists.txt
+@@ -43,7 +43,7 @@ set(USE_RELEASE_INFO_FILE OFF)
+ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/qpReleaseInfo.inl")
+ 	set(USE_RELEASE_INFO_FILE ON)
+ 
+-elseif (EXISTS "${CMAKE_SOURCE_DIR}/.git")
++elseif (FALSE)
+ 	find_package(PythonInterp 2.7)
+ 
+ 	if (PYTHON_EXECUTABLE)
+diff --git a/external/spirv-tools/src/source/validate_cfg.cpp b/external/spirv-tools/src/source/validate_cfg.cpp
+index 9234542e..09e92d31 100644
+--- a/external/spirv-tools/src/source/validate_cfg.cpp
++++ b/external/spirv-tools/src/source/validate_cfg.cpp
+@@ -12,6 +12,7 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++#include <limits>
+ #include "validate.h"
+ #include "cfa.h"
+ 
+diff --git a/external/spirv-tools/src/utils/generate_registry_tables.py b/external/spirv-tools/src/utils/generate_registry_tables.py
+index 8b1c3572..99ea73b6 100755
+--- a/external/spirv-tools/src/utils/generate_registry_tables.py
++++ b/external/spirv-tools/src/utils/generate_registry_tables.py
+@@ -16,7 +16,7 @@
+ 
+ from __future__ import print_function
+ 
+-import distutils.dir_util
++import os as _os
+ import os.path
+ import xml.etree.ElementTree
+ 
+@@ -64,7 +64,7 @@ def main():
+     with open(args.xml) as xml_in:
+        registry = xml.etree.ElementTree.fromstring(xml_in.read())
+ 
+-    distutils.dir_util.mkpath(os.path.dirname(args.generator_output))
++    _os.makedirs(os.path.dirname(args.generator_output), exist_ok=True)
+     print(generate_vendor_table(registry), file=open(args.generator_output, 'w'))
+ 
+ 
+diff --git a/external/spirv-tools/src/utils/update_build_version.py b/external/spirv-tools/src/utils/update_build_version.py
+index d71aeccd..69a5bd0d 100755
+--- a/external/spirv-tools/src/utils/update_build_version.py
++++ b/external/spirv-tools/src/utils/update_build_version.py
+@@ -88,7 +88,7 @@ def deduce_software_version(directory):
+     # Linux.
+     pattern = re.compile(r'^(v\d+\.\d+(-dev)?) \d\d\d\d-\d\d-\d\d\s*$')
+     changes_file = os.path.join(directory, 'CHANGES')
+-    with open(changes_file, mode='rU') as f:
++    with open(changes_file, mode='r') as f:
+         for line in f.readlines():
+             match = pattern.match(line)
+             if match:

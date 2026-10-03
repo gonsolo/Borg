@@ -1,10 +1,11 @@
-// direct_sim <stream.bin> <W> <H> [out.rgb|-]   -- replay a borgvk wire stream through
+// direct_sim <stream.bin> <W> <H> [out.rgb [rgba8]]   -- replay a borgvk wire stream through
 // the driver straight onto the arcilated Borg module; RGB888 goes to stdout (or a file).
 #include "driver.h"
 #include "driver.cpp"
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <string>
 #include <iterator>
 
 int main(int argc, char **argv) {
@@ -16,7 +17,8 @@ int main(int argc, char **argv) {
 
   DirectSim sim;
   Driver drv(sim);
-  drv.init(W, H);
+  bool rgba8 = argc > 5 && std::string(argv[5]) == "rgba8";
+  drv.init(W, H, rgba8);
   int draws = drv.run_stream(bytes);
   if (getenv("DIRECT_DBG")) fprintf(stderr, "[direct] %d draw(s), %llu cycles\n", draws, (unsigned long long)sim.cycles);
   if (!draws) return 2;

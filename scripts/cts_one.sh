@@ -2,6 +2,7 @@
 # Run ONE Vulkan CTS case (dEQP-VK) against borgvk on the Arcilator simulator.
 #
 #   scripts/cts_one.sh <case-name>            # e.g. dEQP-VK.pipeline.monolithic.sampler.view_type.1d.format.b8g8r8_snorm.min_filter.linear
+#   scripts/cts_one.sh 'dEQP-VK.pipeline.monolithic.sampler.view_type.1d.*'   # a pattern
 #   scripts/cts_one.sh --list FILE            # run every case in FILE (one per line), one deqp-vk process
 #
 # Env overrides:
@@ -63,7 +64,12 @@ export BORGVK_SIM_FW="$SIM_FW"
 
 cd "$DEQP_DIR"
 start=$(date +%s)
-./deqp-vk --deqp-caselist-file="$OUT/cases.txt" --deqp-log-filename="$OUT/result.qpa" \
+if [[ "$1" == "--list" ]]; then
+  sel=(--deqp-caselist-file="$OUT/cases.txt")
+else
+  sel=(--deqp-case="$1")      # a name, or a pattern such as 'dEQP-VK.pipeline.monolithic.sampler.view_type.1d.*'
+fi
+./deqp-vk "${sel[@]}" --deqp-log-filename="$OUT/result.qpa" \
   > "$OUT/deqp.log" 2>&1 || true
 elapsed=$(( $(date +%s) - start ))
 
