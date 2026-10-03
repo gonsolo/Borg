@@ -459,6 +459,9 @@ void borgDrawSubmitGeom(const borg_draw_data_t *d, const borg_float_t *positions
 // Render one frame through the hardware draw front end
 // (docs/B1_geometry_front_end.md's register table). Geometry and the MVP
 // must already be staged via borgDrawSubmitGeom.
+// CULL_CFG for the next draw: cull back faces until a 0xB4 packet says otherwise.
+uint32_t borg_cull_cfg = 2u << CULL_CFG_REG_T__CULL_MODE_bp;
+
 static void borgDrawRenderAutonomous(int frame) {
   // Nothing to draw before a draw-mode vertex shader arrives, or when its
   // varyings do not fit the largest record.
@@ -504,7 +507,7 @@ static void borgDrawRenderAutonomous(int frame) {
   BORG_GPU->sample_mask_cfg   = 0xF | (1u << 6);
   // cube.c: VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE, which is
   // the walker's front face with front_face_invert clear.
-  BORG_GPU->cull_cfg = 2u << CULL_CFG_REG_T__CULL_MODE_bp;
+  BORG_GPU->cull_cfg = borg_cull_cfg;
 
   BORG_GPU->draw_cfg = 1u | ((uint32_t)record_shift << 6);  // mode=1, list, no indices, no restart
   BORG_GPU->draw_vertex_count   = g_draw_vertex_count;
