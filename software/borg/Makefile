@@ -49,7 +49,7 @@ HUTT_SDK ?= ../hutt
 CLOCK_MHZ ?= 4
 
 PROJECT_NAME = kernel
-SHARED_SOURCES = borg_driver.c borg_fpu.c borg_spirb.c borg_math.c
+SHARED_SOURCES = borg_core.c borg_driver.c borg_fpu.c borg_spirb.c borg_math.c
 PROJECT_SOURCES = borg_kernel.c $(SHARED_SOURCES)
 # compiler/shader_blobs.h is listed explicitly, not folded into the wildcard:
 # $(wildcard *.h) only globs THIS directory, so a header one level down in
