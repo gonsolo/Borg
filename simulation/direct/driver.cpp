@@ -1,3 +1,4 @@
+#include <cstring>
 #include "driver.h"
 #include "borg_layout.h"
 #include <cstdio>
@@ -47,6 +48,19 @@ int Driver::run_stream(const std::vector<uint8_t> &b) {
     i += (size_t)len;
   }
   return draws;
+}
+
+// The attachment's 32-bit words (RAW32 target), pixel order, little endian.
+std::vector<uint8_t> Driver::framebuffer_raw32() const {
+  std::vector<uint8_t> out((size_t)W * H * 4);
+  for (int y = 0; y < H; y++)
+    for (int x = 0; x < W; x++) {
+      uint32_t tiles_per_row = W >> 2, tile = (y >> 2) * tiles_per_row + (x >> 2);
+      uint32_t ti = (x & 3) | ((y & 3) << 2);
+      uint32_t px = g_sim->r32(DRAM_OUT_BASE_SPI + tile * 64 + ti * 4);
+      memcpy(&out[((size_t)y * W + x) * 4], &px, 4);
+    }
+  return out;
 }
 
 std::vector<uint8_t> Driver::framebuffer_rgb() const {
