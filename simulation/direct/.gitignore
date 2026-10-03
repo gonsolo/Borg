@@ -1,0 +1,6 @@
+arc.h
+arc.ll
+borg.mlir
+state.json
+*.o
+direct_sim
