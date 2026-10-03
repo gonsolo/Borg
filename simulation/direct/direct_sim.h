@@ -11,7 +11,7 @@ class DirectSim {
 public:
   // GPU addresses are DRAM SPI-relative byte addresses; the memory controller
   // on the SoC decodes only the low 24 bits (16 MiB), so does this model.
-  static constexpr uint32_t MEM_BYTES = 1u << 24;
+  static constexpr uint32_t MEM_BYTES = 1u << 25;
 
   BorgDirectSimTop model;
   std::vector<uint8_t> mem;

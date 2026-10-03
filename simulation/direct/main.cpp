@@ -9,7 +9,7 @@
 #include <iterator>
 
 // direct_sim --compute <job.bin> <out.bin>
-// job (little-endian u32): nprog gx gy gz lx ly lz nregs nbufs, then nprog program words,
+// job (little-endian u32): nprog gx gy gz lx ly lz nregs nbufs bx by bz, then nprog program words,
 // nregs x (gpr, value), nbufs x (byte address, byte size, size bytes of data).  The program is
 // written to IMEM, the buffers to DRAM, one dispatch runs, and every buffer's bytes are written
 // to out.bin in order.  Memory is sequentially consistent (see docs/B0_compiler_contract.md).
@@ -19,14 +19,29 @@ static int run_compute(const char *jobf, const char *outf) {
   std::vector<uint8_t> b((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
   size_t p = 0;
   auto rd = [&]() { uint32_t v = b[p] | b[p+1] << 8 | b[p+2] << 16 | (uint32_t)b[p+3] << 24; p += 4; return v; };
-  uint32_t nprog = rd(), gx = rd(), gy = rd(), gz = rd(), lx = rd(), ly = rd(), lz = rd(), nregs = rd(), nbufs = rd();
+  uint32_t nprog = rd(), gx = rd(), gy = rd(), gz = rd(), lx = rd(), ly = rd(), lz = rd(), nregs = rd(), nbufs = rd(), bx = rd(), by = rd(), bz = rd();
   DirectSim sim;
   const uint32_t GPR = 0, IMEM = 128, CONTROL = 424, LS_BASE = 724, C_CTRL = 752, C_PC = 756, C_XY = 760, C_Z = 764, C_LOCAL = 768;
   sim.mmio(CONTROL, true, 2);
   sim.mmio(LS_BASE, true, 0);
-  for (uint32_t i = 0; i < nprog; i++) sim.mmio(IMEM + 4 * i, true, rd());
-  sim.mmio(IMEM + 4 * nprog, true, 0);   // HALT after the program
+  // IMEM holds 72 words; a longer program lives in DRAM (docs/B0_compiler_contract.md, "All
+  // shaders: program length and the instruction cache"): CODE_BASE is written before the IMEM
+  // words, because that write flushes the cache and the IMEM writes that follow are the prefill.
+  const uint32_t IMEM_WORDS = 72, CODE_BASE = 0x318, CODE_ADDR = 0xF0000;
+  std::vector<uint32_t> prog(nprog);
+  for (uint32_t i = 0; i < nprog; i++) prog[i] = rd();
+  if (nprog > IMEM_WORDS) {
+    for (uint32_t i = 0; i <= nprog; i++) {
+      uint32_t w = i < nprog ? prog[i] : 0;   // HALT after the program
+      for (int k = 0; k < 4; k++) sim.mem[(CODE_ADDR + 4 * i + k) & (DirectSim::MEM_BYTES - 1)] = (w >> (8 * k)) & 0xff;
+    }
+    sim.mmio(CODE_BASE, true, CODE_ADDR);
+  }
+  for (uint32_t i = 0; i < nprog && i < IMEM_WORDS; i++) sim.mmio(IMEM + 4 * i, true, prog[i]);
+  if (nprog < IMEM_WORDS) sim.mmio(IMEM + 4 * nprog, true, 0);   // HALT after the program
   for (uint32_t i = 0; i < nregs; i++) { uint32_t r = rd(), v = rd(); sim.mmio(GPR + 4 * r, true, v); }
+  // The grid origin (a split dispatch): r12-r14 are reserved for it by the compute compiler.
+  if (bx | by | bz) { sim.mmio(GPR + 4 * 12, true, bx); sim.mmio(GPR + 4 * 13, true, by); sim.mmio(GPR + 4 * 14, true, bz); }
   struct Buf { uint32_t addr, size; };
   std::vector<Buf> bufs;
   for (uint32_t i = 0; i < nbufs; i++) {
