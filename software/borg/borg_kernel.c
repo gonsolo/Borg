@@ -11,83 +11,12 @@
 #include "borg_sys.h"
 #include "compiler/shader_blobs.h"
 
-// Host-uploaded geometry (0xAE packet): deduplicated model-space vertices +
-// an indexed triangle list with per-triangle-vertex UVs.
-#define RX_GEOM_MAX_VERTS 16
-#define RX_GEOM_MAX_TRIS  12
-// Payload after marker: nverts(1), ntris(1), verts(MAX_VERTS*3 float32 = 12 B
-// each), idx(MAX_TRIS*3 B), uv(MAX_TRIS*3*2 float32 = 24 B per tri),
-// xor_checksum(1). Positions and UVs are datapath values, sent as the host's
-// float32 bits.
-#define RX_GEOM_PKT_LEN \
-  (1 + 2 + RX_GEOM_MAX_VERTS * 12 + RX_GEOM_MAX_TRIS * 3 + RX_GEOM_MAX_TRIS * 24 + 1)
-static borg_float_t rx_geom_pos[RX_GEOM_MAX_VERTS * 3];
-static uint8_t      rx_geom_idx[RX_GEOM_MAX_TRIS * 3];
-static borg_float_t rx_geom_uv[RX_GEOM_MAX_TRIS * 3 * 2];
-static int     rx_geom_nverts = 0;
-static int     rx_geom_ntris  = 0;
-static int     rx_have_geom   = 0;
-static int     g_texture_bound = 0;
-
-// 0xAF texture-row packet: marker(1), y(1), sampler descriptor(4 words LE),
-// row_pixels(TEX_DIM * 4 B RGBA8), csum(1). Every row carries the sampler, so
-// any row that arrives intact delivers it.
-#define RX_TEX_DIM       64
-#define RX_TEX_SAMP_LEN  16
-#define RX_TEX_PKT_LEN   (1 + 1 + RX_TEX_SAMP_LEN + RX_TEX_DIM * 4 + 1)
-
-// 0xB0 borgc shader upload: marker(1), stage(1), len(2 LE), blob(RX_SHADER_MAX), csum(1)
-#define RX_SHADER_MAX     512
-#define RX_SHADER_PKT_LEN (1 + 1 + 2 + RX_SHADER_MAX + 1)
-
-// 0xB3 blend state: marker(1), BLEND_CFG(4 LE), BLEND_CONST(4 LE), csum(1).  The
-// host packs both words in the registers' own layout (VkPipelineColorBlend-
-// AttachmentState fields, constants as UNORM8), so the firmware only stores them.
-#define RX_BLEND_PKT_LEN  (1 + 4 + 4 + 1)
-
-// 0xB5 generic texture: marker(1), texel byte offset(4 LE), nbytes(2 LE), texture
-// descriptor words 1..3 (12 B, docs/B2_texture_unit.md), sampler descriptor
-// (16 B), RX_TEXG_DATA bytes of texels (the first nbytes valid), csum(1). The
-// descriptor and sampler ride along with every chunk, so any chunk installs them.
-#define RX_TEXG_DATA      256
-#define RX_TEXG_PKT_LEN   (1 + 4 + 2 + 12 + 16 + RX_TEXG_DATA + 1)
-
-// 0xB4 raster state: marker(1), STENCIL_CFG, STENCIL_FRONT, STENCIL_BACK,
-// DEPTH_CFG, CULL_CFG (5 x 4 LE, register layout), csum(1).
-#define RX_STATE_PKT_LEN  (1 + 5 * 4 + 1)
-extern uint32_t borg_cull_cfg;  // borg_driver.c writes it before every draw
-
-// 0xB2 push constants: marker(1), off_words(1), n_words(1), data(128 B), csum(1)
-//
-// 0xB1 is NOT free -- it is the serial-reload trigger handled before the
-// length table below -- hence 0xB2.  Fixed length, padded to the full 32-word
-// range, for the same reason 0xAE/0xAF/0xB0 are: the drain loop reads a
-// constant byte count per marker and `n_words` says how much is valid.
-// 132 B, comfortably inside RX_PKT_BUF_LEN (the largest packet: 0xAE at 520 B),
-// so the shared buffer below does not need to grow -- the max() there is what
-// guarantees that.
-#define RX_PUSH_MAX_WORDS 32   // = BORG_PUSH_CONST_MAX_WORDS (128 B, Vulkan min)
-#define RX_PUSH_PKT_LEN   (1 + 1 + 1 + RX_PUSH_MAX_WORDS * 4 + 1)
-// The wire packet and the DRAM staging block must hold the same number of
-// words, or a host pushing the full 128 B range would have its tail silently
-// clamped away by borg_set_push_constants().  Tie them together here rather
-// than trusting two 32s to stay equal.
-_Static_assert(RX_PUSH_MAX_WORDS == BORG_PUSH_CONST_MAX_WORDS,
-               "push-constant wire packet and DRAM staging block disagree");
-
-#define RX_PKT_BUF_LEN \
-  (RX_GEOM_PKT_LEN > RX_TEX_PKT_LEN \
-     ? (RX_GEOM_PKT_LEN > RX_SHADER_PKT_LEN ? RX_GEOM_PKT_LEN : RX_SHADER_PKT_LEN) \
-     : (RX_TEX_PKT_LEN  > RX_SHADER_PKT_LEN ? RX_TEX_PKT_LEN  : RX_SHADER_PKT_LEN))
-
+// Wire-packet formats and their handling live in borg_core.c (shared with the
+// direct simulator); this file only frames them off the UART.
 // CTS host-mailbox: a transport-independent DRAM region the headless test
 // harness fills with geometry + MVP so the sim needs no UART drain.
 #define CTS_MB(n) DRAM_OUT_RAW(BORG_CTS_MAILBOX_SPI + (n) * 4)
 
-static inline uint32_t rx_le32(const uint8_t *b) {
-  return (uint32_t)b[0] | ((uint32_t)b[1] << 8) |
-         ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
-}
 
 static int cts_mailbox_present(void) {
   return CTS_MB(BORG_CTS_OFF_MAGIC) == BORG_CTS_MAGIC;
@@ -100,20 +29,17 @@ static int cts_load_mailbox(borg_float_t mvp_out[16]) {
   if (!cts_mailbox_present()) return 0;
   int nv = (int)CTS_MB(BORG_CTS_OFF_NVERTS);
   int nt = (int)CTS_MB(BORG_CTS_OFF_NTRIS);
-  if (nv < 1 || nv > RX_GEOM_MAX_VERTS || nt < 1 || nt > RX_GEOM_MAX_TRIS)
+  if (nv < 1 || nv > BC_GEOM_MAX_VERTS || nt < 1 || nt > BC_GEOM_MAX_TRIS)
     return 0;
+  borg_float_t pos[BC_GEOM_MAX_VERTS * 3];
+  uint8_t idx[BC_GEOM_MAX_TRIS * 3];
   for (int i = 0; i < 16; i++)
     mvp_out[i] = CTS_MB(BORG_CTS_OFF_MVP + i);
   for (int i = 0; i < nv * 3; i++)
-    rx_geom_pos[i] = CTS_MB(BORG_CTS_OFF_POS + i);
-  for (int i = 0; i < nt * 3; i++) {
-    rx_geom_idx[i]        = (uint8_t)CTS_MB(BORG_CTS_OFF_IDX + i);
-    rx_geom_uv[i * 2 + 0] = BORG_FLOAT_ZERO;
-    rx_geom_uv[i * 2 + 1] = BORG_FLOAT_ZERO;
-  }
-  rx_geom_nverts = nv;
-  rx_geom_ntris  = nt;
-  rx_have_geom   = 1;
+    pos[i] = CTS_MB(BORG_CTS_OFF_POS + i);
+  for (int i = 0; i < nt * 3; i++)
+    idx[i] = (uint8_t)CTS_MB(BORG_CTS_OFF_IDX + i);
+  borg_core_set_geom(pos, idx, 0, nv, nt);   // no UVs: zero
   return 1;
 }
 
@@ -129,26 +55,9 @@ int main() {
   borgCreateShaderModule(&frag, frag_borg, sizeof(frag_borg));
   borgCreateGraphicsPipeline(&vert, &rast, &frag);
 
-  // Pre-fill the texture region with white before any borgvk upload arrives.
-  // The RX drain loop below recovers from a dropped/corrupted 0xAF texture-row
-  // packet by discarding just that row (see the resync comment below) — the
-  // affected texel then keeps whatever was in DRAM before, which without this
-  // fill is uninitialized SDRAM (visible as stray colored pixels, moving with
-  // the textured geometry since it's fixed in UV space). White keeps a missed
-  // row visually unobtrusive instead.
-  {
-    static uint8_t white_row[RX_TEX_DIM * 4];   // RGBA8
-    for (int i = 0; i < RX_TEX_DIM * 4; i++)
-      white_row[i] = 0xFF;
-    for (int y = 0; y < RX_TEX_DIM; y++)
-      borg_upload_texture_row(white_row, y, RX_TEX_DIM);
-  }
-
   const int cts_active = cts_mailbox_present();
 
-  static uint8_t pkt_buf[RX_PKT_BUF_LEN];
-  static borg_float_t host_mvp[16];
-  static int have_mvp = 0;
+  static uint8_t pkt_buf[BC_PKT_LEN_MAX];
   // Persists ACROSS while(1) iterations (not just within one drain-loop call):
   // a burst's packets stream back-to-back with no idle gap, so when a call
   // ends because a non-shader/non-texture-row packet succeeded (e.g. geometry,
@@ -229,14 +138,7 @@ int main() {
       }
 
       if (pkt_marker == 0xB1) { borg_serial_reload(); break; }
-      int need = (pkt_marker == 0xAD) ? 66 :
-                 (pkt_marker == 0xAE) ? RX_GEOM_PKT_LEN :
-                 (pkt_marker == 0xAF) ? RX_TEX_PKT_LEN :
-                 (pkt_marker == 0xB0) ? RX_SHADER_PKT_LEN :
-                 (pkt_marker == 0xB2) ? RX_PUSH_PKT_LEN :
-                 (pkt_marker == 0xB3) ? RX_BLEND_PKT_LEN :
-                 (pkt_marker == 0xB4) ? RX_STATE_PKT_LEN :
-                 (pkt_marker == 0xB5) ? RX_TEXG_PKT_LEN : 0;
+      int need = borg_core_pkt_len((uint8_t)pkt_marker);
       if (need) {
           int ok = 1;
           while (pkt_pos < need) {
@@ -246,160 +148,22 @@ int main() {
           }
 
           int success = 0;
-          if (ok && pkt_marker == 0xAD) {
-            // Full 4×4 MVP from borgvk: 16 LE float32 + 1 XOR checksum.
-            uint8_t csum = 0;
-            for (int i = 1; i <= 64; i++) csum ^= pkt_buf[i];
-            if (csum == pkt_buf[65]) {
-              for (int i = 0; i < 16; i++) {
-                int base = 1 + i * 4;
-                host_mvp[i] = (uint32_t)pkt_buf[base]           |
-                              ((uint32_t)pkt_buf[base+1] << 8)  |
-                              ((uint32_t)pkt_buf[base+2] << 16) |
-                              ((uint32_t)pkt_buf[base+3] << 24);
-              }
-              have_mvp = 1;
-              success = 1;
-            }
-          } else if (ok && pkt_marker == 0xAE) {
-            // Host geometry: fixed-offset regions padded to max size.
-            uint8_t csum = 0;
-            for (int i = 1; i < RX_GEOM_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
-            int nv = pkt_buf[1], nt = pkt_buf[2];
-            if (csum == pkt_buf[RX_GEOM_PKT_LEN - 1] &&
-                nv >= 1 && nv <= RX_GEOM_MAX_VERTS &&
-                nt >= 1 && nt <= RX_GEOM_MAX_TRIS) {
-              int vbase = 3;
-              int ibase = vbase + RX_GEOM_MAX_VERTS * 12;
-              int ubase = ibase + RX_GEOM_MAX_TRIS * 3;
-              for (int i = 0; i < nv * 3; i++)
-                rx_geom_pos[i] = rx_le32(&pkt_buf[vbase + i * 4]);
-              for (int i = 0; i < nt * 3; i++)
-                rx_geom_idx[i] = pkt_buf[ibase + i];
-              for (int i = 0; i < nt * 6; i++)
-                rx_geom_uv[i] = rx_le32(&pkt_buf[ubase + i * 4]);
-              rx_geom_nverts = nv;
-              rx_geom_ntris  = nt;
-              rx_have_geom   = 1;
-              success = 1;
-              got_geom_pkt = 1;
-              skip_gap = 1;  // texture rows immediately follow geometry on the wire
-            }
-          } else if (ok && pkt_marker == 0xAF) {
-            // Texture row: [1]=y, the sampler descriptor, then RX_TEX_DIM
-            // RGBA8 texels.
-            uint8_t csum = 0;
-            for (int i = 1; i < RX_TEX_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
-            int yrow = pkt_buf[1];
-            if (csum == pkt_buf[RX_TEX_PKT_LEN - 1] &&
-                yrow >= 0 && yrow < RX_TEX_DIM) {
-              uint32_t samp[4];
-              for (int w = 0; w < 4; w++) {
-                const uint8_t *b = &pkt_buf[2 + w * 4];
-                samp[w] = (uint32_t)b[0] | ((uint32_t)b[1] << 8) |
-                          ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
-              }
-              borg_set_sampler(samp);
-              borg_upload_texture_row(&pkt_buf[2 + RX_TEX_SAMP_LEN], yrow, RX_TEX_DIM);
-              got_tex_row = 1;
-              success = 1;
-              skip_gap = 1;  // next texture row (or the closing MVP) immediately follows
+          if (ok) {
+            // borg_core_packet checks the checksum and the fields, then acts on the packet.
+            switch (borg_core_packet(pkt_buf)) {
+            case BC_MVP:          success = 1; break;
+            case BC_GEOM:         success = 1; got_geom_pkt = 1; skip_gap = 1; break;  // texture rows follow
+            case BC_TEXROW:
+            case BC_TEXG:         success = 1; got_tex_row = 1; skip_gap = 1; break;   // next row / the MVP follows
+            case BC_SHADER_VERT:  success = 1; got_shader_pkt = 1; skip_gap = 1; staged_vert = 1; break;
+            case BC_SHADER_FRAG:  success = 1; got_shader_pkt = 1; skip_gap = 1; staged_frag = 1; break;
+            case BC_STATE:        success = 1; got_state_pkt = 1; skip_gap = 1; break; // the MVP follows
+            default:
+              if (pkt_marker == 0xB0) puts_uart("B0:csum\r\n");
+              break;
             }
           } else if (pkt_marker == 0xB0) {
-            if (!ok) {
-              puts_uart("B0:short\r\n");
-            } else {
-              uint8_t csum = 0;
-              for (int i = 1; i < RX_SHADER_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
-              uint8_t stage = pkt_buf[1];
-              uint32_t blen = (uint32_t)pkt_buf[2] | ((uint32_t)pkt_buf[3] << 8);
-              if (csum == pkt_buf[RX_SHADER_PKT_LEN - 1] && stage <= 1 &&
-                  blen >= 6 && blen <= RX_SHADER_MAX) {
-                borg_stage_shader(stage, &pkt_buf[4]);
-                got_shader_pkt = 1;
-                skip_gap = 1;  // frag immediately follows vert on the wire
-                if (stage == 0) staged_vert = 1; else staged_frag = 1;
-                success = 1;
-              } else {
-                puts_uart("B0:csum\r\n");
-              }
-            }
-          } else if (ok && pkt_marker == 0xB3) {
-            uint8_t csum = 0;
-            for (int i = 1; i < RX_BLEND_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
-            if (csum == pkt_buf[RX_BLEND_PKT_LEN - 1]) {
-              uint32_t cfg = 0, cst = 0;
-              for (int i = 0; i < 4; i++) {
-                cfg |= (uint32_t)pkt_buf[1 + i] << (8 * i);
-                cst |= (uint32_t)pkt_buf[5 + i] << (8 * i);
-              }
-              BORG_GPU->blend_cfg   = cfg;
-              BORG_GPU->blend_const = cst;
-              success = 1;
-              got_state_pkt = 1;
-              skip_gap = 1;  // state precedes the draw's MVP on the wire
-            }
-          } else if (ok && pkt_marker == 0xB5) {
-            uint8_t csum = 0;
-            for (int i = 1; i < RX_TEXG_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
-            uint32_t off = rx_le32(&pkt_buf[1]);
-            uint32_t nb  = (uint32_t)pkt_buf[5] | ((uint32_t)pkt_buf[6] << 8);
-            if (csum == pkt_buf[RX_TEXG_PKT_LEN - 1] && nb <= RX_TEXG_DATA &&
-                (off & 3u) == 0 && off + nb <= TEX_REGION_BYTES - 256) {
-              uint32_t w[3], samp[4];
-              for (int i = 0; i < 3; i++) w[i] = rx_le32(&pkt_buf[7 + i * 4]);
-              for (int i = 0; i < 4; i++) samp[i] = rx_le32(&pkt_buf[19 + i * 4]);
-              borg_set_texture_desc(w, samp);
-              borg_write_texels(off, &pkt_buf[35], nb);
-              g_texture_bound = 1;   // the host owns descriptor 0 now
-              got_tex_row = 1;
-              success = 1;
-              skip_gap = 1;
-            }
-          } else if (ok && pkt_marker == 0xB4) {
-            uint8_t csum = 0;
-            for (int i = 1; i < RX_STATE_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
-            if (csum == pkt_buf[RX_STATE_PKT_LEN - 1]) {
-              uint32_t r[5];
-              for (int k = 0; k < 5; k++) {
-                r[k] = 0;
-                for (int i = 0; i < 4; i++) r[k] |= (uint32_t)pkt_buf[1 + 4 * k + i] << (8 * i);
-              }
-              BORG_GPU->stencil_cfg   = r[0];
-              BORG_GPU->stencil_front = r[1];
-              BORG_GPU->stencil_back  = r[2];
-              BORG_GPU->depth_cfg     = r[3];
-              borg_cull_cfg           = r[4];
-              success = 1;
-              got_state_pkt = 1;
-              skip_gap = 1;
-            }
-          } else if (ok && pkt_marker == 0xB2) {
-            // Push constants: [1]=off_words, [2]=n_words, [3..]=LE u32 words.
-            uint8_t csum = 0;
-            for (int i = 1; i < RX_PUSH_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
-            uint32_t off_w = pkt_buf[1];
-            uint32_t n_w   = pkt_buf[2];
-            if (csum == pkt_buf[RX_PUSH_PKT_LEN - 1] &&
-                n_w >= 1 && n_w <= RX_PUSH_MAX_WORDS &&
-                off_w < RX_PUSH_MAX_WORDS &&
-                n_w <= RX_PUSH_MAX_WORDS - off_w) {
-              // Rebuild words from LE bytes rather than aliasing pkt_buf to
-              // uint32_t*: pkt_buf[3] is not 4-byte aligned, and this core
-              // does not do unaligned loads.
-              uint32_t w[RX_PUSH_MAX_WORDS];
-              for (uint32_t i = 0; i < n_w; i++) {
-                int b = 3 + (int)i * 4;
-                w[i] = (uint32_t)pkt_buf[b]            |
-                       ((uint32_t)pkt_buf[b+1] << 8)   |
-                       ((uint32_t)pkt_buf[b+2] << 16)  |
-                       ((uint32_t)pkt_buf[b+3] << 24);
-              }
-              borg_set_push_constants(w, off_w, n_w);
-              success = 1;
-              got_state_pkt = 1;
-              skip_gap = 1;  // push constants precede the draw's MVP on the wire
-            }
+            puts_uart("B0:short\r\n");
           }
 
           // Resync: a checksum failure (or short read) means the framing
@@ -434,29 +198,15 @@ int main() {
     int cts_frame = cts_active && cts_load_mailbox(cts_mvp);
 
     // Wait for borgvk to deliver geometry and an MVP before rendering.
-    if (!rx_have_geom || (!have_mvp && !cts_frame))
+    if (!cts_frame && !borg_core_ready())
       continue;
-
-    borg_draw_data_t draw;
-    if (cts_frame) {
-      for (int i = 0; i < 16; i++) draw.uniforms[i] = cts_mvp[i];
-    } else {
-      for (int i = 0; i < 16; i++)
-        draw.uniforms[i] = host_mvp[i];  // float32 on the wire = datapath float
-    }
 
     // Tile clear colour: FP16, the tile buffer's own format.
     rgb16_t bg = cts_active ? (rgb16_t){0,0,0} : (rgb16_t){0x3266, 0x3266, 0x3266};
 
-    // Re-stage the (small, static) geometry and the fresh MVP every frame;
-    // borg_set_texture only needs doing once.
+    // Re-stage the (small, static) geometry and the fresh MVP every frame.
     borgFastFrameBegin(bg);
-    if (!g_texture_bound) {
-      borg_set_texture(RX_TEX_DIM, RX_TEX_DIM);
-      g_texture_bound = 1;
-    }
-    borgDrawSubmitGeom(&draw, rx_geom_pos, rx_geom_nverts, rx_geom_idx, rx_geom_uv,
-                      rx_geom_ntris);
+    borg_core_stage(cts_frame ? cts_mvp : 0);
     borg_present(0);
 
 #ifndef TARGET_ULX3S

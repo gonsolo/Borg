@@ -8,7 +8,8 @@
 #include <stdint.h>
 #include "borg_fpu.h"
 #include "borg_regs.h"   // IWYU pragma: keep — borg_gpu_t used in BORG_GPU macro
-#include "borg_sys.h"    // BORG_BASE and system constants
+#include "borg_sys.h"
+#include "borg_core.h"    // BORG_BASE and system constants
 #define BORG_GPU ((volatile borg_gpu_t*)(uintptr_t) BORG_BASE)
 
 // Tile-buffer clear colour: FP16, like the tile buffer itself.
@@ -81,7 +82,6 @@ void borg_set_texture_desc(const uint32_t desc_w123[3], const uint32_t samp[4]);
 void borg_write_texels(uint32_t off, const uint8_t *data, uint32_t n);
 
 // Disable texturing for subsequent draw calls
-void borg_clear_texture(void);
 
 // Upload one texture row (host streams the texture row-by-row over serial):
 // `dim` RGBA8 texels, stored linear at TEX_TEXEL_ADDR.
@@ -115,10 +115,6 @@ void borg_present(int frame);
 // them (rx_geom_pos/idx/uv). `d`'s raw (unbaked) MVP is copied
 // in column-major, matching std140 mat4 -- cube.vert does its own clip-space
 // transform, so nothing here bakes the viewport in.
-void borgDrawSubmitGeom(const borg_draw_data_t *d, const borg_float_t *positions,
-                        int nverts, const uint8_t *idx, const borg_float_t *uv,
-                        int ntris);
-
 // DRAM_OUT() word offset of the DONE_MARKER written by the most recent
 // borg_present() — the double-buffer slot alternates every present, so the
 // sim/host viewer's done-wait poll must call this rather than hardcode it.
