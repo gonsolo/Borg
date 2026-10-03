@@ -56,6 +56,10 @@ static int g_texture_bound = 0;        // the host owns descriptor 0 (0xB5)
 static borg_float_t rx_geom_pos[BC_GEOM_MAX_VERTS * 3];
 static uint8_t      rx_geom_idx[BC_GEOM_MAX_TRIS * 3];
 static borg_float_t rx_geom_uv[BC_GEOM_MAX_TRIS * 3 * 2];
+#ifdef BORG_HOST
+static borg_float_t rx_attr4[BC_GEOM_MAX_TRIS * 3 * 4];
+static int          rx_have_attr4 = 0;
+#endif
 static int rx_geom_nverts = 0, rx_geom_ntris = 0, rx_have_geom = 0;
 static borg_float_t host_mvp[16];
 static int have_mvp = 0;
@@ -217,6 +221,9 @@ void borg_core_set_geom(const borg_float_t *pos, const uint8_t *idx, const borg_
   rx_geom_nverts = nverts;
   rx_geom_ntris = ntris;
   rx_have_geom = 1;
+#ifdef BORG_HOST
+  rx_have_attr4 = 0;
+#endif
 }
 
 int borg_core_ready(void) { return rx_have_geom && have_mvp; }
@@ -243,6 +250,12 @@ void borg_core_stage(const borg_float_t *mvp) {
       BDRAM_W(pbase + 4,  rx_geom_pos[vi * 3 + 1]);
       BDRAM_W(pbase + 8,  rx_geom_pos[vi * 3 + 2]);
       BDRAM_W(pbase + 12, BORG_FLOAT_ONE);
+#ifdef BORG_HOST
+      if (rx_have_attr4) {
+        for (int c = 0; c < 4; c++) BDRAM_W(abase + 4 * c, rx_attr4[i * 4 + c]);
+        continue;
+      }
+#endif
       BDRAM_W(abase + 0,  rx_geom_uv[i * 2 + 0]);
       BDRAM_W(abase + 4,  rx_geom_uv[i * 2 + 1]);
       BDRAM_W(abase + 8,  BORG_FLOAT_ZERO);
@@ -330,6 +343,7 @@ int borg_core_pkt_len(uint8_t marker) {
   case 0xB5: return BC_PKT_LEN_TEXG;
 #ifdef BORG_HOST
   case 0xB6: return BC_PKT_LEN_TARGET;
+  case 0xB7: return BC_PKT_LEN_ATTR4;
 #endif
   default:   return 0;
   }
@@ -357,6 +371,9 @@ int borg_core_packet(const uint8_t *p) {
     for (int i = 0; i < nt * 3; i++) rx_geom_idx[i] = p[ibase + i];
     for (int i = 0; i < nt * 6; i++) rx_geom_uv[i] = le32(p + ubase + i * 4);
     rx_geom_nverts = nv; rx_geom_ntris = nt; rx_have_geom = 1;
+#ifdef BORG_HOST
+    rx_have_attr4 = 0;
+#endif
     return BC_GEOM;
   }
   case 0xAF: { // legacy texture row: y, sampler (4 words), BC_TEX_DIM RGBA8 texels
@@ -404,6 +421,13 @@ int borg_core_packet(const uint8_t *p) {
     }
     borg_core_set_clear(f32_to_fp16(le32(p + 2)), f32_to_fp16(le32(p + 6)), f32_to_fp16(le32(p + 10)));
     return BC_TARGET;
+  }
+  case 0xB7: { // vec4 attribute 1 per corner (overrides the 2-float texture coordinate)
+    int n = p[1];
+    if (n < 1 || n > BC_GEOM_MAX_TRIS * 3) return BC_BAD;
+    for (int i = 0; i < n * 4; i++) rx_attr4[i] = le32(p + 2 + i * 4);
+    rx_have_attr4 = 1;
+    return BC_STATE;
   }
 #endif
   case 0xB5: { // generic texture chunk: texel byte offset, nbytes, descriptor words 1..3, sampler, texels
