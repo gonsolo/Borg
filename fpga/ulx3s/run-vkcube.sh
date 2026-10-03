@@ -45,7 +45,7 @@ fi
 # ~15 fps render rate.  Override or unset (free-run) as desired.
 export BORGVK_FRAME_MS="${BORGVK_FRAME_MS:-75}"
 
-VKCUBE="$REPO/Vulkan-Tools/build/cube/vkcube"
+VKCUBE="${VKCUBE:-$REPO/Vulkan-Tools/build/cube/vkcube}"
 if [[ $# -ge 1 ]]; then
   exec timeout "$1" "$VKCUBE" --wsi wayland
 else

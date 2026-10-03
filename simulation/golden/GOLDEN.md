@@ -8,6 +8,7 @@ is compared by `scripts/compare_ppm.py` with `--max-diff 1 --max-fail-pixels 2`
 |------|-----|-------|-------------------|
 | `vkcube_cts_uart_baked_00.ppm` | cts-uart-baked | 0 | Same scene with the capture's 0xB0 shader uploads stripped (`borgvk_capture_noshader.bin`), so the firmware runs its baked borgc shaders. Identical to `vkcube_cts_uart_00.ppm` while the baked shaders match what borgvk uploads. |
 | `vkcube_cts_uart_00.ppm` | cts-uart | 0 | Full draw front end driven by a captured borgvk UART burst (0xAD MVP / 0xAE geometry / 0xAF texture / 0xB0 shaders) replayed via `--cts-uart`: Pass 1 runs borgc's cube.vert per triangle (vertex pulling from the UBO, SOUT varyings), the setup ROM and the binner; Pass 2 the draw raster ROM, FATTR varyings, cube.frag at one sample, texture sampling via `TEX` (BorgSampler, linear RGBA8 descriptor), sRGB-converted output, double-buffered PSRAM layout. |
+| `blendcube_cts_uart_00.ppm` | cts-uart | 0 | `Vulkan-Tools` vkcube patched by `scenes/blendcube/blendcube.patch` (constant-colour blend, C=(1,0.25,0.25): src=C, dst=1-C), replayed from `blendcube_capture.bin` (adds the 0xB3 blend packet). Needs the blend-enabled sim config; Verilator and Arcilator agree. |
 
 The old `triangle_00.ppm`/`vkcube_00.ppm` goldens (baked app-config demos) were
 removed once firmware content stopped being baked in — see `borg_kernel.c`; all

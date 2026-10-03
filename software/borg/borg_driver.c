@@ -519,6 +519,33 @@ static void borgDrawRenderAutonomous(int frame) {
   }
 }
 
+#ifdef BORG_PIXEL_PROBE
+// Bring-up aid: print a few framebuffer pixels (RGB565, hex) every 32nd frame
+// so a feature can be checked over UART without watching the monitor.
+static void probe_pixels(int buf) {
+  static unsigned frame_no;
+  if ((frame_no++ & 31u) != 0) return;
+  static const int pts[4][2] = {{2, 2}, {64, 64}, {40, 70}, {90, 50}};
+  puts_uart("PX");
+  for (int i = 0; i < 4; i++) {
+    unsigned p = (unsigned)pts[i][1] * BORG_FB_WIDTH + (unsigned)pts[i][0];
+    uint32_t w = DRAM_OUT((unsigned)buf * FRAME_STRIDE + p / 2);
+    unsigned v = (p & 1u) ? (w >> 16) : (w & 0xFFFFu);
+    putc_uart(' ');
+    for (int sh = 12; sh >= 0; sh -= 4) putc_uart("0123456789abcdef"[(v >> sh) & 0xF]);
+  }
+  puts_uart("\r\n");
+  uint32_t perf[7] = {BORG_GPU->perf_total, BORG_GPU->perf_frag, BORG_GPU->perf_flush,
+                      BORG_GPU->perf_stall, BORG_GPU->perf_dma, t_draw_cycles, frame_no};
+  puts_uart("PF");
+  for (int i = 0; i < 7; i++) {
+    putc_uart(' ');
+    for (int sh = 28; sh >= 0; sh -= 4) putc_uart("0123456789abcdef"[(perf[i] >> sh) & 0xF]);
+  }
+  puts_uart("\r\n");
+}
+#endif
+
 void borg_present(int frame) {
   (void)frame;
   unsigned int t_wait = get_cycles();
@@ -532,6 +559,9 @@ void borg_present(int frame) {
   while (!(BORG_GPU->status & STATUS_REG_T__IDLE_bm))
     ;
   t_draw_cycles += get_cycles() - t_wait;
+#ifdef BORG_PIXEL_PROBE
+  probe_pixels(back_buf);
+#endif
 
   // Hardware perf-counter snapshot at a safe DRAM offset (300020+, clear
   // of the TBR bin/setup regions) for sim tooling to read back.

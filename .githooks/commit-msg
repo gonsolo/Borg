@@ -1,6 +1,7 @@
 #!/bin/sh
-# Reject commits without the AI-use trailers. Experiment branches (exp/*)
-# are exempt: they are local scratch space and never pushed.
+# Reject commits without the AI-use trailers. Experiment branches (exp/*) and
+# feature branches (feat/*) are exempt: only what lands on main is reviewed
+# (scripts/review_commits.py adds Reviewed-by; the pre-push hook checks main).
 branch=$(git symbolic-ref --short -q HEAD)
-case "$branch" in exp/*) exit 0 ;; esac
+case "$branch" in exp/*|feat/*) exit 0 ;; esac
 exec python3 "$(git rev-parse --show-toplevel)/scripts/check_ai_policy.py" --msg-file "$1"
