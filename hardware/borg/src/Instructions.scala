@@ -193,6 +193,10 @@ object Instructions {
   // 10 bits replace the PC's low bits), so a far conditional branch is a
   // branch over a JMP -- RISC-V's JAL, MIPS's J. Programs run to 16K words.
   val FUNCT7_JMP   = 0x50
+  /** FMOV rd, rs1: a plain copy; rs1 may be a uniform (funct3), so this is how a value that lives
+    * only in the uniform window -- a constant colour, say -- gets into a register. Runs through the
+    * FMA as 1*rs1+0, FNEG without the negation. */
+  val FUNCT7_FMOV  = 0x52
   // @doc:end
 
   // R4-type sub-opcodes (opcode bit 2 set, discriminated by the 2-bit funct2
@@ -229,6 +233,7 @@ object Instructions {
   def ADD(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ADD, rs2, rs1, rd, funct3)
   def MUL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_MUL, rs2, rs1, rd, funct3)
   def FNEG(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FNEG, 0, rs1, rd, funct3)
+  def FMOV(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FMOV, 0, rs1, rd, funct3)
   def FSTEP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FSTEP, 0, rs1, rd, funct3)
   def FRCP(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FRCP, 0, rs1, rd, funct3)
   def IADD(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_IADD, rs2, rs1, rd, funct3)
@@ -329,6 +334,7 @@ object Instructions {
     ("FADD",   FUNCT7_ADD,   RType),
     ("FMUL",   FUNCT7_MUL,   RType),
     ("FNEG",   FUNCT7_FNEG,  R1Type),
+    ("FMOV",   FUNCT7_FMOV,  R1Type),
     ("FSTEP",  FUNCT7_FSTEP, R1Type),
     ("FRCP",   FUNCT7_FRCP,  R1Type),
     // TEX/TEXA are R4-type (see FUNCT2_TEX/FUNCT2_TEXA) -- not funct7-keyed,

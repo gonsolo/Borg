@@ -38,14 +38,15 @@ static int g_draw_vert_ok = 0;
 static spirb_shader_t frag_shader;     // its window fills DRAW_FS_CONST
 static int g_draw_vertex_count = 0;
 static uint16_t clear_r, clear_g, clear_b;
-static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8 (4 B/px)
+static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8 (4 B/px)
 
 // Words per framebuffer, plus the DONE marker word.
 static uint32_t frame_stride_words(void) {
   return (uint32_t)borg_fb_width * (uint32_t)borg_fb_height * (g_flush_format ? 4u : 2u) / 4u + 1u;
 }
 
-void borg_core_set_flush_format(int fmt) { g_flush_format = fmt ? 1 : 0; }
+void borg_core_set_flush_format(int fmt) { g_flush_format = (fmt == 1 || fmt == 2) ? fmt : 0; }
+int borg_core_flush_format(void) { return g_flush_format; }
 
 // Sampler descriptor 0 until the host sends the app's: nearest filtering,
 // CLAMP_TO_EDGE (VkSamplerAddressMode 2) on U, V, W, no LOD bias, LOD clamped to [0, 0].
@@ -64,12 +65,10 @@ static inline uint32_t le32(const uint8_t *b) {
 }
 
 // --- Init ---
-void borg_core_init(int width, int height) {
-  borg_fb_width = width;
-  borg_fb_height = height;
-  half_width_f  = borg_float_from_uint((uint32_t)width / 2);
-  half_height_f = borg_float_from_uint((uint32_t)height / 2);
-
+// Flusher setup and the TBR DRAM regions, which follow the two framebuffers: their size, and so
+// everything after them, depends on the colour format.
+static void core_apply_layout(void) {
+  const int width = borg_fb_width, height = borg_fb_height;
   const uint32_t frame_stride = frame_stride_words();
   BREG_W(flush_fb_base, DRAM_OUT_SPI(0));
   BREG_W(flush_format, g_flush_format);
@@ -77,16 +76,45 @@ void borg_core_init(int width, int height) {
   for (unsigned int w = (unsigned int)width; w > 1; w >>= 1) log2_w++;
   BREG_W(flush_width, log2_w);
 
-  // TBR DRAM regions follow the two framebuffers: bin lists, then the setup store.
+  // TBR DRAM regions: bin lists, then the setup store.
   uint32_t fb_end_spi = (uint32_t)DRAM_SPI_BASE + (uint32_t)DRAM_OUT_OFFSET + 2u * frame_stride * 4u;
   tbr_bin_base = fb_end_spi;
   tbr_setup_base = tbr_bin_base + (uint32_t)((width >> 2) * (height >> 2)) * TBR_BIN_ROW_BYTES;
+}
+
+void borg_core_init(int width, int height) {
+  borg_fb_width = width;
+  borg_fb_height = height;
+  half_width_f  = borg_float_from_uint((uint32_t)width / 2);
+  half_height_f = borg_float_from_uint((uint32_t)height / 2);
+  core_apply_layout();
 
   // Texel store of descriptor 0 starts white, so a texel the host never wrote is unobtrusive.
   for (int y = 0; y < BC_TEX_DIM; y++)
     for (int x = 0; x < BC_TEX_DIM; x++)
       BDRAM_W(TEX_TEXEL_ADDR + (uint32_t)(y * BC_TEX_DIM + x) * 4, 0xFFFFFFFFu);
 }
+
+#ifdef BORG_HOST   // only the simulator's host driver sends a render-target packet; the board's firmware stays lean
+// float32 -> FP16 (round to nearest, saturating): the tile buffer's clear colour is FP16.
+static uint16_t f32_to_fp16(uint32_t f) {
+  uint32_t sign = (f >> 16) & 0x8000u, exp = (f >> 23) & 0xFFu, man = f & 0x7FFFFFu;
+  if (exp == 0xFFu) return (uint16_t)(sign | 0x7C00u | (man ? 0x200u : 0));   // inf / nan
+  int e = (int)exp - 127 + 15;
+  if (e >= 31) return (uint16_t)(sign | 0x7BFFu);                              // saturate
+  if (e <= 0) {
+    if (e < -10) return (uint16_t)sign;
+    man |= 0x800000u;
+    uint32_t shift = (uint32_t)(14 - e);
+    uint32_t half = man >> shift, rem = man & ((1u << shift) - 1u), mid = 1u << (shift - 1);
+    if (rem > mid || (rem == mid && (half & 1u))) half++;
+    return (uint16_t)(sign | half);
+  }
+  uint32_t half = ((uint32_t)e << 10) | (man >> 13), rem = man & 0x1FFFu;
+  if (rem > 0x1000u || (rem == 0x1000u && (half & 1u))) half++;
+  return (uint16_t)(sign | half);
+}
+#endif
 
 // --- Shaders ---
 void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
@@ -300,6 +328,9 @@ int borg_core_pkt_len(uint8_t marker) {
   case 0xB3: return BC_PKT_LEN_BLEND;
   case 0xB4: return BC_PKT_LEN_STATE;
   case 0xB5: return BC_PKT_LEN_TEXG;
+#ifdef BORG_HOST
+  case 0xB6: return BC_PKT_LEN_TARGET;
+#endif
   default:   return 0;
   }
 }
@@ -363,6 +394,18 @@ int borg_core_packet(const uint8_t *p) {
     BREG_W(depth_cfg,     le32(p + 13));
     borg_cull_cfg = le32(p + 17);
     return BC_STATE;
+#ifdef BORG_HOST
+  case 0xB6: { // render target: flush format + clear colour (4 x float32)
+    int fmt = p[1];
+    if (fmt > 2) return BC_BAD;
+    if (fmt != g_flush_format) {
+      g_flush_format = fmt;
+      core_apply_layout();
+    }
+    borg_core_set_clear(f32_to_fp16(le32(p + 2)), f32_to_fp16(le32(p + 6)), f32_to_fp16(le32(p + 10)));
+    return BC_TARGET;
+  }
+#endif
   case 0xB5: { // generic texture chunk: texel byte offset, nbytes, descriptor words 1..3, sampler, texels
     uint32_t off = le32(p + 1), nb = (uint32_t)p[5] | ((uint32_t)p[6] << 8);
     if (nb > BC_TEXG_DATA || (off & 3u) || off + nb > TEX_REGION_BYTES - 256) return BC_BAD;

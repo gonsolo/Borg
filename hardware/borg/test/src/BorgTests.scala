@@ -95,6 +95,7 @@ object BorgTests extends TestSuite {
   case object MUL extends Op
   case class FMA(rs3: Int) extends Op
   case object FNEG extends Op
+  case object FMOV extends Op
   case object FSTEP extends Op
   case object FRCP extends Op
 
@@ -105,6 +106,7 @@ object BorgTests extends TestSuite {
       case MUL     => Instructions.MUL(rs1, rs2, rd)
       case FMA(r3) => Instructions.FMA(rs1, rs2, r3, rd)
       case FNEG    => Instructions.FNEG(rs1, rd)
+      case FMOV    => Instructions.FMOV(rs1, rd)
       case FSTEP   => Instructions.FSTEP(rs1, rd)
       case FRCP    => Instructions.FRCP(rs1, rd)
     }
@@ -184,6 +186,9 @@ object BorgTests extends TestSuite {
       case FNEG =>
         (encodeInstruction(config, FNEG, rs1 = 0, rs2 = 0, rd = 2),
           8, -a_eff, f"-$a_eff%8.2f")
+      case FMOV =>
+        (encodeInstruction(config, FMOV, rs1 = 0, rs2 = 0, rd = 2),
+          8, a_eff, f"mov $a_eff%8.2f")
       case FSTEP =>
         (encodeInstruction(config, FSTEP, rs1 = 0, rs2 = 0, rd = 2), // rs1 edge, rs2 not used
           8, if (a_eff > 0.0f) 1.0f else 0.0f, f"step($a_eff%8.2f)")
@@ -236,6 +241,8 @@ object BorgTests extends TestSuite {
       op match {
         case FNEG =>
           runTest(borg, config, FNEG, a, 0f)
+        case FMOV =>
+          runTest(borg, config, FMOV, a, 0f)
         case ADD => runTest(borg, config, ADD, a, b)
         case MUL =>
           if (config != FloatConfig.FP16 || math.abs(a * b) <= FP16_MAX)
@@ -267,6 +274,7 @@ object BorgTests extends TestSuite {
         runBatch(borg, FloatConfig.FP32, MUL, pairs)
         runBatch(borg, FloatConfig.FP32, FMA(3), pairs)
         runBatch(borg, FloatConfig.FP32, FNEG, pairs)
+        runBatch(borg, FloatConfig.FP32, FMOV, pairs)
 
         // Phase 1 test: verify high registers (4-7) work
         println("\n--- Testing registers 4-7 ---")

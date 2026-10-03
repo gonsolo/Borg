@@ -21,6 +21,7 @@
 #define BORG_INSTR_FADD(rd, rs1, rs2, funct3) (0x00000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FMUL(rd, rs1, rs2, funct3) (0x08000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FNEG(rd, rs1, funct3) (0x0C000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
+#define BORG_INSTR_FMOV(rd, rs1, funct3) (0xA4000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FSTEP(rd, rs1, funct3) (0x10000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_FRCP(rd, rs1, funct3) (0x14000000U | ((funct3) << 12) | ((rs1) << 15) | ((rd) << 7))
 #define BORG_INSTR_IADD(rd, rs1, rs2, funct3) (0x1C000000U | ((funct3) << 12) | ((rs2) << 20) | ((rs1) << 15) | ((rd) << 7))
