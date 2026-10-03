@@ -42,10 +42,13 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
   // BORG_ULX_CFG=full keeps everything; the default "cube" drops what unmodified
   // cube.c never uses (MSAA, blend, stencil, compute, depth-image flush) -- the
   // full FP32 config did not place on the ECP5-85K (10-02 attempt).
+  private def cubeCfg = BorgConfig.Simt.copy(samples = 1, hasBlend = false, hasStencil = false,
+                                             hasCompute = false, hasDepthFlush = false)
   override def BORG_CFG: BorgConfig = sys.env.getOrElse("BORG_ULX_CFG", "cube") match {
     case "full" => BorgConfig.Simt.copy(samples = 4)
-    case "cube" => BorgConfig.Simt.copy(samples = 1, hasBlend = false, hasStencil = false,
-                                        hasCompute = false, hasDepthFlush = false)
+    case "cube" => cubeCfg
+    // Feature bring-up: the cube config plus one feature at a time.
+    case "blend" => cubeCfg.copy(hasBlend = true)
     case other  => throw new IllegalArgumentException(s"BORG_ULX_CFG=$other")
   }
   // RV32I Hutt (Project.scala's default): the RV64IMAC + Sv39 MMU config

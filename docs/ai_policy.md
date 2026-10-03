@@ -28,6 +28,8 @@ Borg follows NLnet's [Generative AI policy](https://nlnet.nl/foundation/policies
 3. **Experiments live on `exp/*` branches** (or worktrees). They are local,
    never pushed (the pre-push hook refuses), and exempt from the trailers.
    Only a reviewed, squashed commit reaches `main`.
+   `feat/*` branches are likewise exempt from the trailer check at commit time;
+   `scripts/review_commits.py` adds `Reviewed-by` before anything goes to `main`.
 4. **Full session logs are private but retained**, in the separate private repo
    `~/work/Borg-provenance`. A `post-commit` hook archives them on every commit
    (`scripts/archive_ai_sessions.sh`); each archive commit is titled with the

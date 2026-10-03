@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // borg_kernel.c — thin render kernel driven by the borgvk Mesa driver.
-// Boots, drains borgvk wire packets (0xAD/0xAE/0xAF/0xB0/0xB1/0xB2) from UART,
+// Boots, drains borgvk wire packets (0xAD/0xAE/0xAF/0xB0/0xB1/0xB2/0xB3) from UART,
 // and drives the autonomous TBR hardware.  No hardcoded geometry, shaders, or
 // texture — all content is uploaded at runtime by borgvk / cube.c.
 
@@ -39,6 +39,11 @@ static int     g_texture_bound = 0;
 // 0xB0 borgc shader upload: marker(1), stage(1), len(2 LE), blob(RX_SHADER_MAX), csum(1)
 #define RX_SHADER_MAX     512
 #define RX_SHADER_PKT_LEN (1 + 1 + 2 + RX_SHADER_MAX + 1)
+
+// 0xB3 blend state: marker(1), BLEND_CFG(4 LE), BLEND_CONST(4 LE), csum(1).  The
+// host packs both words in the registers' own layout (VkPipelineColorBlend-
+// AttachmentState fields, constants as UNORM8), so the firmware only stores them.
+#define RX_BLEND_PKT_LEN  (1 + 4 + 4 + 1)
 
 // 0xB2 push constants: marker(1), off_words(1), n_words(1), data(128 B), csum(1)
 //
@@ -161,6 +166,7 @@ int main() {
     for (int drain_iter = 0; drain_iter < 80; drain_iter++) {
       int got_tex_row = 0;
       int got_shader_pkt = 0;
+      int got_state_pkt = 0;   // blend / push-constant state: the draw's MVP follows
       // Geometry (0xAE) used to fall through to the generic break below like
       // MVP does, forcing a round-trip through the outer while(1) (a
       // cts_mailbox_present() call + condition checks) before the firmware
@@ -215,7 +221,8 @@ int main() {
                  (pkt_marker == 0xAE) ? RX_GEOM_PKT_LEN :
                  (pkt_marker == 0xAF) ? RX_TEX_PKT_LEN :
                  (pkt_marker == 0xB0) ? RX_SHADER_PKT_LEN :
-                 (pkt_marker == 0xB2) ? RX_PUSH_PKT_LEN : 0;
+                 (pkt_marker == 0xB2) ? RX_PUSH_PKT_LEN :
+                 (pkt_marker == 0xB3) ? RX_BLEND_PKT_LEN : 0;
       if (need) {
           int ok = 1;
           while (pkt_pos < need) {
@@ -303,6 +310,21 @@ int main() {
                 puts_uart("B0:csum\r\n");
               }
             }
+          } else if (ok && pkt_marker == 0xB3) {
+            uint8_t csum = 0;
+            for (int i = 1; i < RX_BLEND_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
+            if (csum == pkt_buf[RX_BLEND_PKT_LEN - 1]) {
+              uint32_t cfg = 0, cst = 0;
+              for (int i = 0; i < 4; i++) {
+                cfg |= (uint32_t)pkt_buf[1 + i] << (8 * i);
+                cst |= (uint32_t)pkt_buf[5 + i] << (8 * i);
+              }
+              BORG_GPU->blend_cfg   = cfg;
+              BORG_GPU->blend_const = cst;
+              success = 1;
+              got_state_pkt = 1;
+              skip_gap = 1;  // state precedes the draw's MVP on the wire
+            }
           } else if (ok && pkt_marker == 0xB2) {
             // Push constants: [1]=off_words, [2]=n_words, [3..]=LE u32 words.
             uint8_t csum = 0;
@@ -326,6 +348,7 @@ int main() {
               }
               borg_set_push_constants(w, off_w, n_w);
               success = 1;
+              got_state_pkt = 1;
               skip_gap = 1;  // push constants precede the draw's MVP on the wire
             }
           }
@@ -340,7 +363,7 @@ int main() {
           if (!success && pkt_marker != 0xB1) {
             for (int q = 1; q < pkt_pos; q++) {
               uint8_t m = pkt_buf[q];
-              if (m == 0xAD || m == 0xAE || m == 0xAF || m == 0xB0 || m == 0xB2) {
+              if (m == 0xAD || m == 0xAE || m == 0xAF || m == 0xB0 || m == 0xB2 || m == 0xB3) {
                 int rem = pkt_pos - q;
                 for (int i = 0; i < rem; i++) pkt_buf[i] = pkt_buf[q + i];
                 pending_len = rem;
@@ -350,7 +373,8 @@ int main() {
             }
           }
       }
-      if (!got_tex_row && !got_shader_pkt && !got_geom_pkt && pending_len == 0) break;
+      if (!got_tex_row && !got_shader_pkt && !got_geom_pkt && !got_state_pkt &&
+          pending_len == 0) break;
     }
     if (staged_vert) puts_uart("FW: vert shader uploaded\r\n");
     if (staged_frag) puts_uart("FW: frag shader uploaded\r\n");

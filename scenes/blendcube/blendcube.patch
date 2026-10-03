@@ -1,0 +1,40 @@
+diff --git a/cube/cube.c b/cube/cube.c
+index d28285de..8fafd49c 100644
+--- a/cube/cube.c
++++ b/cube/cube.c
+@@ -894,7 +894,7 @@ static void demo_draw_build_cmd(struct demo *demo, SubmissionResources *submissi
+         .pInheritanceInfo = NULL,
+     };
+     const VkClearValue clear_values[2] = {
+-        [0] = {.color.float32 = {0.2f, 0.2f, 0.2f, 0.2f}},
++        [0] = {.color.float32 = {0.0f, 0.0f, 0.8f, 1.0f}},
+         [1] = {.depthStencil = {1.0f, 0}},
+     };
+     const VkRenderPassBeginInfo rp_begin = {
+@@ -2270,7 +2270,16 @@ static void demo_prepare_pipeline(struct demo *demo) {
+     VkPipelineColorBlendAttachmentState att_state[1];
+     memset(att_state, 0, sizeof(att_state));
+     att_state[0].colorWriteMask = 0xf;
+-    att_state[0].blendEnable = VK_FALSE;
++    att_state[0].blendEnable = VK_TRUE;
++    att_state[0].srcColorBlendFactor = VK_BLEND_FACTOR_CONSTANT_COLOR;
++    att_state[0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
++    att_state[0].colorBlendOp = VK_BLEND_OP_ADD;
++    att_state[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
++    att_state[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
++    att_state[0].alphaBlendOp = VK_BLEND_OP_ADD;
++    cb.blendConstants[0] = 1.0f;
++    cb.blendConstants[1] = cb.blendConstants[2] = 0.25f;
++    cb.blendConstants[3] = 1.0f;
+     cb.attachmentCount = 1;
+     cb.pAttachments = att_state;
+ 
+@@ -4894,7 +4903,7 @@ static void demo_init(struct demo *demo, int argc, char **argv) {
+     demo_init_vk(demo);
+ 
+     demo->spin_angle = 4.0f;
+-    demo->spin_increment = 0.2f;
++    demo->spin_increment = 5.0f;
+     demo->pause = false;
+ 
+     mat4x4_perspective(demo->projection_matrix, (float)degreesToRadians(45.0f), 1.0f, 0.1f, 100.0f);
