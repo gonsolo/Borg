@@ -391,6 +391,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val funct2  = instr(26, 25)
     flags.mul   := !flags.fma && f7op === Instructions.FUNCT7_MUL.U
     flags.fneg  := !flags.fma && f7op === Instructions.FUNCT7_FNEG.U
+    flags.fmov  := !flags.fma && f7op === Instructions.FUNCT7_FMOV.U
     flags.fstep := !flags.fma && f7op === Instructions.FUNCT7_FSTEP.U
     flags.frcp  := !flags.fma && f7op === Instructions.FUNCT7_FRCP.U
     flags.iadd  := !flags.fma && f7op === Instructions.FUNCT7_IADD.U

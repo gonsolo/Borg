@@ -157,7 +157,8 @@ int main() {
             case BC_TEXG:         success = 1; got_tex_row = 1; skip_gap = 1; break;   // next row / the MVP follows
             case BC_SHADER_VERT:  success = 1; got_shader_pkt = 1; skip_gap = 1; staged_vert = 1; break;
             case BC_SHADER_FRAG:  success = 1; got_shader_pkt = 1; skip_gap = 1; staged_frag = 1; break;
-            case BC_STATE:        success = 1; got_state_pkt = 1; skip_gap = 1; break; // the MVP follows
+            case BC_STATE:
+            case BC_TARGET:       success = 1; got_state_pkt = 1; skip_gap = 1; break; // the MVP follows
             default:
               if (pkt_marker == 0xB0) puts_uart("B0:csum\r\n");
               break;

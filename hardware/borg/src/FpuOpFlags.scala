@@ -9,6 +9,7 @@ class FpuOpFlags extends Bundle {
   val fma    = Bool()
   val mul    = Bool()
   val fneg   = Bool()
+  val fmov   = Bool()
   val fstep  = Bool()
   val frcp   = Bool()
   // Integer ALU ops (16-bit, operate on the raw register bits).

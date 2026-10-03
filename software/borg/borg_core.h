@@ -41,6 +41,7 @@ extern "C" {
 #define BC_PKT_LEN_BLEND   (1 + 4 + 4 + 1)
 #define BC_PKT_LEN_STATE   (1 + 5 * 4 + 1)
 #define BC_PKT_LEN_TEXG    (1 + 4 + 2 + 12 + 16 + BC_TEXG_DATA + 1)
+#define BC_PKT_LEN_TARGET  (1 + 1 + 16 + 1)   // 0xB6: flush format, clear colour (4 x float32)
 #define BC_PKT_LEN_MAX     BC_PKT_LEN_GEOM
 
 // Fixed length of the packet starting with `marker`; 0 for a marker that is not
@@ -57,6 +58,7 @@ enum {
   BC_SHADER_FRAG,
   BC_STATE,          // blend, stencil/depth/cull or push constants (the draw's MVP follows)
   BC_TEXG,           // generic texture chunk
+  BC_TARGET,         // colour attachment format + clear colour (0xB6)
 };
 
 // Validate and act on one complete packet (p[0] = marker, borg_core_pkt_len bytes).
@@ -67,8 +69,10 @@ int borg_core_packet(const uint8_t *p);
 // regions and the descriptor-0 texel store (filled white).
 void borg_core_init(int width, int height);
 // Colour attachment format the flusher writes: 0 = R5G6B5 (the board and the goldens),
-// 1 = R8G8B8A8_UNORM tiled (4 bytes/pixel). Call before borg_core_init.
+// 1 = R8G8B8A8_UNORM, 2 = B8G8R8A8_UNORM, both tiled (4 bytes/pixel). Call before borg_core_init;
+// a 0xB6 packet changes it afterwards.
 void borg_core_set_flush_format(int fmt);
+int borg_core_flush_format(void);   // 0 = R5G6B5, 1 = R8G8B8A8, 2 = B8G8R8A8
 
 // A draw is ready once geometry and an MVP have both arrived.
 int borg_core_ready(void);

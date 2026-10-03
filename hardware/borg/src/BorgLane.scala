@@ -245,6 +245,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_mul_reg = RegInit(false.B)
     val is_fma_reg = RegInit(false.B)
     val is_fneg_reg = RegInit(false.B)
+    val is_fmov_reg = RegInit(false.B)
     val is_fstep_reg = RegInit(false.B)
     val is_frcp_reg = RegInit(false.B)
     val is_frsq_reg = RegInit(false.B)
@@ -259,6 +260,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       // wireSampler), last-connect-wins over whatever this path produces.
       is_fma_reg := opFlags.fma
       is_fneg_reg := opFlags.fneg
+      is_fmov_reg := opFlags.fmov
       is_fstep_reg := opFlags.fstep
       is_frcp_reg := opFlags.frcp
       is_frsq_reg := opFlags.frsq
@@ -273,7 +275,7 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         fma.io.b := Mux(is_deriv_reg, one_fn,     Mux(is_mul_reg || is_fma_reg, recB_raw, recA_raw))
         fma.io.c := Mux(is_deriv_reg, io.crossC,
                         Mux(is_fma_reg, recC_raw,
-                        Mux(is_mul_reg || is_fneg_reg, 0.U(config.totalBits.W), recB_raw)))
+                        Mux(is_mul_reg || is_fneg_reg || is_fmov_reg, 0.U(config.totalBits.W), recB_raw)))
         fma.io.negate := is_fneg_reg
         // 4-stage custom FMA: regA@4, regB@3 (enabled → hold during non-busy, no X
         // churn); regC free-runs (no pipeEn3) to drop its high-fanout enable net.

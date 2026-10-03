@@ -24,6 +24,7 @@ void Driver::init(int width, int height, bool rgba) {
 
 int Driver::run_stream(const std::vector<uint8_t> &b) {
   size_t i = 0;
+  bool target_seen = false;   // a 0xB6 packet carries the app's clear colour; otherwise the default
   while (i < b.size()) {
     if (b[i] == 0xB1) { i++; continue; }   // serial-reload trigger: not a draw packet
     int len = borg_core_pkt_len(b[i]);
@@ -36,8 +37,10 @@ int Driver::run_stream(const std::vector<uint8_t> &b) {
       fprintf(stderr, "[direct] rejected packet 0x%02x at byte %zu\n", b[i], i);
       break;
     }
+    if (kind == BC_TARGET) target_seen = true;
     if (kind == BC_MVP && borg_core_ready()) {
-      borg_core_set_clear(clear_rgb16, clear_rgb16, clear_rgb16);
+      if (!target_seen)
+        borg_core_set_clear(clear_rgb16, clear_rgb16, clear_rgb16);
       borg_core_draw(nullptr, 0);
       draws++;
     }
@@ -47,15 +50,17 @@ int Driver::run_stream(const std::vector<uint8_t> &b) {
 }
 
 std::vector<uint8_t> Driver::framebuffer_rgb() const {
+  const int fmt = borg_core_flush_format();   // 0 = R5G6B5, 1 = RGBA8, 2 = BGRA8
   std::vector<uint8_t> rgb((size_t)W * H * 3);
   for (int y = 0; y < H; y++)
     for (int x = 0; x < W; x++) {
       uint32_t tiles_per_row = W >> 2, tile = (y >> 2) * tiles_per_row + (x >> 2);
       uint32_t ti = (x & 3) | ((y & 3) << 2);
       uint8_t r, g, bl;
-      if (rgba8) {   // tile = 16 pixels x 4 B: R, G, B, A
+      if (fmt) {   // tile = 16 pixels x 4 B: R,G,B,A (fmt 1) or B,G,R,A (fmt 2)
         uint32_t px = g_sim->r32(DRAM_OUT_BASE_SPI + tile * 64 + ti * 4);
-        r = px & 0xFF; g = (px >> 8) & 0xFF; bl = (px >> 16) & 0xFF;
+        uint8_t b0 = px & 0xFF, b1 = (px >> 8) & 0xFF, b2 = (px >> 16) & 0xFF;
+        r = fmt == 1 ? b0 : b2; g = b1; bl = fmt == 1 ? b2 : b0;
       } else {
         uint32_t word = g_sim->r32(DRAM_OUT_BASE_SPI + (tile * 8 + (ti >> 1)) * 4);
         uint16_t px = (ti & 1) ? (uint16_t)(word >> 16) : (uint16_t)word;
