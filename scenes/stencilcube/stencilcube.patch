@@ -1,0 +1,43 @@
+diff --git a/cube/cube.c b/cube/cube.c
+index d28285de..56b3163e 100644
+--- a/cube/cube.c
++++ b/cube/cube.c
+@@ -2258,7 +2258,7 @@ static void demo_prepare_pipeline(struct demo *demo) {
+     memset(&rs, 0, sizeof(rs));
+     rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+     rs.polygonMode = VK_POLYGON_MODE_FILL;
+-    rs.cullMode = VK_CULL_MODE_BACK_BIT;
++    rs.cullMode = VK_CULL_MODE_NONE;
+     rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+     rs.depthClampEnable = VK_FALSE;
+     rs.rasterizerDiscardEnable = VK_FALSE;
+@@ -2290,8 +2290,19 @@ static void demo_prepare_pipeline(struct demo *demo) {
+     ds.back.failOp = VK_STENCIL_OP_KEEP;
+     ds.back.passOp = VK_STENCIL_OP_KEEP;
+     ds.back.compareOp = VK_COMPARE_OP_ALWAYS;
+-    ds.stencilTestEnable = VK_FALSE;
++    /* Two-sided stencil test, stored stencil value 0: front faces need
++     * 0 == 2 and never pass, back faces compare (0x10 & 0x0F) == (0 & 0x0F)
++     * and pass, so the cube is seen from the inside. */
++    ds.stencilTestEnable = VK_TRUE;
+     ds.front = ds.back;
++    ds.front.compareOp = VK_COMPARE_OP_EQUAL;
++    ds.front.compareMask = 0xFF;
++    ds.front.writeMask = 0xFF;
++    ds.front.reference = 2;
++    ds.back.compareOp = VK_COMPARE_OP_EQUAL;
++    ds.back.compareMask = 0x0F;
++    ds.back.writeMask = 0xFF;
++    ds.back.reference = 0x10;
+ 
+     memset(&ms, 0, sizeof(ms));
+     ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+@@ -4894,7 +4905,7 @@ static void demo_init(struct demo *demo, int argc, char **argv) {
+     demo_init_vk(demo);
+ 
+     demo->spin_angle = 4.0f;
+-    demo->spin_increment = 0.2f;
++    demo->spin_increment = 5.0f;
+     demo->pause = false;
+ 
+     mat4x4_perspective(demo->projection_matrix, (float)degreesToRadians(45.0f), 1.0f, 0.1f, 100.0f);

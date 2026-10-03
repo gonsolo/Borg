@@ -49,6 +49,7 @@ class ulx3s_top(val CLOCK_MHZ: Int, val borgModeOverride: BorgMode = BorgDirect)
     case "cube" => cubeCfg
     // Feature bring-up: the cube config plus one feature at a time.
     case "blend" => cubeCfg.copy(hasBlend = true)
+    case "stencil" => cubeCfg.copy(hasBlend = true, hasStencil = true)
     case other  => throw new IllegalArgumentException(s"BORG_ULX_CFG=$other")
   }
   // RV32I Hutt (Project.scala's default): the RV64IMAC + Sv39 MMU config

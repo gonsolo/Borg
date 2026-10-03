@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // borg_kernel.c — thin render kernel driven by the borgvk Mesa driver.
-// Boots, drains borgvk wire packets (0xAD/0xAE/0xAF/0xB0/0xB1/0xB2/0xB3) from UART,
+// Boots, drains borgvk wire packets (0xAD/0xAE/0xAF/0xB0/0xB1/0xB2/0xB3/0xB4) from UART,
 // and drives the autonomous TBR hardware.  No hardcoded geometry, shaders, or
 // texture — all content is uploaded at runtime by borgvk / cube.c.
 
@@ -44,6 +44,11 @@ static int     g_texture_bound = 0;
 // host packs both words in the registers' own layout (VkPipelineColorBlend-
 // AttachmentState fields, constants as UNORM8), so the firmware only stores them.
 #define RX_BLEND_PKT_LEN  (1 + 4 + 4 + 1)
+
+// 0xB4 raster state: marker(1), STENCIL_CFG, STENCIL_FRONT, STENCIL_BACK,
+// DEPTH_CFG, CULL_CFG (5 x 4 LE, register layout), csum(1).
+#define RX_STATE_PKT_LEN  (1 + 5 * 4 + 1)
+extern uint32_t borg_cull_cfg;  // borg_driver.c writes it before every draw
 
 // 0xB2 push constants: marker(1), off_words(1), n_words(1), data(128 B), csum(1)
 //
@@ -222,7 +227,8 @@ int main() {
                  (pkt_marker == 0xAF) ? RX_TEX_PKT_LEN :
                  (pkt_marker == 0xB0) ? RX_SHADER_PKT_LEN :
                  (pkt_marker == 0xB2) ? RX_PUSH_PKT_LEN :
-                 (pkt_marker == 0xB3) ? RX_BLEND_PKT_LEN : 0;
+                 (pkt_marker == 0xB3) ? RX_BLEND_PKT_LEN :
+                 (pkt_marker == 0xB4) ? RX_STATE_PKT_LEN : 0;
       if (need) {
           int ok = 1;
           while (pkt_pos < need) {
@@ -325,6 +331,24 @@ int main() {
               got_state_pkt = 1;
               skip_gap = 1;  // state precedes the draw's MVP on the wire
             }
+          } else if (ok && pkt_marker == 0xB4) {
+            uint8_t csum = 0;
+            for (int i = 1; i < RX_STATE_PKT_LEN - 1; i++) csum ^= pkt_buf[i];
+            if (csum == pkt_buf[RX_STATE_PKT_LEN - 1]) {
+              uint32_t r[5];
+              for (int k = 0; k < 5; k++) {
+                r[k] = 0;
+                for (int i = 0; i < 4; i++) r[k] |= (uint32_t)pkt_buf[1 + 4 * k + i] << (8 * i);
+              }
+              BORG_GPU->stencil_cfg   = r[0];
+              BORG_GPU->stencil_front = r[1];
+              BORG_GPU->stencil_back  = r[2];
+              BORG_GPU->depth_cfg     = r[3];
+              borg_cull_cfg           = r[4];
+              success = 1;
+              got_state_pkt = 1;
+              skip_gap = 1;
+            }
           } else if (ok && pkt_marker == 0xB2) {
             // Push constants: [1]=off_words, [2]=n_words, [3..]=LE u32 words.
             uint8_t csum = 0;
@@ -363,7 +387,7 @@ int main() {
           if (!success && pkt_marker != 0xB1) {
             for (int q = 1; q < pkt_pos; q++) {
               uint8_t m = pkt_buf[q];
-              if (m == 0xAD || m == 0xAE || m == 0xAF || m == 0xB0 || m == 0xB2 || m == 0xB3) {
+              if (m == 0xAD || m == 0xAE || m == 0xAF || m == 0xB0 || m == 0xB2 || m == 0xB3 || m == 0xB4) {
                 int rem = pkt_pos - q;
                 for (int i = 0; i < rem; i++) pkt_buf[i] = pkt_buf[q + i];
                 pending_len = rem;
