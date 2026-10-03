@@ -38,6 +38,14 @@ static int g_draw_vert_ok = 0;
 static spirb_shader_t frag_shader;     // its window fills DRAW_FS_CONST
 static int g_draw_vertex_count = 0;
 static uint16_t clear_r, clear_g, clear_b;
+static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8 (4 B/px)
+
+// Words per framebuffer, plus the DONE marker word.
+static uint32_t frame_stride_words(void) {
+  return (uint32_t)borg_fb_width * (uint32_t)borg_fb_height * (g_flush_format ? 4u : 2u) / 4u + 1u;
+}
+
+void borg_core_set_flush_format(int fmt) { g_flush_format = fmt ? 1 : 0; }
 
 // Sampler descriptor 0 until the host sends the app's: nearest filtering,
 // CLAMP_TO_EDGE (VkSamplerAddressMode 2) on U, V, W, no LOD bias, LOD clamped to [0, 0].
@@ -62,9 +70,9 @@ void borg_core_init(int width, int height) {
   half_width_f  = borg_float_from_uint((uint32_t)width / 2);
   half_height_f = borg_float_from_uint((uint32_t)height / 2);
 
-  const uint32_t frame_fb_words = (uint32_t)(width * height / 2);
-  const uint32_t frame_stride = frame_fb_words + 1;   // FB + DONE marker
+  const uint32_t frame_stride = frame_stride_words();
   BREG_W(flush_fb_base, DRAM_OUT_SPI(0));
+  BREG_W(flush_format, g_flush_format);
   unsigned int log2_w = 0;
   for (unsigned int w = (unsigned int)width; w > 1; w >>= 1) log2_w++;
   BREG_W(flush_width, log2_w);
@@ -221,7 +229,7 @@ void borg_core_render(int frame) {
   int record_shift = draw_record_shift(g_draw_vert.num_varyings);
   if (!g_draw_vert_ok || record_shift < 0) return;
 
-  const uint32_t frame_stride = (uint32_t)(borg_fb_width * borg_fb_height / 2) + 1;
+  const uint32_t frame_stride = frame_stride_words();
   uint32_t cc_lo = ((uint32_t)clear_b << 16) | FP16_MAX_DEPTH;
   uint32_t cc_hi = ((uint32_t)clear_r << 16) | clear_g;
 

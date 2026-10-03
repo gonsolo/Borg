@@ -66,6 +66,9 @@ int borg_core_packet(const uint8_t *p);
 // Framebuffer size: a power of two in 4..256 each.  Sets up the flusher, the TBR
 // regions and the descriptor-0 texel store (filled white).
 void borg_core_init(int width, int height);
+// Colour attachment format the flusher writes: 0 = R5G6B5 (the board and the goldens),
+// 1 = R8G8B8A8_UNORM tiled (4 bytes/pixel). Call before borg_core_init.
+void borg_core_set_flush_format(int fmt);
 
 // A draw is ready once geometry and an MVP have both arrived.
 int borg_core_ready(void);
