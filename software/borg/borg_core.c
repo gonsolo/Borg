@@ -60,6 +60,8 @@ static struct {
 static uint32_t g_vtab[BORG_MAX_VATTRS][4];   // vertex attribute descriptors, words 0..3
 static int g_vtab_dirty = 1;
 #endif
+static int g_natt = 1;                 // colour attachments of the pass (host)
+static uint32_t g_att_fmt = 0;         // flush formats of attachments 1-3, 3 bits each
 static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px), 5 RAW8 (1 B/px)
 static uint32_t flush_bytes_per_pixel(int f) { return f == 5 ? 1u : f ? 4u : 2u; }
 
@@ -545,6 +547,11 @@ static void list_trigger(uint32_t list, uint32_t load) {
   BREG_W(tile_load, load);
   BREG_W(draw_cfg, 1u | ((uint32_t)g_list.shift << 6));   // the record stride, before any block
   BREG_W(render_list, list);
+  BREG_W(att_cfg, g_natt > 1 ? (uint32_t)(g_natt - 1) | (7u << 2) : 0u);   // all of 1-3 load what the host put there
+  if (g_natt > 1) {
+    BREG_W(att_format, g_att_fmt);
+    BREG_W(att_base1, BORG_ATT_SPI(1)); BREG_W(att_base2, BORG_ATT_SPI(2)); BREG_W(att_base3, BORG_ATT_SPI(3));
+  }
   if (g_strip_n > 1) {
     const int fb_rows = borg_fb_height >> 2, per = g_strip_rows, y0 = g_strip_k * per;
     const int rows = per < fb_rows - y0 ? per : fb_rows - y0;
@@ -616,6 +623,7 @@ int borg_core_pkt_len(uint8_t marker) {
   case 0xB7: return BC_PKT_LEN_ATTR4;
   case 0xB8: return BC_PKT_LEN_MEM;
   case 0xBB: return BC_PKT_LEN_PASS;
+  case 0xBF: return BC_PKT_LEN_ATT;
   case 0xB9: return BC_PKT_LEN_VATTR;
   case 0xBA: return BC_PKT_LEN_DRAW;
 #endif
@@ -634,7 +642,7 @@ int borg_core_packet(const uint8_t *p) {
   // Texture, push-constant and geometry packets overwrite memory the queued draws read, and a
   // target or pass packet starts another render: the queued draws come first.
   switch (p[0]) {
-  case 0xAD: case 0xAE: case 0xAF: case 0xB2: case 0xB5: case 0xB6: case 0xB7: case 0xBB:
+  case 0xAD: case 0xAE: case 0xAF: case 0xB2: case 0xB5: case 0xB6: case 0xB7: case 0xBB: case 0xBF:
     borg_core_list_flush();
   }
 #endif
@@ -710,6 +718,13 @@ int borg_core_packet(const uint8_t *p) {
     }
     borg_core_set_clear(f32_to_fp16(le32(p + 2)), f32_to_fp16(le32(p + 6)), f32_to_fp16(le32(p + 10)));
     return BC_TARGET;
+  }
+  case 0xBF: { // colour attachments of the pass: count, then the flush formats of 1-3
+    if (p[1] < 1 || p[1] > 4) return BC_BAD;
+    for (int k = 0; k < 3; k++) if (p[2 + k] > 7) return BC_BAD;
+    g_natt = p[1];
+    g_att_fmt = (uint32_t)p[2] | (uint32_t)p[3] << 3 | (uint32_t)p[4] << 6;
+    return BC_ATT;
   }
   case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT
     int fmt = p[1];

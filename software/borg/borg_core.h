@@ -48,6 +48,7 @@ extern "C" {
 #define BC_PKT_LEN_VATTR   (1 + 1 + 1 + 4 + 4 + 4 + 4 + 1) // 0xB9 (host only): vertex attribute descriptor
 #define BC_PKT_LEN_DRAW    (1 + 3 + 7 * 4 + 1)             // 0xBA (host only): draw parameters, runs the draw
 #define BC_PKT_LEN_PASS    (1 + 1 + 1 + 1)                 // 0xBB (host only): render pass attachments
+#define BC_PKT_LEN_ATT     (1 + 1 + 3 + 1)                 // 0xBF (host only): colour attachment count and formats 1-3
 #define BC_PKT_LEN_MAX     BC_PKT_LEN_MEM
 
 // Fixed length of the packet starting with `marker`; 0 for a marker that is not
@@ -68,6 +69,7 @@ enum {
   BC_MEM,            // heap write (0xB8)
   BC_VATTR,          // vertex attribute descriptor (0xB9)
   BC_PASS,           // attachments of the pass: colour format, depth, stencil (0xBB)
+  BC_ATT,            // colour attachments 1-3 of the pass (0xBF)
   BC_DRAW,           // draw parameters; the draw runs (0xBA)
 };
 

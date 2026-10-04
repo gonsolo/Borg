@@ -103,6 +103,8 @@
 // D16_UNORM or 64 of D32_SFLOAT, and 16 bytes of S8_UINT. Room for 1024x1024 pixels.
 #define BORG_ZB_SPI             0x4400000
 #define BORG_SB_SPI             0x4800000
+// Colour attachments 1-3 (simulator), above the stencil plane: 16 MB each, enough for a 4096 x 4096 RAW8 target.
+#define BORG_ATT_SPI(k)         (0x4A00000 + ((k) - 1) * 0x1000000)
 #define BORG_SIM_MEM_BYTES      0x8000000      // the simulator's memory, a power of two above 0x4900000
 
 // -------------------------------------------------------------------------

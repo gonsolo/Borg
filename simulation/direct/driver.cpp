@@ -59,8 +59,9 @@ int Driver::run_stream(const std::vector<uint8_t> &b) {
 }
 
 // Serve mode: packets on `in`, answers on `out`, memory shared with the driver process.
-//   0xBC w16 h16   set the target size; answers 16 bytes: the byte addresses of the colour,
-//                  depth and stencil attachments and of the heap (u32 each, little endian)
+//   0xBC w16 h16   set the target size; answers 28 bytes: the byte addresses of the colour,
+//                  depth and stencil attachments, of the heap and of colour attachments 1-3
+//                  (u32 each, little endian)
 //   0xBE k n r16   render strip k of n strips of r tile rows each, from now on
 //   0xBD           answers one byte when every draw so far has finished
 //   anything else  a wire packet for borg_core_packet(); a draw packet renders
@@ -81,10 +82,11 @@ int Driver::serve(int in, int out) {
       if (!read_all(in, &pkt[1], 4)) return 0;
       borg_core_list_flush();
       init(pkt[1] | pkt[2] << 8, pkt[3] | pkt[4] << 8, false);
-      const uint32_t a[4] = {DRAM_OUT_BASE_SPI, BORG_ZB_SPI, BORG_SB_SPI, BORG_HEAP_SPI};
-      uint8_t r[16];
-      for (int i = 0; i < 4; i++) for (int k = 0; k < 4; k++) r[4 * i + k] = a[i] >> (8 * k);
-      if (!write_all(out, r, 16)) return 0;
+      const uint32_t a[7] = {DRAM_OUT_BASE_SPI, BORG_ZB_SPI, BORG_SB_SPI, BORG_HEAP_SPI,
+                             BORG_ATT_SPI(1), BORG_ATT_SPI(2), BORG_ATT_SPI(3)};
+      uint8_t r[28];
+      for (int i = 0; i < 7; i++) for (int k = 0; k < 4; k++) r[4 * i + k] = a[i] >> (8 * k);
+      if (!write_all(out, r, 28)) return 0;
       continue;
     }
     if (pkt[0] == 0xBE) {
