@@ -155,7 +155,7 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   // instruction words are staged; the sequencer re-DMAs them into IMEM each render.
   uint32_t n = blob[0];
   if (stage == 0 && n > DRAW_VERT_SHADER_MAX_WORDS) return;
-  if (stage == 1 && n > BORG_IMEM_FRAG_LEN) return;
+  if (stage == 1 && n > DRAW_FRAG_SHADER_MAX_WORDS) return;
   // A blob must carry its draw extension, and every window word must land inside its
   // stage's window (u25-u31 vertex, u20-u31 fragment).
   static spirb_shader_t parsed;
@@ -177,11 +177,11 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   }
 #endif
   const uint8_t *w = blob + 6;
-  uint32_t addr = (stage == 0) ? DRAW_VERT_SHADER_SPI : SEQ_FRAG_SHADER_ADDR;
+  uint32_t addr = (stage == 0) ? DRAW_VERT_SHADER_SPI : DRAW_FRAG_SHADER_SPI;
   for (uint32_t i = 0; i < n; i++) BDRAM_W(addr + i * 4, le32(w + i * 4));
   // Zero word (HALT) after the program: real SDRAM holds power-up junk and the core
   // would run off the end of a blob a compiler did not terminate.
-  if ((stage == 0 && n < DRAW_VERT_SHADER_MAX_WORDS) || (stage == 1 && n < BORG_IMEM_FRAG_LEN))
+  if ((stage == 0 && n < DRAW_VERT_SHADER_MAX_WORDS) || (stage == 1 && n < DRAW_FRAG_SHADER_MAX_WORDS))
     BDRAM_W(addr + n * 4, 0);
   if (stage == 0) {
     BREG_W(seq_vert_addr, DRAW_VERT_SHADER_SPI);
@@ -189,7 +189,7 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
     g_draw_vert = parsed;
     g_draw_vert_ok = 1;
   } else {
-    BREG_W(seq_frag_addr, SEQ_FRAG_SHADER_ADDR);
+    BREG_W(seq_frag_addr, DRAW_FRAG_SHADER_SPI);
     BREG_W(seq_frag_len, n);
     frag_shader = parsed;
   }
