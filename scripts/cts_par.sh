@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run a pattern of Vulkan CTS cases sharded over N parallel deqp-vk processes.
+# Run a pattern of Vulkan CTS cases on N parallel deqp-vk workers.
 #
 #   JOBS=12 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.pipeline.monolithic.sampler.view_type.1d.*'
 #
@@ -13,8 +13,9 @@
 # PASS_DB=file remembers passing cases: cases listed in it are not run again (and are
 # counted as Pass), new passes are appended.  It is cleared only by hand (PASS_DB_RESET=1).
 #
-# Each shard is a separate scripts/cts_one.sh --list run with its own scratch dir
-# ($OUT/run_N); the summary and a per-case result table land in $OUT/summary.txt
+# The cases are run in small chunks taken from a queue by JOBS workers, each chunk a
+# scripts/cts_one.sh --list run with its own scratch dir ($OUT/run_cNNNNN); chunk wall times
+# (slowest first) are in $OUT/chunk_times.txt, the summary and a per-case result table land in $OUT/summary.txt
 # and $OUT/results.txt.  Same env overrides as cts_one.sh (DIRECT, VK_GL_CTS,
 # MESA_ROOT ...); OUT here is the parent directory.
 set -euo pipefail
@@ -75,38 +76,57 @@ if [[ -n "${PASS_DB:-}" ]]; then
   echo "$cached cases passed before with this driver: skipped"
 fi
 total=$(wc -l < "$OUT/all.txt")
-echo "$total cases, $JOBS shards"
 
-# Deal the cases out in a fixed pseudo-random order: the list alternates cheap cases
-# (NotSupported, e.g. the _compute twins) with real renders, so a fixed stride that
-# divides the shard count would give some shards all the work.
+# A queue of small chunks, taken by JOBS workers as they become free: a slow case holds up
+# only its own chunk, never a fixed share of the list. The list is shuffled (fixed seed) so
+# cheap and expensive cases mix. CHUNK overrides the chunk size.
 shuf --random-source=<(yes) "$OUT/all.txt" > "$OUT/shuffled.txt"
-for ((j = 0; j < JOBS; j++)); do
-  awk -v n="$JOBS" -v j="$j" '(NR - 1) % n == j' "$OUT/shuffled.txt" > "$OUT/shard_$j.txt"
-done
+CHUNK="${CHUNK:-$(( (total + JOBS * 8 - 1) / (JOBS * 8) ))}"
+(( CHUNK < 1 )) && CHUNK=1
+(( CHUNK > 50 )) && CHUNK=50
+echo "$total cases, $JOBS workers, chunks of $CHUNK"
+mkdir -p "$OUT/chunks"
+[[ $total -gt 0 ]] && split -l "$CHUNK" -d -a 5 "$OUT/shuffled.txt" "$OUT/chunks/c"
+export BORGVK_SIM_PARTS=1      # one simulator process per case: the workers are the parallelism
+run_chunk() {   # $1 = chunk file; its run directory is named after it
+  local d="$OUT/run_$(basename "$1")"
+  local t0=$(date +%s)
+  OUT="$d" NO_FW_BUILD=1 "$HERE/cts_one.sh" --list "$1" > "$d.log" 2>&1 || true
+  echo "$(( $(date +%s) - t0 )) $(basename "$1") $(wc -l < "$1")" >> "$OUT/chunk_times.txt"
+}
+export -f run_chunk; export OUT HERE
+collect() {     # per-case results of the run directories given
+  for d in "$@"; do
+    [[ -f "$d/deqp.log" ]] || continue
+    awk '/^Test case \x27/{c=$3; gsub(/\x27|\.\.$/,"",c)}
+         /^  (Pass|Fail|NotSupported|QualityWarning|CompatibilityWarning|InternalError|ResourceError|Crash|Timeout)( |$)/ \
+           {print $1, c, substr($0, index($0,$2))}' "$d/deqp.log"
+  done
+}
 start=$(date +%s)
-for ((j = 0; j < JOBS; j++)); do
-  [[ -s "$OUT/shard_$j.txt" ]] || continue
-  OUT="$OUT/run_$j" NO_FW_BUILD=1 "$HERE/cts_one.sh" --list "$OUT/shard_$j.txt" \
-    > "$OUT/shard_$j.log" 2>&1 &
-done
-wait
+: > "$OUT/chunk_times.txt"
+ls "$OUT"/chunks/c* 2>/dev/null | xargs -r -P "$JOBS" -I{} bash -c 'run_chunk {}'
+collect "$OUT"/run_c* > "$OUT/results.txt"
+# A crash takes the rest of its chunk with it: run the cases that have no result one by one.
+awk '{print $2}' "$OUT/results.txt" | sort -u > "$OUT/have.txt"
+sort -u "$OUT/all.txt" | comm -23 - "$OUT/have.txt" > "$OUT/missing.txt"
+if [[ -s "$OUT/missing.txt" ]]; then
+  echo "$(wc -l < "$OUT/missing.txt") cases without a result (a crash in their chunk): run singly"
+  mkdir -p "$OUT/singles"
+  split -l 1 -d -a 5 "$OUT/missing.txt" "$OUT/singles/s"
+  ls "$OUT"/singles/s* | xargs -r -P "$JOBS" -I{} bash -c 'run_chunk {}'
+  collect "$OUT"/run_s* >> "$OUT/results.txt"
+  awk '{print $2}' "$OUT/results.txt" | sort -u > "$OUT/have.txt"
+  comm -23 "$OUT/missing.txt" "$OUT/have.txt" | awk '{print "Crash", $1, "(no result)"}' >> "$OUT/results.txt"
+fi
 elapsed=$(( $(date +%s) - start ))
+sort -rn "$OUT/chunk_times.txt" -o "$OUT/chunk_times.txt"    # slowest chunks first
 
-# Per-case result table, from each shard's deqp log.
-: > "$OUT/results.txt"
-for ((j = 0; j < JOBS; j++)); do
-  log="$OUT/run_$j/deqp.log"
-  [[ -f "$log" ]] || continue
-  awk '/^Test case \x27/{c=$3; gsub(/\x27|\.\.$/,"",c)}
-       /^  (Pass|Fail|NotSupported|QualityWarning|CompatibilityWarning|InternalError|ResourceError|Crash|Timeout)( |$)/ \
-         {print $1, c, substr($0, index($0,$2))}' "$log" >> "$OUT/results.txt"
-done
 if [[ -n "${PASS_DB:-}" ]]; then
   awk '$1=="Pass"{print $2}' "$OUT/results.txt" >> "$PASS_DB"
   awk '{print "Pass", $1, "(cached)"}' "$OUT/cached_pass.txt" >> "$OUT/results.txt"
 fi
 {
-  echo "pattern: $1   cases: $((total + cached))   (run: $total, cached passes: $cached)   shards: $JOBS   wall: ${elapsed}s"
+  echo "pattern: $1   cases: $((total + cached))   (run: $total, cached passes: $cached)   workers: $JOBS   wall: ${elapsed}s"
   awk '{n[$1]++} END{for (k in n) printf "%-22s %d\n", k, n[k]}' "$OUT/results.txt" | sort
 } | tee "$OUT/summary.txt"
