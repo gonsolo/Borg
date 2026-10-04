@@ -89,18 +89,21 @@
 // GPU heap (simulator): vertex and index buffers uploaded by 0xB8 packets live
 // here, addressed by byte offset from the base. Above the framebuffer, the TBR
 // bin lists and the setup store, and below the end of the simulator's memory.
-#define BORG_HEAP_SPI           0x1000000
-#define BORG_HEAP_BYTES         0x0B00000
+// The map above them is sized for 1024 x 1024 pixels: two RAW32 frames (8 MB), the bins of
+// one 64 x 64-tile window (2 MB) and 60,000 setup records (15 MB) end below 0x2000000.
+#define BORG_HEAP_SPI           0x2000000
+#define BORG_HEAP_BYTES         0x2000000
 // Render lists (docs/B1_geometry_front_end.md, "Render lists"), built by borg_core: the
 // list's entries first, then the draws' state and parameter blocks, shader code, constant
 // windows and vertex attribute descriptors.
-#define BORG_LIST_SPI           0x1B00000
+#define BORG_LIST_SPI           0x4000000
 #define BORG_LIST_ENTRY_BYTES   0x0010000      // 8191 draws and the end entry
 #define BORG_LIST_BYTES         0x0400000
 // Depth and stencil attachments (simulator), above the heap: per 4x4 tile 32 bytes of
-// D16_UNORM or 64 of D32_SFLOAT, and 16 bytes of S8_UINT. Room for 256x256 pixels.
-#define BORG_ZB_SPI             0x1F00000
-#define BORG_SB_SPI             0x1F80000
+// D16_UNORM or 64 of D32_SFLOAT, and 16 bytes of S8_UINT. Room for 1024x1024 pixels.
+#define BORG_ZB_SPI             0x4400000
+#define BORG_SB_SPI             0x4800000
+#define BORG_SIM_MEM_BYTES      0x8000000      // the simulator's memory, a power of two above 0x4900000
 
 // -------------------------------------------------------------------------
 // Framebuffer region — starts immediately after texture.

@@ -105,7 +105,9 @@ static void core_apply_layout(void) {
   // TBR DRAM regions: bin lists, then the setup store.
   uint32_t fb_end_spi = (uint32_t)DRAM_SPI_BASE + (uint32_t)DRAM_OUT_OFFSET + 2u * frame_stride * 4u;
   tbr_bin_base = fb_end_spi;
-  tbr_setup_base = tbr_bin_base + (uint32_t)((width >> 2) * (height >> 2)) * TBR_BIN_ROW_BYTES;
+  // The bins are those of one render window (64 x 64 tiles at most).
+  const int win_w = width < 256 ? width : 256, win_h = height < 256 ? height : 256;
+  tbr_setup_base = tbr_bin_base + (uint32_t)((win_w >> 2) * (win_h >> 2)) * TBR_BIN_ROW_BYTES;
 }
 
 void borg_core_init(int width, int height) {
