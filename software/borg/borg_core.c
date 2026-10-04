@@ -423,8 +423,8 @@ static uint32_t list_alloc(uint32_t bytes) {
 }
 
 // The strip of tile rows this simulator renders (strip k of n), for a pass split over several.
-static int g_strip_k = 0, g_strip_n = 1;
-void borg_core_set_strip(int k, int n) { g_strip_k = k; g_strip_n = n > 0 ? n : 1; }
+static int g_strip_k = 0, g_strip_n = 1, g_strip_rows = 0;
+void borg_core_set_strip(int k, int n, int rows) { g_strip_k = k; g_strip_n = n > 0 ? n : 1; g_strip_rows = rows; }
 
 static void list_reset(void) {
   g_list.n = 0; g_list.top = BORG_LIST_ENTRY_BYTES; g_list.state_addr = 0; g_list.state_n = 0;
@@ -546,8 +546,8 @@ static void list_trigger(uint32_t list, uint32_t load) {
   BREG_W(draw_cfg, 1u | ((uint32_t)g_list.shift << 6));   // the record stride, before any block
   BREG_W(render_list, list);
   if (g_strip_n > 1) {
-    const int per = (fb_tiles + g_strip_n - 1) / g_strip_n, y0 = g_strip_k * per;
-    const int rows = per < fb_tiles - y0 ? per : fb_tiles - y0;
+    const int fb_rows = borg_fb_height >> 2, per = g_strip_rows, y0 = g_strip_k * per;
+    const int rows = per < fb_rows - y0 ? per : fb_rows - y0;
     for (int wy = y0; wy < y0 + rows; wy += win_tiles)
       for (int wx = 0; wx < fb_tiles; wx += win_tiles) {
         BREG_W(seq_tile_rows, y0 + rows - wy < win_tiles ? y0 + rows - wy : win_tiles);
