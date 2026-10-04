@@ -58,6 +58,7 @@ fi
 LOADER="$(pkg-config --variable=libdir vulkan)"
 export LD_LIBRARY_PATH="$LOADER:${LD_LIBRARY_PATH:-}"
 export VK_DRIVER_FILES="$ICD"
+export VK_LOADER_LAYERS_DISABLE="~implicit~"
 export LD_PRELOAD="$SHIM${LD_PRELOAD:+:$LD_PRELOAD}"
 export BORGVK_SIM="$SIM_BIN"
 export BORGVK_SIM_FW="$SIM_FW"
