@@ -60,11 +60,12 @@ static struct {
 static uint32_t g_vtab[BORG_MAX_VATTRS][4];   // vertex attribute descriptors, words 0..3
 static int g_vtab_dirty = 1;
 #endif
-static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px)
+static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px), 5 RAW8 (1 B/px)
+static uint32_t flush_bytes_per_pixel(int f) { return f == 5 ? 1u : f ? 4u : 2u; }
 
 // Words per framebuffer, plus the DONE marker word.
 static uint32_t frame_stride_words(void) {
-  return (uint32_t)borg_fb_width * (uint32_t)borg_fb_height * (g_flush_format ? 4u : 2u) / 4u + 1u;
+  return (uint32_t)borg_fb_width * (uint32_t)borg_fb_height * flush_bytes_per_pixel(g_flush_format) / 4u + 1u;
 }
 
 void borg_core_set_flush_format(int fmt) { g_flush_format = (fmt >= 1 && fmt <= 3) ? fmt : 0; }
@@ -103,7 +104,9 @@ static void core_apply_layout(void) {
   BREG_W(flush_width, log2_w);
 
   // TBR DRAM regions: bin lists, then the setup store.
-  uint32_t fb_end_spi = (uint32_t)DRAM_SPI_BASE + (uint32_t)DRAM_OUT_OFFSET + 2u * frame_stride * 4u;
+  // Two frames, one for a target over 4 MB (the simulator's render lists only use frame 0).
+  const uint32_t frames = frame_stride > 0x100000u ? 1u : 2u;
+  uint32_t fb_end_spi = (uint32_t)DRAM_SPI_BASE + (uint32_t)DRAM_OUT_OFFSET + frames * frame_stride * 4u;
   tbr_bin_base = fb_end_spi;
   // The bins are those of one render window (64 x 64 tiles at most).
   const int win_w = width < 256 ? width : 256, win_h = height < 256 ? height : 256;
@@ -455,13 +458,19 @@ static uint32_t list_block(uint32_t regs[][2], int n) {
 
 #define LREG(arr, n, field, v) do { arr[n][0] = (uint32_t)offsetof(borg_gpu_t, field); arr[n][1] = (uint32_t)(v); n++; } while (0)
 
+// 65,535 triangles at most per render, and as many setup records (256 B each) as fit below the heap.
+static uint32_t setup_room_tris(void) {
+  const uint32_t room = (BORG_HEAP_SPI - tbr_setup_base) / TBR_SETUP_ENTRY_BYTES;
+  return room < 60000u ? room : 60000u;
+}
+
 void borg_core_list_draw(void) {
   int shift = draw_record_shift(g_draw_vert.num_varyings);
   if (!g_draw_vert_ok || shift < 0 || g_draw_vertex_count <= 0 || !g_sh[0].bytes || !g_sh[1].bytes) return;
   // One record stride, at most 65,535 triangles and one arena per render: otherwise render
   // what is queued and start the next list with this draw.
   uint32_t tris = (uint32_t)g_draw_vertex_count * (g_dp.instance_count ? g_dp.instance_count : 1);
-  if (g_list.n && (shift != g_list.shift || g_list.tris + tris > 60000u ||
+  if (g_list.n && (shift != g_list.shift || g_list.tris + tris > setup_room_tris() ||
                    g_list.n >= BORG_LIST_ENTRY_BYTES / 8 - 1 || g_list.top + 0x4000 > BORG_LIST_BYTES))
     borg_core_list_flush();
   if (g_list.n == 0) { g_list.load = g_dp.load; g_list.shift = shift; }
@@ -694,7 +703,7 @@ int borg_core_packet(const uint8_t *p) {
 #ifdef BORG_HOST
   case 0xB6: { // render target: flush format + clear colour (4 x float32)
     int fmt = p[1];
-    if (fmt > 3) return BC_BAD;
+    if (fmt > 3 && fmt != 5) return BC_BAD;
     if (fmt != g_flush_format) {
       g_flush_format = fmt;
       core_apply_layout();
@@ -704,7 +713,7 @@ int borg_core_packet(const uint8_t *p) {
   }
   case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT
     int fmt = p[1];
-    if (fmt > 3 || p[2] > 7) return BC_BAD;
+    if ((fmt > 3 && fmt != 5) || p[2] > 7) return BC_BAD;
     if (fmt != g_flush_format) {
       g_flush_format = fmt;
       core_apply_layout();

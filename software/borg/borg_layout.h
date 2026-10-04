@@ -81,7 +81,7 @@
 // sampler table holds 256 descriptors of 16 bytes.
 #define BORG_TEX_SLOTS          256
 #define BORG_VATTR_SLOT0        128
-#define BORG_MAX_VATTRS         16
+#define BORG_MAX_VATTRS         17      // 16 application locations, and the point corner attribute
 #define TEX_DESC_TABLE_ADDR     TEX_DRAM_BYTE_ADDR_FIXED
 #define SAMPLER_DESC_TABLE_ADDR (TEX_DESC_TABLE_ADDR + BORG_TEX_SLOTS * 64)
 #define TEX_TEXEL_ADDR          (SAMPLER_DESC_TABLE_ADDR + BORG_TEX_SLOTS * 16)

@@ -387,9 +387,13 @@ gathers each vertex attribute six times and adds an attribute in texture slot
 15, `(dx, dy)` per corner: +-0.5 pixel in clip units (`2 / extent`). borgc
 (`vfetch` bit 30, set by the pipeline) fetches it and moves the corner by
 `(dx, dy) * gl_PointSize * w`; the size is clamped to `pointSizeRange`
-[1, 64] (`largePoints` is reported). Culling is off for point pipelines.
-Pipelines with a vertex input at location 15 or above are rejected, and
-`gl_PointCoord` is not generated yet. Lines are not built.
+[1, 64] (`largePoints` is reported). Culling is off for point pipelines. The
+corner attribute is slot 16, so the application keeps locations 0-15.
+`gl_PointCoord` is two more varyings after the vertex stage's own: the
+driver compiles the vertex stage, reads its varying count from the blob and
+passes it to the fragment stage in the top byte of its option word, then
+recompiles the vertex stage with the extra outputs only if the fragment
+stage reads `gl_PointCoord`. Lines are not built.
 
 **Constant windows.** The vertex constant window is u25-u30 and the fragment
 one u20-u30: `Borg.scala` never lets the DMA write u31, which stays
