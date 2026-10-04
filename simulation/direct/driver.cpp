@@ -61,6 +61,7 @@ int Driver::run_stream(const std::vector<uint8_t> &b) {
 // Serve mode: packets on `in`, answers on `out`, memory shared with the driver process.
 //   0xBC w16 h16   set the target size; answers 16 bytes: the byte addresses of the colour,
 //                  depth and stencil attachments and of the heap (u32 each, little endian)
+//   0xBE k n       render strip k of n tile-row strips from now on
 //   0xBD           answers one byte when every draw so far has finished
 //   anything else  a wire packet for borg_core_packet(); a draw packet renders
 #include <unistd.h>
@@ -84,6 +85,12 @@ int Driver::serve(int in, int out) {
       uint8_t r[16];
       for (int i = 0; i < 4; i++) for (int k = 0; k < 4; k++) r[4 * i + k] = a[i] >> (8 * k);
       if (!write_all(out, r, 16)) return 0;
+      continue;
+    }
+    if (pkt[0] == 0xBE) {
+      if (!read_all(in, &pkt[1], 2)) return 0;
+      borg_core_list_flush();
+      borg_core_set_strip(pkt[1], pkt[2]);
       continue;
     }
     if (pkt[0] == 0xBD) {

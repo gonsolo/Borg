@@ -417,6 +417,10 @@ static uint32_t list_alloc(uint32_t bytes) {
   return a;
 }
 
+// The strip of tile rows this simulator renders (strip k of n), for a pass split over several.
+static int g_strip_k = 0, g_strip_n = 1;
+void borg_core_set_strip(int k, int n) { g_strip_k = k; g_strip_n = n > 0 ? n : 1; }
+
 static void list_reset(void) {
   g_list.n = 0; g_list.top = BORG_LIST_ENTRY_BYTES; g_list.state_addr = 0; g_list.state_n = 0;
   g_list.vtab_addr = 0; g_list.tris = 0;
@@ -529,6 +533,20 @@ static void list_trigger(uint32_t list, uint32_t load) {
   BREG_W(tile_load, load);
   BREG_W(draw_cfg, 1u | ((uint32_t)g_list.shift << 6));   // the record stride, before any block
   BREG_W(render_list, list);
+  if (g_strip_n > 1) {
+    const int per = (fb_tiles + g_strip_n - 1) / g_strip_n, y0 = g_strip_k * per;
+    const int rows = per < fb_tiles - y0 ? per : fb_tiles - y0;
+    if (rows > 0) {
+      BREG_W(seq_tile_rows, rows);
+      BREG_W(fb_origin, (uint32_t)y0 << 16);
+      BREG_W(seq_trigger, 1);
+      while (BREG_R(status) & STATUS_REG_T__SEQ_BUSY_bm)
+        ;
+    }
+    borg_core_wait_idle();
+    BREG_W(render_list, 0);
+    return;
+  }
   int part = 0, nparts = 1, widx = 0;
   { const char *e = getenv("BORG_PART"); if (e) sscanf(e, "%d/%d", &part, &nparts); }
   for (int wy = 0; wy < fb_tiles; wy += win_tiles)

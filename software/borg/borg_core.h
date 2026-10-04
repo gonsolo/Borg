@@ -103,6 +103,7 @@ void borg_core_wait_idle(void);
 // pass, or earlier when a packet is about to change memory the queued draws read.
 void borg_core_list_draw(void);
 void borg_core_list_flush(void);
+void borg_core_set_strip(int k, int n);
 // stage + render + wait_idle, for hosts with nothing to time in between.
 void borg_core_draw(const borg_float_t *mvp, int frame);
 
