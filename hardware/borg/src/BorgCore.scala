@@ -121,6 +121,7 @@ class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   val drawMode = if (cfg.drawEnabled) Some(Input(Bool())) else None
   // One sample: the raster ROM stops before the per-sample depths.
   val drawSingle = if (cfg.drawEnabled) Some(Input(Bool())) else None
+  val setupShort = if (cfg.drawEnabled) Some(Input(Bool())) else None   // single sample, no depth bias
   // The texture unit's descriptor tables (TEX_DESC_BASE, SAMPLER_DESC_BASE),
   // and a pulse when either is written (forgets cached descriptors).
   val texDescBase  = if (cfg.samplerEnabled) Some(Input(UInt(GpuMemIO.AddrBits.W))) else None
@@ -231,7 +232,10 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   }.getOrElse(rasterRom(rasterRomAddrReg))
   val fetchedInstruction =
     Mux(fetchRast, rasterWord,
-      setupRom.map(rom => Mux(fetchSetup, rom(rasterRomAddrReg), instructionMemory.read(imemIndex(nextPC))))
+      setupRom.map { rom =>
+        val stop = io.setupShort.get && rasterRomAddrReg === BorgSetupRom.shortPc.U
+        Mux(fetchSetup, Mux(stop, 0.U, rom(rasterRomAddrReg)), instructionMemory.read(imemIndex(nextPC)))
+      }
         .getOrElse(instructionMemory.read(imemIndex(nextPC))))
   // False while the fetched word is not the program's word at that PC (an
   // instruction-cache miss or fill); nothing issues until it is. Always true

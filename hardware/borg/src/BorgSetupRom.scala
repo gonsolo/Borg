@@ -74,7 +74,7 @@ private[borg] object BorgSetupRom {
   val uBiasSlope = 22; val uBiasConst = 23; val uRFloor = 24
   val Uniforms = 25
 
-  val instructions: Seq[BigInt] = {
+  private val program: (Seq[BigInt], Int) = {
     import Instructions._
     // funct3: which operand is a uniform (1 = rs1, 2 = rs2, 3 = rs3).
     val U1 = 1; val U2 = 2; val U3 = 3
@@ -86,7 +86,7 @@ private[borg] object BorgSetupRom {
     val rInvDet = 7; val t = 8        // after
     val (ra, rb, rc) = (24, 25, 26)   // the plane being built
     val (za, zb, zc) = (27, 28, 29)   // Zn, accumulated over the three planes
-    val p = Seq.newBuilder[BigInt]
+    val p = scala.collection.mutable.ArrayBuffer[BigInt]()
 
     // 1/x: the ~11-bit FRCP estimate plus Newton steps, r = r*(2 - x*r),
     // written r + r*(1 - x*r) so it needs only 1.0. One step gives ~22 bits
@@ -268,6 +268,14 @@ private[borg] object BorgSetupRom {
     p += SOUT(rs2 = za, index = Record.plane(3))
     p += SOUT(rs2 = zb, index = Record.plane(3) + 1)
     p += SOUT(rs2 = zc, index = Record.plane(3) + 2)
+    p += SOUT(rs2 = rAbsInv, index = Record.InvDet)
+    p += SOUT(rs2 = uDepthScale,  index = Record.DepthScale,  funct3 = U2)
+    p += SOUT(rs2 = uDepthOffset, index = Record.DepthOffset, funct3 = U2)   // unbiased
+    p += SOUT(rs2 = uOne,         index = Record.One,         funct3 = U2)
+    // A single-sample draw without depth bias stops here (BorgCore, setupShort).
+    val shortPc = p.length
+    depthBias()
+    p += SOUT(rs2 = rBiasedOffset, index = Record.DepthOffset)
     covDelta(3, za, zb)
     // The same two deltas scaled into framebuffer depth, for per-sample depth.
     p += MUL(rs1 = uM0375, rs2 = zb, rd = t, funct3 = U1)
@@ -278,12 +286,9 @@ private[borg] object BorgSetupRom {
     p += FMA(rs1 = uP0375, rs2 = za, rs3 = t, rd = t, funct3 = U1)
     p += MUL(rs1 = t, rs2 = uDepthScale, rd = t, funct3 = U2)
     p += SOUT(rs2 = t, index = Record.SampleDepth + 1)
-    p += SOUT(rs2 = rAbsInv, index = Record.InvDet)
-    p += SOUT(rs2 = uDepthScale,  index = Record.DepthScale,  funct3 = U2)
-    depthBias()
-    p += SOUT(rs2 = rBiasedOffset, index = Record.DepthOffset)
-    p += SOUT(rs2 = uOne,         index = Record.One,         funct3 = U2)
     p += BigInt(0)                                                  // HALT
-    p.result()
+    (p.toSeq, shortPc)
   }
+  val instructions: Seq[BigInt] = program._1
+  val shortPc: Int = program._2
 }

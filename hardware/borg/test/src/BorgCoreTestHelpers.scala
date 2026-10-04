@@ -162,6 +162,7 @@ object BorgCoreTestHelpers {
     core.io.lsBase.get.poke(0.U)
     core.io.drawMode.foreach(_.poke(false.B))
     core.io.drawSingle.foreach(_.poke(false.B))
+    core.io.setupShort.foreach(_.poke(false.B))
     core.io.texDescBase.foreach(_.poke(0.U)); core.io.sampDescBase.foreach(_.poke(0.U))
     core.io.descWritten.foreach(_.poke(false.B))
     core.io.laneCoverage.foreach(_.foreach(_.poke(0.U)))
