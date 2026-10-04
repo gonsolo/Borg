@@ -536,13 +536,14 @@ static void list_trigger(uint32_t list, uint32_t load) {
   if (g_strip_n > 1) {
     const int per = (fb_tiles + g_strip_n - 1) / g_strip_n, y0 = g_strip_k * per;
     const int rows = per < fb_tiles - y0 ? per : fb_tiles - y0;
-    if (rows > 0) {
-      BREG_W(seq_tile_rows, rows);
-      BREG_W(fb_origin, (uint32_t)y0 << 16);
-      BREG_W(seq_trigger, 1);
-      while (BREG_R(status) & STATUS_REG_T__SEQ_BUSY_bm)
-        ;
-    }
+    for (int wy = y0; wy < y0 + rows; wy += win_tiles)
+      for (int wx = 0; wx < fb_tiles; wx += win_tiles) {
+        BREG_W(seq_tile_rows, y0 + rows - wy < win_tiles ? y0 + rows - wy : win_tiles);
+        BREG_W(fb_origin, (uint32_t)wx | ((uint32_t)wy << 16));
+        BREG_W(seq_trigger, 1);
+        while (BREG_R(status) & STATUS_REG_T__SEQ_BUSY_bm)
+          ;
+      }
     borg_core_wait_idle();
     BREG_W(render_list, 0);
     return;
