@@ -404,13 +404,18 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     // then record this render's (the tile has content iff it has triangles).
     val tileLinear = ((tileY >> 2) * io.mmio.tilesPerRow) + (tileX >> 2)
     tileWasDirty := dirtyReadData || colorChanged
-    tileDirtyMem.write(Cat(io.curBufIdx, tileLinear.pad(dirtyAddrBits)(dirtyAddrBits - 1, 0)),
-                       io.binner.countReadData =/= 0.U)
+    // TILE_LOAD.keep: an empty tile keeps what its attachments hold, so it is
+    // skipped whole and its dirty bit stays what the last full render left.
+    val keepTile = io.mmio.tileKeep && io.binner.countReadData === 0.U
+    when(!keepTile) {
+      tileDirtyMem.write(Cat(io.curBufIdx, tileLinear.pad(dirtyAddrBits)(dirtyAddrBits - 1, 0)),
+                         io.binner.countReadData =/= 0.U)
+    }
     if (BorgDebug.trace) printf("[SEQ] tile(%d,%d) binCount=%d\n",
       tileX >> 2, tileY >> 2, io.binner.countReadData)
     binTriIdx     := 0.U
     clearCounter  := 0.U
-    state         := sClearTile
+    state         := Mux(keepTile, sNextRenderTile, sClearTile)
   }
 
   /** Load the tile's attachments (BorgTileLoader), then continue as a clear

@@ -714,11 +714,14 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // Same per-tile addresses the flusher writes to; the clear values fill in
     // every aspect that is not loaded (see BorgTileLoader).
     val tileLoadReg = RegInit(0.U.asTypeOf(new TileLoadAspects))
+    val tileKeepReg = RegInit(false.B)
     when(bus.is_writing && bus.address === BorgGpuRegs.tile_load_offset) {
       tileLoadReg.color   := bus.data_in(0)
       tileLoadReg.depth   := bus.data_in(1)
       tileLoadReg.stencil := bus.data_in(2)
+      tileKeepReg         := bus.data_in(3)
     }
+    s.io.mmio.tileKeep := tileKeepReg
     tileLoadColor := tileLoadReg.color
     s.io.mmio.tileLoad := attLoad || tileLoadReg.depth || tileLoadReg.stencil
     ld.io.start       := s.io.flusher.loadStart

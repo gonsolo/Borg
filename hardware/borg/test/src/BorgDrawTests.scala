@@ -586,8 +586,9 @@ object BorgDrawTests extends TestSuite {
       for (y <- 0 until Size; x <- 0 until Size)
         Predef.assert(bytesAt(fmt, x, y) == ((if (in((x, y))) stored else cleared) & mask),
                       f"format $fmt pixel ($x,$y): 0x${bytesAt(fmt, x, y)}%x")
+      // TILE_LOAD.keep (bit 3) on RAW32: the same result, the empty tiles not touched.
       val c2 = rig.draw(tri, frag = addOne, sampleMaskCfg = 0xF | one, keep = true,
-                        extra = cfg :+ (BorgGpuRegs.tile_load_offset -> BigInt(1)))
+                        extra = cfg :+ (BorgGpuRegs.tile_load_offset -> BigInt(if (fmt == FlushFormat.RAW32) 9 else 1)))
       // Word 0 + 1 in whatever bytes the format keeps; RAW64's word 1 + 2.
       val exp1 = if (fmt == FlushFormat.RAW64) added else ((stored & mask) + 1) & mask
       for (y <- 0 until Size; x <- 0 until Size)

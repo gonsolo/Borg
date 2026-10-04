@@ -37,6 +37,11 @@ static spirb_shader_t g_draw_vert;     // varying count sizes the records; its w
 static int g_draw_vert_ok = 0;
 static spirb_shader_t frag_shader;     // its window fills DRAW_FS_CONST
 static int g_draw_vertex_count = 0;
+// Draw parameters of the generic path (0xBA); the cube path leaves them at a plain list draw.
+static struct {
+  uint32_t topology, index_type, restart, load, instance_count, first_vertex, first_instance, index_base;
+  int32_t vertex_offset;
+} g_dp = {0, 0, 0, 0, 1, 0, 0, 0, 0};
 static uint16_t clear_r, clear_g, clear_b;
 static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px)
 
@@ -263,6 +268,10 @@ void borg_core_stage(const borg_float_t *mvp) {
     }
   }
   g_draw_vertex_count = rx_geom_ntris * 3;
+  g_dp.topology = g_dp.index_type = g_dp.restart = g_dp.load = 0;
+  g_dp.instance_count = 1;
+  g_dp.first_vertex = g_dp.first_instance = g_dp.index_base = 0;
+  g_dp.vertex_offset = 0;
 }
 
 // Tiles per side of one render window: the bin table holds 4096 tiles (maxBinTiles), so 64.
@@ -324,11 +333,15 @@ void borg_core_render(int frame) {
   BREG_W(sample_mask_cfg, 0xF | (1u << 6));
   BREG_W(cull_cfg, borg_cull_cfg);
 
-  BREG_W(draw_cfg, 1u | ((uint32_t)record_shift << 6));   // mode=1, list, no indices, no restart
+  // TILE_LOAD: the aspects a tile starts from (bit 0 colour, 1 depth, 2 stencil) and keep
+  // (bit 3): the tiles the draw does not reach are left alone.
+  BREG_W(tile_load, g_dp.load);
+  BREG_W(draw_cfg, 1u | (g_dp.topology << 1) | (g_dp.index_type << 3) | (g_dp.restart << 5) |
+                   ((uint32_t)record_shift << 6));   // mode=1
   BREG_W(draw_vertex_count,   g_draw_vertex_count);
-  BREG_W(draw_instance_count, 1);
-  BREG_W(draw_first_vertex, 0); BREG_W(draw_first_instance, 0);
-  BREG_W(draw_vertex_offset, 0); BREG_W(draw_index_base, 0);
+  BREG_W(draw_instance_count, g_dp.instance_count);
+  BREG_W(draw_first_vertex, g_dp.first_vertex); BREG_W(draw_first_instance, g_dp.first_instance);
+  BREG_W(draw_vertex_offset, (uint32_t)g_dp.vertex_offset); BREG_W(draw_index_base, g_dp.index_base);
 
   if (g_draw_vertex_count > 0) {
     int part = 0, nparts = 1, widx = 0;
@@ -371,6 +384,10 @@ int borg_core_pkt_len(uint8_t marker) {
 #ifdef BORG_HOST
   case 0xB6: return BC_PKT_LEN_TARGET;
   case 0xB7: return BC_PKT_LEN_ATTR4;
+  case 0xB8: return BC_PKT_LEN_MEM;
+  case 0xBB: return BC_PKT_LEN_PASS;
+  case 0xB9: return BC_PKT_LEN_VATTR;
+  case 0xBA: return BC_PKT_LEN_DRAW;
 #endif
   default:   return 0;
   }
@@ -448,6 +465,53 @@ int borg_core_packet(const uint8_t *p) {
     }
     borg_core_set_clear(f32_to_fp16(le32(p + 2)), f32_to_fp16(le32(p + 6)), f32_to_fp16(le32(p + 10)));
     return BC_TARGET;
+  }
+  case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT
+    int fmt = p[1];
+    if (fmt > 3 || p[2] > 7) return BC_BAD;
+    if (fmt != g_flush_format) {
+      g_flush_format = fmt;
+      core_apply_layout();
+    }
+    BREG_W(flush_zb_base, (p[2] & 1) ? BORG_ZB_SPI : 0);
+    BREG_W(flush_sb_base, (p[2] & 2) ? BORG_SB_SPI : 0);
+    BREG_W(depth_format, (p[2] >> 2) & 1);
+    return BC_PASS;
+  }
+  case 0xB8: { // heap write: byte offset from BORG_HEAP_SPI, nbytes, data
+    uint32_t off = le32(p + 1), nb = (uint32_t)p[5] | ((uint32_t)p[6] << 8);
+    if (nb > BC_MEM_DATA || (off & 3u) || off + nb > BORG_HEAP_BYTES) return BC_BAD;
+    for (uint32_t i = 0; i < nb; i += 4) BDRAM_W(BORG_HEAP_SPI + off + i, le32(p + 7 + i));
+    return BC_MEM;
+  }
+  case 0xB9: { // vertex attribute: slot, TexFormat code, heap offset (signed), count, stride, swizzle bits
+    uint32_t slot = p[1], fmt = p[2];
+    uint32_t base = BORG_HEAP_SPI + le32(p + 3), count = le32(p + 7), stride = le32(p + 11), swz = le32(p + 15);
+    if (slot >= BORG_MAX_VATTRS || fmt == 0 || fmt > 51 || count < 1 || count > 4096 || stride == 0) return BC_BAD;
+    // A typed fetch from a width-1 linear image whose row pitch is the vertex stride (a draw is
+    // limited to 4096 vertices until the unit takes a 1D stride).
+    uint32_t d = TEX_DESC_TABLE_ADDR + (BORG_VATTR_SLOT0 + slot) * 64;
+    BDRAM_W(d + 0, base);
+    BDRAM_W(d + 4, 0u | ((count - 1) << 16) | (1u << 28) | (1u << 30));
+    BDRAM_W(d + 8, (fmt << 14) | (swz & 0xFFF00000u));
+    BDRAM_W(d + 12, stride);
+    for (int i = 4; i < 16; i++) BDRAM_W(d + (uint32_t)i * 4, 0);
+    BREG_W(tex_desc_base, TEX_DESC_TABLE_ADDR);   // drops the unit's cached descriptor
+    return BC_VATTR;
+  }
+  case 0xBA: { // draw: topology, index type, restart, counts, first vertex/instance, vertex offset, index base
+    // p[3]: bit 0 primitive restart; bits 4:1 TILE_LOAD (colour, depth, stencil, keep). A draw
+    // that loads colour alone continues its pass: it keeps the tiles it does not reach.
+    if (p[1] > 2 || p[2] > 2 || p[3] > 31) return BC_BAD;
+    g_dp.topology = p[1]; g_dp.index_type = p[2]; g_dp.restart = p[3] & 1; g_dp.load = (p[3] >> 1) & 15;
+    if (g_dp.load == 1) g_dp.load = 9;
+    g_draw_vertex_count = (int)le32(p + 4);
+    g_dp.instance_count = le32(p + 8);
+    g_dp.first_vertex = le32(p + 12);
+    g_dp.first_instance = le32(p + 16);
+    g_dp.vertex_offset = (int32_t)le32(p + 20);
+    g_dp.index_base = g_dp.index_type ? BORG_HEAP_SPI + le32(p + 24) : 0;
+    return BC_DRAW;
   }
   case 0xB7: { // vec4 attribute 1 per corner (overrides the 2-float texture coordinate)
     int n = p[1];

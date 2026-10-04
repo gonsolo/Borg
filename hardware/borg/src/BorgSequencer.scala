@@ -50,6 +50,9 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   val frontFaceInvert = Input(Bool())
   // Any attachment aspect has loadOp = LOAD (TILE_LOAD != 0).
   val tileLoad        = Input(Bool())
+  // TILE_LOAD.keep: a tile no triangle of this render reaches is left alone
+  // (no clear, no load, no flush) -- a render that continues an attachment.
+  val tileKeep        = Input(Bool())
   // ATTACH_MS: multisampled attachments stored/loaded per sample. At
   // msaaMultiPass each pass then flushes its own sample instead of folding it
   // into the resolve accumulator.

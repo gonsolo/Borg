@@ -513,7 +513,8 @@ reg tile_load_reg_t {
     field { sw = rw; hw = r; desc = "Load colour (and alpha) from the colour attachment."; } color[1] = 0;
     field { sw = rw; hw = r; desc = "Load depth (D16_UNORM) from FLUSH_ZB_BASE."; } depth[1] = 0;
     field { sw = rw; hw = r; desc = "Load stencil (S8_UINT) from FLUSH_SB_BASE."; } stencil[1] = 0;
-    field { sw = rw; hw = na; } RSVD[29] = 0;
+    field { sw = rw; hw = r; desc = "Keep: a tile no triangle of this render reaches is not cleared, loaded or flushed. For a render that continues its attachments (every aspect loads)."; } keep[1] = 0;
+    field { sw = rw; hw = na; } RSVD[28] = 0;
 };
 // Stencil attachment: 16 bytes (S8_UINT) per 4x4 tile, flushed after the
 // depth burst when nonzero -- the same enable convention as FLUSH_ZB_BASE.

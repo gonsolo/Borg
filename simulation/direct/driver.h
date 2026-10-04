@@ -18,6 +18,8 @@ public:
   // Feed borgvk's wire stream; a draw runs when its MVP packet arrives.
   // Returns the number of draws rendered.
   int run_stream(const std::vector<uint8_t> &bytes);
+  // Serve mode (see driver.cpp): runs until `in` closes.
+  int serve(int in, int out);
 
   // RGB888 of the last rendered frame (width*height*3).
   std::vector<uint8_t> framebuffer_rgb() const;

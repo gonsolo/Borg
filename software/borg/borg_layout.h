@@ -74,11 +74,27 @@
 #define TEX_REGION_BYTES      (256 * 256 * 8)   // 0x80000 = 512 KB
 
 // The texture unit's descriptor tables (docs/B2_texture_unit.md), at the start
-// of the region, texels after them. One texture (16 words) and one sampler
-// (4 words) today; TEX_DESC_BASE and SAMPLER_DESC_BASE point here.
+// of the region, texels after them. TEX_DESC_BASE and SAMPLER_DESC_BASE point
+// here. The texture table holds 256 descriptors of 64 bytes: slot 0 is the
+// application's texture, slots BORG_VATTR_SLOT0.. are vertex attributes
+// (typed fetch, see docs/B1_geometry_front_end.md "Vertex input"). The
+// sampler table holds 256 descriptors of 16 bytes.
+#define BORG_TEX_SLOTS          256
+#define BORG_VATTR_SLOT0        128
+#define BORG_MAX_VATTRS         16
 #define TEX_DESC_TABLE_ADDR     TEX_DRAM_BYTE_ADDR_FIXED
-#define SAMPLER_DESC_TABLE_ADDR (TEX_DRAM_BYTE_ADDR_FIXED + 64)
-#define TEX_TEXEL_ADDR          (TEX_DRAM_BYTE_ADDR_FIXED + 256)
+#define SAMPLER_DESC_TABLE_ADDR (TEX_DESC_TABLE_ADDR + BORG_TEX_SLOTS * 64)
+#define TEX_TEXEL_ADDR          (SAMPLER_DESC_TABLE_ADDR + BORG_TEX_SLOTS * 16)
+
+// GPU heap (simulator): vertex and index buffers uploaded by 0xB8 packets live
+// here, addressed by byte offset from the base. Above the framebuffer, the TBR
+// bin lists and the setup store, and below the end of the simulator's memory.
+#define BORG_HEAP_SPI           0x1000000
+#define BORG_HEAP_BYTES         0x0F00000
+// Depth and stencil attachments (simulator), above the heap: per 4x4 tile 32 bytes of
+// D16_UNORM or 64 of D32_SFLOAT, and 16 bytes of S8_UINT. Room for 256x256 pixels.
+#define BORG_ZB_SPI             0x1F00000
+#define BORG_SB_SPI             0x1F80000
 
 // -------------------------------------------------------------------------
 // Framebuffer region — starts immediately after texture.

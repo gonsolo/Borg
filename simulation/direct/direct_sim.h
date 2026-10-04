@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <vector>
+#include <cstdlib>
+#include <sys/mman.h>
 
 class DirectSim {
 public:
@@ -14,15 +16,22 @@ public:
   static constexpr uint32_t MEM_BYTES = 1u << 25;
 
   BorgDirectSimTop model;
-  std::vector<uint8_t> mem;
+  uint8_t *mem;   // MEM_BYTES; the process's own, or a mapping shared with the driver (--serve)
   uint64_t cycles = 0;
+  uint32_t trace_lo = 0, trace_hi = 0;   // DIRECT_TRACE=lo:hi (hex): log the GPU's reads in [lo, hi)
 
   // Latencies, in cycles, between a GPU request and its `ready` pulse.  The SoC's
   // controller takes about this long per word through the SDRAM backend.
   uint32_t read_latency  = 6;
   uint32_t write_latency = 3;
 
-  DirectSim() : mem(MEM_BYTES, 0) {
+  explicit DirectSim(int shared_fd = -1) {
+    if (shared_fd >= 0) {
+      mem = (uint8_t *)mmap(nullptr, MEM_BYTES, PROT_READ | PROT_WRITE, MAP_SHARED, shared_fd, 0);
+      if (mem == MAP_FAILED) { perror("[direct] mmap"); exit(1); }
+    } else {
+      mem = (uint8_t *)calloc(MEM_BYTES, 1);
+    }
     auto &v = model.view;
     v.clk = 0; v.rst_n = 0;
     v.mmio_req_valid = 0; v.mmio_resp_ready = 1;
@@ -31,6 +40,7 @@ public:
     for (int i = 0; i < 8; i++) edge();
     v.rst_n = 1;
     for (int i = 0; i < 4; i++) tick();
+    if (const char *t = getenv("DIRECT_TRACE")) sscanf(t, "%x:%x", &trace_lo, &trace_hi);
   }
 
   // --- memory (host side) ---
@@ -60,7 +70,8 @@ public:
   // inputs, then take the clock edge.
   void tick() {
     auto &v = model.view;
-    model.eval();
+    // The outputs are settled: every path here ends in an eval() with the clock low, and
+    // whoever changes an input afterwards (mmio()) evaluates before it reads an output.
     v.gpu_ready = 0;
     v.gpu_waccept = 0;
     switch (gstate) {
@@ -75,6 +86,7 @@ public:
       } else if (v.gpu_req) {
         gaddr = v.gpu_addr & (MEM_BYTES - 1);
         gdata = r32(gaddr);
+        if (trace_lo <= gaddr && gaddr < trace_hi) fprintf(stderr, "[mem] rd %07x = %08x\n", gaddr, gdata);
         gdelay = read_latency; gread = true; gstate = DELAY;
       }
       break;
@@ -92,8 +104,7 @@ public:
       }
       break;
     }
-    model.eval();
-    edge();
+    edge();   // the rising-edge eval sees the inputs just set
   }
 
   // --- register bus ---

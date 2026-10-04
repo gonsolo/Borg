@@ -43,7 +43,12 @@ extern "C" {
 #define BC_PKT_LEN_TEXG    (1 + 4 + 2 + 12 + 16 + BC_TEXG_DATA + 1)
 #define BC_PKT_LEN_TARGET  (1 + 1 + 16 + 1)   // 0xB6: flush format, clear colour (4 x float32)
 #define BC_PKT_LEN_ATTR4   (1 + 1 + BC_GEOM_MAX_TRIS * 3 * 16 + 1)   // 0xB7 (host only): vec4 attribute 1 per corner
-#define BC_PKT_LEN_MAX     BC_PKT_LEN_GEOM
+#define BC_MEM_DATA        256
+#define BC_PKT_LEN_MEM     (1 + 4 + 2 + BC_MEM_DATA + 1)   // 0xB8 (host only): heap write
+#define BC_PKT_LEN_VATTR   (1 + 1 + 1 + 4 + 4 + 4 + 4 + 1) // 0xB9 (host only): vertex attribute descriptor
+#define BC_PKT_LEN_DRAW    (1 + 3 + 6 * 4 + 1)             // 0xBA (host only): draw parameters, runs the draw
+#define BC_PKT_LEN_PASS    (1 + 1 + 1 + 1)                 // 0xBB (host only): render pass attachments
+#define BC_PKT_LEN_MAX     BC_PKT_LEN_MEM
 
 // Fixed length of the packet starting with `marker`; 0 for a marker that is not
 // a draw packet (0xB1 is the serial-reload trigger, handled by the platform).
@@ -60,6 +65,10 @@ enum {
   BC_STATE,          // blend, stencil/depth/cull or push constants (the draw's MVP follows)
   BC_TEXG,           // generic texture chunk
   BC_TARGET,         // colour attachment format + clear colour (0xB6)
+  BC_MEM,            // heap write (0xB8)
+  BC_VATTR,          // vertex attribute descriptor (0xB9)
+  BC_PASS,           // attachments of the pass: colour format, depth, stencil (0xBB)
+  BC_DRAW,           // draw parameters; the draw runs (0xBA)
 };
 
 // Validate and act on one complete packet (p[0] = marker, borg_core_pkt_len bytes).

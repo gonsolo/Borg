@@ -71,6 +71,11 @@ static int run_compute(const char *jobf, const char *outf) {
 
 int main(int argc, char **argv) {
   if (argc == 4 && std::string(argv[1]) == "--compute") return run_compute(argv[2], argv[3]);
+  if (argc == 3 && std::string(argv[1]) == "--serve") {   // direct_sim --serve <memory fd>
+    DirectSim sim(atoi(argv[2]));
+    Driver drv(sim);
+    return drv.serve(0, 1);
+  }
   if (argc < 4) { fprintf(stderr, "usage: %s <stream.bin> <W> <H> [out.rgb]\n", argv[0]); return 1; }
   std::ifstream f(argv[1], std::ios::binary);
   if (!f) { fprintf(stderr, "cannot open %s\n", argv[1]); return 1; }
