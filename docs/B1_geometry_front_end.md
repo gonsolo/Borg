@@ -378,10 +378,22 @@ vertex-shader run derives its primitive and corner from `VertexIndex`,
 pulls the endpoint(s) itself (through the index buffer, if any), clips a
 segment to the near plane in clip space, and offsets its corner by half a
 pixel -- for a line, along the minor axis, which is the parallelogram Vulkan
-allows for non-strict lines (`strictLines = false`); for a point, a 1x1
-square (`largePoints` not reported). The corners carry their endpoint's
-varyings, so attributes interpolate along the line with perspective
-correction; `gl_PointCoord` is a varying the vertex stage adds.
+allows for non-strict lines (`strictLines = false`). The corners carry their
+endpoint's varyings, so attributes interpolate along the line with
+perspective correction; `gl_PointCoord` is a varying the vertex stage adds.
+
+**Points (built).** A point is six vertices, two triangles. The driver
+gathers each vertex attribute six times and adds an attribute in texture slot
+15, `(dx, dy)` per corner: +-0.5 pixel in clip units (`2 / extent`). borgc
+(`vfetch` bit 30, set by the pipeline) fetches it and moves the corner by
+`(dx, dy) * gl_PointSize * w`; the size is clamped to `pointSizeRange`
+[1, 64] (`largePoints` is reported). Culling is off for point pipelines.
+Pipelines with a vertex input at location 15 or above are rejected, and
+`gl_PointCoord` is not generated yet. Lines are not built.
+
+**Constant windows.** The vertex constant window is u25-u30 and the fragment
+one u20-u30: `Borg.scala` never lets the DMA write u31, which stays
+firmware-owned, so borgc stops one word short of the register-file layout.
 
 ## Records and the uniform bank
 
