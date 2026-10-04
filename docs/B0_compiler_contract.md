@@ -328,7 +328,7 @@ descriptor layouts and an example.
 
 | Contract                         | Test                                                              |
 |----------------------------------|-------------------------------------------------------------------|
-| TEX descriptors, formats, LOD    | `BorgSamplerTests`, `BorgDrawTests.render_to_texture_and_sample_it` |
+| TEX descriptors, formats, LOD    | `BorgSamplerTests`, `BorgDrawQuadTests.render_to_texture_and_sample_it` |
 | borgc TEX encoding               | `encode.rs` test `tex_is_r4_type_funct2_2_with_the_control_word_in_rs3` |
 | ZTEST stall, no register write   | `BorgCoreTestsC.ztest_stalls_until_done_and_writes_no_register`   |
 | Helper-lane store suppression    | `BorgCoreTestsC.helper_lane_stores_are_suppressed_loads_are_not`  |

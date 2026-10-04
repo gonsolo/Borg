@@ -106,7 +106,7 @@ linear layout is unchanged.
 
 | What | Test |
 |------|------|
-| RAW32/16/8/64/128: store, clear per word and slice, load, `TLD`, rewrite; single-sample; resident and Wafer multi-pass | `BorgDrawTests.raw_colour_formats_and_tld` |
+| RAW32/16/8/64/128: store, clear per word and slice, load, `TLD`, rewrite; single-sample; resident and Wafer multi-pass | `BorgDrawQuadTests.raw_colour_formats_and_tld` |
 | R32_SFLOAT additive blending in FP32; R32G32_SFLOAT blending that needs both words of the pixel | same |
 | 4x RAW64 stored per sample, each sample's own coverage | same |
 | The 16-byte split tiled layout, every 128-bit format | `BorgSamplerTests.every_format_decodes` |

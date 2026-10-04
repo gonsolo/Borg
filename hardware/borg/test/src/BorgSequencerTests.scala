@@ -107,8 +107,8 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
     * render loads what an earlier one flushed. Colour is RGB565, one flat
     * colour per render; depth is the corner's z. The occlusion counter
     * reports the samples that passed in each render. */
-  class AttachmentRig(borg: BorgTestWrapper) {
-    private val d = new BorgDrawTests.DrawRig(borg)
+  class AttachmentRig(borg: BorgTestWrapper, mirror: BorgDrawSim.Mirror = null) {
+    private val d = new BorgDrawTests.DrawRig(borg, mirror)
     val fbBase = d.fbBase; val zbBase = 0x40000; val sbBase = 0x30000
     /** Everything the GPU wrote, as halfwords. */
     def half: scala.collection.mutable.Map[Int, Int] = d.half
@@ -163,13 +163,13 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
 
   val tests = Tests {
 
-    // ONE simulate() call for all scenarios. BorgTestWrapper is the entire
-    // Borg design, and chisel3.simulator rebuilds it from scratch on every
-    // simulate() call -- far longer than the few seconds each scenario
-    // simulates. Every scenario resets the DUT as its first act, and a
-    // failure still names the scenario it came from.
+    // ONE simulation for all scenarios (BorgDrawSim): the harness is the
+    // entire Borg design with the GPU's memory inside it, and building it
+    // takes far longer than the few seconds each scenario simulates. Every
+    // scenario resets the DUT as its first act, and a failure still names the
+    // scenario it came from.
     utest.test("sequencer scenarios (one shared BorgTestWrapper build)") {
-      simulate(new BorgTestWrapper(suiteCfg)) { borg =>
+      BorgDrawSim.run(suiteCfg) { (borg, mirror) =>
         val failures = scala.collection.mutable.ArrayBuffer[(String, Throwable)]()
         var scenarios = 0
 
@@ -190,7 +190,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         // and its depth at zbBase + 32*t. The depth address used to stay at
         // zbBase for every tile, so all tiles' Z landed on the same 32 bytes.
         import BorgDrawTests.at
-        val d = new BorgDrawTests.DrawRig(borg)
+        val d = new BorgDrawTests.DrawRig(borg, mirror)
         val zbBase = 0x40000
         // 8x8 framebuffer (2x2 tiles); the triangle covers three of them, at
         // a depth that differs per tile.
@@ -242,32 +242,11 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
           rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, fragPc)
           rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, lsBase)
 
-          val stores = scala.collection.mutable.ArrayBuffer[BigInt]()
-          def service(): Unit = {
-            if (borg.io.gpuMem.req.peek().litToBoolean) {
-              borg.io.gpuMem.data.poke(0.U)
-              borg.io.gpuMem.waccept.poke(false.B)
-              borg.io.gpuMem.ready.poke(true.B)
-            } else if (borg.io.gpuMem.wr.peek().litToBoolean) {
-              val base = borg.io.gpuMem.addr.peek().litValue.toInt
-              val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
-              val halves = scala.collection.mutable.ArrayBuffer(borg.io.gpuMem.wdata.peek().litValue & 0xFFFF)
-              for (_ <- 1 until wlen) {
-                borg.io.gpuMem.waccept.poke(true.B)
-                borg.io.gpuMem.ready.poke(false.B)
-                borg.clock.step(1)
-                halves += borg.io.gpuMem.wdata.peek().litValue & 0xFFFF
-              }
-              borg.io.gpuMem.waccept.poke(false.B)
-              borg.io.gpuMem.ready.poke(true.B)
-              // A shader STORE of a 32-bit register is one 2-halfword write.
-              if (base == lsBase && wlen == 2) stores += (halves(0) | (halves(1) << 16))
-            } else {
-              borg.io.gpuMem.waccept.poke(false.B)
-              borg.io.gpuMem.ready.poke(false.B)
-            }
-          }
-          def run(cycles: Int): Unit = for (_ <- 0 until cycles) { service(); borg.clock.step(1) }
+          // Memory reads 0 everywhere; the harness logs the 32-bit writes to lsBase, a shader
+          // STORE of a register each (the reset above emptied the log).
+          BorgDrawSim.clear(borg, mirror)
+          borg.bd.watch.poke(lsBase.U)
+          def run(cycles: Int): Unit = borg.clock.step(cycles)
 
           for (depth <- Seq(nearBits, farBits)) {
             uniform(12, depth)
@@ -280,7 +259,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
           }
           rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, 0)
           rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 0)
-          stores.toSeq
+          BorgDrawSim.stores(borg)
         }
 
         val late  = render(useZTest = false)
@@ -314,34 +293,10 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
           Seq.fill(100)(Instructions.IADD(rs1 = 5, rs2 = 6, rd = 5)) ++   // r5 += 1, x100
           Seq(Instructions.STORE(rs1 = 25, rs2 = 5), BigInt(0))
         Predef.assert(frag.length + fragPc > suiteCfg.maxInstructions)
-        val dram = frag.zipWithIndex.map { case (w, i) => (fragAddr + i * 4) -> w }.toMap
-
-        val stores = scala.collection.mutable.ArrayBuffer[BigInt]()
-        def service(): Unit = {
-          if (borg.io.gpuMem.req.peek().litToBoolean) {
-            val a = borg.io.gpuMem.addr.peek().litValue.toInt
-            borg.io.gpuMem.data.poke((dram.getOrElse(a, BigInt(0)) & BigInt(0xFFFFFFFFL)).U)
-            borg.io.gpuMem.waccept.poke(false.B)
-            borg.io.gpuMem.ready.poke(true.B)
-          } else if (borg.io.gpuMem.wr.peek().litToBoolean) {
-            val base = borg.io.gpuMem.addr.peek().litValue.toInt
-            val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
-            val halves = scala.collection.mutable.ArrayBuffer(borg.io.gpuMem.wdata.peek().litValue & 0xFFFF)
-            for (_ <- 1 until wlen) {
-              borg.io.gpuMem.waccept.poke(true.B)
-              borg.io.gpuMem.ready.poke(false.B)
-              borg.clock.step(1)
-              halves += borg.io.gpuMem.wdata.peek().litValue & 0xFFFF
-            }
-            borg.io.gpuMem.waccept.poke(false.B)
-            borg.io.gpuMem.ready.poke(true.B)
-            if (base == lsBase && wlen == 2) stores += (halves(0) | (halves(1) << 16))
-          } else {
-            borg.io.gpuMem.waccept.poke(false.B)
-            borg.io.gpuMem.ready.poke(false.B)
-          }
-        }
-        def run(cycles: Int): Unit = for (_ <- 0 until cycles) { service(); borg.clock.step(1) }
+        BorgDrawSim.clear(borg, mirror)
+        for ((w, i) <- frag.zipWithIndex) BorgDrawSim.put(borg, mirror, fragAddr + i * 4, w)
+        borg.bd.watch.poke(lsBase.U)
+        def run(cycles: Int): Unit = borg.clock.step(cycles)
 
         // Preload 40 words at IMEM offset 1 through the MMIO DMA.
         val preload = 40
@@ -362,6 +317,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         }
         rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, 0)
         rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 0)
+        val stores = BorgDrawSim.stores(borg)
         println(s"  stores: ${stores.length} (expect 16), values: ${stores.distinct.mkString(",")} (expect 100)")
         Predef.assert(stores.length == 16, "every pixel must finish the long shader")
         Predef.assert(stores.forall(_ == 100), "a store saw the wrong sum: instructions were skipped or wrong")
@@ -375,7 +331,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         // pick out exactly the triangles inside it:
         //   [0,1) -> N, [1,2) -> N, [0,2) -> 2N, counting disabled -> 0.
         import BorgDrawTests.at
-        val d = new BorgDrawTests.DrawRig(borg)
+        val d = new BorgDrawTests.DrawRig(borg, mirror)
         val tri = Seq(at(0, 0, 1), at(0, 4, 1), at(4, 0, 1))
         def render(window: (Int, Int), enable: Boolean = true): BigInt =
           d.draw(tri ++ tri, occ = window,
@@ -403,7 +359,7 @@ object BorgSequencerTests extends TestSuite with FastBuildSimulator {
         //   stencil:  reload stencil, test EQUAL 7 -> all pass;
         //             cleared instead (0) -> none pass
         println("\n=== BorgSequencerTests: attachments_store_and_load_across_renders ===")
-        val rig = new AttachmentRig(borg)
+        val rig = new AttachmentRig(borg, mirror)
         import rig._
         val CLEAR_1 = 0x3C003800L; val CLEAR_2 = 0x00003C00L   // (1.0, 0.5) and (0, 1.0)
         val stored = render((1.0f, 0.0f), load = 0, DEPTH_LESS, STENCIL_WRITE_7, bindStencil = true, CLEAR_1)

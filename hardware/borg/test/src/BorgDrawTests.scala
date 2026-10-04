@@ -46,7 +46,11 @@ object BorgDrawTests extends TestSuite {
     (for (py <- 0 until Size; px <- 0 until Size; (ox, oy) <- offsets
           if inside(t, px + 0.5 + ox, py + 0.5 + oy)) yield 1).sum
 
-  class DrawRig(val borg: BorgTestWrapper) {
+  /** `mirror` comes with a [[BorgDrawHarness]], whose memory is inside the
+    * simulation; a plain [[BorgTestWrapper]]'s is the maps below, served by
+    * `service()` every cycle. */
+  class DrawRig(val borg: BorgTestWrapper, mirror: BorgDrawSim.Mirror = null) {
+    private val harness = borg match { case h: BorgDrawHarness => Some(h); case _ => None }
     val vsAddr = 0x1000; val fsAddr = 0x5000; val binBase = 0x6000
     val vb = 0x9000; val ib = 0xA000; val vsConst = 0xB000; val fsConst = 0xB100
     val setupBase = 0x20000; var fbBase = 0x10000
@@ -56,13 +60,34 @@ object BorgDrawTests extends TestSuite {
     var pitch = Size / 4                             // framebuffer tiles per row
     var viewport = (Size / 2.0, Size / 2.0, Size / 2.0, Size / 2.0)
     val rom = scala.collection.mutable.Map[Int, BigInt]()
-    val half = scala.collection.mutable.Map[Int, Int]()
+    /** What the GPU wrote, by (even) byte address, 16 bits each. */
+    val half: scala.collection.mutable.Map[Int, Int] = harness match {
+      case None => scala.collection.mutable.Map[Int, Int]()
+      case Some(h) => new scala.collection.mutable.AbstractMap[Int, Int] {
+        def get(a: Int): Option[Int] =
+          if ((a & 1) != 0) None
+          else {
+            h.bd.addr.poke(a.U)
+            if (h.bd.written.peek().litToBoolean) Some(h.bd.half.peek().litValue.toInt) else None
+          }
+        override def clear(): Unit = BorgDrawSim.forgetWrites(h, mirror)
+        def iterator: Iterator[(Int, Int)] = throw new UnsupportedOperationException("the harness memory is not enumerable")
+        def addOne(kv: (Int, Int)): this.type = throw new UnsupportedOperationException
+        def subtractOne(k: Int): this.type = throw new UnsupportedOperationException
+      }
+    }
+    half.clear()
+    /** Bring the harness memory in line with `rom`: only what changed since the last time. */
+    private def syncRom(): Unit = harness.foreach { h =>
+      for (a <- mirror.rom.keys.toSeq if !rom.contains(a)) { BorgDrawSim.put(h, mirror, a, 0); mirror.rom.remove(a) }
+      for ((a, v) <- rom) BorgDrawSim.put(h, mirror, a, v)
+    }
     def f32(d: Double): BigInt = BigInt(java.lang.Float.floatToRawIntBits(d.toFloat)) & BigInt(0xFFFFFFFFL)
     def read32(a: Int): BigInt =
       if (half.contains(a) || half.contains(a + 2))
         BigInt(half.getOrElse(a, 0)) | (BigInt(half.getOrElse(a + 2, 0)) << 16)
       else rom.getOrElse(a, BigInt(0))
-    def service(): Unit = {
+    def service(): Unit = if (harness.isEmpty) {
       if (borg.io.gpuMem.wr.peek().litToBoolean) {
         val base = borg.io.gpuMem.addr.peek().litValue.toInt
         val wlen = borg.io.gpuMem.wlen.peek().litValue.toInt
@@ -76,6 +101,10 @@ object BorgDrawTests extends TestSuite {
         }
         borg.io.gpuMem.waccept.poke(false.B); borg.io.gpuMem.ready.poke(true.B)
       } else if (borg.io.gpuMem.req.peek().litToBoolean) {
+        if (sys.env.contains("BORG_DRAW_TRACE")) {
+          val a = borg.io.gpuMem.addr.peek().litValue.toInt
+          println(f"[rd] $a%07x = ${read32(a) & BigInt(0xFFFFFFFFL)}%08x")
+        }
         borg.io.gpuMem.data.poke((read32(borg.io.gpuMem.addr.peek().litValue.toInt) & BigInt(0xFFFFFFFFL)).U)
         borg.io.gpuMem.waccept.poke(false.B); borg.io.gpuMem.ready.poke(true.B)
       } else {
@@ -158,11 +187,22 @@ object BorgDrawTests extends TestSuite {
       reg(BorgGpuRegs.tex_desc_base_offset, texDesc); reg(BorgGpuRegs.sampler_desc_base_offset, sampDesc)
       reg(BorgGpuRegs.sample_mask_cfg_offset, sampleMaskCfg)
       for ((r, v) <- extra) reg(r, v)
+      syncRom()
       reg(BorgGpuRegs.seq_trigger_offset, 1)
       var seen = false; var cleared = false
-      for (cycle <- 0 until 400000 if !cleared) {
-        service(); borg.clock.step(1)
-        if (cycle % 10 == 5) {
+      // The harness serves memory itself: only the status poll crosses to the simulator.
+      val trace = sys.env.contains("BORG_DRAW_TRACE")      // every GPU read, for comparing the two rigs
+      val stride = if (harness.isDefined && !trace) 32 else 1
+      for (cycle <- 0 until 400000 by stride if !cleared) {
+        if (trace) harness.foreach { h =>
+          if (h.bd.rdValid.peek().litToBoolean)
+            println(f"[rd] ${h.bd.rdAddr.peek().litValue}%07x = ${h.bd.rdData.peek().litValue}%08x")
+        }
+        if (harness.isDefined) borg.clock.step(stride) else { service(); borg.clock.step(1) }
+        if (harness.isDefined) {
+          // SEQ_TRIGGER bit 0 is sticky until the next trigger: no render is too short to see.
+          cleared = (rawRead(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt) & 1) == 1
+        } else if (cycle % 10 == 5) {
           borg.io.address.poke(BorgGpuRegs.status_offset)
           borg.io.data_read_n.poke(2.U); borg.io.data_write_n.poke(3.U)
           service(); borg.clock.step(1)
@@ -173,7 +213,8 @@ object BorgDrawTests extends TestSuite {
           if (seen && ((st >> 5) & 1) == 0) cleared = true
         }
       }
-      Predef.assert(cleared, "render never completed")
+      Predef.assert(cleared, f"render never completed (STATUS 0x${rawRead(borg, BorgGpuRegs.status_offset.litValue.toInt)}%x, " +
+        f"SEQ_TRIGGER 0x${rawRead(borg, BorgGpuRegs.seq_trigger_offset.litValue.toInt)}%x)")
       rawRead(borg, BorgGpuRegs.occ_count_offset.litValue.toInt)
     }
     /** Pixel (x, y)'s RGBA8 colour. */
@@ -192,9 +233,14 @@ object BorgDrawTests extends TestSuite {
                                msaaMultiPass = true, fmaStages = 4)
 
   def run(name: String, cfg: BorgConfig = suiteCfg)(body: DrawRig => Unit): Unit =
-    simulate(new BorgTestWrapper(cfg)) { borg =>
-      println(s"\n--- BorgDrawTests: $name ---")
+    // BORG_DRAW_RIG=scala: the memory model in Scala and a simulator per scene, as a cross-check.
+    if (sys.env.get("BORG_DRAW_RIG").contains("scala")) simulate(new BorgTestWrapper(cfg)) { borg =>
+      println(s"\n--- BorgDrawTests: $name (Scala memory) ---")
       body(new DrawRig(borg))
+      println("  PASSED")
+    } else BorgDrawSim.run(cfg) { (borg, mirror) =>
+      println(s"\n--- BorgDrawTests: $name ---")
+      body(new DrawRig(borg, mirror))
       println("  PASSED")
     }
 
@@ -436,6 +482,68 @@ object BorgDrawTests extends TestSuite {
   /** A bin that overflows is never written past its row: the render is
     * abandoned whole -- nothing flushed, nothing counted -- and SEQ_TRIGGER's
     * bit 1 says so. With room for both triangles the same draw renders. */
+  /** Render lists: four draws with two fragment states in one render must leave what the
+    * same draws leave one render at a time (each loading the colour the last one stored). */
+  def renderList(rig: DrawRig): Unit = {
+    import Instructions._
+    val one = 0x40                               // one sample: a load is then exact
+    val tris = Seq(
+      Seq(at(0, 0, 1, r = 1.0, g = 0.25), at(8, 0, 1, r = 0.5, g = 0.25), at(0, 8, 1, r = 0.25, g = 1.0)),
+      Seq(at(1, 1, 1, r = 0.25, g = 1.0), at(7, 2, 1, r = 1.0, g = 0.5), at(2, 7, 1, r = 0.5, g = 0.5)),
+      Seq(at(8, 8, 1, r = 0.75, g = 0.0), at(0, 8, 1, r = 0.0, g = 0.75), at(8, 0, 1, r = 0.5, g = 0.5)),
+      Seq(at(3, 3, 1, r = 1.0, g = 1.0), at(6, 3, 1, r = 0.0, g = 1.0), at(3, 6, 1, r = 1.0, g = 0.0)))
+    // State B: the varyings swapped, and its own constant window (blue = l0 * 1.0).
+    val fsB = Seq(
+      FATTR(rd = 10, index = 1),
+      MUL(rs1 = 5, rs2 = 10, rd = 26), FMA(rs1 = 6, rs2 = 11, rs3 = 26, rd = 26), FMA(rs1 = 7, rs2 = 12, rs3 = 26, rd = 26),
+      FATTR(rd = 10, index = 0),
+      MUL(rs1 = 5, rs2 = 10, rd = 27), FMA(rs1 = 6, rs2 = 11, rs3 = 27, rd = 27), FMA(rs1 = 7, rs2 = 12, rs3 = 27, rd = 27),
+      MUL(rs1 = 5, rs2 = 20, rd = 28, funct3 = 2),
+      BigInt(0))
+    val fsConstB = 0xB180; val fsAddrB = 0x5400
+    rig.rom(fsConstB) = rig.f32(1.0)
+    val stateOf = Seq(0, 1, 0, 0)                // draws 2 and 3 share a state: no switch between them
+    def all = for (y <- 0 until Size; x <- 0 until Size) yield rig.pixel(x, y)
+
+    // Reference: one render per draw.
+    for ((t, i) <- tris.zipWithIndex) {
+      val b = stateOf(i) == 1
+      rig.draw(t, frag = if (b) fsB else rig.fs, keep = i > 0, sampleMaskCfg = 0xF | one,
+               extra = (if (i > 0) Seq(BorgGpuRegs.tile_load_offset -> BigInt(1)) else Nil) ++
+                       (if (b) Seq(BorgGpuRegs.draw_fs_const_offset -> BigInt(fsConstB)) else Nil))
+    }
+    val ref = all
+    Predef.assert(ref.distinct.size > 8, "the reference image is degenerate")
+
+    // The same four draws as one render list. Vertices 0..11 in one buffer.
+    rig.rom ++= fsB.zipWithIndex.map { case (w, i) => (fsAddrB + 4 * i) -> w }
+    val list = 0xD000; val blocks = 0xD100
+    def block(a: Int, regs: Seq[(UInt, BigInt)]): Unit = {
+      rig.rom(a) = BigInt(regs.size)
+      for (((r, v), i) <- regs.zipWithIndex) { rig.rom(a + 4 + 8 * i) = r.litValue; rig.rom(a + 8 + 8 * i) = v }
+    }
+    val stateAddr = Seq(blocks, blocks + 0x100)
+    block(stateAddr(0), Seq(BorgGpuRegs.seq_frag_addr_offset -> BigInt(rig.fsAddr),
+                            BorgGpuRegs.seq_frag_len_offset -> BigInt(rig.fs.size),
+                            BorgGpuRegs.draw_fs_const_offset -> BigInt(rig.fsConst)))
+    block(stateAddr(1), Seq(BorgGpuRegs.seq_frag_addr_offset -> BigInt(fsAddrB),
+                            BorgGpuRegs.seq_frag_len_offset -> BigInt(fsB.size),
+                            BorgGpuRegs.draw_fs_const_offset -> BigInt(fsConstB)))
+    for (i <- tris.indices) {
+      val params = blocks + 0x200 + 0x40 * i
+      block(params, Seq(BorgGpuRegs.draw_first_vertex_offset -> BigInt(3 * i),
+                        BorgGpuRegs.draw_vertex_count_offset -> BigInt(3)))
+      rig.rom(list + 8 * i) = BigInt(stateAddr(stateOf(i))); rig.rom(list + 8 * i + 4) = BigInt(params)
+    }
+    rig.rom(list + 8 * tris.size) = BigInt(0); rig.rom(list + 8 * tris.size + 4) = BigInt(0)
+    rig.draw(tris.flatten, sampleMaskCfg = 0xF | one, extra = Seq(BorgGpuRegs.render_list_offset -> BigInt(list)))
+    val got = all
+    for (y <- 0 until Size; x <- 0 until Size)
+      Predef.assert(got(y * Size + x) == ref(y * Size + x),
+                    s"pixel ($x,$y): list ${got(y * Size + x)}, one render per draw ${ref(y * Size + x)}")
+    println(s"  4 draws, 2 fragment states, 1 render: all ${Size * Size} pixels equal the draw-by-draw image (${ref.distinct.size} colours)")
+  }
+
   def binOverflow(rig: DrawRig): Unit = {
     val quad = Seq(at(8, 0, 1), at(0, 0, 1), at(8, 8, 1), at(0, 8, 1))
     val tris = Seq(quad(0), quad(1), quad(2), quad(2), quad(1), quad(3))
@@ -445,7 +553,7 @@ object BorgDrawTests extends TestSuite {
     // holds one entry.
     val lost = rig.draw(tris, extra = Seq(BorgGpuRegs.seq_bin_row_bytes_offset -> BigInt(2)))
     val st = status
-    val written = rig.half.keys.count(fb.contains)
+    val written = fb.count(rig.half.contains)
     println(s"  one entry per bin: status $st, $lost samples, $written framebuffer halfwords written")
     utest.assert(st == 3 && lost == 0 && written == 0)
     val full = rig.draw(tris, extra = Seq(BorgGpuRegs.seq_bin_row_bytes_offset -> BigInt(4)))
@@ -724,62 +832,95 @@ object BorgDrawTests extends TestSuite {
 
   val tests = Tests {
     utest.test("several_colour_attachments") {
-      run("colour attachments")(attachments)
+      run("colour attachments", suiteCfg)(attachments)
     }
     utest.test("render_windows_and_non_square_framebuffers") {
-      run("render windows")(windows)
+      run("render windows", suiteCfg)(windows)
     }
     utest.test("depth_is_tested_per_sample") {
-      run("per-sample depth")(perSampleDepth)
+      run("per-sample depth", suiteCfg)(perSampleDepth)
     }
     utest.test("sample_mask_alpha_to_coverage_and_smask") {
-      run("sample masks")(masks)
+      run("sample masks", suiteCfg)(masks)
     }
     utest.test("shared_edges_are_covered_exactly_once") {
-      run("watertight shared edges")(watertight)
-    }
-    utest.test("render_to_texture_and_sample_it") {
-      run("render to texture", quadCfg)(renderToTexture)
+      run("watertight shared edges", suiteCfg)(watertight)
     }
     utest.test("varyings_are_perspective_correct") {
-      run("perspective-correct varyings")(perspective)
+      run("perspective-correct varyings", suiteCfg)(perspective)
     }
     utest.test("near_plane_and_corners_behind_the_eye_clip_without_clipping") {
-      run("near plane, w <= 0")(nearPlane)
+      run("near plane, w <= 0", suiteCfg)(nearPlane)
     }
     utest.test("single_sample_rasterization") {
-      run("one sample")(singleSample)
-      run("one sample, Wafer sizing", waferCfg)(singleSample)
+      run("one sample", suiteCfg)(singleSample)
     }
     utest.test("depth_bias_constant_and_slope") {
-      run("depth bias")(depthBias)
+      run("depth bias", suiteCfg)(depthBias)
+    }
+    utest.test("far_and_near_plane_primitives_are_inside") {
+      run("far plane", suiteCfg)(farPlane)
+    }
+    utest.test("flat_shading_uses_the_provoking_vertex") {
+      run("flat strip", suiteCfg)(flatStrip)
+    }
+    utest.test("render_list_of_draws_with_two_states") {
+      run("render list", suiteCfg)(renderList)
+    }
+    utest.test("bin_overflow_renders_nothing_and_reports") {
+      run("bin overflow", suiteCfg)(binOverflow)
+    }
+    utest.test("strips_fans_indices_restart_and_instances") {
+      run("topologies", suiteCfg)(topologies)
+    }
+  }
+}
+
+/** The scenes that need, or are worth repeating on, a 2x2 quad build (the
+  * vertex shader shades three corners at once). A suite per configuration:
+  * mill runs the suites side by side, and each builds its simulator once. */
+object BorgDrawQuadTests extends TestSuite {
+  import BorgDrawTests._
+  val tests = Tests {
+    utest.test("render_to_texture_and_sample_it") {
+      run("render to texture, 4 lanes", quadCfg)(renderToTexture)
     }
     utest.test("raw_colour_formats_and_tld") {
-      run("RAW colour formats", quadCfg)(rawFormats)
+      run("RAW colour formats, 4 lanes", quadCfg)(rawFormats)
+    }
+    utest.test("d16_depth_is_invariant_across_store_and_reload") {
+      run("D16 invariance, 4 lanes", quadCfg)(depthInvariance)
+    }
+    utest.test("render_list_of_draws_with_two_states") {
+      run("render list, 4 lanes", quadCfg)(renderList)
+    }
+    utest.test("simt_corners_one_per_lane") {
+      run("4 lanes, 4 lanes", quadCfg){ rig => perspective(rig); nearPlane(rig); topologies(rig) }
+    }
+  }
+}
+
+/** The Wafer sizing: one uniform page, multi-pass MSAA, split FMA. */
+object BorgDrawWaferTests extends TestSuite {
+  import BorgDrawTests._
+  val tests = Tests {
+    utest.test("single_sample_rasterization") {
+      run("one sample, Wafer sizing", waferCfg)(singleSample)
+    }
+    utest.test("raw_colour_formats_and_tld") {
       run("RAW colour formats, Wafer sizing", waferCfg)(rawFormats)
     }
     utest.test("d16_depth_is_invariant_across_store_and_reload") {
-      run("D16 invariance", quadCfg)(depthInvariance)
       run("D16 invariance, Wafer sizing", waferCfg)(depthInvariance)
     }
     utest.test("far_and_near_plane_primitives_are_inside") {
-      run("far plane")(farPlane)
       run("far plane, Wafer sizing", waferCfg)(farPlane)
     }
-    utest.test("flat_shading_uses_the_provoking_vertex") {
-      run("flat strip")(flatStrip)
-    }
-    utest.test("bin_overflow_renders_nothing_and_reports") {
-      run("bin overflow")(binOverflow)
-    }
-    utest.test("strips_fans_indices_restart_and_instances") {
-      run("topologies")(topologies)
-    }
-    utest.test("simt_corners_one_per_lane") {
-      run("4 lanes", quadCfg) { rig => perspective(rig); nearPlane(rig); topologies(rig) }
+    utest.test("render_list_of_draws_with_two_states") {
+      run("render list, Wafer sizing", waferCfg)(renderList)
     }
     utest.test("wafer_sizing") {
-      run("Wafer sizing", waferCfg) { rig => perspective(rig); nearPlane(rig); topologies(rig) }
+      run("Wafer sizing, Wafer sizing", waferCfg){ rig => perspective(rig); nearPlane(rig); topologies(rig) }
     }
   }
 }

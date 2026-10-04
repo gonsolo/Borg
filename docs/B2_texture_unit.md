@@ -175,7 +175,7 @@ and checks that the second image equals the first pixel for pixel.
 | All 51 formats; 20 address mode/filter/border combinations on 5x3; explicit and implicit LOD, bias, clamp, trilinear on a 16x8 chain; 3D, 1D/2D arrays, linear layout, float filtering; compare (PCF), gather, texelFetch, offsets -- against a reference of Vulkan's rules | `BorgSamplerTests` |
 | Component swizzles (sample, integer, gather), border colours on 1- and 2-channel and depth formats, Dref clamp for D16 (not D32), 3D w offset, bias clamp, 1D-array LOD | `BorgSamplerTests.swizzle_borders_dref_3d_offsets_bias_clamp_1d_lod` |
 | Seamless cube: every edge and corner of all six faces, filtered and gathered (UNORM and UINT), against a reference that folds taps over the edge in 3D | `BorgSamplerTests.seamless_cube_edges_and_corners` |
-| Render to texture and sample it, through the whole Borg     | `BorgDrawTests.render_to_texture_and_sample_it` |
+| Render to texture and sample it, through the whole Borg     | `BorgDrawQuadTests.render_to_texture_and_sample_it` |
 
 ## Not covered yet
 

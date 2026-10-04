@@ -306,6 +306,54 @@ The attachments are untouched, so the driver can bin optimistically and, on
 overflow, re-issue the window as smaller draws (the first with the original
 loadOp, the rest with LOAD, `ATTACH_MS` under MSAA) or with larger bin rows.
 
+## Render lists
+
+One `SEQ_TRIGGER` can render **many draws**: `RENDER_LIST` (0x3F4) holds the
+byte address of a list, 0 for the single draw in the registers. A scene of
+hundreds of draws then clears, loads and flushes each tile once, not once per
+draw.
+
+A list is a sequence of entries of two words, ended by a zero word:
+
+| Word | Content |
+|------|---------|
+| 0    | address of the draw's **state block** (0 ends the list) |
+| 1    | address of its **parameter block**, 0 for none |
+
+A **block** is a count `n` and `n` pairs (register byte offset, value). The
+hardware writes each pair to the register as the driver would over the bus
+(`BorgRegPlayer`), so every register a draw can set can be set per draw, and
+there is no second copy of the register map. A write to `SEQ_TRIGGER` is
+dropped. The driver's own bus requests (status polls) interleave with these
+writes.
+
+Per entry, Pass 1 plays the state block (skipped when it is the block the
+previous entry named), then the parameter block, and runs the draw: its
+triangles are numbered on from the previous draw's and binned into the same
+bins, and each record's meta word carries the state block's address (bits
+31:2). Pass 2 then renders every tile once; when the next triangle's state
+block is not the one in the registers, it is played again and the fragment
+shader and its constant window are reloaded.
+
+So the split is the driver's:
+
+- **State block**: everything Pass 2 needs (fragment shader, `DRAW_FS_CONST`,
+  blend, stencil and depth configuration, the fragment shader's
+  `TEX_DESC_BASE`, `LS_BASE`), and whatever of Pass 1 the draws sharing it
+  have in common (vertex shader, viewport, culling, `DRAW_CFG`).
+- **Parameter block**: what differs between draws of one state (counts, first
+  vertex and instance, index buffer, and the vertex shader's `TEX_DESC_BASE`
+  -- written after the state block, it holds for Pass 1 only).
+
+Draws that share a state block cost no switch in Pass 2. Registers of the
+render itself are written before the trigger and belong in no block: the
+window, the attachments and their formats, clear values, `TILE_LOAD`,
+`SEQ_SETUP_BASE` and the bins, and the record stride (`DRAW_CFG` bits 9:6,
+one for the whole list). The list shares the render's limits: 65,535
+triangles and the bin capacity; on a bin overflow nothing is rendered and the
+driver re-issues the list in parts (`TILE_LOAD` keep, bit 3, makes the later
+parts cost only the tiles they touch).
+
 ## Colour attachments
 
 `ATT_CFG` sets 1-4 colour attachments. Attachment 0 is the historical one
@@ -453,6 +501,8 @@ holds five varying components; use 10 for up to 64.
 | A 16x8 framebuffer as one non-square window and as two windows | `BorgDrawTests.render_windows_and_non_square_framebuffers` |
 | Three colour attachments (cleared, BGRA, loaded) with depth LESS | `BorgDrawTests.several_colour_attachments` |
 | A full bin: nothing rendered or written, overflow reported; with room, the same draw renders | `BorgDrawTests.bin_overflow_renders_nothing_and_reports` |
+| Four draws with two fragment states as one render list, against the same draws one render each; 1 lane, 4 lanes, Wafer sizing | `BorgDrawTests.render_list_of_draws_with_two_states` |
+| `TILE_LOAD` keep: a loading render leaves the tiles it does not reach untouched | `BorgDrawQuadTests.raw_colour_formats_and_tld` |
 | One sample: centre coverage and depth, one count per pixel, exact resolve, masks on sample 0; resident and Wafer multi-pass | `BorgDrawTests.single_sample_rasterization` |
 | Depth bias against a reference, random triangles incl. corners behind the eye | `BorgSetupRomTests.setup_rom_adds_depth_bias` |
 | Depth bias in a draw: the constant term to r for D16 and D32_SFLOAT, the slope term to the sample, negative biased depth | `BorgDrawTests.depth_bias_constant_and_slope` |
