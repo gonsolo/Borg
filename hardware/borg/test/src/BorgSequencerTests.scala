@@ -4,7 +4,7 @@
 package borg
 
 import chisel3._
-import chisel3.simulator.EphemeralSimulator.{
+import chisel3.simulator.SharedSimFast.{simulate,
   toTestableClock, toTestableSInt, toTestableUInt, toTestableBool,
   toTestableReset, toTestableEnum, toTestableRecord, toTestableVec, toTestableData
 }
@@ -15,10 +15,10 @@ import utest._
   * Renders go through the draw front end ([[BorgDrawTests.DrawRig]]).
   *
   * Instantiates the full BorgTestWrapper (whole Borg, not a submodule), so
-  * this uses FastBuildSimulator rather than EphemeralSimulator's default
-  * -O3 Verilator build -- see FastBuildSimulator's doc comment.
+  * this uses SharedSimFast rather than SharedSim's default
+  * -O3 Verilator build -- see SharedSimFast's doc comment.
   */
-object BorgSequencerTests extends TestSuite with FastBuildSimulator {
+object BorgSequencerTests extends TestSuite {
 
   // --- Float conversion helpers ---
 

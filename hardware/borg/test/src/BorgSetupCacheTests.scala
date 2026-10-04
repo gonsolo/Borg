@@ -4,7 +4,7 @@
 package borg
 
 import chisel3._
-import chisel3.simulator.EphemeralSimulator._
+import chisel3.simulator.SharedSim._
 import utest._
 
 /** Pass 2's setup cache must hand every triangle its OWN uniforms, on every

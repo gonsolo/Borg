@@ -4,7 +4,7 @@
 package borg
 
 import chisel3._
-import chisel3.simulator.EphemeralSimulator._
+import chisel3.simulator.SharedSim._
 import utest._
 
 /** The draw front end end to end (docs/B1_geometry_front_end.md): draws

@@ -4,7 +4,7 @@
 package borg
 
 import chisel3._
-import chisel3.simulator.EphemeralSimulator._
+import chisel3.simulator.SharedSim._
 import utest._
 
 /** Tests for the stencil test/update unit (Vulkan-conformance item 10).

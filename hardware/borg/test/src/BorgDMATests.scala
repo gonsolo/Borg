@@ -4,7 +4,7 @@
 package borg
 
 import chisel3._
-import chisel3.simulator.EphemeralSimulator._
+import chisel3.simulator.SharedSim._
 import utest._
 
 /** Standalone tests for BorgDMA's uniform-buffer write path (`dest === 1.U`),

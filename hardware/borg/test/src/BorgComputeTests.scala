@@ -4,7 +4,7 @@
 package borg
 
 import chisel3._
-import chisel3.simulator.EphemeralSimulator.{
+import chisel3.simulator.SharedSimFast.{simulate,
   toTestableClock, toTestableSInt, toTestableUInt, toTestableBool,
   toTestableReset, toTestableEnum, toTestableRecord, toTestableVec, toTestableData
 }
@@ -17,7 +17,7 @@ import BorgGpuMemWordTests.{HalfwordDram, mmioRead, mmioWrite}
   * invocation's IDs, so the DRAM afterwards shows which invocations ran, with
   * which IDs, and that nothing else was written.
   */
-object BorgComputeTests extends TestSuite with FastBuildSimulator {
+object BorgComputeTests extends TestSuite {
 
   val lsBase   = 0x1000
   val scalar   = BorgConfig.Test                           // fragLanes = 1

@@ -4,7 +4,7 @@
 package borg
 
 import chisel3._
-import chisel3.simulator.EphemeralSimulator._
+import chisel3.simulator.SharedSim._
 import utest._
 import borg.link.{BorgLinkTestWrapper, LinkParams}
 

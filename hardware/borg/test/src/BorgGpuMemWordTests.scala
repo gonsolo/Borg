@@ -4,7 +4,7 @@
 package borg
 
 import chisel3._
-import chisel3.simulator.EphemeralSimulator.{
+import chisel3.simulator.SharedSimFast.{simulate,
   toTestableClock, toTestableSInt, toTestableUInt, toTestableBool,
   toTestableReset, toTestableEnum, toTestableRecord, toTestableVec, toTestableData
 }
@@ -26,7 +26,7 @@ import borg.link.{BorgLinkTestWrapper, LinkParams}
   * models the contract as the hardware implements it, and the scenario runs both
   * directly and over the link.
   */
-object BorgGpuMemWordTests extends TestSuite with FastBuildSimulator {
+object BorgGpuMemWordTests extends TestSuite {
 
   type Dut = Module with HasLegacyBorgMmio
 

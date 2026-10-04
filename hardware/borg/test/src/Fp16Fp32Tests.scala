@@ -4,7 +4,7 @@
 package borg
 
 import chisel3._
-import chisel3.simulator.EphemeralSimulator._
+import chisel3.simulator.SharedSim._
 import utest._
 
 /** Tests for `Fp16Fp32.widen`/`narrow` (`Fp16Fp32.scala`), the FP32<->FP16
