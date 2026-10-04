@@ -701,19 +701,21 @@ int borg_core_packet(const uint8_t *p) {
   case 0xB9: { // vertex attribute: slot, TexFormat code, heap offset (signed), count, stride, swizzle bits
     uint32_t slot = p[1], fmt = p[2];
     uint32_t base = BORG_HEAP_SPI + le32(p + 3), count = le32(p + 7), stride = le32(p + 11), swz = le32(p + 15);
-    if (slot >= BORG_MAX_VATTRS || fmt == 0 || fmt > 51 || count < 1 || count > 4096 || stride == 0) return BC_BAD;
-    // A typed fetch from a width-1 linear image whose row pitch is the vertex stride (a draw is
-    // limited to 4096 vertices until the unit takes a 1D stride).
+    if (slot >= BORG_MAX_VATTRS || fmt == 0 || fmt > 51 || count < 1 || count > 4096u * 4096u || stride == 0 || stride > 16) return BC_BAD;
+    // A typed fetch from a 4096-wide linear image of tight `stride`-byte elements: element i is
+    // texel (i & 4095, i >> 12).
+    uint32_t rows = (count + 4095) >> 12, pitch = stride << 12;
+    uint32_t w1 = 4095u | ((rows - 1) << 16) | (1u << 28) | (1u << 30);
     uint32_t d = TEX_DESC_TABLE_ADDR + (BORG_VATTR_SLOT0 + slot) * 64;
     g_vtab[slot][0] = base;
-    g_vtab[slot][1] = 0u | ((count - 1) << 16) | (1u << 28) | (1u << 30);
+    g_vtab[slot][1] = w1;
     g_vtab[slot][2] = (fmt << 14) | (swz & 0xFFF00000u);
-    g_vtab[slot][3] = stride;
+    g_vtab[slot][3] = pitch;
     g_vtab_dirty = 1;
     BDRAM_W(d + 0, base);
-    BDRAM_W(d + 4, 0u | ((count - 1) << 16) | (1u << 28) | (1u << 30));
+    BDRAM_W(d + 4, w1);
     BDRAM_W(d + 8, (fmt << 14) | (swz & 0xFFF00000u));
-    BDRAM_W(d + 12, stride);
+    BDRAM_W(d + 12, pitch);
     for (int i = 4; i < 16; i++) BDRAM_W(d + (uint32_t)i * 4, 0);
     BREG_W(tex_desc_base, TEX_DESC_TABLE_ADDR);   // drops the unit's cached descriptor
     return BC_VATTR;
