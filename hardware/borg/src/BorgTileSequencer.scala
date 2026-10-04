@@ -67,6 +67,13 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
   val uniformWrite     = new MemWritePort(6, cfg.totalBits)
   val uniformWritePage = Output(UInt(1.W))
 
+  // Render lists: a triangle whose state block (its record's meta word) is
+  // not the one in the registers has it played before it is rasterized.
+  val listMode = Input(Bool())
+  val playReq  = Output(Bool())
+  val playAddr = Output(UInt(GpuMemIO.AddrBits.W))
+  val playDone = Input(Bool())
+
   // --- Multi-pass MSAA control (BorgConfig.msaaMultiPass) ----------------
   // Flipped: BorgTileBuffer declares the directions, this pass drives them.
   val pass = if (cfg.msaaMultiPass) Some(Flipped(new TilePassIO(cfg.samples))) else None
@@ -75,13 +82,15 @@ class BorgTileSequencerIO(val cfg: BorgConfig) extends Bundle {
 class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val io = IO(new BorgTileSequencerIO(cfg))
 
-  val nStates = 21
+  val nStates = 23
   val states = Enum(nStates)
   val (sIdle :: sWaitDMA :: sLoadRastShader :: sLoadFragShader :: sLoadFsConst :: sStartPass2 ::
        sReadBinCount :: sClearTile :: sLoadTile ::
        sReadBinEntry :: sWaitBinEntry :: sLoadTriSetup :: sLoadCovDelta ::
        sEnqueueTile :: sIteratePixels :: sWaitRast :: sWaitFlush :: sWaitFlushSync ::
-       sNextBinTri :: sNextRenderTile :: sAccumWait :: Nil) = states
+       sNextBinTri :: sNextRenderTile :: sAccumWait :: _) = states
+  // (A pattern binds at most 22 names.) Render lists: play a state block; back to the triangle.
+  val sPlayState = states(21); val sResumeTri = states(22)
   val state = RegInit(sIdle)
 
   val nextAfterDMA = RegInit(sIdle)
@@ -155,6 +164,15 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   // Per-page cached facing flag (the record's meta word, bit 1), restored on
   // a cache hit.
   val backFacingReg = RegInit(VecInit(Seq.fill(2)(false.B)))
+  // Render lists: each page's triangle's state block (word address), the
+  // selected triangle's, and the one the registers and the fragment shader
+  // hold now (0 = none yet this render).
+  private val stateBits = GpuMemIO.AddrBits - 2
+  val stateCache = Reg(Vec(2, UInt(stateBits.W)))
+  val triState   = RegInit(0.U(stateBits.W))
+  val curState   = RegInit(0.U(stateBits.W))
+  val resumeTri  = RegInit(false.B)      // the shader reload under way is a state switch
+  val savedPage  = RegInit(0.U(1.W))
   val cacheVictim = RegInit(0.U(1.W))
   val covDeltaCache = if (cfg.samples > 1)
     Some(RegInit(VecInit(Seq.fill(2)(VecInit(Seq.fill(covDeltaWords)(0.U(cfg.totalBits.W))))))) else None
@@ -260,6 +278,9 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     io.uniformWrite.data := 0.U
     io.uniformWritePage  := uniformPage
 
+    io.playReq  := false.B
+    io.playAddr := Cat(triState, 0.U(2.W))
+
     io.iter.clear         := false.B
     io.iter.enqueue.valid := false.B
     io.iter.enqueue.bits.x := tileX
@@ -311,6 +332,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       is(sWaitFlushSync)   { handleWaitFlushSync() }
       is(sNextRenderTile)  { handleNextRenderTile() }
       is(sAccumWait)       { handleAccumWait() }
+      is(sPlayState)       { when(io.playDone) { state := sLoadFragShader } }
+      is(sResumeTri)       { uniformPage := savedPage; resumeTri := false.B; state := sEnqueueTile }
     }
   }
 
@@ -319,7 +342,10 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       tagReg(0)   := "hFFFF".U    // invalidate 2-entry setup cache for new frame
       tagReg(1)   := "hFFFF".U
       cacheVictim := 0.U
-      state       := sLoadRastShader
+      curState    := 0.U
+      resumeTri   := false.B
+      // A render list loads each state's fragment shader when its first triangle comes up.
+      state       := Mux(io.listMode, sStartPass2, sLoadRastShader)
     }
   }
 
@@ -365,13 +391,14 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     uniformPage   := constPage
     val last = constPage === (if (cfg.maxUniforms > 32) 1 else 0).U
     constPage := constPage + 1.U
+    val afterFs = Mux(resumeTri, sResumeTri, sStartPass2)
     when(io.mmio.fsConstBase === 0.U) {
-      state := sStartPass2
+      state := afterFs
     }.otherwise {
       dmaDescReg   := desc
       io.dma.desc  := desc
       io.dma.start := true.B
-      nextAfterDMA := Mux(last, sStartPass2, sLoadFsConst)
+      nextAfterDMA := Mux(last, afterFs, sLoadFsConst)
       state        := sWaitDMA
     }
   }
@@ -516,6 +543,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     when(binEntryData === tagReg(0)) {
       if (BorgDebug.trace) printf("[SEQ] loadTriSetup HIT page0 triIdx=%d\n", binEntryData)
       uniformPage := 0.U
+      triState := stateCache(0)
       triIsBackFacing := backFacingReg(0)
       covDeltaActive.foreach(_ := covDeltaCache.get(0))
       topLeftActive.foreach(_ := topLeftCache.get(0))
@@ -523,6 +551,7 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     }.elsewhen(binEntryData === tagReg(1) && (setupPages > 1).B) {
       if (BorgDebug.trace) printf("[SEQ] loadTriSetup HIT page1 triIdx=%d\n", binEntryData)
       uniformPage := 1.U
+      triState := stateCache(1)
       triIsBackFacing := backFacingReg(1)
       covDeltaActive.foreach(_ := covDeltaCache.get(1))
       topLeftActive.foreach(_ := topLeftCache.get(1))
@@ -583,9 +612,20 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
   }
 
   private def handleEnqueueTile(): Unit = {
-    io.iter.enqueue.valid := true.B
-    if (BorgDebug.trace) printf("[SEQ] sEnqueueTile tileX=%d tileY=%d\n", tileX, tileY)
-    state := sIteratePixels
+    when(io.listMode && triState =/= curState) {
+      // Another draw's state: play its block into the registers, then load
+      // its fragment shader and constant window, and come back here. The
+      // dispatcher is idle (sNextBinTri waited), so nothing reads the old state.
+      io.playReq := true.B
+      curState   := triState
+      savedPage  := uniformPage
+      resumeTri  := true.B
+      state      := sPlayState
+    }.otherwise {
+      io.iter.enqueue.valid := true.B
+      if (BorgDebug.trace) printf("[SEQ] sEnqueueTile tileX=%d tileY=%d\n", tileX, tileY)
+      state := sIteratePixels
+    }
   }
 
   private def handleIteratePixels(): Unit = {
@@ -763,6 +803,10 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
       }
       when(setupLoadIdx === BorgSetupRom.Record.Meta.U) {
         triIsBackFacing := io.dma.uniformSnoop.data(1)
+        if (cfg.drawEnabled) {
+          triState := io.dma.uniformSnoop.data(GpuMemIO.AddrBits - 1, 2)
+          stateCache(uniformPage) := io.dma.uniformSnoop.data(GpuMemIO.AddrBits - 1, 2)
+        }
         // Remember the facing for the page just loaded (= current
         // uniformPage) so a later cache hit restores it without a reload.
         backFacingReg(uniformPage) := io.dma.uniformSnoop.data(1)

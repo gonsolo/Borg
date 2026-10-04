@@ -1792,4 +1792,10 @@ addrmap borg_gpu {
     att_clear_w3_2->nogen = true;
     draw_word_reg_t att_clear_w3_3;
     att_clear_w3_3->nogen = true;
+
+    // ---- Render list (docs/B1_geometry_front_end.md, "Render lists"): byte
+    //      address of a list of draws rendered by one SEQ_TRIGGER; 0 = the
+    //      single draw in the registers. ----
+    draw_word_reg_t render_list;
+    render_list->nogen = true;
 };

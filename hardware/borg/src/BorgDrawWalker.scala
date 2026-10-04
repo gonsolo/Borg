@@ -31,6 +31,11 @@ class BorgDrawWalkerIO(val cfg: BorgConfig) extends Bundle {
   val start = Input(Bool())
   val done  = Output(Bool())
   val busy  = Output(Bool())
+  // Render lists: the first draw of a render clears the bins and numbers its
+  // triangles from 0, a later one carries on; every triangle's record names
+  // its draw's state block.
+  val first     = Input(Bool())
+  val stateAddr = Input(UInt(GpuMemIO.AddrBits.W))
 
   val mmio  = new SeqMmioIO(cfg)
   val draw  = Input(new DrawMmioIO)
@@ -125,7 +130,9 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.store.active := state === sStoreMeta
   io.store.req    := false.B
   io.store.addr   := recordBase + (BorgSetupRom.Record.Meta * 4).U
-  io.store.wdata  := Cat(isBack, 0.U(1.W))    // bit 1 = back-facing; bit 0 is unused
+  // Meta word: bits 31:2 the draw's state block (a word address, 0 outside a
+  // render list), bit 1 = back-facing; bit 0 is unused.
+  io.store.wdata  := Cat(io.stateAddr(GpuMemIO.AddrBits - 1, 2), isBack, 0.U(1.W))
 
   // Vertex shader: VertexIndex/InstanceIndex, one corner per lane; setup ROM: none.
   private val inVS = state === sRunVS || state === sWaitVS
@@ -168,8 +175,11 @@ class BorgDrawWalker(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   switch(state) {
     is(sIdle) {
       when(io.start) {
-        inst := 0.U; prim := 0.U; base := 0.U; tri := 0.U
-        io.binner.clearCounts := true.B
+        inst := 0.U; prim := 0.U; base := 0.U
+        when(io.first) {
+          tri := 0.U
+          io.binner.clearCounts := true.B
+        }
         // BorgSequencer routes Pass 1's DMA port from the next cycle on.
         state := sLoadVS
       }

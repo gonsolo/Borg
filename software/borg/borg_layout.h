@@ -90,7 +90,13 @@
 // here, addressed by byte offset from the base. Above the framebuffer, the TBR
 // bin lists and the setup store, and below the end of the simulator's memory.
 #define BORG_HEAP_SPI           0x1000000
-#define BORG_HEAP_BYTES         0x0F00000
+#define BORG_HEAP_BYTES         0x0B00000
+// Render lists (docs/B1_geometry_front_end.md, "Render lists"), built by borg_core: the
+// list's entries first, then the draws' state and parameter blocks, shader code, constant
+// windows and vertex attribute descriptors.
+#define BORG_LIST_SPI           0x1B00000
+#define BORG_LIST_ENTRY_BYTES   0x0010000      // 8191 draws and the end entry
+#define BORG_LIST_BYTES         0x0400000
 // Depth and stencil attachments (simulator), above the heap: per 4x4 tile 32 bytes of
 // D16_UNORM or 64 of D32_SFLOAT, and 16 bytes of S8_UINT. Room for 256x256 pixels.
 #define BORG_ZB_SPI             0x1F00000

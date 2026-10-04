@@ -98,6 +98,11 @@ void borg_core_stage(const borg_float_t *mvp);
 // sequencer is no longer busy); borg_core_wait_idle then waits for the last flush.
 void borg_core_render(int frame);
 void borg_core_wait_idle(void);
+// Render lists (host build): a 0xBA draw is queued (borg_core_list_draw, called for BC_DRAW)
+// and the queued draws are rendered as one render by borg_core_list_flush -- at the end of a
+// pass, or earlier when a packet is about to change memory the queued draws read.
+void borg_core_list_draw(void);
+void borg_core_list_flush(void);
 // stage + render + wait_idle, for hosts with nothing to time in between.
 void borg_core_draw(const borg_float_t *mvp, int frame);
 

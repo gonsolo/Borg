@@ -17,6 +17,7 @@
 extern void bh_reg_write(uint32_t reg_off, uint32_t v);
 extern uint32_t bh_reg_read(uint32_t reg_off);
 extern void bh_dram_write(uint32_t spi_addr, uint32_t v);
+extern uint32_t bh_dram_read(uint32_t spi_addr);
 #define BREG_W(field, v) bh_reg_write((uint32_t)offsetof(borg_gpu_t, field), (uint32_t)(v))
 #define BREG_R(field)    bh_reg_read((uint32_t)offsetof(borg_gpu_t, field))
 #define BDRAM_W(a, v)    bh_dram_write((uint32_t)(a), (uint32_t)(v))
@@ -43,6 +44,22 @@ static struct {
   int32_t vertex_offset;
 } g_dp = {0, 0, 0, 0, 1, 0, 0, 0, 0};
 static uint16_t clear_r, clear_g, clear_b;
+#ifdef BORG_HOST
+#include <string.h>
+// Render lists: the state a draw is queued with that the packet handlers otherwise write
+// straight to registers or fixed memory.
+static struct {
+  uint32_t blend_cfg, blend_const, stencil_cfg, stencil_front, stencil_back, depth_cfg;
+  int raster_valid;
+} g_st;
+static struct {
+  uint8_t blob[6 + 512];
+  uint32_t bytes;
+  uint32_t code, consts;      // arena addresses of the code and constant window, 0 = not staged
+} g_sh[2];
+static uint32_t g_vtab[BORG_MAX_VATTRS][4];   // vertex attribute descriptors, words 0..3
+static int g_vtab_dirty = 1;
+#endif
 static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px)
 
 // Words per framebuffer, plus the DONE marker word.
@@ -141,6 +158,17 @@ void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
   for (int i = 0; i < parsed.num_window; i++)
     if (parsed.window_regs[i] < u0 || parsed.window_regs[i] >= u0 + words) return;
 
+#ifdef BORG_HOST
+  {   // Render lists keep their own copy of each shader: a new one when the blob changes.
+    uint32_t bytes = 6 + n * 4;
+    if (bytes <= sizeof(g_sh[stage].blob) &&
+        (g_sh[stage].bytes != bytes || memcmp(g_sh[stage].blob, blob, bytes) != 0)) {
+      memcpy(g_sh[stage].blob, blob, bytes);
+      g_sh[stage].bytes = bytes;
+      g_sh[stage].code = 0;
+    }
+  }
+#endif
   const uint8_t *w = blob + 6;
   uint32_t addr = (stage == 0) ? DRAW_VERT_SHADER_SPI : SEQ_FRAG_SHADER_ADDR;
   for (uint32_t i = 0; i < n; i++) BDRAM_W(addr + i * 4, le32(w + i * 4));
@@ -364,6 +392,177 @@ void borg_core_wait_idle(void) {
     ;
 }
 
+#ifdef BORG_HOST
+// --- Render lists (docs/B1_geometry_front_end.md, "Render lists") ---------------------------
+// Every queued draw is an entry (state block, parameter block) of one list; the hardware bins
+// all of them and renders each tile once. A block is a count and that many (register offset,
+// value) pairs, written to the registers as the driver would. Identical state blocks are
+// shared, so draws that differ only in their parameters cost no state switch.
+#define LIST_MAX_REGS 40
+static struct {
+  uint32_t n;                 // entries
+  uint32_t top;               // bump pointer into the arena (byte offset from BORG_LIST_SPI)
+  uint32_t state_addr;        // the last state block, and its content
+  uint32_t state[LIST_MAX_REGS][2];
+  int state_n;
+  uint32_t vtab_addr;         // vertex attribute descriptors of the last draw
+  uint32_t load;              // TILE_LOAD of the render: the first draw's
+  int shift;                  // record stride of the render
+  uint32_t tris;              // an upper bound of the triangles queued
+} g_list = {0, BORG_LIST_ENTRY_BYTES, 0, {{0}}, 0, 0, 0, 0, 0};
+
+static uint32_t list_alloc(uint32_t bytes) {
+  uint32_t a = BORG_LIST_SPI + g_list.top;
+  g_list.top += (bytes + 3u) & ~3u;
+  return a;
+}
+
+static void list_reset(void) {
+  g_list.n = 0; g_list.top = BORG_LIST_ENTRY_BYTES; g_list.state_addr = 0; g_list.state_n = 0;
+  g_list.vtab_addr = 0; g_list.tris = 0;
+  g_sh[0].code = g_sh[1].code = 0;     // the arena's shader copies are gone
+  g_vtab_dirty = 1;
+}
+
+// A stage's code and constant window, in the arena.
+static void list_stage(int stage, const spirb_shader_t *sh) {
+  if (g_sh[stage].code) return;
+  const uint32_t n = g_sh[stage].blob[0];
+  const uint32_t words = stage == 0 ? DRAW_VS_CONST_MAX_WORDS : DRAW_FS_CONST_WORDS;
+  const uint32_t u0 = stage == 0 ? DRAW_VS_CONST_U0 : DRAW_FS_CONST_U0;
+  uint32_t a = list_alloc((n + 1) * 4);
+  for (uint32_t i = 0; i < n; i++) BDRAM_W(a + i * 4, le32(g_sh[stage].blob + 6 + i * 4));
+  BDRAM_W(a + n * 4, 0);               // HALT
+  uint32_t c = list_alloc(words * 4);
+  for (uint32_t i = 0; i < words; i++) BDRAM_W(c + i * 4, 0);
+  for (int i = 0; i < sh->num_window; i++) BDRAM_W(c + (uint32_t)(sh->window_regs[i] - u0) * 4, sh->window_vals[i]);
+  g_sh[stage].code = a;
+  g_sh[stage].consts = c;
+}
+
+static uint32_t list_block(uint32_t regs[][2], int n) {
+  uint32_t a = list_alloc(4 + (uint32_t)n * 8);
+  BDRAM_W(a, (uint32_t)n);
+  for (int i = 0; i < n; i++) { BDRAM_W(a + 4 + (uint32_t)i * 8, regs[i][0]); BDRAM_W(a + 8 + (uint32_t)i * 8, regs[i][1]); }
+  return a;
+}
+
+#define LREG(arr, n, field, v) do { arr[n][0] = (uint32_t)offsetof(borg_gpu_t, field); arr[n][1] = (uint32_t)(v); n++; } while (0)
+
+void borg_core_list_draw(void) {
+  int shift = draw_record_shift(g_draw_vert.num_varyings);
+  if (!g_draw_vert_ok || shift < 0 || g_draw_vertex_count <= 0 || !g_sh[0].bytes || !g_sh[1].bytes) return;
+  // One record stride, at most 65,535 triangles and one arena per render: otherwise render
+  // what is queued and start the next list with this draw.
+  uint32_t tris = (uint32_t)g_draw_vertex_count * (g_dp.instance_count ? g_dp.instance_count : 1);
+  if (g_list.n && (shift != g_list.shift || g_list.tris + tris > 60000u ||
+                   g_list.n >= BORG_LIST_ENTRY_BYTES / 8 - 1 || g_list.top + 0x4000 > BORG_LIST_BYTES))
+    borg_core_list_flush();
+  if (g_list.n == 0) { g_list.load = g_dp.load; g_list.shift = shift; }
+  g_list.tris += tris;
+
+  list_stage(0, &g_draw_vert);
+  list_stage(1, &frag_shader);
+  if (g_vtab_dirty || !g_list.vtab_addr) {
+    g_list.vtab_addr = list_alloc(BORG_MAX_VATTRS * 64);
+    for (int s = 0; s < BORG_MAX_VATTRS; s++)
+      for (int w = 0; w < 16; w++) BDRAM_W(g_list.vtab_addr + (uint32_t)(s * 64 + w * 4), w < 4 ? g_vtab[s][w] : 0);
+    g_vtab_dirty = 0;
+  }
+
+  uint32_t st[LIST_MAX_REGS][2]; int n = 0;
+  LREG(st, n, seq_vert_addr, g_sh[0].code); LREG(st, n, seq_vert_len, g_sh[0].blob[0]);
+  LREG(st, n, seq_frag_addr, g_sh[1].code); LREG(st, n, seq_frag_len, g_sh[1].blob[0]);
+  LREG(st, n, draw_vs_const, g_sh[0].consts); LREG(st, n, draw_fs_const, g_sh[1].consts);
+  LREG(st, n, tex_desc_base, TEX_DESC_TABLE_ADDR); LREG(st, n, sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
+  LREG(st, n, ls_base, DRAW_UBO_SPI & LS_BASE_REG_T__BASE_ADDR_bm);
+  LREG(st, n, blend_cfg, g_st.blend_cfg); LREG(st, n, blend_const, g_st.blend_const);
+  if (g_st.raster_valid) {
+    LREG(st, n, stencil_cfg, g_st.stencil_cfg); LREG(st, n, stencil_front, g_st.stencil_front);
+    LREG(st, n, stencil_back, g_st.stencil_back); LREG(st, n, depth_cfg, g_st.depth_cfg);
+  }
+  LREG(st, n, cull_cfg, borg_cull_cfg);
+  LREG(st, n, viewport_sx, half_width_f); LREG(st, n, viewport_sy, half_height_f);
+  LREG(st, n, viewport_ox, half_width_f); LREG(st, n, viewport_oy, half_height_f);
+  LREG(st, n, depth_scale, BORG_FLOAT_ONE); LREG(st, n, depth_offset, BORG_FLOAT_ZERO);
+  LREG(st, n, draw_cfg, 1u | (g_dp.topology << 1) | (g_dp.index_type << 3) | (g_dp.restart << 5) |
+                        ((uint32_t)shift << 6));
+  if (!g_list.state_addr || n != g_list.state_n || memcmp(st, g_list.state, (size_t)n * 8) != 0) {
+    g_list.state_addr = list_block(st, n);
+    memcpy(g_list.state, st, (size_t)n * 8);
+    g_list.state_n = n;
+  }
+
+  uint32_t pr[8][2]; int m = 0;
+  LREG(pr, m, draw_vertex_count, g_draw_vertex_count); LREG(pr, m, draw_instance_count, g_dp.instance_count);
+  LREG(pr, m, draw_first_vertex, g_dp.first_vertex); LREG(pr, m, draw_first_instance, g_dp.first_instance);
+  LREG(pr, m, draw_vertex_offset, (uint32_t)g_dp.vertex_offset); LREG(pr, m, draw_index_base, g_dp.index_base);
+  // The vertex shader's attribute descriptors are slots BORG_VATTR_SLOT0.. of ITS table: the
+  // state block's table is the fragment shader's, which Pass 2 writes back.
+  LREG(pr, m, tex_desc_base, g_list.vtab_addr - BORG_VATTR_SLOT0 * 64);
+  uint32_t params = list_block(pr, m);
+
+  BDRAM_W(BORG_LIST_SPI + g_list.n * 8, g_list.state_addr);
+  BDRAM_W(BORG_LIST_SPI + g_list.n * 8 + 4, params);
+  g_list.n++;
+}
+
+// The registers of the render itself; the draws' own are in their blocks.
+static void list_trigger(uint32_t list, uint32_t load) {
+  const uint32_t frame_stride = frame_stride_words();
+  uint32_t cc_lo = ((uint32_t)clear_b << 16) | FP16_MAX_DEPTH;
+  uint32_t cc_hi = ((uint32_t)clear_r << 16) | clear_g;
+  BREG_W(seq_fb_base, DRAM_OUT_SPI(0 * frame_stride));
+  const int fb_tiles = borg_fb_width >> 2;
+  const int win_tiles = fb_tiles < WINDOW_TILES ? fb_tiles : WINDOW_TILES;
+  BREG_W(seq_tiles_per_row, win_tiles);
+  BREG_W(seq_tile_rows,     win_tiles);
+  BREG_W(fb_pitch,          fb_tiles);
+  BREG_W(seq_clear_lo,      cc_lo);
+  BREG_W(seq_clear_hi,      cc_hi);
+  BREG_W(seq_bin_base,      tbr_bin_base);
+  BREG_W(seq_bin_row_bytes, TBR_BIN_ROW_BYTES);
+  BREG_W(seq_setup_base,    tbr_setup_base);
+  BREG_W(tile_bz,           cc_lo);
+  BREG_W(frag_pc, BORG_IMEM_FRAG_OFFSET);
+  BREG_W(sample_mask_cfg, 0xF | (1u << 6));
+  BREG_W(tile_load, load);
+  BREG_W(draw_cfg, 1u | ((uint32_t)g_list.shift << 6));   // the record stride, before any block
+  BREG_W(render_list, list);
+  int part = 0, nparts = 1, widx = 0;
+  { const char *e = getenv("BORG_PART"); if (e) sscanf(e, "%d/%d", &part, &nparts); }
+  for (int wy = 0; wy < fb_tiles; wy += win_tiles)
+    for (int wx = 0; wx < fb_tiles; wx += win_tiles) {
+      if (widx++ % nparts != part) continue;
+      BREG_W(fb_origin, (uint32_t)wx | ((uint32_t)wy << 16));
+      BREG_W(seq_trigger, 1);
+      while (BREG_R(status) & STATUS_REG_T__SEQ_BUSY_bm)
+        ;
+    }
+  borg_core_wait_idle();
+  BREG_W(render_list, 0);
+}
+
+void borg_core_list_flush(void) {
+  if (g_list.n == 0) return;
+  BDRAM_W(BORG_LIST_SPI + g_list.n * 8, 0);
+  BDRAM_W(BORG_LIST_SPI + g_list.n * 8 + 4, 0);
+  list_trigger(BORG_LIST_SPI, g_list.load);
+  if (BREG_R(seq_trigger) & 2u) {
+    // A bin overflowed and nothing was rendered: the draws one render each, the first as the
+    // list was to start, the rest continuing from what it left (load, keep).
+    uint32_t one = list_alloc(16);
+    for (uint32_t i = 0; i < g_list.n; i++) {
+      const uint32_t e = BORG_LIST_SPI + i * 8;
+      BDRAM_W(one, bh_dram_read(e)); BDRAM_W(one + 4, bh_dram_read(e + 4));
+      BDRAM_W(one + 8, 0); BDRAM_W(one + 12, 0);
+      list_trigger(one, i == 0 ? g_list.load : (g_list.load | 9u));
+    }
+  }
+  list_reset();
+}
+#endif
+
 void borg_core_draw(const borg_float_t *mvp, int frame) {
   borg_core_stage(mvp);
   borg_core_render(frame);
@@ -400,6 +599,14 @@ static int csum_ok(const uint8_t *p, int n) {
 }
 
 int borg_core_packet(const uint8_t *p) {
+#ifdef BORG_HOST
+  // Texture, push-constant and geometry packets overwrite memory the queued draws read, and a
+  // target or pass packet starts another render: the queued draws come first.
+  switch (p[0]) {
+  case 0xAD: case 0xAE: case 0xAF: case 0xB2: case 0xB5: case 0xB6: case 0xB7: case 0xBB:
+    borg_core_list_flush();
+  }
+#endif
   int n = borg_core_pkt_len(p[0]);
   if (!n || !csum_ok(p, n)) return BC_BAD;
   switch (p[0]) {
@@ -447,6 +654,9 @@ int borg_core_packet(const uint8_t *p) {
   case 0xB3:   // blend: BLEND_CFG, BLEND_CONST (the registers' own layout)
     BREG_W(blend_cfg, le32(p + 1));
     BREG_W(blend_const, le32(p + 5));
+#ifdef BORG_HOST
+    g_st.blend_cfg = le32(p + 1); g_st.blend_const = le32(p + 5);
+#endif
     return BC_STATE;
   case 0xB4:   // raster state: STENCIL_CFG, STENCIL_FRONT, STENCIL_BACK, DEPTH_CFG, CULL_CFG
     BREG_W(stencil_cfg,   le32(p + 1));
@@ -454,6 +664,10 @@ int borg_core_packet(const uint8_t *p) {
     BREG_W(stencil_back,  le32(p + 9));
     BREG_W(depth_cfg,     le32(p + 13));
     borg_cull_cfg = le32(p + 17);
+#ifdef BORG_HOST
+    g_st.stencil_cfg = le32(p + 1); g_st.stencil_front = le32(p + 5); g_st.stencil_back = le32(p + 9);
+    g_st.depth_cfg = le32(p + 13); g_st.raster_valid = 1;
+#endif
     return BC_STATE;
 #ifdef BORG_HOST
   case 0xB6: { // render target: flush format + clear colour (4 x float32)
@@ -491,6 +705,11 @@ int borg_core_packet(const uint8_t *p) {
     // A typed fetch from a width-1 linear image whose row pitch is the vertex stride (a draw is
     // limited to 4096 vertices until the unit takes a 1D stride).
     uint32_t d = TEX_DESC_TABLE_ADDR + (BORG_VATTR_SLOT0 + slot) * 64;
+    g_vtab[slot][0] = base;
+    g_vtab[slot][1] = 0u | ((count - 1) << 16) | (1u << 28) | (1u << 30);
+    g_vtab[slot][2] = (fmt << 14) | (swz & 0xFFF00000u);
+    g_vtab[slot][3] = stride;
+    g_vtab_dirty = 1;
     BDRAM_W(d + 0, base);
     BDRAM_W(d + 4, 0u | ((count - 1) << 16) | (1u << 28) | (1u << 30));
     BDRAM_W(d + 8, (fmt << 14) | (swz & 0xFFF00000u));

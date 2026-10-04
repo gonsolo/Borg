@@ -76,6 +76,8 @@ class SeqMmioIO(cfg: BorgConfig) extends Bundle {
   // Colour attachments: how many (1..4); the tile is rendered once per
   // attachment, see BorgTileSequencer.attPass.
   val attCount        = Input(UInt(4.W))   // passes: up to 4 attachments, RAW128 ones twice
+  // RENDER_LIST: byte address of the render list, 0 = render the draw in the registers.
+  val listBase        = Input(UInt(GpuMemIO.AddrBits.W))
 }
 
 class SeqBinnerIO(cfg: BorgConfig) extends Bundle {
@@ -185,6 +187,8 @@ class BorgSequencerIO(val cfg: BorgConfig) extends Bundle {
   val topLeft    = if (cfg.drawEnabled) Some(Output(Vec(3, Bool()))) else None
   // The colour attachment the current tile pass renders (ATTIDX).
   val attPass    = Output(UInt(3.W))
+  // Render lists: a state block's register writes, to the MMIO bus.
+  val regWrite   = Decoupled(new RegWrite)
 }
 
 /** BorgSequencer — top-level supervisor over the GPU's two-pass render:
@@ -214,8 +218,33 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private val p2 = Module(new BorgTileSequencer(cfg))
   private val dw = Option.when(cfg.drawEnabled)(Module(new BorgDrawWalker(cfg)))
 
-  private val wIdle :: wPass1 :: wPass2 :: wDone :: Nil = Enum(4)
+  private val wIdle :: wPass1 :: wPass2 :: wDone :: wEntry :: wWaitEntry :: wPlayState :: wPlayParams :: wWaitPlay :: wDraw :: Nil = Enum(10)
   private val wstate = RegInit(wIdle)
+
+  // --- Render list (docs/B1_geometry_front_end.md, "Render lists") --------
+  // RENDER_LIST names a list of entries, two words each: the address of the
+  // draw's state block and of its parameter block (0 = none); a state address
+  // of 0 ends the list. Per entry the player writes the blocks into the
+  // registers and Pass 1 runs, triangles numbered on from the previous draw
+  // and binned into the same bins; then Pass 2 renders every tile once, and
+  // replays a triangle's state block when it differs from the last one's.
+  private val player   = Module(new BorgRegPlayer)
+  private val listMode = RegInit(false.B)
+  private val listPtr  = Reg(UInt(GpuMemIO.AddrBits.W))
+  private val entry    = Reg(Vec(2, UInt(GpuMemIO.AddrBits.W)))   // state block, parameter block
+  private val entryWord = RegInit(0.U(1.W))
+  private val lastState = RegInit(0.U(GpuMemIO.AddrBits.W))      // the state block the registers hold
+  private val anyDraw  = RegInit(false.B)                         // Pass 1 has run this render
+  private val afterPlay = RegInit(wIdle)
+  private val entryDesc = Wire(new DMADescriptor)
+  entryDesc.baseAddr := listPtr
+  entryDesc.length   := 2.U
+  entryDesc.dest     := 2.U
+  entryDesc.offset   := 0.U
+  private val entryDmaStart = WireDefault(false.B)
+  player.io.start := false.B
+  player.io.addr  := entry(0)
+  io.regWrite <> player.io.write
 
   // Which framebuffer Pass 2 is rendering into. Persists across whole
   // frames (toggled once per frame here, at wDone) -- neither sub-FSM can
@@ -240,13 +269,66 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
           if (BorgDebug.trace) printf("[SEQ] Pass1 start\n")
           wstate := wPass1
         }
+        listMode := false.B
+        if (cfg.drawEnabled) when(io.mmio.listBase =/= 0.U) {
+          dw.foreach(_.io.start := false.B)
+          listMode := true.B
+          listPtr  := io.mmio.listBase
+          lastState := 0.U
+          anyDraw  := false.B
+          wstate   := wEntry
+        }
+      }
+    }
+    is(wEntry) {
+      entryDmaStart := true.B
+      entryWord := 0.U
+      wstate := wWaitEntry
+    }
+    is(wWaitEntry) {
+      when(io.dma.snoop.valid) { entry(entryWord) := io.dma.snoop.bits; entryWord := 1.U }
+      when(!io.dma.busy) {
+        when(entry(0) === 0.U) {
+          // End of the list. Nothing drawn, or a bin overflowed: render nothing.
+          when(!anyDraw || io.binOverflow) { wstate := wDone }
+            .otherwise { p2.io.start := true.B; wstate := wPass2 }
+        }.otherwise {
+          wstate := Mux(entry(0) === lastState, wPlayParams, wPlayState)
+        }
+      }
+    }
+    is(wPlayState) {
+      player.io.start := true.B
+      lastState := entry(0)
+      afterPlay := wPlayParams
+      wstate := wWaitPlay
+    }
+    is(wPlayParams) {
+      player.io.start := entry(1) =/= 0.U
+      player.io.addr  := entry(1)
+      afterPlay := wDraw
+      wstate := Mux(entry(1) =/= 0.U, wWaitPlay, wDraw)
+    }
+    is(wWaitPlay) {
+      when(player.io.done) { wstate := afterPlay }
+    }
+    is(wDraw) {
+      listPtr := listPtr + 8.U
+      when(nothingToDraw) {
+        wstate := wEntry
+      }.otherwise {
+        dw.foreach(_.io.start := true.B)
+        wstate := wPass1
       }
     }
     is(wPass1) {
       when(p1Done) {
+        anyDraw := true.B
+        when(listMode) {
+          wstate := wEntry
         // A bin overflowed: some triangle is missing from some tile, so any
         // tile rendered now could be wrong. Render and flush nothing.
-        when(io.binOverflow) {
+        }.elsewhen(io.binOverflow) {
           wstate := wDone
         }.otherwise {
           p2.io.start := true.B
@@ -285,6 +367,8 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   io.binner.clearCounts := false.B
   dw.foreach { w =>
     w.io.mmio := io.mmio
+    w.io.first := !listMode || !anyDraw
+    w.io.stateAddr := Mux(listMode, lastState, 0.U)
     w.io.draw := io.draw.get
     w.io.coreStatus := io.coreStatus
     w.io.pipeWrite  := io.pipeWriteLanes.get
@@ -318,6 +402,15 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
 
   p2.io.mmio := io.mmio
   p2.io.curBufIdx := curBufIdx
+  // Pass 2 asks for a triangle's state block when it is not the one in the registers.
+  p2.io.listMode := listMode
+  p2.io.playDone := player.io.done
+  when(p2.io.playReq) {
+    player.io.start := true.B
+    player.io.addr  := p2.io.playAddr
+  }
+  player.io.dmaBusy := io.dma.busy
+  player.io.snoop   := io.dma.snoop
 
   // --- DMA and uniform writes: shared ports, arbitrated by which pass is
   // active. Responses (busy/snoop/uniformSnoop) go to both; only the pass
@@ -326,6 +419,15 @@ class BorgSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   private def pass1[T <: Data](f: BorgDrawWalker => T, idle: T): T = dw.map(f).getOrElse(idle)
   io.dma.start := Mux(pass1Active, pass1(_.io.dma.start, false.B), p2.io.dma.start)
   io.dma.desc  := Mux(pass1Active, pass1(_.io.dma.desc, p2.io.dma.desc), p2.io.dma.desc)
+  // The list walk and the player take the port between the passes' own transfers.
+  when(wstate === wEntry || wstate === wWaitEntry) {
+    io.dma.start := entryDmaStart
+    io.dma.desc  := entryDesc
+  }
+  when(player.io.busy) {
+    io.dma.start := player.io.dmaStart
+    io.dma.desc  := player.io.dmaDesc
+  }
   p2.io.dma.busy := io.dma.busy
   p2.io.dma.snoop := io.dma.snoop
   p2.io.dma.uniformSnoop := io.dma.uniformSnoop

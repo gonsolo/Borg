@@ -13,6 +13,7 @@ extern "C" {
 void bh_reg_write(uint32_t off, uint32_t v) { g_sim->mmio_write(off, v); }
 uint32_t bh_reg_read(uint32_t off) { return g_sim->mmio_read(off); }
 void bh_dram_write(uint32_t a, uint32_t v) { g_sim->w32(a, v); }
+uint32_t bh_dram_read(uint32_t a) { return g_sim->r32(a); }
 }
 
 Driver::Driver(DirectSim &sim) { g_sim = &sim; }
@@ -42,8 +43,7 @@ int Driver::run_stream(const std::vector<uint8_t> &b) {
     if (kind == BC_DRAW) {
       if (!target_seen)
         borg_core_set_clear(clear_rgb16, clear_rgb16, clear_rgb16);
-      borg_core_render(0);
-      borg_core_wait_idle();
+      borg_core_list_draw();    // queued: one render for the whole pass
       draws++;
     }
     if (kind == BC_MVP && borg_core_ready()) {
@@ -54,6 +54,7 @@ int Driver::run_stream(const std::vector<uint8_t> &b) {
     }
     i += (size_t)len;
   }
+  borg_core_list_flush();
   return draws;
 }
 
@@ -77,6 +78,7 @@ int Driver::serve(int in, int out) {
     if (!read_all(in, pkt.data(), 1)) return 0;
     if (pkt[0] == 0xBC) {
       if (!read_all(in, &pkt[1], 4)) return 0;
+      borg_core_list_flush();
       init(pkt[1] | pkt[2] << 8, pkt[3] | pkt[4] << 8, false);
       const uint32_t a[4] = {DRAM_OUT_BASE_SPI, BORG_ZB_SPI, BORG_SB_SPI, BORG_HEAP_SPI};
       uint8_t r[16];
@@ -85,6 +87,7 @@ int Driver::serve(int in, int out) {
       continue;
     }
     if (pkt[0] == 0xBD) {
+      borg_core_list_flush();
       uint8_t ok = 1;
       if (!write_all(out, &ok, 1)) return 0;
       continue;
@@ -95,8 +98,7 @@ int Driver::serve(int in, int out) {
     int kind = borg_core_packet(pkt.data());
     if (kind == BC_BAD) { fprintf(stderr, "[direct] rejected packet 0x%02x\n", pkt[0]); continue; }
     if (kind == BC_DRAW) {
-      borg_core_render(0);
-      borg_core_wait_idle();
+      borg_core_list_draw();
       draws++;
     }
   }

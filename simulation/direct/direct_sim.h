@@ -41,6 +41,8 @@ public:
     v.rst_n = 1;
     for (int i = 0; i < 4; i++) tick();
     if (const char *t = getenv("DIRECT_TRACE")) sscanf(t, "%x:%x", &trace_lo, &trace_hi);
+    // DIRECT_LATENCY=read:write (cycles): how long the memory takes; 0:0 is the test harness's.
+    if (const char *t = getenv("DIRECT_LATENCY")) sscanf(t, "%u:%u", &read_latency, &write_latency);
   }
 
   // --- memory (host side) ---

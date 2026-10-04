@@ -282,9 +282,22 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     bus.is_writing := io.mmio.req.fire &&  io.mmio.req.bits.write
     bus.is_reading := io.mmio.req.fire && !io.mmio.req.bits.write
 
+    // Render lists: the sequencer's state blocks are register writes on this
+    // same bus, one per cycle between the driver's own requests -- never while
+    // a response is pending, whose read data still follows the held address.
+    // SEQ_TRIGGER is not a draw's to write.
+    val play = s.io.regWrite
+    play.ready := !mmioRespPending
+    when(play.fire) {
+      bus.address    := play.bits.addr
+      bus.data_in    := play.bits.data
+      bus.is_writing := play.bits.addr =/= BorgGpuRegs.seq_trigger_offset
+      bus.is_reading := false.B
+    }
+
     // Single-outstanding: don't accept a new request while one is in flight or
     // while the rasterizer owns the bus.
-    io.mmio.req.ready := !mmioRespPending && !rast.io.autoRunStall
+    io.mmio.req.ready := !mmioRespPending && !rast.io.autoRunStall && !play.valid
 
     when(io.mmio.req.fire) { mmioRespPending := true.B }
     when(io.mmio.resp.fire) { mmioRespPending := false.B }
@@ -979,6 +992,9 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_bin_base_offset)     { seqBinBaseReg := bus.data_in }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_bin_row_bytes_offset){ seqBinRowBytesReg := bus.data_in(19, 0) }
       when(bus.is_writing && bus.address === BorgGpuRegs.seq_setup_base_offset)   { seqSetupBaseReg := bus.data_in }
+      val renderListReg = RegInit(0.U(GpuMemIO.AddrBits.W))
+      when(bus.is_writing && bus.address === BorgGpuRegs.render_list_offset)      { renderListReg := bus.data_in }
+      s.io.mmio.listBase := seqCfgPipe(renderListReg)
 
       s.io.mmio.start           := seqCfgPipe(seqStartPulse)
       s.io.mmio.vertShaderAddr  := seqCfgPipe(seqVertAddrReg)
