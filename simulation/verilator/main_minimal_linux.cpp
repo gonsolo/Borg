@@ -139,6 +139,14 @@ int main(int argc, char** argv) {
 
         // Preload: flash byte F -> SDRAM word F>>1 (2 bytes per 16-bit word),
         // matching FlashBootLoader's own byte-serial copy target layout exactly.
+        if (getenv("BORG_SIM_JUNK")) {  // stale-SDRAM stand-in: random fill before the firmware
+            uint32_t x = 0x1234567u;
+            for (uint32_t w = 0; w < (1u << 24); w++) {
+                x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+                top->dbg_we = 1; top->dbg_waddr = w; top->dbg_wdata = x & 0xFFFF;
+                top->clk = 0; top->eval(); top->clk = 1; top->eval();
+            }
+        }
         fprintf(stderr, "Preloading firmware into SDRAM via debug backdoor...\n");
         uint32_t evenLen = (uint32_t)((fw_size + 1) & ~1u);
         for (uint32_t b = 0; b < evenLen; b += 2) {
