@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Review commits one by one, add your Reviewed-by tag, and push to main.
+"""Review commits one by one and add your Reviewed-by tag. It never pushes.
 
     scripts/review_commits.py [RANGE]        # default: origin/main..HEAD
-    scripts/review_commits.py --no-push      # review + tag, stop before pushing
 
 For every commit in RANGE (oldest first) the script shows the message and the
 full diff in your pager, then asks:
@@ -17,9 +16,9 @@ full diff in your pager, then asks:
 Only when EVERY commit was accepted does it
   1. rewrite the range, appending the Reviewed-by trailer where it is missing,
   2. check the result with scripts/check_ai_policy.py,
-  3. verify that any submodule commit the range points at is already on the
-     submodule's remote (a bump to an unpushed commit breaks everyone else),
-  4. ask once more, then push HEAD to origin/main.
+  3. warn if a submodule commit the range points at is not on the submodule's
+     remote (a bump to an unpushed commit breaks everyone else),
+  4. print the push command; pushing is left to you.
 
 The review is a human act: the script refuses to run without a terminal on
 stdin, so it cannot be scripted or driven by an assistant.
@@ -32,7 +31,6 @@ from pathlib import Path
 
 ROOT = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True,
                            text=True, check=True).stdout.strip())
-PUSH_CFG = ["-c", "http.https://github.com/.extraheader="]  # CI token header gives 403
 
 
 def git(*args, check=True, capture=True, cwd=ROOT):
@@ -99,7 +97,6 @@ def submodule_bumps(base: str, head: str) -> list[tuple[str, str]]:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("range", nargs="?", default="origin/main..HEAD")
-    ap.add_argument("--no-push", action="store_true", help="review and tag, but do not push")
     ap.add_argument("--rewrite-todo", nargs=3, metavar=("TODO", "REWORD", "EXEC"), help=argparse.SUPPRESS)
     a = ap.parse_args()
     if a.rewrite_todo:
@@ -171,36 +168,17 @@ def main():
     if chk.returncode:
         sys.exit("policy check failed -- fix the commit messages, nothing was pushed.")
 
-    if a.no_push:
-        print("Reviewed-by added; --no-push given, stopping here.")
-        return
-
-    # 3. submodule bumps must already be public.
+    # 3. warn about submodule bumps whose commit is not on the submodule's remote.
     for path, sha in submodule_bumps(base, "HEAD"):
         sub = ROOT / path
-        if not (sub / ".git").exists():
-            continue
-        remote_has = git("branch", "-r", "--contains", sha, check=False, cwd=sub)
-        if not remote_has:
-            print(f"\n{path}: {sha[:11]} is not on the submodule's remote.")
-            if ask(f"push {path} first?", "yn") == "y":
-                branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=sub)
-                if branch == "HEAD":
-                    sys.exit(f"{path} is detached; push it by hand, then rerun.")
-                subprocess.run(["git", *PUSH_CFG, "push", "origin", branch], cwd=sub, check=True)
-            else:
-                sys.exit("not pushing a submodule bump whose commit is not public.")
+        if (sub / ".git").exists() and not git("branch", "-r", "--contains", sha, check=False, cwd=sub):
+            print(f"\nWARNING: {path}: {sha[:11]} is not on the submodule's remote; push it first.")
 
-    # 4. final acknowledgement, then push.
-    print("\nAbout to push:")
-    print(git("log", "--oneline", f"{base}..HEAD"))
-    if ask("push HEAD to origin/main?", "yn") != "y":
-        print("Not pushed. The commits are reviewed and tagged locally.")
-        return
+    print(f"\nReviewed-by added to {base}..HEAD. Nothing was pushed. To publish:")
     if subprocess.run(["git", "merge-base", "--is-ancestor", "origin/main", "HEAD"], cwd=ROOT).returncode:
-        sys.exit("HEAD does not contain origin/main: rebase onto it first; nothing pushed.")
-    subprocess.run(["git", *PUSH_CFG, "push", "origin", "HEAD:main"], cwd=ROOT, check=True)
-    print("Pushed.")
+        print("  HEAD does not contain origin/main: rebase onto it first.")
+    else:
+        print("  git -c http.https://github.com/.extraheader= push origin HEAD:main")
 
 
 if __name__ == "__main__":
