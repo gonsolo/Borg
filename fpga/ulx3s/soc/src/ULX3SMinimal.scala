@@ -27,7 +27,7 @@ import _root_.circt.stage.ChiselStage
   *             whether a full-SoC timing-closure issue is the cause of a
   *             hardware boot that's silent despite working in simulation.
   */
-class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32) extends RawModule with MinimalSoCLogic {
+class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanoutOn: Boolean = true) extends RawModule with MinimalSoCLogic {
   // ── Board pins (subset of full ULX3S) ─────────────────────────────────────
   val clk_25mhz = IO(Input(Clock()))
   val rst_n     = IO(Input(Bool()))
@@ -219,7 +219,8 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32) extends
   withClockAndReset(sysClock, pllRst) {
     when(!scanoutReady) { scanoutBootDelay := scanoutBootDelay + 1.U }
   }
-  scanout.io.enable := scanoutReady
+  // Off for Linux: scanout starves the boot copy and instruction fetch.
+  scanout.io.enable := scanoutReady && scanoutOn.B
 
   // scanout.io.red/green/blue and hsync/vsync/de are already natively in the
   // hdmiClock domain (they only change on hdmiTick25) -- no CDC stage needed;
@@ -287,7 +288,7 @@ object ULX3SMinimalLinuxMain extends App {
   new java.io.File(targetDir).mkdirs()
 
   ChiselStage.emitSystemVerilogFile(
-    gen         = new ulx3s_minimal_top(clockMhz, xlen = 64),
+    gen         = new ulx3s_minimal_top(clockMhz, xlen = 64, scanoutOn = false),
     args        = Array("--target-dir", targetDir),
     firtoolOpts = Emit.firtoolOpts
   )
