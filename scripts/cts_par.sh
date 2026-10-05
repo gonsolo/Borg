@@ -7,6 +7,9 @@
 # list (the Vulkan 1.0 conformance set), mapped to today's case names; without it every
 # case the current CTS has under the pattern runs, extension variants included.
 #
+# MUSTPASS_GROUPS=1 (with MUSTPASS) runs every case of this CTS in the groups the list touches
+# (name depth MUSTPASS_GROUP_DEPTH, default 4), for groups that were restructured since.
+#
 # MUSTPASS_NATIVE=1 with VK_GL_CTS pointing at a checkout of that same release (e.g.
 # ~/src/VK-GL-CTS-1.0.2.6): the names are used as listed, no mapping or intersection.
 #
@@ -56,8 +59,16 @@ if [[ -n "${MUSTPASS:-}" && -z "${MUSTPASS_NATIVE:-}" ]]; then
   rx="^$(printf '%s' "$1" | sed -e 's/[.]/\\./g' -e 's/[*]/.*/g')\$"
   git -C "$VK_GL_CTS" show "vulkan-cts-$MUSTPASS:external/vulkancts/mustpass/${MUSTPASS%.*}/vk-default.txt" \
     | sed 's/^dEQP-VK\.pipeline\./dEQP-VK.pipeline.monolithic./' | grep -E "$rx" | sort -u > "$OUT/mustpass.txt" || true
-  sort -u "$OUT/all.txt" | comm -12 - "$OUT/mustpass.txt" > "$OUT/all_mp.txt"
-  echo "mustpass $MUSTPASS: $(wc -l < "$OUT/mustpass.txt") listed, $(wc -l < "$OUT/all_mp.txt") exist in this CTS"
+  if [[ -n "${MUSTPASS_GROUPS:-}" ]]; then
+    # Later CTS releases restructured many groups, so names no longer match: take every case
+    # of this CTS that lies in a group (first MUSTPASS_GROUP_DEPTH name fields) the list touches.
+    awk -F. -v d="${MUSTPASS_GROUP_DEPTH:-4}" 'function g(n,  i,s){s=$1;for(i=2;i<=d;i++)s=s"."$i;return s}
+      NR==FNR{k[g($0)]=1;next} (g($0) in k)' "$OUT/mustpass.txt" <(sort -u "$OUT/all.txt") > "$OUT/all_mp.txt"
+    echo "mustpass $MUSTPASS by group (depth ${MUSTPASS_GROUP_DEPTH:-4}): $(wc -l < "$OUT/mustpass.txt") listed, $(wc -l < "$OUT/all_mp.txt") cases in their groups"
+  else
+    sort -u "$OUT/all.txt" | comm -12 - "$OUT/mustpass.txt" > "$OUT/all_mp.txt"
+    echo "mustpass $MUSTPASS: $(wc -l < "$OUT/mustpass.txt") listed, $(wc -l < "$OUT/all_mp.txt") exist in this CTS"
+  fi
   mv "$OUT/all_mp.txt" "$OUT/all.txt"
 fi
 # Remembered passes: cases in PASS_DB are skipped until the file is cleared (PASS_DB_RESET=1,
