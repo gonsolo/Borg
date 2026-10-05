@@ -59,9 +59,9 @@ static struct {
 } g_sh[2];
 static uint32_t g_vtab[BORG_MAX_VATTRS][4];   // vertex attribute descriptors, words 0..3
 static int g_vtab_dirty = 1;
-#endif
 static int g_natt = 1;                 // colour attachments of the pass (host)
 static uint32_t g_att_fmt = 0;         // flush formats of attachments 1-3, 3 bits each
+#endif
 static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px), 5 RAW8 (1 B/px)
 static uint32_t flush_bytes_per_pixel(int f) { return f == 5 ? 1u : f ? 4u : 2u; }
 
