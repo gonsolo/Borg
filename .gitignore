@@ -67,3 +67,4 @@ simulation/verilator/obj_dir_*
 # would silently test an old compiler against new firmware.
 software/borg/compiler/.regen/
 software/borg/compiler/.bursts/
+asic/wafer.space/cocotb/sim_build*/
