@@ -38,3 +38,12 @@ Layered bring-up bitstreams in `fpga/ulx3s/debug/` isolate individual subsystems
 |--------|-----------|----------|
 | SoC clock | 25 MHz | Hutt CPU, MemoryController, Borg peripheral |
 | HDMI pixel clock | 125 MHz | TMDS serialiser |
+
+### RV64 Linux with a tiny Borg (`borg-minimal-linux-borg`)
+
+`make generate_verilog_ulx3s_minimal_linux_borg`; `BorgConfig.Tiny` (FP32, 1 lane, 64 bin
+tiles, no MSAA, blend, stencil, compute, depth flush or perf counters) beside the RV64
+Hutt, scanout off. nextpnr: 49,734 / 83,640 LUTs (59%), 51 MULT18X18D, 6 DP16KD.
+Fmax 20.32 MHz, so the SoC clock is 20 MHz. At 25 MHz it reaches only 20.4 MHz; the
+limiter is the lane's integer ALU fed straight from the register BRAM, not the FMA
+(`fmaStages=4` changes nothing).

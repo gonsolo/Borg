@@ -11,6 +11,7 @@ import chisel3._
 import chisel3.util._
 import hutt.{Hutt, HuttBus, HuttBusReq, HuttDataWidthAdapter, HuttInstrBus}
 import memory.MemoryController
+import borg.{Borg, BorgConfig}
 
 /** Slimmed-down SoCLogic — same address map as the full version but with no
   * Borg / no Peripherals / no GPU memory port consumer.  Suitable for testing
@@ -24,6 +25,7 @@ import memory.MemoryController
 trait MinimalSoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
   def xlen: Int = 32   // 32 = RV32I, 64 = RV64I (override with def, not val)
+  def borgCfg: Option[BorgConfig] = None   // Some(cfg) attaches Borg at BORG_BASE (0x08000C00)
 
   // Abstract — provided by the top module.
   def soc_clk: Clock
@@ -44,6 +46,7 @@ trait MinimalSoCLogic { self: RawModule =>
   lazy val uartTx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new peri.uart.UartTx(13))
   }
+  lazy val borg = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Borg(borgCfg.get)) }
   lazy val clint = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new Clint) }
   lazy val iCache = withClockAndReset(soc_clk, !soc_rst_reg_n) { Module(new hutt.InstrCache(23)) }
 
@@ -51,11 +54,15 @@ trait MinimalSoCLogic { self: RawModule =>
     * HDMI bring-up (where scanout owns the gpuMem port).
     */
   def wireGpuMem(): Unit = {
-    mem.io.gpuMem.req   := false.B
-    mem.io.gpuMem.wr    := false.B
-    mem.io.gpuMem.addr  := 0.U
-    mem.io.gpuMem.wdata := 0.U
-    mem.io.gpuMem.wlen  := 1.U
+    if (borgCfg.isDefined) {
+      mem.io.gpuMem <> borg.io.gpuMem
+    } else {
+      mem.io.gpuMem.req   := false.B
+      mem.io.gpuMem.wr    := false.B
+      mem.io.gpuMem.addr  := 0.U
+      mem.io.gpuMem.wdata := 0.U
+      mem.io.gpuMem.wlen  := 1.U
+    }
   }
 
   def wireSoC(): UInt = {
@@ -79,6 +86,8 @@ trait MinimalSoCLogic { self: RawModule =>
     val isClint = cpuAddr(27, 24) === 2.U   // 0x02000000–0x02FFFFFF: CLINT (mtime/mtimecmp)
     val isSoc   = SoCDecode.socRegion.matches(cpuAddr)
     val isUser  = SoCDecode.userRegion.matches(cpuAddr)
+    // Borg sits at user-peripheral slot 3 (addr[11:10]); other user slots stay unmapped.
+    val isBorg  = isUser && !isSoc && cpuAddr(11, 10) === 3.U && borgCfg.isDefined.B
 
     // CLINT instance — mtime / mtimecmp at 0x02000000–0x0200000F.
     clint.io.mmio.req.valid      := cpuData.req.valid && isClint
@@ -86,6 +95,14 @@ trait MinimalSoCLogic { self: RawModule =>
     clint.io.mmio.req.bits.write := cpuData.req.bits.write
     clint.io.mmio.req.bits.size  := cpuData.req.bits.size
     clint.io.mmio.req.bits.data  := cpuData.req.bits.data(31, 0)
+
+    if (borgCfg.isDefined) {
+      borg.io.mmio.req.valid      := cpuData.req.valid && isBorg
+      borg.io.mmio.req.bits.addr  := cpuAddr(9, 0)
+      borg.io.mmio.req.bits.write := cpuData.req.bits.write
+      borg.io.mmio.req.bits.size  := cpuData.req.bits.size
+      borg.io.mmio.req.bits.data  := cpuData.req.bits.data(31, 0)
+    }
 
     // Memory port from CPU.
     mem.io.cpuData.req.valid           := cpuData.req.valid && isMem
@@ -150,12 +167,15 @@ trait MinimalSoCLogic { self: RawModule =>
     val activeMem   = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
     val activeSoc   = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
     val activeClint = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
-    val anyActive   = activeMem || activeSoc || activeClint
+    val activeBorg  = withClockAndReset(soc_clk, !soc_rst_reg_n) { RegInit(false.B) }
+    val anyActive   = activeMem || activeSoc || activeClint || activeBorg
+    val borgReady   = if (borgCfg.isDefined) borg.io.mmio.req.ready else true.B
 
     // User-region reads/writes get auto-acked with 0xFFFFFFFF (treated as SoC).
     cpuData.req.ready := !anyActive && MuxCase(true.B, Seq(
       isMem   -> mem.io.cpuData.req.ready,
       isClint -> clint.io.mmio.req.ready,
+      isBorg  -> borgReady,
       isSoc   -> true.B
     ))
 
@@ -163,27 +183,32 @@ trait MinimalSoCLogic { self: RawModule =>
       when(cpuData.req.fire) {
         activeMem   := isMem
         activeClint := isClint
-        activeSoc   := !isMem && !isClint  // SoC OR user → treat as SoC for response
+        activeBorg  := isBorg
+        activeSoc   := !isMem && !isClint && !isBorg  // SoC OR unmapped user → treat as SoC
       }
       when(cpuData.resp.fire) {
         activeMem   := false.B
         activeSoc   := false.B
         activeClint := false.B
+        activeBorg  := false.B
         socRespPending := false.B
       }
     }
 
     mem.io.cpuData.resp.ready := cpuData.resp.ready && activeMem
     clint.io.mmio.resp.ready  := cpuData.resp.ready && activeClint
+    if (borgCfg.isDefined) borg.io.mmio.resp.ready := cpuData.resp.ready && activeBorg
 
     cpuData.resp.valid := MuxCase(false.B, Seq(
       activeMem   -> mem.io.cpuData.resp.valid,
       activeClint -> clint.io.mmio.resp.valid,
+      activeBorg  -> (if (borgCfg.isDefined) borg.io.mmio.resp.valid else false.B),
       activeSoc   -> socRespPending
     ))
     cpuData.resp.bits := MuxCase(0.U, Seq(
       activeMem   -> mem.io.cpuData.resp.bits,
       activeClint -> clint.io.mmio.resp.bits,
+      activeBorg  -> (if (borgCfg.isDefined) borg.io.mmio.resp.bits else 0.U),
       activeSoc   -> socRespData
     ))
 

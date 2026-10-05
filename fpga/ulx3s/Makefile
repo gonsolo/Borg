@@ -620,6 +620,43 @@ borg-minimal-linux.bit: borg-minimal-linux.config
 	ecppack --svf borg-minimal-linux.svf borg-minimal-linux.config borg-minimal-linux.bit
 	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-minimal-linux.bit ready."
 
+# RV64 Linux SoC + Borg (BORG_MINIMAL_CFG=tiny|cube); separate files so the plain bitstream stays.
+ULX3S_MINIMAL_LINUX_BORG_VERILOG_DIR = ../../out/ulx3s_minimal_linux_borg/verilog
+MIN_LINUX_BORG_SRC_FILES = $$(find $(ULX3S_MINIMAL_LINUX_BORG_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
+MIN_LINUX_BORG_LPF = $(ULX3S_MINIMAL_LINUX_BORG_VERILOG_DIR)/ulx3s.lpf
+
+.verilog_stamp_ulx3s_minimal_linux_borg: $(CHISEL_SRCS) Makefile ../../Makefile
+	$(MAKE) -C ../.. generate_verilog_ulx3s_minimal_linux_borg
+	@touch $@
+
+borg-minimal-linux-borg.json: .verilog_stamp_ulx3s_minimal_linux_borg
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Running Yosys for minimal RV64 SoC + Borg ..."
+	yosys -p "read -sv $(MIN_LINUX_BORG_SRC_FILES); \
+	           read_verilog -sv -lib $(CURDIR)/primitives/ecp5_prims.v; \
+	           synth_ecp5 -abc9 -top ulx3s_minimal_top -json borg-minimal-linux-borg.json; \
+	           stat -top ulx3s_minimal_top" \
+	      -DECP5 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ \
+	      > yosys-minimal-linux-borg.log
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Done."
+
+borg-minimal-linux-borg.config: borg-minimal-linux-borg.json
+	@echo -e "$(BOLD)[PNR]$(RESET) Running nextpnr-ecp5 for minimal RV64 SoC + Borg ..."
+	nextpnr-ecp5 \
+	  --85k --package CABGA381 \
+	  --json borg-minimal-linux-borg.json \
+	  --lpf $(MIN_LINUX_BORG_LPF) \
+	  --textcfg borg-minimal-linux-borg.config \
+	  --freq $(CLOCK_FREQ) \
+	  --timing-allow-fail \
+	  --log nextpnr-minimal-linux-borg.log \
+	  --seed 0
+	@echo -e "$(BOLD)[PNR]$(RESET) Done."
+
+borg-minimal-linux-borg.bit: borg-minimal-linux-borg.config
+	@echo -e "$(BOLD)[PACK]$(RESET) Packing minimal RV64+Borg bitstream ..."
+	ecppack --svf borg-minimal-linux-borg.svf borg-minimal-linux-borg.config borg-minimal-linux-borg.bit
+	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-minimal-linux-borg.bit ready."
+
 # Flash minimal RV64 bitstream only (does NOT reset — flash firmware next, or
 # 'make reset' to boot with whatever firmware is already at 0x400000).
 flash-minimal-linux: borg-minimal-linux.bit

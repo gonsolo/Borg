@@ -27,7 +27,8 @@ import _root_.circt.stage.ChiselStage
   *             whether a full-SoC timing-closure issue is the cause of a
   *             hardware boot that's silent despite working in simulation.
   */
-class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanoutOn: Boolean = true) extends RawModule with MinimalSoCLogic {
+class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanoutOn: Boolean = true,
+                         override val borgCfg: Option[borg.BorgConfig] = None) extends RawModule with MinimalSoCLogic {
   // ── Board pins (subset of full ULX3S) ─────────────────────────────────────
   val clk_25mhz = IO(Input(Clock()))
   val rst_n     = IO(Input(Bool()))
@@ -56,7 +57,7 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   val btn = IO(Input(UInt(6.W)))
 
   // ── PLL: 25 → 25 MHz SoC + 25 MHz/90° SDRAM + 125 MHz HDMI ──────────────
-  val SOC_MHZ  = 25
+  val SOC_MHZ  = CLOCK_MHZ
   val HDMI_MHZ = 125
   val pll = Module(new Ecp5PllWrapper(Ecp5PllParams(
     inHz   = 25_000_000L,
@@ -103,7 +104,11 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   scanout.io.fbBase   := 0x100000.U
   scanout.io.fbBase1  := 0x100000.U
 
-  override def wireGpuMem(): Unit = {
+  override def wireGpuMem(): Unit = if (borgCfg.isDefined) {
+    mem.io.gpuMem <> borg.io.gpuMem   // Borg owns the port; scanout stays off
+    scanout.io.gpuData  := 0.U
+    scanout.io.gpuReady := false.B
+  } else {
     mem.io.gpuMem.req   := scanout.io.gpuReq
     mem.io.gpuMem.addr  := scanout.io.gpuAddr
     mem.io.gpuMem.wr    := false.B
@@ -294,5 +299,26 @@ object ULX3SMinimalLinuxMain extends App {
   )
 
   // Reuse the full pin definitions; unused pins are harmless to constrain.
+  ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
+}
+
+/** RV64 Linux top with Borg attached; BORG_MINIMAL_CFG = tiny (default) | cube. */
+object ULX3SMinimalLinuxBorgMain extends App {
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "25").toInt
+  val targetDir = "out/ulx3s_minimal_linux_borg/verilog"
+  new java.io.File(targetDir).mkdirs()
+
+  val cfg = sys.env.getOrElse("BORG_MINIMAL_CFG", "tiny") match {
+    case "tiny" => borg.BorgConfig.Tiny
+    case "cube" => borg.BorgConfig.Simt.copy(samples = 1, hasBlend = false, hasStencil = false,
+                                             hasCompute = false, hasDepthFlush = false)
+    case other  => throw new IllegalArgumentException(s"BORG_MINIMAL_CFG=$other")
+  }
+  val fma = sys.env.get("BORG_FMA_STAGES").fold(cfg)(n => cfg.copy(fmaStages = n.toInt))
+  ChiselStage.emitSystemVerilogFile(
+    gen         = new ulx3s_minimal_top(clockMhz, xlen = 64, scanoutOn = false, borgCfg = Some(fma)),
+    args        = Array("--target-dir", targetDir),
+    firtoolOpts = Emit.firtoolOpts
+  )
   ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
 }

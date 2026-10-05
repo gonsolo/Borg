@@ -443,6 +443,13 @@ object BorgConfig {
   // (see Default's own comment for the full rationale).
   val Simt = Default.copy(fragLanes = 4, maxBinTiles = 4096)
 
+  // Smallest config that still runs the draw front end (FP32 + shader I-cache):
+  // one lane, 64 bin tiles (32x32 px), no MSAA/blend/stencil/compute/depth flush.
+  // For fitting beside RV64 Linux on the ECP5-85K; derivatives read 0 at one lane.
+  val Tiny = Default.copy(fragLanes = 1, maxBinTiles = 64, samples = 1, hasBlend = false,
+                          hasStencil = false, hasCompute = false, hasDepthFlush = false,
+                          hasPerfCounters = false)
+
   // --- Simulation configs for validating msaaMultiPass end to end ---------
   //
   // A fair comparison needs BOTH sides quantized: msaaMultiPass requires
