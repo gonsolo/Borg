@@ -9,7 +9,7 @@
 # (device/format/limit enumeration) — a good audit of borgvk's reporting paths.
 #
 # Env overrides:
-#   VK_GL_CTS        path to the VK-GL-CTS checkout (default: $HOME/src/VK-GL-CTS)
+#   VK_GL_CTS        path to the VK-GL-CTS checkout (default: $HOME/src/VK-GL-CTS-1.4.6.2)
 #   VK_CTS_CASE      case GLOB to run              (default: dEQP-VK.api.info.*)
 #   VK_CTS_CASES     explicit newline list         (takes precedence over VK_CTS_CASE)
 #   BORGVK_SIM       path to arcilator_sim binary  — enables sim mode (no real HW)
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VK_GL_CTS="${VK_GL_CTS:-$HOME/src/VK-GL-CTS}"
+VK_GL_CTS="${VK_GL_CTS:-$HOME/src/VK-GL-CTS-1.4.6.2}"
 DEQP_VK="$VK_GL_CTS/build/external/vulkancts/modules/vulkan/deqp-vk"
 ICD="$REPO/mesa/build-borg/src/borg/vulkan/borg_devenv_icd.x86_64.json"
 SHIM="$REPO/mesa/build-borg/src/borg/drm/libborg_drm_shim.so"

@@ -20,7 +20,7 @@
 # MESA_ROOT ...); OUT here is the parent directory.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VK_GL_CTS="${VK_GL_CTS:-$HOME/src/VK-GL-CTS}"
+VK_GL_CTS="${VK_GL_CTS:-$HOME/src/VK-GL-CTS-1.4.6.2}"
 OUT="${OUT:-/tmp/borg-cts-par}"
 JOBS="${JOBS:-$(nproc)}"
 DEQP_DIR="$VK_GL_CTS/build/external/vulkancts/modules/vulkan"

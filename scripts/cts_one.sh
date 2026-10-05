@@ -6,7 +6,7 @@
 #   scripts/cts_one.sh --list FILE            # run every case in FILE (one per line), one deqp-vk process
 #
 # Env overrides:
-#   VK_GL_CTS    CTS checkout          (default $HOME/src/VK-GL-CTS, built with deqp-vk)
+#   VK_GL_CTS    CTS checkout          (default $HOME/src/VK-GL-CTS-1.4.6.2 built with deqp-vk)
 #   MESA_ROOT    mesa checkout         (default $HOME/work/Borg/mesa, with build-borg)
 #   SIM_BIN      simulator binary      (default simulation/arcilator/arcilator_sim)
 #   SIM_FW       simulator firmware    (default: built by this script into $OUT/kernel_sim.bin)
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VK_GL_CTS="${VK_GL_CTS:-$HOME/src/VK-GL-CTS}"
+VK_GL_CTS="${VK_GL_CTS:-$HOME/src/VK-GL-CTS-1.4.6.2}"
 MESA_ROOT="${MESA_ROOT:-$HOME/work/Borg/mesa}"
 SIM_BIN="${SIM_BIN:-$REPO/simulation/arcilator/arcilator_sim}"
 DIRECT_BIN="$REPO/simulation/direct/direct_sim"
