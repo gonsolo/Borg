@@ -4,6 +4,7 @@
 package soc
 
 import chisel3._
+import borg.BorgConfig
 import memory.SdramBackendSim
 
 /** Verilator-only top-level module for booting real firmware (OpenSBI/Linux)
@@ -21,7 +22,7 @@ import memory.SdramBackendSim
   * hardware LEDs already showed completing — boot_done=1) and just watch
   * whether OpenSBI/Linux actually executes and produces UART output.
   */
-class MinimalSocSimTop(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLogic {
+class MinimalSocSimTop(val CLOCK_MHZ: Int, override val borgCfg: Option[BorgConfig] = None) extends RawModule with MinimalSoCLogic {
   val ui_in  = IO(Input(UInt(8.W)))
   val uo_out = IO(Output(UInt(8.W)))
   val ena    = IO(Input(Bool()))
@@ -43,7 +44,7 @@ class MinimalSocSimTop(val CLOCK_MHZ: Int) extends RawModule with MinimalSoCLogi
   }
   def soc_ui_in = ui_in
 
-  // Match ULX3S hardware: RV64IMAC Hutt core, no Borg.
+  // Match ULX3S hardware: RV64IMAC Hutt core, Borg only when borgCfg is set.
   override def xlen: Int = 64
 
   val uo_out_val = wireSoC()

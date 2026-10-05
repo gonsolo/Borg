@@ -163,7 +163,7 @@ int main(int argc, char** argv) {
     }
 
     UartDecoder dec;
-    dec.set_cycles_per_bit(217);  // 25 MHz / 115200 baud
+    dec.set_cycles_per_bit(getenv("UART_CPB") ? atoi(getenv("UART_CPB")) : 217);  // 25 MHz / 115200 baud
 
     std::string line_buf;
     uint64_t last_report = start_cycle;
@@ -209,6 +209,22 @@ int main(int argc, char** argv) {
             fflush(stdout);
             if (c == '\n') {
                 if (!line_buf.empty()) fprintf(stderr, "[UART] %s\n", line_buf.c_str());
+                // DUMP_ON=<line> DUMP_ADDR=<byte> DUMP_LEN=<bytes> DUMP_FILE=<path>: save SDRAM when the line appears, then stop.
+                if (getenv("DUMP_ON") && line_buf == getenv("DUMP_ON")) {
+                    uint32_t a0 = strtoul(getenv("DUMP_ADDR"), nullptr, 0), n = strtoul(getenv("DUMP_LEN"), nullptr, 0);
+                    FILE *f = fopen(getenv("DUMP_FILE"), "wb");
+                    for (uint32_t i = 0; i < n; i += 2) {
+                        top->dbg_raddr = (a0 + i) >> 1;
+                        top->clk = 0; top->eval(); top->clk = 1; top->eval();
+                        top->clk = 0; top->eval(); top->clk = 1; top->eval();
+                        uint16_t w = top->dbg_rdata;
+                        fwrite(&w, 2, 1, f);
+                    }
+                    fclose(f);
+                    fprintf(stderr, "[DUMP] %u bytes from 0x%x\n", n, a0);
+                    delete top;
+                    return 0;
+                }
                 line_buf.clear();
             } else if (c >= 0x20 && c < 0x7f) {
                 line_buf += (char)c;

@@ -74,3 +74,5 @@ fpga/ulx3s/*.bit
 fpga/ulx3s/*.svf
 fpga/ulx3s/*.log
 fpga/ulx3s/.verilog_stamp*
+software/borg/replay_capture.h
+software/borg/replay.*

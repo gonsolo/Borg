@@ -62,11 +62,20 @@ HEADERS = $(wildcard *.h) compiler/shader_blobs.h
 
 all: python kernel
 
-.PHONY: all kernel python test-native clean
+.PHONY: all kernel replay python test-native clean
 
 kernel: python
 	@$(MAKE) -C compiler all
 	@bear -- $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex || $(MAKE) -s $(PROJECT_NAME).bin $(PROJECT_NAME).hex
+
+# Host-free frame: the captured borgvk burst (simulation/golden) linked in; see borg_replay.c.
+REPLAY_CAPTURE ?= ../../simulation/golden/borgvk_capture.bin
+replay_capture.h: $(REPLAY_CAPTURE)
+	@{ echo 'static const unsigned char replay_capture[] = {'; od -An -v -t u1 -w16 $< | sed 's/ *\([0-9][0-9]*\)/\1,/g'; echo '};'; echo 'static const unsigned replay_capture_len = sizeof(replay_capture);'; } > $@
+
+replay: python replay_capture.h
+	@$(MAKE) -C compiler all
+	@$(MAKE) -s PROJECT_NAME=replay PROJECT_SOURCES='borg_replay.c $(SHARED_SOURCES)' replay.bin
 
 python:
 	$(MAKE) -C python

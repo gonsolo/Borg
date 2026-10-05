@@ -110,6 +110,33 @@ obj_dir_minlinux/minimal_linux_sim: main_minimal_linux.cpp $(MINLINUX_DIR)/sim_f
 	../common/uart_decoder.cpp \
 	-o minimal_linux_sim
 
+# RV64 SoC with a tiny Borg (see MinimalSocBorgSimMain).
+MINLINUXB_DIR = $(ROOT)/out/hardware/soc/verilog_borg_sim
+MINLINUXB_SRCS = $(wildcard $(MINLINUXB_DIR)/*.sv)
+
+.PHONY: minimal-linux-borg-sim
+minimal-linux-borg-sim: obj_dir_minlinux_borg/minimal_linux_borg_sim
+
+$(MINLINUXB_DIR)/sim_files.txt:
+	cd $(ROOT) && CLOCK_MHZ=20 mill hardware.soc.runMain soc.MinimalSocBorgSimMain
+
+obj_dir_minlinux_borg/minimal_linux_borg_sim: main_minimal_linux.cpp $(MINLINUXB_DIR)/sim_files.txt $(MINLINUXB_SRCS)
+	@rm -rf obj_dir_minlinux_borg
+	@SRC_FILES=$$(cat $(MINLINUXB_DIR)/sim_files.txt | awk -F/ '!seen[$$NF]++' | sed 's|^\.\./|\.\./\.\./|' | tr '\n' ' '); \
+	echo "Building Verilator model [MinimalSocSimTop+Borg]..."; \
+	verilator -cc --exe -O3 -x-assign fast -x-initial fast -Wall -Wno-UNUSEDSIGNAL --build -j 0 \
+	--trace-fst --trace-structs --savable \
+	-MAKEFLAGS "-s" --Mdir obj_dir_minlinux_borg \
+	-I$(MINLINUXB_DIR) \
+	--top-module MinimalSocSimTop \
+	-CFLAGS "-fPIC" -CFLAGS "-I../../common" \
+	-DENABLE_INITIAL_MEM_ \
+	$(ROOT)/lint.vlt \
+	$$SRC_FILES \
+	main_minimal_linux.cpp \
+	../common/uart_decoder.cpp \
+	-o minimal_linux_borg_sim
+
 # Same test, but through the REAL SdramBackend/SdramController/SdramChipModel
 # JEDEC-protocol co-sim instead of the idealized SdramBackendSim — see
 # hardware/soc/src/MinimalSocRealSdramSimTop.scala.
