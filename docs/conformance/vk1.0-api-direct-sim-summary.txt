@@ -1,0 +1,4 @@
+pattern: dEQP-VK.api.*   cases: 278342   (run: 278342, cached passes: 0)   workers: 12   wall: 1072s
+NotSupported           213472
+Pass                   64866
+QualityWarning         4
