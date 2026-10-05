@@ -24,6 +24,7 @@ import borg.{Borg, BorgConfig}
   */
 trait MinimalSoCLogic { self: RawModule =>
   def CLOCK_MHZ: Int
+  def CLOCK_HZ: Long = CLOCK_MHZ.toLong * 1000000L   // exact when the PLL cannot hit CLOCK_MHZ
   def xlen: Int = 32   // 32 = RV32I, 64 = RV64I (override with def, not val)
   def borgCfg: Option[BorgConfig] = None   // Some(cfg) attaches Borg at BORG_BASE (0x08000C00)
 
@@ -40,8 +41,9 @@ trait MinimalSoCLogic { self: RawModule =>
     // Every MinimalSoCLogic target uses SdramBackend, not QspiBackend -- see
     // MemoryController's constructor doc for why gpuVramRegionBit is false
     // here (no flash/PSRAM split at this level, and no CPU address path
-    // adds a matching offset for its own DRAM accesses).
-    Module(new MemoryController(gpuVramRegionBit = false))
+    // adds a matching offset for its own DRAM accesses). With a Borg the GPU
+    // sees SDRAM bytes 16 MB up (bit 24), the Linux carve-out.
+    Module(new MemoryController(gpuVramRegionBit = borgCfg.isDefined))
   }
   lazy val uartTx = withClockAndReset(soc_clk, !soc_rst_reg_n) {
     Module(new peri.uart.UartTx(13))
@@ -120,7 +122,7 @@ trait MinimalSoCLogic { self: RawModule =>
     val time_limit = withClockAndReset(soc_clk, !soc_rst_reg_n) {
       RegInit(math.max((CLOCK_MHZ / 4) - 1, 1).U(5.W))
     }
-    val default_baud_divider = ((CLOCK_MHZ * 1000000) / 115200).U(13.W)
+    val default_baud_divider = (CLOCK_HZ / 115200).U(13.W)
     val debug_baud_divider = withClockAndReset(soc_clk, !soc_rst_reg_n) {
       RegInit(default_baud_divider)
     }

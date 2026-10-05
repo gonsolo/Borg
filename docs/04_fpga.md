@@ -41,9 +41,15 @@ Layered bring-up bitstreams in `fpga/ulx3s/debug/` isolate individual subsystems
 
 ### RV64 Linux with a tiny Borg (`borg-minimal-linux-borg`)
 
-`make generate_verilog_ulx3s_minimal_linux_borg`; `BorgConfig.Tiny` (FP32, 1 lane, 64 bin
+`make generate_verilog_ulx3s_minimal_linux_borg`; `BorgConfig.Tiny` (FP32, 4 lanes, 1024 bin
 tiles, no MSAA, blend, stencil, compute, depth flush or perf counters) beside the RV64
-Hutt, scanout off. nextpnr: 49,734 / 83,640 LUTs (59%), 51 MULT18X18D, 6 DP16KD.
-Fmax 20.32 MHz, so the SoC clock is 20 MHz. At 25 MHz it reaches only 20.4 MHz; the
-limiter is the lane's integer ALU fed straight from the register BRAM, not the FMA
-(`fmaStages=4` changes nothing).
+Hutt, scanout off, GPU memory at SDRAM 16 MB and up (the VRAM region bit). nextpnr:
+69,948 / 83,640 LUTs (83%), 75 MULT18X18D, 7 DP16KD. The PLL gives 18.75 MHz; Fmax 18.76 MHz,
+so there is no margin. One lane renders the cube wrong (derivatives need the 2x2 quad), and
+four lanes at 25 MHz reach only 15 to 18 MHz. The limiter is the lane's integer ALU fed
+straight from the register BRAM, not the FMA (`fmaStages=4` changes nothing).
+
+Host-free frame: `make -C software/borg replay` links the captured borgvk burst into the
+firmware; the simulator (`make -C simulation/verilator minimal-linux-borg-sim`) renders it
+bit-exact against `simulation/golden/vkcube_cts_uart_00.ppm`. `scripts/uart_ppm.py` turns the
+UART dump (or a `DUMP_*` simulator dump) into a picture.

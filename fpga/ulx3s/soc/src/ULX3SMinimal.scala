@@ -59,12 +59,14 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
   // ── PLL: 25 → 25 MHz SoC + 25 MHz/90° SDRAM + 125 MHz HDMI ──────────────
   val SOC_MHZ  = CLOCK_MHZ
   val HDMI_MHZ = 125
-  val pll = Module(new Ecp5PllWrapper(Ecp5PllParams(
+  val pllParams = Ecp5PllParams(
     inHz   = 25_000_000L,
     out0Hz = SOC_MHZ.toLong  * 1_000_000L,
     out1Hz = SOC_MHZ.toLong  * 1_000_000L, out1Deg = 90,
     out2Hz = HDMI_MHZ.toLong * 1_000_000L
-  )))
+  )
+  override def CLOCK_HZ: Long = Ecp5PllParams.solve(pllParams).fOut
+  val pll = Module(new Ecp5PllWrapper(pllParams))
   pll.io.clk_i := clk_25mhz
   val pllLocked  = pll.io.locked
   val sysClock   = pll.io.clk_o(0)   // 25 MHz — CPU, SDRAM, scanout fill FSM
