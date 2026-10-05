@@ -68,3 +68,9 @@ simulation/verilator/obj_dir_*
 software/borg/compiler/.regen/
 software/borg/compiler/.bursts/
 asic/wafer.space/cocotb/sim_build*/
+fpga/ulx3s/*.json
+fpga/ulx3s/*.config
+fpga/ulx3s/*.bit
+fpga/ulx3s/*.svf
+fpga/ulx3s/*.log
+fpga/ulx3s/.verilog_stamp*
