@@ -117,11 +117,13 @@ linux: $(LINUX_OUT)/.config | rootfs
 
 $(LINUX_OUT)/.config: $(LINUX_DEFCONFIG)
 	@mkdir -p $(LINUX_OUT)
+	sed 's|^CONFIG_INITRAMFS_SOURCE=.*|CONFIG_INITRAMFS_SOURCE="$(abspath $(CURDIR)/../out/software/rootfs)"|' \
+	    $(LINUX_DEFCONFIG) > $(LINUX_OUT)/allconfig.frag
 	$(MAKE) -C $(LINUX_SRC) \
 	    ARCH=riscv \
 	    CROSS_COMPILE=riscv64-unknown-linux-gnu- \
 	    O=$(LINUX_OUT) \
-	    KCONFIG_ALLCONFIG=$(LINUX_DEFCONFIG) \
+	    KCONFIG_ALLCONFIG=$(LINUX_OUT)/allconfig.frag \
 	    allnoconfig
 
 # ---------------------------------------------------------------------------

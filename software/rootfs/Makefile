@@ -184,7 +184,7 @@ linux-headers: $(LINUX_HDRS)/linux/version.h
 
 $(LINUX_HDRS)/linux/version.h:
 	mkdir -p $(BUILD)/linux-headers
-	$(MAKE) -C $(LINUX_SRC) ARCH=riscv \
+	$(MAKE) -C $(LINUX_SRC) O=$(abspath $(BUILD))/linux-hdr-obj ARCH=riscv \
 	    INSTALL_HDR_PATH=$(BUILD)/linux-headers \
 	    headers_install
 
