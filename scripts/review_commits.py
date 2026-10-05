@@ -166,7 +166,8 @@ def main():
         sys.exit("rebase failed; fix with 'git rebase --abort' or resolve, nothing was pushed.")
 
     # 2. policy check on the rewritten range.
-    chk = subprocess.run([sys.executable, "scripts/check_ai_policy.py", "--range", f"{base}..HEAD"], cwd=ROOT)
+    chk = subprocess.run([sys.executable, str(Path(__file__).with_name("check_ai_policy.py")), "--repo", str(ROOT),
+                          "--range", f"{base}..HEAD"])
     if chk.returncode:
         sys.exit("policy check failed -- fix the commit messages, nothing was pushed.")
 

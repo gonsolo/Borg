@@ -60,12 +60,12 @@ def check_message(msg: str) -> list[str]:
     return errs
 
 
-def check_range(rng: str) -> int:
-    revs = subprocess.run(["git", "rev-list", "--no-merges", rng], cwd=ROOT,
+def check_range(rng: str, repo: Path = ROOT) -> int:
+    revs = subprocess.run(["git", "rev-list", "--no-merges", rng], cwd=repo,
                           capture_output=True, text=True, check=True).stdout.split()
     bad = 0
     for rev in revs:
-        msg = subprocess.run(["git", "log", "-1", "--format=%B", rev], cwd=ROOT,
+        msg = subprocess.run(["git", "log", "-1", "--format=%B", rev], cwd=repo,
                              capture_output=True, text=True, check=True).stdout
         for e in check_message(msg):
             print(f"{rev[:10]}: {e}")
@@ -85,6 +85,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--msg-file")
     ap.add_argument("--range")
+    ap.add_argument("--repo", type=Path, default=ROOT, help="git repo for --range")
     ap.add_argument("--readme", action="store_true")
     a = ap.parse_args()
     bad = 0
@@ -95,7 +96,7 @@ def main() -> int:
             print(f"commit rejected: {e}\n(see docs/ai_policy.md)")
             bad += 1
     if a.range:
-        bad += check_range(a.range)
+        bad += check_range(a.range, a.repo)
     if a.readme:
         bad += check_readme()
     return 1 if bad else 0
