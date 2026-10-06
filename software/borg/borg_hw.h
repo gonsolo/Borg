@@ -10,3 +10,9 @@ int borg_hw_open(void);                  // 0 on success; idempotent
 void borg_hw_flush(void);                // everything written so far has reached the device
 void borg_hw_mem_write(uint32_t off, const void *p, uint32_t len);   // 4-byte aligned
 void borg_hw_mem_read(uint32_t off, void *p, uint32_t len);
+
+// borg_core.c's hooks (BORG_HOST)
+void bh_reg_write(uint32_t reg_off, uint32_t v);
+uint32_t bh_reg_read(uint32_t reg_off);
+void bh_dram_write(uint32_t spi_addr, uint32_t v);
+uint32_t bh_dram_read(uint32_t spi_addr);
