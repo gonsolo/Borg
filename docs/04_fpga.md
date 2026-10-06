@@ -63,3 +63,17 @@ firmware uses. The device tree reserves that memory (`no-map`) and describes the
 minutes. A tick of the 18.75 MHz core clock at 100 Hz (187k cycles) stalled the boot after the
 clocksource switch, so the tree declares a 37.5 MHz timebase (tick every 375k cycles; kernel time
 runs at half speed).
+
+Through the DRM driver: a Rust render-only DRM driver (`software/linux/overlay/drivers/gpu/drm/borg`,
+Linux 7.2.9, built by `software/linux/rust-build.sh` with the flake's LLVM 21 toolchain) binds the
+Borg node and exposes `/dev/dri/renderD128`. Its uAPI (`borg_drm.h`) is five ioctls: info, register
+writes, register read, GPU-memory write and read; the kernel only bounds- and alignment-checks.
+`replay_drm` runs `borg_core.c` (the host build) with its register and memory hooks turned into
+these ioctls, so the frame no longer touches `/dev/mem`. On the board the frame equals the golden
+(0 of 16,384 pixels differ) and `Memory:` reports 17,260K of 32,768K available (14.5 MB reserved,
+5 MB of it the GPU region). The driver is developed on QEMU (`software/linux/tests/qemu-borg.sh`,
+a fake Borg made of reserved RAM) and then run on the board.
+
+Two things only the board showed: Hutt has no compressed instructions and LLVM 21 keeps `zca` in
+the Rust target even with `-c`, so the Rust build passes `-Ctarget-feature=-zca`; and user copies
+must not happen under the `Devres` (RCU) guard, where a page fault returns `EFAULT`.
