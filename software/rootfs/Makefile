@@ -114,9 +114,11 @@ $(WRAPPER): $(MUSL_INSTALL)/lib/libc.a $(CRT_LIB) $(LINUX_HDRS)/linux/version.h
 	@echo 'CRTLIB="$(CRT_LIB)"' >> $@
 	@echo 'KHDRS="$(LINUX_HDRS)"' >> $@
 	@echo 'ARGS="$(ARCH_FLAGS) -nostdinc -isystem $$MUSL/include -isystem $$KHDRS"' >> $@
+	@echo 'n=$$#; i=0; while [ $$i -lt $$n ]; do a="$$1"; shift; case "$$a" in -pthread) ;; *) set -- "$$@" "$$a" ;; esac; i=$$((i+1)); done' >> $@
 	@echo 'for a in "$$@"; do' >> $@
 	@echo '  case "$$a" in' >> $@
 	@echo '    -c|-E|-S|-M|-MM|-r) exec riscv64-none-elf-gcc $$ARGS "$$@" ;;' >> $@
+	@echo '    -Wl,--version) exec riscv64-none-elf-gcc -nostdlib -nostartfiles -Wl,--version ;;' >> $@
 	@echo '  esac' >> $@
 	@echo 'done' >> $@
 	@echo 'HAS_O=0' >> $@
@@ -151,7 +153,9 @@ CRT_BUILTINS := adddf3 addtf3 bswapdi2 bswapsi2 clzdi2 clzsi2 comparedf2 \
                 fixdfdi fixdfsi fixtfsi fixunsdfdi fixunsdfsi fixunstfsi \
                 floatdidf floatsidf floatsisf floatsitf floatundidf \
                 floatunsidf floatunsisf floatunsitf muldf3 mulsf3 multf3 \
-                subdf3 subtf3 truncdfsf2 trunctfdf2 trunctfsf2
+                subdf3 subtf3 truncdfsf2 trunctfdf2 trunctfsf2 \
+                addsf3 subsf3 divsf3 comparesf2 fixsfsi fixsfdi fixunssfsi fixunssfdi \
+                floatdisf floatundisf negsf2 powisf2 powidf2 muldi3 popcountdi2 popcountsi2 ffsdi2 ffssi2 ctzdi2 ctzsi2
 
 compiler-rt: $(CRT_LIB)
 
