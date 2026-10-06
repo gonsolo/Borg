@@ -67,7 +67,7 @@ looking for the NIR constant 12.92 in the linear branch. Commit `5569882b1fb` ga
 constants a window register when an arithmetic instruction reads them. The idiom check still
 looked for the NIR constant, found a window register, and failed. The compiler then emitted the
 generic select around an unhandled `fpow`, and cube.frag rendered a lit gradient with no texture.
-The recorded golden stream predates that commit, so no test noticed. The fix (`6a0d8a437f0`)
+The recorded golden stream predates that commit, so no test noticed. The fix (`fb9059920f8`)
 makes the check accept a window word; the idiom is still fragile.
 
 ## Order of work
