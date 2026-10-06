@@ -3,6 +3,7 @@
 #include "driver.h"
 #include "driver.cpp"
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <string>
@@ -69,7 +70,51 @@ static int run_compute(const char *jobf, const char *outf) {
   return 0;
 }
 
+// direct_sim --raw: the bare device on stdin/stdout, standing in for the DRM render node.
+//   'W' n32 (off32 val32)*n   register writes        'R' off32  -> val32
+//   'M' off32 len32 data      memory write           'm' off32 len32 -> data
+//   'S'                       -> one byte once everything before it is done
+static bool rd(void *p, size_t n) {
+  uint8_t *b = (uint8_t *)p;
+  while (n) { ssize_t r = read(0, b, n); if (r <= 0) return false; b += r; n -= (size_t)r; }
+  return true;
+}
+static void wr(const void *p, size_t n) {
+  const uint8_t *b = (const uint8_t *)p;
+  while (n) { ssize_t r = write(1, b, n); if (r <= 0) exit(0); b += r; n -= (size_t)r; }
+}
+static int run_raw() {
+  DirectSim sim;
+  for (uint8_t c; rd(&c, 1);) {
+    uint32_t a[2];
+    if (c == 'W') {
+      uint32_t n;
+      if (!rd(&n, 4)) return 0;
+      for (uint32_t i = 0; i < n; i++) { if (!rd(a, 8)) return 0; sim.mmio_write(a[0], a[1]); }
+    } else if (c == 'R') {
+      if (!rd(a, 4)) return 0;
+      uint32_t v = sim.mmio_read(a[0]);
+      wr(&v, 4);
+    } else if (c == 'M') {
+      if (!rd(a, 8)) return 0;
+      std::vector<uint8_t> d(a[1]);
+      if (!rd(d.data(), a[1])) return 0;
+      for (uint32_t i = 0; i < a[1]; i += 4) { uint32_t w; memcpy(&w, &d[i], 4); sim.w32(a[0] + i, w); }
+    } else if (c == 'm') {
+      if (!rd(a, 8)) return 0;
+      std::vector<uint8_t> d(a[1]);
+      for (uint32_t i = 0; i < a[1]; i += 4) { uint32_t w = sim.r32(a[0] + i); memcpy(&d[i], &w, 4); }
+      wr(d.data(), d.size());
+    } else if (c == 'S') {
+      uint8_t ok = 1;
+      wr(&ok, 1);
+    } else return 1;
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
+  if (argc == 2 && std::string(argv[1]) == "--raw") return run_raw();
   if (argc == 4 && std::string(argv[1]) == "--compute") return run_compute(argv[2], argv[3]);
   if (argc == 3 && std::string(argv[1]) == "--serve") {   // direct_sim --serve <memory fd>
     DirectSim sim(atoi(argv[2]));

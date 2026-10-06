@@ -82,7 +82,7 @@ replay-linux: python replay_capture.h
 replay-drm: python replay_capture.h
 	$(WRAPPER) -O2 -march=rv64ima_zicsr_zifencei -mabi=lp64 -static -D__linux__ -DBORG_HOST \
 	    -I../linux/overlay/include/uapi -I$(LINUX_HDRS) -I$(LINUX_HDRS)/drm -I$(RDL_C_OUT) -Wall \
-	    -o $(OUT) borg_drm_replay.c borg_core.c borg_spirb.c
+	    -o $(OUT) borg_drm_replay.c borg_hw.c borg_core.c borg_spirb.c
 
 replay: python replay_capture.h
 	@$(MAKE) -C compiler all
