@@ -17,7 +17,7 @@ shaders: 0 of 16,384 pixels differ.
 
 | Part | Version |
 |---|---|
-| Borg repo | `f8adf805` on `feat/drm-on-board` (built from `bcdf7acf..79b8bfae`) |
+| Borg repo | `e0e5ead2` on `main` (built from `5dcaf8e5..05c4e067`) |
 | mesa (borgvk, borgc) | `fb9059920f8` on `main` |
 | Boot image (OpenSBI + Linux + initramfs) | `fw_payload.bin`, sha256 `e1858d1b29c9754128a3ba95d6806d81511b75637c1dae184639318b78e018e0` |
 | FPGA bitstream | `fpga/ulx3s/borg-minimal-linux-borg.bit`, sha256 `fe845c21842897027d71f7dbe0fc5b523dacafa422b97e76f2de8f09f9d662f6`, built 2026-10-06 |
