@@ -18,8 +18,13 @@ echo ""
 # the frame goes to the console as hex (scripts/uart_ppm.py turns it into a picture).
 echo "=== borg_drm_test ==="
 /bin/borg_drm_test
-echo "=== replay_drm ==="
-/bin/replay_drm
-echo "=== replay_drm end: $? ==="
+# Step 7: the unmodified cube.c on borgvk, headless; the frame goes to the console as hex.
+echo "=== vkcube-borg ==="
+export BORGVK_HW=1 BORGVK_SHADER_CACHE=/etc/cube.shaders BORGVK_DUMP_PPM=/tmp/frame.ppm
+/bin/vkcube-borg --wsi display --c 1 --suppress_popups
+echo "=== vkcube-borg end: $? ==="
+echo PPM-BEGIN
+od -An -v -tx1 /tmp/frame.ppm
+echo PPM-END
 
 exec /bin/sh

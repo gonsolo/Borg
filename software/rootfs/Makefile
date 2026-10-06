@@ -258,6 +258,15 @@ $(REPLAY): $(WRAPPER)
 	mkdir -p $(ROOTFS)/bin
 	$(MAKE) -C ../borg replay-linux WRAPPER=$(WRAPPER) OUT=$@
 
+VKCUBE := $(ROOTFS)/bin/vkcube-borg
+
+.PHONY: $(VKCUBE)
+$(VKCUBE): $(WRAPPER) $(DRM_TEST)
+	mkdir -p $(ROOTFS)/bin $(ROOTFS)/etc
+	$(MAKE) -C ../vkcube
+	riscv64-none-elf-strip -o $@ ../../out/software/vkcube/vkcube-borg
+	cp ../vkcube/cube.shaders $(ROOTFS)/etc/cube.shaders
+
 DRM_REPLAY := $(ROOTFS)/bin/replay_drm
 DRM_TEST   := $(ROOTFS)/bin/borg_drm_test
 
@@ -271,7 +280,7 @@ $(DRM_TEST): $(WRAPPER)
 	$(WRAPPER) -O2 -static -D__linux__ -I../linux/overlay/include/uapi -I$(LINUX_HDRS) -I$(LINUX_HDRS)/drm \
 	    -o $@ ../linux/tests/borg_drm_test.c
 
-rootfs: $(BB_STRIPPED) $(BENCH) $(REPLAY) $(DRM_REPLAY) $(DRM_TEST)
+rootfs: $(BB_STRIPPED) $(BENCH) $(REPLAY) $(DRM_REPLAY) $(DRM_TEST) $(VKCUBE)
 	mkdir -p $(ROOTFS)
 	$(MAKE) -C $(BB_SRC) CC=$(WRAPPER) CONFIG_PREFIX=$(ROOTFS) install
 	mkdir -p $(ROOTFS)/proc $(ROOTFS)/sys $(ROOTFS)/dev $(ROOTFS)/tmp \
