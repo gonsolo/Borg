@@ -122,12 +122,17 @@
     # (nixpkgs fetches it via fetchFromGitHub).  Pinned at v1.8.1 by nixpkgs.
     opensbiSrc = pkgs.opensbi.src;
 
-    # Linux kernel source — pkgs.linux.src is a .tar.xz; unpack it into a
-    # derivation so the Makefile can do `make -C $LINUX_SRC`.
-    # Pinned at 6.12.x LTS by the nixpkgs commit in flake.nix.
-    linuxSrc = pkgs.runCommand "linux-${pkgs.linux.version}-src" {} ''
+    # Linux kernel source, unpacked into a derivation so the Makefile can do
+    # `make -C $LINUX_SRC`. Newer than nixpkgs' linux: the Rust DRM driver needs
+    # a kernel that supports the current rustc.
+    linuxSrc = let
+      tarball = pkgs.fetchurl {
+        url = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.2.9.tar.xz";
+        hash = "sha256-tMXfvlGjZKbH8DhpIA+IyOH3dANTkAXxS3/GvJG42Lo=";
+      };
+    in pkgs.runCommand "linux-7.2.9-src" {} ''
       mkdir $out
-      tar -xJf ${pkgs.linux.src} -C $out --strip-components=1
+      tar -xJf ${tarball} -C $out --strip-components=1
     '';
 
     borgTexlive = pkgs.texlive.combine {
@@ -244,6 +249,11 @@
         pkgs.rustfmt
         pkgs.rust-bindgen
         pkgs.rust-cbindgen
+        # Kernel LLVM=1 build with Rust: clang/lld/llvm must match rustc's LLVM (21) and bindgen's libclang.
+        pkgs.llvmPackages_21.clang-unwrapped
+        pkgs.llvmPackages_21.lld
+        pkgs.llvmPackages_21.llvm
+        pkgs.rustPlatform.rustLibSrc # core/alloc sources: the Rust kernel build (borg DRM driver) needs them
         pkgs.vulkan-tools # vulkaninfo (borgvk enumeration gate)
         pkgs.mpremote
         pkgs.netgen-vlsi
@@ -316,6 +326,7 @@
         # OpenSBI + Linux kernel sources (pinned via nixpkgs; no manual hashes).
         export OPENSBI_SRC="${opensbiSrc}"
         export LINUX_SRC="${linuxSrc}"
+        export RUST_LIB_SRC="${pkgs.rustPlatform.rustLibSrc}"
 
         # Gate 2: riscv64 Linux cross toolchain prefix (borgvk RV64 cross-build).
         # Also used for OpenSBI — riscv64-unknown-linux-gnu-gcc can build freestanding
