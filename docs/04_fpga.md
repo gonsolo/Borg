@@ -91,3 +91,12 @@ render node's ioctls (`software/borg/borg_hw.c`), or on a host a `direct_sim --r
 same binary runs under `qemu-riscv64` on a CPU without C, F and D (`run-qemu.py`) and its frame
 equals the x86 sink's frame pixel for pixel. The golden of step 5 (`vkcube_cts_uart_00.ppm`) is an
 older capture without the texture; the reference for the board is this sink's frame.
+
+Self-hosted vkcube on the board (2026-10-06): the initramfs's `init` runs `vkcube-borg --wsi display
+--c 1` with `BORGVK_HW=1`, borgvk's sink on the DRM render node, and prints the frame as hex on the
+debug UART (`scripts/uart_ppm_od.py` decodes it). Linux 7.2.9 with the Rust driver, Mesa/borgvk,
+the unmodified `cube.c` and the Borg run on the one ULX3S with no computer attached to it but
+the serial monitor; the 128 x 128 frame equals the host sink's frame pixel for pixel (0 of 16,384
+differ). `Memory:` reports 13,956K of 32,768K available (the 3.4 MB binary is unpacked into RAM). The
+whole boot to the frame takes about 15 minutes at the 18.75 MHz core clock; the run of `vkcube-borg`
+itself is a few minutes of that (the console has no timestamps; a timed run is still to do).
