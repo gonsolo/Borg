@@ -122,7 +122,8 @@ def main():
     accepted = []
     reword = []
     for i, rev in enumerate(revs, 1):
-        print(f"\n\033[1m=== commit {i}/{len(revs)}: {git('log', '-1', '--format=%h %s', rev)}\033[0m")
+        print(f"\n\033[1m=== commit {i}/{len(revs)}: {git('log', '-1', '--format=%h %s', rev)}\033[0m"
+              f"  [{i - 1} done / {len(revs) - i + 1} left]")
         show(rev)
         while True:
             c = ask("accept, edit msg, vim, refuse, diff again, stat, quit?", "aevrdsq")
