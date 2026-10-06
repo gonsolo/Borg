@@ -254,7 +254,20 @@ $(REPLAY): $(WRAPPER)
 	mkdir -p $(ROOTFS)/bin
 	$(MAKE) -C ../borg replay-linux WRAPPER=$(WRAPPER) OUT=$@
 
-rootfs: $(BB_STRIPPED) $(BENCH) $(REPLAY)
+DRM_REPLAY := $(ROOTFS)/bin/replay_drm
+DRM_TEST   := $(ROOTFS)/bin/borg_drm_test
+
+.PHONY: $(DRM_REPLAY) $(DRM_TEST)
+$(DRM_REPLAY): $(WRAPPER)
+	mkdir -p $(ROOTFS)/bin
+	$(MAKE) -C ../borg replay-drm WRAPPER=$(WRAPPER) LINUX_HDRS=$(LINUX_HDRS) OUT=$@
+
+$(DRM_TEST): $(WRAPPER)
+	mkdir -p $(ROOTFS)/bin
+	$(WRAPPER) -O2 -static -D__linux__ -I../linux/overlay/include/uapi -I$(LINUX_HDRS) -I$(LINUX_HDRS)/drm \
+	    -o $@ ../linux/tests/borg_drm_test.c
+
+rootfs: $(BB_STRIPPED) $(BENCH) $(REPLAY) $(DRM_REPLAY) $(DRM_TEST)
 	mkdir -p $(ROOTFS)
 	$(MAKE) -C $(BB_SRC) CC=$(WRAPPER) CONFIG_PREFIX=$(ROOTFS) install
 	mkdir -p $(ROOTFS)/proc $(ROOTFS)/sys $(ROOTFS)/dev $(ROOTFS)/tmp \

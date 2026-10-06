@@ -14,11 +14,12 @@ echo ""
 echo "Borg/Hutt Linux initramfs — welcome."
 echo ""
 
-# Step 3: the captured vkcube frame, rendered by the Borg from Linux userspace.
-# replay_linux maps the Borg registers and its memory through /dev/mem and prints the
-# frame on the debug UART (scripts/uart_ppm.py turns it into a picture).
-echo "=== replay_linux ==="
-/bin/replay_linux
-echo "=== replay_linux end: $? ==="
+# Step 5: the captured vkcube frame through the Borg DRM render node (/dev/dri/renderD128);
+# the frame goes to the console as hex (scripts/uart_ppm.py turns it into a picture).
+echo "=== borg_drm_test ==="
+/bin/borg_drm_test
+echo "=== replay_drm ==="
+/bin/replay_drm
+echo "=== replay_drm end: $? ==="
 
 exec /bin/sh

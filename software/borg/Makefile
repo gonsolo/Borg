@@ -62,7 +62,7 @@ HEADERS = $(wildcard *.h) compiler/shader_blobs.h
 
 all: python kernel
 
-.PHONY: all kernel replay replay-linux python test-native clean
+.PHONY: all kernel replay replay-linux replay-drm python test-native clean
 
 kernel: python
 	@$(MAKE) -C compiler all
@@ -77,6 +77,12 @@ replay_capture.h: $(REPLAY_CAPTURE)
 replay-linux: python replay_capture.h
 	$(WRAPPER) -O2 -march=rv64ima_zicsr_zifencei -mabi=lp64 -static -I$(HUTT_SDK) -I$(RDL_C_OUT) \
 	    -DBORG_LINUX_USER -DTARGET_ULX3S -DCLOCK_MHZ=19 -Wall -o $(OUT) borg_replay.c $(SHARED_SOURCES)
+
+# The same frame through the Borg DRM render node: borg_core.c as on the host, hooks over ioctls.
+replay-drm: python replay_capture.h
+	$(WRAPPER) -O2 -march=rv64ima_zicsr_zifencei -mabi=lp64 -static -D__linux__ -DBORG_HOST \
+	    -I../linux/overlay/include/uapi -I$(LINUX_HDRS) -I$(LINUX_HDRS)/drm -I$(RDL_C_OUT) -Wall \
+	    -o $(OUT) borg_drm_replay.c borg_core.c borg_spirb.c
 
 replay: python replay_capture.h
 	@$(MAKE) -C compiler all

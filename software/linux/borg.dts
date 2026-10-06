@@ -156,8 +156,8 @@
 
         borg@8000c00 {
             compatible    = "gonsolo,borg";
-            reg           = <0x0 0x08000c00 0x0 0x400>;
-            memory-region = <&borg_mem>;
+            reg           = <0x0 0x08000c00 0x0 0x400>,
+                            <0x0 0x01000000 0x0 0x00500000>;
         };
 
         // Borg debug UART (write-only; RX not wired to this path).
