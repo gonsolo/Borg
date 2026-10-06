@@ -69,6 +69,9 @@ static void dev_mem_read(uint32_t off, void *p, uint32_t len) {
 
 int borg_hw_open(void) {
   if (drm_fd >= 0 || to_dev >= 0) return 0;
+  const char *fds = getenv("BORG_HW_FDS");   /* "to,from": pipes to a raw device the launcher started */
+  if (fds && sscanf(fds, "%d,%d", &to_dev, &from_dev) == 2)
+    return 0;
   const char *raw = getenv("BORG_HW_RAW");
   if (raw) {
     int in[2], out[2];

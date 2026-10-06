@@ -77,3 +77,17 @@ a fake Borg made of reserved RAM) and then run on the board.
 Two things only the board showed: Hutt has no compressed instructions and LLVM 21 keeps `zca` in
 the Rust target even with `-c`, so the Rust build passes `-Ctarget-feature=-zca`; and user copies
 must not happen under the `Devres` (RCU) guard, where a page fault returns `EFAULT`.
+
+Mesa on the board (`software/vkcube`): `make -C software/vkcube` builds the unmodified
+`Vulkan-Tools/cube/cube.c` (plus `headless.patch`, which gives the "display" platform a headless
+surface and lets `cube_functions.h` take `vk_icdGetInstanceProcAddr` instead of `dlopen`) linked
+statically with borgvk for Hutt's ISA (rv64ima, lp64 soft-float, no C) against the rootfs's musl:
+no loader, no window system, no libdrm, no C++ and no Rust (`-Dborg-compiler=cache`,
+`-Dutil-without-cpp`, `-Dborg-without-libdrm`). The two cube shaders come from a cache file
+(`BORGVK_SHADER_CACHE`, recorded on the host with `BORGVK_SHADER_CACHE_RECORD`), so the board
+needs no SPIR-V to NIR to borgc step. 2.9 MB of code, 0.5 MB of data. borgvk's `BORGVK_HW` sink
+runs the wire stream through `borg_core` in the process; its register and memory accesses are the
+render node's ioctls (`software/borg/borg_hw.c`), or on a host a `direct_sim --raw` process. The
+same binary runs under `qemu-riscv64` on a CPU without C, F and D (`run-qemu.py`) and its frame
+equals the x86 sink's frame pixel for pixel. The golden of step 5 (`vkcube_cts_uart_00.ppm`) is an
+older capture without the texture; the reference for the board is this sink's frame.

@@ -1,0 +1,49 @@
+--- a/cube/cube.c	2026-10-06 10:29:26.394626404 +0200
++++ b/cube/cube.c	2026-10-06 10:31:23.093119033 +0200
+@@ -59,6 +59,11 @@
+ 
+ #include <vulkan/vulkan.h>
+ 
++#ifdef BORG_HEADLESS   // the "display" platform, on a headless surface (no display to find)
++#undef VK_KHR_DISPLAY_EXTENSION_NAME
++#define VK_KHR_DISPLAY_EXTENSION_NAME VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME
++#endif
++
+ #include "linmath.h"
+ #include "object_type_string_helper.h"
+ 
+@@ -3237,6 +3242,11 @@
+ #endif
+ #if defined(VK_USE_PLATFORM_DISPLAY_KHR)
+ static VkResult demo_create_display_surface(struct demo *demo) {
++#ifdef BORG_HEADLESS
++    VkHeadlessSurfaceCreateInfoEXT headless_info = {.sType = VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT};
++    PFN_vkCreateHeadlessSurfaceEXT create = (PFN_vkCreateHeadlessSurfaceEXT)vkGetInstanceProcAddr(demo->inst, "vkCreateHeadlessSurfaceEXT");
++    return create(demo->inst, &headless_info, NULL, &demo->surface);
++#endif
+     VkResult U_ASSERT_ONLY err;
+     uint32_t display_count;
+     uint32_t mode_count;
+@@ -3566,6 +3576,9 @@
+ }
+ #if defined(VK_USE_PLATFORM_DISPLAY_KHR)
+ int find_display_gpu(int gpu_number, uint32_t gpu_count, VkPhysicalDevice *physical_devices) {
++#ifdef BORG_HEADLESS
++    return gpu_number >= 0 ? gpu_number : 0;
++#endif
+     uint32_t display_count = 0;
+     VkResult U_ASSERT_ONLY result;
+     int gpu_return = gpu_number;
+--- a/cube/cube_functions.h	2026-10-06 10:31:23.067784323 +0200
++++ b/cube/cube_functions.h	2026-10-06 10:31:23.092438946 +0200
+@@ -197,6 +197,10 @@
+     }
+ 
+     vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(library, "vkGetInstanceProcAddr");
++#elif defined(BORG_HEADLESS)  // borgvk is linked in: no loader, no dlopen
++    extern PFN_vkVoidFunction vk_icdGetInstanceProcAddr(VkInstance, const char*);
++    void* library = (void*)&vk_icdGetInstanceProcAddr;
++    vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)vk_icdGetInstanceProcAddr;
+ #else  // Assume everything else supports dlopen
+     void* library = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
+     if (library == NULL) library = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
