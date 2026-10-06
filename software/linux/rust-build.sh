@@ -12,6 +12,9 @@ frag=${1:-$here/configs/borg_rv64_rust.frag}
 [ $# -gt 0 ] && shift
 [ -d "$src/drivers" ] || "$here/prepare-rust-src.sh" "$src"
 cp -r "$here"/overlay/. "$src"/
+map=$top/out/hardware/borg/rdl/borg_reg_map.rs
+[ "$map" -nt "$top/hardware/rdl/borg.rdl" ] || make -C "$top" rdl > /dev/null
+cp "$map" "$src"/drivers/gpu/drm/borg/reg_map.rs
 mkdir -p "$out"
 if [ ! -f "$out/.config" ] || [ "$frag" -nt "$out/.config" ]; then
   sed "s|@ROOTFS@|$top/out/software/rootfs|" "$frag" > "$out/allconfig.frag"

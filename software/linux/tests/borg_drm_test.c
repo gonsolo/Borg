@@ -42,6 +42,11 @@ int main(void) {
   CHECK(ioctl(fd, DRM_IOCTL_BORG_REG_READ, &rr) != 0, "register read past the block must fail");
   rr.offset = 2;
   CHECK(ioctl(fd, DRM_IOCTL_BORG_REG_READ, &rr) != 0 && errno == EINVAL, "unaligned register read must fail");
+  uint32_t bad[2] = {0x3fc, 1};
+  rw.writes = (uintptr_t)bad; rw.count = 1;
+  CHECK(ioctl(fd, DRM_IOCTL_BORG_REG_WRITES, &rw) != 0 && errno == EINVAL, "write to an undefined register must fail");
+  bad[0] = 0x1ac;
+  CHECK(ioctl(fd, DRM_IOCTL_BORG_REG_WRITES, &rw) != 0 && errno == EINVAL, "write to the read-only status must fail");
   m.offset = info.mem_size - 32;
   m.length = 64;
   CHECK(ioctl(fd, DRM_IOCTL_BORG_MEM_WRITE, &m) != 0, "memory write past the end must fail");
