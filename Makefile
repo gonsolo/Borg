@@ -140,6 +140,9 @@ generate_verilog_ulx3s_minimal_linux:
 generate_verilog_ulx3s_minimal_linux_borg:
 	CLOCK_MHZ=18 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMinimalLinuxBorgMain
 
+generate_verilog_ulx3s_minimal_linux_borg_hdmi:
+	CLOCK_MHZ=18 $(MILL) fpga.ulx3s.soc.runMain soc.ULX3SMinimalLinuxBorgHdmiMain
+
 # HDMI Test Pattern emission
 generate_hdmi_test: rdl
 	TARGET_DIR=out/ulx3s/hdmi_test $(MILL) fpga.ulx3s.soc.runMain soc.HdmiTestMain

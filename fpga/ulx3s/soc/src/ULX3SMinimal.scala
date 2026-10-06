@@ -27,7 +27,7 @@ import _root_.circt.stage.ChiselStage
   *             whether a full-SoC timing-closure issue is the cause of a
   *             hardware boot that's silent despite working in simulation.
   */
-class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanoutOn: Boolean = true,
+class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanoutOn: Boolean = true, fbSize: Int = 32,
                          override val borgCfg: Option[borg.BorgConfig] = None) extends RawModule with MinimalSoCLogic {
   // ── Board pins (subset of full ULX3S) ─────────────────────────────────────
   val clk_25mhz = IO(Input(Clock()))
@@ -100,17 +100,44 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
 
   // ── HDMI scanout: instantiate before wireSoC so wireGpuMem can connect ──
   val scanout = withClockAndReset(sysClock, pllRst) {
-    Module(new HdmiScanoutFp16(fbWidth = 32, fbHeight = 32, separatePixelClock = true))
+    Module(new HdmiScanoutFp16(fbWidth = fbSize, fbHeight = fbSize, separatePixelClock = true))
   }
   scanout.io.frontBuf := false.B   // minimal SoC has no Borg; always read fbBase
   // Minimal SoC has no firmware programming the base; pin it to the test region.
-  scanout.io.fbBase   := 0x100000.U
-  scanout.io.fbBase1  := 0x100000.U
+  // With a Borg the scanout shows its frame: DRAM_OUT_BASE_SPI of software/borg/borg_layout.h.
+  val fbAddr = if (borgCfg.isDefined) 0x85680 else 0x100000
+  scanout.io.fbBase   := fbAddr.U
+  scanout.io.fbBase1  := fbAddr.U
 
-  override def wireGpuMem(): Unit = if (borgCfg.isDefined) {
+  // The scanout runs once the Borg has written to GPU memory (first flush): it starves the CPU's
+  // instruction fetch, so it must not run during boot.
+  val borgWrote = withClockAndReset(sysClock, pllRst) { RegInit(false.B) }
+
+  override def wireGpuMem(): Unit = if (borgCfg.isDefined && !scanoutOn) {
     mem.io.gpuMem <> borg.io.gpuMem   // Borg owns the port; scanout stays off
     scanout.io.gpuData  := 0.U
     scanout.io.gpuReady := false.B
+  } else if (borgCfg.isDefined) {
+    // Borg first; the scanout takes the port when Borg is idle (as in ULX3S.scala).
+    val gpuActive   = borg.io.gpuMem.req || borg.io.gpuMem.wr
+    val scanoutOwns = withClockAndReset(sysClock, pllRst) { RegInit(false.B) }
+    withClockAndReset(sysClock, pllRst) {
+      when(borg.io.gpuMem.wr) { borgWrote := true.B }
+      when(scanoutOwns) {
+        when(mem.io.gpuMem.ready) { scanoutOwns := false.B }
+      }.elsewhen(!gpuActive && scanout.io.gpuReq) { scanoutOwns := true.B }
+    }
+    val serveGpu = !scanoutOwns
+    mem.io.gpuMem.req    := Mux(serveGpu, borg.io.gpuMem.req, scanout.io.gpuReq)
+    mem.io.gpuMem.addr   := Mux(serveGpu, borg.io.gpuMem.addr, scanout.io.gpuAddr)
+    mem.io.gpuMem.wr     := Mux(serveGpu, borg.io.gpuMem.wr, false.B)
+    mem.io.gpuMem.wdata  := borg.io.gpuMem.wdata
+    mem.io.gpuMem.wlen   := Mux(serveGpu, borg.io.gpuMem.wlen, 1.U)
+    borg.io.gpuMem.data    := mem.io.gpuMem.data
+    borg.io.gpuMem.ready   := mem.io.gpuMem.ready && !scanoutOwns
+    borg.io.gpuMem.waccept := mem.io.gpuMem.waccept && serveGpu
+    scanout.io.gpuData  := mem.io.gpuMem.data
+    scanout.io.gpuReady := mem.io.gpuMem.ready && scanoutOwns
   } else {
     mem.io.gpuMem.req   := scanout.io.gpuReq
     mem.io.gpuMem.addr  := scanout.io.gpuAddr
@@ -228,7 +255,7 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
     when(!scanoutReady) { scanoutBootDelay := scanoutBootDelay + 1.U }
   }
   // Off for Linux: scanout starves the boot copy and instruction fetch.
-  scanout.io.enable := scanoutReady && scanoutOn.B
+  scanout.io.enable := scanoutReady && scanoutOn.B && (borgCfg.isEmpty.B || borgWrote)
 
   // scanout.io.red/green/blue and hsync/vsync/de are already natively in the
   // hdmiClock domain (they only change on hdmiTick25) -- no CDC stage needed;
@@ -302,6 +329,20 @@ object ULX3SMinimalLinuxMain extends App {
   )
 
   // Reuse the full pin definitions; unused pins are harmless to constrain.
+  ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
+}
+
+/** The same with HDMI scanout of the Borg's 128x128 frame (shown after the first flush). */
+object ULX3SMinimalLinuxBorgHdmiMain extends App {
+  val clockMhz = sys.env.getOrElse("CLOCK_MHZ", "18").toInt
+  val targetDir = "out/ulx3s_minimal_linux_borg_hdmi/verilog"
+  new java.io.File(targetDir).mkdirs()
+  ChiselStage.emitSystemVerilogFile(
+    gen         = new ulx3s_minimal_top(clockMhz, xlen = 64, scanoutOn = true, fbSize = 128,
+                                        borgCfg = Some(borg.BorgConfig.Tiny)),
+    args        = Array("--target-dir", targetDir),
+    firtoolOpts = Emit.firtoolOpts
+  )
   ULX3SPins.emitLPF(s"$targetDir/ulx3s.lpf")
 }
 
