@@ -74,4 +74,5 @@ depending on your goal:
 8. [Geometry Front End](B1_geometry_front_end.md) — Draws walked by hardware, homogeneous setup without clipping, perspective-correct varyings
 9. [Texture Unit](B2_texture_unit.md) — Descriptor-based TEX: any size to 4096, mipmaps, 51 formats, compare, gather, fetch
 10. [Colour Attachment Formats](B3_colour_formats.md) — RAW words the shader packs and blends through TLD: every Vulkan colour format up to 128 bits
+11. [ISA Gaps](B4_isa_gaps.md) — What shaders need and the ISA lacks: pow/log/exp, compares, constants; the sRGB idiom case
 8. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools
