@@ -27,7 +27,7 @@ advances in low-cost chip manufacturing to make individual tape-outs feasible fo
 
 ## Architecture
 
-The design is a **Hutt RISC-V SoC** with the **Borg FP16 shader processor** as a memory-mapped peripheral,
+The design is a **Hutt RISC-V SoC** with the **Borg shader processor** (FP32 by default, FP16 selectable) as a memory-mapped peripheral,
 targeting ECP5 FPGAs (ULX3S) and an ASIC (GF180MCU via wafer.space, Borg only behind a chip-to-chip link).
 
 ### Borg Shader Processor
@@ -35,9 +35,9 @@ targeting ECP5 FPGAs (ULX3S) and an ASIC (GF180MCU via wafer.space, Borg only be
 A minimal programmable shading unit with:
 
 - **Fused Multiply-Add (FMA)** — in-tree IEEE-754 unit (FP32 by default, FP16 selectable) supporting ADD, MUL, FMA, FNEG, FSTEP, and FRCP operations
-- **32 general-purpose FP16 registers** (r0–r31), MMIO-accessible from the CPU
+- **32 general-purpose registers** (r0–r31, FP32 by default), MMIO-accessible from the CPU
 - **56-word instruction memory** for shader programs
-- **Hardware FP16 reciprocal (RCP)** — LUT + linear interpolation for perspective division
+- **Hardware reciprocal, reciprocal square root and sRGB encode** — LUT + linear interpolation (FRCP, FRSQ, FSRGB)
 - **Hardware Tile Buffer** — 16-pixel buffer for RGB and Z-buffer depth testing
 - **Hardware Texture Unit** — Morton-encoded texture coordinate expansion
 - **4-cycle pipeline** with automatic halt-on-zero-instruction
@@ -48,7 +48,7 @@ The firmware implements a full triangle rendering pipeline:
 
 1. **Vertex Shader** — 4×4 MVP matrix multiply with hardware perspective division, executed as a single shader pass on the Borg FPU
 2. **Screen-Space Translation** — NDC to pixel coordinates with configurable framebuffer resolution
-3. **Rasterization** — Hardware-iterator driven edge evaluation with native FP16 coordinate expansion and FSM auto-chaining
+3. **Rasterization** — Hardware-iterator driven edge evaluation with native coordinate expansion and FSM auto-chaining
 4. **Fragment Shader** — Unified pass (compiled via linear scan allocator) performing barycentric interpolation for RGB, Z, and UV simultaneously
 5. **Hardware Z-Buffer** — Per-pixel depth testing in the hardware tile buffer
 6. **Hardware Texturing** — Morton-encoded texel fetch with snooped fragment coordinates
@@ -185,7 +185,7 @@ are deterministic tool output, not GenAI. Details and enforcement:
 | Hardware Texture Address Unit (Morton encoding) | ✅ Done |
 | 32-bit RISC-V instructions & 32-entry register file | ✅ Done |
 | Hardware perspective projection (4×4 MVP shader) | ✅ Done |
-| Hardware FP16 reciprocal (FRCP) | ✅ Done |
+| Hardware reciprocal (FRCP) | ✅ Done |
 | Cycle-accurate C++ simulation (Arcilator & Verilator) | ✅ Done |
 | Interactive UI Viewer (zero-copy Pygame) | ✅ Done |
 | Linux boot on Hutt (RV64 + Sv39 MMU, ULX3S + Verilator) | ✅ Done |
