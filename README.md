@@ -34,7 +34,7 @@ targeting ECP5 FPGAs (ULX3S) and an ASIC (GF180MCU via wafer.space, Borg only be
 
 A minimal programmable shading unit with:
 
-- **FP16 Fused Multiply-Add (FMA)** — IEEE-754 compliant HardFloat unit supporting ADD, MUL, FMA, FNEG, FSTEP, and FRCP operations
+- **Fused Multiply-Add (FMA)** — in-tree IEEE-754 unit (FP32 by default, FP16 selectable) supporting ADD, MUL, FMA, FNEG, FSTEP, and FRCP operations
 - **32 general-purpose FP16 registers** (r0–r31), MMIO-accessible from the CPU
 - **56-word instruction memory** for shader programs
 - **Hardware FP16 reciprocal (RCP)** — LUT + linear interpolation for perspective division
@@ -199,7 +199,6 @@ are deterministic tool output, not GenAI. Details and enforcement:
 | --- | --- | --- |
 | [Chisel](https://github.com/chipsalliance/chisel) | Hardware construction language (Scala → Verilog) | Apache-2.0 |
 | Hutt | RV32I/RV64I RISC-V CPU core (multi-cycle, Chisel, Decoupled buses) | CERN-OHL-S-2.0 |
-| [Berkeley HardFloat](https://github.com/ucb-bar/berkeley-hardfloat) | IEEE-754 floating-point units (FMA) | BSD-3-Clause |
 | [LibreLane](https://github.com/efabless/librelane) | RTL-to-GDS ASIC flow orchestrator | Apache-2.0 |
 | [Yosys](https://github.com/YosysHQ/yosys) | RTL synthesis | ISC |
 | [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD) | Place and route | BSD-3-Clause |

@@ -14,7 +14,7 @@ The CPU has been **rewritten from TinyQV to a new core called Hutt** (`hardware/
 ## Build system layout
 
 - **Top-level `Makefile`** orchestrates Chisel→Verilog emission, cocotb tests, lint, GDS, the docs book, and SystemRDL→Chisel register generation.
-- **Mill** (`build.mill` + per-directory `package.mill`) drives Scala/Chisel compilation. `BorgModule` (in `build.mill`) is the shared trait — Scala 2.13, Chisel (version pinned by `chiselVersion` in `build.mill`). Modules are organized under `hardware/{borg,hutt,memory,peri,soc,hardfloat}`, `fpga/ulx3s/soc` and `asic/wafer`. The simulation tops (`BorgSimTop`, `BorgArcSimTop`) live in `hardware/soc`.
+- **Mill** (`build.mill` + per-directory `package.mill`) drives Scala/Chisel compilation. `BorgModule` (in `build.mill`) is the shared trait — Scala 2.13, Chisel (version pinned by `chiselVersion` in `build.mill`). Modules are organized under `hardware/{borg,hutt,memory,peri,soc}`, `fpga/ulx3s/soc` and `asic/wafer`. The simulation tops (`BorgSimTop`, `BorgArcSimTop`) live in `hardware/soc`.
 - **Nix** (`flake.nix`) provides the full reproducible toolchain (firtool, Yosys, nextpnr, OpenROAD/LibreLane, RISC-V GCC, cocotb, PeakRDL, etc.). Enter it with `nix develop` before running anything below.
 - **Per-board sub-Makefiles** (`fpga/ulx3s/Makefile`, `simulation/{verilator,arcilator}/Makefile`, `test/soc/Makefile`, `software/Makefile`) own their flow. The top Makefile forwards to them.
 
@@ -74,7 +74,7 @@ When a build needs the SystemRDL-generated register block, the top Makefile runs
 
 ### Borg shader processor (the actual GPU)
 
-Lives in `hardware/borg/src/`. `Borg.scala` is the top, with a 4-cycle FP16 FMA pipeline (Berkeley HardFloat via `hardware/hardfloat/`), 32 FP16 registers, instruction memory, a hardware FP16 reciprocal (`Fp16Rcp.scala` + `rcp_lut.hex` + `coord_lut.hex`), tile buffer with Z (`BorgTileBuffer.scala`), the descriptor-based texture unit (`BorgSampler.scala`, see below), rasterizer (`BorgRasterizer.scala`), and a 2-entry async command FIFO (`BorgCommandFIFO.scala`). The CPU pokes it via the MMIO register block defined in SystemRDL.
+Lives in `hardware/borg/src/`. `Borg.scala` is the top, with the in-tree FMA pipeline (`BorgFma.scala`; FP32 by default, FP16 selectable), 32 registers, instruction memory, LUT-based reciprocal, rsqrt and sRGB (`Fp16Special.scala`, `BorgLutTables.scala`, `*_lut.hex`), tile buffer with Z (`BorgTileBuffer.scala`), the descriptor-based texture unit (`BorgSampler.scala`, see below), rasterizer (`BorgRasterizer.scala`), and a 2-entry async command FIFO (`BorgCommandFIFO.scala`). The CPU pokes it via the MMIO register block defined in SystemRDL.
 
 ### SystemRDL → Chisel + C headers
 
