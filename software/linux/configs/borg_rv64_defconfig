@@ -97,6 +97,8 @@ CONFIG_DEVTMPFS_MOUNT=y
 # Serial / TTY
 #
 CONFIG_TTY=y
+CONFIG_DEVMEM=y
+# CONFIG_STRICT_DEVMEM is not set
 CONFIG_SERIAL_CORE=y
 # Enable SBI console as a proper tty so userspace can read/write /dev/hvc0
 CONFIG_HVC_DRIVER=y

@@ -62,7 +62,7 @@ HEADERS = $(wildcard *.h) compiler/shader_blobs.h
 
 all: python kernel
 
-.PHONY: all kernel replay python test-native clean
+.PHONY: all kernel replay replay-linux python test-native clean
 
 kernel: python
 	@$(MAKE) -C compiler all
@@ -72,6 +72,11 @@ kernel: python
 REPLAY_CAPTURE ?= ../../simulation/golden/borgvk_capture.bin
 replay_capture.h: $(REPLAY_CAPTURE)
 	@{ echo 'static const unsigned char replay_capture[] = {'; od -An -v -t u1 -w16 $< | sed 's/ *\([0-9][0-9]*\)/\1,/g'; echo '};'; echo 'static const unsigned replay_capture_len = sizeof(replay_capture);'; } > $@
+
+# The same replay as a static Linux program: /dev/mem at the firmware's fixed addresses (WRAPPER and OUT come from rootfs).
+replay-linux: python replay_capture.h
+	$(WRAPPER) -O2 -march=rv64ima_zicsr_zifencei -mabi=lp64 -static -I$(HUTT_SDK) -I$(RDL_C_OUT) \
+	    -DBORG_LINUX_USER -DTARGET_ULX3S -DCLOCK_MHZ=19 -Wall -o $(OUT) borg_replay.c $(SHARED_SOURCES)
 
 replay: python replay_capture.h
 	@$(MAKE) -C compiler all

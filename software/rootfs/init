@@ -14,31 +14,11 @@ echo ""
 echo "Borg/Hutt Linux initramfs — welcome."
 echo ""
 
-# Bisecting a real-hardware-only hang (task #15, Bug A). Deep printk
-# bisection localized the race to vfs_statx's path-walk, triggerable on
-# essentially any qualifying path lookup. ftrace was tried and abandoned
-# as a debugging tool here (5 straight attempts across 2 sessions all
-# hung during ftrace's OWN setup; the one attempt that reached the
-# function_graph tracer switch caused a harder, whole-system freeze --
-# likely a separate ftrace/icache-coherency bug, not Bug A itself). This
-# plain version carries no ftrace/printk instrumentation at all, for
-# statistical repeat-boot characterization of the real hang rate.
-echo "=== T1: ls /bin | cat (piped -- stdout not a tty, skips width ioctl) ==="
-ls /bin | cat
-echo "=== T1 end ==="
-echo "=== T2: ls /bin (direct to console -- the known hang point, for direct comparison) ==="
-ls /bin
-echo "=== T2 end ==="
-
-# Task #15 follow-up: now that boot completes (Bug A fixed) and T1/T2's
-# slowness is understood to be execve()'s own address-space-teardown cost
-# (not a hang), check whether STEADY-STATE syscalls on an already-running
-# process (getpid, mmap/munmap -- shaped like what a DRM ioctl/GEM-mmap
-# workload would look like) are similarly slow, or whether execve()'s cost
-# is a one-time outlier. This directly informs whether a native Linux DRM
-# driver on this platform is viable before investing in writing one.
-echo "=== T3: /bin/bench (steady-state getpid/mmap syscall cost, not execve) ==="
-/bin/bench
-echo "=== T3 end ==="
+# Step 3: the captured vkcube frame, rendered by the Borg from Linux userspace.
+# replay_linux maps the Borg registers and its memory through /dev/mem and prints the
+# frame on the debug UART (scripts/uart_ppm.py turns it into a picture).
+echo "=== replay_linux ==="
+/bin/replay_linux
+echo "=== replay_linux end: $? ==="
 
 exec /bin/sh

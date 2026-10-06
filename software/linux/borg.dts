@@ -5,7 +5,9 @@
 //
 // Physical memory map:
 //   0x00000000  SDRAM (32 MB, flat — CPU byte addr = SDRAM byte offset)
-//   0x02000000  CLINT (mtime/mtimecmp, 25 MHz timebase)
+//   0x02000000  CLINT (mtime/mtimecmp, 18.75 MHz mtime)
+//   0x08000C00  Borg GPU registers
+//   0x01000000  GPU memory (5 MB, no-map): GPU address X = SDRAM byte 0x1000000 + X
 //   0x08000018  Debug UART TX (write-only, 115200 baud)
 //   0x0800001C  Debug UART STATUS (bit 0 = busy)
 //
@@ -66,7 +68,9 @@
     cpus {
         #address-cells = <1>;
         #size-cells    = <0>;
-        timebase-frequency = <25000000>;  // mtime increments at 25 MHz (ULX3S)
+        // mtime counts the 18.75 MHz core clock; claiming twice that doubles the tick period (375k cycles),
+        // since a tick costs about 150k+ cycles here and 187k livelocked the boot. Kernel time runs at half speed.
+        timebase-frequency = <37500000>;
 
         cpu@0 {
             device_type  = "cpu";
@@ -111,6 +115,12 @@
             reg = <0x0 0x00000000 0x0 0x00200000>;
             no-map;
         };
+
+        // The Borg's view of SDRAM starts here (VRAM region bit); Linux must not touch it.
+        borg_mem: gpu@1000000 {
+            reg = <0x0 0x01000000 0x0 0x00500000>;
+            no-map;
+        };
     };
 
     soc {
@@ -142,6 +152,12 @@
             reg        = <0x0 0x02000000 0x0 0x8>,
                          <0x0 0x02000008 0x0 0x8>;
             interrupts-extended = <&{/cpus/cpu@0/interrupt-controller} 7>;
+        };
+
+        borg@8000c00 {
+            compatible    = "gonsolo,borg";
+            reg           = <0x0 0x08000c00 0x0 0x400>;
+            memory-region = <&borg_mem>;
         };
 
         // Borg debug UART (write-only; RX not wired to this path).

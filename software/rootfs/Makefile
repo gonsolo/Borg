@@ -247,7 +247,14 @@ $(BENCH): bench.c $(WRAPPER)
 # for why (kernel_init() can't open an initial console on this platform, so
 # PID 1 inherits unusable stdio without this).
 # ---------------------------------------------------------------------------
-rootfs: $(BB_STRIPPED) $(BENCH)
+REPLAY := $(ROOTFS)/bin/replay_linux
+
+.PHONY: $(REPLAY)
+$(REPLAY): $(WRAPPER)
+	mkdir -p $(ROOTFS)/bin
+	$(MAKE) -C ../borg replay-linux WRAPPER=$(WRAPPER) OUT=$@
+
+rootfs: $(BB_STRIPPED) $(BENCH) $(REPLAY)
 	mkdir -p $(ROOTFS)
 	$(MAKE) -C $(BB_SRC) CC=$(WRAPPER) CONFIG_PREFIX=$(ROOTFS) install
 	mkdir -p $(ROOTFS)/proc $(ROOTFS)/sys $(ROOTFS)/dev $(ROOTFS)/tmp \

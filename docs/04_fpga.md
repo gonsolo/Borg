@@ -55,3 +55,11 @@ UART dump (or a `DUMP_*` simulator dump) into a picture.
 On the ULX3S the same firmware prints the frame over the UART and it is identical to the golden
 (0 of 49,152 values differ), with no host computer. Below a 25 MHz PFD the ECP5 PLL needs the
 loop-filter attributes (`ICP_CURRENT` etc., in `Ecp5PllPrim`) or it never locks.
+
+Under Linux: the same replay runs as a static userspace program (`replay_linux`, in the initramfs)
+that maps the Borg registers and its 5 MB at SDRAM 16 MB through `/dev/mem`, at the addresses the
+firmware uses. The device tree reserves that memory (`no-map`) and describes the Borg at
+`0x08000C00`. The frame over the UART again equals the golden; boot to the picture takes about 3
+minutes. A tick of the 18.75 MHz core clock at 100 Hz (187k cycles) stalled the boot after the
+clocksource switch, so the tree declares a 37.5 MHz timebase (tick every 375k cycles; kernel time
+runs at half speed).
