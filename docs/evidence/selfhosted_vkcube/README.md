@@ -31,3 +31,9 @@ shaders: 0 of 16,384 pixels differ.
 - The boot-to-frame time was not measured with a clock on the board; it took about 8 minutes of wall time
   to the end of `vkcube-borg` and about 8 more for the hex dump.
 - The FPGA runs the `Tiny` Borg configuration (4 lanes, no blend, stencil, compute or MSAA).
+
+## Clean-checkout rebuild (2026-10-06)
+
+Rebuilt from a fresh clone: the bitstream is byte-identical (same sha256), Fmax 19.96 MHz at 18.75 MHz, 84% LUT.
+The boot payload was rebuilt too (12,140,008 bytes, not byte-identical to the flashed one). Booted on the board:
+`BORG_DRM_TEST PASS`, `vkcube-borg end: 0`, and the frame equals `frame.ppm` byte for byte. Log: `boot_clean.log`.
