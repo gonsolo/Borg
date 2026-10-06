@@ -126,7 +126,7 @@ def main():
               f"  [{i - 1} done / {len(revs) - i + 1} left]")
         show(rev)
         while True:
-            c = ask("accept, edit msg, vim, refuse, diff again, stat, quit?", "aevrdsq")
+            c = ask(f"[{i - 1} done / {len(revs) - i + 1} left] accept, edit msg, vim, refuse, diff again, stat, quit?", "aevrdsq")
             if c == "d":
                 show(rev)
             elif c == "s":
