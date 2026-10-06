@@ -155,6 +155,8 @@
   in {
     devShells.${system} = {
     default = pkgs.mkShell {
+      # The kernel does its own hardening; the wrapper's -fzero-call-used-regs is rejected for riscv64.
+      hardeningDisable = ["all"];
       # Use nativeBuildInputs for tools that provide executables
       nativeBuildInputs = [
         pkgs.bash-completion
