@@ -2,7 +2,9 @@
 
 //! Borg GPU: render-only DRM driver. Userspace (Mesa borgvk) programs the GPU with register
 //! writes and moves data in and out of the GPU memory carve-out; the kernel only validates
-//! offsets and sequences the accesses.
+//! offsets (against the register map generated from borg.rdl) and sequences the accesses.
+
+mod reg_map;
 
 use kernel::{
     device::Core,
@@ -93,7 +95,7 @@ impl BorgDrmFileData {
         for _ in 0..args.count {
             let offset = reader.read::<u32>()?;
             let value = reader.read::<u32>()?;
-            if offset & 3 != 0 {
+            if offset & 3 != 0 || !reg_map::contains(&reg_map::WRITABLE, offset) {
                 return Err(EINVAL);
             }
             // The user copies fault, so they stay outside the Devres guard.
@@ -107,7 +109,7 @@ impl BorgDrmFileData {
         args: &mut uapi::drm_borg_reg_read,
         _file: &BorgDrmFile,
     ) -> Result<u32> {
-        if args.offset & 3 != 0 {
+        if args.offset & 3 != 0 || !reg_map::contains(&reg_map::READABLE, args.offset) {
             return Err(EINVAL);
         }
         let regs = ddev.regs.try_access().ok_or(ENXIO)?;
