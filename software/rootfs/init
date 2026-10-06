@@ -21,7 +21,9 @@ echo "=== borg_drm_test ==="
 # Step 7: the unmodified cube.c on borgvk, headless; the frame goes to the console as hex.
 echo "=== vkcube-borg ==="
 export BORGVK_HW=1 BORGVK_SHADER_CACHE=/etc/cube.shaders BORGVK_DUMP_PPM=/tmp/frame.ppm
+echo "uptime before: $(cat /proc/uptime)"
 /bin/vkcube-borg --wsi display --c 1 --suppress_popups
+echo "uptime after: $(cat /proc/uptime)"
 echo "=== vkcube-borg end: $? ==="
 echo PPM-BEGIN
 od -An -v -tx1 /tmp/frame.ppm
