@@ -21,6 +21,7 @@ package memory
 
 import chisel3._
 import chisel3.experimental.{fromIntToIntParam, fromStringToStringParam}
+import chisel3.util.HasExtModuleInline
 
 // ---------------------------------------------------------------------------
 // Compile-time PLL parameter solver (port of EMARD's F_ecp5pll)
@@ -248,8 +249,8 @@ class Ecp5Pll(params: Ecp5PllParams) extends ExtModule(
     "DPHASE_SOURCE" -> "DISABLED",
     "PLL_LOCK_MODE" -> 0
   )
-) {
-  override val desiredName = "EHXPLLL"
+) with HasExtModuleInline {
+  override val desiredName = "Ecp5PllPrim"
 
   // EHXPLLL port map — directly matches the ECP5 primitive interface.
   val CLKI         = IO(Input(Clock()))
@@ -272,6 +273,43 @@ class Ecp5Pll(params: Ecp5PllParams) extends ExtModule(
   val CLKOS3       = IO(Output(Clock()))
   val LOCK         = IO(Output(Bool()))
   val CLKINTFB     = IO(Output(Clock()))
+
+  // EHXPLLL below a 25 MHz PFD never locks without these loop-filter attributes (as ecppll emits).
+  setInline("Ecp5PllPrim.sv",
+    """module Ecp5PllPrim #(
+      |  parameter CLKI_DIV = 1, CLKFB_DIV = 1, FEEDBK_PATH = "CLKOP",
+      |  parameter OUTDIVIDER_MUXA = "DIVA", OUTDIVIDER_MUXB = "DIVB",
+      |  parameter OUTDIVIDER_MUXC = "DIVC", OUTDIVIDER_MUXD = "DIVD",
+      |  parameter CLKOP_ENABLE = "ENABLED", CLKOP_DIV = 1, CLKOP_CPHASE = 0, CLKOP_FPHASE = 0,
+      |  parameter CLKOS_ENABLE = "DISABLED", CLKOS_DIV = 1, CLKOS_CPHASE = 0, CLKOS_FPHASE = 0,
+      |  parameter CLKOS2_ENABLE = "DISABLED", CLKOS2_DIV = 1, CLKOS2_CPHASE = 0, CLKOS2_FPHASE = 0,
+      |  parameter CLKOS3_ENABLE = "DISABLED", CLKOS3_DIV = 1, CLKOS3_CPHASE = 0, CLKOS3_FPHASE = 0,
+      |  parameter INTFB_WAKE = "DISABLED", STDBY_ENABLE = "DISABLED", PLLRST_ENA = "DISABLED",
+      |  parameter DPHASE_SOURCE = "DISABLED", PLL_LOCK_MODE = 0
+      |) (
+      |  input CLKI, CLKFB, RST, STDBY, PLLWAKESYNC, PHASESEL0, PHASESEL1, PHASEDIR, PHASESTEP,
+      |  input PHASELOADREG, ENCLKOP, ENCLKOS, ENCLKOS2, ENCLKOS3,
+      |  output CLKOP, CLKOS, CLKOS2, CLKOS3, LOCK, CLKINTFB
+      |);
+      |  (* ICP_CURRENT="12" *) (* LPF_RESISTOR="8" *) (* MFG_ENABLE_FILTEROPAMP="1" *) (* MFG_GMCREF_SEL="2" *)
+      |  EHXPLLL #(
+      |    .CLKI_DIV(CLKI_DIV), .CLKFB_DIV(CLKFB_DIV), .FEEDBK_PATH(FEEDBK_PATH),
+      |    .OUTDIVIDER_MUXA(OUTDIVIDER_MUXA), .OUTDIVIDER_MUXB(OUTDIVIDER_MUXB),
+      |    .OUTDIVIDER_MUXC(OUTDIVIDER_MUXC), .OUTDIVIDER_MUXD(OUTDIVIDER_MUXD),
+      |    .CLKOP_ENABLE(CLKOP_ENABLE), .CLKOP_DIV(CLKOP_DIV), .CLKOP_CPHASE(CLKOP_CPHASE), .CLKOP_FPHASE(CLKOP_FPHASE),
+      |    .CLKOS_ENABLE(CLKOS_ENABLE), .CLKOS_DIV(CLKOS_DIV), .CLKOS_CPHASE(CLKOS_CPHASE), .CLKOS_FPHASE(CLKOS_FPHASE),
+      |    .CLKOS2_ENABLE(CLKOS2_ENABLE), .CLKOS2_DIV(CLKOS2_DIV), .CLKOS2_CPHASE(CLKOS2_CPHASE), .CLKOS2_FPHASE(CLKOS2_FPHASE),
+      |    .CLKOS3_ENABLE(CLKOS3_ENABLE), .CLKOS3_DIV(CLKOS3_DIV), .CLKOS3_CPHASE(CLKOS3_CPHASE), .CLKOS3_FPHASE(CLKOS3_FPHASE),
+      |    .INTFB_WAKE(INTFB_WAKE), .STDBY_ENABLE(STDBY_ENABLE), .PLLRST_ENA(PLLRST_ENA),
+      |    .DPHASE_SOURCE(DPHASE_SOURCE), .PLL_LOCK_MODE(PLL_LOCK_MODE)
+      |  ) pll_i (
+      |    .CLKI(CLKI), .CLKFB(CLKFB), .RST(RST), .STDBY(STDBY), .PLLWAKESYNC(PLLWAKESYNC),
+      |    .PHASESEL0(PHASESEL0), .PHASESEL1(PHASESEL1), .PHASEDIR(PHASEDIR), .PHASESTEP(PHASESTEP),
+      |    .PHASELOADREG(PHASELOADREG), .ENCLKOP(ENCLKOP), .ENCLKOS(ENCLKOS), .ENCLKOS2(ENCLKOS2), .ENCLKOS3(ENCLKOS3),
+      |    .CLKOP(CLKOP), .CLKOS(CLKOS), .CLKOS2(CLKOS2), .CLKOS3(CLKOS3), .LOCK(LOCK), .CLKINTFB(CLKINTFB)
+      |  );
+      |endmodule
+      |""".stripMargin)
 
   /** Lazy solution — run the solver once on first access. */
   private lazy val _solved = Ecp5PllParams.solve(params)

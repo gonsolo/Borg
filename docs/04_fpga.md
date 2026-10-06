@@ -44,8 +44,7 @@ Layered bring-up bitstreams in `fpga/ulx3s/debug/` isolate individual subsystems
 `make generate_verilog_ulx3s_minimal_linux_borg`; `BorgConfig.Tiny` (FP32, 4 lanes, 1024 bin
 tiles, no MSAA, blend, stencil, compute, depth flush or perf counters) beside the RV64
 Hutt, scanout off, GPU memory at SDRAM 16 MB and up (the VRAM region bit). nextpnr:
-69,948 / 83,640 LUTs (83%), 75 MULT18X18D, 7 DP16KD. The PLL gives 18.75 MHz; Fmax 18.76 MHz,
-so there is no margin. One lane renders the cube wrong (derivatives need the 2x2 quad), and
+69,948 / 83,640 LUTs (83%), 75 MULT18X18D, 7 DP16KD. The PLL gives 18.75 MHz; Fmax 19.96 MHz. One lane renders the cube wrong (derivatives need the 2x2 quad), and
 four lanes at 25 MHz reach only 15 to 18 MHz. The limiter is the lane's integer ALU fed
 straight from the register BRAM, not the FMA (`fmaStages=4` changes nothing).
 
@@ -53,3 +52,6 @@ Host-free frame: `make -C software/borg replay` links the captured borgvk burst 
 firmware; the simulator (`make -C simulation/verilator minimal-linux-borg-sim`) renders it
 bit-exact against `simulation/golden/vkcube_cts_uart_00.ppm`. `scripts/uart_ppm.py` turns the
 UART dump (or a `DUMP_*` simulator dump) into a picture.
+On the ULX3S the same firmware prints the frame over the UART and it is identical to the golden
+(0 of 49,152 values differ), with no host computer. Below a 25 MHz PFD the ECP5 PLL needs the
+loop-filter attributes (`ICP_CURRENT` etc., in `Ecp5PllPrim`) or it never locks.

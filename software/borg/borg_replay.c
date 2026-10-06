@@ -23,6 +23,9 @@ static void put_hex32(uint32_t v) {
 }
 
 int main() {
+#ifdef REPLAY_HEARTBEAT
+  for (;;) fast_putc('A');   // UART/boot check only; the Borg is never touched
+#endif
   borgCreateDevice();
   BorgShaderModule vert, rast, frag;
   borgCreateShaderModule(&vert, vert_borg, sizeof(vert_borg));
