@@ -99,4 +99,13 @@ the unmodified `cube.c` and the Borg run on the one ULX3S with no computer attac
 the serial monitor; the 128 x 128 frame equals the host sink's frame pixel for pixel (0 of 16,384
 differ). `Memory:` reports 13,956K of 32,768K available (the 3.4 MB binary is unpacked into RAM). The
 whole boot to the frame takes about 15 minutes at the 18.75 MHz core clock; the run of `vkcube-borg`
-itself is a few minutes of that (the console has no timestamps; a timed run is still to do).
+itself is a few minutes of that.
+
+Shader compilation on the board (2026-10-06): `make -C software/vkcube COMPILER=full` builds borgvk with NIR
+and borgc in (`-Dborg-compiler=full -Dborg-small-nir=true`, Rust std for Hutt's ISA from
+`software/vkcube/rust/setup.sh`: rv64ima, lp64 soft-float, no C, panic=abort), 3.8 MB stripped. Without
+a shader cache the board compiles cube.vert and cube.frag itself (about 9.5 M instructions) and renders
+the frame; it differs from the cache-based frame in 8 pixels (FMADD rounding), see
+`docs/evidence/selfhosted_compile`. The run of `vkcube-borg` takes about 4.3 minutes (`/proc/uptime`, kernel
+time at half speed). The payload is 12.4 MB of the 12.58 MB the flash leaves after the bitstream and boot
+offset, so the image of this variant leaves out the `replay_*` and `bench` binaries.
