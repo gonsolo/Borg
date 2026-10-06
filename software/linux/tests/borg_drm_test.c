@@ -10,6 +10,7 @@
 #include <drm/borg_drm.h>
 
 static int fails;
+static uint8_t big[32768];
 #define CHECK(c, msg) do { if (!(c)) { printf("FAIL: %s (errno %d)\n", msg, errno); fails++; } } while (0)
 
 int main(void) {
@@ -44,6 +45,9 @@ int main(void) {
   m.offset = info.mem_size - 32;
   m.length = 64;
   CHECK(ioctl(fd, DRM_IOCTL_BORG_MEM_WRITE, &m) != 0, "memory write past the end must fail");
+
+  m.data = (uintptr_t)big; m.offset = 0x1000; m.length = sizeof(big);
+  CHECK(ioctl(fd, DRM_IOCTL_BORG_MEM_READ, &m) == 0, "32 KB memory read into a static buffer");
 
   puts(fails ? "BORG_DRM_TEST FAIL" : "BORG_DRM_TEST PASS");
   return fails != 0;

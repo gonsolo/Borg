@@ -18,6 +18,7 @@ use kernel::{
 
 const ABI: u32 = 1;
 const MAX_WRITES: u32 = 4096;
+const CHUNK: usize = 512;
 
 struct BorgDrmDriver;
 type BorgDrmDevice<Ctx = drm::Registered> = drm::Device<BorgDrmDriver, Ctx>;
@@ -84,7 +85,6 @@ impl BorgDrmFileData {
         if args.count > MAX_WRITES {
             return Err(EINVAL);
         }
-        let regs = ddev.regs.try_access().ok_or(ENXIO)?;
         let mut reader = UserSlice::new(
             UserPtr::from_addr(args.writes as usize),
             args.count as usize * 8,
@@ -96,7 +96,8 @@ impl BorgDrmFileData {
             if offset & 3 != 0 {
                 return Err(EINVAL);
             }
-            regs.try_write32(value, offset as usize)?;
+            // The user copies fault, so they stay outside the Devres guard.
+            ddev.regs.try_access().ok_or(ENXIO)?.try_write32(value, offset as usize)?;
         }
         Ok(0)
     }
@@ -122,15 +123,22 @@ impl BorgDrmFileData {
         if args.offset & 3 != 0 || args.length & 3 != 0 {
             return Err(EINVAL);
         }
-        let mem = ddev.mem.try_access().ok_or(ENXIO)?;
         let mut reader = UserSlice::new(
             UserPtr::from_addr(args.data as usize),
             args.length as usize,
         )
         .reader();
-        for i in 0..args.length / 4 {
-            let word = reader.read::<u32>()?;
-            mem.try_write32(word, (args.offset + i * 4) as usize)?;
+        let mut buf = [0u8; CHUNK];
+        let mut done = 0;
+        while done < args.length {
+            let n = core::cmp::min(CHUNK as u32, args.length - done);
+            reader.read_slice(&mut buf[..n as usize])?;
+            let mem = ddev.mem.try_access().ok_or(ENXIO)?;
+            for (i, w) in buf[..n as usize].chunks_exact(4).enumerate() {
+                let word = u32::from_ne_bytes([w[0], w[1], w[2], w[3]]);
+                mem.try_write32(word, (args.offset + done) as usize + i * 4)?;
+            }
+            done += n;
         }
         Ok(0)
     }
@@ -143,15 +151,24 @@ impl BorgDrmFileData {
         if args.offset & 3 != 0 || args.length & 3 != 0 {
             return Err(EINVAL);
         }
-        let mem = ddev.mem.try_access().ok_or(ENXIO)?;
         let mut writer = UserSlice::new(
             UserPtr::from_addr(args.data as usize),
             args.length as usize,
         )
         .writer();
-        for i in 0..args.length / 4 {
-            let word = mem.try_read32((args.offset + i * 4) as usize)?;
-            writer.write_slice(&word.to_ne_bytes())?;
+        let mut buf = [0u8; CHUNK];
+        let mut done = 0;
+        while done < args.length {
+            let n = core::cmp::min(CHUNK as u32, args.length - done);
+            {
+                let mem = ddev.mem.try_access().ok_or(ENXIO)?;
+                for (i, w) in buf[..n as usize].chunks_exact_mut(4).enumerate() {
+                    let word = mem.try_read32((args.offset + done) as usize + i * 4)?;
+                    w.copy_from_slice(&word.to_ne_bytes());
+                }
+            }
+            writer.write_slice(&buf[..n as usize])?;
+            done += n;
         }
         Ok(0)
     }

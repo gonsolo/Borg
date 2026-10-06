@@ -15,7 +15,7 @@ cp -r "$here"/overlay/. "$src"/
 mkdir -p "$out"
 if [ ! -f "$out/.config" ] || [ "$frag" -nt "$out/.config" ]; then
   sed "s|@ROOTFS@|$top/out/software/rootfs|" "$frag" > "$out/allconfig.frag"
-  make -C "$src" O="$out" ARCH=riscv LLVM=1 HOSTCC=gcc HOSTCXX=g++ BINDGEN="$KERNEL_BINDGEN" \
+  make -C "$src" O="$out" ARCH=riscv LLVM=1 HOSTCC=gcc HOSTCXX=g++ BINDGEN="$KERNEL_BINDGEN" KRUSTFLAGS=-Ctarget-feature=-zca \
     KCONFIG_ALLCONFIG="$out/allconfig.frag" allnoconfig > "$out/config.log" 2>&1
 fi
-exec make -C "$src" O="$out" ARCH=riscv LLVM=1 HOSTCC=gcc HOSTCXX=g++ BINDGEN="$KERNEL_BINDGEN" -j"$(nproc)" "${@:-Image}"
+exec make -C "$src" O="$out" ARCH=riscv LLVM=1 HOSTCC=gcc HOSTCXX=g++ BINDGEN="$KERNEL_BINDGEN" KRUSTFLAGS=-Ctarget-feature=-zca -j"$(nproc)" "${@:-Image}"
