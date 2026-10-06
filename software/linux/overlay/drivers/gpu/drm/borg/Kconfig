@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0 or MIT
+
+config DRM_BORG
+	tristate "Borg (Rust render-only DRM driver for the Borg GPU)"
+	depends on DRM=y
+	depends on RUST
+	select RUST_DRM_GEM_SHMEM_HELPER
+	default n
+	help
+	  Render node for the Borg GPU on the ULX3S SoC: register writes and
+	  word access to the GPU memory. Mesa's borgvk drives it.

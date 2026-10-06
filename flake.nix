@@ -329,6 +329,7 @@
         export OPENSBI_SRC="${opensbiSrc}"
         export LINUX_SRC="${linuxSrc}"
         export RUST_LIB_SRC="${pkgs.rustPlatform.rustLibSrc}"
+        export KERNEL_BINDGEN="${pkgs.rust-bindgen-unwrapped}/bin/bindgen"
 
         # Gate 2: riscv64 Linux cross toolchain prefix (borgvk RV64 cross-build).
         # Also used for OpenSBI — riscv64-unknown-linux-gnu-gcc can build freestanding
