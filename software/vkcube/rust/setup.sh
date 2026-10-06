@@ -42,10 +42,10 @@ replace-with = "vendored-sources"
 directory = "$RUST_LIB_SRC/vendor"
 EOT
 
-mkdir -p hello/src; cp "$here/hello.rs" hello/src/main.rs
+rm -rf hello/target; mkdir -p hello/src; cp "$here/hello.rs" hello/src/main.rs
 printf '[package]\nname="hello"\nversion="0.1.0"\nedition="2021"\n[profile.release]\nopt-level="s"\npanic="abort"\n' > hello/Cargo.toml
 (cd hello && RUSTC=$out/rustc-w RUSTC_BOOTSTRAP=1 CARGO_TARGET_RV64IMA_HUTT_LINUX_MUSL_LINKER=$cc RUSTFLAGS="-Lnative=$out/lib -Clink-arg=$out/lib/unwind_stub.o" \
-  cargo build --release --offline --config ../vendor.toml -Zbuild-std=std,panic_abort \
+  cargo build --release --offline --config ../vendor.toml -Zbuild-std=std,panic_abort -Zbuild-std-features=optimize_for_size \
   --target $out/$t.json -Zjson-target-spec)
 
 # Install the built std into a sysroot of its own.
