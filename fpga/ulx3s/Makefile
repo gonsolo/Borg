@@ -657,6 +657,43 @@ borg-minimal-linux-borg.bit: borg-minimal-linux-borg.config
 	ecppack --svf borg-minimal-linux-borg.svf borg-minimal-linux-borg.config borg-minimal-linux-borg.bit
 	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-minimal-linux-borg.bit ready."
 
+# The same with HDMI scanout of the Borg's frame (borg-minimal-linux-borg-hdmi.bit).
+ULX3S_MINIMAL_LINUX_BORG_HDMI_VERILOG_DIR = ../../out/ulx3s_minimal_linux_borg_hdmi/verilog
+MIN_LINUX_BORG_HDMI_SRC_FILES = $$(find $(ULX3S_MINIMAL_LINUX_BORG_HDMI_VERILOG_DIR) -maxdepth 1 -name '*.sv' | tr '\n' ' ')
+MIN_LINUX_BORG_HDMI_LPF = $(ULX3S_MINIMAL_LINUX_BORG_HDMI_VERILOG_DIR)/ulx3s.lpf
+
+.verilog_stamp_ulx3s_minimal_linux_borg_hdmi: $(CHISEL_SRCS) Makefile ../../Makefile
+	$(MAKE) -C ../.. generate_verilog_ulx3s_minimal_linux_borg_hdmi
+	@touch $@
+
+borg-minimal-linux-borg-hdmi.json: .verilog_stamp_ulx3s_minimal_linux_borg_hdmi
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Running Yosys for minimal RV64 SoC + Borg + HDMI ..."
+	yosys -p "read -sv $(MIN_LINUX_BORG_HDMI_SRC_FILES); \
+	           read_verilog -sv -lib $(CURDIR)/primitives/ecp5_prims.v; \
+	           synth_ecp5 -abc9 -top ulx3s_minimal_top -json borg-minimal-linux-borg-hdmi.json; \
+	           stat -top ulx3s_minimal_top" \
+	      -DECP5 -DPURE_RTL -DSYNTH_FPGA -DENABLE_INITIAL_MEM_ \
+	      > yosys-minimal-linux-borg-hdmi.log
+	@echo -e "$(BOLD)[SYNTH]$(RESET) Done."
+
+borg-minimal-linux-borg-hdmi.config: borg-minimal-linux-borg-hdmi.json
+	@echo -e "$(BOLD)[PNR]$(RESET) Running nextpnr-ecp5 for minimal RV64 SoC + Borg + HDMI ..."
+	nextpnr-ecp5 \
+	  --85k --package CABGA381 \
+	  --json borg-minimal-linux-borg-hdmi.json \
+	  --lpf $(MIN_LINUX_BORG_HDMI_LPF) \
+	  --textcfg borg-minimal-linux-borg-hdmi.config \
+	  --freq $(CLOCK_FREQ) \
+	  --timing-allow-fail \
+	  --log nextpnr-minimal-linux-borg-hdmi.log \
+	  --seed 0
+	@echo -e "$(BOLD)[PNR]$(RESET) Done."
+
+borg-minimal-linux-borg-hdmi.bit: borg-minimal-linux-borg-hdmi.config
+	@echo -e "$(BOLD)[PACK]$(RESET) Packing minimal RV64+Borg+HDMI bitstream ..."
+	ecppack --svf borg-minimal-linux-borg-hdmi.svf borg-minimal-linux-borg-hdmi.config borg-minimal-linux-borg-hdmi.bit
+	@echo -e "$(BOLD)[PACK]$(RESET) Done — borg-minimal-linux-borg-hdmi.bit ready."
+
 # Flash minimal RV64 bitstream only (does NOT reset — flash firmware next, or
 # 'make reset' to boot with whatever firmware is already at 0x400000).
 flash-minimal-linux: borg-minimal-linux.bit
