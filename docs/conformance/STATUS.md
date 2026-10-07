@@ -35,7 +35,7 @@ Raw results (not committed): one `<status> <case>` line per case.
 | glsl | 11,891 | 210 | 977 | 10,704 | NotRun | NotRun |
 | synchronization | 8,618 | 891 | 6,924 | 803 | NotRun | NotRun |
 | image | 7,082 | 531 | 5,912 | 639 | NotRun | NotRun |
-| api | 4,939 | 3,326 | 1,596 | 13 | NotRun | NotRun |
+| api | 4,939 | 3,326 | 1,596 | 13 | see "2a on tier 2" | NotRun |
 | spirv_assembly | 3,135 | 7 | 2,597 | 531 | NotRun | NotRun |
 | memory | 2,584 | 1,053 | 1,495 | 36 | NotRun | NotRun |
 | ssbo | 1,681 | 0 | 242 | 1,439 | NotRun | NotRun |
@@ -115,6 +115,28 @@ table below come from the same kind of run and are not trusted either.
 
 **The all-groups table is not reliable.** It was measured without that check; only the `api` row and the
 `info` run were repeated with the library present. The all-groups rerun is pending.
+
+## 2a on tier 2 (QEMU, Rust DRM driver, faulting Borg)
+
+The same 278,342 `api` cases as the tier-1 rerun above, run with `software/linux/tests/qemu-cts-run.sh <list> <out> 16`
+(16 guests of 2 GB, 15.7 minutes). Tier 1 and tier 2 side by side:
+
+| Status | Tier 1 | Tier 2 |
+|---|---:|---:|
+| Pass | 64,866 | 64,778 |
+| NotSupported | 213,472 | 213,472 |
+| QualityWarning | 4 | 4 |
+| Fail | 0 | 87 |
+| Crash | 0 | 1 |
+
+- **The 87 Fail** are the cases that need the Borg to execute: `buffer_view.access` texel buffers (51), `resolve_image`
+  with 4 samples (29), `smoke` (4) and `command_buffers` (3). They fail because the Borg behind the register block is
+  a stub that faults; they are not driver or Borg errors. No guest panicked, so none of them reached the register ioctls.
+  They need the real Borg behind the node (a QEMU-to-`direct_sim` bridge, not built).
+- **The 1 Crash** is `descriptor_pool.repeated_reset_long`: the guest's out-of-memory killer fired in `deqp-vk`
+  (2 GB guest). It passes on tier 1. Whether borgvk leaks in the descriptor pool reset or the case needs more RAM is not checked.
+- Everything else matches tier 1 case for case. This needs the GEM allocator: before it, 58 of a 200-case sample failed
+  with `OUT_OF_HOST_MEMORY`.
 
 ## Known limitations
 
