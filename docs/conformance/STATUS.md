@@ -87,13 +87,25 @@ implemented. Until it is, these results show the Vulkan side, not the driver tha
 
 ## Open discrepancy: 2a (tier 1)
 
-The tag `conformance/vk1.0-api-direct-sim` lists `0` failures in 278,342 `api` cases. Today 13 of them fail:
-`api.smoke.triangle`, `asm_triangle`, `asm_triangle_no_opname`, `unused_resolve_attachment`,
-`command_buffers.order_bind_pipeline`, `record_simul_use_secondary_{one,two}_primary`, and six
-`copy_and_blit.{core,dedicated_allocation}.resolve_image.*.4_bit` cases. The smoke cases draw a blank frame.
-The same failures appear with the tag's mesa commit, a simulator built from the tag's source and the tag's exact
-command, so this is not a regression since the tag. Why the tag lists them as Pass is not explained.
-Do not repeat "0 failures" for `api` until the full group is rerun and the cases are fixed.
+The tag `conformance/vk1.0-api-direct-sim` lists `0` failures in 278,342 `api` cases (64,866 Pass). Rerun on
+2026-10-07 with the tag's command (`MUSTPASS=1.0.2.6 MUSTPASS_GROUPS=1 JOBS=12 DIRECT=1 scripts/cts_par.sh
+'dEQP-VK.api.*'`, tier 1, 154 s): **87 Fail, 64,779 Pass**; NotSupported (213,472) and QualityWarning (4) are
+unchanged. All 87 failing cases are `Pass` in the tag.
+
+| Subgroup | Fail | Message |
+|---|---:|---|
+| `buffer_view.access.uniform_texel_buffer.*` | 34 | Invalid result values |
+| `buffer_view.access.storage_texel_buffer.*` | 11 | Invalid result values |
+| `buffer_view.access.suballocation.*` | 6 | BufferView test failed |
+| `copy_and_blit.{core,dedicated_allocation}.resolve_image.*` | 29 | CopiesAndBlitting test |
+| `smoke.{triangle,asm_triangle,asm_triangle_no_opname,unused_resolve_attachment}` | 4 | Image comparison failed |
+| `command_buffers.{order_bind_pipeline,record_simul_use_secondary_{one,two}_primary}` | 3 | various |
+
+The strict all-groups baseline above lists only 13 of them (smoke 4, command_buffers 3, six resolve_image): it
+runs the cases the mustpass names, which excludes the other 74. The smoke cases draw a blank frame. The same
+13 fail with the tag's mesa commit, a simulator built from the tag's source and the tag's exact command, so this
+is not a regression since the tag. Why the tag lists them as Pass is not explained.
+Do not repeat "0 failures" for `api` until these are fixed and the group is rerun.
 
 ## Known limitations
 
