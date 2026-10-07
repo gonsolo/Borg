@@ -24,27 +24,32 @@ Results are labelled with the tier they were measured on; a number from one tier
 Order of work: tier 1 for all groups, the GEM allocator with its QEMU tests and shim parity alongside the
 `memory.*` items, then tier 3 as a smoke subset.
 
-## Baseline, all groups (tier 1)
+## Results per tier, all groups
 
-Tier 1. Command: `MUSTPASS=1.0.2.6 JOBS=20 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.*'` (206 s).
+Tier 1 command: `MUSTPASS=1.0.2.6 JOBS=20 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.*'` (206 s).
 Raw results (not committed): one `<status> <case>` line per case.
 
-| Group | Cases | Pass | NotSupported | Fail |
-|---|---:|---:|---:|---:|
-| pipeline | 52,228 | 88 | 28,998 | 23,142 |
-| glsl | 11,891 | 210 | 977 | 10,704 |
-| synchronization | 8,618 | 891 | 6,924 | 803 |
-| image | 7,082 | 531 | 5,912 | 639 |
-| api | 4,939 | 3,326 | 1,596 | 13 |
-| spirv_assembly | 3,135 | 7 | 2,597 | 531 |
-| memory | 2,584 | 1,053 | 1,495 | 36 |
-| ssbo | 1,681 | 0 | 242 | 1,439 |
-| texture | 1,138 | 216 | 60 | 862 |
-| ubo | 533 | 0 | 150 | 383 |
-| query_pool | 118 | 7 | 33 | 78 |
-| rasterization | 116 | 21 | 71 | 24 |
-| others (sparse_resources, ycbcr, tessellation, geometry, wsi, clipping, fragment_operations, info) | 2,046 | 30 | 2,014 | 2 |
-| **Total** | **96,109** | **6,380 (6.6%)** | **51,069** | **38,656** |
+| Group | Cases | Tier 1: host + arcilator | Tier 2: QEMU + DRM driver | Tier 3: ULX3S |
+|---|---:|---:|---|---|
+| pipeline | 52,228 | 88 / 28,998 / 23,142 | NotRun | NotRun |
+| glsl | 11,891 | 210 / 977 / 10,704 | NotRun | NotRun |
+| synchronization | 8,618 | 891 / 6,924 / 803 | NotRun | NotRun |
+| image | 7,082 | 531 / 5,912 / 639 | NotRun | NotRun |
+| api | 4,939 | 3,326 / 1,596 / 13 | NotRun | NotRun |
+| spirv_assembly | 3,135 | 7 / 2,597 / 531 | NotRun | NotRun |
+| memory | 2,584 | 1,053 / 1,495 / 36 | NotRun | NotRun |
+| ssbo | 1,681 | 0 / 242 / 1,439 | NotRun | NotRun |
+| texture | 1,138 | 216 / 60 / 862 | NotRun | NotRun |
+| ubo | 533 | 0 / 150 / 383 | NotRun | NotRun |
+| query_pool | 118 | 7 / 33 / 78 | NotRun | NotRun |
+| rasterization | 116 | 21 / 71 / 24 | NotRun | NotRun |
+| others (sparse_resources, ycbcr, tessellation, geometry, wsi, clipping, fragment_operations, info) | 2,046 | 30 / 2,014 / 2 | NotRun | NotRun |
+| **Total** | **96,109** | **6,380 (6.6%) / 51,069 / 38,656** | NotRun | NotRun |
+| `info` (2b, whole group, no mustpass filter) | 21 | 18 / 3 / 0 | NotRun | NotRun |
+
+Cells read Pass / NotSupported / Fail. `NotRun` means the tier has not run the CTS for that group; it is not a result.
+The 2b row is a separate run (see below); its cases are not in the total, whose `info` cases are the 4 the mustpass lists.
+Tier 2 has run the driver's own tests in QEMU (whitelist), and tier 3 renders `vkcube`; neither is a CTS case.
 
 Four `api` cases report `QualityWarning` (`object_management`).
 
