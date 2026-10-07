@@ -50,7 +50,8 @@ class ScanoutDualClockHarnessIO extends Bundle {
   val blue     = Output(UInt(8.W))
 }
 
-class ScanoutDualClockHarness(fbW: Int, fbH: Int, sysDiv: Int) extends Module {
+class ScanoutDualClockHarness(fbW: Int, fbH: Int, sysDiv: Int, rgb565Store: Boolean = false,
+                              doubleBuffer: Boolean = true) extends Module {
   val io = IO(new ScanoutDualClockHarnessIO)
 
   // sysClock: free-running, divided from the harness's own (pixClk-playing)
@@ -63,7 +64,8 @@ class ScanoutDualClockHarness(fbW: Int, fbH: Int, sysDiv: Int) extends Module {
   private val sysClk = divCount(divBits - 1).asClock
 
   val scanout = withClockAndReset(sysClk, reset.asBool) {
-    Module(new HdmiScanoutFp16(fbWidth = fbW, fbHeight = fbH, separatePixelClock = true))
+    Module(new HdmiScanoutFp16(fbWidth = fbW, fbHeight = fbH, separatePixelClock = true,
+                               rgb565Store = rgb565Store, doubleBuffer = doubleBuffer))
   }
   scanout.io.pixClk.get := clock
   scanout.io.pixRst.get := reset.asBool
@@ -183,6 +185,21 @@ object ScanoutDualClockTests extends TestSuite {
         fill(dut, numPixels, sysDiv = 16, wordLoop1)
         fill(dut, numPixels, sysDiv = 16, wordLoop2)
         check(dut, fbW, fbH, col = 2, row = 1, wordLoop2, "after 2 fill loops, sysDiv 16")
+      }
+    }
+
+    utest.test("RGB565 storage and a single buffer show the same picture over two fill loops") {
+      val fbW = 8; val fbH = 8; val numPixels = fbW * fbH
+      simulate(new ScanoutDualClockHarness(fbW, fbH, sysDiv = 16, rgb565Store = true, doubleBuffer = false)) { dut =>
+        dut.reset.poke(true.B); dut.clock.step(8 * 16); dut.reset.poke(false.B)
+        dut.io.fbBase.poke(0.U); dut.io.enable.poke(true.B); dut.io.gpuReady.poke(false.B)
+        def wordLoop1(addr: Int): Int = (addr * 37 + 5) & 0xFFFF
+        def wordLoop2(addr: Int): Int = (addr * 91 + 0xA55A) & 0xFFFF
+        fill(dut, numPixels, sysDiv = 16, wordLoop1)
+        check(dut, fbW, fbH, col = 6, row = 2, wordLoop1, "rgb565 loop 1")
+        fill(dut, numPixels, sysDiv = 16, wordLoop2)
+        check(dut, fbW, fbH, col = 1, row = 7, wordLoop2, "rgb565 loop 2")
+        check(dut, fbW, fbH, col = 4, row = 4, wordLoop2, "rgb565 loop 2 (second pixel)")
       }
     }
   }
