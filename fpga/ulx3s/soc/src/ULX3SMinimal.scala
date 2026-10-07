@@ -100,7 +100,8 @@ class ulx3s_minimal_top(val CLOCK_MHZ: Int, override val xlen: Int = 32, scanout
 
   // ── HDMI scanout: instantiate before wireSoC so wireGpuMem can connect ──
   val scanout = withClockAndReset(sysClock, pllRst) {
-    Module(new HdmiScanoutFp16(fbWidth = fbSize, fbHeight = fbSize, separatePixelClock = true))
+    Module(new HdmiScanoutFp16(fbWidth = fbSize, fbHeight = fbSize, separatePixelClock = true,
+                               rgb565Store = borgCfg.isDefined, doubleBuffer = borgCfg.isEmpty))
   }
   scanout.io.frontBuf := false.B   // minimal SoC has no Borg; always read fbBase
   // Minimal SoC has no firmware programming the base; pin it to the test region.

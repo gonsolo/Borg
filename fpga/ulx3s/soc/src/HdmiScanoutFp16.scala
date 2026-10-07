@@ -73,7 +73,11 @@ class HdmiScanoutFp16IO(separatePixelClock: Boolean) extends Bundle {
 // clocks the fill FSM and its SDRAM reads. The frame RAM is the clock
 // crossing (ECP5 block RAM has independent port clocks), so the SoC clock no
 // longer has to be the 25 MHz pixel clock.
-class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock: Boolean = false)
+// rgb565Store: keep the frame as RGB565 (16 bits per pixel, expanded to RGB8 after the read) instead
+// of RGB8 (24 bits): 16 block RAMs instead of 24 at 128x128. doubleBuffer=false: one buffer at
+// io.fbBase, no swap logic (frontBuf, fbBase1 and curBuf unused).
+class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock: Boolean = false,
+                      rgb565Store: Boolean = false, doubleBuffer: Boolean = true)
     extends Module {
   val io = IO(new HdmiScanoutFp16IO(separatePixelClock))
 
@@ -90,7 +94,8 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
 
   // ── Frame buffer: numPixels × RGB8, mapped to block RAM ──
   // Raster-indexed: pixel (col, row) lives at index row*fbWidth + col.
-  val frameBuf = SyncReadMem(numPixels, UInt(24.W))
+  val pxBits   = if (rgb565Store) 16 else 24
+  val frameBuf = SyncReadMem(numPixels, UInt(pxBits.W))
 
   // ── RGB565 → RGB888 expansion ──
   // Replicate the high bits into the low bits so full-scale maps to 0xFF.
@@ -131,19 +136,19 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
   // loop uses io.fbBase directly — the firmware programs it before rendering, so
   // it is stable (worst case a one-loop boot transient if it is reprogrammed
   // mid-loop).  This keeps the base valid from the very first read.
-  val baseAddr   = RegInit(0.U(25.W))
-  val baseLoaded = RegInit(false.B)
-  val effBase    = Mux(baseLoaded, baseAddr, io.fbBase)
+  val baseAddr   = if (doubleBuffer) RegInit(0.U(25.W)) else io.fbBase
+  val baseLoaded = if (doubleBuffer) RegInit(false.B) else true.B
+  val effBase    = if (doubleBuffer) Mux(baseLoaded, baseAddr, io.fbBase) else io.fbBase
   val pixAddr    = effBase +& (tileIndex << 5) +& (pixIndex << 1)
   // Report which buffer is currently being read so the CPU can synchronize the
   // double-buffer swap (wait until the scanout has released the back buffer).
-  io.curBuf := effBase === io.fbBase1
+  io.curBuf := (if (doubleBuffer) effBase === io.fbBase1 else false.B)
 
   io.gpuReq  := io.enable && (fstate === sReq || fstate === sWait)
   io.gpuAddr := pixAddr
 
   val wrEn   = WireDefault(false.B)
-  val wrData = WireDefault(0.U(24.W))
+  val wrData = WireDefault(0.U(pxBits.W))
 
   // ── Write-side clock-domain crossing (sysClock -> pixClk) ──
   // ECP5 BRAM inference (yosys's memory_libmap, as run by synth_ecp5) never
@@ -181,7 +186,9 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
 
   // sim observability: snapshot the value the fill wrote to frameBuf index 0.
   val dbgFill0Reg = RegInit(0.U(24.W))
-  when(wrEn && fillIdx === 0.U) { dbgFill0Reg := wrData }
+  when(wrEn && fillIdx === 0.U) {
+    dbgFill0Reg := (if (rgb565Store) { val (r, g, b) = rgb565ToRgb8(wrData); Cat(r, g, b) } else wrData)
+  }
   io.dbgFill0 := dbgFill0Reg
 
   when(io.enable) {
@@ -192,13 +199,13 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
           // gpuData low 16 bits = this pixel's RGB565 halfword.
           val (r8, g8, b8) = rgb565ToRgb8(io.gpuData(15, 0))
           wrEn    := true.B
-          wrData  := Cat(r8, g8, b8)
+          wrData  := (if (rgb565Store) io.gpuData(15, 0) else Cat(r8, g8, b8))
           val wrap = fillIdx === (numPixels - 1).U
           fillIdx := Mux(wrap, 0.U, fillIdx + 1.U)
           fstate  := sReq
           // Latch the new front-buffer base at the wrap boundary so it is
           // stable for all of the next loop (sReq through sWait).
-          when(wrap) {
+          if (doubleBuffer) when(wrap) {
             baseAddr   := Mux(io.frontBuf, io.fbBase1, io.fbBase)
             baseLoaded := true.B
           }
@@ -242,6 +249,8 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
     }
 
     val showD = RegNext(show, false.B)
+    val (pxR, pxG, pxB) =
+      if (rgb565Store) rgb565ToRgb8(pixelSafe) else (pixelSafe(23, 16), pixelSafe(15, 8), pixelSafe(7, 0))
 
     if (separatePixelClock) {
       // The DP16KD's own registered read output has a real clk-to-q of
@@ -270,9 +279,9 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
       val showD2 = RegNext(showD, false.B)
       val showD3 = RegNext(showD2, false.B)
       val showD4 = RegNext(showD3, false.B)
-      val redD1   = RegEnable(pixelSafe(23, 16), 0.U(8.W), show)
-      val greenD1 = RegEnable(pixelSafe(15, 8),  0.U(8.W), show)
-      val blueD1  = RegEnable(pixelSafe(7, 0),   0.U(8.W), show)
+      val redD1   = RegEnable(pxR, 0.U(8.W), show)
+      val greenD1 = RegEnable(pxG, 0.U(8.W), show)
+      val blueD1  = RegEnable(pxB, 0.U(8.W), show)
       val redD2   = RegEnable(redD1,   0.U(8.W), showD)
       val greenD2 = RegEnable(greenD1, 0.U(8.W), showD)
       val blueD2  = RegEnable(blueD1,  0.U(8.W), showD)
@@ -283,9 +292,9 @@ class HdmiScanoutFp16(fbWidth: Int = 32, fbHeight: Int = 32, separatePixelClock:
       io.green := Mux(showD4, greenD3, 0.U)
       io.blue  := Mux(showD4, blueD3, 0.U)
     } else {
-      io.red   := Mux(showD, pixelSafe(23, 16), 0.U)
-      io.green := Mux(showD, pixelSafe(15, 8),  0.U)
-      io.blue  := Mux(showD, pixelSafe(7, 0),   0.U)
+      io.red   := Mux(showD, pxR, 0.U)
+      io.green := Mux(showD, pxG, 0.U)
+      io.blue  := Mux(showD, pxB, 0.U)
     }
   }
   if (separatePixelClock) withClockAndReset(io.pixClk.get, io.pixRst.get) { display() }
