@@ -76,4 +76,5 @@ depending on your goal:
 10. [Colour Attachment Formats](B3_colour_formats.md) — RAW words the shader packs and blends through TLD: every Vulkan colour format up to 128 bits
 11. [ISA Gaps](B4_isa_gaps.md) — What shaders need and the ISA lacks: pow/log/exp, compares, constants; the sRGB idiom case
 12. [GPU Memory](B5_gpu_memory.md) — Design: VkDeviceMemory through the DRM driver (GEM allocator in the Rust render node), and how to test it
+13. [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the 2b `info` result, known limits and the open 2a discrepancy
 8. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools

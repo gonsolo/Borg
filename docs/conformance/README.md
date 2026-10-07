@@ -1,5 +1,7 @@
 # Vulkan 1.0 conformance results
 
+Status, per-group numbers and limits: [STATUS.md](STATUS.md).
+
 `vk1.0-api-direct-sim-*`: `dEQP-VK.api.*` on the direct simulator (tag `conformance/vk1.0-api-direct-sim`).
 
 - Results: one `<status> <case>` line per case, gzipped; totals in `*-summary.txt`.
