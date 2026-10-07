@@ -109,3 +109,9 @@ the frame; it differs from the cache-based frame in 8 pixels (FMADD rounding), s
 `docs/evidence/selfhosted_compile`. The run of `vkcube-borg` takes about 4.3 minutes (`/proc/uptime`, kernel
 time at half speed). The payload is 12.4 MB of the 12.58 MB the flash leaves after the bitstream and boot
 offset, so the image of this variant leaves out the `replay_*` and `bench` binaries.
+
+HDMI output of the Borg frame (2026-10-07): `make -C fpga/ulx3s borg-minimal-linux-borg-hdmi.bit` adds the
+RGB565 scanout of the 128 x 128 frame to the Linux top. Loaded into SRAM over the flash payload of the
+previous paragraph, the cube appears on the monitor after the first Borg write
+(`docs/evidence/selfhosted_hdmi`, photo and log). With scanout on, `vkcube-borg` takes 253 s of kernel
+time instead of 128 s: the CPU loses speed, cause not measured yet.

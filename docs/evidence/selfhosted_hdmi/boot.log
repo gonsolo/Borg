@@ -1,0 +1,158 @@
+
+OpenSBI v1.8
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name               : Borg SoC (Hutt RV64, ULX3S)
+Platform Features           : medeleg
+Platform HART Count         : 1
+Platform HART Protection    : ---
+Platform IPI Device         : ---
+Platform Timer Device       : aclint-mtimer @ 37500000Hz
+Platform Console Device     : borg-uart
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : ---
+Platform Shutdown Device    : ---
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x0
+Firmware Size               : 312 KB
+Firmware RW Offset          : 0x40000
+Firmware RW Size            : 56 KB
+Firmware Heap Offset        : 0x45000
+Firmware Heap Size          : 36 KB (total), 0 KB (reserved), 12 KB (used), 23 KB (free)
+Firmware Scratch Size       : 4096 B (total), 392 B (used), 3704 B (free)
+Runtime SBI Version         : 3.0
+Standard SBI Extensions     : time,rfnc,ipi,base,hsm,pmu,dbcn,fwft,legacy,dbtr,sse
+Experimental SBI Extensions : none
+
+Domain0 Name                : root
+Domain0 Boot HART           : 0
+Domain0 HARTs               : 0*
+Domain0 Region00            : 0x0000000000040000-0x000000000004ffff M: (F,R,W) S/U: ()
+Domain0 Region01            : 0x0000000000000000-0x000000000003ffff M: (F,R,X) S/U: ()
+Domain0 Region02            : 0x0000000002000000-0x000000000200000f M: (I,R,W) S/U: ()
+Domain0 Region03            : 0x0000000000000000-0xffffffffffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x0000000000200000
+Domain0 Next Arg1           : 0x000000000001f020
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
+
+Boot HART ID                : 0
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv64i
+Boot HART ISA Extensions    : smstateen,sscofpmf,zicntr,smcntrpmf,sdtrig,ssstateen
+Boot HART PMP Count         : 0
+Boot HART PMP Granularity   : 0 bits
+Boot HART PMP Address Bits  : 0
+Boot HART MHPM Info         : 0 (0x00000000)
+Boot HART Debug Triggers    : 1 triggers
+Boot HART MIDELEG           : 0x0000000000002222
+Boot HART MEDELEG           : 0x000000000004b109
+Linux version 7.2.9 (gonsolo@pampelmuse) (clang version 21.1.8, LLD 21.1.8) #11 PREEMPT Tue Oct  6 19:20:25 CEST 2026
+random: crng init done
+Machine model: Borg SoC on ULX3S
+SBI specification v3.0 detected
+SBI implementation ID=0x1 Version=0x10008
+SBI TIME extension detected
+SBI IPI extension detected
+SBI RFENCE extension detected
+SBI DBCN extension detected
+SBI FWFT extension detected
+earlycon: sbi0 at I/O port 0x0 (options '')
+printk: legacy bootconsole [sbi0] enabled
+OF: reserved mem: 0x0000000000000000..0x00000000001fffff (2048 KiB) nomap non-reusable opensbi@0
+OF: reserved mem: 0x0000000001000000..0x00000000014fffff (5120 KiB) nomap non-reusable gpu@1000000
+riscv: base ISA extensions 
+riscv: ELF capabilities 
+Ticket spinlock: enabled
+Zone ranges:
+  DMA32    [mem 0x0000000000000000-0x0000000001ffffff]
+  Normal   empty
+Movable zone start for each node
+Early memory node ranges
+  node   0: [mem 0x0000000000000000-0x00000000001fffff]
+  node   0: [mem 0x0000000000200000-0x0000000000ffffff]
+  node   0: [mem 0x0000000001000000-0x00000000014fffff]
+  node   0: [mem 0x0000000001500000-0x0000000001ffffff]
+Initmem setup node 0 [mem 0x0000000000000000-0x0000000001ffffff]
+Kernel command line: earlycon=sbi console=hvc0
+printk: log buffer data + meta data: 131072 + 458752 = 589824 bytes
+Dentry cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+Inode-cache hash table entries: 1024 (order: 1, 8192 bytes, linear)
+Built 1 zonelists, mobility grouping on.  Total pages: 8192
+mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+riscv-intc: 64 local interrupts mapped
+clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604462750000 ns
+clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x8a60dd6a9, max_idle_ns: 440795204056 ns
+sched_clock: 64 bits at 38MHz, resolution 26ns, wraps every 2199023255540ns
+Console: colour dummy device 80x25
+Calibrating delay loop (skipped), value calculated using timer frequency.. 75.00 BogoMIPS (lpj=375000)
+pid_max: default: 32768 minimum: 301
+Mount-cache hash table entries: 512 (order: 0, 4096 bytes, linear)
+Mountpoint-cache hash table entries: 512 (order: 0, 4096 bytes, linear)
+VFS: Finished mounting rootfs on nullfs
+ASID allocator using 16 bits (65536 entries)
+Memory: 13748K/32768K available (3630K kernel code, 649K rwdata, 769K rodata, 5025K init, 227K bss, 18068K reserved, 0K cma-reserved)
+devtmpfs: initialized
+posixtimers hash table entries: 512 (order: 0, 4096 bytes, linear)
+futex hash table entries: 256 (6144 bytes on 1 NUMA nodes, total 6 KiB, linear).
+clocksource: Switched to clocksource riscv_clocksource
+cpu0: scalar unaligned word access speed is 3.61x byte access speed (fast)
+workingset: timestamp_bits=62 (anon: 57) max_order=12 bucket_order=0 (anon: 0)
+printk: legacy console [hvc0] enabled
+printk: legacy console [hvc0] enabled
+printk: legacy bootconsole [sbi0] disabled
+printk: legacy bootconsole [sbi0] disabled
+[drm] Initialized borg 1.0.0 for 8000c00.borg on minor 0
+borg 8000c00.borg: Borg GPU registered
+clk: Disabling unused clocks
+Warning: unable to open an initial console.
+Freeing unused kernel image (initmem) memory: 5024K
+Kernel memory protection not selected by kernel config.
+Run /init as init process
+
+Borg/Hutt Linux initramfs — welcome.
+
+=== borg_drm_test ===
+borg: reg_size=1024 mem_size=5242880 abi=1
+BORG_DRM_TEST PASS
+=== vkcube-borg ===
+uptime before: 71.04 0.47
+MESA: info: borgvk: no borg DRM device; using malloc+serial fallback
+Selected GPU 0: Borg (ULX3S), type: Other
+borgc: stage=0 instrs=88 | alu_ok=68 alu_todo=0 tex=0 const=7 intrinsic=13 other=0
+borgc:   needs lowering/selection: load_vertex_id, vulkan_resource_index, load_vulkan_descriptor, load_ubo, store_output, load_output
+borgc: selected 85 Borg instruction(s) (virtual regs)
+borgc: draw-mode I/O map — 1 vertex-pulling/MVP load(s), 3 SOUT(s), gl_Position=true
+borgc: DCE — dropped 11 dead instr(s) (UBO address math), 74 live
+borgc: regalloc — 67 values → r0..r29, peak pressure 19, spills 0
+borgc: encoded 75 word(s) = 0 uniform pre-load(s) + 74 op(s) + 1 epilogue (0 operand(s) still pending)
+borgc: draw-mode vertex window consts (write to draw_vs_const_offset + 4*(u-25) before the draw): u25=0x00000004 u26=0x000000a0 u27=0x00000001 u28=0x00000000 u29=0x00000010
+borgc: .borg blob = 333 bytes (75 instr, 0 output regs, 5 window consts, 7 varyings)
+MESA: info: borgvk: captured vertex shader blob (333 bytes) for upload
+borgc: stage=4 instrs=114 | alu_ok=90 alu_todo=10 tex=1 const=7 intrinsic=5 other=1
+borgc:   needs lowering/selection: load_input, ddx, ddy, fmax, fge, fpow, bcsel, store_output
+borgc: selected 96 Borg instruction(s) (virtual regs)
+borgc: draw-mode I/O map — 0 vertex-pulling/MVP load(s), 1 SOUT(s), gl_Position=false
+borgc: DCE — dropped 34 dead instr(s) (UBO address math), 62 live
+borgc: FMADD fusion — 4 FMUL+FADD pair(s) fused, 58 instr(s)
+borgc: regalloc — 58 values → r0..r29, peak pressure 9, spills 0
+borgc: encoded 59 word(s) = 0 uniform pre-load(s) + 58 op(s) + 1 epilogue (0 operand(s) still pending)
+borgc: draw-mode uniform consts (write to draw_fs_const_offset + 4*(u-20) before the draw): u20=0x3ed91687 u21=0x3f10e560 u22=0x3f34fdf4 u23=0x3b4d2e1c u24=0x414eb852 u25=0x3f870a3d u26=0xbd6147ae
+borgc: .borg blob = 282 bytes (59 instr, 3 output regs, 7 window consts, 0 varyings)
+MESA: info: borgvk: captured fragment shader blob (282 bytes) for upload
+MESA: info: borgvk: captured vertex shader (333 bytes)
+MESA: info: borgvk: captured fragment shader (282 bytes)
+uptime after: 324.07 0.47
