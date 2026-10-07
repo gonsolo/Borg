@@ -7,7 +7,7 @@ set -e
 top=$(git rev-parse --show-toplevel)
 here=$top/software/linux
 src=$top/out/software/linux-rust-src
-out=$top/out/software/linux-rust
+out=${KOUT:-$top/out/software/linux-rust}
 frag=${1:-$here/configs/borg_rv64_rust.frag}
 [ $# -gt 0 ] && shift
 [ -d "$src/drivers" ] || "$here/prepare-rust-src.sh" "$src"

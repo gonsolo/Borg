@@ -18,7 +18,7 @@ Results are labelled with the tier they were measured on; a number from one tier
 | Tier | Setup | Proves | Does not prove | Status |
 |---|---|---|---|---|
 | 1 | Host: `deqp-vk`, borgvk and the DRM shim on x86, Borg RTL in `direct_sim` (arcilator) | Vulkan driver and Borg hardware design, full CTS | The kernel driver, Hutt, the board's memory | **All results in this document** |
-| 2 | QEMU rv64: Linux with the Rust DRM driver, borgvk built for rv64, QEMU's CPU instead of Hutt | The shipped kernel driver (GEM, whitelist, mmap) | Hutt timing, FPGA specifics | Driver tests in QEMU exist for the whitelist; the GEM allocator and shim parity are designed (`../B5_gpu_memory.md`), not built. Running the CTS through the real driver needs a QEMU-to-`direct_sim` bridge, not planned |
+| 2 | QEMU rv64: Linux with the Rust DRM driver, borgvk built for rv64, QEMU's CPU instead of Hutt (`info` only so far) | The shipped kernel driver (GEM, whitelist, mmap) | Hutt timing, FPGA specifics | Driver tests in QEMU exist for the whitelist; the GEM allocator and shim parity are designed (`../B5_gpu_memory.md`), not built. Running the CTS through the real driver needs a QEMU-to-`direct_sim` bridge, not planned |
 | 3 | ULX3S: Hutt, Linux, Rust DRM driver, borgvk, Borg | The whole stack on real hardware | Most CTS groups: `deqp-vk` is about 100 MB, the board has 13.7 MB free | `vkcube` renders (`../evidence/`); a short list of small test programs is planned, not a CTS run |
 
 Order of work: tier 1 for all groups, the GEM allocator with its QEMU tests and shim parity alongside the
@@ -26,7 +26,7 @@ Order of work: tier 1 for all groups, the GEM allocator with its QEMU tests and 
 
 ## Results per tier, all groups
 
-Tier 1 command: `MUSTPASS=1.0.2.6 JOBS=20 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.*'` (206 s).
+**Not reliable, see 2a below; rerun pending.** Tier 1 command: `MUSTPASS=1.0.2.6 JOBS=20 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.*'` (206 s).
 Raw results (not committed): one `<status> <case>` line per case.
 
 | Group | Cases | T1 Pass | T1 NotSupp | T1 Fail | T2 | T3 |
@@ -45,7 +45,7 @@ Raw results (not committed): one `<status> <case>` line per case.
 | rasterization | 116 | 21 | 71 | 24 | NotRun | NotRun |
 | others* | 2,046 | 30 | 2,014 | 2 | NotRun | NotRun |
 | **Total** | **96,109** | **6,380** | **51,069** | **38,656** | NotRun | NotRun |
-| info (2b)** | 21 | 18 | 3 | 0 | NotRun | NotRun |
+| info (2b)** | 21 | 18 | 3 | 0 | 18 Pass, 3 NotSupp, 0 Fail (see below) | NotRun |
 
 T1 = tier 1 (host + arcilator), T2 = tier 2 (QEMU + DRM driver), T3 = tier 3 (ULX3S); see above.
 `NotRun` means the tier has not run the CTS for that group; it is not a result. Pass is 6.6% of the total.
@@ -62,7 +62,7 @@ What the failures are:
   are the later Task 2 items (pipeline, shader rendering).
 - **ssbo, ubo, texture, image, spirv_assembly, synchronization:** failure reasons not analysed yet.
 - **memory (36):** all in `memory.pipeline_barrier`.
-- **api (13):** see "Open discrepancy" below.
+- **api:** 0 Fail in the full group, see "2a" below; the 13 in the table are from the faulty run.
 
 ## 2b: `dEQP-VK.info.*` (tier 1)
 
@@ -78,6 +78,20 @@ Tier 1. Command: `JOBS=4 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.info.*'`, no mustp
 
 The scope is `dEQP-VK.info.*` only. The `api.info` group belongs to 2a.
 
+## 2b on tier 2 (QEMU, Rust DRM driver)
+
+`dEQP-VK.info.*`: **18 Pass, 3 NotSupported, 0 Fail**, the same cases as tier 1 (same three missing extensions).
+Run with `software/linux/tests/qemu-cts.sh` (25 s). What ran: riscv64 `deqp-vk` and borgvk (glibc, cross-built)
+in an initrd, on QEMU `virt` with Linux 7.2.9 and the Rust Borg DRM driver; borgvk logs "found borg DRM device".
+
+- The Borg registers and memory are mapped at addresses with nothing behind them, so any access faults.
+  `info` ran without a fault, so these 21 cases never touch the GPU. `borg_drm_test` on the same setup passes
+  its info call and panics at its first register write (store access fault), as intended.
+- The CPU is QEMU's, not Hutt. The kernel is the board's config plus `CONFIG_FPU=y`
+  (`configs/borg_rv64_rust_fpu.frag`): the userspace is glibc hard-float, and the board kernel has no FPU.
+- Queries only. Cases that render need the real Borg behind the register block (a QEMU-to-`direct_sim` bridge, not built).
+- The riscv64 Rust `std` and cross file for the Mesa build are in the scratchpad, not the repo yet.
+
 ## memory.allocation and memory.mapping (tier 1)
 
 `memory.allocation` (202) and `memory.mapping` (810 Pass, 1,420 NotSupported) have no failures. On the host the memory comes from
@@ -85,27 +99,18 @@ the DRM shim (`libborg_drm_shim.so`, GEM backed by anonymous memory), not from t
 the Rust render node has no GEM yet. The design for the allocator is `docs/B5_gpu_memory.md`; nothing of it is
 implemented. Until it is, these results show the Vulkan side, not the driver that ships.
 
-## Open discrepancy: 2a (tier 1)
+## 2a (tier 1): rerun 2026-10-07
 
-The tag `conformance/vk1.0-api-direct-sim` lists `0` failures in 278,342 `api` cases (64,866 Pass). Rerun on
-2026-10-07 with the tag's command (`MUSTPASS=1.0.2.6 MUSTPASS_GROUPS=1 JOBS=12 DIRECT=1 scripts/cts_par.sh
-'dEQP-VK.api.*'`, tier 1, 154 s): **87 Fail, 64,779 Pass**; NotSupported (213,472) and QualityWarning (4) are
-unchanged. All 87 failing cases are `Pass` in the tag.
+Rerun with the tag's command (`MUSTPASS=1.0.2.6 MUSTPASS_GROUPS=1 JOBS=12 DIRECT=1 scripts/cts_par.sh
+'dEQP-VK.api.*'`, tier 1): **0 Fail**, 64,866 Pass, 213,472 NotSupported, 4 QualityWarning, the same numbers
+as the tag `conformance/vk1.0-api-direct-sim`.
 
-| Subgroup | Fail | Message |
-|---|---:|---|
-| `buffer_view.access.uniform_texel_buffer.*` | 34 | Invalid result values |
-| `buffer_view.access.storage_texel_buffer.*` | 11 | Invalid result values |
-| `buffer_view.access.suballocation.*` | 6 | BufferView test failed |
-| `copy_and_blit.{core,dedicated_allocation}.resolve_image.*` | 29 | CopiesAndBlitting test |
-| `smoke.{triangle,asm_triangle,asm_triangle_no_opname,unused_resolve_attachment}` | 4 | Image comparison failed |
-| `command_buffers.{order_bind_pipeline,record_simul_use_secondary_{one,two}_primary}` | 3 | various |
+An earlier rerun the same day showed 87 failures. That was an environment fault: `direct_sim` could not load
+`libstdc++.so.6`, so every case that needs the simulator failed. The "13 failures" in the all-groups
+table below come from the same kind of run and are not trusted either.
 
-The strict all-groups baseline above lists only 13 of them (smoke 4, command_buffers 3, six resolve_image): it
-runs the cases the mustpass names, which excludes the other 74. The smoke cases draw a blank frame. The same
-13 fail with the tag's mesa commit, a simulator built from the tag's source and the tag's exact command, so this
-is not a regression since the tag. Why the tag lists them as Pass is not explained.
-Do not repeat "0 failures" for `api` until these are fixed and the group is rerun.
+**The all-groups table is not reliable.** It was measured without that check; only the `api` row and the
+`info` run were repeated with the library present. The all-groups rerun is pending.
 
 ## Known limitations
 
