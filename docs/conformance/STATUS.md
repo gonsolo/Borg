@@ -24,9 +24,9 @@ Results are labelled with the tier they were measured on; a number from one tier
 Order of work: tier 1 for all groups, the GEM allocator with its QEMU tests and shim parity alongside the
 `memory.*` items, then tier 3 as a smoke subset.
 
-## Baseline, all groups
+## Baseline, all groups (tier 1)
 
-Command: `MUSTPASS=1.0.2.6 JOBS=20 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.*'` (206 s).
+Tier 1. Command: `MUSTPASS=1.0.2.6 JOBS=20 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.*'` (206 s).
 Raw results (not committed): one `<status> <case>` line per case.
 
 | Group | Cases | Pass | NotSupported | Fail |
@@ -55,9 +55,9 @@ What the failures are:
 - **memory (36):** all in `memory.pipeline_barrier`.
 - **api (13):** see "Open discrepancy" below.
 
-## 2b: `dEQP-VK.info.*`
+## 2b: `dEQP-VK.info.*` (tier 1)
 
-Command: `JOBS=4 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.info.*'`, no mustpass filter, 21 cases, 1 s.
+Tier 1. Command: `JOBS=4 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.info.*'`, no mustpass filter, 21 cases, 1 s.
 
 **18 Pass, 3 NotSupported, 0 Fail.** The three NotSupported cases need an extension that borgvk does not offer:
 
@@ -69,14 +69,14 @@ Command: `JOBS=4 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.info.*'`, no mustpass filt
 
 The scope is `dEQP-VK.info.*` only. The `api.info` group belongs to 2a.
 
-## memory.allocation and memory.mapping
+## memory.allocation and memory.mapping (tier 1)
 
 `memory.allocation` (202) and `memory.mapping` (810 Pass, 1,420 NotSupported) have no failures. On the host the memory comes from
 the DRM shim (`libborg_drm_shim.so`, GEM backed by anonymous memory), not from the board's driver:
 the Rust render node has no GEM yet. The design for the allocator is `docs/B5_gpu_memory.md`; nothing of it is
 implemented. Until it is, these results show the Vulkan side, not the driver that ships.
 
-## Open discrepancy: 2a
+## Open discrepancy: 2a (tier 1)
 
 The tag `conformance/vk1.0-api-direct-sim` lists `0` failures in 278,342 `api` cases. Today 13 of them fail:
 `api.smoke.triangle`, `asm_triangle`, `asm_triangle_no_opname`, `unused_resolve_attachment`,
