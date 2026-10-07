@@ -6,10 +6,23 @@ This is **not** a Khronos conformance submission.
 ## Scope
 
 - CTS `vulkan-cts-1.4.6.2`, mustpass list 1.0.2.6. 96,109 of the 233,795 listed names exist in 1.4.6.2.
-- Device under test: borgvk (Mesa) on the **direct simulator**, which runs the Borg RTL through arcilator.
+- Tier 1 (below). Device under test: borgvk (Mesa) on the **direct simulator**, which runs the Borg RTL through arcilator.
   No CPU, firmware or serial path; the Linux/DRM path on the board is not run through the CTS.
 - Minimal Vulkan 1.0: optional extensions are not offered, so cases that need one report `NotSupported`.
 - Results are reported as the CTS gives them. `NotSupported` is not a pass: it means the feature is absent.
+
+## Test tiers
+
+Results are labelled with the tier they were measured on; a number from one tier says nothing about another.
+
+| Tier | Setup | Proves | Does not prove | Status |
+|---|---|---|---|---|
+| 1 | Host: `deqp-vk`, borgvk and the DRM shim on x86, Borg RTL in `direct_sim` (arcilator) | Vulkan driver and Borg hardware design, full CTS | The kernel driver, Hutt, the board's memory | **All results in this document** |
+| 2 | QEMU rv64: Linux with the Rust DRM driver, borgvk built for rv64, QEMU's CPU instead of Hutt | The shipped kernel driver (GEM, whitelist, mmap) | Hutt timing, FPGA specifics | Driver tests in QEMU exist for the whitelist; the GEM allocator and shim parity are designed (`../B5_gpu_memory.md`), not built. Running the CTS through the real driver needs a QEMU-to-`direct_sim` bridge, not planned |
+| 3 | ULX3S: Hutt, Linux, Rust DRM driver, borgvk, Borg | The whole stack on real hardware | Most CTS groups: `deqp-vk` is about 100 MB, the board has 13.7 MB free | `vkcube` renders (`../evidence/`); a short list of small test programs is planned, not a CTS run |
+
+Order of work: tier 1 for all groups, the GEM allocator with its QEMU tests and shim parity alongside the
+`memory.*` items, then tier 3 as a smoke subset.
 
 ## Baseline, all groups
 
