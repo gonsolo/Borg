@@ -6,7 +6,7 @@ set -e
 top=$(git rev-parse --show-toplevel)
 here=$top/software/linux
 t=$top/out/software/qemu-borg
-k=$top/out/software/linux-rust
+k=${KOUT:-$top/out/software/linux-rust}
 rootfs_build=$top/out/software/rootfs-build
 cc=$rootfs_build/musl-install/bin/rv64-musl-gcc
 mkdir -p "$t"

@@ -1,6 +1,13 @@
 # GPU Memory: Allocating VkDeviceMemory Through the DRM Driver
 
-Status: design note, written 2026-10-07. Nothing here is implemented. It is a reading of
+Status: design note, written 2026-10-07. **Step 1 is implemented (2026-10-08):** the Rust driver has `GEM_CREATE`
+(0x05) and `GEM_MMAP` (0x06) with standard `GEM_CLOSE`, backed by the kernel's shmem GEM objects (system RAM,
+page rounded, 1 GiB cap, no heap limit), not by the carve-out allocator below. The GPU still does not address
+these buffers; borgvk's sink copies into the carve-out at submit as before. The shim and Mesa's header use the
+same numbers (0x00-0x04 are the kernel's other ioctls; the shim-only ioctls start at 0x07, which the kernel
+answers with ENOTTY). QEMU tests: `software/linux/tests/borg_drm_test.c`. The carve-out allocator,
+the advertised heap size and shim parity (below) are still open. Before this, borgvk's GEM numbers collided
+with the driver's INFO and REG_WRITES ioctls. It is a reading of
 `mesa/src/borg/vulkan/borgvk_memory.c`, `mesa/src/borg/drm/borg_shim.c`,
 `software/linux/overlay/drivers/gpu/drm/borg/borg.rs`, `software/borg/borg_layout.h` and
 `software/linux/borg.dts`. Claims marked *(to verify)* have not been checked.

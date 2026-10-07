@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 #include <drm/borg_drm.h>
 
@@ -53,6 +54,46 @@ int main(void) {
 
   m.data = (uintptr_t)big; m.offset = 0x1000; m.length = sizeof(big);
   CHECK(ioctl(fd, DRM_IOCTL_BORG_MEM_READ, &m) == 0, "32 KB memory read into a static buffer");
+
+  /* GEM: create, map, write and read through the mapping, close. */
+  struct drm_borg_gem_create gc = {.size = 100};
+  CHECK(ioctl(fd, DRM_IOCTL_BORG_GEM_CREATE, &gc) == 0 && gc.handle != 0, "gem create");
+  struct drm_borg_gem_mmap gm = {.handle = gc.handle};
+  CHECK(ioctl(fd, DRM_IOCTL_BORG_GEM_MMAP, &gm) == 0, "gem mmap offset");
+  uint8_t *p = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, gm.offset);
+  CHECK(p != MAP_FAILED, "mmap the buffer");
+  if (p != MAP_FAILED) {
+    memset(p, 0xa5, 4096);
+    CHECK(p[0] == 0xa5 && p[4095] == 0xa5, "write and read through the mapping");
+    munmap(p, 4096);
+  }
+  struct drm_gem_close cl = {.handle = gc.handle};
+  CHECK(ioctl(fd, DRM_IOCTL_GEM_CLOSE, &cl) == 0, "gem close");
+  CHECK(ioctl(fd, DRM_IOCTL_GEM_CLOSE, &cl) != 0, "second close must fail");
+  CHECK(ioctl(fd, DRM_IOCTL_BORG_GEM_MMAP, &gm) != 0, "mmap offset of a closed handle must fail");
+  struct drm_borg_gem_create bad_gc = {.size = 0};
+  CHECK(ioctl(fd, DRM_IOCTL_BORG_GEM_CREATE, &bad_gc) != 0 && errno == EINVAL, "size 0 must fail");
+  bad_gc.size = 1ull << 40;
+  CHECK(ioctl(fd, DRM_IOCTL_BORG_GEM_CREATE, &bad_gc) != 0 && errno == EINVAL, "huge size must fail");
+  struct drm_borg_gem_create a = {.size = 8192}, b = {.size = 8192};
+  struct drm_borg_gem_mmap am, bm;
+  CHECK(ioctl(fd, DRM_IOCTL_BORG_GEM_CREATE, &a) == 0 && ioctl(fd, DRM_IOCTL_BORG_GEM_CREATE, &b) == 0, "two buffers");
+  am.handle = a.handle; bm.handle = b.handle;
+  CHECK(ioctl(fd, DRM_IOCTL_BORG_GEM_MMAP, &am) == 0 && ioctl(fd, DRM_IOCTL_BORG_GEM_MMAP, &bm) == 0, "two offsets");
+  uint8_t *pa = mmap(NULL, 8192, PROT_READ | PROT_WRITE, MAP_SHARED, fd, am.offset);
+  uint8_t *pb = mmap(NULL, 8192, PROT_READ | PROT_WRITE, MAP_SHARED, fd, bm.offset);
+  if (pa != MAP_FAILED && pb != MAP_FAILED) {
+    memset(pa, 1, 8192); memset(pb, 2, 8192);
+    CHECK(pa[8191] == 1 && pb[0] == 2, "buffers do not alias");
+  } else CHECK(0, "map two buffers");
+  for (int i = 0; i < 300; i++) {   /* create and close many, 4 MB each: the memory is released on close */
+    struct drm_borg_gem_create g = {.size = 4u << 20};
+    if (ioctl(fd, DRM_IOCTL_BORG_GEM_CREATE, &g) != 0) { CHECK(0, "stress create"); break; }
+    struct drm_borg_gem_mmap gmm = {.handle = g.handle};
+    CHECK(ioctl(fd, DRM_IOCTL_BORG_GEM_MMAP, &gmm) == 0, "stress mmap offset");
+    struct drm_gem_close c2 = {.handle = g.handle};
+    CHECK(ioctl(fd, DRM_IOCTL_GEM_CLOSE, &c2) == 0, "stress close");
+  }
 
   puts(fails ? "BORG_DRM_TEST FAIL" : "BORG_DRM_TEST PASS");
   return fails != 0;

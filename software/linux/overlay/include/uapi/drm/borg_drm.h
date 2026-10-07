@@ -14,6 +14,8 @@ extern "C" {
 #define DRM_BORG_REG_READ    0x02
 #define DRM_BORG_MEM_WRITE   0x03
 #define DRM_BORG_MEM_READ    0x04
+#define DRM_BORG_GEM_CREATE  0x05
+#define DRM_BORG_GEM_MMAP    0x06
 
 /* Sizes in bytes of the register block and of the GPU memory. */
 struct drm_borg_info {
@@ -42,6 +44,20 @@ struct drm_borg_mem {
 	__u32 length;
 };
 
+/* A buffer object in system memory: `size` is rounded up to pages; the handle is closed with DRM_IOCTL_GEM_CLOSE. */
+struct drm_borg_gem_create {
+	__u64 size;
+	__u32 handle;
+	__u32 pad;
+};
+
+/* The offset to pass to mmap() on the render node to map the object. */
+struct drm_borg_gem_mmap {
+	__u32 handle;
+	__u32 pad;
+	__u64 offset;
+};
+
 /* An enum, not #defines: bindgen turns enum constants into Rust constants. */
 enum {
 	DRM_IOCTL_BORG_INFO       = DRM_IOR(DRM_COMMAND_BASE + DRM_BORG_INFO, struct drm_borg_info),
@@ -49,6 +65,8 @@ enum {
 	DRM_IOCTL_BORG_REG_READ   = DRM_IOWR(DRM_COMMAND_BASE + DRM_BORG_REG_READ, struct drm_borg_reg_read),
 	DRM_IOCTL_BORG_MEM_WRITE  = DRM_IOW(DRM_COMMAND_BASE + DRM_BORG_MEM_WRITE, struct drm_borg_mem),
 	DRM_IOCTL_BORG_MEM_READ   = DRM_IOW(DRM_COMMAND_BASE + DRM_BORG_MEM_READ, struct drm_borg_mem),
+	DRM_IOCTL_BORG_GEM_CREATE = DRM_IOWR(DRM_COMMAND_BASE + DRM_BORG_GEM_CREATE, struct drm_borg_gem_create),
+	DRM_IOCTL_BORG_GEM_MMAP   = DRM_IOWR(DRM_COMMAND_BASE + DRM_BORG_GEM_MMAP, struct drm_borg_gem_mmap),
 };
 
 #if defined(__cplusplus)
