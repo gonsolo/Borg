@@ -81,7 +81,7 @@ The scope is `dEQP-VK.info.*` only. The `api.info` group belongs to 2a.
 ## 2b on tier 2 (QEMU, Rust DRM driver)
 
 `dEQP-VK.info.*`: **18 Pass, 3 NotSupported, 0 Fail**, the same cases as tier 1 (same three missing extensions).
-Run with `software/linux/tests/qemu-cts.sh` (25 s). What ran: riscv64 `deqp-vk` and borgvk (glibc, cross-built)
+Run with `software/linux/tests/qemu-cts.sh` (3 s). What ran: riscv64 `deqp-vk` and borgvk (glibc, cross-built)
 in an initrd, on QEMU `virt` with Linux 7.2.9 and the Rust Borg DRM driver; borgvk logs "found borg DRM device".
 
 - The Borg registers and memory are mapped at addresses with nothing behind them, so any access faults.
@@ -89,6 +89,10 @@ in an initrd, on QEMU `virt` with Linux 7.2.9 and the Rust Borg DRM driver; borg
   its info call and panics at its first register write (store access fault), as intended.
 - The CPU is QEMU's, not Hutt. The kernel is the board's config plus `CONFIG_FPU=y`
   (`configs/borg_rv64_rust_fpu.frag`): the userspace is glibc hard-float, and the board kernel has no FPU.
+- A sample of 200 `api` cases (random, fixed seed) with the GEM allocator: 150 NotSupported and 50 Pass, every case
+  equal to its tier-1 result (`software/linux/tests/qemu-cts-run.sh`, 10 s on 4 guests). Without GEM, borgvk's
+  allocation ioctls collided with the driver's register ioctls and 58 of the 200 failed with `OUT_OF_HOST_MEMORY`.
+  The full `api` group has not been run on tier 2.
 - Queries only. Cases that render need the real Borg behind the register block (a QEMU-to-`direct_sim` bridge, not built).
 - The riscv64 Rust `std` and cross file for the Mesa build are in the scratchpad, not the repo yet.
 

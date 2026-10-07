@@ -9,7 +9,7 @@ mod reg_map;
 use kernel::{
     device::Core,
     devres::Devres,
-    drm::{self, ioctl},
+    drm::{self, gem::{shmem, BaseObject}, ioctl},
     io::{mem::IoMem, Io},
     of, platform,
     prelude::*,
@@ -21,6 +21,7 @@ use kernel::{
 const ABI: u32 = 1;
 const MAX_WRITES: u32 = 4096;
 const CHUNK: usize = 512;
+const MAX_BO: u64 = 1 << 30;
 
 struct BorgDrmDriver;
 type BorgDrmDevice<Ctx = drm::Registered> = drm::Device<BorgDrmDriver, Ctx>;
@@ -145,6 +146,31 @@ impl BorgDrmFileData {
         Ok(0)
     }
 
+    fn gem_create(
+        ddev: &BorgDrmDevice,
+        args: &mut uapi::drm_borg_gem_create,
+        file: &BorgDrmFile,
+    ) -> Result<u32> {
+        if args.size == 0 || args.size > MAX_BO {
+            return Err(EINVAL);
+        }
+        let size = (args.size as usize + 4095) & !4095;
+        let config = shmem::ObjectConfig { map_wc: false, parent_resv_obj: None };
+        let obj = shmem::Object::<BoData>::new(ddev, size, config, ())?;
+        args.handle = obj.create_handle(file)?;
+        Ok(0)
+    }
+
+    fn gem_mmap(
+        _ddev: &BorgDrmDevice,
+        args: &mut uapi::drm_borg_gem_mmap,
+        file: &BorgDrmFile,
+    ) -> Result<u32> {
+        let obj = shmem::Object::<BoData>::lookup_handle(file, args.handle)?;
+        args.offset = obj.create_mmap_offset()?;
+        Ok(0)
+    }
+
     fn mem_read(
         ddev: &BorgDrmDevice,
         args: &mut uapi::drm_borg_mem,
@@ -234,6 +260,8 @@ impl drm::Driver for BorgDrmDriver {
         (BORG_REG_READ, drm_borg_reg_read, ioctl::RENDER_ALLOW, BorgDrmFileData::reg_read),
         (BORG_MEM_WRITE, drm_borg_mem, ioctl::RENDER_ALLOW, BorgDrmFileData::mem_write),
         (BORG_MEM_READ, drm_borg_mem, ioctl::RENDER_ALLOW, BorgDrmFileData::mem_read),
+        (BORG_GEM_CREATE, drm_borg_gem_create, ioctl::RENDER_ALLOW, BorgDrmFileData::gem_create),
+        (BORG_GEM_MMAP, drm_borg_gem_mmap, ioctl::RENDER_ALLOW, BorgDrmFileData::gem_mmap),
     }
 }
 
