@@ -109,7 +109,17 @@ no size limit, so these cases never see an out-of-memory result. The Rust render
 
 ## memory.mapping (tier 1)
 
-810 Pass, 1,420 NotSupported, 0 Fail, from the all-groups run that is not trusted (see above); not rerun yet.
+Rerun 2026-10-08 with the library present: `OUT=... JOBS=12 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.memory.mapping.*'`,
+no mustpass filter, whole group. **811 Pass, 3,655 NotSupported, 0 Fail** of 4,466 (3 s). Raw results:
+`vk1.0-memory-mapping-direct-sim-results.txt.gz`.
+
+| Subgroup | Pass | NotSupported |
+|---|---:|---:|
+| `suballocation` | 811 | 811 |
+| `dedicated_alloc` | 0 | 2,844 |
+
+`dedicated_alloc` needs `VK_KHR_dedicated_allocation`, which borgvk does not offer. The all-groups table counts 2,230
+cases because it is filtered by the mustpass list. Memory comes from the host shim, as for `allocation`.
 
 ## 2a (tier 1): rerun 2026-10-07
 
