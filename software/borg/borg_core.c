@@ -214,10 +214,12 @@ void borg_set_texture(int tex_width, int tex_height) {
   BREG_W(sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
 }
 
+static uint32_t g_tex_lvl[12];   // byte offsets of levels 1..12, from the 0xC0 packet
+
 void borg_set_texture_desc(const uint32_t w[3], const uint32_t samp[4]) {
   BDRAM_W(TEX_DESC_TABLE_ADDR + 0, TEX_TEXEL_ADDR);
   for (int i = 0; i < 3; i++) BDRAM_W(TEX_DESC_TABLE_ADDR + 4 + (uint32_t)i * 4, w[i]);
-  for (int i = 4; i < 16; i++) BDRAM_W(TEX_DESC_TABLE_ADDR + (uint32_t)i * 4, 0);
+  for (int i = 4; i < 16; i++) BDRAM_W(TEX_DESC_TABLE_ADDR + (uint32_t)i * 4, g_tex_lvl[i - 4]);
   for (int i = 0; i < 4; i++) BDRAM_W(SAMPLER_DESC_TABLE_ADDR + (uint32_t)i * 4, samp[i]);
   BREG_W(tex_desc_base, TEX_DESC_TABLE_ADDR);
   BREG_W(sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
@@ -623,6 +625,7 @@ int borg_core_pkt_len(uint8_t marker) {
   case 0xB7: return BC_PKT_LEN_ATTR4;
   case 0xB8: return BC_PKT_LEN_MEM;
   case 0xBB: return BC_PKT_LEN_PASS;
+  case 0xC0: return BC_PKT_LEN_TEXL;
   case 0xBF: return BC_PKT_LEN_ATT;
   case 0xB9: return BC_PKT_LEN_VATTR;
   case 0xBA: return BC_PKT_LEN_DRAW;
@@ -789,12 +792,16 @@ int borg_core_packet(const uint8_t *p) {
     return BC_STATE;
   }
 #endif
+  case 0xC0:
+    for (int i = 0; i < 12; i++) g_tex_lvl[i] = le32(p + 1 + i * 4);
+    return BC_STATE;
   case 0xB5: { // generic texture chunk: texel byte offset, nbytes, descriptor words 1..3, sampler, texels
     uint32_t off = le32(p + 1), nb = (uint32_t)p[5] | ((uint32_t)p[6] << 8);
     if (nb > BC_TEXG_DATA || (off & 3u) || off + nb > TEX_REGION_BYTES - 256) return BC_BAD;
     uint32_t w[3], samp[4];
     for (int i = 0; i < 3; i++) w[i] = le32(p + 7 + i * 4);
     for (int i = 0; i < 4; i++) samp[i] = le32(p + 19 + i * 4);
+    if (((w[1] >> 10) & 15u) == 0) memset(g_tex_lvl, 0, sizeof g_tex_lvl);   // one level: no offsets
     borg_set_texture_desc(w, samp);
     borg_write_texels(off, p + 35, nb);
     g_texture_bound = 1;   // the host owns descriptor 0 now
