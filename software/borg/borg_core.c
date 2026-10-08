@@ -571,9 +571,11 @@ static void list_trigger(uint32_t list, uint32_t load) {
   }
   int part = 0, nparts = 1, widx = 0;
   { const char *e = getenv("BORG_PART"); if (e) sscanf(e, "%d/%d", &part, &nparts); }
-  for (int wy = 0; wy < fb_tiles; wy += win_tiles)
+  const int fb_rows = borg_fb_height >> 2;
+  for (int wy = 0; wy < fb_rows; wy += win_tiles)
     for (int wx = 0; wx < fb_tiles; wx += win_tiles) {
       if (widx++ % nparts != part) continue;
+      BREG_W(seq_tile_rows, fb_rows - wy < win_tiles ? fb_rows - wy : win_tiles);
       BREG_W(fb_origin, (uint32_t)wx | ((uint32_t)wy << 16));
       BREG_W(seq_trigger, 1);
       while (BREG_R(status) & STATUS_REG_T__SEQ_BUSY_bm)
