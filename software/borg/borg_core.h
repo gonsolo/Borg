@@ -47,6 +47,7 @@ extern "C" {
 #define BC_PKT_LEN_MEM     (1 + 4 + 2 + BC_MEM_DATA + 1)   // 0xB8 (host only): heap write
 #define BC_PKT_LEN_VATTR   (1 + 1 + 1 + 4 + 4 + 4 + 4 + 1) // 0xB9 (host only): vertex attribute descriptor
 #define BC_PKT_LEN_DRAW    (1 + 3 + 7 * 4 + 1)             // 0xBA (host only): draw parameters, runs the draw
+#define BC_PKT_LEN_TEXL    (1 + 12 * 4 + 1)                // 0xC0 (host only): byte offsets of texture levels 1..12
 #define BC_PKT_LEN_PASS    (1 + 1 + 1 + 1)                 // 0xBB (host only): render pass attachments
 #define BC_PKT_LEN_ATT     (1 + 1 + 3 + 1)                 // 0xBF (host only): colour attachment count and formats 1-3
 #define BC_PKT_LEN_MAX     BC_PKT_LEN_MEM
