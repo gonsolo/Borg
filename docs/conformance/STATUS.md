@@ -26,32 +26,25 @@ Order of work: tier 1 for all groups, the GEM allocator with its QEMU tests and 
 
 ## Results per tier, all groups
 
-**Not reliable, see 2a below; rerun pending.** Tier 1 command: `MUSTPASS=1.0.2.6 JOBS=20 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.*'` (206 s).
-Raw results (not committed): one `<status> <case>` line per case.
+Tier 1 only (host `deqp-vk` + borgvk + DRM shim + `direct_sim`), CTS 1.4.6.2, as of 2026-10-08. Every row is a run of that
+group alone with its own command; no mustpass filter unless stated. The earlier all-groups table (6.6% Pass) was
+measured in a broken environment and is withdrawn. Groups not listed have **not been rerun**; that is not a result.
 
-| Group | Cases | T1 Pass | T1 NotSupp | T1 Fail | T2 | T3 |
-|---|---:|---:|---:|---:|---|---|
-| pipeline | 52,228 | 88 | 28,998 | 23,142 | NotRun | NotRun |
-| glsl | 11,891 | 210 | 977 | 10,704 | NotRun | NotRun |
-| synchronization | 8,618 | 891 | 6,924 | 803 | NotRun | NotRun |
-| image | 7,082 | 531 | 5,912 | 639 | NotRun | NotRun |
-| api | 4,939 | 3,326 | 1,596 | 13 | see "2a on tier 2" | NotRun |
-| spirv_assembly | 3,135 | 7 | 2,597 | 531 | NotRun | NotRun |
-| memory | 2,584 | 1,053 | 1,495 | 36 | NotRun | NotRun |
-| ssbo | 1,681 | 0 | 242 | 1,439 | NotRun | NotRun |
-| texture | 1,138 | 216 | 60 | 862 | NotRun | NotRun |
-| ubo | 533 | 0 | 150 | 383 | NotRun | NotRun |
-| query_pool | 118 | 7 | 33 | 78 | NotRun | NotRun |
-| rasterization | 116 | 21 | 71 | 24 | NotRun | NotRun |
-| others* | 2,046 | 30 | 2,014 | 2 | NotRun | NotRun |
-| **Total** | **96,109** | **6,380** | **51,069** | **38,656** | NotRun | NotRun |
-| info (2b)** | 21 | 18 | 3 | 0 | 18 Pass, 3 NotSupp, 0 Fail (see below) | NotRun |
+| Group | Cases | T1 Pass | T1 NotSupp | T1 Fail | Note |
+|---|---:|---:|---:|---:|---|
+| api (mustpass 1.0.2.6) | 278,342 | 64,866 | 213,472 | 0 | 4 QualityWarning |
+| info | 21 | 18 | 3 | 0 | |
+| memory.allocation | 202 | 202 | 0 | 0 | |
+| memory.mapping | 4,466 | 811 | 3,655 | 0 | |
+| pipeline.monolithic.sampler (1d, 2d, formats) | 21,286 | 3,108 | 18,116 | 62 | before the stencil/alpha fix |
+| pipeline.monolithic.sampler (same 62 failing cases, after fix) | 62 | 62 | 0 | 0 | rest of the group not rerun after the fix |
+| pipeline.monolithic.sampler (array, 3D, cube sample) | 240 | 215 | 25 | 0 | sample, not the whole group |
 
-T1 = tier 1 (host + arcilator), T2 = tier 2 (QEMU + DRM driver), T3 = tier 3 (ULX3S); see above.
-`NotRun` means the tier has not run the CTS for that group; it is not a result. Pass is 6.6% of the total.
+Sampler NotSupported cases are mostly `customBorderColors`, compute-queue variants, `VK_KHR_maintenance5` and formats
+the texture unit lacks (a8, a1b5g5r5, scaled, ASTC, ETC2). Not yet rerun: pipeline (other than the rows above), glsl,
+image, texture, synchronization, ssbo, ubo, spirv_assembly, query_pool, rasterization, the rest.
 
-\* sparse_resources, ycbcr, tessellation, geometry, wsi, clipping, fragment_operations, info (4 cases).
-\*\* `info` as a separate run of the whole group, no mustpass filter (see below); not part of the total.
+T1 = tier 1, T2 = tier 2 (QEMU + DRM driver), T3 = tier 3 (ULX3S); see above.
 
 Tier 2 has run the driver's own tests in QEMU (whitelist), and tier 3 renders `vkcube`; neither is a CTS case.
 
