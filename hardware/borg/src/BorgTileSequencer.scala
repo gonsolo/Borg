@@ -261,7 +261,8 @@ class BorgTileSequencer(val cfg: BorgConfig = BorgConfig.Default) extends Module
     io.covDelta.foreach { cd =>
       val active = covDeltaActive.get
       for (e <- 0 until cfg.coveragePlanesStored; k <- 0 until 2) {
-        cd(e)(k) := active(2 * e + k)
+        // setupShort leaves the depth plane's deltas unwritten in the record
+        cd(e)(k) := Mux(io.mmio.singleSample, 0.U, active(2 * e + k))
       }
     }
     io.frontFacingOverride := !triIsBackFacing
