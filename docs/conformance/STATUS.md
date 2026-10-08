@@ -96,12 +96,20 @@ in an initrd, on QEMU `virt` with Linux 7.2.9 and the Rust Borg DRM driver; borg
 - Queries only. Cases that render need the real Borg behind the register block (a QEMU-to-`direct_sim` bridge, not built).
 - The riscv64 Rust `std` and cross file for the Mesa build are in the scratchpad, not the repo yet.
 
-## memory.allocation and memory.mapping (tier 1)
+## memory.allocation (tier 1)
 
-`memory.allocation` (202) and `memory.mapping` (810 Pass, 1,420 NotSupported) have no failures. On the host the memory comes from
-the DRM shim (`libborg_drm_shim.so`, GEM backed by anonymous memory), not from the board's driver:
-the Rust render node has no GEM yet. The design for the allocator is `docs/B5_gpu_memory.md`; nothing of it is
-implemented. Until it is, these results show the Vulkan side, not the driver that ships.
+Rerun 2026-10-08 with the library present: `OUT=... JOBS=12 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.memory.allocation.*'`,
+no mustpass filter. **202 Pass, 0 NotSupported, 0 Fail** (1 s). Raw results:
+`vk1.0-memory-allocation-direct-sim-results.txt.gz`.
+
+On the host the memory comes from the DRM shim (`libborg_drm_shim.so`, GEM backed by anonymous memory) and has
+no size limit, so these cases never see an out-of-memory result. The Rust render node now has GEM (system RAM,
+1 GiB cap per buffer, `../B5_gpu_memory.md`), exercised on tier 2 by `borg_drm_test` and the `api` run, but
+`memory.allocation` has not been run on tier 2, and the board's heap limit is not implemented.
+
+## memory.mapping (tier 1)
+
+810 Pass, 1,420 NotSupported, 0 Fail, from the all-groups run that is not trusted (see above); not rerun yet.
 
 ## 2a (tier 1): rerun 2026-10-07
 
