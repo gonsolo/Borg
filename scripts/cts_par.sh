@@ -102,7 +102,8 @@ export BORGVK_SIM_PARTS=1      # one simulator process per case: the workers are
 run_chunk() {   # $1 = chunk file; its run directory is named after it
   local d="$OUT/run_$(basename "$1")"
   local t0=$(date +%s)
-  OUT="$d" NO_FW_BUILD=1 "$HERE/cts_one.sh" --list "$1" > "$d.log" 2>&1 || true
+  OUT="$d" NO_FW_BUILD=1 timeout -k 10 "${TMO:-900}" "$HERE/cts_one.sh" --list "$1" > "$d.log" 2>&1
+  echo $? > "$d.rc"
   echo "$(( $(date +%s) - t0 )) $(basename "$1") $(wc -l < "$1")" >> "$OUT/chunk_times.txt"
 }
 export -f run_chunk; export OUT HERE
@@ -125,10 +126,15 @@ if [[ -s "$OUT/missing.txt" ]]; then
   echo "$(wc -l < "$OUT/missing.txt") cases without a result (a crash in their chunk): run singly"
   mkdir -p "$OUT/singles"
   split -l 1 -d -a 5 "$OUT/missing.txt" "$OUT/singles/s"
-  ls "$OUT"/singles/s* | xargs -r -P "$JOBS" -I{} bash -c 'run_chunk {}'
+  ls "$OUT"/singles/s* | TMO="${CASE_TIMEOUT:-120}" xargs -r -P "$JOBS" -I{} bash -c 'TMO='"${CASE_TIMEOUT:-120}"' run_chunk {}'
   collect "$OUT"/run_s* >> "$OUT/results.txt"
   awk '{print $2}' "$OUT/results.txt" | sort -u > "$OUT/have.txt"
   comm -23 "$OUT/missing.txt" "$OUT/have.txt" | awk '{print "Crash", $1, "(no result)"}' >> "$OUT/results.txt"
+  for rc in "$OUT"/run_s*.rc; do   # a single that hit the time limit is a Timeout, not a Crash
+    [[ "$(cat "$rc")" == 124 || "$(cat "$rc")" == 137 ]] || continue
+    c=$(cat "$OUT/singles/$(basename "${rc%.rc}" | sed s/^run_//)")
+    sed -i "s|^Crash $c (no result)|Timeout $c (time limit)|" "$OUT/results.txt"
+  done
 fi
 elapsed=$(( $(date +%s) - start ))
 sort -rn "$OUT/chunk_times.txt" -o "$OUT/chunk_times.txt"    # slowest chunks first
