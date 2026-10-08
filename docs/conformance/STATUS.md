@@ -109,6 +109,10 @@ Rerun with the tag's command (`MUSTPASS=1.0.2.6 MUSTPASS_GROUPS=1 JOBS=12 DIRECT
 'dEQP-VK.api.*'`, tier 1): **0 Fail**, 64,866 Pass, 213,472 NotSupported, 4 QualityWarning, the same numbers
 as the tag `conformance/vk1.0-api-direct-sim`.
 
+After the descriptor-pool fix below the same command still gives 0 Fail, 64,866 Pass. The 13 cases the strict
+all-groups baseline listed as failing (4 `smoke`, 3 `command_buffers`, 6 `resolve_image`) all Pass when run alone
+with the library present, so the baseline's "13" came from the broken environment.
+
 An earlier rerun the same day showed 87 failures. That was an environment fault: `direct_sim` could not load
 `libstdc++.so.6`, so every case that needs the simulator failed. The "13 failures" in the all-groups
 table below come from the same kind of run and are not trusted either.
@@ -133,8 +137,15 @@ The same 278,342 `api` cases as the tier-1 rerun above, run with `software/linux
   with 4 samples (29), `smoke` (4) and `command_buffers` (3). They fail because the Borg behind the register block is
   a stub that faults; they are not driver or Borg errors. No guest panicked, so none of them reached the register ioctls.
   They need the real Borg behind the node (a QEMU-to-`direct_sim` bridge, not built).
-- **The 1 Crash** is `descriptor_pool.repeated_reset_long`: the guest's out-of-memory killer fired in `deqp-vk`
-  (2 GB guest). It passes on tier 1. Whether borgvk leaks in the descriptor pool reset or the case needs more RAM is not checked.
+- **The 1 Crash** was `descriptor_pool.repeated_reset_long`: the guest's out-of-memory killer fired in `deqp-vk`.
+  borgvk's `vkResetDescriptorPool` did nothing and pools did not track their sets, so sets leaked (the case makes
+  8.4 million allocations; peak 4.4 GB on tier 1). Fixed: pools track and free their sets and refuse past `maxSets`
+  (`VK_ERROR_OUT_OF_POOL_MEMORY`); peak is 34 MB and the case passes on tier 1 and, rerun alone, on tier 2.
+  The full tier-2 group was not rerun after the fix.
+- **How tier-2 Pass should be read.** The 64,778 Pass are mostly `copy_and_blit` (45,547) and `image_clearing`
+  (15,224), which borgvk implements in C on the buffer and image memory (`borgvk_memory.c`), with a Borg that
+  faults. They show the driver, GEM and the rv64 build work. They say nothing about the Borg RTL, which only
+  tier 1 exercises, and only for the cases that reach it.
 - Everything else matches tier 1 case for case. This needs the GEM allocator: before it, 58 of a 200-case sample failed
   with `OUT_OF_HOST_MEMORY`.
 
