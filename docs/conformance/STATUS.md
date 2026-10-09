@@ -36,8 +36,7 @@ measured in a broken environment and is withdrawn. Groups not listed have **not 
 | info | 21 | 18 | 3 | 0 | |
 | memory.allocation | 202 | 202 | 0 | 0 | |
 | memory.mapping | 4,466 | 811 | 3,655 | 0 | |
-| pipeline.monolithic.sampler (1d, 2d, formats) | 21,286 | 3,108 | 18,116 | 62 | before the stencil/alpha fix |
-| pipeline.monolithic.sampler (same 62 failing cases, after fix) | 62 | 62 | 0 | 0 | rest of the group not rerun after the fix |
+| pipeline.monolithic.sampler.view_type (1d, 2d) | 21,286 | 3,170 | 18,116 | 0 | after the stencil/alpha fix, whole subgroup |
 | pipeline.monolithic.sampler (array, 3D, cube sample) | 240 | 215 | 25 | 0 | sample, not the whole group |
 
 Sampler NotSupported cases are mostly `customBorderColors`, compute-queue variants, `VK_KHR_maintenance5` and formats
