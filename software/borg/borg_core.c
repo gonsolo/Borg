@@ -803,7 +803,7 @@ int borg_core_packet(const uint8_t *p) {
     uint32_t w[3], samp[4];
     for (int i = 0; i < 3; i++) w[i] = le32(p + 7 + i * 4);
     for (int i = 0; i < 4; i++) samp[i] = le32(p + 19 + i * 4);
-    if (((w[1] >> 10) & 15u) == 0) memset(g_tex_lvl, 0, sizeof g_tex_lvl);   // one level: no offsets
+    if (((w[1] >> 10) & 15u) == 0) for (int i = 0; i < 12; i++) g_tex_lvl[i] = 0;   // one level: no offsets
     borg_set_texture_desc(w, samp);
     borg_write_texels(off, p + 35, nb);
     g_texture_bound = 1;   // the host owns descriptor 0 now
