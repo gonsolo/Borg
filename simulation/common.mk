@@ -25,8 +25,10 @@ FW_SRCS = $(shell find $(FIRMWARE_DIR) $(ROOT)/software/hutt \
 # Simulated UART baud rate, single source of truth in common_sim.h.
 SIM_UART_BAUD := $(shell sed -n 's/^\#define SIM_UART_BAUD \([0-9]*\).*/\1/p' $(ROOT)/simulation/common/common_sim.h)
 
-# Compiler used for harness object files (overridable per backend).
-CLANG ?= clang++
+
+# Host compilers for the simulators (the shell's CC/CXX are the riscv cross compilers).
+HOSTCXX ?= g++
+HOSTCC ?= gcc
 
 # Flags shared by every harness object compilation.
 CFLAGS_COMMON = -O3 -I../common -I$(RDL_C_OUT)
