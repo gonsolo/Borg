@@ -43,10 +43,10 @@ arc.h: state.json
 # triggers a rebuild (prevents stale-object render hangs).
 
 uart_decoder.o: ../common/uart_decoder.cpp ../common/uart_decoder.h
-	$(CLANG) -O3 -I../common -c $< -o $@
+	$(HOSTCXX) -O3 -I../common -c $< -o $@
 
 BorgSimulatorBase.o: ../common/BorgSimulatorBase.cpp ../common/BorgSimulatorBase.h $(LAYOUT_HDRS)
-	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
+	$(HOSTCXX) $(CFLAGS_COMMON) -c $< -o $@
 
 # NOTE: arc.h is a generated dependency — it carries BorgArcSimTopLayout::
 # numStateBytes, which the BorgArcSimTop ctor (inlined here via `new
@@ -55,14 +55,14 @@ BorgSimulatorBase.o: ../common/BorgSimulatorBase.cpp ../common/BorgSimulatorBase
 # rebuilt, the ctor under-allocates while the freshly built arc.o writes the
 # full state → heap overflow into the adjacent `flat` QSPIMemory → segfault.
 ArcBorgSimulator.o: ArcBorgSimulator.cpp ArcBorgSimulator.h arc.h ../common/BorgSimulatorBase.h ../common/uart_tx.h $(LAYOUT_HDRS)
-	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
+	$(HOSTCXX) $(CFLAGS_COMMON) -c $< -o $@
 
 main.o: main.cpp arc.h arcilator-runtime.h ArcBorgSimulator.h ../common/BorgSimulatorBase.h $(LAYOUT_HDRS)
-	$(CLANG) $(CFLAGS_COMMON) -c $< -o $@
+	$(HOSTCXX) $(CFLAGS_COMMON) -c $< -o $@
 
 # Step 6: Link
 arcilator_sim: main.o arc.o uart_decoder.o BorgSimulatorBase.o ArcBorgSimulator.o
-	$(CLANG) -O3 $^ -o $@
+	$(HOSTCXX) -O3 $^ -o $@
 
 # Firmware binaries — always invoke the firmware Makefile so its cflags_stamp
 # check detects flag changes (e.g. TARGET_ULX3S from a board build) that a

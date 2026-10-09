@@ -34,17 +34,17 @@ OBJS = $(SRCS:.cpp=.o) borg_spirb.o borg_core.o
 HDRS = direct_sim.h driver.h driver.cpp arc.h $(wildcard $(FIRMWARE_DIR)/*.h) $(RDL_C_OUT)/borg_regs.h
 
 %.o: %.cpp $(HDRS)
-	$(CLANG) -std=c++17 -O3 -I. -I$(ARCDIR) -I../common -I$(RDL_C_OUT) -I$(FIRMWARE_DIR) -c $< -o $@
+	$(HOSTCXX) -std=c++17 -O3 -I. -I$(ARCDIR) -I../common -I$(RDL_C_OUT) -I$(FIRMWARE_DIR) -c $< -o $@
 
 # The shared driver core, built for the host (register / DRAM access via bh_* in driver.cpp).
 borg_core.o: $(FIRMWARE_DIR)/borg_core.c $(FIRMWARE_DIR)/borg_core.h $(wildcard $(FIRMWARE_DIR)/*.h) $(RDL_C_OUT)/borg_regs.h
-	clang -O2 -DBORG_HOST -I$(FIRMWARE_DIR) -I$(RDL_C_OUT) -c $< -o $@
+	$(HOSTCC) -O2 -DBORG_HOST -I$(FIRMWARE_DIR) -I$(RDL_C_OUT) -c $< -o $@
 
 borg_spirb.o: $(FIRMWARE_DIR)/borg_spirb.c $(FIRMWARE_DIR)/borg_spirb.h
-	clang -O2 -I$(FIRMWARE_DIR) -c $< -o $@
+	$(HOSTCC) -O2 -I$(FIRMWARE_DIR) -c $< -o $@
 
 direct_sim: $(OBJS) arc.o
-	$(CLANG) -O3 $^ -o $@
+	$(HOSTCXX) -O3 $^ -o $@
 
 clean:
 	rm -f arc.h arc.ll borg.mlir state.json *.o direct_sim
