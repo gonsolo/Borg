@@ -142,7 +142,7 @@ object BorgDrawSim {
           case None => go = false
           case Some(job) => done.put(try { job(h, mirror); None } catch { case t: Throwable => Some(t) })
         }
-      } catch { case t: Throwable => done.offer(Some(t)) }
+      } catch { case t: Throwable => done.put(Some(t)) }
     }, "borg-draw-sim")
     thread.setDaemon(true)
     thread.start()
