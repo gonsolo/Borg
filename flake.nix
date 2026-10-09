@@ -238,7 +238,14 @@
         }))
         pkgs.magic-vlsi
         pkgs.metals
-        pkgs.mill
+        # build.mill pins 1.1.10; the pinned nixpkgs has 1.1.7.
+        (pkgs.mill.overrideAttrs (_: {
+          version = "1.1.10";
+          src = pkgs.fetchurl {
+            url = "https://repo1.maven.org/maven2/com/lihaoyi/mill-dist-native-linux-amd64/1.1.10/mill-dist-native-linux-amd64-1.1.10.exe";
+            hash = "sha256-p3mXy754MUvKjbAgyg4eDX9Clgv82F3NO6OkzlsbX7A=";
+          };
+        }))
         pkgs.meson # Mesa/borgvk build
         pkgs.ninja # Mesa/borgvk build
         pkgs.bison # Mesa build
