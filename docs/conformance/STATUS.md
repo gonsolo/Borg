@@ -37,10 +37,11 @@ measured in a broken environment and is withdrawn. Groups not listed have **not 
 | memory.allocation | 202 | 202 | 0 | 0 | |
 | memory.mapping | 4,466 | 811 | 3,655 | 0 | |
 | pipeline.monolithic.sampler.view_type (1d, 2d) | 21,286 | 3,170 | 18,116 | 0 | after the stencil/alpha fix, whole subgroup |
+| pipeline.monolithic.sampler (unnormalized 1d/2d, separate_stencil_usage, exact_sampling, max_sampler_lod_bias) | 6,465 | 1,101 | 5,310 | 54 | the 54 are RAW64/RAW128 colour targets (`r32g32`, `r16g16b16*`, `r32g32b32*`) |
 | pipeline.monolithic.sampler (array, 3D, cube sample) | 240 | 215 | 25 | 0 | sample, not the whole group |
 
 Sampler NotSupported cases are mostly `customBorderColors`, compute-queue variants, `VK_KHR_maintenance5` and formats
-the texture unit lacks (a8, a1b5g5r5, scaled, ASTC, ETC2). Not yet rerun: pipeline (other than the rows above), glsl,
+the texture unit lacks (a8, a1b5g5r5, scaled, ASTC, ETC2). Not yet run in the sampler group: `border_swizzle` (105,600), 3d, 2d_array, 1d_array, cube, cube_array (only the sample above). Not yet rerun: pipeline (other than the rows above), glsl,
 image, texture, synchronization, ssbo, ubo, spirv_assembly, query_pool, rasterization, the rest.
 
 T1 = tier 1, T2 = tier 2 (QEMU + DRM driver), T3 = tier 3 (ULX3S); see above.
