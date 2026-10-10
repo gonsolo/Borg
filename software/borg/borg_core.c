@@ -52,6 +52,8 @@ static struct {
   uint32_t blend_cfg, blend_const, stencil_cfg, stencil_front, stencil_back, depth_cfg;
   int raster_valid;
 } g_st;
+// The viewport and scissor of the draws that follow (0xC2); valid = none sent, the target's full size.
+static struct { int valid; uint32_t sx, sy, ox, oy, zscale, zoff, scx, scy; } g_vp;
 static struct {
   uint8_t blob[6 + BC_SHADER_MAX_BIG];
   uint32_t bytes;
@@ -521,9 +523,17 @@ void borg_core_list_draw(void) {
     LREG(st, n, stencil_back, g_st.stencil_back); LREG(st, n, depth_cfg, g_st.depth_cfg);
   }
   LREG(st, n, cull_cfg, borg_cull_cfg);
-  LREG(st, n, viewport_sx, half_width_f); LREG(st, n, viewport_sy, half_height_f);
-  LREG(st, n, viewport_ox, half_width_f); LREG(st, n, viewport_oy, half_height_f);
-  LREG(st, n, depth_scale, BORG_FLOAT_ONE); LREG(st, n, depth_offset, BORG_FLOAT_ZERO);
+  if (g_vp.valid) {
+    LREG(st, n, viewport_sx, g_vp.sx); LREG(st, n, viewport_sy, g_vp.sy);
+    LREG(st, n, viewport_ox, g_vp.ox); LREG(st, n, viewport_oy, g_vp.oy);
+    LREG(st, n, depth_scale, g_vp.zscale); LREG(st, n, depth_offset, g_vp.zoff);
+    LREG(st, n, scissor_x, g_vp.scx); LREG(st, n, scissor_y, g_vp.scy);
+  } else {
+    LREG(st, n, viewport_sx, half_width_f); LREG(st, n, viewport_sy, half_height_f);
+    LREG(st, n, viewport_ox, half_width_f); LREG(st, n, viewport_oy, half_height_f);
+    LREG(st, n, depth_scale, BORG_FLOAT_ONE); LREG(st, n, depth_offset, BORG_FLOAT_ZERO);
+    LREG(st, n, scissor_y, 0);
+  }
   LREG(st, n, draw_cfg, 1u | (g_dp.topology << 1) | (g_dp.index_type << 3) | (g_dp.restart << 5) |
                         ((uint32_t)shift << 6));
   if (!g_list.state_addr || n != g_list.state_n || memcmp(st, g_list.state, (size_t)n * 8) != 0) {
@@ -644,6 +654,7 @@ int borg_core_pkt_len(uint8_t marker) {
   case 0xB4: return BC_PKT_LEN_STATE;
   case 0xB5: return BC_PKT_LEN_TEXG;
 #ifdef BORG_HOST
+  case 0xC2: return BC_PKT_LEN_VP;
   case 0xB6: return BC_PKT_LEN_TARGET;
   case 0xB7: return BC_PKT_LEN_ATTR4;
   case 0xB8: return BC_PKT_LEN_MEM;
@@ -736,6 +747,19 @@ int borg_core_packet(const uint8_t *p) {
 #endif
     return BC_STATE;
 #ifdef BORG_HOST
+  case 0xC2: { // viewport and scissor: x y w h, depth min max (float32), scissor x0 y0 x1 y1
+    float f[6];
+    for (int k = 0; k < 6; k++) { uint32_t u = le32(p + 1 + 4 * k); memcpy(&f[k], &u, 4); }
+    float v[6] = { f[2] / 2, f[3] / 2, f[0] + f[2] / 2, f[1] + f[3] / 2, f[5] - f[4], f[4] };
+    uint32_t b[6];
+    for (int k = 0; k < 6; k++) memcpy(&b[k], &v[k], 4);
+    uint32_t x0 = le32(p + 25), y0 = le32(p + 29), x1 = le32(p + 33), y1 = le32(p + 37);
+    if (x0 > x1 || y0 > y1 || x1 > 4096 || y1 > 4096) return BC_BAD;
+    g_vp.sx = b[0]; g_vp.sy = b[1]; g_vp.ox = b[2]; g_vp.oy = b[3]; g_vp.zscale = b[4]; g_vp.zoff = b[5];
+    g_vp.scx = x0 | x1 << 13; g_vp.scy = y0 | y1 << 13 | 1u << 26;
+    g_vp.valid = 1;
+    return BC_STATE;
+  }
   case 0xB6: { // render target: flush format + clear colour (4 x float32)
     int fmt = p[1];
     if (fmt > 7) return BC_BAD;
