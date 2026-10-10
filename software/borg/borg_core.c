@@ -53,7 +53,7 @@ static struct {
   int raster_valid;
 } g_st;
 static struct {
-  uint8_t blob[6 + 512];
+  uint8_t blob[6 + BC_SHADER_MAX_BIG];
   uint32_t bytes;
   uint32_t code, consts;      // arena addresses of the code and constant window, 0 = not staged
 } g_sh[2];
@@ -508,7 +508,7 @@ void borg_core_list_draw(void) {
 
   uint32_t st[LIST_MAX_REGS][2]; int n = 0;
   LREG(st, n, seq_vert_addr, g_sh[0].code); LREG(st, n, seq_vert_len, g_sh[0].blob[0]);
-  LREG(st, n, seq_frag_addr, g_sh[1].code); LREG(st, n, seq_frag_len, g_sh[1].blob[0]);
+  LREG(st, n, seq_frag_addr, g_sh[1].code); LREG(st, n, seq_frag_len, g_sh[1].blob[0] > 63 ? 63 : g_sh[1].blob[0]);
   LREG(st, n, draw_vs_const, g_sh[0].consts); LREG(st, n, draw_fs_const, g_sh[1].consts);
   LREG(st, n, tex_desc_base, TEX_DESC_TABLE_ADDR); LREG(st, n, sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
   LREG(st, n, ls_base, draw_ls_base());

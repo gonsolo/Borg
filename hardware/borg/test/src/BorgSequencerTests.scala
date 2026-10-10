@@ -324,6 +324,52 @@ object BorgSequencerTests extends TestSuite {
         println("=== icache_runs_a_fragment_shader_longer_than_imem PASSED ===\n")
         }
 
+        scenario("icache_runs_a_fragment_shader_past_pc_128") {
+        // As above, but 143 words (PCs past 128, a second wrap of the 64 cache lines) with a short
+        // preload, and the added constant cycles through three values so a line holding another
+        // PC's word changes the sum.
+        resetAndWait(borg)
+        val lsBase = 0x30000; val fragAddr = 0x5000; val fragPc = 1
+        val adds = 138
+        val consts = Seq(1, 16, 256)
+        val frag = Seq(
+            Instructions.IXOR(rs1 = 25, rs2 = 25, rd = 25),
+            Instructions.IXOR(rs1 = 5, rs2 = 5, rd = 5),
+            Instructions.IADD(rs1 = 12, rs2 = 25, rd = 6, funct3 = 1),
+            Instructions.IADD(rs1 = 13, rs2 = 25, rd = 7, funct3 = 1),
+            Instructions.IADD(rs1 = 14, rs2 = 25, rd = 8, funct3 = 1)) ++
+          (0 until adds).map(i => Instructions.IADD(rs1 = 5, rs2 = 6 + i % 3, rd = 5)) ++
+          Seq(Instructions.STORE(rs1 = 25, rs2 = 5), BigInt(0))
+        val expect = (0 until adds).map(i => consts(i % 3)).sum
+        Predef.assert(frag.length + fragPc > 128)
+        BorgDrawSim.clear(borg, mirror)
+        for ((w, i) <- frag.zipWithIndex) BorgDrawSim.put(borg, mirror, fragAddr + i * 4, w)
+        borg.bd.watch.poke(lsBase.U)
+        def run(cycles: Int): Unit = borg.clock.step(cycles)
+        val preload = 3
+        rawWrite(borg, BorgGpuRegs.dma_dram_offset.litValue.toInt, fragAddr)
+        rawWrite(borg, BorgGpuRegs.dma_config_offset.litValue.toInt, 1 | (preload << 1) | (0 << 7) | (fragPc << 9))
+        run(400)
+        def uniform(i: Int, v: BigInt): Unit =
+          rawWrite(borg, BorgGpuRegs.uniform_offset.litValue.toInt + i * 4, v)
+        for (i <- 0 until 12) uniform(i, 0)
+        for ((c, i) <- consts.zipWithIndex) uniform(12 + i, c)
+        rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, fragPc)
+        rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, lsBase)
+        rawWrite(borg, BorgGpuRegs.cmd_enqueue_offset.litValue.toInt, 0)
+        run(10)
+        for (_ <- 0 until 16) {
+          rawWrite(borg, BorgGpuRegs.iter_offset.litValue.toInt, 1)
+          run(6000)
+        }
+        rawWrite(borg, BorgGpuRegs.ls_base_offset.litValue.toInt, 0)
+        rawWrite(borg, BorgGpuRegs.frag_pc_offset.litValue.toInt, 0)
+        val stores = BorgDrawSim.stores(borg)
+        println(s"  stores: ${stores.length} (expect 16), values: ${stores.distinct.mkString(",")} (expect $expect)")
+        Predef.assert(stores.length == 16, "every pixel must finish the long shader")
+        Predef.assert(stores.forall(_ == expect), "a store saw the wrong sum: instructions were skipped or wrong")
+        }
+
         scenario("occlusion_query_counts_the_samples_of_the_triangle_window") {
         // Two identical triangles in one draw (binned in pass 1, rasterized in
         // pass 2). Depth compare ALWAYS, so both are fully visible and each
