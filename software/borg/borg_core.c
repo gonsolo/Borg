@@ -62,8 +62,8 @@ static int g_vtab_dirty = 1;
 static int g_natt = 1;                 // colour attachments of the pass (host)
 static uint32_t g_att_fmt = 0;         // flush formats of attachments 1-3, 3 bits each
 #endif
-static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px), 5 RAW8 (1 B/px)
-static uint32_t flush_bytes_per_pixel(int f) { return f == 5 ? 1u : f ? 4u : 2u; }
+static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px), 4 RAW16 (2 B/px), 5 RAW8 (1 B/px)
+static uint32_t flush_bytes_per_pixel(int f) { return f == 5 ? 1u : f == 4 ? 2u : f ? 4u : 2u; }
 
 // Words per framebuffer, plus the DONE marker word.
 static uint32_t frame_stride_words(void) {
@@ -235,6 +235,13 @@ void borg_upload_texture_row(const uint8_t *row, int y, int dim) {
   for (int x = 0; x < dim; x++) BDRAM_W(base + (uint32_t)x * 4, le32(&row[x * 4]));
 }
 
+static uint32_t g_push_used;
+// A draw's LOAD base: its uniform buffer, else the pushed constants, else the default UBO.
+static uint32_t draw_ls_base(void) {
+  uint32_t b = g_dp.ubo_base ? g_dp.ubo_base : g_push_used ? BORG_PUSH_CONST_SPI : DRAW_UBO_SPI;
+  return b & LS_BASE_REG_T__BASE_ADDR_bm;
+}
+
 // Push constants: stage the range and point LS_BASE at it (LOAD/STORE already exist). LS_BASE is
 // rewritten on every call because it is also the base for ordinary SSBO-style LOAD/STORE.
 void borg_set_push_constants(const uint32_t *words, uint32_t off_words, uint32_t nwords) {
@@ -243,6 +250,7 @@ void borg_set_push_constants(const uint32_t *words, uint32_t off_words, uint32_t
   if (nwords > BORG_PUSH_CONST_MAX_WORDS - off_words) nwords = BORG_PUSH_CONST_MAX_WORDS - off_words;
   for (uint32_t i = 0; i < nwords; i++) BDRAM_W(BORG_PUSH_CONST_SPI + (off_words + i) * 4, words[i]);
   BREG_W(ls_base, BORG_PUSH_CONST_SPI & LS_BASE_REG_T__BASE_ADDR_bm);
+  g_push_used = 1;
 }
 
 // --- Draw front end (docs/B1_geometry_front_end.md) ---
@@ -494,7 +502,7 @@ void borg_core_list_draw(void) {
   LREG(st, n, seq_frag_addr, g_sh[1].code); LREG(st, n, seq_frag_len, g_sh[1].blob[0]);
   LREG(st, n, draw_vs_const, g_sh[0].consts); LREG(st, n, draw_fs_const, g_sh[1].consts);
   LREG(st, n, tex_desc_base, TEX_DESC_TABLE_ADDR); LREG(st, n, sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
-  LREG(st, n, ls_base, (g_dp.ubo_base ? g_dp.ubo_base : DRAW_UBO_SPI) & LS_BASE_REG_T__BASE_ADDR_bm);
+  LREG(st, n, ls_base, draw_ls_base());
   LREG(st, n, blend_cfg, g_st.blend_cfg); LREG(st, n, blend_const, g_st.blend_const);
   if (g_st.raster_valid) {
     LREG(st, n, stencil_cfg, g_st.stencil_cfg); LREG(st, n, stencil_front, g_st.stencil_front);
@@ -519,7 +527,7 @@ void borg_core_list_draw(void) {
   // The vertex shader's attribute descriptors are slots BORG_VATTR_SLOT0.. of ITS table: the
   // state block's table is the fragment shader's, which Pass 2 writes back.
   LREG(pr, m, tex_desc_base, g_list.vtab_addr - BORG_VATTR_SLOT0 * 64);
-  LREG(pr, m, ls_base, (g_dp.ubo_base ? g_dp.ubo_base : DRAW_UBO_SPI) & LS_BASE_REG_T__BASE_ADDR_bm);   // the vertex shader's LOADs
+  LREG(pr, m, ls_base, draw_ls_base());   // the vertex shader's LOADs
   uint32_t params = list_block(pr, m);
 
   BDRAM_W(BORG_LIST_SPI + g_list.n * 8, g_list.state_addr);
@@ -716,7 +724,7 @@ int borg_core_packet(const uint8_t *p) {
 #ifdef BORG_HOST
   case 0xB6: { // render target: flush format + clear colour (4 x float32)
     int fmt = p[1];
-    if (fmt > 3 && fmt != 5) return BC_BAD;
+    if (fmt > 3 && fmt != 4 && fmt != 5) return BC_BAD;
     if (fmt != g_flush_format) {
       g_flush_format = fmt;
       core_apply_layout();
@@ -733,7 +741,7 @@ int borg_core_packet(const uint8_t *p) {
   }
   case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT
     int fmt = p[1];
-    if ((fmt > 3 && fmt != 5) || p[2] > 7) return BC_BAD;
+    if ((fmt > 3 && fmt != 4 && fmt != 5) || p[2] > 7) return BC_BAD;
     if (fmt != g_flush_format) {
       g_flush_format = fmt;
       core_apply_layout();
