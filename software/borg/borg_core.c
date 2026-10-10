@@ -246,11 +246,13 @@ void borg_upload_texture_row(const uint8_t *row, int y, int dim) {
 }
 
 static uint32_t g_push_used;
+#ifdef BORG_HOST
 // A draw's LOAD base: its uniform buffer, else the pushed constants, else the default UBO.
 static uint32_t draw_ls_base(void) {
   uint32_t b = g_dp.ubo_base ? g_dp.ubo_base : g_push_used ? BORG_PUSH_CONST_SPI : DRAW_UBO_SPI;
   return b & LS_BASE_REG_T__BASE_ADDR_bm;
 }
+#endif
 
 // Push constants: stage the range and point LS_BASE at it (LOAD/STORE already exist). LS_BASE is
 // rewritten on every call because it is also the base for ordinary SSBO-style LOAD/STORE.
