@@ -62,8 +62,17 @@ static int g_vtab_dirty = 1;
 static int g_natt = 1;                 // colour attachments of the pass (host)
 static uint32_t g_att_fmt = 0;         // flush formats of attachments 1-3, 3 bits each
 #endif
-static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px), 4 RAW16 (2 B/px), 5 RAW8 (1 B/px)
-static uint32_t flush_bytes_per_pixel(int f) { return f == 5 ? 1u : f == 4 ? 2u : f ? 4u : 2u; }
+#ifdef BORG_HOST
+// The simulator's texels live above the colour attachments, so a texture of any size up to this
+// does not run into the framebuffer that follows the texture region.
+#define BC_TEXEL_BASE  0x7A00000u
+#define BC_TEXEL_BYTES 0x600000u
+#else
+#define BC_TEXEL_BASE  TEX_TEXEL_ADDR
+#define BC_TEXEL_BYTES (TEX_REGION_BYTES - 256)
+#endif
+static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px), 4 RAW16 (2 B/px), 5 RAW8 (1 B/px), 6 RAW64 (8 B/px), 7 RAW128 (16 B/px)
+static uint32_t flush_bytes_per_pixel(int f) { return f == 5 ? 1u : f == 4 ? 2u : f == 6 ? 8u : f == 7 ? 16u : f ? 4u : 2u; }
 
 // Words per framebuffer, plus the DONE marker word.
 static uint32_t frame_stride_words(void) {
@@ -125,7 +134,7 @@ void borg_core_init(int width, int height) {
   // Texel store of descriptor 0 starts white, so a texel the host never wrote is unobtrusive.
   for (int y = 0; y < BC_TEX_DIM; y++)
     for (int x = 0; x < BC_TEX_DIM; x++)
-      BDRAM_W(TEX_TEXEL_ADDR + (uint32_t)(y * BC_TEX_DIM + x) * 4, 0xFFFFFFFFu);
+      BDRAM_W(BC_TEXEL_BASE + (uint32_t)(y * BC_TEX_DIM + x) * 4, 0xFFFFFFFFu);
 }
 
 #ifdef BORG_HOST   // only the simulator's host driver sends a render-target packet; the board's firmware stays lean
@@ -202,7 +211,7 @@ void borg_set_sampler(const uint32_t desc[4]) {
 
 void borg_set_texture(int tex_width, int tex_height) {
   // Descriptor 0 (docs/B2_texture_unit.md): a 2D, one-level, one-layer RGBA8 image, linear.
-  BDRAM_W(TEX_DESC_TABLE_ADDR + 0, TEX_TEXEL_ADDR);
+  BDRAM_W(TEX_DESC_TABLE_ADDR + 0, BC_TEXEL_BASE);
   BDRAM_W(TEX_DESC_TABLE_ADDR + 4,
           (uint32_t)(tex_width - 1) | ((uint32_t)(tex_height - 1) << 16) | (1u << 28) | (1u << 30));
   BDRAM_W(TEX_DESC_TABLE_ADDR + 8, (uint32_t)BORG_TEX_FORMAT_R8G8B8A8_UNORM << 14);
@@ -217,7 +226,7 @@ void borg_set_texture(int tex_width, int tex_height) {
 static uint32_t g_tex_lvl[12];   // byte offsets of levels 1..12, from the 0xC0 packet
 
 void borg_set_texture_desc(const uint32_t w[3], const uint32_t samp[4]) {
-  BDRAM_W(TEX_DESC_TABLE_ADDR + 0, TEX_TEXEL_ADDR);
+  BDRAM_W(TEX_DESC_TABLE_ADDR + 0, BC_TEXEL_BASE);
   for (int i = 0; i < 3; i++) BDRAM_W(TEX_DESC_TABLE_ADDR + 4 + (uint32_t)i * 4, w[i]);
   for (int i = 4; i < 16; i++) BDRAM_W(TEX_DESC_TABLE_ADDR + (uint32_t)i * 4, g_tex_lvl[i - 4]);
   for (int i = 0; i < 4; i++) BDRAM_W(SAMPLER_DESC_TABLE_ADDR + (uint32_t)i * 4, samp[i]);
@@ -226,12 +235,12 @@ void borg_set_texture_desc(const uint32_t w[3], const uint32_t samp[4]) {
 }
 
 void borg_write_texels(uint32_t off, const uint8_t *data, uint32_t n) {
-  for (uint32_t i = 0; i + 4 <= n; i += 4) BDRAM_W(TEX_TEXEL_ADDR + off + i, le32(data + i));
+  for (uint32_t i = 0; i + 4 <= n; i += 4) BDRAM_W(BC_TEXEL_BASE + off + i, le32(data + i));
 }
 
 // One 64-wide row of descriptor 0's RGBA8 texels, linear, a 32-bit write per texel.
 void borg_upload_texture_row(const uint8_t *row, int y, int dim) {
-  uint32_t base = TEX_TEXEL_ADDR + (uint32_t)y * (uint32_t)dim * 4;
+  uint32_t base = BC_TEXEL_BASE + (uint32_t)y * (uint32_t)dim * 4;
   for (int x = 0; x < dim; x++) BDRAM_W(base + (uint32_t)x * 4, le32(&row[x * 4]));
 }
 
@@ -626,6 +635,7 @@ int borg_core_pkt_len(uint8_t marker) {
   case 0xAE: return BC_PKT_LEN_GEOM;
   case 0xAF: return BC_PKT_LEN_TEXROW;
   case 0xB0: return BC_PKT_LEN_SHADER;
+  case 0xC1: return BC_PKT_LEN_SHADER_BIG;
   case 0xB2: return BC_PKT_LEN_PUSH;
   case 0xB3: return BC_PKT_LEN_BLEND;
   case 0xB4: return BC_PKT_LEN_STATE;
@@ -688,10 +698,11 @@ int borg_core_packet(const uint8_t *p) {
     borg_upload_texture_row(p + 2 + 16, y, BC_TEX_DIM);
     return BC_TEXROW;
   }
-  case 0xB0: { // borgc shader upload
+  case 0xB0:
+  case 0xC1: { // borgc shader upload
     uint8_t stage = p[1];
     uint32_t blen = (uint32_t)p[2] | ((uint32_t)p[3] << 8);
-    if (stage > 1 || blen < 6 || blen > BC_SHADER_MAX) return BC_BAD;
+    if (stage > 1 || blen < 6 || blen > (p[0] == 0xC1 ? BC_SHADER_MAX_BIG : BC_SHADER_MAX)) return BC_BAD;
     borg_stage_shader(stage, p + 4);
     return stage == 0 ? BC_SHADER_VERT : BC_SHADER_FRAG;
   }
@@ -724,7 +735,7 @@ int borg_core_packet(const uint8_t *p) {
 #ifdef BORG_HOST
   case 0xB6: { // render target: flush format + clear colour (4 x float32)
     int fmt = p[1];
-    if (fmt > 3 && fmt != 4 && fmt != 5) return BC_BAD;
+    if (fmt > 7) return BC_BAD;
     if (fmt != g_flush_format) {
       g_flush_format = fmt;
       core_apply_layout();
@@ -741,7 +752,7 @@ int borg_core_packet(const uint8_t *p) {
   }
   case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT
     int fmt = p[1];
-    if ((fmt > 3 && fmt != 4 && fmt != 5) || p[2] > 7) return BC_BAD;
+    if (fmt > 7 || p[2] > 7) return BC_BAD;
     if (fmt != g_flush_format) {
       g_flush_format = fmt;
       core_apply_layout();
@@ -807,7 +818,7 @@ int borg_core_packet(const uint8_t *p) {
     return BC_STATE;
   case 0xB5: { // generic texture chunk: texel byte offset, nbytes, descriptor words 1..3, sampler, texels
     uint32_t off = le32(p + 1), nb = (uint32_t)p[5] | ((uint32_t)p[6] << 8);
-    if (nb > BC_TEXG_DATA || (off & 3u) || off + nb > TEX_REGION_BYTES - 256) return BC_BAD;
+    if (nb > BC_TEXG_DATA || (off & 3u) || off + nb > BC_TEXEL_BYTES) return BC_BAD;
     uint32_t w[3], samp[4];
     for (int i = 0; i < 3; i++) w[i] = le32(p + 7 + i * 4);
     for (int i = 0; i < 4; i++) samp[i] = le32(p + 19 + i * 4);
