@@ -38,10 +38,11 @@ measured in a broken environment and is withdrawn. Groups not listed have **not 
 | memory.mapping | 4,466 | 811 | 3,655 | 0 | |
 | pipeline.monolithic.sampler.view_type (1d, 2d) | 21,286 | 3,170 | 18,116 | 0 | after the stencil/alpha fix, whole subgroup |
 | pipeline.monolithic.sampler (unnormalized 1d/2d, separate_stencil_usage, exact_sampling, max_sampler_lod_bias) | 6,465 | 1,155 | 5,310 | 0 | the 268 earlier failures rerun: all Pass; the rest of the subgroups not rerun after the RAW64/RAW128 change |
+| pipeline.monolithic.sampler.border_swizzle (r8_unorm, r8g8b8a8_unorm, r8g8b8a8_srgb) | 3,840 | 555 | 3,285 | 0 | 3 of 88 formats; 105,600 cases in the subgroup |
 | pipeline.monolithic.sampler (array, 3D, cube sample) | 240 | 215 | 25 | 0 | sample, not the whole group |
 
 Sampler NotSupported cases are mostly `customBorderColors`, compute-queue variants, `VK_KHR_maintenance5` and formats
-the texture unit lacks (a8, a1b5g5r5, scaled, ASTC, ETC2). Not yet run in the sampler group: `border_swizzle` (105,600), 3d, 2d_array, 1d_array, cube, cube_array (only the sample above). Not yet rerun: pipeline (other than the rows above), glsl,
+the texture unit lacks (a8, a1b5g5r5, scaled, ASTC, ETC2). Not yet run in the sampler group: the other 85 `border_swizzle` formats, 3d, 2d_array, 1d_array, cube, cube_array (only the sample above). Not yet rerun: pipeline (other than the rows above), glsl,
 image, texture, synchronization, ssbo, ubo, spirv_assembly, query_pool, rasterization, the rest.
 
 T1 = tier 1, T2 = tier 2 (QEMU + DRM driver), T3 = tier 3 (ULX3S); see above.
