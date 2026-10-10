@@ -26,7 +26,7 @@ Order of work: tier 1 for all groups, the GEM allocator with its QEMU tests and 
 
 ## Results per tier, all groups
 
-Tier 1 only (host `deqp-vk` + borgvk + DRM shim + `direct_sim`), CTS 1.4.6.2, as of 2026-10-08. Every row is a run of that
+Tier 1 only (host `deqp-vk` + borgvk + DRM shim + `direct_sim`), CTS 1.4.6.2, as of 2026-10-10. Every row is a run of that
 group alone with its own command; no mustpass filter unless stated. The earlier all-groups table (6.6% Pass) was
 measured in a broken environment and is withdrawn. Groups not listed have **not been rerun**; that is not a result.
 
@@ -41,8 +41,10 @@ measured in a broken environment and is withdrawn. Groups not listed have **not 
 | pipeline.monolithic.sampler.border_swizzle | 105,600 | 14,370 | 91,230 | 0 | all 88 formats, run in batches between fixes, not in one run |
 | pipeline.monolithic.sampler (array, 3D, cube sample) | 240 | 215 | 25 | 0 | sample, not the whole group |
 
-Sampler NotSupported cases are mostly `customBorderColors`, compute-queue variants, `VK_KHR_maintenance5` and formats
-the texture unit lacks (a8, a1b5g5r5, scaled, ASTC, ETC2). Not yet run in the sampler group: 3d, 2d_array, 1d_array, cube, cube_array (only the sample above). Not yet rerun: pipeline (other than the rows above), glsl,
+Sampler NotSupported cases are mostly `VK_EXT_border_color_swizzle`, `customBorderColors`, compute-queue variants,
+`VK_KHR_maintenance5` and formats the texture unit lacks (a8, a1b5g5r5, scaled, 10-bit SNORM/SINT, ASTC, ETC2). Combined
+depth/stencil formats have 25 applicable `border_swizzle` cases each (185 for plain depth): a swizzle to one or alpha
+on them needs `depthStencilSwizzleOneSupport` from `VK_KHR_maintenance5`. Not yet run in the sampler group: 3d, 2d_array, 1d_array, cube, cube_array (only the sample above). Not yet rerun: pipeline (other than the rows above), glsl,
 image, texture, synchronization, ssbo, ubo, spirv_assembly, query_pool, rasterization, the rest.
 
 T1 = tier 1, T2 = tier 2 (QEMU + DRM driver), T3 = tier 3 (ULX3S); see above.
