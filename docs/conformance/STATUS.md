@@ -96,6 +96,41 @@ list but the test binary does not create it on this device. Cases = the size of 
 | imageless_framebuffer | 6 | 6 | 0 | 6 | 0 | 0 |
 | **Total** | **1,760,959** | **10,237** | **4** | **10,201** | **32** | **0** |
 
+### Samples of the Vulkan 1.0 groups not yet run
+
+Not full runs: 150 random cases per group (300 for the small `pipeline.monolithic` subgroups together), fixed
+seed, 2026-10-10, 60 s per case. These groups have real failures; the sample says where, not how many.
+
+| Group | Cases | Sampled | Pass | NotSupp | NotPresent | Fail | Timeout |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| binding_model | 146,955 | 150 | 1 | 132 | 0 | 17 | 0 |
+| image | 142,447 | 150 | 4 | 143 | 0 | 3 | 0 |
+| pipeline.monolithic.image | 122,912 | 150 | 6 | 140 | 0 | 4 | 0 |
+| renderpasses | 79,817 | 150 | 0 | 149 | 1 | 0 | 0 |
+| spirv_assembly | 68,603 | 150 | 0 | 149 | 0 | 1 | 0 |
+| synchronization | 64,871 | 150 | 0 | 150 | 0 | 0 | 0 |
+| compute | 60,811 | 150 | 0 | 148 | 0 | 2 | 0 |
+| pipeline.monolithic.stencil | 58,496 | 150 | 109 | 41 | 0 | 0 | 0 |
+| pipeline.monolithic.sampler (3d, arrays, cube) | 48,684 | 150 | 21 | 129 | 0 | 0 | 0 |
+| pipeline.monolithic, the other subgroups | 29,596 | 300 | 0 | 285 | 8 | 7 | 0 |
+| draw | 29,392 | 150 | 1 | 149 | 0 | 0 | 0 |
+| pipeline.monolithic.image_view | 27,708 | 150 | 32 | 118 | 0 | 0 | 0 |
+| glsl | 26,801 | 150 | 5 | 80 | 0 | 57 | 8 |
+| texture | 25,669 | 150 | 0 | 113 | 0 | 36 | 1 |
+| query_pool | 18,270 | 150 | 1 | 143 | 2 | 4 | 0 |
+| rasterization | 15,079 | 150 | 1 | 149 | 0 | 0 | 0 |
+| pipeline.monolithic.vertex_input | 13,296 | 150 | 0 | 30 | 87 | 33 | 0 |
+| ubo | 13,240 | 150 | 2 | 123 | 0 | 25 | 0 |
+| pipeline.monolithic.blend | 12,226 | 150 | 6 | 127 | 0 | 17 | 0 |
+| ssbo | 12,225 | 150 | 1 | 114 | 0 | 35 | 0 |
+| pipeline.monolithic.multisample | 10,576 | 150 | 1 | 149 | 0 | 0 | 0 |
+| graphicsfuzz | 757 | 150 | 38 | 12 | 1 | 90 | 9 |
+| dynamic_state | 671 | 150 | 13 | 135 | 0 | 2 | 0 |
+| clipping | 308 | 150 | 10 | 140 | 0 | 0 | 0 |
+| fragment_operations | 151 | 150 | 3 | 105 | 0 | 42 | 0 |
+| depth | 8 | 8 | 0 | 8 | 0 | 0 | 0 |
+| **Total** | **1,029,569** | **3,908** | **255** | **3,161** | **99** | **375** | **18** |
+
 T1 = tier 1, T2 = tier 2 (QEMU + DRM driver), T3 = tier 3 (ULX3S); see above.
 
 Tier 2 has run the driver's own tests in QEMU (whitelist), and tier 3 renders `vkcube`; neither is a CTS case.
