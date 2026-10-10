@@ -49,6 +49,53 @@ depth/stencil formats have 25 applicable `border_swizzle` cases each (185 for pl
 on them needs `depthStencilSwizzleOneSupport` from `VK_KHR_maintenance5`. Not yet run in the sampler group: 3d, 2d_array, 1d_array, cube, cube_array (only the sample above). Not yet rerun: pipeline (other than the rows above), glsl,
 image, texture, synchronization, ssbo, ubo, spirv_assembly, query_pool, rasterization, the rest.
 
+### Samples of the groups that are mostly optional features
+
+Not full runs: up to 300 random cases per group (two batches of 150, fixed seed), 2026-10-10, same setup as above.
+A sample with no Pass does not prove the whole group is NotSupported. NotPresent: the case is in the CTS case
+list but the test binary does not create it on this device. Cases = the size of the group in that list.
+
+| Group | Cases | Sampled | Pass | NotSupp | NotPresent | Fail |
+|---|---:|---:|---:|---:|---:|---:|
+| pipeline.shader_object_unlinked_spirv | 381,002 | 300 | 0 | 299 | 1 | 0 |
+| shader_object | 242,412 | 300 | 0 | 300 | 0 | 0 |
+| transform_feedback | 133,704 | 300 | 0 | 300 | 0 | 0 |
+| pipeline.fast_linked_library | 131,667 | 300 | 0 | 294 | 6 | 0 |
+| pipeline.pipeline_library | 119,750 | 300 | 0 | 300 | 0 | 0 |
+| fragment_shading_rate | 110,443 | 300 | 0 | 300 | 0 | 0 |
+| robustness | 96,963 | 300 | 2 | 298 | 0 | 0 |
+| synchronization2 | 81,618 | 300 | 0 | 300 | 0 | 0 |
+| ycbcr | 65,477 | 300 | 0 | 300 | 0 | 0 |
+| cooperative_vector | 53,562 | 300 | 0 | 300 | 0 | 0 |
+| subgroups | 48,705 | 300 | 0 | 300 | 0 | 0 |
+| ray_query | 38,894 | 300 | 0 | 300 | 0 | 0 |
+| wsi | 35,917 | 300 | 1 | 299 | 0 | 0 |
+| mesh_shader | 28,043 | 300 | 0 | 298 | 2 | 0 |
+| pipeline.shader_object_unlinked_binary | 24,354 | 300 | 0 | 300 | 0 | 0 |
+| pipeline.shader_object_linked_spirv | 24,354 | 300 | 0 | 300 | 0 | 0 |
+| pipeline.shader_object_linked_binary | 24,354 | 300 | 0 | 300 | 0 | 0 |
+| fragment_shading_barycentric | 20,991 | 300 | 0 | 300 | 0 | 0 |
+| ray_tracing_pipeline | 19,207 | 300 | 0 | 294 | 6 | 0 |
+| sparse_resources | 19,150 | 300 | 0 | 295 | 5 | 0 |
+| memory_model | 17,300 | 300 | 1 | 299 | 0 | 0 |
+| data_graph | 10,176 | 300 | 0 | 300 | 0 | 0 |
+| video | 9,309 | 300 | 0 | 298 | 2 | 0 |
+| reconvergence | 6,253 | 300 | 0 | 300 | 0 | 0 |
+| protected_memory | 6,000 | 300 | 0 | 300 | 0 | 0 |
+| dgc | 4,587 | 300 | 0 | 294 | 6 | 0 |
+| drm_format_modifiers | 1,572 | 300 | 0 | 300 | 0 | 0 |
+| tessellation | 1,103 | 300 | 0 | 300 | 0 | 0 |
+| conditional_rendering | 1,030 | 300 | 0 | 300 | 0 | 0 |
+| tensor | 844 | 300 | 0 | 300 | 0 | 0 |
+| multiview | 694 | 300 | 0 | 300 | 0 | 0 |
+| image_processing | 611 | 300 | 0 | 300 | 0 | 0 |
+| fragment_shader_interlock | 576 | 300 | 0 | 300 | 0 | 0 |
+| geometry | 199 | 199 | 0 | 199 | 0 | 0 |
+| descriptor_indexing | 114 | 114 | 0 | 110 | 4 | 0 |
+| device_group | 18 | 18 | 0 | 18 | 0 | 0 |
+| imageless_framebuffer | 6 | 6 | 0 | 6 | 0 | 0 |
+| **Total** | **1,760,959** | **10,237** | **4** | **10,201** | **32** | **0** |
+
 T1 = tier 1, T2 = tier 2 (QEMU + DRM driver), T3 = tier 3 (ULX3S); see above.
 
 Tier 2 has run the driver's own tests in QEMU (whitelist), and tier 3 renders `vkcube`; neither is a CTS case.
