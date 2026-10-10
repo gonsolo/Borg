@@ -117,7 +117,7 @@ collect() {     # per-case results of the run directories given
 }
 start=$(date +%s)
 : > "$OUT/chunk_times.txt"
-ls "$OUT"/chunks/c* 2>/dev/null | xargs -r -P "$JOBS" -I{} bash -c 'run_chunk {}'
+find "$OUT/chunks" -type f -name 'c*' 2>/dev/null | sort | xargs -r -P "$JOBS" -I{} bash -c 'run_chunk {}'
 collect "$OUT"/run_c* > "$OUT/results.txt"
 # A crash takes the rest of its chunk with it: run the cases that have no result one by one.
 awk '{print $2}' "$OUT/results.txt" | sort -u > "$OUT/have.txt"
@@ -126,7 +126,7 @@ if [[ -s "$OUT/missing.txt" ]]; then
   echo "$(wc -l < "$OUT/missing.txt") cases without a result (a crash in their chunk): run singly"
   mkdir -p "$OUT/singles"
   split -l 1 -d -a 5 "$OUT/missing.txt" "$OUT/singles/s"
-  ls "$OUT"/singles/s* | TMO="${CASE_TIMEOUT:-120}" xargs -r -P "$JOBS" -I{} bash -c 'TMO='"${CASE_TIMEOUT:-120}"' run_chunk {}'
+  find "$OUT/singles" -type f -name 's*' | sort | TMO="${CASE_TIMEOUT:-120}" xargs -r -P "$JOBS" -I{} bash -c 'TMO='"${CASE_TIMEOUT:-120}"' run_chunk {}'
   collect "$OUT"/run_s* >> "$OUT/results.txt"
   awk '{print $2}' "$OUT/results.txt" | sort -u > "$OUT/have.txt"
   comm -23 "$OUT/missing.txt" "$OUT/have.txt" | awk '{print "Crash", $1, "(no result)"}' >> "$OUT/results.txt"
