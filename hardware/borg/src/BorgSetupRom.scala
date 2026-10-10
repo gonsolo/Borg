@@ -265,6 +265,29 @@ private[borg] object BorgSetupRom {
       p += IAND(rs1 = g, rs2 = m, rd = g)
       p += IXOR(rs1 = zc, rs2 = g, rd = zc)
     }
+    // Flat depth (the same Z and the same W at every corner: a point's quad) gets the exact
+    // plane Zn = Z/W. Rebuilt from the edge planes, a one-pixel triangle came out 2^-20 off.
+    locally {
+      val (f, g, m, z, r) = (12, 13, 14, 15, 16)
+      p += ADD(rs1 = uZ(0), rs2 = zero, rd = z, funct3 = U1)
+      p += ISEQ(rs1 = uZ(1), rs2 = z, rd = f, funct3 = U1)
+      p += ISEQ(rs1 = uZ(2), rs2 = z, rd = g, funct3 = U1)
+      p += IAND(rs1 = f, rs2 = g, rd = f)
+      for (k <- 1 until 3) {
+        p += ISEQ(rs1 = rW(0), rs2 = rW(k), rd = g)
+        p += IAND(rs1 = f, rs2 = g, rd = f)
+      }
+      p += ISUB(rs1 = zero, rs2 = f, rd = m)
+      rcp(rW(0), rNW(0), r, g, steps = 2)
+      p += MUL(rs1 = z, rs2 = r, rd = z)
+      for (acc <- Seq(za, zb)) {
+        p += IAND(rs1 = acc, rs2 = m, rd = g)
+        p += IXOR(rs1 = acc, rs2 = g, rd = acc)
+      }
+      p += IXOR(rs1 = zc, rs2 = z, rd = g)
+      p += IAND(rs1 = g, rs2 = m, rd = g)
+      p += IXOR(rs1 = zc, rs2 = g, rd = zc)
+    }
     p += SOUT(rs2 = za, index = Record.plane(3))
     p += SOUT(rs2 = zb, index = Record.plane(3) + 1)
     p += SOUT(rs2 = zc, index = Record.plane(3) + 2)
