@@ -135,6 +135,11 @@ if [[ -s "$OUT/missing.txt" ]]; then
     c=$(cat "$OUT/singles/$(basename "${rc%.rc}" | sed s/^run_//)")
     sed -i "s|^Crash $c (no result)|Timeout $c (time limit)|" "$OUT/results.txt"
   done
+  for rc in "$OUT"/run_s*.rc; do   # a single that ended cleanly without running: the case is not in the tree
+    [[ "$(cat "$rc")" == 0 ]] || continue
+    c=$(cat "$OUT/singles/$(basename "${rc%.rc}" | sed s/^run_//)")
+    sed -i "s|^Crash $c (no result)|NotPresent $c (not in the test tree on this device)|" "$OUT/results.txt"
+  done
 fi
 elapsed=$(( $(date +%s) - start ))
 sort -rn "$OUT/chunk_times.txt" -o "$OUT/chunk_times.txt"    # slowest chunks first
