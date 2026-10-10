@@ -30,6 +30,7 @@ extern "C" {
 #define BC_GEOM_MAX_TRIS  12
 #define BC_TEX_DIM        64
 #define BC_SHADER_MAX     512
+#define BC_SHADER_MAX_BIG 1024   // marker 0xC1: the same packet for a blob of more than BC_SHADER_MAX bytes
 #define BC_TEXG_DATA      256
 #define BC_PUSH_MAX_WORDS 32
 
@@ -37,6 +38,7 @@ extern "C" {
 #define BC_PKT_LEN_GEOM    (1 + 2 + BC_GEOM_MAX_VERTS * 12 + BC_GEOM_MAX_TRIS * 3 + BC_GEOM_MAX_TRIS * 24 + 1)
 #define BC_PKT_LEN_TEXROW  (1 + 1 + 16 + BC_TEX_DIM * 4 + 1)
 #define BC_PKT_LEN_SHADER  (1 + 1 + 2 + BC_SHADER_MAX + 1)
+#define BC_PKT_LEN_SHADER_BIG (1 + 1 + 2 + BC_SHADER_MAX_BIG + 1)
 #define BC_PKT_LEN_PUSH    (1 + 1 + 1 + BC_PUSH_MAX_WORDS * 4 + 1)
 #define BC_PKT_LEN_BLEND   (1 + 4 + 4 + 1)
 #define BC_PKT_LEN_STATE   (1 + 5 * 4 + 1)
@@ -50,7 +52,7 @@ extern "C" {
 #define BC_PKT_LEN_TEXL    (1 + 12 * 4 + 1)                // 0xC0 (host only): byte offsets of texture levels 1..12
 #define BC_PKT_LEN_PASS    (1 + 1 + 1 + 1)                 // 0xBB (host only): render pass attachments
 #define BC_PKT_LEN_ATT     (1 + 1 + 3 + 1)                 // 0xBF (host only): colour attachment count and formats 1-3
-#define BC_PKT_LEN_MAX     BC_PKT_LEN_MEM
+#define BC_PKT_LEN_MAX     BC_PKT_LEN_SHADER_BIG
 
 // Fixed length of the packet starting with `marker`; 0 for a marker that is not
 // a draw packet (0xB1 is the serial-reload trigger, handled by the platform).
