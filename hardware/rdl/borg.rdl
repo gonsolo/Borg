@@ -445,8 +445,14 @@ reg flush_format_reg_t {
     } format[3] = 0;
 
     field {
+        sw = rw; hw = r;
+        desc = "No colour attachment: the colour burst is skipped (depth and
+                stencil are stored as usual). Use format 0 with it.";
+    } nocolor[1] = 0;
+
+    field {
         sw = rw; hw = na;
-    } RSVD[29] = 0;
+    } RSVD[28] = 0;
 };
 
 // --- Shader program image in DRAM (instruction cache backing store) ---

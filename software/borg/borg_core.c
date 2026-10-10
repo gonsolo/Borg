@@ -71,6 +71,7 @@ static uint32_t g_att_fmt = 0;         // flush formats of attachments 1-3, 3 bi
 #define BC_TEXEL_BASE  TEX_TEXEL_ADDR
 #define BC_TEXEL_BYTES (TEX_REGION_BYTES - 256)
 #endif
+static int g_nocolor = 0;              // the pass has no colour attachment
 static int g_flush_format = 0;         // FlushFormat: 0 R5G6B5 (2 B/px), 1 R8G8B8A8, 2 B8G8R8A8, 3 RAW32 (4 B/px), 4 RAW16 (2 B/px), 5 RAW8 (1 B/px), 6 RAW64 (8 B/px), 7 RAW128 (16 B/px)
 static uint32_t flush_bytes_per_pixel(int f) { return f == 5 ? 1u : f == 4 ? 2u : f == 6 ? 8u : f == 7 ? 16u : f ? 4u : 2u; }
 
@@ -109,7 +110,7 @@ static void core_apply_layout(void) {
   const int width = borg_fb_width, height = borg_fb_height;
   const uint32_t frame_stride = frame_stride_words();
   BREG_W(flush_fb_base, DRAM_OUT_SPI(0));
-  BREG_W(flush_format, g_flush_format);
+  BREG_W(flush_format, g_flush_format | g_nocolor << 3);
   unsigned int log2_w = 0;
   for (unsigned int w = (unsigned int)width; w > 1; w >>= 1) log2_w++;
   BREG_W(flush_width, log2_w);
@@ -750,11 +751,12 @@ int borg_core_packet(const uint8_t *p) {
     g_att_fmt = (uint32_t)p[2] | (uint32_t)p[3] << 3 | (uint32_t)p[4] << 6;
     return BC_ATT;
   }
-  case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT
+  case 0xBB: { // pass: colour flush format; flags bit 0 depth attachment, 1 stencil, 2 D32_SFLOAT, 3 no colour
     int fmt = p[1];
-    if (fmt > 7 || p[2] > 7) return BC_BAD;
-    if (fmt != g_flush_format) {
+    if (fmt > 7 || p[2] > 15) return BC_BAD;
+    if (fmt != g_flush_format || (p[2] >> 3) != g_nocolor) {
       g_flush_format = fmt;
+      g_nocolor = p[2] >> 3;
       core_apply_layout();
     }
     BREG_W(flush_zb_base, (p[2] & 1) ? BORG_ZB_SPI : 0);

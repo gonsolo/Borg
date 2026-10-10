@@ -660,6 +660,7 @@ class Borg(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     f.io.alpha.foreach(_ := tile.io.alphaRead.get)
     f.io.ext.foreach(_ := tile.io.extRead.get)
     f.io.format    := attFormat
+    f.io.colorOff  := rdlRegs.io.hw.flush_format_nocolor
     // Autonomous tiles are addressed from the sequencer's tile offset (in
     // 32-byte units, one RGB565 tile). A 32-bit colour format doubles the
     // colour tile; the depth tile (D16_UNORM, 16 x 2 bytes) never changes.
