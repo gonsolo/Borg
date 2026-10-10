@@ -37,7 +37,7 @@ measured in a broken environment and is withdrawn. Groups not listed have **not 
 | memory.allocation | 202 | 202 | 0 | 0 | |
 | memory.mapping | 4,466 | 811 | 3,655 | 0 | |
 | pipeline.monolithic.sampler.view_type (1d, 2d) | 21,286 | 3,170 | 18,116 | 0 | after the stencil/alpha fix, whole subgroup |
-| pipeline.monolithic.sampler (unnormalized 1d/2d, separate_stencil_usage, exact_sampling, max_sampler_lod_bias) | 6,465 | 1,101 | 5,310 | 54 | the 54 are RAW64/RAW128 colour targets (`r32g32`, `r16g16b16*`, `r32g32b32*`) |
+| pipeline.monolithic.sampler (unnormalized 1d/2d, separate_stencil_usage, exact_sampling, max_sampler_lod_bias) | 6,465 | 1,155 | 5,310 | 0 | the 268 earlier failures rerun: all Pass; the rest of the subgroups not rerun after the RAW64/RAW128 change |
 | pipeline.monolithic.sampler (array, 3D, cube sample) | 240 | 215 | 25 | 0 | sample, not the whole group |
 
 Sampler NotSupported cases are mostly `customBorderColors`, compute-queue variants, `VK_KHR_maintenance5` and formats
