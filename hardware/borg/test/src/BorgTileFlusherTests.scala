@@ -317,6 +317,63 @@ object BorgTileFlusherTests extends TestSuite {
       }
     }
 
+    utest.test("colorOff skips the colour burst, depth is still stored") {
+      simulate(new BorgTileFlusher(16, 1, hasDepthFlush = true)) { dut =>
+        var cycle = 0
+        var pipe0: Option[Int] = None
+        var pipe1: Option[Int] = None
+        var bursts = Seq[BigInt]()
+        var wasWr = false
+
+        def step(n: Int = 1): Unit = for (_ <- 0 until n) {
+          pipe1.foreach { i =>
+            dut.io.read.data.foreach { s =>
+              s.r.poke(entR(i).U); s.g.poke(entG(i).U)
+              s.b.poke(entB(i).U); s.z.poke(dz(i).U)
+            }
+          }
+          val en  = dut.io.read.en.peek().litToBoolean
+          val idx = dut.io.read.idx.peek().litValue.toInt
+          pipe1 = pipe0
+          pipe0 = if (en) Some(idx) else None
+          val wr = dut.io.gpuMem.wr.peek().litToBoolean
+          if (wr && !wasWr) bursts :+= dut.io.gpuMem.addr.peek().litValue
+          wasWr = wr
+          dut.clock.step()
+          cycle += 1
+          Predef.assert(cycle < 5000, "TIMEOUT")
+        }
+
+        dut.reset.poke(true.B); step(4)
+        dut.reset.poke(false.B)
+        dut.io.format.poke(FlushFormat.RGB565.U)
+        dut.io.colorOff.poke(true.B)
+        dut.io.start.poke(false.B)
+        dut.io.tileBase.poke(0x2000.U)
+        dut.io.depthBase.get.poke(0x9000.U)
+        dut.io.depthEn.get.poke(true.B)
+        dut.io.gpuMem.ready.poke(false.B)
+        dut.io.gpuMem.waccept.poke(false.B)
+        dut.io.gpuMem.data.poke(0.U)
+        step(2)
+
+        dut.io.start.poke(true.B); step()
+        dut.io.start.poke(false.B)
+
+        var guard = 0
+        while (!dut.io.gpuMem.wr.peek().litToBoolean && guard < 500) { step(); guard += 1 }
+        Predef.assert(guard < 500, "depth burst never started")
+        for (_ <- 0 until 15) {
+          dut.io.gpuMem.waccept.poke(true.B); step()
+          dut.io.gpuMem.waccept.poke(false.B)
+        }
+        dut.io.gpuMem.ready.poke(true.B); step()
+        dut.io.gpuMem.ready.poke(false.B); step(20)
+        Predef.assert(!dut.io.busy.peek().litToBoolean, "flusher still busy after the depth-only flush")
+        Predef.assert(bursts == Seq(BigInt(0x9000)), s"expected one burst at the depth base, got $bursts")
+      }
+    }
+
     utest.test("flusher streams 16 RGB565 words in one burst, correct order") {
       simulate(new BorgTileFlusher) { dut =>
         var cycle = 0

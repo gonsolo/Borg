@@ -125,6 +125,8 @@ class BorgTileFlusherIO(val dataBits: Int = 16, val samples: Int = 1,
   // attachment bound skips the second burst entirely (straight to sIdle),
   // costing only the state check.
   val depthEn   = if (hasDepthFlush) Some(Input(Bool())) else None
+  // No colour attachment: skip the colour burst (the fill still stages depth and stencil).
+  val colorOff  = Input(Bool())
 }
 
 /** BorgTileFlusher -- bulk DMA from tile SRAM to DRAM, one burst per tile.
@@ -472,6 +474,9 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
   // half of it for the 4-byte ones, a quarter for RAW64 (see the class doc).
   val fillEnd = Mux(fmt64, Cat(part +& 1.U, 0.U(2.W)), Mux(wide && part === 0.U, 8.U, 16.U))
 
+  val colorOffReg = RegInit(false.B)
+  def afterColor: UInt = if (hasDepthFlush) Mux(io.depthEn.get, sBurstZ, afterDepth) else afterDepth
+
   switch(state) {
     is(sIdle) {
       when(io.start) {
@@ -481,6 +486,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         d32Reg    := io.depthD32.getOrElse(false.B)
         zHalf     := false.B
         formatReg := io.format
+        colorOffReg := io.colorOff
         // Per sample: one given sample (msaaMultiPass), else all in turn.
         val ms = io.msStore.getOrElse(false.B)
         msReg      := ms
@@ -506,6 +512,10 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
       }
       when(capIdx === fillEnd) {
         state := sBurst
+        when(colorOffReg) {
+          when(!lastPart) { part := part + 1.U; state := sFill }
+            .otherwise { state := afterColor }
+        }
       }
     }
     is(sBurst) {
@@ -528,11 +538,7 @@ class BorgTileFlusher(val dataBits: Int = 16, val samples: Int = 1,
         }.otherwise {
           // With depth disabled (or not built at all) this is the historical
           // sBurst -> sIdle edge, unchanged.
-          if (hasDepthFlush) {
-            state := Mux(io.depthEn.get, sBurstZ, afterDepth)
-          } else {
-            state := afterDepth
-          }
+          state := afterColor
         }
       }
     }
