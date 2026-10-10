@@ -40,7 +40,7 @@ measured in a broken environment and is withdrawn. Groups not listed have **not 
 | pipeline.monolithic.sampler (unnormalized 1d/2d, separate_stencil_usage, exact_sampling, max_sampler_lod_bias) | 6,465 | 1,155 | 5,310 | 0 | the 268 earlier failures rerun: all Pass |
 | pipeline.monolithic.sampler.border_swizzle | 105,600 | 14,370 | 91,230 | 0 | all 88 formats, run in batches between fixes, not in one run |
 | pipeline.monolithic.sampler (array, 3D, cube sample) | 240 | 215 | 25 | 0 | sample, not the whole group |
-| pipeline.monolithic.sampler, regression set (rerun 2026-10-10) | 27,033 | 4,003 | 23,030 | 0 | the 1d/2d and small-subgroup rows above in one run, after all later changes |
+| pipeline.monolithic.sampler, regression set (rerun 2026-10-10) | 27,033 | 4,003 | 23,030 | 0 | view_type 1d, 2d (normalized and unnormalized) and separate_stencil_usage in one run, after all later changes |
 | pipeline.monolithic.depth | 8,521 | 1,871 | 5,822 | 828 | whole subgroup; every failure is a line list (borgvk does not draw lines yet) |
 
 Sampler NotSupported cases are mostly `VK_EXT_border_color_swizzle`, `customBorderColors`, compute-queue variants,
