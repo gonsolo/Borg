@@ -37,9 +37,11 @@ measured in a broken environment and is withdrawn. Groups not listed have **not 
 | memory.allocation | 202 | 202 | 0 | 0 | |
 | memory.mapping | 4,466 | 811 | 3,655 | 0 | |
 | pipeline.monolithic.sampler.view_type (1d, 2d) | 21,286 | 3,170 | 18,116 | 0 | after the stencil/alpha fix, whole subgroup |
-| pipeline.monolithic.sampler (unnormalized 1d/2d, separate_stencil_usage, exact_sampling, max_sampler_lod_bias) | 6,465 | 1,155 | 5,310 | 0 | the 268 earlier failures rerun: all Pass; the rest of the subgroups not rerun after the RAW64/RAW128 change |
+| pipeline.monolithic.sampler (unnormalized 1d/2d, separate_stencil_usage, exact_sampling, max_sampler_lod_bias) | 6,465 | 1,155 | 5,310 | 0 | the 268 earlier failures rerun: all Pass |
 | pipeline.monolithic.sampler.border_swizzle | 105,600 | 14,370 | 91,230 | 0 | all 88 formats, run in batches between fixes, not in one run |
 | pipeline.monolithic.sampler (array, 3D, cube sample) | 240 | 215 | 25 | 0 | sample, not the whole group |
+| pipeline.monolithic.sampler, regression set (rerun 2026-10-10) | 27,033 | 4,003 | 23,030 | 0 | the 1d/2d and small-subgroup rows above in one run, after all later changes |
+| pipeline.monolithic.depth | 8,521 | 1,871 | 5,822 | 828 | whole subgroup; every failure is a line list (borgvk does not draw lines yet) |
 
 Sampler NotSupported cases are mostly `VK_EXT_border_color_swizzle`, `customBorderColors`, compute-queue variants,
 `VK_KHR_maintenance5` and formats the texture unit lacks (a8, a1b5g5r5, scaled, 10-bit SNORM/SINT, ASTC, ETC2). Combined
