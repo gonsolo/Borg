@@ -26,6 +26,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VK_GL_CTS="${VK_GL_CTS:-$HOME/src/VK-GL-CTS-1.4.6.2}"
 OUT="${OUT:-/tmp/borg-cts-par}"
 JOBS="${JOBS:-$(nproc)}"
+# Each worker's driver keeps one simulator per strip of a large pass (and per slice of a compute
+# grid): SIM_BUDGET caps the simulator processes of all workers together.
+SIM_BUDGET="${SIM_BUDGET:-10}"
+(( JOBS > SIM_BUDGET )) && JOBS=$SIM_BUDGET
+SIMS=$(( SIM_BUDGET / JOBS )); (( SIMS < 1 )) && SIMS=1
+export BORGVK_SERVE_PARTS="${BORGVK_SERVE_PARTS:-$SIMS}" BORGVK_CS_PARTS="${BORGVK_CS_PARTS:-$SIMS}"
 DEQP_DIR="$VK_GL_CTS/build/external/vulkancts/modules/vulkan"
 [[ $# -eq 1 ]] || { sed -n 2,6p "$0"; exit 2; }
 # CASELIST=file: run exactly the cases in that file (one per line); the pattern is a label.
