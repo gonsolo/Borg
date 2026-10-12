@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Recompile the corpus cases and compare every shader byte for byte with ref/.
-#   scripts/borgc_corpus/check.sh [NEW_DIR]     (about 5 minutes, 12 workers)
-# Needs a built mesa (MESA_ROOT, default ./mesa) and VK_GL_CTS as for cts_par.sh.
+# Recompile the corpus cases and compare every blob with ref/ (about 4 minutes).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
