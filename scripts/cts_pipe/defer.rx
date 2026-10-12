@@ -1,0 +1,8 @@
+monolithic\.blend\..*r16g16b16a16_sfloat
+descriptor_limits\.compute_shader\.samplers_
+descriptor_limits\.compute_shader\.storage_images_
+descriptor_limits\.fragment_shader\.(uniform_buffers|storage_buffers|storage_images)_
+dynamic_offset\.combined_descriptors\.
+monolithic\.empty_fs\.
+monolithic\.framebuffer_attachment\.
+monolithic\.image\..*view_type\.cube.*13x13
