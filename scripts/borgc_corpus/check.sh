@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Recompile the corpus cases and compare every blob with ref/ (about 4 minutes).
+# Recompile the corpus cases and compare every blob with ref/ (about 12 minutes).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
