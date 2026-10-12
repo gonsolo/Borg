@@ -204,6 +204,8 @@ notebook. Toolchain quirks specific to that workflow:
 
 ## Conventions to know
 
+- Keep code compact: no chatty comments. One short line at most, only where the reason is not visible in the code. Explanations go in the commit history and `docs/book`.
+
 - Don't recreate the deleted TinyQV CPU or its nibble-serial QSPI protocol — Hutt's `Decoupled` buses are the current contract.
 - Always create new commits; don't amend or force-push without explicit user OK.
 - The top Makefile's `HAND_CHISEL` `find` paths (Verilog stamp dependencies) list `fpga/ulx3s/soc/src` and `asic/wafer/src`; `simulation/common.mk`'s `CHISEL_SRCS` is the simulator-side equivalent. A new Chisel source directory must be added to both, or edits there silently stop triggering re-emission.
