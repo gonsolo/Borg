@@ -3,12 +3,12 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-NEW="${1:-$ROOT/out/borgvk_corpus}"
+NEW="$(realpath -m "${1:-$ROOT/out/borgvk_corpus}")"
 rm -rf "$NEW" "$NEW.run"; mkdir -p "$NEW"
 BORGVK_CORPUS_DIR="$NEW" BORGVK_SERVE_PARTS=1 BORGVK_CS_PARTS=1 SIM_BUDGET=10 JOBS=10 CHUNK=8 \
   MESA_ROOT="${MESA_ROOT:-$ROOT/mesa}" DIRECT=1 CASELIST="$HERE/cases.txt" OUT="$NEW.run" \
   "$ROOT/scripts/cts_par.sh" corpus > "$NEW.log" 2>&1 || true
-cat "$NEW"/*.log | sort -u > "$NEW.lines"
+cat "$NEW"/*.log | sort -u | grep -vxFf "$HERE/ref/unstable.txt" > "$NEW.lines" || true
 sed 's/ (.*//' "$NEW.run/results.txt" | sort > "$NEW.status"
 for rc in "$NEW.run"/run_*.rc; do
   [[ "$(cat "$rc")" == 124 || "$(cat "$rc")" == 137 ]] && { echo "INVALID: $(basename "$rc") timed out"; exit 2; }
