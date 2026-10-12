@@ -115,8 +115,8 @@ with `SOUT` and read back with `FATTR`, 2D homogeneous setup in
 `BorgSetupRom` (no clipping needed, corners behind the eye are exact), and
 perspective-correct barycentrics from the draw raster ROM. It is the only
 geometry path: the legacy per-triangle-descriptor path (`BorgGeometrySequencer`)
-was deleted 2026-09-26, `borgc` compiles for the draw front end by default
-(`BORGC_LEGACY=1` for the old ABI until that codegen goes too), and the
+was deleted 2026-09-26, `borgc` compiles only for the draw front end (its
+legacy ABI went 2026-10-12), and the
 firmware draws only through it. `SEQ_TRIGGER` always renders a draw;
 `DRAW_CFG.mode` now only picks the MMIO pixel path's program. Still open: the
 firmware rebuilds cube.vert's UBO from the 0xAE packet, and the CTS mailbox
