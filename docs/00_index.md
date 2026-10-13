@@ -77,5 +77,6 @@ depending on your goal:
 11. [ISA Gaps](B4_isa_gaps.md) — What shaders need and the ISA lacks: pow/log/exp, compares, constants; the sRGB idiom case
 12. [GPU Memory](B5_gpu_memory.md) — Design: VkDeviceMemory through the DRM driver (GEM allocator in the Rust render node), and how to test it
 13. [borgc design notes](B6_borgc_notes.md) — Why the Rust shader compiler does what it does
-14. [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the 2b `info` result, known limits and the open 2a discrepancy
-15. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools
+14. [borgvk design notes](B7_borgvk_notes.md) — Why the Vulkan driver does what it does
+15. [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the 2b `info` result, known limits and the open 2a discrepancy
+16. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools
