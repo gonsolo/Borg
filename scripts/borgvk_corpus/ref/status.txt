@@ -95,7 +95,6 @@ Fail dEQP-VK.graphicsfuzz.dead-barriers-in-loops
 Fail dEQP-VK.graphicsfuzz.global-array-loops
 Fail dEQP-VK.pipeline.monolithic.blend.format.r16g16b16a16_sfloat.states.color_1mcc_1mda_rsub_alpha_da_da_rsub-color_sas_1mdc_rsub_alpha_1msa_sa_add-color_cc_cc_rsub_alpha_sa_1mca_min-color_z_1msa_max_alpha_1msc_cc_rsub
 Fail dEQP-VK.pipeline.monolithic.blend.format.r16g16b16a16_sfloat.states.color_cc_cc_rsub_alpha_1mca_1msa_rsub-color_1mca_1msa_max_alpha_1mda_sc_min-color_sc_z_max_alpha_dc_1mca_add-color_1mda_ca_add_alpha_sas_1mdc_sub
-Fail dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.combined.view_type.cube.format.a8b8g8r8_uint_pack32.count_1.size.13x13
 Fail dEQP-VK.pipeline.monolithic.vertex_input.multiple_attributes.layout_skip.binding_one_to_many.attributes_sequential.int.uvec2.vec4
 Fail dEQP-VK.pipeline.monolithic.vertex_input.multiple_attributes.layout_skip.binding_one_to_many.attributes_sequential.ivec3.ivec4.uvec2
 Fail dEQP-VK.pipeline.monolithic.vertex_input.multiple_attributes.layout_skip.binding_one_to_one.attributes.ivec4.uvec4.vec3
@@ -330,6 +329,7 @@ Pass dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.combined.view
 Pass dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.combined.view_type.3d.format.r16g16_unorm.count_1.size.5x5x5
 Pass dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.combined.view_type.3d.format.r16g16_unorm.count_1.size.8x16x32
 Pass dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.combined.view_type.3d.format.r8g8b8_unorm.count_1.size.16x16x16
+Pass dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.combined.view_type.cube.format.a8b8g8r8_uint_pack32.count_1.size.13x13
 Pass dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.separate.view_type.1d_array.format.a2b10g10r10_uint_pack32.count_1.size.2x1_array_of_6
 Pass dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.separate.view_type.1d_array.format.a2b10g10r10_uint_pack32.count_1.size.32x1_array_of_3
 Pass dEQP-VK.pipeline.monolithic.image.suballocation.sampling_type.separate.view_type.1d_array.format.a2b10g10r10_unorm_pack32.count_1.size.2x1_array_of_6
