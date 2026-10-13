@@ -43,7 +43,7 @@ Control word:
 |-------|--------------------------------------------------------------------|
 | 7:0   | texture index into `TEX_DESC_BASE`                                  |
 | 15:8  | sampler index into `SAMPLER_DESC_BASE`                              |
-| 17:16 | operation: 0 sample, 1 fetch (`texelFetch`: integer u, v, TEXA layer and level), 2 gather |
+| 17:16 | operation: 0 sample, 1 fetch (`texelFetch`: integer u, v, TEXA layer and level), 2 gather, 3 size (`textureSize`) |
 | 19:18 | gather component                                                    |
 | 20    | depth compare against TEXA's reference                             |
 | 22:21 | LOD: 0 implicit (quad derivatives), 1 implicit + TEXA bias, 2 TEXA LOD |
@@ -77,6 +77,12 @@ Sampler descriptor, 4 words at `SAMPLER_DESC_BASE + 16*index`:
 The image view's **component swizzle** applies to the result (and, for
 gather, to the component gathered). A **depth compare** against a UNORM
 format clamps the reference to [0, 1] first.
+
+**Size** (operation 3) answers `textureSize` and `textureQueryLevels`: with the
+integer level in TEXA's LOD it returns width and height (each `max(1, n >> level)`),
+depth (3D, shifted) or layers (arrays and cubes, as stored: a cube has 6 per cube),
+and the number of levels, in the result block. The sampler descriptor and the
+component swizzle are not used.
 
 ## Layouts
 
