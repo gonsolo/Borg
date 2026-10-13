@@ -240,7 +240,17 @@ The same 278,342 `api` cases as the tier-1 rerun above, run with `software/linux
   borgvk's `vkResetDescriptorPool` did nothing and pools did not track their sets, so sets leaked (the case makes
   8.4 million allocations; peak 4.4 GB on tier 1). Fixed: pools track and free their sets and refuse past `maxSets`
   (`VK_ERROR_OUT_OF_POOL_MEMORY`); peak is 34 MB and the case passes on tier 1 and, rerun alone, on tier 2.
-  The full tier-2 group was not rerun after the fix.
+  The tier-2 group was rerun on 2026-10-13 (below): 0 Crash.
+**Rerun 2026-10-13** (current mesa, rv64 driver rebuilt with `software/linux/tests/rv64-rust.sh`, same list and
+command): 60,879 Pass, 217,372 NotSupported, 87 Fail, 4 QualityWarning, 0 Crash, no guest panics.
+`descriptor_pool.repeated_reset_long` passes. The 87 Fail are the same four groups as above (51 `buffer_view.access`,
+29 `resolve_image`, 4 `smoke`, 3 `command_buffers`).
+Pass is 3,899 lower than on 2026-10-08 (`copy_and_blit` -3,376, `image_clearing` -508) and NotSupported higher by as
+many. It is not specific to tier 2: a sample of 300 of those NotSupported cases is NotSupported on tier 1 too, with
+`... format not supported` or a missing extension as the reason. The format-feature changes of 2026-10-10 (no
+features for 10-bit signed packed formats, blending only where Vulkan 1.0 requires it) are the likely cause; not
+verified. The tier-1 `api` group has not been rerun since.
+
 - **How tier-2 Pass should be read.** The 64,778 Pass are mostly `copy_and_blit` (45,547) and `image_clearing`
   (15,224), which borgvk implements in C on the buffer and image memory (`borgvk_memory.c`), with a Borg that
   faults. They show the driver, GEM and the rv64 build work. They say nothing about the Borg RTL, which only
