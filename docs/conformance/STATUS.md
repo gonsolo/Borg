@@ -179,38 +179,37 @@ in an initrd, on QEMU `virt` with Linux 7.2.9 and the Rust Borg DRM driver; borg
 
 ## 2e and 2f: all of `dEQP-VK.pipeline.*`
 
-The memorandum has two pipeline tasks, so every `pipeline` case belongs to one of them (CTS 1.4.6.2, extension
-variants included):
+The memorandum has two pipeline tasks, so every `pipeline` case belongs to one of them. The eight subgroups of
+`dEQP-VK.pipeline` (CTS 1.4.6.2, extension variants included, 1,162,094 cases) are distributed whole, to get halves of
+the same size:
 
-- **2e, creation, layouts, cache:** 14 monolithic subgroups (8,037 cases): `cache`, `creation_cache_control`,
-  `pipeline_binary`, `executable_properties`, `spec_constant`, `interface_matching`, `shader_module_identifier`,
-  `bind_point`, `push_constant`, `push_descriptor`, `descriptor_limits`, `dynamic_offset`, `bind_buffers_2`,
-  `no_position`; plus the creation variants (700,282 cases): `pipeline_library`, `fast_linked_library`,
-  `shader_object_*` and `no-queues`.
-- **2f, state coverage:** every other `pipeline.monolithic` subgroup (453,775 cases): `blend*`, `logic_op*`,
-  `color_write_enable*`, `depth*`, `stencil`, `multisample*`, `sampler`, `image`, `image_view`, `vertex_input`,
-  `framebuffer_attachment`, `render_to_image`, `input_assembly`, `timestamp`, `extended_dynamic_state`,
-  `attachment_feedback_loop_layout`, `sliced_view_of_3d_image`, `image_2d_view_3d_image`.
+| Task | Subgroups | Cases |
+|---|---|---:|
+| 2e, creation modes | `fast_linked_library`, `shader_object_linked_binary`, `shader_object_linked_spirv`, `shader_object_unlinked_binary`, `shader_object_unlinked_spirv`, `no-queues` | 581,367 |
+| 2f, state coverage | `monolithic`, `pipeline_library` | 580,727 |
 
-**2e monolithic on tier 1 (2026-10-13):** `OUT=... JOBS=12 DIRECT=1 CASELIST=<the 8,037 cases> scripts/cts_par.sh p2e`,
-170 s: **589 Pass, 7,276 NotSupported, 172 Fail.**
+**2e on tier 1:** a 3,000-case random sample (fixed seed) of the 2e subgroups was all NotSupported; the full run was
+stopped. `fast_linked_library` and the shader-object subgroups need extensions that borgvk does not offer.
 
-| Subgroup | Pass | NotSupp | Fail |
-|---|---:|---:|---:|
-| `cache` | 261 | 513 | 0 |
-| `bind_point` | 48 | 1,248 | 0 |
-| `dynamic_offset` | 204 | 192 | 12 (`combined_descriptors`) |
-| `descriptor_limits` | 58 | 310 | 28 (`compute_shader` 16, `fragment_shader` 12) |
-| `push_constant` | 5 | 39 | 21 (`graphics_pipeline` 11, `lifetime` 9, `compute_pipeline` 1) |
-| `interface_matching` | 12 | 1,466 | 111 (`vector_length` 48, `decoration_mismatch` 35, `shader_layout_component_matching` 28) |
-| `spec_constant` | 1 | 1,412 | 0 |
-| `bind_buffers_2`, `creation_cache_control`, `executable_properties`, `no_position`, `pipeline_binary`, `push_descriptor`, `shader_module_identifier` | 0 | 2,096 | 0 |
+**2f on tier 1:** not run in full. What ran, all in `pipeline.monolithic`:
 
-A rerun the same day gave `interface_matching` 106 and `push_constant` 22: a few cases depend on load. The 700,282
-variants were sampled only (3,000 cases, all NotSupported); the full run was stopped.
+- 14 subgroups for creation, layouts and cache (8,037 cases, 170 s, 2026-10-13): **589 Pass, 7,276 NotSupported, 172 Fail.**
 
-**2f, `framebuffer_attachment` (50 cases, same day):** 14 Pass, 2 NotSupported, 34 Fail (1d, 2d, 2d_array, cube,
-cube_array, with and without MSAA). The rest of 2f has not been run in full; its older rows are in the tables above.
+  | Subgroup | Pass | NotSupp | Fail |
+  |---|---:|---:|---:|
+  | `cache` | 261 | 513 | 0 |
+  | `bind_point` | 48 | 1,248 | 0 |
+  | `dynamic_offset` | 204 | 192 | 12 (`combined_descriptors`) |
+  | `descriptor_limits` | 58 | 310 | 28 (`compute_shader` 16, `fragment_shader` 12) |
+  | `push_constant` | 5 | 39 | 21 (`graphics_pipeline` 11, `lifetime` 9, `compute_pipeline` 1) |
+  | `interface_matching` | 12 | 1,466 | 111 (`vector_length` 48, `decoration_mismatch` 35, `shader_layout_component_matching` 28) |
+  | `spec_constant` | 1 | 1,412 | 0 |
+  | `bind_buffers_2`, `creation_cache_control`, `executable_properties`, `no_position`, `pipeline_binary`, `push_descriptor`, `shader_module_identifier` | 0 | 2,096 | 0 |
+
+  A rerun the same day gave `interface_matching` 106 and `push_constant` 22: a few cases depend on load.
+- `framebuffer_attachment` (50 cases): 14 Pass, 2 NotSupported, 34 Fail (1d, 2d, 2d_array, cube, cube_array, with and
+  without MSAA).
+- The older rows in the tables above (sampler, depth, the first 121,750 cases in tree order) and the 150-case samples.
 
 ## memory.allocation (tier 1)
 
