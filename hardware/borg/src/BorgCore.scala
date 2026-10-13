@@ -410,6 +410,8 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     flags.iseq  := !flags.fma && f7op === Instructions.FUNCT7_ISEQ.U
     flags.i2f   := !flags.fma && f7op === Instructions.FUNCT7_I2F.U
     flags.f2i   := !flags.fma && f7op === Instructions.FUNCT7_F2I.U
+    flags.f2h   := !flags.fma && f7op === Instructions.FUNCT7_F2H.U
+    flags.h2f   := !flags.fma && f7op === Instructions.FUNCT7_H2F.U
     flags.frsq  := !flags.fma && f7op === Instructions.FUNCT7_FRSQ.U
     flags.fsrgb := !flags.fma && f7op === Instructions.FUNCT7_FSRGB.U
     flags.ddx   := !flags.fma && f7op === Instructions.FUNCT7_DDX.U
