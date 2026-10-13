@@ -11,12 +11,12 @@ All multi-byte fields are **little-endian**. Register indices are single bytes.
 ```text
 Offset  Size       Field
 ──────  ─────────  ────────────────────────────
-0       1 byte     num_instructions   (N)
+0       1 byte     num_instructions   (N, low 8 bits)
 1       1 byte     num_uniforms       (U)
 2       1 byte     num_attributes     (A)
 3       1 byte     num_outputs        (O)
 4       1 byte     num_consts         (C)
-5       1 byte     extensions         (bit 0: draw extension follows)
+5       1 byte     extensions         (bit 0: draw extension follows; bits 7:1: N >> 8)
 6       N × 4      instructions       uint32_le[]
 6+N*4   U          uniform_regs       uint8[]
 ...     A          attribute_regs     uint8[]

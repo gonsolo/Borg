@@ -11,14 +11,14 @@
 // A draw-mode vertex shader runs from DRAM through the instruction cache,
 // so it may be longer than IMEM (borgc's cube.vert is 74 words); a
 // fragment shader is still bounded by BORG_IMEM_FRAG_LEN where it is staged.
-#define SPIRB_MAX_INSTRS 254
-// Header byte 5, bit 0: the draw extension follows const_vals (docs/spirb.md).
+#define SPIRB_MAX_INSTRS 510
+// Header byte 5, bit 0: the draw extension follows const_vals; bits 7:1: num_instrs >> 8 (docs/spirb.md).
 #define SPIRB_EXT_DRAW   0x01
 #define SPIRB_MAX_REGS   32
 
 // Parsed in-memory representation of a SPIR-B shader blob.
 typedef struct spirb_shader_t {
-  uint8_t  num_instrs;
+  uint16_t num_instrs;
   uint8_t  num_uniforms;
   uint8_t  num_attributes;
   uint8_t  num_outputs;
