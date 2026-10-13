@@ -162,10 +162,11 @@ static uint16_t f32_to_fp16(uint32_t f) {
 #endif
 
 // --- Shaders ---
+static uint32_t blob_instrs(const uint8_t *b) { return b[0] | (uint32_t)(b[5] >> 1) << 8; }
 void borg_stage_shader(uint8_t stage, const uint8_t *blob) {
-  // .borg blob: byte 0 = num_instrs, 6-byte header, then little-endian u32 words. Only the
+  // .borg blob: byte 0 + byte 5 bits 7:1 = num_instrs, 6-byte header, then little-endian u32 words. Only the
   // instruction words are staged; the sequencer re-DMAs them into IMEM each render.
-  uint32_t n = blob[0];
+  uint32_t n = blob_instrs(blob);
   if (stage == 0 && n > DRAW_VERT_SHADER_MAX_WORDS) return;
   if (stage == 1 && n > DRAW_FRAG_SHADER_MAX_WORDS) return;
   // A blob must carry its draw extension, and every window word must land inside its
@@ -462,7 +463,7 @@ static void list_reset(void) {
 // A stage's code and constant window, in the arena.
 static void list_stage(int stage, const spirb_shader_t *sh) {
   if (g_sh[stage].code) return;
-  const uint32_t n = g_sh[stage].blob[0];
+  const uint32_t n = blob_instrs(g_sh[stage].blob);
   const uint32_t words = stage == 0 ? DRAW_VS_CONST_MAX_WORDS : DRAW_FS_CONST_WORDS;
   const uint32_t u0 = stage == 0 ? DRAW_VS_CONST_U0 : DRAW_FS_CONST_U0;
   uint32_t a = list_alloc((n + 1) * 4);
@@ -512,8 +513,8 @@ void borg_core_list_draw(void) {
   }
 
   uint32_t st[LIST_MAX_REGS][2]; int n = 0;
-  LREG(st, n, seq_vert_addr, g_sh[0].code); LREG(st, n, seq_vert_len, g_sh[0].blob[0]);
-  LREG(st, n, seq_frag_addr, g_sh[1].code); LREG(st, n, seq_frag_len, g_sh[1].blob[0] > 63 ? 63 : g_sh[1].blob[0]);
+  LREG(st, n, seq_vert_addr, g_sh[0].code); LREG(st, n, seq_vert_len, blob_instrs(g_sh[0].blob));
+  LREG(st, n, seq_frag_addr, g_sh[1].code); LREG(st, n, seq_frag_len, blob_instrs(g_sh[1].blob) > 63 ? 63 : blob_instrs(g_sh[1].blob));
   LREG(st, n, draw_vs_const, g_sh[0].consts); LREG(st, n, draw_fs_const, g_sh[1].consts);
   LREG(st, n, tex_desc_base, TEX_DESC_TABLE_ADDR); LREG(st, n, sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
   LREG(st, n, ls_base, draw_ls_base());
