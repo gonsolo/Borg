@@ -8,6 +8,10 @@
 #include <fstream>
 #include <string>
 #include <iterator>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 
 // direct_sim --compute <job.bin> <out.bin>
 // job (little-endian u32): nprog gx gy gz lx ly lz nregs nbufs bx by bz, then nprog program words,
@@ -113,9 +117,36 @@ static int run_raw() {
   return 0;
 }
 
+// direct_sim --bridge <memory file> <socket>: the Borg behind QEMU's "borg" device.  The device
+// sends {write, addr, data} (u32 each) per guest register access and gets the read data back;
+// GPU memory is the file QEMU also maps.  The RTL runs a few cycles after every access.
+static int run_bridge(const char *memf, const char *sockf) {
+  int mfd = open(memf, O_RDWR);
+  if (mfd < 0) { perror("[bridge] memory file"); return 1; }
+  DirectSim sim(mfd);
+  int ls = socket(AF_UNIX, SOCK_STREAM, 0);
+  sockaddr_un a{}; a.sun_family = AF_UNIX; strncpy(a.sun_path, sockf, sizeof(a.sun_path) - 1);
+  unlink(sockf);
+  if (bind(ls, (sockaddr *)&a, sizeof a) < 0 || listen(ls, 1) < 0) { perror("[bridge] socket"); return 1; }
+  const char *t = getenv("BRIDGE_TICKS");
+  const int ticks = t ? atoi(t) : 64;
+  const bool trace = getenv("BRIDGE_TRACE") != nullptr;
+  fprintf(stderr, "[bridge] listening on %s\n", sockf);
+  int c = accept(ls, nullptr, nullptr);
+  uint32_t req[3];
+  while (read(c, req, sizeof req) == (ssize_t)sizeof req) {
+    uint32_t d = sim.mmio(req[1], req[0] != 0, req[2]);
+    for (int i = 0; i < ticks; i++) sim.tick();
+    if (trace) fprintf(stderr, "%c %03x %08x -> %08x\n", req[0] ? 'W' : 'R', req[1], req[2], d);
+    if (write(c, &d, 4) != 4) break;
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
   if (argc == 2 && std::string(argv[1]) == "--raw") return run_raw();
   if (argc == 4 && std::string(argv[1]) == "--compute") return run_compute(argv[2], argv[3]);
+  if (argc == 4 && std::string(argv[1]) == "--bridge") return run_bridge(argv[2], argv[3]);
   if (argc == 3 && std::string(argv[1]) == "--serve") {   // direct_sim --serve <memory fd>
     DirectSim sim(atoi(argv[2]));
     Driver drv(sim);
