@@ -307,6 +307,48 @@ object BorgCoreTestsA extends TestSuite {
       }
     }
 
+    utest.test("f2h_h2f") {
+      if (config.totalBits == 32) simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: f2h_h2f ---")
+        idleInputs(core)
+        resetCore(core)
+        // (float, half bits): exact, negative, max, rounds up to Inf, below 2^-14 flushes, nearest even
+        val cases = Seq((1.0f, 0x3C00), (-2.5f, 0xC100), (65504.0f, 0x7BFF), (65520.0f, 0x7C00),
+                        (1.0e-5f, 0x0000), (-1.0e-5f, 0x8000), (0.1f, 0x2E66), (Float.PositiveInfinity, 0x7C00))
+        cases.zipWithIndex.foreach { case ((f, _), i) => writeReg(core, i, floatToBits(f)) }
+        cases.indices.foreach(i => writeImem(core, i, Instructions.F2H(i, 8 + i)))
+        writeImem(core, cases.size, 0)
+        startAndWait(core)
+        cases.zipWithIndex.foreach { case ((f, h), i) =>
+          val got = readReg(core, 8 + i)
+          println(f"  f2h($f) = 0x${got.toString(16)} (expect 0x$h%04x)")
+          utest.assert(got == BigInt(h))
+        }
+        println("  PASSED")
+      }
+    }
+
+    utest.test("h2f") {
+      if (config.totalBits == 32) simulate(new BorgCore(config)) { core =>
+        println("\n--- BorgCore: h2f ---")
+        idleInputs(core)
+        resetCore(core)
+        // (half bits, float): exact, negative, Inf, a denormal reads as zero, 0.1's half
+        val cases = Seq((0x3C00, 1.0f), (0xC100, -2.5f), (0x7BFF, 65504.0f), (0x7C00, Float.PositiveInfinity),
+                        (0x0001, 0.0f), (0x2E66, 0.0999755859375f))
+        cases.zipWithIndex.foreach { case ((h, _), i) => writeReg(core, i, BigInt(h)) }
+        cases.indices.foreach(i => writeImem(core, i, Instructions.H2F(i, 8 + i)))
+        writeImem(core, cases.size, 0)
+        startAndWait(core)
+        cases.zipWithIndex.foreach { case ((h, f), i) =>
+          val got = readReg(core, 8 + i)
+          println(f"  h2f(0x$h%04x) = 0x${got.toString(16)} (expect ${f})")
+          utest.assert(got == floatToBits(f))
+        }
+        println("  PASSED")
+      }
+    }
+
     utest.test("fmul_fp16") {
       simulate(new BorgCore(config)) { core =>
         println("\n--- BorgCore: fmul_fp16 ---")
