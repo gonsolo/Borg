@@ -190,9 +190,12 @@ the same size:
 
 **2e on tier 1 (2026-10-13):** `fast_linked_library` in full (`CASELIST=<its 128,113 cases> JOBS=12 DIRECT=1 scripts/cts_par.sh`, 82 s):
 **128,113 NotSupported, 0 Pass, 0 Fail.** Every case needs `VK_EXT_graphics_pipeline_library`, which borgvk does not offer
-(`vkPipelineConstructionUtil.cpp:212`). `shader_object_linked_binary` in full (24,350 cases, 9 s): **24,350 NotSupported, 0 Pass, 0 Fail**, they need
-`VK_EXT_shader_object` (`vkPipelineConstructionUtil.cpp:207`). The other shader-object subgroups have not been run in full;
-a 3,000-case sample of all 2e subgroups was all NotSupported.
+(`vkPipelineConstructionUtil.cpp:212`). All other 2e subgroups in full, same day, `JOBS=12 DIRECT=1`:
+`shader_object_linked_binary` 24,350 cases (9 s), `shader_object_linked_spirv` 24,350 (10 s),
+`shader_object_unlinked_binary` 24,350 (10 s), `shader_object_unlinked_spirv` 380,168 (434 s), `no-queues` 36 (1 s):
+**all NotSupported, 0 Pass, 0 Fail.** The shader-object cases need `VK_EXT_shader_object`
+(`vkPipelineConstructionUtil.cpp:207`).
+So 2e is complete on tier 1: **581,367 NotSupported, 0 Fail.**
 
 **2f on tier 1:** not run in full. What ran, all in `pipeline.monolithic`:
 
