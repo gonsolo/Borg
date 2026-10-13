@@ -28,7 +28,7 @@ object SamplerCtl {
   // TEX's ctl operand (lane 0's value of rs3; a compile-time constant).
   def texIdx(c: UInt)  = c(7, 0)
   def sampIdx(c: UInt) = c(15, 8)
-  def op(c: UInt)      = c(17, 16)   // 0 sample, 1 fetch (texelFetch), 2 gather
+  def op(c: UInt)      = c(17, 16)   // 0 sample, 1 fetch (texelFetch), 2 gather, 3 size (textureSize)
   def comp(c: UInt)    = c(19, 18)   // gather component
   def compare(c: UInt) = c(20)       // depth compare against TEXA's dref
   def lodMode(c: UInt) = c(22, 21)   // 0 implicit, 1 implicit + TEXA bias, 2 TEXA lod, 3 TEXA rho * width
@@ -37,7 +37,7 @@ object SamplerCtl {
   // A 3D image's w offset in the bits gather and compare use, which a 3D
   // image cannot: sign in 31, low bits in 20:18.
   def offW(c: UInt)    = Cat(c(31), c(20, 18)).asSInt
-  val OpSample = 0; val OpFetch = 1; val OpGather = 2
+  val OpSample = 0; val OpFetch = 1; val OpGather = 2; val OpSize = 3
   // Mode 3: TEXA's lod is rho, a derivative in face units (FP32); LOD = log2(rho) + log2(width).
   val LodImplicit = 0; val LodBias = 1; val LodExplicit = 2; val LodRho = 3
 
@@ -249,6 +249,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val unnorm  = sd(0)(19)
   private val isFetch  = op(ctl) === OpFetch.U
   private val isGather = op(ctl) === OpGather.U
+  private val isSize   = op(ctl) === OpSize.U
   private val doCmp    = compare(ctl) && !isFetch && ttype =/= T3D.U     // bit 20 is w's offset on 3D
   private val isInt    = fmt.kind === TexFormat.UINT.U || fmt.kind === TexFormat.SINT.U
   /** Filtered dimensions: 1D 1, 2D and cube 2 (a cube face is 2D), 3D 3. */
@@ -320,7 +321,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   // The image view's component swizzle (VkComponentMapping), on the result
   // (gather applied it to its component instead).
   private def oneOf: UInt = Mux(isInt, 1.U(32.W), "h3F800000".U(32.W))
-  io.resp.bits.data := Mux(isGather, acc, VecInit((0 until 4).map { i =>
+  io.resp.bits.data := Mux(isGather || isSize, acc, VecInit((0 until 4).map { i =>
     MuxLookup(swz(i), acc(i))(Seq(1.U -> 0.U, 2.U -> oneOf, 3.U -> acc(0), 4.U -> acc(1), 5.U -> acc(2), 6.U -> acc(3)))
   }))
   io.gpuMem.req := false.B; io.gpuMem.addr := 0.U; io.gpuMem.wr := false.B
@@ -361,7 +362,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
         }
     }
     is(sSampDesc) {
-      when(isFetch || (sdOk && sdTag === sampIdx(ctl))) { k := 0.U; state := sLod }
+      when(isFetch || isSize || (sdOk && sdTag === sampIdx(ctl))) { k := 0.U; state := sLod }
         .otherwise {
           read(io.sampBase + (sampIdx(ctl) << 4) + (k << 2)) { d =>
             sd(k(1, 0)) := d
@@ -377,7 +378,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     // form of the approximation Vulkan allows (w only for 3D); LOD = log2(rho).
     is(sLod) {
       val rhoMode = lodMode(ctl) === LodRho.U
-      val needQuad = !isFetch && !isGather && lodMode(ctl) =/= LodExplicit.U && !rhoMode && (N >= 3).B && !unnorm
+      val needQuad = !isFetch && !isGather && !isSize && lodMode(ctl) =/= LodExplicit.U && !rhoMode && (N >= 3).B && !unnorm
       when(!needQuad) {
         lgIn := uintToFp32(dimW, 0.S)
         quadLod := Mux(rhoMode && !isFetch && !isGather, lg, 0.S); lane := 0.U; state := sLane
@@ -432,7 +433,13 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
 
     // --- Lanes ----------------------------------------------------------
     is(sLane) {
-      when(act(lane)) { state := sLaneSetup }
+      // textureSize: width, height, depth or layers, levels, at the level in TEXA's lod.
+      val lv = args(lane).lod(3, 0)
+      def at(n: UInt) = Mux((n >> lv) === 0.U, 1.U, n >> lv)
+      when(act(lane) && isSize) {
+        acc(0) := at(dimW); acc(1) := at(dimH); acc(2) := Mux(ttype === T3D.U, at(dimD), dimD); acc(3) := levels
+        state := sResp
+      }.elsewhen(act(lane)) { state := sLaneSetup }
         .otherwise {
           acc.foreach(_ := 0.U)
           state := sResp                                   // inactive: answer zeros
