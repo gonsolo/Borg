@@ -1389,8 +1389,13 @@ reg compute_ctrl_reg_t {
     } start[1] = 0;
 
     field {
+        sw = r; hw = w;
+        desc = "Bits 3:1: busy, compute present, barrier fault (read).";
+    } status[3] = 0;
+
+    field {
         sw = w; hw = na;
-    } RSVD[31] = 0;
+    } RSVD[28] = 0;
 };
 
 reg compute_pc_reg_t {
