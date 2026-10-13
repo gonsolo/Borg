@@ -130,13 +130,15 @@ static int run_bridge(const char *memf, const char *sockf) {
   if (bind(ls, (sockaddr *)&a, sizeof a) < 0 || listen(ls, 1) < 0) { perror("[bridge] socket"); return 1; }
   const char *t = getenv("BRIDGE_TICKS");
   const int ticks = t ? atoi(t) : 64;
+  const char *tr_ = getenv("BRIDGE_READ_TICKS");
+  const int rticks = tr_ ? atoi(tr_) : 4096;   // a read is a poll: let the Borg get on with it
   const bool trace = getenv("BRIDGE_TRACE") != nullptr;
   fprintf(stderr, "[bridge] listening on %s\n", sockf);
   int c = accept(ls, nullptr, nullptr);
   uint32_t req[3];
   while (read(c, req, sizeof req) == (ssize_t)sizeof req) {
     uint32_t d = sim.mmio(req[1], req[0] != 0, req[2]);
-    for (int i = 0; i < ticks; i++) sim.tick();
+    for (int i = 0, n = req[0] ? ticks : rticks; i < n; i++) sim.tick();
     if (trace) fprintf(stderr, "%c %03x %08x -> %08x\n", req[0] ? 'W' : 'R', req[1], req[2], d);
     if (write(c, &d, 4) != 4) break;
   }
