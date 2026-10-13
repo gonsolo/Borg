@@ -202,6 +202,9 @@ no mustpass filter, whole group. **811 Pass, 3,655 NotSupported, 0 Fail** of 4,4
 `dedicated_alloc` needs `VK_KHR_dedicated_allocation`, which borgvk does not offer. The all-groups table counts 2,230
 cases because it is filtered by the mustpass list. Memory comes from the host shim, as for `allocation`.
 
+On tier 2 (2026-10-13, `qemu-cts-run.sh`, 4 guests, 42 s): **811 Pass, 3,655 NotSupported, 0 Fail**, equal to tier 1.
+`VK_KHR_dedicated_allocation` is optional in Vulkan 1.0, so those cases stay NotSupported.
+
 ## 2a (tier 1): rerun 2026-10-07
 
 Rerun with the tag's command (`MUSTPASS=1.0.2.6 MUSTPASS_GROUPS=1 JOBS=12 DIRECT=1 scripts/cts_par.sh
