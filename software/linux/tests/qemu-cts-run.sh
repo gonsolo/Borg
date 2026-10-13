@@ -1,6 +1,7 @@
 #!/bin/bash
 # Tier 2 CTS runner: shards a case list over QEMU guests (deqp-vk + borgvk + Rust DRM driver, faulting Borg).
 # A case that touches the Borg panics the guest: it is recorded as GpuAccess and the shard continues in a new guest.
+# BRIDGE=1: each guest gets the real Borg RTL (direct_sim --bridge behind the nix qemu-borg device) instead of the fault.
 # usage: qemu-cts-run.sh <caselist> <outdir> [jobs]    results: <outdir>/results.txt  ("<status> <case>")
 set -u
 top=$(git rev-parse --show-toplevel)
@@ -11,6 +12,11 @@ mkdir -p "$out"; rm -rf "$out/root" "$out/shard"*
 "$top/software/linux/tests/qemu-cts-root.sh" "$out/root" >/dev/null
 msz=$((${GUEST_MEM_MB:-2048} * 1048576)); memhex=$(printf '0x%x 0x%x' $((msz >> 32)) $((msz & 0xffffffff)))
 sed "s|reg = <0x00 0x80000000 0x00 0x20000000>|reg = <0x00 0x80000000 $memhex>|;"'/borgregs@\|borgmem@/d;/^\tborg@/,/};/s|0x8f000000|0x08000000|;/^\tborg@/,/};/s|0x8f100000|0x08100000|' "$dts" | dtc -I dts -O dtb -o "$out/borg.dtb" 2>/dev/null
+qemu=qemu-system-riscv64
+if [ -n "${BRIDGE:-}" ]; then
+  sed "s|reg = <0x00 0x80000000 0x00 0x20000000>|reg = <0x00 0x80000000 $memhex>|;"'/borgregs@\|borgmem@/d;s|reg = <0x00 0x8f000000 0x00 0x400 0x00 0x8f100000 0x00 0x500000>|reg = <0x00 0x08000000 0x00 0x400 0x02 0x00000000 0x00 0x8000000>|' "$dts" | dtc -I dts -O dtb -o "$out/borg.dtb" 2>/dev/null
+  qemu=$(nix build "$top#qemu-borg" --no-link --print-out-paths)/bin/qemu-system-riscv64
+fi
 cat > "$out/root/init" <<'INIT'
 #!/bin/sh
 mount -t proc none /proc
@@ -20,6 +26,7 @@ export LD_LIBRARY_PATH=/lib VK_DRIVER_FILES=/etc/vulkan/icd.d/borg.json
 /bin/deqp-vk --deqp-caselist-file=/cases.txt --deqp-log-filename=/tmp/r.qpa
 poweroff -f
 INIT
+[ -n "${BRIDGE:-}" ] && sed -i "s/^export LD_LIBRARY_PATH.*/& BORGVK_HW=1/" "$out/root/init"
 chmod 755 "$out/root/init"
 list() { echo "dir /tmp 1777 0 0"; (cd "$out/root" && find . -mindepth 1 | sed 's|^\./||') | while read -r p; do
   if [ -L "$out/root/$p" ]; then echo "slink /$p $(readlink "$out/root/$p") 777 0 0"
@@ -35,9 +42,15 @@ shard() {   # $1 = shard number
     cp "$todo" "$d/cases.txt"
     printf 'file /cases.txt %s 644 0 0\n' "$d/cases.txt" > "$d/c.list"
     "$k/usr/gen_init_cpio" "$d/c.list" > "$d/c.cpio"; cat "$out/base.cpio" "$d/c.cpio" > "$d/initrd.cpio"
-    timeout "${BOOT_TIMEOUT:-1800}" qemu-system-riscv64 -machine virt -cpu rv64 -m ${GUEST_MEM_MB:-2048}M -smp 1 -no-reboot -nographic \
-      -bios default -kernel "$k/arch/riscv/boot/Image" -initrd "$d/initrd.cpio" -dtb "$out/borg.dtb" \
-      -append "earlycon=sbi console=hvc0" > "$d/boot.$n.log" 2>&1; cp "$d/boot.$n.log" "$d/boot.log"
+    local extra= bpid= sock=/tmp/borgbr.$$.$1.sock
+    if [ -n "${BRIDGE:-}" ]; then
+      rm -f "$d/gpumem" "$sock"; truncate -s 128M "$d/gpumem"
+      "$top/simulation/direct/direct_sim" --bridge "$d/gpumem" "$sock" 2>"$d/bridge.log" & bpid=$!
+      extra="-object memory-backend-file,id=gpumem,share=on,mem-path=$d/gpumem,size=128M -device borg,socket=$sock,memdev=gpumem,regs-addr=0x08000000,mem-addr=0x200000000"
+    fi
+    timeout "${BOOT_TIMEOUT:-1800}" $qemu -machine virt -cpu rv64 -m ${GUEST_MEM_MB:-2048}M -smp 1 -no-reboot -nographic \
+      -bios default -kernel "$k/arch/riscv/boot/Image" -initrd "$d/initrd.cpio" -dtb "$out/borg.dtb" $extra \
+      -append "earlycon=sbi console=hvc0" > "$d/boot.$n.log" 2>&1; [ -n "$bpid" ] && kill $bpid 2>/dev/null; cp "$d/boot.$n.log" "$d/boot.log"
     tr -d '\r' < "$d/boot.log" | awk '/^Test case \x27/{c=$3; gsub(/\x27|\.\.$/,"",c); open=c; next}
          /^  (Pass|Fail|NotSupported|QualityWarning|CompatibilityWarning|InternalError|ResourceError|Crash|Timeout)( |$)/ \
            {print $1, c; open=""}

@@ -1,6 +1,8 @@
 #!/bin/sh
 # Boot the Rust kernel on QEMU virt with a fake Borg (reserved RAM for the registers and the GPU
 # memory) and run borg_drm_test against /dev/dri/renderD128.
+# BRIDGE=1: the Borg is the real RTL (simulation/direct/direct_sim --bridge) behind the qemu-borg device
+# (nix build .#qemu-borg), GPU memory 128 MB at 0x200000000.
 # Needs the dev shell and a built kernel: software/linux/rust-build.sh
 set -e
 top=$(git rev-parse --show-toplevel)
@@ -30,6 +32,16 @@ cat >> "$t/borg.dts" <<'DTS'
 };
 DTS
 dtc -I dts -O dtb "$t/borg.dts" -o "$t/borg.dtb" 2>/dev/null
+qemu=qemu-system-riscv64; extra=
+if [ -n "${BRIDGE:-}" ]; then
+  sed '/borgregs@\|borgmem@/d;s|reg = <0x00 0x8f000000 0x00 0x400 0x00 0x8f100000 0x00 0x500000>|reg = <0x00 0x08000000 0x00 0x400 0x02 0x00000000 0x00 0x8000000>|' "$t/borg.dts" | dtc -I dts -O dtb -o "$t/borg-bridge.dtb" 2>/dev/null
+  qemu=$(nix build "$top#qemu-borg" --no-link --print-out-paths)/bin/qemu-system-riscv64
+  sock=/tmp/borgbr.$$.sock; rm -f "$t/gpumem" "$sock"; truncate -s 128M "$t/gpumem"
+  "$top/simulation/direct/direct_sim" --bridge "$t/gpumem" "$sock" 2>"$t/bridge.log" &
+  trap 'kill $! 2>/dev/null' EXIT
+  extra="-object memory-backend-file,id=gpumem,share=on,mem-path=$t/gpumem,size=128M -device borg,socket=$sock,memdev=gpumem,regs-addr=0x08000000,mem-addr=0x200000000"
+  dtb=$t/borg-bridge.dtb
+fi
 
 # Test program and an extra initrd whose /init runs it.
 $cc -O2 -static -D__linux__ -I"$here/overlay/include/uapi" -I"$rootfs_build/linux-headers/include" \
@@ -52,6 +64,6 @@ file /init $t/init 755 0 0
 LIST
 "$k/usr/gen_init_cpio" "$t/initrd.list" > "$t/initrd.cpio"
 
-exec timeout "${QEMU_TIMEOUT:-120}" qemu-system-riscv64 -machine virt -cpu rv64 -m 512M -smp 1 -nographic \
-  -bios default -kernel "$k/arch/riscv/boot/Image" -initrd "$t/initrd.cpio" -dtb "$t/borg.dtb" \
+timeout "${QEMU_TIMEOUT:-120}" $qemu -machine virt -cpu rv64 -m 512M -smp 1 -nographic \
+  -bios default -kernel "$k/arch/riscv/boot/Image" -initrd "$t/initrd.cpio" -dtb "${dtb:-$t/borg.dtb}" $extra \
   -append "earlycon=sbi console=hvc0"
