@@ -46,7 +46,7 @@ Control word:
 | 17:16 | operation: 0 sample, 1 fetch (`texelFetch`: integer u, v, TEXA layer and level), 2 gather |
 | 19:18 | gather component                                                    |
 | 20    | depth compare against TEXA's reference                             |
-| 22:21 | LOD: 0 implicit (quad derivatives), 1 implicit + TEXA bias, 2 TEXA LOD |
+| 22:21 | LOD: 0 implicit (quad derivatives), 1 implicit + TEXA bias, 2 TEXA LOD, 3 TEXA rho (`log2(rho) + log2(width)`) |
 | 26:23 | texel offset u (signed, -8..7)                                      |
 | 30:27 | texel offset v                                                      |
 | 31, 20:18 | 3D images only: texel offset w (sign in 31), in the gather and compare bits a 3D image cannot use |
@@ -107,6 +107,12 @@ layer, which is all Vulkan requires of linear images.
    v) out of rho. `lod <= 0` magnifies (level 0, mag
    filter); otherwise the nearest level is `ceil(lod + 0.5) - 1`, or two
    levels weighted by the fraction (mip linear).
+
+   Mode 3 is for cubes. The compiler projects the direction to a face, so
+   the quad's lanes may sit on different faces and their (s, t) differences
+   say nothing about the LOD. It gives TEXA the derivative of (s, t) in face
+   units, rho = max(|ds/dx| + |dt/dx|, |ds/dy| + |dt/dy|), taken from the
+   direction's own derivatives, and the unit adds `log2(width)`.
 2. **Coordinates**, per axis and level. REPEAT and MIRRORED_REPEAT wrap the
    float exactly (mod 1 or 2) before scaling, so large coordinates keep
    their precision; clamping modes clamp to [-4, 4). Times the level's size,
