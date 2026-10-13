@@ -177,6 +177,38 @@ in an initrd, on QEMU `virt` with Linux 7.2.9 and the Rust Borg DRM driver; borg
 - Queries only. Cases that render need the real Borg behind the register block (a QEMU-to-`direct_sim` bridge, not built).
 - The riscv64 Rust `std` and cross file for the Mesa build are in the scratchpad, not the repo yet.
 
+## 2e and 2f: the `pipeline.monolithic` subgroups
+
+The 274,810 cases of `dEQP-VK.pipeline.monolithic` are split by subgroup (`pipeline.monolithic.<subgroup>`):
+
+- **2e, creation, layouts, cache:** `cache`, `creation_cache_control`, `pipeline_binary`, `executable_properties`,
+  `spec_constant`, `interface_matching`, `shader_module_identifier`, `bind_point`, `push_constant`, `push_descriptor`,
+  `descriptor_limits`, `dynamic_offset`, `bind_buffers_2`, `no_position` (8,037 cases).
+- **2f, blend, depth/stencil, multisample:** `blend`, `blend_operation_advanced`, `logic_op`, `logic_op_na_formats`,
+  `color_write_enable`, `color_write_enable_maxa`, `depth`, `depth_range_unrestricted`, `stencil`, `multisample`,
+  `multisample_interpolation`, `multisample_shader_builtin`, `multisample_with_fragment_shading_rate`.
+- **Neither:** `sampler`, `image`, `image_view`, `vertex_input`, `render_to_image`, `input_assembly`, `timestamp`,
+  `extended_dynamic_state`, `attachment_feedback_loop_layout`, `framebuffer_attachment`, `sliced_view_of_3d_image`,
+  `image_2d_view_3d_image`. They belong to the texture, image and draw tasks.
+
+The library and shader-object variants (`pipeline.pipeline_library`, `fast_linked_library`, `shader_object_*`) are outside both.
+
+**2e on tier 1 (2026-10-13):** `OUT=... JOBS=12 DIRECT=1 CASELIST=<the 8,037 cases> scripts/cts_par.sh p2e`, 170 s:
+**589 Pass, 7,276 NotSupported, 172 Fail.**
+
+| Subgroup | Pass | NotSupp | Fail |
+|---|---:|---:|---:|
+| `cache` | 261 | 513 | 0 |
+| `bind_point` | 48 | 1,248 | 0 |
+| `dynamic_offset` | 204 | 192 | 12 (`combined_descriptors`) |
+| `descriptor_limits` | 58 | 310 | 28 (`compute_shader` 16, `fragment_shader` 12) |
+| `push_constant` | 5 | 39 | 21 (`graphics_pipeline` 11, `lifetime` 9, `compute_pipeline` 1) |
+| `interface_matching` | 12 | 1,466 | 111 (`vector_length` 48, `decoration_mismatch` 35, `shader_layout_component_matching` 28) |
+| `spec_constant` | 1 | 1,412 | 0 |
+| `bind_buffers_2`, `creation_cache_control`, `executable_properties`, `no_position`, `pipeline_binary`, `push_descriptor`, `shader_module_identifier` | 0 | 2,096 | 0 |
+
+The 172 Fail are the open items of 2e.
+
 ## memory.allocation (tier 1)
 
 Rerun 2026-10-08 with the library present: `OUT=... JOBS=12 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.memory.allocation.*'`,
