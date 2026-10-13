@@ -251,6 +251,11 @@ many. It is not specific to tier 2: a sample of 300 of those NotSupported cases 
 features for 10-bit signed packed formats, blending only where Vulkan 1.0 requires it) are the likely cause; not
 verified. The tier-1 `api` group has not been rerun since.
 
+**The 87 on the real Borg (2026-10-13).** `BRIDGE=1 software/linux/tests/qemu-cts-run.sh` runs the guests on the
+Borg RTL (`direct_sim --bridge` behind the `qemu-borg` device, `nix build .#qemu-borg`) with `BORGVK_HW=1`. All 87
+cases pass (the three `suballocation` compute cases need about 30 minutes each, so `BOOT_TIMEOUT=3600`). The rest of
+the `api` group has not been run this way.
+
 - **How tier-2 Pass should be read.** The 64,778 Pass are mostly `copy_and_blit` (45,547) and `image_clearing`
   (15,224), which borgvk implements in C on the buffer and image memory (`borgvk_memory.c`), with a Borg that
   faults. They show the driver, GEM and the rv64 build work. They say nothing about the Borg RTL, which only
