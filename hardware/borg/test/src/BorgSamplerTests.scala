@@ -298,7 +298,7 @@ object BorgSamplerTests extends TestSuite {
     d.io.req.bits.ctl.poke(ctl.U)
     for (i <- 0 until 4) {
       val l = lanes(i); val p = d.io.req.bits.lane(i)
-      if (((ctl >> 16) & 3) == OpFetch) {
+      if (((ctl >> 16) & 3) == OpFetch || ((ctl >> 16) & 3) == OpSize) {
         p.u.poke(l.fetch._1.U); p.v.poke(l.fetch._2.U); p.w.poke(l.fetch._3.U); p.lod.poke(l.fetch._4.U)
       } else {
         p.u.poke(fbits(l.u).U); p.v.poke(fbits(l.v).U); p.w.poke(fbits(l.w).U); p.lod.poke(fbits(l.lod).U)
@@ -411,6 +411,30 @@ object BorgSamplerTests extends TestSuite {
         sample(d, "implicit 3D", t3, s3, 0L, Seq(Lane(u0, v0, w0), Lane(u0 + 0.01f, v0, w0 + 3f / 8),
                Lane(u0, v0 + 0.01f, w0 + 3f / 8), Lane(u0, v0, w0)))
         println("  explicit and implicit LOD (2D and 3D), nearest and linear mip selection, bias and clamp")
+      }
+    }
+
+    utest.test("size_query") {
+      withSampler { d =>
+        val fm = TexFormat.byName("R8G8B8A8_UNORM")
+        val textures = Seq(Tex(fm, 13, 7, levels = 4), Tex(fm, 16, 16, d = 6, levels = 5, ttype = TCube),
+                           Tex(fm, 8, 4, d = 5, levels = 3, ttype = T3D), Tex(fm, 9, 1, d = 4, ttype = T1D),
+                           Tex(fm, 5, 3, d = 3))
+        for ((t, i) <- textures.zipWithIndex) {
+          val mem = new Mem
+          setup(mem, Seq(t), Seq(Samp()))
+          d.io.invalidate.poke(true.B); d.clock.step(1); d.io.invalidate.poke(false.B)
+          val ctl = OpSize.toLong << 16
+          val lanes = Seq(0, 1, 2, 3).map(l => Lane(0, fetch = (0, 0, 0, math.min(l, t.levels - 1))))
+          val got = run(d, mem, ctl, lanes)
+          for ((g, l) <- got.zip(0 until 4)) {
+            val lv = math.min(l, t.levels - 1)
+            val sh = (n: Int) => math.max(1, n >> lv)
+            val want = Seq(sh(t.w), sh(t.h), if (t.ttype == T3D) sh(t.d) else t.d, t.levels).map(_.toLong)
+            if (g != want) throw new Exception(s"size of texture $i level $lv: got $g, want $want")
+          }
+        }
+        println("  textureSize: width, height, depth or layers and levels at a level")
       }
     }
 
