@@ -153,6 +153,16 @@
         lm;            # Latin Modern (lmodern)
     };
   in {
+    # QEMU with the Borg bridge device (software/linux/tests/qemu), riscv64 system emulation only.
+    packages.${system}.qemu-borg =
+      (pkgs.qemu.override {
+        hostCpuTargets = ["riscv64-softmmu"];
+        guestAgentSupport = false;
+      }).overrideAttrs (old: {
+        patches = (old.patches or []) ++ [./software/linux/tests/qemu/borg.patch];
+        dontCheckForBrokenSymlinks = true;
+      });
+
     devShells.${system} = {
     default = pkgs.mkShell {
       # The kernel does its own hardening; the wrapper's -fzero-call-used-regs is rejected for riscv64.
