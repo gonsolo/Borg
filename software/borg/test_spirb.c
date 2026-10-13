@@ -52,7 +52,7 @@ static void test_null_struct(void) {
 
 // num_instrs exceeds SPIRB_MAX_INSTRS → returns -1.
 static void test_too_many_instrs(void) {
-    uint8_t blob[6] = { SPIRB_MAX_INSTRS + 1, 0, 0, 0, 0, 0 };
+    uint8_t blob[6] = { (SPIRB_MAX_INSTRS + 1) & 0xFF, 0, 0, 0, 0, (SPIRB_MAX_INSTRS + 1) >> 8 << 1 };
     spirb_shader_t s;
     int n = spirb_parse(blob, &s);
     CHECK(n == -1, "too many instrs: returns -1");

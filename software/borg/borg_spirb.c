@@ -10,12 +10,13 @@ int spirb_parse(const uint8_t *blob, spirb_shader_t *s) {
 
   const uint8_t *p = blob;
 
-  s->num_instrs     = *p++;
+  uint8_t n_lo      = *p++;
   s->num_uniforms   = *p++;
   s->num_attributes = *p++;
   s->num_outputs    = *p++;
   s->num_consts     = *p++;
   uint8_t ext       = *p++;
+  s->num_instrs     = n_lo | (uint16_t)(ext >> 1) << 8;
 
   if (s->num_instrs   > SPIRB_MAX_INSTRS) return -1;
   if (s->num_uniforms > SPIRB_MAX_REGS)   return -1;
