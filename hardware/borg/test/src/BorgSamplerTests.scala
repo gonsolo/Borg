@@ -148,7 +148,7 @@ object BorgSamplerTests extends TestSuite {
     val offs = Seq(sx4(ctl >> 23), sx4(ctl >> 27),
                    if (t.ttype == T3D) sx4(((ctl >> 31) << 3) | ((ctl >> 18) & 7)) else 0)
     val dims = t.ttype match { case T1D => 1; case T3D => 3; case _ => 2 }
-    val quadLod = if (isFetch || isGather || lodMode == LodExplicit || lodMode == LodRho || s.unnorm) 0 else {
+    val quadLod = if (isFetch || isGather || lodMode == LodExplicit || s.unnorm) 0 else {
       def fma(a: Float, b: Float, c: Float) = Math.fma(a, b, c)
       val (dux, dvx, dwx) = (lanes(1).u - lanes(0).u, lanes(1).v - lanes(0).v, lanes(1).w - lanes(0).w)
       val (duy, dvy, dwy) = (lanes(2).u - lanes(0).u, lanes(2).v - lanes(0).v, lanes(2).w - lanes(0).w)
@@ -160,9 +160,7 @@ object BorgSamplerTests extends TestSuite {
     }
     lanes.map { ln =>
       val q = (t.levels - 1) << 8
-      val base0 = if (lodMode == LodExplicit) fixed(ln.lod, 8, 24).toInt
-                  else if (lodMode == LodRho && !isFetch && !isGather) log2q(ln.lod) + log2q(t.w.toFloat)
-                  else quadLod
+      val base0 = if (lodMode == LodExplicit) fixed(ln.lod, 8, 24).toInt else quadLod
       val biasSum = fixed(s.bias, 8, 24).toInt + (if (lodMode == LodBias) fixed(ln.lod, 8, 24).toInt else 0)
       val biased = base0 + biasSum.max(-SamplerCtl.MaxLodBias * 256).min(SamplerCtl.MaxLodBias * 256)
       val lam = biased.max(fixed(s.minLod, 8, 24).toInt).min(fixed(s.maxLod, 8, 24).toInt)
@@ -435,20 +433,6 @@ object BorgSamplerTests extends TestSuite {
           }
         }
         println("  textureSize: width, height, depth or layers and levels at a level")
-      }
-    }
-
-    utest.test("lod_from_a_derivative_and_the_width") {
-      withSampler { d =>
-        val fm = TexFormat.byName("R8G8B8A8_UNORM")
-        for (w <- Seq(13, 16, 5); mipLin <- Seq(false, true)) {
-          val t = Tex(fm, w, w, d = 6, levels = 4, ttype = TCube)
-          val s = Samp(magLin = true, minLin = true, mipLin = mipLin, bias = 0.25f)
-          // rho = 0.25 .. 0.001 of a face per pixel: texels per pixel w * rho.
-          val lanes = Seq(0.4f, 1.0f / w, 2.6f / w, 0.001f).zipWithIndex.map { case (rho, f) => Lane(0.31f + 0.1f * f, 0.62f - 0.1f * f, f, lod = rho) }
-          sample(d, s"rho width $w mipLin $mipLin", t, s, LodRho.toLong << 21, lanes, seed = 50 + w)
-        }
-        println("  LOD = log2(rho) + log2(width), with the sampler's bias and clamps")
       }
     }
 
