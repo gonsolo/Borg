@@ -186,7 +186,7 @@ no mustpass filter. **202 Pass, 0 NotSupported, 0 Fail** (1 s). Raw results:
 On the host the memory comes from the DRM shim (`libborg_drm_shim.so`, GEM backed by anonymous memory) and has
 no size limit, so these cases never see an out-of-memory result. The Rust render node now has GEM (system RAM,
 1 GiB cap per buffer, `../B5_gpu_memory.md`), exercised on tier 2 by `borg_drm_test` and the `api` run, but
-`memory.allocation` has not been run on tier 2, and the board's heap limit is not implemented.
+`memory.allocation` on tier 2 (2026-10-13, `qemu-cts-run.sh`, 4 guests, 22 s): **202 Pass**, same as tier 1. The board's heap limit is not implemented.
 
 ## memory.mapping (tier 1)
 
