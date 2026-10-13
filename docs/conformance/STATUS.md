@@ -179,20 +179,15 @@ in an initrd, on QEMU `virt` with Linux 7.2.9 and the Rust Borg DRM driver; borg
 
 ## 2e and 2f: all of `dEQP-VK.pipeline.*`
 
-The memorandum has two pipeline tasks, so every `pipeline` case belongs to one of them. The 461,812 cases of
-`pipeline.monolithic` in CTS 1.4.6.2 (extension variants included) are split by subgroup, the variants go to 2e:
+The memorandum has two pipeline tasks, so every `pipeline` case belongs to one of them, split by the way the
+pipeline is created:
 
-- **2e, creation, layouts, cache (8,087 monolithic cases):** `cache`, `creation_cache_control`, `pipeline_binary`,
-  `executable_properties`, `spec_constant`, `interface_matching`, `shader_module_identifier`, `bind_point`,
-  `push_constant`, `push_descriptor`, `descriptor_limits`, `dynamic_offset`, `bind_buffers_2`, `no_position`,
-  `framebuffer_attachment`. Also the creation variants (700,282 cases): `pipeline_library`, `fast_linked_library`,
-  `shader_object_*` and `no-queues`.
-- **2f, state and resources (453,725 monolithic cases):** every other subgroup: `blend*`, `logic_op*`,
-  `color_write_enable*`, `depth*`, `stencil`, `multisample*`, `sampler`, `image`, `image_view`, `vertex_input`,
-  `render_to_image`, `input_assembly`, `timestamp`, `extended_dynamic_state`, `attachment_feedback_loop_layout`,
-  `sliced_view_of_3d_image`, `image_2d_view_3d_image`.
+- **2e, creation, layouts, cache:** the creation variants (700,282 cases in CTS 1.4.6.2): `pipeline_library`,
+  `fast_linked_library`, `shader_object_*` and `no-queues`.
+- **2f, state coverage:** all of `pipeline.monolithic` (461,812 cases, extension variants included): blend,
+  depth/stencil, multisample and the rest.
 
-**2e monolithic on tier 1 (2026-10-13):** `OUT=... JOBS=12 DIRECT=1 CASELIST=<the 8,087 cases> scripts/cts_par.sh p2e`,
+**2f, 15 of the monolithic subgroups (creation, layouts, cache, descriptors) on tier 1 (2026-10-13):** `OUT=... JOBS=12 DIRECT=1 CASELIST=<the 8,087 cases> scripts/cts_par.sh p2e`,
 185 s: **607 Pass, 7,278 NotSupported, 202 Fail.**
 
 | Subgroup | Fail | Which cases |
@@ -205,8 +200,8 @@ The memorandum has two pipeline tasks, so every `pipeline` case belongs to one o
 
 `cache` (261 Pass) and `bind_point` (48 Pass) have 0 Fail. The first run of the other 14 subgroups gave 172 Fail
 (`interface_matching` 111, `push_constant` 21): the counts move by a few between runs, so some of these cases are
-load-dependent. The variants were stopped: a 3,000-case sample was all NotSupported, the full run did not finish.
-2f has not been run in full; its older rows are in the tables above.
+load-dependent. 2e (the variants) was sampled only: 3,000 of 700,282 cases, all NotSupported; the full run was stopped.
+The rest of 2f has not been run in full; its older rows are in the tables above.
 
 ## memory.allocation (tier 1)
 
