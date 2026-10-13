@@ -219,6 +219,27 @@ missing-extension check, so the result matches tier 1.
   A rerun the same day gave `interface_matching` 106 and `push_constant` 22: a few cases depend on load.
 - `framebuffer_attachment` (50 cases): 14 Pass, 2 NotSupported, 34 Fail (1d, 2d, 2d_array, cube, cube_array, with and
   without MSAA).
+- The other subgroups of 2026-10-13, one run each (`JOBS=12 DIRECT=1`):
+
+  | Subgroup | Cases | Pass | NotSupp | Fail |
+  |---|---:|---:|---:|---:|
+  | `blend` | 12,210 | 976 | 11,208 | 26 (was 100, see below) |
+  | `multisample` | 10,576 | 24 | 10,531 | 21 (4x MSAA: `alpha_to_coverage`, `raster_samples`) |
+  | `vertex_input` | 10,574 | 2 | 6,067 | 4,505 (`multiple_attributes` 4,095, `single_attribute`) |
+  | `blend_operation_advanced` | 4,652 | 0 | 4,652 | 0 |
+  | `extended_dynamic_state` | 4,027 | 0 | 4,027 | 0 |
+  | `multisample_with_fragment_shading_rate` | 3,572 | 2 | 3,570 | 0 |
+  | `attachment_feedback_loop_layout` | 2,383 | 2 | 2,381 | 0 |
+  | `depth_range_unrestricted` | 2,028 | 0 | 2,028 | 0 |
+  | `render_to_image` | 1,325 | 73 | 850 | 385, 17 Timeout (`huge` targets) |
+  | 30 small subgroups | 2,706 | 147 | 2,531 | 12, 16 Timeout |
+
+  Not run yet: `image` (122,912), `stencil` (58,496), `image_view` (27,708) and `pipeline_library` (118,915).
+- **`blend` on R16G16B16A16_SFLOAT:** all 100 cases failed because the blend shader has more than 255 instructions and
+  the blob's one-byte count wrapped, so the draw was dropped. The count now has more bits (header byte 5, bits 7:1),
+  and the shader decodes a half-float destination once and shorter. 74 of the 100 pass; the other 26 run out of
+  registers in the float-to-half output pack ("borgc: ERROR out of registers"), because constants beyond the 11 window
+  words go through the constant pool. Half-float denormals in the destination now flush to zero.
 - The older rows in the tables above (sampler, depth, the first 121,750 cases in tree order) and the 150-case samples.
 
 ## memory.allocation (tier 1)
