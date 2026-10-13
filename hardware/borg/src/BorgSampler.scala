@@ -31,15 +31,14 @@ object SamplerCtl {
   def op(c: UInt)      = c(17, 16)   // 0 sample, 1 fetch (texelFetch), 2 gather, 3 size (textureSize)
   def comp(c: UInt)    = c(19, 18)   // gather component
   def compare(c: UInt) = c(20)       // depth compare against TEXA's dref
-  def lodMode(c: UInt) = c(22, 21)   // 0 implicit, 1 implicit + TEXA bias, 2 TEXA lod, 3 TEXA rho * width
+  def lodMode(c: UInt) = c(22, 21)   // 0 implicit, 1 implicit + TEXA bias, 2 TEXA lod
   def offU(c: UInt)    = c(26, 23).asSInt
   def offV(c: UInt)    = c(30, 27).asSInt
   // A 3D image's w offset in the bits gather and compare use, which a 3D
   // image cannot: sign in 31, low bits in 20:18.
   def offW(c: UInt)    = Cat(c(31), c(20, 18)).asSInt
   val OpSample = 0; val OpFetch = 1; val OpGather = 2; val OpSize = 3
-  // Mode 3: TEXA's lod is rho, a derivative in face units (FP32); LOD = log2(rho) + log2(width).
-  val LodImplicit = 0; val LodBias = 1; val LodExplicit = 2; val LodRho = 3
+  val LodImplicit = 0; val LodBias = 1; val LodExplicit = 2
 
   // Texture descriptor: 16 words at TEX_DESC_BASE + 64*index.
   //   0  base (byte address)
@@ -277,9 +276,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   // --- LOD --------------------------------------------------------------
   private val lodTmp = Reg(Vec(6, UInt(32.W)))            // d{u,v,w}/dx, d{u,v,w}/dy
   private val lodSum = Reg(Vec(2, UInt(32.W)))            // the scaled sums in x and y
-  private val quadLod = RegInit(0.S(24.W))                // implicit LOD, Q.8 (mode 3: log2 of the width)
-  private val lgIn = WireDefault(0.U(32.W))               // the one log2: rho, the width, or a lane's rho
-  private val lg = fpLog2(lgIn)
+  private val quadLod = RegInit(0.S(24.W))                // implicit LOD, Q.8
 
   // --- Per lane ---------------------------------------------------------
   private val lane   = RegInit(0.U(log2Up(N).W))
@@ -377,11 +374,9 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
     // rho = max(|du/dx|*W + |dv/dx|*H + |dw/dx|*D, the same in y), the sum
     // form of the approximation Vulkan allows (w only for 3D); LOD = log2(rho).
     is(sLod) {
-      val rhoMode = lodMode(ctl) === LodRho.U
-      val needQuad = !isFetch && !isGather && !isSize && lodMode(ctl) =/= LodExplicit.U && !rhoMode && (N >= 3).B && !unnorm
+      val needQuad = !isFetch && !isGather && !isSize && lodMode(ctl) =/= LodExplicit.U && (N >= 3).B && !unnorm
       when(!needQuad) {
-        lgIn := uintToFp32(dimW, 0.S)
-        quadLod := Mux(rhoMode && !isFetch && !isGather, lg, 0.S); lane := 0.U; state := sLane
+        quadLod := 0.S; lane := 0.U; state := sLane
       }.otherwise {
         val a = args
         def neg(x: UInt) = Cat(~x(31), x(30, 0))
@@ -420,8 +415,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
           when(k === 11.U) {
             val rx = lodSum(0); val ry = r
             val rho = Mux(ordered(rx) >= ordered(ry), rx, ry)
-            lgIn := rho
-            quadLod := lg
+            quadLod := fpLog2(rho)
             lane := 0.U
             state := sLane
           }.otherwise {
@@ -450,9 +444,7 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
       // LOD: base, bias, clamps -- all Q.8.
       val q = (levels - 1.U).zext << 8
       // lambda = base + clamp(sampler bias + shader bias, +-maxSamplerLodBias).
-      lgIn := a.lod
-      val base0 = Mux(lodMode(ctl) === LodExplicit.U, fpToFixed(a.lod, 8, 24),
-                  Mux(lodMode(ctl) === LodRho.U && !isFetch && !isGather, lg +& quadLod, quadLod))
+      val base0 = Mux(lodMode(ctl) === LodExplicit.U, fpToFixed(a.lod, 8, 24), quadLod)
       val biasSum = fpToFixed(sd(1), 8, 24) +& Mux(lodMode(ctl) === LodBias.U, fpToFixed(a.lod, 8, 24), 0.S)
       val maxB = (MaxLodBias << 8).S
       val biased = base0 + Mux(biasSum > maxB, maxB, Mux(biasSum < -maxB, -maxB, biasSum))
