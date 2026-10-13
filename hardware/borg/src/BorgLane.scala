@@ -397,6 +397,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val is_iseq_reg = RegInit(false.B)
     val is_i2f_reg  = RegInit(false.B)
     val is_f2i_reg  = RegInit(false.B)
+    val is_f2h_reg  = RegInit(false.B)
+    val is_h2f_reg  = RegInit(false.B)
     val is_exany_reg = RegInit(false.B)
     val is_smask_reg = RegInit(false.B)
     val is_attidx_reg = RegInit(false.B)
@@ -421,6 +423,8 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       is_iseq_reg := opFlags.iseq
       is_i2f_reg  := opFlags.i2f
       is_f2i_reg  := opFlags.f2i
+      is_f2h_reg  := opFlags.f2h
+      is_h2f_reg  := opFlags.h2f
       is_exany_reg := opFlags.exany
     }
     val w     = config.totalBits          // 16
@@ -466,6 +470,10 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     val f2i     = Mux(expF === 0.U, 0.U(w.W),
                       Mux(sgnF, (~magF).asUInt + 1.U, magF)(w - 1, 0))
 
+    // F2H/H2F: the boundary conversions of Fp16Fp32 (one narrow is already shared with the special functions).
+    val f2h = if (w > 16) Fp16Fp32.narrow(recA_raw).pad(w) else recA_raw
+    val h2f = if (w > 16) Fp16Fp32.widen(recA_raw(15, 0)) else recA_raw
+
     val result = Mux(is_iadd_reg, iadd,
                  Mux(is_ishl_reg, ishl,
                  Mux(is_ishr_reg, ishr,
@@ -482,10 +490,12 @@ class BorgLane(val cfg: BorgConfig = BorgConfig.Default) extends Module {
                  Mux(is_smask_reg, io.covMask.map(_.pad(w)).getOrElse(0.U(w.W)),
                  Mux(is_attidx_reg, io.attIndex.map(_.pad(w)).getOrElse(0.U(w.W)),
                  Mux(is_tld_reg, io.dstWord.map(d => Mux(tld_sel_reg, d(1), d(0)).pad(w)).getOrElse(0.U(w.W)),
-                 Mux(is_i2f_reg,  i2f, f2i)))))))))))))))))
+                 Mux(is_f2h_reg,  f2h,
+                 Mux(is_h2f_reg,  h2f,
+                 Mux(is_i2f_reg,  i2f, f2i)))))))))))))))))))
     val is_int = is_iadd_reg || is_ishl_reg || is_ishr_reg || is_imul_reg ||
                  is_isub_reg || is_iand_reg || is_ior_reg || is_ixor_reg ||
-                 is_islt_reg || is_isrl_reg || is_isltu_reg || is_iseq_reg || is_exany_reg || is_smask_reg || is_attidx_reg || is_tld_reg || is_i2f_reg || is_f2i_reg
+                 is_islt_reg || is_isrl_reg || is_isltu_reg || is_iseq_reg || is_exany_reg || is_smask_reg || is_attidx_reg || is_tld_reg || is_i2f_reg || is_f2i_reg || is_f2h_reg || is_h2f_reg
     (result, is_int)
   }
 
