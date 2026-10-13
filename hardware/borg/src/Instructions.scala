@@ -197,6 +197,11 @@ object Instructions {
     * only in the uniform window -- a constant colour, say -- gets into a register. Runs through the
     * FMA as 1*rs1+0, FNEG without the negation. */
   val FUNCT7_FMOV  = 0x52
+  /** F2H rd, rs1: the low 16 bits of rd = rs1 as an FP16, rounded to nearest even (FP32 builds; a
+    * move at FP16). Overflow gives Inf, results below 2^-14 flush to zero. H2F is the exact widen of the
+    * low 16 bits of rs1 (FP16 denormals read as zero). Same two functions as `Fp16Fp32`. */
+  val FUNCT7_F2H   = 0x54
+  val FUNCT7_H2F   = 0x56
   // @doc:end
 
   // R4-type sub-opcodes (opcode bit 2 set, discriminated by the 2-bit funct2
@@ -248,6 +253,8 @@ object Instructions {
   def ISEQ(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISEQ, rs2, rs1, rd, funct3)
   def I2F(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_I2F, 0, rs1, rd, funct3)
   def F2I(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_F2I, 0, rs1, rd, funct3)
+  def F2H(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_F2H, 0, rs1, rd, funct3)
+  def H2F(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_H2F, 0, rs1, rd, funct3)
   def FRSQ(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FRSQ, 0, rs1, rd, funct3)
   def FSRGB(rs1: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_FSRGB, 0, rs1, rd, funct3)
   /** fine = true: DPdxFine/DPdyFine (each lane's own row/column); else coarse. */
@@ -352,6 +359,8 @@ object Instructions {
     ("ISEQ",   FUNCT7_ISEQ,  RType),
     ("I2F",    FUNCT7_I2F,   R1Type),
     ("F2I",    FUNCT7_F2I,   R1Type),
+    ("F2H",    FUNCT7_F2H,   R1Type),
+    ("H2F",    FUNCT7_H2F,   R1Type),
     ("FRSQ",   FUNCT7_FRSQ,  R1Type),
     ("FSRGB",  FUNCT7_FSRGB, R1Type),
     ("DDX",    FUNCT7_DDX,   R1Type),
