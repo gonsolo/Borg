@@ -97,6 +97,8 @@ def make_suites(root: Path, mill: str, test_soc: str) -> list:
         Suite("chisel › hutt",
               f"cd '{root}' && {mill} hardware.hutt.test",
               depends_on="chisel › borg"),
+        Suite("software › borgvk",
+              f"make -C '{root}' test-borgvk"),
         Suite("software",
               f"cd '{root}' && make -C software test"),
         Suite("simulation › common",

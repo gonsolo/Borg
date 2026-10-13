@@ -28,6 +28,7 @@ help:
 	@echo -e "  test-cocotb-soc-borg-rtl:\tRun Borg peripheral tests (cocotb)."
 	@echo -e "  lint:\t\t\t\tLint the QSPI CPU SoC (QspiSocTop)."
 	@echo -e "  lint-wafer:\t\t\tLint the wafer.space tapeout top (BorgOnlyTop1x1)."
+	@echo -e "  test-borgvk:\t\t\tRun the borgvk driver unit tests (meson)."
 	@echo -e "  test-all:\t\t\tRun all tests."
 	@echo -e "  build-vkcube:\t\t\tBuild Vulkan-Tools vkcube host binary."
 	@echo -e "  vulkan-cts:\t\t\tRun the Vulkan CTS survivor slice against borgvk."
@@ -171,6 +172,9 @@ test-cocotb-soc-core-rtl: generate_verilog
 test-cocotb-soc-borg-rtl: generate_verilog
 	$(TEST_SOC) borg
 
+test-borgvk:
+	meson test -C mesa/build-borg --suite borg
+
 test-chisel-borg:
 	$(MILL) hardware.borg.test
 
@@ -271,7 +275,7 @@ flash-linux:
 
 .PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all clean rdl \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
-	test-chisel-borg test-chisel-core \
+	test-chisel-borg test-chisel-core test-borgvk \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \
 	opensbi linux flash-linux
 
