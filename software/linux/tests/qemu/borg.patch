@@ -1,0 +1,128 @@
+diff --git a/hw/misc/borg.c b/hw/misc/borg.c
+new file mode 100644
+index 000000000..f94b5dc6e
+--- /dev/null
++++ b/hw/misc/borg.c
+@@ -0,0 +1,113 @@
++/*
++ * Borg GPU: register window forwarded over a UNIX socket to direct_sim --bridge,
++ * GPU memory is a shared memory backend that direct_sim maps too.
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++#include "qemu/osdep.h"
++#include "qapi/error.h"
++#include "qemu/sockets.h"
++#include "qemu/error-report.h"
++#include "system/address-spaces.h"
++#include "hw/core/qdev.h"
++#include "hw/core/qdev-properties.h"
++#include "system/hostmem.h"
++#include "system/memory.h"
++#include "qom/object.h"
++
++#define TYPE_BORG "borg"
++OBJECT_DECLARE_SIMPLE_TYPE(BorgState, BORG)
++
++struct BorgState {
++    DeviceState parent_obj;
++    MemoryRegion regs;
++    HostMemoryBackend *memdev;
++    char *socket;
++    uint64_t regs_addr;
++    uint64_t mem_addr;
++    int fd;
++};
++
++static uint32_t borg_xfer(BorgState *s, uint32_t write, uint32_t addr, uint32_t data)
++{
++    uint32_t req[3] = { write, addr, data }, resp = 0;
++    if (qemu_write_full(s->fd, req, sizeof(req)) != sizeof(req) ||
++        read(s->fd, &resp, sizeof(resp)) != sizeof(resp)) {
++        error_report("borg: bridge connection lost");
++        exit(1);
++    }
++    return resp;
++}
++
++static uint64_t borg_read(void *opaque, hwaddr addr, unsigned size)
++{
++    return borg_xfer(opaque, 0, addr, 0);
++}
++
++static void borg_write(void *opaque, hwaddr addr, uint64_t val, unsigned size)
++{
++    borg_xfer(opaque, 1, addr, val);
++}
++
++static const MemoryRegionOps borg_ops = {
++    .read = borg_read,
++    .write = borg_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++    .valid = { .min_access_size = 4, .max_access_size = 4 },
++};
++
++static void borg_realize(DeviceState *dev, Error **errp)
++{
++    BorgState *s = BORG(dev);
++    MemoryRegion *mem;
++    int i;
++
++    if (!s->socket || !s->memdev) {
++        error_setg(errp, "borg: socket and memdev are required");
++        return;
++    }
++    for (i = 0; i < 100; i++) {
++        s->fd = unix_connect(s->socket, NULL);
++        if (s->fd >= 0) {
++            break;
++        }
++        g_usleep(100000);
++    }
++    if (s->fd < 0) {
++        error_setg(errp, "borg: cannot connect to %s", s->socket);
++        return;
++    }
++    memory_region_init_io(&s->regs, OBJECT(dev), &borg_ops, s, "borg-regs", 0x400);
++    memory_region_add_subregion(get_system_memory(), s->regs_addr, &s->regs);
++    mem = host_memory_backend_get_memory(s->memdev);
++    memory_region_add_subregion(get_system_memory(), s->mem_addr, mem);
++}
++
++static const Property borg_props[] = {
++    DEFINE_PROP_STRING("socket", BorgState, socket),
++    DEFINE_PROP_UINT64("regs-addr", BorgState, regs_addr, 0x08000000),
++    DEFINE_PROP_UINT64("mem-addr", BorgState, mem_addr, 0x08100000),
++    DEFINE_PROP_LINK("memdev", BorgState, memdev, TYPE_MEMORY_BACKEND, HostMemoryBackend *),
++};
++
++static void borg_class_init(ObjectClass *oc, const void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(oc);
++
++    dc->realize = borg_realize;
++    device_class_set_props(dc, borg_props);
++    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
++}
++
++static const TypeInfo borg_info = {
++    .name = TYPE_BORG,
++    .parent = TYPE_DEVICE,
++    .instance_size = sizeof(BorgState),
++    .class_init = borg_class_init,
++};
++
++static void borg_register_types(void)
++{
++    type_register_static(&borg_info);
++}
++
++type_init(borg_register_types)
+diff --git a/hw/misc/meson.build b/hw/misc/meson.build
+index 092f70bde..0c5525b8c 100644
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -166,3 +166,4 @@ system_ss.add(when: 'CONFIG_SBSA_REF', if_true: files('sbsa_ec.c'))
+ 
+ # HPPA devices
+ system_ss.add(when: 'CONFIG_LASI', if_true: files('lasi.c'))
++system_ss.add(files('borg.c'))
