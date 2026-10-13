@@ -177,37 +177,36 @@ in an initrd, on QEMU `virt` with Linux 7.2.9 and the Rust Borg DRM driver; borg
 - Queries only. Cases that render need the real Borg behind the register block (a QEMU-to-`direct_sim` bridge, not built).
 - The riscv64 Rust `std` and cross file for the Mesa build are in the scratchpad, not the repo yet.
 
-## 2e and 2f: the `pipeline.monolithic` subgroups
+## 2e and 2f: all of `dEQP-VK.pipeline.*`
 
-The 274,810 cases of `dEQP-VK.pipeline.monolithic` are split by subgroup (`pipeline.monolithic.<subgroup>`):
+The memorandum has two pipeline tasks, so every `pipeline` case belongs to one of them. The 461,812 cases of
+`pipeline.monolithic` in CTS 1.4.6.2 (extension variants included) are split by subgroup, the variants go to 2e:
 
-- **2e, creation, layouts, cache:** `cache`, `creation_cache_control`, `pipeline_binary`, `executable_properties`,
-  `spec_constant`, `interface_matching`, `shader_module_identifier`, `bind_point`, `push_constant`, `push_descriptor`,
-  `descriptor_limits`, `dynamic_offset`, `bind_buffers_2`, `no_position` (8,037 cases).
-- **2f, blend, depth/stencil, multisample:** `blend`, `blend_operation_advanced`, `logic_op`, `logic_op_na_formats`,
-  `color_write_enable`, `color_write_enable_maxa`, `depth`, `depth_range_unrestricted`, `stencil`, `multisample`,
-  `multisample_interpolation`, `multisample_shader_builtin`, `multisample_with_fragment_shading_rate`.
-- **Neither:** `sampler`, `image`, `image_view`, `vertex_input`, `render_to_image`, `input_assembly`, `timestamp`,
-  `extended_dynamic_state`, `attachment_feedback_loop_layout`, `framebuffer_attachment`, `sliced_view_of_3d_image`,
-  `image_2d_view_3d_image`. They belong to the texture, image and draw tasks.
+- **2e, creation, layouts, cache (8,087 monolithic cases):** `cache`, `creation_cache_control`, `pipeline_binary`,
+  `executable_properties`, `spec_constant`, `interface_matching`, `shader_module_identifier`, `bind_point`,
+  `push_constant`, `push_descriptor`, `descriptor_limits`, `dynamic_offset`, `bind_buffers_2`, `no_position`,
+  `framebuffer_attachment`. Also the creation variants (700,282 cases): `pipeline_library`, `fast_linked_library`,
+  `shader_object_*` and `no-queues`.
+- **2f, state and resources (453,725 monolithic cases):** every other subgroup: `blend*`, `logic_op*`,
+  `color_write_enable*`, `depth*`, `stencil`, `multisample*`, `sampler`, `image`, `image_view`, `vertex_input`,
+  `render_to_image`, `input_assembly`, `timestamp`, `extended_dynamic_state`, `attachment_feedback_loop_layout`,
+  `sliced_view_of_3d_image`, `image_2d_view_3d_image`.
 
-The library and shader-object variants (`pipeline.pipeline_library`, `fast_linked_library`, `shader_object_*`) are outside both.
+**2e monolithic on tier 1 (2026-10-13):** `OUT=... JOBS=12 DIRECT=1 CASELIST=<the 8,087 cases> scripts/cts_par.sh p2e`,
+185 s: **607 Pass, 7,278 NotSupported, 202 Fail.**
 
-**2e on tier 1 (2026-10-13):** `OUT=... JOBS=12 DIRECT=1 CASELIST=<the 8,037 cases> scripts/cts_par.sh p2e`, 170 s:
-**589 Pass, 7,276 NotSupported, 172 Fail.**
+| Subgroup | Fail | Which cases |
+|---|---:|---|
+| `interface_matching` | 106 | `vector_length`, `decoration_mismatch`, `shader_layout_component_matching` |
+| `framebuffer_attachment` | 34 | 1d, 2d, 2d_array, cube, cube_array, with and without MSAA |
+| `descriptor_limits` | 28 | `compute_shader`, `fragment_shader` |
+| `push_constant` | 22 | `graphics_pipeline`, `lifetime`, `compute_pipeline` |
+| `dynamic_offset` | 12 | `combined_descriptors` |
 
-| Subgroup | Pass | NotSupp | Fail |
-|---|---:|---:|---:|
-| `cache` | 261 | 513 | 0 |
-| `bind_point` | 48 | 1,248 | 0 |
-| `dynamic_offset` | 204 | 192 | 12 (`combined_descriptors`) |
-| `descriptor_limits` | 58 | 310 | 28 (`compute_shader` 16, `fragment_shader` 12) |
-| `push_constant` | 5 | 39 | 21 (`graphics_pipeline` 11, `lifetime` 9, `compute_pipeline` 1) |
-| `interface_matching` | 12 | 1,466 | 111 (`vector_length` 48, `decoration_mismatch` 35, `shader_layout_component_matching` 28) |
-| `spec_constant` | 1 | 1,412 | 0 |
-| `bind_buffers_2`, `creation_cache_control`, `executable_properties`, `no_position`, `pipeline_binary`, `push_descriptor`, `shader_module_identifier` | 0 | 2,096 | 0 |
-
-The 172 Fail are the open items of 2e.
+`cache` (261 Pass) and `bind_point` (48 Pass) have 0 Fail. The first run of the other 14 subgroups gave 172 Fail
+(`interface_matching` 111, `push_constant` 21): the counts move by a few between runs, so some of these cases are
+load-dependent. The variants were stopped: a 3,000-case sample was all NotSupported, the full run did not finish.
+2f has not been run in full; its older rows are in the tables above.
 
 ## memory.allocation (tier 1)
 
