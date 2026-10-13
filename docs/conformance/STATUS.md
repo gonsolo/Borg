@@ -197,6 +197,10 @@ the same size:
 (`vkPipelineConstructionUtil.cpp:207`).
 So 2e is complete on tier 1: **581,367 NotSupported, 0 Fail.**
 
+**2e on tier 2 (2026-10-13):** a random 5,000-case sample (fixed seed) of the 581,367 cases, `qemu-cts-run.sh` on 12 guests,
+30 s: **5,000 NotSupported, 0 Fail**, no guest crash. Not run in full (about 50 minutes estimated); the cases stop at the
+missing-extension check, so the result matches tier 1.
+
 **2f on tier 1:** not run in full. What ran, all in `pipeline.monolithic`:
 
 - 14 subgroups for creation, layouts and cache (8,037 cases, 170 s, 2026-10-13): **589 Pass, 7,276 NotSupported, 172 Fail.**
