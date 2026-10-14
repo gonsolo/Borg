@@ -223,7 +223,7 @@ missing-extension check, so the result matches tier 1.
 
   | Subgroup | Cases | Pass | NotSupp | Fail |
   |---|---:|---:|---:|---:|
-  | `blend` | 12,210 | 1,001 | 11,208 | 1 (was 100, see below; rerun, 760 s) |
+  | `blend` | 12,210 | 1,002 | 11,208 | 0 (was 100, see below; rerun with F2H/H2F, 537 s) |
   | `multisample` | 10,576 | 24 | 10,531 | 21 (4x MSAA: `alpha_to_coverage`, `raster_samples`) |
   | `vertex_input` | 10,574 | 2 | 6,067 | 4,505 (`multiple_attributes` 4,095, `single_attribute`) |
   | `blend_operation_advanced` | 4,652 | 0 | 4,652 | 0 |
@@ -236,12 +236,13 @@ missing-extension check, so the result matches tier 1.
 
   Not run yet: `image` (122,912), `stencil` (58,496), `image_view` (27,708) and `pipeline_library` (118,915).
 - **`blend` on R16G16B16A16_SFLOAT:** all 100 cases failed because the blend shader has more than 255 instructions and
-  the blob's one-byte count wrapped, so the draw was dropped. The count now has more bits (header byte 5, bits 7:1),
-  the shader decodes a half-float destination once and shorter, and the float-to-half pack is shorter. 99 of the 100
-  pass. The last one, `color_dc_1mda_sub_alpha_1mcc_dc_sub-...-color_1mdc_da_min_alpha_dc_sa_sub`, runs out of
-  registers in its fourth shader ("borgc: ERROR out of registers"): constants beyond the 11 window words go through
-  the constant pool, which holds 4 registers per group, and the allocator has no spill path. Half-float values below
-  2^-14 flush to zero in the destination and in the output.
+  the blob's one-byte count wrapped, so the draw was dropped. The count now has more bits (header byte 5, bits 7:1).
+  Shortening the integer decode and pack got 99 of 100 through; the last ran out of registers. The new instructions
+  `F2H` and `H2F` (funct7 0x54, 0x56; the `Fp16Fp32` functions of the RTL) make a conversion one instruction per
+  channel: a blend shader is 37 instructions and 2 window constants instead of 180-280 and 11, and all 100 pass.
+  Half-float values below 2^-14 flush to zero in the destination and in the output. Cost on the ULX3S SoC (yosys,
+  before and after): +559 LUT4 (47,990 to 48,549), -3 carry cells, +2 flip-flops, about 0.7 points of the device.
+  Not measured on the wafer.space flow.
 - The older rows in the tables above (sampler, depth, the first 121,750 cases in tree order) and the 150-case samples.
 
 ## memory.allocation (tier 1)
