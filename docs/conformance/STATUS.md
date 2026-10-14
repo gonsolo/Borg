@@ -210,7 +210,7 @@ missing-extension check, so the result matches tier 1.
   | `cache` | 261 | 513 | 0 |
   | `bind_point` | 48 | 1,248 | 0 |
   | `dynamic_offset` | 204 | 192 | 12 (`combined_descriptors`) |
-  | `descriptor_limits` | 58 | 310 | 28 (`compute_shader` 16, `fragment_shader` 12) |
+  | `descriptor_limits` | 70 | 310 | 16 (`compute_shader`: 14 `samplers`, 2 `storage_images`) |
   | `push_constant` | 5 | 39 | 21 (`graphics_pipeline` 11, `lifetime` 9, `compute_pipeline` 1) |
   | `interface_matching` | 12 | 1,466 | 111 (`vector_length` 48, `decoration_mismatch` 35, `shader_layout_component_matching` 28) |
   | `spec_constant` | 1 | 1,412 | 0 |
@@ -260,6 +260,12 @@ missing-extension check, so the result matches tier 1.
   fixes (291) and of the 50 `a2b10g10r10_uint` cases (50), not one full run. What is left: the 43 `huge` cases with a
   depth or stencil attachment (4096 pixels in a dimension, more than the Z buffer's 1024 x 1024 pixels; letting the
   draw through only made them time out) and 18 timeouts of the 4096-wide colour cases.
+- **`descriptor_limits` (2026-10-14):** a fragment shader's `vec4` uniform buffer load took its address step (the constant 1)
+  from register r17, which draw mode never stages, so words 1 to 3 came from a wrong address (10 `uniform_buffers_N`
+  cases). The step is now a constant-window word. A storage image a fragment shader only reads is lowered to a texel
+  fetch (2 `storage_images` cases). The 16 left are compute shaders: `samplers_N` (14, the compute compiler has no
+  texture sampling: "value has no producer") and `storage_images_3/4`. The compiler corpus afterwards: 162 blobs
+  identical, 11 different (10 more than before this fix; the statuses are the same, Fail 40 to 39), 35 missing.
 - **`blend` on R16G16B16A16_SFLOAT:** all 100 cases failed because the blend shader has more than 255 instructions and
   the blob's one-byte count wrapped, so the draw was dropped. The count now has more bits (header byte 5, bits 7:1).
   Shortening the integer decode and pack got 99 of 100 through; the last ran out of registers. The new instructions
