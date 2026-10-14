@@ -40,7 +40,7 @@ static spirb_shader_t frag_shader;     // its window fills DRAW_FS_CONST
 static int g_draw_vertex_count = 0;
 // Draw parameters of the generic path (0xBA); the cube path leaves them at a plain list draw.
 static struct {
-  uint32_t topology, index_type, restart, load, instance_count, first_vertex, first_instance, index_base, ubo_base;
+  uint32_t topology, index_type, restart, load, instance_count, first_vertex, first_instance, index_base, ubo_base, push_stage;
   int32_t vertex_offset;
 } g_dp = {0, 0, 0, 0, 1, 0, 0, 0, 0, 0};
 static uint16_t clear_r, clear_g, clear_b;
@@ -251,8 +251,9 @@ void borg_upload_texture_row(const uint8_t *row, int y, int dim) {
 static uint32_t g_push_used;
 #ifdef BORG_HOST
 // A draw's LOAD base: its uniform buffer, else the pushed constants, else the default UBO.
-static uint32_t draw_ls_base(void) {
-  uint32_t b = g_dp.ubo_base ? g_dp.ubo_base : g_push_used ? BORG_PUSH_CONST_SPI : DRAW_UBO_SPI;
+static uint32_t draw_ls_base(int stage) {
+  uint32_t b = (g_dp.push_stage >> stage & 1) ? BORG_PUSH_CONST_SPI
+             : g_dp.ubo_base ? g_dp.ubo_base : g_push_used ? BORG_PUSH_CONST_SPI : DRAW_UBO_SPI;
   return b & LS_BASE_REG_T__BASE_ADDR_bm;
 }
 #endif
@@ -330,7 +331,7 @@ void borg_core_stage(const borg_float_t *mvp) {
   g_draw_vertex_count = rx_geom_ntris * 3;
   g_dp.topology = g_dp.index_type = g_dp.restart = g_dp.load = 0;
   g_dp.instance_count = 1;
-  g_dp.first_vertex = g_dp.first_instance = g_dp.index_base = g_dp.ubo_base = 0;
+  g_dp.first_vertex = g_dp.first_instance = g_dp.index_base = g_dp.ubo_base = g_dp.push_stage = 0;
   g_dp.vertex_offset = 0;
 }
 
@@ -517,7 +518,7 @@ void borg_core_list_draw(void) {
   LREG(st, n, seq_frag_addr, g_sh[1].code); LREG(st, n, seq_frag_len, blob_instrs(g_sh[1].blob) > 63 ? 63 : blob_instrs(g_sh[1].blob));
   LREG(st, n, draw_vs_const, g_sh[0].consts); LREG(st, n, draw_fs_const, g_sh[1].consts);
   LREG(st, n, tex_desc_base, TEX_DESC_TABLE_ADDR); LREG(st, n, sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
-  LREG(st, n, ls_base, draw_ls_base());
+  LREG(st, n, ls_base, draw_ls_base(1));
   LREG(st, n, blend_cfg, g_st.blend_cfg); LREG(st, n, blend_const, g_st.blend_const);
   if (g_st.raster_valid) {
     LREG(st, n, stencil_cfg, g_st.stencil_cfg); LREG(st, n, stencil_front, g_st.stencil_front);
@@ -550,7 +551,7 @@ void borg_core_list_draw(void) {
   // The vertex shader's attribute descriptors are slots BORG_VATTR_SLOT0.. of ITS table: the
   // state block's table is the fragment shader's, which Pass 2 writes back.
   LREG(pr, m, tex_desc_base, g_list.vtab_addr - BORG_VATTR_SLOT0 * 64);
-  LREG(pr, m, ls_base, draw_ls_base());   // the vertex shader's LOADs
+  LREG(pr, m, ls_base, draw_ls_base(0));   // the vertex shader's LOADs
   uint32_t params = list_block(pr, m);
 
   BDRAM_W(BORG_LIST_SPI + g_list.n * 8, g_list.state_addr);
@@ -820,10 +821,10 @@ int borg_core_packet(const uint8_t *p) {
     return BC_VATTR;
   }
   case 0xBA: { // draw: topology, index type, restart, counts, first vertex/instance, vertex offset, index base
-    // p[3]: bit 0 primitive restart; bits 4:1 TILE_LOAD (colour, depth, stencil, keep). A draw
+    // p[3]: bit 0 primitive restart; bits 4:1 TILE_LOAD (colour, depth, stencil, keep); bits 6:5 stages loading push constants only. A draw
     // that loads colour alone continues its pass: it keeps the tiles it does not reach.
-    if (p[1] > 2 || p[2] > 2 || p[3] > 31) return BC_BAD;
-    g_dp.topology = p[1]; g_dp.index_type = p[2]; g_dp.restart = p[3] & 1; g_dp.load = (p[3] >> 1) & 15;
+    if (p[1] > 2 || p[2] > 2 || p[3] > 127) return BC_BAD;
+    g_dp.topology = p[1]; g_dp.index_type = p[2]; g_dp.restart = p[3] & 1; g_dp.load = (p[3] >> 1) & 15; g_dp.push_stage = p[3] >> 5 & 3;
     if (g_dp.load == 1) g_dp.load = 9;
     g_draw_vertex_count = (int)le32(p + 4);
     g_dp.instance_count = le32(p + 8);
