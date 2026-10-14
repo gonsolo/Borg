@@ -250,8 +250,9 @@ missing-extension check, so the result matches tier 1.
   its relatives get their constants, and sRGB attributes are read as UNORM (what the CTS single-attribute cases expect;
   the non-strict `srgb_vertex_formats` cases accept it with a QualityWarning, the strict ones need
   `VK_KHR_maintenance10`). Result: 4,492 Pass, 15 QualityWarning, 6,067 NotSupported (`shaderFloat16`/`shaderFloat64`
-  and similar features we do not report), 0 Fail. The compiler corpus was last checked before these fixes (3 `glsl`
-  Fail and 1 Timeout then passed; 35 shaders fail with a caught compile panic where they were refused cleanly before).
+  and similar features we do not report), 0 Fail. Tier 2 (QEMU, real RTL, 400-case sample): 152 Pass, 1 QualityWarning,
+  247 NotSupported, 0 Fail. The compiler corpus after these fixes: 172 blobs identical, 1 different and 35 missing, the
+  same as before them (the 35 are the caught compile panics, refused cleanly before).
 - **`blend` on R16G16B16A16_SFLOAT:** all 100 cases failed because the blend shader has more than 255 instructions and
   the blob's one-byte count wrapped, so the draw was dropped. The count now has more bits (header byte 5, bits 7:1).
   Shortening the integer decode and pack got 99 of 100 through; the last ran out of registers. The new instructions
