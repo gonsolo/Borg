@@ -231,7 +231,7 @@ missing-extension check, so the result matches tier 1.
   | `multisample_with_fragment_shading_rate` | 3,572 | 2 | 3,570 | 0 |
   | `attachment_feedback_loop_layout` | 2,383 | 2 | 2,381 | 0 |
   | `depth_range_unrestricted` | 2,028 | 0 | 2,028 | 0 |
-  | `render_to_image` | 1,325 | 73 | 850 | 385, 17 Timeout (`huge` targets) |
+  | `render_to_image` | 1,325 | 414 | 850 | 43, 18 Timeout (`huge` targets, see below) |
   | 30 small subgroups | 2,706 | 147 | 2,531 | 12, 16 Timeout |
 
   Not run yet: `image` (122,912), `stencil` (58,496), `image_view` (27,708) and `pipeline_library` (118,915).
@@ -253,6 +253,13 @@ missing-extension check, so the result matches tier 1.
   and similar features we do not report), 0 Fail. Tier 2 (QEMU, real RTL, 400-case sample): 152 Pass, 1 QualityWarning,
   247 NotSupported, 0 Fail. The compiler corpus after these fixes: 172 blobs identical, 1 different and 35 missing, the
   same as before them (the 35 are the caught compile panics, refused cleanly before).
+- **`render_to_image` (2026-10-14):** a draw into a view with a base mip level or base array layer above 0 wrote to level 0,
+  layer 0 (the 1d/2d array, cube and mipmap cases: 341 of the 385 fails); the view now renders as an image of its own
+  (one level, one layer). The 10-10-10-2 UINT colour formats were not served; they are now packed with each field
+  clamped (50 cases). The 414 Pass are the 73 of the full run plus the reruns of the 384 failures after the two
+  fixes (291) and of the 50 `a2b10g10r10_uint` cases (50), not one full run. What is left: the 43 `huge` cases with a
+  depth or stencil attachment (4096 pixels in a dimension, more than the Z buffer's 1024 x 1024 pixels; letting the
+  draw through only made them time out) and 18 timeouts of the 4096-wide colour cases.
 - **`blend` on R16G16B16A16_SFLOAT:** all 100 cases failed because the blend shader has more than 255 instructions and
   the blob's one-byte count wrapped, so the draw was dropped. The count now has more bits (header byte 5, bits 7:1).
   Shortening the integer decode and pack got 99 of 100 through; the last ran out of registers. The new instructions
