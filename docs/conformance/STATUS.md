@@ -115,7 +115,6 @@ seed, 2026-10-10, 60 s per case. These groups have real failures; the sample say
 | pipeline.monolithic.sampler (3d, arrays, cube) | 48,684 | 150 | 21 | 129 | 0 | 0 | 0 |
 | pipeline.monolithic, the other subgroups | 29,596 | 300 | 0 | 285 | 8 | 7 | 0 |
 | draw | 29,392 | 150 | 1 | 149 | 0 | 0 | 0 |
-| pipeline.monolithic.image_view | 27,708 | 150 | 32 | 118 | 0 | 0 | 0 |
 | glsl | 26,801 | 150 | 5 | 80 | 0 | 57 | 8 |
 | texture | 25,669 | 150 | 0 | 113 | 0 | 36 | 1 |
 | query_pool | 18,270 | 150 | 1 | 143 | 2 | 4 | 0 |
@@ -234,7 +233,7 @@ missing-extension check, so the result matches tier 1.
   | `render_to_image` | 1,325 | 414 | 850 | 43, 18 Timeout (`huge` targets, see below) |
   | 30 small subgroups | 2,706 | 147 | 2,531 | 12, 16 Timeout |
 
-  Not run yet: `image` (122,912), `stencil` (58,496), `image_view` (27,708) and `pipeline_library` (118,915).
+  Not run yet: `image` (122,912), `stencil` (58,496) and `pipeline_library` (118,915).
 - **`vertex_input` (2026-10-14):** the CTS vertex shaders overflowed the six window words of a vertex shader (one TEX
   control word per attribute location, plus float tolerances), used `b2i32` and `ineg`, were longer than the vertex slot
   (128 words; it silently refused them) and wrote `gl_Position` in nested branches, of which the last store won. Now: a
@@ -266,6 +265,7 @@ missing-extension check, so the result matches tier 1.
   fetch (2 `storage_images` cases). The 16 left are compute shaders: `samplers_N` (14, the compute compiler has no
   texture sampling: "value has no producer") and `storage_images_3/4`. The compiler corpus afterwards: 162 blobs
   identical, 11 different (10 more than before this fix; the statuses are the same, Fail 40 to 39), 35 missing.
+- **`image_view` (2026-10-14):** full run, 27,708 cases: 6,660 Pass, 20,934 NotSupported, 114 Fail. All 114 were `bc5_unorm_block` / `bc5_snorm_block`: the sampler had no block-compressed path, so those views drew nothing. A draw that samples a BC image now decodes it to RGBA32F first; the 114 pass, so the group has 6,774 Pass and 0 Fail.
 - **`blend` on R16G16B16A16_SFLOAT:** all 100 cases failed because the blend shader has more than 255 instructions and
   the blob's one-byte count wrapped, so the draw was dropped. The count now has more bits (header byte 5, bits 7:1).
   Shortening the integer decode and pack got 99 of 100 through; the last ran out of registers. The new instructions
