@@ -466,14 +466,12 @@ word w of the texel is r26 (w = 0), r27 (w = 1); a RAW128 texel renders in two s
 
 **line 945, in `compile_nir_inner`, above `macro_rules! i {`**
 
-R16G16_SFLOAT (RAW32; with bit 0x20 R16_SFLOAT, RAW16): r26 = half(r) | half(g) << 16 with integer ops (round to nearest even,
-NaN to 0x7E00); a branch-free select between the denormal, normal and overflow results.
-
-
-**line 960, in `compile_nir_inner`, above `let mut pw: [Option<u32>; 2] = [None; 2];`**
-
-The small integers are constants like the rest: a register each for the whole block
-was more than a blending shader has (the pool pass keeps the busiest in the window).
+R16G16_SFLOAT (RAW32; with bit 0x20 R16_SFLOAT, RAW16): r26 = F2H(r) | F2H(g) << 16. F2H rounds to nearest even,
+overflows to Inf and flushes results below 2^-14 to zero; H2F widens the low 16 bits exactly (a half denormal reads
+as zero). Both are the `Fp16Fp32` functions of the RTL. A blend reads the destination once per shader (TLD, then H2F
+per channel) and the whole pack is one F2H per channel. Before F2H/H2F (2026-10-14) the conversions were about 30
+integer instructions and 13 constants per channel, which overflowed the 11-word window and the registers of the
+RGBA16F blend shaders.
 
 
 **line 1015, in `compile_nir_inner`, above `let (mut p, mut pc) = cx.outs.frag[3].unwrap();`**

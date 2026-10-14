@@ -14,7 +14,7 @@ error, and the shader renders wrong. That is how the cube lost its texture on 20
 
 | Group | Instructions |
 |---|---|
-| Float | `ADD`, `MUL` (and the FMA path), `FNEG`, `FSTEP`, `FRCP`, `FRSQ`, `FSRGB`, `FMOV`, `I2F`, `F2I` |
+| Float | `ADD`, `MUL` (and the FMA path), `FNEG`, `FSTEP`, `FRCP`, `FRSQ`, `FSRGB`, `FMOV`, `I2F`, `F2I`, `F2H`, `H2F` |
 | Integer | `IADD`, `ISUB`, `IMUL`, `ISHL`, `ISHR`, `ISRL`, `IAND`, `IOR`, `IXOR`, `ISLT`, `ISLTU`, `ISEQ` |
 | Quad | `DDX`, `DDY` (fixed: lane1 − lane0, lane2 − lane0) |
 | Memory | `LOAD`, `STORE` (word index from `LS_BASE`), `TEX`/`TEXA`, `TLD` |
