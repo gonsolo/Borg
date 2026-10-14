@@ -225,7 +225,7 @@ missing-extension check, so the result matches tier 1.
   |---|---:|---:|---:|---:|
   | `blend` | 12,210 | 1,002 | 11,208 | 0 (was 100, see below; rerun with F2H/H2F, 537 s) |
   | `multisample` | 10,576 | 24 | 10,531 | 21 (4x MSAA: `alpha_to_coverage`, `raster_samples`) |
-  | `vertex_input` | 10,574 | 51 | 6,067 | 4,456 (was 4,505, see below) |
+  | `vertex_input` | 10,574 | 4,169 | 6,067 | 338 (was 4,505, see below) |
   | `blend_operation_advanced` | 4,652 | 0 | 4,652 | 0 |
   | `extended_dynamic_state` | 4,027 | 0 | 4,027 | 0 |
   | `multisample_with_fragment_shading_rate` | 3,572 | 2 | 3,570 | 0 |
@@ -240,11 +240,14 @@ missing-extension check, so the result matches tier 1.
   (128 words; it silently refused them) and wrote `gl_Position` in nested branches, of which the last store won. Now: a
   vertex shader's constants beyond the window come from a pool in vertex attribute slot 42, the two operations exist, the
   vertex slot takes 510 words, and a vertex shader's branches flatten to selects (after the vertex, instance and base
-  instance ids are loaded once). 51 Pass, all `rate_vertex` cases. The rest fail for reasons not found yet: every
-  `rate_instance` case draws both instances but the second instance's attribute check counts no match (black instead
-  of blue), and the multi-attribute cases get the colour check partly wrong. The compiler corpus is unchanged except
-  that 3 `glsl` Fail and 1 Timeout now pass; 35 corpus shaders fail with a caught compile panic where they were refused
-  cleanly before (the new ops let them get further).
+  instance ids are loaded once). Two compiler gaps then explained most of the rest: `load_instance_id` and
+  `load_base_instance` were never selected (an undefined register), and integer constants in `iadd`, `imul`, `isub` and
+  `ishl` of a fetching vertex shader were treated as address math and left undefined (every `ivec`/`uvec` case). Now
+  4,169 Pass, 6,067 NotSupported, 338 Fail. What is left: 173 of the 338 use 8-bit scaled or sRGB or packed formats
+  (`r8g8_uscaled`, `a2r10g10b10_uscaled`, `srgb_vertex_formats`), plus about 100 multi-attribute cases with `mat3`/`mat4`
+  and about 60 other single-attribute ones, not analysed yet. The compiler corpus was last checked before these two
+  fixes (3 `glsl` Fail and 1 Timeout then passed; 35 shaders fail with a caught compile panic where they were refused
+  cleanly before).
 - **`blend` on R16G16B16A16_SFLOAT:** all 100 cases failed because the blend shader has more than 255 instructions and
   the blob's one-byte count wrapped, so the draw was dropped. The count now has more bits (header byte 5, bits 7:1).
   Shortening the integer decode and pack got 99 of 100 through; the last ran out of registers. The new instructions
