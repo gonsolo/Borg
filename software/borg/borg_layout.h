@@ -81,7 +81,7 @@
 // sampler table holds 256 descriptors of 16 bytes.
 #define BORG_TEX_SLOTS          256
 #define BORG_VATTR_SLOT0        128
-#define BORG_MAX_VATTRS         42      // 16 application locations, the point corner or line attribute, 16 more for a line's other endpoint
+#define BORG_MAX_VATTRS         43      // 16 application locations, the point corner or line attribute, 16 more for a line's other endpoint
 #define TEX_DESC_TABLE_ADDR     TEX_DRAM_BYTE_ADDR_FIXED
 #define SAMPLER_DESC_TABLE_ADDR (TEX_DESC_TABLE_ADDR + BORG_TEX_SLOTS * 64)
 #define TEX_TEXEL_ADDR          (SAMPLER_DESC_TABLE_ADDR + BORG_TEX_SLOTS * 16)
@@ -235,10 +235,9 @@
 // vertices and transforms them, so it is far longer than the legacy 32-word
 // SEQ_VERT_SHADER_ADDR slot allows (borgc's cube.vert is 74 instructions).
 // The instruction cache fetches it from DRAM, so only this slot bounds its
-// length; 128 words covers any blob a 0xB0 packet (RX_SHADER_MAX = 512 B)
-// can carry.
+// length; the slot takes any blob a 0xC1 packet (2048 B) can carry.
 #define DRAW_VERT_SHADER_SPI        (DRAW_VS_CONST_SPI + DRAW_VS_CONST_MAX_WORDS * 4)
-#define DRAW_VERT_SHADER_MAX_WORDS  128
+#define DRAW_VERT_SHADER_MAX_WORDS  510   // the blob's limit (SPIRB_MAX_INSTRS)
 
 // Draw-mode fragment shader code, in a slot of its own for the same reason: the legacy
 // SEQ_FRAG_SHADER_ADDR slot is 64 words, and a half-float or RAW colour pack is longer.
