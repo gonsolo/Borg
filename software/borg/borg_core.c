@@ -31,6 +31,11 @@ extern uint32_t bh_dram_read(uint32_t spi_addr);
 // --- State ---
 int borg_fb_width, borg_fb_height;   // set by borg_core_init
 uint32_t borg_cull_cfg = 2u << CULL_CFG_REG_T__CULL_MODE_bp;   // cull back faces until a 0xB4 says otherwise
+// 0xB4 packs the pipeline's samples above the cull bits: [11:8] mask, [12] alpha to coverage, [31] four samples.
+static uint32_t borg_sample_cfg(void)
+{
+  return (borg_cull_cfg >> 31) ? ((borg_cull_cfg >> 8) & 0x1F) : (0xF | (1u << 6));
+}
 uint32_t tbr_bin_base = 0, tbr_setup_base = 0;
 
 static borg_float_t half_width_f, half_height_f;
@@ -390,9 +395,9 @@ void borg_core_render(int frame) {
   BREG_W(draw_fs_const, DRAW_FS_CONST_SPI);
   BREG_W(tex_desc_base,     TEX_DESC_TABLE_ADDR);
   BREG_W(sampler_desc_base, SAMPLER_DESC_TABLE_ADDR);
-  // One sample (bit 6), all mask bits set; at one sample the raster ROM skips the per-sample depths.
-  BREG_W(sample_mask_cfg, 0xF | (1u << 6));
-  BREG_W(cull_cfg, borg_cull_cfg);
+  // One sample (bit 6) unless the pipeline has four; at one sample the raster ROM skips the per-sample depths.
+  BREG_W(sample_mask_cfg, borg_sample_cfg());
+  BREG_W(cull_cfg, borg_cull_cfg & 7);
 
   // TILE_LOAD: the aspects a tile starts from (bit 0 colour, 1 depth, 2 stencil) and keep
   // (bit 3): the tiles the draw does not reach are left alone.
@@ -524,7 +529,7 @@ void borg_core_list_draw(void) {
     LREG(st, n, stencil_cfg, g_st.stencil_cfg); LREG(st, n, stencil_front, g_st.stencil_front);
     LREG(st, n, stencil_back, g_st.stencil_back); LREG(st, n, depth_cfg, g_st.depth_cfg);
   }
-  LREG(st, n, cull_cfg, borg_cull_cfg);
+  LREG(st, n, cull_cfg, borg_cull_cfg & 7);
   if (g_vp.valid) {
     LREG(st, n, viewport_sx, g_vp.sx); LREG(st, n, viewport_sy, g_vp.sy);
     LREG(st, n, viewport_ox, g_vp.ox); LREG(st, n, viewport_oy, g_vp.oy);
@@ -577,7 +582,7 @@ static void list_trigger(uint32_t list, uint32_t load) {
   BREG_W(seq_setup_base,    tbr_setup_base);
   BREG_W(tile_bz,           cc_lo);
   BREG_W(frag_pc, BORG_IMEM_FRAG_OFFSET);
-  BREG_W(sample_mask_cfg, 0xF | (1u << 6));
+  BREG_W(sample_mask_cfg, borg_sample_cfg());
   BREG_W(tile_load, load);
   BREG_W(draw_cfg, 1u | ((uint32_t)g_list.shift << 6));   // the record stride, before any block
   BREG_W(render_list, list);
