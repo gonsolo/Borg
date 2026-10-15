@@ -216,8 +216,7 @@ missing-extension check, so the result matches tier 1.
   | `bind_buffers_2`, `creation_cache_control`, `executable_properties`, `no_position`, `pipeline_binary`, `push_descriptor`, `shader_module_identifier` | 0 | 2,096 | 0 |
 
   A rerun the same day gave `interface_matching` 106 and `push_constant` 22: a few cases depend on load.
-- `framebuffer_attachment` (50 cases): 14 Pass, 2 NotSupported, 34 Fail (1d, 2d, 2d_array, cube, cube_array, with and
-  without MSAA).
+- `framebuffer_attachment` (50 cases, 2026-10-15): 48 Pass, 2 NotSupported, 0 Fail (was 14 Pass, 34 Fail). The pass takes the render area as its size, so attachments may be larger; several RGBA8-like colour targets are one pipeline each, drawn in turn (no depth or stencil); a layer of a multisampled image renders as its own image.
 - The other subgroups of 2026-10-13, one run each (`JOBS=12 DIRECT=1`):
 
   | Subgroup | Cases | Pass | NotSupp | Fail |
