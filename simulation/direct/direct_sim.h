@@ -8,6 +8,7 @@
 #include <vector>
 #include <cstdlib>
 #include <sys/mman.h>
+#include <unistd.h>
 
 class DirectSim {
 public:
@@ -18,6 +19,9 @@ public:
   BorgDirectSimTop model;
   uint8_t *mem;   // MEM_BYTES; the process's own, or a mapping shared with the driver (--serve)
   uint64_t cycles = 0;
+  uint64_t nrd = 0, nwr = 0;
+  uint32_t last_rd = 0, last_wr = 0;
+  const bool progress = getenv("DIRECT_PROGRESS") != nullptr;
   uint32_t trace_lo = 0, trace_hi = 0;   // DIRECT_TRACE=lo:hi (hex): log the GPU's reads in [lo, hi)
 
   // Latencies, in cycles, between a GPU request and its `ready` pulse.  The SoC's
@@ -66,6 +70,11 @@ public:
     v.clk = 1; model.eval();
     v.clk = 0; model.eval();
     cycles++;
+    if (progress && (cycles & ((1u << 22) - 1)) == 0) {
+      fprintf(stderr, "[direct %d] %llu Mcycles: %llu reads (last %07x), %llu writes (last %07x)\n", (int)getpid(),
+              (unsigned long long)(cycles >> 20), (unsigned long long)nrd, last_rd, (unsigned long long)nwr, last_wr);
+      nrd = nwr = 0;
+    }
   }
 
   // One cycle: let the GPU-port slave look at the settled outputs, set its
@@ -80,6 +89,7 @@ public:
     case IDLE:
       if (v.gpu_wr) {
         gaddr = v.gpu_addr & (MEM_BYTES - 1);
+        nwr++; last_wr = gaddr;
         w16(gaddr, (uint16_t)v.gpu_wdata);          // first word, as the SoC backend does
         uint32_t n = v.gpu_wlen;
         if (n > 1) { grem = n - 1; gaddr += 2; v.gpu_waccept = 1; gstate = SAMPLE; }
@@ -87,6 +97,7 @@ public:
         gread = false;
       } else if (v.gpu_req) {
         gaddr = v.gpu_addr & (MEM_BYTES - 1);
+        nrd++; last_rd = gaddr;
         gdata = r32(gaddr);
         if (trace_lo <= gaddr && gaddr < trace_hi) fprintf(stderr, "[mem] rd %07x = %08x\n", gaddr, gdata);
         gdelay = read_latency; gread = true; gstate = DELAY;
