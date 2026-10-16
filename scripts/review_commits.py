@@ -14,8 +14,9 @@ full diff in your pager, then asks:
     q  quit       same as refuse, without a verdict on the commit
 
 Before the first commit it runs the policy check and lists what will fail
-besides the missing Reviewed-by; 'y' opens exactly those commit messages in
-vim first (on <branch>-reviewed), then the whole range is reviewed. A commit without an AI-Assisted trailer gets
+besides the missing Reviewed-by; 'y' fixes them first on <branch>-reviewed:
+commits without AI-Assisted get 'AI-Assisted: none', other messages open in
+vim. Then the whole range is reviewed. A commit without an AI-Assisted trailer gets
 a prompt on accept: add 'AI-Assisted: none', reword it in vim, or keep it.
 
 Only when EVERY commit was accepted does it
@@ -95,17 +96,6 @@ def rewrite_todo(todo_path: str, reword: list[str], exec_cmd: str, none_list: li
     Path(todo_path).write_text("\n".join(out) + "\n")
 
 
-def reword_todo(todo_path: str, hashes: list[str]):
-    """GIT_SEQUENCE_EDITOR body: turn the listed picks into rewords."""
-    out = []
-    for line in Path(todo_path).read_text().splitlines():
-        parts = line.split()
-        if len(parts) >= 2 and parts[0] == "pick" and any(h.startswith(parts[1]) or parts[1].startswith(h) for h in hashes):
-            line = line.replace("pick", "reword", 1)
-        out.append(line)
-    Path(todo_path).write_text("\n".join(out) + "\n")
-
-
 def run_rebase(base: str, seq_args: str):
     """Interactive rebase of HEAD onto base with our sequence editor; True on success."""
     wrapper = Path(git("rev-parse", "--git-dir", cwd=ROOT)) / "review_seq_editor.sh"
@@ -140,12 +130,8 @@ def submodule_bumps(base: str, head: str) -> list[tuple[str, str]]:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("range", nargs="?", default="origin/main..HEAD")
-    ap.add_argument("--reword-todo", nargs=2, metavar=("TODO", "HASHES"), help=argparse.SUPPRESS)
     ap.add_argument("--rewrite-todo", nargs=5, metavar=("TODO", "REWORD", "EXEC", "NONE", "NONE_EXEC"), help=argparse.SUPPRESS)
     a = ap.parse_args()
-    if a.reword_todo:
-        reword_todo(a.reword_todo[0], [h for h in a.reword_todo[1].split(",") if h])
-        return
     if a.rewrite_todo:
         todo, reword, exec_cmd, none, none_cmd = a.rewrite_todo
         rewrite_todo(todo, [r for r in reword.split(",") if r], exec_cmd, [r for r in none.split(",") if r], none_cmd)
@@ -178,16 +164,23 @@ def main():
     if problems:
         print("The final policy check would fail on these (the script adds Reviewed-by only):")
         print("\n".join("  " + l for l in problems[:30]))
-        c = ask("Fix them now in vim before the review (y), review anyway (n), quit (q)?", "ynq")
+        def hash_of(l):
+            h = l.split(":")[0]
+            return h if re.fullmatch(r"[0-9a-f]{7,40}", h) else None
+        ai = [hash_of(l) for l in problems if hash_of(l) and "'AI-Assisted" in l]
+        other = [hash_of(l) for l in problems if hash_of(l) and "'AI-Assisted" not in l]
+        c = ask(f"Fix now (y): {len(ai)} get 'AI-Assisted: none' added, {len(other)} open in vim; "
+                "review anyway (n); quit (q)?", "ynq")
         if c == "q":
             sys.exit("nothing changed.")
         if c == "y":
             if head != "HEAD":
                 sys.exit("fixing first needs the range to end at HEAD")
-            hashes = [l.split(":")[0] for l in problems if re.fullmatch(r"[0-9a-f]{7,40}", l.split(":")[0])]
             git("switch", "-c", reviewed)
             created = True
-            if not run_rebase(base, f"--reword-todo X '{','.join(hashes)}'".replace("X", '"$1"')):
+            seq_args = (f"--rewrite-todo \"$1\" '{','.join(other)}' \"true\" '{','.join(ai)}' "
+                        f"\"{trailer_cmd('AI-Assisted: none')}\"")
+            if not run_rebase(base, seq_args):
                 sys.exit(f"rebase failed; back: git rebase --abort; git switch {cur}; git branch -D {reviewed}")
             left = policy_problems(f"{base}..HEAD")
             if left:
