@@ -13,6 +13,10 @@ full diff in your pager, then asks:
     d  show the diff again          s  show only 'git show --stat'
     q  quit       same as refuse, without a verdict on the commit
 
+Before the first commit it runs the policy check and lists what will fail
+besides the missing Reviewed-by. A commit without an AI-Assisted trailer gets
+a prompt on accept: add 'AI-Assisted: none', reword it in vim, or keep it.
+
 Only when EVERY commit was accepted does it
   1. copy the branch to <branch>-reviewed (the original is never touched) and
      rewrite the range there, appending the Reviewed-by trailer where it is missing,
@@ -55,10 +59,15 @@ def show(rev: str, stat_only: bool = False):
     subprocess.run(args, cwd=ROOT, env=env)
 
 
-def trailer_cmd(reviewer: str) -> str:
-    """One-line shell command: add Reviewed-by to HEAD's message unless present."""
+def trailer_cmd(*trailers: str) -> str:
+    """One-line shell command: add the trailers to HEAD's message unless present."""
+    args = " ".join(f"--trailer '{t}'" for t in trailers)
     return ("git log -1 --format=%B | git interpret-trailers --if-exists doNothing "
-            f"--trailer 'Reviewed-by: {reviewer}' | git commit -q --allow-empty --amend -F -")
+            f"{args} | git commit -q --allow-empty --amend -F -")
+
+
+def has_trailer(rev: str, key: str) -> bool:
+    return bool(git("log", "-1", f"--format=%(trailers:key={key},valueonly)", rev).strip())
 
 
 def view_in_vim(rev: str):
@@ -69,7 +78,7 @@ def view_in_vim(rev: str):
     subprocess.run([editor, *flags, "-"], input=patch, text=True, cwd=ROOT)
 
 
-def rewrite_todo(todo_path: str, reword: list[str], exec_cmd: str):
+def rewrite_todo(todo_path: str, reword: list[str], exec_cmd: str, none_list: list[str], none_cmd: str):
     """GIT_SEQUENCE_EDITOR body: reword flagged picks, append the trailer exec."""
     out = []
     for line in Path(todo_path).read_text().splitlines():
@@ -78,7 +87,7 @@ def rewrite_todo(todo_path: str, reword: list[str], exec_cmd: str):
             if any(full.startswith(parts[1]) for full in reword):
                 line = line.replace("pick", "reword", 1)
             out.append(line)
-            out.append(f"exec {exec_cmd}")
+            out.append(f"exec {none_cmd if any(full.startswith(parts[1]) for full in none_list) else exec_cmd}")
         else:
             out.append(line)
     Path(todo_path).write_text("\n".join(out) + "\n")
@@ -99,11 +108,11 @@ def submodule_bumps(base: str, head: str) -> list[tuple[str, str]]:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("range", nargs="?", default="origin/main..HEAD")
-    ap.add_argument("--rewrite-todo", nargs=3, metavar=("TODO", "REWORD", "EXEC"), help=argparse.SUPPRESS)
+    ap.add_argument("--rewrite-todo", nargs=5, metavar=("TODO", "REWORD", "EXEC", "NONE", "NONE_EXEC"), help=argparse.SUPPRESS)
     a = ap.parse_args()
     if a.rewrite_todo:
-        todo, reword, exec_cmd = a.rewrite_todo
-        rewrite_todo(todo, [r for r in reword.split(",") if r], exec_cmd)
+        todo, reword, exec_cmd, none, none_cmd = a.rewrite_todo
+        rewrite_todo(todo, [r for r in reword.split(",") if r], exec_cmd, [r for r in none.split(",") if r], none_cmd)
         return
 
     if not sys.stdin.isatty():
@@ -128,8 +137,18 @@ def main():
     if git("rev-parse", "--verify", "-q", f"refs/heads/{reviewed}", check=False):
         sys.exit(f"branch {reviewed} exists: merge or delete it first")
 
+    chk = subprocess.run([sys.executable, str(Path(__file__).with_name("check_ai_policy.py")), "--repo", str(ROOT),
+                          "--range", f"{base}..{head}"], capture_output=True, text=True)
+    problems = [l for l in (chk.stdout + chk.stderr).splitlines() if l.strip() and "need a 'Reviewed-by" not in l]
+    if problems:
+        print("The final policy check will fail on these (the script adds Reviewed-by only):")
+        print("\n".join("  " + l for l in problems[:20]))
+        if ask("Review anyway (you can fix them with 'e' or 'n' below)?", "yn") == "n":
+            sys.exit("nothing changed.")
+
     accepted = []
     reword = []
+    none = []
     for i, rev in enumerate(revs, 1):
         print(f"\n\033[1m=== commit {i}/{len(revs)}: {git('log', '-1', '--format=%h %s', rev)}\033[0m"
               f"  [{i - 1} done / {len(revs) - i + 1} left]")
@@ -145,6 +164,12 @@ def main():
             else:
                 break
         if c in "ae":
+            if c == "a" and not has_trailer(rev, "AI-Assisted"):
+                n = ask("no AI-Assisted trailer: add 'AI-Assisted: none' (n), reword in vim (e), keep as is (k)?", "nek")
+                if n == "n":
+                    none.append(rev)
+                elif n == "e":
+                    c = "e"
             accepted.append(rev)
             if c == "e":
                 reword.append(rev)
@@ -156,13 +181,14 @@ def main():
     git("switch", "-c", reviewed)
 
     # 1. append Reviewed-by where missing, rewriting the range.
-    exec_cmd = trailer_cmd(reviewer)
+    exec_cmd = trailer_cmd(f"Reviewed-by: {reviewer}")
+    none_cmd = trailer_cmd("AI-Assisted: none", f"Reviewed-by: {reviewer}")
     seq = f"{sys.executable} {Path(__file__).resolve()} --rewrite-todo"
     env = dict(os.environ)
     # git calls GIT_SEQUENCE_EDITOR as '<cmd> <todo file>'; bind the other args via a wrapper script.
     wrapper = Path(git("rev-parse", "--git-dir", cwd=ROOT)) / "review_seq_editor.sh"
     wrapper = (ROOT / wrapper) if not wrapper.is_absolute() else wrapper
-    wrapper.write_text(f"#!/bin/sh\nexec {seq} \"$1\" '{','.join(reword)}' \"{exec_cmd}\"\n")
+    wrapper.write_text(f"#!/bin/sh\nexec {seq} \"$1\" '{','.join(reword)}' \"{exec_cmd}\" '{','.join(none)}' \"{none_cmd}\"\n")
     wrapper.chmod(0o755)
     env["GIT_SEQUENCE_EDITOR"] = str(wrapper)
     env.setdefault("GIT_EDITOR", os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vim")
