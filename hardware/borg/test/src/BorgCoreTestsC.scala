@@ -228,6 +228,7 @@ object BorgCoreTestsC extends TestSuite {
     // does -- and the rest fetched on demand. Returns the number of
     // instruction fetches that went to memory.
     val CODE_BASE = 0x8000
+    val small = config.copy(maxInstructions = 72)   // MMIO preloads 72 words at most
     def runFromImage(core: BorgCore, image: Seq[BigInt], preload: Int): Int = {
       resetCore(core)
       core.io.codeBase.get.poke(CODE_BASE.U)
@@ -262,18 +263,20 @@ object BorgCoreTestsC extends TestSuite {
     }
 
     utest.test("icache_runs_a_program_longer_than_imem") {
-      for (cfg <- Seq(config, BorgConfig.Wafer)) {        // 72-word and 64-word IMEM
+      for (cfg <- Seq(small, BorgConfig.Wafer, config)) {  // 72, 64 and 512 words (line state in a RAM)
         simulate(new BorgCore(cfg)) { core =>
           val n = cfg.maxInstructions
-          println(s"\n--- BorgCore: ${n}-word IMEM, 150-instruction program ---")
+          val len = math.max(150, n + 78)
+          val pre = math.min(n, small.maxInstructions)
+          println(s"\n--- BorgCore: ${n}-word IMEM, ${len}-instruction program ---")
           idleInputs(core)
-          val prog = countingProgram(150)
+          val prog = countingProgram(len)
           countingRegs(core)
-          val f1 = runFromImage(core, prog, preload = n)
+          val f1 = runFromImage(core, prog, preload = pre)
           val r1 = readReg(core, 1)
-          println(s"  run 1: r1=$r1 (expect ${countingSum(150)}), $f1 fetches from memory (expect ${prog.length - n})")
-          utest.assert(r1 == countingSum(150))
-          utest.assert(f1 == prog.length - n)
+          println(s"  run 1: r1=$r1 (expect ${countingSum(len)}), $f1 fetches from memory (expect ${prog.length - pre})")
+          utest.assert(r1 == countingSum(len))
+          utest.assert(f1 == prog.length - pre)
           // Same program again without a flush or reload: far words that
           // survived are hits, near words they evicted are refetched -- the
           // result must not change either way.
@@ -291,8 +294,8 @@ object BorgCoreTestsC extends TestSuite {
             core.clock.step(1); wd += 1
           }
           core.io.gpuMem.get.ready.poke(false.B)
-          println(s"  run 2: r1=${readReg(core, 1)} (expect ${countingSum(150)}), $f2 fetches")
-          utest.assert(readReg(core, 1) == countingSum(150))
+          println(s"  run 2: r1=${readReg(core, 1)} (expect ${countingSum(len)}), $f2 fetches")
+          utest.assert(readReg(core, 1) == countingSum(len))
         }
       }
     }
@@ -303,7 +306,7 @@ object BorgCoreTestsC extends TestSuite {
       // r1 += 100 poison. 2200: five r1 += 1, JMP 1500. 1500: three
       // r1 += 100, HALT. r1 = 405; any wrong target changes it.
       import Instructions._
-      for (cfg <- Seq(config, BorgConfig.Wafer)) {
+      for (cfg <- Seq(small, BorgConfig.Wafer)) {
         simulate(new BorgCore(cfg)) { core =>
           println(s"\n--- BorgCore: a 2300-word program, pcBits ${cfg.pcBits} ---")
           idleInputs(core)
@@ -328,10 +331,29 @@ object BorgCoreTestsC extends TestSuite {
       // A preload that stops short of IMEM (the MMIO DMA's length field
       // cannot even reach 72 words) must not run whatever the previous
       // program left in the lines it did not write.
-      simulate(new BorgCore(config)) { core =>
+      simulate(new BorgCore(small)) { core =>
         idleInputs(core)
         // Leave a different program's words in IMEM first.
-        for (i <- 0 until config.maxInstructions) writeImem(core, i, Instructions.IADD(rs1 = 1, rs2 = 1, rd = 1))
+        for (i <- 0 until small.maxInstructions) writeImem(core, i, Instructions.IADD(rs1 = 1, rs2 = 1, rd = 1))
+        val prog = countingProgram(150)
+        countingRegs(core)
+        val f = runFromImage(core, prog, preload = 20)
+        println(s"  r1=${readReg(core, 1)} (expect ${countingSum(150)}), fetches=$f (expect ${prog.length - 20})")
+        utest.assert(readReg(core, 1) == countingSum(150))
+        utest.assert(f == prog.length - 20)
+      }
+    }
+
+    utest.test("icache_epoch_wrap_invalidates_every_line") {
+      // Lines in a RAM are valid by epoch; 256 flushes bring the epoch back
+      // to the one an old program's lines were written in.
+      simulate(new BorgCore(config)) { core =>
+        idleInputs(core)
+        val old = Seq.fill(config.maxInstructions - 1)(Instructions.IADD(rs1 = 1, rs2 = 4, rd = 1)) :+ BigInt(0)
+        countingRegs(core)
+        runFromImage(core, old, preload = small.maxInstructions)
+        for (_ <- 0 until 255) { core.io.icacheFlush.get.poke(true.B); core.clock.step(1) }
+        core.io.icacheFlush.get.poke(false.B)
         val prog = countingProgram(150)
         countingRegs(core)
         val f = runFromImage(core, prog, preload = 20)
@@ -342,9 +364,9 @@ object BorgCoreTestsC extends TestSuite {
     }
 
     utest.test("icache_program_that_fits_never_touches_memory") {
-      simulate(new BorgCore(config)) { core =>
+      simulate(new BorgCore(small)) { core =>
         idleInputs(core)
-        val prog = countingProgram(config.maxInstructions - 1)   // exactly fills IMEM
+        val prog = countingProgram(small.maxInstructions - 1)   // exactly fills IMEM
         countingRegs(core)
         val f = runFromImage(core, prog, preload = prog.length)
         println(s"  r1=${readReg(core, 1)} (expect ${countingSum(prog.length - 1)}), fetches=$f (expect 0)")
@@ -354,7 +376,7 @@ object BorgCoreTestsC extends TestSuite {
     }
 
     utest.test("icache_loop_past_imem_hits_after_the_first_iteration") {
-      simulate(new BorgCore(config)) { core =>
+      simulate(new BorgCore(small)) { core =>
         idleInputs(core)
         // Words 0..89 straight-line padding (r1 += r2), then a 4-word loop at
         // 90..93 that counts r3 down from 10, all past the 72-word IMEM.
@@ -366,11 +388,11 @@ object BorgCoreTestsC extends TestSuite {
           BigInt(0))
         val prog = pad ++ loop
         writeReg(core, 1, 0); writeReg(core, 2, 1); writeReg(core, 3, 10); writeReg(core, 4, 0)
-        val f = runFromImage(core, prog, preload = config.maxInstructions)
-        println(s"  r1=${readReg(core, 1)} (expect 90) r4=${readReg(core, 4)} (expect 10), fetches=$f (expect ${prog.length - config.maxInstructions}: each far word once)")
+        val f = runFromImage(core, prog, preload = small.maxInstructions)
+        println(s"  r1=${readReg(core, 1)} (expect 90) r4=${readReg(core, 4)} (expect 10), fetches=$f (expect ${prog.length - small.maxInstructions}: each far word once)")
         utest.assert(readReg(core, 1) == 90)
         utest.assert(readReg(core, 4) == 10)
-        utest.assert(f == prog.length - config.maxInstructions)
+        utest.assert(f == prog.length - small.maxInstructions)
       }
     }
 

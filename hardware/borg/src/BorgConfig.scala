@@ -324,6 +324,8 @@ case class BorgConfig(
   /** Direct-mapped cache lines: the largest power of two within IMEM. Lines
     * at and above it (IMEM 64..71 on a 72-word build) are never replaced. */
   def icacheLinesLog2: Int = chisel3.util.log2Floor(maxInstructions)
+  // Line state in a RAM instead of flops once flops would cost more than a RAM.
+  def icacheMetaInRam: Boolean = maxInstructions > 128
   def totalBits: Int = fp.totalBits
   def exp: Int = fp.exp
   def sig: Int = fp.sig
@@ -426,7 +428,7 @@ object BorgConfig {
     coordWidth      = 9,
     fifoDepth       = 2,
     maxBinTiles     = 4096,
-    maxInstructions = 72, // M5 step 1: grow IMEM (rast 13 + frag ~56 co-resident)
+    maxInstructions = 512,
     samples         = 4,
     hasDepthFlush   = true,
     hasBlend        = true,
