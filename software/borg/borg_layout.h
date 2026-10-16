@@ -242,4 +242,4 @@
 // Draw-mode fragment shader code, in a slot of its own for the same reason: the legacy
 // SEQ_FRAG_SHADER_ADDR slot is 64 words, and a half-float or RAW colour pack is longer.
 #define DRAW_FRAG_SHADER_SPI        (DRAW_VERT_SHADER_SPI + DRAW_VERT_SHADER_MAX_WORDS * 4)
-#define DRAW_FRAG_SHADER_MAX_WORDS  510   // what a 0xC1 packet (2048 B) carries
+#define DRAW_FRAG_SHADER_MAX_WORDS  1020  // the blob's limit (SPIRB_MAX_INSTRS)
