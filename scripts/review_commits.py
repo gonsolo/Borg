@@ -14,11 +14,13 @@ full diff in your pager, then asks:
     q  quit       same as refuse, without a verdict on the commit
 
 Only when EVERY commit was accepted does it
-  1. rewrite the range, appending the Reviewed-by trailer where it is missing,
+  1. copy the branch to <branch>-reviewed (the original is never touched) and
+     rewrite the range there, appending the Reviewed-by trailer where it is missing,
   2. check the result with scripts/check_ai_policy.py,
   3. warn if a submodule commit the range points at is not on the submodule's
      remote (a bump to an unpushed commit breaks everyone else),
-  4. print the push command; pushing is left to you.
+  4. print the commands to merge <branch>-reviewed into main and to push it;
+     both are left to you.
 
 The review is a human act: the script refuses to run without a terminal on
 stdin, so it cannot be scripted or driven by an assistant.
@@ -119,6 +121,13 @@ def main():
     if not revs:
         sys.exit(f"nothing to review in {a.range}")
 
+    cur = git("rev-parse", "--abbrev-ref", "HEAD")
+    if cur in ("HEAD", "main"):
+        sys.exit("check out the feature branch to review (not main, not detached)")
+    reviewed = f"{cur}-reviewed"
+    if git("rev-parse", "--verify", "-q", f"refs/heads/{reviewed}", check=False):
+        sys.exit(f"branch {reviewed} exists: merge or delete it first")
+
     accepted = []
     reword = []
     for i, rev in enumerate(revs, 1):
@@ -144,8 +153,7 @@ def main():
             sys.exit(1)
 
     print(f"\nAll {len(accepted)} commit(s) accepted by {reviewer}.")
-    if git("rev-parse", "--abbrev-ref", "HEAD") == "HEAD":
-        sys.exit("detached HEAD: check out a branch first")
+    git("switch", "-c", reviewed)
 
     # 1. append Reviewed-by where missing, rewriting the range.
     exec_cmd = trailer_cmd(reviewer)
@@ -161,13 +169,13 @@ def main():
     r = subprocess.run(["git", "rebase", "-i", base], cwd=ROOT, env=env)
     wrapper.unlink(missing_ok=True)
     if r.returncode:
-        sys.exit("rebase failed; fix with 'git rebase --abort' or resolve, nothing was pushed.")
+        sys.exit(f"rebase failed; fix with 'git rebase --abort' or resolve, nothing was pushed. Back: git rebase --abort; git switch {cur}; git branch -D {reviewed}")
 
     # 2. policy check on the rewritten range.
     chk = subprocess.run([sys.executable, str(Path(__file__).with_name("check_ai_policy.py")), "--repo", str(ROOT),
                           "--range", f"{base}..HEAD"])
     if chk.returncode:
-        sys.exit("policy check failed -- fix the commit messages, nothing was pushed.")
+        sys.exit(f"policy check failed -- fix the commit messages, nothing was pushed. Back: git switch {cur}; git branch -D {reviewed}")
 
     # 3. warn about submodule bumps whose commit is not on the submodule's remote.
     for path, sha in submodule_bumps(base, "HEAD"):
@@ -175,12 +183,9 @@ def main():
         if (sub / ".git").exists() and not git("branch", "-r", "--contains", sha, check=False, cwd=sub):
             print(f"\nWARNING: {path}: {sha[:11]} is not on the submodule's remote; push it first.")
 
-    print(f"\nReviewed-by added to {base}..HEAD. Nothing was pushed. To publish:")
-    if subprocess.run(["git", "merge-base", "--is-ancestor", "origin/main", "HEAD"], cwd=ROOT).returncode:
-        print("  HEAD does not contain origin/main: rebase onto it first.")
-    else:
-        print("  git -c http.https://github.com/.extraheader= push origin HEAD:main")
-
+    print(f"\nReviewed-by added to {base}..HEAD on {reviewed}; {cur} is unchanged. Nothing was pushed. To merge:")
+    print(f"  git switch main && git merge --ff-only {reviewed}")
+    print("  git -c http.https://github.com/.extraheader= push origin main   # only if you want to")
 
 if __name__ == "__main__":
     main()
