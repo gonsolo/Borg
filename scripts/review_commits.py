@@ -14,7 +14,8 @@ full diff in your pager, then asks:
     q  quit       same as refuse, without a verdict on the commit
 
 Before the first commit it runs the policy check and lists what will fail
-besides the missing Reviewed-by. A commit without an AI-Assisted trailer gets
+besides the missing Reviewed-by; 'y' opens exactly those commit messages in
+vim first (on <branch>-reviewed), then the whole range is reviewed. A commit without an AI-Assisted trailer gets
 a prompt on accept: add 'AI-Assisted: none', reword it in vim, or keep it.
 
 Only when EVERY commit was accepted does it
@@ -31,6 +32,7 @@ stdin, so it cannot be scripted or driven by an assistant.
 """
 import argparse
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -93,6 +95,36 @@ def rewrite_todo(todo_path: str, reword: list[str], exec_cmd: str, none_list: li
     Path(todo_path).write_text("\n".join(out) + "\n")
 
 
+def reword_todo(todo_path: str, hashes: list[str]):
+    """GIT_SEQUENCE_EDITOR body: turn the listed picks into rewords."""
+    out = []
+    for line in Path(todo_path).read_text().splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "pick" and any(h.startswith(parts[1]) or parts[1].startswith(h) for h in hashes):
+            line = line.replace("pick", "reword", 1)
+        out.append(line)
+    Path(todo_path).write_text("\n".join(out) + "\n")
+
+
+def run_rebase(base: str, seq_args: str):
+    """Interactive rebase of HEAD onto base with our sequence editor; True on success."""
+    wrapper = Path(git("rev-parse", "--git-dir", cwd=ROOT)) / "review_seq_editor.sh"
+    wrapper = (ROOT / wrapper) if not wrapper.is_absolute() else wrapper
+    wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} {Path(__file__).resolve()} {seq_args}\n")
+    wrapper.chmod(0o755)
+    env = dict(os.environ, GIT_SEQUENCE_EDITOR=str(wrapper))
+    env.setdefault("GIT_EDITOR", os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vim")
+    r = subprocess.run(["git", "rebase", "-i", base], cwd=ROOT, env=env)
+    wrapper.unlink(missing_ok=True)
+    return r.returncode == 0
+
+
+def policy_problems(rng: str) -> list[str]:
+    chk = subprocess.run([sys.executable, str(Path(__file__).with_name("check_ai_policy.py")), "--repo", str(ROOT),
+                          "--range", rng], capture_output=True, text=True)
+    return [l for l in (chk.stdout + chk.stderr).splitlines() if l.strip() and "need a 'Reviewed-by" not in l]
+
+
 def submodule_bumps(base: str, head: str) -> list[tuple[str, str]]:
     """(path, new sha) for every gitlink changed in base..head."""
     out = git("diff", "--raw", "--no-abbrev", f"{base}..{head}")
@@ -108,8 +140,12 @@ def submodule_bumps(base: str, head: str) -> list[tuple[str, str]]:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("range", nargs="?", default="origin/main..HEAD")
+    ap.add_argument("--reword-todo", nargs=2, metavar=("TODO", "HASHES"), help=argparse.SUPPRESS)
     ap.add_argument("--rewrite-todo", nargs=5, metavar=("TODO", "REWORD", "EXEC", "NONE", "NONE_EXEC"), help=argparse.SUPPRESS)
     a = ap.parse_args()
+    if a.reword_todo:
+        reword_todo(a.reword_todo[0], [h for h in a.reword_todo[1].split(",") if h])
+        return
     if a.rewrite_todo:
         todo, reword, exec_cmd, none, none_cmd = a.rewrite_todo
         rewrite_todo(todo, [r for r in reword.split(",") if r], exec_cmd, [r for r in none.split(",") if r], none_cmd)
@@ -137,14 +173,30 @@ def main():
     if git("rev-parse", "--verify", "-q", f"refs/heads/{reviewed}", check=False):
         sys.exit(f"branch {reviewed} exists: merge or delete it first")
 
-    chk = subprocess.run([sys.executable, str(Path(__file__).with_name("check_ai_policy.py")), "--repo", str(ROOT),
-                          "--range", f"{base}..{head}"], capture_output=True, text=True)
-    problems = [l for l in (chk.stdout + chk.stderr).splitlines() if l.strip() and "need a 'Reviewed-by" not in l]
+    created = False
+    problems = policy_problems(f"{base}..{head}")
     if problems:
-        print("The final policy check will fail on these (the script adds Reviewed-by only):")
-        print("\n".join("  " + l for l in problems[:20]))
-        if ask("Review anyway (you can fix them with 'e' or 'n' below)?", "yn") == "n":
+        print("The final policy check would fail on these (the script adds Reviewed-by only):")
+        print("\n".join("  " + l for l in problems[:30]))
+        c = ask("Fix them now in vim before the review (y), review anyway (n), quit (q)?", "ynq")
+        if c == "q":
             sys.exit("nothing changed.")
+        if c == "y":
+            if head != "HEAD":
+                sys.exit("fixing first needs the range to end at HEAD")
+            hashes = [l.split(":")[0] for l in problems if re.fullmatch(r"[0-9a-f]{7,40}", l.split(":")[0])]
+            git("switch", "-c", reviewed)
+            created = True
+            if not run_rebase(base, f"--reword-todo X '{','.join(hashes)}'".replace("X", '"$1"')):
+                sys.exit(f"rebase failed; back: git rebase --abort; git switch {cur}; git branch -D {reviewed}")
+            left = policy_problems(f"{base}..HEAD")
+            if left:
+                print("Still failing:\n" + "\n".join("  " + l for l in left[:30]))
+                if ask("Review anyway?", "yn") == "n":
+                    git("switch", cur)
+                    git("branch", "-D", reviewed)
+                    sys.exit("nothing changed.")
+            revs = git("rev-list", "--reverse", "--no-merges", f"{base}..HEAD").split()
 
     accepted = []
     reword = []
@@ -174,27 +226,22 @@ def main():
             if c == "e":
                 reword.append(rev)
         else:
+            if created:
+                git("switch", cur)
+                git("branch", "-D", reviewed)
             print("Not accepted -- nothing was changed or pushed.")
             sys.exit(1)
 
     print(f"\nAll {len(accepted)} commit(s) accepted by {reviewer}.")
-    git("switch", "-c", reviewed)
+    if not created:
+        git("switch", "-c", reviewed)
 
     # 1. append Reviewed-by where missing, rewriting the range.
     exec_cmd = trailer_cmd(f"Reviewed-by: {reviewer}")
     none_cmd = trailer_cmd("AI-Assisted: none", f"Reviewed-by: {reviewer}")
-    seq = f"{sys.executable} {Path(__file__).resolve()} --rewrite-todo"
-    env = dict(os.environ)
-    # git calls GIT_SEQUENCE_EDITOR as '<cmd> <todo file>'; bind the other args via a wrapper script.
-    wrapper = Path(git("rev-parse", "--git-dir", cwd=ROOT)) / "review_seq_editor.sh"
-    wrapper = (ROOT / wrapper) if not wrapper.is_absolute() else wrapper
-    wrapper.write_text(f"#!/bin/sh\nexec {seq} \"$1\" '{','.join(reword)}' \"{exec_cmd}\" '{','.join(none)}' \"{none_cmd}\"\n")
-    wrapper.chmod(0o755)
-    env["GIT_SEQUENCE_EDITOR"] = str(wrapper)
-    env.setdefault("GIT_EDITOR", os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vim")
-    r = subprocess.run(["git", "rebase", "-i", base], cwd=ROOT, env=env)
-    wrapper.unlink(missing_ok=True)
-    if r.returncode:
+    seq_args = f"--rewrite-todo \"$1\" '{','.join(reword)}' \"{exec_cmd}\" '{','.join(none)}' \"{none_cmd}\""
+    ok = run_rebase(base, seq_args)
+    if not ok:
         sys.exit(f"rebase failed; fix with 'git rebase --abort' or resolve, nothing was pushed. Back: git rebase --abort; git switch {cur}; git branch -D {reviewed}")
 
     # 2. policy check on the rewritten range.
