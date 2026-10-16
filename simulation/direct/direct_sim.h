@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <vector>
+#include <algorithm>
 #include <cstdlib>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -21,6 +22,7 @@ public:
   uint64_t cycles = 0;
   uint64_t nrd = 0, nwr = 0;
   uint32_t last_rd = 0, last_wr = 0;
+  std::vector<uint32_t> region_rd = std::vector<uint32_t>(MEM_BYTES >> 16);
   const bool progress = getenv("DIRECT_PROGRESS") != nullptr;
   uint32_t trace_lo = 0, trace_hi = 0;   // DIRECT_TRACE=lo:hi (hex): log the GPU's reads in [lo, hi)
 
@@ -73,6 +75,14 @@ public:
     if (progress && (cycles & ((1u << 22) - 1)) == 0) {
       fprintf(stderr, "[direct %d] %llu Mcycles: %llu reads (last %07x), %llu writes (last %07x)\n", (int)getpid(),
               (unsigned long long)(cycles >> 20), (unsigned long long)nrd, last_rd, (unsigned long long)nwr, last_wr);
+      for (int k = 0; k < 4; k++) {
+        size_t m = 0;
+        for (size_t r = 1; r < region_rd.size(); r++) if (region_rd[r] > region_rd[m]) m = r;
+        if (!region_rd[m]) break;
+        fprintf(stderr, "  %07zx: %u reads\n", m << 16, region_rd[m]);
+        region_rd[m] = 0;
+      }
+      std::fill(region_rd.begin(), region_rd.end(), 0);
       nrd = nwr = 0;
     }
   }
@@ -97,7 +107,7 @@ public:
         gread = false;
       } else if (v.gpu_req) {
         gaddr = v.gpu_addr & (MEM_BYTES - 1);
-        nrd++; last_rd = gaddr;
+        nrd++; last_rd = gaddr; region_rd[gaddr >> 16]++;
         gdata = r32(gaddr);
         if (trace_lo <= gaddr && gaddr < trace_hi) fprintf(stderr, "[mem] rd %07x = %08x\n", gaddr, gdata);
         gdelay = read_latency; gread = true; gstate = DELAY;
