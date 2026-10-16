@@ -28,6 +28,15 @@ import chisel3.util.*
   *   0:    idle — next instruction can start
   */
 
+/** One instruction-cache line's state when it lives in a RAM (BorgCore.icacheLinesRam). */
+class ICacheLine(tagBits: Int) extends Bundle {
+  val valid = Bool()
+  val epoch = UInt(ICacheLine.EpochBits.W)
+  val far   = Bool()
+  val tag   = UInt(tagBits.W)
+}
+object ICacheLine { val EpochBits = 8 }
+
 class BorgCoreIO(val cfg: BorgConfig) extends Bundle {
   // MMIO bus
   val bus = Flipped(new BorgBusIO())
@@ -247,7 +256,7 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
   val fillWriteData = WireDefault(0.U(32.W))
   // DMA/MMIO write this cycle, for the cache's bookkeeping.
   val extWriteEn  = WireDefault(false.B)
-  val extWriteIdx = WireDefault(0.U(7.W))
+  val extWriteIdx = WireDefault(0.U(log2Ceil(cfg.maxInstructions).W))
 
   // Resume delay: after a stall FSM's writeback completes, the IMEM still
   // holds the stale opcode (1-cycle SyncReadMem latency); suppress restart
@@ -520,9 +529,9 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // rest of the program to the cache.
     val extWrite = imemWen && imemAddr < cfg.maxInstructions.U
     extWriteEn  := extWrite
-    extWriteIdx := imemAddr
+    extWriteIdx := imemAddr.pad(log2Ceil(cfg.maxInstructions))(log2Ceil(cfg.maxInstructions) - 1, 0)
     when(extWrite || fillWriteEn) {
-      instructionMemory.write(Mux(fillWriteEn, fillWriteIdx, imemAddr(log2Ceil(cfg.maxInstructions) - 1, 0)),
+      instructionMemory.write(Mux(fillWriteEn, fillWriteIdx, extWriteIdx),
                               Mux(fillWriteEn, fillWriteData, imemData))
     }
 
@@ -605,25 +614,18 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     * write CODE_BASE (which flushes) BEFORE its IMEM words.
     */
   private def wireICache(): Unit = {
-    val n       = cfg.maxInstructions
-    val lb      = cfg.icacheLinesLog2
-    val L       = 1 << lb
-    val tagBits = cfg.pcBits - lb
-    val valid    = RegInit(VecInit(Seq.fill(n)(true.B)))
-    val isFar    = RegInit(VecInit(Seq.fill(L)(false.B)))
-    val farTag   = Reg(Vec(L, UInt(tagBits.W)))
-
-    val pc     = rasterRomAddrReg
-    val line   = pc(lb - 1, 0)
-    val inImem = pc < n.U
-    val idx    = imemIndex(pc)
-    val nearOk = if (L < n) Mux(pc >= L.U, true.B, !isFar(line)) else !isFar(line)
-    val hit = fetchRast || fetchSetup || (valid(idx) && Mux(inImem, nearOk,
-      isFar(line) && farTag(line) === pc(cfg.pcBits - 1, lb)))
+    val pc      = rasterRomAddrReg
+    val inImem  = pc < cfg.maxInstructions.U
 
     val sIdle :: sFetch :: sSettle :: Nil = Enum(3)
     val state  = RegInit(sIdle)
     val missPc = RegInit(0.U(cfg.pcBits.W))
+    val g = io.gpuMem.get
+    val fill = state === sFetch && g.ready
+    val lineHit =
+      if (cfg.icacheMetaInRam) icacheLinesRam(pc, inImem, fill, missPc)
+      else icacheLinesFlops(pc, inImem, fill, missPc)
+    val hit = fetchRast || fetchSetup || lineHit
     fetchReady := hit && state === sIdle
 
     when(state === sIdle && running && !is_busy && !texResumeDelay && !hit) {
@@ -631,8 +633,6 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       state  := sFetch
       if (BorgDebug.trace) printf("[ICACHE] miss pc=%d\n", pc)
     }
-
-    val g = io.gpuMem.get
     when(state === sFetch) {
       io.memBusy := true.B
       g.req  := true.B
@@ -642,20 +642,36 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
         fillWriteEn   := true.B
         fillWriteIdx  := imemIndex(missPc)
         fillWriteData := g.data
-        val l = missPc(lb - 1, 0)
-        valid(imemIndex(missPc)) := true.B
-        when(missPc < n.U) {
-          when(missPc < L.U) { isFar(l) := false.B }   // a near word (re)fetched
-        }.otherwise {
-          isFar(l)  := true.B
-          farTag(l) := missPc(cfg.pcBits - 1, lb)
-        }
         state := sSettle
       }
     }
     // IMEM returns the filled word one read later; hold issue for that cycle.
     when(state === sSettle) { state := sIdle }
+  }
 
+  /** Line state in flops, for a small IMEM: a flush clears it in one cycle.
+    * True if the line holds pc's word. */
+  private def icacheLinesFlops(pc: UInt, inImem: Bool, fill: Bool, missPc: UInt): Bool = {
+    val n       = cfg.maxInstructions
+    val lb      = cfg.icacheLinesLog2
+    val L       = 1 << lb
+    val valid    = RegInit(VecInit(Seq.fill(n)(true.B)))
+    val isFar    = RegInit(VecInit(Seq.fill(L)(false.B)))
+    val farTag   = Reg(Vec(L, UInt((cfg.pcBits - lb).W)))
+    val line   = pc(lb - 1, 0)
+    val nearOk = if (L < n) Mux(pc >= L.U, true.B, !isFar(line)) else !isFar(line)
+    val hit = valid(imemIndex(pc)) && Mux(inImem, nearOk,
+      isFar(line) && farTag(line) === pc(cfg.pcBits - 1, lb))
+    when(fill) {
+      val l = missPc(lb - 1, 0)
+      valid(imemIndex(missPc)) := true.B
+      when(missPc < n.U) {
+        when(missPc < L.U) { isFar(l) := false.B }   // a near word (re)fetched
+      }.otherwise {
+        isFar(l)  := true.B
+        farTag(l) := missPc(cfg.pcBits - 1, lb)
+      }
+    }
     // A flush starts a new program: nothing in IMEM belongs to it yet. The
     // DMA/MMIO writes that follow each make their line near and valid. (A
     // write in the same cycle as a flush wins: the flush pulses at DMA start,
@@ -665,9 +681,54 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       isFar.foreach(_ := false.B)
     }
     when(extWriteEn) {
-      valid(extWriteIdx(log2Ceil(n) - 1, 0)) := true.B
+      valid(extWriteIdx) := true.B
       when(extWriteIdx < L.U) { isFar(extWriteIdx(lb - 1, 0)) := false.B }
     }
+    hit
+  }
+
+  /** Line state in a RAM read next to IMEM, for a large IMEM, where flops
+    * cost LUTs on the FPGA and per-cycle work in the simulator. A line is
+    * valid only in the epoch it was written in, so a flush bumps the epoch.
+    * A sweep rewrites every line after reset (valid, as the flops reset) and
+    * when the epoch wraps (invalid); a line it has not reached yet reads as
+    * what it will write. True if the line holds pc's word. */
+  private def icacheLinesRam(pc: UInt, inImem: Bool, fill: Bool, missPc: UInt): Bool = {
+    val n     = cfg.maxInstructions
+    val lb    = cfg.icacheLinesLog2
+    val lines = SyncReadMem(n, new ICacheLine(cfg.pcBits - lb))
+    val epoch      = RegInit(0.U(ICacheLine.EpochBits.W))
+    val sweeping   = RegInit(true.B)
+    val sweepValid = RegInit(true.B)
+    val sweepIdx   = RegInit(0.U(log2Ceil(n).W))
+    val flush = io.icacheFlush.get
+
+    val cur = lines.read(imemIndex(nextPC))
+    val unswept = RegNext(sweeping && imemIndex(nextPC) >= sweepIdx)
+    val unsweptValid = RegNext(sweepValid && !flush)
+    val hit = Mux(unswept, unsweptValid && inImem,
+      cur.valid && cur.epoch === epoch && Mux(inImem, !cur.far, cur.far && cur.tag === pc(cfg.pcBits - 1, lb)))
+
+    val w = Wire(new ICacheLine(cfg.pcBits - lb))
+    w.valid := true.B
+    w.epoch := Mux(flush, epoch + 1.U, epoch)
+    w.far   := fill && !(missPc < n.U)
+    w.tag   := missPc(cfg.pcBits - 1, lb)
+    val step = sweeping && !fill && !extWriteEn
+    when(step) { w.valid := sweepValid && !flush; w.far := false.B }
+    when(fill || extWriteEn || step) {
+      lines.write(Mux(fill, imemIndex(missPc), Mux(extWriteEn, extWriteIdx, sweepIdx)), w)
+    }
+    when(step) {
+      sweepIdx := sweepIdx + 1.U
+      when(sweepIdx === (n - 1).U) { sweeping := false.B }
+    }
+    when(flush) {
+      epoch := epoch + 1.U
+      when(sweeping) { sweepValid := false.B }   // the rest is stale now too
+      when(epoch.andR) { sweeping := true.B; sweepValid := false.B; sweepIdx := 0.U }
+    }
+    hit
   }
   // @doc:end
 

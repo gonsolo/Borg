@@ -17,7 +17,7 @@ generated from it (`mill hardware.borg.runMain borg.EmitIsaHeader`).
 
 ## All shaders: program length and the instruction cache
 
-A shader is no longer limited to IMEM (64 words on Wafer, 72 on ULX3S/sim).
+A shader is no longer limited to IMEM (64 words on Wafer, 512 on ULX3S/sim).
 With `BorgConfig.hasShaderICache` (on in Default and Wafer), IMEM is a
 direct-mapped instruction cache over the program's image in DRAM: word `pc`
 lives at `codeBase + 4*pc`, and a PC past what IMEM holds is fetched from
@@ -34,7 +34,9 @@ What the compiler must know:
 - **Performance, not correctness:** a program that fits in IMEM never misses
   and runs exactly as before. Code past IMEM costs one DRAM word read on first
   use, and again whenever the line has been reused for other code. Placing
-  hot loops early in the program keeps them resident.
+  hot loops early in the program keeps them resident. With 512 words, IMEM
+  keeps the line state (valid, epoch, far tag) in a RAM next to it instead of
+  flops; a flush bumps the epoch, so it costs nothing per line.
 
 What the driver/firmware must do:
 
@@ -339,5 +341,5 @@ descriptor layouts and an example.
 | Occlusion count, triangle window | `BorgShaderDispatcherZTestTests` (count per test site), scenario `occlusion_query_counts_the_samples_of_the_triangle_window` |
 | Attachment load, stencil store   | `BorgTileLoaderTests` (3), `BorgTileFlusherTests` stencil burst, scenario `attachments_store_and_load_across_renders` |
 | EXANY divergent loop             | `BorgCoreTestsD.exany_implements_a_genuinely_divergent_loop`      |
-| Programs longer than IMEM        | `BorgCoreTestsC.icache_*` (4 tests, 64- and 72-word IMEM)         |
+| Programs longer than IMEM        | `BorgCoreTestsC.icache_*` (5 tests, 64-, 72- and 512-word IMEM)   |
 | Long shader through DMA preload  | `BorgSequencerTests` scenario `icache_runs_a_fragment_shader_longer_than_imem` |

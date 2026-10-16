@@ -32,7 +32,7 @@ object BorgSequencerTests extends TestSuite {
     * both wrong at FP32 (FP32 -1.0 is 0xBF800000, whose low 16 bits decode
     * as 0.0 -- the "got 0.0, expected 1.5" these tests reported).
     */
-  val suiteCfg = BorgConfig.Test
+  val suiteCfg = BorgConfig.Test.copy(maxInstructions = 72)   // the I-cache scenarios run past IMEM
 
   def floatToBits16(f: Float): BigInt = {
     val bits = java.lang.Float.floatToRawIntBits(f)
