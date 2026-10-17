@@ -475,6 +475,29 @@ object BorgSamplerTests extends TestSuite {
       }
     }
 
+    utest.test("texture_descriptor_cache_keeps_several_indices") {
+      withSampler { d =>
+        var descReads = 0
+        val mem = new Mem {
+          override def word(a: Int): Long = { if (a >= TexBase && a < SampBase) descReads += 1; super.word(a) }
+        }
+        val fms = Seq("R8G8B8A8_UNORM", "R32_SFLOAT", "R16G16_UNORM", "B8G8R8A8_UNORM", "R32G32B32A32_SFLOAT")
+        val texs = fms.zipWithIndex.map { case (f, i) => Tex(TexFormat.byName(f), 4 * (i + 1), 4, base = Data + 0x2000 * i) }
+        val s = Samp(magLin = true, minLin = true)
+        setup(mem, texs, Seq(s))
+        val texels = texs.zipWithIndex.map { case (t, i) => fill(mem, t, new scala.util.Random(40 + i)) }
+        d.io.invalidate.poke(true.B); d.clock.step(1); d.io.invalidate.poke(false.B)
+        val lanes = Seq(Lane(0.1f, 0.2f), Lane(0.55f, 0.8f), Lane(0.9f, 0.4f), Lane(0.33f, 0.66f))
+        // 4 and 0 share a line: misses 0 1 2 3, hits 0 1 2 3, then 4 and 0 miss.
+        for (i <- Seq(0, 1, 2, 3, 0, 1, 2, 3, 4, 0)) {
+          val ctl = (LodExplicit.toLong << 21) | i
+          check(s"texture $i", run(d, mem, ctl, lanes), reference(texs(i), s, texels(i), ctl, lanes))
+        }
+        Predef.assert(descReads == 6 * 4, s"descriptor reads: $descReads")
+        println("  four texture descriptors stay cached across requests")
+      }
+    }
+
     utest.test("seamless_cube_edges_and_corners") {
       withSampler { d =>
         val cube = Tex(TexFormat.byName("R8G8B8A8_UNORM"), 8, 8, d = 6, ttype = TCube)

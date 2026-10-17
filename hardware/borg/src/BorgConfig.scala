@@ -69,6 +69,8 @@ case class BorgConfig(
     // varyings; measured on a draw-mode vkcube frame, 2,389,185 -> 2,123,635
     // cycles (stalls 453K -> 168K).
     fattrCacheLog2: Int = 8,
+    // TEX keeps 2^texDescCacheLog2 texture descriptors (a vertex shader reads one per input).
+    texDescCacheLog2: Int = 2,
     maxUniforms: Int = 64,
     hasPerfCounters: Boolean = true,
     fragLanes: Int = 1,
@@ -536,6 +538,7 @@ object BorgConfig {
     // the 1x1 slot does not have, for a speed-up the 8 MHz part can live
     // without. FATTR reads the record from memory instead.
     fattrCacheLog2   = 0,
+    texDescCacheLog2 = 0,
     maxUniforms      = 32,
     hasPerfCounters  = false,
     fragLanes        = 4,
