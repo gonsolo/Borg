@@ -218,11 +218,14 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
   private val act   = Reg(Vec(N, Bool()))
   private val args  = Reg(Vec(N, new SamplerLaneArgs))
 
-  // Descriptor caches: one texture and one sampler, tagged by index; any
-  // write to either table's base forgets both.
-  private val td = Reg(Vec(4, UInt(32.W))); private val tdTag = Reg(UInt(8.W)); private val tdOk = RegInit(false.B)
+  // Descriptor caches: 2^texDescCacheLog2 texture descriptors (direct-mapped, td holds
+  // the current one) and one sampler, tagged by index; a write to either table's base forgets all.
+  private val nTd = 1 << cfg.texDescCacheLog2
+  private val td = Reg(Vec(4, UInt(32.W))); private val tdTag = Reg(Vec(nTd, UInt(8.W)))
+  private val tdOk = RegInit(VecInit(Seq.fill(nTd)(false.B)))
+  private val tdMem = Option.when(nTd > 1)(Mem(nTd, Vec(4, UInt(32.W))))
   private val sd = Reg(Vec(4, UInt(32.W))); private val sdTag = Reg(UInt(8.W)); private val sdOk = RegInit(false.B)
-  when(io.invalidate) { tdOk := false.B; sdOk := false.B }
+  when(io.invalidate) { tdOk.foreach(_ := false.B); sdOk := false.B }
   private val k = RegInit(0.U(4.W))                       // word / step / channel counter
 
   // Descriptor fields.
@@ -349,14 +352,18 @@ class BorgSampler(val cfg: BorgConfig) extends Module {
 
     // --- Descriptors ---------------------------------------------------
     is(sTexDesc) {
-      when(tdOk && tdTag === texIdx(ctl)) { k := 0.U; state := sSampDesc }
-        .otherwise {
-          read(io.texBase + (texIdx(ctl) << 6) + (k << 2)) { d =>
-            td(k(1, 0)) := d
-            when(k === 3.U) { tdOk := true.B; tdTag := texIdx(ctl); k := 0.U; state := sSampDesc }
-              .otherwise { k := k + 1.U }
-          }
+      val slot = if (nTd > 1) texIdx(ctl)(cfg.texDescCacheLog2 - 1, 0) else 0.U
+      when(tdOk(slot) && tdTag(slot) === texIdx(ctl)) {
+        tdMem.foreach(m => td := m(slot)); k := 0.U; state := sSampDesc
+      }.otherwise {
+        read(io.texBase + (texIdx(ctl) << 6) + (k << 2)) { d =>
+          td(k(1, 0)) := d
+          when(k === 3.U) {
+            tdMem.foreach(_.write(slot, VecInit(td(0), td(1), td(2), d)))
+            tdOk(slot) := true.B; tdTag(slot) := texIdx(ctl); k := 0.U; state := sSampDesc
+          }.otherwise { k := k + 1.U }
         }
+      }
     }
     is(sSampDesc) {
       when(isFetch || isSize || (sdOk && sdTag === sampIdx(ctl))) { k := 0.U; state := sLod }
