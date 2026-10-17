@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Recompile the corpus cases (about 25 minutes). Fails when a case that passed in status.txt no longer
 # passes; blobs that differ from ref/ are only counted, and fail the run with BLOBS=strict (refactors).
+# SET=compute checks the compute shaders in compute/ instead.
 set -euo pipefail
+shopt -s nullglob
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-NEW="${1:-$ROOT/out/borgc_corpus}"
+NEW="${1:-$ROOT/out/borgc_corpus${SET:+_$SET}}"
+HERE="$HERE${SET:+/$SET}"
 rm -rf "$NEW" "$NEW.run"; mkdir -p "$NEW"
 BORGC_CORPUS_DIR="$NEW" MESA_ROOT="${MESA_ROOT:-$ROOT/mesa}" JOBS="${JOBS:-12}" DIRECT=1 \
   CASELIST="$HERE/cases.txt" OUT="$NEW.run" "$ROOT/scripts/cts_par.sh" corpus > "$NEW.log" 2>&1 || true
