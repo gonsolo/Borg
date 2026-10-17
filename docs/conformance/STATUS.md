@@ -277,6 +277,17 @@ missing-extension check, so the result matches tier 1.
   Not measured on the wafer.space flow.
 - The older rows in the tables above (sampler, depth, the first 121,750 cases in tree order) and the 150-case samples.
 
+## glsl: the compiler corpus (tier 1, 2026-10-17)
+
+`scripts/borgc_corpus/check.sh` (2,293 cases, 901 s): **712 Pass, 1,553 NotSupported, 28 Fail**, 9 more Pass than
+before and none lost. borgc now spills fragment and vertex values to a scratch slot when registers run out, fetches
+vertex inputs again near their uses, loads wide fragment inputs per component and reserves the varying registers only
+for shaders that read varyings. `matrix.inverse.dynamic.highp_mat4_float_vertex` and `mediump_mat4_float_vertex` pass
+(112 Mcycles each, 837 s and 924 s). Their vertex shaders are longer than IMEM, so the shader IMEM grew from 72 to 512
+words on the ULX3S and in the simulators, with the I-cache line state in a block RAM (Wafer keeps 64 words and flops);
+that cut the case from 144 to 112 Mcycles. Cost on the ULX3S SoC (yosys): -1,499 LUT4, -580 flip-flops, -40 DPR16X4,
++2 DP16KD.
+
 ## memory.allocation (tier 1)
 
 Rerun 2026-10-08 with the library present: `OUT=... JOBS=12 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.memory.allocation.*'`,
