@@ -32,6 +32,9 @@ SHIM="$MESA_ROOT/build-borg/src/borg/drm/libborg_drm_shim.so"
 [[ $# -ge 1 ]] || { sed -n 2,6p "$0"; exit 2; }
 mkdir -p "$OUT"
 if [[ "$1" == "--list" ]]; then
+  if [[ -z "${CTS_PAR_WORKER:-}" && $(grep -c . "$2") -gt 2 ]]; then
+    echo "cts_one.sh runs a list serially; use: CASELIST=$2 JOBS=12 DIRECT=1 scripts/cts_par.sh <label>" >&2; exit 2
+  fi
   cp "$2" "$OUT/cases.txt"
 else
   printf '%s\n' "$1" > "$OUT/cases.txt"
