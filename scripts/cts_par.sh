@@ -108,7 +108,7 @@ export BORGVK_SIM_PARTS=1      # one simulator process per case: the workers are
 run_chunk() {   # $1 = chunk file; its run directory is named after it
   local d="$OUT/run_$(basename "$1")"
   local t0=$(date +%s)
-  OUT="$d" NO_FW_BUILD=1 timeout -k 10 "${TMO:-900}" "$HERE/cts_one.sh" --list "$1" > "$d.log" 2>&1
+  CTS_PAR_WORKER=1 OUT="$d" NO_FW_BUILD=1 timeout -k 10 "${TMO:-900}" "$HERE/cts_one.sh" --list "$1" > "$d.log" 2>&1
   echo $? > "$d.rc"
   echo "$(( $(date +%s) - t0 )) $(basename "$1") $(wc -l < "$1")" >> "$OUT/chunk_times.txt"
 }
