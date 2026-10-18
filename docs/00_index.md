@@ -78,5 +78,5 @@ depending on your goal:
 12. [GPU Memory](B5_gpu_memory.md) — Design: VkDeviceMemory through the DRM driver (GEM allocator in the Rust render node), and how to test it
 13. [borgc design notes](B6_borgc_notes.md) — Why the Rust shader compiler does what it does
 14. [borgvk design notes](B7_borgvk_notes.md) — Why the Vulkan driver does what it does
-15. [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the 2b `info` result, known limits and the open 2a discrepancy
+15. [Vulkan 1.0 Conformance Status](conformance/STATUS.md) — CTS results on the direct simulator per group, the `info` result, known limits and the open `api` discrepancy
 16. [Glossary](glossary.md) — Canonical terminology for hardware components, shader formats, and tools
