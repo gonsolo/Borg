@@ -139,12 +139,12 @@ Four `api` cases report `QualityWarning` (`object_management`).
 
 What the failures are:
 - **pipeline (23,142) and glsl (10,704):** "Image mismatch". Shader-compiler and fixed-function gaps. These
-  are the later Task 2 items (pipeline, shader rendering).
+  are the open pipeline and shader-rendering work.
 - **ssbo, ubo, texture, image, spirv_assembly, synchronization:** failure reasons not analysed yet.
 - **memory (36):** all in `memory.pipeline_barrier`.
-- **api:** 0 Fail in the full group, see "2a" below; the 13 in the table are from the faulty run.
+- **api:** 0 Fail in the full group, see the `api` rerun below; the 13 in the table are from the faulty run.
 
-## 2b: `dEQP-VK.info.*` (tier 1)
+## `dEQP-VK.info.*` (tier 1)
 
 Tier 1. Command: `JOBS=4 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.info.*'`, no mustpass filter, 21 cases, 1 s.
 
@@ -156,9 +156,9 @@ Tier 1. Command: `JOBS=4 DIRECT=1 scripts/cts_par.sh 'dEQP-VK.info.*'`, no mustp
 | `info.physical_device_groups` | `VK_KHR_device_group_creation` |
 | `info.device_group_peer_memory_features` | `VK_KHR_device_group_creation` |
 
-The scope is `dEQP-VK.info.*` only. The `api.info` group belongs to 2a.
+The scope is `dEQP-VK.info.*` only. The `api.info` group belongs to `api`.
 
-## 2b on tier 2 (QEMU, Rust DRM driver)
+## `dEQP-VK.info.*` on tier 2 (QEMU, Rust DRM driver)
 
 `dEQP-VK.info.*`: **18 Pass, 3 NotSupported, 0 Fail**, the same cases as tier 1 (same three missing extensions).
 Run with `software/linux/tests/qemu-cts.sh` (3 s). What ran: riscv64 `deqp-vk` and borgvk (glibc, cross-built)
@@ -176,31 +176,30 @@ in an initrd, on QEMU `virt` with Linux 7.2.9 and the Rust Borg DRM driver; borg
 - Queries only. Cases that render need the real Borg behind the register block (a QEMU-to-`direct_sim` bridge, not built).
 - The riscv64 Rust `std` and cross file for the Mesa build are in the scratchpad, not the repo yet.
 
-## 2e and 2f: all of `dEQP-VK.pipeline.*`
+## All of `dEQP-VK.pipeline.*`
 
-The memorandum has two pipeline tasks, so every `pipeline` case belongs to one of them. The eight subgroups of
-`dEQP-VK.pipeline` (CTS 1.4.6.2, extension variants included, 1,162,094 cases) are distributed whole, to get halves of
-the same size:
+The eight subgroups of `dEQP-VK.pipeline` (CTS 1.4.6.2, extension variants included, 1,162,094 cases) fall into two
+halves of about the same size:
 
-| Task | Subgroups | Cases |
+| Half | Subgroups | Cases |
 |---|---|---:|
-| 2e, creation modes | `fast_linked_library`, `shader_object_linked_binary`, `shader_object_linked_spirv`, `shader_object_unlinked_binary`, `shader_object_unlinked_spirv`, `no-queues` | 581,367 |
-| 2f, state coverage | `monolithic`, `pipeline_library` | 580,727 |
+| creation modes | `fast_linked_library`, `shader_object_linked_binary`, `shader_object_linked_spirv`, `shader_object_unlinked_binary`, `shader_object_unlinked_spirv`, `no-queues` | 581,367 |
+| state coverage | `monolithic`, `pipeline_library` | 580,727 |
 
-**2e on tier 1 (2026-10-13):** `fast_linked_library` in full (`CASELIST=<its 128,113 cases> JOBS=12 DIRECT=1 scripts/cts_par.sh`, 82 s):
+**Creation modes on tier 1 (2026-10-13):** `fast_linked_library` in full (`CASELIST=<its 128,113 cases> JOBS=12 DIRECT=1 scripts/cts_par.sh`, 82 s):
 **128,113 NotSupported, 0 Pass, 0 Fail.** Every case needs `VK_EXT_graphics_pipeline_library`, which borgvk does not offer
-(`vkPipelineConstructionUtil.cpp:212`). All other 2e subgroups in full, same day, `JOBS=12 DIRECT=1`:
+(`vkPipelineConstructionUtil.cpp:212`). All other creation-mode subgroups in full, same day, `JOBS=12 DIRECT=1`:
 `shader_object_linked_binary` 24,350 cases (9 s), `shader_object_linked_spirv` 24,350 (10 s),
 `shader_object_unlinked_binary` 24,350 (10 s), `shader_object_unlinked_spirv` 380,168 (434 s), `no-queues` 36 (1 s):
 **all NotSupported, 0 Pass, 0 Fail.** The shader-object cases need `VK_EXT_shader_object`
 (`vkPipelineConstructionUtil.cpp:207`).
-So 2e is complete on tier 1: **581,367 NotSupported, 0 Fail.**
+So the creation modes are complete on tier 1: **581,367 NotSupported, 0 Fail.**
 
-**2e on tier 2 (2026-10-13):** a random 5,000-case sample (fixed seed) of the 581,367 cases, `qemu-cts-run.sh` on 12 guests,
+**Creation modes on tier 2 (2026-10-13):** a random 5,000-case sample (fixed seed) of the 581,367 cases, `qemu-cts-run.sh` on 12 guests,
 30 s: **5,000 NotSupported, 0 Fail**, no guest crash. Not run in full (about 50 minutes estimated); the cases stop at the
 missing-extension check, so the result matches tier 1.
 
-**2f on tier 1:** not run in full. What ran, all in `pipeline.monolithic`:
+**State coverage on tier 1:** not run in full. What ran, all in `pipeline.monolithic`:
 
 - 14 subgroups for creation, layouts and cache (8,037 cases, 170 s, 2026-10-13): **589 Pass, 7,276 NotSupported, 172 Fail.**
 
@@ -316,7 +315,7 @@ cases because it is filtered by the mustpass list. Memory comes from the host sh
 On tier 2 (2026-10-13, `qemu-cts-run.sh`, 4 guests, 42 s): **811 Pass, 3,655 NotSupported, 0 Fail**, equal to tier 1.
 `VK_KHR_dedicated_allocation` is optional in Vulkan 1.0, so those cases stay NotSupported.
 
-## 2a (tier 1): rerun 2026-10-07
+## `api` (tier 1): rerun 2026-10-07
 
 Rerun with the tag's command (`MUSTPASS=1.0.2.6 MUSTPASS_GROUPS=1 JOBS=12 DIRECT=1 scripts/cts_par.sh
 'dEQP-VK.api.*'`, tier 1): **0 Fail**, 64,866 Pass, 213,472 NotSupported, 4 QualityWarning, the same numbers
@@ -333,7 +332,7 @@ table below come from the same kind of run and are not trusted either.
 **The all-groups table is not reliable.** It was measured without that check; only the `api` row and the
 `info` run were repeated with the library present. The all-groups rerun is pending.
 
-## 2a on tier 2 (QEMU, Rust DRM driver, faulting Borg)
+## `api` on tier 2 (QEMU, Rust DRM driver, faulting Borg)
 
 The same 278,342 `api` cases as the tier-1 rerun above, run with `software/linux/tests/qemu-cts-run.sh <list> <out> 16`
 (16 guests of 2 GB, 15.7 minutes). Tier 1 and tier 2 side by side:
