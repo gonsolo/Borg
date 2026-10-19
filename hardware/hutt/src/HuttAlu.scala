@@ -5,6 +5,7 @@ package hutt
 
 import chisel3._
 import chisel3.util._
+import HuttOpcodes._
 
 class HuttAluIO(val xlen: Int = 32) extends Bundle {
   val op  = Input(AluOp())
@@ -183,34 +184,34 @@ class HuttAlu(val xlen: Int = 32) extends Module {
 object HuttAluDecode {
   def apply(funct3: UInt, funct7: UInt, isOpReg: Bool, isWord: Bool = false.B): AluOp.Type = {
     val funct7_b5 = funct7(5)
-    val isMulDiv  = isOpReg && (funct7 === "b0000001".U)
+    val isMulDiv  = isOpReg && (funct7 === FUNCT7_MUL.U(7.W))
     val op = Wire(AluOp())
     op := Mux(isWord, AluOp.AddW, AluOp.Add)
     when(isMulDiv) {
       switch(funct3) {
-        is("b000".U) { op := Mux(isWord, AluOp.MulW,    AluOp.Mul) }
-        is("b001".U) { op := AluOp.Mulh }                              // no *W form
-        is("b010".U) { op := AluOp.Mulhsu }                            // no *W form
-        is("b011".U) { op := AluOp.Mulhu }                             // no *W form
-        is("b100".U) { op := Mux(isWord, AluOp.DivW,    AluOp.Div) }
-        is("b101".U) { op := Mux(isWord, AluOp.DivuW,   AluOp.Divu) }
-        is("b110".U) { op := Mux(isWord, AluOp.RemW,    AluOp.Rem) }
-        is("b111".U) { op := Mux(isWord, AluOp.RemuW,   AluOp.Remu) }
+        is(FUNCT3_MUL.U) { op := Mux(isWord, AluOp.MulW,    AluOp.Mul) }
+        is(FUNCT3_MULH.U) { op := AluOp.Mulh }                              // no *W form
+        is(FUNCT3_MULHSU.U) { op := AluOp.Mulhsu }                            // no *W form
+        is(FUNCT3_MULHU.U) { op := AluOp.Mulhu }                             // no *W form
+        is(FUNCT3_DIV.U) { op := Mux(isWord, AluOp.DivW,    AluOp.Div) }
+        is(FUNCT3_DIVU.U) { op := Mux(isWord, AluOp.DivuW,   AluOp.Divu) }
+        is(FUNCT3_REM.U) { op := Mux(isWord, AluOp.RemW,    AluOp.Rem) }
+        is(FUNCT3_REMU.U) { op := Mux(isWord, AluOp.RemuW,   AluOp.Remu) }
       }
     }.otherwise {
       switch(funct3) {
-        is("b000".U) { op := Mux(isWord,
+        is(FUNCT3_ADD.U) { op := Mux(isWord,
                                  Mux(isOpReg && funct7_b5, AluOp.SubW, AluOp.AddW),
                                  Mux(isOpReg && funct7_b5, AluOp.Sub,  AluOp.Add)) }
-        is("b001".U) { op := Mux(isWord, AluOp.SllW, AluOp.Sll) }
-        is("b010".U) { op := AluOp.Slt }
-        is("b011".U) { op := AluOp.Sltu }
-        is("b100".U) { op := AluOp.Xor }
-        is("b101".U) { op := Mux(isWord,
+        is(FUNCT3_SLL.U) { op := Mux(isWord, AluOp.SllW, AluOp.Sll) }
+        is(FUNCT3_SLT.U) { op := AluOp.Slt }
+        is(FUNCT3_SLTU.U) { op := AluOp.Sltu }
+        is(FUNCT3_XOR.U) { op := AluOp.Xor }
+        is(FUNCT3_SRL.U) { op := Mux(isWord,
                                  Mux(funct7_b5, AluOp.SraW, AluOp.SrlW),
                                  Mux(funct7_b5, AluOp.Sra,  AluOp.Srl)) }
-        is("b110".U) { op := AluOp.Or }
-        is("b111".U) { op := AluOp.And }
+        is(FUNCT3_OR.U) { op := AluOp.Or }
+        is(FUNCT3_AND.U) { op := AluOp.And }
       }
     }
     op
@@ -229,12 +230,12 @@ object HuttBranchTaken {
     val ltu = a < b
     val taken = WireDefault(false.B)
     switch(funct3) {
-      is("b000".U) { taken := eq }
-      is("b001".U) { taken := !eq }
-      is("b100".U) { taken := lts }
-      is("b101".U) { taken := !lts }
-      is("b110".U) { taken := ltu }
-      is("b111".U) { taken := !ltu }
+      is(FUNCT3_BEQ.U) { taken := eq }
+      is(FUNCT3_BNE.U) { taken := !eq }
+      is(FUNCT3_BLT.U) { taken := lts }
+      is(FUNCT3_BGE.U) { taken := !lts }
+      is(FUNCT3_BLTU.U) { taken := ltu }
+      is(FUNCT3_BGEU.U) { taken := !ltu }
     }
     taken
   }

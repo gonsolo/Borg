@@ -1,0 +1,23 @@
+name,bits,role
+rd,11..7,
+rs1,19..15,
+rs2,24..20,
+imm12,31..20,
+imm20,31..12,
+shamtd,25..20,
+shamtw,24..20,
+csr,31..20,
+zimm5,19..15,
+fm,31..28,
+pred,27..24,
+succ,23..20,
+aq,26,
+rl,25,
+simm,31..25=11..5 11..7=4..0,imm12hi imm12lo
+boff,31=12 30..25=10..5 11..8=4..1 7=11,bimm12hi bimm12lo
+joff,31=20 30..21=10..1 20=11 19..12=19..12,jimm20
+opcode,6..0,const
+funct3,14..12,const
+funct7,31..25,const
+funct5,31..27,const
+funct12,31..20,const

@@ -21,7 +21,7 @@ help:
 	@echo -e "$(BOLD)  librelane:\t\t\tFull wafer.space signoff (GF180MCU, 1x1 slot) -- THE tapeout flow.$(RESET)"
 	@echo -e "  ------------------------------------------------------------------------------"
 	@echo -e "  rdl:\t\t\t\tValidate SystemRDL."
-	@echo -e "  isa:\t\t\t\tRegenerate the ISA encodings from hardware/borg/isa."
+	@echo -e "  isa:\t\t\t\tRegenerate the ISA encodings (hardware/borg/isa, hardware/hutt/isa)."
 	@echo -e "  isa-check:\t\t\tFail if a generated ISA file is out of date."
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
@@ -255,12 +255,15 @@ rdl: $(RDL_SRC)
 ISA_GEN := python3-borg-rdl scripts/isa_gen.py
 ISA_BORG := $(ISA_GEN) hardware/borg/isa --c software/borg/borg_isa.h --rust mesa/src/borg/compiler/opcodes.rs \
             --scala hardware/borg/src/Opcodes.scala --package borg --object Opcodes
+ISA_HUTT := $(ISA_GEN) hardware/hutt/isa --scala hardware/hutt/src/HuttOpcodes.scala --package hutt --object HuttOpcodes
 
 isa:
 	@$(ISA_BORG)
+	@$(ISA_HUTT)
 
 isa-check:
 	@$(ISA_BORG) --check
+	@$(ISA_HUTT) --check
 
 clean:
 	rm -f .verilog_stamp .verilog_sim_stamp .verilog_wafer_stamp .verilog_wafer_1x1_stamp
