@@ -6,37 +6,39 @@ package hutt
 import chisel3._
 import chisel3.util._
 
-/** RV32I opcodes (instr[6:0]). */
+/** Major opcodes (instr[6:0]), from hardware/hutt/isa via [[HuttOpcodes]]. */
 object Opcode {
-  val Lui    = "b0110111".U(7.W)
-  val Auipc  = "b0010111".U(7.W)
-  val Jal    = "b1101111".U(7.W)
-  val Jalr   = "b1100111".U(7.W)
-  val Branch = "b1100011".U(7.W)
-  val Load   = "b0000011".U(7.W)
-  val Store  = "b0100011".U(7.W)
-  val OpImm  = "b0010011".U(7.W)
-  val Op     = "b0110011".U(7.W)
-  val OpImm32 = "b0011011".U(7.W)  // RV64 ADDIW/SLLIW/SRLIW/SRAIW
-  val Op32    = "b0111011".U(7.W)  // RV64 ADDW/SUBW/SLLW/SRLW/SRAW
-  val MiscMem = "b0001111".U(7.W)  // FENCE / FENCE.I — treated as nop
-  val System  = "b1110011".U(7.W)  // ECALL / EBREAK / CSR — treated as nop in this RV32I-only core
-  val Amo     = "b0101111".U(7.W)  // A extension: LR/SC/AMO* (xlen=64 only)
+  import HuttOpcodes._
+  val Lui     = OPCODE_LUI.U(7.W)
+  val Auipc   = OPCODE_AUIPC.U(7.W)
+  val Jal     = OPCODE_JAL.U(7.W)
+  val Jalr    = OPCODE_JALR.U(7.W)
+  val Branch  = OPCODE_BEQ.U(7.W)
+  val Load    = OPCODE_LB.U(7.W)
+  val Store   = OPCODE_SB.U(7.W)
+  val OpImm   = OPCODE_ADDI.U(7.W)
+  val Op      = OPCODE_ADD.U(7.W)
+  val OpImm32 = OPCODE_ADDIW.U(7.W)  // RV64 ADDIW/SLLIW/SRLIW/SRAIW
+  val Op32    = OPCODE_ADDW.U(7.W)   // RV64 ADDW/SUBW/SLLW/SRLW/SRAW
+  val MiscMem = OPCODE_FENCE.U(7.W)  // FENCE / FENCE.I -- treated as nop
+  val System  = OPCODE_ECALL.U(7.W)  // ECALL / EBREAK / xRET / SFENCE.VMA / CSR
+  val Amo     = OPCODE_LR_W.U(7.W)   // A extension: LR/SC/AMO* (xlen=64 only)
 }
 
 /** A-extension funct5 selectors (instr[31:27]). */
 object AmoFunct5 {
-  val Add  = "b00000".U(5.W)
-  val Swap = "b00001".U(5.W)
-  val Lr   = "b00010".U(5.W)
-  val Sc   = "b00011".U(5.W)
-  val Xor  = "b00100".U(5.W)
-  val Or   = "b01000".U(5.W)
-  val And  = "b01100".U(5.W)
-  val Min  = "b10000".U(5.W)
-  val Max  = "b10100".U(5.W)
-  val Minu = "b11000".U(5.W)
-  val Maxu = "b11100".U(5.W)
+  import HuttOpcodes._
+  val Add  = FUNCT5_AMOADD_W.U(5.W)
+  val Swap = FUNCT5_AMOSWAP_W.U(5.W)
+  val Lr   = FUNCT5_LR_W.U(5.W)
+  val Sc   = FUNCT5_SC_W.U(5.W)
+  val Xor  = FUNCT5_AMOXOR_W.U(5.W)
+  val Or   = FUNCT5_AMOOR_W.U(5.W)
+  val And  = FUNCT5_AMOAND_W.U(5.W)
+  val Min  = FUNCT5_AMOMIN_W.U(5.W)
+  val Max  = FUNCT5_AMOMAX_W.U(5.W)
+  val Minu = FUNCT5_AMOMINU_W.U(5.W)
+  val Maxu = FUNCT5_AMOMAXU_W.U(5.W)
 }
 
 /** ALU operation selector.  The `*W` variants are RV64 word ops (32-bit result
@@ -136,11 +138,11 @@ object HuttDecode {
     d.isCsr    := (d.opcode === Opcode.System) && (d.funct3 =/= 0.U)
     val funct12 = instr(31, 20)
     val isSystem0 = (d.opcode === Opcode.System) && (d.funct3 === 0.U)
-    d.isEcall  := isSystem0 && (funct12 === "h000".U)
-    d.isEbreak := isSystem0 && (funct12 === "h001".U)
-    d.isMret      := isSystem0 && (funct12 === "h302".U)
-    d.isSret      := isSystem0 && (funct12 === "h102".U)
-    d.isSfenceVma := isSystem0 && (d.funct7 === 9.U)  // funct7=0b0001001 per spec
+    d.isEcall  := isSystem0 && (funct12 === HuttOpcodes.FUNCT12_ECALL.U)
+    d.isEbreak := isSystem0 && (funct12 === HuttOpcodes.FUNCT12_EBREAK.U)
+    d.isMret      := isSystem0 && (funct12 === HuttOpcodes.FUNCT12_MRET.U)
+    d.isSret      := isSystem0 && (funct12 === HuttOpcodes.FUNCT12_SRET.U)
+    d.isSfenceVma := isSystem0 && (d.funct7 === HuttOpcodes.FUNCT7_SFENCE_VMA.U)
     // FENCE, WFI, and unknown SYSTEM+funct3=0 are harmless NOPs.
     d.isNop    := (d.opcode === Opcode.MiscMem) ||
                   (isSystem0 && !d.isEcall && !d.isEbreak && !d.isMret && !d.isSret && !d.isSfenceVma)
