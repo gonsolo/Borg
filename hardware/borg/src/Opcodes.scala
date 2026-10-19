@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: CERN-OHL-S-2.0
-// GENERATED from hardware/borg/isa/opcodes by hardware/borg/isa/gen.py; do not edit.
+// GENERATED from hardware/borg/isa by scripts/isa_gen.py; do not edit.
 
 package borg
 
@@ -193,4 +193,50 @@ object Opcodes {
   val OPCODE_JMP = 0x00
   val FUNCT7_JMP = 0x50
   val HALT = 0x00000000L
+
+  def FMADD(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rs3: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_FMADD | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27) | ((f3.toLong & 0x7L) << 12))
+  def TEX(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, rs3: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_TEX | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27) | ((f3.toLong & 0x7L) << 12))
+  def TEXA(rs1: Int = 0, rs2: Int = 0, rs3: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_TEXA | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((rs3.toLong & 0x1fL) << 27) | ((f3.toLong & 0x7L) << 12))
+  def FADD(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_FADD | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def FMUL(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_FMUL | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def FNEG(rd: Int = 0, rs1: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_FNEG | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((f3.toLong & 0x7L) << 12))
+  def FMOV(rd: Int = 0, rs1: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_FMOV | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((f3.toLong & 0x7L) << 12))
+  def FSTEP(rd: Int = 0, rs1: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_FSTEP | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((f3.toLong & 0x7L) << 12))
+  def FRCP(rd: Int = 0, rs1: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_FRCP | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((f3.toLong & 0x7L) << 12))
+  def IADD(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_IADD | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def ISHL(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_ISHL | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def ISHR(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_ISHR | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def IMUL(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_IMUL | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def ISUB(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_ISUB | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def IAND(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_IAND | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def IOR(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_IOR | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def IXOR(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_IXOR | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def ISLT(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_ISLT | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def ISEQ(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_ISEQ | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def I2F(rd: Int = 0, rs1: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_I2F | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((f3.toLong & 0x7L) << 12))
+  def F2I(rd: Int = 0, rs1: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_F2I | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((f3.toLong & 0x7L) << 12))
+  def F2H(rd: Int = 0, rs1: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_F2H | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((f3.toLong & 0x7L) << 12))
+  def H2F(rd: Int = 0, rs1: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_H2F | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((f3.toLong & 0x7L) << 12))
+  def FRSQ(rd: Int = 0, rs1: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_FRSQ | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((f3.toLong & 0x7L) << 12))
+  def FSRGB(rd: Int = 0, rs1: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_FSRGB | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((f3.toLong & 0x7L) << 12))
+  def DDX(rd: Int = 0, rs1: Int = 0, fine: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_DDX | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((fine.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def DDY(rd: Int = 0, rs1: Int = 0, fine: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_DDY | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((fine.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def LOAD(rd: Int = 0, rs1: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_LOAD | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((f3.toLong & 0x7L) << 12))
+  def STORE(rs1: Int = 0, rs2: Int = 0, `private`: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_STORE | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((`private`.toLong & 0x1fL) << 7) | ((f3.toLong & 0x7L) << 12))
+  def BRZ(rs1: Int = 0, target: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_BRZ | ((rs1.toLong & 0x1fL) << 15) | (((target.toLong >> 5) & 0x1fL) << 20) | ((target.toLong & 0x1fL) << 7) | ((f3.toLong & 0x7L) << 12))
+  def BRNZ(rs1: Int = 0, target: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_BRNZ | ((rs1.toLong & 0x1fL) << 15) | (((target.toLong >> 5) & 0x1fL) << 20) | ((target.toLong & 0x1fL) << 7) | ((f3.toLong & 0x7L) << 12))
+  def EXPUSH(rs1: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_EXPUSH | ((rs1.toLong & 0x1fL) << 15) | ((f3.toLong & 0x7L) << 12))
+  def EXELSE(f3: Int = 0): BigInt = BigInt(MATCH_EXELSE | ((f3.toLong & 0x7L) << 12))
+  def EXPOP(f3: Int = 0): BigInt = BigInt(MATCH_EXPOP | ((f3.toLong & 0x7L) << 12))
+  def BARRIER(f3: Int = 0): BigInt = BigInt(MATCH_BARRIER | ((f3.toLong & 0x7L) << 12))
+  def EXANY(rd: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_EXANY | ((rd.toLong & 0x1fL) << 7) | ((f3.toLong & 0x7L) << 12))
+  def ZTEST(f3: Int = 0): BigInt = BigInt(MATCH_ZTEST | ((f3.toLong & 0x7L) << 12))
+  def SOUT(rs2: Int = 0, index: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_SOUT | ((rs2.toLong & 0x1fL) << 20) | (((index.toLong >> 5) & 0x1fL) << 15) | ((index.toLong & 0x1fL) << 7) | ((f3.toLong & 0x7L) << 12))
+  def FATTR(rd: Int = 0, aindex: Int = 0): BigInt = BigInt(MATCH_FATTR | ((rd.toLong & 0x1fL) << 7) | (((aindex.toLong >> 5) & 0x1fL) << 20) | ((aindex.toLong & 0x1fL) << 15))
+  def SMASK(rd: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_SMASK | ((rd.toLong & 0x1fL) << 7) | ((f3.toLong & 0x7L) << 12))
+  def ATTIDX(rd: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_ATTIDX | ((rd.toLong & 0x1fL) << 7) | ((f3.toLong & 0x7L) << 12))
+  def ISRL(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_ISRL | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def ISLTU(rd: Int = 0, rs1: Int = 0, rs2: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_ISLTU | ((rd.toLong & 0x1fL) << 7) | ((rs1.toLong & 0x1fL) << 15) | ((rs2.toLong & 0x1fL) << 20) | ((f3.toLong & 0x7L) << 12))
+  def TLD(rd: Int = 0, f3: Int = 0): BigInt = BigInt(MATCH_TLD | ((rd.toLong & 0x1fL) << 7) | ((f3.toLong & 0x7L) << 12))
+  def JMP(jtarget: Int = 0): BigInt = BigInt(MATCH_JMP | (((jtarget.toLong >> 15) & 0x7L) << 12) | (((jtarget.toLong >> 10) & 0x1fL) << 20) | (((jtarget.toLong >> 5) & 0x1fL) << 15) | ((jtarget.toLong & 0x1fL) << 7))
 }
