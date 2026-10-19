@@ -101,39 +101,32 @@ class HuttRv64Harness(
 
 /** RV64 instruction encoders (the ones beyond Asm's RV32 set). */
 object Rv64Asm {
-  private def iType(op: Int, f3: Int, rd: Int, rs1: Int, imm: Int): BigInt =
-    ((BigInt(imm) & 0xfff) << 20) | (BigInt(rs1) << 15) | (BigInt(f3) << 12) | (BigInt(rd) << 7) | op
-  private def rType(op: Int, f3: Int, f7: Int, rd: Int, rs1: Int, rs2: Int): BigInt =
-    (BigInt(f7) << 25) | (BigInt(rs2) << 20) | (BigInt(rs1) << 15) | (BigInt(f3) << 12) | (BigInt(rd) << 7) | op
-  private def sType(op: Int, f3: Int, rs1: Int, rs2: Int, imm: Int): BigInt = {
-    val i = BigInt(imm) & 0xfff
-    (((i >> 5) & 0x7f) << 25) | (BigInt(rs2) << 20) | (BigInt(rs1) << 15) | (BigInt(f3) << 12) | ((i & 0x1f) << 7) | op
-  }
-  // OpImm32 (0x1b) / Op32 (0x3b)
-  def addiw(rd: Int, rs1: Int, imm: Int): BigInt = iType(0x1b, 0x0, rd, rs1, imm)
-  def slliw(rd: Int, rs1: Int, sh: Int): BigInt  = iType(0x1b, 0x1, rd, rs1, sh & 0x1f)
-  def addw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x0, 0x00, rd, rs1, rs2)
-  def subw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x0, 0x20, rd, rs1, rs2)
-  def sllw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x1, 0x00, rd, rs1, rs2)
-  def srlw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x5, 0x00, rd, rs1, rs2)
-  def sraw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x5, 0x20, rd, rs1, rs2)
-  def srliw(rd: Int, rs1: Int, sh: Int): BigInt  = iType(0x1b, 0x5, rd, rs1, sh & 0x1f)
-  def sraiw(rd: Int, rs1: Int, sh: Int): BigInt  = iType(0x1b, 0x5, rd, rs1, 0x400 | (sh & 0x1f))
-  // RV64 shift-immediates use a 6-bit shamt (funct6).
-  def slli64(rd: Int, rs1: Int, sh: Int): BigInt = iType(0x13, 0x1, rd, rs1, sh & 0x3f)
-  def srli64(rd: Int, rs1: Int, sh: Int): BigInt = iType(0x13, 0x5, rd, rs1, sh & 0x3f)
-  def srai64(rd: Int, rs1: Int, sh: Int): BigInt = iType(0x13, 0x5, rd, rs1, 0x400 | (sh & 0x3f))
+  import HuttOpcodes._
+  // OpImm32 / Op32
+  def addiw(rd: Int, rs1: Int, imm: Int): BigInt = ADDIW(rd = rd, rs1 = rs1, imm12 = imm)
+  def slliw(rd: Int, rs1: Int, sh: Int): BigInt  = SLLIW(rd = rd, rs1 = rs1, shamtw = sh & 0x1f)
+  def addw (rd: Int, rs1: Int, rs2: Int): BigInt = ADDW(rd = rd, rs1 = rs1, rs2 = rs2)
+  def subw (rd: Int, rs1: Int, rs2: Int): BigInt = SUBW(rd = rd, rs1 = rs1, rs2 = rs2)
+  def sllw (rd: Int, rs1: Int, rs2: Int): BigInt = SLLW(rd = rd, rs1 = rs1, rs2 = rs2)
+  def srlw (rd: Int, rs1: Int, rs2: Int): BigInt = SRLW(rd = rd, rs1 = rs1, rs2 = rs2)
+  def sraw (rd: Int, rs1: Int, rs2: Int): BigInt = SRAW(rd = rd, rs1 = rs1, rs2 = rs2)
+  def srliw(rd: Int, rs1: Int, sh: Int): BigInt  = SRLIW(rd = rd, rs1 = rs1, shamtw = sh & 0x1f)
+  def sraiw(rd: Int, rs1: Int, sh: Int): BigInt  = SRAIW(rd = rd, rs1 = rs1, shamtw = sh & 0x1f)
+  // RV64 shift-immediates use a 6-bit shamt.
+  def slli64(rd: Int, rs1: Int, sh: Int): BigInt = SLLI(rd = rd, rs1 = rs1, shamtd = sh & 0x3f)
+  def srli64(rd: Int, rs1: Int, sh: Int): BigInt = SRLI(rd = rd, rs1 = rs1, shamtd = sh & 0x3f)
+  def srai64(rd: Int, rs1: Int, sh: Int): BigInt = SRAI(rd = rd, rs1 = rs1, shamtd = sh & 0x3f)
   // Doubleword + unsigned-word memory ops
-  def ld (rd: Int, off: Int, rs1: Int): BigInt = iType(0x03, 0x3, rd, rs1, off)
-  def lwu(rd: Int, off: Int, rs1: Int): BigInt = iType(0x03, 0x6, rd, rs1, off)
-  def sd (rs2: Int, off: Int, rs1: Int): BigInt = sType(0x23, 0x3, rs1, rs2, off)
-  // M extension (funct7 = 0000001), full-width and *W forms.
-  def div  (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x4, 0x01, rd, rs1, rs2)
-  def divu (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x5, 0x01, rd, rs1, rs2)
-  def rem  (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x6, 0x01, rd, rs1, rs2)
-  def remu (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x7, 0x01, rd, rs1, rs2)
-  def divw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x4, 0x01, rd, rs1, rs2)
-  def remw (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x3b, 0x6, 0x01, rd, rs1, rs2)
+  def ld (rd: Int, off: Int, rs1: Int): BigInt = LD(rd = rd, rs1 = rs1, imm12 = off)
+  def lwu(rd: Int, off: Int, rs1: Int): BigInt = LWU(rd = rd, rs1 = rs1, imm12 = off)
+  def sd (rs2: Int, off: Int, rs1: Int): BigInt = SD(rs1 = rs1, rs2 = rs2, simm = off)
+  // M extension, full-width and *W forms.
+  def div  (rd: Int, rs1: Int, rs2: Int): BigInt = DIV(rd = rd, rs1 = rs1, rs2 = rs2)
+  def divu (rd: Int, rs1: Int, rs2: Int): BigInt = DIVU(rd = rd, rs1 = rs1, rs2 = rs2)
+  def rem  (rd: Int, rs1: Int, rs2: Int): BigInt = REM(rd = rd, rs1 = rs1, rs2 = rs2)
+  def remu (rd: Int, rs1: Int, rs2: Int): BigInt = REMU(rd = rd, rs1 = rs1, rs2 = rs2)
+  def divw (rd: Int, rs1: Int, rs2: Int): BigInt = DIVW(rd = rd, rs1 = rs1, rs2 = rs2)
+  def remw (rd: Int, rs1: Int, rs2: Int): BigInt = REMW(rd = rd, rs1 = rs1, rs2 = rs2)
 }
 
 object HuttRv64Tests extends TestSuite {

@@ -157,87 +157,53 @@ class HuttTestHarness(
 //  Tiny RV32I assembler for hand-built test programs.
 // -----------------------------------------------------------------------------
 object Asm {
+  import HuttOpcodes._
   // R-type
-  def add (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x0, 0x00, rd, rs1, rs2)
-  def sub (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x0, 0x20, rd, rs1, rs2)
-  def sll (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x1, 0x00, rd, rs1, rs2)
-  def slt (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x2, 0x00, rd, rs1, rs2)
-  def sltu(rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x3, 0x00, rd, rs1, rs2)
-  def xor (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x4, 0x00, rd, rs1, rs2)
-  def srl (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x5, 0x00, rd, rs1, rs2)
-  def sra (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x5, 0x20, rd, rs1, rs2)
-  def or  (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x6, 0x00, rd, rs1, rs2)
-  def and (rd: Int, rs1: Int, rs2: Int): BigInt = rType(0x33, 0x7, 0x00, rd, rs1, rs2)
+  def add (rd: Int, rs1: Int, rs2: Int): BigInt = ADD(rd = rd, rs1 = rs1, rs2 = rs2)
+  def sub (rd: Int, rs1: Int, rs2: Int): BigInt = SUB(rd = rd, rs1 = rs1, rs2 = rs2)
+  def sll (rd: Int, rs1: Int, rs2: Int): BigInt = SLL(rd = rd, rs1 = rs1, rs2 = rs2)
+  def slt (rd: Int, rs1: Int, rs2: Int): BigInt = SLT(rd = rd, rs1 = rs1, rs2 = rs2)
+  def sltu(rd: Int, rs1: Int, rs2: Int): BigInt = SLTU(rd = rd, rs1 = rs1, rs2 = rs2)
+  def xor (rd: Int, rs1: Int, rs2: Int): BigInt = XOR(rd = rd, rs1 = rs1, rs2 = rs2)
+  def srl (rd: Int, rs1: Int, rs2: Int): BigInt = SRL(rd = rd, rs1 = rs1, rs2 = rs2)
+  def sra (rd: Int, rs1: Int, rs2: Int): BigInt = SRA(rd = rd, rs1 = rs1, rs2 = rs2)
+  def or  (rd: Int, rs1: Int, rs2: Int): BigInt = OR(rd = rd, rs1 = rs1, rs2 = rs2)
+  def and (rd: Int, rs1: Int, rs2: Int): BigInt = AND(rd = rd, rs1 = rs1, rs2 = rs2)
   // I-type ALU
-  def addi (rd: Int, rs1: Int, imm: Int): BigInt = iType(0x13, 0x0, rd, rs1, imm)
-  def slli (rd: Int, rs1: Int, shamt: Int): BigInt = iType(0x13, 0x1, rd, rs1, shamt & 0x1f)
-  def slti (rd: Int, rs1: Int, imm: Int): BigInt  = iType(0x13, 0x2, rd, rs1, imm)
-  def sltiu(rd: Int, rs1: Int, imm: Int): BigInt  = iType(0x13, 0x3, rd, rs1, imm)
-  def xori (rd: Int, rs1: Int, imm: Int): BigInt  = iType(0x13, 0x4, rd, rs1, imm)
-  def srli (rd: Int, rs1: Int, shamt: Int): BigInt = iType(0x13, 0x5, rd, rs1, shamt & 0x1f)
-  def srai (rd: Int, rs1: Int, shamt: Int): BigInt = iType(0x13, 0x5, rd, rs1, 0x400 | (shamt & 0x1f))
-  def ori  (rd: Int, rs1: Int, imm: Int): BigInt  = iType(0x13, 0x6, rd, rs1, imm)
-  def andi (rd: Int, rs1: Int, imm: Int): BigInt  = iType(0x13, 0x7, rd, rs1, imm)
+  def addi (rd: Int, rs1: Int, imm: Int): BigInt = ADDI(rd = rd, rs1 = rs1, imm12 = imm)
+  def slli (rd: Int, rs1: Int, shamt: Int): BigInt = SLLI(rd = rd, rs1 = rs1, shamtd = shamt & 0x1f)
+  def slti (rd: Int, rs1: Int, imm: Int): BigInt  = SLTI(rd = rd, rs1 = rs1, imm12 = imm)
+  def sltiu(rd: Int, rs1: Int, imm: Int): BigInt  = SLTIU(rd = rd, rs1 = rs1, imm12 = imm)
+  def xori (rd: Int, rs1: Int, imm: Int): BigInt  = XORI(rd = rd, rs1 = rs1, imm12 = imm)
+  def srli (rd: Int, rs1: Int, shamt: Int): BigInt = SRLI(rd = rd, rs1 = rs1, shamtd = shamt & 0x1f)
+  def srai (rd: Int, rs1: Int, shamt: Int): BigInt = SRAI(rd = rd, rs1 = rs1, shamtd = shamt & 0x1f)
+  def ori  (rd: Int, rs1: Int, imm: Int): BigInt  = ORI(rd = rd, rs1 = rs1, imm12 = imm)
+  def andi (rd: Int, rs1: Int, imm: Int): BigInt  = ANDI(rd = rd, rs1 = rs1, imm12 = imm)
   // Loads
-  def lb (rd: Int, offset: Int, rs1: Int): BigInt = iType(0x03, 0x0, rd, rs1, offset)
-  def lh (rd: Int, offset: Int, rs1: Int): BigInt = iType(0x03, 0x1, rd, rs1, offset)
-  def lw (rd: Int, offset: Int, rs1: Int): BigInt = iType(0x03, 0x2, rd, rs1, offset)
-  def lbu(rd: Int, offset: Int, rs1: Int): BigInt = iType(0x03, 0x4, rd, rs1, offset)
-  def lhu(rd: Int, offset: Int, rs1: Int): BigInt = iType(0x03, 0x5, rd, rs1, offset)
+  def lb (rd: Int, offset: Int, rs1: Int): BigInt = LB(rd = rd, rs1 = rs1, imm12 = offset)
+  def lh (rd: Int, offset: Int, rs1: Int): BigInt = LH(rd = rd, rs1 = rs1, imm12 = offset)
+  def lw (rd: Int, offset: Int, rs1: Int): BigInt = LW(rd = rd, rs1 = rs1, imm12 = offset)
+  def lbu(rd: Int, offset: Int, rs1: Int): BigInt = LBU(rd = rd, rs1 = rs1, imm12 = offset)
+  def lhu(rd: Int, offset: Int, rs1: Int): BigInt = LHU(rd = rd, rs1 = rs1, imm12 = offset)
   // Stores
-  def sb(rs2: Int, offset: Int, rs1: Int): BigInt = sType(0x23, 0x0, rs1, rs2, offset)
-  def sh(rs2: Int, offset: Int, rs1: Int): BigInt = sType(0x23, 0x1, rs1, rs2, offset)
-  def sw(rs2: Int, offset: Int, rs1: Int): BigInt = sType(0x23, 0x2, rs1, rs2, offset)
+  def sb(rs2: Int, offset: Int, rs1: Int): BigInt = SB(rs1 = rs1, rs2 = rs2, simm = offset)
+  def sh(rs2: Int, offset: Int, rs1: Int): BigInt = SH(rs1 = rs1, rs2 = rs2, simm = offset)
+  def sw(rs2: Int, offset: Int, rs1: Int): BigInt = SW(rs1 = rs1, rs2 = rs2, simm = offset)
   // U-type
-  def lui  (rd: Int, imm: Int): BigInt = uType(0x37, rd, imm)
-  def auipc(rd: Int, imm: Int): BigInt = uType(0x17, rd, imm)
+  def lui  (rd: Int, imm: Int): BigInt = LUI(rd = rd, imm20 = imm)
+  def auipc(rd: Int, imm: Int): BigInt = AUIPC(rd = rd, imm20 = imm)
   // Jumps
-  def jal (rd: Int, offset: Int): BigInt             = jType(0x6f, rd, offset)
-  def jalr(rd: Int, rs1: Int, imm: Int): BigInt      = iType(0x67, 0x0, rd, rs1, imm)
+  def jal (rd: Int, offset: Int): BigInt             = JAL(rd = rd, joff = offset)
+  def jalr(rd: Int, rs1: Int, imm: Int): BigInt      = JALR(rd = rd, rs1 = rs1, imm12 = imm)
   // Branches
-  def beq (rs1: Int, rs2: Int, offset: Int): BigInt = bType(0x63, 0x0, rs1, rs2, offset)
-  def bne (rs1: Int, rs2: Int, offset: Int): BigInt = bType(0x63, 0x1, rs1, rs2, offset)
-  def blt (rs1: Int, rs2: Int, offset: Int): BigInt = bType(0x63, 0x4, rs1, rs2, offset)
-  def bge (rs1: Int, rs2: Int, offset: Int): BigInt = bType(0x63, 0x5, rs1, rs2, offset)
-  def bltu(rs1: Int, rs2: Int, offset: Int): BigInt = bType(0x63, 0x6, rs1, rs2, offset)
-  def bgeu(rs1: Int, rs2: Int, offset: Int): BigInt = bType(0x63, 0x7, rs1, rs2, offset)
+  def beq (rs1: Int, rs2: Int, offset: Int): BigInt = BEQ(rs1 = rs1, rs2 = rs2, boff = offset)
+  def bne (rs1: Int, rs2: Int, offset: Int): BigInt = BNE(rs1 = rs1, rs2 = rs2, boff = offset)
+  def blt (rs1: Int, rs2: Int, offset: Int): BigInt = BLT(rs1 = rs1, rs2 = rs2, boff = offset)
+  def bge (rs1: Int, rs2: Int, offset: Int): BigInt = BGE(rs1 = rs1, rs2 = rs2, boff = offset)
+  def bltu(rs1: Int, rs2: Int, offset: Int): BigInt = BLTU(rs1 = rs1, rs2 = rs2, boff = offset)
+  def bgeu(rs1: Int, rs2: Int, offset: Int): BigInt = BGEU(rs1 = rs1, rs2 = rs2, boff = offset)
   // Infinite self-loop used to park the CPU at end of test programs.
   def park(): BigInt = beq(0, 0, 0)
-
-  private def bits(value: BigInt, hi: Int, lo: Int): BigInt =
-    (value >> lo) & ((BigInt(1) << (hi - lo + 1)) - 1)
-
-  private def iType(opcode: Int, f3: Int, rd: Int, rs1: Int, imm: Int): BigInt = {
-    val i = BigInt(imm) & 0xfff
-    (i << 20) | (BigInt(rs1) << 15) | (BigInt(f3) << 12) | (BigInt(rd) << 7) | opcode
-  }
-  private def rType(opcode: Int, f3: Int, f7: Int, rd: Int, rs1: Int, rs2: Int): BigInt =
-    (BigInt(f7) << 25) | (BigInt(rs2) << 20) | (BigInt(rs1) << 15) |
-      (BigInt(f3) << 12) | (BigInt(rd) << 7) | opcode
-  private def uType(opcode: Int, rd: Int, imm: Int): BigInt =
-    (BigInt(imm) & 0xfffff) << 12 | (BigInt(rd) << 7) | opcode
-  private def sType(opcode: Int, f3: Int, rs1: Int, rs2: Int, imm: Int): BigInt = {
-    val i = BigInt(imm) & 0xfff
-    (bits(i, 11, 5) << 25) | (BigInt(rs2) << 20) | (BigInt(rs1) << 15) |
-      (BigInt(f3) << 12) | (bits(i, 4, 0) << 7) | opcode
-  }
-  private def bType(opcode: Int, f3: Int, rs1: Int, rs2: Int, imm: Int): BigInt = {
-    val i = BigInt(imm)
-    val b12   = bits(i, 12, 12)
-    val b10_5 = bits(i, 10, 5)
-    val b4_1  = bits(i, 4, 1)
-    val b11   = bits(i, 11, 11)
-    (b12 << 31) | (b10_5 << 25) | (BigInt(rs2) << 20) | (BigInt(rs1) << 15) |
-      (BigInt(f3) << 12) | (b4_1 << 8) | (b11 << 7) | opcode
-  }
-  private def jType(opcode: Int, rd: Int, imm: Int): BigInt = {
-    val i = BigInt(imm)
-    val b20    = bits(i, 20, 20)
-    val b10_1  = bits(i, 10, 1)
-    val b11    = bits(i, 11, 11)
-    val b19_12 = bits(i, 19, 12)
-    (b20 << 31) | (b10_1 << 21) | (b11 << 20) | (b19_12 << 12) | (BigInt(rd) << 7) | opcode
-  }
 }
 
 object HuttTests extends TestSuite {

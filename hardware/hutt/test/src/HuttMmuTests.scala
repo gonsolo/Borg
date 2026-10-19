@@ -23,16 +23,12 @@ object HuttMmuTests extends TestSuite {
 
   // PTE flags: V=1 R=1 W=1 X=1 U=0 G=0 A=1 D=1 → 0xCF
   val PTE_RWX_AD = BigInt(0xCFL)
-  // SFENCE.VMA (rs1=0, rs2=0): funct7=9, opcode=SYSTEM, funct3=0
-  val SFENCE_VMA = BigInt(0x12000073L)
+  val SFENCE_VMA = HuttOpcodes.SFENCE_VMA()
 
-  def csrInstr(funct3: Int, csr: Int, rs1: Int, rd: Int): BigInt =
-    (BigInt(csr & 0xFFF) << 20) | (BigInt(rs1 & 0x1F) << 15) |
-    (BigInt(funct3 & 7)  << 12) | (BigInt(rd   & 0x1F) << 7)  | BigInt(0x73)
-  def csrrw(rd: Int, csr: Int, rs1: Int): BigInt = csrInstr(1, csr, rs1, rd)
-  def csrrs(rd: Int, csr: Int, rs1: Int): BigInt = csrInstr(2, csr, rs1, rd)
+  def csrrw(rd: Int, csr: Int, rs1: Int): BigInt = HuttOpcodes.CSRRW(rd = rd, rs1 = rs1, csr = csr)
+  def csrrs(rd: Int, csr: Int, rs1: Int): BigInt = HuttOpcodes.CSRRS(rd = rd, rs1 = rs1, csr = csr)
 
-  val MRET = BigInt(0x30200073L)
+  val MRET = HuttOpcodes.MRET()
 
   val CSR_MSTATUS = 0x300
   val CSR_MTVEC   = 0x305

@@ -142,7 +142,7 @@ object HuttMModeOnlyTests extends TestSuite {
 
     test("SRET behaves as a safe no-op (never emitted by ASIC firmware, but must not hang/corrupt)") {
       import Asm._
-      val SRET = BigInt("10200073", 16)
+      val SRET = HuttOpcodes.SRET()
       val prog = Seq(
         addi(1, 0, 0x11),
         SRET,                 // should just skip to the next instruction
