@@ -1382,8 +1382,8 @@ u32 values. A legacy compile passes None and its bytes are unchanged.
 
 **line 59, in `emit_blob`, above `pub(crate) fn encode(mnem: &str, rd: u8, rs1: u8, rs2: u8, rs3: u8, funct3: u32) -> Option`**
 
-Encode one Borg instruction to its 32-bit word (opcode bases match
-software/borg/borg_isa.h and hardware Instructions.scala). `funct3` selects a
+Encode one Borg instruction to its 32-bit word, through the Op table generated
+from hardware/borg/isa/opcodes (`make isa`). `funct3` selects a
 uniform operand (0=none, 1=rs1, 2=rs2, 3=rs3); `rs3` is used by the R4-type
 ops, FMADD and TEX.
 
