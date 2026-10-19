@@ -182,7 +182,7 @@ object BorgComputeTests extends TestSuite {
       // branches around it straight to HALT.
       val prog = Seq(
         Instructions.ISHR(rs1 = 30, rs2 = 10, rd = 1),  // r1 = i >> 2 = quadIdx
-        Instructions.BRNZ(rs1 = 1, target = 3),         // quadIdx != 0: skip the barrier
+        Instructions.BRNZ(rs1 = 1, offset = 2),         // quadIdx != 0: skip the barrier
         Instructions.BARRIER()
         // index 3 (implicit HALT) is BRNZ's target
       )

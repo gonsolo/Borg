@@ -43,7 +43,7 @@ class FpuOpFlags extends Bundle {
   val brz    = Bool()
   val brnz   = Bool()
   val branch = Bool()
-  val jmp    = Bool()   // JMP: unconditional, 18-bit absolute target
+  val jmp    = Bool()   // JMP: unconditional, by a signed 18-bit offset
   // Execution-mask ops. Like `branch`, `execOp` exists so BorgLane can
   // suppress write-back for all three without decoding each: none of them
   // has a destination register.

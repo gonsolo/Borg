@@ -94,10 +94,10 @@
 #define BORG_INSTR_STORE(rs1, rs2, private, f3) (BORG_MATCH_STORE | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(rs2) & 0x1fU) << 20) | (((uint32_t)(private) & 0x1fU) << 7) | (((uint32_t)(f3) & 0x7U) << 12))
 #define BORG_MATCH_BRZ 0x4c000000U
 #define BORG_MASK_BRZ 0xfe00007fU
-#define BORG_INSTR_BRZ(rs1, target, f3) (BORG_MATCH_BRZ | (((uint32_t)(rs1) & 0x1fU) << 15) | ((((uint32_t)(target) >> 5) & 0x1fU) << 20) | (((uint32_t)(target) & 0x1fU) << 7) | (((uint32_t)(f3) & 0x7U) << 12))
+#define BORG_INSTR_BRZ(rs1, offset, f3) (BORG_MATCH_BRZ | (((uint32_t)(rs1) & 0x1fU) << 15) | ((((uint32_t)(offset) >> 5) & 0x1fU) << 20) | (((uint32_t)(offset) & 0x1fU) << 7) | (((uint32_t)(f3) & 0x7U) << 12))
 #define BORG_MATCH_BRNZ 0x50000000U
 #define BORG_MASK_BRNZ 0xfe00007fU
-#define BORG_INSTR_BRNZ(rs1, target, f3) (BORG_MATCH_BRNZ | (((uint32_t)(rs1) & 0x1fU) << 15) | ((((uint32_t)(target) >> 5) & 0x1fU) << 20) | (((uint32_t)(target) & 0x1fU) << 7) | (((uint32_t)(f3) & 0x7U) << 12))
+#define BORG_INSTR_BRNZ(rs1, offset, f3) (BORG_MATCH_BRNZ | (((uint32_t)(rs1) & 0x1fU) << 15) | ((((uint32_t)(offset) >> 5) & 0x1fU) << 20) | (((uint32_t)(offset) & 0x1fU) << 7) | (((uint32_t)(f3) & 0x7U) << 12))
 #define BORG_MATCH_EXPUSH 0x54000000U
 #define BORG_MASK_EXPUSH 0xfff00fffU
 #define BORG_INSTR_EXPUSH(rs1, f3) (BORG_MATCH_EXPUSH | (((uint32_t)(rs1) & 0x1fU) << 15) | (((uint32_t)(f3) & 0x7U) << 12))
@@ -139,7 +139,7 @@
 #define BORG_INSTR_TLD(rd, f3) (BORG_MATCH_TLD | (((uint32_t)(rd) & 0x1fU) << 7) | (((uint32_t)(f3) & 0x7U) << 12))
 #define BORG_MATCH_JMP 0xa0000000U
 #define BORG_MASK_JMP 0xfe00007fU
-#define BORG_INSTR_JMP(jtarget) (BORG_MATCH_JMP | ((((uint32_t)(jtarget) >> 15) & 0x7U) << 12) | ((((uint32_t)(jtarget) >> 10) & 0x1fU) << 20) | ((((uint32_t)(jtarget) >> 5) & 0x1fU) << 15) | (((uint32_t)(jtarget) & 0x1fU) << 7))
+#define BORG_INSTR_JMP(joffset) (BORG_MATCH_JMP | ((((uint32_t)(joffset) >> 15) & 0x7U) << 12) | ((((uint32_t)(joffset) >> 10) & 0x1fU) << 20) | ((((uint32_t)(joffset) >> 5) & 0x1fU) << 15) | (((uint32_t)(joffset) & 0x1fU) << 7))
 
 #define BORG_INSTR_HALT 0x00000000U
 

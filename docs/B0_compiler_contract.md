@@ -25,9 +25,8 @@ there on demand and kept for the next quad.
 
 What the compiler must know:
 
-- **Program length:** up to **1024 words**. That is the program-counter width,
-  and also the range of the absolute 10-bit branch targets that BRZ/BRNZ
-  already had. Nothing else changes: branches work across the IMEM boundary
+- **Program length:** up to **1024 words**. That is the program-counter width.
+  Nothing else changes: branches work across the IMEM boundary
   (a loop entirely past IMEM is tested). A BARRIER past IMEM is supported,
   since its resume PC and the compute sequencer's segment PCs were widened
   to 10 bits, but no test exercises it yet.
@@ -165,9 +164,10 @@ a lowering convention, each pinned by a hand-written ISA test in
   exempts Function/Private storage); a plain `STORE` from a helper, a
   discarded or an early-test-failed lane does nothing.
 - **Program size:** up to 16K words (14-bit PC with the instruction
-  cache). `BRZ`/`BRNZ` reach their own 1024-word page; `JMP` (funct7
-  `0x50`, 18-bit absolute target) reaches anywhere, so a far conditional
-  branch is a branch over a `JMP`.
+  cache). Branches are PC-relative: `BRZ`/`BRNZ` move by a signed 10-bit
+  offset (-512..511 words from the branch), `JMP` (funct7 `0x50`) by a signed
+  18-bit one, so a far conditional branch is a branch over a `JMP`. Code does
+  not depend on where it is loaded.
 - **EXANY** is available wherever the execution mask is (every build), not
   only with compute: a fragment shader's divergent loop needs it too. Wafer
   now has compute (`BorgConfig.Wafer` no longer turns it off).

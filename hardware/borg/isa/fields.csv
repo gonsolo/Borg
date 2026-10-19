@@ -6,10 +6,10 @@ rs3,31..27,
 f3,14..12,
 fine,24..20,
 private,11..7,
-target,24..20 11..7,
+offset,24..20 11..7,
 index,19..15 11..7,
 aindex,24..20 19..15,
-jtarget,14..12 24..20 19..15 11..7,
+joffset,14..12 24..20 19..15 11..7,
 opcode,6..0,const
 funct7,31..25,const
 funct2,26..25,const

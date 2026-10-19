@@ -31,7 +31,7 @@ object BorgCoreTestsD extends TestSuite {
         writeReg(core, 3, floatToBits(0.0f))
         writeImem(core, 0, Instructions.ADD(3, 2, 3))
         writeImem(core, 1, Instructions.IADD(0, 1, 0))
-        writeImem(core, 2, Instructions.BRNZ(rs1 = 0, target = 0))
+        writeImem(core, 2, Instructions.BRNZ(rs1 = 0, offset = -2))
         writeImem(core, 3, 0)
 
         startAndWait(core)
@@ -57,7 +57,7 @@ object BorgCoreTestsD extends TestSuite {
           writeReg(core, 0, cond)
           writeReg(core, 1, floatToBits(1.0f))
           writeReg(core, 2, floatToBits(0.0f))
-          writeImem(core, 0, Instructions.BRNZ(rs1 = 0, target = 2))
+          writeImem(core, 0, Instructions.BRNZ(rs1 = 0, offset = 2))
           writeImem(core, 1, Instructions.ADD(1, 1, 2))
           writeImem(core, 2, 0)
           startAndWait(core)
@@ -82,7 +82,7 @@ object BorgCoreTestsD extends TestSuite {
         writeReg(core, 0, 0x8000)
         writeReg(core, 1, floatToBits(1.0f))
         writeReg(core, 2, floatToBits(0.0f))
-        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 2))
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, offset = 2))
         writeImem(core, 1, Instructions.ADD(1, 1, 2))
         writeImem(core, 2, 0)
 
@@ -101,7 +101,7 @@ object BorgCoreTestsD extends TestSuite {
         resetCore(core)
 
         writeReg(core, 0, 0)
-        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 1))
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, offset = 1))
         writeImem(core, 1, 0)
         startAndWait(core)
 
@@ -285,7 +285,7 @@ object BorgCoreTestsD extends TestSuite {
         writeImem(core, 6, Instructions.IADD(1, 8, 1))                 // r1 -= 1
         writeImem(core, 7, Instructions.EXANY(rd = 3))                 // r3 = any lane still active this pass
         writeImem(core, 8, Instructions.EXPOP())
-        writeImem(core, 9, Instructions.BRNZ(rs1 = 3, target = 3))
+        writeImem(core, 9, Instructions.BRNZ(rs1 = 3, offset = -6))
         writeImem(core, 10, 0)
 
         core.io.control.start.poke(true.B)
