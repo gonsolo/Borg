@@ -6,6 +6,7 @@
     gen.py [--check] --c borg_isa.h --scala Opcodes.scala --rust opcodes.rs
 
 --check compares with the files instead of writing them and fails when one differs.
+Python reads the source directly: encode("store", rs1=0, rs2=1).
 """
 
 import argparse
@@ -70,6 +71,28 @@ def load_opcodes(fields):
             if not (a["match"] ^ b["match"]) & a["mask"] & b["mask"]:
                 sys.exit(f"opcodes: {a['name']} and {b['name']} overlap")
     return ops, pseudo
+
+
+_isa = None
+
+
+def encode(name, **operands):
+    """The word of instruction `name`; operands not given are 0."""
+    global _isa
+    if _isa is None:
+        fields = load_fields()
+        _isa = fields, {op["name"]: op for op in load_opcodes(fields)[0]}
+    fields, ops = _isa
+    op = ops[name]
+    word = op["match"]
+    for a, v in operands.items():
+        if a not in op["args"]:
+            raise ValueError(f"{name} has no operand {a}")
+        if not 0 <= v < 1 << sum(hi - lo + 1 for hi, lo in fields[a]):
+            raise ValueError(f"{name}: {a} = {v} does not fit")
+        for hi, lo, off in parts(fields, a):
+            word |= (v >> off & (1 << (hi - lo + 1)) - 1) << lo
+    return word
 
 
 def parts(fields, name):
