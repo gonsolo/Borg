@@ -98,7 +98,7 @@ object BorgCoreTestsB extends TestSuite {
         writeReg(core, 1, floatToBits(3.0f))
 
         // Encode fadd with funct3=1 (rs1 from uniform): ADD(rs1=5, rs2=1, rd=2)
-        val instr = Instructions.encodeRType(Instructions.FUNCT7_ADD, 1, 5, 2, funct3 = 1)
+        val instr = Instructions.encodeRType(Opcodes.FUNCT7_FADD, 1, 5, 2, funct3 = 1)
         writeImem(core, 0, instr)
         writeImem(core, 1, 0)
 
@@ -126,7 +126,7 @@ object BorgCoreTestsB extends TestSuite {
         writeUniform(core, 3, floatToBits(5.0f))
 
         // Encode fmul with funct3=2 (rs2 from uniform): MUL(rs1=0, rs2=3, rd=2)
-        val instr = Instructions.encodeRType(Instructions.FUNCT7_MUL, 3, 0, 2, funct3 = 2)
+        val instr = Instructions.encodeRType(Opcodes.FUNCT7_FMUL, 3, 0, 2, funct3 = 2)
         writeImem(core, 0, instr)
         writeImem(core, 1, 0)
 

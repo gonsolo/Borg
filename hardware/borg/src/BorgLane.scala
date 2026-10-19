@@ -41,7 +41,7 @@ class BorgLaneIO(val cfg: BorgConfig) extends Bundle {
   // program counter, so it has no choice) but none of its writes may land.
   val execActive  = Input(Bool())
   // Broadcast, not per-lane: whether ANY lane's execMask bit is set right
-  // now -- see Instructions.FUNCT7_EXANY.
+  // now -- see Opcodes.FUNCT7_EXANY.
   val execAny     = Input(Bool())
   // This lane's coverage mask, for SMASK.
   val covMask     = if (cfg.drawEnabled) Some(Input(UInt(cfg.samples.W))) else None

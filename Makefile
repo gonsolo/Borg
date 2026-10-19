@@ -252,7 +252,8 @@ rdl: $(RDL_SRC)
 	@# include that PeakRDL-cheader emits so the generated file is self-contained.
 	@sed -i '/#include <assert.h>/d; s/static_assert(/_Static_assert(/g' $(RDL_C_OUT)/borg_regs.h
 
-ISA_GEN := python3-borg-rdl hardware/borg/isa/gen.py --c software/borg/borg_isa.h
+ISA_GEN := python3-borg-rdl hardware/borg/isa/gen.py --c software/borg/borg_isa.h \
+           --scala hardware/borg/src/Opcodes.scala
 
 isa:
 	@$(ISA_GEN)
