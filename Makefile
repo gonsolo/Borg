@@ -253,7 +253,7 @@ rdl: $(RDL_SRC)
 	@sed -i '/#include <assert.h>/d; s/static_assert(/_Static_assert(/g' $(RDL_C_OUT)/borg_regs.h
 
 ISA_GEN := python3-borg-rdl hardware/borg/isa/gen.py --c software/borg/borg_isa.h \
-           --scala hardware/borg/src/Opcodes.scala
+           --scala hardware/borg/src/Opcodes.scala --rust mesa/src/borg/compiler/opcodes.rs
 
 isa:
 	@$(ISA_GEN)
