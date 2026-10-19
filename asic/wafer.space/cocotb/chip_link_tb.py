@@ -31,6 +31,8 @@ from borg_link import LinkMaster
 # RDL-generated register offsets (`make rdl`): the single source of truth.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "../../../out/hardware/borg/rdl"))
 import borg_mmio as regs  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent / "../../../hardware/borg/isa"))
+from gen import encode as isa_encode  # noqa: E402
 
 sim = os.getenv("SIM", "icarus")
 gl = os.getenv("GL", False)
@@ -217,13 +219,12 @@ async def test_debug_bus(dut):
     log.info("debug bus: strap view + heartbeat + bring-up view all consistent")
 
 
-# software/borg/borg_isa.h's BORG_INSTR_LOAD / BORG_INSTR_STORE
 def instr_load(rs1, rd):
-    return 0x44000000 | (rs1 << 15) | (rd << 7)
+    return isa_encode("load", rs1=rs1, rd=rd)
 
 
 def instr_store(rs1, rs2):
-    return 0x48000000 | (rs2 << 20) | (rs1 << 15)
+    return isa_encode("store", rs1=rs1, rs2=rs2)
 
 
 @cocotb.test()
