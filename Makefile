@@ -21,6 +21,8 @@ help:
 	@echo -e "$(BOLD)  librelane:\t\t\tFull wafer.space signoff (GF180MCU, 1x1 slot) -- THE tapeout flow.$(RESET)"
 	@echo -e "  ------------------------------------------------------------------------------"
 	@echo -e "  rdl:\t\t\t\tValidate SystemRDL."
+	@echo -e "  isa:\t\t\t\tRegenerate the ISA encodings from hardware/borg/isa/opcodes."
+	@echo -e "  isa-check:\t\t\tFail if a generated ISA file is out of date."
 	@echo -e "  generate_verilog:\t\tGenerate Verilog from Chisel source."
 	@echo -e "  test-chisel-borg:\t\tRun Borg tests (Chisel)."
 	@echo -e "  test-chisel-core:\t\tRun Hutt CPU tests (Chisel)."
@@ -250,6 +252,14 @@ rdl: $(RDL_SRC)
 	@# include that PeakRDL-cheader emits so the generated file is self-contained.
 	@sed -i '/#include <assert.h>/d; s/static_assert(/_Static_assert(/g' $(RDL_C_OUT)/borg_regs.h
 
+ISA_GEN := python3-borg-rdl hardware/borg/isa/gen.py --c software/borg/borg_isa.h
+
+isa:
+	@$(ISA_GEN)
+
+isa-check:
+	@$(ISA_GEN) --check
+
 clean:
 	rm -f .verilog_stamp .verilog_sim_stamp .verilog_wafer_stamp .verilog_wafer_1x1_stamp
 	rm -rf $(RDL_C_OUT)
@@ -277,7 +287,7 @@ linux:
 flash-linux:
 	$(MAKE) -C software flash-linux
 
-.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all clean rdl \
+.PHONY: all generate_verilog generate_verilog_sim generate_verilog_ulx3s generate_verilog_ulx3s_loopback generate_verilog_ulx3s_external generate_verilog_ulx3s_padloop generate_verilog_wafer generate_verilog_wafer_1x1 librelane lint-wafer help lint test-all clean rdl isa isa-check \
 	test-cocotb-soc-core-rtl test-cocotb-soc-borg-rtl \
 	test-chisel-borg test-chisel-core test-borgvk rust-project \
 	book clean-gh-runs scripts/test_summary.sh vulkan-cts build-vkcube \

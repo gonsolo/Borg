@@ -12,8 +12,8 @@ firmware use `TEX` and the descriptor tables (see
 [Texture sampling](#texture-sampling)).
 
 The source of truth for every encoding below is
-`hardware/borg/src/Instructions.scala`; `software/borg/borg_isa.h` is
-generated from it (`mill hardware.borg.runMain borg.EmitIsaHeader`).
+`hardware/borg/isa/opcodes` (riscv-opcodes format, fields in `fields.csv`);
+`make isa` generates `software/borg/borg_isa.h` and the decoder constants from it.
 
 ## All shaders: program length and the instruction cache
 

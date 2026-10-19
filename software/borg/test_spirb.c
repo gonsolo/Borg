@@ -129,42 +129,14 @@ static void test_empty_blob(void) {
 // but it does catch the whole class of "the ISA moved out from under the
 // blob" -- which is how the FTEX retirement showed up.
 //
-// The valid opcode set is built by invoking each borg_isa.h macro with zero
-// operands, so it tracks that header automatically rather than being a second
-// hand-maintained list that could drift from it.
+// The valid opcodes are borg_isa.h's generated list, so this tracks the ISA
+// rather than being a second hand-maintained list that could drift from it.
 // ---------------------------------------------------------------------------
 
 static int isa_base_is_known(uint32_t word) {
-    // R4-type ops (FMADD, TEX, TEXA) are discriminated by opcode bit 2 and a
-    // funct2 at 26:25, not funct7 -- their rs3 field occupies the bits a
-    // funct7 comparison would look at, so they are tested first. funct2 1 was
-    // FTEX and is retired.
-    if ((word >> 2) & 1u) {
-      uint32_t f2 = (word >> 25) & 3u;
-      return f2 == ((BORG_INSTR_FMADD(0, 0, 0, 0, 0) >> 25) & 3u) ||
-             f2 == ((BORG_INSTR_TEX(0, 0, 0, 0, 0) >> 25) & 3u) ||
-             f2 == ((BORG_INSTR_TEXA(0, 0, 0, 0) >> 25) & 3u);
-    }
-
-    static const uint32_t bases[] = {
-        BORG_INSTR_FADD(0, 0, 0, 0),  BORG_INSTR_FMUL(0, 0, 0, 0),
-        BORG_INSTR_FNEG(0, 0, 0),     BORG_INSTR_FSTEP(0, 0, 0),
-        BORG_INSTR_FRCP(0, 0, 0),
-        BORG_INSTR_IADD(0, 0, 0, 0),  BORG_INSTR_ISHL(0, 0, 0, 0),
-        BORG_INSTR_ISHR(0, 0, 0, 0),  BORG_INSTR_IMUL(0, 0, 0, 0),
-        BORG_INSTR_I2F(0, 0, 0),      BORG_INSTR_F2I(0, 0, 0),
-        BORG_INSTR_FRSQ(0, 0, 0),     BORG_INSTR_FSRGB(0, 0, 0),
-        BORG_INSTR_DDX(0, 0, 0),      BORG_INSTR_DDY(0, 0, 0),
-        BORG_INSTR_LOAD(0, 0, 0),     BORG_INSTR_STORE(0, 0, 0),
-        BORG_INSTR_BRZ(0, 0, 0),      BORG_INSTR_BRNZ(0, 0, 0),
-        BORG_INSTR_EXPUSH(0, 0),      BORG_INSTR_EXELSE(0),
-        BORG_INSTR_EXPOP(0),
-        BORG_INSTR_SOUT(0, 0, 0),     BORG_INSTR_FATTR(0, 0),
-    };
-    uint32_t f7 = word & 0xFE000000u;
-    if (f7 == 0 && word == BORG_INSTR_HALT) return 1;   // halt
-    for (unsigned i = 0; i < sizeof(bases) / sizeof(bases[0]); i++)
-        if ((bases[i] & 0xFE000000u) == f7) return 1;
+#define KNOWN(n) if ((word & BORG_MASK_##n) == BORG_MATCH_##n) return 1;
+    BORG_OPCODES(KNOWN)
+#undef KNOWN
     return 0;
 }
 
