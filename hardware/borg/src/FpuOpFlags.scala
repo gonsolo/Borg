@@ -51,13 +51,13 @@ class FpuOpFlags extends Bundle {
   val exelse = Bool()
   val expop  = Bool()
   val execOp = Bool()
-  // Compute only (BorgConfig.computeEnabled) -- see Instructions.FUNCT7_BARRIER.
+  // Compute only (BorgConfig.computeEnabled) -- see Opcodes.FUNCT7_BARRIER.
   val barrier = Bool()
-  // Gated on hasControlFlow, like expush/exelse/expop -- see Instructions.FUNCT7_EXANY.
+  // Gated on hasControlFlow, like expush/exelse/expop -- see Opcodes.FUNCT7_EXANY.
   val exany   = Bool()
-  // Early per-fragment tests -- see Instructions.FUNCT7_ZTEST.
+  // Early per-fragment tests -- see Opcodes.FUNCT7_ZTEST.
   val ztest   = Bool()
-  // Draw front end (BorgConfig.drawEnabled) -- see Instructions.FUNCT7_SOUT/FATTR.
+  // Draw front end (BorgConfig.drawEnabled) -- see Opcodes.FUNCT7_SOUT/FATTR.
   val sout    = Bool()
   val fattr   = Bool()
   // The descriptor-based texture unit (BorgConfig.samplerEnabled).

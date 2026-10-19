@@ -33,7 +33,7 @@ class InvocationIdsIO(val cfg: BorgConfig) extends Bundle {
 }
 
 /** BorgCore -> BorgComputeSequencer: why the invocation that just stopped did
-  * so. See Instructions.FUNCT7_BARRIER. */
+  * so. See Opcodes.FUNCT7_BARRIER. */
 class ComputeBarrierIO extends Bundle {
   val hit      = Bool()      // stopped at BARRIER, not HALT
   val resumePC = UInt(CoreTriggerIO.PcBits.W)  // valid only when hit; may lie past IMEM
