@@ -7,6 +7,7 @@
 #include "borg_fpu.h"
 #include "borg_isa.h"
 #include "borg_spirb.h"
+#include "borg_tex_format.h"
 #include "borg_sys.h"
 #include "borg_layout.h"
 #include "borg_regs.h"

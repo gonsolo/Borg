@@ -1745,7 +1745,7 @@ yet, in which case nothing is sent.
 
 **line 665, in `send_generic_texture`, above `uint32_t bpp, fmt_code, cs = 0, sch = 0, alpha = 0, pack16 = 0, zstride = 0, sten_off = 0;`**
 
-source texel layout -> a TexFormat code (borg_isa.h) and its texels:
+source texel layout -> a TexFormat code (borg_tex_format.h) and its texels:
 copied (RAWFMT), widened from three channels or R/B swapped (CHFMT, cs bytes
 per channel), or 16-bit repacked (pack16).
 
@@ -1772,7 +1772,7 @@ texelFetch reads it through the texture unit. Only 32-bit single-channel formats
 
 **line 867, in `send_buffer_texture`, above `static bool`**
 
-VkFormat of a vertex attribute -> the texture unit's format code (software/borg/borg_isa.h
+VkFormat of a vertex attribute -> the texture unit's format code (software/borg/borg_tex_format.h
 BORG_TEX_FORMAT_*), the component swizzle bits of its descriptor, and how many bytes the
 typed fetch reads. Three-component formats are fetched as four with alpha forced to one (the
 Vulkan default), which reads the next vertex's first bytes: the upload keeps slack for it.
