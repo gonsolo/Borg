@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: © 2026 Andreas Wendleder
 // SPDX-License-Identifier: GPL-3.0-or-later
-// GENERATED from hardware/borg/isa/opcodes by hardware/borg/isa/gen.py; do not edit.
+// GENERATED from hardware/borg/isa by scripts/isa_gen.py; do not edit.
 
 #pragma once
 #include <stdint.h>

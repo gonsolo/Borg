@@ -31,8 +31,9 @@ from borg_link import LinkMaster
 # RDL-generated register offsets (`make rdl`): the single source of truth.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "../../../out/hardware/borg/rdl"))
 import borg_mmio as regs  # noqa: E402
-sys.path.insert(0, str(Path(__file__).resolve().parent / "../../../hardware/borg/isa"))
-from gen import encode as isa_encode  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent / "../../../scripts"))
+from isa_gen import encode  # noqa: E402
+BORG_ISA = Path(__file__).resolve().parent / "../../../hardware/borg/isa"
 
 sim = os.getenv("SIM", "icarus")
 gl = os.getenv("GL", False)
@@ -220,11 +221,11 @@ async def test_debug_bus(dut):
 
 
 def instr_load(rs1, rd):
-    return isa_encode("load", rs1=rs1, rd=rd)
+    return encode(BORG_ISA, "load", rs1=rs1, rd=rd)
 
 
 def instr_store(rs1, rs2):
-    return isa_encode("store", rs1=rs1, rs2=rs2)
+    return encode(BORG_ISA, "store", rs1=rs1, rs2=rs2)
 
 
 @cocotb.test()
