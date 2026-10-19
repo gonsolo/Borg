@@ -148,6 +148,7 @@ def gen_rust(fields, ops, pseudo):
     o = ["// Copyright © 2026 Andreas Wendleder",
          "// SPDX-License-Identifier: MIT",
          "// " + HEADER, "",
+         "#![allow(dead_code)]", "",
          "#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]",
          "pub(crate) enum Op {"]
     o += [f"    {camel(op['name'])}," for op in ops]
@@ -173,6 +174,8 @@ def gen_rust(fields, ops, pseudo):
           "        self.match_bits() | match self {"]
     for op in ops:
         body = " | ".join(place(fields, a, f"f.{a}", "") for a in op["args"]) or "0"
+        if " | " not in body and body.startswith("(("):
+            body = body[1:-1]
         o.append(f"            Op::{camel(op['name'])} => {body},")
     o += ["        }", "    }", "}", ""]
     for p in pseudo:
