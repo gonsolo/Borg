@@ -17,17 +17,14 @@ object HuttSModeTests extends TestSuite {
   val RESULT_ADDR = 0x100
 
   // Reuse CSR encoding helper from HuttTrapsTests scope.
-  def csrInstr(funct3: Int, csr: Int, rs1: Int, rd: Int): BigInt =
-    (BigInt(csr & 0xFFF) << 20) | (BigInt(rs1 & 0x1F) << 15) |
-    (BigInt(funct3 & 7) << 12)  | (BigInt(rd  & 0x1F) << 7)  | BigInt(0x73)
 
-  def csrrw(rd: Int, csr: Int, rs1: Int): BigInt = csrInstr(1, csr, rs1, rd)
-  def csrrs(rd: Int, csr: Int, rs1: Int): BigInt = csrInstr(2, csr, rs1, rd)
-  def csrrc(rd: Int, csr: Int, rs1: Int): BigInt = csrInstr(3, csr, rs1, rd)
+  def csrrw(rd: Int, csr: Int, rs1: Int): BigInt = HuttOpcodes.CSRRW(rd = rd, rs1 = rs1, csr = csr)
+  def csrrs(rd: Int, csr: Int, rs1: Int): BigInt = HuttOpcodes.CSRRS(rd = rd, rs1 = rs1, csr = csr)
+  def csrrc(rd: Int, csr: Int, rs1: Int): BigInt = HuttOpcodes.CSRRC(rd = rd, rs1 = rs1, csr = csr)
 
-  val MRET = BigInt(0x30200073L)
-  val SRET = BigInt(0x10200073L)
-  val ECALL = BigInt(0x00000073L)
+  val MRET = HuttOpcodes.MRET()
+  val SRET = HuttOpcodes.SRET()
+  val ECALL = HuttOpcodes.ECALL()
 
   // CSR addresses
   val CSR_SSTATUS  = 0x100
