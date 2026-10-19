@@ -1461,8 +1461,8 @@ constants (u25 = 4, u26 = 160), after const_vals.
 
 index = 515 = 0b10000_00011: high 5 bits 0b10000 = 16 in
 rs1(SOUT)/rs2(FATTR), low 5 bits 0b00011 = 3 in rd(SOUT)/rs1(FATTR)
--- the same split as a BRZ/BRNZ branch target (see
-branch_target_splits_across_rs2_and_rd).
+-- the same split as a BRZ/BRNZ branch offset (see
+branch_offset_splits_across_rs2_and_rd).
 
 
 **line 234, in `tex_is_r4_type_funct2_2_with_the_control_word_in_rs3`, above `let w = encode("TEX", 20, 15, 7, 9, 0).unwrap();`**

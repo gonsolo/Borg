@@ -30,9 +30,10 @@ object Instructions {
   val OPCODE_ALU = OPCODE_FADD
   val OPCODE_FMA = OPCODE_FMADD
 
-  def branchTargetFields(target: Int): (Int, Int) = {
-    require(target >= 0 && target < 1024, s"branch target out of range: $target")
-    ((target >> 5) & 0x1f, target & 0x1f)
+  /** A 10-bit SOUT/FATTR component index split over two register fields. */
+  def indexFields(index: Int): (Int, Int) = {
+    require(index >= 0 && index < 1024, s"component index out of range: $index")
+    ((index >> 5) & 0x1f, index & 0x1f)
   }
 
   // --- Base Instruction Encoders ---
@@ -78,9 +79,10 @@ object Instructions {
     * invocations too; a plain STORE (storage buffers, images) is not. */
   def STORE(rs1: Int, rs2: Int, funct3: Int = 0, `private`: Boolean = false): BigInt =
     encodeRType(FUNCT7_STORE, rs2, rs1, if (`private`) 1 else 0, funct3)
-  def BRZ(rs1: Int, target: Int, funct3: Int = 0): BigInt = {
-    val (hi, lo) = branchTargetFields(target)
-    encodeRType(FUNCT7_BRZ, hi, rs1, lo, funct3)
+  /** BRZ rs1, offset: if rs1 == 0, jump by offset words from this instruction (-512..511). */
+  def BRZ(rs1: Int, offset: Int, funct3: Int = 0): BigInt = {
+    require(offset >= -512 && offset < 512, s"branch offset out of range: $offset")
+    Opcodes.BRZ(rs1 = rs1, offset = offset, f3 = funct3)
   }
   def EXPUSH(rs1: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXPUSH, 0, rs1, 0, funct3)
   def EXELSE(funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXELSE, 0, 0, 0, funct3)
@@ -88,9 +90,9 @@ object Instructions {
   def BARRIER(funct3: Int = 0): BigInt = encodeRType(FUNCT7_BARRIER, 0, 0, 0, funct3)
   def EXANY(rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_EXANY, 0, 0, rd, funct3)
   def ZTEST(funct3: Int = 0): BigInt = encodeRType(FUNCT7_ZTEST, 0, 0, 0, funct3)
-  def BRNZ(rs1: Int, target: Int, funct3: Int = 0): BigInt = {
-    val (hi, lo) = branchTargetFields(target)
-    encodeRType(FUNCT7_BRNZ, hi, rs1, lo, funct3)
+  def BRNZ(rs1: Int, offset: Int, funct3: Int = 0): BigInt = {
+    require(offset >= -512 && offset < 512, s"branch offset out of range: $offset")
+    Opcodes.BRNZ(rs1 = rs1, offset = offset, f3 = funct3)
   }
   def FMA(rs1: Int, rs2: Int, rs3: Int, rd: Int, funct3: Int = 0): BigInt = encodeR4Type(rs3, 0, rs2, rs1, rd, funct3)
   /** TEX: sample; rs3 names the register holding the control word. */
@@ -103,24 +105,21 @@ object Instructions {
   def SMASK(rd: Int): BigInt = encodeRType(FUNCT7_SMASK, 0, 0, rd)
   def ATTIDX(rd: Int): BigInt = encodeRType(FUNCT7_ATTIDX, 0, 0, rd)
   def TLD(rd: Int, word: Int = 0): BigInt = encodeRType(FUNCT7_TLD, 0, 0, rd, word)
-  def JMP(target: Int): BigInt = {
-    require(target >= 0 && target < (1 << 18), s"JMP target out of range: $target")
-    encodeRType(FUNCT7_JMP, (target >> 10) & 0x1f, (target >> 5) & 0x1f, target & 0x1f, (target >> 15) & 7)
+  def JMP(offset: Int): BigInt = {
+    require(offset >= -(1 << 17) && offset < (1 << 17), s"JMP offset out of range: $offset")
+    Opcodes.JMP(joffset = offset)
   }
-  /** BRZ/BRNZ's 10-bit field for `target`, which must lie in the branch's
-    * own 1024-word page. */
-  def pageTarget(target: Int): Int = target & 0x3ff
   def ISRL(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISRL, rs2, rs1, rd, funct3)
   def ISLTU(rs1: Int, rs2: Int, rd: Int, funct3: Int = 0): BigInt = encodeRType(FUNCT7_ISLTU, rs2, rs1, rd, funct3)
   /** SOUT: store rs2 as output component `index` (packed into rs1:rd). */
   def SOUT(rs2: Int, index: Int, funct3: Int = 0): BigInt = {
-    val (hi, lo) = branchTargetFields(index)
+    val (hi, lo) = indexFields(index)
     encodeRType(FUNCT7_SOUT, rs2, hi, lo, funct3)
   }
   /** FATTR: rd..rd+2 = component `index`'s per-vertex values (packed into rs2:rs1). */
   def FATTR(rd: Int, index: Int): BigInt = {
     require(rd <= 29, s"FATTR writes rd..rd+2, so rd <= 29: $rd")
-    val (hi, lo) = branchTargetFields(index)
+    val (hi, lo) = indexFields(index)
     encodeRType(FUNCT7_FATTR, hi, lo, rd)
   }
   // @doc:end

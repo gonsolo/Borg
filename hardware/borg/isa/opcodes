@@ -49,9 +49,9 @@ ddy     rd rs1 fine f3      31..25=0x20 6..0=0x00
 # LOAD, STORE: rs1 is a word index, the address LS_BASE + (rs1 << 2).
 load    rd rs1 f3           31..25=0x22 24..20=0 6..0=0x00
 store   rs1 rs2 private f3  31..25=0x24 6..0=0x00
-# BRZ, BRNZ: if rs1 is (not) zero, jump to target in the branch's 1024-word page.
-brz     rs1 target f3       31..25=0x26 6..0=0x00
-brnz    rs1 target f3       31..25=0x28 6..0=0x00
+# BRZ, BRNZ: if rs1 is (not) zero, jump by offset words from the branch (-512..511).
+brz     rs1 offset f3       31..25=0x26 6..0=0x00
+brnz    rs1 offset f3       31..25=0x28 6..0=0x00
 # Execution mask of the quad: EXPUSH pushes and ands with rs1 != 0 per lane,
 # EXELSE flips to the else arm, EXPOP pops; EXANY rd = any lane active.
 expush  rs1 f3              31..25=0x2A 24..20=0 11..7=0 6..0=0x00
@@ -73,8 +73,8 @@ isrl    rd rs1 rs2 f3       31..25=0x4A 6..0=0x00
 isltu   rd rs1 rs2 f3       31..25=0x4C 6..0=0x00
 # TLD: word f3 of the colour attachment's current value at this pixel (raw formats).
 tld     rd f3               31..25=0x4E 24..15=0 6..0=0x00
-# JMP: unconditional, absolute, 18 bits.
-jmp     jtarget             31..25=0x50 6..0=0x00
+# JMP: unconditional, by joffset words from the jump (18 bits, signed).
+jmp     joffset             31..25=0x50 6..0=0x00
 
 # HALT is the all-zero word.
 $pseudo_op fadd halt        31..0=0

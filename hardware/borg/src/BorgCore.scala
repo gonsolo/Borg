@@ -1177,15 +1177,14 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
     // same convention the discard register already uses.
     val isZero = condOperands.map(_ === 0.U)
     val takeIt = (opFlags.brz && isZero.head) || (opFlags.brnz && !isZero.head) || opFlags.jmp
-    // BRZ/BRNZ: 10 bits within the current 1024-word page (every program up
-    // to 1024 words is page 0, so absolute as before); JMP: 18 absolute bits.
-    val page = if (cfg.pcBits > 10) Some(programCounter(cfg.pcBits - 1, 10)) else None
-    val brTarget = page.map(p => Cat(p, regs.rs2, regs.rd)).getOrElse(Cat(regs.rs2, regs.rd))
-    val jmpTarget = Cat(opFlags.funct3, regs.rs2, regs.rs1, regs.rd)
+    // PC-relative: BRZ/BRNZ by a signed 10-bit offset, JMP by a signed 18-bit one.
+    val brOffset  = Cat(regs.rs2, regs.rd).asSInt
+    val jmpOffset = Cat(opFlags.funct3, regs.rs2, regs.rs1, regs.rd).asSInt
+    val offset    = Mux(opFlags.jmp, jmpOffset, brOffset.pad(18))
 
     when(is_busy && busy_counter === cfg.cOperands.U) {
       brTakenReg  := opFlags.branch && takeIt
-      brTargetReg := Mux(opFlags.jmp, jmpTarget, brTarget)(cfg.pcBits - 1, 0)
+      brTargetReg := (programCounter.zext + offset).asUInt(cfg.pcBits - 1, 0)
       when((opFlags.brz || opFlags.brnz) && isZero.map(_ =/= isZero.head).foldLeft(false.B)(_ || _)) {
         branchDivergent := true.B
         if (BorgDebug.trace) printf("[BR] DIVERGENT pc=%d\n", programCounter)

@@ -300,9 +300,9 @@ object BorgCoreTestsC extends TestSuite {
       }
     }
 
-    utest.test("programs_past_1024_words_jmp_and_page_branches") {
-      // JMP reaches anywhere (18 bits); BRZ/BRNZ their own 1024-word page.
-      // 0: JMP 2100. 2100: ten r1 += 10, BRNZ r2 to 2200 (page 2), skipping
+    utest.test("programs_past_1024_words_relative_jmp_and_branches") {
+      // Targets are relative to the branch: JMP by 18 bits, BRZ/BRNZ by 10.
+      // 0: JMP 2100. 2100: ten r1 += 10, BRNZ r2 to 2200, skipping
       // r1 += 100 poison. 2200: five r1 += 1, JMP 1500. 1500: three
       // r1 += 100, HALT. r1 = 405; any wrong target changes it.
       import Instructions._
@@ -313,10 +313,10 @@ object BorgCoreTestsC extends TestSuite {
           val img = Array.fill[BigInt](2300)(BigInt(0))
           img(0) = JMP(2100)
           for (i <- 0 until 10) img(2100 + i) = IADD(rs1 = 1, rs2 = 3, rd = 1)
-          img(2110) = BRNZ(rs1 = 2, target = pageTarget(2200))
+          img(2110) = BRNZ(rs1 = 2, offset = 2200 - 2110)
           for (i <- 2111 until 2200) img(i) = IADD(rs1 = 1, rs2 = 4, rd = 1)
           for (i <- 0 until 5) img(2200 + i) = IADD(rs1 = 1, rs2 = 2, rd = 1)
-          img(2205) = JMP(1500)
+          img(2205) = JMP(1500 - 2205)
           for (i <- 0 until 3) img(1500 + i) = IADD(rs1 = 1, rs2 = 4, rd = 1)
           countingRegs(core)
           val fetches = runFromImage(core, img.toSeq, preload = 1)
@@ -384,7 +384,7 @@ object BorgCoreTestsC extends TestSuite {
         val loop = Seq(
           Instructions.IADD(rs1 = 4, rs2 = 2, rd = 4),            // r4 += 1 (loop body)
           Instructions.ISUB(rs1 = 3, rs2 = 2, rd = 3),            // r3 -= 1
-          Instructions.BRNZ(rs1 = 3, target = 90),
+          Instructions.BRNZ(rs1 = 3, offset = -2),
           BigInt(0))
         val prog = pad ++ loop
         writeReg(core, 1, 0); writeReg(core, 2, 1); writeReg(core, 3, 10); writeReg(core, 4, 0)
@@ -514,7 +514,7 @@ object BorgCoreTestsC extends TestSuite {
         // 0: BRZ r0 -> 2      (skip the add at slot 1)
         // 1: r2 = r1 + r1     (must NOT execute)
         // 2: halt
-        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 2))
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, offset = 2))
         writeImem(core, 1, Instructions.ADD(1, 1, 2))
         writeImem(core, 2, 0)
 
@@ -535,7 +535,7 @@ object BorgCoreTestsC extends TestSuite {
         writeReg(core, 0, 1)              // condition != 0 -> fall through
         writeReg(core, 1, floatToBits(1.0f))
         writeReg(core, 2, floatToBits(0.0f))
-        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 2))
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, offset = 2))
         writeImem(core, 1, Instructions.ADD(1, 1, 2))
         writeImem(core, 2, 0)
 
@@ -558,7 +558,7 @@ object BorgCoreTestsC extends TestSuite {
         // mode BorgLane's `!opFlags.branch` guard exists for.
         writeReg(core, 0, 1)                            // not taken
         writeReg(core, 3, floatToBits(7.0f))        // sentinel in r3
-        writeImem(core, 0, Instructions.BRZ(rs1 = 0, target = 3))
+        writeImem(core, 0, Instructions.BRZ(rs1 = 0, offset = 3))
         writeImem(core, 1, 0)
 
         startAndWait(core)
