@@ -4,9 +4,10 @@
 package borg
 
 /** Generates software/borg/borg_tex_format.h, the texel format codes of a texture descriptor,
-  * from [[TexFormat.all]].
+  * and software/borg/borg_tex_format.rs, codes and texel sizes for the borg_layout crate, from
+  * [[TexFormat.all]].
   *
-  *   mill hardware.borg.runMain borg.EmitTexFormatHeader [out-path]
+  *   mill hardware.borg.runMain borg.EmitTexFormatHeader [out-path [rust-out-path]]
   */
 object EmitTexFormatHeader extends App {
   private val out =
@@ -24,4 +25,18 @@ object EmitTexFormatHeader extends App {
 
   java.nio.file.Files.write(java.nio.file.Paths.get(out), body.toString.getBytes)
   println(s"EmitTexFormatHeader: wrote $out (${TexFormat.all.length} formats)")
+
+  private val rsOut = if (args.length > 1) args(1) else "software/borg/borg_tex_format.rs"
+  private val rs = new StringBuilder
+  rs ++= "// SPDX-FileCopyrightText: © 2026 Andreas Wendleder\n"
+  rs ++= "// SPDX-License-Identifier: GPL-3.0-or-later\n"
+  rs ++= "// GENERATED from hardware/borg/src/TexFormat.scala by\n"
+  rs ++= "//   mill hardware.borg.runMain borg.EmitTexFormatHeader\n\n"
+  rs ++= "// Name = code, texel bytes; included by mesa/src/borg/layout/tex_format.rs.\n"
+  rs ++= "formats! {\n"
+  for (fm <- TexFormat.all)
+    rs ++= s"    ${fm.name} = ${fm.code}, ${fm.bytes};\n"
+  rs ++= "}\n"
+  java.nio.file.Files.write(java.nio.file.Paths.get(rsOut), rs.toString.getBytes)
+  println(s"EmitTexFormatHeader: wrote $rsOut")
 }
