@@ -1,5 +1,10 @@
 # Borg GPU — Development Roadmap
 
+> This roadmap is kept as a log of how the project got here; many of its phases
+> predate the FP32 datapath, the draw front end, the texture unit and the Vulkan
+> driver. For the current state see the [introduction](00_introduction.md) and the
+> [conformance status](conformance/STATUS.md).
+
 ## Phase 1: Foundation & First Silicon
 
 Target: March 2026 — TTIHP26a shuttle

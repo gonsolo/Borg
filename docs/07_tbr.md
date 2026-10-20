@@ -1,5 +1,9 @@
 # Tile-Based Rendering
 
+> The two-pass structure below is current. Since 2026-09 the triangles come
+> from the hardware draw front end and its setup ROM rather than from a DMA'd setup
+> shader, and the datapath is FP32; see [Geometry Front End](B1_geometry_front_end.md).
+
 Borg uses a **Tile-Based Rendering (TBR)** architecture — the same fundamental
 approach used by virtually every modern mobile GPU (ARM Mali, Apple GPU, Qualcomm
 Adreno, Imagination PowerVR). This chapter explains why TBR exists, how Borg

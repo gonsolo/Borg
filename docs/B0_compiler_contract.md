@@ -25,7 +25,7 @@ there on demand and kept for the next quad.
 
 What the compiler must know:
 
-- **Program length:** up to **1024 words**. That is the program-counter width.
+- **Program length:** up to 16K words, the 14-bit program counter (see *Program size* below).
   Nothing else changes: branches work across the IMEM boundary
   (a loop entirely past IMEM is tested). A BARRIER past IMEM is supported,
   since its resume PC and the compute sequencer's segment PCs were widened
