@@ -21,7 +21,6 @@ dEQP-VK.glsl.texture_functions.texelfetchoffset.clamp_to_border.usampler2darray_
 dEQP-VK.graphicsfuzz.cov-function-argument-uniform-float-loop-never-return
 dEQP-VK.graphicsfuzz.cov-instr-emitter-pow-asinh
 dEQP-VK.graphicsfuzz.cov-simplify-select-fragcoord
-dEQP-VK.graphicsfuzz.stable-colorgrid-modulo-true-conditional-simple-loop
 dEQP-VK.pipeline.monolithic.blend.format.r5g6b5_unorm_pack16.states.color_cc_sa_add_alpha_1msa_ca_rsub-color_cc_1mca_sub_alpha_o_1mcc_max-color_z_z_sub_alpha_sa_sa_rsub-color_cc_sc_rsub_alpha_1mdc_dc_rsub
 dEQP-VK.pipeline.monolithic.depth.format.d16_unorm.compare_ops.line_list_greater_or_equal_less_less_or_equal_equal
 dEQP-VK.pipeline.monolithic.depth.format.d16_unorm.compare_ops.point_list_equal_less_or_equal_less_less_or_equal
