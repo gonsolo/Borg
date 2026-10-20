@@ -245,6 +245,8 @@ status page.
     bugs the CTS would otherwise report.
   \item Keep one source of truth for the ISA; disagreements between copies
     caused several of the bugs above.
+  \item Record what the driver sends: hashed packet streams check a
+    refactoring in minutes instead of hours of CTS.
 \end{itemize}
 
 Next are the full Vulkan~1.0 must-pass list and a tapeout on wafer.space.
@@ -254,8 +256,10 @@ Next are the full Vulkan~1.0 must-pass list and a tapeout on wafer.space.
 Borg's RTL, firmware, driver, compiler and test scripts are open source on
 GitHub, and the book at \url{https://gonsolo.github.io/Borg/} documents the
 hardware units, the compiler and driver contract, and the conformance status
-group by group. A short video of \texttt{cube.c} on the board is in the
-repository (\texttt{docs/images/BorgVkcubeULX3S.gif}).
+group by group. A short video of \texttt{cube.c} running on the board is at
+\url{https://github.com/gonsolo/Borg/blob/main/docs/images/BorgVkcubeULX3S.gif}.
+The same repository holds the CTS harness, so every number in this paper
+can be reproduced with the commands the status page gives.
 
 \begin{thebibliography}{6}
 \bibitem{chisel} J.~Bachrach et al. Chisel: Constructing Hardware in a
