@@ -5,9 +5,9 @@ multi-cycle RV32I/RV64I processor written in Chisel, parameterized by XLEN.
 It replaced the older TinyQV nibble-serial design to give the Borg SoC a
 full-width datapath and a simple Decoupled bus interface that the memory
 controller and peripheral fabric can integrate against directly. The
-ASIC/Tiny Tapeout target instantiates it at the RV32I default; the ULX3S
-FPGA target overrides `xlen = 64`, running RV64IA with the MMU described
-below.
+ULX3S vkcube SoC uses the RV32I default (the wafer.space ASIC carries no
+CPU at all); the Linux harness (`MinimalSoC`) overrides `xlen = 64`, running
+RV64IA with the MMU described below.
 
 **Linux boots on the RV64 build.** OpenSBI + a mainline Linux kernel reach
 an interactive shell on real ULX3S hardware and in the cycle-accurate
