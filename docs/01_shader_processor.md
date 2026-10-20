@@ -1,10 +1,11 @@
 # The Borg Shader Processor
 
-The Borg is a minimal programmable shader unit designed for FP16 graphics
-operations. It operates as a memory-mapped peripheral within the Hutt RISC-V
-SoC: the CPU writes a small program into the shader's instruction memory,
-fills its registers with input data, and then tells it to run. A few clock
-cycles later the results appear in the register file, ready to be read back.
+The Borg is a small programmable shader unit, FP32 by default since September
+2026 (FP16 remains selectable). The sequencer and the draw front end start it for
+every vertex, quad of pixels and compute invocation; the CPU only sets up the
+work through memory-mapped registers. The core was first built as a peripheral
+the CPU fed by hand, which the MMIO interface described at the end still
+allows.
 
 This chapter walks through each piece of the processor — from how it stores
 its state, through how it decodes and executes instructions, down to how
@@ -22,19 +23,20 @@ instruction in lockstep:
 
 The **register file is per-lane**: `BorgCore` instantiates `cfg.fragLanes`
 copies of `BorgLane` (1 lane in the scalar/vertex configuration, 4 lanes for
-2×2-quad fragment SIMT), each with its own independent 32×FP16 register file
-that the CPU reads and writes via MMIO. The instruction memory stores up to
-72 shader instructions — enough for full 4×4 MVP matrix multiplies and complex
-fragment shading. An all-zero instruction word acts as a halt sentinel, so the
-longest useful program is 71 instructions plus the implicit stop.
+2×2-quad fragment SIMT), each with its own independent register file of 32
+registers that the CPU can also read and write via MMIO. Programs live in DRAM
+and are fetched through a direct-mapped instruction cache; a 72-word MMIO window
+remains for programs loaded by hand. An all-zero instruction word halts the
+program.
 
 ## Instruction Format
 
-Every instruction is a 32-bit word using standard RISC-V encoding.
-R-type operations (ADD, MUL, FNEG, FSTEP, FRCP) use funct7 to select the
-operation.  R4-type FMA uses rs3 as the third source operand.
-
-See `Instructions.scala` for the full encoding definition.
+Every instruction is a 32-bit word in RISC-V's R-type or R4-type layout.
+R-type operations use funct7 to select the operation; R4-type instructions
+(FMA, TEX, TEXA) use rs3 as the third source operand. The `f3` field selects
+which operand, if any, is read from the uniform window. The encodings are
+defined in one file, described under
+[Instruction Set Architecture](#instruction-set-architecture) below.
 
 Here is how the decoder extracts these fields from the fetched instruction:
 
@@ -124,15 +126,30 @@ iteration.  `FrcpPrecisionTests` guards the 2.5 ULP bound against regressions.
 
 ## Instruction Set Architecture
 
-The ISA is defined in a single Scala object (`Instructions.scala`) that serves
-as the **single source of truth** for both hardware decoding and software
-encoding.  The same bit-field definitions are used by the Chisel decoder, the
-C header generator, and the Python SPIR-V compiler backend:
+Beyond the FMA family, the ISA has integer arithmetic, shifts and compares;
+conversions between integer, FP32 and FP16; derivatives across the quad
+(`DDX`, `DDY`); memory access (`LOAD`, `STORE`); texture sampling (`TEX`,
+`TEXA`); the execution mask of the quad (`EXPUSH`, `EXELSE`, `EXPOP`,
+`EXANY`); PC-relative branches (`BRZ`, `BRNZ` by a signed 10-bit word offset,
+`JMP` by 18 bits); `BARRIER` for compute; and the draw front end's varyings
+(`SOUT`, `FATTR`).
 
-{{snippet:hardware/borg/src/Instructions.scala:isa-bitfields}}
+The ISA is defined in one file, `hardware/borg/isa/opcodes`, in the format of
+the RISC-V riscv-opcodes project: a name, the operand fields from `fields.csv`,
+and the fixed bits. Every bit of a word is either an operand or fixed, and the
+generator rejects overlapping encodings:
 
-The instruction constructors let Scala code build valid encodings by name,
-which `MmioMap.scala` then emits as C macros and Python functions:
+```
+fadd    rd rs1 rs2 f3       31..25=0x00 6..0=0x00
+fmadd   rd rs1 rs2 rs3 f3   26..25=0 6..0=0x04
+tex     rd rs1 rs2 rs3 f3   26..25=2 6..0=0x04
+brnz    rs1 offset f3       31..25=0x28 6..0=0x00
+```
+
+`scripts/isa_gen.py` (`make isa`) generates the Scala decoder constants
+(`Opcodes.scala`), the C header `borg_isa.h` and the compiler's `opcodes.rs`
+from it, and `make isa-check` fails when a generated file is out of date. The
+Scala assembler used by the tests builds on the generated constructors:
 
 {{snippet:hardware/borg/src/Instructions.scala:isa-encoders}}
 
@@ -151,8 +168,11 @@ The address map is logically grouped into:
 | `0x1B0`–`0x22C` | Uniform Memory (32 entries per page) |
 | `0x230`–`0x248` | Tile Buffer, Command FIFO, Texture Config |
 
-A typical workflow looks like this: the CPU writes a shader program into the
-instruction memory, fills the input uniforms, and instead of blocking, queues asynchronous rendering descriptors to the 2-entry **Command FIFO**. The FIFO then handles passing the commands (like rasterization iterator values and shader PC triggers) to the GPU hardware logic while the CPU computes the next triangle.
+In normal operation the CPU does not drive the core instruction by instruction:
+it writes a draw's state and one `SEQ_TRIGGER`, and the draw front end and
+sequencer run the shaders (see [Geometry Front End](B1_geometry_front_end.md)).
+The 2-entry **Command FIFO** decouples these register writes from the GPU's
+clock.
 
 {{snippet:hardware/borg/src/Borg.scala:mmio}}
 
