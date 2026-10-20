@@ -3,7 +3,7 @@ on: [push, workflow_dispatch]
 
 jobs:
   test:
-    runs-on: [self-hosted, gonsolo-workstation]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v6
@@ -18,8 +18,6 @@ jobs:
           nix develop --command make test-all
         env:
           MILL_JOBS: 4
-          # Outside the workspace, which checkout wipes on this self-hosted
-          # runner: the gf180mcu PDK then downloads once instead of per run.
           PDK_ROOT: ${{ runner.tool_cache }}/ciel-pdk
 
       - name: Upload test logs
